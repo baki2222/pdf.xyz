@@ -21,6 +21,7 @@ import {
   inputExtension,
   nativeOcrArgs,
   nativeOcrDeps,
+  OCR_ROTATE_PAGES_THRESHOLD,
   probeNativeOcrEngines,
   probeNativeOcrEnginesFromConfig,
   type NativeOcrExec,
@@ -46,18 +47,21 @@ const BOTH: OcrOptions = {
   outputMode: "both",
   redoOcr: false,
   deskew: false,
+  rotatePages: false,
 };
 const PDF_ONLY: OcrOptions = {
   languages: ["eng"],
   outputMode: "searchable-pdf",
   redoOcr: false,
   deskew: false,
+  rotatePages: false,
 };
 const TEXT_ONLY: OcrOptions = {
   languages: ["eng"],
   outputMode: "text",
   redoOcr: false,
   deskew: false,
+  rotatePages: false,
 };
 
 const scan: ProcessorInputFile = {
@@ -124,6 +128,7 @@ describe("nativeOcrArgs — fixed argv, no shell interpolation", () => {
       languages: ["eng", "spa"],
       redoOcr: false,
       deskew: false,
+      rotatePages: false,
       wantPdf: true,
       wantText: true,
     });
@@ -158,6 +163,7 @@ describe("nativeOcrArgs — fixed argv, no shell interpolation", () => {
       ...ctx,
       redoOcr: false,
       deskew: false,
+      rotatePages: false,
     }).args;
     expect(byDefault).toContain("--skip-text");
     expect(byDefault).not.toContain("--redo-ocr");
@@ -167,6 +173,7 @@ describe("nativeOcrArgs — fixed argv, no shell interpolation", () => {
       ...ctx,
       redoOcr: true,
       deskew: false,
+      rotatePages: false,
     }).args;
     expect(redo).toContain("--redo-ocr");
     // OCRmyPDF rejects the two together as conflicting arguments.
@@ -190,6 +197,7 @@ describe("nativeOcrArgs — fixed argv, no shell interpolation", () => {
       ...ctx,
       redoOcr: false,
       deskew: false,
+      rotatePages: false,
     }).args;
     expect(off).not.toContain("--deskew");
 
@@ -197,6 +205,7 @@ describe("nativeOcrArgs — fixed argv, no shell interpolation", () => {
       ...ctx,
       redoOcr: false,
       deskew: true,
+      rotatePages: false,
     }).args;
     expect(on.filter((a) => a === "--deskew")).toHaveLength(1);
     // Deskew does not change which pages are recognized: text pages are
@@ -214,8 +223,94 @@ describe("nativeOcrArgs — fixed argv, no shell interpolation", () => {
         ...ctx,
         redoOcr: true,
         deskew: true,
+        rotatePages: false,
       }),
     ).toThrow(/deskew/i);
+  });
+
+  // Added 2026-11-01 with "Turn pages upright". Until then the page said
+  // nothing turns a sideways page upright, and nothing did.
+  it("passes --rotate-pages only when asked, always with the threshold, beside either text flag and beside --deskew", () => {
+    const ctx = {
+      inputPath: "/t/in.pdf",
+      workDir: "/t",
+      languages: ["eng"],
+      deskew: false,
+      wantPdf: true,
+      wantText: false,
+    };
+    const off = nativeOcrArgs("ocrmypdf", "ocrmypdf", {
+      ...ctx,
+      redoOcr: false,
+      rotatePages: false,
+    }).args;
+    expect(off.some((a) => a.startsWith("--rotate-pages"))).toBe(false);
+
+    const on = nativeOcrArgs("ocrmypdf", "ocrmypdf", {
+      ...ctx,
+      redoOcr: false,
+      rotatePages: true,
+    }).args;
+    expect(on.filter((a) => a === "--rotate-pages")).toHaveLength(1);
+    // At OCRmyPDF's default threshold (14) the option turned nothing in the
+    // live image; the threshold must travel with the flag, as its value.
+    const at = on.indexOf("--rotate-pages-threshold");
+    expect(at).toBeGreaterThan(-1);
+    expect(on[at + 1]).toBe(String(OCR_ROTATE_PAGES_THRESHOLD));
+    expect(OCR_ROTATE_PAGES_THRESHOLD).toBe(5);
+    // Text pages are still skipped (and so are not turned).
+    expect(on).toContain("--skip-text");
+    expect(on).not.toContain("--force-ocr");
+    // Flags, before the two positional paths.
+    expect(at + 1).toBeLessThan(on.length - 2);
+
+    // Accepted beside --redo-ocr and beside --deskew: no throw, both flags.
+    const redo = nativeOcrArgs("ocrmypdf", "ocrmypdf", {
+      ...ctx,
+      redoOcr: true,
+      rotatePages: true,
+    }).args;
+    expect(redo).toEqual(
+      expect.arrayContaining(["--redo-ocr", "--rotate-pages"]),
+    );
+    const both = nativeOcrArgs("ocrmypdf", "ocrmypdf", {
+      ...ctx,
+      deskew: true,
+      redoOcr: false,
+      rotatePages: true,
+    }).args;
+    expect(both).toEqual(
+      expect.arrayContaining(["--deskew", "--rotate-pages"]),
+    );
+  });
+
+  it("passes no rotation flag to Tesseract, whatever a (forged) job asks", () => {
+    const inv = nativeOcrArgs("tesseract", "tesseract", {
+      inputPath: "/t/in.png",
+      workDir: "/t",
+      languages: ["eng"],
+      redoOcr: false,
+      deskew: false,
+      rotatePages: true,
+      wantPdf: true,
+      wantText: false,
+    });
+    expect(inv.args.some((a) => /rotate|osd|psm/i.test(a))).toBe(false);
+    // Positive control: the same context does reach OCRmyPDF's argv.
+    expect(
+      nativeOcrArgs("ocrmypdf", "ocrmypdf", {
+        ...{
+          inputPath: "/t/in.pdf",
+          workDir: "/t",
+          languages: ["eng"],
+          redoOcr: false,
+          deskew: false,
+          rotatePages: true,
+          wantPdf: true,
+          wantText: false,
+        },
+      }).args,
+    ).toContain("--rotate-pages");
   });
 
   it("passes no deskew flag to Tesseract, which reads an image as it is", () => {
@@ -225,6 +320,7 @@ describe("nativeOcrArgs — fixed argv, no shell interpolation", () => {
       languages: ["eng"],
       redoOcr: false,
       deskew: true,
+      rotatePages: false,
       wantPdf: true,
       wantText: false,
     });
@@ -238,6 +334,7 @@ describe("nativeOcrArgs — fixed argv, no shell interpolation", () => {
       languages: ["eng", "deu"],
       redoOcr: true, // ignored for tesseract
       deskew: false,
+      rotatePages: false,
       wantPdf: true,
       wantText: true,
     });
@@ -264,6 +361,7 @@ describe("nativeOcrArgs — fixed argv, no shell interpolation", () => {
       languages: ["eng"],
       redoOcr: false,
       deskew: false,
+      rotatePages: false,
       wantPdf: true,
       wantText: false,
     });

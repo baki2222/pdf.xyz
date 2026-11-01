@@ -56,6 +56,7 @@ describe("parseOcrOptions", () => {
         outputMode: "searchable-pdf",
         redoOcr: false,
         deskew: false,
+        rotatePages: false,
       });
     }
   });
@@ -202,6 +203,48 @@ describe("parseOcrOptions", () => {
     for (const one of [{ deskew: true }, { redoOcr: true }]) {
       expect(parseOcrOptions(one).ok).toBe(true);
     }
+  });
+});
+
+describe("parseOcrOptions — rotatePages (Turn pages upright)", () => {
+  it("accepts an explicit rotatePages boolean, defaulting off, and rejects non-booleans", () => {
+    const on = parseOcrOptions({ rotatePages: true });
+    expect(on.ok && on.value.rotatePages).toBe(true);
+    const off = parseOcrOptions({});
+    expect(off.ok && off.value.rotatePages).toBe(false);
+
+    for (const forged of ["yes", 1, "true"]) {
+      const coerced = parseOcrOptions({ rotatePages: forged });
+      expect(coerced.ok).toBe(false);
+      if (!coerced.ok) {
+        expect(coerced.error.body.error.code).toBe("invalid_request");
+        expect(coerced.error.body.error.details?.[0]?.field).toBe(
+          "options.rotatePages",
+        );
+      }
+    }
+  });
+
+  // Unlike deskew, no pair is refused: OCRmyPDF accepts --rotate-pages with
+  // --redo-ocr and with --deskew (re-measured in the image by
+  // `pnpm worker:ocr-rotate-proof`). A refusal here would be a restriction
+  // with no reason behind it.
+  it("is accepted beside Redo existing OCR and beside Straighten crooked pages", () => {
+    const redo = parseOcrOptions({ rotatePages: true, redoOcr: true });
+    expect(redo.ok && redo.value).toMatchObject({
+      rotatePages: true,
+      redoOcr: true,
+    });
+    const deskew = parseOcrOptions({ rotatePages: true, deskew: true });
+    expect(deskew.ok && deskew.value).toMatchObject({
+      rotatePages: true,
+      deskew: true,
+    });
+    // Positive control: the deskew + redo refusal still stands, with rotate
+    // on or off, so this is not a parser that accepts everything.
+    expect(
+      parseOcrOptions({ rotatePages: true, deskew: true, redoOcr: true }).ok,
+    ).toBe(false);
   });
 });
 

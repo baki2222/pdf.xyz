@@ -201,16 +201,27 @@ function OcrBody({
   const imageChosen = file !== null && isImageFile(file);
   const deskewBlocked = imageChosen || redoOcr;
   const deskew = deskewChoice && !deskewBlocked;
+  // "Turn pages upright" (--rotate-pages): off for an image, as above. It
+  // pairs with both other boxes, so nothing else blocks it.
+  const [rotateChoice, setRotate] = useState(false);
+  const rotatePages = rotateChoice && !imageChosen;
 
   // Run the free-form options through the real contract validator, so the "what
   // will happen" summary and any submitted job carry exactly the validated value.
   const parsed = useMemo(
-    () => parseOcrOptions({ languages: selected, outputMode, redoOcr, deskew }),
-    [selected, outputMode, redoOcr, deskew],
+    () =>
+      parseOcrOptions({
+        languages: selected,
+        outputMode,
+        redoOcr,
+        deskew,
+        rotatePages,
+      }),
+    [selected, outputMode, redoOcr, deskew, rotatePages],
   );
   const request: OcrOptions = parsed.ok
     ? parsed.value
-    : { languages: selected, outputMode, redoOcr, deskew };
+    : { languages: selected, outputMode, redoOcr, deskew, rotatePages };
   // A worker reporting no pack at all can run nothing; say so rather than
   // submit a job it will refuse.
   const runnable =
@@ -327,19 +338,46 @@ function OcrBody({
             For scanned pages without text; each one it levels is saved as a new
             image. Not with Redo existing OCR. PDFs only.
           </span>
-          {imageChosen && (
-            <span className="text-muted text-xs leading-relaxed">
-              Off for this file: a JPG or PNG is read as it is.
-            </span>
-          )}
         </span>
       </label>
+
+      {/*
+          Rotate (2026-11-01): OCRmyPDF's --rotate-pages, at a threshold the
+          worker sets (ocr-native.ts). The hint's limits are the engine's:
+          scanned pages without text only (--skip-text copies a text page
+          through), and images never reach it.
+        */}
+      <label className="text-muted flex items-start gap-2.5 text-sm">
+        <input
+          type="checkbox"
+          checked={rotatePages}
+          // Guarded, never `disabled`, as the boxes above.
+          onChange={(event) => {
+            if (!imageChosen) setRotate(event.target.checked);
+          }}
+          aria-disabled={imageChosen || undefined}
+          className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4 aria-disabled:opacity-50"
+        />
+        <span className="flex flex-col gap-0.5">
+          <span className="text-fg font-medium">Turn pages upright</span>
+          <span className="text-muted text-xs leading-relaxed">
+            Sideways or upside-down scanned pages without text. PDFs only.
+          </span>
+        </span>
+      </label>
+      {imageChosen && (
+        <p className="text-muted text-xs leading-relaxed">
+          Straighten and turn are off for this file: a JPG or PNG is read as it
+          is.
+        </p>
+      )}
 
       <p className="border-line bg-wash text-muted rounded-ctl border px-3 py-2 text-xs">
         <span className="text-muted font-medium">This request:</span>{" "}
         {describeOcrRequest(request)}
         {redoOcr ? " · redo existing OCR" : ""}
         {request.deskew ? " · straighten crooked pages" : ""}
+        {request.rotatePages ? " · turn pages upright" : ""}
       </p>
     </div>
   );

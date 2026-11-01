@@ -244,6 +244,28 @@ export interface OcrOptions {
    *    passes no flag to Tesseract.
    */
   deskew: boolean;
+  /**
+   * Turn pages that were scanned sideways or upside down the right way up
+   * before they are recognized (OCRmyPDF `--rotate-pages`, at the threshold
+   * `OCR_ROTATE_PAGES_THRESHOLD` in src/lib/workers/ocr-native.ts). Off by
+   * default. Added 2026-11-01.
+   *
+   * What it does and does not do, each from OCRmyPDF rather than from hope:
+   *  - the turn is a page rotation setting (`/Rotate`), not a redrawn
+   *    picture: on its own it keeps the page's image as it was;
+   *  - like {@link deskew}, it applies only to pages OCRmyPDF recognizes, so
+   *    with `--skip-text` (the default) a page that already has text is
+   *    copied through and is NOT turned;
+   *  - a page with too little text to judge (one line, measured) is left
+   *    as it is;
+   *  - it is NOT refused with {@link redoOcr} or {@link deskew}: OCRmyPDF
+   *    accepts both pairs, and `pnpm worker:ocr-rotate-proof` runs each one
+   *    in the image and measures the page that comes out;
+   *  - JPG and PNG inputs go to Tesseract directly, not OCRmyPDF, so it does
+   *    not apply to them; the panel turns it off for an image and the runner
+   *    passes no flag to Tesseract, whatever a job asks.
+   */
+  rotatePages: boolean;
 }
 
 /**
@@ -367,9 +389,23 @@ export function parseOcrOptions(
     return unprocessable(OCR_DESKEW_WITH_REDO_MESSAGE, "options.deskew");
   }
 
+  // ── rotatePages ── optional boolean; never coerce a truthy string. No pair
+  // is refused: OCRmyPDF accepts it with --redo-ocr and with --deskew.
+  const rawRotate = options.rotatePages;
+  let rotatePages = false;
+  if (rawRotate !== undefined) {
+    if (typeof rawRotate !== "boolean") {
+      return invalid(
+        "`options.rotatePages` must be a boolean.",
+        "options.rotatePages",
+      );
+    }
+    rotatePages = rawRotate;
+  }
+
   return {
     ok: true,
-    value: { languages, outputMode: rawMode, redoOcr, deskew },
+    value: { languages, outputMode: rawMode, redoOcr, deskew, rotatePages },
   };
 }
 

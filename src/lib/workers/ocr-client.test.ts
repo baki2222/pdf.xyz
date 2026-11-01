@@ -133,6 +133,7 @@ const options: OcrOptions = {
   outputMode: "both",
   redoOcr: false,
   deskew: false,
+  rotatePages: false,
 };
 
 const input = {
@@ -210,6 +211,7 @@ describe("runWorkerOcr", () => {
         outputMode: "both",
         redoOcr: false,
         deskew: false,
+        rotatePages: false,
       },
     });
 

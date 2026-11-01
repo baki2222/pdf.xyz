@@ -213,6 +213,22 @@ inside the freshly built image with nothing wired and processing no document:
   Exit `0` proven, `1` a failed check, `2` an engine missing. Its verdicts are unit-tested
   on the real fixture with a played engine in `src/lib/workers/ocr-deskew-proof.test.ts`.
 
+- **`pnpm worker:ocr-rotate-proof`** (2026-11-01) — the **rotate** proof for OCR PDF's
+  "Turn pages upright" (`rotatePages` → OCRmyPDF `--rotate-pages --rotate-pages-threshold 5`;
+  at OCRmyPDF's default threshold of 14 the flag turned no page in the live image, see
+  `OCR_ROTATE_PAGES_THRESHOLD`). Scans of a full page of body text under a heavy header bar,
+  turned 180° and 90°, go through the registry's OCR processor on the image's real OCRmyPDF.
+  Each output is judged by what a reader receives: page 1's `/Rotate` (pdf-lib), which way up
+  pdf.js paints it (where the header bar lands), and the sentinel sentence in poppler's
+  text. ON must come back upright and read, the 180° page with its picture byte-identical
+  to the control's (a `/Rotate`, not a redraw); OFF (the control) must stay turned and
+  unread; an upright scan must stay at `/Rotate` 0; a typed page turned 180° must be copied
+  through unturned under `--skip-text`; and the option must work with `--redo-ocr`, and with
+  `--deskew` on a page turned 180° + 3.5° (upright and under 0.5°). The fixtures are read
+  first, so the instruments are seen to see. Exit `0` proven, `1` a failed check, `2` an
+  engine missing. Verdicts are unit-tested with a played engine in
+  `src/lib/workers/ocr-rotate-proof.test.ts`.
+
 `pdftotext` comes from **`poppler-utils`**, installed in the **worker image only** and
 purely as **proof tooling** — it is not on the OCR runtime path. The web image ships none of
 the engines _or_ `pdftotext`; the split is pinned by `src/deploy/artifacts.test.ts` and

@@ -125,6 +125,7 @@ describe("PDF to Word, OCR first — one job", () => {
         outputMode: "searchable-pdf",
         redoOcr: false,
         deskew: false,
+        rotatePages: false,
       },
     ]);
     expect(result.artifacts).toHaveLength(1);

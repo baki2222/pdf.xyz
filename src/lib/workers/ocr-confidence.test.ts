@@ -200,6 +200,7 @@ describe("the TSV renderer is requested only where it can be read", () => {
       languages: ["ben", "eng"],
       redoOcr: false,
       deskew: false,
+      rotatePages: false,
       wantPdf: true,
       wantText: false,
     });
@@ -220,6 +221,7 @@ describe("the TSV renderer is requested only where it can be read", () => {
       languages: ["eng"],
       redoOcr: false,
       deskew: false,
+      rotatePages: false,
       wantPdf: true,
       wantText: true,
     });
