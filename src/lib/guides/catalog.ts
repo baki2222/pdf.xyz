@@ -1778,6 +1778,16 @@ export const guides: Guide[] = [
         ],
       },
       {
+        // The two scan-cleanup boxes, #262 and #265, both proven on
+        // production 2026-11-01 (deskew 3.5° -> 0.09°; upside down ->
+        // /Rotate 180, read). Limits as the tool states them.
+        id: "crooked-or-sideways-scans",
+        heading: "Crooked or sideways scans",
+        body: [
+          "A page fed through the scanner at a slight angle, or scanned sideways or upside down, is read badly or not at all. Two boxes in the tool fix that in the same run: tick “Straighten crooked pages” to level pages that went in at an angle, and “Turn pages upright” to turn pages that face the wrong way. Both work on PDF pages that have no text yet; a JPG or PNG is read as it is.",
+        ],
+      },
+      {
         id: "what-you-get-back",
         heading: "What you get back",
         body: [
@@ -1826,7 +1836,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-10-30",
+    updated: "2026-11-01",
   },
   {
     slug: "how-to-password-protect-a-pdf",
