@@ -237,6 +237,12 @@ import {
 } from "@/lib/pdf/overlay";
 import { webOptimizedOutputName } from "@/lib/workers/processor/pdf-structure";
 import {
+  SPLIT_DIRECTIONS,
+  SPLIT_HALF_RUN_LABEL,
+  SPLIT_ORDERS,
+  splitHalfOutputName,
+} from "@/lib/pdf/split-half";
+import {
   DEFAULT_HTML_RENDER_OPTIONS,
   HTML_MARGINS,
 } from "@/lib/jobs/html-render-options";
@@ -688,6 +694,13 @@ const OVERLAY_FIT = labelOf(OVERLAY_FITS, "fit");
 const OVERLAY_STRETCH = labelOf(OVERLAY_FITS, "stretch");
 const OVERLAY_ACTUAL = labelOf(OVERLAY_FITS, "actual");
 const OVERLAY_EXAMPLE_OUT = overlayOutputName("letter.pdf");
+
+/** Split PDF Pages in Half's choices, as its runner labels them. */
+const HALF_LEFT_RIGHT = labelOf(SPLIT_DIRECTIONS, "left-right");
+const HALF_TOP_BOTTOM = labelOf(SPLIT_DIRECTIONS, "top-bottom");
+const HALF_LEFT_FIRST = labelOf(SPLIT_ORDERS, "left-first");
+const HALF_RIGHT_FIRST = labelOf(SPLIT_ORDERS, "right-first");
+const HALF_EXAMPLE_OUT = splitHalfOutputName("book.pdf");
 
 /** Optimize PDF for Web (2026-10-31): the download name the worker gives. */
 const WEB_EXAMPLE_IN = "catalogue.pdf";
@@ -5961,5 +5974,93 @@ export const guides: Guide[] = [
     ],
     published: "2026-10-31",
     updated: "2026-10-31",
+  },
+  // Split PDF Pages in Half (#260), read off split-half.ts and
+  // split-half-runner.tsx: Direction (Left and right | Top and bottom), Page
+  // order only for left and right, Pages (All pages | Selected pages + a
+  // list), two cover checkboxes, the cut at the exact middle of the VISIBLE
+  // page (after /Rotate and any crop), only the CropBox written, so the other
+  // half is hidden, not deleted (crop-disclosure.ts). In-browser, no upload;
+  // encrypted and author-restricted files refused. Proven on production
+  // 2026-11-01: a 2-page spread came back as 4 pages, L R L R.
+  {
+    slug: "how-to-split-pdf-pages-in-half",
+    title: "How to split PDF pages in half (scanned book spreads)",
+    description:
+      "Turn a scanned book with two pages on every sheet into single pages: cut each PDF page down the middle, in reading order, covers kept whole. In your browser.",
+    tools: ["split-pdf-pages-in-half", "crop-pdf", "redact-pdf"],
+    keywords: [
+      "split pdf pages in half",
+      "split scanned book pdf into single pages",
+      "cut pdf page in half",
+      "split two page spread pdf",
+      "split pdf page vertically",
+      "separate facing pages in a pdf",
+    ],
+    intro: [
+      `To split the pages of a PDF in half, open ${nameOf("split-pdf-pages-in-half")}, add the PDF, keep Direction on ${HALF_LEFT_RIGHT} and press ${SPLIT_HALF_RUN_LABEL}. Each page becomes two pages, its left half and then its right half, so a book scanned two facing pages at a time reads one page at a time.`,
+      `It runs in your browser, so the PDF stays on your device, and it takes one file up to ${ceilingMb("split-pdf-pages-in-half")} MB. Nothing on the page is redrawn: each new page is a copy of the original showing only one half, so text stays selectable and scans keep their quality.`,
+    ],
+    steps: [
+      `Open the ${nameOf("split-pdf-pages-in-half")} tool and drop your PDF on the box that says “Drop your PDF here, or”, or click browse to pick it. Its name and page count appear.`,
+      `Under Direction, keep ${HALF_LEFT_RIGHT} for a cut down the middle of each page, or choose ${HALF_TOP_BOTTOM} for pages laid out one above the other.`,
+      `For ${HALF_LEFT_RIGHT}, set Page order: ${HALF_LEFT_FIRST} for most books, or ${HALF_RIGHT_FIRST} for a book read right to left.`,
+      "Under Pages, keep All pages, or choose Selected pages and type the pages to split, such as 2-9. Tick Keep the first page whole or Keep the last page whole if a cover was scanned on its own.",
+      `Press ${SPLIT_HALF_RUN_LABEL}. When “Pages split in half” appears, check how many pages were split and how many the new file has, then press Download split PDF. book.pdf is saved as ${HALF_EXAMPLE_OUT}.`,
+    ],
+    sections: [
+      {
+        id: "order-and-covers",
+        heading: "Reading order and covers",
+        body: [
+          `With ${HALF_LEFT_FIRST}, the left half of each page comes first, which is the reading order of a book in English and most other languages. A book in Arabic, Hebrew, Persian or Japanese is read from the right-hand page, so choose ${HALF_RIGHT_FIRST} and each spread comes out in the order it is read. ${HALF_TOP_BOTTOM} always gives the top half first.`,
+          "Covers are often scanned as single pages while everything between them is a spread. Keep the first page whole and Keep the last page whole leave those pages as they are, in their place, and only the spreads are split. To split only part of a document, choose Selected pages and list the pages, such as 3-40 or 2, 4, 6; every page you leave out stays whole, between the split ones.",
+        ],
+      },
+      {
+        id: "off-centre",
+        heading: "When the gutter is not in the middle",
+        body: [
+          "The cut is always at the exact middle of the page as your viewer shows it, after any rotation setting and inside any crop the file already has. A book scanned slightly off centre has its gutter, the gap between the two pages, a little to one side, and a middle cut then takes a sliver of one page onto the other.",
+          `Crop the margins first with ${nameOf("crop-pdf")}, trimming more on one side so the gutter sits in the middle of what is left, then split the cropped file. A page whose halves would be narrower or shorter than the tool's minimum is refused with its page number rather than split into slivers.`,
+        ],
+      },
+      {
+        id: "hidden-not-removed",
+        heading: "The other half is hidden, not removed",
+        body: [
+          "Each new page shows one half because its crop box, the area a viewer displays, is set to that half. The other half is still in the file, and anyone who resets the crop in another editor can see it again. That keeps the file small, since both halves point at the same stored page, but it means splitting is not a way to remove anything.",
+          `To take something out for good, such as a name or a page number in the margin, use ${nameOf("redact-pdf")} on the original PDF before you split it.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Will the split PDF be twice as large?",
+        answer:
+          "No. Both halves of a page point at the same stored page, so it is kept once, and each extra page adds only a small entry. The file is also written out again as a whole, which can even make it slightly smaller.",
+      },
+      {
+        question: "Can I split a password-protected PDF?",
+        answer:
+          "No. A PDF that needs a password to open is refused, and so is one that opens without a password but whose author restricted changes. Remove the protection first, with the password, and then split the unprotected copy.",
+      },
+      {
+        question: "Does it work on pages that are rotated?",
+        answer: `Yes. The cut follows the page as you see it, so on a spread stored upright and turned sideways for display, ${HALF_LEFT_FIRST} still gives you the half you see on the left.`,
+      },
+      {
+        question: "Can I split only some pages?",
+        answer:
+          "Yes. Choose Selected pages and type them, such as 2-9 or 3, 5, 7. The pages you leave out stay whole and keep their place.",
+      },
+      {
+        question: "Does my PDF leave my device?",
+        answer:
+          "No. The pages are split in your browser tab and the new file is saved on your device; the PDF is not sent to pdf.xyz.",
+      },
+    ],
+    published: "2026-11-01",
+    updated: "2026-11-01",
   },
 ];

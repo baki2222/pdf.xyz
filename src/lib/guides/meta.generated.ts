@@ -795,4 +795,17 @@ export const GUIDE_META: readonly GuideMeta[] = [
       "make a pdf open faster in a browser",
     ],
   },
+  {
+    slug: "how-to-split-pdf-pages-in-half",
+    title: "How to split PDF pages in half (scanned book spreads)",
+    primary: "split-pdf-pages-in-half",
+    keywords: [
+      "split pdf pages in half",
+      "split scanned book pdf into single pages",
+      "cut pdf page in half",
+      "split two page spread pdf",
+      "split pdf page vertically",
+      "separate facing pages in a pdf",
+    ],
+  },
 ];
