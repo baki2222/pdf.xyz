@@ -121,7 +121,7 @@ function OverlayEditor({
     return (
       <ResultPanel
         title="Overlay applied"
-        summary={`${describeLayer(result.layer).done} ${describePages(result.overlaidPageCount, result.pageCount)} ·${describeFit(result.fit)} · ${result.opacity === 1 ? "opaque" : `${Math.round(result.opacity * 100)}% opacity`} · ${formatBytes(result.bytes.byteLength)}`}
+        summary={`${describeLayer(result.layer).done} ${describePages(result.overlaidPageCount, result.pageCount)} · ${describeFit(result.fit)} · ${result.opacity === 1 ? "opaque" : `${Math.round(result.opacity * 100)}% opacity`} · ${formatBytes(result.bytes.byteLength)}`}
         onReset={onReset}
         output={outputFile(result.bytes, overlayOutputName(pdf.file.name))}
         onAdjust={reset}

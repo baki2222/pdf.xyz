@@ -129,7 +129,19 @@ describe("each tool page's Guides band points the right way", () => {
         withBand.some(([s]) => s === slug),
         `${slug} is a guide's primary tool but its page has no Guides band`,
       ).toBe(true);
-    expect(withBand.length).toBeLessThan(tools.length);
+    // INVERTED 2026-10-31 (history kept): this was
+    // `expect(withBand.length).toBeLessThan(tools.length)`, a ceiling meant
+    // to catch a parser that sees a band on every page. Its premise was that
+    // some tool has no guide; with PNG to PDF, HTML to PDF, Overlay PDF and
+    // Optimize PDF for Web every tool is a guide's primary, so every page
+    // carries a band and the ceiling went red with nothing wrong. The
+    // property it stood for is that the parser keys on the band itself, so
+    // that is asked directly: a real banded page with its band heading
+    // renamed must parse as no band.
+    expect(withBand.length).toBeLessThanOrEqual(tools.length);
+    const [, sample] = withBand[0]!;
+    expect(bandCards(sample)).not.toBeNull();
+    expect(bandCards(sample.replace(">Guides</h2>", ">Other</h2>"))).toBeNull();
 
     // Positive control for the rule: the RAW relationship (every guide that
     // lists a tool) contains reverse-direction guides. If it did not, the

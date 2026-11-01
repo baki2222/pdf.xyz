@@ -141,6 +141,7 @@ import { MERGE_MODE_LABEL } from "@/lib/pdf/merge-order";
 import {
   DECODED_IMAGE_LABELS,
   REFUSED_IMAGE_LABELS,
+  imagePdfOutputName,
 } from "@/lib/pdf/image-to-pdf";
 import { TRANSCODE_JPEG_QUALITY } from "@/lib/pdf/image-transcode";
 import {
@@ -160,7 +161,14 @@ import {
   REENCODE_LADDER,
   limitOutcome,
 } from "@/lib/pdf/image-size-limit";
-import { IMAGE_OUTPUTS } from "@/lib/pdf/image-page-layout";
+import {
+  DEFAULT_IMAGE_PAGE_OPTIONS,
+  IMAGE_MARGINS,
+  IMAGE_OUTPUTS,
+  IMAGE_PAGE_SIZES,
+  MAX_PAGE_SIDE_PT,
+  imagePageLayout,
+} from "@/lib/pdf/image-page-layout";
 import { RETENTION_WINDOWS } from "@/lib/retention-windows";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
 import {
@@ -168,7 +176,7 @@ import {
   PDFA_EXPECTED_PART,
 } from "@/lib/workers/pdf-archive/pdfa-markers";
 import { pdfaOutputName } from "@/lib/workers/processor/pdf-archive";
-import { LARGE_RASTER_PAGES } from "@/lib/intent/defaults";
+import { LARGE_RASTER_PAGES, naturalOrder } from "@/lib/intent/defaults";
 import { textOutputName } from "@/lib/pdf/text";
 import {
   GRAYSCALE_DPI_PRESETS,
@@ -221,6 +229,17 @@ import {
   AI_EXTRACT_NULL_PAST_CUT,
   AI_EXTRACT_UNRETURNED_NULL,
 } from "@/lib/jobs/ai-extract-null-meaning";
+import {
+  OVERLAY_FITS,
+  OVERLAY_LAYERS,
+  overlayOutputName,
+  type OverlayLayer,
+} from "@/lib/pdf/overlay";
+import { webOptimizedOutputName } from "@/lib/workers/processor/pdf-structure";
+import {
+  DEFAULT_HTML_RENDER_OPTIONS,
+  HTML_MARGINS,
+} from "@/lib/jobs/html-render-options";
 import type { Guide } from "./types";
 
 /**
@@ -620,6 +639,67 @@ const EXTRACT_FIELD_TYPES = listOr(EXTRACTION_FIELD_TYPES);
 const EXTRACT_PROMPT_CHARS =
   MAX_EXTRACTION_PROMPT_CHARS.toLocaleString("en-US");
 const EXTRACT_EXAMPLE_ZIP = extractionOutputName("invoice.pdf");
+
+/**
+ * PNG to PDF (2026-10-31). The screenshot's page sizes are the engine's own
+ * layout (`imagePageLayout`, one point per pixel) for a screenshot of the
+ * stated size; the download name is the runner's (`imagePdfOutputName`).
+ * The numbered-screenshot example is run through the runner's own ordering
+ * (`naturalOrder`), so a rule that stops sorting those names fails here.
+ */
+const PNG_FIT_LABEL = labelOf(IMAGE_PAGE_SIZES, "fit");
+const PNG_DEFAULT_MARGIN_IN = inches(
+  IMAGE_MARGINS.find((m) => m.id === DEFAULT_IMAGE_PAGE_OPTIONS.margin)!.points,
+);
+const PNG_SHOT_W = 1920;
+const PNG_SHOT_H = 1080;
+const PNG_SHOT_PX = PNG_SHOT_W.toLocaleString("en-US");
+const inchesOf = (pt: number) => (pt / PT_PER_INCH).toFixed(1);
+const PNG_SHOT_ON_PAPER_IN = inchesOf(
+  imagePageLayout(PNG_SHOT_W, PNG_SHOT_H, DEFAULT_IMAGE_PAGE_OPTIONS).width,
+);
+const PNG_SHOT_FIT_PAGE_IN = inchesOf(
+  imagePageLayout(PNG_SHOT_W, PNG_SHOT_H, {
+    ...DEFAULT_IMAGE_PAGE_OPTIONS,
+    pageSize: "fit",
+  }).pageWidth,
+);
+const PNG_MAX_PAGE_IN = MAX_PAGE_SIDE_PT / PT_PER_INCH;
+const PNG_SHOT_NAMES = [
+  "Screenshot (1).png",
+  "Screenshot (2).png",
+  "Screenshot (10).png",
+];
+if (!naturalOrder([...PNG_SHOT_NAMES].reverse())) {
+  throw new Error(
+    "the PNG guide says numbered screenshots are put in number order; the runner no longer orders these names",
+  );
+}
+const PNG_EXAMPLE_OUT = imagePdfOutputName("png", "chart.png");
+
+/** Overlay PDF (2026-10-31), by the labels its Placement controls draw. */
+function overlayLayerLabel(id: OverlayLayer): string {
+  return labelOf(OVERLAY_LAYERS, id);
+}
+const OVERLAY_ON_TOP = overlayLayerLabel("front");
+const OVERLAY_BEHIND = overlayLayerLabel("back");
+const OVERLAY_MULTIPLY = overlayLayerLabel("multiply");
+const OVERLAY_FIT = labelOf(OVERLAY_FITS, "fit");
+const OVERLAY_STRETCH = labelOf(OVERLAY_FITS, "stretch");
+const OVERLAY_ACTUAL = labelOf(OVERLAY_FITS, "actual");
+const OVERLAY_EXAMPLE_OUT = overlayOutputName("letter.pdf");
+
+/** Optimize PDF for Web (2026-10-31): the download name the worker gives. */
+const WEB_EXAMPLE_IN = "catalogue.pdf";
+const WEB_EXAMPLE_OUT = webOptimizedOutputName(WEB_EXAMPLE_IN);
+
+/**
+ * HTML to PDF (2026-10-31): the margin an untouched layout prints with, from
+ * the option list the panel draws and the worker validates.
+ */
+const HTML_DEFAULT_MARGIN = HTML_MARGINS.find(
+  (m) => m.id === DEFAULT_HTML_RENDER_OPTIONS.margin,
+)!;
 
 export const guides: Guide[] = [
   {
@@ -3089,7 +3169,6 @@ export const guides: Guide[] = [
       "url to pdf",
       "save web page as pdf",
       "website to pdf",
-      "html file to pdf",
     ],
     intro: [
       `To save a web page as a PDF, open ${nameOf("webpage-to-pdf")}, paste the page's full address, choose a page layout if you want one, and press Render PDF. A copy of Chromium, the engine behind Chrome and Edge, loads the page, lets its scripts run, and prints it to a PDF whose text you can search and copy.`,
@@ -3153,7 +3232,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-30",
+    updated: "2026-10-31",
   },
   {
     slug: "how-to-extract-images-from-a-pdf",
@@ -5520,6 +5599,362 @@ export const guides: Guide[] = [
       {
         question: "Can it extract data from a scanned PDF?",
         answer: `Not directly. Run it through ${nameOf("ocr-pdf")} first to add a text layer, then extract from the result. A PDF with no text is refused before it is sent, so it costs nothing from the allowance.`,
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  // Added 2026-10-31, the last four tools without a guide of their own.
+  // PNG to PDF: written for what is particular to PNG, not a second JPG
+  // guide. The alpha, Flate, palette and 16-bit facts were probed on
+  // 2026-10-31 through `imagesToPdf` itself with synthetic PNGs (opaque RGB,
+  // RGBA all opaque, RGBA with alpha, palette, palette + tRNS, greyscale,
+  // 16-bit RGB): every image was DeviceRGB, 8 bits, FlateDecode with no
+  // predictor; an SMask only where some alpha was below 255; palette and
+  // greyscale PDFs larger than their PNGs. The same facts are recorded on the
+  // tool page (`content/png-to-pdf.ts`), probed 2026-09-27.
+  {
+    slug: "how-to-convert-png-to-pdf",
+    title: "How to convert PNG to PDF (screenshots and logos)",
+    description:
+      "Turn PNG screenshots, charts and logos into one PDF in your browser. Pixels are kept without JPEG blur, and see-through areas sit on a white page.",
+    tools: ["png-to-pdf", "merge-pdf"],
+    keywords: [
+      "png to pdf",
+      "convert png to pdf",
+      "screenshot to pdf",
+      "transparent png to pdf",
+      "combine png images into one pdf",
+      "png to pdf without losing quality",
+    ],
+    intro: [
+      `To convert PNG images to PDF, open ${nameOf("png-to-pdf")}, add your PNGs, put them in order, press Create PDF, then press Download PDF. Each PNG becomes one page of the PDF. It is made in your browser, so the images stay on your device, and each one can be up to ${MAX_IMAGE_MB} MB.`,
+      `PNG is the format of screenshots, charts and logos because it keeps every pixel, and the PDF keeps them too. With ${MAX_SIZE_LABELS.heading} left at ${MAX_SIZE_LABELS.none}, a PNG goes into the PDF with lossless compression, never as a JPEG, so small interface text and sharp edges come out as they were.`,
+      "What is particular to PNG is covered below: what happens to see-through areas, why the PDF can be larger than the images, and how big a screenshot's page turns out.",
+    ],
+    steps: [
+      `Open the ${nameOf("png-to-pdf")} tool and drop your PNGs on the box at the top of the page, or click it to pick them. JPG, ${DECODED_NAMES} images can go into the same PDF.`,
+      `Check the order under Image order. Screenshots named as one numbered set, such as ${listAnd(PNG_SHOT_NAMES)}, are put in the order of their numbers, with a note saying so; press Keep drop order to undo that. Move an image with the up and down arrows on it.`,
+      `For screenshots, choose ${PNG_FIT_LABEL} under Page size, so each page is the size of its image. For pages you will print, keep a paper size and set the Orientation and Margin.`,
+      `Leave ${MAX_SIZE_LABELS.heading} on ${MAX_SIZE_LABELS.none} to keep every pixel. Choose a size only when a form limits the file, because that saves the images again as JPEGs.`,
+      `Press Create PDF, then Download PDF. The file is named after your first image, so chart.png becomes ${PNG_EXAMPLE_OUT}.`,
+    ],
+    sections: [
+      {
+        id: "see-through-areas",
+        heading: "What happens to transparent areas",
+        body: [
+          "Each page is filled with white before the image is drawn on it. A PNG with an alpha channel keeps it in the PDF as a soft mask, so its see-through areas show the white page, and soft edges, such as a logo's smoothed outline or a drop shadow, blend into the white. A PNG whose pixels are all fully opaque is stored with no mask.",
+          "So a white logo, or white text, on a transparent background comes out white on white and seems to vanish. There is no background colour setting: give such artwork a coloured background in your image editor and export it again before converting it.",
+          `If you choose a ${MAX_SIZE_LABELS.heading} and the PDF comes out bigger than it, the images are saved again as JPEGs, which cannot be see-through, so transparent areas are filled with white first, the colour of the page, and the line under the result says so.`,
+        ],
+      },
+      {
+        id: "file-size",
+        heading: "Why a PDF of PNGs can be larger than the PNGs",
+        body: [
+          "Inside the PDF every PNG is stored as eight-bit full colour, compressed without loss but without PNG's own row filters. A palette PNG, the compact kind with a short list of colours that many programs save icons and simple charts as, and a greyscale PNG are expanded to full colour, so the PDF can be much larger than the files you added.",
+          `A PNG with sixteen bits per channel is cut down to eight, the one change made to its pixels. If the PDF must be smaller, ${MAX_SIZE_LABELS.heading} trades sharpness for size; with screenshots full of small text, try the largest size the form allows.`,
+        ],
+      },
+      {
+        id: "screenshot-page-size",
+        heading: "How big a screenshot's page is",
+        body: [
+          `The image is laid out at one point per pixel, and a point is 1/${PT_PER_INCH} of an inch, so screenshots are large on paper. On the default ${US_LETTER_LABEL} page with its ${PNG_DEFAULT_MARGIN_IN} in margin, a screenshot ${PNG_SHOT_PX} pixels wide is shrunk to ${PNG_SHOT_ON_PAPER_IN} inches across. No pixel is thrown away by that, so zooming in on the PDF still shows the detail. With ${PNG_FIT_LABEL}, the same screenshot gets a page about ${PNG_SHOT_FIT_PAGE_IN} inches wide, which reads well on screen; to print it, use your printer's fit-to-page setting.`,
+          `A small image is never enlarged, so an icon stays icon-sized on a paper page. A long scrolling capture stays one image on one page: it is not cut across several pages. On a paper size it is shrunk to the page's height, so choose ${PNG_FIT_LABEL} to keep it readable. Even then a page side cannot pass ${PNG_MAX_PAGE_IN} inches, and a longer capture is scaled down to fit that. Any DPI value stored in the PNG is ignored.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Will my PNG lose quality in the PDF?",
+        answer: `Not with ${MAX_SIZE_LABELS.heading} at ${MAX_SIZE_LABELS.none}: the pixels are stored without loss, never as a JPEG. The only change is that a sixteen-bit PNG is cut down to eight bits per channel. A ${MAX_SIZE_LABELS.heading} the PDF is over is the exception you choose: then every image is saved again as a JPEG, smaller and softer, until the PDF fits.`,
+      },
+      {
+        question: "Does PNG to PDF keep transparency?",
+        answer: `Yes, as a soft mask over a white page, so see-through areas look white on screen and in print, and soft edges blend into the white. A ${MAX_SIZE_LABELS.heading} that has to save the images again fills those areas with white instead.`,
+      },
+      {
+        question: "Why is my PDF larger than my PNG files?",
+        answer:
+          "Because each PNG is stored as full colour in the PDF. A palette or greyscale PNG is expanded to full colour on the way, which can make the PDF far heavier than the files you added.",
+      },
+      {
+        question: "Can I put PNG and JPG images in one PDF?",
+        answer: `Yes. A JPG keeps its original JPEG data. ${DECODED_NAMES} images are decoded by your browser and saved again, as a PNG when they have transparency. ${REFUSED_NAMES} images are turned away when you add them. To add the screenshots to a PDF you already have, convert them first, then join the two with ${nameOf("merge-pdf")}.`,
+      },
+      {
+        question: "Are my images sent to a server?",
+        answer:
+          "No. The PDF is made in your browser tab; the images are not sent to pdf.xyz.",
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  // HTML to PDF: an HTML FILE (or code saved as one), never a URL — that is
+  // how-to-convert-a-webpage-to-pdf. Read off the worker: the upload is
+  // served at HTML_DOCUMENT_URL and nothing else is served there
+  // (html-render/document-url.ts, native.ts), every other request goes
+  // through network.ts (public http(s) only), the served Content-Type has no
+  // charset (native.ts), scripts run inside a virtual-time budget, and the
+  // print adds no header or footer (print-params.ts PRINT_TO_PDF_OPTIONS).
+  // The font sentence is the Dockerfile's own: a font the image lacks is
+  // replaced by what fontconfig has. No font list is named, as the tool page
+  // names none. "Paste the code" is a banned shape (claims-vs-capability:
+  // the panel has no text area), so code is saved to a file first.
+  {
+    slug: "how-to-convert-an-html-file-to-pdf",
+    title: "How to convert an HTML file to PDF",
+    description:
+      "Turn one .html file into a PDF with selectable text: Chromium prints it on our secure server, running its scripts and print CSS. Embed images and styles.",
+    tools: ["html-to-pdf", "webpage-to-pdf", "header-footer"],
+    keywords: [
+      "convert html file to pdf",
+      "html to pdf",
+      "save html as pdf",
+      "html code to pdf",
+      "html email template to pdf",
+      "html report to pdf",
+    ],
+    intro: [
+      `To convert an HTML file to PDF, open ${nameOf("html-to-pdf")}, drop your .html or .htm file on the page, choose a page layout if you want one, and press Render PDF. Chromium, the engine behind Chrome and Edge, opens the file on our secure server, runs its scripts and prints it to a PDF whose text you can select and search.`,
+      "Only the one file goes to our server, and that is the thing to plan for. An image, stylesheet or font the page reaches by a path on your computer, such as css/site.css or images/logo.png, is not there to load. Put the CSS in a <style> block, embed images and fonts as data: URIs, or link them by a full https:// address, which our server does fetch.",
+      `If you have HTML code rather than a file, such as an email template or the markup a page builder gave you, save it in a plain-text editor as a file whose name ends in .html, then add that file. To capture a page that is already on the web, give its address to ${nameOf("webpage-to-pdf")} instead.`,
+    ],
+    steps: [
+      `Open the ${nameOf("html-to-pdf")} tool and drop one .html or .htm file on the box that says “Add an HTML file, or”, or click browse to choose it.`,
+      "Read the note under the file name, if one appears. Your browser checks the file for linked files the job will not carry, before anything is sent, and names the first of them.",
+      HTML_LAYOUT_STEP.body,
+      "Press Render PDF, which uploads the file over an encrypted connection. The button reads “Uploading your file…”, then “Waiting for our server…” if there is a queue, “Rendering PDF…” while Chromium prints, and “Downloading the result…”.",
+      `When “Your PDF is ready.” appears, press the button reading Download and the file name; the PDF is named after your file, ending in .pdf. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
+    ],
+    sections: [
+      {
+        id: "linked-files",
+        heading: "Images, stylesheets and fonts",
+        body: [
+          "Our server hands your file to Chromium at an address of its own, and nothing else is served from there. So every reference that resolves beside the file, a relative path such as images/logo.png or a root path such as /img/logo.png, has nothing to load, and comes out as a broken image or an unstyled page. A file: address cannot load at all. The job still succeeds, which is why your browser checks the file first and says what will be missing.",
+          "A reference by a full http:// or https:// address to a public site is fetched by our server, so a stylesheet, script or image on a CDN or on your own website can load. A web font linked that way loads when the site serving it allows other sites to use it, as public font services do. Addresses on a private network are not fetched.",
+          "Chromium draws text in the fonts the file names. A font embedded in the file as a data: URI is always there. One that is only installed on your computer is not on our server, and Chromium uses a font the server has instead, so lines can wrap differently from what you see on your screen.",
+        ],
+      },
+      {
+        id: "scripts",
+        heading: "JavaScript, and what the page has time to do",
+        body: [
+          "Scripts in the file run before the page is printed, within a fixed budget of time, so a chart or table a script builds can appear. A script that fetches a file by a relative path gets nothing, for the same reason a relative image does.",
+          "Nothing scrolls the page or clicks on it, so content that waits for a scroll, a click or a long timer is not printed.",
+        ],
+      },
+      {
+        id: "page-size-and-margins",
+        heading: "Page size, margins and print CSS",
+        body: [
+          // The FAQ answer, as prose: its opening "Yes, " answers a question
+          // this section does not ask.
+          htmlLayoutAnswer("file").replace(/^Yes, under/, "Under"),
+          `With every option left as it is, each edge gets the ${HTML_DEFAULT_MARGIN.label} margin of ${HTML_DEFAULT_MARGIN.inches} in, and the file's @media print rules apply, because the page is printed rather than photographed. Our server adds no date, title, file path or page number to the pages; to number them, run the PDF through ${nameOf("header-footer")} afterwards.`,
+          'Save the file as UTF-8 and keep a <meta charset="utf-8"> line in its head. Our server sends the file to Chromium without naming an encoding, so Chromium goes by what the file itself declares.',
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Why are the images or styles missing from my PDF?",
+        answer:
+          'Almost always a relative path. Our server receives your one HTML file and nothing else, so src="images/logo.png" or href="style.css" points at a file it never had. Put the CSS in a <style> element, embed images as data: URIs, or link them by a full https:// address, and render again.',
+      },
+      {
+        question: "Can I convert HTML code without saving it as a file?",
+        answer:
+          "No. The tool takes a file, not typed text. Copy the code into a plain-text editor, save it with a name ending in .html, and add that file.",
+      },
+      {
+        question: "Does JavaScript run before the page is printed?",
+        answer:
+          "Yes, within a fixed budget of time, so content a script builds can appear. Content that waits for a click, a scroll or a long timer, or for a file the page links by a relative path, is missing.",
+      },
+      {
+        question: "Is my HTML file uploaded, and how long is it kept?",
+        answer: `Yes, over an encrypted connection, because Chromium runs on our secure server. The file is deleted when the job ends, and within ${DEFAULT_RETENTION.inputTtlMinutes} minutes in any case. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
+      },
+      {
+        question: "How large can the HTML file be?",
+        answer: `Up to ${ceilingMb("html-to-pdf")} MB, one file per run; a larger one is refused when you pick it, before anything is sent. Images embedded as data: URIs count toward that, and base64 makes each about a third larger than the image file itself.`,
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  // Overlay PDF, titled for the task it truly does: lay one PDF on every
+  // page of another. Read off overlay.ts and overlay-runner.tsx: the overlay
+  // is always centred (fitOverlayRect has no position), there is no page
+  // range (every base page gets an overlay page), Cycle pages walks the
+  // overlay in order and starts again (overlayPageIndexFor), and an overlay
+  // page with no content is skipped and named. In-browser, so the word
+  // "upload" appears nowhere, Word to PDF included.
+  {
+    slug: "how-to-add-a-letterhead-to-a-pdf",
+    title: "How to add a letterhead to a PDF",
+    description:
+      "Lay a letterhead PDF over every page of a letter or invoice, behind the text or on top, in your browser. The letter stays real, selectable text.",
+    tools: ["overlay-pdf", "watermark-pdf"],
+    keywords: [
+      "add letterhead to pdf",
+      "put letterhead on pdf",
+      "overlay pdf on another pdf",
+      "pdf letterhead template",
+      "merge letterhead with pdf",
+      "stamp one pdf onto another",
+    ],
+    intro: [
+      `To add a letterhead to a PDF, open ${nameOf("overlay-pdf")}, add your letter as the base PDF and the letterhead as the overlay PDF, set Layer to ${OVERLAY_BEHIND}, and apply it. Every page of the letter gets the letterhead, and the letter keeps its page count and page sizes.`,
+      `The letterhead has to be a PDF itself, usually one page saved from your word processor or design program with the logo, address and footer in place and the rest of the page empty. It is drawn as vector content, not as a picture, so its lines stay sharp and its text stays selectable. Both files are combined in your browser, so neither leaves your device, and each can be up to ${ceilingMb("overlay-pdf")} MB.`,
+    ],
+    steps: [
+      `Open the ${nameOf("overlay-pdf")} tool and drop your letter on the box that says “Drop your PDF here, or”, or click browse to pick it.`,
+      "In the Overlay PDF section, drop the letterhead on the box that says “Drop the overlay PDF here, or”, or click browse. Its name and page count appear.",
+      `Under Placement, set Layer to ${OVERLAY_BEHIND}, so the letterhead goes under the letter's text, or to ${OVERLAY_MULTIPLY} if the letter is a scan. Keep Scale on ${OVERLAY_FIT}, and leave the Opacity slider where it is for a solid letterhead.`,
+      "Press the button that reads Overlay onto and your page count, such as “Overlay onto 3 pages”.",
+      `When “Overlay applied” appears, check the summary and press Download overlaid PDF. letter.pdf is saved as ${OVERLAY_EXAMPLE_OUT}.`,
+    ],
+    sections: [
+      {
+        id: "which-layer",
+        heading: "Behind the text, on top, or blended",
+        body: [
+          `${OVERLAY_ON_TOP}, the setting the tool starts on, paints the letterhead over the page. If the letterhead file has a white page behind its logo, as many exports do, that white covers your letter. ${OVERLAY_BEHIND} paints it underneath instead, so the letter's text sits on top of it.`,
+          `A scanned letter is one picture covering the whole page, and that picture hides anything placed behind it. For a scan, choose ${OVERLAY_MULTIPLY}: the letterhead is drawn on top, but its white areas drop out, so the page shows through.`,
+        ],
+      },
+      {
+        id: "size-and-position",
+        heading: "Page size and position",
+        body: [
+          `The letterhead is always centred on the page; there is no setting to move it. So make the letterhead page the same paper size as your letter, with the logo where you want it on that page. ${OVERLAY_FIT} then lays it exactly over the page.`,
+          `If the sizes differ, as with an A4 letterhead on a US Letter document, ${OVERLAY_FIT} scales it to fit without stretching and can leave a strip at two edges, ${OVERLAY_STRETCH} covers the whole page and distorts it slightly, and ${OVERLAY_ACTUAL} keeps it at its own size, cut off where it is larger than the page. Pages stored sideways with a rotation setting still get the letterhead upright.`,
+        ],
+      },
+      {
+        id: "first-page-only",
+        heading: "A letterhead on the first page only",
+        body: [
+          "There is no page range: every page of the letter gets a page of the overlay. When the overlay PDF has more than one page, a Multi-page overlay choice appears. First page on all puts its first page everywhere; Cycle pages gives letter page one the overlay's page one, page two its page two, and so on, starting again from the first when the overlay runs out.",
+          `So for the first page only, make an overlay PDF with as many pages as the letter, the letterhead on its first page and the rest left empty, and choose Cycle pages. An overlay page with no content at all is skipped, and the result says which; with ${OVERLAY_BEHIND} or ${OVERLAY_MULTIPLY}, an empty white page changes nothing you can see either. If your letterhead is a PNG or JPEG image rather than a PDF, ${nameOf("watermark-pdf")} can place an image and limit it to the pages you list.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Why does the letterhead hide my letter's text?",
+        answer: `Because Layer is set to ${OVERLAY_ON_TOP} and the letterhead page has a white background. Set Layer to ${OVERLAY_BEHIND} to put it under the text, or to ${OVERLAY_MULTIPLY} to keep it on top while its white areas drop out, which is the choice for a scanned letter.`,
+      },
+      {
+        question: "Can I choose where the letterhead sits on the page?",
+        answer: `No. The overlay is always centred. Place the logo and footer where you want them on a letterhead page of the same size as your letter, and ${OVERLAY_FIT} lays that page exactly over each of yours.`,
+      },
+      {
+        question: "My letterhead is a Word file or an image. Can I use it?",
+        answer: `Not as it is: the overlay must be a PDF. Save the Word file as a PDF from Word itself, or use ${nameOf("word-to-pdf")}, which runs on our secure server, so the file leaves your device for that step. For a PNG or JPEG letterhead, ${nameOf("watermark-pdf")} places an image directly, in your browser.`,
+      },
+      {
+        question: "Will the letter's text still be selectable?",
+        answer:
+          "Yes. The letter keeps its own text and form fields, and the letterhead is added as vector drawing, so text in both stays selectable. Links inside the letterhead do not work as links in the result.",
+      },
+      {
+        question: "Are my files sent to a server?",
+        answer:
+          "No. Both PDFs are combined in your browser tab, and neither is sent to pdf.xyz.",
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  // Optimize PDF for Web: `qpdf --linearize` and nothing else
+  // (pdf-structure/native.ts linearizeArgs), no options; the worker refuses
+  // output that is not linearized, and the page re-reads the bytes
+  // (optimize-outcome.tsx: the ready sentence, "Linearized for fast web
+  // view", before → after sizes, and a note when the file GREW). No size
+  // figure is claimed: no real job measured one, and the outcome component
+  // expects growth.
+  {
+    slug: "how-to-optimize-a-pdf-for-the-web",
+    title: "How to optimize a PDF for the web (fast web view)",
+    description:
+      "Linearize a PDF so a browser can show page one while the rest downloads. It is not compression; for a smaller file, use Compress PDF. Runs on our server.",
+    tools: ["optimize-web", "compress-pdf", "repair-pdf"],
+    keywords: [
+      "optimize pdf for web",
+      "fast web view pdf",
+      "linearize pdf",
+      "linearized pdf",
+      "web optimized pdf",
+      "make a pdf open faster in a browser",
+    ],
+    intro: [
+      `To optimize a PDF for the web, open ${nameOf("optimize-web")}, add the PDF and press Optimize on our secure server. It comes back linearized, the layout Adobe Acrobat calls Fast Web View. It is not compressed: its size can change in either direction, and ${nameOf("compress-pdf")} is the tool for a smaller file.`,
+      "In a linearized file, what the first page needs is moved to the front, with an index of where everything else is, so a viewer opening it from a link can show page one while the rest is still downloading. Our server does that with qpdf's --linearize option and nothing else, and there are no settings. Nothing on the pages changes: no image is downsampled and no text is touched. qpdf does rewrite the whole file, though: the index adds a little, while compressing streams that were stored uncompressed, or leaving out objects nothing uses any more, can make the file smaller.",
+      `The PDF, up to ${ceilingMb("optimize-web")} MB, is uploaded to our secure server and deleted when the job ends. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
+    ],
+    steps: [
+      "Drop your PDF on the box that says “Add a PDF, or”, or click browse to pick it. The tool takes one PDF at a time.",
+      "Press Optimize on our secure server, which uploads the file over an encrypted connection. The button reads “Uploading your file…”, then “Waiting for our server…” if there is a queue, “Optimizing on our secure server…” while qpdf works, and “Downloading the result…”.",
+      "Read the lines above the download. “Your web-optimized PDF is ready.” means it worked; the line under it says the file is linearized for fast web view and shows its size before and after.",
+      `Press the button reading Download and the new name: ${WEB_EXAMPLE_IN} comes back as ${WEB_EXAMPLE_OUT}. Save it before you reload the page; after a reload, run the job again.`,
+      "Put the optimized file where people open it, on your website or document portal, in place of the original.",
+    ],
+    sections: [
+      {
+        id: "what-it-changes",
+        heading: "What linearizing does, and when it helps",
+        body: [
+          "An ordinary PDF keeps its index of objects at the end, so a viewer opening it from a link has to fetch the end of the file before it can draw anything. A linearized PDF puts the first page's objects and a hint table at the front, so a viewer that asks a server for parts of a file can draw page one early and fetch other pages as they are opened.",
+          "That helps only when both sides take part: a viewer that requests byte ranges, as browser PDF viewers can, and a web server that answers them. An email attachment is downloaded whole before it opens, and a file on your own disk can be read in any order already, so neither gains anything.",
+        ],
+      },
+      {
+        id: "optimize-or-compress",
+        heading: "Optimize for the web, or compress?",
+        body: [
+          `They answer different questions. ${nameOf("compress-pdf")} makes the file smaller: a lossless repack in your browser, and deep image compression on our secure server, which lowers the resolution of the pictures. ${nameOf("optimize-web")} makes no picture smaller and does not aim at size at all; it changes the order of what is in the file, and its size can move in either direction.`,
+          `For a PDF that is both heavy and read on the web, do both, in that order: compress first, then optimize the compressed copy. A later rewrite by another program generally throws the linearized layout away again. If the optimized file comes out larger than the original, the page says so and points to ${nameOf("compress-pdf")}.`,
+        ],
+      },
+      {
+        id: "checking-and-limits",
+        heading: "Checking the result, and files that fail",
+        body: [
+          "To check a file yourself, open it in Adobe Acrobat or Reader and look at File › Properties: Fast Web View should read Yes. From a command line, qpdf --check-linearization yourfile.pdf reports whether the linearization data is valid. Our server also checks that the file it made is linearized before handing it back, and one that is not ends in a failed job, not a download.",
+          `A file that asks for a password before it opens fails, because there is no password field here; remove the password with ${nameOf("unlock-pdf")} first. A file cut off before its end-of-file marker, as an interrupted download is, is refused as damaged: run it through ${nameOf("repair-pdf")} and optimize the repaired copy. When qpdf works around smaller damage, its warnings are listed above the download.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Does optimizing a PDF for the web make it smaller?",
+        answer: `Not reliably, and that is not what it is for. Linearizing reorders the file and adds an index, and the whole file is rewritten, so its size can change in either direction. To make a PDF smaller, use ${nameOf("compress-pdf")}.`,
+      },
+      {
+        question: "Will my PDF open faster for everyone?",
+        answer:
+          "Only for readers who open it from a web server in a viewer that requests parts of the file and a server that answers such requests. Opened as an email attachment or from a disk, it opens as fast as before.",
+      },
+      {
+        question: "How do I check that a PDF has Fast Web View?",
+        answer:
+          "In Adobe Acrobat or Reader, open File › Properties and look for Fast Web View: Yes. Or run qpdf --check-linearization yourfile.pdf from a command line.",
+      },
+      {
+        question: "Can I optimize a digitally signed PDF?",
+        answer:
+          "Not without breaking the signature. Linearizing rewrites the whole file, so the bytes a certificate signature covers no longer match and it stops validating. Linearize the unsigned version and sign it last; then check the signed copy, because signing adds data at the end of the file and a viewer may no longer report it as linearized.",
+      },
+      {
+        question: "What happens to my file after the job?",
+        answer: `It is uploaded over an encrypted connection and deleted from our server when the job ends, whether it succeeds or not. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and a daily storage rule erases the stored copy after that.`,
       },
     ],
     published: "2026-10-31",

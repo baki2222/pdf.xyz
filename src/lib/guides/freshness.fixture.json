@@ -48,8 +48,8 @@
     "updated": "2026-10-31"
   },
   "how-to-convert-a-webpage-to-pdf": {
-    "contentHash": "3e021519de177639ed59bcd3e206f77c79159667e7882aca9d8d04393e49289f",
-    "updated": "2026-10-30"
+    "contentHash": "0cd4afad6ac06111a5e79d258ab32db4ec75a8878fb6fe4d6c3a22c48bc80d77",
+    "updated": "2026-10-31"
   },
   "how-to-convert-bangla-pdf-to-word": {
     "contentHash": "577543159b525d7a27560381eba16e3cdb0d7bfceef6f608f3c83e55a5d7cdd2",
@@ -229,6 +229,22 @@
   },
   "how-to-extract-data-from-a-pdf-with-ai": {
     "contentHash": "845f1d994cb27b2c122073de50333f22cd811bfb11bfbe4970350d64cb042c6b",
+    "updated": "2026-10-31"
+  },
+  "how-to-convert-png-to-pdf": {
+    "contentHash": "da14a58aa200a0af79ecf32a6c1240258f1a4700d669257caf726595df88bb6c",
+    "updated": "2026-10-31"
+  },
+  "how-to-convert-an-html-file-to-pdf": {
+    "contentHash": "148fe0915c163c1b5cd5b4d390e16cca873e8cc49b5381ff4c1bce07273e1848",
+    "updated": "2026-10-31"
+  },
+  "how-to-add-a-letterhead-to-a-pdf": {
+    "contentHash": "e1354d4f212ac3f86888286a540e666fcc46e0b784bb1cb2534d9d33e32cb2d1",
+    "updated": "2026-10-31"
+  },
+  "how-to-optimize-a-pdf-for-the-web": {
+    "contentHash": "b6fbe951bda84dec8305915c1c68e3cfa9bda15d19f86f573decff39ed451d65",
     "updated": "2026-10-31"
   }
 }
