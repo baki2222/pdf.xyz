@@ -218,9 +218,14 @@ describe("the guides catalogue is structurally sound", () => {
     // INSTRUCTION the engine gives the model (`buildSystemPrompt` in
     // workers/chat-with-pdf/engine.ts), says nothing checks an answer
     // against the pages, and calls a [p.N] citation the model's pointer, to
-    // be checked by opening the page. No real job was run for it: every
-    // worker-side behaviour it names (the [Page N] markers, the cited-pages
-    // filter, the ZIP's files) is one the live tool page already states.
+    // be checked by opening the page. The excuse's own exit was then met
+    // before it merged: on 2026-11-01 a real job ran against
+    // https://pdf.xyz (`worker:prove-tools "chat-with-pdf" "chat-with-pdf
+    // (follow-up)"`, 2/2 PASS). In each answer ZIP, answer.md — the file the
+    // guide says lists the cited pages — read "Cited pages: p.2", and the
+    // answer ended "[p.2]": the page CHAT_FACT_PAGE plants the fact on, not
+    // merely one in range. The follow-up sent 2 prior turns and named the
+    // asked-about team's channel, not a decoy's.
     const KNOWN_GAPS: Record<string, string> = {};
     // Only a tool whose claims cannot be checked in this tree may be excused.
     const excusable = (slug: string): boolean => {
