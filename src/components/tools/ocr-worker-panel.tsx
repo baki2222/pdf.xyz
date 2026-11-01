@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useId, useMemo, useState, type ReactNode } from "react";
 import {
   FileDown,
   FileText,
@@ -95,6 +95,15 @@ function contentTypeFor(file: File): string {
 }
 
 /**
+ * Whether the worker will read this file as an IMAGE (Tesseract), from the
+ * same content type the upload sends — so the panel and the worker's
+ * `isImageInput` decide from one value, not two guesses.
+ */
+function isImageFile(file: File): boolean {
+  return contentTypeFor(file).toLowerCase().startsWith("image/");
+}
+
+/**
  * Premium, OCR-specific secure-worker panel for `/tools/ocr-pdf`.
  *
  * The tool page mounts it from the panel registry (`./worker-panels`), which
@@ -183,16 +192,25 @@ function OcrBody({
   const languageChoice = useOcrLanguageChoice(status);
   const { selected, installed } = languageChoice;
   const [redoOcr, setRedoOcr] = useState(false);
+  const [deskewChoice, setDeskew] = useState(false);
+  const deskewId = useId();
+  // Here, not in the run area: whether straightening can apply depends on
+  // the file. A JPG or PNG goes to Tesseract, which has no deskew step, so
+  // the box is turned off for one and the request never carries it.
+  const [file, setFile] = useState<File | null>(null);
+  const imageChosen = file !== null && isImageFile(file);
+  const deskewBlocked = imageChosen || redoOcr;
+  const deskew = deskewChoice && !deskewBlocked;
 
   // Run the free-form options through the real contract validator, so the "what
   // will happen" summary and any submitted job carry exactly the validated value.
   const parsed = useMemo(
-    () => parseOcrOptions({ languages: selected, outputMode, redoOcr }),
-    [selected, outputMode, redoOcr],
+    () => parseOcrOptions({ languages: selected, outputMode, redoOcr, deskew }),
+    [selected, outputMode, redoOcr, deskew],
   );
   const request: OcrOptions = parsed.ok
     ? parsed.value
-    : { languages: selected, outputMode, redoOcr };
+    : { languages: selected, outputMode, redoOcr, deskew };
   // A worker reporting no pack at all can run nothing; say so rather than
   // submit a job it will refuse.
   const runnable =
@@ -256,8 +274,13 @@ function OcrBody({
         <input
           type="checkbox"
           checked={redoOcr}
-          onChange={(event) => setRedoOcr(event.target.checked)}
-          className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4"
+          // Guarded, never `disabled`: focus stays put (#46). Off while
+          // "Straighten crooked pages" is on — OCRmyPDF refuses the pair.
+          onChange={(event) => {
+            if (!deskew) setRedoOcr(event.target.checked);
+          }}
+          aria-disabled={deskew || undefined}
+          className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4 aria-disabled:opacity-50"
         />
         <span className="flex flex-col gap-0.5">
           <span className="text-fg font-medium">Redo existing OCR</span>
@@ -270,10 +293,57 @@ function OcrBody({
         </span>
       </label>
 
+      {/*
+          Deskew (2026-11-01): OCRmyPDF's --deskew. Each limit in the hint is
+          the engine's: it straightens only the pages it recognizes (a page
+          with text is copied through), it redraws that page's image, it
+          rejects --redo-ocr with --deskew, and images never reach it. The
+          two boxes turn each other off rather than both being on, and
+          parseOcrOptions refuses the pair on the server as well.
+        */}
+      <label className="text-muted flex items-start gap-2.5 text-sm">
+        <input
+          type="checkbox"
+          checked={deskew}
+          // Guarded, never `disabled`, as the redo box above.
+          onChange={(event) => {
+            if (!deskewBlocked) setDeskew(event.target.checked);
+          }}
+          aria-disabled={deskewBlocked || undefined}
+          // Named by its label alone: the hint names the other box, and a
+          // name that contains "Redo existing OCR" would answer for both.
+          aria-labelledby={`${deskewId}-name`}
+          aria-describedby={`${deskewId}-hint`}
+          className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4 aria-disabled:opacity-50"
+        />
+        <span className="flex flex-col gap-0.5">
+          <span id={`${deskewId}-name`} className="text-fg font-medium">
+            Straighten crooked pages
+          </span>
+          <span
+            id={`${deskewId}-hint`}
+            className="text-muted text-xs leading-relaxed"
+          >
+            Straightens pages that went through the scanner at a slight angle,
+            before their text is recognized. It applies to scanned pages without
+            text: a page that already has text is kept as it is. Each page it
+            works on is saved as a new image of the page rather than the
+            original one. Cannot be combined with Redo existing OCR. PDFs only.
+          </span>
+          {imageChosen && (
+            <span className="text-muted text-xs leading-relaxed">
+              Off for this file: a JPG or PNG is read as it is, without
+              straightening.
+            </span>
+          )}
+        </span>
+      </label>
+
       <p className="border-line bg-wash text-muted rounded-ctl border px-3 py-2 text-xs">
         <span className="text-muted font-medium">This request:</span>{" "}
         {describeOcrRequest(request)}
         {redoOcr ? " · redo existing OCR" : ""}
+        {request.deskew ? " · straighten crooked pages" : ""}
       </p>
     </div>
   );
@@ -285,6 +355,8 @@ function OcrBody({
       refuse={(file) => pickRefusal(tool, file)}
       runnable={runnable}
       settings={settings}
+      file={file}
+      setFile={setFile}
     />
   );
 }
@@ -304,6 +376,8 @@ function OcrRunArea({
   refuse,
   runnable,
   settings,
+  file,
+  setFile,
 }: {
   tool: Tool;
   request: OcrOptions;
@@ -312,9 +386,11 @@ function OcrRunArea({
   runnable: boolean;
   /** The recognition settings, drawn between the file and Run. */
   settings: ReactNode;
+  /** The chosen file; owned by the body, whose settings depend on its kind. */
+  file: File | null;
+  setFile: (file: File | null) => void;
 }) {
   const { available, status } = useWorkerPanel();
-  const [file, setFile] = useState<File | null>(null);
   // How many files a drop brought beyond the one OCR reads. A drop bypasses
   // `multiple={false}`, so without this the rest vanished without a word.
   const [discarded, setDiscarded] = useState(0);

@@ -132,6 +132,7 @@ const options: OcrOptions = {
   languages: ["eng", "spa"],
   outputMode: "both",
   redoOcr: false,
+  deskew: false,
 };
 
 const input = {
@@ -208,6 +209,7 @@ describe("runWorkerOcr", () => {
         languages: ["eng", "spa"],
         outputMode: "both",
         redoOcr: false,
+        deskew: false,
       },
     });
 

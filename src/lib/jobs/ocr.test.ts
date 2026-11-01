@@ -12,6 +12,7 @@ import {
   isOcrLanguage,
   isOcrOutputMode,
   ocrOutputsForMode,
+  OCR_DESKEW_WITH_REDO_MESSAGE,
   parseOcrOptions,
   type OcrLanguage,
 } from "./ocr";
@@ -54,6 +55,7 @@ describe("parseOcrOptions", () => {
         languages: ["eng"],
         outputMode: "searchable-pdf",
         redoOcr: false,
+        deskew: false,
       });
     }
   });
@@ -165,6 +167,40 @@ describe("parseOcrOptions", () => {
       expect(coerced.error.body.error.details?.[0]?.field).toBe(
         "options.redoOcr",
       );
+    }
+  });
+
+  it("accepts an explicit deskew boolean, defaulting off, and rejects non-booleans", () => {
+    const on = parseOcrOptions({ deskew: true });
+    expect(on.ok && on.value.deskew).toBe(true);
+    const off = parseOcrOptions({});
+    expect(off.ok && off.value.deskew).toBe(false);
+
+    const coerced = parseOcrOptions({ deskew: "yes" });
+    expect(coerced.ok).toBe(false);
+    if (!coerced.ok) {
+      expect(coerced.error.body.error.code).toBe("invalid_request");
+      expect(coerced.error.body.error.details?.[0]?.field).toBe(
+        "options.deskew",
+      );
+    }
+  });
+
+  // OCRmyPDF rejects --redo-ocr with --deskew as a usage error. The panel
+  // turns each box off while the other is on, but a forged job can send
+  // both: it is refused here, final and with the reason, never resolved by
+  // silently dropping one of the two choices.
+  it("refuses a forged job that asks for deskew AND redo OCR", () => {
+    const both = parseOcrOptions({ deskew: true, redoOcr: true });
+    expect(both.ok).toBe(false);
+    if (!both.ok) {
+      expect(both.error.body.error.code).toBe("unprocessable_entity");
+      expect(both.error.body.error.message).toBe(OCR_DESKEW_WITH_REDO_MESSAGE);
+      expect(both.error.body.error.details?.[0]?.field).toBe("options.deskew");
+    }
+    // Positive controls: each alone is accepted.
+    for (const one of [{ deskew: true }, { redoOcr: true }]) {
+      expect(parseOcrOptions(one).ok).toBe(true);
     }
   });
 });

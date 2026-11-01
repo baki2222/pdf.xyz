@@ -201,6 +201,18 @@ inside the freshly built image with nothing wired and processing no document:
   `pdftotext`), each enforced check's exit `3`, and the temp cleanup — is proven Docker-free
   with stub `gs`/`ocrmypdf`/`pdftotext` in `src/deploy/worker-ocrmypdf-proof.test.ts`.
 
+- **`pnpm worker:ocr-deskew-proof`** (2026-11-01) — the **deskew** proof for OCR PDF's
+  "Straighten crooked pages" (`deskew` → OCRmyPDF `--deskew`). A generated scan of long,
+  thick, dark bars turned 3.5° goes through the registry's OCR processor on the image's real
+  OCRmyPDF; page 1 of the output is rendered with pdf.js and its skew **measured** (each
+  bar's top edge fitted across the middle half of the page). With deskew on it must measure
+  under 0.5°; with it off (the control) still about 3.5°; the fixture and a straight copy
+  must read as drawn first, so the instrument is seen to see. The straightened output must
+  keep the fixture's sentinel words as text, and the image's `ocrmypdf` run directly with
+  `--redo-ocr --deskew` must refuse the pair — the reason `parseOcrOptions` refuses it.
+  Exit `0` proven, `1` a failed check, `2` an engine missing. Its verdicts are unit-tested
+  on the real fixture with a played engine in `src/lib/workers/ocr-deskew-proof.test.ts`.
+
 `pdftotext` comes from **`poppler-utils`**, installed in the **worker image only** and
 purely as **proof tooling** — it is not on the OCR runtime path. The web image ships none of
 the engines _or_ `pdftotext`; the split is pinned by `src/deploy/artifacts.test.ts` and

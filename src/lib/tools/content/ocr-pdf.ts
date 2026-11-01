@@ -22,13 +22,28 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
  *    it after it was gone (fixed 2026-10-07);
  *  - src/lib/workers/ocr-native.ts — PDFs go to OCRmyPDF (text layer added to
  *    the existing pages, `--skip-text` by default and `--redo-ocr` only when
- *    Redo existing OCR is ticked, no `--deskew` or `--rotate-pages`), JPG/PNG
+ *    Redo existing OCR is ticked, no `--rotate-pages`), JPG/PNG
  *    go to Tesseract (no OSD either); outputs are
  *    named `<name>-ocr.pdf` and `<name>.txt`; a confidence figure exists for
  *    image inputs only (tsvOut is null for OCRmyPDF). The inline comment near
  *    the meta build in that file still says meanConfidence is always null —
  *    that comment is stale; the code (readConfidence over the TSV) and
  *    OcrResultMeta's own docblock agree with the FAQ below;
+ *  - `--deskew` (INVERTED 2026-11-01): until then the line above read "no
+ *    `--deskew` or `--rotate-pages`", and the FAQ said neither engine is told
+ *    to straighten pages. Since then src/lib/workers/ocr-native.ts passes
+ *    `--deskew` to OCRmyPDF when "Straighten crooked pages" is ticked (the
+ *    panel's label; `deskew` in src/lib/jobs/ocr.ts). Each limit the copy
+ *    states is the code's or OCRmyPDF's: PDFs only (an image goes to
+ *    Tesseract, and the panel turns the box off for one); only pages
+ *    without text (`--skip-text` copies a page with text through, so it is
+ *    not straightened); not with Redo existing OCR (`parseOcrOptions`
+ *    refuses the pair, OCRmyPDF calls it a usage error); and a page it
+ *    works on is a new image of the page (OCRmyPDF shows the preprocessed
+ *    image on a page it deskews). That it actually straightens is
+ *    MEASURED in the built worker image by `pnpm worker:ocr-deskew-proof`
+ *    (src/lib/workers/ocr-deskew-proof.ts), with deskew off as the control.
+ *    Still not claimed: any angle range, or turning a sideways page upright;
  *  - src/lib/jobs/ocr.ts — the language list, the cap, the output modes;
  *  - src/lib/workers/processor/ocr.ts — a selected language with no installed
  *    pack is refused by name before the runner is called (nativeOcrDeps always
@@ -92,7 +107,7 @@ const content: ToolContent = {
   metaDescription: `OCR a scanned PDF, JPG or PNG in ${LANGUAGE_COUNT} languages including ${SHORT_NON_LATIN}. Download a searchable PDF, a plain TXT file, or both. No account.`,
 
   intro: [
-    `A scanner or phone camera saves each page as a picture, so Ctrl+F finds nothing and no sentence can be copied out. OCR PDF reads the lettering and returns it as real text. For a PDF, your pages stay as they are and an invisible text layer is laid underneath, so the document looks the same but becomes searchable and selectable. Send a JPG or PNG instead, such as a photographed receipt or a screenshot of a form, and any PDF you ask for comes back as a single page holding that image with the recognised words beneath it.`,
+    `A scanner or phone camera saves each page as a picture, so Ctrl+F finds nothing and no sentence can be copied out. OCR PDF reads the lettering and returns it as real text. For a PDF, your pages stay as they are and an invisible text layer is laid underneath, so the document looks the same but becomes searchable and selectable, unless you ask for crooked pages to be straightened. Send a JPG or PNG instead, such as a photographed receipt or a screenshot of a form, and any PDF you ask for comes back as a single page holding that image with the recognised words beneath it.`,
     `Recognition needs a native OCR engine, so this online tool does not run in your browser. Your file is uploaded over TLS to pdf.xyz's secure server, which runs OCRmyPDF on PDFs and Tesseract on images. The input is deleted when the job finishes, the download link expires after ${OUTPUT_TTL} minutes, and a daily storage rule then erases the stored result. One scan goes in per run, at most ${CEILING_MB} MB.`,
     `Of every choice on the page, the language is the one most likely to spoil a result. ${LANGUAGE_COUNT} are on offer, with ${NON_LATIN} among them, and a single job can combine up to ${MAX_OCR_LANGUAGES}. Picking the wrong one does not produce an error: the engine matches shapes against the alphabet it was given and returns fluent-looking nonsense.`,
   ],
@@ -113,6 +128,10 @@ const content: ToolContent = {
     {
       title: "Finish a PDF that is only partly scanned",
       body: "When typed pages and scanned pages sit in the same file, just run it: pages that already have text are skipped and kept as they are, and only the image pages are recognised. A scanned page that already carries any text, such as a digitally added stamp or header, counts as having text and is skipped too. Tick “Redo existing OCR” only when an earlier OCR text layer is poor and should be recognised again; text typed into the document is kept either way.",
+    },
+    {
+      title: "Straighten a scan that went in crooked",
+      body: "A sheet fed through the scanner at a slight angle comes out with every line on a slope. Tick “Straighten crooked pages” and each page of the PDF that has no text yet is turned level before its words are recognised, so the downloaded file reads straight. It works on scanned pages that have no text yet: a page that already has text is kept exactly as it is, so it is not straightened. Each page it works on is saved as a new image of that page rather than the original picture. It cannot be combined with “Redo existing OCR”, and a JPG or PNG is read as it is, without straightening.",
     },
   ],
 
@@ -138,11 +157,11 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Why does my OCR output look like gibberish?",
-      a: `Usually the selected language does not match the page. ${describeOcrLanguage("ben")} read as English comes back as Latin characters that look plausible and mean nothing, with no error. The file stays loaded after a run, so change the language selection and press Recognize text again. Blurry, skewed or low-resolution scans cause the same symptom, and neither engine is told to straighten or auto-rotate pages, so turn a sideways PDF page upright with Rotate PDF before recognising it.`,
+      a: `Usually the selected language does not match the page. ${describeOcrLanguage("ben")} read as English comes back as Latin characters that look plausible and mean nothing, with no error. The file stays loaded after a run, so change the language selection and press Recognize text again. Blurry, skewed or low-resolution scans cause the same symptom. For a PDF scanned at a slight angle, tick “Straighten crooked pages”. Nothing turns a sideways page upright, so do that with Rotate PDF before recognising it.`,
     },
     {
       q: "Does OCR change how my PDF looks?",
-      a: `The ${PDF_MODE} output keeps your pages and adds hidden text underneath them, so it looks like the scan you uploaded. The words are not made editable on the page. To rewrite them, run the OCR'd file through PDF to Word, which turns its new text layer into plain paragraphs in a DOCX.`,
+      a: `The ${PDF_MODE} output keeps your pages and adds hidden text underneath them, so it looks like the scan you uploaded. The exception is “Straighten crooked pages”: each page it works on is saved as a new, level image of that page rather than the original picture. The words are not made editable on the page. To rewrite them, run the OCR'd file through PDF to Word, which turns its new text layer into plain paragraphs in a DOCX.`,
     },
     {
       q: "Can I OCR a photo or screenshot?",
