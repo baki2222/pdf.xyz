@@ -179,6 +179,7 @@ async function runWorkerOcrSteps(
         outputMode: input.options.outputMode,
         redoOcr: input.options.redoOcr,
         deskew: input.options.deskew,
+        rotatePages: input.options.rotatePages,
       },
     }),
     signal,

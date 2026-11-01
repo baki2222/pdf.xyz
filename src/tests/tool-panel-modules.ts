@@ -765,8 +765,18 @@ export function parsedSource(file: string): TS.SourceFile {
   return sf;
 }
 
-/** Modules `file` loads for their values: static, re-export, `import()`. */
-function valueEdges(file: string): string[] {
+const edgesCache = new Map<string, readonly string[]>();
+
+/**
+ * Modules `file` loads for their values: static, re-export, `import()`.
+ * Walked once per file: a file's edges are a function of its text, which
+ * does not change during a run. Until 2026-11-01 every `valueClosure` walked
+ * every AST again, and guide-ui-labels' health check (one closure per guide)
+ * crossed vitest's 5 s timeout on CI at 64 guides (5,010 ms).
+ */
+function valueEdges(file: string): readonly string[] {
+  const hit = edgesCache.get(file);
+  if (hit) return hit;
   const out: string[] = [];
   const add = (spec: string) => {
     const r = resolveSpecifier(file, spec);
@@ -805,6 +815,7 @@ function valueEdges(file: string): string[] {
     ts.forEachChild(n, visit);
   };
   visit(parsedSource(file));
+  edgesCache.set(file, out);
   return out;
 }
 

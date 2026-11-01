@@ -236,9 +236,43 @@ export interface NativeOcrArgsContext {
    * never together with {@link redoOcr} (a usage error in OCRmyPDF).
    */
   deskew: boolean;
+  /**
+   * Turn sideways and upside-down pages upright before recognition
+   * (`--rotate-pages`, at {@link OCR_ROTATE_PAGES_THRESHOLD}). OCRmyPDF only.
+   */
+  rotatePages: boolean;
   wantPdf: boolean;
   wantText: boolean;
 }
+
+/**
+ * The confidence OCRmyPDF's orientation check (Tesseract OSD) must reach
+ * before `--rotate-pages` turns a page: passed as `--rotate-pages-threshold`
+ * with every `--rotate-pages`. Not offered in the panel.
+ *
+ * WHY NOT THE DEFAULT. OCRmyPDF 14's own threshold is 14, and at 14 the
+ * option does nothing useful. Measured 2026-11-01 in a throwaway container
+ * of the live worker image (OCRmyPDF 14.0.1, Tesseract with the `osd`
+ * pack): on a full page of body text (30 lines) OSD named the orientation
+ * correctly every time — turned 90°, 180° and 270° — but with a confidence
+ * of 12.2 to 13.4, under 14, so OCRmyPDF logged "confidence too low to
+ * rotate" and changed nothing. A box that does nothing to the very page it
+ * exists for is a false claim, whatever the argv says.
+ *
+ * WHY 5. At `--rotate-pages-threshold 5`, the same sample:
+ *  - full pages turned 90 / 180 / 270 came back with page `/Rotate` 90 /
+ *    180 / 270, and their text was read (27 to 30 of 30 lines);
+ *  - an upright full page was left at `/Rotate` 0;
+ *  - a 3-line upside-down page (confidence 5.46) was turned 180;
+ *  - a 3-line upright page was left alone;
+ *  - a 1-line page (confidence 1.80) was left alone.
+ * No page in that sample was turned the wrong way, and threshold 2 gave the
+ * same results, so 5 is not balanced on an edge. A lower figure trades a
+ * page left unturned for the risk of turning a page that was right; the
+ * upright control in `pnpm worker:ocr-rotate-proof` (an upright page with
+ * the option on must stay at `/Rotate` 0) is the guard on that side.
+ */
+export const OCR_ROTATE_PAGES_THRESHOLD = 5;
 
 /**
  * Build the fixed argument list for a native OCR engine. `command` is the resolved
@@ -266,10 +300,20 @@ export interface NativeOcrArgsContext {
  *    `--deskew` as a usage error, so the pair throws here rather than being
  *    resolved by dropping one; `parseOcrOptions` refuses it first, with the
  *    reason, so this is the backstop and never the user's message.
+ *
+ *    `--rotate-pages` is passed only when asked (since 2026-11-01; until then
+ *    the OCR page said nothing turns a sideways page upright), always with
+ *    `--rotate-pages-threshold` {@link OCR_ROTATE_PAGES_THRESHOLD}, because
+ *    at OCRmyPDF's default threshold it turns nothing (see the constant).
+ *    It sets a page's `/Rotate` rather than redrawing it, acts only on the
+ *    pages OCRmyPDF recognizes (a text page under `--skip-text` is copied
+ *    through), and is accepted beside `--redo-ocr` and `--deskew`.
  *  - **Tesseract** OCRs an image and writes `<base>.pdf` / `<base>.txt` selected by
  *    trailing `pdf`/`txt` config tokens. An image has no text layer, so neither
  *    text flag applies to it, and Tesseract has no deskew step, so `deskew`
- *    passes nothing here (the panel disables it for an image).
+ *    passes nothing here (the panel disables it for an image). Nor does
+ *    `rotatePages`: this Tesseract call runs no orientation step, and a
+ *    forged job asking for one is read as it is.
  */
 export function nativeOcrArgs(
   engine: OcrEngine,
@@ -291,6 +335,13 @@ export function nativeOcrArgs(
         "pdf",
         ctx.redoOcr ? "--redo-ocr" : "--skip-text",
         ...(ctx.deskew ? ["--deskew"] : []),
+        ...(ctx.rotatePages
+          ? [
+              "--rotate-pages",
+              "--rotate-pages-threshold",
+              String(OCR_ROTATE_PAGES_THRESHOLD),
+            ]
+          : []),
         ...(ctx.wantText ? ["--sidecar", txtOut] : []),
         "--quiet",
         ctx.inputPath,
@@ -623,6 +674,7 @@ export function createNativeOcrRunner(
           languages: options.languages,
           redoOcr: options.redoOcr,
           deskew: options.deskew,
+          rotatePages: options.rotatePages,
           wantPdf,
           wantText,
         },

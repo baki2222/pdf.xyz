@@ -222,6 +222,21 @@ jobs:
       - name: Worker image OCR deskew proof — crooked scan measured straight (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:ocr-deskew-proof
 
+      # OCR rotate (2026-11-01): OCR PDF's "Turn pages upright" through the
+      # image's REAL OCRmyPDF --rotate-pages (at the worker's threshold), via
+      # the registry's OCR processor. Scans of a full page of body text,
+      # turned 180 and 90 degrees, must come back with /Rotate set, painted
+      # upright by pdf.js, the sentinel in poppler's text, and (180) the
+      # page picture byte-identical to the control's. Controls: option off
+      # leaves both turned and unread; an upright scan stays at /Rotate 0; a
+      # typed page (it has text) is copied through unturned under
+      # --skip-text. Also run: with --redo-ocr, and with --deskew on a page
+      # turned 180 + 3.5 degrees (upright AND level). The fixtures must read
+      # as drawn first, so the instrument is seen to see. No user document,
+      # secret, queue or store.
+      - name: Worker image OCR rotate proof — turned scans measured upright (inside the built worker image)
+        run: docker run --rm pdfxyz-worker:ci pnpm worker:ocr-rotate-proof
+
       # The container HEALTHCHECK / readiness probe must honestly report
       # not-configured (exit 2) when nothing is wired — it claims no job.
       - name: Worker readiness probe is honest with no config (exit 2)

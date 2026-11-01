@@ -6070,8 +6070,12 @@ export const guides: Guide[] = [
   // Tesseract, which has no deskew step); a page it straightens is saved as a
   // new image. Proven on production 2026-11-01 (worker 5f1aa6bb5884): a 3.5°
   // scan came back at 0.09° with deskew on and 3.50° with it off, both
-  // searchable, 388,248 B against 256,037 B. No angle range is claimed, and
-  // nothing turns a sideways page upright.
+  // searchable, 388,248 B against 256,037 B. No angle range is claimed.
+  // WAS "nothing turns a sideways page upright" and sent readers to Rotate
+  // PDF first; "Turn pages upright" (#265, --rotate-pages at threshold 5)
+  // does it in the same run — in the image, a 183.5° scan with both boxes
+  // ticked came back upright and level, and a one-line page was left as it
+  // was.
   {
     slug: "how-to-straighten-a-scanned-pdf",
     title: "How to straighten a crooked scanned PDF (deskew)",
@@ -6110,7 +6114,7 @@ export const guides: Guide[] = [
         id: "sideways-pages",
         heading: "Sideways or upside-down pages",
         body: [
-          `Straightening is for a slight tilt, the few degrees a page picks up in a feeder or on the glass. It does not turn a page that was scanned sideways or upside down. For those, turn the pages the right way up first with ${nameOf("rotate-pdf")}, then straighten and recognise the result here.`,
+          `Straightening is for a slight tilt, the few degrees a page picks up in a feeder or on the glass. A page scanned sideways or upside down needs “Turn pages upright”, the box beside it: tick both, and in one run each such page is turned the right way up and levelled. A page with only a line or two of text may not be turned; ${nameOf("rotate-pdf")} turns any page you choose by hand.`,
         ],
       },
     ],
@@ -6123,7 +6127,7 @@ export const guides: Guide[] = [
       {
         question: "Why was a page not straightened?",
         answer:
-          "Usually because it already had text, which keeps a page exactly as it was. A page turned sideways is not straightened either; rotate it first. And a JPG or PNG is never straightened: only PDFs are.",
+          "Usually because it already had text, which keeps a page exactly as it was. A page that is sideways or upside down needs “Turn pages upright” ticked as well. And a JPG or PNG is never straightened: only PDFs are.",
       },
       {
         question: "Can I straighten a scan without making it searchable?",

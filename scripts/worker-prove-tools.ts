@@ -205,6 +205,12 @@ import {
   measureBarSkew,
   skewedBarsPage,
 } from "@/lib/workers/ocr-deskew-proof";
+import {
+  UPRIGHT_SENTINEL,
+  orientationOf,
+  pageRotation,
+  turnedTextPage,
+} from "@/lib/workers/ocr-rotate-proof";
 import { renderPdfPages } from "@/tests/pdf-render";
 
 const BASE = process.env.BASE ?? "https://pdf.xyz";
@@ -613,6 +619,52 @@ async function deskewVerdict(
   };
 }
 
+/**
+ * OCR's "Turn pages upright" at the deployment: the worker-image proof's own
+ * upside-down scan (`ocr-rotate-proof.ts`: a full page of body text under a
+ * header bar, turned 180°, pixels only), judged on the downloaded PDF with
+ * the same instruments: page 1's `/Rotate`, the way pdf.js paints it, and
+ * the sentinel in its text. The image proof shows the ENGINE turns it; this
+ * one shows the deployed path does, threshold included.
+ */
+async function upsideDownScan(): Promise<Buffer> {
+  return Buffer.from(await scanOfFirstPage(await turnedTextPage(180), 2000));
+}
+
+async function uprightVerdict(
+  bytes: Buffer,
+  want: "upright" | "upside down",
+): Promise<{ ok: boolean; detail: string }> {
+  const [page] = await renderPdfPages(new Uint8Array(bytes), 1100);
+  if (!page)
+    return { ok: false, detail: "the downloaded PDF rendered no page" };
+  let painted: string;
+  try {
+    painted = orientationOf(greyOf(page));
+  } catch (error) {
+    return { ok: false, detail: (error as Error).message };
+  }
+  const rotate = await pageRotation(new Uint8Array(bytes));
+  const text = (await pdfPlainText(bytes)).toLowerCase();
+  const words = UPRIGHT_SENTINEL.toLowerCase().split(" ");
+  const found = words.filter((w) => text.includes(w)).length;
+  // ON: turned by a /Rotate and read. OFF: the same scan, the same path,
+  // still upside down and unread, so an upright ON cannot be an instrument
+  // that reads every page as upright.
+  const ok =
+    want === "upright"
+      ? rotate === 180 && painted === "upright" && found === words.length
+      : rotate === 0 && painted === "upside down" && found < words.length;
+  return {
+    ok,
+    detail: `page 1 /Rotate ${rotate}, painted ${painted} (want ${
+      want === "upright"
+        ? "/Rotate 180, upright"
+        : "/Rotate 0, upside down, option off"
+    }); ${found} of ${words.length} sentinel words in the text layer`,
+  };
+}
+
 function csvFile(): Buffer {
   return Buffer.from("Region,Q1,Q2\nNorth,1200,1350\nSouth,980,1020\n", "utf8");
 }
@@ -936,6 +988,39 @@ const SPECS: ProofSpec[] = [
     expect: isPdf,
     want: "a still-crooked searchable PDF",
     verify: (bytes) => deskewVerdict(bytes, "crooked"),
+  },
+  // "Turn pages upright" (2026-11-01). The same pair shape: ON must come
+  // back with /Rotate 180, painted upright and read; OFF must come back
+  // upside down and unread.
+  {
+    tool: "ocr-pdf",
+    label: "ocr-pdf (upright)",
+    make: upsideDownScan,
+    name: "upside-down.pdf",
+    type: PDF_MIME,
+    options: {
+      languages: ["eng"],
+      outputMode: "searchable-pdf",
+      rotatePages: true,
+    },
+    expect: isPdf,
+    want: "an upright searchable PDF",
+    verify: (bytes) => uprightVerdict(bytes, "upright"),
+  },
+  {
+    tool: "ocr-pdf",
+    label: "ocr-pdf (upright off control)",
+    make: upsideDownScan,
+    name: "upside-down.pdf",
+    type: PDF_MIME,
+    options: {
+      languages: ["eng"],
+      outputMode: "searchable-pdf",
+      rotatePages: false,
+    },
+    expect: isPdf,
+    want: "a still upside-down PDF",
+    verify: (bytes) => uprightVerdict(bytes, "upside down"),
   },
   {
     tool: "protect-pdf",
