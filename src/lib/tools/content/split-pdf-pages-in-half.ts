@@ -28,15 +28,15 @@ const LEFT_FIRST = label("left-first", SPLIT_ORDERS);
 const RIGHT_FIRST = label("right-first", SPLIT_ORDERS);
 
 const content: ToolContent = {
-  slug: "split-pages-in-half",
+  slug: "split-pdf-pages-in-half",
 
-  seoTitle: "Split PDF Pages in Half – Scanned Book Spreads",
+  seoTitle: "Split PDF Pages in Half — Scanned Book Spreads",
 
   metaDescription:
     "Cut each page of a scanned book or two-page spread into two pages, left and right or top and bottom, keeping covers whole. Runs in your browser, no upload.",
 
   intro: [
-    "Split Pages in Half turns each page of a PDF into two pages. The usual case is a book or magazine scanned open on a flatbed, where every page of the PDF holds two facing pages side by side: after the split, each facing page is a page of its own, in reading order, ready for a phone, an e-reader or a printer. The cut goes down the middle of each page, or across it for a spread laid out one above the other.",
+    "Split PDF Pages in Half turns each page of a PDF into two pages. The usual case is a book or magazine scanned open on a flatbed, where every page of the PDF holds two facing pages side by side: after the split, each facing page is a page of its own, in reading order, ready for a phone, an e-reader or a printer. The cut goes down the middle of each page, or across it for a spread laid out one above the other.",
     `It runs in your browser with pdf-lib: the PDF is read on your device and not uploaded to pdf.xyz. The size check comes first, so a file over ${ceilingMb} MB is refused without being read. Encrypted PDFs are refused when they are opened, including a file that shows its pages without a password but restricts printing or editing, so remove the protection first.`,
     "Each half is cut from the page as your viewer shows it: the visible area, after any crop the file already has, and after any rotation setting. So on a spread that is stored upright and turned for display, Left page first still gives you the half you see on the left. The halves are made the way Crop PDF crops: each new page is a copy of the original with its crop box, the area a viewer shows, set to one half. Nothing is redrawn, so text stays sharp and selectable and pictures are not re-compressed.",
   ],
@@ -86,7 +86,7 @@ const content: ToolContent = {
     },
     {
       q: "Will the split file be twice the size?",
-      a: "No. Both halves of a page point at the same stored drawing, so the drawing is kept once, not twice, and the file grows only by a small amount for each extra page.",
+      a: "No. Both halves of a page point at the same stored drawing, so the drawing is kept once, not twice; each extra page adds only a small page entry. The whole file is also written out again, which can pack a loosely written file a little tighter, so the result can even come out slightly smaller.",
     },
     {
       q: "Does it work on rotated or already-cropped pages?",

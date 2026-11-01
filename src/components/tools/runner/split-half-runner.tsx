@@ -41,8 +41,8 @@ export function SplitHalfRunner() {
   return (
     <SinglePdfRunner
       hint="One PDF · pages split in half locally in your browser"
-      handoffSlug="split-pages-in-half"
-      toolName="Split Pages in Half"
+      handoffSlug="split-pdf-pages-in-half"
+      toolName="Split PDF Pages in Half"
     >
       {(pdf, reset) => <SplitHalfEditor pdf={pdf} onReset={reset} />}
     </SinglePdfRunner>

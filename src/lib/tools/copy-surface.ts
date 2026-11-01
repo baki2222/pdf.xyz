@@ -208,7 +208,7 @@ export function copyFiles(): string[] {
     path.join(ROOT, "src", "lib", "pdf", "metadata.ts"),
     path.join(ROOT, "src", "lib", "pdf", "resize.ts"),
     path.join(ROOT, "src", "lib", "pdf", "n-up.ts"),
-    // Split Pages in Half (2026-11-01): its option labels, hints and refusals.
+    // Split PDF Pages in Half (2026-11-01): its option labels, hints and refusals.
     path.join(ROOT, "src", "lib", "pdf", "split-half.ts"),
     path.join(ROOT, "src", "lib", "workers", "read-error.ts"),
     // The sentence an upload that did not reach storage ends with

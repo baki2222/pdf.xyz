@@ -75,7 +75,7 @@ const RUNNERS: Record<string, RunnerKind> = {
   "edit-pdf-metadata": "metadata",
   "resize-pdf": "resize",
   "n-up-pdf": "n-up",
-  "split-pages-in-half": "split-half",
+  "split-pdf-pages-in-half": "split-half",
 };
 
 export function getRunnerKind(slug: string): RunnerKind | undefined {

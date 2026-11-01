@@ -1353,7 +1353,7 @@ describe("page tools keep the document's bookmarks, page labels and metadata", (
 
   /**
    * Subset carriers that keep EVERY page and repeat some, each repeat in
-   * place after its page: Split Pages in Half (2026-11-01) gives each split
+   * place after its page: Split PDF Pages in Half (2026-11-01) gives each split
    * page two copies, one per half. `KEPT` is not a part they can produce
    * either, so each is held to `organizePages` given the same sequence of
    * pages — Organize's duplicate path is the one `assemblePages` runs for

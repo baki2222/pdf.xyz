@@ -23,7 +23,7 @@ import {
 } from "@/tests/encrypted-pdf-fixture";
 
 /**
- * Split Pages in Half, judged by what a reader receives: the SAVED file,
+ * Split PDF Pages in Half, judged by what a reader receives: the SAVED file,
  * opened with pdf.js. The oracle is never this module's geometry — it is the
  * SOURCE page rendered by pdf.js, cut in half in pixel space. Each output half
  * must look like that half of the source as a reader sees it, on every

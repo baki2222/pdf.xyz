@@ -587,7 +587,7 @@ const FACTS: Record<string, readonly ToolFact[]> = {
   ],
   // The halves are crop boxes (split-half.ts), so the page carries Crop's
   // disclosure in its own words; pinned in crop-disclosure.test.tsx.
-  "split-pages-in-half": [
+  "split-pdf-pages-in-half": [
     {
       label: "Hidden, not deleted",
       value: SPLIT_HALF_KEEPS_CONTENT,

@@ -447,7 +447,7 @@ const NUP_FAILS = {
   sheets: "four pages, two to a portrait A4 sheet",
   order: "page 1 above page 2 on sheet 1, page 3 above page 4 on sheet 2",
 } as const;
-/** Why the Split Pages in Half proof (2026-11-01) rejects an artifact. */
+/** Why the Split PDF Pages in Half proof (2026-11-01) rejects an artifact. */
 const SPLIT_HALF_FAILS = {
   halves: "two 600 × 240 pages become four 300 × 240 halves",
   order: "each page's left half (its marker) comes before its right half",
@@ -2027,7 +2027,7 @@ export const CASES: Record<string, ToolCase> = {
     rejectsBecause: [NUP_FAILS.sheets, NUP_FAILS.order],
   },
 
-  "split-pages-in-half": {
+  "split-pdf-pages-in-half": {
     kind: "split-half",
     artifact: "pdf",
     // Two 600 × 240 spreads, split with the defaults: Left and right, Left
@@ -3250,7 +3250,7 @@ export const PROOF_LIMITS: Record<string, string> = {
     "Only the defaults: A4, Match each page, Scale content to fit, all pages. Change canvas only, custom sizes and units, selected pages, pages carrying /Rotate or an inset CropBox, and links moved with the content are proven in Node by src/lib/pdf/resize.test.ts, through pdf.js, not in a real browser.",
   "n-up-pdf":
     "Only the defaults: 2 per sheet, A4, Auto (portrait here), Across, then down, Small margin, no borders. 4, 6 and 9 per sheet, Down, then across, US Letter, borders and /Rotate pages are proven in Node by src/lib/pdf/n-up.test.ts, through pdf.js, not in a real browser.",
-  "split-pages-in-half":
+  "split-pdf-pages-in-half":
     "Only the defaults: Left and right, Left page first, every page, on unrotated pages. Right page first, Top and bottom, Selected pages, the two cover checkboxes, /Rotate pages and an existing CropBox are proven in Node by src/lib/pdf/split-half.test.ts, which renders every output half through pdf.js against the source page's own render, not in a real browser.",
   "sign-pdf":
     "Only the TYPED signature source is exercised. The drawn-signature path (signature-pad.tsx) needs real pointer strokes on a canvas, and the uploaded-image source is untested.",

@@ -11,7 +11,7 @@ import { MIN_CROP_DIMENSION } from "./page-geometry";
 import { loadPdfLib } from "./pdf-lib";
 
 /**
- * Split Pages in Half — each page of a scanned two-page spread becomes two
+ * Split PDF Pages in Half — each page of a scanned two-page spread becomes two
  * pages, one per half, in the browser.
  *
  * Every split page is copied TWICE through `assemblePages` (the one way page

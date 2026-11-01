@@ -109,7 +109,7 @@ describe("the disclosure is where the user is", () => {
 });
 
 /**
- * Split Pages in Half makes its halves the same way, so it carries the same
+ * Split PDF Pages in Half makes its halves the same way, so it carries the same
  * disclosure, pinned the same way. EXIT CONDITION (the property): if a split
  * ever really removes the half a page does not show, the first test goes red,
  * and `SPLIT_HALF_KEEPS_CONTENT` must be rewritten then.
@@ -147,13 +147,13 @@ describe("splitting in half keeps the hidden half (the behaviour the copy disclo
   });
 
   it("the tool page's facts carry it", () => {
-    const values = toolFacts("split-pages-in-half").map((f) => f.value);
+    const values = toolFacts("split-pdf-pages-in-half").map((f) => f.value);
     expect(values).toContain(SPLIT_HALF_KEEPS_CONTENT);
   });
 
-  it("Redact PDF is a related tool of Split Pages in Half", () => {
+  it("Redact PDF is a related tool of Split PDF Pages in Half", () => {
     const slug = REDACT_TOOL_HREF.replace(/^\/tools\//, "");
-    expect(getToolBySlug("split-pages-in-half")?.related).toContain(slug);
+    expect(getToolBySlug("split-pdf-pages-in-half")?.related).toContain(slug);
   });
 
   it("the split runner's result panel renders the disclosure with its own sentence", () => {

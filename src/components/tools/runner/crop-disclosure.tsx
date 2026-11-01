@@ -8,7 +8,7 @@ import {
 /**
  * Shown with the cropped download — the moment someone who cropped away a
  * header with an account number is about to share the file. See
- * `@/lib/pdf/crop-disclosure` for why. Split Pages in Half passes its own
+ * `@/lib/pdf/crop-disclosure` for why. Split PDF Pages in Half passes its own
  * sentence (`SPLIT_HALF_KEEPS_CONTENT`): its halves are crop boxes too.
  */
 export function CropDisclosure({
