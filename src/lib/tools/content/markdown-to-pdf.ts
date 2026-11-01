@@ -74,10 +74,10 @@ import { formatBytes } from "@/lib/utils";
  *    is fetched when the first shapes a character to .notdef — "one font
  *    file" is the usual case, not a bound.
  *
- * Deliberately NOT mentioned: the result panel's "Start over" link. Its
- * `onReset` clears the source text but never calls `useAsyncRun().reset()`, so
- * the "PDF created" panel stays on screen; a step promising it clears the way
- * for the next document would be false until the runner is fixed.
+ * Not mentioned: the result panel's "Start over" link. HISTORY: its `onReset`
+ * once cleared the source text without `useAsyncRun().reset()`, so the "PDF
+ * created" panel stayed on screen; a2333ae7 fixed it on 2026-09-27 and
+ * `runner-flows.test.tsx` drives it.
  *
  * relatedGuides is empty: no guide in `src/lib/guides/catalog.ts` covers
  * Markdown to PDF (the translate guide only produces the .md this tool reads).

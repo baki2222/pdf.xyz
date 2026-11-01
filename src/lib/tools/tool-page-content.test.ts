@@ -306,11 +306,21 @@ describe("guides discuss every tool they link", () => {
     const others = compress.tools.slice(1).map((slug) => tool(slug).name);
     const strip = (text: string) =>
       others.some((name) => text.includes(name)) ? "" : text;
+    // Every part `guideBody` reads. Until 2026-11-01 only section bodies were
+    // stripped, and the control passed because the FAQ that named Optimize
+    // PDF for Web called it "Optimize for Web" — a name the detector cannot
+    // see. Naming it properly broke the control, not the guide.
     const shipped: Guide = {
       ...compress,
+      intro: compress.intro.map(strip),
+      steps: compress.steps.map(strip),
       sections: compress.sections.map((s) => ({
         ...s,
         body: s.body.map(strip),
+      })),
+      faq: compress.faq.map((f) => ({
+        question: strip(f.question),
+        answer: strip(f.answer),
       })),
     };
     expect(undiscussed(shipped).sort()).toEqual(compress.tools.slice(1).sort());
