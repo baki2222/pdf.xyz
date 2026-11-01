@@ -141,6 +141,7 @@ import { MERGE_MODE_LABEL } from "@/lib/pdf/merge-order";
 import {
   DECODED_IMAGE_LABELS,
   REFUSED_IMAGE_LABELS,
+  imagePdfOutputName,
 } from "@/lib/pdf/image-to-pdf";
 import { TRANSCODE_JPEG_QUALITY } from "@/lib/pdf/image-transcode";
 import {
@@ -160,7 +161,14 @@ import {
   REENCODE_LADDER,
   limitOutcome,
 } from "@/lib/pdf/image-size-limit";
-import { IMAGE_OUTPUTS } from "@/lib/pdf/image-page-layout";
+import {
+  DEFAULT_IMAGE_PAGE_OPTIONS,
+  IMAGE_MARGINS,
+  IMAGE_OUTPUTS,
+  IMAGE_PAGE_SIZES,
+  MAX_PAGE_SIDE_PT,
+  imagePageLayout,
+} from "@/lib/pdf/image-page-layout";
 import { RETENTION_WINDOWS } from "@/lib/retention-windows";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
 import {
@@ -168,7 +176,7 @@ import {
   PDFA_EXPECTED_PART,
 } from "@/lib/workers/pdf-archive/pdfa-markers";
 import { pdfaOutputName } from "@/lib/workers/processor/pdf-archive";
-import { LARGE_RASTER_PAGES } from "@/lib/intent/defaults";
+import { LARGE_RASTER_PAGES, naturalOrder } from "@/lib/intent/defaults";
 import { textOutputName } from "@/lib/pdf/text";
 import {
   GRAYSCALE_DPI_PRESETS,
@@ -194,6 +202,44 @@ import {
   PARAGRAPH_GAP_RATIO,
   markdownOutputName,
 } from "@/lib/pdf/pdf-to-markdown";
+import {
+  SUPPORTED_SCRIPTS,
+  UNSUPPORTED_SCRIPTS,
+  monospaceClaimSentence,
+} from "@/lib/pdf/font-packs";
+import { headerFooterOutputName } from "@/lib/pdf/header-footer";
+import { textPdfOutputName } from "@/lib/pdf/text-to-pdf";
+import {
+  MAX_REQUEST_SIGNERS,
+  REQUEST_PACKAGE_FILES,
+  signatureRequestOutputName,
+} from "@/lib/jobs/request-signatures";
+import {
+  EXTRACTION_FIELD_TYPES,
+  MAX_EXTRACTION_FIELDS,
+  MAX_EXTRACTION_PROMPT_CHARS,
+  MAX_FIELD_NAME_CHARS,
+  extractionOutputName,
+} from "@/lib/jobs/ai-extract";
+import {
+  AI_EXTRACT_NOT_NULL_WARNING,
+  AI_EXTRACT_NULL_CELL_LEGEND,
+  AI_EXTRACT_NULL_INSTRUCTION,
+  AI_EXTRACT_NULL_MEANING,
+  AI_EXTRACT_NULL_PAST_CUT,
+  AI_EXTRACT_UNRETURNED_NULL,
+} from "@/lib/jobs/ai-extract-null-meaning";
+import {
+  OVERLAY_FITS,
+  OVERLAY_LAYERS,
+  overlayOutputName,
+  type OverlayLayer,
+} from "@/lib/pdf/overlay";
+import { webOptimizedOutputName } from "@/lib/workers/processor/pdf-structure";
+import {
+  DEFAULT_HTML_RENDER_OPTIONS,
+  HTML_MARGINS,
+} from "@/lib/jobs/html-render-options";
 import type { Guide } from "./types";
 
 /**
@@ -545,6 +591,115 @@ const TABLES_EXAMPLE_ZIP = tableExtractOutputName("report.pdf", "zip");
 /** PDF to Markdown (2026-10-31), from the converter's own constants. */
 const MD_HEADING_PCT = Math.round((HEADING_SIZE_RATIO - 1) * 100);
 const MD_EXAMPLE_OUT = markdownOutputName("report.pdf");
+
+/**
+ * The scripts the shipped font packs draw, and the ones a stamp or a text
+ * PDF refuses by name (2026-10-31), from `font-packs.ts` itself. A guide
+ * that names an example refusal checks the list still holds it.
+ */
+const DRAWN_SCRIPTS = listAnd(SUPPORTED_SCRIPTS);
+const REFUSED_SCRIPT_NAMES = UNSUPPORTED_SCRIPTS.map((s) => s.name);
+const RTL_REFUSED = listAnd(
+  UNSUPPORTED_SCRIPTS.filter((s) => /right to left/i.test(s.reason)).map(
+    (s) => s.name,
+  ),
+);
+const NO_FACE_EXAMPLES = ["Thai", "Tamil"] as const;
+if (
+  !NO_FACE_EXAMPLES.every((name) => REFUSED_SCRIPT_NAMES.includes(name)) ||
+  !REFUSED_SCRIPT_NAMES.includes("emoji") ||
+  !["Arabic", "Hebrew"].every((name) => REFUSED_SCRIPT_NAMES.includes(name))
+) {
+  throw new Error(
+    "a guide names Arabic, Hebrew, Thai, Tamil and emoji as refused; font-packs no longer lists them all",
+  );
+}
+if (
+  !["Bengali", "Hiragana", "Han"].every((s) => SUPPORTED_SCRIPTS.includes(s))
+) {
+  throw new Error(
+    "a guide refuses a Japanese header over a Bengali footer as two faces; font-packs no longer draws both",
+  );
+}
+
+/** PDF Header & Footer (2026-10-31): the download name from its own helper. */
+const HF_EXAMPLE_OUT = headerFooterOutputName("report.pdf");
+
+/** Text to PDF (2026-10-31): download names, as its runner names them. */
+const TXT_EXAMPLE_OUT = textPdfOutputName("notes.txt");
+/** Pasted text carries the runner's default source name, "text.txt". */
+const TXT_PASTED_OUT = textPdfOutputName("text.txt");
+
+/** Request Signatures (2026-10-31), from its job contract. */
+const SIGN_REQUEST_EXAMPLE_ZIP = signatureRequestOutputName("contract.pdf");
+const SIGN_REQUEST_FILES = listAnd(Object.values(REQUEST_PACKAGE_FILES));
+
+/** AI Data Extraction (2026-10-31), from its job contract. */
+const EXTRACT_FIELD_TYPES = listOr(EXTRACTION_FIELD_TYPES);
+const EXTRACT_PROMPT_CHARS =
+  MAX_EXTRACTION_PROMPT_CHARS.toLocaleString("en-US");
+const EXTRACT_EXAMPLE_ZIP = extractionOutputName("invoice.pdf");
+
+/**
+ * PNG to PDF (2026-10-31). The screenshot's page sizes are the engine's own
+ * layout (`imagePageLayout`, one point per pixel) for a screenshot of the
+ * stated size; the download name is the runner's (`imagePdfOutputName`).
+ * The numbered-screenshot example is run through the runner's own ordering
+ * (`naturalOrder`), so a rule that stops sorting those names fails here.
+ */
+const PNG_FIT_LABEL = labelOf(IMAGE_PAGE_SIZES, "fit");
+const PNG_DEFAULT_MARGIN_IN = inches(
+  IMAGE_MARGINS.find((m) => m.id === DEFAULT_IMAGE_PAGE_OPTIONS.margin)!.points,
+);
+const PNG_SHOT_W = 1920;
+const PNG_SHOT_H = 1080;
+const PNG_SHOT_PX = PNG_SHOT_W.toLocaleString("en-US");
+const inchesOf = (pt: number) => (pt / PT_PER_INCH).toFixed(1);
+const PNG_SHOT_ON_PAPER_IN = inchesOf(
+  imagePageLayout(PNG_SHOT_W, PNG_SHOT_H, DEFAULT_IMAGE_PAGE_OPTIONS).width,
+);
+const PNG_SHOT_FIT_PAGE_IN = inchesOf(
+  imagePageLayout(PNG_SHOT_W, PNG_SHOT_H, {
+    ...DEFAULT_IMAGE_PAGE_OPTIONS,
+    pageSize: "fit",
+  }).pageWidth,
+);
+const PNG_MAX_PAGE_IN = MAX_PAGE_SIDE_PT / PT_PER_INCH;
+const PNG_SHOT_NAMES = [
+  "Screenshot (1).png",
+  "Screenshot (2).png",
+  "Screenshot (10).png",
+];
+if (!naturalOrder([...PNG_SHOT_NAMES].reverse())) {
+  throw new Error(
+    "the PNG guide says numbered screenshots are put in number order; the runner no longer orders these names",
+  );
+}
+const PNG_EXAMPLE_OUT = imagePdfOutputName("png", "chart.png");
+
+/** Overlay PDF (2026-10-31), by the labels its Placement controls draw. */
+function overlayLayerLabel(id: OverlayLayer): string {
+  return labelOf(OVERLAY_LAYERS, id);
+}
+const OVERLAY_ON_TOP = overlayLayerLabel("front");
+const OVERLAY_BEHIND = overlayLayerLabel("back");
+const OVERLAY_MULTIPLY = overlayLayerLabel("multiply");
+const OVERLAY_FIT = labelOf(OVERLAY_FITS, "fit");
+const OVERLAY_STRETCH = labelOf(OVERLAY_FITS, "stretch");
+const OVERLAY_ACTUAL = labelOf(OVERLAY_FITS, "actual");
+const OVERLAY_EXAMPLE_OUT = overlayOutputName("letter.pdf");
+
+/** Optimize PDF for Web (2026-10-31): the download name the worker gives. */
+const WEB_EXAMPLE_IN = "catalogue.pdf";
+const WEB_EXAMPLE_OUT = webOptimizedOutputName(WEB_EXAMPLE_IN);
+
+/**
+ * HTML to PDF (2026-10-31): the margin an untouched layout prints with, from
+ * the option list the panel draws and the worker validates.
+ */
+const HTML_DEFAULT_MARGIN = HTML_MARGINS.find(
+  (m) => m.id === DEFAULT_HTML_RENDER_OPTIONS.margin,
+)!;
 
 export const guides: Guide[] = [
   {
@@ -3014,7 +3169,6 @@ export const guides: Guide[] = [
       "url to pdf",
       "save web page as pdf",
       "website to pdf",
-      "html file to pdf",
     ],
     intro: [
       `To save a web page as a PDF, open ${nameOf("webpage-to-pdf")}, paste the page's full address, choose a page layout if you want one, and press Render PDF. A copy of Chromium, the engine behind Chrome and Edge, loads the page, lets its scripts run, and prints it to a PDF whose text you can search and copy.`,
@@ -3078,7 +3232,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-30",
+    updated: "2026-10-31",
   },
   {
     slug: "how-to-extract-images-from-a-pdf",
@@ -5088,6 +5242,719 @@ export const guides: Guide[] = [
       {
         question: "Can it convert a password-protected PDF?",
         answer: `Not one that needs a password to open: it is refused as it opens. ${nameOf("unlock-pdf")} removes that password if you know it, but it runs on our secure server. A PDF that opens without a password and only restricts copying or printing converts like any other.`,
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  {
+    slug: "how-to-add-a-header-and-footer-to-a-pdf",
+    title: "How to add a header and footer to a PDF",
+    description:
+      "Put a line of your own text at the top and bottom of every PDF page, with page number, page count and date fields, aligned as you choose, in your browser.",
+    tools: ["header-footer", "page-numbers", "watermark-pdf"],
+    keywords: [
+      "how to add a header and footer to a pdf",
+      "add header to pdf",
+      "add footer to pdf",
+      "pdf header and footer",
+      "page x of y footer in a pdf",
+      "add a date to a pdf footer",
+    ],
+    intro: [
+      `To add a header and footer to a PDF, open ${nameOf("header-footer")}, add your PDF, type a line in Header text, a line in Footer text, or both, and press Add header & footer. Each line is drawn on every page, and you download the stamped copy.`,
+      "The footer starts out as Page {n} of {total}, so a plain page count needs no typing at all. The {n}, {total} and {date} buttons beside each field add a field that fills itself in page by page: {n} is the page number, {total} the number of pages in the file, and {date} today's date as your browser writes it.",
+      `The PDF is read and rewritten in your browser, so it stays on your device, and there is no account to create. It takes one PDF at a time, up to ${ceilingMb("header-footer")} MB.`,
+    ],
+    steps: [
+      `Open the ${nameOf("header-footer")} tool.`,
+      "Drop your PDF on the panel that says “Drop your PDF here, or browse”, or click it to choose the file. Its name, page count and size appear above the editor.",
+      "Type the top line in Header text and the bottom line in Footer text. The {n}, {total} and {date} buttons add that field to the end of the line; leave a field empty to skip that band.",
+      "Choose Left, Center or Right under each field. The chip beside the Header and Footer headings shows how page 1 will read.",
+      "Press Add header & footer. It works once either field has text.",
+      `When the panel reads Header & footer added, press Download PDF. report.pdf is saved as ${HF_EXAMPLE_OUT}.`,
+    ],
+    sections: [
+      {
+        id: "page-numbers-count-and-date",
+        heading: "Page numbers, the page count and the date",
+        body: [
+          "{n} is each page's position in the file, counting the first page as 1, and {total} is the number of pages the file has, so the default footer reads Page 1 of 12 on the first of twelve pages. Typing {page} and {pages} works the same way.",
+          "{date} is filled in once, when you press the button, and written as plain text, so it does not change when the file is opened later. It takes your browser's date format when a font pdf.xyz ships can draw it beside your text; otherwise the same day is written in Latin digits, and failing that as year-month-day. The chip beside each heading shows exactly what will be printed.",
+        ],
+      },
+      {
+        id: "what-you-can-change",
+        heading: "What you can change, and what is fixed",
+        body: [
+          "You choose the wording, the fields and each band's alignment. The font size, the grey ink and the distance from the edge are fixed, and each band holds one line in one position, so the same band cannot carry text at the left and the right at once.",
+          "Every page gets the same lines, the first page included. The text is drawn on top of the page with no background, and nothing is moved to make room, so text already printed near the edge will overlap it, and running the tool twice gives two headers. A page stored sideways still gets its header at the top as you view it, reading level.",
+        ],
+      },
+      {
+        id: "languages-and-scripts",
+        heading: "Languages and scripts",
+        body: [
+          `While everything in both lines fits the Western European character set, it is set in Helvetica. One character outside it moves both lines to a Noto typeface that the page fetches from pdf.xyz's own site and embeds in the file; that request carries nothing from your document. The scripts it can draw are ${DRAWN_SCRIPTS}.`,
+          `${RTL_REFUSED} text is refused, because each line is laid out left to right and would come out reversed. So is text in a script no shipped font draws, such as ${listOr(NO_FACE_EXAMPLES)}, and emoji. Both lines share one font, so a header and footer that would need two, such as Japanese above Bengali, are refused too, and the message names the scripts involved.`,
+        ],
+      },
+      {
+        id: "header-footer-or-page-numbers",
+        heading: "Header & Footer, Page Numbers or a watermark",
+        body: [
+          `For numbers alone, ${nameOf("page-numbers")} offers more control: a choice of positions, Start on page to leave a cover unnumbered, and First number to start counting from somewhere other than 1. ${nameOf("header-footer")} has neither setting; it is for your own words along the top and bottom edges, with the number worked in if you want it.`,
+          `For a word across the middle of every page, such as DRAFT or CONFIDENTIAL, ${nameOf("watermark-pdf")} is made for that. All three run in your browser.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "How do I add Page 1 of 10 to the footer?",
+        answer:
+          "It is the default. The footer opens as Page {n} of {total}, and the total is the file's own page count. Reword it as you like, for example {n} / {total}, or press Add header & footer as it is.",
+      },
+      {
+        question: "Can I leave the header off the cover page?",
+        answer: `Not with this tool: every page gets the same lines. If what you need on the other pages is a number, ${nameOf("page-numbers")} has a Start on page setting that skips the cover.`,
+      },
+      {
+        question: "Can I change the font, size or colour?",
+        answer:
+          "No. The size, the grey ink and the margin are fixed. The typeface follows your characters: Helvetica for Western European text, and an embedded Noto face when a character needs one.",
+      },
+      {
+        question: "Does my PDF leave my device?",
+        answer: `No. It is opened, stamped and saved in your browser tab, up to ${ceilingMb("header-footer")} MB. When your text or the date needs a Noto font, the page fetches the font file from pdf.xyz's own site, and that request carries no part of your document.`,
+      },
+      {
+        question: "Why was my header text refused?",
+        answer: `${RTL_REFUSED} cannot be laid out right to left yet, scripts such as ${listOr(NO_FACE_EXAMPLES)} have no shipped font, and emoji are not embedded. A header and footer that need two different fonts are refused together, so put a Japanese header over a footer in Latin letters rather than one in Bengali.`,
+      },
+      {
+        question: "Can I add a header to a password-protected PDF?",
+        answer: `Not while it is locked. An encrypted PDF is stopped when it is read, with a message naming its lock and a link to ${nameOf("unlock-pdf")}. That tool removes the lock with a password you know, but it runs on our secure server, so the file leaves your device for that step.`,
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  {
+    slug: "how-to-convert-a-text-file-to-pdf",
+    title: "How to convert a text file (TXT) to PDF",
+    description:
+      "Turn a .txt file or pasted text into a paginated PDF with a heading and a page count on every page, made in your browser. No account needed.",
+    tools: ["text-to-pdf", "markdown-to-pdf", "merge-pdf"],
+    keywords: [
+      "how to convert txt to pdf",
+      "txt to pdf",
+      "text file to pdf",
+      "convert a notepad file to pdf",
+      "plain text to pdf",
+      "save text as a pdf",
+    ],
+    intro: [
+      `To convert a text file to PDF, open ${nameOf("text-to-pdf")}, drop your .txt file on the page or paste the text into the Text content box, press Create PDF, then press Download PDF. You get a paginated PDF on ${US_LETTER_LABEL} pages.`,
+      "Every page carries a small heading, the file's name without its extension, or “text” for pasted text, and a page-of-total count in the footer. Long lines wrap at spaces, a word too long for one line is broken, tabs become spaces, and blank lines and leading indentation are kept. There are no settings for page size, font or margins.",
+      `The PDF is made in your browser, so your text stays on your device and there is no account to create. The text can be up to ${MAX_SOURCE_MB} MB.`,
+    ],
+    steps: [
+      `Open the ${nameOf("text-to-pdf")} tool.`,
+      "Drop a .txt file on the box that says “Drop a TXT file here, or browse”, or click browse to choose one. Loading a file replaces whatever is in the box.",
+      "Or paste or type straight into the Text content box. The figure beside its heading counts the characters and the size as you go, and you can edit the text before converting.",
+      "Press Create PDF. The button reads Creating PDF… while the pages are set.",
+      `Under “PDF created”, press Download PDF. notes.txt is saved as ${TXT_EXAMPLE_OUT}, and pasted text as ${TXT_PASTED_OUT}.`,
+      "Press Start over to clear the box for the next text.",
+    ],
+    sections: [
+      {
+        id: "how-the-file-is-read",
+        heading: "How the file is read",
+        body: [
+          "A file whose name ends in .txt or .text, or that your system labels plain text, is accepted. For a .log, .csv or other text file, paste its contents into the box or rename it to .txt first.",
+          "A file that starts with a byte-order mark is read in the UTF-8 or UTF-16 encoding it declares. Otherwise its bytes are inspected and it is read as UTF-16, UTF-8 or Windows-1252, the encoding older Windows programs save in, and a note under the box names the encoding whenever it had to be assumed. Other legacy encodings, such as Cyrillic Windows-1251 or Shift-JIS, are not detected and come out with the wrong letters, so save those as UTF-8 first.",
+        ],
+      },
+      {
+        id: "fonts-and-scripts",
+        heading: "Fonts, columns and other scripts",
+        body: [
+          `Western European text is set in Courier, one of the fonts PDF readers supply themselves, so nothing is fetched or embedded. ${monospaceClaimSentence()} Where Courier cannot draw a character but that face can, as with Polish or Russian letters, the monospace face is fetched from pdf.xyz's own site and embedded, so columns lined up with spaces stay lined up as long as each line fits the page width.`,
+          `Any other character, in the text or in the file's name, moves the whole body to a proportional Noto face, and space-aligned columns then stop lining up. The scripts the bundled faces draw are ${DRAWN_SCRIPTS}. ${RTL_REFUSED} text and emoji stop the conversion with an explanation, and so does a mix of scripts that need different fonts, such as Chinese and Bengali in one file. Nothing is swapped for a placeholder.`,
+        ],
+      },
+      {
+        id: "text-or-markdown",
+        heading: "Plain text, Markdown, or several files",
+        body: [
+          `${nameOf("text-to-pdf")} prints the text as it is, which suits notes, logs and transcripts. For headings, bold, lists or code blocks, write the text as Markdown and use ${nameOf("markdown-to-pdf")}, which also runs in your browser.`,
+          `It converts one text at a time. To make one PDF from several files, paste them into the box one after another and convert once, or convert each file and then join the PDFs in order with ${nameOf("merge-pdf")}.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Is my text sent to a server?",
+        answer:
+          "No. The PDF is made in your browser tab, and the text stays on your device. The only thing the page may fetch from pdf.xyz is a font file, when your text or file name needs characters beyond Western European, and that request carries none of your words.",
+      },
+      {
+        question: "How large a text file can I convert?",
+        answer: `Up to ${MAX_SOURCE_MB} MB, whether you load a file or paste. A file larger than that is turned away when you load it, and the text is measured again when you press Create PDF. Chinese or Bengali characters take several bytes each, so such text reaches the cap at fewer characters than English.`,
+      },
+      {
+        question:
+          "Is there a setting for A4 paper, another font or wider margins?",
+        answer: `No. Every PDF is ${US_LETTER_LABEL}, with fixed margins and text size, and the page heading is also the document's Title property. For more control over the look, write Markdown and use ${nameOf("markdown-to-pdf")}.`,
+      },
+      {
+        question: "Which languages come out correctly?",
+        answer: `Western European text, and text in ${DRAWN_SCRIPTS}, gets a font that can draw it. ${RTL_REFUSED} text and emoji are refused with an explanation, and so is any script without a bundled font; the message shows the characters it could not draw.`,
+      },
+      {
+        question: "Why do the accented letters in my file look wrong?",
+        answer:
+          "The file is probably in a legacy encoding other than Windows-1252, such as Windows-1251 or Shift-JIS, which is read as Windows-1252. Save it as UTF-8 in your text editor and load it again. A note under the box says when an encoding was assumed.",
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  {
+    slug: "how-to-prepare-a-pdf-for-others-to-sign",
+    title: "How to prepare a PDF for other people to sign",
+    description:
+      "Add a named signature box, and a date box, for each signer on one PDF, then send the prepared file yourself. pdf.xyz emails no one and collects nothing.",
+    tools: ["request-signatures", "fill-forms", "sign-pdf"],
+    keywords: [
+      "how to prepare a pdf for someone to sign",
+      "prepare a pdf for signature",
+      "add signature fields to a pdf",
+      "request a signature on a pdf",
+      "pdf for several signers",
+      "add a signature box to a pdf",
+    ],
+    intro: [
+      `To get a PDF ready for other people to sign, open ${nameOf("request-signatures")}, add the PDF, list each signer's name and email, pick the page for the signature block, and press Prepare signature request. Our secure server adds a fillable signature box for each signer, with a date box beside it unless you untick that option, and you download a ZIP holding the prepared PDF.`,
+      "Know this before you start: pdf.xyz does not contact your signers. There is no email, no signing page, no reminder and no tracking. The names and addresses you type are written into the package, not used to reach anyone, so you send the prepared PDF yourself, and each signer types into their own boxes.",
+      `${nameOf("request-signatures")} runs on our secure server, not in your browser. Your PDF, up to ${ceilingMb("request-signatures")} MB, and the signers' names and addresses travel over an encrypted connection. The PDF you sent is deleted when the job ends, and our server's link to the ZIP, which carries those names and addresses, stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
+    ],
+    steps: [
+      `Open the ${nameOf("request-signatures")} tool. Prepare signature request works once the status badge reads Secure server.`,
+      "Drop one PDF on the box that says “Add your PDF, or browse”, or click it to choose the file. Its page count appears beside its name once your browser has read it.",
+      `Under Signers, type each person's Full name and email address. Add signer adds a row, up to ${MAX_REQUEST_SIGNERS}. A row without a name or a valid-looking email is left out.`,
+      "Choose Sequential — one at a time or Parallel — everyone at once under Signing order. Signature page starts on the last page; change it if the block belongs elsewhere, and check the preview of that page.",
+      "Fill Request title (optional) if the package should name the agreement, and untick Add a date field next to each signature for signature boxes only.",
+      "Press Prepare signature request. Your PDF uploads over an encrypted connection to our secure server, and the button follows the job until the package is back in the page.",
+      `Press Download ${SIGN_REQUEST_EXAMPLE_ZIP}, the button named after your file: contract.pdf comes back as ${SIGN_REQUEST_EXAMPLE_ZIP}. Save it before you close the tab.`,
+      `Unzip it and send ${REQUEST_PACKAGE_FILES.prepared} to your signers yourself.`,
+    ],
+    sections: [
+      {
+        id: "what-is-in-the-zip",
+        heading: "What is in the ZIP",
+        body: [
+          `The ZIP holds ${SIGN_REQUEST_FILES}. ${REQUEST_PACKAGE_FILES.prepared} is your document with the new boxes; every page and any form fields it already had are kept. ${REQUEST_PACKAGE_FILES.manifest} records each signer, the boxes that belong to them and the signing order, and ${REQUEST_PACKAGE_FILES.readme} lists the signers in order with their boxes.`,
+          `${REQUEST_PACKAGE_FILES.manifest} and ${REQUEST_PACKAGE_FILES.audit} both carry the SHA-256 fingerprint of the file you sent, so you can later hash your original and confirm it is the document the request was prepared from; ${REQUEST_PACKAGE_FILES.prepared} itself will not match, because the boxes changed it. The package is always marked as prepared, never as signed.`,
+        ],
+      },
+      {
+        id: "where-the-boxes-go",
+        heading: "Where the boxes go",
+        body: [
+          "The boxes are placed for you, near the left edge just above the foot of the chosen page as it is displayed, so a rotation or crop the page carries is taken into account. Signer 1's box is lowest and each further signer's sits above it, with the date box to its right. Rows keep one height for a short list and shrink as more signers are added, so the block still fits the page.",
+          "There is no dragging. The boxes are outlines with no background, laid over whatever is printed there, so choose a page with blank space at the foot. The preview shows each signer's boxes on the page before anything is sent.",
+        ],
+      },
+      {
+        id: "how-signers-fill-them-in",
+        heading: "How your signers fill them in",
+        body: [
+          "Each box is an ordinary text form field named after its owner, such as Signer1-Signature-1 and Signer1-Date-1. A signer types a name into their signature box and the date into the date box, in any PDF viewer that fills forms; the date box is blank, not a date stamp.",
+          `${nameOf("fill-forms")} fills the boxes in the signer's browser. Its Flatten after filling option bakes every field into the page, other signers' empty boxes included, so only the last person to sign should tick it.`,
+        ],
+      },
+      {
+        id: "order-and-what-it-is-not",
+        heading: "Signing order, and what this is not",
+        body: [
+          `Sequential and Parallel are recorded in ${REQUEST_PACKAGE_FILES.manifest} and ${REQUEST_PACKAGE_FILES.readme}; pdf.xyz does not route the file, so the order holds only if you pass the PDF from one signer to the next yourself.`,
+          `A typed name in a form field is not a certificate-based digital signature: there is no identity check and no tamper seal. To sign a document yourself, ${nameOf("sign-pdf")} draws, types or places an image of your signature on the page, in your browser.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Does pdf.xyz email the document to my signers?",
+        answer: `No. There is no email, reminder or status tracking. The names and addresses you type are copied into ${REQUEST_PACKAGE_FILES.manifest} and ${REQUEST_PACKAGE_FILES.readme}; unzip the package and send ${REQUEST_PACKAGE_FILES.prepared} however you normally share files.`,
+      },
+      {
+        question: "Can I see who has signed?",
+        answer:
+          "No. There is no status page and no record of signing: the package records what was prepared, not who signed it. Ask each signer to send the completed PDF back to you.",
+      },
+      {
+        question: "Can I move the boxes?",
+        answer:
+          "No. They are placed automatically near the foot of the chosen page, signer 1 lowest. Pick a page with blank space at the bottom, and check the preview before you prepare the request.",
+      },
+      {
+        question: "How many people can sign one PDF?",
+        answer: `Up to ${MAX_REQUEST_SIGNERS}, each with their own signature box and, unless you untick the option, a date box, all on the one page you choose.`,
+      },
+      {
+        question: "Why can't I prepare a password-protected PDF?",
+        answer: `Boxes cannot be added to a locked file, so an encrypted PDF is stopped as soon as you add it, before anything is sent, with a message saying which lock it has. Remove the lock with ${nameOf("unlock-pdf")}, using a password you know, then prepare the unlocked copy.`,
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  {
+    slug: "how-to-extract-data-from-a-pdf-with-ai",
+    title: "How to extract data from a PDF with AI",
+    description:
+      "Name the fields you need, such as an invoice number, a date or a total, and an AI model pulls them out of a PDF's text as JSON. Scans need OCR first.",
+    tools: ["ai-extract", "ocr-pdf", "extract-tables"],
+    keywords: [
+      "how to extract data from a pdf",
+      "extract data from pdf",
+      "pdf to json",
+      "ai pdf data extraction",
+      "extract invoice data from a pdf",
+      "pull fields out of a pdf",
+    ],
+    intro: [
+      `To extract data from a PDF with AI, open ${nameOf("ai-extract")}, add your PDF, list the values you want under Fields to extract, or switch to Prompt and describe them, and press Extract data. An AI model reads the document's text and returns the values as JSON, and you download a ZIP with the JSON and a readable table.`,
+      `Use the values as a first draft, not as a record. ${AI_EXTRACT_NULL_INSTRUCTION} It is also told to use only the document's text, yet nothing checks a value against the pages afterwards, so check any figure you plan to act on against the original.`,
+      `${nameOf("ai-extract")} is one of the AI tools, so the work does not happen in your browser. Your PDF uploads over an encrypted connection to our secure server, which extracts the selectable text and sends that text, with your field list or instruction, to a third-party AI provider; the PDF file itself is never sent to the provider. Your PDF is deleted when the job ends, and our server's link to the ZIP stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
+    ],
+    steps: [
+      `Open the ${nameOf("ai-extract")} tool. Extract data works once the status badge reads Secure server.`,
+      "Drop one PDF on the box that says “Add your PDF, or browse”, or click it to choose the file. It needs selectable text; for a scan, run OCR PDF first.",
+      `Under Fields to extract, type a field name of up to ${MAX_FIELD_NAME_CHARS} characters, such as invoice_number, and choose its type: ${EXTRACT_FIELD_TYPES}. Add field adds a row, up to ${MAX_EXTRACTION_FIELDS}.`,
+      `Or press Prompt and describe what you want in the What to extract box, up to ${EXTRACT_PROMPT_CHARS} characters.`,
+      "Press Extract data. Your PDF uploads over an encrypted connection to our secure server, and the button follows the job while the model reads.",
+      `Press Download ${EXTRACT_EXAMPLE_ZIP}, the button named after your file: invoice.pdf comes back as ${EXTRACT_EXAMPLE_ZIP}. Save it to your device before you close the tab.`,
+    ],
+    sections: [
+      {
+        id: "field-schema-or-prompt",
+        heading: "Field schema or prompt",
+        body: [
+          "Field schema is selected when the page opens. The model is told to use each field name, unchanged, as a key in its answer, so a schema such as invoice_number, invoice_date, vendor and total asks every invoice for the same four keys, and a script can read the results side by side. Give a field the array type to collect a list, such as every product code. Two fields cannot share a name, even if only their capital letters differ; the page flags the repeat and keeps Extract data inactive until you rename it.",
+          "Prompt suits a one-off question in your own words, such as the parties, the start date and the notice period in a contract. The model is then asked for a flat JSON object and chooses descriptive key names itself, so the keys can differ from one document to the next.",
+        ],
+      },
+      {
+        id: "what-you-download",
+        heading: "What you download",
+        body: [
+          `In the ZIP, model-output.json is the model's reply as it was returned. extraction.json holds the same data; with a field schema it lists every field you asked for, in your order and under your names, and a key the model respelled is mapped back to your name. ${AI_EXTRACT_UNRETURNED_NULL}`,
+          `extraction.md lays the data out as a Field and Value table, or as a numbered list when the reply is a list. ${AI_EXTRACT_NULL_CELL_LEGEND} manifest.json records the provider and model, your fields or prompt, and how much of the document was read, and README.txt describes the package. There is no CSV or spreadsheet; for data in rows and columns, ${nameOf("extract-tables")} writes a CSV per table and an Excel workbook.`,
+        ],
+      },
+      {
+        id: "nulls-and-wrong-values",
+        heading: "Nulls, wrong values and long documents",
+        body: [
+          `${AI_EXTRACT_NULL_MEANING} ${AI_EXTRACT_NOT_NULL_WARNING} A wrong value comes from the model's reading or from the text it was given: a misread OCR layer, or side-by-side columns read across as one line, can mislead it. When a page holds several similar figures, name the exact one you want.`,
+          `The model reads a bounded amount of the document's text, and the exact figure is stated on the ${nameOf("ai-extract")} page itself. Past that point the text is dropped, and the result says how far the reading got. ${AI_EXTRACT_NULL_PAST_CUT} Files themselves are capped at ${ceilingMb("ai-extract")} MB.`,
+        ],
+      },
+      {
+        id: "allowance-and-privacy",
+        heading: "The free allowance and where your text goes",
+        body: [
+          `Extractions are free, within a daily allowance. ${aiAllowanceFactFor("ai-extract")} The charge is taken when the job is submitted, so a job our server refuses or that fails still uses it.`,
+          "Our server sends the PDF's extracted text, with your field names or instruction, to a third-party AI provider; the PDF file itself is never sent to the provider. The settings in our provider account that would let it use this text to improve its models are switched off, though the provider may keep what it receives for a limited time to watch for abuse. Section 3 of our privacy policy covers the provider's side.",
+        ],
+      },
+      {
+        id: "scanned-pdfs-need-ocr-first",
+        heading: "Scanned PDFs need OCR first",
+        body: [
+          `The tool reads only text stored in the PDF as text. Your browser checks the file for text before anything is sent, and a scan with none is stopped there with a message pointing you to ${nameOf("ocr-pdf")}; that refusal takes nothing from the allowance.`,
+          `Run the scan through ${nameOf("ocr-pdf")} with the document's language selected, then extract from the searchable copy, and check the figures, since recognition can misread them.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Is the extracted data accurate?",
+        answer: `Treat it as a first draft. ${AI_EXTRACT_NULL_INSTRUCTION} But nothing checks a value against the pages, so a figure can still be wrong. Check anything you plan to rely on against the original.`,
+      },
+      {
+        question: "How many extractions can I run for free?",
+        answer: aiAllowanceFactFor("ai-extract"),
+      },
+      {
+        question: "Who sees the text of my PDF?",
+        answer: `A third-party AI provider receives the extracted text and your field names or instruction; the PDF file never reaches it. Our server deletes your PDF when the job ends, and the link to the ZIP stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
+      },
+      {
+        question: "Can I get the data as CSV or Excel?",
+        answer: `Not from this tool: it writes JSON and a Markdown table. For tables, ${nameOf("extract-tables")} returns a CSV per table and an Excel workbook, without AI, on our secure server.`,
+      },
+      {
+        question: "Can it extract data from a scanned PDF?",
+        answer: `Not directly. Run it through ${nameOf("ocr-pdf")} first to add a text layer, then extract from the result. A PDF with no text is refused before it is sent, so it costs nothing from the allowance.`,
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  // Added 2026-10-31, the last four tools without a guide of their own.
+  // PNG to PDF: written for what is particular to PNG, not a second JPG
+  // guide. The alpha, Flate, palette and 16-bit facts were probed on
+  // 2026-10-31 through `imagesToPdf` itself with synthetic PNGs (opaque RGB,
+  // RGBA all opaque, RGBA with alpha, palette, palette + tRNS, greyscale,
+  // 16-bit RGB): every image was DeviceRGB, 8 bits, FlateDecode with no
+  // predictor; an SMask only where some alpha was below 255; palette and
+  // greyscale PDFs larger than their PNGs. The same facts are recorded on the
+  // tool page (`content/png-to-pdf.ts`), probed 2026-09-27.
+  {
+    slug: "how-to-convert-png-to-pdf",
+    title: "How to convert PNG to PDF (screenshots and logos)",
+    description:
+      "Turn PNG screenshots, charts and logos into one PDF in your browser. Pixels are kept without JPEG blur, and see-through areas sit on a white page.",
+    tools: ["png-to-pdf", "merge-pdf"],
+    keywords: [
+      "png to pdf",
+      "convert png to pdf",
+      "screenshot to pdf",
+      "transparent png to pdf",
+      "combine png images into one pdf",
+      "png to pdf without losing quality",
+    ],
+    intro: [
+      `To convert PNG images to PDF, open ${nameOf("png-to-pdf")}, add your PNGs, put them in order, press Create PDF, then press Download PDF. Each PNG becomes one page of the PDF. It is made in your browser, so the images stay on your device, and each one can be up to ${MAX_IMAGE_MB} MB.`,
+      `PNG is the format of screenshots, charts and logos because it keeps every pixel, and the PDF keeps them too. With ${MAX_SIZE_LABELS.heading} left at ${MAX_SIZE_LABELS.none}, a PNG goes into the PDF with lossless compression, never as a JPEG, so small interface text and sharp edges come out as they were.`,
+      "What is particular to PNG is covered below: what happens to see-through areas, why the PDF can be larger than the images, and how big a screenshot's page turns out.",
+    ],
+    steps: [
+      `Open the ${nameOf("png-to-pdf")} tool and drop your PNGs on the box at the top of the page, or click it to pick them. JPG, ${DECODED_NAMES} images can go into the same PDF.`,
+      `Check the order under Image order. Screenshots named as one numbered set, such as ${listAnd(PNG_SHOT_NAMES)}, are put in the order of their numbers, with a note saying so; press Keep drop order to undo that. Move an image with the up and down arrows on it.`,
+      `For screenshots, choose ${PNG_FIT_LABEL} under Page size, so each page is the size of its image. For pages you will print, keep a paper size and set the Orientation and Margin.`,
+      `Leave ${MAX_SIZE_LABELS.heading} on ${MAX_SIZE_LABELS.none} to keep every pixel. Choose a size only when a form limits the file, because that saves the images again as JPEGs.`,
+      `Press Create PDF, then Download PDF. The file is named after your first image, so chart.png becomes ${PNG_EXAMPLE_OUT}.`,
+    ],
+    sections: [
+      {
+        id: "see-through-areas",
+        heading: "What happens to transparent areas",
+        body: [
+          "Each page is filled with white before the image is drawn on it. A PNG with an alpha channel keeps it in the PDF as a soft mask, so its see-through areas show the white page, and soft edges, such as a logo's smoothed outline or a drop shadow, blend into the white. A PNG whose pixels are all fully opaque is stored with no mask.",
+          "So a white logo, or white text, on a transparent background comes out white on white and seems to vanish. There is no background colour setting: give such artwork a coloured background in your image editor and export it again before converting it.",
+          `If you choose a ${MAX_SIZE_LABELS.heading} and the PDF comes out bigger than it, the images are saved again as JPEGs, which cannot be see-through, so transparent areas are filled with white first, the colour of the page, and the line under the result says so.`,
+        ],
+      },
+      {
+        id: "file-size",
+        heading: "Why a PDF of PNGs can be larger than the PNGs",
+        body: [
+          "Inside the PDF every PNG is stored as eight-bit full colour, compressed without loss but without PNG's own row filters. A palette PNG, the compact kind with a short list of colours that many programs save icons and simple charts as, and a greyscale PNG are expanded to full colour, so the PDF can be much larger than the files you added.",
+          `A PNG with sixteen bits per channel is cut down to eight, the one change made to its pixels. If the PDF must be smaller, ${MAX_SIZE_LABELS.heading} trades sharpness for size; with screenshots full of small text, try the largest size the form allows.`,
+        ],
+      },
+      {
+        id: "screenshot-page-size",
+        heading: "How big a screenshot's page is",
+        body: [
+          `The image is laid out at one point per pixel, and a point is 1/${PT_PER_INCH} of an inch, so screenshots are large on paper. On the default ${US_LETTER_LABEL} page with its ${PNG_DEFAULT_MARGIN_IN} in margin, a screenshot ${PNG_SHOT_PX} pixels wide is shrunk to ${PNG_SHOT_ON_PAPER_IN} inches across. No pixel is thrown away by that, so zooming in on the PDF still shows the detail. With ${PNG_FIT_LABEL}, the same screenshot gets a page about ${PNG_SHOT_FIT_PAGE_IN} inches wide, which reads well on screen; to print it, use your printer's fit-to-page setting.`,
+          `A small image is never enlarged, so an icon stays icon-sized on a paper page. A long scrolling capture stays one image on one page: it is not cut across several pages. On a paper size it is shrunk to the page's height, so choose ${PNG_FIT_LABEL} to keep it readable. Even then a page side cannot pass ${PNG_MAX_PAGE_IN} inches, and a longer capture is scaled down to fit that. Any DPI value stored in the PNG is ignored.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Will my PNG lose quality in the PDF?",
+        answer: `Not with ${MAX_SIZE_LABELS.heading} at ${MAX_SIZE_LABELS.none}: the pixels are stored without loss, never as a JPEG. The only change is that a sixteen-bit PNG is cut down to eight bits per channel. A ${MAX_SIZE_LABELS.heading} the PDF is over is the exception you choose: then every image is saved again as a JPEG, smaller and softer, until the PDF fits.`,
+      },
+      {
+        question: "Does PNG to PDF keep transparency?",
+        answer: `Yes, as a soft mask over a white page, so see-through areas look white on screen and in print, and soft edges blend into the white. A ${MAX_SIZE_LABELS.heading} that has to save the images again fills those areas with white instead.`,
+      },
+      {
+        question: "Why is my PDF larger than my PNG files?",
+        answer:
+          "Because each PNG is stored as full colour in the PDF. A palette or greyscale PNG is expanded to full colour on the way, which can make the PDF far heavier than the files you added.",
+      },
+      {
+        question: "Can I put PNG and JPG images in one PDF?",
+        answer: `Yes. A JPG keeps its original JPEG data. ${DECODED_NAMES} images are decoded by your browser and saved again, as a PNG when they have transparency. ${REFUSED_NAMES} images are turned away when you add them. To add the screenshots to a PDF you already have, convert them first, then join the two with ${nameOf("merge-pdf")}.`,
+      },
+      {
+        question: "Are my images sent to a server?",
+        answer:
+          "No. The PDF is made in your browser tab; the images are not sent to pdf.xyz.",
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  // HTML to PDF: an HTML FILE (or code saved as one), never a URL — that is
+  // how-to-convert-a-webpage-to-pdf. Read off the worker: the upload is
+  // served at HTML_DOCUMENT_URL and nothing else is served there
+  // (html-render/document-url.ts, native.ts), every other request goes
+  // through network.ts (public http(s) only), the served Content-Type has no
+  // charset (native.ts), scripts run inside a virtual-time budget, and the
+  // print adds no header or footer (print-params.ts PRINT_TO_PDF_OPTIONS).
+  // The font sentence is the Dockerfile's own: a font the image lacks is
+  // replaced by what fontconfig has. No font list is named, as the tool page
+  // names none. "Paste the code" is a banned shape (claims-vs-capability:
+  // the panel has no text area), so code is saved to a file first.
+  {
+    slug: "how-to-convert-an-html-file-to-pdf",
+    title: "How to convert an HTML file to PDF",
+    description:
+      "Turn one .html file into a PDF with selectable text: Chromium prints it on our secure server, running its scripts and print CSS. Embed images and styles.",
+    tools: ["html-to-pdf", "webpage-to-pdf", "header-footer"],
+    keywords: [
+      "convert html file to pdf",
+      "html to pdf",
+      "save html as pdf",
+      "html code to pdf",
+      "html email template to pdf",
+      "html report to pdf",
+    ],
+    intro: [
+      `To convert an HTML file to PDF, open ${nameOf("html-to-pdf")}, drop your .html or .htm file on the page, choose a page layout if you want one, and press Render PDF. Chromium, the engine behind Chrome and Edge, opens the file on our secure server, runs its scripts and prints it to a PDF whose text you can select and search.`,
+      "Only the one file goes to our server, and that is the thing to plan for. An image, stylesheet or font the page reaches by a path on your computer, such as css/site.css or images/logo.png, is not there to load. Put the CSS in a <style> block, embed images and fonts as data: URIs, or link them by a full https:// address, which our server does fetch.",
+      `If you have HTML code rather than a file, such as an email template or the markup a page builder gave you, save it in a plain-text editor as a file whose name ends in .html, then add that file. To capture a page that is already on the web, give its address to ${nameOf("webpage-to-pdf")} instead.`,
+    ],
+    steps: [
+      `Open the ${nameOf("html-to-pdf")} tool and drop one .html or .htm file on the box that says “Add an HTML file, or”, or click browse to choose it.`,
+      "Read the note under the file name, if one appears. Your browser checks the file for linked files the job will not carry, before anything is sent, and names the first of them.",
+      HTML_LAYOUT_STEP.body,
+      "Press Render PDF, which uploads the file over an encrypted connection. The button reads “Uploading your file…”, then “Waiting for our server…” if there is a queue, “Rendering PDF…” while Chromium prints, and “Downloading the result…”.",
+      `When “Your PDF is ready.” appears, press the button reading Download and the file name; the PDF is named after your file, ending in .pdf. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
+    ],
+    sections: [
+      {
+        id: "linked-files",
+        heading: "Images, stylesheets and fonts",
+        body: [
+          "Our server hands your file to Chromium at an address of its own, and nothing else is served from there. So every reference that resolves beside the file, a relative path such as images/logo.png or a root path such as /img/logo.png, has nothing to load, and comes out as a broken image or an unstyled page. A file: address cannot load at all. The job still succeeds, which is why your browser checks the file first and says what will be missing.",
+          "A reference by a full http:// or https:// address to a public site is fetched by our server, so a stylesheet, script or image on a CDN or on your own website can load. A web font linked that way loads when the site serving it allows other sites to use it, as public font services do. Addresses on a private network are not fetched.",
+          "Chromium draws text in the fonts the file names. A font embedded in the file as a data: URI is always there. One that is only installed on your computer is not on our server, and Chromium uses a font the server has instead, so lines can wrap differently from what you see on your screen.",
+        ],
+      },
+      {
+        id: "scripts",
+        heading: "JavaScript, and what the page has time to do",
+        body: [
+          "Scripts in the file run before the page is printed, within a fixed budget of time, so a chart or table a script builds can appear. A script that fetches a file by a relative path gets nothing, for the same reason a relative image does.",
+          "Nothing scrolls the page or clicks on it, so content that waits for a scroll, a click or a long timer is not printed.",
+        ],
+      },
+      {
+        id: "page-size-and-margins",
+        heading: "Page size, margins and print CSS",
+        body: [
+          // The FAQ answer, as prose: its opening "Yes, " answers a question
+          // this section does not ask.
+          htmlLayoutAnswer("file").replace(/^Yes, under/, "Under"),
+          `With every option left as it is, each edge gets the ${HTML_DEFAULT_MARGIN.label} margin of ${HTML_DEFAULT_MARGIN.inches} in, and the file's @media print rules apply, because the page is printed rather than photographed. Our server adds no date, title, file path or page number to the pages; to number them, run the PDF through ${nameOf("header-footer")} afterwards.`,
+          'Save the file as UTF-8 and keep a <meta charset="utf-8"> line in its head. Our server sends the file to Chromium without naming an encoding, so Chromium goes by what the file itself declares.',
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Why are the images or styles missing from my PDF?",
+        answer:
+          'Almost always a relative path. Our server receives your one HTML file and nothing else, so src="images/logo.png" or href="style.css" points at a file it never had. Put the CSS in a <style> element, embed images as data: URIs, or link them by a full https:// address, and render again.',
+      },
+      {
+        question: "Can I convert HTML code without saving it as a file?",
+        answer:
+          "No. The tool takes a file, not typed text. Copy the code into a plain-text editor, save it with a name ending in .html, and add that file.",
+      },
+      {
+        question: "Does JavaScript run before the page is printed?",
+        answer:
+          "Yes, within a fixed budget of time, so content a script builds can appear. Content that waits for a click, a scroll or a long timer, or for a file the page links by a relative path, is missing.",
+      },
+      {
+        question: "Is my HTML file uploaded, and how long is it kept?",
+        answer: `Yes, over an encrypted connection, because Chromium runs on our secure server. The file is deleted when the job ends, and within ${DEFAULT_RETENTION.inputTtlMinutes} minutes in any case. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
+      },
+      {
+        question: "How large can the HTML file be?",
+        answer: `Up to ${ceilingMb("html-to-pdf")} MB, one file per run; a larger one is refused when you pick it, before anything is sent. Images embedded as data: URIs count toward that, and base64 makes each about a third larger than the image file itself.`,
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  // Overlay PDF, titled for the task it truly does: lay one PDF on every
+  // page of another. Read off overlay.ts and overlay-runner.tsx: the overlay
+  // is always centred (fitOverlayRect has no position), there is no page
+  // range (every base page gets an overlay page), Cycle pages walks the
+  // overlay in order and starts again (overlayPageIndexFor), and an overlay
+  // page with no content is skipped and named. In-browser, so the word
+  // "upload" appears nowhere, Word to PDF included.
+  {
+    slug: "how-to-add-a-letterhead-to-a-pdf",
+    title: "How to add a letterhead to a PDF",
+    description:
+      "Lay a letterhead PDF over every page of a letter or invoice, behind the text or on top, in your browser. The letter stays real, selectable text.",
+    tools: ["overlay-pdf", "watermark-pdf"],
+    keywords: [
+      "add letterhead to pdf",
+      "put letterhead on pdf",
+      "overlay pdf on another pdf",
+      "pdf letterhead template",
+      "merge letterhead with pdf",
+      "stamp one pdf onto another",
+    ],
+    intro: [
+      `To add a letterhead to a PDF, open ${nameOf("overlay-pdf")}, add your letter as the base PDF and the letterhead as the overlay PDF, set Layer to ${OVERLAY_BEHIND}, and apply it. Every page of the letter gets the letterhead, and the letter keeps its page count and page sizes.`,
+      `The letterhead has to be a PDF itself, usually one page saved from your word processor or design program with the logo, address and footer in place and the rest of the page empty. It is drawn as vector content, not as a picture, so its lines stay sharp and its text stays selectable. Both files are combined in your browser, so neither leaves your device, and each can be up to ${ceilingMb("overlay-pdf")} MB.`,
+    ],
+    steps: [
+      `Open the ${nameOf("overlay-pdf")} tool and drop your letter on the box that says “Drop your PDF here, or”, or click browse to pick it.`,
+      "In the Overlay PDF section, drop the letterhead on the box that says “Drop the overlay PDF here, or”, or click browse. Its name and page count appear.",
+      `Under Placement, set Layer to ${OVERLAY_BEHIND}, so the letterhead goes under the letter's text, or to ${OVERLAY_MULTIPLY} if the letter is a scan. Keep Scale on ${OVERLAY_FIT}, and leave the Opacity slider where it is for a solid letterhead.`,
+      "Press the button that reads Overlay onto and your page count, such as “Overlay onto 3 pages”.",
+      `When “Overlay applied” appears, check the summary and press Download overlaid PDF. letter.pdf is saved as ${OVERLAY_EXAMPLE_OUT}.`,
+    ],
+    sections: [
+      {
+        id: "which-layer",
+        heading: "Behind the text, on top, or blended",
+        body: [
+          `${OVERLAY_ON_TOP}, the setting the tool starts on, paints the letterhead over the page. If the letterhead file has a white page behind its logo, as many exports do, that white covers your letter. ${OVERLAY_BEHIND} paints it underneath instead, so the letter's text sits on top of it.`,
+          `A scanned letter is one picture covering the whole page, and that picture hides anything placed behind it. For a scan, choose ${OVERLAY_MULTIPLY}: the letterhead is drawn on top, but its white areas drop out, so the page shows through.`,
+        ],
+      },
+      {
+        id: "size-and-position",
+        heading: "Page size and position",
+        body: [
+          `The letterhead is always centred on the page; there is no setting to move it. So make the letterhead page the same paper size as your letter, with the logo where you want it on that page. ${OVERLAY_FIT} then lays it exactly over the page.`,
+          `If the sizes differ, as with an A4 letterhead on a US Letter document, ${OVERLAY_FIT} scales it to fit without stretching and can leave a strip at two edges, ${OVERLAY_STRETCH} covers the whole page and distorts it slightly, and ${OVERLAY_ACTUAL} keeps it at its own size, cut off where it is larger than the page. Pages stored sideways with a rotation setting still get the letterhead upright.`,
+        ],
+      },
+      {
+        id: "first-page-only",
+        heading: "A letterhead on the first page only",
+        body: [
+          "There is no page range: every page of the letter gets a page of the overlay. When the overlay PDF has more than one page, a Multi-page overlay choice appears. First page on all puts its first page everywhere; Cycle pages gives letter page one the overlay's page one, page two its page two, and so on, starting again from the first when the overlay runs out.",
+          `So for the first page only, make an overlay PDF with as many pages as the letter, the letterhead on its first page and the rest left empty, and choose Cycle pages. An overlay page with no content at all is skipped, and the result says which; with ${OVERLAY_BEHIND} or ${OVERLAY_MULTIPLY}, an empty white page changes nothing you can see either. If your letterhead is a PNG or JPEG image rather than a PDF, ${nameOf("watermark-pdf")} can place an image and limit it to the pages you list.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Why does the letterhead hide my letter's text?",
+        answer: `Because Layer is set to ${OVERLAY_ON_TOP} and the letterhead page has a white background. Set Layer to ${OVERLAY_BEHIND} to put it under the text, or to ${OVERLAY_MULTIPLY} to keep it on top while its white areas drop out, which is the choice for a scanned letter.`,
+      },
+      {
+        question: "Can I choose where the letterhead sits on the page?",
+        answer: `No. The overlay is always centred. Place the logo and footer where you want them on a letterhead page of the same size as your letter, and ${OVERLAY_FIT} lays that page exactly over each of yours.`,
+      },
+      {
+        question: "My letterhead is a Word file or an image. Can I use it?",
+        answer: `Not as it is: the overlay must be a PDF. Save the Word file as a PDF from Word itself, or use ${nameOf("word-to-pdf")}, which runs on our secure server, so the file leaves your device for that step. For a PNG or JPEG letterhead, ${nameOf("watermark-pdf")} places an image directly, in your browser.`,
+      },
+      {
+        question: "Will the letter's text still be selectable?",
+        answer:
+          "Yes. The letter keeps its own text and form fields, and the letterhead is added as vector drawing, so text in both stays selectable. Links inside the letterhead do not work as links in the result.",
+      },
+      {
+        question: "Are my files sent to a server?",
+        answer:
+          "No. Both PDFs are combined in your browser tab, and neither is sent to pdf.xyz.",
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  // Optimize PDF for Web: `qpdf --linearize` and nothing else
+  // (pdf-structure/native.ts linearizeArgs), no options; the worker refuses
+  // output that is not linearized, and the page re-reads the bytes
+  // (optimize-outcome.tsx: the ready sentence, "Linearized for fast web
+  // view", before → after sizes, and a note when the file GREW). No size
+  // figure is claimed: no real job measured one, and the outcome component
+  // expects growth.
+  {
+    slug: "how-to-optimize-a-pdf-for-the-web",
+    title: "How to optimize a PDF for the web (fast web view)",
+    description:
+      "Linearize a PDF so a browser can show page one while the rest downloads. It is not compression; for a smaller file, use Compress PDF. Runs on our server.",
+    tools: ["optimize-web", "compress-pdf", "repair-pdf"],
+    keywords: [
+      "optimize pdf for web",
+      "fast web view pdf",
+      "linearize pdf",
+      "linearized pdf",
+      "web optimized pdf",
+      "make a pdf open faster in a browser",
+    ],
+    intro: [
+      `To optimize a PDF for the web, open ${nameOf("optimize-web")}, add the PDF and press Optimize on our secure server. It comes back linearized, the layout Adobe Acrobat calls Fast Web View. It is not compressed: its size can change in either direction, and ${nameOf("compress-pdf")} is the tool for a smaller file.`,
+      "In a linearized file, what the first page needs is moved to the front, with an index of where everything else is, so a viewer opening it from a link can show page one while the rest is still downloading. Our server does that with qpdf's --linearize option and nothing else, and there are no settings. Nothing on the pages changes: no image is downsampled and no text is touched. qpdf does rewrite the whole file, though: the index adds a little, while compressing streams that were stored uncompressed, or leaving out objects nothing uses any more, can make the file smaller.",
+      `The PDF, up to ${ceilingMb("optimize-web")} MB, is uploaded to our secure server and deleted when the job ends. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
+    ],
+    steps: [
+      "Drop your PDF on the box that says “Add a PDF, or”, or click browse to pick it. The tool takes one PDF at a time.",
+      "Press Optimize on our secure server, which uploads the file over an encrypted connection. The button reads “Uploading your file…”, then “Waiting for our server…” if there is a queue, “Optimizing on our secure server…” while qpdf works, and “Downloading the result…”.",
+      "Read the lines above the download. “Your web-optimized PDF is ready.” means it worked; the line under it says the file is linearized for fast web view and shows its size before and after.",
+      `Press the button reading Download and the new name: ${WEB_EXAMPLE_IN} comes back as ${WEB_EXAMPLE_OUT}. Save it before you reload the page; after a reload, run the job again.`,
+      "Put the optimized file where people open it, on your website or document portal, in place of the original.",
+    ],
+    sections: [
+      {
+        id: "what-it-changes",
+        heading: "What linearizing does, and when it helps",
+        body: [
+          "An ordinary PDF keeps its index of objects at the end, so a viewer opening it from a link has to fetch the end of the file before it can draw anything. A linearized PDF puts the first page's objects and a hint table at the front, so a viewer that asks a server for parts of a file can draw page one early and fetch other pages as they are opened.",
+          "That helps only when both sides take part: a viewer that requests byte ranges, as browser PDF viewers can, and a web server that answers them. An email attachment is downloaded whole before it opens, and a file on your own disk can be read in any order already, so neither gains anything.",
+        ],
+      },
+      {
+        id: "optimize-or-compress",
+        heading: "Optimize for the web, or compress?",
+        body: [
+          `They answer different questions. ${nameOf("compress-pdf")} makes the file smaller: a lossless repack in your browser, and deep image compression on our secure server, which lowers the resolution of the pictures. ${nameOf("optimize-web")} makes no picture smaller and does not aim at size at all; it changes the order of what is in the file, and its size can move in either direction.`,
+          `For a PDF that is both heavy and read on the web, do both, in that order: compress first, then optimize the compressed copy. A later rewrite by another program generally throws the linearized layout away again. If the optimized file comes out larger than the original, the page says so and points to ${nameOf("compress-pdf")}.`,
+        ],
+      },
+      {
+        id: "checking-and-limits",
+        heading: "Checking the result, and files that fail",
+        body: [
+          "To check a file yourself, open it in Adobe Acrobat or Reader and look at File › Properties: Fast Web View should read Yes. From a command line, qpdf --check-linearization yourfile.pdf reports whether the linearization data is valid. Our server also checks that the file it made is linearized before handing it back, and one that is not ends in a failed job, not a download.",
+          `A file that asks for a password before it opens fails, because there is no password field here; remove the password with ${nameOf("unlock-pdf")} first. A file cut off before its end-of-file marker, as an interrupted download is, is refused as damaged: run it through ${nameOf("repair-pdf")} and optimize the repaired copy. When qpdf works around smaller damage, its warnings are listed above the download.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Does optimizing a PDF for the web make it smaller?",
+        answer: `Not reliably, and that is not what it is for. Linearizing reorders the file and adds an index, and the whole file is rewritten, so its size can change in either direction. To make a PDF smaller, use ${nameOf("compress-pdf")}.`,
+      },
+      {
+        question: "Will my PDF open faster for everyone?",
+        answer:
+          "Only for readers who open it from a web server in a viewer that requests parts of the file and a server that answers such requests. Opened as an email attachment or from a disk, it opens as fast as before.",
+      },
+      {
+        question: "How do I check that a PDF has Fast Web View?",
+        answer:
+          "In Adobe Acrobat or Reader, open File › Properties and look for Fast Web View: Yes. Or run qpdf --check-linearization yourfile.pdf from a command line.",
+      },
+      {
+        question: "Can I optimize a digitally signed PDF?",
+        answer:
+          "Not without breaking the signature. Linearizing rewrites the whole file, so the bytes a certificate signature covers no longer match and it stops validating. Linearize the unsigned version and sign it last; then check the signed copy, because signing adds data at the end of the file and a viewer may no longer report it as linearized.",
+      },
+      {
+        question: "What happens to my file after the job?",
+        answer: `It is uploaded over an encrypted connection and deleted from our server when the job ends, whether it succeeds or not. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and a daily storage rule erases the stored copy after that.`,
       },
     ],
     published: "2026-10-31",

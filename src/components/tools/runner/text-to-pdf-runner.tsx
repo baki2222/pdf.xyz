@@ -217,7 +217,7 @@ function TextToPdfEditor({
           <InfoTile
             icon={Keyboard}
             title="Flexible"
-            body="Upload a .txt file or paste text directly."
+            body="Load a .txt file or paste text directly."
           />
         </div>
       </RunnerSection>

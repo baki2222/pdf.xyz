@@ -481,7 +481,7 @@ function renderReadme(manifest: RequestManifest): string {
     `To complete the signatures, open ${REQUEST_PACKAGE_FILES.prepared} and fill each signer's fields`,
   );
   lines.push(
-    "(use the pdf.xyz Sign PDF tool or any PDF viewer that supports form fields).",
+    "(use the pdf.xyz Fill Forms tool or any PDF viewer that supports form fields).",
   );
   return lines.join("\n");
 }
