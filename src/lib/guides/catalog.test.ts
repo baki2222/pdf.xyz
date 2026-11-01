@@ -119,7 +119,9 @@ describe("the guides catalogue is structurally sound", () => {
     // does) and Optimize PDF for Web (58 → 62). Every tool now has one.
     // Revisited 2026-11-01: Split PDF Pages in Half shipped (#260) with no
     // guide, and no existing guide covers cutting a page in two (62 → 63).
-    expect(slugs.length).toBeLessThanOrEqual(63);
+    // And for OCR's "Straighten crooked pages" (#262): deskewing is its own
+    // search intent, and no OCR guide covers it (63 → 64).
+    expect(slugs.length).toBeLessThanOrEqual(64);
     for (const guide of guides) {
       expect(
         copyStrings(guide).length,
