@@ -246,5 +246,9 @@
   "how-to-optimize-a-pdf-for-the-web": {
     "contentHash": "b6fbe951bda84dec8305915c1c68e3cfa9bda15d19f86f573decff39ed451d65",
     "updated": "2026-10-31"
+  },
+  "how-to-split-pdf-pages-in-half": {
+    "contentHash": "cd81d2555be90b02b8290b1c992cf4686d6651476f15f760b3b4d6504bdd1363",
+    "updated": "2026-11-01"
   }
 }

@@ -3254,8 +3254,12 @@ export const PROOF_LIMITS: Record<string, string> = {
     "Only the defaults: Left and right, Left page first, every page, on unrotated pages. Right page first, Top and bottom, Selected pages, the two cover checkboxes, /Rotate pages and an existing CropBox are proven in Node by src/lib/pdf/split-half.test.ts, which renders every output half through pdf.js against the source page's own render, not in a real browser.",
   "sign-pdf":
     "Only the TYPED signature source is exercised. The drawn-signature path (signature-pad.tsx) needs real pointer strokes on a canvas, and the uploaded-image source is untested.",
+  // WAS "added through the form controls … (There is no freehand or
+  // drag-to-place canvas: markups are placed by numeric coordinates.)" — true
+  // of the coordinate form, false from 2026-10-24, when Annotate PDF began
+  // mounting the shared editor; corrected 2026-11-01.
   "annotate-pdf":
-    "Only the Note markup type, added through the form controls. The Highlight, Box and Line/arrow types are not exercised, and neither is placement accuracy. (There is no freehand or drag-to-place canvas: markups are placed by numeric coordinates.)",
+    "Only one Note, placed by clicking on page 1 of an unrotated PDF in the shared editor and typed into, saved with the default Flatten into the page. Highlight, Whiteout, Redact, Draw, the shapes and placement accuracy are not exercised here; e2e/editor-comments.spec.ts saves a highlight and a note as comments through the page, and src/lib/pdf/editor-export.test.ts proves every object kind's position through pdf.js in Node.",
   "edit-pdf":
     "Only one text box, placed by clicking on page 1 of an unrotated PDF and typed into. Shapes, images, signatures, highlights, drawing, notes, drag, resize, undo/redo and placement accuracy are not exercised here; e2e/editor-wysiwyg.spec.ts proves text placement (±1 pt, on a /Rotate 90 page too), drag, rectangle resize and undo/redo through the page, and src/lib/pdf/editor-export.test.ts proves every object kind's position through pdf.js in Node.",
   "redact-pdf":
