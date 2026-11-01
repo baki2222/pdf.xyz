@@ -194,6 +194,33 @@ import {
   PARAGRAPH_GAP_RATIO,
   markdownOutputName,
 } from "@/lib/pdf/pdf-to-markdown";
+import {
+  SUPPORTED_SCRIPTS,
+  UNSUPPORTED_SCRIPTS,
+  monospaceClaimSentence,
+} from "@/lib/pdf/font-packs";
+import { headerFooterOutputName } from "@/lib/pdf/header-footer";
+import { textPdfOutputName } from "@/lib/pdf/text-to-pdf";
+import {
+  MAX_REQUEST_SIGNERS,
+  REQUEST_PACKAGE_FILES,
+  signatureRequestOutputName,
+} from "@/lib/jobs/request-signatures";
+import {
+  EXTRACTION_FIELD_TYPES,
+  MAX_EXTRACTION_FIELDS,
+  MAX_EXTRACTION_PROMPT_CHARS,
+  MAX_FIELD_NAME_CHARS,
+  extractionOutputName,
+} from "@/lib/jobs/ai-extract";
+import {
+  AI_EXTRACT_NOT_NULL_WARNING,
+  AI_EXTRACT_NULL_CELL_LEGEND,
+  AI_EXTRACT_NULL_INSTRUCTION,
+  AI_EXTRACT_NULL_MEANING,
+  AI_EXTRACT_NULL_PAST_CUT,
+  AI_EXTRACT_UNRETURNED_NULL,
+} from "@/lib/jobs/ai-extract-null-meaning";
 import type { Guide } from "./types";
 
 /**
@@ -545,6 +572,54 @@ const TABLES_EXAMPLE_ZIP = tableExtractOutputName("report.pdf", "zip");
 /** PDF to Markdown (2026-10-31), from the converter's own constants. */
 const MD_HEADING_PCT = Math.round((HEADING_SIZE_RATIO - 1) * 100);
 const MD_EXAMPLE_OUT = markdownOutputName("report.pdf");
+
+/**
+ * The scripts the shipped font packs draw, and the ones a stamp or a text
+ * PDF refuses by name (2026-10-31), from `font-packs.ts` itself. A guide
+ * that names an example refusal checks the list still holds it.
+ */
+const DRAWN_SCRIPTS = listAnd(SUPPORTED_SCRIPTS);
+const REFUSED_SCRIPT_NAMES = UNSUPPORTED_SCRIPTS.map((s) => s.name);
+const RTL_REFUSED = listAnd(
+  UNSUPPORTED_SCRIPTS.filter((s) => /right to left/i.test(s.reason)).map(
+    (s) => s.name,
+  ),
+);
+const NO_FACE_EXAMPLES = ["Thai", "Tamil"] as const;
+if (
+  !NO_FACE_EXAMPLES.every((name) => REFUSED_SCRIPT_NAMES.includes(name)) ||
+  !REFUSED_SCRIPT_NAMES.includes("emoji") ||
+  !["Arabic", "Hebrew"].every((name) => REFUSED_SCRIPT_NAMES.includes(name))
+) {
+  throw new Error(
+    "a guide names Arabic, Hebrew, Thai, Tamil and emoji as refused; font-packs no longer lists them all",
+  );
+}
+if (
+  !["Bengali", "Hiragana", "Han"].every((s) => SUPPORTED_SCRIPTS.includes(s))
+) {
+  throw new Error(
+    "a guide refuses a Japanese header over a Bengali footer as two faces; font-packs no longer draws both",
+  );
+}
+
+/** PDF Header & Footer (2026-10-31): the download name from its own helper. */
+const HF_EXAMPLE_OUT = headerFooterOutputName("report.pdf");
+
+/** Text to PDF (2026-10-31): download names, as its runner names them. */
+const TXT_EXAMPLE_OUT = textPdfOutputName("notes.txt");
+/** Pasted text carries the runner's default source name, "text.txt". */
+const TXT_PASTED_OUT = textPdfOutputName("text.txt");
+
+/** Request Signatures (2026-10-31), from its job contract. */
+const SIGN_REQUEST_EXAMPLE_ZIP = signatureRequestOutputName("contract.pdf");
+const SIGN_REQUEST_FILES = listAnd(Object.values(REQUEST_PACKAGE_FILES));
+
+/** AI Data Extraction (2026-10-31), from its job contract. */
+const EXTRACT_FIELD_TYPES = listOr(EXTRACTION_FIELD_TYPES);
+const EXTRACT_PROMPT_CHARS =
+  MAX_EXTRACTION_PROMPT_CHARS.toLocaleString("en-US");
+const EXTRACT_EXAMPLE_ZIP = extractionOutputName("invoice.pdf");
 
 export const guides: Guide[] = [
   {
@@ -5088,6 +5163,363 @@ export const guides: Guide[] = [
       {
         question: "Can it convert a password-protected PDF?",
         answer: `Not one that needs a password to open: it is refused as it opens. ${nameOf("unlock-pdf")} removes that password if you know it, but it runs on our secure server. A PDF that opens without a password and only restricts copying or printing converts like any other.`,
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  {
+    slug: "how-to-add-a-header-and-footer-to-a-pdf",
+    title: "How to add a header and footer to a PDF",
+    description:
+      "Put a line of your own text at the top and bottom of every PDF page, with page number, page count and date fields, aligned as you choose, in your browser.",
+    tools: ["header-footer", "page-numbers", "watermark-pdf"],
+    keywords: [
+      "how to add a header and footer to a pdf",
+      "add header to pdf",
+      "add footer to pdf",
+      "pdf header and footer",
+      "page x of y footer in a pdf",
+      "add a date to a pdf footer",
+    ],
+    intro: [
+      `To add a header and footer to a PDF, open ${nameOf("header-footer")}, add your PDF, type a line in Header text, a line in Footer text, or both, and press Add header & footer. Each line is drawn on every page, and you download the stamped copy.`,
+      "The footer starts out as Page {n} of {total}, so a plain page count needs no typing at all. The {n}, {total} and {date} buttons beside each field add a field that fills itself in page by page: {n} is the page number, {total} the number of pages in the file, and {date} today's date as your browser writes it.",
+      `The PDF is read and rewritten in your browser, so it stays on your device, and there is no account to create. It takes one PDF at a time, up to ${ceilingMb("header-footer")} MB.`,
+    ],
+    steps: [
+      `Open the ${nameOf("header-footer")} tool.`,
+      "Drop your PDF on the panel that says “Drop your PDF here, or browse”, or click it to choose the file. Its name, page count and size appear above the editor.",
+      "Type the top line in Header text and the bottom line in Footer text. The {n}, {total} and {date} buttons add that field to the end of the line; leave a field empty to skip that band.",
+      "Choose Left, Center or Right under each field. The chip beside the Header and Footer headings shows how page 1 will read.",
+      "Press Add header & footer. It works once either field has text.",
+      `When the panel reads Header & footer added, press Download PDF. report.pdf is saved as ${HF_EXAMPLE_OUT}.`,
+    ],
+    sections: [
+      {
+        id: "page-numbers-count-and-date",
+        heading: "Page numbers, the page count and the date",
+        body: [
+          "{n} is each page's position in the file, counting the first page as 1, and {total} is the number of pages the file has, so the default footer reads Page 1 of 12 on the first of twelve pages. Typing {page} and {pages} works the same way.",
+          "{date} is filled in once, when you press the button, and written as plain text, so it does not change when the file is opened later. It takes your browser's date format when a font pdf.xyz ships can draw it beside your text; otherwise the same day is written in Latin digits, and failing that as year-month-day. The chip beside each heading shows exactly what will be printed.",
+        ],
+      },
+      {
+        id: "what-you-can-change",
+        heading: "What you can change, and what is fixed",
+        body: [
+          "You choose the wording, the fields and each band's alignment. The font size, the grey ink and the distance from the edge are fixed, and each band holds one line in one position, so the same band cannot carry text at the left and the right at once.",
+          "Every page gets the same lines, the first page included. The text is drawn on top of the page with no background, and nothing is moved to make room, so text already printed near the edge will overlap it, and running the tool twice gives two headers. A page stored sideways still gets its header at the top as you view it, reading level.",
+        ],
+      },
+      {
+        id: "languages-and-scripts",
+        heading: "Languages and scripts",
+        body: [
+          `While everything in both lines fits the Western European character set, it is set in Helvetica. One character outside it moves both lines to a Noto typeface that the page fetches from pdf.xyz's own site and embeds in the file; that request carries nothing from your document. The scripts it can draw are ${DRAWN_SCRIPTS}.`,
+          `${RTL_REFUSED} text is refused, because each line is laid out left to right and would come out reversed. So is text in a script no shipped font draws, such as ${listOr(NO_FACE_EXAMPLES)}, and emoji. Both lines share one font, so a header and footer that would need two, such as Japanese above Bengali, are refused too, and the message names the scripts involved.`,
+        ],
+      },
+      {
+        id: "header-footer-or-page-numbers",
+        heading: "Header & Footer, Page Numbers or a watermark",
+        body: [
+          `For numbers alone, ${nameOf("page-numbers")} offers more control: a choice of positions, Start on page to leave a cover unnumbered, and First number to start counting from somewhere other than 1. ${nameOf("header-footer")} has neither setting; it is for your own words along the top and bottom edges, with the number worked in if you want it.`,
+          `For a word across the middle of every page, such as DRAFT or CONFIDENTIAL, ${nameOf("watermark-pdf")} is made for that. All three run in your browser.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "How do I add Page 1 of 10 to the footer?",
+        answer:
+          "It is the default. The footer opens as Page {n} of {total}, and the total is the file's own page count. Reword it as you like, for example {n} / {total}, or press Add header & footer as it is.",
+      },
+      {
+        question: "Can I leave the header off the cover page?",
+        answer: `Not with this tool: every page gets the same lines. If what you need on the other pages is a number, ${nameOf("page-numbers")} has a Start on page setting that skips the cover.`,
+      },
+      {
+        question: "Can I change the font, size or colour?",
+        answer:
+          "No. The size, the grey ink and the margin are fixed. The typeface follows your characters: Helvetica for Western European text, and an embedded Noto face when a character needs one.",
+      },
+      {
+        question: "Does my PDF leave my device?",
+        answer: `No. It is opened, stamped and saved in your browser tab, up to ${ceilingMb("header-footer")} MB. When your text or the date needs a Noto font, the page fetches the font file from pdf.xyz's own site, and that request carries no part of your document.`,
+      },
+      {
+        question: "Why was my header text refused?",
+        answer: `${RTL_REFUSED} cannot be laid out right to left yet, scripts such as ${listOr(NO_FACE_EXAMPLES)} have no shipped font, and emoji are not embedded. A header and footer that need two different fonts are refused together, so put a Japanese header over a footer in Latin letters rather than one in Bengali.`,
+      },
+      {
+        question: "Can I add a header to a password-protected PDF?",
+        answer: `Not while it is locked. An encrypted PDF is stopped when it is read, with a message naming its lock and a link to ${nameOf("unlock-pdf")}. That tool removes the lock with a password you know, but it runs on our secure server, so the file leaves your device for that step.`,
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  {
+    slug: "how-to-convert-a-text-file-to-pdf",
+    title: "How to convert a text file (TXT) to PDF",
+    description:
+      "Turn a .txt file or pasted text into a paginated PDF with a heading and a page count on every page, made in your browser. No account needed.",
+    tools: ["text-to-pdf", "markdown-to-pdf", "merge-pdf"],
+    keywords: [
+      "how to convert txt to pdf",
+      "txt to pdf",
+      "text file to pdf",
+      "convert a notepad file to pdf",
+      "plain text to pdf",
+      "save text as a pdf",
+    ],
+    intro: [
+      `To convert a text file to PDF, open ${nameOf("text-to-pdf")}, drop your .txt file on the page or paste the text into the Text content box, press Create PDF, then press Download PDF. You get a paginated PDF on ${US_LETTER_LABEL} pages.`,
+      "Every page carries a small heading, the file's name without its extension, or “text” for pasted text, and a page-of-total count in the footer. Long lines wrap at spaces, a word too long for one line is broken, tabs become spaces, and blank lines and leading indentation are kept. There are no settings for page size, font or margins.",
+      `The PDF is made in your browser, so your text stays on your device and there is no account to create. The text can be up to ${MAX_SOURCE_MB} MB.`,
+    ],
+    steps: [
+      `Open the ${nameOf("text-to-pdf")} tool.`,
+      "Drop a .txt file on the box that says “Drop a TXT file here, or browse”, or click browse to choose one. Loading a file replaces whatever is in the box.",
+      "Or paste or type straight into the Text content box. The figure beside its heading counts the characters and the size as you go, and you can edit the text before converting.",
+      "Press Create PDF. The button reads Creating PDF… while the pages are set.",
+      `Under “PDF created”, press Download PDF. notes.txt is saved as ${TXT_EXAMPLE_OUT}, and pasted text as ${TXT_PASTED_OUT}.`,
+      "Press Start over to clear the box for the next text.",
+    ],
+    sections: [
+      {
+        id: "how-the-file-is-read",
+        heading: "How the file is read",
+        body: [
+          "A file whose name ends in .txt or .text, or that your system labels plain text, is accepted. For a .log, .csv or other text file, paste its contents into the box or rename it to .txt first.",
+          "A file that starts with a byte-order mark is read in the UTF-8 or UTF-16 encoding it declares. Otherwise its bytes are inspected and it is read as UTF-16, UTF-8 or Windows-1252, the encoding older Windows programs save in, and a note under the box names the encoding whenever it had to be assumed. Other legacy encodings, such as Cyrillic Windows-1251 or Shift-JIS, are not detected and come out with the wrong letters, so save those as UTF-8 first.",
+        ],
+      },
+      {
+        id: "fonts-and-scripts",
+        heading: "Fonts, columns and other scripts",
+        body: [
+          `Western European text is set in Courier, one of the fonts PDF readers supply themselves, so nothing is fetched or embedded. ${monospaceClaimSentence()} Where Courier cannot draw a character but that face can, as with Polish or Russian letters, the monospace face is fetched from pdf.xyz's own site and embedded, so columns lined up with spaces stay lined up as long as each line fits the page width.`,
+          `Any other character, in the text or in the file's name, moves the whole body to a proportional Noto face, and space-aligned columns then stop lining up. The scripts the bundled faces draw are ${DRAWN_SCRIPTS}. ${RTL_REFUSED} text and emoji stop the conversion with an explanation, and so does a mix of scripts that need different fonts, such as Chinese and Bengali in one file. Nothing is swapped for a placeholder.`,
+        ],
+      },
+      {
+        id: "text-or-markdown",
+        heading: "Plain text, Markdown, or several files",
+        body: [
+          `${nameOf("text-to-pdf")} prints the text as it is, which suits notes, logs and transcripts. For headings, bold, lists or code blocks, write the text as Markdown and use ${nameOf("markdown-to-pdf")}, which also runs in your browser.`,
+          `It converts one text at a time. To make one PDF from several files, paste them into the box one after another and convert once, or convert each file and then join the PDFs in order with ${nameOf("merge-pdf")}.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Is my text sent to a server?",
+        answer:
+          "No. The PDF is made in your browser tab, and the text stays on your device. The only thing the page may fetch from pdf.xyz is a font file, when your text or file name needs characters beyond Western European, and that request carries none of your words.",
+      },
+      {
+        question: "How large a text file can I convert?",
+        answer: `Up to ${MAX_SOURCE_MB} MB, whether you load a file or paste. A file larger than that is turned away when you load it, and the text is measured again when you press Create PDF. Chinese or Bengali characters take several bytes each, so such text reaches the cap at fewer characters than English.`,
+      },
+      {
+        question:
+          "Is there a setting for A4 paper, another font or wider margins?",
+        answer: `No. Every PDF is ${US_LETTER_LABEL}, with fixed margins and text size, and the page heading is also the document's Title property. For more control over the look, write Markdown and use ${nameOf("markdown-to-pdf")}.`,
+      },
+      {
+        question: "Which languages come out correctly?",
+        answer: `Western European text, and text in ${DRAWN_SCRIPTS}, gets a font that can draw it. ${RTL_REFUSED} text and emoji are refused with an explanation, and so is any script without a bundled font; the message shows the characters it could not draw.`,
+      },
+      {
+        question: "Why do the accented letters in my file look wrong?",
+        answer:
+          "The file is probably in a legacy encoding other than Windows-1252, such as Windows-1251 or Shift-JIS, which is read as Windows-1252. Save it as UTF-8 in your text editor and load it again. A note under the box says when an encoding was assumed.",
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  {
+    slug: "how-to-prepare-a-pdf-for-others-to-sign",
+    title: "How to prepare a PDF for other people to sign",
+    description:
+      "Add a named signature box, and a date box, for each signer on one PDF, then send the prepared file yourself. pdf.xyz emails no one and collects nothing.",
+    tools: ["request-signatures", "fill-forms", "sign-pdf"],
+    keywords: [
+      "how to prepare a pdf for someone to sign",
+      "prepare a pdf for signature",
+      "add signature fields to a pdf",
+      "request a signature on a pdf",
+      "pdf for several signers",
+      "add a signature box to a pdf",
+    ],
+    intro: [
+      `To get a PDF ready for other people to sign, open ${nameOf("request-signatures")}, add the PDF, list each signer's name and email, pick the page for the signature block, and press Prepare signature request. Our secure server adds a fillable signature box for each signer, with a date box beside it unless you untick that option, and you download a ZIP holding the prepared PDF.`,
+      "Know this before you start: pdf.xyz does not contact your signers. There is no email, no signing page, no reminder and no tracking. The names and addresses you type are written into the package, not used to reach anyone, so you send the prepared PDF yourself, and each signer types into their own boxes.",
+      `${nameOf("request-signatures")} runs on our secure server, not in your browser. Your PDF, up to ${ceilingMb("request-signatures")} MB, and the signers' names and addresses travel over an encrypted connection. The PDF you sent is deleted when the job ends, and our server's link to the ZIP, which carries those names and addresses, stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
+    ],
+    steps: [
+      `Open the ${nameOf("request-signatures")} tool. Prepare signature request works once the status badge reads Secure server.`,
+      "Drop one PDF on the box that says “Add your PDF, or browse”, or click it to choose the file. Its page count appears beside its name once your browser has read it.",
+      `Under Signers, type each person's Full name and email address. Add signer adds a row, up to ${MAX_REQUEST_SIGNERS}. A row without a name or a valid-looking email is left out.`,
+      "Choose Sequential — one at a time or Parallel — everyone at once under Signing order. Signature page starts on the last page; change it if the block belongs elsewhere, and check the preview of that page.",
+      "Fill Request title (optional) if the package should name the agreement, and untick Add a date field next to each signature for signature boxes only.",
+      "Press Prepare signature request. Your PDF uploads over an encrypted connection to our secure server, and the button follows the job until the package is back in the page.",
+      `Press Download ${SIGN_REQUEST_EXAMPLE_ZIP}, the button named after your file: contract.pdf comes back as ${SIGN_REQUEST_EXAMPLE_ZIP}. Save it before you close the tab.`,
+      `Unzip it and send ${REQUEST_PACKAGE_FILES.prepared} to your signers yourself.`,
+    ],
+    sections: [
+      {
+        id: "what-is-in-the-zip",
+        heading: "What is in the ZIP",
+        body: [
+          `The ZIP holds ${SIGN_REQUEST_FILES}. ${REQUEST_PACKAGE_FILES.prepared} is your document with the new boxes; every page and any form fields it already had are kept. ${REQUEST_PACKAGE_FILES.manifest} records each signer, the boxes that belong to them and the signing order, and ${REQUEST_PACKAGE_FILES.readme} lists the signers in order with their boxes.`,
+          `${REQUEST_PACKAGE_FILES.manifest} and ${REQUEST_PACKAGE_FILES.audit} both carry the SHA-256 fingerprint of the file you sent, so you can later hash your original and confirm it is the document the request was prepared from; ${REQUEST_PACKAGE_FILES.prepared} itself will not match, because the boxes changed it. The package is always marked as prepared, never as signed.`,
+        ],
+      },
+      {
+        id: "where-the-boxes-go",
+        heading: "Where the boxes go",
+        body: [
+          "The boxes are placed for you, near the left edge just above the foot of the chosen page as it is displayed, so a rotation or crop the page carries is taken into account. Signer 1's box is lowest and each further signer's sits above it, with the date box to its right. Rows keep one height for a short list and shrink as more signers are added, so the block still fits the page.",
+          "There is no dragging. The boxes are outlines with no background, laid over whatever is printed there, so choose a page with blank space at the foot. The preview shows each signer's boxes on the page before anything is sent.",
+        ],
+      },
+      {
+        id: "how-signers-fill-them-in",
+        heading: "How your signers fill them in",
+        body: [
+          "Each box is an ordinary text form field named after its owner, such as Signer1-Signature-1 and Signer1-Date-1. A signer types a name into their signature box and the date into the date box, in any PDF viewer that fills forms; the date box is blank, not a date stamp.",
+          `${nameOf("fill-forms")} fills the boxes in the signer's browser. Its Flatten after filling option bakes every field into the page, other signers' empty boxes included, so only the last person to sign should tick it.`,
+        ],
+      },
+      {
+        id: "order-and-what-it-is-not",
+        heading: "Signing order, and what this is not",
+        body: [
+          `Sequential and Parallel are recorded in ${REQUEST_PACKAGE_FILES.manifest} and ${REQUEST_PACKAGE_FILES.readme}; pdf.xyz does not route the file, so the order holds only if you pass the PDF from one signer to the next yourself.`,
+          `A typed name in a form field is not a certificate-based digital signature: there is no identity check and no tamper seal. To sign a document yourself, ${nameOf("sign-pdf")} draws, types or places an image of your signature on the page, in your browser.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Does pdf.xyz email the document to my signers?",
+        answer: `No. There is no email, reminder or status tracking. The names and addresses you type are copied into ${REQUEST_PACKAGE_FILES.manifest} and ${REQUEST_PACKAGE_FILES.readme}; unzip the package and send ${REQUEST_PACKAGE_FILES.prepared} however you normally share files.`,
+      },
+      {
+        question: "Can I see who has signed?",
+        answer:
+          "No. There is no status page and no record of signing: the package records what was prepared, not who signed it. Ask each signer to send the completed PDF back to you.",
+      },
+      {
+        question: "Can I move the boxes?",
+        answer:
+          "No. They are placed automatically near the foot of the chosen page, signer 1 lowest. Pick a page with blank space at the bottom, and check the preview before you prepare the request.",
+      },
+      {
+        question: "How many people can sign one PDF?",
+        answer: `Up to ${MAX_REQUEST_SIGNERS}, each with their own signature box and, unless you untick the option, a date box, all on the one page you choose.`,
+      },
+      {
+        question: "Why can't I prepare a password-protected PDF?",
+        answer: `Boxes cannot be added to a locked file, so an encrypted PDF is stopped as soon as you add it, before anything is sent, with a message saying which lock it has. Remove the lock with ${nameOf("unlock-pdf")}, using a password you know, then prepare the unlocked copy.`,
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  {
+    slug: "how-to-extract-data-from-a-pdf-with-ai",
+    title: "How to extract data from a PDF with AI",
+    description:
+      "Name the fields you need, such as an invoice number, a date or a total, and an AI model pulls them out of a PDF's text as JSON. Scans need OCR first.",
+    tools: ["ai-extract", "ocr-pdf", "extract-tables"],
+    keywords: [
+      "how to extract data from a pdf",
+      "extract data from pdf",
+      "pdf to json",
+      "ai pdf data extraction",
+      "extract invoice data from a pdf",
+      "pull fields out of a pdf",
+    ],
+    intro: [
+      `To extract data from a PDF with AI, open ${nameOf("ai-extract")}, add your PDF, list the values you want under Fields to extract, or switch to Prompt and describe them, and press Extract data. An AI model reads the document's text and returns the values as JSON, and you download a ZIP with the JSON and a readable table.`,
+      `Use the values as a first draft, not as a record. ${AI_EXTRACT_NULL_INSTRUCTION} It is also told to use only the document's text, yet nothing checks a value against the pages afterwards, so check any figure you plan to act on against the original.`,
+      `${nameOf("ai-extract")} is one of the AI tools, so the work does not happen in your browser. Your PDF uploads over an encrypted connection to our secure server, which extracts the selectable text and sends that text, with your field list or instruction, to a third-party AI provider; the PDF file itself is never sent to the provider. Your PDF is deleted when the job ends, and our server's link to the ZIP stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
+    ],
+    steps: [
+      `Open the ${nameOf("ai-extract")} tool. Extract data works once the status badge reads Secure server.`,
+      "Drop one PDF on the box that says “Add your PDF, or browse”, or click it to choose the file. It needs selectable text; for a scan, run OCR PDF first.",
+      `Under Fields to extract, type a field name of up to ${MAX_FIELD_NAME_CHARS} characters, such as invoice_number, and choose its type: ${EXTRACT_FIELD_TYPES}. Add field adds a row, up to ${MAX_EXTRACTION_FIELDS}.`,
+      `Or press Prompt and describe what you want in the What to extract box, up to ${EXTRACT_PROMPT_CHARS} characters.`,
+      "Press Extract data. Your PDF uploads over an encrypted connection to our secure server, and the button follows the job while the model reads.",
+      `Press Download ${EXTRACT_EXAMPLE_ZIP}, the button named after your file: invoice.pdf comes back as ${EXTRACT_EXAMPLE_ZIP}. Save it to your device before you close the tab.`,
+    ],
+    sections: [
+      {
+        id: "field-schema-or-prompt",
+        heading: "Field schema or prompt",
+        body: [
+          "Field schema is selected when the page opens. The model is told to use each field name, unchanged, as a key in its answer, so a schema such as invoice_number, invoice_date, vendor and total asks every invoice for the same four keys, and a script can read the results side by side. Give a field the array type to collect a list, such as every product code. Two fields cannot share a name, even if only their capital letters differ; the page flags the repeat and keeps Extract data inactive until you rename it.",
+          "Prompt suits a one-off question in your own words, such as the parties, the start date and the notice period in a contract. The model is then asked for a flat JSON object and chooses descriptive key names itself, so the keys can differ from one document to the next.",
+        ],
+      },
+      {
+        id: "what-you-download",
+        heading: "What you download",
+        body: [
+          `In the ZIP, model-output.json is the model's reply as it was returned. extraction.json holds the same data; with a field schema it lists every field you asked for, in your order and under your names, and a key the model respelled is mapped back to your name. ${AI_EXTRACT_UNRETURNED_NULL}`,
+          `extraction.md lays the data out as a Field and Value table, or as a numbered list when the reply is a list. ${AI_EXTRACT_NULL_CELL_LEGEND} manifest.json records the provider and model, your fields or prompt, and how much of the document was read, and README.txt describes the package. There is no CSV or spreadsheet; for data in rows and columns, ${nameOf("extract-tables")} writes a CSV per table and an Excel workbook.`,
+        ],
+      },
+      {
+        id: "nulls-and-wrong-values",
+        heading: "Nulls, wrong values and long documents",
+        body: [
+          `${AI_EXTRACT_NULL_MEANING} ${AI_EXTRACT_NOT_NULL_WARNING} A wrong value comes from the model's reading or from the text it was given: a misread OCR layer, or side-by-side columns read across as one line, can mislead it. When a page holds several similar figures, name the exact one you want.`,
+          `The model reads a bounded amount of the document's text, and the exact figure is stated on the ${nameOf("ai-extract")} page itself. Past that point the text is dropped, and the result says how far the reading got. ${AI_EXTRACT_NULL_PAST_CUT} Files themselves are capped at ${ceilingMb("ai-extract")} MB.`,
+        ],
+      },
+      {
+        id: "allowance-and-privacy",
+        heading: "The free allowance and where your text goes",
+        body: [
+          `Extractions are free, within a daily allowance. ${aiAllowanceFactFor("ai-extract")} The charge is taken when the job is submitted, so a job our server refuses or that fails still uses it.`,
+          "Our server sends the PDF's extracted text, with your field names or instruction, to a third-party AI provider; the PDF file itself is never sent to the provider. The settings in our provider account that would let it use this text to improve its models are switched off, though the provider may keep what it receives for a limited time to watch for abuse. Section 3 of our privacy policy covers the provider's side.",
+        ],
+      },
+      {
+        id: "scanned-pdfs-need-ocr-first",
+        heading: "Scanned PDFs need OCR first",
+        body: [
+          `The tool reads only text stored in the PDF as text. Your browser checks the file for text before anything is sent, and a scan with none is stopped there with a message pointing you to ${nameOf("ocr-pdf")}; that refusal takes nothing from the allowance.`,
+          `Run the scan through ${nameOf("ocr-pdf")} with the document's language selected, then extract from the searchable copy, and check the figures, since recognition can misread them.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Is the extracted data accurate?",
+        answer: `Treat it as a first draft. ${AI_EXTRACT_NULL_INSTRUCTION} But nothing checks a value against the pages, so a figure can still be wrong. Check anything you plan to rely on against the original.`,
+      },
+      {
+        question: "How many extractions can I run for free?",
+        answer: aiAllowanceFactFor("ai-extract"),
+      },
+      {
+        question: "Who sees the text of my PDF?",
+        answer: `A third-party AI provider receives the extracted text and your field names or instruction; the PDF file never reaches it. Our server deletes your PDF when the job ends, and the link to the ZIP stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
+      },
+      {
+        question: "Can I get the data as CSV or Excel?",
+        answer: `Not from this tool: it writes JSON and a Markdown table. For tables, ${nameOf("extract-tables")} returns a CSV per table and an Excel workbook, without AI, on our secure server.`,
+      },
+      {
+        question: "Can it extract data from a scanned PDF?",
+        answer: `Not directly. Run it through ${nameOf("ocr-pdf")} first to add a text layer, then extract from the result. A PDF with no text is refused before it is sent, so it costs nothing from the allowance.`,
       },
     ],
     published: "2026-10-31",

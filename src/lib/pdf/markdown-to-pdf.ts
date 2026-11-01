@@ -101,7 +101,7 @@ interface Cursor {
 export function validateMarkdownInput(markdown: string): void {
   if (markdown.trim().length === 0) {
     throw new PdfEngineError(
-      "Add some Markdown or upload a non-empty .md file.",
+      "Add some Markdown or choose a non-empty .md file.",
     );
   }
   const bytes = new TextEncoder().encode(markdown).byteLength;
