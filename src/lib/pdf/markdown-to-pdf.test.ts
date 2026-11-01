@@ -642,7 +642,14 @@ while (lo < hi) {
   const mid = (lo + hi + 1) >> 1;
   try { down(mid); lo = mid; } catch { hi = mid - 1; }
 }
-const out = { depthLimit: lo, cases: {} };
+const out = { depthLimit: lo, cases: {}, flatMs: 0 };
+// The time yardstick, in THIS process and on THIS machine's load: a warm-up
+// render (fonts, pdf-lib), then a plain paragraph of the same byte size.
+await markdownToPdf("warm up", { title: "warm.md" });
+const flat = "plain words ".repeat(Math.floor((cap - 1) / 12));
+const flatStarted = performance.now();
+await markdownToPdf(flat, { title: "flat.md" });
+out.flatMs = performance.now() - flatStarted;
 for (const [name, open] of openers) {
   const closer = "](y)";
   const k = Math.floor((cap - 1) / (open.length + closer.length));
@@ -677,6 +684,8 @@ interface NestedCase {
 let nestedRun: {
   depthLimit: number;
   cases: Record<string, NestedCase>;
+  /** A plain paragraph of the same byte size, rendered in the same child. */
+  flatMs: number;
 } | null = null;
 
 function renderNestedInChild() {
@@ -707,7 +716,19 @@ describe("nested link labels stay renderable up to the source cap", () => {
       expect(result.bytes).toBeLessThanOrEqual(MAX_SOURCE_BYTES);
       expect(result.error).toBeUndefined();
       expect(result.blocks).toBe(1);
-      expect(result.ms).toBeLessThan(30_000);
+      // Against a yardstick, not the wall clock. WAS `ms < 30_000`: it
+      // measured 30,326 ms on a loaded CI runner on 2026-11-01 (local: the
+      // whole child, both shapes, 15 s), so it failed on the runner, not on
+      // the renderer. A plain paragraph of the same size, rendered in the
+      // same child just before, carries the same load; the tokenizer's own
+      // linearity is held in-process above ("nested %s", 5 s), and what is
+      // left to catch here is a render that blows up on nesting.
+      const run = renderNestedInChild();
+      expect(run.flatMs).toBeGreaterThan(0);
+      // Measured 2026-11-01 (local): links 8,256 ms and images 8,782 ms
+      // against a 3,033 ms paragraph, 2.7-2.9x. A render that went
+      // quadratic in the nesting depth would be minutes at this size.
+      expect(result.ms).toBeLessThan(run.flatMs * 6 + 2_000);
 
       // What the reader receives: every drawn run. The title ("links.md")
       // holds none of the characters counted, so it needs no filtering.
