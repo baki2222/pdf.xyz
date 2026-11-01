@@ -808,4 +808,17 @@ export const GUIDE_META: readonly GuideMeta[] = [
       "separate facing pages in a pdf",
     ],
   },
+  {
+    slug: "how-to-straighten-a-scanned-pdf",
+    title: "How to straighten a crooked scanned PDF (deskew)",
+    primary: "ocr-pdf",
+    keywords: [
+      "deskew pdf",
+      "straighten scanned pdf",
+      "fix crooked scan pdf",
+      "straighten pdf pages",
+      "deskew scanned document",
+      "scanned pdf is tilted",
+    ],
+  },
 ];
