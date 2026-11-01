@@ -1327,6 +1327,18 @@ export const guides: Guide[] = [
         ],
       },
       {
+        // OCR PDF's "Turn pages upright" (#265): --rotate-pages at threshold
+        // 5, proven on production 2026-11-01 (worker 9741e2931768) — a page
+        // scanned upside down came back at /Rotate 180, the right way up and
+        // searchable; with the box off it stayed upside down.
+        id: "turned-automatically",
+        heading: "A long scan with pages facing every which way",
+        body: [
+          `When a scanned document has pages sideways or upside down scattered through it, picking them out one by one is slow. ${nameOf("ocr-pdf")} can find them for you: tick “Turn pages upright” and it checks which way up each scanned page reads, turns the ones that are wrong, and makes the whole file searchable in the same run. Like this tool, it turns a page by its rotation setting rather than redrawing it.`,
+          "It works differently from Rotate PDF in two ways. It runs on our secure server, so the PDF leaves your device for that step and is deleted when the job ends, and it only looks at scanned pages that have no text yet; a page with only a line or two of text may be left as it is. For those, or for a document that is not a scan, turn the pages here by hand.",
+        ],
+      },
+      {
         id: "where-it-runs",
         heading: "Your PDF never leaves your device",
         body: [
@@ -1336,6 +1348,11 @@ export const guides: Guide[] = [
       },
     ],
     faq: [
+      {
+        question:
+          "Can pdf.xyz turn sideways pages the right way up automatically?",
+        answer: `For a scan, yes: ${nameOf("ocr-pdf")} has a “Turn pages upright” option that turns each scanned page the right way up while it makes the file searchable. It runs on our secure server and looks only at pages with no text yet. Rotate PDF, here in your browser, turns the pages you choose.`,
+      },
       {
         question: "Can I rotate just one page of a PDF?",
         answer:
@@ -1362,7 +1379,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-09-27",
+    updated: "2026-11-01",
   },
   {
     slug: "how-to-add-text-to-a-pdf",
