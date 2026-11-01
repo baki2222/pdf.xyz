@@ -14,7 +14,9 @@ import {
   CROP_KEEPS_CONTENT,
   REDACT_TOOL_HREF,
   REDACT_TOOL_NAME,
+  SPLIT_HALF_KEEPS_CONTENT,
 } from "./crop-disclosure";
+import { splitPagesInHalf } from "./split-half";
 import { extractPdfText } from "./text";
 
 /**
@@ -103,5 +105,82 @@ describe("the disclosure is where the user is", () => {
     );
     expect(panel.length).toBeGreaterThan(50);
     expect(panel).toContain("<CropDisclosure />");
+  });
+});
+
+/**
+ * Split PDF Pages in Half makes its halves the same way, so it carries the same
+ * disclosure, pinned the same way. EXIT CONDITION (the property): if a split
+ * ever really removes the half a page does not show, the first test goes red,
+ * and `SPLIT_HALF_KEEPS_CONTENT` must be rewritten then.
+ */
+describe("splitting in half keeps the hidden half (the behaviour the copy discloses)", () => {
+  it("the half out of view is still in the file, and the MediaBox is untouched", async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([800, 560]);
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    page.drawText("LEFT HALF TEXT", { x: 60, y: 280, size: 14, font });
+    page.drawText("ACCOUNT 4417 1234", { x: 460, y: 280, size: 14, font });
+
+    const { bytes } = await splitPagesInHalf(await doc.save(), {
+      direction: "left-right",
+      order: "left-first",
+    });
+    const split = await PDFDocument.load(bytes);
+    const left = split.getPage(0);
+    // Positive control: the split really happened — page 1 is the left half.
+    expect(split.getPageCount()).toBe(2);
+    expect(left.getCropBox().width).toBeCloseTo(400);
+    expect(left.getMediaBox().width).toBeCloseTo(800);
+
+    // Read as split, page 1 alone does not surface the right half's words…
+    split.removePage(1);
+    const asSplit = (await extractPdfText(await split.save(), legacy)).text;
+    expect(asSplit).toContain("LEFT HALF TEXT");
+    expect(asSplit).not.toContain("ACCOUNT 4417 1234");
+
+    // …and resetting its crop box, as any editor can, brings them back.
+    const media = left.getMediaBox();
+    left.setCropBox(media.x, media.y, media.width, media.height);
+    const reset = (await extractPdfText(await split.save(), legacy)).text;
+    expect(reset).toContain("ACCOUNT 4417 1234");
+  });
+
+  it("the tool page's facts carry it", () => {
+    const values = toolFacts("split-pdf-pages-in-half").map((f) => f.value);
+    expect(values).toContain(SPLIT_HALF_KEEPS_CONTENT);
+  });
+
+  it("Redact PDF is a related tool of Split PDF Pages in Half", () => {
+    const slug = REDACT_TOOL_HREF.replace(/^\/tools\//, "");
+    expect(getToolBySlug("split-pdf-pages-in-half")?.related).toContain(slug);
+  });
+
+  it("the split runner's result panel renders the disclosure with its own sentence", () => {
+    const source = withoutComments(
+      readFileSync(
+        path.join(
+          process.cwd(),
+          "src/components/tools/runner/split-half-runner.tsx",
+        ),
+        "utf8",
+      ),
+    );
+    const panel = source.slice(
+      source.indexOf("<ResultPanel"),
+      source.indexOf("</ResultPanel>"),
+    );
+    expect(panel.length).toBeGreaterThan(50);
+    expect(panel).toContain(
+      "<CropDisclosure sentence={SPLIT_HALF_KEEPS_CONTENT} />",
+    );
+  });
+
+  it("the component renders the sentence it is given", () => {
+    render(<CropDisclosure sentence={SPLIT_HALF_KEEPS_CONTENT} />);
+    expect(screen.getByText(/hidden rather than deleted/)).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: `Open ${REDACT_TOOL_NAME}` }),
+    ).toBeTruthy();
   });
 });

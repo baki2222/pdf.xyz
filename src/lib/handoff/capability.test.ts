@@ -355,6 +355,7 @@ const RUNNER_OPENS: Record<
   metadata: isLikelyPdf,
   resize: isLikelyPdf,
   "n-up": isLikelyPdf,
+  "split-half": isLikelyPdf,
 };
 
 const carried = (slug: string, file: { name: string; type: string }) =>

@@ -132,6 +132,9 @@ const ResizeRunner = dynamic(() =>
 const NUpRunner = dynamic(() =>
   import("./n-up-runner").then(({ NUpRunner }) => NUpRunner),
 );
+const SplitHalfRunner = dynamic(() =>
+  import("./split-half-runner").then(({ SplitHalfRunner }) => SplitHalfRunner),
+);
 
 /**
  * Client-side dispatcher: renders the interactive runner for a supported tool.
@@ -206,6 +209,8 @@ export function ToolRunner({ kind, slug }: { kind: RunnerKind; slug: string }) {
       return <ResizeRunner />;
     case "n-up":
       return <NUpRunner />;
+    case "split-half":
+      return <SplitHalfRunner />;
     default:
       return null;
   }

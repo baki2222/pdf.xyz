@@ -54,6 +54,7 @@ import resizePdf from "./resize-pdf";
 import rotatePdf from "./rotate-pdf";
 import scanToPdf from "./scan-to-pdf";
 import signPdf from "./sign-pdf";
+import splitPagesInHalf from "./split-pdf-pages-in-half";
 import splitPdf from "./split-pdf";
 import summarizePdf from "./summarize-pdf";
 import textToPdf from "./text-to-pdf";
@@ -115,6 +116,7 @@ export const toolContent: Readonly<Record<string, ToolContent>> =
       rotatePdf,
       scanToPdf,
       signPdf,
+      splitPagesInHalf,
       splitPdf,
       summarizePdf,
       textToPdf,

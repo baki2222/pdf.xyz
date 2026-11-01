@@ -44,6 +44,7 @@ import {
   ShieldCheck,
   Signature,
   Sparkles,
+  SquareSplitHorizontal,
   SquareStack,
   Table,
   Tags,
@@ -69,6 +70,7 @@ export const ICONS = {
   rotate: RotateCw,
   extractImages: Images,
   nUp: Grid2x2,
+  splitHalf: SquareSplitHorizontal,
   // optimize
   compress: Minimize2,
   ocr: ScanText,

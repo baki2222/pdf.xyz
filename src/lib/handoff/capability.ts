@@ -75,6 +75,7 @@ const MODE_BY_KIND: Record<RunnerKind, HandoffMode> = {
   metadata: "single",
   resize: "single",
   "n-up": "single",
+  "split-half": "single",
 };
 
 /** Resolve a tool slug to its handoff capability. */

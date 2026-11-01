@@ -61,6 +61,13 @@ export const TOOL_DIRECTORY: readonly ToolEntry[] = [
     outputs: ["PDF"],
   },
   {
+    slug: "split-pdf-pages-in-half",
+    name: "Split PDF Pages in Half",
+    processing: "client",
+    accept: ["PDF"],
+    outputs: ["PDF"],
+  },
+  {
     slug: "compress-pdf",
     name: "Compress PDF",
     processing: "hybrid",

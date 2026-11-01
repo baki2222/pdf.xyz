@@ -37,7 +37,8 @@ export type RunnerKind =
   | "scan"
   | "metadata"
   | "resize"
-  | "n-up";
+  | "n-up"
+  | "split-half";
 
 const RUNNERS: Record<string, RunnerKind> = {
   "merge-pdf": "merge",
@@ -74,6 +75,7 @@ const RUNNERS: Record<string, RunnerKind> = {
   "edit-pdf-metadata": "metadata",
   "resize-pdf": "resize",
   "n-up-pdf": "n-up",
+  "split-pdf-pages-in-half": "split-half",
 };
 
 export function getRunnerKind(slug: string): RunnerKind | undefined {
