@@ -960,8 +960,10 @@ export const guides: Guide[] = [
       },
       {
         question: "Will a smaller PDF also open faster on a website?",
-        answer:
-          "Size is only part of it. If the PDF will be read in a browser, run Optimize for Web on the compressed copy: it linearizes the file with qpdf on a secure server, so the first page can render while the rest still downloads, and the input is deleted after the job. Linearizing reorders the file for streaming; it is not a compression step.",
+        // Named the tool "Optimize for Web" in plain text until 2026-11-01, so
+        // the optimize-web size guard (tool-page-content.test.ts), which finds
+        // guide lines by the tool's name, never held this one to it.
+        answer: `Size is only part of it. If the PDF will be read in a browser, run ${nameOf("optimize-web")} on the compressed copy: it linearizes the file with qpdf on a secure server, so the first page can render while the rest still downloads, and the input is deleted after the job. Linearizing reorders the file for streaming; it is not a compression step, and the size can move in either direction, so compare the result with the copy ${nameOf("compress-pdf")} gave you.`,
       },
       {
         question: "Do I need an account to compress a PDF?",
@@ -970,7 +972,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-10-30",
+    updated: "2026-11-01",
   },
   {
     slug: "how-to-convert-pdf-to-word",
