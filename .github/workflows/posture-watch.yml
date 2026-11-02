@@ -1,8 +1,11 @@
 # Watch the deployed operations posture and email the owner when it degrades.
 #
-# GitHub emails the repository owner when a SCHEDULED workflow fails, which is
-# the whole delivery mechanism — no new service, no secret, no mail server, and
-# it arrives in a channel a human already reads.
+# GitHub emails the repository owner when a SCHEDULED workflow fails, and it
+# arrives in a channel a human already reads. That alarm lives inside the
+# scheduler it depends on, so it cannot report the scheduler not running —
+# which it did not, for most of 2026-11-01 (see below). The last step pings an
+# OUTSIDE dead-man's switch (healthchecks.io, owner's choice 2026-11-02), which
+# emails when a run fails OR when no run arrives in time.
 #
 # All of the logic lives in the scripts this runs — every
 # scripts/check-*.mjs, one step each (src/deploy/public-surface-watch.test.ts
@@ -14,11 +17,15 @@ name: posture-watch
 
 on:
   schedule:
-    # Hourly. The states this catches persist until someone acts, so a tighter
-    # schedule buys nothing and burns Actions minutes. See the script's
-    # freshness note: /status renders per request, this runs hourly, and a green
-    # dashboard beside a red email an hour apart is expected.
-    - cron: "17 * * * *"
+    # Three times an hour, off the hour. WAS hourly ("17 * * * *"), on the
+    # premise that a tighter schedule buys nothing and burns Actions minutes.
+    # Both stopped holding: the repository is public (standard runners cost
+    # nothing), and GitHub's scheduler ran this 24 of 24 times on 2026-10-30
+    # and 2026-10-31 but 8 of 37 from 2026-11-01 00:00 to 2026-11-02 13:00 UTC,
+    # with no CI load to explain it. Scheduled runs are dropped independently,
+    # so three tries an hour make an hour with no check much rarer, and the
+    # dead-man's switch below says when it happens anyway.
+    - cron: "7,27,47 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -62,3 +69,13 @@ jobs:
           R2_BACKUP_KEY_ID: ${{ secrets.R2_BACKUP_KEY_ID }}
           R2_BACKUP_SECRET: ${{ secrets.R2_BACKUP_SECRET }}
         run: node scripts/check-backup-freshness.mjs
+
+      # Last, and whatever happened above: tell the outside switch that this
+      # run happened and how it ended (`/fail` unless every step passed).
+      # Without the secret it says so and does nothing.
+      - name: Ping the dead-man's switch
+        if: always()
+        env:
+          HEALTHCHECK_PING_URL: ${{ secrets.HEALTHCHECK_PING_URL }}
+          JOB_STATUS: ${{ job.status }}
+        run: node scripts/ping-dead-mans-switch.mjs
