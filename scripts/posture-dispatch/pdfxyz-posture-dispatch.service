@@ -1,0 +1,23 @@
+# Start one posture-watch run on GitHub (scripts/posture-dispatch/README.md).
+# Driven by pdfxyz-posture-dispatch.timer; installed by install.sh.
+[Unit]
+Description=Start one pdf.xyz posture-watch run on GitHub
+Documentation=https://github.com/baki2222/pdf.xyz/blob/main/scripts/posture-dispatch/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/pdfxyz/posture-dispatch.sh
+# The token reaches the script as a credential, and the script runs as a
+# throwaway unprivileged user that can read nothing else on this host.
+LoadCredential=token:/etc/pdfxyz/posture-dispatch.token
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

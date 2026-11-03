@@ -3,7 +3,7 @@
 # GitHub emails the repository owner when a SCHEDULED workflow fails, and it
 # arrives in a channel a human already reads. That alarm lives inside the
 # scheduler it depends on, so it cannot report the scheduler not running —
-# which it did not, for most of 2026-11-01 (see below). The last step pings an
+# which it mostly did not, from 2026-11-01 (see below). The last step pings an
 # OUTSIDE dead-man's switch (healthchecks.io, owner's choice 2026-11-02), which
 # emails when a run fails OR when no run arrives in time.
 #
@@ -16,16 +16,20 @@
 name: posture-watch
 
 on:
+  # The FALLBACK trigger. GitHub's scheduler ran this 24 of 24 times hourly on
+  # 2026-10-30 and 2026-10-31, then 8 of 37 from 2026-11-01 00:00 to
+  # 2026-11-02 13:00 UTC, with no CI load to explain it.
+  #
+  # WAS presented as the fix, on the premise that "scheduled runs are dropped
+  # independently, so three tries an hour make an hour with no check much
+  # rarer". Measured false: three slots an hour (from "17 * * * *") gave 3 runs
+  # in the 26 hours to 2026-11-03 16:30 UTC. The slots cost nothing (public
+  # repository, standard runners), so they stay as a fallback.
   schedule:
-    # Three times an hour, off the hour. WAS hourly ("17 * * * *"), on the
-    # premise that a tighter schedule buys nothing and burns Actions minutes.
-    # Both stopped holding: the repository is public (standard runners cost
-    # nothing), and GitHub's scheduler ran this 24 of 24 times on 2026-10-30
-    # and 2026-10-31 but 8 of 37 from 2026-11-01 00:00 to 2026-11-02 13:00 UTC,
-    # with no CI load to explain it. Scheduled runs are dropped independently,
-    # so three tries an hour make an hour with no check much rarer, and the
-    # dead-man's switch below says when it happens anyway.
     - cron: "7,27,47 * * * *"
+  # The PRIMARY trigger: scripts/posture-dispatch/ on the worker host starts
+  # this every 20 minutes through the API, which has started every run asked
+  # of it. The dead-man's switch below says when neither trigger arrives.
   workflow_dispatch:
 
 permissions:
