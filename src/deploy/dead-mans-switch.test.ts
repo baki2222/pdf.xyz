@@ -49,11 +49,17 @@ describe("the posture watch pings its dead-man's switch", () => {
     expect(last).toMatch(/JOB_STATUS:\s*\$\{\{\s*job\.status\s*\}\}/);
   });
 
-  it("runs more than once an hour (one scheduled try an hour was 8 of 37)", () => {
+  // WAS "runs more than once an hour (one scheduled try an hour was 8 of 37)",
+  // asserting at least three cron slots, on the premise that GitHub drops
+  // scheduled runs one slot at a time. Measured false on 2026-11-03: three
+  // slots an hour gave 3 runs in 26 hours. Slot count is not what keeps the
+  // watch running, so it is no longer pinned; what is pinned is that the
+  // schedule survives as a fallback, and (src/deploy/posture-dispatch.test.ts)
+  // that the primary trigger can start this workflow at all.
+  it("keeps a schedule as the fallback trigger, off the top of the hour", () => {
     const cron = /cron:\s*"([^"]+)"/.exec(executable)?.[1];
     expect(cron, "no cron line").toBeDefined();
     const minutes = cron!.split(/\s+/)[0]!.split(",");
-    expect(minutes.length).toBeGreaterThanOrEqual(3);
     // Off the top of the hour, where GitHub's load (and dropping) peaks.
     expect(minutes).not.toContain("0");
   });

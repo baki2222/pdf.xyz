@@ -1,0 +1,17 @@
+# Start a posture-watch run every 20 minutes (scripts/posture-dispatch/README.md).
+# Enabled by pdfxyz-set-dispatch-token once a token is installed.
+[Unit]
+Description=Start a pdf.xyz posture-watch run every 20 minutes
+
+[Timer]
+# :02, :22 and :42 UTC — off the top of the hour, and between the workflow's
+# own cron slots (7,27,47), which stay as a fallback.
+OnCalendar=*-*-* *:02/20:00 UTC
+AccuracySec=10s
+RandomizedDelaySec=30s
+# After downtime, start one run at once instead of waiting for the next slot.
+Persistent=true
+Unit=pdfxyz-posture-dispatch.service
+
+[Install]
+WantedBy=timers.target
