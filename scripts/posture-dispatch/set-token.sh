@@ -30,5 +30,14 @@ echo "Saved the token (${#token} characters)."
 
 systemctl enable --now pdfxyz-posture-dispatch.timer
 # One run now, so the answer is on this screen rather than in 20 minutes.
+#
+# The answer is what THIS run printed, read by its invocation id. The unit's
+# last journal line is systemd's own "Finished …" or "Failed to start …",
+# which names neither the HTTP status nor the reason — and on 2026-11-03 that
+# line is all the owner saw (WAS: `journalctl -u … -n 1`).
 systemctl start pdfxyz-posture-dispatch.service || true
-journalctl -u pdfxyz-posture-dispatch.service -n 1 --no-pager -o cat
+journalctl --sync 2>/dev/null || true
+invocation="$(systemctl show -p InvocationID --value pdfxyz-posture-dispatch.service)"
+if [[ -n "$invocation" ]]; then
+  journalctl _SYSTEMD_INVOCATION_ID="$invocation" --no-pager -o cat
+fi

@@ -254,4 +254,110 @@ describe("scripts/posture-dispatch/dispatch.sh, run as systemd runs it", () => {
     expect(seen).toEqual([]);
     expect(out).toMatch(/does not hold a GitHub token/);
   });
+
+  // The setter's last word is the only thing the owner reads. On 2026-11-03
+  // it was systemd's "Finished …" — true of a 401 as much as of a 204 —
+  // because it printed the unit's LAST journal line. Composed here: the
+  // script's real output, placed in a journal shaped as the worker host
+  // recorded that start, read back through the setter.
+  it("set-token.sh shows the owner what the run it started printed, as the README promises", async () => {
+    answer = 204;
+    const dispatched = await run({ PDFXYZ_DISPATCH_TOKEN_FILE: tokenFile });
+    expect(dispatched.code).toBe(0);
+    const unit = "pdfxyz-posture-dispatch.service";
+    const journal = [
+      `-\tStarting ${unit} - Start one pdf.xyz posture-watch run on GitHub...`,
+      ...dispatched.out
+        .trim()
+        .split("\n")
+        .map((line) => `inv-1\t${line}`),
+      `-\t${unit}: Deactivated successfully.`,
+      `-\tFinished ${unit} - Start one pdf.xyz posture-watch run on GitHub.`,
+    ];
+
+    const stubs = mkdtempSync(path.join(tmpdir(), "posture-setter-"));
+    const stub = (name: string, body: string) =>
+      writeFileSync(path.join(stubs, name), `#!/usr/bin/env bash\n${body}`, {
+        mode: 0o755,
+      });
+    writeFileSync(path.join(stubs, "journal.tsv"), `${journal.join("\n")}\n`);
+    stub(
+      "systemctl",
+      `echo "$*" >>"$STUBS/systemctl.log"\n[[ "$1" == show ]] && echo inv-1\nexit 0\n`,
+    );
+    // journalctl over the recorded journal: <_SYSTEMD_INVOCATION_ID>\t<MESSAGE>.
+    stub(
+      "journalctl",
+      [
+        'inv="" n=""',
+        "while (($#)); do",
+        '  case "$1" in',
+        "    --sync) exit 0 ;;",
+        '    _SYSTEMD_INVOCATION_ID=*) inv="${1#*=}" ;;',
+        '    -n) n="$2"; shift ;;',
+        "  esac",
+        "  shift",
+        "done",
+        "while IFS=$'\\t' read -r id msg; do",
+        '  [[ -z "$inv" || "$id" == "$inv" ]] && printf \'%s\\n\' "$msg"',
+        'done <"$STUBS/journal.tsv" | if [[ -n "$n" ]]; then tail -n "$n"; else cat; fi',
+        "",
+      ].join("\n"),
+    );
+
+    // Git for Windows' `install -d` cannot chmod the directory it makes
+    // ("Permission denied" on every drive), so there it is a plain mkdir;
+    // Linux runs the real one. The setter only ever calls `install -d`.
+    if (process.platform === "win32") {
+      stub(
+        "install",
+        '[[ "$1" == -d ]] || exit 2\nshift\n[[ "$1" == -m ]] && shift 2\nmkdir -p "$@"\n',
+      );
+    }
+
+    // A directory the setter creates, as /etc/pdfxyz is on a fresh host.
+    const saved = path.join(stubs, "etc", "saved.token");
+    const out = await new Promise<string>((resolve) => {
+      // PATH is set inside bash: Git for Windows' bash.exe puts its own
+      // directories first, so a stub prepended from here loses to them.
+      const child = spawn(
+        BASH,
+        [
+          "-c",
+          'PATH="$(cd "$STUBS" && pwd):$PATH"; exec bash "$1"',
+          "bash",
+          path.join(DIR, "set-token.sh"),
+        ],
+        {
+          env: {
+            ...process.env,
+            STUBS: stubs,
+            PDFXYZ_DISPATCH_TOKEN_FILE: saved,
+          },
+        },
+      );
+      let text = "";
+      child.stdout.on("data", (d) => (text += d));
+      child.stderr.on("data", (d) => (text += d));
+      child.on("close", () => resolve(text));
+      child.stdin.end(`${TOKEN}\n`);
+    });
+
+    const promised = /prints the result, for example\s+`([^`]+)`/.exec(
+      README,
+    )?.[1];
+    expect(
+      promised,
+      "README no longer says what the setter prints",
+    ).toBeTruthy();
+    expect(out).toContain(`Saved the token (${TOKEN.length} characters).`);
+    expect(out).toContain(promised);
+    expect(out).not.toContain("Finished");
+    expect(out).not.toContain("0123456789abcdef");
+    expect(readFileSync(saved, "utf8")).toBe(`${TOKEN}\n`);
+    // It asked about the unit it started, not some other one.
+    const calls = readFileSync(path.join(stubs, "systemctl.log"), "utf8");
+    expect(calls).toContain(`start ${unit}`);
+    expect(calls).toContain(`show -p InvocationID --value ${unit}`);
+  });
 });
