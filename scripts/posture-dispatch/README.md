@@ -60,6 +60,7 @@ starts one run, and prints the result, for example
 
 - `systemctl list-timers pdfxyz-posture-dispatch.timer` shows the next and the
   last start.
-- `journalctl -u pdfxyz-posture-dispatch.service -n 20 -o cat` prints one line
-  per start, with an HTTP status and nothing else.
+- `journalctl -u pdfxyz-posture-dispatch.service --since -2h -o cat | grep '^posture-dispatch:'`
+  prints one line per start, with an HTTP status and nothing else. Without the
+  `grep`, systemd's own `Starting …` and `Finished …` lines surround each one.
 - Started runs appear under the workflow's runs as `workflow_dispatch` events.
