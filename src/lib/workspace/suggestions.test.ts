@@ -100,15 +100,21 @@ describe("suggestTools (the adapter over rankForFiles)", () => {
 
   it("does not promise a conversion for images no tool can take", () => {
     // HISTORY: the pair was a.webp + b.heic until 2026-10-30, when JPG / PNG
-    // to PDF began converting WebP; a TIFF is the unsupported image now.
-    const slugs = all([file("a.tiff"), file("b.heic")]).map((s) => s.slug);
+    // to PDF began converting WebP; then a.tiff + b.heic until 2026-11-04,
+    // when they began reading TIFF. An AVIF is the unsupported image now.
+    const slugs = all([file("a.avif"), file("b.heic")]).map((s) => s.slug);
     expect(slugs).not.toContain("jpg-to-pdf");
     expect(slugs).not.toContain("png-to-pdf");
     expect(
-      suggestTools([file("a.tiff"), file("b.heic")], index).notes.map(
+      suggestTools([file("a.avif"), file("b.heic")], index).notes.map(
         (n) => n.kind,
       ),
     ).toEqual(["unsupported", "unsupported"]);
+  });
+
+  it("a TIFF alone is offered to an image tool (since 2026-11-04)", () => {
+    const slugs = all([file("scan.tiff")]).map((s) => s.slug);
+    expect(slugs).toContain("jpg-to-pdf");
   });
 
   it("positive control: a WebP, GIF or BMP alone is offered to an image tool", () => {

@@ -6,12 +6,16 @@ import {
   IMAGE_PAGE_SIZES,
 } from "@/lib/pdf/image-page-layout";
 import { inches } from "@/lib/pdf/page-geometry";
+import { tiffRefusal } from "@/lib/pdf/tiff-limits";
 import {
   MAX_SIZE_LABELS,
   LIMIT_EXAMPLE,
   MAX_SIZE_PRESETS,
   limitOutcome,
 } from "@/lib/pdf/image-size-limit";
+
+/** The TIFF reader's pick-time refusal by example, in its own words. */
+const TIFF_TOO_LARGE = tiffRefusal.tooLarge("scan.tif", 3, 12_000, 9_000);
 
 /** "A, B or C" from the runner's own chip tables. */
 const or = (items: readonly string[]) =>
@@ -83,7 +87,15 @@ const LIMIT_MET = limitOutcome({
  *    browser and re-encoded (src/lib/pdf/image-transcode.ts: PNG with
  *    alpha, JPEG at 0.92 without; a GIF's first frame), read back from the
  *    saved PDF by src/lib/pdf/image-formats.test.ts. TIFF, HEIC and AVIF are
- *    still refused by name; the steps' example names an AVIF. What still reaches Create PDF and fails
+ *    still refused by name; the steps' example names an AVIF. SUPERSEDED
+ *    for TIFF 2026-11-04: src/lib/pdf/tiff.ts reads it in the browser, every
+ *    page of a multi-page TIFF a PDF page in order (CCITT G3/G4, LZW,
+ *    PackBits, Deflate, JPEG, uncompressed), embedded LOSSLESSLY at its own
+ *    depth (a fax page stays a 1-bit DeviceGray image, not 8-bit RGB) and
+ *    laid out at its size on paper from XResolution/YResolution. PNG's DPI
+ *    is still not read, so the "one point per pixel" sentence now names PNG
+ *    and TIFF apart. src/lib/pdf/tiff.test.ts renders the saved PDFs through
+ *    pdf.js. HEIC and AVIF are still refused by name. What still reaches Create PDF and fails
  *    is a file with a valid signature pdf-lib cannot parse (a 2-frame APNG,
  *    a damaged image). tool-page-substance.test.ts holds the steps to every
  *    refusal the runner gives, in its words.
@@ -108,6 +120,7 @@ const content: ToolContent = {
   intro: [
     `PNG to PDF places every PNG you add on a page of its own and saves the set as a single PDF. It suits what people keep as PNG in the first place — screenshots, diagrams, line art, logos on a transparent background — where crisp edges matter more than a small file. With ${LIMIT} left at ${NO_LIMIT}, a PNG is never turned into JPEG on the way: its pixels are stored with lossless Flate compression, so small interface text is not smudged by block artefacts. The one exception is a PNG with sixteen bits per channel, which is cut down to eight. WebP, GIF and BMP images are taken too: your browser decodes each one and it is saved again, as a PNG when it has transparency and as a high-quality JPEG when it has none, and an animated GIF gives its first frame only. If an upload form caps the size, choose ${LIMIT} (${LIMIT_PRESETS}, or Custom): when the PDF comes out bigger, your browser saves the images again as JPEGs, softer and with any transparent areas turned white, until it fits.`,
     `Unless you change the page setup, every page is a portrait US Letter sheet with a white background and a 0.5 in margin. You can pick the page size (${SIZES}), the orientation (${ORIENTATIONS}) and the margin (${MARGINS}) first; Fit to image makes each page the size of its PNG plus the margin, which suits screenshots. A PNG bigger than the space is scaled down to fit and centred. A smaller one is never enlarged: it is drawn at one PDF point per pixel, so a tiny icon stays tiny. Any DPI value stored inside the PNG is ignored.`,
+    "TIFF images are taken as well, multi-page TIFFs from scanners and fax software included: every page of the TIFF becomes a page of the PDF, in order, black-and-white fax pages (CCITT Group 4) among them. Unlike a PNG, a TIFF page is laid out at the size it had on paper, read from the resolution saved in the file, so under Fit to image a 300 dpi A4 scan is an A4 page. Its pixels are stored without loss, a black-and-white page as one bit per pixel.",
     `The work happens in this browser tab: your PNGs are read from your device, laid out there, and handed back as a download, and none of them is uploaded to pdf.xyz. Each file may be up to ${MAX_IMAGE_MB} MB.`,
   ],
   useCases: [
@@ -131,7 +144,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your PNG files",
-      body: `Drag PNGs onto the box reading "Drop PNG images here, or browse", or click anywhere in it to open your file picker; JPG photos are accepted too, and so are WebP, GIF and BMP images. Files added later join the end of the list. A file that is left out gets a note naming it and the reason: "Choose PNG, JPG, WebP, GIF or BMP images." for another type, "File is empty." for a zero-byte file, "Max ${MAX_IMAGE_MB} MB per image." for one that is too big, "Could not read this file — pick it again." when the file cannot be read, and a note naming the real format, such as "chart.png" is an AVIF image., when its contents are none of those.`,
+      body: `Drag PNGs onto the box reading "Drop PNG images here, or browse", or click anywhere in it to open your file picker; JPG photos are accepted too, and so are WebP, GIF, BMP and TIFF images; a multi-page TIFF fills one page per TIFF page. Files added later join the end of the list. A file that is left out gets a note naming it and the reason: "Choose PNG, JPG, WebP, GIF, BMP or TIFF images." for another type, "File is empty." for a zero-byte file, "Max ${MAX_IMAGE_MB} MB per image." for one that is too big, "Could not read this file — pick it again." when the file cannot be read, and a note naming the real format, such as "chart.png" is an AVIF image., when its contents are none of those. A TIFF can also be turned away by page, with a note naming it, such as ${TIFF_TOO_LARGE}`,
     },
     {
       title: "Arrange the image order",
@@ -157,11 +170,11 @@ const content: ToolContent = {
     },
     {
       q: "Will my screenshots lose quality?",
-      a: `With ${LIMIT} at ${NO_LIMIT}, no PNG pixel is re-saved as JPEG, so edges and on-screen text survive intact, even when a large image is shown scaled down on the page. Two caveats. A sixteen-bit PNG is reduced to eight bits per channel. And every image is stored as eight-bit RGB without PNG's own row filtering, so a palette or greyscale PNG is expanded to full colour and can make a PDF far heavier than the file you added. A WebP, GIF or BMP without transparency is the one kind stored as JPEG, at high quality, because it has to be saved again either way. A ${LIMIT} the PDF is over is the exception you choose: then every image is saved again as a JPEG, with fewer pixels, until the PDF fits, and on-screen text can blur.`,
+      a: `With ${LIMIT} at ${NO_LIMIT}, no PNG pixel is re-saved as JPEG, so edges and on-screen text survive intact, even when a large image is shown scaled down on the page. Two caveats. A sixteen-bit PNG is reduced to eight bits per channel. And every image is stored as eight-bit RGB without PNG's own row filtering, so a palette or greyscale PNG is expanded to full colour and can make a PDF far heavier than the file you added. A WebP, GIF or BMP without transparency is the one kind stored as JPEG, at high quality, because it has to be saved again either way. A TIFF page keeps its own depth instead: a black-and-white scan stays one bit per pixel, so it stays small. A ${LIMIT} the PDF is over is the exception you choose: then every image is saved again as a JPEG, with fewer pixels, until the PDF fits, and on-screen text can blur.`,
     },
     {
       q: "Can I make the PDF smaller than 100 KB or 200 KB?",
-      a: `Yes, with ${LIMIT}: choose ${LIMIT_PRESETS}, or Custom and a whole number of KB. The PDF is made as usual first and kept as it is if it already fits. If it is bigger, your browser saves the images again as JPEGs, step by step at a lower quality and pixel size, measures each PDF, and keeps the sharpest one that fits; if none fits, you get the smallest it made and a line saying it is above your limit. Screenshots full of small text suffer most, so try the largest limit the form allows. Here 1 KB is 1,024 bytes.`,
+      a: `Yes, with ${LIMIT}: choose ${LIMIT_PRESETS}, or Custom and a whole number of KB. The PDF is made as usual first and kept as it is if it already fits. If it is bigger, your browser saves the images again as JPEGs, step by step at a lower quality and pixel size, measures each PDF, and keeps the sharpest one that fits; if none fits, you get the smallest it made and a line saying it is above your limit. Screenshots full of small text suffer most, so try the largest limit the form allows. A TIFF page is saved as a JPEG only where that comes out smaller than the page kept without loss, so a black-and-white scan page usually stays as it is. Here 1 KB is 1,024 bytes.`,
     },
     {
       q: "Can I put PNG and JPG images in the same PDF?",
@@ -169,7 +182,7 @@ const content: ToolContent = {
     },
     {
       q: "Why did Create PDF fail on a file it accepted?",
-      a: 'Adding a file checks its name, its size and the first bytes of its contents, so a file whose contents are not a PNG, JPG, WebP, GIF or BMP is turned away as you add it, even when it is named .png, and a JPEG or WebP saved with a .png name is accepted and placed as what it really is. What that check cannot see is an animated PNG with more than one frame, or a damaged image whose first bytes look right: it gets into the list and then fails with "could not be decoded as a PNG image" (or "as a JPG image"), which stops the whole PDF. Remove the file the message names and run it again.',
+      a: 'Adding a file checks its name, its size and the first bytes of its contents, so a file whose contents are not a PNG, JPG, WebP, GIF, BMP or TIFF is turned away as you add it, even when it is named .png, and a JPEG or WebP saved with a .png name is accepted and placed as what it really is. What that check cannot see is an animated PNG with more than one frame, or a damaged image whose first bytes look right: it gets into the list and then fails with "could not be decoded as a PNG image" (or "as a JPG image"), which stops the whole PDF. Remove the file the message names and run it again. A TIFF is checked further when you add it, page by page, for its size and the way it is stored; a damaged TIFF page stops Create PDF with a note naming the page.',
     },
     {
       q: "Are my images uploaded anywhere?",

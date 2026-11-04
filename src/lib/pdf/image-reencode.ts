@@ -65,9 +65,42 @@ export async function reencodeImage(
     throw new PdfEngineError(`"${name}" could not be read to make it smaller.`);
   }
   const { width: layoutWidth, height: layoutHeight } = bitmap;
+  return reencodeBitmap(name, bitmap, { layoutWidth, layoutHeight }, rung);
+}
+
+/**
+ * One decoded TIFF page (2026-11-04) saved again as a JPEG for a size limit:
+ * the same draw and encode as {@link reencodeImage}, from pixels `tiff.ts`
+ * decoded — no browser but Safari decodes a TIFF — and laid out at the page's
+ * size on paper (`layout`, points from its resolution), not its pixel count.
+ */
+export async function reencodePixels(
+  name: string,
+  rgba: Uint8ClampedArray,
+  pixels: { width: number; height: number },
+  layout: { layoutWidth: number; layoutHeight: number },
+  rung: ReencodeRung,
+): Promise<ReencodedImage> {
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(
+      new ImageData(rgba as ImageDataArray, pixels.width, pixels.height),
+    );
+  } catch {
+    throw new PdfEngineError(`"${name}" could not be read to make it smaller.`);
+  }
+  return reencodeBitmap(name, bitmap, layout, rung);
+}
+
+async function reencodeBitmap(
+  name: string,
+  bitmap: ImageBitmap,
+  { layoutWidth, layoutHeight }: { layoutWidth: number; layoutHeight: number },
+  rung: ReencodeRung,
+): Promise<ReencodedImage> {
   const { width, height } = rungPixelSize(
-    layoutWidth,
-    layoutHeight,
+    bitmap.width,
+    bitmap.height,
     rung.scale,
   );
   const canvas = makeCanvas(width, height);

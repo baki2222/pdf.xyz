@@ -322,11 +322,18 @@ export const tools: Tool[] = [
     // Both image runners take PNG and JPEG alike, and the page's "In:" row
     // reads this list (image-to-pdf-accept.test.ts holds it to the gate).
     // WEBP, GIF and BMP since 2026-10-30: decoded in the browser and
-    // re-encoded (image-transcode.ts), on both image tools.
-    accept: ["JPG", "JPEG", "PNG", "WEBP", "GIF", "BMP"],
+    // re-encoded (image-transcode.ts), on both image tools. TIFF since
+    // 2026-11-04, multi-page included: read by pdf/tiff.ts, embedded losslessly.
+    accept: ["JPG", "JPEG", "PNG", "WEBP", "GIF", "BMP", "TIFF"],
     // ZIP: "One PDF per image" delivers the PDFs as one archive.
     outputs: ["PDF", "ZIP"],
-    keywords: ["jpg to pdf", "jpeg to pdf", "image to pdf", "photos to pdf"],
+    keywords: [
+      "jpg to pdf",
+      "jpeg to pdf",
+      "image to pdf",
+      "photos to pdf",
+      "tiff to pdf",
+    ],
     related: ["png-to-pdf", "scan-to-pdf", "pdf-to-jpg", "merge-pdf"],
   },
   {
@@ -337,10 +344,16 @@ export const tools: Tool[] = [
     category: "convert-to",
     icon: "png",
     processing: "client",
-    accept: ["PNG", "JPG", "JPEG", "WEBP", "GIF", "BMP"],
+    accept: ["PNG", "JPG", "JPEG", "WEBP", "GIF", "BMP", "TIFF"],
     // ZIP: "One PDF per image" delivers the PDFs as one archive.
     outputs: ["PDF", "ZIP"],
-    keywords: ["png to pdf", "image to pdf", "transparent png pdf", "logos"],
+    keywords: [
+      "png to pdf",
+      "image to pdf",
+      "transparent png pdf",
+      "logos",
+      "multi-page tiff to pdf",
+    ],
     related: ["jpg-to-pdf", "pdf-to-png", "merge-pdf"],
   },
   {

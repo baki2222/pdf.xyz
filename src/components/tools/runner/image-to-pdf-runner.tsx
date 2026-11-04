@@ -16,6 +16,7 @@ import {
   imagesToPdfs,
   perImageZipName,
   imagePdfOutputName,
+  imagePageCount,
   imagePickerAccept,
   isImageAllowedForKind,
   IMAGE_MIME,
@@ -23,6 +24,8 @@ import {
   unsupportedImageMessage,
   type ImagePdfKind,
 } from "@/lib/pdf/image-to-pdf";
+import { PdfEngineError } from "@/lib/pdf/engine-errors";
+
 import {
   DEFAULT_IMAGE_OUTPUT,
   DEFAULT_IMAGE_PAGE_OPTIONS,
@@ -79,9 +82,30 @@ interface ImageItem {
   type: string;
   size: number;
   bytes: Uint8Array;
-  previewUrl: string;
+  /** `null` for a TIFF: no browser but Safari draws one in an <img>. */
+  previewUrl: string | null;
+  /** PDF pages it becomes: a TIFF's page count, 1 for any other image. */
+  pages: number;
   /** Where it came in the pick: "Keep drop order" sorts by this. */
   seq: number;
+}
+
+/**
+ * A TIFF the reader refused when it was added, in the reader's own words
+ * (`tiff-limits.ts`: too many pages, a page over the pixel ceiling, a
+ * compression it cannot read, a damaged header — each naming the page).
+ * `readTiffPages` throws nothing else; the fallback is for a chunk that
+ * failed to load. Not imported here: the words stay in the lazy chunk.
+ */
+function tiffRefusalText(name: string, problem: unknown): string {
+  return problem instanceof PdfEngineError
+    ? problem.message
+    : `"${name}" could not be read as a TIFF image.`;
+}
+
+/** "Page 3", or "Pages 3–4" for a multi-page TIFF starting at page 3. */
+function pageLabel(first: number, pages: number): string {
+  return pages === 1 ? `Page ${first}` : `Pages ${first}–${first + pages - 1}`;
 }
 
 interface Rejection {
@@ -169,7 +193,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
         if (!isImageAllowedForKind(kind, file)) {
           rejected.push({
             name: file.name,
-            reason: "Choose PNG, JPG, WebP, GIF or BMP images.",
+            reason: "Choose PNG, JPG, WebP, GIF, BMP or TIFF images.",
           });
         } else if (file.size <= 0) {
           rejected.push({ name: file.name, reason: "File is empty." });
@@ -225,18 +249,36 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
           });
           continue;
         }
+        // A TIFF's pages are counted from its header now — and a TIFF over
+        // the page or pixel ceilings, or with a compression the engine cannot
+        // read, is refused here, by page, before it is ever decoded.
+        let pages = 1;
+        if (format === "tiff") {
+          try {
+            pages = await imagePageCount({ name: file.name, type: "", bytes });
+          } catch (problem) {
+            unreadable.push({
+              name: file.name,
+              reason: tiffRefusalText(file.name, problem),
+            });
+            continue;
+          }
+        }
         loaded.push({
           id: `${Date.now()}-${idRef.current++}`,
           name: file.name,
           type: IMAGE_MIME[format],
           size: file.size,
           bytes,
-          previewUrl: URL.createObjectURL(file),
+          previewUrl: format === "tiff" ? null : URL.createObjectURL(file),
+          pages,
           seq: seqRef.current++,
         });
       }
       if (unreadable.length) setRejections([...rejected, ...unreadable]);
-      loaded.forEach((item) => previewUrls.current.add(item.previewUrl));
+      loaded.forEach((item) => {
+        if (item.previewUrl) previewUrls.current.add(item.previewUrl);
+      });
       // The first images in are put in the order of the numbers in their
       // names when they are one numbered sequence (smart default, E.9), in
       // the same update that draws them.
@@ -292,7 +334,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
   const remove = (id: string) =>
     setItems((prev) => {
       const removed = prev.find((item) => item.id === id);
-      if (removed) {
+      if (removed?.previewUrl) {
         URL.revokeObjectURL(removed.previewUrl);
         previewUrls.current.delete(removed.previewUrl);
       }
@@ -352,6 +394,9 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
         : { kind: "single", bytes: await imagesToPdf(kind, inputs, page) };
     });
 
+  // Every PDF page the list becomes: a multi-page TIFF is several.
+  const totalPages = items.reduce((sum, item) => sum + item.pages, 0);
+
   if (handoff.status === "loading") return <HandoffLoading />;
 
   if (result?.kind === "per-image") {
@@ -396,12 +441,12 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
     return (
       <ResultPanel
         title={`${label} PDF created`}
-        summary={`${items.length} image${items.length === 1 ? "" : "s"} · ${formatBytes(bytes.byteLength)}`}
+        summary={`${items.length} image${items.length === 1 ? "" : "s"}${totalPages === items.length ? "" : ` · ${totalPages} pages`} · ${formatBytes(bytes.byteLength)}`}
         onReset={clearItems}
         output={outputFile(bytes, imagePdfOutputName(kind, items[0]?.name))}
         onAdjust={reset}
-        // One page per image.
-        expectedPages={items.length}
+        // One page per image, and one per page of each TIFF.
+        expectedPages={totalPages}
       >
         <LimitOutcomes fits={result.fits} />
         <button
@@ -435,7 +480,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
         accept={imagePickerAccept(kind)}
         multiple
         title={`Drop ${label} images here, or`}
-        hint="One image per PDF page · converted locally in your browser"
+        hint="One image per PDF page, every page of a TIFF · converted locally in your browser"
       />
 
       {items.length > 0 && (
@@ -457,12 +502,21 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
                 key={item.id}
                 className="border-line bg-wash rounded-panel overflow-hidden border"
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={item.previewUrl}
-                  alt=""
-                  className="bg-canvas h-40 w-full object-contain"
-                />
+                {item.previewUrl ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img
+                    src={item.previewUrl}
+                    alt=""
+                    className="bg-canvas h-40 w-full object-contain"
+                  />
+                ) : (
+                  <div className="bg-canvas text-muted grid h-40 w-full place-items-center text-xs">
+                    <span className="flex flex-col items-center gap-2">
+                      <FileImage className="size-8" aria-hidden />
+                      TIFF · {item.pages} page{item.pages === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                )}
                 <div className="flex items-center gap-2 p-3">
                   <GripVertical className="text-muted size-4" aria-hidden />
                   <div className="min-w-0 flex-1">
@@ -470,7 +524,13 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
                       {item.name}
                     </p>
                     <p className="text-muted text-xs">
-                      Page {index + 1} · {formatBytes(item.size)}
+                      {pageLabel(
+                        items
+                          .slice(0, index)
+                          .reduce((sum, before) => sum + before.pages, 1),
+                        item.pages,
+                      )}{" "}
+                      · {formatBytes(item.size)}
                     </p>
                   </div>
                   <button

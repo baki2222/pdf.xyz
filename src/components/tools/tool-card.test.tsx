@@ -125,12 +125,13 @@ describe("ToolCard", () => {
     const { container } = render(<FormatsLine tool={tool} />);
     const card = container as HTMLElement;
     // The arrow is hidden; the sentence carries the same facts.
-    // "JPG, PNG" until 2026-10-30, when the accept row gained WebP, GIF, BMP.
+    // "JPG, PNG" until 2026-10-30, when the accept row gained WebP, GIF, BMP;
+    // TIFF joined it on 2026-11-04.
     expect(
-      within(card).getByText("JPG, PNG, WEBP, GIF, BMP → PDF"),
+      within(card).getByText("JPG, PNG, WEBP, GIF, BMP, TIFF → PDF"),
     ).toHaveAttribute("aria-hidden");
     expect(card.textContent).toContain(
-      "Takes JPG, PNG, WEBP, GIF, BMP; makes PDF.",
+      "Takes JPG, PNG, WEBP, GIF, BMP, TIFF; makes PDF.",
     );
   });
 });

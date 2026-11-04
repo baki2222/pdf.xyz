@@ -855,6 +855,8 @@ const LAYOUT = {
 const UNALLOCATED = 0.4;
 /** What the four tools of 2026-10-30 took of {@link UNALLOCATED} (see below). */
 const NEW_TOOLS_2026_10_30 = 0.32;
+/** What TIFF input for JPG / PNG to PDF took of it on 2026-11-04 (see below). */
+const TIFF_INPUT_2026_11_04 = 0.03;
 const TOOL_PAGES_TO_COME = {
   // WP-08 landed 2026-10-10 (its 4.5 deleted here, as the rule says).
   //
@@ -885,7 +887,21 @@ const TOOL_PAGES_TO_COME = {
   // e9cdf42c -> the branch: ocr 227.54 -> 227.87, rotate 226.39 -> 226.70,
   // summarize 229.00 -> 229.33, merge 222.22 -> 222.53 (+0.31 each); the
   // weigher's ocr-pdf row then had 0.55 left against 0.86 still to come.
-  unallocated: UNALLOCATED - NEW_TOOLS_2026_10_30,
+  //
+  // 0.03 more TAKEN on 2026-11-04 by TIFF input for JPG / PNG to PDF (#273)
+  // — A RE-ALLOCATION OF G.1, flagged for the owner in that PR, as above.
+  // CI's ocr-pdf row came up short (needs 0.21, has 0.18). What every page
+  // pays, measured gzip -9 over each page's first load on one machine, main
+  // 3a5afbd5 -> the branch, both built with an empty webpack cache: ocr
+  // 232,846 -> 232,871 B, merge 227,441 -> 227,466 B (+25 B each): two new
+  // async chunks in webpack's chunk map (UTIF, the TIFF reader), the format
+  // tables, and the page and not-found chunks. It was +46 B with THREE: UTIF's
+  // `require("pako")` had moved pako out of pdf-lib's chunk into one shared
+  // with UTIF, until `next.config.mjs` pointed that request at a stub
+  // (`lazy-chunks.test.ts`, "pako stays inside …"). My first stub's hook
+  // never fired, and its byte-identical result was nearly written here as
+  // "the stub recovers nothing".
+  unallocated: UNALLOCATED - NEW_TOOLS_2026_10_30 - TIFF_INPUT_2026_11_04,
 };
 /**
  * The table as it stood before WP-08 landed — the positive control below

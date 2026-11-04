@@ -168,7 +168,8 @@ describe("the picker admits only what some tool opens", () => {
     // WebP and GIF — caught on its four WebP and GIF tokens. On 2026-10-30
     // the image tools began decoding WebP and GIF, so that listing became
     // TRUE and could no longer be the control; HEIC and TIFF, which no tool
-    // opens, are the same shape now.
+    // opened, were the same shape. On 2026-11-04 the image tools began
+    // reading TIFF, so its tokens moved out of the control: HEIC and AVIF.
     const shipped = [
       {
         label: "images",
@@ -176,21 +177,31 @@ describe("the picker admits only what some tool opens", () => {
           "image/png",
           "image/jpeg",
           "image/heic",
-          "image/tiff",
+          "image/avif",
           ".png",
           ".jpg",
           ".jpeg",
           ".heic",
-          ".tiff",
+          ".avif",
         ],
         maxBytes: 1,
       },
     ];
     expect(nobodyOpens(shipped)).toEqual([
       "image/heic",
-      "image/tiff",
+      "image/avif",
       ".heic",
-      ".tiff",
+      ".avif",
     ]);
+    // …and the TIFF tokens that were caught here until then are not.
+    expect(
+      nobodyOpens([
+        {
+          label: "images",
+          accept: ["image/tiff", ".tif", ".tiff"],
+          maxBytes: 1,
+        },
+      ]),
+    ).toEqual([]);
   });
 });

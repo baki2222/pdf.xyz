@@ -127,6 +127,11 @@ import {
   type MarkdownBlockKind,
 } from "@/lib/pdf/markdown-blocks";
 import { HEADING_SIZE_RATIO } from "@/lib/pdf/pdf-to-markdown";
+import {
+  MAX_TIFF_PAGES,
+  MAX_TIFF_PAGE_PIXELS,
+  TIFF_COMPRESSIONS,
+} from "@/lib/pdf/tiff-limits";
 import { getRunnerKind, type RunnerKind } from "@/lib/pdf/registry";
 import { tools } from "./catalog";
 import { toolFileCeilingMb } from "./file-ceilings";
@@ -314,6 +319,13 @@ export const IMAGE_PAGE_OPTIONS_FACT = `Page size: ${orJoin(IMAGE_PAGE_SIZES.map
 
 /** Image to PDF's page, as the engine lays it out. */
 export const IMAGE_PAGE_FACT = `Each image goes on its own page, centred. Unless you change the page setup, that page is ${DEFAULT_IMAGE_SIZE} ${DEFAULT_IMAGE_ORIENTATION} with a ${inches(imageMarginPoints(DEFAULT_IMAGE_PAGE_OPTIONS.margin))} in margin. Larger images are scaled down to fit; smaller ones are never enlarged. Fit to image makes each page the size of its image instead, plus the margin.`;
+
+/**
+ * JPG / PNG to PDF's TIFF input (2026-11-04), from the reader's own leaf
+ * (`tiff-limits.ts`): the page and pixel ceilings it refuses at, and the
+ * compressions it reads, so a new codec or a moved ceiling moves this line.
+ */
+export const TIFF_FACT = `Every page of a TIFF becomes a PDF page, in order, stored without loss at its size on paper (from the TIFF's resolution). Up to ${MAX_TIFF_PAGES} pages and ${MAX_TIFF_PAGE_PIXELS / 1_000_000} megapixels a page; ${orJoin([...new Set(Object.values(TIFF_COMPRESSIONS))])} TIFFs are read.`;
 
 /** Text and Markdown to PDF's page, as the engines lay it out. */
 export const TEXT_PAGE_FACT = `${US_LETTER_LABEL} portrait pages with ${inches(TEXT_PAGE_MARGIN_PT)} in margins and a page number (1 / N) at the foot of each page.`;
@@ -635,6 +647,8 @@ const FACTS: Record<string, readonly ToolFact[]> = {
     },
     { label: "Page", value: IMAGE_PAGE_FACT },
     { label: "Page setup", value: IMAGE_PAGE_OPTIONS_FACT },
+    // tiff.ts; tiff.test.ts renders the saved pages through pdf.js.
+    { label: "Multi-page TIFF", value: TIFF_FACT },
   ],
   "png-to-pdf": [
     {
@@ -643,6 +657,7 @@ const FACTS: Record<string, readonly ToolFact[]> = {
     },
     { label: "Page", value: IMAGE_PAGE_FACT },
     { label: "Page setup", value: IMAGE_PAGE_OPTIONS_FACT },
+    { label: "Multi-page TIFF", value: TIFF_FACT },
   ],
   "text-to-pdf": [
     {

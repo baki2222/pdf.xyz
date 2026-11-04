@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 /** @type {import('next').NextConfig} */
 
 const isDev = process.env.NODE_ENV !== "production";
@@ -187,6 +188,36 @@ const CANONICAL_ORIGIN = "https://pdf.xyz";
 const WWW_HOST_PATTERN = "www\\.pdf\\.xyz";
 
 /**
+ * UTIF's `require("pako")`, and only UTIF's, resolves to
+ * `src/lib/pdf/utif-pako-unused.ts`, which says why: UTIF's own Deflate
+ * decoder is never called. Left alone, pako moved OUT of pdf-lib's chunk
+ * into one shared with UTIF — one more request wherever pdf-lib loads, and
+ * one more entry in the webpack runtime every page loads.
+ * `src/deploy/lazy-chunks.test.ts` ("pako stays inside …") reads the built
+ * chunks for both.
+ *
+ * `context` is the requesting module's DIRECTORY, with no trailing
+ * separator: the first version required a separator after `utif` and
+ * never fired. The stub's path is resolved when webpack applies the hook,
+ * not when this file loads: tests import this config where
+ * `import.meta.url` is not a file URL.
+ */
+const UTIF_DIR = /[\\/]node_modules[\\/]utif(?:[\\/]|$)/;
+const utifPakoStub = {
+  apply(compiler) {
+    const stub = fileURLToPath(
+      new URL("./src/lib/pdf/utif-pako-unused.ts", import.meta.url),
+    );
+    compiler.hooks.normalModuleFactory.tap("utif-pako-stub", (factory) => {
+      factory.hooks.beforeResolve.tap("utif-pako-stub", (data) => {
+        if (data.request === "pako" && UTIF_DIR.test(data.context ?? ""))
+          data.request = stub;
+      });
+    });
+  },
+};
+
+/**
  * The root segment's client entries. Next builds each as its own webpack
  * entry, and every page loads all four (`_global-error` loads only the last).
  */
@@ -215,6 +246,7 @@ const ROOT_ENTRIES = new Set([
  */
 function clientWebpack(config, { isServer, dev }) {
   if (isServer || dev) return config;
+  config.plugins.push(utifPakoStub);
   const groups = config.optimization?.splitChunks?.cacheGroups;
   if (!groups)
     throw new Error("next.config: no client splitChunks.cacheGroups to extend");

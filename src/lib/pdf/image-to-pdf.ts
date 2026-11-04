@@ -45,8 +45,9 @@ const IMAGE_FORMATS = {
  * The formats the BROWSER decodes and `image-transcode.ts` re-encodes as a
  * JPEG (opaque) or a PNG (with transparency) — a PDF cannot hold them as
  * they are. Same shape as {@link IMAGE_FORMATS}, so the gate and the picker
- * read both from one place. HEIC, TIFF and AVIF are absent on purpose: no
- * decoder for them ships in every browser.
+ * read both from one place. HEIC and AVIF are absent on purpose: no decoder
+ * for them ships in every browser. TIFF has its own table below: no browser
+ * but Safari decodes it, so the engine reads it itself (`tiff.ts`).
  */
 const DECODED_FORMATS = {
   webp: { types: ["image/webp"], extensions: [".webp"], label: "WebP" },
@@ -59,10 +60,26 @@ const DECODED_FORMATS = {
 } as const;
 export type DecodedImageFormat = keyof typeof DECODED_FORMATS;
 
+/**
+ * TIFF, including multi-page TIFF (2026-11-04): read by `tiff.ts` — not by
+ * the browser — every TIFF page becoming a PDF page, in order, embedded
+ * losslessly. Loaded on the first TIFF only.
+ */
+const TIFF_FORMAT = {
+  tiff: {
+    types: ["image/tiff"],
+    extensions: [".tif", ".tiff"],
+    label: "TIFF",
+  },
+} as const;
+
 /** WebP, GIF, BMP — the decoded formats by the names the refusal note uses. */
 export const DECODED_IMAGE_LABELS: readonly string[] = Object.values(
   DECODED_FORMATS,
 ).map((format) => format.label);
+
+/** "TIFF": the format `tiff.ts` reads, by the name the copy uses. */
+export const TIFF_IMAGE_LABEL = TIFF_FORMAT.tiff.label;
 
 /**
  * The image kinds a file's bytes are recognised as and REFUSED, by the name
@@ -70,15 +87,15 @@ export const DECODED_IMAGE_LABELS: readonly string[] = Object.values(
  * what `describeImageBytes` returns, so a guide saying "HEIC is turned away"
  * reads this list, and a format that gains a decoder must leave it.
  */
-export const REFUSED_IMAGE_LABELS = ["HEIC", "TIFF", "AVIF"] as const;
+export const REFUSED_IMAGE_LABELS = ["HEIC", "AVIF"] as const;
 type RefusedImageLabel = (typeof REFUSED_IMAGE_LABELS)[number];
 
 /** Every format the image tools take. */
-export type ImageFormat = RasterImageFormat | DecodedImageFormat;
+export type ImageFormat = RasterImageFormat | DecodedImageFormat | "tiff";
 const ALL_FORMATS: Record<
   ImageFormat,
   { types: readonly string[]; extensions: readonly string[] }
-> = { ...IMAGE_FORMATS, ...DECODED_FORMATS };
+> = { ...IMAGE_FORMATS, ...DECODED_FORMATS, ...TIFF_FORMAT };
 
 /** The MIME type a sniffed image is carried under: its table's first. */
 export const IMAGE_MIME = Object.fromEntries(
@@ -109,6 +126,13 @@ export function isLikelyPng(
   return looksLike("png", file);
 }
 
+/** Named or typed as a TIFF (`.tif`, `.tiff`, `image/tiff`). */
+export function isLikelyTiff(
+  file: Pick<ImagePdfInput, "name" | "type">,
+): boolean {
+  return looksLike("tiff", file);
+}
+
 /**
  * The file picker's `accept` for an image tool: every format
  * {@link isImageAllowedForKind} takes, the tool's own format first.
@@ -116,8 +140,8 @@ export function isLikelyPng(
 export function imagePickerAccept(kind: ImagePdfKind): string {
   const order: ImageFormat[] =
     kind === "jpg"
-      ? ["jpg", "png", "webp", "gif", "bmp"]
-      : ["png", "jpg", "webp", "gif", "bmp"];
+      ? ["jpg", "png", "webp", "gif", "bmp", "tiff"]
+      : ["png", "jpg", "webp", "gif", "bmp", "tiff"];
   return order
     .flatMap((f) => [...ALL_FORMATS[f].types, ...ALL_FORMATS[f].extensions])
     .join(",");
@@ -136,7 +160,8 @@ export function isEmbeddableImage(
 /**
  * Can this file go into an image PDF? PNG and JPEG, on BOTH tools — and,
  * since 2026-10-30, WebP, GIF and BMP, which the browser decodes and the
- * engine re-encodes ({@link DECODED_FORMATS}).
+ * engine re-encodes ({@link DECODED_FORMATS}); since 2026-11-04, TIFF, which
+ * the engine reads itself ({@link TIFF_FORMAT}).
  *
  * It used to be one format per tool, while the engine could embed either: a
  * workspace with 3 PNGs and 2 JPGs was offered "Turn your 5 images into a
@@ -152,6 +177,7 @@ export function isImageAllowedForKind(
 ): boolean {
   return (
     isEmbeddableImage(file) ||
+    isLikelyTiff(file) ||
     (Object.keys(DECODED_FORMATS) as DecodedImageFormat[]).some((f) =>
       looksLike(f, file),
     )
@@ -203,24 +229,40 @@ function sniffDecodedFormat(bytes: Uint8Array): DecodedImageFormat | null {
 }
 
 /**
- * Every image the tools take, by its bytes: the two embedded as they are
- * ({@link sniffRasterFormat}) and the three re-encoded first. `null` for
- * anything else — HEIC, TIFF, AVIF, not an image.
+ * A TIFF by its header: "II*\0" (little-endian) or "MM\0*" (big-endian) —
+ * the same four bytes `intent/sniff.ts` reads (`formats.test.ts` holds the
+ * two together).
  */
-export function sniffImageFormat(bytes: Uint8Array): ImageFormat | null {
-  return sniffRasterFormat(bytes) ?? sniffDecodedFormat(bytes);
+export function sniffTiff(bytes: Uint8Array): boolean {
+  if (bytes.length < 4) return false;
+  const [a, b, c, d] = bytes;
+  return (
+    (a === 0x49 && b === 0x49 && c === 0x2a && d === 0x00) ||
+    (a === 0x4d && b === 0x4d && c === 0x00 && d === 0x2a)
+  );
 }
 
-/** The reader's list of what can be converted, from the two tables. */
-const TAKEN = "PNG, JPG, WebP, GIF and BMP";
+/**
+ * Every image the tools take, by its bytes: the two embedded as they are
+ * ({@link sniffRasterFormat}), the three re-encoded first, and TIFF. `null`
+ * for anything else — HEIC, AVIF, not an image.
+ */
+export function sniffImageFormat(bytes: Uint8Array): ImageFormat | null {
+  return (
+    sniffRasterFormat(bytes) ??
+    sniffDecodedFormat(bytes) ??
+    (sniffTiff(bytes) ? "tiff" : null)
+  );
+}
+
+/** The reader's list of what can be converted, from the three tables. */
+const TAKEN = "PNG, JPG, WebP, GIF, BMP and TIFF";
 
 /** Name the format of image bytes we cannot convert, when we can tell. */
 function describeImageBytes(bytes: Uint8Array): RefusedImageLabel | null {
   const ascii = (offset: number, length: number) =>
     String.fromCharCode(...bytes.subarray(offset, offset + length));
-  const tiffLE = bytes[0] === 0x49 && bytes[1] === 0x49 && bytes[2] === 0x2a;
-  const tiffBE = bytes[0] === 0x4d && bytes[1] === 0x4d && bytes[3] === 0x2a;
-  if (tiffLE || tiffBE) return "TIFF";
+  // TIFF was recognised and refused here until 2026-11-04; it is read now.
   if (ascii(4, 4) === "ftyp") {
     const brand = ascii(8, 4);
     if (/^avi[fs]$/.test(brand)) return "AVIF";
@@ -328,14 +370,107 @@ export interface PreparedImage {
   layoutHeight: number;
 }
 
+/**
+ * What stands in for one FILE: a prepared image, or — for a TIFF, whose one
+ * file is many pages — one entry per page, an absent entry keeping that page
+ * lossless as it is.
+ */
+export type PreparedEntry =
+  PreparedImage | readonly (PreparedImage | undefined)[] | undefined;
+
+/**
+ * How many PDF pages a file becomes: a TIFF's page count (read from its
+ * header, checked against the ceilings, nothing decoded), 1 for every other
+ * image. Loads `tiff.ts` only for a TIFF. Throws the TIFF's refusal.
+ */
+export async function imagePageCount(file: ImagePdfInput): Promise<number> {
+  if (!sniffTiff(file.bytes)) return 1;
+  const { readTiffPages } = await loadTiff();
+  return readTiffPages(file.name, file.bytes).length;
+}
+
+/**
+ * The TIFF reader, on demand — the ONE place it is imported, so the engine
+ * and the size ladder (`image-size-fit.ts`) share one lazy chunk instead of
+ * each getting a copy of it (measured: two 5 KB gz copies when both imported
+ * `./tiff` themselves).
+ */
+export const loadTiff = () => import("./tiff");
+
+/** A page for `image`, shown at `shown` (points), laid out by `options`. */
+async function drawImagePage(
+  lib: PdfLib,
+  doc: PdfDoc,
+  image: Awaited<ReturnType<typeof embedRasterImage>>,
+  shown: { width: number; height: number },
+  options: ImagePageOptions,
+): Promise<void> {
+  const layout = imagePageLayout(shown.width, shown.height, options);
+  const page = doc.addPage([layout.pageWidth, layout.pageHeight]);
+  page.drawRectangle({
+    x: 0,
+    y: 0,
+    width: layout.pageWidth,
+    height: layout.pageHeight,
+    color: lib.rgb(1, 1, 1),
+  });
+  await drawRasterImage(page, image, {
+    x: layout.x,
+    y: layout.y,
+    width: layout.width,
+    height: layout.height,
+  });
+}
+
+/**
+ * Every page of a TIFF, in order, each on its own PDF page at its size on
+ * paper (its resolution: `tiff.ts`). A page with a prepared JPEG (the size
+ * ladder) embeds that; every other page is embedded losslessly.
+ */
+async function addTiffPages(
+  lib: PdfLib,
+  doc: PdfDoc,
+  file: ImagePdfInput,
+  options: ImagePageOptions,
+  prepared: readonly (PreparedImage | undefined)[],
+): Promise<void> {
+  const tiff = await loadTiff();
+  const pages = tiff.readTiffPages(file.name, file.bytes);
+  for (const [i, page] of pages.entries()) {
+    const swap = prepared[i];
+    if (swap) {
+      let image;
+      try {
+        image = await embedRasterImage(doc, swap.bytes, swap.format);
+      } catch {
+        throw new PdfEngineError(
+          `"${file.name}" page ${page.number} could not be made smaller.`,
+        );
+      }
+      const shown = { width: swap.layoutWidth, height: swap.layoutHeight };
+      await drawImagePage(lib, doc, image, shown, options);
+      continue;
+    }
+    const raster = await tiff.decodeTiffPage(file.name, file.bytes, page);
+    const image = await tiff.embedTiffRaster(doc, raster);
+    const shown = { width: page.widthPt, height: page.heightPt };
+    await drawImagePage(lib, doc, image, shown, options);
+  }
+}
+
 /** Embed one image and draw it on its own page, laid out by `options`. */
 async function addImagePage(
   lib: PdfLib,
   doc: PdfDoc,
   file: ImagePdfInput,
   options: ImagePageOptions,
-  prepared?: PreparedImage,
+  entry?: PreparedEntry,
 ): Promise<void> {
+  if (sniffTiff(file.bytes)) {
+    await addTiffPages(lib, doc, file, options, isPageList(entry) ? entry : []);
+    return;
+  }
+  const prepared = isPageList(entry) ? undefined : entry;
   let bytes = prepared?.bytes ?? file.bytes;
   let format = prepared?.format ?? sniffRasterFormat(bytes);
   if (!format) {
@@ -364,25 +499,16 @@ async function addImagePage(
   const shown = prepared
     ? { width: prepared.layoutWidth, height: prepared.layoutHeight }
     : rasterDisplaySize(image);
-  const layout = imagePageLayout(shown.width, shown.height, options);
-  const page = doc.addPage([layout.pageWidth, layout.pageHeight]);
-  page.drawRectangle({
-    x: 0,
-    y: 0,
-    width: layout.pageWidth,
-    height: layout.pageHeight,
-    color: lib.rgb(1, 1, 1),
-  });
-  await drawRasterImage(page, image, {
-    x: layout.x,
-    y: layout.y,
-    width: layout.width,
-    height: layout.height,
-  });
+  await drawImagePage(lib, doc, image, shown, options);
 }
 
+const isPageList = (
+  entry: PreparedEntry,
+): entry is readonly (PreparedImage | undefined)[] => Array.isArray(entry);
+
 /**
- * Convert JPG or PNG images into one paginated PDF, one image per page.
+ * Convert images into one paginated PDF, one image per page — and every page
+ * of a TIFF, in order.
  * `options` defaults to the fixed layout the tool had before it had options
  * (US Letter, portrait, 36pt margin), so a caller that passes none gets the
  * same PDF as before.
@@ -430,7 +556,7 @@ export async function buildImagePdf(
   kind: ImagePdfKind,
   files: ImagePdfInput[],
   options: ImagePageOptions,
-  prepared: readonly (PreparedImage | undefined)[] = [],
+  prepared: readonly PreparedEntry[] = [],
 ): Promise<Uint8Array> {
   validateImagePdfInputs(kind, files);
   const lib = await loadPdfLib();

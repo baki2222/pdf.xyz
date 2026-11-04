@@ -89,6 +89,7 @@ import {
   type RenderedToolPage,
 } from "@/tests/rendered-tool-pages";
 import { runnerModuleOf } from "@/tests/tool-panel-modules";
+import { tiffRefusal } from "@/lib/pdf/tiff-limits";
 
 const ROOT = process.cwd();
 const read = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
@@ -1347,9 +1348,29 @@ describe("the converters' pages describe the page they produce", () => {
       return [text];
     });
     const computed = all.filter((r) => !/^["`]/.test(r));
-    // Health: four worded refusals plus the one that names a real format.
+    // Health: four worded refusals plus the one that names a real format —
+    // and, since 2026-11-04, the TIFF reader's pick-time refusal, held below
+    // to its own shape.
     expect(literal.length, all.join("\n")).toBeGreaterThanOrEqual(4);
-    expect(computed).toEqual(["unsupportedImageMessage(file.name, bytes)"]);
+    expect(computed).toEqual([
+      "unsupportedImageMessage(file.name, bytes)",
+      "tiffRefusalText(file.name, problem)",
+    ]);
+    // The TIFF refusal a page must show by example: a page over the pixel
+    // ceiling, in the reader's words, any name, any size.
+    const tiffShape = new RegExp(
+      tiffRefusal
+        .tooLarge("NAME", 7, 1234, 5678)
+        .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+        .replace("NAME", '[^"]+')
+        .replace(" 7 ", " \\d+ ")
+        .replace("1,234", "[\\d,]+")
+        .replace("5,678", "[\\d,]+"),
+    );
+    expect(
+      tiffShape.test(tiffRefusal.tooLarge("a.tif", 1, 60_000, 60_000)),
+    ).toBe(true);
+    expect(tiffShape.test('"a.tif" page 1 is too big.')).toBe(false);
     // HISTORY: the bytes were a WebP ('"NAME" is a WebP image.') until
     // 2026-10-30, when WebP became a format the image tools convert. An AVIF
     // is still refused by name, so it carries the same check.
@@ -1376,6 +1397,7 @@ describe("the converters' pages describe the page they produce", () => {
         tool.slug,
       ).toEqual([]);
       expect(served, tool.slug).toMatch(namedShape);
+      expect(served, `${tool.slug}: the TIFF refusal`).toMatch(tiffShape);
     }
   });
 

@@ -46,6 +46,7 @@ import {
   type PDFObject,
 } from "pdf-lib";
 import { pdfLoadError } from "./engine";
+import { MAX_DECODED_PIXELS } from "./pixel-ceiling";
 
 /** Image container we can emit — an original JPEG or a losslessly-wrapped PNG. */
 export type ExtractedImageFormat = "jpg" | "png";
@@ -99,8 +100,11 @@ const PIXEL_FILTERS = new Set([
   "RunLengthDecode",
 ]);
 
-/** Guard against pathological dimensions blowing up memory (100 megapixels). */
-const MAX_PIXELS = 100_000_000;
+/**
+ * Guard against pathological dimensions blowing up memory (100 megapixels) —
+ * the one figure every in-browser decoder of a stranger's pixels shares.
+ */
+const MAX_PIXELS = MAX_DECODED_PIXELS;
 
 /** Deepest Form-XObject nesting we'll follow (cycle / runaway guard). */
 const MAX_XOBJECT_DEPTH = 24;
