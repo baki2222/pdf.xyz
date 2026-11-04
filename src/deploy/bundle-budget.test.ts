@@ -855,6 +855,8 @@ const LAYOUT = {
 const UNALLOCATED = 0.4;
 /** What the four tools of 2026-10-30 took of {@link UNALLOCATED} (see below). */
 const NEW_TOOLS_2026_10_30 = 0.32;
+/** What TIFF input for JPG / PNG to PDF took of it on 2026-11-04 (see below). */
+const TIFF_INPUT_2026_11_04 = 0.05;
 const TOOL_PAGES_TO_COME = {
   // WP-08 landed 2026-10-10 (its 4.5 deleted here, as the rule says).
   //
@@ -885,7 +887,21 @@ const TOOL_PAGES_TO_COME = {
   // e9cdf42c -> the branch: ocr 227.54 -> 227.87, rotate 226.39 -> 226.70,
   // summarize 229.00 -> 229.33, merge 222.22 -> 222.53 (+0.31 each); the
   // weigher's ocr-pdf row then had 0.55 left against 0.86 still to come.
-  unallocated: UNALLOCATED - NEW_TOOLS_2026_10_30,
+  //
+  // 0.05 more TAKEN on 2026-11-04 by TIFF input for JPG / PNG to PDF (#273)
+  // — A RE-ALLOCATION OF G.1, flagged for the owner in that PR, as above.
+  // CI's ocr-pdf row came up short (needs 0.21, has 0.18). What every page
+  // pays, measured gzip -9 over each page's first load on one machine, main
+  // 3a5afbd5 -> the branch, both built with an empty webpack cache: ocr
+  // 232,846 -> 232,892 B, merge 227,441 -> 227,487 B (+46 B each). Of that,
+  // +35 B is webpack's chunk map: three new async chunks, UTIF, the TIFF
+  // reader, and pako, which moved out of pdf-lib's chunk into one shared
+  // with the TIFF chunks (same bytes, one more request where pdf-lib loads).
+  // The rest is the format tables (+7 B) and the page and not-found chunks.
+  // NOT recovered: pointing UTIF's `require("pako")` at a stub (UTIF's own
+  // Deflate decoder is never called) left the chunk map byte-identical and
+  // pako still split, so something else in that chunk set takes pako too.
+  unallocated: UNALLOCATED - NEW_TOOLS_2026_10_30 - TIFF_INPUT_2026_11_04,
 };
 /**
  * The table as it stood before WP-08 landed — the positive control below
