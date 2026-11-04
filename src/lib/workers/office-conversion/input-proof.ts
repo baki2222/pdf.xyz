@@ -17,11 +17,23 @@
  * A refusal is read from the engine's answer (`invalid_input`) and from the
  * runner's call count: a refusal that still ran LibreOffice is a FAIL.
  *
+ * And the LOCKED files (`src/tests/odf-locked-fixtures/`, locked by this
+ * image's LibreOffice), one per tool:
+ *  - the engine names each `password_protected`, before LibreOffice runs;
+ *  - handed to LibreOffice DIRECTLY, each yields no PDF — the reason the
+ *    check exists. A LibreOffice that converted one without its password
+ *    would make the refusal a refusal of a file this image can convert, and
+ *    that is a FAIL too;
+ *  - the unlocked twin of one, made by the same script from the same kind of
+ *    document, converts and carries its word, so "no PDF" is the lock and
+ *    not the generator.
+ *
  * Pure: the runner and the extractor are passed in. `input-proof.test.ts`
  * holds the verdict to stand-ins that break each property in turn.
  */
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 import {
+  DOCUMENT_WORDS,
   runOfficeToPdf,
   type LibreOfficePdfRunner,
   type OfficeToPdfTool,
@@ -47,6 +59,17 @@ export interface OfficeInputProofDeps {
   readonly fixtures: readonly OfficeInputFixture[];
   /** A real file of another format, for the renamed-file control. */
   readonly spreadsheetBytes: Uint8Array;
+  /** Files LibreOffice locked with a password, at least one per tool. */
+  readonly locked: readonly LockedOfficeFile[];
+  /** The unlocked twin of one of them, and the word its PDF must carry. */
+  readonly lockedTwin: LockedOfficeFile & { readonly word: string };
+}
+
+/** A password-locked file and the tool it is sent to. */
+export interface LockedOfficeFile {
+  readonly tool: OfficeToPdfTool;
+  readonly name: string;
+  readonly bytes: Uint8Array;
 }
 
 export interface OfficeInputProofResult {
@@ -150,6 +173,66 @@ export async function runOfficeInputProof(
     } else {
       pass(`control, ${control.label}: refused before LibreOffice`);
     }
+  }
+
+  // Every tool the engine serves, from its own table, has a locked file.
+  const uncovered = (Object.keys(DOCUMENT_WORDS) as OfficeToPdfTool[]).filter(
+    (tool) => !deps.locked.some((l) => l.tool === tool),
+  );
+  if (uncovered.length > 0)
+    fail(`locked: no locked file for ${uncovered.join(", ")}`);
+  for (const file of deps.locked) {
+    const label = `locked, ${file.tool} (${file.name})`;
+    let calls = 0;
+    const counting: LibreOfficePdfRunner = {
+      convertToPdf: (input, filename, run) => {
+        calls += 1;
+        return deps.libreoffice.convertToPdf(input, filename, run);
+      },
+    };
+    const run = await runOfficeToPdf(file.tool, file.bytes, file.name, {
+      libreoffice: counting,
+    });
+    if (run.ok || run.kind !== "password_protected") {
+      fail(
+        `${label}: answered ${run.ok ? "ok" : run.kind}, not password_protected`,
+      );
+      continue;
+    }
+    if (calls !== 0) {
+      fail(`${label}: named password-protected, but LibreOffice ran`);
+      continue;
+    }
+    let direct: string;
+    try {
+      const pdf = await deps.libreoffice.convertToPdf(file.bytes, file.name);
+      direct = `LibreOffice converted it without its password (${pdf.byteLength} bytes)`;
+    } catch (error) {
+      pass(
+        `${label}: password_protected before LibreOffice; LibreOffice alone makes no PDF (${(error as Error).message})`,
+      );
+      continue;
+    }
+    fail(
+      `${label}: ${direct}, so the refusal turns away a file this image converts`,
+    );
+  }
+  const twin = deps.lockedTwin;
+  const twinRun = await runOfficeToPdf(twin.tool, twin.bytes, twin.name, {
+    libreoffice: deps.libreoffice,
+  });
+  if (!twinRun.ok) {
+    fail(
+      `locked twin, ${twin.name}: the engine answered ${twinRun.kind}: ${twinRun.message}`,
+    );
+  } else {
+    const text = await deps.extract(twinRun.output);
+    if (text.text.includes(twin.word))
+      pass(`locked twin, ${twin.name}: converts, "${twin.word}" in its text`);
+    else
+      fail(
+        `locked twin, ${twin.name}: converted, but "${twin.word}" is not in its text`,
+      );
   }
   return { ok, lines };
 }

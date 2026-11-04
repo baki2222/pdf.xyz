@@ -1,0 +1,22 @@
+Password-protected OpenDocument files, written by LibreOffice itself.
+
+Made 2026-11-04 in the production worker image
+  ghcr.io/baki2222/pdfxyz-worker@sha256:1b2e93bc79279bed484a3c551d6dc9c6537469d1c14f6226d3ff85f55148eada
+  LibreOffice 7.4.7.2 40(Build:2), headless, --network none
+by make-locked-odf.py (this folder) over a UNO pipe: one new Writer, Calc and
+Impress document each, holding the word LOCKEDODT / LOCKEDODS / LOCKEDODP,
+stored with FilterName writer8 / calc8 / impress8 and the property
+Password=pdfxyz-fixture (a fixture value, not a credential). open.odt is the
+Writer document stored the same way without the Password property.
+
+Observed in that image the same day:
+  soffice --headless --convert-to pdf  locked.odt/.ods/.odp -> exit 0, no PDF
+                                       open.odt             -> PDF, text LOCKEDODT
+  META-INF/manifest.xml (deflated): manifest:encryption-data 10 times in
+  locked.odt and locked.ods, 8 in locked.odp, 0 in open.odt.
+
+sha256
+  5c404dbd3b6d87e7a970cfa46bef6056356230d4a3c2d947212a52b768c0ca2a  locked.odt
+  906190fb2b3eb5da12a1bb64ff2a886e3e656316dc4574305dccbe493d267258  locked.ods
+  2e463f8833931bbd0e6dfcadfb8b8d582aa7aa2254e34739ce959dde0662912e  locked.odp
+  fcec215ef9b5c56fa78a5077522c075babaca02d96d11d148acafbeba3f357f0  open.odt

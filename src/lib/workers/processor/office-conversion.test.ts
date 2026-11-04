@@ -5,6 +5,7 @@ import {
 } from "./office-conversion";
 import { createNativeLibreOfficePdfRunner } from "../office-conversion/native";
 import type { NativeOfficeConversionConfig } from "../office-conversion/native-config";
+import { readFileSync } from "node:fs";
 
 const PDF = new TextEncoder().encode(
   "%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
@@ -297,6 +298,78 @@ describe("office-conversion processor — failures that repeat are final", () =>
       ],
     });
     expect(errorOf(result).message).not.toMatch(/docs\/|\.md\b/);
+  });
+});
+
+/**
+ * A password-locked OpenDocument file, as LibreOffice locked it
+ * (`src/tests/odf-locked-fixtures/`), through the whole processor with the
+ * real runner and only its process and filesystem stubbed. Until 2026-11-04
+ * soffice ran, exited 0 with no PDF, and the user read "could not be
+ * converted … save it again as .docx".
+ */
+describe("office-conversion processor — a locked OpenDocument file", () => {
+  const CONFIG: NativeOfficeConversionConfig = {
+    enabled: true,
+    candidates: ["soffice"],
+    overridden: false,
+    timeoutMs: 120_000,
+    maxInputBytes: 100_000,
+    maxOutputBytes: 100_000,
+    tmpDir: "/tmp",
+  };
+  const fixture = (name: string) =>
+    new Uint8Array(readFileSync(`src/tests/odf-locked-fixtures/${name}`));
+
+  async function run(tool: string, filename: string, bytes: Uint8Array) {
+    const exec = vi.fn(async () => ({ code: 0, timedOut: false }));
+    const libreoffice = createNativeLibreOfficePdfRunner(CONFIG, {
+      exec,
+      fs: {
+        mkdtemp: vi.fn(async () => "/tmp/pdfxyz-office-1"),
+        writeFile: vi.fn(async () => {}),
+        readFile: vi.fn(async () => PDF),
+        rm: vi.fn(async () => {}),
+      },
+      resolveOnPath: () => true,
+    });
+    const result = await createOfficeConversionProcessor({
+      libreoffice,
+      limits: { maxInputBytes: CONFIG.maxInputBytes },
+    }).process({
+      tool,
+      options: {},
+      inputs: [{ fileId: "f", filename, contentType: "", bytes }],
+    });
+    return { result, exec };
+  }
+
+  for (const [tool, name, noun] of [
+    ["word-to-pdf", "locked.odt", "document"],
+    ["excel-to-pdf", "locked.ods", "workbook"],
+    ["powerpoint-to-pdf", "locked.odp", "presentation"],
+  ] as const)
+    it(`${tool}: ${name} is named password-protected, with LibreOffice's way out, and soffice never runs`, async () => {
+      const { result, exec } = await run(tool, name, fixture(name));
+      if (result.ok) throw new Error("expected a failure");
+      expect(result.error).toMatchObject({
+        code: "unprocessable_entity",
+        retryable: false,
+      });
+      expect(result.error.message).toBe(
+        `This ${noun} is password-protected. Open it in LibreOffice (or the app that saved it), choose File > Save As, saving a copy without its password, and convert the copy.`,
+      );
+      expect(exec).not.toHaveBeenCalled();
+    });
+
+  it("POSITIVE CONTROL: its unlocked twin reaches soffice and converts", async () => {
+    const { result, exec } = await run(
+      "word-to-pdf",
+      "open.odt",
+      fixture("open.odt"),
+    );
+    expect(result.ok).toBe(true);
+    expect(exec).toHaveBeenCalledTimes(1);
   });
 });
 

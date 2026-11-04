@@ -16,7 +16,9 @@ import {
   odsWith,
   odtWith,
 } from "@/tests/office-input-fixtures";
+import { lockedOdfFixtures } from "@/tests/locked-odf";
 import type { LibreOfficePdfRunner } from "./engine";
+import { LibreOfficeRunError } from "./errors";
 import { officeContentRefusal, SIGNED_OFFICE_INPUTS } from "./input-content";
 import { runOfficeInputProof, type OfficeInputProofDeps } from "./input-proof";
 
@@ -36,9 +38,23 @@ const HEAD = `%PDF-1.7\n%${"-".repeat(32)}\n`;
 const TAIL = "\n%%EOF\n";
 const pdfOf = (text: string) => enc.encode(`${HEAD}${text}${TAIL}`);
 
-/** A stand-in LibreOffice that lays out exactly the words in the file. */
+/** Is the package locked? Read by JSZip, not by the engine's own detector. */
+async function lockedByJsZip(bytes: Uint8Array): Promise<boolean> {
+  if (bytes[0] !== 0x50) return false;
+  const zip = await JSZip.loadAsync(bytes);
+  const manifest = await zip.file("META-INF/manifest.xml")?.async("string");
+  return manifest?.includes("encryption-data") ?? false;
+}
+
+/**
+ * A stand-in LibreOffice that lays out exactly the words in the file — and,
+ * like the image's (PROVENANCE.txt), makes no PDF of a locked one.
+ */
 const honest: LibreOfficePdfRunner = {
-  convertToPdf: async (input) => pdfOf(await wordsIn(input)),
+  convertToPdf: async (input) => {
+    if (await lockedByJsZip(input)) throw new LibreOfficeRunError("no_output");
+    return pdfOf(await wordsIn(input));
+  },
 };
 
 /** A stand-in pdftotext for {@link pdfOf}'s PDFs. */
@@ -62,6 +78,7 @@ async function deps(
     extract,
     fixtures: OFFICE_INPUT_FIXTURES,
     spreadsheetBytes: await odsWith("Renamed"),
+    ...lockedOdfFixtures(),
     ...over,
   };
 }
@@ -96,12 +113,13 @@ describe("the fixtures are the files the engine is meant to take", () => {
 });
 
 describe("the proof's verdict", () => {
-  it("passes an honest converter, every fixture and both controls", async () => {
+  it("passes an honest converter, every fixture, both controls, the locked files and their twin", async () => {
     const result = await runOfficeInputProof(await deps());
     expect(result.lines.filter((l) => l.startsWith("FAIL"))).toEqual([]);
     expect(result.ok).toBe(true);
+    const { locked } = lockedOdfFixtures();
     expect(result.lines.filter((l) => l.startsWith("ok"))).toHaveLength(
-      OFFICE_INPUT_FIXTURES.length + 2,
+      OFFICE_INPUT_FIXTURES.length + 2 + locked.length + 1,
     );
   });
 
@@ -115,7 +133,8 @@ describe("the proof's verdict", () => {
     expect(result.ok).toBe(false);
     expect(
       result.lines.filter((l) => /is not in its text/.test(l)),
-    ).toHaveLength(OFFICE_INPUT_FIXTURES.length);
+      // Every fixture, and the locked files' unlocked twin.
+    ).toHaveLength(OFFICE_INPUT_FIXTURES.length + 1);
   });
 
   it("fails a converter that answers every file with the same PDF", async () => {
@@ -156,5 +175,59 @@ describe("the proof's verdict", () => {
     );
     expect(result.ok).toBe(false);
     expect(result.lines[0]).toMatch(/only 2 fixtures/);
+  });
+
+  it("fails a LibreOffice that converts a locked file without its password", async () => {
+    // Then the refusal would turn away a file the image can convert.
+    const opens: LibreOfficePdfRunner = {
+      convertToPdf: async (input) => pdfOf(await wordsIn(input)),
+    };
+    const result = await runOfficeInputProof(
+      await deps({ libreoffice: opens }),
+    );
+    expect(result.ok).toBe(false);
+    expect(
+      result.lines.filter((l) => /converted it without its password/.test(l)),
+    ).toHaveLength(lockedOdfFixtures().locked.length);
+  });
+
+  it("fails when a 'locked' file is not named password-protected", async () => {
+    const { locked, lockedTwin } = lockedOdfFixtures();
+    const result = await runOfficeInputProof(
+      await deps({
+        locked: [
+          { ...locked[0]!, bytes: lockedTwin.bytes },
+          ...locked.slice(1),
+        ],
+      }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.lines.filter((l) => l.startsWith("FAIL")).join("\n")).toMatch(
+      /locked, word-to-pdf \(locked\.odt\): answered ok, not password_protected/,
+    );
+  });
+
+  it("fails a run with no locked file for a tool (derived from the engine's own table)", async () => {
+    const { locked } = lockedOdfFixtures();
+    const result = await runOfficeInputProof(
+      await deps({
+        locked: locked.filter((l) => l.tool !== "powerpoint-to-pdf"),
+      }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.lines.filter((l) => l.startsWith("FAIL"))).toContain(
+      "FAIL  locked: no locked file for powerpoint-to-pdf",
+    );
+  });
+
+  it("fails when the unlocked twin does not carry its word", async () => {
+    const { lockedTwin } = lockedOdfFixtures();
+    const result = await runOfficeInputProof(
+      await deps({ lockedTwin: { ...lockedTwin, word: "NOTINIT" } }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.lines.filter((l) => l.startsWith("FAIL")).join("\n")).toMatch(
+      /locked twin, open\.odt: converted, but "NOTINIT" is not in its text/,
+    );
   });
 });

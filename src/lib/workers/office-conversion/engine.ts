@@ -1,6 +1,10 @@
 import { looksLikePdf } from "../compression/engine";
 import { describeByteCeiling } from "../engine-file-ceilings";
-import { isEncryptedOoxml, LibreOfficeRunError } from "./errors";
+import {
+  isEncryptedOdf,
+  isEncryptedOoxml,
+  LibreOfficeRunError,
+} from "./errors";
 import { officeContentRefusal } from "./input-content";
 import {
   rethrowIfAttemptAbort,
@@ -49,7 +53,7 @@ export type OfficeConversionRun =
   | { ok: false; kind: "unsupported"; message: string }
   | { ok: false; kind: "invalid_input"; message: string }
   | { ok: false; kind: "too_large"; limitBytes: number; message: string }
-  /** Needs a password to open: an encrypted OOXML package. Final. */
+  /** Needs a password to open: an encrypted OOXML or OpenDocument package. Final. */
   | { ok: false; kind: "password_protected"; message: string }
   /** LibreOffice could not load it, or wrote no usable PDF. Final. */
   | { ok: false; kind: "unreadable"; message: string }
@@ -85,6 +89,15 @@ export const DOCUMENT_WORDS: Record<
     protect: "File > Info > Protect Presentation",
   },
 };
+
+/**
+ * Where an OpenDocument file's password comes off: LibreOffice saves a copy
+ * without one from Save As. Exported for the pages that quote the refusal.
+ */
+export const ODF_PASSWORD_REMOVAL = {
+  app: "LibreOffice",
+  steps: "File > Save As, saving a copy without its password",
+} as const;
 
 /**
  * The extensions each tool passes to LibreOffice. Exported for the tests that
@@ -160,6 +173,15 @@ export async function runOfficeToPdf(
       ok: false,
       kind: "password_protected",
       message: `This ${words.noun} is password-protected. Remove the password in ${words.app} (${words.protect}), save it, and try again.`,
+    };
+  }
+  // A locked OpenDocument file is still a readable ZIP with its own type
+  // first, so the content check passes it; soffice then exits 0 with no PDF.
+  if (isEncryptedOdf(input)) {
+    return {
+      ok: false,
+      kind: "password_protected",
+      message: `This ${words.noun} is password-protected. Open it in ${ODF_PASSWORD_REMOVAL.app} (or the app that saved it), choose ${ODF_PASSWORD_REMOVAL.steps}, and convert the copy.`,
     };
   }
   const unreadable: OfficeConversionRun = {

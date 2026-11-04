@@ -3,6 +3,7 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeiling } from "@/lib/tools/file-ceilings";
 import { resolveNativeOfficeConversionConfig } from "@/lib/workers/office-conversion/native-config";
+import { ODF_PASSWORD_REMOVAL } from "@/lib/workers/office-conversion/engine";
 
 /**
  * Facts this copy leans on, each read from the code that makes it true
@@ -69,15 +70,18 @@ tf`), or it is refused before
  * LibreOffice ships metric-compatible stand-ins for some Office fonts and which
  * of them the image carries is unknown.
  *
- * PASSWORDS. No password reaches soffice. An open-password file either fails to
- * load (no output file, so the runner throws and `runOfficeToPdf` returns
- * "failed") or waits on a prompt until `timeoutMs` kills it; both end in an
- * error, which is all the copy claims. A "failed" run is `retryable: true`, so
- * the error may arrive only after the daemon's retries; no timing is claimed. NOT CLAIMED at all: bookmarks from headings, live hyperlinks,
+ * PASSWORDS. No password reaches soffice. RE-READ 2026-11-04: a locked .docx
+ * (an encrypted OOXML package, `isEncryptedOoxml`) and a locked .odt (a
+ * manifest listing `encryption-data`, `isEncryptedOdf`) are both refused as
+ * `password_protected` before soffice runs, final, with the removal steps the
+ * FAQ quotes. WAS: "an open-password file either fails to load … or waits on
+ * a prompt until `timeoutMs` kills it", true before engine.ts made document
+ * failures final and before either check existed. A locked legacy .doc is
+ * still neither recognised nor promised a message. NOT CLAIMED at all: bookmarks from headings, live hyperlinks,
  * comments, tracked changes, embedded-font handling, which fonts the worker
  * image carries (the Dockerfile installs `libreoffice` with
- * --no-install-recommends and no explicit font packages), or the exact error a
- * password-protected file produces.
+ * --no-install-recommends and no explicit font packages), or what a locked
+ * legacy .doc produces.
  */
 const MB = 1024 * 1024;
 const officeConfig = resolveNativeOfficeConversionConfig({});
@@ -162,7 +166,7 @@ const content: ToolContent = {
     },
     {
       q: "Why would a Word file fail to convert?",
-      a: `A conversion stops with an error when the file needs a password to open, is too damaged for LibreOffice to open, or takes LibreOffice longer than its ${timeLimitSeconds}-second limit. This page has no password field, so remove the password in Word first (File, Info, Protect Document, Encrypt with Password, then clear it) and convert a saved copy. Each failure shows a message under the Convert to PDF button instead of a Download button.`,
+      a: `A conversion stops with an error when the file needs a password to open, is too damaged for LibreOffice to open, or takes LibreOffice longer than its ${timeLimitSeconds}-second limit. This page has no password field. A locked .docx or .odt is recognised before LibreOffice runs, and the job stops with a message saying where the password comes off: in Word, File, Info, Protect Document, Encrypt with Password, then clear it; for an .odt, ${ODF_PASSWORD_REMOVAL.app}'s ${ODF_PASSWORD_REMOVAL.steps}. Convert the saved copy. Each failure shows a message under the Convert to PDF button instead of a Download button.`,
     },
     {
       q: "Why is there no upload area, only a notice?",
