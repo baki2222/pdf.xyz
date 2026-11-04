@@ -177,8 +177,12 @@ jobs:
       # included) and the image's LibreOffice, each PDF read back by
       # pdftotext for its pages and its own proof word and no other's. An
       # OpenDocument spreadsheet named .odt, and random bytes named .rtf,
-      # must be refused before LibreOffice runs. Generated fixtures only; no
-      # user document, secret, queue or store.
+      # must be refused before LibreOffice runs. And (also 2026-11-04) an
+      # .odt, .ods and .odp that LibreOffice itself locked with a password
+      # must be named password-protected before it runs, while the image's
+      # LibreOffice, handed them directly, makes no PDF; their unlocked twin
+      # converts. Generated or committed fixtures only; no user document,
+      # secret, queue or store.
       - name: Worker image OpenDocument and RTF input proof (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:office-input-proof
 

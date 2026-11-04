@@ -4,6 +4,7 @@ import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import {
   DOCUMENT_WORDS,
+  ODF_PASSWORD_REMOVAL,
   POWERPOINT_TO_PDF_TOOL,
 } from "@/lib/workers/office-conversion/engine";
 import { resolveNativeOfficeConversionConfig } from "@/lib/workers/office-conversion/native-config";
@@ -64,7 +65,9 @@ const EXAMPLE_OUT = officePdfOutputName(EXAMPLE_IN);
  *     that made document failures final;
  *   - a password-protected .pptx is caught by `isEncryptedOoxml` before
  *     soffice runs, with a message naming PowerPoint's Protect Presentation
- *     command (`DOCUMENT_WORDS`, interpolated). A locked legacy .ppt cannot be
+ *     command (`DOCUMENT_WORDS`, interpolated); since 2026-11-04 a locked
+ *     .odp is caught by `isEncryptedOdf`, with LibreOffice's Save As
+ *     (`ODF_PASSWORD_REMOVAL`, interpolated). A locked legacy .ppt cannot be
  *     recognised that way; what this worker's LibreOffice does with one was
  *     not observed, so the copy promises the named message for .pptx only;
  *   - an over-ceiling deck is refused WHEN PICKED (`pickRefusal`), before it
@@ -161,7 +164,7 @@ const content: ToolContent = {
     },
     {
       q: "Why did my conversion fail?",
-      a: `A password-protected deck cannot be converted, because there is no field on this page to type the password into. A locked .pptx is recognised before LibreOffice runs, and the job stops with a message telling you to remove the password in ${PROTECT.app} (${PROTECT.protect}); save an unprotected copy and convert that. A file too damaged for LibreOffice to open also fails, as does one it cannot finish within ${TIMEOUT_SECONDS} seconds or whose PDF comes out larger than our server's output limit. None of those is retried, because the same file would fail the same way again. If the page stops waiting before our server finishes, it shows Keep waiting, which goes back to the same job instead of starting a new one. Our server also rejects any output missing the %PDF header or the closing %%EOF marker, so a broken export never comes back as a download.`,
+      a: `A password-protected deck cannot be converted, because there is no field on this page to type the password into. A locked .pptx is recognised before LibreOffice runs, and the job stops with a message telling you to remove the password in ${PROTECT.app} (${PROTECT.protect}); save an unprotected copy and convert that. A locked .odp is recognised the same way, and its message sends you to ${ODF_PASSWORD_REMOVAL.app}: ${ODF_PASSWORD_REMOVAL.steps}. A file too damaged for LibreOffice to open also fails, as does one it cannot finish within ${TIMEOUT_SECONDS} seconds or whose PDF comes out larger than our server's output limit. None of those is retried, because the same file would fail the same way again. If the page stops waiting before our server finishes, it shows Keep waiting, which goes back to the same job instead of starting a new one. Our server also rejects any output missing the %PDF header or the closing %%EOF marker, so a broken export never comes back as a download.`,
     },
   ],
 

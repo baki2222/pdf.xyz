@@ -4,6 +4,11 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { toolFileCeiling } from "@/lib/tools/file-ceilings";
 import { officePdfOutputName } from "@/lib/workers/processor/office-conversion";
 import { resolveNativeOfficeConversionConfig } from "@/lib/workers/office-conversion/native-config";
+import {
+  DOCUMENT_WORDS,
+  EXCEL_TO_PDF_TOOL,
+  ODF_PASSWORD_REMOVAL,
+} from "@/lib/workers/office-conversion/engine";
 
 /*
  * Behaviour claims below were read from the code on 2026-09-27:
@@ -73,6 +78,8 @@ import { resolveNativeOfficeConversionConfig } from "@/lib/workers/office-conver
  * a PDF.
  */
 
+/** Where Excel removes a password: the words the engine's refusal uses. */
+const EXCEL_WORDS = DOCUMENT_WORDS[EXCEL_TO_PDF_TOOL];
 const tool = getToolBySlug("excel-to-pdf");
 const accepted = tool?.accept ?? [];
 
@@ -175,7 +182,7 @@ const content: ToolContent = {
     },
     {
       q: "Can it convert a password-protected workbook?",
-      a: "This page never passes a password to LibreOffice, so it offers no way to open a workbook that asks for one. Clear the open password in your spreadsheet app, save a copy, and convert the copy.",
+      a: `This page never passes a password to LibreOffice, so it offers no way to open a workbook that asks for one. A locked .xlsx or .ods is recognised before LibreOffice runs, and the message says where the password comes off: ${EXCEL_WORDS.app}'s ${EXCEL_WORDS.protect}, or ${ODF_PASSWORD_REMOVAL.app}'s ${ODF_PASSWORD_REMOVAL.steps}. Convert the unlocked copy.`,
     },
     {
       q: "How large can the file be, and what if it fails?",

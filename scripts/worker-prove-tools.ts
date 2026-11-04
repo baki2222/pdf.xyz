@@ -95,6 +95,7 @@ import {
 } from "@/tests/pdf-office-fixtures";
 import { handBuiltPptx } from "@/tests/pptx-fixture";
 import { OFFICE_INPUT_FIXTURES, odsWith } from "@/tests/office-input-fixtures";
+import { lockedOdfFixtures } from "@/tests/locked-odf";
 import {
   officeFontProofDocx,
   officeFontProofVerdict,
@@ -1545,6 +1546,24 @@ const SPECS: ProofSpec[] = [
     },
     expect: () => false,
     want: "a final refusal, not a converted spreadsheet",
+  },
+  // A file LibreOffice itself locked with a password (src/tests/odf-locked-
+  // fixtures/): named password-protected, once, before soffice runs — not
+  // "could not be converted … save it again as .docx".
+  {
+    tool: "word-to-pdf",
+    label: "word-to-pdf (locked odt)",
+    make: async () => lockedOdfFixtures().locked[0]!.bytes,
+    name: "locked.odt",
+    type: "application/vnd.oasis.opendocument.text",
+    expectFailure: {
+      code: "unprocessable_entity",
+      retryable: false,
+      message:
+        /password-protected\. Open it in LibreOffice .*without its password/,
+    },
+    expect: () => false,
+    want: "a final password-protected refusal naming LibreOffice's Save As",
   },
   {
     tool: "pdf-to-word",
