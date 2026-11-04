@@ -198,6 +198,10 @@ export function copyFiles(): string[] {
     // JPG / PNG to PDF's Max file size (2026-10-31): labels, hint, outcome
     // lines, and the browser re-encoder's error messages.
     path.join(ROOT, "src", "lib", "pdf", "image-size-limit.ts"),
+    // What UTIF's require("pako") resolves to in the browser bundle
+    // (2026-11-04): one error sentence, thrown only if UTIF's Deflate path
+    // is ever reached.
+    path.join(ROOT, "src", "lib", "pdf", "utif-pako-unused.ts"),
     path.join(ROOT, "src", "lib", "pdf", "image-reencode.ts"),
     path.join(ROOT, "src", "lib", "pdf", "offered-kinds.ts"),
     // The WYSIWYG editor's export refusals (2026-10-24): new phrase code,

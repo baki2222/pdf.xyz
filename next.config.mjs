@@ -193,22 +193,25 @@ const WWW_HOST_PATTERN = "www\\.pdf\\.xyz";
  * decoder is never called. Left alone, pako moved OUT of pdf-lib's chunk
  * into one shared with UTIF — one more request wherever pdf-lib loads, and
  * one more entry in the webpack runtime every page loads.
- * `src/deploy/utif-pako.test.ts` reads the built chunks for both.
+ * `src/deploy/lazy-chunks.test.ts` ("pako stays inside …") reads the built
+ * chunks for both.
  *
  * `context` is the requesting module's DIRECTORY, with no trailing
  * separator: the first version required a separator after `utif` and
- * never fired.
+ * never fired. The stub's path is resolved when webpack applies the hook,
+ * not when this file loads: tests import this config where
+ * `import.meta.url` is not a file URL.
  */
-const UTIF_PAKO_STUB = fileURLToPath(
-  new URL("./src/lib/pdf/utif-pako-unused.ts", import.meta.url),
-);
 const UTIF_DIR = /[\\/]node_modules[\\/]utif(?:[\\/]|$)/;
 const utifPakoStub = {
   apply(compiler) {
+    const stub = fileURLToPath(
+      new URL("./src/lib/pdf/utif-pako-unused.ts", import.meta.url),
+    );
     compiler.hooks.normalModuleFactory.tap("utif-pako-stub", (factory) => {
       factory.hooks.beforeResolve.tap("utif-pako-stub", (data) => {
         if (data.request === "pako" && UTIF_DIR.test(data.context ?? ""))
-          data.request = UTIF_PAKO_STUB;
+          data.request = stub;
       });
     });
   },

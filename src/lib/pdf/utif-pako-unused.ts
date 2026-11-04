@@ -1,7 +1,8 @@
 /**
  * What UTIF gets for its `require("pako")` in the browser bundle, and only
  * UTIF: wired in `next.config.mjs` (`utifPakoStub`), held by
- * `src/deploy/utif-pako.test.ts` against the built chunks.
+ * `src/deploy/lazy-chunks.test.ts` ("pako stays inside …") against the
+ * built chunks.
  *
  * UTIF requires pako when it loads, for its own Deflate decoder. `tiff.ts`
  * never calls that decoder: it inflates Deflate strips itself, with the
