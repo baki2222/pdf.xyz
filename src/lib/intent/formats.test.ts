@@ -402,19 +402,17 @@ describe("the bytes win when there are bytes", () => {
     // engine's own message, so the two recognisers cannot drift apart.
     // HISTORY: WebP, GIF and BMP were rows here until 2026-10-30, when the
     // image tools began converting them; the test below now holds those
-    // three to the engine's sniffer instead.
+    // three to the engine's sniffer instead. TIFF (both byte orders) left
+    // the same way on 2026-11-04, when `pdf/tiff.ts` began reading it.
     const engineLabel: Partial<Record<FileFormat, string>> = {
-      TIFF: "TIFF",
       AVIF: "AVIF",
       HEIC: "HEIC",
       HEIF: "HEIC",
     };
-    const rows = (["tiffLE", "tiffBE", "avif", "heic", "heif"] as const).map(
-      (key) => {
-        const ours = sniffFormat(HEADS[key], "x")!;
-        return [key, ours, unsupportedImageMessage("x", HEADS[key])] as const;
-      },
-    );
+    const rows = (["avif", "heic", "heif"] as const).map((key) => {
+      const ours = sniffFormat(HEADS[key], "x")!;
+      return [key, ours, unsupportedImageMessage("x", HEADS[key])] as const;
+    });
     for (const [key, ours, message] of rows) {
       expect(engineLabel[ours], key).toBeDefined();
       expect(message, key).toMatch(
@@ -431,8 +429,18 @@ describe("the bytes win when there are bytes", () => {
       expect(ours, key).toBe(key.toUpperCase());
       expect(sniffImageFormat(HEADS[key]), key).toBe(key);
     }
+    // TIFF since 2026-11-04, in both byte orders: the same four bytes.
+    for (const key of ["tiffLE", "tiffBE"] as const) {
+      expect(sniffFormat(HEADS[key], "x"), key).toBe("TIFF");
+      expect(sniffImageFormat(HEADS[key]), key).toBe("tiff");
+    }
+    // …and a header one byte off is neither's (the 42 is in the wrong place).
+    const offByOne = bytes("II", [0x00, 0x2a, 0x08, 0, 0, 0]);
+    expect(sniffFormat(offByOne, "x")).toBeNull();
+    expect(sniffImageFormat(offByOne)).toBeNull();
     // Positive control: a still-unsupported one is the engine's null.
-    expect(sniffImageFormat(HEADS.tiffLE)).toBeNull();
+    // (It was TIFF here until 2026-11-04.)
+    expect(sniffImageFormat(HEADS.avif)).toBeNull();
   });
 });
 

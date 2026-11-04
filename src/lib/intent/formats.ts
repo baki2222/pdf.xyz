@@ -54,6 +54,7 @@ export const FORMATS = [
   "WEBP",
   "GIF",
   "BMP",
+  "TIFF",
   "HTML",
   "MD",
   "TXT",
@@ -69,12 +70,13 @@ export type Format = (typeof FORMATS)[number];
  * ODP followed on 2026-11-04, when Word, Excel and PowerPoint to PDF began
  * passing them to LibreOffice (the engine checks their bytes first:
  * `office-conversion/input-content.ts`), and their "save a copy first"
- * answers went with them.
+ * answers went with them. TIFF followed on 2026-11-04, when JPG / PNG to PDF
+ * began reading it — every page of a multi-page TIFF — in the browser
+ * (`pdf/tiff.ts`); "No tool here opens TIFF images." went with it.
  */
 export const UNSUPPORTED_FORMATS = [
   "HEIC",
   "HEIF",
-  "TIFF",
   "SVG",
   "AVIF",
   "EPUB",
@@ -95,7 +97,6 @@ export const UNSUPPORTED_SIGNS: Record<
 > = {
   HEIC: { extensions: ["heic"], mimes: ["image/heic", "image/heic-sequence"] },
   HEIF: { extensions: ["heif"], mimes: ["image/heif", "image/heif-sequence"] },
-  TIFF: { extensions: ["tif", "tiff"], mimes: ["image/tiff"] },
   SVG: { extensions: ["svg"], mimes: ["image/svg+xml"] },
   AVIF: { extensions: ["avif"], mimes: ["image/avif"] },
   EPUB: { extensions: ["epub"], mimes: ["application/epub+zip"] },

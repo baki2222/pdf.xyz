@@ -54,9 +54,13 @@ describe("image-to-pdf", () => {
     expect(
       isImageAllowedForKind("png", { name: "a.webp", type: "image/webp" }),
     ).toBe(true);
-    // The edge moved, it did not vanish: TIFF is still refused.
+    // The edge moved, it did not vanish: TIFF was refused here until
+    // 2026-11-04 (INVERTED: tiff.ts reads it); HEIC is refused now.
     expect(
       isImageAllowedForKind("png", { name: "a.tiff", type: "image/tiff" }),
+    ).toBe(true);
+    expect(
+      isImageAllowedForKind("png", { name: "a.heic", type: "image/heic" }),
     ).toBe(false);
   });
 

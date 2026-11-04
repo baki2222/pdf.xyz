@@ -222,8 +222,14 @@ describe("which images go in", () => {
     ).toBe("png");
   });
 
-  it("positive control: TIFF and HEIC are still not sniffed as anything", () => {
+  // INVERTED 2026-11-04: this was "TIFF and HEIC are still not sniffed as
+  // anything", and held `sniffImageFormat(tiff)` to null and the refusal to
+  // '"scan.tif" is a TIFF image. Only PNG, JPG, WebP, GIF and BMP images can
+  // be converted here.' TIFF is read now (tiff.ts, tiff.test.ts); HEIC and
+  // AVIF hold the edge.
+  it("positive control: HEIC and AVIF are still not sniffed as anything; TIFF is", () => {
     const tiff = new Uint8Array([0x49, 0x49, 0x2a, 0, 8, 0, 0, 0]);
+    const avif = new Uint8Array([0, 0, 0, 24, ...Buffer.from("ftypavif")]);
     const heic = new Uint8Array([
       0,
       0,
@@ -235,10 +241,11 @@ describe("which images go in", () => {
       0,
       0,
     ]);
-    expect(sniffImageFormat(tiff)).toBeNull();
+    expect(sniffImageFormat(tiff)).toBe("tiff");
     expect(sniffImageFormat(heic)).toBeNull();
-    expect(unsupportedImageMessage("scan.tif", tiff)).toBe(
-      '"scan.tif" is a TIFF image. Only PNG, JPG, WebP, GIF and BMP images can be converted here.',
+    expect(sniffImageFormat(avif)).toBeNull();
+    expect(unsupportedImageMessage("pic.avif", avif)).toBe(
+      '"pic.avif" is an AVIF image. Only PNG, JPG, WebP, GIF, BMP and TIFF images can be converted here.',
     );
   });
 
@@ -257,7 +264,20 @@ describe("which images go in", () => {
         );
         expect(imagePickerAccept(kind).split(",")).toContain(name.slice(1));
       }
-      for (const name of ["a.tif", "a.tiff", "a.heic", "a.avif"])
+      // .tif and .tiff left this list on 2026-11-04 (tiff.ts reads them).
+      for (const [name, type] of [
+        ["a.tif", "image/tiff"],
+        ["a.tiff", "image/tiff"],
+      ] as const) {
+        expect(isImageAllowedForKind(kind, { name, type: "" }), name).toBe(
+          true,
+        );
+        expect(isImageAllowedForKind(kind, { name: "x", type }), type).toBe(
+          true,
+        );
+        expect(imagePickerAccept(kind).split(",")).toContain(name.slice(1));
+      }
+      for (const name of ["a.heic", "a.avif"])
         expect(isImageAllowedForKind(kind, { name, type: "" }), name).toBe(
           false,
         );

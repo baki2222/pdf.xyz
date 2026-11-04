@@ -1,0 +1,11 @@
+Real encoder output, made 2026-11-04 with GPL Ghostscript 10.0.0 from one
+two-page PostScript file. Page 1 says "TIFFPAGEONE" in black; page 2 says
+"TIFFPAGETWO" in black and "RED" in red. 400 x 300 px at 100 dpi each.
+
+g4.tif   1,590 B  gs -sDEVICE=tiffg4 -r100                      1-bit CCITT G4, WhiteIsZero
+lzw.tif 22,712 B  gs -sDEVICE=tiff24nc -sCompression=lzw -r100  24-bit RGB, LZW
+
+sha256 g4  d947b20bbb1f44bbebc240aad6ebc44bba8227d55dae7a517ad43b578e3d8f19
+sha256 lzw 055b62e793582aadc54b98aac72b53a0ef12f3a7debc9218ebe74ab844091399
+
+Every other TIFF the tests use is built in code: src/tests/tiff-fixtures.ts.

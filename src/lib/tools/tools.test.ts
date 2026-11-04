@@ -183,9 +183,11 @@ const CORPUS: readonly Row[] = [
   ["heic", { unsupported: "HEIC", never: NO_WEBPAGE }],
   // INVERTED 2026-10-30: "webp" was `{ unsupported: "WEBP" }` while no tool
   // opened WebP. JPG / PNG to PDF now decode it, so the search must lead
-  // there; TIFF keeps the unsupported answer's second row.
+  // there. "tiff" kept the unsupported answer's second row until 2026-11-04
+  // (INVERTED: JPG / PNG to PDF read TIFF); AVIF holds it now.
   ["webp", { top: ["jpg-to-pdf", "png-to-pdf"], never: NO_WEBPAGE }],
-  ["tiff", { unsupported: "TIFF", never: NO_WEBPAGE }],
+  ["tiff", { top: ["jpg-to-pdf", "png-to-pdf"], never: NO_WEBPAGE }],
+  ["avif", { unsupported: "AVIF", never: NO_WEBPAGE }],
   // Misspellings: one edit, a swap counting as one.
   ["mrege", { first: "merge-pdf" }],
   ["comprss pdf", { first: "compress-pdf" }],

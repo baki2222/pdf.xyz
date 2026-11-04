@@ -8,7 +8,10 @@
  * Per image, per rung, the SMALLER of the file as added and its re-encode is
  * used: the original is full size and never re-saved, so where it is not
  * bigger it is better on both counts. A re-encode of a small, flat PNG can be
- * bigger than the PNG; nothing here assumes it is not.
+ * bigger than the PNG; nothing here assumes it is not. A TIFF is weighed page
+ * by page against what the page costs kept lossless (2026-11-04), so a
+ * black-and-white scan page — whose 1-bit samples are almost always smaller
+ * than any JPEG of it — stays lossless on every rung.
  */
 import {
   buildImagePdf,
@@ -16,9 +19,12 @@ import {
   perImagePdfNames,
   sniffImageFormat,
   sniffRasterFormat,
+  sniffTiff,
+  loadTiff,
   IMAGE_MIME,
   type ImagePdfInput,
   type ImagePdfKind,
+  type PreparedEntry,
   type PreparedImage,
 } from "./image-to-pdf";
 import type { ImagePageOptions } from "./image-page-layout";
@@ -51,12 +57,62 @@ export type Reencoder = (
   rung: ReencodeRung,
 ) => Promise<ReencodedImage>;
 
+/** The re-encoder for a decoded TIFF page (`reencodePixels`). */
+export type PixelReencoder = (
+  name: string,
+  rgba: Uint8ClampedArray,
+  pixels: { width: number; height: number },
+  layout: { layoutWidth: number; layoutHeight: number },
+  rung: ReencodeRung,
+) => Promise<ReencodedImage>;
+
 export interface FitImageDeps {
   reencode?: Reencoder;
+  reencodePixels?: PixelReencoder;
   now?: () => number;
   budgetMs?: number;
   pause?: () => Promise<void>;
   ladder?: readonly ReencodeRung[];
+}
+
+/**
+ * One rung for every page of a TIFF: the page's JPEG re-encode where it is
+ * SMALLER than the page kept lossless, `undefined` (lossless) where it is not
+ * — the same rule a JPEG or PNG file gets against its own bytes. A TIFF has no
+ * per-page file to weigh, so the lossless cost is the page's own compressed
+ * samples, measured (`losslessTiffBytes`) and kept across rungs in `lossless`.
+ * The page is laid out at its size on paper either way.
+ */
+async function tiffPagesUnderRung(
+  file: ImagePdfInput,
+  step: ReencodeRung,
+  deps: FitImageDeps,
+  lossless: Map<string, number>,
+): Promise<{ pages: (PreparedImage | undefined)[]; flattened: boolean }> {
+  const tiff = await loadTiff();
+  const reencode =
+    deps.reencodePixels ?? (await import("./image-reencode")).reencodePixels;
+  const pages: (PreparedImage | undefined)[] = [];
+  let flattened = false;
+  for (const page of tiff.readTiffPages(file.name, file.bytes)) {
+    const raster = await tiff.decodeTiffPage(file.name, file.bytes, page);
+    const key = `${page.number}:${file.name}`;
+    const keep = lossless.get(key) ?? (await tiff.losslessTiffBytes(raster));
+    lossless.set(key, keep);
+    const layout = { layoutWidth: page.widthPt, layoutHeight: page.heightPt };
+    const jpeg = await reencode(
+      file.name,
+      tiff.tiffRasterRgba(raster),
+      { width: raster.width, height: raster.height },
+      layout,
+      step,
+    );
+    if (jpeg.bytes.byteLength < keep) {
+      pages.push({ bytes: jpeg.bytes, format: "jpg", ...layout });
+      flattened ||= jpeg.flattened;
+    } else pages.push(undefined);
+  }
+  return { pages, flattened };
 }
 
 /** A macrotask turn, so the tab paints between attempts. */
@@ -74,6 +130,8 @@ async function fitOne(
   const reencode =
     deps.reencode ?? (await import("./image-reencode")).reencodeImage;
   const used = new Map<number, { reencoded: boolean; flattened: boolean }>();
+  // What each TIFF page costs kept lossless, by file and page: weighed once.
+  const lossless = new Map<string, number>();
   const build = async (rung: number): Promise<Uint8Array> => {
     if (rung === 0) {
       used.set(0, { reencoded: false, flattened: false });
@@ -82,8 +140,18 @@ async function fitOne(
     const step = ladder[rung - 1]!;
     let reencoded = false;
     let flattened = false;
-    const prepared: (PreparedImage | undefined)[] = [];
+    const prepared: PreparedEntry[] = [];
     for (const file of files) {
+      if (sniffTiff(file.bytes)) {
+        // A TIFF is many pages: each is weighed on its own, against what it
+        // costs kept lossless, so a fax page stays 1-bit while a photo page
+        // beside it shrinks.
+        const tiff = await tiffPagesUnderRung(file, step, deps, lossless);
+        reencoded ||= tiff.pages.some(Boolean);
+        flattened ||= tiff.flattened;
+        prepared.push(tiff.pages);
+        continue;
+      }
       const format = sniffImageFormat(file.bytes);
       const mime = format ? IMAGE_MIME[format] : file.type;
       const out = await reencode(file.name, file.bytes, mime, step);

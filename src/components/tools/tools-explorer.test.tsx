@@ -499,8 +499,9 @@ describe("ToolsExplorer: the unsupported-format answer, as rendered", () => {
     // Health: one non-empty answer per format, each with its headline.
     expect(texts).toHaveLength(UNSUPPORTED_FORMATS.length);
     // ≥ 10 until 2026-11-04, when ODT, RTF, ODS and ODP became formats the
-    // Office to PDF tools take.
-    expect(texts.length).toBeGreaterThanOrEqual(7);
+    // Office to PDF tools take; ≥ 7 until later that day, when TIFF became a
+    // format JPG / PNG to PDF take.
+    expect(texts.length).toBeGreaterThanOrEqual(6);
     for (const text of texts) expect(text).toMatch(/^No tool here opens /);
     expect(texts.filter((text) => DEFERRAL.test(text))).toEqual([]);
     // Positive control: the spec's own wording would have been caught.
@@ -512,9 +513,10 @@ describe("ToolsExplorer: the unsupported-format answer, as rendered", () => {
     const heading = region!.querySelector("h2");
     const body = heading?.nextElementSibling;
     expect(heading?.textContent).toBe("No tool here opens HEIC photos.");
-    // "takes JPG and PNG." until 2026-10-30 (the accept row gained three).
+    // "takes JPG and PNG." until 2026-10-30 (the accept row gained three),
+    // "…, GIF and BMP." until 2026-11-04 (TIFF).
     expect(body?.textContent).toBe(
-      "Save a JPG copy first. JPG to PDF takes JPG, PNG, WEBP, GIF and BMP.",
+      "Save a JPG copy first. JPG to PDF takes JPG, PNG, WEBP, GIF, BMP and TIFF.",
     );
   });
 

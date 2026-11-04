@@ -141,6 +141,7 @@ import { MERGE_MODE_LABEL } from "@/lib/pdf/merge-order";
 import {
   DECODED_IMAGE_LABELS,
   REFUSED_IMAGE_LABELS,
+  TIFF_IMAGE_LABEL,
   imagePdfOutputName,
 } from "@/lib/pdf/image-to-pdf";
 import { TRANSCODE_JPEG_QUALITY } from "@/lib/pdf/image-transcode";
@@ -461,6 +462,14 @@ const MERGE_APPEND = MERGE_MODE_LABEL.append;
 const DECODED_NAMES = listAnd(DECODED_IMAGE_LABELS);
 const DECODED_NAMES_OR = listOr(DECODED_IMAGE_LABELS);
 const REFUSED_NAMES = listAnd(REFUSED_IMAGE_LABELS);
+/**
+ * Every image the two tools take beyond JPG and PNG: the decoded three and,
+ * since 2026-11-04, TIFF — the list a guide names when it says what the tool
+ * takes (guide-format-claims.test.ts holds such a list to `accept`).
+ */
+const OTHER_TAKEN = [...DECODED_IMAGE_LABELS, TIFF_IMAGE_LABEL];
+const OTHER_NAMES = listAnd(OTHER_TAKEN);
+const OTHER_NAMES_OR = listOr(OTHER_TAKEN);
 const TRANSCODE_QUALITY_PCT = Math.round(TRANSCODE_JPEG_QUALITY * 100);
 
 /**
@@ -1100,7 +1109,7 @@ export const guides: Guide[] = [
       // Was "Pick the JPG or JPEG photos" — one format of the five the tool
       // takes since #236; guide-format-claims.test.ts holds this list to
       // the tool's `accept`.
-      `Pick the JPG, PNG, ${DECODED_NAMES_OR} images you want in the PDF — they stay on your device the whole time.`,
+      `Pick the JPG, PNG, ${OTHER_NAMES_OR} images you want in the PDF — they stay on your device the whole time.`,
       // The arrows are icons: "Move up" / "Move down" are their tooltips,
       // never drawn (guide-ui-labels.test.ts reads `title` as not visible).
       "Put them in page order with the up and down arrows on each photo.",
@@ -1133,7 +1142,7 @@ export const guides: Guide[] = [
         id: "limits-and-related-tools",
         heading: "Limits, formats, and where to go next",
         body: [
-          `The tool accepts JPG and JPEG files, and PNG, ${DECODED_NAMES} images as well, and produces a PDF. Each image can be up to ${MAX_IMAGE_MB} MB, and unless you choose One PDF per image, everything you add is assembled into one PDF on your device.`,
+          `The tool accepts JPG and JPEG files, and PNG, ${OTHER_NAMES} images as well, and produces a PDF. A multi-page TIFF gives one PDF page per TIFF page, in order. Each image can be up to ${MAX_IMAGE_MB} MB, and unless you choose One PDF per image, everything you add is assembled into one PDF on your device.`,
           // Was "If your images are PNGs — transparent ones included — use
           // the PNG to PDF tool": a redirect for a format this tool takes
           // itself since #236 (guide-format-claims.test.ts, rule redirect).
@@ -1170,11 +1179,11 @@ export const guides: Guide[] = [
         // Was "This tool accepts JPG and JPEG files." — false since PNG and
         // JPG were taken on both image tools, and again since 2026-10-30
         // added WebP, GIF and BMP (image-to-pdf.ts).
-        answer: `Yes. ${nameOf("jpg-to-pdf")} takes PNG images too, transparent ones included, alongside your JPGs in the same PDF, and ${DECODED_NAMES} images as well. ${nameOf("png-to-pdf")} accepts the same files and works the same way.`,
+        answer: `Yes. ${nameOf("jpg-to-pdf")} takes PNG images too, transparent ones included, alongside your JPGs in the same PDF, and ${OTHER_NAMES} images as well. ${nameOf("png-to-pdf")} accepts the same files and works the same way.`,
       },
     ],
     published: "2026-09-17",
-    updated: "2026-10-31",
+    updated: "2026-11-04",
   },
   {
     // ONE guide for the intent, from two lanes: L07 wrote this slug for the
@@ -4005,7 +4014,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-30",
-    updated: "2026-10-31",
+    updated: "2026-11-04",
   },
   // Added 2026-10-31 with the deep step's Target size. Every label is read
   // from the panel's constants (`compress-target.ts`, `offered-kinds.ts`),
@@ -5679,7 +5688,7 @@ export const guides: Guide[] = [
       "What is particular to PNG is covered below: what happens to see-through areas, why the PDF can be larger than the images, and how big a screenshot's page turns out.",
     ],
     steps: [
-      `Open the ${nameOf("png-to-pdf")} tool and drop your PNGs on the box at the top of the page, or click it to pick them. JPG, ${DECODED_NAMES} images can go into the same PDF.`,
+      `Open the ${nameOf("png-to-pdf")} tool and drop your PNGs on the box at the top of the page, or click it to pick them. JPG, ${OTHER_NAMES} images can go into the same PDF.`,
       `Check the order under Image order. Screenshots named as one numbered set, such as ${listAnd(PNG_SHOT_NAMES)}, are put in the order of their numbers, with a note saying so; press Keep drop order to undo that. Move an image with the up and down arrows on it.`,
       `For screenshots, choose ${PNG_FIT_LABEL} under Page size, so each page is the size of its image. For pages you will print, keep a paper size and set the Orientation and Margin.`,
       `Leave ${MAX_SIZE_LABELS.heading} on ${MAX_SIZE_LABELS.none} to keep every pixel. Choose a size only when a form limits the file, because that saves the images again as JPEGs.`,
@@ -5728,7 +5737,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I put PNG and JPG images in one PDF?",
-        answer: `Yes. A JPG keeps its original JPEG data. ${DECODED_NAMES} images are decoded by your browser and saved again, as a PNG when they have transparency. ${REFUSED_NAMES} images are turned away when you add them. To add the screenshots to a PDF you already have, convert them first, then join the two with ${nameOf("merge-pdf")}.`,
+        answer: `Yes. A JPG keeps its original JPEG data. ${DECODED_NAMES} images are decoded by your browser and saved again, as a PNG when they have transparency. A TIFF goes in without loss, one page of the PDF for each page of the TIFF. ${REFUSED_NAMES} images are turned away when you add them. To add the screenshots to a PDF you already have, convert them first, then join the two with ${nameOf("merge-pdf")}.`,
       },
       {
         question: "Are my images sent to a server?",
@@ -5737,7 +5746,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-04",
   },
   // HTML to PDF: an HTML FILE (or code saved as one), never a URL — that is
   // how-to-convert-a-webpage-to-pdf. Read off the worker: the upload is

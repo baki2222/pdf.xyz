@@ -280,8 +280,9 @@ describe("renderNote", () => {
   it("answers an unsupported format the way /tools does, alternative read from the catalogue", () => {
     expect(renderNote(NOTES[0]!)).toBe(
       // "takes JPG and PNG." until 2026-10-30; the list is read from the
-      // catalogue's accept row, which gained WEBP, GIF and BMP that day.
-      "No tool here opens HEIC photos. Save a JPG copy first. JPG to PDF takes JPG, PNG, WEBP, GIF and BMP.",
+      // catalogue's accept row, which gained WEBP, GIF and BMP that day, and
+      // TIFF on 2026-11-04.
+      "No tool here opens HEIC photos. Save a JPG copy first. JPG to PDF takes JPG, PNG, WEBP, GIF, BMP and TIFF.",
     );
   });
 

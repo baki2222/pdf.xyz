@@ -1,13 +1,28 @@
 import { inflateSync } from "node:zlib";
 import JSZip from "jszip";
 import { expect, type Page } from "@playwright/test";
-import { PDFDocument, degrees, rgb } from "pdf-lib";
+import {
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFName,
+  PDFRawStream,
+  degrees,
+  rgb,
+} from "pdf-lib";
 import type { RunnerKind } from "../../src/lib/pdf/registry";
 import {
   encodeGrayJpeg,
   jpegComponentCount,
 } from "../../src/lib/pdf/gray-jpeg";
 import { imagesToPdf, imagesToPdfs } from "../../src/lib/pdf/image-to-pdf";
+import {
+  decodeTiffPage,
+  readTiffPages,
+  tiffRasterRgba,
+  tiffRefusal,
+} from "../../src/lib/pdf/tiff";
+import { tiffFixture, tiffOf } from "../../src/tests/tiff-fixtures";
 import {
   KB,
   MAX_LIMIT_ATTEMPTS,
@@ -511,6 +526,124 @@ async function jpegPagesPdf(jpegs: Buffer[]): Promise<Buffer> {
     });
   }
   return Buffer.from(await doc.save());
+}
+
+/** Why each TIFF proof (2026-11-04) rejects an artifact. */
+const TIFF_FAILS = {
+  pages: "four pages: both pages of each two-page TIFF, in order",
+  size: "every page is 288 × 216 pt, the TIFF's 400 × 300 px at 100 dpi",
+  lossless:
+    "no page is a JPEG: the G4 fax pages stay 1-bit images, stored without loss",
+  red: "dark text on every page, red only on the LZW file's page 2 (PDF page 4)",
+  perFile: "one 2-page PDF per TIFF, named after it",
+  refused:
+    "an over-ceiling TIFF header is refused when added, naming the page and its size",
+} as const;
+
+/** The setup both TIFF proofs choose: Fit to image, no margin. */
+const TIFF_SETUP = {
+  pageSize: "fit",
+  orientation: "auto",
+  margin: "none",
+} as const;
+
+const tiffInput = (name: "g4.tif" | "lzw.tif") => ({
+  name,
+  type: "image/tiff",
+  bytes: tiffFixture(name),
+});
+
+/**
+ * Each page's image, decoded HERE from the bytes the PDF stores — inflated,
+ * with its own /ColorSpace, /BitsPerComponent and /Decode applied — and its
+ * dark and red pixels counted. A JPEG page is left undecoded (`filter` says
+ * so): the proofs reject it before they would read its pixels.
+ */
+async function tiffPagePixels(buf: Buffer): Promise<
+  {
+    filter: string;
+    colorSpace: string;
+    bits: number;
+    dark: number;
+    red: number;
+    total: number;
+  }[]
+> {
+  const doc = await PDFDocument.load(buf);
+  return doc.getPages().map((page) => {
+    const xobjects = page.node
+      .Resources()
+      ?.lookupMaybe(PDFName.of("XObject"), PDFDict);
+    const ref = [...(xobjects?.entries() ?? [])][0]?.[1];
+    const stream = ref ? doc.context.lookup(ref) : undefined;
+    expect(stream instanceof PDFRawStream, "every page carries one image").toBe(
+      true,
+    );
+    const dict = (stream as PDFRawStream).dict;
+    const get = (key: string) => dict.get(PDFName.of(key));
+    const filter = get("Filter")?.toString() ?? "";
+    const colorSpace = get("ColorSpace")?.toString() ?? "";
+    const bits = Number(get("BitsPerComponent")?.toString());
+    const width = Number(get("Width")?.toString());
+    const height = Number(get("Height")?.toString());
+    const total = width * height;
+    if (filter !== "/FlateDecode")
+      return { filter, colorSpace, bits, dark: 0, red: 0, total };
+    const data = inflateSync((stream as PDFRawStream).getContents());
+    const decode = get("Decode");
+    const inverted =
+      decode instanceof PDFArray &&
+      Number(decode.get(0).toString()) === 1 &&
+      Number(decode.get(1).toString()) === 0;
+    let dark = 0;
+    let red = 0;
+    if (colorSpace === "/DeviceGray") {
+      const rowBytes = Math.ceil((width * bits) / 8);
+      const max = 2 ** bits - 1;
+      for (let y = 0; y < height; y++)
+        for (let x = 0; x < width; x++) {
+          const bit = x * bits;
+          const raw =
+            (data[y * rowBytes + (bit >> 3)]! >> (8 - bits - (bit & 7))) & max;
+          const level = inverted ? 1 - raw / max : raw / max;
+          if (level < 0.4) dark++;
+        }
+    } else if (colorSpace === "/DeviceRGB" && bits === 8) {
+      for (let i = 0; i + 2 < data.length; i += 3) {
+        const [r, g, b] = [data[i]!, data[i + 1]!, data[i + 2]!];
+        if (r < 96 && g < 96 && b < 96) dark++;
+        if (r > 160 && g < 96 && b < 96) red++;
+      }
+    } else {
+      throw new Error(`a page image this reader cannot decode: ${colorSpace}`);
+    }
+    return { filter, colorSpace, bits, dark, red, total };
+  });
+}
+
+/** The two-TIFF proof's checks, shared by both image tools' cases. */
+async function assertTiffPdf(buf: Buffer, order: "g4-first" | "lzw-first") {
+  const doc = await PDFDocument.load(buf);
+  expect(doc.getPageCount(), TIFF_FAILS.pages).toBe(4);
+  expect(
+    doc.getPages().map((p) => {
+      const { width, height } = p.getSize();
+      return [Math.round(width * 100) / 100, Math.round(height * 100) / 100];
+    }),
+    TIFF_FAILS.size,
+  ).toEqual(Array(4).fill([288, 216]));
+  const pages = await tiffPagePixels(buf);
+  expect(
+    pages.every((p) => p.filter === "/FlateDecode") &&
+      pages.filter((p) => p.colorSpace === "/DeviceGray" && p.bits === 1)
+        .length === 2,
+    `${TIFF_FAILS.lossless}: ${pages.map((p) => `${p.filter} ${p.colorSpace} ${p.bits}`).join(", ")}`,
+  ).toBe(true);
+  const redPage = order === "g4-first" ? 3 : 1;
+  expect(
+    pages.map((p) => [p.dark > 300 && p.dark < p.total * 0.3, p.red > 300]),
+    TIFF_FAILS.red,
+  ).toEqual(pages.map((_, i) => [true, i === redPage]));
 }
 
 export const CASES: Record<string, ToolCase> = {
@@ -3221,6 +3354,212 @@ export const VARIANTS: readonly VariantCase[] = [
       DECODED_FAILS.sizes,
       DECODED_FAILS.firstFrame,
     ],
+  },
+
+  // Added 2026-11-04: TIFF, multi-page included (src/lib/pdf/tiff.ts). The
+  // fixtures are real Ghostscript output (src/tests/tiff-fixtures.ts): two
+  // pages each, 400 × 300 px at 100 dpi; page 2 says "RED" in red — in red
+  // in the 24-bit LZW file, in black in the 1-bit G4 one.
+  {
+    slug: "jpg-to-pdf",
+    name: "two 2-page TIFFs (CCITT G4 and LZW), Fit to image, no margin",
+    kind: "image-to-pdf",
+    artifact: "pdf",
+    run: async (ctx) => {
+      await uploadPayloads(ctx.page, [
+        {
+          name: "g4.tif",
+          mimeType: "image/tiff",
+          buffer: Buffer.from(tiffFixture("g4.tif")),
+        },
+        {
+          name: "lzw.tif",
+          mimeType: "image/tiff",
+          buffer: Buffer.from(tiffFixture("lzw.tif")),
+        },
+      ]);
+      // The list counts PDF pages, not files: the second TIFF fills 3–4.
+      await expect(ctx.page.getByText(/^Pages 3–4/)).toBeVisible();
+      await ctx.page.getByRole("button", { name: "Fit to image" }).click();
+      await ctx.page.getByRole("button", { name: "None", exact: true }).click();
+      return runAndDownload(
+        ctx,
+        /create pdf/i,
+        /jpg pdf created/i,
+        /^download pdf$/i,
+      );
+    },
+    assert: (buf) => assertTiffPdf(buf, "g4-first"),
+    // Built by the engine in Node, each differing in ONE way: page 2 of the
+    // G4 file dropped; every page at its pixel size (the resolution
+    // ignored); the G4 pages saved as JPEGs; the two files in the other order.
+    control: async () => {
+      const files = [tiffInput("g4.tif"), tiffInput("lzw.tif")];
+      const right = await imagesToPdf("jpg", files, TIFF_SETUP);
+      const dropped = await PDFDocument.load(right);
+      dropped.removePage(1);
+      const pixelSized = await PDFDocument.load(right);
+      for (const page of pixelSized.getPages()) page.setSize(400, 300);
+      const jpegFax = await PDFDocument.create();
+      const g4 = tiffFixture("g4.tif");
+      for (const page of readTiffPages("g4.tif", g4)) {
+        const rgba = tiffRasterRgba(await decodeTiffPage("g4.tif", g4, page));
+        const plane = new Uint8Array(rgba.length / 4).map(
+          (_, i) => rgba[i * 4]!,
+        );
+        const image = await embedRasterImage(
+          jpegFax,
+          encodeGrayJpeg(plane, page.width, page.height),
+          "jpg",
+        );
+        await drawRasterImage(jpegFax.addPage([288, 216]), image, {
+          x: 0,
+          y: 0,
+          width: 288,
+          height: 216,
+        });
+      }
+      const lzwOnly = await PDFDocument.load(
+        await imagesToPdf("jpg", [files[1]!], TIFF_SETUP),
+      );
+      for (const page of await jpegFax.copyPages(lzwOnly, [0, 1]))
+        jpegFax.addPage(page);
+      return [
+        Buffer.from(await dropped.save()),
+        Buffer.from(await pixelSized.save()),
+        Buffer.from(await jpegFax.save()),
+        Buffer.from(
+          await imagesToPdf("jpg", [files[1]!, files[0]!], TIFF_SETUP),
+        ),
+      ];
+    },
+    rejectsBecause: [
+      TIFF_FAILS.pages,
+      TIFF_FAILS.size,
+      TIFF_FAILS.lossless,
+      TIFF_FAILS.red,
+    ],
+  },
+
+  {
+    slug: "png-to-pdf",
+    name: "two 2-page TIFFs, One PDF per image, Fit to image, no margin",
+    kind: "image-to-pdf",
+    artifact: "zip",
+    run: async (ctx) => {
+      await uploadPayloads(ctx.page, [
+        {
+          name: "lzw.tif",
+          mimeType: "image/tiff",
+          buffer: Buffer.from(tiffFixture("lzw.tif")),
+        },
+        {
+          name: "g4.tif",
+          mimeType: "image/tiff",
+          buffer: Buffer.from(tiffFixture("g4.tif")),
+        },
+      ]);
+      await expect(ctx.page.getByText(/^Pages 3–4/)).toBeVisible();
+      await ctx.page.getByRole("button", { name: "Fit to image" }).click();
+      await ctx.page.getByRole("button", { name: "None", exact: true }).click();
+      await ctx.page
+        .getByRole("button", { name: "One PDF per image (ZIP)" })
+        .click();
+      return runAndDownload(
+        ctx,
+        /create pdf/i,
+        /2 png pdfs created/i,
+        /download zip \(2 pdfs\)/i,
+      );
+    },
+    assert: async (buf) => {
+      const entries = await zipEntries(buf);
+      expect([...entries.keys()].sort(), TIFF_FAILS.perFile).toEqual([
+        "g4.pdf",
+        "lzw.pdf",
+      ]);
+      for (const [name, bytes] of entries)
+        expect(
+          (await PDFDocument.load(bytes)).getPageCount(),
+          `${name}: ${TIFF_FAILS.perFile}`,
+        ).toBe(2);
+      // Joined back in the order picked, the four pages pass the same
+      // checks as the one-PDF proof: LZW first, so red is PDF page 2.
+      const joined = await PDFDocument.create();
+      for (const name of ["lzw.pdf", "g4.pdf"]) {
+        const part = await PDFDocument.load(entries.get(name)!);
+        for (const page of await joined.copyPages(part, [0, 1]))
+          joined.addPage(page);
+      }
+      await assertTiffPdf(Buffer.from(await joined.save()), "lzw-first");
+    },
+    // The ZIP with the two PDFs' names swapped (the G4 pages under
+    // lzw.pdf), and one whose lzw.pdf lost its page 2.
+    control: async () => {
+      const outs = await imagesToPdfs(
+        "png",
+        [tiffInput("lzw.tif"), tiffInput("g4.tif")],
+        TIFF_SETUP,
+      );
+      const short = await PDFDocument.load(outs[0]!.bytes);
+      short.removePage(1);
+      return [
+        await zipOf([
+          ["lzw.pdf", outs[1]!.bytes],
+          ["g4.pdf", outs[0]!.bytes],
+        ]),
+        await zipOf([
+          ["lzw.pdf", await short.save()],
+          ["g4.pdf", outs[1]!.bytes],
+        ]),
+      ];
+    },
+    rejectsBecause: [TIFF_FAILS.red, TIFF_FAILS.perFile],
+  },
+
+  {
+    slug: "png-to-pdf",
+    name: "a TIFF header claiming 60,000 × 60,000 pixels, refused when added",
+    kind: "image-to-pdf",
+    artifact: "text",
+    run: async (ctx) => {
+      // Under 1 KB, and it claims a 450 MB page.
+      const huge = tiffOf([
+        {
+          width: 60_000,
+          height: 60_000,
+          bits: [1],
+          photometric: 0,
+          compression: 4,
+          rows: new Uint8Array(16),
+        },
+      ]);
+      await uploadPayloads(ctx.page, [
+        { name: "huge.tif", mimeType: "image/tiff", buffer: Buffer.from(huge) },
+      ]);
+      const alert = ctx.page.getByRole("alert").filter({ hasText: "huge.tif" });
+      await expect(alert).toBeVisible();
+      // Refused at the door: nothing listed, nothing to run.
+      // (A listed image's card shows its bare name; the alert does not.)
+      await expect(ctx.page.getByText("huge.tif", { exact: true })).toHaveCount(
+        0,
+      );
+      await expect(
+        ctx.page.getByRole("button", { name: /create pdf/i }),
+      ).toBeDisabled();
+      return Buffer.from((await alert.innerText()).trim());
+    },
+    assert: async (buf) => {
+      expect(buf.toString("utf8"), TIFF_FAILS.refused).toContain(
+        tiffRefusal.tooLarge("huge.tif", 1, 60_000, 60_000),
+      );
+    },
+    // What the page said of every TIFF until 2026-11-04.
+    control: async () =>
+      Buffer.from(
+        'huge.tif: "huge.tif" is a TIFF image. Only PNG, JPG, WebP, GIF and BMP images can be converted here.',
+      ),
+    rejectsBecause: [TIFF_FAILS.refused],
   },
 ];
 

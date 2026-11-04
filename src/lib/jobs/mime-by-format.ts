@@ -53,6 +53,8 @@ export const MIME_BY_FORMAT: Record<string, readonly string[]> = {
   WEBP: ["image/webp"],
   GIF: ["image/gif"],
   BMP: ["image/bmp", "image/x-ms-bmp"],
+  // 2026-11-04: JPG / PNG to PDF read TIFF in the browser (`pdf/tiff.ts`).
+  TIFF: ["image/tiff"],
   HTML: ["text/html"],
   HTM: ["text/html"],
   MD: ["text/markdown", "text/plain"],
@@ -91,6 +93,7 @@ export const EXTENSIONS_BY_FORMAT: Record<string, readonly string[]> = {
   WEBP: ["webp"],
   GIF: ["gif"],
   BMP: ["bmp"],
+  TIFF: ["tif", "tiff"],
   HTML: ["html"],
   HTM: ["htm"],
   MD: ["md", "mdown"],

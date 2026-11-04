@@ -56,19 +56,23 @@ export const ACCEPTED_KINDS: readonly AcceptedKind[] = [
     // WebP and GIF were listed here until 2026-10-09, inviting files every
     // tool turned away. Since 2026-10-30 both image tools decode WebP, GIF
     // and BMP, so the three are back — and the test that caught the first
-    // listing holds them to the tools' accept rows.
+    // listing holds them to the tools' accept rows. TIFF (multi-page too)
+    // since 2026-11-04, read by both image tools in the browser.
     accept: [
       "image/png",
       "image/jpeg",
       "image/webp",
       "image/gif",
       "image/bmp",
+      "image/tiff",
       ".png",
       ".jpg",
       ".jpeg",
       ".webp",
       ".gif",
       ".bmp",
+      ".tif",
+      ".tiff",
     ],
     maxBytes: MAX_IMAGE_BYTES,
   },

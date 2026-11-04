@@ -265,6 +265,10 @@ export function copyFiles(): string[] {
     // JPG / PNG to PDF's WebP, GIF and BMP decoder (2026-10-30): its
     // refusals are the sentences the image runners show.
     path.join(ROOT, "src", "lib", "pdf", "image-transcode.ts"),
+    // Its TIFF reader (2026-11-04): the refusals that name a page are the
+    // sentences the image runners show; the leaf holds the limits they state.
+    path.join(ROOT, "src", "lib", "pdf", "tiff.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "tiff-limits.ts"),
     // The engine's refusal copy (encrypted, unreadable), and the raster
     // presets' wording the catalogue quotes — moved out of engine.ts and
     // pdf-to-image.ts on 2026-10-29 so tool pages stop loading those modules

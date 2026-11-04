@@ -834,6 +834,14 @@ describe("what a guide says a tool takes is what the tool takes", () => {
         "PNG, HEIC and AVIF images are not taken.",
       ),
     ).toEqual(["refused"]);
+    // The same verdict on a sentence that was TRUE until 2026-11-04 (it was
+    // the negative control below), the day the image tools took TIFF.
+    expect(
+      p(
+        "how-to-convert-jpg-to-pdf",
+        "HEIC, TIFF, and AVIF images are not taken.",
+      ),
+    ).toEqual(["refused"]);
     // An enumeration narrower than the input, after a pick verb.
     expect(
       p("how-to-convert-jpg-to-pdf", "Pick the JPG or PNG photos you want."),
@@ -854,10 +862,12 @@ describe("what a guide says a tool takes is what the tool takes", () => {
   it("negative control: true sentences pass, through the same audit", () => {
     const { problems, findings } = audit([
       only("how-to-convert-jpg-to-pdf", [
-        "The tool accepts JPG and JPEG files, and PNG, WebP, GIF, and BMP images as well, and produces a PDF.",
+        // "…, GIF, and BMP images…" and "HEIC, TIFF, and AVIF images are not
+        // taken." until 2026-11-04, when TIFF moved from refused to taken.
+        "The tool accepts JPG and JPEG files, and PNG, WebP, GIF, BMP, and TIFF images as well, and produces a PDF.",
         "JPG to PDF takes PNG images too.",
         "Under Output, keep One PDF, or choose One PDF per image (ZIP) to get several PDFs.",
-        "HEIC, TIFF, and AVIF images are not taken.",
+        "HEIC and AVIF images are not taken.",
       ]),
       only("how-to-add-a-watermark-to-a-pdf", [
         "A picture mark takes a PNG or a JPEG, such as your logo.",

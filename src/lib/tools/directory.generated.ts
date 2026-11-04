@@ -127,14 +127,14 @@ export const TOOL_DIRECTORY: readonly ToolEntry[] = [
     slug: "jpg-to-pdf",
     name: "JPG to PDF",
     processing: "client",
-    accept: ["JPG", "JPEG", "PNG", "WEBP", "GIF", "BMP"],
+    accept: ["JPG", "JPEG", "PNG", "WEBP", "GIF", "BMP", "TIFF"],
     outputs: ["PDF", "ZIP"],
   },
   {
     slug: "png-to-pdf",
     name: "PNG to PDF",
     processing: "client",
-    accept: ["PNG", "JPG", "JPEG", "WEBP", "GIF", "BMP"],
+    accept: ["PNG", "JPG", "JPEG", "WEBP", "GIF", "BMP", "TIFF"],
     outputs: ["PDF", "ZIP"],
   },
   {

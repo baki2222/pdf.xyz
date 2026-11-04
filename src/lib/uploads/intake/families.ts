@@ -40,7 +40,8 @@ export const UPLOAD_FAMILIES: Record<UploadFamily, FamilySpec> = {
   // WebP, GIF and BMP joined MIME_BY_FORMAT on 2026-10-30 for JPG / PNG to
   // PDF, which run in the browser and upload nothing. No upload-backed tool
   // lists them, so the per-tool validator still refuses them at intake; they
-  // are named here because this table must cover MIME_BY_FORMAT.
+  // are named here because this table must cover MIME_BY_FORMAT. TIFF joined
+  // the same way on 2026-11-04.
   image: {
     mimes: [
       "image/jpeg",
@@ -50,8 +51,9 @@ export const UPLOAD_FAMILIES: Record<UploadFamily, FamilySpec> = {
       "image/gif",
       "image/bmp",
       "image/x-ms-bmp",
+      "image/tiff",
     ],
-    extensions: ["jpg", "jpeg", "png", "webp", "gif", "bmp"],
+    extensions: ["jpg", "jpeg", "png", "webp", "gif", "bmp", "tif", "tiff"],
   },
   word: {
     mimes: [
