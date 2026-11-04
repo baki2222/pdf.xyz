@@ -36,6 +36,7 @@ import { tools } from "@/lib/tools";
 import { SEARCH_ENGINE_CHUNK } from "@/lib/tools/search-tools";
 import { STOPPED_WAITING } from "@/lib/workers/job-polling";
 import { NO_UPLOAD_SLOT } from "@/lib/workers/slot-upload";
+import { UTIF_PAKO_UNUSED } from "@/lib/pdf/utif-pako-unused";
 import { chunkFiles, prerenderedPages } from "../../scripts/page-weight";
 
 const ROOT = process.cwd();
@@ -619,5 +620,67 @@ describe("the palette's on-demand fetch is bounded", () => {
       fetch.gz,
       `the palette's fetch from ${page} is ${fetch.gz.toFixed(2)} KB gz over ${fetch.counted.map((f) => path.basename(f)).join(", ")}`,
     ).toBeLessThanOrEqual(PALETTE_FETCH_GZ_KB);
+  });
+});
+
+/**
+ * PAKO STAYS WITH ITS OWNER. UTIF (`tiff.ts`, TIFF input since 2026-11-04)
+ * requires pako for a Deflate decoder `tiff.ts` never calls. Bundled, it is
+ * the same pako module pdf-lib uses, so webpack moved pako OUT of pdf-lib's
+ * chunk into one shared by both: the same bytes, one more request wherever
+ * pdf-lib loads, one more entry in the runtime every page loads.
+ * `next.config.mjs` (`utifPakoStub`) points UTIF's request at
+ * `utif-pako-unused.ts`.
+ *
+ * Read from the built chunks, by strings each library's own code carries:
+ * every chunk holding pako's inflate also holds pdf-lib or JSZip (which
+ * bundles a pako of its own), and the stub is in the build — the check the
+ * first version of the hook lacked: its directory test never matched, the
+ * stub was never used, and the bundle stayed as it was.
+ */
+describe("pako stays inside the chunks of the libraries that use it", () => {
+  const built = existsSync(path.join(NEXT_DIR, "server", "app"));
+  /** pako's inflate error (zlib's own message). */
+  const PAKO = "invalid distance too far back";
+  const JSZIP = "Corrupted zip : CRC32 mismatch";
+  /** A UTIF method name, kept by minification as a property. */
+  const UTIF = "_decodeG4";
+
+  it("every chunk with pako carries pdf-lib or JSZip, and UTIF's chunks carry the stub instead", () => {
+    if (!built) return;
+    const all = walkJs(CHUNKS_DIR);
+    const pako = all.filter((f) => read(f).includes(PAKO));
+    const utif = all.filter((f) => read(f).includes(UTIF));
+    const stub = all.filter((f) => read(f).includes(UTIF_PAKO_UNUSED));
+    // Health: each library is in the build, so an empty list below is a
+    // finding, not a blind reader.
+    expect(pako.length, "pako's inflate is in no chunk").toBeGreaterThanOrEqual(
+      2,
+    );
+    expect(utif.length, "UTIF is in no chunk").toBeGreaterThanOrEqual(1);
+    expect(
+      all.some((f) => read(f).includes(LAZY[0]!.marker)),
+      "pdf-lib is in no chunk",
+    ).toBe(true);
+    expect(
+      all.some((f) => read(f).includes(JSZIP)),
+      "JSZip is in no chunk",
+    ).toBe(true);
+
+    const orphaned = pako.filter(
+      (f) => !read(f).includes(LAZY[0]!.marker) && !read(f).includes(JSZIP),
+    );
+    expect(
+      orphaned.map((f) => path.basename(f)),
+      "a chunk carries pako without the library that uses it",
+    ).toEqual([]);
+    expect(
+      stub.map((f) => path.basename(f)),
+      'the stub is in no chunk: UTIF\'s require("pako") was not redirected',
+    ).not.toEqual([]);
+    expect(
+      stub.filter((f) => read(f).includes(PAKO)).map((f) => path.basename(f)),
+      "the stub shares a chunk with pako",
+    ).toEqual([]);
   });
 });
