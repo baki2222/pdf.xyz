@@ -17,13 +17,30 @@
  * masked first, longest first — "JPG to PDF" names a tool, not a format — and
  * each masked name is kept as the tool it names, for attribution.
  *
- * A FORMAT is a word in a vocabulary DERIVED, never typed: the union of every
- * tool's `accept` labels and `UNSUPPORTED_FORMATS` (the formats the site says
- * no tool opens). It must be written as a format is written in prose — not
- * all lower-case ("JPG", "WebP", "Markdown"), or as an extension (".docx") —
- * so the English "doc" and "md" in a keyword list are not claims. A plural
- * ("PNGs") is its format. Formats joined by commas, "and", "or", articles and
- * file nouns ("JPG and JPEG files, and PNG") form one LIST.
+ * A FORMAT is a word in a vocabulary DERIVED, never typed, from every table
+ * that names one: each tool's `accept` labels, `FORMATS`,
+ * `UNSUPPORTED_FORMATS` (the formats the site says no tool opens), the labels
+ * of `MIME_BY_FORMAT` and `EXTENSIONS_BY_FORMAT`, and — written with their dot
+ * only — every extension in `EXTENSIONS_BY_FORMAT` and `UNSUPPORTED_SIGNS`
+ * (".tif"; a bare "Text" is English, ".text" is TXT). It must be written as a
+ * format is written in prose — not all lower-case ("JPG", "WebP",
+ * "Markdown"), or as an extension (".docx") — so the English "doc" and "md"
+ * in a keyword list are not claims. A plural ("PNGs") is its format.
+ *
+ * AND an extension NO table knows is still a format, its own: a bare
+ * ".numbers" (after a space, a bracket or the start, so "pdf.xyz" and "e.g."
+ * are not; lower-case letters) names a file type by its shape alone. That is
+ * the bound that does not come from the tables. Until 2026-11-04 the
+ * vocabulary was `accept` ∪ `UNSUPPORTED_FORMATS` only, so a format leaving
+ * every `accept` left the vocabulary in the same edit, and the guide sentence
+ * still naming it stopped being a claim: dropping ODS from Excel to PDF's
+ * `accept` left "takes .xlsx, .xls, .csv and .ods" reading as
+ * "takes .xlsx, .xls, .csv" — exactly the input — and this guard stayed green
+ * (CLAUDE.md rule 4: the set shrank WITH the defect). The control
+ * "a format every table has forgotten" below keeps that history.
+ *
+ * Formats joined by commas, "and", "or", articles and file nouns ("JPG and
+ * JPEG files, and PNG") form one LIST.
  *
  * A list is a CLAIM when it stands in one of these shapes. The shapes were
  * worked out against the 39 guides that existed on 2026-10-31, and EVERY
@@ -89,19 +106,28 @@
  * (the corpus print, `GUIDE_FORMAT_CLAIMS_PRINT=1`, shows what is and is not
  * extracted); a single format said to be the ONLY one ("accepts only JPG" —
  * no guide says "only", so no rule may claim to catch it); a format named in
- * words rather than its label ("an Excel workbook"). The floors below are what
- * say the extractor still sees the corpus.
+ * words rather than its label ("an Excel workbook"); a format written as a
+ * capitalised LABEL ("ODS file") once every table has forgotten it — a
+ * capitalised word is a format only because a table says so, unlike an
+ * extension, whose shape says so. The floors below are what say the
+ * extractor still sees the corpus.
  */
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { guides } from "./catalog";
 import type { Guide } from "./types";
 import {
+  FORMATS,
   UNSUPPORTED_FORMATS,
+  UNSUPPORTED_SIGNS,
   formatOf,
   type FileFormat,
 } from "@/lib/intent/formats";
-import { normalizeFormatLabel } from "@/lib/jobs/mime-by-format";
+import {
+  EXTENSIONS_BY_FORMAT,
+  MIME_BY_FORMAT,
+  normalizeFormatLabel,
+} from "@/lib/jobs/mime-by-format";
 import { tools } from "@/lib/tools";
 import {
   ownPanelModules,
@@ -114,13 +140,56 @@ import {
  *  The vocabulary
  * ------------------------------------------------------------------ */
 
-/** Upper-case spelling → canonical format (JPEG → JPG, HTM → HTML). */
-const VOCABULARY: ReadonlyMap<string, string> = new Map(
-  [...tools.flatMap((t) => t.accept), ...UNSUPPORTED_FORMATS].map((label) => [
-    label.toUpperCase(),
-    normalizeFormatLabel(label),
+/** How the prose side reads a word as a format. */
+interface Vocabulary {
+  /** Upper-case LABEL → canonical format (JPEG → JPG, HTM → HTML). */
+  labels: ReadonlyMap<string, string>;
+  /** Lower-case EXTENSION, read only with its dot → canonical format. */
+  extensions: ReadonlyMap<string, string>;
+  /** Is a bare extension no table knows a format of its own? */
+  unknownExtensions: boolean;
+}
+
+const labelMap = (labels: readonly string[]): Map<string, string> =>
+  new Map(labels.map((l) => [l.toUpperCase(), normalizeFormatLabel(l)]));
+
+const VOCABULARY: Vocabulary = {
+  labels: labelMap([
+    ...tools.flatMap((t) => t.accept),
+    ...FORMATS,
+    ...UNSUPPORTED_FORMATS,
+    ...Object.keys(MIME_BY_FORMAT),
+    ...Object.keys(EXTENSIONS_BY_FORMAT),
   ]),
-);
+  extensions: new Map([
+    ...Object.entries(EXTENSIONS_BY_FORMAT).flatMap(([label, exts]) =>
+      exts.map((e) => [e.toLowerCase(), normalizeFormatLabel(label)] as const),
+    ),
+    ...Object.entries(UNSUPPORTED_SIGNS).flatMap(([format, signs]) =>
+      signs.extensions.map((e) => [e.toLowerCase(), format] as const),
+    ),
+  ]),
+  unknownExtensions: true,
+};
+
+/**
+ * The vocabulary the prose side reads with. A control swaps it for one call
+ * (`readingWith`), so "a format every table has forgotten" can be asked of
+ * the same extractor rather than of a copy of it.
+ */
+let reading: Vocabulary = VOCABULARY;
+function readingWith<T>(v: Vocabulary, run: () => T): T {
+  const was = reading;
+  reading = v;
+  try {
+    return run();
+  } finally {
+    reading = was;
+  }
+}
+
+/** An extension as prose writes one: ".numbers", ".xlsm", ".pages". */
+const EXTENSION_SHAPE = /^[a-z][a-z0-9]{1,6}$/;
 
 /* ------------------------------------------------------------------ *
  *  The tool side
@@ -243,7 +312,14 @@ const sentencesOf = (text: string): string[] =>
   text.split(/(?<=[.!?])\s+(?=[\p{Lu}“"])/u);
 
 type Token =
-  | { kind: "word"; text: string; dotted: boolean }
+  | {
+      kind: "word";
+      text: string;
+      /** A "." glued to its front: ".docx", and the "xyz" of "pdf.xyz". */
+      dotted: boolean;
+      /** Dotted, and the dot follows no letter or digit: ".docx", not "pdf.xyz". */
+      bare: boolean;
+    }
   | { kind: "tool"; slug: string }
   | { kind: "punct"; text: string };
 
@@ -271,7 +347,14 @@ function tokenize(sentence: string): Token[] {
       // A sentence-final "." before a word cannot occur; a "." glued to a
       // word is an extension (".docx").
       if (m[2]) out.push({ kind: "punct", text: "." });
-      out.push({ kind: "word", text: m[3], dotted: m[2] === "." });
+      const dotted = m[2] === ".";
+      const before = masked[m.index - 1];
+      out.push({
+        kind: "word",
+        text: m[3],
+        dotted,
+        bare: dotted && (before === undefined || !/[\p{L}\p{N}]/u.test(before)),
+      });
     } else out.push({ kind: "punct", text: m[4]! });
   }
   // An extension's "." was pushed as punctuation AND flagged on the word;
@@ -297,13 +380,28 @@ function formatOf_(t: Token | undefined): string | null {
   // Written as a format is written: not all lower-case, or as an extension.
   if (!t.dotted && t.text === t.text.toLowerCase()) return null;
   const upper = t.text.toUpperCase();
-  const hit = VOCABULARY.get(upper);
+  const hit =
+    (t.dotted ? reading.extensions.get(t.text.toLowerCase()) : undefined) ??
+    reading.labels.get(upper);
   if (hit) return hit;
   // A plural: "PNGs", "JPEGs".
-  if (/s$/.test(t.text) && !/S$/.test(t.text))
-    return VOCABULARY.get(upper.slice(0, -1)) ?? null;
+  if (/s$/.test(t.text) && !/S$/.test(t.text)) {
+    const plural = reading.labels.get(upper.slice(0, -1));
+    if (plural) return plural;
+  }
+  // An extension no table knows names a file type by its shape: its own.
+  if (reading.unknownExtensions && t.bare && EXTENSION_SHAPE.test(t.text))
+    return upper;
   return null;
 }
+
+/** A format only because of its shape: no table knows the extension. */
+const isUnknownExtension = (t: Token): t is Extract<Token, { kind: "word" }> =>
+  t.kind === "word" &&
+  t.bare &&
+  !reading.extensions.has(t.text.toLowerCase()) &&
+  !reading.labels.has(t.text.toUpperCase()) &&
+  formatOf_(t) !== null;
 
 const lower = (t: Token | undefined): string =>
   t?.kind === "word" ? t.text.toLowerCase() : "";
@@ -763,9 +861,60 @@ describe("what a guide says a tool takes is what the tool takes", () => {
 
   it("health: the vocabulary is derived and both sides of the gate are in it", () => {
     for (const f of ["JPG", "JPEG", "PNG", "WEBP", "DOCX", "HTM", "HEIC"])
-      expect(VOCABULARY.has(f), f).toBe(true);
-    expect(VOCABULARY.get("JPEG")).toBe("JPG");
-    expect(VOCABULARY.size).toBeGreaterThanOrEqual(25);
+      expect(VOCABULARY.labels.has(f), f).toBe(true);
+    expect(VOCABULARY.labels.get("JPEG")).toBe("JPG");
+    expect(VOCABULARY.labels.size).toBeGreaterThanOrEqual(25);
+    // Every table that names a format, as relationships, not strings: each
+    // format is a label, and each extension any table gives is read with
+    // its dot as the format that table says.
+    const values = new Set(VOCABULARY.labels.values());
+    expect(
+      [...FORMATS, ...UNSUPPORTED_FORMATS].filter((f) => !values.has(f)),
+    ).toEqual([]);
+    const tableExtensions: [string, string][] = [
+      ...Object.entries(EXTENSIONS_BY_FORMAT).flatMap(([label, exts]) =>
+        exts.map((e): [string, string] => [e, normalizeFormatLabel(label)]),
+      ),
+      ...Object.entries(UNSUPPORTED_SIGNS).flatMap(([format, signs]) =>
+        signs.extensions.map((e): [string, string] => [e, format]),
+      ),
+    ];
+    expect(tableExtensions.length).toBeGreaterThanOrEqual(25);
+    expect(
+      tableExtensions.filter(([e, f]) => VOCABULARY.extensions.get(e) !== f),
+    ).toEqual([]);
+    // An extension spelling is NOT a label: a bare "Text" opens sentences.
+    expect(VOCABULARY.extensions.get("text")).toBe("TXT");
+    expect(VOCABULARY.labels.has("TEXT")).toBe(false);
+  });
+
+  it("health: the extensions no table knows, as the live guides name them", () => {
+    // Printed, not counted (a zero from a search is a claim). Each is read
+    // as a format of its own; none may stand in a claim a tool cannot meet,
+    // which the verdict below already holds.
+    const unknown = new Map<string, string[]>();
+    for (const guide of guides)
+      for (const { at, text } of proseStrings(guide))
+        for (const sentence of sentencesOf(text))
+          for (const t of tokenize(sentence))
+            if (isUnknownExtension(t))
+              unknown.set(t.text, [
+                ...(unknown.get(t.text) ?? []),
+                `${guide.slug} ${at}`,
+              ]);
+    console.log(
+      `guide-format-claims: extensions no table knows: ${
+        [...unknown]
+          .map(([e, where]) => `.${e} (${where.length}: ${where[0]})`)
+          .join(", ") || "none"
+      }`,
+    );
+    // The detector can see one: a shape-only extension in a real sentence.
+    expect(
+      tokenize("A macro-enabled .xlsm is refused; see pdf.xyz, e.g. here.")
+        .filter(isUnknownExtension)
+        .map((t) => (t as { text: string }).text),
+    ).toEqual(["xlsm"]);
   });
 
   it("health: picker inputs are read from the panels, not typed", () => {
@@ -857,6 +1006,68 @@ describe("what a guide says a tool takes is what the tool takes", () => {
         "For an HTML file, use Word to PDF.",
       ),
     ).toEqual(["redirect"]);
+    // An extension no table knows, in an enumeration.
+    expect(
+      audit([
+        only("how-to-convert-excel-to-pdf", [
+          "Excel to PDF takes .xlsx, .xls, .csv, .ods and .numbers.",
+        ]),
+      ]).problems.map((f) => f.problem),
+    ).toEqual([expect.stringContaining("NUMBERS, outside every input")]);
+  });
+
+  it("positive control: a format every table has forgotten is still a format in the prose", () => {
+    // The careless removal: ODS gone from Excel to PDF's `accept` AND from
+    // every table that names a format, the guides untouched.
+    const withoutOds = (m: ReadonlyMap<string, string>) =>
+      new Map([...m].filter(([, f]) => f !== "ODS"));
+    // Everything else is the live guard's own reading — its flag included,
+    // so switching the shape rule off there turns this red too.
+    const forgotten: Vocabulary = {
+      ...VOCABULARY,
+      labels: withoutOds(VOCABULARY.labels),
+      extensions: withoutOds(VOCABULARY.extensions),
+    };
+    const noOds: InputsOf = (slug) =>
+      realInputsOf(slug).map((i) => ({
+        ...i,
+        formats: new Set([...i.formats].filter((f) => f !== "ODS")),
+      }));
+    const naming = guides.filter((g) =>
+      proseStrings(g).some((s) => /(?<![\p{L}\p{N}])\.ods\b/u.test(s.text)),
+    );
+    expect(
+      naming.map((g) => g.slug),
+      "no guide names .ods any more — rebuild this control on a format one does",
+    ).not.toEqual([]);
+
+    const now = readingWith(forgotten, () => audit(naming, noOds));
+    const aboutOds = now.findings.filter((f) =>
+      f.claim.list.formats.has("ODS"),
+    );
+    console.log(
+      `guide-format-claims: with ODS forgotten, ${aboutOds.length} claims still name it:\n${aboutOds.map(show).join("\n")}`,
+    );
+    expect(aboutOds.length).toBeGreaterThanOrEqual(3);
+    expect(aboutOds.filter((f) => !f.problem).map(show)).toEqual([]);
+
+    // WAS (3a5afbd5): the vocabulary was `accept` ∪ `UNSUPPORTED_FORMATS`
+    // and a dotted word no table knew was nothing. The same world read
+    // green — ".ods" was not a format, so "takes .xlsx, .xls, .csv and
+    // .ods" was "takes .xlsx, .xls, .csv", exactly the input.
+    const was: Vocabulary = {
+      labels: labelMap([
+        ...tools
+          .flatMap((t) => t.accept)
+          .filter((a) => normalizeFormatLabel(a) !== "ODS"),
+        ...UNSUPPORTED_FORMATS,
+      ]),
+      extensions: new Map(),
+      unknownExtensions: false,
+    };
+    expect(
+      readingWith(was, () => audit(naming, noOds)).problems.map(show),
+    ).toEqual([]);
   });
 
   it("negative control: true sentences pass, through the same audit", () => {
@@ -868,6 +1079,9 @@ describe("what a guide says a tool takes is what the tool takes", () => {
         "JPG to PDF takes PNG images too.",
         "Under Output, keep One PDF, or choose One PDF per image (ZIP) to get several PDFs.",
         "HEIC and AVIF images are not taken.",
+        // A dot inside a word is no extension: "pdf.xyz" is a site, and
+        // "e.g." an abbreviation — read as formats, this would be a pick.
+        "Drop it on pdf.xyz, e.g. from your phone.",
       ]),
       only("how-to-add-a-watermark-to-a-pdf", [
         "A picture mark takes a PNG or a JPEG, such as your logo.",
