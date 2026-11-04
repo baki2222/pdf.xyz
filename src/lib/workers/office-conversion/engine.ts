@@ -1,6 +1,7 @@
 import { looksLikePdf } from "../compression/engine";
 import { describeByteCeiling } from "../engine-file-ceilings";
 import { isEncryptedOoxml, LibreOfficeRunError } from "./errors";
+import { officeContentRefusal } from "./input-content";
 import {
   rethrowIfAttemptAbort,
   signalOption,
@@ -85,10 +86,18 @@ export const DOCUMENT_WORDS: Record<
   },
 };
 
-const EXTENSIONS: Record<OfficeToPdfTool, readonly string[]> = {
-  [WORD_TO_PDF_TOOL]: ["docx", "doc"],
-  [EXCEL_TO_PDF_TOOL]: ["xlsx", "xls", "csv"],
-  [POWERPOINT_TO_PDF_TOOL]: ["pptx", "ppt"],
+/**
+ * The extensions each tool passes to LibreOffice. Exported for the tests that
+ * hold it equal to the catalogue's `accept` row and walk it for the content
+ * check. OpenDocument and RTF joined on 2026-11-04.
+ */
+export const OFFICE_INPUT_EXTENSIONS: Record<
+  OfficeToPdfTool,
+  readonly string[]
+> = {
+  [WORD_TO_PDF_TOOL]: ["docx", "doc", "odt", "rtf"],
+  [EXCEL_TO_PDF_TOOL]: ["xlsx", "xls", "csv", "ods"],
+  [POWERPOINT_TO_PDF_TOOL]: ["pptx", "ppt", "odp"],
 };
 
 function extensionOf(filename: string): string {
@@ -100,7 +109,7 @@ export function supportsOfficeInput(
   tool: OfficeToPdfTool,
   filename: string,
 ): boolean {
-  return EXTENSIONS[tool].includes(extensionOf(filename));
+  return OFFICE_INPUT_EXTENSIONS[tool].includes(extensionOf(filename));
 }
 
 export async function runOfficeToPdf(
@@ -119,6 +128,11 @@ export async function runOfficeToPdf(
         "The uploaded file type does not match this Office conversion tool.",
     };
   }
+  // Before LibreOffice, which converts by CONTENT: a spreadsheet named .odt
+  // would otherwise come back from Word to PDF as a laid-out spreadsheet.
+  const mismatch = officeContentRefusal(extensionOf(filename), input);
+  if (mismatch !== null)
+    return { ok: false, kind: "invalid_input", message: mismatch };
   if (!deps.libreoffice) {
     return {
       ok: false,

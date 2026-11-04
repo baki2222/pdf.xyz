@@ -74,17 +74,18 @@ export const ACCEPTED_KINDS: readonly AcceptedKind[] = [
   },
   {
     label: "Word",
-    accept: [".doc", ".docx"],
+    // OpenDocument text and RTF since 2026-11-04, with Word to PDF.
+    accept: [".doc", ".docx", ".odt", ".rtf"],
     maxBytes: workerFileCeilingBytes(WORD_TO_PDF_TOOL),
   },
   {
     label: "Excel",
-    accept: [".xls", ".xlsx"],
+    accept: [".xls", ".xlsx", ".ods"],
     maxBytes: workerFileCeilingBytes(EXCEL_TO_PDF_TOOL),
   },
   {
     label: "PowerPoint",
-    accept: [".ppt", ".pptx"],
+    accept: [".ppt", ".pptx", ".odp"],
     maxBytes: workerFileCeilingBytes(POWERPOINT_TO_PDF_TOOL),
   },
   {

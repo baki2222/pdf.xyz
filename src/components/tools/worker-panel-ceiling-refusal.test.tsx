@@ -74,6 +74,11 @@ import { RequestSignaturesWorkerPanel } from "./request-signatures-worker-panel"
 import { SummarizeWorkerPanel } from "./summarize-worker-panel";
 import { TableExtractWorkerPanel } from "./table-extract-worker-panel";
 import { TranslateWorkerPanel } from "./translate-worker-panel";
+import {
+  EXTENSIONS_BY_FORMAT,
+  MIME_BY_FORMAT,
+} from "@/lib/jobs/mime-by-format";
+import { toolTakesFile } from "@/lib/uploads/pick-check";
 
 /**
  * Every worker panel the tool page mounts, and the slugs each serves — read
@@ -293,6 +298,32 @@ describe.each(
     routed.map((tool) => ({ name, Panel, tool, slug: tool.slug })),
   ),
 )("$name for $slug", ({ Panel, tool }) => {
+  it("offers in the file picker every format the catalogue says it takes, and nothing it refuses", async () => {
+    // Added 2026-11-04: the Office panel's picker was three typed strings,
+    // and ODT, RTF, ODS and ODP joining the catalogue would have left them
+    // greyed out in the picker while the page named them.
+    const { input } = await renderReady(Panel, tool);
+    const tokens = (input.getAttribute("accept") ?? "")
+      .split(",")
+      .map((token) => token.trim().toLowerCase())
+      .filter(Boolean);
+    const hidden = tool.accept.filter(
+      (format) =>
+        !(EXTENSIONS_BY_FORMAT[format] ?? []).some((ext) =>
+          tokens.includes(`.${ext}`),
+        ) && !(MIME_BY_FORMAT[format] ?? []).some((m) => tokens.includes(m)),
+    );
+    expect(hidden, `${tool.slug}: formats the picker hides`).toEqual([]);
+    const refused = tokens
+      .filter((token) => token.startsWith("."))
+      .filter((ext) => !toolTakesFile(tool, { name: `x${ext}`, type: "" }));
+    expect(
+      refused,
+      `${tool.slug}: picker offers what the pick refuses`,
+    ).toEqual([]);
+    expect(tokens.length, `${tool.slug}: empty accept`).toBeGreaterThan(0);
+  });
+
   it("refuses a file one byte over the ceiling, in the page's MB figure, before any upload", async () => {
     const ceiling = toolFileCeilingBytes(tool)!;
     const { fetchMock, input, run } = await renderReady(Panel, tool);

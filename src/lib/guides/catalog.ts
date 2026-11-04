@@ -3010,7 +3010,7 @@ export const guides: Guide[] = [
         heading: "What has been checked",
         body: [
           "Decks made by this tool's export code were opened read-only by PowerPoint for Windows and saved back to PDF, and every page matched its source closely. Opening a downloaded file with a double-click and editing the slides have not been tested, so keep the PDF beside you as the reference while you work on the deck.",
-          `Going the other way, ${nameOf("powerpoint-to-pdf")} turns a .pptx or .ppt into a PDF, one slide per page, on the same kind of secure server.`,
+          `Going the other way, ${nameOf("powerpoint-to-pdf")} turns a .pptx, .ppt or .odp into a PDF, one slide per page, on the same kind of secure server.`,
         ],
       },
     ],
@@ -3039,31 +3039,33 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-30",
+    updated: "2026-11-04",
   },
   {
     slug: "how-to-convert-word-to-pdf",
     title: "How to convert a Word document to PDF",
     description:
-      "Convert a .docx or .doc file to PDF with LibreOffice on a secure server that deletes your file after the job. Excel and PowerPoint files convert the same way.",
+      "Convert a .docx, .doc, .odt or .rtf file to PDF with LibreOffice on a secure server that deletes it after the job. Excel and PowerPoint files convert the same way.",
     tools: ["word-to-pdf", "excel-to-pdf", "powerpoint-to-pdf"],
     keywords: [
       "how to convert word to pdf",
       "word to pdf",
       "docx to pdf",
       "doc to pdf",
+      "odt to pdf",
+      "rtf to pdf",
       "save word as pdf",
       "excel to pdf",
       "powerpoint to pdf",
     ],
     intro: [
-      `To convert a Word document to PDF, open ${nameOf("word-to-pdf")}, add your .docx or .doc file, press Convert to PDF, and download the result. The PDF is named after your file, and its typed text stays text you can search, select and copy.`,
+      `To convert a Word document to PDF, open ${nameOf("word-to-pdf")}, add your .docx, .doc, .odt or .rtf file, press Convert to PDF, and download the result. The PDF is named after your file, and its typed text stays text you can search, select and copy.`,
       "The pages are laid out by LibreOffice, not by Microsoft Word, following the page size, margins, headers and footers set in the document. A font our server lacks is replaced by a stand-in, which can move a line or page break, so check the pages before you send them.",
       `${nameOf("word-to-pdf")} runs on a secure server. Your document, up to ${ceilingMb("word-to-pdf")} MB, travels over an encrypted connection and is deleted when the job ends; the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. Spreadsheets and presentations go through ${nameOf("excel-to-pdf")} and ${nameOf("powerpoint-to-pdf")} the same way.`,
     ],
     steps: [
       `Open the ${nameOf("word-to-pdf")} tool.`,
-      "Drag your .docx or .doc onto the box that says “Add your document, or browse”, or click it to choose the file. Remove swaps it for another.",
+      "Drag your .docx, .doc, .odt or .rtf onto the box that says “Add your document, or browse”, or click it to choose the file. Remove swaps it for another.",
       "Press Convert to PDF. The document uploads over an encrypted connection, and the button follows the job while LibreOffice converts it.",
       `When “Your PDF is ready.” appears, press Download. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save the PDF before you close the tab.`,
       "Open the PDF and look for moved page breaks, a changed font or a shifted image before you send it.",
@@ -3081,15 +3083,15 @@ export const guides: Guide[] = [
         id: "excel-and-powerpoint",
         heading: "Excel and PowerPoint files",
         body: [
-          `${nameOf("excel-to-pdf")} takes an Excel workbook or a CSV file and has LibreOffice print it to PDF. There is no sheet picker and no layout setting on the page, so set landscape and fit-to-page scaling in your spreadsheet app before converting if the columns split across pages.`,
-          `${nameOf("powerpoint-to-pdf")} takes a .pptx or .ppt and writes one slide per page. Speaker notes and slides marked hidden are not exported, so unhide any slide you want in the PDF first.`,
+          `${nameOf("excel-to-pdf")} takes an Excel workbook, a CSV file or an OpenDocument spreadsheet and has LibreOffice print it to PDF. There is no sheet picker and no layout setting on the page, so set landscape and fit-to-page scaling in your spreadsheet app before converting if the columns split across pages.`,
+          `${nameOf("powerpoint-to-pdf")} takes a .pptx, .ppt or .odp and writes one slide per page. Speaker notes and slides marked hidden are not exported, so unhide any slide you want in the PDF first.`,
         ],
       },
       {
         id: "files-and-limits",
         heading: "Accepted files and limits",
         body: [
-          `${nameOf("word-to-pdf")} accepts Word's .docx and the older .doc format, one document per conversion, up to ${ceilingMb("word-to-pdf")} MB. Other formats, such as .odt, .rtf or .pages, are turned away rather than guessed at.`,
+          `${nameOf("word-to-pdf")} accepts Word's .docx and the older .doc format, OpenDocument text (.odt) and Rich Text Format (.rtf), one document per conversion, up to ${ceilingMb("word-to-pdf")} MB. Other formats, such as .pages or .docm, are turned away rather than guessed at, and so is an .odt or .rtf whose contents are something else.`,
           "A file that needs a password to open cannot be converted, because the page has no password field. Remove the password in Word, save a copy, and convert the copy.",
         ],
       },
@@ -3106,7 +3108,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Which file types can I convert?",
-        answer: `${nameOf("word-to-pdf")} takes .docx and .doc. ${nameOf("excel-to-pdf")} takes Excel workbooks and CSV files, and ${nameOf("powerpoint-to-pdf")} takes .pptx and .ppt.`,
+        answer: `${nameOf("word-to-pdf")} takes .docx, .doc, .odt and .rtf. ${nameOf("excel-to-pdf")} takes .xlsx, .xls, .csv and .ods, and ${nameOf("powerpoint-to-pdf")} takes .pptx, .ppt and .odp.`,
       },
       {
         question: "How big can the document be?",
@@ -3119,7 +3121,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-30",
+    updated: "2026-11-04",
   },
   {
     slug: "how-to-ocr-a-pdf-in-other-languages",
@@ -4274,7 +4276,7 @@ export const guides: Guide[] = [
     slug: "how-to-convert-excel-to-pdf",
     title: "How to convert Excel to PDF",
     description:
-      "Turn an Excel workbook or CSV file into a PDF with LibreOffice on a secure server that deletes your file after the job. No account needed.",
+      "Turn an Excel workbook, CSV or ODS file into a PDF with LibreOffice on a secure server that deletes your file after the job. No account needed.",
     tools: ["excel-to-pdf", "merge-pdf", "word-to-pdf"],
     keywords: [
       "how to convert excel to pdf",
@@ -4282,17 +4284,18 @@ export const guides: Guide[] = [
       "xlsx to pdf",
       "xls to pdf",
       "csv to pdf",
+      "ods to pdf",
       "save spreadsheet as pdf",
     ],
     intro: [
-      `To convert an Excel spreadsheet to PDF, open ${nameOf("excel-to-pdf")}, add your .xlsx, .xls or .csv file, press Convert to PDF, and download the result. Anyone can open, print or file the PDF without owning Excel, and nobody can overtype a cell by accident.`,
+      `To convert an Excel spreadsheet to PDF, open ${nameOf("excel-to-pdf")}, add your .xlsx, .xls, .csv or .ods file, press Convert to PDF, and download the result. Anyone can open, print or file the PDF without owning Excel, and nobody can overtype a cell by accident.`,
       "The PDF is a printout of your spreadsheet, not a working copy of it. Each formula cell shows the figure it displayed when the file was opened, and nothing in the PDF recalculates later. The pages are laid out by LibreOffice, the open-source office suite, using the page setup saved in your workbook.",
       `${nameOf("excel-to-pdf")} runs on a secure server. Your spreadsheet, up to ${ceilingMb("excel-to-pdf")} MB, travels over an encrypted connection and is deleted when the job ends; the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
     ],
     steps: [
       `Open the ${nameOf("excel-to-pdf")} tool.`,
       "Before you start, set the page layout in Excel if a wide sheet must fit: choose landscape and fit-all-columns-on-one-page scaling, then save. The tool has no layout settings of its own.",
-      "Drag your .xlsx, .xls or .csv onto the box that says “Add your document, or browse”, or click it to choose the file. Remove swaps it for another.",
+      "Drag your .xlsx, .xls, .csv or .ods onto the box that says “Add your document, or browse”, or click it to choose the file. Remove swaps it for another.",
       "Press Convert to PDF. Your spreadsheet uploads over an encrypted connection, and the button follows the job while LibreOffice converts it.",
       `When “Your PDF is ready.” appears, press Download. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save the PDF before you close the tab.`,
     ],
@@ -4336,7 +4339,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Which files can I convert?",
-        answer: `Excel workbooks in .xlsx or the older .xls format, and CSV files, one per conversion, up to ${ceilingMb("excel-to-pdf")} MB. A macro-enabled .xlsm is refused; save a copy as .xlsx and convert that.`,
+        answer: `Excel workbooks in .xlsx or the older .xls format, CSV files and OpenDocument spreadsheets (.ods), one per conversion, up to ${ceilingMb("excel-to-pdf")} MB. A macro-enabled .xlsm is refused; save a copy as .xlsx and convert that.`,
       },
       {
         question: "Can I convert a password-protected workbook?",
@@ -4349,31 +4352,32 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-04",
   },
   {
     slug: "how-to-convert-powerpoint-to-pdf",
     title: "How to convert PowerPoint to PDF",
     description:
-      "Turn a .pptx or .ppt deck into a PDF with one slide per page, made by LibreOffice on a secure server that deletes your file after the job.",
+      "Turn a .pptx, .ppt or .odp deck into a PDF with one slide per page, made by LibreOffice on a secure server that deletes your file after the job.",
     tools: ["powerpoint-to-pdf", "merge-pdf", "word-to-pdf"],
     keywords: [
       "how to convert powerpoint to pdf",
       "powerpoint to pdf",
       "pptx to pdf",
       "ppt to pdf",
+      "odp to pdf",
       "save slides as pdf",
       "convert presentation to pdf",
     ],
     intro: [
-      `To convert a PowerPoint presentation to PDF, open ${nameOf("powerpoint-to-pdf")}, add your .pptx or .ppt file, press Convert to PDF, and download the result. You get one slide per page, and anyone can open it without PowerPoint.`,
+      `To convert a PowerPoint presentation to PDF, open ${nameOf("powerpoint-to-pdf")}, add your .pptx, .ppt or .odp file, press Convert to PDF, and download the result. You get one slide per page, and anyone can open it without PowerPoint.`,
       "Each page keeps the slide's shape, so a widescreen deck is not squeezed onto a paper size. Text typed into text boxes stays text you can search and copy; words inside a picture stay part of the picture.",
       `${nameOf("powerpoint-to-pdf")} runs on a secure server. Your deck, up to ${ceilingMb("powerpoint-to-pdf")} MB, travels over an encrypted connection and is deleted when the job ends; the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
     ],
     steps: [
       `Open the ${nameOf("powerpoint-to-pdf")} tool.`,
       "In PowerPoint, unhide any slide you want in the PDF and save. Hidden slides and speaker notes are left out.",
-      "Drag your .pptx or .ppt onto the box that says “Add your document, or browse”, or click it to choose the file. Remove swaps it for another.",
+      "Drag your .pptx, .ppt or .odp onto the box that says “Add your document, or browse”, or click it to choose the file. Remove swaps it for another.",
       "Press Convert to PDF. The deck uploads over an encrypted connection, and the button follows the job while LibreOffice converts it.",
       `When “Your PDF is ready.” appears, press Download. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save the PDF before you close the tab.`,
       "Skim the pages before you send them: a missing font or an elaborate effect can come out slightly different.",
@@ -4392,7 +4396,7 @@ export const guides: Guide[] = [
         heading: "Several decks, and other presentation apps",
         body: [
           `The tool converts one presentation per job. For a workshop handout, convert each deck in turn, then combine the PDFs with ${nameOf("merge-pdf")}. Word documents go through ${nameOf("word-to-pdf")} the same way.`,
-          "Only PowerPoint files are accepted; any other type is refused before anything is uploaded. From Google Slides, download the deck as a Microsoft PowerPoint file first. From Keynote, export it to PowerPoint, then convert that file here.",
+          "PowerPoint's .pptx and .ppt and OpenDocument's .odp are accepted; any other type is refused before anything is uploaded. From Google Slides, download the deck as a Microsoft PowerPoint file first. From Keynote, export it to PowerPoint, then convert that file here.",
         ],
       },
       {
@@ -4430,7 +4434,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-04",
   },
   {
     slug: "how-to-extract-pages-from-a-pdf",

@@ -178,6 +178,17 @@ export function copyFiles(): string[] {
     // The OCR rotate proof's verdict lines and fixture words (2026-11-01),
     // walked for the same reason.
     path.join(ROOT, "src", "lib", "workers", "ocr-rotate-proof.ts"),
+    // Word, Excel and PowerPoint to PDF's refusal of an .odt, .ods, .odp or
+    // .rtf whose bytes are another format (2026-11-04): new phrase code, so
+    // walked rather than recorded outside.
+    path.join(
+      ROOT,
+      "src",
+      "lib",
+      "workers",
+      "office-conversion",
+      "input-content.ts",
+    ),
     path.join(ROOT, "src", "lib", "pdf", "crop-disclosure.ts"),
     // Compress PDF's Grayscale sentence (2026-10-24), its own leaf so it is
     // not bundled with every runner that reads offered-kinds.

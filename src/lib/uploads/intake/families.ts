@@ -57,23 +57,28 @@ export const UPLOAD_FAMILIES: Record<UploadFamily, FamilySpec> = {
     mimes: [
       "application/msword",
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.oasis.opendocument.text",
+      "application/rtf",
+      "text/rtf",
     ],
-    extensions: ["doc", "docx"],
+    extensions: ["doc", "docx", "odt", "rtf"],
   },
   spreadsheet: {
     mimes: [
       "application/vnd.ms-excel",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       "text/csv",
+      "application/vnd.oasis.opendocument.spreadsheet",
     ],
-    extensions: ["xls", "xlsx", "csv"],
+    extensions: ["xls", "xlsx", "csv", "ods"],
   },
   presentation: {
     mimes: [
       "application/vnd.ms-powerpoint",
       "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      "application/vnd.oasis.opendocument.presentation",
     ],
-    extensions: ["ppt", "pptx"],
+    extensions: ["ppt", "pptx", "odp"],
   },
   web: {
     mimes: ["text/html"],

@@ -4,6 +4,10 @@ import { useCallback, useState } from "react";
 import { Download, FileText, ShieldCheck, Timer } from "lucide-react";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import {
+  EXTENSIONS_BY_FORMAT,
+  MIME_BY_FORMAT,
+} from "@/lib/jobs/mime-by-format";
+import {
   canRunOfficeConversion,
   runWorkerOfficeToPdf,
   type OfficeConversionWorkerResult,
@@ -69,12 +73,18 @@ function isOfficeTool(slug: string): slug is OfficeTool {
   );
 }
 
-function acceptFor(slug: OfficeTool): string {
-  if (slug === "word-to-pdf")
-    return ".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-  if (slug === "excel-to-pdf")
-    return ".xls,.xlsx,.csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv";
-  return ".ppt,.pptx,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation";
+/**
+ * The file picker's `accept`: each catalogue format's extensions and MIME
+ * types, from the tables the server validates with. Typed per tool until
+ * 2026-11-04, when ODT, RTF, ODS and ODP joined the catalogue rows and the
+ * typed lists would have hidden them in the picker.
+ */
+function acceptFor(tool: Tool): string {
+  const tokens = tool.accept.flatMap((format) => [
+    ...(EXTENSIONS_BY_FORMAT[format] ?? []).map((ext) => `.${ext}`),
+    ...(MIME_BY_FORMAT[format] ?? []),
+  ]);
+  return [...new Set(tokens)].join(",");
 }
 
 export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
@@ -115,7 +125,7 @@ export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
       <OfficeRunArea
         tool={officeTool}
         catalogTool={tool}
-        accept={acceptFor(officeTool)}
+        accept={acceptFor(tool)}
       />
     </WorkerPanelShell>
   );

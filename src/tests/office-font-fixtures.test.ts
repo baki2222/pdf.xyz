@@ -310,14 +310,26 @@ function wordProofProblems(source: string): string[] {
   // never to "any %PDF-". The font proof itself must still be there.
   const hasFrom = (spec: TS.ObjectLiteralExpression) =>
     spec.properties.some((p) => p.name?.getText(file) === "from");
+  // A LABELLED spec that is not a round trip proves another input (since
+  // 2026-11-04, OpenDocument and RTF: "word-to-pdf (odt)"), not the fonts:
+  // it is held to a `verify` or an `expectFailure` of its own, never to "any
+  // %PDF-". The unlabelled spec is the font proof, and must still be there.
+  const has = (spec: TS.ObjectLiteralExpression, name: string) =>
+    spec.properties.some((p) => p.name?.getText(file) === name);
   const trips = specs.filter(hasFrom);
-  const proofs = specs.filter((s) => !hasFrom(s));
+  const others = specs.filter((s) => !hasFrom(s) && has(s, "label"));
+  const proofs = specs.filter((s) => !hasFrom(s) && !has(s, "label"));
   if (proofs.length === 0) return ["no word-to-pdf spec"];
   const problems: string[] = [];
   for (const spec of trips)
-    if (!spec.properties.some((p) => p.name?.getText(file) === "verify"))
+    if (!has(spec, "verify"))
       problems.push(
         `spec ${specs.indexOf(spec) + 1}: a round trip with no \`verify\``,
+      );
+  for (const spec of others)
+    if (!has(spec, "verify") && !has(spec, "expectFailure"))
+      problems.push(
+        `spec ${specs.indexOf(spec) + 1}: a labelled proof with no \`verify\``,
       );
   proofs.forEach((spec) => {
     const i = specs.indexOf(spec);
@@ -387,8 +399,26 @@ describe("worker-prove-tools: the word-to-pdf proof reads the fonts", () => {
       "",
     );
     expect(tripped).not.toBe(source);
+    // The round trip was spec 2 until 2026-11-04, when the OpenDocument and
+    // RTF specs (two conversions and a refusal) came before it.
+    const tripIndex = [...source.matchAll(/tool: "word-to-pdf"/g)].length;
     expect(wordProofProblems(tripped)).toEqual([
-      "spec 2: a round trip with no `verify`",
+      `spec ${tripIndex}: a round trip with no \`verify\``,
     ]);
+    // A labelled proof is held to its own verdict: without one it is caught.
+    const unjudged = source.replace(
+      /verify: \(bytes\) => officeInputVerdict\(bytes, "odt"\),/,
+      "",
+    );
+    expect(unjudged).not.toBe(source);
+    expect(wordProofProblems(unjudged)).toEqual([
+      "spec 2: a labelled proof with no `verify`",
+    ]);
+    // And a label does not exempt the font proof itself.
+    expect(
+      wordProofProblems(
+        `const SPECS = [{ tool: "word-to-pdf", label: "x", verify: v }];`,
+      ),
+    ).toEqual(["no word-to-pdf spec"]);
   });
 });

@@ -91,6 +91,18 @@ describe("searchTools", () => {
     expect(searchTools("password").map((t) => t.slug)).toContain("protect-pdf");
   });
 
+  it("finds the Office to PDF tool by each format it takes, keywords or not", () => {
+    // Added 2026-11-04 with ODT, RTF, ODS and ODP, which carry no keyword of
+    // their own: the search's formats field is the catalogue's `accept`.
+    const firstFor = (query: string) => searchTools(query)[0]?.slug;
+    for (const slug of ["word-to-pdf", "excel-to-pdf", "powerpoint-to-pdf"]) {
+      const accept = tools.find((t) => t.slug === slug)!.accept;
+      expect(accept.length).toBeGreaterThanOrEqual(3);
+      for (const format of accept)
+        expect(firstFor(`${format.toLowerCase()} to pdf`), format).toBe(slug);
+    }
+  });
+
   it("every tool comes first for its own name", () => {
     // The positive control over the whole catalogue: derived, so a new tool
     // whose name the ranking cannot find is caught on the day it lands.

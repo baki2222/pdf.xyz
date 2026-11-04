@@ -498,7 +498,9 @@ describe("ToolsExplorer: the unsupported-format answer, as rendered", () => {
     }
     // Health: one non-empty answer per format, each with its headline.
     expect(texts).toHaveLength(UNSUPPORTED_FORMATS.length);
-    expect(texts.length).toBeGreaterThanOrEqual(10);
+    // ≥ 10 until 2026-11-04, when ODT, RTF, ODS and ODP became formats the
+    // Office to PDF tools take.
+    expect(texts.length).toBeGreaterThanOrEqual(7);
     for (const text of texts) expect(text).toMatch(/^No tool here opens /);
     expect(texts.filter((text) => DEFERRAL.test(text))).toEqual([]);
     // Positive control: the spec's own wording would have been caught.

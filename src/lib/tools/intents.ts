@@ -143,26 +143,6 @@ export const UNSUPPORTED_ANSWERS: Readonly<
     how: "Export a PNG copy first.",
   },
   AVIF: { noun: "AVIF images", becomes: "JPG", how: "Save a JPG copy first." },
-  ODT: {
-    noun: "OpenDocument text files",
-    becomes: "DOCX",
-    how: "Save a .docx copy first.",
-  },
-  ODS: {
-    noun: "OpenDocument spreadsheets",
-    becomes: "XLSX",
-    how: "Save an .xlsx copy first.",
-  },
-  ODP: {
-    noun: "OpenDocument presentations",
-    becomes: "PPTX",
-    how: "Save a .pptx copy first.",
-  },
-  RTF: {
-    noun: "RTF documents",
-    becomes: "DOCX",
-    how: "Save a .docx copy first.",
-  },
   EPUB: { noun: "EPUB e-books", becomes: null, how: null },
   ZIP: {
     noun: "ZIP archives",

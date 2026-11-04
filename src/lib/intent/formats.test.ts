@@ -48,6 +48,32 @@ const bytes = (...parts: (string | number[])[]): Uint8Array =>
     ),
   );
 
+/**
+ * A ZIP's first local header holding a `mimetype` entry, as OpenDocument and
+ * EPUB write it. INVERTED 2026-11-04: the fixtures here recorded a size of 0
+ * and a sniffer that read 60 bytes past the name passed them; the sniffer now
+ * reads the stored size, so the fixtures carry one.
+ */
+function storedMimetype(
+  type: string,
+  method = 0,
+  streamed = false,
+): Uint8Array {
+  const size = streamed
+    ? [0, 0, 0, 0]
+    : [type.length & 0xff, type.length >> 8, 0, 0];
+  return bytes(
+    [0x50, 0x4b, 0x03, 0x04, 0x0a, 0, streamed ? 8 : 0, 0, method, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0],
+    size,
+    size,
+    [8, 0, 0, 0],
+    "mimetype" + type,
+    // What follows the value: a streamed entry's data descriptor.
+    streamed ? [0x50, 0x4b, 0x07, 0x08] : [],
+  );
+}
+
 /** Real leading bytes of each container, enough for every signature. */
 const HEADS = {
   pdf: bytes("%PDF-1.7\n%\xE2\xE3\xCF\xD3\n1 0 obj"),
@@ -63,18 +89,22 @@ const HEADS = {
   bmp: bytes("BM", [0x36, 0x10, 0, 0], [0, 0, 0, 0], [0x36, 0, 0, 0]),
   rtf: bytes("{\\rtf1\\ansi\\deff0 {\\fonttbl"),
   zip: bytes([0x50, 0x4b, 0x03, 0x04, 0x14, 0, 0, 0], "\0\0"),
-  epub: bytes(
-    [0x50, 0x4b, 0x03, 0x04, 0x0a, 0, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [8, 0, 0, 0],
-    "mimetypeapplication/epub+zip",
+  epub: storedMimetype("application/epub+zip"),
+  odt: storedMimetype("application/vnd.oasis.opendocument.text"),
+  ods: storedMimetype("application/vnd.oasis.opendocument.spreadsheet"),
+  odp: storedMimetype("application/vnd.oasis.opendocument.presentation"),
+  // A template's type begins with the document's: it is not the document.
+  ott: storedMimetype("application/vnd.oasis.opendocument.text-template"),
+  // The right type, DEFLATED: the spec says stored, so it is not read.
+  odtDeflated: storedMimetype("application/vnd.oasis.opendocument.text", 8),
+  // Streamed (sizes after the data, flag bit 3), as some writers store it.
+  odtStreamed: storedMimetype(
+    "application/vnd.oasis.opendocument.text",
+    0,
+    true,
   ),
-  odt: bytes(
-    [0x50, 0x4b, 0x03, 0x04, 0x0a, 0, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [8, 0, 0, 0],
-    "mimetypeapplication/vnd.oasis.opendocument.text",
-  ),
+  // An RTF memo that quotes a PDF header in its first kilobyte.
+  rtfQuotingPdf: bytes("{\\rtf1\\ansi see %PDF-1.4 in the appendix}"),
   ole: bytes([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 0, 0]),
   text: bytes("Quarterly notes\nline two\n"),
   binary: bytes([0x00, 0x13, 0x37, 0x00, 0xff, 0x00]),
@@ -278,6 +308,17 @@ describe("the bytes win when there are bytes", () => {
     ["zip", "mystery", "ZIP"],
     ["epub", "book.zip", "EPUB"],
     ["odt", "essay", "ODT"],
+    ["odt", "essay.odt", "ODT"],
+    ["ods", "budget.ods", "ODS"],
+    ["odp", "deck.odp", "ODP"],
+    // The stored type wins over the name, both ways (2026-11-04).
+    ["ods", "essay.odt", "ODS"],
+    ["odt", "letter.docx", "ODT"],
+    ["zip", "essay.odt", "ZIP"],
+    ["ott", "essay.odt", "ZIP"],
+    ["odtDeflated", "essay.odt", "ZIP"],
+    ["odtStreamed", "essay.odt", "ODT"],
+    ["rtfQuotingPdf", "memo.rtf", "RTF"],
     ["ole", "old.doc", "DOC"],
     ["ole", "old.xls", "XLS"],
     ["ole", "old.ppt", "PPT"],
