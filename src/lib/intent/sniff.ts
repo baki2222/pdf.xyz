@@ -4,9 +4,10 @@
  *
  * Kept apart from `./formats` so the pages that only route files by name (every
  * tool page, through the hand-off gate) do not load signature tables they
- * never use. No page imports it yet; it is the recogniser the file facts
- * behind a suggestion will read bytes with, held meanwhile to the engine that
- * already reads them.
+ * never use. The file facts behind a ticket (`./facts`) read bytes with it,
+ * and since 2026-11-04 so does the Office to PDF engine's content check for
+ * OpenDocument and RTF (`workers/office-conversion/input-content.ts`). (This
+ * said "No page imports it yet" after the ticket had begun to.)
  *
  * Bound to the image engine by `formats.test.ts`: a file this calls a PNG or
  * a JPEG is one `sniffRasterFormat` decodes as that, and an image it names
@@ -60,31 +61,60 @@ const PDF_HEADER_WINDOW = 1024;
 /** Text is judged on this many leading bytes: no NUL, or it is not text. */
 const TEXT_WINDOW = 4096;
 
-/** A ZIP container's real format: Office by name, ODF/EPUB by `mimetype`. */
+/** The `mimetype` value each ZIP-packaged format stores first, by its spec. */
+const ZIP_MIMETYPES: ReadonlyArray<readonly [string, FileFormat]> = [
+  ["application/epub+zip", "EPUB"],
+  ["application/vnd.oasis.opendocument.text", "ODT"],
+  ["application/vnd.oasis.opendocument.spreadsheet", "ODS"],
+  ["application/vnd.oasis.opendocument.presentation", "ODP"],
+];
+
+function u16(head: Uint8Array, offset: number): number {
+  return (head[offset] ?? 0) | ((head[offset + 1] ?? 0) << 8);
+}
+
+/**
+ * The value of a ZIP's FIRST entry when that entry is a STORED file named
+ * `mimetype` — where OpenDocument and EPUB put their type, uncompressed, so
+ * it can be read without unzipping — or null. Read from the local header's
+ * own lengths, so the value is exactly the stored bytes: a type that merely
+ * STARTS with `…opendocument.text` (`…text-template`) is not ODT.
+ */
+export function zipMimetype(head: Uint8Array): string | null {
+  if (!startsWith(head, ZIP_SIGNATURE) || head.length < 30) return null;
+  const method = u16(head, 8);
+  const size = u16(head, 18) + u16(head, 20) * 0x10000;
+  const nameLength = u16(head, 26);
+  const extraLength = u16(head, 28);
+  if (method !== 0 || nameLength !== 8 || ascii(head, 30, 8) !== "mimetype")
+    return null;
+  const at = 30 + nameLength + extraLength;
+  // A writer that streams (general-purpose flag bit 3) records the size AFTER
+  // the data, so the local header says 0: the value then runs to the next
+  // record's "PK" signature.
+  if (size === 0 && (u16(head, 6) & 0x08) !== 0) {
+    for (let end = at + 1; end < Math.min(head.length - 1, at + 101); end++)
+      if (head[end] === 0x50 && head[end + 1] === 0x4b)
+        return ascii(head, at, end - at);
+    return null;
+  }
+  if (size === 0 || size > 100 || at + size > head.length) return null;
+  return ascii(head, at, size);
+}
+
+/**
+ * A ZIP container's real format: OpenDocument and EPUB by their stored
+ * `mimetype`, which the bytes carry; Office Open XML by name, which they do
+ * not (its type is inside a compressed part). Until 2026-11-04 an `.odt`
+ * NAME was taken at its word like a `.docx`, so a spreadsheet renamed
+ * `essay.odt` read as ODT; the mimetype now wins over the name.
+ */
 function zipFormat(head: Uint8Array, name: string): FileFormat {
+  const type = zipMimetype(head);
+  const stored = ZIP_MIMETYPES.find(([mime]) => mime === type);
+  if (stored) return stored[1];
   const named = formatOfName(name);
-  if (
-    named === "DOCX" ||
-    named === "XLSX" ||
-    named === "PPTX" ||
-    named === "ODT" ||
-    named === "ODS" ||
-    named === "ODP" ||
-    named === "EPUB"
-  ) {
-    return named;
-  }
-  // ODF and EPUB store an uncompressed `mimetype` entry first, by spec.
-  if (ascii(head, 30, 8) === "mimetype") {
-    const type = ascii(head, 38, 60);
-    if (type.startsWith("application/epub+zip")) return "EPUB";
-    if (type.startsWith("application/vnd.oasis.opendocument.text"))
-      return "ODT";
-    if (type.startsWith("application/vnd.oasis.opendocument.spreadsheet"))
-      return "ODS";
-    if (type.startsWith("application/vnd.oasis.opendocument.presentation"))
-      return "ODP";
-  }
+  if (named === "DOCX" || named === "XLSX" || named === "PPTX") return named;
   return "ZIP";
 }
 
@@ -96,6 +126,12 @@ function zipFormat(head: Uint8Array, name: string): FileFormat {
  */
 export function sniffFormat(head: Uint8Array, name = ""): FileFormat | null {
   if (head.length === 0) return null;
+  // Signatures AT BYTE 0 come before the PDF header's 1 KB window: an RTF
+  // memo or an OpenDocument file that quotes "%PDF-" in its first kilobyte
+  // is still what its first bytes say (2026-11-04, when Word to PDF began
+  // refusing an .rtf whose bytes this does not call RTF).
+  if (ascii(head, 0, 5) === "{\\rtf") return "RTF";
+  if (zipMimetype(head) !== null) return zipFormat(head, name);
   if (findAscii(head, "%PDF-", PDF_HEADER_WINDOW)) return "PDF";
   if (startsWith(head, PNG_SIGNATURE)) return "PNG";
   if (startsWith(head, [0xff, 0xd8, 0xff])) return "JPG";
@@ -127,7 +163,6 @@ export function sniffFormat(head: Uint8Array, name = ""): FileFormat | null {
   ) {
     return "BMP";
   }
-  if (ascii(head, 0, 5) === "{\\rtf") return "RTF";
   if (startsWith(head, ZIP_SIGNATURE)) return zipFormat(head, name);
   if (startsWith(head, OLE_SIGNATURE)) {
     const named = formatOfName(name);

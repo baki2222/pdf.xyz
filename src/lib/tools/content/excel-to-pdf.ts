@@ -18,8 +18,11 @@ import { resolveNativeOfficeConversionConfig } from "@/lib/workers/office-conver
  *    bytes (`downloadBytes`). So the outputTtlMinutes expiry is the worker copy's
  *    link, not the button's; step 3 says exactly that.
  *  - type refusal: the picker's `accept` (acceptFor in the panel) offers only
- *    .xls/.xlsx/.csv; a dragged file bypasses that, but the Dropzone's
- *    `refuse` runs `pickRefusal` → `toolTakesFile`, which refuses .xlsm/.ods
+ *    .xls/.xlsx/.csv/.ods (.ods since 2026-11-04, when the engine began
+ *    taking it; an .ods must also carry the OpenDocument spreadsheet
+ *    `mimetype`, `input-content.ts`, or it is refused before LibreOffice);
+ *    a dragged file bypasses that, but the Dropzone's
+ *    `refuse` runs `pickRefusal` → `toolTakesFile`, which refuses .xlsm
  *    at the drop ("isn't a file Excel to PDF takes"), before it is read —
  *    probed 2026-10-07 with an empty and with the real macro-enabled MIME
  *    type. The FAQ said "refused when you press Convert to PDF" until then.
@@ -107,7 +110,9 @@ const sizeRefusal =
 const content: ToolContent = {
   slug: "excel-to-pdf",
 
-  seoTitle: `Excel to PDF Converter: ${formatsAnd} to PDF`,
+  // Was "Excel to PDF Converter: …" until ODS made the list four long and
+  // the title 53 characters, past the 50 a result shows.
+  seoTitle: `Excel to PDF: Convert ${formatsAnd}`,
 
   metaDescription: `Convert one ${formatsOr} spreadsheet to PDF with LibreOffice on a secure server. The workbook is deleted when the job ends; the PDF link lasts ${LINK_MINUTES} min.`,
 

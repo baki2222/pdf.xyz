@@ -2113,7 +2113,7 @@
     },
     "guides/how-to-convert-excel-to-pdf.html": {
       "title": "How to convert Excel to PDF — pdf.xyz",
-      "description": "Turn an Excel workbook or CSV file into a PDF with LibreOffice on a secure server that deletes your file after the job. No account needed.",
+      "description": "Turn an Excel workbook, CSV or ODS file into a PDF with LibreOffice on a secure server that deletes your file after the job. No account needed.",
       "canonical": "https://pdf.xyz/guides/how-to-convert-excel-to-pdf",
       "robots": "index, follow",
       "h1": ["How to convert Excel to PDF"],
@@ -3570,7 +3570,7 @@
     },
     "guides/how-to-convert-powerpoint-to-pdf.html": {
       "title": "How to convert PowerPoint to PDF — pdf.xyz",
-      "description": "Turn a .pptx or .ppt deck into a PDF with one slide per page, made by LibreOffice on a secure server that deletes your file after the job.",
+      "description": "Turn a .pptx, .ppt or .odp deck into a PDF with one slide per page, made by LibreOffice on a secure server that deletes your file after the job.",
       "canonical": "https://pdf.xyz/guides/how-to-convert-powerpoint-to-pdf",
       "robots": "index, follow",
       "h1": ["How to convert PowerPoint to PDF"],
@@ -3793,7 +3793,7 @@
     },
     "guides/how-to-convert-word-to-pdf.html": {
       "title": "How to convert a Word document to PDF — pdf.xyz",
-      "description": "Convert a .docx or .doc file to PDF with LibreOffice on a secure server that deletes your file after the job. Excel and PowerPoint files convert the same way.",
+      "description": "Convert a .docx, .doc, .odt or .rtf file to PDF with LibreOffice on a secure server that deletes it after the job. Excel and PowerPoint files convert the same way.",
       "canonical": "https://pdf.xyz/guides/how-to-convert-word-to-pdf",
       "robots": "index, follow",
       "h1": ["How to convert a Word document to PDF"],
@@ -9956,8 +9956,8 @@
       ]
     },
     "tools/excel-to-pdf.html": {
-      "title": "Excel to PDF Converter: XLSX, XLS and CSV to PDF — pdf.xyz",
-      "description": "Convert one XLSX, XLS or CSV spreadsheet to PDF with LibreOffice on a secure server. The workbook is deleted when the job ends; the PDF link lasts 60 min.",
+      "title": "Excel to PDF: Convert XLSX, XLS, CSV and ODS — pdf.xyz",
+      "description": "Convert one XLSX, XLS, CSV or ODS spreadsheet to PDF with LibreOffice on a secure server. The workbook is deleted when the job ends; the PDF link lasts 60 min.",
       "canonical": "https://pdf.xyz/tools/excel-to-pdf",
       "robots": "index, follow",
       "h1": ["Excel to PDF"],
@@ -12949,8 +12949,8 @@
       ]
     },
     "tools/powerpoint-to-pdf.html": {
-      "title": "PowerPoint to PDF: Convert PPTX and PPT Slides — pdf.xyz",
-      "description": "Turn a PPTX or PPT deck into a PDF with one slide per page, rendered by LibreOffice. Your upload is deleted after the job; the link expires in 60 min.",
+      "title": "PowerPoint to PDF: Convert PPTX, PPT and ODP — pdf.xyz",
+      "description": "Turn a PPTX, PPT or ODP deck into a PDF with one slide per page, rendered by LibreOffice. Your upload is deleted after the job; the link expires in 60 min.",
       "canonical": "https://pdf.xyz/tools/powerpoint-to-pdf",
       "robots": "index, follow",
       "h1": ["PowerPoint to PDF"],
@@ -14949,8 +14949,8 @@
       ]
     },
     "tools/word-to-pdf.html": {
-      "title": "Word to PDF Converter: DOCX and DOC to PDF — pdf.xyz",
-      "description": "Make a PDF from a .docx or .doc with LibreOffice on a secure server. Your Word file is deleted once the job ends; its PDF download expires in 60 minutes.",
+      "title": "Word to PDF: Convert DOCX, DOC, ODT and RTF — pdf.xyz",
+      "description": "Make a PDF from a .docx, .doc, .odt or .rtf with LibreOffice on a secure server. Your file is deleted once the job ends; its PDF link expires in 60 minutes.",
       "canonical": "https://pdf.xyz/tools/word-to-pdf",
       "robots": "index, follow",
       "h1": ["Word to PDF"],

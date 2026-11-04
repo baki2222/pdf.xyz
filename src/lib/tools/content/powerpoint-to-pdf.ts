@@ -41,10 +41,12 @@ const EXAMPLE_OUT = officePdfOutputName(EXAMPLE_IN);
 
 /*
  * Behaviour claims below were read from the code on 2026-09-27:
- *   - accepted extensions: pptx, ppt only (`EXTENSIONS` in
- *     office-conversion/engine.ts; the per-tool upload validator uses the
+ *   - accepted extensions: pptx, ppt and odp (`OFFICE_INPUT_EXTENSIONS` in
+ *     office-conversion/engine.ts; odp since 2026-11-04, and an .odp must
+ *     carry the OpenDocument presentation `mimetype` or it is refused before
+ *     LibreOffice, `input-content.ts`). The per-tool upload validator uses the
  *     catalogue's `accept`, so another type is refused at /api/uploads, and a
- *     type with no MIME entry at all, such as .odp or .key, is refused in the
+ *     type with no MIME entry at all, such as .key, is refused in the
  *     browser by `declaredContentTypeFor` before /api/uploads is called);
  *   - exactly one input per job (`requireSingleInput`), and the panel's
  *     Dropzone is `multiple={false}`; the job is created with `options: {}`,
@@ -88,12 +90,12 @@ const EXAMPLE_OUT = officePdfOutputName(EXAMPLE_IN);
 const content: ToolContent = {
   slug: "powerpoint-to-pdf",
 
-  seoTitle: "PowerPoint to PDF: Convert PPTX and PPT Slides",
+  seoTitle: "PowerPoint to PDF: Convert PPTX, PPT and ODP",
 
-  metaDescription: `Turn a PPTX or PPT deck into a PDF with one slide per page, rendered by LibreOffice. Your upload is deleted after the job; the link expires in ${LINK_MINUTES} min.`,
+  metaDescription: `Turn a PPTX, PPT or ODP deck into a PDF with one slide per page, rendered by LibreOffice. Your upload is deleted after the job; the link expires in ${LINK_MINUTES} min.`,
 
   intro: [
-    `PowerPoint to PDF takes one presentation, a modern .pptx or a legacy .ppt from PowerPoint 97–2003, and returns a PDF with one slide per page. Each page keeps the slide's shape, so a widescreen deck is not squeezed onto A4 or Letter. Text typed into text boxes stays searchable, copyable text; words inside a picture stay a picture.`,
+    `PowerPoint to PDF takes one presentation, a modern .pptx, a legacy .ppt from PowerPoint 97–2003 or an OpenDocument .odp, and returns a PDF with one slide per page. Each page keeps the slide's shape, so a widescreen deck is not squeezed onto A4 or Letter. Text typed into text boxes stays searchable, copyable text; words inside a picture stay a picture.`,
     `Conversion does not happen in your browser. The deck is uploaded over TLS to pdf.xyz's secure server, and LibreOffice exports it there with its default PDF settings, because this page sends the converter no options of its own. The uploaded presentation is deleted when the job finishes, the download link expires after ${LINK_MINUTES} minutes, and the stored copy is erased by a daily storage rule after that. The converter takes decks of up to ${CEILING_MB} MB.`,
     `Animations do not carry over, so bullet points that appeared one click at a time all show together. LibreOffice's default export leaves speaker notes and hidden slides out. Because LibreOffice rather than Microsoft PowerPoint does the drawing, missing fonts are substituted and elaborate effects can shift slightly, so skim the result before you send it.`,
   ],
@@ -120,7 +122,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your presentation",
-      body: 'Drop one .pptx or .ppt file on the box that reads "Add your document, or browse", or click browse to pick it. The box takes a file at once, and Convert to PDF works only when the status badge next to "Office conversion" says "Secure server"; any other badge comes with a note on the state of the converter under that button.',
+      body: 'Drop one .pptx, .ppt or .odp file on the box that reads "Add your document, or browse", or click browse to pick it. The box takes a file at once, and Convert to PDF works only when the status badge next to "Office conversion" says "Secure server"; any other badge comes with a note on the state of the converter under that button.',
     },
     {
       title: "Check the file you picked",
@@ -147,7 +149,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I convert Google Slides, Keynote or ODP presentations?",
-      a: "Not directly. Only .pptx and .ppt files are accepted, and any other type is refused before anything is uploaded. From Google Slides, download the deck as a Microsoft PowerPoint file first; from Keynote, export it to PowerPoint, then convert that file here.",
+      a: "ODP, yes: an OpenDocument .odp is accepted alongside .pptx and .ppt, and one whose contents are not an OpenDocument presentation is refused before it is converted. Google Slides and Keynote files are not accepted, and any other type is refused before anything is uploaded. From Google Slides, download the deck as a Microsoft PowerPoint file first; from Keynote, export it to PowerPoint, then convert that file here.",
     },
     {
       q: "What happens to my presentation after I convert it?",

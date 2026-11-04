@@ -171,6 +171,17 @@ jobs:
       - name: Worker image PDF to Word pictures proof (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:docx-pictures-proof
 
+      # OpenDocument and RTF input (2026-11-04): an .odt and an .rtf through
+      # Word to PDF, an .ods through Excel to PDF and an .odp through
+      # PowerPoint to PDF, each through the REAL engine (its content check
+      # included) and the image's LibreOffice, each PDF read back by
+      # pdftotext for its pages and its own proof word and no other's. An
+      # OpenDocument spreadsheet named .odt, and random bytes named .rtf,
+      # must be refused before LibreOffice runs. Generated fixtures only; no
+      # user document, secret, queue or store.
+      - name: Worker image OpenDocument and RTF input proof (inside the built worker image)
+        run: docker run --rm pdfxyz-worker:ci pnpm worker:office-input-proof
+
       # Worker options (2026-10-24): compress-pdf's Grayscale through the
       # image's REAL Ghostscript, read back as 1-component images (with a
       # colour run as the control), and protect-pdf's permission restrictions

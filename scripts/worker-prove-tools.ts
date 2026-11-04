@@ -94,6 +94,7 @@ import {
   invoiceSheetMismatches,
 } from "@/tests/pdf-office-fixtures";
 import { handBuiltPptx } from "@/tests/pptx-fixture";
+import { OFFICE_INPUT_FIXTURES, odsWith } from "@/tests/office-input-fixtures";
 import {
   officeFontProofDocx,
   officeFontProofVerdict,
@@ -570,6 +571,42 @@ async function pdfPlainText(bytes: Buffer): Promise<string> {
   }
   await task.destroy();
   return text.replace(/\s+/g, " ");
+}
+
+/** One of the OpenDocument / RTF fixtures the in-image proof converts too. */
+function officeInput(kind: string) {
+  const fixture = OFFICE_INPUT_FIXTURES.find((f) => f.kind === kind);
+  if (!fixture) throw new Error(`no office input fixture "${kind}"`);
+  return fixture;
+}
+
+/**
+ * OpenDocument and RTF input at the deployment (2026-11-04): the PDF has a
+ * page, carries the fixture's own proof word, and none of the others' — the
+ * same verdict `pnpm worker:office-input-proof` gives the image, here on the
+ * PDF the deployed worker returned, read by pdf.js rather than pdftotext.
+ */
+async function officeInputVerdict(
+  bytes: Buffer,
+  kind: string,
+): Promise<{ ok: boolean; detail: string }> {
+  const { word } = officeInput(kind);
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const task = pdfjs.getDocument({
+    ...PDFJS_DOCUMENT_DEFAULTS,
+    data: new Uint8Array(bytes),
+  });
+  const pages = (await awaitPdfjsDocument(task)).numPages;
+  await task.destroy();
+  const text = await pdfPlainText(bytes);
+  const others = OFFICE_INPUT_FIXTURES.filter(
+    (f) => f.word !== word && text.includes(f.word),
+  ).map((f) => f.word);
+  const ok = pages >= 1 && text.includes(word) && others.length === 0;
+  return {
+    ok,
+    detail: `${pages} page(s); "${word}" ${text.includes(word) ? "in" : "NOT in"} the text${others.length ? `; also carries ${others.join(", ")}` : ""}`,
+  };
 }
 
 /**
@@ -1450,6 +1487,64 @@ const SPECS: ProofSpec[] = [
     type: PPTX_MIME,
     expect: isPdf,
     want: "PDF",
+  },
+  // OpenDocument and RTF input (2026-11-04): the fixtures the worker image's
+  // `worker:office-input-proof` converts, each judged by its own proof word.
+  {
+    tool: "word-to-pdf",
+    label: "word-to-pdf (odt)",
+    make: () => officeInput("odt").build(),
+    name: "letter.odt",
+    type: "application/vnd.oasis.opendocument.text",
+    expect: isPdf,
+    want: "PDF",
+    verify: (bytes) => officeInputVerdict(bytes, "odt"),
+  },
+  {
+    tool: "word-to-pdf",
+    label: "word-to-pdf (rtf)",
+    make: () => officeInput("rtf").build(),
+    name: "memo.rtf",
+    type: "application/rtf",
+    expect: isPdf,
+    want: "PDF",
+    verify: (bytes) => officeInputVerdict(bytes, "rtf"),
+  },
+  {
+    tool: "excel-to-pdf",
+    label: "excel-to-pdf (ods)",
+    make: () => officeInput("ods").build(),
+    name: "budget.ods",
+    type: "application/vnd.oasis.opendocument.spreadsheet",
+    expect: isPdf,
+    want: "PDF",
+    verify: (bytes) => officeInputVerdict(bytes, "ods"),
+  },
+  {
+    tool: "powerpoint-to-pdf",
+    label: "powerpoint-to-pdf (odp)",
+    make: () => officeInput("odp").build(),
+    name: "deck.odp",
+    type: "application/vnd.oasis.opendocument.presentation",
+    expect: isPdf,
+    want: "PDF",
+    verify: (bytes) => officeInputVerdict(bytes, "odp"),
+  },
+  // The control: a spreadsheet named .odt is refused by its bytes, once,
+  // before LibreOffice runs — not converted into a spreadsheet PDF.
+  {
+    tool: "word-to-pdf",
+    label: "word-to-pdf (ods named odt)",
+    make: () => odsWith("Renamed"),
+    name: "essay.odt",
+    type: "application/vnd.oasis.opendocument.text",
+    expectFailure: {
+      code: "unprocessable_entity",
+      retryable: false,
+      message: /its contents are not an OpenDocument text document/,
+    },
+    expect: () => false,
+    want: "a final refusal, not a converted spreadsheet",
   },
   {
     tool: "pdf-to-word",

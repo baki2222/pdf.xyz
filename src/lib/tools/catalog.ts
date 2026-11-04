@@ -255,7 +255,7 @@ export const tools: Tool[] = [
   {
     slug: "word-to-pdf",
     name: "Word to PDF",
-    tagline: "DOCX and DOC into a shareable PDF.",
+    tagline: "DOCX, DOC, ODT and RTF into a shareable PDF.",
     cardSummary: "Turn Word documents into a PDF that's easy to share.",
     description:
       // LibreOffice lays the document out, not Word. Since the wave-1 L03
@@ -269,7 +269,7 @@ export const tools: Tool[] = [
     icon: "word",
     processing: "server",
     badge: "popular",
-    accept: ["DOCX", "DOC"],
+    accept: ["DOCX", "DOC", "ODT", "RTF"],
     outputs: ["PDF"],
     keywords: ["word to pdf", "docx to pdf", "doc to pdf", "convert word"],
     related: ["pdf-to-word", "excel-to-pdf", "powerpoint-to-pdf"],
@@ -279,11 +279,11 @@ export const tools: Tool[] = [
     name: "Excel to PDF",
     tagline: "Spreadsheets into clean PDF tables.",
     description:
-      "Convert Excel workbooks and CSV files to PDF — laid out by LibreOffice on a secure server that deletes the input when the job finishes.",
+      "Convert Excel, CSV and ODS spreadsheets to PDF — laid out by LibreOffice on a secure server that deletes the input when the job finishes.",
     category: "convert-to",
     icon: "excel",
     processing: "server",
-    accept: ["XLSX", "XLS", "CSV"],
+    accept: ["XLSX", "XLS", "CSV", "ODS"],
     outputs: ["PDF"],
     keywords: ["excel to pdf", "xlsx to pdf", "spreadsheet to pdf", "csv pdf"],
     related: ["pdf-to-excel", "word-to-pdf", "extract-tables"],
@@ -293,11 +293,11 @@ export const tools: Tool[] = [
     name: "PowerPoint to PDF",
     tagline: "Slides into shareable PDF decks.",
     description:
-      "Convert PowerPoint presentations to PDF, one slide per page — rendered by LibreOffice on a secure server that deletes the input when the job finishes.",
+      "Convert PowerPoint and ODP presentations to PDF, one slide per page — rendered by LibreOffice on a secure server that deletes the input when the job finishes.",
     category: "convert-to",
     icon: "powerpoint",
     processing: "server",
-    accept: ["PPTX", "PPT"],
+    accept: ["PPTX", "PPT", "ODP"],
     outputs: ["PDF"],
     keywords: ["powerpoint to pdf", "pptx to pdf", "slides to pdf", "ppt pdf"],
     related: ["pdf-to-powerpoint", "word-to-pdf", "excel-to-pdf"],

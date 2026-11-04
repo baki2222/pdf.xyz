@@ -30,7 +30,9 @@ const answers = UNSUPPORTED_FORMATS.map((format) =>
 describe("the answer to a format nothing opens", () => {
   it("is built for every unsupported format (health)", () => {
     expect(answers.length).toBe(UNSUPPORTED_FORMATS.length);
-    expect(answers.length).toBeGreaterThanOrEqual(10);
+    // Was ≥ 10 until 2026-11-04, when ODT, RTF, ODS and ODP became formats
+    // Word, Excel and PowerPoint to PDF take. Seven remain.
+    expect(answers.length).toBeGreaterThanOrEqual(7);
   });
 
   it("is true of the catalogue: no tool takes the format it names", () => {

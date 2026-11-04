@@ -45,6 +45,10 @@ export const FORMATS = [
   "CSV",
   "PPT",
   "PPTX",
+  "ODT",
+  "ODS",
+  "ODP",
+  "RTF",
   "JPG",
   "PNG",
   "WEBP",
@@ -61,7 +65,11 @@ export type Format = (typeof FORMATS)[number];
  * ("No tool here opens HEIC photos."), so no tool may accept one of these —
  * held by `formats.test.ts`. WEBP, GIF and BMP moved to {@link FORMATS} on
  * 2026-10-30, when JPG / PNG to PDF began decoding them in the browser; the
- * "No tool here opens WebP images." answer went with them.
+ * "No tool here opens WebP images." answer went with them. ODT, RTF, ODS and
+ * ODP followed on 2026-11-04, when Word, Excel and PowerPoint to PDF began
+ * passing them to LibreOffice (the engine checks their bytes first:
+ * `office-conversion/input-content.ts`), and their "save a copy first"
+ * answers went with them.
  */
 export const UNSUPPORTED_FORMATS = [
   "HEIC",
@@ -69,10 +77,6 @@ export const UNSUPPORTED_FORMATS = [
   "TIFF",
   "SVG",
   "AVIF",
-  "ODT",
-  "ODS",
-  "ODP",
-  "RTF",
   "EPUB",
   "ZIP",
 ] as const;
@@ -94,19 +98,6 @@ export const UNSUPPORTED_SIGNS: Record<
   TIFF: { extensions: ["tif", "tiff"], mimes: ["image/tiff"] },
   SVG: { extensions: ["svg"], mimes: ["image/svg+xml"] },
   AVIF: { extensions: ["avif"], mimes: ["image/avif"] },
-  ODT: {
-    extensions: ["odt"],
-    mimes: ["application/vnd.oasis.opendocument.text"],
-  },
-  ODS: {
-    extensions: ["ods"],
-    mimes: ["application/vnd.oasis.opendocument.spreadsheet"],
-  },
-  ODP: {
-    extensions: ["odp"],
-    mimes: ["application/vnd.oasis.opendocument.presentation"],
-  },
-  RTF: { extensions: ["rtf"], mimes: ["application/rtf", "text/rtf"] },
   EPUB: { extensions: ["epub"], mimes: ["application/epub+zip"] },
   ZIP: {
     extensions: ["zip"],

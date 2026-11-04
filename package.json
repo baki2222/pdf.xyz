@@ -38,6 +38,7 @@
     "worker:pdfa-proof": "tsx scripts/worker-pdfa-proof.ts",
     "worker:pptx-fidelity-proof": "tsx scripts/worker-pptx-fidelity-proof.ts",
     "worker:docx-pictures-proof": "tsx scripts/worker-docx-pictures-proof.ts",
+    "worker:office-input-proof": "tsx scripts/worker-office-input-proof.ts",
     "worker:options-proof": "tsx scripts/worker-options-proof.ts",
     "worker:ocr-languages-proof": "tsx scripts/worker-ocr-languages-proof.ts",
     "worker:ocr-deskew-proof": "tsx scripts/worker-ocr-deskew-proof.ts",

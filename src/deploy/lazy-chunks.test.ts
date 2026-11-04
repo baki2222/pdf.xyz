@@ -468,8 +468,19 @@ describe("the catalogue ships in one chunk, shared by every surface that reads i
  * gzip -9, 6,859 -> 7,276 B with the four entries already cut to the fields
  * a page reads — no seoTitle, cardSummary or next, three keywords each) and
  * their directory rows (+56 B). Measured 32.68 on the branch.
+ *
+ * RAISED 32.8 -> 33.0 on 2026-11-04, for OpenDocument and RTF input to the
+ * three Office to PDF tools. The ticket reads a dropped file's first bytes
+ * (`intent/sniff.ts`), and that recogniser now reads an OpenDocument file's
+ * stored `mimetype` exactly, from the ZIP header's own lengths, instead of
+ * trusting an `.odt` name; with the four formats' rows in the format tables
+ * and their catalogue `accept` and copy, the eight counted chunks went
+ * 33,764 -> 33,928 B (gzip -9, main 03124c1a vs the branch; +128 of it the
+ * sniff/format chunk, +32 the catalogue). Measured 32.92 on the branch,
+ * after dropping the five new keywords the search already finds by format
+ * (`tools.test.ts`, "finds the Office to PDF tool by each format").
  */
-const TICKET_FETCH_GZ_KB = 32.8;
+const TICKET_FETCH_GZ_KB = 33.0;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));

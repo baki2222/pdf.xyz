@@ -11,8 +11,14 @@ import { resolveNativeOfficeConversionConfig } from "@/lib/workers/office-conver
  *  - Engine: `runOfficeToPdf` in src/lib/workers/office-conversion/engine.ts
  *    runs headless LibreOffice (`soffice --convert-to pdf`, native.ts) on the
  *    secure worker, with no export options and no password argument. Accepted
- *    extensions are exactly `docx` and `doc`; anything else is refused as "The
- *    uploaded file type does not match this Office conversion tool." The
+ *    extensions are exactly `docx`, `doc`, `odt` and `rtf` (the last two since
+ *    2026-11-04, `OFFICE_INPUT_EXTENSIONS`); anything else is refused as "The
+ *    uploaded file type does not match this Office conversion tool." An .odt
+ *    or .rtf must ALSO carry its format's bytes (`input-content.ts`: the
+ *    stored OpenDocument `mimetype`, or `{
+tf`), or it is refused before
+ *    LibreOffice runs; a .docx or .doc is not byte-checked, because their
+ *    signatures do not tell them apart from the other Office formats. The
  *    client also refuses an extension absent from MIME_BY_FORMAT before
  *    uploading, and the intake refuses a declared type the tool does not
  *    accept (so a .txt is turned away at the upload step).
@@ -89,12 +95,12 @@ const sizeAnswer =
 const content: ToolContent = {
   slug: "word-to-pdf",
 
-  seoTitle: "Word to PDF Converter: DOCX and DOC to PDF",
+  seoTitle: "Word to PDF: Convert DOCX, DOC, ODT and RTF",
 
-  metaDescription: `Make a PDF from a .docx or .doc with LibreOffice on a secure server. Your Word file is deleted once the job ends; its PDF download expires in ${linkMinutes} minutes.`,
+  metaDescription: `Make a PDF from a .docx, .doc, .odt or .rtf with LibreOffice on a secure server. Your file is deleted once the job ends; its PDF link expires in ${linkMinutes} minutes.`,
 
   intro: [
-    "Word to PDF takes one .docx or .doc file and hands it to LibreOffice, running headless on pdf.xyz's secure server. LibreOffice lays out the pages from the page size, margins, headers and footers set in the document itself and exports a PDF named after your file. Typed text comes out as text, so it can be searched, selected and copied; a picture of text, such as a pasted scan, stays a picture.",
+    "Word to PDF takes one document, a Word .docx or .doc, an OpenDocument .odt or a Rich Text .rtf, and hands it to LibreOffice, running headless on pdf.xyz's secure server. LibreOffice lays out the pages from the page size, margins, headers and footers set in the document itself and exports a PDF named after your file. Typed text comes out as text, so it can be searched, selected and copied; a picture of text, such as a pasted scan, stays a picture.",
     "LibreOffice reads Word's formats, but it is not Microsoft Word, and differences tend to show in fonts and floating objects. A font our server lacks is replaced by a stand-in whose letter widths may differ, which can move line and page breaks, and text boxes or wrapped images may land slightly elsewhere. Styles, tables and in-line images give it the least to reinterpret.",
     `Nothing is converted on your own computer. Your document goes to pdf.xyz's secure server over an encrypted (TLS) connection and is deleted there when the job ends. The finished PDF can be fetched for ${linkMinutes} minutes, after which a daily storage rule clears the stored copy. The converter takes Word files of up to ${ceilingMb} MB, one at a time.`,
   ],
@@ -121,7 +127,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your Word file",
-      body: 'Drag a .docx or .doc onto the box that says "Add your document, or browse", or click it to open your file picker. The chosen file\'s name then shows above the button, next to a Remove button for swapping it out.',
+      body: 'Drag a .docx, .doc, .odt or .rtf onto the box that says "Add your document, or browse", or click it to open your file picker. The chosen file\'s name then shows above the button, next to a Remove button for swapping it out.',
     },
     {
       title: "Press Convert to PDF",
@@ -144,11 +150,11 @@ const content: ToolContent = {
     },
     {
       q: "What happens to my Word file after it is converted?",
-      a: `Your .docx or .doc travels over TLS to pdf.xyz's secure server, and our server deletes it once the conversion job is finished. The PDF LibreOffice made sits behind a download link that expires after ${linkMinutes} minutes, and a daily storage rule erases that stored file once the link has lapsed.`,
+      a: `Your document travels over TLS to pdf.xyz's secure server, and our server deletes it once the conversion job is finished. The PDF LibreOffice made sits behind a download link that expires after ${linkMinutes} minutes, and a daily storage rule erases that stored file once the link has lapsed.`,
     },
     {
       q: "Which file types can I convert here?",
-      a: "Word's current .docx format and the older .doc format, nothing else. Files ending in .docm, .odt, .rtf, .pages or .txt are turned away rather than guessed at. For plain text, the Text to PDF tool builds a PDF in your browser instead.",
+      a: "Word's current .docx format, the older .doc, OpenDocument text (.odt) and Rich Text Format (.rtf), nothing else. Files ending in .docm, .pages or .txt are turned away rather than guessed at, and so is an .odt or .rtf whose contents are something else, such as a renamed spreadsheet, before it is converted. For plain text, the Text to PDF tool builds a PDF in your browser instead.",
     },
     {
       q: "How big can the document be, and can I convert several at once?",
