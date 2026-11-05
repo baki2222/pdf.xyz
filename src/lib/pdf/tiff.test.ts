@@ -31,12 +31,14 @@ import {
   rgbRows,
   tiffFixture,
   tiffOf,
+  type TiffEntry,
   type TiffPageSpec,
 } from "@/tests/tiff-fixtures";
 import { renderPdfPages, type RenderedPage } from "@/tests/pdf-render";
 import { imagePageCount, imagesToPdf, imagesToPdfs } from "./image-to-pdf";
 import { imagesToPdfUnderLimit } from "./image-size-fit";
 import { encodeGrayJpeg } from "./gray-jpeg";
+import { swapsAxes } from "./jpeg-orientation";
 import {
   MAX_TIFF_PAGES,
   MAX_TIFF_PAGE_PIXELS,
@@ -702,5 +704,162 @@ describe("under a Max file size", () => {
     expect(doc.getPages().map((p) => p.getSize())).toEqual(
       Array(4).fill({ width: 288, height: 216 }),
     );
+  });
+});
+
+/**
+ * ORIENTATION (tag 274) is applied, as a JPEG's EXIF turn is. Until
+ * 2026-11-05 every TIFF page was laid down as stored: a scanner that writes
+ * a sideways page plus Orientation 6 produced a sideways PDF page.
+ *
+ * The oracle is the TIFF / EXIF definition of the eight values (which corner
+ * the stored first row and first column belong to), written out here, not
+ * read from `jpeg-orientation.ts`: a 40 × 20 page whose stored top-left
+ * quarter is red and top-right quarter blue, and the corner each must be
+ * seen in. One marker is not enough: Orientation 5 (a transpose) keeps the
+ * top-left where it was, so a page merely stretched into the turned shape
+ * passed on red alone (a mutation that recorded no turn left 5 green). The
+ * blue quarter is what tells them apart.
+ */
+describe("Orientation (tag 274) is applied", () => {
+  const W = 40;
+  const H = 20;
+  const red = rgbRows(W, H, [250, 250, 250], [220, 20, 20]);
+  for (let y = 0; y < H / 2; y++)
+    for (let x = W / 2; x < W; x++) red.set([20, 40, 220], (y * W + x) * 3);
+  type Corner = "TL" | "TR" | "BR" | "BL";
+  const SEEN: Record<number, { red: Corner; blue: Corner; turned: boolean }> = {
+    1: { red: "TL", blue: "TR", turned: false },
+    2: { red: "TR", blue: "TL", turned: false }, // mirrored left-right
+    3: { red: "BR", blue: "BL", turned: false }, // turned 180°
+    4: { red: "BL", blue: "BR", turned: false }, // mirrored top-bottom
+    5: { red: "TL", blue: "BL", turned: true }, // transposed
+    6: { red: "TR", blue: "BR", turned: true }, // turned 90° clockwise
+    7: { red: "BR", blue: "TR", turned: true }, // transversed
+    8: { red: "BL", blue: "TL", turned: true }, // turned 90° counter-clockwise
+  };
+  const oriented = (o: number | null) =>
+    tiffOf([
+      {
+        width: W,
+        height: H,
+        bits: [8, 8, 8],
+        photometric: 2,
+        rows: red,
+        ...(o === null ? {} : { extra: [[274, 3, [o]] as TiffEntry] }),
+      },
+    ]);
+
+  /** Where one colour's pixels sit on a rendered page, by their centroid. */
+  function cornerOf(page: RenderedPage, colour: "red" | "blue"): string {
+    let n = 0;
+    let sx = 0;
+    let sy = 0;
+    for (let y = 0; y < page.height; y++)
+      for (let x = 0; x < page.width; x++) {
+        const i = (y * page.width + x) * 4;
+        const r = page.data[i]!;
+        const g = page.data[i + 1]!;
+        const b = page.data[i + 2]!;
+        const hit =
+          colour === "red" ? r > 160 && g < 96 && b < 96 : b > 160 && r < 96;
+        if (hit) {
+          n++;
+          sx += x;
+          sy += y;
+        }
+      }
+    if (n === 0) return "none";
+    return (
+      (sy / n < page.height / 2 ? "T" : "B") +
+      (sx / n < page.width / 2 ? "L" : "R")
+    );
+  }
+
+  it.each(Object.entries(SEEN))(
+    "Orientation %s: the stored top-left is seen at its corner, and the page turns with it",
+    async (o, want) => {
+      const pdf = await imagesToPdf(
+        "png",
+        [file("o.tif", oriented(Number(o)))],
+        FIT_NO_MARGIN,
+      );
+      const doc = await PDFDocument.load(pdf);
+      expect(doc.getPages()[0]!.getSize()).toEqual(
+        want.turned ? { width: H, height: W } : { width: W, height: H },
+      );
+      const [page] = await renderPdfPages(pdf);
+      expect([cornerOf(page!, "red"), cornerOf(page!, "blue")]).toEqual([
+        want.red,
+        want.blue,
+      ]);
+      // Lossless still: the image XObject is the stored raster, untouched.
+      const [image] = await pageImages(pdf);
+      expect([image!.width, image!.height, image!.filter]).toEqual([
+        W,
+        H,
+        "/FlateDecode",
+      ]);
+    },
+  );
+
+  it("the engine's 'values 5-8 turn the page' rule is swapsAxes, for all eight", () => {
+    // image-to-pdf.ts states the rule inline (importing jpeg-orientation there
+    // costs every page bytes); held here to the one definition.
+    for (const o of [1, 2, 3, 4, 5, 6, 7, 8] as const)
+      expect(o >= 5, `Orientation ${o}`).toBe(swapsAxes(o));
+  });
+
+  it("an absent or out-of-range Orientation is 1, and the reader reports it", () => {
+    expect(readTiffPages("a.tif", oriented(null))[0]!.orientation).toBe(1);
+    expect(readTiffPages("a.tif", oriented(9))[0]!.orientation).toBe(1);
+    expect(readTiffPages("a.tif", oriented(0))[0]!.orientation).toBe(1);
+    expect(readTiffPages("a.tif", oriented(6))[0]!.orientation).toBe(6);
+  });
+
+  it("under a Max file size, a page that takes the JPEG rung turns too", async () => {
+    // The re-encoder stood in for (as above): an 8 × 8 JPEG, much smaller
+    // than the lossless page, so the page takes it; the page's shape is the
+    // engine's layout, which must be turned.
+    const tiny = encodeGrayJpeg(new Uint8Array(64).fill(128), 8, 8, 0.9);
+    // Noise, so the lossless page is bigger than that JPEG and takes it.
+    const noise = new Uint8Array(W * H * 3).map(
+      (_, i) => (i * 2654435761) >>> 24,
+    );
+    const noisy = tiffOf([
+      {
+        width: W,
+        height: H,
+        bits: [8, 8, 8],
+        photometric: 2,
+        rows: noise,
+        extra: [[274, 3, [6]]],
+      },
+    ]);
+    const fit = await imagesToPdfUnderLimit(
+      "png",
+      [file("o.tif", noisy)],
+      FIT_NO_MARGIN,
+      1,
+      "x.pdf",
+      {
+        now: () => 0,
+        pause: async () => {},
+        ladder: [{ quality: 0.5, scale: 1 }],
+        reencodePixels: async () => ({
+          bytes: tiny,
+          layoutWidth: 0,
+          layoutHeight: 0,
+          width: 8,
+          height: 8,
+          flattened: false,
+        }),
+      },
+    );
+    expect(fit.report.chosenRung).toBe(1);
+    const [image] = await pageImages(fit.bytes);
+    expect(image!.filter).toBe("/DCTDecode");
+    const doc = await PDFDocument.load(fit.bytes);
+    expect(doc.getPages()[0]!.getSize()).toEqual({ width: H, height: W });
   });
 });

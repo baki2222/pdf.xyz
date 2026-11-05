@@ -130,6 +130,19 @@ export async function embedRasterImage(
 const orientations = new WeakMap<PDFImage, ExifOrientation>();
 
 /**
+ * Record the turn a decoded raster owes, for {@link drawRasterImage}: a TIFF
+ * page's Orientation tag (274) is the same eight values as a JPEG's EXIF
+ * turn, and is applied the same way, without touching the stored pixels.
+ */
+export function owesOrientation(
+  image: PDFImage,
+  orientation: ExifOrientation,
+): void {
+  if (orientation === 1) orientations.delete(image);
+  else orientations.set(image, orientation);
+}
+
+/**
  * The size an embedded image is SHOWN at, in pixels: what a browser reports as
  * its natural size. A portrait phone photo is stored 4032×3024 and shown
  * 3024×4032; fitting it to a page must use the second.
@@ -154,6 +167,13 @@ export function rasterDisplaySize(image: PDFImage): {
  * (see `orientationMatrix`), with the same `q … gs … cm … Do Q` shape pdf-lib
  * writes, so opacity behaves the same on both paths.
  *
+ * `orientation` overrides the turn recorded against the image: a TIFF
+ * page's Orientation tag (274) is the same eight values as a JPEG's EXIF
+ * turn, and `image-to-pdf.ts` passes it here rather than through a new
+ * export — this module is in every tool page's first load, and an export or
+ * a second importer of `jpeg-orientation.ts` costs every page bytes (+34 and
+ * +76 B gz on tools/ocr-pdf.html, measured 2026-11-05).
+ *
  * `rotate` is pdf-lib's own `drawImage` option — the box turned about its
  * `(x, y)` corner, which is how Edit PDF anchors an image on a page the reader
  * sees rotated. On the turned path it is the same translate-then-rotate
@@ -170,9 +190,10 @@ export async function drawRasterImage(
     height: number;
     opacity?: number;
     rotate?: Rotation;
+    orientation?: ExifOrientation;
   },
 ): Promise<void> {
-  const orientation = orientations.get(image) ?? 1;
+  const orientation = box.orientation ?? orientations.get(image) ?? 1;
   if (orientation === 1) {
     page.drawImage(image, box);
     return;

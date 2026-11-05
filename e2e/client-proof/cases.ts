@@ -33,7 +33,7 @@ import {
   IMAGE_MARGINS,
   IMAGE_PAGE_SIZES,
 } from "../../src/lib/pdf/image-page-layout";
-import { boxOf, drawnImages } from "../../src/tests/drawn-images";
+import { apply, boxOf, drawnImages } from "../../src/tests/drawn-images";
 import { drawRasterImage, embedRasterImage } from "../../src/lib/pdf/pdf-lib";
 import {
   createGrayscaleBuilder,
@@ -538,7 +538,50 @@ const TIFF_FAILS = {
   perFile: "one 2-page PDF per TIFF, named after it",
   refused:
     "an over-ceiling TIFF header is refused when added, naming the page and its size",
+  oriented:
+    "a TIFF stored sideways with Orientation 6 is drawn upright: an 80 × 40 pt page turned to 40 × 80, the stored top-left at the top right and the stored top-right at the bottom right, the stored pixels kept losslessly",
 } as const;
+
+/**
+ * An 80 × 40 px TIFF at 72 dpi (so 80 × 40 pt) stored with Orientation
+ * `orientation` (tag 274), or none.
+ */
+const orientedTiff = (orientation: number | null) =>
+  tiffOf([
+    {
+      width: 80,
+      height: 40,
+      bits: [8, 8, 8],
+      photometric: 2,
+      rows: new Uint8Array(80 * 40 * 3).fill(200),
+      dpi: { x: 72, y: 72 },
+      ...(orientation === null
+        ? {}
+        : { extra: [[274, 3, [orientation]] as [number, 3, number[]]] }),
+    },
+  ]);
+
+/**
+ * Where the stored image's top-left and top-right corners land on the page,
+ * read from the CTM the PDF paints it with (`drawnImages`): PDF image space
+ * puts the first stored row at v = 1.
+ */
+async function storedCorners(buf: Buffer) {
+  const doc = await PDFDocument.load(buf);
+  const { width, height } = doc.getPage(0).getSize();
+  const [drawn] = await drawnImages(new Uint8Array(buf));
+  const at = (u: number, v: number) => {
+    const [x, y] = apply(drawn!.ctm, u, v);
+    return (y > height / 2 ? "T" : "B") + (x > width / 2 ? "R" : "L");
+  };
+  return {
+    pages: doc.getPageCount(),
+    size: [Math.round(width), Math.round(height)],
+    stored: [drawn?.width, drawn?.height],
+    topLeft: at(0.01, 0.99),
+    topRight: at(0.99, 0.99),
+  };
+}
 
 /** The setup both TIFF proofs choose: Fit to image, no margin. */
 const TIFF_SETUP = {
@@ -3515,6 +3558,70 @@ export const VARIANTS: readonly VariantCase[] = [
       ];
     },
     rejectsBecause: [TIFF_FAILS.red, TIFF_FAILS.perFile],
+  },
+
+  // Orientation (tag 274, 2026-11-05): a scanner that stores a page sideways
+  // and says so in the tag. The page must come out turned, the stored pixels
+  // untouched (the turn is the matrix the image is painted with).
+  {
+    slug: "jpg-to-pdf",
+    name: "a TIFF stored sideways with Orientation 6, Fit to image, no margin",
+    kind: "image-to-pdf",
+    artifact: "pdf",
+    run: async (ctx) => {
+      await uploadPayloads(ctx.page, [
+        {
+          name: "sideways.tif",
+          mimeType: "image/tiff",
+          buffer: Buffer.from(orientedTiff(6)),
+        },
+      ]);
+      await expect(ctx.page.getByText(/^Page 1/)).toBeVisible();
+      await ctx.page.getByRole("button", { name: "Fit to image" }).click();
+      await ctx.page.getByRole("button", { name: "None", exact: true }).click();
+      return runAndDownload(
+        ctx,
+        /create pdf/i,
+        /jpg pdf created/i,
+        /^download pdf$/i,
+      );
+    },
+    assert: async (buf) => {
+      expect(await storedCorners(buf), TIFF_FAILS.oriented).toEqual({
+        pages: 1,
+        size: [40, 80],
+        stored: [80, 40],
+        topLeft: "TR",
+        topRight: "BR",
+      });
+    },
+    // Built by the engine in Node from the same pixels, the tag the only
+    // difference: absent (laid down as stored), 7 (turned the other way and
+    // mirrored), and 5 (transposed: the top-left in place, the page turned,
+    // so only the second corner tells it apart).
+    control: async () =>
+      Promise.all(
+        [null, 7, 5].map(async (o) =>
+          Buffer.from(
+            await imagesToPdf(
+              "jpg",
+              [
+                {
+                  name: "sideways.tif",
+                  type: "image/tiff",
+                  bytes: orientedTiff(o),
+                },
+              ],
+              TIFF_SETUP,
+            ),
+          ),
+        ),
+      ),
+    rejectsBecause: [
+      TIFF_FAILS.oriented,
+      TIFF_FAILS.oriented,
+      TIFF_FAILS.oriented,
+    ],
   },
 
   {

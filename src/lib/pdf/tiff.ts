@@ -44,6 +44,7 @@
  */
 import UTIF, { type UtifIfd } from "utif";
 import type { PDFDocument, PDFImage } from "pdf-lib";
+import type { ExifOrientation } from "./jpeg-orientation";
 import { PdfEngineError } from "./engine-errors";
 import { MAX_DECODED_PIXELS } from "./pixel-ceiling";
 import { loadPdfLib } from "./pdf-lib";
@@ -100,6 +101,12 @@ export interface TiffPage {
   heightPt: number;
   /** The resolution believed, or null when the page gave none. */
   dpi: { x: number; y: number } | null;
+  /**
+   * Orientation (tag 274): which corner the stored first row and column
+   * belong to, the eight values a JPEG's EXIF turn takes. 1 when absent or
+   * out of range. Applied when the page is drawn, not to the pixels.
+   */
+  orientation: ExifOrientation;
 }
 
 /** A decoded page, in the shape a PDF image XObject takes. */
@@ -157,6 +164,7 @@ const T = {
   yResolution: 283,
   planar: 284,
   t4Options: 292,
+  orientation: 274,
   resolutionUnit: 296,
   predictor: 317,
   colorMap: 320,
@@ -511,8 +519,14 @@ function checkPage(
     widthPt: dpi ? (width * 72) / dpi.x : width,
     heightPt: dpi ? (height * 72) / dpi.y : height,
     dpi,
+    orientation: orientationOf(one(T.orientation, 1)),
   };
 }
+
+const orientationOf = (value: number): ExifOrientation =>
+  Number.isInteger(value) && value >= 1 && value <= 8
+    ? (value as ExifOrientation)
+    : 1;
 
 /**
  * The resolution in dots per inch, or null when the page gives none worth
