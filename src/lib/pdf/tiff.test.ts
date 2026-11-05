@@ -38,6 +38,7 @@ import { renderPdfPages, type RenderedPage } from "@/tests/pdf-render";
 import { imagePageCount, imagesToPdf, imagesToPdfs } from "./image-to-pdf";
 import { imagesToPdfUnderLimit } from "./image-size-fit";
 import { encodeGrayJpeg } from "./gray-jpeg";
+import { swapsAxes } from "./jpeg-orientation";
 import {
   MAX_TIFF_PAGES,
   MAX_TIFF_PAGE_PIXELS,
@@ -801,6 +802,13 @@ describe("Orientation (tag 274) is applied", () => {
       ]);
     },
   );
+
+  it("the engine's 'values 5-8 turn the page' rule is swapsAxes, for all eight", () => {
+    // image-to-pdf.ts states the rule inline (importing jpeg-orientation there
+    // costs every page bytes); held here to the one definition.
+    for (const o of [1, 2, 3, 4, 5, 6, 7, 8] as const)
+      expect(o >= 5, `Orientation ${o}`).toBe(swapsAxes(o));
+  });
 
   it("an absent or out-of-range Orientation is 1, and the reader reports it", () => {
     expect(readTiffPages("a.tif", oriented(null))[0]!.orientation).toBe(1);

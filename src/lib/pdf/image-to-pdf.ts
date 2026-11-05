@@ -2,11 +2,10 @@ import {
   drawRasterImage,
   embedRasterImage,
   loadPdfLib,
-  owesOrientation,
   rasterDisplaySize,
   type RasterImageFormat,
 } from "./pdf-lib";
-import { swapsAxes } from "./jpeg-orientation";
+import type { ExifOrientation } from "./jpeg-orientation";
 import { baseName, outputName, sanitizeSegment } from "./files";
 import { PdfEngineError } from "./engine";
 import {
@@ -399,13 +398,17 @@ export async function imagePageCount(file: ImagePdfInput): Promise<number> {
  */
 export const loadTiff = () => import("./tiff");
 
-/** A page for `image`, shown at `shown` (points), laid out by `options`. */
+/**
+ * A page for `image`, shown at `shown` (points), laid out by `options`;
+ * `orientation`, when given, is the turn to draw it with (a TIFF page's tag).
+ */
 async function drawImagePage(
   lib: PdfLib,
   doc: PdfDoc,
   image: Awaited<ReturnType<typeof embedRasterImage>>,
   shown: { width: number; height: number },
   options: ImagePageOptions,
+  orientation?: ExifOrientation,
 ): Promise<void> {
   const layout = imagePageLayout(shown.width, shown.height, options);
   const page = doc.addPage([layout.pageWidth, layout.pageHeight]);
@@ -421,6 +424,7 @@ async function drawImagePage(
     y: layout.y,
     width: layout.width,
     height: layout.height,
+    ...(orientation === undefined ? {} : { orientation }),
   });
 }
 
@@ -457,13 +461,15 @@ async function addTiffPages(
       stored = { width: page.widthPt, height: page.heightPt };
     }
     // Both images are the STORED raster (the size ladder re-encodes the
-    // decoded pixels as they are), so both owe the page's Orientation, and
-    // the page is laid out in the shape the reader sees.
-    owesOrientation(image, page.orientation);
-    const shown = swapsAxes(page.orientation)
-      ? { width: stored.height, height: stored.width }
-      : stored;
-    await drawImagePage(lib, doc, image, shown, options);
+    // decoded pixels as they are), so both are drawn with the page's
+    // Orientation, and the page is laid out in the shape the reader sees:
+    // values 5-8 transpose the axes (`swapsAxes`, which tiff.test.ts holds
+    // this rule to; not imported, for the reason drawRasterImage gives).
+    const shown =
+      page.orientation >= 5
+        ? { width: stored.height, height: stored.width }
+        : stored;
+    await drawImagePage(lib, doc, image, shown, options, page.orientation);
   }
 }
 
