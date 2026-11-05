@@ -146,6 +146,12 @@ import {
 } from "@/lib/pdf/image-to-pdf";
 import { TRANSCODE_JPEG_QUALITY } from "@/lib/pdf/image-transcode";
 import {
+  MAX_TIFF_PAGES,
+  MAX_TIFF_PAGE_PIXELS,
+  TIFF_COMPRESSIONS,
+  tiffRefusal,
+} from "@/lib/pdf/tiff-limits";
+import {
   KB as TARGET_KB,
   TARGET_EXAMPLE,
   TARGET_SIZE_LABELS,
@@ -722,6 +728,44 @@ const WEB_EXAMPLE_OUT = webOptimizedOutputName(WEB_EXAMPLE_IN);
 const HTML_DEFAULT_MARGIN = HTML_MARGINS.find(
   (m) => m.id === DEFAULT_HTML_RENDER_OPTIONS.margin,
 )!;
+
+/**
+ * TIFF to PDF (2026-11-05), for JPG / PNG to PDF's TIFF reader (#273, and the
+ * Orientation tag, #276). Every ceiling, compression name and refusal is read
+ * from `tiff-limits.ts`, the leaf the reader itself refuses by, so the page
+ * states the number that refuses. The guide is ABOUT fax scans by its title,
+ * so a reader that stops reading CCITT fails the build here, not in a review.
+ */
+const TIFF = TIFF_IMAGE_LABEL;
+const TIFF_READ_NAMES = [...new Set(Object.values(TIFF_COMPRESSIONS))];
+const TIFF_FAX_NAMES = TIFF_READ_NAMES.filter((n) => n.startsWith("CCITT"));
+if (TIFF_FAX_NAMES.length === 0)
+  throw new Error("the TIFF guide is about fax scans, and no CCITT is read");
+const TIFF_PACKED_NAMES = TIFF_READ_NAMES.filter((n) => n !== "uncompressed");
+const TIFF_READS_RAW = TIFF_READ_NAMES.length > TIFF_PACKED_NAMES.length;
+const TIFF_PAGE_CAP = MAX_TIFF_PAGES.toLocaleString("en-US");
+const TIFF_PAGE_MP = MAX_TIFF_PAGE_PIXELS / 1_000_000;
+/** A page over the pixel ceiling by construction, so the example stays true. */
+const TIFF_BIG_W = 12_000;
+const TIFF_BIG_H =
+  (Math.floor(MAX_TIFF_PAGE_PIXELS / TIFF_BIG_W / 1000) + 1) * 1000;
+const TIFF_TOO_LARGE = tiffRefusal.tooLarge(
+  "poster.tif",
+  1,
+  TIFF_BIG_W,
+  TIFF_BIG_H,
+);
+/**
+ * 34712 is JPEG 2000's TIFF code: the reader names it in its refusal, and the
+ * guide names it as refused, so the day the reader learns it, this throws.
+ */
+const TIFF_JPEG2000 = 34712;
+if (TIFF_JPEG2000 in TIFF_COMPRESSIONS)
+  throw new Error("the TIFF guide says JPEG 2000 is refused, and it is read");
+const TIFF_UNREAD = tiffRefusal.compression("fax.tif", 2, TIFF_JPEG2000);
+const TIFF_DAMAGED = tiffRefusal.damaged("scan.tif", 2);
+const TIFF_FIT = labelOf(IMAGE_PAGE_SIZES, "fit");
+const TIFF_NO_MARGIN = labelOf(IMAGE_MARGINS, "none");
 
 export const guides: Guide[] = [
   {
@@ -4015,6 +4059,90 @@ export const guides: Guide[] = [
     ],
     published: "2026-10-30",
     updated: "2026-11-04",
+  },
+  // Added 2026-11-05 for the TIFF reader (#273) and its Orientation tag
+  // (#276). Every claim was checked against `tiff.ts`, `tiff-limits.ts`,
+  // `addTiffPages` in `image-to-pdf.ts`, `image-size-fit.ts` and the runner,
+  // and agrees with the JPG to PDF page's own TIFF answers.
+  {
+    slug: "how-to-convert-tiff-to-pdf",
+    title: `How to convert ${TIFF} to PDF (multi-page ${TIFF}s and fax scans)`,
+    description: `Turn a ${TIFF} into a PDF, every page of a multi-page ${TIFF} in order, fax scans included, without loss. It runs in your browser.`,
+    tools: ["jpg-to-pdf", "png-to-pdf", "ocr-pdf"],
+    keywords: [
+      "tiff to pdf",
+      "convert tiff to pdf",
+      "multi-page tiff to pdf",
+      "tif to pdf",
+      "fax tiff to pdf",
+      "convert scanned tiff to pdf",
+    ],
+    intro: [
+      `To convert a ${TIFF} file to PDF, open ${nameOf("jpg-to-pdf")}, add the ${TIFF} and press Create PDF. Every page of a multi-page ${TIFF} becomes a page of the PDF, in the ${TIFF}'s own order, and you can add several ${TIFF}s, or mix them with JPG and PNG images, in the same document. ${nameOf("png-to-pdf")} takes the same files and works the same way.`,
+      `The black-and-white pages that fax software and document scanners save (${listAnd(TIFF_FAX_NAMES)}) are read as well as gray, colour and palette pages, and every page goes into the PDF without loss: a fax page stays a black-and-white image rather than becoming a JPEG.`,
+      `The ${TIFF} is read in your browser, so your files stay on your device. Each file can be up to ${MAX_IMAGE_MB} MB, with up to ${TIFF_PAGE_CAP} pages, and each page up to ${TIFF_PAGE_MP} megapixels.`,
+    ],
+    steps: [
+      `Open the ${nameOf("jpg-to-pdf")} tool and drop your ${TIFF} files on the box at the top of the page, or click it to pick them. Each ${TIFF} is one entry in the list, and the line under its name says which pages of the PDF it becomes, such as Pages 3–4.`,
+      `Put the files in order with the up and down arrows on each one, and press the cross on a file to take it out. A ${TIFF}'s own pages stay together, in the order the ${TIFF} has them.`,
+      `Under Page size, choose ${TIFF_FIT} to give each page the size the scan had on paper, or pick a paper size. Set the Orientation and Margin, or keep the ones shown.`,
+      `Under Output, keep One PDF, or choose One PDF per image (ZIP) to get a PDF for each file, which with more than one file arrives as a ZIP. A multi-page ${TIFF} is still one PDF with all its pages.`,
+      "Press Create PDF, then Download PDF. With several files and a PDF per image, the button downloads them together as a ZIP instead.",
+    ],
+    sections: [
+      {
+        id: "what-it-reads",
+        heading: `Which ${TIFF} files it reads`,
+        body: [
+          `The tool reads ${TIFF_READS_RAW ? "uncompressed pages and " : ""}pages compressed with ${listAnd(TIFF_PACKED_NAMES)}. That covers fax and document-scanner output as well as gray, colour and palette images, and a page with transparency keeps it, so the white page shows through.`,
+          "A reduced-size preview that the scanning software saves beside a page is skipped rather than made a page of its own.",
+          `A ${TIFF} the tool cannot read is turned away when you add it, with a note naming the page, for example: ${TIFF_UNREAD} The same happens to a page that is too large, such as ${TIFF_TOO_LARGE} A BigTIFF is turned away as well. A page that turns out to be damaged stops Create PDF with a note naming it: ${TIFF_DAMAGED}`,
+        ],
+      },
+      {
+        id: "without-loss",
+        heading: "Stored without loss",
+        body: [
+          "Each page goes into the PDF as its pixels are, compressed losslessly and never turned into a JPEG, so a one-bit fax page stays a one-bit image: sharp, and small. The one change is that a page with sixteen bits per sample is brought down to eight.",
+          `With ${MAX_SIZE_LABELS.heading} left at ${MAX_SIZE_LABELS.none}, nothing else happens to it. If you choose a ${MAX_SIZE_LABELS.heading} and the PDF is over it, a ${TIFF} page is saved as a JPEG only where that comes out smaller than the page kept without loss, so a black-and-white scan page usually stays as it is.`,
+        ],
+      },
+      {
+        id: "page-size",
+        heading: "Page size and orientation",
+        body: [
+          `A ${TIFF} records how large it was on paper, as its resolution in dots per inch, and each page is laid out at that size. With ${TIFF_FIT} under Page size and ${TIFF_NO_MARGIN} under Margin, a scan of an A4 sheet becomes an A4 page. On a paper size, a page larger than the space inside the margin is shrunk to fit, and a smaller one is never enlarged. A page that records no usable resolution is laid out at one pixel per point, as JPG and PNG images are.`,
+          `A ${TIFF} page's Orientation tag is read and applied, so a page saved sideways with that tag comes out upright, its pixels left as they are. If a page is still sideways, the scanner saved the wrong tag or none, and ${nameOf("rotate-pdf")} can turn that page.`,
+        ],
+      },
+      {
+        id: "searchable",
+        heading: "Making the scan searchable",
+        body: [
+          `A fax or scanned page is a picture of text, so the PDF has no text you can select or search. ${nameOf("ocr-pdf")} adds a searchable text layer to it. That step runs on our secure server rather than in your browser.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: `How do I convert a multi-page ${TIFF} to PDF?`,
+        answer: `Open ${nameOf("jpg-to-pdf")}, drop the ${TIFF} on the box, and press Create PDF. Each page of the ${TIFF} becomes a page of the PDF, in the same order.`,
+      },
+      {
+        question: `Will a fax ${TIFF} lose quality?`,
+        answer: `No. The pages are stored without loss, and a black-and-white fax page stays a black-and-white image. Only a ${MAX_SIZE_LABELS.heading} you choose can save a page again as a JPEG, and then only where that is smaller.`,
+      },
+      {
+        question: `Why was my ${TIFF} turned away?`,
+        answer: `It has more than ${TIFF_PAGE_CAP} pages, a page over ${TIFF_PAGE_MP} megapixels, or a page stored in a way the tool cannot read, such as JPEG 2000. The note below the box says which, naming the page where there is one. A ${TIFF} with too many pages can be split into smaller ${TIFF}s first.`,
+      },
+      {
+        question: "Are my files sent to a server?",
+        answer: `No. The ${TIFF} is read and the PDF is made in your browser tab; the files are not sent to pdf.xyz.`,
+      },
+    ],
+    published: "2026-11-05",
+    updated: "2026-11-05",
   },
   // Added 2026-10-31 with the deep step's Target size. Every label is read
   // from the panel's constants (`compress-target.ts`, `offered-kinds.ts`),
