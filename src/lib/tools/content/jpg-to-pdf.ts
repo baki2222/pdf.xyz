@@ -199,7 +199,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Why is one of my phone photos sideways in the PDF?",
-      a: "It should not be. Phones often store a portrait photo as landscape pixels plus an EXIF orientation tag that tells viewers how to turn it. JPG to PDF reads that tag and turns the photo on the page the way your browser shows it, sized to its upright shape, without re-encoding the JPEG. If a page is still sideways, the camera saved the wrong tag (or none): open the PDF in Rotate PDF, which also runs in your browser, and turn just that page.",
+      a: "It should not be. Phones often store a portrait photo as landscape pixels plus an EXIF orientation tag that tells viewers how to turn it. JPG to PDF reads that tag and turns the photo on the page the way your browser shows it, sized to its upright shape, without re-encoding the JPEG. A TIFF page's Orientation tag is read and applied the same way, its pixels left as they are. If a page is still sideways, the camera saved the wrong tag (or none): open the PDF in Rotate PDF, which also runs in your browser, and turn just that page.",
     },
     {
       q: "Does converting JPG to PDF reduce photo quality?",

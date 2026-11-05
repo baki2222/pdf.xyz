@@ -2,9 +2,11 @@ import {
   drawRasterImage,
   embedRasterImage,
   loadPdfLib,
+  owesOrientation,
   rasterDisplaySize,
   type RasterImageFormat,
 } from "./pdf-lib";
+import { swapsAxes } from "./jpeg-orientation";
 import { baseName, outputName, sanitizeSegment } from "./files";
 import { PdfEngineError } from "./engine";
 import {
@@ -438,8 +440,9 @@ async function addTiffPages(
   const pages = tiff.readTiffPages(file.name, file.bytes);
   for (const [i, page] of pages.entries()) {
     const swap = prepared[i];
+    let image;
+    let stored;
     if (swap) {
-      let image;
       try {
         image = await embedRasterImage(doc, swap.bytes, swap.format);
       } catch {
@@ -447,13 +450,19 @@ async function addTiffPages(
           `"${file.name}" page ${page.number} could not be made smaller.`,
         );
       }
-      const shown = { width: swap.layoutWidth, height: swap.layoutHeight };
-      await drawImagePage(lib, doc, image, shown, options);
-      continue;
+      stored = { width: swap.layoutWidth, height: swap.layoutHeight };
+    } else {
+      const raster = await tiff.decodeTiffPage(file.name, file.bytes, page);
+      image = await tiff.embedTiffRaster(doc, raster);
+      stored = { width: page.widthPt, height: page.heightPt };
     }
-    const raster = await tiff.decodeTiffPage(file.name, file.bytes, page);
-    const image = await tiff.embedTiffRaster(doc, raster);
-    const shown = { width: page.widthPt, height: page.heightPt };
+    // Both images are the STORED raster (the size ladder re-encodes the
+    // decoded pixels as they are), so both owe the page's Orientation, and
+    // the page is laid out in the shape the reader sees.
+    owesOrientation(image, page.orientation);
+    const shown = swapsAxes(page.orientation)
+      ? { width: stored.height, height: stored.width }
+      : stored;
     await drawImagePage(lib, doc, image, shown, options);
   }
 }

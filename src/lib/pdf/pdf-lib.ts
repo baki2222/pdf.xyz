@@ -130,6 +130,19 @@ export async function embedRasterImage(
 const orientations = new WeakMap<PDFImage, ExifOrientation>();
 
 /**
+ * Record the turn a decoded raster owes, for {@link drawRasterImage}: a TIFF
+ * page's Orientation tag (274) is the same eight values as a JPEG's EXIF
+ * turn, and is applied the same way, without touching the stored pixels.
+ */
+export function owesOrientation(
+  image: PDFImage,
+  orientation: ExifOrientation,
+): void {
+  if (orientation === 1) orientations.delete(image);
+  else orientations.set(image, orientation);
+}
+
+/**
  * The size an embedded image is SHOWN at, in pixels: what a browser reports as
  * its natural size. A portrait phone photo is stored 4032×3024 and shown
  * 3024×4032; fitting it to a page must use the second.
