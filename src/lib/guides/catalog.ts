@@ -4085,7 +4085,7 @@ export const guides: Guide[] = [
     steps: [
       `Open the ${nameOf("jpg-to-pdf")} tool and drop your ${TIFF} files on the box at the top of the page, or click it to pick them. Each ${TIFF} is one entry in the list, and the line under its name says which pages of the PDF it becomes, such as Pages 3–4.`,
       `Put the files in order with the up and down arrows on each one, and press the cross on a file to take it out. A ${TIFF}'s own pages stay together, in the order the ${TIFF} has them.`,
-      `Under Page size, choose ${TIFF_FIT} to give each page the size the scan had on paper, or pick a paper size. Set the Orientation and Margin, or keep the ones shown.`,
+      `Choose ${TIFF_FIT} under Page size and ${TIFF_NO_MARGIN} under Margin to give each page the size the scan had on paper, or pick a paper size. Set the Orientation, or keep the one shown.`,
       `Under Output, keep One PDF, or choose One PDF per image (ZIP) to get a PDF for each file, which with more than one file arrives as a ZIP. A multi-page ${TIFF} is still one PDF with all its pages.`,
       "Press Create PDF, then Download PDF. With several files and a PDF per image, the button downloads them together as a ZIP instead.",
     ],
