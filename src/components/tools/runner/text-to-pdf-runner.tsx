@@ -1,10 +1,21 @@
 "use client";
 
 import { MAX_SOURCE_BYTES, MAX_SOURCE_MB } from "@/lib/tools/limits";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { usePreHydrationText } from "./pre-hydration-text";
 import { Download, FileText, Keyboard, ShieldCheck, Type } from "lucide-react";
-import { textPdfOutputName, textToPdf } from "@/lib/pdf/text-to-pdf";
+import {
+  printablePlainText,
+  textPdfOutputName,
+  textToPdf,
+} from "@/lib/pdf/text-to-pdf";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
 import { formatBytes } from "@/lib/utils";
@@ -82,7 +93,8 @@ export function TextToPdfRunner() {
     // Windows-1252 note into "caf� �q�" and a Notepad "Unicode" save into
     // U+FFFD and NULs — then reported "PDF created". The size gate above stays
     // on bytes, so this is one decode of at most MAX_SOURCE_BYTES.
-    const decoded = await decodeTextFile(file);
+    // Form feeds are kept: the converter starts a new page at each.
+    const decoded = await decodeTextFile(file, { keepFormFeeds: true });
     setSource({
       name: file.name || "text.txt",
       text: decoded.text,
@@ -144,6 +156,15 @@ function TextToPdfEditor({
   const characterCount = source.text.length;
   const byteCount = new TextEncoder().encode(source.text).byteLength;
   const filename = textPdfOutputName(source.name);
+  // Pasted or typed text has no decoder note, so the converter's own count
+  // stands in: the same characters it will drop (audit #34).
+  const controlsNote = useMemo(() => {
+    if (source.readNote) return null;
+    const n = printablePlainText(source.text).removed;
+    return n > 0
+      ? `${n.toLocaleString()} control character${n === 1 ? " is" : "s are"} left out of the PDF — they have no printable shape.`
+      : null;
+  }, [source.readNote, source.text]);
 
   const onRun = () =>
     run(() =>
@@ -206,7 +227,10 @@ function TextToPdfEditor({
           placeholder="Paste or type plain text here…"
           className="border-line text-fg focus:border-accent focus:ring-accent/50 bg-canvas rounded-panel [min-height:18rem] w-full resize-y border px-4 py-3 font-mono text-sm leading-6 transition outline-none focus:ring-2"
         />
-        <TextSourceNotes readNote={source.readNote} text={source.text} />
+        <TextSourceNotes
+          readNote={source.readNote ?? controlsNote}
+          text={source.text}
+        />
         <div className="grid gap-3 sm:grid-cols-3">
           <InfoTile
             icon={ShieldCheck}

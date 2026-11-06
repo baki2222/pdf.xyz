@@ -26,6 +26,7 @@ import {
   decodeTextBytes,
   describeDecoding,
   describeReplacementCharacters,
+  stripControls,
 } from "./decode-text-file";
 import { textToPdf } from "@/lib/pdf/text-to-pdf";
 import { extractPdfText } from "@/lib/pdf/text";
@@ -179,6 +180,22 @@ describe("decodeTextBytes: the file's own encoding, not always UTF-8", () => {
     const withNul = decodeTextBytes(new TextEncoder().encode(`a${NUL}b`));
     expect(withNul.text).toBe("ab");
     expect(withNul.removedControls).toBe(1);
+  });
+
+  it("drops an ANSI colour sequence whole, and keeps form feeds when asked (audit #34)", () => {
+    const ESC = String.fromCharCode(0x1b);
+    const FF = String.fromCharCode(0x0c);
+    const bytes = new TextEncoder().encode(`${ESC}[1;31mred${ESC}[0m${FF}b`);
+    // Default (Markdown to PDF): the sequence goes whole, the form feed too.
+    const plain = decodeTextBytes(bytes);
+    expect(plain.text).toBe("redb");
+    expect(plain.removedControls).toBe(3);
+    // Text to PDF keeps the form feed, which it turns into a page break.
+    const kept = decodeTextBytes(bytes, { keepFormFeeds: true });
+    expect(kept.text).toBe(`red${FF}b`);
+    expect(kept.removedControls).toBe(2);
+    // CONTROL: an ESC that opens no sequence removes only itself.
+    expect(stripControls(`${ESC}x[1m`)).toEqual({ text: "x[1m", removed: 1 });
   });
 });
 
