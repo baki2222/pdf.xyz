@@ -4,6 +4,7 @@ import {
   DEFAULT_OCR_LANGUAGE,
   MAX_OCR_LANGUAGES,
   OCR_LANGUAGES,
+  OCR_IMAGE_PAGE_BOUND,
   OCR_MIN_WORDS_FOR_CONFIDENCE_ADVICE,
   OCR_OUTPUT_MODES,
   describeOcrLanguage,
@@ -130,7 +131,7 @@ const content: ToolContent = {
   metaDescription: `OCR a scanned PDF, JPG or PNG in ${LANGUAGE_COUNT} languages including ${SHORT_NON_LATIN}. Download a searchable PDF, a plain TXT file, or both. No account.`,
 
   intro: [
-    `A scanner or phone camera saves each page as a picture, so Ctrl+F finds nothing and no sentence can be copied out. OCR PDF reads the lettering and returns it as real text. For a PDF, your pages stay as they are and an invisible text layer is laid underneath, so the document looks the same but becomes searchable and selectable, unless you ask for crooked pages to be straightened or turned pages to be set upright. Send a JPG or PNG instead, such as a photographed receipt or a screenshot of a form, and any PDF you ask for comes back as a single page holding that image with the recognised words beneath it.`,
+    `A scanner or phone camera saves each page as a picture, so Ctrl+F finds nothing and no sentence can be copied out. OCR PDF reads the lettering and returns it as real text. For a PDF, your pages stay as they are and an invisible text layer is laid underneath, so the document looks the same but becomes searchable and selectable, unless you ask for crooked pages to be straightened or turned pages to be set upright. Send a JPG or PNG instead, such as a photographed receipt or a screenshot of a form, and any PDF you ask for comes back as a single page holding that image with the recognised words beneath it. A phone photo is read the way up your phone shows it, and its page is no longer than ${OCR_IMAGE_PAGE_BOUND.label}.`,
     `Recognition needs a native OCR engine, so this online tool does not run in your browser. Your file is uploaded over TLS to pdf.xyz's secure server, which runs OCRmyPDF on PDFs and Tesseract on images. The input is deleted when the job finishes, the download link expires after ${OUTPUT_TTL} minutes, and a daily storage rule then erases the stored result. One scan goes in per run, at most ${CEILING_MB} MB.`,
     `Of every choice on the page, the language is the one most likely to spoil a result. ${LANGUAGE_COUNT} are on offer, with ${NON_LATIN} among them, and a single job can combine up to ${MAX_OCR_LANGUAGES}. Picking the wrong one does not produce an error: the engine matches shapes against the alphabet it was given and returns fluent-looking nonsense.`,
   ],
@@ -158,7 +159,7 @@ const content: ToolContent = {
     },
     {
       title: "Turn pages scanned sideways or upside down",
-      body: "Sheets fed in the wrong way round come out sideways or upside down, and their words cannot be read until they are turned. Tick “Turn pages upright” and each page of the PDF that has no text yet is checked for which way its lines run and turned the right way up before its words are recognised. The turn is saved as the page's rotation setting, so on its own it keeps the page's picture as it was. A page needs enough text to tell which way is up, so one with only a line of text may be left as it is. Unless “Redo existing OCR” is ticked, a page that already has text is kept exactly as it is, so it is not turned. It can be combined with “Straighten crooked pages” and with “Redo existing OCR”, and a JPG or PNG is read as it is, without turning.",
+      body: "Sheets fed in the wrong way round come out sideways or upside down, and their words cannot be read until they are turned. Tick “Turn pages upright” and each page of the PDF that has no text yet is checked for which way its lines run and turned the right way up before its words are recognised. The turn is saved as the page's rotation setting, so on its own it keeps the page's picture as it was. A page needs enough text to tell which way is up, so one with only a line of text may be left as it is. Unless “Redo existing OCR” is ticked, a page that already has text is kept exactly as it is, so it is not turned. It can be combined with “Straighten crooked pages” and with “Redo existing OCR”, and a JPG or PNG is not checked this way, though a phone photo is still read the way up your phone shows it.",
     },
   ],
 

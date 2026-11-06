@@ -19,6 +19,7 @@
  *    naming). An unknown code is rejected, never silently dropped.
  */
 
+import { IMAGE_PAGE_SIZES } from "@/lib/pdf/image-page-layout";
 import { apiError, type ParseResult } from "./responses";
 
 /**
@@ -597,6 +598,15 @@ export const OCR_LOW_CONFIDENCE_WORD_THRESHOLD = 60;
  * a single misread word swings the average, so consumers must not draw a conclusion.
  */
 export const OCR_MIN_WORDS_FOR_CONFIDENCE_ADVICE = 25;
+
+/**
+ * The page an image's searchable PDF may be no longer than: a phone photo
+ * declaring 72 dpi has its resolution raised until its longer side fits this
+ * page's (`workers/ocr-image`, audit #9). The OCR page names its label.
+ */
+export const OCR_IMAGE_PAGE_BOUND = IMAGE_PAGE_SIZES.find(
+  (s) => s.id === "a4",
+)!;
 
 /** Mean below which recognition is described as shaky. Provisional — see below. */
 const OCR_LOW_MEAN_CONFIDENCE = 0.7;
