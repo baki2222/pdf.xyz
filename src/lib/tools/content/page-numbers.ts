@@ -214,7 +214,7 @@ const content: ToolContent = {
     },
     {
       title: "Set placement",
-      body: `The number sits at Bottom center unless you click another of the ${positionCount} cells in the position grid. A position or preset you used last time comes back on your next visit with a note saying so, and Use defaults puts both back. Start on page skips leading pages and First number sets the opening value; both start at 1 for every file, a slider sets Font size, and Margin moves it Small, Medium or Large from the edge. Pages, font and color holds the rest: Leave the cover unnumbered, Facing pages, Skip last pages, a Font choice and a Color picker; left closed, the numbers come out as they always have.`,
+      body: `The number sits at Bottom center unless you click another of the ${positionCount} cells in the position grid. A position or preset you used last time comes back on your next visit with a note saying so, and Use defaults puts both back. Start on page skips leading pages and First number sets the opening value; both start at 1 for every file. A slider sets Font size, and Margin moves it Small, Medium or Large from the edge. Pages, font and color holds the rest: Leave the cover unnumbered, Facing pages, Skip last pages, a Font choice and a Color picker; left closed, the numbers come out as they always have.`,
     },
     {
       title: "Add page numbers",
