@@ -94,6 +94,10 @@ function ToolLink({ slug }: { slug: string }) {
  * change, move or delete the words already in the PDF — true then, false
  * once Edit text removed the original glyphs from the content stream
  * (`editor/content-edit.ts`).
+ *
+ * Until 2026-11-06 (audit #32) it sent a scan to OCR PDF "first" — a dead
+ * end, since Edit text refuses OCR PDF's invisible text layer. It now gives
+ * the intro's way out, and `tool-page-content.test.ts` pins the two together.
  */
 export function HonestScopeNote() {
   return (
@@ -102,10 +106,10 @@ export function HonestScopeNote() {
       <p className="leading-relaxed">
         <span className="font-semibold">Edit text</span> retypes a line of the
         PDF&apos;s own text in place: the old words are removed from the file. A
-        scanned page has no text to edit — run <ToolLink slug="ocr-pdf" /> first
-        — and text inside some embedded objects is refused. To rework whole
-        paragraphs, convert the file with <ToolLink slug="pdf-to-word" />.
-        Whiteout only covers what is under it; Redact removes it.
+        scanned page has no text to edit; to change a scan&apos;s words, use{" "}
+        <ToolLink slug="pdf-to-word" /> with its OCR option ticked — it is also
+        the way to rework whole paragraphs. Text inside some embedded objects is
+        refused. Whiteout only covers what is under it; Redact removes it.
       </p>
     </div>
   );
