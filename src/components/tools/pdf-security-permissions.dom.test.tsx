@@ -31,6 +31,7 @@ import {
 } from "@/lib/jobs/pdf-permissions";
 import { dropSheetsLive } from "@/tests/drop-sheets-live";
 import { PDF_PERMISSIONS } from "@/lib/jobs/pdf-permission-labels";
+import { AES128_PASSWORD_CHARSET_MESSAGE } from "@/lib/jobs/pdf-security";
 import { PdfSecurityWorkerPanel } from "./pdf-security-worker-panel";
 
 afterEach(() => {
@@ -245,3 +246,42 @@ describe("Protect PDF: permissions", { timeout: 30_000 }, () => {
     expect(forms).not.toBeChecked();
   });
 });
+
+// Audit #12 (2026-11-06): the panel let a Bangla password go out at AES-128,
+// where the PDF stores passwords in PDFDocEncoding; the file came back
+// "protected" with a password most readers would not accept as typed.
+describe(
+  "Protect PDF: an AES-128 password must be PDFDocEncoding",
+  { timeout: 30_000 },
+  () => {
+    const BANGLA = String.fromCodePoint(0x09aa, 0x09be, 0x09b8, 0x0993, 0x09df);
+
+    it("blocks a Bangla password at AES-128 in words, and lets it through at AES-256", async () => {
+      const asked = answerWithLocalWorker(() => -4);
+      await fillForm();
+      fireEvent.change(screen.getByLabelText("New password"), {
+        target: { value: BANGLA },
+      });
+      fireEvent.click(screen.getByRole("radio", { name: /AES-128/ }));
+      const run = await runButton();
+      await waitFor(() => expect(run).toHaveAttribute("aria-disabled", "true"));
+      expect(
+        screen.getByText(
+          new RegExp(AES128_PASSWORD_CHARSET_MESSAGE.slice(0, 40)),
+        ),
+      ).toBeInTheDocument();
+      fireEvent.click(run);
+      expect(asked).toHaveLength(0);
+
+      // Positive control: the same password at AES-256 runs.
+      fireEvent.click(screen.getByRole("radio", { name: /AES-256/ }));
+      await waitFor(() => expect(run).not.toHaveAttribute("aria-disabled"));
+      fireEvent.click(run);
+      await screen.findByText("Your PDF is protected and ready.", undefined, {
+        timeout: 10_000,
+      });
+      expect(asked).toHaveLength(1);
+      expect(asked[0]!.keyLength).toBe(256);
+    });
+  },
+);

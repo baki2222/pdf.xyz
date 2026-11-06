@@ -32,6 +32,9 @@ import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
  *    the open password; only then are `ownerPassword` and `permissions` sent.
  *  - src/lib/jobs/pdf-security.ts — the owner password defaults to the open
  *    password; the byte bound; control characters refused; AES-256 default;
+ *    ADDED 2026-11-06 (audit #12): at 128-bit a password with no
+ *    PDFDocEncoding form (Bangla, Cyrillic, Greek, CJK) is refused, and the
+ *    panel shows the same refusal before upload;
  *    a restriction without a distinct owner password is refused, as are
  *    accessibility off and forms off while comments are on.
  *  - src/lib/workers/pdf-security/native.ts — `qpdf --encrypt <user> <owner>
@@ -176,7 +179,7 @@ const content: ToolContent = {
     },
     {
       q: "Are there rules for the password itself?",
-      a: `It cannot be empty, cannot contain control characters such as tabs or line breaks, and cannot exceed ${PW_BYTES} bytes. Accented and non-Latin characters take more than one byte each, so the hint under the field counts bytes once you pass the limit.`,
+      a: `It cannot be empty, cannot contain control characters such as tabs or line breaks, and cannot exceed ${PW_BYTES} bytes. Accented and non-Latin characters take more than one byte each, so the hint under the field counts bytes once you pass the limit. ${describePdfKeyLength(128)} stores the password in the PDF's own Latin character set, so with it the password can use only Latin letters, digits and common symbols; a Bangla, Cyrillic, Greek or CJK password needs ${describePdfKeyLength(256)}, and the field says so before anything uploads.`,
     },
   ],
 
