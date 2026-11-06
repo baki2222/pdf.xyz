@@ -76,6 +76,17 @@ const LIMIT_MET = limitOutcome({
  *    Also probed 2026-09-27 through imagesToPdf itself: an 8-colour palette PNG
  *    of 1,798 bytes became a 16,714-byte PDF, which is why the FAQ names
  *    palette PNGs (not only greyscale) as the case that grows.
+ *    SUPERSEDED 2026-11-06 (audit #10), history kept above: pdf-lib's PNG
+ *    path is no longer used. src/lib/pdf/png-embed.ts embeds each PNG as it
+ *    is stored — greyscale as DeviceGray, a palette as Indexed, its own bit
+ *    depth (16 included), PNG's row filters kept as /Predictor 15 (the IDAT
+ *    passed through unchanged when there is no alpha and no interlacing),
+ *    alpha split into an SMask only when some pixel is not opaque, and an
+ *    iCCP profile kept as ICCBased. A 1200×800 RGB gradient that became a
+ *    ~460 KB PDF now comes out within a few KB of its PNG; a 2-frame APNG
+ *    and a cut-off PNG are still refused. src/lib/pdf/png-embed.test.ts
+ *    renders every case through pdf.js, its fixtures checked by Skia. The
+ *    FAQ's "two caveats" sentence was rewritten to match.
  *  - Workspace handoff (use-tool-handoff → src/lib/handoff) passes files via
  *    IndexedDB, or an in-memory map when that is unavailable; never a server.
  *  - gate, re-read 2026-10-06: `isImageAllowedForKind` takes PNG OR JPEG on
@@ -170,7 +181,7 @@ const content: ToolContent = {
     },
     {
       q: "Will my screenshots lose quality?",
-      a: `With ${LIMIT} at ${NO_LIMIT}, no PNG pixel is re-saved as JPEG, so edges and on-screen text survive intact, even when a large image is shown scaled down on the page. Two caveats. A sixteen-bit PNG is reduced to eight bits per channel. And every image is stored as eight-bit RGB without PNG's own row filtering, so a palette or greyscale PNG is expanded to full colour and can make a PDF far heavier than the file you added. A WebP, GIF or BMP without transparency is the one kind stored as JPEG, at high quality, because it has to be saved again either way. A TIFF page keeps its own depth instead: a black-and-white scan stays one bit per pixel, so it stays small. A ${LIMIT} the PDF is over is the exception you choose: then every image is saved again as a JPEG, with fewer pixels, until the PDF fits, and on-screen text can blur.`,
+      a: `With ${LIMIT} at ${NO_LIMIT}, no PNG pixel is re-saved as JPEG, so edges and on-screen text survive intact, even when a large image is shown scaled down on the page. Each PNG also keeps its own encoding inside the PDF: greyscale stays greyscale, a palette PNG keeps its list of colours, sixteen bits per channel stay sixteen, and a colour profile, such as the Display P3 one a Mac screenshot carries, is kept, so colours match the PNG and the PDF stays close to the size of the files you added. A WebP, GIF or BMP without transparency is the one kind stored as JPEG, at high quality, because it has to be saved again either way. A TIFF page keeps its own depth too: a black-and-white scan stays one bit per pixel, so it stays small. A ${LIMIT} the PDF is over is the exception you choose: then every image is saved again as a JPEG, with fewer pixels, until the PDF fits, and on-screen text can blur.`,
     },
     {
       q: "Can I make the PDF smaller than 100 KB or 200 KB?",

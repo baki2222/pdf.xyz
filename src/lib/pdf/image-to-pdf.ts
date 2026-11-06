@@ -503,7 +503,12 @@ async function addImagePage(
   }
   let image;
   try {
-    image = await embedRasterImage(doc, bytes, format);
+    // A PNG keeps its own encoding — depth, palette, row filtering, colour
+    // profile (`png-embed.ts`); loaded on the first PNG only.
+    image =
+      format === "png"
+        ? await (await import("./png-embed")).embedPngAsStored(doc, bytes)
+        : await embedRasterImage(doc, bytes, format);
   } catch {
     throw new PdfEngineError(
       `"${file.name}" could not be decoded as a ${format === "jpg" ? "JPG" : "PNG"} image.`,
