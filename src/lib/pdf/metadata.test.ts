@@ -230,6 +230,117 @@ describe("writePdfMetadata — edit", () => {
   });
 });
 
+/**
+ * Audit #29 (2026-11-06): an edit replaced the XMP packet wholesale, so a
+ * PDF/A file (our own PDF to PDF/A output among them) lost its pdfaid
+ * identification on a title change; and both dates went through the editor's
+ * minute-precision field and back, so an untouched CreationDate lost its
+ * seconds and its offset became Z.
+ */
+describe("writePdfMetadata — edit keeps what was not edited", () => {
+  // Ghostscript writes the attribute spelling; others write elements.
+  const PDFA_XMP = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:title><rdf:Alt><rdf:li xml:lang="x-default">Archived</rdf:li></rdf:Alt></dc:title>
+</rdf:Description>
+<rdf:Description rdf:about="" xmlns:id="http://www.aiim.org/pdfa/ns/id/" id:part='2'>
+<id:conformance>B</id:conformance>
+</rdf:Description>
+<rdf:Description rdf:about="" xmlns:pdfuaid="http://www.aiim.org/pdfua/ns/id/">
+<pdfuaid:part>1</pdfuaid:part>
+</rdf:Description>
+</rdf:RDF></x:xmpmeta><?xpacket end="w"?>`;
+
+  async function withXmp(xmp: string, creationDate?: string) {
+    const doc = await PDFDocument.create();
+    doc.addPage([300, 300]);
+    doc.setTitle("Archived");
+    const stream = doc.context.stream(new TextEncoder().encode(xmp), {
+      Type: "Metadata",
+      Subtype: "XML",
+    });
+    doc.catalog.set(PDFName.of("Metadata"), doc.context.register(stream));
+    const info = doc.context.lookup(doc.context.trailerInfo.Info, PDFDict);
+    if (creationDate) {
+      info.set(PDFName.of("CreationDate"), PDFString.of(creationDate));
+      info.set(PDFName.of("ModDate"), PDFString.of(creationDate));
+    }
+    return doc.save({ useObjectStreams: false });
+  }
+
+  /** What the runner sends: every field through its draft and back. */
+  async function titleOnlyEdit(source: Uint8Array, title: string) {
+    const reading = await readPdfMetadata(source);
+    const values: PdfMetadata = {
+      ...reading,
+      title,
+      creationDate: fromLocalInputValue(
+        toLocalInputValue(reading.creationDate),
+      ),
+      modificationDate: fromLocalInputValue(
+        toLocalInputValue(reading.modificationDate),
+      ),
+    };
+    return writePdfMetadata(source, { kind: "edit", values });
+  }
+
+  it("keeps the PDF/A and PDF/UA identification through a title edit", async () => {
+    const source = await withXmp(PDFA_XMP);
+    // Control: the source declares it.
+    expect(new TextDecoder().decode(source)).toContain("id:part='2'");
+    const result = await titleOnlyEdit(source, "New title");
+    const { xmp } = await pdfjsMetadata(result.bytes);
+    expect(xmp?.get("dc:title")).toBe("New title");
+    expect(xmp?.get("pdfaid:part")).toBe("2");
+    expect(xmp?.get("pdfaid:conformance")).toBe("B");
+    expect(xmp?.get("pdfuaid:part")).toBe("1");
+  });
+
+  it("adds no identification to a packet that had none", async () => {
+    const result = await titleOnlyEdit(await withXmp(OLD_XMP), "New title");
+    const { xmp } = await pdfjsMetadata(result.bytes);
+    expect(xmp?.get("dc:title")).toBe("New title");
+    expect(xmp?.get("pdfaid:part")).toBeNull();
+    expect(xmp?.get("pdfuaid:part")).toBeNull();
+  });
+
+  it("an untouched date keeps its seconds and its offset", async () => {
+    const STAMP = "D:20200101123456+05'00'";
+    const source = await withXmp(OLD_XMP, STAMP);
+    const result = await titleOnlyEdit(source, "New title");
+    const out = await PDFDocument.load(result.bytes, { updateMetadata: false });
+    const info = out.context.lookup(out.context.trailerInfo.Info, PDFDict);
+    for (const key of ["CreationDate", "ModDate"]) {
+      const value = info.lookup(PDFName.of(key));
+      expect(
+        value instanceof PDFString || value instanceof PDFHexString
+          ? value.decodeText()
+          : value,
+        key,
+      ).toBe(STAMP);
+    }
+    expect(result.saved.creationDate?.toISOString()).toBe(
+      "2020-01-01T07:34:56.000Z",
+    );
+  });
+
+  it("a date the person changed is written as typed", async () => {
+    const source = await withXmp(OLD_XMP, "D:20200101123456+05'00'");
+    const reading = await readPdfMetadata(source);
+    const result = await writePdfMetadata(source, {
+      kind: "edit",
+      values: {
+        ...reading,
+        creationDate: fromLocalInputValue("2021-03-04T05:06"),
+      },
+    });
+    expect(result.saved.creationDate?.getTime()).toBe(
+      fromLocalInputValue("2021-03-04T05:06")!.getTime(),
+    );
+  });
+});
+
 describe("writePdfMetadata — remove all", () => {
   it("strips the Info dictionary and the XMP stream, pages kept", async () => {
     const source = await sourcePdf({ xmp: true });

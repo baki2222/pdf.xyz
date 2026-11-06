@@ -3614,7 +3614,7 @@ export const guides: Guide[] = [
         heading: "The second copy, XMP",
         body: [
           "Many PDFs keep the same information twice: once in the document information entries and again in an XMP packet, a block of XML that Acrobat and other readers prefer when it is there. A tool that changed only the first copy would leave those readers showing the old title.",
-          "So when a file has XMP, a note beside Document properties says so, and saving replaces the packet with a fresh one holding the same values as the fields. Anything else the old packet held is not kept. A file with no XMP packet does not get one.",
+          "So when a file has XMP, a note beside Document properties says so, and saving replaces the packet with a fresh one holding the same values as the fields. A PDF/A or PDF/UA identification in the old packet is carried over, so an archive file still declares itself one; anything else the old packet held is not kept. A file with no XMP packet does not get one.",
         ],
       },
       {
@@ -3662,7 +3662,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-30",
-    updated: "2026-10-30",
+    updated: "2026-11-06",
   },
   {
     slug: "how-to-resize-pdf-pages",
