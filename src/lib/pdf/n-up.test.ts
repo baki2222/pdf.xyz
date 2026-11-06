@@ -1,7 +1,14 @@
 // @native-canvas
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
-import { PDFDocument, StandardFonts, degrees } from "pdf-lib";
+import {
+  PDFBool,
+  PDFDocument,
+  PDFHexString,
+  PDFName,
+  StandardFonts,
+  degrees,
+} from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import {
   N_UP_COUNTS,
@@ -292,5 +299,71 @@ describe("nUpPdf, read back by pdf.js", () => {
 
   it("names the copy after the source and the count", () => {
     expect(nUpOutputName("notes.pdf", 4)).toBe("notes-4-up.pdf");
+  });
+});
+
+/**
+ * Filled form values with NO appearance stream (audit #24). A form filled by
+ * pdftk without flatten, by some browser and macOS fills, or by a server
+ * carries its value only in `/V`, with `/NeedAppearances true`: a viewer
+ * builds the appearance itself. Until 2026-11-06 the bake step skipped any
+ * widget with no `/AP`, so such a value vanished from the sheets with no
+ * warning, while the FAQ promises "a filled form ... looks the same".
+ */
+describe("filled form values reach the sheet", () => {
+  /** Every text run pdf.js reads off every sheet. */
+  async function sheetText(bytes: Uint8Array): Promise<string> {
+    const lib = await pdfjs();
+    const task = lib.getDocument({ data: bytes.slice(), verbosity: 0 });
+    const doc = await task.promise;
+    const runs: string[] = [];
+    for (let n = 1; n <= doc.numPages; n += 1) {
+      const text = await (await doc.getPage(n)).getTextContent();
+      for (const item of text.items) if ("str" in item) runs.push(item.str);
+    }
+    await task.destroy();
+    return runs.join("|");
+  }
+
+  /** A 2-page labelled PDF whose page 1 holds a text field set to `value`. */
+  async function filledForm(
+    value: string,
+    { appearance }: { appearance: boolean },
+  ): Promise<Uint8Array> {
+    const doc = await PDFDocument.load(await labelledPdf(2));
+    const form = doc.getForm();
+    const field = form.createTextField("applicant.name");
+    field.addToPage(doc.getPage(0), { x: 20, y: 200, width: 200, height: 30 });
+    if (appearance) {
+      field.setText(value);
+      return doc.save();
+    }
+    // What pdftk fill_form leaves: the value in /V, no /AP, and the form
+    // telling the viewer to draw it.
+    field.acroField.dict.set(PDFName.of("V"), PDFHexString.fromText(value));
+    for (const widget of field.acroField.getWidgets()) {
+      widget.dict.delete(PDFName.of("AP"));
+    }
+    form.acroForm.dict.set(PDFName.of("NeedAppearances"), PDFBool.True);
+    return doc.save({ updateFieldAppearances: false });
+  }
+
+  it("CONTROL: a value with an appearance stream is drawn on the sheet", async () => {
+    const pdf = await filledForm("FILLEDVALUE", { appearance: true });
+    const result = await nUpPdf(pdf, opts({ perSheet: 2 }));
+    expect(await sheetText(result.bytes)).toContain("FILLEDVALUE");
+  });
+
+  it("a value with no appearance stream (NeedAppearances) is drawn on the sheet", async () => {
+    const pdf = await filledForm("FILLEDVALUE", { appearance: false });
+    const result = await nUpPdf(pdf, opts({ perSheet: 2 }));
+    expect(await sheetText(result.bytes)).toContain("FILLEDVALUE");
+    expect(result.undrawnFields).toEqual([]);
+  });
+
+  it("a value the form's font cannot draw is reported by field name, not dropped silently", async () => {
+    const pdf = await filledForm("আমার", { appearance: false });
+    const result = await nUpPdf(pdf, opts({ perSheet: 2 }));
+    expect(result.undrawnFields).toEqual(["applicant.name"]);
   });
 });

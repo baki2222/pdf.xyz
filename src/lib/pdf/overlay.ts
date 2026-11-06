@@ -499,6 +499,57 @@ function sendNewestStreamToBack(lib: PdfLibModule, page: PDFPage): void {
   contents.insert(0, newest);
 }
 
+/**
+ * Give every form field a viewer would draw from its VALUE an appearance
+ * stream to bake, in place, on an in-memory document; return the names of
+ * the fields that could not be given one.
+ *
+ * {@link bakeAnnotationAppearances} paints stored appearances only, and a
+ * form filled by pdftk without flatten, by some browser and macOS fills, or
+ * by a server carries its value only in `/V`, with `/NeedAppearances true`
+ * and often no `/AP` at all: the viewer builds the appearance. Measured at
+ * a7aa20cf (audit #24), such a value vanished from Multiple Pages per Sheet
+ * with no warning. So, as Flatten PDF does: under `/NeedAppearances true`
+ * every text, dropdown and list field is redrawn from its value, and any
+ * field with no appearance is drawn. A value the form's WinAnsi font cannot
+ * draw (Bengali, CJK) is left out and named, for the caller to say so.
+ */
+export function drawFieldValues(lib: PdfLibModule, doc: PDFDocument): string[] {
+  const { PDFBool, PDFDict, PDFName, PDFSignature } = lib;
+  const { PDFDropdown, PDFOptionList, PDFTextField } = lib;
+  if (!doc.catalog.lookupMaybe(PDFName.of("AcroForm"), PDFDict)) return [];
+  const form = doc.getForm();
+  const fields = form.getFields();
+  const flag = form.acroForm.dict.lookup(PDFName.of("NeedAppearances"));
+  if (flag instanceof PDFBool && flag.asBoolean()) {
+    for (const field of fields) {
+      if (
+        field instanceof PDFTextField ||
+        field instanceof PDFDropdown ||
+        field instanceof PDFOptionList
+      ) {
+        form.markFieldAsDirty(field.ref);
+      }
+    }
+  }
+  const font = form.getDefaultFont();
+  const undrawn: string[] = [];
+  for (const field of fields) {
+    if (field instanceof PDFSignature || !field.needsAppearancesUpdate()) {
+      continue;
+    }
+    const redraw = (
+      field as { defaultUpdateAppearances?: (f: typeof font) => void }
+    ).defaultUpdateAppearances;
+    try {
+      redraw?.call(field, font);
+    } catch {
+      undrawn.push(field.getName());
+    }
+  }
+  return undrawn;
+}
+
 /** Annotation flags (PDF 32000 §12.5.3) that stop a viewer painting one. */
 const ANNOT_HIDDEN = 1 << 1;
 const ANNOT_NO_VIEW = 1 << 5;

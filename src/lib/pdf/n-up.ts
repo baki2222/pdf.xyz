@@ -2,7 +2,11 @@ import type { PDFEmbeddedPage } from "pdf-lib";
 import { PdfEngineError, loadPdf } from "./engine";
 import { outputName } from "./files";
 import { IMAGE_MARGINS, IMAGE_PAGE_SIZES } from "./image-page-layout";
-import { bakeAnnotationAppearances, placeOverlay } from "./overlay";
+import {
+  bakeAnnotationAppearances,
+  drawFieldValues,
+  placeOverlay,
+} from "./overlay";
 import { visibleBox, visiblePageFrame, type Box } from "./page-frame";
 import { loadPdfLib } from "./pdf-lib";
 import { stampProducer } from "./stamp";
@@ -15,7 +19,9 @@ import { stampProducer } from "./stamp";
  * Each source page is embedded as a Form XObject (pdf-lib `embedPages`) clipped
  * to its VISIBLE box (CropBox ∩ MediaBox), with the appearance of every
  * visible annotation and form field baked in first, as Overlay PDF does — so a
- * filled form or a stamp shows on the sheet. Links and fields stop being
+ * filled form or a stamp shows on the sheet. A value stored with no appearance
+ * (`/NeedAppearances`) is drawn first (`drawFieldValues`); one the form's font
+ * cannot draw is named in `undrawnFields`. Links and fields stop being
  * interactive: an embedded page carries drawing only. A page's own `/Rotate`
  * is honoured (placed by `placeOverlay`, the geometry Overlay PDF uses), so a
  * landscape scan lands the way a viewer shows it.
@@ -186,6 +192,11 @@ export interface NUpResult {
   orientation: "portrait" | "landscape";
   /** Columns × rows actually used. */
   grid: { cols: number; rows: number };
+  /**
+   * Form fields whose value a viewer draws from the value alone and the
+   * form's font cannot (`drawFieldValues`): left off the sheets, named here.
+   */
+  undrawnFields: string[];
 }
 
 /** Lay every page of `bytes` out `perSheet` to a sheet. */
@@ -219,6 +230,8 @@ export async function nUpPdf(
   );
 
   const out = await lib.PDFDocument.create();
+  // Values a viewer draws from /V alone get an appearance to bake first.
+  const undrawnFields = drawFieldValues(lib, source);
   // A page with no content stream draws nothing; it still takes its cell.
   const drawable = pages
     .map((page, index) => {
@@ -301,6 +314,7 @@ export async function nUpPdf(
     sheets,
     orientation,
     grid,
+    undrawnFields,
   };
 }
 
