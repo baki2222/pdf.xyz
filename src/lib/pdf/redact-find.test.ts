@@ -23,7 +23,7 @@ import {
   readRedactText,
   type PiiCategory,
 } from "./redact-find";
-import { redactPdfByRemoval } from "./redact-remove";
+import { SCRUBBED_TEXT, redactPdfByRemoval } from "./redact-remove";
 import { extractPdfText, type PdfTextReader } from "./text";
 
 /**
@@ -321,7 +321,7 @@ describe("redactPdfByRemoval: the chosen text outside the page text", () => {
       PDFName.of("Metadata"),
       ctx.register(
         ctx.stream(
-          `<x:xmpmeta xmlns:x="adobe:ns:meta/"><dc:creator>${NAME}</dc:creator></x:xmpmeta>`,
+          `<x:xmpmeta xmlns:x="adobe:ns:meta/"><dc:creator>${NAME}</dc:creator><dc:format>application/pdf</dc:format></x:xmpmeta>`,
           { Type: "Metadata", Subtype: "XML" },
         ),
       ),
@@ -374,18 +374,39 @@ describe("redactPdfByRemoval: the chosen text outside the page text", () => {
     return doc.save();
   }
 
+  function catalogXmp(doc: PDFDocument): string {
+    const xmp = doc.catalog.lookup(PDFName.of("Metadata"));
+    if (!(xmp instanceof PDFRawStream))
+      throw new Error("no catalog XMP stream");
+    return new TextDecoder().decode(decodePDFRawStream(xmp).decode());
+  }
+
+  function bookmarkTitles(doc: PDFDocument): string[] {
+    const outlines = doc.catalog.lookup(PDFName.of("Outlines"), PDFDict);
+    const titles: string[] = [];
+    for (
+      let item = outlines.lookup(PDFName.of("First"));
+      item instanceof PDFDict;
+      item = item.lookup(PDFName.of("Next"))
+    ) {
+      titles.push(text(item.lookup(PDFName.of("Title"))));
+    }
+    return titles;
+  }
+
   function text(o: unknown): string {
     return o instanceof PDFString || o instanceof PDFHexString
       ? o.decodeText()
       : "";
   }
 
-  async function removeName(bytes: Uint8Array) {
+  async function removeName(
+    bytes: Uint8Array,
+    query = NAME,
+    options = { matchCase: true, wholeWord: false },
+  ) {
     const index = await readRedactText(bytes, legacy);
-    const { matches } = findTextMatches(index, NAME, {
-      matchCase: true,
-      wholeWord: false,
-    });
+    const { matches } = findTextMatches(index, query, options);
     expect(matches.length).toBe(1);
     return redactPdfByRemoval(
       bytes,
@@ -409,12 +430,13 @@ describe("redactPdfByRemoval: the chosen text outside the page text", () => {
     expect(out.getTitle() ?? "").not.toContain(NAME);
     expect(out.getAuthor() ?? "").not.toContain(NAME);
     expect(out.getSubject()).toBe("Kept subject");
-    const xmp = out.catalog.lookup(PDFName.of("Metadata"));
-    if (xmp instanceof PDFRawStream) {
-      expect(
-        new TextDecoder().decode(decodePDFRawStream(xmp).decode()),
-      ).not.toContain(NAME);
-    }
+    // Unconditional (it was behind `if (xmp instanceof PDFRawStream)`, so a
+    // packet deleted outright passed): the packet is there, keeps the rest
+    // of its content, and no longer holds the name.
+    const packet = catalogXmp(out);
+    expect(packet).toContain("<dc:format>application/pdf</dc:format>");
+    expect(packet).toContain(SCRUBBED_TEXT);
+    expect(packet).not.toContain(NAME);
     const outlines = out.catalog.lookup(PDFName.of("Outlines"), PDFDict);
     const titles: string[] = [];
     for (
@@ -455,6 +477,141 @@ describe("redactPdfByRemoval: the chosen text outside the page text", () => {
     });
     await expect(removeName(source)).rejects.toThrow(
       /still in the file outside the page text \(in a form field\)/,
+    );
+  });
+
+  /**
+   * Review of the #3 fix: the off-page scrub and check matched case-SENSITIVE
+   * substrings of the page slice, whatever options Find ran with. Find opens
+   * case-insensitive, so a Title in capitals kept the name while the result
+   * said it was checked; and a whole-word "Jane" rewrote "Janeway".
+   */
+  it("matches off the page the way Find matched on it: case-insensitive", async () => {
+    const source = await withHiddenCopies((doc) => {
+      doc.setTitle("Report on JANE Q. EXAMPLE");
+      doc.setAuthor("jane q. example");
+    });
+    const result = await removeName(source, "jane q. example", {
+      matchCase: false,
+      wholeWord: false,
+    });
+    const out = await PDFDocument.load(result.bytes, { updateMetadata: false });
+    expect(out.getTitle()).toBe(`Report on ${SCRUBBED_TEXT}`);
+    expect(out.getAuthor()).toBe(SCRUBBED_TEXT);
+    // Positive control: the input held both, in other cases than the page.
+    const src = await PDFDocument.load(source, { updateMetadata: false });
+    expect(src.getTitle()).toBe("Report on JANE Q. EXAMPLE");
+    expect(src.getAuthor()).toBe("jane q. example");
+  });
+
+  it("matches off the page the way Find matched on it: whole words only", async () => {
+    const source = await withHiddenCopies((doc) => {
+      doc.setTitle("Janeway notes");
+      const outlines = doc.catalog.lookup(PDFName.of("Outlines"), PDFDict);
+      outlines
+        .lookup(PDFName.of("First"), PDFDict)
+        .set(PDFName.of("Title"), PDFHexString.fromText("Janeway chapter"));
+      const field = doc.getForm().createTextField("ship");
+      field.setText("Janeway");
+      field.addToPage(doc.getPage(1), {
+        x: 56,
+        y: 100,
+        width: 200,
+        height: 20,
+      });
+    });
+    // Whole word: the page has "Jane" once as a word ("jane.example" is
+    // lower case), and the off-page strings have it only inside "Janeway".
+    const result = await removeName(source, "Jane", {
+      matchCase: true,
+      wholeWord: true,
+    });
+    const out = await PDFDocument.load(result.bytes, { updateMetadata: false });
+    expect(out.getTitle()).toBe("Janeway notes");
+    expect(bookmarkTitles(out)).toEqual(["Janeway chapter", "Kept bookmark"]);
+    expect(out.getForm().getTextField("ship").getText()).toBe("Janeway");
+    // The whole word "Jane" off the page still goes.
+    expect(out.getAuthor()).toBe(`${SCRUBBED_TEXT} Q. Example`);
+  });
+
+  it("Detect items match off the page as whole words, in any case", async () => {
+    const EMAIL = "jane.example@mail.test";
+    const source = await withHiddenCopies((doc) => {
+      doc.setSubject("Write to JANE.EXAMPLE@MAIL.TEST");
+      doc.setKeywords(["jane.example@mail.testing"]);
+    });
+    const index = await readRedactText(source, legacy);
+    const emails = detectPersonalData(index, ["email"]).matches;
+    expect(emails.map((e) => e.text)).toEqual([EMAIL, EMAIL]);
+    const result = await redactPdfByRemoval(
+      source,
+      {
+        rects: emails.flatMap((f) =>
+          f.rects.map((r) => ({ ...r, fromText: true })),
+        ),
+        verify: emails,
+        loadReader: legacy,
+      },
+      { decodeJpeg: null },
+    );
+    const out = await PDFDocument.load(result.bytes, { updateMetadata: false });
+    expect(out.getSubject()).toBe(`Write to ${SCRUBBED_TEXT}`);
+    expect(out.getKeywords()).toBe("jane.example@mail.testing");
+  });
+
+  it("finds the name in XMP where it is written XML-escaped", async () => {
+    const FIRM = "O'Neil & Sons";
+    const source = await withHiddenCopies((doc) => {
+      doc.getPage(1).drawText(`Agent: ${FIRM}`, {
+        x: 56,
+        y: 600,
+        size: 12,
+        font: doc.embedStandardFont(StandardFonts.Helvetica),
+      });
+      const ctx = doc.context;
+      doc.catalog.set(
+        PDFName.of("Metadata"),
+        ctx.register(
+          ctx.stream(
+            `<x:xmpmeta xmlns:x="adobe:ns:meta/"><dc:publisher>O&apos;Neil &amp; Sons</dc:publisher><dc:rights>O&#39;Neil &#x26; Sons</dc:rights><dc:format>application/pdf</dc:format></x:xmpmeta>`,
+            { Type: "Metadata", Subtype: "XML" },
+          ),
+        ),
+      );
+    });
+    const result = await removeName(source, FIRM, {
+      matchCase: false,
+      wholeWord: false,
+    });
+    const out = await PDFDocument.load(result.bytes, { updateMetadata: false });
+    const packet = catalogXmp(out);
+    expect(packet).not.toMatch(/Neil/);
+    expect(packet).toContain(
+      `<dc:publisher>${SCRUBBED_TEXT}</dc:publisher><dc:rights>${SCRUBBED_TEXT}</dc:rights><dc:format>application/pdf</dc:format>`,
+    );
+    // Positive control: the input packet held both escaped forms.
+    const src = await PDFDocument.load(source, { updateMetadata: false });
+    expect(catalogXmp(src)).toContain("O&apos;Neil &amp; Sons");
+    expect(catalogXmp(src)).toContain("O&#39;Neil &#x26; Sons");
+  });
+
+  it("refuses when the name is in a page's own XMP packet", async () => {
+    const source = await withHiddenCopies((doc) => {
+      const ctx = doc.context;
+      doc
+        .getPage(1)
+        .node.set(
+          PDFName.of("Metadata"),
+          ctx.register(
+            ctx.stream(
+              `<x:xmpmeta xmlns:x="adobe:ns:meta/"><dc:creator>${NAME}</dc:creator></x:xmpmeta>`,
+              { Type: "Metadata", Subtype: "XML" },
+            ),
+          ),
+        );
+    });
+    await expect(removeName(source)).rejects.toThrow(
+      /still in the file outside the page text \(in the document's XMP metadata\)/,
     );
   });
 });

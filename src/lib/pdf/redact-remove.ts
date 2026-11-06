@@ -13,10 +13,20 @@ import { rectAnchor, viewerRectToContent } from "./editor/geometry";
 import type { RedactionFill, RedactionRect } from "./redact-defaults";
 import { REDACT_METHODS } from "./redact-output";
 import { validateRedactions } from "./redact";
-import { readRedactText, searchPattern, type FoundText } from "./redact-find";
+import {
+  readRedactText,
+  searchPattern,
+  type FoundText,
+  type SearchOptions,
+} from "./redact-find";
 import type { PdfTextReader } from "./text";
 import { loadPdfjs } from "./pdfjs";
-import type { PDFDict as PdfDict, PDFDocument, PDFObject } from "pdf-lib";
+import type {
+  PDFDict as PdfDict,
+  PDFDocument,
+  PDFObject,
+  PDFRawStream as PDFRawStreamT,
+} from "pdf-lib";
 import type { PdfLibModule } from "./pdf-lib";
 
 /**
@@ -58,8 +68,13 @@ export interface RemovalBox extends RedactionRect {
 export interface RemovalOptions {
   rects: readonly RemovalBox[];
   fill?: RedactionFill;
-  /** The matches the boxes came from: each must be absent from the output. */
-  verify?: readonly Pick<FoundText, "page" | "text">[];
+  /**
+   * The matches the boxes came from: each must be absent from the output.
+   * `match` is how each was found, and off the page it is matched the same
+   * way (a case-insensitive Find also takes "JANE" out of the Title; a
+   * whole-word one leaves "Janeway" alone).
+   */
+  verify?: readonly Pick<FoundText, "page" | "text" | "match">[];
   /** The pdf.js build the verification reads with (tests pass the legacy one). */
   loadReader?: PdfTextReader;
 }
@@ -89,6 +104,38 @@ function countOn(pageText: string, text: string): number {
 
 /** What a chosen match is replaced with in a string it is taken out of. */
 export const SCRUBBED_TEXT = "[redacted]";
+
+/** A chosen text, and how it was matched on the page. */
+interface Chosen {
+  text: string;
+  match: SearchOptions;
+}
+
+/**
+ * The patterns a chosen text is looked for with off the page: `plain` for a
+ * PDF string, `xml` for the raw text of an XMP packet, where "&" may be
+ * written "&amp;" and "'" "&apos;" or "&#39;".
+ */
+function offPagePatterns(chosen: readonly Chosen[]): {
+  text: string;
+  plain: RegExp;
+  xml: RegExp;
+}[] {
+  return chosen.flatMap(({ text, match }) => {
+    const plain = searchPattern(text, match);
+    const xml = searchPattern(text, match, { xml: true });
+    return plain && xml ? [{ text, plain, xml }] : [];
+  });
+}
+
+function decodePacket(lib: PdfLibModule, stream: PDFRawStreamT): string {
+  try {
+    return new TextDecoder().decode(lib.decodePDFRawStream(stream).decode());
+  } catch {
+    // A packet whose filter cannot be decoded is read as stored.
+    return new TextDecoder().decode(stream.contents);
+  }
+}
 
 /**
  * Keys whose strings are not text a person wrote (dates, file IDs, unique
@@ -125,15 +172,16 @@ function anyMatch(value: string, patterns: readonly RegExp[]): boolean {
 function scrubOffPage(
   lib: PdfLibModule,
   doc: PDFDocument,
-  texts: readonly string[],
+  chosen: readonly Chosen[],
 ): void {
   const { PDFDict, PDFArray, PDFName, PDFHexString, PDFRawStream } = lib;
-  const patterns = texts
-    .map((t) => searchPattern(t, { matchCase: true, wholeWord: false }))
-    .filter((p): p is RegExp => p !== null);
-  if (patterns.length === 0) return;
-  const scrub = (value: string) =>
-    patterns.reduce((v, p) => v.replace(p, SCRUBBED_TEXT), value);
+  const found = offPagePatterns(chosen);
+  if (found.length === 0) return;
+  const patterns = found.map((f) => f.plain);
+  const xmlPatterns = found.map((f) => f.xml);
+  const scrubWith = (value: string, ps: readonly RegExp[]) =>
+    ps.reduce((v, p) => v.replace(p, SCRUBBED_TEXT), value);
+  const scrub = (value: string) => scrubWith(value, patterns);
   const scrubEntry = (dict: PdfDict, key: string) => {
     const name = PDFName.of(key);
     const value = stringText(lib, dict.lookup(name));
@@ -153,14 +201,17 @@ function scrubOffPage(
   const xmpName = PDFName.of("Metadata");
   const xmp = doc.catalog.lookup(xmpName);
   if (xmp instanceof PDFRawStream) {
-    const packet = new TextDecoder().decode(
-      lib.decodePDFRawStream(xmp).decode(),
-    );
-    if (anyMatch(packet, patterns)) {
+    // A packet that cannot be decoded is read as stored, and left to the
+    // check if that is not text.
+    const packet = decodePacket(lib, xmp);
+    if (anyMatch(packet, xmlPatterns)) {
       doc.catalog.set(
         xmpName,
         ctx.register(
-          ctx.stream(scrub(packet), { Type: "Metadata", Subtype: "XML" }),
+          ctx.stream(scrubWith(packet, xmlPatterns), {
+            Type: "Metadata",
+            Subtype: "XML",
+          }),
         ),
       );
     }
@@ -222,7 +273,7 @@ function scrubOffPage(
 async function offPageHit(
   lib: PdfLibModule,
   bytes: Uint8Array,
-  texts: readonly string[],
+  chosen: readonly Chosen[],
 ): Promise<{ text: string; where: string } | null> {
   const { PDFDict, PDFArray, PDFName, PDFRawStream } = lib;
   // Not `loadPdf`: its default `updateMetadata` would write pdf-lib's own
@@ -258,9 +309,7 @@ async function offPageHit(
   }
   const info = out.context.trailerInfo.Info;
   if (info) roots.push([info, null]);
-  for (const text of texts) {
-    const pattern = searchPattern(text, { matchCase: true, wholeWord: false });
-    if (!pattern) continue;
+  for (const { text, plain: pattern, xml } of offPagePatterns(chosen)) {
     const stack = [...roots];
     while (stack.length) {
       const [o, key] = stack.pop()!;
@@ -275,14 +324,8 @@ async function offPageHit(
       } else if (o instanceof PDFRawStream) {
         stack.push([o.dict, null]);
         if (o.dict.get(PDFName.of("Type")) !== PDFName.of("Metadata")) continue;
-        let packet: string;
-        try {
-          packet = new TextDecoder().decode(lib.decodePDFRawStream(o).decode());
-        } catch {
-          // A packet whose filter cannot be decoded is read as stored.
-          packet = new TextDecoder().decode(o.contents);
-        }
-        if (anyMatch(packet, [pattern])) return { text, where: where("XMP") };
+        const packet = decodePacket(lib, o);
+        if (anyMatch(packet, [xml])) return { text, where: where("XMP") };
       }
     }
   }
@@ -355,7 +398,14 @@ export async function redactPdfByRemoval(
     }
     throw err;
   }
-  const chosenTexts = [...new Set(verify.map((v) => v.text))];
+  const chosenTexts = [
+    ...new Map(
+      verify.map((v) => [
+        `${v.text}\u0000${v.match.matchCase}\u0000${v.match.wholeWord}`,
+        { text: v.text, match: v.match },
+      ]),
+    ).values(),
+  ];
   scrubOffPage(lib, doc, chosenTexts);
   pruneUnreachable(lib, doc);
 

@@ -62,6 +62,12 @@ export interface FoundText {
   after: string;
   /** One box per text run the match covers (bottom-left origin, points). */
   rects: RedactionRect[];
+  /**
+   * How this match was found — the options Find ran with, or
+   * {@link DETECT_MATCH} — so the same text is matched the same way where
+   * the removal looks for it off the page (properties, XMP, bookmarks).
+   */
+  match: SearchOptions;
 }
 
 interface IndexedRun {
@@ -429,6 +435,7 @@ function found(
   kind: FoundKind,
   start: number,
   end: number,
+  match: SearchOptions,
 ): FoundText | null {
   const rects = rectsFor(page, start, end);
   if (rects.length === 0) return null;
@@ -440,6 +447,7 @@ function found(
     before: oneLine(page.text.slice(Math.max(0, start - CONTEXT), start)),
     after: oneLine(page.text.slice(end, end + CONTEXT)),
     rects,
+    match: { matchCase: match.matchCase, wholeWord: match.wholeWord },
   };
 }
 
@@ -454,14 +462,48 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** The pattern a search runs: literal, white space matching any run of it. */
+/**
+ * How a detected item is matched where it is looked for again off the page:
+ * as a whole word (a detected "jane@mail.test" is not in
+ * "jane@mail.testing"), in any case (an address or an IBAN in capitals is
+ * the same one).
+ */
+export const DETECT_MATCH: SearchOptions = {
+  matchCase: false,
+  wholeWord: true,
+};
+
+/** The five characters XML escapes, and every form it may write each in. */
+const XML_FORMS: Record<string, string> = {
+  "&": "&|&amp;|&#0*38;|&#[xX]0*26;",
+  "<": "<|&lt;|&#0*60;|&#[xX]0*3[cC];",
+  ">": ">|&gt;|&#0*62;|&#[xX]0*3[eE];",
+  "'": "'|&apos;|&#0*39;|&#[xX]0*27;",
+  '"': '"|&quot;|&#0*34;|&#[xX]0*22;',
+};
+
+function escapeXmlWord(word: string): string {
+  return [...word]
+    .map((ch) => {
+      const forms = XML_FORMS[ch];
+      return forms ? `(?:${forms})` : escapeRegExp(ch);
+    })
+    .join("");
+}
+
+/**
+ * The pattern a search runs: literal, white space matching any run of it.
+ * With `xml`, each character XML escapes also matches its escaped forms, for
+ * searching the raw text of an XMP packet.
+ */
 export function searchPattern(
   query: string,
   { matchCase, wholeWord }: SearchOptions,
+  { xml = false }: { xml?: boolean } = {},
 ): RegExp | null {
   const words = query.trim().split(/\s+/u).filter(Boolean);
   if (words.length === 0) return null;
-  const body = words.map(escapeRegExp).join("\\s+");
+  const body = words.map(xml ? escapeXmlWord : escapeRegExp).join("\\s+");
   const source = wholeWord
     ? `(?<![\\p{L}\\p{N}_])${body}(?![\\p{L}\\p{N}_])`
     : body;
@@ -479,7 +521,13 @@ export function findTextMatches(
   for (const page of index.pages) {
     for (const m of page.text.matchAll(pattern)) {
       if (m[0].length === 0) continue;
-      const hit = found(page, "search", m.index, m.index + m[0].length);
+      const hit = found(
+        page,
+        "search",
+        m.index,
+        m.index + m[0].length,
+        options,
+      );
       if (!hit) continue;
       if (matches.length >= MAX_FOUND) return { matches, capped: true };
       matches.push(hit);
@@ -643,7 +691,7 @@ export function detectPersonalData(
   const matches: FoundText[] = [];
   for (const page of index.pages) {
     for (const d of detectInText(page.text, categories)) {
-      const hit = found(page, d.kind, d.start, d.end);
+      const hit = found(page, d.kind, d.start, d.end, DETECT_MATCH);
       if (!hit) continue;
       if (matches.length >= MAX_FOUND) return { matches, capped: true };
       matches.push(hit);
