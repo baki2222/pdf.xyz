@@ -169,8 +169,11 @@ const content: ToolContent = {
       a: `A conversion stops with an error when the file needs a password to open, is too damaged for LibreOffice to open, or takes LibreOffice longer than its ${timeLimitSeconds}-second limit. This page has no password field. A locked .docx or .odt is recognised before LibreOffice runs, and the job stops with a message saying where the password comes off: in Word, File, Info, Protect Document, Encrypt with Password, then clear it; for an .odt, ${ODF_PASSWORD_REMOVAL.app}'s ${ODF_PASSWORD_REMOVAL.steps}. Convert the saved copy. Each failure shows a message under the Convert to PDF button instead of a Download button.`,
     },
     {
-      q: "Why is there no upload area, only a notice?",
-      a: 'The panel first checks whether our secure server can run LibreOffice. You can add a file at once; it goes to our secure server only after a check confirms our server and you press Convert to PDF. If the badge reads "Not enabled", that button stays off and a "Notify me when this ships" button appears under it. If it reads "Status unknown", the status check did not answer, and a "Check again" button retries it.',
+      // CHANGED 2026-11-06 (audit #41): the question was "Why is there no
+      // upload area, only a notice?", stale since the drop zone moved out of
+      // the status slot on 2026-10-21 (WP-10) and now always renders.
+      q: "Why is the Convert to PDF button greyed out?",
+      a: 'It stays off until you have added a document and a check has confirmed that our secure server can run LibreOffice. The document goes to our secure server only after that check and when you press Convert to PDF. If the badge reads "Not enabled", that button stays off and a "Notify me when this ships" button appears under it. If it reads "Status unknown", the status check did not answer, and a "Check again" button retries it.',
     },
   ],
 

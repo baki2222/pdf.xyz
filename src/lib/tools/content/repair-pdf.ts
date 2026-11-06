@@ -182,7 +182,10 @@ const content: ToolContent = {
     },
   ],
 
-  // No guide in src/lib/guides/catalog.ts lists repair-pdf among its tools.
+  // Empty on purpose: "how-to-repair-a-damaged-pdf" lists repair-pdf in its
+  // `tools`, and the page's Guides band is discovered from that field
+  // (`guidesForTool`), so it shows there without being named here. (Until
+  // 2026-11-06 this said no guide listed repair-pdf — stale; audit #41.)
   relatedGuides: [],
 };
 

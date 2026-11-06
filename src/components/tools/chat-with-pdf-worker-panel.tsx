@@ -582,8 +582,8 @@ function ContextNote({
       {notes.length > 0
         ? ` To stay within the request limits, ${notes.join(", and ")}.`
         : ""}{" "}
-      The PDF is re-sent and re-read each time — our server keeps nothing
-      between questions.
+      The PDF is re-sent and re-read each time — our server does not link one
+      question to the next.
     </p>
   );
 }
