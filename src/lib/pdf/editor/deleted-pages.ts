@@ -23,18 +23,27 @@ import type { PdfLibModule } from "../pdf-lib";
  * count said it was gone (audit #2, 2026-11-06; a field `ssn` survived the
  * deletion of the page it sat on). So, for each deleted page:
  *
- * - bookmarks are rebuilt the way Remove Pages rebuilds them
- *   (`carryOutlines`): one to a deleted page goes, unless a bookmark below
- *   it lands on a kept page, which it then opens;
+ * - when some bookmark goes to it, the outline is rebuilt the way Remove
+ *   Pages rebuilds it (`carryOutlines`): one to a deleted page goes, unless
+ *   a bookmark below it lands on a kept page, which it then opens. That
+ *   rebuild does not carry a bookmark to another file, a launch or a
+ *   script, nor one whose named destination does not resolve, so it runs
+ *   only then; an outline left empty goes, with `/PageMode /UseOutlines`;
  * - a link on a kept page, and a named destination, that go to it are
  *   removed, and so is an open action that does;
  * - its widgets leave `/AcroForm /Fields` (and `/CO`); a field left with no
  *   widget goes with its value, and its name is returned, so a fill for it
- *   is not asked of a field that is no longer there.
+ *   is not asked of a field that is no longer there;
+ * - a structure element whose content is all on deleted pages loses its
+ *   `/Alt`, `/ActualText` and `/E`; the element node itself stays.
  *
- * And the page itself is returned as `cut`, for `pruneUnreachable` to drop
- * whatever still names it — a structure element's `/Pg`, an article bead —
- * so the property holds for referrers this list does not name.
+ * And `cut` returns the page, every annotation it lists (unless a kept page
+ * lists it too), and every field dict that went: `pruneUnreachable` drops
+ * these whatever still names them — a structure `/OBJR` or `/Pg`, a reply's
+ * `/IRT`, a `/Popup`, an article bead, the `/ParentTree` — along with what
+ * only they reach (`/V`, `/Contents`, `/AP`). The referrer keeps a dangling
+ * reference, which the spec reads as null. Anything else that names the
+ * page's content from outside it is not covered by the cut.
  */
 export interface DeletedPages {
   /** The deleted pages' objects: dropped even if something names them. */
@@ -82,12 +91,33 @@ export function prepareDeletedPages(
       );
     };
 
-    // Bookmarks: rebuilt; an outline with nothing left is removed.
+    // Bookmarks: rebuilt only when one goes to a deleted page, since the
+    // rebuild does not carry every kind (see the docblock); an outline with
+    // nothing left is removed, and so is a page mode that opens it.
     const outlines = doc.catalog.get(name("Outlines"));
-    if (outlines !== undefined) {
+    const outlineSeen = new Set<PDFDict>();
+    const anyBookmarkGoes = (item: PDFObject | undefined, depth: number) => {
+      for (let n = item; n !== undefined && depth <= MAX_DEPTH;) {
+        const dict = ctx.lookup(n);
+        if (!(dict instanceof PDFDict) || outlineSeen.has(dict)) return false;
+        outlineSeen.add(dict);
+        if (goesToDeleted(dict)) return true;
+        if (anyBookmarkGoes(dict.get(name("First")), depth + 1)) return true;
+        n = dict.get(name("Next"));
+      }
+      return false;
+    };
+    const outlineRoot = ctx.lookup(outlines);
+    if (
+      outlineRoot instanceof PDFDict &&
+      anyBookmarkGoes(outlineRoot.get(name("First")), 0)
+    ) {
       carryOutlines(lib, doc, [{ src: doc, resolve, map }]);
       if (doc.catalog.get(name("Outlines")) === outlines) {
         doc.catalog.delete(name("Outlines"));
+        if (doc.catalog.get(name("PageMode")) === name("UseOutlines")) {
+          doc.catalog.delete(name("PageMode"));
+        }
       }
     }
 
@@ -201,6 +231,76 @@ export function prepareDeletedPages(
     for (let i = (order?.size() ?? 0) - 1; order && i >= 0; i -= 1) {
       if (removed.has(order.get(i))) order.remove(i);
     }
-    return { cut, removedFields };
+
+    // The structure tree's own text for what was on a deleted page.
+    wipeStructText(lib, doc, cut);
+
+    // What is cut: the deleted pages, every annotation they list, and every
+    // field that went with them — unless a kept page lists it too. So an
+    // annotation's /Contents and /AP, and a field's /V, go even when a
+    // referrer this code does not name (a structure /OBJR, a reply's /IRT,
+    // a /Popup, the /ParentTree) still points at them.
+    const keptAnnots = new Set<PDFObject>();
+    for (const page of doc.getPages()) {
+      for (const entry of page.node.Annots()?.asArray() ?? []) {
+        keptAnnots.add(entry);
+      }
+    }
+    const all = new Set<PDFRef>(cut);
+    for (const entry of [...onDeleted, ...removed]) {
+      if (entry instanceof lib.PDFRef && !keptAnnots.has(entry)) {
+        all.add(entry);
+      }
+    }
+    return { cut: all, removedFields };
   };
+}
+
+/**
+ * A structure element whose content is all on deleted pages keeps its node
+ * (its parent's /K and the /ParentTree still name it), but loses the text it
+ * carries about that content: /Alt, /ActualText and /E. An element with any
+ * content on a kept page, or whose page is not known, is left as it is.
+ */
+function wipeStructText(
+  lib: PdfLibModule,
+  doc: PDFDocument,
+  cut: ReadonlySet<PDFRef>,
+): void {
+  const { PDFDict, PDFArray, PDFName, PDFNumber, PDFRef } = lib;
+  const ctx = doc.context;
+  const name = (n: string) => PDFName.of(n);
+  const seen = new Set<PDFDict>();
+  /** Bit 1: some content on a deleted page; bit 2: some elsewhere. */
+  const DELETED = 1;
+  const KEPT = 2;
+  const pageOf = (page: PDFObject | undefined) =>
+    page instanceof PDFRef ? (cut.has(page) ? DELETED : KEPT) : KEPT;
+  const walk = (
+    node: PDFObject | undefined,
+    page: PDFObject | undefined,
+    depth: number,
+  ): number => {
+    if (node === undefined || depth > MAX_DEPTH) return 0;
+    if (node instanceof PDFNumber) return pageOf(page); // an MCID
+    const value = ctx.lookup(node);
+    if (value instanceof PDFArray) {
+      return value
+        .asArray()
+        .reduce((acc: number, kid) => acc | walk(kid, page, depth + 1), 0);
+    }
+    if (!(value instanceof PDFDict) || seen.has(value)) return 0;
+    seen.add(value);
+    const own = value.get(name("Pg")) ?? page;
+    const type = value.get(name("Type"));
+    if (type === name("OBJR") || type === name("MCR")) return pageOf(own);
+    const found = walk(value.get(name("K")), own, depth + 1);
+    const where = found === 0 && own !== undefined ? pageOf(own) : found;
+    if (where === DELETED) {
+      for (const key of ["Alt", "ActualText", "E"]) value.delete(name(key));
+    }
+    return where;
+  };
+  const root = doc.catalog.lookupMaybe(name("StructTreeRoot"), PDFDict);
+  if (root) walk(root.get(name("K")), undefined, 0);
 }
