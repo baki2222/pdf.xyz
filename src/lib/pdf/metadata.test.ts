@@ -297,6 +297,87 @@ describe("writePdfMetadata — edit keeps what was not edited", () => {
     expect(xmp?.get("pdfuaid:part")).toBe("1");
   });
 
+  /**
+   * Review of the #29 fix: pdfaid and pdfuaid were carried, the extension
+   * schema that DESCRIBES pdfuaid was not. In PDF/A-2 and -3 pdfuaid is not a
+   * predefined schema, so a PDF/A + PDF/UA file (LibreOffice writes these) is
+   * valid only with that description (veraPDF 6.6.2.3.1). Here the bindings
+   * its body uses sit on rdf:RDF, as they may: the copy must bring them.
+   */
+  const EXTENSION = `<pdfaExtension:schemas><rdf:Bag><rdf:li rdf:parseType="Resource">
+<pdfaSchema:namespaceURI>http://www.aiim.org/pdfua/ns/id/</pdfaSchema:namespaceURI>
+<pdfaSchema:prefix>pdfuaid</pdfaSchema:prefix>
+<pdfaSchema:schema>PDF/UA identification schema</pdfaSchema:schema>
+<pdfaSchema:property><rdf:Seq><rdf:li rdf:parseType="Resource">
+<pdfaProperty:category>internal</pdfaProperty:category>
+<pdfaProperty:description>PDF/UA version identifier</pdfaProperty:description>
+<pdfaProperty:name>part</pdfaProperty:name>
+<pdfaProperty:valueType>Integer</pdfaProperty:valueType>
+</rdf:li></rdf:Seq></pdfaSchema:property>
+</rdf:li></rdf:Bag></pdfaExtension:schemas>`;
+  const PDFA_UA_XMP = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:pdfaSchema="http://www.aiim.org/pdfa/ns/schema#" xmlns:pdfaProperty="http://www.aiim.org/pdfa/ns/property#">
+<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:title><rdf:Alt><rdf:li xml:lang="x-default">Archived</rdf:li></rdf:Alt></dc:title>
+</rdf:Description>
+<rdf:Description rdf:about="" xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/">
+<pdfaid:part>2</pdfaid:part><pdfaid:conformance>A</pdfaid:conformance>
+</rdf:Description>
+<rdf:Description rdf:about="" xmlns:pdfuaid="http://www.aiim.org/pdfua/ns/id/">
+<pdfuaid:part>1</pdfuaid:part>
+</rdf:Description>
+<rdf:Description rdf:about="" xmlns:pdfaExtension="http://www.aiim.org/pdfa/ns/extension/">
+${EXTENSION}
+</rdf:Description>
+</rdf:RDF></x:xmpmeta><?xpacket end="w"?>`;
+
+  function outputXmp(bytes: Uint8Array): Promise<string> {
+    return PDFDocument.load(bytes, { updateMetadata: false }).then((doc) => {
+      const xmp = doc.catalog.lookup(PDFName.of("Metadata"));
+      if (!(xmp instanceof PDFRawStream))
+        throw new Error("no catalog XMP stream");
+      return new TextDecoder().decode(decodePDFRawStream(xmp).decode());
+    });
+  }
+
+  it("keeps the extension schema that describes pdfuaid, with its namespace bindings", async () => {
+    const source = await withXmp(PDFA_UA_XMP);
+    const result = await titleOnlyEdit(source, "New title");
+    const packet = await outputXmp(result.bytes);
+    // The identification and the description of it, both.
+    expect(packet).toContain("<pdfuaid:part>1</pdfuaid:part>");
+    expect(packet).toContain(EXTENSION);
+    // Every prefix the copied element uses is bound in the new packet.
+    const used = new Set(
+      [...EXTENSION.matchAll(/<\/?([A-Za-z_][\w.-]*):/g)].map((m) => m[1]!),
+    );
+    expect([...used].sort()).toEqual([
+      "pdfaExtension",
+      "pdfaProperty",
+      "pdfaSchema",
+      "rdf",
+    ]);
+    for (const prefix of used) {
+      expect(packet, prefix).toMatch(new RegExp(`xmlns:${prefix}="`));
+    }
+    const { xmp } = await pdfjsMetadata(result.bytes);
+    expect(xmp?.get("dc:title")).toBe("New title");
+    expect(xmp?.get("pdfuaid:part")).toBe("1");
+  });
+
+  it("carries no extension schema from a packet that declares no identification", async () => {
+    const NO_ID = PDFA_UA_XMP.replace(
+      /<rdf:Description rdf:about="" xmlns:pdfu?aid=[\s\S]*?<\/rdf:Description>\n/g,
+      "",
+    );
+    // Control: the identification is gone and the extension is still there.
+    expect(NO_ID).not.toContain("pdfuaid:part");
+    expect(NO_ID).not.toContain("pdfaid:part");
+    expect(NO_ID).toContain(EXTENSION);
+    const result = await titleOnlyEdit(await withXmp(NO_ID), "New title");
+    expect(await outputXmp(result.bytes)).not.toContain("pdfaExtension");
+  });
+
   it("adds no identification to a packet that had none", async () => {
     const result = await titleOnlyEdit(await withXmp(OLD_XMP), "New title");
     const { xmp } = await pdfjsMetadata(result.bytes);

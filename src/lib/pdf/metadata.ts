@@ -18,7 +18,10 @@ import { pruneUnreachable } from "./prune-unreachable";
  * fresh packet holding the same values as the Info dictionary, plus the old
  * packet's PDF/A and PDF/UA identification ({@link readXmpIdentification}) —
  * without it a PDF/A file, our own PDF to PDF/A output among them, stops
- * declaring itself PDF/A on a title change. Other properties the old packet
+ * declaring itself PDF/A on a title change — and, with it, the PDF/A
+ * extension schemas that describe it ({@link readXmpExtensionSchemas}).
+ * `metadata.test.ts` pins both; PDF/A validity itself (veraPDF) is not
+ * checked by any test here. Other properties the old packet
  * held are not carried (the runner says so). A file with no packet gets none.
  *
  * A date is shown in a minute-precision field, so a date the person left
@@ -240,6 +243,53 @@ export function readXmpIdentification(xmp: string): XmpIdentificationValue[] {
   return found;
 }
 
+const PDFA_EXTENSION_NAMESPACE = "http://www.aiim.org/pdfa/ns/extension/";
+
+/**
+ * The old packet's PDF/A extension schemas (`pdfaExtension:schemas`), copied
+ * verbatim into an `rdf:Description` of their own that binds every prefix
+ * the copy uses — the old packet may have bound them on `rdf:RDF` or
+ * `x:xmpmeta`, which the new packet does not reproduce. Without it a PDF/A-2
+ * or -3 file that declares PDF/UA (pdfuaid is not predefined there) or any
+ * custom property no longer describes it, and fails validation (veraPDF
+ * 6.6.2.3.1). Null when the packet has none.
+ */
+export function readXmpExtensionSchemas(xmp: string): string | null {
+  const binding = new RegExp(
+    `xmlns:([A-Za-z_][\\w.-]*)\\s*=\\s*(["'])${escapeRegExp(PDFA_EXTENSION_NAMESPACE)}\\2`,
+  ).exec(xmp);
+  if (!binding) return null;
+  const qualified = escapeRegExp(`${binding[1]!}:schemas`);
+  const element = new RegExp(
+    `<${qualified}(?:\\s[^>]*)?>[\\s\\S]*?</${qualified}\\s*>`,
+  ).exec(xmp)?.[0];
+  if (!element) return null;
+  const bound = new Map<string, string>();
+  for (const m of xmp.matchAll(
+    /xmlns:([A-Za-z_][\w.-]*)\s*=\s*(["'])([^"']*)\2/g,
+  )) {
+    if (!bound.has(m[1]!)) bound.set(m[1]!, m[3]!);
+  }
+  const used = new Set(
+    [
+      ...element.matchAll(
+        /<\/?([A-Za-z_][\w.-]*):|\s([A-Za-z_][\w.-]*):[\w.-]+\s*=/g,
+      ),
+    ].map((m) => (m[1] ?? m[2])!),
+  );
+  const declarations = [...used]
+    // xml and xmlns are bound by XML itself, rdf by the new packet's rdf:RDF.
+    .filter((prefix) => !["xml", "xmlns", "rdf"].includes(prefix))
+    .flatMap((prefix) => {
+      const uri = bound.get(prefix);
+      return uri === undefined
+        ? []
+        : [` xmlns:${prefix}="${uri.replace(/"/g, "&quot;")}"`];
+    })
+    .join("");
+  return `<rdf:Description rdf:about=""${declarations}>\n${element}\n</rdf:Description>`;
+}
+
 function escapeXml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -250,13 +300,15 @@ function escapeXml(value: string): string {
 
 /**
  * A fresh XMP packet holding exactly `values`, and the `identification` the
- * old packet declared. Built from char codes where a character is not
- * printable ASCII (the packet's BOM marker), so no invisible character lives
- * in this source file.
+ * old packet declared with the `extension` schemas that describe it
+ * ({@link readXmpExtensionSchemas}; carried only with an identification).
+ * Built from char codes where a character is not printable ASCII (the
+ * packet's BOM marker), so no invisible character lives in this source file.
  */
 export function buildXmpPacket(
   values: PdfMetadata,
   identification: readonly XmpIdentificationValue[] = [],
+  extension: string | null = null,
 ): string {
   const bom = String.fromCharCode(0xfeff);
   const lines: string[] = [];
@@ -303,6 +355,7 @@ export function buildXmpPacket(
         `</rdf:Description>`,
       ];
     }),
+    ...(identification.length > 0 && extension ? [extension] : []),
     `</rdf:RDF>`,
     `</x:xmpmeta>`,
     `<?xpacket end="w"?>`,
@@ -419,13 +472,17 @@ export async function writePdfMetadata(
   } else {
     const source = readFrom(lib, doc);
     const values = keepUntouchedDates(normalized(change.values), source);
-    const identification = readXmpIdentification(xmpText(lib, doc) ?? "");
+    const oldPacket = xmpText(lib, doc) ?? "";
+    const identification = readXmpIdentification(oldPacket);
+    const extension = readXmpExtensionSchemas(oldPacket);
     applyEdit(lib, doc, values, source);
     if (hadXmp) {
       const old = doc.catalog.get(metadataKey);
       if (old instanceof lib.PDFRef) doc.context.delete(old);
       const stream = doc.context.stream(
-        new TextEncoder().encode(buildXmpPacket(values, identification)),
+        new TextEncoder().encode(
+          buildXmpPacket(values, identification, extension),
+        ),
         { Type: "Metadata", Subtype: "XML" },
       );
       doc.catalog.set(metadataKey, doc.context.register(stream));
