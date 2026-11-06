@@ -347,6 +347,11 @@ describe("the removal method's sentences are what a real removal writes", () => 
     // And that is what the page says of this method.
     expect(REDACT_REMOVE_FACT).toMatch(/still selectable and searchable/);
     expect(REDACT_REMOVE_FACT).toMatch(/bookmarks and properties/);
+    // Chosen text is scrubbed off the page too (audit #3, 2026-11-06); the
+    // removal that does it is proved in redact-find.test.ts.
+    expect(REDACT_REMOVE_FACT).toMatch(
+      /also taken out of the properties, the bookmark titles and the comments/,
+    );
     expect(served().text).toContain(REDACT_REMOVE_FACT);
   });
 });

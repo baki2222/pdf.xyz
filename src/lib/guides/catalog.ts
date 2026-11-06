@@ -2311,7 +2311,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-10-25",
+    updated: "2026-11-06",
   },
   {
     slug: "how-to-repair-a-damaged-pdf",

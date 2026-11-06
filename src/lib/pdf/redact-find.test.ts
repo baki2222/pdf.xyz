@@ -1,6 +1,17 @@
 // @native-canvas
 import { describe, expect, it } from "vitest";
-import { PDFDocument, StandardFonts, degrees } from "pdf-lib";
+import {
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFHexString,
+  PDFName,
+  PDFRawStream,
+  PDFString,
+  StandardFonts,
+  decodePDFRawStream,
+  degrees,
+} from "pdf-lib";
 import {
   PII_CATEGORIES,
   detectInText,
@@ -286,5 +297,163 @@ describe("redactPdfByRemoval", () => {
     const [p1] = await textOf(result.bytes);
     expect(p1).not.toContain("4111 1111 1111 1111");
     expect(p1).toContain("Keep this sentence exactly.");
+  });
+});
+
+/**
+ * Audit #3 (2026-11-06): "Remove text under boxes" re-checked only the PAGE
+ * text, so a chosen name survived in the Title, Author, XMP, a bookmark and a
+ * comment while the result said it was "not in its text".
+ */
+describe("redactPdfByRemoval: the chosen text outside the page text", () => {
+  const NAME = "Jane Q. Example";
+
+  async function withHiddenCopies(
+    extra?: (doc: PDFDocument) => void,
+  ): Promise<Uint8Array> {
+    const doc = await PDFDocument.load(await fixture());
+    doc.setTitle(`Report on ${NAME}`);
+    doc.setAuthor(NAME);
+    doc.setSubject("Kept subject");
+    const ctx = doc.context;
+    doc.catalog.set(
+      PDFName.of("Metadata"),
+      ctx.register(
+        ctx.stream(
+          `<x:xmpmeta xmlns:x="adobe:ns:meta/"><dc:creator>${NAME}</dc:creator></x:xmpmeta>`,
+          { Type: "Metadata", Subtype: "XML" },
+        ),
+      ),
+    );
+    const outlinesRef = ctx.nextRef();
+    const itemRef = ctx.nextRef();
+    const keptRef = ctx.nextRef();
+    const page1 = doc.getPage(0).ref;
+    ctx.assign(
+      itemRef,
+      ctx.obj({
+        Title: PDFHexString.fromText(NAME),
+        Parent: outlinesRef,
+        Next: keptRef,
+        Dest: [page1, "Fit"],
+      }),
+    );
+    ctx.assign(
+      keptRef,
+      ctx.obj({
+        Title: PDFString.of("Kept bookmark"),
+        Parent: outlinesRef,
+        Prev: itemRef,
+        Dest: [page1, "Fit"],
+      }),
+    );
+    ctx.assign(
+      outlinesRef,
+      ctx.obj({ Type: "Outlines", First: itemRef, Last: keptRef, Count: 2 }),
+    );
+    doc.catalog.set(PDFName.of("Outlines"), outlinesRef);
+    const note = ctx.register(
+      ctx.obj({
+        Type: "Annot",
+        Subtype: "Text",
+        Rect: [400, 40, 420, 60],
+        Contents: PDFString.of(`Call ${NAME} back`),
+      }),
+    );
+    const kept = ctx.register(
+      ctx.obj({
+        Type: "Annot",
+        Subtype: "Text",
+        Rect: [440, 40, 460, 60],
+        Contents: PDFString.of("Kept comment"),
+      }),
+    );
+    doc.getPage(0).node.set(PDFName.of("Annots"), ctx.obj([note, kept]));
+    extra?.(doc);
+    return doc.save();
+  }
+
+  function text(o: unknown): string {
+    return o instanceof PDFString || o instanceof PDFHexString
+      ? o.decodeText()
+      : "";
+  }
+
+  async function removeName(bytes: Uint8Array) {
+    const index = await readRedactText(bytes, legacy);
+    const { matches } = findTextMatches(index, NAME, {
+      matchCase: true,
+      wholeWord: false,
+    });
+    expect(matches.length).toBe(1);
+    return redactPdfByRemoval(
+      bytes,
+      {
+        rects: matches.flatMap((f) =>
+          f.rects.map((r) => ({ ...r, fromText: true })),
+        ),
+        verify: matches,
+        loadReader: legacy,
+      },
+      { decodeJpeg: null },
+    );
+  }
+
+  it("takes it out of the properties, XMP, bookmark titles and comments, and keeps the rest", async () => {
+    const source = await withHiddenCopies();
+    const result = await removeName(source);
+    const out = await PDFDocument.load(result.bytes, { updateMetadata: false });
+    // The page text check still holds.
+    expect((await textOf(result.bytes))[0]).not.toContain(NAME);
+    expect(out.getTitle() ?? "").not.toContain(NAME);
+    expect(out.getAuthor() ?? "").not.toContain(NAME);
+    expect(out.getSubject()).toBe("Kept subject");
+    const xmp = out.catalog.lookup(PDFName.of("Metadata"));
+    if (xmp instanceof PDFRawStream) {
+      expect(
+        new TextDecoder().decode(decodePDFRawStream(xmp).decode()),
+      ).not.toContain(NAME);
+    }
+    const outlines = out.catalog.lookup(PDFName.of("Outlines"), PDFDict);
+    const titles: string[] = [];
+    for (
+      let item = outlines.lookup(PDFName.of("First"));
+      item instanceof PDFDict;
+      item = item.lookup(PDFName.of("Next"))
+    ) {
+      titles.push(text(item.lookup(PDFName.of("Title"))));
+    }
+    expect(titles.length).toBe(2);
+    expect(titles.join("|")).not.toContain(NAME);
+    expect(titles).toContain("Kept bookmark");
+    const annots = out.getPage(0).node.lookup(PDFName.of("Annots"), PDFArray);
+    const comments = annots
+      .asArray()
+      .map((a) =>
+        text(out.context.lookup(a, PDFDict).lookup(PDFName.of("Contents"))),
+      );
+    expect(comments.join("|")).not.toContain(NAME);
+    expect(comments).toContain("Kept comment");
+    // Positive control: every one of those held the name in the input.
+    const src = await PDFDocument.load(source, { updateMetadata: false });
+    expect(src.getAuthor()).toBe(NAME);
+    expect(src.getTitle()).toContain(NAME);
+  });
+
+  it("refuses when the name is still somewhere it cannot take it out (a form field's value)", async () => {
+    const source = await withHiddenCopies((doc) => {
+      const form = doc.getForm();
+      const field = form.createTextField("guardian");
+      field.setText(`Guardian ${NAME}`);
+      field.addToPage(doc.getPage(1), {
+        x: 56,
+        y: 100,
+        width: 200,
+        height: 20,
+      });
+    });
+    await expect(removeName(source)).rejects.toThrow(
+      /still in the file outside the page text \(in a form field\)/,
+    );
   });
 });
