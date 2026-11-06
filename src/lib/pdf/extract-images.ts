@@ -290,10 +290,6 @@ function handleImage(
     skip(page, filterLabel, "Missing or invalid dimensions");
     return;
   }
-  if (width * height > MAX_PIXELS) {
-    skip(page, filterLabel, `Image too large to process (${width}×${height})`);
-    return;
-  }
 
   const codec = filters.length ? filters[filters.length - 1] : undefined;
 
@@ -311,6 +307,21 @@ function handleImage(
     const masked =
       dict.lookup(PDFName.of("SMask")) instanceof PDFRawStream ||
       dict.lookup(PDFName.of("Mask")) !== undefined;
+    // The same bytes, so the same caveat when the page draws them remapped:
+    // a /Decode applies to a DCT image too, and an inverting one makes the
+    // saved file a negative of what the page shows (audit #44). Checked HERE,
+    // because the pixel images' /Decode check below is never reached by a
+    // JPEG.
+    const notes = [
+      masked
+        ? noTransparency(
+            "a JPEG is saved exactly as embedded and cannot carry the PDF's separate mask",
+          )
+        : undefined,
+      jpegDecodeRemaps(dict, jpeg)
+        ? "Saved as stored, with its colours inverted: the PDF draws this JPEG through a /Decode array that inverts them, so the file looks like a negative of the page"
+        : undefined,
+    ].filter((note) => note !== undefined);
     emit(
       page,
       jpeg,
@@ -318,12 +329,16 @@ function handleImage(
       width,
       height,
       label,
-      masked
-        ? noTransparency(
-            "a JPEG is saved exactly as embedded and cannot carry the PDF's separate mask",
-          )
-        : undefined,
+      notes.length ? notes.join("; ") : undefined,
     );
+    return;
+  }
+
+  // The ceiling guards DECODING, so it sits below the JPEG branch, which
+  // copies bytes and decodes nothing: a 12000×9000 scan JPEG used to be
+  // skipped as "too large" for memory it never needed (audit #44).
+  if (width * height > MAX_PIXELS) {
+    skip(page, filterLabel, `Image too large to process (${width}×${height})`);
     return;
   }
 
@@ -1136,6 +1151,52 @@ function isDefaultDecode(
     const n = decode.lookup(i);
     return n instanceof PDFNumber && n.asNumber() === value;
   });
+}
+
+/**
+ * True when a DCT image's `/Decode` changes what its stored samples look like
+ * on the page — any pair other than `[0 1]`. One case is left alone: a CMYK
+ * JPEG carrying Adobe's APP14 marker with every pair inverted. Photoshop
+ * writes such JPEGs with inverted CMYK, PDF writers add `[1 0 …]` to undo
+ * that, and a viewer that reads the marker shows the saved .jpg the way the
+ * page does — so a caveat there would be the false one.
+ */
+function jpegDecodeRemaps(dict: PDFDict, jpeg: Uint8Array): boolean {
+  const decode = dict.lookup(PDFName.of("Decode"));
+  if (!(decode instanceof PDFArray)) return false;
+  const values = decode
+    .asArray()
+    .map((n) => (n instanceof PDFNumber ? n.asNumber() : NaN));
+  const pairs: [number, number][] = [];
+  for (let i = 0; i + 1 < values.length; i += 2)
+    pairs.push([values[i]!, values[i + 1]!]);
+  if (pairs.every(([lo, hi]) => lo === 0 && hi === 1)) return false;
+  const adobeInverted =
+    classifyColorSpace(dict).kind === "cmyk" &&
+    pairs.length === 4 &&
+    pairs.every(([lo, hi]) => lo === 1 && hi === 0) &&
+    hasAdobeApp14(jpeg);
+  return !adobeInverted;
+}
+
+/** Whether a JPEG carries an Adobe APP14 segment before its scan data. */
+function hasAdobeApp14(jpeg: Uint8Array): boolean {
+  let at = 2; // past SOI
+  while (at + 4 <= jpeg.length && jpeg[at] === 0xff) {
+    // Any number of 0xFF fill bytes may precede a marker.
+    while (jpeg[at + 1] === 0xff && at + 5 <= jpeg.length) at++;
+    const marker = jpeg[at + 1]!;
+    if (marker === 0xda || marker === 0xd9) return false; // SOS / EOI
+    const length = (jpeg[at + 2]! << 8) | jpeg[at + 3]!;
+    if (
+      marker === 0xee &&
+      length >= 7 &&
+      String.fromCharCode(...jpeg.subarray(at + 4, at + 9)) === "Adobe"
+    )
+      return true;
+    at += 2 + length;
+  }
+  return false;
 }
 
 /** A metadata label for a JPEG, which we extract regardless of colour space. */
