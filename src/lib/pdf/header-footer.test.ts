@@ -1,5 +1,5 @@
 // @native-canvas
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, degrees } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import { PdfEngineError } from "./engine";
 import {
@@ -69,6 +69,77 @@ describe("header-footer", () => {
 
   it("names the download from the source", () => {
     expect(headerFooterOutputName("brief.pdf")).toBe("brief-header-footer.pdf");
+  });
+});
+
+/**
+ * Audit #27 (2026-11-06): the text's width went straight to placeStamp with
+ * no bound. A 151-character confidentiality notice, centred on A4 at 10 pt,
+ * measured 682.8 pt on a 595.3 pt page: x = -43.8, so about 44 pt was cut off
+ * each side (right-aligned, ~120 pt off the left), and the run reported
+ * success. A long notice is the page's headline use case.
+ */
+describe("header-footer: text that does not fit the page", () => {
+  const NOTICE =
+    "CONFIDENTIAL - This document contains proprietary information of Acme Corporation Ltd and must not be copied, disclosed or distributed to third parties";
+  async function a4(rotate = 0): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([595.28, 841.89]);
+    if (rotate) page.setRotation(degrees(rotate));
+    return doc.save();
+  }
+
+  it("health: the notice is the audited one, 151 characters", () => {
+    expect(NOTICE).toHaveLength(151);
+  });
+
+  it("refuses it in every slot, saying how much of it fits", async () => {
+    for (const slot of ["left", "center", "right"] as const) {
+      const run = addHeaderFooter(await a4(), { header: { [slot]: NOTICE } });
+      await expect(run, slot).rejects.toBeInstanceOf(PdfEngineError);
+      await expect(
+        addHeaderFooter(await a4(), { header: { [slot]: NOTICE } }),
+      ).rejects.toThrow(
+        new RegExp(
+          `header's ${slot} text is too wide for page 1.*room for [0-9]+ of its 151 characters`,
+        ),
+      );
+    }
+    await expect(
+      addHeaderFooter(await a4(), { footer: { center: NOTICE } }),
+    ).rejects.toThrow(/footer's center/);
+  });
+
+  it("measures the page as a reader sees it: a quarter-turned A4 is wide enough", async () => {
+    // Landscape on screen: 841.9 pt across, so the notice fits at 10 pt.
+    const output = await addHeaderFooter(await a4(90), {
+      header: { center: NOTICE },
+    });
+    expect((await PDFDocument.load(output)).getPageCount()).toBe(1);
+  });
+
+  it("control: the count the refusal names is exact — that many characters fit, one more does not", async () => {
+    let room = -1;
+    try {
+      await addHeaderFooter(await a4(), { header: { center: NOTICE } });
+    } catch (err) {
+      room = Number(/room for (\d+) of/.exec(String(err))?.[1]);
+    }
+    expect(room).toBeGreaterThan(50);
+    expect(room).toBeLessThan(NOTICE.length);
+    await expect(
+      addHeaderFooter(await a4(), {
+        header: { center: NOTICE.slice(0, room) },
+      }),
+    ).resolves.toBeInstanceOf(Uint8Array);
+    await expect(
+      addHeaderFooter(await a4(), {
+        header: { center: NOTICE.slice(0, room + 1) },
+      }),
+    ).rejects.toThrow(/too wide/);
+    await expect(
+      addHeaderFooter(await a4(), { header: { center: "Acme Report" } }),
+    ).resolves.toBeInstanceOf(Uint8Array);
   });
 });
 
