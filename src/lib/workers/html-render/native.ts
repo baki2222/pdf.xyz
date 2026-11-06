@@ -345,12 +345,98 @@ function startsWithBom(bytes: Uint8Array): boolean {
   );
 }
 
+/** How far Chromium's prescan looks for a `<meta>` declaration, in bytes. */
+const CHARSET_PRESCAN_BYTES = 1024;
+
+/** One `<meta ...>` tag's attributes, as written. */
+const META_TAG =
+  /<meta\b((?:\s+[^\s>"'/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+))?|\s*\/)*)\s*>/gi;
+const ATTRIBUTE =
+  /([^\s>"'/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
+
+/** True when `label` names an encoding a browser knows. */
+function isEncodingLabel(label: string): boolean {
+  try {
+    new TextDecoder(label.trim());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * A `<meta charset>` or `<meta http-equiv content="...; charset=...">`
- * anywhere in the file. Read as latin1 so any byte sequence is searchable;
- * the markup that names a charset is ASCII in every encoding Chromium sniffs.
+ * True when the file declares its own encoding where Chromium looks for one:
+ * in the first {@link CHARSET_PRESCAN_BYTES} bytes, outside comments, a
+ * `<meta>` whose OWN `charset` attribute names a real encoding, or a
+ * `<meta http-equiv="content-type" content="...; charset=...">`. Read as
+ * latin1 so any byte sequence is searchable; the markup is ASCII in every
+ * encoding Chromium sniffs. "charset=" in prose, in another meta's
+ * `content`, or in a comment is not a declaration (review of 9b169477).
  */
-const META_CHARSET = /<meta\b[^>]*\bcharset\s*=/i;
+function declaresCharset(bytes: Uint8Array): boolean {
+  const head = Buffer.from(bytes.subarray(0, CHARSET_PRESCAN_BYTES))
+    .toString("latin1")
+    .replace(/<!--[\s\S]*?(?:-->|$)/g, "");
+  for (const [, attrs = ""] of head.matchAll(META_TAG)) {
+    const named = new Map<string, string>();
+    for (const [, name, dq, sq, bare] of attrs.matchAll(ATTRIBUTE))
+      if (!named.has(name!.toLowerCase()))
+        named.set(name!.toLowerCase(), dq ?? sq ?? bare ?? "");
+    const charset = named.get("charset");
+    if (charset !== undefined && isEncodingLabel(charset)) return true;
+    const content = /charset\s*=\s*["']?([^"';\s]+)/i.exec(
+      named.get("content") ?? "",
+    );
+    if (
+      named.get("http-equiv")?.trim().toLowerCase() === "content-type" &&
+      content &&
+      isEncodingLabel(content[1]!)
+    )
+      return true;
+  }
+  return false;
+}
+
+/** HTML's void elements: the only ones whose `<x/>` the HTML parser closes. */
+const VOID_ELEMENTS = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "param",
+  "source",
+  "track",
+  "wbr",
+]);
+
+/** A self-closing start tag: its name, then its attributes as written. */
+const SELF_CLOSING_TAG =
+  /<([a-zA-Z][\w:.-]*)((?:\s+[^\s>"'/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+))?)*)\s*\/>/g;
+
+/**
+ * An XHTML document made ready for the HTML parser: every empty element
+ * written `<x/>` that is not void becomes `<x></x>`. The HTML parser ignores
+ * the slash, so `<title/>` OPENS a title and the rest of the chapter becomes
+ * its text — lost silently, with no `<parsererror>` to see (review of
+ * a5d422c3). Read as latin1, so every other byte is returned unchanged.
+ */
+export function xhtmlEmptyElementsForHtml(bytes: Uint8Array): Uint8Array {
+  const text = Buffer.from(bytes).toString("latin1");
+  const out = text.replace(
+    SELF_CLOSING_TAG,
+    (tag, name: string, attrs: string) =>
+      VOID_ELEMENTS.has(name.toLowerCase())
+        ? tag
+        : `<${name}${attrs}></${name}>`,
+  );
+  return out === text ? bytes : new Uint8Array(Buffer.from(out, "latin1"));
+}
 
 /**
  * The Content-Type an uploaded HTML document is served with.
@@ -365,8 +451,7 @@ const META_CHARSET = /<meta\b[^>]*\bcharset\s*=/i;
  */
 export function htmlDocumentContentType(bytes: Uint8Array): string {
   if (startsWithBom(bytes)) return "text/html";
-  if (META_CHARSET.test(Buffer.from(bytes).toString("latin1")))
-    return "text/html";
+  if (declaresCharset(bytes)) return "text/html";
   try {
     new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     return "text/html; charset=utf-8";
@@ -710,9 +795,14 @@ export function createNativeChromiumPdfRunner(
    *     self-contained, so nothing is fetched from the web;
    *   - the output cap holds for the documents together;
    *   - a document Chromium's XML parser rejects (its `<parsererror>` is in
-   *     the DOM) is loaded again as `text/html`, whose parser recovers the
-   *     way lenient readers do, and one that still shows the error fails
-   *     the render — Chromium's error banner is never printed (audit #6).
+   *     the DOM) is loaded again as `text/html`, with its non-void empty
+   *     elements (`<title/>`, `<a id="p5"/>`) written as open-close pairs so
+   *     the HTML parser does not read them as open tags. What that parser
+   *     was proven to recover is in the tests (an undefined `&nbsp;`, an
+   *     unclosed `<br>`, an empty `<title/>`), not every malformed book; one
+   *     that still shows the error fails the render — Chromium's error
+   *     banner is never printed (audit #6). `native.test.ts` pins both
+   *     branches against a fake Chromium.
    */
   async function drivePackage(
     cdp: CdpConnection,
@@ -738,18 +828,24 @@ export function createNativeChromiumPdfRunner(
       if (p.request.url.startsWith(HTML_DOCUMENT_URL)) {
         const hit =
           p.request.method === "GET" ? pkg.serve(p.request.url) : null;
+        const asHtml = hit !== null && servedAsHtml.has(hrefOf(p.request.url));
         const contentType = !hit
           ? "text/plain"
-          : servedAsHtml.has(hrefOf(p.request.url))
+          : asHtml
             ? htmlDocumentContentType(hit.body)
             : hit.contentType;
+        const body = !hit
+          ? ""
+          : Buffer.from(
+              asHtml ? xhtmlEmptyElementsForHtml(hit.body) : hit.body,
+            ).toString("base64");
         await cdp.send(
           "Fetch.fulfillRequest",
           {
             requestId: p.requestId,
             responseCode: hit ? 200 : 404,
             responseHeaders: [{ name: "Content-Type", value: contentType }],
-            body: hit ? Buffer.from(hit.body).toString("base64") : "",
+            body,
           },
           event.sessionId,
         );

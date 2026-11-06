@@ -188,6 +188,27 @@ describe.skipIf(!BIN)("EPUB to PDF through a real Chromium", () => {
     expect(run.meta).toMatchObject({ chapters: 3 });
   }, 120_000);
 
+  /*
+   * Review of a5d422c3: the text/html reload reads `<title/>` as an OPEN
+   * title, and the rest of the chapter became its text — gone from the page,
+   * with no `<parsererror>` for the second check to see.
+   */
+  it("a broken chapter with an empty <title/> still prints its body", async () => {
+    const broken = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+<head><meta charset="utf-8"/><title/></head>
+<body><h1>Untitled chapter</h1><p>Before&nbsp;entity TITLEMARK text.</p>
+<p><a id="p5"/>Anchor AFTERANCHOR text.</p></body></html>`;
+    const { reading } = await convert(
+      await epub3Book({ extra: { "OEBPS/Text/m-ch.xhtml": broken } }),
+    );
+    const all = reading.pages.join("\n");
+    expect(all, all).not.toMatch(/following errors/);
+    expect(all, all).toContain("TITLEMARK");
+    expect(all, all).toContain("AFTERANCHOR");
+  }, 120_000);
+
   it("EPUB 2: the NCX becomes the outline", async () => {
     const { reading } = await convert(await epub2Book());
     expect(epub2Verdict(reading)).toEqual([]);
