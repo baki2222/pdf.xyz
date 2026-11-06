@@ -121,7 +121,11 @@ describe("the guides catalogue is structurally sound", () => {
     // guide, and no existing guide covers cutting a page in two (62 → 63).
     // And for OCR's "Straighten crooked pages" (#262): deskewing is its own
     // search intent, and no OCR guide covers it (63 → 64).
-    expect(slugs.length).toBeLessThanOrEqual(64);
+    // Revisited 2026-11-05: JPG / PNG to PDF learned TIFF (#273) and its
+    // Orientation tag (#276). "tiff to pdf" is its own search family, and the
+    // WebP / GIF / BMP guide does not cover multi-page or fax TIFFs (64 → 65).
+    // Checked against `tiff.ts`, `tiff-limits.ts` and `addTiffPages`.
+    expect(slugs.length).toBeLessThanOrEqual(65);
     for (const guide of guides) {
       expect(
         copyStrings(guide).length,
