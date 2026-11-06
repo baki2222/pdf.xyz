@@ -1,3 +1,4 @@
+import { sanitizeSegment } from "./files";
 import type { PageRange, SplitPart } from "./types";
 
 /**
@@ -165,13 +166,15 @@ export function formatPageNumbers(pageNumbers: readonly number[]): string {
 
 /**
  * Build named split parts from ranges. Names are zero-padded and carry the page
- * range so a folder of outputs sorts and reads sensibly.
+ * range so a folder of outputs sorts and reads sensibly. The base goes through
+ * the same {@link sanitizeSegment} as every other output name, so a source
+ * called "Q3: plan?.pdf" cannot write a ZIP entry Windows refuses to extract.
  */
 export function buildSplitParts(
   base: string,
   ranges: PageRange[],
 ): SplitPart[] {
-  const safeBase = base.trim() || "document";
+  const safeBase = sanitizeSegment(base);
   const pad = String(ranges.length).length;
   return ranges.map((range, i) => {
     const seq = String(i + 1).padStart(pad, "0");

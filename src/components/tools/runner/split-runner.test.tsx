@@ -80,3 +80,25 @@ describe("Split PDF · Every N pages field", () => {
     );
   });
 });
+
+/**
+ * Audit #46 (2026-11-06): the parts a person downloads carried the source
+ * name raw, ':' and '?' included, while the ZIP itself was sanitised.
+ */
+describe("Split PDF · part names", () => {
+  it("lists each part under a name every file system can hold", async () => {
+    const source = await pdfWithPages(3);
+    render(
+      <SplitEditor
+        pdf={loaded(source, "Q3: plan?.pdf", 3)}
+        onReset={() => {}}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: SPLIT_MODE_LABEL.perPage }),
+    );
+    expect(screen.getByText("Q3 plan-1-page-1.pdf")).toBeInTheDocument();
+    // The header still names the source as it is; no PART carries it raw.
+    expect(screen.queryByText(/^Q3: plan\?-/)).toBeNull();
+  });
+});
