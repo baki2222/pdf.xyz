@@ -83,6 +83,8 @@ import type { PdfArchiveDeps } from "../pdf-archive/engine";
 import { nativePdfArchiveDeps } from "../pdf-archive/native";
 import type { HtmlRenderDeps } from "../html-render/engine";
 import { nativeHtmlRenderDeps } from "../html-render/native";
+import { nativeEpubRenderDeps } from "../epub/native";
+import type { EpubRenderDeps } from "../epub/engine";
 import type { OfficeConversionDeps } from "../office-conversion/engine";
 import { nativeOfficeConversionDeps } from "../office-conversion/native";
 import type { PdfOfficeExportDeps } from "../pdf-office-export/engine";
@@ -342,6 +344,8 @@ export interface WorkerRuntimeDeps {
   pdfArchive?: PdfArchiveDeps;
   /** HTML/Webpage rendering deps; defaults to Chromium auto-detection. */
   htmlRender?: HtmlRenderDeps;
+  /** EPUB to PDF deps; defaults to the HTML renderer's Chromium auto-detection. */
+  epubRender?: EpubRenderDeps;
   /** Office conversion deps; defaults to LibreOffice auto-detection. */
   officeConversion?: OfficeConversionDeps;
   /** PDF to Office export deps; defaults to native `pdftotext -layout`. */
@@ -455,6 +459,7 @@ export function resolveProcessorDeps(
   const pdfStructureDeps = deps.pdfStructure ?? nativePdfStructureDeps(env);
   const pdfArchiveDeps = deps.pdfArchive ?? nativePdfArchiveDeps(env);
   const htmlRenderDeps = deps.htmlRender ?? nativeHtmlRenderDeps(env);
+  const epubRenderDeps = deps.epubRender ?? nativeEpubRenderDeps(env);
   const officeConversionDeps =
     deps.officeConversion ?? nativeOfficeConversionDeps(env);
   const pdfOfficeExport = deps.pdfOfficeExport ?? pdfOfficeExportDeps();
@@ -485,6 +490,7 @@ export function resolveProcessorDeps(
     pdfStructure: pdfStructureDeps,
     pdfArchive: pdfArchiveDeps,
     htmlRender: htmlRenderDeps,
+    epubRender: epubRenderDeps,
     officeConversion: officeConversionDeps,
     pdfOfficeExport,
     tableExtract,

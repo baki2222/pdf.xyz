@@ -13,6 +13,7 @@ import type { PdfSecurityDeps } from "../pdf-security/engine";
 import type { PdfStructureDeps } from "../pdf-structure/engine";
 import type { PdfArchiveDeps } from "../pdf-archive/engine";
 import type { HtmlRenderDeps } from "../html-render/engine";
+import type { EpubRenderDeps } from "../epub/engine";
 import type { OfficeConversionDeps } from "../office-conversion/engine";
 import type { PdfOfficeExportDeps } from "../pdf-office-export/engine";
 import type { TableExtractDeps } from "../table-extract/engine";
@@ -28,6 +29,7 @@ import { createPdfSecurityProcessor } from "./pdf-security";
 import { createPdfStructureProcessor } from "./pdf-structure";
 import { createPdfArchiveProcessor } from "./pdf-archive";
 import { createHtmlRenderProcessor } from "./html-render";
+import { createEpubRenderProcessor } from "./epub";
 import { createOfficeConversionProcessor } from "./office-conversion";
 import { createPdfOfficeExportProcessor } from "./pdf-office-export";
 import { createTableExtractProcessor } from "./table-extract";
@@ -45,6 +47,7 @@ export * from "./pdf-security";
 export * from "./pdf-structure";
 export * from "./pdf-archive";
 export * from "./html-render";
+export * from "./epub";
 export * from "./office-conversion";
 export * from "./pdf-office-export";
 export * from "./table-extract";
@@ -68,6 +71,8 @@ export interface SecureWorkerProcessorDeps {
   pdfArchive?: PdfArchiveDeps;
   /** HTML/Webpage rendering dependencies — Chromium runner + limits. */
   htmlRender?: HtmlRenderDeps;
+  /** EPUB to PDF dependencies — the HTML renderer's Chromium + this engine's limits. */
+  epubRender?: EpubRenderDeps;
   /** Office document conversion dependencies — LibreOffice runner + limits. */
   officeConversion?: OfficeConversionDeps;
   /** PDF to Office export dependencies — pdfjs text extraction + OpenXML packaging. */
@@ -116,6 +121,9 @@ export function createProcessorRegistry(
   }
   if (deps.htmlRender) {
     registry.register(createHtmlRenderProcessor(deps.htmlRender));
+  }
+  if (deps.epubRender) {
+    registry.register(createEpubRenderProcessor(deps.epubRender));
   }
   if (deps.officeConversion) {
     registry.register(createOfficeConversionProcessor(deps.officeConversion));

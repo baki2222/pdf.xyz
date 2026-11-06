@@ -40,6 +40,7 @@ describe("catalog ↔ processor registry coverage", () => {
     pdfStructure: {},
     pdfArchive: {},
     htmlRender: {},
+    epubRender: {},
     officeConversion: {},
     pdfOfficeExport: {},
     tableExtract: {},

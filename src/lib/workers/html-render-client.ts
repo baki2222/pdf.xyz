@@ -13,6 +13,7 @@ import { withToolOutcome } from "@/lib/telemetry/tool-outcome";
 
 const HTML_TO_PDF_TOOL = "html-to-pdf";
 const WEBPAGE_TO_PDF_TOOL = "webpage-to-pdf";
+const EPUB_TO_PDF_TOOL = "epub-to-pdf";
 
 export type HtmlRenderWorkerResult = PdfSecurityWorkerResult;
 
@@ -33,6 +34,24 @@ export async function runWorkerHtmlToPdf(
 ): Promise<HtmlRenderWorkerResult> {
   return runSecurityJob(
     HTML_TO_PDF_TOOL,
+    input.filename,
+    input.bytes,
+    { ...input.layout },
+    options,
+  );
+}
+
+/**
+ * EPUB to PDF: the same upload-and-wait lifecycle as HTML to PDF, with the
+ * book's page options (`@/lib/jobs/epub-render-options`) as the bag
+ * `epubRenderOptionsBag` builds.
+ */
+export async function runWorkerEpubToPdf(
+  input: HtmlRenderWorkerInput,
+  options: PdfSecurityWorkerOptions = {},
+): Promise<HtmlRenderWorkerResult> {
+  return runSecurityJob(
+    EPUB_TO_PDF_TOOL,
     input.filename,
     input.bytes,
     { ...input.layout },

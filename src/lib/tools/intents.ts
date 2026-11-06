@@ -142,7 +142,6 @@ export const UNSUPPORTED_ANSWERS: Readonly<
     how: "Export a PNG copy first.",
   },
   AVIF: { noun: "AVIF images", becomes: "JPG", how: "Save a JPG copy first." },
-  EPUB: { noun: "EPUB e-books", becomes: null, how: null },
   ZIP: {
     noun: "ZIP archives",
     becomes: "PDF",

@@ -384,7 +384,12 @@ export const tools: Tool[] = [
     accept: ["HTML", "HTM"],
     outputs: ["PDF"],
     keywords: ["html to pdf", "render html", "web to pdf", "markup to pdf"],
-    related: ["webpage-to-pdf", "markdown-to-pdf", "word-to-pdf"],
+    related: [
+      "webpage-to-pdf",
+      "epub-to-pdf",
+      "markdown-to-pdf",
+      "word-to-pdf",
+    ],
   },
   {
     slug: "webpage-to-pdf",
@@ -399,6 +404,22 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["webpage to pdf", "url to pdf", "website to pdf", "save page"],
     related: ["html-to-pdf", "markdown-to-pdf", "compress-pdf"],
+  },
+  {
+    slug: "epub-to-pdf",
+    name: "EPUB to PDF",
+    tagline: "Print an e-book as one PDF.",
+    cardSummary: "Turn an EPUB e-book into a PDF.",
+    description:
+      "Convert a DRM-free EPUB e-book into one PDF: chapters in reading order, the table of contents as bookmarks, on a secure server that deletes the input after the job.",
+    category: "convert-to",
+    icon: "ebook",
+    processing: "server",
+    badge: "new",
+    accept: ["EPUB"],
+    outputs: ["PDF"],
+    keywords: ["epub to pdf", "ebook to pdf", "convert epub", "e-book to pdf"],
+    related: ["html-to-pdf", "compress-pdf", "merge-pdf"],
   },
   {
     slug: "markdown-to-pdf",

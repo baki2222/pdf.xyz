@@ -106,6 +106,10 @@ import {
 import { MAX_PDF_PASSWORD_BYTES } from "@/lib/jobs/pdf-security";
 import { nativeOfficeConversionDeps } from "@/lib/workers/office-conversion/native";
 import { nativeHtmlRenderDeps } from "@/lib/workers/html-render/native";
+import { nativeEpubRenderDeps } from "@/lib/workers/epub/native";
+import { EPUB_MAX_UNPACKED_BYTES } from "@/lib/workers/epub/native-config";
+import { epubOfSize } from "@/tests/epub-fixtures";
+import { PDFDocument } from "pdf-lib";
 import type { Processor } from "@/lib/workers/processor/types";
 import { MAX_IMAGE_BYTES, MAX_SOURCE_BYTES } from "./limits";
 import {
@@ -388,6 +392,16 @@ const OTHER_SIZES: readonly {
     window: 240,
     shipped:
       "Enter it in the New password field. It can be up to 127 bytes long.",
+  },
+  // Added 2026-11-06: EPUB to PDF's limit on what a book UNPACKS to — the
+  // ZIP-bomb bound, never a size the picked file is refused above (that is
+  // the per-file ceiling, stated beside it).
+  {
+    what: "what an EPUB may unpack to",
+    valuesMb: [MB_OF(EPUB_MAX_UNPACKED_BYTES)],
+    near: /\bunpack(?:s|ed)?\b/i,
+    window: 60,
+    shipped: "10,000 files in all and 300 MB once unpacked",
   },
   {
     what: "a picture inserted into the PDF",
@@ -943,6 +957,21 @@ function routedProcessor(slug: string): Processor {
         renderUrl: async () => MIN_PDF,
       },
     },
+    // EPUB to PDF joins its chapters with pdf-lib, so its stand-in prints a
+    // real one-page PDF per chapter.
+    epubRender: {
+      ...nativeEpubRenderDeps({}, NO_BINARIES),
+      chromium: {
+        renderPackage: async (pkg) =>
+          Promise.all(
+            pkg.documents.map(async () => {
+              const doc = await PDFDocument.create();
+              doc.addPage([200, 200]);
+              return doc.save();
+            }),
+          ),
+      },
+    },
   });
   const processor = registry.resolve(slug);
   if (!processor) throw new Error(`no processor is routed ${slug}`);
@@ -960,7 +989,12 @@ async function runAt(slug: string, bytes: number) {
         fileId: "f1",
         filename: `input.${ext}`,
         contentType: "application/octet-stream",
-        bytes: new Uint8Array(bytes),
+        // A book is read before it is printed: bytes of nothing would be
+        // refused for what they are, not for their size.
+        bytes:
+          slug === "epub-to-pdf"
+            ? await epubOfSize(bytes)
+            : new Uint8Array(bytes),
       },
     ],
   });
@@ -1076,6 +1110,7 @@ describe("an engine that refuses below the upload gate sets the ceiling", () => 
     }
     // One override variable per below-gate engine, read from its own source.
     expect([...names].sort()).toEqual([
+      "PDFXYZ_EPUB_MAX_INPUT_BYTES",
       "PDFXYZ_HTML_RENDER_MAX_INPUT_BYTES",
       "PDFXYZ_OFFICE_CONVERSION_MAX_INPUT_BYTES",
     ]);

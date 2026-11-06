@@ -86,6 +86,11 @@ export const TOOL_HOW: Readonly<Record<string, readonly string[]>> = {
     "Select Render PDF — Chromium renders it on a secure server that deletes the input when the job finishes.",
     `Download the PDF — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
   ],
+  "epub-to-pdf": [
+    "Upload one .epub file over an encrypted connection.",
+    "Select Convert to PDF — Chromium prints every chapter, in reading order, on a secure server that deletes the input when the job finishes.",
+    `Download the PDF — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
+  ],
   "webpage-to-pdf": [
     "Paste a public http(s) URL.",
     "Select Render PDF — Chromium captures the page on a secure server.",

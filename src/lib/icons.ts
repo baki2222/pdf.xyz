@@ -1,5 +1,6 @@
 import {
   AlignLeft,
+  BookOpen,
   Bot,
   Camera,
   Contrast,
@@ -84,6 +85,7 @@ export const ICONS = {
   jpg: FileImage,
   png: ImageIcon,
   html: FileCode,
+  ebook: BookOpen,
   web: Globe,
   markdown: FileType,
   text: Type,

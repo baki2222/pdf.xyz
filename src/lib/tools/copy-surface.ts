@@ -232,6 +232,11 @@ export function copyFiles(): string[] {
     // Split PDF Pages in Half (2026-11-01): its option labels, hints and refusals.
     path.join(ROOT, "src", "lib", "pdf", "split-half.ts"),
     path.join(ROOT, "src", "lib", "workers", "read-error.ts"),
+    // EPUB to PDF (2026-11-06): its refusals, its options' field errors and
+    // its processor's readiness sentence.
+    path.join(ROOT, "src", "lib", "workers", "epub", "engine.ts"),
+    path.join(ROOT, "src", "lib", "jobs", "epub-render-options.ts"),
+    path.join(ROOT, "src", "lib", "workers", "processor", "epub.ts"),
     // The sentence an upload that did not reach storage ends with
     // (2026-10-29): the kind, the HTTP status and the next step. New phrase
     // code beside the upload engine, so walked, like read-error.ts.

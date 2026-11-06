@@ -488,8 +488,15 @@ describe("the catalogue ships in one chunk, shared by every surface that reads i
  * one machine from an empty .next), +68 B of framework output in our own
  * chunks. CI measured the branch at 33.003 against 33.0. The same rule as
  * `NEXT_16_4_5_BYTES` in bundle-budget.test.ts: the row keeps its headroom.
+ *
+ * RAISED 33.07 -> 33.2 on 2026-11-06, for EPUB to PDF, the 56th tool, which
+ * the ticket offers like every other: its catalogue entry, the EPUB rows in
+ * the format tables, and the sniff that reads an EPUB's stored `mimetype`
+ * (a `.docx` renamed `.epub` is refused by its contents). The eight counted
+ * chunks went 33,784 -> 33,917 B (+133, gzip -9, main 33ad8bd9 vs the
+ * branch, one machine, empty .next): 33.07 + 133/1024 = 33.20.
  */
-const TICKET_FETCH_GZ_KB = 33.07;
+const TICKET_FETCH_GZ_KB = 33.2;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));

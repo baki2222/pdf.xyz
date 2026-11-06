@@ -32,8 +32,9 @@ describe("the answer to a format nothing opens", () => {
     expect(answers.length).toBe(UNSUPPORTED_FORMATS.length);
     // Was ≥ 10 until 2026-11-04, when ODT, RTF, ODS and ODP became formats
     // Word, Excel and PowerPoint to PDF take; ≥ 7 until later that day, when
-    // JPG / PNG to PDF began reading TIFF. Six remain.
-    expect(answers.length).toBeGreaterThanOrEqual(6);
+    // JPG / PNG to PDF began reading TIFF; ≥ 6 until 2026-11-06, when EPUB
+    // to PDF began taking EPUB. Five remain.
+    expect(answers.length).toBeGreaterThanOrEqual(5);
   });
 
   it("is true of the catalogue: no tool takes the format it names", () => {

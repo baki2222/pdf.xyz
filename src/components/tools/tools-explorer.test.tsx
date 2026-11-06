@@ -500,8 +500,9 @@ describe("ToolsExplorer: the unsupported-format answer, as rendered", () => {
     expect(texts).toHaveLength(UNSUPPORTED_FORMATS.length);
     // ≥ 10 until 2026-11-04, when ODT, RTF, ODS and ODP became formats the
     // Office to PDF tools take; ≥ 7 until later that day, when TIFF became a
-    // format JPG / PNG to PDF take.
-    expect(texts.length).toBeGreaterThanOrEqual(6);
+    // format JPG / PNG to PDF take; ≥ 6 until 2026-11-06, when EPUB became a
+    // format EPUB to PDF takes.
+    expect(texts.length).toBeGreaterThanOrEqual(5);
     for (const text of texts) expect(text).toMatch(/^No tool here opens /);
     expect(texts.filter((text) => DEFERRAL.test(text))).toEqual([]);
     // Positive control: the spec's own wording would have been caught.
@@ -520,9 +521,13 @@ describe("ToolsExplorer: the unsupported-format answer, as rendered", () => {
     );
   });
 
-  it("an answer with no way in is its headline alone", async () => {
-    const region = await renderedAnswer("EPUB");
-    expect(region!.textContent).toBe("No tool here opens EPUB e-books.");
+  // INVERTED 2026-11-06. This read "an answer with no way in is its
+  // headline alone", over EPUB: "No tool here opens EPUB e-books." EPUB to
+  // PDF takes them now, so the search must not say no tool does.
+  it('EPUB is no longer answered with "No tool here opens"', async () => {
+    expect(await renderedAnswer("EPUB")).toBeNull();
+    // Control: the same reader still finds a format nothing opens.
+    expect(await renderedAnswer("HEIC")).not.toBeNull();
   });
 });
 

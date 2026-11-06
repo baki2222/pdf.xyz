@@ -186,6 +186,20 @@ jobs:
       - name: Worker image OpenDocument and RTF input proof (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:office-input-proof
 
+      # EPUB to PDF (2026-11-06): generated books through the REAL engine and
+      # the image's REAL Chromium, each PDF read back with pdf.js — chapters
+      # in spine order on their own pages, the book's PNG drawn, its
+      # stylesheet's heading colour, the nav (EPUB 3) or NCX (EPUB 2) as the
+      # outline, the chapter script NOT run, a fixed-layout book at its
+      # viewport, a font-obfuscated book converted — with the same book
+      # printed in reverse as the control the verdict must fail. The render
+      # network is replaced by one that counts and throws: the book's remote
+      # image must be asked for and never fetched. And DRM, a ZIP bomb, a
+      # .docx named .epub and a spine escaping the root must each be refused
+      # before Chromium runs. No user document, secret, queue or store.
+      - name: Worker image EPUB to PDF proof (inside the built worker image)
+        run: docker run --rm pdfxyz-worker:ci pnpm worker:epub-proof
+
       # Worker options (2026-10-24): compress-pdf's Grayscale through the
       # image's REAL Ghostscript, read back as 1-component images (with a
       # colour run as the control), and protect-pdf's permission restrictions

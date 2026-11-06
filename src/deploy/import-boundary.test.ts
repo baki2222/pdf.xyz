@@ -64,6 +64,8 @@ const ALLOWED = new Set(
     "src/lib/workers/pdf-structure/native.ts",
     "src/lib/workers/pdf-archive/native.ts",
     "src/lib/workers/html-render/native.ts",
+    // EPUB to PDF's deps builder: the HTML renderer's Chromium runner.
+    "src/lib/workers/epub/native.ts",
     "src/lib/workers/office-conversion/native.ts",
     "src/lib/workers/ocr-native.ts",
     // The `pdftotext` subprocess runner and every deps builder that wires it.

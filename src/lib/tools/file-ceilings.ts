@@ -126,6 +126,7 @@ const ENGINE_NAMES: Readonly<
 > = {
   "office-conversion": "LibreOffice",
   "html-render": "Chromium",
+  "epub-render": "Chromium",
 };
 
 /**

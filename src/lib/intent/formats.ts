@@ -56,6 +56,7 @@ export const FORMATS = [
   "BMP",
   "TIFF",
   "HTML",
+  "EPUB",
   "MD",
   "TXT",
 ] as const;
@@ -72,14 +73,16 @@ export type Format = (typeof FORMATS)[number];
  * `office-conversion/input-content.ts`), and their "save a copy first"
  * answers went with them. TIFF followed on 2026-11-04, when JPG / PNG to PDF
  * began reading it — every page of a multi-page TIFF — in the browser
- * (`pdf/tiff.ts`); "No tool here opens TIFF images." went with it.
+ * (`pdf/tiff.ts`); "No tool here opens TIFF images." went with it. EPUB
+ * followed on 2026-11-06, when EPUB to PDF began printing books on the
+ * worker (`workers/epub`, which checks the bytes first), and "No tool here
+ * opens EPUB e-books." went with it.
  */
 export const UNSUPPORTED_FORMATS = [
   "HEIC",
   "HEIF",
   "SVG",
   "AVIF",
-  "EPUB",
   "ZIP",
 ] as const;
 export type UnsupportedFormat = (typeof UNSUPPORTED_FORMATS)[number];
@@ -99,7 +102,6 @@ export const UNSUPPORTED_SIGNS: Record<
   HEIF: { extensions: ["heif"], mimes: ["image/heif", "image/heif-sequence"] },
   SVG: { extensions: ["svg"], mimes: ["image/svg+xml"] },
   AVIF: { extensions: ["avif"], mimes: ["image/avif"] },
-  EPUB: { extensions: ["epub"], mimes: ["application/epub+zip"] },
   ZIP: {
     extensions: ["zip"],
     mimes: ["application/zip", "application/x-zip-compressed"],
