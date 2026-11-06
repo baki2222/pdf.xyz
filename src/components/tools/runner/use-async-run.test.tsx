@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
+import { currentActivity, resetActivityForTests } from "@/lib/activity/bus";
 import { useAsyncRun } from "./runner-kit";
 
+beforeEach(resetActivityForTests);
 afterEach(cleanup);
 
 /** A task the test settles by hand, so a reset can land while it runs. */
@@ -94,5 +96,68 @@ describe("useAsyncRun: a reset invalidates the run in flight", () => {
     });
     expect(result.current.result).toBe("made");
     expect(result.current.busy).toBe(false);
+  });
+});
+
+/**
+ * Review of audit #47 (2026-11-06): the first fix dropped a stale run's
+ * value, error and busy flag, and with them its `reportActivity("done")`,
+ * but nothing returned the activity bus to idle. After Clear the masthead
+ * mark and a hidden tab's title (spec E.11) said "working" until the next
+ * run. A reset that stops a run in flight ends it without news.
+ */
+describe("useAsyncRun: a reset ends the activity it started", () => {
+  it("reset() during a run returns the bus to idle, and the run settling later does not revive it", async () => {
+    const { result } = renderHook(() => useAsyncRun<string>());
+    const task = deferred<string>();
+    let settled: Promise<unknown>;
+    act(() => {
+      settled = result.current.run(() => task.promise);
+    });
+    // Health check: the run did report itself.
+    expect(currentActivity().state).toBe("busy");
+    act(() => result.current.reset());
+    expect(currentActivity().state).toBe("idle");
+    await act(async () => {
+      task.resolve("the pages that were cleared");
+      await settled;
+    });
+    expect(currentActivity().state).toBe("idle");
+  });
+
+  it("control: a stale run settling during a NEWER run leaves the newer run busy", async () => {
+    const { result } = renderHook(() => useAsyncRun<string>());
+    const first = deferred<string>();
+    const second = deferred<string>();
+    let firstSettled: Promise<unknown>;
+    let secondSettled: Promise<unknown>;
+    act(() => {
+      firstSettled = result.current.run(() => first.promise);
+    });
+    act(() => result.current.reset());
+    act(() => {
+      secondSettled = result.current.run(() => second.promise);
+    });
+    expect(currentActivity().state).toBe("busy");
+    await act(async () => {
+      first.reject(new Error("stale"));
+      await firstSettled;
+    });
+    expect(currentActivity().state).toBe("busy");
+    await act(async () => {
+      second.resolve("new");
+      await secondSettled;
+    });
+    expect(currentActivity().state).toBe("done");
+  });
+
+  it("control: a reset with no run in flight does not touch the bus", async () => {
+    const { result } = renderHook(() => useAsyncRun<string>());
+    await act(async () => {
+      await result.current.run(async () => "made");
+    });
+    expect(currentActivity().state).toBe("done");
+    act(() => result.current.reset());
+    expect(currentActivity().state).toBe("done");
   });
 });

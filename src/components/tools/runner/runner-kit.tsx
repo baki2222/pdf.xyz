@@ -34,7 +34,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { NAME_WRAP } from "@/components/ui/name-wrap";
 import { DropSheet, type SheetTarget } from "@/components/upload/drop-sheet";
 import { warmPdfLib } from "@/lib/pdf/pdf-lib";
-import { reportActivity } from "@/lib/activity/bus";
+import { cancelActivity, reportActivity } from "@/lib/activity/bus";
 import { cn } from "@/lib/utils";
 import {
   reportToolCompleted,
@@ -163,7 +163,10 @@ function useEnding(): Ending | null {
  * error, and the produced result, and wraps an async task with try/catch.
  *
  * `reset()` invalidates a run still in flight: its value, its error and its
- * busy flag are dropped when it settles. Scan to PDF's Clear reset the runner
+ * busy flag are dropped when it settles, and the reset itself returns the
+ * activity bus to idle (`cancelActivity`), since the stopped run will report
+ * no `done` or `failed`. Its outcome telemetry (`reportToolCompleted` /
+ * `reportToolFailed`) is still sent: the work did run. Scan to PDF's Clear reset the runner
  * mid-run and was then shown "Scan saved as PDF" for the photos it had just
  * discarded (audit #47, 2026-11-06).
  */
@@ -174,6 +177,10 @@ export function useAsyncRun<T>() {
   // Which run is current: bumped by every run and every reset, so a run that
   // settles after either is no longer the one the runner is showing.
   const generation = useRef(0);
+  // The generation of the run still in flight, or 0. A reset that stops one
+  // ends the activity it reported (the masthead and a hidden tab's title,
+  // spec E.11); the stopped run, settling later, reports nothing.
+  const inFlight = useRef(0);
   // A run still in flight when the runner unmounts settles its hold then:
   // the result it was held for will never be drawn (`./stage-hold`).
   const holding = useRef<(() => void) | null>(null);
@@ -186,6 +193,7 @@ export function useAsyncRun<T>() {
     holding.current = settled;
     const mine = ++generation.current;
     const current = () => generation.current === mine;
+    inFlight.current = mine;
     setBusy(true);
     setError(null);
     // The masthead's square and a hidden tab's title read this (spec E.11).
@@ -214,6 +222,7 @@ export function useAsyncRun<T>() {
       return null;
     } finally {
       if (current()) setBusy(false);
+      if (inFlight.current === mine) inFlight.current = 0;
       settled();
       if (holding.current === settled) holding.current = null;
     }
@@ -221,6 +230,10 @@ export function useAsyncRun<T>() {
 
   const reset = useCallback(() => {
     generation.current += 1;
+    if (inFlight.current !== 0) {
+      inFlight.current = 0;
+      cancelActivity();
+    }
     setResult(null);
     setError(null);
     setBusy(false);
