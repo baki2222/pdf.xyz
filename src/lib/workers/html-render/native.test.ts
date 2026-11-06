@@ -5,6 +5,7 @@ import {
   chromiumArgs,
   chromiumEnv,
   createNativeChromiumPdfRunner,
+  htmlDocumentContentType,
   nativeHtmlRenderDeps,
   probeChromiumFromConfig,
   PRINT_TO_PDF_OPTIONS,
@@ -292,6 +293,48 @@ describe("native Chromium HTML renderer", () => {
     expect(Buffer.from(String(doc.params.body), "base64").toString()).toBe(
       "<h1>Hello</h1>",
     );
+  });
+
+  /*
+   * Audit #5 (2026-11-06): the upload was served as bare `text/html`, so a
+   * UTF-8 file with no declaration decoded as windows-1252 ("cafÃ©"). The
+   * decoded-PDF proof is in native.chromium.test.ts; this pins the header.
+   */
+  it("serves an undeclared UTF-8 upload as UTF-8", async () => {
+    const fake = fakeChromium();
+    await runner(fake).renderHtml(new TextEncoder().encode("<h1>café</h1>"));
+    const doc = fake.sent.find(
+      (m) => m.method === "Fetch.fulfillRequest" && m.params.requestId === "r0",
+    )!;
+    expect(doc.params.responseHeaders).toEqual([
+      { name: "Content-Type", value: "text/html; charset=utf-8" },
+    ]);
+  });
+
+  it("leaves a BOM, a declared charset, or non-UTF-8 bytes to Chromium", () => {
+    const utf8 = (s: string) => new TextEncoder().encode(s);
+    expect(htmlDocumentContentType(utf8("<p>café</p>"))).toBe(
+      "text/html; charset=utf-8",
+    );
+    expect(
+      htmlDocumentContentType(
+        new Uint8Array([0xef, 0xbb, 0xbf, ...utf8("<p>café</p>")]),
+      ),
+    ).toBe("text/html");
+    expect(
+      htmlDocumentContentType(utf8('<meta charset="windows-1252"><p>x</p>')),
+    ).toBe("text/html");
+    expect(
+      htmlDocumentContentType(
+        utf8(
+          '<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso-8859-1">',
+        ),
+      ),
+    ).toBe("text/html");
+    // "café" in windows-1252, undeclared: not UTF-8, so the old default.
+    expect(
+      htmlDocumentContentType(new Uint8Array([0x63, 0x61, 0x66, 0xe9])),
+    ).toBe("text/html");
   });
 
   /*

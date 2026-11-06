@@ -349,6 +349,38 @@ describe.skipIf(!BIN)(
       });
     }, 90_000);
 
+    /*
+     * Audit #5 (2026-11-06): an upload with neither a BOM nor a charset
+     * declaration was served as bare `text/html`, so Chromium decoded UTF-8
+     * as windows-1252 and printed "cafÃ©" — and the job succeeded.
+     */
+    it("a UTF-8 upload with no charset declaration prints as its own text", async () => {
+      const text = await pdfText(
+        await runner.renderHtml(
+          new TextEncoder().encode(
+            "<h1>Résumé – café naïve 日本語</h1><p>Zoë’s plain body</p>",
+          ),
+        ),
+      );
+      expect(text, text).toContain("Résumé – café naïve");
+      expect(text, text).toContain("Zoë’s plain body");
+      expect(text, text).not.toContain("Ã");
+    }, 90_000);
+
+    it("an upload that declares a legacy charset is still read in it", async () => {
+      // "café" in windows-1252: é is the single byte 0xE9, invalid as UTF-8.
+      const head = new TextEncoder().encode(
+        '<meta charset="windows-1252"><h1>Legacy caf',
+      );
+      const bytes = new Uint8Array([
+        ...head,
+        0xe9,
+        ...new TextEncoder().encode(" body</h1>"),
+      ]);
+      const text = await pdfText(await runner.renderHtml(bytes));
+      expect(text, text).toContain("Legacy café body");
+    }, 90_000);
+
     it("a broken image or iframe inside a page does not fail it", async () => {
       fetched.length = 0;
       const text = await pdfText(

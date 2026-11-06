@@ -335,6 +335,45 @@ export function mainDocumentVerdict(
   return null;
 }
 
+/** A byte-order mark: UTF-8, UTF-16 BE or UTF-16 LE. */
+function startsWithBom(bytes: Uint8Array): boolean {
+  return (
+    (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) ||
+    (bytes[0] === 0xfe && bytes[1] === 0xff) ||
+    (bytes[0] === 0xff && bytes[1] === 0xfe)
+  );
+}
+
+/**
+ * A `<meta charset>` or `<meta http-equiv content="...; charset=...">`
+ * anywhere in the file. Read as latin1 so any byte sequence is searchable;
+ * the markup that names a charset is ASCII in every encoding Chromium sniffs.
+ */
+const META_CHARSET = /<meta\b[^>]*\bcharset\s*=/i;
+
+/**
+ * The Content-Type an uploaded HTML document is served with.
+ *
+ * A BOM or a declared charset is left to Chromium (an HTTP charset would
+ * OVERRIDE the `<meta>` — the header outranks it), so a legacy-encoded upload
+ * that says what it is reads exactly as it says. A file that declares nothing
+ * falls to Chromium's default, windows-1252 — which turned every UTF-8
+ * "café" into "cafÃ©" while the job succeeded (audit #5, 2026-11-06). Such a
+ * file is served as UTF-8 when its bytes ARE valid UTF-8, which is the only
+ * reading in which they are text at all; otherwise it keeps the old default.
+ */
+export function htmlDocumentContentType(bytes: Uint8Array): string {
+  if (startsWithBom(bytes)) return "text/html";
+  if (META_CHARSET.test(Buffer.from(bytes).toString("latin1")))
+    return "text/html";
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return "text/html; charset=utf-8";
+  } catch {
+    return "text/html";
+  }
+}
+
 // The print arguments, and the layout options that change them, live in
 // `./print-params`; re-exported here, where the tests and tool pages read it.
 export { PRINT_TO_PDF_OPTIONS };
@@ -452,9 +491,12 @@ export function createNativeChromiumPdfRunner(
           {
             requestId: p.requestId,
             responseCode: 200,
-            // No charset: Chromium sniffs a BOM or <meta charset> exactly as
-            // it did when it read the file from disk.
-            responseHeaders: [{ name: "Content-Type", value: "text/html" }],
+            responseHeaders: [
+              {
+                name: "Content-Type",
+                value: htmlDocumentContentType(target.bytes),
+              },
+            ],
             body: Buffer.from(target.bytes).toString("base64"),
           },
           sessionId,
