@@ -2,6 +2,7 @@ import type { PDFDocument, PDFEmbeddedPage, PDFPage } from "pdf-lib";
 import { PdfEncryptedError, PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
+import { viewerRotation } from "./rotation";
 import { loadPdf, stampProducer } from "./stamp";
 import type { OverlayFit } from "./offered-kinds";
 
@@ -141,14 +142,7 @@ export interface PdfBox {
   height: number;
 }
 
-/**
- * A `/Rotate` value as a viewer applies it: a multiple of 90 normalized into
- * [0, 360); anything else is ignored (treated as 0), which is what pdf.js does.
- */
-export function viewerRotation(angle: number): 0 | 90 | 180 | 270 {
-  if (!Number.isFinite(angle) || angle % 90 !== 0) return 0;
-  return (((angle % 360) + 360) % 360) as 0 | 90 | 180 | 270;
-}
+export { viewerRotation };
 
 export interface PlaceOverlayInput {
   /** The base page's visible box (CropBox ∩ MediaBox), in content space. */
