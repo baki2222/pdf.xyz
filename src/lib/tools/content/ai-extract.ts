@@ -29,8 +29,9 @@ import {
  *  - src/components/tools/ai-extract-worker-panel.tsx — the builder renders at
  *    once and its Run waits for the worker to report an AI provider (WP-10); one PDF per run ("Add your PDF, or"
  *    + "browse" drop zone, "Remove"); the "Field schema" (default) / "Prompt"
- *    toggle; "Fields to extract" rows = name input + type select + a bin icon
- *    (aria-label "Remove field", a no-op on the last row) + "Add field"; the
+ *    toggle; "Fields to extract" rows = name input ("Field N name") + type
+ *    select ("Field N type") + a bin icon ("Remove field N", a no-op on the
+ *    last row; per-row names since audit #16, 2026-11-06) + "Add field"; the
  *    "What to extract" textarea; the "Extract data" button, aria-disabled until
  *    a file AND, for the selected mode, a named field (no two alike) or prompt
  *    text exist; rows with a blank name are dropped. Its busy label is

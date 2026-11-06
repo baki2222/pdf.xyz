@@ -308,3 +308,81 @@ describe(
     });
   },
 );
+
+/**
+ * Audit #16 (2026-11-06), WCAG 1.3.1 / 4.1.2: each row printed the field's
+ * name in a plain <span> tied to nothing, so a text box was announced by its
+ * placeholder ("Type here…"), a select had no name at all, a checkbox was
+ * named by its state ("Checked"), and radio/list groups had no group name.
+ * Every control is now named by the field it fills.
+ */
+async function everyKindFormPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([600, 800]);
+  const form = doc.getForm();
+  const name = form.createTextField("first.name");
+  name.addToPage(page, { x: 10, y: 740, width: 200, height: 20 });
+  const notes = form.createTextField("notes");
+  notes.enableMultiline();
+  notes.addToPage(page, { x: 10, y: 680, width: 200, height: 40 });
+  const agree = form.createCheckBox("agree");
+  agree.addToPage(page, { x: 10, y: 650, width: 15, height: 15 });
+  const color = form.createRadioGroup("color");
+  color.addOptionToPage("Red", page, { x: 10, y: 620, width: 15, height: 15 });
+  color.addOptionToPage("Blue", page, { x: 40, y: 620, width: 15, height: 15 });
+  const city = form.createDropdown("city");
+  city.addOptions(["NYC", "LA"]);
+  city.addToPage(page, { x: 10, y: 580, width: 200, height: 20 });
+  const combo = form.createDropdown("town");
+  combo.addOptions(["Paris", "Lyon"]);
+  combo.enableEditing();
+  combo.addToPage(page, { x: 10, y: 550, width: 200, height: 20 });
+  const langs = form.createOptionList("langs");
+  langs.addOptions(["EN", "FR"]);
+  langs.enableMultiselect();
+  langs.addToPage(page, { x: 10, y: 480, width: 200, height: 60 });
+  return doc.save();
+}
+
+describe(
+  "Fill Forms: every field control is named by its field",
+  { timeout: 30_000 },
+  () => {
+    it("text, multiline, checkbox, select, combo and both groups carry the field name", async () => {
+      const bytes = await everyKindFormPdf();
+      const { container } = render(withRouter(<FillFormsRunner />));
+      await dropSheetsLive(container);
+      const picker = container.querySelector('input[type="file"]');
+      fireEvent.drop(picker!.closest("label")!, {
+        dataTransfer: {
+          files: [
+            new File([bytes.slice().buffer as ArrayBuffer], "all.pdf", {
+              type: "application/pdf",
+            }),
+          ],
+        },
+      });
+      await screen.findByTitle("first.name", undefined, { timeout: 10_000 });
+
+      expect(
+        screen.getByRole("textbox", { name: "first.name" }),
+      ).toBeInstanceOf(HTMLInputElement);
+      expect(screen.getByRole("textbox", { name: "notes" })).toBeInstanceOf(
+        HTMLTextAreaElement,
+      );
+      screen.getByRole("checkbox", { name: "agree" });
+      screen.getByRole("combobox", { name: "city" });
+      screen.getByRole("combobox", { name: "town" });
+      screen.getByRole("radiogroup", { name: "color" });
+      screen.getByRole("group", { name: "langs" });
+      // No control is left to be announced by its placeholder or its state.
+      expect(screen.queryAllByRole("textbox", { name: /type here/i })).toEqual(
+        [],
+      );
+      expect(
+        screen.queryAllByRole("checkbox", { name: /^(un)?checked$/i }),
+      ).toEqual([]);
+      expect(screen.queryAllByRole("combobox", { name: "" })).toEqual([]);
+    });
+  },
+);
