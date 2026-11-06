@@ -65,10 +65,34 @@ export const MAX_CONTEXT_EXCHANGES = Math.floor(MAX_CONTEXT_TURNS / 2);
  * the only escape is discarding the conversation.
  *
  * The reserve leaves room for `question` and the JSON scaffolding travelling in the same
- * object, so this is what remains for `context` rather than the whole cap.
+ * object, so this is what remains for `context` rather than the whole cap — for a
+ * question of up to ~2 KB. A longer one is measured: see {@link contextByteBudget}.
  */
 const OPTIONS_BYTE_RESERVE = 2 * 1024;
 const CONTEXT_BYTE_BUDGET = JOB_LIMITS.maxOptionsBytes - OPTIONS_BYTE_RESERVE;
+
+/**
+ * What `context` may spend next to THIS question: the fixed budget above, or less when
+ * the question itself is long.
+ *
+ * The question box allows `MAX_QUESTION_CHARS` characters, and a Bengali, Hindi or CJK
+ * character is three UTF-8 bytes, so a question alone can serialize to ~6 KB — three
+ * times the fixed reserve. Until 2026-11-06 (audit #19) the reserve was all there was,
+ * so a ~700-character Bengali follow-up after a long exchange pushed `options` past the
+ * cap and was refused after the PDF had uploaded, identically on every retry. Measured
+ * from the serialized envelope (`{"question":…,"context":[]}`) plus the commas between
+ * the most turns that can travel, so the composed body is bounded, not estimated.
+ */
+function contextByteBudget(question: string): number {
+  const envelope = new TextEncoder().encode(
+    JSON.stringify({ question: question.trim(), context: [] }),
+  ).length;
+  const separators = MAX_CONTEXT_TURNS - 1;
+  return Math.min(
+    CONTEXT_BYTE_BUDGET,
+    JOB_LIMITS.maxOptionsBytes - envelope - separators,
+  );
+}
 
 /** Serialized UTF-8 size of a turn as it will travel inside `options`. */
 function turnBytes(turn: ChatTurn): number {
@@ -139,10 +163,16 @@ function clampTurn(text: string): { content: string; shortened: boolean } {
  * Exchanges whose question or answer is empty after scrubbing are skipped: the contract
  * requires non-empty content on both halves of a pair, and a half-pair would break the
  * strict user/assistant alternation for every turn after it.
+ *
+ * `question` is the follow-up these turns will travel with. It shares the `options`
+ * byte cap, so the context is sized around it; omitted, a question of up to the fixed
+ * reserve is assumed.
  */
 export function buildChatContext(
   exchanges: readonly ChatExchange[],
+  question = "",
 ): ChatContext {
+  const budget = contextByteBudget(question);
   const usable = exchanges.filter(
     (exchange) =>
       clampTurn(exchange.question).content.length > 0 &&
@@ -168,7 +198,7 @@ export function buildChatContext(
     // carries at least its immediate predecessor. Older ones are dropped whole: squeezing
     // several long exchanges into one budget leaves each too mangled to be worth sending.
     if (pairs.length === 0) {
-      const half = Math.floor(CONTEXT_BYTE_BUDGET / 2);
+      const half = Math.floor(budget / 2);
       questionText = clampTurnBytes("user", questionText, half);
       answerText = clampTurnBytes("assistant", answerText, half);
     }
@@ -180,7 +210,7 @@ export function buildChatContext(
     const pairBytes = pair.reduce((total, turn) => total + turnBytes(turn), 0);
     // A pair is kept whole or not at all: half of one would break the strict
     // user/assistant alternation the contract requires for every turn after it.
-    if (bytes + pairBytes > CONTEXT_BYTE_BUDGET) break;
+    if (bytes + pairBytes > budget) break;
     bytes += pairBytes;
     if (questionText.endsWith(SHORTENED_MARKER)) shortenedTurns += 1;
     if (answerText.endsWith(SHORTENED_MARKER)) shortenedTurns += 1;

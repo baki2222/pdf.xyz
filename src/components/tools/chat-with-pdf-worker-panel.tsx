@@ -258,8 +258,12 @@ function ChatBuilder({
     [transcript],
   );
   // Recomputed rather than stored so what the panel SAYS it will send and what it
-  // actually sends come from one call, not two that can drift apart.
-  const context = useMemo(() => buildChatContext(carryable), [carryable]);
+  // actually sends come from one call, not two that can drift apart. Sized around
+  // the question being typed, which travels in the same byte-capped `options`.
+  const context = useMemo(
+    () => buildChatContext(carryable, question),
+    [carryable, question],
+  );
 
   // The conversation belongs to one document; swapping the file must not let turns
   // about the old PDF be sent as context for the new one.
