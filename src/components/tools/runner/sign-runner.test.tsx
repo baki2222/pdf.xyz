@@ -314,3 +314,60 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
     // on every CI run.
   }, 30_000);
 });
+
+/**
+ * Audit #50 (sign-pdf, 2026-11-06): "Save for next time" with a browser that
+ * refuses to store it. The panel closes on "Use signature", so the editor's
+ * status line is the only place the reader can learn the signature was NOT
+ * kept. The panel's own test pins what it hands `onReady`; this pins what the
+ * editor then says — the half a revert could take away with every unit green.
+ */
+describe("Sign PDF says when 'Save for next time' could not save", () => {
+  const editorSaid = () =>
+    screen
+      .getAllByRole("status")
+      .map((node) => node.textContent ?? "")
+      .find((text) => text.startsWith("Signature ready"));
+
+  async function typeAndUse() {
+    await openSignRunner();
+    source("Type");
+    fireEvent.change(screen.getByLabelText("Your name"), {
+      target: { value: "Ada Lovelace" },
+    });
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Save for next time" }),
+    );
+    // "Use signature", pressed directly: the file's `useSignature` helper is
+    // a hook by name to the linter when called from another helper.
+    fireEvent.click(screen.getByRole("button", { name: "Use signature" }));
+    await vi.waitFor(() => expect(editorSaid()).toBeDefined());
+    return editorSaid()!;
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    try {
+      localStorage.clear();
+    } catch {
+      // nothing to clear
+    }
+  });
+
+  it("storage that throws on save: the status line says it was not saved", async () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("quota", "QuotaExceededError");
+    });
+    const said = await typeAndUse();
+    expect(said).toMatch(/^Signature ready: tap or click a page to place it\./);
+    expect(said).toMatch(/couldn.t be saved for next time/);
+    expect(said).toMatch(/storage is full or blocked/);
+  });
+
+  it("CONTROL: storage that keeps it — no notice", async () => {
+    const said = await typeAndUse();
+    expect(said).toBe("Signature ready: tap or click a page to place it");
+    // Health check: the save really happened, so the control is not vacuous.
+    expect(localStorage.length).toBeGreaterThan(0);
+  });
+});
