@@ -341,6 +341,24 @@ export interface RasterizeOptions {
   onPage?: (page: RasterPage) => void;
   /** Invoked after each page with running progress counts. */
   onProgress?: (done: number, total: number) => void;
+  /**
+   * Opt in to keeping going past a page that fails to render or encode: the
+   * page is reported here, left out of the result, and the next page runs.
+   * Without it a failed page rejects the whole call, which is right for a
+   * tool whose output must hold every page (Redact, Grayscale) and wrong for
+   * one that hands back separate images (PDF to JPG/PNG): there, one bad page
+   * near the end of a long run used to cost every page already rendered
+   * (audit #37).
+   */
+  onPageFailed?: (failure: RasterPageFailure) => void;
+}
+
+/** A page {@link capturePdfPages} skipped under `onPageFailed`. */
+export interface RasterPageFailure {
+  /** 0-based index of the source page. */
+  index: number;
+  /** What went wrong, in the words a rejection would have used. */
+  message: string;
 }
 
 /**
@@ -350,8 +368,10 @@ export interface RasterizeOptions {
  * displayed.
  *
  * Rejects if the document can't be parsed, or if a page genuinely fails to
- * render or encode — a converter must never silently drop pages. An aborted
- * signal instead resolves early with the pages produced so far.
+ * render or encode — a converter must never silently drop pages. With
+ * `onPageFailed` such a page is instead reported there and skipped, never
+ * dropped in silence. An aborted signal resolves early with the pages
+ * produced so far.
  */
 export async function rasterizePdf(
   bytes: Uint8Array,
@@ -460,8 +480,9 @@ export interface RasterDocumentInfo {
 
 /**
  * The page loop behind {@link rasterizePdf}, with the encode step handed to the
- * caller. Same guarantees: rejects on a page that fails to render or capture,
- * resolves early (with the pages so far) on abort.
+ * caller. Same guarantees: rejects on a page that fails to render or capture
+ * (or, with `onPageFailed`, reports and skips it), resolves early (with the
+ * pages so far) on abort.
  */
 export async function capturePdfPages<T>(
   bytes: Uint8Array,
@@ -476,6 +497,7 @@ export async function capturePdfPages<T>(
     onPage,
     onDocument,
     onProgress,
+    onPageFailed,
   }: CapturePagesOptions<T>,
 ): Promise<CapturedPage<T>[]> {
   if (typeof document === "undefined") return [];
@@ -495,16 +517,22 @@ export async function capturePdfPages<T>(
       ? only.filter((i) => Number.isInteger(i) && i >= 0 && i < doc.numPages)
       : Array.from({ length: doc.numPages }, (_, i) => i);
     const total = order.length;
+    // Pages finished either way — rendered, or failed and reported — so a
+    // skipped page still moves the bar.
+    let done = 0;
     onProgress?.(0, total);
     for (const i of order) {
       if (signal?.aborted) break;
-      const page = await doc.getPage(i + 1);
 
+      let page: Awaited<ReturnType<typeof doc.getPage>> | null = null;
       let task: { promise: Promise<void>; cancel: () => void } | null = null;
       const onAbort = () => task?.cancel();
       if (signal) signal.addEventListener("abort", onAbort, { once: true });
 
       try {
+        // Inside the try: a page object pdf.js cannot read is a failed PAGE,
+        // reported like a failed render, not a failed document.
+        page = await doc.getPage(i + 1);
         // Render at the page's embedded rotation (the default viewport rotation)
         // so the exported image matches the page as it is displayed.
         const base = page.getViewport({ scale: 1 });
@@ -573,14 +601,17 @@ export async function capturePdfPages<T>(
         };
         pages.push(rendered);
         onPage?.(rendered);
-        onProgress?.(pages.length, total);
+        onProgress?.(++done, total);
         await nextFrame(); // Yield so the UI stays responsive between pages.
       } catch (err) {
         if (signal?.aborted || isRenderingCancelled(pdfjs, err)) break;
-        throw new Error(`Page ${i + 1} could not be rendered.`);
+        const message = `Page ${i + 1} could not be rendered.`;
+        if (!onPageFailed) throw new Error(message);
+        onPageFailed({ index: i, message });
+        onProgress?.(++done, total);
       } finally {
         if (signal) signal.removeEventListener("abort", onAbort);
-        page.cleanup();
+        page?.cleanup();
       }
     }
   } finally {

@@ -171,6 +171,7 @@ const SCENARIOS: Record<string, () => Promise<Mounted>> = {
           dpi: 150,
           grayscale: false,
           documentPages: pages.length,
+          failedPages: [],
         }}
         onReset={() => {}}
         onStartOver={() => {}}
