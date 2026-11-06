@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  PDFDict,
   PDFDocument,
   PDFHexString,
   PDFName,
   PDFRawStream,
   PDFString,
+  PDFTextField,
   decodePDFRawStream,
   type PDFDropdown,
   type PDFOptionList,
@@ -526,10 +528,97 @@ describe("applyFormValues — the rest of the form is left as it was (audit #15)
     expect(serial.acroField.getWidgets()[0]?.dict.has(PDFName.of("AP"))).toBe(
       false,
     );
-    // Positive control: the field that WAS filled has a fresh appearance.
-    const name = doc.getForm().getTextField("name");
-    expect(name.acroField.getWidgets()[0]?.dict.has(PDFName.of("AP"))).toBe(
-      true,
-    );
+    // Positive control: the field that WAS filled is DRAWN with its answer.
+    // The save runs with updateFieldAppearances:false, so nothing but the
+    // per-field redraw puts "John" in the appearance; `name` already had a
+    // blank /AP from the fixture's first save, so checking that an /AP merely
+    // exists passed with the redraw deleted (review of d5217459, 2026-11-06).
+    expect(appearanceText(doc, "name")).toContain(hexOf("John"));
+  });
+
+  it("a filled checkbox shows its new state: /AS names an /AP /N appearance", async () => {
+    const result = await applyFormValues(await appearanceLessCheckboxPdf(), {
+      agree: true,
+    });
+    expect(result.outcomes.map((o) => o.status)).toEqual(["applied"]);
+    const doc = await PDFDocument.load(result.bytes);
+    const agree = doc.getForm().getCheckBox("agree");
+    const on = agree.acroField.getOnValue();
+    expect(on).toBeDefined();
+    expect(agree.acroField.getValue()).toBe(on);
+    const widgets = agree.acroField.getWidgets().map((w) => {
+      const normal = w.getAppearances()?.normal;
+      const state = w.getAppearanceState();
+      return {
+        state: state?.decodeText(),
+        drawn: normal instanceof PDFDict && !!state && normal.has(state),
+      };
+    });
+    expect(widgets).toEqual([{ state: on?.decodeText(), drawn: true }]);
+  });
+
+  it("a field whose redraw throws is reported invalid AND left as it was", async () => {
+    const bytes = await prefilledTextPdf();
+    const spy = vi
+      .spyOn(PDFTextField.prototype, "defaultUpdateAppearances")
+      .mockImplementation(() => {
+        throw new Error("layout failed");
+      });
+    let result: Awaited<ReturnType<typeof applyFormValues>>;
+    let calls = 0;
+    try {
+      result = await applyFormValues(bytes, { note: "new", blank: "new" });
+      calls = spy.mock.calls.length;
+    } finally {
+      spy.mockRestore();
+    }
+    expect(calls, "the injected failure really ran").toBeGreaterThan(0);
+    expect(result.outcomes.map((o) => o.status)).toEqual([
+      "invalid",
+      "invalid",
+    ]);
+    const doc = await PDFDocument.load(result.bytes);
+    expect(doc.getForm().getTextField("note").getText()).toBe("old");
+    expect(
+      doc.getForm().getTextField("blank").acroField.dict.has(PDFName.of("V")),
+    ).toBe(false);
+    // Positive control: without the failure the same answers are written.
+    const ok = await applyFormValues(bytes, { note: "new", blank: "new" });
+    const okDoc = await PDFDocument.load(ok.bytes);
+    expect(okDoc.getForm().getTextField("note").getText()).toBe("new");
+    expect(okDoc.getForm().getTextField("blank").getText()).toBe("new");
   });
 });
+
+/**
+ * A checkbox with NO appearance stream, as a generator that sets
+ * `/NeedAppearances` writes it, so only our redraw can give the checked state
+ * something to show. (A radio group cannot be built this way: pdf-lib finds a
+ * radio's options in its widgets' appearance names.)
+ */
+async function appearanceLessCheckboxPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([600, 800]);
+  const form = doc.getForm();
+  const agree = form.createCheckBox("agree");
+  agree.addToPage(page, { x: 10, y: 740, width: 20, height: 20 });
+  await doc.save();
+  for (const widget of agree.acroField.getWidgets()) {
+    widget.dict.delete(PDFName.of("AP"));
+  }
+  form.markFieldAsClean(agree.ref);
+  return doc.save({ updateFieldAppearances: false });
+}
+
+/** `note` already holds "old"; `blank` has never had a value. */
+async function prefilledTextPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([600, 800]);
+  const form = doc.getForm();
+  const note = form.createTextField("note");
+  note.setText("old");
+  note.addToPage(page, { x: 10, y: 740, width: 200, height: 20 });
+  const blank = form.createTextField("blank");
+  blank.addToPage(page, { x: 10, y: 700, width: 200, height: 20 });
+  return doc.save();
+}

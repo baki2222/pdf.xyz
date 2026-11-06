@@ -337,6 +337,34 @@ function toChoices(value: FieldValue): string[] {
   return [];
 }
 
+/** The entries a fill writes: the field's value and selection, and each widget's state and appearance. */
+const FIELD_KEYS = [PDFName.of("V"), PDFName.of("I")];
+const WIDGET_KEYS = [PDFName.of("AS"), PDFName.of("AP")];
+
+/**
+ * Snapshot what writing `field` can change, and return a function that puts
+ * it back. A field reported `invalid` must leave as it came: before this, a
+ * redraw that threw AFTER `setText`/`select` left the new `/V` behind a stale
+ * appearance, so the download held a value the user was told was not applied
+ * and showed something else (review of audit #15, 2026-11-06).
+ */
+function snapshotField(field: PDFField): () => void {
+  const entries = [
+    field.acroField.dict,
+    ...field.acroField.getWidgets().map((w) => w.dict),
+  ].flatMap((dict, i) =>
+    (i === 0 ? FIELD_KEYS : WIDGET_KEYS).map(
+      (key) => [dict, key, dict.get(key)] as const,
+    ),
+  );
+  return () => {
+    for (const [dict, key, value] of entries) {
+      if (value === undefined) dict.delete(key);
+      else dict.set(key, value);
+    }
+  };
+}
+
 /** Apply one supplied value to one already-resolved field. */
 function applyToField(
   field: PDFField,
@@ -359,6 +387,7 @@ function applyToField(
   }
 
   const options = info.options ?? [];
+  const restore = snapshotField(field);
 
   try {
     switch (type) {
@@ -378,9 +407,15 @@ function applyToField(
       }
       case "checkbox": {
         const checkbox = field as PDFCheckBox;
-        if (toBool(value)) checkbox.check();
-        else checkbox.uncheck();
+        const set = toBool(value)
+          ? () => checkbox.check()
+          : () => checkbox.uncheck();
+        set();
         redraw(field, font);
+        // Set again once drawn: a widget with no appearance has no on-state
+        // name, so the first write left its /AS at Off while /V said checked,
+        // and the box showed empty. Now the drawn on-state exists to point at.
+        set();
         return { name, type, status: "applied" };
       }
       case "radio": {
@@ -457,6 +492,7 @@ function applyToField(
         return { name, type, status: "skipped" };
     }
   } catch (err) {
+    restore();
     return {
       name,
       type,
