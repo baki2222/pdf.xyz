@@ -367,8 +367,8 @@ function OcrBody({
       </label>
       {imageChosen && (
         <p className="text-muted text-xs leading-relaxed">
-          Straighten and turn are off for this file: a JPG or PNG is read as it
-          is.
+          Straighten and turn are off for this file. A phone photo is still read
+          the way up your phone shows it.
         </p>
       )}
 

@@ -9,22 +9,42 @@
  *    JPG to PDF, Scan to PDF and the editor already honour). Tesseract read
  *    the stored pixels, so the photographed receipt the OCR page advertises
  *    was read sideways and came back as garbage, with no error. A JPEG whose
- *    tag asks for a turn is now redrawn upright and handed over as a PNG.
+ *    tag asks for a turn, and whose pixel count is within
+ *    `OCR_IMAGE_MAX_TURN_PIXELS`, is now redrawn upright and handed over as a
+ *    JPEG again (not a PNG: the searchable PDF embeds this file, and a
+ *    lossless copy of a photo is several times its size).
  *  - **Resolution.** Tesseract sizes the searchable PDF's page from the
- *    image's declared resolution, and a phone declares 72 dpi: a 4032 × 3024
- *    photo became a page 56 inches wide. The declared resolution is raised,
- *    never lowered, until the page's longer side is no longer than A4's
- *    ({@link OCR_IMAGE_MAX_PAGE_INCHES}); a JPEG that needs no turn has its
- *    JFIF density patched in place (same length, no re-encode).
+ *    image's declared resolution. Leptonica reads it from a JFIF APP0 in
+ *    units 1 or 2 ONLY: a camera's EXIF XResolution is never read, and a file
+ *    with no JFIF segment (iPhone and Samsung cameras write Exif only) or one
+ *    in units 0 (libjpeg's default, and this canvas's) declares nothing, so
+ *    Tesseract falls back to an estimate no lower than
+ *    {@link TESSERACT_MIN_CREDIBLE_DPI}. Declared or not, a 4032 × 3024
+ *    photo became a page some 56 inches wide. Every JPEG with a readable
+ *    frame header now declares a resolution that keeps the page's longer
+ *    side within A4's ({@link OCR_IMAGE_MAX_PAGE_INCHES}): a declared figure
+ *    is raised, never lowered; a units-0 density is patched in place; a file
+ *    with no JFIF segment gets one inserted after SOI. A JPEG whose page
+ *    already fits is handed over byte for byte.
+ *
+ * Reviewed 2026-11-06: the first version patched only a JFIF density in
+ * units 1 or 2 (the wrong corpus: most phone JPEGs carry neither), and
+ * decoded any turned JPEG with no pixel bound, in the worker's own process,
+ * outside Tesseract's timeout.
  *
  * NOT done here: a PNG keeps its own `pHYs` (a PNG has no turn to make; a
- * huge PNG declaring 72 dpi still makes a huge page), and a JPEG that
- * declares no resolution in JFIF units is left for Tesseract to estimate, as
- * before. Only the Linux worker image, with Tesseract installed, can show the
- * recognised text; the tests here check the pixels and the density Tesseract
- * is given.
+ * huge PNG declaring 72 dpi still makes a huge page). A JPEG over the pixel
+ * ceiling is not turned (it still gets the bounded page). An image whose
+ * longer side is over {@link TESSERACT_MAX_CREDIBLE_DPI} times A4's length
+ * (28,063 px; no phone writes one) cannot be bounded: Tesseract replaces any
+ * higher figure with its own estimate. Only the Linux worker image, with
+ * Tesseract installed, can show the recognised text; the tests here check
+ * the pixels and the density Tesseract is given.
  */
-import { OCR_IMAGE_PAGE_BOUND } from "@/lib/jobs/ocr";
+import {
+  OCR_IMAGE_MAX_TURN_PIXELS,
+  OCR_IMAGE_PAGE_BOUND,
+} from "@/lib/jobs/ocr";
 import {
   readJpegOrientation,
   uprightJpeg,
@@ -32,20 +52,30 @@ import {
   type ExifOrientation,
 } from "@/lib/pdf/jpeg-orientation";
 import { loadNodeCanvas } from "./pdf-office-export/pdfjs-node";
-import { withPngDpi } from "./pdf-office-export/png-encode";
 
 /** The longest side, in inches, a page made from an image may have. */
 export const OCR_IMAGE_MAX_PAGE_INCHES =
   Math.max(...Object.values(OCR_IMAGE_PAGE_BOUND.size!)) / 72;
 
-/** Below this Tesseract calls a resolution not credible and estimates its own. */
+/** The least resolution this declares (a phone's own 72 dpi). */
 const MIN_DPI = 72;
+
+/**
+ * Tesseract's credible range (`kMinCredibleResolution`,
+ * `kMaxCredibleResolution`): outside it, a declared figure, or none, is
+ * replaced by Tesseract's estimate, clipped to the same range.
+ */
+const TESSERACT_MIN_CREDIBLE_DPI = 70;
+const TESSERACT_MAX_CREDIBLE_DPI = 2400;
+
+/** Quality of the upright re-encode: high enough to keep small print. */
+const UPRIGHT_JPEG_QUALITY = 92;
 
 /**
  * The resolution to declare for a `width` × `height` image that declares
  * `declared` dpi (null: none): the declared figure, raised just enough that
- * the page's longer side fits {@link OCR_IMAGE_MAX_PAGE_INCHES}, and never
- * below {@link MIN_DPI}.
+ * the page's longer side fits {@link OCR_IMAGE_MAX_PAGE_INCHES} (but not past
+ * what Tesseract believes), and never below {@link MIN_DPI}.
  */
 export function ocrImageDpi(
   width: number,
@@ -53,7 +83,11 @@ export function ocrImageDpi(
   declared: number | null,
 ): number {
   const fit = Math.ceil(Math.max(width, height) / OCR_IMAGE_MAX_PAGE_INCHES);
-  return Math.max(MIN_DPI, declared ?? 0, fit);
+  return Math.max(
+    MIN_DPI,
+    declared ?? 0,
+    Math.min(fit, TESSERACT_MAX_CREDIBLE_DPI),
+  );
 }
 
 /** Where a JPEG's JFIF APP0 density lives, and what it says in dpi. */
@@ -64,17 +98,84 @@ interface JfifDensity {
   dpi: number | null;
 }
 
+/** "JFIF" and a NUL, built from char codes (a raw NUL in source is fragile). */
+const JFIF_ID = String.fromCharCode(0x4a, 0x46, 0x49, 0x46, 0);
+
+/** The JFIF APP0 wherever it sits before the scan, as libjpeg finds it. */
 function readJfifDensity(bytes: Uint8Array): JfifDensity | null {
-  // SOI, then an APP0 segment whose payload starts "JFIF\0".
   if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
-  if (bytes[2] !== 0xff || bytes[3] !== 0xe0 || bytes.length < 18) return null;
-  const id = String.fromCharCode(...bytes.subarray(6, 11));
-  if (id !== "JFIF\0") return null;
-  const at = 13;
-  const units = bytes[at]!;
-  const x = (bytes[at + 1]! << 8) | bytes[at + 2]!;
-  if (units === 0 || x === 0) return { at, dpi: null };
-  return { at, dpi: units === 2 ? Math.round(x * 2.54) : x };
+  for (let pos = 2; pos + 4 <= bytes.length && bytes[pos] === 0xff;) {
+    const marker = bytes[pos + 1]!;
+    if (marker === 0xda || marker === 0xd9) return null;
+    const length = (bytes[pos + 2]! << 8) | bytes[pos + 3]!;
+    if (marker === 0xe0 && length >= 16 && pos + 2 + length <= bytes.length) {
+      const id = String.fromCharCode(...bytes.subarray(pos + 4, pos + 9));
+      if (id === JFIF_ID) {
+        const at = pos + 11;
+        const units = bytes[at]!;
+        const x = (bytes[at + 1]! << 8) | bytes[at + 2]!;
+        if ((units !== 1 && units !== 2) || x === 0) return { at, dpi: null };
+        return { at, dpi: units === 2 ? Math.round(x * 2.54) : x };
+      }
+    }
+    pos += 2 + length;
+  }
+  return null;
+}
+
+/** A JFIF 1.01 APP0 declaring `dpi` per inch on both axes, no thumbnail. */
+function jfifApp0(dpi: number): Uint8Array {
+  const hi = dpi >> 8;
+  const lo = dpi & 0xff;
+  // prettier-ignore
+  return Uint8Array.of(
+    0xff, 0xe0, 0x00, 0x10, // APP0, length 16
+    0x4a, 0x46, 0x49, 0x46, 0x00, // "JFIF" NUL
+    0x01, 0x01, // version 1.01
+    0x01, hi, lo, hi, lo, // units: inch; X and Y density
+    0x00, 0x00, // no thumbnail
+  );
+}
+
+/** `jpeg` declaring exactly `dpi`: its JFIF density patched, or one inserted. */
+function declaringDpi(jpeg: Uint8Array, dpi: number): Uint8Array {
+  const density = readJfifDensity(jpeg);
+  if (density?.dpi === dpi) return jpeg;
+  if (density) {
+    const copy = new Uint8Array(jpeg);
+    copy[density.at] = 1;
+    copy[density.at + 1] = copy[density.at + 3] = dpi >> 8;
+    copy[density.at + 2] = copy[density.at + 4] = dpi & 0xff;
+    return copy;
+  }
+  const app0 = jfifApp0(dpi);
+  const out = new Uint8Array(jpeg.length + app0.length);
+  out.set(jpeg.subarray(0, 2));
+  out.set(app0, 2);
+  out.set(jpeg.subarray(2), 2 + app0.length);
+  return out;
+}
+
+/**
+ * `bytes` declaring the resolution {@link ocrImageDpi} asks for, or the same
+ * array when its page already fits: a declared figure is raised in place, a
+ * units-0 density is patched in place (both same length), and a file with no
+ * JFIF APP0 gets one right after SOI. With nothing declared, Tesseract's own
+ * estimate is never below {@link TESSERACT_MIN_CREDIBLE_DPI}, so a file whose
+ * page fits even at that is left to it.
+ */
+function withPageBound(
+  bytes: Uint8Array,
+  size: { width: number; height: number },
+): Uint8Array {
+  const declared = readJfifDensity(bytes)?.dpi ?? null;
+  const longer = Math.max(size.width, size.height);
+  if (
+    declared === null &&
+    longer / TESSERACT_MIN_CREDIBLE_DPI <= OCR_IMAGE_MAX_PAGE_INCHES
+  )
+    return bytes;
+  return declaringDpi(bytes, ocrImageDpi(size.width, size.height, declared));
 }
 
 /** The image's pixel size, from the JPEG frame header. */
@@ -148,7 +249,7 @@ export interface OcrImageCanvas {
       ): void;
       drawImage(image: unknown, x: number, y: number): void;
     };
-    encode(format: "png"): Promise<Uint8Array>;
+    encode(format: "jpeg", quality: number): Promise<Uint8Array>;
   };
 }
 
@@ -160,10 +261,11 @@ export interface OcrImage {
 
 /**
  * Prepare an image input for Tesseract (see the module docblock). Anything
- * other than a JPEG is returned as it is, and so is a JPEG this cannot read
- * (no frame header, or a canvas that cannot decode it): Tesseract then reads
- * it exactly as it did before this existed, rather than a photo that
- * converts today becoming a failed job.
+ * other than a JPEG is returned as it is, and so is a JPEG with no frame
+ * header. A turned JPEG over the pixel ceiling, or one the canvas cannot
+ * decode, is handed over unturned but with its page bounded: Tesseract then
+ * reads it as it did before this existed, rather than a photo that converts
+ * today becoming a failed job.
  */
 export async function ocrReadyImage(
   bytes: Uint8Array,
@@ -176,18 +278,13 @@ export async function ocrReadyImage(
   if (ext !== "jpg") return { bytes, ext };
   const size = jpegSize(bytes);
   if (!size) return { bytes, ext };
-  const density = readJfifDensity(bytes);
   const orientation = readJpegOrientation(bytes);
-  if (orientation === 1) {
-    if (!density || density.dpi === null) return { bytes, ext };
-    const dpi = ocrImageDpi(size.width, size.height, density.dpi);
-    if (dpi === density.dpi) return { bytes, ext };
-    const copy = new Uint8Array(bytes);
-    copy[density.at] = 1;
-    copy[density.at + 1] = copy[density.at + 3] = dpi >> 8;
-    copy[density.at + 2] = copy[density.at + 4] = dpi & 0xff;
-    return { bytes: copy, ext };
-  }
+  const unturned = { bytes: withPageBound(bytes, size), ext };
+  if (orientation === 1) return unturned;
+  // Decoding needs width × height × 4 bytes twice (image and canvas) in this
+  // process, before Tesseract's own timeout and memory guard apply; a frame
+  // header can declare up to 65,535 × 65,535.
+  if (size.width * size.height > OCR_IMAGE_MAX_TURN_PIXELS) return unturned;
   try {
     const c = canvas();
     // The tag is set to "as stored" first, so the turn below is the only one
@@ -199,10 +296,12 @@ export async function ocrReadyImage(
     const ctx = out.getContext("2d");
     ctx.setTransform(...uprightTransform(orientation, w, h));
     ctx.drawImage(image, 0, 0);
-    const png = await out.encode("png");
-    const dpi = ocrImageDpi(w, h, density?.dpi ?? null);
-    return { bytes: withPngDpi(new Uint8Array(png), dpi), ext: "png" };
+    const jpeg = new Uint8Array(await out.encode("jpeg", UPRIGHT_JPEG_QUALITY));
+    // The re-encode declares no resolution (JFIF units 0), so the source's
+    // declared figure, if any, is carried over as the floor.
+    const dpi = ocrImageDpi(w, h, readJfifDensity(bytes)?.dpi ?? null);
+    return { bytes: declaringDpi(jpeg, dpi), ext };
   } catch {
-    return { bytes, ext };
+    return unturned;
   }
 }

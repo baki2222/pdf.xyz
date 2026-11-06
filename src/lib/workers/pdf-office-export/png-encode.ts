@@ -104,34 +104,3 @@ export function encodePngImage(
   }
   return out;
 }
-
-/** PNG resolution unit: pixels per metre. */
-const INCHES_PER_METRE = 1 / 0.0254;
-
-/**
- * `png` with a `pHYs` chunk declaring `dpi`, placed right after IHDR (the
- * signature and IHDR are always the first 33 bytes). A PNG that already
- * declares one is returned as it is: its own figure is the author's.
- */
-export function withPngDpi(png: Uint8Array, dpi: number): Uint8Array {
-  const IHDR_END = 33;
-  for (let at = IHDR_END; at + 8 <= png.length;) {
-    const length = new DataView(png.buffer, png.byteOffset).getUint32(at);
-    const type = String.fromCharCode(...png.subarray(at + 4, at + 8));
-    if (type === "pHYs") return png;
-    if (type === "IDAT" || type === "IEND") break;
-    at += 12 + length;
-  }
-  const ppm = Math.round(dpi * INCHES_PER_METRE);
-  const data = new Uint8Array(9);
-  const view = new DataView(data.buffer);
-  view.setUint32(0, ppm);
-  view.setUint32(4, ppm);
-  data[8] = 1;
-  const phys = chunk("pHYs", data);
-  const out = new Uint8Array(png.length + phys.length);
-  out.set(png.subarray(0, IHDR_END), 0);
-  out.set(phys, IHDR_END);
-  out.set(png.subarray(IHDR_END), IHDR_END + phys.length);
-  return out;
-}

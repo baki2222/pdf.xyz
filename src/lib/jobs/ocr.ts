@@ -608,6 +608,17 @@ export const OCR_IMAGE_PAGE_BOUND = IMAGE_PAGE_SIZES.find(
   (s) => s.id === "a4",
 )!;
 
+/**
+ * The most pixels (width × height) of a phone photo the OCR worker turns
+ * upright itself (`workers/ocr-image`): decoding needs four bytes a pixel,
+ * twice, in the worker's own process, before Tesseract's timeout applies. A
+ * larger photo is read as stored, still on a bounded page. The same ceiling
+ * the worker's page reader takes for one picture (`MAX_DECODED_IMAGE_PIXELS`,
+ * pinned equal by `ocr-image.test.ts`); typed here, not imported, so this
+ * browser-side module gains no import edge. The OCR page states it.
+ */
+export const OCR_IMAGE_MAX_TURN_PIXELS = 64_000_000;
+
 /** Mean below which recognition is described as shaky. Provisional — see below. */
 const OCR_LOW_MEAN_CONFIDENCE = 0.7;
 /** Low-word share above which recognition is described as shaky. Provisional. */

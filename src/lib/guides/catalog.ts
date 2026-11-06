@@ -1837,7 +1837,7 @@ export const guides: Guide[] = [
         id: "crooked-or-sideways-scans",
         heading: "Crooked or sideways scans",
         body: [
-          "A page fed through the scanner at a slight angle, or scanned sideways or upside down, is read badly or not at all. Two boxes in the tool fix that in the same run: tick “Straighten crooked pages” to level pages that went in at an angle, and “Turn pages upright” to turn pages that face the wrong way. Both work on PDF pages that have no text yet; a JPG or PNG is read as it is.",
+          "A page fed through the scanner at a slight angle, or scanned sideways or upside down, is read badly or not at all. Two boxes in the tool fix that in the same run: tick “Straighten crooked pages” to level pages that went in at an angle, and “Turn pages upright” to turn pages that face the wrong way. Both work on PDF pages that have no text yet. A JPG or PNG is not checked by either box, but a phone photo is still read the way up your phone shows it.",
         ],
       },
       {
@@ -1889,7 +1889,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-11-01",
+    updated: "2026-11-06",
   },
   {
     slug: "how-to-password-protect-a-pdf",

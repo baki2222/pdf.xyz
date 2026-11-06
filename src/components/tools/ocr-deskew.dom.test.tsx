@@ -279,7 +279,9 @@ describe("OCR PDF: Straighten crooked pages, panel → job → processor → arg
     fireEvent.click(deskewBox());
     expect(deskewBox()).not.toBeChecked();
     expect(
-      screen.getByText(/off for this file: a jpg or png is read as it is/i),
+      screen.getByText(
+        /off for this file\. a phone photo is still read the way up/i,
+      ),
     ).toBeInTheDocument();
     run();
     await screen.findByText(/OCR complete/);
