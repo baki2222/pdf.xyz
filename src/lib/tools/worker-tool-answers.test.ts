@@ -1720,16 +1720,69 @@ describe("no qpdf page says a timeout is retried", () => {
     "If qpdf does not finish inside our server's time limit, or what it writes lacks a PDF header or an end-of-file marker, the run is retried, and if it keeps failing the job fails with no file.",
     "A run that goes past our server's time limit, or writes something without a PDF header and end-of-file marker, is tried again and then fails the job with no file produced.",
   ];
+  /**
+   * Not shipped, but the shapes the same claim takes in other words (review of
+   * 2026-11-06: CLAIM once required the literal "time limit", so "a run that
+   * times out is retried" walked past it). One per alternative left unused by
+   * the shipped two, so every word below catches some sentence.
+   */
+  const REALISTIC = [
+    "A run that times out is retried.",
+    "If qpdf timed out, the worker tries again before failing the job.",
+    "On a timeout we retry the run once, then fail the job.",
+  ];
+  /** The claim, with the negation that excuses it: each must stay CLAIMed. */
+  const NEGATED_CONTROLS = [
+    "A run that hits our time limit is not retried.",
+    "A timeout ends the job without a retry.",
+    "A run that times out is never retried.",
+    "When qpdf timed out there is no retry: the job ends.",
+  ];
+  const TIMEOUT_WORDS = ["time limit", "times out", "timed out", "timeout"];
+  const RETRY_WORDS = ["retried", "tried again", "tries again", "retry"];
+  const NEGATIONS = [
+    "not retried",
+    "without a retry",
+    "never retried",
+    "no retry",
+  ];
+  const any = (words: readonly string[]) =>
+    new RegExp(String.raw`\b(?:${words.join("|")})\b`, "i");
   const clauses = (text: string) => text.split(/(?<=[.;:!?])\s+/);
-  /** A time limit and a retry in the same sentence. */
-  const CLAIM =
-    /\btime limit\b.*\b(?:retried|tried again|tries again|retry)\b/i;
-  const NEGATED = /\bwithout a retry\b|\bnot retried\b|\bjust as long\b/i;
+  const TIMEOUT = any(TIMEOUT_WORDS);
+  const RETRY = any(RETRY_WORDS);
+  const NEGATED = any(NEGATIONS);
+  /** A timeout and a retry in the same clause, either order. */
+  const claims = (clause: string) => TIMEOUT.test(clause) && RETRY.test(clause);
   const caught = (text: string) =>
-    clauses(text).some((c) => CLAIM.test(c) && !NEGATED.test(c));
+    clauses(text).some((c) => claims(c) && !NEGATED.test(c));
 
   it("the corpus and the pattern cover each other", () => {
-    for (const s of SHIPPED) expect(caught(s), s).toBe(true);
+    for (const s of [...SHIPPED, ...REALISTIC]) expect(caught(s), s).toBe(true);
+    // Both directions (CLAUDE.md rule 1): every word catches some sentence.
+    for (const word of [...TIMEOUT_WORDS, ...RETRY_WORDS])
+      expect(
+        [...SHIPPED, ...REALISTIC].some((s) => any([word]).test(s)),
+        word,
+      ).toBe(true);
+    // Each negation excuses a sentence that IS the claim otherwise.
+    for (const word of NEGATIONS) {
+      const control = NEGATED_CONTROLS.find((s) => any([word]).test(s));
+      expect(control, word).toBeDefined();
+      expect(clauses(control!).some(claims), control).toBe(true);
+      expect(caught(control!), control).toBe(false);
+    }
+    // And the converse: every control is a claim excused by exactly one negation,
+    // so a negation dropped from the list turns its control red.
+    for (const control of NEGATED_CONTROLS) {
+      expect(clauses(control).some(claims), control).toBe(true);
+      expect(caught(control), control).toBe(false);
+      expect(
+        NEGATIONS.filter((w) => any([w]).test(control)),
+        control,
+      ).toHaveLength(1);
+    }
+    // The copy that shipped in their place is not caught.
     expect(
       caught(
         "If qpdf does not finish inside our server's time limit, the job ends at once with a message saying the file took too long, because the same file would take just as long again.",
