@@ -1,4 +1,4 @@
-import type { PDFPage } from "pdf-lib";
+import type { PDFObject, PDFPage } from "pdf-lib";
 import { loadPdf } from "./engine";
 import { loadPdfLib } from "./pdf-lib";
 import { viewerFrame } from "./page-frame";
@@ -32,6 +32,11 @@ import { MAX_FOUND, type PiiCategory } from "./redact-categories";
  * that passes its mod-97 check, and a date that follows a "Date of birth" or
  * "DOB" label. `redact-find.test.ts` holds every category to fixture strings
  * and to decoys it must not match.
+ *
+ * Neither reads a filled form field's value or a comment: those are not page
+ * text. The index names the pages that hold them ({@link NotSearched}) so the
+ * panel can say so, and both searches report when they stopped at
+ * {@link MAX_FOUND}.
  */
 
 export {
@@ -79,12 +84,23 @@ interface PageIndex {
   frame: ExportFrame;
 }
 
+/**
+ * 1-based pages holding text that Find and Detect do not search: a filled
+ * form field's value, and a comment's text. Each is drawn on the page (a
+ * flattened page shows it), so the user must cover it by position.
+ */
+export interface NotSearched {
+  formFields: number[];
+  comments: number[];
+}
+
 /** A document's text, indexed for search. */
 export interface RedactTextIndex {
   pageCount: number;
   pages: PageIndex[];
   /** 1-based pages with no selectable text at all (scans, blank pages). */
   pagesWithoutText: number[];
+  notSearched: NotSearched;
   /** Runs whose boxes come from their glyphs / from a share of their width. */
   placement: { glyphs: number; estimated: number };
 }
@@ -169,6 +185,54 @@ function finiteTransform(t: unknown): Mat | null {
   return m.every(Number.isFinite) ? (m as Mat) : null;
 }
 
+/** Annotation subtypes that carry no text of their own. */
+const NOT_A_COMMENT = new Set(["Widget", "Link", "Popup"]);
+
+/** Which of Find's blind spots a page holds: field values, comments. */
+function pageNotSearched(
+  lib: Awaited<ReturnType<typeof loadPdfLib>>,
+  page: PDFPage,
+): { formField: boolean; comment: boolean } {
+  const { PDFArray, PDFDict, PDFName, PDFString, PDFHexString } = lib;
+  const hasText = (o: PDFObject | undefined): boolean => {
+    if (o instanceof PDFString || o instanceof PDFHexString) {
+      return o.decodeText().trim().length > 0;
+    }
+    return o instanceof PDFArray && o.asArray().some((v) => hasText(v));
+  };
+  const out = { formField: false, comment: false };
+  const annots = page.node.lookup(PDFName.of("Annots"));
+  if (!(annots instanceof PDFArray)) return out;
+  for (const ref of annots.asArray()) {
+    const annot = page.doc.context.lookup(ref);
+    if (!(annot instanceof PDFDict)) continue;
+    const subtype = annot.lookup(PDFName.of("Subtype"));
+    const kind = subtype instanceof PDFName ? subtype.decodeText() : "";
+    if (kind === "Widget") {
+      // The value is on the widget or on the field it belongs to.
+      const seen = new Set<PDFObject>();
+      for (
+        let node: PDFObject | undefined = annot;
+        node instanceof PDFDict && !seen.has(node);
+        node = node.lookup(PDFName.of("Parent"))
+      ) {
+        seen.add(node);
+        if (hasText(node.lookup(PDFName.of("V")))) {
+          out.formField = true;
+          break;
+        }
+      }
+    } else if (
+      !NOT_A_COMMENT.has(kind) &&
+      (hasText(annot.lookup(PDFName.of("Contents"))) ||
+        hasText(annot.lookup(PDFName.of("RC"))))
+    ) {
+      out.comment = true;
+    }
+  }
+  return out;
+}
+
 /**
  * Read every page's text and where each character sits. `loadReader` is the
  * pdf.js build (tests pass the legacy one, as `extractPdfText` allows).
@@ -186,6 +250,12 @@ export async function readRedactText(
   );
   const pages: PageIndex[] = [];
   const pagesWithoutText: number[] = [];
+  const notSearched: NotSearched = { formFields: [], comments: [] };
+  pdfPages.forEach((page, i) => {
+    const blind = pageNotSearched(lib, page);
+    if (blind.formField) notSearched.formFields.push(i + 1);
+    if (blind.comment) notSearched.comments.push(i + 1);
+  });
   const placement = { glyphs: 0, estimated: 0 };
 
   items.forEach((pageItems, i) => {
@@ -240,7 +310,7 @@ export async function readRedactText(
       frame,
     });
   });
-  return { pageCount, pages, pagesWithoutText, placement };
+  return { pageCount, pages, pagesWithoutText, notSearched, placement };
 }
 
 /* ----------------------------- boxes ----------------------------- */
@@ -561,17 +631,23 @@ export function detectInText(
   return out.sort((a, b) => a.start - b.start);
 }
 
+/**
+ * Every detected item, in page order, up to {@link MAX_FOUND}; `capped` when
+ * there were more — the panel must say so, or a long document reads as fully
+ * detected while its later pages were never reached.
+ */
 export function detectPersonalData(
   index: RedactTextIndex,
   categories: readonly PiiCategory[],
-): FoundText[] {
-  const out: FoundText[] = [];
+): { matches: FoundText[]; capped: boolean } {
+  const matches: FoundText[] = [];
   for (const page of index.pages) {
     for (const d of detectInText(page.text, categories)) {
       const hit = found(page, d.kind, d.start, d.end);
-      if (hit) out.push(hit);
-      if (out.length >= MAX_FOUND) return out;
+      if (!hit) continue;
+      if (matches.length >= MAX_FOUND) return { matches, capped: true };
+      matches.push(hit);
     }
   }
-  return out;
+  return { matches, capped: false };
 }

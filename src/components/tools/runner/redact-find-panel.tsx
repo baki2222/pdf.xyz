@@ -102,12 +102,14 @@ export function RedactFindPanel({
             : `${matches.length}${capped ? "+" : ""} match${matches.length === 1 ? "" : "es"} for “${query.trim()}” added to the list below${capped ? ` (the first ${MAX_FOUND})` : ""}.`,
         );
       } else {
-        const matches = m.detectPersonalData(read, [...categories]);
+        const { matches, capped } = m.detectPersonalData(read, [...categories]);
         onFound(matches);
         setStatus(
           matches.length === 0
             ? "Nothing in the ticked categories was found."
-            : `${matches.length} item${matches.length === 1 ? "" : "s"} found and added to the list below.`,
+            : capped
+              ? `More than ${MAX_FOUND} items found. Detect stopped at the first ${MAX_FOUND} (up to page ${matches[matches.length - 1]!.page}) and added them to the list below; anything after them was not searched.`
+              : `${matches.length} item${matches.length === 1 ? "" : "s"} found and added to the list below.`,
         );
       }
     } catch (err) {
@@ -275,6 +277,8 @@ export function RedactFindPanel({
           </p>
         )}
 
+        {index && <NotSearchedNote notSearched={index.notSearched} />}
+
         {found.length > 0 && (
           <div className="flex flex-col gap-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -341,5 +345,33 @@ export function RedactFindPanel({
         )}
       </div>
     </RunnerSection>
+  );
+}
+
+/**
+ * Form-field values and comments are drawn on the page but are not page
+ * text, so Find and Detect cannot see them; say which pages hold them.
+ */
+function NotSearchedNote({
+  notSearched,
+}: {
+  notSearched: RedactTextIndex["notSearched"];
+}) {
+  const parts = [
+    { pages: notSearched.formFields, what: "filled form fields" },
+    { pages: notSearched.comments, what: "comments" },
+  ].filter((p) => p.pages.length > 0);
+  if (parts.length === 0) return null;
+  return (
+    <p className="text-muted text-xs">
+      {parts
+        .map(
+          (p) =>
+            `${p.pages.length === 1 ? "Page" : "Pages"} ${formatPageNumbers(p.pages)} ${p.pages.length === 1 ? "has" : "have"} ${p.what}`,
+        )
+        .join("; ")}
+      . Find and Detect do not search inside them, so cover them with areas by
+      position.
+    </p>
   );
 }

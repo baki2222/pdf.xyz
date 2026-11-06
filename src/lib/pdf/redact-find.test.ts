@@ -13,6 +13,7 @@ import {
   degrees,
 } from "pdf-lib";
 import {
+  MAX_FOUND,
   PII_CATEGORIES,
   detectInText,
   detectPersonalData,
@@ -158,7 +159,7 @@ describe("readRedactText → matches → boxes", () => {
     // Boxes come from the drawn glyphs, not an estimate, for a plain font.
     expect(index.placement.estimated).toBe(0);
     expect(index.placement.glyphs).toBeGreaterThan(10);
-    const found = detectPersonalData(index, PII_CATEGORIES);
+    const found = detectPersonalData(index, PII_CATEGORIES).matches;
     const byKind = (k: PiiCategory) =>
       found.filter((f) => f.kind === k).map((f) => `${f.page}:${f.text}`);
     expect(byKind("email")).toEqual([
@@ -202,7 +203,7 @@ describe("redactPdfByRemoval", () => {
   it("removes every detected string from the text, and leaves the rest", async () => {
     const bytes = await fixture();
     const index = await readRedactText(bytes, legacy);
-    const found = detectPersonalData(index, PII_CATEGORIES);
+    const found = detectPersonalData(index, PII_CATEGORIES).matches;
     expect(found.length).toBe(7);
     const result = await redactPdfByRemoval(
       bytes,
@@ -263,7 +264,7 @@ describe("redactPdfByRemoval", () => {
   it("refuses a file whose chosen text survives (the check can fail)", async () => {
     const bytes = await fixture();
     const index = await readRedactText(bytes, legacy);
-    const [card] = detectPersonalData(index, ["card"]);
+    const [card] = detectPersonalData(index, ["card"]).matches;
     // A box somewhere else entirely: nothing under it is the card number.
     await expect(
       redactPdfByRemoval(
@@ -281,7 +282,7 @@ describe("redactPdfByRemoval", () => {
   it("places boxes on a rotated page so the removal still lands", async () => {
     const bytes = await fixture(90);
     const index = await readRedactText(bytes, legacy);
-    const found = detectPersonalData(index, ["email", "card"]);
+    const found = detectPersonalData(index, ["email", "card"]).matches;
     expect(found.length).toBe(3);
     const result = await redactPdfByRemoval(
       bytes,
@@ -455,5 +456,80 @@ describe("redactPdfByRemoval: the chosen text outside the page text", () => {
     await expect(removeName(source)).rejects.toThrow(
       /still in the file outside the page text \(in a form field\)/,
     );
+  });
+});
+
+/**
+ * Audit #13 (2026-11-06): Find and Detect read only the page content, so a
+ * name in a filled form field or a comment got "No matches" with no word that
+ * those were never searched; and Detect stopped at MAX_FOUND with no sign of
+ * it, so a long document read as "500 items found" and nothing more.
+ */
+describe("what Find and Detect cannot see is said, not silent", () => {
+  it("names the pages with filled form fields and with comments", async () => {
+    const doc = await PDFDocument.load(await fixture());
+    const form = doc.getForm();
+    const field = form.createTextField("guardian");
+    field.setText("Guardian John Roe");
+    field.addToPage(doc.getPage(1), { x: 56, y: 100, width: 200, height: 20 });
+    const empty = form.createTextField("blank");
+    empty.addToPage(doc.getPage(0), { x: 56, y: 60, width: 200, height: 20 });
+    const ctx = doc.context;
+    doc.getPage(0).node.set(
+      PDFName.of("Annots"),
+      ctx.obj([
+        ...(doc
+          .getPage(0)
+          .node.lookup(PDFName.of("Annots"), PDFArray)
+          ?.asArray() ?? []),
+        ctx.register(
+          ctx.obj({
+            Type: "Annot",
+            Subtype: "Text",
+            Rect: [400, 40, 420, 60],
+            Contents: PDFString.of("Call John Roe back"),
+          }),
+        ),
+      ]),
+    );
+    const index = await readRedactText(await doc.save(), legacy);
+    // Positive control: the name really is not in what Find searches.
+    expect(
+      findTextMatches(index, "John Roe", { matchCase: false, wholeWord: false })
+        .matches,
+    ).toEqual([]);
+    expect(index.notSearched).toEqual({ formFields: [2], comments: [1] });
+    // And a plain page reports nothing.
+    expect((await readRedactText(await fixture(), legacy)).notSearched).toEqual(
+      { formFields: [], comments: [] },
+    );
+  });
+
+  it("Detect says when it stopped at the cap", async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const perPage = 10;
+    const pages = Math.ceil((MAX_FOUND + 100) / perPage);
+    for (let p = 0; p < pages; p++) {
+      const page = doc.addPage([595, 842]);
+      for (let i = 0; i < perPage; i++) {
+        page.drawText(`person${p}x${i}@mail.test`, {
+          x: 56,
+          y: 780 - i * 24,
+          size: 12,
+          font,
+        });
+      }
+    }
+    const index = await readRedactText(await doc.save(), legacy);
+    const all = detectPersonalData(index, ["email"]);
+    expect(all.matches.length).toBe(MAX_FOUND);
+    expect(all.capped).toBe(true);
+    const few = detectPersonalData(
+      await readRedactText(await fixture(), legacy),
+      ["email"],
+    );
+    expect(few.capped).toBe(false);
+    expect(few.matches.length).toBe(2);
   });
 });
