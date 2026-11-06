@@ -50,6 +50,10 @@ describe("Ghostscript PDF/A native runner", () => {
     // i.e. this test PINNED the defect: no PDFA_def prefix, so no OutputIntent,
     // and ProcessColorModel instead of ColorConversionStrategy. It went green on
     // every build while the output carried a PDF/A claim validators reject.
+    //
+    // And it pinned a second one until 2026-11-06: no -dAutoRotatePages, so
+    // pdfwrite re-oriented pages by their text direction (see the describe
+    // block below for what that did in the production image).
     expect(
       ghostscriptPdfAArgs("/in.pdf", "/out.pdf", "/def.ps", "/icc/srgb.icc"),
     ).toEqual([
@@ -62,6 +66,7 @@ describe("Ghostscript PDF/A native runner", () => {
       "-dQUIET",
       "-sColorConversionStrategy=RGB",
       "-sDEVICE=pdfwrite",
+      "-dAutoRotatePages=/None",
       "-dPDFACompatibilityPolicy=1",
       "-sOutputFile=/out.pdf",
       "/def.ps",
@@ -138,6 +143,52 @@ describe("Ghostscript PDF/A native runner", () => {
       nativePdfArchiveDeps({}, { resolveOnPath: () => true, fileExists })
         .ghostscript,
     ).toBeUndefined();
+  });
+});
+
+/**
+ * Until 2026-11-06 the PDF/A argv said nothing about rotation, so pdfwrite ran
+ * with its default `/PageByPage`: it guesses each page's orientation from the
+ * direction of its text and rewrites /Rotate to match. Measured in a throwaway
+ * container of the production worker image (gs 10.00.0), production runner and
+ * argv, on `rotationProofPdf()`: the /Rotate 90 portrait came back as
+ * `792x612 /Rotate 270` and each landscape page of vertical text as
+ * `792x612 /Rotate 90`. Rendered, they display portrait (204x264 at 24 dpi)
+ * where the input displays landscape (264x204). An archival copy of a document
+ * must never re-orient its pages. The same defect in compress-pdf's deep step was
+ * audit #21.
+ *
+ * This proves the question asked, not the answer: `worker:pdfa-proof` reads
+ * the orientation back from the real engine.
+ */
+describe("ghostscriptPdfAArgs — Ghostscript never re-orients a page", () => {
+  const args = ghostscriptPdfAArgs(
+    "/j/input.pdf",
+    "/j/output.pdf",
+    "/j/pdfa-def.ps",
+    "/icc/srgb.icc",
+  );
+
+  it("asks for -dAutoRotatePages=/None, exactly once", () => {
+    // Exactly one, so no later spelling can undo it.
+    expect(args.filter((a) => a.startsWith("-dAutoRotatePages"))).toEqual([
+      "-dAutoRotatePages=/None",
+    ]);
+  });
+
+  it("before the files it must apply to, and after any -dPDFSETTINGS preset", () => {
+    const at = args.indexOf("-dAutoRotatePages=/None");
+    expect(at).toBeGreaterThanOrEqual(0);
+    // A switch applies to the files that FOLLOW it: behind the prefix or the
+    // input it would change nothing about the conversion.
+    expect(at).toBeLessThan(args.indexOf("/j/pdfa-def.ps"));
+    expect(at).toBeLessThan(args.indexOf("/j/input.pdf"));
+    // A preset sets AutoRotatePages itself (/ebook sets /All), so the flag
+    // follows any, as compress-pdf's does. The PDF/A argv has none today; this
+    // holds the order for the day one is added.
+    args.forEach((a, i) => {
+      if (a.startsWith("-dPDFSETTINGS")) expect(i).toBeLessThan(at);
+    });
   });
 });
 
