@@ -16,6 +16,7 @@ import {
   MAX_TRANSLATE_INSTRUCTIONS_CHARS,
   TRANSLATE_LANGUAGES,
   TRANSLATE_SOURCE_AUTO,
+  translateSameLanguageMessage,
   type TranslateLanguage,
   type TranslateSourceLanguage,
 } from "@/lib/jobs/translate-pdf";
@@ -209,7 +210,10 @@ function TranslateBuilder({
     setFile(files[0] ?? null);
   });
 
-  const canRun = file != null && !busy;
+  // The parser refuses this pair; blocking it here keeps the PDF from uploading
+  // only to be told so, with the same sentence.
+  const sameLanguage = sourceLanguage === targetLanguage;
+  const canRun = file != null && !busy && !sameLanguage;
 
   const start = useCallback(async () => {
     if (!file || !available) return;
@@ -380,6 +384,11 @@ function TranslateBuilder({
             ))}
           </select>
         </label>
+        {sameLanguage ? (
+          <p className="text-warn text-xs leading-relaxed sm:col-span-2">
+            {translateSameLanguageMessage(targetLanguage)}
+          </p>
+        ) : null}
         <label className="text-muted flex flex-col gap-1 text-xs sm:col-span-2">
           Instructions (optional)
           <input

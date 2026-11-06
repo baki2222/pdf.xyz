@@ -67,6 +67,7 @@ import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
 import { resolveAiReadiness } from "@/lib/workers/ai/readiness";
 import { planTranslateChunks } from "@/lib/workers/translate/chunking";
 import { TRANSLATE_MAX_INPUT_CHARS } from "@/lib/jobs/translate-limits";
+import { translateSameLanguageMessage } from "@/lib/jobs/translate-pdf";
 import {
   AI_JOB_POLL,
   pollWaitMs,
@@ -242,6 +243,51 @@ describe("TranslateWorkerPanel: a dropped non-PDF is refused at the drop", () =>
     expect(await screen.findByText("report.pdf")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(blocked(run)).toBe(false);
+  });
+});
+
+/**
+ * Until 2026-11-06 (audit #38) the two selects were independent, so "Translate into
+ * Spanish" from "Spanish" uploaded, created a job and spent the allowance on a copy of
+ * the text. The run is now blocked before anything is sent, with the parser's sentence.
+ */
+describe("TranslateWorkerPanel: the same language on both sides is refused before upload", () => {
+  const pick = (label: RegExp, value: string) =>
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+
+  it("Spanish into Spanish blocks the run and says why; nothing is sent", async () => {
+    const { fetchMock, run } = await renderReadyPanel();
+    fireEvent.change(fileInput(), {
+      target: { files: [pdfFile(await textPdf(), "carta.pdf")] },
+    });
+    await waitFor(() => expect(blocked(run)).toBe(false));
+
+    pick(/translate into/i, "es");
+    pick(/source language/i, "es");
+
+    expect(blocked(run)).toBe(true);
+    expect(
+      screen.getByText(translateSameLanguageMessage("es")),
+    ).toBeInTheDocument();
+    fireEvent.click(run);
+    expect(jobRequests(fetchMock)).toEqual([]);
+  });
+
+  it("POSITIVE CONTROL: changing the source back unblocks it", async () => {
+    const { run } = await renderReadyPanel();
+    fireEvent.change(fileInput(), {
+      target: { files: [pdfFile(await textPdf(), "carta.pdf")] },
+    });
+    await waitFor(() => expect(blocked(run)).toBe(false));
+
+    pick(/translate into/i, "es");
+    pick(/source language/i, "es");
+    expect(blocked(run)).toBe(true);
+    pick(/source language/i, "en");
+    expect(blocked(run)).toBe(false);
+    expect(
+      screen.queryByText(translateSameLanguageMessage("es")),
+    ).not.toBeInTheDocument();
   });
 });
 
