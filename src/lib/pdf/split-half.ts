@@ -1,3 +1,4 @@
+import type { PDFDict, PDFPage } from "pdf-lib";
 import { insetBox, toContentMargins, type CropMargins } from "./crop";
 import { PdfEngineError, loadPdf, stamp } from "./engine";
 import { outputName } from "./files";
@@ -8,7 +9,7 @@ import {
   type VisiblePageFrame,
 } from "./page-frame";
 import { MIN_CROP_DIMENSION } from "./page-geometry";
-import { loadPdfLib } from "./pdf-lib";
+import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
 
 /**
  * Split PDF Pages in Half — each page of a scanned two-page spread becomes two
@@ -194,8 +195,14 @@ export async function splitPagesInHalf(
     pair.forEach((box, n) => {
       pages[at + n]!.setCropBox(box.x, box.y, box.width, box.height);
     });
+    keepAnnotationsOnTheirHalf(lib, [pages[at]!, pages[at + 1]!], pair);
     at += 2;
   }
+  // The source's labels counted its sheets, which the split replaces: each
+  // copy took its sheet's label, so both halves of sheet 2 read "2" and a
+  // typed page number landed on the left half (audit #43). With no labels a
+  // viewer numbers every page, one number each.
+  out.catalog.delete(lib.PDFName.of("PageLabels"));
 
   stamp(out);
   return {
@@ -204,6 +211,71 @@ export async function splitPagesInHalf(
     splitPages: split.length,
     pageCount: pages.length,
   };
+}
+
+/**
+ * Leave each annotation only on the half its `/Rect` meets. Both copies of a
+ * split page come out of `assemblePages` with every annotation of the page
+ * (the second as clones, its widgets joined to the same fields), so a note on
+ * the right half also sat, out of view, on the left half's page: twice in a
+ * viewer's comment list, and a second widget for each field (audit #43).
+ *
+ * One that meets both halves (across the fold) stays on both; one that meets
+ * neither (outside the visible box) stays on the first, as one copy of the
+ * page would hold it. A popup goes where its parent goes. A widget taken off
+ * a page is taken out of its field's `/Kids` too.
+ */
+function keepAnnotationsOnTheirHalf(
+  lib: PdfLibModule,
+  pages: [PDFPage, PDFPage],
+  boxes: [Box, Box],
+): void {
+  const { PDFArray, PDFDict, PDFName, PDFNumber } = lib;
+  const context = pages[0].doc.context;
+  const meets = (annot: PDFDict, box: Box): boolean => {
+    const rect = annot.lookupMaybe(PDFName.of("Rect"), PDFArray);
+    const nums = rect
+      ?.asArray()
+      .map((v) => context.lookup(v))
+      .map((v) => (v instanceof PDFNumber ? v.asNumber() : NaN));
+    if (!nums || nums.length !== 4 || nums.some((n) => !Number.isFinite(n))) {
+      return true;
+    }
+    const [x0, y0, x1, y1] = nums as [number, number, number, number];
+    return (
+      Math.max(x0, x1) > box.x &&
+      Math.min(x0, x1) < box.x + box.width &&
+      Math.max(y0, y1) > box.y &&
+      Math.min(y0, y1) < box.y + box.height
+    );
+  };
+  pages.forEach((page, n) => {
+    const own = boxes[n]!;
+    const other = boxes[1 - n]!;
+    const annots = page.node.lookupMaybe(PDFName.of("Annots"), PDFArray);
+    if (!annots) return;
+    const belongs = (annot: PDFDict): boolean => {
+      const isPopup = annot.get(PDFName.of("Subtype")) === PDFName.of("Popup");
+      const parent = isPopup
+        ? annot.lookupMaybe(PDFName.of("Parent"), PDFDict)
+        : undefined;
+      const judged = parent ?? annot;
+      return meets(judged, own) || (n === 0 && !meets(judged, other));
+    };
+    const kept = annots.asArray().filter((entry) => {
+      const annot = context.lookup(entry);
+      if (!(annot instanceof PDFDict) || belongs(annot)) return true;
+      if (annot.get(PDFName.of("Subtype")) === PDFName.of("Widget")) {
+        const kids = annot
+          .lookupMaybe(PDFName.of("Parent"), PDFDict)
+          ?.lookupMaybe(PDFName.of("Kids"), PDFArray);
+        const at = kids?.indexOf(entry);
+        if (kids && at !== undefined) kids.remove(at);
+      }
+      return false;
+    });
+    page.node.set(PDFName.of("Annots"), context.obj(kept));
+  });
 }
 
 /** "book.pdf" → "book-halved.pdf". */
