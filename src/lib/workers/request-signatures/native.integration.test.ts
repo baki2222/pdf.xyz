@@ -577,6 +577,7 @@ describe("request-signatures through runSignatureRequest — deterministic refus
     ],
     fields: signatureBlockFields(2, 1, true),
     routing: "parallel",
+    deliver: false,
   };
 
   it("re-preparing a prepared PDF adds new, uniquely named fields beside the old ones", async () => {
@@ -586,6 +587,7 @@ describe("request-signatures through runSignatureRequest — deterministic refus
         signers: [{ name: "Ada Lovelace", email: "ada@example.com" }],
         fields: signatureBlockFields(1, 1, true),
         routing: "parallel",
+        deliver: false,
       },
       signatureRequestDeps(),
     );
@@ -640,6 +642,7 @@ describe("request-signatures through runSignatureRequest — deterministic refus
         signers: [{ name: "Ada Lovelace", email: "ada@example.com" }],
         fields: signatureBlockFields(1, 1, true),
         routing: "parallel",
+        deliver: false,
       },
       signatureRequestDeps(),
     );
