@@ -93,7 +93,9 @@ export function SplitEditor({
     return pdf.pageCount > 1 ? `1-${half}, ${half + 1}-${pdf.pageCount}` : "1";
   });
   const [mergeRanges, setMergeRanges] = useState(false);
-  const [size, setSize] = useState(1);
+  // The raw text of "Pages per file", validated where it is used: coercing it
+  // on every keystroke snapped a cleared field back to 1, so typing 5 made 15.
+  const [sizeInput, setSizeInput] = useState("1");
   const [targetMb, setTargetMb] = useState(() =>
     String(defaultTargetMb(pdf.file.size)),
   );
@@ -149,6 +151,9 @@ export function SplitEditor({
 
   const noBookmarks = marks !== null && marks.length === 0;
   const targetBytes = Number(targetMb) * MB;
+  const size = Number(sizeInput);
+  const sizeValid =
+    sizeInput.trim() !== "" && Number.isInteger(size) && size >= 1;
 
   const { parts, previewError } = useMemo((): {
     parts: PreviewPart[];
@@ -176,6 +181,12 @@ export function SplitEditor({
         };
       }
       if (mode === "everyN") {
+        if (!sizeValid) {
+          return {
+            parts: [],
+            previewError: "Enter a whole number of pages per file, 1 or more.",
+          };
+        }
         return {
           parts: buildSplitParts(base, rangesEveryN(pdf.pageCount, size)),
           previewError: null,
@@ -236,7 +247,17 @@ export function SplitEditor({
     } catch (err) {
       return { parts: [], previewError: errorMessage(err) };
     }
-  }, [pdf, mode, rangeInput, mergeRanges, size, marks, targetBytes, textPlan]);
+  }, [
+    pdf,
+    mode,
+    rangeInput,
+    mergeRanges,
+    size,
+    sizeValid,
+    marks,
+    targetBytes,
+    textPlan,
+  ]);
 
   const onSplit = () =>
     run(async (): Promise<SplitOutcome> => {
@@ -434,10 +455,10 @@ export function SplitEditor({
             type="number"
             min={1}
             max={pdf.pageCount}
-            value={size}
-            onChange={(e) =>
-              setSize(Math.max(1, Math.floor(Number(e.target.value) || 1)))
-            }
+            step={1}
+            inputMode="numeric"
+            value={sizeInput}
+            onChange={(e) => setSizeInput(e.target.value)}
             className="bg-canvas/60 border-line text-fg focus:border-accent/40 focus:ring-accent/50 rounded-ctl w-32 border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
           />
         </label>
