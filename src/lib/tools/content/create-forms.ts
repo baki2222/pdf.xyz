@@ -121,7 +121,7 @@ const content: ToolContent = {
       a: "No. Fields come in one plain default style, with no choice of font, colour or border.",
     },
     {
-      q: "Why was a field name or option refused for its characters?",
+      q: "Why was a default value or a dropdown or list option refused for its characters?",
       a: "New fields are drawn with a standard PDF font that covers only the Western (WinAnsi) character set, and a PDF reader redraws a field's text from that font. When you press “Create form”, every text default and every dropdown or list option is checked against that set; one containing, say, Cyrillic, Greek or Bengali letters stops the build with a message naming the characters, instead of turning them into question marks. Field names and radio-button options are never drawn, so they can be in any alphabet.",
     },
     {
