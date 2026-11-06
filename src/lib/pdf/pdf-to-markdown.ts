@@ -342,9 +342,17 @@ function isHeadingLine(line: GeoLine, bodySize: number): boolean {
     line.text.length <= HEADING_MAX_CHARS &&
     /\p{L}/u.test(line.text) &&
     !/[.,;]$/.test(line.text) &&
-    listItem(line.text) === null
+    // A numbered heading ("1. Introduction", "2) Results") is the usual style
+    // in reports, papers and contracts, so an ordered marker does not stop a
+    // heading-size line; a bullet does. Until audit #8 (2026-11-06) any
+    // marker did, and numbered headings came out as ordered-list items.
+    !GLYPH_BULLET.test(line.text) &&
+    !ASCII_BULLET.test(line.text)
   );
 }
+
+/** A line that closes its sentence or lead-in, before any closing quote or bracket. */
+const ENDS_CLAUSE = /[.!?:;]["'\u201D\u2019)\]]*$/;
 
 /**
  * Rebuild a page's blocks from where its lines sit.
@@ -398,6 +406,17 @@ function blocksFromGeometry(lines: GeoLine[], bodySize: number): Block[] {
     return count >= 2;
   };
 
+  // A line the generator WRAPPED ran close to the right edge, so it is long
+  // for its page; a short lead-in with no colon ("You will need") ended
+  // early, and the list under it is a list. Characters stand in for width.
+  let longest = 0;
+  for (const line of lines) {
+    if (nearly(line.size, bodySize, bodySize * 0.15)) {
+      longest = Math.max(longest, line.text.length);
+    }
+  }
+  const wrapChars = longest * 0.6;
+
   const blocks: Block[] = [];
   // The open block and the line that opened it.
   let open: { block: Block; anchor: GeoLine } | null = null;
@@ -417,15 +436,32 @@ function blocksFromGeometry(lines: GeoLine[], bodySize: number): Block[] {
     const flowsOn =
       jump &&
       prev !== null &&
-      !/[.!?:;]["'\u201D\u2019)\]]*$/.test(prev.text) &&
+      !ENDS_CLAUSE.test(prev.text) &&
       /^\p{Ll}/u.test(line.text);
     const gapBreak =
       prev !== null &&
       (step > pitch * PARAGRAPH_GAP_RATIO || (jump && !flowsOn));
     const current = open as { block: Block; anchor: GeoLine } | null;
 
-    const item = listItem(line.text);
-    if (item) {
+    // A wrap that merely STARTS like an ASCII or ordered marker ("1998. Since
+    // then", "- 5 percent") is the paragraph running on, not a list: the
+    // previous line left its sentence open, the step is one line, and this
+    // line sits on the previous line's own left edge. A glyph bullet is never
+    // a word, so it always opens an item. Until audit #8 (2026-11-06) such a
+    // wrap cut one paragraph into three blocks with a fake item in the middle.
+    const wrapsOn =
+      current?.block.kind === "paragraph" &&
+      prev !== null &&
+      !gapBreak &&
+      step > 0 &&
+      !ENDS_CLAUSE.test(prev.text) &&
+      prev.text.length >= wrapChars &&
+      nearly(line.size, prev.size, prev.size * 0.15) &&
+      nearly(line.x, prev.x, line.size * 0.3) &&
+      !GLYPH_BULLET.test(line.text);
+    const item = wrapsOn ? null : listItem(line.text);
+    // Heading size is asked first, so a numbered heading stays a heading.
+    if (item && !isHeadingLine(line, bodySize)) {
       start({ kind: "item", marker: item.marker, lines: [item.content] }, line);
     } else if (isHeadingLine(line, bodySize)) {
       // A title wrapped over two lines is one heading: same size, and a step

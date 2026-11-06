@@ -207,6 +207,32 @@ describe("pdf-to-markdown: the page describes the structure the converter builds
     expect(at(11 * HEADING_SIZE_RATIO, "Results.")).not.toMatch(/^#{2,6} /m);
   });
 
+  it("the numbered-heading and mid-sentence-wrap claims hold in the converter (audit #8)", () => {
+    // Added 2026-11-06 with the fix: the page now names both cases, so each
+    // claim is run through the converter, with the opposite case as a control.
+    const text = served(SLUGS[0]!).join(" ");
+    expect(text).toContain('A numbered heading such as "1. Introduction"');
+    expect(
+      md([
+        { text: "1. Introduction", y: 730, size: 11 * HEADING_SIZE_RATIO },
+        ...BODY,
+      ]),
+    ).toMatch(/^#{2,6} 1\. Introduction$/m);
+    expect(md([...BODY, { text: "1. Introduction", y: 658 }])).toMatch(
+      /^1\. Introduction$/m,
+    );
+    expect(text).toContain("in the middle of a sentence");
+    const wrap = (first: string) =>
+      md([
+        { text: first, y: 700 },
+        { text: "2023. Revenue grew", y: 686 },
+      ]);
+    expect(wrap("Sales were flat until")).toMatch(
+      /until 2023\. Revenue grew$/m,
+    );
+    expect(wrap("Sales were flat.")).toMatch(/^2023\. Revenue grew$/m);
+  });
+
   it(`the page names the paragraph gap the converter applies (${PARAGRAPH_GAP_RATIO} times)`, () => {
     const text = served(SLUGS[0]!).join(" ");
     expect(text).toContain(`more than ${PARAGRAPH_GAP_RATIO} times`);

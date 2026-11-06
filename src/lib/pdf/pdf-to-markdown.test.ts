@@ -673,3 +673,93 @@ describe("pdf-to-markdown over geometry measured from real generators", () => {
     });
   });
 });
+
+/*
+ * Audit #8 (2026-11-06). Until then `blocksFromGeometry` tested every line for
+ * a list marker BEFORE asking whether it was a heading or a wrapped line of an
+ * open paragraph, and `isHeadingLine` refused any line with a marker. So a
+ * numbered heading ("1. Introduction" at 18pt) became an ordered-list item,
+ * and a paragraph whose wrap happened to begin "1998. " or "- 5" was cut into
+ * three blocks with a fake list item in the middle.
+ */
+describe("pdf-to-markdown: numbered headings and wraps that look like markers (audit #8)", () => {
+  const md = (rows: Row[]) =>
+    extractedTextToMarkdown(measuredPage(rows), { sourceName: "r.pdf" })
+      .markdown;
+  const BODY: Row[] = [
+    ["Body text that wraps across the page so there is a", 72, 680, 12],
+    ["line pitch to measure, and it ends here.", 72, 666, 12],
+  ];
+
+  it("a numbered line set at heading size is a heading, number kept", () => {
+    const out = md([
+      ["1. Introduction", 72, 720, 18],
+      ...BODY,
+      ["2) Results", 72, 620, 18],
+      ["More body text that wraps across the page so there", 72, 596, 12],
+      ["is a second paragraph under the second heading.", 72, 582, 12],
+    ]);
+    expect(out).toMatch(/^## 1\. Introduction$/m);
+    expect(out).toMatch(/^## 2\) Results$/m);
+    expect(out).not.toMatch(/^1\. Introduction$/m);
+  });
+
+  it("CONTROL: the same numbered line at body size is still a list item", () => {
+    const out = md([...BODY, ["1. Introduction", 72, 642, 12]]);
+    expect(out).toMatch(/^1\. Introduction$/m);
+  });
+
+  it("a wrap that starts with a year and a full stop stays in its paragraph", () => {
+    const out = md([
+      ["The company was founded in the year", 72, 700, 12],
+      ["1998. Since then it has grown to employ", 72, 686, 12],
+      ["many people across three continents.", 72, 672, 12],
+    ]);
+    expect(out.split("\n\n").slice(1)).toEqual([
+      "The company was founded in the year 1998. Since then it has grown to employ many people across three continents.",
+    ]);
+  });
+
+  it("a wrap that starts with a dash and a number stays in its paragraph", () => {
+    const out = md([
+      ["Revenue rose by about one third and costs", 72, 700, 12],
+      ["- 5 percent year on year - fell for the", 72, 686, 12],
+      ["first time since the company was listed.", 72, 672, 12],
+    ]);
+    expect(out.split("\n\n").slice(1)).toEqual([
+      "Revenue rose by about one third and costs - 5 percent year on year - fell for the first time since the company was listed.",
+    ]);
+  });
+
+  it("CONTROL: a list after a finished sentence is still a list", () => {
+    const out = md([
+      ["Follow these steps in order before you start.", 72, 700, 12],
+      ["1. Open the settings page.", 72, 686, 12],
+      ["2. Paste the key.", 72, 672, 12],
+      ["- a dash item", 72, 658, 12],
+    ]);
+    expect(out).toContain(
+      "before you start.\n\n1. Open the settings page.\n2. Paste the key.\n- a dash item",
+    );
+  });
+
+  it("CONTROL: a short lead-in with no colon still introduces a list", () => {
+    const out = md([
+      ...BODY,
+      ["You will need", 72, 642, 12],
+      ["- a key from the vendor portal", 72, 628, 12],
+      ["- an administrator account", 72, 614, 12],
+    ]);
+    expect(out).toContain(
+      "You will need\n\n- a key from the vendor portal\n- an administrator account",
+    );
+  });
+
+  it("CONTROL: a glyph bullet always opens an item, even mid-sentence", () => {
+    const out = md([
+      ["The checklist covers", 72, 700, 12],
+      ["• the first point", 72, 686, 12],
+    ]);
+    expect(out).toMatch(/^- the first point$/m);
+  });
+});
