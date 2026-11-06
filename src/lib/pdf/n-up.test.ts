@@ -366,4 +366,24 @@ describe("filled form values reach the sheet", () => {
     const result = await nUpPdf(pdf, opts({ perSheet: 2 }));
     expect(result.undrawnFields).toEqual(["applicant.name"]);
   });
+
+  it("a value the font cannot redraw, but with a stored appearance, is drawn from that appearance and not named", async () => {
+    // What many fillers leave: an /AP drawn with their own embedded font,
+    // a /V the form's default font cannot encode, and /NeedAppearances set.
+    // The redraw fails; the stored appearance is still baked onto the sheet,
+    // so naming the field as "not on the sheets" would be false.
+    const doc = await PDFDocument.load(await labelledPdf(2));
+    const form = doc.getForm();
+    const field = form.createTextField("bn.name");
+    field.addToPage(doc.getPage(0), { x: 20, y: 200, width: 200, height: 30 });
+    field.setText("STOREDAP");
+    form.updateFieldAppearances();
+    field.acroField.dict.set(PDFName.of("V"), PDFHexString.fromText("আমার"));
+    form.acroForm.dict.set(PDFName.of("NeedAppearances"), PDFBool.True);
+    const pdf = await doc.save({ updateFieldAppearances: false });
+
+    const result = await nUpPdf(pdf, opts({ perSheet: 2 }));
+    expect(result.undrawnFields).toEqual([]);
+    expect(await sheetText(result.bytes)).toContain("STOREDAP");
+  });
 });

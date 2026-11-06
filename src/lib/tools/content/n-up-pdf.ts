@@ -68,7 +68,7 @@ const content: ToolContent = {
     },
     {
       q: "What happens to links, form fields and comments?",
-      a: "Their appearance is drawn onto the sheet, so a filled form or a stamp looks the same, including a value filled in by a tool that left the drawing to the viewer (a value in characters the form's font cannot draw, such as Bengali, is named on the result instead), but they stop being interactive: a link on a sheet does not open and a field cannot be edited. Keep the original for anything that has to stay clickable.",
+      a: "Their appearance is drawn onto the sheet, so a filled form or a stamp looks the same, including a value filled in by a tool that left the drawing to the viewer (a value that has no drawing of its own and cannot be drawn here, such as Bengali in a form whose font lacks it, is named on the result instead), but they stop being interactive: a link on a sheet does not open and a field cannot be edited. Keep the original for anything that has to stay clickable.",
     },
     {
       q: "What order are the pages placed in?",

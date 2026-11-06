@@ -505,8 +505,11 @@ function sendNewestStreamToBack(lib: PdfLibModule, page: PDFPage): void {
  * a7aa20cf (audit #24), such a value vanished from Multiple Pages per Sheet
  * with no warning. So, as Flatten PDF does: under `/NeedAppearances true`
  * every text, dropdown and list field is redrawn from its value, and any
- * field with no appearance is drawn. A value the form's WinAnsi font cannot
- * draw (Bengali, CJK) is left out and named, for the caller to say so.
+ * field with no appearance is drawn. When a redraw fails (typically a value
+ * the form's WinAnsi font cannot encode, such as Bengali or CJK), the field's
+ * stored appearance, if every widget has one, is still baked; only a field
+ * left with a widget that has nothing to bake is named, for the caller to say
+ * so.
  */
 export function drawFieldValues(lib: PdfLibModule, doc: PDFDocument): string[] {
   const { PDFBool, PDFDict, PDFName, PDFSignature } = lib;
@@ -538,10 +541,32 @@ export function drawFieldValues(lib: PdfLibModule, doc: PDFDocument): string[] {
     try {
       redraw?.call(field, font);
     } catch {
-      undrawn.push(field.getName());
+      // Whatever stopped the redraw, a widget that still holds a stored
+      // appearance is baked from it, so the value is on the sheet. Name the
+      // field only when some widget has nothing to bake. (Audit review of
+      // #24: naming every failed redraw called a drawn Bengali value missing.)
+      if (
+        !field.acroField
+          .getWidgets()
+          .every((w) => hasNormalAppearance(lib, w.dict))
+      ) {
+        undrawn.push(field.getName());
+      }
     }
   }
   return undrawn;
+}
+
+/** Whether a widget dict carries a normal appearance (`/AP /N`) to bake. */
+function hasNormalAppearance(
+  lib: PdfLibModule,
+  widget: InstanceType<PdfLibModule["PDFDict"]>,
+): boolean {
+  const { PDFDict, PDFName, PDFStream } = lib;
+  const ap = widget.lookup(PDFName.of("AP"));
+  if (!(ap instanceof PDFDict)) return false;
+  const normal = ap.lookup(PDFName.of("N"));
+  return normal instanceof PDFStream || normal instanceof PDFDict;
 }
 
 /** Annotation flags (PDF 32000 §12.5.3) that stop a viewer painting one. */

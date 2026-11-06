@@ -86,8 +86,8 @@ export function NUpEditor({
           {result.undrawnFields.length > 0 && (
             <p role="status" className="max-w-2xl text-sm">
               Not on the sheets: the value of {result.undrawnFields.join(", ")}.
-              The form&rsquo;s font cannot draw its characters, so keep the
-              original to show it.
+              The file holds no drawing of it and it could not be drawn here, so
+              keep the original to show it.
             </p>
           )}
           <button

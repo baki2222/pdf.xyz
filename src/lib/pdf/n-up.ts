@@ -20,8 +20,8 @@ import { stampProducer } from "./stamp";
  * to its VISIBLE box (CropBox ∩ MediaBox), with the appearance of every
  * visible annotation and form field baked in first, as Overlay PDF does — so a
  * filled form or a stamp shows on the sheet. A value stored with no appearance
- * (`/NeedAppearances`) is drawn first (`drawFieldValues`); one the form's font
- * cannot draw is named in `undrawnFields`. Links and fields stop being
+ * (`/NeedAppearances`) is drawn first (`drawFieldValues`); one that cannot be
+ * drawn and has no stored appearance to bake is named in `undrawnFields`. Links and fields stop being
  * interactive: an embedded page carries drawing only. A page's own `/Rotate`
  * is honoured (placed by `placeOverlay`, the geometry Overlay PDF uses), so a
  * landscape scan lands the way a viewer shows it.
@@ -193,8 +193,8 @@ export interface NUpResult {
   /** Columns × rows actually used. */
   grid: { cols: number; rows: number };
   /**
-   * Form fields whose value a viewer draws from the value alone and the
-   * form's font cannot (`drawFieldValues`): left off the sheets, named here.
+   * Form fields whose value could not be drawn (`drawFieldValues`) and that
+   * have a widget with no stored appearance to bake: left off the sheets.
    */
   undrawnFields: string[];
 }
