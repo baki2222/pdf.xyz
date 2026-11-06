@@ -25,7 +25,8 @@ import { layoutText, lineBaseline, lineLeft } from "./text";
  * select, move, edit or delete — instead of being drawn into the page.
  *
  *   Highlight → /Highlight with /QuadPoints (snapped to the text lines under
- *               the box when there are any — {@link snapHighlightQuads})
+ *               the box when there are any, the box's textless bands kept
+ *               as drawn — {@link snapHighlightQuads})
  *   Draw      → /Ink with /InkList
  *   Note      → /FreeText: the editor's note is a visible box of words on
  *               coloured paper, which is a FreeText, not a /Text sticky icon
@@ -62,12 +63,22 @@ export { isCommentObject, type CommentObject };
 /** A run counts as under a highlight when the box covers this much of its height. */
 const MIN_COVER = 0.5;
 const ANGLE_TOLERANCE = 1;
+/**
+ * A band of the box with no line in it is the box's own — a figure, a
+ * picture — once it is this many of the box's tallest lines tall. Shorter,
+ * it is the text's own spacing (double-spaced lines leave 1.4 lines) or the
+ * slack of a box dragged around the text, and stays snapped.
+ */
+const GAP_LINES = 2;
 
 /**
  * The quads a highlight covers, in viewer points: where the box lies over
  * text lines, one quad per line — the line's own height, clipped to the
  * box's left and right edges — as a viewer's text highlight is; elsewhere
- * (no run under it, or only turned text), the box itself.
+ * (no run under it, or only turned text), the box itself. A band of the
+ * box above, below or between its lines that holds no text — a figure
+ * under the line — is kept at the box's full width, so the comment covers
+ * what the preview showed (audit #30, 2026-11-06: only the lines were).
  */
 export function snapHighlightQuads(
   box: Rect,
@@ -110,7 +121,27 @@ export function snapHighlightQuads(
       };
     } else lines.push(h);
   }
-  return lines;
+  // The box's own bands: what is left of its height between the lines.
+  const gap = GAP_LINES * Math.max(...lines.map((l) => l.height));
+  const quads: Rect[] = [];
+  let cursor = box.y;
+  const band = (to: number) => {
+    if (to - cursor >= gap) {
+      quads.push({
+        x: box.x,
+        y: cursor,
+        width: box.width,
+        height: to - cursor,
+      });
+    }
+  };
+  for (const line of lines) {
+    band(line.y);
+    quads.push(line);
+    cursor = Math.max(cursor, line.y + line.height);
+  }
+  band(bottom);
+  return quads;
 }
 
 /** What writing a note's words needs from the export: its font, and how it lays out. */

@@ -401,6 +401,42 @@ describe("markups as comments: what stays page content, and what is written", ()
     expect(q.y).toBeGreaterThan(165);
     expect(q.y + q.height).toBeLessThan(205);
   });
+
+  // Audit #30 (2026-11-06): a box over a line of text AND a figure below it
+  // exported only the line's band; the figure's part of the box, which the
+  // preview and the flattened export both highlight, was dropped.
+  it("a highlight over a line and the figure below it keeps the figure's part", async () => {
+    const bytes = await blankPage(0, "SNAP THIS LINE");
+    const box = { x: 90, y: 160, width: 120, height: 250 };
+    const out = await exportEditedPdf(
+      bytes,
+      [
+        {
+          id: "h",
+          kind: "highlight",
+          page: 0,
+          ...box,
+          color: "#facc15",
+          opacity: 0.4,
+        },
+      ],
+      undefined,
+      { markups: "comments" },
+    );
+    const { annotations } = await readAnnotations(out.bytes);
+    const [line, figure] = annotations[0]!.quads;
+    expect(annotations[0]!.quads).toHaveLength(2);
+    expect(line!.height).toBeLessThan(30);
+    // The rest of the box, its full width, from the line down to its edge.
+    expect(Math.abs(figure!.x - box.x)).toBeLessThanOrEqual(TOL);
+    expect(Math.abs(figure!.width - box.width)).toBeLessThanOrEqual(TOL);
+    expect(Math.abs(figure!.y - (line!.y + line!.height))).toBeLessThanOrEqual(
+      TOL,
+    );
+    expect(
+      Math.abs(figure!.y + figure!.height - (box.y + box.height)),
+    ).toBeLessThanOrEqual(TOL);
+  });
 });
 
 describe("snapHighlightQuads", () => {
@@ -437,6 +473,45 @@ describe("snapHighlightQuads", () => {
       { x: 10, y: 2, width: 90, height: 12 },
       { x: 5, y: 22, width: 20, height: 12 },
     ]);
+  });
+
+  it("keeps the part of the box over no text: a figure below, above or between lines", () => {
+    // Audit #30 (2026-11-06): only the text bands were kept.
+    const line = run({ x: 72, y: 100, width: 300, height: 12 });
+    expect(
+      snapHighlightQuads({ x: 72, y: 100, width: 400, height: 300 }, [line]),
+    ).toEqual([
+      { x: 72, y: 100, width: 300, height: 12 },
+      { x: 72, y: 112, width: 400, height: 288 },
+    ]);
+    expect(
+      snapHighlightQuads({ x: 72, y: 0, width: 400, height: 112 }, [line]),
+    ).toEqual([
+      { x: 72, y: 0, width: 400, height: 100 },
+      { x: 72, y: 100, width: 300, height: 12 },
+    ]);
+    const below = run({ x: 72, y: 300, width: 100, height: 12 });
+    expect(
+      snapHighlightQuads({ x: 72, y: 100, width: 400, height: 212 }, [
+        line,
+        below,
+      ]),
+    ).toEqual([
+      { x: 72, y: 100, width: 300, height: 12 },
+      { x: 72, y: 112, width: 400, height: 188 },
+      { x: 72, y: 300, width: 100, height: 12 },
+    ]);
+  });
+
+  it("a line's own spacing, and the box's slack around its text, stay snapped", () => {
+    // Double-spaced 12 pt lines (a 14.4 pt gap) and 10 pt of slack above
+    // and below: no quad of the box's own.
+    const quads = snapHighlightQuads({ x: 0, y: 0, width: 200, height: 84 }, [
+      run({ x: 0, y: 10, width: 150, height: 12 }),
+      run({ x: 0, y: 36.4, width: 150, height: 12 }),
+      run({ x: 0, y: 62, width: 150, height: 12 }),
+    ]);
+    expect(quads.map((q) => q.y)).toEqual([10, 36.4, 62]);
   });
 
   it("ignores a run the box barely grazes, and a turned run", () => {

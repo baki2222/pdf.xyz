@@ -5121,7 +5121,7 @@ export const guides: Guide[] = [
         heading: "Flattened into the page, or saved as comments",
         body: [
           "Flatten into the page, the choice selected to start, draws each highlight into the page itself, with its colour multiplied over the words so they stay readable. It shows in every viewer and printout, the original text stays selectable, and nothing becomes an image. The cost is that it cannot be taken out later except with an editor that changes page content, so keep the original if you may want an unmarked copy.",
-          "Saving markups as comments writes each highlight as a standard PDF highlight annotation instead. Where the box lies over lines of text, it is fitted to them: one band per line, as tall as the line and as wide as your box. Over a picture of text, such as a scanned page, it stays the box you drew. Other PDF apps list it as a comment and let you select, edit or delete it; there are no reply threads here.",
+          "Saving markups as comments writes each highlight as a standard PDF highlight annotation instead. Where the box lies over lines of text, it is fitted to them: one band per line, as tall as the line and as wide as the text inside your box. A part of the box with no text under it, such as a chart below a line, stays highlighted as you drew it, and over a picture of text, such as a scanned page, the whole highlight stays the box you drew. Other PDF apps list it as a comment and let you select, edit or delete it; there are no reply threads here.",
         ],
       },
       {
@@ -5168,7 +5168,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-06",
   },
   {
     slug: "how-to-chat-with-a-pdf",
