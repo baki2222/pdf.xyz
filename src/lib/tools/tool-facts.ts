@@ -1169,7 +1169,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         {
           question: `Can I combine several images into one PDF?`,
           answer:
-            "Yes — each image becomes one page, in the order shown. Use “Move up” and “Move down” to change it before you create the PDF.",
+            "Yes — each image becomes one page, in the order shown. Drag an image onto another's place, or use “Move up” and “Move down”, to change it before you create the PDF.",
         },
         ...(tool.accept.includes("PNG")
           ? [
