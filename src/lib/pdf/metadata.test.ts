@@ -1,7 +1,17 @@
 // @native-canvas
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
-import { PDFDocument, PDFName, PDFStream } from "pdf-lib";
+import {
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFHexString,
+  PDFName,
+  PDFRawStream,
+  PDFStream,
+  PDFString,
+  decodePDFRawStream,
+} from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import {
   METADATA_DATE_FIELDS,
@@ -258,6 +268,82 @@ describe("writePdfMetadata — remove all", () => {
     const raw = Buffer.from(result.bytes).toString("latin1").toUpperCase();
     expect(raw).not.toContain("OLD XMP TITLE");
     expect(raw).not.toContain(OLD_TITLE_HEX);
+  });
+
+  /**
+   * Audit #4 (2026-11-06): remove-all deleted only the object the trailer's
+   * /Info named and the catalog XMP, then saved every object pdf-lib had
+   * parsed — an earlier Info left orphaned by an incremental save, a page's
+   * own XMP and its /PieceInfo all came through the "clean" file.
+   */
+  it("leaves no old author anywhere: orphaned Info, page XMP, PieceInfo", async () => {
+    const doc = await PDFDocument.load(await sourcePdf({ xmp: true }));
+    const ctx = doc.context;
+    // An earlier Info dictionary nothing refers to any more.
+    ctx.register(ctx.obj({ Author: PDFString.of("SecretOldAuthor") }));
+    const page = doc.getPage(0).node;
+    page.set(
+      PDFName.of("Metadata"),
+      ctx.register(
+        ctx.stream("<x:xmpmeta>PageXmpAuthor</x:xmpmeta>", {
+          Type: "Metadata",
+          Subtype: "XML",
+        }),
+      ),
+    );
+    page.set(
+      PDFName.of("PieceInfo"),
+      ctx.obj({
+        Illustrator: { Private: { Author: PDFString.of("PieceInfoAuthor") } },
+      }),
+    );
+    doc.catalog.set(
+      PDFName.of("PieceInfo"),
+      ctx.obj({ Word: { Private: PDFString.of("DocPieceInfoAuthor") } }),
+    );
+    // A string that is reachable and no metadata: it must survive, which
+    // proves the walk below reads the output's strings at all.
+    doc.catalog.set(PDFName.of("Lang"), PDFString.of("en-GB"));
+    const source = await doc.save({ useObjectStreams: false });
+    const NAMES = [
+      "SecretOldAuthor",
+      "PageXmpAuthor",
+      "PieceInfoAuthor",
+      "DocPieceInfoAuthor",
+    ];
+
+    /** Every string and every decoded stream in every object of `bytes`. */
+    const everything = async (bytes: Uint8Array): Promise<string> => {
+      const d = await PDFDocument.load(bytes, { updateMetadata: false });
+      const parts: string[] = [];
+      const visit = (o: unknown): void => {
+        if (o instanceof PDFString || o instanceof PDFHexString) {
+          parts.push(o.decodeText());
+        } else if (o instanceof PDFDict) {
+          for (const [, v] of o.entries()) visit(v);
+        } else if (o instanceof PDFArray) {
+          o.asArray().forEach(visit);
+        } else if (o instanceof PDFRawStream) {
+          visit(o.dict);
+          parts.push(
+            new TextDecoder("latin1").decode(decodePDFRawStream(o).decode()),
+          );
+        }
+      };
+      for (const [, obj] of d.context.enumerateIndirectObjects()) visit(obj);
+      return parts.join(" | ");
+    };
+    // Positive control: the source holds every one of them.
+    const before = await everything(source);
+    for (const name of NAMES) expect(before, name).toContain(name);
+
+    const result = await writePdfMetadata(source, { kind: "remove-all" });
+    const after = await everything(result.bytes);
+    for (const name of NAMES) expect(after, name).not.toContain(name);
+    // Pages and their content are still there.
+    const out = await PDFDocument.load(result.bytes, { updateMetadata: false });
+    expect(out.getPageCount()).toBe(2);
+    expect(after).toContain("en-GB");
   });
 
   it("control: the source really did carry everything removed", async () => {

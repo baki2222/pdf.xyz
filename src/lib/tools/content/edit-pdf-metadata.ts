@@ -67,7 +67,7 @@ const content: ToolContent = {
     },
     {
       q: "What does Remove all metadata take out?",
-      a: "The document information entries (title, author, subject, keywords, creator, producer, created and modified dates) and the document's XMP metadata packet. It does not remove text on the pages, comments, form fields, bookmarks or metadata embedded inside images; use Redact PDF for content on the pages.",
+      a: "The document information entries (title, author, subject, keywords, creator, producer, created and modified dates) and the document's XMP metadata packet; each page's own XMP packet and the private data apps such as Illustrator and Office keep on pages (PieceInfo); and any earlier copy of those entries an earlier save left in the file. It does not remove text on the pages, comments, form fields, bookmarks, attached files or metadata embedded inside images; use Redact PDF for content on the pages.",
     },
     {
       q: "Does editing metadata change the pages?",

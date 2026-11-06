@@ -2,6 +2,7 @@ import type { PDFDict, PDFDocument } from "pdf-lib";
 import { pdfLoadError, PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
+import { pruneUnreachable } from "./prune-unreachable";
 
 /**
  * Edit PDF Metadata — read and rewrite a PDF's document information.
@@ -17,7 +18,10 @@ import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
  * fresh packet holding the same values as the Info dictionary. Properties the
  * old packet held beyond those eight are not carried (the runner says so). A
  * file with no packet gets none. "Remove all metadata" deletes the Info
- * dictionary and the document XMP packet both.
+ * dictionary and the document XMP packet both, each page's own XMP packet and
+ * the private application data (/PieceInfo) on the pages and the catalog,
+ * then drops every object nothing refers to any more — an earlier Info
+ * dictionary an incremental save left behind would otherwise be saved too.
  *
  * Loaded with `updateMetadata: false` — a plain `PDFDocument.load` rewrites
  * Producer, Creator and ModDate on the way in, which on THIS tool would put
@@ -277,6 +281,13 @@ export async function writePdfMetadata(
     const xmp = doc.catalog.get(metadataKey);
     if (xmp instanceof lib.PDFRef) doc.context.delete(xmp);
     doc.catalog.delete(metadataKey);
+    const pieceInfo = PDFName.of("PieceInfo");
+    doc.catalog.delete(pieceInfo);
+    for (const page of doc.getPages()) {
+      page.node.delete(metadataKey);
+      page.node.delete(pieceInfo);
+    }
+    pruneUnreachable(lib, doc);
   } else {
     const values = normalized(change.values);
     applyEdit(lib, doc, values);
