@@ -3014,7 +3014,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-30",
+    updated: "2026-11-06",
   },
   {
     slug: "how-to-convert-pdf-to-powerpoint",

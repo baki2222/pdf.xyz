@@ -103,8 +103,28 @@ export function decodeXmlEntities(text: string): string {
 }
 
 /**
+ * {@link normalizeExtractedText}, except the page's first line keeps its indent.
+ *
+ * `-layout` places text by padding it with spaces, and on the first line that
+ * padding is the ONLY thing saying where the text sits. The shared normalizer
+ * ends in `.trim()`, which removed it: a continuation page that opens with
+ * `            2025      2024` over a row-label column came out as
+ * `2025      2024`, and PDF to Excel then put "2025" over the labels and
+ * "2024" over the 2025 values (audit #7, 2026-11-06). Blank lines around the
+ * page and trailing spaces are still dropped exactly as the shared normalizer
+ * drops them; only that one indent is put back.
+ */
+function normalizeLayoutPage(chunk: string): string {
+  const text = normalizeExtractedText(chunk);
+  if (text.length === 0) return text;
+  const first = chunk.split(/\r\n?|\n/).find((line) => line.trim().length > 0)!;
+  return first.slice(0, first.length - first.trimStart().length) + text;
+}
+
+/**
  * Parse `pdftotext -layout` output into the browser extractor's shape. Pages are
- * split on the form feed; a trailing break yields no extra page. `hasText` stays
+ * split on the form feed; a trailing break yields no extra page. Each page keeps
+ * its first line's indent ({@link normalizeLayoutPage}). `hasText` stays
  * honest: an image-only PDF produces empty pages and `hasText:false`, which the
  * office-export engine reports as `no_text` instead of emitting a blank document.
  */
@@ -116,7 +136,7 @@ export function parseLayoutText(stdout: string): ExtractedPdfText {
     chunks.pop();
   }
   const pages: ExtractedTextPage[] = chunks.map((chunk, index) => {
-    const text = normalizeExtractedText(chunk);
+    const text = normalizeLayoutPage(chunk);
     return { pageNumber: index + 1, text, characterCount: text.length };
   });
   const text = joinPageTexts(pages);
