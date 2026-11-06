@@ -17,7 +17,14 @@
 
 /** The coarse families the platform accepts as uploads. */
 export type UploadFamily =
-  "pdf" | "image" | "word" | "spreadsheet" | "presentation" | "web" | "text";
+  | "pdf"
+  | "image"
+  | "word"
+  | "spreadsheet"
+  | "presentation"
+  | "web"
+  | "ebook"
+  | "text";
 
 /** A family's recognized MIME types and filename extensions (both lower-case). */
 interface FamilySpec {
@@ -85,6 +92,11 @@ export const UPLOAD_FAMILIES: Record<UploadFamily, FamilySpec> = {
   web: {
     mimes: ["text/html"],
     extensions: ["html", "htm"],
+  },
+  // 2026-11-06, with EPUB to PDF.
+  ebook: {
+    mimes: ["application/epub+zip"],
+    extensions: ["epub"],
   },
   text: {
     mimes: ["text/plain", "text/markdown"],

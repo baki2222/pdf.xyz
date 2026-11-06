@@ -78,6 +78,7 @@ const CONVERTERS: Readonly<Record<string, number>> = {
   "markdown-to-pdf": 82,
   "text-to-pdf": 80,
   "html-to-pdf": 80,
+  "epub-to-pdf": 80,
 };
 /** JPG to PDF when any JPG is among the images, otherwise PNG to PDF. */
 const IMAGES_TO_PDF = 90;

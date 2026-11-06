@@ -159,6 +159,13 @@ export const TOOL_DIRECTORY: readonly ToolEntry[] = [
     outputs: ["PDF"],
   },
   {
+    slug: "epub-to-pdf",
+    name: "EPUB to PDF",
+    processing: "server",
+    accept: ["EPUB"],
+    outputs: ["PDF"],
+  },
+  {
     slug: "markdown-to-pdf",
     name: "Markdown to PDF",
     processing: "client",

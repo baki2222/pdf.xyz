@@ -67,6 +67,7 @@ import {
 import { WORKER_ENGINE_FILE_CEILINGS } from "@/lib/workers/engine-file-ceilings";
 import { runSecurityJob } from "@/lib/workers/pdf-security-client";
 import { getToolBySlug, tools } from "./index";
+import { epubOfSize } from "@/tests/epub-fixtures";
 import {
   WORKER_FILE_CEILING,
   toolFileCeiling,
@@ -199,7 +200,32 @@ const WITH_FAKE_BINARY: Partial<
       chromium: { renderHtml: async () => PDF, renderUrl: async () => PDF },
     },
   }),
+  epubRender: (deps) => ({
+    epubRender: {
+      ...deps.epubRender,
+      chromium: {
+        renderPackage: async (pkg) =>
+          Promise.all(pkg.documents.map(() => onePagePdf())),
+      },
+    },
+  }),
 };
+
+/** A real one-page PDF: EPUB to PDF joins its chapters with pdf-lib. */
+async function onePagePdf(): Promise<Uint8Array> {
+  const { PDFDocument } = await import("pdf-lib");
+  const doc = await PDFDocument.create();
+  doc.addPage([200, 200]);
+  return doc.save();
+}
+
+/**
+ * The input a probe hands an engine that reads its file's CONTENT before it
+ * prints it: bytes of nothing are refused for what they are, so the probe AT
+ * the ceiling would fail for the wrong reason. Every other engine gets zeros.
+ */
+const INPUT_OF: Partial<Record<DepsKey, (bytes: number) => Promise<Uint8Array>>> =
+  { epubRender: (bytes) => epubOfSize(bytes) };
 
 /**
  * For each binding engine, the variable an operator sets to change its limit.
@@ -212,6 +238,7 @@ const WITH_FAKE_BINARY: Partial<
 const OVERRIDE_ENV: Partial<Record<DepsKey, string>> = {
   officeConversion: "PDFXYZ_OFFICE_CONVERSION_MAX_INPUT_BYTES",
   htmlRender: "PDFXYZ_HTML_RENDER_MAX_INPUT_BYTES",
+  epubRender: "PDFXYZ_EPUB_MAX_INPUT_BYTES",
 };
 
 async function runAt(
@@ -233,7 +260,7 @@ async function runAt(
         fileId: "f",
         filename,
         contentType: declaredContentTypeFor(filename) ?? "",
-        bytes: new Uint8Array(bytes),
+        bytes: (await INPUT_OF[key]?.(bytes)) ?? new Uint8Array(bytes),
       },
     ],
   });

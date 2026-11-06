@@ -34,6 +34,8 @@ import { MIME_BY_FORMAT } from "@/lib/jobs/mime-by-format";
 import { parseCreateUploadSessionRequest } from "@/lib/jobs/validation";
 import { runHtmlToPdf } from "@/lib/workers/html-render/engine";
 import { nativeHtmlRenderDeps } from "@/lib/workers/html-render/native";
+import { runEpubToPdf } from "@/lib/workers/epub/engine";
+import { nativeEpubRenderDeps } from "@/lib/workers/epub/native";
 import {
   runOfficeToPdf,
   type OfficeToPdfTool,
@@ -174,6 +176,16 @@ const ENGINE_GATES: Record<string, GateRun> = {
       },
     };
     return runHtmlToPdf(new Uint8Array(bytes), deps);
+  },
+  // The size is checked before the book is opened, so zeros at the ceiling
+  // reach the content check (refused as not an EPUB) and zeros over it are
+  // refused for their size: the gate's verdict is read from `too_large`.
+  "epub-render": async (_slug, bytes) => {
+    const deps = {
+      ...nativeEpubRenderDeps({}, NO_BINARY),
+      chromium: { renderPackage: async () => [FAKE_PDF] },
+    };
+    return runEpubToPdf(new Uint8Array(bytes), deps);
   },
 };
 

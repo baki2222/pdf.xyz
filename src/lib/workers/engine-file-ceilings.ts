@@ -1,6 +1,8 @@
 import { JOB_LIMITS } from "@/lib/jobs/types";
 import { HTML_RENDER_DEFAULT_MAX_INPUT_BYTES } from "./html-render/native-config";
 import { HTML_RENDER_TOOLS } from "./html-render/tools";
+import { EPUB_DEFAULT_MAX_INPUT_BYTES } from "./epub/native-config";
+import { EPUB_TOOLS } from "./epub/tools";
 import { OFFICE_CONVERSION_DEFAULT_MAX_INPUT_BYTES } from "./office-conversion/native-config";
 import { OFFICE_TO_PDF_TOOLS } from "./office-conversion/tools";
 
@@ -43,6 +45,10 @@ export const WORKER_ENGINE_FILE_CEILINGS = {
   "html-render": {
     tools: HTML_RENDER_TOOLS,
     bytes: HTML_RENDER_DEFAULT_MAX_INPUT_BYTES,
+  },
+  "epub-render": {
+    tools: EPUB_TOOLS,
+    bytes: EPUB_DEFAULT_MAX_INPUT_BYTES,
   },
 } as const satisfies Record<
   string,

@@ -3,6 +3,7 @@
 import { RunReason } from "@/components/tools/runner/run-reason";
 import { useCallback, useEffect, useId, useState } from "react";
 import {
+  BookOpen,
   Download,
   FileCode,
   Globe,
@@ -13,6 +14,7 @@ import {
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import {
   canRunHtmlRender,
+  runWorkerEpubToPdf,
   runWorkerHtmlToPdf,
   runWorkerWebpageToPdf,
   type HtmlRenderWorkerResult,
@@ -38,6 +40,13 @@ import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
 import { decodeTextFile } from "@/lib/text/decode-text-file";
 import { useStagedHandoff } from "./use-staged-handoff";
 import { HtmlRenderLayoutOptions } from "./html-render-layout-options";
+import { EpubLayoutOptions } from "./epub-layout-options";
+import { EpubFilePicker } from "./epub-file-picker";
+import {
+  DEFAULT_EPUB_RENDER_OPTIONS,
+  epubRenderOptionsBag,
+  type EpubRenderOptions,
+} from "@/lib/jobs/epub-render-options";
 import {
   DEFAULT_HTML_RENDER_OPTIONS,
   htmlRenderOptionsBag,
@@ -79,31 +88,52 @@ import {
  */
 const STATUS_SLOT = "min-h-[23.5rem] sm:min-h-[15rem] lg:min-h-[15rem]";
 
-type Mode = "html" | "url";
+type Mode = "html" | "url" | "epub";
+
+const modeOf = (slug: string): Mode =>
+  slug === "webpage-to-pdf" ? "url" : slug === "epub-to-pdf" ? "epub" : "html";
 
 export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
-  const mode: Mode = tool.slug === "webpage-to-pdf" ? "url" : "html";
-  const Icon = mode === "url" ? Globe : FileCode;
+  const mode = modeOf(tool.slug);
+  const Icon = mode === "url" ? Globe : mode === "epub" ? BookOpen : FileCode;
   const ceilingBytes = toolFileCeilingBytes(tool);
 
   return (
     <WorkerPanelShell
       tool={tool}
-      engine={{ label: "Web page capture", icon: Icon }}
+      engine={{
+        label: mode === "epub" ? "E-book printing" : "Web page capture",
+        icon: Icon,
+      }}
       description={
-        <>
-          Chromium renders{" "}
-          {mode === "url" ? "the public URL" : "your uploaded HTML file"} to a
-          real print PDF on our isolated server. It produces a PDF artifact or
-          fails honestly — no screenshot placeholder and no browser-side fake.
-        </>
+        mode === "epub" ? (
+          <>
+            Chromium prints each chapter of your EPUB, in reading order, to
+            one PDF on our isolated server, with the book&apos;s table of
+            contents as bookmarks. Scripts in the book do not run, and nothing
+            outside the book is fetched.
+          </>
+        ) : (
+          <>
+            Chromium renders{" "}
+            {mode === "url" ? "the public URL" : "your uploaded HTML file"} to
+            a real print PDF on our isolated server. It produces a PDF artifact
+            or fails honestly — no screenshot placeholder and no browser-side
+            fake.
+          </>
+        )
       }
       canRun={canRunHtmlRender}
       specRows={[
         {
           icon: Icon,
           label: "You add",
-          value: mode === "url" ? "One public URL" : "One HTML file",
+          value:
+            mode === "url"
+              ? "One public URL"
+              : mode === "epub"
+                ? "One DRM-free EPUB file"
+                : "One HTML file",
         },
         { icon: Download, label: "You get", value: "PDF" },
         {
@@ -171,19 +201,29 @@ function useUnbundledAssetsNote(file: File | null): string | null {
   return note && note.file === file ? note.text : null;
 }
 
-const RUN_LABEL = "Render PDF";
+const RENDER_LABEL = "Render PDF";
+/** EPUB to PDF's button: a book is converted, not a page rendered. */
+const CONVERT_LABEL = "Convert to PDF";
+
+/** The button's label while the job runs, per mode. */
+const BUSY: Record<Mode, { running: string }> = {
+  html: { running: "Rendering PDF…" },
+  url: { running: "Rendering PDF…" },
+  epub: { running: "Converting to PDF…" },
+};
 
 function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
+  const RUN_LABEL = mode === "epub" ? CONVERT_LABEL : RENDER_LABEL;
   const { available, status } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
   const [url, setUrl] = useState("https://");
   const urlId = useId();
   const job = useWorkerJob<HtmlRenderWorkerResult>({
-    tool: mode === "url" ? "webpage-to-pdf" : "html-to-pdf",
+    tool: tool.slug,
     resume: (id, controls) =>
       resumeSecurityJob(id, {
         ...controls,
-        tool: mode === "url" ? "webpage-to-pdf" : "html-to-pdf",
+        tool: tool.slug,
       }),
   });
   const { busy, outcome, setOutcome, run } = job;
@@ -198,32 +238,42 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
   const [layout, setLayout] = useState<HtmlRenderOptions>(
     DEFAULT_HTML_RENDER_OPTIONS,
   );
+  const [bookLayout, setBookLayout] = useState<EpubRenderOptions>(
+    DEFAULT_EPUB_RENDER_OPTIONS,
+  );
 
   const start = useCallback(async () => {
     if (!available) return;
     // Only what differs from the defaults travels, so an untouched layout
     // sends the request these tools always sent.
-    const bag = htmlRenderOptionsBag(layout);
+    const bag =
+      mode === "epub"
+        ? epubRenderOptionsBag(bookLayout)
+        : htmlRenderOptionsBag(layout);
     await run(async (controls) => {
-      const result =
-        mode === "url"
-          ? await runWorkerWebpageToPdf(url.trim(), controls, bag)
-          : file
-            ? await runWorkerHtmlToPdf(
-                {
-                  filename: file.name,
-                  bytes: new Uint8Array(await file.arrayBuffer()),
-                  layout: bag,
-                },
-                controls,
-              )
-            : { ok: false as const, message: "Choose an HTML file first." };
-      return result;
+      if (mode === "url")
+        return runWorkerWebpageToPdf(url.trim(), controls, bag);
+      if (!file)
+        return {
+          ok: false as const,
+          message:
+            mode === "epub"
+              ? "Choose an EPUB file first."
+              : "Choose an HTML file first.",
+        };
+      const input = {
+        filename: file.name,
+        bytes: new Uint8Array(await file.arrayBuffer()),
+        layout: bag,
+      };
+      return mode === "epub"
+        ? runWorkerEpubToPdf(input, controls)
+        : runWorkerHtmlToPdf(input, controls);
     });
-  }, [file, mode, url, run, available, layout]);
+  }, [file, mode, url, run, available, layout, bookLayout]);
 
   const missing =
-    mode === "html" ? !file : url.trim().length <= "https://".length;
+    mode === "url" ? url.trim().length <= "https://".length : !file;
   const detail =
     status?.daemon.detail ?? "Our secure server is not drainable here.";
 
@@ -253,6 +303,16 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
             placeholder="https://example.com"
           />
         </div>
+      ) : mode === "epub" ? (
+        <EpubFilePicker
+          tool={tool}
+          file={file}
+          busy={busy}
+          onFile={(next) => {
+            setOutcome(null);
+            setFile(next);
+          }}
+        />
       ) : file ? (
         <div className="flex flex-col gap-2">
           <ChosenFileTarget
@@ -309,19 +369,30 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
         />
       )}
 
-      <HtmlRenderLayoutOptions
-        value={layout}
-        disabled={busy}
-        onChange={(next) => {
-          setLayout(next);
-          setOutcome(null);
-        }}
-      />
+      {mode === "epub" ? (
+        <EpubLayoutOptions
+          value={bookLayout}
+          disabled={busy}
+          onChange={(next) => {
+            setBookLayout(next);
+            setOutcome(null);
+          }}
+        />
+      ) : (
+        <HtmlRenderLayoutOptions
+          value={layout}
+          disabled={busy}
+          onChange={(next) => {
+            setLayout(next);
+            setOutcome(null);
+          }}
+        />
+      )}
 
       <WorkerGate
         reserve={STATUS_SLOT}
         job={job}
-        bytes={mode === "html" ? file?.size : undefined}
+        bytes={mode === "url" ? undefined : file?.size}
         run={(ready) => (
           <RunReason
             after
@@ -337,8 +408,8 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
                 busy={busy}
                 describedBy={describedBy}
                 disabled={!ready || missing}
-                busyLabel={jobBusyLabel(job.phase, "Rendering PDF…")}
-                icon={FileCode}
+                busyLabel={jobBusyLabel(job.phase, BUSY[mode].running)}
+                icon={mode === "epub" ? BookOpen : FileCode}
               >
                 {RUN_LABEL}
               </WorkerRunButton>
@@ -351,7 +422,9 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
             <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
             {mode === "url"
               ? `Pressing ${RUN_LABEL} starts a private secure-server job. Only public http(s) URLs are accepted; private/localhost targets are rejected.`
-              : `Your HTML uploads to a private secure-server job only when you press ${RUN_LABEL}. It is stored only for the short server lifecycle and wiped after processing. Only the file itself is uploaded, so embed its images and stylesheets or link them with full https:// addresses.`}
+              : mode === "epub"
+                ? `Your EPUB uploads to a private secure-server job only when you press ${RUN_LABEL}. It is stored only for the short server lifecycle and wiped after processing. While it prints, nothing outside the book is fetched.`
+                : `Your HTML uploads to a private secure-server job only when you press ${RUN_LABEL}. It is stored only for the short server lifecycle and wiped after processing. Only the file itself is uploaded, so embed its images and stylesheets or link them with full https:// addresses.`}
           </p>
         }
         off={
@@ -368,7 +441,7 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
         <ResultCard
           announce="Your PDF is ready."
           output={workerOutput(outcome.output, outcome.artifact)}
-          inputBytes={mode === "html" ? file?.size : undefined}
+          inputBytes={mode === "url" ? undefined : file?.size}
         >
           <p className="text-ok text-sm">Your PDF is ready.</p>
           <DownloadCta

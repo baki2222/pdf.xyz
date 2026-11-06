@@ -95,6 +95,8 @@ import {
 } from "@/tests/pdf-office-fixtures";
 import { handBuiltPptx } from "@/tests/pptx-fixture";
 import { OFFICE_INPUT_FIXTURES, odsWith } from "@/tests/office-input-fixtures";
+import { drmBook, epub3Book } from "@/tests/epub-fixtures";
+import { epub3Verdict, readEpubPdf } from "@/lib/workers/epub/proof";
 import { lockedOdfFixtures } from "@/tests/locked-odf";
 import {
   officeFontProofDocx,
@@ -1564,6 +1566,46 @@ const SPECS: ProofSpec[] = [
     },
     expect: () => false,
     want: "a final password-protected refusal naming LibreOffice's Save As",
+  },
+  // EPUB to PDF (2026-11-06): the book `pnpm worker:epub-proof` converts in
+  // the image, judged by the same verdict (`epub/proof.ts`) on the PDF the
+  // deployed worker returned: chapters in spine order on their own pages,
+  // the book's PNG drawn, its stylesheet's heading colour, the nav as the
+  // outline, and its script NOT run.
+  {
+    tool: "epub-to-pdf",
+    label: "epub-to-pdf (epub 3)",
+    make: async () => Buffer.from(await epub3Book()),
+    name: "book.epub",
+    type: "application/epub+zip",
+    expect: isPdf,
+    want: "PDF",
+    verify: async (bytes) => {
+      const problems = epub3Verdict(await readEpubPdf(new Uint8Array(bytes)));
+      return {
+        ok: problems.length === 0,
+        detail:
+          problems.length === 0
+            ? "3 chapters in spine order, image drawn, heading colour, nav outline, no script"
+            : problems.join("; "),
+      };
+    },
+  },
+  // The refusal: a book whose encryption.xml names a real cipher is DRM, and
+  // is refused once, before Chromium, with the sentence that says so.
+  {
+    tool: "epub-to-pdf",
+    label: "epub-to-pdf (drm refused)",
+    make: async () => Buffer.from(await drmBook()),
+    name: "protected.epub",
+    type: "application/epub+zip",
+    expectFailure: {
+      code: "unprocessable_entity",
+      retryable: false,
+      message: /protected by DRM/,
+    },
+    expect: () => false,
+    want: "a final DRM refusal",
   },
   {
     tool: "pdf-to-word",

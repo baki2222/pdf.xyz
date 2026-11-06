@@ -56,6 +56,7 @@ describe("resolveWorkerRuntime — gating", () => {
       "ai-extract",
       "chat-with-pdf",
       "compression",
+      "epub-render",
       "html-render",
       "ocr",
       "office-conversion",

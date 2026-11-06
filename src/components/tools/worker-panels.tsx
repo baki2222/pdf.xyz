@@ -77,7 +77,7 @@ export const WORKER_PANEL_ROUTES: readonly WorkerPanelRoute[] = [
     boundary: "pdf-archive-worker-panel",
   },
   {
-    slugs: ["html-to-pdf", "webpage-to-pdf"],
+    slugs: ["html-to-pdf", "webpage-to-pdf", "epub-to-pdf"],
     Panel: HtmlRenderWorkerPanel,
     boundary: "html-render-worker-panel",
   },

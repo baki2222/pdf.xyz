@@ -110,6 +110,32 @@ export interface ChromiumPdfRunner {
   ): Promise<Uint8Array>;
 }
 
+/** One document of a {@link DocumentPackage}, printed on its own. */
+export interface PackageDocument {
+  /** Its address at the synthetic document origin (`HTML_DOCUMENT_URL`). */
+  url: string;
+  /** The window it is laid out in, when it names one (a fixed-layout page). */
+  viewport: { width: number; height: number } | null;
+  /** The `Page.printToPDF` arguments for this document. */
+  printParams: Record<string, unknown>;
+}
+
+/**
+ * A set of documents served from ONE file the user uploaded (an EPUB):
+ * Chromium prints each in order with page scripts disabled, every request at
+ * the synthetic document origin is answered by `serve` (null = 404), and
+ * every request anywhere else is refused before it leaves the renderer.
+ */
+export interface DocumentPackage {
+  documents: readonly PackageDocument[];
+  serve(url: string): { body: Uint8Array; contentType: string } | null;
+}
+
+export interface ChromiumPackageRunner {
+  /** One PDF per document, in order. */
+  renderPackage(pkg: DocumentPackage, run?: RunControl): Promise<Uint8Array[]>;
+}
+
 export interface HtmlRenderDeps {
   chromium?: ChromiumPdfRunner;
   validate?: (bytes: Uint8Array) => boolean | Promise<boolean>;

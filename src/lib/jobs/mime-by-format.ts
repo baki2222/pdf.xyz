@@ -57,6 +57,8 @@ export const MIME_BY_FORMAT: Record<string, readonly string[]> = {
   TIFF: ["image/tiff"],
   HTML: ["text/html"],
   HTM: ["text/html"],
+  // 2026-11-06: EPUB to PDF, on the worker.
+  EPUB: ["application/epub+zip"],
   MD: ["text/markdown", "text/plain"],
   MARKDOWN: ["text/markdown", "text/plain"],
   TXT: ["text/plain"],
@@ -96,6 +98,7 @@ export const EXTENSIONS_BY_FORMAT: Record<string, readonly string[]> = {
   TIFF: ["tif", "tiff"],
   HTML: ["html"],
   HTM: ["htm"],
+  EPUB: ["epub"],
   MD: ["md", "mdown"],
   MARKDOWN: ["markdown"],
   TXT: ["txt", "text"],

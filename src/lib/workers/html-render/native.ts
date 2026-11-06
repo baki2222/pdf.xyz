@@ -9,7 +9,9 @@ import { CdpConnection, type CdpEvent, type CdpPipe } from "./cdp";
 import { HTML_DOCUMENT_URL } from "./document-url";
 import {
   WebpageFetchError,
+  type ChromiumPackageRunner,
   type ChromiumPdfRunner,
+  type DocumentPackage,
   type HtmlRenderDeps,
   type WebpageFetchFailure,
 } from "./engine";
@@ -339,10 +341,77 @@ export { PRINT_TO_PDF_OPTIONS };
 
 const INTERCEPT_ALL = { patterns: [{ urlPattern: "*" }] };
 
+/** Intercept on a session and on every frame/worker target under it. */
+async function instrument(
+  cdp: CdpConnection,
+  sessionId: string,
+  resume: boolean,
+): Promise<void> {
+  await cdp.send("Fetch.enable", INTERCEPT_ALL, sessionId).catch(() => {});
+  await cdp
+    .send(
+      "Target.setAutoAttach",
+      { autoAttach: true, waitForDebuggerOnStart: true, flatten: true },
+      sessionId,
+    )
+    .catch(() => {});
+  if (resume)
+    await cdp
+      .send("Runtime.runIfWaitingForDebugger", {}, sessionId)
+      .catch(() => {});
+}
+
+/**
+ * Page scripts off for a session. Awaited for a page, so a failure fails the
+ * render (a package must never print with scripts running); best effort for
+ * a target under it, such as a worker, which has no Emulation domain.
+ */
+async function noScripts(cdp: CdpConnection, sessionId: string): Promise<void> {
+  await cdp.send(
+    "Emulation.setScriptExecutionDisabled",
+    { value: true },
+    sessionId,
+  );
+}
+
+/** `Page.printToPDF` as a stream, read in full within `maxBytes`. */
+async function printToPdf(
+  cdp: CdpConnection,
+  sessionId: string,
+  params: Record<string, unknown>,
+  maxBytes: number,
+): Promise<Uint8Array> {
+  const { stream } = await cdp.send<{ stream: string }>(
+    "Page.printToPDF",
+    { ...params, transferMode: "ReturnAsStream" },
+    sessionId,
+  );
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for (;;) {
+    const chunk = await cdp.send<{
+      data: string;
+      base64Encoded?: boolean;
+      eof: boolean;
+    }>("IO.read", { handle: stream, size: 1 << 20 }, sessionId);
+    const bytes = Buffer.from(
+      chunk.data,
+      chunk.base64Encoded ? "base64" : "utf8",
+    );
+    size += bytes.byteLength;
+    if (size > maxBytes)
+      throw new Error("Chromium output exceeds the size limit.");
+    chunks.push(bytes);
+    if (chunk.eof) break;
+  }
+  await cdp.send("IO.close", { handle: stream }, sessionId).catch(() => {});
+  return new Uint8Array(Buffer.concat(chunks));
+}
+
 export function createNativeChromiumPdfRunner(
   config: NativeHtmlRenderConfig,
   seams: ChromiumSeams = {},
-): ChromiumPdfRunner {
+): ChromiumPdfRunner & ChromiumPackageRunner {
   const launch = seams.launch ?? defaultChromiumLaunch;
   const fs = seams.fs ?? defaultFs;
   const baseTmp = config.tmpDir ?? tmpdir();
@@ -422,22 +491,6 @@ export function createNativeChromiumPdfRunner(
       );
     };
 
-    /** Intercept on a session and on every frame/worker target under it. */
-    const instrument = async (sessionId: string, resume: boolean) => {
-      await cdp.send("Fetch.enable", INTERCEPT_ALL, sessionId).catch(() => {});
-      await cdp
-        .send(
-          "Target.setAutoAttach",
-          { autoAttach: true, waitForDebuggerOnStart: true, flatten: true },
-          sessionId,
-        )
-        .catch(() => {});
-      if (resume)
-        await cdp
-          .send("Runtime.runIfWaitingForDebugger", {}, sessionId)
-          .catch(() => {});
-    };
-
     let budgetExpired: () => void = () => {};
     const budget = new Promise<void>((resolve) => (budgetExpired = resolve));
     let pageSession = "";
@@ -456,7 +509,7 @@ export function createNativeChromiumPdfRunner(
         });
       } else if (event.method === "Target.attachedToTarget") {
         const child = (event.params as { sessionId?: string }).sessionId;
-        if (child) instrument(child, true).catch(() => {});
+        if (child) instrument(cdp, child, true).catch(() => {});
       } else if (
         event.method === "Emulation.virtualTimeBudgetExpired" &&
         event.sessionId === pageSession
@@ -474,7 +527,7 @@ export function createNativeChromiumPdfRunner(
       { targetId, flatten: true },
     ));
     // Interception is on BEFORE the first request exists.
-    await instrument(pageSession, false);
+    await instrument(cdp, pageSession, false);
     await cdp.send("Page.enable", {}, pageSession);
     const tree = await cdp.send<{ frameTree: { frame: { id: string } } }>(
       "Page.getFrameTree",
@@ -555,31 +608,140 @@ export function createNativeChromiumPdfRunner(
         throw new Error("the page's content height could not be measured");
     }
 
-    const { stream } = await cdp.send<{ stream: string }>(
-      "Page.printToPDF",
-      { ...plan.printParams(contentHeight), transferMode: "ReturnAsStream" },
+    return printToPdf(
+      cdp,
       pageSession,
+      plan.printParams(contentHeight),
+      config.maxOutputBytes,
     );
-    const chunks: Buffer[] = [];
-    let size = 0;
-    for (;;) {
-      const chunk = await cdp.send<{
-        data: string;
-        base64Encoded?: boolean;
-        eof: boolean;
-      }>("IO.read", { handle: stream, size: 1 << 20 }, pageSession);
-      const bytes = Buffer.from(
-        chunk.data,
-        chunk.base64Encoded ? "base64" : "utf8",
+  }
+
+  /**
+   * A {@link DocumentPackage} (an EPUB's chapters), one tab per document in
+   * the same browser, in order. Unlike `drive`:
+   *   - page scripts are DISABLED (`Emulation.setScriptExecutionDisabled`)
+   *     before the first request, in the page and in every target under it;
+   *   - `./network` is never consulted: a request at the synthetic document
+   *     origin is answered from the package (404 when `serve` has nothing),
+   *     and every other request is FAILED before any fetch — a package is
+   *     self-contained, so nothing is fetched from the web;
+   *   - the output cap holds for the documents together.
+   */
+  async function drivePackage(
+    cdp: CdpConnection,
+    pkg: DocumentPackage,
+  ): Promise<Uint8Array[]> {
+    const budgets = new Map<string, () => void>();
+    const answer = async (event: CdpEvent): Promise<void> => {
+      const p = event.params as {
+        requestId: string;
+        request: PausedRequest;
+        resourceType?: string;
+      };
+      seams.onRequest?.({ url: p.request.url, resourceType: p.resourceType });
+      if (p.request.url.startsWith(HTML_DOCUMENT_URL)) {
+        const hit =
+          p.request.method === "GET" ? pkg.serve(p.request.url) : null;
+        await cdp.send(
+          "Fetch.fulfillRequest",
+          {
+            requestId: p.requestId,
+            responseCode: hit ? 200 : 404,
+            responseHeaders: [
+              { name: "Content-Type", value: hit?.contentType ?? "text/plain" },
+            ],
+            body: hit ? Buffer.from(hit.body).toString("base64") : "",
+          },
+          event.sessionId,
+        );
+        return;
+      }
+      await cdp.send(
+        "Fetch.failRequest",
+        { requestId: p.requestId, errorReason: "BlockedByClient" },
+        event.sessionId,
       );
-      size += bytes.byteLength;
-      if (size > config.maxOutputBytes)
-        throw new Error("Chromium output exceeds the size limit.");
-      chunks.push(bytes);
-      if (chunk.eof) break;
+    };
+    cdp.on((event) => {
+      if (event.method === "Fetch.requestPaused") {
+        answer(event).catch(() => {
+          const requestId = (event.params as { requestId?: string }).requestId;
+          cdp
+            .send(
+              "Fetch.failRequest",
+              { requestId, errorReason: "Failed" },
+              event.sessionId,
+            )
+            .catch(() => {});
+        });
+      } else if (event.method === "Target.attachedToTarget") {
+        const child = (event.params as { sessionId?: string }).sessionId;
+        if (child)
+          noScripts(cdp, child)
+            .catch(() => {})
+            .then(() => instrument(cdp, child, true))
+            .catch(() => {});
+      } else if (event.method === "Emulation.virtualTimeBudgetExpired") {
+        if (event.sessionId) budgets.get(event.sessionId)?.();
+      }
+    });
+
+    const out: Uint8Array[] = [];
+    let total = 0;
+    for (const doc of pkg.documents) {
+      // A document the package cannot serve would print as an empty 404.
+      if (!pkg.serve(doc.url))
+        throw new Error("a document of the package could not be served");
+      const { targetId } = await cdp.send<{ targetId: string }>(
+        "Target.createTarget",
+        { url: "about:blank" },
+      );
+      const { sessionId } = await cdp.send<{ sessionId: string }>(
+        "Target.attachToTarget",
+        { targetId, flatten: true },
+      );
+      // Scripts off and interception on BEFORE the first request exists.
+      await noScripts(cdp, sessionId);
+      await instrument(cdp, sessionId, false);
+      await cdp.send("Page.enable", {}, sessionId);
+      if (doc.viewport)
+        await cdp.send(
+          "Emulation.setDeviceMetricsOverride",
+          { ...doc.viewport, deviceScaleFactor: 1, mobile: false },
+          sessionId,
+        );
+      const nav = await cdp.send<{ errorText?: string }>(
+        "Page.navigate",
+        { url: doc.url },
+        sessionId,
+      );
+      if (nav.errorText) throw new Error(`navigation failed: ${nav.errorText}`);
+      const budget = new Promise<void>((resolve) =>
+        budgets.set(sessionId, resolve),
+      );
+      await cdp.send(
+        "Emulation.setVirtualTimePolicy",
+        {
+          policy: "pauseIfNetworkFetchesPending",
+          budget: VIRTUAL_TIME_BUDGET_MS,
+        },
+        sessionId,
+      );
+      await budget;
+      budgets.delete(sessionId);
+      const bytes = await printToPdf(
+        cdp,
+        sessionId,
+        doc.printParams,
+        config.maxOutputBytes - total,
+      );
+      if (bytes.byteLength === 0 || !looksLikePdf(bytes))
+        throw new Error("Chromium produced no usable PDF output.");
+      total += bytes.byteLength;
+      out.push(bytes);
+      await cdp.send("Target.closeTarget", { targetId }).catch(() => {});
     }
-    await cdp.send("IO.close", { handle: stream }, pageSession).catch(() => {});
-    return new Uint8Array(Buffer.concat(chunks));
+    return out;
   }
 
   async function render(
@@ -588,6 +750,26 @@ export function createNativeChromiumPdfRunner(
     signal: AbortSignal | undefined,
   ): Promise<Uint8Array> {
     const plan = planPrint(options);
+    const bytes = await withBrowser(signal, (cdp) => drive(cdp, target, plan));
+    if (
+      bytes.byteLength === 0 ||
+      bytes.byteLength > config.maxOutputBytes ||
+      !looksLikePdf(bytes)
+    ) {
+      throw new Error("Chromium produced no usable PDF output.");
+    }
+    return bytes;
+  }
+
+  /**
+   * One browser for `work`: launched with a minimal environment and a
+   * per-job profile, raced against the timeout, its own exit and the
+   * attempt's abort, and always killed and its profile removed afterwards.
+   */
+  async function withBrowser<T>(
+    signal: AbortSignal | undefined,
+    work: (cdp: CdpConnection) => Promise<T>,
+  ): Promise<T> {
     throwIfAttemptAborted(signal);
     const dir = await fs.mkdtemp(path.join(baseTmp, "pdfxyz-html-"));
     const proc = launch(binary, chromiumArgs(path.join(dir, "profile")), {
@@ -619,14 +801,8 @@ export function createNativeChromiumPdfRunner(
     died.catch(() => {});
     aborted.catch(() => {});
     try {
-      let bytes: Uint8Array;
       try {
-        bytes = await Promise.race([
-          aborted,
-          drive(cdp, target, plan),
-          deadline,
-          died,
-        ]);
+        return await Promise.race([aborted, work(cdp), deadline, died]);
       } catch (error) {
         // Before any other reading: a browser killed by the abort reports
         // "exited before the render finished", which is not what happened.
@@ -637,14 +813,6 @@ export function createNativeChromiumPdfRunner(
           `Chromium HTML rendering failed: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
-      if (
-        bytes.byteLength === 0 ||
-        bytes.byteLength > config.maxOutputBytes ||
-        !looksLikePdf(bytes)
-      ) {
-        throw new Error("Chromium produced no usable PDF output.");
-      }
-      return bytes;
     } finally {
       clearTimeout(timer);
       if (onAbort) signal?.removeEventListener("abort", onAbort);
@@ -659,6 +827,9 @@ export function createNativeChromiumPdfRunner(
   }
 
   return {
+    renderPackage(pkg, run: RunControl = {}) {
+      return withBrowser(run.signal, (cdp) => drivePackage(cdp, pkg));
+    },
     renderHtml(input, options = DEFAULT_HTML_RENDER_OPTIONS, run = {}) {
       if (input.byteLength > config.maxInputBytes)
         throw new Error("Input exceeds size limit.");

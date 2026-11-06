@@ -118,6 +118,7 @@ function processorClaimedSlugs(): Set<string> {
     pdfStructure: {},
     pdfArchive: {},
     htmlRender: {},
+    epubRender: {},
     officeConversion: {},
     pdfOfficeExport: {},
     tableExtract: {},

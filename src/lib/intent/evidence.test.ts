@@ -137,10 +137,12 @@ const NOTES: readonly RankNote[] = [
     format: "ZIP",
     answer: unsupportedAnswer("ZIP", index),
   },
+  // EPUB was here, as the answer with no way in, until 2026-11-06, when
+  // EPUB to PDF began taking it; SVG holds its place in the corpus.
   {
     kind: "unsupported",
-    format: "EPUB",
-    answer: unsupportedAnswer("EPUB", index),
+    format: "SVG",
+    answer: unsupportedAnswer("SVG", index),
   },
   {
     kind: "over-ceiling",
