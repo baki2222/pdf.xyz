@@ -80,7 +80,7 @@ if (!longStart || longStart.id === DEFAULT_RESOLUTION_ID) {
   throw new Error("pdf-to-png content: the long-PDF resolution rule changed");
 }
 const longLabel = resolutionById(longStart.id).label;
-const startSentence = `${standard.label} is selected at the start for a PDF of up to ${LARGE_RASTER_PAGES} pages and ${longLabel} for a longer one; once you pick a resolution yourself, this browser remembers it and opens a PDF of up to ${LARGE_RASTER_PAGES} pages at it next time.`;
+const startSentence = `${standard.label} is selected at the start for a PDF of up to ${LARGE_RASTER_PAGES} pages and ${longLabel} for a longer one; once you convert at a resolution you picked, this browser remembers it and opens a PDF of up to ${LARGE_RASTER_PAGES} pages at it next time.`;
 const POINTS_PER_INCH = Math.round(1 / rasterScaleForDpi(1));
 
 const presetChoices = presets.map((r) => `${r.label} (${r.dpi} DPI)`);

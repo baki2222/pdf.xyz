@@ -24,6 +24,28 @@ const rootRels = (target: string, type: string) =>
 /** The deck's one slide title: the text a converted PDF must carry. */
 export const PPTX_PROOF_TITLE = "PowerPoint to PDF — pdf.xyz proof";
 
+/**
+ * The PowerPoint proof's verdict on a converted PDF's text: every word of
+ * the slide title present, on at least one page. Pure, so it is tested here
+ * (worker-office-proof-verify.test.ts: blank, a missing word, control) and
+ * the harness only reads the PDF and calls it.
+ */
+export function pptxTitleProofVerdict(
+  text: string,
+  pages: number,
+): { ok: boolean; detail: string } {
+  const words = PPTX_PROOF_TITLE.split(" ").filter((w) => /\w/.test(w));
+  const missing = words.filter((w) => !text.includes(w));
+  return {
+    ok: pages >= 1 && words.length > 0 && missing.length === 0,
+    detail: `${pages} page(s); ${
+      missing.length === 0
+        ? `the slide title's ${words.length} words in the text`
+        : `title words missing: ${missing.join(", ")}`
+    }`,
+  };
+}
+
 /** A real PPTX. PresentationML needs the whole master/layout/theme chain to open. */
 export async function handBuiltPptx(): Promise<Buffer> {
   const P = "http://schemas.openxmlformats.org/presentationml/2006/main";

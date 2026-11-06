@@ -96,7 +96,7 @@ if (!longStart || longStart.id === DEFAULT_RESOLUTION_ID) {
   throw new Error("pdf-to-jpg content: the long-PDF resolution rule changed");
 }
 const longLabel = resolutionById(longStart.id).label;
-const startSentence = `${standard.label} is selected at the start for a PDF of up to ${LARGE_RASTER_PAGES} pages and ${longLabel} for a longer one; once you pick a resolution yourself, this browser remembers it and opens a PDF of up to ${LARGE_RASTER_PAGES} pages at it next time.`;
+const startSentence = `${standard.label} is selected at the start for a PDF of up to ${LARGE_RASTER_PAGES} pages and ${longLabel} for a longer one; once you convert at a resolution you picked, this browser remembers it and opens a PDF of up to ${LARGE_RASTER_PAGES} pages at it next time.`;
 const quality = Math.round(DEFAULT_JPEG_QUALITY * 100);
 
 /** US Letter is 612 x 792 PDF points; pixels = points x the renderer's scale. */

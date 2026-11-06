@@ -123,12 +123,15 @@ export const OFFICE_INPUT_EXTENSIONS: Record<
  * the content-checked ones, `SIGNED_OFFICE_INPUTS` — now get their own: an
  * OpenDocument file goes back to LibreOffice (or the app that saved it) as
  * its own type, with the password route `ODF_PASSWORD_REMOVAL` names; an RTF
- * file, which cannot carry a password, back to the app that saved it. A
- * Microsoft format, legacy or current, keeps the tool's words.
+ * or CSV file, which cannot carry a password, back to the app that saved it.
+ * Any other Microsoft format, legacy or current, keeps the tool's words.
  */
 function resaveAdvice(tool: OfficeToPdfTool, ext: string): string {
   const signed = SIGNED_OFFICE_INPUTS[ext];
-  if (signed?.format === "RTF")
+  // Plain-text formats carry no password, so no password route is offered:
+  // RTF (content-checked) and CSV (not, so not in SIGNED_OFFICE_INPUTS — it
+  // was told to "remove the password in Excel" until 2026-11-06).
+  if (signed?.format === "RTF" || ext === "csv")
     return `Open it in the app that saved it, save it again as .${ext}, and retry.`;
   if (signed)
     return `If it is password-protected, open it in ${ODF_PASSWORD_REMOVAL.app} (or the app that saved it) and choose ${ODF_PASSWORD_REMOVAL.steps}; otherwise open it there, save it again as .${ext}, and retry.`;

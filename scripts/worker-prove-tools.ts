@@ -92,7 +92,7 @@ import {
   invoicePdf,
   invoiceSheetMismatches,
 } from "@/tests/pdf-office-fixtures";
-import { PPTX_PROOF_TITLE, handBuiltPptx } from "@/tests/pptx-fixture";
+import { handBuiltPptx, pptxTitleProofVerdict } from "@/tests/pptx-fixture";
 import {
   csvProofFile,
   sheetProofVerdict,
@@ -646,18 +646,10 @@ async function sheetVerdict(
 async function pptxTitleVerdict(
   bytes: Buffer,
 ): Promise<{ ok: boolean; detail: string }> {
-  const pages = await pdfPageCount(bytes);
-  const text = await pdfPlainText(bytes);
-  const words = PPTX_PROOF_TITLE.split(" ").filter((w) => /\w/.test(w));
-  const missing = words.filter((w) => !text.includes(w));
-  return {
-    ok: pages >= 1 && words.length > 0 && missing.length === 0,
-    detail: `${pages} page(s); ${
-      missing.length === 0
-        ? `the slide title's ${words.length} words in the text`
-        : `title words missing: ${missing.join(", ")}`
-    }`,
-  };
+  return pptxTitleProofVerdict(
+    await pdfPlainText(bytes),
+    await pdfPageCount(bytes),
+  );
 }
 
 /**

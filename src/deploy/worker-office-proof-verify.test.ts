@@ -24,6 +24,7 @@ import {
   SHEET_PROOF_CELLS,
   sheetProofVerdict,
 } from "@/tests/office-sheet-proof-fixtures";
+import { PPTX_PROOF_TITLE, pptxTitleProofVerdict } from "@/tests/pptx-fixture";
 
 const ts = createRequire(import.meta.url)("typescript") as typeof TS;
 const ROOT = process.cwd();
@@ -129,5 +130,36 @@ describe("the spreadsheet verdict", () => {
     expect(SHEET_PROOF_CELLS.some((c) => /[^\x20-\x7e]/.test(c))).toBe(true);
     expect(sheetProofVerdict(SHEET_PROOF_CELLS.join(" "), 1).ok).toBe(true);
     expect(sheetProofVerdict(SHEET_PROOF_CELLS.join(" "), 0).ok).toBe(false);
+  });
+});
+
+/**
+ * The PowerPoint proof's verdict, held like the spreadsheet's: the AST guard
+ * above sees only that a `verify` exists, so a verdict that always says ok
+ * would satisfy it. These are the bounds on what the verdict itself accepts.
+ */
+describe("the slide-title verdict", () => {
+  const words = PPTX_PROOF_TITLE.split(" ").filter((w) => /\w/.test(w));
+
+  it("fails a blank PDF's text", () => {
+    expect(pptxTitleProofVerdict("", 1).ok).toBe(false);
+    expect(pptxTitleProofVerdict(" ", 1).ok).toBe(false);
+  });
+
+  it("fails text missing any one title word, and names it", () => {
+    // Health check: the title has words to drop.
+    expect(words.length).toBeGreaterThanOrEqual(3);
+    for (const word of words) {
+      const text = words.filter((w) => w !== word).join(" ");
+      const verdict = pptxTitleProofVerdict(text, 1);
+      expect(verdict.ok, word).toBe(false);
+      expect(verdict.detail).toContain(word);
+    }
+  });
+
+  it("control: passes text holding the title, and fails it with no page", () => {
+    expect(pptxTitleProofVerdict(PPTX_PROOF_TITLE, 1).ok).toBe(true);
+    expect(pptxTitleProofVerdict(words.join("\n"), 2).ok).toBe(true);
+    expect(pptxTitleProofVerdict(PPTX_PROOF_TITLE, 0).ok).toBe(false);
   });
 });

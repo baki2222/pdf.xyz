@@ -217,7 +217,14 @@ describe("the unreadable reply names the input's own format", () => {
     ),
   );
 
+  /** Plain-text formats: no encryption exists in them to remove. */
+  const CANNOT_CARRY_A_PASSWORD = new Set(["rtf", "csv"]);
+
   it("walks every accepted extension of every tool (health)", () => {
+    // Every password-less format is really walked.
+    for (const ext of CANNOT_CARRY_A_PASSWORD) {
+      expect(pairs.some(([, e]) => e === ext)).toBe(true);
+    }
     expect(pairs.length).toBe(ACCEPTED.length * Object.keys(failing).length);
     const signed = pairs.filter(([, ext]) => SIGNED_OFFICE_INPUTS[ext]);
     expect(signed.length).toBeGreaterThanOrEqual(8);
@@ -231,11 +238,21 @@ describe("the unreadable reply names the input's own format", () => {
     expect(run).toMatchObject({ ok: false, kind: "unreadable" });
     const message = run.ok ? "" : run.message;
     const words = DOCUMENT_WORDS[tool];
+    // RTF and CSV cannot carry a password, so their advice offers no
+    // password route (audit #40 follow-up: .csv was told to remove the
+    // password in Excel).
+    if (CANNOT_CARRY_A_PASSWORD.has(ext)) {
+      expect(message).not.toMatch(/password/i);
+      expect(message).toContain(`save it again as .${ext}`);
+      expect(message).not.toContain(words.app);
+    } else {
+      expect(message).toMatch(/password/i);
+    }
     if (SIGNED_OFFICE_INPUTS[ext]) {
       expect(message).toContain(`save it again as .${ext}`);
       expect(message).not.toContain(words.app);
       expect(message).not.toContain(words.ext);
-    } else {
+    } else if (!CANNOT_CARRY_A_PASSWORD.has(ext)) {
       // Control: a Microsoft format keeps the Microsoft advice.
       expect(message).toContain(`open it in ${words.app}`);
       expect(message).toContain(`save it again as ${words.ext}`);
