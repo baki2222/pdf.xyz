@@ -13,7 +13,7 @@
 import { acceptsDamagedPdf } from "@/lib/jobs/damaged-input";
 import { looksLikePdf, looksRepairable } from "../compression/engine";
 import { isLinearized } from "@/lib/pdf/linearization";
-import { QpdfRefusedError } from "./errors";
+import { QpdfRefusedError, QpdfTimedOutError } from "./errors";
 import {
   rethrowIfAttemptAbort,
   signalOption,
@@ -88,7 +88,12 @@ export type PdfStructureRun =
   | { ok: false; kind: "password_protected"; message: string }
   /** qpdf refused the document for any other reason. Final, likewise. */
   | { ok: false; kind: "unreadable"; message: string }
-  /** The run did not finish (timeout, spawn/IO error, unusable output). */
+  /**
+   * qpdf passed its per-run time limit. Final: the same bytes against the same
+   * limit time out again (audit #36, 2026-11-06).
+   */
+  | { ok: false; kind: "timeout"; message: string }
+  /** The run did not finish (spawn/IO error, unusable output). */
   | { ok: false; kind: "failed"; message: string };
 
 const UNSUPPORTED_MESSAGE =
@@ -122,6 +127,17 @@ const REFUSAL_MESSAGES: Record<
     unreadable:
       "This PDF could not be opened. It may be damaged; Repair PDF can often fix that.",
   },
+};
+
+/**
+ * What a user reads when qpdf runs out of time, by operation: what happened, that
+ * a retry would end the same way, and the next step. Content-free like the rest.
+ */
+const TIMEOUT_MESSAGES: Record<"repair" | "linearize", string> = {
+  repair:
+    "This PDF took too long to rebuild, so nothing was produced, and trying again would take just as long. A very large file can do this: split it into parts with Split PDF if it opens, and repair each part.",
+  linearize:
+    "This PDF took too long to optimize for the web, so nothing was produced, and trying again would take just as long. Split it into parts with Split PDF, and optimize each part.",
 };
 
 function refused(
@@ -241,6 +257,12 @@ async function runStructure(
     // This was a bare `catch {}` mapping every throw to `failed` — the kind the
     // processor retries — so a locked PDF was run three times.
     if (error instanceof QpdfRefusedError) return refused(error, operation);
+    if (error instanceof QpdfTimedOutError)
+      return {
+        ok: false,
+        kind: "timeout",
+        message: TIMEOUT_MESSAGES[operation],
+      };
     return failed();
   }
 

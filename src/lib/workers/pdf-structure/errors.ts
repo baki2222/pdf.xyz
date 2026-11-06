@@ -10,9 +10,9 @@
  * run three times with backoff and then reported as "could not process this
  * file", with no word about the password.
  *
- * Deliberately absent: a reason for a timeout, a spawn or IO error, or a kill
- * nobody asked for. Those are the one class a retry can change, so they stay
- * plain errors and stay retryable.
+ * Deliberately absent: a reason for a spawn or IO error, or a kill nobody asked
+ * for. Those are the one class a retry can change, so they stay plain errors and
+ * stay retryable. A timeout is NOT in that class — see {@link QpdfTimedOutError}.
  *
  * Node-free, so the engine can `instanceof` it without importing the runner.
  */
@@ -21,6 +21,22 @@ export type QpdfRefusalReason =
   | "password_protected"
   /** Any other exit-2 refusal: nothing qpdf could rebuild into a PDF. */
   | "unrecoverable";
+
+/**
+ * qpdf did not finish inside its per-run time limit.
+ *
+ * Until 2026-11-06 (audit #36) this was the same plain `Error` as a spawn
+ * failure, so it stayed retryable: the job was rerun with the same bytes against
+ * the same limit, timed out again on every attempt, and ended with "could not
+ * process this file", which never said the file took too long. Typed so the
+ * engine can make it final and say so.
+ */
+export class QpdfTimedOutError extends Error {
+  constructor() {
+    super("qpdf timed out.");
+    this.name = "QpdfTimedOutError";
+  }
+}
 
 export class QpdfRefusedError extends Error {
   readonly reason: QpdfRefusalReason;

@@ -1645,7 +1645,10 @@ describe("no qpdf page says a refused document is retried", () => {
     ).toBe(false);
   });
 
-  it("the processor does not do it: a refusal is final, a timeout is retried", async () => {
+  // INVERTED 2026-11-06 (audit #36): the control below was "a timeout is
+  // retried", pinning the behaviour the pages described. A timeout on the same
+  // bytes repeats, so it is final now, and the pages say so (next describe).
+  it("the processor does not do it: a refusal is final, and so is a timeout", async () => {
     expect(TOOLS).toContain("repair-pdf");
     for (const tool of TOOLS) {
       for (const probe of [0, 2]) {
@@ -1657,9 +1660,27 @@ describe("no qpdf page says a refused document is retried", () => {
         if (refused.ok) return;
         expect(refused.error.retryable, `${tool} probe ${probe}`).toBe(false);
       }
-      // POSITIVE CONTROL: what the page still says is retried, is.
       const slow = await run(tool, qpdf({ code: -1, timedOut: true }));
-      expect(slow.ok === false && slow.error.retryable, tool).toBe(true);
+      expect(slow.ok === false && slow.error.retryable, tool).toBe(false);
+      // POSITIVE CONTROL: what the page still says is retried — output with
+      // no header or end marker — is.
+      const rubble = await run(
+        tool,
+        nativePdfStructureDeps(
+          {},
+          {
+            resolveOnPath: () => true,
+            exec: async () => ({ code: 0, timedOut: false }),
+            fs: {
+              mkdtemp: async (prefix) => `${prefix}dir`,
+              writeFile: async () => {},
+              readFile: async () => new TextEncoder().encode("not a pdf"),
+              rm: async () => {},
+            },
+          },
+        ),
+      );
+      expect(rubble.ok === false && rubble.error.retryable, tool).toBe(true);
     }
   });
 
@@ -1679,6 +1700,66 @@ describe("no qpdf page says a refused document is retried", () => {
     }
     expect(all.length).toBeGreaterThan(15);
     expect(page("repair-pdf").text).toContain("without a retry");
+    const offenders = all.filter(({ text }) => caught(text));
+    expect(
+      offenders.map((o) => o.where),
+      offenders.map((o) => o.text).join("\n"),
+    ).toEqual([]);
+  });
+});
+
+/**
+ * WHAT SHIPPED until 2026-11-06 (audit #36): Repair PDF's intro and an FAQ said a
+ * run past the time limit is retried. qpdf's limit is per run and the bytes are the
+ * same, so it timed out again on every attempt; a timeout is now final with its own
+ * sentence (pdf-structure.refusal.test.ts). Same pages as above, discovered from the
+ * processor; the corpus and the pattern are checked against each other both ways.
+ */
+describe("no qpdf page says a timeout is retried", () => {
+  const SHIPPED = [
+    "If qpdf does not finish inside our server's time limit, or what it writes lacks a PDF header or an end-of-file marker, the run is retried, and if it keeps failing the job fails with no file.",
+    "A run that goes past our server's time limit, or writes something without a PDF header and end-of-file marker, is tried again and then fails the job with no file produced.",
+  ];
+  const clauses = (text: string) => text.split(/(?<=[.;:!?])\s+/);
+  /** A time limit and a retry in the same sentence. */
+  const CLAIM =
+    /\btime limit\b.*\b(?:retried|tried again|tries again|retry)\b/i;
+  const NEGATED = /\bwithout a retry\b|\bnot retried\b|\bjust as long\b/i;
+  const caught = (text: string) =>
+    clauses(text).some((c) => CLAIM.test(c) && !NEGATED.test(c));
+
+  it("the corpus and the pattern cover each other", () => {
+    for (const s of SHIPPED) expect(caught(s), s).toBe(true);
+    expect(
+      caught(
+        "If qpdf does not finish inside our server's time limit, the job ends at once with a message saying the file took too long, because the same file would take just as long again.",
+      ),
+    ).toBe(false);
+  });
+
+  it("no page or guide for those tools says it", () => {
+    const TOOLS = [
+      ...createPdfStructureProcessor(
+        nativePdfStructureDeps({}, { resolveOnPath: () => true }),
+      ).tools,
+    ];
+    expect(TOOLS).toContain("repair-pdf");
+    const all: { where: string; text: string }[] = [];
+    for (const slug of TOOLS) {
+      all.push({ where: `${slug} (served)`, text: page(slug).text });
+      for (const e of page(slug).faq)
+        all.push({ where: `${slug} FAQ`, text: `${e.question} ${e.answer}` });
+      for (const step of page(slug).howTo)
+        all.push({ where: `${slug} step`, text: step });
+    }
+    for (const guide of guides) {
+      if (!guide.tools.some((t) => TOOLS.includes(t))) continue;
+      for (const text of guideStrings(guide))
+        all.push({ where: `guide ${guide.slug}`, text });
+    }
+    expect(all.length).toBeGreaterThan(15);
+    // The page does describe the timeout, so the search is not blind to it.
+    expect(page("repair-pdf").text).toMatch(/time limit/);
     const offenders = all.filter(({ text }) => caught(text));
     expect(
       offenders.map((o) => o.where),

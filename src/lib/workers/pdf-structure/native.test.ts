@@ -12,7 +12,7 @@ import {
   type QpdfStructureFs,
 } from "./native";
 import type { NativePdfStructureConfig } from "./native-config";
-import { QpdfRefusedError } from "./errors";
+import { QpdfRefusedError, QpdfTimedOutError } from "./errors";
 
 function pdf(pad = 40): Uint8Array {
   return new TextEncoder().encode(`%PDF-1.7\n${"0".repeat(pad)}\n%%EOF\n`);
@@ -257,14 +257,17 @@ describe("createNativeQpdfStructureRunner", () => {
         });
       }
 
-      it(`${op}: POSITIVE CONTROL — a timeout stays a plain, retryable error and is never probed`, async () => {
+      // INVERTED 2026-11-06 (audit #36): this was "a timeout stays a plain,
+      // retryable error". It is typed now, so the engine can make it final —
+      // the same bytes meet the same limit on every attempt. Still never probed.
+      it(`${op}: a timeout is a QpdfTimedOutError, not a refusal, and is never probed`, async () => {
         const { fs } = fakeFs(pdf());
         const { exec, calls } = fakeExec({ code: -1, timedOut: true });
         const runner = createNativeQpdfStructureRunner(config(), { exec, fs });
 
         const error = await runner[op](pdf()).catch((e: unknown) => e);
 
-        expect(error).toBeInstanceOf(Error);
+        expect(error).toBeInstanceOf(QpdfTimedOutError);
         expect(error).not.toBeInstanceOf(QpdfRefusedError);
         expect(calls).toHaveLength(1);
       });
