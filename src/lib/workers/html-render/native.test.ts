@@ -9,6 +9,7 @@ import {
   nativeHtmlRenderDeps,
   probeChromiumFromConfig,
   PRINT_TO_PDF_OPTIONS,
+  UNLINK_SYNTHETIC_ORIGIN,
   type ChromiumLaunch,
 } from "./native";
 import type { NativeHtmlRenderConfig } from "./native-config";
@@ -309,6 +310,34 @@ describe("native Chromium HTML renderer", () => {
     expect(doc.params.responseHeaders).toEqual([
       { name: "Content-Type", value: "text/html; charset=utf-8" },
     ]);
+  });
+
+  /*
+   * Audit #48 (2026-11-06): an upload's relative links printed as links to
+   * the synthetic origin. The decoded-annotation proof is in
+   * native.chromium.test.ts; this pins the ORDER — unlinked before printing —
+   * and that a webpage's own links are never touched.
+   */
+  it("unlinks an upload's synthetic-origin links before printing, and only an upload's", async () => {
+    const fake = fakeChromium();
+    await runner(fake).renderHtml(HTML);
+    const methods = fake.sent.map((m) => m.method);
+    const unlink = fake.sent.findIndex(
+      (m) =>
+        m.method === "Runtime.evaluate" &&
+        m.params.expression === UNLINK_SYNTHETIC_ORIGIN,
+    );
+    expect(unlink).toBeGreaterThan(methods.indexOf("Page.navigate"));
+    expect(unlink).toBeLessThan(methods.indexOf("Page.printToPDF"));
+
+    const web = fakeChromium();
+    await runner(web)
+      .renderUrl("https://public.example/")
+      .catch(() => {});
+    // Health check: the webpage really reached the print, so the absence
+    // below is not a render that stopped early.
+    expect(web.sent.map((m) => m.method)).toContain("Page.printToPDF");
+    expect(web.sent.map((m) => m.method)).not.toContain("Runtime.evaluate");
   });
 
   it("leaves a BOM, a declared charset, or non-UTF-8 bytes to Chromium", () => {

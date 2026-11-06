@@ -375,6 +375,24 @@ export function htmlDocumentContentType(bytes: Uint8Array): string {
   }
 }
 
+/**
+ * Run in the uploaded page before it prints: removes the `href` of every
+ * `<a>`/`<area>` that resolves to {@link HTML_DOCUMENT_URL}'s origin, unless
+ * it is a jump within the document itself (`#id`), which Chromium prints as
+ * an in-PDF destination. A link the author pointed anywhere else is kept.
+ */
+export const UNLINK_SYNTHETIC_ORIGIN = `(() => {
+  const origin = ${JSON.stringify(new URL(HTML_DOCUMENT_URL).origin)};
+  const self = document.URL.split("#")[0];
+  for (const a of document.querySelectorAll("a[href], area[href]")) {
+    let u;
+    try { u = new URL(a.href); } catch { continue; }
+    if (u.origin !== origin) continue;
+    if (u.hash && u.href.slice(0, -u.hash.length) === self) continue;
+    a.removeAttribute("href");
+  }
+})()`;
+
 // The print arguments, and the layout options that change them, live in
 // `./print-params`; re-exported here, where the tests and tool pages read it.
 export { PRINT_TO_PDF_OPTIONS };
@@ -620,6 +638,28 @@ export function createNativeChromiumPdfRunner(
     // the main frame somewhere that answered with an error.
     if (target.kind === "url" && pageVerdict)
       throw new WebpageFetchError(pageVerdict);
+
+    // An upload's relative links resolve against the synthetic origin, and
+    // Chromium would print them as clickable links to it (audit #48). They
+    // are unlinked — their text stays — in an isolated world, so a page
+    // script that redefined the DOM cannot skip it. In-page jumps stay.
+    if (target.kind === "html") {
+      const { executionContextId } = await cdp.send<{
+        executionContextId: number;
+      }>(
+        "Page.createIsolatedWorld",
+        { frameId: mainFrameId, worldName: "pdfxyz-unlink" },
+        pageSession,
+      );
+      await cdp.send(
+        "Runtime.evaluate",
+        {
+          expression: UNLINK_SYNTHETIC_ORIGIN,
+          contextId: executionContextId,
+        },
+        pageSession,
+      );
+    }
 
     // One long page: lay the PRINT styles out at the printed width, and read
     // the content's height from the layout — not from page script, which
