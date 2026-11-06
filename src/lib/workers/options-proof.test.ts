@@ -173,11 +173,28 @@ function playedChromium(honour = true): ChromiumPdfRunner {
   };
 }
 
+/**
+ * The deep step with its flag taken out, played: what gs 10.00.0's `/All` did
+ * to the four-page fixture in the production image (2026-11-06) — every page
+ * turned a quarter, the upright one included (stored `90L 90L 90L 90P`).
+ */
+const turningGhostscript: NativeCompressor = async (input, ctx) =>
+  isRotationFixture(input)
+    ? faithfulCopy(input, (doc) => {
+        for (const page of doc.getPages())
+          page.setRotation(degrees((page.getRotation().angle + 90) % 360));
+      })
+    : ghostscript(input, ctx);
+
 function deps(over: Partial<OptionsProofDeps> = {}): OptionsProofDeps {
   return {
     compression: {
       tools: { ghostscript: true, qpdf: false, mutool: false },
       native: ghostscript,
+    },
+    compressionAutoRotating: {
+      tools: { ghostscript: true, qpdf: false, mutool: false },
+      native: turningGhostscript,
     },
     pdfSecurity: { qpdf: qpdf(pFor) },
     htmlRender: { chromium: playedChromium() },
@@ -213,11 +230,77 @@ describe("runWorkerOptionsProof", { timeout: 30_000 }, () => {
     // The orientation checks ran, by name (audit #21).
     for (const name of [
       "rotation fixture",
+      "rotation control",
       "rotation engine output",
       "rotation kept",
     ]) {
-      expect(lines.some((l) => l.startsWith(`PASS ${name}:`))).toBe(true);
+      expect(
+        lines.some((l) => l.startsWith(`PASS ${name}:`)),
+        name,
+      ).toBe(true);
     }
+  });
+
+  it("FAILS when the deep step without -dAutoRotatePages turns nothing: 'rotation kept' could not fail", async () => {
+    // What the real engine did with the fixture's first, three-page version.
+    const lines: string[] = [];
+    expect(
+      await runWorkerOptionsProof(
+        deps({
+          compressionAutoRotating: {
+            tools: { ghostscript: true, qpdf: false, mutool: false },
+            native: ghostscript,
+          },
+          log: (l) => lines.push(l),
+        }),
+      ),
+    ).toBe(1);
+    expect(lines.some((l) => l.startsWith("FAIL rotation control:"))).toBe(
+      true,
+    );
+    expect(lines.some((l) => l.startsWith("PASS rotation kept:"))).toBe(true);
+  });
+
+  it("FAILS, not skips, when no engine without -dAutoRotatePages is wired", async () => {
+    const lines: string[] = [];
+    const { compressionAutoRotating: _unwired, ...rest } = deps({
+      log: (l) => lines.push(l),
+    });
+    expect(await runWorkerOptionsProof(rest)).toBe(1);
+    expect(lines.some((l) => l.startsWith("FAIL rotation control:"))).toBe(
+      true,
+    );
+  });
+
+  it("PASSES a Ghostscript that moves the /Rotate 90 into the page content (what gs 10.00.0 does with the fix)", async () => {
+    // Measured 2026-11-06 in a throwaway container of the production image:
+    // with -dAutoRotatePages=/None the deep step wrote the /Rotate 90 portrait
+    // as an unrotated 792x612 page, its turn in the content. It renders as the
+    // input page does, and this proof called it re-oriented:
+    // `FAIL rotation kept: input 90P 0L 0P, output 0L 0L 0P`. `faithfulCopy`
+    // keeps /Rotate as stored, which the real engine does not, so the played
+    // engine that agreed with the old verdict could never have shown it.
+    const baking: NativeCompressor = async (input, ctx) =>
+      isRotationFixture(input)
+        ? faithfulCopy(input, (doc) => {
+            const page = doc.getPage(0);
+            page.setRotation(degrees(0));
+            page.setMediaBox(0, 0, 792, 612);
+          })
+        : ghostscript(input, ctx);
+    const lines: string[] = [];
+    expect(
+      await runWorkerOptionsProof(
+        deps({
+          compression: {
+            tools: { ghostscript: true, qpdf: false, mutool: false },
+            native: baking,
+          },
+          log: (l) => lines.push(l),
+        }),
+      ),
+    ).toBe(0);
+    expect(lines.some((l) => l.startsWith("PASS rotation kept:"))).toBe(true);
   });
 
   it("FAILS a Ghostscript that re-orients a page (what /PageByPage does)", async () => {

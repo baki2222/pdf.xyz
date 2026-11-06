@@ -12,7 +12,11 @@ import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { nativeCompressionDeps } from "@/lib/workers/compression/native";
+import {
+  defaultNativeExec,
+  nativeCompressionDeps,
+  type NativeExec,
+} from "@/lib/workers/compression/native";
 import { nativePdfSecurityDeps } from "@/lib/workers/pdf-security/native";
 import { nativeHtmlRenderDeps } from "@/lib/workers/html-render/native";
 import { runWorkerOptionsProof } from "@/lib/workers/options-proof";
@@ -65,8 +69,23 @@ async function qpdfShowP(
   }
 }
 
+/**
+ * The real compressor with `-dAutoRotatePages` taken out of the argv it builds,
+ * so the deep step's /ebook preset decides: the rotation check's positive
+ * control. Only that one switch differs from the run under test.
+ */
+const withoutAutoRotate: NativeExec = (command, args, options) =>
+  defaultNativeExec(
+    command,
+    args.filter((arg) => !arg.startsWith("-dAutoRotatePages")),
+    options,
+  );
+
 runWorkerOptionsProof({
   compression: nativeCompressionDeps(process.env),
+  compressionAutoRotating: nativeCompressionDeps(process.env, {
+    exec: withoutAutoRotate,
+  }),
   pdfSecurity: nativePdfSecurityDeps(process.env),
   htmlRender: nativeHtmlRenderDeps(process.env),
   qpdfShowP,
