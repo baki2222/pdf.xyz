@@ -13,7 +13,11 @@ import {
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import {
   MAX_REQUEST_SIGNERS,
+  MAX_REQUEST_TITLE_CHARS,
+  MAX_SIGNER_EMAIL_CHARS,
+  MAX_SIGNER_NAME_CHARS,
   signatureBlockFields,
+  signerRowProblem,
   type RequestSignatureField,
   type RequestSignatureRouting,
 } from "@/lib/jobs/request-signatures";
@@ -91,9 +95,9 @@ const STATUS_SLOT = "min-h-[23.5rem] sm:min-h-[15rem] lg:min-h-[15rem]";
 interface SignerDraft {
   name: string;
   email: string;
+  /** Set once either input of the row loses focus; its problem shows then. */
+  touched?: boolean;
 }
-
-const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** Keep a requested page inside the document (or ≥ 1 while the count is unknown). */
 export function clampSignaturePage(
@@ -331,12 +335,26 @@ export function RequestBuilder({
   });
   const { busy, outcome, setOutcome, run } = job;
 
+  // Each row checked by the worker's own signer rule. A row left wholly
+  // blank is not a signer; a row with anything in it either goes in the
+  // request or blocks Prepare with its reason — never left out in silence,
+  // which until 2026-11-06 (audit #18) sent "b@x,com"'s package one signer
+  // short.
+  const rowChecks = useMemo(
+    () =>
+      signers.map((s) => {
+        const blank = s.name.trim().length === 0 && s.email.trim().length === 0;
+        return { blank, problem: blank ? null : signerRowProblem(s) };
+      }),
+    [signers],
+  );
+  const invalidRows = rowChecks.some((row) => row.problem !== null);
   const cleanSigners = useMemo(
     () =>
       signers
-        .map((s) => ({ name: s.name.trim(), email: s.email.trim() }))
-        .filter((s) => s.name.length > 0 && EMAIL_SHAPE.test(s.email)),
-    [signers],
+        .filter((_, i) => !rowChecks[i]!.blank)
+        .map((s) => ({ name: s.name.trim(), email: s.email.trim() })),
+    [signers, rowChecks],
   );
   const pageCount =
     picked?.status === "read" ? picked.info.frames.length : null;
@@ -349,8 +367,15 @@ export function RequestBuilder({
   // An encrypted PDF is refused by the worker (it cannot add fields to a locked
   // file), so the run is blocked here and the unlock route offered instead.
   const canRun =
-    file != null && cleanSigners.length > 0 && !busy && !reading && !encrypted;
+    file != null &&
+    cleanSigners.length > 0 &&
+    !invalidRows &&
+    !busy &&
+    !reading &&
+    !encrypted;
   // The exact layout the request will carry — the preview draws THIS, not a copy.
+  // An invalid row is drawn too: it blocks the run until it is fixed, and is
+  // then sent as drawn.
   const fields = useMemo(
     () => signatureBlockFields(cleanSigners.length, page, includeDate),
     [cleanSigners.length, page, includeDate],
@@ -424,7 +449,7 @@ export function RequestBuilder({
   }, []);
 
   const start = useCallback(async () => {
-    if (!file || cleanSigners.length === 0 || !available) return;
+    if (!file || cleanSigners.length === 0 || invalidRows || !available) return;
     await run(async (controls) => {
       const result = await runWorkerRequestSignatures(
         {
@@ -444,7 +469,17 @@ export function RequestBuilder({
       );
       return result;
     });
-  }, [file, picked, cleanSigners, fields, routing, title, run, available]);
+  }, [
+    file,
+    picked,
+    cleanSigners,
+    invalidRows,
+    fields,
+    routing,
+    title,
+    run,
+    available,
+  ]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -509,38 +544,57 @@ export function RequestBuilder({
             Add signer
           </button>
         </div>
-        {signers.map((signer, index) => (
-          <div key={index} className="flex flex-wrap items-center gap-2">
-            <span className="bg-accent/10 text-accent rounded-tag grid size-6 shrink-0 place-items-center text-xs font-semibold">
-              {index + 1}
-            </span>
-            <input
-              type="text"
-              value={signer.name}
-              onChange={(e) => updateSigner(index, { name: e.target.value })}
-              placeholder="Full name"
-              aria-label={`Signer ${index + 1} name`}
-              className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent rounded-ctl min-w-[8rem] flex-1 border px-3 py-1.5 text-sm outline-none"
-            />
-            <input
-              type="email"
-              value={signer.email}
-              onChange={(e) => updateSigner(index, { email: e.target.value })}
-              placeholder="email@company.com"
-              aria-label={`Signer ${index + 1} email`}
-              className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent rounded-ctl min-w-[10rem] flex-1 border px-3 py-1.5 text-sm outline-none"
-            />
-            <button
-              type="button"
-              onClick={() => removeSigner(index)}
-              aria-disabled={signers.length <= 1 || undefined}
-              aria-label={`Remove signer ${index + 1}`}
-              className="text-muted hover:text-err rounded-ctl shrink-0 p-1.5 transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
-            >
-              <Trash2 className="size-4" aria-hidden />
-            </button>
-          </div>
-        ))}
+        {signers.map((signer, index) => {
+          const problem = signer.touched ? rowChecks[index]!.problem : null;
+          const errorId = `request-signer-${index + 1}-problem`;
+          const fieldProps = (field: "name" | "email") =>
+            problem?.field === field
+              ? { "aria-invalid": true, "aria-describedby": errorId }
+              : {};
+          return (
+            <div key={index} className="flex flex-wrap items-center gap-2">
+              <span className="bg-accent/10 text-accent rounded-tag grid size-6 shrink-0 place-items-center text-xs font-semibold">
+                {index + 1}
+              </span>
+              <input
+                type="text"
+                value={signer.name}
+                onChange={(e) => updateSigner(index, { name: e.target.value })}
+                onBlur={() => updateSigner(index, { touched: true })}
+                maxLength={MAX_SIGNER_NAME_CHARS}
+                {...fieldProps("name")}
+                placeholder="Full name"
+                aria-label={`Signer ${index + 1} name`}
+                className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent rounded-ctl min-w-[8rem] flex-1 border px-3 py-1.5 text-sm outline-none"
+              />
+              <input
+                type="email"
+                value={signer.email}
+                onChange={(e) => updateSigner(index, { email: e.target.value })}
+                onBlur={() => updateSigner(index, { touched: true })}
+                maxLength={MAX_SIGNER_EMAIL_CHARS}
+                {...fieldProps("email")}
+                placeholder="email@company.com"
+                aria-label={`Signer ${index + 1} email`}
+                className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent rounded-ctl min-w-[10rem] flex-1 border px-3 py-1.5 text-sm outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => removeSigner(index)}
+                aria-disabled={signers.length <= 1 || undefined}
+                aria-label={`Remove signer ${index + 1}`}
+                className="text-muted hover:text-err rounded-ctl shrink-0 p-1.5 transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
+              >
+                <Trash2 className="size-4" aria-hidden />
+              </button>
+              {problem && (
+                <p id={errorId} className="text-warn basis-full pl-8 text-xs">
+                  Signer {index + 1}: {problem.message}
+                </p>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -578,6 +632,7 @@ export function RequestBuilder({
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
+            maxLength={MAX_REQUEST_TITLE_CHARS}
             placeholder="e.g. Master Services Agreement"
             className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 rounded-ctl border px-3 py-1.5 text-sm outline-none"
           />
