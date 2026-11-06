@@ -75,7 +75,7 @@ const content: ToolContent = {
     },
     {
       q: "Do links and form fields still work after resizing?",
-      a: "Yes. With Scale content to fit, the clickable area of each link, comment and form field is moved and scaled with the content. With Change canvas only they do not move, because the content does not.",
+      a: "Yes. With Scale content to fit, the clickable area of each link, comment and form field is moved and scaled with the content, the strokes of drawn comments and lines with it, and bookmarks and links within the document still open the same spot on the page. With Change canvas only none of them move, because the content does not.",
     },
     {
       q: "Can I resize only some pages?",
