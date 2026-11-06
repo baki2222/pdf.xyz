@@ -914,6 +914,8 @@ const UNALLOCATED = 0.4;
 const NEW_TOOLS_2026_10_30 = 0.32;
 /** What TIFF input for JPG / PNG to PDF took of it on 2026-11-04 (see below). */
 const TIFF_INPUT_2026_11_04 = 0.03;
+/** What EPUB to PDF, the 56th tool, took of it on 2026-11-06 (see below). */
+const EPUB_TO_PDF_2026_11_06 = 0.04;
 const TOOL_PAGES_TO_COME = {
   // WP-08 landed 2026-10-10 (its 4.5 deleted here, as the rule says).
   //
@@ -958,7 +960,20 @@ const TOOL_PAGES_TO_COME = {
   // (`lazy-chunks.test.ts`, "pako stays inside …"). My first stub's hook
   // never fired, and its byte-identical result was nearly written here as
   // "the stub recovers nothing".
-  unallocated: UNALLOCATED - NEW_TOOLS_2026_10_30 - TIFF_INPUT_2026_11_04,
+  //
+  // 0.04 more TAKEN on 2026-11-06 by EPUB to PDF, the 56th tool — A
+  // RE-ALLOCATION OF G.1, flagged for the owner in that PR, as above. What
+  // every tool page pays for one more worker tool: its registry and
+  // directory rows, the dispatcher arm and webpack's chunk map. Measured
+  // gzip -9 over each page's first load on one machine, main 33ad8bd9 (Next
+  // 16.4.5) -> the branch, both built from an empty .next: ocr 235,958 ->
+  // 235,990 B and summarize 236,867 -> 236,899 B (+32 each), rotate +11.
+  // 0.01 of the 0.4 is left.
+  unallocated:
+    UNALLOCATED -
+    NEW_TOOLS_2026_10_30 -
+    TIFF_INPUT_2026_11_04 -
+    EPUB_TO_PDF_2026_11_06,
 };
 /**
  * The table as it stood before WP-08 landed — the positive control below
