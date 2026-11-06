@@ -16,7 +16,11 @@ import { stampProducer } from "./stamp";
  *    `InkList`) go through the same matrix, once per annotation, as does
  *    every explicit destination that opens the page (bookmarks, links,
  *    named destinations) — so links, comments, form fields and the places
- *    bookmarks jump to stay on the page, at the right spot. Until audit #26
+ *    bookmarks jump to stay on the page, at the right spot. `/RD` (the inset
+ *    of a Square, Circle or FreeText border inside its Rect) is NOT scaled:
+ *    a viewer draws the stored appearance stream regardless, and only a
+ *    viewer that regenerates the appearance would read an unscaled inset.
+ *    Until audit #26
  *    (2026-11-06) only `Rect` and `QuadPoints` moved, and destinations not
  *    at all.
  *    (Embedding the page as a form XObject would scale the drawing and leave

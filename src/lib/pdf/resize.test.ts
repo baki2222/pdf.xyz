@@ -338,6 +338,11 @@ describe("resizePdf — destinations and annotation geometry follow the content"
           Rect: [100, 100, 200, 200],
           Vertices: [100, 100, 200, 100, 150, 200],
         }),
+        annot({
+          Subtype: "FreeText",
+          Rect: [100, 100, 200, 200],
+          CL: [50, 50, 80, 80, 100, 150],
+        }),
         shared,
       ]),
     );
@@ -402,7 +407,7 @@ describe("resizePdf — destinations and annotation geometry follow the content"
     );
   });
 
-  it("ink, line and polygon geometry is scaled with its Rect", async () => {
+  it("ink, line, polygon and callout geometry is scaled with its Rect", async () => {
     const doc = await PDFDocument.load(await resized());
     const annots = doc.getPage(0).node.Annots()!;
     const get = (i: number, key: string) =>
@@ -416,6 +421,10 @@ describe("resizePdf — destinations and annotation geometry follow the content"
     );
     expect(numbers(get(4, "Vertices").asArray())).toEqual(
       [X(100), Y(100), X(200), Y(100), X(150), Y(200)].map(round),
+    );
+    // A FreeText callout's leader line (audit resize-pdf#2 names /CL).
+    expect(numbers(get(5, "CL").asArray())).toEqual(
+      [X(50), Y(50), X(80), Y(80), X(100), Y(150)].map(round),
     );
   });
 
