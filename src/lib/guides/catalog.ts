@@ -5298,7 +5298,7 @@ export const guides: Guide[] = [
         id: "what-you-download",
         heading: "What you download",
         body: [
-          "The ZIP holds table-1.csv, table-2.csv and so on, one per table, plus tables.xlsx with a sheet per table named by its number and page, such as Table 1 (p3). The CSV files follow the common RFC 4180 layout, so a script can read them directly, and start with a UTF-8 byte-order mark, so a double-click opens accented letters correctly in Excel.",
+          "The ZIP holds table-1.csv, table-2.csv and so on, one per table, plus tables.xlsx with a sheet per table named by its number and page, such as Table 1 (p3). The CSV files follow the common RFC 4180 layout, so a script can read them directly, and start with a UTF-8 byte-order mark, so a double-click opens accented letters correctly in Excel; a script should read them as utf-8-sig. A text cell that starts with =, +, - or @ carries a leading apostrophe, so Excel shows it as text instead of running it as a formula.",
           `In tables.xlsx, a cell that holds exactly one number, such as ${XLSX_AMOUNTS}, is stored as a number, so a formula can add up the column. A code with leading zeros such as 00123, a number of more than ${MAX_SIGNIFICANT_DIGITS} significant digits, a European 1.250,00, a date and a negative in brackets stay text, exactly as printed.`,
         ],
       },

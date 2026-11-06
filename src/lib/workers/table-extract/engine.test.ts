@@ -18,6 +18,8 @@ import {
   sheetGridProblems,
 } from "../ooxml/sheet-read";
 import { readFileSync } from "node:fs";
+import extractTablesContent from "@/lib/tools/content/extract-tables";
+import { guides } from "@/lib/guides/catalog";
 import { fileURLToPath } from "node:url";
 import { PDFDocument } from "pdf-lib";
 import { parseBboxLayout } from "../pdf-text/parse";
@@ -549,6 +551,38 @@ describe("toCsv", () => {
     expect(toCsv([["-4", "-1,250.00", "-$4.20", "-15%", "-"]])).toBe(
       '-4,"-1,250.00",-$4.20,-15%,-',
     );
+  });
+
+  it("the copy states what toCsv does: its exemptions, the apostrophe and the BOM (audit #31 review)", () => {
+    const faq = extractTablesContent.faqs.find((f) =>
+      /numbers as numbers/.test(f.q),
+    )!.a;
+    // Health: the answer found is the one that names the rule.
+    expect(faq).toMatch(
+      /is not a number or a lone dash gets a leading apostrophe/,
+    );
+    // The examples it names are kept bare by the code, and the rule bites.
+    expect(faq).toContain(" or -4 ");
+    expect(toCsv([["-4"]])).toBe("-4");
+    expect(toCsv([["-"]])).toBe("-");
+    expect(toCsv([["-x"]])).toBe(`"'-x"`);
+    // Where a script reader is told it can read the CSV directly, it is also
+    // told about the BOM and the apostrophe, since both change what it reads.
+    const script = extractTablesContent.useCases.find((u) =>
+      /pandas/.test(u.title),
+    )!.body;
+    const guide = guides
+      .find((g) => g.slug === "how-to-extract-tables-from-a-pdf")!
+      .sections.flatMap((s) => s.body)
+      .find((p) => /a script can read them directly/.test(p))!;
+    // The guide types its leads; both must name exactly CSV_FORMULA_LEADS.
+    const leads = `${CSV_FORMULA_LEADS.slice(0, -1).join(", ")} or ${CSV_FORMULA_LEADS.at(-1)}`;
+    for (const text of [script, guide]) {
+      expect(text).toContain("utf-8-sig");
+      expect(text).toMatch(/leading apostrophe/);
+      expect(text).toContain(`starts with ${leads}`);
+    }
+    expect(CSV_BOM.charCodeAt(0)).toBe(0xfeff);
   });
 });
 

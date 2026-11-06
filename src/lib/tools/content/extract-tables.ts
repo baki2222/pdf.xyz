@@ -82,7 +82,7 @@ const content: ToolContent = {
     },
     {
       title: "Getting a table into pandas, R or a database",
-      body: "Each detected grid is saved as its own RFC-4180 CSV file, so a script can read table-1.csv directly instead of parsing an Excel workbook.",
+      body: `Each detected grid is saved as its own RFC-4180 CSV file, so a script can read table-1.csv directly instead of parsing an Excel workbook. Read it as utf-8-sig, since it starts with a byte-order mark, and expect a leading apostrophe on a text cell that starts with ${CSV_LEADS_PHRASE}, which keeps Excel from running it as a formula.`,
     },
     {
       title: "Long reports with one table per page",
