@@ -51,6 +51,7 @@ import {
   ColorField,
   MoreOptions,
   NumberField,
+  POSITION_LABELS,
   PositionPicker,
   PrivacyLine,
   RangeField,
@@ -78,6 +79,9 @@ const MARGIN_LABELS: Record<PageNumberMargin, string> = {
   large: "Large",
 };
 
+/** Where the number sits until someone picks another cell. */
+const DEFAULT_POSITION: StampPosition = "bottom-center";
+
 /** The default ink as a colour-input value; any other value is a choice. */
 const DEFAULT_INK_HEX = rgbToHex(INK);
 
@@ -100,19 +104,18 @@ export function PageNumbersEditor({
   pdf: LoadedPdf;
   onReset: () => void;
 }) {
-  // The last preset, position and start chosen here (option memory). A
-  // custom format is typed text and is never kept.
+  // The last preset and position chosen here (option memory). A custom
+  // format is typed text and is never kept; Start on page and First number
+  // belong to one document and are never kept either.
   const [kept] = useState(() => recallOptions("page-numbers"));
   const [format, setFormat] = useState<string>(
     kept.format ?? DEFAULT_PAGE_NUMBER_FORMAT,
   );
   const [position, setPosition] = useState<StampPosition>(
-    kept.position ?? "bottom-center",
+    kept.position ?? DEFAULT_POSITION,
   );
-  const [startPage, setStartPage] = useState(() =>
-    Math.min(kept.startPage ?? 1, Math.max(1, pdf.pageCount)),
-  );
-  const [startAt, setStartAt] = useState(kept.startAt ?? 1);
+  const [startPage, setStartPage] = useState(1);
+  const [startAt, setStartAt] = useState(1);
   const [fontSize, setFontSize] = useState(11);
   const [margin, setMargin] = useState<PageNumberMargin>("medium");
   const [moreOpen, setMoreOpen] = useState(false);
@@ -125,6 +128,23 @@ export function PageNumbersEditor({
   const [batesPrefix, setBatesPrefix] = useState("");
   const [batesDigits, setBatesDigits] = useState(DEFAULT_BATES_DIGITS);
   const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
+
+  // What came back from the last visit and is still in use — said on screen,
+  // with a way back to the defaults the tool page describes.
+  const carried = [
+    kept.position && kept.position !== DEFAULT_POSITION
+      ? position === kept.position && POSITION_LABELS[position]
+      : null,
+    kept.format && kept.format !== DEFAULT_PAGE_NUMBER_FORMAT
+      ? style === "pages" &&
+        format === kept.format &&
+        FORMAT_PRESETS.find((p) => p.value === format)?.label
+      : null,
+  ].filter((label): label is string => Boolean(label));
+  const useDefaults = () => {
+    setPosition(DEFAULT_POSITION);
+    setFormat(DEFAULT_PAGE_NUMBER_FORMAT);
+  };
 
   // The template actually drawn: the typed or preset one, or the Bates
   // style's prefix + padded number.
@@ -168,8 +188,6 @@ export function PageNumbersEditor({
         : undefined;
     rememberOptions("page-numbers", {
       position,
-      startPage,
-      startAt,
       ...(preset ? { format: preset } : {}),
     });
     return run(() =>
@@ -220,6 +238,22 @@ export function PageNumbersEditor({
   return (
     <div className="flex flex-col gap-5">
       <FileHeader pdf={pdf} />
+
+      {carried.length > 0 && (
+        <p
+          role="status"
+          className="border-line bg-wash text-muted rounded-panel flex flex-wrap items-center gap-x-3 gap-y-1 border px-4 py-3 text-sm"
+        >
+          <span>Using your last settings: {carried.join(" · ")}.</span>
+          <button
+            type="button"
+            onClick={useDefaults}
+            className="text-fg underline underline-offset-2"
+          >
+            Use defaults
+          </button>
+        </p>
+      )}
 
       <RunnerSection
         title="Format"

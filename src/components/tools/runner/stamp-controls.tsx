@@ -17,7 +17,8 @@ import { cn } from "@/lib/utils";
  * segmented alignment/preset toggles, and small labeled inputs.
  */
 
-const POSITION_LABELS: Record<StampPosition, string> = {
+/** Each cell's name, as the grid announces it and a note can repeat it. */
+export const POSITION_LABELS: Record<StampPosition, string> = {
   "top-left": "Top left",
   "top-center": "Top center",
   "top-right": "Top right",

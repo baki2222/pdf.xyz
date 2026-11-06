@@ -22,6 +22,34 @@ describe("page-numbers", () => {
     expect(() => validatePageNumberFormat("   ")).toThrow(/format/);
   });
 
+  // Audit #28 (2026-11-06): page numbers pass no date, so applyTokens erased
+  // {date} to nothing — "Printed {date} - Page {n}" stamped "Printed  - Page
+  // 1" with no warning — and a token from another tool ({p}) printed as is.
+  it("refuses a token it cannot fill, naming the ones it can", () => {
+    for (const bad of [
+      "Printed {date} - Page {n}",
+      "Page {p}",
+      "{N} of {count}",
+      "{date:6}",
+    ]) {
+      expect(() => validatePageNumberFormat(bad), bad).toThrow(PdfEngineError);
+    }
+    expect(() => validatePageNumberFormat("Printed {date} {n}")).toThrow(
+      /"\{date\}".*\{n\}.*\{total\}/,
+    );
+    // Positive controls: every token the engine fills, in any case, padded
+    // or not, and literal braces that are not a token at all.
+    for (const good of [
+      "Page {n} of {total}",
+      "{PAGE} / {Pages}",
+      "{n:6}",
+      "{pages:3}",
+      "Sheet {n} {1} { } {}",
+    ]) {
+      expect(() => validatePageNumberFormat(good), good).not.toThrow();
+    }
+  });
+
   it("previews the label a page will show", () => {
     expect(previewPageNumber(DEFAULT_PAGE_NUMBER_FORMAT, 2, 5)).toBe(
       "Page 2 of 5",

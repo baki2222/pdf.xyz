@@ -9,6 +9,7 @@ import {
   numberedOutputName,
   numberingPlan,
   PAGE_NUMBER_MARGINS,
+  PAGE_NUMBER_TOKENS,
   previewPageNumber,
 } from "@/lib/pdf/page-numbers";
 import {
@@ -97,6 +98,8 @@ import { SUPPORTED_SCRIPTS, UNSUPPORTED_SCRIPTS } from "@/lib/pdf/font-packs";
  * to `batesExample`, which is the engine's own preview of that template.
  */
 const positionCount = STAMP_POSITIONS.length;
+/** The tokens the engine fills, as a reader types them; the rest are refused. */
+const tokenList = listOf(PAGE_NUMBER_TOKENS.map((token) => `{${token}}`));
 const ceilingMb = Math.round(
   RUNNER_FILE_CEILINGS["page-numbers"] / (1024 * 1024),
 );
@@ -207,11 +210,11 @@ const content: ToolContent = {
     },
     {
       title: "Pick a format",
-      body: `Click a preset (${presetList}) or type into the Custom format field using {n} and {total}. For a Bates number, switch the Numbering style and fill in Prefix and Digits. The Preview pill follows each keystroke.`,
+      body: `Click a preset (${presetList}) or type into the Custom format field using ${tokenList}, padded like {n:6} if you want leading zeros; any other word in braces, such as {date}, is refused with a note before you can run. For a Bates number, switch the Numbering style and fill in Prefix and Digits. The Preview pill follows each keystroke.`,
     },
     {
       title: "Set placement",
-      body: `The number sits at Bottom center unless you click another of the ${positionCount} cells in the position grid. Start on page skips leading pages, First number sets the opening value, a slider sets Font size, and Margin moves it Small, Medium or Large from the edge. Pages, font and color holds the rest: Leave the cover unnumbered, Facing pages, Skip last pages, a Font choice and a Color picker; left closed, the numbers come out as they always have.`,
+      body: `The number sits at Bottom center unless you click another of the ${positionCount} cells in the position grid. A position or preset you used last time comes back on your next visit with a note saying so, and Use defaults puts both back. Start on page skips leading pages and First number sets the opening value; both start at 1 for every file, a slider sets Font size, and Margin moves it Small, Medium or Large from the edge. Pages, font and color holds the rest: Leave the cover unnumbered, Facing pages, Skip last pages, a Font choice and a Color picker; left closed, the numbers come out as they always have.`,
     },
     {
       title: "Add page numbers",
