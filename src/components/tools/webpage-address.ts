@@ -36,17 +36,32 @@ export function collapseRepeatedScheme(raw: string): string {
   return schemes[schemes.length - 1]! + raw.trimStart().slice(match[0].length);
 }
 
+/** Anything that starts the way a scheme does: `mailto:`, `ftp://`, `x:`. */
+const SCHEME_LIKE = /^[a-z][a-z0-9+.-]*:/i;
+/**
+ * A host followed by a port (`localhost:3000`, `example.com:8080/a`), which
+ * {@link SCHEME_LIKE} also matches: what follows the colon is digits, then
+ * the end or the path.
+ */
+const HOST_AND_PORT = /^[^:/?#]+:\d+(?:[/?#]|$)/;
+
 /**
  * The address a job is sent with: trimmed, one scheme, and `https://` in
- * front of a scheme-less host (`example.com/page`). Anything else that names
- * a scheme (`ftp://`, `mailto:`) is left as typed, for the check to refuse.
+ * front of a scheme-less address — a dotted host (`example.com/page`), a
+ * host with a port (`localhost:3000`), `localhost`, or a bracketed IPv6
+ * address — so the check names what is wrong with the HOST. Anything that
+ * names another scheme, with or without `//` (`ftp://…`, `mailto:…`,
+ * `javascript:…`), is left as typed, for the check to refuse as a scheme.
+ * `webpage-address.test.ts` pins both, through the check's own words.
  */
 export function normalizeWebpageAddress(raw: string): string {
   const value = collapseRepeatedScheme(raw.trim()).trim();
-  if (value === "" || SCHEME.test(value)) return value;
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) return value;
-  const host = value.split(/[/?#]/, 1)[0]!;
-  return host.includes(".") && !/\s/.test(value)
+  if (value === "" || SCHEME.test(value) || /\s/.test(value)) return value;
+  if (SCHEME_LIKE.test(value) && !HOST_AND_PORT.test(value)) return value;
+  const host = value.split(/[/?#]/, 1)[0]!.replace(/:\d+$/, "");
+  return host.includes(".") ||
+    host.toLowerCase() === "localhost" ||
+    /^\[[0-9a-f:.]+\]$/i.test(host)
     ? WEBPAGE_ADDRESS_PREFIX + value
     : value;
 }
