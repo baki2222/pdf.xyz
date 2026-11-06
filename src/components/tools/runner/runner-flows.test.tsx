@@ -583,6 +583,52 @@ describe("Organize PDF inserts a blank page where the tile says", () => {
 });
 
 /**
+ * Audit #23 (2026-11-06): the editor's Ctrl/Cmd+Z listener stayed bound on the
+ * "Pages organized" screen (it is rendered by the same editor), and the
+ * summary and `expectedPages` read the LIVE arrangement. An undo there
+ * rewrote "4 pages" to "3 pages" while the file already built still had 4,
+ * and "Back to adjust" returned to an arrangement that was not the file's.
+ */
+describe("Organize PDF's result screen describes the file that was built", () => {
+  it("Ctrl+Z and Ctrl+Y after export change neither the summary nor the arrangement", async () => {
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < 3; i++) doc.addPage([300 + i, 400]);
+    const bytes = await doc.save();
+    const { container } = renderRunner(<OrganizeRunner />);
+    pick(container, [
+      new File([bytes.slice()], "three.pdf", { type: "application/pdf" }),
+    ]);
+    fireEvent.click(
+      await screen.findByRole(
+        "button",
+        { name: "Duplicate page 1" },
+        { timeout: 10_000 },
+      ),
+    );
+    // Health: the shortcut works in the editor, so the guard below is not
+    // vacuous — undo and redo really move the arrangement here.
+    expect(screen.getByText("4 pages in output")).toBeTruthy();
+    fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
+    expect(screen.getByText("3 pages in output")).toBeTruthy();
+    fireEvent.keyDown(document.body, { key: "y", ctrlKey: true });
+    expect(screen.getByText("4 pages in output")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /apply & export/i }));
+    await screen.findByText("Pages organized", undefined, { timeout: 10_000 });
+    expect(screen.getByText(/^4 pages in your new order/)).toBeTruthy();
+
+    fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
+    fireEvent.keyDown(document.body, { key: "z", metaKey: true });
+    expect(screen.getByText(/^4 pages in your new order/)).toBeTruthy();
+    expect(screen.queryByText(/^3 pages in your new order/)).toBeNull();
+
+    // Back to adjust returns to the arrangement the file was built from.
+    fireEvent.click(screen.getByRole("button", { name: /back to adjust/i }));
+    expect(screen.getByText("4 pages in output")).toBeTruthy();
+  }, 30_000);
+});
+
+/**
  * A picked .txt or .md file reaches the editor as the text its author wrote.
  *
  * Both runners used `file.text()`, which is UTF-8 or nothing: a Windows-1252
