@@ -991,7 +991,10 @@ async function runAt(slug: string, bytes: number) {
         contentType: "application/octet-stream",
         // A book is read before it is printed: bytes of nothing would be
         // refused for what they are, not for their size.
-        bytes: slug === "epub-to-pdf" ? await epubOfSize(bytes) : new Uint8Array(bytes),
+        bytes:
+          slug === "epub-to-pdf"
+            ? await epubOfSize(bytes)
+            : new Uint8Array(bytes),
       },
     ],
   });

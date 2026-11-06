@@ -224,8 +224,9 @@ async function onePagePdf(): Promise<Uint8Array> {
  * prints it: bytes of nothing are refused for what they are, so the probe AT
  * the ceiling would fail for the wrong reason. Every other engine gets zeros.
  */
-const INPUT_OF: Partial<Record<DepsKey, (bytes: number) => Promise<Uint8Array>>> =
-  { epubRender: (bytes) => epubOfSize(bytes) };
+const INPUT_OF: Partial<
+  Record<DepsKey, (bytes: number) => Promise<Uint8Array>>
+> = { epubRender: (bytes) => epubOfSize(bytes) };
 
 /**
  * For each binding engine, the variable an operator sets to change its limit.

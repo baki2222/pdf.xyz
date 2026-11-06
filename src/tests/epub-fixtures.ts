@@ -65,8 +65,7 @@ export function solidPng(size = 24, rgb: readonly number[] = [20, 120, 220]) {
   ihdr.set([8, 2, 0, 0, 0], 8);
   const raw = new Uint8Array(size * (1 + size * 3));
   for (let y = 0; y < size; y++)
-    for (let x = 0; x < size; x++)
-      raw.set(rgb, y * (1 + size * 3) + 1 + x * 3);
+    for (let x = 0; x < size; x++) raw.set(rgb, y * (1 + size * 3) + 1 + x * 3);
   const parts = [
     Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]),
     chunk("IHDR", ihdr),
@@ -157,7 +156,9 @@ function encryptionXml(algorithm: string, uri: string): string {
  * every h1 and starts each chapter on a fresh page, and a PNG in chapter one.
  * Chapter two links the remote image and carries a script.
  */
-export async function epub3Book(options: Epub3Options = {}): Promise<Uint8Array> {
+export async function epub3Book(
+  options: Epub3Options = {},
+): Promise<Uint8Array> {
   const [r, g, b] = EPUB_HEADING_RGB;
   const order = options.reverseSpine ? [2, 1, 0] : [0, 1, 2];
   const spine = (

@@ -524,7 +524,7 @@ describe("ToolsExplorer: the unsupported-format answer, as rendered", () => {
   // INVERTED 2026-11-06. This read "an answer with no way in is its
   // headline alone", over EPUB: "No tool here opens EPUB e-books." EPUB to
   // PDF takes them now, so the search must not say no tool does.
-  it("EPUB is no longer answered with \"No tool here opens\"", async () => {
+  it('EPUB is no longer answered with "No tool here opens"', async () => {
     expect(await renderedAnswer("EPUB")).toBeNull();
     // Control: the same reader still finds a format nothing opens.
     expect(await renderedAnswer("HEIC")).not.toBeNull();

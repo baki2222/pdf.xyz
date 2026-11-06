@@ -145,7 +145,11 @@ describe("the bounded ZIP", () => {
   it("refuses more unpacked bytes than the limit, summed from the directory", async () => {
     const bytes = await epub3Book();
     // Declare one entry's unpacked size as the whole limit: the sum crosses it.
-    const patched = patchDeclaredSize(bytes, "OEBPS/content.opf", EPUB_MAX_UNPACKED_BYTES);
+    const patched = patchDeclaredSize(
+      bytes,
+      "OEBPS/content.opf",
+      EPUB_MAX_UNPACKED_BYTES,
+    );
     expect(openBoundedZip(patched)).toMatchObject({
       ok: false,
       refusal: { kind: "bomb", limit: "unpacked" },
@@ -160,18 +164,32 @@ describe("the bounded ZIP", () => {
     expect(() => opened.zip.read("OEBPS/content.opf")).toThrow(ZipEntryError);
     // And the book is refused, as unreadable, before Chromium.
     const run = await refusalOf(lying);
-    expect(run).toMatchObject({ kind: "refused", refusal: { kind: "no_package" } });
+    expect(run).toMatchObject({
+      kind: "refused",
+      refusal: { kind: "no_package" },
+    });
   });
 
   it("a chapter whose directory understates its size is refused, not printed as a 404", async () => {
-    const lying = patchDeclaredSize(await epub3Book(), "OEBPS/Text/m-ch.xhtml", 10);
+    const lying = patchDeclaredSize(
+      await epub3Book(),
+      "OEBPS/Text/m-ch.xhtml",
+      10,
+    );
     const run = await refusalOf(lying);
-    expect(run).toMatchObject({ kind: "refused", refusal: { kind: "unreadable" } });
+    expect(run).toMatchObject({
+      kind: "refused",
+      refusal: { kind: "unreadable" },
+    });
   });
 });
 
 /** Rewrite one entry's declared unpacked size in the central directory. */
-function patchDeclaredSize(bytes: Uint8Array, name: string, size: number): Uint8Array {
+function patchDeclaredSize(
+  bytes: Uint8Array,
+  name: string,
+  size: number,
+): Uint8Array {
   const out = new Uint8Array(bytes);
   const view = new DataView(out.buffer);
   const want = new TextEncoder().encode(name);
@@ -199,7 +217,11 @@ describe("opening a book", () => {
     expect(book.language).toBe("en");
     expect(book.tocSource).toBe("nav");
     expect(
-      book.toc.map((e) => [e.title, e.chapter, e.children.map((c) => [c.title, c.chapter])]),
+      book.toc.map((e) => [
+        e.title,
+        e.chapter,
+        e.children.map((c) => [c.title, c.chapter]),
+      ]),
     ).toEqual([
       ["Part One Quillfeather", 0, []],
       [
@@ -211,8 +233,12 @@ describe("opening a book", () => {
         ],
       ],
     ]);
-    expect(book.serve(`${HTML_DOCUMENT_URL}OEBPS/Styles/book.css`)?.contentType).toBe("text/css");
-    expect(book.serve(`${HTML_DOCUMENT_URL}OEBPS/Images/blue.png`)?.contentType).toBe("image/png");
+    expect(
+      book.serve(`${HTML_DOCUMENT_URL}OEBPS/Styles/book.css`)?.contentType,
+    ).toBe("text/css");
+    expect(
+      book.serve(`${HTML_DOCUMENT_URL}OEBPS/Images/blue.png`)?.contentType,
+    ).toBe("image/png");
     expect(book.serve(chapterUrl("OEBPS/Text/m-ch.xhtml"))?.contentType).toBe(
       "application/xhtml+xml",
     );
@@ -223,7 +249,9 @@ describe("opening a book", () => {
     const book = open(await epub2Book());
     expect(book.tocSource).toBe("ncx");
     expect(book.chapters.map((c) => c.path)).toEqual(["one.html", "two.html"]);
-    expect(book.toc.map((e) => [e.title, e.chapter, e.children.length])).toEqual([
+    expect(
+      book.toc.map((e) => [e.title, e.chapter, e.children.length]),
+    ).toEqual([
       ["Part One Quillfeather", 0, 1],
       ["Part Two Marrowgate", 1, 0],
     ]);
@@ -243,7 +271,9 @@ describe("opening a book", () => {
     const plain = open(
       await epub3Book({ extra: { "OEBPS/Fonts/body.otf": new Uint8Array(8) } }),
     );
-    expect(plain.serve(`${HTML_DOCUMENT_URL}OEBPS/Fonts/body.otf`)).not.toBeNull();
+    expect(
+      plain.serve(`${HTML_DOCUMENT_URL}OEBPS/Fonts/body.otf`),
+    ).not.toBeNull();
     const { deps, calls } = counting();
     const run = await runEpubToPdf(await fontObfuscatedBook(), deps);
     expect(run.ok).toBe(true);
@@ -253,30 +283,47 @@ describe("opening a book", () => {
 
   it("a ZIP bomb is refused, before Chromium", async () => {
     const run = await refusalOf(await zipBombBook());
-    expect(run).toMatchObject({ kind: "refused", refusal: { kind: "bomb", limit: "ratio" } });
+    expect(run).toMatchObject({
+      kind: "refused",
+      refusal: { kind: "bomb", limit: "ratio" },
+    });
     expect(run.message).toContain(`${EPUB_MAX_ENTRY_RATIO} times`);
   });
 
   it("a .docx named .epub is refused by its CONTENTS, before Chromium", async () => {
     const run = await refusalOf(await docxNamedEpub());
-    expect(run).toMatchObject({ kind: "refused", refusal: { kind: "not_epub" } });
+    expect(run).toMatchObject({
+      kind: "refused",
+      refusal: { kind: "not_epub" },
+    });
   });
 
   it("a spine reference that escapes the root is refused, and the file it reaches is never served", async () => {
     const run = await refusalOf(await escapingSpineBook());
-    expect(run).toMatchObject({ kind: "refused", refusal: { kind: "escapes_root" } });
+    expect(run).toMatchObject({
+      kind: "refused",
+      refusal: { kind: "escapes_root" },
+    });
     // The file the escape would have clamped to exists at the root of the ZIP.
     const zip = openBoundedZip(await escapingSpineBook());
     expect(zip.ok && zip.zip.has("outside.xhtml")).toBe(true);
   });
 
   it("too many chapters is refused with the number and the limit", async () => {
-    const hrefs = Array.from({ length: EPUB_MAX_SPINE_ITEMS + 1 }, () => "Text/m-ch.xhtml");
+    const hrefs = Array.from(
+      { length: EPUB_MAX_SPINE_ITEMS + 1 },
+      () => "Text/m-ch.xhtml",
+    );
     const run = await refusalOf(await epub3Book({ spineHrefs: hrefs }));
-    expect(run).toMatchObject({ kind: "refused", refusal: { kind: "too_many_chapters" } });
+    expect(run).toMatchObject({
+      kind: "refused",
+      refusal: { kind: "too_many_chapters" },
+    });
     expect(run.message).toContain(String(EPUB_MAX_SPINE_ITEMS));
     // Control: exactly the limit opens.
-    expect(openEpub(await epub3Book({ spineHrefs: hrefs.slice(1) })).ok).toBe(true);
+    expect(openEpub(await epub3Book({ spineHrefs: hrefs.slice(1) })).ok).toBe(
+      true,
+    );
   });
 
   it("a file over the ceiling is refused with the ceiling, before it is opened", async () => {
@@ -292,7 +339,10 @@ describe("opening a book", () => {
 
 describe("what Chromium is asked to print", () => {
   it("reflowable chapters on the chosen paper; fixed-layout pages at their viewport, edge to edge, one page", async () => {
-    const reflow = bookDocuments(open(await epub3Book()), DEFAULT_EPUB_RENDER_OPTIONS);
+    const reflow = bookDocuments(
+      open(await epub3Book()),
+      DEFAULT_EPUB_RENDER_OPTIONS,
+    );
     expect(reflow.map((d) => d.url)).toEqual([
       chapterUrl("OEBPS/Text/m-ch.xhtml"),
       chapterUrl("OEBPS/Text/z-ch.xhtml"),
@@ -304,13 +354,22 @@ describe("what Chromium is asked to print", () => {
       marginTop: 0.4,
       preferCSSPageSize: false,
     });
-    const fixed = bookDocuments(open(await fixedLayoutBook()), DEFAULT_EPUB_RENDER_OPTIONS);
+    const fixed = bookDocuments(
+      open(await fixedLayoutBook()),
+      DEFAULT_EPUB_RENDER_OPTIONS,
+    );
     expect(fixed.map((d) => d.viewport)).toEqual([
       { width: 600, height: 800 },
       { width: 600, height: 800 },
     ]);
-    expect(fixed[0]!.printParams).toEqual(fixedLayoutPrintParams({ width: 600, height: 800 }));
-    expect(fixed[0]!.printParams).toMatchObject({ paperWidth: 6.25, pageRanges: "1", marginLeft: 0 });
+    expect(fixed[0]!.printParams).toEqual(
+      fixedLayoutPrintParams({ width: 600, height: 800 }),
+    );
+    expect(fixed[0]!.printParams).toMatchObject({
+      paperWidth: 6.25,
+      pageRanges: "1",
+      marginLeft: 0,
+    });
   });
 
   it("joins the chapters in order, with the book's title and an outline", async () => {
@@ -341,6 +400,8 @@ describe("what Chromium is asked to print", () => {
     const messages = kinds.map((k) => epubRefusalMessage(k));
     expect(new Set(messages).size).toBe(kinds.length);
     expect(messages[2]).toContain(EPUB_MAX_ENTRIES.toLocaleString("en-US"));
-    expect(messages[3]).toContain(`${EPUB_MAX_UNPACKED_BYTES / 1024 / 1024} MB`);
+    expect(messages[3]).toContain(
+      `${EPUB_MAX_UNPACKED_BYTES / 1024 / 1024} MB`,
+    );
   });
 });

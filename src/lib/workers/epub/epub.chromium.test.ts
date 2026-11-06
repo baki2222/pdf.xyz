@@ -42,7 +42,12 @@ const BIN = findChromium(resolveOnPath);
 const work = mkdtempSync(path.join(tmpdir(), "pdfxyz-epub-"));
 afterAll(() => {
   try {
-    rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    rmSync(work, {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 200,
+    });
   } catch {
     /* the OS temp cleaner owns it now */
   }
@@ -128,8 +133,12 @@ describe.skipIf(!BIN)("EPUB to PDF through a real Chromium", () => {
     // chapter one's page; no link leads to the synthetic origin.
     const links = await linksOf(run.output);
     expect(links.uris).toContain(EPUB_WEB_LINK);
-    expect(links.uris.filter((u) => u.startsWith(HTML_DOCUMENT_URL))).toEqual([]);
-    const chapterOne = reading.pages.findIndex((t) => t.includes("Quillfeather opening chapter"));
+    expect(links.uris.filter((u) => u.startsWith(HTML_DOCUMENT_URL))).toEqual(
+      [],
+    );
+    const chapterOne = reading.pages.findIndex((t) =>
+      t.includes("Quillfeather opening chapter"),
+    );
     expect(links.dests).toContainEqual({ from: 2, to: chapterOne });
     // A5 by default: 148 x 210 mm = 419.5 x 595.3 pt.
     for (const [w, h] of reading.sizes) {
@@ -139,11 +148,17 @@ describe.skipIf(!BIN)("EPUB to PDF through a real Chromium", () => {
   }, 120_000);
 
   it("negative controls: the same verdict fails a book printed out of order, unstyled, or without its image", async () => {
-    const reversed = epub3Verdict((await convert(await epub3Book({ reverseSpine: true }))).reading);
+    const reversed = epub3Verdict(
+      (await convert(await epub3Book({ reverseSpine: true }))).reading,
+    );
     expect(reversed.join("\n")).toMatch(/out of spine order/);
-    const unstyled = epub3Verdict((await convert(await epub3Book({ dropCss: true }))).reading);
+    const unstyled = epub3Verdict(
+      (await convert(await epub3Book({ dropCss: true }))).reading,
+    );
     expect(unstyled.join("\n")).toMatch(/heading colour/);
-    const imageless = epub3Verdict((await convert(await epub3Book({ dropImage: true }))).reading);
+    const imageless = epub3Verdict(
+      (await convert(await epub3Book({ dropImage: true }))).reading,
+    );
     expect(imageless.join("\n")).toMatch(/draws no 24x24 image/);
   }, 180_000);
 
@@ -168,31 +183,34 @@ describe.skipIf(!BIN)("EPUB to PDF through a real Chromium", () => {
   }, 60_000);
 });
 
-describe.skipIf(!BIN)("the in-image proof (`pnpm worker:epub-proof`), run here", () => {
-  it("is PROVEN on a real Chromium", async () => {
-    requests.length = 0;
-    fetches = 0;
-    const { runEpubImageProof } = await import("./image-proof");
-    const fixtures = await import("@/tests/epub-fixtures");
-    const result = await runEpubImageProof({
-      chromium: deps().chromium!,
-      requests: () => requests,
-      fetches: () => fetches,
-      books: {
-        epub3: () => fixtures.epub3Book(),
-        epub3Reversed: () => fixtures.epub3Book({ reverseSpine: true }),
-        epub2: fixtures.epub2Book,
-        fixedLayout: fixtures.fixedLayoutBook,
-        fontObfuscated: fixtures.fontObfuscatedBook,
-        drm: fixtures.drmBook,
-        zipBomb: fixtures.zipBombBook,
-        docxNamedEpub: fixtures.docxNamedEpub,
-        escapingSpine: fixtures.escapingSpineBook,
-      },
-    });
-    expect(result.lines.filter((l) => l.startsWith("FAIL"))).toEqual([]);
-    expect(result.ok).toBe(true);
-    // Health: every check reported a line.
-    expect(result.lines.length).toBeGreaterThanOrEqual(10);
-  }, 180_000);
-});
+describe.skipIf(!BIN)(
+  "the in-image proof (`pnpm worker:epub-proof`), run here",
+  () => {
+    it("is PROVEN on a real Chromium", async () => {
+      requests.length = 0;
+      fetches = 0;
+      const { runEpubImageProof } = await import("./image-proof");
+      const fixtures = await import("@/tests/epub-fixtures");
+      const result = await runEpubImageProof({
+        chromium: deps().chromium!,
+        requests: () => requests,
+        fetches: () => fetches,
+        books: {
+          epub3: () => fixtures.epub3Book(),
+          epub3Reversed: () => fixtures.epub3Book({ reverseSpine: true }),
+          epub2: fixtures.epub2Book,
+          fixedLayout: fixtures.fixedLayoutBook,
+          fontObfuscated: fixtures.fontObfuscatedBook,
+          drm: fixtures.drmBook,
+          zipBomb: fixtures.zipBombBook,
+          docxNamedEpub: fixtures.docxNamedEpub,
+          escapingSpine: fixtures.escapingSpineBook,
+        },
+      });
+      expect(result.lines.filter((l) => l.startsWith("FAIL"))).toEqual([]);
+      expect(result.ok).toBe(true);
+      // Health: every check reported a line.
+      expect(result.lines.length).toBeGreaterThanOrEqual(10);
+    }, 180_000);
+  },
+);

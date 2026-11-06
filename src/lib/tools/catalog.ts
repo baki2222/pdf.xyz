@@ -384,7 +384,12 @@ export const tools: Tool[] = [
     accept: ["HTML", "HTM"],
     outputs: ["PDF"],
     keywords: ["html to pdf", "render html", "web to pdf", "markup to pdf"],
-    related: ["webpage-to-pdf", "epub-to-pdf", "markdown-to-pdf", "word-to-pdf"],
+    related: [
+      "webpage-to-pdf",
+      "epub-to-pdf",
+      "markdown-to-pdf",
+      "word-to-pdf",
+    ],
   },
   {
     slug: "webpage-to-pdf",

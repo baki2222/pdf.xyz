@@ -182,7 +182,8 @@ export function openBoundedZip(
       const local = entry.localOffset;
       if (local + 30 > bytes.length || u32(bytes, local) !== LOCAL)
         throw new ZipEntryError(name, "no local header");
-      const start = local + 30 + u16(bytes, local + 26) + u16(bytes, local + 28);
+      const start =
+        local + 30 + u16(bytes, local + 26) + u16(bytes, local + 28);
       if (start + entry.packed > bytes.length)
         throw new ZipEntryError(name, "truncated");
       const data = bytes.subarray(start, start + entry.packed);
@@ -193,12 +194,15 @@ export function openBoundedZip(
           // Never past the declared size: the directory's figure is the one
           // the limits above were checked against.
           out = new Uint8Array(
-            inflateRawSync(data, { maxOutputLength: Math.max(1, entry.unpacked) }),
+            inflateRawSync(data, {
+              maxOutputLength: Math.max(1, entry.unpacked),
+            }),
           );
         } catch {
           throw new ZipEntryError(name, "inflates past its declared size");
         }
-      } else throw new ZipEntryError(name, `compression method ${entry.method}`);
+      } else
+        throw new ZipEntryError(name, `compression method ${entry.method}`);
       if (out.byteLength !== entry.unpacked)
         throw new ZipEntryError(name, "size differs from the directory");
       return out;

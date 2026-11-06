@@ -525,6 +525,20 @@ interface Payload {
 
 const ZIP_HEAD = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00]);
 
+/**
+ * An EPUB's first local entry and nothing after it: a STORED `mimetype` whose
+ * value is `application/epub+zip`, which is all the page's sniff
+ * (`zipMimetype` in src/lib/intent/sniff.ts) reads. The worker never sees it.
+ */
+const EPUB_MIMETYPE = "application/epub+zip";
+const EPUB_HEAD = Buffer.concat([
+  Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00]),
+  Buffer.from([0x00, 0x00, 0x00, 0x00, 0x6f, 0x61, 0xab, 0x2c]),
+  Buffer.from([EPUB_MIMETYPE.length, 0, 0, 0, EPUB_MIMETYPE.length, 0, 0, 0]),
+  Buffer.from([0x08, 0x00, 0x00, 0x00]),
+  Buffer.from(`mimetype${EPUB_MIMETYPE}`, "latin1"),
+]);
+
 /** A fixture for one catalogue format, or null when none is made for it. */
 async function payloadFor(format: string): Promise<Payload | null> {
   switch (format) {
@@ -560,6 +574,12 @@ async function payloadFor(format: string): Promise<Payload | null> {
         mimeType:
           "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         buffer: ZIP_HEAD,
+      };
+    case "EPUB":
+      return {
+        name: longName("epub"),
+        mimeType: EPUB_MIMETYPE,
+        buffer: EPUB_HEAD,
       };
     case "HTML":
       return {

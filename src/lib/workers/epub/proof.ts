@@ -37,7 +37,6 @@ export const EPUB_IMAGE_PIXELS = [24, 24] as const;
 /** A remote image a chapter links: never to be fetched. */
 export const EPUB_REMOTE_IMAGE = "https://example.com/remote-cover.png";
 
-
 export interface OutlineNode {
   title: string;
   /** 0-based page the bookmark opens, or null when it opens none. */
@@ -65,7 +64,11 @@ function rgbOf(args: unknown): [number, number, number] | null {
       number,
       number,
     ];
-  if (Array.isArray(args) && args.length >= 3 && args.every((n) => typeof n === "number")) {
+  if (
+    Array.isArray(args) &&
+    args.length >= 3 &&
+    args.every((n) => typeof n === "number")
+  ) {
     const nums = args as number[];
     const scale = nums.every((n) => n <= 1) ? 255 : 1;
     return [nums[0]! * scale, nums[1]! * scale, nums[2]! * scale];

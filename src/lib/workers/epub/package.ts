@@ -19,10 +19,7 @@
  */
 import { sniffFormat } from "@/lib/intent/sniff";
 import { HTML_DOCUMENT_URL } from "../html-render/document-url";
-import {
-  EPUB_MAX_SPINE_ITEMS,
-  EPUB_MAX_XML_BYTES,
-} from "./native-config";
+import { EPUB_MAX_SPINE_ITEMS, EPUB_MAX_XML_BYTES } from "./native-config";
 import { openBoundedZip, ZipEntryError, type BoundedZip } from "./zip";
 import {
   childElements,
@@ -91,8 +88,7 @@ export interface EpubBook {
 }
 
 export type OpenEpubResult =
-  | { ok: true; book: EpubBook }
-  | { ok: false; refusal: EpubRefusal };
+  { ok: true; book: EpubBook } | { ok: false; refusal: EpubRefusal };
 
 /* ------------------------------------------------------------------ *
  *  Paths
@@ -271,8 +267,7 @@ export function openEpub(bytes: Uint8Array): OpenEpubResult {
   const language = metadata ? findFirst(metadata, "language") : undefined;
   const fixedLayout = (metadata ? findAll(metadata, "meta") : []).some(
     (m) =>
-      m.attrs.property === "rendition:layout" &&
-      textOf(m) === "pre-paginated",
+      m.attrs.property === "rendition:layout" && textOf(m) === "pre-paginated",
   );
 
   interface Item {
@@ -342,9 +337,7 @@ export function openEpub(bytes: Uint8Array): OpenEpubResult {
   });
   let toc: EpubTocEntry[] = [];
   let tocSource: EpubBook["tocSource"] = null;
-  const navItem = [...items.values()].find((i) =>
-    i.properties.includes("nav"),
-  );
+  const navItem = [...items.values()].find((i) => i.properties.includes("nav"));
   if (navItem?.path) {
     const nav = readXml(zip, navItem.path);
     if (nav) {
@@ -467,8 +460,7 @@ function navToc(
   if (!list) return [];
   const readList = (ol: XmlElement, depth: number): RawEntry[] =>
     childElements(ol, "li").map((li) => {
-      const label =
-        childElements(li, "a")[0] ?? childElements(li, "span")[0];
+      const label = childElements(li, "a")[0] ?? childElements(li, "span")[0];
       const sub = childElements(li, "ol")[0];
       return {
         title: label ? textOf(label) : "",

@@ -108,18 +108,17 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
       description={
         mode === "epub" ? (
           <>
-            Chromium prints each chapter of your EPUB, in reading order, to
-            one PDF on our isolated server, with the book&apos;s table of
-            contents as bookmarks. Scripts in the book do not run, and nothing
-            outside the book is fetched.
+            Chromium prints each chapter of your EPUB, in reading order, to one
+            PDF on our isolated server, with the book&apos;s table of contents
+            as bookmarks. Scripts in the book do not run, and nothing outside
+            the book is fetched.
           </>
         ) : (
           <>
             Chromium renders{" "}
-            {mode === "url" ? "the public URL" : "your uploaded HTML file"} to
-            a real print PDF on our isolated server. It produces a PDF artifact
-            or fails honestly — no screenshot placeholder and no browser-side
-            fake.
+            {mode === "url" ? "the public URL" : "your uploaded HTML file"} to a
+            real print PDF on our isolated server. It produces a PDF artifact or
+            fails honestly — no screenshot placeholder and no browser-side fake.
           </>
         )
       }

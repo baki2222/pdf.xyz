@@ -45,7 +45,10 @@ export function decodeEntities(text: string): string {
 }
 
 const localName = (qname: string) =>
-  (qname.includes(":") ? qname.slice(qname.indexOf(":") + 1) : qname).toLowerCase();
+  (qname.includes(":")
+    ? qname.slice(qname.indexOf(":") + 1)
+    : qname
+  ).toLowerCase();
 
 const ATTR = /([^\s=/>]+)\s*=\s*("([^"]*)"|'([^']*)')/g;
 
@@ -144,8 +147,7 @@ export function findAll(el: XmlElement, name: string): XmlElement[] {
   return out;
 }
 
-export const findFirst = (el: XmlElement, name: string) =>
-  findAll(el, name)[0];
+export const findFirst = (el: XmlElement, name: string) => findAll(el, name)[0];
 
 export const childElements = (el: XmlElement, name?: string) =>
   el.children.filter(

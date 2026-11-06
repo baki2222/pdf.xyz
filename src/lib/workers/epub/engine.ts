@@ -10,10 +10,7 @@
  * to edge, one PDF page each.
  */
 import { describeByteCeiling } from "../engine-file-ceilings";
-import {
-  rethrowIfAttemptAbort,
-  signalOption,
-} from "../attempt-abort";
+import { rethrowIfAttemptAbort, signalOption } from "../attempt-abort";
 import { CSS_PX_PER_INCH } from "@/lib/jobs/html-render-options";
 import {
   DEFAULT_EPUB_RENDER_OPTIONS,

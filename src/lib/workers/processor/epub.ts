@@ -21,7 +21,11 @@ type EpubFailure = Extract<EpubRun, { ok: false }>;
 function jobError(run: EpubFailure): JobError {
   switch (run.kind) {
     case "unsupported":
-      return { code: "not_implemented", message: run.message, retryable: false };
+      return {
+        code: "not_implemented",
+        message: run.message,
+        retryable: false,
+      };
     case "too_large":
       return {
         code: "payload_too_large",

@@ -103,7 +103,11 @@ export async function runEpubImageProof(
         "control: the verdict passed a book printed in reverse — it cannot see order",
       );
 
-  const p2 = await judged("EPUB 2", await convert(await deps.books.epub2()), epub2Verdict);
+  const p2 = await judged(
+    "EPUB 2",
+    await convert(await deps.books.epub2()),
+    epub2Verdict,
+  );
   if (p2)
     if (p2.length) fail(`EPUB 2: ${p2.join("; ")}`);
     else pass("EPUB 2: chapters in order, the NCX as the outline");
@@ -129,7 +133,9 @@ export async function runEpubImageProof(
   const asked = deps.requests().includes(EPUB_REMOTE_IMAGE);
   const fetched = deps.fetches() - fetchesBefore;
   if (asked && fetched === 0)
-    pass("network: the remote image was asked for and refused; nothing fetched");
+    pass(
+      "network: the remote image was asked for and refused; nothing fetched",
+    );
   else
     fail(
       `network: remote image asked for: ${asked}; network calls: ${fetched}`,
