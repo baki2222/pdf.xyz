@@ -11,8 +11,10 @@ import {
 } from "@/tests/jpeg-fixtures";
 import { readJpegOrientation } from "./jpeg-orientation";
 import {
+  buildImagePdf,
   imagePdfOutputName,
   imagesToPdf,
+  imagesToPdfs,
   isImageAllowedForKind,
   validateImagePdfInputs,
 } from "./image-to-pdf";
@@ -232,5 +234,47 @@ describe("EXIF Orientation reaches the page", () => {
     );
     expect(changed.length).toBeGreaterThan(0);
     expect(changed.length).toBeLessThanOrEqual(2);
+  });
+});
+
+/**
+ * HISTORY (audit #49, 2026-11-06): every PDF these tools made had the Title
+ * `${kind.toUpperCase()} images` — "JPG images" on holiday-pdf.pdf, "PNG
+ * images" on a PDF of TIFFs — and viewers that show the Title instead of the
+ * file name (Chrome's tab, Acrobat with DisplayDocTitle) showed that. The
+ * Title is now the image's own name, as the download's name is.
+ */
+describe("image-to-pdf — the PDF's Title (audit #49)", () => {
+  const titleOf = async (bytes: Uint8Array) =>
+    (await PDFDocument.load(bytes)).getTitle();
+
+  it("one PDF is titled after its first image, on both tools", async () => {
+    for (const kind of ["jpg", "png"] as const) {
+      const pdf = await imagesToPdf(kind, [
+        { name: "holiday.jpg", type: "image/jpeg", bytes: JPG_1X1 },
+        { name: "beach.png", type: "image/png", bytes: PNG_1X1 },
+      ]);
+      expect(await titleOf(pdf), kind).toBe("holiday");
+    }
+  });
+
+  it("each per-image PDF is titled after its own image", async () => {
+    const pdfs = await imagesToPdfs("png", [
+      { name: "a.png", type: "image/png", bytes: PNG_1X1 },
+      { name: "b.final.jpg", type: "image/jpeg", bytes: JPG_1X1 },
+    ]);
+    expect(await Promise.all(pdfs.map((p) => titleOf(p.bytes)))).toEqual([
+      "a",
+      "b.final",
+    ]);
+  });
+
+  it("the size-limit builder titles its PDF the same way", async () => {
+    const pdf = await buildImagePdf(
+      "jpg",
+      [{ name: "scan.jpeg", type: "image/jpeg", bytes: JPG_1X1 }],
+      { pageSize: "letter", orientation: "portrait", margin: "small" },
+    );
+    expect(await titleOf(pdf)).toBe("scan");
   });
 });

@@ -350,11 +350,22 @@ function perImageNames(
 type PdfLib = Awaited<ReturnType<typeof loadPdfLib>>;
 type PdfDoc = Awaited<ReturnType<PdfLib["PDFDocument"]["create"]>>;
 
-async function newImageDoc(lib: PdfLib, kind: ImagePdfKind): Promise<PdfDoc> {
+/**
+ * A new PDF titled after the image it is named after — the first image for
+ * one PDF, each image for the per-image ZIP — so a viewer that shows the
+ * Title in place of the file name (Chrome's tab, Acrobat with
+ * DisplayDocTitle) shows "holiday" for holiday-pdf.pdf. HISTORY (audit #49):
+ * every PDF was titled `${kind.toUpperCase()} images` — "JPG images" on a
+ * holiday photo, "PNG images" on a PDF of TIFFs.
+ */
+async function newImageDoc(
+  lib: PdfLib,
+  named: Pick<ImagePdfInput, "name">,
+): Promise<PdfDoc> {
   const doc = await lib.PDFDocument.create();
   doc.setProducer(PRODUCER);
   doc.setCreator(PRODUCER);
-  doc.setTitle(`${kind.toUpperCase()} images`);
+  doc.setTitle(baseName(named.name));
   return doc;
 }
 
@@ -540,7 +551,7 @@ export async function imagesToPdf(
 ): Promise<Uint8Array> {
   validateImagePdfInputs(kind, files);
   const lib = await loadPdfLib();
-  const doc = await newImageDoc(lib, kind);
+  const doc = await newImageDoc(lib, files[0]!);
   for (const file of files) await addImagePage(lib, doc, file, options);
   return doc.save();
 }
@@ -559,7 +570,7 @@ export async function imagesToPdfs(
   const names = perImageNames(files);
   const out: NamedBytes[] = [];
   for (const [index, file] of files.entries()) {
-    const doc = await newImageDoc(lib, kind);
+    const doc = await newImageDoc(lib, file);
     await addImagePage(lib, doc, file, options);
     out.push({ name: names[index]!, bytes: await doc.save() });
   }
@@ -580,7 +591,7 @@ export async function buildImagePdf(
 ): Promise<Uint8Array> {
   validateImagePdfInputs(kind, files);
   const lib = await loadPdfLib();
-  const doc = await newImageDoc(lib, kind);
+  const doc = await newImageDoc(lib, files[0]!);
   for (const [i, file] of files.entries())
     await addImagePage(lib, doc, file, options, prepared[i]);
   return doc.save();
