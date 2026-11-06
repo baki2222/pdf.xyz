@@ -27,7 +27,11 @@ import { rasterScaleForDpi } from "@/lib/pdf/pdf-to-image";
  *    size, every box on the page, >= 2 radio options, blank/duplicate options
  *    and defaults that are not an option. assertFormFieldTextDrawable runs only
  *    inside createFormFields, i.e. AFTER "Create form" is pressed, so a
- *    non-WinAnsi character does not disable the button — it is refused then;
+ *    non-WinAnsi character does not disable the button — it is refused then.
+ *    It covers only DRAWN text: text defaults and dropdown/list options. Since
+ *    audit #39 (2026-11-06) names and radio options are not checked (UTF-16
+ *    /T and /Opt; a radio draws no text), and Dropdown has no "Allow multiple
+ *    selections" (viewers ignore MultiSelect on a combo box) — List keeps it;
  *  - XFA: pdf-lib's PDFDocument.getForm() calls deleteXFA() when present, and
  *    both readFormContext and createFormFields call getForm();
  *  - loadPdf (src/lib/pdf/engine.ts) refuses encrypted input;
@@ -57,7 +61,7 @@ const content: ToolContent = {
 
   intro: [
     "Create Fillable Forms turns a flat PDF, such as a printed-style application or checklist, into one people can type into. You describe each field in a card: its type, a unique name, the page it sits on, and its box in whole PDF points measured from the page's bottom-left corner. Each card shows the width and height of the page it points at, and the Page box only accepts pages the document has.",
-    "The output is a classic AcroForm, the form type PDF readers with form support can fill. Text fields can carry pre-filled text, a character limit and multiple lines; checkboxes can start ticked; dropdowns can accept free typing or several selections; lists and radio groups take their choices one per line. Existing pages and AcroForm fields are kept, and new names are checked against the old ones first.",
+    "The output is a classic AcroForm, the form type PDF readers with form support can fill. Text fields can carry pre-filled text, a character limit and multiple lines; checkboxes can start ticked; dropdowns can accept free typing, and lists can accept several selections; dropdowns, lists and radio groups take their choices one per line. Existing pages and AcroForm fields are kept, and new names are checked against the old ones first.",
     `Your browser does the whole build: the PDF is read from your device, the fields are written into it in memory, and the result is saved to your device without a copy going to pdf.xyz. PDFs up to ${maxMb} MB are accepted.${betaSentence} There is no canvas for dragging fields into place, no font, border or colour styling, no signature field type and no XFA output; if the source carries an XFA layer, for instance a hybrid AcroForm-and-XFA form, the saved copy drops that layer and keeps only its AcroForm fields. A password-protected PDF is refused until you unlock it.`,
   ],
 
@@ -118,7 +122,7 @@ const content: ToolContent = {
     },
     {
       q: "Why was a field name or option refused for its characters?",
-      a: "New fields are drawn with a standard PDF font that covers only the Western (WinAnsi) character set, and a PDF reader redraws a field's text from that font. When you press “Create form”, every field name, default and option is checked against that set; one containing, say, Cyrillic, Greek or Bengali letters stops the build with a message naming the characters, instead of turning them into question marks.",
+      a: "New fields are drawn with a standard PDF font that covers only the Western (WinAnsi) character set, and a PDF reader redraws a field's text from that font. When you press “Create form”, every text default and every dropdown or list option is checked against that set; one containing, say, Cyrillic, Greek or Bengali letters stops the build with a message naming the characters, instead of turning them into question marks. Field names and radio-button options are never drawn, so they can be in any alphabet.",
     },
     {
       q: "How do people complete and lock the form afterwards?",

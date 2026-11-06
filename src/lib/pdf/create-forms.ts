@@ -88,8 +88,9 @@ export interface NewDropdownField extends NewFieldPlacement {
   defaultValue?: string;
   /** Combo box: also accept free-typed values outside the option list. */
   editable?: boolean;
-  /** Allow selecting more than one option. */
-  multiselect?: boolean;
+  // No `multiselect`: a dropdown is a combo box, and viewers ignore
+  // MultiSelect on one (pdf.js sets `multiple` only when NOT a combo; Acrobat
+  // offers no such option). Several selections are a list box's job.
 }
 
 export interface NewOptionListField extends NewFieldPlacement {
@@ -437,23 +438,28 @@ export async function createFormFields(
     throw new PdfEngineError(summarizeErrors(errors));
   }
 
-  // Every string that will end up inside a field's appearance stream: the
-  // default values, the dropdown/list options, and the field names themselves
-  // (pdf-lib writes those into the AcroForm dictionary). Checked here, before a
-  // single widget is added, because the failure otherwise surfaces from
-  // pdf-lib's appearance drawing (`addToPage`) as a raw `WinAnsi cannot
-  // encode` with the form half-built.
-  assertFormFieldTextDrawable([
-    ...specs.map((spec) => spec.name),
-    ...specs.map((spec) =>
-      "defaultValue" in spec && typeof spec.defaultValue === "string"
-        ? spec.defaultValue
-        : "",
-    ),
-    ...specs.flatMap((spec) =>
-      "options" in spec && Array.isArray(spec.options) ? spec.options : [],
-    ),
-  ]);
+  // Every string that will end up inside a field's appearance stream: a text
+  // field's default, and a dropdown's or list's options (a dropdown draws its
+  // selection, a list draws every option). Checked here, before a single
+  // widget is added, because the failure otherwise surfaces from pdf-lib's
+  // appearance drawing (`addToPage`) as a raw `WinAnsi cannot encode` with the
+  // form half-built. NOT checked, since audit #39 (2026-11-06): field names
+  // (pdf-lib writes /T as UTF-16) and radio options (UTF-16 /Opt; a radio or
+  // checkbox draws no text). Refusing them blocked a Cyrillic "Согласие" or a
+  // "Да / Нет" group for no reason. Pinned both ways in create-forms.test.ts.
+  assertFormFieldTextDrawable(
+    specs.flatMap((spec) => {
+      switch (spec.type) {
+        case "text":
+          return spec.defaultValue ? [spec.defaultValue] : [];
+        case "dropdown":
+        case "optionlist":
+          return [...spec.options, spec.defaultValue ?? ""];
+        default:
+          return [];
+      }
+    }),
+  );
 
   for (const spec of specs) {
     const page = pages[spec.page - 1];
@@ -497,7 +503,6 @@ export async function createFormFields(
         const field = form.createDropdown(name);
         field.addOptions(spec.options);
         if (spec.editable) field.enableEditing();
-        if (spec.multiselect) field.enableMultiselect();
         if (spec.defaultValue) field.select(spec.defaultValue);
         field.addToPage(page, box);
         break;
