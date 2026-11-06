@@ -1,4 +1,5 @@
 import type {
+  PDFDict,
   PDFDocument,
   PDFField,
   PDFForm,
@@ -157,8 +158,24 @@ export async function inspectForm(bytes: Uint8Array): Promise<FormInspection> {
 
 interface PlacedWidget {
   page: PDFPage;
-  appearance: PDFRef;
+  /** `undefined` for a widget no reader shows: removed, never drawn. */
+  appearance: PDFRef | undefined;
   widget: PDFWidgetAnnotation;
+}
+
+/** Annotation flags (ISO 32000, 12.5.3): Hidden is bit 2, NoView bit 6. */
+const ANNOT_HIDDEN = 1 << 1;
+const ANNOT_NO_VIEW = 1 << 5;
+
+/**
+ * Whether a reader shows this widget at all. A Hidden or NoView widget (a
+ * calculation helper, an "office use only" overlay, a template hidden by form
+ * script) was never on screen, so drawing it into the page would ADD content
+ * the reader never displayed. Acrobat's flatten and pdf.js both honour these.
+ */
+function widgetIsViewable(widget: PDFWidgetAnnotation): boolean {
+  const flags = widget.getFlags();
+  return (flags & (ANNOT_HIDDEN | ANNOT_NO_VIEW)) === 0;
 }
 
 /**
@@ -221,19 +238,85 @@ const SKIP = {
   undrawable: "its value couldn't be drawn",
 } as const;
 
-/** Draw one resolved widget into its page, exactly as pdf-lib's flatten does. */
+type Matrix = [number, number, number, number, number, number];
+
+/** A numeric array entry of `dict` with exactly `length` numbers, or undefined. */
+function numbers(
+  dict: PDFDict,
+  key: string,
+  length: number,
+  lib: PdfLibModule,
+): number[] | undefined {
+  const value = dict.lookup(lib.PDFName.of(key));
+  if (!(value instanceof lib.PDFArray) || value.size() !== length) {
+    return undefined;
+  }
+  const out: number[] = [];
+  for (let i = 0; i < length; i += 1) {
+    const item = value.lookup(i);
+    if (!(item instanceof lib.PDFNumber)) return undefined;
+    out.push(item.asNumber());
+  }
+  return out;
+}
+
+/**
+ * The matrix that places an appearance stream on its annotation Rect — the
+ * algorithm of ISO 32000, 12.5.5. The form's BBox is transformed by its own
+ * `/Matrix`; the bounding box of the result is then mapped onto the Rect with
+ * a scale and a translation. The form's `/Matrix` itself is applied by the
+ * `Do` operator, so only that second mapping goes into `cm`.
+ *
+ * Translating to the Rect's corner alone (pdf-lib's flatten) is right only
+ * when the BBox starts at 0,0, matches the Rect's size and has no rotation:
+ * a field Acrobat rotated 90 degrees (`/Matrix [0 1 -1 0 0 0]`) landed one
+ * box-width outside its box, and a BBox larger than the Rect overflowed it.
+ */
+function appearanceToRectMatrix(
+  rect: { x: number; y: number; width: number; height: number },
+  bbox: readonly number[] | undefined,
+  matrix: readonly number[] | undefined,
+): Matrix {
+  const [a = 1, b = 0, c = 0, d = 1, e = 0, f = 0] =
+    matrix?.length === 6 ? matrix : [];
+  const [x0 = 0, y0 = 0, x1 = rect.width, y1 = rect.height] =
+    bbox?.length === 4 ? bbox : [];
+  const corners = [
+    [x0, y0],
+    [x1, y0],
+    [x0, y1],
+    [x1, y1],
+  ].map(([x = 0, y = 0]) => [a * x + c * y + e, b * x + d * y + f]);
+  const xs = corners.map(([x = 0]) => x);
+  const ys = corners.map(([, y = 0]) => y);
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  const spanX = Math.max(...xs) - minX;
+  const spanY = Math.max(...ys) - minY;
+  // A degenerate box has no size to map; keep it unscaled rather than divide by 0.
+  const sx = spanX > 0 ? rect.width / spanX : 1;
+  const sy = spanY > 0 ? rect.height / spanY : 1;
+  return [sx, 0, 0, sy, rect.x - minX * sx, rect.y - minY * sy];
+}
+
+/** Draw one resolved widget into its page where a reader shows it (12.5.5). */
 function drawWidget(placed: PlacedWidget, lib: PdfLibModule): void {
   const { page, appearance, widget } = placed;
+  if (!appearance) return;
+  const stream = page.doc.context.lookup(appearance);
+  const dict = stream instanceof lib.PDFStream ? stream.dict : undefined;
   const key = page.node.newXObject("FlatWidget", appearance);
-  const rect = widget.getRectangle();
-  const operators = [
+  const placement = appearanceToRectMatrix(
+    widget.getRectangle(),
+    dict && numbers(dict, "BBox", 4, lib),
+    dict && numbers(dict, "Matrix", 6, lib),
+  );
+  page.pushOperators(
     lib.pushGraphicsState(),
-    lib.translate(rect.x, rect.y),
-    ...lib.rotateInPlace({ ...rect, rotation: 0 }),
+    lib.concatTransformationMatrix(...placement),
     lib.drawObject(key),
     lib.popGraphicsState(),
-  ].filter(Boolean);
-  page.pushOperators(...operators);
+  );
 }
 
 /**
@@ -279,6 +362,10 @@ export interface FlattenFieldsOutcome {
  * appearance; otherwise nothing of it is drawn and it is left exactly as it
  * was — still interactive, value intact — and reported in `skipped`. Half a
  * field drawn plus a live field on top is worse than either.
+ *
+ * A widget no reader shows (annotation flag Hidden or NoView) is removed with
+ * its field but never drawn: flattening must not add content nobody saw.
+ * Pinned in the "audit #14" tests in `flatten.test.ts`.
  *
  * Signature fields are always left as-is. An empty one is a box someone still
  * has to sign. A filled one is already invalidated by any re-save; kept as a
@@ -356,6 +443,11 @@ export function flattenFormFields(
       if (!page) {
         reason = SKIP.noPage;
         break;
+      }
+      if (!widgetIsViewable(widget)) {
+        // Removed with its field, never drawn: no reader showed it.
+        placed.push({ page, appearance: undefined, widget });
+        continue;
       }
       const appearance = widgetAppearance(field, widget, lib);
       if (!appearance) {

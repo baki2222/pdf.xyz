@@ -5,7 +5,11 @@ import {
   PDFDocument,
   PDFHexString,
   PDFName,
+  PDFNumber,
+  PDFOperator,
+  PDFOperatorNames,
   PDFString,
+  StandardFonts,
   type PDFForm,
   type PDFPage,
 } from "pdf-lib";
@@ -641,5 +645,181 @@ describe("flattenDownloadName", () => {
   it("control: a flattened form keeps the '-flattened' name", async () => {
     const result = await flattenPdf(await formPdf());
     expect(flattenDownloadName("form.pdf", result)).toBe("form-flattened.pdf");
+  });
+});
+
+/**
+ * Text item positions on page 1 of the downloaded file, as pdfjs reports them:
+ * where a reader would actually see each string.
+ */
+async function textPositions(
+  bytes: Uint8Array,
+): Promise<{ str: string; x: number; y: number; size: number }[]> {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const task = pdfjs.getDocument({
+    data: new Uint8Array(bytes),
+    useWorkerFetch: false,
+    disableFontFace: true,
+    ...PDFJS_DOCUMENT_DEFAULTS,
+  });
+  try {
+    const doc = await task.promise;
+    const content = await (await doc.getPage(1)).getTextContent();
+    return content.items.flatMap((item) =>
+      "str" in item && item.str.trim()
+        ? [
+            {
+              str: item.str,
+              x: item.transform[4] as number,
+              y: item.transform[5] as number,
+              size: Math.hypot(
+                item.transform[2] as number,
+                item.transform[3] as number,
+              ),
+            },
+          ]
+        : [],
+    );
+  } finally {
+    await task.destroy();
+  }
+}
+
+/**
+ * One text field whose widget carries an AUTHORED appearance: a form XObject
+ * drawing `text` in 10 pt Helvetica at (2, 5) of its own `bbox`, with `matrix`
+ * when given and the widget annotation flags `flags`. pdf-lib is kept from
+ * regenerating it, so what flatten draws is exactly this stream.
+ */
+async function authoredAppearanceFormPdf({
+  rect,
+  bbox,
+  matrix,
+  flags = 4,
+  text = "ROTX",
+}: {
+  rect: [number, number, number, number];
+  bbox: [number, number, number, number];
+  matrix?: [number, number, number, number, number, number];
+  flags?: number;
+  text?: string;
+}): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([600, 800]);
+  const form = doc.getForm();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const field = form.createTextField("authored");
+  field.setText(text);
+  field.addToPage(page, { x: rect[0], y: rect[1], width: 10, height: 10 });
+  await doc.save();
+  const [widget] = field.acroField.getWidgets();
+  if (!widget) throw new Error("fixture: the field has no widget");
+  const ctx = doc.context;
+  const appearance = ctx.register(
+    ctx.formXObject(
+      [
+        PDFOperator.of(PDFOperatorNames.BeginText),
+        PDFOperator.of(PDFOperatorNames.SetFontAndSize, [
+          PDFName.of("F1"),
+          PDFNumber.of(10),
+        ]),
+        PDFOperator.of(PDFOperatorNames.MoveText, [
+          PDFNumber.of(2),
+          PDFNumber.of(5),
+        ]),
+        PDFOperator.of(PDFOperatorNames.ShowText, [PDFString.of(text)]),
+        PDFOperator.of(PDFOperatorNames.EndText),
+      ],
+      {
+        BBox: bbox,
+        ...(matrix ? { Matrix: matrix } : {}),
+        Resources: { Font: { F1: font.ref } },
+      },
+    ),
+  );
+  widget.dict.set(PDFName.of("Rect"), ctx.obj(rect));
+  widget.dict.set(PDFName.of("F"), PDFNumber.of(flags));
+  widget.dict.set(PDFName.of("AP"), ctx.obj({ N: appearance }));
+  form.markFieldAsClean(field.ref);
+  return doc.save({ updateFieldAppearances: false });
+}
+
+describe("flattenPdf — widget flags and the appearance-to-Rect mapping (audit #14)", () => {
+  it("fixture health: a visible widget's authored appearance is drawn where its Rect is", async () => {
+    const result = await flattenPdf(
+      await authoredAppearanceFormPdf({
+        rect: [100, 300, 200, 320],
+        bbox: [0, 0, 100, 20],
+      }),
+    );
+    expect(result.flattenedFields).toBe(1);
+    const [item] = await textPositions(result.bytes);
+    expect(item).toMatchObject({ str: "ROTX" });
+    expect(item?.x).toBeCloseTo(102, 3);
+    expect(item?.y).toBeCloseTo(305, 3);
+  });
+
+  // Hidden = bit 2 (2); NoView = bit 6 (32), here alongside Print (4).
+  it.each([
+    ["Hidden", 2],
+    ["NoView", 36],
+  ])(
+    "a %s widget is removed without being drawn: no reader showed it",
+    async (_flag, flags) => {
+      const result = await flattenPdf(
+        await authoredAppearanceFormPdf({
+          rect: [100, 300, 200, 320],
+          bbox: [0, 0, 100, 20],
+          flags,
+        }),
+      );
+      expect(await textPositions(result.bytes)).toEqual([]);
+      const doc = await PDFDocument.load(result.bytes);
+      expect(doc.getForm().getFields()).toEqual([]);
+      expect(doc.getPage(0).node.Annots()?.size() ?? 0).toBe(0);
+      expect(flatWidgetCount(doc.getPage(0))).toBe(0);
+    },
+  );
+
+  it("a rotated appearance (/Matrix 90 degrees) lands inside its Rect, where the reader drew it", async () => {
+    // ISO 32000 12.5.5: BBox [0 0 100 20] under [0 1 -1 0 0 0] is [-20 0 0 100];
+    // mapped onto Rect [100 100 120 200] the text at (2, 5) lands at (115, 102).
+    const result = await flattenPdf(
+      await authoredAppearanceFormPdf({
+        rect: [100, 100, 120, 200],
+        bbox: [0, 0, 100, 20],
+        matrix: [0, 1, -1, 0, 0, 0],
+      }),
+    );
+    const [item] = await textPositions(result.bytes);
+    expect(item).toMatchObject({ str: "ROTX" });
+    expect(item?.x).toBeCloseTo(115, 3);
+    expect(item?.y).toBeCloseTo(102, 3);
+  });
+
+  it("an appearance whose BBox is larger than its Rect is scaled into the Rect", async () => {
+    const result = await flattenPdf(
+      await authoredAppearanceFormPdf({
+        rect: [100, 300, 150, 310],
+        bbox: [0, 0, 100, 20],
+      }),
+    );
+    const [item] = await textPositions(result.bytes);
+    expect(item).toMatchObject({ str: "ROTX" });
+    expect(item?.x).toBeCloseTo(101, 3);
+    expect(item?.y).toBeCloseTo(302.5, 3);
+    expect(item?.size).toBeCloseTo(5, 3);
+  });
+
+  it("a BBox that does not start at the origin is mapped from its corner, not from 0,0", async () => {
+    const result = await flattenPdf(
+      await authoredAppearanceFormPdf({
+        rect: [100, 300, 200, 320],
+        bbox: [-10, -10, 90, 10],
+      }),
+    );
+    const [item] = await textPositions(result.bytes);
+    expect(item?.x).toBeCloseTo(112, 3);
+    expect(item?.y).toBeCloseTo(315, 3);
   });
 });
