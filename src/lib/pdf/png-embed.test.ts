@@ -27,6 +27,8 @@ import {
   PDFRef,
 } from "pdf-lib";
 import { describe, expect, it } from "vitest";
+import { guides } from "@/lib/guides/catalog";
+import { getToolContent } from "@/lib/tools/content";
 import { renderPdfPages } from "@/tests/pdf-render";
 import { imagesToPdf, imagesToPdfs } from "./image-to-pdf";
 import type { ImagePageOptions } from "./image-page-layout";
@@ -761,5 +763,94 @@ describe("damaged PNGs are still refused, not embedded as noise", () => {
     );
     const { get } = await baseImage(pdf);
     expect(get("ColorSpace")).toBe(PDFName.of("DeviceGray"));
+  });
+});
+
+/**
+ * The copy a reader receives, held to what the embedder above does. Review of
+ * audit #10 found the PNG to PDF intro still saying a sixteen-bit PNG "is cut
+ * down to eight" beside an FAQ saying "sixteen bits per channel stay sixteen",
+ * and the PNG guide's intro still pointing at a section on "why the PDF can be
+ * larger than the images" after that section had been rewritten to say the
+ * opposite.
+ *
+ * The corpus is DISCOVERED: every string anywhere in the two tools that take
+ * PNGs and in every guide that lists one of them. Each ban has a health check
+ * (the corpus it reads is not empty) and a positive control (it catches the
+ * sentence that shipped).
+ */
+describe("the PNG copy agrees with the embedder (audit #10 review)", () => {
+  const PNG_TOOLS = ["png-to-pdf", "jpg-to-pdf"] as const;
+
+  function strings(value: unknown, out: string[] = []): string[] {
+    if (typeof value === "string") out.push(value);
+    else if (Array.isArray(value)) for (const v of value) strings(v, out);
+    else if (value !== null && typeof value === "object")
+      for (const v of Object.values(value)) strings(v, out);
+    return out;
+  }
+
+  const corpus = [
+    ...PNG_TOOLS.flatMap((slug) => strings(getToolContent(slug))),
+    ...guides
+      .filter((g) =>
+        g.tools.some((t) => (PNG_TOOLS as readonly string[]).includes(t)),
+      )
+      .flatMap((g) => strings(g)),
+  ].flatMap((text) => text.split(/(?<=[.!?])\s+/));
+
+  /** A claim that a deep PNG loses depth on the way into the PDF. */
+  const DEPTH_CUT =
+    /(sixteen|16)[- ]bits?\b[^.]*\b(cut|brought|reduced|lowered|converted)\b[^.]*\b(eight|8)\b/i;
+  /** A claim that a PDF of PNGs is bigger than the PNGs. */
+  const PDF_LARGER =
+    /\bPDF\b[^.]*\b(larger|bigger|heavier)\b[^.]*\bthan the (images|PNGs?|files)\b/i;
+
+  it("health: the corpus holds both tools and their PNG guide", () => {
+    for (const slug of PNG_TOOLS) expect(getToolContent(slug)).toBeDefined();
+    expect(guides.some((g) => g.slug === "how-to-convert-png-to-pdf")).toBe(
+      true,
+    );
+    expect(corpus.length).toBeGreaterThan(100);
+    expect(
+      corpus.filter((t) => /sixteen|16-bit/i.test(t)).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("positive controls: each ban catches the sentence that shipped", () => {
+    expect(
+      "The one exception is a PNG with sixteen bits per channel, which is cut down to eight.",
+    ).toMatch(DEPTH_CUT);
+    expect(
+      "What is particular to PNG is covered below: what happens to see-through areas, why the PDF can be larger than the images, and how big a screenshot's page turns out.",
+    ).toMatch(PDF_LARGER);
+    // And neither catches the true sentence beside it.
+    expect(
+      "greyscale stays greyscale, a palette PNG keeps its list of colours, sixteen bits per channel stay sixteen",
+    ).not.toMatch(DEPTH_CUT);
+  });
+
+  it("no PNG copy says sixteen bits are cut to eight, and the embedder keeps 16", async () => {
+    const pdf = await convert(
+      pngOf({
+        width: W,
+        height: H,
+        colorType: 2,
+        bitDepth: 16,
+        samples: (x, y) => rgbAt(x, y).map((v) => v * 257),
+      }),
+    );
+    const { get } = await baseImage(pdf);
+    expect(get("BitsPerComponent")).toEqual(PDFNumber.of(16));
+    // About PNG only: a TIFF page IS still cut from sixteen bits to eight
+    // (src/lib/pdf/tiff.ts), and the TIFF guide lists png-to-pdf, so the
+    // corpus holds that true sentence — and must, as a live control.
+    const depthCuts = corpus.filter((t) => DEPTH_CUT.test(t));
+    expect(depthCuts.some((t) => /sixteen bits per sample/.test(t))).toBe(true);
+    expect(depthCuts.filter((t) => /\bPNGs?\b/.test(t))).toEqual([]);
+  });
+
+  it("no PNG copy says the PDF comes out larger than the images", () => {
+    expect(corpus.filter((t) => PDF_LARGER.test(t))).toEqual([]);
   });
 });

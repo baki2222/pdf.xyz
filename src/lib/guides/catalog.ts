@@ -5796,6 +5796,11 @@ export const guides: Guide[] = [
   // predictor; an SMask only where some alpha was below 255; palette and
   // greyscale PDFs larger than their PNGs. The same facts are recorded on the
   // tool page (`content/png-to-pdf.ts`), probed 2026-09-27.
+  // SUPERSEDED 2026-11-06 (audit #10), history kept above: those facts were
+  // pdf-lib's. src/lib/pdf/png-embed.ts now embeds each PNG as stored —
+  // DeviceGray, Indexed, its own bit depth (16 included), /Predictor 15,
+  // iCCP as ICCBased — so the PDF stays close to the PNGs' size; the size
+  // section below was rewritten to say so (png-embed.test.ts).
   {
     slug: "how-to-convert-png-to-pdf",
     title: "How to convert PNG to PDF (screenshots and logos)",
@@ -5813,7 +5818,7 @@ export const guides: Guide[] = [
     intro: [
       `To convert PNG images to PDF, open ${nameOf("png-to-pdf")}, add your PNGs, put them in order, press Create PDF, then press Download PDF. Each PNG becomes one page of the PDF. It is made in your browser, so the images stay on your device, and each one can be up to ${MAX_IMAGE_MB} MB.`,
       `PNG is the format of screenshots, charts and logos because it keeps every pixel, and the PDF keeps them too. With ${MAX_SIZE_LABELS.heading} left at ${MAX_SIZE_LABELS.none}, a PNG goes into the PDF with lossless compression, never as a JPEG, so small interface text and sharp edges come out as they were.`,
-      "What is particular to PNG is covered below: what happens to see-through areas, why the PDF can be larger than the images, and how big a screenshot's page turns out.",
+      "What is particular to PNG is covered below: what happens to see-through areas, how large the PDF comes out, and how big a screenshot's page turns out.",
     ],
     steps: [
       `Open the ${nameOf("png-to-pdf")} tool and drop your PNGs on the box at the top of the page, or click it to pick them. JPG, ${OTHER_NAMES} images can go into the same PDF.`,
