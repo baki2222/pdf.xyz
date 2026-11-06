@@ -13,7 +13,9 @@ import { renderPdfPages, regionMean } from "@/tests/pdf-render";
 import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
 import { awaitPdfjsDocument } from "./pdfjs";
 import { exportEditedPdf } from "./editor-export";
-import { snapHighlightQuads } from "./editor/comments";
+import { GAP_LINES, snapHighlightQuads } from "./editor/comments";
+import { guides } from "@/lib/guides/catalog";
+import annotate from "@/lib/tools/content/annotate-pdf";
 import {
   DEFAULT_TEXT_STYLE,
   type EditorObject,
@@ -512,6 +514,77 @@ describe("snapHighlightQuads", () => {
       run({ x: 0, y: 62, width: 150, height: 12 }),
     ]);
     expect(quads.map((q) => q.y)).toEqual([10, 36.4, 62]);
+  });
+
+  // Review of audit #30: GAP_LINES was pinned from below only (the spacing
+  // control); every figure band above was far past any threshold. Both
+  // sides, from the exported constant; the copy test below pins its value.
+  it("a band of the box's own starts at exactly GAP_LINES lines: at it kept, under it snapped", () => {
+    const h = 12;
+    const line = run({ x: 72, y: 100, width: 300, height: h });
+    const at = GAP_LINES * h;
+    expect(at).toBeGreaterThan(0);
+    expect(
+      snapHighlightQuads({ x: 72, y: 100, width: 400, height: h + at }, [line]),
+    ).toEqual([
+      { x: 72, y: 100, width: 300, height: h },
+      { x: 72, y: 100 + h, width: 400, height: at },
+    ]);
+    expect(
+      snapHighlightQuads({ x: 72, y: 100, width: 400, height: h + at - 0.5 }, [
+        line,
+      ]),
+    ).toEqual([{ x: 72, y: 100, width: 300, height: h }]);
+  });
+
+  it("space beside the text on its own lines is not kept: a figure to the right of short lines", () => {
+    const quads = snapHighlightQuads(
+      { x: 72, y: 100, width: 400, height: 24 },
+      [
+        run({ x: 72, y: 100, width: 100, height: 12 }),
+        run({ x: 72, y: 112, width: 100, height: 12 }),
+      ],
+    );
+    expect(quads).toEqual([
+      { x: 72, y: 100, width: 100, height: 12 },
+      { x: 72, y: 112, width: 100, height: 12 },
+    ]);
+  });
+
+  // The guide and the FAQ describe this function; they once said a part of
+  // the box with no text under it "stays highlighted as you drew it", true
+  // only of a band above, below or between lines, GAP_LINES tall or more.
+  describe("the copy that describes it", () => {
+    const WORDS = ["zero", "one", "two", "three", "four", "five"];
+    const guide = guides.find(
+      (g) => g.slug === "how-to-highlight-text-in-a-pdf",
+    );
+    const faq = annotate.faqs.find(
+      (f) => f.q === "Can I highlight text by selecting it?",
+    );
+    const sources = [
+      ["the highlight guide", JSON.stringify(guide?.sections ?? null)],
+      ["the Annotate PDF FAQ", faq?.a ?? ""],
+    ] as const;
+
+    it("health: both texts are found and speak of saving as comments", () => {
+      expect(guide).toBeDefined();
+      expect(faq).toBeDefined();
+      for (const [, text] of sources) expect(text).toMatch(/comment/);
+    });
+
+    it.each(sources)(
+      "%s states GAP_LINES as the threshold, and that space beside the text goes",
+      (_, text) => {
+        const m = /at least (\w+) lines? tall/.exec(text);
+        expect(m).not.toBeNull();
+        expect(WORDS.indexOf(m![1]!)).toBe(GAP_LINES);
+        expect(text).toMatch(/above, below or between the lines/);
+        expect(text).toMatch(
+          /beside the text on the same lines[^.]*is not kept/,
+        );
+      },
+    );
   });
 
   it("ignores a run the box barely grazes, and a turned run", () => {

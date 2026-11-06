@@ -67,9 +67,11 @@ const ANGLE_TOLERANCE = 1;
  * A band of the box with no line in it is the box's own — a figure, a
  * picture — once it is this many of the box's tallest lines tall. Shorter,
  * it is the text's own spacing (double-spaced lines leave 1.4 lines) or the
- * slack of a box dragged around the text, and stays snapped.
+ * slack of a box dragged around the text, and stays snapped. The highlight
+ * guide and the Annotate PDF FAQ state this number in words ("at least two
+ * lines tall"); `editor-export-comments.test.ts` reads it back from both.
  */
-const GAP_LINES = 2;
+export const GAP_LINES = 2;
 
 /**
  * The quads a highlight covers, in viewer points: where the box lies over
