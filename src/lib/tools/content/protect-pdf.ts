@@ -179,7 +179,7 @@ const content: ToolContent = {
     },
     {
       q: "Are there rules for the password itself?",
-      a: `It cannot be empty, cannot contain control characters such as tabs or line breaks, and cannot exceed ${PW_BYTES} bytes. Accented and non-Latin characters take more than one byte each, so the hint under the field counts bytes once you pass the limit. ${describePdfKeyLength(128)} stores the password in the PDF's own Latin character set, so with it the password can use only Latin letters, digits and common symbols; a Bangla, Cyrillic, Greek or CJK password needs ${describePdfKeyLength(256)}, and the field says so before anything uploads.`,
+      a: `It cannot be empty, cannot contain control characters such as tabs or line breaks, and cannot exceed ${PW_BYTES} bytes. Accented and non-Latin characters take more than one byte each, so the hint under the field counts bytes once you pass the limit. ${describePdfKeyLength(128)} stores the password in the PDF's own Latin character set, so with it the password can use only basic Latin and Western European letters, digits and common symbols. Many accented Latin letters outside that set, such as Polish ą, Czech č or Turkish ğ, are refused, and a password with them, or a Bangla, Cyrillic, Greek or CJK password, needs ${describePdfKeyLength(256)}; the field says so before anything uploads.`,
     },
   ],
 

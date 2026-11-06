@@ -222,9 +222,12 @@ export function isPdfDocEncodable(password: string): boolean {
 /**
  * Why a password cannot protect at AES-128. Content-free: it names the rule,
  * never the characters. Shared with the panel so both say the same thing.
+ * "Latin letters" alone would be false: the set is Latin-1 plus Annex D's few
+ * extras, so most Central European and Turkish letters are refused. The
+ * example letters are pinned against isPdfDocEncodable in the tests, and the
+ * labels come from PDF_ENCRYPTION_LEVELS like the FAQ's.
  */
-export const AES128_PASSWORD_CHARSET_MESSAGE =
-  "AES-128 passwords can use only Latin letters, digits and common symbols. Choose AES-256 to use this password.";
+export const AES128_PASSWORD_CHARSET_MESSAGE = `${describePdfKeyLength(128)} passwords can use only basic Latin and Western European letters, digits and common symbols (letters such as ą, č or ğ are not available). Choose ${describePdfKeyLength(256)} to use this password.`;
 
 /**
  * Validate one password field. Content-free by construction: it reports only

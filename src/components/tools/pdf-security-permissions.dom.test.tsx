@@ -283,5 +283,36 @@ describe(
       expect(asked).toHaveLength(1);
       expect(asked[0]!.keyLength).toBe(256);
     });
+
+    // Review of audit #12: the owner-password half of the panel's check had
+    // no test, so a Cyrillic owner password could go out at AES-128 and be
+    // refused only after the upload.
+    it("blocks a Cyrillic owner password at AES-128 before upload, and lets a Latin one through", async () => {
+      const asked = answerWithLocalWorker((opts) => pFor(opts.permissions!));
+      await fillForm();
+      fireEvent.click(screen.getByRole("radio", { name: /AES-128/ }));
+      fireEvent.click(screen.getByRole("checkbox", { name: /^Printing/ }));
+      const owner = await screen.findByLabelText("Owner password");
+      const cyrillic = String.fromCodePoint(0x043f, 0x0430, 0x0440, 0x043e);
+      fireEvent.change(owner, { target: { value: cyrillic } });
+      const run = await runButton();
+      await waitFor(() => expect(run).toHaveAttribute("aria-disabled", "true"));
+      expect(
+        document.getElementById("pdf-security-password-hint"),
+      ).toHaveTextContent(AES128_PASSWORD_CHARSET_MESSAGE);
+      fireEvent.click(run);
+      expect(asked).toHaveLength(0);
+
+      // Positive control: a Latin owner password at the same strength runs.
+      fireEvent.change(owner, { target: { value: "owner-sesame" } });
+      await waitFor(() => expect(run).not.toHaveAttribute("aria-disabled"));
+      fireEvent.click(run);
+      await screen.findByText("Your PDF is protected and ready.", undefined, {
+        timeout: 10_000,
+      });
+      expect(asked).toHaveLength(1);
+      expect(asked[0]!.keyLength).toBe(128);
+      expect(asked[0]!.ownerPassword).toBe("owner-sesame");
+    });
   },
 );

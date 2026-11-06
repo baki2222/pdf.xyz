@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  AES128_PASSWORD_CHARSET_MESSAGE,
   DEFAULT_PDF_KEY_LENGTH,
   MAX_PDF_PASSWORD_BYTES,
   describePdfKeyLength,
@@ -172,7 +173,24 @@ describe("parseProtectPdfOptions: AES-128 needs a PDFDocEncoding password", () =
   });
 
   it("the predicate refuses what PDFDocEncoding has no code for", () => {
-    for (const cp of [0x09aa, 0x043f, 0x03b1, 0x4e2d, 0xa0, 0xad, 0x1f600]) {
+    // Latin Extended-A letters beyond the Annex D few (Ł, Œ, Š, Ž, Ÿ, ı) are
+    // Latin and still refused: ą ć ę ń ś ź ż (Polish), č ř ě (Czech),
+    // ă ș ț (Romanian), ğ ş (Turkish), ő ű (Hungarian). The refusal copy
+    // must not promise "Latin letters" (audit #12 review).
+    const latinExtendedA = [
+      0x105, 0x107, 0x119, 0x144, 0x15b, 0x17a, 0x17c, 0x10d, 0x159, 0x11b,
+      0x103, 0x219, 0x21b, 0x11f, 0x15f, 0x151, 0x171,
+    ];
+    for (const cp of [
+      0x09aa,
+      0x043f,
+      0x03b1,
+      0x4e2d,
+      0xa0,
+      0xad,
+      0x1f600,
+      ...latinExtendedA,
+    ]) {
       expect(isPdfDocEncodable(String.fromCodePoint(cp)), cp.toString(16)).toBe(
         false,
       );
@@ -181,6 +199,31 @@ describe("parseProtectPdfOptions: AES-128 needs a PDFDocEncoding password", () =
     let ascii = "";
     for (let cp = 0x20; cp < 0x7f; cp += 1) ascii += String.fromCodePoint(cp);
     expect(isPdfDocEncodable(ascii)).toBe(true);
+  });
+});
+
+describe("AES128_PASSWORD_CHARSET_MESSAGE describes the set isPdfDocEncodable accepts", () => {
+  // Audit #12 review: the message said "only Latin letters" while the
+  // predicate refuses most Latin Extended-A letters, so a Polish password made
+  // only of Latin letters was told it may use only Latin letters.
+  it("does not promise every Latin letter, and names letters the predicate refuses", () => {
+    expect(AES128_PASSWORD_CHARSET_MESSAGE).not.toMatch(/only Latin letters/);
+    expect(AES128_PASSWORD_CHARSET_MESSAGE).toMatch(/Western European/);
+    const named = [...AES128_PASSWORD_CHARSET_MESSAGE].filter(
+      (ch) => ch.codePointAt(0)! > 0x7f && /\p{L}/u.test(ch),
+    );
+    // Health check: the copy really does name example letters.
+    expect(named.length).toBeGreaterThanOrEqual(2);
+    for (const ch of named) expect(isPdfDocEncodable(ch), ch).toBe(false);
+  });
+
+  it("names both strengths by their catalogue labels", () => {
+    expect(AES128_PASSWORD_CHARSET_MESSAGE).toContain(
+      `${describePdfKeyLength(128)} passwords`,
+    );
+    expect(AES128_PASSWORD_CHARSET_MESSAGE).toContain(
+      `Choose ${describePdfKeyLength(256)}`,
+    );
   });
 });
 
