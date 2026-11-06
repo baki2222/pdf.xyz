@@ -542,6 +542,38 @@ const chunkList = (html: string) => chunkUrls(NEXT_DIR, html);
  * saving across the 50, and the client-side pages saved nothing.
  */
 const EVERY_TOOL_PAGE = { kb: 774, gzKb: 250.9 } as const;
+/**
+ * NEXT 16.3.6 -> 16.4.5 (2026-11-05): framework runtime, not the redesign's
+ * spend. Each row's gz ceiling below rises by exactly what the upgrade added
+ * to that page, so every row keeps the headroom it had and G.1's allocations
+ * (`TOOL_PAGES_TO_COME`, the layout's) are untouched. The upgrade is a
+ * security floor (two critical RCEs only 16.4.1 fixes, held by
+ * dependency-floors.test.ts), so "recover the weight" is not available: the
+ * weight is Next's.
+ *
+ * Measured gzip -9 over each page's first load (the weigher's per-chunk sum,
+ * in bytes), main c25058fe -> the branch, both built on one machine from an
+ * empty .next. On tools/ocr-pdf it is two shared vendor chunks, +2,329 B and
+ * +760 B; every chunk of ours moved by under 60 B either way. The raw ceilings
+ * are unchanged (+3 to +4 KB raw, inside their margins), and so is
+ * EVERY_TOOL_PAGE, which the other tool pages still fit under.
+ */
+const NEXT_16_4_5_BYTES = {
+  "index.html": 3006,
+  "tools/rotate-pdf.html": 3008,
+  "tools/ocr-pdf.html": 3079,
+  "tools/summarize-pdf.html": 3007,
+  "guides/how-to-merge-pdf-files.html": 3024,
+  "_not-found.html": 3027,
+  "tools.html": 3017,
+  "workspace.html": 3104,
+  "status.html": 2732,
+} as const;
+/** `gzKb` plus what Next 16.4.5 added to `html`, rounded UP to 0.01 KB. */
+const withNext1645 = (
+  gzKb: number,
+  html: keyof typeof NEXT_16_4_5_BYTES,
+): number => Math.ceil((gzKb + NEXT_16_4_5_BYTES[html] / 1024) * 100) / 100;
 const BUDGETS = [
   // TIGHTENED 700 -> 675 on 2026-10-08: the homepage weighs 635 KB once the
   // catalogue left it (b9ccf092). Same +40 KB margin as the tool pages; under
@@ -570,7 +602,12 @@ const BUDGETS = [
   // remainder (1.02) still to come it has 0.05 to spare.
   //
   // LOWERED 675 / 210.7 -> 641 / 199.6 on 2026-10-29 (the wave, above).
-  { name: "homepage", html: "index.html", kb: 641, gzKb: 199.6 },
+  {
+    name: "homepage",
+    html: "index.html",
+    kb: 641,
+    gzKb: withNext1645(199.6, "index.html"),
+  },
   // LOWERED 1200 → 1100 on 2026-09-17, and this time something got LIGHTER:
   // jszip left the tool pages' load-time graph (a 129 KB chunk that rode
   // every page via the static import in src/lib/pdf/browser.ts, now fetched
@@ -684,19 +721,19 @@ const BUDGETS = [
     name: "a client-side tool page",
     html: "tools/rotate-pdf.html",
     kb: 723,
-    gzKb: 229.8,
+    gzKb: withNext1645(229.8, "tools/rotate-pdf.html"),
   },
   {
     name: "a worker tool page",
     html: "tools/ocr-pdf.html",
     kb: 727,
-    gzKb: 228.7,
+    gzKb: withNext1645(228.7, "tools/ocr-pdf.html"),
   },
   {
     name: "an AI tool page",
     html: "tools/summarize-pdf.html",
     kb: 728,
-    gzKb: 231.2,
+    gzKb: withNext1645(231.2, "tools/summarize-pdf.html"),
   },
   // A content page. The homepage-class budget is deliberate and does double
   // duty as a leak detector: a guide must never pull the pdf-lib chunk or a
@@ -719,7 +756,7 @@ const BUDGETS = [
     name: "a guide page",
     html: "guides/how-to-merge-pdf-files.html",
     kb: 634,
-    gzKb: 193.3,
+    gzKb: withNext1645(193.3, "guides/how-to-merge-pdf-files.html"),
   },
   // NEW 2026-10-09. The root 404 ships with EVERY route, which is why the
   // catalogue riding it reached every page (b9ccf092); it had no budget of its
@@ -731,7 +768,12 @@ const BUDGETS = [
   // merge's first build measured 202.9; 2.0 of it the layout's duplicated
   // copies — fixed, above the rows.)
   // LOWERED 675 / 206.6 -> 641 / 195.5 on 2026-10-29 (the wave, above).
-  { name: "the 404 page", html: "_not-found.html", kb: 641, gzKb: 195.5 },
+  {
+    name: "the 404 page",
+    html: "_not-found.html",
+    kb: 641,
+    gzKb: withNext1645(195.5, "_not-found.html"),
+  },
   // NEW 2026-10-09. Both are prerendered (they read nothing from the request;
   // pages-static.test.ts holds them to that), so they are weighed here like
   // every other page rather than in a browser. Measured 675 / 214.2 and
@@ -791,8 +833,18 @@ const BUDGETS = [
   //
   // LOWERED 2026-10-29 (the wave, above): /tools 715 / 222.2 -> 678 / 209.6,
   // /workspace 772 / 241.0 -> 738 / 229.2.
-  { name: "the tools explorer", html: "tools.html", kb: 678, gzKb: 209.6 },
-  { name: "the workspace", html: "workspace.html", kb: 738, gzKb: 229.2 },
+  {
+    name: "the tools explorer",
+    html: "tools.html",
+    kb: 678,
+    gzKb: withNext1645(209.6, "tools.html"),
+  },
+  {
+    name: "the workspace",
+    html: "workspace.html",
+    kb: 738,
+    gzKb: withNext1645(229.2, "workspace.html"),
+  },
   // ADDED 2026-10-23. The status page had no row, and that is how it carried
   // pdf-lib and the tool catalogue unnoticed: 1,193 KB raw / 418.5 KB gz on
   // production, then 707 / 224.1 once alert-vocabulary.ts cut the chain
@@ -802,7 +854,12 @@ const BUDGETS = [
   // LOWERED 714 / 221.8 -> 709 / 219.7 on 2026-10-30 (the worker run on
   // demand, above): it loaded #223's upload chunk through the security
   // client's availability check.
-  { name: "the status page", html: "status.html", kb: 709, gzKb: 219.7 },
+  {
+    name: "the status page",
+    html: "status.html",
+    kb: 709,
+    gzKb: withNext1645(219.7, "status.html"),
+  },
 ] as const;
 
 /**
