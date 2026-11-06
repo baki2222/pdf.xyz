@@ -1149,8 +1149,10 @@ describe("the form tools answer what happens to the fields", () => {
     const plain = await inspectFormFields(await pdfWithPages([[300, 400]]));
     expect(plain.hasFields).toBe(false);
     for (const tool of mounting("fill-forms")) {
+      // 2026-11-06 (audit #15): the runner sends only the CHANGED answers
+      // (`changed`, not every field's `values`); the flatten option is the same.
       expect(runnerSource(tool.slug)).toMatch(
-        /applyFormValues\(pdf\.bytes, values, \{ flatten \}\)/,
+        /applyFormValues\(pdf\.bytes, changed, \{ flatten \}\)/,
       );
       expect(answer(tool.slug, /stop the answers/)).toMatch(
         /Leave it unticked and the fields stay fillable/,

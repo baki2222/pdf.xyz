@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { PDFDocument } from "pdf-lib";
+import {
+  PDFDocument,
+  PDFHexString,
+  PDFName,
+  PDFRawStream,
+  PDFString,
+  decodePDFRawStream,
+  type PDFDropdown,
+  type PDFOptionList,
+} from "pdf-lib";
 import {
   ORPHAN_FIELD,
   VISIBLE_FIELD,
@@ -358,5 +367,169 @@ describe("applyFormValues", () => {
       expect(result.flattened).toBe(true);
       expect((await inspectFormFields(result.bytes)).hasFields).toBe(false);
     });
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ *  Audit #15 (2026-11-06). Three ways filling one field disturbed the
+ *  rest of the form, or wrote the wrong thing into the field itself.
+ * ------------------------------------------------------------------ */
+
+/**
+ * A combo box and a list box whose `/Opt` holds [export, display] pairs, as
+ * government and enterprise forms write country lists: the reader shows
+ * "United States", the form's data (`/V`) holds "US".
+ */
+async function exportDisplayFormPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([600, 800]);
+  const form = doc.getForm();
+  const pairs = doc.context.obj([
+    [PDFString.of("US"), PDFString.of("United States")],
+    [PDFString.of("BD"), PDFString.of("Bangladesh")],
+  ]);
+  const country = form.createDropdown("country");
+  country.addOptions(["United States", "Bangladesh"]);
+  country.addToPage(page, { x: 10, y: 700, width: 200, height: 20 });
+  country.acroField.dict.set(PDFName.of("Opt"), pairs);
+  country.acroField.dict.set(PDFName.of("V"), PDFString.of("US"));
+  const visited = form.createOptionList("visited");
+  visited.addOptions(["United States", "Bangladesh"]);
+  visited.addToPage(page, { x: 10, y: 600, width: 200, height: 60 });
+  visited.acroField.dict.set(PDFName.of("Opt"), pairs);
+  visited.acroField.dict.set(PDFName.of("V"), PDFString.of("US"));
+  return doc.save();
+}
+
+/** The raw `/V` strings of a choice field, as a form's data consumer reads them. */
+function rawValues(doc: PDFDocument, name: string): string[] {
+  const field = doc.getForm().getField(name) as PDFDropdown | PDFOptionList;
+  return field.acroField.getValues().map((v) => v.decodeText());
+}
+
+/** A string as pdf-lib's standard-font text operators write it: WinAnsi hex. */
+function hexOf(text: string): string {
+  return [...text]
+    .map((c) => c.charCodeAt(0).toString(16).padStart(2, "0").toUpperCase())
+    .join("");
+}
+
+/** The decoded normal appearance stream of a field's first widget. */
+function appearanceText(doc: PDFDocument, name: string): string {
+  const widget = doc.getForm().getField(name).acroField.getWidgets()[0];
+  const normal = widget?.getAppearances()?.normal;
+  if (!(normal instanceof PDFRawStream)) throw new Error(`${name}: no /AP /N`);
+  return new TextDecoder("latin1").decode(decodePDFRawStream(normal).decode());
+}
+
+/**
+ * Text fields that carry NO appearance stream — as generators that set
+ * `/NeedAppearances` write them — next to a normal field the user fills:
+ *  - `city`, read-only, holding Bengali text;
+ *  - `serial`, editable but never touched, styled in Courier.
+ */
+async function appearanceLessFormPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([600, 800]);
+  const form = doc.getForm();
+  const name = form.createTextField("name");
+  name.addToPage(page, { x: 10, y: 740, width: 200, height: 20 });
+  const city = form.createTextField("city");
+  city.setText("x");
+  city.enableReadOnly();
+  city.addToPage(page, { x: 10, y: 700, width: 200, height: 20 });
+  const serial = form.createTextField("serial");
+  serial.setText("AB-12");
+  serial.addToPage(page, { x: 10, y: 660, width: 200, height: 20 });
+  await doc.save();
+  city.acroField.dict.set(PDFName.of("V"), PDFHexString.fromText("ঢাকা"));
+  serial.acroField.setDefaultAppearance("/Courier 12 Tf 0 g");
+  for (const field of [city, serial]) {
+    for (const widget of field.acroField.getWidgets()) {
+      widget.dict.delete(PDFName.of("AP"));
+    }
+    form.markFieldAsClean(field.ref);
+  }
+  return doc.save({ updateFieldAppearances: false });
+}
+
+describe("applyFormValues — the rest of the form is left as it was (audit #15)", () => {
+  it("shows a choice's DISPLAY text and reads its stored EXPORT value back as that text", async () => {
+    const info = await inspectFormFields(await exportDisplayFormPdf());
+    for (const name of ["country", "visited"]) {
+      const field = byName(info.fields, name);
+      expect(field.options).toEqual(["United States", "Bangladesh"]);
+      expect(field.selected).toEqual(["United States"]);
+    }
+  });
+
+  it("re-sending the pre-filled choice is applied, not refused as 'Not an option'", async () => {
+    const bytes = await exportDisplayFormPdf();
+    const result = await applyFormValues(bytes, {
+      country: "United States",
+      visited: ["United States"],
+    });
+    expect(result.outcomes.map((o) => o.status)).toEqual([
+      "applied",
+      "applied",
+    ]);
+    const doc = await PDFDocument.load(result.bytes);
+    expect(rawValues(doc, "country")).toEqual(["US"]);
+    expect(rawValues(doc, "visited")).toEqual(["US"]);
+    // A caller that sends the stored export value itself is understood too.
+    const byExport = await applyFormValues(bytes, { country: "US" });
+    expect(byExport.outcomes[0]?.status).toBe("applied");
+  });
+
+  it("a new choice stores the EXPORT value in /V and shows the display text", async () => {
+    const result = await applyFormValues(await exportDisplayFormPdf(), {
+      country: "Bangladesh",
+      visited: ["Bangladesh"],
+    });
+    expect(result.appliedCount).toBe(2);
+    const doc = await PDFDocument.load(result.bytes);
+    expect(rawValues(doc, "country")).toEqual(["BD"]);
+    expect(rawValues(doc, "visited")).toEqual(["BD"]);
+    // pdf-lib's select() turns on free typing for a value outside its display
+    // list; writing the export value must not do that.
+    expect(doc.getForm().getDropdown("country").isEditable()).toBe(false);
+    const info = await inspectFormFields(result.bytes);
+    expect(byName(info.fields, "country").selected).toEqual(["Bangladesh"]);
+    // What the reader draws is the display text, not the code.
+    const shown = appearanceText(doc, "country");
+    expect(shown).toContain(hexOf("Bangladesh"));
+    expect(shown).not.toContain(hexOf("BD") + ">");
+  });
+
+  it("an untouched read-only field holding Bengali with no appearance does not sink the save", async () => {
+    const result = await applyFormValues(await appearanceLessFormPdf(), {
+      name: "John",
+    });
+    expect(result.appliedCount).toBe(1);
+    const doc = await PDFDocument.load(result.bytes);
+    const city = doc.getForm().getTextField("city");
+    expect(city.getText()).toBe("ঢাকা");
+    expect(
+      city.acroField.getWidgets()[0]?.dict.has(PDFName.of("AP")),
+      "left exactly as it was: no appearance drawn for it",
+    ).toBe(false);
+    expect(doc.getForm().getTextField("name").getText()).toBe("John");
+  });
+
+  it("an untouched field keeps its author's font; only the filled field is redrawn", async () => {
+    const result = await applyFormValues(await appearanceLessFormPdf(), {
+      name: "John",
+    });
+    const doc = await PDFDocument.load(result.bytes);
+    const serial = doc.getForm().getTextField("serial");
+    expect(serial.acroField.getDefaultAppearance()).toBe("/Courier 12 Tf 0 g");
+    expect(serial.acroField.getWidgets()[0]?.dict.has(PDFName.of("AP"))).toBe(
+      false,
+    );
+    // Positive control: the field that WAS filled has a fresh appearance.
+    const name = doc.getForm().getTextField("name");
+    expect(name.acroField.getWidgets()[0]?.dict.has(PDFName.of("AP"))).toBe(
+      true,
+    );
   });
 });

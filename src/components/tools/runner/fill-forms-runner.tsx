@@ -204,6 +204,24 @@ function initialValues(fields: FormFieldInfo[]): Record<string, FieldValue> {
   return out;
 }
 
+/**
+ * Only the answers that differ from what the PDF already held. Sending an
+ * unchanged field back made the engine rewrite it, and pdf-lib redraws a
+ * rewritten text field in Helvetica: one typed answer restyled every text
+ * field on a Courier form (audit #15, pinned in the runner test).
+ */
+function changedValues(
+  values: Record<string, FieldValue>,
+  baseline: Record<string, FieldValue>,
+): Record<string, FieldValue> {
+  return Object.fromEntries(
+    Object.entries(values).filter(
+      ([name, value]) =>
+        JSON.stringify(value) !== JSON.stringify(baseline[name]),
+    ),
+  );
+}
+
 function FieldsEditor({
   pdf,
   inspection,
@@ -222,12 +240,11 @@ function FieldsEditor({
   const [values, setValues] = useState<Record<string, FieldValue>>(() =>
     initialValues(inspection.fields),
   );
-  // Answers typed or chosen and not yet written into the PDF.
-  const [initial] = useState(() => JSON.stringify(values));
-  useUnsavedGuard(
-    JSON.stringify(values) !== initial && !result,
-    "your answers",
-  );
+  // What the PDF already held: the baseline both for "unsaved answers" and
+  // for which fields are sent to be written.
+  const [baseline] = useState(() => values);
+  const changed = changedValues(values, baseline);
+  useUnsavedGuard(Object.keys(changed).length > 0 && !result, "your answers");
   const [flatten, setFlatten] = useState(false);
 
   const editable = useMemo(
@@ -251,10 +268,10 @@ function FieldsEditor({
     void run(async () => {
       const { applyFormValues } = await import("@/lib/pdf/forms");
       if (!restricted || !protection)
-        return applyFormValues(pdf.bytes, values, { flatten });
+        return applyFormValues(pdf.bytes, changed, { flatten });
       // Flattening rewrites the page, which the author did not allow; the
       // values go into the fields, saved back under the author's encryption.
-      const filled = await applyFormValues(pdf.bytes, values, {
+      const filled = await applyFormValues(pdf.bytes, changed, {
         flatten: false,
       });
       const saved = await protection.saveChanges(filled.bytes);

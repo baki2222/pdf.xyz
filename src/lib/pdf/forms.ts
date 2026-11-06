@@ -2,11 +2,14 @@ import {
   PDFButton,
   PDFCheckBox,
   PDFDropdown,
+  PDFHexString,
+  PDFName,
   PDFOptionList,
   PDFRadioGroup,
   PDFSignature,
   PDFTextField,
   type PDFField,
+  type PDFFont,
 } from "pdf-lib";
 import { loadPdf, stampProducer } from "./stamp";
 import { assertFormFieldTextDrawable } from "./unicode-font";
@@ -165,6 +168,88 @@ function safe<T>(read: () => T, fallback: T): T {
   }
 }
 
+/**
+ * A choice field's options as `/Opt` stores them: the EXPORT value a form's
+ * data carries in `/V`, and the DISPLAY text a reader shows. pdf-lib's
+ * `getOptions()` returns only the display text while `getSelected()` returns
+ * the stored export value, so the two never matched on a form that pairs them
+ * (`[(US) (United States)]`): the pre-filled answer was refused as "Not an
+ * option: US", and a new choice wrote "Bangladesh" into `/V` instead of "BD".
+ */
+interface ChoiceOption {
+  value: string;
+  display: string;
+}
+
+function choiceOptions(field: PDFDropdown | PDFOptionList): ChoiceOption[] {
+  return field.acroField.getOptions().map(({ value, display }) => ({
+    value: value.decodeText(),
+    display: (display ?? value).decodeText(),
+  }));
+}
+
+/** The display text for a stored `/V` value (a custom value is its own). */
+function displayFor(options: readonly ChoiceOption[], value: string): string {
+  return options.find((o) => o.value === value)?.display ?? value;
+}
+
+/**
+ * The option a supplied choice names, by its display text first (what the
+ * runner shows) and then by its export value (what an API caller may send).
+ */
+function optionFor(
+  options: readonly ChoiceOption[],
+  choice: string,
+): ChoiceOption | undefined {
+  return (
+    options.find((o) => o.display === choice) ??
+    options.find((o) => o.value === choice)
+  );
+}
+
+/**
+ * Redraw the appearance of a field THIS fill changed, and only such a field.
+ * The save that follows runs with `updateFieldAppearances: false`, because
+ * pdf-lib's default regenerates every field it thinks needs it: a read-only
+ * field holding Bengali with no stored appearance threw the raw `WinAnsi
+ * cannot encode` and lost the run, and every untouched field without one was
+ * redrawn in Helvetica over its author's font. The same rule as pdf-lib's
+ * `updateFieldAppearances`, scoped to the fields we wrote.
+ */
+function redraw(field: PDFField, font: PDFFont): void {
+  if (field.needsAppearancesUpdate()) field.defaultUpdateAppearances(font);
+}
+
+/**
+ * Select `choices` in a choice field so that the reader SHOWS the display text
+ * and the form's data holds the EXPORT value. pdf-lib's `select()` writes the
+ * string it is given into `/V`, and turns on free typing for one outside its
+ * display list, so it is given the display texts, the appearance is drawn
+ * from them, and only then is `/V` rewritten with the export values.
+ */
+function selectChoices(
+  field: PDFDropdown | PDFOptionList,
+  choices: readonly string[],
+  font: PDFFont,
+): void {
+  const options = choiceOptions(field);
+  const picked = choices.map(
+    (c) => optionFor(options, c) ?? { value: c, display: c },
+  );
+  field.select(picked.map((o) => o.display));
+  redraw(field, font);
+  // Written straight into `/V`: pdf-lib's `setValues` validates against the
+  // display texts and refuses an export value. `/I` (the selected indices)
+  // was already set by `select()` and does not change.
+  const values = picked.map((o) => PDFHexString.fromText(o.value));
+  field.acroField.dict.set(
+    PDFName.of("V"),
+    values.length === 1 && values[0]
+      ? values[0]
+      : field.doc.context.obj(values),
+  );
+}
+
 /** Build safe, display-ready metadata for a single field. */
 function describeField(field: PDFField): FormFieldInfo {
   const type = classifyField(field);
@@ -190,15 +275,16 @@ function describeField(field: PDFField): FormFieldInfo {
       undefined,
     );
     info.selected = selected ? [selected] : [];
-  } else if (field instanceof PDFDropdown) {
-    info.options = safe(() => field.getOptions(), []);
-    info.selected = safe(() => field.getSelected(), []);
+  } else if (field instanceof PDFDropdown || field instanceof PDFOptionList) {
+    const options = safe(() => choiceOptions(field), []);
+    info.options = options.map((o) => o.display);
+    info.selected = safe(() => field.getSelected(), []).map((v) =>
+      displayFor(options, v),
+    );
     info.multiselect = safe(() => field.isMultiselect(), false);
-    info.editable = safe(() => field.isEditable(), false);
-  } else if (field instanceof PDFOptionList) {
-    info.options = safe(() => field.getOptions(), []);
-    info.selected = safe(() => field.getSelected(), []);
-    info.multiselect = safe(() => field.isMultiselect(), false);
+    if (field instanceof PDFDropdown) {
+      info.editable = safe(() => field.isEditable(), false);
+    }
   }
 
   return info;
@@ -256,6 +342,7 @@ function applyToField(
   field: PDFField,
   info: FormFieldInfo,
   value: FieldValue,
+  font: PDFFont,
 ): FieldApplyOutcome {
   const { name, type } = info;
 
@@ -286,12 +373,14 @@ function applyToField(
           };
         }
         (field as PDFTextField).setText(text);
+        redraw(field, font);
         return { name, type, status: "applied" };
       }
       case "checkbox": {
         const checkbox = field as PDFCheckBox;
         if (toBool(value)) checkbox.check();
         else checkbox.uncheck();
+        redraw(field, font);
         return { name, type, status: "applied" };
       }
       case "radio": {
@@ -299,6 +388,7 @@ function applyToField(
         const choice = toText(value);
         if (choice === "") {
           group.clear();
+          redraw(field, font);
           return { name, type, status: "applied" };
         }
         if (!options.includes(choice)) {
@@ -310,6 +400,7 @@ function applyToField(
           };
         }
         group.select(choice);
+        redraw(field, font);
         return { name, type, status: "applied" };
       }
       case "dropdown": {
@@ -319,12 +410,14 @@ function applyToField(
           choices = choices.slice(0, 1);
         if (choices.length === 0) {
           dropdown.clear();
+          redraw(field, font);
           return { name, type, status: "applied" };
         }
         // A non-editable dropdown must only take listed options; pdf-lib would
         // otherwise silently accept an off-list value and corrupt the choice.
         if (!info.editable) {
-          const unknown = choices.filter((c) => !options.includes(c));
+          const listed = choiceOptions(dropdown);
+          const unknown = choices.filter((c) => !optionFor(listed, c));
           if (unknown.length > 0) {
             return {
               name,
@@ -334,7 +427,7 @@ function applyToField(
             };
           }
         }
-        dropdown.select(choices);
+        selectChoices(dropdown, choices, font);
         return { name, type, status: "applied" };
       }
       case "optionlist": {
@@ -344,9 +437,11 @@ function applyToField(
           choices = choices.slice(0, 1);
         if (choices.length === 0) {
           list.clear();
+          redraw(field, font);
           return { name, type, status: "applied" };
         }
-        const unknown = choices.filter((c) => !options.includes(c));
+        const listed = choiceOptions(list);
+        const unknown = choices.filter((c) => !optionFor(listed, c));
         if (unknown.length > 0) {
           return {
             name,
@@ -355,7 +450,7 @@ function applyToField(
             detail: `Not an option: ${unknown.join(", ")}`,
           };
         }
-        list.select(choices);
+        selectChoices(list, choices, font);
         return { name, type, status: "applied" };
       }
       default:
@@ -399,10 +494,11 @@ export async function applyFormValues(
   // the raw string `WinAnsi cannot encode "গ" (0x0997)`. Correct refusal, no
   // usable message, and only after every other field has already been applied.
   assertFormFieldTextDrawable(
-    Object.values(values).map((value) =>
-      typeof value === "string" ? value : "",
+    Object.values(values).flatMap((value) =>
+      typeof value === "boolean" ? [] : value,
     ),
   );
+  const font = form.getDefaultFont();
 
   const outcomes: FieldApplyOutcome[] = [];
   for (const [name, value] of Object.entries(values)) {
@@ -416,11 +512,13 @@ export async function applyFormValues(
       });
       continue;
     }
-    outcomes.push(applyToField(entry.field, entry.info, value));
+    outcomes.push(applyToField(entry.field, entry.info, value, font));
   }
 
   stampProducer(doc);
-  const filledBytes = await doc.save();
+  // Only the fields written above were redrawn (see `redraw`); every other
+  // field leaves exactly as it came. Pinned by the "audit #15" tests.
+  const filledBytes = await doc.save({ updateFieldAppearances: false });
   const appliedCount = outcomes.filter((o) => o.status === "applied").length;
   const flattenRequested = options.flatten === true;
   const unflattened = {
