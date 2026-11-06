@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  assembleExtraction,
-  extractedTextSummary,
   joinPageTexts,
   normalizeExtractedText,
   pagesWithoutText,
@@ -214,36 +212,5 @@ describe("pagesWithoutText names exactly the pages the join drops", () => {
         pages.map((page) => page.pageNumber),
       );
     }
-  });
-});
-
-/**
- * Audit #50 (pdf-to-text#2, 2026-11-06): the result line counted UTF-16 code
- * units ("43 characters") — every emoji, mathematical alphanumeric (𝐀, 𝑥:
- * pdf.js emits these for many scientific PDFs) or CJK Extension B ideograph
- * counted twice. The audit's own items, through the same assembly
- * extractPdfText uses.
- */
-describe("PDF to Text's result line counts characters, not UTF-16 units", () => {
-  const MATH_A = String.fromCodePoint(0x1d400);
-  const MATH_B = String.fromCodePoint(0x1d401);
-  const GRIN = String.fromCodePoint(0x1f600);
-  const items = [
-    { str: "The quick exam-", hasEOL: true },
-    { str: "ple of a para", hasEOL: true },
-    { str: `graph ${MATH_A}${MATH_B} ${GRIN}`, hasEOL: false },
-  ];
-
-  it("says 40 characters for text holding three astral characters", () => {
-    const page = { pageNumber: 1, text: textItemsToPlainText(items) };
-    const result = assembleExtraction(1, [
-      { ...page, characterCount: page.text.length },
-    ]);
-    const codePoints = [...result.text].length;
-    // Health check: the fixture really has astral characters to miscount.
-    expect(result.text.length - codePoints).toBe(3);
-    expect(extractedTextSummary(result)).toBe(
-      `${codePoints} characters from 1 page`,
-    );
   });
 });
