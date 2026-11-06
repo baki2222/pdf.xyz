@@ -161,11 +161,19 @@ function useEnding(): Ending | null {
 /**
  * Small state machine shared by every runner: tracks a busy flag, the last
  * error, and the produced result, and wraps an async task with try/catch.
+ *
+ * `reset()` invalidates a run still in flight: its value, its error and its
+ * busy flag are dropped when it settles. Scan to PDF's Clear reset the runner
+ * mid-run and was then shown "Scan saved as PDF" for the photos it had just
+ * discarded (audit #47, 2026-11-06).
  */
 export function useAsyncRun<T>() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<T | null>(null);
+  // Which run is current: bumped by every run and every reset, so a run that
+  // settles after either is no longer the one the runner is showing.
+  const generation = useRef(0);
   // A run still in flight when the runner unmounts settles its hold then:
   // the result it was held for will never be drawn (`./stage-hold`).
   const holding = useRef<(() => void) | null>(null);
@@ -176,6 +184,8 @@ export function useAsyncRun<T>() {
     // press's own handler (`./stage-hold`).
     const settled = holdRunnerStage();
     holding.current = settled;
+    const mine = ++generation.current;
+    const current = () => generation.current === mine;
     setBusy(true);
     setError(null);
     // The masthead's square and a hidden tab's title read this (spec E.11).
@@ -192,22 +202,25 @@ export function useAsyncRun<T>() {
       // Drawn with its ending, not before it (`endingReady`): the run is
       // still busy for the moment it waits, so nothing flashes.
       await endingReady();
+      if (!current()) return null;
       setResult(value);
       reportActivity("done");
       return value;
     } catch (err) {
-      setError(errorMessage(err));
       reportToolFailed({ code: failureCode(err) });
+      if (!current()) return null;
+      setError(errorMessage(err));
       reportActivity("failed");
       return null;
     } finally {
-      setBusy(false);
+      if (current()) setBusy(false);
       settled();
       if (holding.current === settled) holding.current = null;
     }
   }, []);
 
   const reset = useCallback(() => {
+    generation.current += 1;
     setResult(null);
     setError(null);
     setBusy(false);
