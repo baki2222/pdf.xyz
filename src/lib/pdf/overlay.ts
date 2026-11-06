@@ -1,4 +1,4 @@
-import type { PDFDocument, PDFEmbeddedPage, PDFPage } from "pdf-lib";
+import type { PDFDict, PDFDocument, PDFEmbeddedPage, PDFPage } from "pdf-lib";
 import { PdfEncryptedError, PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
@@ -558,10 +558,7 @@ export function drawFieldValues(lib: PdfLibModule, doc: PDFDocument): string[] {
 }
 
 /** Whether a widget dict carries a normal appearance (`/AP /N`) to bake. */
-function hasNormalAppearance(
-  lib: PdfLibModule,
-  widget: InstanceType<PdfLibModule["PDFDict"]>,
-): boolean {
+function hasNormalAppearance(lib: PdfLibModule, widget: PDFDict): boolean {
   const { PDFDict, PDFName, PDFStream } = lib;
   const ap = widget.lookup(PDFName.of("AP"));
   if (!(ap instanceof PDFDict)) return false;
