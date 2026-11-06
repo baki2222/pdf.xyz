@@ -17,14 +17,7 @@ import { outputName } from "@/lib/pdf/files";
  *    handleImage: DCTDecode is copied verbatim whatever its colour space
  *    (jpegColorLabel labels CMYK JPEGs, it does not skip them) and the /Decode
  *    check sits BELOW the DCT branch, so a JPEG's /Decode is neither skipped
- *    nor applied. SUPERSEDED 2026-11-06 (audit #44), history kept: still
- *    neither applied nor skipped, but a JPEG whose /Decode is not [0 1] per
- *    channel now carries a "Saved as stored, with its colours inverted" note
- *    (jpegDecodeRemaps) — except a CMYK JPEG with Adobe's APP14 marker and
- *    every pair inverted, the usual compensation for Photoshop's inverted
- *    CMYK. The pixel ceiling (MAX_DECODED_PIXELS) moved below the DCT branch
- *    at the same time: it guards decoding, and a JPEG is never decoded, so a
- *    JPEG over it is saved instead of skipped as "too large"; pixel images are extracted as 8-bit RGB/gray, 1-bit gray,
+ *    nor applied; pixel images are extracted as 8-bit RGB/gray, 1-bit gray,
  *    or an Indexed palette over RGB/gray at 1/2/4/8 bits (expandPalette), and
  *    written by encodePng with IHDR/IDAT/IEND only — stored (uncompressed)
  *    DEFLATE, no iCCP. Transparency: readTransparency turns an /SMask, a
@@ -36,6 +29,16 @@ import { outputName } from "@/lib/pdf/files";
  *    filters, /ImageMask stencils, custom /Decode arrays on pixel images,
  *    CMYK, Lab, Separation, DeviceN and palettes over them, other bit depths,
  *    inline images, oversized or undecodable streams.
+ *    SUPERSEDED 2026-11-06 (audit #44), history kept above: a JPEG's
+ *    /Decode is still neither applied nor skipped, but one whose /Decode is
+ *    not [0 1] per channel now carries a note (jpegDecodeNote): "Saved as
+ *    stored, with its colours inverted" when every pair is [1 0], and a
+ *    general "a /Decode array that changes its colours" note otherwise —
+ *    except a CMYK JPEG with Adobe's APP14 marker and every pair inverted,
+ *    the usual compensation for Photoshop's inverted CMYK. The pixel ceiling
+ *    (MAX_DECODED_PIXELS) moved below the DCT branch at the same time: it
+ *    guards decoding, and a JPEG is never decoded, so a JPEG over it is saved
+ *    instead of skipped as "too large".
  *    History: on 2026-09-27 this bullet said "no alpha, /SMask never read"
  *    and listed Indexed and inline images as unscanned or skipped. That was
  *    true of the extractor it was read from and false from 8e398575 on, and

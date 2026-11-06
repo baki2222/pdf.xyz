@@ -318,9 +318,7 @@ function handleImage(
             "a JPEG is saved exactly as embedded and cannot carry the PDF's separate mask",
           )
         : undefined,
-      jpegDecodeRemaps(dict, jpeg)
-        ? "Saved as stored, with its colours inverted: the PDF draws this JPEG through a /Decode array that inverts them, so the file looks like a negative of the page"
-        : undefined,
+      jpegDecodeNote(dict, jpeg),
     ].filter((note) => note !== undefined);
     emit(
       page,
@@ -1154,29 +1152,38 @@ function isDefaultDecode(
 }
 
 /**
- * True when a DCT image's `/Decode` changes what its stored samples look like
- * on the page — any pair other than `[0 1]`. One case is left alone: a CMYK
+ * The caveat for a DCT image whose `/Decode` changes what its stored samples
+ * look like on the page — any pair other than `[0 1]` — or undefined. Every
+ * pair `[1 0]` is called inverted; anything else is described generally. One case is left alone: a CMYK
  * JPEG carrying Adobe's APP14 marker with every pair inverted. Photoshop
  * writes such JPEGs with inverted CMYK, PDF writers add `[1 0 …]` to undo
  * that, and a viewer that reads the marker shows the saved .jpg the way the
  * page does — so a caveat there would be the false one.
  */
-function jpegDecodeRemaps(dict: PDFDict, jpeg: Uint8Array): boolean {
+function jpegDecodeNote(dict: PDFDict, jpeg: Uint8Array): string | undefined {
   const decode = dict.lookup(PDFName.of("Decode"));
-  if (!(decode instanceof PDFArray)) return false;
+  if (!(decode instanceof PDFArray)) return undefined;
   const values = decode
     .asArray()
     .map((n) => (n instanceof PDFNumber ? n.asNumber() : NaN));
   const pairs: [number, number][] = [];
   for (let i = 0; i + 1 < values.length; i += 2)
     pairs.push([values[i]!, values[i + 1]!]);
-  if (pairs.every(([lo, hi]) => lo === 0 && hi === 1)) return false;
-  const adobeInverted =
+  if (pairs.every(([lo, hi]) => lo === 0 && hi === 1)) return undefined;
+  const inverted = pairs.every(([lo, hi]) => lo === 1 && hi === 0);
+  if (
+    inverted &&
     classifyColorSpace(dict).kind === "cmyk" &&
     pairs.length === 4 &&
-    pairs.every(([lo, hi]) => lo === 1 && hi === 0) &&
-    hasAdobeApp14(jpeg);
-  return !adobeInverted;
+    hasAdobeApp14(jpeg)
+  )
+    return undefined;
+  // "Inverted" and "a negative" only when every channel IS inverted: a pair
+  // such as [0 0.5] rescales, and [1 0 0 1 0 1] inverts one channel of three
+  // (audit #44 review).
+  return inverted
+    ? "Saved as stored, with its colours inverted: the PDF draws this JPEG through a /Decode array that inverts them, so the file looks like a negative of the page"
+    : "Saved as stored, so its colours may differ from the page: the PDF draws this JPEG through a /Decode array that changes its colours";
 }
 
 /** Whether a JPEG carries an Adobe APP14 segment before its scan data. */

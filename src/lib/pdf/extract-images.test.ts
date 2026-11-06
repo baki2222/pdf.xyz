@@ -1600,6 +1600,30 @@ describe("extractPdfImages — JPEG /Decode and the pixel ceiling (audit #44)", 
     expect(result.images[0]!.note).toMatch(/inverted/i);
   });
 
+  // Review: a /Decode that rescales without inverting (here [0 0.5], half
+  // brightness) was flagged as "inverted" and "a negative of the page".
+  it("a gray JPEG with a rescaling, non-inverting /Decode is flagged, but not as inverted", async () => {
+    const result = await extractPdfImages(
+      await pdfWithImages(
+        dctImage(JPG_1X1, "DeviceGray", { Decode: [0, 0.5] }),
+      ),
+    );
+    const note = result.images[0]!.note;
+    expect(note).toMatch(/\/Decode array that changes its colours/);
+    expect(note).not.toMatch(/invert|negative/i);
+  });
+
+  it("a mixed /Decode (one channel inverted, one not) is not called a negative", async () => {
+    const result = await extractPdfImages(
+      await pdfWithImages(
+        dctImage(JPG_1X1, "DeviceRGB", { Decode: [1, 0, 0, 1, 0, 1] }),
+      ),
+    );
+    const note = result.images[0]!.note;
+    expect(note).toMatch(/\/Decode array that changes its colours/);
+    expect(note).not.toMatch(/negative/i);
+  });
+
   it("control: a JPEG that spells out the default /Decode has no caveat", async () => {
     const result = await extractPdfImages(
       await pdfWithImages(
