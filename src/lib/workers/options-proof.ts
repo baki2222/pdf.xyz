@@ -20,6 +20,14 @@
  *     first rung, top down, whose lone run fit, with every sharper rung over
  *     it, in colour, pages verified; and an unreachable one not met after
  *     every rung, at the smallest size any rung made;
+ *   - page orientation (2026-11-06, audit #21): a three-page file whose
+ *     /Rotate 90 page and vertical-text landscape page are what Ghostscript's
+ *     default `/PageByPage` would re-orient, through the deep step at the
+ *     default resolution; every output page keeps its input's /Rotate and
+ *     MediaBox shape, the input really has all three shapes (the fixture is
+ *     not vacuous), and the file read back is the ENGINE's (smaller, three
+ *     pages) — the no-worse swap hands back the original, which would pass
+ *     blind. Runs only where Ghostscript is installed, like the rest;
  *   - permissions: the output's /P, read without a password
  *     (`readEncryptPermissions`), withholds exactly the switches asked for at
  *     both key lengths; qpdf's OWN `--show-encryption` reports the same /P (a
@@ -46,7 +54,16 @@ import {
   colourImagePdf,
   noisePhotoPdf,
 } from "@/lib/workers/compression/colour-image-pdf";
-import { runCompression, type CompressionDeps } from "./compression/engine";
+import {
+  DEFAULT_TARGET_DPI,
+  runCompression,
+  type CompressionDeps,
+} from "./compression/engine";
+import {
+  orientationVerdict,
+  pageOrientations,
+  rotationProofPdf,
+} from "./compression/rotation-proof";
 import { PDFArray, PDFDocument, PDFName, PDFRawStream } from "pdf-lib";
 import { TARGET_DPI_LADDER, ladderRungs } from "./compression/target-ladder";
 import { MIN_TARGET_BYTES } from "@/lib/pdf/compress-target";
@@ -256,6 +273,42 @@ export async function runWorkerOptionsProof(
       ? "a run without grayscale still reads as colour"
       : `${kept.kind}: ${kept.message}`,
   );
+
+  // ── page orientation (2026-11-06, audit #21) ────────────────────────────
+  // The argv test proves `-dAutoRotatePages=/None` is ASKED for; this reads
+  // back what the engine did with it (see `./compression/rotation-proof`).
+  const rotationInput = await rotationProofPdf();
+  const wanted = await pageOrientations(rotationInput);
+  check(
+    wanted.length === 3 &&
+      wanted.some((p) => p.rotate === 90) &&
+      wanted.some((p) => p.landscape) &&
+      wanted.some((p) => p.rotate === 0 && !p.landscape),
+    "rotation fixture",
+    wanted.map((p) => `${p.rotate}${p.landscape ? "L" : "P"}`).join(" "),
+  );
+  const rotated = await runCompression(
+    rotationInput,
+    { profile: "deep", targetDpi: DEFAULT_TARGET_DPI },
+    deps.compression,
+  );
+  if (!rotated.ok) {
+    check(false, "rotation run", `${rotated.kind}: ${rotated.message}`);
+  } else {
+    check(
+      rotated.output !== rotationInput &&
+        rotated.meta.outputBytes < rotated.meta.originalBytes &&
+        rotated.meta.pageCheck === "verified" &&
+        rotated.meta.pagesOut === 3,
+      "rotation engine output",
+      `${rotated.meta.originalBytes} -> ${rotated.meta.outputBytes} B, pageCheck ${rotated.meta.pageCheck}, pages out ${rotated.meta.pagesOut}`,
+    );
+    const verdict = orientationVerdict(
+      wanted,
+      await pageOrientations(rotated.output),
+    );
+    check(verdict.ok, "rotation kept", verdict.detail);
+  }
 
   // ── target size (2026-10-31) ────────────────────────────────────────────
   // INVERTED the same day. This section first asserted that each rung's size
