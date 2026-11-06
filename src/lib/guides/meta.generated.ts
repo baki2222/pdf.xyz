@@ -501,7 +501,7 @@ export const GUIDE_META: readonly GuideMeta[] = [
   },
   {
     slug: "how-to-convert-tiff-to-pdf",
-    title: "How to convert TIFF to PDF (multi-page TIFFs and fax scans)",
+    title: "How to convert TIFF to PDF (multi-page and fax scans)",
     primary: "jpg-to-pdf",
     keywords: [
       "tiff to pdf",

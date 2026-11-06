@@ -4066,7 +4066,7 @@ export const guides: Guide[] = [
   // and agrees with the JPG to PDF page's own TIFF answers.
   {
     slug: "how-to-convert-tiff-to-pdf",
-    title: `How to convert ${TIFF} to PDF (multi-page ${TIFF}s and fax scans)`,
+    title: `How to convert ${TIFF} to PDF (multi-page and fax scans)`,
     description: `Turn a ${TIFF} into a PDF, every page of a multi-page ${TIFF} in order, fax scans included, without loss. It runs in your browser.`,
     tools: ["jpg-to-pdf", "png-to-pdf", "ocr-pdf"],
     keywords: [
@@ -4141,8 +4141,8 @@ export const guides: Guide[] = [
         answer: `No. The ${TIFF} is read and the PDF is made in your browser tab; the files are not sent to pdf.xyz.`,
       },
     ],
-    published: "2026-11-05",
-    updated: "2026-11-05",
+    published: "2026-11-06",
+    updated: "2026-11-06",
   },
   // Added 2026-10-31 with the deep step's Target size. Every label is read
   // from the panel's constants (`compress-target.ts`, `offered-kinds.ts`),
