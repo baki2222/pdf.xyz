@@ -12,6 +12,7 @@ import {
   type ChromiumPackageRunner,
   type ChromiumPdfRunner,
   type DocumentPackage,
+  type PackageDocument,
   type HtmlRenderDeps,
   type WebpageFetchFailure,
 } from "./engine";
@@ -667,13 +668,26 @@ export function createNativeChromiumPdfRunner(
    *     origin is answered from the package (404 when `serve` has nothing),
    *     and every other request is FAILED before any fetch — a package is
    *     self-contained, so nothing is fetched from the web;
-   *   - the output cap holds for the documents together.
+   *   - the output cap holds for the documents together;
+   *   - a document Chromium's XML parser rejects (its `<parsererror>` is in
+   *     the DOM) is loaded again as `text/html`, whose parser recovers the
+   *     way lenient readers do, and one that still shows the error fails
+   *     the render — Chromium's error banner is never printed (audit #6).
    */
   async function drivePackage(
     cdp: CdpConnection,
     pkg: DocumentPackage,
   ): Promise<Uint8Array[]> {
     const budgets = new Map<string, () => void>();
+    /** Documents to serve as HTML: their XML parse failed. By `URL.href`. */
+    const servedAsHtml = new Set<string>();
+    const hrefOf = (url: string) => {
+      try {
+        return new URL(url).href;
+      } catch {
+        return url;
+      }
+    };
     const answer = async (event: CdpEvent): Promise<void> => {
       const p = event.params as {
         requestId: string;
@@ -684,14 +698,17 @@ export function createNativeChromiumPdfRunner(
       if (p.request.url.startsWith(HTML_DOCUMENT_URL)) {
         const hit =
           p.request.method === "GET" ? pkg.serve(p.request.url) : null;
+        const contentType = !hit
+          ? "text/plain"
+          : servedAsHtml.has(hrefOf(p.request.url))
+            ? htmlDocumentContentType(hit.body)
+            : hit.contentType;
         await cdp.send(
           "Fetch.fulfillRequest",
           {
             requestId: p.requestId,
             responseCode: hit ? 200 : 404,
-            responseHeaders: [
-              { name: "Content-Type", value: hit?.contentType ?? "text/plain" },
-            ],
+            responseHeaders: [{ name: "Content-Type", value: contentType }],
             body: hit ? Buffer.from(hit.body).toString("base64") : "",
           },
           event.sessionId,
@@ -728,12 +745,8 @@ export function createNativeChromiumPdfRunner(
       }
     });
 
-    const out: Uint8Array[] = [];
-    let total = 0;
-    for (const doc of pkg.documents) {
-      // A document the package cannot serve would print as an empty 404.
-      if (!pkg.serve(doc.url))
-        throw new Error("a document of the package could not be served");
+    /** A tab with `doc` loaded and its virtual time spent. */
+    const load = async (doc: PackageDocument) => {
       const { targetId } = await cdp.send<{ targetId: string }>(
         "Target.createTarget",
         { url: "about:blank" },
@@ -771,6 +784,39 @@ export function createNativeChromiumPdfRunner(
       );
       await budget;
       budgets.delete(sessionId);
+      return { targetId, sessionId };
+    };
+    /** True when Chromium's XML parser rejected the loaded document. */
+    const xmlParseFailed = async (sessionId: string) => {
+      const { root } = await cdp.send<{ root: { nodeId: number } }>(
+        "DOM.getDocument",
+        { depth: 0 },
+        sessionId,
+      );
+      const { nodeId } = await cdp.send<{ nodeId: number }>(
+        "DOM.querySelector",
+        { nodeId: root.nodeId, selector: "parsererror" },
+        sessionId,
+      );
+      return nodeId > 0;
+    };
+
+    const out: Uint8Array[] = [];
+    let total = 0;
+    for (const doc of pkg.documents) {
+      // A document the package cannot serve would print as an empty 404.
+      if (!pkg.serve(doc.url))
+        throw new Error("a document of the package could not be served");
+      let { targetId, sessionId } = await load(doc);
+      if (await xmlParseFailed(sessionId)) {
+        await cdp.send("Target.closeTarget", { targetId }).catch(() => {});
+        servedAsHtml.add(hrefOf(doc.url));
+        ({ targetId, sessionId } = await load(doc));
+        if (await xmlParseFailed(sessionId))
+          throw new Error(
+            "a document of the package could not be parsed as XML or HTML",
+          );
+      }
       const bytes = await printToPdf(
         cdp,
         sessionId,
