@@ -14,11 +14,13 @@ import { sniffFormat } from "@/lib/intent/sniff";
 import { EXTENSIONS_BY_FORMAT } from "@/lib/jobs/mime-by-format";
 import { getToolBySlug as getTool } from "@/lib/tools";
 import {
+  DOCUMENT_WORDS,
   OFFICE_INPUT_EXTENSIONS,
   OFFICE_TO_PDF_TOOLS,
   runOfficeToPdf,
   type LibreOfficePdfRunner,
 } from "./engine";
+import { LibreOfficeRunError } from "./errors";
 import { officeContentRefusal, SIGNED_OFFICE_INPUTS } from "./input-content";
 
 const enc = (text: string) => [...text].map((c) => c.charCodeAt(0));
@@ -185,5 +187,58 @@ describe("the engine refuses a renamed file before LibreOffice runs", () => {
         libreoffice: run,
       }),
     ).resolves.toMatchObject({ ok: true });
+  });
+});
+
+/**
+ * Audit #40 (2026-11-06): the "could not be converted" reply was built from
+ * DOCUMENT_WORDS[tool] alone, so a damaged .odt, .rtf, .ods or .odp was told
+ * to open it in Word, Excel or PowerPoint and "save it again as .docx"
+ * (.xlsx, .pptx). The advice now follows the INPUT's extension wherever the
+ * bytes say the file is not a Microsoft format (`SIGNED_OFFICE_INPUTS`), and
+ * is unchanged for the Microsoft formats — which this walk also holds, so it
+ * cannot pass by changing every message.
+ */
+describe("the unreadable reply names the input's own format", () => {
+  const NOT_PDF = Uint8Array.from(enc("no pdf"));
+  const failing: Record<string, () => LibreOfficePdfRunner> = {
+    "LibreOffice wrote no PDF": () => ({
+      convertToPdf: vi.fn(async () => {
+        throw new LibreOfficeRunError("no_output");
+      }),
+    }),
+    "the output is not a PDF": () => ({
+      convertToPdf: vi.fn(async () => NOT_PDF),
+    }),
+  };
+  const pairs = OFFICE_TO_PDF_TOOLS.flatMap((tool) =>
+    OFFICE_INPUT_EXTENSIONS[tool].flatMap((ext) =>
+      Object.keys(failing).map((how) => [tool, ext, how] as const),
+    ),
+  );
+
+  it("walks every accepted extension of every tool (health)", () => {
+    expect(pairs.length).toBe(ACCEPTED.length * Object.keys(failing).length);
+    const signed = pairs.filter(([, ext]) => SIGNED_OFFICE_INPUTS[ext]);
+    expect(signed.length).toBeGreaterThanOrEqual(8);
+    expect(pairs.length - signed.length).toBeGreaterThanOrEqual(14);
+  });
+
+  it.each(pairs)("%s .%s, %s", async (tool, ext, how) => {
+    const run = await runOfficeToPdf(tool, GENUINE[ext]!, `file.${ext}`, {
+      libreoffice: failing[how]!(),
+    });
+    expect(run).toMatchObject({ ok: false, kind: "unreadable" });
+    const message = run.ok ? "" : run.message;
+    const words = DOCUMENT_WORDS[tool];
+    if (SIGNED_OFFICE_INPUTS[ext]) {
+      expect(message).toContain(`save it again as .${ext}`);
+      expect(message).not.toContain(words.app);
+      expect(message).not.toContain(words.ext);
+    } else {
+      // Control: a Microsoft format keeps the Microsoft advice.
+      expect(message).toContain(`open it in ${words.app}`);
+      expect(message).toContain(`save it again as ${words.ext}`);
+    }
   });
 });
