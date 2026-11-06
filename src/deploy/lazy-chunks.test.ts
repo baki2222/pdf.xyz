@@ -480,8 +480,16 @@ describe("the catalogue ships in one chunk, shared by every surface that reads i
  * sniff/format chunk, +32 the catalogue). Measured 32.92 on the branch,
  * after dropping the five new keywords the search already finds by format
  * (`tools.test.ts`, "finds the Office to PDF tool by each format").
+ *
+ * RAISED 33.0 -> 33.07 on 2026-11-06, for Next 16.3.6 -> 16.4.5 (a security
+ * floor: dependency-floors.test.ts), by exactly what it added and nothing
+ * more. The branch changes no source; the eight counted chunks went
+ * 33,716 -> 33,784 B (gzip -9, main c25058fe vs the branch, both built on
+ * one machine from an empty .next), +68 B of framework output in our own
+ * chunks. CI measured the branch at 33.003 against 33.0. The same rule as
+ * `NEXT_16_4_5_BYTES` in bundle-budget.test.ts: the row keeps its headroom.
  */
-const TICKET_FETCH_GZ_KB = 33.0;
+const TICKET_FETCH_GZ_KB = 33.07;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));
