@@ -561,3 +561,99 @@ describe("request-signatures native placement — existing fields pdf-lib redraw
     );
   });
 });
+
+/**
+ * Audit #17 (2026-11-06). Both of these used to end in the engine's bare
+ * catch as `{kind: "failed"}` — "The PDF could not be prepared…", which the
+ * processor maps to a RETRYABLE internal_error — so the worker re-ran a job
+ * that could never succeed and the user was never told why. The unit test
+ * above pins `place()` alone; these walk the composed chain.
+ */
+describe("request-signatures through runSignatureRequest — deterministic refusals and re-preparation", () => {
+  const twoSigners: SignatureRequestOptions = {
+    signers: [
+      { name: "Ada Lovelace", email: "ada@example.com" },
+      { name: "Alan Turing", email: "alan@example.com" },
+    ],
+    fields: signatureBlockFields(2, 1, true),
+    routing: "parallel",
+  };
+
+  it("re-preparing a prepared PDF adds new, uniquely named fields beside the old ones", async () => {
+    const first = await runSignatureRequest(
+      await realPdf(),
+      {
+        signers: [{ name: "Ada Lovelace", email: "ada@example.com" }],
+        fields: signatureBlockFields(1, 1, true),
+        routing: "parallel",
+      },
+      signatureRequestDeps(),
+    );
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const firstPdf = await (
+      await JSZip.loadAsync(first.output)
+    )
+      .file("prepared.pdf")!
+      .async("uint8array");
+    const before = (await PDFDocument.load(firstPdf))
+      .getForm()
+      .getFields()
+      .map((f) => f.getName());
+    // Health check: the first package really holds the names a second run
+    // would pick by default.
+    expect(before).toContain("Signer1-Signature-1");
+
+    const again = await runSignatureRequest(
+      firstPdf,
+      twoSigners,
+      signatureRequestDeps(),
+    );
+    expect(again).toMatchObject({ ok: true });
+    if (!again.ok) return;
+    const zip = await JSZip.loadAsync(again.output);
+    const names = (
+      await PDFDocument.load(
+        await zip.file("prepared.pdf")!.async("uint8array"),
+      )
+    )
+      .getForm()
+      .getFields()
+      .map((f) => f.getName());
+    expect(new Set(names).size).toBe(names.length);
+    for (const old of before) expect(names).toContain(old);
+    const manifest = JSON.parse(
+      await zip.file("manifest.json")!.async("string"),
+    ) as { fields: { name: string; signer: number }[] };
+    expect(manifest.fields).toHaveLength(twoSigners.fields.length);
+    for (const field of manifest.fields) {
+      expect(names).toContain(field.name);
+      expect(before).not.toContain(field.name);
+      expect(field.name.startsWith(`Signer${field.signer}-`)).toBe(true);
+    }
+  });
+
+  it("a form whose existing value cannot be redrawn is refused in words, not retried", async () => {
+    const run = await runSignatureRequest(
+      await formNeedingRegeneration("ঢাকা"),
+      {
+        signers: [{ name: "Ada Lovelace", email: "ada@example.com" }],
+        fields: signatureBlockFields(1, 1, true),
+        routing: "parallel",
+      },
+      signatureRequestDeps(),
+    );
+    expect(run).toMatchObject({ ok: false, kind: "invalid_request" });
+    if (run.ok) return;
+    expect(run.message).toMatch(/outside it: .*ঢ/);
+  });
+
+  it("control: the same form with a Latin value prepares", async () => {
+    const run = await runSignatureRequest(
+      await formNeedingRegeneration("Dhaka"),
+      twoSigners,
+      signatureRequestDeps(),
+    );
+    expect(run.ok).toBe(true);
+  });
+});
