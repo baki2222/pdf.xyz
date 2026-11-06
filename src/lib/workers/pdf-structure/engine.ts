@@ -11,7 +11,11 @@
  */
 
 import { acceptsDamagedPdf } from "@/lib/jobs/damaged-input";
-import { looksLikePdf, looksRepairable } from "../compression/engine";
+import {
+  looksCompletePdf,
+  looksLikePdf,
+  looksRepairable,
+} from "../compression/engine";
 import { isLinearized } from "@/lib/pdf/linearization";
 import { QpdfRefusedError } from "./errors";
 import {
@@ -152,9 +156,14 @@ const failed = (): PdfStructureRun => ({
  *    one there is no document, and the answer is `invalid_pdf` — which names no
  *    other tool, because Repair PDF refuses the same bytes.
  *  - repair-pdf needs nothing more: it exists to accept damage.
- *  - optimize-web also needs the `%%EOF` trailer ({@link looksLikePdf}). A file
- *    with a header and no trailer was cut off; it is refused as `damaged`, and
- *    that message and its error code send the user to Repair PDF.
+ *  - optimize-web also needs a `%%EOF` trailer somewhere after the header
+ *    ({@link looksCompletePdf}). A file with a header and no trailer was cut
+ *    off; it is refused as `damaged`, and that message and its error code send
+ *    the user to Repair PDF. Bytes AFTER the trailer are allowed: until
+ *    2026-11-06 (audit #50) this floor was `looksLikePdf`, whose `%%EOF` must
+ *    sit in the last 2 KiB, so a complete PDF with padding after it was told
+ *    it "may have been cut off" and never reached qpdf. The OUTPUT is still
+ *    held to `looksLikePdf`.
  *
  * What this floor does NOT do is catch damage behind an intact trailer (a
  * broken xref, bad offsets). Those files reach qpdf, which rebuilds them and
@@ -174,7 +183,7 @@ const failed = (): PdfStructureRun => ({
  */
 function inputFloor(operation: "repair" | "linearize") {
   const tool = operation === "repair" ? REPAIR_TOOL : OPTIMIZE_WEB_TOOL;
-  return acceptsDamagedPdf(tool) ? looksRepairable : looksLikePdf;
+  return acceptsDamagedPdf(tool) ? looksRepairable : looksCompletePdf;
 }
 
 async function preflight(

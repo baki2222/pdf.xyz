@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import {
   extractPdfText,
+  extractedTextSummary,
   pagesWithoutText,
   textOutputName,
   type ExtractedPdfText,
@@ -76,7 +77,7 @@ function PdfToTextEditor({
         title={result.hasText ? "Text extracted" : "No selectable text found"}
         summary={
           result.hasText
-            ? `${result.characterCount.toLocaleString()} characters from ${pagesLabel}`
+            ? extractedTextSummary(result)!
             : `Scanned/image-only PDFs need OCR. This browser tool only extracts embedded selectable text.`
         }
         announcement={

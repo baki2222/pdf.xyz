@@ -14,6 +14,11 @@ export interface ExtractedPdfText {
   pageCount: number;
   pages: ExtractedTextPage[];
   text: string;
+  /**
+   * `text.length`: UTF-16 code units, the unit the AI tools' declared counts
+   * and the worker's own `.length` measure share. Not a count of characters
+   * for a reader; {@link extractedTextSummary} counts code points.
+   */
   characterCount: number;
   hasText: boolean;
 }
@@ -723,6 +728,30 @@ export function pagesWithoutText(
   return pages
     .map((page) => page.pageNumber)
     .filter((pageNumber) => !kept.has(pageNumber));
+}
+
+/**
+ * PDF to Text's result line: "<n> characters from <pages>", naming the pages
+ * that gave nothing ({@link pagesWithoutText}). Null when there is no text.
+ *
+ * <n> counts Unicode code points, not `characterCount`: that field is
+ * `text.length`, UTF-16 code units, and is kept so because the AI tools
+ * declare it against a worker that measures `.length` too. Shown to a reader
+ * as "characters", it counted every emoji, mathematical alphanumeric or CJK
+ * Extension B ideograph twice (audit #50, 2026-11-06).
+ */
+export function extractedTextSummary(
+  result: Pick<ExtractedPdfText, "pageCount" | "pages" | "text" | "hasText">,
+): string | null {
+  if (!result.hasText) return null;
+  const empty = pagesWithoutText(result.pages);
+  const pagesLabel =
+    empty.length > 0
+      ? `${result.pageCount - empty.length} of ${result.pageCount} pages`
+      : `${result.pageCount} page${result.pageCount === 1 ? "" : "s"}`;
+  let characters = 0;
+  for (const _ of result.text) characters += 1;
+  return `${characters.toLocaleString()} characters from ${pagesLabel}`;
 }
 
 /** Join page blocks with a single blank line between non-empty pages. */

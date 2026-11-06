@@ -22,6 +22,8 @@ import {
   saveSignature,
   bytesOfDataUrl,
   forgetSignature,
+  type NotSavedReason,
+  type SaveResult,
   type SavedSignature,
 } from "@/lib/pdf/editor/saved-signatures";
 
@@ -40,6 +42,14 @@ import {
  * "Save for next time" is opt-in and keeps the signature in this browser's
  * storage only (`./saved-signatures`); nothing is ever sent anywhere.
  */
+
+/** What the reader is told when "Save for next time" could not keep it. */
+const SIGNATURE_NOT_SAVED_MESSAGE: Record<NotSavedReason, string> = {
+  too_large:
+    "This signature couldn’t be saved for next time: the picture is too large to keep in this browser.",
+  storage:
+    "This signature couldn’t be saved for next time: this browser’s storage is full or blocked for this site.",
+};
 
 /** The browser's own approximation of each style, for the preview only. */
 const PREVIEW_FONT: Record<SignatureStyle, string> = {
@@ -99,7 +109,12 @@ export function SignaturePanel({
   onReady,
   onClose,
 }: {
-  onReady: (pending: Pending) => void;
+  /**
+   * `notice`: said with the signature when "Save for next time" was ticked
+   * and the browser did not keep it (audit #50). The panel closes on use, so
+   * the editor is where the reader can be told.
+   */
+  onReady: (pending: Pending, notice?: string) => void;
   onClose: () => void;
 }) {
   // Opens on Type, as Sign PDF always has, so signing works without a
@@ -175,13 +190,21 @@ export function SignaturePanel({
     }
   };
 
+  /** Show what storage holds; the notice to pass on when it did not keep it. */
+  const keep = (result: SaveResult): string | undefined => {
+    setSaved(result.list);
+    return result.kept ? undefined : SIGNATURE_NOT_SAVED_MESSAGE[result.reason];
+  };
+
   const use = async () => {
     setError(null);
     if (source === "type") {
       const text = name.trim();
       if (!text) return setError("Type your name first.");
-      if (remember) setSaved(saveSignature({ kind: "typed", text, style }));
-      onReady({ kind: "typed", text, style });
+      const notice = remember
+        ? keep(saveSignature({ kind: "typed", text, style }))
+        : undefined;
+      onReady({ kind: "typed", text, style }, notice);
       return;
     }
     const sig = source === "draw" ? drawn : uploaded;
@@ -192,8 +215,10 @@ export function SignaturePanel({
           : "Choose a picture of your signature first.",
       );
     }
-    if (remember) setSaved(await saveSignature({ kind: "image", sig }));
-    onReady(await pendingOf(sig));
+    const notice = remember
+      ? keep(saveSignature({ kind: "image", sig }))
+      : undefined;
+    onReady(await pendingOf(sig), notice);
   };
 
   const reuse = async (s: SavedSignature) => {

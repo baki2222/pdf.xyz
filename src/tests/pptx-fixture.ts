@@ -21,6 +21,9 @@ const rootRels = (target: string, type: string) =>
   `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="${REL_NS}"><Relationship Id="rId1" Type="${type}" Target="${target}"/></Relationships>`;
 
+/** The deck's one slide title: the text a converted PDF must carry. */
+export const PPTX_PROOF_TITLE = "PowerPoint to PDF — pdf.xyz proof";
+
 /** A real PPTX. PresentationML needs the whole master/layout/theme chain to open. */
 export async function handBuiltPptx(): Promise<Buffer> {
   const P = "http://schemas.openxmlformats.org/presentationml/2006/main";
@@ -64,7 +67,7 @@ export async function handBuiltPptx(): Promise<Buffer> {
   zip.file(
     "ppt/slides/slide1.xml",
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:sld xmlns:p="${P}" xmlns:a="${A}" xmlns:r="${ODOC_NS}"><p:cSld>${spTree("PowerPoint to PDF — pdf.xyz proof")}</p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`,
+<p:sld xmlns:p="${P}" xmlns:a="${A}" xmlns:r="${ODOC_NS}"><p:cSld>${spTree(PPTX_PROOF_TITLE)}</p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`,
   );
   zip.file(
     "ppt/slides/_rels/slide1.xml.rels",
