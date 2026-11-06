@@ -1,4 +1,4 @@
-import { PdfEngineError } from "./engine";
+import { PdfEngineError, pdfLoadError } from "./engine";
 import { loadPdfLib } from "./pdf-lib";
 import { loadPdf, stampProducer } from "./stamp";
 import { viewerFrame } from "./page-frame";
@@ -225,7 +225,14 @@ async function offPageHit(
   texts: readonly string[],
 ): Promise<{ text: string; where: string } | null> {
   const { PDFDict, PDFArray, PDFName, PDFRawStream } = lib;
-  const out = await lib.PDFDocument.load(bytes, { updateMetadata: false });
+  // Not `loadPdf`: its default `updateMetadata` would write pdf-lib's own
+  // Producer and Creator over the output's before they are read.
+  let out: PDFDocument;
+  try {
+    out = await lib.PDFDocument.load(bytes, { updateMetadata: false });
+  } catch (err) {
+    throw await pdfLoadError(err, bytes);
+  }
   const where = (key: string | null): string => {
     switch (key) {
       case "V":
