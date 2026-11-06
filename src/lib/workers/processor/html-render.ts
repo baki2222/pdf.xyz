@@ -55,6 +55,11 @@ function decodeSegment(segment: string): string {
  * and the host turned back from punycode before the slug keeps letters,
  * marks and digits of ANY script (audit #48, 2026-11-06 — an ASCII-only
  * allowlist over the encoded form turned "Москва" into "D0-9C-D0-BE-…").
+ *
+ * Chosen knowingly: unlike a browser's address bar, this decodes a
+ * look-alike host too (`xn--80ak6aa92e.com` names its file "аррӏе.com",
+ * Cyrillic). The name is only a file name for an address the user typed
+ * themselves, never a claim about which site it is, so readability wins.
  */
 export function webpagePdfOutputName(rawUrl: string): string {
   try {
