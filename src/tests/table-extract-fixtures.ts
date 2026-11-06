@@ -357,9 +357,13 @@ export const OFFICE_FIXTURE_TABLES: Record<
 /**
  * Parse RFC-4180 CSV: CRLF (or LF) between records, `"`-quoted fields with
  * `""` for a quote. Written here, not imported, so the engine's `toCsv` is
- * checked by something that shares no code with it.
+ * checked by something that shares no code with it. A leading UTF-8
+ * byte-order mark is the file's encoding, not the first cell's text, and is
+ * dropped as `utf-8-sig` readers drop it (the engine writes one since
+ * 2026-11-06, audit #31; a worker image built before that writes none).
  */
-export function parseCsv(text: string): string[][] {
+export function parseCsv(csv: string): string[][] {
+  const text = csv.startsWith(String.fromCharCode(0xfeff)) ? csv.slice(1) : csv;
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";

@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import JSZip from "jszip";
 import {
   buildTablesZip,
+  CSV_BOM,
+  CSV_FORMULA_LEADS,
   detectTablesOnPage,
   EXTRACT_TABLES_ENGINE,
   runTableExtract,
@@ -517,6 +519,37 @@ describe("toCsv", () => {
       ]),
     ).toBe('"b,c","d""e"\r\n"f\ng",h');
   });
+
+  it("neutralises a cell that Excel would run as a formula, and leaves numbers alone (audit #31)", () => {
+    // A PDF from anywhere can carry these strings. Written raw, opening the
+    // CSV in Excel or LibreOffice evaluates them: a live HYPERLINK or DDE.
+    const formulas = [
+      '=HYPERLINK("http://evil.example","x")',
+      "+1+cmd|' /C calc'!A0",
+      "-2+3",
+      "@SUM(1)",
+      "\t=1+1",
+      "\r=1+1",
+    ];
+    // Health: every probe really starts with a character Excel reads as a
+    // formula, so a pass below is not a probe that never triggered.
+    for (const f of formulas) expect(f).toMatch(/^[=+\-@\t\r]/);
+    // And every lead the FAQ names is covered by a probe (both directions).
+    for (const lead of CSV_FORMULA_LEADS)
+      expect(
+        formulas.some((f) => f.startsWith(lead)),
+        lead,
+      ).toBe(true);
+    for (const f of formulas) {
+      const cell = toCsv([[f]]);
+      expect(cell, f).toBe(`"'${f.replace(/"/g, '""')}"`);
+    }
+    // Positive control: values the workbook stores as numbers, and a lone
+    // dash (the usual "nil"), are not formulas and stay exactly as printed.
+    expect(toCsv([["-4", "-1,250.00", "-$4.20", "-15%", "-"]])).toBe(
+      '-4,"-1,250.00",-$4.20,-15%,-',
+    );
+  });
 });
 
 describe("buildTablesZip", () => {
@@ -535,9 +568,21 @@ describe("buildTablesZip", () => {
     expect(zip.file("table-1.csv")).not.toBeNull();
     expect(zip.file("table-2.csv")).not.toBeNull();
     expect(zip.file("tables.xlsx")).not.toBeNull();
+    // Until 2026-11-06 this expected no byte-order mark (audit #31).
     expect(await zip.file("table-1.csv")!.async("string")).toBe(
-      "Name,Age\r\nAlice,30",
+      CSV_BOM + "Name,Age\r\nAlice,30",
     );
+  });
+
+  it("starts each CSV with a UTF-8 byte-order mark, so a double-click opens it as UTF-8 (audit #31)", async () => {
+    const zip = await JSZip.loadAsync(
+      await buildTablesZip([{ pageNumber: 1, rows: [["Café", "১২"]] }]),
+    );
+    // Raw bytes: a string read could hide or keep the mark depending on the
+    // decoder, and the mark is a property of the bytes on disk.
+    const bytes = await zip.file("table-1.csv")!.async("uint8array");
+    expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
+    expect(new TextDecoder().decode(bytes)).toBe("Café,১২");
   });
 });
 
@@ -634,8 +679,9 @@ describe("runTableExtract", () => {
         pageCount: 1,
       });
       const zip = await JSZip.loadAsync(run.output);
+      // Until 2026-11-06 this expected no byte-order mark (audit #31).
       expect(await zip.file("table-1.csv")!.async("string")).toBe(
-        "Name,Age\r\nAlice,30\r\nBob,25",
+        CSV_BOM + "Name,Age\r\nAlice,30\r\nBob,25",
       );
     }
   });
