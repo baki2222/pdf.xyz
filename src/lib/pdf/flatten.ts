@@ -179,6 +179,18 @@ function widgetIsViewable(widget: PDFWidgetAnnotation): boolean {
 }
 
 /**
+ * A field none of whose widgets a reader shows. It is removed without being
+ * drawn, so its value never meets the form's font: it is left out of the
+ * alphabet check and of the appearance regeneration, either of which would
+ * otherwise refuse the job, or keep the field interactive, over text nobody
+ * would ever see. Pinned by the "hidden field's value is never drawn" tests.
+ */
+function fieldIsUnseen(field: PDFField): boolean {
+  const widgets = field.acroField.getWidgets();
+  return widgets.length > 0 && !widgets.some(widgetIsViewable);
+}
+
+/**
  * The page a widget sits on. Its `/P` first, then any page whose `/Annots`
  * lists it — the same order pdf-lib uses, but answering `undefined` instead of
  * throwing, so one orphaned widget cannot take the whole document down.
@@ -412,7 +424,12 @@ export function flattenFormFields(
   // a message that names it rather than skipped with "couldn't be drawn". A
   // field whose authored appearance will be drawn as-is is not checked: the
   // font never sees its value. Pinned both ways in `flatten.test.ts`.
-  assertFormFieldTextDrawable(formTextsDrawnOnRegeneration(fields, lib));
+  assertFormFieldTextDrawable(
+    formTextsDrawnOnRegeneration(
+      fields.filter((f) => !fieldIsUnseen(f)),
+      lib,
+    ),
+  );
 
   const font = form.getDefaultFont();
   const flattened: string[] = [];
@@ -430,7 +447,8 @@ export function flattenFormFields(
       continue;
     }
     try {
-      if (field.needsAppearancesUpdate()) field.defaultUpdateAppearances(font);
+      if (!fieldIsUnseen(field) && field.needsAppearancesUpdate())
+        field.defaultUpdateAppearances(font);
     } catch {
       skipped.push({ name, reason: SKIP.undrawable });
       continue;

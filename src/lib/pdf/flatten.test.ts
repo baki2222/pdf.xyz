@@ -823,3 +823,49 @@ describe("flattenPdf — widget flags and the appearance-to-Rect mapping (audit 
     expect(item?.y).toBeCloseTo(315, 3);
   });
 });
+
+/**
+ * A visible text field "shown" next to "helper", a text field with NO
+ * appearance stream whose value is Bengali, carrying annotation flags `flags`.
+ */
+async function hiddenHelperFormPdf(flags: number): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([400, 400]);
+  const form = doc.getForm();
+  const shown = form.createTextField("shown");
+  shown.setText("Hi");
+  shown.addToPage(page, { x: 20, y: 300, width: 150, height: 20 });
+  const helper = form.createTextField("helper");
+  helper.setText("x");
+  helper.addToPage(page, { x: 20, y: 250, width: 150, height: 20 });
+  await doc.save();
+  helper.acroField.dict.set(PDFName.of("V"), PDFHexString.fromText("ঢাকা"));
+  for (const widget of helper.acroField.getWidgets()) {
+    widget.dict.delete(PDFName.of("AP"));
+    widget.dict.set(PDFName.of("F"), PDFNumber.of(flags));
+  }
+  form.markFieldAsClean(helper.ref);
+  return doc.save({ updateFieldAppearances: false });
+}
+
+describe("flattenPdf — a hidden field's value is never drawn, so never checked (review of audit #14)", () => {
+  it("control: the same Bengali helper, VISIBLE, is refused by name", async () => {
+    await expect(flattenPdf(await hiddenHelperFormPdf(4))).rejects.toThrow(/ঢ/);
+  });
+
+  it.each([
+    ["Hidden", 2],
+    ["NoView", 36],
+  ])(
+    "a %s helper holding Bengali is removed, not refused and not left interactive",
+    async (_flag, flags) => {
+      const result = await flattenPdf(await hiddenHelperFormPdf(flags));
+      expect(result.skipped).toEqual([]);
+      expect(result.flattenedFields).toBe(2);
+      const doc = await PDFDocument.load(result.bytes);
+      expect(doc.getForm().getFields()).toEqual([]);
+      const texts = (await textPositions(result.bytes)).map((t) => t.str);
+      expect(texts).toEqual(["Hi"]);
+    },
+  );
+});
