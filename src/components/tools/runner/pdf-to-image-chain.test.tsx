@@ -27,6 +27,7 @@ import {
   pageImageName,
   zipOutputName,
 } from "@/lib/pdf/pdf-to-image";
+import { capturePdfPages, rasterizePdf } from "@/lib/pdf/render";
 import { RASTER_MAX_DEVICE_PX } from "@/lib/pdf/render-utils";
 import { PdfToImageRunner } from "./pdf-to-image-runner";
 
@@ -131,6 +132,7 @@ type Legacy = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
 let legacy: Legacy;
 let savedWorkerSrc: string;
 let pageProto: { render: (...args: unknown[]) => unknown };
+let docProto: { getPage: (pageNumber: number) => Promise<unknown> };
 
 beforeAll(async () => {
   legacy = await import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -144,7 +146,9 @@ beforeAll(async () => {
   const doc = await PDFDocument.create();
   doc.addPage([10, 10]);
   const task = legacy.getDocument({ data: await doc.save() });
-  const page = await (await task.promise).getPage(1);
+  const loaded = await task.promise;
+  docProto = Object.getPrototypeOf(loaded);
+  const page = await loaded.getPage(1);
   pageProto = Object.getPrototypeOf(page);
   await task.destroy();
 });
@@ -653,5 +657,103 @@ describe("PDF to PNG — one page failing, or Cancel, keeps the finished pages",
     ).toBeTruthy();
     // Health: page 4 never rendered — Cancel stopped the run, not a failure.
     expect(encoded.map((e) => e.width)).toEqual([pxFor(100), pxFor(200)]);
+  }, 30_000);
+});
+
+/**
+ * The other half of audit #37's contract: WITHOUT `onPageFailed`, a failed
+ * page still rejects the call. Redact (`rasterizePdf`) and Grayscale
+ * (`capturePdfPages`) build one PDF that must hold every page, so a page that
+ * is dropped there is a page missing from the output with nothing said.
+ *
+ * Review found nothing tested this: deleting the rejecting branch (and calling
+ * `onPageFailed?.(...)`) left every test green, and the "every page fails"
+ * control above cannot tell — the runner errors on zero pages either way. So
+ * these go through the two exported entry points directly, with ONE page
+ * failing and the rest fine, and each has a positive control in which the
+ * same stub with `onPageFailed` resolves with the other pages.
+ */
+describe("a failed page without onPageFailed still rejects (Redact, Grayscale)", () => {
+  async function fourPages(): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+    for (const w of [100, 200, 300, 400]) doc.addPage([w, 100]);
+    return doc.save();
+  }
+
+  function failPageRender(n: number) {
+    vi.spyOn(pageProto, "render").mockImplementation(function (this: {
+      pageNumber: number;
+    }) {
+      return this.pageNumber === n
+        ? { promise: Promise.reject(new Error("bad stream")), cancel: () => {} }
+        : { promise: Promise.resolve(), cancel: () => {} };
+    });
+  }
+
+  function failGetPage(n: number) {
+    const real = docProto.getPage;
+    vi.spyOn(docProto, "getPage").mockImplementation(function (
+      this: unknown,
+      pageNumber: number,
+    ) {
+      return pageNumber === n
+        ? Promise.reject(new Error("broken page object"))
+        : real.call(this, pageNumber);
+    });
+  }
+
+  const captureWidth = (canvas: HTMLCanvasElement) => canvas.width;
+
+  it("rasterizePdf (Redact's path) rejects when page 3 fails to render", async () => {
+    failPageRender(3);
+    await expect(
+      rasterizePdf(await fourPages(), { format: "png", dpi: 72 }),
+    ).rejects.toThrow("Page 3 could not be rendered.");
+  }, 30_000);
+
+  it("capturePdfPages (Grayscale's path) rejects when page 3 fails to render", async () => {
+    failPageRender(3);
+    await expect(
+      capturePdfPages(await fourPages(), { dpi: 72, capture: captureWidth }),
+    ).rejects.toThrow("Page 3 could not be rendered.");
+  }, 30_000);
+
+  it("capturePdfPages rejects when page 3's page object cannot be read", async () => {
+    failGetPage(3);
+    await expect(
+      capturePdfPages(await fourPages(), { dpi: 72, capture: captureWidth }),
+    ).rejects.toThrow("Page 3 could not be rendered.");
+  }, 30_000);
+
+  it("positive control: the same render stub WITH onPageFailed resolves with pages 1, 2 and 4, reporting index 2", async () => {
+    failPageRender(3);
+    const failed: { index: number; message: string }[] = [];
+    const pages = await rasterizePdf(await fourPages(), {
+      format: "png",
+      dpi: 72,
+      onPageFailed: (f) => failed.push(f),
+    });
+    expect(pages.map((p) => p.index)).toEqual([0, 1, 3]);
+    expect(failed).toEqual([
+      { index: 2, message: "Page 3 could not be rendered." },
+    ]);
+  }, 30_000);
+
+  it("positive control: a broken page object WITH onPageFailed is skipped and named, and pages 1, 2 and 4 are captured", async () => {
+    failGetPage(3);
+    const failed: { index: number; message: string }[] = [];
+    const pages = await capturePdfPages(await fourPages(), {
+      dpi: 72,
+      capture: captureWidth,
+      onPageFailed: (f) => failed.push(f),
+    });
+    expect(pages.map((p) => [p.index, p.data])).toEqual([
+      [0, 100],
+      [1, 200],
+      [3, 400],
+    ]);
+    expect(failed).toEqual([
+      { index: 2, message: "Page 3 could not be rendered." },
+    ]);
   }, 30_000);
 });
