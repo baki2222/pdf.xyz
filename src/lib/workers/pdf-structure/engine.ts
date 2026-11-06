@@ -35,14 +35,24 @@ export type PdfStructureEngine = typeof PDF_STRUCTURE_ENGINE;
 /**
  * What a qpdf run produced: the bytes, and what qpdf said about getting there.
  *
- * `warnings` is non-empty when qpdf exited 3 — its documented "warnings issued,
- * output produced" status, which for a damaged file IS a successful recovery.
+ * `warnings` can be non-empty only when qpdf exited 3 — its documented
+ * "warnings issued, output produced" status, which for a damaged file IS a
+ * successful recovery — and can be empty even then (see `recovered`).
  * The lines are sanitized in `native.ts` before they reach here; nothing that
  * arrives is a path, a filename, or document content.
  */
 export interface QpdfStructureOutput {
   bytes: Uint8Array;
   warnings: string[];
+  /**
+   * qpdf exited 3: it rebuilt the file, whatever survived sanitizing. Its own
+   * field because an exit 3 can arrive with no line to show (empty stderr, or
+   * every line withheld), and until 2026-11-06 the result read that as a clean
+   * run — the panel then said "found no structural damage" about a rebuilt
+   * file. Optional so a runner that cannot tell (a test stub) falls back to
+   * whether any warning arrived.
+   */
+  recovered?: boolean;
 }
 
 export interface QpdfStructureRunner {
@@ -267,7 +277,8 @@ async function runStructure(
       operation,
       inputBytes: input.byteLength,
       outputBytes: result.bytes.byteLength,
-      recoveredWithWarnings: result.warnings.length > 0,
+      recoveredWithWarnings:
+        result.recovered === true || result.warnings.length > 0,
       warnings: result.warnings,
     },
   };

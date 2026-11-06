@@ -19,6 +19,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
+import { RECONSTRUCTION_CLAIM } from "@/tests/reconstruction-claim";
 import { getToolBySlug } from "@/lib/tools";
 import { DEFAULT_RETENTION, type Job } from "@/lib/jobs";
 import type { WorkerStatus } from "@/lib/workers/status";
@@ -317,6 +318,55 @@ describe("repair-pdf success — says what qpdf reported, not more", () => {
     expect(
       await screen.findByText("Your repaired PDF is ready."),
     ).toBeInTheDocument();
+    expect(await announced()).toBe("Your repaired PDF is ready.");
+  });
+
+  /**
+   * The notice's body, as rendered. Until 2026-11-06 it read "what follows is
+   * what had to be reconstructed": the lines are qpdf's own diagnostics, not
+   * an inventory of the rebuild (audit #41). Held to the claim's SHAPE, shared
+   * with the tool page and the guide.
+   */
+  it("the rebuilt notice calls its lines qpdf's report, not what was reconstructed", async () => {
+    const { job, artifact } = await jobFrom("repair-pdf", {
+      code: 3,
+      timedOut: false,
+      stderr: "qpdf: file is damaged\nqpdf: reconstructing xref table\n",
+    });
+    stubNetwork("repair-pdf", job, artifact);
+    await runOnePdf("repair-pdf");
+
+    const notice = (await screen.findByText(/has been rebuilt/)).closest(
+      '[role="status"]',
+    )!;
+    // Health check: this is the notice, and it holds qpdf's lines.
+    expect(notice).toHaveTextContent(/file is damaged/);
+    expect(notice).toHaveTextContent(/what qpdf reported/);
+    expect(notice.textContent).not.toMatch(RECONSTRUCTION_CLAIM);
+  });
+
+  /**
+   * qpdf exit 3 is "warnings issued, output produced": the file WAS rebuilt.
+   * Until 2026-11-06 the engine derived recoveredWithWarnings from whether any
+   * line survived sanitizing, so an exit 3 whose stderr was empty (or wholly
+   * withheld) reached this panel as a clean run, and the panel said "qpdf
+   * found no structural damage" about a file qpdf had just rebuilt.
+   */
+  it("an exit 3 with nothing to show still reads as rebuilt, never as clean", async () => {
+    const { job, artifact } = await jobFrom("repair-pdf", {
+      code: 3,
+      timedOut: false,
+      stderr: "",
+    });
+    expect(job.results?.repair?.recoveredWithWarnings).toBe(true);
+    expect(job.results?.repair?.warnings).toEqual([]);
+    stubNetwork("repair-pdf", job, artifact);
+    await runOnePdf("repair-pdf");
+
+    const group = await screen.findByRole("group");
+    expect(group).toHaveTextContent(/has been rebuilt/);
+    expect(group).toHaveTextContent(/could not be shown safely/);
+    expect(group).not.toHaveTextContent(/found no structural damage/);
     expect(await announced()).toBe("Your repaired PDF is ready.");
   });
 

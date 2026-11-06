@@ -2317,7 +2317,7 @@ export const guides: Guide[] = [
     slug: "how-to-repair-a-damaged-pdf",
     title: "How to repair a damaged or corrupted PDF",
     description:
-      "Rebuild a damaged PDF with qpdf on a secure server that deletes the input when the job finishes, and see what had to be fixed. No account needed.",
+      "Rebuild a damaged PDF with qpdf on a secure server that deletes the input when the job finishes, and read what qpdf reported working around. No account needed.",
     tools: ["repair-pdf", "unlock-pdf", "ocr-pdf"],
     keywords: [
       "repair pdf",

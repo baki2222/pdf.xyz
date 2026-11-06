@@ -57,10 +57,14 @@ import { DEFAULT_SOUNDNESS_POLICY } from "@/lib/workers/soundness/policy";
  *    the copy says a closing line NOTES that more were held back and never
  *    that the held-back messages are counted. The figure shown is the smaller
  *    of the two bounds, because the reader gets the composition.
- *  - empty stderr: engine.ts sets recoveredWithWarnings from warnings.length,
- *    so exit 3 with EMPTY stderr shows no notice. The copy therefore says "no
- *    warning text came back from qpdf", not "qpdf reported no warnings" (exit
- *    3 itself is a warning status) and never "nothing was wrong".
+ *  - empty stderr: since 2026-11-06 native.ts reports exit 3 as `recovered`
+ *    and engine.ts sets recoveredWithWarnings from it, so exit 3 with EMPTY
+ *    stderr shows the rebuilt notice with "The details could not be shown
+ *    safely." (pdf-structure-worker-panel.test.tsx). Before, it showed no
+ *    notice and "found no structural damage". The copy still says "no warning
+ *    text came back from qpdf", never "nothing was wrong": exit 0 with no text
+ *    proves no more than that. The worker image deploys by hand, so an older
+ *    worker still reports the old way until it is rebuilt.
  *  - engine: src/lib/workers/pdf-structure/{engine,native}.ts — qpdf plain
  *    rewrite (`qpdf in.pdf out.pdf`), a per-run timeout
  *    (PDFXYZ_PDF_STRUCTURE_TIMEOUT_MS; no number stated here because it is
