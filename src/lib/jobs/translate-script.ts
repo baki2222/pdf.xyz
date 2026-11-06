@@ -118,5 +118,5 @@ export function translateAutoSameLanguageWarning(
   language: TranslateLanguage,
 ): string {
   const name = LANGUAGE_NAMES[language];
-  return `This PDF looks like it is already in ${name}. Translating it into ${name} would return the same text and still use your daily allowance.`;
+  return `This PDF looks like it is already in ${name}. Translating it into ${name} would return the same text and still use the daily AI allowance.`;
 }
