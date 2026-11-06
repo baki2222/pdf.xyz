@@ -2,6 +2,7 @@
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import {
+  PDFDict,
   PDFDocument,
   PDFName,
   PDFString,
@@ -469,10 +470,11 @@ describe("labels and annotations after a split", () => {
       direction: "left-right",
       order: "left-first",
     });
-    const out = await labels(result.bytes);
-    // pdf.js reports null when the file has no labels: the viewer then
-    // numbers the pages 1..n, one number per page.
-    if (out !== null) expect(new Set(out).size).toBe(out.length);
+    // The source labels counted the sheets the split replaces, so they are
+    // dropped: pdf.js reports null, and a viewer numbers the pages 1..n, one
+    // number per page. (Until the 2026-11-06 review this assertion sat inside
+    // `if (out !== null)`, so a file that kept its labels skipped it.)
+    expect(await labels(result.bytes)).toBeNull();
   });
 
   it("an annotation stays only on the half its rectangle is on", async () => {
@@ -533,6 +535,41 @@ describe("labels and annotations after a split", () => {
     expect(
       out.getForm().getTextField("right.field").acroField.getWidgets(),
     ).toHaveLength(1);
-    expect(await annotationsPerPage(result.bytes)).toHaveLength(2);
+  });
+
+  it("a popup goes where its parent goes, wherever its own rectangle lies", async () => {
+    const doc = await spreads(1);
+    const page = doc.getPage(0);
+    const { context } = doc;
+    // A note on the right half whose popup window is drawn over the left
+    // half — common: viewers open a popup beside its note, often across the
+    // fold. Judged by its own /Rect the popup would land on the left page,
+    // detached from its note.
+    const noteRef = context.register(
+      context.obj({
+        Type: "Annot",
+        Subtype: "Text",
+        Rect: [600, 300, 620, 320],
+        Contents: PDFString.of("right"),
+      }),
+    );
+    const popupRef = context.register(
+      context.obj({
+        Type: "Annot",
+        Subtype: "Popup",
+        Rect: [100, 250, 300, 350],
+        Parent: noteRef,
+      }),
+    );
+    context.lookup(noteRef, PDFDict).set(PDFName.of("Popup"), popupRef);
+    page.node.set(PDFName.of("Annots"), context.obj([noteRef, popupRef]));
+    const result = await splitPagesInHalf(await doc.save(), {
+      direction: "left-right",
+      order: "left-first",
+    });
+    expect(await annotationsPerPage(result.bytes)).toEqual([
+      [],
+      ["Text", "Popup"],
+    ]);
   });
 });
