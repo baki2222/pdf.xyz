@@ -1194,8 +1194,12 @@ function walkPage(
      * bounds start as the page box (the CropBox). A glyph wholly outside is
      * not seen in the PDF and is not read (audit #35, 2026-11-06: until then
      * text was never tested against the clip, so text a crop or a clip path
-     * hid came back as text boxes off the slide). Edges count as inside, so a
-     * zero-width mark on the line is kept; a glyph partly cut is kept whole.
+     * hid came back as text boxes off the slide). A glyph partly cut is kept
+     * whole: the CONTROL in `faithful.test.ts` ("a line the crop or clip edge
+     * cuts through") goes red if this becomes a full-containment test. An
+     * earlier note here also promised that edges count as inside; no test
+     * can tell `>=` from `>` on a real page, so that is not promised
+     * (review of e85a4a5e, 2026-11-06).
      */
     const glyphSeen = (
       start: [number, number],

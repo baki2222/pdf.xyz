@@ -1315,4 +1315,49 @@ describe("text outside the CropBox or a clip is not written to the deck", () => 
     );
     expect(offSlide.map((t) => t.text)).toEqual([]);
   });
+
+  // The opposite failure: dropping text the page DOES show. A line the crop
+  // or clip edge cuts through shows its upper half, so it is read whole
+  // (review of e85a4a5e, 2026-11-06: a full-containment test passed all of
+  // this suite until this control existed).
+  it("CONTROL: a line the crop or clip edge cuts through is still read, and reaches the deck", async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    // Baseline 4 pt under the crop's bottom edge (y = 400): the descent and
+    // the lower part of each letter are cut, the ascent is shown.
+    const cropped = doc.addPage([612, 792]);
+    cropped.drawText("Straddles crop", { x: 72, y: 396, size: 14, font });
+    cropped.setCropBox(0, 400, 612, 392);
+    // Baseline 4 pt under the clip's bottom edge (y = 650).
+    const clipped = doc.addPage([612, 792]);
+    clipped.pushOperators(
+      pushGraphicsState(),
+      rectangle(0, 650, 612, 100),
+      clip(),
+      endPath(),
+    );
+    clipped.drawText("Straddles clip", { x: 72, y: 646, size: 14, font });
+    clipped.pushOperators(popGraphicsState());
+    const pdf = await doc.save();
+
+    const texts = (await scanPdfPages(pdf)).pages.map(scannedPageText);
+    expect(texts[0]).toContain("Straddles crop");
+    expect(texts[1]).toContain("Straddles clip");
+
+    const run = await runPdfOfficeExport("pdf-to-powerpoint", pdf, {
+      ...pdfOfficeExportDeps(),
+      extract: async () => ({
+        pageCount: 2,
+        pages: [],
+        text: "",
+        characterCount: 0,
+        hasText: false,
+      }),
+    });
+    if (!run.ok) throw new Error(`${run.kind}: ${run.message}`);
+    const deck = await readDeck(run.output);
+    const all = deck.slides.flatMap((s) => s.texts.map((t) => t.text.trim()));
+    expect(all).toContain("Straddles crop");
+    expect(all).toContain("Straddles clip");
+  });
 });
