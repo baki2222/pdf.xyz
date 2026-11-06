@@ -3,8 +3,13 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  PDFArray,
+  PDFDict,
   PDFDocument,
+  PDFHexString,
   PDFName,
+  PDFRef,
+  PDFStream,
   PDFString,
   StandardFonts,
   degrees,
@@ -602,6 +607,192 @@ describe("page operations are replayed on the file, objects with their page", ()
     expect(saved.context.lookup(gone!.ref)).toBeUndefined();
     expect(saved.context.lookup(contents(gone))).toBeUndefined();
     expect(saved.context.lookup(contents(kept))).toBeDefined();
+  });
+
+  // Audit #2 (2026-11-06): the page tree dropped a deleted page, but a
+  // bookmark, a form field or a link still referred to it, so the page node,
+  // its content stream and the field (with its value) stayed in the saved
+  // file. The test above used a file with none of those, so it could not
+  // see it.
+  describe("a deleted page that something still refers to", () => {
+    const SECRET = "123-45-6789";
+    /** Two labelled pages; page 1 holds a filled field, page 2 another. */
+    async function referenced(): Promise<Uint8Array> {
+      const doc = await PDFDocument.load(await labelled(2));
+      const [one, two] = doc.getPages();
+      const form = doc.getForm();
+      const ssn = form.createTextField("ssn");
+      ssn.setText(SECRET);
+      ssn.addToPage(one!, { x: 72, y: 600, width: 200, height: 20 });
+      const kept = form.createTextField("name");
+      kept.setText("Ada");
+      kept.addToPage(two!, { x: 72, y: 600, width: 200, height: 20 });
+      // A bookmark to each page, and a link on page 2 back to page 1.
+      const ctx = doc.context;
+      const rootRef = ctx.nextRef();
+      const aRef = ctx.nextRef();
+      const bRef = ctx.nextRef();
+      ctx.assign(
+        aRef,
+        ctx.obj({
+          Title: PDFString.of("Gone"),
+          Parent: rootRef,
+          Next: bRef,
+          Dest: [one!.ref, "Fit"],
+        }),
+      );
+      ctx.assign(
+        bRef,
+        ctx.obj({
+          Title: PDFString.of("Kept"),
+          Parent: rootRef,
+          Prev: aRef,
+          Dest: [two!.ref, "Fit"],
+        }),
+      );
+      ctx.assign(
+        rootRef,
+        ctx.obj({ Type: "Outlines", First: aRef, Last: bRef, Count: 2 }),
+      );
+      doc.catalog.set(PDFName.of("Outlines"), rootRef);
+      const link = ctx.register(
+        ctx.obj({
+          Type: "Annot",
+          Subtype: "Link",
+          Rect: [72, 100, 200, 120],
+          Dest: [one!.ref, "Fit"],
+        }),
+      );
+      two!.node.addAnnot(link);
+      // Named destinations, both kinds, and an open action, to each page.
+      doc.catalog.set(
+        PDFName.of("Dests"),
+        ctx.obj({ gone: [one!.ref, "Fit"], kept: [two!.ref, "Fit"] }),
+      );
+      doc.catalog.set(
+        PDFName.of("Names"),
+        ctx.obj({
+          Dests: ctx.obj({
+            Names: [
+              PDFString.of("gone"),
+              [one!.ref, "Fit"],
+              PDFString.of("kept"),
+              [two!.ref, "Fit"],
+            ],
+          }),
+        }),
+      );
+      doc.catalog.set(PDFName.of("OpenAction"), ctx.obj([one!.ref, "Fit"]));
+      // A tagged file's structure element names its page too; nothing here
+      // rewrites the structure tree, so only the prune's cut can see it.
+      doc.catalog.set(
+        PDFName.of("StructTreeRoot"),
+        ctx.obj({
+          Type: "StructTreeRoot",
+          K: ctx.obj({ S: "P", Pg: one!.ref }),
+        }),
+      );
+      return doc.save();
+    }
+
+    /** Every string in the saved file, decoded. */
+    function strings(doc: PDFDocument): string[] {
+      const out: string[] = [];
+      const walk = (o: unknown, depth: number): void => {
+        if (depth > 50) return;
+        if (o instanceof PDFString || o instanceof PDFHexString) {
+          out.push(o.decodeText());
+        } else if (o instanceof PDFDict) {
+          for (const [, v] of o.entries()) walk(v, depth + 1);
+        } else if (o instanceof PDFArray) {
+          for (const v of o.asArray()) walk(v, depth + 1);
+        } else if (o instanceof PDFStream) {
+          walk(o.dict, depth + 1);
+        }
+      };
+      for (const [, obj] of doc.context.enumerateIndirectObjects()) {
+        walk(obj, 0);
+      }
+      return out;
+    }
+
+    it("leaves no page node, content, field or value of it behind", async () => {
+      const bytes = await referenced();
+      const src = await PDFDocument.load(bytes);
+      const [gone, kept] = src.getPages();
+      const contents = (page: typeof gone) =>
+        page!.node.lookup(PDFName.of("Contents"), PDFArray).asArray();
+      // The streams only the deleted page draws: pdf-lib shares its q/Q
+      // wrapper streams between pages, and those must stay.
+      const goneOnly = contents(gone).filter(
+        (ref) => !contents(kept).includes(ref),
+      );
+      // Health check: the source holds what must go.
+      expect(goneOnly.length).toBeGreaterThan(0);
+      expect(src.getForm().getFieldMaybe("ssn")).toBeDefined();
+      expect(strings(src)).toContain(SECRET);
+
+      const pages = deletePage(sourcePages(2), 0, [])!.pages;
+      const out = await exportEditedPdf(bytes, [], undefined, { pages });
+      expect(out.pageCount).toBe(1);
+      expect(await pageTexts(out.bytes)).toEqual(["PAGE TWO"]);
+      const saved = await PDFDocument.load(out.bytes);
+      expect(saved.context.lookup(gone!.ref)).toBeUndefined();
+      for (const ref of goneOnly) {
+        expect(saved.context.lookup(ref as PDFRef)).toBeUndefined();
+      }
+      // The field on the deleted page, and its value, are gone; the kept
+      // page's field is not (a positive control for the walk).
+      const names = saved
+        .getForm()
+        .getFields()
+        .map((f) => f.getName());
+      expect(names).toEqual(["name"]);
+      expect(strings(saved)).not.toContain(SECRET);
+      expect(strings(saved)).toContain("Ada");
+    });
+
+    it("drops the bookmark and the link to it, keeps the rest", async () => {
+      const bytes = await referenced();
+      const pages = deletePage(sourcePages(2), 0, [])!.pages;
+      const out = await exportEditedPdf(bytes, [], undefined, { pages });
+      const saved = await PDFDocument.load(out.bytes);
+      const titles = strings(saved);
+      expect(titles).not.toContain("Gone");
+      expect(titles).toContain("Kept");
+      const kept = saved.getPages()[0]!;
+      const outline = saved.catalog.lookup(PDFName.of("Outlines"), PDFDict);
+      const first = outline.lookup(PDFName.of("First"), PDFDict);
+      const dest = first.lookup(PDFName.of("Dest"), PDFArray);
+      expect(dest.get(0)).toBe(kept.ref);
+      const subtypes = (kept.node.Annots()?.asArray() ?? []).map((a) =>
+        String((saved.context.lookup(a) as PDFDict).get(PDFName.of("Subtype"))),
+      );
+      expect(subtypes).toEqual(["/Widget"]);
+      // Named destinations to it go, the others stay; so does an open
+      // action that opened it.
+      const dests = saved.catalog.lookup(PDFName.of("Dests"), PDFDict);
+      expect(dests.keys().map(String)).toEqual(["/kept"]);
+      const tree = saved.catalog
+        .lookup(PDFName.of("Names"), PDFDict)
+        .lookup(PDFName.of("Dests"), PDFDict)
+        .lookup(PDFName.of("Names"), PDFArray);
+      expect(tree.size()).toBe(2);
+      expect((tree.lookup(0) as PDFString).decodeText()).toBe("kept");
+      expect(saved.catalog.get(PDFName.of("OpenAction"))).toBeUndefined();
+    });
+
+    it("a fill for a field on the deleted page does not fail the export", async () => {
+      const bytes = await referenced();
+      const pages = deletePage(sourcePages(2), 0, [])!.pages;
+      const out = await exportEditedPdf(bytes, [], undefined, {
+        pages,
+        fills: { ssn: "987-65-4321", name: "Grace" },
+      });
+      const saved = await PDFDocument.load(out.bytes);
+      expect(saved.getForm().getTextField("name").getText()).toBe("Grace");
+      expect(strings(saved)).not.toContain("987-65-4321");
+    });
   });
 
   it("a rotated page's box-shaped objects turn exactly with it", async () => {
