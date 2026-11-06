@@ -69,6 +69,12 @@ import { planTranslateChunks } from "@/lib/workers/translate/chunking";
 import { TRANSLATE_MAX_INPUT_CHARS } from "@/lib/jobs/translate-limits";
 import { translateSameLanguageMessage } from "@/lib/jobs/translate-pdf";
 import {
+  scriptOnlyLanguage,
+  translateAutoSameLanguageWarning,
+} from "@/lib/jobs/translate-script";
+import { textToPdf } from "@/lib/pdf/text-to-pdf";
+import { useNodeFontSource as pointFontsAtNode } from "@/tests/unicode-fonts";
+import {
   AI_JOB_POLL,
   pollWaitMs,
   translateJobPoll,
@@ -288,6 +294,76 @@ describe("TranslateWorkerPanel: the same language on both sides is refused befor
     expect(
       screen.queryByText(translateSameLanguageMessage("es")),
     ).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Audit #38, the Auto-detect half. The explicit pair above is the rare way in; the
+ * DEFAULT — Auto-detect as the source — is the common one. A Bengali document sent
+ * "into Bengali" with Auto-detect ran, returned a copy of itself and spent the
+ * allowance, with nothing said. The panel already extracts the text before upload, so
+ * it warns from the document's script (`scriptOnlyLanguage`).
+ *
+ * A REAL Bengali PDF: drawn by the shipped text-to-PDF with the Noto Bengali face the
+ * browser would download, and read back by the real extractor the panel is given.
+ */
+describe("TranslateWorkerPanel: Auto-detect into the document's own language is warned about", () => {
+  const BENGALI =
+    "এটি একটি বাংলা নথি। চুক্তির শর্তাবলী নিচে দেওয়া হল। প্রতিটি পক্ষ এই শর্তাবলী মেনে চলবে।";
+  const WARNING = translateAutoSameLanguageWarning("bn");
+
+  async function bengaliPdf(): Promise<Uint8Array> {
+    const restore = pointFontsAtNode();
+    try {
+      return await textToPdf(BENGALI, { title: "নথি" });
+    } finally {
+      restore();
+    }
+  }
+
+  const pick = (label: RegExp, value: string) =>
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+
+  it("health: the fixture's text really comes back out as Bengali", async () => {
+    // Not an exact string: pdf.js returns Bengali vowel signs in visual order, so
+    // "চুক্তির" comes back reordered. The script is what the warning reads.
+    const extracted = await realExtract(await bengaliPdf());
+    expect(extracted.characterCount).toBeGreaterThan(40);
+    expect(scriptOnlyLanguage(extracted.text)).toBe("bn");
+  });
+
+  it("a Bengali PDF into Bengali, source Auto-detect, shows the warning before anything is sent", async () => {
+    const { fetchMock } = await renderReadyPanel();
+    fireEvent.change(fileInput(), {
+      target: { files: [pdfFile(await bengaliPdf(), "nothi.pdf")] },
+    });
+    pick(/translate into/i, "bn");
+    expect(await screen.findByText(WARNING)).toBeInTheDocument();
+    expect(jobRequests(fetchMock)).toEqual([]);
+  });
+
+  it("POSITIVE CONTROL: the same PDF into English shows no warning", async () => {
+    await renderReadyPanel();
+    fireEvent.change(fileInput(), {
+      target: { files: [pdfFile(await bengaliPdf(), "nothi.pdf")] },
+    });
+    // Proof the detector ran on this file: into Bengali, it warns...
+    pick(/translate into/i, "bn");
+    expect(await screen.findByText(WARNING)).toBeInTheDocument();
+    // ...and into English, the default, it does not.
+    pick(/translate into/i, "en");
+    expect(screen.queryByText(/looks like it is already in/)).toBeNull();
+  });
+
+  it("CONTROL: an English PDF into Bengali is not warned about", async () => {
+    await renderReadyPanel();
+    fireEvent.change(fileInput(), {
+      target: { files: [pdfFile(await textPdf(), "letter.pdf")] },
+    });
+    pick(/translate into/i, "bn");
+    // Give the extraction time to land, then confirm nothing was said.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(screen.queryByText(/looks like it is already in/)).toBeNull();
   });
 });
 

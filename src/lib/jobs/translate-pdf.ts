@@ -146,9 +146,12 @@ function isObject(value: unknown): value is Record<string, unknown> {
  * Parse the free-form `options` bag of a `translate-pdf` job into typed, validated
  * options. Strict and honest: a target language is REQUIRED and must be in the
  * allow-list (never coerced), the source language defaults to auto-detect but is
- * validated when given and may not equal the target, and the optional directive is bounded and control-character-
- * free. Mirrors `parseSummarizeOptions`, differing only in that translation cannot
- * proceed without a target — so an options-less request is honestly rejected.
+ * validated when given and may not equal the target, and the optional directive is
+ * bounded and control-character-free. Mirrors `parseSummarizeOptions`, differing
+ * only in that translation cannot proceed without a target — so an options-less
+ * request is honestly rejected. (Auto-detect into the document's own language
+ * cannot be seen here; the panel warns about it from the extracted text, see
+ * `./translate-script`.)
  */
 export function parseTranslateOptions(
   options: Record<string, unknown>,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Download,
@@ -33,6 +33,10 @@ import {
 import { downloadBytes } from "@/lib/pdf/browser";
 import { PdfEngineError } from "@/lib/pdf/engine";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
+import {
+  scriptOnlyLanguage,
+  translateAutoSameLanguageWarning,
+} from "@/lib/jobs/translate-script";
 import { translatePreflight } from "@/lib/workers/translate/preflight";
 import {
   TRANSLATE_MAX_INPUT_CHARS,
@@ -215,6 +219,64 @@ function TranslateBuilder({
   const sameLanguage = sourceLanguage === targetLanguage;
   const canRun = file != null && !busy && !sameLanguage;
 
+  /**
+   * The text, extracted ONCE per file and shared: by the script check below,
+   * as soon as the file is chosen, and by the preflight when the run starts.
+   * A promise, so a quick click shares the parse already under way.
+   */
+  const extraction = useRef<{
+    file: File;
+    result: Promise<ExtractedPdfText>;
+  } | null>(null);
+  const extractionFor = useCallback(
+    (chosen: File): Promise<ExtractedPdfText> => {
+      if (extraction.current?.file !== chosen) {
+        extraction.current = {
+          file: chosen,
+          result: chosen
+            .arrayBuffer()
+            .then((buffer) => extractText(new Uint8Array(buffer))),
+        };
+      }
+      return extraction.current.result;
+    },
+    [extractText],
+  );
+
+  // AUTO-DETECT INTO THE DOCUMENT'S OWN LANGUAGE (audit #38). The parser
+  // refuses an explicit same-language pair, but the default source is
+  // Auto-detect, and a Bengali PDF sent "into Bengali" that way ran, returned
+  // a copy of itself and spent the allowance. Some scripts are written by only
+  // one of our languages, so the extracted text says so before anything is
+  // sent. A warning, not a refusal: Marathi is written in Devanagari too, and
+  // Latin script decides nothing at all (see `scriptOnlyLanguage`).
+  const [scriptLanguage, setScriptLanguage] = useState<{
+    file: File;
+    language: TranslateLanguage | null;
+  } | null>(null);
+  useEffect(() => {
+    if (!file) return;
+    let current = true;
+    extractionFor(file).then(
+      (extracted) => {
+        if (current)
+          setScriptLanguage({
+            file,
+            language: scriptOnlyLanguage(extracted.text),
+          });
+      },
+      // A PDF that cannot be read is reported when the run starts, in words.
+      () => undefined,
+    );
+    return () => {
+      current = false;
+    };
+  }, [file, extractionFor]);
+  const autoSameLanguage =
+    sourceLanguage === TRANSLATE_SOURCE_AUTO &&
+    scriptLanguage?.file === file &&
+    scriptLanguage.language === targetLanguage;
+
   const start = useCallback(async () => {
     if (!file || !available) return;
     await run(async (controls) => {
@@ -246,7 +308,7 @@ function TranslateBuilder({
       // not as the lost connection the shared job hook calls a throw.
       let extracted: ExtractedPdfText;
       try {
-        extracted = await extractText(bytes);
+        extracted = await extractionFor(file);
       } catch (err) {
         return { ok: false, message: translateFailureMessage(err) };
       }
@@ -299,7 +361,7 @@ function TranslateBuilder({
     targetLanguage,
     sourceLanguage,
     instructions,
-    extractText,
+    extractionFor,
     run,
     available,
   ]);
@@ -387,6 +449,11 @@ function TranslateBuilder({
         {sameLanguage ? (
           <p className="text-warn text-xs leading-relaxed sm:col-span-2">
             {translateSameLanguageMessage(targetLanguage)}
+          </p>
+        ) : null}
+        {autoSameLanguage ? (
+          <p className="text-warn text-xs leading-relaxed sm:col-span-2">
+            {translateAutoSameLanguageWarning(targetLanguage)}
           </p>
         ) : null}
         <label className="text-muted flex flex-col gap-1 text-xs sm:col-span-2">
