@@ -412,6 +412,12 @@ describe("the inline tokenizer stays linear up to the source cap", () => {
     ["bare URLs", "(https://x/_a_) "],
     ["scheme candidates", "abcdefghijklmnopqrstuvwxyz012345:/ "],
     ["unbalanced parens", "https://x" + ")".repeat(64) + " "],
+    // Added with audit #11's raw HTML, entity and reference reading.
+    ["unclosed comments", "<!-- "],
+    ["unfinished tags", '<img alt="x '],
+    ["unknown tag names", "<config> "],
+    ["entity candidates", "&amp &#x "],
+    ["undefined references", "[a][b] [^c] "],
   ])("%s", (_label, unit) => {
     const source = repeat(unit);
     const started = performance.now();
@@ -1308,4 +1314,167 @@ describe("block structure", () => {
       restore();
     }
   }, 30_000);
+});
+
+/* ------------------------------------------------------------------ *
+ *  Audit #11 (2026-11-06). Until then the tokenizer recognised only an
+ *  autolink after `<` and never decoded an entity, so a private
+ *  `<!-- TODO -->` note printed into the PDF, `&amp;` printed as typed and
+ *  README HTML printed as tag soup. The parser also dropped reference links
+ *  and footnotes, hard line breaks and the blocks inside a quote or a list
+ *  item, and printed lazy numbering ("1. 1. 1.") as 1, 1, 1.
+ * ------------------------------------------------------------------ */
+
+describe("raw HTML, entities, references, breaks and containers (audit #11)", () => {
+  const texts = (markdown: string) =>
+    parseMarkdownBlocks(markdown).map((b) => ("text" in b ? b.text : b.kind));
+
+  it("an HTML comment is hidden, inline, on its own lines, and across a blank line", () => {
+    expect(
+      parseMarkdownBlocks("Intro\n\n<!-- secret note -->\n\nFish &amp; chips"),
+    ).toEqual([
+      { kind: "paragraph", text: "Intro" },
+      { kind: "paragraph", text: "Fish & chips" },
+    ]);
+    expect(paragraphText("keep <!-- TODO: remove --> this")).toBe("keep this");
+    expect(
+      texts("<!-- TODO: remove before release\n\nstill hidden -->\nafter"),
+    ).toEqual(["after"]);
+    // CONTROL: an unclosed comment is not hidden; nothing the user typed is lost.
+    expect(paragraphText("a <!-- never closed")).toBe("a <!-- never closed");
+  });
+
+  it("entities are decoded, outside code spans only", () => {
+    expect(
+      paragraphText("&copy; 2026 &#169; &#xA9; &lt;b&gt; &quot;q&quot;"),
+    ).toBe('© 2026 © © <b> "q"');
+    expect(paragraphText("a&nbsp;b")).toBe("a\u00A0b");
+    // Not entities: printed as typed.
+    expect(paragraphText("AT&T &bogus; & done")).toBe("AT&T &bogus; & done");
+    expect(paragraphText("`&amp;` stays")).toBe("&amp; stays");
+    expect(paragraphText("\\&amp; escaped")).toBe("&amp; escaped");
+  });
+
+  it("README HTML: <br> breaks the line, <img> prints its alt text, other tags vanish", () => {
+    expect(paragraphText("line one<br>line two<br />three")).toBe(
+      "line one\nline two\nthree",
+    );
+    expect(
+      paragraphText(
+        '<p align="center"><img src="logo.png" alt="Logo" width="200"></p>',
+      ),
+    ).toBe("Logo (logo.png)");
+    expect(paragraphText('<img src="shot.png">')).toBe("shot.png");
+    expect(paragraphText('<a href="https://x.dev">Docs</a> here')).toBe(
+      "Docs (https://x.dev) here",
+    );
+    expect(paragraphText("<b>bold</b> and <sub>2</sub>")).toBe("bold and 2");
+    // CONTROLS: not tags, so printed as typed.
+    expect(paragraphText("a < b and 3 <4 and \\<b>")).toBe(
+      "a < b and 3 <4 and <b>",
+    );
+    expect(paragraphText("<https://x.dev/a_b>")).toBe("https://x.dev/a_b");
+    expect(paragraphText("`<br>` in code")).toBe("<br> in code");
+  });
+
+  it("reference links resolve, and their definitions do not print", () => {
+    expect(texts("See [docs][d].\n\n[d]: https://example.com")).toEqual([
+      "See docs (https://example.com).",
+    ]);
+    expect(
+      texts(
+        '[Docs][] and [docs] and [Other][o  LABEL]\n\n[docs]: <https://d.dev> "Title"\n[O label]: https://o.dev',
+      ),
+    ).toEqual([
+      "Docs (https://d.dev) and docs (https://d.dev) and Other (https://o.dev)",
+    ]);
+    // CONTROL: no definition, no link; and a definition inside code is code.
+    expect(texts("[a][b] stays")).toEqual(["[a][b] stays"]);
+    expect(texts("```\n[d]: https://e.com\n```")).toEqual([
+      "[d]: https://e.com",
+    ]);
+  });
+
+  it("footnotes become numbered references with their notes after a rule", () => {
+    expect(
+      parseMarkdownBlocks(
+        "Claim[^src] and more[^2].\n\n[^2]: Second.\n[^src]: Source here.",
+      ),
+    ).toEqual([
+      { kind: "paragraph", text: "Claim[1] and more[2]." },
+      { kind: "rule" },
+      {
+        kind: "list-item",
+        ordered: true,
+        index: 1,
+        depth: 0,
+        text: "Source here.",
+      },
+      { kind: "list-item", ordered: true, index: 2, depth: 0, text: "Second." },
+    ]);
+    // CONTROL: an undefined footnote prints as typed.
+    expect(texts("Claim[^none].")).toEqual(["Claim[^none]."]);
+  });
+
+  it("two trailing spaces or a backslash make a hard line break", async () => {
+    expect(paragraphText("Jane Doe  \n12 Main St\\\nSpringfield")).toBe(
+      "Jane Doe\n12 Main St\nSpringfield",
+    );
+    // CONTROL: a plain wrap is still a space, and a trailing break at the end
+    // of the paragraph is dropped.
+    expect(paragraphText("one\ntwo  ")).toBe("one two");
+    const runs = await drawnRuns(
+      await markdownToPdf("Jane Doe  \n12 Main St  \nSpringfield"),
+    );
+    const y = (t: string) => runs.find((r) => r.text === t)?.y;
+    expect(y("Jane Doe")).toBeGreaterThan(y("12 Main St")!);
+    expect(y("12 Main St")).toBeGreaterThan(y("Springfield")!);
+  });
+
+  it("a quote keeps its lists, nested quotes and alerts as blocks", () => {
+    expect(parseMarkdownBlocks("> - alpha\n> - beta")).toEqual([
+      { kind: "quote", text: "• alpha" },
+      { kind: "quote", text: "• beta" },
+    ]);
+    expect(parseMarkdownBlocks("> outer\n>\n> > inner")).toEqual([
+      { kind: "quote", text: "outer" },
+      { kind: "quote", text: "inner", depth: 2 },
+    ]);
+    expect(parseMarkdownBlocks("> [!NOTE]\n> Use Node 22.")).toEqual([
+      { kind: "quote", text: "Note" },
+      { kind: "quote", text: "Use Node 22." },
+    ]);
+    // CONTROL: a plain quote is still one block, lazily continued.
+    expect(parseMarkdownBlocks("> one\ntwo")).toEqual([
+      { kind: "quote", text: "one two" },
+    ]);
+  });
+
+  it("a second paragraph in a list item stays a paragraph of that item", () => {
+    expect(parseMarkdownBlocks("- item\n\n  second paragraph\n- next")).toEqual(
+      [
+        { kind: "list-item", ordered: false, depth: 0, text: "item" },
+        {
+          kind: "list-item",
+          ordered: false,
+          depth: 0,
+          continued: true,
+          text: "second paragraph",
+        },
+        { kind: "list-item", ordered: false, depth: 0, text: "next" },
+      ],
+    );
+  });
+
+  it("an ordered list counts up from its first number", () => {
+    const index = (markdown: string) =>
+      parseMarkdownBlocks(markdown).map((b) =>
+        b.kind === "list-item" && b.ordered ? b.index : null,
+      );
+    expect(index("1. one\n1. two\n1. three")).toEqual([1, 2, 3]);
+    expect(index("3. a\n7. b\n   - x\n1. c")).toEqual([3, 4, null, 5]);
+    // CONTROL: a new list (after a paragraph) starts from its own number.
+    expect(index("1. a\n1. b\n\npara\n\n1. c")).toEqual([1, 2, null, 1]);
+    expect(index("1. a\n- b\n1. c")).toEqual([1, null, 1]);
+  });
 });
