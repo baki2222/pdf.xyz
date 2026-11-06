@@ -3621,8 +3621,8 @@ export const guides: Guide[] = [
         id: "remove-all",
         heading: "What Remove all metadata takes out, and what it leaves",
         body: [
-          `Remove all metadata deletes the ${METADATA_TEXT_NAMES} entries, both dates, and the XMP packet. Every page is kept as it was.`,
-          `It does not touch what is on the pages, or the comments, form fields, bookmarks and the metadata inside embedded images. If the private details are in the text or pictures on a page, use ${nameOf("redact-pdf")} to remove them from the page itself.`,
+          `Remove all metadata deletes the ${METADATA_TEXT_NAMES} entries, both dates, and the XMP packet, along with each page's own XMP packet, the private data apps such as Illustrator and Office keep on pages (PieceInfo), and any earlier copy of those entries an earlier save left in the file. Every page is kept as it was.`,
+          `It does not touch what is on the pages, or the comments, form fields, bookmarks, attached files and the metadata inside embedded images. If the private details are in the text or pictures on a page, use ${nameOf("redact-pdf")} to remove them from the page itself.`,
         ],
       },
       {
