@@ -74,6 +74,22 @@ const SHELL_PAGE = `<!doctype html><html><head><meta charset="utf-8"></head>
 </main></div></body></html>`;
 
 /**
+ * The two safety exclusions, each on its own: a review found the shell page
+ * above satisfies both at once, so either clause could be removed with the
+ * suite green. MAIN_FRAME holds <main> but a small share of the text (only
+ * the landmark clause keeps it); TEXT_FRAME holds no landmark but most of
+ * the text (only the text-share clause keeps it).
+ */
+const MAIN_FRAME = "Fixed frame landmark token";
+const MAIN_FRAME_PAGE = `<!doctype html><html><head><meta charset="utf-8"></head>
+<body><div style="position:fixed;inset:0"><main><p>${MAIN_FRAME}</p></main></div>
+<p>${"Body copy outside the frame. ".repeat(40)}</p></body></html>`;
+const TEXT_FRAME = "Fixed frame text-share token";
+const TEXT_FRAME_PAGE = `<!doctype html><html><head><meta charset="utf-8"></head>
+<body><p>Short outside line.</p><div style="position:fixed;inset:0"><div><p>${TEXT_FRAME}</p>
+<p>${"Reading text inside the frame. ".repeat(40)}</p></div></div></body></html>`;
+
+/**
  * One element per selector of every listed consent tool, each holding its
  * own token: the corpus is the list itself, so a tool added to it is
  * exercised here, and a selector that matches nothing it claims fails.
@@ -177,6 +193,8 @@ async function pdfOutline(bytes: Uint8Array): Promise<string[]> {
 const pages: Record<string, string> = {
   "/overlay": OVERLAY_PAGE,
   "/shell": SHELL_PAGE,
+  "/main-frame": MAIN_FRAME_PAGE,
+  "/text-frame": TEXT_FRAME_PAGE,
   "/consent": CONSENT_PAGE,
   "/media": MEDIA_PAGE,
   "/lazy": LAZY_PAGE,
@@ -353,6 +371,18 @@ describe.skipIf(!BIN)(
     it("never hides a fixed full-screen frame that holds the page's main content", async () => {
       const text = await render("/shell", { hideOverlays: true });
       expect(text).toContain(SHELL);
+    }, 90_000);
+
+    it("never hides a full-screen frame that holds <main>, even with a small share of the text", async () => {
+      const text = await render("/main-frame", { hideOverlays: true });
+      expect(text).toContain("Body copy outside the frame.");
+      expect(text).toContain(MAIN_FRAME);
+    }, 90_000);
+
+    it("never hides a full-screen frame that holds most of the page's text, even with no <main>", async () => {
+      const text = await render("/text-frame", { hideOverlays: true });
+      expect(text).toContain("Short outside line.");
+      expect(text).toContain(TEXT_FRAME);
     }, 90_000);
   },
 );
