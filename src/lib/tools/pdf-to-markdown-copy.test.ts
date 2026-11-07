@@ -231,6 +231,24 @@ describe("pdf-to-markdown: the page describes the structure the converter builds
       /until 2023\. Revenue grew$/m,
     );
     expect(wrap("Sales were flat.")).toMatch(/^2023\. Revenue grew$/m);
+    // Review of audit #8: the two clauses that bound the rules above.
+    expect(text).toContain("each numbered line is a heading of its own");
+    const big = 11 * HEADING_SIZE_RATIO;
+    const headings = md([
+      ...BODY,
+      { text: "1. First point", y: 640, size: big },
+      { text: "2. Second point", y: 620, size: big },
+    ]);
+    expect(headings).toMatch(/^#{2,6} 1\. First point$/m);
+    expect(headings).toMatch(/^#{2,6} 2\. Second point$/m);
+    expect(text).toContain("carries the next number or the same dash");
+    expect(
+      md([
+        { text: "Sales were flat until", y: 700 },
+        { text: "1. Open the page", y: 686 },
+        { text: "2. Paste the key", y: 672 },
+      ]),
+    ).toMatch(/until\n\n1\. Open the page\n2\. Paste the key$/);
   });
 
   it(`the page names the paragraph gap the converter applies (${PARAGRAPH_GAP_RATIO} times)`, () => {

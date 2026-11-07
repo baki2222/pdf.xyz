@@ -351,6 +351,37 @@ function isHeadingLine(line: GeoLine, bodySize: number): boolean {
   );
 }
 
+/**
+ * Whether `next` opens the list item that would follow `line` if `line` were
+ * one: one pitch below, on the same left edge, with the next ordered number
+ * and the same delimiter, or the same ASCII bullet.
+ */
+function startsSiblingItem(
+  line: GeoLine,
+  next: GeoLine | undefined,
+  pitch: number,
+): boolean {
+  if (!next) return false;
+  const step = line.y - next.y;
+  if (
+    step <= 0 ||
+    step > pitch * PARAGRAPH_GAP_RATIO ||
+    !nearly(next.x, line.x, line.size * 0.3) ||
+    !nearly(next.size, line.size, line.size * 0.15)
+  ) {
+    return false;
+  }
+  const ordered = ORDERED_ITEM.exec(line.text)?.[1];
+  if (ordered) {
+    const n = Number(ordered.slice(0, -1));
+    return ORDERED_ITEM.exec(next.text)?.[1] === `${n + 1}${ordered.at(-1)}`;
+  }
+  const bullet = ASCII_BULLET.exec(line.text)?.[0].trim();
+  return (
+    bullet !== undefined && ASCII_BULLET.exec(next.text)?.[0].trim() === bullet
+  );
+}
+
 /** A line that closes its sentence or lead-in, before any closing quote or bracket. */
 const ENDS_CLAUSE = /[.!?:;]["'\u201D\u2019)\]]*$/;
 
@@ -426,7 +457,7 @@ function blocksFromGeometry(lines: GeoLine[], bodySize: number): Block[] {
     open = { block, anchor: line };
   };
 
-  for (const line of lines) {
+  for (const [index, line] of lines.entries()) {
     const step = prev ? prev.y - line.y : 0;
     // A step back UP the page is a new column or an out-of-order block. It
     // ends the paragraph unless the sentence visibly runs on: the previous
@@ -458,7 +489,12 @@ function blocksFromGeometry(lines: GeoLine[], bodySize: number): Block[] {
       prev.text.length >= wrapChars &&
       nearly(line.size, prev.size, prev.size * 0.15) &&
       nearly(line.x, prev.x, line.size * 0.3) &&
-      !GLYPH_BULLET.test(line.text);
+      !GLYPH_BULLET.test(line.text) &&
+      // Looking back is not enough: a long lead-in with no colon reads as a
+      // wrap too. The next line one pitch below, on the same edge, with the
+      // sibling marker ("2." after "1.", "-" after "-") says it is a list.
+      // Until the audit #8 review, that lead-in swallowed the first item.
+      !startsSiblingItem(line, lines[index + 1], pitch);
     const item = wrapsOn ? null : listItem(line.text);
     // Heading size is asked first, so a numbered heading stays a heading.
     if (item && !isHeadingLine(line, bodySize)) {
@@ -469,6 +505,9 @@ function blocksFromGeometry(lines: GeoLine[], bodySize: number): Block[] {
       const heading = current?.block.kind === "heading" ? current.block : null;
       if (
         heading &&
+        // A numbered line is its own heading (a slide's or a contents page's
+        // "1. ..." then "2. ..."), never the second line of the one above.
+        !ORDERED_ITEM.test(line.text) &&
         nearly(heading.size, line.size, line.size * 0.05) &&
         step > 0 &&
         step <= line.size * 1.6

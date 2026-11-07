@@ -762,4 +762,69 @@ describe("pdf-to-markdown: numbered headings and wraps that look like markers (a
     ]);
     expect(out).toMatch(/^- the first point$/m);
   });
+
+  // Review of audit #8: letting a numbered line be a heading also let it
+  // CONTINUE the heading above it, so a slide's or a large-type contents
+  // page's "1. ..." and "2. ..." came out as one heading.
+  it("consecutive numbered heading-size lines are separate headings", () => {
+    const out = md([
+      ...BODY,
+      ["1. First big point", 72, 620, 18],
+      ["2. Second big point", 72, 598, 18],
+    ]);
+    expect(out).toMatch(/^## 1\. First big point$/m);
+    expect(out).toMatch(/^## 2\. Second big point$/m);
+    // CONTROL: a title wrapped over two lines is still one heading.
+    const wrapped = md([
+      ...BODY,
+      ["A Title That Runs Over", 72, 620, 18],
+      ["Two Lines", 72, 598, 18],
+    ]);
+    expect(wrapped).toMatch(/^## A Title That Runs Over Two Lines$/m);
+  });
+
+  // Review of audit #8: the wrap test only looked back, so a long lead-in
+  // with no colon swallowed the first item of the list under it. A sibling
+  // marker on the next line says it is a list.
+  it("CONTROL: a full-width lead-in with no colon still introduces a list", () => {
+    const out = md([
+      [
+        "Before you install the agent please make sure that each of the",
+        72,
+        700,
+        12,
+      ],
+      [
+        "following things is ready on the machine that will run it",
+        72,
+        686,
+        12,
+      ],
+      ["1. A supported operating system", 72, 672, 12],
+      ["2. An administrator account", 72, 658, 12],
+      ["3. Network access", 72, 644, 12],
+    ]);
+    expect(out).toContain(
+      "will run it\n\n1. A supported operating system\n2. An administrator account\n3. Network access",
+    );
+    const dashes = md([
+      [
+        "Before you install the agent please make sure that each of the",
+        72,
+        700,
+        12,
+      ],
+      [
+        "following things is ready on the machine that will run it",
+        72,
+        686,
+        12,
+      ],
+      ["- A supported operating system", 72, 672, 12],
+      ["- An administrator account", 72, 658, 12],
+    ]);
+    expect(dashes).toContain(
+      "will run it\n\n- A supported operating system\n- An administrator account",
+    );
+  });
 });
