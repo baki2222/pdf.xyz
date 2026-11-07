@@ -18,9 +18,11 @@ import { extractPdfText } from "@/lib/pdf/text";
 import { getToolBySlug } from "@/lib/tools";
 import { pageFaq } from "@/lib/tools/page-copy";
 import { withAppRouter } from "@/tests/app-router";
+import { PDF_NEEDS_PASSWORD_MESSAGE } from "@/lib/pdf/encryption";
 import {
   ASSEMBLE_COPY_FIXTURE,
   NO_ASSEMBLE_COPY_FIXTURE,
+  OPEN_PASSWORD_FIXTURE,
   readRestrictedFixture,
 } from "@/tests/restricted-pdf-fixtures";
 import { ComparePdfRunner } from "./compare-pdf-runner";
@@ -33,12 +35,13 @@ afterEach(() => {
   resetAnnouncer();
 });
 
+const file = (name: string, fixture: string) =>
+  new File([readRestrictedFixture(fixture).slice()], name, {
+    type: "application/pdf",
+  });
+
 describe("compare-pdf: two PDFs their authors restricted", () => {
   it("both are accepted with their page counts, and compared", async () => {
-    const file = (name: string, fixture: string) =>
-      new File([readRestrictedFixture(fixture).slice()], name, {
-        type: "application/pdf",
-      });
     render(withAppRouter(<ComparePdfRunner extract={extract} />));
     const input =
       document.querySelector<HTMLInputElement>('input[type="file"]')!;
@@ -61,6 +64,34 @@ describe("compare-pdf: two PDFs their authors restricted", () => {
     expect(
       await screen.findByText(/pages 2 vs 2/, undefined, { timeout: 10_000 }),
     ).toBeInTheDocument();
+  }, 30_000);
+
+  // The FAQ's other half: "A PDF that needs a password to open is refused as
+  // it is added, listed under Some files were skipped with a note to unlock
+  // it first." The count moved from pdf-lib to pdf.js on 2026-11-08, so this
+  // is the case the move could break.
+  it("a PDF that needs a password to open is skipped as password-protected", async () => {
+    render(withAppRouter(<ComparePdfRunner extract={extract} />));
+    const input =
+      document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    fireEvent.change(input, {
+      target: {
+        files: [
+          file("granted.pdf", ASSEMBLE_COPY_FIXTURE.file),
+          file("locked.pdf", OPEN_PASSWORD_FIXTURE.file),
+        ],
+      },
+    });
+    expect(
+      await screen.findByText("Some files were skipped", undefined, {
+        timeout: 10_000,
+      }),
+    ).toBeInTheDocument();
+    const row = screen.getByText(/locked\.pdf/).closest("li");
+    expect(row).not.toBeNull();
+    expect(row!.textContent).toContain(PDF_NEEDS_PASSWORD_MESSAGE);
+    await screen.findByText("1/2 selected", undefined, { timeout: 10_000 });
+    expect(screen.queryByText("2/2 selected")).toBeNull();
   }, 30_000);
 
   it("the page says a restricted file is compared, not refused", () => {
