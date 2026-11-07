@@ -53,6 +53,7 @@ import {
   REPAIR_WARNINGS_ANSWER,
   IMAGE_PAGE_FACT,
   IMAGE_PAGE_OPTIONS_FACT,
+  imageDefaultPaperCopy,
   TEXT_PAGE_FACT,
   TRANSLATE_LANGUAGES_ANSWER,
   countWord,
@@ -1221,8 +1222,9 @@ export const guides: Guide[] = [
       },
       {
         question: "Does JPG to PDF have page size or margin settings?",
-        // Was "No." — true until 2026-10-24.
-        answer: `Yes. ${IMAGE_PAGE_OPTIONS_FACT} If you change nothing, every image goes on a ${US_LETTER_LABEL} portrait page with a ${inches(IMAGE_PAGE_MARGIN_PT)} in margin, scaled down to fit if it is larger than that space.`,
+        // Was "No." — true until 2026-10-24. Said the page was US Letter for
+        // everyone until the review of 2b60fd4c (2026-11-07).
+        answer: `Yes. ${IMAGE_PAGE_OPTIONS_FACT} If you change nothing, every image goes on a portrait page with a ${inches(IMAGE_PAGE_MARGIN_PT)} in margin, scaled down to fit if it is larger than that space, and the page is ${imageDefaultPaperCopy()}.`,
       },
       {
         question: "How large can my JPG files be?",

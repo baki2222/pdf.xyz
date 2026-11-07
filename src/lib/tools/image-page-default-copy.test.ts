@@ -2,8 +2,10 @@
  * Audit jpg-to-pdf#1 (2026-11-07): Image to PDF's page size now STARTS on
  * the paper of the browser's region — A4, or US Letter where the region
  * prints on Letter (`imagePageSizeForLocales`). Until then it was US Letter
- * for everyone, and the copy said so in five places on two tool pages, the
- * facts box, and a guide.
+ * for everyone, and the copy said so on two tool pages, the facts box, two
+ * guides and the authored steps in catalog-how.ts: every sentence in SHIPPED
+ * below. The first version of this file counted "five places" and missed
+ * the JPG guide's FAQ and the authored steps (review of 2b60fd4c).
  *
  * This holds the copy to the new default in both directions (CLAUDE.md
  * "Guards — house style", rule 1):
@@ -28,7 +30,12 @@ import {
   pageSteps,
   stepText,
 } from "@/lib/tools/page-copy";
-import { imageDefaultPaperCopy, toolFacts } from "@/lib/tools/tool-facts";
+import {
+  howToSteps,
+  imageDefaultPaperCopy,
+  toolFacts,
+} from "@/lib/tools/tool-facts";
+import { TOOL_HOW } from "@/lib/tools/catalog-how";
 import {
   IMAGE_PAGE_SIZES,
   LETTER_PAPER_REGIONS,
@@ -55,9 +62,13 @@ const sentences = (text: string) =>
  * — that names Letter and not A4.
  */
 const DEFAULT_WORDS =
-  /\b(?:unless you change|left alone|by default|the default|default page|usual layout)\b/i;
+  /\b(?:unless you change|(?:if you )?change nothing|left alone|by default|the default|default page|usual layout)\b/i;
+// "US Letter" may carry its size in brackets and an adjective before
+// "page": the guide FAQ shipped "a US Letter (8.5 × 11 in) portrait page",
+// which a shape requiring "Letter page" side by side did not see (review of
+// 2b60fd4c, 2026-11-07).
 const LETTER_AS_THE_PAGE =
-  /\b(?:per|on an?|on its own)\s+(?:[\w,]+\s+){0,3}?US\s+Letter\s+(?:page|sheet)s?\b/i;
+  /\b(?:per|on an?|on its own)\s+(?:[\w,]+\s+){0,3}?US\s+Letter(?:\s*\([^)]*\))?(?:\s+\w+)?\s+(?:page|sheet)s?\b/i;
 function statesLetterOnlyDefault(sentence: string): boolean {
   return (
     (DEFAULT_WORDS.test(sentence) || LETTER_AS_THE_PAGE.test(sentence)) &&
@@ -76,11 +87,18 @@ const SHIPPED = [
   "Unless you change the page setup, that page is US Letter (8.5 × 11 in) portrait with a 0.5 in margin.",
   "On the default US Letter page with its 0.5 in margin, a screenshot 1,920 pixels wide is shrunk to 7.5 inches across.",
   "One photo per US Letter page, in the order you set.",
+  // Guide how-to-convert-jpg-to-pdf, FAQ "Does JPG to PDF have page size or
+  // margin settings?" — missed by the first version of this corpus.
+  "If you change nothing, every image goes on a US Letter (8.5 × 11 in) portrait page with a 0.5 in margin, scaled down to fit if it is larger than that space.",
+  // TOOL_HOW["jpg-to-pdf"], the authored steps (catalog-how.ts).
+  "Set “Page size”, “Orientation”, “Margin” and “Output” if you want to — left alone, each image is centred on its own US Letter (8.5 × 11 in) portrait page in one PDF.",
 ];
 /** Synonyms the shapes must also catch (rule 1: a synonym walks past). */
 const SYNONYMS = [
   "Each image is placed on a portrait US Letter sheet.",
   "By default the paper is US Letter.",
+  "Change nothing and you get US Letter.",
+  "Each photo lands on a US Letter (8.5 × 11 in) sheet.",
 ];
 const HONEST = [
   `Unless you change the page setup, that page is ${imageDefaultPaperCopy()}.`,
@@ -116,6 +134,10 @@ function toolCopy(tool: (typeof tools)[number]): string[] {
     ...pageSteps(tool).map(stepText),
     ...pageFaq(tool).flatMap((f) => [f.question, f.answer]),
     ...toolFacts(tool.slug).map((f) => f.value),
+    // The authored steps in catalog-how.ts: not drawn on these pages today
+    // (their content steps win), but howToSteps() serves them to any other
+    // surface, and they said "US Letter" alone until the review of 2b60fd4c.
+    ...howToSteps(tool, TOOL_HOW[tool.slug] ?? null),
   ];
 }
 
