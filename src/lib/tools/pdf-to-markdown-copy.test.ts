@@ -387,10 +387,10 @@ describe("pdf-to-markdown: the page describes the structure the converter builds
     // The hint states the converter's own numbers.
     expect(REPEATED_LINES_HINT).toContain(`${EDGE_LINES} lines`);
     expect(REPEATED_LINES_HINT).toContain(
-      `${Math.round(REPEATED_LINE_SHARE * 100)}% of the pages`,
+      `${Math.round(REPEATED_LINE_SHARE * 100)}% of the pages that have text`,
     );
     expect(REPEATED_LINES_HINT).toContain(
-      `${REPEATED_LINE_MIN_PAGES} pages or more`,
+      `${REPEATED_LINE_MIN_PAGES} or more pages have text`,
     );
     expect(DEFAULT_REMOVE_REPEATED_LINES).toBe(true);
   });

@@ -17,6 +17,7 @@ import {
   REPEATED_LINE_MIN_PAGES,
 } from "./pdf-to-markdown";
 import { linksFromPage, pdfToMarkdown } from "./pdf-to-markdown-read";
+import { REPEATED_LINES_HINT } from "@/lib/tools/pdf-to-markdown-options";
 
 /**
  * PDF to Markdown as the runner calls it: real bytes, pdfjs's own text items
@@ -507,6 +508,29 @@ describe("what is NOT a running header", () => {
     [`a second line ${"ijklmnop"[n]} and closes.`, 686],
     [`A last line ${"qrstuvwx"[n]} here.`, 660],
   ];
+
+  it(`only pages with text count toward the ${REPEATED_LINE_MIN_PAGES} pages, as the hint says`, () => {
+    const header: [string, number] = ["ACME Corp Confidential", 760];
+    const withText = (n: number) => [header, ...body(n)];
+    // One blank page among REPEATED_LINE_MIN_PAGES: too few pages have text.
+    const short = doc([
+      ...Array.from({ length: REPEATED_LINE_MIN_PAGES - 1 }, (_, n) =>
+        withText(n),
+      ),
+      [],
+    ]);
+    expect(short.removedLineCount).toBe(0);
+    // CONTROL: one more page with text, and the header is left out.
+    const enough = doc([
+      ...Array.from({ length: REPEATED_LINE_MIN_PAGES }, (_, n) => withText(n)),
+      [],
+    ]);
+    expect(enough.removedLineCount).toBe(REPEATED_LINE_MIN_PAGES);
+    expect(REPEATED_LINES_HINT).toContain(
+      `when ${REPEATED_LINE_MIN_PAGES} or more pages have text`,
+    );
+    expect(REPEATED_LINES_HINT).toContain("of the pages that have text");
+  });
 
   it("a numbered heading that does not count the pages is kept", () => {
     // "Step 2" heads page 1, "Step 3" page 2 ... and "Step 7" page 4: the
