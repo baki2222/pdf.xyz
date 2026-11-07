@@ -25,6 +25,11 @@
  *
  * A LEAF: only `image-to-pdf.ts` and the tool copy import it.
  */
+import {
+  IMAGE_MARGINS,
+  IMAGE_PAGE_SIZES,
+  type ImageMarginId,
+} from "./image-page-layout";
 
 export const MIN_PLAUSIBLE_DPI = 50;
 export const MAX_PLAUSIBLE_DPI = 2400;
@@ -176,3 +181,17 @@ const orList = (items: readonly string[]) =>
  * 2,400 dpi". image-tools-w3-copy.test.ts holds every page that quotes it.
  */
 export const IGNORED_DPI_COPY = `${orList(PLACEHOLDER_DPIS.map(String))} dpi, which cameras and apps write when they do not know, or one under ${MIN_PLAUSIBLE_DPI.toLocaleString("en-US")} or over ${MAX_PLAUSIBLE_DPI.toLocaleString("en-US")} dpi`;
+
+/**
+ * The page setup under which "a 300 dpi scan of an A4 sheet becomes an A4
+ * page" is true: Fit to image AND no margin. ADDED after review, 2026-11-08:
+ * the copy said it of Fit to image alone, and under the default Large margin
+ * the page is A4 plus an inch on each axis. a4-scan-claim.test.ts finds
+ * every sentence making the claim and runs the margin it names.
+ */
+const A4_SCAN_MARGIN: ImageMarginId = "none";
+export const A4_SCAN_SETUP_COPY = `with ${
+  IMAGE_PAGE_SIZES.find((s) => s.id === "fit")!.label
+} under Page size and ${
+  IMAGE_MARGINS.find((m) => m.id === A4_SCAN_MARGIN)!.label
+} under Margin`;

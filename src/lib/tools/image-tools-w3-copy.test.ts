@@ -3,6 +3,7 @@ import jpg from "./content/jpg-to-pdf";
 import png from "./content/png-to-pdf";
 import { IMAGE_ROTATION_LABELS } from "@/lib/pdf/image-rotation";
 import {
+  A4_SCAN_SETUP_COPY,
   IGNORED_DPI_COPY,
   MAX_PLAUSIBLE_DPI,
   MIN_PLAUSIBLE_DPI,
@@ -58,8 +59,11 @@ describe.each([
 
   it("says a stated resolution sizes a Fit to image page, and which are ignored", () => {
     // image-density.test.ts: a 300 dpi A4 scan saved as PNG is an A4 page.
-    expect(text(content)).toMatch(
-      /Fit to image[^.]*resolution saved in the[^.]*300 dpi scan of an A4 sheet[^.]*A4 page/,
+    expect(text(content)).toMatch(/Fit to image[^.]*resolution saved in the/);
+    // CHANGED after review, 2026-11-08: the A4 claim held only with no
+    // margin, and said so nowhere; a4-scan-claim.test.ts runs the margin.
+    expect(text(content)).toContain(
+      `${A4_SCAN_SETUP_COPY}, a 300 dpi scan of an A4 sheet saved as a`,
     );
     expect(text(content)).toContain(IGNORED_DPI_COPY);
     // INVERTED 2026-11-08: the PNG page said "Any DPI value stored inside

@@ -187,7 +187,7 @@ import {
   MAX_PAGE_SIDE_PT,
   imagePageLayout,
 } from "@/lib/pdf/image-page-layout";
-import { IGNORED_DPI_COPY } from "@/lib/pdf/image-density";
+import { A4_SCAN_SETUP_COPY, IGNORED_DPI_COPY } from "@/lib/pdf/image-density";
 import {
   SMALL_IMAGES_CHOICES,
   SMALL_IMAGES_LABELS,
@@ -6052,7 +6052,7 @@ export const guides: Guide[] = [
         heading: "How big a screenshot's page is",
         body: [
           `The image is laid out at one point per pixel, and a point is 1/${PT_PER_INCH} of an inch, so screenshots are large on paper. On a ${US_LETTER_LABEL} page with the default ${PNG_DEFAULT_MARGIN_IN} in margin, a screenshot ${PNG_SHOT_PX} pixels wide is shrunk to ${PNG_SHOT_ON_PAPER_IN} inches across, or ${PNG_SHOT_ON_A4_IN} inches on ${labelOf(IMAGE_PAGE_SIZES, "a4")}. No pixel is thrown away by that, so zooming in on the PDF still shows the detail. With ${PNG_FIT_LABEL}, the same screenshot gets a page about ${PNG_SHOT_FIT_PAGE_IN} inches wide, which reads well on screen; to print it, use your printer's fit-to-page setting.`,
-          `On a paper size a small image keeps its size, so an icon stays icon-sized, unless you choose ${ENLARGE_LABEL} under ${SMALL_IMAGES_LABELS.heading}, which scales it up to the margin; no pixels are added, so it looks softer the more it grows. A long scrolling capture stays one image on one page: it is not cut across several pages. On a paper size it is shrunk to the page's height, so choose ${PNG_FIT_LABEL} to keep it readable. Even then a page side cannot pass ${PNG_MAX_PAGE_IN} inches, and a longer capture is scaled down to fit that. Under ${PNG_FIT_LABEL} a resolution saved in the PNG sets the page's size on paper instead, so a 300 dpi scan of an A4 sheet becomes an A4 page; the sizes above are for a screenshot that states ${IGNORED_DPI_COPY}, or none at all.`,
+          `On a paper size a small image keeps its size, so an icon stays icon-sized, unless you choose ${ENLARGE_LABEL} under ${SMALL_IMAGES_LABELS.heading}, which scales it up to the margin; no pixels are added, so it looks softer the more it grows. A long scrolling capture stays one image on one page: it is not cut across several pages. On a paper size it is shrunk to the page's height, so choose ${PNG_FIT_LABEL} to keep it readable. Even then a page side cannot pass ${PNG_MAX_PAGE_IN} inches, and a longer capture is scaled down to fit that. Under ${PNG_FIT_LABEL} a resolution saved in the PNG sets the page's size on paper instead: ${A4_SCAN_SETUP_COPY}, a 300 dpi scan of an A4 sheet becomes an A4 page; the sizes above are for a screenshot that states ${IGNORED_DPI_COPY}, or none at all.`,
         ],
       },
     ],
