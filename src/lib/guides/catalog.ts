@@ -2965,7 +2965,7 @@ export const guides: Guide[] = [
       `In the Crop margins section, choose Uniform for one All sides slider, or Per side for separate Top, Right, Bottom and Left sliders, and pick ${CROP_UNITS} as the unit. You can drag a slider or type a value in the box beside it.`,
       "For automatic margins, choose Auto and press Find white margins. The tool says how many pages it found content on and names any blank page, which it leaves uncropped.",
       "In the Pages section, keep All pages, or choose Selected pages and type a list such as 2-4, 7.",
-      "Check the Crop preview, then press Crop PDF and Download cropped PDF.",
+      "Check the Crop preview, which draws the page under a dashed box; in Uniform and Per side you can drag the box's edges to set the margins by eye. Then press Crop PDF and Download cropped PDF.",
     ],
     sections: [
       {
@@ -3020,7 +3020,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-29",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-convert-pdf-to-excel",

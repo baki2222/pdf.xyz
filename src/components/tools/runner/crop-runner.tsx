@@ -61,6 +61,16 @@ const MAX_MARGIN = 300;
 const clampPct = (value: number) => Math.max(0, Math.min(49, value));
 
 type CropMode = "uniform" | "per-side" | "auto";
+type Edge = keyof CropMargins;
+const EDGES: readonly Edge[] = ["top", "right", "bottom", "left"];
+
+/** Each handle's accessible name — "Top edge", and so on. */
+const edgeLabel = (edge: Edge) =>
+  `${edge.charAt(0).toUpperCase()}${edge.slice(1)} edge`;
+
+/** The line under the manual preview — the page's steps quote it. */
+export const EDGE_HINT =
+  "Drag an edge of the dashed box to move it, or focus an edge and use the arrow keys: one point a press, ten with Shift.";
 type AutoApply = "per-page" | "uniform";
 
 type AutoState =
@@ -196,10 +206,16 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
           },
         }
       : null;
-  const pageImage = usePageImage(
-    pdf.bytes,
-    mode === "auto" && plan ? shownPage : null,
-  );
+  // The page itself, under the box, in every mode (audit crop-pdf#1): the
+  // manual modes drew an empty outline, so margins were set blind.
+  const pageImage = usePageImage(pdf.bytes, shownPage);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const setEdge = (edge: Edge, points: number) =>
+    setMargins((m) =>
+      mode === "uniform"
+        ? { top: points, right: points, bottom: points, left: points }
+        : { ...m, [edge]: points },
+    );
 
   const detect = async () => {
     detectAbort.current?.abort();
@@ -423,6 +439,8 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
         <div className="border-line bg-canvas rounded-panel flex flex-col items-center gap-3 border p-5">
           {preview ? (
             <div
+              ref={sheetRef}
+              data-crop-sheet=""
               className="rounded-sheet relative w-full max-w-[200px] overflow-hidden bg-white/90 shadow-sm ring-1 ring-black/10"
               style={{ aspectRatio: `${preview.width} / ${preview.height}` }}
             >
@@ -446,12 +464,31 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
                   }}
                 />
               )}
+              {mode !== "auto" &&
+                preview.box &&
+                EDGES.map((edge) => (
+                  <EdgeHandle
+                    key={edge}
+                    edge={edge}
+                    box={preview.box!}
+                    points={margins[edge]}
+                    unit={unit}
+                    page={preview}
+                    sheetRef={sheetRef}
+                    onChange={(points) => setEdge(edge, points)}
+                  />
+                ))}
             </div>
           ) : (
             // Still, and the preview frame's own shape — not the pulsing box
             // #184 removed from Edit, Annotate and Redact. Held there by
             // e2e/editor-arrival.spec.ts.
             <div className="bg-wash rounded-sheet relative aspect-[3/4] w-full max-w-[200px] overflow-hidden" />
+          )}
+          {mode !== "auto" && preview?.box && (
+            <p className="text-muted max-w-xs text-center text-xs">
+              {EDGE_HINT}
+            </p>
           )}
           {mode === "auto" && plan && (
             <>
@@ -505,6 +542,111 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
         </div>
       </RunBar>
     </div>
+  );
+}
+
+/**
+ * One edge of the manual crop box, as a slider over that edge's margin: drag
+ * it on the page, or focus it and use the arrow keys. Pointer moves are read
+ * against the sheet's on-screen size, so a pixel is the same share of the
+ * page the preview draws (the page's displayed frame, as `cropPdf` crops).
+ */
+function EdgeHandle({
+  edge,
+  box,
+  points,
+  unit,
+  page,
+  sheetRef,
+  onChange,
+}: {
+  edge: Edge;
+  box: Record<Edge, number>;
+  points: number;
+  unit: LengthUnit;
+  page: { width: number; height: number };
+  sheetRef: React.RefObject<HTMLDivElement | null>;
+  onChange: (points: number) => void;
+}) {
+  const drag = useRef<{ x: number; y: number; points: number } | null>(null);
+  const clamp = (pt: number) =>
+    Math.max(0, Math.min(MAX_MARGIN, Math.round(pt * 100) / 100));
+  const vertical = edge === "top" || edge === "bottom";
+  const position: React.CSSProperties =
+    edge === "top"
+      ? { top: `${box.top}%`, left: "50%" }
+      : edge === "bottom"
+        ? { top: `${100 - box.bottom}%`, left: "50%" }
+        : edge === "left"
+          ? { left: `${box.left}%`, top: "50%" }
+          : { left: `${100 - box.right}%`, top: "50%" };
+  return (
+    <span
+      role="slider"
+      tabIndex={0}
+      aria-label={edgeLabel(edge)}
+      aria-orientation={vertical ? "vertical" : "horizontal"}
+      aria-valuemin={0}
+      aria-valuemax={MAX_MARGIN}
+      aria-valuenow={points}
+      aria-valuetext={formatLength(points, unit)}
+      onPointerDown={(event) => {
+        event.preventDefault();
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+        drag.current = { x: event.clientX, y: event.clientY, points };
+      }}
+      onPointerMove={(event) => {
+        const start = drag.current;
+        const rect = sheetRef.current?.getBoundingClientRect();
+        if (!start || !rect || rect.width <= 0 || rect.height <= 0) return;
+        const dx = ((event.clientX - start.x) * page.width) / rect.width;
+        const dy = ((event.clientY - start.y) * page.height) / rect.height;
+        const inward =
+          edge === "top"
+            ? dy
+            : edge === "bottom"
+              ? -dy
+              : edge === "left"
+                ? dx
+                : -dx;
+        onChange(clamp(start.points + inward));
+      }}
+      onPointerUp={() => {
+        drag.current = null;
+      }}
+      onPointerCancel={() => {
+        drag.current = null;
+      }}
+      onKeyDown={(event) => {
+        const step = event.shiftKey ? 10 : 1;
+        const by: Record<string, number> = {
+          ArrowUp: step,
+          ArrowRight: step,
+          ArrowDown: -step,
+          ArrowLeft: -step,
+        };
+        let next: number | null = null;
+        if (event.key in by) next = points + by[event.key]!;
+        else if (event.key === "Home") next = 0;
+        else if (event.key === "End") next = MAX_MARGIN;
+        if (next === null) return;
+        event.preventDefault();
+        onChange(clamp(next));
+      }}
+      className={cn(
+        "tap focus-visible:ring-accent/50 absolute z-10 grid size-6 -translate-x-1/2 -translate-y-1/2 touch-none place-items-center rounded-full outline-none focus-visible:ring-2",
+        vertical ? "cursor-ns-resize" : "cursor-ew-resize",
+      )}
+      style={position}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "bg-accent rounded-full shadow-sm ring-2 ring-white",
+          vertical ? "h-1.5 w-5" : "h-5 w-1.5",
+        )}
+      />
+    </span>
   );
 }
 
