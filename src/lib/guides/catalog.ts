@@ -294,6 +294,10 @@ const PORTAL_SAFE_100_KB = Math.floor(100_000 / KB_BYTES);
 const OFF_PRESET_BYTES = 2 * MB;
 const OFF_PRESET_LABEL = sizeLabel(OFF_PRESET_BYTES);
 const OFF_PRESET_KB = OFF_PRESET_BYTES / KB_BYTES;
+/** A smaller off-preset size for the JPG guide's Max file size (300 KB). */
+const OFF_PRESET_SMALL_BYTES = 300 * KB_BYTES;
+const OFF_PRESET_SMALL_LABEL = sizeLabel(OFF_PRESET_SMALL_BYTES);
+const OFF_PRESET_SMALL_KB = OFF_PRESET_SMALL_BYTES / KB_BYTES;
 /** A preset as searchers type it: "100 KB" -> "100kb", "1 MB" -> "1mb". */
 const searchSpelling = (label: string) => label.replace(" ", "").toLowerCase();
 /** The panel's own sentence for a met target, from the function it calls. */
@@ -4340,8 +4344,8 @@ export const guides: Guide[] = [
           "No. The image is shrunk and the PDF is made in your browser tab; the file is not sent to pdf.xyz.",
       },
       {
-        question: `Can I make the PDF fit 300 KB, ${OFF_PRESET_LABEL} or another size?`,
-        answer: `Yes. Choose “${MAX_SIZE_LABELS.custom}” under “${MAX_SIZE_LABELS.heading}” and type the size in KB: 300 for 300 KB, ${OFF_PRESET_KB} for ${OFF_PRESET_LABEL}.`,
+        question: `Can I make the PDF fit ${OFF_PRESET_SMALL_LABEL}, ${OFF_PRESET_LABEL} or another size?`,
+        answer: `Yes. Choose “${MAX_SIZE_LABELS.custom}” under “${MAX_SIZE_LABELS.heading}” and type the size in KB: ${OFF_PRESET_SMALL_KB} for ${OFF_PRESET_SMALL_LABEL}, ${OFF_PRESET_KB} for ${OFF_PRESET_LABEL}.`,
       },
       {
         question: "How large can my image be?",
