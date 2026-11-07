@@ -45,6 +45,7 @@ import { sanitizeDisplayFilename } from "@/lib/jobs/filenames";
 import { looksLikePdf } from "./compression/engine";
 import { OCR_ENGINES, type OcrEngine, type OcrEngineAvailability } from "./ocr";
 import { classifyOcrmypdfFailure, OcrEngineRefusal } from "./ocr-engine-errors";
+import { opensWithoutPassword } from "./ocr-encryption-probe";
 import { ocrReadyImage } from "./ocr-image";
 import { fillSkippedSidecarPages, skippedSidecarPages } from "./ocr-sidecar";
 import {
@@ -707,8 +708,15 @@ export function createNativeOcrRunner(
         // final with its next step instead of retrying it three times. Exit
         // statuses are per-program, so only OCRmyPDF's are read. Everything else
         // (a timeout, a crash) is rethrown untouched and stays retryable.
-        const refusal =
+        let refusal =
           engine === "ocrmypdf" ? classifyOcrmypdfFailure(error) : null;
+        // Exit 8 is any encryption: the file itself says whether it needs a
+        // password or only carries its author's restrictions (audit
+        // ocr-pdf#4). Asked of the uploaded bytes, nothing decrypted.
+        if (refusal === "encrypted")
+          refusal = classifyOcrmypdfFailure(error, {
+            opensWithoutPassword: await opensWithoutPassword(input.bytes),
+          });
         if (refusal) throw new OcrEngineRefusal(refusal);
         throw error;
       }
