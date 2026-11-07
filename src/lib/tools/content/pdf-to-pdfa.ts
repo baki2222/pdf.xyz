@@ -13,12 +13,18 @@ import {
   PDFA_OUTPUT_INTENT_SUBTYPE,
 } from "@/lib/workers/pdf-archive/pdfa-markers";
 import { pdfaOutputName } from "@/lib/workers/processor/pdf-archive";
+import {
+  PDFA_LEVELS,
+  PDFA_LEVEL_LABEL,
+  PDFA_LEVEL_NAMES,
+} from "@/lib/workers/pdf-archive/levels";
 
 /**
- * The prose below explains conformance level "b" of PDF/A-2 (ISO 19005-2) and
- * says the engine runs with its PDF/A-2 setting. Interpolating the constant
- * alone would leave those sentences true of the old target and false of the
- * new one, so a change of target stops the build here instead of shipping them.
+ * The prose below explains conformance level "b" and names PDF/A-2b as the
+ * DEFAULT level (the picker, `pdf-archive/levels.ts`, offers the others since
+ * 2026-11-08, audit pdf-to-pdfa#1). Interpolating the constant alone would
+ * leave those sentences true of the old default and false of a new one, so a
+ * change of default stops the build here instead of shipping them.
  */
 if (PDF_A_STANDARD !== "PDF/A-2b") {
   throw new Error(
@@ -45,6 +51,14 @@ const LINK_MINUTES = DEFAULT_RETENTION.outputTtlMinutes;
 const NOTE_LINES = Math.min(MAX_DIAGNOSTIC_LINES, MAX_TOOL_NOTES);
 const NOTE_CHARS = Math.min(MAX_DIAGNOSTIC_CHARS, MAX_TOOL_NOTE_CHARS);
 
+/** "1b, 2b or 3b": the picker's levels by part, for the title. */
+const LEVEL_IDS = (() => {
+  const ids = [...PDFA_LEVELS]
+    .sort((a, b) => a.part.localeCompare(b.part))
+    .map((level) => level.id);
+  return `${ids.slice(0, -1).join(", ")} or ${ids[ids.length - 1]}`;
+})();
+
 /** The real output-name function, not a typed example of it. */
 const EXAMPLE_IN = "report.pdf";
 const EXAMPLE_OUT = pdfaOutputName(EXAMPLE_IN);
@@ -58,9 +72,13 @@ const EXAMPLE_OUT = pdfaOutputName(EXAMPLE_IN);
  *    jobBusyLabel: "Uploading your file…", "Waiting for the worker…",
  *    "Converting to PDF/A…", "Downloading the result…"; until 2026-10-07 the
  *    step said "Converting to PDF/A…" covered the upload), "Your PDF/A file
- *    is ready." and "Download <name>". No
- *    options: no level picker, no password field. The panel itself says the
- *    result is not validated against the PDF/A specification.
+ *    is ready." and "Download <name>". ONE option since 2026-11-08 (audit
+ *    pdf-to-pdfa#1): the "PDF/A level" picker (PDF/A-2b, PDF/A-1b, PDF/A-3b,
+ *    pdf-archive/levels.ts), sent as `options.level` and read back by the
+ *    worker's parser; -dPDFA=<part> follows it, PDF/A-1b also pins
+ *    -dCompatibilityLevel=1.4, and the marker check expects the picked part.
+ *    No password field. The panel itself says the result is not validated
+ *    against the PDF/A specification.
  *  - notes: src/components/tools/pdfa-notes.tsx ("What PDF/A could not keep:"
  *    shown ABOVE the download, rendered whenever gs said ANYTHING, not only on
  *    a removal), bounded twice: the worker's sanitizeNativeDiagnostics (dedupes
@@ -117,12 +135,12 @@ const EXAMPLE_OUT = pdfaOutputName(EXAMPLE_IN);
 const content: ToolContent = {
   slug: "pdf-to-pdfa",
 
-  seoTitle: `PDF to PDF/A Converter Online — ${PDF_A_STANDARD} Output`,
+  seoTitle: `PDF to PDF/A Converter: ${LEVEL_IDS}`,
 
-  metaDescription: `Convert a PDF to ${PDF_A_STANDARD} for archiving with Ghostscript and read what it reported dropping before you download. No PDF/A validator checks the result.`,
+  metaDescription: `Convert a PDF to ${PDFA_LEVEL_NAMES} with Ghostscript and read what it reported dropping before you download. No PDF/A validator checks the result.`,
 
   intro: [
-    `PDF to PDF/A, an online converter, rewrites an ordinary PDF as ${PDF_A_STANDARD}: conformance level b of PDF/A-2 (ISO 19005-2), the archiving format meant for documents that must still open and look the same years from now. Ghostscript's pdfwrite device rebuilds the file with its PDF/A-2 setting switched on. Level b (basic) is about visual appearance; the tagged structure that level a requires is not added.`,
+    `PDF to PDF/A, an online converter, rewrites an ordinary PDF as PDF/A, the archiving format meant for documents that must still open and look the same years from now. Unless you change ${PDFA_LEVEL_LABEL}, the copy is ${PDF_A_STANDARD}: conformance level b of PDF/A-2 (ISO 19005-2). The picker offers ${PDFA_LEVEL_NAMES}, for an archive or portal that names one. Ghostscript's pdfwrite device rebuilds the file with the matching PDF/A setting switched on. Level b (basic) is about visual appearance; the tagged structure that level a requires is not added, so the a and u levels are not offered.`,
     `Some of what a PDF can carry has no place in PDF/A, and the converter is told to drop it and keep going rather than abandon the job. What Ghostscript reports while doing so appears above your download in its own words: at most ${NOTE_LINES} distinct lines, each cut to ${NOTE_CHARS} characters, with any line naming a file path held back and a closing line saying further messages were not shown. The line you are most likely to meet ends in "discarding DOCINFO", because most PDFs carry producer or creator text. Nothing checks the output against the PDF/A specification afterwards, so treat it as a best-effort conversion, not a certificate.`,
     `The conversion happens where Ghostscript is installed, on pdf.xyz's secure server, so your PDF (one per job, ${CEILING_MB} MB at most) travels there over TLS. Once the job is over our server deletes your original. You then have ${LINK_MINUTES} minutes to download the archive version, and whatever is still in storage after that is wiped by the next daily sweep.`,
   ],
@@ -138,7 +156,7 @@ const content: ToolContent = {
     },
     {
       title: "An upload portal that insists on PDF/A",
-      body: `When a submission system rejects a file for not being PDF/A, a pass through here is worth trying. If the portal names a different level, such as PDF/A-1b or PDF/A-3b, this tool will not match it, because every job targets ${PDF_A_STANDARD}.`,
+      body: `When a submission system rejects a file for not being PDF/A, a pass through here is worth trying. Pick the level it names under ${PDFA_LEVEL_LABEL}: ${PDFA_LEVEL_NAMES}. A portal that asks for an a or u level (PDF/A-2a, PDF/A-2u and the like) needs other software.`,
     },
     {
       title: "Seeing what an archive copy would lose",
@@ -156,6 +174,10 @@ const content: ToolContent = {
       body: 'Drop it on the area reading "Add a PDF, or", or click browse. Its name replaces the drop area, with Remove beside it to swap files.',
     },
     {
+      title: "Choose the PDF/A level",
+      body: `${PDFA_LEVEL_LABEL} starts on ${PDF_A_STANDARD}, the usual choice when nobody names a level. Change it if your archive or portal asks for another: ${PDFA_LEVEL_NAMES}.`,
+    },
+    {
       title: "Press Convert to PDF/A",
       body: "The button reads Uploading your file… while the PDF travels to our secure server, Waiting for our server… while the job is queued, Converting to PDF/A… while Ghostscript rewrites it, and Downloading the result… as the copy comes back. Our server first looks for a PDF header at the start and a %%EOF marker near the end; a file missing either, such as a download that stopped partway, is refused and nothing is produced.",
     },
@@ -168,11 +190,11 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Will the converted file pass a PDF/A validator?",
-      a: `It targets ${PDF_A_STANDARD}, but pdf.xyz runs no PDF/A validator. Before your file is returned, our server checks that it is not empty, that it has a PDF header and end-of-file marker, and that it declares ${PDF_A_STANDARD}: PDF/A identification part ${PDFA_EXPECTED_PART}, conformance ${PDFA_EXPECTED_CONFORMANCE} in its XMP metadata, plus an embedded colour profile (a ${PDFA_OUTPUT_INTENT_SUBTYPE} output intent). If either declaration is missing, no file is returned. A declaration is not proof of conformance, so the file carries no compliance guarantee; check it with the validator your archive uses. One oddity: Ghostscript's metadata notices say "PDF/A1" even though it runs with its PDF/A-2 setting. The notes show that wording unchanged, and we have not established why Ghostscript uses it.`,
+      a: `It targets the level you picked (${PDF_A_STANDARD} unless you changed it), but pdf.xyz runs no PDF/A validator. Before your file is returned, our server checks that it is not empty, that it has a PDF header and end-of-file marker, and that it declares that level in its XMP metadata, for ${PDF_A_STANDARD} PDF/A identification part ${PDFA_EXPECTED_PART}, conformance ${PDFA_EXPECTED_CONFORMANCE}, plus an embedded colour profile (a ${PDFA_OUTPUT_INTENT_SUBTYPE} output intent). If either declaration is missing, or names a different level, no file is returned. A declaration is not proof of conformance, so the file carries no compliance guarantee; check it with the validator your archive uses. One oddity: Ghostscript's metadata notices say "PDF/A1" even though it runs with its PDF/A-2 setting. The notes show that wording unchanged, and we have not established why Ghostscript uses it.`,
     },
     {
       q: "Can I convert to PDF/A-1b, PDF/A-2u or PDF/A-3?",
-      a: `No. The panel has no level picker and every conversion targets ${PDF_A_STANDARD}, so for any other level you need software that lets you choose it.`,
+      a: `PDF/A-1b and PDF/A-3b, yes: choose them under ${PDFA_LEVEL_LABEL}, which offers ${PDFA_LEVEL_NAMES}. PDF/A-1 does not allow transparency, so a page that uses it may not come back exactly as it was; compare the pages. The a and u levels, such as PDF/A-2u, are not offered, because nothing here adds the tagged structure or guarantees the Unicode text they require.`,
     },
     {
       q: 'What does "discarding DOCINFO" mean for my title or author?',

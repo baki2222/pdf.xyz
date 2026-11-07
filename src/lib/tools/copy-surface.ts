@@ -202,6 +202,9 @@ export function copyFiles(): string[] {
       "office-conversion",
       "sheet-layout.ts",
     ),
+    // PDF to PDF/A's level picker: its label and each level's hint
+    // (2026-11-08, audit pdf-to-pdfa#1), drawn by the panel and the page.
+    path.join(ROOT, "src", "lib", "workers", "pdf-archive", "levels.ts"),
     // Translate PDF's warning when Auto-detect meets a PDF already in the
     // target language (2026-11-06, audit #38), drawn by the panel.
     path.join(ROOT, "src", "lib", "jobs", "translate-script.ts"),

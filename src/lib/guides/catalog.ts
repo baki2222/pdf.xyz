@@ -192,6 +192,10 @@ import { OCR_START_SENTENCE } from "@/lib/jobs/ocr-start-copy";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
 import { ONE_PAGE_PER_SHEET_LABEL } from "@/lib/workers/office-conversion/sheet-layout";
 import {
+  PDFA_LEVEL_LABEL,
+  PDFA_LEVEL_NAMES,
+} from "@/lib/workers/pdf-archive/levels";
+import {
   PDFA_EXPECTED_CONFORMANCE,
   PDFA_EXPECTED_PART,
 } from "@/lib/workers/pdf-archive/pdfa-markers";
@@ -4936,7 +4940,7 @@ export const guides: Guide[] = [
   {
     slug: "how-to-convert-pdf-to-pdfa",
     title: "How to convert a PDF to PDF/A",
-    description: `Convert a PDF to ${PDF_A_STANDARD} for archiving with Ghostscript on a secure server, and read what it had to drop before you download. No account needed.`,
+    description: `Convert a PDF to ${PDFA_LEVEL_NAMES} for archiving with Ghostscript on a secure server, and read what it dropped before you download. No account needed.`,
     tools: ["pdf-to-pdfa", "ocr-pdf", "unlock-pdf"],
     keywords: [
       "how to convert pdf to pdf/a",
@@ -4947,13 +4951,14 @@ export const guides: Guide[] = [
       "archive pdf",
     ],
     intro: [
-      `To convert a PDF to PDF/A, open ${nameOf("pdf-to-pdfa")}, add your PDF, press Convert to PDF/A, read any notes, and download the copy. PDF/A is the archiving form of PDF, meant for documents that must still open and look the same years from now, and every job here targets ${PDF_A_STANDARD}.`,
-      "The copy is rewritten by Ghostscript, the open-source PDF engine, with its PDF/A-2 setting switched on. Conformance level b (basic) is about how the pages look; the tagged structure that level a requires is not added. Nothing checks the result against the PDF/A specification afterwards, so treat it as a best-effort conversion, not a certificate.",
+      `To convert a PDF to PDF/A, open ${nameOf("pdf-to-pdfa")}, add your PDF, press Convert to PDF/A, read any notes, and download the copy. PDF/A is the archiving form of PDF, meant for documents that must still open and look the same years from now. The copy is ${PDF_A_STANDARD} unless you pick another level: ${PDFA_LEVEL_NAMES}.`,
+      "The copy is rewritten by Ghostscript, the open-source PDF engine, with the PDF/A setting for your level switched on. Conformance level b (basic) is about how the pages look; the tagged structure that level a requires is not added. Nothing checks the result against the PDF/A specification afterwards, so treat it as a best-effort conversion, not a certificate.",
       `${nameOf("pdf-to-pdfa")} runs on a secure server, because that is where Ghostscript is installed. Your PDF, up to ${ceilingMb("pdf-to-pdfa")} MB, travels over an encrypted connection and is deleted once the job is over; the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
     ],
     steps: [
       `Open the ${nameOf("pdf-to-pdfa")} tool. The badge at the top reads Secure server when conversion is available; otherwise Convert to PDF/A stays off and nothing is sent.`,
       "Drop one PDF on the area that says “Add a PDF, or browse”, or click it to choose the file. Remove, beside its name, swaps it for another.",
+      `Leave ${PDFA_LEVEL_LABEL} on ${PDF_A_STANDARD} unless your archive or portal names another level; then pick it.`,
       "Press Convert to PDF/A. Your PDF uploads over an encrypted connection to our secure server, and the button follows the job while Ghostscript rewrites it.",
       "If Ghostscript reported anything, “What PDF/A could not keep” lists it above “Your PDF/A file is ready.” Read it before you replace your original.",
       `Press Download to save the copy: report.pdf comes back as ${PDFA_EXAMPLE_OUT}. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it before you close the tab.`,
@@ -4972,8 +4977,8 @@ export const guides: Guide[] = [
         id: "what-is-checked",
         heading: "What is checked, and what is not",
         body: [
-          `Before the copy is returned, our server checks that it is not empty, that it has a PDF header and end-of-file marker, and that it declares ${PDF_A_STANDARD}: PDF/A identification part ${PDFA_EXPECTED_PART} and conformance ${PDFA_EXPECTED_CONFORMANCE} in its metadata, plus an embedded colour profile. If either declaration is missing, no file is returned.`,
-          "A declaration is not proof of conformance. If a university repository, court or records system needs PDF/A, run its own checker, or an independent validator such as veraPDF, on the copy. There is no level picker either: a portal that names PDF/A-1b or PDF/A-3b needs other software.",
+          `Before the copy is returned, our server checks that it is not empty, that it has a PDF header and end-of-file marker, and that it declares the level you picked (for ${PDF_A_STANDARD}, PDF/A identification part ${PDFA_EXPECTED_PART} and conformance ${PDFA_EXPECTED_CONFORMANCE}) in its metadata, plus an embedded colour profile. If either declaration is missing, or names another level, no file is returned.`,
+          "A declaration is not proof of conformance. If a university repository, court or records system needs PDF/A, run its own checker, or an independent validator such as veraPDF, on the copy.",
         ],
       },
       {
@@ -4996,11 +5001,11 @@ export const guides: Guide[] = [
     faq: [
       {
         question: "Will the converted file pass a PDF/A validator?",
-        answer: `It targets ${PDF_A_STANDARD}, but pdf.xyz runs no PDF/A validator. Our server checks that the copy declares the standard and carries a colour profile, and returns no file if it does not; a declaration is not proof, so check the copy with the validator your archive uses.`,
+        answer: `It targets the level you picked, ${PDF_A_STANDARD} unless you changed it, but pdf.xyz runs no PDF/A validator. Our server checks that the copy declares that level and carries a colour profile, and returns no file if it does not; a declaration is not proof, so check the copy with the validator your archive uses.`,
       },
       {
         question: "Can I convert to a different PDF/A level?",
-        answer: `No. There is no level picker, and every conversion targets ${PDF_A_STANDARD}. If an archive asks for another level, such as PDF/A-1b or PDF/A-3b, you need software that offers it.`,
+        answer: `Yes, within level b: ${PDFA_LEVEL_LABEL} offers ${PDFA_LEVEL_NAMES}, starting on ${PDF_A_STANDARD}. PDF/A-1 does not allow transparency, so compare the pages of a PDF/A-1b copy. The a and u levels, which need tagged structure and guaranteed Unicode text, are not offered.`,
       },
       {
         question: "What does “discarding DOCINFO” mean?",
@@ -5017,7 +5022,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-convert-pdf-to-png",

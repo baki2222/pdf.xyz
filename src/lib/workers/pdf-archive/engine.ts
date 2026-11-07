@@ -1,6 +1,15 @@
 import { looksLikePdf } from "../compression/engine";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
-import { inspectPdfAMarkers, type PdfAMarkerReport } from "./pdfa-markers";
+import {
+  inspectPdfAMarkers,
+  type PdfAExpectedId,
+  type PdfAMarkerReport,
+} from "./pdfa-markers";
+import {
+  DEFAULT_PDFA_LEVEL,
+  type PdfALevel,
+  type PdfAStandard,
+} from "./levels";
 import { rethrowIfAttemptAbort, signalOption } from "../attempt-abort";
 
 export const PDF_TO_PDFA_TOOL = "pdf-to-pdfa";
@@ -27,7 +36,8 @@ export interface GhostscriptPdfARunner {
   convertToPdfA(
     input: Uint8Array,
     options: {
-      standard: typeof PDF_A_STANDARD;
+      /** The level the job asked for (`./levels`); PDF/A-2b by default. */
+      standard: PdfAStandard;
       /** The attempt's abort signal; the runner kills its child on abort. */
       signal?: AbortSignal;
     },
@@ -79,13 +89,17 @@ export interface PdfArchiveDeps {
    * to {@link inspectPdfAMarkers}; injectable only so a test can prove the
    * engine consults it.
    */
-  inspectOutput?: (bytes: Uint8Array) => Promise<PdfAMarkerReport>;
+  inspectOutput?: (
+    bytes: Uint8Array,
+    expected: PdfAExpectedId,
+  ) => Promise<PdfAMarkerReport>;
   limits?: { maxInputBytes?: number };
 }
 
 export interface PdfArchiveResultMeta {
   engine: typeof PDF_ARCHIVE_ENGINE;
-  standard: typeof PDF_A_STANDARD;
+  /** The level the output declares: the one the job asked for. */
+  standard: PdfAStandard;
   inputBytes: number;
   outputBytes: number;
   /**
@@ -138,11 +152,15 @@ const FAILURE_MESSAGES: Record<PdfArchiveFailureReason, string> = {
   timeout:
     "The PDF/A engine ran out of time on this file, so no output was produced. Very large or complex files can take longer than the worker allows; splitting the file into smaller parts may help.",
   bad_output: "The PDF/A engine produced no usable PDF output.",
-  not_pdfa:
-    "The converter's output did not carry the PDF/A-2b identification and colour profile an archive checks for, so it was not returned rather than handed to you as PDF/A. No output was produced.",
+  not_pdfa: notPdfAMessage(DEFAULT_PDFA_LEVEL.standard),
   transient:
     "The worker hit a temporary problem before the PDF/A engine could finish. No output was produced.",
 };
+
+/** The `not_pdfa` sentence, naming the level the job asked for. */
+function notPdfAMessage(standard: PdfAStandard): string {
+  return `The converter's output did not carry the ${standard} identification and colour profile an archive checks for, so it was not returned rather than handed to you as PDF/A. No output was produced.`;
+}
 
 function failed(reason: PdfArchiveFailureReason): PdfArchiveRun {
   return {
@@ -176,6 +194,8 @@ export async function runPdfToPdfA(
   deps: PdfArchiveDeps,
   /** The attempt's abort signal, passed to Ghostscript and the qpdf probe. */
   signal?: AbortSignal,
+  /** The PDF/A level the job asked for (`./levels`). */
+  level: PdfALevel = DEFAULT_PDFA_LEVEL,
 ): Promise<PdfArchiveRun> {
   if (!deps.ghostscript) return unsupported();
   const limit = deps.limits?.maxInputBytes;
@@ -200,7 +220,7 @@ export async function runPdfToPdfA(
   let conversion: PdfAConversion;
   try {
     conversion = await deps.ghostscript.convertToPdfA(input, {
-      standard: PDF_A_STANDARD,
+      standard: level.standard,
       ...signalOption(signal),
     });
   } catch (error) {
@@ -218,8 +238,19 @@ export async function runPdfToPdfA(
   // success. A validator at the user's archive would reject it; nothing here
   // could. Refuse instead: no file is better than a false claim.
   const inspect = deps.inspectOutput ?? inspectPdfAMarkers;
-  const markers = await inspect(output);
-  if (!markers.ok) return failed("not_pdfa");
+  // Against the level ASKED FOR: a 1b request answered with a part-2 file is
+  // as false a claim as no declaration at all.
+  const markers = await inspect(output, {
+    part: level.part,
+    conformance: level.conformance,
+  });
+  if (!markers.ok)
+    return {
+      ok: false,
+      kind: "failed",
+      reason: "not_pdfa",
+      message: notPdfAMessage(level.standard),
+    };
 
   // A conversion that discarded something is NOT a failure. The user asked for
   // PDF/A and PDF/A cannot hold what was removed — the file is correct and the
@@ -231,7 +262,7 @@ export async function runPdfToPdfA(
     output,
     meta: {
       engine: PDF_ARCHIVE_ENGINE,
-      standard: PDF_A_STANDARD,
+      standard: level.standard,
       inputBytes: input.byteLength,
       outputBytes: output.byteLength,
       hadNotes: conversion.notes.length > 0,

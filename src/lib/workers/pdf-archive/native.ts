@@ -15,6 +15,7 @@ import {
 } from "./native-config";
 import { sanitizeNativeDiagnostics } from "../native-diagnostics";
 import { PDF_ARCHIVE_PASSWORD_PROBE_TIMEOUT_MS } from "./contract";
+import { pdfaLevelForStandard, type PdfALevel } from "./levels";
 import { QPDF_EXIT_ERROR, QPDF_EXIT_WARNINGS } from "../qpdf-exit";
 import {
   AttemptAbortedError,
@@ -228,7 +229,7 @@ function postscriptString(text: string): string {
 export function pdfaDefinition(iccProfilePath: string): string {
   return [
     "%!",
-    "% pdf.xyz PDF/A-2b prefix: Ghostscript's PDFA_def.ps recipe (see native.ts).",
+    "% pdf.xyz PDF/A prefix: Ghostscript's PDFA_def.ps recipe (see native.ts).",
     `/ICCProfile ${postscriptString(iccProfilePath)} def`,
     "[/_objdef {icc_PDFA} /type /stream /OBJ pdfmark",
     "[{icc_PDFA} << /N 3 >> /PUT pdfmark",
@@ -250,6 +251,8 @@ export function ghostscriptPdfAArgs(
   outputPath: string,
   pdfaDefPath: string,
   iccProfilePath: string,
+  /** The ISO 19005 part the job asked for (`./levels`); 2 by default. */
+  part: PdfALevel["part"] = "2",
 ): string[] {
   return [
     // OBSERVED, UNRESOLVED, RECORDED HERE BECAUSE WE QUOTE IT TO USERS: with
@@ -260,7 +263,11 @@ export function ghostscriptPdfAArgs(
     // ours to answer. It is no longer taken on trust either way: every output
     // is parsed by `inspectPdfAMarkers` (engine.ts) and refused unless its XMP
     // says part 2 / conformance B and it carries a /GTS_PDFA1 OutputIntent.
-    "-dPDFA=2",
+    `-dPDFA=${part}`,
+    // PDF/A-1 is built on PDF 1.4 (ISO 19005-1), so its file says 1.4.
+    // Parts 2 and 3 keep pdfwrite's own default, exactly as before the
+    // level picker (audit pdf-to-pdfa#1).
+    ...(part === "1" ? ["-dCompatibilityLevel=1.4"] : []),
     "-dBATCH",
     "-dNOPAUSE",
     // Required by the PDF/A prefix: its pdfmarks must survive into the
@@ -403,6 +410,14 @@ export function createNativeGhostscriptPdfARunner(
   return {
     async convertToPdfA(input, options) {
       const signal = options?.signal;
+      // The standard names the level; an unknown one is a caller bug, and
+      // guessing a part for it would ship a file under the wrong name.
+      const level = pdfaLevelForStandard(options.standard);
+      if (!level)
+        throw new GhostscriptRunError(
+          "engine_exit",
+          `Unknown PDF/A standard ${String(options.standard)}.`,
+        );
       if (input.byteLength > config.maxInputBytes)
         throw new Error("Input exceeds size limit.");
       throwIfAttemptAborted(signal);
@@ -440,6 +455,7 @@ export function createNativeGhostscriptPdfARunner(
             outputPath,
             defPath,
             config.iccProfile,
+            level.part,
           ),
           {
             timeout: config.timeoutMs,

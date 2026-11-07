@@ -10,7 +10,7 @@ import {
   type GhostscriptExecResult,
 } from "../pdf-archive/native";
 import { resolveNativePdfArchiveConfig } from "../pdf-archive/native-config";
-import { declaredPdfA } from "@/tests/pdfa-fixtures";
+import { buildPdfAFixture, declaredPdfA } from "@/tests/pdfa-fixtures";
 
 const PDF = new TextEncoder().encode(
   "%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
@@ -206,5 +206,97 @@ describe("COMPOSED: the real native runner, through the engine, to the job error
       spawnError: "EAGAIN",
     }).process(input());
     expect(result).toMatchObject({ ok: false, error: { retryable: true } });
+  });
+});
+
+/**
+ * PDF to PDF/A's level picker (audit pdf-to-pdfa#1, 2026-11-08), through
+ * the composed chain: the job's `level` option, the processor, the engine,
+ * the native runner and the argv Ghostscript is given, then the marker
+ * check on what comes back. Each hop is where a level could be dropped and
+ * PDF/A-2b quietly shipped under another name.
+ */
+describe("the PDF/A level reaches Ghostscript and the output check", () => {
+  async function run(options: Record<string, unknown>, declaredPart: string) {
+    const output = await buildPdfAFixture({ xmp: { part: declaredPart } });
+    const exec = vi.fn(
+      async (command: string): Promise<GhostscriptExecResult> =>
+        // qpdf's --requires-password: 2 = not encrypted.
+        command === "qpdf"
+          ? { code: 2, timedOut: false }
+          : { code: 0, timedOut: false, diagnostics: "" },
+    );
+    const ghostscript = createNativeGhostscriptPdfARunner(
+      { ...resolveNativePdfArchiveConfig({}), tmpDir: "/tmp" },
+      {
+        resolveOnPath: () => true,
+        fileExists: () => true,
+        exec,
+        fs: {
+          mkdtemp: vi.fn(async () => "/tmp/pdfxyz-pdfa-1"),
+          writeFile: vi.fn(async () => {}),
+          readFile: vi.fn(async () => output),
+          rm: vi.fn(async () => {}),
+        },
+      },
+    );
+    const result = await createPdfArchiveProcessor({ ghostscript }).process({
+      ...input(),
+      options,
+    });
+    const gs = exec.mock.calls.find(([command]) => command !== "qpdf") as
+      [string, string[]] | undefined;
+    return { result, argv: gs?.[1] ?? null };
+  }
+
+  for (const [id, part] of [
+    ["1b", "1"],
+    ["2b", "2"],
+    ["3b", "3"],
+  ] as const) {
+    it(`PDF/A-${id}: -dPDFA=${part} in the argv, and an output declaring part ${part} ships`, async () => {
+      const { result, argv } = await run({ level: id }, part);
+      expect(argv).toContain(`-dPDFA=${part}`);
+      expect(argv!.filter((a) => a.startsWith("-dPDFA="))).toHaveLength(1);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.meta?.standard).toBe(`PDF/A-${id}`);
+    });
+  }
+
+  it("PDF/A-1b pins PDF 1.4, the version PDF/A-1 is built on; the others do not", async () => {
+    expect((await run({ level: "1b" }, "1")).argv).toContain(
+      "-dCompatibilityLevel=1.4",
+    );
+    for (const id of ["2b", "3b"])
+      expect(
+        (await run({ level: id }, id[0]!)).argv!.some((a) =>
+          a.startsWith("-dCompatibilityLevel"),
+        ),
+      ).toBe(false);
+  });
+
+  it("an output that declares a different part than the one asked for is refused", async () => {
+    const { result } = await run({ level: "1b" }, "2");
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "internal_error", retryable: false },
+    });
+  });
+
+  it("CONTROL: no level is PDF/A-2b, exactly the job as it ran before", async () => {
+    const { result, argv } = await run({}, "2");
+    expect(argv).toContain("-dPDFA=2");
+    expect(result.ok).toBe(true);
+  });
+
+  it("a level that is not offered is refused before Ghostscript runs", async () => {
+    for (const level of ["2a", "2u", 2, "PDF/A-1b"]) {
+      const { result, argv } = await run({ level }, "2");
+      expect(argv).toBeNull();
+      expect(result).toMatchObject({
+        ok: false,
+        error: { code: "unprocessable_entity", retryable: false },
+      });
+    }
   });
 });

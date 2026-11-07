@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useState } from "react";
+import { useCallback, useId, useState } from "react";
 import { Archive, FileDown, FileUp, ShieldCheck, Timer } from "lucide-react";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import {
@@ -31,6 +31,12 @@ import {
   workerOutput,
 } from "./worker-panel-shell";
 import { PdfANotes } from "./pdfa-notes";
+import {
+  DEFAULT_PDFA_LEVEL,
+  PDFA_LEVELS,
+  PDFA_LEVEL_LABEL,
+  type PdfALevelId,
+} from "@/lib/workers/pdf-archive/levels";
 
 /**
  * The status slot's reserved height (see `WorkerStatusSlot` and
@@ -73,14 +79,14 @@ export function PdfArchiveWorkerPanel({ tool }: { tool: Tool }) {
       // remove is listed with your download". -dQUIET suppresses the font
       // substitution line and the notes are capped (content/pdf-to-pdfa.ts),
       // so only what Ghostscript reports is listed.
-      description="PDF/A conversion uses Ghostscript on our isolated server to create an archive-oriented PDF/A-2b file. It produces a real PDF output or fails honestly — no browser placeholder and no fabricated compliance claim. We do not validate the result against the PDF/A specification, so this is a best-effort conversion rather than a certification. PDF/A cannot represent everything a PDF can; what Ghostscript reports dropping is listed with your download, but not every change it makes — a font it substitutes is not reported, so compare the pages before you replace an original."
+      description="PDF/A conversion uses Ghostscript on our isolated server to create an archive-oriented PDF/A file at the level you pick. It produces a real PDF output or fails honestly — no browser placeholder and no fabricated compliance claim. We do not validate the result against the PDF/A specification, so this is a best-effort conversion rather than a certification. PDF/A cannot represent everything a PDF can; what Ghostscript reports dropping is listed with your download, but not every change it makes — a font it substitutes is not reported, so compare the pages before you replace an original."
       canRun={canRunPdfArchive}
       specRows={[
         { icon: FileUp, label: "You add", value: "One PDF" },
         {
           icon: FileDown,
           label: "You get",
-          value: "PDF/A-2b (best effort, not validated)",
+          value: `${PDFA_LEVELS.map((l) => l.standard).join(", ")} (best effort, not validated)`,
         },
         {
           icon: Timer,
@@ -104,6 +110,11 @@ const RUN_LABEL = "Convert to PDF/A";
 function ArchiveRunArea({ refuse }: { refuse: PickRefusal }) {
   const { available, status } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
+  // Audit pdf-to-pdfa#1: the level the archive asks for; PDF/A-2b by default.
+  const [level, setLevel] = useState<PdfALevelId>(DEFAULT_PDFA_LEVEL.id);
+  const levelId = useId();
+  const levelHint =
+    PDFA_LEVELS.find((l) => l.id === level)?.hint ?? DEFAULT_PDFA_LEVEL.hint;
   const job = useWorkerJob<PdfArchiveWorkerResult>({
     tool: "pdf-to-pdfa",
     resume: (id, controls) =>
@@ -119,12 +130,12 @@ function ArchiveRunArea({ refuse }: { refuse: PickRefusal }) {
     await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const result = await runWorkerPdfToPdfA(
-        { filename: file.name, bytes },
+        { filename: file.name, bytes, level },
         controls,
       );
       return result;
     });
-  }, [file, run, available]);
+  }, [file, run, available, level]);
   const detail =
     status?.daemon.detail ?? "Our secure server is not drainable here.";
   return (
@@ -167,6 +178,34 @@ function ArchiveRunArea({ refuse }: { refuse: PickRefusal }) {
           hint="PDF"
         />
       )}
+      <div className="flex flex-col gap-1">
+        <label htmlFor={levelId} className="text-fg text-sm font-medium">
+          {PDFA_LEVEL_LABEL}
+        </label>
+        <select
+          id={levelId}
+          value={level}
+          disabled={busy}
+          aria-describedby={`${levelId}-hint`}
+          onChange={(e) => {
+            setOutcome(null);
+            setLevel(e.target.value as PdfALevelId);
+          }}
+          className="border-line bg-wash text-fg focus:border-accent/40 rounded-ctl min-h-11 border px-3 py-1.5 text-sm outline-none"
+        >
+          {PDFA_LEVELS.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.standard}
+            </option>
+          ))}
+        </select>
+        <p
+          id={`${levelId}-hint`}
+          className="text-muted text-xs leading-relaxed"
+        >
+          {levelHint}
+        </p>
+      </div>
       <WorkerGate
         reserve={STATUS_SLOT}
         job={job}

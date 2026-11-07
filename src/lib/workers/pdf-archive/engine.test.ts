@@ -184,7 +184,11 @@ describe("an output that does not DECLARE PDF/A-2b is never shipped as PDF/A", (
     });
     expect(run.ok).toBe(true);
     expect(inspectOutput).toHaveBeenCalledTimes(1);
-    expect(inspectOutput).toHaveBeenCalledWith(output);
+    // With the level asked for (audit pdf-to-pdfa#1): PDF/A-2b by default.
+    expect(inspectOutput).toHaveBeenCalledWith(output, {
+      part: "2",
+      conformance: "B",
+    });
     // Health check: the input (a bare stub) is not what was inspected.
     expect(inspectOutput.mock.calls[0]![0]).not.toBe(PDF);
   });
