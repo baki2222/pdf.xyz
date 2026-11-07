@@ -10,8 +10,9 @@ import {
  * Browser-side driver for the secure-worker table-extraction flow (`extract-tables`).
  *
  * It reuses the shared job lifecycle in `./pdf-security-client` (create upload →
- * upload → create job → poll → download) — table extraction carries no options, so
- * the option bag is empty. It never fabricates output: when the worker can't run
+ * upload → create job → poll → download). Its one option, "Combine tables into
+ * one sheet", travels as `{ combine: true }`; off sends the empty bag every
+ * page sent before the option existed. It never fabricates output: when the worker can't run
  * the job it surfaces the server's honest typed error, never a fake ZIP.
  */
 
@@ -20,6 +21,8 @@ export type TableExtractWorkerResult = PdfSecurityWorkerResult;
 export interface TableExtractWorkerInput {
   filename: string;
   bytes: Uint8Array;
+  /** One CSV and one sheet for every table together. */
+  combine?: boolean;
 }
 
 export function runWorkerTableExtract(
@@ -30,7 +33,7 @@ export function runWorkerTableExtract(
     "extract-tables",
     input.filename,
     input.bytes,
-    {},
+    input.combine ? { combine: true } : {},
     options,
   );
 }

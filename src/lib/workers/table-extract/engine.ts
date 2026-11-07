@@ -7,6 +7,11 @@ import {
   worksheetXml,
   xmlEscape,
 } from "../ooxml/sheet-cells";
+import {
+  COMBINED_SHEET_NAME,
+  COMBINED_ZIP_FILES,
+} from "@/lib/jobs/extract-tables-options";
+import type { TableExtractResultMeta } from "@/lib/jobs/table-extract-results";
 import { CELL_GAP_EMS, isListItem, LONG_CELL_WORDS } from "../pdf-text/flow";
 import { classifyPdfTextFailure } from "../pdf-office-export/encryption";
 import {
@@ -105,6 +110,8 @@ export interface TableExtractMeta {
   tool: typeof EXTRACT_TABLES_TOOL;
   tableCount: number;
   pageCount: number;
+  /** True when the tables were written as one sheet and one CSV. */
+  combined: boolean;
   inputBytes: number;
   outputBytes: number;
 }
@@ -116,6 +123,8 @@ export type TableExtractRun =
       filenameExt: "zip";
       contentType: "application/zip";
       meta: TableExtractMeta;
+      /** What was found and where, for the job record (audit extract-tables#4). */
+      findings: TableExtractResultMeta;
     }
   | {
       ok: false;
@@ -681,15 +690,21 @@ export function detectTablesOnPage(page: PdfLayoutPage): DetectedTable[] {
 // (`ai-extract-package.ts`), so both files neutralise formulas the same way.
 export { CSV_BOM, CSV_FORMULA_LEADS, toCsv } from "../ooxml/csv";
 
-/** Build a single, multi-sheet XLSX workbook — one sheet per detected table. */
-async function buildXlsx(tables: DetectedTable[]): Promise<Uint8Array> {
+/** One worksheet of the workbook: its tab name and its rows. */
+interface TableSheet {
+  name: string;
+  rows: string[][];
+}
+
+/** Build a single XLSX workbook, one worksheet per entry of `sheets`. */
+async function buildXlsx(sheetsIn: readonly TableSheet[]): Promise<Uint8Array> {
   // Cells, column letters and number rules are shared with PDF to Excel —
   // see `../ooxml/sheet-cells`. Sheets first: they register the formats that
   // `xl/styles.xml` must declare.
   const styles = new SheetStyles();
-  const sheets = tables.map((table) => worksheetXml(table.rows, styles));
+  const sheets = sheetsIn.map((sheet) => worksheetXml(sheet.rows, styles));
   const zip = new JSZip();
-  const sheetOverrides = tables
+  const sheetOverrides = sheetsIn
     .map(
       (_, i) =>
         `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`,
@@ -705,21 +720,21 @@ async function buildXlsx(tables: DetectedTable[]): Promise<Uint8Array> {
   );
   zip.file(
     "xl/_rels/workbook.xml.rels",
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${tables
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheetsIn
       .map(
         (_, i) =>
           `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`,
       )
       .join(
         "",
-      )}${stylesRelationship(`rId${tables.length + 1}`)}</Relationships>`,
+      )}${stylesRelationship(`rId${sheetsIn.length + 1}`)}</Relationships>`,
   );
   zip.file(
     "xl/workbook.xml",
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${tables
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheetsIn
       .map(
-        (table, i) =>
-          `<sheet name="${xmlEscape(`Table ${i + 1} (p${table.pageNumber})`)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`,
+        (sheet, i) =>
+          `<sheet name="${xmlEscape(sheet.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`,
       )
       .join("")}</sheets></workbook>`,
   );
@@ -730,9 +745,50 @@ async function buildXlsx(tables: DetectedTable[]): Promise<Uint8Array> {
   return new Uint8Array(await zip.generateAsync({ type: "uint8array" }));
 }
 
+function sameRow(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((cell, i) => cell === b[i]);
+}
+
+/**
+ * Every table stacked into one grid, for "Combine tables into one sheet"
+ * (audit extract-tables#2): in page order, an empty row between tables.
+ *
+ * A table on the NEXT page whose first row is the same header, cell for cell,
+ * as the table it follows is the same table carried on, so it is joined and
+ * its repeated header left out. Nothing else is joined: a part two pages on,
+ * or under a different header, starts a table of its own — a guess that two
+ * tables are one would put rows under the wrong heading.
+ */
+export function combineTables(tables: readonly DetectedTable[]): string[][] {
+  const rows: string[][] = [];
+  let header: readonly string[] | null = null;
+  let lastPage = -1;
+  for (const table of tables) {
+    const first = table.rows[0] ?? [];
+    if (header && table.pageNumber === lastPage + 1 && sameRow(first, header)) {
+      rows.push(...table.rows.slice(1));
+    } else {
+      if (rows.length > 0) rows.push([]);
+      rows.push(...table.rows);
+      header = first;
+    }
+    lastPage = table.pageNumber;
+  }
+  return rows;
+}
+
+/** How the archive is laid out. */
+export interface TablesZipOptions {
+  /** One CSV and one sheet for every table together ({@link combineTables}). */
+  combine?: boolean;
+}
+
 /**
  * Package detected tables into a real ZIP: one RFC-4180 CSV per table
- * (`table-1.csv`, `table-2.csv`, …) plus a combined `tables.xlsx` workbook.
+ * (`table-1.csv`, `table-2.csv`, …) plus a combined `tables.xlsx` workbook
+ * with a sheet per table — or, with `combine`, one `tables.csv`
+ * ({@link COMBINED_ZIP_FILES}) and a workbook of the one sheet
+ * {@link COMBINED_SHEET_NAME}.
  *
  * Each CSV starts with {@link CSV_BOM}. Without it, Excel opens a
  * double-clicked CSV in the legacy code page and accented, Bengali or Cyrillic
@@ -741,12 +797,30 @@ async function buildXlsx(tables: DetectedTable[]): Promise<Uint8Array> {
  */
 export async function buildTablesZip(
   tables: DetectedTable[],
+  options: TablesZipOptions = {},
 ): Promise<Uint8Array> {
   const zip = new JSZip();
-  tables.forEach((table, i) =>
-    zip.file(`table-${i + 1}.csv`, CSV_BOM + toCsv(table.rows)),
-  );
-  zip.file("tables.xlsx", await buildXlsx(tables));
+  if (options.combine) {
+    const rows = combineTables(tables);
+    zip.file(COMBINED_ZIP_FILES.csv, CSV_BOM + toCsv(rows));
+    zip.file(
+      "tables.xlsx",
+      await buildXlsx([{ name: COMBINED_SHEET_NAME, rows }]),
+    );
+  } else {
+    tables.forEach((table, i) =>
+      zip.file(`table-${i + 1}.csv`, CSV_BOM + toCsv(table.rows)),
+    );
+    zip.file(
+      "tables.xlsx",
+      await buildXlsx(
+        tables.map((table, i) => ({
+          name: `Table ${i + 1} (p${table.pageNumber})`,
+          rows: table.rows,
+        })),
+      ),
+    );
+  }
   return new Uint8Array(await zip.generateAsync({ type: "uint8array" }));
 }
 
@@ -766,6 +840,8 @@ export async function runTableExtract(
   deps: TableExtractDeps,
   /** The attempt's abort signal, passed to pdftotext. */
   signal?: AbortSignal,
+  /** How the archive is laid out; absent = one CSV and sheet per table. */
+  options: TablesZipOptions = {},
 ): Promise<TableExtractRun> {
   const { extractLayout } = deps;
   if (!extractLayout) {
@@ -807,7 +883,7 @@ export async function runTableExtract(
           "No table-like structure was detected in this PDF's selectable text.",
       };
     }
-    const output = await buildTablesZip(tables);
+    const output = await buildTablesZip(tables, options);
     const maxOutput = deps.limits?.maxOutputBytes;
     if (maxOutput !== undefined && output.byteLength > maxOutput) {
       // Deterministic: the same PDF builds the same archive on every attempt,
@@ -829,8 +905,16 @@ export async function runTableExtract(
         tool: EXTRACT_TABLES_TOOL,
         tableCount: tables.length,
         pageCount: layout.pageCount,
+        combined: options.combine === true,
         inputBytes: input.byteLength,
         outputBytes: output.byteLength,
+      },
+      findings: {
+        tableCount: tables.length,
+        pageCount: layout.pageCount,
+        tablePages: [...new Set(tables.map((t) => t.pageNumber))],
+        tablePagesTruncated: false,
+        combined: options.combine === true,
       },
     };
   } catch (error) {

@@ -115,6 +115,21 @@ import {
   XLSX_TEXT_EXAMPLE,
 } from "@/lib/jobs/pdf-office-export";
 import {
+  pageSheetName,
+  SHEET_PER_PAGE_LABEL,
+} from "@/lib/jobs/pdf-to-excel-options";
+import {
+  SHEET_DATE_EXAMPLES,
+  SHEET_LAKH_EXAMPLE,
+  SHEET_NEGATIVE_EXAMPLES,
+  SHEET_NOTE_MARK_EXAMPLE,
+} from "@/lib/jobs/sheet-number-examples";
+import {
+  COMBINE_TABLES_LABEL,
+  COMBINED_CSV_NAME,
+  COMBINED_SHEET_NAME,
+} from "@/lib/jobs/extract-tables-options";
+import {
   HTML_LAYOUT_STEP,
   htmlLayoutAnswer,
 } from "@/lib/tools/html-layout-copy";
@@ -3053,14 +3068,14 @@ export const guides: Guide[] = [
         heading: "How each line becomes a row",
         body: [
           `Every non-empty line of the PDF's text becomes one row, and a line breaks into cells at ${XLSX_CELL_BREAK_PHRASE}; a single space or a comma never starts a new cell. Rows that line up are treated as one table, so a blank cell stays blank and the values after it stay under their own headings. ${XLSX_MERGE_CAVEAT}`,
-          "Pages follow one another with no blank row between them, so page headers, footers and page numbers printed as text end up among the data rows. Ruling lines and cell borders are ignored, merged cells are not rebuilt, and fonts, colours and images are not carried over.",
+          `By default, pages follow one another in the one sheet with no blank row between them, so page headers, footers and page numbers printed as text end up among the data rows; tick ${SHEET_PER_PAGE_LABEL} before you export to give each page a sheet of its own, named ${pageSheetName(1)}, ${pageSheetName(2)} and so on. Ruling lines and cell borders are ignored, merged cells are not rebuilt, and fonts, colours and images are not carried over.`,
         ],
       },
       {
         id: "numbers-stay-numbers",
         heading: "Amounts arrive as numbers",
         body: [
-          `An amount or a percentage written like ${XLSX_AMOUNTS} is stored as a number, so SUM adds a column up without converting anything, and the comma inside an amount never splits it. A date such as ${XLSX_TEXT_EXAMPLE}, a European-style 1.250,00, a negative in brackets and a code with leading zeros stay text, so convert those columns before you calculate with them.`,
+          `An amount or a percentage written like ${XLSX_AMOUNTS} is stored as a number, so SUM adds a column up without converting anything, and the comma inside an amount never splits it. So is an amount in Indian lakh grouping such as ${SHEET_LAKH_EXAMPLE} and an accounting negative such as ${SHEET_NEGATIVE_EXAMPLES[0]} or ${SHEET_NEGATIVE_EXAMPLES[1]}, and a date that cannot be read two ways, such as ${SHEET_DATE_EXAMPLES[0]} or ${SHEET_DATE_EXAMPLES[1]}, becomes a real date. A date written as ${XLSX_TEXT_EXAMPLE}, which reads differently from country to country, a European-style 1.250,00, a bare bracketed number such as ${SHEET_NOTE_MARK_EXAMPLE} and a code with leading zeros stay text, so convert those columns before you calculate with them.`,
         ],
       },
       {
@@ -3079,7 +3094,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Will SUM work on the numbers?",
-        answer: `For amounts and percentages written like ${XLSX_AMOUNTS}, yes: each is stored as a number. Dates such as ${XLSX_TEXT_EXAMPLE}, European-style 1.250,00, negatives in brackets and codes with leading zeros stay text.`,
+        answer: `For amounts and percentages written like ${XLSX_AMOUNTS}, yes: each is stored as a number, and so is an amount in Indian lakh grouping such as ${SHEET_LAKH_EXAMPLE} and an accounting negative such as ${SHEET_NEGATIVE_EXAMPLES[0]} or ${SHEET_NEGATIVE_EXAMPLES[1]}. A date written as ${XLSX_TEXT_EXAMPLE}, which reads differently from country to country, European-style 1.250,00, a bare bracketed number such as ${SHEET_NOTE_MARK_EXAMPLE} and codes with leading zeros stay text.`,
       },
       {
         question: "Can I convert a scanned PDF to Excel?",
@@ -3095,7 +3110,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-11-06",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-convert-pdf-to-powerpoint",
@@ -5466,14 +5481,14 @@ export const guides: Guide[] = [
     ],
     intro: [
       `To extract tables from a PDF, open ${nameOf("extract-tables")}, add your PDF, press Extract tables, and download the ZIP. Each table it finds comes back as its own CSV file and as its own sheet in one Excel workbook, with the titles and paragraphs around it left out.`,
-      "It finds tables by where the words sit on the page: words on one line form a row, words set a normal space apart stay in one cell, and columns come from the white space that runs down the rows. There are no settings to choose. It reads only text stored in the PDF as text, so a scanned table needs OCR first.",
+      `It finds tables by where the words sit on the page: words on one line form a row, words set a normal space apart stay in one cell, and columns come from the white space that runs down the rows. One setting, ${COMBINE_TABLES_LABEL}, puts every table on a single sheet instead of one sheet each. It reads only text stored in the PDF as text, so a scanned table needs OCR first.`,
       `${nameOf("extract-tables")} runs on a secure server, not in your browser, because the word positions come from a native PDF text engine. Your PDF, up to ${ceilingMb("extract-tables")} MB, travels over an encrypted connection and is deleted when the job finishes; the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
     ],
     steps: [
       `Open the ${nameOf("extract-tables")} tool. Extract tables works once the status badge reads Secure server.`,
       `Drop one PDF on the box that says “Add your PDF, or browse”, or click it to choose the file. A file over ${ceilingMb("extract-tables")} MB is refused as soon as you pick it, before anything is sent.`,
       "Press Extract tables. Your PDF uploads over an encrypted connection to our secure server, and the button follows the job until the ZIP is back in the page.",
-      `When the tables are ready, press Download ${TABLES_EXAMPLE_ZIP}, the button named after your file: report.pdf comes back as ${TABLES_EXAMPLE_ZIP}. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
+      `When the tables are ready, the message says how many were found and on which pages, and names any page where no table was detected. Press Download ${TABLES_EXAMPLE_ZIP}, the button named after your file: report.pdf comes back as ${TABLES_EXAMPLE_ZIP}. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
       "Open each sheet beside the page named on its tab, such as Table 1 (p3), and check its rows and columns before you use them.",
     ],
     sections: [
@@ -5482,7 +5497,7 @@ export const guides: Guide[] = [
         heading: "What counts as a table",
         body: [
           `A block of lines is kept as a table only when at least two columns each hold something in two or more rows, one column holds short values of fewer than ${LONG_CELL_WORDS} words each and is not mostly bullet items, and no sentence wraps from one row into the next. Titles, captions, paragraph lines and footnotes end a table rather than joining it, so one page can give several tables.`,
-          "Two columns of prose, side-by-side bulleted lists and letterhead lines fail those tests on purpose. A table whose every column holds longer text can fail them too. If nothing in the file passes, the job ends with a message that no table-like structure was detected, and no ZIP is made.",
+          `Two columns of prose, side-by-side bulleted lists and letterhead lines fail those tests on purpose. A table whose every column holds longer text can fail them too. If nothing in the file passes, the job ends with a message that no table-like structure was detected, and no ZIP is made; links under it open ${nameOf("pdf-to-excel")}, which puts every line of the text into a sheet, and ${nameOf("ocr-pdf")}, for pages that are scans.`,
         ],
       },
       {
@@ -5490,7 +5505,7 @@ export const guides: Guide[] = [
         heading: "What you download",
         body: [
           "The ZIP holds table-1.csv, table-2.csv and so on, one per table, plus tables.xlsx with a sheet per table named by its number and page, such as Table 1 (p3). The CSV files follow the common RFC 4180 layout, so a script can read them directly, and start with a UTF-8 byte-order mark, so a double-click opens accented letters correctly in Excel; a script should read them as utf-8-sig. A text cell that starts with =, +, - or @ carries a leading apostrophe, so Excel shows it as text instead of running it as a formula.",
-          `In tables.xlsx, a cell that holds exactly one number, such as ${XLSX_AMOUNTS}, is stored as a number, so a formula can add up the column. A code with leading zeros such as 00123, a number of more than ${MAX_SIGNIFICANT_DIGITS} significant digits, a European 1.250,00, a date and a negative in brackets stay text, exactly as printed.`,
+          `In tables.xlsx, a cell that holds exactly one number, such as ${XLSX_AMOUNTS}, is stored as a number, so a formula can add up the column, and so is an amount in Indian lakh grouping such as ${SHEET_LAKH_EXAMPLE} and an accounting negative such as ${SHEET_NEGATIVE_EXAMPLES[0]} or ${SHEET_NEGATIVE_EXAMPLES[1]}; a date that cannot be read two ways, such as ${SHEET_DATE_EXAMPLES[0]} or ${SHEET_DATE_EXAMPLES[1]}, becomes a real date. A code with leading zeros such as 00123, a number of more than ${MAX_SIGNIFICANT_DIGITS} significant digits, a European 1.250,00, a date written as ${XLSX_TEXT_EXAMPLE} and a bare bracketed number such as ${SHEET_NOTE_MARK_EXAMPLE} stay text, exactly as printed.`,
         ],
       },
       {
@@ -5498,7 +5513,7 @@ export const guides: Guide[] = [
         heading: "Layouts to check by hand",
         body: [
           "Three layouts trip the detector: two tables side by side on the same rows come out as one wide table, a cell that wraps in the first column ends its table early, and a centred one-line note directly under a table can be taken as its last row. A one-line subheading set in a table's first column also ends it, so a sectioned table can come back as several. Merged header cells are not rebuilt.",
-          "Each page is read on its own, so a table that runs over three pages comes out as at least one table per page, with any header row the PDF repeats on each page repeated in each sheet. Stack the sheets and delete the repeated headers to rebuild it.",
+          `Each page is read on its own, so by default a table that runs over three pages comes out as at least one table per page, with any header row the PDF repeats on each page repeated in each sheet. Tick ${COMBINE_TABLES_LABEL} before you press Extract tables to get one sheet, ${COMBINED_SHEET_NAME}, and one ${COMBINED_CSV_NAME}: a part on the next page that starts with the same header row is joined to the part before it, and the repeated header is left out.`,
         ],
       },
       {
@@ -5521,7 +5536,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Will Excel see my numbers as numbers?",
-        answer: `Yes, in tables.xlsx, when a cell holds exactly one number such as ${XLSX_AMOUNTS}. Dates, codes with leading zeros, European-style 1.250,00 and negatives in brackets stay text. The CSV files are plain text, so the program that opens them decides.`,
+        answer: `Yes, in tables.xlsx, when a cell holds exactly one number such as ${XLSX_AMOUNTS}, ${SHEET_LAKH_EXAMPLE} or ${SHEET_NEGATIVE_EXAMPLES[0]}, and a date such as ${SHEET_DATE_EXAMPLES[0]} is a real date. A date written as ${XLSX_TEXT_EXAMPLE}, codes with leading zeros, European-style 1.250,00 and a bare bracketed number such as ${SHEET_NOTE_MARK_EXAMPLE} stay text. The CSV files are plain text, so the program that opens them decides.`,
       },
       {
         question: "Is my PDF uploaded?",
@@ -5529,11 +5544,11 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I choose which pages to read?",
-        answer: `No. There are no options: every page is read. To work on a few pages, make a smaller PDF of them first with ${nameOf("extract-pages")}, which runs in your browser, and remember that the page numbers on the sheet tabs then count the pages of that copy.`,
+        answer: `No. Every page is read; the one option, ${COMBINE_TABLES_LABEL}, changes only how the tables are laid out. To work on a few pages, make a smaller PDF of them first with ${nameOf("extract-pages")}, which runs in your browser, and remember that the page numbers on the sheet tabs then count the pages of that copy.`,
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-06",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-convert-pdf-to-markdown",

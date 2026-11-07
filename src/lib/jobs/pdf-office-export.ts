@@ -53,5 +53,10 @@ export const XLSX_NUMBER_EXAMPLES = ["1,250.00", "$4.20", "15%"] as const;
 export const XLSX_MERGE_CAVEAT =
   "Where one cell runs across a column boundary, columns can merge — check them against the PDF.";
 
-/** A value the page says stays text — run by the same test. */
-export const XLSX_TEXT_EXAMPLE = "2026-01-05";
+/**
+ * A value the page says stays text — run by the same test. A date that reads
+ * two ways (5 January or 1 May): no locale is guessed. CHANGED 2026-11-08
+ * (audit pdf-to-excel#4) from "2026-01-05", which is now stored as a real
+ * date: an ISO date cannot be read two ways.
+ */
+export const XLSX_TEXT_EXAMPLE = "05/01/2026";

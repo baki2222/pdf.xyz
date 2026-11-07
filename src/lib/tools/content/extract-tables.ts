@@ -1,6 +1,20 @@
 import type { ToolContent } from "./types";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
-import { XLSX_NUMBER_EXAMPLES } from "@/lib/jobs/pdf-office-export";
+import {
+  COMBINE_TABLES_LABEL,
+  COMBINED_CSV_NAME,
+  COMBINED_SHEET_NAME,
+} from "@/lib/jobs/extract-tables-options";
+import {
+  XLSX_NUMBER_EXAMPLES,
+  XLSX_TEXT_EXAMPLE,
+} from "@/lib/jobs/pdf-office-export";
+import {
+  SHEET_DATE_EXAMPLES,
+  SHEET_LAKH_EXAMPLE,
+  SHEET_NEGATIVE_EXAMPLES,
+  SHEET_NOTE_MARK_EXAMPLE,
+} from "@/lib/jobs/sheet-number-examples";
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { MAX_SIGNIFICANT_DIGITS } from "@/lib/workers/ooxml/sheet-cells";
@@ -67,7 +81,7 @@ const content: ToolContent = {
   seoTitle: "Extract Tables from PDF to Excel and CSV",
 
   metaDescription:
-    "Extract tables from a text-based PDF to CSV and Excel: each table found, even several on one page, gets its own CSV and sheet. Scanned PDFs need OCR PDF first.",
+    "Extract tables from a text-based PDF to CSV and Excel: each table gets its own CSV and sheet, or all go on one sheet. Scanned PDFs need OCR PDF first.",
 
   intro: [
     `Copying a table out of a PDF usually pastes as one long column, or as rows glued together with spaces. Extract Tables reads the position of every word on a page, puts words on the same line into one row, joins words set a normal space apart into one cell, and finds columns from the white-space gutters that run down the rows. It keeps a block as a table only when at least two columns each hold something in two or more rows, one column holds short values of fewer than ${LONG_CELL_WORDS} words each (and is not mostly bullet items), and no sentence wraps from one row into the next.`,
@@ -86,7 +100,7 @@ const content: ToolContent = {
     },
     {
       title: "Long reports with one table per page",
-      body: "A multi-page appendix yields one numbered CSV and one sheet per table found, and each sheet name carries the page number, so every result can be traced back to where it came from.",
+      body: `A multi-page appendix yields one numbered CSV and one sheet per table found, and each sheet name carries the page number, so every result can be traced back to where it came from. To have them all in one place instead, tick ${COMBINE_TABLES_LABEL}.`,
     },
   ],
 
@@ -97,11 +111,11 @@ const content: ToolContent = {
     },
     {
       title: "Press Extract tables",
-      body: `Table detection takes no options, so this button is the only control. A file over ${CEILING_MB} MB is refused as soon as you pick it, before anything is read or sent. While the job runs, the button reads Uploading your file…, Waiting for our server…, Extracting tables… and Downloading the result… in turn, and it stays busy until the ZIP has come back to your browser. A scan with no text, or a file in which no table is detected, shows an error beneath the button in place of a result.`,
+      body: `One option sits above the button: ${COMBINE_TABLES_LABEL}, off unless you tick it. A file over ${CEILING_MB} MB is refused as soon as you pick it, before anything is read or sent. While the job runs, the button reads Uploading your file…, Waiting for our server…, Extracting tables… and Downloading the result… in turn, and it stays busy until the ZIP has come back to your browser. A scan with no text, or a file in which no table is detected, shows an error beneath the button in place of a result; when no table is detected, it comes with links to PDF to Excel and OCR PDF.`,
     },
     {
       title: "Download the ZIP",
-      body: `The button under the ready message reads Download followed by the output name, so report.pdf comes back as ${EXAMPLE_ZIP}. That button appears only once your browser has fetched the ZIP, so clicking it writes the file to disk without another trip to the server. Inside are table-1.csv, table-2.csv and so on, plus tables.xlsx with sheets named like Table 1 (p3).`,
+      body: `The ready message says how many tables were found and on which pages, for example Found 3 tables on pages 1–2 and 4, and names any page where no table was detected. The button under it reads Download followed by the output name, so report.pdf comes back as ${EXAMPLE_ZIP}. That button appears only once your browser has fetched the ZIP, so clicking it writes the file to disk without another trip to the server. Inside are table-1.csv, table-2.csv and so on, plus tables.xlsx with sheets named like Table 1 (p3). With ${COMBINE_TABLES_LABEL} ticked, it holds one ${COMBINED_CSV_NAME} and a tables.xlsx with the one sheet ${COMBINED_SHEET_NAME}.`,
     },
     {
       title: "Check each sheet against its page",
@@ -116,7 +130,7 @@ const content: ToolContent = {
     },
     {
       q: "What if only some pages of my PDF are scans?",
-      a: "The pages with text are read as usual, and the scanned pages simply produce nothing. A file with no text on any page stops with a message telling you to run OCR PDF first; add a text layer there, then bring the searchable PDF back.",
+      a: "The pages with text are read as usual, and the scanned pages produce nothing; the ready message lists them, starting No table was detected on, beside the pages tables came from. A file with no text on any page stops with a message telling you to run OCR PDF first; add a text layer there, then bring the searchable PDF back.",
     },
     {
       q: "Why did two columns come out as one?",
@@ -124,15 +138,15 @@ const content: ToolContent = {
     },
     {
       q: "Why did a page with an obvious table return nothing?",
-      a: `A block counts as a table only when at least two columns each hold something in two or more rows, one column holds short values of fewer than ${LONG_CELL_WORDS} words each (and is not mostly bullet items), and no sentence wraps from one row into the next. Two columns of prose, side-by-side bulleted lists and letterhead lines fail those tests on purpose. A table in which every column holds longer text can fail them too, as can one cut into single rows by one-line subheadings. If nothing in the file passes, the job ends with the message that no table-like structure was detected.`,
+      a: `A block counts as a table only when at least two columns each hold something in two or more rows, one column holds short values of fewer than ${LONG_CELL_WORDS} words each (and is not mostly bullet items), and no sentence wraps from one row into the next. Two columns of prose, side-by-side bulleted lists and letterhead lines fail those tests on purpose. A table in which every column holds longer text can fail them too, as can one cut into single rows by one-line subheadings. If nothing in the file passes, the job ends with the message that no table-like structure was detected and links to PDF to Excel and OCR PDF: the first puts every line of the text into a sheet, the second adds text to pages that are scans.`,
     },
     {
       q: "What happens to a table that runs over several pages?",
-      a: "Each page is analysed on its own, so a table spanning three pages comes out as separate CSV files and sheets, at least one for each page whose part of it is detected as a table, and a header row the PDF repeats on each page is repeated in each sheet too. Stack the sheets and delete the repeats to rebuild it.",
+      a: `Each page is analysed on its own, so by default a table spanning three pages comes out as separate CSV files and sheets, at least one for each page whose part of it is detected as a table, with a header row the PDF repeats on each page repeated in each sheet. Tick ${COMBINE_TABLES_LABEL} to get one sheet, ${COMBINED_SHEET_NAME}, and one ${COMBINED_CSV_NAME} instead: every table in page order with an empty row between tables, and a part on the next page that starts with the same header row joined to the part before it, its repeated header left out. A part whose header differs, or that skips a page, starts a new table there.`,
     },
     {
       q: "Does Excel see my numbers as numbers?",
-      a: `Yes, when a cell holds exactly one number. Values such as ${XLSX_NUMBER_EXAMPLES.join(", ")} or -4 are stored in tables.xlsx as numbers with a matching format, so they can be summed straight away. A code with a leading zero such as 00123, a number of more than ${MAX_SIGNIFICANT_DIGITS} significant digits, a European 1.250,00, a date or a bracketed negative stays text exactly as printed. The CSV files start with a UTF-8 byte-order mark, so a double-click opens accented and non-Latin text correctly in Excel. A CSV cell that starts with ${CSV_LEADS_PHRASE} and is not a number or a lone dash gets a leading apostrophe, so Excel shows it as text instead of running it as a formula; tables.xlsx keeps such a cell as plain text.`,
+      a: `Yes, when a cell holds exactly one number. Values such as ${XLSX_NUMBER_EXAMPLES.join(", ")} or -4 are stored in tables.xlsx as numbers with a matching format, so they can be summed straight away, and so is an amount in Indian lakh grouping such as ${SHEET_LAKH_EXAMPLE} and an accounting negative such as ${SHEET_NEGATIVE_EXAMPLES[0]} or ${SHEET_NEGATIVE_EXAMPLES[1]}; a date that cannot be read two ways, such as ${SHEET_DATE_EXAMPLES[0]} or ${SHEET_DATE_EXAMPLES[1]}, becomes a real date. A code with a leading zero such as 00123, a number of more than ${MAX_SIGNIFICANT_DIGITS} significant digits, a European 1.250,00, a date written as ${XLSX_TEXT_EXAMPLE}, which reads differently from country to country, or a bare bracketed number such as ${SHEET_NOTE_MARK_EXAMPLE} stays text exactly as printed. The CSV files start with a UTF-8 byte-order mark, so a double-click opens accented and non-Latin text correctly in Excel. A CSV cell that starts with ${CSV_LEADS_PHRASE} and is not a number or a lone dash gets a leading apostrophe, so Excel shows it as text instead of running it as a formula; tables.xlsx keeps such a cell as plain text.`,
     },
   ],
 

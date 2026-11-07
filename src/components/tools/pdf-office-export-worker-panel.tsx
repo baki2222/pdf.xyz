@@ -32,6 +32,7 @@ import { OfficeExportCoverageNotice } from "./office-export-coverage";
 import { OfficeExportNextStep } from "./office-export-notices";
 import { OcrLanguagePicker, useOcrLanguageChoice } from "./ocr-language-picker";
 import { WORD_OCR_HINT } from "@/lib/jobs/pdf-office-export";
+import { SHEET_PER_PAGE_HINT } from "@/lib/jobs/pdf-to-excel-options";
 import { PDF_TO_WORD_OCR_LANGUAGE_CODES } from "@/lib/jobs/ocr";
 
 /**
@@ -183,6 +184,9 @@ function PdfOfficeRunArea({
   // PDF to Word only: OCR first, in the same job, with OCR PDF's languages.
   const offersOcr = tool === "pdf-to-word";
   const [ocrOn, setOcrOn] = useState(false);
+  // PDF to Excel only: one sheet per page (audit pdf-to-excel#3).
+  const offersSheets = tool === "pdf-to-excel";
+  const [sheetPerPage, setSheetPerPage] = useState(false);
   // Right-to-left scripts are left out: their words come out of the
   // conversion out of order (`PDF_TO_WORD_OCR_LANGUAGE_CODES`).
   const languageChoice = useOcrLanguageChoice(
@@ -201,12 +205,24 @@ function PdfOfficeRunArea({
           filename: file.name,
           bytes: new Uint8Array(await file.arrayBuffer()),
           ...(offersOcr && ocrOn ? { ocr: { languages } } : {}),
+          ...(offersSheets && sheetPerPage ? { sheetPerPage: true } : {}),
         },
         controls,
       );
       return result;
     });
-  }, [file, tool, run, available, ocrBlocked, offersOcr, ocrOn, languages]);
+  }, [
+    file,
+    tool,
+    run,
+    available,
+    ocrBlocked,
+    offersOcr,
+    ocrOn,
+    languages,
+    offersSheets,
+    sheetPerPage,
+  ]);
   // Read only once the status says this panel cannot run.
   const unavailableDetail =
     status?.daemon.detail ?? "Our secure server is not drainable here.";
@@ -284,6 +300,26 @@ function PdfOfficeRunArea({
               </p>
             ))}
         </div>
+      )}
+      {offersSheets && (
+        <label className="border-line rounded-panel text-muted flex min-h-11 items-start gap-2.5 border p-3 text-sm">
+          <input
+            type="checkbox"
+            checked={sheetPerPage}
+            // Guarded, never `disabled`: focus stays put mid-run (#46).
+            onChange={(event) => {
+              if (!busy) setSheetPerPage(event.target.checked);
+            }}
+            aria-disabled={busy || undefined}
+            className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4"
+          />
+          <span className="flex flex-col gap-0.5">
+            <span className="text-fg font-medium">One sheet per page</span>
+            <span className="text-muted text-xs leading-relaxed">
+              {SHEET_PER_PAGE_HINT}
+            </span>
+          </span>
+        </label>
       )}
       <WorkerGate
         reserve={STATUS_SLOT}

@@ -491,6 +491,10 @@ const numberCell = (number: number, format = "0"): ExpectedCell => ({
  * Every row of the sheet PDF to Excel must write for {@link invoicePdf}, from
  * A1 down, typed by hand as an INDEPENDENT bound — not derived from the
  * writer's own number rules. `null` is a cell that must be absent.
+ *
+ * CHANGED 2026-11-08 (audit pdf-to-excel#4): the dates were text cells
+ * ("2026-01-05"); an ISO date is now a real date, Excel serial 46027 (days
+ * since 1899-12-30) shown as yyyy-mm-dd.
  */
 export const INVOICE_SHEET: readonly (readonly ExpectedCell[])[] = [
   [textCell(INVOICE_HEADING[0])],
@@ -498,21 +502,21 @@ export const INVOICE_SHEET: readonly (readonly ExpectedCell[])[] = [
   INVOICE_ROWS[0].map((t) => textCell(t)),
   [
     numberCell(1001),
-    textCell("2026-01-05"),
+    numberCell(46027, "yyyy-mm-dd"),
     textCell("Widgets, blue"),
     numberCell(2),
     numberCell(1250, "#,##0.00"),
   ],
   [
     numberCell(1002),
-    textCell("2026-01-06"),
+    numberCell(46028, "yyyy-mm-dd"),
     null,
     numberCell(5),
     numberCell(3400.5, '"$"#,##0.00'),
   ],
   [
     textCell("00123"),
-    textCell("2026-01-07"),
+    numberCell(46029, "yyyy-mm-dd"),
     textCell("Smith, John"),
     numberCell(12),
     numberCell(980.25, "0.00"),

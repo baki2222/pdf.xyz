@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import JSZip from "jszip";
 import {
   buildTablesZip,
+  combineTables,
   CSV_BOM,
   CSV_FORMULA_LEADS,
   detectTablesOnPage,
@@ -18,6 +19,12 @@ import {
   sheetGridProblems,
 } from "../ooxml/sheet-read";
 import { readFileSync } from "node:fs";
+import {
+  COMBINE_TABLES_HINT,
+  COMBINE_TABLES_LABEL,
+  COMBINED_CSV_NAME,
+  COMBINED_SHEET_NAME,
+} from "@/lib/jobs/extract-tables-options";
 import extractTablesContent from "@/lib/tools/content/extract-tables";
 import { guides } from "@/lib/guides/catalog";
 import { fileURLToPath } from "node:url";
@@ -817,5 +824,154 @@ describe("runTableExtract — a PDF that will not open is classified, not retrie
       },
     );
     expect(run).toMatchObject({ ok: false, kind: "too_large" });
+  });
+});
+
+/**
+ * "Combine tables into one sheet" (audit extract-tables#2, 2026-11-08). Until
+ * then every table was its own CSV and sheet, and a table running over three
+ * pages came back as three sheets each repeating its header.
+ */
+describe("runTableExtract — combine tables into one sheet", () => {
+  const PDF = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+  /** A two-column table under the header Name | Age, on its own page. */
+  function part(pageNumber: number, people: [string, string][]) {
+    const page = tablePage(pageNumber);
+    page.items = [
+      item("Name", 50, 200),
+      item("Age", 200, 200),
+      ...people.flatMap(([name, age], i) => [
+        item(name, 50, 180 - i * 20),
+        item(age, 200, 180 - i * 20),
+      ]),
+    ];
+    return page;
+  }
+  /** A different table: City | Code. */
+  function cities(pageNumber: number) {
+    const page = tablePage(pageNumber);
+    page.items = [
+      item("City", 50, 200),
+      item("Code", 200, 200),
+      item("Paris", 50, 180),
+      item("75", 200, 180),
+    ];
+    return page;
+  }
+  const DOC = layout([
+    part(1, [
+      ["Alice", "30"],
+      ["Bob", "25"],
+    ]),
+    part(2, [["Carol", "41"]]),
+    cities(3),
+  ]);
+
+  async function filesOf(combine: boolean) {
+    const run = await runTableExtract(
+      PDF,
+      { extractLayout: vi.fn(async () => DOC) },
+      undefined,
+      { combine },
+    );
+    if (!run.ok) throw new Error(run.message);
+    return { run, zip: await JSZip.loadAsync(run.output) };
+  }
+
+  it("HEALTH: off, the same document is three tables, three CSVs and three sheets", async () => {
+    const { zip } = await filesOf(false);
+    expect(Object.keys(zip.files).sort()).toEqual([
+      "table-1.csv",
+      "table-2.csv",
+      "table-3.csv",
+      "tables.xlsx",
+    ]);
+    const xlsx = await zip.file("tables.xlsx")!.async("uint8array");
+    const book = await (
+      await JSZip.loadAsync(xlsx)
+    )
+      .file("xl/workbook.xml")!
+      .async("string");
+    expect(book.match(/<sheet /g)).toHaveLength(3);
+  });
+
+  it("on, one CSV and one sheet: the continued table joined without its repeated header, the next table after an empty row", async () => {
+    const { zip } = await filesOf(true);
+    expect(Object.keys(zip.files).sort()).toEqual([
+      COMBINED_CSV_NAME,
+      "tables.xlsx",
+    ]);
+    expect(await zip.file(COMBINED_CSV_NAME)!.async("string")).toBe(
+      CSV_BOM +
+        "Name,Age\r\nAlice,30\r\nBob,25\r\nCarol,41\r\n\r\nCity,Code\r\nParis,75",
+    );
+    const xlsx = await zip.file("tables.xlsx")!.async("uint8array");
+    const book = await (
+      await JSZip.loadAsync(xlsx)
+    )
+      .file("xl/workbook.xml")!
+      .async("string");
+    const names = [...book.matchAll(/<sheet name="([^"]+)"/g)].map((m) => m[1]);
+    expect(names).toEqual([COMBINED_SHEET_NAME]);
+    const sheet = await readXlsxSheet(xlsx);
+    expect(sheetGridProblems(sheet)).toEqual([]);
+    const shown = sheet.rows.map((r) => r.cells.map((c) => c.value));
+    expect(shown).toEqual([
+      ["Name", "Age"],
+      ["Alice", "30"],
+      ["Bob", "25"],
+      ["Carol", "41"],
+      [],
+      ["City", "Code"],
+      ["Paris", "75"],
+    ]);
+    // Ages are still numbers on the combined sheet.
+    expect(cellsByRef(sheet).get("B4")).toMatchObject({
+      type: "number",
+      value: "41",
+    });
+  });
+
+  it("joins only a NEXT-page part under the SAME header: a gap page or a different header stays its own table", () => {
+    const header = ["Name", "Age"];
+    const joined = combineTables([
+      { pageNumber: 1, rows: [header, ["A", "1"]] },
+      { pageNumber: 3, rows: [header, ["B", "2"]] },
+      {
+        pageNumber: 4,
+        rows: [
+          ["Name", "Years"],
+          ["C", "3"],
+        ],
+      },
+      {
+        pageNumber: 5,
+        rows: [
+          ["Name", "Years"],
+          ["D", "4"],
+        ],
+      },
+    ]);
+    expect(joined).toEqual([
+      ["Name", "Age"],
+      ["A", "1"],
+      [],
+      ["Name", "Age"],
+      ["B", "2"],
+      [],
+      ["Name", "Years"],
+      ["C", "3"],
+      ["D", "4"],
+    ]);
+  });
+
+  it("the page says what the option writes, from the same constants", () => {
+    const page = JSON.stringify(extractTablesContent);
+    expect(page).toContain(COMBINE_TABLES_LABEL);
+    expect(page).toContain(COMBINED_SHEET_NAME);
+    expect(page).toContain(COMBINED_CSV_NAME);
+    expect(COMBINE_TABLES_HINT).toContain(COMBINED_SHEET_NAME);
+    // INVERTED: the FAQ used to tell users to stack the sheets by hand.
+    expect(page).not.toContain("Stack the sheets and delete the repeats");
   });
 });

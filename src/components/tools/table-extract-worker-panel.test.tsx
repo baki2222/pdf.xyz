@@ -14,6 +14,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { PDFDocument } from "pdf-lib";
 import { getToolBySlug } from "@/lib/tools";
 import type { Job } from "@/lib/jobs/types";
+import { sanitizeJobResults } from "@/lib/jobs/results";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { getProviderReadiness } from "@/lib/workers/providers";
 import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
@@ -24,6 +25,7 @@ import type { PdfLayoutExtractor } from "@/lib/workers/table-extract/engine";
 import { PdfTextExecError } from "@/lib/workers/pdf-text/errors";
 import { rc4EncryptedPdf } from "@/tests/pdf-office-fixtures";
 import { TableExtractWorkerPanel } from "./table-extract-worker-panel";
+import { tableFindingLines } from "./table-extract-findings";
 import { readyFileInput } from "@/tests/worker-ready";
 
 const tool = getToolBySlug("extract-tables")!;
@@ -199,6 +201,44 @@ describe("Extract Tables panel — failures link the tool that fixes them", () =
     );
   });
 
+  it("offers PDF to Excel and OCR PDF when no table is detected (audit extract-tables#5)", async () => {
+    stubNetwork(
+      await failedJobFrom(
+        async () => ({
+          pageCount: 1,
+          pages: [
+            {
+              pageNumber: 1,
+              width: 400,
+              height: 300,
+              items: [
+                {
+                  text: "Just running prose here.",
+                  x: 50,
+                  y: 100,
+                  width: 120,
+                  height: 10,
+                },
+              ],
+            },
+          ],
+        }),
+        new Uint8Array([0x25, 0x50, 0x44, 0x46]),
+      ),
+    );
+    await extractOnePdf();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /No table-like structure/,
+    );
+    expect(
+      screen.getByRole("link", { name: "Open PDF to Excel" }),
+    ).toHaveAttribute("href", "/tools/pdf-to-excel");
+    expect(screen.getByRole("link", { name: "Open OCR PDF" })).toHaveAttribute(
+      "href",
+      "/tools/ocr-pdf",
+    );
+  });
+
   it("POSITIVE CONTROL: a retryable failure links nothing", async () => {
     stubNetwork(
       await failedJobFrom(
@@ -211,5 +251,201 @@ describe("Extract Tables panel — failures link the tool that fixes them", () =
     await extractOnePdf();
     await screen.findByRole("alert");
     expect(screen.queryByRole("link", { name: /^Open / })).toBeNull();
+  });
+});
+
+describe("Extract Tables panel — “Combine tables into one sheet” (audit extract-tables#2)", () => {
+  /** The options bag of the job-create request, read off the wire. */
+  async function jobOptionsSent(tick: boolean) {
+    stubNetwork(
+      await failedJobFrom(
+        async () => {
+          throw new Error("the run did not finish");
+        },
+        new Uint8Array([0x25, 0x50, 0x44, 0x46]),
+      ),
+    );
+    render(<TableExtractWorkerPanel tool={tool} />);
+    const box = screen.getByRole("checkbox", {
+      name: /Combine tables into one sheet/,
+    });
+    expect(box).not.toBeChecked();
+    if (tick) fireEvent.click(box);
+    const input = await vi.waitFor(() => {
+      const found = readyFileInput();
+      if (!found) throw new Error("no file input yet");
+      return found;
+    });
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], "s.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /extract tables/i }));
+    await screen.findByRole("alert");
+    const calls = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    const create = calls.find(([url]) => url === "/api/jobs");
+    if (!create) throw new Error("no job was created");
+    const body = JSON.parse(
+      new TextDecoder().decode((create[1] as { body: ArrayBuffer }).body),
+    ) as { options: Record<string, unknown> };
+    return body.options;
+  }
+
+  it("ticked, the job asks for one sheet", async () => {
+    expect(await jobOptionsSent(true)).toEqual({ combine: true });
+  });
+
+  it("left alone, the job is the request every page sent before the option", async () => {
+    expect(await jobOptionsSent(false)).toEqual({});
+  });
+});
+
+describe("Extract Tables panel — the result says what was found (audit extract-tables#4)", () => {
+  const page = (pageNumber: number, table: boolean) => ({
+    pageNumber,
+    width: 400,
+    height: 300,
+    items: table
+      ? [
+          { text: "Name", x: 50, y: 100, width: 20, height: 10 },
+          { text: "Age", x: 200, y: 100, width: 15, height: 10 },
+          { text: "Alice", x: 50, y: 80, width: 25, height: 10 },
+          { text: "30", x: 200, y: 80, width: 10, height: 10 },
+        ]
+      : [{ text: "Just prose.", x: 50, y: 100, width: 60, height: 10 }],
+  });
+
+  /** The real processor's success, persisted through the real sanitizer. */
+  async function completedJob(
+    tablesOn: boolean[],
+    options: Record<string, unknown> = {},
+    keepResults = true,
+  ) {
+    const result = await createTableExtractProcessor({
+      extractLayout: async () => ({
+        pageCount: tablesOn.length,
+        pages: tablesOn.map((t, i) => page(i + 1, t)),
+      }),
+    }).process({
+      tool: "extract-tables",
+      options,
+      inputs: [
+        {
+          fileId: "f1",
+          filename: "statement.pdf",
+          contentType: "application/pdf",
+          bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46]),
+        },
+      ],
+    });
+    if (!result.ok) throw new Error(result.error.message);
+    const results = keepResults
+      ? sanitizeJobResults(result.results)
+      : undefined;
+    const job = {
+      jobId: "job_1",
+      tool: "extract-tables",
+      capability: "worker",
+      progress: 100,
+      status: "completed",
+      artifacts: [
+        {
+          artifactId: "a1",
+          filename: result.artifacts[0]!.filename,
+          contentType: result.artifacts[0]!.contentType,
+          bytes: result.artifacts[0]!.bytes.byteLength,
+          url: "/download/a1",
+          expiresAt: "2026-09-27T01:00:00.000Z",
+        },
+      ],
+      ...(results ? { results } : {}),
+      createdAt: "2026-09-27T00:00:00.000Z",
+      updatedAt: "2026-09-27T00:00:00.000Z",
+    } as unknown as Job;
+    stubNetwork(job);
+    const fetchStub = fetch as unknown as ReturnType<typeof vi.fn>;
+    const answer = fetchStub.getMockImplementation()! as (
+      url: string,
+      init: unknown,
+    ) => unknown;
+    fetchStub.mockImplementation(async (url: string, init: unknown) =>
+      url === "/download/a1"
+        ? {
+            ok: true,
+            status: 200,
+            json: async () => ({}),
+            arrayBuffer: async () => result.artifacts[0]!.bytes.slice().buffer,
+          }
+        : answer(url, init),
+    );
+  }
+
+  it("names the count, the pages tables came from, and the pages that gave none", async () => {
+    await completedJob([true, false, true, false, false]);
+    await extractOnePdf();
+    expect(
+      await screen.findByText("Found 2 tables on pages 1 and 3."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "No table was detected on pages 2 and 4–5. If they are scans, OCR PDF can add the text first.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("one table on one page, and nothing missing, says only that", async () => {
+    await completedJob([true]);
+    await extractOnePdf();
+    expect(
+      await screen.findByText("Found 1 table on page 1."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/No table was detected/)).toBeNull();
+  });
+
+  it("a combined run says the ZIP holds one CSV and one sheet", async () => {
+    await completedJob([true, true], { combine: true });
+    await extractOnePdf();
+    expect(
+      await screen.findByText(
+        /one CSV file plus an Excel workbook with one sheet/,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("POSITIVE CONTROL: a worker that does not report gets no count, not a made-up one", async () => {
+    await completedJob([true, false], {}, false);
+    await extractOnePdf();
+    expect(
+      await screen.findByText(
+        /ZIP of CSV files plus a combined Excel workbook/,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/^Found /)).toBeNull();
+  });
+});
+
+describe("Extract Tables page — says what the result card says", () => {
+  it("quotes the card's own sentence shapes", async () => {
+    const { default: content } =
+      await import("@/lib/tools/content/extract-tables");
+    const page = JSON.stringify(content);
+    const lines = tableFindingLines({
+      tableCount: 3,
+      pageCount: 5,
+      tablePages: [1, 2, 4],
+      tablePagesTruncated: false,
+      combined: false,
+    });
+    // The example on the page is a sentence the card really writes.
+    expect(page).toContain(lines[0]!.replace(/\.$/, ""));
+    expect(lines[1]).toMatch(/^No table was detected on /);
+    expect(page).toContain("No table was detected on");
+    // The no-tables failure's links, named as the panel labels them.
+    expect(page).toContain("links to PDF to Excel and OCR PDF");
   });
 });
