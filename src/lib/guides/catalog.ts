@@ -5466,7 +5466,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       `To extract tables from a PDF, open ${nameOf("extract-tables")}, add your PDF, press Extract tables, and download the ZIP. Each table it finds comes back as its own CSV file and as its own sheet in one Excel workbook, with the titles and paragraphs around it left out.`,
-      "It finds tables by where the words sit on the page: words on one line form a row, words set a normal space apart stay in one cell, and columns come from the white space that runs down the rows. There are no settings to choose. It reads only text stored in the PDF as text, so a scanned table needs OCR first.",
+      `It finds tables by where the words sit on the page: words on one line form a row, words set a normal space apart stay in one cell, and columns come from the white space that runs down the rows. Table detection itself has no settings: the only control is “${WORD_OCR_LABEL}”, which adds a text layer before detection runs. It reads only text stored in the PDF as text, so a scanned table needs that switch on.`,
       `${nameOf("extract-tables")} runs on a secure server, not in your browser, because the word positions come from a native PDF text engine. Your PDF, up to ${ceilingMb("extract-tables")} MB, travels over an encrypted connection and is deleted when the job finishes; the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
     ],
     steps: [
@@ -5529,7 +5529,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I choose which pages to read?",
-        answer: `No. There are no options: every page is read. To work on a few pages, make a smaller PDF of them first with ${nameOf("extract-pages")}, which runs in your browser, and remember that the page numbers on the sheet tabs then count the pages of that copy.`,
+        answer: `No. There is no page choice: every page is read. To work on a few pages, make a smaller PDF of them first with ${nameOf("extract-pages")}, which runs in your browser, and remember that the page numbers on the sheet tabs then count the pages of that copy.`,
       },
     ],
     published: "2026-10-31",
