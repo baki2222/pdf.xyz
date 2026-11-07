@@ -58,6 +58,7 @@ import { userPasswordEncryptedPdf } from "@/tests/encrypted-pdf-fixture";
 import { parseRanges } from "@/lib/pdf/ranges";
 import {
   IMAGE_HEAVY_SHARE,
+  LOSSLESS_MIN_RATIO,
   analyzePdf,
   summarizeAnalysis,
 } from "@/lib/pdf/analyze";
@@ -109,6 +110,7 @@ import {
 } from "@/lib/pdf/pdf-to-markdown";
 import {
   DEEP_COMPRESSION_PRESETS,
+  DEEP_MONO_MIN_DPI,
   EDITOR_KINDS,
   EDITOR_KIND_FACT,
   MARKUP_KINDS,
@@ -535,8 +537,11 @@ describe("compress answers what each of its two paths does", () => {
     expect(runnerSource(tool.slug)).toMatch(
       /const DEEP_QUALITY = DEEP_COMPRESSION_PRESETS/,
     );
-    // Ghostscript is the engine the deep path prefers, and it downsamples to
-    // exactly the DPI sent; every offered level is one the worker accepts.
+    // Ghostscript is the engine the deep path prefers. It downsamples colour
+    // and gray images to exactly the DPI sent, but black-and-white images to
+    // no less than DEEP_MONO_MIN_DPI (audit compress-pdf#3); every offered
+    // level is one the worker accepts. Until 2026-11-07 this comment said
+    // "exactly the DPI sent" for every image, and asserted only the Color flag.
     expect(DEEP_COMPRESSION_TOOLS[0]).toBe("ghostscript");
     const served = answer(tool.slug, /reduce the quality/);
     expect(served).toMatch(/^Not in your browser/);
@@ -549,6 +554,30 @@ describe("compress answers what each of its two paths does", () => {
         nativeArgs("ghostscript", "gs", "in", "out", preset.dpi).args,
       ).toContain(`-dColorImageResolution=${preset.dpi}`);
     }
+  });
+
+  it("the answer says what the engine does to black-and-white images", () => {
+    const tool = mounting("compress")[0]!;
+    const served = answer(tool.slug, /reduce the quality/);
+    const monoSent = (dpi: number) => {
+      const flag = nativeArgs("ghostscript", "gs", "in", "out", dpi).args.find(
+        (a) => a.startsWith("-dMonoImageResolution="),
+      );
+      // Health check: the flag the answer is composed with exists.
+      expect(flag).toBeDefined();
+      return Number(flag!.split("=")[1]);
+    };
+    const raised = DEEP_COMPRESSION_PRESETS.filter(
+      (p) => monoSent(p.dpi) !== p.dpi,
+    );
+    // Positive control: at least one offered level keeps mono above it, so
+    // the exception is live, and the floor it keeps is the constant.
+    expect(raised.length).toBeGreaterThan(0);
+    for (const p of raised) expect(monoSent(p.dpi)).toBe(DEEP_MONO_MIN_DPI);
+    expect(served).toContain(
+      `black-and-white images are never taken below ${DEEP_MONO_MIN_DPI} DPI`,
+    );
+    expect(served).toMatch(/colour and gray images sharper than the level/);
   });
 
   it("the Grayscale sentence the answer says is the one the panel draws, and the engine is asked for it", () => {
@@ -587,6 +616,35 @@ describe("compress answers what each of its two paths does", () => {
     expect(answer(tool.slug, /How much smaller/)).toContain(
       `${Math.round(IMAGE_HEAVY_SHARE * 100)}% or more`,
     );
+  });
+
+  it("the How-much-smaller answer states the rule imageHeavy follows, whatever the saving", () => {
+    const summary = (share: number, savedRatio: number) =>
+      summarizeAnalysis({
+        pageCount: 1,
+        originalBytes: 1000,
+        imageCount: 1,
+        imageBytes: Math.round(share * 1000),
+        optimizedBytes: Math.round(1000 * (1 - savedRatio)),
+        signatureCount: 0,
+      });
+    // The panel points to the server whenever imageHeavy is set: also when
+    // the repack itself saves LOSSLESS_MIN_RATIO or more.
+    const both = summary(IMAGE_HEAVY_SHARE, LOSSLESS_MIN_RATIO);
+    expect(both.recommendation).toBe("lossless-helps");
+    expect(both.imageHeavy).toBe(true);
+    expect(summary(IMAGE_HEAVY_SHARE - 0.01, 0).imageHeavy).toBe(false);
+    const tool = mounting("compress")[0]!;
+    expect(runnerSource(tool.slug)).toMatch(/summary\.imageHeavy &&/);
+    const served = answer(tool.slug, /How much smaller/);
+    expect(served).toContain(
+      `Whenever images make up ${Math.round(IMAGE_HEAVY_SHARE * 100)}% or more of the file`,
+    );
+    expect(served).toContain(
+      `even when the lossless repack also saves ${Math.round(LOSSLESS_MIN_RATIO * 100)}% or more`,
+    );
+    // The old condition, "when it saves little", is gone.
+    expect(served).not.toMatch(/saves little/);
   });
 });
 

@@ -13,6 +13,12 @@ import {
   type NativeFs,
   type NativeSeams,
 } from "./native";
+import {
+  DEEP_COMPRESSION_PRESETS,
+  DEEP_MONO_MIN_DPI,
+} from "@/lib/pdf/offered-kinds";
+import { ladderRungs } from "./target-ladder";
+import compressContent from "@/lib/tools/content/compress-pdf";
 
 /** A full config with sane defaults; override any field per test. */
 function cfg(
@@ -83,6 +89,49 @@ describe("nativeArgs — fixed argv, no shell interpolation", () => {
     expect(args).toContain("-sOutputFile=/tmp/j/output.pdf");
     expect(args).toContain("/tmp/j/input.pdf");
     expect(args[args.length - 1]).toBe("/tmp/j/input.pdf");
+  });
+
+  // Audit compress-pdf#3 (2026-11-06): black-and-white scan images were
+  // downsampled to the same DPI as photos (Extreme 72), which breaks up their
+  // text for almost no bytes. Ghostscript's own /screen and /ebook keep mono
+  // at 300. Every Quality preset and every Target-size rung keeps mono at no
+  // less than DEEP_MONO_MIN_DPI, while colour and gray follow the rung.
+  it("keeps black-and-white images at DEEP_MONO_MIN_DPI or more on every rung", () => {
+    const flag = (args: string[], name: string) =>
+      args.filter((a) => a.startsWith(`-d${name}ImageResolution=`));
+    const dpis = new Set<number>();
+    for (const preset of DEEP_COMPRESSION_PRESETS) {
+      for (const dpi of ladderRungs(preset.dpi)) dpis.add(dpi);
+    }
+    dpis.add(600);
+    // Health check: the set holds the floor, the default and a value above the mono floor.
+    expect([...dpis]).toEqual(expect.arrayContaining([72, 150, 600]));
+    for (const dpi of dpis) {
+      const { args } = nativeArgs("ghostscript", "gs", "/i.pdf", "/o.pdf", dpi);
+      expect(flag(args, "Color")).toEqual([`-dColorImageResolution=${dpi}`]);
+      expect(flag(args, "Gray")).toEqual([`-dGrayImageResolution=${dpi}`]);
+      expect(flag(args, "Mono")).toEqual([
+        `-dMonoImageResolution=${Math.max(dpi, DEEP_MONO_MIN_DPI)}`,
+      ]);
+    }
+    // Positive control: the Extreme preset really keeps mono above colour.
+    const { args } = nativeArgs("ghostscript", "gs", "/i.pdf", "/o.pdf", 72);
+    expect(flag(args, "Mono")).toEqual(["-dMonoImageResolution=300"]);
+  });
+
+  it("the Compress PDF page states the black-and-white floor nativeArgs sends", () => {
+    // The claim reaches the reader through the content; the number must be the
+    // one Ghostscript is actually given at the lowest Quality (the floor rung).
+    const floor = DEEP_COMPRESSION_PRESETS[0].dpi;
+    const { args } = nativeArgs("ghostscript", "gs", "/i.pdf", "/o.pdf", floor);
+    const sent = args
+      .find((a) => a.startsWith("-dMonoImageResolution="))
+      ?.split("=")[1];
+    expect(sent).toBe(String(DEEP_MONO_MIN_DPI));
+    const text = compressContent.intro.join(" ");
+    expect(text).toContain(
+      `Black-and-white images, such as text scanned in black-and-white mode, never go below ${sent} DPI on any setting`,
+    );
   });
 
   it("passes an override command path through verbatim", () => {

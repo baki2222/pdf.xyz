@@ -138,6 +138,20 @@ describe("summarizeAnalysis", () => {
     expect(summary.recommendation).toBe("needs-worker");
   });
 
+  it("flags an image-heavy file even when the lossless repack wins the headline", () => {
+    const summary = summarizeAnalysis(
+      analysis({ originalBytes: 1000, optimizedBytes: 950, imageBytes: 600 }),
+    );
+    expect(summary.recommendation).toBe("lossless-helps");
+    expect(summary.imageHeavy).toBe(true);
+    // Control: below the share, the flag is off.
+    expect(
+      summarizeAnalysis(
+        analysis({ originalBytes: 1000, optimizedBytes: 950, imageBytes: 100 }),
+      ).imageHeavy,
+    ).toBe(false);
+  });
+
   it("reports already-lean when nothing meaningful can be done", () => {
     const summary = summarizeAnalysis(
       analysis({ originalBytes: 1000, optimizedBytes: 1000, imageBytes: 100 }),

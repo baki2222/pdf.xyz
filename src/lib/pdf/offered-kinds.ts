@@ -307,7 +307,8 @@ export const GRAYSCALE_DPI_PRESETS = [
 
 /**
  * Compress PDF — the image resolutions the optional secure-worker step offers,
- * sent as `targetDpi` (the worker's Ghostscript downsamples every image to it).
+ * sent as `targetDpi` (the worker's Ghostscript downsamples colour and gray
+ * images to it; black-and-white images stop at {@link DEEP_MONO_MIN_DPI}).
  */
 export const DEEP_COMPRESSION_PRESETS = [
   // 72 DPI is also the worker's floor (`MIN_DPI` in compression/engine.ts).
@@ -316,3 +317,12 @@ export const DEEP_COMPRESSION_PRESETS = [
   { dpi: 150, label: "Balanced" },
   { dpi: 300, label: "High quality" },
 ] as const;
+
+/**
+ * Compress PDF's deep step never takes black-and-white (1-bit) images below
+ * this resolution, whatever the Quality or Target size (audit compress-pdf#3).
+ * Scanned text breaks up under 300 DPI while bilevel images are already
+ * small, and Ghostscript's own /screen and /ebook presets keep mono at 300.
+ * `nativeArgs` (compression/native.ts) sends `max(targetDpi, this)`.
+ */
+export const DEEP_MONO_MIN_DPI = 300;

@@ -8,7 +8,10 @@ import {
   TARGET_SIZE_PRESETS,
   targetOutcome,
 } from "@/lib/pdf/compress-target";
-import { DEEP_COMPRESSION_PRESETS } from "@/lib/pdf/offered-kinds";
+import {
+  DEEP_COMPRESSION_PRESETS,
+  DEEP_MONO_MIN_DPI,
+} from "@/lib/pdf/offered-kinds";
 import {
   RUNNER_FILE_CEILINGS,
   WORKER_FILE_CEILING,
@@ -41,7 +44,7 @@ const DEEP_MB = Math.round(
 const DEEP_CAP_SENTENCE =
   DEEP_MB < MAX_MB ? ` The deep step refuses files over ${DEEP_MB} MB.` : "";
 
-/** The thresholds `summarizeAnalysis` uses to pick the headline. */
+/** The thresholds `summarizeAnalysis` uses for the headline and the image advice. */
 const LOSSLESS_PCT = Math.round(LOSSLESS_MIN_RATIO * 100);
 const IMAGE_PCT = Math.round(IMAGE_HEAVY_SHARE * 100);
 
@@ -87,7 +90,7 @@ const content: ToolContent = {
   intro: [
     "Compress PDF starts by showing you why a file is big. Add a PDF and your browser counts its pages and images, measures the images' share of the file, and repacks it losslessly into compressed object streams. A verdict (“Lossless cleanup shrank this file”, “This PDF is image-heavy” or “This PDF is already lean”) sits above four figures: current size, pages, images and the lossless result.",
     `That first pass runs online in your browser, on your device, and the PDF is not uploaded for it. Pages, text, bookmarks, filled-in form fields, title and author all carry over. Only a few metadata entries change: Producer and Creator become pdf.xyz, the modification date is updated, and a missing creation date is filled in. The drop box takes PDFs of up to ${MAX_MB} MB each.`,
-    `A lossless repack cannot shrink images. So when it saves less than ${LOSSLESS_PCT}% and images make up ${IMAGE_PCT}% or more of the file, the headline points you to the optional deep image compression step, which uploads the PDF over TLS to pdf.xyz's secure server. There, Ghostscript downsamples and re-encodes images toward the resolution your Quality setting picks. A server without Ghostscript falls back to qpdf, which recompresses streams and may re-encode some images as JPEG, or to mutool, which only cleans up and recompresses the structure; neither downsamples, and neither reads the Quality setting. With “Grayscale” ticked, Ghostscript also turns every colour on the pages into shades of gray; a server without Ghostscript refuses that request instead of returning a colour file. With a “${TARGET_SIZE_LABELS.heading}” chosen, Ghostscript runs again at lower resolutions until the file fits, or the panel tells you the smallest it could make. Your upload is deleted when the job finishes, the result link expires after ${LINK_MINUTES} minutes, and a daily storage rule erases the stored copy after that.${DEEP_CAP_SENTENCE}`,
+    `A lossless repack cannot shrink images. So whenever images make up ${IMAGE_PCT}% or more of the file, the analysis points you to the optional deep image compression step, even when the repack's own saving reaches the ${LOSSLESS_PCT}% that earns the lossless headline. That step uploads the PDF over TLS to pdf.xyz's secure server. There, Ghostscript downsamples and re-encodes images toward the resolution your Quality setting picks. Black-and-white images, such as text scanned in black-and-white mode, never go below ${DEEP_MONO_MIN_DPI} DPI on any setting, so scanned text is not broken up; the lower settings shrink colour and gray images instead. A server without Ghostscript falls back to qpdf, which recompresses streams and may re-encode some images as JPEG, or to mutool, which only cleans up and recompresses the structure; neither downsamples, and neither reads the Quality setting. With “Grayscale” ticked, Ghostscript also turns every colour on the pages into shades of gray; a server without Ghostscript refuses that request instead of returning a colour file. With a “${TARGET_SIZE_LABELS.heading}” chosen, Ghostscript runs again at lower resolutions until the file fits, or the panel tells you the smallest it could make. Your upload is deleted when the job finishes, the result link expires after ${LINK_MINUTES} minutes, and a daily storage rule erases the stored copy after that.${DEEP_CAP_SENTENCE}`,
   ],
 
   useCases: [

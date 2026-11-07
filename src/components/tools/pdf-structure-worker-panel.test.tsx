@@ -38,9 +38,12 @@ import {
   type QpdfStructureExecResult,
 } from "@/lib/workers/pdf-structure/native";
 import { LiveRegion, resetAnnouncer } from "@/components/a11y/live-region";
+import { LOST_CONNECTION } from "./worker-job";
 import { formatBytes } from "@/lib/utils";
 import { isLinearized } from "@/lib/pdf/linearization";
 import { linearizedPdf } from "@/tests/linearized-pdf-fixture";
+import { signedPdf } from "@/tests/signed-pdf";
+import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
 import { PdfStructureWorkerPanel } from "./pdf-structure-worker-panel";
 import { OptimizeOutcome } from "./optimize-outcome";
 import { readyFileInput } from "@/tests/worker-ready";
@@ -595,5 +598,228 @@ describe("OptimizeOutcome without a known input size (a job resumed after a relo
     render(<OptimizeOutcome job={undefined} inputBytes={10} output={output} />);
     expect(document.body).toHaveTextContent(/grew/);
     expect(hrefsTo("/tools/compress-pdf")).toEqual(["/tools/compress-pdf"]);
+  });
+});
+
+/*
+ * Audits optimize-web#2 and #3 (2026-11-06): the panel uploaded and rewrote
+ * whatever it was given. A digitally signed PDF came back with every
+ * signature broken, said only in the FAQ; a PDF that was already linearized
+ * was uploaded for nothing. Both are read from the picked file's bytes, in
+ * the browser, before anything leaves the device.
+ */
+describe("optimize-web: what the picked file already is, before any upload", () => {
+  async function pick(slug: Slug, bytes: Uint8Array) {
+    const { job } = await jobFrom(slug, { code: 0, timedOut: false });
+    stubNetwork(slug, job);
+    render(<PdfStructureWorkerPanel tool={getToolBySlug(slug)!} />);
+    const input = await vi.waitFor(() => {
+      const found = readyFileInput();
+      if (!found) throw new Error("no file input yet");
+      return found;
+    });
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File([bytes.slice()], "contract.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
+    });
+    return screen.getByRole("button", { name: /on our secure server/i });
+  }
+  const uploadsRequested = () =>
+    vi
+      .mocked(fetch)
+      .mock.calls.filter(([url]) => String(url) === "/api/uploads").length;
+
+  it("a signed PDF names its signatures and holds Run until the reader confirms", async () => {
+    const signed = await signedPdf({ signatures: 2 });
+    expect(countDigitalSignatures(signed)).toBe(2);
+    const run = await pick("optimize-web", signed);
+    const warning = await screen.findByRole("group", {
+      name: "This PDF has 2 digital signatures",
+    });
+    expect(warning).toHaveTextContent(
+      "Linearizing rewrites the whole file, so the byte ranges they cover no longer match: they will show as invalid, even though every page looks the same.",
+    );
+    expect(run).toHaveAttribute("aria-disabled", "true");
+    // What says why Run is off is the warning itself.
+    expect(run).toHaveAttribute("aria-describedby", warning.id);
+    fireEvent.click(run);
+    expect(uploadsRequested()).toBe(0);
+
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: "Optimize anyway — I understand the digital signatures will show as invalid",
+      }),
+    );
+    expect(run).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(run);
+    await vi.waitFor(() => expect(uploadsRequested()).toBe(1));
+  });
+
+  it("a press that lands before the pick-time read finishes still cannot send a signed file", async () => {
+    const signed = await signedPdf({ signatures: 2 });
+    // Hold the FIRST read of the file (the pick-time read) open; every later
+    // read, including the one start() makes, goes through as normal.
+    const real = Blob.prototype.arrayBuffer;
+    let release: () => void = () => {};
+    const reads = vi
+      .spyOn(Blob.prototype, "arrayBuffer")
+      .mockImplementationOnce(function (this: Blob) {
+        const later = real.call(this);
+        return new Promise<ArrayBuffer>((resolve) => {
+          release = () => void later.then(resolve);
+        });
+      });
+    const run = await pick("optimize-web", signed);
+    // Health check: the read is still pending, so Run has nothing to hold it.
+    expect(reads).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[data-web-input="read"]')).toBeNull();
+    expect(run).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(run);
+    // start() read the bytes itself, found the signatures, and stopped.
+    const warning = await screen.findByRole("group", {
+      name: "This PDF has 2 digital signatures",
+    });
+    expect(reads.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(run).toHaveAttribute("aria-disabled", "true");
+    expect(run).toHaveAttribute("aria-describedby", warning.id);
+    release();
+    await vi.waitFor(() =>
+      expect(document.querySelector('[data-web-input="read"]')).not.toBeNull(),
+    );
+    expect(uploadsRequested()).toBe(0);
+  });
+
+  it("a tick given for one signed file does not unlock the next signed file", async () => {
+    const first = await signedPdf({ signatures: 2 });
+    const second = await signedPdf({ signatures: 1 });
+    const run = await pick("optimize-web", first);
+    const tick = await screen.findByRole("checkbox", {
+      name: "Optimize anyway — I understand the digital signatures will show as invalid",
+    });
+    fireEvent.click(tick);
+    // Positive control: the tick does unlock Run for the file it was given on.
+    expect(run).not.toHaveAttribute("aria-disabled");
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    const input = await vi.waitFor(() => {
+      const found = readyFileInput();
+      if (!found) throw new Error("no file input yet");
+      return found;
+    });
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File([second.slice()], "other.pdf", { type: "application/pdf" }),
+        ],
+      },
+    });
+    await screen.findByRole("group", {
+      name: "This PDF has 1 digital signature",
+    });
+    const again = screen.getByRole("checkbox", {
+      name: "Optimize anyway — I understand the digital signature will show as invalid",
+    });
+    expect(again).not.toBeChecked();
+    const nextRun = screen.getByRole("button", {
+      name: /on our secure server/i,
+    });
+    expect(nextRun).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(nextRun);
+    expect(uploadsRequested()).toBe(0);
+  });
+
+  it.each(["optimize-web", "repair-pdf"] as const)(
+    "%s: a file that cannot be read at Run ends as the job's own failure",
+    async (slug) => {
+      const run = await pick(slug, INPUT);
+      // From here on, every read fails: the file moved or was deleted.
+      const reads = vi
+        .spyOn(Blob.prototype, "arrayBuffer")
+        .mockRejectedValue(new DOMException("gone", "NotReadableError"));
+      fireEvent.click(run);
+      expect(await screen.findByText(LOST_CONNECTION.message)).toBeVisible();
+      // Health check: the failure came from the read this test broke.
+      expect(reads).toHaveBeenCalled();
+      expect(uploadsRequested()).toBe(0);
+    },
+  );
+
+  it("control: an unsigned PDF shows no signature warning and runs at once", async () => {
+    const run = await pick("optimize-web", INPUT);
+    expect(run).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(run);
+    await vi.waitFor(() => expect(uploadsRequested()).toBe(1));
+    expect(
+      screen.queryByRole("group", { name: /digital signature/ }),
+    ).toBeNull();
+  });
+
+  it("an already-linearized PDF is told so, and running it again stays optional", async () => {
+    const already = linearizedPdf();
+    expect(isLinearized(already)).toBe(true);
+    const run = await pick("optimize-web", already);
+    expect(
+      await screen.findByText(
+        "This PDF is already linearized for fast web view, so it does not need this step. Running it again is optional and uploads the file to our secure server.",
+      ),
+    ).toBeInTheDocument();
+    expect(run).not.toHaveAttribute("aria-disabled");
+    const { default: content } =
+      await import("@/lib/tools/content/optimize-web");
+    expect(
+      content.faqs.find((f) => /already linearized/.test(f.q))?.a,
+    ).toContain(
+      "Before anything is uploaded, the panel reads the file, and if it already passes the same linearization test the result is held to, it says the PDF is already linearized for fast web view and does not need this step. The button stays on",
+    );
+    // Positive control for the mark the next test waits on.
+    expect(document.querySelector('[data-web-input="read"]')).not.toBeNull();
+  });
+
+  it("control: a PDF that is not linearized gets no such note", async () => {
+    await pick("optimize-web", INPUT);
+    // The absence means something only once the file has been read: the
+    // panel marks that, and the linearized case above reads the same mark.
+    await vi.waitFor(() =>
+      expect(document.querySelector('[data-web-input="read"]')).not.toBeNull(),
+    );
+    expect(screen.queryByText(/already linearized/)).toBeNull();
+  });
+});
+
+describe("optimize-web: the page describes the signature gate the panel runs", () => {
+  it("quotes the start of the checkbox the panel renders for a signed file", async () => {
+    const { job } = await jobFrom("optimize-web", { code: 0, timedOut: false });
+    stubNetwork("optimize-web", job);
+    render(<PdfStructureWorkerPanel tool={getToolBySlug("optimize-web")!} />);
+    const input = await vi.waitFor(() => {
+      const found = readyFileInput();
+      if (!found) throw new Error("no file input yet");
+      return found;
+    });
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File([(await signedPdf({ signatures: 1 })).slice()], "a.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
+    });
+    const label =
+      (await screen.findByRole("checkbox")).closest("label")?.textContent ?? "";
+    const quoted = label.split(" — ")[0]!;
+    expect(quoted.length).toBeGreaterThan(3);
+    const { default: content } =
+      await import("@/lib/tools/content/optimize-web");
+    const answer =
+      content.faqs.find((f) => /digitally signed/.test(f.q))?.a ?? "";
+    expect(answer).toContain(
+      `Before anything is uploaded, the panel reads the file for signatures: if it finds any, it says how many, and the button stays off until you tick the box that begins “${quoted}”.`,
+    );
   });
 });

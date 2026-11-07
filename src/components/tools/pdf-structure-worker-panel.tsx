@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import {
   FileDown,
   FileUp,
@@ -39,6 +39,12 @@ import {
 import { RepairOutcome, repairDoneSentence } from "./repair-warnings";
 import { OptimizeOutcome, optimizeDoneSentence } from "./optimize-outcome";
 import { OfficeExportNextStep } from "./office-export-notices";
+import {
+  AlreadyLinearizedNote,
+  inspectWebInput,
+  WebSignatureWarning,
+  type WebInputFacts,
+} from "./web-input-notices";
 
 /**
  * The status slot's reserved height (see `WorkerStatusSlot` and
@@ -157,6 +163,30 @@ function StructureRunArea({
   });
   const { busy, outcome, setOutcome, run } = job;
   const copy = COPY[mode];
+  // Optimize for Web only: what the picked file already is, read in the
+  // browser before any upload (audit optimize-web#2). Keyed by the file, so
+  // facts and a confirmation given for one file never carry to the next.
+  const [facts, setFacts] = useState<WebInputFacts | null>(null);
+  const [confirmedFor, setConfirmedFor] = useState<File | null>(null);
+  useEffect(() => {
+    if (mode !== "optimize" || !file) return;
+    let live = true;
+    file
+      .arrayBuffer()
+      .then((buf) => {
+        if (live) setFacts(inspectWebInput(file, new Uint8Array(buf)));
+      })
+      // An unreadable file is the upload's problem to report, not this note's.
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [file, mode]);
+  const current = facts?.file === file ? facts : null;
+  const signatureWarningId = useId();
+  const signaturesConfirmed = confirmedFor !== null && confirmedFor === file;
+  const heldBySignatures =
+    (current?.signatures ?? 0) > 0 && !signaturesConfirmed;
   const staged = useStagedHandoff(tool.slug, copy.cta, (files) => {
     setOutcome(null);
     setRanBytes(undefined);
@@ -165,8 +195,25 @@ function StructureRunArea({
 
   const start = useCallback(async () => {
     if (!file || !available) return;
+    if (mode === "optimize" && !signaturesConfirmed) {
+      // The gate reads the file it is about to upload, so a press that lands
+      // before the pick-time read finished cannot send a signed file unasked.
+      // A File's bytes cannot change under it: a later read returns these
+      // same bytes or fails, and a failed read here is left to run() below,
+      // whose own read then fails into the job's error outcome.
+      const read = await file.arrayBuffer().then(
+        (buf) => inspectWebInput(file, new Uint8Array(buf)),
+        () => null,
+      );
+      if (read && read.signatures > 0) {
+        setFacts(read);
+        return;
+      }
+    }
     setRanBytes(file.size);
     await run(async (controls) => {
+      // Read inside run(): an unreadable file (moved or deleted after the
+      // pick) is the job's failure, not an unhandled rejection.
       const bytes = new Uint8Array(await file.arrayBuffer());
       const result =
         mode === "repair"
@@ -177,14 +224,17 @@ function StructureRunArea({
             );
       return result;
     });
-  }, [file, mode, run, available]);
+  }, [file, mode, run, available, signaturesConfirmed]);
 
   const detail =
     status?.security.detail ??
     "This qpdf-backed server path is not enabled here.";
 
   return (
-    <div className="flex flex-col gap-4">
+    <div
+      className="flex flex-col gap-4"
+      data-web-input={mode === "optimize" && current ? "read" : undefined}
+    >
       {staged}
       {file ? (
         <ChosenFileTarget
@@ -226,6 +276,17 @@ function StructureRunArea({
         />
       )}
 
+      {mode === "optimize" && current && current.signatures > 0 && (
+        <WebSignatureWarning
+          id={signatureWarningId}
+          count={current.signatures}
+          confirmed={signaturesConfirmed}
+          onConfirm={(yes) => setConfirmedFor(yes ? file : null)}
+        />
+      )}
+
+      {mode === "optimize" && current?.linearized && <AlreadyLinearizedNote />}
+
       <WorkerGate
         reserve={STATUS_SLOT}
         job={job}
@@ -234,7 +295,8 @@ function StructureRunArea({
           <WorkerRunButton
             onClick={start}
             busy={busy}
-            disabled={!ready || !file}
+            disabled={!ready || !file || heldBySignatures}
+            describedBy={heldBySignatures ? signatureWarningId : undefined}
             busyLabel={jobBusyLabel(job.phase, copy.running)}
             icon={copy.icon}
           >

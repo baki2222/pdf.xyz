@@ -81,6 +81,7 @@ import { MAX_EDIT_IMAGE_BYTES } from "@/lib/pdf/edit";
 import {
   DEEP_COMPRESSION_PRESETS,
   EDITOR_FORMS_GROUP,
+  DEEP_MONO_MIN_DPI,
   SIGNATURE_SOURCES,
   SIGNATURE_STYLE_LABEL,
   SIGNATURE_STYLES,
@@ -4240,7 +4241,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       `To compress a PDF to ${TARGET_PRESET_100}, open ${nameOf("compress-pdf")}, add the file, and in the “Deep image compression (secure server)” panel choose a “${TARGET_SIZE_LABELS.heading}” of ${TARGET_PRESET_100} — or ${listOr(TARGET_PRESET_LABELS.slice(1))}, or “${TARGET_SIZE_LABELS.custom}” for a number of KB of your own. Then press Compress images on our server. Our server starts at your Quality setting, lowers the resolution of the images step by step, as far as ${TARGET_FLOOR_LABEL}, and gives back the highest-quality version that fits.`,
-      "Whether a file can get that small depends on what is in it. A scan, or a phone photo of a page, is mostly picture, and picture resolution is what this lowers, so such files often shrink a long way. A PDF that is mostly typed text, or whose size comes from its fonts, may hardly shrink at all; then the panel tells you the smallest file it could make, and you can still download it.",
+      `Whether a file can get that small depends on what is in it. A colour or gray scan, or a phone photo of a page, is mostly picture, and picture resolution is what this lowers, so such files often shrink a long way. A scan made in black-and-white mode shrinks less: black-and-white images are never taken below ${DEEP_MONO_MIN_DPI} DPI, so scanned text stays legible. A PDF that is mostly typed text, or whose size comes from its fonts, may hardly shrink at all; then the panel tells you the smallest file it could make, and you can still download it.`,
       `This step uploads your file to our server; the size breakdown and the lossless copy on the same page run in your browser. Our privacy policy says the uploaded file is deleted when the job ends, the result can be downloaded for ${RETENTION_WINDOWS.outputLink}, and the stored copy is erased by a daily storage rule some time after it is ${RETENTION_WINDOWS.outputStorageRule} old.`,
     ],
     steps: [
@@ -6323,7 +6324,12 @@ export const guides: Guide[] = [
       {
         question: "Can I optimize a digitally signed PDF?",
         answer:
-          "Not without breaking the signature. Linearizing rewrites the whole file, so the bytes a certificate signature covers no longer match and it stops validating. Linearize the unsigned version and sign it last; then check the signed copy, because signing adds data at the end of the file and a viewer may no longer report it as linearized.",
+          "Not without breaking the signature. Linearizing rewrites the whole file, so the bytes a certificate signature covers no longer match and it stops validating. Before anything is uploaded, the page reads the file for signatures, says how many it found, and keeps the button off until you confirm. Linearize the unsigned version and sign it last; then check the signed copy, because signing adds data at the end of the file and a viewer may no longer report it as linearized.",
+      },
+      {
+        question: "What if my PDF is already linearized?",
+        answer:
+          "The page reads the file before anything is uploaded and says so when it already passes the same linearization test the result is held to. Running it again stays possible, and uploads the file as usual.",
       },
       {
         question: "What happens to my file after the job?",
@@ -6331,7 +6337,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   // Split PDF Pages in Half (#260), read off split-half.ts and
   // split-half-runner.tsx: Direction (Left and right | Top and bottom), Page
