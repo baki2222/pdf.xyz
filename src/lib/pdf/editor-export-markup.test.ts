@@ -15,6 +15,7 @@ import { awaitPdfjsDocument } from "./pdfjs";
 import { exportEditedPdf } from "./editor-export";
 import type { EditorObject, Rect } from "./editor/model";
 import annotate from "@/lib/tools/content/annotate-pdf";
+import editPdf from "@/lib/tools/content/edit-pdf";
 import {
   TEXT_MARKUPS,
   TEXT_MARKUP_LABEL,
@@ -197,6 +198,31 @@ describe("what the pages say about it", () => {
     expect(faq!.a).toMatch(/^Yes\./);
     for (const m of TEXT_MARKUPS)
       expect(faq!.a).toContain(TEXT_MARKUP_LABEL[m]);
+  });
+});
+
+describe("what Edit PDF says about it (audit edit-pdf#3)", () => {
+  it("its FAQ answers yes to striking through and underlining, naming every Style", () => {
+    const faq = editPdf.faqs.find((f) =>
+      /strike through or underline/i.test(f.q),
+    );
+    expect(faq, "no strike-through FAQ on Edit PDF").toBeDefined();
+    expect(faq!.a).toMatch(/^Yes\./);
+    for (const m of TEXT_MARKUPS)
+      expect(faq!.a).toContain(TEXT_MARKUP_LABEL[m]);
+    expect(faq!.a).toMatch(/Save markups as comments/);
+  });
+
+  it("its intro and its tool step name the Underline and Strikethrough buttons", () => {
+    const step = editPdf.steps.find((s) => /Pick a tool/.test(s.title))!.body;
+    for (const text of [editPdf.intro[0]!, step]) {
+      expect(text.toLowerCase()).toContain(
+        TEXT_MARKUP_LABEL.underline.toLowerCase(),
+      );
+      expect(text.toLowerCase()).toContain(
+        TEXT_MARKUP_LABEL.strikeout.toLowerCase(),
+      );
+    }
   });
 });
 
