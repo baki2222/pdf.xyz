@@ -145,7 +145,7 @@ export const tools: Tool[] = [
     name: "Multiple Pages per Sheet",
     tagline: "Put 2 to 16 pages on one sheet.",
     description:
-      "Put 2 to 16 PDF pages on each A4 or US Letter sheet, in the order you pick, with optional borders. Runs in your browser.",
+      "Put 2 to 16 PDF pages on each sheet, A4, US Letter, A3, A5, US Legal or your page's own size, in the order you pick. Runs in your browser.",
     category: "organize",
     icon: "nUp",
     processing: "client",

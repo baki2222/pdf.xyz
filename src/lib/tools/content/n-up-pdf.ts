@@ -1,10 +1,14 @@
 import type { ToolContent } from "./types";
 import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
-import { N_UP_COUNTS } from "@/lib/pdf/n-up";
+import { N_UP_COUNTS, N_UP_SHEETS } from "@/lib/pdf/n-up";
 
 // The byte ceiling the n-up runner's file gate refuses above.
 const MAX_MB = Math.round(RUNNER_FILE_CEILINGS["n-up"] / (1024 * 1024));
 const COUNTS = `${N_UP_COUNTS.slice(0, -1).join(", ")} or ${N_UP_COUNTS.at(-1)}`;
+/** The Sheet size chips, labelled as the runner draws them. */
+const PAPER = N_UP_SHEETS.filter((s) => s.size).map((s) => s.label);
+const PAPER_NAMES = `${PAPER.slice(0, -1).join(", ")} or ${PAPER.at(-1)}`;
+const SOURCE_SHEET = N_UP_SHEETS.find((s) => s.id === "source")!.label;
 /** "2 to 16": the fewest and most pages per sheet the runner offers. */
 const RANGE = `${N_UP_COUNTS[0]} to ${N_UP_COUNTS.at(-1)}`;
 
@@ -13,11 +17,11 @@ const content: ToolContent = {
 
   seoTitle: "N-up PDF — Multiple Pages per Sheet, No Upload",
 
-  metaDescription: `Put ${RANGE} PDF pages on each A4 or US Letter sheet, ordered across or down, with margins and optional borders. Runs in your browser; no upload.`,
+  metaDescription: `Put ${RANGE} PDF pages on each ${(["a4", "letter", "a3"] as const).map((id) => N_UP_SHEETS.find((s) => s.id === id)!.label).join(", ")} or other sheet, ordered across or down, with margins and optional borders. Runs in your browser; no upload.`,
 
   intro: [
     `Multiple Pages per Sheet, also called n-up, shrinks several pages of a PDF onto each sheet of a new PDF: ${COUNTS} to a sheet. It is the print dialog's pages-per-sheet setting, saved as a file, so you can send it, check it on screen, or print it on any printer without hunting for that setting.`,
-    "The sheet can be A4 or US Letter. Auto orientation picks portrait or landscape, whichever draws the pages largest: two portrait pages sit side by side on a landscape sheet, four fill a portrait sheet in a two-by-two grid. Pages fill the sheet across, then down, like reading a page of text, or down, then across, like newspaper columns. Each page is scaled to fit its cell with its proportions kept, and a page shown turned in a reader lands on the sheet the same way up. A margin keeps space at the sheet's edges and between the pages, and a thin border can outline each one.",
+    `The sheet can be ${PAPER_NAMES}, or "${SOURCE_SHEET}" to make each sheet the size of your first page. Auto orientation picks portrait or landscape, whichever draws the pages largest: two portrait pages sit side by side on a landscape sheet, four fill a portrait sheet in a two-by-two grid. Pages fill the sheet across, then down, like reading a page of text, or down, then across, like newspaper columns. Each page is scaled to fit its cell with its proportions kept, and a page shown turned in a reader lands on the sheet the same way up. A margin keeps space at the sheet's edges and between the pages, and a thin border can outline each one.`,
     `It runs in your browser with pdf-lib; the PDF is not uploaded. The file gate refuses PDFs over ${MAX_MB} MB. Pages are placed as vector drawings, not pictures, so text stays sharp and selectable at any zoom. Filled form fields and stamps show on the sheet as they look, but links and form fields are no longer clickable or editable there.`,
   ],
 
@@ -36,7 +40,7 @@ const content: ToolContent = {
     },
     {
       title: "Index cards and small notes",
-      body: "Lay four small pages on one A4 or Letter sheet, add borders, and cut along them after printing.",
+      body: "Lay four small pages on one A4 or Letter sheet, add borders, and cut along them after printing. For a proof of an A4 document at full size, put four pages on an A3 sheet.",
     },
   ],
 
@@ -47,7 +51,7 @@ const content: ToolContent = {
     },
     {
       title: "Choose how many pages per sheet",
-      body: `Pick ${COUNTS} per sheet, then the Sheet size (A4 or US Letter) and Orientation; Auto chooses whichever draws the pages largest.`,
+      body: `Pick ${COUNTS} per sheet, then the Sheet size (${PAPER_NAMES}, or "${SOURCE_SHEET}") and Orientation; Auto chooses whichever draws the pages largest.`,
     },
     {
       title: "Set the order and spacing",

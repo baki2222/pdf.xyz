@@ -3758,7 +3758,7 @@ export const guides: Guide[] = [
   {
     slug: "how-to-print-multiple-pages-per-sheet",
     title: `How to print multiple pages per sheet (${upName(2)}, ${upName(4)})`,
-    description: `Put ${N_UP_COUNT_NAMES} PDF pages on each ${N_UP_SHEET_NAMES} sheet, in the order you pick, with margins and optional borders. Runs in your browser.`,
+    description: `Put ${N_UP_COUNTS[0]} to ${N_UP_COUNTS.at(-1)} PDF pages on each sheet, ${labelOf(N_UP_SHEETS, "a4")}, ${labelOf(N_UP_SHEETS, "letter")}, ${labelOf(N_UP_SHEETS, "a3")} or another size, in the order you pick, with margins and borders. Runs in your browser.`,
     tools: ["n-up-pdf", "resize-pdf", "organize-pages"],
     keywords: [
       "how to print multiple pages per sheet",
@@ -3785,7 +3785,7 @@ export const guides: Guide[] = [
         id: "layout",
         heading: "How the pages are laid out",
         body: [
-          `${N_UP_AUTO} picks portrait or landscape, whichever draws the first page largest: two portrait pages sit side by side on a landscape sheet, and four fill a portrait sheet in a grid. Each page is scaled to fit its place with its proportions kept, so a landscape page among portrait ones is simply drawn smaller.`,
+          `${N_UP_AUTO} picks portrait or landscape, whichever draws the first page largest: two portrait pages sit side by side on a landscape sheet, and four fill a portrait sheet in a grid. Each page is scaled to fit its place with its proportions kept, so a landscape page among portrait ones is simply drawn smaller. ${labelOf(N_UP_SHEETS, "source")} makes each sheet the size of your first page, turned the way Orientation says; a ${labelOf(N_UP_SHEETS, "a3")} sheet holds four ${labelOf(N_UP_SHEETS, "a4")} pages at their full size.`,
           `${N_UP_ACROSS} fills each row from left to right and then moves down, the way you read. ${N_UP_DOWN} fills each column from top to bottom and then moves right, like newspaper columns. When the last sheet is not full, its remaining places are left empty. The margin keeps the same space at the sheet's edges and between pages, and the border is a ${N_UP_BORDER_PT}-point line.`,
         ],
       },

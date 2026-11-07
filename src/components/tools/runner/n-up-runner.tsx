@@ -139,7 +139,11 @@ export function NUpEditor({
                 onClick={() => set({ sheet: sheet.id })}
                 disabled={busy}
                 active={sheet.id === options.sheet}
-                title={`${inches(sheet.size.width)} × ${inches(sheet.size.height)} in`}
+                title={
+                  sheet.size
+                    ? `${inches(sheet.size.width)} × ${inches(sheet.size.height)} in`
+                    : "Each sheet the size of your first page"
+                }
               >
                 {sheet.label}
               </ChipButton>

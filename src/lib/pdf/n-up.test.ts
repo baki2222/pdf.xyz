@@ -122,7 +122,7 @@ const opts = (over: Partial<NUpOptions> = {}): NUpOptions => ({
   ...over,
 });
 
-const A4 = N_UP_SHEETS.find((s) => s.id === "a4")!.size;
+const A4 = N_UP_SHEETS.find((s) => s.id === "a4")!.size!;
 
 describe("nUpGrid and nUpCells", () => {
   it("has a grid for every count, whose cells number the count", () => {
@@ -144,6 +144,10 @@ describe("nUpGrid and nUpCells", () => {
     const range = `${N_UP_COUNTS[0]} to ${N_UP_COUNTS.at(-1)}`;
     expect(tool.tagline).toContain(range);
     expect(tool.description).toContain(range);
+    // …and every paper size the Sheet size chips offer (since 2026-11-07,
+    // audit n-up-pdf#3; it named A4 and US Letter only).
+    for (const sheet of N_UP_SHEETS.filter((s) => s.size))
+      expect(tool.description).toContain(sheet.label);
   });
 
   it("tiles the sheet exactly, margin at the edges and between cells", () => {
@@ -314,6 +318,48 @@ describe("nUpPdf, read back by pdf.js", () => {
     );
     expect(result.sheets).toBe(1);
     expect((await readSheets(result.bytes))[0]!.labels).toHaveLength(3);
+  });
+
+  it("offers A3, A5 and US Legal sheets beside A4 and US Letter, and the original page size", async () => {
+    expect(N_UP_SHEETS.map((s) => s.id)).toEqual([
+      "a4",
+      "letter",
+      "legal",
+      "a3",
+      "a5",
+      "source",
+    ]);
+    // A3 is the proof sheet for 4-up A4: each A4 page lands at full A4 size
+    // in its quarter.
+    const a3 = N_UP_SHEETS.find((s) => s.id === "a3")!.size!;
+    expect(a3.width).toBeCloseTo(841.89, 1);
+    expect(a3.height).toBeCloseTo(1190.55, 1);
+    const result = await nUpPdf(await labelledPdf(4), opts({ sheet: "a3" }));
+    const [sheet] = await readSheets(result.bytes);
+    expect(sheet!.width).toBeCloseTo(a3.width, 1);
+    expect(sheet!.height).toBeCloseTo(a3.height, 1);
+    expect(sheet!.labels).toHaveLength(4);
+  });
+
+  it("'Original page size' makes each sheet the size of the first page", async () => {
+    // 300 x 400 pages, 2 per sheet on Auto: the sheet is 300 x 400 turned
+    // landscape, so the two pages sit side by side at half scale.
+    const result = await nUpPdf(
+      await labelledPdf(4),
+      opts({ sheet: "source", perSheet: 2, orientation: "auto" }),
+    );
+    expect(result.orientation).toBe("landscape");
+    const sheets = await readSheets(result.bytes);
+    expect(sheets).toHaveLength(2);
+    expect(sheets[0]!.width).toBeCloseTo(400, 1);
+    expect(sheets[0]!.height).toBeCloseTo(300, 1);
+    const portrait = await nUpPdf(
+      await labelledPdf(4),
+      opts({ sheet: "source", perSheet: 4, orientation: "portrait" }),
+    );
+    const [p] = await readSheets(portrait.bytes);
+    expect(p!.width).toBeCloseTo(300, 1);
+    expect(p!.height).toBeCloseTo(400, 1);
   });
 
   it("draws a page carrying /Rotate 90 the way a viewer shows it", async () => {

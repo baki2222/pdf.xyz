@@ -2166,7 +2166,7 @@ export const CASES: Record<string, ToolCase> = {
     assert: async (buf) => {
       const sheets = await pdfTextPositions(buf);
       expect(sheets.length, NUP_FAILS.sheets).toBe(2);
-      const a4 = N_UP_SHEETS.find((s) => s.id === "a4")!.size;
+      const a4 = N_UP_SHEETS.find((s) => s.id === "a4")!.size!;
       sheets.forEach((sheet, s) => {
         expect(
           [Math.round(sheet.width), Math.round(sheet.height)],

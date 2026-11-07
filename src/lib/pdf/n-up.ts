@@ -41,17 +41,41 @@ export const N_UP_COUNTS = [2, 3, 4, 6, 8, 9, 12, 16] as const;
 
 export type NUpCount = (typeof N_UP_COUNTS)[number];
 
-export type NUpSheetId = "a4" | "letter";
+/** The paper sizes offered, Image to PDF's table, in its order. */
+const PAPER_SHEETS = ["a4", "letter", "legal", "a3", "a5"] as const;
 
-export const N_UP_SHEETS: readonly {
+/**
+ * A paper size, or `source`: each sheet the size of the source's FIRST page
+ * as a viewer shows it (turned by Orientation like any other sheet). A3, A5,
+ * US Legal and `source` joined A4 and US Letter on 2026-11-07 (audit
+ * n-up-pdf#3): A3 is the proof sheet for 4-up A4.
+ */
+export type NUpSheetId = (typeof PAPER_SHEETS)[number] | "source";
+
+export interface NUpSheet {
   id: NUpSheetId;
   label: string;
-  size: { width: number; height: number };
-}[] = (["a4", "letter"] as const).map((id) => {
-  const found = IMAGE_PAGE_SIZES.find((s) => s.id === id);
-  if (!found?.size) throw new Error(`n-up: no page size "${id}"`);
-  return { id, label: found.label, size: found.size };
-});
+  /** Points; absent for `source`, whose size is the first page's. */
+  size?: { width: number; height: number };
+}
+
+export const N_UP_SHEETS: readonly NUpSheet[] = [
+  ...PAPER_SHEETS.map((id) => {
+    const found = IMAGE_PAGE_SIZES.find((s) => s.id === id);
+    if (!found?.size) throw new Error(`n-up: no page size "${id}"`);
+    return { id, label: found.label, size: found.size };
+  }),
+  { id: "source", label: "Original page size" },
+];
+
+/** The sheet's size before Orientation turns it. */
+export function nUpSheetSize(
+  id: NUpSheetId,
+  firstPage: { width: number; height: number },
+): { width: number; height: number } {
+  const size = N_UP_SHEETS.find((s) => s.id === id)?.size;
+  return size ?? { width: firstPage.width, height: firstPage.height };
+}
 
 export type NUpOrientation = "auto" | "portrait" | "landscape";
 
@@ -180,7 +204,7 @@ export function chooseSheetOrientation(
   firstPage: { width: number; height: number },
 ): "portrait" | "landscape" {
   if (options.orientation !== "auto") return options.orientation;
-  const size = N_UP_SHEETS.find((s) => s.id === options.sheet)!.size;
+  const size = nUpSheetSize(options.sheet, firstPage);
   const margin = marginPoints(options.margin);
   const scaleFor = (landscape: boolean) => {
     const sheet = orientedSheet(size, landscape);
@@ -234,7 +258,7 @@ export async function nUpPdf(
   const orientation = chooseSheetOrientation(options, firstFrame);
   const landscape = orientation === "landscape";
   const sheetSize = orientedSheet(
-    N_UP_SHEETS.find((s) => s.id === options.sheet)!.size,
+    nUpSheetSize(options.sheet, firstFrame),
     landscape,
   );
   const grid = nUpGrid(options.perSheet, landscape);
