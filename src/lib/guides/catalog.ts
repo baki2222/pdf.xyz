@@ -4418,7 +4418,7 @@ export const guides: Guide[] = [
   // held and the hint states; the language lists are the picker's own.
   {
     slug: "how-to-convert-a-scanned-pdf-to-word",
-    title: "How to convert a scanned PDF to editable Word",
+    title: "How to convert a scanned PDF to Word",
     description: `Turn a scanned PDF into an editable Word (DOCX) file: tick “${WORD_OCR_LABEL}” and our server reads the text with OCR, then converts it.`,
     tools: ["pdf-to-word", "ocr-pdf", "jpg-to-pdf"],
     keywords: [
