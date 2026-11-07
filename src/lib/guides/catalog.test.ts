@@ -23,6 +23,11 @@ import { getToolBySlug, tools } from "@/lib/tools";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { aiAllowanceFactFor } from "@/lib/jobs/ai-allowance";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
+import {
+  DEEP_COMPRESSION_PRESETS,
+  DEEP_MONO_MIN_DPI,
+} from "@/lib/pdf/offered-kinds";
+import { nativeArgs } from "@/lib/workers/compression/native";
 
 /** Every string a reader (or a crawler, via JSON-LD) receives from a guide. */
 function copyStrings(guide: Guide): string[] {
@@ -405,5 +410,30 @@ describe("guide copy tells the truth about where the work runs", () => {
         ).toBe(true);
       }
     }
+  });
+});
+
+describe("the compress-to-100-KB guide matches what the worker lowers", () => {
+  it("does not promise a black-and-white scan shrinks below the floor nativeArgs keeps", () => {
+    const guide = guides.find(
+      (g) => g.slug === "how-to-compress-a-pdf-to-100-kb",
+    );
+    // Health check: the subject exists, so the assertions below can fail.
+    expect(guide).toBeDefined();
+    const text = JSON.stringify(guide);
+    // Every Target-size rung starts from an offered level; the lowest one is
+    // where the floor bites hardest. Read the Mono flag the engine is given.
+    const lowest = Math.min(...DEEP_COMPRESSION_PRESETS.map((p) => p.dpi));
+    const mono = nativeArgs("ghostscript", "gs", "/i", "/o", lowest)
+      .args.find((a) => a.startsWith("-dMonoImageResolution="))
+      ?.split("=")[1];
+    // Positive control: the floor is live at the lowest level.
+    expect(Number(mono)).toBe(DEEP_MONO_MIN_DPI);
+    expect(Number(mono)).toBeGreaterThan(lowest);
+    expect(text).toContain(
+      `black-and-white images are never taken below ${mono} DPI`,
+    );
+    // The unqualified promise is gone: scans in colour or gray shrink.
+    expect(text).toContain("A colour or gray scan");
   });
 });
