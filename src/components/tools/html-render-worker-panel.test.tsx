@@ -22,6 +22,7 @@ import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
 import { resolveAiReadiness } from "@/lib/workers/ai/readiness";
 import { HtmlRenderWorkerPanel } from "./html-render-worker-panel";
 import {
+  WEBPAGE_CAPTURE_CHOICES,
   WEBPAGE_CAPTURE_LABELS,
   WEBPAGE_CAPTURE_GROUP_LABEL,
 } from "@/lib/jobs/webpage-capture-options";
@@ -363,13 +364,24 @@ describe("HtmlRenderWorkerPanel — Webpage to PDF capture options", () => {
     );
   });
 
+  it("each capture checkbox is named by its label alone, and its hint is its description", async () => {
+    await mountUrl();
+    expect(WEBPAGE_CAPTURE_CHOICES.length).toBeGreaterThan(0);
+    for (const choice of WEBPAGE_CAPTURE_CHOICES) {
+      const box = screen.getByRole("checkbox", { name: choice.label });
+      expect(box).toHaveAccessibleName(choice.label);
+      // The hint is read as a description, after the name, not as part of it.
+      expect(box).toHaveAccessibleDescription(/\S{3,}/);
+    }
+  });
+
   it(`"${WEBPAGE_CAPTURE_LABELS.hideOverlays}" is a named checkbox, off, and travels when ticked`, async () => {
     await mountUrl();
     expect(
       screen.getByRole("group", { name: WEBPAGE_CAPTURE_GROUP_LABEL }),
     ).toBeTruthy();
     const box = screen.getByRole<HTMLInputElement>("checkbox", {
-      name: new RegExp(WEBPAGE_CAPTURE_LABELS.hideOverlays),
+      name: WEBPAGE_CAPTURE_LABELS.hideOverlays,
     });
     expect(box.checked).toBe(false);
     fireEvent.click(box);
@@ -384,7 +396,7 @@ describe("HtmlRenderWorkerPanel — Webpage to PDF capture options", () => {
   it(`"${WEBPAGE_CAPTURE_LABELS.printStyles}" starts ticked, and unticking it sends printStyles: false (audit webpage-to-pdf#3)`, async () => {
     await mountUrl();
     const box = screen.getByRole<HTMLInputElement>("checkbox", {
-      name: new RegExp(WEBPAGE_CAPTURE_LABELS.printStyles),
+      name: WEBPAGE_CAPTURE_LABELS.printStyles,
     });
     expect(box.checked).toBe(true);
     fireEvent.click(box);
@@ -399,7 +411,7 @@ describe("HtmlRenderWorkerPanel — Webpage to PDF capture options", () => {
   it(`"${WEBPAGE_CAPTURE_LABELS.stamp}" starts unticked, and ticking it sends stamp: true (audit webpage-to-pdf#7)`, async () => {
     await mountUrl();
     const box = screen.getByRole<HTMLInputElement>("checkbox", {
-      name: new RegExp(WEBPAGE_CAPTURE_LABELS.stamp),
+      name: WEBPAGE_CAPTURE_LABELS.stamp,
     });
     expect(box.checked).toBe(false);
     fireEvent.click(box);
