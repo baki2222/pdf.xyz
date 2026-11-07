@@ -21,6 +21,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import PrivacyPage from "@/app/privacy/page";
 import TermsPage from "@/app/terms/page";
+import SecurityPage from "@/app/security/page";
 import { BROWSER_STORAGE } from "@/lib/browser-storage";
 import { JOB_LIMITS } from "@/lib/jobs/types";
 import { LEGAL_CONTACT, LEGAL_ENTITY, LEGAL_UPDATED } from "@/lib/legal";
@@ -31,6 +32,12 @@ import { toolContentFiles } from "@/lib/tools/copy-surface";
 const ROOT = process.cwd();
 const PRIVACY = path.join(ROOT, "src", "app", "privacy", "page.tsx");
 const TERMS = path.join(ROOT, "src", "app", "terms", "page.tsx");
+/**
+ * /security (audit platform#9, 2026-11-07): the footer's "Security practices"
+ * went to a homepage anchor and /security was a 404. It states the same kind
+ * of claim the policy pages do, so it is held by the same guards here.
+ */
+const SECURITY = path.join(ROOT, "src", "app", "security", "page.tsx");
 const FOOTER = path.join(
   ROOT,
   "src",
@@ -116,6 +123,7 @@ describe("the policy pages exist and are reachable", () => {
   it.each([
     ["privacy", PRIVACY],
     ["terms", TERMS],
+    ["security", SECURITY],
   ])("/%s is a real page", (_name, file) => {
     expect(read(file)).toContain("export default function");
   });
@@ -127,12 +135,15 @@ describe("the policy pages exist and are reachable", () => {
     // The old links pointed at marketing sections on the landing page. A visitor
     // looking for the policy would have been handed a sales pitch.
     expect(footer).not.toContain('href="/#privacy"');
+    expect(footer).toContain('href="/security"');
+    expect(footer).not.toContain('href="/#security"');
   });
 
   it("both are in the sitemap", () => {
     const sitemap = read(SITEMAP);
     expect(sitemap).toContain('url("/privacy")');
     expect(sitemap).toContain('url("/terms")');
+    expect(sitemap).toContain('url("/security")');
   });
 });
 
@@ -150,6 +161,7 @@ describe("the policy pages derive their facts rather than restating them", () =>
     for (const [name, file] of [
       ["privacy", PRIVACY],
       ["terms", TERMS],
+      ["security", SECURITY],
     ] as const) {
       const source = read(file);
       expect(
@@ -513,6 +525,7 @@ describe("the policy pages do not promise what the product does not do", () => {
   it.each([
     ["privacy", PRIVACY, PrivacyPage],
     ["terms", TERMS, TermsPage],
+    ["security", SECURITY, SecurityPage],
   ] as const)("/%s makes no unsupported claim", (name, file, Page) => {
     // TWO READINGS, because each sees what the other cannot.
     //

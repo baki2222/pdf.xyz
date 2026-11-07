@@ -171,7 +171,7 @@ export function SiteFooter() {
               Terms
             </Link>
             <Link
-              href="/#security"
+              href="/security"
               className="hover:text-fg tap-row transition-colors"
             >
               Security practices

@@ -3,7 +3,7 @@ import { siteConfig } from "@/lib/site";
 import { categories, tools } from "@/lib/tools";
 import { categoryHref } from "@/lib/tools/category-href";
 import { guides } from "@/lib/guides";
-import { LEGAL_UPDATED } from "@/lib/legal";
+import { LEGAL_UPDATED, SECURITY_UPDATED } from "@/lib/legal";
 
 /**
  * /sitemap.xml — the home page, the tool catalog, the category landing pages,
@@ -94,6 +94,14 @@ export default function sitemap(): MetadataRoute.Sitemap {
     {
       url: url("/terms"),
       lastModified: LEGAL_UPDATED,
+      changeFrequency: "yearly",
+      priority: 0.3,
+    },
+    // The answer to "is pdf.xyz safe?", searched before an upload (audit
+    // platform#9). Dated by the date the page prints.
+    {
+      url: url("/security"),
+      lastModified: SECURITY_UPDATED,
       changeFrequency: "yearly",
       priority: 0.3,
     },

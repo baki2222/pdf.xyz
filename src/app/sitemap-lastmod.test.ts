@@ -20,7 +20,7 @@ import sitemap from "./sitemap";
 import { GET as pagesXml } from "./sitemaps/pages.xml/route";
 import { GET as indexXml } from "./sitemap-index.xml/route";
 import { guides } from "@/lib/guides";
-import { LEGAL_UPDATED } from "@/lib/legal";
+import { LEGAL_UPDATED, SECURITY_UPDATED } from "@/lib/legal";
 import { tools } from "@/lib/tools";
 import { siteConfig } from "@/lib/site";
 import { lastmodOf, newestLastmod } from "@/lib/seo/sitemap-xml";
@@ -51,6 +51,7 @@ describe("sitemap lastmod is a content date, never the clock", () => {
     const byUrl = new Map(sitemap().map((e) => [e.url, e.lastModified]));
     expect(byUrl.get(url("/privacy"))).toBe(LEGAL_UPDATED);
     expect(byUrl.get(url("/terms"))).toBe(LEGAL_UPDATED);
+    expect(byUrl.get(url("/security"))).toBe(SECURITY_UPDATED);
     expect(byUrl.get(url("/guides"))).toBe(
       guides
         .map((g) => g.updated)
@@ -60,16 +61,20 @@ describe("sitemap lastmod is a content date, never the clock", () => {
   });
 
   it("every lastmod comes from a recorded content date, and pages with none carry none", () => {
-    const honest = new Set([LEGAL_UPDATED, ...guides.map((g) => g.updated)]);
+    const honest = new Set([
+      LEGAL_UPDATED,
+      SECURITY_UPDATED,
+      ...guides.map((g) => g.updated),
+    ]);
     const entries = sitemap();
     const dated = entries.filter((e) => e.lastModified !== undefined);
     const invented = dated
       .filter((e) => !honest.has(String(e.lastModified)))
       .map((e) => `${e.url} → ${String(e.lastModified)}`);
     expect(invented).toEqual([]);
-    // Bounded at both ends: the guides, /guides and the two policies are
-    // dated; the tool pages have no content date and must not be.
-    expect(dated.length).toBe(guides.length + 3);
+    // Bounded at both ends: the guides, /guides, the two policies and
+    // /security are dated; the tool pages have no content date and must not be.
+    expect(dated.length).toBe(guides.length + 4);
     const toolUrls = new Set(tools.map((t) => url(`/tools/${t.slug}`)));
     expect(toolUrls.size).toBeGreaterThan(40);
     expect(dated.filter((e) => toolUrls.has(e.url))).toEqual([]);
@@ -131,8 +136,10 @@ describe("sitemap lastmod is a content date, never the clock", () => {
         (guide as { updated: string }).updated = "2020-01-01";
       }
       const indexed = lastmodsIn(await indexXml().text());
+      // The newest non-guide date: the policies' or /security's.
+      const newest = [LEGAL_UPDATED, SECURITY_UPDATED].sort().at(-1)!;
       expect(indexed).toEqual([
-        new Date(`${LEGAL_UPDATED}T00:00:00.000Z`).toISOString(),
+        new Date(`${newest}T00:00:00.000Z`).toISOString(),
       ]);
       expect(indexed[0]).toBe(
         [...lastmodsIn(await pagesXml().text())].sort().at(-1),
