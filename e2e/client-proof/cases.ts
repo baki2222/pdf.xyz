@@ -831,7 +831,9 @@ export const CASES: Record<string, ToolCase> = {
     artifact: "pdf",
     run: async (ctx) => {
       await uploadTextPdf(ctx, "trim.pdf", { pages: 3 });
-      await ctx.page.getByRole("button", { name: "Page 2" }).click();
+      await ctx.page
+        .getByRole("button", { name: "Page 2", exact: true })
+        .click();
       return runAndDownload(
         ctx,
         /delete 1 page/i,
@@ -854,8 +856,12 @@ export const CASES: Record<string, ToolCase> = {
     artifact: "pdf",
     run: async (ctx) => {
       await uploadTextPdf(ctx, "pick.pdf", { pages: 3 });
-      await ctx.page.getByRole("button", { name: "Page 1" }).click();
-      await ctx.page.getByRole("button", { name: "Page 3" }).click();
+      await ctx.page
+        .getByRole("button", { name: "Page 1", exact: true })
+        .click();
+      await ctx.page
+        .getByRole("button", { name: "Page 3", exact: true })
+        .click();
       return runAndDownload(
         ctx,
         /extract 2 pages/i,
