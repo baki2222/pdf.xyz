@@ -40,6 +40,7 @@ import { RepairOutcome, repairDoneSentence } from "./repair-warnings";
 import { OptimizeOutcome, optimizeDoneSentence } from "./optimize-outcome";
 import { OfficeExportNextStep } from "./office-export-notices";
 import {
+  AlreadyLinearizedNote,
   inspectWebInput,
   WebSignatureWarning,
   type WebInputFacts,
@@ -222,7 +223,10 @@ function StructureRunArea({
     "This qpdf-backed server path is not enabled here.";
 
   return (
-    <div className="flex flex-col gap-4">
+    <div
+      className="flex flex-col gap-4"
+      data-web-input={mode === "optimize" && current ? "read" : undefined}
+    >
       {staged}
       {file ? (
         <ChosenFileTarget
@@ -272,6 +276,8 @@ function StructureRunArea({
           onConfirm={(yes) => setConfirmedFor(yes ? file : null)}
         />
       )}
+
+      {mode === "optimize" && current?.linearized && <AlreadyLinearizedNote />}
 
       <WorkerGate
         reserve={STATUS_SLOT}

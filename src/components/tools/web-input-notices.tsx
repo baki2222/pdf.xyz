@@ -1,8 +1,9 @@
 "use client";
 
 import { useId } from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Info } from "lucide-react";
 import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
+import { isLinearized } from "@/lib/pdf/linearization";
 
 /**
  * What Optimize for Web learns from the picked file's bytes, in the browser,
@@ -23,10 +24,38 @@ export interface WebInputFacts {
   /** The file these facts were read from; facts for another file are stale. */
   file: File;
   signatures: number;
+  /**
+   * Already linearized, by the same test the result card applies to the
+   * output (`isLinearized`: the first object's /Linearized dict, and its /L
+   * equal to the file's length). Advisory only (audit optimize-web#3): some
+   * people re-linearize on purpose, so Run stays on.
+   */
+  linearized: boolean;
 }
 
 export function inspectWebInput(file: File, bytes: Uint8Array): WebInputFacts {
-  return { file, signatures: countDigitalSignatures(bytes) };
+  return {
+    file,
+    signatures: countDigitalSignatures(bytes),
+    linearized: isLinearized(bytes),
+  };
+}
+
+/** The note an already-linearized file gets before Run. */
+export function AlreadyLinearizedNote() {
+  return (
+    <p
+      role="note"
+      className="border-line bg-wash text-muted rounded-panel flex items-start gap-2 border px-4 py-3 text-sm"
+    >
+      <Info className="text-info mt-0.5 size-4 shrink-0" aria-hidden />
+      <span>
+        This PDF is already linearized for fast web view, so it does not need
+        this step. Running it again is optional and uploads the file to our
+        secure server.
+      </span>
+    </p>
+  );
 }
 
 function signatureNoun(count: number): string {

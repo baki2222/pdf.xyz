@@ -668,6 +668,37 @@ describe("optimize-web: what the picked file already is, before any upload", () 
       screen.queryByRole("group", { name: /digital signature/ }),
     ).toBeNull();
   });
+
+  it("an already-linearized PDF is told so, and running it again stays optional", async () => {
+    const already = linearizedPdf();
+    expect(isLinearized(already)).toBe(true);
+    const run = await pick("optimize-web", already);
+    expect(
+      await screen.findByText(
+        "This PDF is already linearized for fast web view, so it does not need this step. Running it again is optional and uploads the file to our secure server.",
+      ),
+    ).toBeInTheDocument();
+    expect(run).not.toHaveAttribute("aria-disabled");
+    const { default: content } =
+      await import("@/lib/tools/content/optimize-web");
+    expect(
+      content.faqs.find((f) => /already linearized/.test(f.q))?.a,
+    ).toContain(
+      "Before anything is uploaded, the panel reads the file, and if it already passes the same linearization test the result is held to, it says the PDF is already linearized for fast web view and does not need this step. The button stays on",
+    );
+    // Positive control for the mark the next test waits on.
+    expect(document.querySelector('[data-web-input="read"]')).not.toBeNull();
+  });
+
+  it("control: a PDF that is not linearized gets no such note", async () => {
+    await pick("optimize-web", INPUT);
+    // The absence means something only once the file has been read: the
+    // panel marks that, and the linearized case above reads the same mark.
+    await vi.waitFor(() =>
+      expect(document.querySelector('[data-web-input="read"]')).not.toBeNull(),
+    );
+    expect(screen.queryByText(/already linearized/)).toBeNull();
+  });
 });
 
 describe("optimize-web: the page describes the signature gate the panel runs", () => {
