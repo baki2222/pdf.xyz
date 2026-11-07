@@ -256,6 +256,53 @@ describe("image to PDF · Custom page size and margin", () => {
     const [page] = await pages(await createAndDownload());
     expect(page!.width).toBeCloseTo(JPEG_WIDTH + 144, 6);
   });
+
+  /*
+   * ADDED after review, 2026-11-08: the boxes had only aria-labels (two
+   * unlabelled boxes to a sighted user), and the warning was tied to no
+   * input and always sat under Margin, even for a bad page size.
+   */
+  it("labels the boxes visibly, and ties the warning to the box that is wrong", async () => {
+    await mount([jpeg("print.jpg")]);
+    fireEvent.click(customIn("Page size"));
+    fireEvent.click(customIn("Margin"));
+    const box = (name: string) => screen.getByRole("textbox", { name });
+    for (const [name, visible] of [
+      [CUSTOM_PAGE_LABELS.width, "Width"],
+      [CUSTOM_PAGE_LABELS.height, "Height"],
+      [CUSTOM_PAGE_LABELS.margin, "Margin"],
+    ] as const)
+      expect(box(name).closest("label")).toHaveTextContent(visible);
+
+    type(CUSTOM_PAGE_LABELS.width, "abc");
+    const sizeWarning = screen.getByText(/Enter the page's width and height/);
+    expect(within(section("Page size")).getByText(/Enter the page's/)).toBe(
+      sizeWarning,
+    );
+    expect(box(CUSTOM_PAGE_LABELS.width)).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+    expect(box(CUSTOM_PAGE_LABELS.width)).toHaveAccessibleDescription(
+      sizeWarning.textContent!,
+    );
+    expect(box(CUSTOM_PAGE_LABELS.margin)).not.toHaveAttribute("aria-invalid");
+
+    type(CUSTOM_PAGE_LABELS.width, "100");
+    type(CUSTOM_PAGE_LABELS.margin, "abc");
+    const marginWarning = screen.getByText(/Enter a margin from 0 to/);
+    expect(within(section("Margin")).getByText(/Enter a margin/)).toBe(
+      marginWarning,
+    );
+    expect(box(CUSTOM_PAGE_LABELS.margin)).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+    expect(box(CUSTOM_PAGE_LABELS.margin)).toHaveAccessibleDescription(
+      marginWarning.textContent!,
+    );
+    expect(box(CUSTOM_PAGE_LABELS.width)).not.toHaveAttribute("aria-invalid");
+  });
 });
 
 /** Audit png-to-pdf#6: Sort by name, and a bookmark per image. */

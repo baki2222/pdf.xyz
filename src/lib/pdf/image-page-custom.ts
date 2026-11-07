@@ -48,6 +48,8 @@ export const CUSTOM_PAGE_LABELS = {
   height: "Custom page height",
   unit: "Unit",
   margin: "Custom margin",
+  /** The short words shown beside each box; each is inside its full name. */
+  shown: { width: "Width", height: "Height", margin: "Margin" },
 } as const;
 
 const unitPoints = (unit: LengthUnitId) =>

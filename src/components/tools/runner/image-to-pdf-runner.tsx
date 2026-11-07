@@ -395,12 +395,35 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
       ? { customMarginPt: typedMargin }
       : {}),
   };
-  const setupProblem =
-    page.pageSize === "custom" && "problem" in typedSize
-      ? typedSize.problem
-      : page.margin === "custom" && typeof typedMargin === "object"
-        ? typedMargin.problem
-        : pageSetupProblem(pageSetup, unit);
+  const sizeInvalid = page.pageSize === "custom" && "problem" in typedSize;
+  const marginInvalid =
+    !sizeInvalid && page.margin === "custom" && typeof typedMargin === "object";
+  const setupProblem = sizeInvalid
+    ? typedSize.problem
+    : marginInvalid
+      ? typedMargin.problem
+      : pageSetupProblem(pageSetup, unit);
+  /**
+   * Where the warning shows and which box it describes: under Page size for
+   * a typed size that is wrong, under Margin otherwise (a margin that is
+   * wrong, or one that leaves no room on the page).
+   */
+  const problemAt: "size" | "margin" | undefined = !setupProblem
+    ? undefined
+    : sizeInvalid
+      ? "size"
+      : "margin";
+  const marginBoxInvalid = problemAt === "margin" && page.margin === "custom";
+  const problemId = useId();
+  const setupWarning = setupProblem && (
+    <p
+      id={problemId}
+      className="text-warn text-xs leading-relaxed"
+      role="status"
+    >
+      {setupProblem}
+    </p>
+  );
   /** Custom starts on the paper (or margin) that was chosen, in the unit. */
   const chooseCustomSize = () => {
     if (busy) return;
@@ -845,30 +868,45 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
             </div>
             {page.pageSize === "custom" && (
               <div className="flex flex-wrap items-center gap-2">
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  aria-label={CUSTOM_PAGE_LABELS.width}
-                  value={customW}
-                  readOnly={busy}
-                  onChange={(event) => setCustomW(event.target.value)}
-                  className={lengthInputClass}
-                />
+                <label className="flex items-center gap-1.5">
+                  <span className="text-muted text-xs">
+                    {CUSTOM_PAGE_LABELS.shown.width}
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    aria-label={CUSTOM_PAGE_LABELS.width}
+                    aria-invalid={sizeInvalid || undefined}
+                    aria-describedby={sizeInvalid ? problemId : undefined}
+                    value={customW}
+                    readOnly={busy}
+                    onChange={(event) => setCustomW(event.target.value)}
+                    className={lengthInputClass}
+                  />
+                </label>
                 <span className="text-muted text-xs" aria-hidden>
                   ×
                 </span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  aria-label={CUSTOM_PAGE_LABELS.height}
-                  value={customH}
-                  readOnly={busy}
-                  onChange={(event) => setCustomH(event.target.value)}
-                  className={lengthInputClass}
-                />
+                <label className="flex items-center gap-1.5">
+                  <span className="text-muted text-xs">
+                    {CUSTOM_PAGE_LABELS.shown.height}
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    aria-label={CUSTOM_PAGE_LABELS.height}
+                    aria-invalid={sizeInvalid || undefined}
+                    aria-describedby={sizeInvalid ? problemId : undefined}
+                    value={customH}
+                    readOnly={busy}
+                    onChange={(event) => setCustomH(event.target.value)}
+                    className={lengthInputClass}
+                  />
+                </label>
                 {unitChips}
               </div>
             )}
+            {problemAt === "size" && setupWarning}
           </RunnerSection>
           <RunnerSection title="Orientation">
             <div className="flex flex-wrap gap-2">
@@ -921,15 +959,24 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
             </div>
             {page.margin === "custom" && (
               <div className="flex flex-wrap items-center gap-2">
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  aria-label={CUSTOM_PAGE_LABELS.margin}
-                  value={customMarginText}
-                  readOnly={busy}
-                  onChange={(event) => setCustomMarginText(event.target.value)}
-                  className={lengthInputClass}
-                />
+                <label className="flex items-center gap-1.5">
+                  <span className="text-muted text-xs">
+                    {CUSTOM_PAGE_LABELS.shown.margin}
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    aria-label={CUSTOM_PAGE_LABELS.margin}
+                    aria-invalid={marginBoxInvalid || undefined}
+                    aria-describedby={marginBoxInvalid ? problemId : undefined}
+                    value={customMarginText}
+                    readOnly={busy}
+                    onChange={(event) =>
+                      setCustomMarginText(event.target.value)
+                    }
+                    className={lengthInputClass}
+                  />
+                </label>
                 {page.pageSize === "custom" ? (
                   <span className="text-muted text-xs">{unit}</span>
                 ) : (
@@ -937,11 +984,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
                 )}
               </div>
             )}
-            {setupProblem && (
-              <p className="text-warn text-xs leading-relaxed" role="status">
-                {setupProblem}
-              </p>
-            )}
+            {problemAt === "margin" && setupWarning}
           </RunnerSection>
           {/* Audits jpg-to-pdf#4 / png-to-pdf#4: an image smaller than the
               paper is kept at its size unless Enlarge to fit is chosen. */}
