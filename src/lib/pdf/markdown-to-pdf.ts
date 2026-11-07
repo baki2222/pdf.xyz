@@ -19,6 +19,8 @@ export const MARGIN = TEXT_PAGE_MARGIN_PT;
 const BODY_SIZE = 11;
 const BODY_LINE_HEIGHT = 16;
 const LIST_INDENT = 18;
+/** How far each level of a nested quote moves right. */
+const QUOTE_STEP = 10;
 /** Deeper nesting still renders, it just stops moving right. */
 const MAX_LIST_DEPTH = 6;
 const TABLE_SIZE = 10;
@@ -48,9 +50,16 @@ export type MarkdownBlock =
       index?: number;
       /** 0 for a top-level item, 1 for its children, and so on. */
       depth: number;
+      /** A later paragraph of the item above: drawn under its text, no marker. */
+      continued?: true;
       text: string;
     }
-  | { kind: "quote"; text: string }
+  | {
+      kind: "quote";
+      text: string;
+      /** 2 for a quote inside a quote, and so on; absent at the first level. */
+      depth?: number;
+    }
   | { kind: "code"; language?: string; text: string }
   | { kind: "rule" }
   | {
@@ -131,12 +140,242 @@ export function markdownPdfOutputName(sourceName: string): string {
  *    1. code spans first (N backticks close on exactly N), contents verbatim;
  *    2. backslash escapes, which make a punctuation mark literal;
  *    3. links and images, printed as "label (url)" — the URL is literal;
- *       so is a bare `https://…` or `www.…` address (GFM autolinks);
- *    4. emphasis by the flanking rules: `*` must hug the text it wraps, and
+ *       so is a bare `https://…` or `www.…` address (GFM autolinks), and so
+ *       are reference links (`[label][ref]`, `[ref]`) whose definition the
+ *       document holds; a footnote reference (`[^id]`) prints as "[n]";
+ *    4. raw HTML as a reader sees it: a comment is hidden, `<br>` breaks the
+ *       line, `<img>` prints its alt text and address, `<a href>` its label
+ *       and address, and any other KNOWN element's tags are left out with the
+ *       text between them kept; an entity (`&amp;`, `&#169;`) is decoded;
+ *    5. a hard line break (two trailing spaces, or a trailing backslash);
+ *    6. emphasis by the flanking rules: `*` must hug the text it wraps, and
  *       `_` additionally may not be intraword, so snake_case is not markup.
  *
- *  Anything not recognised as markup is printed as typed.
+ *  Anything not recognised as markup is printed as typed: an unclosed
+ *  comment, an unknown entity (`&bogus;`), a tag name HTML does not have
+ *  (`Array<string>`), a reference with no definition. Until audit #11
+ *  (2026-11-06) step 4 did not exist, so a private `<!-- TODO -->` printed
+ *  into the PDF and `&amp;` printed as typed.
  * ------------------------------------------------------------------ */
+
+/**
+ * What the inline layer needs from the whole document: the link reference
+ * definitions, and the footnotes with the numbers their first references
+ * gave them (in reading order, as GitHub numbers them).
+ */
+interface InlineContext {
+  links: Map<string, string>;
+  notes: Map<string, string>;
+  noteNumbers: Map<string, number>;
+}
+
+const emptyContext = (): InlineContext => ({
+  links: new Map(),
+  notes: new Map(),
+  noteNumbers: new Map(),
+});
+
+/** CommonMark's label matching: case-insensitive, whitespace collapsed. */
+function referenceKey(label: string): string {
+  return label.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+/**
+ * HTML's Latin-1 named references, in code-point order from U+00A0: the
+ * accented letters Western text uses most (`&eacute;`, `&uuml;`, `&szlig;`).
+ * Each code point is DERIVED from its position, never typed, so the table
+ * cannot hold one name with a mistyped number. All 96 are WinAnsi-drawable.
+ */
+const LATIN1_ENTITY_NAMES = (
+  "nbsp iexcl cent pound curren yen brvbar sect uml copy ordf laquo not shy " +
+  "reg macr deg plusmn sup2 sup3 acute micro para middot cedil sup1 ordm " +
+  "raquo frac14 frac12 frac34 iquest Agrave Aacute Acirc Atilde Auml Aring " +
+  "AElig Ccedil Egrave Eacute Ecirc Euml Igrave Iacute Icirc Iuml ETH Ntilde " +
+  "Ograve Oacute Ocirc Otilde Ouml times Oslash Ugrave Uacute Ucirc Uuml " +
+  "Yacute THORN szlig agrave aacute acirc atilde auml aring aelig ccedil " +
+  "egrave eacute ecirc euml igrave iacute icirc iuml eth ntilde ograve " +
+  "oacute ocirc otilde ouml divide oslash ugrave uacute ucirc uuml yacute " +
+  "thorn yuml"
+).split(" ");
+
+/** Greek letters, also in code-point order (U+0391 and U+03B1 on). */
+const GREEK_UPPER_NAMES = (
+  "Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota Kappa Lambda Mu Nu Xi " +
+  "Omicron Pi Rho - Sigma Tau Upsilon Phi Chi Psi Omega"
+).split(" ");
+const GREEK_LOWER_NAMES = (
+  "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi " +
+  "omicron pi rho sigmaf sigma tau upsilon phi chi psi omega"
+).split(" ");
+
+function namesFrom(names: string[], first: number): [string, number][] {
+  // "-" holds a code point that has no name (U+03A2 is unassigned).
+  return names.flatMap((name, i) =>
+    name === "-" ? [] : [[name, first + i] as [string, number]],
+  );
+}
+
+/**
+ * HTML's named character references: every Latin-1 and Greek name, plus the
+ * punctuation, symbols and arrows Markdown sources use. An unknown name
+ * prints as typed, which loses nothing.
+ */
+export const NAMED_ENTITIES: Record<string, number> = {
+  ...Object.fromEntries(namesFrom(LATIN1_ENTITY_NAMES, 0xa0)),
+  ...Object.fromEntries(namesFrom(GREEK_UPPER_NAMES, 0x391)),
+  ...Object.fromEntries(namesFrom(GREEK_LOWER_NAMES, 0x3b1)),
+  amp: 0x26,
+  lt: 0x3c,
+  gt: 0x3e,
+  quot: 0x22,
+  apos: 0x27,
+  OElig: 0x152,
+  oelig: 0x153,
+  Scaron: 0x160,
+  scaron: 0x161,
+  Yuml: 0x178,
+  Zcaron: 0x17d,
+  zcaron: 0x17e,
+  fnof: 0x192,
+  circ: 0x2c6,
+  tilde: 0x2dc,
+  ensp: 0x2002,
+  emsp: 0x2003,
+  thinsp: 0x2009,
+  zwnj: 0x200c,
+  zwj: 0x200d,
+  ndash: 0x2013,
+  mdash: 0x2014,
+  lsquo: 0x2018,
+  rsquo: 0x2019,
+  sbquo: 0x201a,
+  ldquo: 0x201c,
+  rdquo: 0x201d,
+  bdquo: 0x201e,
+  dagger: 0x2020,
+  Dagger: 0x2021,
+  bull: 0x2022,
+  hellip: 0x2026,
+  permil: 0x2030,
+  prime: 0x2032,
+  Prime: 0x2033,
+  lsaquo: 0x2039,
+  rsaquo: 0x203a,
+  euro: 0x20ac,
+  trade: 0x2122,
+  larr: 0x2190,
+  uarr: 0x2191,
+  rarr: 0x2192,
+  darr: 0x2193,
+  harr: 0x2194,
+  lArr: 0x21d0,
+  rArr: 0x21d2,
+  hArr: 0x21d4,
+  minus: 0x2212,
+  infin: 0x221e,
+  asymp: 0x2248,
+  ne: 0x2260,
+  le: 0x2264,
+  ge: 0x2265,
+  check: 0x2713,
+};
+
+/**
+ * HTML reads a numeric reference in 0x80-0x9F as Windows-1252, so `&#150;`
+ * is an en dash. The five slots Windows-1252 leaves empty stay undecoded.
+ */
+const WINDOWS_1252_C1 = [
+  0x20ac, 0, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021, 0x02c6, 0x2030,
+  0x0160, 0x2039, 0x0152, 0, 0x017d, 0, 0, 0x2018, 0x2019, 0x201c, 0x201d,
+  0x2022, 0x2013, 0x2014, 0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0, 0x017e,
+  0x0178,
+];
+
+const ENTITY =
+  /^&(?:#[xX]([0-9A-Fa-f]{1,6})|#([0-9]{1,7})|([A-Za-z][A-Za-z0-9]{1,31}));/;
+
+/** The character an entity at the start of `text` stands for, and its length. */
+function matchEntity(text: string): { ch: string; length: number } | null {
+  const m = ENTITY.exec(text);
+  if (!m) return null;
+  let cp: number;
+  if (m[3] !== undefined) {
+    const named = NAMED_ENTITIES[m[3]];
+    if (named === undefined) return null;
+    cp = named;
+  } else {
+    cp = m[1] !== undefined ? parseInt(m[1], 16) : Number(m[2]);
+    // A control character has nothing to draw, and refusing the document
+    // over an invisible one names a character the reader cannot see: printed
+    // as typed instead. 0x80-0x9F are read as Windows-1252, as HTML does.
+    if ((cp > 0 && cp < 0x20) || cp === 0x7f) return null;
+    if (cp >= 0x80 && cp <= 0x9f) {
+      cp = WINDOWS_1252_C1[cp - 0x80]!;
+      if (!cp) return null;
+    }
+    // CommonMark: an invalid or NUL code point becomes U+FFFD.
+    if (cp === 0 || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) {
+      cp = 0xfffd;
+    }
+  }
+  return { ch: String.fromCodePoint(cp), length: m[0].length };
+}
+
+/** Every entity in an attribute value, decoded. */
+function decodeEntities(text: string): string {
+  return text.replace(/&[#A-Za-z0-9]+;/g, (raw) => matchEntity(raw)?.ch ?? raw);
+}
+
+/**
+ * Element names HTML has: every current one, the obsolete ones READMEs still
+ * carry, and the svg and math roots. Only these are read as tags, so
+ * `Array<string>`, `<T>` and `<config>` in prose print as typed rather than
+ * vanishing. The test checks this against TypeScript's DOM typings, so a
+ * name left out here is a failing test, not a tag printed on the page.
+ */
+const HTML_ELEMENTS = new Set(
+  (
+    "a abbr address area article aside audio b base bdi bdo blockquote body " +
+    "br button canvas caption cite code col colgroup data datalist dd del " +
+    "details dfn dialog div dl dt em embed fieldset figcaption figure footer " +
+    "form h1 h2 h3 h4 h5 h6 head header hgroup hr html i iframe img input " +
+    "ins kbd label legend li link main map mark menu meta meter nav noscript " +
+    "object ol optgroup option output p picture pre progress q rp rt ruby s " +
+    "samp script search section select slot small source span strong style " +
+    "sub summary sup table tbody td template textarea tfoot th thead time " +
+    "title tr track u ul var video wbr " +
+    // Obsolete, still seen in READMEs.
+    "acronym applet basefont big blink center dir font frame frameset " +
+    "marquee nobr noembed noframes param rb rtc strike tt xmp " +
+    "svg math"
+  ).split(" "),
+);
+
+/** Elements whose content a browser never shows: hidden with it. */
+const HIDDEN_CONTENT_ELEMENTS = new Set(["script", "style", "template"]);
+
+/** A line that opens a hidden-content element. */
+const HIDDEN_BLOCK = /^<(script|style|template)(?=[\s>]|$)/i;
+
+/** Embedded media: printed as its address, the way an image is. */
+const MEDIA_ELEMENTS = new Set(["video", "audio", "source", "iframe", "embed"]);
+
+const OPEN_TAG =
+  /^<([A-Za-z][A-Za-z0-9-]*)((?:\s+[A-Za-z_:][\w.:-]*(?:\s*=\s*(?:[^\s"'=<>`]+|'[^']*'|"[^"]*"))?)*)\s*\/?>/;
+const CLOSE_TAG = /^<\/([A-Za-z][A-Za-z0-9-]*)\s*>/;
+const TAG_ATTRIBUTE =
+  /([A-Za-z_:][\w.:-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+
+function tagAttributes(raw: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const m of raw.matchAll(TAG_ATTRIBUTE)) {
+    const name = m[1]!.toLowerCase();
+    if (!out.has(name)) {
+      out.set(name, decodeEntities(m[2] ?? m[3] ?? m[4] ?? "").trim());
+    }
+  }
+  return out;
+}
 
 /** CommonMark's ASCII punctuation: what a backslash may escape. */
 const ASCII_PUNCT = /^[!-/:-@[-`{-~]$/;
@@ -146,9 +385,10 @@ interface InlineUnit {
   ch: string;
   /**
    * `text` may still turn out to be markup; `literal` was escaped, or is part
-   * of a URL, and never is; `code` came from a code span and is never touched.
+   * of a URL, and never is; `code` came from a code span and is never touched;
+   * `break` is a hard line break, drawn as a new line.
    */
-  kind: "text" | "literal" | "code";
+  kind: "text" | "literal" | "code" | "break";
 }
 
 function literalUnits(text: string): InlineUnit[] {
@@ -192,8 +432,47 @@ class InlineSource {
    */
   linkBudget: number;
 
+  /** The last `-->` found, and from where; -1 once none is left. */
+  private commentClose = { from: -1, at: -2 };
+  /** Per hidden-content element: the last close tag found, and from where. */
+  private readonly hiddenClose = new Map<
+    string,
+    { from: number; at: number; end: number }
+  >();
+
   constructor(readonly src: string) {
     this.linkBudget = src.length * 4 + 65_536;
+  }
+
+  /**
+   * Index of the first `-->` at or after `from`, or -1. Remembered, so a
+   * paragraph of unclosed `<!--` stays linear.
+   */
+  commentEnd(from: number): number {
+    const last = this.commentClose;
+    if (last.at === -1 && from >= last.from) return -1;
+    if (last.at >= from && from >= last.from) return last.at;
+    const at = this.src.indexOf("-->", from);
+    this.commentClose = { from, at };
+    return at;
+  }
+
+  /**
+   * Index just past the first `</name>` at or after `from`, or -1.
+   * Remembered per name, so a paragraph of unclosed `<script>` stays linear.
+   */
+  hiddenContentEnd(name: string, from: number): number {
+    const last = this.hiddenClose.get(name);
+    if (last && from >= last.from && (last.at === -1 || last.at >= from)) {
+      return last.end;
+    }
+    const pattern = new RegExp(`</${name}\\s*>`, "gi");
+    pattern.lastIndex = from;
+    const m = pattern.exec(this.src);
+    const at = m ? m.index : -1;
+    const end = m ? m.index + m[0].length : -1;
+    this.hiddenClose.set(name, { from, at, end });
+    return end;
   }
 
   /** Index of a backtick run of EXACTLY `n` at or after `from`, or -1. */
@@ -390,9 +669,84 @@ function bareUrlEnd(src: string, at: number): number {
  */
 const MAX_LABEL_DEPTH = 3;
 
-function tokenizeInline(src: string, depth = 0): InlineUnit[] {
+/**
+ * A link's label and address, as this renderer prints a link: "label (url)",
+ * the address alone when there is no label, the label alone when it IS the
+ * address. Images cannot be drawn here, so their alt text and address stand
+ * in for them — the output stays honest about what was left out.
+ */
+function pushLink(
+  out: InlineUnit[],
+  labelSource: string,
+  url: string,
+  context: InlineContext,
+  depth: number,
+): void {
+  const label = tokenizeInline(labelSource, context, depth + 1);
+  const labelText = label.map((u) => u.ch).join("");
+  if (!labelText.trim()) pushAll(out, literalUnits(url));
+  else {
+    pushAll(out, label);
+    if (labelText.trim() !== url) pushAll(out, literalUnits(` (${url})`));
+  }
+}
+
+/**
+ * A reference link or image (`[label][ref]`, `[label][]`, `[label]`) whose
+ * label opens at `open`, resolved against the document's definitions; null
+ * when it names no definition, so the brackets print as typed.
+ */
+function matchReference(
+  source: InlineSource,
+  open: number,
+  context: InlineContext,
+): { label: string; url: string; end: number } | null {
+  if (!context.links.size) return null;
+  const { src } = source;
+  const close = source.bracketClose(open);
+  if (close < 0) return null;
+  const label = src.slice(open + 1, close);
+  if (src[close + 1] === "[") {
+    const refClose = source.bracketClose(close + 1);
+    if (refClose >= 0) {
+      const ref = src.slice(close + 2, refClose);
+      const url = context.links.get(referenceKey(ref.trim() ? ref : label));
+      if (url !== undefined) return { label, url, end: refClose + 1 };
+    }
+  }
+  const key = referenceKey(label);
+  const url = key ? context.links.get(key) : undefined;
+  return url === undefined ? null : { label, url, end: close + 1 };
+}
+
+function tokenizeInline(
+  src: string,
+  context: InlineContext,
+  depth = 0,
+): InlineUnit[] {
   const source = new InlineSource(src);
   const out: InlineUnit[] = [];
+  // The open `<a>` tag: the address to print after its label, and where the
+  // label began. One at a time, as in a browser, where an `<a>` closes the
+  // one still open. Until the audit #11 review this was a stack, and every
+  // `</a>` re-read its whole label, nested ones included: 40,000 nested
+  // anchors (560 KB) took 78.5 s.
+  let anchor: { href: string; at: number } | null = null;
+  const closeAnchor = () => {
+    const open = anchor;
+    anchor = null;
+    if (!open?.href) return;
+    // Each unit is read by at most one anchor, so this stays linear.
+    const label = out
+      .slice(open.at)
+      .map((u) => u.ch)
+      .join("")
+      .trim();
+    if (!label) pushAll(out, literalUnits(open.href));
+    else if (label !== open.href) {
+      pushAll(out, literalUnits(` (${open.href})`));
+    }
+  };
   let i = 0;
   while (i < src.length) {
     const c = src[i]!;
@@ -404,9 +758,32 @@ function tokenizeInline(src: string, depth = 0): InlineUnit[] {
         continue;
       }
       if (next === "\n") {
-        // A hard line break. This renderer reflows paragraphs, so it is a space.
-        out.push({ ch: " ", kind: "text" });
+        // A hard line break. Until audit #11 this was a space ("this renderer
+        // reflows paragraphs"), and addresses and signatures ran together.
+        out.push({ ch: "\n", kind: "break" });
         i += 2;
+        continue;
+      }
+    }
+    if (c === " ") {
+      // Two or more spaces before a line end: a hard line break. Any other run
+      // is pushed whole, so a long run of spaces is not rescanned per space.
+      let j = i;
+      while (src[j] === " ") j++;
+      if (j - i >= 2 && src[j] === "\n") {
+        out.push({ ch: "\n", kind: "break" });
+        i = j + 1;
+      } else {
+        for (; i < j; i++) out.push({ ch: " ", kind: "text" });
+      }
+      continue;
+    }
+    if (c === "&") {
+      const entity = matchEntity(src.slice(i, i + 40));
+      if (entity) {
+        // Literal: `&#42;` is an asterisk, never emphasis.
+        out.push({ ch: entity.ch, kind: "literal" });
+        i += entity.length;
         continue;
       }
     }
@@ -424,30 +801,87 @@ function tokenizeInline(src: string, depth = 0): InlineUnit[] {
       }
       continue;
     }
+    if (c === "[" && src[i + 1] === "^" && context.notes.size) {
+      const close = source.bracketClose(i);
+      const key = close > 0 ? referenceKey(src.slice(i + 2, close)) : "";
+      if (key && context.notes.has(key)) {
+        let n = context.noteNumbers.get(key);
+        if (n === undefined) {
+          n = context.noteNumbers.size + 1;
+          context.noteNumbers.set(key, n);
+        }
+        pushAll(out, literalUnits(`[${n}]`));
+        i = close + 1;
+        continue;
+      }
+    }
     const isImage = c === "!" && src[i + 1] === "[";
     if ((c === "[" || isImage) && depth < MAX_LABEL_DEPTH) {
-      const link = matchLink(source, isImage ? i + 1 : i);
+      const open = isImage ? i + 1 : i;
+      const link =
+        matchLink(source, open) ?? matchReference(source, open, context);
       if (link) {
-        const label = tokenizeInline(link.label, depth + 1);
-        const labelText = label.map((u) => u.ch).join("");
-        // Images cannot be drawn here, so their alt text and address stand in
-        // for them — the output stays honest about what was left out.
-        if (!labelText.trim()) pushAll(out, literalUnits(link.url));
-        else {
-          pushAll(out, label);
-          if (labelText.trim() !== link.url) {
-            pushAll(out, literalUnits(` (${link.url})`));
-          }
-        }
+        pushLink(out, link.label, link.url, context, depth);
         i = link.end;
         continue;
       }
     }
     if (c === "<") {
-      const auto = AUTOLINK.exec(src.slice(i, i + LINK_SCAN_LIMIT));
+      const window = src.slice(i, i + LINK_SCAN_LIMIT);
+      const auto = AUTOLINK.exec(window);
       if (auto) {
         pushAll(out, literalUnits(auto[1]!));
         i += auto[0].length;
+        continue;
+      }
+      if (src.startsWith("<!--", i)) {
+        // A comment is hidden, as every Markdown renderer hides it. Unclosed,
+        // it prints as typed: nothing the user wrote goes missing silently.
+        const end = source.commentEnd(i + 4);
+        if (end >= 0) {
+          i = end + 3;
+          continue;
+        }
+      }
+      const tag = OPEN_TAG.exec(window) ?? CLOSE_TAG.exec(window);
+      const name = tag?.[1]!.toLowerCase();
+      const closing = tag?.[0][1] === "/";
+      if (tag && name && HIDDEN_CONTENT_ELEMENTS.has(name) && !closing) {
+        // Hidden with its content, as a browser hides it. Unclosed, it prints
+        // as typed, like an unclosed comment.
+        const end = source.hiddenContentEnd(name, i + tag[0].length);
+        if (end >= 0) {
+          i = end;
+          continue;
+        }
+      } else if (tag && name && HTML_ELEMENTS.has(name)) {
+        i += tag[0].length;
+        if (closing) {
+          if (name === "a") closeAnchor();
+          continue;
+        }
+        const attributes = tagAttributes(tag[2] ?? "");
+        if (name === "br") out.push({ ch: "\n", kind: "break" });
+        else if (name === "a") {
+          closeAnchor();
+          anchor = { href: attributes.get("href") ?? "", at: out.length };
+        } else if (MEDIA_ELEMENTS.has(name)) {
+          pushAll(out, literalUnits(attributes.get("src") ?? ""));
+        } else if (
+          name === "input" &&
+          attributes.get("type")?.toLowerCase() === "checkbox"
+        ) {
+          pushAll(out, literalUnits(attributes.has("checked") ? "[x]" : "[ ]"));
+        } else if (name === "img") {
+          const alt = attributes.get("alt") ?? "";
+          const imageSrc = attributes.get("src") ?? "";
+          const shown = alt
+            ? imageSrc && imageSrc !== alt
+              ? `${alt} (${imageSrc})`
+              : alt
+            : imageSrc;
+          pushAll(out, literalUnits(shown));
+        }
         continue;
       }
     }
@@ -462,6 +896,8 @@ function tokenizeInline(src: string, depth = 0): InlineUnit[] {
     out.push({ ch, kind: "text" });
     i += ch.length;
   }
+  // An `<a>` never closed still prints its address: nothing goes missing.
+  closeAnchor();
   return out;
 }
 
@@ -594,16 +1030,30 @@ function markEmphasis(units: InlineUnit[]): Uint8Array {
 /**
  * Inline Markdown to the plain text this renderer draws. Whitespace outside
  * code spans collapses to single spaces (the block is reflowed anyway);
- * inside a code span it is kept as typed.
+ * inside a code span it is kept as typed, and so is a no-break space typed as
+ * `&nbsp;`. A hard line break is the one `\n` the text can hold; the drawing
+ * code starts a new line there.
  */
-function stripInlineMarkdown(input: string): string {
-  const units = tokenizeInline(input);
+function stripInlineMarkdown(
+  input: string,
+  context: InlineContext = emptyContext(),
+): string {
+  const units = tokenizeInline(input, context);
   const removed = markEmphasis(units);
   let out = "";
   let lastWasSpace = true;
   units.forEach((unit, index) => {
     if (removed[index]) return;
-    if (unit.kind !== "code" && /\s/u.test(unit.ch)) {
+    if (unit.kind === "break") {
+      out = `${out.endsWith(" ") ? out.slice(0, -1) : out}\n`;
+      lastWasSpace = true;
+      return;
+    }
+    if (
+      unit.kind !== "code" &&
+      !(unit.kind === "literal" && unit.ch === "\u00A0") &&
+      /\s/u.test(unit.ch)
+    ) {
       if (!lastWasSpace) out += " ";
       lastWasSpace = true;
       return;
@@ -676,23 +1126,157 @@ interface ListFrame {
   indent: number;
   /** Column where the item's text starts; a child must be indented this far. */
   content: number;
+  /** The item's list type and number, so a sibling can count on from it. */
+  ordered: boolean;
+  delimiter: string;
+  index: number;
+}
+
+/** `[label]: destination "optional title"`, at most three spaces in. */
+const LINK_DEFINITION =
+  /^ {0,3}\[((?:[^\]\\]|\\.){1,999})\]:[ ]*(?:<([^<>\n]*)>|(\S+))(?:[ ]+(?:"[^"]*"|'[^']*'|\([^)]*\)))?[ ]*$/;
+/** `[^id]: note text`, GFM's footnote definition. */
+const FOOTNOTE_DEFINITION = /^ {0,3}\[\^([^\]\s]+)\]:[ ]*(.*)$/;
+
+/**
+ * Collect the document's link reference and footnote definitions, which may
+ * sit after the text that uses them, and return the lines they occupy so the
+ * block pass skips them. Fenced code is skipped, and a definition cannot
+ * interrupt a paragraph (CommonMark 4.7), so it must follow a blank line, the
+ * start, a heading, a rule or another definition. The first definition of a
+ * label wins.
+ */
+function collectDefinitions(
+  lines: string[],
+  start: number,
+  context: InlineContext,
+): Set<number> {
+  const taken = new Set<number>();
+  let fence: string | null = null;
+  let mayDefine = true;
+  for (let i = start; i < lines.length; i++) {
+    const line = lines[i]!;
+    const marker = FENCE_OPEN.exec(line)?.[2];
+    if (fence) {
+      const close = FENCE_CLOSE.exec(line)?.[1];
+      if (close && close[0] === fence[0] && close.length >= fence.length) {
+        fence = null;
+        mayDefine = true;
+      }
+      continue;
+    }
+    if (marker) {
+      fence = marker;
+      continue;
+    }
+    if (!line.trim()) {
+      mayDefine = true;
+      continue;
+    }
+    if (mayDefine) {
+      const note = FOOTNOTE_DEFINITION.exec(line);
+      if (note) {
+        const body = [note[2]!];
+        taken.add(i);
+        // Continuation lines are indented under the definition.
+        while (
+          i + 1 < lines.length &&
+          lines[i + 1]!.trim() &&
+          leadingSpaces(lines[i + 1]!) >= 2
+        ) {
+          i++;
+          body.push(lines[i]!.trim());
+          taken.add(i);
+        }
+        const key = referenceKey(note[1]!);
+        if (!context.notes.has(key)) context.notes.set(key, body.join("\n"));
+        continue;
+      }
+      const link = LINK_DEFINITION.exec(line);
+      if (link && link[1]!.trim() && !link[1]!.startsWith("^")) {
+        taken.add(i);
+        const key = referenceKey(link[1]!);
+        if (!context.links.has(key)) {
+          context.links.set(key, link[2] ?? link[3] ?? "");
+        }
+        continue;
+      }
+    }
+    const trimmed = line.trim();
+    mayDefine = ATX_HEADING.test(trimmed) || THEMATIC_BREAK.test(trimmed);
+  }
+  return taken;
+}
+
+/**
+ * How deep `>` quotes are read as containers. Each level parses its content
+ * again, so without a bound a line of 100,000 `>` would recurse that deep;
+ * past the bound the rest prints as one quote with its markers as typed.
+ */
+const MAX_QUOTE_DEPTH = 8;
+
+/** GitHub's alert callouts: `> [!NOTE]` opens a titled quote. */
+const ALERT = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\](?:[ \n]+|$)/i;
+
+/**
+ * A quote's content as quote blocks. The content was parsed as Markdown in its
+ * own right (CommonMark block quotes are containers), so a list keeps its
+ * items, a nested quote its depth and a second paragraph its break; each is
+ * drawn as a quote line. Until audit #11 the content was flattened into one
+ * run of text: "> - alpha\n> - beta" printed "- alpha - beta".
+ */
+function quoteBlocks(inner: MarkdownBlock[], depth: number): MarkdownBlock[] {
+  const out: MarkdownBlock[] = [];
+  const quote = (text: string, level = depth) => {
+    if (text) {
+      out.push(
+        level > 1
+          ? { kind: "quote", text, depth: level }
+          : { kind: "quote", text },
+      );
+    }
+  };
+  inner.forEach((block, index) => {
+    switch (block.kind) {
+      case "quote":
+        quote(block.text, depth + (block.depth ?? 1));
+        return;
+      case "list-item":
+        quote(
+          `${"  ".repeat(block.depth)}${block.continued ? "  " : `${listMarker(block)} `}${block.text}`,
+        );
+        return;
+      case "table":
+        quote(
+          [block.header, ...block.rows]
+            .map((row) => row.join(" | "))
+            .join("\n"),
+        );
+        return;
+      case "rule":
+        return;
+      case "paragraph": {
+        const alert = index === 0 ? ALERT.exec(block.text) : null;
+        if (alert) {
+          const name = alert[1]!.toLowerCase();
+          quote(name[0]!.toUpperCase() + name.slice(1));
+          quote(block.text.slice(alert[0].length));
+          return;
+        }
+        quote(block.text);
+        return;
+      }
+      default:
+        quote(block.text);
+    }
+  });
+  return out;
 }
 
 export function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
   const normalized = markdown.replace(/\r\n?/g, "\n").replace(/\t/g, "    ");
   const lines = normalized.split("\n");
   const blocks: MarkdownBlock[] = [];
-
-  // Text is collected raw and rendered once per block, so emphasis and code
-  // spans that run across a line break still pair up.
-  let paragraph: string[] = [];
-  let quote: string[] | null = null;
-  let item: {
-    block: MarkdownBlock & { kind: "list-item" };
-    lines: string[];
-  } | null = null;
-  let list: ListFrame[] = [];
-  let previousBlank = true;
 
   // YAML front matter is metadata no Markdown renderer shows as prose. Printed
   // as a code block it stays visible and verbatim; parsed as Markdown its
@@ -710,21 +1294,82 @@ export function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
     }
   }
 
+  const context = emptyContext();
+  const definitions = collectDefinitions(lines, start, context);
+  for (const block of parseBlocks(lines, start, context, definitions, 1)) {
+    blocks.push(block);
+  }
+
+  // Footnotes, as GitHub prints them: after a rule at the end, numbered in the
+  // order the text first refers to them. A definition nothing refers to still
+  // prints, after those, so no text the user wrote goes missing.
+  if (context.notes.size) {
+    for (const key of context.notes.keys()) {
+      if (!context.noteNumbers.has(key)) {
+        context.noteNumbers.set(key, context.noteNumbers.size + 1);
+      }
+    }
+    blocks.push({ kind: "rule" });
+    const ordered = [...context.noteNumbers].sort((a, b) => a[1] - b[1]);
+    for (const [key, index] of ordered) {
+      blocks.push({
+        kind: "list-item",
+        ordered: true,
+        index,
+        depth: 0,
+        text: stripInlineMarkdown(context.notes.get(key) ?? "", context),
+      });
+    }
+  }
+  return blocks;
+}
+
+function parseBlocks(
+  lines: string[],
+  start: number,
+  context: InlineContext,
+  skip: ReadonlySet<number>,
+  quoteDepth: number,
+): MarkdownBlock[] {
+  const blocks: MarkdownBlock[] = [];
+  const inline = (text: string) => stripInlineMarkdown(text, context);
+
+  // Text is collected raw and rendered once per block, so emphasis and code
+  // spans that run across a line break still pair up.
+  let paragraph: string[] = [];
+  let quote: string[] | null = null;
+  let item: {
+    block: MarkdownBlock & { kind: "list-item" };
+    lines: string[];
+  } | null = null;
+  let list: ListFrame[] = [];
+  let previousBlank = true;
+  // A search for `-->` from this line found none, so later ones cannot.
+  let noCommentCloseFrom = Infinity;
+  // The same, per hidden-content element (`</script>`, `</style>`...).
+  const noHiddenCloseFrom = new Map<string, number>();
+
   const flushParagraph = () => {
     if (!paragraph.length) return;
-    const text = stripInlineMarkdown(paragraph.join("\n"));
+    const text = inline(paragraph.join("\n"));
     if (text) blocks.push({ kind: "paragraph", text });
     paragraph = [];
   };
   const flushQuote = () => {
     if (!quote) return;
-    const text = stripInlineMarkdown(quote.join("\n"));
-    if (text) blocks.push({ kind: "quote", text });
+    const source = quote;
     quote = null;
+    if (quoteDepth >= MAX_QUOTE_DEPTH) {
+      const text = inline(source.join("\n"));
+      if (text) blocks.push({ kind: "quote", text });
+      return;
+    }
+    const inner = parseBlocks(source, 0, context, new Set(), quoteDepth + 1);
+    for (const block of quoteBlocks(inner, 1)) blocks.push(block);
   };
   const flushItem = () => {
     if (!item) return;
-    item.block.text = stripInlineMarkdown(item.lines.join("\n"));
+    item.block.text = inline(item.lines.join("\n"));
     item = null;
   };
   const flushAll = () => {
@@ -741,8 +1386,11 @@ export function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
     const raw = lines[i]!;
     const trimmed = raw.trim();
     const indent = leadingSpaces(raw);
+    // Two trailing spaces are a hard line break (CommonMark 6.7); `trim` would
+    // drop them before the inline pass could see them.
+    const text = / {2,}$/.test(raw) && trimmed ? `${trimmed}  ` : trimmed;
 
-    if (!trimmed) {
+    if (!trimmed || skip.has(i)) {
       flushParagraph();
       flushQuote();
       previousBlank = true;
@@ -798,14 +1446,77 @@ export function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
       continue;
     }
 
+    // An HTML comment that runs over several lines is hidden whole, blank
+    // lines inside it too (CommonMark HTML block 2). One that closes on its
+    // own line is left to the inline pass; one that never closes prints.
+    if (indent <= 3 && trimmed.startsWith("<!--") && !quote) {
+      const sameLine = trimmed.indexOf("-->", 4);
+      let close = -1;
+      if (sameLine < 0 && i + 1 < noCommentCloseFrom) {
+        for (let j = i + 1; j < lines.length; j++) {
+          if (lines[j]!.includes("-->")) {
+            close = j;
+            break;
+          }
+        }
+        if (close < 0) noCommentCloseFrom = i + 1;
+      }
+      if (close > i) {
+        flushParagraph();
+        const rest = lines[close]!.slice(lines[close]!.indexOf("-->") + 3);
+        // What follows `-->` on its line is read as the next line. The array
+        // is this parse's own (a split of the source, or a quote's content).
+        lines[close] = rest;
+        i = close - 1;
+        previousBlank = true;
+        continue;
+      }
+    }
+
+    // A <script>, <style> or <template> that runs over several lines is
+    // hidden whole, blank lines inside it too (CommonMark HTML block 1), as a
+    // browser hides it. One that closes on its own line is left to the inline
+    // pass; one that never closes prints.
+    const hiddenOpen = indent <= 3 && !quote && HIDDEN_BLOCK.exec(trimmed);
+    if (hiddenOpen) {
+      const name = hiddenOpen[1]!.toLowerCase();
+      const closer = new RegExp(`</${name}\\s*>`, "i");
+      let close = -1;
+      const searched = noHiddenCloseFrom.get(name) ?? Infinity;
+      if (!closer.test(trimmed) && i + 1 < searched) {
+        for (let j = i + 1; j < lines.length; j++) {
+          if (closer.test(lines[j]!)) {
+            close = j;
+            break;
+          }
+        }
+        if (close < 0) noHiddenCloseFrom.set(name, i + 1);
+      }
+      if (close > i) {
+        flushParagraph();
+        const last = lines[close]!;
+        const m = closer.exec(last)!;
+        lines[close] = last.slice(m.index + m[0].length);
+        i = close - 1;
+        previousBlank = true;
+        continue;
+      }
+    }
+
     // Setext headings take the paragraph above them. Checked before the
     // thematic break, because `Title\n---` is a heading, not a rule.
     if (paragraph.length && indent <= 3) {
       const level = SETEXT_1.test(trimmed) ? 1 : SETEXT_2.test(trimmed) ? 2 : 0;
       if (level) {
-        const text = stripInlineMarkdown(paragraph.join("\n"));
+        const heading = inline(paragraph.join("\n"));
         paragraph = [];
-        if (text) blocks.push({ kind: "heading", depth: level as 1 | 2, text });
+        if (heading) {
+          blocks.push({
+            kind: "heading",
+            depth: level as 1 | 2,
+            text: heading,
+          });
+        }
         previousBlank = false;
         continue;
       }
@@ -824,12 +1535,12 @@ export function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
     if (heading) {
       flushAll();
       closeList();
-      const text = stripInlineMarkdown(heading[2] ?? "");
-      if (text) {
+      const headingText = inline(heading[2] ?? "");
+      if (headingText) {
         blocks.push({
           kind: "heading",
           depth: heading[1]!.length as 1 | 2 | 3 | 4 | 5 | 6,
-          text,
+          text: headingText,
         });
       }
       previousBlank = false;
@@ -870,12 +1581,12 @@ export function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
           // Short rows are padded and long ones cut, as GFM does.
           const cells = splitTableRow(line).slice(0, width);
           while (cells.length < width) cells.push("");
-          rows.push(cells.map(stripInlineMarkdown));
+          rows.push(cells.map(inline));
         }
         blocks.push({
           kind: "table",
           align: delimiter.map(tableAlign),
-          header: header.map(stripInlineMarkdown),
+          header: header.map(inline),
           rows,
         });
         i = j - 1;
@@ -884,16 +1595,16 @@ export function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
       }
     }
 
-    const quoted = QUOTE_LINE.exec(trimmed);
-    if (quoted) {
+    if (QUOTE_LINE.test(trimmed)) {
       if (!quote) {
         flushParagraph();
         flushItem();
         closeList();
         quote = [];
       }
-      if (quoted[1]!.trim()) quote.push(quoted[1]!);
-      else flushQuote();
+      // The content keeps its own indentation and blank lines: it is parsed
+      // as Markdown again when the quote closes.
+      quote.push(raw.trimStart().replace(/^>[ ]?/, ""));
       previousBlank = false;
       continue;
     }
@@ -903,13 +1614,26 @@ export function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
     if (bullet || ordered) {
       flushAll();
       // A child starts at or past its parent's text column; anything shallower
-      // closes the frames it is not inside.
-      while (list.length && indent < list.at(-1)!.content) list.pop();
+      // closes the frames it is not inside. The last frame closed at this
+      // depth is the previous item of the same list, if there is one.
+      let sibling: ListFrame | undefined;
+      while (list.length && indent < list.at(-1)!.content) sibling = list.pop();
       const markerWidth = bullet ? bullet[1]!.length : ordered![1]!.length + 1;
       const gap = (bullet ? bullet[2]! : ordered![3]!).length;
+      const delimiter = bullet ? bullet[1]! : ordered![2]!;
+      // Only the first item's number counts; the rest count on from it
+      // (CommonMark 5.3), so "1. 1. 1." prints 1, 2, 3. Until audit #11 each
+      // item printed the number typed on it.
+      const index =
+        ordered && sibling?.ordered && sibling.delimiter === delimiter
+          ? sibling.index + 1
+          : Number(ordered?.[1] ?? 0);
       list.push({
         indent,
         content: indent + markerWidth + (gap > 4 ? 1 : gap),
+        ordered: Boolean(ordered),
+        delimiter,
+        index,
       });
       const block: MarkdownBlock & { kind: "list-item" } = bullet
         ? {
@@ -921,19 +1645,20 @@ export function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
         : {
             kind: "list-item",
             ordered: true,
-            index: Number(ordered![1]),
+            index,
             depth: list.length - 1,
             text: "",
           };
       blocks.push(block);
-      item = { block, lines: [bullet ? bullet[3]! : ordered![4]!] };
+      const first = bullet ? bullet[3]! : ordered![4]!;
+      item = { block, lines: [first + text.slice(trimmed.length)] };
       previousBlank = false;
       continue;
     }
 
     if (quote && !previousBlank) {
       // Lazy continuation of the quote's paragraph.
-      quote.push(trimmed);
+      quote.push(text);
       continue;
     }
 
@@ -943,15 +1668,43 @@ export function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
       const continues =
         (!previousBlank && !paragraph.length) ||
         (previousBlank && indent >= list.at(-1)!.content);
+      if (continues && item && previousBlank) {
+        // A second paragraph of the item: drawn under its text, without a
+        // marker. Until audit #11 it was run into the item's first line.
+        const parent: MarkdownBlock & { kind: "list-item" } = item.block;
+        const isOrdered: boolean = parent.ordered;
+        const depth: number = parent.depth;
+        flushItem();
+        const block: MarkdownBlock & { kind: "list-item" } = isOrdered
+          ? {
+              kind: "list-item",
+              ordered: true,
+              index: list.at(-1)!.index,
+              depth,
+              continued: true,
+              text: "",
+            }
+          : {
+              kind: "list-item",
+              ordered: false,
+              depth,
+              continued: true,
+              text: "",
+            };
+        blocks.push(block);
+        item = { block, lines: [text] };
+        previousBlank = false;
+        continue;
+      }
       if (continues && item) {
-        item.lines.push(trimmed);
+        item.lines.push(text);
         previousBlank = false;
         continue;
       }
       if (continues && !item) {
         // The item's text was already closed (a fence inside the item, say);
         // keep the prose in the item's column as a paragraph of its own.
-        paragraph.push(trimmed);
+        paragraph.push(text);
         previousBlank = false;
         continue;
       }
@@ -960,7 +1713,7 @@ export function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
 
     flushQuote();
     flushItem();
-    paragraph.push(trimmed);
+    paragraph.push(text);
     previousBlank = false;
   }
 
@@ -974,6 +1727,21 @@ export function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
 
 function listMarker(block: MarkdownBlock & { kind: "list-item" }): string {
   return block.ordered ? `${block.index ?? 1}.` : "•";
+}
+
+/**
+ * Wrapped lines for a block's text. A hard line break is the one newline
+ * block text can hold, and each one starts a new line.
+ */
+function wrapBlockText(
+  text: string,
+  font: PDFFont,
+  maxWidth: number,
+  size: number,
+): string[] {
+  return text
+    .split("\n")
+    .flatMap((line) => wrapTextLine(line, font, maxWidth, size));
 }
 
 /**
@@ -995,7 +1763,9 @@ function drawnStrings(blocks: MarkdownBlock[], title: string): string[] {
   for (const block of blocks) {
     switch (block.kind) {
       case "list-item":
-        out.push(`${listMarker(block)} ${block.text}`);
+        out.push(
+          block.continued ? block.text : `${listMarker(block)} ${block.text}`,
+        );
         continue;
       case "code":
         if (block.language) out.push(block.language);
@@ -1086,10 +1856,13 @@ function drawTable(
     (_, c) =>
       rows.reduce(
         (widest, row, r) =>
-          Math.max(
-            widest,
-            fontFor(r).widthOfTextAtSize(row[c] ?? "", TABLE_SIZE),
-          ),
+          (row[c] ?? "")
+            .split("\n")
+            .reduce(
+              (w, line) =>
+                Math.max(w, fontFor(r).widthOfTextAtSize(line, TABLE_SIZE)),
+              widest,
+            ),
         0,
       ) +
       TABLE_PAD_X * 2,
@@ -1105,7 +1878,12 @@ function drawTable(
     // The slack absorbs float error: a column sized to its widest cell must not
     // wrap that cell because (w + 10) - 10 came back a hair under w.
     const cells = widths.map((w, c) =>
-      wrapTextLine(row[c] ?? "", font, w - TABLE_PAD_X * 2 + 0.001, TABLE_SIZE),
+      wrapBlockText(
+        row[c] ?? "",
+        font,
+        w - TABLE_PAD_X * 2 + 0.001,
+        TABLE_SIZE,
+      ),
     );
     // Folded for the same reason, per column this time.
     const height = cells.reduce(
@@ -1195,7 +1973,7 @@ function drawBlock(cursor: Cursor, block: MarkdownBlock): void {
       cursor.y -= block.depth === 1 ? 8 : 4;
       drawLines(
         cursor,
-        wrapTextLine(block.text, cursor.fonts.bold, maxWidth, size),
+        wrapBlockText(block.text, cursor.fonts.bold, maxWidth, size),
         {
           x: MARGIN,
           size,
@@ -1213,7 +1991,7 @@ function drawBlock(cursor: Cursor, block: MarkdownBlock): void {
     case "paragraph":
       drawLines(
         cursor,
-        wrapTextLine(block.text, cursor.fonts.body, maxWidth, BODY_SIZE),
+        wrapBlockText(block.text, cursor.fonts.body, maxWidth, BODY_SIZE),
         {
           x: MARGIN,
           size: BODY_SIZE,
@@ -1236,20 +2014,25 @@ function drawBlock(cursor: Cursor, block: MarkdownBlock): void {
         12,
         font.widthOfTextAtSize(`${marker} `, BODY_SIZE),
       );
-      const lines = wrapTextLine(
+      const lines = wrapBlockText(
         block.text,
         font,
         PAGE_WIDTH - MARGIN - x - hang,
         BODY_SIZE,
       );
       ensureSpace(cursor, BODY_LINE_HEIGHT);
-      cursor.page.drawText(marker, {
-        x,
-        y: cursor.y,
-        size: BODY_SIZE,
-        font,
-        color: cursor.rgb(0.1, 0.12, 0.18),
-      });
+      if (block.continued) {
+        // A later paragraph of the item: a little air, then its text column.
+        cursor.y -= 4;
+      } else {
+        cursor.page.drawText(marker, {
+          x,
+          y: cursor.y,
+          size: BODY_SIZE,
+          font,
+          color: cursor.rgb(0.1, 0.12, 0.18),
+        });
+      }
       drawLines(cursor, lines, {
         x: x + hang,
         size: BODY_SIZE,
@@ -1259,25 +2042,30 @@ function drawBlock(cursor: Cursor, block: MarkdownBlock): void {
       return;
     }
     case "quote": {
-      const lines = wrapTextLine(
+      // One bar per level of nesting, each QUOTE_STEP further right.
+      const levels = Math.min(block.depth ?? 1, MAX_LIST_DEPTH);
+      const inset = (levels - 1) * QUOTE_STEP;
+      const lines = wrapBlockText(
         block.text,
         cursor.fonts.italic,
-        maxWidth - 18,
+        maxWidth - 18 - inset,
         BODY_SIZE,
       );
       for (const line of lines) {
         ensureSpace(cursor, BODY_LINE_HEIGHT);
         // The bar is drawn per line so it runs the full height of the quote,
         // across a page break too.
-        cursor.page.drawRectangle({
-          x: MARGIN,
-          y: cursor.y - 4,
-          width: 3,
-          height: BODY_LINE_HEIGHT,
-          color: cursor.rgb(0.45, 0.36, 0.95),
-        });
+        for (let level = 0; level < levels; level++) {
+          cursor.page.drawRectangle({
+            x: MARGIN + level * QUOTE_STEP,
+            y: cursor.y - 4,
+            width: 3,
+            height: BODY_LINE_HEIGHT,
+            color: cursor.rgb(0.45, 0.36, 0.95),
+          });
+        }
         drawLines(cursor, [line], {
-          x: MARGIN + 14,
+          x: MARGIN + 14 + inset,
           size: BODY_SIZE,
           lineHeight: BODY_LINE_HEIGHT,
           font: cursor.fonts.italic,

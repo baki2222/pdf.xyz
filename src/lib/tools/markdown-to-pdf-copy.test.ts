@@ -175,6 +175,10 @@ describe("markdown-to-pdf: the page describes what the renderer draws", () => {
     "Tables and YAML front matter are not recognised, so their lines are parsed like any other Markdown and mostly print as plain paragraphs, and a --- rule prints as three hyphens rather than a line.",
     "For Western European text, # headings are bold, with level 1 largest, level 2 next and levels 3 to 6 sharing one size; list items are indented; each > quote line is italic with an accent bar beside its first line; and fenced code is set in a monospaced face under its language tag.",
     "One character outside that set anywhere in the text or the file name, even a Polish ż or an arrow such as →, moves the whole document to a single regular-weight Noto face: headings then differ by size only, quotes are upright and code is no longer monospaced.",
+    // Audit #11 (2026-11-06): true of the parser until then, false since.
+    "Strikethrough markers are removed without drawing a line, raw HTML prints literally, and task-list boxes print as [ ] or [x].",
+    "A badge prints as its alt text followed by the image and link addresses, a screenshot with no alt text as its bare address, and any HTML in the README as literal tags.",
+    "Numbered lists keep the numbers you typed.",
     "Besides the tool's own code, the only other thing it may fetch is Noto font data from pdf.xyz's own server, when your text or file name goes beyond the Western European set: usually one file, from 137.8 KB for Bengali to 10.1 MB for Chinese, and a second only if the first cannot shape every character.",
   ];
   const BANNED: RegExp[] = [
@@ -195,6 +199,9 @@ describe("markdown-to-pdf: the page describes what the renderer draws", () => {
     // Fonts.
     /\bcode is no longer monospaced\b/i,
     /\busually one file\b/i,
+    // Raw HTML said to print as typed, and lazy numbering said to be kept.
+    /\bHTML\b[^.]*\bliteral(?:ly)?\b/i,
+    /\bnumbers you typed\b/i,
   ];
 
   it("the banned shapes and the sentences that shipped catch each other (both directions)", () => {
@@ -262,6 +269,54 @@ describe("markdown-to-pdf: the page describes what the renderer draws", () => {
         b.kind === "list-item" ? b.depth : -1,
       );
       expect(depths).toEqual([0, 1, 2]);
+    });
+
+    it("raw HTML reads as a browser shows it, and a numbered list counts on (audit #11)", () => {
+      const text = (md: string) =>
+        parseMarkdownBlocks(md).map((b) => ("text" in b ? b.text : b.kind));
+      expect(text("a <!-- hidden --> b<br>c &amp; <b>d</b>")).toEqual([
+        "a b\nc & d",
+      ]);
+      expect(text('<img src="s.png" alt="Shot">')).toEqual(["Shot (s.png)"]);
+      // Review of audit #11: the page said "other HTML tags are left out"
+      // while <script> printed its body and <input> its tag. Each clause the
+      // page names runs through the parser here.
+      expect(
+        text(
+          "x <script>alert(1)</script> y <style>p{}</style> z <template>t</template>",
+        ),
+      ).toEqual(["x y z"]);
+      expect(
+        text('<input type="checkbox" checked> done <label>l</label>'),
+      ).toEqual(["[x] done l"]);
+      for (const tag of ["video", "audio", "iframe", "embed"]) {
+        expect(text(`<${tag} src="m.bin"></${tag}>`)).toEqual(["m.bin"]);
+      }
+      // "other HTML tags are left out": an input that is not a checkbox, and
+      // a tag between words, leave only the words.
+      expect(
+        text('name <input type="text"> <span class="c">kept</span>'),
+      ).toEqual(["name kept"]);
+      expect(text("caf&eacute;")).toEqual(["café"]);
+      const numbers = parseMarkdownBlocks("1. a\n1. b\n1. c").map((b) =>
+        b.kind === "list-item" ? b.index : 0,
+      );
+      expect(numbers).toEqual([1, 2, 3]);
+      // The page names each of these.
+      const page = served(SLUGS[0]!).join(" ");
+      for (const claim of [
+        "<!-- comment --> is hidden",
+        "<br> starts a new line",
+        "1. 1. 1. print as 1, 2, 3",
+        "&amp;",
+        "&eacute;",
+        "a <script>, <style> or <template> is hidden with its content",
+        "a video, audio, iframe or embed tag its address",
+        "a checkbox [ ] or [x]",
+        "other HTML tags are left out with the text between them kept",
+      ]) {
+        expect(page).toContain(claim);
+      }
     });
 
     it("each heading level has its own size, and the quote bar runs every line", async () => {

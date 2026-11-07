@@ -4,6 +4,7 @@ import { outputName } from "./files";
 import { PdfEngineError } from "./engine";
 import { embedDrawingFont } from "./unicode-font";
 import { TEXT_PAGE_MARGIN_PT, US_LETTER_PT } from "./page-geometry";
+import { stripControls } from "@/lib/text/decode-text-file";
 
 const PRODUCER = "pdf.xyz";
 // The page geometry the tool page states — one value, see ./page-geometry.
@@ -104,23 +105,46 @@ export function wrapTextLine(
   return wrapped;
 }
 
+/** U+000C, built from its code: the page break of RFCs and man pages. */
+const FORM_FEED = String.fromCharCode(0x0c);
+
+/**
+ * Text that can be drawn, and how many control characters were dropped to get
+ * it. Form feeds are kept: {@link layoutPlainText} starts a new page at each.
+ */
+export function printablePlainText(text: string): {
+  text: string;
+  removed: number;
+} {
+  return stripControls(text, { keepFormFeeds: true });
+}
+
+/**
+ * Lines wrapped to the column and cut into pages. A form feed ends the page it
+ * is on, as a printer would; one after the last text adds no empty page.
+ */
 export function layoutPlainText(
   text: string,
   font: PDFFont,
   maxWidth = PAGE_WIDTH - MARGIN * 2,
   linesPerPage = Math.floor((PAGE_HEIGHT - MARGIN * 2) / LINE_HEIGHT),
 ): TextLayout {
-  const normalized = normalizeInput(text);
-  const allLines = normalized
-    .split("\n")
-    .flatMap((line) => wrapTextLine(line, font, maxWidth));
+  const sections = normalizeInput(text).split(FORM_FEED);
+  while (sections.length > 1 && !sections.at(-1)!.trim()) sections.pop();
   const pages: TextLayoutPage[] = [];
-  for (let i = 0; i < allLines.length; i += linesPerPage) {
-    pages.push({ lines: allLines.slice(i, i + linesPerPage) });
+  let lineCount = 0;
+  for (const section of sections) {
+    const lines = section
+      .split("\n")
+      .flatMap((line) => wrapTextLine(line, font, maxWidth));
+    lineCount += lines.length;
+    for (let i = 0; i < lines.length; i += linesPerPage) {
+      pages.push({ lines: lines.slice(i, i + linesPerPage) });
+    }
   }
   return {
     pages: pages.length ? pages : [{ lines: [""] }],
-    lineCount: allLines.length,
+    lineCount,
   };
 }
 
@@ -129,7 +153,13 @@ export async function textToPdf(
   text: string,
   options: TextToPdfOptions = {},
 ): Promise<Uint8Array> {
-  validatePlainTextInput(text);
+  // Pasted and typed text is cleaned here, not only a loaded file: an ESC
+  // colour code or a bell reached the font check, which refused the document
+  // naming an invisible character (audit #34). Text that was nothing but
+  // control characters is empty, and refused as empty.
+  const printable = printablePlainText(text).text;
+  validatePlainTextInput(printable.split(FORM_FEED).join(""));
+  text = printable;
   const { PDFDocument, rgb } = await loadPdfLib();
   const doc = await PDFDocument.create();
   const title = (options.title ?? "Text document").trim() || "Text document";
@@ -140,7 +170,11 @@ export async function textToPdf(
   // of the refusal it used to get, and the layout below measures with THAT
   // font — wrapping non-Latin text against Courier's metrics would have put
   // every line break in the wrong place.
-  const font = await embedDrawingFont(doc, [text, title], "mono");
+  const font = await embedDrawingFont(
+    doc,
+    [text.split(FORM_FEED).join(" "), title],
+    "mono",
+  );
   const bold = await embedDrawingFont(doc, [title], "sans-bold");
   const layout = layoutPlainText(text, font);
 

@@ -704,7 +704,7 @@ const FACTS: Record<string, readonly ToolFact[]> = {
     {
       label: "Paragraphs and lists",
       value:
-        "Lines that wrap are joined into paragraphs, split where the page leaves a wider gap or indents a line; a line that starts with a list marker (-, *, +, •, ▪ or a number) stays a list item.",
+        "Lines that wrap are joined into paragraphs, split where the page leaves a wider gap or indents a line; a line that starts with a list marker (-, *, +, •, ▪ or a number) stays a list item, unless it only wraps a sentence that is still running.",
     },
     {
       label: "Not rebuilt",

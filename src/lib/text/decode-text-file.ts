@@ -45,8 +45,9 @@ export interface DecodedTextFile {
   readonly encoding: TextFileEncoding;
   readonly basis: DecodeBasis;
   /**
-   * Control characters (C0 other than tab, line feed and carriage return; DEL;
-   * C1) removed after decoding. No face draws them: left in, they either
+   * Control characters (C0 other than tab, line feed and carriage return, and
+   * form feed when kept; DEL; C1) removed after decoding, an ANSI colour
+   * sequence counting once. No face draws them: left in, they either
    * refuse the whole document or reach the page as boxes.
    */
   readonly removedControls: number;
@@ -58,18 +59,67 @@ export const REPLACEMENT_CHARACTER = String.fromCharCode(0xfffd);
 /** How much of the file the UTF-16 sniff reads. Plenty for a verdict, cheap. */
 const SNIFF_BYTES = 4096;
 
-function isStrippedControl(code: number): boolean {
+export interface StripControlsOptions {
+  /**
+   * Keep U+000C FORM FEED, the page break of RFCs, man pages and printed
+   * reports, for a consumer that turns it into a new page (Text to PDF).
+   */
+  readonly keepFormFeeds?: boolean;
+}
+
+function isStrippedControl(code: number, keepFormFeeds: boolean): boolean {
   if (code === 0x09 || code === 0x0a || code === 0x0d) return false;
+  if (code === 0x0c && keepFormFeeds) return false;
   return code <= 0x1f || (code >= 0x7f && code <= 0x9f);
 }
 
-function stripControls(text: string): { text: string; removed: number } {
+/**
+ * Where an ANSI control sequence (`ESC [ params final`, the colour codes in
+ * copied terminal output) that starts with the ESC at `at` ends, or `at` when
+ * there is none. Removing only the ESC would leave "[31m" on the page.
+ */
+function controlSequenceEnd(text: string, at: number): number {
+  if (text.charCodeAt(at) !== 0x1b || text[at + 1] !== "[") return at;
+  let i = at + 2;
+  // Parameter bytes 0x30-0x3F, then intermediate bytes 0x20-0x2F, then ONE
+  // final byte 0x40-0x7E (ECMA-48 5.4).
+  while (
+    i < text.length &&
+    text.charCodeAt(i) >= 0x30 &&
+    text.charCodeAt(i) <= 0x3f
+  )
+    i++;
+  while (
+    i < text.length &&
+    text.charCodeAt(i) >= 0x20 &&
+    text.charCodeAt(i) <= 0x2f
+  )
+    i++;
+  const final = text.charCodeAt(i);
+  return final >= 0x40 && final <= 0x7e ? i : at;
+}
+
+/**
+ * Remove the control characters no face can draw, counting them: C0 other
+ * than tab, line feed and carriage return (and form feed, when asked to keep
+ * it), DEL and C1. An ANSI colour sequence goes whole and counts once.
+ *
+ * Shared by the file decoder and by Text to PDF itself, which runs it on
+ * pasted and typed text too. Until audit #34 (2026-11-06) only a LOADED file
+ * was cleaned, so pasted terminal output was refused naming an invisible
+ * character.
+ */
+export function stripControls(
+  text: string,
+  { keepFormFeeds = false }: StripControlsOptions = {},
+): { text: string; removed: number } {
   let removed = 0;
   let out = "";
   for (let i = 0; i < text.length; i++) {
     const code = text.charCodeAt(i);
-    if (isStrippedControl(code)) {
+    if (isStrippedControl(code, keepFormFeeds)) {
       removed++;
+      i = controlSequenceEnd(text, i);
       continue;
     }
     out += text[i];
@@ -120,29 +170,43 @@ function finish(
   raw: string,
   encoding: TextFileEncoding,
   basis: DecodeBasis,
+  options: StripControlsOptions,
 ): DecodedTextFile {
-  const { text, removed } = stripControls(raw);
+  const { text, removed } = stripControls(raw, options);
   return { text, encoding, basis, removedControls: removed };
 }
 
 /** Decode a text file's bytes into the text its author wrote. */
-export function decodeTextBytes(bytes: Uint8Array): DecodedTextFile {
+export function decodeTextBytes(
+  bytes: Uint8Array,
+  options: StripControlsOptions = {},
+): DecodedTextFile {
   const declared = bomEncoding(bytes);
   if (declared) {
     // `ignoreBOM: false` (the default) consumes the mark itself. Not fatal: the
     // file NAMED its encoding, so a stray bad sequence is the file's defect,
     // and the U+FFFD it becomes is surfaced by the runner's second check.
-    return finish(new TextDecoder(declared).decode(bytes), declared, "bom");
+    return finish(
+      new TextDecoder(declared).decode(bytes),
+      declared,
+      "bom",
+      options,
+    );
   }
 
   const utf16 = nulPatternEncoding(bytes);
   if (utf16) {
-    return finish(new TextDecoder(utf16).decode(bytes), utf16, "nul-pattern");
+    return finish(
+      new TextDecoder(utf16).decode(bytes),
+      utf16,
+      "nul-pattern",
+      options,
+    );
   }
 
   try {
     const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    return finish(text, "utf-8", "valid-utf-8");
+    return finish(text, "utf-8", "valid-utf-8", options);
   } catch {
     // Not UTF-8. Windows-1252 decodes every byte, so this cannot throw; the
     // five bytes it leaves undefined become C1 controls and are stripped and
@@ -151,13 +215,17 @@ export function decodeTextBytes(bytes: Uint8Array): DecodedTextFile {
       new TextDecoder("windows-1252").decode(bytes),
       "windows-1252",
       "fallback",
+      options,
     );
   }
 }
 
 /** Read a picked file through {@link decodeTextBytes}. */
-export async function decodeTextFile(file: Blob): Promise<DecodedTextFile> {
-  return decodeTextBytes(new Uint8Array(await file.arrayBuffer()));
+export async function decodeTextFile(
+  file: Blob,
+  options: StripControlsOptions = {},
+): Promise<DecodedTextFile> {
+  return decodeTextBytes(new Uint8Array(await file.arrayBuffer()), options);
 }
 
 const GUESSED: Record<TextFileEncoding, string> = {
