@@ -1459,9 +1459,16 @@ describe("page tools keep the document's bookmarks, page labels and metadata", (
       expect((await PDFDocument.load(out)).getPageCount()).toBe(
         sequence.length,
       );
-      const got = await readAsViewer(out);
-      const want = await readAsViewer(reference);
+      const { labels, ...got } = await readAsViewer(out);
+      const { labels: organizeLabels, ...want } = await readAsViewer(reference);
       expect(got).toEqual(want);
+      // INVERTED 2026-11-06 (audit #43): this compared the labels too, and so
+      // pinned the defect — Organize's duplicate keeps its page's label, so
+      // each split page's halves read the same label ("Ch-1", "Ch-1") and a
+      // typed page number landed on the left half. A split now carries no
+      // labels: the viewer numbers each page, one number per page.
+      expect(organizeLabels).not.toBeNull();
+      expect(labels).toBeNull();
       // Positive control: the reference is not vacuously empty.
       expect(want.outline.length).toBeGreaterThan(0);
     });

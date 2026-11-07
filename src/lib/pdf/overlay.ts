@@ -1,7 +1,8 @@
-import type { PDFDocument, PDFEmbeddedPage, PDFPage } from "pdf-lib";
+import type { PDFDict, PDFDocument, PDFEmbeddedPage, PDFPage } from "pdf-lib";
 import { PdfEncryptedError, PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
+import { viewerRotation } from "./rotation";
 import { loadPdf, stampProducer } from "./stamp";
 import type { OverlayFit } from "./offered-kinds";
 
@@ -141,14 +142,7 @@ export interface PdfBox {
   height: number;
 }
 
-/**
- * A `/Rotate` value as a viewer applies it: a multiple of 90 normalized into
- * [0, 360); anything else is ignored (treated as 0), which is what pdf.js does.
- */
-export function viewerRotation(angle: number): 0 | 90 | 180 | 270 {
-  if (!Number.isFinite(angle) || angle % 90 !== 0) return 0;
-  return (((angle % 360) + 360) % 360) as 0 | 90 | 180 | 270;
-}
+export { viewerRotation };
 
 export interface PlaceOverlayInput {
   /** The base page's visible box (CropBox ∩ MediaBox), in content space. */
@@ -497,6 +491,79 @@ function sendNewestStreamToBack(lib: PdfLibModule, page: PDFPage): void {
   const newest = contents.get(last);
   contents.remove(last);
   contents.insert(0, newest);
+}
+
+/**
+ * Give every form field a viewer would draw from its VALUE an appearance
+ * stream to bake, in place, on an in-memory document; return the names of
+ * the fields that could not be given one.
+ *
+ * {@link bakeAnnotationAppearances} paints stored appearances only, and a
+ * form filled by pdftk without flatten, by some browser and macOS fills, or
+ * by a server carries its value only in `/V`, with `/NeedAppearances true`
+ * and often no `/AP` at all: the viewer builds the appearance. Measured at
+ * a7aa20cf (audit #24), such a value vanished from Multiple Pages per Sheet
+ * with no warning. So, as Flatten PDF does: under `/NeedAppearances true`
+ * every text, dropdown and list field is redrawn from its value, and any
+ * field with no appearance is drawn. When a redraw fails (typically a value
+ * the form's WinAnsi font cannot encode, such as Bengali or CJK), the field's
+ * stored appearance, if every widget has one, is still baked; only a field
+ * left with a widget that has nothing to bake is named, for the caller to say
+ * so.
+ */
+export function drawFieldValues(lib: PdfLibModule, doc: PDFDocument): string[] {
+  const { PDFBool, PDFDict, PDFName, PDFSignature } = lib;
+  const { PDFDropdown, PDFOptionList, PDFTextField } = lib;
+  if (!doc.catalog.lookupMaybe(PDFName.of("AcroForm"), PDFDict)) return [];
+  const form = doc.getForm();
+  const fields = form.getFields();
+  const flag = form.acroForm.dict.lookup(PDFName.of("NeedAppearances"));
+  if (flag instanceof PDFBool && flag.asBoolean()) {
+    for (const field of fields) {
+      if (
+        field instanceof PDFTextField ||
+        field instanceof PDFDropdown ||
+        field instanceof PDFOptionList
+      ) {
+        form.markFieldAsDirty(field.ref);
+      }
+    }
+  }
+  const font = form.getDefaultFont();
+  const undrawn: string[] = [];
+  for (const field of fields) {
+    if (field instanceof PDFSignature || !field.needsAppearancesUpdate()) {
+      continue;
+    }
+    const redraw = (
+      field as { defaultUpdateAppearances?: (f: typeof font) => void }
+    ).defaultUpdateAppearances;
+    try {
+      redraw?.call(field, font);
+    } catch {
+      // Whatever stopped the redraw, a widget that still holds a stored
+      // appearance is baked from it, so the value is on the sheet. Name the
+      // field only when some widget has nothing to bake. (Audit review of
+      // #24: naming every failed redraw called a drawn Bengali value missing.)
+      if (
+        !field.acroField
+          .getWidgets()
+          .every((w) => hasNormalAppearance(lib, w.dict))
+      ) {
+        undrawn.push(field.getName());
+      }
+    }
+  }
+  return undrawn;
+}
+
+/** Whether a widget dict carries a normal appearance (`/AP /N`) to bake. */
+function hasNormalAppearance(lib: PdfLibModule, widget: PDFDict): boolean {
+  const { PDFDict, PDFName, PDFStream } = lib;
+  const ap = widget.lookup(PDFName.of("AP"));
+  if (!(ap instanceof PDFDict)) return false;
+  const normal = ap.lookup(PDFName.of("N"));
+  return normal instanceof PDFStream || normal instanceof PDFDict;
 }
 
 /** Annotation flags (PDF 32000 §12.5.3) that stop a viewer painting one. */

@@ -6,7 +6,7 @@ import {
   UNREADABLE_PDF_MESSAGE,
 } from "./engine-errors";
 import type { assemblePages as AssemblePages } from "./page-copy";
-import { normalizeAngle } from "./rotation";
+import { normalizeAngle, viewerRotation } from "./rotation";
 import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
 import type {
   NamedBytes,
@@ -102,13 +102,13 @@ export async function getPageCount(bytes: Uint8Array): Promise<number> {
   return doc.getPageCount();
 }
 
-/** Read each page's current rotation, in document order. */
+/** Read each page's rotation as a viewer shows it, in document order. */
 export async function getPageRotations(bytes: Uint8Array): Promise<Rotation[]> {
   const doc = await load(bytes);
   const { toDegrees } = await loadPdfLib();
   return doc
     .getPages()
-    .map((page) => normalizeAngle(toDegrees(page.getRotation())));
+    .map((page) => viewerRotation(toDegrees(page.getRotation())));
 }
 
 /** What a merge does besides concatenating every page of every file. */
@@ -253,7 +253,7 @@ export async function rotatePages(
   for (const i of target) {
     const page = pages[i];
     if (!page) continue;
-    const current = toDegrees(page.getRotation());
+    const current = viewerRotation(toDegrees(page.getRotation()));
     page.setRotation(degrees(normalizeAngle(current + turn)));
   }
   stamp(src);

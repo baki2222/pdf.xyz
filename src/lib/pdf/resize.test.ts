@@ -1,13 +1,24 @@
 // @native-canvas
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
-import { PDFDocument, PDFName, StandardFonts, degrees } from "pdf-lib";
+import {
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFName,
+  PDFNumber,
+  PDFString,
+  StandardFonts,
+  degrees,
+  type PDFObject,
+} from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import { PdfEngineError } from "./engine";
 import {
   MAX_RESIZE_SIDE_PT,
   MIN_RESIZE_SIDE_PT,
   RESIZE_SIZES,
+  fitTransform,
   orientedTarget,
   resizeOutputName,
   resizePdf,
@@ -281,3 +292,152 @@ describe("resizePdf — refusals and names", () => {
     expect(resizeOutputName("deck.pdf")).toBe("deck-resized.pdf");
   });
 });
+
+/**
+ * What else moves with the content (audit #26). Until 2026-11-06 fit mode
+ * put only `Rect` and `QuadPoints` through the matrix, once per page that
+ * listed the annotation. So a bookmark or internal link to a heading at
+ * y=700 still said 700 on a 421-pt A5 page; ink, line and polygon geometry
+ * stayed at Letter coordinates outside its own scaled Rect; and an
+ * annotation two pages shared was scaled twice. The FAQ said links "still
+ * work" and the intro said comments "stay on the words they belong to".
+ */
+describe("resizePdf — destinations and annotation geometry follow the content", () => {
+  const A5 = RESIZE_SIZES.find((s) => s.id === "a5")!.size;
+
+  async function letterWithNavigation(): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+    const p1 = doc.addPage([612, 792]);
+    const p2 = doc.addPage([612, 792]);
+    const ctx = doc.context;
+    const dest = () => ctx.obj([p2.ref, "XYZ", 0, 700, 0]);
+    const annot = (dict: Record<string, unknown>) =>
+      ctx.register(ctx.obj({ Type: "Annot", ...dict } as never));
+    const shared = annot({ Subtype: "Square", Rect: [300, 300, 400, 400] });
+    p1.node.set(
+      PDFName.of("Annots"),
+      ctx.obj([
+        annot({ Subtype: "Link", Rect: [50, 50, 150, 80], Dest: dest() }),
+        annot({
+          Subtype: "Link",
+          Rect: [50, 90, 150, 120],
+          A: { S: "GoTo", D: ctx.obj([p2.ref, "FitR", 100, 100, 200, 200]) },
+        }),
+        annot({
+          Subtype: "Ink",
+          Rect: [100, 100, 200, 200],
+          InkList: [[100, 100, 200, 200]],
+        }),
+        annot({
+          Subtype: "Line",
+          Rect: [100, 100, 200, 200],
+          L: [100, 100, 200, 200],
+        }),
+        annot({
+          Subtype: "Polygon",
+          Rect: [100, 100, 200, 200],
+          Vertices: [100, 100, 200, 100, 150, 200],
+        }),
+        annot({
+          Subtype: "FreeText",
+          Rect: [100, 100, 200, 200],
+          CL: [50, 50, 80, 80, 100, 150],
+        }),
+        shared,
+      ]),
+    );
+    p2.node.set(PDFName.of("Annots"), ctx.obj([shared]));
+    const item = ctx.register(
+      ctx.obj({ Title: PDFString.of("Heading"), Dest: dest() }),
+    );
+    const outlines = ctx.register(
+      ctx.obj({ Type: "Outlines", First: item, Last: item, Count: 1 }),
+    );
+    (ctx.lookup(item) as PDFDict).set(PDFName.of("Parent"), outlines);
+    doc.catalog.set(PDFName.of("Outlines"), outlines);
+    doc.catalog.set(
+      PDFName.of("Dests"),
+      ctx.obj({ sec: ctx.obj([p2.ref, "FitH", 700]) }),
+    );
+    return doc.save();
+  }
+
+  const t = () =>
+    fitTransform({ x: 0, y: 0, width: 612, height: 792 }, A5.width, A5.height);
+  const X = (x: number) => x * t().scale + t().tx;
+  const Y = (y: number) => y * t().scale + t().ty;
+
+  async function resized(): Promise<Uint8Array> {
+    return (
+      await resizePdf(await letterWithNavigation(), {
+        ...A5,
+        orientation: "portrait",
+        mode: "fit",
+      })
+    ).bytes;
+  }
+
+  it("bookmarks, links and named destinations land on the same spot", async () => {
+    const bytes = await resized();
+    const lib = await pdfjs();
+    const task = lib.getDocument({ data: bytes.slice(), verbosity: 0 });
+    const pdf = await task.promise;
+    try {
+      const outline = await pdf.getOutline();
+      const [, , left, top] = outline[0]!.dest as unknown[];
+      expect(left as number).toBeCloseTo(X(0), 3);
+      expect(top as number).toBeCloseTo(Y(700), 3);
+      const named = (await pdf.getDestination("sec")) as unknown[];
+      expect(named[2] as number).toBeCloseTo(Y(700), 3);
+      const links = await (await pdf.getPage(1)).getAnnotations();
+      const [, , , linkTop] = links[0]!.dest as unknown[];
+      expect(linkTop as number).toBeCloseTo(Y(700), 3);
+    } finally {
+      await task.destroy();
+    }
+    const doc = await PDFDocument.load(bytes);
+    const goTo = doc
+      .getPage(0)
+      .node.Annots()!
+      .lookup(1, PDFDict)
+      .lookup(PDFName.of("A"), PDFDict)
+      .lookup(PDFName.of("D"), PDFArray);
+    expect(numbers(goTo.asArray().slice(2))).toEqual(
+      [X(100), Y(100), X(200), Y(200)].map(round),
+    );
+  });
+
+  it("ink, line, polygon and callout geometry is scaled with its Rect", async () => {
+    const doc = await PDFDocument.load(await resized());
+    const annots = doc.getPage(0).node.Annots()!;
+    const get = (i: number, key: string) =>
+      annots.lookup(i, PDFDict).lookup(PDFName.of(key), PDFArray);
+    const ink = get(2, "InkList").lookup(0, PDFArray);
+    expect(numbers(ink.asArray())).toEqual(
+      [X(100), Y(100), X(200), Y(200)].map(round),
+    );
+    expect(numbers(get(3, "L").asArray())).toEqual(
+      [X(100), Y(100), X(200), Y(200)].map(round),
+    );
+    expect(numbers(get(4, "Vertices").asArray())).toEqual(
+      [X(100), Y(100), X(200), Y(100), X(150), Y(200)].map(round),
+    );
+    // A FreeText callout's leader line (audit resize-pdf#2 names /CL).
+    expect(numbers(get(5, "CL").asArray())).toEqual(
+      [X(50), Y(50), X(80), Y(80), X(100), Y(150)].map(round),
+    );
+  });
+
+  it("an annotation two resized pages share is transformed once", async () => {
+    const doc = await PDFDocument.load(await resized());
+    const square = doc.getPage(1).node.Annots()!.lookup(0, PDFDict);
+    expect(
+      numbers(square.lookup(PDFName.of("Rect"), PDFArray).asArray()),
+    ).toEqual([X(300), Y(300), X(400), Y(400)].map(round));
+  });
+});
+
+const round = (n: number) => Math.round(n * 1000) / 1000;
+function numbers(values: PDFObject[]): number[] {
+  return values.map((v) => round((v as PDFNumber).asNumber()));
+}
