@@ -2,7 +2,6 @@ import type { Tool } from "./types";
 import { MAX_IMAGE_MB, MAX_SOURCE_MB } from "./limits";
 import { RASTER_RESOLUTION_DPIS as RESOLUTION_DPIS } from "@/lib/pdf/raster-format";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
-import { WORD_OCR_LABEL } from "@/lib/jobs/pdf-office-export";
 
 /**
  * The pdf.xyz tool catalog — the single source of truth for every tool.
@@ -480,8 +479,12 @@ export const tools: Tool[] = [
     // CHANGED 2026-11-06 (audit #41): ended "scans need OCR first", stale
     // since OCR moved into the same job on 2026-10-24 (the panel's
     // WORD_OCR_LABEL checkbox). Held to the ~165-char serp ceiling by
-    // catalog-descriptions.test.ts.
-    description: `Turn a PDF's text and pictures into editable Word (DOCX) in reading order. Fonts and layout are not recreated; for a scan, tick “${WORD_OCR_LABEL}”.`,
+    // catalog-descriptions.test.ts. The label is written out, not imported:
+    // importing @/lib/jobs/pdf-office-export here pulled it into the ticket's
+    // lazy catalogue chunk (+144 B gz, 2026-11-07). The same test holds this
+    // text to WORD_OCR_LABEL, so a renamed checkbox fails it.
+    description:
+      "Turn a PDF's text and pictures into editable Word (DOCX) in reading order. Fonts and layout are not recreated; for a scan, tick “Recognise text in scans (OCR)”.",
     category: "convert-from",
     icon: "word",
     processing: "server",
