@@ -3122,7 +3122,13 @@ function FormFillLayer({
                 checked={value === true}
                 onChange={(e) => set(e.target.checked)}
                 {...rest}
-                className={cn(className, "relative m-0 size-full")}
+                // Inside its absolutely placed label the box is relative:
+                // the shared `absolute` is dropped, not out-ranked (cn does
+                // not merge; first drawn by a jsdom test on 2026-11-08).
+                className={cn(
+                  className.replace("absolute", ""),
+                  "relative m-0 size-full",
+                )}
                 style={{
                   color: boxStyle.color,
                   accentColor: boxStyle.accentColor,

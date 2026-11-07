@@ -41,6 +41,12 @@ import { MAX_SAVED_SIGNATURES } from "@/lib/pdf/editor/saved-signatures";
  *    (`stampProducer` sets Producer/Creator), so an existing certificate
  *    signature's byte range no longer matches; encrypted input is refused at
  *    open ("Unlock it first").
+ *    AMENDED 2026-11-08 (audit sign-pdf#3): SignRunner passes
+ *    `openProtected`, as Edit PDF does, so a file that opens without a
+ *    password opens with ProtectionBanner; the Sign tool is locked
+ *    (toolAllowed: not a comment tool) until the owner password, checked
+ *    in the browser, unlocks every tool and the copy saves unencrypted
+ *    (UNLOCKED_NOTE). sign-restricted.test.tsx drives it.
  *  - result: "PDF signed", "Download signed PDF", `signatureOutputName`.
  */
 const signTool = getToolBySlug("sign-pdf");
@@ -104,7 +110,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Open the document",
-      body: "Drop one PDF in the box or browse for it; each run signs a single file. A password-protected PDF is refused as soon as it is read. The pages then appear with the signature panel open above them.",
+      body: "Drop one PDF in the box or browse for it; each run signs a single file. A PDF that needs a password to open is refused as soon as it is read. The pages then appear with the signature panel open above them.",
     },
     {
       title: "Create the signature",
@@ -139,7 +145,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I sign a password-protected or already certified PDF?",
-      a: `Any encryption blocks signing, whether it guards opening the file or only printing and copying. Unlock PDF can remove it if you know a password: the open password, or the owner password for a file that opens freely but is restricted. Unlike signing, Unlock PDF does not run in your browser: the file is uploaded over TLS to pdf.xyz's secure server, the input is deleted when the job finishes, the unlocked copy's link expires after ${linkMinutes} minutes, and the stored copy is erased by a daily storage rule after that. A PDF that already carries a certificate signature can be signed here, but the whole file is rewritten rather than appended to, so the byte range that certificate covers no longer lines up with the file; expect a viewer that checks signatures to flag it.`,
+      a: `A PDF that needs a password to open cannot be signed here until Unlock PDF removes that password. Unlike signing, Unlock PDF does not run in your browser: the file is uploaded over TLS to pdf.xyz's secure server, the input is deleted when the job finishes, the unlocked copy's link expires after ${linkMinutes} minutes, and the stored copy is erased by a daily storage rule after that. A PDF that opens without a password but whose author restricted changes opens here with the author's limits in force: a signature is drawn into the page, so it needs the owner password, which you type above the pages and which is checked in your browser against the file itself, never uploaded. The signed copy is then saved without the author's encryption, as Unlock PDF would save it. A PDF that already carries a certificate signature can be signed here, but the whole file is rewritten rather than appended to, so the byte range that certificate covers no longer lines up with the file; expect a viewer that checks signatures to flag it.`,
     },
   ],
 

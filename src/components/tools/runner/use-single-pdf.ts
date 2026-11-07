@@ -89,9 +89,11 @@ export interface UseSinglePdfOptions {
    * Open an encrypted PDF that needs no password to open, the way a viewer
    * does — decrypted in the browser, with its author's restrictions on
    * {@link LoadedPdf.protection} for the tool to honour — instead of
-   * refusing it. Only for a tool that honours them: Edit PDF, Annotate PDF
-   * and Fill Forms save a filled form, and the editor's comments, back under
-   * the author's encryption.
+   * refusing it. Only for a tool that honours them: Edit PDF, Annotate PDF,
+   * Fill Forms and Sign PDF save a filled form, and the editor's comments,
+   * back under the author's encryption (everything else waits for the owner
+   * password); Rotate PDF and Extract Images ask the one permission they
+   * need (`./restricted-grant`).
    */
   openProtected?: boolean;
 }

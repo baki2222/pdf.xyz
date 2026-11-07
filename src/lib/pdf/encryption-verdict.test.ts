@@ -361,12 +361,19 @@ describe("the way out is real", () => {
         `${f} opens a restricted file without asking the author's grant`,
       ).toMatch(/[^.\w]grantAllows\(/);
     // 2026-10-30: Annotate PDF, which mounts the same editor as Edit PDF,
-    // joined them (it refused restricted files until then).
-    expect(openers.filter((f) => !grantTools.includes(f))).toEqual([
+    // joined them (it refused restricted files until then). 2026-11-08:
+    // Sign PDF, the same editor again (audit sign-pdf#3) — but what it is
+    // for, a signature, is drawn into the page and needs the owner
+    // password, so the sentence (what a restricted file still allows
+    // WITHOUT it) does not name it. Every tool the sentence names opens one.
+    const editors = openers.filter((f) => !grantTools.includes(f));
+    expect(editors).toEqual([
       "annotate-runner.tsx",
       "edit-runner.tsx",
       "fill-forms-runner.tsx",
+      "sign-runner.tsx",
     ]);
+    expect(RESTRICTED_OPENERS.length).toBe(editors.length - 1);
     // 2026-11-08: Rotate PDF (audit rotate-pdf#2) and Extract Images
     // (audit extract-images#3).
     expect(grantTools).toEqual([

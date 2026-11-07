@@ -229,6 +229,7 @@ describe("encryption claims on tool pages match the runner's reader", () => {
       "extract-images",
       "fill-forms",
       "rotate-pdf",
+      "sign-pdf",
     ]);
     // …and the editors among them are the tools the refusal sends people to
     // — the page's own runner, not a list, decides who belongs in that
@@ -243,8 +244,14 @@ describe("encryption claims on tool pages match the runner's reader", () => {
       .map((s) => s.tool.slug)
       .sort();
     expect(grantTools).toEqual(["extract-images", "rotate-pdf"]);
+    // Sign PDF (2026-11-08, audit sign-pdf#3) opens one in the same editor,
+    // but a signature is drawn into the page and needs the owner password,
+    // so the sentence — what such a file still allows without it — leaves
+    // it out. Every tool the sentence names is an opener.
     expect(
-      by("opens-protected").filter((slug) => !grantTools.includes(slug)),
+      by("opens-protected").filter(
+        (slug) => !grantTools.includes(slug) && slug !== "sign-pdf",
+      ),
     ).toEqual(
       RESTRICTED_OPENERS.map((t) => t.href.replace(/^\/tools\//, "")).sort(),
     );
