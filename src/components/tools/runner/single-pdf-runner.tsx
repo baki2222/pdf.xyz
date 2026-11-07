@@ -18,7 +18,12 @@ import {
   HandoffLoading,
   HandoffProblem,
 } from "./handoff-notice";
-import { useSinglePdf, type LoadedPdf, type PdfReader } from "./use-single-pdf";
+import {
+  useSinglePdf,
+  type LoadedPdf,
+  type PdfReader,
+  type SinglePdfError,
+} from "./use-single-pdf";
 import { useToolRun } from "./tool-context";
 import { useToolHandoff, type ToolHandoff } from "./use-tool-handoff";
 
@@ -80,6 +85,7 @@ export function SinglePdfRunner({
   reader = "pdf-lib",
   prepare,
   openProtected = false,
+  errorAside,
 }: {
   hint?: string;
   children: (pdf: LoadedPdf, reset: () => void) => ReactNode;
@@ -107,6 +113,8 @@ export function SinglePdfRunner({
    * those restrictions on `pdf.protection` — see `useSinglePdf`.
    */
   openProtected?: boolean;
+  /** Drawn under a refusal — Grayscale PDF's password field. */
+  errorAside?: (error: SinglePdfError) => ReactNode;
 }) {
   // A tool with a preflight hint (E.9) probes the file as it opens.
   const slug = useToolRun()?.slug ?? "";
@@ -192,6 +200,7 @@ export function SinglePdfRunner({
         />
       )}
       {error && <ErrorNote message={error.message} cause={error} />}
+      {error && errorAside?.(error)}
     </div>
   );
 }

@@ -5273,11 +5273,11 @@ export const guides: Guide[] = [
       },
       {
         question: "Does it work on password-protected PDFs?",
-        answer: `No. Any encrypted PDF is turned away when you choose it, including one that opens without a password but restricts printing or copying, and the message says which lock it has. ${nameOf("unlock-pdf")} removes the encryption if you give it the password, but it runs on our secure server; bring the unlocked copy back here.`,
+        answer: `Yes, with its password. An encrypted PDF is turned away when you choose it, and the message says which lock it has; under it, a password field checks the password in your browser, against the file itself, and it never leaves your device. The grayscale copy has no password or encryption, so the password that opens the file is enough only when its author restricts nothing else; otherwise, including a file that opens without a password but carries its author's restrictions, it takes the owner password.`,
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-07",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-highlight-text-in-a-pdf",

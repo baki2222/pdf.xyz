@@ -143,3 +143,30 @@ export const NO_ASSEMBLE_COPY_FIXTURE: GrantFixture = {
   objectStreams: false,
   pageCount: 2,
 };
+
+/** Needs its open password ("open-test"); grants every permission. */
+export const OPEN_PASSWORD_FIXTURE: GrantFixture = {
+  file: "pypdf-r3-open-password.pdf",
+  producer: "pypdf",
+  v: 2,
+  r: 3,
+  owner: "owner-open-test",
+  permissions: [4, 8, 16, 32, 256, 512, 1024, 2048],
+  objectStreams: false,
+  pageCount: 2,
+};
+
+/** Needs its open password, and withholds changes, comments and filling. */
+export const OPEN_PASSWORD_RESTRICTED_FIXTURE: GrantFixture = {
+  file: "pypdf-r3-open-password-restricted.pdf",
+  producer: "pypdf",
+  v: 2,
+  r: 3,
+  owner: "owner-openrestr-test",
+  permissions: [4, 16, 512, 1024, 2048],
+  objectStreams: false,
+  pageCount: 2,
+};
+
+/** The open password of the two fixtures above (a test value). */
+export const FIXTURE_OPEN_PASSWORD = "open-test";

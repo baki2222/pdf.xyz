@@ -64,6 +64,11 @@ and extracting its images are what its author allows; change content (8),
 comments (32) and form filling (256) are withheld. The second withholds copying
 and assembly too.
 
+Two more need the OPEN password `open-test` (Grayscale PDF's password field):
+`pypdf-r3-open-password.pdf` grants everything (P −4, owner
+`owner-open-test`), and `pypdf-r3-open-password-restricted.pdf` carries the
+first file's grant (P −300, owner `owner-openrestr-test`).
+
 ## Where they are used
 
 - `src/tests/restricted-pdf-fixtures.ts` — the table above, as data.
@@ -79,6 +84,9 @@ and assembly too.
 - `src/lib/pdf/security/restricted-rotate.test.ts` and
   `src/components/tools/runner/rotate-restricted.test.tsx` — Rotate PDF under
   the assembly grant, and refusing without it (the grant fixtures).
+- `src/lib/pdf/security/open-with-password.test.ts` and
+  `src/components/tools/runner/grayscale-password.test.tsx` — a typed open or
+  owner password, and which one may make an unencrypted grayscale copy.
 - `src/components/tools/runner/protection-banner.test.ts` — the editor's
   banner over the R6 and view-only handlers: comments allowed, or not.
 

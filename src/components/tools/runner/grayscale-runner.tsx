@@ -30,16 +30,58 @@ import {
   useAsyncRun,
 } from "./runner-kit";
 import { RunBar } from "./run-bar";
-import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
+import {
+  FileHeader,
+  SignedInputNotice,
+  SinglePdfRunner,
+} from "./single-pdf-runner";
+import { GRAYSCALE_OPENED_NOTE, GrayscalePassword } from "./grayscale-password";
 import { PrivacyLine, SegmentedControl } from "./stamp-controls";
 import type { LoadedPdf } from "./use-single-pdf";
 
+/**
+ * An encrypted PDF is refused as it opens, and under the refusal the panel
+ * takes its password (`./grayscale-password`), checked in the browser: the
+ * open password of a file whose author withholds nothing, or the owner
+ * password. The decrypted copy then opens here as any other file would.
+ * Until 2026-11-08 the refusal was the end of the page (audit
+ * grayscale-pdf#6).
+ */
 export function GrayscaleRunner() {
+  const [unlocked, setUnlocked] = useState<LoadedPdf | null>(null);
+  if (unlocked)
+    return (
+      <div className="flex flex-col gap-4">
+        <p
+          role="note"
+          data-grayscale-unlocked=""
+          className="border-info/40 bg-info/10 text-fg rounded-panel border px-4 py-3 text-sm"
+        >
+          {GRAYSCALE_OPENED_NOTE}
+        </p>
+        {unlocked.digitalSignatures > 0 && (
+          <SignedInputNotice
+            count={unlocked.digitalSignatures}
+            toolName="Grayscale PDF"
+          />
+        )}
+        <GrayscaleEditor pdf={unlocked} onReset={() => setUnlocked(null)} />
+      </div>
+    );
   return (
     <SinglePdfRunner
       hint="One PDF · pages rasterized to grayscale locally in your browser"
       handoffSlug="grayscale-pdf"
       toolName="Grayscale PDF"
+      errorAside={(error) =>
+        error.kind === "encrypted" ? (
+          <GrayscalePassword
+            key={`${error.file.name}:${error.file.size}:${error.file.lastModified}`}
+            file={error.file}
+            onOpened={setUnlocked}
+          />
+        ) : null
+      }
     >
       {(pdf, reset) => <GrayscaleEditor pdf={pdf} onReset={reset} />}
     </SinglePdfRunner>
