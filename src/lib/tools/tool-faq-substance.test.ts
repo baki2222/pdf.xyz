@@ -71,10 +71,21 @@ import { addWatermark } from "@/lib/pdf/watermark";
 import { addPageNumbers } from "@/lib/pdf/page-numbers";
 import {
   addHeaderFooter,
+  DEFAULT_HEADER_FOOTER_SIZE,
+  HEADER_FOOTER_MARGIN_LABELS,
+  HEADER_FOOTER_MARGINS,
+  HEADER_FOOTER_SIZES,
   resolveStampDate,
   stampDateCandidates,
+  type HeaderFooterMargin,
 } from "@/lib/pdf/header-footer";
-import { applyTokens } from "@/lib/pdf/stamp";
+import {
+  applyTokens,
+  STAMP_FONT_FAMILIES,
+  STAMP_FONT_LABELS,
+} from "@/lib/pdf/stamp";
+import { guides } from "@/lib/guides/catalog";
+import { numberingPlan } from "@/lib/pdf/page-plan";
 import { cropPdf } from "@/lib/pdf/crop";
 import { flattenPdf } from "@/lib/pdf/flatten";
 import {
@@ -971,9 +982,102 @@ describe("the stamping tools answer where and what they stamp", () => {
       expect(served).toMatch(/Latin digits/);
       expect(served).toContain("YYYY-MM-DD");
       expect(stampDateCandidates(now).at(-1)).toBe("2026-09-27");
-      expect(answer(tool.slug, /first page without/)).toMatch(
-        /go on every page/,
+      // INVERTED (history kept): this answer said "No: the header and footer
+      // go on every page" and was pinned here to /go on every page/, true
+      // while the engine looped over every page. Audit header-footer#2
+      // (2026-11-06) gave the runner page settings, so the answer now names
+      // them — each one a control the runner renders — and the engine is run
+      // with the one it leads with: page 1 carries nothing, page 2 counts 2.
+      const skip = answer(tool.slug, /first page without/);
+      expect(skip).not.toMatch(/go on every page/);
+      const named = [...skip.matchAll(/“([^”]+)”/g)].map((m) => m[1]!);
+      expect(new Set(named)).toEqual(
+        new Set([
+          "Pages",
+          "Leave the cover page blank",
+          "Start on page",
+          "First number",
+          "Skip last pages",
+        ]),
       );
+      for (const label of named) expect(src).toContain(`label="${label}"`);
+      const cover0 = await PDFDocument.load(bytes);
+      const blankCover = await PDFDocument.load(
+        await addHeaderFooter(bytes, {
+          footer: { center: "{n}/{total}" },
+          skipCover: true,
+        }),
+      );
+      // The fixture's own "Page 1" label stays; the band does not appear.
+      expect(drawnText(blankCover, 0)).toEqual(drawnText(cover0, 0));
+      expect(drawnText(blankCover, 1)).toContain("2/3");
+      // The tool page's own cover answer names the same controls, and its
+      // worked example is what the engine draws for the runner's default
+      // footer on a 12-page file with the cover left blank.
+      const coverAnswer = answer(tool.slug, /header off the cover page/);
+      for (const label of named.filter((l) => l !== "Pages"))
+        expect(coverAnswer).toContain(label);
+      expect(coverAnswer).toMatch(/^Yes\. Open Pages /);
+      expect(src).toContain('"Page {n} of {total}"');
+      const twelve = await PDFDocument.load(
+        await addHeaderFooter(
+          await pdfWithPages(Array.from({ length: 12 }, () => [300, 400])),
+          { footer: { center: "Page {n} of {total}" }, skipCover: true },
+        ),
+      );
+      expect(coverAnswer).toContain("page 2 reads Page 2 of 12");
+      expect(drawnText(twelve, 1)).toContain("Page 2 of 12");
+      expect(drawnText(twelve, 0)).not.toContain("Page 1 of 12");
+
+      // Audit header-footer#4 (2026-11-07): this answer said "No: the small
+      // size, slate-grey ink and distance from the edge are fixed." The
+      // runner now sets all four, so the answer names the choices from the
+      // constants the controls are drawn from, and no served sentence — tool
+      // page or guide — may call them fixed. The shipped sentences are the
+      // caught corpus.
+      const style = answer(tool.slug, /font, size, colour or margin/);
+      expect(style).toMatch(/^Yes, under Size, margin, font and color\b/);
+      expect(style).toContain(
+        `${HEADER_FOOTER_SIZES.min} to ${HEADER_FOOTER_SIZES.max} pt, starting at ${DEFAULT_HEADER_FOOTER_SIZE}`,
+      );
+      for (const key of Object.keys(
+        HEADER_FOOTER_MARGINS,
+      ) as HeaderFooterMargin[])
+        expect(style).toContain(
+          `${HEADER_FOOTER_MARGIN_LABELS[key]} (${HEADER_FOOTER_MARGINS[key]} pt)`,
+        );
+      for (const name of Object.values(STAMP_FONT_LABELS))
+        expect(style).toContain(name);
+      for (const label of [
+        "Size, margin, font and color",
+        "Font size",
+        "Color",
+      ])
+        expect(src).toContain(`label="${label}"`);
+      expect(src).toMatch(/STAMP_FONT_FAMILIES\.map\(/);
+      expect(src).toMatch(/HEADER_FOOTER_MARGIN_LABELS\[key\]/);
+      const saysFixed = (x: string) =>
+        /\b(size|ink|margin|distance from the edge|colou?r)\b[^.]*\bfixed\b/i.test(
+          x,
+        );
+      for (const shipped of [
+        "No: the small size, slate-grey ink and distance from the edge are fixed.",
+        "The font size, the grey ink and the distance from the edge are fixed.",
+        "No. The size, the grey ink and the margin are fixed.",
+      ])
+        expect(saysFixed(shipped), shipped).toBe(true);
+      const guide = guides.find(
+        (g) => g.slug === "how-to-add-a-header-and-footer-to-a-pdf",
+      );
+      expect(guide, "the header/footer guide is gone").toBeTruthy();
+      const guideText = JSON.stringify(guide);
+      const servedSentences = [
+        ...page(tool.slug).text.split(/(?<=[.!?])\s+/),
+        ...page(tool.slug).faq.flatMap((e) => e.answer.split(/(?<=[.!?])\s+/)),
+        ...guideText.split(/(?<=[.!?])\s+/),
+      ];
+      expect(servedSentences.length).toBeGreaterThan(40);
+      expect(servedSentences.filter(saysFixed)).toEqual([]);
 
       // The refusal answer said "a browser set to Persian writes the date in
       // Persian digits, which are refused like Arabic, so type the date by
@@ -1017,6 +1121,196 @@ describe("the stamping tools answer where and what they stamp", () => {
       ).toBeGreaterThan(2);
       expect(sentences.filter(saysDateRefused)).toEqual([]);
     }
+  });
+
+  it("header and footer: no sentence names one fallback face while the fonts embed different ones", async () => {
+    // Review of audit header-footer#4 (2026-11-07): the style answer and the
+    // guide said one character outside Windows-1252 "moves both bands to a
+    // Noto face". True while Helvetica was the only font; once Courier could
+    // be picked it asks for the monospace pack, and "Łódź" embeds GeistMono.
+    // So the faces each font really falls back to are read from the file,
+    // and while they differ no served sentence may name any one of them.
+    const bytes = await pdfWithPages([[300, 400]]);
+    const baseFontsOf = async (b: Uint8Array) => {
+      const fonts = (await PDFDocument.load(b))
+        .getPage(0)
+        .node.Resources()
+        ?.lookupMaybe(PDFName.of("Font"), PDFDict);
+      return (fonts?.keys() ?? []).map((key) =>
+        String(fonts!.lookup(key, PDFDict).get(PDFName.of("BaseFont"))),
+      );
+    };
+    const own = new Set(await baseFontsOf(bytes));
+    const fallback = new Map<string, string>();
+    for (const family of STAMP_FONT_FAMILIES) {
+      const added = (
+        await baseFontsOf(
+          await addHeaderFooter(bytes, {
+            footer: { center: "Łódź {n}" },
+            font: family,
+          }),
+        )
+      ).filter((name) => !own.has(name));
+      // Health: each font falls back to exactly one embedded face.
+      expect(added, family).toHaveLength(1);
+      fallback.set(family, added[0]!.replace(/^\/(?:[A-Z]{6}\+)?/, ""));
+    }
+    expect(fallback.size).toBe(STAMP_FONT_FAMILIES.length);
+    expect(fallback.get("courier")).toMatch(/^GeistMono/);
+    expect(fallback.get("helvetica")).toMatch(/^Noto/);
+    // A face's brand is its leading capitalised word: Noto, Geist.
+    const brands = new Set(
+      [...fallback.values()].map((face) => /^[A-Z][a-z]+/.exec(face)![0]),
+    );
+    // Whole words only, split on anything that is not a letter.
+    const namesOneFace = (x: string) =>
+      x.split(/[^A-Za-z]+/).some((word) => brands.has(word));
+    for (const shipped of [
+      "The font you pick is used while everything in both bands fits the Western Windows-1252 set, German and French accents included; one character outside it, such as Polish ł, moves both bands to a Noto face.",
+      "The font you pick is used for Western European text; a character outside that set moves both bands to an embedded Noto face.",
+      "One character outside it moves both lines to a Noto typeface that the page fetches from pdf.xyz's own site and embeds in the file; that request carries nothing from your document.",
+      'Letters outside the Western European set are drawn with an embedded Noto typeface, and an English "Page {n} of {total}" footer can sit under it in the same file.',
+      "When your text or the date needs a Noto font, the page fetches the font file from pdf.xyz's own site, and that request carries no part of your document.",
+    ])
+      expect(namesOneFace(shipped), shipped).toBe(true);
+    for (const tool of mounting("header-footer")) {
+      const style = answer(tool.slug, /font, size, colour or margin/);
+      expect(style).toContain("moves both bands to a matching typeface");
+      const guide = guides.find(
+        (g) => g.slug === "how-to-add-a-header-and-footer-to-a-pdf",
+      )!;
+      expect(
+        guide.faq.find((e) => /change the font/.test(e.question))!.answer,
+      ).toContain("moves both bands to a matching typeface");
+      const served = [
+        ...page(tool.slug).text.split(/(?<=[.!?])\s+/),
+        ...page(tool.slug).faq.flatMap((e) => e.answer.split(/(?<=[.!?])\s+/)),
+        ...JSON.stringify(guide).split(/(?<=[.!?])\s+/),
+      ];
+      expect(served.length).toBeGreaterThan(40);
+      if (brands.size > 1) expect(served.filter(namesOneFace)).toEqual([]);
+    }
+  });
+
+  it("header and footer: what the blank cover does is said for every First number", async () => {
+    // Review of audit header-footer#2 (2026-11-07): the checkbox hint and the
+    // tool-facts answer said "so page 2 shows {n} as 2". True only with First
+    // number 1 and Start on page 1: with First number 5 page 2 shows 6, and
+    // with Start on page 3 the box changes nothing. The sentences now say
+    // what the shared plan does, and the plan is run for the cases they name.
+    for (const startAt of [0, 1, 5, 120]) {
+      const plan = numberingPlan(4, { skipCover: true, startAt });
+      // Page 1 is counted as First number but not stamped…
+      expect(plan.stamps.map((s) => s.index)).toEqual([1, 2, 3]);
+      // …so page 2 shows the number after it.
+      expect(plan.stamps[0]!.n).toBe(startAt + 1);
+    }
+    // Only while Start on page is 1: later, page 1 is not counted at all.
+    for (const startPage of [2, 3])
+      expect(numberingPlan(4, { startPage, skipCover: true })).toEqual(
+        numberingPlan(4, { startPage }),
+      );
+    const hint =
+      "Page 1 gets no header or footer but still counts as First number, so page 2 shows the number after it. It has no effect when Start on page is later than 1.";
+    const factsPattern =
+      /page 1 gets nothing but still counts as “First number”, so page 2 shows the number after it/;
+    const fixedTwo = (x: string) => /\{n\} as \d/.test(x);
+    for (const shipped of [
+      "Page 1 gets no header or footer but is still counted, so page 2 shows {n} as 2.",
+      "Yes. Open “Pages” under the footer and tick “Leave the cover page blank”: page 1 gets nothing but is still counted, so page 2 shows {n} as 2.",
+    ])
+      expect(fixedTwo(shipped), shipped).toBe(true);
+    for (const tool of mounting("header-footer")) {
+      const src = runnerSource(tool.slug);
+      expect(src).toContain(`hint="${hint}"`);
+      const facts = answer(tool.slug, /first page without/);
+      expect(facts).toMatch(factsPattern);
+      // The tool page's worked example names the defaults it holds for.
+      const cover = answer(tool.slug, /header off the cover page/);
+      expect(cover).toContain(
+        "with the default footer on a twelve-page file, page 2 reads Page 2 of 12",
+      );
+      const guide = guides.find(
+        (g) => g.slug === "how-to-add-a-header-and-footer-to-a-pdf",
+      )!;
+      const guideCover = guide.faq.find((e) =>
+        /header off the cover page/.test(e.question),
+      )!.answer;
+      expect(guideCover).toContain(
+        "with the default footer on a twelve-page file, page 2 reads Page 2 of 12",
+      );
+      // Both examples are what the engine draws for that case.
+      expect(src).toContain('"Page {n} of {total}"');
+      const twelve = await PDFDocument.load(
+        await addHeaderFooter(
+          await pdfWithPages(Array.from({ length: 12 }, () => [300, 400])),
+          { footer: { center: "Page {n} of {total}" }, skipCover: true },
+        ),
+      );
+      expect(drawnText(twelve, 1)).toContain("Page 2 of 12");
+      const served = [
+        ...src.split(/(?<=[.!?])\s+/),
+        ...page(tool.slug).text.split(/(?<=[.!?])\s+/),
+        ...page(tool.slug).faq.flatMap((e) => e.answer.split(/(?<=[.!?])\s+/)),
+        ...JSON.stringify(guide).split(/(?<=[.!?])\s+/),
+      ];
+      expect(served.length).toBeGreaterThan(40);
+      expect(served.filter(fixedTwo)).toEqual([]);
+    }
+  });
+
+  it("header and footer: no served sentence still describes one box, every page or a fixed look", () => {
+    // Review of audits header-footer#2-#4 (2026-11-07): sentences written for
+    // one box per band, every page and a fixed look outlived those limits.
+    // Each predicate must catch its shipped sentence, and no sentence the
+    // tool page or the guide serves may match any of them.
+    const stale: [string, (x: string) => boolean, string][] = [
+      [
+        "one field",
+        (x) => /\beither field\b/.test(x),
+        "Press Add header & footer. It works once either field has text.",
+      ],
+      [
+        "unconditional box",
+        (x) => /starts in the Center box\./.test(x),
+        "The footer's Page {n} of {total} starts in the Center box.",
+      ],
+      [
+        "every page",
+        (x) =>
+          /\b(?:drawn|go|goes) on every page\b(?! (?:unless|by default))/.test(
+            x,
+          ),
+        "Each band has a Left, a Center and a Right box, the lines are drawn on every page, and you download the stamped copy.",
+      ],
+      [
+        "fixed look",
+        (x) => /\bwhat is fixed\b/i.test(x),
+        "What you can change, and what is fixed",
+      ],
+    ];
+    for (const [name, matches, shipped] of stale)
+      expect(matches(shipped), name).toBe(true);
+    const guide = guides.find(
+      (g) => g.slug === "how-to-add-a-header-and-footer-to-a-pdf",
+    )!;
+    for (const tool of mounting("header-footer")) {
+      const served = [
+        ...page(tool.slug).text.split(/(?<=[.!?])\s+/),
+        ...page(tool.slug).faq.flatMap((e) => e.answer.split(/(?<=[.!?])\s+/)),
+        ...guide.sections.map((s) => s.heading),
+        ...JSON.stringify(guide).split(/(?<=[.!?])\s+/),
+      ];
+      expect(served.length).toBeGreaterThan(40);
+      for (const [name, matches] of stale)
+        expect(served.filter(matches), name).toEqual([]);
+    }
+    // The step's claim about where the footer starts is option memory's: a
+    // run with one footer box remembers that box (held in the runner test
+    // "starts the default footer in the box a one-box footer last used").
+    expect(page("header-footer").text).toContain(
+      "after you run a footer that uses one box, it starts in that box next time",
+    );
   });
 
   it("cropping hides by crop box; the content and the media box are untouched", async () => {

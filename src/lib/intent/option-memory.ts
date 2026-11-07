@@ -83,9 +83,12 @@ export const OPTION_SCHEMAS = {
     opacity: int(5, 100),
     rotation: int(-90, 90),
   },
-  // Positions only: a header's words are typed text.
+  // Positions only: a header's words are typed text. The box the footer's
+  // single line was in, where the next document's default footer starts.
+  // headerAlign went with the one-box-per-band editor (audit
+  // header-footer#3, 2026-11-07): with a box per position the header starts
+  // empty, so a remembered header position had nothing to place.
   "header-footer": {
-    headerAlign: oneOf(ALIGNS),
     footerAlign: oneOf(ALIGNS),
   },
   "pdf-to-image": {

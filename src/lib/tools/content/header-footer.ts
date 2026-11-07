@@ -9,27 +9,47 @@ import {
   unsupportedScriptFor,
 } from "@/lib/pdf/font-packs";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
-import { stampDateCandidates } from "@/lib/pdf/header-footer";
+import {
+  DEFAULT_HEADER_FOOTER_SIZE,
+  HEADER_FOOTER_MARGIN_LABELS,
+  HEADER_FOOTER_MARGINS,
+  HEADER_FOOTER_SIZES,
+  stampDateCandidates,
+  type HeaderFooterMargin,
+} from "@/lib/pdf/header-footer";
+import { STAMP_FONT_LABELS } from "@/lib/pdf/stamp";
 
 /*
  * Every behavioral claim below was read from, or probed against, the code:
- *  - runner: src/components/tools/runner/header-footer-runner.tsx — ONE text
- *    field per band ("Header text", "Footer text"), each with a Left / Center /
- *    Right alignment control (default Center) and {n} / {total} / {date} token
- *    buttons that append to the field; the footer starts as
- *    "Page {n} of {total}", the header starts empty; a preview chip beside each
- *    section heading shows page 1; "Add header & footer" is disabled until one
- *    field has text; result panel "Header & footer added" / "Download PDF";
- *    filename `<name>-header-footer.pdf` via outputName. The engine can fill
- *    left, center and right slots at once, but the runner sends ONE slot per
- *    band, so this page never claims three positions per band.
+ *  - runner: src/components/tools/runner/header-footer-runner.tsx — THREE
+ *    boxes per band, named from ALIGN_OPTIONS ("Header left", "Header
+ *    center", "Header right", and the same for Footer), all sent to the
+ *    engine at once (audit header-footer#3, 2026-11-07; until then ONE text
+ *    field per band with a Left / Center / Right picker, and this comment
+ *    forbade claiming three positions). Each band's {n} / {total} / {date}
+ *    buttons append to the box last focused in that band (center at first),
+ *    which the Insert line names; the footer starts as "Page {n} of {total}"
+ *    in the center box (or the box a one-box footer last used, option
+ *    memory), the header starts empty; a preview chip beside each section
+ *    heading joins the band's boxes; "Add header & footer" is disabled until
+ *    one box has text; two boxes of a band that would overlap are refused by
+ *    the engine; result panel "Header & footer added" / "Download PDF";
+ *    filename `<name>-header-footer.pdf` via outputName. A "Pages"
+ *    disclosure (audit header-footer#2, 2026-11-07) holds Start on page,
+ *    First number, "Leave the cover page blank" and Skip last pages, which
+ *    the engine resolves through numberingPlan (src/lib/pdf/page-plan.ts),
+ *    the same arithmetic as Add Page Numbers; the chip previews the FIRST
+ *    page that gets the bands.
  *  - dropzone hint (SinglePdfRunner): "One PDF · header & footer applied
  *    locally in your browser"; FileHeader shows name, page count and size.
  *  - engine: addHeaderFooter() in src/lib/pdf/header-footer.ts loads the
- *    ORIGINAL document, draws text on every page with no background, sets
+ *    ORIGINAL document, draws text on the planned pages with no background, sets
  *    Producer/Creator to pdf.xyz (stampProducer) and saves it. Font size,
- *    margin and ink are engine defaults the runner never sets, so the copy
- *    says "fixed" and types none of them. placeStamp() cancels a page's
+ *    margin, family and ink are set under "Size, margin, font and color"
+ *    (audit header-footer#4, 2026-11-07; until then engine defaults the
+ *    runner never set, and the FAQ said "fixed"); every number and name the
+ *    copy gives is read from HEADER_FOOTER_SIZES / _MARGINS / _MARGIN_LABELS
+ *    and STAMP_FONT_LABELS below. placeStamp() cancels a page's
  *    /Rotate so text lands at the visual top/bottom reading level.
  *    applyTokens() also accepts {page}/{pages}, case-insensitively.
  *  - font choice (embedDrawingFont): Helvetica only when EVERY drawn string is
@@ -138,6 +158,16 @@ if (
   );
 }
 const linkMinutes = DEFAULT_RETENTION.outputTtlMinutes;
+const orList = (items: readonly string[]) =>
+  new Intl.ListFormat("en", { type: "disjunction" }).format(items);
+const marginChoices = orList(
+  (Object.keys(HEADER_FOOTER_MARGINS) as HeaderFooterMargin[]).map(
+    (key) =>
+      `${HEADER_FOOTER_MARGIN_LABELS[key]} (${HEADER_FOOTER_MARGINS[key]} pt)`,
+  ),
+);
+const fontChoices = orList(Object.values(STAMP_FONT_LABELS));
+const sizeRange = `${HEADER_FOOTER_SIZES.min} to ${HEADER_FOOTER_SIZES.max} pt, starting at ${DEFAULT_HEADER_FOOTER_SIZE}`;
 const scriptsList = new Intl.ListFormat("en", { type: "conjunction" }).format(
   SUPPORTED_SCRIPTS,
 );
@@ -148,12 +178,12 @@ const content: ToolContent = {
   seoTitle: "Add Header & Footer to PDF — Runs in Your Browser",
 
   metaDescription:
-    "Put a running header and footer on every PDF page, with {n}, {total} and {date} fields and Left, Center or Right alignment. Stamped in-browser, not uploaded.",
+    "Put a running header and footer on PDF pages: text at the Left, Center and Right of each, with {n}, {total} and {date} fields. Stamped in-browser, not uploaded.",
 
   intro: [
     'Header & Footer writes one line of text at the top of every page, one at the bottom, or both: a company name and "Confidential" above, "Page 3 of 12" below, or a draft date worked into either line. Use it to make a stack of exported pages read as one finished document before it goes to a client, a clerk or a printer.',
-    `Each band gets its own text and its own Left, Center or Right alignment. Fields fill themselves in page by page: {n} becomes the page number, {total} the file's page count, and {date} today's date in your browser's date format. The footer starts out as "Page {n} of {total}", and a preview beside each heading shows how page 1 will read. Pages stored sideways still get their header at the top as you see it, reading level.`,
-    `The PDF, up to ${ceilingMb} MB, is read and rewritten in your browser and is not uploaded. Text is added on top of the existing pages rather than rebuilding them, so form fields and their values, the title and author, and page rotation came through intact in our test; the Producer and Creator entries are set to pdf.xyz. Nothing is shifted to make room, so check pages that already print close to the edge.`,
+    `Each band has three boxes, Left, Center and Right, so a company name can sit at the left of the header with the date at its right. Fields fill themselves in page by page: {n} becomes the page number, {total} the file's page count, and {date} today's date in your browser's date format. The footer starts out as "Page {n} of {total}", and a preview beside each heading shows how the first stamped page will read. Open Pages to leave the cover page blank, start on a later page, count {n} from another first number, or leave the last pages bare. Pages stored sideways still get their header at the top as you see it, reading level.`,
+    `The PDF, up to ${ceilingMb} MB, is read and rewritten in your browser and is not uploaded. Text is added on top of the existing pages rather than rebuilding them, so form fields and their values, the title and author, and page rotation came through intact in our test; the Producer and Creator entries are set to pdf.xyz. Nothing is shifted to make room, so check pages that already print close to the edge; the Margin setting moves the lines nearer to it or further in.`,
   ],
 
   useCases: [
@@ -175,7 +205,7 @@ const content: ToolContent = {
     },
     {
       title: "Headers in Bengali, Greek, Japanese or Korean",
-      body: `Letters outside the Western European set are drawn with an embedded Noto typeface, and an English "Page {n} of {total}" footer can sit under it in the same file. Scripts this tool can draw: ${scriptsList}.`,
+      body: `Letters outside the Western European set are drawn with an embedded typeface that covers them, and an English "Page {n} of {total}" footer can sit under it in the same file. Scripts this tool can draw: ${scriptsList}.`,
     },
   ],
 
@@ -186,15 +216,19 @@ const content: ToolContent = {
     },
     {
       title: "Write the header and footer",
-      body: "Type into Header text and Footer text. The {n}, {total} and {date} buttons add that field to the end of the line, and the chip by each heading previews page 1. Leave a field empty to skip that band.",
+      body: "Type into any of the boxes: Header left, Header center and Header right across the top, the same three for the footer. The {n}, {total} and {date} buttons add that field to the end of the box you last used in that band, and the chip by each heading previews the band. Leave a band's boxes empty to skip it.",
     },
     {
-      title: "Pick an alignment for each band",
-      body: "Choose Left, Center or Right under each field; both start centred. Each band holds one line in the position you pick.",
+      title: "Put each line where it belongs",
+      body: "The Left box is set against the left margin, Center in the middle and Right against the right margin, and a band can use all three. The footer's Page {n} of {total} starts in the Center box; after you run a footer that uses one box, it starts in that box next time. Two boxes whose lines would run into each other are refused, with a message naming both.",
+    },
+    {
+      title: "Choose the pages, if not all",
+      body: "Every page gets the lines unless you open Pages. Tick Leave the cover page blank to skip page 1 while still counting it, set Start on page and First number to begin later or count from another number, or set Skip last pages to leave an appendix bare. {total} becomes the last number printed.",
     },
     {
       title: "Add and download",
-      body: "Press Add header & footer, active once either field has text. When the panel reads Header & footer added, press Download PDF; the saved name adds -header-footer before .pdf.",
+      body: "Press Add header & footer, active once any box has text. When the panel reads Header & footer added, press Download PDF; the saved name adds -header-footer before .pdf.",
     },
   ],
 
@@ -205,15 +239,15 @@ const content: ToolContent = {
     },
     {
       q: "Can I leave the header off the cover page?",
-      a: "Not here; every page gets the text. For numbers alone, Add Page Numbers has Start on page and First number settings. Otherwise split off the cover with Split PDF, stamp the rest and rejoin with Merge PDF; {n} and {total} then count only the stamped pages.",
+      a: "Yes. Open Pages and tick Leave the cover page blank: page 1 gets no header or footer but is still counted, so with the default footer on a twelve-page file, page 2 reads Page 2 of 12. To leave several opening pages bare and count from the first stamped one, set Start on page instead, with First number as the {n} that page shows; Skip last pages does the same for the end of the file. {total} is always the last number printed.",
     },
     {
       q: "Can I change the font, size, colour or margin?",
-      a: "No: the small size, slate-grey ink and distance from the edge are fixed. You choose the wording, the fields and each band's alignment. The typeface follows the characters: while everything in both bands fits the Western Windows-1252 set, German and French accents included, both are set in Helvetica; one character outside it, such as Polish ł, moves both bands to a Noto face. Because the size is fixed, a line wider than the page between its margins is refused before anything is written, with how many of its characters fit, rather than running off the edge.",
+      a: `Yes, under Size, margin, font and color, and the choices apply to both bands. Font size runs from ${sizeRange}; the margin from the page edge is ${marginChoices}, starting at ${HEADER_FOOTER_MARGIN_LABELS.medium}; the font is ${fontChoices}; and Color picks the ink, slate grey until you change it. The font you pick is used while everything in both bands fits the Western Windows-1252 set, German and French accents included; one character outside it, such as Polish ł, moves both bands to a matching typeface. A line wider than the page between its margins is refused before anything is written, with how many of its characters fit, rather than running off the edge; a smaller size or margin makes room.`,
     },
     {
       q: "Will it cover or remove an existing header?",
-      a: "It never removes anything. The line is drawn over the page with no background, so text already in that spot will overlap it, and running the tool twice gives two headers. Try another alignment if the edge is busy.",
+      a: "It never removes anything. The line is drawn over the page with no background, so text already in that spot will overlap it, and running the tool twice gives two headers. Try another box if one part of the edge is busy.",
     },
     {
       q: "Why was my file or my header text refused?",
@@ -221,7 +255,7 @@ const content: ToolContent = {
     },
     {
       q: "Does my PDF leave my device when I add a header?",
-      a: `No. It is opened, stamped and saved in your browser tab, up to ${ceilingMb} MB. When your text or the {date} value has characters Helvetica cannot encode, the page also downloads a Noto font file from pdf.xyz's own site; that request carries no part of your document.`,
+      a: `No. It is opened, stamped and saved in your browser tab, up to ${ceilingMb} MB. When your text or the {date} value has characters the font you picked cannot encode, the page also downloads a matching font file from pdf.xyz's own site; that request carries no part of your document.`,
     },
   ],
 

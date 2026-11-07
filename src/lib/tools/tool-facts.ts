@@ -1356,11 +1356,12 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         {
           question: "What can a header or footer show?",
           answer:
-            "Any text you type, plus {n} for the page number, {total} for the number of pages and {date} for today's date, written the way your device writes dates — or, when that form has characters none of our fonts can draw beside your text, in Latin digits in the same order, or as YYYY-MM-DD. Each is one line, aligned left, center or right.",
+            "Any text you type, plus {n} for the page number, {total} for the number of pages and {date} for today's date, written the way your device writes dates — or, when that form has characters none of our fonts can draw beside your text, in Latin digits in the same order, or as YYYY-MM-DD. Each band has a left, a center and a right box, one line each, and can use all three at once.",
         },
         {
           question: "Can I leave the first page without a header or footer?",
-          answer: `No: the header and footer go on every page. To number the pages but skip a cover, use ${toolName("page-numbers")}, which can start on a later page.`,
+          answer:
+            "Yes. Open “Pages” under the footer and tick “Leave the cover page blank”: page 1 gets nothing but still counts as “First number”, so page 2 shows the number after it. To leave more pages bare, set “Start on page” to the first page that should carry the lines and “First number” to the {n} it shows; “Skip last pages” leaves pages at the end bare and uncounted. {total} is the last number printed.",
         },
       ];
     case "crop":

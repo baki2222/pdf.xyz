@@ -785,10 +785,10 @@ export const tools: Tool[] = [
     name: "PDF Header & Footer",
     tagline: "Add running headers and footers.",
     description:
-      // The runner offers ONE text field per band with a Left/Center/Right
-      // picker (not three slots at once) and the {n}/{total}/{date} buttons;
-      // tool-page-content.test.ts pins the steps to those exports.
-      "Add a header and footer to every page of a PDF in your browser — your own text plus the page number, page count or today's date, aligned left, center or right.",
+      // The runner offers three boxes per band, Left/Center/Right, all used at
+      // once (audit header-footer#3, 2026-11-07), and the {n}/{total}/{date}
+      // buttons; tool-page-content.test.ts pins the steps to those exports.
+      "Add a header and footer to the pages of a PDF in your browser — your own text plus the page number, page count or today's date, at the left, center and right.",
     category: "edit",
     icon: "headerFooter",
     processing: "client",

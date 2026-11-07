@@ -263,21 +263,43 @@ export function NumberField({
 export function TokenButtons({
   tokens,
   onInsert,
+  into,
 }: {
   tokens: { token: string; label: string }[];
   onInsert: (token: string) => void;
+  /**
+   * The field the buttons add to, when a panel has more than one. It names
+   * the group and each button ("Insert {n} into Header center"), so a
+   * screen reader hears where the field will land, not just "{n}".
+   */
+  into?: string;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <span className="text-muted text-[11px] tracking-wide uppercase">
+    <div
+      role="group"
+      aria-label={into ? `Insert into ${into}` : "Insert a field"}
+      className="flex flex-wrap items-center gap-1.5"
+    >
+      <span
+        aria-hidden="true"
+        className="text-muted text-[11px] tracking-wide uppercase"
+      >
         Insert
       </span>
+      {into && (
+        <span aria-hidden="true" className="text-muted text-[11px]">
+          into {into}
+        </span>
+      )}
       {tokens.map(({ token, label }) => (
         <button
           key={token}
           type="button"
+          aria-label={into ? `Insert ${label} into ${into}` : undefined}
           onClick={() => onInsert(token)}
-          className="border-line bg-wash text-accent hover:border-accent/40 hover:bg-accent/10 rounded-ctl border px-2 py-0.5 font-mono text-[11px] transition"
+          // 44px tall on a phone, where these buttons are the main way to
+          // add a field; compact from the sm breakpoint up.
+          className="border-line bg-wash text-accent hover:border-accent/40 hover:bg-accent/10 rounded-ctl min-h-11 border px-2 py-0.5 font-mono text-[11px] transition sm:min-h-0"
         >
           {label}
         </button>

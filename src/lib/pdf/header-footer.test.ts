@@ -1,9 +1,21 @@
 // @native-canvas
-import { PDFDocument, degrees } from "pdf-lib";
+import { inflateSync } from "node:zlib";
+import {
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFName,
+  PDFRawStream,
+  StandardFonts,
+  degrees,
+} from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import { PdfEngineError } from "./engine";
 import {
   addHeaderFooter,
+  DEFAULT_HEADER_FOOTER_SIZE,
+  HEADER_FOOTER_MARGINS,
+  HEADER_FOOTER_SIZES,
   hasHeaderFooterContent,
   headerFooterOutputName,
   resolveStampDate,
@@ -326,5 +338,268 @@ describe("header-footer {date} draws in every locale", () => {
     expect(disagreements).toEqual([]);
     expect(seen.yes).toBeGreaterThan(0);
     expect(seen.no).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * Audit header-footer#2 (2026-11-06): every page got the text, {n} always
+ * started at 1 and {total} was always the file's page count, so the most
+ * common header request — leave the cover alone — had a FAQ answer of "Not
+ * here". The pages a band goes on now come from Page Numbers' own
+ * `numberingPlan`, so the two tools cannot disagree about what Start on page,
+ * First number, a blank cover or skipped last pages mean.
+ */
+describe("header-footer: which pages, and what {n} and {total} count", () => {
+  async function stamped(
+    pages: number,
+    options: Parameters<typeof addHeaderFooter>[1],
+  ): Promise<string[]> {
+    const out = await addHeaderFooter(await blankPdf(pages), options);
+    return (await readAsViewer(out)).map((p) =>
+      p.runs.map((r) => r.str).join(" "),
+    );
+  }
+
+  it("health: with no page options every page is stamped, counting from 1", async () => {
+    expect(
+      await stamped(3, { footer: { center: "Page {n} of {total}" } }),
+    ).toEqual(["Page 1 of 3", "Page 2 of 3", "Page 3 of 3"]);
+  });
+
+  it("a blank cover is counted but carries nothing", async () => {
+    expect(
+      await stamped(3, {
+        footer: { center: "Page {n} of {total}" },
+        skipCover: true,
+      }),
+    ).toEqual(["", "Page 2 of 3", "Page 3 of 3"]);
+  });
+
+  it("Start on page leaves earlier pages alone and counts from First number", async () => {
+    expect(
+      await stamped(4, {
+        header: { center: "Acme" },
+        footer: { center: "{n}/{total}" },
+        startPage: 2,
+        startAt: 1,
+      }),
+    ).toEqual(["", "Acme 1/3", "Acme 2/3", "Acme 3/3"]);
+    expect(
+      await stamped(2, { footer: { center: "{n}/{total}" }, startAt: 10 }),
+    ).toEqual(["10/11", "11/11"]);
+  });
+
+  it("skipped last pages are neither stamped nor counted", async () => {
+    expect(
+      await stamped(4, { footer: { center: "{n}/{total}" }, skipLast: 2 }),
+    ).toEqual(["1/2", "2/2", "", ""]);
+  });
+
+  it("refuses settings that leave no page to stamp", async () => {
+    await expect(
+      addHeaderFooter(await blankPdf(2), {
+        footer: { center: "x" },
+        startPage: 2,
+        skipLast: 1,
+      }),
+    ).rejects.toThrow(/No page gets the header or footer/);
+  });
+});
+
+/**
+ * Audit header-footer#3 (2026-11-06): the runner filled one slot per band, so
+ * "Acme Ltd" at the left with the date at the right could not be made. With
+ * three slots in use, two of them can meet: each alone fits the page, and the
+ * pair would be drawn over each other. That is refused, like a slot too wide
+ * for the page, rather than shipped as an unreadable overprint.
+ */
+describe("header-footer: three slots in one band", () => {
+  it("draws left, center and right in their places on the same line", async () => {
+    const out = await addHeaderFooter(await blankPdf(1), {
+      header: { left: "LEFTMARK", center: "MIDMARK", right: "RIGHTMARK" },
+    });
+    const [page] = await readAsViewer(out);
+    const at = (s: string) => page!.runs.find((r) => r.str === s)!;
+    expect(at("LEFTMARK").x).toBeLessThan(at("MIDMARK").x);
+    expect(at("MIDMARK").x).toBeLessThan(at("RIGHTMARK").x);
+    expect(at("LEFTMARK").y).toBeCloseTo(at("RIGHTMARK").y, 0);
+  });
+
+  it("refuses two slots that would overlap, naming both", async () => {
+    const long = "Acme Corporation quarterly financial statement draft";
+    await expect(
+      addHeaderFooter(await blankPdf(1), {
+        footer: { left: long, center: long },
+      }),
+    ).rejects.toThrow(/footer's left and center text overlap on page 1/);
+  });
+
+  // Review of audit header-footer#3 (2026-11-07): `a.end + gap <= b.start`
+  // could lose its gap and every test stayed green. Two lines a hair apart
+  // read as one, so the refusal starts a space's width before they touch:
+  // the left line grows by an "i" (2.22 pt at 10 pt, under a space's
+  // 2.78 pt) until it lands inside that space, and the line one "i" shorter
+  // is the control that still passes.
+  it("refuses two slots closer than a space, and accepts the one just clear", async () => {
+    const metrics = await (
+      await PDFDocument.create()
+    ).embedFont(StandardFonts.Helvetica);
+    const at10 = (s: string) => metrics.widthOfTextAtSize(s, 10);
+    const gap = at10(" ");
+    const center = "MIDMARK";
+    const start = (600 - at10(center)) / 2;
+    const margin = HEADER_FOOTER_MARGINS.medium;
+    let n = 1;
+    while (margin + at10("i".repeat(n + 1)) + gap <= start) n += 1;
+    const clear = "i".repeat(n);
+    const close = "i".repeat(n + 1);
+    // Health: `close` is inside the space but does not overlap.
+    expect(margin + at10(clear) + gap).toBeLessThanOrEqual(start);
+    expect(margin + at10(close) + gap).toBeGreaterThan(start);
+    expect(margin + at10(close)).toBeLessThanOrEqual(start);
+    await expect(
+      addHeaderFooter(await blankPdf(1), {
+        footer: { left: close, center },
+      }),
+    ).rejects.toThrow(/footer's left and center text overlap on page 1/);
+    const ok = await addHeaderFooter(await blankPdf(1), {
+      footer: { left: clear, center },
+    });
+    expect((await PDFDocument.load(ok)).getPageCount()).toBe(1);
+  });
+
+  it("refuses a center and a right line that meet", async () => {
+    const long = "Acme Corporation quarterly financial statement draft";
+    await expect(
+      addHeaderFooter(await blankPdf(1), {
+        header: { center: long, right: long },
+      }),
+    ).rejects.toThrow(/header's center and right text overlap on page 1/);
+  });
+
+  it("measures the line across a quarter-turned page as a reader sees it", async () => {
+    // Each line fits alone on a 595 pt A4; together they need more than the
+    // 531 pt between its margins and less than the 778 pt a turned page
+    // (842 pt across) has, so upright they meet and turned they do not.
+    const metrics = await (
+      await PDFDocument.create()
+    ).embedFont(StandardFonts.Helvetica);
+    const at10 = (s: string) => metrics.widthOfTextAtSize(s, 10);
+    const room = (across: number) => across - 2 * HEADER_FOOTER_MARGINS.medium;
+    let line = "Acme";
+    while (2 * at10(line) <= room(595.28)) line += " Acme";
+    expect(at10(line)).toBeLessThan(room(595.28));
+    expect(2 * at10(line) + at10(" ")).toBeLessThan(room(841.89));
+    const a4 = async (rotate: number) => {
+      const doc = await PDFDocument.create();
+      doc.addPage([595.28, 841.89]).setRotation(degrees(rotate));
+      return doc.save();
+    };
+    await expect(
+      addHeaderFooter(await a4(0), { header: { left: line, right: line } }),
+    ).rejects.toThrow(/header's left and right text overlap/);
+    const turned = await addHeaderFooter(await a4(90), {
+      header: { left: line, right: line },
+    });
+    expect((await PDFDocument.load(turned)).getPageCount()).toBe(1);
+  });
+
+  it("control: the same two lines in different bands are fine", async () => {
+    const long = "Acme Corporation quarterly financial statement draft";
+    const out = await addHeaderFooter(await blankPdf(1), {
+      header: { left: long },
+      footer: { center: long },
+    });
+    expect((await PDFDocument.load(out)).getPageCount()).toBe(1);
+  });
+});
+
+/**
+ * Audit header-footer#4 (2026-11-06): font size, margin, ink and typeface were
+ * engine defaults the runner never set, and the FAQ answered "No". They are
+ * now the runner's choice; the defaults stay what every earlier run drew.
+ */
+describe("header-footer: size, margin, font and colour", () => {
+  async function baseFonts(bytes: Uint8Array): Promise<string[]> {
+    const doc = await PDFDocument.load(bytes);
+    const fonts = doc
+      .getPage(0)
+      .node.Resources()
+      ?.lookupMaybe(PDFName.of("Font"), PDFDict);
+    return (fonts?.keys() ?? []).map((key) =>
+      String(fonts!.lookup(key, PDFDict).get(PDFName.of("BaseFont"))),
+    );
+  }
+  async function content(bytes: Uint8Array): Promise<string> {
+    const doc = await PDFDocument.load(bytes);
+    const page = doc.getPage(0);
+    const contents = doc.context.lookup(page.node.get(PDFName.of("Contents")));
+    const streams =
+      contents instanceof PDFArray
+        ? contents.asArray().map((ref) => doc.context.lookup(ref))
+        : [contents];
+    return streams
+      .filter((x): x is PDFRawStream => x instanceof PDFRawStream)
+      .map((x) => {
+        const raw = Buffer.from(x.getContents());
+        const filter = x.dict.get(PDFName.of("Filter"));
+        return (filter ? inflateSync(raw) : raw).toString("latin1");
+      })
+      .join("\n");
+  }
+  const footerRun = async (bytes: Uint8Array) =>
+    (await readAsViewer(bytes))[0]!.runs.find((r) => r.str === "FOOTMARK")!;
+
+  it("health: the defaults are what earlier runs drew — Helvetica, 10 pt, 32 pt in", async () => {
+    expect(DEFAULT_HEADER_FOOTER_SIZE).toBe(10);
+    expect(HEADER_FOOTER_MARGINS.medium).toBe(32);
+    const out = await addHeaderFooter(await blankPdf(1), {
+      footer: { center: "FOOTMARK" },
+    });
+    expect(await baseFonts(out)).toEqual(["/Helvetica"]);
+    expect(800 - (await footerRun(out)).y).toBeCloseTo(32, 0);
+  });
+
+  it("draws the size, margin, typeface and colour asked for", async () => {
+    const small = await addHeaderFooter(await blankPdf(1), {
+      footer: { center: "FOOTMARK" },
+      font: "times",
+    });
+    const big = await addHeaderFooter(await blankPdf(1), {
+      footer: { center: "FOOTMARK" },
+      font: "times",
+      fontSize: 20,
+      margin: HEADER_FOOTER_MARGINS.large,
+      color: { r: 0.8, g: 0.1, b: 0.3 },
+    });
+    expect(await baseFonts(big)).toEqual(["/Times-Roman"]);
+    expect(await content(big)).toMatch(/\b0\.8 0\.1 0\.3 rg\b/);
+    const [a, b] = [await footerRun(small), await footerRun(big)];
+    expect((b.endX - b.x) / (a.endX - a.x)).toBeCloseTo(2, 1);
+    expect(800 - b.y).toBeCloseTo(HEADER_FOOTER_MARGINS.large, 0);
+    const courier = await addHeaderFooter(await blankPdf(1), {
+      footer: { center: "FOOTMARK" },
+      font: "courier",
+    });
+    expect(await baseFonts(courier)).toEqual(["/Courier"]);
+  });
+
+  it("the offered sizes sit inside what the engine draws, and the margins grow", () => {
+    expect(HEADER_FOOTER_SIZES.min).toBeGreaterThanOrEqual(6);
+    expect(HEADER_FOOTER_SIZES.max).toBeLessThanOrEqual(72);
+    expect(DEFAULT_HEADER_FOOTER_SIZE).toBeGreaterThanOrEqual(
+      HEADER_FOOTER_SIZES.min,
+    );
+    const m = HEADER_FOOTER_MARGINS;
+    expect(m.small < m.medium && m.medium < m.large).toBe(true);
+  });
+
+  it("a line too wide at this size says a smaller size is a way out", async () => {
+    await expect(
+      addHeaderFooter(await blankPdf(1), {
+        header: { center: "W".repeat(40) },
+        fontSize: 28,
+      }),
+    ).rejects.toThrow(/Shorten it or pick a smaller font size\./);
   });
 });
