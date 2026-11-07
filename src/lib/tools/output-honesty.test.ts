@@ -39,6 +39,8 @@ import { modeUploadsFiles } from "./processing-split";
 import { withoutComments } from "./copy-surface";
 import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
 import { REQUEST_PACKAGE_FILES } from "@/lib/jobs/request-signatures";
+import { SUMMARY_PACKAGE_FILES } from "@/lib/workers/summarize-package";
+import { AI_EXTRACT_PACKAGE_FILES } from "@/lib/workers/ai-extract-package";
 import { runnerModuleOf } from "@/tests/tool-panel-modules";
 
 /**
@@ -101,7 +103,11 @@ function bundledFormats(engineFile: string): Set<string> {
 /** Name records an engine may pass to `zip.file`, resolved to their values. */
 const ZIP_NAME_RECORDS: Readonly<
   Record<string, Readonly<Record<string, string>>>
-> = { REQUEST_PACKAGE_FILES };
+> = {
+  REQUEST_PACKAGE_FILES,
+  SUMMARY_PACKAGE_FILES,
+  AI_EXTRACT_PACKAGE_FILES,
+};
 
 describe("a tool's advertised outputs match what its engine writes", () => {
   it.each(BUNDLE_TOOLS)(

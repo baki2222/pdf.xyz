@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useId, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import {
   Download,
   Plus,
@@ -16,6 +16,7 @@ import {
   EXTRACTION_FIELD_TYPES,
   MAX_EXTRACTION_FIELDS,
   MAX_EXTRACTION_PROMPT_CHARS,
+  MAX_FIELD_DESCRIPTION_CHARS,
   MAX_FIELD_NAME_CHARS,
   duplicateFieldMessage,
   duplicateFieldNames,
@@ -26,6 +27,7 @@ import {
 import {
   AI_EXTRACT_NOT_NULL_WARNING,
   AI_EXTRACT_NULL_INSTRUCTION,
+  AI_EXTRACT_NULL_CSV_LEGEND,
   AI_EXTRACT_NULL_MEANING,
   AI_EXTRACT_NULL_PAST_CUT,
 } from "@/lib/jobs/ai-extract-null-meaning";
@@ -39,7 +41,13 @@ import {
   runWorkerAiExtract,
   type AiExtractWorkerResult,
 } from "@/lib/workers/ai-extract-client";
-import { downloadBytes } from "@/lib/pdf/browser";
+import { downloadBlob, downloadBytes } from "@/lib/pdf/browser";
+import {
+  AI_EXTRACT_CSV_SHAPE,
+  extractionCsvName,
+  readExtractionCsv,
+} from "@/lib/workers/ai-extract-package";
+import { buttonVariants } from "@/components/ui/button";
 import { TruncationNotice } from "./truncation-notice";
 import type { Tool } from "@/lib/tools/types";
 import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
@@ -114,7 +122,7 @@ export function AiExtractWorkerPanel({ tool }: { tool: Tool }) {
           icon: Download,
           label: "You get",
           value:
-            "ZIP · extraction.json + model-output.json + extraction.md + manifest",
+            "ZIP · extraction.json + model-output.json + extraction.md + manifest · a CSV built by the page when the data is an object or a list of objects",
         },
         {
           icon: Timer,
@@ -348,6 +356,28 @@ function AiExtractBuilder({
                     <Trash2 className="size-3.5" aria-hidden />
                   </button>
                 </div>
+                {/* The job contract's per-field description, sent to the
+                    model beside the name (engine `describeField`), so a hint
+                    tells similar figures apart without changing the JSON
+                    key. Until 2026-11-07 no input set it (audit
+                    ai-extract#4). 44px on a phone: it is on the way to Run. */}
+                <input
+                  type="text"
+                  aria-label={`Field ${i + 1} hint`}
+                  value={field.description ?? ""}
+                  onChange={(e) => {
+                    const description = e.target.value.slice(
+                      0,
+                      MAX_FIELD_DESCRIPTION_CHARS,
+                    );
+                    setFields((prev) =>
+                      prev.map((f, j) => (j === i ? { ...f, description } : f)),
+                    );
+                  }}
+                  maxLength={MAX_FIELD_DESCRIPTION_CHARS}
+                  placeholder="hint (optional), e.g. total incl. VAT, not subtotal"
+                  className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 rounded-ctl min-h-11 w-full border px-3 py-1.5 text-sm outline-none sm:min-h-0"
+                />
                 {earlier !== undefined && (
                   <p id={problemId} className="text-err text-xs">
                     {duplicateFieldMessage(i, earlier)}
@@ -439,21 +469,88 @@ function AiExtractBuilder({
             job={outcome.job}
             consequence={AI_EXTRACT_NULL_PAST_CUT}
           />
-          <p className="text-ok text-sm">
-            Your AI extraction package is ready — the extracted data as JSON, a
-            readable rendering, plus a manifest recording the model and honest
-            scope.
-          </p>
-          <DownloadCta
-            onClick={() =>
-              downloadBytes(outcome.output, outcome.artifact.filename)
-            }
-          >
-            Download {outcome.artifact.filename}
-          </DownloadCta>
+          <AiExtractResultBody
+            output={outcome.output}
+            filename={outcome.artifact.filename}
+          />
         </ResultCard>
       )}
     </div>
+  );
+}
+
+/**
+ * The finished extraction: the ZIP, and — when extraction.json has a table
+ * shape — a CSV of it, built in the browser from the bytes already in the
+ * page (audit ai-extract#3; the rules are `extractionRows`). No CSV button
+ * appears until the package has been read, or when it cannot be: a CSV that
+ * is offered is one that exists.
+ */
+export function AiExtractResultBody({
+  output,
+  filename,
+}: {
+  output: Uint8Array;
+  filename: string;
+}) {
+  // Keyed by the bytes it was read from, so a new result never offers the
+  // previous one's CSV while its own package is being read.
+  const [read, setRead] = useState<{
+    from: Uint8Array;
+    csv: string | null;
+  } | null>(null);
+  useEffect(() => {
+    let live = true;
+    void readExtractionCsv(output).then((csv) => {
+      if (live) setRead({ from: output, csv });
+    });
+    return () => {
+      live = false;
+    };
+  }, [output]);
+  const csv = read?.from === output ? read.csv : null;
+  const csvName = extractionCsvName(filename);
+
+  return (
+    <>
+      <p className="text-ok text-sm">
+        Your AI extraction package is ready — the extracted data as JSON, a
+        readable rendering, plus a manifest recording the model and honest
+        scope.
+      </p>
+      {csv !== null && (
+        <p className="text-muted text-xs leading-relaxed">
+          The CSV is built by the page from extraction.json:{" "}
+          {AI_EXTRACT_CSV_SHAPE}. {AI_EXTRACT_NULL_CSV_LEGEND}
+        </p>
+      )}
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start">
+        <DownloadCta onClick={() => downloadBytes(output, filename)}>
+          Download {filename}
+        </DownloadCta>
+        {/* "Download CSV", not the file name: buttonVariants never wraps,
+            so a long name would spill out of a phone-width card. */}
+        {csv !== null && (
+          <button
+            type="button"
+            data-download=""
+            onClick={() =>
+              downloadBlob(
+                new Blob([csv], { type: "text/csv;charset=utf-8" }),
+                csvName,
+              )
+            }
+            className={buttonVariants({
+              variant: "secondary",
+              className: "w-full sm:w-auto",
+            })}
+          >
+            <Download className="size-4" aria-hidden />
+            Download CSV
+          </button>
+        )}
+      </div>
+    </>
   );
 }
 

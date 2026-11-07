@@ -234,17 +234,20 @@ import {
   EXTRACTION_FIELD_TYPES,
   MAX_EXTRACTION_FIELDS,
   MAX_EXTRACTION_PROMPT_CHARS,
+  MAX_FIELD_DESCRIPTION_CHARS,
   MAX_FIELD_NAME_CHARS,
   extractionOutputName,
 } from "@/lib/jobs/ai-extract";
 import {
   AI_EXTRACT_NOT_NULL_WARNING,
   AI_EXTRACT_NULL_CELL_LEGEND,
+  AI_EXTRACT_NULL_CSV_LEGEND,
   AI_EXTRACT_NULL_INSTRUCTION,
   AI_EXTRACT_NULL_MEANING,
   AI_EXTRACT_NULL_PAST_CUT,
   AI_EXTRACT_UNRETURNED_NULL,
 } from "@/lib/jobs/ai-extract-null-meaning";
+import { AI_EXTRACT_CSV_SHAPE } from "@/lib/workers/ai-extract-package";
 import {
   OVERLAY_FITS,
   OVERLAY_LAYERS,
@@ -4829,7 +4832,7 @@ export const guides: Guide[] = [
       "tl;dr of a pdf",
     ],
     intro: [
-      `To summarize a PDF, open ${nameOf("summarize-pdf")}, add your file, choose a length and a format, and press Summarize PDF. An AI model writes a summary of the document's text, and you download it as a ZIP with Markdown and plain-text copies.`,
+      `To summarize a PDF, open ${nameOf("summarize-pdf")}, add your file, choose a length and a format, and press Summarize PDF. An AI model writes a summary of the document's text, which appears on the page to read and copy; you can also save it as plain text, as Markdown, or as a ZIP that adds a record of the model.`,
       "Use the summary to decide what to read, not in place of reading. The model is told to work only from the document's text and to add no facts, yet a summary can still leave a point out or get one wrong, so check anything you plan to act on against the original pages.",
       `${nameOf("summarize-pdf")} is one of the AI tools, so the work does not happen in your browser. Your PDF uploads over an encrypted connection to our secure server, which extracts the selectable text and sends that text, not the file, to a third-party AI provider. Your PDF is deleted when the job ends, and the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
     ],
@@ -4839,7 +4842,7 @@ export const guides: Guide[] = [
       `Pick a length under Summary length (${listOr(Object.values(SUMMARY_LENGTH_LABEL))}) and a shape under Format (${SUMMARY_FORMAT_NAMES}). The page starts on ${SUMMARY_LENGTH_LABEL[DEFAULT_SUMMARY_LENGTH]} and ${SUMMARY_FORMAT_LABEL[DEFAULT_SUMMARY_FORMAT]}.`,
       `Optionally, type up to ${SUMMARY_FOCUS_CHARS} characters in Focus (optional), such as “deadlines and costs”, to say what the summary should pay attention to.`,
       "Press Summarize PDF. Your PDF uploads over an encrypted connection to our secure server, and the button follows the job while the model writes.",
-      `Download the ZIP; report.pdf comes back as ${SUMMARY_EXAMPLE_ZIP}. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it to your device.`,
+      `Read the summary on the page and press Copy summary to paste it elsewhere, or download it as plain text, as Markdown or as the ZIP; report.pdf comes back as ${SUMMARY_EXAMPLE_ZIP}. Our server's link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save what you need to your device.`,
     ],
     sections: [
       {
@@ -4855,7 +4858,7 @@ export const guides: Guide[] = [
         id: "what-you-get-back",
         heading: "What you get back",
         body: [
-          "The download is a ZIP holding summary.md, summary.txt, manifest.json and README.txt. The Markdown and plain-text files hold the same summary; the manifest and README record which provider and model wrote it and the options you chose.",
+          "The summary appears on the page, with Copy summary and a download each for the plain text and the Markdown. The full download is a ZIP holding summary.md, summary.txt, manifest.json and README.txt. The Markdown and plain-text files hold the same summary; the manifest and README record which provider and model wrote it and the options you chose.",
           `The model reads a bounded amount of the document's text, and the exact figure is stated on the Summarize PDF page itself. A longer document is summarized from its first page up to that point, and both the results panel and summary.md say how far the reading got, by page. Files themselves are capped at ${ceilingMb("summarize-pdf")} MB.`,
         ],
       },
@@ -4900,7 +4903,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-convert-pdf-to-pdfa",
@@ -5098,7 +5101,7 @@ export const guides: Guide[] = [
       `Open the ${nameOf("pdf-to-text")} tool.`,
       "Drop your PDF on the panel that says “Drop your PDF here, or browse”, or click it to choose the file. Its name, page count and size appear.",
       "Press Extract text. The button reads Extracting text… while the pages are read.",
-      "Under “Text extracted”, check the character and page counts and read the text in the scrollable box. Select any part of it to copy just that passage.",
+      "Under “Text extracted”, check the character and page counts and read the text in the scrollable box. Press Copy text to put all of it on your clipboard, or select any part of it to copy just that passage.",
       `Press Download TXT, which shows the size of the file it will save. report.pdf is saved as ${TEXT_EXAMPLE_OUT}. Start over clears the page for another document.`,
     ],
     sections: [
@@ -5161,7 +5164,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-convert-a-pdf-to-black-and-white",
@@ -5876,10 +5879,10 @@ export const guides: Guide[] = [
     steps: [
       `Open the ${nameOf("ai-extract")} tool. Extract data works once the status badge reads Secure server.`,
       "Drop one PDF on the box that says “Add your PDF, or browse”, or click it to choose the file. It needs selectable text; for a scan, run OCR PDF first.",
-      `Under Fields to extract, type a field name of up to ${MAX_FIELD_NAME_CHARS} characters, such as invoice_number, and choose its type: ${EXTRACT_FIELD_TYPES}. Add field adds a row, up to ${MAX_EXTRACTION_FIELDS}.`,
+      `Under Fields to extract, type a field name of up to ${MAX_FIELD_NAME_CHARS} characters, such as invoice_number, and choose its type: ${EXTRACT_FIELD_TYPES}. Optionally, type a hint of up to ${MAX_FIELD_DESCRIPTION_CHARS} characters in the box under the name, such as “the grand total including VAT, not the subtotal”; the model reads it beside the name, and your JSON key stays the name. Add field adds a row, up to ${MAX_EXTRACTION_FIELDS}.`,
       `Or press Prompt and describe what you want in the What to extract box, up to ${EXTRACT_PROMPT_CHARS} characters.`,
       "Press Extract data. Your PDF uploads over an encrypted connection to our secure server, and the button follows the job while the model reads.",
-      `Press Download ${EXTRACT_EXAMPLE_ZIP}, the button named after your file: invoice.pdf comes back as ${EXTRACT_EXAMPLE_ZIP}. Save it to your device before you close the tab.`,
+      `Press Download ${EXTRACT_EXAMPLE_ZIP}, the button named after your file: invoice.pdf comes back as ${EXTRACT_EXAMPLE_ZIP}. Save it to your device before you close the tab. To open the values in a spreadsheet, press Download CSV beside it.`,
     ],
     sections: [
       {
@@ -5895,14 +5898,14 @@ export const guides: Guide[] = [
         heading: "What you download",
         body: [
           `In the ZIP, model-output.json is the model's reply as it was returned. extraction.json holds the same data; with a field schema it lists every field you asked for, in your order and under your names, and a key the model respelled is mapped back to your name. ${AI_EXTRACT_UNRETURNED_NULL}`,
-          `extraction.md lays the data out as a Field and Value table, or as a numbered list when the reply is a list. ${AI_EXTRACT_NULL_CELL_LEGEND} manifest.json records the provider and model, your fields or prompt, and how much of the document was read, and README.txt describes the package. There is no CSV or spreadsheet; for data in rows and columns, ${nameOf("extract-tables")} writes a CSV per table and an Excel workbook.`,
+          `extraction.md lays the data out as a Field and Value table, or as a numbered list when the reply is a list. ${AI_EXTRACT_NULL_CELL_LEGEND} manifest.json records the provider and model, your fields or prompt, and how much of the document was read, and README.txt describes the package. Beside the ZIP, Download CSV saves the same data as a CSV, built by the page from extraction.json, whenever it is an object or a list of objects: ${AI_EXTRACT_CSV_SHAPE}. ${AI_EXTRACT_NULL_CSV_LEGEND} For data laid out in rows and columns in the PDF itself, ${nameOf("extract-tables")} writes a CSV per table and an Excel workbook.`,
         ],
       },
       {
         id: "nulls-and-wrong-values",
         heading: "Nulls, wrong values and long documents",
         body: [
-          `${AI_EXTRACT_NULL_MEANING} ${AI_EXTRACT_NOT_NULL_WARNING} A wrong value comes from the model's reading or from the text it was given: a misread OCR layer, or side-by-side columns read across as one line, can mislead it. When a page holds several similar figures, name the exact one you want.`,
+          `${AI_EXTRACT_NULL_MEANING} ${AI_EXTRACT_NOT_NULL_WARNING} A wrong value comes from the model's reading or from the text it was given: a misread OCR layer, or side-by-side columns read across as one line, can mislead it. When a page holds several similar figures, name the exact one you want in the field's hint, or in your prompt.`,
           `The model reads a bounded amount of the document's text, and the exact figure is stated on the ${nameOf("ai-extract")} page itself. Past that point the text is dropped, and the result says how far the reading got. ${AI_EXTRACT_NULL_PAST_CUT} Files themselves are capped at ${ceilingMb("ai-extract")} MB.`,
         ],
       },
@@ -5938,7 +5941,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I get the data as CSV or Excel?",
-        answer: `Not from this tool: it writes JSON and a Markdown table. For tables, ${nameOf("extract-tables")} returns a CSV per table and an Excel workbook, without AI, on our secure server.`,
+        answer: `As CSV, yes: when the data is an object or a list of objects, a Download CSV button beside the ZIP saves it, built by the page from extraction.json. There is no Excel workbook, though Excel opens the CSV. For tables in the PDF itself, ${nameOf("extract-tables")} returns a CSV per table and an Excel workbook, without AI, on our secure server.`,
       },
       {
         question: "Can it extract data from a scanned PDF?",
@@ -5946,7 +5949,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   // Added 2026-10-31, the last four tools without a guide of their own.
   // PNG to PDF: written for what is particular to PNG, not a second JPG

@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import { AI_EXTRACT_PACKAGE_FILES } from "../ai-extract-package";
 import {
   rethrowIfAttemptAbort,
   signalOption,
@@ -860,14 +861,22 @@ async function buildPackage(
   reconciled: SchemaReconciliation | null,
   manifest: ExtractionManifest,
 ): Promise<Uint8Array> {
+  // Entry names from the record the browser reads extraction.json back with
+  // (for its CSV), so the two cannot drift apart.
   const zip = new JSZip();
   zip.file(
-    "extraction.json",
+    AI_EXTRACT_PACKAGE_FILES.json,
     JSON.stringify(reconciled ? reconciled.values : data, null, 2),
   );
-  zip.file("model-output.json", JSON.stringify(data, null, 2));
-  zip.file("extraction.md", renderMarkdown(data, reconciled, manifest));
-  zip.file("manifest.json", JSON.stringify(manifest, null, 2));
-  zip.file("README.txt", renderReadme(manifest));
+  zip.file(AI_EXTRACT_PACKAGE_FILES.modelOutput, JSON.stringify(data, null, 2));
+  zip.file(
+    AI_EXTRACT_PACKAGE_FILES.markdown,
+    renderMarkdown(data, reconciled, manifest),
+  );
+  zip.file(
+    AI_EXTRACT_PACKAGE_FILES.manifest,
+    JSON.stringify(manifest, null, 2),
+  );
+  zip.file(AI_EXTRACT_PACKAGE_FILES.readme, renderReadme(manifest));
   return new Uint8Array(await zip.generateAsync({ type: "uint8array" }));
 }
