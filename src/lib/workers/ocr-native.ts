@@ -45,6 +45,7 @@ import { sanitizeDisplayFilename } from "@/lib/jobs/filenames";
 import { looksLikePdf } from "./compression/engine";
 import { OCR_ENGINES, type OcrEngine, type OcrEngineAvailability } from "./ocr";
 import { classifyOcrmypdfFailure, OcrEngineRefusal } from "./ocr-engine-errors";
+import { ocrReadyImage } from "./ocr-image";
 import { fillSkippedSidecarPages, skippedSidecarPages } from "./ocr-sidecar";
 import {
   resolveNativePdfTextExtractor,
@@ -313,7 +314,9 @@ export const OCR_ROTATE_PAGES_THRESHOLD = 5;
  *    text flag applies to it, and Tesseract has no deskew step, so `deskew`
  *    passes nothing here (the panel disables it for an image). Nor does
  *    `rotatePages`: this Tesseract call runs no orientation step, and a
- *    forged job asking for one is read as it is.
+ *    forged job asking for one is read as it is. The image it reads has
+ *    already had a phone's EXIF turn applied and a page-sized resolution
+ *    declared by the runner (`./ocr-image`, since 2026-11-06, audit #9).
  */
 export function nativeOcrArgs(
   engine: OcrEngine,
@@ -661,10 +664,18 @@ export function createNativeOcrRunner(
     const wantText =
       options.outputMode === "text" || options.outputMode === "both";
 
+    // An image goes to Tesseract upright and on a sane page: Leptonica applies
+    // neither a phone's EXIF turn nor anything but its declared 72 dpi
+    // (audit #9; see `./ocr-image`). A PDF is written exactly as uploaded.
+    const prepared =
+      engine === "tesseract"
+        ? await ocrReadyImage(input.bytes, inputExtension(input))
+        : { bytes: input.bytes, ext: inputExtension(input) };
+    throwIfAttemptAborted(signal);
     const dir = await fs.mkdtemp(path.join(baseTmp, "pdfxyz-ocr-"));
-    const inputPath = path.join(dir, `input.${inputExtension(input)}`);
+    const inputPath = path.join(dir, `input.${prepared.ext}`);
     try {
-      await fs.writeFile(inputPath, input.bytes);
+      await fs.writeFile(inputPath, prepared.bytes);
       const { command, args, pdfOut, txtOut, tsvOut } = nativeOcrArgs(
         engine,
         config.binaries[engine],

@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { normalizeExtractedText, textItemsToPlainText } from "@/lib/pdf/text";
+import { layoutGrid } from "@/lib/workers/pdf-office-export/layout-grid";
 import { decodeXmlEntities, parseBboxLayout, parseLayoutText } from "./parse";
 
 /** One page, two rows of two aligned columns — poppler's `-bbox-layout` shape. */
@@ -113,7 +114,10 @@ describe("parseLayoutText", () => {
     const out = parseLayoutText("page one\f page two\f");
     expect(out.pageCount).toBe(2);
     expect(out.pages.map((p) => p.pageNumber)).toEqual([1, 2]);
-    expect(out.pages[1]!.text).toBe("page two");
+    // Until 2026-11-06 this expected "page two": the page's first-line indent
+    // was trimmed away, which is audit #7 (headers moved one column left in
+    // PDF to Excel). Inverted, not deleted: `-layout`'s indent is position.
+    expect(out.pages[1]!.text).toBe(" page two");
   });
 
   it("does not count the empty chunk after a trailing page break", () => {
@@ -131,6 +135,29 @@ describe("parseLayoutText", () => {
     // collapsing the padding here would silently merge columns.
     const out = parseLayoutText("North               1200   1350");
     expect(out.text).toBe("North               1200   1350");
+  });
+
+  it("keeps a page's FIRST line indent, so a header over an empty label column stays over its values (audit #7)", () => {
+    // A statement's continuation page starts straight with its year header,
+    // indented past the row-label column. Trimming the page used to strip that
+    // indent, and layoutGrid then put "2025" over the labels and "2024" over
+    // the 2025 values. The chain is tested, not the normalizer alone.
+    const header = "                 2025          2024";
+    const out = parseLayoutText(
+      `Title page\n\f${header}\nRevenue        1,000.00      2,000.00\nCost             500.00        700.00\n\f`,
+    );
+    expect(out.pages[1]!.text.split("\n")[0]).toBe(header);
+    expect(layoutGrid(out.pages[1]!.text)).toEqual([
+      [null, "2025", "2024"],
+      ["Revenue", "1,000.00", "2,000.00"],
+      ["Cost", "500.00", "700.00"],
+    ]);
+  });
+
+  it("still drops blank lines and trailing spaces around a page", () => {
+    const out = parseLayoutText("\n\n   indented\nnext   \n\n\f");
+    expect(out.pages[0]!.text).toBe("   indented\nnext");
+    expect(out.hasText).toBe(true);
   });
 });
 

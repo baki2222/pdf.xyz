@@ -85,8 +85,10 @@
  * layer. Text used as a clip (render modes 4–7) clips nothing in the layers or
  * pictures. Image masks, repeated and grouped inline images are drawn into the
  * layers, not placed as pictures (PowerPoint; PDF to Word, which draws no
- * layers, places each of them as a picture: `picturesOnly`). A line of TEXT
- * is placed whole even where a clip cuts it. Right-to-left text is written
+ * layers, places each of them as a picture: `picturesOnly`). Text is read
+ * only where the clip's bounds (the CropBox first) show it, glyph by glyph,
+ * but a glyph a clip cuts partly is placed whole, and a curved clip is taken
+ * as its bounding box. Right-to-left text is written
  * in the order it is painted.
  * Vertical text is approximated. Each is a rendering difference, not a loss
  * of content.
@@ -1186,6 +1188,46 @@ function walkPage(
       typeof v === "number" && Number.isFinite(v) ? v : fallback;
     const ascent = Math.min(Math.max(finite(font.ascent, 0.8), 0.5), 1.2);
     const descent = Math.min(Math.max(-finite(font.descent, -0.2), 0.05), 0.6);
+    /**
+     * Whether any of a glyph's box — baseline `start`→`end`, `ascent` above
+     * and `descent` below, device space — lies inside the clip in force, whose
+     * bounds start as the page box (the CropBox). A glyph wholly outside is
+     * not seen in the PDF and is not read (audit #35, 2026-11-06: until then
+     * text was never tested against the clip, so text a crop or a clip path
+     * hid came back as text boxes off the slide). A glyph partly cut is kept
+     * whole: the CONTROL in `faithful.test.ts` ("a line the crop or clip edge
+     * cuts through") goes red if this becomes a full-containment test. An
+     * earlier note here also promised that edges count as inside; no test
+     * can tell `>=` from `>` on a real page, so that is not promised
+     * (review of e85a4a5e, 2026-11-06).
+     */
+    const glyphSeen = (
+      start: [number, number],
+      end: [number, number],
+      ux: number,
+      uy: number,
+      up: number,
+      down: number,
+    ): boolean => {
+      // Perpendicular to the advance, towards the glyph's top (y grows down).
+      const px = uy * size;
+      const py = -ux * size;
+      const xs = [start[0], end[0]].flatMap((v) => [
+        v + px * up,
+        v - px * down,
+      ]);
+      const ys = [start[1], end[1]].flatMap((v) => [
+        v + py * up,
+        v - py * down,
+      ]);
+      const [cx0, cy0, cx1, cy1] = st.clip;
+      return (
+        Math.max(...xs) >= cx0 &&
+        Math.min(...xs) <= cx1 &&
+        Math.max(...ys) >= cy0 &&
+        Math.min(...ys) <= cy1
+      );
+    };
     let x = 0;
     for (const raw of glyphList) {
       if (typeof raw === "number") {
@@ -1207,7 +1249,7 @@ function walkPage(
         end = apply(t, st.x + (x + width) * hScale, st.y + st.rise);
       }
       const unicode = typeof g.unicode === "string" ? g.unicode : "";
-      if (unicode.length > 0)
+      if (unicode.length > 0 && glyphSeen(start, end, dx, dy, ascent, descent))
         glyphs.push({
           op,
           ox: start[0],
