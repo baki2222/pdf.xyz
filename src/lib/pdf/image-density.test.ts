@@ -77,7 +77,7 @@ describe("stored resolution under Fit to image (audits jpg-to-pdf#4, png-to-pdf#
     expect(page.height).toBeCloseTo((JPEG_HEIGHT * 72) / dpi, 3);
   });
 
-  it.each([
+  it.each<readonly [string, Uint8Array]>([
     ["no density at all", JPEG_30X20],
     ["a JFIF aspect ratio only (units 0)", jpegWithJfifDensity(1, 1, 0)],
     ...PLACEHOLDER_DPIS.map(
