@@ -67,11 +67,11 @@ import {
  *    field null), extraction.md, manifest.json (missing/renamed/extra keys) and
  *    README.txt. No CSV is in the ZIP; since 2026-11-07 the panel's Download
  *    CSV builds one in the browser from extraction.json
- *    (src/lib/workers/ai-extract-package.ts, AI_EXTRACT_CSV_SHAPE). extraction.md is a Field | Value table (a
- *    numbered list for a list reply), a null shown as AI_EXTRACT_NULL_CELL (a
- *    null inside a list as "_(null)_"), a dropped
- *    field as "_(not returned by the model)_", and unrequested keys in a
- *    separate table.
+ *    (src/lib/workers/ai-extract-package.ts, AI_EXTRACT_CSV_SHAPE).
+ *    extraction.md is a Field | Value table (a numbered list for a list
+ *    reply), a null shown as AI_EXTRACT_NULL_CELL (a null inside a list as
+ *    "_(null)_"), a dropped field as "_(not returned by the model)_", and
+ *    unrequested keys in a separate table.
  *  - src/lib/workers/processor/ai-extract.ts + executor/executor.ts — a
  *    non-JSON reply is `internal_error`, retryable, and the executor REQUEUES a
  *    retryable failure while attempts remain; only the last attempt's failure
@@ -108,9 +108,9 @@ import {
  */
 
 /** The per-file cap a worker-tier upload is refused above, in whole MB. */
+const CEILING_MB = Math.round(WORKER_FILE_CEILING / (1024 * 1024));
 /** The per-field hint's limit, from the job contract the worker enforces. */
 const MAX_HINT_CHARS = MAX_FIELD_DESCRIPTION_CHARS.toLocaleString("en-US");
-const CEILING_MB = Math.round(WORKER_FILE_CEILING / (1024 * 1024));
 const OUTPUT_TTL = DEFAULT_RETENTION.outputTtlMinutes;
 /** What one run reads: the figure the FAQ and the panel's Limit row state too. */
 const MAX_CHARS = aiReadLimitFor("ai-extract").toLocaleString("en-US");
