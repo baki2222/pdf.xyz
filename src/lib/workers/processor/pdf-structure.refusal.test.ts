@@ -14,6 +14,11 @@
  * answering the way execFile / fs.promises do), the real engine, the real
  * processor, and the real executor over the local-dev queue. Every tool the
  * processor owns is asked, read from the processor itself.
+ *
+ * A timeout was this file's positive control until 2026-11-06 (audit #36): "a
+ * timeout stays retryable". It was retryable, and that was the defect — the same
+ * bytes meet the same per-run limit on every attempt. It is final now, with its own
+ * sentence; a spawn failure (no exit code, no timeout) is the control instead.
  */
 import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_RETENTION, type Job } from "@/lib/jobs";
@@ -112,8 +117,25 @@ describe("pdf-structure processor — a refusal is final and named", () => {
       expect(result.error.message).not.toMatch(/qpdf|password/i);
     });
 
-    it(`${tool}: POSITIVE CONTROL — a timeout stays retryable`, async () => {
+    // INVERTED 2026-11-06 (audit #36). This was "POSITIVE CONTROL — a timeout
+    // stays retryable", pinning `internal_error`/retryable:true. But qpdf's
+    // timeout is per run and the bytes are the same, so a file that takes too
+    // long takes too long on every attempt: the user waited through each retry
+    // and then read "The PDF structure engine could not process this file".
+    it(`${tool}: a timeout is final and says the file took too long`, async () => {
       const result = await run(TIMEOUT().deps);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error).toMatchObject({
+        code: "unprocessable_entity",
+        retryable: false,
+      });
+      expect(result.error.message).toMatch(/took too long/);
+      expect(result.error.message).not.toMatch(/qpdf|engine/i);
+    });
+
+    it(`${tool}: POSITIVE CONTROL — a spawn failure stays retryable`, async () => {
+      const result = await run(qpdf({ code: -1, timedOut: false }).deps);
       expect(result.ok).toBe(false);
       if (result.ok) return;
       expect(result.error).toMatchObject({
@@ -189,10 +211,27 @@ describe("pdf-structure through the executor — qpdf runs once, not three times
       });
     });
 
-    it(`${tool}: POSITIVE CONTROL — a timeout is still requeued`, async () => {
+    // INVERTED 2026-11-06 (audit #36): this was "POSITIVE CONTROL — a timeout
+    // is still requeued". The same bytes against the same per-run limit time
+    // out again, so the job now ends at attempt 1 like a refusal does.
+    it(`${tool}: a timeout fails at attempt 1 — no requeue, no dead letter`, async () => {
       const q = TIMEOUT();
       const { exec, metrics } = executor(q.deps);
       await submit(tool, "job_timeout000");
+
+      const first = await exec.runOnce();
+
+      expect(first).toMatchObject({ outcome: "failed", attempt: 1 });
+      expect(q.rewrites()).toBe(1);
+      const names = metrics.map((m) => m.metric);
+      expect(names).not.toContain("worker_retry_total");
+      expect(names).not.toContain("worker_dead_letter_total");
+    });
+
+    it(`${tool}: POSITIVE CONTROL — a spawn failure is still requeued`, async () => {
+      const q = qpdf({ code: -1, timedOut: false });
+      const { exec, metrics } = executor(q.deps);
+      await submit(tool, "job_spawnfail0");
 
       const first = await exec.runOnce();
 

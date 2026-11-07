@@ -89,6 +89,10 @@ describe("the in-image options proof runs, from the workflow to the call", () =>
     // The real engines from the image's environment, not stubs that would
     // make the proof pass without either binary.
     expect(callee("compression")).toBe("nativeCompressionDeps");
+    // The rotation check's control (2026-11-06) is the same real compressor
+    // with one switch stripped from its argv. A stub here could turn pages on
+    // its own and pass the control without Ghostscript.
+    expect(callee("compressionAutoRotating")).toBe("nativeCompressionDeps");
     expect(callee("pdfSecurity")).toBe("nativePdfSecurityDeps");
     // The image's Chromium, for the page layout checks (2026-10-25).
     expect(callee("htmlRender")).toBe("nativeHtmlRenderDeps");

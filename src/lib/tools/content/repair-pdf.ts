@@ -38,9 +38,12 @@ import { DEFAULT_SOUNDNESS_POLICY } from "@/lib/workers/soundness/policy";
  *    engine.ts turns it into `password_protected` / `unreadable` with
  *    REFUSAL_MESSAGES.repair, and processor/pdf-structure.ts makes both
  *    NON-retryable, so the job ends at once with that sentence (the panel
- *    links Unlock PDF for the first). Every other qpdf failure (timeout, an
- *    exit other than 0/2/3, a spawn or IO error, empty/oversized output,
- *    output failing `looksLikePdf`) is `failed`, a RETRYABLE internal_error.
+ *    links Unlock PDF for the first). A timeout is a QpdfTimedOutError, made
+ *    `timeout` by the engine and NON-retryable by the processor with its own
+ *    "took too long" sentence (since 2026-11-06, audit #36). Every other qpdf
+ *    failure (an exit other than 0/2/3, a spawn or IO error, empty/oversized
+ *    output, output failing `looksLikePdf`) is `failed`, a RETRYABLE
+ *    internal_error.
  *    The executor requeues retryable errors until maxAttempts (no number
  *    stated: the executor default and the daemon's configured value differ).
  *    A headerless input is non-retryable (`invalid_pdf`, or the soundness
@@ -113,7 +116,7 @@ const content: ToolContent = {
 
   intro: [
     `Repair PDF passes a file that refuses to open, or opens with an error, through qpdf's parser and writer and hands back the rewritten copy. A "corrupted" PDF can still hold its pages while having lost the map to them: the cross-reference table that records where each object sits is damaged, or the file is cut off before its trailer. qpdf's documented behaviour when that table is broken is to rebuild it by scanning the file for the objects that remain.`,
-    `The only structural check before qpdf runs is for a PDF header near the start of the file, so qpdf will still try a download that stopped partway and lost its end-of-file marker. If qpdf refuses the file outright, the job ends at once without a retry and says why: the PDF is password-protected and needs Unlock PDF first, or it could not be rebuilt into a PDF. If qpdf does not finish inside our server's time limit, or what it writes lacks a PDF header or an end-of-file marker, the run is retried, and if it keeps failing the job fails with no file. When qpdf recovers the document with warnings, they are shown next to the result.`,
+    `The only structural check before qpdf runs is for a PDF header near the start of the file, so qpdf will still try a download that stopped partway and lost its end-of-file marker. If qpdf refuses the file outright, the job ends at once without a retry and says why: the PDF is password-protected and needs Unlock PDF first, or it could not be rebuilt into a PDF. If qpdf does not finish inside our server's time limit, the job ends at once with a message saying the file took too long, because the same file would take just as long again. If what it writes lacks a PDF header or an end-of-file marker, the run is retried, and if it keeps failing the job fails with no file. When qpdf recovers the document with warnings, they are shown next to the result.`,
     `This runs on a server. Your PDF, up to ${CEILING_MB} MB, is uploaded over TLS to pdf.xyz's secure server, and the uploaded copy is deleted once the job is over. The repaired file's download link expires after ${LINK_MINUTES} minutes; the stored bytes linger until the next pass of a once-a-day storage rule wipes them.`,
   ],
 
@@ -158,7 +161,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Can every corrupted PDF be repaired?",
-      a: "No. qpdf can reconstruct a damaged or missing cross-reference table when the objects are still in the file, but it cannot bring back bytes that are not there. If qpdf refuses the file, the job stops straight away without a retry, saying either that the file could not be rebuilt into a PDF or that it is password-protected and needs Unlock PDF first. A run that goes past our server's time limit, or writes something without a PDF header and end-of-file marker, is tried again and then fails the job with no file produced.",
+      a: "No. qpdf can reconstruct a damaged or missing cross-reference table when the objects are still in the file, but it cannot bring back bytes that are not there. If qpdf refuses the file, the job stops straight away without a retry, saying either that the file could not be rebuilt into a PDF or that it is password-protected and needs Unlock PDF first. A run that goes past our server's time limit ends the job at once, saying the file took too long, since the same file would take just as long again. A run that writes something without a PDF header and end-of-file marker is tried again and then fails the job with no file produced.",
     },
     {
       q: "Why was my file refused before the repair started?",

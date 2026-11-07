@@ -302,6 +302,15 @@ export function ghostscriptPdfAArgs(
     // prefix embeds; the old flag did neither.
     "-sColorConversionStrategy=RGB",
     "-sDEVICE=pdfwrite",
+    // NEVER RE-ORIENT A PAGE. Without this pdfwrite runs its default
+    // `/PageByPage`: it guesses each page's orientation from its text and
+    // rewrites /Rotate. Measured in the production image (gs 10.00.0) on
+    // `rotationProofPdf()`: its /Rotate 90 portrait and its landscape pages of
+    // vertical text all came back displayed portrait. An archive must keep
+    // the document as it was. There is no -dPDFSETTINGS here; a preset sets
+    // AutoRotatePages itself, so this goes after one if one is ever added
+    // (the order compress-pdf's deep step uses, audit #21).
+    "-dAutoRotatePages=/None",
     "-dPDFACompatibilityPolicy=1",
     `-sOutputFile=${outputPath}`,
     // The prefix runs first, then the document: the order is the recipe.

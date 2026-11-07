@@ -113,6 +113,15 @@ function jobError(run: Failure): JobError {
         message: run.message,
         retryable: false,
       };
+    // The page scan passed its per-attempt deadline on these bytes, and would
+    // again. Until 2026-11-06 (audit #36) it fell through to the retryable
+    // branch below: several deadlines, then a message naming no way forward.
+    case "timeout":
+      return {
+        code: "unprocessable_entity",
+        message: run.message,
+        retryable: false,
+      };
     case "failed":
     default:
       return { code: "internal_error", message: run.message, retryable: true };

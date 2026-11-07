@@ -323,7 +323,9 @@ class MediaOverBudget extends Error {
 }
 
 /**
- * A scan that could not finish in time. Retryable, like a pdftotext timeout.
+ * A scan that could not finish in time. Final: the deadline is per attempt and
+ * the bytes are the same, so the engine reports it as `timeout`, never retried
+ * (until 2026-11-06, audit #36, it was retryable and could only time out again).
  * Its message is for the log: the engine reports its own sentence.
  */
 export class PageScanTimeoutError extends Error {
@@ -391,10 +393,11 @@ export const PAGE_DECODE_BUDGET_BYTES = 512 * 1024 * 1024;
  * part of a scan: measured 2026-10-11 on a desktop (Node 24, Windows), pdf.js
  * decoded about 150 MB a second of this estimate for DCT photos and 400–500
  * for Flate. At this many bytes even that machine could not finish inside
- * the scan's 120 s deadline, and a timeout is retryable — three attempts at
- * a job that can only time out. Past it the job is refused up front, as too
- * large, which is not retried. A document under it can still time out on a
- * slower worker; this catches only the ones that cannot finish anywhere.
+ * the scan's 120 s deadline, and a timeout was then retryable — three
+ * attempts at a job that can only time out (a timeout has been final since
+ * 2026-11-06, audit #36). Past it the job is refused up front, as too large,
+ * before any decoding. A document under it can still time out on a slower
+ * worker; this catches only the ones that cannot finish anywhere.
  *
  * PDF to Word (`picturesOnly`) is not refused for it: its pages are decoded
  * in page order while the budget holds, and the pictures of the pages past

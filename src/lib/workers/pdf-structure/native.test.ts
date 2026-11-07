@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createNativeQpdfStructureRunner,
+  defaultQpdfStructureExec,
   linearizeArgs,
   nativePdfStructureDeps,
   probeQpdfStructureFromConfig,
@@ -12,7 +13,7 @@ import {
   type QpdfStructureFs,
 } from "./native";
 import type { NativePdfStructureConfig } from "./native-config";
-import { QpdfRefusedError } from "./errors";
+import { QpdfRefusedError, QpdfTimedOutError } from "./errors";
 
 function pdf(pad = 40): Uint8Array {
   return new TextEncoder().encode(`%PDF-1.7\n${"0".repeat(pad)}\n%%EOF\n`);
@@ -257,14 +258,17 @@ describe("createNativeQpdfStructureRunner", () => {
         });
       }
 
-      it(`${op}: POSITIVE CONTROL — a timeout stays a plain, retryable error and is never probed`, async () => {
+      // INVERTED 2026-11-06 (audit #36): this was "a timeout stays a plain,
+      // retryable error". It is typed now, so the engine can make it final —
+      // the same bytes meet the same limit on every attempt. Still never probed.
+      it(`${op}: a timeout is a QpdfTimedOutError, not a refusal, and is never probed`, async () => {
         const { fs } = fakeFs(pdf());
         const { exec, calls } = fakeExec({ code: -1, timedOut: true });
         const runner = createNativeQpdfStructureRunner(config(), { exec, fs });
 
         const error = await runner[op](pdf()).catch((e: unknown) => e);
 
-        expect(error).toBeInstanceOf(Error);
+        expect(error).toBeInstanceOf(QpdfTimedOutError);
         expect(error).not.toBeInstanceOf(QpdfRefusedError);
         expect(calls).toHaveLength(1);
       });
@@ -361,5 +365,54 @@ describe("sanitizeQpdfWarnings", () => {
 
   it("returns nothing for a clean run", () => {
     expect(sanitizeQpdfWarnings("", [])).toEqual([]);
+  });
+});
+
+/**
+ * Node kills the child for TWO reasons: the timeout, and output past
+ * `maxBuffer`. The exec reads `error.killed` as a timeout, and since audit #36 a
+ * timeout is FINAL with "took too long" — so a review (2026-11-06) asked whether
+ * a maxBuffer kill also lands there. It does not: Node reports that one as
+ * `code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"` with `killed` unset (measured on
+ * Node 24: `killed: undefined, signal: undefined`; the timeout is `killed: true,
+ * signal: "SIGTERM"`), because `exithandler` only sets `killed` on an error it
+ * creates itself. Pinned here, through the real exec over a real child (this
+ * Node), each way, rather than asserted in a comment.
+ */
+describe("defaultQpdfStructureExec — only a real timeout is a timeout", () => {
+  const node = process.execPath;
+  const options = (over: { timeout?: number; maxBuffer?: number }) => ({
+    timeout: 20_000,
+    maxBuffer: 16 * 1024 * 1024,
+    windowsHide: true,
+    ...over,
+  });
+
+  it("output past maxBuffer is not reported as a timeout", async () => {
+    const result = await defaultQpdfStructureExec(
+      node,
+      ["-e", "process.stderr.write('x'.repeat(4096))"],
+      options({ maxBuffer: 256 }),
+    );
+    expect(result.timedOut).toBe(false);
+    expect(result.code).not.toBe(0);
+  });
+
+  it("POSITIVE CONTROL: a child that outlives the timeout IS a timeout", async () => {
+    const result = await defaultQpdfStructureExec(
+      node,
+      ["-e", "setTimeout(() => {}, 20000)"],
+      options({ timeout: 300 }),
+    );
+    expect(result.timedOut).toBe(true);
+  });
+
+  it("CONTROL: a clean exit is neither", async () => {
+    const result = await defaultQpdfStructureExec(
+      node,
+      ["-e", "process.exit(0)"],
+      options({}),
+    );
+    expect(result).toMatchObject({ code: 0, timedOut: false });
   });
 });

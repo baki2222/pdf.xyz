@@ -94,8 +94,17 @@ export function pdfStructureJobError(run: PdfStructureFailure): JobError {
         message: run.message,
         retryable: false,
       };
-    // Only a run that did not finish reaches here now: a timeout, a spawn or
-    // IO error, unusable output. Those are what a retry can change.
+    // qpdf ran out of time on these bytes, and would again: final, and said
+    // as such. Until 2026-11-06 (audit #36) it fell through to the retryable
+    // branch below and was rerun to the same timeout on every attempt.
+    case "timeout":
+      return {
+        code: "unprocessable_entity",
+        message: run.message,
+        retryable: false,
+      };
+    // Only a run that did not finish reaches here now: a spawn or IO error,
+    // unusable output. Those are what a retry can change.
     case "failed":
     default:
       return { code: "internal_error", message: run.message, retryable: true };

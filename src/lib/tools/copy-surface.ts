@@ -178,6 +178,19 @@ export function copyFiles(): string[] {
     // The OCR rotate proof's verdict lines and fixture words (2026-11-01),
     // walked for the same reason.
     path.join(ROOT, "src", "lib", "workers", "ocr-rotate-proof.ts"),
+    // Compress PDF's page-orientation proof fixture (2026-11-06, audit #21),
+    // walked for the same reason.
+    path.join(
+      ROOT,
+      "src",
+      "lib",
+      "workers",
+      "compression",
+      "rotation-proof.ts",
+    ),
+    // Translate PDF's warning when Auto-detect meets a PDF already in the
+    // target language (2026-11-06, audit #38), drawn by the panel.
+    path.join(ROOT, "src", "lib", "jobs", "translate-script.ts"),
     // Word, Excel and PowerPoint to PDF's refusal of an .odt, .ods, .odp or
     // .rtf whose bytes are another format (2026-11-04): new phrase code, so
     // walked rather than recorded outside.

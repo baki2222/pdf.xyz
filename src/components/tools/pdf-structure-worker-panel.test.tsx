@@ -272,8 +272,21 @@ describe("a document qpdf refuses — named once, with the tool that fixes it", 
       expect(hrefsTo("/tools/unlock-pdf")).toEqual(["/tools/unlock-pdf"]);
     });
 
-    it(`${slug}: POSITIVE CONTROL — a run that did not finish links nothing`, async () => {
+    // INVERTED 2026-11-06 (audit #36): this control used a TIMEOUT as "a run
+    // that did not finish", retryable. A timeout is final now and says the file
+    // took too long (below); a spawn failure is the run a retry can change.
+    it(`${slug}: a timeout is final and says the file took too long`, async () => {
       const { job } = await jobFrom(slug, { code: -1, timedOut: true });
+      expect(job.error?.retryable).toBe(false);
+      stubNetwork(slug, job);
+      await runOnePdf(slug);
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        /took too long/,
+      );
+    });
+
+    it(`${slug}: POSITIVE CONTROL — a run that did not finish links nothing`, async () => {
+      const { job } = await jobFrom(slug, { code: -1, timedOut: false });
       expect(job.error?.retryable).toBe(true);
       stubNetwork(slug, job);
       await runOnePdf(slug);

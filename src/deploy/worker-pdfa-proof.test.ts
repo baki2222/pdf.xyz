@@ -127,6 +127,22 @@ describe("the in-image PDF/A proof runs, from the workflow to the call", () => {
         ? seamsArg.properties.map((p) => p.name?.getText(file))
         : [];
     expect(seamKeys).toContain("encrypt");
+    // The rotation control (2026-11-06) is the same native runner with one
+    // switch stripped from its argv. A stub here could turn pages on its own
+    // and pass the control without Ghostscript.
+    const control =
+      seamsArg && ts.isObjectLiteralExpression(seamsArg)
+        ? seamsArg.properties.find(
+            (p) => p.name?.getText(file) === "autoRotating",
+          )
+        : undefined;
+    const init =
+      control && ts.isPropertyAssignment(control)
+        ? control.initializer
+        : undefined;
+    expect(init && ts.isCallExpression(init) && calleeName(init)).toBe(
+      "nativePdfArchiveDeps",
+    );
   });
 });
 
