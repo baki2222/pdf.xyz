@@ -111,6 +111,38 @@ describe("Redact PDF: whole pages", () => {
     ]);
   });
 
+  it("a page already added is not added twice", async () => {
+    await renderEditor();
+    const add = (value: string) => {
+      fireEvent.change(screen.getByLabelText("Whole pages"), {
+        target: { value },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Add whole pages" }));
+    };
+    add("2");
+    add("2");
+    add("1-2");
+    const list = await screen.findByRole("list", { name: "Redaction areas" });
+    expect(
+      within(list)
+        .getAllByRole("listitem")
+        .map((li) => /Page \d+ · whole page/.exec(li.textContent ?? "")?.[0]),
+    ).toEqual(["Page 2 · whole page", "Page 1 · whole page"]);
+  });
+
+  it("pressing Enter in the field adds the pages, as the button does", async () => {
+    await renderEditor();
+    const field = screen.getByLabelText("Whole pages");
+    fireEvent.change(field, { target: { value: "3" } });
+    fireEvent.keyDown(field, { key: "Enter", code: "Enter" });
+    const list = await screen.findByRole("list", { name: "Redaction areas" });
+    expect(
+      within(list)
+        .getAllByRole("listitem")
+        .map((li) => li.textContent),
+    ).toEqual([expect.stringContaining("Page 3 · whole page")]);
+  });
+
   it("a page past the end is refused in words, and adds nothing", async () => {
     await renderEditor();
     fireEvent.change(screen.getByLabelText("Whole pages"), {
