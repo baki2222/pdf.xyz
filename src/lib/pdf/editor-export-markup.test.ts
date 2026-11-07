@@ -20,7 +20,12 @@ import {
   type EditorObject,
   type Rect,
 } from "./editor/model";
-import { COMMENT_AUTHOR_KEY, STICKY_ICON, STICKY_LABEL } from "./editor/sticky";
+import {
+  COMMENT_AUTHOR_KEY,
+  COMMENT_AUTHOR_LABEL,
+  STICKY_ICON,
+  STICKY_LABEL,
+} from "./editor/sticky";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import annotate from "@/lib/tools/content/annotate-pdf";
@@ -518,7 +523,10 @@ describe("what Annotate PDF says about comments and names", () => {
     ),
     "utf8",
   );
-  const label = /COMMENT_AUTHOR_LABEL = "([^"]+)"/.exec(session)?.[1];
+  // The label the runner renders: sticky.ts's, as the field shows it.
+  const label = session.includes("{COMMENT_AUTHOR_LABEL}")
+    ? COMMENT_AUTHOR_LABEL
+    : undefined;
 
   it("health: the name field's label and storage are found in the runner", () => {
     expect(label).toBeTruthy();

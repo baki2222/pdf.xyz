@@ -45,6 +45,7 @@ import { withAppRouter } from "@/tests/app-router";
 import { renderPdfPages, regionMean } from "@/tests/pdf-render";
 import {
   COMMENT_AUTHOR_KEY,
+  COMMENT_AUTHOR_LABEL,
   STICKY_LABEL,
   STICKY_STAYS_COMMENT,
 } from "@/lib/pdf/editor/sticky";
@@ -248,10 +249,9 @@ describe("Annotate PDF, through the editor to the downloaded file", () => {
     act(() => {
       fireEvent.blur(box);
     });
-    fireEvent.change(
-      await screen.findByLabelText("Your name on comments (optional)"),
-      { target: { value: "Ada Lovelace" } },
-    );
+    fireEvent.change(await screen.findByLabelText(COMMENT_AUTHOR_LABEL), {
+      target: { value: "Ada Lovelace" },
+    });
     // Flatten is still chosen, and the run bar says the Comment will be a
     // comment anyway (the review of 62aa1808).
     expect(

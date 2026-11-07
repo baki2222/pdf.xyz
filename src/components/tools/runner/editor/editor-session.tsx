@@ -29,6 +29,7 @@ import { SinglePdfRunner } from "../single-pdf-runner";
 import { useUnsavedGuard } from "../use-unsaved-guard";
 import type { LoadedPdf } from "../use-single-pdf";
 import {
+  COMMENT_AUTHOR_LABEL,
   STICKY_STAYS_COMMENT,
   readCommentAuthor,
   writeCommentAuthor,
@@ -328,7 +329,6 @@ function EditorSession({
 }
 
 /** What the name field is called, and what it promises. */
-const COMMENT_AUTHOR_LABEL = "Your name on comments (optional)";
 const COMMENT_AUTHOR_HINT =
   "Shown as the author of each comment in other PDF apps. Kept in this browser only.";
 

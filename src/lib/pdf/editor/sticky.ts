@@ -45,6 +45,9 @@ export function stickyPopupOrigin(obj: { x: number; y: number }): {
  */
 export const COMMENT_AUTHOR_KEY = "pdfxyz:comment-author";
 
+/** What the name field beside Apply & download is called. */
+export const COMMENT_AUTHOR_LABEL = "Your name on comments (optional)";
+
 export function readCommentAuthor(): string {
   try {
     return globalThis.localStorage?.getItem(COMMENT_AUTHOR_KEY) ?? "";
