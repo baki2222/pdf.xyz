@@ -338,7 +338,7 @@ export function SignaturePanel({
           <span aria-hidden className="text-muted mr-1 text-xs font-medium">
             Ink
           </span>
-          {SIGNATURE_INKS.map((i) => (
+          {SIGNATURE_INKS.map((i, at) => (
             <button
               key={i.id}
               type="button"
@@ -346,6 +346,27 @@ export function SignaturePanel({
               aria-checked={ink === i.hex}
               aria-label={i.label}
               title={i.label}
+              // One tab stop, the checked swatch; the arrows move the choice
+              // and the focus with it, wrapping (a radiogroup's keyboard).
+              tabIndex={ink === i.hex ? 0 : -1}
+              onKeyDown={(e) => {
+                const step =
+                  e.key === "ArrowRight" || e.key === "ArrowDown"
+                    ? 1
+                    : e.key === "ArrowLeft" || e.key === "ArrowUp"
+                      ? -1
+                      : 0;
+                if (!step) return;
+                e.preventDefault();
+                const n = SIGNATURE_INKS.length;
+                const to = (at + step + n) % n;
+                setInk(SIGNATURE_INKS[to]!.hex);
+                const radios =
+                  e.currentTarget.parentElement?.querySelectorAll<HTMLElement>(
+                    '[role="radio"]',
+                  );
+                radios?.[to]?.focus();
+              }}
               onClick={() => setInk(i.hex)}
               className={cn(
                 "rounded-ctl grid h-11 w-11 place-items-center border",

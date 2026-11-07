@@ -110,4 +110,31 @@ describe("SignaturePanel — ink colour", () => {
     );
     for (const r of radios) expect(r.className).toMatch(/\bh-11\b/);
   });
+
+  // Review, 2026-11-08: each swatch was its own tab stop and arrows did
+  // nothing — not what a radiogroup promises a keyboard or screen-reader
+  // user. Now one tab stop (the checked swatch); arrows move and select.
+  it("is one tab stop, and the arrow keys move the choice, wrapping", () => {
+    render(<SignaturePanel onReady={() => {}} onClose={() => {}} />);
+    const group = screen.getByRole("radiogroup", { name: "Ink colour" });
+    const radios = within(group).getAllByRole("radio");
+    const tabbable = () =>
+      radios.filter((r) => r.getAttribute("tabindex") !== "-1");
+    const checked = () =>
+      radios.find((r) => r.getAttribute("aria-checked") === "true");
+    expect(tabbable()).toEqual([radios[0]]);
+    expect(checked()).toBe(radios[0]);
+
+    fireEvent.keyDown(radios[0]!, { key: "ArrowRight" });
+    expect(checked()).toBe(radios[1]);
+    expect(document.activeElement).toBe(radios[1]);
+    expect(tabbable()).toEqual([radios[1]]);
+
+    fireEvent.keyDown(radios[1]!, { key: "ArrowLeft" });
+    fireEvent.keyDown(radios[0]!, { key: "ArrowLeft" });
+    expect(checked()).toBe(radios.at(-1));
+    expect(document.activeElement).toBe(radios.at(-1));
+    fireEvent.keyDown(radios.at(-1)!, { key: "ArrowDown" });
+    expect(checked()).toBe(radios[0]);
+  });
 });
