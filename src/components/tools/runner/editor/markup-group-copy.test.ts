@@ -44,8 +44,8 @@ const unnamed = (text: string): string[] =>
 describe("Annotate PDF names its whole Mark up group", () => {
   it("health: the group and every listing were found", () => {
     expect(markUp, 'no "Mark up" group in TOOL_GROUPS').toBeDefined();
-    // Eight today (Whiteout, Redact, Highlight, Underline, Strikethrough,
-    // Draw, Note, Comment); fewer than four
+    // Nine today (Whiteout, Redact, Highlight, Underline, Strikethrough,
+    // Draw, Highlighter, Note, Comment); fewer than four
     // means the lookup broke, not that the group shrank.
     expect(labels.length).toBeGreaterThanOrEqual(4);
     expect(labels).toContain("Highlight");
@@ -64,11 +64,17 @@ describe("Annotate PDF names its whole Mark up group", () => {
     // The shipped first step, verbatim from before 2026-11-01. Until
     // 2026-11-08 it missed only Redact; Underline and Strikethrough joined
     // the group that day (audit annotate-pdf#2), and Comment (audit
-    // annotate-pdf#4); it misses them too.
+    // annotate-pdf#4) and Highlighter (#5); it misses them too.
     expect(
       unnamed(
         "Highlight is ready — drag across the page where it goes. Whiteout, Draw and Note are beside it in the toolbar.",
       ),
-    ).toEqual(["Redact", "Underline", "Strikethrough", "Comment"]);
+    ).toEqual([
+      "Redact",
+      "Underline",
+      "Strikethrough",
+      "Highlighter",
+      "Comment",
+    ]);
   });
 });

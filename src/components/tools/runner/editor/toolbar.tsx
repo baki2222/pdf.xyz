@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
+  Brush,
   CalendarDays,
   CaseUpper,
   ChevronDown,
@@ -41,7 +42,7 @@ import { cn } from "@/lib/utils";
 import { MAX_ZOOM, MIN_ZOOM } from "@/lib/pdf/editor/geometry";
 import { MARKUP_KINDS, type EditorKind } from "@/lib/pdf/offered-kinds";
 import type { EditorFieldType } from "@/lib/pdf/editor/model";
-import { TEXT_MARKUP_LABEL } from "@/lib/pdf/editor/markup";
+import { HIGHLIGHTER_LABEL, TEXT_MARKUP_LABEL } from "@/lib/pdf/editor/markup";
 import { STICKY_LABEL } from "@/lib/pdf/editor/sticky";
 import { toolAllowed, type EditorLock, type Tool } from "./editor-state";
 
@@ -96,6 +97,7 @@ const SPEC: Record<Tool, ToolButtonSpec> = {
     icon: Strikethrough,
   },
   ink: { tool: "ink", label: "Draw", key: "D", icon: Pencil },
+  marker: { tool: "marker", label: HIGHLIGHTER_LABEL, key: "M", icon: Brush },
   note: { tool: "note", label: "Note", key: "N", icon: StickyNote },
   comment: {
     tool: "comment",
@@ -145,13 +147,14 @@ const SPEC: Record<Tool, ToolButtonSpec> = {
  * each kind followed by the tools that place a variant of it: Underline and
  * Strikethrough place a highlight object with another `markup` (2026-11-08,
  * audit annotate-pdf#2); Comment places a sticky note (`sticky.ts`,
- * audit annotate-pdf#4).
+ * audit annotate-pdf#4); Highlighter draws ink that multiplies (audit
+ * annotate-pdf#5).
  */
 const MARKUP_TOOLS: Record<(typeof MARKUP_KINDS)[number], Tool[]> = {
   whiteout: ["whiteout"],
   redact: ["redact"],
   highlight: ["highlight", "underline", "strikeout"],
-  ink: ["ink"],
+  ink: ["ink", "marker"],
   note: ["note", "comment"],
 } satisfies Partial<Record<EditorKind, Tool[]>>;
 

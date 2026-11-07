@@ -140,6 +140,7 @@ describe("the editor lock, when the author allows comments (/P bit 6)", () => {
       underline: "highlight",
       strikeout: "highlight",
       ink: "ink",
+      marker: "ink",
       note: "note",
       comment: "note",
     };

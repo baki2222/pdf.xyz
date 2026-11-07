@@ -24,6 +24,10 @@ import {
   type TextStyle,
 } from "@/lib/pdf/editor/model";
 import type { RasterImageFormat } from "@/lib/pdf/pdf-lib";
+import {
+  HIGHLIGHTER_OPACITY,
+  HIGHLIGHTER_WIDTH,
+} from "@/lib/pdf/editor/markup";
 import type { SignatureStyle } from "@/lib/pdf/offered-kinds";
 import type { FieldFill } from "@/lib/pdf/editor/fields";
 import { isIdentity, sourcePages, type PageRef } from "@/lib/pdf/editor/pages";
@@ -65,6 +69,7 @@ export const TOOLS = [
   "underline",
   "strikeout",
   "ink",
+  "marker",
   "note",
   "comment",
 ] as const;
@@ -111,6 +116,8 @@ export interface Defaults {
   underline: { color: string; opacity: number };
   strikeout: { color: string; opacity: number };
   ink: { stroke: string; strokeWidth: number; opacity: number };
+  /** The highlighter pen (`markup.ts`). */
+  marker: { stroke: string; strokeWidth: number; opacity: number };
   redact: { fill: RedactFill };
   mark: { glyph: MarkGlyph; color: string };
   /** How Date writes today. */
@@ -131,6 +138,11 @@ export const INITIAL_DEFAULTS: Defaults = {
   underline: { color: DEFAULT_UNDERLINE, opacity: 1 },
   strikeout: { color: DEFAULT_STROKE, opacity: 1 },
   ink: { stroke: "#1d4ed8", strokeWidth: 2.5, opacity: 1 },
+  marker: {
+    stroke: DEFAULT_HIGHLIGHT,
+    strokeWidth: HIGHLIGHTER_WIDTH,
+    opacity: HIGHLIGHTER_OPACITY,
+  },
   redact: { fill: "black" },
   mark: { glyph: "check", color: "#111827" },
   date: { format: "dmy" },
@@ -192,6 +204,7 @@ export const COMMENT_TOOLS: ReadonlySet<Tool> = new Set<Tool>([
   "underline",
   "strikeout",
   "ink",
+  "marker",
   "note",
   "comment",
 ]);

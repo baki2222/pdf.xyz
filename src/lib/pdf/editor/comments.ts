@@ -372,7 +372,7 @@ export function writeComments(
         const ap = appearance(
           rect,
           `q /GS0 gs ${nums(r, g, b)} RG ${num(obj.strokeWidth)} w 1 J 1 j\n${path}\nS Q`,
-          gs(obj.opacity),
+          gs(obj.opacity, !!obj.highlighter),
         );
         add(page, "Ink", rect, ap, {
           C: [r, g, b],

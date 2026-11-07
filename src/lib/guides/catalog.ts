@@ -5319,7 +5319,7 @@ export const guides: Guide[] = [
         id: "other-marks",
         heading: "Notes, drawings and covers on the same page",
         body: [
-          "Highlight sits in the toolbar's Mark up group, beside Underline and Strikethrough, which mark words the same way, and Whiteout, Redact, Draw for freehand ink, and Note for a typed note on coloured paper. A highlight's Style in the panel switches it between Highlight, Underline, Strikethrough and Squiggly; the Shapes group has Rectangle, Ellipse, Line and Arrow. Anything you place can be moved, resized, restyled or deleted before you apply, and Undo and Redo step back and forward.",
+          "Highlight sits in the toolbar's Mark up group, beside Underline and Strikethrough, which mark words the same way, and Whiteout, Redact, Draw for freehand ink, Highlighter for a freehand marker stroke that tints the words without hiding them, Note for a typed note on coloured paper, and Comment for a sticky-note icon whose words open in a popup. A highlight's Style in the panel switches it between Highlight, Underline, Strikethrough and Squiggly; the Shapes group has Rectangle, Ellipse, Line and Arrow. Anything you place can be moved, resized, restyled or deleted before you apply, and Undo and Redo step back and forward.",
           `Whiteout only paints a white box: the words under it are still in the file, and search, copy and text extraction can find them. Redact removes what lies under its box. Both are always written into the page, even when the other markups are saved as comments, because a comment can be deleted by whoever opens the file. For a document you need to hand over with words removed, ${nameOf("redact-pdf")} also works in your browser and can search the text for what to remove.`,
           `${nameOf("edit-pdf")} opens the same editor on Select, with the same Highlight in its toolbar, for when you also need to change the PDF's own words.`,
         ],
@@ -5347,6 +5347,11 @@ export const guides: Guide[] = [
         question: "Can I remove a highlight after saving?",
         answer:
           "Saved as a comment, yes: a PDF app that edits comments can select and delete it. Flattened, only with an editor that can change page content, because the highlight is drawn into the page. Before you press Apply & download, any highlight can be selected and deleted, or undone.",
+      },
+      {
+        question: "Can I highlight freehand, like with a marker?",
+        answer:
+          "Yes. Highlighter, beside Draw in the Mark up group, follows your pointer with a wide, see-through yellow stroke. Its colour is multiplied over the page, as a highlight's is, so the words under it stay dark and readable rather than being painted over. Width, colour and opacity are set in the panel beside the page.",
       },
       {
         question: "Can I highlight a scanned PDF?",

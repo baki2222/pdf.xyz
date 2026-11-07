@@ -6,8 +6,10 @@ import {
   PDFDocument,
   PDFName,
   PDFNumber,
+  PDFStream,
   StandardFonts,
   degrees,
+  rgb,
 } from "pdf-lib";
 import { renderPdfPages, regionMean } from "@/tests/pdf-render";
 import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
@@ -24,6 +26,7 @@ import path from "node:path";
 import annotate from "@/lib/tools/content/annotate-pdf";
 import editPdf from "@/lib/tools/content/edit-pdf";
 import {
+  HIGHLIGHTER_LABEL,
   TEXT_MARKUPS,
   TEXT_MARKUP_LABEL,
   TEXT_MARKUP_SUBTYPE,
@@ -531,5 +534,94 @@ describe("what Annotate PDF says about comments and names", () => {
     expect(faq.a).toContain(label!);
     expect(faq.a).toMatch(/blank and no author is written/);
     expect(faq.a).toMatch(/not sent anywhere/);
+  });
+});
+
+describe("the highlighter pen (audit annotate-pdf#5)", () => {
+  // A black bar standing in for a line of text, and a stroke across it.
+  async function inked(): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+    const p = doc.addPage([612, 792]);
+    p.drawRectangle({
+      x: 100,
+      y: 480,
+      width: 200,
+      height: 12,
+      color: rgb(0, 0, 0),
+    });
+    return doc.save();
+  }
+  const stroke = (highlighter: boolean): EditorObject => ({
+    id: "k",
+    kind: "ink",
+    page: 0,
+    points: [
+      { x: 80, y: 306 },
+      { x: 320, y: 306 },
+    ],
+    stroke: "#facc15",
+    strokeWidth: 14,
+    opacity: 1,
+    ...(highlighter ? { highlighter: true } : {}),
+  });
+
+  async function shade(obj: EditorObject, markups: "flatten" | "comments") {
+    const out = await exportEditedPdf(await inked(), [obj], undefined, {
+      markups,
+    });
+    const [img] = await renderPdfPages(out.bytes, 612);
+    return {
+      out,
+      // On the black bar (viewer y 300..312), and on paper beside it.
+      onText: regionMean(img!, 150 / 612, 303 / 792, 250 / 612, 309 / 792),
+      onPaper: regionMean(img!, 84 / 612, 303 / 792, 96 / 612, 309 / 792),
+    };
+  }
+
+  it.each(["flatten", "comments"] as const)(
+    "multiplies, so the text under it stays black while the paper turns yellow (%s)",
+    async (markups) => {
+      const { onText, onPaper } = await shade(stroke(true), markups);
+      expect(Math.max(...onText)).toBeLessThan(60);
+      expect(onPaper[0]).toBeGreaterThan(200);
+      expect(onPaper[2]).toBeLessThan(150);
+    },
+  );
+
+  it("CONTROL: the plain pen paints over the text", async () => {
+    const { onText } = await shade(stroke(false), "flatten");
+    expect(onText[0]).toBeGreaterThan(200);
+  });
+
+  it("saved as a comment, the /Ink appearance names the Multiply blend", async () => {
+    const { out } = await shade(stroke(true), "comments");
+    const doc = await PDFDocument.load(out.bytes);
+    const a = doc
+      .getPage(0)
+      .node.lookup(PDFName.of("Annots"), PDFArray)
+      .lookup(0, PDFDict);
+    expect(String(a.get(PDFName.of("Subtype")))).toBe("/Ink");
+    const ap = a
+      .lookup(PDFName.of("AP"), PDFDict)
+      .lookup(PDFName.of("N")) as PDFStream;
+    const gs = ap.dict
+      .lookup(PDFName.of("Resources"), PDFDict)
+      .lookup(PDFName.of("ExtGState"), PDFDict)
+      .lookup(PDFName.of("GS0"), PDFDict);
+    expect(String(gs.get(PDFName.of("BM")))).toBe("/Multiply");
+  });
+});
+
+describe("what the pages say about the highlighter pen", () => {
+  it("the guide and Annotate PDF name the button by its label and say it keeps the words readable", async () => {
+    const { guides } = await import("@/lib/guides/catalog");
+    const faq = guides
+      .find((g) => g.slug === "how-to-highlight-text-in-a-pdf")
+      ?.faq.find((f) => /freehand/.test(f.question));
+    expect(faq, "no freehand FAQ in the highlight guide").toBeDefined();
+    expect(faq!.answer).toMatch(/^Yes\./);
+    expect(faq!.answer).toContain(HIGHLIGHTER_LABEL);
+    expect(faq!.answer).toMatch(/multiplied/);
+    expect(annotate.intro[0]).toContain(HIGHLIGHTER_LABEL);
   });
 });

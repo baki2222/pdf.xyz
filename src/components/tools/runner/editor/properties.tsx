@@ -42,6 +42,7 @@ import { ownFontCovers, substituteLabel } from "@/lib/pdf/editor/runs";
 import { needsUnicodeFace } from "@/lib/pdf/editor/text";
 import { STICKY_LABEL } from "@/lib/pdf/editor/sticky";
 import {
+  HIGHLIGHTER_LABEL,
   TEXT_MARKUPS,
   TEXT_MARKUP_LABEL,
   markupOf,
@@ -81,7 +82,7 @@ export function bucketOf(obj: EditorObject): StyleBucket {
       return markup === "squiggly" ? "underline" : markup;
     }
     case "ink":
-      return "ink";
+      return obj.highlighter ? "marker" : "ink";
     default:
       return obj.kind;
   }
@@ -106,6 +107,8 @@ export function bucketOfTool(tool: Tool): StyleBucket | null {
       return tool;
     case "ink":
       return "ink";
+    case "marker":
+      return "marker";
     case "whiteout":
       return "whiteout";
     case "redact":
@@ -402,7 +405,10 @@ export function PropertiesPanel({
         </>
       )}
 
-      {(kind === "shape" || kind === "line" || kind === "ink") && (
+      {(kind === "shape" ||
+        kind === "line" ||
+        kind === "ink" ||
+        kind === "marker") && (
         <>
           <Field label="Outline">
             <span className="flex items-center gap-2">
@@ -507,6 +513,7 @@ export function PropertiesPanel({
       {(kind === "shape" ||
         kind === "line" ||
         kind === "ink" ||
+        kind === "marker" ||
         textMarkup ||
         kind === "image") && (
         <Field label={`Opacity ${Math.round((shown.opacity ?? 1) * 100)}%`}>
@@ -700,6 +707,7 @@ export function PropertiesPanel({
 
 const NEW_TITLE: Partial<Record<StyleBucket, string>> = {
   highlight: `New ${TEXT_MARKUP_LABEL.highlight.toLowerCase()}`,
+  marker: HIGHLIGHTER_LABEL,
   underline: `New ${TEXT_MARKUP_LABEL.underline.toLowerCase()}`,
   strikeout: `New ${TEXT_MARKUP_LABEL.strikeout.toLowerCase()}`,
   date: "Date",

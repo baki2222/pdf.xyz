@@ -408,6 +408,8 @@ export function ObjectShape({
           strokeWidth={obj.strokeWidth}
           strokeOpacity={obj.opacity}
           strokeLinecap="round"
+          strokeLinejoin="round"
+          style={obj.highlighter ? { mixBlendMode: "multiply" } : undefined}
         />
       );
     }

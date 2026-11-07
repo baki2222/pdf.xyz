@@ -19,7 +19,12 @@ import {
   type SignatureStyle,
 } from "../offered-kinds";
 import type { RasterImageFormat } from "../pdf-lib";
-import { TEXT_MARKUP_LABEL, markupOf, type TextMarkup } from "./markup";
+import {
+  HIGHLIGHTER_LABEL,
+  TEXT_MARKUP_LABEL,
+  markupOf,
+  type TextMarkup,
+} from "./markup";
 import { STICKY_ICON, STICKY_LABEL } from "./sticky";
 
 export const EDITOR_FONTS = ["helvetica", "times", "courier"] as const;
@@ -208,6 +213,8 @@ export interface InkObject extends Base {
   stroke: string;
   strokeWidth: number;
   opacity: number;
+  /** The highlighter pen: painted with the Multiply blend (`markup.ts`). */
+  highlighter?: boolean;
 }
 
 /** Where a link goes. `page` names a page by its id, so it follows a reorder. */
@@ -755,6 +762,10 @@ export function describeObject(obj: EditorObject): string {
       return `${obj.glyph === "check" ? "Check mark" : "Cross"} on ${page}`;
     case "highlight":
       return `${TEXT_MARKUP_LABEL[markupOf(obj)]} on ${page}`;
+    case "ink":
+      return obj.highlighter
+        ? `${HIGHLIGHTER_LABEL} stroke on ${page}`
+        : `${EDITOR_OBJECT_LABEL.ink} on ${page}`;
     case "link":
       return obj.target.type === "uri"
         ? `Link to ${describeLinkTarget(obj.target, () => null)} on ${page}`

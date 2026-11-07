@@ -188,7 +188,15 @@ type Drag = DragBase &
         current: Pt;
         id: string;
       }
-    | { kind: "ink"; page: number; el: HTMLElement; points: Pt[]; id: string }
+    | {
+        kind: "ink";
+        page: number;
+        el: HTMLElement;
+        points: Pt[];
+        id: string;
+        /** Drawn with the highlighter pen (Multiply, its own defaults). */
+        marker: boolean;
+      }
     | {
         kind: "marquee";
         page: number;
@@ -269,6 +277,13 @@ function markSelectedText(
     ...defaults[bucket],
     markup,
   };
+}
+
+/** What a stroke of the pen, or of the highlighter pen, starts with. */
+function penStyle(defaults: Defaults, marker: boolean) {
+  return marker
+    ? { ...defaults.marker, highlighter: true }
+    : { ...defaults.ink, highlighter: false };
 }
 
 /** One click places one of these where it lands (and the tool stays on). */
@@ -1731,13 +1746,14 @@ export function WysiwygEditor({
         }
         return;
       }
-      if (s.tool === "ink") {
+      if (s.tool === "ink" || s.tool === "marker") {
         drag.current = {
           kind: "ink",
           page,
           el,
           points: [pt],
           id: newObjectId(),
+          marker: s.tool === "marker",
         };
         return;
       }
@@ -1889,7 +1905,7 @@ export function WysiwygEditor({
               kind: "ink",
               page: d.page,
               points: d.points.slice(),
-              ...stateRef.current.defaults.ink,
+              ...penStyle(stateRef.current.defaults, d.marker),
             },
           });
           return;
@@ -2004,7 +2020,7 @@ export function WysiwygEditor({
             kind: "ink" as const,
             page: d.page,
             points: d.points.slice(),
-            ...s.defaults.ink,
+            ...penStyle(s.defaults, d.marker),
           };
           commitAdd(obj, "Drawing added");
           dispatch({ type: "select", ids: [] });

@@ -240,3 +240,15 @@ export function quadsBounds(quads: readonly Rect[]): Rect {
   const y1 = Math.max(...quads.map((q) => q.y + q.height));
   return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
 }
+
+/* ----------------------------- highlighter pen ----------------------------- */
+
+/**
+ * The highlighter pen (audit annotate-pdf#5, 2026-11-08): freehand ink with
+ * `highlighter: true`, a wide stroke in the highlight's colour, painted with
+ * the Multiply blend — overlay, flattened page and /Ink appearance alike —
+ * so the words under it stay readable instead of being washed over.
+ */
+export const HIGHLIGHTER_LABEL = "Highlighter";
+export const HIGHLIGHTER_WIDTH = 12;
+export const HIGHLIGHTER_OPACITY = 0.5;

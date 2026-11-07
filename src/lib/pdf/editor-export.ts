@@ -763,6 +763,9 @@ export async function exportEditedPdf(
           borderWidth: obj.strokeWidth,
           borderOpacity: clampOpacity(obj.opacity),
           borderLineCap: LineCapStyle.Round,
+          // The highlighter pen multiplies, as a highlight does, so the
+          // words under it stay readable.
+          ...(obj.highlighter ? { blendMode: BlendMode.Multiply } : {}),
         });
         break;
       }
