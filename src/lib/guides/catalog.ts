@@ -4940,7 +4940,7 @@ export const guides: Guide[] = [
       `Open the ${nameOf("pdf-to-text")} tool.`,
       "Drop your PDF on the panel that says “Drop your PDF here, or browse”, or click it to choose the file. Its name, page count and size appear.",
       "Press Extract text. The button reads Extracting text… while the pages are read.",
-      "Under “Text extracted”, check the character and page counts and read the text in the scrollable box. Select any part of it to copy just that passage.",
+      "Under “Text extracted”, check the character and page counts and read the text in the scrollable box. Press Copy text to put all of it on your clipboard, or select any part of it to copy just that passage.",
       `Press Download TXT, which shows the size of the file it will save. report.pdf is saved as ${TEXT_EXAMPLE_OUT}. Start over clears the page for another document.`,
     ],
     sections: [
@@ -5003,7 +5003,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-convert-a-pdf-to-black-and-white",

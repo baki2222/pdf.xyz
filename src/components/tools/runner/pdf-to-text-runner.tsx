@@ -22,6 +22,7 @@ import { formatPageNumbers } from "@/lib/pdf/ranges";
 import { downloadBlob } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
 import { formatBytes } from "@/lib/utils";
+import { CopyTextButton } from "../copy-text-button";
 import {
   ErrorNote,
   ResultPanel,
@@ -113,20 +114,29 @@ function PdfToTextEditor({
             <div className="border-line text-fg bg-canvas rounded-panel max-h-72 overflow-auto border p-4 text-sm leading-6 whitespace-pre-wrap">
               {result.text}
             </div>
-            <button
-              type="button"
-              onClick={() =>
-                downloadBlob(
-                  new Blob([result.text], { type: "text/plain;charset=utf-8" }),
-                  filename,
-                )
-              }
-              className={buttonVariants({ variant: "primary", size: "lg" })}
-            >
-              <Download className="size-4" aria-hidden />
-              Download TXT (
-              {formatBytes(new TextEncoder().encode(result.text).byteLength)})
-            </button>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
+              <button
+                type="button"
+                onClick={() =>
+                  downloadBlob(
+                    new Blob([result.text], {
+                      type: "text/plain;charset=utf-8",
+                    }),
+                    filename,
+                  )
+                }
+                className={buttonVariants({ variant: "primary", size: "lg" })}
+              >
+                <Download className="size-4" aria-hidden />
+                Download TXT (
+                {formatBytes(new TextEncoder().encode(result.text).byteLength)})
+              </button>
+              {/* The same text the TXT holds, in one press: the page's first
+                  use is pasting it into an email or a spreadsheet, and
+                  selecting a whole document in the box above is close to
+                  impossible on a phone (audit pdf-to-text#5). */}
+              <CopyTextButton text={result.text} label="Copy text" />
+            </div>
           </div>
         ) : (
           <NoSelectableTextNote />
