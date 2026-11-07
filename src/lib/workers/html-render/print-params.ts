@@ -80,7 +80,8 @@ export function planPrint(
     return {
       viewport: null,
       measure: null,
-      // Chromium's default margins (0.4 in) leave the stamp its room.
+      // Chromium's default margins (1 cm, about 0.39 in) leave the stamp its
+      // room, unless the page's own CSS @page margin takes it (see ./stamp).
       printParams: () => ({ ...PRINT_TO_PDF_OPTIONS, ...extraParams(extras) }),
     };
   // A stamped page keeps at least STAMP_MIN_MARGIN_INCHES at its foot.
