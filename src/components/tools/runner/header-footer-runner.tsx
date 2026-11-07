@@ -359,7 +359,7 @@ export function HeaderFooterEditor({
             label="Leave the cover page blank"
             checked={skipCover}
             onChange={setSkipCover}
-            hint="Page 1 gets no header or footer but is still counted, so page 2 shows {n} as 2."
+            hint="Page 1 gets no header or footer but still counts as First number, so page 2 shows the number after it. It has no effect when Start on page is later than 1."
           />
           <div className="max-w-52">
             <NumberField

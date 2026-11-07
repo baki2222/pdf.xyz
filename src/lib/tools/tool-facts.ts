@@ -1361,7 +1361,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         {
           question: "Can I leave the first page without a header or footer?",
           answer:
-            "Yes. Open “Pages” under the footer and tick “Leave the cover page blank”: page 1 gets nothing but is still counted, so page 2 shows {n} as 2. To leave more pages bare, set “Start on page” to the first page that should carry the lines and “First number” to the {n} it shows; “Skip last pages” leaves pages at the end bare and uncounted. {total} is the last number printed.",
+            "Yes. Open “Pages” under the footer and tick “Leave the cover page blank”: page 1 gets nothing but still counts as “First number”, so page 2 shows the number after it. To leave more pages bare, set “Start on page” to the first page that should carry the lines and “First number” to the {n} it shows; “Skip last pages” leaves pages at the end bare and uncounted. {total} is the last number printed.",
         },
       ];
     case "crop":

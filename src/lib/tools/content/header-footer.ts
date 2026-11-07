@@ -239,7 +239,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I leave the header off the cover page?",
-      a: "Yes. Open Pages and tick Leave the cover page blank: page 1 gets no header or footer but is still counted, so page 2 reads Page 2 of 12. To leave several opening pages bare and count from the first stamped one, set Start on page instead, with First number as the {n} that page shows; Skip last pages does the same for the end of the file. {total} is always the last number printed.",
+      a: "Yes. Open Pages and tick Leave the cover page blank: page 1 gets no header or footer but is still counted, so with the default footer on a twelve-page file, page 2 reads Page 2 of 12. To leave several opening pages bare and count from the first stamped one, set Start on page instead, with First number as the {n} that page shows; Skip last pages does the same for the end of the file. {total} is always the last number printed.",
     },
     {
       q: "Can I change the font, size, colour or margin?",

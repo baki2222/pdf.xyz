@@ -85,6 +85,7 @@ import {
   STAMP_FONT_LABELS,
 } from "@/lib/pdf/stamp";
 import { guides } from "@/lib/guides/catalog";
+import { numberingPlan } from "@/lib/pdf/page-plan";
 import { cropPdf } from "@/lib/pdf/crop";
 import { flattenPdf } from "@/lib/pdf/flatten";
 import {
@@ -1188,6 +1189,73 @@ describe("the stamping tools answer where and what they stamp", () => {
       ];
       expect(served.length).toBeGreaterThan(40);
       if (brands.size > 1) expect(served.filter(namesOneFace)).toEqual([]);
+    }
+  });
+
+  it("header and footer: what the blank cover does is said for every First number", async () => {
+    // Review of audit header-footer#2 (2026-11-07): the checkbox hint and the
+    // tool-facts answer said "so page 2 shows {n} as 2". True only with First
+    // number 1 and Start on page 1: with First number 5 page 2 shows 6, and
+    // with Start on page 3 the box changes nothing. The sentences now say
+    // what the shared plan does, and the plan is run for the cases they name.
+    for (const startAt of [0, 1, 5, 120]) {
+      const plan = numberingPlan(4, { skipCover: true, startAt });
+      // Page 1 is counted as First number but not stamped…
+      expect(plan.stamps.map((s) => s.index)).toEqual([1, 2, 3]);
+      // …so page 2 shows the number after it.
+      expect(plan.stamps[0]!.n).toBe(startAt + 1);
+    }
+    // Only while Start on page is 1: later, page 1 is not counted at all.
+    for (const startPage of [2, 3])
+      expect(numberingPlan(4, { startPage, skipCover: true })).toEqual(
+        numberingPlan(4, { startPage }),
+      );
+    const hint =
+      "Page 1 gets no header or footer but still counts as First number, so page 2 shows the number after it. It has no effect when Start on page is later than 1.";
+    const factsPattern =
+      /page 1 gets nothing but still counts as “First number”, so page 2 shows the number after it/;
+    const fixedTwo = (x: string) => /\{n\} as \d/.test(x);
+    for (const shipped of [
+      "Page 1 gets no header or footer but is still counted, so page 2 shows {n} as 2.",
+      "Yes. Open “Pages” under the footer and tick “Leave the cover page blank”: page 1 gets nothing but is still counted, so page 2 shows {n} as 2.",
+    ])
+      expect(fixedTwo(shipped), shipped).toBe(true);
+    for (const tool of mounting("header-footer")) {
+      const src = runnerSource(tool.slug);
+      expect(src).toContain(`hint="${hint}"`);
+      const facts = answer(tool.slug, /first page without/);
+      expect(facts).toMatch(factsPattern);
+      // The tool page's worked example names the defaults it holds for.
+      const cover = answer(tool.slug, /header off the cover page/);
+      expect(cover).toContain(
+        "with the default footer on a twelve-page file, page 2 reads Page 2 of 12",
+      );
+      const guide = guides.find(
+        (g) => g.slug === "how-to-add-a-header-and-footer-to-a-pdf",
+      )!;
+      const guideCover = guide.faq.find((e) =>
+        /header off the cover page/.test(e.question),
+      )!.answer;
+      expect(guideCover).toContain(
+        "with the default footer on a twelve-page file, page 2 reads Page 2 of 12",
+      );
+      // Both examples are what the engine draws for that case.
+      expect(src).toContain('"Page {n} of {total}"');
+      const twelve = await PDFDocument.load(
+        await addHeaderFooter(
+          await pdfWithPages(Array.from({ length: 12 }, () => [300, 400])),
+          { footer: { center: "Page {n} of {total}" }, skipCover: true },
+        ),
+      );
+      expect(drawnText(twelve, 1)).toContain("Page 2 of 12");
+      const served = [
+        ...src.split(/(?<=[.!?])\s+/),
+        ...page(tool.slug).text.split(/(?<=[.!?])\s+/),
+        ...page(tool.slug).faq.flatMap((e) => e.answer.split(/(?<=[.!?])\s+/)),
+        ...JSON.stringify(guide).split(/(?<=[.!?])\s+/),
+      ];
+      expect(served.length).toBeGreaterThan(40);
+      expect(served.filter(fixedTwo)).toEqual([]);
     }
   });
 
