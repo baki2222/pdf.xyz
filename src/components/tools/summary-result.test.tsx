@@ -21,7 +21,9 @@ import {
   waitFor,
 } from "@testing-library/react";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
+import JSZip from "jszip";
 import { runSummarize } from "@/lib/workers/summarize/engine";
+import { SUMMARY_PACKAGE_FILES } from "@/lib/workers/summarize-package";
 import { summaryOutputName } from "@/lib/jobs/summarize-pdf";
 import { COPY_STATUS } from "./copy-text-button";
 import { SummaryResultBody } from "./summarize-worker-panel";
@@ -29,7 +31,7 @@ import { SummaryResultBody } from "./summarize-worker-panel";
 const SUMMARY =
   "The lease runs for three years.\n\n- Rent is due on the first.\n- Notice is ninety days.";
 
-async function realPackage(): Promise<Uint8Array> {
+async function realPackage(summary = SUMMARY): Promise<Uint8Array> {
   const text = "A long lease agreement with plenty of selectable text in it.";
   const extracted: ExtractedPdfText = {
     pageCount: 2,
@@ -49,7 +51,7 @@ async function realPackage(): Promise<Uint8Array> {
         async complete() {
           return {
             ok: true,
-            text: SUMMARY,
+            text: summary,
             model: "claude-sonnet-5",
             usage: { inputTokens: 10, outputTokens: 10 },
           };
@@ -62,6 +64,30 @@ async function realPackage(): Promise<Uint8Array> {
 }
 
 const ZIP = summaryOutputName("lease.pdf");
+
+/** Every download the page starts: the Blob handed to the URL, and the name. */
+function catchDownloads(): { blobs: Blob[]; names: string[] } {
+  const blobs: Blob[] = [];
+  const names: string[] = [];
+  vi.spyOn(URL, "createObjectURL").mockImplementation((blob) => {
+    blobs.push(blob as Blob);
+    return "blob:test";
+  });
+  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+    this: HTMLAnchorElement,
+  ) {
+    names.push(this.download);
+  });
+  return { blobs, names };
+}
+
+/** An entry of the package as the WORKER wrote it, read independently. */
+async function entry(pkg: Uint8Array, name: string): Promise<string> {
+  const file = (await JSZip.loadAsync(pkg)).file(name);
+  if (!file) throw new Error(`the engine's package has no ${name}`);
+  return file.async("string");
+}
 
 afterEach(() => {
   cleanup();
@@ -92,6 +118,71 @@ describe("Summarize PDF result — the summary is on the page", () => {
     expect(
       screen.getByRole("button", { name: `Download ${ZIP}` }),
     ).toBeTruthy();
+  });
+
+  it("Download TXT saves exactly the summary as lease-summary.txt", async () => {
+    const { blobs, names } = catchDownloads();
+    render(<SummaryResultBody output={await realPackage()} filename={ZIP} />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: /^Download TXT/ }),
+    );
+    await waitFor(() => expect(blobs).toHaveLength(1));
+    expect(names).toEqual(["lease-summary.txt"]);
+    expect(blobs[0]!.type).toBe("text/plain;charset=utf-8");
+    expect(await blobs[0]!.text()).toBe(SUMMARY);
+  });
+
+  it("Download Markdown saves the engine's summary.md, header included, as lease-summary.md", async () => {
+    const pkg = await realPackage();
+    const markdown = await entry(pkg, SUMMARY_PACKAGE_FILES.markdown);
+    // Health check: the Markdown is NOT the bare summary, so a swap with the
+    // TXT cannot pass by coincidence.
+    expect(markdown).not.toBe(SUMMARY);
+    expect(markdown).toContain(SUMMARY);
+    const { blobs, names } = catchDownloads();
+    render(<SummaryResultBody output={pkg} filename={ZIP} />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: /^Download Markdown/ }),
+    );
+    await waitFor(() => expect(blobs).toHaveLength(1));
+    expect(names).toEqual(["lease-summary.md"]);
+    expect(blobs[0]!.type).toBe("text/markdown;charset=utf-8");
+    expect(await blobs[0]!.text()).toBe(markdown);
+  });
+
+  it("the two downloads differ: TXT is the bare summary, Markdown carries the header", async () => {
+    const { blobs, names } = catchDownloads();
+    render(<SummaryResultBody output={await realPackage()} filename={ZIP} />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: /^Download TXT/ }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Download Markdown/ }));
+    await waitFor(() => expect(blobs).toHaveLength(2));
+    expect(names).toEqual(["lease-summary.txt", "lease-summary.md"]);
+    const [txt, md] = await Promise.all(blobs.map((b) => b.text()));
+    expect(txt).not.toBe(md);
+  });
+
+  it("a new result never shows the previous summary, then shows its own", async () => {
+    const OTHER = "The invoice totals 120 and is due in thirty days.";
+    const [first, second] = await Promise.all([
+      realPackage(),
+      realPackage(OTHER),
+    ]);
+    const { rerender } = render(
+      <SummaryResultBody output={first} filename={ZIP} />,
+    );
+    const region = await screen.findByRole("region", { name: "Summary" });
+    expect(region.textContent).toBe(SUMMARY);
+    rerender(<SummaryResultBody output={second} filename={ZIP} />);
+    // Synchronously after the new bytes arrive: the old summary is gone.
+    expect(screen.queryByText(/three years/)).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByRole("region", { name: "Summary" }).textContent).toBe(
+        OTHER,
+      ),
+    );
+    expect(screen.queryByText(/three years/)).toBeNull();
   });
 
   it("Copy puts exactly the summary on the clipboard and says so", async () => {
