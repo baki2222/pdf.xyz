@@ -952,7 +952,7 @@ export const guides: Guide[] = [
       "Open the Split PDF tool.",
       "Pick the PDF you want to split — it stays on your device the whole time.",
       "Choose a split mode: custom page ranges, every N pages, one file per page, by file size, by bookmarks or by text.",
-      "Define the split: for ranges, list the page spans that should become separate files; for the every-N-pages rule, set how many pages each piece should hold. One file per page splits at every page boundary — each page of the document becomes its own PDF. For by text, type the word or phrase that marks where each new file should start.",
+      "Define the split: for ranges, list the page spans that should become separate files, or press the scissors under a page's thumbnail to cut after it; for the every-N-pages rule, set how many pages each piece should hold. One file per page splits at every page boundary — each page of the document becomes its own PDF. For by text, type the word or phrase that marks where each new file should start.",
       "Run the split — the processing happens in your browser, not on a server.",
       "Download the result. When there is more than one piece they arrive together as a ZIP, and a single piece saves as a plain PDF. Every piece is a complete, standard PDF.",
     ],
@@ -1015,7 +1015,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-11-07",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-compress-a-pdf",
@@ -1338,7 +1338,7 @@ export const guides: Guide[] = [
       "Open the PDF to JPG tool, or PDF to PNG for lossless images.",
       "Add your PDF. It is read in your browser, and the file stays on your device.",
       `Under Resolution, pick ${RASTER_RESOLUTION_CHOICES}.`,
-      `Under Pages, keep All pages, or click Select pages and type the pages you want, such as 1-3, 5. Under Colour, keep ${PNG_COLOUR} or pick ${PNG_GRAY}.`,
+      `Under Pages, keep All pages, or click Select pages and type the pages you want, such as 1-3, 5, or press them on the thumbnails drawn below the box. Under Colour, keep ${PNG_COLOUR} or pick ${PNG_GRAY}.`,
       "Render the pages. A progress count shows each page as it is drawn.",
       `Download the result: a single page saves as one image, and several pages save as one ZIP with an image for each page. Each of the first ${RASTER_PREVIEW_LIMIT} pages can also be saved on its own from its preview.`,
     ],
@@ -1411,7 +1411,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-11-07",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-rotate-a-pdf",
@@ -2181,7 +2181,7 @@ export const guides: Guide[] = [
         id: "selecting-pages",
         heading: "Three ways to select pages",
         body: [
-          "Clicking a thumbnail selects that page, and clicking it again deselects it. Holding Shift while you click selects every page between the one you touched last and this one — the quick way to clear out a run of pages at the end of a scan.",
+          "Clicking a thumbnail selects that page, and clicking it again deselects it. Holding Shift while you click selects every page between the one you touched last and this one — the quick way to clear out a run of pages at the end of a scan. When a thumbnail is too small to tell a blank page or a repeat from its neighbours, the enlarge button in the tile's top corner opens the page large, with Previous page and Next page to step through and Select page to mark it.",
           `Typing is faster in a long document. Enter single pages and ranges separated by commas — 1-3, 5 selects pages one to three and page five — and press Select. A range can be left open: 10- runs from page ten to the end. To delete every other page, press Even pages for 2, 4, 6 and so on, or Odd pages for 1, 3, 5 and so on.`,
           "Select all, Clear, Invert, Odd pages and Even pages work on the whole selection. Invert flips it — every selected page becomes unselected and every other page becomes selected — which helps when it is easier to pick the pages you want to keep.",
         ],
@@ -2228,7 +2228,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-11-07",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-convert-markdown-to-pdf",
@@ -2964,8 +2964,8 @@ export const guides: Guide[] = [
       `Open the ${nameOf("crop-pdf")} tool and drag your PDF into the drop area, or click it to choose the file. It stays on your device.`,
       `In the Crop margins section, choose Uniform for one All sides slider, or Per side for separate Top, Right, Bottom and Left sliders, and pick ${CROP_UNITS} as the unit. You can drag a slider or type a value in the box beside it.`,
       "For automatic margins, choose Auto and press Find white margins. The tool says how many pages it found content on and names any blank page, which it leaves uncropped.",
-      "In the Pages section, keep All pages, or choose Selected pages and type a list such as 2-4, 7.",
-      "Check the Crop preview, then press Crop PDF and Download cropped PDF.",
+      "In the Pages section, keep All pages, choose Odd pages or Even pages, or choose Selected pages and type a list such as 2-4, 7.",
+      "Check the Crop preview, which draws each page under a dashed box, with Previous page and Next page to step through them; in Uniform and Per side you can drag the box's edges to set the margins by eye. Then press Crop PDF and Download cropped PDF.",
     ],
     sections: [
       {
@@ -3020,7 +3020,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-29",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-convert-pdf-to-excel",
@@ -3768,7 +3768,7 @@ export const guides: Guide[] = [
       `Under New page size, pick ${RESIZE_SIZE_NAMES}, or pick Custom and type a Width and Height in ${RESIZE_UNITS}.`,
       `Under Orientation, keep ${RESIZE_MATCH} so each page stays portrait or landscape as it was, or choose ${RESIZE_FIXED_ORIENTATIONS} for every page.`,
       `Under How to resize, choose ${RESIZE_FIT} or ${RESIZE_CANVAS}.`,
-      "Under Pages, keep All pages, or choose Selected pages and type a list such as 1-3, 5.",
+      "Under Pages, keep All pages, or choose Selected pages and type a list such as 1-3, 5, or press the pages on the thumbnails below the box, each labelled with its size.",
       "Press Resize PDF, then Download resized PDF. The copy is named after yours, with -resized added.",
     ],
     sections: [
@@ -3823,7 +3823,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-30",
-    updated: "2026-10-30",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-print-multiple-pages-per-sheet",
@@ -5040,7 +5040,7 @@ export const guides: Guide[] = [
       `Open the ${nameOf("pdf-to-png")} tool.`,
       "Drop your PDF on the panel that says “Drop your PDF here, or browse”, or click it to choose the file. Its name, page count and size appear once it has loaded.",
       `Under Resolution, pick ${RASTER_RESOLUTION_CHOICES}.`,
-      `Under Pages, keep All pages, or click Select pages and type the pages you want, such as 1-3, 5. Under Colour, keep ${PNG_COLOUR} or pick ${PNG_GRAY}.`,
+      `Under Pages, keep All pages, or click Select pages and type the pages you want, such as 1-3, 5, or press them on the thumbnails drawn below the box. Under Colour, keep ${PNG_COLOUR} or pick ${PNG_GRAY}.`,
       "Press the Render button. It counts the pages it will draw, so it reads Render 3 pages when three are chosen, and a progress count follows each page.",
       `Press Download PNG for a single page, or Download ZIP when there are several. Each of the first ${RASTER_PREVIEW_LIMIT} pages also has its own download button on its preview.`,
     ],
@@ -5103,7 +5103,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-07",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-convert-pdf-to-text",

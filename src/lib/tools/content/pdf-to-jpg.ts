@@ -185,7 +185,7 @@ const content: ToolContent = {
     },
     {
       title: "Choose the pages, colour and quality",
-      body: `Under Pages, keep All pages, or click Select pages and type the ones you want, such as 1-3, 5 or 8- for page 8 to the end; a page the PDF does not have is named in a note, and nothing renders until the range is fixed. Under Colour, pick Colour or Grayscale, and under ${JPEG_QUALITY_LABEL}, pick ${qualityChoices}.`,
+      body: `Under Pages, keep All pages, or click Select pages and type the ones you want, such as 1-3, 5 or 8- for page 8 to the end, or press them on the thumbnails drawn below the box, which updates it; a page the PDF does not have is named in a note, and nothing renders until the range is fixed. Under Colour, pick Colour or Grayscale, and under ${JPEG_QUALITY_LABEL}, pick ${qualityChoices}.`,
     },
     {
       title: "Render the pages",
@@ -204,7 +204,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I convert only some pages?",
-      a: `Yes. Click Select pages and type them, for example 1-3, 5. Only those pages are rendered, and each image keeps its page number from the PDF: page 5 of a ${EXAMPLE_PAGES}-page report.pdf is ${pageImageName("report.pdf", 4, EXAMPLE_PAGES, "jpg")}, whether it downloads on its own or, with more than one page chosen, in the ZIP.`,
+      a: `Yes. Click Select pages and type them, for example 1-3, 5, or press them on the thumbnails under the box. Only those pages are rendered, and each image keeps its page number from the PDF: page 5 of a ${EXAMPLE_PAGES}-page report.pdf is ${pageImageName("report.pdf", 4, EXAMPLE_PAGES, "jpg")}, whether it downloads on its own or, with more than one page chosen, in the ZIP.`,
     },
     {
       q: "Why was my password-protected PDF rejected?",

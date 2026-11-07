@@ -42,6 +42,14 @@ import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
 import { useZipDownload } from "./use-zip-download";
 import { NoSelectableTextNote } from "./no-text-note";
+import { LazyPagePicker } from "./page-picker-lazy";
+import {
+  cutsInRanges,
+  pageListText,
+  pagesInText,
+  partsOfEachPage,
+  rangesTextFromCuts,
+} from "./page-picker-text";
 
 /** The modes offered — the same list the tool page counts (`offered-kinds`). */
 const MODES: { id: SplitMode; label: string }[] = SPLIT_MODES.map((id) => ({
@@ -50,6 +58,19 @@ const MODES: { id: SplitMode; label: string }[] = SPLIT_MODES.map((id) => ({
 }));
 
 const MB = 1024 * 1024;
+
+/** Under the cut picker (audit split-pdf#3); the tool page's step agrees. */
+export const CUT_NOTE =
+  "Or press the scissors under a page to cut after it. A cut rewrites the ranges above so that they cover every page, one file per run of pages between cuts; the badge on each page is the file it lands in, or the files where ranges overlap.";
+
+/**
+ * Under the picker while Merge is ticked. The run makes ONE file, so there is
+ * nothing to cut and no file to badge: the pages are picked instead, and a
+ * press writes the field in page order (`pageListText`), which is the order
+ * the merged file then holds them in.
+ */
+export const MERGE_PICK_NOTE =
+  "Or press the pages to pick them. With Merge ticked there is one file, so nothing is cut: a press rewrites the ranges above in page order, and the file holds the pressed pages from first to last. Type the ranges to set another order.";
 
 /** What a split produced, and what the receipt has to say about it. */
 interface SplitOutcome {
@@ -460,6 +481,37 @@ export function SplitEditor({
               </span>
             </span>
           </label>
+          {pdf.pageCount > 1 && !mergeRanges && (
+            <div className="flex flex-col gap-2">
+              <p className="text-muted text-xs">{CUT_NOTE}</p>
+              <LazyPagePicker
+                bytes={pdf.bytes}
+                pageCount={pdf.pageCount}
+                rotations={pdf.rotations}
+                mode="cut"
+                label="Pages — cut after a page to start a new file"
+                value={cutsInRanges(rangeInput, pdf.pageCount)}
+                partOf={partsOfEachPage(rangeInput, pdf.pageCount)}
+                onChange={(cuts) =>
+                  setRangeInput(rangesTextFromCuts(cuts, pdf.pageCount))
+                }
+              />
+            </div>
+          )}
+          {pdf.pageCount > 1 && mergeRanges && (
+            <div className="flex flex-col gap-2">
+              <p className="text-muted text-xs">{MERGE_PICK_NOTE}</p>
+              <LazyPagePicker
+                bytes={pdf.bytes}
+                pageCount={pdf.pageCount}
+                rotations={pdf.rotations}
+                mode="select"
+                label="Pages — press a page to put it in the one file"
+                value={pagesInText(rangeInput, pdf.pageCount)}
+                onChange={(pages) => setRangeInput(pageListText(pages))}
+              />
+            </div>
+          )}
         </div>
       )}
 
