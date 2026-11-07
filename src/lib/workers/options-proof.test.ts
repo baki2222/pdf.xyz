@@ -11,7 +11,10 @@ import {
   PDF_PERMISSION_KEYS,
   type PdfPermissions,
 } from "@/lib/jobs/pdf-permissions";
-import { colourImagePdf } from "@/lib/workers/compression/colour-image-pdf";
+import {
+  colourImagePdf,
+  noisePhotoPdf,
+} from "@/lib/workers/compression/colour-image-pdf";
 import { runCompression, type NativeCompressor } from "./compression/engine";
 import type { QpdfRunner } from "./pdf-security/engine";
 import { readEncryptPermissions } from "./pdf-security/permission-bits";
@@ -110,7 +113,9 @@ async function faithfulCopy(
  */
 const QUALITY_SCALE: Record<string, number> = { low: 0.8, lowest: 0.6 };
 const playedGhostscript =
-  (honourQuality = true): NativeCompressor =>
+  (
+    honourQuality: boolean | ((input: Uint8Array) => boolean) = true,
+  ): NativeCompressor =>
   async (input, ctx) =>
     isRotationFixture(input)
       ? faithfulCopy(input)
@@ -123,7 +128,11 @@ const playedGhostscript =
             pad: Math.round(
               (MEASURED_KB[ctx.options.targetDpi] ?? 400) *
                 256 *
-                (honourQuality
+                ((
+                  typeof honourQuality === "function"
+                    ? honourQuality(input)
+                    : honourQuality
+                )
                   ? (QUALITY_SCALE[ctx.options.imageQuality ?? ""] ?? 1)
                   : 1),
             ),
@@ -385,8 +394,13 @@ describe("runWorkerOptionsProof", { timeout: 30_000 }, () => {
         }),
       ),
     ).toBe(1);
-    // "target met" fails too, on its fixture guard: with the JPEG rungs all
-    // the floor's size, the sharpest fit IS the smallest file.
+    // Until the review of 4624d037 "target met" failed here too, on its
+    // fixture guard (the tied JPEG rungs made the sharpest fit the smallest
+    // file). It now takes its target over distinct sizes, so only the
+    // quality check names this engine.
+    expect(
+      lines.filter((l) => l.startsWith("FAIL ")).map((l) => l.split(":")[0]),
+    ).toEqual(["FAIL image quality lowers the file"]);
     expect(
       lines.filter((l) => l.startsWith("FAIL ")).map((l) => l.split(":")[0]),
     ).toContain("FAIL image quality lowers the file");
@@ -396,6 +410,44 @@ describe("runWorkerOptionsProof", { timeout: 30_000 }, () => {
     expect(
       ok.some((l) => l.startsWith("PASS image quality lowers the file:")),
     ).toBe(true);
+  });
+
+  // Review of 4624d037: AutoFilter may keep the NOISE photo lossless, and
+  // then its three JPEG rungs at the floor come out the same size. "target
+  // met" took its target from the second-smallest SIZE over every rung, so a
+  // tie made the sharpest fit the smallest file and the fixture guard failed
+  // the proof for a reason unrelated to the ladder. Played here: quality is
+  // honoured on the smooth photo only, as the real engine may do.
+  it("PASSES 'target met' when the noise photo stays lossless and its JPEG rungs tie", async () => {
+    const noiseLength = (await noisePhotoPdf({ px: 1380, inches: 3, pages: 2 }))
+      .byteLength;
+    const lines: string[] = [];
+    const code = await runWorkerOptionsProof(
+      deps({
+        compression: {
+          tools: { ghostscript: true, qpdf: false, mutool: false },
+          native: playedGhostscript(
+            (input) => input.byteLength !== noiseLength,
+          ),
+        },
+        log: (l) => lines.push(l),
+      }),
+    );
+    // Health: the noise photo's floor rungs really tie in this run.
+    const noiseInfo = lines.find((l) =>
+      l.startsWith("INFO target rungs, noise photo:"),
+    );
+    const floor = [...(noiseInfo ?? "").matchAll(/72:\w+ (\d+) B/g)].map(
+      (m) => m[1],
+    );
+    expect(floor.length).toBeGreaterThan(1);
+    expect(new Set(floor).size).toBe(1);
+    expect(lines.filter((l) => l.startsWith("FAIL "))).toEqual([]);
+    expect(lines.some((l) => l.startsWith("PASS target met:"))).toBe(true);
+    expect(
+      lines.some((l) => l.startsWith("PASS image quality lowers the file:")),
+    ).toBe(true);
+    expect(code).toBe(0);
   });
 
   it("FAILS a ladder that returns a NON-minimal file when the target is not met", async () => {

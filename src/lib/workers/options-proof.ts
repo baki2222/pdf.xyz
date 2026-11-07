@@ -435,7 +435,11 @@ export async function runWorkerOptionsProof(
   // Met: just over the SECOND-smallest rung. Two rungs fit, and the answer
   // must be the sharper of them — not the smallest file — while the top rung
   // is over the target, so a sharper rung is tried and missed first.
-  const bySize = [...sizes].sort((a, b) => a - b);
+  // Over DISTINCT sizes (review of 4624d037): when AutoFilter keeps the
+  // noise photo lossless, its JPEG rungs at the floor tie, and the second-
+  // smallest of ALL sizes was the smallest again, so the guard below failed
+  // the proof on its own fixture.
+  const bySize = [...new Set(sizes)].sort((a, b) => a - b);
   const metTarget = bySize[1]! + 512;
   const want = rungs.find((r) => (single.get(key(r)) ?? Infinity) <= metTarget);
   const smallest = rungs[sizes.indexOf(bySize[0]!)];
