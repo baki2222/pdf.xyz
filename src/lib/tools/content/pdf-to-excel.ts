@@ -7,6 +7,7 @@ import {
   XLSX_NUMBER_EXAMPLES,
   XLSX_SHEET_NAME,
   XLSX_TEXT_EXAMPLE,
+  WORD_OCR_LABEL,
 } from "@/lib/jobs/pdf-office-export";
 import {
   pageSheetName,
@@ -103,8 +104,10 @@ const content: ToolContent = {
       body: "Parts lists, timetables and directories laid out with wide gaps between columns convert line for line, each value in the column it sits in, so you filter rows instead of retyping them.",
     },
     {
-      title: "Taking a scanned sheet through OCR first",
-      body: "A photographed or scanned page has no text to export. Run it through OCR PDF with the language the page is written in, choose a searchable PDF as the result, and bring that file here.",
+      // CHANGED 2026-11-08 (audit pdf-to-excel#2): "Taking a scanned sheet
+      // through OCR first" sent the scan to OCR PDF and back.
+      title: "Turning a scanned statement into a sheet",
+      body: `A photographed or scanned page has no text to export on its own. Tick “${WORD_OCR_LABEL}” and pick the languages printed on it: our server recognises the words first and places them into cells in the same job. Check the figures against the scan, since recognition can misread them.`,
     },
   ],
 
@@ -115,7 +118,7 @@ const content: ToolContent = {
     },
     {
       title: "Press Export XLSX",
-      body: `Tick ${SHEET_PER_PAGE_LABEL} first if you want each page on a sheet of its own. A PDF larger than ${CEILING_MB} MB is refused as soon as you pick it, before its bytes leave your device. Otherwise pressing Export XLSX uploads it: the button reads "Uploading your file…", then "Waiting for our server…", "Exporting XLSX…" while our server converts it, and "Downloading the result…" until the finished XLSX is sitting in the page. A PDF with no selectable text stops here, with an error asking you to run OCR first and a link to OCR PDF.`,
+      body: `Tick ${SHEET_PER_PAGE_LABEL} first if you want each page on a sheet of its own. A PDF larger than ${CEILING_MB} MB is refused as soon as you pick it, before its bytes leave your device. Otherwise pressing Export XLSX uploads it: the button reads "Uploading your file…", then "Waiting for our server…", "Exporting XLSX…" while our server converts it, and "Downloading the result…" until the finished XLSX is sitting in the page. A PDF with no selectable text stops here, with an error asking you to run OCR first and a link to OCR PDF, unless “${WORD_OCR_LABEL}” was ticked.`,
     },
     {
       title: "Save the workbook",
@@ -142,7 +145,7 @@ const content: ToolContent = {
     },
     {
       q: "Does it work on scanned PDFs or password-protected files?",
-      a: `A fully scanned PDF holds only pictures of its pages, so the job is refused with a message that there is no selectable text and a link to OCR PDF. If only some pages are scans, the export succeeds, and the result says how many pages had text and names the ones that had none (up to ${MAX_LISTED_PAGES}, then a count of the rest), so you can run OCR PDF on them. A PDF that needs a password to open is refused with a message saying it is password-protected and a link to Unlock PDF, which asks for that password; convert the copy it returns.`,
+      a: `Scanned PDFs, yes, with “${WORD_OCR_LABEL}” ticked: our server runs OCR PDF's engine on the file first, in the languages you pick, keeping pages that already have text as they are, and places the recognised words into cells in the same job. OCR in the wrong language does not fail, it produces plausible-looking gibberish, so choose every language printed on the page, and check the figures. Without it, a fully scanned PDF is refused with a message that there is no selectable text, and if only some pages are scans, the export succeeds, and the result says how many pages had text and names the ones that had none (up to ${MAX_LISTED_PAGES}, then a count of the rest). A PDF that needs a password to open is refused with a message saying it is password-protected and a link to Unlock PDF, which asks for that password; convert the copy it returns.`,
     },
     {
       q: "Are formatting, formulas and very wide rows kept?",

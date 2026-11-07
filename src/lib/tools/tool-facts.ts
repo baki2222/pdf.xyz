@@ -1651,10 +1651,9 @@ export const PRIVATE_ADDRESS_EXAMPLES = ["localhost", "192.168.1.1"] as const;
  * the signature-request package — to hold the served page to it.
  */
 function workerFaq(tool: Tool): ToolFaqEntry[] {
-  const scanned: ToolFaqEntry = {
-    question: `Can ${tool.name} convert a scanned PDF?`,
-    answer: `Not directly. A scanned page is a picture with no selectable text: a PDF with none at all is refused rather than exported empty, and in a PDF that mixes the two, the scanned pages come through with no text. Run the scan through ${toolName("ocr-pdf")} first, then export the result.`,
-  };
+  // The shared `scanned` answer ("Not directly. … Run the scan through OCR
+  // PDF first, then export the result.") lost its last reader on 2026-11-08,
+  // when PDF to Excel gained the OCR switch; each tool now answers its own.
   switch (tool.slug) {
     case "pdf-to-word":
       // CHANGED 2026-10-17: "Its selectable text, and nothing else." and the
@@ -1686,7 +1685,13 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
           question: `Should I use ${tool.name} or ${toolName("extract-tables")}?`,
           answer: `For a table on its own, ${toolName("extract-tables")}: it looks for tables by where the text sits on the page and exports each one it finds. ${tool.name} puts every line of the PDF's text in one sheet, placing each value in the column it sits in, so it suits getting all of the text into a grid rather than pulling one table out.`,
         },
-        scanned,
+        {
+          question: `Can ${tool.name} convert a scanned PDF?`,
+          // CHANGED 2026-11-08 (audit pdf-to-excel#2): the shared `scanned`
+          // answer, "Not directly. … Run the scan through OCR PDF first" —
+          // true until the panel could run OCR in the same job.
+          answer: `Yes, with “${WORD_OCR_LABEL}” turned on. On its own a scanned page is a picture with no selectable text: a PDF with none at all is refused rather than exported empty, and in a PDF that mixes the two, the scanned pages come through with no text. With the switch on, our server runs ${toolName("ocr-pdf")}'s engine first, in the languages you pick, and places the recognised words into cells in the same job. Check the figures against the scan, since recognition can misread them.`,
+        },
       ];
     case "pdf-to-powerpoint":
       // CHANGED 2026-10-10 with the engine (`pdf-office-export/page-scan.ts`).
@@ -1721,7 +1726,10 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
         },
         {
           question: `Can ${tool.name} convert a scanned PDF?`,
-          answer: `Yes, as pictures. A scanned page has no selectable text, only a picture of its words, so its slide carries the page as a picture and those words are not editable text; the note beside the download names those pages. Run the scan through ${toolName("ocr-pdf")} first to have its words as text as well: the converted slides then carry them in invisible text boxes over each picture.`,
+          // CHANGED 2026-11-08 (audit pdf-to-powerpoint#4): "Run the scan
+          // through OCR PDF first to have its words as text as well" — true
+          // until the panel could run OCR in the same job.
+          answer: `Yes, as pictures. A scanned page has no selectable text, only a picture of its words, so its slide carries the page as a picture and those words are not editable text; the note beside the download names those pages. Turn on “${WORD_OCR_LABEL}” to have its words as text as well: our server runs ${toolName("ocr-pdf")}'s engine first, in the languages you pick, and the converted slides then carry the words in invisible text boxes over each picture.`,
         },
       ];
     case "repair-pdf":
@@ -1847,7 +1855,10 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
         },
         {
           question: `Can ${tool.name} read a scanned PDF?`,
-          answer: `No. A scanned page is a picture with no selectable text, so the job stops and says so rather than guessing. Run the scan through ${toolName("ocr-pdf")} first, then extract from the result.`,
+          // CHANGED 2026-11-08 (audit extract-tables#3): "No. … Run the scan
+          // through OCR PDF first, then extract from the result." — true until
+          // the panel could run OCR in the same job.
+          answer: `Yes, with “${WORD_OCR_LABEL}” turned on. On its own a scanned page is a picture with no selectable text, so the job stops and says so rather than guessing. With the switch on, our server runs ${toolName("ocr-pdf")}'s engine first, in the languages you pick, and looks for tables in the recognised text in the same job. Check the figures against the scan, since recognition can misread them.`,
         },
       ];
     case "summarize-pdf":

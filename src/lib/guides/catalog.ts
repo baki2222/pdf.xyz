@@ -3082,7 +3082,7 @@ export const guides: Guide[] = [
         id: "scans-and-tables",
         heading: "Scanned PDFs and table-only exports",
         body: [
-          `A scanned page holds a picture of its words, so it has no text to export. A fully scanned PDF is refused with a message pointing to ${nameOf("ocr-pdf")}: run it there with the language the page is written in, choose a searchable PDF, and bring that file back here. If only some pages are scans, the export succeeds and the result says which pages had no text.`,
+          `A scanned page holds a picture of its words, so on its own it has no text to export. Tick “${WORD_OCR_LABEL}” before you press Export XLSX and pick the languages printed on the page: our server recognises the words first and places them into cells in the same job. Without it, a fully scanned PDF is refused, and if only some pages are scans, the export succeeds and the result says which pages had no text. ${nameOf("ocr-pdf")}, listed beside it, is for when you want a searchable PDF instead of a workbook.`,
           `${nameOf("extract-tables")} looks for tables by where the words sit, keeps only the regions that read as a grid of values, and hands back a CSV per table plus one workbook with a sheet for each. Choose it when you want the tables alone, without the headings and paragraphs around them.`,
         ],
       },
@@ -3098,7 +3098,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I convert a scanned PDF to Excel?",
-        answer: `Not directly: a scan has no selectable text, so the job is refused with a link to ${nameOf("ocr-pdf")}. Run OCR first with the right language, choose a searchable PDF as the result, and convert that file here.`,
+        answer: `Yes. Tick “${WORD_OCR_LABEL}” and pick the languages printed on the page: our server runs OCR first and converts the result in the same job. A wrong language does not fail, it gives plausible-looking gibberish, so choose every language on the page, and check the figures.`,
       },
       {
         question: "Does PDF to Excel upload my file?",
@@ -3151,7 +3151,7 @@ export const guides: Guide[] = [
         id: "scanned-pages",
         heading: "Scanned pages",
         body: [
-          `A scanned page holds a picture of its words, so its slide carries the page as a picture and those words are not text. Run ${nameOf("ocr-pdf")} on the scan first and convert the result: its slides then also carry the recognised words, in invisible text boxes over each picture. The note beside the download names any pages that had no selectable text.`,
+          `A scanned page holds a picture of its words, so its slide carries the page as a picture and those words are not text. Tick “${WORD_OCR_LABEL}” before you press Export PPTX and pick the languages printed on the page: our server recognises the words first and converts the result in the same job, so its slides also carry the recognised words, in invisible text boxes over each picture. The note beside the download names any pages that had no selectable text. ${nameOf("ocr-pdf")}, listed beside it, is for when you want a searchable PDF instead of a deck.`,
         ],
       },
       {
@@ -3171,7 +3171,7 @@ export const guides: Guide[] = [
       },
       {
         question: "What happens to a scanned PDF?",
-        answer: `It is converted, as pictures: each scanned page lands on its slide as a picture, and its words are not text. Run ${nameOf("ocr-pdf")} first and convert the OCR'd copy to have the recognised words in invisible text boxes over each picture.`,
+        answer: `It is converted, as pictures: each scanned page lands on its slide as a picture, and its words are not text. Tick “${WORD_OCR_LABEL}” to have the recognised words in invisible text boxes over each picture, in the same job; choose every language printed on the page, since OCR in the wrong language gives plausible-looking gibberish rather than an error.`,
       },
       {
         question: "Why is a paragraph split into separate text boxes?",
@@ -3188,7 +3188,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-11-04",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-convert-word-to-pdf",
@@ -5469,7 +5469,7 @@ export const guides: Guide[] = [
     slug: "how-to-extract-tables-from-a-pdf",
     title: "How to extract tables from a PDF",
     description:
-      "Pull the tables out of a text-based PDF into CSV files and one Excel workbook, a sheet per table. It runs on a secure server; scans need OCR first.",
+      "Pull the tables out of a PDF into CSV files and one Excel workbook, a sheet per table. It runs on a secure server, and can read a scan with OCR first.",
     tools: ["extract-tables", "pdf-to-excel", "ocr-pdf"],
     keywords: [
       "how to extract tables from a pdf",
@@ -5481,7 +5481,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       `To extract tables from a PDF, open ${nameOf("extract-tables")}, add your PDF, press Extract tables, and download the ZIP. Each table it finds comes back as its own CSV file and as its own sheet in one Excel workbook, with the titles and paragraphs around it left out.`,
-      `It finds tables by where the words sit on the page: words on one line form a row, words set a normal space apart stay in one cell, and columns come from the white space that runs down the rows. One setting, ${COMBINE_TABLES_LABEL}, puts every table on a single sheet instead of one sheet each. It reads only text stored in the PDF as text, so a scanned table needs OCR first.`,
+      `It finds tables by where the words sit on the page: words on one line form a row, words set a normal space apart stay in one cell, and columns come from the white space that runs down the rows. Two switches sit above the button: ${COMBINE_TABLES_LABEL} puts every table on a single sheet instead of one sheet each, and “${WORD_OCR_LABEL}” adds a text layer before detection runs. It reads only text stored in the PDF as text, so a scanned table needs that second switch on.`,
       `${nameOf("extract-tables")} runs on a secure server, not in your browser, because the word positions come from a native PDF text engine. Your PDF, up to ${ceilingMb("extract-tables")} MB, travels over an encrypted connection and is deleted when the job finishes; the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
     ],
     steps: [
@@ -5521,14 +5521,14 @@ export const guides: Guide[] = [
         heading: "Extract Tables, PDF to Excel, or OCR first",
         body: [
           `${nameOf("pdf-to-excel")} puts every line of the PDF's text into one sheet, each value in the column it sits in, which suits getting all of the text into a grid. ${nameOf("extract-tables")} keeps only the table-shaped blocks, each on its own sheet. Both run on our secure server.`,
-          `A scanned page has no text to read, so it produces nothing, and a file with no text on any page stops with a message pointing you to ${nameOf("ocr-pdf")}. Run it there with the page's language selected, choose a searchable PDF as the result, and bring that file back.`,
+          `A scanned page has no text to read on its own. Tick “${WORD_OCR_LABEL}” before you press Extract tables and pick the page's languages: our server recognises the words first, with ${nameOf("ocr-pdf")}'s engine, and looks for tables in the result in the same job. Without it, a file with no text on any page stops with a message pointing you to ${nameOf("ocr-pdf")}.`,
         ],
       },
     ],
     faq: [
       {
         question: "Can it extract tables from a scanned PDF?",
-        answer: `Not directly. A scan holds a picture of its words, so there are no word positions to read. Run it through ${nameOf("ocr-pdf")} first to add a text layer, then extract the tables from the searchable copy, and check the figures, since recognition can misread them.`,
+        answer: `Yes, with “${WORD_OCR_LABEL}” ticked. A scan holds a picture of its words, so on its own there are no word positions to read; with the switch on, our server runs ${nameOf("ocr-pdf")}'s engine first and extracts the tables from the recognised text in the same job. Check the figures, since recognition can misread them.`,
       },
       {
         question: "Why did a page with an obvious table give nothing?",
@@ -5544,7 +5544,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I choose which pages to read?",
-        answer: `No. Every page is read; the one option, ${COMBINE_TABLES_LABEL}, changes only how the tables are laid out. To work on a few pages, make a smaller PDF of them first with ${nameOf("extract-pages")}, which runs in your browser, and remember that the page numbers on the sheet tabs then count the pages of that copy.`,
+        answer: `No. There is no page choice: every page is read. ${COMBINE_TABLES_LABEL} changes only how the tables are laid out, and the OCR switch only whether a scan is read first. To work on a few pages, make a smaller PDF of them first with ${nameOf("extract-pages")}, which runs in your browser, and remember that the page numbers on the sheet tabs then count the pages of that copy.`,
       },
     ],
     published: "2026-10-31",

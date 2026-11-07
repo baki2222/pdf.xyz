@@ -6,6 +6,7 @@ import {
   COMBINED_SHEET_NAME,
 } from "@/lib/jobs/extract-tables-options";
 import {
+  WORD_OCR_LABEL,
   XLSX_NUMBER_EXAMPLES,
   XLSX_TEXT_EXAMPLE,
 } from "@/lib/jobs/pdf-office-export";
@@ -80,8 +81,7 @@ const content: ToolContent = {
 
   seoTitle: "Extract Tables from PDF to Excel and CSV",
 
-  metaDescription:
-    "Extract tables from a text-based PDF to CSV and Excel: each table gets its own CSV and sheet, or all go on one sheet. Scanned PDFs need OCR PDF first.",
+  metaDescription: `Extract tables from a PDF to CSV and Excel: each in its own CSV and sheet, or all on one sheet. Tick “${WORD_OCR_LABEL}” to read a scan.`,
 
   intro: [
     `Copying a table out of a PDF usually pastes as one long column, or as rows glued together with spaces. Extract Tables reads the position of every word on a page, puts words on the same line into one row, joins words set a normal space apart into one cell, and finds columns from the white-space gutters that run down the rows. It keeps a block as a table only when at least two columns each hold something in two or more rows, one column holds short values of fewer than ${LONG_CELL_WORDS} words each (and is not mostly bullet items), and no sentence wraps from one row into the next.`,
@@ -107,11 +107,11 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add the PDF",
-      body: "Drop one PDF onto the area that reads Add your PDF, or browse, or click browse to pick it. As its Selectable PDF hint says, the file needs real text rather than a scanned image. The area takes a file at once, Extract tables works only while the status badge reads Secure server, and a Remove button beside the chosen file's name clears a wrong pick.",
+      body: `Drop one PDF onto the area that reads Add your PDF, or browse, or click browse to pick it. As its Selectable PDF hint says, the file needs real text; for a scanned image, tick “${WORD_OCR_LABEL}” and pick the languages printed on it. The area takes a file at once, Extract tables works only while the status badge reads Secure server, and a Remove button beside the chosen file's name clears a wrong pick.`,
     },
     {
       title: "Press Extract tables",
-      body: `One option sits above the button: ${COMBINE_TABLES_LABEL}, off unless you tick it. A file over ${CEILING_MB} MB is refused as soon as you pick it, before anything is read or sent. While the job runs, the button reads Uploading your file…, Waiting for our server…, Extracting tables… and Downloading the result… in turn, and it stays busy until the ZIP has come back to your browser. A scan with no text, or a file in which no table is detected, shows an error beneath the button in place of a result; when no table is detected, it comes with links to PDF to Excel and OCR PDF.`,
+      body: `Two switches sit above the button, both off unless you tick them: ${COMBINE_TABLES_LABEL}, and “${WORD_OCR_LABEL}”, which only adds a text layer before table detection runs. A file over ${CEILING_MB} MB is refused as soon as you pick it, before anything is read or sent. While the job runs, the button reads Uploading your file…, Waiting for our server…, Extracting tables… and Downloading the result… in turn, and it stays busy until the ZIP has come back to your browser. A scan with no text and the OCR switch off, or a file in which no table is detected, shows an error beneath the button in place of a result; when no table is detected, it comes with links to PDF to Excel and OCR PDF.`,
     },
     {
       title: "Download the ZIP",
@@ -130,7 +130,9 @@ const content: ToolContent = {
     },
     {
       q: "What if only some pages of my PDF are scans?",
-      a: "The pages with text are read as usual, and the scanned pages produce nothing; the ready message lists them, starting No table was detected on, beside the pages tables came from. A file with no text on any page stops with a message telling you to run OCR PDF first; add a text layer there, then bring the searchable PDF back.",
+      // CHANGED 2026-11-08 (audit extract-tables#3): "…; add a text layer
+      // there, then bring the searchable PDF back." — before the switch.
+      a: `With “${WORD_OCR_LABEL}” off, the pages with text are read as usual and the scanned pages produce nothing; the ready message lists them, starting No table was detected on, beside the pages tables came from. A file with no text on any page stops with a message telling you to run OCR PDF first. Tick the switch instead and our server runs OCR PDF's engine first, in the languages you pick, keeping pages that already have text as they are, then looks for tables in the result in the same job. OCR in the wrong language does not fail, it produces plausible-looking gibberish, so choose every language printed on the page, and check the figures.`,
     },
     {
       q: "Why did two columns come out as one?",

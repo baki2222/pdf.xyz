@@ -134,7 +134,7 @@ export function createProcessorRegistry(
     );
   }
   if (deps.tableExtract) {
-    registry.register(createTableExtractProcessor(deps.tableExtract));
+    registry.register(createTableExtractProcessor(deps.tableExtract, { ocr }));
   }
   if (deps.requestSignatures) {
     registry.register(createRequestSignaturesProcessor(deps.requestSignatures));

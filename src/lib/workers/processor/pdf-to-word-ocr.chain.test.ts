@@ -182,7 +182,10 @@ describe("PDF to Word, OCR first — one job", () => {
     if (!result.ok) {
       expect(result.error.retryable).toBe(false);
       expect(result.error.message).not.toBe(OCR_REFUSAL_MESSAGES["prior-text"]);
-      expect(result.error.message).not.toMatch(/Redo existing OCR/);
+      // INVERTED 2026-11-08 (audit pdf-to-word#3): this was
+      // `.not.toMatch(/Redo existing OCR/)`, because the panel had no such
+      // box. It has one now, and it is the way past this refusal.
+      expect(result.error.message).toMatch(/Redo existing OCR/);
       expect(result.error.message).toMatch(/Recognise text in scans/);
     }
   });
