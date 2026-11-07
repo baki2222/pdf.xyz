@@ -369,7 +369,10 @@ describe("Extract Tables panel — the result says what was found (audit extract
     } as unknown as Job;
     stubNetwork(job);
     const fetchStub = fetch as unknown as ReturnType<typeof vi.fn>;
-    const answer = fetchStub.getMockImplementation()!;
+    const answer = fetchStub.getMockImplementation()! as (
+      url: string,
+      init: unknown,
+    ) => unknown;
     fetchStub.mockImplementation(async (url: string, init: unknown) =>
       url === "/download/a1"
         ? {
