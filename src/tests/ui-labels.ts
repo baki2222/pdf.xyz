@@ -123,7 +123,7 @@ import path from "node:path";
 import { formatForToken } from "@/lib/intent/formats";
 import { tools } from "@/lib/tools";
 import {
-  DOCUMENT_WORDS,
+  DOCUMENT_NOUNS,
   OFFICE_TO_PDF_TOOLS,
   type OfficeToPdfTool,
 } from "@/lib/workers/office-conversion/tools";
@@ -731,17 +731,18 @@ export function uiOf(slugs: readonly string[]): Rendered & { files: string[] } {
     for (const s of r.leads) leads.add(s);
   }
   // A drop-zone title that is a TEMPLATE whose hole is a per-tool constant
-  // (the Office panel's `Add your ${DOCUMENT_WORDS[tool].noun}, or`, since
+  // (the Office panel's `Add your ${DOCUMENT_NOUNS[tool]}, or`, since
   // audit excel-to-pdf#5) is resolved PER SLUG, never left as a hole: a hole
   // accepts any words, and composing one with "browse" passed “Add your
   // spreadsheet, or browse” on Excel to PDF, whose box says "workbook"
   // (review of 95e722d5). The resolved title counts only while a template in
   // scope still draws it, so a reworded panel drops it rather than keeping a
-  // stale literal alive. office-drop-zone-quotes.test.ts holds the set of
-  // template drop zones to this one.
+  // stale literal alive. tool-page-ui-labels.test.ts ("a drop zone's
+  // template title composes with “browse” only with that tool's own noun")
+  // holds this resolution per tool, a wrong noun included.
   for (const slug of slugs) {
     if (!isOfficeTool(slug)) continue;
-    const title = `Add your ${DOCUMENT_WORDS[slug].noun}, or`;
+    const title = `Add your ${DOCUMENT_NOUNS[slug]}, or`;
     if (patterns.some((re) => re.source.endsWith(", or$") && re.test(title)))
       exact.add(title);
   }
