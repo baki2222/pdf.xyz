@@ -50,7 +50,10 @@ import {
   XLSX_TEXT_EXAMPLE,
 } from "@/lib/jobs/pdf-office-export";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
-import { CARRIED_DOCINFO_WORDS } from "@/lib/workers/pdf-archive/docinfo-words";
+import {
+  CARRIED_DOCINFO_RULE,
+  CARRIED_DOCINFO_WORDS,
+} from "@/lib/workers/pdf-archive/docinfo-words";
 import {
   MAX_DOCX_PICTURES,
   MAX_LAYERS_PER_PAGE,
@@ -1741,7 +1744,7 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
         },
         {
           question: "What does the conversion remove?",
-          answer: `Whatever the PDF/A level cannot hold. Ghostscript drops it and reports it, and up to ${MAX_TOOL_NOTES} of its messages are listed with your download under “What PDF/A could not keep:”, followed by a count of any it leaves out. The most common line is about the original's document information; its ${CARRIED_DOCINFO_WORDS} are written into the copy separately.`,
+          answer: `Whatever the PDF/A level cannot hold. Ghostscript drops it and reports it, and up to ${MAX_TOOL_NOTES} of its messages are listed with your download under “What PDF/A could not keep:”, followed by a count of any it leaves out. The most common line is about the original's document information; its ${CARRIED_DOCINFO_WORDS} are written into the copy separately. ${CARRIED_DOCINFO_RULE}`,
         },
       ];
     case "request-signatures": {

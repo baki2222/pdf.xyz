@@ -22,3 +22,20 @@ export const CARRIED_DOCINFO_WORDS = (() => {
   const words = CARRIED_DOCINFO_FIELDS.map((field) => field.toLowerCase());
   return `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
 })();
+
+/**
+ * The condition under which a field is carried, as ONE sentence every
+ * surface uses (page intro, FAQ, notes block, tool facts, guide), so none of
+ * them can say "carried" without it. Review 2026-11-08: two sentences said
+ * the fields were carried with no condition, and were false for a curly
+ * apostrophe, any accented letter, any other script and any encrypted file.
+ *
+ * What it states is what `carriedValue` in `./docinfo` keeps, and that is
+ * what MEASUREMENT says survives: on the production worker image
+ * (gs 10.00.0, 2026-11-07), a DOCINFO value with a round bracket, a
+ * backslash or any byte above 0x7E was dropped from both the Info
+ * dictionary and the XMP, whether written escaped, balanced, as hex, as
+ * octal Latin-1 or as UTF-16; plain ASCII ("Smith's report & co: 50% -
+ * ok?") arrived in both. The verdicts are a fixture in `./docinfo.test.ts`.
+ */
+export const CARRIED_DOCINFO_RULE = `A field is carried only when it is plain ASCII text with no round brackets or backslash, at most ${MAX_CARRIED_FIELD_CHARS.toLocaleString("en-US")} characters long, from a PDF that is not encrypted; one with an accented letter, a curly quote, an en dash or another script is left out rather than altered, because Ghostscript drops such text from a PDF/A file.`;

@@ -17,14 +17,19 @@
  * before, so its "discarding DOCINFO" notice can still appear; it is about
  * that copy of the fields, not the one written here.
  *
- * Only what can be written faithfully is written. A PostScript string in a
- * pdfmark lands in the Info dictionary as PDFDocEncoding bytes, so a field is
- * carried only when every character is printable ASCII or a Latin-1 letter
- * or sign (U+00A1 to U+00FF, less the soft hyphen): the range where
- * PDFDocEncoding and Latin-1 are the same byte, so no reader can decode it
- * differently. A field holding anything else (curly quotes, a dash, another
- * script) is NOT carried rather than rewritten, and neither is one longer
- * than {@link MAX_CARRIED_FIELD_CHARS}. Line breaks and tabs become spaces.
+ * Only what Ghostscript KEEPS is written. Measured on the production worker
+ * image (gs 10.00.0, 2026-11-07, `docker run --network none` on this tree):
+ * in PDF/A mode pdfwrite drops a DOCINFO value that holds a round bracket, a
+ * backslash or any byte above 0x7E, from the Info dictionary AND the XMP,
+ * however the prefix spells it (escaped, balanced, hex, octal Latin-1,
+ * UTF-16). The first version of this file carried Latin-1 ("Zo\353 M\374ller")
+ * and escaped brackets ("Annual report \(2025\)") on the theory that only the
+ * input's UTF-16 pairs were refused; production dropped both, while the
+ * plain-ASCII Subject and Keywords of the same job arrived in Info and XMP.
+ * So a field is carried only when every character is printable ASCII other
+ * than `\`, `(` and `)`, and it is at most {@link MAX_CARRIED_FIELD_CHARS}
+ * long. Anything else is NOT carried rather than rewritten. Line breaks and
+ * tabs become spaces. The verdicts are a fixture in `./docinfo.test.ts`.
  *
  * An encrypted input (one with only an owner password still opens) is not
  * read at all: pdf-lib does not decrypt, so its strings would be ciphertext.
@@ -40,13 +45,12 @@ export { CARRIED_DOCINFO_FIELDS, MAX_CARRIED_FIELD_CHARS };
 export type CarriedDocInfoField = (typeof CARRIED_DOCINFO_FIELDS)[number];
 export type CarriedDocInfo = Partial<Record<CarriedDocInfoField, string>>;
 
-/** True when every character has the same byte in PDFDocEncoding and Latin-1. */
-function faithfullyWritable(text: string): boolean {
+/** Printable ASCII other than `\`, `(` and `)`: what gs 10.00.0 keeps in PDF/A. */
+function survivesGhostscript(text: string): boolean {
   for (const ch of text) {
     const code = ch.codePointAt(0)!;
-    const ascii = code >= 0x20 && code <= 0x7e;
-    const latin1 = code >= 0xa1 && code <= 0xff && code !== 0xad;
-    if (!ascii && !latin1) return false;
+    if (code < 0x20 || code > 0x7e) return false;
+    if (ch === "\\" || ch === "(" || ch === ")") return false;
   }
   return true;
 }
@@ -57,7 +61,7 @@ export function carriedValue(raw: string | undefined): string | undefined {
   const text = raw.replace(/[\t\r\n]+/g, " ").trim();
   if (text.length === 0 || text.length > MAX_CARRIED_FIELD_CHARS)
     return undefined;
-  return faithfullyWritable(text) ? text : undefined;
+  return survivesGhostscript(text) ? text : undefined;
 }
 
 /**

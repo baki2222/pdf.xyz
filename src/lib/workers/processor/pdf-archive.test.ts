@@ -356,15 +356,15 @@ describe("the original's document properties reach the PDF/A prefix", () => {
   it("writes Title, Author, Subject and Keywords as one /DOCINFO pdfmark", async () => {
     const prefix = await prefixFor(
       await pdfWith((doc) => {
-        doc.setTitle("Annual report (2025)");
-        doc.setAuthor("Zoë Müller");
+        doc.setTitle("Annual report 2025");
+        doc.setAuthor("Zoe Muller");
         doc.setSubject("Board pack");
         doc.setKeywords(["minutes", "finance"]);
         doc.setProducer("Some Producer 1.0");
       }),
     );
     expect(prefix).toContain(
-      String.raw`[/Title (Annual report \(2025\)) /Author (Zo\353 M\374ller) /Subject (Board pack) /Keywords (minutes finance) /DOCINFO pdfmark`,
+      "[/Title (Annual report 2025) /Author (Zoe Muller) /Subject (Board pack) /Keywords (minutes finance) /DOCINFO pdfmark",
     );
     // The producer is Ghostscript's to set; it is not carried.
     expect(prefix).not.toContain("Some Producer");
@@ -372,6 +372,26 @@ describe("the original's document properties reach the PDF/A prefix", () => {
     expect(prefix.indexOf("/DOCINFO")).toBeGreaterThan(
       prefix.indexOf("/OutputIntents"),
     );
+  });
+
+  /*
+   * INVERTED 2026-11-08. This test pinned that "Annual report (2025)" and
+   * "Zoë Müller" reached the prefix as `(Annual report \(2025\))` and
+   * `(Zo\353 M\374ller)`. They did, and the production image's gs 10.00.0
+   * then dropped both from the output's Info and XMP (docinfo.ts has the
+   * measurement). A value Ghostscript drops is no longer written at all.
+   */
+  it("a bracket or an accented letter is not carried: Ghostscript drops it", async () => {
+    const prefix = await prefixFor(
+      await pdfWith((doc) => {
+        doc.setTitle("Annual report (2025)");
+        doc.setAuthor("Zoë Müller");
+        doc.setSubject("Board pack");
+      }),
+    );
+    expect(prefix).toContain("[/Subject (Board pack) /DOCINFO pdfmark");
+    expect(prefix).not.toContain("/Title");
+    expect(prefix).not.toContain("/Author");
   });
 
   it("a field it cannot write faithfully is left out, not rewritten", async () => {

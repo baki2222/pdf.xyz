@@ -15,8 +15,8 @@ import {
 import { pdfaOutputName } from "@/lib/workers/processor/pdf-archive";
 import { PDFA_COLOUR_NOTE } from "@/lib/workers/pdf-archive/colour";
 import {
+  CARRIED_DOCINFO_RULE,
   CARRIED_DOCINFO_WORDS,
-  MAX_CARRIED_FIELD_CHARS,
 } from "@/lib/workers/pdf-archive/docinfo-words";
 import {
   PDFA_LEVELS,
@@ -118,11 +118,17 @@ const EXAMPLE_OUT = pdfaOutputName(EXAMPLE_IN);
  *    keeps it broken is not checked, so the copy says "not valid", no more.
  *  - document properties (2026-11-08, audit pdf-to-pdfa#3): the worker reads
  *    Title, Author, Subject and Keywords with pdf-lib (pdf-archive/docinfo.ts)
- *    and writes the ones it can encode faithfully into the prefix as a
- *    /DOCINFO pdfmark, Ghostscript's own PDFA_def.ps recipe. That they then
- *    survive into the output's Info and XMP is to be shown by a production
- *    job (the commit's prod_proof), not by a unit test, which can only read
- *    the prefix back.
+ *    and writes the ones Ghostscript keeps into the prefix as a /DOCINFO
+ *    pdfmark, Ghostscript's own PDFA_def.ps recipe. PROVEN on the production
+ *    worker image (gs 10.00.0, 2026-11-07, `docker run --network none` of
+ *    this tree): plain-ASCII values arrive in the output's Info dictionary
+ *    and XMP (Title -> dc:title, Author -> dc:creator, Subject ->
+ *    dc:description, Keywords -> pdf:Keywords); a value with a round bracket,
+ *    a backslash or any non-ASCII character is dropped from both, which is
+ *    why CARRIED_DOCINFO_RULE (docinfo-words.ts) is the condition every
+ *    sentence carries. The same runs showed /Producer always "GPL
+ *    Ghostscript 10.00.0", even for an input whose producer was "Proof
+ *    producer": that is the FAQ's "the producer is always Ghostscript's own".
  *  - fonts: the only evidence is the corpus line in
  *    src/lib/workers/native-diagnostics.corpus.ts ("Loading font Helvetica (or
  *    substitute) from …NimbusSans-Regular", gs 10.00.0, production). Font
@@ -159,7 +165,7 @@ const content: ToolContent = {
 
   intro: [
     `PDF to PDF/A, an online converter, rewrites an ordinary PDF as PDF/A, the archiving format meant for documents that must still open and look the same years from now. Unless you change ${PDFA_LEVEL_LABEL}, the copy is ${PDF_A_STANDARD}: conformance level b of PDF/A-2 (ISO 19005-2). The picker offers ${PDFA_LEVEL_NAMES}, for an archive or portal that names one. Ghostscript's pdfwrite device rebuilds the file with the matching PDF/A setting switched on. Level b (basic) is about visual appearance; the tagged structure that level a requires is not added, so the a and u levels are not offered.`,
-    `Some of what a PDF can carry has no place in PDF/A, and the converter is told to drop it and keep going rather than abandon the job. What Ghostscript reports while doing so appears above your download in its own words: at most ${NOTE_LINES} distinct lines, each cut to ${NOTE_CHARS} characters, with any line naming a file path held back and a closing line saying further messages were not shown. The line you are most likely to meet ends in "discarding DOCINFO", because most PDFs carry producer or creator text. Before Ghostscript runs, our server reads your PDF's ${CARRIED_DOCINFO_WORDS} and writes them into the copy itself, so that notice does not mean they are gone. ${PDFA_COLOUR_NOTE} Nothing checks the output against the PDF/A specification afterwards, so treat it as a best-effort conversion, not a certificate.`,
+    `Some of what a PDF can carry has no place in PDF/A, and the converter is told to drop it and keep going rather than abandon the job. What Ghostscript reports while doing so appears above your download in its own words: at most ${NOTE_LINES} distinct lines, each cut to ${NOTE_CHARS} characters, with any line naming a file path held back and a closing line saying further messages were not shown. The line you are most likely to meet ends in "discarding DOCINFO", because most PDFs carry producer or creator text. Before Ghostscript runs, our server reads your PDF's ${CARRIED_DOCINFO_WORDS} and writes them into the copy itself. ${CARRIED_DOCINFO_RULE} So the notice alone does not mean those fields are gone; open the copy's document properties to see what arrived. ${PDFA_COLOUR_NOTE} Nothing checks the output against the PDF/A specification afterwards, so treat it as a best-effort conversion, not a certificate.`,
     `The conversion happens where Ghostscript is installed, on pdf.xyz's secure server, so your PDF (one per job, ${CEILING_MB} MB at most) travels there over TLS. Once the job is over our server deletes your original. You then have ${LINK_MINUTES} minutes to download the archive version, and whatever is still in storage after that is wiped by the next daily sweep.`,
   ],
 
@@ -216,7 +222,7 @@ const content: ToolContent = {
     },
     {
       q: 'What does "discarding DOCINFO" mean for my title or author?',
-      a: `DOCINFO is the older dictionary where a PDF keeps its title, author, producer and similar fields. The notice means Ghostscript found a text string in your original's copy of it that it cannot represent in PDF/A's XMP metadata, and dropped that copy. Before it runs, our server reads the ${CARRIED_DOCINFO_WORDS} from your PDF and hands them to Ghostscript to write into the PDF/A file, both its document properties and its XMP metadata. A field is carried only when it uses plain letters, digits and Western European (Latin-1) characters and is at most ${MAX_CARRIED_FIELD_CHARS} characters long; one with curly quotes, dashes or another script is left out rather than altered, and the producer is always Ghostscript's own. Open the copy's document properties to see what arrived.`,
+      a: `DOCINFO is the older dictionary where a PDF keeps its title, author, producer and similar fields. The notice means Ghostscript found a text string in your original's copy of it that it cannot represent in PDF/A's XMP metadata, and dropped that copy. Before it runs, our server reads the ${CARRIED_DOCINFO_WORDS} from your PDF and hands them to Ghostscript to write into the PDF/A file, both its document properties and its XMP metadata. ${CARRIED_DOCINFO_RULE} The producer is always Ghostscript's own, whatever your original named. Open the copy's document properties to see what arrived.`,
     },
     {
       q: "Does converting a scan to PDF/A make its text searchable?",
