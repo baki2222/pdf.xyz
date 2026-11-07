@@ -423,7 +423,19 @@ export interface PdfToWordOptions {
    * exactly as an OCR PDF job's are.
    */
   languages: OcrLanguage[];
+  /**
+   * OCR PDF's page choices (since 2026-11-08, audit pdf-to-word#3): "Turn
+   * pages upright", "Straighten crooked pages", "Redo existing OCR". False
+   * when `ocr` is off; validated by {@link parseOcrOptions}, which refuses
+   * Straighten with Redo.
+   */
+  rotatePages: boolean;
+  deskew: boolean;
+  redoOcr: boolean;
 }
+
+/** The OCR page choices an export job may carry beside `ocr: true`. */
+const OCR_PAGE_CHOICES = ["rotatePages", "deskew", "redoOcr"] as const;
 
 /**
  * The right-to-left scripts among the OCR languages. OCR PDF reads them in
@@ -474,15 +486,30 @@ export function parsePdfToWordOptions(
   }
   const ocr = raw === true;
   if (!ocr) {
-    if (options.languages !== undefined) {
-      return invalid(
-        "`options.languages` applies only when `options.ocr` is true.",
-        "options.languages",
-      );
-    }
-    return { ok: true, value: { ocr: false, languages: [] } };
+    for (const key of ["languages", ...OCR_PAGE_CHOICES] as const)
+      if (options[key] !== undefined) {
+        return invalid(
+          `\`options.${key}\` applies only when \`options.ocr\` is true.`,
+          `options.${key}`,
+        );
+      }
+    return {
+      ok: true,
+      value: {
+        ocr: false,
+        languages: [],
+        rotatePages: false,
+        deskew: false,
+        redoOcr: false,
+      },
+    };
   }
-  const parsed = parseOcrOptions({ languages: options.languages });
+  const parsed = parseOcrOptions({
+    languages: options.languages,
+    rotatePages: options.rotatePages,
+    deskew: options.deskew,
+    redoOcr: options.redoOcr,
+  });
   if (!parsed.ok) return parsed;
   if (
     parsed.value.languages.some(
@@ -490,7 +517,11 @@ export function parsePdfToWordOptions(
     )
   )
     return unprocessable(PDF_TO_WORD_RTL_REFUSAL, "options.languages");
-  return { ok: true, value: { ocr: true, languages: parsed.value.languages } };
+  const { languages, rotatePages, deskew, redoOcr } = parsed.value;
+  return {
+    ok: true,
+    value: { ocr: true, languages, rotatePages, deskew, redoOcr },
+  };
 }
 
 /**

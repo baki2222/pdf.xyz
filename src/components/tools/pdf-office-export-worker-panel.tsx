@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useId, useState } from "react";
 import { Download, FileText, ShieldCheck, Timer } from "lucide-react";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import {
@@ -199,6 +199,13 @@ function PdfOfficeRunArea({
     status,
     PDF_TO_WORD_OCR_LANGUAGE_CODES,
   );
+  // OCR PDF's page choices (audit pdf-to-word#3, 2026-11-08). Straighten
+  // and Redo turn each other off, as on OCR PDF; parseOcrOptions refuses
+  // the pair on the server as well.
+  const [rotatePages, setRotatePages] = useState(false);
+  const [deskew, setDeskew] = useState(false);
+  const [redoOcr, setRedoOcr] = useState(false);
+  const deskewId = useId();
   const ocrAvailable = status?.ocr.available === true;
   const ocrBlocked = offersOcr && ocrOn && !ocrAvailable;
   const languages = languageChoice.selected;
@@ -210,13 +217,27 @@ function PdfOfficeRunArea({
           tool,
           filename: file.name,
           bytes: new Uint8Array(await file.arrayBuffer()),
-          ...(offersOcr && ocrOn ? { ocr: { languages } } : {}),
+          ...(offersOcr && ocrOn
+            ? { ocr: { languages, rotatePages, deskew, redoOcr } }
+            : {}),
         },
         controls,
       );
       return result;
     });
-  }, [file, tool, run, available, ocrBlocked, offersOcr, ocrOn, languages]);
+  }, [
+    file,
+    tool,
+    run,
+    available,
+    ocrBlocked,
+    offersOcr,
+    ocrOn,
+    languages,
+    rotatePages,
+    deskew,
+    redoOcr,
+  ]);
   // Read only once the status says this panel cannot run.
   const unavailableDetail =
     status?.daemon.detail ?? "Our secure server is not drainable here.";
@@ -285,7 +306,82 @@ function PdfOfficeRunArea({
           </label>
           {ocrOn &&
             (ocrAvailable ? (
-              <OcrLanguagePicker choice={languageChoice} />
+              <>
+                <OcrLanguagePicker choice={languageChoice} />
+                <label className="text-muted flex min-h-11 items-start gap-2.5 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={rotatePages}
+                    // Guarded, never `disabled`: focus stays put (#46).
+                    onChange={(event) => {
+                      if (!busy) setRotatePages(event.target.checked);
+                    }}
+                    aria-disabled={busy || undefined}
+                    className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4"
+                  />
+                  <span className="flex flex-col gap-0.5">
+                    <span className="text-fg font-medium">
+                      Turn pages upright
+                    </span>
+                    <span className="text-muted text-xs leading-relaxed">
+                      Sideways or upside-down scanned pages without text.
+                    </span>
+                  </span>
+                </label>
+                <label className="text-muted flex min-h-11 items-start gap-2.5 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={deskew}
+                    // Off while Redo is on: OCRmyPDF refuses the pair.
+                    onChange={(event) => {
+                      if (!busy && !redoOcr) setDeskew(event.target.checked);
+                    }}
+                    aria-disabled={busy || redoOcr || undefined}
+                    // Named by its label alone: the hint names the other
+                    // box, and a name containing it would answer for both.
+                    aria-labelledby={`${deskewId}-name`}
+                    aria-describedby={`${deskewId}-hint`}
+                    className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4 aria-disabled:opacity-50"
+                  />
+                  <span className="flex flex-col gap-0.5">
+                    <span
+                      id={`${deskewId}-name`}
+                      className="text-fg font-medium"
+                    >
+                      Straighten crooked pages
+                    </span>
+                    <span
+                      id={`${deskewId}-hint`}
+                      className="text-muted text-xs leading-relaxed"
+                    >
+                      For scanned pages without text; each one it levels is
+                      redrawn as a new image. Not with Redo existing OCR.
+                    </span>
+                  </span>
+                </label>
+                <label className="text-muted flex min-h-11 items-start gap-2.5 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={redoOcr}
+                    // Off while Straighten is on, as above.
+                    onChange={(event) => {
+                      if (!busy && !deskew) setRedoOcr(event.target.checked);
+                    }}
+                    aria-disabled={busy || deskew || undefined}
+                    className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4 aria-disabled:opacity-50"
+                  />
+                  <span className="flex flex-col gap-0.5">
+                    <span className="text-fg font-medium">
+                      Redo existing OCR
+                    </span>
+                    <span className="text-muted text-xs leading-relaxed">
+                      For a PDF whose earlier OCR text is poor: that text is
+                      removed and those pages are recognised again. Text typed
+                      into the document is kept.
+                    </span>
+                  </span>
+                </label>
+              </>
             ) : (
               <p className="text-warn text-xs leading-relaxed">
                 {status?.ocr.detail ??

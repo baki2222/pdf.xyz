@@ -11,7 +11,11 @@
  */
 import { describe, expect, it } from "vitest";
 import JSZip from "jszip";
-import { buildOcrResultMeta, type OcrOptions } from "@/lib/jobs/ocr";
+import {
+  buildOcrResultMeta,
+  OCR_DESKEW_WITH_REDO_MESSAGE,
+  type OcrOptions,
+} from "@/lib/jobs/ocr";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
 import { OCR_REFUSAL_MESSAGES, OcrEngineRefusal } from "../ocr-engine-errors";
 import type {
@@ -290,5 +294,67 @@ describe("PDF to PowerPoint, OCR first — one job (audit pdf-to-powerpoint#4)",
     expect(asked).toEqual([]);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.message).toMatch(/PDF to PowerPoint/);
+  });
+});
+
+/**
+ * Audit pdf-to-word#3 (2026-11-08): the OCR pass hard-coded languages and
+ * outputMode, so a sideways or crooked scan was recognised as it lay, and a
+ * PDF with a poor OCR layer could only be refused. The panel's choices now
+ * reach OCRmyPDF's options, on every export that offers the switch.
+ */
+describe("the exports' OCR pass carries OCR PDF's page choices (audit pdf-to-word#3)", () => {
+  it("Turn pages upright and Straighten reach OCR, on Word and on the others", async () => {
+    for (const tool of [
+      "pdf-to-word",
+      "pdf-to-excel",
+      "pdf-to-powerpoint",
+    ] as const) {
+      const { processor, asked } = registry(tool);
+      const result = await processor.process(
+        job(tool, {
+          ocr: true,
+          languages: ["eng"],
+          rotatePages: true,
+          deskew: true,
+        }),
+      );
+      expect(result.ok, tool).toBe(true);
+      expect(asked, tool).toEqual([
+        { ...SEARCHABLE_REQUEST, rotatePages: true, deskew: true },
+      ]);
+    }
+  });
+
+  it("Redo existing OCR reaches OCR, and the pair with Straighten is refused before it runs", async () => {
+    const redo = registry("pdf-to-word");
+    expect(
+      (
+        await redo.processor.process(
+          job("pdf-to-word", { ocr: true, redoOcr: true }),
+        )
+      ).ok,
+    ).toBe(true);
+    expect(redo.asked).toEqual([{ ...SEARCHABLE_REQUEST, redoOcr: true }]);
+
+    const pair = registry("pdf-to-word");
+    const result = await pair.processor.process(
+      job("pdf-to-word", { ocr: true, redoOcr: true, deskew: true }),
+    );
+    expect(result.ok).toBe(false);
+    expect(pair.asked).toEqual([]);
+    if (!result.ok)
+      expect(result.error.message).toBe(OCR_DESKEW_WITH_REDO_MESSAGE);
+  });
+
+  it("the 'already has a text layer' refusal now offers Redo existing OCR, which this panel has", async () => {
+    const { processor } = registry("pdf-to-word", async () => {
+      throw new OcrEngineRefusal("prior-text");
+    });
+    const result = await processor.process(job("pdf-to-word", { ocr: true }));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.message).toMatch(/Redo existing OCR/);
+    expect(result.error.message).toMatch(/Recognise text in scans/);
   });
 });

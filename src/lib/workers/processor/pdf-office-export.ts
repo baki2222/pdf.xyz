@@ -172,7 +172,9 @@ export function officeOcrMessages(tool: PdfOfficeExportTool) {
   const name = TOOL_NAMES[tool];
   return {
     unavailable: `Recognising text in scans needs OCR, which isn't available on this worker. Turn off “${WORD_OCR_LABEL}” to convert the selectable text alone. Nothing was converted.`,
-    priorText: `This PDF already has a text layer, and the OCR engine would not add a second one. Turn off “${WORD_OCR_LABEL}” and convert again. Nothing was converted.`,
+    // CHANGED 2026-11-08 (audit pdf-to-word#3): "… Turn off “…” and convert
+    // again." — the only way out until this panel had Redo existing OCR.
+    priorText: `This PDF already has a text layer, and the OCR engine would not add a second one. Turn on “Redo existing OCR” to replace a poor text layer, or turn off “${WORD_OCR_LABEL}” to convert the text it has. Nothing was converted.`,
     noText: `OCR ran, but found no text in this PDF to put in ${OUTPUT_NOUNS[tool]}. Check the languages you chose match the page. Nothing was converted.`,
     /** The upload itself is over the export's ceiling — said before OCR runs. */
     tooLarge: (limit: number) =>
@@ -277,9 +279,15 @@ export function createPdfOfficeExportProcessor(
           const recognised = await ocr.process({
             ...input,
             tool: OCR_TOOL_SLUG,
+            // The page choices since 2026-11-08 (audit pdf-to-word#3):
+            // until then only languages went, so a sideways or crooked scan
+            // was recognised as it lay.
             options: {
               languages: parsed.value.languages,
               outputMode: "searchable-pdf",
+              rotatePages: parsed.value.rotatePages,
+              deskew: parsed.value.deskew,
+              redoOcr: parsed.value.redoOcr,
             },
           });
           if (!recognised.ok) {

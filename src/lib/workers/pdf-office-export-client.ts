@@ -18,7 +18,13 @@ export interface PdfOfficeExportWorkerInput {
    * The exports in `OFFICE_OCR_TOOLS` only: run OCR in the same job first, in
    * these languages. Absent = today's request, with an empty options bag.
    */
-  ocr?: { languages: readonly string[] };
+  ocr?: {
+    languages: readonly string[];
+    /** OCR PDF's page choices (audit pdf-to-word#3); sent only when on. */
+    rotatePages?: boolean;
+    deskew?: boolean;
+    redoOcr?: boolean;
+  };
 }
 
 export function runWorkerPdfOfficeExport(
@@ -27,7 +33,13 @@ export function runWorkerPdfOfficeExport(
 ): Promise<PdfOfficeExportWorkerResult> {
   const ocrFirst = offersOfficeOcr(input.tool) && input.ocr !== undefined;
   const jobOptions: Record<string, unknown> = ocrFirst
-    ? { ocr: true, languages: [...input.ocr!.languages] }
+    ? {
+        ocr: true,
+        languages: [...input.ocr!.languages],
+        ...(input.ocr!.rotatePages ? { rotatePages: true } : {}),
+        ...(input.ocr!.deskew ? { deskew: true } : {}),
+        ...(input.ocr!.redoOcr ? { redoOcr: true } : {}),
+      }
     : {};
   return runSecurityJob(
     input.tool,

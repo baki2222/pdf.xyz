@@ -373,3 +373,71 @@ describe("PDF to PowerPoint: Recognise text in scans (OCR)", () => {
     expect((net.sent[0] as { languages: string[] }).languages).toContain("deu");
   });
 });
+
+/**
+ * Audit pdf-to-word#3 (2026-11-08): OCR PDF's "Turn pages upright",
+ * "Straighten crooked pages" and "Redo existing OCR" beside the switch, sent
+ * with the job and run by OCRmyPDF. Until then the OCR pass carried only
+ * languages, so these were always off.
+ */
+describe("PDF to Word: OCR PDF's page choices beside the switch", () => {
+  it("control: the choices appear only with OCR on, and an untouched request carries none of them", async () => {
+    const net = stubNetwork(true);
+    await addFile();
+    expect(
+      screen.queryByRole("checkbox", { name: /^Turn pages upright/ }),
+    ).toBeNull();
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /recognise text in scans/i }),
+    );
+    expect(
+      await screen.findByRole("checkbox", { name: /^Turn pages upright/ }),
+    ).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: /export docx/i }));
+    await screen.findByText("Your DOCX file is ready.");
+    expect(Object.keys(net.sent[0]!).sort()).toEqual(["languages", "ocr"]);
+  });
+
+  it("ticked: Turn pages upright and Straighten travel with the job, and Redo waits while Straighten is on", async () => {
+    const net = stubNetwork(true);
+    await addFile();
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /recognise text in scans/i }),
+    );
+    fireEvent.click(
+      await screen.findByRole("checkbox", { name: /^Turn pages upright/ }),
+    );
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Straighten crooked pages" }),
+    );
+    const redo = screen.getByRole("checkbox", { name: /^Redo existing OCR/ });
+    expect(redo).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(redo);
+    expect(redo).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: /export docx/i }));
+    await screen.findByText("Your DOCX file is ready.");
+    expect(net.sent[0]).toMatchObject({
+      ocr: true,
+      rotatePages: true,
+      deskew: true,
+    });
+    expect(net.sent[0]).not.toHaveProperty("redoOcr");
+  });
+
+  it("Redo existing OCR travels on its own", async () => {
+    const net = stubNetwork(true);
+    await addFile();
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /recognise text in scans/i }),
+    );
+    fireEvent.click(
+      await screen.findByRole("checkbox", { name: /^Redo existing OCR/ }),
+    );
+    expect(
+      screen.getByRole("checkbox", { name: "Straighten crooked pages" }),
+    ).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(screen.getByRole("button", { name: /export docx/i }));
+    await screen.findByText("Your DOCX file is ready.");
+    expect(net.sent[0]).toMatchObject({ ocr: true, redoOcr: true });
+  });
+});
