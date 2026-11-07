@@ -7,13 +7,15 @@ import {
   IMAGE_MARGINS,
   IMAGE_PAGE_SIZES,
   MAX_PAGE_SIDE_PT,
+  imagePageLayout,
+  type ImagePageOptions,
+} from "./image-page-layout";
+import {
   LETTER_PAPER_REGIONS,
   LETTER_REGION_PAGE_SIZE,
   WORLD_PAGE_SIZE,
-  imagePageLayout,
   imagePageSizeForLocales,
-  type ImagePageOptions,
-} from "./image-page-layout";
+} from "./image-page-defaults";
 import { IMAGE_PAGE_MARGIN_PT, US_LETTER_PT } from "./page-geometry";
 import { imagesToPdf, imagesToPdfs, perImageZipName } from "./image-to-pdf";
 import { zipFiles } from "./browser";

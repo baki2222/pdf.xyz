@@ -8,15 +8,14 @@ import { splitPdf } from "@/lib/pdf/engine";
 import type { TopLevelBookmark } from "@/lib/pdf/split-modes";
 const loadSplitModes = () => import("@/lib/pdf/split-modes");
 import {
-  buildSplitParts,
   formatPageNumbers,
-  oddEvenParts,
   parseRanges,
   rangeToIndices,
   rangesEveryN,
   rangesFromStarts,
   rangesPerPage,
 } from "@/lib/pdf/ranges";
+import { buildSplitParts, oddEvenParts } from "@/lib/pdf/split-parts";
 import type { NamedBytes, SplitPart } from "@/lib/pdf/types";
 import { planTextSplit } from "@/lib/pdf/split-text";
 import {

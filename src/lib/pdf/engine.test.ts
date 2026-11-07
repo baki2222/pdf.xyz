@@ -13,7 +13,8 @@ import {
   setPageRotations,
   splitPdf,
 } from "./engine";
-import { buildSplitParts, rangesPerPage } from "./ranges";
+import { rangesPerPage } from "./ranges";
+import { buildSplitParts } from "./split-parts";
 import type { Rotation } from "./types";
 import {
   lostStructure,

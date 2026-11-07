@@ -3,7 +3,7 @@ import { modeUploadsFiles } from "@/lib/tools/processing-split";
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeiling, toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
-import { buildSplitParts, oddEvenParts } from "@/lib/pdf/ranges";
+import { buildSplitParts, oddEvenParts } from "@/lib/pdf/split-parts";
 
 /**
  * Where-the-file-goes and the size cap are read from the catalogue and the

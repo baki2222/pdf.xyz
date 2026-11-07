@@ -3,7 +3,8 @@ import { namedDestinations } from "./document-structure";
 import { loadPdf, PdfEngineError, stamp } from "./engine";
 import { assemblePages } from "./page-copy";
 import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
-import { buildSplitParts, rangeToIndices } from "./ranges";
+import { rangeToIndices } from "./ranges";
+import { buildSplitParts } from "./split-parts";
 import type { NamedBytes, PageRange } from "./types";
 
 /**

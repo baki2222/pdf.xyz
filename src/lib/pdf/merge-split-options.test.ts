@@ -15,12 +15,8 @@ import {
   readTopLevelBookmarks,
   splitPdfBySize,
 } from "./split-modes";
-import {
-  buildSplitParts,
-  parsePageList,
-  parseRanges,
-  rangesFromStarts,
-} from "./ranges";
+import { parsePageList, parseRanges, rangesFromStarts } from "./ranges";
+import { buildSplitParts } from "./split-parts";
 import { MERGE_SORTS, sortMergeItems } from "./merge-order";
 import {
   makeStructuredPdf,

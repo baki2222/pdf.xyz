@@ -12,7 +12,8 @@ import {
 } from "pdf-lib";
 import { mergePdfs, splitPdf } from "./engine";
 import { sortMergeItems } from "./merge-order";
-import { buildSplitParts, parsePageList } from "./ranges";
+import { parsePageList } from "./ranges";
+import { buildSplitParts } from "./split-parts";
 import { planTextSplit } from "./split-text";
 import { extractPdfText, type PdfTextReader } from "./text";
 

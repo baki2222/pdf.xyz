@@ -145,8 +145,8 @@ import {
   IMAGE_MARGINS,
   IMAGE_PAGE_SIZES,
   imagePageSizeById,
-  imagePageSizeForLocales,
 } from "@/lib/pdf/image-page-layout";
+import { imagePageSizeForLocales } from "@/lib/pdf/image-page-defaults";
 import { mergePdfs } from "@/lib/pdf/engine";
 import { addWatermark } from "@/lib/pdf/watermark";
 import { signatureRequestDeps } from "@/lib/workers/request-signatures/native";

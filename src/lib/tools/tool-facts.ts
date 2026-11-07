@@ -72,7 +72,7 @@ import {
 } from "@/lib/jobs/ai-extract";
 import { MAX_CONTEXT_EXCHANGES } from "@/lib/workers/chat-with-pdf-conversation";
 import { IMAGE_HEAVY_SHARE, LOSSLESS_MIN_RATIO } from "@/lib/pdf/analyze";
-import { buildSplitParts } from "@/lib/pdf/ranges";
+import { buildSplitParts } from "@/lib/pdf/split-parts";
 import {
   DEFAULT_REDACT_METHOD,
   DEFAULT_REDACT_PRESET_ID,
@@ -123,13 +123,15 @@ import {
   IMAGE_ORIENTATIONS,
   IMAGE_OUTPUTS,
   IMAGE_PAGE_SIZES,
-  LETTER_PAPER_REGIONS,
-  LETTER_REGION_PAGE_SIZE,
-  WORLD_PAGE_SIZE,
   imageMarginPoints,
   imagePageSizeById,
   type ImagePageSize,
 } from "@/lib/pdf/image-page-layout";
+import {
+  LETTER_PAPER_REGIONS,
+  LETTER_REGION_PAGE_SIZE,
+  WORLD_PAGE_SIZE,
+} from "@/lib/pdf/image-page-defaults";
 import {
   MARKDOWN_BLOCK_KINDS,
   type MarkdownBlockKind,

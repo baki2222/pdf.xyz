@@ -55,7 +55,7 @@ import { tools } from "@/lib/tools";
 import { toolContent, type ToolContent } from "@/lib/tools/content";
 import { ROOT, rel } from "@/tests/tool-panel-modules";
 import {
-  DOCUMENT_WORDS,
+  DOCUMENT_NOUNS,
   OFFICE_TO_PDF_TOOLS,
 } from "@/lib/workers/office-conversion/tools";
 import {
@@ -333,10 +333,10 @@ describe("the shared predicate, on phrases tool pages shipped", () => {
 
   it("a drop zone's template title composes with “browse” only with that tool's own noun", () => {
     // office-conversion-worker-panel.tsx: `Add your ${noun}, or` + browse,
-    // the noun DOCUMENT_WORDS[tool].noun, resolved per slug in uiOf.
+    // the noun DOCUMENT_NOUNS[tool], resolved per slug in uiOf.
     const box = (title: string) => `Click the box marked “${title}”.`;
     for (const slug of OFFICE_TO_PDF_TOOLS) {
-      const title = `Add your ${DOCUMENT_WORDS[slug].noun}, or browse`;
+      const title = `Add your ${DOCUMENT_NOUNS[slug]}, or browse`;
       expect(missingOf(slug, box(title)), slug).toEqual([]);
     }
     // A wrong head is reported…

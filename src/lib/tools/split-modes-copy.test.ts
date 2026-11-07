@@ -17,7 +17,7 @@ import {
   pageUseCases,
   stepText,
 } from "@/lib/tools/page-copy";
-import { buildSplitParts, oddEvenParts } from "@/lib/pdf/ranges";
+import { buildSplitParts, oddEvenParts } from "@/lib/pdf/split-parts";
 import { guides } from "@/lib/guides/catalog";
 
 const WORDS = [

@@ -5,11 +5,13 @@ import {
   IMAGE_MARGINS,
   IMAGE_ORIENTATIONS,
   IMAGE_PAGE_SIZES,
-  LETTER_REGION_PAGE_SIZE,
-  WORLD_PAGE_SIZE,
   imageMarginPoints,
   imagePageSizeById,
 } from "@/lib/pdf/image-page-layout";
+import {
+  LETTER_REGION_PAGE_SIZE,
+  WORLD_PAGE_SIZE,
+} from "@/lib/pdf/image-page-defaults";
 import { imageDefaultPaperCopy } from "@/lib/tools/tool-facts";
 import { inches } from "@/lib/pdf/page-geometry";
 import { tiffRefusal } from "@/lib/pdf/tiff-limits";

@@ -11,8 +11,8 @@ import {
   signalOption,
   type RunControl,
 } from "../attempt-abort";
+import { DOCUMENT_WORDS } from "./document-words";
 import {
-  DOCUMENT_WORDS,
   EXCEL_TO_PDF_TOOL,
   POWERPOINT_TO_PDF_TOOL,
   WORD_TO_PDF_TOOL,
@@ -68,7 +68,7 @@ export type OfficeConversionRun =
  * the leaf `./tools` so the browser panel's drop zone says the same noun the
  * refusals do; re-exported here for the pages that already import it.
  */
-export { DOCUMENT_WORDS } from "./tools";
+export { DOCUMENT_WORDS } from "./document-words";
 
 /**
  * Where an OpenDocument file's password comes off: LibreOffice saves a copy

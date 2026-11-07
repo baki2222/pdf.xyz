@@ -33,12 +33,12 @@ import {
   IMAGE_ORIENTATIONS,
   IMAGE_OUTPUTS,
   IMAGE_PAGE_SIZES,
-  imagePageSizeForLocales,
   PHOTO_DETAILS_CHOICES,
   PHOTO_DETAILS_LABELS,
   type ImageOutputId,
   type ImagePageOptions,
 } from "@/lib/pdf/image-page-layout";
+import { imagePageSizeForLocales } from "@/lib/pdf/image-page-defaults";
 import { inches } from "@/lib/pdf/page-geometry";
 import {
   KB,

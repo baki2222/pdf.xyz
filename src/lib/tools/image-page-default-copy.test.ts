@@ -36,13 +36,13 @@ import {
   toolFacts,
 } from "@/lib/tools/tool-facts";
 import { TOOL_HOW } from "@/lib/tools/catalog-how";
+import { IMAGE_PAGE_SIZES } from "@/lib/pdf/image-page-layout";
 import {
-  IMAGE_PAGE_SIZES,
   LETTER_PAPER_REGIONS,
   LETTER_REGION_PAGE_SIZE,
   WORLD_PAGE_SIZE,
   imagePageSizeForLocales,
-} from "@/lib/pdf/image-page-layout";
+} from "@/lib/pdf/image-page-defaults";
 
 const labelOf = (id: string) =>
   IMAGE_PAGE_SIZES.find((s) => s.id === id)!.label;

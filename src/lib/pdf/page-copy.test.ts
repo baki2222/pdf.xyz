@@ -31,7 +31,8 @@ import { combineRanges, splitPdfBySize } from "./split-modes";
 import { mergeAlternating } from "./merge-alternate";
 import { splitPagesInHalf } from "./split-half";
 import { loadPdfjs } from "./pdfjs";
-import { buildSplitParts, rangesPerPage } from "./ranges";
+import { rangesPerPage } from "./ranges";
+import { buildSplitParts } from "./split-parts";
 import type { OrganizePlanItem } from "./types";
 import {
   WHOLE_DOCUMENT,

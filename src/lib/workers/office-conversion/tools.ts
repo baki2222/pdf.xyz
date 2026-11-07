@@ -18,31 +18,16 @@ export const OFFICE_TO_PDF_TOOLS = [
 export type OfficeToPdfTool = (typeof OFFICE_TO_PDF_TOOLS)[number];
 
 /**
- * What each tool's users call the file and the program that saves it. Exported
- * so a page that quotes a refusal names the same command the refusal does, and
- * so the Office panel's drop zone ("Add your workbook, or browse") uses the
- * refusals' noun. Here, in the leaf, because that panel is browser code.
+ * What each tool's users call the file: the Office panel's drop zone ("Add
+ * your workbook, or browse") and the refusals both use it. Only the noun
+ * lives here, in the leaf the browser panel imports. The program names and
+ * Protect commands the refusals quote are in ./document-words, which only
+ * the server engine and the tool pages read. Measured 2026-11-07: carrying
+ * them here put about 120 B gz on every page that loads this leaf (every
+ * worker tool page, /status, and the home desk's ticket).
  */
-export const DOCUMENT_WORDS: Record<
-  OfficeToPdfTool,
-  { noun: string; app: string; ext: string; protect: string }
-> = {
-  [WORD_TO_PDF_TOOL]: {
-    noun: "document",
-    app: "Word",
-    ext: ".docx",
-    protect: "File > Info > Protect Document",
-  },
-  [EXCEL_TO_PDF_TOOL]: {
-    noun: "workbook",
-    app: "Excel",
-    ext: ".xlsx",
-    protect: "File > Info > Protect Workbook",
-  },
-  [POWERPOINT_TO_PDF_TOOL]: {
-    noun: "presentation",
-    app: "PowerPoint",
-    ext: ".pptx",
-    protect: "File > Info > Protect Presentation",
-  },
+export const DOCUMENT_NOUNS: Record<OfficeToPdfTool, string> = {
+  [WORD_TO_PDF_TOOL]: "document",
+  [EXCEL_TO_PDF_TOOL]: "workbook",
+  [POWERPOINT_TO_PDF_TOOL]: "presentation",
 };

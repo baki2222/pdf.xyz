@@ -1,17 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildSplitParts,
   formatPageNumbers,
   formatRange,
-  oddEvenParts,
   PageRangeError,
   parsePageList,
   parseRanges,
   rangesEveryN,
   rangesPerPage,
   rangeToIndices,
-  SPLIT_TITLE_MAX_CHARS,
 } from "./ranges";
+import {
+  buildSplitParts,
+  oddEvenParts,
+  SPLIT_TITLE_MAX_CHARS,
+} from "./split-parts";
 
 describe("parsePageList", () => {
   it("parses single pages into 0-based indices", () => {

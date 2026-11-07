@@ -19,7 +19,7 @@ import { pickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import { OFFICE_CONVERSION_RUN_LABEL } from "@/lib/tools/office-run-label";
 import {
-  DOCUMENT_WORDS,
+  DOCUMENT_NOUNS,
   type OfficeToPdfTool,
 } from "@/lib/workers/office-conversion/tools";
 import {
@@ -116,7 +116,7 @@ export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
     <WorkerPanelShell
       tool={tool}
       engine={{ label: "Office conversion", icon: FileText }}
-      description={`LibreOffice turns your ${DOCUMENT_WORDS[officeTool].noun} into a PDF on our secure server. If it cannot, you will see why.`}
+      description={`LibreOffice turns your ${DOCUMENT_NOUNS[officeTool]} into a PDF on our secure server. If it cannot, you will see why.`}
       canRun={(status) =>
         canRunOfficeConversion(status) && isOfficeTool(tool.slug)
       }
@@ -229,7 +229,7 @@ function OfficeRunArea({
           accept={accept}
           multiple={false}
           compact
-          title={`Add your ${DOCUMENT_WORDS[tool].noun}, or`}
+          title={`Add your ${DOCUMENT_NOUNS[tool]}, or`}
           hint={formatsHint(catalogTool)}
         />
       )}
