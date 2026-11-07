@@ -1259,6 +1259,60 @@ describe("the stamping tools answer where and what they stamp", () => {
     }
   });
 
+  it("header and footer: no served sentence still describes one box, every page or a fixed look", () => {
+    // Review of audits header-footer#2-#4 (2026-11-07): sentences written for
+    // one box per band, every page and a fixed look outlived those limits.
+    // Each predicate must catch its shipped sentence, and no sentence the
+    // tool page or the guide serves may match any of them.
+    const stale: [string, (x: string) => boolean, string][] = [
+      [
+        "one field",
+        (x) => /\beither field\b/.test(x),
+        "Press Add header & footer. It works once either field has text.",
+      ],
+      [
+        "unconditional box",
+        (x) => /starts in the Center box\./.test(x),
+        "The footer's Page {n} of {total} starts in the Center box.",
+      ],
+      [
+        "every page",
+        (x) =>
+          /\b(?:drawn|go|goes) on every page\b(?! (?:unless|by default))/.test(
+            x,
+          ),
+        "Each band has a Left, a Center and a Right box, the lines are drawn on every page, and you download the stamped copy.",
+      ],
+      [
+        "fixed look",
+        (x) => /\bwhat is fixed\b/i.test(x),
+        "What you can change, and what is fixed",
+      ],
+    ];
+    for (const [name, matches, shipped] of stale)
+      expect(matches(shipped), name).toBe(true);
+    const guide = guides.find(
+      (g) => g.slug === "how-to-add-a-header-and-footer-to-a-pdf",
+    )!;
+    for (const tool of mounting("header-footer")) {
+      const served = [
+        ...page(tool.slug).text.split(/(?<=[.!?])\s+/),
+        ...page(tool.slug).faq.flatMap((e) => e.answer.split(/(?<=[.!?])\s+/)),
+        ...guide.sections.map((s) => s.heading),
+        ...JSON.stringify(guide).split(/(?<=[.!?])\s+/),
+      ];
+      expect(served.length).toBeGreaterThan(40);
+      for (const [name, matches] of stale)
+        expect(served.filter(matches), name).toEqual([]);
+    }
+    // The step's claim about where the footer starts is option memory's: a
+    // run with one footer box remembers that box (held in the runner test
+    // "starts the default footer in the box a one-box footer last used").
+    expect(page("header-footer").text).toContain(
+      "after you run a footer that uses one box, it starts in that box next time",
+    );
+  });
+
   it("cropping hides by crop box; the content and the media box are untouched", async () => {
     const bytes = await pdfWithPages([[300, 400]]);
     const before = await PDFDocument.load(bytes);

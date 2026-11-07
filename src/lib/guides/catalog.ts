@@ -5456,7 +5456,7 @@ export const guides: Guide[] = [
       "add a date to a pdf footer",
     ],
     intro: [
-      `To add a header and footer to a PDF, open ${nameOf("header-footer")}, add your PDF, type in the Header boxes, the Footer boxes, or both, and press Add header & footer. Each band has a Left, a Center and a Right box, the lines are drawn on every page, and you download the stamped copy.`,
+      `To add a header and footer to a PDF, open ${nameOf("header-footer")}, add your PDF, type in the Header boxes, the Footer boxes, or both, and press Add header & footer. Each band has a Left, a Center and a Right box, the lines go on every page unless you change that under Pages, and you download the stamped copy.`,
       "The footer starts out as Page {n} of {total}, so a plain page count needs no typing at all. The {n}, {total} and {date} buttons under each band add a field that fills itself in page by page: {n} is the page number, {total} the number of pages in the file, and {date} today's date as your browser writes it.",
       `The PDF is read and rewritten in your browser, so it stays on your device, and there is no account to create. It takes one PDF at a time, up to ${ceilingMb("header-footer")} MB.`,
     ],
@@ -5465,7 +5465,7 @@ export const guides: Guide[] = [
       "Drop your PDF on the panel that says “Drop your PDF here, or browse”, or click it to choose the file. Its name, page count and size appear above the editor.",
       "Type the top lines in Header left, Header center and Header right, and the bottom lines in the three Footer boxes; leave a box empty to skip it. The {n}, {total} and {date} buttons add that field to the end of the box you last used in that band.",
       "Check the chip beside the Header and Footer headings: it shows how the band will read on the first stamped page.",
-      "Press Add header & footer. It works once either field has text.",
+      "Press Add header & footer. It works once any box has text.",
       `When the panel reads Header & footer added, press Download PDF. report.pdf is saved as ${HF_EXAMPLE_OUT}.`,
     ],
     sections: [
@@ -5479,7 +5479,7 @@ export const guides: Guide[] = [
       },
       {
         id: "what-you-can-change",
-        heading: "What you can change, and what is fixed",
+        heading: "What you can change, and what it leaves alone",
         body: [
           "You choose the wording, the fields and which box each line goes in: a band can carry text at the left, the center and the right at once, such as a company name at the left of the header and the date at its right. Two lines that would run into each other are refused, with a message naming both.",
           `Under Size, margin, font and color you also set the look of both bands: a font size from ${HF_SIZES} (it starts at ${DEFAULT_HEADER_FOOTER_SIZE}), a margin from the page edge of ${HF_MARGINS}, the font (${HF_FONTS}) and the ink colour.`,

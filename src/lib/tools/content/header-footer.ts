@@ -220,7 +220,7 @@ const content: ToolContent = {
     },
     {
       title: "Put each line where it belongs",
-      body: "The Left box is set against the left margin, Center in the middle and Right against the right margin, and a band can use all three. The footer's Page {n} of {total} starts in the Center box. Two boxes whose lines would run into each other are refused, with a message naming both.",
+      body: "The Left box is set against the left margin, Center in the middle and Right against the right margin, and a band can use all three. The footer's Page {n} of {total} starts in the Center box; after you run a footer that uses one box, it starts in that box next time. Two boxes whose lines would run into each other are refused, with a message naming both.",
     },
     {
       title: "Choose the pages, if not all",
@@ -228,7 +228,7 @@ const content: ToolContent = {
     },
     {
       title: "Add and download",
-      body: "Press Add header & footer, active once either field has text. When the panel reads Header & footer added, press Download PDF; the saved name adds -header-footer before .pdf.",
+      body: "Press Add header & footer, active once any box has text. When the panel reads Header & footer added, press Download PDF; the saved name adds -header-footer before .pdf.",
     },
   ],
 
