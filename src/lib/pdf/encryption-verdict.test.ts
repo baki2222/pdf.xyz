@@ -347,13 +347,28 @@ describe("the way out is real", () => {
         ),
       )
       .sort();
+    // A runner that opens a restricted file for ONE of the author's
+    // permissions (`restricted-grant.tsx`: rotating pages, copying content)
+    // is not an editor, and the refusal's sentence does not name it; every
+    // such runner asks the grant before it runs.
+    const grantTools = openers.filter((f) => {
+      const source = readFileSync(path.join(runners, f), "utf8");
+      return source.includes('from "./restricted-grant"');
+    });
+    for (const f of grantTools)
+      expect(
+        readFileSync(path.join(runners, f), "utf8"),
+        `${f} opens a restricted file without asking the author's grant`,
+      ).toMatch(/[^.\w]grantAllows\(/);
     // 2026-10-30: Annotate PDF, which mounts the same editor as Edit PDF,
     // joined them (it refused restricted files until then).
-    expect(openers).toEqual([
+    expect(openers.filter((f) => !grantTools.includes(f))).toEqual([
       "annotate-runner.tsx",
       "edit-runner.tsx",
       "fill-forms-runner.tsx",
     ]);
+    // 2026-11-08: Rotate PDF (audit rotate-pdf#2).
+    expect(grantTools).toEqual(["rotate-runner.tsx"]);
   });
 
   /*

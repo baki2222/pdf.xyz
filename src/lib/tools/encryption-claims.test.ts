@@ -220,14 +220,30 @@ describe("encryption claims on tool pages match the runner's reader", () => {
     expect(by("offers-worker")).toEqual(["compress-pdf"]);
     // 2026-10-29: the two tools that fill a restricted file's form; on
     // 2026-10-30 Annotate PDF, the same editor, began to open one too.
+    // 2026-11-08: Rotate PDF, for the author's page-assembly grant
+    // (`restricted-grant.tsx`; audit rotate-pdf#2).
     expect(by("opens-protected")).toEqual([
       "annotate-pdf",
       "edit-pdf",
       "fill-forms",
+      "rotate-pdf",
     ]);
-    // …and they are the tools the refusal sends people to — the page's own
-    // runner, not a list, decides who belongs in that sentence.
-    expect(by("opens-protected")).toEqual(
+    // …and the editors among them are the tools the refusal sends people to
+    // — the page's own runner, not a list, decides who belongs in that
+    // sentence. A runner that asks one grant (`./restricted-grant`) is not
+    // an editor, and the sentence does not name it.
+    const grantTools = served
+      .filter(
+        (s) =>
+          s.meets === "opens-protected" &&
+          runnerSource(s.tool.slug)!.includes('from "./restricted-grant"'),
+      )
+      .map((s) => s.tool.slug)
+      .sort();
+    expect(grantTools).toEqual(["rotate-pdf"]);
+    expect(
+      by("opens-protected").filter((slug) => !grantTools.includes(slug)),
+    ).toEqual(
       RESTRICTED_OPENERS.map((t) => t.href.replace(/^\/tools\//, "")).sort(),
     );
     expect(by("refuses").length).toBeGreaterThan(15);

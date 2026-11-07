@@ -26,10 +26,13 @@ import type { StandardSecurityHandler } from "./standard-handler";
  * page tree, or any stream a page draws as its content. Without the owner
  * password the author's "no changes to the page" is enforced here, below
  * every editor tool, so no tool can ship an edit the author did not allow.
- * The one exception is the author's own: when /P grants "add or modify
+ * The exceptions are the author's own: when /P grants "add or modify
  * annotations" (bit 6), a page dictionary whose /Annots is ALL that changed
  * may be rewritten — that is how a comment is attached to a page — and its
- * content streams stay refused (`restricted-comments.test.ts`).
+ * content streams stay refused (`restricted-comments.test.ts`). When it
+ * grants "assemble the document" (bit 11, which names rotating pages), a
+ * page dictionary whose /Rotate is all that changed may be rewritten too
+ * (`restricted-rotate.test.ts`).
  */
 
 export class RestrictedChangeError extends Error {
@@ -101,19 +104,28 @@ export interface IncrementalInput {
    * Its content streams stay guarded either way.
    */
   allowAnnotations?: boolean;
+  /**
+   * The author grants "assemble the document" (/P bit 11 — insert, rotate
+   * or delete pages): a page dictionary may be rewritten when its /Rotate
+   * is ALL that differs (with /Annots, when comments are granted too).
+   */
+  allowRotation?: boolean;
 }
 
 /**
- * Is `after` the page dictionary `before` with only its /Annots changed?
- * That is an annotation change — what /P bit 6 allows — and nothing a
- * page draws: /Contents, /Resources, the boxes and /Rotate must serialise
- * byte for byte as they did.
+ * Is `after` the page dictionary `before` with only the `keys` changed?
+ * /Annots alone is an annotation change — what /P bit 6 allows; /Rotate
+ * alone is a rotation — what bit 11 allows. Nothing else a page draws:
+ * /Contents, /Resources and the boxes must serialise byte for byte as they
+ * did, and so must any key the author's grant does not name.
  */
-function onlyAnnotsDiffer(
+function onlyKeysDiffer(
   lib: PdfLibModule,
   before: PDFObject,
   after: PDFObject,
+  keys: readonly string[],
 ): boolean {
+  if (keys.length === 0) return false;
   if (!(before instanceof lib.PDFDict) || !(after instanceof lib.PDFDict))
     return false;
   const page = lib.PDFName.of("Page");
@@ -121,7 +133,7 @@ function onlyAnnotsDiffer(
   if (before.get(type) !== page || after.get(type) !== page) return false;
   const strip = (d: PDFDict) => {
     const copy = d.clone();
-    copy.delete(lib.PDFName.of("Annots"));
+    for (const key of keys) copy.delete(lib.PDFName.of(key));
     return serialize(copy);
   };
   return sameBytes(strip(before), strip(after));
@@ -144,6 +156,11 @@ export async function writeIncrementalUpdate(
   const before = await parse(input.plain);
   const after = await parse(input.edited);
   const guarded = protectedNumbers(lib, before);
+  // The page keys the author's grant lets an update rewrite.
+  const granted = [
+    ...(input.allowAnnotations ? ["Annots"] : []),
+    ...(input.allowRotation ? ["Rotate"] : []),
+  ];
 
   const changed: [PDFRef, PDFObject][] = [];
   const added: [PDFRef, PDFObject][] = [];
@@ -154,7 +171,7 @@ export async function writeIncrementalUpdate(
     } else if (!sameBytes(serialize(old), serialize(obj))) {
       if (
         guarded.has(ref.objectNumber) &&
-        !(input.allowAnnotations && onlyAnnotsDiffer(lib, old, obj))
+        !onlyKeysDiffer(lib, old, obj, granted)
       )
         throw new RestrictedChangeError(
           "This change would alter a page, and the PDF's author does not allow that without the owner password.",
