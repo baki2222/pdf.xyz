@@ -446,3 +446,88 @@ describe("Sign PDF repeats a signature on every page", () => {
     }
   }, 60_000);
 });
+
+/*
+ * Audit sign-pdf#5 (2026-11-06), driven through the real runner: a PDF the
+ * other party signed with a certificate, countersigned here. The download
+ * must keep every byte their signature covers — the edit is appended.
+ */
+describe("Sign PDF countersigns without breaking an earlier signature", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("Apply & download appends to a signed file: its signed bytes survive", async () => {
+    const { signedPdf, signedRanges, hashedBytes } =
+      await import("@/tests/signed-pdf");
+    const original = await signedPdf({ signatures: 1 });
+    const file = new File([original.slice().buffer], "nda.pdf", {
+      type: "application/pdf",
+    });
+    const blobs: Blob[] = [];
+    const realCreate = URL.createObjectURL;
+    vi.spyOn(URL, "createObjectURL").mockImplementation((b) => {
+      if (b instanceof Blob && b.type === "application/pdf") blobs.push(b);
+      return realCreate ? realCreate.call(URL, b) : "blob:mock";
+    });
+    const { container } = render(withAppRouter(<SignRunner />));
+    fireEvent.change(
+      container.querySelector<HTMLInputElement>('input[type="file"]')!,
+      { target: { files: [file] } },
+    );
+    await screen.findByRole("tab", { name: "Draw" }, { timeout: 8000 });
+    expect(
+      container.querySelector('[data-signed-input-notice="appended"]'),
+    ).not.toBeNull();
+
+    source("Type");
+    fireEvent.change(screen.getByLabelText("Your name"), {
+      target: { value: "Ada Lovelace" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Use signature" }));
+    const page1 = await screen.findByRole(
+      "group",
+      { name: "Page 1 of 1" },
+      { timeout: 8000 },
+    );
+    const apply = () =>
+      screen.getByRole("button", { name: /Apply & download/ });
+    await vi.waitFor(() => {
+      if (
+        apply().hasAttribute("disabled") ||
+        apply().getAttribute("aria-disabled") === "true"
+      )
+        fireEvent.pointerDown(page1, { button: 0, clientX: 5, clientY: 5 });
+      expect(apply().hasAttribute("disabled")).toBe(false);
+      expect(apply().getAttribute("aria-disabled")).not.toBe("true");
+    });
+    fireEvent.click(apply());
+    await vi.waitFor(() => expect(blobs.length).toBeGreaterThan(0), {
+      timeout: 15000,
+    });
+    const out = new Uint8Array(await blobs.at(-1)!.arrayBuffer());
+
+    expect(out.length).toBeGreaterThan(original.length);
+    expect(
+      out.subarray(0, original.length).every((v, i) => v === original[i]),
+    ).toBe(true);
+    for (const r of signedRanges(original)) {
+      const a = hashedBytes(out, r);
+      const b = hashedBytes(original, r);
+      expect(a.length === b.length && a.every((v, i) => v === b[i])).toBe(true);
+    }
+    // The countersignature is in the file, and the result says what it kept.
+    const doc = await PDFDocument.load(out);
+    const c = doc.getPage(0).node.get(PDFName.of("Contents"));
+    const refs = c instanceof PDFArray ? c.asArray() : c ? [c] : [];
+    const text = refs
+      .map((r) =>
+        new TextDecoder("latin1").decode(
+          decodePDFRawStream(doc.context.lookup(r) as PDFRawStream).decode(),
+        ),
+      )
+      .join("\n");
+    expect(text).toMatch(/\bTj\b|\bTJ\b/);
+    expect(
+      await screen.findByText(/1 existing signature left intact/),
+    ).toBeTruthy();
+  }, 60_000);
+});

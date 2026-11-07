@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Download, FileDown, Info } from "lucide-react";
+import { Download, FileDown, Info, ShieldCheck } from "lucide-react";
 import { downloadBytes } from "@/lib/pdf/browser";
 import type { EditorExportResult } from "@/lib/pdf/editor-export";
 import type { MarkupMode } from "@/lib/pdf/editor/comments";
@@ -92,11 +92,62 @@ export function EditorRunner(config: EditorRunnerConfig) {
       toolName={config.toolName}
       prepare={prepareEditor}
       openProtected={config.openProtected}
+      signedNotice={(pdf) =>
+        appendsToSigned(pdf) ? (
+          <AppendedSignedNotice
+            count={pdf.digitalSignatures}
+            toolName={config.toolName}
+          />
+        ) : null
+      }
     >
       {(pdf, reset) => (
         <EditorSession pdf={pdf} onReset={reset} config={config} />
       )}
     </SinglePdfRunner>
+  );
+}
+
+/**
+ * Is this edit APPENDED to the file (audit sign-pdf#5)? An unencrypted file
+ * that carries certificate signatures: the edit goes on the end as an
+ * incremental update (`@/lib/pdf/editor/append-update`), so the bytes each
+ * signature covers stay as they were. An encrypted file opened with its
+ * author's grant is the protection's own business (its decrypted copy is
+ * not the file that was signed).
+ */
+function appendsToSigned(pdf: LoadedPdf): boolean {
+  return pdf.protection === undefined && pdf.digitalSignatures > 0;
+}
+
+/** Before Apply, in place of the runner's "will no longer verify" warning. */
+function AppendedSignedNotice({
+  count,
+  toolName,
+}: {
+  count: number;
+  toolName: string;
+}) {
+  const one = count === 1;
+  return (
+    <div
+      role="note"
+      data-signed-input-notice="appended"
+      className="border-line bg-wash text-fg rounded-panel flex items-start gap-3 border px-4 py-3 text-sm"
+    >
+      <ShieldCheck className="text-accent mt-0.5 size-4 shrink-0" aria-hidden />
+      <span>
+        This PDF is digitally signed — it carries {count} certificate signature
+        {one ? "" : "s"}. {toolName} adds your changes to the end of the file
+        and leaves the signed bytes exactly as they were, so{" "}
+        {one
+          ? "that signature still verifies"
+          : "those signatures still verify"}{" "}
+        for the version that was signed. Readers such as Acrobat also show that
+        the document changed after signing, and a signature certified to allow
+        no changes reports your change as breaking that.
+      </span>
+    </div>
   );
 }
 
@@ -167,13 +218,22 @@ function EditorSession({
             fills: next.fills,
             markups,
           });
+      // A certificate-signed file: the edit is appended, not a rewrite, so
+      // the bytes the signatures cover survive (audit sign-pdf#5).
       const out =
         restricted && protection
           ? {
               ...edited,
               bytes: (await protection.saveChanges(edited.bytes)).bytes,
             }
-          : edited;
+          : appendsToSigned(pdf)
+            ? {
+                ...edited,
+                bytes: await (
+                  await import("@/lib/pdf/editor/append-update")
+                ).appendEditsAsUpdate(pdf.bytes, edited.bytes),
+              }
+            : edited;
       // Downloaded INSIDE the run, before it settles. `downloadBlob` clicks
       // a hidden anchor, and the runner stage's hold (`../stage-hold`) gives
       // its band back at the first click after the run settles — measured
@@ -204,6 +264,11 @@ function EditorSession({
             : []),
           `${result.pageCount} page${result.pageCount === 1 ? "" : "s"}`,
           ...(restricted ? ["author's protection kept"] : []),
+          ...(appendsToSigned(pdf)
+            ? [
+                `${pdf.digitalSignatures} existing signature${pdf.digitalSignatures === 1 ? "" : "s"} left intact`,
+              ]
+            : []),
           formatBytes(result.bytes.byteLength),
         ].join(" · ")}
         onReset={onReset}

@@ -45,8 +45,10 @@ function listOf(items: readonly string[], joiner = "and"): string {
  *    characters no shipped face draws are refused by name
  *    (`refuseUncovered`), right-to-left scripts with that reason.
  *  - Output: `exportEditedPdf` appends to each page's content and saves with
- *    pdf-lib (`stampProducer`: Creator/Producer), so an existing digital
- *    signature stops validating; result "Annotated PDF ready", "Download
+ *    pdf-lib (`stampProducer`: Creator/Producer). A file that carries
+ *    certificate signatures has the edit APPENDED as an incremental update
+ *    since 2026-11-08 (`editor/append-update.ts`, audit sign-pdf#5), so
+ *    they still verify for the version signed; result "Annotated PDF ready", "Download
  *    annotated PDF", `annotatedOutputName` (-annotated).
  *  - Restricted input (since 2026-10-30): `annotate-runner.tsx` passes
  *    `openProtected`, as Edit PDF does, so a PDF that opens with the empty
@@ -155,7 +157,7 @@ const content: ToolContent = {
     },
     {
       q: "Does annotating change anything else in my PDF?",
-      a: "Unless you turn, insert, delete or reorder pages in the page list, pages keep their count, size and rotation, and their text and images; the file keeps its bookmarks, form fields, existing annotations, title and author. What does change on an ordinary PDF: Creator and Producer both become this site's name, and an existing digital signature will no longer validate, because pdf-lib writes out a whole new file rather than appending to the signed one. A PDF whose author restricted changes is the exception: its original bytes are kept and the comments are appended after them, as an update under the author's own encryption. Markups sit on top of the page's own content, later ones over earlier ones.",
+      a: "Unless you turn, insert, delete or reorder pages in the page list, pages keep their count, size and rotation, and their text and images; the file keeps its bookmarks, form fields, existing annotations, title and author. What does change on an ordinary PDF: Creator and Producer both become this site's name. A PDF that carries a digital signature keeps its original bytes, with your markups appended after them as an update, so the signature still verifies for the version that was signed, though a viewer that checks it will show the document changed afterwards. A PDF whose author restricted changes is kept the same way: its original bytes stay, and the comments are appended after them, as an update under the author's own encryption. Markups sit on top of the page's own content, later ones over earlier ones.",
     },
     {
       q: "Is my document uploaded?",

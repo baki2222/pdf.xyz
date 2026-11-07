@@ -80,6 +80,7 @@ export function SinglePdfRunner({
   reader = "pdf-lib",
   prepare,
   openProtected = false,
+  signedNotice,
 }: {
   hint?: string;
   children: (pdf: LoadedPdf, reset: () => void) => ReactNode;
@@ -107,6 +108,12 @@ export function SinglePdfRunner({
    * those restrictions on `pdf.protection` — see `useSinglePdf`.
    */
   openProtected?: boolean;
+  /**
+   * A tool that KEEPS existing signatures for some files says so in its own
+   * words (the editor appends to a signed file, `editor/editor-session`);
+   * returning null leaves the warning below in place.
+   */
+  signedNotice?: (pdf: LoadedPdf) => ReactNode;
 }) {
   // A tool with a preflight hint (E.9) probes the file as it opens.
   const slug = useToolRun()?.slug ?? "";
@@ -150,12 +157,14 @@ export function SinglePdfRunner({
             fileName={pdf.file.name}
           />
         )}
-        {writesPdf && pdf.digitalSignatures > 0 && (
-          <SignedInputNotice
-            count={pdf.digitalSignatures}
-            toolName={toolName}
-          />
-        )}
+        {writesPdf &&
+          pdf.digitalSignatures > 0 &&
+          (signedNotice?.(pdf) ?? (
+            <SignedInputNotice
+              count={pdf.digitalSignatures}
+              toolName={toolName}
+            />
+          ))}
         {children(pdf, clear)}
         <Suspense fallback={null}>
           <EditorBox

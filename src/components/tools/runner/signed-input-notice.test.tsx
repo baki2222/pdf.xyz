@@ -23,6 +23,16 @@
  * not cover. `subjects.length < supportedToolSlugs.length` below is that
  * exclusion, not a pass over them.
  *
+ * INVERTED IN PART (2026-11-08, audit sign-pdf#5). The three tools that
+ * mount the shared editor (Sign, Edit and Annotate PDF) no longer rewrite a
+ * signed, unencrypted file: they append the edit as an incremental update,
+ * so the signatures still verify. Until then this file pinned the editor to
+ * "those signatures will no longer verify", which had become the defect.
+ * Those tools are DISCOVERED (every component that mounts `<EditorRunner`,
+ * by its `slug="…"`), and must now say the opposite; every other tool that
+ * saves a PDF still warns. The append itself is proven on the bytes in
+ * `append-update.test.ts` and through the runner in `sign-runner.test.tsx`.
+ *
  * The chain is composed end to end: a signed file goes through the Dropzone's
  * real input, the hook's real read and detector, and the notice is read back
  * from the rendered page.
@@ -89,8 +99,26 @@ async function openIn(slug: string, file: File) {
   }
 }
 
+/** Slugs of the tools that mount the shared editor, read from the source. */
+function editorSlugs(): Set<string> {
+  const out = new Set<string>();
+  for (const path of sourceFiles(join(process.cwd(), "src", "components"))) {
+    const text = readFileSync(path, "utf8");
+    for (const m of text.matchAll(/<EditorRunner\b[^>]*?\bslug="([^"]+)"/g))
+      out.add(m[1]!);
+  }
+  return out;
+}
+
 describe("signed-input notice across every single-file tool", () => {
   it("warns exactly where a single-file tool saves a PDF", async () => {
+    const appends = editorSlugs();
+    // Health: the walk found the editor's three tools, not an empty set.
+    expect([...appends].sort()).toEqual([
+      "annotate-pdf",
+      "edit-pdf",
+      "sign-pdf",
+    ]);
     const signed = await signedPdf({ signatures: 2 });
     const plain = await unsignedPdf();
     const subjects: { slug: string; writesPdf: boolean }[] = [];
@@ -104,7 +132,12 @@ describe("signed-input notice across every single-file tool", () => {
       if (!onSigned.single) continue;
       subjects.push({ slug, writesPdf });
 
-      if (writesPdf) {
+      if (writesPdf && appends.has(slug)) {
+        expect(onSigned.notice, `${slug} says`).not.toBeNull();
+        expect(onSigned.notice).toMatch(/carries 2 certificate signatures/);
+        expect(onSigned.notice).toMatch(/those signatures still verify/);
+        expect(onSigned.notice).not.toMatch(/no longer verify/);
+      } else if (writesPdf) {
         expect(onSigned.notice, `${slug} warns`).not.toBeNull();
         expect(onSigned.notice).toMatch(/carries 2 certificate signatures/);
         expect(onSigned.notice).toMatch(
@@ -127,16 +160,27 @@ describe("signed-input notice across every single-file tool", () => {
     // Compress reaches the hook without SinglePdfRunner; it is a subject too.
     expect(subjects.map((s) => s.slug)).toContain("compress-pdf");
     expect(subjects.filter((s) => s.writesPdf).length).toBeGreaterThan(10);
+    // Both kinds of PDF-saving tool were exercised.
+    expect(subjects.filter((s) => appends.has(s.slug)).length).toBe(3);
     expect(subjects.filter((s) => !s.writesPdf).length).toBeGreaterThan(0);
   }, 60_000);
 
   it("says one signature in the singular", async () => {
+    // Was Sign PDF until 2026-11-08; the editor now keeps signatures, so a
+    // tool that still rewrites the file holds the warning's singular.
     const res = await openIn(
-      "sign-pdf",
+      "rotate-pdf",
       asFile(await signedPdf({ signatures: 1 }), "one.pdf"),
     );
     expect(res.single && res.notice).toMatch(
       /carries 1 certificate signature\. .*that signature will no longer verify/,
+    );
+    const kept = await openIn(
+      "sign-pdf",
+      asFile(await signedPdf({ signatures: 1 }), "one.pdf"),
+    );
+    expect(kept.single && kept.notice).toMatch(
+      /carries 1 certificate signature\. .*that signature still verifies/,
     );
   });
 });

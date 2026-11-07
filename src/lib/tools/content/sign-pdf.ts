@@ -49,10 +49,15 @@ import {
  *    (`editor-export.test.ts`).
  *  - saved: `editor/saved-signatures.ts` — localStorage only, opt-in, at
  *    most MAX_SAVED_SIGNATURES, try/catch around every access.
- *  - export: `exportEditedPdf` rewrites the whole file with pdf-lib
- *    (`stampProducer` sets Producer/Creator), so an existing certificate
- *    signature's byte range no longer matches; encrypted input is refused at
- *    open ("Unlock it first").
+ *  - export: `exportEditedPdf` writes the edit with pdf-lib
+ *    (`stampProducer` sets Producer/Creator). SINCE 2026-11-08 (audit
+ *    sign-pdf#5) a file that carries certificate signatures
+ *    (`countDigitalSignatures`) gets it APPENDED as an incremental update
+ *    (`editor/append-update.ts`, `editor-session.tsx`), so the bytes each
+ *    signature covers stay as they were (`append-update.test.ts`, and
+ *    `sign-runner.test.tsx` through the runner); until then the whole file
+ *    was rewritten and the FAQ said so. Encrypted input is refused at open
+ *    ("Unlock it first").
  *  - result: "PDF signed", "Download signed PDF", `signatureOutputName`.
  */
 const signTool = getToolBySlug("sign-pdf");
@@ -161,7 +166,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I sign a password-protected or already certified PDF?",
-      a: `Any encryption blocks signing, whether it guards opening the file or only printing and copying. Unlock PDF can remove it if you know a password: the open password, or the owner password for a file that opens freely but is restricted. Unlike signing, Unlock PDF does not run in your browser: the file is uploaded over TLS to pdf.xyz's secure server, the input is deleted when the job finishes, the unlocked copy's link expires after ${linkMinutes} minutes, and the stored copy is erased by a daily storage rule after that. A PDF that already carries a certificate signature can be signed here, but the whole file is rewritten rather than appended to, so the byte range that certificate covers no longer lines up with the file; expect a viewer that checks signatures to flag it.`,
+      a: `Any encryption blocks signing, whether it guards opening the file or only printing and copying. Unlock PDF can remove it if you know a password: the open password, or the owner password for a file that opens freely but is restricted. Unlike signing, Unlock PDF does not run in your browser: the file is uploaded over TLS to pdf.xyz's secure server, the input is deleted when the job finishes, the unlocked copy's link expires after ${linkMinutes} minutes, and the stored copy is erased by a daily storage rule after that. A PDF that already carries a certificate signature, such as a contract the other party signed first, can be countersigned here: your signature is added to the end of the file as an update, and the bytes their signature covers are left exactly as they were, so it still verifies for the version they signed. A viewer that checks signatures will also show that the document changed after it was signed, and a signature certified to allow no changes reports yours as breaking that.`,
     },
   ],
 
