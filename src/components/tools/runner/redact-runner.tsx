@@ -78,8 +78,8 @@ interface RedactOutcome {
  * imports, cached bound to the stub for the next test file
  * (`src/tests/mock-isolation.test.ts`); `chatWithPdfDeps` is the same shape.
  */
-export const redactRunnerDeps: { flatten: typeof redactPdf } = {
-  flatten: redactPdf,
+export const redactRunnerDeps: { redact: typeof redactPdf } = {
+  redact: redactPdf,
 };
 
 const METHOD_LABEL = Object.fromEntries(
@@ -262,7 +262,7 @@ export function RedactEditor({
     }
     setProgress({ done: 0, total: pdf.pageCount });
     void run(async (): Promise<RedactOutcome> => {
-      const redacted = await redactRunnerDeps.flatten(pdf.bytes, {
+      const redacted = await redactRunnerDeps.redact(pdf.bytes, {
         rects: [...manual, ...textRects],
         fill,
         dpi: preset.dpi,

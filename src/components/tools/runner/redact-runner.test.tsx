@@ -22,12 +22,12 @@ import { RedactEditor, redactRunnerDeps } from "./redact-runner";
 
 const engine = { rects: null as RedactionRect[] | null };
 
-const realFlatten = redactRunnerDeps.flatten;
+const realRedact = redactRunnerDeps.redact;
 
 beforeEach(() => {
   engine.rects = null;
-  // The flatten engine needs a canvas jsdom lacks; record what it is handed.
-  redactRunnerDeps.flatten = async (bytes, options) => {
+  // The redaction engine needs a canvas jsdom lacks; record what it is handed.
+  redactRunnerDeps.redact = async (bytes, options) => {
     engine.rects = options.rects;
     return {
       bytes,
@@ -42,7 +42,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  redactRunnerDeps.flatten = realFlatten;
+  redactRunnerDeps.redact = realRedact;
   cleanup();
   resetAnnouncer();
   vi.restoreAllMocks();

@@ -213,7 +213,7 @@ interface Runner {
  * the walk stopped ("no definition found for extract()").
  *
  * The same holds for a deps OBJECT a test swaps and puts back
- * (`redactRunnerDeps = { flatten: redactPdf }` in redact-runner.tsx, added
+ * (`redactRunnerDeps = { redact: redactPdf }` in redact-runner.tsx, added
  * 2026-11-07 because a `vi.mock` of the engine left the shared module cache
  * bound to the stub): `name: default` is followed like `name = default`.
  */
@@ -285,8 +285,8 @@ describe("single-PDF runners read with the library they run on", () => {
     // …and in a deps object, past its type annotation.
     expect(
       seamDefault(
-        "const d: { flatten: typeof redactPdf } = {\n  flatten: redactPdf,\n};",
-        "flatten",
+        "const d: { redact: typeof redactPdf } = {\n  redact: redactPdf,\n};",
+        "redact",
       ),
     ).toBe("redactPdf");
   });
