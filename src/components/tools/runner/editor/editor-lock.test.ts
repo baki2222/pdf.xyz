@@ -274,4 +274,34 @@ describe("the locked help names every tool the lock allows", () => {
     );
     expect(source).not.toMatch(/are saved as comments, which this PDF/);
   });
+
+  /*
+   * The reader of that help is the page, and the page is read by Playwright,
+   * which this suite does not run. b4ff355b changed the help and left
+   * e2e/restricted-pdf.spec.ts asserting the typed four-tool sentence word
+   * for word, a red the next CI run would have been first to see. Every e2e
+   * literal of the help (found by its wording, not by file name) must be
+   * what lockedCommentHelp() returns today.
+   */
+  it("every e2e spec that asserts the help asserts lockedCommentHelp()", async () => {
+    const { readFileSync, readdirSync } = await import("node:fs");
+    const path = await import("node:path");
+    const { lockedCommentHelp } = await import("./toolbar");
+    const dir = path.join(process.cwd(), "e2e");
+    const files = readdirSync(dir, { recursive: true, encoding: "utf8" })
+      .filter((f) => /\.ts$/.test(f))
+      .map((f) => path.join(dir, f));
+    // Health: the e2e tree was found and is not a stub.
+    expect(files.length).toBeGreaterThan(20);
+    const literal = /"([^"\n]*saved as comments, which this PDF[^"\n]*)"/g;
+    const found = files.flatMap((f) =>
+      [...readFileSync(f, "utf8").matchAll(literal)].map((m) => ({
+        file: path.relative(process.cwd(), f).split(path.sep).join("/"),
+        text: m[1]!,
+      })),
+    );
+    // Positive control: restricted-pdf.spec.ts asserts it.
+    expect(found.map((x) => x.file)).toContain("e2e/restricted-pdf.spec.ts");
+    expect(found.filter((x) => x.text !== lockedCommentHelp())).toEqual([]);
+  });
 });
