@@ -24,6 +24,16 @@ import {
 const SELECT =
   "border-line bg-wash text-fg focus:border-accent/40 rounded-ctl border px-3 py-1.5 text-sm outline-none";
 
+/**
+ * " on Letter" while Page size is "As the page sets it": Paper width then
+ * follows the page's own @page size, so the pixel figure (computed for the
+ * Letter fallback) is only the Letter one. The option label and the note
+ * both carry it (review of e7fc8e57: the label said "739 px" for every page).
+ */
+function paperWidthQualifier(options: HtmlRenderOptions): string {
+  return options.pageSize === "auto" ? " on Letter" : "";
+}
+
 /** The sentence under the controls: what the chosen layout will do. */
 export function htmlLayoutNote(options: HtmlRenderOptions): string | null {
   const notes: string[] = [];
@@ -36,7 +46,7 @@ export function htmlLayoutNote(options: HtmlRenderOptions): string | null {
   const paperPx = htmlPaperWidthPx(options);
   if (!screen?.width && tablet && desktop && paperPx < tablet)
     notes.push(
-      `Paper width lays the page out ${paperPx}px wide${options.pageSize === "auto" ? " on Letter" : ""}, narrower than a ${tablet}px tablet screen, so a site without print styles may show its tablet or phone layout. Choose ${desktop} under Screen width for its desktop layout.`,
+      `Paper width lays the page out ${paperPx} px wide${paperWidthQualifier(options)}, narrower than a ${tablet} px tablet screen, so a site without print styles may show its tablet or phone layout. Choose ${desktop} under Screen width for its desktop layout.`,
     );
   if (screen?.width) {
     notes.push(
@@ -127,7 +137,7 @@ export function HtmlRenderLayoutOptions({
               <option key={v.id} value={v.id}>
                 {v.width
                   ? v.label
-                  : `${v.label} (${htmlPaperWidthPx(value)} px)`}
+                  : `${v.label} (${htmlPaperWidthPx(value)} px${paperWidthQualifier(value)})`}
               </option>
             ))}
           </select>

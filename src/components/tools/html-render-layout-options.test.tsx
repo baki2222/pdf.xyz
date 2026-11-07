@@ -55,27 +55,57 @@ describe("Screen width · Paper width says how wide it is", () => {
         onChange={() => {}}
       />,
     );
+    // Page size "As the page sets it": the page's own @page size picks the
+    // paper, so 739 is only the Letter figure, and the label says so
+    // (review of e7fc8e57: it read "Paper width (739 px)" unconditionally).
     expect(
-      screen.getByRole("option", { name: "Paper width (739 px)" }),
+      screen.getByRole("option", { name: "Paper width (739 px on Letter)" }),
     ).toBeInTheDocument();
-    rerender(
-      <HtmlRenderLayoutOptions
-        value={opts({ orientation: "landscape" })}
-        onChange={() => {}}
-      />,
-    );
+    const a4 = opts({ pageSize: "A4", orientation: "landscape" });
+    rerender(<HtmlRenderLayoutOptions value={a4} onChange={() => {}} />);
     expect(
       screen.getByRole("option", {
-        name: `Paper width (${htmlPaperWidthPx(opts({ orientation: "landscape" }))} px)`,
+        name: `Paper width (${htmlPaperWidthPx(a4)} px)`,
       }),
     ).toBeInTheDocument();
   });
 
   it("the note says the default is narrower than a tablet, and names the way out", () => {
     const note = htmlLayoutNote(DEFAULT_HTML_RENDER_OPTIONS) ?? "";
-    expect(note).toContain(`739px`);
-    expect(note).toContain(`${tablet}px`);
+    // One spelling of the unit, the menu's own ("Desktop (1280 px)").
+    expect(note).toContain(`739 px wide on Letter`);
+    expect(note).toContain(`${tablet} px`);
     expect(note).toContain(desktop.label);
+    expect(note).not.toMatch(/\dpx\b/);
+  });
+
+  it("the Letter qualifier is on the label and the note only while Page size is As the page sets it", () => {
+    expect(DEFAULT_HTML_RENDER_OPTIONS.pageSize).toBe("auto");
+    const letter = opts({ pageSize: "Letter" });
+    // Health: the chosen paper still warns, so the absence below is not
+    // just a missing note.
+    expect(htmlLayoutNote(letter) ?? "").toContain(`${tablet} px`);
+    expect(htmlLayoutNote(letter) ?? "").not.toContain("on Letter");
+    const { rerender } = render(
+      <HtmlRenderLayoutOptions value={letter} onChange={() => {}} />,
+    );
+    expect(
+      screen.getByRole("option", { name: "Paper width (739 px)" }),
+    ).toBeInTheDocument();
+    rerender(
+      <HtmlRenderLayoutOptions
+        value={DEFAULT_HTML_RENDER_OPTIONS}
+        onChange={() => {}}
+      />,
+    );
+    expect(
+      screen.getByRole("option", {
+        name: /^Paper width \(\d+ px on Letter\)$/,
+      }),
+    ).toBeInTheDocument();
+    expect(htmlLayoutNote(DEFAULT_HTML_RENDER_OPTIONS) ?? "").toContain(
+      "on Letter",
+    );
   });
 
   it("control: no tablet warning when the paper is wider than a tablet, or a width is chosen", () => {
