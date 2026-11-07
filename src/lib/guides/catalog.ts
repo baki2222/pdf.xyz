@@ -3768,7 +3768,7 @@ export const guides: Guide[] = [
       `Under New page size, pick ${RESIZE_SIZE_NAMES}, or pick Custom and type a Width and Height in ${RESIZE_UNITS}.`,
       `Under Orientation, keep ${RESIZE_MATCH} so each page stays portrait or landscape as it was, or choose ${RESIZE_FIXED_ORIENTATIONS} for every page.`,
       `Under How to resize, choose ${RESIZE_FIT} or ${RESIZE_CANVAS}.`,
-      "Under Pages, keep All pages, or choose Selected pages and type a list such as 1-3, 5.",
+      "Under Pages, keep All pages, or choose Selected pages and type a list such as 1-3, 5, or press the pages on the thumbnails below the box, each labelled with its size.",
       "Press Resize PDF, then Download resized PDF. The copy is named after yours, with -resized added.",
     ],
     sections: [
@@ -3823,7 +3823,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-30",
-    updated: "2026-10-30",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-print-multiple-pages-per-sheet",

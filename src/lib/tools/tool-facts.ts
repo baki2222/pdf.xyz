@@ -914,7 +914,8 @@ export const RUNNER_MID_RUN_FETCHES: Readonly<
   compare: ["character-map"],
   scan: [],
   metadata: [],
-  resize: [],
+  // The page picker under Selected pages renders thumbnails (2026-11-08).
+  resize: ["image-decoder", "character-map"],
   "n-up": [],
   "split-half": [],
 };
