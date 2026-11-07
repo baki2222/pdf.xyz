@@ -882,8 +882,9 @@ export const RUNNER_MID_RUN_FETCHES: Readonly<
 > = {
   // The contents page draws each file's name (2026-10-25).
   merge: ["image-decoder", "character-map", "drawing-font"],
-  // "By text" reads each page's text through pdf.js (2026-10-25).
-  split: ["character-map"],
+  // "By text" reads each page's text through pdf.js (2026-10-25); the cut
+  // picker under Custom ranges renders page thumbnails (2026-11-08).
+  split: ["image-decoder", "character-map"],
   rotate: ["image-decoder", "character-map"],
   "delete-pages": ["image-decoder", "character-map"],
   "extract-pages": ["image-decoder", "character-map"],

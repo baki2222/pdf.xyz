@@ -952,7 +952,7 @@ export const guides: Guide[] = [
       "Open the Split PDF tool.",
       "Pick the PDF you want to split — it stays on your device the whole time.",
       "Choose a split mode: custom page ranges, every N pages, one file per page, by file size, by bookmarks or by text.",
-      "Define the split: for ranges, list the page spans that should become separate files; for the every-N-pages rule, set how many pages each piece should hold. One file per page splits at every page boundary — each page of the document becomes its own PDF. For by text, type the word or phrase that marks where each new file should start.",
+      "Define the split: for ranges, list the page spans that should become separate files, or press the scissors under a page's thumbnail to cut after it; for the every-N-pages rule, set how many pages each piece should hold. One file per page splits at every page boundary — each page of the document becomes its own PDF. For by text, type the word or phrase that marks where each new file should start.",
       "Run the split — the processing happens in your browser, not on a server.",
       "Download the result. When there is more than one piece they arrive together as a ZIP, and a single piece saves as a plain PDF. Every piece is a complete, standard PDF.",
     ],
@@ -1015,7 +1015,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-11-07",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-compress-a-pdf",

@@ -42,6 +42,12 @@ import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
 import { useZipDownload } from "./use-zip-download";
 import { NoSelectableTextNote } from "./no-text-note";
+import { LazyPagePicker } from "./page-picker-lazy";
+import {
+  cutsInRanges,
+  partOfEachPage,
+  rangesTextFromCuts,
+} from "./page-picker-text";
 
 /** The modes offered — the same list the tool page counts (`offered-kinds`). */
 const MODES: { id: SplitMode; label: string }[] = SPLIT_MODES.map((id) => ({
@@ -460,6 +466,28 @@ export function SplitEditor({
               </span>
             </span>
           </label>
+          {pdf.pageCount > 1 && (
+            <div className="flex flex-col gap-2">
+              <p className="text-muted text-xs">
+                Or press the scissors under a page to cut after it. A cut
+                rewrites the ranges above so that they cover every page, one
+                file per run of pages between cuts; the badge on each page is
+                the file it lands in.
+              </p>
+              <LazyPagePicker
+                bytes={pdf.bytes}
+                pageCount={pdf.pageCount}
+                rotations={pdf.rotations}
+                mode="cut"
+                label="Pages — cut after a page to start a new file"
+                value={cutsInRanges(rangeInput, pdf.pageCount)}
+                partOf={partOfEachPage(rangeInput, pdf.pageCount)}
+                onChange={(cuts) =>
+                  setRangeInput(rangesTextFromCuts(cuts, pdf.pageCount))
+                }
+              />
+            </div>
+          )}
         </div>
       )}
 
