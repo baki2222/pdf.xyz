@@ -170,8 +170,14 @@ const OWNED: { value: number; units: readonly string[]; source: string }[] = [
   })),
 ];
 
+/**
+ * `min\b(?!-)`: the bare unit, but not a Tailwind `min-*` utility. Without the
+ * lookahead, `min-h-11 min-w-0` (Merge's Pages box, 2026-11-08) read as the
+ * duration "11 min". Pinned both ways in "reads 'N min' in copy, not a
+ * Tailwind utility pair".
+ */
 const UNIT_PATTERN =
-  /\b(\d+(?:\.\d+)?)\s*(MB|GB|minutes?|hours?|days?|weeks?|files?|tools?|languages?|runs?\b|min\b)/gi;
+  /\b(\d+(?:\.\d+)?)\s*(MB|GB|minutes?|hours?|days?|weeks?|files?|tools?|languages?|runs?\b|min\b(?!-))/gi;
 
 /**
  * A duration spelled in WORDS, which the digit pattern cannot see.
@@ -485,6 +491,38 @@ describe("user-facing copy does not hand-write figures the code owns", () => {
       stale,
       `these baseline entries no longer occur — remove them so the debt is visible:\n  ${stale.join("\n  ")}`,
     ).toEqual([]);
+  });
+
+  it("reads 'N min' in copy, not a Tailwind utility pair (both directions)", () => {
+    // 2026-11-08: Merge's per-file Pages box gained `min-h-11 min-w-0` (a
+    // 44 px tap target on phones), and the digit pattern read the seam
+    // between those two utilities as the duration "11 min". A `min-*`
+    // utility is the unit word followed by a hyphen; a duration in copy is
+    // not. Both directions are pinned so the exclusion cannot widen into
+    // copy: a real "11 min" — bare, in a range, before punctuation — is
+    // still read.
+    const caught = [
+      "output kept 11 min",
+      "ready in 5–11 min.",
+      "about 11 min, then deleted",
+      "Links expire after 11 min",
+    ];
+    for (const sentence of caught) {
+      const found = unitLiterals(sentence);
+      expect(found, `not read as a figure: "${sentence}"`).toHaveLength(1);
+      expect(found[0]!.value, sentence).toBe(11);
+      expect(found[0]!.unit, sentence).toBe("min");
+    }
+    // Negative control: the className as shipped in merge-runner.tsx, read
+    // from the file so the control moves with it.
+    const merge = readFileSync(
+      path.join(process.cwd(), "src/components/tools/runner/merge-runner.tsx"),
+      "utf8",
+    );
+    const shipped = /"[^"]*\bmin-h-11 min-w-0\b[^"]*"/.exec(merge)?.[0];
+    expect(shipped, "the Merge Pages className moved").toBeDefined();
+    expect(unitLiterals(shipped!)).toEqual([]);
+    expect(unitLiterals("h-11 min-w-0 min-h-11 min-w-full")).toEqual([]);
   });
 
   it("reads durations spelled in words, and not rates (corpus, both directions)", () => {
