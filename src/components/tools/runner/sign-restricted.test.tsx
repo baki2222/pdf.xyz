@@ -88,4 +88,23 @@ describe("sign-pdf: a PDF its author restricted", () => {
     expect(text).toMatch(/opens here with the author's limits in force/);
     expect(text).toMatch(/owner password[^.]*checked in your browser/);
   });
+
+  // Review of audit sign-pdf#3: the step promised "the signature panel open
+  // above them" to every file, while a restricted one opens with no Draw tab
+  // (above); and the FAQ said "restricted changes" while the lock holds for
+  // ANY restriction, a printing-only one too.
+  it("the step and FAQ say what a restricted file actually shows", () => {
+    const tool = getToolBySlug("sign-pdf")!;
+    const steps = pageSteps(tool).map(stepText).join(" ");
+    expect(steps).toMatch(
+      /carries its author's restrictions opens with those limits shown, and the Sign tool waits for its owner password/,
+    );
+    const faq = pageFaq(tool)
+      .map((f) => f.answer)
+      .join(" ");
+    expect(faq).not.toMatch(/whose author restricted changes/);
+    expect(faq).toMatch(
+      /carries any restriction from its author \(on changes, printing, copying or anything else\) opens here/,
+    );
+  });
 });
