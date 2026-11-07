@@ -50,6 +50,7 @@ import {
   LOCKED_PDF_COPY,
   RESTRICTED_OPENERS,
 } from "@/lib/pdf/encryption";
+import { RESTRICTED_EDITORS_LEFT_OUT } from "@/tests/restricted-openers-left-out";
 import { runnerModuleOf } from "@/tests/tool-panel-modules";
 
 const RUNNER_DIR = "src/components/tools/runner";
@@ -257,12 +258,14 @@ describe("encryption claims on tool pages match the runner's reader", () => {
       .sort();
     expect(grantTools).toEqual(["extract-images", "rotate-pdf"]);
     // Sign PDF (2026-11-08, audit sign-pdf#3) opens one in the same editor,
-    // but a signature is drawn into the page and needs the owner password,
-    // so the sentence — what such a file still allows without it — leaves
-    // it out. Every tool the sentence names is an opener.
+    // but the sentence leaves it out, for the reason
+    // RESTRICTED_EDITORS_LEFT_OUT records. Every editor left out opens one,
+    // and every tool the sentence names is an opener.
+    const leftOut = RESTRICTED_EDITORS_LEFT_OUT.map((t) => t.slug as string);
+    for (const slug of leftOut) expect(by("opens-protected")).toContain(slug);
     expect(
       by("opens-protected").filter(
-        (slug) => !grantTools.includes(slug) && slug !== "sign-pdf",
+        (slug) => !grantTools.includes(slug) && !leftOut.includes(slug),
       ),
     ).toEqual(
       RESTRICTED_OPENERS.map((t) => t.href.replace(/^\/tools\//, "")).sort(),

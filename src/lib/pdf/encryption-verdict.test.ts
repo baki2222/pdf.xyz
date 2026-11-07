@@ -8,6 +8,7 @@ import {
   ownerOnlyEncryptedPdf,
   userPasswordEncryptedPdf,
 } from "@/tests/encrypted-pdf-fixture";
+import { RESTRICTED_EDITORS_LEFT_OUT } from "@/tests/restricted-openers-left-out";
 import { optimizeLossless } from "./analyze";
 import {
   ENCRYPTED_PDF_MESSAGES,
@@ -362,10 +363,9 @@ describe("the way out is real", () => {
       ).toMatch(/[^.\w]grantAllows\(/);
     // 2026-10-30: Annotate PDF, which mounts the same editor as Edit PDF,
     // joined them (it refused restricted files until then). 2026-11-08:
-    // Sign PDF, the same editor again (audit sign-pdf#3) — but what it is
-    // for, a signature, is drawn into the page and needs the owner
-    // password, so the sentence (what a restricted file still allows
-    // WITHOUT it) does not name it. Every tool the sentence names opens one.
+    // Sign PDF, the same editor again (audit sign-pdf#3) — left out of the
+    // sentence for the reason RESTRICTED_EDITORS_LEFT_OUT records. Every
+    // other editor is named by it, and every one left out is an editor.
     const editors = openers.filter((f) => !grantTools.includes(f));
     expect(editors).toEqual([
       "annotate-runner.tsx",
@@ -373,7 +373,13 @@ describe("the way out is real", () => {
       "fill-forms-runner.tsx",
       "sign-runner.tsx",
     ]);
-    expect(RESTRICTED_OPENERS.length).toBe(editors.length - 1);
+    const leftOut = RESTRICTED_EDITORS_LEFT_OUT.map((t) => t.runner as string);
+    for (const runner of leftOut) expect(editors).toContain(runner);
+    expect(RESTRICTED_OPENERS.length).toBe(
+      editors.filter((f) => !leftOut.includes(f)).length,
+    );
+    for (const { name } of RESTRICTED_EDITORS_LEFT_OUT)
+      expect(RESTRICTED_OPENERS_SENTENCE).not.toContain(name);
     // 2026-11-08: Rotate PDF (audit rotate-pdf#2) and Extract Images
     // (audit extract-images#3).
     expect(grantTools).toEqual([
