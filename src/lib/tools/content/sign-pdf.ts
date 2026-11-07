@@ -140,7 +140,7 @@ const content: ToolContent = {
     },
     {
       title: "Place it",
-      body: "Tap or click the page where it goes. Drag it to move it and drag a corner to resize it; a picture keeps its proportions. Click Sign again to place another copy, on this page or any other, or, with it selected, use Repeat on to copy it to every page, the last page or the pages you list.",
+      body: `Tap or click the page where it goes. Drag it to move it and drag a corner to resize it; a picture keeps its proportions. Click Sign again to place another copy, on this page or any other, or, with it selected, use Repeat on (${repeatTargets}) to copy it to the same spot on other pages.`,
     },
     {
       title: "Sign and save",

@@ -11,7 +11,9 @@ import { SIGNATURE_INK } from "./model";
  * its pixels are tinted to it when exported (`tintInk`), and a typed
  * signature's text is filled with it (`typedSignatureObject`).
  *
- * Feature-scoped: only the signature panel and pad import this module.
+ * Feature-scoped: imported by the editor's lazy chunk (the signature panel
+ * and pad) and by the server-rendered copy that names the swatches
+ * (`content/sign-pdf.ts`, `guides/catalog.ts`).
  */
 export const SIGNATURE_INKS = [
   { id: "black", label: "Black", hex: SIGNATURE_INK },

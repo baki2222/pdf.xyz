@@ -182,6 +182,10 @@ describe("what Sign PDF says about repeating", () => {
     expect(initials).toContain(`pick ${named}`);
     expect(initials).toContain("Repeat on");
     expect(guide.steps.join(" ")).toContain(`Repeat on: ${named}`);
+    // The Place step names the choices from the same labels (review,
+    // 2026-11-08: it was a typed paraphrase).
+    const place = content.steps.find((s) => s.body.includes("Repeat on"))!;
+    expect(place.body).toContain(`Repeat on (${named})`);
     // Inverted from the shipped copy: "click on each page that needs them".
     expect(initials).not.toMatch(/click on each page/);
   });

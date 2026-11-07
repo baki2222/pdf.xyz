@@ -16,7 +16,9 @@ import { parsePageList } from "../ranges";
  * are ordinary objects — each can be moved or deleted on its own page — and
  * the whole repeat is one undoable step.
  *
- * Feature-scoped: only the editor's chunk imports this module.
+ * Feature-scoped: imported by the editor's lazy chunk (the Repeat on
+ * control and the editor that applies it) and by the server-rendered copy
+ * that names its choices (`content/sign-pdf.ts`, `guides/catalog.ts`).
  */
 
 export const REPEAT_TARGETS = ["all", "last", "custom"] as const;
