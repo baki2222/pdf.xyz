@@ -27,9 +27,9 @@ import {
   PDFName,
   PDFNumber,
   PDFString,
-  StandardFonts,
   type PDFRef,
 } from "pdf-lib";
+import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 
 /** Where the signature VALUE lives, which is what each detection route sees. */
 export type SignaturePlacement =
@@ -128,7 +128,7 @@ export async function signedPdf(
   const doc = await PDFDocument.create();
   const page = doc.addPage([612, 792]);
   if (opts.text) {
-    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const font = await embedDrawingFont(doc, [opts.text]);
     page.drawText(opts.text, { x: 72, y: 700, size: 14, font });
   }
   for (let i = 0; i < extraPages; i += 1) doc.addPage([612, 792]);
