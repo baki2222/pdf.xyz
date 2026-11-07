@@ -13,7 +13,11 @@ import type { ReactNode } from "react";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { PDFDocument, PDFName, PDFRawStream, rgb } from "pdf-lib";
 import { getRunnerKind } from "@/lib/pdf/registry";
-import { GRAYSCALE_DPI_PRESETS, grayscaleTitle } from "@/lib/pdf/grayscale";
+import {
+  GRAYSCALE_DPI_PRESETS,
+  grayscalePresetTradeoff,
+  grayscaleTitle,
+} from "@/lib/pdf/grayscale";
 import { ToolRunner } from "./tool-runner";
 import { runnerMounted } from "@/tests/runner-mounted";
 
@@ -340,6 +344,39 @@ describe("grayscale-pdf: the 300 DPI preset reaches the page images", () => {
     );
     expect(await widths(out)).toEqual([600, 600]);
   }, 30_000);
+
+  // Review 2026-11-08: the cost line appeared under the radiogroup with no
+  // link to it, so a screen-reader user picking Fine print was never told
+  // the cost the page copy promises "a line under the choice gives".
+  it("the Fine print cost line is announced: a polite live region drawn before the pick", async () => {
+    const { container } = render(
+      <Router>
+        <ToolRunner kind={getRunnerKind(SLUG)!} slug={SLUG} />
+      </Router>,
+    );
+    await runnerMounted(container);
+    fireEvent.change(container.querySelector('input[type="file"]')!, {
+      target: {
+        files: [
+          new File([(await makeSource()).slice()], "chart.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
+    });
+    await screen.findByRole("button", { name: /convert to grayscale/i });
+    const region = container.querySelector(
+      '[aria-live="polite"][data-preset-tradeoff]',
+    );
+    expect(region, "no live region before the pick").not.toBeNull();
+    expect(region!.textContent).toBe("");
+    const fine = GRAYSCALE_DPI_PRESETS.find((p) => p.id === "fine")!;
+    fireEvent.click(
+      screen.getByRole("radio", { name: `${fine.label} (${fine.dpi} DPI)` }),
+    );
+    expect(region!.textContent).toBe(grayscalePresetTradeoff("fine"));
+    expect(region!.isConnected).toBe(true);
+  });
 
   it("control: the default is still Print, 300 px wide", async () => {
     const out = await convertThroughTheUi(await makeSource(), "chart.pdf");
