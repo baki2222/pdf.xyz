@@ -195,6 +195,7 @@ import {
   PDFA_LEVEL_LABEL,
   PDFA_LEVEL_NAMES,
 } from "@/lib/workers/pdf-archive/levels";
+import { CARRIED_DOCINFO_WORDS } from "@/lib/workers/pdf-archive/docinfo-words";
 import {
   PDFA_EXPECTED_CONFORMANCE,
   PDFA_EXPECTED_PART,
@@ -4969,7 +4970,8 @@ export const guides: Guide[] = [
         id: "what-the-conversion-drops",
         heading: "What the conversion drops, and how you find out",
         body: [
-          "Some of what a PDF can carry has no place in PDF/A. Ghostscript is told to drop it and carry on rather than abandon the job, and what it reports while doing so is shown above your download in its own words, with any line that names a file path held back. The line you are most likely to meet ends in “discarding DOCINFO”: DOCINFO is the older place a PDF keeps its title, author and producer, and the notice does not say which fields went, so open the copy's document properties if they matter.",
+          "Some of what a PDF can carry has no place in PDF/A. Ghostscript is told to drop it and carry on rather than abandon the job, and what it reports while doing so is shown above your download in its own words, with any line that names a file path held back. The line you are most likely to meet ends in “discarding DOCINFO”: DOCINFO is the older place a PDF keeps its title, author and producer, and the notice is about the original's copy of it.",
+          `Before Ghostscript runs, our server reads your PDF's ${CARRIED_DOCINFO_WORDS} and has Ghostscript write them into the PDF/A copy. A field is carried only when it uses plain letters, digits and Western European characters; one with curly quotes, dashes or another script is left out rather than altered. Open the copy's document properties to see what arrived.`,
           "PDF/A also requires every font to be embedded. Where your original only names a font without carrying it, Ghostscript uses one from its own set; on our secure server, NimbusSans was seen standing in for Helvetica. The notes do not report that swap, so compare the copy with the original page by page before you rely on it.",
         ],
       },
@@ -5009,8 +5011,7 @@ export const guides: Guide[] = [
       },
       {
         question: "What does “discarding DOCINFO” mean?",
-        answer:
-          "Ghostscript found text in the PDF's older information dictionary, where the title, author and producer live, that it could not carry into PDF/A's metadata, and dropped that dictionary. It does not list which fields went, so check the copy's document properties if the title or author matters.",
+        answer: `Ghostscript found text in your original's older information dictionary, where the title, author and producer live, that it could not carry into PDF/A's metadata, and dropped that copy of it. Our server writes the ${CARRIED_DOCINFO_WORDS} into the PDF/A file separately, when they use Western European characters, so check the copy's document properties to see what arrived.`,
       },
       {
         question: "Does PDF/A make a scanned PDF searchable?",

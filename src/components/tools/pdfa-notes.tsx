@@ -2,6 +2,7 @@
 
 import { Scissors } from "lucide-react";
 import type { Job } from "@/lib/jobs/types";
+import { CARRIED_DOCINFO_WORDS } from "@/lib/workers/pdf-archive/docinfo-words";
 
 /**
  * What the PDF/A conversion had to remove, shown beside the finished file.
@@ -65,8 +66,11 @@ export function PdfANotes({ job }: { job: Job | undefined }) {
         <p className="text-info ml-6">The details could not be shown safely.</p>
       )}
       <p className="text-info ml-6 text-xs">
-        Document metadata is the usual casualty and this is routine. Read the
-        list if any of it matters to your archive.
+        A line ending in &quot;discarding DOCINFO&quot; is routine: it is about
+        your original&apos;s copy of the document information. Its{" "}
+        {CARRIED_DOCINFO_WORDS} are written into this file separately, when they
+        use Western European characters. Read the list if any of it matters to
+        your archive.
       </p>
     </div>
   );

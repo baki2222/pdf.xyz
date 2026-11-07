@@ -16,6 +16,11 @@ import {
 import { sanitizeNativeDiagnostics } from "../native-diagnostics";
 import { PDF_ARCHIVE_PASSWORD_PROBE_TIMEOUT_MS } from "./contract";
 import { pdfaLevelForStandard, type PdfALevel } from "./levels";
+import {
+  docInfoPdfmark,
+  readCarriedDocInfo,
+  type CarriedDocInfo,
+} from "./docinfo";
 import { QPDF_EXIT_ERROR, QPDF_EXIT_WARNINGS } from "../qpdf-exit";
 import {
   AttemptAbortedError,
@@ -220,13 +225,20 @@ function postscriptString(text: string): string {
  *     `-sColorConversionStrategy=RGB`, so the stock file's guess is not needed;
  *   - the stock `/Title (Title) /DOCINFO pdfmark` is gone. It is a placeholder
  *     the recipe tells users to customise, and running it as-is would overwrite
- *     every user's document title with the word "Title".
+ *     every user's document title with the word "Title". In its place, since
+ *     2026-11-08 (audit pdf-to-pdfa#3), is the user's OWN title, author,
+ *     subject and keywords, read from the input (`./docinfo`), when there are
+ *     any it can write faithfully; with none, the prefix is as it was.
  *
  * Without this file there is no OutputIntent, and a PDF/A file that uses
  * device-dependent colour without one is not PDF/A: that was the argv until
  * this function existed.
  */
-export function pdfaDefinition(iccProfilePath: string): string {
+export function pdfaDefinition(
+  iccProfilePath: string,
+  docInfo: CarriedDocInfo = {},
+): string {
+  const carried = docInfoPdfmark(docInfo);
   return [
     "%!",
     "% pdf.xyz PDF/A prefix: Ghostscript's PDFA_def.ps recipe (see native.ts).",
@@ -242,6 +254,7 @@ export function pdfaDefinition(iccProfilePath: string): string {
     "  /OutputConditionIdentifier (sRGB)",
     ">> /PUT pdfmark",
     "[{Catalog} << /OutputIntents [ {OutputIntent_PDFA} ] >> /PUT pdfmark",
+    ...(carried ? [carried] : []),
     "",
   ].join("\n");
 }
@@ -430,12 +443,17 @@ export function createNativeGhostscriptPdfARunner(
       const inputPath = path.join(dir, "input.pdf");
       const outputPath = path.join(dir, "output.pdf");
       const defPath = path.join(dir, "pdfa-def.ps");
+      // The original's title, author, subject and keywords, for the prefix.
+      // Never throws: an unreadable or encrypted input carries none.
+      const docInfo = await readCarriedDocInfo(input);
       try {
         try {
           await fs.writeFile(inputPath, input);
           await fs.writeFile(
             defPath,
-            new TextEncoder().encode(pdfaDefinition(config.iccProfile)),
+            new TextEncoder().encode(
+              pdfaDefinition(config.iccProfile, docInfo),
+            ),
           );
         } catch {
           throw new GhostscriptRunError("io", "Could not stage the input.");

@@ -11,6 +11,7 @@ import {
 } from "../pdf-archive/native";
 import { resolveNativePdfArchiveConfig } from "../pdf-archive/native-config";
 import { buildPdfAFixture, declaredPdfA } from "@/tests/pdfa-fixtures";
+import { PDFDocument } from "pdf-lib";
 
 const PDF = new TextEncoder().encode(
   "%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
@@ -298,5 +299,96 @@ describe("the PDF/A level reaches Ghostscript and the output check", () => {
         error: { code: "unprocessable_entity", retryable: false },
       });
     }
+  });
+});
+
+/**
+ * The original's title, author, subject and keywords reach Ghostscript's
+ * PDF/A prefix (audit pdf-to-pdfa#3, 2026-11-08), through the composed
+ * chain: a real PDF's Info dictionary, the processor, the engine, the native
+ * runner, and the prefix file it writes for Ghostscript to run first. The
+ * prefix is read back as written, byte for byte.
+ */
+describe("the original's document properties reach the PDF/A prefix", () => {
+  async function prefixFor(input: Uint8Array): Promise<string> {
+    const output = await declaredPdfA();
+    const written = new Map<string, Uint8Array>();
+    const ghostscript = createNativeGhostscriptPdfARunner(
+      { ...resolveNativePdfArchiveConfig({}), tmpDir: "/tmp" },
+      {
+        resolveOnPath: () => true,
+        fileExists: () => true,
+        exec: vi.fn(async (command: string): Promise<GhostscriptExecResult> =>
+          command === "qpdf"
+            ? { code: 2, timedOut: false }
+            : { code: 0, timedOut: false, diagnostics: "" },
+        ),
+        fs: {
+          mkdtemp: vi.fn(async () => "/tmp/pdfxyz-pdfa-1"),
+          writeFile: vi.fn(async (file: string, data: Uint8Array) => {
+            written.set(file, data);
+          }),
+          readFile: vi.fn(async () => output),
+          rm: vi.fn(async () => {}),
+        },
+      },
+    );
+    const result = await createPdfArchiveProcessor({ ghostscript }).process({
+      ...input_(input),
+    });
+    expect(result.ok).toBe(true);
+    const def = [...written].find(([file]) => file.endsWith(".ps"));
+    expect(def, "the prefix file was written").toBeDefined();
+    return new TextDecoder("latin1").decode(def![1]);
+  }
+
+  function input_(bytes: Uint8Array) {
+    return { ...input(), inputs: [{ ...input().inputs[0]!, bytes }] };
+  }
+
+  async function pdfWith(set: (doc: PDFDocument) => void) {
+    const doc = await PDFDocument.create();
+    doc.addPage();
+    set(doc);
+    return doc.save();
+  }
+
+  it("writes Title, Author, Subject and Keywords as one /DOCINFO pdfmark", async () => {
+    const prefix = await prefixFor(
+      await pdfWith((doc) => {
+        doc.setTitle("Annual report (2025)");
+        doc.setAuthor("Zoë Müller");
+        doc.setSubject("Board pack");
+        doc.setKeywords(["minutes", "finance"]);
+        doc.setProducer("Some Producer 1.0");
+      }),
+    );
+    expect(prefix).toContain(
+      String.raw`[/Title (Annual report \(2025\)) /Author (Zo\353 M\374ller) /Subject (Board pack) /Keywords (minutes finance) /DOCINFO pdfmark`,
+    );
+    // The producer is Ghostscript's to set; it is not carried.
+    expect(prefix).not.toContain("Some Producer");
+    // After the OutputIntent recipe, so the prefix still opens with it.
+    expect(prefix.indexOf("/DOCINFO")).toBeGreaterThan(
+      prefix.indexOf("/OutputIntents"),
+    );
+  });
+
+  it("a field it cannot write faithfully is left out, not rewritten", async () => {
+    const prefix = await prefixFor(
+      await pdfWith((doc) => {
+        doc.setTitle("年次報告");
+        doc.setAuthor("Ana “Ann” Lee");
+        doc.setSubject("Plain subject");
+      }),
+    );
+    expect(prefix).toContain("[/Subject (Plain subject) /DOCINFO pdfmark");
+    expect(prefix).not.toContain("/Title");
+    expect(prefix).not.toContain("/Author");
+  });
+
+  it("CONTROL: a PDF with no such fields gets the prefix exactly as before", async () => {
+    const prefix = await prefixFor(await pdfWith(() => {}));
+    expect(prefix).not.toContain("DOCINFO");
   });
 });
