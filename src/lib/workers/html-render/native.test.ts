@@ -10,6 +10,7 @@ import {
   probeChromiumFromConfig,
   PRINT_TO_PDF_OPTIONS,
   UNLINK_SYNTHETIC_ORIGIN,
+  VIRTUAL_TIME_BUDGET_MS,
   type ChromiumLaunch,
 } from "./native";
 import type { NativeHtmlRenderConfig } from "./native-config";
@@ -18,6 +19,15 @@ import { WebpageFetchError, type WebpageFetchFailure } from "./engine";
 import { DEFAULT_HTML_RENDER_OPTIONS } from "@/lib/jobs/html-render-options";
 import { DEFAULT_WEBPAGE_CAPTURE_OPTIONS } from "@/lib/jobs/webpage-capture-options";
 import { HIDE_OVERLAYS_SCRIPT } from "./overlays";
+import {
+  LAZY_SCROLL_MAX_MS,
+  LAZY_SCROLL_MEASURE,
+  LAZY_SCROLL_NEXT_FRAMES,
+  LAZY_SCROLL_SETTLE_MS,
+  LAZY_SCROLL_STEP_MS,
+  lazyScrollPositions,
+  lazyScrollTo,
+} from "./lazy-scroll";
 
 const PDF = new TextEncoder().encode(
   "%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
@@ -166,6 +176,14 @@ function fakeChromium(
           });
         case "Page.createIsolatedWorld":
           return reply(msg, { executionContextId: 7 });
+        case "Runtime.evaluate":
+          // A page three screens tall, for the scroll pass's measure.
+          return reply(
+            msg,
+            msg.params.expression === LAZY_SCROLL_MEASURE
+              ? { result: { value: { height: 3000, viewport: 800 } } }
+              : {},
+          );
         case "Page.getLayoutMetrics":
           return reply(msg, { cssContentSize: { height: 2400 } });
         case "IO.read":
@@ -359,7 +377,20 @@ describe("native Chromium HTML renderer", () => {
     // Health check: the webpage really reached the print, so the absence
     // below is not a render that stopped early.
     expect(web.sent.map((m) => m.method)).toContain("Page.printToPDF");
-    expect(web.sent.map((m) => m.method)).not.toContain("Runtime.evaluate");
+    // CHANGED 2026-11-08 (audit webpage-to-pdf#4): this asserted no
+    // Runtime.evaluate at all for a webpage. A webpage now evaluates the
+    // scroll pass's measure, so the property is stated as what it always
+    // meant: the UNLINK script never runs on a webpage.
+    expect(
+      web.sent.filter(
+        (m) =>
+          m.method === "Runtime.evaluate" &&
+          m.params.expression === UNLINK_SYNTHETIC_ORIGIN,
+      ),
+    ).toEqual([]);
+    expect(
+      web.sent.filter((m) => m.method === "Runtime.evaluate").length,
+    ).toBeGreaterThan(0);
   });
 
   /*
@@ -628,6 +659,60 @@ describe("native Chromium HTML renderer", () => {
     const quiet = fakeChromium();
     await runner(quiet).renderUrl("https://public.example/");
     expect(media(quiet)).toEqual([]);
+  });
+
+  it("a webpage is scrolled down a screen at a time after its budget, given time at each stop, and scrolled back before printing; an upload never (audit webpage-to-pdf#4)", async () => {
+    const fake = fakeChromium();
+    await runner(fake).renderUrl("https://public.example/");
+    const evals = fake.sent
+      .filter((m) => m.method === "Runtime.evaluate")
+      .map((m) => m.params.expression as string);
+    const scrolls = evals.filter((e) => e.startsWith("window.scrollTo"));
+    expect(scrolls).toEqual([
+      ...lazyScrollPositions(3000, 800).map(lazyScrollTo),
+      lazyScrollTo(0),
+    ]);
+    expect(scrolls).toHaveLength(4);
+    // After each scroll: a wait for frames, then that stop's page time.
+    const budgets = fake.sent
+      .filter((m) => m.method === "Emulation.setVirtualTimePolicy")
+      .map((m) => m.params.budget as number);
+    expect(budgets).toEqual([
+      VIRTUAL_TIME_BUDGET_MS,
+      LAZY_SCROLL_STEP_MS,
+      LAZY_SCROLL_STEP_MS,
+      LAZY_SCROLL_STEP_MS,
+      LAZY_SCROLL_SETTLE_MS,
+    ]);
+    expect(budgets.slice(1).reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(
+      LAZY_SCROLL_MAX_MS,
+    );
+    expect(evals.filter((e) => e === LAZY_SCROLL_NEXT_FRAMES).length).toBe(4);
+    const at = (pred: (m: Sent) => boolean) => fake.sent.findIndex(pred);
+    const lastScroll = fake.sent
+      .map((m, i) => ({ m, i }))
+      .filter(
+        ({ m }) =>
+          m.method === "Runtime.evaluate" &&
+          m.params.expression === lazyScrollTo(0),
+      )
+      .map(({ i }) => i)
+      .pop()!;
+    expect(
+      at((m) => m.method === "Emulation.setVirtualTimePolicy"),
+    ).toBeLessThan(at((m) => m.params.expression === LAZY_SCROLL_MEASURE));
+    expect(lastScroll).toBeLessThan(at((m) => m.method === "Page.printToPDF"));
+
+    const upload = fakeChromium();
+    await runner(upload).renderHtml(HTML);
+    expect(
+      upload.sent.filter(
+        (m) =>
+          m.method === "Runtime.evaluate" &&
+          (m.params.expression === LAZY_SCROLL_MEASURE ||
+            String(m.params.expression).startsWith("window.scrollTo")),
+      ),
+    ).toEqual([]);
   });
 
   it("every other request goes through the network policy", async () => {

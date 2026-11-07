@@ -22,6 +22,7 @@ import {
 } from "@/lib/jobs/webpage-capture-options";
 import { CONSENT_MANAGERS } from "@/lib/workers/html-render/overlays";
 import { HTML_LAYOUT_STEP } from "@/lib/tools/html-layout-copy";
+import { LAZY_SCROLL_MAX_STEPS } from "@/lib/workers/html-render/lazy-scroll";
 
 const list = (items: readonly string[]) =>
   new Intl.ListFormat("en", { type: "conjunction" }).format(items);
@@ -40,6 +41,12 @@ export const WEBPAGE_OVERLAY_ANSWER = `Cookie notices and pop-ups, usually: tick
  * printing.
  */
 export const WEBPAGE_PRINT_STYLES_SENTENCE = `A site that ships a print stylesheet gets that layout while ${PRINT} stays ticked; untick it to print the page with its screen styles, as a browser window shows it.`;
+
+/**
+ * The scroll pass (audit webpage-to-pdf#4), from `./lazy-scroll`'s bounds:
+ * native.ts scrolls a webpage, never an upload, after its first budget.
+ */
+export const WEBPAGE_SCROLL_SENTENCE = `Before printing, our server scrolls the page down a screen at a time, up to ${LAZY_SCROLL_MAX_STEPS} screens, and gives it a moment at each stop, so images a site loads only as you scroll usually come in. An endless feed prints only what those ${LAZY_SCROLL_MAX_STEPS} screens load, and a page that scrolls inside a box of its own, rather than as a whole, is not scrolled.`;
 
 /** The how-to sentence for the Capture group. */
 export const WEBPAGE_CAPTURE_SENTENCE = `Under ${WEBPAGE_CAPTURE_GROUP_LABEL}, tick ${HIDE} to print the page without a consent banner or a pop-up over it, and untick ${PRINT} to get the layout a browser window shows instead of the one the site made for printing.`;

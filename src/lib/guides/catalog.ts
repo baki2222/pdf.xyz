@@ -122,6 +122,7 @@ import {
   WEBPAGE_CAPTURE_SENTENCE,
   WEBPAGE_OVERLAY_ANSWER,
   WEBPAGE_PRINT_STYLES_SENTENCE,
+  WEBPAGE_SCROLL_SENTENCE,
 } from "@/lib/tools/webpage-capture-copy";
 import { WEBPAGE_CAPTURE_LABELS } from "@/lib/jobs/webpage-capture-options";
 import { MAX_SCAN_SIDE_PX, SCAN_PAGE_SIZES } from "@/lib/pdf/scan-to-pdf";
@@ -3381,7 +3382,7 @@ export const guides: Guide[] = [
         heading: "What ends up in the PDF",
         body: [
           `The PDF carries the page and nothing else: pdf.xyz adds no date, title, address or page-number lines. Backgrounds are printed. ${WEBPAGE_PRINT_STYLES_SENTENCE} Words a site draws as a picture or on a canvas stay pictures.`,
-          `Nothing scrolls the page, and its scripts run within a fixed budget of time, so an endless feed prints only what it loads unscrolled, and images that load only as you scroll can be missing. Adverts shown to a new visitor can appear too, and so can cookie notices and pop-ups unless you tick ${WEBPAGE_CAPTURE_LABELS.hideOverlays}.`,
+          `Its scripts run within a fixed budget of time. ${WEBPAGE_SCROLL_SENTENCE} Adverts shown to a new visitor can appear too, and so can cookie notices and pop-ups unless you tick ${WEBPAGE_CAPTURE_LABELS.hideOverlays}.`,
         ],
       },
       {

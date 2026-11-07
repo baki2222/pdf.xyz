@@ -41,6 +41,15 @@ import {
 } from "@/lib/jobs/webpage-capture-options";
 import { HIDE_OVERLAYS_SCRIPT } from "./overlays";
 import {
+  LAZY_SCROLL_FRAME_WAIT_MS,
+  LAZY_SCROLL_MEASURE,
+  LAZY_SCROLL_NEXT_FRAMES,
+  LAZY_SCROLL_SETTLE_MS,
+  LAZY_SCROLL_STEP_MS,
+  lazyScrollPositions,
+  lazyScrollTo,
+} from "./lazy-scroll";
+import {
   AttemptAbortedError,
   signalOption,
   throwIfAttemptAborted,
@@ -644,8 +653,20 @@ export function createNativeChromiumPdfRunner(
     };
 
     let budgetExpired: () => void = () => {};
-    const budget = new Promise<void>((resolve) => (budgetExpired = resolve));
     let pageSession = "";
+    /**
+     * Give the page `ms` of virtual time — paused while its fetches are
+     * pending — and wait until Chromium says it is spent.
+     */
+    const spendVirtualTime = async (ms: number) => {
+      const expired = new Promise<void>((resolve) => (budgetExpired = resolve));
+      await cdp.send(
+        "Emulation.setVirtualTimePolicy",
+        { policy: "pauseIfNetworkFetchesPending", budget: ms },
+        pageSession,
+      );
+      await expired;
+    };
 
     cdp.on((event) => {
       if (event.method === "Fetch.requestPaused") {
@@ -716,35 +737,82 @@ export function createNativeChromiumPdfRunner(
     if (target.kind === "html" && !documentServed)
       throw new Error("the uploaded document was never served");
 
-    await cdp.send(
-      "Emulation.setVirtualTimePolicy",
-      {
-        policy: "pauseIfNetworkFetchesPending",
-        budget: VIRTUAL_TIME_BUDGET_MS,
-      },
-      pageSession,
-    );
-    await budget;
+    await spendVirtualTime(VIRTUAL_TIME_BUDGET_MS);
     // Again after the page has run: a script or a meta refresh may have taken
     // the main frame somewhere that answered with an error.
     if (target.kind === "url" && pageVerdict)
       throw new WebpageFetchError(pageVerdict);
 
-    /** Evaluate in a fresh isolated world: page script cannot redefine it. */
-    const isolated = async (worldName: string, expression: string) => {
-      const { executionContextId } = await cdp.send<{
-        executionContextId: number;
-      }>(
-        "Page.createIsolatedWorld",
-        { frameId: mainFrameId, worldName },
-        pageSession,
-      );
-      await cdp.send(
-        "Runtime.evaluate",
-        { expression, contextId: executionContextId, returnByValue: true },
-        pageSession,
-      );
+    /** A fresh isolated world: page script cannot redefine what runs in it. */
+    const world = async (worldName: string) =>
+      (
+        await cdp.send<{ executionContextId: number }>(
+          "Page.createIsolatedWorld",
+          { frameId: mainFrameId, worldName },
+          pageSession,
+        )
+      ).executionContextId;
+    const evaluate = async (contextId: number, expression: string) =>
+      (
+        await cdp.send<{ result?: { value?: unknown } }>(
+          "Runtime.evaluate",
+          { expression, contextId, returnByValue: true },
+          pageSession,
+        )
+      ).result?.value;
+    const isolated = async (worldName: string, expression: string) =>
+      evaluate(await world(worldName), expression);
+    /**
+     * Wait for two rendered frames, at most LAZY_SCROLL_FRAME_WAIT_MS of
+     * real time: a scroll event and an IntersectionObserver callback are
+     * delivered while a frame is rendered, not by virtual time — without
+     * this wait neither fired (capture.chromium.test.ts).
+     */
+    const nextFrames = async (contextId: number) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        cdp
+          .send(
+            "Runtime.evaluate",
+            {
+              expression: LAZY_SCROLL_NEXT_FRAMES,
+              contextId,
+              awaitPromise: true,
+            },
+            pageSession,
+          )
+          .catch(() => {}),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, LAZY_SCROLL_FRAME_WAIT_MS);
+        }),
+      ]);
+      clearTimeout(timer);
     };
+
+    // The scroll pass (audit webpage-to-pdf#4): images a site loads only
+    // when scrolled to are requested, and fetched within each step's time.
+    // `./lazy-scroll` holds the bounds. Webpages only: an upload's page is
+    // the user's own file.
+    if (target.kind === "url") {
+      const scroller = await world("pdfxyz-scroll");
+      const size = (await evaluate(scroller, LAZY_SCROLL_MEASURE)) as {
+        height?: unknown;
+        viewport?: unknown;
+      } | null;
+      const steps = lazyScrollPositions(size?.height, size?.viewport);
+      if (steps.length > 0) {
+        for (const y of steps) {
+          await evaluate(scroller, lazyScrollTo(y));
+          await nextFrames(scroller);
+          await spendVirtualTime(LAZY_SCROLL_STEP_MS);
+        }
+        await evaluate(scroller, lazyScrollTo(0));
+        await nextFrames(scroller);
+        await spendVirtualTime(LAZY_SCROLL_SETTLE_MS);
+        // Scrolling runs page script too: judged again, as after the budget.
+        if (pageVerdict) throw new WebpageFetchError(pageVerdict);
+      }
+    }
 
     // An upload's relative links resolve against the synthetic origin, and
     // Chromium would print them as clickable links to it (audit #48). They

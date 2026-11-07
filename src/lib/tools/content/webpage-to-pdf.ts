@@ -4,6 +4,7 @@ import { htmlLayoutAnswer } from "@/lib/tools/html-layout-copy";
 import {
   WEBPAGE_OVERLAY_ANSWER,
   WEBPAGE_PRINT_STYLES_SENTENCE,
+  WEBPAGE_SCROLL_SENTENCE,
   WEBPAGE_SETTINGS_STEP,
 } from "@/lib/tools/webpage-capture-copy";
 import { WEBPAGE_CAPTURE_LABELS } from "@/lib/jobs/webpage-capture-options";
@@ -73,6 +74,9 @@ import { WEBPAGE_CAPTURE_LABELS } from "@/lib/jobs/webpage-capture-options";
  * with embedded Unicode-mapped fonts; @media print applied (print-only marker
  * present, screen-only absent); script ran; a scroll-triggered
  * IntersectionObserver image was absent while a loading="lazy" image loaded.
+ * Since 2026-11-08 (audit webpage-to-pdf#4) native.ts scrolls a webpage
+ * before printing; capture.chromium.test.ts reads an IntersectionObserver
+ * image and a scroll-handler image back from the PDF.
  * That CLI also stamped the date, title, full URL and "n/N" on every page;
  * the CDP print does not (native.chromium.test.ts reads it back).
  * No figure below is typed: the only number is the download-link lifetime.
@@ -142,7 +146,10 @@ const content: ToolContent = {
     },
     {
       q: "Does it capture pages built with JavaScript?",
-      a: "Usually. It is a full Chromium, so single-page apps, client-rendered articles and pages that fill in after loading get their scripts run before printing, but only within a fixed rendering budget, and nothing scrolls the page: an endless feed prints only what it loads unscrolled, and images a site's script fetches only as you scroll can be missing.",
+      // Until 2026-11-08 this said "nothing scrolls the page: … images a
+      // site's script fetches only as you scroll can be missing" — true
+      // until the scroll pass (src/lib/workers/html-render/lazy-scroll.ts).
+      a: `Usually. It is a full Chromium, so single-page apps, client-rendered articles and pages that fill in after loading get their scripts run before printing, within a fixed rendering budget. ${WEBPAGE_SCROLL_SENTENCE}`,
     },
     {
       q: "Can I set the page size or margins, or hide cookie notices and ads?",

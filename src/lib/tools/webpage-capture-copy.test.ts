@@ -3,8 +3,10 @@ import {
   WEBPAGE_CAPTURE_SENTENCE,
   WEBPAGE_OVERLAY_ANSWER,
   WEBPAGE_PRINT_STYLES_SENTENCE,
+  WEBPAGE_SCROLL_SENTENCE,
   WEBPAGE_SETTINGS_STEP,
 } from "./webpage-capture-copy";
+import { LAZY_SCROLL_MAX_STEPS } from "@/lib/workers/html-render/lazy-scroll";
 import {
   DEFAULT_WEBPAGE_CAPTURE_OPTIONS,
   OVERLAY_MIN_SHARE,
@@ -66,6 +68,20 @@ describe("Webpage to PDF capture copy", () => {
     expect(
       JSON.stringify(getGuideBySlug("how-to-convert-a-webpage-to-pdf")),
     ).toContain(WEBPAGE_PRINT_STYLES_SENTENCE);
+  });
+
+  it("the scroll sentence states the step cap from the renderer's constant, on the page and in the guide (audit webpage-to-pdf#4)", () => {
+    expect(WEBPAGE_SCROLL_SENTENCE).toContain(
+      `up to ${LAZY_SCROLL_MAX_STEPS} screens`,
+    );
+    const page = JSON.stringify(toolContent["webpage-to-pdf"]);
+    expect(page).toContain(WEBPAGE_SCROLL_SENTENCE);
+    expect(page).not.toMatch(/nothing scrolls the page/i);
+    const guide = JSON.stringify(
+      getGuideBySlug("how-to-convert-a-webpage-to-pdf"),
+    );
+    expect(guide).toContain(WEBPAGE_SCROLL_SENTENCE);
+    expect(guide).not.toMatch(/nothing scrolls the page/i);
   });
 
   it("the page no longer says cookie notices cannot be removed", () => {

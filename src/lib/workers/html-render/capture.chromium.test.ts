@@ -6,6 +6,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { createNativeChromiumPdfRunner, resolveOnPath } from "./native";
 import { findChromium } from "./test-chromium";
 import { CONSENT_MANAGERS, CONSENT_SELECTORS } from "./overlays";
+import { encodePng } from "@/lib/pdf/extract-images";
 import type { PinnedFetch, Resolve } from "./network";
 import { DEFAULT_HTML_RENDER_OPTIONS } from "@/lib/jobs/html-render-options";
 import {
@@ -102,11 +103,58 @@ const MEDIA_PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>
 <p class="print-only">${PRINT_ONLY}</p><p class="screen-only">${SCREEN_ONLY}</p>
 </body></html>`;
 
+/**
+ * Two images far below the first screen, each loaded only once it is
+ * scrolled to: one by an IntersectionObserver, one by a scroll handler —
+ * the two patterns audit webpage-to-pdf#4 found printing as blank boxes.
+ * Each also writes a word, so the text shows WHICH loader ran.
+ */
+const OBSERVED_WORD = "Observer loaded words";
+const SCROLLED_WORD = "Scroll handler loaded words";
+const LAZY_PAGE = `<!doctype html><html><head><meta charset="utf-8"></head>
+<body><h1>${ARTICLE}</h1><div style="height:2600px"></div>
+<img id="io" width="40" height="40" alt=""><p id="io-out"></p>
+<div style="height:1600px"></div>
+<img id="sc" width="40" height="40" alt=""><p id="sc-out"></p>
+<script>
+new IntersectionObserver((entries, obs) => {
+  for (const e of entries) if (e.isIntersecting) {
+    io.src = "/observed.png"; document.getElementById("io-out").textContent = "${OBSERVED_WORD}";
+    obs.disconnect();
+  }
+}).observe(io);
+addEventListener("scroll", function onScroll() {
+  if (sc.getBoundingClientRect().top < innerHeight) {
+    sc.src = "/scrolled.png"; document.getElementById("sc-out").textContent = "${SCROLLED_WORD}";
+    removeEventListener("scroll", onScroll);
+  }
+});
+</script></body></html>`;
+const PNG = encodePng(2, 2, "rgb8", new Uint8Array(12).fill(200));
+const fetched: string[] = [];
+
+/** How many images a PDF's pages paint. */
+async function pdfImageCount(bytes: Uint8Array): Promise<number> {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const task = pdfjs.getDocument({ data: new Uint8Array(bytes) });
+  const doc = await task.promise;
+  let count = 0;
+  for (let i = 1; i <= doc.numPages; i++) {
+    const ops = await (await doc.getPage(i)).getOperatorList();
+    count += ops.fnArray.filter(
+      (fn) => fn === pdfjs.OPS.paintImageXObject,
+    ).length;
+  }
+  await task.destroy();
+  return count;
+}
+
 const pages: Record<string, string> = {
   "/overlay": OVERLAY_PAGE,
   "/shell": SHELL_PAGE,
   "/consent": CONSENT_PAGE,
   "/media": MEDIA_PAGE,
+  "/lazy": LAZY_PAGE,
 };
 
 const resolve: Resolve = async (host) => {
@@ -115,6 +163,13 @@ const resolve: Resolve = async (host) => {
   throw new Error("NXDOMAIN");
 };
 const fetch: PinnedFetch = async (url) => {
+  fetched.push(url.pathname);
+  if (url.pathname.endsWith(".png"))
+    return {
+      status: 200,
+      rawHeaders: ["Content-Type", "image/png"],
+      body: PNG,
+    };
   const page = pages[url.pathname];
   if (page === undefined)
     return { status: 404, rawHeaders: [], body: new Uint8Array() };
@@ -214,6 +269,20 @@ describe.skipIf(!BIN)(
       const text = await pdfText(bytes);
       expect(text).toContain(SCREEN_ONLY);
       expect(text).not.toContain(PRINT_ONLY);
+    }, 90_000);
+
+    // audit webpage-to-pdf#4: images loaded on scroll, by either pattern.
+    it("images a page loads only when scrolled to are fetched and printed", async () => {
+      fetched.length = 0;
+      const bytes = await runner.renderUrl("https://public.example/lazy");
+      const text = await pdfText(bytes);
+      expect(text).toContain(ARTICLE);
+      expect(text).toContain(OBSERVED_WORD);
+      expect(text).toContain(SCROLLED_WORD);
+      expect(fetched).toEqual(
+        expect.arrayContaining(["/observed.png", "/scrolled.png"]),
+      );
+      expect(await pdfImageCount(bytes)).toBe(2);
     }, 90_000);
 
     it("never hides a fixed full-screen frame that holds the page's main content", async () => {
