@@ -455,7 +455,7 @@ export const PDF_TO_WORD_OCR_LANGUAGE_CODES: readonly OcrLanguage[] =
 
 /** Why a right-to-left language is refused by PDF to Word's OCR option. */
 export const PDF_TO_WORD_RTL_REFUSAL =
-  "Right-to-left languages (Arabic, Hebrew, Persian, Urdu) are not available for PDF to Word's OCR: their words come out of the conversion out of order. OCR PDF reads them in order.";
+  "Right-to-left languages (Arabic, Hebrew, Persian, Urdu) are not available for OCR inside a PDF to Office conversion: their words can come out of the conversion out of order. OCR PDF reads them in order.";
 
 /**
  * Parse the `options` bag of a `pdf-to-word` job. `{}` is today's job: no

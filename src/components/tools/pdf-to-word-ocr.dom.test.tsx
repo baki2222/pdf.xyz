@@ -28,7 +28,7 @@ import { noPictures } from "@/tests/page-scan-stubs";
 import { readyFileInput } from "@/tests/worker-ready";
 import { PdfOfficeExportWorkerPanel } from "./pdf-office-export-worker-panel";
 
-const wordTool = getToolBySlug("pdf-to-word")!;
+type OcrTool = "pdf-to-word" | "pdf-to-excel";
 const providers = getProviderReadiness("remote-configured");
 
 function status(ocrAvailable: boolean): WorkerStatus {
@@ -119,13 +119,19 @@ function worker() {
       installedLanguages: ["eng", "deu"],
     },
     pdfOfficeExport: {
-      extract: async () => ({
-        pageCount: 1,
-        pages: [{ pageNumber: 1, text: "", characterCount: 0 }],
-        text: "",
-        characterCount: 0,
-        hasText: false,
-      }),
+      // poppler `-layout`, played as the flow is: words only after OCR.
+      extract: async (bytes) => {
+        const text = Buffer.from(bytes).equals(Buffer.from(SEARCHABLE))
+          ? WORDS
+          : "";
+        return {
+          pageCount: 1,
+          pages: [{ pageNumber: 1, text, characterCount: text.length }],
+          text,
+          characterCount: text.length,
+          hasText: text.length > 0,
+        };
+      },
       extractFlow,
       scanPages: noPictures,
     },
@@ -133,7 +139,7 @@ function worker() {
   return { registry, ocrAsked };
 }
 
-function stubNetwork(ocrAvailable: boolean) {
+function stubNetwork(ocrAvailable: boolean, tool: OcrTool = "pdf-to-word") {
   const { registry, ocrAsked } = worker();
   const sent: Record<string, unknown>[] = [];
   let output: Uint8Array | undefined;
@@ -150,7 +156,7 @@ function stubNetwork(ocrAvailable: boolean) {
       if (url === "/api/uploads")
         return json({
           sessionId: "s1",
-          tool: "pdf-to-word",
+          tool,
           slots: [
             {
               fileId: "f1",
@@ -167,8 +173,8 @@ function stubNetwork(ocrAvailable: boolean) {
           new TextDecoder().decode(init!.body as ArrayBuffer),
         );
         sent.push(body.options);
-        const result = await registry.resolve("pdf-to-word")!.process({
-          tool: "pdf-to-word",
+        const result = await registry.resolve(tool)!.process({
+          tool,
           options: body.options,
           inputs: [
             {
@@ -181,7 +187,7 @@ function stubNetwork(ocrAvailable: boolean) {
         });
         const base = {
           jobId: "job_1",
-          tool: "pdf-to-word",
+          tool,
           capability: "worker",
           progress: 100,
           createdAt: "2026-10-24T00:00:00.000Z",
@@ -214,8 +220,8 @@ function stubNetwork(ocrAvailable: boolean) {
   return { sent, ocrAsked, output: () => output };
 }
 
-async function addFile() {
-  render(<PdfOfficeExportWorkerPanel tool={wordTool} />);
+async function addFile(tool: OcrTool = "pdf-to-word") {
+  render(<PdfOfficeExportWorkerPanel tool={getToolBySlug(tool)!} />);
   const input = await vi.waitFor(() => {
     const found = readyFileInput();
     if (!found) throw new Error("no file input yet");
@@ -290,5 +296,45 @@ describe("PDF to Word: Recognise text in scans (OCR)", () => {
     expect(run).toHaveAttribute("aria-disabled", "true");
     fireEvent.click(run);
     expect(net.sent).toEqual([]);
+  });
+});
+
+/**
+ * Audit pdf-to-excel#2 (2026-11-08): the same switch on PDF to Excel. Until
+ * then a scan was refused and the panel sent the visitor to OCR PDF and back.
+ */
+describe("PDF to Excel: Recognise text in scans (OCR)", () => {
+  it("control: off by default — no options travel and the scan is refused", async () => {
+    const net = stubNetwork(true, "pdf-to-excel");
+    await addFile("pdf-to-excel");
+    fireEvent.click(screen.getByRole("button", { name: /export xlsx/i }));
+    await waitFor(() => expect(net.sent).toHaveLength(1));
+    expect(net.sent[0]).toEqual({});
+    expect(net.ocrAsked).toEqual([]);
+  });
+
+  it("on: the chosen languages travel, and the XLSX holds the recognised words", async () => {
+    const net = stubNetwork(true, "pdf-to-excel");
+    await addFile("pdf-to-excel");
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: new RegExp(WORD_OCR_LABEL.replace(/[()]/g, "\\$&")),
+      }),
+    );
+    await screen.findByRole("group", { name: "OCR languages" });
+    fireEvent.click(screen.getByRole("button", { name: "German" }));
+    fireEvent.click(screen.getByRole("button", { name: /export xlsx/i }));
+    await screen.findByText("Your XLSX file is ready.");
+    expect(net.sent[0]).toMatchObject({ ocr: true });
+    expect((net.sent[0] as { languages: string[] }).languages).toContain("deu");
+    expect(net.ocrAsked).toHaveLength(1);
+    const zip = await JSZip.loadAsync(net.output()!);
+    const parts = Object.keys(zip.files).filter(
+      (n) => n.startsWith("xl/") && n.endsWith(".xml"),
+    );
+    const xml = (
+      await Promise.all(parts.map((n) => zip.file(n)!.async("string")))
+    ).join("");
+    expect(xml).toContain(WORDS);
   });
 });

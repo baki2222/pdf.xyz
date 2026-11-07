@@ -1,5 +1,6 @@
 import type { WorkerStatus } from "./status";
 import { OCR_JOB_POLL } from "@/lib/jobs/client-wait";
+import { offersOfficeOcr } from "@/lib/jobs/office-export-ocr";
 import {
   canRunPdfSecurity,
   runSecurityJob,
@@ -14,8 +15,8 @@ export interface PdfOfficeExportWorkerInput {
   filename: string;
   bytes: Uint8Array;
   /**
-   * PDF to Word only: run OCR in the same job first, in these languages.
-   * Absent = today's request, with an empty options bag.
+   * The exports in `OFFICE_OCR_TOOLS` only: run OCR in the same job first, in
+   * these languages. Absent = today's request, with an empty options bag.
    */
   ocr?: { languages: readonly string[] };
 }
@@ -24,7 +25,7 @@ export function runWorkerPdfOfficeExport(
   input: PdfOfficeExportWorkerInput,
   options: PdfSecurityWorkerOptions = {},
 ): Promise<PdfOfficeExportWorkerResult> {
-  const ocrFirst = input.tool === "pdf-to-word" && input.ocr !== undefined;
+  const ocrFirst = offersOfficeOcr(input.tool) && input.ocr !== undefined;
   const jobOptions: Record<string, unknown> = ocrFirst
     ? { ocr: true, languages: [...input.ocr!.languages] }
     : {};

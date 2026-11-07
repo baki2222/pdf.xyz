@@ -31,7 +31,10 @@ import {
 import { OfficeExportCoverageNotice } from "./office-export-coverage";
 import { OfficeExportNextStep } from "./office-export-notices";
 import { OcrLanguagePicker, useOcrLanguageChoice } from "./ocr-language-picker";
-import { WORD_OCR_HINT } from "@/lib/jobs/pdf-office-export";
+import {
+  OFFICE_OCR_HINTS,
+  offersOfficeOcr,
+} from "@/lib/jobs/office-export-ocr";
 import { PDF_TO_WORD_OCR_LANGUAGE_CODES } from "@/lib/jobs/ocr";
 
 /**
@@ -103,11 +106,14 @@ const EXPORT_COPY: Record<
     note: "Running this uses a private secure-server job. A PDF with no selectable text at all, such as a scan, needs the OCR switch on.",
     hint: "Selectable PDF",
   },
+  // CHANGED 2026-11-08 (audit pdf-to-excel#2): "…; run OCR first to include
+  // them." / "…; scanned/image-only PDFs need OCR first." — before the OCR
+  // switch below ran it in the same job.
   "pdf-to-excel": {
     badge: "Selectable text export",
     summary:
-      "Our server extracts selectable PDF text and packages it into a real XLSX file. Pages without selectable text (scans) are not included; run OCR first to include them.",
-    note: "Running this uses a private secure-server job. Only selectable text is exported; scanned/image-only PDFs need OCR first.",
+      "Our server extracts selectable PDF text and packages it into a real XLSX file. Pages without selectable text (scans) are not included; turn on OCR below to include them.",
+    note: "Running this uses a private secure-server job. A PDF with no selectable text at all, such as a scan, needs the OCR switch on.",
     hint: "Selectable PDF",
   },
   "pdf-to-powerpoint": {
@@ -180,8 +186,9 @@ function PdfOfficeRunArea({
     setOutcome(null);
     setFile(files[0] ?? null);
   });
-  // PDF to Word only: OCR first, in the same job, with OCR PDF's languages.
-  const offersOcr = tool === "pdf-to-word";
+  // OCR first, in the same job, with OCR PDF's languages: PDF to Word since
+  // 2026-10-24, PDF to Excel since 2026-11-08 (`OFFICE_OCR_TOOLS`).
+  const offersOcr = offersOfficeOcr(tool);
   const [ocrOn, setOcrOn] = useState(false);
   // Right-to-left scripts are left out: their words come out of the
   // conversion out of order (`PDF_TO_WORD_OCR_LANGUAGE_CODES`).
@@ -269,7 +276,7 @@ function PdfOfficeRunArea({
                 Recognise text in scans (OCR)
               </span>
               <span className="text-muted text-xs leading-relaxed">
-                {WORD_OCR_HINT}
+                {OFFICE_OCR_HINTS[tool as keyof typeof OFFICE_OCR_HINTS]}
               </span>
             </span>
           </label>

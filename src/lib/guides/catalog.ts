@@ -3067,7 +3067,7 @@ export const guides: Guide[] = [
         id: "scans-and-tables",
         heading: "Scanned PDFs and table-only exports",
         body: [
-          `A scanned page holds a picture of its words, so it has no text to export. A fully scanned PDF is refused with a message pointing to ${nameOf("ocr-pdf")}: run it there with the language the page is written in, choose a searchable PDF, and bring that file back here. If only some pages are scans, the export succeeds and the result says which pages had no text.`,
+          `A scanned page holds a picture of its words, so on its own it has no text to export. Tick “${WORD_OCR_LABEL}” before you press Export XLSX and pick the languages printed on the page: our server recognises the words first and places them into cells in the same job. Without it, a fully scanned PDF is refused, and if only some pages are scans, the export succeeds and the result says which pages had no text. ${nameOf("ocr-pdf")}, listed beside it, is for when you want a searchable PDF instead of a workbook.`,
           `${nameOf("extract-tables")} looks for tables by where the words sit, keeps only the regions that read as a grid of values, and hands back a CSV per table plus one workbook with a sheet for each. Choose it when you want the tables alone, without the headings and paragraphs around them.`,
         ],
       },
@@ -3083,7 +3083,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I convert a scanned PDF to Excel?",
-        answer: `Not directly: a scan has no selectable text, so the job is refused with a link to ${nameOf("ocr-pdf")}. Run OCR first with the right language, choose a searchable PDF as the result, and convert that file here.`,
+        answer: `Yes. Tick “${WORD_OCR_LABEL}” and pick the languages printed on the page: our server runs OCR first and converts the result in the same job. A wrong language does not fail, it gives plausible-looking gibberish, so choose every language on the page, and check the figures.`,
       },
       {
         question: "Does PDF to Excel upload my file?",
@@ -3095,7 +3095,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-11-06",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-convert-pdf-to-powerpoint",

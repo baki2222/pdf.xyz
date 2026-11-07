@@ -164,6 +164,9 @@ export function copyFiles(): string[] {
     // to the picker's hook.
     path.join(ROOT, "src", "lib", "jobs", "ocr-start-copy.ts"),
     path.join(ROOT, "src", "lib", "jobs", "pdf-security.ts"),
+    // The PDF to Office exports' OCR switch hints, per tool (2026-11-08,
+    // audit pdf-to-excel#2), drawn by the export panel.
+    path.join(ROOT, "src", "lib", "jobs", "office-export-ocr.ts"),
     // Protect PDF's permission switch labels and their two "why it cannot
     // be turned off" sentences (2026-10-24), drawn by the panel and the page.
     path.join(ROOT, "src", "lib", "jobs", "pdf-permission-labels.ts"),
