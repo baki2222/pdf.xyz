@@ -243,10 +243,15 @@ export const OVERLAY_FITS: readonly OverlayFitOption[] = [
   },
 ] as const;
 
-/** Grayscale PDF — the rasterization presets the runner offers. */
+/**
+ * Grayscale PDF — the rasterization presets the runner offers. "fine" (300
+ * DPI, the usual print standard) arrived 2026-11-07 (audit grayscale-pdf#4):
+ * until then the sharpest was Print at 150. Print stays the default.
+ */
 export const GRAYSCALE_DPI_PRESETS = [
   { id: "screen", label: "Screen", dpi: 96 },
   { id: "print", label: "Print", dpi: 150 },
+  { id: "fine", label: "Fine print", dpi: 300 },
 ] as const;
 
 /**

@@ -3,6 +3,7 @@ import { grayscaleImageData, luminancePlane } from "./render";
 import {
   grayscaleOutputName,
   grayscalePresetById,
+  grayscalePresetTradeoff,
   pageSizeForRaster,
 } from "./grayscale";
 
@@ -49,7 +50,16 @@ describe("grayscale helpers", () => {
 
   it("resolves known presets and falls back to print", () => {
     expect(grayscalePresetById("screen").dpi).toBe(96);
+    expect(grayscalePresetById("fine").dpi).toBe(300);
     expect(grayscalePresetById("unknown").id).toBe("print");
+  });
+
+  it("says what a preset sharper than Print costs, and nothing for the rest", () => {
+    expect(grayscalePresetTradeoff("fine")).toContain(
+      "4 times the pixels of Print",
+    );
+    expect(grayscalePresetTradeoff("print")).toBeNull();
+    expect(grayscalePresetTradeoff("screen")).toBeNull();
   });
 
   it("preserves PDF point dimensions when present", () => {

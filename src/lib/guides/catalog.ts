@@ -585,6 +585,8 @@ const OCR_PDF_MODE = ocrModeLabel("searchable-pdf");
  */
 const GRAY_SCREEN = grayscalePresetById("screen");
 const GRAY_PRINT = grayscalePresetById("print");
+const GRAY_FINE = grayscalePresetById("fine");
+const GRAY_DPIS = listOr(GRAYSCALE_DPI_PRESETS.map((p) => String(p.dpi)));
 const GRAY_PRESET_CHOICES = listOr(
   GRAYSCALE_DPI_PRESETS.map((p) => `${p.label} (${p.dpi} DPI)`),
 );
@@ -5013,7 +5015,7 @@ export const guides: Guide[] = [
   {
     slug: "how-to-convert-a-pdf-to-black-and-white",
     title: "How to convert a PDF to black and white",
-    description: `Turn a color PDF into shades of gray for printing, right in your browser. Choose ${GRAY_SCREEN.dpi} or ${GRAY_PRINT.dpi} DPI; pages become images, so keep the original.`,
+    description: `Turn a color PDF into shades of gray for printing, right in your browser. Choose ${GRAY_DPIS} DPI; pages become images, so keep the original.`,
     tools: ["grayscale-pdf", "pdf-to-png", "ocr-pdf"],
     keywords: [
       "how to convert a pdf to black and white",
@@ -5049,7 +5051,7 @@ export const guides: Guide[] = [
         heading: "Why the file can get bigger",
         body: [
           `A page of text is a few drawing instructions in the original and a full picture in the copy, so a text-only PDF usually grows, often by a lot. A scanned or photo-heavy PDF can shrink instead. The result shows both sizes, and when the copy is larger it says so: “${GRAYSCALE_GREW_NOTE}”`,
-          `${GRAY_SCREEN.label} (${GRAY_SCREEN.dpi} DPI) draws fewer pixels per page than ${GRAY_PRINT.label} (${GRAY_PRINT.dpi} DPI), so it gives a lighter file that reads well on a monitor. ${GRAY_PRINT.label} keeps small type and fine lines crisper on paper.`,
+          `${GRAY_SCREEN.label} (${GRAY_SCREEN.dpi} DPI) draws fewer pixels per page than ${GRAY_PRINT.label} (${GRAY_PRINT.dpi} DPI), so it gives a lighter file that reads well on a monitor. ${GRAY_PRINT.label} keeps small type and fine lines crisper on paper, and ${GRAY_FINE.label} (${GRAY_FINE.dpi} DPI), the resolution laser printers are usually rated at, crisper still; it draws ${Math.round((GRAY_FINE.dpi / GRAY_PRINT.dpi) ** 2)} times the pixels of ${GRAY_PRINT.label}, so the file grows with it.`,
         ],
       },
       {
