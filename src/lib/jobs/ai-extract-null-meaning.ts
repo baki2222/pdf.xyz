@@ -74,6 +74,13 @@ export const AI_EXTRACT_NULL_CELL = `_(${NULL_LABEL})_`;
 /** How a surface that describes extraction.md says what a null looks like there. */
 export const AI_EXTRACT_NULL_CELL_LEGEND = `In extraction.md a null reads "${NULL_LABEL}".`;
 
+/**
+ * How a surface that offers the CSV says what a null looks like there: the
+ * CSV (`ai-extract-package.ts`, built in the browser from extraction.json)
+ * writes a null as an empty cell.
+ */
+export const AI_EXTRACT_NULL_CSV_LEGEND = "In the CSV a null is an empty cell.";
+
 /** What a cut window means for a null: the value may lie past the cut. */
 export const AI_EXTRACT_NULL_PAST_CUT =
   "A null was judged only on the text that was read, so the value may still appear later in the document.";

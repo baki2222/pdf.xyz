@@ -231,11 +231,13 @@ import {
 import {
   AI_EXTRACT_NOT_NULL_WARNING,
   AI_EXTRACT_NULL_CELL_LEGEND,
+  AI_EXTRACT_NULL_CSV_LEGEND,
   AI_EXTRACT_NULL_INSTRUCTION,
   AI_EXTRACT_NULL_MEANING,
   AI_EXTRACT_NULL_PAST_CUT,
   AI_EXTRACT_UNRETURNED_NULL,
 } from "@/lib/jobs/ai-extract-null-meaning";
+import { AI_EXTRACT_CSV_SHAPE } from "@/lib/workers/ai-extract-package";
 import {
   OVERLAY_FITS,
   OVERLAY_LAYERS,
@@ -5720,7 +5722,7 @@ export const guides: Guide[] = [
       `Under Fields to extract, type a field name of up to ${MAX_FIELD_NAME_CHARS} characters, such as invoice_number, and choose its type: ${EXTRACT_FIELD_TYPES}. Add field adds a row, up to ${MAX_EXTRACTION_FIELDS}.`,
       `Or press Prompt and describe what you want in the What to extract box, up to ${EXTRACT_PROMPT_CHARS} characters.`,
       "Press Extract data. Your PDF uploads over an encrypted connection to our secure server, and the button follows the job while the model reads.",
-      `Press Download ${EXTRACT_EXAMPLE_ZIP}, the button named after your file: invoice.pdf comes back as ${EXTRACT_EXAMPLE_ZIP}. Save it to your device before you close the tab.`,
+      `Press Download ${EXTRACT_EXAMPLE_ZIP}, the button named after your file: invoice.pdf comes back as ${EXTRACT_EXAMPLE_ZIP}. Save it to your device before you close the tab. To open the values in a spreadsheet, press Download CSV beside it.`,
     ],
     sections: [
       {
@@ -5736,7 +5738,7 @@ export const guides: Guide[] = [
         heading: "What you download",
         body: [
           `In the ZIP, model-output.json is the model's reply as it was returned. extraction.json holds the same data; with a field schema it lists every field you asked for, in your order and under your names, and a key the model respelled is mapped back to your name. ${AI_EXTRACT_UNRETURNED_NULL}`,
-          `extraction.md lays the data out as a Field and Value table, or as a numbered list when the reply is a list. ${AI_EXTRACT_NULL_CELL_LEGEND} manifest.json records the provider and model, your fields or prompt, and how much of the document was read, and README.txt describes the package. There is no CSV or spreadsheet; for data in rows and columns, ${nameOf("extract-tables")} writes a CSV per table and an Excel workbook.`,
+          `extraction.md lays the data out as a Field and Value table, or as a numbered list when the reply is a list. ${AI_EXTRACT_NULL_CELL_LEGEND} manifest.json records the provider and model, your fields or prompt, and how much of the document was read, and README.txt describes the package. Beside the ZIP, Download CSV saves the same data as a CSV, built by the page from extraction.json, whenever it is an object or a list of objects: ${AI_EXTRACT_CSV_SHAPE}. ${AI_EXTRACT_NULL_CSV_LEGEND} For data laid out in rows and columns in the PDF itself, ${nameOf("extract-tables")} writes a CSV per table and an Excel workbook.`,
         ],
       },
       {
@@ -5779,7 +5781,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I get the data as CSV or Excel?",
-        answer: `Not from this tool: it writes JSON and a Markdown table. For tables, ${nameOf("extract-tables")} returns a CSV per table and an Excel workbook, without AI, on our secure server.`,
+        answer: `As CSV, yes: when the data is an object or a list of objects, a Download CSV button beside the ZIP saves it, built by the page from extraction.json. There is no Excel workbook, though Excel opens the CSV. For tables in the PDF itself, ${nameOf("extract-tables")} returns a CSV per table and an Excel workbook, without AI, on our secure server.`,
       },
       {
         question: "Can it extract data from a scanned PDF?",
@@ -5787,7 +5789,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   // Added 2026-10-31, the last four tools without a guide of their own.
   // PNG to PDF: written for what is particular to PNG, not a second JPG

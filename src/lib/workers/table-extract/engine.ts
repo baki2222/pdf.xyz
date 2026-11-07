@@ -1,6 +1,6 @@
 import JSZip from "jszip";
+import { CSV_BOM, toCsv } from "../ooxml/csv";
 import {
-  parseSheetNumber,
   SheetStyles,
   STYLES_CONTENT_TYPE_OVERRIDE,
   stylesRelationship,
@@ -677,49 +677,9 @@ export function detectTablesOnPage(page: PdfLayoutPage): DetectedTable[] {
 // CSV / XLSX serialization
 // ---------------------------------------------------------------------------
 
-/** The UTF-8 byte-order mark each table-N.csv starts with. */
-export const CSV_BOM = String.fromCharCode(0xfeff);
-
-/**
- * The printable characters that make Excel and LibreOffice read a CSV cell as
- * a FORMULA (OWASP, "CSV Injection"). Quoting does not stop it. Exported so
- * the Extract Tables FAQ names exactly these.
- */
-export const CSV_FORMULA_LEADS = ["=", "+", "-", "@"] as const;
-
-/** {@link CSV_FORMULA_LEADS} plus the tab and carriage return OWASP adds. */
-const FORMULA_LEAD = new Set<string>([...CSV_FORMULA_LEADS, "\t", "\r"]);
-
-/**
- * A CSV cell, RFC-4180 quoted, and never a live formula (audit #31).
- *
- * A PDF from anywhere can carry `=HYPERLINK(…)` or a DDE string, and until
- * 2026-11-06 it reached table-N.csv raw, to be evaluated on open. A cell with a
- * formula lead now gets a leading apostrophe, as OWASP recommends, unless it is
- * a value the workbook stores as a number (`-4`, `-1,250.00`, the shared
- * {@link parseSheetNumber}) or a lone `-`, the usual nil: neither is a formula,
- * and both stay exactly as printed. tables.xlsx needs none of this, since its
- * text cells are inline strings.
- */
-function csvCell(value: string): string {
-  const neutralised =
-    FORMULA_LEAD.has(value.charAt(0)) &&
-    value !== "-" &&
-    !parseSheetNumber(value);
-  const text = neutralised ? `'${value}` : value;
-  return neutralised || /[",\r\n]/.test(text)
-    ? `"${text.replace(/"/g, '""')}"`
-    : text;
-}
-
-/**
- * Serialize rows to an RFC-4180 CSV string: CRLF row separators, no trailing
- * CRLF, formula-leading cells neutralised. The file's byte-order mark is added
- * by {@link buildTablesZip}, not here.
- */
-export function toCsv(rows: string[][]): string {
-  return rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
-}
+// The CSV writer is shared with AI Data Extraction's in-browser CSV
+// (`ai-extract-package.ts`), so both files neutralise formulas the same way.
+export { CSV_BOM, CSV_FORMULA_LEADS, toCsv } from "../ooxml/csv";
 
 /** Build a single, multi-sheet XLSX workbook — one sheet per detected table. */
 async function buildXlsx(tables: DetectedTable[]): Promise<Uint8Array> {
