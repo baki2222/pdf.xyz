@@ -181,6 +181,37 @@ describe("PDF to PNG · pick the pages on their thumbnails", () => {
     expect(box().value).toBe("2, 4");
   }, 30_000);
 
+  // Review of 7d46f446: select mode's keyboard model (one tab stop, arrows,
+  // Home/End, Space) had no test — PageTile could ignore its tabIndex prop
+  // and every picker test stayed green. Only cut mode's keys were covered.
+  it("one tab stop for the grid; arrows, Home and End move it; Space presses", async () => {
+    await mount(4);
+    await tile(4);
+    const stops = () =>
+      [1, 2, 3, 4].filter(
+        (n) =>
+          screen
+            .getByRole("button", { name: `Page ${n}` })
+            .getAttribute("tabindex") === "0",
+      );
+    expect(stops()).toEqual([1]);
+    expect(await tile(2)).toHaveAttribute("tabindex", "-1");
+    (await tile(1)).focus();
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(await tile(2));
+    expect(stops()).toEqual([2]);
+    fireEvent.keyDown(document.activeElement!, { key: " " });
+    expect(box().value).toBe("2");
+    expect(await tile(2)).toHaveAttribute("aria-pressed", "true");
+    fireEvent.keyDown(document.activeElement!, { key: "End" });
+    expect(document.activeElement).toBe(await tile(4));
+    fireEvent.keyDown(document.activeElement!, { key: " " });
+    expect(box().value).toBe("2, 4");
+    fireEvent.keyDown(document.activeElement!, { key: "Home" });
+    expect(document.activeElement).toBe(await tile(1));
+    expect(stops()).toEqual([1]);
+  }, 30_000);
+
   it("renders exactly the pages pressed", async () => {
     await mount(4);
     fireEvent.click(await tile(2));
