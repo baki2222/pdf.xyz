@@ -8,6 +8,7 @@ import {
 } from "@/lib/pdf/font-packs";
 import { formatBytes } from "@/lib/utils";
 import { TEXT_MARKUPS, TEXT_MARKUP_LABEL } from "@/lib/pdf/editor/markup";
+import { STICKY_LABEL } from "@/lib/pdf/editor/sticky";
 
 /**
  * The annotate runner's own input gate (`useSinglePdf` → `validatePdfFile` →
@@ -137,7 +138,7 @@ const content: ToolContent = {
   useCases: [
     {
       title: "Point a colleague at one clause",
-      body: "Drag a Highlight over the sentence that matters, add a Note in the margin and run an Arrow to it. Flattened, the marks are part of the page, so they also show in viewers and printouts that leave comments out; saved as comments, your colleague can reply to or delete them in their own PDF app.",
+      body: `Drag a Highlight over the sentence that matters, add a Note in the margin and run an Arrow to it. Flattened, the marks are part of the page, so they also show in viewers and printouts that leave comments out; saved as comments, your colleague can reply to or delete them in their own PDF app. A ${STICKY_LABEL} placed beside them is always a comment, flattened or not.`,
     },
     {
       title: "Circle the figures on a form or statement",
@@ -187,7 +188,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I take a markup out after saving?",
-      a: "Saved as comments, yes: each highlight, drawing, note, shape and line is its own annotation, which a PDF app that edits comments can select and delete. Flattened, only with an editor that can change page content, because each markup is drawn into the page like ink rather than stored as a separate object. Before you apply, any markup can be selected and deleted, or undone, either way. Keep the original if you may want an unmarked copy.",
+      a: `Saved as comments, yes: each highlight, drawing, note, shape and line is its own annotation, which a PDF app that edits comments can select and delete. Flattened, only with an editor that can change page content, because each markup is drawn into the page like ink rather than stored as a separate object. A ${STICKY_LABEL} is always saved as a comment, flattened or not, so it can be deleted that way too. Before you apply, any markup can be selected and deleted, or undone, either way. Keep the original if you may want an unmarked copy.`,
     },
     {
       q: "Does annotating change anything else in my PDF?",

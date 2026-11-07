@@ -43,7 +43,11 @@ import {
 } from "pdf-lib";
 import { withAppRouter } from "@/tests/app-router";
 import { renderPdfPages, regionMean } from "@/tests/pdf-render";
-import { COMMENT_AUTHOR_KEY, STICKY_LABEL } from "@/lib/pdf/editor/sticky";
+import {
+  COMMENT_AUTHOR_KEY,
+  STICKY_LABEL,
+  STICKY_STAYS_COMMENT,
+} from "@/lib/pdf/editor/sticky";
 import { HIGHLIGHTER_LABEL, TEXT_MARKUP_LABEL } from "@/lib/pdf/editor/markup";
 import { AnnotateRunner } from "./annotate-runner";
 
@@ -212,6 +216,8 @@ describe("Annotate PDF, through the editor to the downloaded file", () => {
         sheet.querySelector('[data-object-kind="highlight"]'),
       ).not.toBeNull(),
     );
+    // No Comment placed: no word about one beside the flatten choice.
+    expect(document.querySelector("[data-sticky-hint]")).toBeNull();
     chooseComments();
     const doc = await applyAndRead();
     const list = annots(doc);
@@ -246,6 +252,11 @@ describe("Annotate PDF, through the editor to the downloaded file", () => {
       await screen.findByLabelText("Your name on comments (optional)"),
       { target: { value: "Ada Lovelace" } },
     );
+    // Flatten is still chosen, and the run bar says the Comment will be a
+    // comment anyway (the review of 62aa1808).
+    expect(
+      document.querySelector("[data-sticky-hint]")?.textContent?.trim(),
+    ).toBe(STICKY_STAYS_COMMENT);
     const doc = await applyAndRead();
     const list = annots(doc);
     expect(list.map(subtype).sort()).toEqual(["/Popup", "/Text"]);

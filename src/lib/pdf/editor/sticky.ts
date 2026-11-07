@@ -17,6 +17,13 @@ export const STICKY_GAP = 4;
 /** What the toolbar button is called. */
 export const STICKY_LABEL = "Comment";
 
+/**
+ * The exception every sentence about flattening names (the review of
+ * 62aa1808, 2026-11-08): a Comment is a comment even in flatten mode.
+ * `sticky-exception-copy.test.ts` finds the sentences that need it.
+ */
+export const STICKY_STAYS_COMMENT = `A ${STICKY_LABEL} is always saved as a PDF comment, even when the rest is flattened, because a popup cannot be drawn into a page.`;
+
 /** The popup's top-left: right of the icon, level with its top. */
 export function stickyPopupOrigin(obj: { x: number; y: number }): {
   x: number;

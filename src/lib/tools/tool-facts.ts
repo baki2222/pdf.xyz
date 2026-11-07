@@ -144,6 +144,7 @@ import {
 } from "@/lib/pdf/tiff-limits";
 import { getRunnerKind, type RunnerKind } from "@/lib/pdf/registry";
 import { tools } from "./catalog";
+import { STICKY_STAYS_COMMENT } from "@/lib/pdf/editor/sticky";
 import { toolFileCeilingMb } from "./file-ceilings";
 import type { Tool } from "./types";
 
@@ -1351,7 +1352,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
             MARKUP_KINDS.filter((k) => isCommentKind(k)).map(
               (k) => EDITOR_KIND_FACT[k],
             ),
-          )} into the page itself, so a reader shows them as part of the page, not as comments. Choose Save markups as comments and they are written as standard PDF annotations instead, as are ${COMMENT_KINDS.filter(
+          )} into the page itself, so a reader shows them as part of the page, not as comments. ${STICKY_STAYS_COMMENT} Choose Save markups as comments and they are written as standard PDF annotations instead, as are ${COMMENT_KINDS.filter(
             (k) => !(MARKUP_KINDS as readonly string[]).includes(k),
           )
             .map((k) => EDITOR_KIND_FACT[k])

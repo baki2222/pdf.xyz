@@ -28,7 +28,11 @@ import { RunBar } from "../run-bar";
 import { SinglePdfRunner } from "../single-pdf-runner";
 import { useUnsavedGuard } from "../use-unsaved-guard";
 import type { LoadedPdf } from "../use-single-pdf";
-import { readCommentAuthor, writeCommentAuthor } from "@/lib/pdf/editor/sticky";
+import {
+  STICKY_STAYS_COMMENT,
+  readCommentAuthor,
+  writeCommentAuthor,
+} from "@/lib/pdf/editor/sticky";
 import {
   editorReducer,
   hasEdits,
@@ -287,6 +291,7 @@ function EditorSession({
                       value={restricted ? "comments" : markups}
                       onChange={setMarkups}
                       fixed={restricted}
+                      sticky={hasSticky}
                     />
                     {(restricted || markups === "comments" || hasSticky) && (
                       <CommentAuthor
@@ -370,10 +375,13 @@ function MarkupChoice({
   value,
   onChange,
   fixed,
+  sticky,
 }: {
   value: MarkupMode;
   onChange: (mode: MarkupMode) => void;
   fixed: boolean;
+  /** A Comment is placed: it stays a comment whichever is chosen. */
+  sticky: boolean;
 }) {
   const id = useId();
   if (fixed) {
@@ -423,6 +431,14 @@ function MarkupChoice({
         <p className="text-muted max-w-md text-[11px] leading-relaxed">
           Whiteout, redaction, text, pictures and signatures are still written
           into the page.
+        </p>
+      )}
+      {value === "flatten" && sticky && (
+        <p
+          data-sticky-hint=""
+          className="text-muted max-w-md text-[11px] leading-relaxed"
+        >
+          {STICKY_STAYS_COMMENT}
         </p>
       )}
     </fieldset>

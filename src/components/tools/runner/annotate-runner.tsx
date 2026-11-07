@@ -2,6 +2,7 @@
 
 import { Info } from "lucide-react";
 import { annotatedOutputName } from "@/lib/pdf/annotate";
+import { STICKY_STAYS_COMMENT } from "@/lib/pdf/editor/sticky";
 import { PrivacyLine } from "./stamp-controls";
 import { EditorRunner } from "./editor/editor-session";
 
@@ -60,12 +61,12 @@ function AnnotateFooter() {
           </span>{" "}
           Choose beside Apply &amp; download. Flattened, the default,
           highlights, drawings, notes and shapes are drawn as page content where
-          you place them. Saved as comments, they are standard PDF annotations
-          that other PDF apps can select, edit or delete. Whiteout is always
-          drawn into the page, and there are no reply threads here. On a PDF
-          whose author restricted changes, markups are always saved as comments,
-          and only if the author allows comments; the owner password unlocks
-          everything else.
+          you place them. {STICKY_STAYS_COMMENT} Saved as comments, they are
+          standard PDF annotations that other PDF apps can select, edit or
+          delete. Whiteout is always drawn into the page, and there are no reply
+          threads here. On a PDF whose author restricted changes, markups are
+          always saved as comments, and only if the author allows comments; the
+          owner password unlocks everything else.
         </p>
       </div>
       <PrivacyLine>
