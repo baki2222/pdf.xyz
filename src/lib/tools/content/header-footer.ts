@@ -209,7 +209,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I change the font, size, colour or margin?",
-      a: "No: the small size, slate-grey ink and distance from the edge are fixed. You choose the wording, the fields and each band's alignment. The typeface follows the characters: while everything in both bands fits the Western Windows-1252 set, German and French accents included, both are set in Helvetica; one character outside it, such as Polish ł, moves both bands to a Noto face.",
+      a: "No: the small size, slate-grey ink and distance from the edge are fixed. You choose the wording, the fields and each band's alignment. The typeface follows the characters: while everything in both bands fits the Western Windows-1252 set, German and French accents included, both are set in Helvetica; one character outside it, such as Polish ł, moves both bands to a Noto face. Because the size is fixed, a line wider than the page between its margins is refused before anything is written, with how many of its characters fit, rather than running off the edge.",
     },
     {
       q: "Will it cover or remove an existing header?",

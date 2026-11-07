@@ -11,6 +11,7 @@ import {
   placeStamp,
   stampProducer,
   toRgb,
+  viewerSize,
   visibleBox,
   type HAlign,
   type RGB,
@@ -20,7 +21,8 @@ import {
 /**
  * Stamp running headers and/or footers onto an existing PDF, fully in-browser.
  * Each band has independent left / center / right slots, and every slot supports
- * dynamic `{n}`, `{total}`, and `{date}` tokens.
+ * dynamic `{n}`, `{total}`, and `{date}` tokens. A slot wider than the page
+ * between its margins is refused, never clipped at the edge.
  */
 
 /** Left / center / right text slots for one band (header or footer). */
@@ -197,6 +199,37 @@ export async function addHeaderFooter(
     }
   });
   const font = await embedStampFont(doc, drawn);
+
+  // Every slot must fit between the margins of the page as a reader sees it,
+  // checked on every page before anything is drawn. Unbounded, a centred
+  // 151-character notice on A4 started 44 pt off the left edge and the run
+  // reported success over a clipped file (audit #27).
+  pages.forEach((page, index) => {
+    const tokens = { n: index + 1, total, date: options.date };
+    const across = viewerSize(visibleBox(page), page.getRotation().angle).width;
+    const room = Math.max(0, across - 2 * margin);
+    for (const slot of slots) {
+      const text = applyTokens(slot.text, tokens);
+      if (text.trim().length === 0) continue;
+      const width = font.widthOfTextAtSize(text, fontSize);
+      if (width <= room) continue;
+      const band = slot.v === "top" ? "header" : "footer";
+      // The longest opening that fits, measured, not averaged: the Header &
+      // Footer panel has no font-size control, so length is the remedy.
+      const chars = Array.from(text);
+      let lo = 0;
+      let hi = chars.length;
+      while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2);
+        const part = chars.slice(0, mid).join("");
+        if (font.widthOfTextAtSize(part, fontSize) <= room) lo = mid;
+        else hi = mid - 1;
+      }
+      throw new PdfEngineError(
+        `The ${band}'s ${slot.h} text is too wide for page ${index + 1}: it needs ${Math.ceil(width)} pt and the page has ${Math.floor(room)} pt between its margins, room for ${lo} of its ${chars.length} characters. Shorten it.`,
+      );
+    }
+  });
 
   pages.forEach((page, index) => {
     const tokens = { n: index + 1, total, date: options.date };

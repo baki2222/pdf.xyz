@@ -165,6 +165,29 @@ describe("splitPdf", () => {
     expect(await widths(outputs[2]!.bytes)).toEqual([30]);
   });
 
+  // Audit #46 (2026-11-06): part names took the source's base name raw, so
+  // "Q3: plan?.pdf" (legal on macOS/Linux) wrote ZIP entries Windows cannot
+  // extract, while the ZIP's own name was sanitised by outputName.
+  it("names parts with the same sanitised base as every other output", () => {
+    const names = buildSplitParts('Q3: plan? <a|b> "x" *%/\\', [
+      { start: 0, end: 1 },
+      { start: 2, end: 2 },
+    ]).map((p) => p.name);
+    expect(names).toEqual([
+      "Q3 plan ab x-1-pages-1-2.pdf",
+      "Q3 plan ab x-2-page-3.pdf",
+    ]);
+    // Health: the same characters outputName strips are absent from each.
+    for (const name of names) expect(name).not.toMatch(/[/\\?%*:|"<>]/);
+    // Positive control: a clean base passes through untouched.
+    expect(buildSplitParts("doc", [{ start: 0, end: 0 }])[0]!.name).toBe(
+      "doc-1-page-1.pdf",
+    );
+    expect(buildSplitParts("  ", [{ start: 0, end: 0 }])[0]!.name).toBe(
+      "document-1-page-1.pdf",
+    );
+  });
+
   it("throws when there are no parts", async () => {
     await expect(splitPdf(await makePdf(2), [])).rejects.toBeInstanceOf(
       PdfEngineError,

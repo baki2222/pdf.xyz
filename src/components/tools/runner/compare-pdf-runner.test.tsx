@@ -324,3 +324,58 @@ describe("Compare PDF runner — Start over", () => {
     expect(window.location.href).toBe(before);
   });
 });
+
+/**
+ * Audit #25 (2026-11-06): `addFiles` counted free slots from the `items.length`
+ * it closed over. A second pick that landed while the first pair was still
+ * loading saw 0 items, was granted a slot, and `.slice(0, 2)` then dropped
+ * whichever file finished last — measured: cards [a.pdf, c.pdf], b.pdf gone
+ * and no "skipped" note. The pair, and which one is the baseline, came down
+ * to load timing.
+ */
+describe("Compare PDF runner — a third file added while two are loading", () => {
+  it("is refused with the exactly-two note, and the first pick keeps both slots in order", async () => {
+    const pdf = await textPdf(CLAUSES);
+    const file = (name: string) =>
+      new File([pdf as BlobPart], name, { type: "application/pdf" });
+    render(withAppRouter(<ComparePdfRunner extract={extract} />));
+    const input =
+      document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    fireEvent.change(input, {
+      target: { files: [file("a.pdf"), file("b.pdf")] },
+    });
+    // Health: the second pick really lands while the first is loading.
+    expect(screen.getByText(/loading 2/)).toBeInTheDocument();
+    fireEvent.change(input, { target: { files: [file("c.pdf")] } });
+
+    await screen.findByText("2/2 selected", undefined, { timeout: 5_000 });
+    const cards = screen
+      .getAllByRole("button", { name: /^Remove / })
+      .map((b) => b.textContent);
+    expect(cards).toEqual(["Remove a.pdf", "Remove b.pdf"]);
+    expect(screen.getByText(/c\.pdf/)).toBeInTheDocument();
+    expect(screen.getByText(/uses exactly two PDF files/i)).toBeInTheDocument();
+  });
+
+  it("a Swap control puts the other file first, so the baseline is the person's choice", async () => {
+    const pdf = await textPdf(CLAUSES);
+    const file = (name: string) =>
+      new File([pdf as BlobPart], name, { type: "application/pdf" });
+    render(withAppRouter(<ComparePdfRunner extract={extract} />));
+    const input =
+      document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    fireEvent.change(input, {
+      target: { files: [file("final.pdf"), file("draft.pdf")] },
+    });
+    await screen.findByText("2/2 selected", undefined, { timeout: 5_000 });
+    const order = () =>
+      screen
+        .getAllByRole("button", { name: /^Remove / })
+        .map((b) => b.textContent);
+    expect(order()).toEqual(["Remove final.pdf", "Remove draft.pdf"]);
+    fireEvent.click(
+      screen.getByRole("button", { name: /swap pdf 1 and pdf 2/i }),
+    );
+    expect(order()).toEqual(["Remove draft.pdf", "Remove final.pdf"]);
+  });
+});

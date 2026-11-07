@@ -142,3 +142,30 @@ describe("header-footer runner: {date} in a locale we cannot draw", () => {
     });
   }
 });
+
+/**
+ * Audit #27 (2026-11-06), the chain: the engine refuses a line wider than the
+ * page, and the runner — which has no font-size control — must show that
+ * refusal, not the "added" panel over a clipped file.
+ */
+describe("header-footer runner: a header too wide for the page", () => {
+  const NOTICE =
+    "CONFIDENTIAL - This document contains proprietary information of Acme Corporation Ltd and must not be copied, disclosed or distributed to third parties";
+
+  it("is refused on screen with how much of it fits, and no file is offered", async () => {
+    render(<HeaderFooterEditor pdf={await loadedPdf()} onReset={() => {}} />);
+    fireEvent.change(screen.getByLabelText("Header text"), {
+      target: { value: NOTICE },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /add header/i }));
+    const alert = await screen.findByRole("alert", undefined, {
+      timeout: 3000,
+    });
+    expect(alert.textContent).toMatch(
+      /too wide for page 1.*room for [0-9]+ of its 151 characters/,
+    );
+    expect(
+      screen.queryByRole("heading", { name: /header & footer added/i }),
+    ).toBeNull();
+  });
+});

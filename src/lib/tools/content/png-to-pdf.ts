@@ -148,7 +148,7 @@ const content: ToolContent = {
     },
     {
       title: "Arrange the image order",
-      body: "Under Image order, each card shows a thumbnail, the file name and the page it will become. The up and down arrows on a card (Move up, Move down) shift it one place; the cross (Remove) drops it, and Clear empties the list.",
+      body: "Under Image order, each card shows a thumbnail, the file name and the page it will become. The up and down arrows on a card (Move up, Move down) shift it one place; the cross (Remove) drops it, and Clear empties the list. To move a card further in one go, drag it onto the place you want.",
     },
     {
       title: "Choose the page setup",

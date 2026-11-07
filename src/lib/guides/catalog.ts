@@ -1156,7 +1156,7 @@ export const guides: Guide[] = [
       `Pick the JPG, PNG, ${OTHER_NAMES_OR} images you want in the PDF — they stay on your device the whole time.`,
       // The arrows are icons: "Move up" / "Move down" are their tooltips,
       // never drawn (guide-ui-labels.test.ts reads `title` as not visible).
-      "Put them in page order with the up and down arrows on each photo.",
+      "Put them in page order by dragging a photo onto the place you want, or with the up and down arrows on each photo.",
       "Create the PDF — it is assembled in your browser, not on a server.",
       "Save the finished PDF to your device.",
     ],
@@ -1227,7 +1227,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-11-04",
+    updated: "2026-11-06",
   },
   {
     // ONE guide for the intent, from two lanes: L07 wrote this slug for the
