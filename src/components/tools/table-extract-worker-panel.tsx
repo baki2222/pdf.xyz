@@ -110,6 +110,9 @@ function TableExtractRunArea({
   const { available, status } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
   const [combine, setCombine] = useState(false);
+  // Whether the last run had the OCR switch on: its no-tables step then
+  // does not send the reader to OCR PDF for pages OCR already read.
+  const [ranWithOcr, setRanWithOcr] = useState(false);
   const job = useWorkerJob<TableExtractWorkerResult>({
     tool: "extract-tables",
     resume: (id, controls) =>
@@ -125,6 +128,7 @@ function TableExtractRunArea({
   const ocrRequest = ocr.request;
   const start = useCallback(async () => {
     if (!file || !available || ocr.blocked) return;
+    setRanWithOcr(ocrRequest !== undefined);
     await run(async (controls) => {
       const result = await runWorkerTableExtract(
         {
@@ -227,7 +231,10 @@ function TableExtractRunArea({
                   code={outcome.code}
                   message={outcome.message}
                 />
-                <TableExtractNoTablesStep code={outcome.code} />
+                <TableExtractNoTablesStep
+                  code={outcome.code}
+                  ocrRan={ranWithOcr}
+                />
               </>
             )}
           </>

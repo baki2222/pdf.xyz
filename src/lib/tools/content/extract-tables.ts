@@ -111,7 +111,7 @@ const content: ToolContent = {
     },
     {
       title: "Press Extract tables",
-      body: `Two switches sit above the button, both off unless you tick them: ${COMBINE_TABLES_LABEL}, and “${WORD_OCR_LABEL}”, which only adds a text layer before table detection runs. A file over ${CEILING_MB} MB is refused as soon as you pick it, before anything is read or sent. While the job runs, the button reads Uploading your file…, Waiting for our server…, Extracting tables… and Downloading the result… in turn, and it stays busy until the ZIP has come back to your browser. A scan with no text and the OCR switch off, or a file in which no table is detected, shows an error beneath the button in place of a result; when no table is detected, it comes with links to PDF to Excel and OCR PDF.`,
+      body: `Two switches sit above the button, both off unless you tick them: ${COMBINE_TABLES_LABEL}, and “${WORD_OCR_LABEL}”, which only adds a text layer before table detection runs. A file over ${CEILING_MB} MB is refused as soon as you pick it, before anything is read or sent. While the job runs, the button reads Uploading your file…, Waiting for our server…, Extracting tables… and Downloading the result… in turn, and it stays busy until the ZIP has come back to your browser. A scan with no text and the OCR switch off, or a file in which no table is detected, shows an error beneath the button in place of a result; when no table is detected, it comes with links to PDF to Excel and OCR PDF, the second only when the OCR switch was off.`,
     },
     {
       title: "Download the ZIP",

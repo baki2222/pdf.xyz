@@ -25,7 +25,11 @@ import type { PdfLayoutExtractor } from "@/lib/workers/table-extract/engine";
 import { PdfTextExecError } from "@/lib/workers/pdf-text/errors";
 import { rc4EncryptedPdf } from "@/tests/pdf-office-fixtures";
 import { TableExtractWorkerPanel } from "./table-extract-worker-panel";
-import { tableFindingLines } from "./table-extract-findings";
+import {
+  TableExtractNoTablesStep,
+  tableFindingLines,
+} from "./table-extract-findings";
+import { EXTRACT_TABLES_NO_TABLES_CODE } from "@/lib/jobs/extract-tables-options";
 import { readyFileInput } from "@/tests/worker-ready";
 
 const tool = getToolBySlug("extract-tables")!;
@@ -447,5 +451,50 @@ describe("Extract Tables page — says what the result card says", () => {
     expect(page).toContain("No table was detected on");
     // The no-tables failure's links, named as the panel labels them.
     expect(page).toContain("links to PDF to Excel and OCR PDF");
+  });
+});
+
+/**
+ * Integration of the OCR switch (l03) with the findings and the no-tables
+ * step (l10), 2026-11-08: each lane's copy was true alone. After a run that
+ * had OCR on, "OCR PDF can add the text first" and an "Open OCR PDF" link
+ * send the reader to run the engine that just ran.
+ */
+describe("Extract Tables — after OCR ran, OCR PDF is not offered again", () => {
+  const found = {
+    tableCount: 1,
+    pageCount: 2,
+    tablePages: [1],
+    tablePagesTruncated: false,
+    combined: false,
+  };
+
+  it("control: without OCR, the pages with no table come with the OCR PDF advice", () => {
+    expect(tableFindingLines(found)[1]).toBe(
+      "No table was detected on page 2. If it is a scan, OCR PDF can add the text first.",
+    );
+  });
+
+  it("with OCR, the same pages are named without it", () => {
+    expect(tableFindingLines(found, true)).toEqual([
+      "Found 1 table on page 1.",
+      "No table was detected on page 2.",
+    ]);
+  });
+
+  it("the no-tables step links OCR PDF only when OCR was off", () => {
+    const { unmount } = render(
+      <TableExtractNoTablesStep code={EXTRACT_TABLES_NO_TABLES_CODE} />,
+    );
+    // Health check: the step rendered at all, so the absence below is real.
+    expect(screen.getByText("Open PDF to Excel")).toBeInTheDocument();
+    expect(screen.getByText("Open OCR PDF")).toBeInTheDocument();
+    unmount();
+    render(
+      <TableExtractNoTablesStep code={EXTRACT_TABLES_NO_TABLES_CODE} ocrRan />,
+    );
+    expect(screen.getByText("Open PDF to Excel")).toBeInTheDocument();
+    expect(screen.queryByText("Open OCR PDF")).toBeNull();
+    expect(screen.queryByText(/OCR PDF adds/)).toBeNull();
   });
 });
