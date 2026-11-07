@@ -5340,7 +5340,7 @@ export const guides: Guide[] = [
         heading: "Locked, restricted and signed PDFs",
         body: [
           `A PDF that needs a password to open has to be unlocked first; ${nameOf("unlock-pdf")} removes the password if you know it, but it runs on our secure server rather than in your browser. A PDF that opens without a password but whose author restricted changes opens here with the author's rules in force: if the author allows comments, highlights are always saved as comments and the copy keeps the author's encryption, and if not, the mark-up tools stay locked. Typing the owner password into the page unlocks every tool for that file.`,
-          "On an ordinary PDF, the file's Creator and Producer become this site's name. A PDF that carries a digital signature keeps its original bytes, and your highlights are appended after them as an update, so the signature still verifies for the version that was signed, though a viewer will show the document changed afterwards. Its pages, text, bookmarks and form fields are otherwise kept.",
+          "On an ordinary PDF, the file's Creator and Producer become this site's name. A PDF that carries a digital signature, and is not password-protected, keeps its original bytes, and your highlights are appended after them as an update, so the signature still verifies for the version that was signed, though a viewer will show the document changed afterwards. Its pages, text, bookmarks and form fields are otherwise kept.",
         ],
       },
     ],

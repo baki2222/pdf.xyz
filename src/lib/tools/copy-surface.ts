@@ -232,6 +232,10 @@ export function copyFiles(): string[] {
     // refused with.
     path.join(ROOT, "src", "lib", "pdf", "editor", "links.ts"),
     path.join(ROOT, "src", "lib", "pdf", "editor", "fields.ts"),
+    // What a signed PDF's edit takes out, so it is rewritten rather than
+    // appended (2026-11-08, audit sign-pdf#5 review): the labels the
+    // editor's notices and the Sign and Annotate FAQs list.
+    path.join(ROOT, "src", "lib", "pdf", "editor", "signed-edit.ts"),
     // Redact PDF's Find text / Detect personal data labels and the removal
     // method's refusals (2026-10-25): new phrase code, so walked.
     path.join(ROOT, "src", "lib", "pdf", "redact-categories.ts"),

@@ -1,4 +1,5 @@
 import type { ToolContent } from "./types";
+import { REMOVALS, listRemovals } from "@/lib/pdf/editor/signed-edit";
 import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
 import {
   FONT_PACKS,
@@ -157,7 +158,7 @@ const content: ToolContent = {
     },
     {
       q: "Does annotating change anything else in my PDF?",
-      a: "Unless you turn, insert, delete or reorder pages in the page list, pages keep their count, size and rotation, and their text and images; the file keeps its bookmarks, form fields, existing annotations, title and author. What does change on an ordinary PDF: Creator and Producer both become this site's name. A PDF that carries a digital signature keeps its original bytes, with your markups appended after them as an update, so the signature still verifies for the version that was signed, though a viewer that checks it will show the document changed afterwards. A PDF whose author restricted changes is kept the same way: its original bytes stay, and the comments are appended after them, as an update under the author's own encryption. Markups sit on top of the page's own content, later ones over earlier ones.",
+      a: `Unless you turn, insert, delete or reorder pages in the page list, pages keep their count, size and rotation, and their text and images; the file keeps its bookmarks, form fields, existing annotations, title and author. What does change on an ordinary PDF: Creator and Producer both become this site's name. A PDF that carries a digital signature and is not password-protected keeps its original bytes, with your markups appended after them as an update, so the signature still verifies for the version that was signed, though a viewer that checks it will show the document changed afterwards. An edit that takes something out — ${listRemovals(REMOVALS, "disjunction")} — rewrites such a file instead, so the signature no longer verifies, and the editor says so before you apply it. A PDF whose author restricted changes is kept the same way: its original bytes stay, and the comments are appended after them, as an update under the author's own encryption. Markups sit on top of the page's own content, later ones over earlier ones.`,
     },
     {
       q: "Is my document uploaded?",

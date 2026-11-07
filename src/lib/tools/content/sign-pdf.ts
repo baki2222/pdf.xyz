@@ -5,6 +5,7 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { SUPPORTED_SCRIPTS, UNSUPPORTED_SCRIPTS } from "@/lib/pdf/font-packs";
 import { MAX_SAVED_SIGNATURES } from "@/lib/pdf/editor/saved-signatures";
 import { SIGNATURE_INKS } from "@/lib/pdf/editor/signature-ink";
+import { REMOVALS, listRemovals } from "@/lib/pdf/editor/signed-edit";
 import {
   REPEAT_TARGETS,
   REPEAT_TARGET_LABEL,
@@ -166,7 +167,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I sign a password-protected or already certified PDF?",
-      a: `Any encryption blocks signing, whether it guards opening the file or only printing and copying. Unlock PDF can remove it if you know a password: the open password, or the owner password for a file that opens freely but is restricted. Unlike signing, Unlock PDF does not run in your browser: the file is uploaded over TLS to pdf.xyz's secure server, the input is deleted when the job finishes, the unlocked copy's link expires after ${linkMinutes} minutes, and the stored copy is erased by a daily storage rule after that. A PDF that already carries a certificate signature, such as a contract the other party signed first, can be countersigned here: your signature is added to the end of the file as an update, and the bytes their signature covers are left exactly as they were, so it still verifies for the version they signed. A viewer that checks signatures will also show that the document changed after it was signed, and a signature certified to allow no changes reports yours as breaking that.`,
+      a: `Any encryption blocks signing, whether it guards opening the file or only printing and copying. Unlock PDF can remove it if you know a password: the open password, or the owner password for a file that opens freely but is restricted. Unlike signing, Unlock PDF does not run in your browser: the file is uploaded over TLS to pdf.xyz's secure server, the input is deleted when the job finishes, the unlocked copy's link expires after ${linkMinutes} minutes, and the stored copy is erased by a daily storage rule after that. A PDF that already carries a certificate signature, such as a contract the other party signed first, can be countersigned here: your signature is added to the end of the file as an update, and the bytes their signature covers are left exactly as they were, so it still verifies for the version they signed. A viewer that checks signatures will also show that the document changed after it was signed, and a signature certified to allow no changes reports yours as breaking that. An edit that takes something out of the file — ${listRemovals(REMOVALS, "disjunction")} — is the exception: the whole file is written again so that it is really gone, the earlier signature no longer verifies, and the editor says so beside Apply before you press it.`,
     },
   ],
 

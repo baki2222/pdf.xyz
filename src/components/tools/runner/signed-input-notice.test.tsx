@@ -46,6 +46,7 @@ import { PDFDocument } from "pdf-lib";
 import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
 import { getToolBySlug } from "@/lib/tools";
 import { signedPdf } from "@/tests/signed-pdf";
+import { REMOVALS, listRemovals } from "@/lib/pdf/editor/signed-edit";
 import { ToolRunner } from "./tool-runner";
 import { runnerMounted } from "@/tests/runner-mounted";
 
@@ -136,7 +137,13 @@ describe("signed-input notice across every single-file tool", () => {
         expect(onSigned.notice, `${slug} says`).not.toBeNull();
         expect(onSigned.notice).toMatch(/carries 2 certificate signatures/);
         expect(onSigned.notice).toMatch(/those signatures still verify/);
-        expect(onSigned.notice).not.toMatch(/no longer verify/);
+        // Until the exception (review, 2026-11-08): an edit that takes
+        // something out is rewritten, and the notice names those edits from
+        // the list the editor decides by.
+        const [kept, exception] = onSigned.notice!.split("is the exception");
+        expect(kept).not.toMatch(/no longer verif/);
+        expect(kept).toContain(listRemovals(REMOVALS, "disjunction"));
+        expect(exception).toMatch(/rewritten.*they no longer verify/);
       } else if (writesPdf) {
         expect(onSigned.notice, `${slug} warns`).not.toBeNull();
         expect(onSigned.notice).toMatch(/carries 2 certificate signatures/);

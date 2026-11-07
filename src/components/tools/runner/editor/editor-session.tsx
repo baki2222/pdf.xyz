@@ -14,6 +14,13 @@ import { downloadBytes } from "@/lib/pdf/browser";
 import type { EditorExportResult } from "@/lib/pdf/editor-export";
 import type { MarkupMode } from "@/lib/pdf/editor/comments";
 import { isCommentObject } from "@/lib/pdf/editor/model";
+import type { SignatureCheck } from "@/lib/pdf/editor/append-update";
+import {
+  REMOVALS,
+  listRemovals,
+  removalsIn,
+  type Removal,
+} from "@/lib/pdf/editor/signed-edit";
 import { buttonVariants } from "@/components/ui/button";
 import { formatBytes } from "@/lib/utils";
 import {
@@ -109,12 +116,14 @@ export function EditorRunner(config: EditorRunnerConfig) {
 }
 
 /**
- * Is this edit APPENDED to the file (audit sign-pdf#5)? An unencrypted file
- * that carries certificate signatures: the edit goes on the end as an
- * incremental update (`@/lib/pdf/editor/append-update`), so the bytes each
- * signature covers stay as they were. An encrypted file opened with its
- * author's grant is the protection's own business (its decrypted copy is
- * not the file that was signed).
+ * Can this file's edit be APPENDED (audit sign-pdf#5)? An unencrypted file
+ * that carries certificate signatures: an edit that only adds or changes
+ * goes on the end as an incremental update (`@/lib/pdf/editor/append-update`),
+ * so the bytes each signature covers stay as they were. An edit that takes
+ * something out (`@/lib/pdf/editor/signed-edit`) still rewrites the file, or
+ * what it removed would stay readable in the earlier revision. An encrypted
+ * file opened with its author's grant is the protection's own business (its
+ * decrypted copy is not the file that was signed).
  */
 function appendsToSigned(pdf: LoadedPdf): boolean {
   return pdf.protection === undefined && pdf.digitalSignatures > 0;
@@ -145,11 +154,49 @@ function AppendedSignedNotice({
           : "those signatures still verify"}{" "}
         for the version that was signed. Readers such as Acrobat also show that
         the document changed after signing, and a signature certified to allow
-        no changes reports your change as breaking that.
+        no changes reports your change as breaking that. An edit that takes
+        something out of the file — {listRemovals(REMOVALS, "disjunction")} — is
+        the exception: the whole file is rewritten so it is really gone, and
+        then{" "}
+        {one ? "the signature no longer verifies" : "they no longer verify"}.
       </span>
     </div>
   );
 }
+
+/**
+ * Beside Apply, while the edit of a signed file takes something out: it
+ * will be rewritten, not appended, and the signatures will not verify.
+ */
+function SignedRewriteNote({
+  removals,
+  count,
+  toolName,
+}: {
+  removals: readonly Removal[];
+  count: number;
+  toolName: string;
+}) {
+  const one = count === 1;
+  return (
+    <p
+      role="note"
+      data-signed-rewrite=""
+      className="border-line bg-wash text-fg rounded-panel border px-4 py-3 text-sm"
+    >
+      Your edit includes {listRemovals(removals, "conjunction")}, which takes
+      something out of the file. So {toolName} rewrites the whole file instead
+      of adding to its end, and {one ? "its" : `its ${count}`} certificate
+      signature{one ? "" : "s"} will no longer verify. Keep the signed original
+      if {one ? "that signature matters" : "those signatures matter"}.
+    </p>
+  );
+}
+
+/** What Apply produced: the export, and for a signed file what it kept. */
+type SessionResult = EditorExportResult & {
+  signed?: SignatureCheck & { reason?: "removes" | "unreadable" };
+};
 
 function EditorSession({
   pdf,
@@ -182,12 +229,23 @@ function EditorSession({
   // restricted PDF has no choice: comments are all its author allows.
   const [markups, setMarkups] = useState<MarkupMode>("flatten");
   const { busy, error, result, run, reset, setError } =
-    useAsyncRun<EditorExportResult>();
+    useAsyncRun<SessionResult>();
   const name = config.outputName(pdf.file.name);
   const edited = hasEdits(state, pdf.pageCount);
   // Placed but not yet applied, the edits are lost by leaving; applied,
   // they are in the result.
   useUnsavedGuard(edited && !result, "your edits");
+  // What this edit takes out of a signed file, which decides how it is saved.
+  const removals = appendsToSigned(pdf)
+    ? removalsIn(
+        {
+          objects: state.objects,
+          pages: state.pages,
+          removedLinks: removedLinks(state),
+        },
+        pdf.pageCount,
+      )
+    : [];
 
   const onApply = () => {
     // A box still being typed in counts: finish it, and export what that
@@ -218,22 +276,40 @@ function EditorSession({
             fills: next.fills,
             markups,
           });
-      // A certificate-signed file: the edit is appended, not a rewrite, so
-      // the bytes the signatures cover survive (audit sign-pdf#5).
-      const out =
-        restricted && protection
-          ? {
-              ...edited,
-              bytes: (await protection.saveChanges(edited.bytes)).bytes,
-            }
-          : appendsToSigned(pdf)
-            ? {
-                ...edited,
-                bytes: await (
-                  await import("@/lib/pdf/editor/append-update")
-                ).appendEditsAsUpdate(pdf.bytes, edited.bytes),
-              }
-            : edited;
+      // A certificate-signed file: an edit that only adds is appended, so
+      // the bytes the signatures cover survive (audit sign-pdf#5); one that
+      // takes something out is rewritten, decided from what Apply exports
+      // (`next`), and what was kept is read back from the output.
+      let out: SessionResult = edited;
+      if (restricted && protection) {
+        out = {
+          ...edited,
+          bytes: (await protection.saveChanges(edited.bytes)).bytes,
+        };
+      } else if (appendsToSigned(pdf)) {
+        const { saveSignedEdit } =
+          await import("@/lib/pdf/editor/append-update");
+        const saved = await saveSignedEdit(
+          pdf.bytes,
+          edited.bytes,
+          removalsIn(
+            {
+              objects,
+              pages: next.pages,
+              removedLinks: removedLinks(next),
+            },
+            pdf.pageCount,
+          ),
+        );
+        out = {
+          ...edited,
+          bytes: saved.bytes,
+          signed: {
+            ...saved.signatures,
+            ...(saved.reason ? { reason: saved.reason } : {}),
+          },
+        };
+      }
       // Downloaded INSIDE the run, before it settles. `downloadBlob` clicks
       // a hidden anchor, and the runner stage's hold (`../stage-hold`) gives
       // its band back at the first click after the run settles — measured
@@ -264,11 +340,7 @@ function EditorSession({
             : []),
           `${result.pageCount} page${result.pageCount === 1 ? "" : "s"}`,
           ...(restricted ? ["author's protection kept"] : []),
-          ...(appendsToSigned(pdf)
-            ? [
-                `${pdf.digitalSignatures} existing signature${pdf.digitalSignatures === 1 ? "" : "s"} left intact`,
-              ]
-            : []),
+          ...(result.signed ? signedSummary(result.signed, pdf) : []),
           formatBytes(result.bytes.byteLength),
         ].join(" · ")}
         onReset={onReset}
@@ -332,6 +404,13 @@ function EditorSession({
         runBar={
           <>
             {error && <ErrorNote message={error} />}
+            {removals.length > 0 && (
+              <SignedRewriteNote
+                removals={removals}
+                count={pdf.digitalSignatures}
+                toolName={config.toolName}
+              />
+            )}
             <RunBar>
               <div
                 className={
@@ -368,6 +447,36 @@ function EditorSession({
       />
     </Suspense>
   );
+}
+
+/**
+ * The result's line about a signed file's signatures, from what the OUTPUT
+ * carries (`signaturesKept`), not from the input's count: a signature whose
+ * field the edit dropped is not "left intact" because its bytes survive.
+ */
+function signedSummary(
+  signed: NonNullable<SessionResult["signed"]>,
+  pdf: LoadedPdf,
+): string[] {
+  const lost = Math.max(0, pdf.digitalSignatures - signed.kept);
+  const why =
+    signed.reason === "removes"
+      ? " (your edit takes content out, so the file was rewritten)"
+      : signed.reason === "unreadable"
+        ? " (the file's structure could not take an update, so it was rewritten)"
+        : "";
+  return [
+    ...(signed.kept > 0
+      ? [
+          `${signed.kept} existing signature${signed.kept === 1 ? "" : "s"} left intact`,
+        ]
+      : []),
+    ...(lost > 0
+      ? [
+          `${lost} existing signature${lost === 1 ? " no longer verifies" : "s no longer verify"}${why}`,
+        ]
+      : []),
+  ];
 }
 
 /**

@@ -531,3 +531,80 @@ describe("Sign PDF countersigns without breaking an earlier signature", () => {
     ).toBeTruthy();
   }, 60_000);
 });
+
+/*
+ * Review of sign-pdf#5 (2026-11-08), through the real runner: an edit of a
+ * signed file that takes something OUT is not appended (the earlier
+ * revision would still hold what was removed). The note beside Apply says
+ * so before the click, the download is one revision, and the result line
+ * is read from the output: the signature is not "left intact".
+ */
+describe("A redaction on a signed PDF rewrites it, and says so", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("Apply with a redaction box: one revision out, signature reported lost", async () => {
+    const { EditorRunner } = await import("./editor/editor-session");
+    const { signedPdf } = await import("@/tests/signed-pdf");
+    const original = await signedPdf({ signatures: 1, text: "SECRET" });
+    const file = new File([original.slice().buffer], "nda.pdf", {
+      type: "application/pdf",
+    });
+    const blobs: Blob[] = [];
+    const realCreate = URL.createObjectURL;
+    vi.spyOn(URL, "createObjectURL").mockImplementation((b) => {
+      if (b instanceof Blob && b.type === "application/pdf") blobs.push(b);
+      return realCreate ? realCreate.call(URL, b) : "blob:mock";
+    });
+    const { container } = render(
+      withAppRouter(
+        <EditorRunner
+          slug="edit-pdf"
+          toolName="Edit PDF"
+          hint="One PDF"
+          initialTool="redact"
+          emptyReason="Change something first."
+          resultTitle="Edited PDF ready"
+          downloadLabel="Download edited PDF"
+          outputName={(n) => n}
+          footer={null}
+        />,
+      ),
+    );
+    fireEvent.change(
+      container.querySelector<HTMLInputElement>('input[type="file"]')!,
+      { target: { files: [file] } },
+    );
+    const page1 = await screen.findByRole(
+      "group",
+      { name: "Page 1 of 1" },
+      { timeout: 8000 },
+    );
+    expect(container.querySelector("[data-signed-rewrite]")).toBeNull();
+    await vi.waitFor(() => {
+      if (!container.querySelector("[data-signed-rewrite]")) {
+        fireEvent.pointerDown(page1, { button: 0, clientX: 40, clientY: 40 });
+        fireEvent.pointerUp(window, { button: 0, clientX: 40, clientY: 40 });
+      }
+      expect(container.querySelector("[data-signed-rewrite]")).not.toBeNull();
+    });
+    expect(
+      container.querySelector("[data-signed-rewrite]")!.textContent,
+    ).toMatch(/a redaction.*will no longer verify/s);
+    fireEvent.click(screen.getByRole("button", { name: /Apply & download/ }));
+    await vi.waitFor(() => expect(blobs.length).toBeGreaterThan(0), {
+      timeout: 15000,
+    });
+    const out = new Uint8Array(await blobs.at(-1)!.arrayBuffer());
+    // A rewrite: one revision, and the original is not its prefix.
+    const text = new TextDecoder("latin1").decode(out);
+    expect(text.match(/%%EOF/g)).toHaveLength(1);
+    expect(
+      out.length >= original.length &&
+        out.subarray(0, original.length).every((v, i) => v === original[i]),
+    ).toBe(false);
+    expect(
+      await screen.findByText(/1 existing signature no longer verifies/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/left intact/)).toBeNull();
+  }, 60_000);
+});
