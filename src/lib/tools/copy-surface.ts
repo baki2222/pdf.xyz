@@ -215,6 +215,9 @@ export function copyFiles(): string[] {
     // JPG / PNG to PDF's Max file size (2026-10-31): labels, hint, outcome
     // lines, and the browser re-encoder's error messages.
     path.join(ROOT, "src", "lib", "pdf", "image-size-limit.ts"),
+    // JPG / PNG to PDF's per-image Rotate button (2026-11-08, audit
+    // png-to-pdf#2): its tooltip and accessible name.
+    path.join(ROOT, "src", "lib", "pdf", "image-rotation.ts"),
     // What UTIF's require("pako") resolves to in the browser bundle
     // (2026-11-04): one error sentence, thrown only if UTIF's Deflate path
     // is ever reached.

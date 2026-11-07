@@ -17,6 +17,10 @@ import {
 } from "@/lib/pdf/image-page-defaults";
 import { imageDefaultPaperCopy } from "@/lib/tools/tool-facts";
 import { inches } from "@/lib/pdf/page-geometry";
+import { IMAGE_ROTATION_LABELS } from "@/lib/pdf/image-rotation";
+
+/** The card button that turns one image (audit png-to-pdf#2). */
+const ROTATE = IMAGE_ROTATION_LABELS.button;
 import {
   MAX_TIFF_PAGES,
   MAX_TIFF_PAGE_PIXELS,
@@ -243,7 +247,7 @@ const content: ToolContent = {
     },
     {
       title: "Set the page order",
-      body: "Under Image order, each thumbnail is labelled with the page it will become. The up and down arrows on a thumbnail (Move up, Move down) shift a photo one place, the cross (Remove) takes it out, and Clear below the list empties it. To move a photo further in one go, drag its thumbnail onto the place you want.",
+      body: `Under Image order, each thumbnail is labelled with the page it will become. The up and down arrows on a thumbnail (Move up, Move down) shift a photo one place, the turning arrow (${ROTATE}) turns it a quarter turn clockwise with each press, the cross (Remove) takes it out, and Clear below the list empties it. A turned photo shows its angle, such as 90°, beside its size, and its page takes the turned shape. To move a photo further in one go, drag its thumbnail onto the place you want.`,
     },
     {
       title: "Choose the page setup",
@@ -261,7 +265,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Why is one of my phone photos sideways in the PDF?",
-      a: "It should not be. Phones often store a portrait photo as landscape pixels plus an EXIF orientation tag that tells viewers how to turn it. JPG to PDF reads that tag and turns the photo on the page the way your browser shows it, sized to its upright shape, without re-encoding the JPEG. A TIFF page's Orientation tag is read and applied the same way, its pixels left as they are. If a page is still sideways, the camera saved the wrong tag (or none): open the PDF in Rotate PDF, which also runs in your browser, and turn just that page.",
+      a: `It should not be. Phones often store a portrait photo as landscape pixels plus an EXIF orientation tag that tells viewers how to turn it. JPG to PDF reads that tag and turns the photo on the page the way your browser shows it, sized to its upright shape, without re-encoding the JPEG. A TIFF page's Orientation tag is read and applied the same way, its pixels left as they are. If a photo still looks sideways, the camera saved the wrong tag (or none): press ${ROTATE} on its thumbnail before you create the PDF, once for each quarter turn clockwise. The JPEG's image data is not saved again; the turn is applied as the photo is placed on its page.`,
     },
     {
       q: "Does converting JPG to PDF reduce photo quality?",

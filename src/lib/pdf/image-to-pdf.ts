@@ -15,6 +15,11 @@ import {
   type ImagePageOptions,
 } from "./image-page-layout";
 import { stripJpegMetadata } from "./jpeg-metadata";
+import {
+  turnedShape,
+  unturnedBox,
+  type ImageQuarterTurn,
+} from "./image-rotation";
 import type { NamedBytes } from "./types";
 
 const PRODUCER = "pdf.xyz";
@@ -27,6 +32,12 @@ export interface ImagePdfInput {
   name: string;
   type: string;
   bytes: Uint8Array;
+  /**
+   * The quarter turn chosen on the image's card (`image-rotation.ts`),
+   * clockwise, on top of any turn the file asks for; every page of a TIFF
+   * takes it. Absent or 0: drawn as before.
+   */
+  rotation?: ImageQuarterTurn;
 }
 
 /**
@@ -414,6 +425,9 @@ export const loadTiff = () => import("./tiff");
 /**
  * A page for `image`, shown at `shown` (points), laid out by `options`;
  * `orientation`, when given, is the turn to draw it with (a TIFF page's tag).
+ * `turn` is the user's quarter turn: the page is laid out for the turned
+ * shape, and the image is drawn turned about its corner into that box
+ * (`unturnedBox`), the file's own turn still applied inside it.
  */
 async function drawImagePage(
   lib: PdfLib,
@@ -422,8 +436,10 @@ async function drawImagePage(
   shown: { width: number; height: number },
   options: ImagePageOptions,
   orientation?: ExifOrientation,
+  turn: ImageQuarterTurn = 0,
 ): Promise<void> {
-  const layout = imagePageLayout(shown.width, shown.height, options);
+  const seen = turnedShape(shown, turn);
+  const layout = imagePageLayout(seen.width, seen.height, options);
   const page = doc.addPage([layout.pageWidth, layout.pageHeight]);
   page.drawRectangle({
     x: 0,
@@ -433,10 +449,8 @@ async function drawImagePage(
     color: lib.rgb(1, 1, 1),
   });
   await drawRasterImage(page, image, {
-    x: layout.x,
-    y: layout.y,
-    width: layout.width,
-    height: layout.height,
+    ...unturnedBox(layout, turn),
+    ...(turn === 0 ? {} : { rotate: lib.degrees(-turn) }),
     ...(orientation === undefined ? {} : { orientation }),
   });
 }
@@ -487,7 +501,15 @@ async function addTiffPages(
       page.orientation >= 5
         ? { width: stored.height, height: stored.width }
         : stored;
-    await drawImagePage(lib, doc, image, shown, options, page.orientation);
+    await drawImagePage(
+      lib,
+      doc,
+      image,
+      shown,
+      options,
+      page.orientation,
+      file.rotation,
+    );
   }
 }
 
@@ -549,7 +571,15 @@ async function addImagePage(
   const shown = prepared
     ? { width: prepared.layoutWidth, height: prepared.layoutHeight }
     : rasterDisplaySize(image);
-  await drawImagePage(lib, doc, image, shown, options);
+  await drawImagePage(
+    lib,
+    doc,
+    image,
+    shown,
+    options,
+    undefined,
+    file.rotation,
+  );
 }
 
 const isPageList = (

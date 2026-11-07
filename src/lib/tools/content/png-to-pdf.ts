@@ -14,6 +14,10 @@ import {
 } from "@/lib/pdf/image-page-defaults";
 import { imageDefaultPaperCopy } from "@/lib/tools/tool-facts";
 import { inches } from "@/lib/pdf/page-geometry";
+import { IMAGE_ROTATION_LABELS } from "@/lib/pdf/image-rotation";
+
+/** The card button that turns one image (audit png-to-pdf#2). */
+const ROTATE = IMAGE_ROTATION_LABELS.button;
 import { tiffRefusal } from "@/lib/pdf/tiff-limits";
 import {
   MAX_SIZE_LABELS,
@@ -182,7 +186,7 @@ const content: ToolContent = {
     },
     {
       title: "Arrange the image order",
-      body: "Under Image order, each card shows a thumbnail, the file name and the page it will become. The up and down arrows on a card (Move up, Move down) shift it one place; the cross (Remove) drops it, and Clear empties the list. To move a card further in one go, drag it onto the place you want.",
+      body: `Under Image order, each card shows a thumbnail, the file name and the page it will become. The up and down arrows on a card (Move up, Move down) shift it one place; the turning arrow (${ROTATE}) turns a sideways screenshot or scan a quarter turn clockwise with each press, and the card then shows the angle, such as 90°; the cross (Remove) drops it, and Clear empties the list. The pixels are not saved again: the turn is applied as the image is placed, and its page takes the turned shape. To move a card further in one go, drag it onto the place you want.`,
     },
     {
       title: "Choose the page setup",

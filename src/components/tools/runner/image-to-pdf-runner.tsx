@@ -9,6 +9,7 @@ import {
   FileArchive,
   FileImage,
   GripVertical,
+  RotateCw,
   X,
 } from "lucide-react";
 import {
@@ -39,6 +40,11 @@ import {
   type ImagePageOptions,
 } from "@/lib/pdf/image-page-layout";
 import { imagePageSizeForLocales } from "@/lib/pdf/image-page-defaults";
+import {
+  IMAGE_ROTATION_LABELS,
+  nextQuarterTurn,
+  type ImageQuarterTurn,
+} from "@/lib/pdf/image-rotation";
 import { inches } from "@/lib/pdf/page-geometry";
 import {
   KB,
@@ -91,6 +97,8 @@ interface ImageItem {
   pages: number;
   /** Where it came in the pick: "Keep drop order" sorts by this. */
   seq: number;
+  /** The card's Rotate presses, clockwise (audit png-to-pdf#2). */
+  rotation: ImageQuarterTurn;
 }
 
 /**
@@ -276,6 +284,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
           previewUrl: format === "tiff" ? null : URL.createObjectURL(file),
           pages,
           seq: seqRef.current++,
+          rotation: 0,
         });
       }
       if (unreadable.length) setRejections([...rejected, ...unreadable]);
@@ -351,6 +360,16 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
     setItems((prev) => [...prev].sort((a, b) => a.seq - b.seq));
     setOrdered(null);
   };
+  const rotate = (id: string) => {
+    if (busy) return;
+    setItems((prev) =>
+      prev.map((item) =>
+        item.id === id
+          ? { ...item, rotation: nextQuarterTurn(item.rotation) }
+          : item,
+      ),
+    );
+  };
   const remove = (id: string) =>
     setItems((prev) => {
       const removed = prev.find((item) => item.id === id);
@@ -376,10 +395,11 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
   };
   const onRun = () =>
     run(async (): Promise<ImagePdfResult> => {
-      const inputs = items.map(({ name, type, bytes }) => ({
+      const inputs = items.map(({ name, type, bytes, rotation }) => ({
         name,
         type,
         bytes,
+        rotation,
       }));
       // One image is one PDF either way: a ZIP is built only for more than
       // one output, as on every in-browser tool (in-browser-claims.test.ts).
@@ -551,7 +571,17 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
                     src={item.previewUrl}
                     alt=""
                     draggable={false}
-                    className="bg-canvas h-40 w-full object-contain"
+                    // The turn the PDF will get, previewed. A quarter turn
+                    // swaps the sides, so the picture is shrunk to the
+                    // frame's 160px height to stay inside it.
+                    style={
+                      item.rotation
+                        ? {
+                            transform: `rotate(${item.rotation}deg)${item.rotation % 180 ? " scale(0.6)" : ""}`,
+                          }
+                        : undefined
+                    }
+                    className="bg-canvas h-40 w-full object-contain transition-transform"
                   />
                 ) : (
                   <div className="bg-canvas text-muted grid h-40 w-full place-items-center text-xs">
@@ -578,6 +608,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
                         item.pages,
                       )}{" "}
                       · {formatBytes(item.size)}
+                      {item.rotation ? ` · ${item.rotation}°` : ""}
                     </p>
                   </div>
                   <button
@@ -599,6 +630,15 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
                     title="Move down"
                   >
                     <ArrowDown className="size-4" aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => rotate(item.id)}
+                    aria-label={IMAGE_ROTATION_LABELS.aria(item.name)}
+                    className={iconButtonClass}
+                    title={IMAGE_ROTATION_LABELS.button}
+                  >
+                    <RotateCw className="size-4" aria-hidden />
                   </button>
                   <button
                     type="button"
