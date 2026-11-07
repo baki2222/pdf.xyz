@@ -245,9 +245,11 @@ function OfficeRunArea({
               <input
                 type="checkbox"
                 checked={onePagePerSheet}
-                disabled={busy}
+                aria-disabled={busy}
                 aria-describedby={layoutHintId}
                 onChange={(e) => {
+                  // Locked while a job runs, but kept in the focus order.
+                  if (busy) return;
                   setOutcome(null);
                   setOnePagePerSheet(e.target.checked);
                 }}

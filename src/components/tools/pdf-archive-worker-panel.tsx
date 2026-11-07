@@ -185,9 +185,11 @@ function ArchiveRunArea({ refuse }: { refuse: PickRefusal }) {
         <select
           id={levelId}
           value={level}
-          disabled={busy}
+          aria-disabled={busy}
           aria-describedby={`${levelId}-hint`}
           onChange={(e) => {
+            // Locked while a job runs, but kept in the focus order.
+            if (busy) return;
             setOutcome(null);
             setLevel(e.target.value as PdfALevelId);
           }}
