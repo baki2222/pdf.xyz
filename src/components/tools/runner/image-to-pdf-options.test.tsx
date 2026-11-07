@@ -136,10 +136,16 @@ describe("image to PDF · Rotate on a card", () => {
     });
     fireEvent.click(rotate);
     expect(screen.getByText(/· 90°/)).toBeInTheDocument();
+    // ADDED after review, 2026-11-08: a screen reader heard nothing after a
+    // press; the button's own name now carries the angle.
+    expect(rotate).toHaveAccessibleName(
+      "Rotate one.jpg a quarter turn clockwise, now 90°",
+    );
     fireEvent.click(rotate);
     fireEvent.click(rotate);
     fireEvent.click(rotate);
     expect(screen.queryByText(/°/)).toBeNull();
+    expect(rotate).toHaveAccessibleName(IMAGE_ROTATION_LABELS.aria("one.jpg"));
   });
 });
 

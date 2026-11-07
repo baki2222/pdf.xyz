@@ -790,7 +790,10 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
                   <button
                     type="button"
                     onClick={() => rotate(item.id)}
-                    aria-label={IMAGE_ROTATION_LABELS.aria(item.name)}
+                    aria-label={IMAGE_ROTATION_LABELS.aria(
+                      item.name,
+                      item.rotation,
+                    )}
                     className={iconButtonClass}
                     title={IMAGE_ROTATION_LABELS.button}
                   >

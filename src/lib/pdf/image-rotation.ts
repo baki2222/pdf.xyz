@@ -19,8 +19,12 @@ export type ImageQuarterTurn = 0 | 90 | 180 | 270;
 export const IMAGE_ROTATION_LABELS = {
   /** The card button's visible tooltip and the copy's name for it. */
   button: "Rotate",
-  /** The accessible name, completed with the file's name. */
-  aria: (name: string) => `Rotate ${name} a quarter turn clockwise`,
+  /**
+   * The accessible name, completed with the file's name and, once turned,
+   * the angle it is at now, so a screen reader hears each press.
+   */
+  aria: (name: string, turn: number = 0) =>
+    `Rotate ${name} a quarter turn clockwise${turn ? `, now ${turn}°` : ""}`,
 } as const;
 
 /** The turn after one more press: 0 → 90 → 180 → 270 → 0. */
