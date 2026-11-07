@@ -33,6 +33,15 @@ import type { StandardSecurityHandler } from "./standard-handler";
  * grants "assemble the document" (bit 11, which names rotating pages), a
  * page dictionary whose /Rotate is all that changed may be rewritten too
  * (`restricted-rotate.test.ts`).
+ *
+ * UNENCRYPTED ORIGINALS (2026-11-08, audit sign-pdf#5). With `handler: null`
+ * the same writer appends an edit to a file that is not encrypted at all —
+ * the editor does it for a file that already carries certificate signatures,
+ * so the bytes their /ByteRange covers survive (`../editor/append-update`).
+ * Objects are then written as they are (their references renumbered like
+ * any new object's), and no page is guarded: an unencrypted file has no
+ * author's restrictions to enforce. The guard is tied to the handler, not to
+ * a flag, so the encrypted path cannot be asked to skip it.
  */
 
 export class RestrictedChangeError extends Error {
@@ -92,9 +101,10 @@ function protectedNumbers(lib: PdfLibModule, context: PDFContext): Set<number> {
 export interface IncrementalInput {
   /** The file as the author published it. */
   original: Uint8Array;
-  handler: StandardSecurityHandler;
+  /** The file's security handler; null for an unencrypted file. */
+  handler: StandardSecurityHandler | null;
   xref: XrefInfo;
-  /** The decrypted copy the editor opened (`writePlain`). */
+  /** The decrypted copy the editor opened (`writePlain`); unencrypted, the original itself. */
   plain: Uint8Array;
   /** The same copy after the edit (pdf-lib's save of `plain` + changes). */
   edited: Uint8Array;
@@ -139,6 +149,33 @@ function onlyKeysDiffer(
   return sameBytes(strip(before), strip(after));
 }
 
+/** `obj` with every reference passed through `remap`; nothing else changes. */
+function remapRefs(
+  lib: PdfLibModule,
+  context: PDFContext,
+  obj: PDFObject,
+  remap: (ref: PDFRef) => PDFRef,
+): PDFObject {
+  if (obj instanceof lib.PDFRef) return remap(obj);
+  if (obj instanceof lib.PDFArray) {
+    const out = lib.PDFArray.withContext(context);
+    for (const item of obj.asArray())
+      out.push(remapRefs(lib, context, item, remap));
+    return out;
+  }
+  if (obj instanceof lib.PDFStream) {
+    const dict = remapRefs(lib, context, obj.dict, remap) as PDFDict;
+    return lib.PDFRawStream.of(dict, obj.getContents());
+  }
+  if (obj instanceof lib.PDFDict) {
+    const out = lib.PDFDict.withContext(context);
+    for (const [key, value] of obj.entries())
+      out.set(key, remapRefs(lib, context, value, remap));
+    return out;
+  }
+  return obj;
+}
+
 export interface IncrementalResult {
   bytes: Uint8Array;
   /** Objects written: changed ones keep their number, new ones get one. */
@@ -155,7 +192,8 @@ export async function writeIncrementalUpdate(
     lib.PDFParser.forBytesWithOptions(b, Infinity, false).parseDocument();
   const before = await parse(input.plain);
   const after = await parse(input.edited);
-  const guarded = protectedNumbers(lib, before);
+  // An unencrypted file has no author's restrictions: nothing is guarded.
+  const guarded = handler ? protectedNumbers(lib, before) : new Set<number>();
   // The page keys the author's grant lets an update rewrite.
   const granted = [
     ...(input.allowAnnotations ? ["Annots"] : []),
@@ -190,7 +228,6 @@ export async function writeIncrementalUpdate(
   for (const [ref] of added) fresh.set(ref.tag, lib.PDFRef.of(next++, 0));
   const remap = (ref: PDFRef) => fresh.get(ref.tag) ?? ref;
 
-  const params = handler.params;
   const parts: Uint8Array[] = [];
   let at = original.length;
   const last = original[original.length - 1];
@@ -209,21 +246,23 @@ export async function writeIncrementalUpdate(
 
   for (const [ref, obj] of [...changed, ...added]) {
     const target = remap(ref);
-    const encrypted = await mapCrypt(
-      lib,
-      after,
-      obj,
-      params,
-      (kind, data) =>
-        handler.encrypt(
-          kind,
-          target.objectNumber,
-          target.generationNumber,
-          data,
-        ),
-      remap,
-    );
-    write(target.objectNumber, target.generationNumber, serialize(encrypted));
+    const body = handler
+      ? await mapCrypt(
+          lib,
+          after,
+          obj,
+          handler.params,
+          (kind, data) =>
+            handler.encrypt(
+              kind,
+              target.objectNumber,
+              target.generationNumber,
+              data,
+            ),
+          remap,
+        )
+      : remapRefs(lib, after, obj, remap);
+    write(target.objectNumber, target.generationNumber, serialize(body));
   }
 
   const get = (key: string) => xref.trailer.get(lib.PDFName.of(key));

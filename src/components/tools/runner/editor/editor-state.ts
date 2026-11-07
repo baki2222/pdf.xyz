@@ -89,6 +89,8 @@ export interface PendingTyped {
   kind: "typed";
   text: string;
   style: SignatureStyle;
+  /** The ink chosen in the panel (`signature-ink.ts`); absent = black. */
+  color?: string;
 }
 
 export type Pending = PendingImage | PendingTyped;

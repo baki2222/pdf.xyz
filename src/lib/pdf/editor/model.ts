@@ -789,7 +789,8 @@ export const SIGNATURE_INK = "#0f172a";
  * style's face — Script is Times Italic, Print is Helvetica, the faces Sign
  * PDF's copy names (`sign-style-copy.test.ts` reads them back out of the
  * export). Text in another script takes the one upright Noto face, as every
- * text box does.
+ * text box does. `color` is the ink chosen in the signature panel
+ * (`./signature-ink`); left out, it is the ink Sign PDF has always used.
  */
 export function typedSignatureObject(
   id: string,
@@ -799,6 +800,7 @@ export function typedSignatureObject(
   width: number,
   text: string,
   style: SignatureStyle,
+  color: string = SIGNATURE_INK,
 ): TextBoxObject {
   return {
     id,
@@ -812,7 +814,7 @@ export function typedSignatureObject(
     italic: style === "signature",
     bold: false,
     size: TYPED_SIGNATURE_SIZE,
-    color: SIGNATURE_INK,
+    color,
     align: "left",
     lineHeight: 1.2,
   };

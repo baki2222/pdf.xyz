@@ -27,6 +27,7 @@ import {
   PDFName,
   PDFNumber,
   PDFString,
+  StandardFonts,
   type PDFRef,
 } from "pdf-lib";
 
@@ -114,11 +115,23 @@ export async function makeSignedPdf(
  * widget with no `/V` — a box waiting for someone to sign).
  */
 export async function signedPdf(
-  opts: { signatures?: number; unsignedFields?: number } = {},
+  opts: {
+    signatures?: number;
+    unsignedFields?: number;
+    /** Words drawn on the signed page, Helvetica 14 pt, baseline at (72, 700). */
+    text?: string;
+    /** Blank pages after the signed one. Default 0. */
+    extraPages?: number;
+  } = {},
 ): Promise<Uint8Array> {
-  const { signatures = 1, unsignedFields = 0 } = opts;
+  const { signatures = 1, unsignedFields = 0, extraPages = 0 } = opts;
   const doc = await PDFDocument.create();
   const page = doc.addPage([612, 792]);
+  if (opts.text) {
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    page.drawText(opts.text, { x: 72, y: 700, size: 14, font });
+  }
+  for (let i = 0; i < extraPages; i += 1) doc.addPage([612, 792]);
   const ctx = doc.context;
   const fields: PDFRef[] = [];
 

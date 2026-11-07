@@ -11,6 +11,7 @@ import { Eraser } from "lucide-react";
 import type { ImageSignature } from "@/lib/pdf/signature";
 import { ChipButton } from "./runner-kit";
 import { canvasPixels, signatureFromPixels } from "./signature-bitmap";
+import { SIGNATURE_INKS, tintInk } from "@/lib/pdf/editor/signature-ink";
 import { cn } from "@/lib/utils";
 
 /**
@@ -20,18 +21,23 @@ import { cn } from "@/lib/utils";
  * stroke ends the drawing is cropped to its ink (`signature-image.ts`), so the
  * Size control sizes the signature and not the pad, encoded, and handed to
  * `onChange`; an empty pad reports `null`.
+ *
+ * `ink` (audit sign-pdf#2) is the stroke colour. The exported pixels are
+ * tinted to it (`tintInk`), and a change of ink recolours what is already
+ * drawn, on screen and in the export alike.
  */
 
 const BACKING_WIDTH = 520;
 const BACKING_HEIGHT = 180;
-const INK = "#0f172a";
 
 export function SignaturePad({
   onChange,
   className,
+  ink = SIGNATURE_INKS[0].hex,
 }: {
   onChange: (signature: ImageSignature | null) => void;
   className?: string;
+  ink?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
@@ -46,11 +52,13 @@ export function SignaturePad({
     return canvas ? canvas.getContext("2d") : null;
   }, []);
 
+  const inkRef = useRef(ink);
+
   // Configure the stroke look once the canvas is mounted (client only).
   useEffect(() => {
     const ctx = context();
     if (!ctx) return;
-    ctx.strokeStyle = INK;
+    ctx.strokeStyle = inkRef.current;
     ctx.lineWidth = 2.5;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
@@ -78,12 +86,32 @@ export function SignaturePad({
       onChange(null);
       return;
     }
-    void signatureFromPixels(pixels, { removeBackground: false })
+    void signatureFromPixels(tintInk(pixels, inkRef.current), {
+      removeBackground: false,
+    })
       .catch(() => null)
       .then((signature) => {
         if (seq === exportSeq.current) onChange(signature);
       });
   }, [onChange]);
+
+  // A new ink: new strokes take it, and what is drawn is recoloured in place
+  // (keeping each pixel's alpha) and exported again.
+  useEffect(() => {
+    if (inkRef.current === ink) return;
+    inkRef.current = ink;
+    const canvas = canvasRef.current;
+    const ctx = context();
+    if (!canvas || !ctx) return;
+    ctx.strokeStyle = ink;
+    if (!inkedRef.current) return;
+    ctx.save();
+    ctx.globalCompositeOperation = "source-in";
+    ctx.fillStyle = ink;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+    exportInk();
+  }, [ink, context, exportInk]);
 
   const startStroke = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     const ctx = context();

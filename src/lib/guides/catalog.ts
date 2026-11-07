@@ -17,6 +17,11 @@
  */
 import { getToolBySlug } from "@/lib/tools";
 import { STAMP_POSITIONS } from "@/lib/pdf/stamp";
+import { SIGNATURE_INKS } from "@/lib/pdf/editor/signature-ink";
+import {
+  REPEAT_TARGETS,
+  REPEAT_TARGET_LABEL,
+} from "@/lib/pdf/editor/repeat-on-pages";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { MAX_IMAGE_MB, MAX_SOURCE_MB } from "@/lib/tools/limits";
 import {
@@ -293,6 +298,10 @@ import type { Guide } from "./types";
  * style and naming a "print-and-scan style" the runner does not have.
  */
 const signatureWays = countWord(SIGNATURE_SOURCES.length);
+/** Sign PDF's ink swatches, as the panel names them (audit sign-pdf#2). */
+const signatureInks = new Intl.ListFormat("en", { type: "disjunction" }).format(
+  SIGNATURE_INKS.map((i) => i.label),
+);
 
 /** Compress PDF's Target size presets, labelled as its panel labels them. */
 const TARGET_PRESET_LABELS = TARGET_SIZE_PRESETS.map((p) => p.label);
@@ -1820,7 +1829,9 @@ export const guides: Guide[] = [
       "Pick the PDF you need to sign — the file stays on your device the entire time.",
       "Create your signature: draw it, type it, or pick a signature image you already have.",
       `If you type it, pick the look: ${signatureStyles.join(" or ")} style.`,
+      `If you draw or type it, pick the ink: ${signatureInks}. Blue ink makes the original easy to tell from a copy.`,
       "Place the signature exactly where the document needs it — the tool is built for precise placement.",
+      `Need it on more than one page, such as initials on every page of a contract? Select what you placed and use Repeat on: ${new Intl.ListFormat("en", { type: "disjunction" }).format(REPEAT_TARGETS.map((t) => REPEAT_TARGET_LABEL[t]))}. Each copy lands at the same spot.`,
       "Export your signed PDF and save it to your device.",
     ],
     sections: [
@@ -1882,7 +1893,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-10-24",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-make-a-scanned-pdf-searchable",
@@ -5339,7 +5350,7 @@ export const guides: Guide[] = [
         heading: "Locked, restricted and signed PDFs",
         body: [
           `A PDF that needs a password to open has to be unlocked first; ${nameOf("unlock-pdf")} removes the password if you know it, but it runs on our secure server rather than in your browser. A PDF that opens without a password but whose author restricted changes opens here with the author's rules in force: if the author allows comments, highlights are always saved as comments and the copy keeps the author's encryption, and if not, the mark-up tools stay locked. Typing the owner password into the page unlocks every tool for that file.`,
-          "On an ordinary PDF, the copy is written out as a new file, so an existing digital signature will no longer validate, and the file's Creator and Producer become this site's name. Its pages, text, bookmarks and form fields are otherwise kept.",
+          "On an ordinary PDF, the file's Creator and Producer become this site's name. A PDF that carries a digital signature, and is not password-protected, keeps its original bytes, and your highlights are appended after them as an update, so the signature still verifies for the version that was signed, though a viewer will show the document changed afterwards. Its pages, text, bookmarks and form fields are otherwise kept.",
         ],
       },
     ],

@@ -4,6 +4,12 @@ import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { SUPPORTED_SCRIPTS, UNSUPPORTED_SCRIPTS } from "@/lib/pdf/font-packs";
 import { MAX_SAVED_SIGNATURES } from "@/lib/pdf/editor/saved-signatures";
+import { SIGNATURE_INKS } from "@/lib/pdf/editor/signature-ink";
+import { REMOVALS, listRemovals } from "@/lib/pdf/editor/signed-edit";
+import {
+  REPEAT_TARGETS,
+  REPEAT_TARGET_LABEL,
+} from "@/lib/pdf/editor/repeat-on-pages";
 
 /*
  * Every behavioral claim below was read from, or probed against, the code.
@@ -17,7 +23,10 @@ import { MAX_SAVED_SIGNATURES } from "@/lib/pdf/editor/saved-signatures";
  *
  *  - panel: editor/signature-panel.tsx — Draw / Type / Upload
  *    (SIGNATURE_SOURCES), opening on Type; Type has "Your name" and Style Script /
- *    Print; Upload shows "Remove paper background", ticked, only for a file
+ *    Print; Draw and Type show the "Ink colour" swatches (SIGNATURE_INKS,
+ *    black first) — the pad's strokes are tinted to it (`tintInk`) and a
+ *    typed name is filled with it; Upload, which keeps the picture's own
+ *    colours, does not show them; Upload shows "Remove paper background", ticked, only for a file
  *    with no transparency (`isOpaque`); "Save for next time" (opt-in) and the
  *    "Saved on this device" list with a delete button each; "Use signature".
  *  - drawn: signature-pad.tsx crops each drawing to its ink
@@ -33,20 +42,32 @@ import { MAX_SAVED_SIGNATURES } from "@/lib/pdf/editor/saved-signatures";
  *  - placing: a click places it centred on the point; a picture resizes from
  *    its corners keeping its proportions, a typed one is a text box (its
  *    Size in the properties). Every further click places another copy, on
- *    any page. Rotated and cropped pages: the displayed frame
+ *    any page. "Repeat on" (editor/repeat-on-pages.tsx, shown in the
+ *    properties of a selected signature, initials, name or date on a PDF of
+ *    two or more pages): REPEAT_TARGETS — a copy at the same spot on each
+ *    target page (pulled in on a smaller page), one undo step, the custom
+ *    list in `parsePageList`'s syntax. Rotated and cropped pages: the displayed frame
  *    (`editor-export.test.ts`).
  *  - saved: `editor/saved-signatures.ts` — localStorage only, opt-in, at
  *    most MAX_SAVED_SIGNATURES, try/catch around every access.
- *  - export: `exportEditedPdf` rewrites the whole file with pdf-lib
- *    (`stampProducer` sets Producer/Creator), so an existing certificate
- *    signature's byte range no longer matches; encrypted input is refused at
- *    open ("Unlock it first").
+ *  - export: `exportEditedPdf` writes the edit with pdf-lib
+ *    (`stampProducer` sets Producer/Creator). SINCE 2026-11-08 (audit
+ *    sign-pdf#5) an UNENCRYPTED file that carries certificate signatures
+ *    (`countDigitalSignatures`) gets it APPENDED as an incremental update
+ *    (`editor/append-update.ts`, `editor-session.tsx`), so the bytes each
+ *    signature covers stay as they were (`append-update.test.ts`, and
+ *    `sign-runner.test.tsx` through the runner); until then the whole file
+ *    was rewritten and the FAQ said so. A file that needs a password to open
+ *    is refused at open ("Unlock it first").
  *    AMENDED 2026-11-08 (audit sign-pdf#3): SignRunner passes
  *    `openProtected`, as Edit PDF does, so a file that opens without a
  *    password opens with ProtectionBanner; the Sign tool is locked
  *    (toolAllowed: not a comment tool) until the owner password, checked
  *    in the browser, unlocks every tool and the copy saves unencrypted
- *    (UNLOCKED_NOTE). sign-restricted.test.tsx drives it.
+ *    (UNLOCKED_NOTE). sign-restricted.test.tsx drives it. Such a file is
+ *    never appended to (`appendsToSigned` needs `protection === undefined`):
+ *    if it is also certificate-signed, the unlocked copy is written whole
+ *    and the runner's SignedInputNotice says the signature will not verify.
  *  - result: "PDF signed", "Download signed PDF", `signatureOutputName`.
  */
 const signTool = getToolBySlug("sign-pdf");
@@ -59,6 +80,16 @@ const linkMinutes = DEFAULT_RETENTION.outputTtlMinutes;
 
 const list = (items: readonly string[]) =>
   new Intl.ListFormat("en", { type: "conjunction" }).format(items);
+
+/** The ink swatches, named as the panel names them, black first. */
+const inks = new Intl.ListFormat("en", { type: "disjunction" }).format(
+  SIGNATURE_INKS.map((i) => i.label),
+);
+
+/** "Repeat on"'s choices, as the control names them. */
+const repeatTargets = new Intl.ListFormat("en", { type: "disjunction" }).format(
+  REPEAT_TARGETS.map((t) => REPEAT_TARGET_LABEL[t]),
+);
 
 /** Scripts a typed name can be written in beyond Latin, from the shipped packs. */
 const otherScripts = list(SUPPORTED_SCRIPTS.filter((s) => s !== "Latin"));
@@ -95,7 +126,7 @@ const content: ToolContent = {
     },
     {
       title: "Initials on every page",
-      body: "Choose Initials, then click on each page that needs them: every click places another set, and they are all written in one pass. They come from the name in your typed signature, or from a name you type once.",
+      body: `Choose Initials and click where they go on one page. With them selected, pick ${repeatTargets} (such as 2-5, 8) under Repeat on and press Repeat: a copy lands at the same spot on each of those pages, and every copy can still be moved or deleted on its own. The same works for a signature, a name or a date. Initials come from the name in your typed signature, or from a name you type once.`,
     },
     {
       title: "Date it and tick the boxes",
@@ -114,11 +145,11 @@ const content: ToolContent = {
     },
     {
       title: "Create the signature",
-      body: "The panel opens on Type: write your name under Your name and pick Script or Print; the preview uses your browser's fonts, so it only approximates the final lettering. Draw gives a pad with a Clear chip, and the third tab takes a PNG or JPEG from your device. Tick Save for next time to keep it in this browser for later, then press Use signature.",
+      body: `The panel opens on Type: write your name under Your name and pick Script or Print; the preview uses your browser's fonts, so it only approximates the final lettering. Draw gives a pad with a Clear chip, and the third tab takes a PNG or JPEG from your device. For a drawn or typed signature, pick the ink: ${inks}, with ${SIGNATURE_INKS[0].label} chosen until you change it; a picture of your signature keeps its own colours. Tick Save for next time to keep it in this browser for later, then press Use signature.`,
     },
     {
       title: "Place it",
-      body: "Tap or click the page where it goes. Drag it to move it and drag a corner to resize it; a picture keeps its proportions. Click Sign again to place another copy, on this page or any other.",
+      body: `Tap or click the page where it goes. Drag it to move it and drag a corner to resize it; a picture keeps its proportions. Click Sign again to place another copy, on this page or any other, or, with it selected, use Repeat on (${repeatTargets}) to copy it to the same spot on other pages.`,
     },
     {
       title: "Sign and save",
@@ -145,7 +176,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I sign a password-protected or already certified PDF?",
-      a: `A PDF that needs a password to open cannot be signed here until Unlock PDF removes that password. Unlike signing, Unlock PDF does not run in your browser: the file is uploaded over TLS to pdf.xyz's secure server, the input is deleted when the job finishes, the unlocked copy's link expires after ${linkMinutes} minutes, and the stored copy is erased by a daily storage rule after that. A PDF that opens without a password but carries any restriction from its author (on changes, printing, copying or anything else) opens here with the author's limits in force: a signature is drawn into the page, so it needs the owner password, which you type above the pages and which is checked in your browser against the file itself, never uploaded. The signed copy is then saved without the author's encryption, as Unlock PDF would save it. A PDF that already carries a certificate signature can be signed here, but the whole file is rewritten rather than appended to, so the byte range that certificate covers no longer lines up with the file; expect a viewer that checks signatures to flag it.`,
+      a: `A PDF that needs a password to open cannot be signed here until Unlock PDF removes that password. Unlike signing, Unlock PDF does not run in your browser: the file is uploaded over TLS to pdf.xyz's secure server, the input is deleted when the job finishes, the unlocked copy's link expires after ${linkMinutes} minutes, and the stored copy is erased by a daily storage rule after that. A PDF that opens without a password but carries any restriction from its author (on changes, printing, copying or anything else) opens here with the author's limits in force: a signature is drawn into the page, so it needs the owner password, which you type above the pages and which is checked in your browser against the file itself, never uploaded. The signed copy is then saved without the author's encryption, as Unlock PDF would save it. A PDF that already carries a certificate signature, such as a contract the other party signed first, can be countersigned here: your signature is added to the end of the file as an update, and the bytes their signature covers are left exactly as they were, so it still verifies for the version they signed. A viewer that checks signatures will also show that the document changed after it was signed, and a signature certified to allow no changes reports yours as breaking that. An edit that takes something out of the file — ${listRemovals(REMOVALS, "disjunction")} — is the exception: the whole file is written again so that it is really gone, the earlier signature no longer verifies, and the editor says so beside Apply before you press it. A PDF that is both restricted by its author and certificate-signed is not appended to: once its owner password unlocks it, the copy is written whole without the author's encryption, so the earlier signature no longer verifies, and a warning above the pages says so before you start.`,
     },
   ],
 
