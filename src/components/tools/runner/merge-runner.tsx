@@ -140,6 +140,8 @@ export function MergeRunner() {
   const contentsId = useId();
   const [blankAfterOdd, setBlankAfterOdd] = useState(false);
   const blankId = useId();
+  const [fileNames, setFileNames] = useState(false);
+  const fileNamesId = useId();
   // How the pages are ordered: one file after another (the merge it always
   // was), or one page from each file in turn.
   const [mode, setMode] = useState<MergeMode>("append");
@@ -282,6 +284,7 @@ export function MergeRunner() {
     setFileBookmarks(false);
     setContentsPage(false);
     setBlankAfterOdd(false);
+    setFileNames(false);
     setMode("append");
   };
 
@@ -346,6 +349,9 @@ export function MergeRunner() {
                   contentsPages = n;
                 },
               }
+            : {}),
+          ...(fileNames
+            ? { fileNames: items.map((i) => baseName(i.name)) }
             : {}),
           ...(blankAfterOdd
             ? {
@@ -728,6 +734,27 @@ export function MergeRunner() {
               <span className="text-muted block text-xs">
                 For double-sided printing: each file then starts on the front of
                 a sheet. The last file gets none.
+              </span>
+            </span>
+          </label>
+
+          <label
+            htmlFor={fileNamesId}
+            className="text-fg flex items-start gap-2 text-sm"
+          >
+            <input
+              id={fileNamesId}
+              type="checkbox"
+              checked={fileNames}
+              onChange={(e) => setFileNames(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              Print each file&apos;s name at the foot of its pages
+              <span className="text-muted block text-xs">
+                Small text at the bottom left of every page, without the .pdf
+                ending, so a printed page shows which file it came from. Blank
+                and contents pages get none.
               </span>
             </span>
           </label>

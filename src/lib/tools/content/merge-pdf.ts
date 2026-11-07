@@ -82,6 +82,14 @@ const linkMinutes = DEFAULT_RETENTION.outputTtlMinutes;
  * of that file's last page. It is added after the pages are assembled, so
  * file bookmarks and contents lines still open each file's first page, and
  * the contents numbers count the blanks. Not offered with Alternate pages.
+ *
+ * ADDED 2026-11-07 (audit merge-pdf#6; merge-filename.ts, read back through
+ * pdf.js in merge-contents-split-text.test.ts and from the download in
+ * merge-runner.test.tsx): "Print each file's name at the foot of its pages"
+ * draws each file's name without its extension, 8 pt (down to 6 pt, then cut
+ * with "…" when too wide), at the bottom left of each page that file gives,
+ * as a reader sees the page. Blank pads and contents pages carry none. Not
+ * offered with Alternate pages.
  */
 const content: ToolContent = {
   slug: "merge-pdf",
@@ -127,7 +135,7 @@ const content: ToolContent = {
     },
     {
       title: "Pick pages and bookmarks (optional)",
-      body: "Leave a file's Pages box empty to take all of it, or type pages such as 1-3, 5 to take only those. Tick “Add a bookmark for each file” for a bookmark per file in the result, “Add a contents page” for a first page that lists every file with the page it starts on, and “Add a blank page after files with an odd page count” if you will print the result double-sided, so every file starts on the front of a sheet.",
+      body: "Leave a file's Pages box empty to take all of it, or type pages such as 1-3, 5 to take only those. Tick “Add a bookmark for each file” for a bookmark per file in the result, “Add a contents page” for a first page that lists every file with the page it starts on, “Add a blank page after files with an odd page count” if you will print the result double-sided, so every file starts on the front of a sheet, and “Print each file's name at the foot of its pages” to mark every printed page with the file it came from.",
     },
     {
       title: "Add anything you missed",

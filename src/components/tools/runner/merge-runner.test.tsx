@@ -136,4 +136,24 @@ describe("merge-pdf: the options reach the downloaded file", () => {
     const { widths } = await mergeAndRead();
     expect(widths).toEqual([11, 12, 13, 21, 22]);
   }, 30_000);
+
+  it("'Print each file's name at the foot of its pages' stamps the names into the download", async () => {
+    await mountWith([
+      pdfFile(await pdfOfWidths([300]), "exhibit-a.pdf"),
+      pdfFile(await pdfOfWidths([310]), "exhibit-b.pdf"),
+    ]);
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: /print each file's name at the foot of its pages/i,
+      }),
+    );
+    await mergeAndRead();
+    const { extractPdfText } = await import("@/lib/pdf/text");
+    const { pages } = await extractPdfText(
+      new Uint8Array(await downloads[0]!.arrayBuffer()),
+      async () => (await import("pdfjs-dist/legacy/build/pdf.mjs")) as never,
+    );
+    // Named as the bookmarks are: the file name without its .pdf ending.
+    expect(pages.map((p) => p.text.trim())).toEqual(["exhibit-a", "exhibit-b"]);
+  }, 30_000);
 });

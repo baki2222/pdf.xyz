@@ -197,6 +197,72 @@ async function textPdf(pages: string[][]): Promise<Uint8Array> {
   return doc.save();
 }
 
+describe("merge: each file's name at the foot of its pages (audit merge-pdf#6)", () => {
+  // Exhibit bundles, homework packs, statement bundles: a printed page has
+  // to say which file it came from.
+  it("prints a file's name on each of its pages, and none on a blank pad", async () => {
+    const out = await mergePdfs(
+      [await makePdf([300, 310]), await makePdf([320])],
+      {
+        fileNames: ["exhibit-a", "statement 2026-10"],
+        blankAfterOdd: true,
+      },
+    );
+    const { pages } = await extractPdfText(out, legacy);
+    expect(pages.map((p) => p.text.trim())).toEqual([
+      "exhibit-a",
+      "exhibit-a",
+      "statement 2026-10",
+    ]);
+    // The first file (two pages) needs no pad and the second is last. Here
+    // the first file has one page, so a pad follows it, and stays blank.
+    const padded = await mergePdfs(
+      [await makePdf([300]), await makePdf([310])],
+      { fileNames: ["one", "two"], blankAfterOdd: true },
+    );
+    const read = await extractPdfText(padded, legacy);
+    expect(read.pages.map((p) => p.text.trim())).toEqual(["one", "", "two"]);
+  });
+
+  it("puts it at the bottom left of the page as a reader sees it", async () => {
+    const out = await mergePdfs([await makePdf([300])], {
+      fileNames: ["exhibit-a"],
+    });
+    const lib = await legacy();
+    const doc = await lib.getDocument({ data: out.slice(), verbosity: 0 })
+      .promise;
+    const page = await doc.getPage(1);
+    const viewport = page.getViewport({ scale: 1 });
+    const items = (await page.getTextContent()).items.filter(
+      (i) => "str" in i && i.str === "exhibit-a",
+    ) as { transform: number[] }[];
+    expect(items).toHaveLength(1);
+    const [x, y] = viewport.convertToViewportPoint(
+      items[0]!.transform[4]!,
+      items[0]!.transform[5]!,
+    );
+    expect(x).toBeLessThan(60);
+    expect(y).toBeGreaterThan(viewport.height - 40);
+  });
+
+  it("shortens a name too long for the page rather than running off it", async () => {
+    const long = "a very long exhibit name ".repeat(12).trim();
+    const out = await mergePdfs([await makePdf([200])], {
+      fileNames: [long],
+    });
+    const { pages } = await extractPdfText(out, legacy);
+    const text = pages[0]!.text.trim();
+    expect(text.endsWith("…")).toBe(true);
+    expect(text.length).toBeLessThan(long.length);
+  });
+
+  it("without the option nothing is printed (control)", async () => {
+    const out = await mergePdfs([await makePdf([300])]);
+    const { pages } = await extractPdfText(out, legacy);
+    expect(pages[0]!.text.trim()).toBe("");
+  });
+});
+
 describe("split: by text", () => {
   const PAGES = [
     ["Cover letter"],

@@ -144,6 +144,12 @@ export interface MergeOptions {
   blankAfterOdd?: boolean;
   /** Told how many blank pages `blankAfterOdd` added, for the page re-count. */
   onBlankPages?: (pages: number) => void;
+  /**
+   * Per file, a name printed small at the bottom left of each page it gives
+   * (`merge-filename.ts`), so a printed page shows which file it came from.
+   * Blank pages from `blankAfterOdd` and contents pages carry none.
+   */
+  fileNames?: readonly string[];
 }
 
 /** Concatenate several PDFs into one, in the order given. */
@@ -179,6 +185,27 @@ export async function mergePdfs(
     documentState: "merge",
     ...(options.fileBookmarks ? { fileBookmarks: options.fileBookmarks } : {}),
   });
+  if (options.fileNames) {
+    if (options.fileNames.length !== files.length) {
+      throw new Error("one file name per file");
+    }
+    // Loaded with the option, so a plain merge never pays for it. Drawn
+    // before the blank pads are inserted, so those stay blank.
+    const names = options.fileNames;
+    const { stampFileNames } = await import("./merge-filename");
+    let at = 0;
+    await stampFileNames(
+      lib,
+      sources.map(({ indices }, i) => {
+        const group = {
+          name: names[i]!,
+          pages: pages.slice(at, at + indices.length),
+        };
+        at += indices.length;
+        return group;
+      }),
+    );
+  }
   if (options.blankAfterOdd) {
     // After assembly, so bookmarks and contents entries, which point at page
     // objects, still open each file's first page; the contents page numbers

@@ -821,10 +821,11 @@ export const guides: Guide[] = [
         ],
       },
       {
-        id: "print-double-sided",
-        heading: "Printing the merged PDF double-sided",
+        id: "printing-the-merged-pdf",
+        heading: "Printing the merged PDF",
         body: [
           "Printed on both sides, a file with an odd number of pages ends on the front of a sheet, so the next file starts on its back. Tick “Add a blank page after files with an odd page count” before you merge: each such file gets one blank page the size of its last page, so every file starts on a fresh sheet. The last file gets none, and the contents page numbers and bookmarks count the blanks.",
+          "For an exhibit bundle or a pack of statements, tick “Print each file's name at the foot of its pages”: each page carries the name of the file it came from, without the .pdf ending, in small text at the bottom left, so a loose printed page can be traced. A name too long for the page is shortened with an ellipsis. Blank and contents pages get none.",
         ],
       },
       {
