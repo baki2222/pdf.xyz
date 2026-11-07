@@ -1160,7 +1160,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         rebuildEntry(tool, "subset"),
         {
           question: "How do I delete every other page?",
-          answer: `Type the pages as a list — for example ${EVERY_OTHER_PAGE_EXAMPLE} — and press “Select”; those pages are selected, and “Delete” removes them.`,
+          answer: `Press “Even pages” to select pages 2, 4, 6 and so on, the blank backs of a double-sided scan, or “Odd pages” for 1, 3, 5 and so on; “Delete” then removes them. For any other pattern, type the pages as a list — for example ${EVERY_OTHER_PAGE_EXAMPLE} — and press “Select”.`,
         },
         {
           question: "Can I get a deleted page back?",

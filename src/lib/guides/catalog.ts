@@ -2117,8 +2117,8 @@ export const guides: Guide[] = [
         heading: "Three ways to select pages",
         body: [
           "Clicking a thumbnail selects that page, and clicking it again deselects it. Holding Shift while you click selects every page between the one you touched last and this one — the quick way to clear out a run of pages at the end of a scan.",
-          `Typing is faster in a long document. Enter single pages and ranges separated by commas — 1-3, 5 selects pages one to three and page five — and press Select. A range can be left open: 10- runs from page ten to the end. To delete every other page, list them: ${EVERY_OTHER_PAGE_EXAMPLE}.`,
-          "Select all, Clear and Invert work on the whole selection. Invert flips it — every selected page becomes unselected and every other page becomes selected — which helps when it is easier to pick the pages you want to keep.",
+          `Typing is faster in a long document. Enter single pages and ranges separated by commas — 1-3, 5 selects pages one to three and page five — and press Select. A range can be left open: 10- runs from page ten to the end. To delete every other page, press Even pages for 2, 4, 6 and so on, or Odd pages for 1, 3, 5 and so on.`,
+          "Select all, Clear, Invert, Odd pages and Even pages work on the whole selection. Invert flips it — every selected page becomes unselected and every other page becomes selected — which helps when it is easier to pick the pages you want to keep.",
         ],
       },
       {
@@ -2155,7 +2155,7 @@ export const guides: Guide[] = [
       },
       {
         question: "How do I delete every other page?",
-        answer: `Type the pages as a list — for example ${EVERY_OTHER_PAGE_EXAMPLE} — and press Select; those pages are selected, and Delete removes them.`,
+        answer: `Press Even pages to select pages 2, 4, 6 and so on, or Odd pages for 1, 3, 5 and so on, and Delete removes them. For another pattern, type the pages as a list — for example ${EVERY_OTHER_PAGE_EXAMPLE} — and press Select.`,
       },
       {
         question: "How large can the PDF be?",
@@ -2163,7 +2163,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-10-07",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-convert-markdown-to-pdf",

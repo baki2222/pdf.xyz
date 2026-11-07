@@ -841,11 +841,32 @@ describe("the page tools' answers are what their engines produce", () => {
     expect(picked.length).toBeGreaterThan(2);
     for (let i = 1; i < picked.length; i += 1)
       expect(picked[i]! - picked[i - 1]!).toBe(2);
-    expect(
-      page("remove-pages")
-        .faq.map((e) => e.answer)
-        .join(" "),
-    ).toContain(EVERY_OTHER_PAGE_EXAMPLE);
+  });
+
+  // INVERTED 2026-11-07 (audit remove-pages#2). Until then this test also
+  // required the Delete Pages FAQ to contain the typed list — it pinned the
+  // workaround "type 2, 4, 6, 8 … and press Select", impractical on a
+  // 300-page scan, as the answer to "How do I delete every other page?".
+  // The Odd pages / Even pages chips arrived (page-select-runner.tsx), so the
+  // answer must now lead with the chip, and typing is only the fallback.
+  it("the every-other-page answer leads with the Even pages chip the runner draws", () => {
+    const runner = readFileSync(
+      path.join(
+        process.cwd(),
+        "src/components/tools/runner/page-select-runner.tsx",
+      ),
+      "utf8",
+    );
+    const answer = page("remove-pages").faq.find((e) =>
+      /every other page/i.test(e.question),
+    )?.answer;
+    expect(answer, "the FAQ still asks the question").toBeTruthy();
+    for (const chip of ["Even pages", "Odd pages"]) {
+      // The label is a chip the runner really draws, and the answer names it.
+      expect(runner).toMatch(new RegExp(`>\\s*${chip}\\s*<`));
+      expect(answer).toContain(chip);
+    }
+    expect(answer).not.toMatch(/^Type the pages/);
   });
 });
 
