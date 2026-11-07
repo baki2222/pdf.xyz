@@ -2,6 +2,7 @@ import type { Tool } from "./types";
 import { MAX_IMAGE_MB, MAX_SOURCE_MB } from "./limits";
 import { RASTER_RESOLUTION_DPIS as RESOLUTION_DPIS } from "@/lib/pdf/raster-format";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
+import { WORD_OCR_LABEL } from "@/lib/jobs/pdf-office-export";
 
 /**
  * The pdf.xyz tool catalog — the single source of truth for every tool.
@@ -476,8 +477,11 @@ export const tools: Tool[] = [
     // real export against this copy.
     tagline: "Editable DOCX from a PDF's text and pictures.",
     cardSummary: "Turn a PDF's text and pictures into an editable Word file.",
-    description:
-      "Turn a PDF's text into editable Word (DOCX) paragraphs in reading order, its pictures placed between them. Fonts and layout are not recreated; scans need OCR first.",
+    // CHANGED 2026-11-06 (audit #41): ended "scans need OCR first", stale
+    // since OCR moved into the same job on 2026-10-24 (the panel's
+    // WORD_OCR_LABEL checkbox). Held to the ~165-char serp ceiling by
+    // catalog-descriptions.test.ts.
+    description: `Turn a PDF's text and pictures into editable Word (DOCX) in reading order. Fonts and layout are not recreated; for a scan, tick “${WORD_OCR_LABEL}”.`,
     category: "convert-from",
     icon: "word",
     processing: "server",

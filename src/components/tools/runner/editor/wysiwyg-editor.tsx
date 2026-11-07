@@ -2292,13 +2292,16 @@ export function WysiwygEditor({
         {signing && (
           <SignaturePanel
             onClose={() => setSigning(false)}
-            onReady={(pending) => {
+            onReady={(pending, notice) => {
               dispatch({ type: "pending", pending });
               dispatch({ type: "tool", tool: "signature" });
               setSigning(false);
               dispatch({
                 type: "say",
-                message: "Signature ready: tap or click a page to place it",
+                // A save that did not happen is said, not swallowed (audit #50).
+                message: notice
+                  ? `Signature ready: tap or click a page to place it. ${notice}`
+                  : "Signature ready: tap or click a page to place it",
               });
             }}
           />

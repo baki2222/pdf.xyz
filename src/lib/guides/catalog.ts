@@ -2317,7 +2317,7 @@ export const guides: Guide[] = [
     slug: "how-to-repair-a-damaged-pdf",
     title: "How to repair a damaged or corrupted PDF",
     description:
-      "Rebuild a damaged PDF with qpdf on a secure server that deletes the input when the job finishes, and see what had to be fixed. No account needed.",
+      "Rebuild a damaged PDF with qpdf on a secure server that deletes the input when the job finishes, and read what qpdf reported working around. No account needed.",
     tools: ["repair-pdf", "unlock-pdf", "ocr-pdf"],
     keywords: [
       "repair pdf",
@@ -2335,7 +2335,9 @@ export const guides: Guide[] = [
       "Open the Repair PDF tool.",
       `Upload the damaged PDF — it travels over an encrypted connection, and files up to ${ceilingMb("repair-pdf")} MB are accepted. It only has to start like a PDF, so a truncated file is taken in.`,
       "Press “Repair on our secure server”. qpdf rewrites the file's structure on our secure server, which deletes the input when the job finishes.",
-      "If the file had to be rebuilt, read the list above the download: it names what was reconstructed.",
+      // CHANGED 2026-11-06 (audit #41): said the list "names what was
+      // reconstructed"; it holds qpdf's diagnostics, and can be absent.
+      "If a notice appears above the download, read qpdf's messages in it: they say what qpdf found and worked around. No notice does not mean the file is guaranteed intact.",
       `Download the repaired PDF. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
     ],
     sections: [
@@ -2395,7 +2397,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-10-30",
+    updated: "2026-11-06",
   },
   {
     slug: "how-to-add-page-numbers-to-a-pdf",

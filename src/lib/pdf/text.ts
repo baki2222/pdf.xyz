@@ -14,6 +14,11 @@ export interface ExtractedPdfText {
   pageCount: number;
   pages: ExtractedTextPage[];
   text: string;
+  /**
+   * `text.length`: UTF-16 code units, the unit the AI tools' declared counts
+   * and the worker's own `.length` measure share. Not a count of characters
+   * for a reader; `extractedTextSummary` (./text-summary) counts code points.
+   */
   characterCount: number;
   hasText: boolean;
 }

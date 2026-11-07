@@ -244,9 +244,15 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
       await screen.findByText(/sent with the previous exchange as context/i),
     ).toBeInTheDocument();
     // And the fact that makes the re-upload comprehensible rather than surprising.
+    // INVERTED 2026-11-06 (audit #41): this pinned "our server keeps nothing
+    // between questions", which was false — each answer ZIP (question and
+    // answer inside) is stored for the output lifetime. The FAQ was narrowed
+    // to "does not link one question to the next" on 2026-09-27; the panel
+    // sentence was missed, and this assertion held it in place.
     expect(
-      screen.getByText(/our server keeps nothing between questions/i),
+      screen.getByText(/our server does not link one question to the next/i),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/keeps nothing/i)).toBeNull();
   });
 
   it("keeps an unreadable answer out of context instead of guessing what the model said", async () => {

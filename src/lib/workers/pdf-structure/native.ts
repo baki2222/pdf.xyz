@@ -256,6 +256,7 @@ export function createNativeQpdfStructureRunner(
       }
       return {
         bytes,
+        recovered,
         warnings: recovered
           ? sanitizeQpdfWarnings(text(result.stderr), [
               inputPath,

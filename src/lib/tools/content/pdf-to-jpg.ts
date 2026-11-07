@@ -10,6 +10,7 @@ import {
   shouldZipPages,
   zipOutputName,
 } from "@/lib/pdf/pdf-to-image";
+import { LARGE_RASTER_PAGES, defaultResolution } from "@/lib/intent/defaults";
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 
@@ -86,6 +87,16 @@ if (
 const lowest = RASTER_RESOLUTIONS[0]!;
 const highest = RASTER_RESOLUTIONS[RASTER_RESOLUTIONS.length - 1]!;
 const standard = resolutionById(DEFAULT_RESOLUTION_ID);
+// What the runner opens at (pdf-to-image-runner.tsx): a long PDF at the
+// smart default, otherwise the resolution last picked in this browser
+// (option memory), otherwise DEFAULT_RESOLUTION_ID. ADDED 2026-11-06 (audit
+// #41): the page said only that the default was "selected at the start".
+const longStart = defaultResolution(LARGE_RASTER_PAGES + 1, RASTER_RESOLUTIONS);
+if (!longStart || longStart.id === DEFAULT_RESOLUTION_ID) {
+  throw new Error("pdf-to-jpg content: the long-PDF resolution rule changed");
+}
+const longLabel = resolutionById(longStart.id).label;
+const startSentence = `${standard.label} is selected at the start for a PDF of up to ${LARGE_RASTER_PAGES} pages and ${longLabel} for a longer one; once you convert at a resolution you picked, this browser remembers it and opens a PDF of up to ${LARGE_RASTER_PAGES} pages at it next time.`;
 const quality = Math.round(DEFAULT_JPEG_QUALITY * 100);
 
 /** US Letter is 612 x 792 PDF points; pixels = points x the renderer's scale. */
@@ -118,7 +129,7 @@ const content: ToolContent = {
 
   intro: [
     `PDF to JPG paints the pages of your PDF — all of them, or only the ones you pick — onto a canvas with pdf.js and saves each one as a JPEG picture, in colour or in grayscale, with the page's built-in rotation applied. The renderer and its decoders for JPEG 2000 and JBIG2 images load from pdf.xyz itself, and all of the drawing and encoding is done by your own browser: the PDF is not uploaded.`,
-    `There are ${RASTER_RESOLUTIONS.length} resolutions to choose from: ${presetList}, with ${standard.label} selected at the start. There is no quality slider; every JPEG is encoded at quality ${quality} out of 100 on a white background, since JPEG cannot store transparency. A one-page PDF downloads as a single file (flyer.pdf becomes ${exampleSingle}). When more than one page is rendered they arrive as a ZIP: all pages of a ${EXAMPLE_PAGES}-page report.pdf become ${exampleZip}, holding ${exampleFirst} through ${exampleLast}, with page numbers zero-padded to the width of the page count so the images sort in reading order. Grayscale saves single-channel JPEGs, which are smaller than colour ones.`,
+    `There are ${RASTER_RESOLUTIONS.length} resolutions to choose from: ${presetList}. ${startSentence} There is no quality slider; every JPEG is encoded at quality ${quality} out of 100 on a white background, since JPEG cannot store transparency. A one-page PDF downloads as a single file (flyer.pdf becomes ${exampleSingle}). When more than one page is rendered they arrive as a ZIP: all pages of a ${EXAMPLE_PAGES}-page report.pdf become ${exampleZip}, holding ${exampleFirst} through ${exampleLast}, with page numbers zero-padded to the width of the page count so the images sort in reading order. Grayscale saves single-channel JPEGs, which are smaller than colour ones.`,
     `It converts a single PDF per run, up to ${maxMb} MB. One that needs a password to open stops at the loading step, with a message saying it is password-protected. A PDF that opens without a password converts even if its author restricted printing or copying. When pdf.js fails to decode an embedded image, the result panel states how many images could not be decoded rather than leaving you to spot the gap yourself.`,
   ],
 
@@ -129,7 +140,7 @@ const content: ToolContent = {
     },
     {
       title: "Put slides into a document or email",
-      body: `A deck exported as PDF becomes one JPG per slide, ready to paste into a report, a newsletter or a wiki page. ${lowest.label} is enough when a slide is shown at its natural size; the preselected ${standard.label} leaves room for readers to zoom in on small print.`,
+      body: `A deck exported as PDF becomes one JPG per slide, ready to paste into a report, a newsletter or a wiki page. ${lowest.label} is enough when a slide is shown at its natural size; ${standard.label} leaves room for readers to zoom in on small print.`,
     },
     {
       title: "Send a print shop an image file",

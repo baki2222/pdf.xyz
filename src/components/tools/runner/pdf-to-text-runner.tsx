@@ -14,6 +14,10 @@ import {
   textOutputName,
   type ExtractedPdfText,
 } from "@/lib/pdf/text";
+import {
+  extractedPagesLabel,
+  extractedTextSummary,
+} from "@/lib/pdf/text-summary";
 import { formatPageNumbers } from "@/lib/pdf/ranges";
 import { downloadBlob } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
@@ -37,7 +41,18 @@ import {
   OCR_TOOL_NAME,
 } from "./no-text-note";
 
-export function PdfToTextRunner() {
+/**
+ * `extract` is a seam for tests (pdf-to-text-result-line.test.tsx): pdf-lib's
+ * standard fonts cannot draw an astral character, so that test hands in an
+ * extraction holding some instead of mocking `@/lib/pdf/text`, which under
+ * `isolate: false` would leave this module bound to the stub for later files
+ * (mock-isolation.test.ts). The page passes nothing.
+ */
+export function PdfToTextRunner({
+  extract = extractPdfText,
+}: {
+  extract?: (bytes: Uint8Array) => Promise<ExtractedPdfText>;
+} = {}) {
   return (
     <SinglePdfRunner
       hint="One PDF · extracts selectable text locally in your browser"
@@ -46,7 +61,9 @@ export function PdfToTextRunner() {
       writesPdf={false}
       reader="pdfjs"
     >
-      {(pdf, reset) => <PdfToTextEditor pdf={pdf} onReset={reset} />}
+      {(pdf, reset) => (
+        <PdfToTextEditor pdf={pdf} onReset={reset} extract={extract} />
+      )}
     </SinglePdfRunner>
   );
 }
@@ -54,34 +71,31 @@ export function PdfToTextRunner() {
 function PdfToTextEditor({
   pdf,
   onReset,
+  extract,
 }: {
   pdf: LoadedPdf;
   onReset: () => void;
+  extract: (bytes: Uint8Array) => Promise<ExtractedPdfText>;
 }) {
   const { busy, error, result, run } = useAsyncRun<ExtractedPdfText>();
-  const onRun = () => run(() => extractPdfText(pdf.bytes));
+  const onRun = () => run(() => extract(pdf.bytes));
 
   if (result) {
     const filename = textOutputName(pdf.file.name);
-    // Pages the TXT has nothing from. The join leaves no marker where they
-    // were, so without this a partly scanned document read as "from 40 pages"
-    // when twelve of them contributed nothing.
+    // Pages the TXT has nothing from, listed under the result. The pages
+    // label and the result line share one definition (./text-summary).
     const empty = pagesWithoutText(result.pages);
-    const pagesLabel =
-      empty.length > 0
-        ? `${result.pageCount - empty.length} of ${result.pageCount} pages`
-        : `${result.pageCount} page${result.pageCount === 1 ? "" : "s"}`;
     return (
       <ResultPanel
         title={result.hasText ? "Text extracted" : "No selectable text found"}
         summary={
           result.hasText
-            ? `${result.characterCount.toLocaleString()} characters from ${pagesLabel}`
+            ? extractedTextSummary(result)!
             : `Scanned/image-only PDFs need OCR. This browser tool only extracts embedded selectable text.`
         }
         announcement={
           result.hasText && empty.length > 0
-            ? `Text extracted from ${pagesLabel}`
+            ? `Text extracted from ${extractedPagesLabel(result)}`
             : undefined
         }
         onReset={onReset}

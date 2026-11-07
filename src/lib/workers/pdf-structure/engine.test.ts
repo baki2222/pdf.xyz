@@ -118,6 +118,34 @@ describe("repair-pdf accepts the damage it exists to repair", () => {
     expect(qpdf.seen).toHaveLength(1);
   });
 
+  // Audit #50 (optimize-web#1, 2026-11-06): the input floor looked for
+  // `%%EOF` only in the last 2 KiB, so a COMPLETE PDF followed by padding (a
+  // scanner's NUL fill, a block-padded upload, a log line appended by a web
+  // system) was refused as "damaged … may have been cut off" and never reached
+  // qpdf, which reads such files. The trailer is there; it is just not last.
+  it.each([
+    ["4 KiB of NUL padding", new Uint8Array(4096)],
+    [
+      "3 KiB of appended text",
+      new TextEncoder().encode("signed-by: upload-gateway\n".repeat(120)),
+    ],
+  ])(
+    "optimize-web hands a complete PDF with %s after its end marker to qpdf",
+    async (_label, tail) => {
+      const whole = await healthyPdf(1);
+      const padded = new Uint8Array(whole.byteLength + tail.byteLength);
+      padded.set(whole);
+      padded.set(tail, whole.byteLength);
+      expect(tail.byteLength).toBeGreaterThan(2048);
+      const qpdf = recordingQpdf();
+
+      const run = await runOptimizeWeb(padded, { qpdf });
+
+      expect(qpdf.seen).toHaveLength(1);
+      expect(run.ok).toBe(true);
+    },
+  );
+
   it("optimize-web does NOT send bytes that are not a PDF at all to Repair PDF", async () => {
     // Repair refuses these too (no header, nothing to rebuild), so naming it
     // here would send the user to a second refusal.

@@ -66,7 +66,6 @@
  */
 
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
-import JSZip from "jszip";
 import { declaredContentTypeFor } from "../src/lib/jobs/mime-by-format";
 import { proveDeclaredPdfA } from "@/lib/workers/pdf-archive/pdfa-markers";
 import { deflateSync } from "node:zlib";
@@ -93,7 +92,12 @@ import {
   invoicePdf,
   invoiceSheetMismatches,
 } from "@/tests/pdf-office-fixtures";
-import { handBuiltPptx } from "@/tests/pptx-fixture";
+import { handBuiltPptx, pptxTitleProofVerdict } from "@/tests/pptx-fixture";
+import {
+  csvProofFile,
+  sheetProofVerdict,
+  xlsxProofFile,
+} from "@/tests/office-sheet-proof-fixtures";
 import { OFFICE_INPUT_FIXTURES, odsWith } from "@/tests/office-input-fixtures";
 import { drmBook, epub3Book } from "@/tests/epub-fixtures";
 import { epub3Verdict, readEpubPdf } from "@/lib/workers/epub/proof";
@@ -613,6 +617,42 @@ async function officeInputVerdict(
 }
 
 /**
+ * Excel to PDF (XLSX, CSV) and PowerPoint to PDF (PPTX) at the deployment:
+ * the PDF has a page and carries the input's own text. ADDED 2026-11-06
+ * (audit #50): these three proofs asserted only `isPdf`, so a worker that
+ * returned a blank page passed. `worker-office-proof-verify.test.ts` holds
+ * every Office proof to a verdict or a refusal.
+ */
+async function pdfPageCount(bytes: Buffer): Promise<number> {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const task = pdfjs.getDocument({
+    ...PDFJS_DOCUMENT_DEFAULTS,
+    data: new Uint8Array(bytes),
+  });
+  const pages = (await awaitPdfjsDocument(task)).numPages;
+  await task.destroy();
+  return pages;
+}
+
+async function sheetVerdict(
+  bytes: Buffer,
+): Promise<{ ok: boolean; detail: string }> {
+  return sheetProofVerdict(
+    await pdfPlainText(bytes),
+    await pdfPageCount(bytes),
+  );
+}
+
+async function pptxTitleVerdict(
+  bytes: Buffer,
+): Promise<{ ok: boolean; detail: string }> {
+  return pptxTitleProofVerdict(
+    await pdfPlainText(bytes),
+    await pdfPageCount(bytes),
+  );
+}
+
+/**
  * OCR's "Straighten crooked pages" at the deployment: the worker-image
  * proof's own crooked scan (`ocr-deskew-proof.ts`: four bars and rows of
  * text, turned 3.5°, made pixels only), measured on the downloaded PDF with
@@ -703,53 +743,6 @@ async function uprightVerdict(
         : "/Rotate 0, upside down, option off"
     }); ${found} of ${words.length} sentinel words in the text layer`,
   };
-}
-
-function csvFile(): Buffer {
-  return Buffer.from("Region,Q1,Q2\nNorth,1200,1350\nSouth,980,1020\n", "utf8");
-}
-
-const CT_NS = "http://schemas.openxmlformats.org/package/2006/content-types";
-const REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships";
-const ODOC_NS =
-  "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-
-const rootRels = (target: string, type: string) =>
-  `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="${REL_NS}"><Relationship Id="rId1" Type="${type}" Target="${target}"/></Relationships>`;
-
-/** A real XLSX with one inline-string worksheet. */
-async function xlsxFile(): Promise<Buffer> {
-  const zip = new JSZip();
-  zip.file(
-    "[Content_Types].xml",
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="${CT_NS}"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`,
-  );
-  zip.file(
-    "_rels/.rels",
-    rootRels("xl/workbook.xml", `${ODOC_NS}/officeDocument`),
-  );
-  zip.file(
-    "xl/workbook.xml",
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="${ODOC_NS}"><sheets><sheet name="Proof" sheetId="1" r:id="rId1"/></sheets></workbook>`,
-  );
-  zip.file(
-    "xl/_rels/workbook.xml.rels",
-    rootRels("worksheets/sheet1.xml", `${ODOC_NS}/worksheet`),
-  );
-  const cell = (ref: string, text: string) =>
-    `<c r="${ref}" t="inlineStr"><is><t>${text}</t></is></c>`;
-  zip.file(
-    "xl/worksheets/sheet1.xml",
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>
-<row r="1">${cell("A1", "Region")}${cell("B1", "Q1")}</row>
-<row r="2">${cell("A2", "North")}${cell("B2", "1200")}</row>
-</sheetData></worksheet>`,
-  );
-  return zip.generateAsync({ type: "nodebuffer" });
 }
 
 // ────────────────────────────────── specs ────────────────────────────────────
@@ -1468,20 +1461,22 @@ const SPECS: ProofSpec[] = [
   },
   {
     tool: "excel-to-pdf",
-    make: xlsxFile,
+    make: xlsxProofFile,
     name: "sheet.xlsx",
     type: XLSX_MIME,
     expect: isPdf,
     want: "PDF",
+    verify: (bytes) => sheetVerdict(bytes),
   },
   {
     tool: "excel-to-pdf",
     label: "excel-to-pdf (csv)",
-    make: csvFile,
+    make: csvProofFile,
     name: "rows.csv",
     type: "text/csv",
     expect: isPdf,
     want: "PDF",
+    verify: (bytes) => sheetVerdict(bytes),
   },
   {
     tool: "powerpoint-to-pdf",
@@ -1490,6 +1485,7 @@ const SPECS: ProofSpec[] = [
     type: PPTX_MIME,
     expect: isPdf,
     want: "PDF",
+    verify: (bytes) => pptxTitleVerdict(bytes),
   },
   // OpenDocument and RTF input (2026-11-04): the fixtures the worker image's
   // `worker:office-input-proof` converts, each judged by its own proof word.
