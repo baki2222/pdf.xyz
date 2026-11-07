@@ -361,6 +361,45 @@ describe("overlayPdf", () => {
     expect(last.overlaidPageCount).toBe(4);
   });
 
+  it("overlays only the selected pages, mapping overlay pages from the first selected one", async () => {
+    // A letterhead on page 1 only, or a template that skips a cover: the
+    // overlay goes on the listed pages and the rest are left as they were.
+    const base = await basePdf([
+      [500, 500],
+      [500, 500],
+      [500, 500],
+      [500, 500],
+    ]);
+    const overlay = await overlayDoc(2);
+    const result = await overlayPdf(base, overlay, {
+      paging: "once",
+      pages: [1, 2, 3],
+    });
+    expect(result.pageCount).toBe(4);
+    expect(result.overlaidPageCount).toBe(2);
+    expect(result.pages).toEqual([1, 2, 3]);
+    const out = await PDFDocument.load(result.bytes);
+    const drawn = out
+      .getPages()
+      .map((page) => (page.node.Contents() ? 1 : 0) as number);
+    // Page 1 was never selected and page 4 is past the overlay ("once").
+    expect(drawn).toEqual([0, 1, 1, 0]);
+
+    const first = await overlayPdf(base, overlay, { pages: [0] });
+    expect(first.overlaidPageCount).toBe(1);
+    expect(
+      (await overlayPdf(base, overlay)).pages,
+      "no selection means every page",
+    ).toBeNull();
+  });
+
+  it("refuses a selection with no page of the base PDF in it", async () => {
+    const base = await basePdf([[500, 500]]);
+    await expect(
+      overlayPdf(base, await overlayDoc(1), { pages: [5] }),
+    ).rejects.toThrow(PdfEngineError);
+  });
+
   it("clamps out-of-range opacity", async () => {
     const base = await basePdf([[300, 300]]);
     const overlay = await overlayDoc(1);

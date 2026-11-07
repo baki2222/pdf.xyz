@@ -280,6 +280,14 @@ export const OVERLAY_PAGINGS: readonly OverlayPagingOption[] = [
   },
 ] as const;
 
+/** Overlay PDF — which base pages get the overlay; `all` is the default. */
+export const OVERLAY_PAGE_SCOPES = [
+  { id: "all", label: "All pages" },
+  { id: "some", label: "Selected pages" },
+] as const;
+
+export type OverlayPageScope = (typeof OVERLAY_PAGE_SCOPES)[number]["id"];
+
 /** Grayscale PDF — the rasterization presets the runner offers. */
 export const GRAYSCALE_DPI_PRESETS = [
   { id: "screen", label: "Screen", dpi: 96 },

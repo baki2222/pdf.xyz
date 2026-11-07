@@ -239,6 +239,7 @@ import {
 import {
   OVERLAY_FITS,
   OVERLAY_LAYERS,
+  OVERLAY_PAGE_SCOPES,
   OVERLAY_PAGINGS,
   overlayOutputName,
   type OverlayLayer,
@@ -714,6 +715,7 @@ const OVERLAY_FIRST_ON_ALL = labelOf(OVERLAY_PAGINGS, "repeat");
 const OVERLAY_CYCLE = labelOf(OVERLAY_PAGINGS, "cycle");
 const OVERLAY_REPEAT_LAST = labelOf(OVERLAY_PAGINGS, "last");
 const OVERLAY_ONCE = labelOf(OVERLAY_PAGINGS, "once");
+const OVERLAY_SELECTED_PAGES = labelOf(OVERLAY_PAGE_SCOPES, "some");
 
 /** Split PDF Pages in Half's choices, as its runner labels them. */
 const HALF_LEFT_RIGHT = labelOf(SPLIT_DIRECTIONS, "left-right");
@@ -5985,8 +5987,9 @@ export const guides: Guide[] = [
   },
   // Overlay PDF, titled for the task it truly does: lay one PDF on every
   // page of another. Read off overlay.ts and overlay-runner.tsx: the overlay
-  // is always centred (fitOverlayRect has no position), there is no page
-  // range (every base page gets an overlay page), the four paging modes map
+  // is always centred (fitOverlayRect has no position), Selected pages limits
+  // it to a page list (overlayPdf `pages`, counted from the first listed
+  // page; added 2026-11-07, audit overlay-pdf#2), the four paging modes map
   // overlay pages in order (overlayPageIndexFor: Cycle starts again, Repeat
   // last page keeps the last, Once, then stop leaves the rest), and an overlay
   // page with no content is skipped and named. In-browser, so the word
@@ -6035,10 +6038,10 @@ export const guides: Guide[] = [
       },
       {
         id: "first-page-only",
-        heading: "A letterhead on the first page only",
+        heading: "The first page only, or a continuation sheet",
         body: [
-          `There is no page range: every page of the letter gets a page of the overlay. When the overlay PDF has more than one page, a Multi-page overlay choice appears. ${OVERLAY_FIRST_ON_ALL} puts its first page everywhere. ${OVERLAY_CYCLE} gives letter page one the overlay's page one, page two its page two, and so on, starting again from the first when the overlay runs out. ${OVERLAY_REPEAT_LAST} matches pages the same way, then keeps using the overlay's last page. ${OVERLAY_ONCE} matches them once and leaves the pages after the overlay's last page as they were.`,
-          `So for a full letterhead on page one and a continuation sheet on every later page, make the overlay a two-page PDF, letterhead first, and choose ${OVERLAY_REPEAT_LAST}. For the first page only, make a two-page overlay with the letterhead on page one and page two left empty, and choose ${OVERLAY_ONCE} or ${OVERLAY_REPEAT_LAST}. An overlay page with no content at all is skipped, and the result says which; with ${OVERLAY_BEHIND} or ${OVERLAY_MULTIPLY}, an empty white page changes nothing you can see either. If your letterhead is a PNG or JPEG image rather than a PDF, ${nameOf("watermark-pdf")} can place an image and limit it to the pages you list.`,
+          `Under Pages, choose ${OVERLAY_SELECTED_PAGES} and type 1: only the first page gets the letterhead, and the result names the pages it left unchanged. A list such as 1, 3-5 works the same way.`,
+          `When the overlay PDF has more than one page, a Multi-page overlay choice appears. ${OVERLAY_FIRST_ON_ALL} puts its first page everywhere. ${OVERLAY_CYCLE} gives letter page one the overlay's page one, page two its page two, and so on, starting again from the first when the overlay runs out. ${OVERLAY_REPEAT_LAST} matches pages the same way, then keeps using the overlay's last page. ${OVERLAY_ONCE} matches them once and leaves the pages after the overlay's last page as they were. So for a full letterhead on page one and a continuation sheet on every later page, make the overlay a two-page PDF, letterhead first, and choose ${OVERLAY_REPEAT_LAST}. If your letterhead is a PNG or JPEG image rather than a PDF, ${nameOf("watermark-pdf")} can place an image and limit it to the pages you list.`,
         ],
       },
     ],

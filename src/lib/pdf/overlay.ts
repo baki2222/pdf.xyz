@@ -43,10 +43,15 @@ import {
 export type {
   OverlayFit,
   OverlayFitOption,
+  OverlayPageScope,
   OverlayPaging,
   OverlayPagingOption,
 } from "./offered-kinds";
-export { OVERLAY_FITS, OVERLAY_PAGINGS } from "./offered-kinds";
+export {
+  OVERLAY_FITS,
+  OVERLAY_PAGE_SCOPES,
+  OVERLAY_PAGINGS,
+} from "./offered-kinds";
 
 /** Where the overlay goes relative to the base page's own content. */
 export type OverlayLayer = "front" | "back" | "multiply";
@@ -276,6 +281,12 @@ export interface OverlayOptions {
   paging?: OverlayPaging;
   /** On top, behind the page's content, or multiplied on top; defaults to `front`. */
   layer?: OverlayLayer;
+  /**
+   * 0-based base pages to overlay, in any order; every page when omitted.
+   * Overlay pages map from the first selected page, so with Cycle pages the
+   * lowest selected page gets overlay page 1. Pages not listed are unchanged.
+   */
+  pages?: readonly number[];
 }
 
 export interface OverlayResult {
@@ -296,14 +307,17 @@ export interface OverlayResult {
   skippedBlankOverlayPages: number[];
   /** Base pages that actually received an overlay (fewer when some were skipped). */
   overlaidPageCount: number;
+  /** The 0-based base pages selected, sorted; `null` when every page was. */
+  pages: number[] | null;
 }
 
 const GENERIC_APPLY_FAILURE =
   "The overlay PDF couldn't be applied — it may use features we can't process yet.";
 
 /**
- * Overlay `overlayBytes` onto every page of `baseBytes`. The base document's
- * page count and page sizes are preserved; only overlaid content is added.
+ * Overlay `overlayBytes` onto every page of `baseBytes`, or only the pages in
+ * `options.pages`. The base document's page count and page sizes are
+ * preserved; only overlaid content is added.
  */
 export async function overlayPdf(
   baseBytes: Uint8Array,
@@ -328,8 +342,21 @@ export async function overlayPdf(
     throw new PdfEngineError("The overlay PDF has no pages.");
   }
 
+  const selected =
+    options.pages === undefined
+      ? null
+      : [...new Set(options.pages)]
+          .filter((i) => Number.isInteger(i) && i >= 0 && i < baseCount)
+          .sort((a, b) => a - b);
+  if (selected && selected.length === 0) {
+    throw new PdfEngineError(
+      `None of the selected pages is in the base PDF, which has ${baseCount} page${baseCount === 1 ? "" : "s"}.`,
+    );
+  }
+  const targets = selected ?? Array.from({ length: baseCount }, (_, i) => i);
+
   const lib = await loadPdfLib();
-  const indices = neededOverlayIndices(baseCount, overlayCount, paging);
+  const indices = neededOverlayIndices(targets.length, overlayCount, paging);
   const embedded = await embedOverlayPages(
     lib,
     base,
@@ -353,10 +380,11 @@ export async function overlayPdf(
   try {
     const pages = base.getPages();
     let overlaidPageCount = 0;
-    for (let i = 0; i < baseCount; i += 1) {
-      const page = pages[i];
+    for (let k = 0; k < targets.length; k += 1) {
+      const page = pages[targets[k]!];
       if (!page) continue;
-      const entry = embedded.get(overlayPageIndexFor(i, overlayCount, paging));
+      // Overlay pages are counted from the first selected page.
+      const entry = embedded.get(overlayPageIndexFor(k, overlayCount, paging));
       // A blank overlay page draws nothing on the base pages mapped to it.
       if (!entry) continue;
       const place = placeOverlay({
@@ -392,6 +420,7 @@ export async function overlayPdf(
       layer,
       skippedBlankOverlayPages,
       overlaidPageCount,
+      pages: selected,
     };
   } catch (err) {
     if (err instanceof PdfEngineError) throw err;

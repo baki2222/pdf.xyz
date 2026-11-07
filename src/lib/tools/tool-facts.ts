@@ -92,6 +92,7 @@ import {
   GRAYSCALE_DPI_PRESETS,
   NEW_FIELD_TYPES,
   OVERLAY_FITS,
+  OVERLAY_PAGE_SCOPES,
   OVERLAY_PAGINGS,
   SIGNATURE_SOURCE_FACT,
   SIGNATURE_SOURCES,
@@ -2191,7 +2192,7 @@ const DERIVED_STEPS: Record<string, readonly string[]> = {
   "overlay-pdf": [
     "Pick the base PDF you want to stamp — it stays on your device.",
     "Add the overlay PDF: a letterhead, stamp or template.",
-    `Choose the scale — ${overlayFitLabels} — and the opacity. For a multi-page overlay, choose how its pages map to yours: ${overlayPagingLabels}.`,
+    `Choose the scale — ${overlayFitLabels} — and the opacity. For a multi-page overlay, choose how its pages map to yours: ${overlayPagingLabels}. To stamp only some pages, choose ${OVERLAY_PAGE_SCOPES.find((o) => o.id === "some")!.label} and list them.`,
     "Download the overlaid PDF.",
   ],
   "protect-pdf": [
