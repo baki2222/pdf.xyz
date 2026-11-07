@@ -22,6 +22,11 @@ import {
   MIN_CUSTOM_PAGE_PT,
 } from "@/lib/pdf/image-page-custom";
 import { IMAGE_PAGE_OPTIONS_FACT } from "./tool-facts";
+import {
+  IMAGE_BOOKMARKS_CHOICES,
+  IMAGE_BOOKMARKS_LABELS,
+  IMAGE_ORDER_LABELS,
+} from "@/lib/pdf/image-bookmarks";
 
 const ENLARGE = SMALL_IMAGES_CHOICES.find((c) => c.id === "enlarge")!.label;
 
@@ -77,6 +82,20 @@ describe.each([
     expect(content.intro.join(" ")).toContain(CUSTOM_PAGE_COPY);
     const setup = content.steps.find((s) => /Page size/.test(s.body))!.body;
     expect(setup).toContain(`each end in ${CUSTOM_PAGE_LABELS.chip}`);
+  });
+
+  it("names Sort by name and the Bookmarks choice by their labels", () => {
+    // image-bookmarks.test.ts: one outline entry per image, file name as
+    // its title, none for a single image or the per-image ZIP.
+    const all = text(content);
+    expect(all).toContain(
+      `${IMAGE_ORDER_LABELS.sortByName}, beside the heading`,
+    );
+    const perImage = IMAGE_BOOKMARKS_CHOICES.find((c) => c.id === "per-image")!;
+    expect(all).toContain(
+      `${IMAGE_BOOKMARKS_LABELS.heading} chooses None or ${perImage.label}`,
+    );
+    expect(all).toMatch(/in One PDF of two or more/);
   });
 
   it("no longer sends a sideways image to Rotate PDF after the fact", () => {

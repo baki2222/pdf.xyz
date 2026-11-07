@@ -119,6 +119,12 @@ export interface ImagePageOptions {
   customSize?: { width: number; height: number };
   /** With margin "custom": the typed margin, in points. */
   customMarginPt?: number;
+  /**
+   * "per-image": one bookmark per image in a one-PDF output
+   * (`image-bookmarks.ts`, which holds the labels and the writer). Absent
+   * reads as "none".
+   */
+  bookmarks?: "none" | "per-image";
 }
 
 /**

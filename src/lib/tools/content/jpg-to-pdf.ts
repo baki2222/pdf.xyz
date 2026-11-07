@@ -24,6 +24,12 @@ import {
   CUSTOM_PAGE_LABELS,
 } from "@/lib/pdf/image-page-custom";
 import {
+  IMAGE_BOOKMARKS_CHOICES,
+  IMAGE_BOOKMARKS_LABELS,
+  IMAGE_ORDER_LABELS,
+  MIN_BOOKMARKED_IMAGES,
+} from "@/lib/pdf/image-bookmarks";
+import {
   SMALL_IMAGES_CHOICES,
   SMALL_IMAGES_LABELS,
 } from "@/lib/pdf/image-enlarge";
@@ -34,6 +40,15 @@ const ROTATE = IMAGE_ROTATION_LABELS.button;
 /** Small images and its two chips (audit jpg-to-pdf#4), as the runner says. */
 const SMALL = SMALL_IMAGES_LABELS.heading;
 const [KEEP_SIZE, ENLARGE] = SMALL_IMAGES_CHOICES.map((c) => c.label);
+
+/** Sort by name and Bookmarks (audit png-to-pdf#6), as the runner says. */
+const SORT = IMAGE_ORDER_LABELS.sortByName;
+const BOOKMARKS = IMAGE_BOOKMARKS_LABELS.heading;
+const [NO_BOOKMARKS, PER_IMAGE_BOOKMARK] = IMAGE_BOOKMARKS_CHOICES.map(
+  (c) => c.label,
+);
+const BOOKMARK_MIN =
+  MIN_BOOKMARKED_IMAGES === 2 ? "two" : String(MIN_BOOKMARKED_IMAGES);
 import {
   MAX_TIFF_PAGES,
   MAX_TIFF_PAGE_PIXELS,
@@ -263,11 +278,11 @@ const content: ToolContent = {
     },
     {
       title: "Set the page order",
-      body: `Under Image order, each thumbnail is labelled with the page it will become. The up and down arrows on a thumbnail (Move up, Move down) shift a photo one place, the turning arrow (${ROTATE}) turns it a quarter turn clockwise with each press, the cross (Remove) takes it out, and Clear below the list empties it. A turned photo shows its angle, such as 90°, beside its size, and its page takes the turned shape. To move a photo further in one go, drag its thumbnail onto the place you want.`,
+      body: `Under Image order, each thumbnail is labelled with the page it will become. The up and down arrows on a thumbnail (Move up, Move down) shift a photo one place, the turning arrow (${ROTATE}) turns it a quarter turn clockwise with each press, the cross (Remove) takes it out, and Clear below the list empties it. A turned photo shows its angle, such as 90°, beside its size, and its page takes the turned shape. To move a photo further in one go, drag its thumbnail onto the place you want. ${SORT}, beside the heading, puts every photo in order of its file name, numbers counted as numbers (photo 2 before photo 10), photos added later included.`,
     },
     {
       title: "Choose the page setup",
-      body: `Below the list, Page size, Orientation and Margin set how each page is laid out (Page size and Margin each end in ${CUSTOM_PAGE_LABELS.chip}, for a length typed in mm or inches), ${SMALL} chooses ${KEEP_SIZE} or ${ENLARGE} for a photo smaller than the paper, ${LIMIT} caps the size of the PDF, ${DETAILS} chooses ${REMOVE} or ${KEEP} for what your camera stored beside the pixels, and Output chooses One PDF or One PDF per image, which with more than one image arrives as a ZIP. Left alone they give the usual layout: ${WORLD_SIZE} (${LETTER_SIZE} in a country that uses Letter paper), portrait, a ${DEFAULT_MARGIN} margin, small photos kept at their size, photo details removed, ${NO_LIMIT.toLowerCase()} on size, one PDF. Orientation and ${SMALL} do not apply to Fit to image, whose pages already take each photo's shape and size. With One PDF per image, a ${LIMIT} applies to each PDF on its own.`,
+      body: `Below the list, Page size, Orientation and Margin set how each page is laid out (Page size and Margin each end in ${CUSTOM_PAGE_LABELS.chip}, for a length typed in mm or inches), ${SMALL} chooses ${KEEP_SIZE} or ${ENLARGE} for a photo smaller than the paper, ${LIMIT} caps the size of the PDF, ${DETAILS} chooses ${REMOVE} or ${KEEP} for what your camera stored beside the pixels, ${BOOKMARKS} chooses ${NO_BOOKMARKS} or ${PER_IMAGE_BOOKMARK}, a bookmark named after each photo's file that opens its page, in One PDF of ${BOOKMARK_MIN} or more photos, and Output chooses One PDF or One PDF per image, which with more than one image arrives as a ZIP. Left alone they give the usual layout: ${WORLD_SIZE} (${LETTER_SIZE} in a country that uses Letter paper), portrait, a ${DEFAULT_MARGIN} margin, small photos kept at their size, no bookmarks, photo details removed, ${NO_LIMIT.toLowerCase()} on size, one PDF. Orientation and ${SMALL} do not apply to Fit to image, whose pages already take each photo's shape and size. With One PDF per image, a ${LIMIT} applies to each PDF on its own.`,
     },
     {
       title: "Press Create PDF",

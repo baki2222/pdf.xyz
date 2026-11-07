@@ -21,6 +21,12 @@ import {
   CUSTOM_PAGE_LABELS,
 } from "@/lib/pdf/image-page-custom";
 import {
+  IMAGE_BOOKMARKS_CHOICES,
+  IMAGE_BOOKMARKS_LABELS,
+  IMAGE_ORDER_LABELS,
+  MIN_BOOKMARKED_IMAGES,
+} from "@/lib/pdf/image-bookmarks";
+import {
   SMALL_IMAGES_CHOICES,
   SMALL_IMAGES_LABELS,
 } from "@/lib/pdf/image-enlarge";
@@ -31,6 +37,15 @@ const ROTATE = IMAGE_ROTATION_LABELS.button;
 /** Small images and its two chips (audit png-to-pdf#4), as the runner says. */
 const SMALL = SMALL_IMAGES_LABELS.heading;
 const [KEEP_SIZE, ENLARGE] = SMALL_IMAGES_CHOICES.map((c) => c.label);
+
+/** Sort by name and Bookmarks (audit png-to-pdf#6), as the runner says. */
+const SORT = IMAGE_ORDER_LABELS.sortByName;
+const BOOKMARKS = IMAGE_BOOKMARKS_LABELS.heading;
+const [NO_BOOKMARKS, PER_IMAGE_BOOKMARK] = IMAGE_BOOKMARKS_CHOICES.map(
+  (c) => c.label,
+);
+const BOOKMARK_MIN =
+  MIN_BOOKMARKED_IMAGES === 2 ? "two" : String(MIN_BOOKMARKED_IMAGES);
 import { tiffRefusal } from "@/lib/pdf/tiff-limits";
 import {
   MAX_SIZE_LABELS,
@@ -180,7 +195,7 @@ const content: ToolContent = {
   useCases: [
     {
       title: "A step-by-step screenshot trail",
-      body: "Bug reports and how-to notes often start as a folder of numbered screenshots. Put them in sequence and send one PDF whose interface text is still sharp.",
+      body: `Bug reports and how-to notes often start as a folder of numbered screenshots. ${SORT} puts them in sequence, with ${PER_IMAGE_BOOKMARK} chosen under ${BOOKMARKS}, a reader can jump to any of them from the bookmark panel, and the interface text stays sharp.`,
     },
     {
       title: "Logo and artwork proofs",
@@ -202,11 +217,11 @@ const content: ToolContent = {
     },
     {
       title: "Arrange the image order",
-      body: `Under Image order, each card shows a thumbnail, the file name and the page it will become. The up and down arrows on a card (Move up, Move down) shift it one place; the turning arrow (${ROTATE}) turns a sideways screenshot or scan a quarter turn clockwise with each press, and the card then shows the angle, such as 90°; the cross (Remove) drops it, and Clear empties the list. The pixels are not saved again: the turn is applied as the image is placed, and its page takes the turned shape. To move a card further in one go, drag it onto the place you want.`,
+      body: `Under Image order, each card shows a thumbnail, the file name and the page it will become. The up and down arrows on a card (Move up, Move down) shift it one place; the turning arrow (${ROTATE}) turns a sideways screenshot or scan a quarter turn clockwise with each press, and the card then shows the angle, such as 90°; the cross (Remove) drops it, and Clear empties the list. The pixels are not saved again: the turn is applied as the image is placed, and its page takes the turned shape. To move a card further in one go, drag it onto the place you want. ${SORT}, beside the heading, puts every card in order of its file name, numbers counted as numbers (shot 2 before shot 10), cards added later included.`,
     },
     {
       title: "Choose the page setup",
-      body: `Below the list, Page size, Orientation and Margin set the page (Page size and Margin each end in ${CUSTOM_PAGE_LABELS.chip}, for a length typed in mm or inches), ${SMALL} chooses ${KEEP_SIZE} or ${ENLARGE} for an image smaller than the paper, ${LIMIT} caps the size of the PDF, and Output chooses One PDF or One PDF per image, which with more than one image arrives as a ZIP. Left alone: ${WORLD_SIZE} (${LETTER_SIZE} in a country that uses Letter paper), portrait, a ${DEFAULT_MARGIN} margin, small images kept at their size, ${NO_LIMIT.toLowerCase()} on size, one PDF. With One PDF per image, a ${LIMIT} applies to each PDF on its own.`,
+      body: `Below the list, Page size, Orientation and Margin set the page (Page size and Margin each end in ${CUSTOM_PAGE_LABELS.chip}, for a length typed in mm or inches), ${SMALL} chooses ${KEEP_SIZE} or ${ENLARGE} for an image smaller than the paper, ${BOOKMARKS} chooses ${NO_BOOKMARKS} or ${PER_IMAGE_BOOKMARK} (a bookmark named after each image's file that opens its page, in One PDF of ${BOOKMARK_MIN} or more images), ${LIMIT} caps the size of the PDF, and Output chooses One PDF or One PDF per image, which with more than one image arrives as a ZIP. Left alone: ${WORLD_SIZE} (${LETTER_SIZE} in a country that uses Letter paper), portrait, a ${DEFAULT_MARGIN} margin, small images kept at their size, no bookmarks, ${NO_LIMIT.toLowerCase()} on size, one PDF. With One PDF per image, a ${LIMIT} applies to each PDF on its own.`,
     },
     {
       title: "Press Create PDF",

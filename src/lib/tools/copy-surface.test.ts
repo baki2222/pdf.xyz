@@ -99,6 +99,7 @@ describe("the copy surface reaches what the guards must read", () => {
       "src/lib/pdf/image-rotation.ts",
       "src/lib/pdf/image-density.ts",
       "src/lib/pdf/image-enlarge.ts",
+      "src/lib/pdf/image-bookmarks.ts",
       "src/lib/pdf/image-page-custom.ts",
       "src/lib/pdf/image-reencode.ts",
       "src/lib/pdf/offered-kinds.ts",

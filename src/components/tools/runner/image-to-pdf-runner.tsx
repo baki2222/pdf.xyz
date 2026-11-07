@@ -43,6 +43,12 @@ import {
 } from "@/lib/pdf/image-page-layout";
 import { imagePageSizeForLocales } from "@/lib/pdf/image-page-defaults";
 import {
+  IMAGE_BOOKMARKS_CHOICES,
+  IMAGE_BOOKMARKS_LABELS,
+  IMAGE_ORDER_LABELS,
+  compareFileNames,
+} from "@/lib/pdf/image-bookmarks";
+import {
   CUSTOM_PAGE_LABELS,
   LENGTH_UNITS,
   customMargin,
@@ -466,6 +472,14 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
     setItems((prev) => reorder(prev, from, to));
     setOrdered(null);
   };
+  /** Every image, the later picks too, by name (audit png-to-pdf#6). */
+  const sortByName = () => {
+    if (busy) return;
+    setItems((prev) =>
+      [...prev].sort((a, b) => compareFileNames(a.name, b.name)),
+    );
+    setOrdered(null);
+  };
   const keepDropOrder = () => {
     setItems((prev) => [...prev].sort((a, b) => a.seq - b.seq));
     setOrdered(null);
@@ -640,13 +654,28 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
         <RunnerSection
           title="Image order"
           aside={
-            ordered ? (
-              <OrderNote note={ordered} onKeep={keepDropOrder} />
-            ) : (
-              <span className="text-muted text-xs">
-                {items.length} image{items.length === 1 ? "" : "s"}
-              </span>
-            )
+            <div className="flex flex-wrap items-center gap-3">
+              {ordered ? (
+                <OrderNote note={ordered} onKeep={keepDropOrder} />
+              ) : (
+                <span className="text-muted text-xs">
+                  {items.length} image{items.length === 1 ? "" : "s"}
+                </span>
+              )}
+              {items.length > 1 && (
+                <button
+                  type="button"
+                  onClick={sortByName}
+                  aria-disabled={busy || undefined}
+                  className={cn(
+                    buttonVariants({ variant: "secondary", size: "sm" }),
+                    "tap",
+                  )}
+                >
+                  {IMAGE_ORDER_LABELS.sortByName}
+                </button>
+              )}
+            </div>
           }
         >
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -1010,6 +1039,34 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
                 {limitBytes === "invalid"
                   ? `Enter a whole number of KB, ${MIN_LIMIT_BYTES / KB} or more.`
                   : MAX_SIZE_HINT}
+              </p>
+            )}
+          </RunnerSection>
+          {/* Audit png-to-pdf#6: a bookmark per image, titled with its
+              file name, in One PDF of two or more images. */}
+          <RunnerSection title={IMAGE_BOOKMARKS_LABELS.heading}>
+            <div
+              role="group"
+              aria-label={IMAGE_BOOKMARKS_LABELS.heading}
+              className="flex flex-wrap gap-2"
+            >
+              {IMAGE_BOOKMARKS_CHOICES.map((c) => (
+                <ChipButton
+                  key={c.id}
+                  onClick={() => setPageOption({ bookmarks: c.id })}
+                  disabled={busy || outputMode === "per-image"}
+                  active={
+                    outputMode !== "per-image" &&
+                    c.id === (page.bookmarks ?? "none")
+                  }
+                >
+                  {c.label}
+                </ChipButton>
+              ))}
+            </div>
+            {outputMode === "per-image" && (
+              <p className="text-muted text-xs">
+                {IMAGE_BOOKMARKS_LABELS.perImageNote}
               </p>
             )}
           </RunnerSection>

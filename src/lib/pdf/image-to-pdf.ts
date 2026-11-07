@@ -18,6 +18,7 @@ import { stripJpegMetadata } from "./jpeg-metadata";
 import { atStoredDpi, storedImageDpi } from "./image-density";
 import { sizeForLayout } from "./image-enlarge";
 import { pageSetupProblem } from "./image-page-custom";
+import { writeImageBookmarks } from "./image-bookmarks";
 import {
   turnedShape,
   unturnedBox,
@@ -624,7 +625,12 @@ export async function imagesToPdf(
   validatePageSetup(options);
   const lib = await loadPdfLib();
   const doc = await newImageDoc(lib, files[0]!);
-  for (const file of files) await addImagePage(lib, doc, file, options);
+  const marks: { title: string; pageIndex: number }[] = [];
+  for (const file of files) {
+    marks.push({ title: file.name, pageIndex: doc.getPageCount() });
+    await addImagePage(lib, doc, file, options);
+  }
+  if (options.bookmarks === "per-image") writeImageBookmarks(lib, doc, marks);
   return doc.save();
 }
 
@@ -666,8 +672,13 @@ export async function buildImagePdf(
   validatePageSetup(options);
   const lib = await loadPdfLib();
   const doc = await newImageDoc(lib, files[0]!);
-  for (const [i, file] of files.entries())
+  const marks: { title: string; pageIndex: number }[] = [];
+  for (const [i, file] of files.entries()) {
+    marks.push({ title: file.name, pageIndex: doc.getPageCount() });
     await addImagePage(lib, doc, file, options, prepared[i]);
+  }
+  // The same outline as imagesToPdf: a limited run is still One PDF.
+  if (options.bookmarks === "per-image") writeImageBookmarks(lib, doc, marks);
   return doc.save();
 }
 

@@ -14,7 +14,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { PDFDocument } from "pdf-lib";
+import { PDFDict, PDFDocument, PDFHexString, PDFName, PDFRef } from "pdf-lib";
 import { resetAnnouncer } from "@/components/a11y/live-region";
 import { apply, boxOf, drawnImages } from "@/tests/drawn-images";
 import { JPEG_30X20, JPEG_HEIGHT, JPEG_WIDTH } from "@/tests/jpeg-fixtures";
@@ -25,6 +25,11 @@ import {
   SMALL_IMAGES_LABELS,
 } from "@/lib/pdf/image-enlarge";
 import { CUSTOM_PAGE_LABELS } from "@/lib/pdf/image-page-custom";
+import {
+  IMAGE_BOOKMARKS_CHOICES,
+  IMAGE_BOOKMARKS_LABELS,
+  IMAGE_ORDER_LABELS,
+} from "@/lib/pdf/image-bookmarks";
 
 import { ImageToPdfRunner } from "./image-to-pdf-runner";
 
@@ -242,5 +247,58 @@ describe("image to PDF · Custom page size and margin", () => {
     type(CUSTOM_PAGE_LABELS.margin, "25.4");
     const [page] = await pages(await createAndDownload());
     expect(page!.width).toBeCloseTo(JPEG_WIDTH + 144, 6);
+  });
+});
+
+/** Audit png-to-pdf#6: Sort by name, and a bookmark per image. */
+describe("image to PDF · Sort by name and Bookmarks", () => {
+  const order = () =>
+    screen.getAllByText(/\.jpg$/).map((node) => node.textContent);
+
+  it("Sort by name re-sorts the whole list, images added later included", async () => {
+    const container = await mount([jpeg("shot 2.jpg"), jpeg("shot 1.jpg")]);
+    // A second pick joins the end, out of order.
+    fireEvent.change(container.querySelector('input[type="file"]')!, {
+      target: { files: [jpeg("shot 10.jpg"), jpeg("alpha.jpg")] },
+    });
+    await screen.findByText("alpha.jpg", undefined, { timeout: 4_000 });
+    expect(order()).toEqual([
+      "shot 1.jpg",
+      "shot 2.jpg",
+      "shot 10.jpg",
+      "alpha.jpg",
+    ]);
+    fireEvent.click(
+      screen.getByRole("button", { name: IMAGE_ORDER_LABELS.sortByName }),
+    );
+    expect(order()).toEqual([
+      "alpha.jpg",
+      "shot 1.jpg",
+      "shot 2.jpg",
+      "shot 10.jpg",
+    ]);
+  });
+
+  it("One per image puts a bookmark per file in the downloaded PDF", async () => {
+    await mount([jpeg("one.jpg"), jpeg("two.jpg")]);
+    const group = screen.getByRole("group", {
+      name: IMAGE_BOOKMARKS_LABELS.heading,
+    });
+    const chip = (id: string) =>
+      within(group).getByRole("button", {
+        name: IMAGE_BOOKMARKS_CHOICES.find((c) => c.id === id)!.label,
+      });
+    expect(chip("none")).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(chip("per-image"));
+    const doc = await PDFDocument.load(await createAndDownload());
+    const root = doc.catalog.lookup(PDFName.of("Outlines"), PDFDict);
+    const titles: string[] = [];
+    let ref = root.get(PDFName.of("First"));
+    while (ref instanceof PDFRef) {
+      const item = doc.context.lookup(ref, PDFDict);
+      titles.push(item.lookup(PDFName.of("Title"), PDFHexString).decodeText());
+      ref = item.get(PDFName.of("Next"));
+    }
+    expect(titles).toEqual(["one.jpg", "two.jpg"]);
   });
 });
