@@ -5413,7 +5413,7 @@
     },
     "guides/how-to-highlight-text-in-a-pdf.html": {
       "title": "How to highlight text in a PDF — pdf.xyz",
-      "description": "Drag a highlight over the words on a PDF page, set its colour and opacity, then flatten it into the page or keep it as a comment. It runs in your browser.",
+      "description": "Select words on a PDF page to highlight them, set the colour and opacity, then flatten the highlight into the page or keep it as a comment. It runs in your browser.",
       "canonical": "https://pdf.xyz/guides/how-to-highlight-text-in-a-pdf",
       "robots": "index, follow",
       "h1": ["How to highlight text in a PDF"],
