@@ -1,4 +1,4 @@
-import type { PDFPage } from "pdf-lib";
+import type { PDFDocument, PDFFont, PDFPage } from "pdf-lib";
 import type { PdfLibModule } from "./pdf-lib";
 import {
   embedStampFont,
@@ -37,11 +37,14 @@ export async function stampFileNames(
   if (!doc) return;
   const names = groups.map((g) => g.name).filter((n) => n.trim() !== "");
   if (names.length === 0) return;
-  const font = await embedStampFont(doc, [...names, ELLIPSIS]);
+  const shared = await tryFont(doc, names);
   const color = toRgb(lib.rgb, INK);
-  for (const { name, pages } of groups) {
-    if (name.trim() === "") continue;
-    for (const page of pages) {
+  for (const group of groups) {
+    if (group.name.trim() === "") continue;
+    const { name, font } = shared
+      ? { name: group.name, font: shared }
+      : await drawableName(doc, group.name);
+    for (const page of group.pages) {
       const box = visibleBox(page);
       const rotation = page.getRotation().angle;
       const room = Math.max(
@@ -71,6 +74,51 @@ export async function stampFileNames(
       });
     }
   }
+}
+
+/** One font for all of `names` (and the ellipsis), or null if none can. */
+async function tryFont(
+  doc: PDFDocument,
+  names: readonly string[],
+): Promise<PDFFont | null> {
+  try {
+    return await embedStampFont(doc, [...names, ELLIPSIS]);
+  } catch {
+    return null;
+  }
+}
+
+/** Emoji and the joiners and selectors that build them: pictures, not letters. */
+const PICTURED =
+  /[\p{Extended_Pictographic}\p{Join_Control}\p{Variation_Selector}]/gu;
+
+/** Helvetica, built into every PDF reader, draws all of Latin-1. */
+function latinOnly(text: string): string {
+  return Array.from(text, (c) => {
+    const n = c.codePointAt(0) ?? 0;
+    return (n >= 0x20 && n <= 0x7e) || (n >= 0xa0 && n <= 0xff) ? c : "?";
+  }).join("");
+}
+
+/**
+ * A name with a font that can draw it, when the names cannot share one (two
+ * scripts no single face covers, or an emoji). The names are not text the
+ * visitor typed, so this never fails the merge: the name as it is, then
+ * without its emoji (never embedded), then with every character Helvetica
+ * cannot draw replaced by "?", as the contents page does.
+ */
+async function drawableName(
+  doc: PDFDocument,
+  name: string,
+): Promise<{ name: string; font: PDFFont }> {
+  const unpictured = name.replace(PICTURED, "").replace(/\s+/g, " ").trim();
+  for (const candidate of [name, unpictured]) {
+    if (candidate === "") continue;
+    const font = await tryFont(doc, [candidate]);
+    if (font) return { name: candidate, font };
+  }
+  const latin = latinOnly(name);
+  return { name: latin, font: await embedStampFont(doc, [latin, ELLIPSIS]) };
 }
 
 /**

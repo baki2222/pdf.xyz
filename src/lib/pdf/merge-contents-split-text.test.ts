@@ -308,6 +308,22 @@ describe("merge: each file's name at the foot of its pages (audit merge-pdf#6)",
     expect(text.length).toBeLessThan(long.length);
   });
 
+  it("never fails the merge on a name no one font can draw: mixed scripts and an emoji", async () => {
+    // Review of audit merge-pdf#6: every name went into ONE font, so a
+    // Bengali name beside a Chinese one, or an emoji, failed the whole merge
+    // with a message about "text" the visitor never typed.
+    const out = await mergePdfs(
+      [await makePdf([300]), await makePdf([310]), await makePdf([320])],
+      { fileNames: ["বাংলা", "中文", "report 😀"] },
+    );
+    const { pages } = await extractPdfText(out, legacy);
+    const text = pages.map((p) => p.text.replace(/\s+/g, " ").trim());
+    expect(text[0]).toMatch(/\p{Script=Bengali}/u);
+    expect(text[1]).toBe("中文");
+    // The emoji cannot be drawn; the rest of the name still is.
+    expect(text[2]).toBe("report");
+  });
+
   it("without the option nothing is printed (control)", async () => {
     const out = await mergePdfs([await makePdf([300])]);
     const { pages } = await extractPdfText(out, legacy);
