@@ -79,7 +79,11 @@ import {
   stampDateCandidates,
   type HeaderFooterMargin,
 } from "@/lib/pdf/header-footer";
-import { applyTokens, STAMP_FONT_LABELS } from "@/lib/pdf/stamp";
+import {
+  applyTokens,
+  STAMP_FONT_FAMILIES,
+  STAMP_FONT_LABELS,
+} from "@/lib/pdf/stamp";
 import { guides } from "@/lib/guides/catalog";
 import { cropPdf } from "@/lib/pdf/crop";
 import { flattenPdf } from "@/lib/pdf/flatten";
@@ -1115,6 +1119,75 @@ describe("the stamping tools answer where and what they stamp", () => {
         sentences.filter((x) => x.includes("{date}")).length,
       ).toBeGreaterThan(2);
       expect(sentences.filter(saysDateRefused)).toEqual([]);
+    }
+  });
+
+  it("header and footer: no sentence names one fallback face while the fonts embed different ones", async () => {
+    // Review of audit header-footer#4 (2026-11-07): the style answer and the
+    // guide said one character outside Windows-1252 "moves both bands to a
+    // Noto face". True while Helvetica was the only font; once Courier could
+    // be picked it asks for the monospace pack, and "Łódź" embeds GeistMono.
+    // So the faces each font really falls back to are read from the file,
+    // and while they differ no served sentence may name any one of them.
+    const bytes = await pdfWithPages([[300, 400]]);
+    const baseFontsOf = async (b: Uint8Array) => {
+      const fonts = (await PDFDocument.load(b))
+        .getPage(0)
+        .node.Resources()
+        ?.lookupMaybe(PDFName.of("Font"), PDFDict);
+      return (fonts?.keys() ?? []).map((key) =>
+        String(fonts!.lookup(key, PDFDict).get(PDFName.of("BaseFont"))),
+      );
+    };
+    const own = new Set(await baseFontsOf(bytes));
+    const fallback = new Map<string, string>();
+    for (const family of STAMP_FONT_FAMILIES) {
+      const added = (
+        await baseFontsOf(
+          await addHeaderFooter(bytes, {
+            footer: { center: "Łódź {n}" },
+            font: family,
+          }),
+        )
+      ).filter((name) => !own.has(name));
+      // Health: each font falls back to exactly one embedded face.
+      expect(added, family).toHaveLength(1);
+      fallback.set(family, added[0]!.replace(/^\/(?:[A-Z]{6}\+)?/, ""));
+    }
+    expect(fallback.size).toBe(STAMP_FONT_FAMILIES.length);
+    expect(fallback.get("courier")).toMatch(/^GeistMono/);
+    expect(fallback.get("helvetica")).toMatch(/^Noto/);
+    // A face's brand is its leading capitalised word: Noto, Geist.
+    const brands = new Set(
+      [...fallback.values()].map((face) => /^[A-Z][a-z]+/.exec(face)![0]),
+    );
+    // Whole words only, split on anything that is not a letter.
+    const namesOneFace = (x: string) =>
+      x.split(/[^A-Za-z]+/).some((word) => brands.has(word));
+    for (const shipped of [
+      "The font you pick is used while everything in both bands fits the Western Windows-1252 set, German and French accents included; one character outside it, such as Polish ł, moves both bands to a Noto face.",
+      "The font you pick is used for Western European text; a character outside that set moves both bands to an embedded Noto face.",
+      "One character outside it moves both lines to a Noto typeface that the page fetches from pdf.xyz's own site and embeds in the file; that request carries nothing from your document.",
+      'Letters outside the Western European set are drawn with an embedded Noto typeface, and an English "Page {n} of {total}" footer can sit under it in the same file.',
+      "When your text or the date needs a Noto font, the page fetches the font file from pdf.xyz's own site, and that request carries no part of your document.",
+    ])
+      expect(namesOneFace(shipped), shipped).toBe(true);
+    for (const tool of mounting("header-footer")) {
+      const style = answer(tool.slug, /font, size, colour or margin/);
+      expect(style).toContain("moves both bands to a matching typeface");
+      const guide = guides.find(
+        (g) => g.slug === "how-to-add-a-header-and-footer-to-a-pdf",
+      )!;
+      expect(
+        guide.faq.find((e) => /change the font/.test(e.question))!.answer,
+      ).toContain("moves both bands to a matching typeface");
+      const served = [
+        ...page(tool.slug).text.split(/(?<=[.!?])\s+/),
+        ...page(tool.slug).faq.flatMap((e) => e.answer.split(/(?<=[.!?])\s+/)),
+        ...JSON.stringify(guide).split(/(?<=[.!?])\s+/),
+      ];
+      expect(served.length).toBeGreaterThan(40);
+      if (brands.size > 1) expect(served.filter(namesOneFace)).toEqual([]);
     }
   });
 

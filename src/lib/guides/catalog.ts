@@ -5490,7 +5490,7 @@ export const guides: Guide[] = [
         id: "languages-and-scripts",
         heading: "Languages and scripts",
         body: [
-          `While everything in both lines fits the Western European character set, it is set in Helvetica. One character outside it moves both lines to a Noto typeface that the page fetches from pdf.xyz's own site and embeds in the file; that request carries nothing from your document. The scripts it can draw are ${DRAWN_SCRIPTS}.`,
+          `While everything in both lines fits the Western European character set, it is set in the font you pick. One character outside it moves both lines to a matching typeface that the page fetches from pdf.xyz's own site and embeds in the file; that request carries nothing from your document. The scripts it can draw are ${DRAWN_SCRIPTS}.`,
           `${RTL_REFUSED} text is refused, because each line is laid out left to right and would come out reversed. So is text in a script no shipped font draws, such as ${listOr(NO_FACE_EXAMPLES)}, and emoji. Both lines share one font, so a header and footer that would need two, such as Japanese above Bengali, are refused too, and the message names the scripts involved.`,
         ],
       },
@@ -5516,11 +5516,11 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I change the font, size or colour?",
-        answer: `Yes. Open Size, margin, font and color to pick a size from ${HF_SIZES}, a margin of ${HF_MARGINS}, ${HF_FONTS}, and any ink colour. The font you pick is used for Western European text; a character outside that set moves both bands to an embedded Noto face.`,
+        answer: `Yes. Open Size, margin, font and color to pick a size from ${HF_SIZES}, a margin of ${HF_MARGINS}, ${HF_FONTS}, and any ink colour. The font you pick is used for Western European text; a character outside that set moves both bands to a matching typeface.`,
       },
       {
         question: "Does my PDF leave my device?",
-        answer: `No. It is opened, stamped and saved in your browser tab, up to ${ceilingMb("header-footer")} MB. When your text or the date needs a Noto font, the page fetches the font file from pdf.xyz's own site, and that request carries no part of your document.`,
+        answer: `No. It is opened, stamped and saved in your browser tab, up to ${ceilingMb("header-footer")} MB. When your text or the date needs a font the PDF format does not build in, the page fetches the font file from pdf.xyz's own site, and that request carries no part of your document.`,
       },
       {
         question: "Why was my header text refused?",

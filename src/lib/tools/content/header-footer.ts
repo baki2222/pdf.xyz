@@ -205,7 +205,7 @@ const content: ToolContent = {
     },
     {
       title: "Headers in Bengali, Greek, Japanese or Korean",
-      body: `Letters outside the Western European set are drawn with an embedded Noto typeface, and an English "Page {n} of {total}" footer can sit under it in the same file. Scripts this tool can draw: ${scriptsList}.`,
+      body: `Letters outside the Western European set are drawn with an embedded typeface that covers them, and an English "Page {n} of {total}" footer can sit under it in the same file. Scripts this tool can draw: ${scriptsList}.`,
     },
   ],
 
@@ -243,7 +243,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I change the font, size, colour or margin?",
-      a: `Yes, under Size, margin, font and color, and the choices apply to both bands. Font size runs from ${sizeRange}; the margin from the page edge is ${marginChoices}, starting at ${HEADER_FOOTER_MARGIN_LABELS.medium}; the font is ${fontChoices}; and Color picks the ink, slate grey until you change it. The font you pick is used while everything in both bands fits the Western Windows-1252 set, German and French accents included; one character outside it, such as Polish ł, moves both bands to a Noto face. A line wider than the page between its margins is refused before anything is written, with how many of its characters fit, rather than running off the edge; a smaller size or margin makes room.`,
+      a: `Yes, under Size, margin, font and color, and the choices apply to both bands. Font size runs from ${sizeRange}; the margin from the page edge is ${marginChoices}, starting at ${HEADER_FOOTER_MARGIN_LABELS.medium}; the font is ${fontChoices}; and Color picks the ink, slate grey until you change it. The font you pick is used while everything in both bands fits the Western Windows-1252 set, German and French accents included; one character outside it, such as Polish ł, moves both bands to a matching typeface. A line wider than the page between its margins is refused before anything is written, with how many of its characters fit, rather than running off the edge; a smaller size or margin makes room.`,
     },
     {
       q: "Will it cover or remove an existing header?",
@@ -255,7 +255,7 @@ const content: ToolContent = {
     },
     {
       q: "Does my PDF leave my device when I add a header?",
-      a: `No. It is opened, stamped and saved in your browser tab, up to ${ceilingMb} MB. When your text or the {date} value has characters Helvetica cannot encode, the page also downloads a Noto font file from pdf.xyz's own site; that request carries no part of your document.`,
+      a: `No. It is opened, stamped and saved in your browser tab, up to ${ceilingMb} MB. When your text or the {date} value has characters the font you picked cannot encode, the page also downloads a matching font file from pdf.xyz's own site; that request carries no part of your document.`,
     },
   ],
 
