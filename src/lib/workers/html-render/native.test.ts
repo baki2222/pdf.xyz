@@ -75,6 +75,11 @@ function fakeChromium(
     /** Requests the page makes once loaded, while its virtual time runs. */
     pausedAfterLoad?: Paused[];
     /**
+     * Requests made during ONE virtual-time budget only, counted from 1:
+     * call 1 is the page's first budget, later calls are the scroll pass.
+     */
+    pausedOnBudget?: { call: number; paused: Paused[] };
+    /**
      * How many loads, counted from the first, show Chromium's XML
      * `<parsererror>` in the DOM (a package document that is not
      * well-formed). Default 0.
@@ -114,6 +119,7 @@ function fakeChromium(
     const reply = (msg: Sent, result: unknown) =>
       emit({ id: msg.id, result, sessionId: msg.sessionId });
     let loads = 0;
+    let budgets = 0;
 
     const handle = (msg: Sent) => {
       sent.push(msg);
@@ -161,10 +167,14 @@ function fakeChromium(
               sessionId: "S",
               params: {},
             });
-          const later = opts.pausedAfterLoad ?? [];
+          budgets += 1;
+          const later =
+            opts.pausedOnBudget?.call === budgets
+              ? opts.pausedOnBudget.paused
+              : (opts.pausedAfterLoad ?? []);
           if (later.length === 0) return expire();
           budgetReply = expire;
-          later.forEach((p, i) => pause(p, `a${i}`));
+          later.forEach((p, i) => pause(p, `a${budgets}-${i}`));
           return;
         }
         case "Page.printToPDF":
@@ -1016,6 +1026,31 @@ describe("a webpage render is the page the site answered with, or a named failur
     });
     // Positive control: the same late navigation to a real page renders.
     expect(await failureOf(renderPath(answers, later("/fine")))).toBeNull();
+  });
+
+  it("a page that sends itself to an error while it is scrolled fails (audit webpage-to-pdf#4)", async () => {
+    // Budget 2 is the scroll pass's first step: past the check after the
+    // first budget, so only the check after the scroll pass can see it.
+    const duringScroll = (to: string, resourceType: string) => {
+      const fake = fakeChromium({
+        pausedOnBudget: {
+          call: 2,
+          paused: [{ url: `https://public.example${to}`, resourceType }],
+        },
+      });
+      return { fake, failure: failureOf(renderPath(answers, fake)) };
+    };
+    const answers = site({ "/broken": { status: 500 } });
+    const doc = duringScroll("/broken", "Document");
+    expect(await doc.failure).toEqual({ reason: "http", status: 500 });
+    // Health: the scroll pass really ran and asked for budget 2.
+    expect(
+      doc.fake.sent.filter((m) => m.method === "Emulation.setVirtualTimePolicy")
+        .length,
+    ).toBeGreaterThanOrEqual(2);
+    // Positive control: the same failing answer to an image while scrolling
+    // is part of the page, and the page renders.
+    expect(await duringScroll("/broken", "Image").failure).toBeNull();
   });
 
   it("an upload's own navigations are never judged as a site's answer", async () => {
