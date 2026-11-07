@@ -136,7 +136,12 @@ import {
 } from "./properties";
 import { SignaturePanel } from "./signature-panel";
 import { ThumbnailRail, type PageOps, type RailPage } from "./thumbnail-rail";
-import { EditorToolbar, FIELD_TOOL, TOOL_BUTTONS } from "./toolbar";
+import {
+  EditorToolbar,
+  FIELD_TOOL,
+  TOOL_BUTTONS,
+  lockedCommentHelp,
+} from "./toolbar";
 
 /**
  * The WYSIWYG editor: every page drawn by pdf.js, an object layer over each
@@ -2229,7 +2234,7 @@ export function WysiwygEditor({
   ) : state.lock ? (
     <p className="text-muted text-xs leading-relaxed" data-locked-help="">
       {state.lock.annotate
-        ? "Highlight, Draw, Note and the shapes are saved as comments, which this PDF's author allows, and the form fields on the page can be filled in. Then Apply & download: the author's restrictions stay in the downloaded file; the other tools need the owner password."
+        ? lockedCommentHelp()
         : state.lock.fill
           ? "Fill in the form fields on the page, then Apply & download. The author's restrictions stay in the downloaded file; the other tools need the owner password."
           : "This PDF's author allows no changes. Enter the owner password above to unlock the tools."}

@@ -228,3 +228,50 @@ describe("the editor lock — unlock", () => {
     expect(s.objects).toHaveLength(1);
   });
 });
+
+/**
+ * The help beside a restricted page (review of 62aa1808, 2026-11-08) listed
+ * "Highlight, Draw, Note and the shapes" while the lock had also enabled
+ * Underline, Strikethrough, Highlighter and Comment. It is now built from
+ * COMMENT_TOOLS by button label (`lockedCommentHelp` in `toolbar.tsx`).
+ */
+describe("the locked help names every tool the lock allows", () => {
+  it("names every Mark up tool in COMMENT_TOOLS by its label, and the shapes", async () => {
+    const { lockedCommentHelp, TOOL_BUTTONS, TOOL_GROUPS } =
+      await import("./toolbar");
+    const markUp = TOOL_GROUPS.find((g) => g.name === "Mark up")!.tools;
+    const allowed = markUp.filter((t) => COMMENT_TOOLS.has(t));
+    // Health: the group and the set overlap in more than the old four.
+    expect(allowed.length).toBeGreaterThanOrEqual(7);
+    const help = lockedCommentHelp();
+    const missing = allowed
+      .map((t) => TOOL_BUTTONS.find((b) => b.tool === t)!.label)
+      .filter((label) => !new RegExp(`\\b${label}\\b`).test(help));
+    expect(missing).toEqual([]);
+    expect(help).toMatch(/\bthe shapes\b/);
+    // Control: the typed sentence it replaced misses four of them.
+    const old =
+      "Highlight, Draw, Note and the shapes are saved as comments, which this PDF's author allows.";
+    expect(
+      allowed
+        .map((t) => TOOL_BUTTONS.find((b) => b.tool === t)!.label)
+        .filter((label) => !new RegExp(`\\b${label}\\b`).test(old)),
+    ).toEqual(["Underline", "Strikethrough", "Highlighter", "Comment"]);
+  });
+
+  it("the editor shows that help, not a typed copy of it", async () => {
+    const { readFileSync } = await import("node:fs");
+    const path = await import("node:path");
+    const source = readFileSync(
+      path.join(
+        process.cwd(),
+        "src/components/tools/runner/editor/wysiwyg-editor.tsx",
+      ),
+      "utf8",
+    );
+    expect(source).toMatch(
+      /state\.lock\.annotate\s*\?\s*lockedCommentHelp\(\)/,
+    );
+    expect(source).not.toMatch(/are saved as comments, which this PDF/);
+  });
+});

@@ -44,7 +44,12 @@ import { MARKUP_KINDS, type EditorKind } from "@/lib/pdf/offered-kinds";
 import type { EditorFieldType } from "@/lib/pdf/editor/model";
 import { HIGHLIGHTER_LABEL, TEXT_MARKUP_LABEL } from "@/lib/pdf/editor/markup";
 import { STICKY_LABEL } from "@/lib/pdf/editor/sticky";
-import { toolAllowed, type EditorLock, type Tool } from "./editor-state";
+import {
+  COMMENT_TOOLS,
+  toolAllowed,
+  type EditorLock,
+  type Tool,
+} from "./editor-state";
 
 /**
  * The editor's toolbar: every tool is an icon AND its name — a bar of bare
@@ -203,6 +208,28 @@ export const TOOL_BUTTONS: ToolButtonSpec[] = TOOL_GROUPS.flatMap((g) =>
 );
 
 export const ZOOM_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
+
+/**
+ * What a restricted PDF whose author allows comments lets you do (the help
+ * beside the page). The tools are COMMENT_TOOLS by their button labels: the
+ * Mark up group's by name, then the Shapes group as "the shapes". Until
+ * 2026-11-08 it was typed — "Highlight, Draw, Note and the shapes" — and
+ * missed the four mark-up tools the lock had gained that day.
+ */
+export function lockedCommentHelp(): string {
+  const allowed = (name: string) =>
+    (TOOL_GROUPS.find((g) => g.name === name)?.tools ?? []).filter((t) =>
+      COMMENT_TOOLS.has(t),
+    );
+  const named = allowed("Mark up").map((t) => SPEC[t].label);
+  const shapes = allowed("Shapes").length > 0 ? ["the shapes"] : [];
+  const all = [...named, ...shapes];
+  const list =
+    all.length > 1
+      ? `${all.slice(0, -1).join(", ")} and ${all[all.length - 1]}`
+      : (all[0] ?? "");
+  return `${list} are saved as comments, which this PDF's author allows, and the form fields on the page can be filled in. Then Apply & download: the author's restrictions stay in the downloaded file; the other tools need the owner password.`;
+}
 
 /** Why every tool but Select is off on a restricted PDF (its tooltip). */
 export const LOCKED_TOOL_REASON =

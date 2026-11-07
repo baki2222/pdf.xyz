@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import annotate from "@/lib/tools/content/annotate-pdf";
+import editPdf from "@/lib/tools/content/edit-pdf";
 import { flattenForPhraseSearch } from "@/lib/tools/copy-surface";
 import { TOOL_BUTTONS, TOOL_GROUPS } from "./toolbar";
 
@@ -76,5 +77,67 @@ describe("Annotate PDF names its whole Mark up group", () => {
       "Highlighter",
       "Comment",
     ]);
+  });
+});
+
+/**
+ * Edit PDF mounts the same editor, so the same Mark up group is in its
+ * toolbar (review of 62aa1808/ab344f36, 2026-11-08: Highlighter and Comment
+ * reached Edit PDF's toolbar and none of its listings). The step and the
+ * source docblock name controls by their labels; the intro lists what you
+ * can add as nouns ("freehand drawing", "notes"), so it is read for each
+ * label as the start of a word, in any case.
+ */
+const editSource = flattenForPhraseSearch(
+  readFileSync(
+    path.join(process.cwd(), "src/lib/tools/content/edit-pdf.ts"),
+    "utf8",
+  ).replace(/^\s*\*\s?/gm, " "),
+);
+const editDocblock =
+  /Control names are the toolbar's \(`TOOL_BUTTONS`[^:]*:(.*?)\) and the run/.exec(
+    editSource,
+  )?.[1];
+const editStep = editPdf.steps.find(
+  (s) => s.title === "Pick a tool and click on the page",
+);
+
+const EDIT_LISTINGS: Record<string, string | undefined> = {
+  'Edit PDF\'s "Pick a tool and click on the page" step': editStep?.body,
+  "Edit PDF's docblock list of control names": editDocblock,
+};
+
+const unnamedAsNoun = (text: string): string[] =>
+  labels.filter((label) => !new RegExp(`\\b${label}`, "i").test(text));
+
+describe("Edit PDF names the whole Mark up group too", () => {
+  it("health: every Edit PDF listing was found", () => {
+    for (const [where, text] of Object.entries(EDIT_LISTINGS))
+      expect(text, `${where} not found`).toBeTruthy();
+    expect(editPdf.intro[0]).toBeTruthy();
+  });
+
+  it.each(Object.keys(EDIT_LISTINGS))(
+    "%s names every Mark up tool",
+    (where) => {
+      expect(unnamed(EDIT_LISTINGS[where]!)).toEqual([]);
+    },
+  );
+
+  it("the intro's list of what you can add names every Mark up tool", () => {
+    expect(unnamedAsNoun(editPdf.intro[0]!)).toEqual([]);
+  });
+
+  it("CONTROL: the intro and step as shipped before this review miss Highlighter, Comment (and the intro, Redact)", () => {
+    expect(
+      unnamedAsNoun(
+        "Edit PDF shows every page of your PDF and lets you add to it by clicking on the page: text boxes, rectangles, ellipses, lines and arrows, whiteout boxes, highlights, underlines and strikethroughs that follow the words you select, freehand drawing and notes.",
+      ),
+    ).toEqual(["Redact", "Highlighter", "Comment"]);
+    expect(
+      unnamed(
+        "Rectangle, Ellipse, Line, Arrow, Whiteout and Redact draw where you drag. Highlight, Underline and Strikethrough follow the words you drag across. Draw follows your pointer. Text and Note place a box you type into.",
+      ),
+    ).toEqual(["Highlighter", "Comment"]);
   });
 });
