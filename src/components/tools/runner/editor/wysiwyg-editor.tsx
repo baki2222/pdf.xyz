@@ -105,6 +105,10 @@ import {
   selectTextQuads,
   type TextMarkup,
 } from "@/lib/pdf/editor/markup";
+import { STICKY_ICON, stickyPopupOrigin } from "@/lib/pdf/editor/sticky";
+
+/** How wide a new comment's popup is, points. */
+const STICKY_POPUP_WIDTH = 200;
 import { cn } from "@/lib/utils";
 import { ErrorNote, useAnnouncer } from "../runner-kit";
 import { PagePreviewPlaceholder } from "../page-preview-placeholder";
@@ -1420,10 +1424,36 @@ export function WysiwygEditor({
   );
 
   const startText = useCallback(
-    (kind: "text" | "note", page: number, at: Pt) => {
+    (kind: "text" | "note", page: number, at: Pt, sticky = false) => {
       const s = stateRef.current;
       const f = frames?.[page];
       if (!f) return;
+      if (sticky) {
+        // A comment: its icon centred on the click, its popup beside it.
+        const id = newObjectId();
+        const base: NoteObject = {
+          id,
+          kind: "note",
+          page,
+          x: Math.max(
+            0,
+            Math.min(at.x - STICKY_ICON / 2, f.width - STICKY_ICON),
+          ),
+          y: Math.max(
+            0,
+            Math.min(at.y - STICKY_ICON / 2, f.height - STICKY_ICON),
+          ),
+          width: STICKY_POPUP_WIDTH,
+          text: "",
+          ...s.defaults.note,
+          sticky: true,
+        };
+        dispatch({
+          type: "startEdit",
+          edit: { id, isNew: true, text: "", base },
+        });
+        return;
+      }
       const style = kind === "note" ? s.defaults.note : s.defaults.text;
       const width = Math.max(
         48,
@@ -1687,9 +1717,10 @@ export function WysiwygEditor({
         placeQuick(s.tool, page, pt);
         return;
       }
-      if (s.tool === "text" || s.tool === "note") {
+      if (s.tool === "text" || s.tool === "note" || s.tool === "comment") {
         if (hit && (hit.kind === "text" || hit.kind === "note"))
           editExisting(hit);
+        else if (s.tool === "comment") startText("note", page, pt, true);
         else startText(s.tool, page, pt);
         return;
       }
@@ -3103,7 +3134,11 @@ function PageSheet({
       )}
       {editingObj && editing && editingObj.kind !== "textedit" && (
         <TextEditor
-          obj={editingObj}
+          obj={
+            editingObj.kind === "note" && editingObj.sticky
+              ? { ...editingObj, ...stickyPopupOrigin(editingObj) }
+              : editingObj
+          }
           text={editing.text}
           kit={kit}
           scale={scale}

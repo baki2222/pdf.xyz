@@ -66,6 +66,7 @@ export const TOOLS = [
   "strikeout",
   "ink",
   "note",
+  "comment",
 ] as const;
 export type Tool = (typeof TOOLS)[number];
 
@@ -192,6 +193,7 @@ export const COMMENT_TOOLS: ReadonlySet<Tool> = new Set<Tool>([
   "strikeout",
   "ink",
   "note",
+  "comment",
 ]);
 
 /** May `tool` be picked under `lock`? */

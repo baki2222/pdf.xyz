@@ -121,6 +121,11 @@ export interface DocumentEdits {
    * everything else are page content either way.
    */
   markups?: MarkupMode;
+  /**
+   * The name typed for comments' author, written as each comment's /T.
+   * Absent or blank: no /T — nobody is invented as the author.
+   */
+  author?: string;
 }
 
 /**
@@ -404,9 +409,14 @@ export async function exportEditedPdf(
   const removedLinks = edits.removedLinks ?? [];
   const fills = edits.fills ?? {};
   const asComments = edits.markups === "comments";
-  const comments: CommentObject[] = asComments
-    ? list.filter(isCommentObject)
-    : [];
+  // A comment (sticky note) is an annotation either way: its popup cannot
+  // be drawn into a page (`editor/sticky.ts`).
+  const isSticky = (obj: EditorObject) => obj.kind === "note" && !!obj.sticky;
+  const savedAsComment = (obj: EditorObject): boolean =>
+    isCommentObject(obj) && (asComments || isSticky(obj));
+  const comments = list.filter(
+    (obj): obj is CommentObject => isCommentObject(obj) && savedAsComment(obj),
+  );
 
   const doc = await loadPdf(bytes);
   const pageList = edits.pages ?? sourcePages(doc.getPageCount());
@@ -538,7 +548,7 @@ export async function exportEditedPdf(
     const page = pages[obj.page]!;
     const frame = frames[obj.page]!;
     const rotate = degrees(frame.rotation);
-    if (asComments && isCommentObject(obj)) {
+    if (savedAsComment(obj)) {
       // Not drawn: written as an annotation below.
       counts[obj.kind] += 1;
       continue;
@@ -784,6 +794,7 @@ export async function exportEditedPdf(
         pages,
         frames,
         runs,
+        author: edits.author,
         note: (obj) => ({
           font: fontOf.get(obj.id)!,
           measure: measureFor(obj),

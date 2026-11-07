@@ -13,7 +13,14 @@ import { renderPdfPages, regionMean } from "@/tests/pdf-render";
 import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
 import { awaitPdfjsDocument } from "./pdfjs";
 import { exportEditedPdf } from "./editor-export";
-import type { EditorObject, Rect } from "./editor/model";
+import {
+  DEFAULT_TEXT_STYLE,
+  type EditorObject,
+  type Rect,
+} from "./editor/model";
+import { COMMENT_AUTHOR_KEY, STICKY_ICON, STICKY_LABEL } from "./editor/sticky";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import annotate from "@/lib/tools/content/annotate-pdf";
 import editPdf from "@/lib/tools/content/edit-pdf";
 import {
@@ -358,5 +365,171 @@ describe("text selected to mark (audit annotate-pdf#3)", () => {
     expect(band(100)[0]).toBeGreaterThan(band(100)[2] + 60);
     // Same height, right of the second line's selection: paper.
     expect(Math.min(...band(250))).toBeGreaterThan(245);
+  });
+});
+
+describe("sticky-note comments and the author's name (audit annotate-pdf#4)", () => {
+  const STICKY_TEXT = "Please check this figure";
+  const sticky: EditorObject = {
+    id: "c",
+    kind: "note",
+    sticky: true,
+    page: 0,
+    x: 300,
+    y: 200,
+    width: 180,
+    text: STICKY_TEXT,
+    fill: "#fef08a",
+    ...DEFAULT_TEXT_STYLE,
+    size: 11,
+  };
+
+  async function read(bytes: Uint8Array) {
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const task = pdfjs.getDocument({
+      ...PDFJS_DOCUMENT_DEFAULTS,
+      data: bytes.slice(),
+      useWorkerFetch: false,
+      disableFontFace: true,
+    });
+    const doc = await awaitPdfjsDocument(task);
+    try {
+      const pg = await doc.getPage(1);
+      const vp = pg.getViewport({ scale: 1 });
+      const raw = (await pg.getAnnotations()) as Record<string, unknown>[];
+      const text = (await pg.getTextContent()).items
+        .map((i) => ("str" in i ? i.str : ""))
+        .join(" ");
+      return {
+        text,
+        annots: raw.map((a) => {
+          const r = a.rect as number[];
+          const [x0, y0] = vp.convertToViewportPoint(r[0]!, r[1]!);
+          const [x1, y1] = vp.convertToViewportPoint(r[2]!, r[3]!);
+          return {
+            subtype: String(a.subtype),
+            contents:
+              (a.contentsObj as { str?: string } | undefined)?.str ?? "",
+            title: (a.titleObj as { str?: string } | undefined)?.str ?? "",
+            popupRef: (a.popupRef as string | null | undefined) ?? null,
+            id: String(a.id),
+            name: (a.name as string | undefined) ?? null,
+            box: {
+              x: Math.min(x0!, x1!),
+              y: Math.min(y0!, y1!),
+              width: Math.abs(x1! - x0!),
+              height: Math.abs(y1! - y0!),
+            },
+          };
+        }),
+      };
+    } finally {
+      await task.destroy();
+    }
+  }
+
+  it.each(["comments", "flatten"] as const)(
+    "a comment is a /Text sticky note with its words in a /Popup, never page text (markups: %s)",
+    async (markups) => {
+      const out = await exportEditedPdf(await page(), [sticky], undefined, {
+        markups,
+      });
+      expect(out.comments).toBe(1);
+      const { annots, text } = await read(out.bytes);
+      const note = annots.find((a) => a.subtype === "Text")!;
+      expect(note, "no /Text annotation").toBeDefined();
+      expect(note.contents).toBe(STICKY_TEXT);
+      // pdf.js reports "NoIcon" when it paints our appearance; the
+      // dictionary names the icon other readers draw.
+      expect(note.name).toBe("NoIcon");
+      const raw = await PDFDocument.load(out.bytes);
+      const list = raw.getPage(0).node.lookup(PDFName.of("Annots"), PDFArray);
+      const dicts = Array.from({ length: list.size() }, (_, i) =>
+        list.lookup(i, PDFDict),
+      );
+      const textDict = dicts.find(
+        (d) => String(d.get(PDFName.of("Subtype"))) === "/Text",
+      )!;
+      expect(String(textDict.get(PDFName.of("Name")))).toBe("/Comment");
+      // The icon sits where it was placed, the size the overlay drew it.
+      expect(Math.abs(note.box.x - 300)).toBeLessThanOrEqual(TOL);
+      expect(Math.abs(note.box.y - 200)).toBeLessThanOrEqual(TOL);
+      expect(Math.abs(note.box.width - STICKY_ICON)).toBeLessThanOrEqual(TOL);
+      const popup = annots.find((a) => a.subtype === "Popup")!;
+      expect(popup, "no /Popup annotation").toBeDefined();
+      expect(note.popupRef).toBe(popup.id);
+      // pdf.js fills a popup's words from its /Parent: the link back.
+      expect(popup.contents).toBe(STICKY_TEXT);
+      expect(popup.box.x).toBeGreaterThan(note.box.x + note.box.width);
+      expect(text).not.toContain(STICKY_TEXT);
+    },
+  );
+
+  it("no name typed: no /T on any comment — nobody is invented as the author", async () => {
+    const out = await exportEditedPdf(
+      await page(),
+      [sticky, mark("u", "underline", OVER_LINE)],
+      undefined,
+      { markups: "comments" },
+    );
+    const { annots } = await read(out.bytes);
+    for (const a of annots) expect(a.title).toBe("");
+  });
+
+  it("a name typed: every comment carries it as /T, as reader comment panels show it", async () => {
+    const out = await exportEditedPdf(
+      await page(),
+      [sticky, mark("u", "underline", OVER_LINE)],
+      undefined,
+      { markups: "comments", author: "Rahima Khatun" },
+    );
+    const { annots } = await read(out.bytes);
+    const named = annots.filter((a) => a.subtype !== "Popup");
+    expect(named.map((a) => a.subtype).sort()).toEqual(["Text", "Underline"]);
+    for (const a of named) expect(a.title).toBe("Rahima Khatun");
+  });
+
+  it("a plain Note is still a /FreeText box on the page (CONTROL)", async () => {
+    const { sticky: _, ...plain } = sticky as EditorObject & {
+      sticky: boolean;
+    };
+    void _;
+    const out = await exportEditedPdf(
+      await page(),
+      [plain as EditorObject],
+      undefined,
+      {
+        markups: "comments",
+      },
+    );
+    const { annots } = await read(out.bytes);
+    expect(annots.map((a) => a.subtype)).toEqual(["FreeText"]);
+  });
+});
+
+describe("what Annotate PDF says about comments and names", () => {
+  const session = readFileSync(
+    path.join(
+      process.cwd(),
+      "src/components/tools/runner/editor/editor-session.tsx",
+    ),
+    "utf8",
+  );
+  const label = /COMMENT_AUTHOR_LABEL = "([^"]+)"/.exec(session)?.[1];
+
+  it("health: the name field's label and storage are found in the runner", () => {
+    expect(label).toBeTruthy();
+    expect(session).toContain("writeCommentAuthor(name)");
+    expect(COMMENT_AUTHOR_KEY).toMatch(/^pdfxyz:/);
+  });
+
+  it("the FAQ names the Comment button and the name field by their labels, and promises no invented author", () => {
+    const faq = annotate.faqs.find((f) => /sticky-note/i.test(f.q))!;
+    expect(faq, "no sticky-note FAQ").toBeDefined();
+    expect(faq.a).toMatch(/^Yes\./);
+    expect(faq.a).toContain(STICKY_LABEL);
+    expect(faq.a).toContain(label!);
+    expect(faq.a).toMatch(/blank and no author is written/);
+    expect(faq.a).toMatch(/not sent anywhere/);
   });
 });

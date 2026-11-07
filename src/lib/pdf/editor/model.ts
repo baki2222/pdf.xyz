@@ -20,6 +20,7 @@ import {
 } from "../offered-kinds";
 import type { RasterImageFormat } from "../pdf-lib";
 import { TEXT_MARKUP_LABEL, markupOf, type TextMarkup } from "./markup";
+import { STICKY_ICON, STICKY_LABEL } from "./sticky";
 
 export const EDITOR_FONTS = ["helvetica", "times", "courier"] as const;
 export type EditorFont = (typeof EDITOR_FONTS)[number];
@@ -84,6 +85,11 @@ export interface NoteObject extends Base, TextStyle {
   text: string;
   /** The note's paper colour. */
   fill: string;
+  /**
+   * A comment (sticky note, `sticky.ts`): an icon at x/y whose words open
+   * in a popup `width` wide — saved as a /Text annotation, never drawn.
+   */
+  sticky?: boolean;
 }
 
 export interface ImageObject extends Base, Boxed {
@@ -372,6 +378,9 @@ export function objectBounds(obj: EditorObject, textHeight: TextHeight): Rect {
         height: Math.max(textHeight(obj), obj.height ?? 0),
       };
     case "note":
+      // A comment is its icon on the page; the popup is not page area.
+      if (obj.sticky)
+        return { x: obj.x, y: obj.y, width: STICKY_ICON, height: STICKY_ICON };
       return {
         x: obj.x,
         y: obj.y,
@@ -537,6 +546,8 @@ export const ALL_HANDLES: readonly Handle[] = [
 export function handlesFor(obj: EditorObject): readonly Handle[] {
   if (obj.kind === "textedit") return [];
   if (obj.kind === "line") return [];
+  // A comment is a fixed-size icon; its popup is the reader's to size.
+  if (obj.kind === "note" && obj.sticky) return [];
   return ALL_HANDLES;
 }
 
@@ -724,7 +735,11 @@ export function describeObject(obj: EditorObject): string {
     case "text":
     case "note": {
       const words = obj.text.trim().slice(0, 40) || "empty";
-      return `${EDITOR_OBJECT_LABEL[obj.kind]} “${words}” on ${page}`;
+      const label =
+        obj.kind === "note" && obj.sticky
+          ? STICKY_LABEL
+          : EDITOR_OBJECT_LABEL[obj.kind];
+      return `${label} “${words}” on ${page}`;
     }
     case "textedit": {
       const words = obj.text.trim().slice(0, 40);

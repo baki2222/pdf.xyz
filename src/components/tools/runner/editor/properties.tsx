@@ -40,6 +40,7 @@ import {
 } from "@/lib/pdf/editor/quick-fields";
 import { ownFontCovers, substituteLabel } from "@/lib/pdf/editor/runs";
 import { needsUnicodeFace } from "@/lib/pdf/editor/text";
+import { STICKY_LABEL } from "@/lib/pdf/editor/sticky";
 import {
   TEXT_MARKUPS,
   TEXT_MARKUP_LABEL,
@@ -91,6 +92,7 @@ export function bucketOfTool(tool: Tool): StyleBucket | null {
     case "text":
       return "text";
     case "note":
+    case "comment":
       return "note";
     case "rect":
     case "ellipse":
@@ -253,7 +255,9 @@ export function PropertiesPanel({
       ? `${selection.length} items selected`
       : first.kind === "highlight"
         ? TEXT_MARKUP_LABEL[markupOf(first)]
-        : EDITOR_OBJECT_LABEL[first.kind]
+        : first.kind === "note" && first.sticky
+          ? STICKY_LABEL
+          : EDITOR_OBJECT_LABEL[first.kind]
     : (NEW_TITLE[kind] ??
       `New ${kind === "shape" ? "shape" : kind === "line" ? "line" : kind}`);
   const unicode = selection.some(
@@ -261,6 +265,9 @@ export function PropertiesPanel({
   );
 
   const set = (patch: StylePatch, key: string) => onPatch(patch, key);
+  // A comment's words are shown by the reader's popup, in its own font:
+  // only its colour is the editor's to set.
+  const stickySel = first?.kind === "note" && !!first.sticky;
   const textMarkup =
     kind === "highlight" || kind === "underline" || kind === "strikeout";
 
@@ -271,7 +278,19 @@ export function PropertiesPanel({
     >
       <h3 className="text-faint kicker">{title}</h3>
 
-      {(kind === "text" || kind === "note") && (
+      {stickySel && (
+        <Field label="Colour">
+          <input
+            type="color"
+            aria-label="Comment colour"
+            value={shown.fill ?? "#fef08a"}
+            onChange={(e) => set({ fill: e.target.value }, "fill")}
+            className="h-8 w-10 cursor-pointer"
+          />
+        </Field>
+      )}
+
+      {(kind === "text" || kind === "note") && !stickySel && (
         <>
           <Field label="Font">
             <select

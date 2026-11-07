@@ -17,6 +17,7 @@ import {
 } from "./model";
 import type { TextRun } from "./runs";
 import { TEXT_MARKUP_SUBTYPE, markupOf, markupStroke } from "./markup";
+import { STICKY_ICON, stickyPopupOrigin } from "./sticky";
 import { layoutText, lineBaseline, lineLeft } from "./text";
 
 /**
@@ -34,15 +35,19 @@ import { layoutText, lineBaseline, lineLeft } from "./text";
  *   Draw      → /Ink with /InkList
  *   Note      → /FreeText: the editor's note is a visible box of words on
  *               coloured paper, which is a FreeText, not a /Text sticky icon
+ *   Comment   → /Text (/Name /Comment) with a /Popup holding its words: the
+ *               sticky note (`sticky.ts`), written even when the other
+ *               markups are flattened
  *   Rectangle → /Square, Ellipse → /Circle
  *   Line      → /Line, an arrow with /LE [/None /OpenArrow]
  *
  * Each carries its own appearance stream (/AP /N), drawn here, so a viewer
  * that does not synthesise one still paints exactly what the editor showed;
  * a highlight's multiplies over the page, as the flattened one does. Each
- * has a unique /NM, a /M date and /F 4 (printed with the page), and no /T:
- * the editor never asks for a name, and inventing one would label every
- * comment with an author nobody typed.
+ * has a unique /NM, a /M date and /F 4 (printed with the page), and a /T
+ * only when the person typed a name for their comments (`author`, kept in
+ * their browser by the runner): inventing one would label every comment
+ * with an author nobody typed.
  *
  * Whiteout and Redact are NEVER comments: a comment can be deleted by
  * whoever opens the file, so a cover written as one would hide nothing.
@@ -166,6 +171,8 @@ export interface CommentContext {
   /** Text runs per displayed page, for highlights to snap to. */
   runs: Readonly<Record<number, readonly TextRun[]>>;
   note: (obj: NoteObject) => NoteText;
+  /** The name typed for comments' author (/T); blank or absent writes none. */
+  author?: string;
   /** A fresh /NM; tests may pin it. */
   name?: () => string;
   now?: Date;
@@ -221,6 +228,7 @@ export function writeComments(
   const context = doc.context;
   const now = ctx.now ?? new Date();
   const nameOf = ctx.name ?? (() => `pdfxyz-${randomName()}`);
+  const author = ctx.author?.trim() ?? "";
 
   const gs = (opacity: number, multiply = false) =>
     context.obj({
@@ -265,6 +273,7 @@ export function writeComments(
       NM: PDFString.of(nameOf()),
       M: PDFString.fromDate(now),
       AP: { N: ap },
+      ...(author ? { T: PDFHexString.fromText(author) } : {}),
     });
     for (const [key, value] of Object.entries(entries)) {
       if (value === undefined) continue;
@@ -279,6 +288,11 @@ export function writeComments(
     // its content streams in q/Q — a change to what the page draws, which
     // a restricted file's author withheld (`../security/incremental`).
     const ref = context.register(dict);
+    attach(page, ref);
+    return ref;
+  };
+
+  const attach = (page: PDFPage, ref: PDFRef) => {
     const annots = page.node.Annots();
     if (annots) annots.push(ref);
     else page.node.set(PDFName.of("Annots"), context.obj([ref]));
@@ -454,6 +468,73 @@ export function writeComments(
         break;
       }
       case "note": {
+        if (obj.sticky) {
+          // The icon: the note's paper colour, an outline, three lines of
+          // "writing" — what the overlay draws (`object-svg.tsx`).
+          const icon = viewerRectToContent(
+            { x: obj.x, y: obj.y, width: STICKY_ICON, height: STICKY_ICON },
+            frame,
+          );
+          const rect: Box4 = [icon.x0, icon.y0, icon.x1, icon.y1];
+          const fill = rgbOf(obj.fill);
+          const lines = [0.32, 0.5, 0.68]
+            .map((t) => {
+              const a = toContent(
+                obj.x + STICKY_ICON * 0.22,
+                obj.y + STICKY_ICON * t,
+              );
+              const b = toContent(
+                obj.x + STICKY_ICON * 0.78,
+                obj.y + STICKY_ICON * t,
+              );
+              return `${nums(a.x, a.y)} m ${nums(b.x, b.y)} l`;
+            })
+            .join(" ");
+          const ap = appearance(
+            rect,
+            [
+              "q",
+              `${nums(...fill)} rg 0.62 0.52 0.1 RG 1 w`,
+              `${nums(icon.x0 + 0.5, icon.y0 + 0.5, icon.x1 - icon.x0 - 1, icon.y1 - icon.y0 - 1)} re B`,
+              `0.36 0.3 0.06 RG 1.2 w ${lines} S`,
+              "Q",
+            ].join("\n"),
+            context.obj({}),
+          );
+          const { measure } = ctx.note(obj);
+          const inner = obj.width - NOTE_PADDING * 2;
+          const tall =
+            layoutText(obj.text, inner, obj, measure).lines.length *
+              obj.size *
+              obj.lineHeight +
+            NOTE_PADDING * 2;
+          const origin = stickyPopupOrigin(obj);
+          const pop = viewerRectToContent(
+            { ...origin, width: obj.width, height: Math.max(tall, 48) },
+            frame,
+          );
+          const textRef = add(page, "Text", rect, ap, {
+            Contents: PDFHexString.fromText(obj.text),
+            Name: "Comment",
+            C: fill,
+            Open: false,
+          });
+          const popupRef = context.register(
+            context.obj({
+              Type: "Annot",
+              Subtype: "Popup",
+              Rect: [pop.x0, pop.y0, pop.x1, pop.y1].map((n) => Number(num(n))),
+              P: page.ref,
+              Parent: textRef,
+              Open: false,
+            }),
+          );
+          context
+            .lookup(textRef, lib.PDFDict)
+            .set(PDFName.of("Popup"), popupRef);
+          attach(page, popupRef);
+          break;
+        }
         const { font, measure, box } = ctx.note(obj);
         const c = viewerRectToContent(box, frame);
         const border = 0.75;

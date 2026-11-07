@@ -141,6 +141,7 @@ describe("the editor lock, when the author allows comments (/P bit 6)", () => {
       strikeout: "highlight",
       ink: "ink",
       note: "note",
+      comment: "note",
     };
     const kinds = new Set([...COMMENT_TOOLS].map((t) => places[t]));
     expect(kinds.has(undefined)).toBe(false);

@@ -20,6 +20,7 @@ import {
   needsUnicodeFace,
 } from "@/lib/pdf/editor/text";
 import { markupOf, markupStroke } from "@/lib/pdf/editor/markup";
+import { STICKY_ICON, stickyPopupOrigin } from "@/lib/pdf/editor/sticky";
 import type { TextKit } from "./measure";
 
 /**
@@ -149,6 +150,51 @@ export function ObjectShape({
     case "text":
       return hideWords ? null : <Words obj={obj} kit={kit} inset={0} />;
     case "note": {
+      if (obj.sticky) {
+        // A comment: its icon; while its words are typed, the popup's
+        // paper beside it (the textarea sits on it).
+        const pop = stickyPopupOrigin(obj);
+        const s = STICKY_ICON;
+        return (
+          <>
+            <g data-sticky-icon="">
+              <title>{obj.text}</title>
+              <rect
+                x={obj.x + 0.5}
+                y={obj.y + 0.5}
+                width={s - 1}
+                height={s - 1}
+                rx={2}
+                fill={obj.fill}
+                stroke="#9e851a"
+                strokeWidth={1}
+              />
+              {[0.32, 0.5, 0.68].map((t) => (
+                <line
+                  key={t}
+                  x1={obj.x + s * 0.22}
+                  x2={obj.x + s * 0.78}
+                  y1={obj.y + s * t}
+                  y2={obj.y + s * t}
+                  stroke="#5c4d0f"
+                  strokeWidth={1.2}
+                />
+              ))}
+            </g>
+            {hideWords && (
+              <rect
+                x={pop.x}
+                y={pop.y}
+                width={obj.width}
+                height={Math.max(kit.height(obj) + NOTE_PADDING * 2, 48)}
+                fill={obj.fill}
+                stroke="#9e851a"
+                strokeWidth={0.75}
+              />
+            )}
+          </>
+        );
+      }
       const height = Math.max(
         kit.height(obj) + NOTE_PADDING * 2,
         obj.height ?? 0,

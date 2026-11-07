@@ -19,6 +19,7 @@ import {
   Highlighter,
   ImagePlus,
   Maximize2,
+  MessageSquare,
   Minus,
   MousePointer2,
   MoveUpRight,
@@ -41,6 +42,7 @@ import { MAX_ZOOM, MIN_ZOOM } from "@/lib/pdf/editor/geometry";
 import { MARKUP_KINDS, type EditorKind } from "@/lib/pdf/offered-kinds";
 import type { EditorFieldType } from "@/lib/pdf/editor/model";
 import { TEXT_MARKUP_LABEL } from "@/lib/pdf/editor/markup";
+import { STICKY_LABEL } from "@/lib/pdf/editor/sticky";
 import { toolAllowed, type EditorLock, type Tool } from "./editor-state";
 
 /**
@@ -95,6 +97,12 @@ const SPEC: Record<Tool, ToolButtonSpec> = {
   },
   ink: { tool: "ink", label: "Draw", key: "D", icon: Pencil },
   note: { tool: "note", label: "Note", key: "N", icon: StickyNote },
+  comment: {
+    tool: "comment",
+    label: STICKY_LABEL,
+    key: "C",
+    icon: MessageSquare,
+  },
   date: { tool: "date", label: "Date", key: "", icon: CalendarDays },
   initials: { tool: "initials", label: "Initials", key: "", icon: CaseUpper },
   name: { tool: "name", label: "Name", key: "", icon: UserRound },
@@ -136,14 +144,15 @@ const SPEC: Record<Tool, ToolButtonSpec> = {
  * The Mark-up group is the offered-kinds list Annotate PDF's page counts,
  * each kind followed by the tools that place a variant of it: Underline and
  * Strikethrough place a highlight object with another `markup` (2026-11-08,
- * audit annotate-pdf#2).
+ * audit annotate-pdf#2); Comment places a sticky note (`sticky.ts`,
+ * audit annotate-pdf#4).
  */
 const MARKUP_TOOLS: Record<(typeof MARKUP_KINDS)[number], Tool[]> = {
   whiteout: ["whiteout"],
   redact: ["redact"],
   highlight: ["highlight", "underline", "strikeout"],
   ink: ["ink"],
-  note: ["note"],
+  note: ["note", "comment"],
 } satisfies Partial<Record<EditorKind, Tool[]>>;
 
 export const TOOL_GROUPS: { name: string; tools: Tool[] }[] = [
