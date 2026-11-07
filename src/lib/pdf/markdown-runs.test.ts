@@ -1,10 +1,12 @@
 // @native-canvas
+import { inflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import {
   PDFArray,
   PDFDict,
   PDFDocument,
   PDFName,
+  PDFRawStream,
   PDFString,
   StandardFonts,
 } from "pdf-lib";
@@ -54,6 +56,29 @@ async function links(bytes: Uint8Array) {
     });
   });
 }
+
+/** Page 1's content stream operators, inflated when they are compressed. */
+async function contentOps(bytes: Uint8Array): Promise<string> {
+  const doc = await PDFDocument.load(bytes);
+  const contents = doc.getPages()[0]!.node.lookup(PDFName.of("Contents"));
+  const streams =
+    contents instanceof PDFArray
+      ? contents.asArray().map((ref) => doc.context.lookup(ref))
+      : [contents];
+  return streams
+    .map((stream) => {
+      if (!(stream instanceof PDFRawStream)) return "";
+      const raw = stream.getContents();
+      const filter = stream.dict.lookup(PDFName.of("Filter"));
+      return Buffer.from(
+        filter === PDFName.of("FlateDecode") ? inflateSync(raw) : raw,
+      ).toString("latin1");
+    })
+    .join("\n");
+}
+
+/** The fill operator markdown-runs.ts sets a link's colour with. */
+const LINK_FILL = "0.1 0.32 0.78 rg";
 
 /** Each text item of page 1, with the font family pdf.js reports for it. */
 async function items(bytes: Uint8Array) {
@@ -244,12 +269,22 @@ describe("styled runs say exactly what the block text says", () => {
         "> quoted *i* [l](https://q.example)",
         "> - quoted item **b**",
         "",
+        "# head **b** [l](https://h.example)",
+        "",
+        "Setext *i* [l](https://s.example)",
+        "---",
+        "",
+        "> [!NOTE]",
+        "> alert **b** [l](https://n.example)",
+        "",
         "[ref]: https://ref.example",
       ].join("\n"),
     );
     const checked = blocks.filter((block) => blockRuns(block) !== undefined);
-    // Health: the paragraph, both items and both quote lines have runs.
-    expect(checked.length).toBeGreaterThanOrEqual(5);
+    // Health: the paragraph, both items, both quote lines, both headings and
+    // the callout's text have runs.
+    expect(checked.length).toBeGreaterThanOrEqual(8);
+    expect(checked.map((block) => block.kind)).toContain("heading");
     for (const block of checked) {
       expect(
         blockRuns(block)!
@@ -258,5 +293,91 @@ describe("styled runs say exactly what the block text says", () => {
         block.kind,
       ).toBe("text" in block ? block.text : "");
     }
+  });
+});
+
+describe("links outside paragraphs: where they open, and where they only print", () => {
+  it("a link in a heading opens, and the heading keeps its one bold face", async () => {
+    const bytes = await markdownToPdf(
+      "# See the [docs](https://example.com/h) now\n\nBody text here.",
+    );
+    expect((await links(bytes)).map((l) => l.uri)).toEqual([
+      "https://example.com/h",
+    ]);
+    const all = await items(bytes);
+    // One face across the heading: "See the", the link and its address.
+    const heading = all.filter((i) => i.y === fontOf(all, "See").y);
+    expect(heading.map((i) => i.str).join("")).toContain(
+      "docs (https://example.com/h)",
+    );
+    expect(new Set(heading.map((i) => i.font)).size).toBe(1);
+    expect(fontOf(all, "See").font).not.toBe(fontOf(all, "Body").font);
+  });
+
+  it("a link in a setext heading opens too", async () => {
+    const bytes = await markdownToPdf(
+      "Read [this](https://example.com/s)\n===\n",
+    );
+    expect((await links(bytes)).map((l) => l.uri)).toEqual([
+      "https://example.com/s",
+    ]);
+  });
+
+  it("CONTROL: a heading with no link is drawn as before, with no annotation", async () => {
+    const bytes = await markdownToPdf("# Plain heading\n\nBody.");
+    expect(await links(bytes)).toEqual([]);
+  });
+
+  it("a [!NOTE] callout keeps its links and its bold", async () => {
+    const bytes = await markdownToPdf(
+      "> [!NOTE]\n> Read **heavy** and [the note](https://example.com/n).",
+    );
+    expect((await links(bytes)).map((l) => l.uri)).toEqual([
+      "https://example.com/n",
+    ]);
+    const all = await items(bytes);
+    expect(fontOf(all, "heavy").font).not.toBe(fontOf(all, "Read").font);
+    expect(all.map((i) => i.str).join("")).toContain("Note");
+  });
+
+  it("a link in a table cell prints its label and address but does not open (the page says so)", async () => {
+    const bytes = await markdownToPdf(
+      "| a | b |\n| - | - |\n| [x](https://example.com/t) | y |",
+    );
+    expect(await links(bytes)).toEqual([]);
+    const text = (await items(bytes)).map((i) => i.str).join("");
+    expect(text).toContain("x (https://example.com/t)");
+  });
+
+  it("a relative link prints in the text colour; a web link in the link colour (control)", async () => {
+    const relative = await contentOps(
+      await markdownToPdf("See [notes](docs/setup.md) here."),
+    );
+    const web = await contentOps(
+      await markdownToPdf("See [web](https://example.com/w) here."),
+    );
+    // Health: the page was read, and the body text colour is in it.
+    expect(relative).toContain("0.1 0.12 0.18 rg");
+    expect(relative).not.toContain(LINK_FILL);
+    expect(web).toContain(LINK_FILL);
+    // On one line with a web link (the styled path), only the web link's
+    // segment takes the link colour; the relative link's words do not.
+    const mixed = await contentOps(
+      await markdownToPdf(
+        "[notes](docs/setup.md) then [web](https://example.com/w)",
+      ),
+    );
+    expect(mixed.split(LINK_FILL)).toHaveLength(2);
+  });
+});
+
+describe("bold italic", () => {
+  it("text that is both bold and italic is set in the bold face", async () => {
+    const bytes = await markdownToPdf(
+      "Plain **heavy** then ***both*** and *slanted* end.",
+    );
+    const all = await items(bytes);
+    expect(fontOf(all, "both").font).toBe(fontOf(all, "heavy").font);
+    expect(fontOf(all, "both").font).not.toBe(fontOf(all, "slanted").font);
   });
 });

@@ -391,13 +391,16 @@ const MARKDOWN_BLOCK_PHRASE: Record<MarkdownBlockKind, string> = {
  * check, this list. Until 2026-11-08 (audit markdown-to-pdf#6) it said "Bold
  * and italics print as plain text"; the renderer now draws styled runs and
  * link annotations (`markdown-runs.ts`), and the schemes a link opens for are
- * read off PDF_LINK_SCHEMES.
+ * read off PDF_LINK_SCHEMES. The review of that change found "opens when
+ * clicked" said with no scope: a link in a table cell still only prints
+ * (markdown-runs.test.ts reads no annotation for it), so the sentence says
+ * "outside table cells".
  */
 export const MARKDOWN_SYNTAX_FACT = (() => {
   const names = MARKDOWN_BLOCK_KINDS.map((k) => MARKDOWN_BLOCK_PHRASE[k]);
   const list = `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
   const schemes = PDF_LINK_SCHEMES.map((s) => s.slice(0, -1));
-  return `${list[0]!.toUpperCase()}${list.slice(1)}. In paragraphs, list items and quotes, bold, italics and backtick code are set in their own faces, and a link keeps its address in parentheses and opens when clicked if that address is ${schemes.slice(0, -1).join(", ")} or ${schemes.at(-1)}.`;
+  return `${list[0]!.toUpperCase()}${list.slice(1)}. In paragraphs, list items and quotes, bold, italics and backtick code are set in their own faces. A link keeps its address in parentheses, and outside table cells it opens when clicked if that address is ${schemes.slice(0, -1).join(", ")} or ${schemes.at(-1)}.`;
 })();
 
 /**

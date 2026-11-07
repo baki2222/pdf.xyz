@@ -1576,7 +1576,11 @@ describe("the converters' pages describe the page they produce", () => {
       /bold, italics and backtick code are set in their own faces/,
     );
     expect(answer).not.toMatch(/Bold and italics print as plain text/);
-    expect(answer).toMatch(/address in parentheses and opens when clicked/);
+    // Scoped since the review of markdown-to-pdf#6: a table cell's link
+    // prints but has no annotation (markdown-runs.test.ts).
+    expect(answer).toMatch(
+      /address in parentheses, and outside table cells it opens when clicked/,
+    );
     // The sentence that shipped until the merge, false once tables are drawn.
     expect(answer).not.toMatch(/\btables?\b[^.]*\bplain text\b/i);
     const guideAnswer = guides

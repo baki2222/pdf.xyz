@@ -1161,6 +1161,21 @@ function sliceRuns(runs: InlineRun[], start: number, end: number): InlineRun[] {
  */
 const BLOCK_RUNS = new WeakMap<MarkdownBlock, InlineRun[]>();
 
+/**
+ * A heading's runs: its links and nothing else. A heading is drawn in its one
+ * bold face, so bold, italic and code are dropped and only each link's
+ * address is kept; that is what makes a heading's link open and take the
+ * link colour. Until the markdown-to-pdf#6 review headings had no runs, so a
+ * link in one printed its address but did not open.
+ */
+function headingRuns(runs: InlineRun[]): InlineRun[] {
+  return runs.map((run) =>
+    run.href === undefined
+      ? { text: run.text, style: 0 }
+      : { text: run.text, style: 0, href: run.href },
+  );
+}
+
 /** The runs {@link drawBlock} draws `block` from, if it has any. */
 export function blockRuns(
   block: MarkdownBlock,
@@ -1370,7 +1385,15 @@ function quoteBlocks(inner: MarkdownBlock[], depth: number): MarkdownBlock[] {
         if (alert) {
           const name = alert[1]!.toLowerCase();
           quote(name[0]!.toUpperCase() + name.slice(1));
-          quote(block.text.slice(alert[0].length));
+          // The callout's text keeps its runs (bold, links). Until the
+          // markdown-to-pdf#6 review it was passed as bare text, so a link
+          // in a [!NOTE] printed but did not open.
+          const runs = BLOCK_RUNS.get(block);
+          quote(
+            block.text.slice(alert[0].length),
+            depth,
+            runs && sliceRuns(runs, alert[0].length, block.text.length),
+          );
           return;
         }
         quote(block.text, depth, BLOCK_RUNS.get(block));
@@ -1625,14 +1648,16 @@ function parseBlocks(
     if (paragraph.length && indent <= 3) {
       const level = SETEXT_1.test(trimmed) ? 1 : SETEXT_2.test(trimmed) ? 2 : 0;
       if (level) {
-        const heading = inline(paragraph.join("\n"));
+        const { text: heading, runs } = inlineRuns(paragraph.join("\n"));
         paragraph = [];
         if (heading) {
-          blocks.push({
+          const block: MarkdownBlock = {
             kind: "heading",
             depth: level as 1 | 2,
             text: heading,
-          });
+          };
+          BLOCK_RUNS.set(block, headingRuns(runs));
+          blocks.push(block);
         }
         previousBlank = false;
         continue;
@@ -1652,13 +1677,15 @@ function parseBlocks(
     if (heading) {
       flushAll();
       closeList();
-      const headingText = inline(heading[2] ?? "");
+      const { text: headingText, runs } = inlineRuns(heading[2] ?? "");
       if (headingText) {
-        blocks.push({
+        const block: MarkdownBlock = {
           kind: "heading",
           depth: heading[1]!.length as 1 | 2 | 3 | 4 | 5 | 6,
           text: headingText,
-        });
+        };
+        BLOCK_RUNS.set(block, headingRuns(runs));
+        blocks.push(block);
       }
       previousBlank = false;
       continue;
@@ -2130,20 +2157,27 @@ function drawBlock(cursor: Cursor, block: MarkdownBlock): void {
       const size = HEADING_SIZES[block.depth];
       const lineHeight = size + 9;
       cursor.y -= block.depth === 1 ? 8 : 4;
-      drawLines(
+      const color =
+        block.depth === 6
+          ? cursor.rgb(0.3, 0.33, 0.42)
+          : cursor.rgb(0.05, 0.07, 0.14);
+      // Styled only when the heading has a link: headingRuns keeps no style.
+      const styled = styledLines(
         cursor,
-        wrapBlockText(block.text, cursor.fonts.bold, maxWidth, size),
-        {
-          x: MARGIN,
-          size,
-          lineHeight,
-          font: cursor.fonts.bold,
-          color:
-            block.depth === 6
-              ? cursor.rgb(0.3, 0.33, 0.42)
-              : cursor.rgb(0.05, 0.07, 0.14),
-        },
+        block,
+        cursor.fonts.bold,
+        maxWidth,
+        size,
       );
+      if (styled) {
+        drawStyledLines(cursor, styled, { x: MARGIN, size, lineHeight, color });
+      } else {
+        drawLines(
+          cursor,
+          wrapBlockText(block.text, cursor.fonts.bold, maxWidth, size),
+          { x: MARGIN, size, lineHeight, font: cursor.fonts.bold, color },
+        );
+      }
       cursor.y -= 4;
       return;
     }
