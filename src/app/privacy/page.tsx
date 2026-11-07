@@ -2,7 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { buildMetadata } from "@/lib/seo";
 import { LegalPage, LegalSection } from "@/components/legal/legal-page";
-import { RETENTION_WINDOWS } from "@/lib/retention-windows";
+import {
+  ORPHAN_UPLOAD_ERASURE,
+  RETENTION_WINDOWS,
+} from "@/lib/retention-windows";
 import { tools } from "@/lib/tools";
 import { processingSplit } from "@/lib/tools/processing-split";
 import {
@@ -46,7 +49,6 @@ import { CSP_SENTENCE } from "@/lib/privacy/site-security";
  */
 const {
   outputLink: outputWindow,
-  inputStorageRule,
   outputStorageRule,
   jobRecord: jobRecordWindow,
 } = RETENTION_WINDOWS;
@@ -192,10 +194,7 @@ export default function PrivacyPage() {
             retry rather than re-uploaded. An upload that never reaches a
             job&apos;s end — you closed the tab, or the job was refused or
             cancelled after the file arrived — has nothing to delete it
-            actively. It is erased instead by a storage rule that runs on a
-            daily cycle and removes uploads after they are {inputStorageRule}{" "}
-            old, so such a file can stay in storage for {inputStorageRule} or
-            longer.
+            actively. It is erased instead by {ORPHAN_UPLOAD_ERASURE}.
           </li>
           <li>
             <strong className={strong}>

@@ -2,7 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { buildMetadata } from "@/lib/seo";
 import { LegalPage, LegalSection } from "@/components/legal/legal-page";
-import { RETENTION_WINDOWS } from "@/lib/retention-windows";
+import {
+  ORPHAN_UPLOAD_ERASURE,
+  RETENTION_WINDOWS,
+} from "@/lib/retention-windows";
 import { LEGAL_CONTACT, LEGAL_ENTITY, SECURITY_UPDATED } from "@/lib/legal";
 import { STORAGE_PROVIDER } from "@/lib/privacy/processors";
 import { PASSWORD_QUEUE_LIFETIME } from "@/lib/privacy/job-queue";
@@ -22,7 +25,7 @@ import { CSP_SENTENCE } from "@/lib/privacy/site-security";
  * duration, no overclaim); `security/security-page.test.ts` pins each fact to
  * its constant.
  */
-const { outputLink: outputWindow, inputStorageRule } = RETENTION_WINDOWS;
+const { outputLink: outputWindow } = RETENTION_WINDOWS;
 
 const link = "text-accent underline underline-offset-4";
 const strong = "text-fg font-semibold";
@@ -81,8 +84,7 @@ export default function SecurityPage() {
           <li>
             <strong className={strong}>Your upload is deleted</strong> as soon
             as its job ends, whether it succeeded or failed. An upload that
-            never reaches the end of a job is erased by a daily storage rule
-            once it is {inputStorageRule} old.
+            never reaches the end of a job is erased by {ORPHAN_UPLOAD_ERASURE}.
           </li>
           <li>
             <strong className={strong}>The result&apos;s download link</strong>{" "}

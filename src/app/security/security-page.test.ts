@@ -13,7 +13,11 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import SecurityPage, { metadata } from "./page";
-import { RETENTION_WINDOWS } from "@/lib/retention-windows";
+import PrivacyPage from "@/app/privacy/page";
+import {
+  ORPHAN_UPLOAD_ERASURE,
+  RETENTION_WINDOWS,
+} from "@/lib/retention-windows";
 import { STORAGE_PROVIDER } from "@/lib/privacy/processors";
 import { PASSWORD_QUEUE_LIFETIME } from "@/lib/privacy/job-queue";
 import { CSP_SENTENCE } from "@/lib/privacy/site-security";
@@ -22,13 +26,15 @@ import sitemap from "@/app/sitemap";
 import { siteConfig } from "@/lib/site";
 
 const html = renderToStaticMarkup(createElement(SecurityPage));
-const text = html
-  .replace(/<[^>]+>/g, " ")
-  .replace(/&#x27;|&apos;|&#39;/g, "'")
-  .replace(/&quot;/g, '"')
-  .replace(/&amp;/g, "&")
-  .replace(/\s+/g, " ")
-  .trim();
+const textOf = (markup: string): string =>
+  markup
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&#x27;|&apos;|&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+const text = textOf(html);
 
 describe("/security", () => {
   it("health: the render is the page, not an empty frame", () => {
@@ -44,6 +50,19 @@ describe("/security", () => {
   it("states the retention windows the code enforces", () => {
     expect(text).toContain(RETENTION_WINDOWS.outputLink);
     expect(text).toContain(RETENTION_WINDOWS.inputStorageRule);
+  });
+
+  it("states an abandoned upload's storage rule as a lower bound, in /privacy's words", () => {
+    // Review of 92b65cb0: "erased by a daily storage rule once it is 30 days
+    // old" turned /privacy's "can stay ... 30 days or longer" into an implied
+    // deadline. One sentence, shared, so the two pages cannot disagree.
+    expect(ORPHAN_UPLOAD_ERASURE).toContain(
+      `${RETENTION_WINDOWS.inputStorageRule} or longer`,
+    );
+    expect(text).toContain(ORPHAN_UPLOAD_ERASURE);
+    expect(textOf(renderToStaticMarkup(createElement(PrivacyPage)))).toContain(
+      ORPHAN_UPLOAD_ERASURE,
+    );
   });
 
   it("names the storage provider, the password lifetime and the site's protections", () => {
