@@ -8,6 +8,7 @@ import {
   ownerOnlyEncryptedPdf,
   userPasswordEncryptedPdf,
 } from "@/tests/encrypted-pdf-fixture";
+import { RESTRICTED_EDITORS_LEFT_OUT } from "@/tests/restricted-openers-left-out";
 import { optimizeLossless } from "./analyze";
 import {
   ENCRYPTED_PDF_MESSAGES,
@@ -347,12 +348,43 @@ describe("the way out is real", () => {
         ),
       )
       .sort();
+    // A runner that opens a restricted file for ONE of the author's
+    // permissions (`restricted-grant.tsx`: rotating pages, copying content)
+    // is not an editor, and the refusal's sentence does not name it; every
+    // such runner asks the grant before it runs.
+    const grantTools = openers.filter((f) => {
+      const source = readFileSync(path.join(runners, f), "utf8");
+      return source.includes('from "./restricted-grant"');
+    });
+    for (const f of grantTools)
+      expect(
+        readFileSync(path.join(runners, f), "utf8"),
+        `${f} opens a restricted file without asking the author's grant`,
+      ).toMatch(/[^.\w]grantAllows\(/);
     // 2026-10-30: Annotate PDF, which mounts the same editor as Edit PDF,
-    // joined them (it refused restricted files until then).
-    expect(openers).toEqual([
+    // joined them (it refused restricted files until then). 2026-11-08:
+    // Sign PDF, the same editor again (audit sign-pdf#3) — left out of the
+    // sentence for the reason RESTRICTED_EDITORS_LEFT_OUT records. Every
+    // other editor is named by it, and every one left out is an editor.
+    const editors = openers.filter((f) => !grantTools.includes(f));
+    expect(editors).toEqual([
       "annotate-runner.tsx",
       "edit-runner.tsx",
       "fill-forms-runner.tsx",
+      "sign-runner.tsx",
+    ]);
+    const leftOut = RESTRICTED_EDITORS_LEFT_OUT.map((t) => t.runner as string);
+    for (const runner of leftOut) expect(editors).toContain(runner);
+    expect(RESTRICTED_OPENERS.length).toBe(
+      editors.filter((f) => !leftOut.includes(f)).length,
+    );
+    for (const { name } of RESTRICTED_EDITORS_LEFT_OUT)
+      expect(RESTRICTED_OPENERS_SENTENCE).not.toContain(name);
+    // 2026-11-08: Rotate PDF (audit rotate-pdf#2) and Extract Images
+    // (audit extract-images#3).
+    expect(grantTools).toEqual([
+      "extract-images-runner.tsx",
+      "rotate-runner.tsx",
     ]);
   });
 

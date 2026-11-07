@@ -7,7 +7,7 @@ import type { ProtectedPdf } from "@/lib/pdf/security/protected-pdf";
 import { Spinner } from "./runner-kit";
 
 /**
- * The note above a restricted PDF (Edit PDF, Annotate PDF, Fill Forms): what its author
+ * The note above a restricted PDF (Edit PDF, Annotate PDF, Fill Forms, Sign PDF): what its author
  * allows, in plain words, and the one way past it — the owner password,
  * typed here and checked in the browser by the file's own security handler.
  *

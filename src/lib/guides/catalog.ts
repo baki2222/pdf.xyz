@@ -3493,11 +3493,11 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I extract images from a password-protected PDF?",
-        answer: `Not while it is encrypted: any encryption makes the file fail to open here, even when it only limits printing or copying. ${nameOf("unlock-pdf")} can remove the encryption with a password you know; it runs on a secure server, not in your browser.`,
+        answer: `Not one that needs a password to open: it is refused until ${nameOf("unlock-pdf")} removes that password, which runs on a secure server, not in your browser. A PDF that opens without a password but whose author restricted it opens here when its author allows copying its content, and its images are read in your browser; if the author withholds that, only the owner password lifts it.`,
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-30",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-reorder-pages-in-a-pdf",
@@ -5283,11 +5283,11 @@ export const guides: Guide[] = [
       },
       {
         question: "Does it work on password-protected PDFs?",
-        answer: `No. Any encrypted PDF is turned away when you choose it, including one that opens without a password but restricts printing or copying, and the message says which lock it has. ${nameOf("unlock-pdf")} removes the encryption if you give it the password, but it runs on our secure server; bring the unlocked copy back here.`,
+        answer: `Yes, with its password. An encrypted PDF is turned away when you choose it, and the message says which lock it has; under it, a password field checks the password in your browser, against the file itself, and it never leaves your device. The grayscale copy has no password or encryption, so the password that opens the file is enough only when its author restricts nothing else; otherwise, including a file that opens without a password but carries its author's restrictions, it takes the owner password.`,
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-07",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-highlight-text-in-a-pdf",

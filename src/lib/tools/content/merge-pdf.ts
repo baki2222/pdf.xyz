@@ -162,7 +162,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Why was one of my PDFs refused?",
-      a: "A warning box lists each file that couldn't be added and why: not a PDF, empty, over the size limit, unreadable, or password-protected. Encrypted files are refused even when they open without a password and only restrict editing or printing. Accepted files stay in the list while you fix the one that failed.",
+      a: "A warning box lists each file that couldn't be added and why: not a PDF, empty, over the size limit, unreadable, or locked. A file that needs a password to open is called password-protected. A file that opens without a password but carries its author's restrictions is named as restricted and refused too: the merged PDF is a new file that can't carry its author's encryption, so merging it would drop those restrictions, and only the owner (permissions) password that set them can lift them, in Unlock PDF. Accepted files stay in the list while you fix the one that failed.",
     },
     {
       q: "How do I merge a PDF that has a password?",

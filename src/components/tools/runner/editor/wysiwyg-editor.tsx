@@ -3234,12 +3234,15 @@ function FormFillLayer({
         const value = fills[field.name] ?? field.value;
         const set = (next: FieldFill) =>
           onFill(field.name, next === field.value ? null : next);
+        // The field's look, apart from where it sits: a checkbox sits in its
+        // label rather than on the page, so it takes this without `absolute`.
+        const fieldSkin =
+          "pointer-events-auto border border-info/40 bg-info/10 outline-accent focus:outline-2";
         const common = {
           "data-file-field": field.name,
           "aria-label": field.name,
           onPointerDown: (e: ReactPointerEvent) => e.stopPropagation(),
-          className:
-            "pointer-events-auto absolute border border-info/40 bg-info/10 outline-accent focus:outline-2",
+          className: `${fieldSkin} absolute`,
           // Ink on the page's white paper, in either colour scheme.
           style: { ...style, color: "#111827", accentColor: "#1d4ed8" },
         };
@@ -3266,7 +3269,7 @@ function FormFillLayer({
           );
         }
         if (field.type === "checkbox") {
-          const { style: boxStyle, className, ...rest } = common;
+          const { style: boxStyle, className: _placed, ...rest } = common;
           return (
             <label
               key={w.key}
@@ -3279,7 +3282,10 @@ function FormFillLayer({
                 checked={value === true}
                 onChange={(e) => set(e.target.checked)}
                 {...rest}
-                className={cn(className, "relative m-0 size-full")}
+                // Inside its absolutely placed label the box is relative, and
+                // never `absolute` too (cn does not merge; the conflict was
+                // first drawn by a jsdom test on 2026-11-08).
+                className={cn(fieldSkin, "relative m-0 size-full")}
                 style={{
                   color: boxStyle.color,
                   accentColor: boxStyle.accentColor,

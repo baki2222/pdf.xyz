@@ -13,6 +13,7 @@ import { writeIncrementalUpdate, type IncrementalResult } from "./incremental";
 import {
   StandardSecurityHandler,
   UnsupportedEncryptionError,
+  type Authenticated,
 } from "./standard-handler";
 
 /**
@@ -81,6 +82,23 @@ export class ProtectedPdf {
     return this.#unlocked || this.permissions.annotate;
   }
 
+  /**
+   * May pages be rotated? (/P bit 11, "assemble the document": insert,
+   * rotate or delete pages — revision 3 and later. Revision 2 has no bit
+   * 11, and there "change the document", bit 4, covers it.) Without the
+   * owner password a rotation is written into an incremental update that
+   * rewrites the page's /Rotate and nothing else of the page.
+   */
+  get canAssemble(): boolean {
+    return this.#unlocked || this.#grantsAssembly;
+  }
+
+  get #grantsAssembly(): boolean {
+    return this.handler.params.r >= 3
+      ? this.permissions.assemble
+      : this.permissions.modify;
+  }
+
   get unlocked(): boolean {
     return this.#unlocked;
   }
@@ -98,7 +116,7 @@ export class ProtectedPdf {
    * added) as the ORIGINAL file plus an incremental update under its own
    * encryption. Refuses an edit that touches a page
    * (`RestrictedChangeError`) — except a page's /Annots, when the author
-   * allows comments.
+   * allows comments, and its /Rotate, when the author allows assembly.
    */
   async saveChanges(edited: Uint8Array): Promise<IncrementalResult> {
     return writeIncrementalUpdate({
@@ -108,13 +126,26 @@ export class ProtectedPdf {
       plain: this.plain,
       edited,
       allowAnnotations: this.permissions.annotate,
+      allowRotation: this.#grantsAssembly,
     });
   }
 
-  /** @internal — {@link openProtectedPdf} */
-  static async open(bytes: Uint8Array): Promise<OpenProtectedResult> {
+  /** Which password opened the file: "owner" may waive every restriction. */
+  get authenticatedAs(): Authenticated {
+    return this.handler.authenticatedAs;
+  }
+
+  /**
+   * @internal — {@link openProtectedPdf}, and `./open-with-password` with a
+   * password the person typed: the one in-browser opener. "needs-password"
+   * means `password` (empty: none) does not open it.
+   */
+  static async open(
+    bytes: Uint8Array,
+    password = "",
+  ): Promise<OpenProtectedResult> {
     try {
-      const { handler, xref } = await openHandler(bytes);
+      const { handler, xref } = await openHandler(bytes, password);
       if (!handler) return { kind: "needs-password" };
       const doc = await decryptDocument(bytes, handler, xref);
       const plain = await writePlain(doc);

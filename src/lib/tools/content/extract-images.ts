@@ -1,4 +1,5 @@
 import type { ToolContent } from "./types";
+import { GRANT_PERMISSION_NAME } from "@/lib/pdf/restricted-grant-names";
 import { modeUploadsFiles } from "@/lib/tools/processing-split";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { getToolBySlug } from "@/lib/tools";
@@ -63,6 +64,11 @@ import { outputName } from "@/lib/pdf/files";
  *    getPageRotations -> loadPdf, which refuses any file with an /Encrypt
  *    entry (pdf-lib throws without ignoreEncryption) with "This PDF is
  *    password-protected. Unlock it first, then try again."
+ *    AMENDED 2026-11-08 (audit extract-images#3): the runner passes
+ *    `openProtected`, so a file that opens without a password is decrypted
+ *    in the browser and read when its author grants copying (/P bit 5);
+ *    withheld, `RestrictedGrantRefusal` names the permission
+ *    (extract-images-restricted.test.tsx reads the extracted PNG back);
  *  - unlock-pdf is processing "server" in the catalogue, and its panel sends
  *    the password to the worker with the file; both are asserted below.
  *  - relatedGuides was empty until 2026-10-29: no guide mentioned
@@ -103,7 +109,7 @@ const content: ToolContent = {
   intro: [
     "A picture inside a PDF is usually stored as its own image object, at whatever resolution it had when the document was made. This tool reads those objects directly instead of photographing the page, so a product shot, a scanned photo or a chart that was placed as a picture comes back at its real pixel dimensions, with no surrounding text, margins or page background. It runs in your browser: the PDF is read on your device and is not uploaded.",
     "What you get depends on how each image was stored. JPEG images, CMYK JPEGs and very large scans included, are written out byte-for-byte as .jpg files; one the PDF draws with its colours inverted is still saved as stored, with a note that the file looks like a negative of the page. Raw RGB or grayscale pixels at 8 bits per channel, or 1-bit black and white, are rebuilt as lossless PNGs at native size, and so are palette (indexed) images over RGB or gray, expanded from their palette. Nested form objects are searched too, and a picture reused on several pages is saved once, under the first page it appears on.",
-    `Several kinds of image are not recovered yet: JPEG 2000, CCITT and JBIG2 fax-style bitmaps, CMYK pixel images, spot-colour and Lab images (including palette, or indexed, images built on them), other bit depths, stencil masks painted on their own, pixel images with a custom decode array, and images written inline in a page's drawing instructions. Each one is counted as skipped under its reason rather than guessed at. Files up to ${maxMb} MB are accepted, and encrypted PDFs are refused until they are unlocked.`,
+    `Several kinds of image are not recovered yet: JPEG 2000, CCITT and JBIG2 fax-style bitmaps, CMYK pixel images, spot-colour and Lab images (including palette, or indexed, images built on them), other bit depths, stencil masks painted on their own, pixel images with a custom decode array, and images written inline in a page's drawing instructions. Each one is counted as skipped under its reason rather than guessed at. Files up to ${maxMb} MB are accepted. A PDF that needs a password to open is refused until it is unlocked. One that opens without a password but whose author restricted it is read when its author allows copying its content.`,
   ],
 
   useCases: [
@@ -167,7 +173,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I extract images from a password-protected PDF?",
-      a: "Not while it is encrypted. Any encryption at all makes the file fail to open here, even when it needs no password to view and only limits printing or copying. Unlock PDF can take the encryption off with a password you know; it runs on pdf.xyz's server, so there the file and that password are uploaded.",
+      a: `A PDF that needs a password to open is refused as password-protected; Unlock PDF can take that password off if you know it, but it runs on pdf.xyz's server, so there the file and the password are uploaded. A PDF that anyone can open but whose author restricted it opens here when its author allows copying its content (the ${GRANT_PERMISSION_NAME.copy} permission): its images are read from it in your browser, and the PDF itself is not changed. When the author withholds that permission, the page says so in place of Extract images, and only the owner (permissions) password that set the restrictions lifts them, in Unlock PDF.`,
     },
   ],
 

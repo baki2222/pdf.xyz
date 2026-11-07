@@ -1,5 +1,6 @@
 import type { ToolContent } from "./types";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
+import { GRAYSCALE_PASSWORD_LABEL } from "@/lib/pdf/grayscale-password-label";
 import {
   GRAYSCALE_DPI_PRESETS,
   grayscalePresetById,
@@ -57,6 +58,13 @@ import { getToolBySlug } from "@/lib/tools";
  *    and every content stream), so the answer now says a colour-space
  *    preflight reports grayscale; tool-faq-substance builds pages through the
  *    builder and holds the served answer to what the saved file declares.
+ *    AMENDED 2026-11-08 (audit grayscale-pdf#6): under that refusal the
+ *    runner draws GrayscalePassword (grayscale-password.tsx): the typed
+ *    password is checked in the browser (security/open-with-password.ts),
+ *    and the decrypted copy opens when it is the OWNER password, or the open
+ *    password of a file whose /P withholds nothing (grayscale-unlock.ts) —
+ *    the copy is unencrypted, so anything else would lift a restriction.
+ *    grayscale-password.test.tsx drives all three and reads the output.
  *  - Unlock PDF's password field cannot be empty (unlock-pdf.ts header), and
  *    its owner-password acceptance is qpdf's documented behaviour, untested
  *    by pdf.xyz; the FAQ only repeats what that tool's own page says.
@@ -138,7 +146,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your PDF",
-      body: `Drag a single PDF into the dashed box, or click "browse" and choose it. Anything over ${MAX_MB} MB, empty, not a PDF, or encrypted is refused with a reason.`,
+      body: `Drag a single PDF into the dashed box, or click "browse" and choose it. Anything over ${MAX_MB} MB, empty, not a PDF, or encrypted is refused with a reason. An encrypted PDF can still be opened with its password, typed into the field under that reason.`,
     },
     {
       title: "Pick the output quality",
@@ -173,7 +181,7 @@ const content: ToolContent = {
     },
     {
       q: "Does it work on password-protected PDFs?",
-      a: `No. Any encrypted PDF is turned away as soon as you choose it, and the message says which lock it has. One that needs a password to open is called password-protected. One that opens without a password but carries an owner password restricting printing or copying is told it has editing restrictions instead. Unlock PDF strips the encryption if you give it the open password, or the owner password for one of those restricted files; its password box cannot be left blank. Unlock PDF is not in-browser: the file and password go over TLS to pdf.xyz's secure server, the input is deleted when the job finishes, the unlocked copy's link lasts ${OUTPUT_TTL} minutes, and a daily storage rule erases it after that. Bring the unlocked copy back here.`,
+      a: `Yes, with its password, and the file stays in your browser. An encrypted PDF is turned away as you choose it, with a message saying which lock it has, and under that message a ${GRAYSCALE_PASSWORD_LABEL} field takes its password, checked in your browser against the file itself and never uploaded. The grayscale copy is a new file with no password or encryption, so the password that opens the file is enough only when its author restricts nothing else; if the author withholds changes, copying or anything else, the panel names what is withheld and the owner password is needed. A file that opens without a password but carries its author's restrictions takes its owner password the same way.`,
     },
     {
       q: "Why does the result say some images could not be decoded?",
