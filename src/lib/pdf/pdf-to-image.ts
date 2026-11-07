@@ -31,6 +31,23 @@ export const RASTER_COLORS = [
 
 export type RasterColorId = (typeof RASTER_COLORS)[number]["id"];
 
+/**
+ * PDF to PNG's page background (audit pdf-to-png#5, 2026-11-07): white, as
+ * every page was until then, or transparent wherever the page paints
+ * nothing. PNG only — JPEG has no alpha channel.
+ */
+export const RASTER_BACKGROUNDS = [
+  { id: "white", label: "White" },
+  { id: "transparent", label: "Transparent" },
+] as const;
+
+export type RasterBackgroundId = (typeof RASTER_BACKGROUNDS)[number]["id"];
+
+export const DEFAULT_RASTER_BACKGROUND: RasterBackgroundId = "white";
+
+/** The section heading the runner shows and the page names. */
+export const RASTER_BACKGROUND_LABEL = "Background";
+
 /** Pages render in colour unless the reader picks Grayscale. */
 export const DEFAULT_RASTER_COLOR: RasterColorId = "color";
 

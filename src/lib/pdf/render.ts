@@ -321,6 +321,14 @@ export interface RasterizeOptions {
   quality?: number;
   /** Canvas background; defaults to white (JPEG has no alpha channel). */
   background?: string;
+  /**
+   * Leave whatever the page does not paint transparent, instead of painting
+   * `background` under it — PDF to PNG's "Transparent background"
+   * (2026-11-07). pdf.js creates its context with `alpha: false` whenever it
+   * is handed a canvas, so this hands it an alpha context instead. PNG only:
+   * {@link rasterizePdf} drops it for a JPEG, which has no alpha channel.
+   */
+  transparent?: boolean;
   /** Convert rendered pixels to grayscale before encoding. */
   grayscale?: boolean;
   /**
@@ -388,6 +396,7 @@ export async function rasterizePdf(
     // `rasterCapture`, which reads the pixels itself; desaturating the canvas
     // first would be a second full pass over every pixel for nothing.
     grayscale: grayscale && format !== "jpg",
+    transparent: rest.transparent === true && format === "png",
     capture: (canvas): Promise<Uint8Array | null> => encode(canvas),
     onPage: onPage && ((page) => onPage(toRasterPage(page))),
   });
@@ -489,6 +498,7 @@ export async function capturePdfPages<T>(
   {
     dpi = 150,
     background = "#ffffff",
+    transparent = false,
     grayscale = false,
     pages: only,
     onCanvas,
@@ -554,7 +564,14 @@ export async function capturePdfPages<T>(
         canvas.width = width;
         canvas.height = height;
 
-        task = page.render({ canvas, viewport, background });
+        task = transparent
+          ? page.render({
+              canvas: null,
+              canvasContext: canvas.getContext("2d", { alpha: true })!,
+              viewport,
+              background: "rgba(0,0,0,0)",
+            })
+          : page.render({ canvas, viewport, background });
         await task.promise;
 
         // Read pdfjs's decode verdicts BEFORE `page.cleanup()` in the finally

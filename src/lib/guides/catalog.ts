@@ -65,6 +65,8 @@ import {
   DEFAULT_JPEG_QUALITY,
   DEFAULT_JPEG_QUALITY_ID,
   JPEG_QUALITY_LABEL,
+  RASTER_BACKGROUNDS,
+  RASTER_BACKGROUND_LABEL,
   RASTER_JPEG_QUALITIES,
   DEFAULT_RESOLUTION_ID,
   RASTER_MAX_DEVICE_PX,
@@ -1282,7 +1284,7 @@ export const guides: Guide[] = [
         heading: "JPG or PNG?",
         body: [
           `JPG files are smaller and suit photographs and scanned pages. PDF to JPG's ${JPEG_QUALITY_LABEL} choice sets how hard each page is compressed: ${RASTER_JPEG_QUALITIES.map((q) => `${q.label} (${Math.round(q.quality * 100)}%)`).join(", ")}, with ${RASTER_JPEG_QUALITIES.find((q) => q.id === DEFAULT_JPEG_QUALITY_ID)!.label} (${Math.round(DEFAULT_JPEG_QUALITY * 100)}%) selected at the start; a lower one gives a smaller file. PNG is lossless — every pixel is kept exactly — which suits text, line art and screenshots, at the cost of larger files.`,
-          "Both are rendered on a white background, so any transparent area of a page comes out white.",
+          `JPG pages are always rendered on a white background, since JPEG cannot store transparency. PDF to PNG renders on white too, unless you pick ${RASTER_BACKGROUNDS.find((b) => b.id === "transparent")!.label} under ${RASTER_BACKGROUND_LABEL}.`,
         ],
       },
       {
@@ -4882,7 +4884,7 @@ export const guides: Guide[] = [
         heading: "What you download",
         body: [
           `A one-page PDF saves as a single image named after the file: logo.pdf gives ${PNG_EXAMPLE_SINGLE}. With more than one page rendered, the images come in one ZIP, numbered with leading zeros so they sort in reading order: all pages of a ${PNG_EXAMPLE_PAGES}-page manual.pdf give ${PNG_EXAMPLE_ZIP}, starting with ${PNG_EXAMPLE_FIRST}. A page keeps its number from the document when you pick only some, so page 7 of that manual is ${PNG_EXAMPLE_PAGE_7}.`,
-          "Pages are painted onto white, so every PNG has a solid white background. If a picture inside the PDF cannot be decoded, it comes out blank while the rest of the page renders, and the result gives the number of images affected across the document.",
+          `Pages are painted onto white unless you pick ${RASTER_BACKGROUNDS.find((b) => b.id === "transparent")!.label} under ${RASTER_BACKGROUND_LABEL}: then whatever the page does not paint is see-through, which suits a logo or signature, though a page that paints its own white rectangle stays white. If a picture inside the PDF cannot be decoded, it comes out blank while the rest of the page renders, and the result gives the number of images affected across the document.`,
         ],
       },
       {
@@ -4918,7 +4920,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-convert-pdf-to-text",

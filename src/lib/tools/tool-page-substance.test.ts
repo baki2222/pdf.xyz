@@ -66,6 +66,8 @@ import {
   inches,
 } from "@/lib/pdf/page-geometry";
 import {
+  RASTER_BACKGROUNDS,
+  RASTER_BACKGROUND_LABEL,
   RASTER_MAX_DEVICE_PX,
   RASTER_PREVIEW_LIMIT,
   RASTER_RESOLUTIONS,
@@ -1401,18 +1403,30 @@ describe("the converters' pages describe the page they produce", () => {
     }
   });
 
-  it("PDF to PNG claims no transparency while its renderer paints white", () => {
-    const tool = tools.find((t) => t.slug === "pdf-to-png")!;
-    // Precondition: the runner passes no background, and the renderer's
-    // default is white.
-    expect(withoutComments(runnerSource(tool.slug))).not.toMatch(/background/);
-    expect(withoutComments(read("src/lib/pdf/render.ts"))).toMatch(
-      /background = "#ffffff"/,
+  // INVERTED 2026-11-07 (audit pdf-to-png#5), history kept: this was "PDF
+  // to PNG claims no transparency while its renderer paints white", and held
+  // /transparen/ off the page while the runner passed no background and
+  // render.ts defaulted to white. The runner now offers a Background choice,
+  // so the page must name it — in the runner's own label — and must not
+  // claim it for PDF to JPG, which has no alpha channel.
+  it("PDF to PNG names the transparent background it offers, in the runner's label; PDF to JPG does not", () => {
+    const png = tools.find((t) => t.slug === "pdf-to-png")!;
+    const jpg = tools.find((t) => t.slug === "pdf-to-jpg")!;
+    const clear = RASTER_BACKGROUNDS.find((b) => b.id === "transparent")!;
+    // Precondition: the runner draws the chips from that table, and passes
+    // the choice on (the pixels are read in render-transparent.test.ts).
+    const runner = withoutComments(runnerSource(png.slug));
+    expect(runner).toMatch(/RASTER_BACKGROUNDS\.map/);
+    expect(runner).toMatch(/transparent: true/);
+    const pngCopy = copyAbout(png).join("\n");
+    expect(pngCopy).toContain(
+      `${clear.label} under ${RASTER_BACKGROUND_LABEL}`,
     );
-    const shipped =
-      "Render PDF pages as crisp, lossless PNG images with a transparent or white background.";
-    expect(/transparen/i.test(shipped)).toBe(true);
-    expect(copyAbout(tool).filter((t) => /transparen/i.test(t))).toEqual([]);
+    // The copy is honest about what stays white.
+    expect(pngCopy).toMatch(/white rectangle/);
+    expect(
+      copyAbout(jpg).filter((t) => /transparent background/i.test(t)),
+    ).toEqual([]);
   });
 
   it("the raster pages name every preset, and the cap the renderer uses", () => {

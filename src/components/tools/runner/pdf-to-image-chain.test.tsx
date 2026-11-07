@@ -26,6 +26,8 @@ import { resetAnnouncer } from "@/components/a11y/live-region";
 import {
   DEFAULT_JPEG_QUALITY,
   JPEG_QUALITY_LABEL,
+  RASTER_BACKGROUNDS,
+  RASTER_BACKGROUND_LABEL,
   RASTER_JPEG_QUALITIES,
   RASTER_RESOLUTIONS,
   pageImageName,
@@ -860,6 +862,94 @@ describe("PDF to JPG — the Quality choice reaches the encoder", () => {
     await mount("png");
     expect(
       screen.queryByRole("group", { name: JPEG_QUALITY_LABEL }),
+    ).toBeNull();
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ *  Transparent background (audit pdf-to-png#5, 2026-11-07)
+ * ------------------------------------------------------------------ */
+
+/**
+ * The runner's Background choice, read at pdf.js's `render` call. The pixels
+ * themselves are read in src/lib/pdf/render-transparent.test.ts, through a
+ * real canvas; here the render is stubbed, so what is checked is that the
+ * choice reaches it.
+ */
+describe("PDF to PNG — the Background choice reaches pdf.js", () => {
+  async function mount(format: "jpg" | "png") {
+    const doc = await PDFDocument.create();
+    doc.addPage([100, 100]);
+    const file = new File([new Uint8Array(await doc.save())], "logo.pdf", {
+      type: "application/pdf",
+    });
+    const router = {
+      back: () => {},
+      forward: () => {},
+      refresh: () => {},
+      push: () => {},
+      replace: () => {},
+      prefetch: () => {},
+      bfcacheId: "test",
+    };
+    const { container } = render(
+      <AppRouterContext.Provider value={router}>
+        <PdfToImageRunner format={format} />
+      </AppRouterContext.Provider>,
+    );
+    fireEvent.change(container.querySelector('input[type="file"]')!, {
+      target: { files: [file] },
+    });
+    await screen.findByRole(
+      "button",
+      { name: /render 1 page/i },
+      { timeout: 10_000 },
+    );
+  }
+
+  /** Render with `label` pressed (or the default), return render's params. */
+  async function renderParams(id: string | null) {
+    await mount("png");
+    const group = screen.getByRole("group", { name: RASTER_BACKGROUND_LABEL });
+    if (id !== null) {
+      const chip = within(group).getByRole("button", {
+        name: RASTER_BACKGROUNDS.find((b) => b.id === id)!.label,
+      });
+      fireEvent.click(chip);
+      expect(chip).toHaveAttribute("aria-pressed", "true");
+    }
+    fireEvent.click(screen.getByRole("button", { name: /render 1 page/i }));
+    await screen.findByRole(
+      "button",
+      { name: /download png/i },
+      { timeout: 20_000 },
+    );
+    const calls = vi.mocked(pageProto.render).mock.calls;
+    expect(calls).toHaveLength(1);
+    return calls[0]![0] as {
+      canvas: unknown;
+      canvasContext?: unknown;
+      background?: string;
+    };
+  }
+
+  it("Transparent hands pdf.js an alpha context and a clear background", async () => {
+    const params = await renderParams("transparent");
+    expect(params.canvas).toBeNull();
+    expect("canvasContext" in params).toBe(true);
+    expect(params.background).toBe("rgba(0,0,0,0)");
+  });
+
+  it("control: White, the default, paints the page white as before", async () => {
+    const params = await renderParams(null);
+    expect(params.canvas).not.toBeNull();
+    expect(params.background).toBe("#ffffff");
+  });
+
+  it("control: PDF to JPG has no Background choice", async () => {
+    await mount("jpg");
+    expect(
+      screen.queryByRole("group", { name: RASTER_BACKGROUND_LABEL }),
     ).toBeNull();
   });
 });

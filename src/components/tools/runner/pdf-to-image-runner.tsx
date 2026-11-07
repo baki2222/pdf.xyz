@@ -14,12 +14,16 @@ import type { RasterPage } from "@/lib/pdf/render";
 import { RASTER_MAX_DEVICE_PX } from "@/lib/pdf/render-utils";
 import {
   DEFAULT_JPEG_QUALITY_ID,
+  DEFAULT_RASTER_BACKGROUND,
   DEFAULT_RASTER_COLOR,
   DEFAULT_RESOLUTION_ID,
   JPEG_QUALITY_LABEL,
+  RASTER_BACKGROUNDS,
+  RASTER_BACKGROUND_LABEL,
   RASTER_COLORS,
   RASTER_JPEG_QUALITIES,
   jpegQualityById,
+  type RasterBackgroundId,
   type RasterJpegQualityId,
   RASTER_MIME,
   RASTER_PREVIEW_LIMIT as PREVIEW_LIMIT,
@@ -151,6 +155,11 @@ function PdfToImageEditor({
       DEFAULT_JPEG_QUALITY_ID,
   );
   const [qualityPicked, setQualityPicked] = useState(false);
+  // PDF to PNG's page background; not remembered — a transparent page is a
+  // choice for one file (a logo, a signature), not a habit.
+  const [background, setBackground] = useState<RasterBackgroundId>(
+    DEFAULT_RASTER_BACKGROUND,
+  );
   const [pageChoice, setPageChoice] = useState<RasterPageChoice>({
     mode: "all",
     range: "",
@@ -209,6 +218,9 @@ function PdfToImageEditor({
         // PNG is lossless: the encoder ignores a quality for it.
         ...(format === "jpg"
           ? { quality: jpegQualityById(qualityId).quality }
+          : {}),
+        ...(format === "png" && background === "transparent"
+          ? { transparent: true }
           : {}),
         pages,
         grayscale,
@@ -288,6 +300,11 @@ function PdfToImageEditor({
     if (busy) return;
     setQualityId(id);
     setQualityPicked(true);
+    clearResult();
+  };
+  const changeBackground = (id: RasterBackgroundId) => {
+    if (busy) return;
+    setBackground(id);
     clearResult();
   };
   const changePages = (next: RasterPageChoice) => {
@@ -402,6 +419,27 @@ function PdfToImageEditor({
           ))}
         </div>
       </RunnerSection>
+
+      {format === "png" && (
+        <RunnerSection title={RASTER_BACKGROUND_LABEL}>
+          <div
+            role="group"
+            aria-label={RASTER_BACKGROUND_LABEL}
+            className="flex flex-wrap gap-2"
+          >
+            {RASTER_BACKGROUNDS.map((b) => (
+              <ChipButton
+                key={b.id}
+                onClick={() => changeBackground(b.id)}
+                disabled={busy}
+                active={b.id === background}
+              >
+                {b.label}
+              </ChipButton>
+            ))}
+          </div>
+        </RunnerSection>
+      )}
 
       {format === "jpg" && (
         <RunnerSection title={JPEG_QUALITY_LABEL}>

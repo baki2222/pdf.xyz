@@ -1,6 +1,9 @@
 import type { ToolContent } from "./types";
 import {
+  DEFAULT_RASTER_BACKGROUND,
   DEFAULT_RESOLUTION_ID,
+  RASTER_BACKGROUNDS,
+  RASTER_BACKGROUND_LABEL,
   RASTER_PREVIEW_LIMIT,
   RASTER_RESOLUTIONS,
   pageImageName,
@@ -12,6 +15,17 @@ import {
 import { LARGE_RASTER_PAGES, defaultResolution } from "@/lib/intent/defaults";
 import { getRunnerKind } from "@/lib/pdf/registry";
 import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
+
+/**
+ * Background (2026-11-07, audit pdf-to-png#5): the heading and chips from
+ * the runner's table. Until then the intro said "Pages are painted onto
+ * white, so the PNGs are opaque", which was true: pdf.js made its context
+ * with `alpha: false`. render-transparent.test.ts reads the alpha channel.
+ */
+const bgLabel = (id: string) =>
+  RASTER_BACKGROUNDS.find((b) => b.id === id)!.label;
+const BG_WHITE = bgLabel(DEFAULT_RASTER_BACKGROUND);
+const BG_CLEAR = bgLabel("transparent");
 
 /*
  * Every figure below is read from the code that enforces it:
@@ -121,7 +135,7 @@ const content: ToolContent = {
   intro: [
     "PDF to PNG, a page-to-image converter, draws each page of a PDF (or only the pages you pick) onto a canvas and saves the result as a PNG: a picture of the whole page, with text, vector graphics and photos flattened into one image. PNG is lossless, so small type and hairline rules keep their edges instead of gaining the ringing JPEG leaves around sharp contrast. As with any page image, the words inside can no longer be selected or searched.",
     `The conversion runs on your own device: a copy of pdf.js bundled with pdf.xyz draws the pages inside your browser tab, and the PDF is not uploaded. When a page holds JBIG2 or JPEG 2000 images, the code that decodes them is fetched from pdf.xyz's own site, never a third-party CDN. Each run converts a single PDF of at most ${ceilingMb} MB. A PDF that needs a password to open stops as it loads, with a message that it is password-protected and must be unlocked first. One that opens without a password and merely restricts printing or copying converts like any other.`,
-    `Pick ${presetSentence}; pages render at that density and keep the rotation stored in the PDF, though an oversized page such as a poster is scaled down to a fixed pixel ceiling. Pages are painted onto white, so the PNGs are opaque. A one-page PDF saves as a single image (logo.pdf gives ${exampleSingle}). When more than one page is rendered they are bundled into a ZIP, with leading zeros on the page numbers so they have as many digits as the page count: all pages of a ${EXAMPLE_PAGES}-page manual.pdf give ${exampleZip}, which contains ${exampleFirst} up to ${exampleLast}. Grayscale renders the pages in shades of grey.`,
+    `Pick ${presetSentence}; pages render at that density and keep the rotation stored in the PDF, though an oversized page such as a poster is scaled down to a fixed pixel ceiling. Under ${RASTER_BACKGROUND_LABEL}, ${BG_WHITE} is selected at the start and paints each page onto white; ${BG_CLEAR} leaves every part of the page that the PDF does not paint see-through, so a logo, signature or diagram can sit on a coloured slide. A one-page PDF saves as a single image (logo.pdf gives ${exampleSingle}). When more than one page is rendered they are bundled into a ZIP, with leading zeros on the page numbers so they have as many digits as the page count: all pages of a ${EXAMPLE_PAGES}-page manual.pdf give ${exampleZip}, which contains ${exampleFirst} up to ${exampleLast}. Grayscale renders the pages in shades of grey.`,
   ],
 
   useCases: [
@@ -153,8 +167,8 @@ const content: ToolContent = {
       body: `The Resolution row has one chip per preset, each captioned with its DPI: ${presetSentence}. ${startSentence} Choose another before you render if you need smaller or sharper images.`,
     },
     {
-      title: "Choose the pages and colour",
-      body: "Under Pages, keep All pages, or click Select pages and type the pages you want, such as 1-3, 5. Under Colour, keep Colour or pick Grayscale.",
+      title: "Choose the pages, colour and background",
+      body: `Under Pages, keep All pages, or click Select pages and type the pages you want, such as 1-3, 5. Under Colour, keep Colour or pick Grayscale. Under ${RASTER_BACKGROUND_LABEL}, keep ${BG_WHITE} or pick ${BG_CLEAR}.`,
     },
     {
       title: "Render the pages",
@@ -182,6 +196,10 @@ const content: ToolContent = {
     {
       q: "Why is a picture missing from one of my PNGs?",
       a: "If the engine cannot decode an embedded image, that image comes out blank while the rest of the page converts normally. The result panel then shows a warning with the total number of images affected across the document; it does not name the pages, so look over the ones that carry photos or scans.",
+    },
+    {
+      q: "Can the PNG have a transparent background?",
+      a: `Yes. Pick ${BG_CLEAR} under ${RASTER_BACKGROUND_LABEL} before you render, and whatever the page does not paint comes out see-through instead of white. It works when the PDF really leaves its background empty, as a logo, stamp or signature exported from a design app usually does. Many PDFs made by word processors and scanners paint a white rectangle over the whole page, and that rectangle stays white in the PNG: it is part of the page.`,
     },
     {
       q: "Should I pick PNG or JPG for PDF pages?",
