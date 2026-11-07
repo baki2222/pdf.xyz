@@ -152,6 +152,7 @@ import {
 import { runAiExtract } from "@/lib/workers/ai-extract/engine";
 import type { AiProvider } from "@/lib/workers/ai/provider";
 import { withoutComments } from "./copy-surface";
+import { panelFileOf } from "@/tests/ui-labels";
 import {
   FACTS_SLUGS,
   SPLIT_NAME_EXAMPLES,
@@ -580,6 +581,29 @@ describe("compress answers what each of its two paths does", () => {
     );
     // It is a server route, and the answer says so.
     expect(served).toMatch(/upload the file over TLS/);
+  });
+
+  // Audit rotate-pdf#3 (2026-11-07): the Rotate PDF page described only
+  // turning pages by hand, though OCR PDF's "Turn pages upright" box finds
+  // sideways scans itself (#265) and only the rotate GUIDE said so. The page
+  // may point there while OCR PDF's panel draws that box and sends it on as
+  // `rotatePages`, and it must say the route uploads the file.
+  it("Rotate PDF's page points to OCR PDF's Turn pages upright box, which exists and is sent on", () => {
+    const served = answer("rotate-pdf", /sideways pages for me/);
+    const ocr = tools.find((t) => t.slug === "ocr-pdf")!;
+    expect(served).toContain(`${ocr.name} can`);
+    expect(served).toContain("Turn pages upright option");
+    const panel = panelFileOf(ocr.slug);
+    expect(panel, "OCR PDF mounts no panel").not.toBeNull();
+    const source = withoutComments(
+      readFileSync(
+        path.isAbsolute(panel!) ? panel! : path.join(ROOT, panel!),
+        "utf8",
+      ),
+    );
+    expect(source).toMatch(/>Turn pages upright</);
+    expect(source).toMatch(/rotatePages/);
+    expect(served).toMatch(/uploads the file over TLS/);
   });
 
   it("the image-heavy share in the answer is the one the analysis switches on", () => {
