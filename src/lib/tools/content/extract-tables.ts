@@ -106,7 +106,7 @@ const content: ToolContent = {
     },
     {
       title: "Download the ZIP",
-      body: `The button under the ready message reads Download followed by the output name, so report.pdf comes back as ${EXAMPLE_ZIP}. That button appears only once your browser has fetched the ZIP, so clicking it writes the file to disk without another trip to the server. Inside are table-1.csv, table-2.csv and so on, plus tables.xlsx with sheets named like Table 1 (p3). With ${COMBINE_TABLES_LABEL} ticked, it holds one ${COMBINED_CSV_NAME} and a tables.xlsx with the one sheet ${COMBINED_SHEET_NAME}.`,
+      body: `The ready message says how many tables were found and on which pages, for example Found 3 tables on pages 1–2 and 4, and names any page where no table was detected. The button under it reads Download followed by the output name, so report.pdf comes back as ${EXAMPLE_ZIP}. That button appears only once your browser has fetched the ZIP, so clicking it writes the file to disk without another trip to the server. Inside are table-1.csv, table-2.csv and so on, plus tables.xlsx with sheets named like Table 1 (p3). With ${COMBINE_TABLES_LABEL} ticked, it holds one ${COMBINED_CSV_NAME} and a tables.xlsx with the one sheet ${COMBINED_SHEET_NAME}.`,
     },
     {
       title: "Check each sheet against its page",
@@ -121,7 +121,7 @@ const content: ToolContent = {
     },
     {
       q: "What if only some pages of my PDF are scans?",
-      a: "The pages with text are read as usual, and the scanned pages simply produce nothing. A file with no text on any page stops with a message telling you to run OCR PDF first; add a text layer there, then bring the searchable PDF back.",
+      a: "The pages with text are read as usual, and the scanned pages produce nothing; the ready message lists them, starting No table was detected on, beside the pages tables came from. A file with no text on any page stops with a message telling you to run OCR PDF first; add a text layer there, then bring the searchable PDF back.",
     },
     {
       q: "Why did two columns come out as one?",

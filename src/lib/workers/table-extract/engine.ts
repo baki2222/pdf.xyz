@@ -11,6 +11,7 @@ import {
   COMBINED_SHEET_NAME,
   COMBINED_ZIP_FILES,
 } from "@/lib/jobs/extract-tables-options";
+import type { TableExtractResultMeta } from "@/lib/jobs/table-extract-results";
 import { CELL_GAP_EMS, isListItem, LONG_CELL_WORDS } from "../pdf-text/flow";
 import { classifyPdfTextFailure } from "../pdf-office-export/encryption";
 import {
@@ -122,6 +123,8 @@ export type TableExtractRun =
       filenameExt: "zip";
       contentType: "application/zip";
       meta: TableExtractMeta;
+      /** What was found and where, for the job record (audit extract-tables#4). */
+      findings: TableExtractResultMeta;
     }
   | {
       ok: false;
@@ -905,6 +908,13 @@ export async function runTableExtract(
         combined: options.combine === true,
         inputBytes: input.byteLength,
         outputBytes: output.byteLength,
+      },
+      findings: {
+        tableCount: tables.length,
+        pageCount: layout.pageCount,
+        tablePages: [...new Set(tables.map((t) => t.pageNumber))],
+        tablePagesTruncated: false,
+        combined: options.combine === true,
       },
     };
   } catch (error) {

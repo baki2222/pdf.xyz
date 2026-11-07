@@ -158,6 +158,9 @@ export function createTableExtractProcessor(deps: TableExtractDeps): Processor {
           },
         ],
         meta(run.meta),
+        // What was found and where (audit extract-tables#4): the result card
+        // says how many tables and which pages gave none.
+        { tables: run.findings },
       );
     },
   };

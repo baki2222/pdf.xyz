@@ -5478,7 +5478,7 @@ export const guides: Guide[] = [
       `Open the ${nameOf("extract-tables")} tool. Extract tables works once the status badge reads Secure server.`,
       `Drop one PDF on the box that says “Add your PDF, or browse”, or click it to choose the file. A file over ${ceilingMb("extract-tables")} MB is refused as soon as you pick it, before anything is sent.`,
       "Press Extract tables. Your PDF uploads over an encrypted connection to our secure server, and the button follows the job until the ZIP is back in the page.",
-      `When the tables are ready, press Download ${TABLES_EXAMPLE_ZIP}, the button named after your file: report.pdf comes back as ${TABLES_EXAMPLE_ZIP}. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
+      `When the tables are ready, the message says how many were found and on which pages, and names any page where no table was detected. Press Download ${TABLES_EXAMPLE_ZIP}, the button named after your file: report.pdf comes back as ${TABLES_EXAMPLE_ZIP}. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
       "Open each sheet beside the page named on its tab, such as Table 1 (p3), and check its rows and columns before you use them.",
     ],
     sections: [

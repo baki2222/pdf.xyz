@@ -30,6 +30,10 @@ import {
 } from "./worker-panel-shell";
 import { OfficeExportNextStep } from "./office-export-notices";
 import { COMBINE_TABLES_HINT } from "@/lib/jobs/extract-tables-options";
+import {
+  TableExtractFindings,
+  tablesReadySentence,
+} from "./table-extract-findings";
 
 /**
  * The status slot's reserved height (see `WorkerStatusSlot` and
@@ -237,14 +241,12 @@ function TableExtractRunArea({
       />
       {outcome?.ok === true && (
         <ResultCard
-          announce="Your tables are ready as a ZIP of CSV files plus a combined Excel workbook."
+          announce={tablesReadySentence(outcome.job)}
           output={workerOutput(outcome.output, outcome.artifact)}
           inputBytes={file?.size}
         >
-          <p className="text-ok text-sm">
-            Your tables are ready as a ZIP of CSV files plus a combined Excel
-            workbook.
-          </p>
+          <p className="text-ok text-sm">{tablesReadySentence(outcome.job)}</p>
+          <TableExtractFindings job={outcome.job} />
           <DownloadCta
             onClick={() =>
               downloadBytes(outcome.output, outcome.artifact.filename)

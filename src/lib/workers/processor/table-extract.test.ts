@@ -10,6 +10,7 @@ import { PdfTextExecError } from "../pdf-text/errors";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
 import { rc4EncryptedPdf } from "@/tests/pdf-office-fixtures";
 import { COMBINED_CSV_NAME } from "@/lib/jobs/extract-tables-options";
+import { sanitizeJobResults } from "@/lib/jobs/results";
 
 const PDF = new TextEncoder().encode(
   "%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
@@ -297,5 +298,43 @@ describe("table-extract processor — “Combine tables into one sheet” (audit
         code: "invalid_request",
         retryable: false,
       });
+  });
+});
+
+describe("table-extract processor — what was found, on the job record (audit extract-tables#4)", () => {
+  it("reports the table count and the pages tables came from, through the persistence boundary", async () => {
+    const twoOfThree = vi.fn(async () => {
+      const page = tableLayout().pages[0]!;
+      return {
+        pageCount: 3,
+        pages: [
+          { ...page, pageNumber: 1 },
+          { ...page, pageNumber: 2, items: [] },
+          { ...page, pageNumber: 3 },
+        ],
+      };
+    });
+    const result = await createTableExtractProcessor({
+      extractLayout: twoOfThree,
+    }).process({
+      tool: "extract-tables",
+      options: {},
+      inputs: [
+        {
+          fileId: "f",
+          filename: "report.pdf",
+          contentType: "application/pdf",
+          bytes: PDF,
+        },
+      ],
+    });
+    if (!result.ok) throw new Error(result.error.message);
+    expect(sanitizeJobResults(result.results)?.tables).toEqual({
+      tableCount: 2,
+      pageCount: 3,
+      tablePages: [1, 3],
+      tablePagesTruncated: false,
+      combined: false,
+    });
   });
 });
