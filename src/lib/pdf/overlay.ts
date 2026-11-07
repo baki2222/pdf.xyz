@@ -4,6 +4,10 @@ import { outputName } from "./files";
 import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
 import { viewerRotation } from "./rotation";
 import { loadPdf, stampProducer } from "./stamp";
+import {
+  assertFormFieldTextDrawable,
+  formTextsDrawnOnRegeneration,
+} from "./unicode-font";
 import type { OverlayFit } from "./offered-kinds";
 
 /**
@@ -535,23 +539,36 @@ export function drawFieldValues(lib: PdfLibModule, doc: PDFDocument): string[] {
     if (field instanceof PDFSignature || !field.needsAppearancesUpdate()) {
       continue;
     }
+    // A value the form's WinAnsi font cannot carry (Bengali, CJK) is decided
+    // by the same check every AcroForm writer uses, before drawing, rather
+    // than by catching pdf-lib's raw "WinAnsi cannot encode" from inside
+    // the redraw. Unlike Flatten, this does not refuse the job: the field
+    // is left as stored, and named below only if nothing of it is baked.
+    let drawable = true;
+    try {
+      assertFormFieldTextDrawable(formTextsDrawnOnRegeneration([field], lib));
+    } catch {
+      drawable = false;
+    }
     const redraw = (
       field as { defaultUpdateAppearances?: (f: typeof font) => void }
     ).defaultUpdateAppearances;
     try {
-      redraw?.call(field, font);
+      if (drawable) redraw?.call(field, font);
     } catch {
-      // Whatever stopped the redraw, a widget that still holds a stored
-      // appearance is baked from it, so the value is on the sheet. Name the
-      // field only when some widget has nothing to bake. (Audit review of
-      // #24: naming every failed redraw called a drawn Bengali value missing.)
-      if (
-        !field.acroField
-          .getWidgets()
-          .every((w) => hasNormalAppearance(lib, w.dict))
-      ) {
-        undrawn.push(field.getName());
-      }
+      drawable = false;
+    }
+    // A widget that still holds a stored appearance is baked from it, so the
+    // value is on the sheet. Name the field only when some widget has nothing
+    // to bake. (Audit review of #24: naming every failed redraw called a
+    // drawn Bengali value missing.)
+    if (
+      !drawable &&
+      !field.acroField
+        .getWidgets()
+        .every((w) => hasNormalAppearance(lib, w.dict))
+    ) {
+      undrawn.push(field.getName());
     }
   }
   return undrawn;
