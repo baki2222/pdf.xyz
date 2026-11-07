@@ -215,16 +215,10 @@ const content: ToolContent = {
     },
   ],
 
-  // Three cards, not four. The scanned-to-Word guide (2026-11-07) replaced
-  // "how-to-make-a-scanned-pdf-searchable" here rather than joining it: it
-  // answers the scan case with this tool's own OCR switch, while the other
-  // routes through OCR PDF first, the detour the PDF to Word guide stopped
-  // recommending. Adding it as a fourth card made this page 4,001px tall at
-  // 390px against e2e/first-visit.ts's 4,000px ceiling. That guide is still
-  // linked from 12 other tools.
   relatedGuides: [
     "how-to-convert-pdf-to-word",
     "how-to-convert-a-scanned-pdf-to-word",
+    "how-to-make-a-scanned-pdf-searchable",
     "how-to-ocr-a-pdf-in-other-languages",
   ],
 };
