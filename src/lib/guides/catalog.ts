@@ -53,6 +53,7 @@ import {
   REPAIR_WARNINGS_ANSWER,
   IMAGE_PAGE_FACT,
   IMAGE_PAGE_OPTIONS_FACT,
+  imageDefaultPaperCopy,
   TEXT_PAGE_FACT,
   TRANSLATE_LANGUAGES_ANSWER,
   countWord,
@@ -63,6 +64,11 @@ import {
 import { TRANSLATE_LANGUAGES } from "@/lib/jobs/translate-pdf";
 import {
   DEFAULT_JPEG_QUALITY,
+  DEFAULT_JPEG_QUALITY_ID,
+  JPEG_QUALITY_LABEL,
+  RASTER_BACKGROUNDS,
+  RASTER_BACKGROUND_LABEL,
+  RASTER_JPEG_QUALITIES,
   DEFAULT_RESOLUTION_ID,
   RASTER_MAX_DEVICE_PX,
   RASTER_PREVIEW_LIMIT,
@@ -79,6 +85,8 @@ import {
 import { MAX_EDIT_IMAGE_BYTES } from "@/lib/pdf/edit";
 import {
   DEEP_COMPRESSION_PRESETS,
+  EDITOR_FORMS_GROUP,
+  DEEP_MONO_MIN_DPI,
   SIGNATURE_SOURCES,
   SIGNATURE_STYLE_LABEL,
   SIGNATURE_STYLES,
@@ -98,6 +106,7 @@ import {
   type OcrOutputMode,
 } from "@/lib/jobs/ocr";
 import {
+  WORD_OCR_HINT,
   WORD_OCR_LABEL,
   XLSX_CELL_BREAK_PHRASE,
   XLSX_MERGE_CAVEAT,
@@ -125,6 +134,7 @@ import {
   N_UP_MARGINS,
   N_UP_ORDERS,
   N_UP_ORIENTATIONS,
+  N_UP_RTL_LABEL,
   N_UP_SHEETS,
   type NUpCount,
 } from "@/lib/pdf/n-up";
@@ -137,7 +147,7 @@ import {
   previewPageNumber,
   type NumberStyle,
 } from "@/lib/pdf/page-numbers";
-import { MERGE_MODE_LABEL } from "@/lib/pdf/merge-order";
+import { MERGE_MODE_LABEL, MERGE_SORT_LABEL } from "@/lib/pdf/merge-order";
 import {
   DECODED_IMAGE_LABELS,
   REFUSED_IMAGE_LABELS,
@@ -158,6 +168,7 @@ import {
   TARGET_SIZE_PRESETS,
   targetOutcome,
 } from "@/lib/pdf/compress-target";
+import { MB, sizeLabel } from "@/lib/pdf/size-presets";
 import {
   LIMIT_EXAMPLE,
   LIMIT_TIME_BUDGET_MS,
@@ -177,6 +188,7 @@ import {
   imagePageLayout,
 } from "@/lib/pdf/image-page-layout";
 import { RETENTION_WINDOWS } from "@/lib/retention-windows";
+import { OCR_START_SENTENCE } from "@/lib/jobs/ocr-start-copy";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
 import {
   PDFA_EXPECTED_CONFORMANCE,
@@ -214,7 +226,12 @@ import {
   UNSUPPORTED_SCRIPTS,
   monospaceClaimSentence,
 } from "@/lib/pdf/font-packs";
-import { headerFooterOutputName } from "@/lib/pdf/header-footer";
+import {
+  DEFAULT_HEADER_FOOTER_SIZE,
+  HEADER_FOOTER_MARGIN_LABELS,
+  HEADER_FOOTER_SIZES,
+  headerFooterOutputName,
+} from "@/lib/pdf/header-footer";
 import { textPdfOutputName } from "@/lib/pdf/text-to-pdf";
 import {
   MAX_REQUEST_SIGNERS,
@@ -225,20 +242,25 @@ import {
   EXTRACTION_FIELD_TYPES,
   MAX_EXTRACTION_FIELDS,
   MAX_EXTRACTION_PROMPT_CHARS,
+  MAX_FIELD_DESCRIPTION_CHARS,
   MAX_FIELD_NAME_CHARS,
   extractionOutputName,
 } from "@/lib/jobs/ai-extract";
 import {
   AI_EXTRACT_NOT_NULL_WARNING,
   AI_EXTRACT_NULL_CELL_LEGEND,
+  AI_EXTRACT_NULL_CSV_LEGEND,
   AI_EXTRACT_NULL_INSTRUCTION,
   AI_EXTRACT_NULL_MEANING,
   AI_EXTRACT_NULL_PAST_CUT,
   AI_EXTRACT_UNRETURNED_NULL,
 } from "@/lib/jobs/ai-extract-null-meaning";
+import { AI_EXTRACT_CSV_SHAPE } from "@/lib/workers/ai-extract-package";
 import {
   OVERLAY_FITS,
   OVERLAY_LAYERS,
+  OVERLAY_PAGE_SCOPES,
+  OVERLAY_PAGINGS,
   overlayOutputName,
   type OverlayLayer,
 } from "@/lib/pdf/overlay";
@@ -275,7 +297,6 @@ function targetPreset(bytes: number): string {
 }
 const KB_BYTES = TARGET_KB;
 const TARGET_PRESET_100 = targetPreset(100 * KB_BYTES);
-const TARGET_PRESET_200 = targetPreset(200 * KB_BYTES);
 /** The ladder's floor and the panel's default Quality, by their own labels. */
 const TARGET_FLOOR_LABEL = DEEP_COMPRESSION_PRESETS[0].label;
 const TARGET_DEFAULT_QUALITY_LABEL = (() => {
@@ -285,6 +306,19 @@ const TARGET_DEFAULT_QUALITY_LABEL = (() => {
 })();
 /** A whole-KB target under 100,000 bytes, for a portal that counts KB as 1,000. */
 const PORTAL_SAFE_100_KB = Math.floor(100_000 / KB_BYTES);
+/**
+ * A size people search for that is not a preset (2 MB), by label and as the
+ * Custom box takes it, in whole KB.
+ */
+const OFF_PRESET_BYTES = 2 * MB;
+const OFF_PRESET_LABEL = sizeLabel(OFF_PRESET_BYTES);
+const OFF_PRESET_KB = OFF_PRESET_BYTES / KB_BYTES;
+/** A smaller off-preset size for the JPG guide's Max file size (300 KB). */
+const OFF_PRESET_SMALL_BYTES = 300 * KB_BYTES;
+const OFF_PRESET_SMALL_LABEL = sizeLabel(OFF_PRESET_SMALL_BYTES);
+const OFF_PRESET_SMALL_KB = OFF_PRESET_SMALL_BYTES / KB_BYTES;
+/** A preset as searchers type it: "100 KB" -> "100kb", "1 MB" -> "1mb". */
+const searchSpelling = (label: string) => label.replace(" ", "").toLowerCase();
 /** The panel's own sentence for a met target, from the function it calls. */
 const TARGET_EXAMPLE_SENTENCE = targetOutcome({
   ...TARGET_EXAMPLE,
@@ -348,6 +382,13 @@ const listAnd = (items: readonly string[]) =>
   new Intl.ListFormat("en", { type: "conjunction" }).format(items);
 const listOr = (items: readonly string[]) =>
   new Intl.ListFormat("en", { type: "disjunction" }).format(items);
+/**
+ * The panels' size presets for a TITLE: "100 KB, 200 KB, 500 KB or 1 MB",
+ * without the serial comma, so the size guides' titles fit the 65-character
+ * results-page ceiling (size-guide-titles.test.ts measures them).
+ */
+const titleSizes = (labels: readonly string[]) =>
+  `${labels.slice(0, -1).join(", ")} or ${labels.at(-1)}`;
 
 /** Add Watermark's Font choices, as its runner labels them. */
 const WATERMARK_FONTS = listOr(
@@ -493,7 +534,6 @@ function limitPreset(bytes: number): string {
   return preset.label;
 }
 const LIMIT_100 = limitPreset(100 * KB_BYTES);
-const LIMIT_200 = limitPreset(200 * KB_BYTES);
 const LIMIT_PRESET_LABELS = MAX_SIZE_PRESETS.map((p) => p.label);
 const LIMIT_MET_SENTENCE = limitOutcome({
   ...LIMIT_EXAMPLE,
@@ -580,6 +620,8 @@ const OCR_PDF_MODE = ocrModeLabel("searchable-pdf");
  */
 const GRAY_SCREEN = grayscalePresetById("screen");
 const GRAY_PRINT = grayscalePresetById("print");
+const GRAY_FINE = grayscalePresetById("fine");
+const GRAY_DPIS = listOr(GRAYSCALE_DPI_PRESETS.map((p) => String(p.dpi)));
 const GRAY_PRESET_CHOICES = listOr(
   GRAYSCALE_DPI_PRESETS.map((p) => `${p.label} (${p.dpi} DPI)`),
 );
@@ -645,6 +687,10 @@ if (
 
 /** PDF Header & Footer (2026-10-31): the download name from its own helper. */
 const HF_EXAMPLE_OUT = headerFooterOutputName("report.pdf");
+/** Its style choices (2026-11-07), named from the lists the controls draw. */
+const HF_SIZES = `${HEADER_FOOTER_SIZES.min} to ${HEADER_FOOTER_SIZES.max} pt`;
+const HF_MARGINS = listOr(Object.values(HEADER_FOOTER_MARGIN_LABELS));
+const HF_FONTS = listOr(Object.values(STAMP_FONT_LABELS));
 
 /** Text to PDF (2026-10-31): download names, as its runner names them. */
 const TXT_EXAMPLE_OUT = textPdfOutputName("notes.txt");
@@ -677,7 +723,21 @@ const PNG_SHOT_H = 1080;
 const PNG_SHOT_PX = PNG_SHOT_W.toLocaleString("en-US");
 const inchesOf = (pt: number) => (pt / PT_PER_INCH).toFixed(1);
 const PNG_SHOT_ON_PAPER_IN = inchesOf(
-  imagePageLayout(PNG_SHOT_W, PNG_SHOT_H, DEFAULT_IMAGE_PAGE_OPTIONS).width,
+  imagePageLayout(PNG_SHOT_W, PNG_SHOT_H, {
+    ...DEFAULT_IMAGE_PAGE_OPTIONS,
+    pageSize: "letter",
+  }).width,
+);
+/**
+ * The same screenshot on A4 (audit jpg-to-pdf#1, 2026-11-07): the runner
+ * starts on A4 unless the browser is set to a Letter country, so the guide
+ * gives both widths rather than calling Letter "the default page".
+ */
+const PNG_SHOT_ON_A4_IN = inchesOf(
+  imagePageLayout(PNG_SHOT_W, PNG_SHOT_H, {
+    ...DEFAULT_IMAGE_PAGE_OPTIONS,
+    pageSize: "a4",
+  }).width,
 );
 const PNG_SHOT_FIT_PAGE_IN = inchesOf(
   imagePageLayout(PNG_SHOT_W, PNG_SHOT_H, {
@@ -709,6 +769,11 @@ const OVERLAY_FIT = labelOf(OVERLAY_FITS, "fit");
 const OVERLAY_STRETCH = labelOf(OVERLAY_FITS, "stretch");
 const OVERLAY_ACTUAL = labelOf(OVERLAY_FITS, "actual");
 const OVERLAY_EXAMPLE_OUT = overlayOutputName("letter.pdf");
+const OVERLAY_FIRST_ON_ALL = labelOf(OVERLAY_PAGINGS, "repeat");
+const OVERLAY_CYCLE = labelOf(OVERLAY_PAGINGS, "cycle");
+const OVERLAY_REPEAT_LAST = labelOf(OVERLAY_PAGINGS, "last");
+const OVERLAY_ONCE = labelOf(OVERLAY_PAGINGS, "once");
+const OVERLAY_SELECTED_PAGES = labelOf(OVERLAY_PAGE_SCOPES, "some");
 
 /** Split PDF Pages in Half's choices, as its runner labels them. */
 const HALF_LEFT_RIGHT = labelOf(SPLIT_DIRECTIONS, "left-right");
@@ -801,6 +866,7 @@ export const guides: Guide[] = [
         body: [
           "The merged document is built from your list, top to bottom: the first file in the list becomes the first pages of the output, and every file after it is appended in sequence. Drag files into position to set that order, or use the move buttons on each row if you prefer clicking to dragging.",
           "It is worth a final glance at the list before you merge. Reordering happens before the merge runs, so arranging the list correctly the first time saves you a second pass. If you want finer control after the fact, Organize Pages lets you reorder, rotate, duplicate, and delete pages on a visual page board.",
+          `Scans and statements often have names that say nothing about when they were made. ${MERGE_SORT_LABEL["modified-asc"]} and ${MERGE_SORT_LABEL["modified-desc"]}, beside the name sorts, order the list by each file's last-modified date instead, as your browser reports it; files with the same date keep the order you added them in.`,
         ],
       },
       {
@@ -809,6 +875,14 @@ export const guides: Guide[] = [
         body: [
           "Tick “Add a contents page” before you merge and the combined PDF opens with a page headed Contents: one line per file, its name and the page it starts on, and clicking a line jumps to that page. The numbers count the contents page itself, so they match the page numbers your PDF reader shows.",
           "The contents follow your list from top to bottom and the pages you picked for each file, so a file you took only three pages of starts where those three pages are. A long list continues onto a second contents page. Bookmarks, including the ones “Add a bookmark for each file” writes, still open the right pages.",
+        ],
+      },
+      {
+        id: "printing-the-merged-pdf",
+        heading: "Printing the merged PDF",
+        body: [
+          "Printed on both sides, a file with an odd number of pages ends on the front of a sheet, so the next file starts on its back. Tick “Add a blank page after files with an odd page count” before you merge: each such file gets one blank page the size of its last page, so every file starts on a fresh sheet. The last file gets none, and the contents page numbers and bookmarks count the blanks.",
+          "For an exhibit bundle or a pack of statements, tick “Print each file's name at the foot of its pages”: each page carries the name of the file it came from, without the .pdf ending, in small text at the bottom left, so a loose printed page can be traced. A name too long for the page is shortened with an ellipsis. Blank and contents pages get none.",
         ],
       },
       {
@@ -854,7 +928,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-10-30",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-split-a-pdf",
@@ -887,7 +961,7 @@ export const guides: Guide[] = [
         id: "choose-a-split-mode",
         heading: "Choose the right split mode",
         body: [
-          "Split PDF offers six ways to divide a document, and picking the right one saves rework. Custom page ranges fit documents with a known structure: give each chapter, exhibit, or section its own range and each becomes its own file. The every-N-pages rule fits uniform documents — batch scans, multi-page statements, anything that repeats at a fixed length — because you set the interval once and the tool cuts at every boundary. One file per page is the blunt instrument: every single page becomes its own PDF, useful when each page must stand alone. By file size packs pages into each file until the next one would take it over the limit you set, and by bookmarks starts a file at each top-level bookmark.",
+          "Split PDF offers seven ways to divide a document, and picking the right one saves rework. Custom page ranges fit documents with a known structure: give each chapter, exhibit, or section its own range and each becomes its own file. The every-N-pages rule fits uniform documents — batch scans, multi-page statements, anything that repeats at a fixed length — because you set the interval once and the tool cuts at every boundary. One file per page is the blunt instrument: every single page becomes its own PDF, useful when each page must stand alone. By file size packs pages into each file until the next one would take it over the limit you set, by bookmarks starts a file at each top-level bookmark and names it after the bookmark, and odd and even pages puts pages 1, 3, 5 and so on in one file and 2, 4, 6 and so on in another, which pulls apart the fronts and backs of a double-sided scan.",
           "By text is for documents that announce their own boundaries: a batch of invoices where each begins with “Invoice number”, or statements that each open with “Account summary”. Every page whose text contains the phrase starts a new file, and pages before the first one form a file of their own. Line breaks inside the phrase do not matter, and capitals only count when Match case is ticked. It reads the PDF's own text, so a scanned page without a text layer cannot start a file; the tool names any such pages, and OCR PDF can add the missing text first.",
           "If what you actually want is a handful of specific pages combined into one new document — rather than the whole file divided into pieces — the Extract Pages tool is the closer fit. It lets you pick pages by clicking thumbnails or typing a range like 1-3, 5, then exports them as a brand-new PDF, also right in your browser.",
         ],
@@ -941,7 +1015,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-10-25",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-compress-a-pdf",
@@ -1097,7 +1171,10 @@ export const guides: Guide[] = [
         id: "scanned-pdfs",
         heading: "Scanned PDFs and neighboring tools",
         body: [
-          "The tools listed beside PDF to Word cover the jobs next door. If your PDF is a scan — photographed or scanned pages rather than typed text — run it through the OCR PDF tool first, which recognizes the text in scanned pages so there is real text to carry into Word.",
+          // CHANGED 2026-11-07 (audit search-demand#5): told a reader with a
+          // scan to run OCR PDF first, stale since 2026-10-24, when PDF to
+          // Word gained its own OCR switch (scanned-pdf-to-word.test.ts).
+          `If your PDF is a scan — photographed or scanned pages rather than typed text — tick “${WORD_OCR_LABEL}” before you press Export DOCX. Our server then recognises the text in the scanned pages and converts the result in the same job, so there is real text to carry into Word. ${nameOf("ocr-pdf")}, listed beside it, is for when you want a searchable PDF instead of a Word file.`,
           "If you want the same text as a plain .txt file rather than a DOCX, PDF to Text pulls it out right in your browser. And when the editing is done, Word to PDF converts your finished document back in the other direction.",
         ],
       },
@@ -1123,17 +1200,17 @@ export const guides: Guide[] = [
       },
       {
         question: "Will the Word document look like my original PDF?",
-        answer: `No. It holds the PDF's words and pictures, not its design. ${PDF_TO_WORD_KEEPS} If your PDF is a scanned image rather than typed text, use the OCR PDF tool first so there is recognized text to convert.`,
+        answer: `No. It holds the PDF's words and pictures, not its design. ${PDF_TO_WORD_KEEPS} If your PDF is a scanned image rather than typed text, tick “${WORD_OCR_LABEL}” so there is recognised text to convert.`,
       },
     ],
     published: "2026-09-17",
-    updated: "2026-10-30",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-convert-jpg-to-pdf",
     title: "How to convert JPG to PDF",
     description:
-      "Combine JPG photos into one PDF right in your browser — your files never leave your device. One photo per US Letter page, in the order you set.",
+      "Combine JPG photos into one PDF right in your browser — your files never leave your device. One photo per A4 or Letter page, in the order you set.",
     tools: ["jpg-to-pdf", "png-to-pdf", "pdf-to-jpg"],
     keywords: [
       "jpg to pdf",
@@ -1207,8 +1284,9 @@ export const guides: Guide[] = [
       },
       {
         question: "Does JPG to PDF have page size or margin settings?",
-        // Was "No." — true until 2026-10-24.
-        answer: `Yes. ${IMAGE_PAGE_OPTIONS_FACT} If you change nothing, every image goes on a ${US_LETTER_LABEL} portrait page with a ${inches(IMAGE_PAGE_MARGIN_PT)} in margin, scaled down to fit if it is larger than that space.`,
+        // Was "No." — true until 2026-10-24. Said the page was US Letter for
+        // everyone until the review of 2b60fd4c (2026-11-07).
+        answer: `Yes. ${IMAGE_PAGE_OPTIONS_FACT} If you change nothing, every image goes on a portrait page with a ${inches(IMAGE_PAGE_MARGIN_PT)} in margin, scaled down to fit if it is larger than that space, and the page is ${imageDefaultPaperCopy()}.`,
       },
       {
         question: "How large can my JPG files be?",
@@ -1227,7 +1305,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-11-06",
+    updated: "2026-11-07",
   },
   {
     // ONE guide for the intent, from two lanes: L07 wrote this slug for the
@@ -1278,8 +1356,8 @@ export const guides: Guide[] = [
         id: "jpg-or-png",
         heading: "JPG or PNG?",
         body: [
-          `JPG files are smaller and suit photographs and scanned pages; each page is encoded at a fixed JPEG quality of ${Math.round(DEFAULT_JPEG_QUALITY * 100)}%. PNG is lossless — every pixel is kept exactly — which suits text, line art and screenshots, at the cost of larger files.`,
-          "Both are rendered on a white background, so any transparent area of a page comes out white.",
+          `JPG files are smaller and suit photographs and scanned pages. PDF to JPG's ${JPEG_QUALITY_LABEL} choice sets how hard each page is compressed: ${RASTER_JPEG_QUALITIES.map((q) => `${q.label} (${Math.round(q.quality * 100)}%)`).join(", ")}, with ${RASTER_JPEG_QUALITIES.find((q) => q.id === DEFAULT_JPEG_QUALITY_ID)!.label} (${Math.round(DEFAULT_JPEG_QUALITY * 100)}%) selected at the start; a lower one gives a smaller file. PNG is lossless — every pixel is kept exactly — which suits text, line art and screenshots, at the cost of larger files.`,
+          `JPG pages are always rendered on a white background, since JPEG cannot store transparency. PDF to PNG renders on white too, unless you pick ${RASTER_BACKGROUNDS.find((b) => b.id === "transparent")!.label} under ${RASTER_BACKGROUND_LABEL}.`,
         ],
       },
       {
@@ -1333,7 +1411,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-rotate-a-pdf",
@@ -1587,6 +1665,7 @@ export const guides: Guide[] = [
         body: [
           "The tool accepts a PDF and produces a PDF — specifically a reusable, fillable AcroForm document. The tool is in beta — the five field types above are the supported set. Because the fields are genuine form fields rather than flat marks on the page, one saved copy can be distributed and completed over and over, with each person entering their own answers.",
           `Each PDF can be up to ${ceilingMb("create-forms")} MB. When it is time to complete the form, the Fill Forms tool handles the other half of the job: it fills a PDF's existing AcroForm fields — text, checkboxes, radio buttons, dropdowns, and lists — right in the browser. And when a form needs a signature to finish it, the Sign PDF tool adds one.`,
+          `This tool places fields by typed coordinates. To drag fields into place on the page instead, or to add an empty signature field for someone to sign later, use ${nameOf("edit-pdf")}: the tools in its ${EDITOR_FORMS_GROUP} group drag out text fields, checkboxes, dropdowns, radio groups and signature fields, saved as real form fields, also in your browser.`,
         ],
       },
     ],
@@ -1616,7 +1695,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-27",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-fill-out-a-pdf-form",
@@ -2103,8 +2182,8 @@ export const guides: Guide[] = [
         heading: "Three ways to select pages",
         body: [
           "Clicking a thumbnail selects that page, and clicking it again deselects it. Holding Shift while you click selects every page between the one you touched last and this one — the quick way to clear out a run of pages at the end of a scan.",
-          `Typing is faster in a long document. Enter single pages and ranges separated by commas — 1-3, 5 selects pages one to three and page five — and press Select. A range can be left open: 10- runs from page ten to the end. To delete every other page, list them: ${EVERY_OTHER_PAGE_EXAMPLE}.`,
-          "Select all, Clear and Invert work on the whole selection. Invert flips it — every selected page becomes unselected and every other page becomes selected — which helps when it is easier to pick the pages you want to keep.",
+          `Typing is faster in a long document. Enter single pages and ranges separated by commas — 1-3, 5 selects pages one to three and page five — and press Select. A range can be left open: 10- runs from page ten to the end. To delete every other page, press Even pages for 2, 4, 6 and so on, or Odd pages for 1, 3, 5 and so on.`,
+          "Select all, Clear, Invert, Odd pages and Even pages work on the whole selection. Invert flips it — every selected page becomes unselected and every other page becomes selected — which helps when it is easier to pick the pages you want to keep.",
         ],
       },
       {
@@ -2141,7 +2220,7 @@ export const guides: Guide[] = [
       },
       {
         question: "How do I delete every other page?",
-        answer: `Type the pages as a list — for example ${EVERY_OTHER_PAGE_EXAMPLE} — and press Select; those pages are selected, and Delete removes them.`,
+        answer: `Press Even pages to select pages 2, 4, 6 and so on, or Odd pages for 1, 3, 5 and so on, and Delete removes them. For another pattern, type the pages as a list — for example ${EVERY_OTHER_PAGE_EXAMPLE} — and press Select.`,
       },
       {
         question: "How large can the PDF be?",
@@ -2149,7 +2228,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-10-07",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-convert-markdown-to-pdf",
@@ -3194,12 +3273,12 @@ export const guides: Guide[] = [
     ],
     intro: [
       `To OCR a PDF in a language other than English, open ${nameOf("ocr-pdf")}, select every language printed on the page under Languages, add your scan, and press Recognize text. ${OCR_LANGUAGES.length} languages are offered, including ${OCR_EXAMPLE_NAMES}, and one job can combine up to ${MAX_OCR_LANGUAGES}.`,
-      `Choosing the language is the step that decides the result. ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} is selected when the page opens, and a page read in the wrong language does not fail: the engine returns fluent-looking nonsense in the alphabet it was given, with no error.`,
+      `Choosing the language is the step that decides the result. ${OCR_START_SENTENCE}, and a page read in the wrong language does not fail: the engine returns fluent-looking nonsense in the alphabet it was given, with no error.`,
       `${nameOf("ocr-pdf")} runs on a secure server. Your scan, up to ${ceilingMb("ocr-pdf")} MB, travels over an encrypted connection and is deleted when the job finishes, and the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
     ],
     steps: [
       `Open the ${nameOf("ocr-pdf")} tool.`,
-      `Under Languages, select every language the document uses, up to ${MAX_OCR_LANGUAGES}. ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} starts selected; deselect it if the page has none.`,
+      `Under Languages, select every language the document uses, up to ${MAX_OCR_LANGUAGES}. ${OCR_START_SENTENCE}; deselect any the page does not use.`,
       `Under Output, choose ${ocrModeLabel("searchable-pdf")}, ${ocrModeLabel("text")} for a .txt file, or ${ocrModeLabel("both")}.`,
       "Drop one PDF, JPG or PNG into the Add a scan to OCR area and press Recognize text. The file uploads over an encrypted connection only when you press it.",
       `Download the result. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
@@ -3254,7 +3333,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-convert-a-webpage-to-pdf",
@@ -3331,7 +3410,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-extract-images-from-a-pdf",
@@ -3749,7 +3828,7 @@ export const guides: Guide[] = [
   {
     slug: "how-to-print-multiple-pages-per-sheet",
     title: `How to print multiple pages per sheet (${upName(2)}, ${upName(4)})`,
-    description: `Put ${N_UP_COUNT_NAMES} PDF pages on each ${N_UP_SHEET_NAMES} sheet, in the order you pick, with margins and optional borders. Runs in your browser.`,
+    description: `Put up to ${N_UP_COUNTS.at(-1)} PDF pages on each sheet, ${labelOf(N_UP_SHEETS, "a4")}, ${labelOf(N_UP_SHEETS, "letter")}, ${labelOf(N_UP_SHEETS, "a3")} or another size, in the order you pick, with margins and borders. Runs in your browser.`,
     tools: ["n-up-pdf", "resize-pdf", "organize-pages"],
     keywords: [
       "how to print multiple pages per sheet",
@@ -3768,7 +3847,7 @@ export const guides: Guide[] = [
       `Open the ${nameOf("n-up-pdf")} tool and drop your PDF where it says Drop your PDF here, or click browse. It stays on your device.`,
       `Under Pages per sheet, choose ${N_UP_COUNT_NAMES} per sheet. Beside the heading, the tool shows how many sheets that makes.`,
       `Under Sheet size choose ${N_UP_SHEET_NAMES}, and under Orientation keep ${N_UP_AUTO} or choose ${N_UP_FIXED_ORIENTATIONS}.`,
-      `Under Order choose ${N_UP_ORDER_NAMES}, and under Margin choose ${N_UP_MARGIN_NAMES}. Tick Draw a thin border around each page for an outline you can cut along.`,
+      `Under Order choose ${N_UP_ORDER_NAMES}, and under Margin choose ${N_UP_MARGIN_NAMES}. Tick Draw a thin border around each page for an outline you can cut along, and tick ${N_UP_RTL_LABEL} for a document read from right to left.`,
       `Press Create sheets, then Download PDF. The copy is named after yours, with the count added, such as -${upName(4)}.`,
     ],
     sections: [
@@ -3776,8 +3855,8 @@ export const guides: Guide[] = [
         id: "layout",
         heading: "How the pages are laid out",
         body: [
-          `${N_UP_AUTO} picks portrait or landscape, whichever draws the first page largest: two portrait pages sit side by side on a landscape sheet, and four fill a portrait sheet in a grid. Each page is scaled to fit its place with its proportions kept, so a landscape page among portrait ones is simply drawn smaller.`,
-          `${N_UP_ACROSS} fills each row from left to right and then moves down, the way you read. ${N_UP_DOWN} fills each column from top to bottom and then moves right, like newspaper columns. When the last sheet is not full, its remaining places are left empty. The margin keeps the same space at the sheet's edges and between pages, and the border is a ${N_UP_BORDER_PT}-point line.`,
+          `${N_UP_AUTO} picks portrait or landscape, whichever draws the first page largest: two portrait pages sit side by side on a landscape sheet, and four fill a portrait sheet in a grid. Each page is scaled to fit its place with its proportions kept, so a landscape page among portrait ones is simply drawn smaller. ${labelOf(N_UP_SHEETS, "source")} makes each sheet the size of your first page, turned the way Orientation says; one ${labelOf(N_UP_SHEETS, "a3")} sheet holds four ${labelOf(N_UP_SHEETS, "a4")} pages at their full size.`,
+          `${N_UP_ACROSS} fills each row from left to right and then moves down, the way you read. ${N_UP_DOWN} fills each column from top to bottom and then moves right, like newspaper columns. With ${N_UP_RTL_LABEL} ticked, both run from the right instead, so page two sits to the left of page one. When the last sheet is not full, its remaining places are left empty. The margin keeps the same space at the sheet's edges and between pages, and the border is a ${N_UP_BORDER_PT}-point line.`,
         ],
       },
       {
@@ -3823,7 +3902,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-30",
-    updated: "2026-10-30",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-add-bates-numbers-to-a-pdf",
@@ -4150,14 +4229,18 @@ export const guides: Guide[] = [
   // from the panel's constants (`compress-target.ts`, `offered-kinds.ts`),
   // the retention windows from the code the privacy page reads, and the
   // KB arithmetic from the same KB the panel compares with.
+  // CHANGED 2026-11-07 (audit search-demand#2): titled "…to 100 KB (or 200
+  // KB)" until then, though the panel offers every preset; the title now
+  // names them all, and size-guide-titles.test.ts holds it to the list.
   {
     slug: "how-to-compress-a-pdf-to-100-kb",
-    title: `How to compress a PDF to ${TARGET_PRESET_100} (or ${TARGET_PRESET_200})`,
+    title: `How to compress a PDF to ${titleSizes(TARGET_PRESET_LABELS)}`,
     description: `Make a PDF fit an upload limit of ${listOr(TARGET_PRESET_LABELS)}: pick a target size, and our server shrinks the images until it fits or can go no smaller.`,
     tools: ["compress-pdf", "split-pdf", "remove-pages"],
     keywords: [
-      "compress pdf to 100kb",
-      "compress pdf to 200kb",
+      ...TARGET_PRESET_LABELS.map(
+        (l) => `compress pdf to ${searchSpelling(l)}`,
+      ),
       "reduce pdf size to 100 kb",
       "make a pdf smaller for an upload form",
       "compress pdf to a specific size",
@@ -4165,7 +4248,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       `To compress a PDF to ${TARGET_PRESET_100}, open ${nameOf("compress-pdf")}, add the file, and in the “Deep image compression (secure server)” panel choose a “${TARGET_SIZE_LABELS.heading}” of ${TARGET_PRESET_100} — or ${listOr(TARGET_PRESET_LABELS.slice(1))}, or “${TARGET_SIZE_LABELS.custom}” for a number of KB of your own. Then press Compress images on our server. Our server starts at your Quality setting, lowers the resolution of the images step by step, as far as ${TARGET_FLOOR_LABEL}, and gives back the highest-quality version that fits.`,
-      "Whether a file can get that small depends on what is in it. A scan, or a phone photo of a page, is mostly picture, and picture resolution is what this lowers, so such files often shrink a long way. A PDF that is mostly typed text, or whose size comes from its fonts, may hardly shrink at all; then the panel tells you the smallest file it could make, and you can still download it.",
+      `Whether a file can get that small depends on what is in it. A colour or gray scan, or a phone photo of a page, is mostly picture, and picture resolution is what this lowers, so such files often shrink a long way. A scan made in black-and-white mode shrinks less: black-and-white images are never taken below ${DEEP_MONO_MIN_DPI} DPI, so scanned text stays legible. A PDF that is mostly typed text, or whose size comes from its fonts, may hardly shrink at all; then the panel tells you the smallest file it could make, and you can still download it.`,
       `This step uploads your file to our server; the size breakdown and the lossless copy on the same page run in your browser. Our privacy policy says the uploaded file is deleted when the job ends, the result can be downloaded for ${RETENTION_WINDOWS.outputLink}, and the stored copy is erased by a daily storage rule some time after it is ${RETENTION_WINDOWS.outputStorageRule} old.`,
     ],
     steps: [
@@ -4224,25 +4307,33 @@ export const guides: Guide[] = [
         answer: `Yes, to reach a target: the size breakdown and the lossless copy run in your browser, but a target is reached by the deep step on our server. ${HYBRID_WORKER_STEP} The uploaded file is deleted when the job ends, and the result can be downloaded for ${RETENTION_WINDOWS.outputLink}.`,
       },
       {
+        question: `Can I compress a PDF to ${OFF_PRESET_LABEL}, or another size?`,
+        answer: `Yes, if the file is bigger than that now. Choose “${TARGET_SIZE_LABELS.custom}” under “${TARGET_SIZE_LABELS.heading}” and type the size in KB: ${OFF_PRESET_KB} KB for ${OFF_PRESET_LABEL}.`,
+      },
+      {
         question: "How large can my PDF be?",
         answer: `Up to ${ceilingMb("compress-pdf")} MB per file.`,
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   // Added 2026-10-31 with JPG / PNG to PDF's Max file size. Every label and
   // figure is read from the panel's constants (`image-size-limit.ts`), the
   // met sentence from the function the panel calls, and the KB arithmetic
   // from the same KB the compress guide uses.
+  // CHANGED 2026-11-07 (audit search-demand#2): titled "How to convert JPG
+  // to PDF under 100 KB (or 200 KB)" until then; it now names every preset
+  // the panel offers, inside the 65-character results-page ceiling.
   {
     slug: "how-to-convert-jpg-to-pdf-under-100-kb",
-    title: `How to convert JPG to PDF under ${LIMIT_100} (or ${LIMIT_200})`,
+    title: `Convert JPG to PDF under ${titleSizes(LIMIT_PRESET_LABELS)}`,
     description: `Make a PDF of a photo, signature or scan that fits a limit of ${listOr(LIMIT_PRESET_LABELS)}. Your browser shrinks the image until it fits.`,
     tools: ["jpg-to-pdf", "png-to-pdf"],
     keywords: [
-      "jpg to pdf under 100kb",
-      "jpg to pdf under 200kb",
+      ...LIMIT_PRESET_LABELS.map(
+        (l) => `jpg to pdf under ${searchSpelling(l)}`,
+      ),
       "convert photo to pdf under 100 kb",
       "signature jpg to pdf under 100kb",
       "image to pdf less than 100kb",
@@ -4308,12 +4399,109 @@ export const guides: Guide[] = [
           "No. The image is shrunk and the PDF is made in your browser tab; the file is not sent to pdf.xyz.",
       },
       {
+        question: `Can I make the PDF fit ${OFF_PRESET_SMALL_LABEL}, ${OFF_PRESET_LABEL} or another size?`,
+        answer: `Yes. Choose “${MAX_SIZE_LABELS.custom}” under “${MAX_SIZE_LABELS.heading}” and type the size in KB: ${OFF_PRESET_SMALL_KB} for ${OFF_PRESET_SMALL_LABEL}, ${OFF_PRESET_KB} for ${OFF_PRESET_LABEL}.`,
+      },
+      {
         question: "How large can my image be?",
         answer: `Up to ${MAX_IMAGE_MB} MB per image.`,
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
+  },
+  // Added 2026-11-07 for the "scanned PDF to Word" / "OCR PDF to Word"
+  // search family (audit search-demand#5). PDF to Word has run OCR in the
+  // same job since 2026-10-24 (WORD_OCR_LABEL); the panel's own sentence for
+  // it is WORD_OCR_HINT, quoted whole. The shape of the DOCX (each scanned
+  // page's picture, then its text) is the one the Bangla guide's measured run
+  // held and the hint states; the language lists are the picker's own.
+  {
+    slug: "how-to-convert-a-scanned-pdf-to-word",
+    title: "How to convert a scanned PDF to Word",
+    description: `Turn a scanned PDF into an editable Word (DOCX) file: tick “${WORD_OCR_LABEL}” and our server reads the text with OCR, then converts it.`,
+    tools: ["pdf-to-word", "ocr-pdf", "jpg-to-pdf"],
+    keywords: [
+      "scanned pdf to word",
+      "ocr pdf to word",
+      "pdf to word ocr",
+      "convert scanned pdf to editable word",
+      "scanned document to word",
+      "image pdf to word",
+    ],
+    intro: [
+      `To turn a scanned PDF into a Word document you can edit, open ${nameOf("pdf-to-word")}, add the PDF, tick “${WORD_OCR_LABEL}”, pick the languages the document is written in under Languages, and press Export DOCX. Our server reads the words on each scanned page with OCR (optical character recognition) and writes them into a DOCX file as text you can edit, copy and search.`,
+      `A scanned page holds a picture of its words, not the words themselves, so without that switch there is no text on it for the conversion to carry. With it, the panel says what happens: “${WORD_OCR_HINT}”`,
+      `This runs on our secure server, not in your browser. Our privacy policy says the uploaded file is deleted when the job ends, the result can be downloaded for ${RETENTION_WINDOWS.outputLink}, and the stored copy is erased by a daily storage rule some time after it is ${RETENTION_WINDOWS.outputStorageRule} old.`,
+    ],
+    steps: [
+      `Open the ${nameOf("pdf-to-word")} tool and drop your scanned PDF where it says Add your PDF, or click to pick one. Files up to ${ceilingMb("pdf-to-word")} MB are accepted.`,
+      `Tick “${WORD_OCR_LABEL}”.`,
+      `Under Languages, select every language the pages are written in, up to ${MAX_OCR_LANGUAGES}. ${OCR_START_SENTENCE}; deselect any the document is not written in.`,
+      "Press Export DOCX, which uploads your PDF over an encrypted connection to our server, where the OCR and the conversion run in one job.",
+      `Download the DOCX when it is ready. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
+      "Open it in Word, LibreOffice or Google Docs and read the text through against the page before you rely on it.",
+    ],
+    sections: [
+      {
+        id: "what-you-get",
+        heading: "What the Word file holds",
+        body: [
+          "Each scanned page comes through as its picture, followed by the text read from it, as plain paragraphs you can edit, search and copy. Keep the picture while you check the text against it, and delete it when you no longer need it.",
+          "The look of the page is not rebuilt: fonts, columns, tables and spacing are not carried over, and a line of the scan can arrive as a paragraph of its own, so expect to join some lines and style the headings yourself.",
+          "A PDF that mixes typed pages and scanned ones can go through with the switch on: pages that already have text are kept as they are, and only the scanned ones are read.",
+        ],
+      },
+      {
+        id: "choosing-languages",
+        heading: "Choosing the languages",
+        body: [
+          "The language you pick decides the result. A page read in the wrong language does not fail: it comes back as letters that look like words and mean nothing, with no error, so select the language the scan is written in, and add a second one if the pages mix two.",
+          `The picker offers ${PDF_TO_WORD_OCR_LANGUAGE_CODES.length} of the ${OCR_LANGUAGES.length} languages ${nameOf("ocr-pdf")} reads. ${RTL_OCR_NAMES} are not offered here: written right to left, their recognised words come out of the conversion out of order. For those, use ${nameOf("ocr-pdf")}, which reads them in order in its searchable PDF and its text.`,
+        ],
+      },
+      {
+        id: "getting-a-good-result",
+        heading: "Getting a good result",
+        body: [
+          "OCR reads printed and typed text: letters, forms, contracts, book pages and office documents. It is not made for handwriting, which usually comes back as nonsense or not at all.",
+          "The clearer the scan, the fewer mistakes. Scan in your scanner's document or text setting rather than a low-resolution preview, keep the page straight and flat, and avoid shadows, glare and blur when you photograph a page with a phone.",
+        ],
+      },
+      {
+        id: "other-routes",
+        heading: "A searchable PDF, or a photo instead of a PDF",
+        body: [
+          `If you need to find and copy the words but not edit them, ${nameOf("ocr-pdf")} keeps the page exactly as it looks and lays the recognised text invisibly under it.`,
+          `If your scan is a JPG or PNG photo rather than a PDF, turn it into a PDF first with ${nameOf("jpg-to-pdf")}, which runs in your browser, then convert that PDF here with “${WORD_OCR_LABEL}” ticked.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Can I convert a scanned PDF to Word for free?",
+        answer: `Yes. There is no account and no payment: open ${nameOf("pdf-to-word")}, tick “${WORD_OCR_LABEL}”, pick the languages, and download the DOCX.`,
+      },
+      {
+        question: "Is OCR PDF a separate step?",
+        answer: `No. “${WORD_OCR_LABEL}” runs the OCR inside the same job, so one run of ${nameOf("pdf-to-word")} gives you the Word file. ${nameOf("ocr-pdf")} is for when you want a searchable PDF instead.`,
+      },
+      {
+        question: "Why does my text come out as gibberish?",
+        answer: `Because the page was read in the wrong language. ${OCR_START_SENTENCE}; select the language your scan is written in, deselect any it is not, and run the job again. A blurry or sideways scan can cause the same symptom.`,
+      },
+      {
+        question: "Can it read handwriting?",
+        answer:
+          "No. The OCR is made for printed and typed text; handwriting usually comes back as nonsense or not at all.",
+      },
+      {
+        question: "Is my file uploaded?",
+        answer: `Yes. OCR needs a recognition engine that runs on our secure server, so your PDF is uploaded over an encrypted connection. The uploaded file is deleted when the job ends, and the result can be downloaded for ${RETENTION_WINDOWS.outputLink}.`,
+      },
+    ],
+    published: "2026-11-07",
+    updated: "2026-11-07",
   },
   // Added 2026-10-31 for the "Bangla PDF to Word" search family. Written
   // only after production read a Bengali page back, measured: the proof is
@@ -4340,7 +4528,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       `To turn a scanned ${BN} PDF into a Word document you can edit, open ${nameOf("pdf-to-word")}, add the PDF, tick “${WORD_OCR_LABEL}”, select ${BN} under Languages, and press Export DOCX. Our server reads the ${BN} letters on each page with OCR (optical character recognition), then writes them into a DOCX file as text you can edit, copy and search.`,
-      `Choosing ${BN} is the step that decides the result. ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} is selected when the page opens, and a ${BN} page read as ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} does not fail: it comes back as Latin letters that look like words and mean nothing, with no error.`,
+      `Choosing ${BN} is the step that decides the result. ${OCR_START_SENTENCE}, and a ${BN} page read as ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} does not fail: it comes back as Latin letters that look like words and mean nothing, with no error.`,
       `This runs on our secure server, not in your browser. Our privacy policy says the uploaded file is deleted when the job ends, the result can be downloaded for ${RETENTION_WINDOWS.outputLink}, and the stored copy is erased by a daily storage rule some time after it is ${RETENTION_WINDOWS.outputStorageRule} old.`,
     ],
     steps: [
@@ -4387,7 +4575,7 @@ export const guides: Guide[] = [
       {
         question:
           "Why does my Bangla text come out as English-looking gibberish?",
-        answer: `Because the page was read with the wrong language. ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} is selected when the page opens; select ${BN} under Languages and run the job again. A blurry or sideways scan can cause the same symptom.`,
+        answer: `Because the page was read with the wrong language. ${OCR_START_SENTENCE}; select ${BN} under Languages and run the job again. A blurry or sideways scan can cause the same symptom.`,
       },
       {
         question: "My PDF already has selectable Bangla text. Do I need OCR?",
@@ -4409,7 +4597,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-convert-excel-to-pdf",
@@ -4434,7 +4622,7 @@ export const guides: Guide[] = [
     steps: [
       `Open the ${nameOf("excel-to-pdf")} tool.`,
       "Before you start, set the page layout in Excel if a wide sheet must fit: choose landscape and fit-all-columns-on-one-page scaling, then save. The tool has no layout settings of its own.",
-      "Drag your .xlsx, .xls, .csv or .ods onto the box that says “Add your document, or browse”, or click it to choose the file. Remove swaps it for another.",
+      "Drag your .xlsx, .xls, .csv or .ods onto the box that says “Add your workbook, or browse”, or click it to choose the file. Remove swaps it for another.",
       "Press Convert to PDF. Your spreadsheet uploads over an encrypted connection, and the button follows the job while LibreOffice converts it.",
       `When “Your PDF is ready.” appears, press Download. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save the PDF before you close the tab.`,
     ],
@@ -4491,7 +4679,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-04",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-convert-powerpoint-to-pdf",
@@ -4516,7 +4704,7 @@ export const guides: Guide[] = [
     steps: [
       `Open the ${nameOf("powerpoint-to-pdf")} tool.`,
       "In PowerPoint, unhide any slide you want in the PDF and save. Hidden slides and speaker notes are left out.",
-      "Drag your .pptx, .ppt or .odp onto the box that says “Add your document, or browse”, or click it to choose the file. Remove swaps it for another.",
+      "Drag your .pptx, .ppt or .odp onto the box that says “Add your presentation, or browse”, or click it to choose the file. Remove swaps it for another.",
       "Press Convert to PDF. The deck uploads over an encrypted connection, and the button follows the job while LibreOffice converts it.",
       `When “Your PDF is ready.” appears, press Download. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save the PDF before you close the tab.`,
       "Skim the pages before you send them: a missing font or an elaborate effect can come out slightly different.",
@@ -4573,7 +4761,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-04",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-extract-pages-from-a-pdf",
@@ -4607,8 +4795,8 @@ export const guides: Guide[] = [
         heading: "Ways to select pages",
         body: [
           "Clicking a thumbnail selects that page, and clicking it again deselects it. Holding Shift while you click selects every page between the one you touched last and this one.",
-          `In a long document, typing is faster. Enter single pages and ranges separated by commas, such as 1-3, 5, and press Select. A range can be left open: 8- runs from page eight to the end. To keep every other page, list them: ${EVERY_OTHER_PAGE_EXAMPLE}. Typing a list replaces the current selection, and you can fine-tune it by clicking thumbnails afterwards.`,
-          "Select all, Clear and Invert change the whole selection at once. Invert is handy when it is easier to click the few pages you do not want: select those, press Invert, and extract the rest.",
+          `In a long document, typing is faster. Enter single pages and ranges separated by commas, such as 1-3, 5, and press Select. A range can be left open: 8- runs from page eight to the end. To keep every other page, press Odd pages for 1, 3, 5 and so on, or Even pages for 2, 4, 6 and so on. Typing a list replaces the current selection, and you can fine-tune it by clicking thumbnails afterwards.`,
+          "Select all, Clear, Invert, Odd pages and Even pages change the whole selection at once. Invert is handy when it is easier to click the few pages you do not want: select those, press Invert, and extract the rest.",
         ],
       },
       {
@@ -4654,7 +4842,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-summarize-a-pdf",
@@ -4671,7 +4859,7 @@ export const guides: Guide[] = [
       "tl;dr of a pdf",
     ],
     intro: [
-      `To summarize a PDF, open ${nameOf("summarize-pdf")}, add your file, choose a length and a format, and press Summarize PDF. An AI model writes a summary of the document's text, and you download it as a ZIP with Markdown and plain-text copies.`,
+      `To summarize a PDF, open ${nameOf("summarize-pdf")}, add your file, choose a length and a format, and press Summarize PDF. An AI model writes a summary of the document's text, which appears on the page to read and copy; you can also save it as plain text, as Markdown, or as a ZIP that adds a record of the model.`,
       "Use the summary to decide what to read, not in place of reading. The model is told to work only from the document's text and to add no facts, yet a summary can still leave a point out or get one wrong, so check anything you plan to act on against the original pages.",
       `${nameOf("summarize-pdf")} is one of the AI tools, so the work does not happen in your browser. Your PDF uploads over an encrypted connection to our secure server, which extracts the selectable text and sends that text, not the file, to a third-party AI provider. Your PDF is deleted when the job ends, and the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
     ],
@@ -4681,7 +4869,7 @@ export const guides: Guide[] = [
       `Pick a length under Summary length (${listOr(Object.values(SUMMARY_LENGTH_LABEL))}) and a shape under Format (${SUMMARY_FORMAT_NAMES}). The page starts on ${SUMMARY_LENGTH_LABEL[DEFAULT_SUMMARY_LENGTH]} and ${SUMMARY_FORMAT_LABEL[DEFAULT_SUMMARY_FORMAT]}.`,
       `Optionally, type up to ${SUMMARY_FOCUS_CHARS} characters in Focus (optional), such as “deadlines and costs”, to say what the summary should pay attention to.`,
       "Press Summarize PDF. Your PDF uploads over an encrypted connection to our secure server, and the button follows the job while the model writes.",
-      `Download the ZIP; report.pdf comes back as ${SUMMARY_EXAMPLE_ZIP}. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it to your device.`,
+      `Read the summary on the page and press Copy summary to paste it elsewhere, or download it as plain text, as Markdown or as the ZIP; report.pdf comes back as ${SUMMARY_EXAMPLE_ZIP}. Our server's link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save what you need to your device.`,
     ],
     sections: [
       {
@@ -4697,7 +4885,7 @@ export const guides: Guide[] = [
         id: "what-you-get-back",
         heading: "What you get back",
         body: [
-          "The download is a ZIP holding summary.md, summary.txt, manifest.json and README.txt. The Markdown and plain-text files hold the same summary; the manifest and README record which provider and model wrote it and the options you chose.",
+          "The summary appears on the page, with Copy summary and a download each for the plain text and the Markdown. The full download is a ZIP holding summary.md, summary.txt, manifest.json and README.txt. The Markdown and plain-text files hold the same summary; the manifest and README record which provider and model wrote it and the options you chose.",
           `The model reads a bounded amount of the document's text, and the exact figure is stated on the Summarize PDF page itself. A longer document is summarized from its first page up to that point, and both the results panel and summary.md say how far the reading got, by page. Files themselves are capped at ${ceilingMb("summarize-pdf")} MB.`,
         ],
       },
@@ -4742,7 +4930,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-convert-pdf-to-pdfa",
@@ -4879,7 +5067,7 @@ export const guides: Guide[] = [
         heading: "What you download",
         body: [
           `A one-page PDF saves as a single image named after the file: logo.pdf gives ${PNG_EXAMPLE_SINGLE}. With more than one page rendered, the images come in one ZIP, numbered with leading zeros so they sort in reading order: all pages of a ${PNG_EXAMPLE_PAGES}-page manual.pdf give ${PNG_EXAMPLE_ZIP}, starting with ${PNG_EXAMPLE_FIRST}. A page keeps its number from the document when you pick only some, so page 7 of that manual is ${PNG_EXAMPLE_PAGE_7}.`,
-          "Pages are painted onto white, so every PNG has a solid white background. If a picture inside the PDF cannot be decoded, it comes out blank while the rest of the page renders, and the result gives the number of images affected across the document.",
+          `Pages are painted onto white unless you pick ${RASTER_BACKGROUNDS.find((b) => b.id === "transparent")!.label} under ${RASTER_BACKGROUND_LABEL}: then whatever the page does not paint is see-through, which suits a logo or signature, though a page that paints its own white rectangle stays white. If a picture inside the PDF cannot be decoded, it comes out blank while the rest of the page renders, and the result gives the number of images affected across the document.`,
         ],
       },
       {
@@ -4915,7 +5103,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-convert-pdf-to-text",
@@ -4940,7 +5128,7 @@ export const guides: Guide[] = [
       `Open the ${nameOf("pdf-to-text")} tool.`,
       "Drop your PDF on the panel that says “Drop your PDF here, or browse”, or click it to choose the file. Its name, page count and size appear.",
       "Press Extract text. The button reads Extracting text… while the pages are read.",
-      "Under “Text extracted”, check the character and page counts and read the text in the scrollable box. Select any part of it to copy just that passage.",
+      "Under “Text extracted”, check the character and page counts and read the text in the scrollable box. Press Copy text to put all of it on your clipboard, or select any part of it to copy just that passage.",
       `Press Download TXT, which shows the size of the file it will save. report.pdf is saved as ${TEXT_EXAMPLE_OUT}. Start over clears the page for another document.`,
     ],
     sections: [
@@ -5003,12 +5191,12 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-convert-a-pdf-to-black-and-white",
     title: "How to convert a PDF to black and white",
-    description: `Turn a color PDF into shades of gray for printing, right in your browser. Choose ${GRAY_SCREEN.dpi} or ${GRAY_PRINT.dpi} DPI; pages become images, so keep the original.`,
+    description: `Turn a color PDF into shades of gray for printing, right in your browser. Choose ${GRAY_DPIS} DPI; pages become images, so keep the original.`,
     tools: ["grayscale-pdf", "pdf-to-png", "ocr-pdf"],
     keywords: [
       "how to convert a pdf to black and white",
@@ -5044,7 +5232,7 @@ export const guides: Guide[] = [
         heading: "Why the file can get bigger",
         body: [
           `A page of text is a few drawing instructions in the original and a full picture in the copy, so a text-only PDF usually grows, often by a lot. A scanned or photo-heavy PDF can shrink instead. The result shows both sizes, and when the copy is larger it says so: “${GRAYSCALE_GREW_NOTE}”`,
-          `${GRAY_SCREEN.label} (${GRAY_SCREEN.dpi} DPI) draws fewer pixels per page than ${GRAY_PRINT.label} (${GRAY_PRINT.dpi} DPI), so it gives a lighter file that reads well on a monitor. ${GRAY_PRINT.label} keeps small type and fine lines crisper on paper.`,
+          `${GRAY_SCREEN.label} (${GRAY_SCREEN.dpi} DPI) draws fewer pixels per page than ${GRAY_PRINT.label} (${GRAY_PRINT.dpi} DPI), so it gives a lighter file that reads well on a monitor. ${GRAY_PRINT.label} keeps small type and fine lines crisper on paper, and ${GRAY_FINE.label} (${GRAY_FINE.dpi} DPI), the resolution usually asked for when images are printed, crisper still; it draws ${Math.round((GRAY_FINE.dpi / GRAY_PRINT.dpi) ** 2)} times the pixels of ${GRAY_PRINT.label}, so the file grows with it.`,
         ],
       },
       {
@@ -5059,6 +5247,7 @@ export const guides: Guide[] = [
         id: "related-tools",
         heading: "Gray images, or searchable text again",
         body: [
+          `If the text must stay selectable, ${nameOf("compress-pdf")} turns a PDF gray another way. Its optional secure-server step has a Grayscale switch: Ghostscript rewrites the PDF with every colour turned to gray instead of turning each page into a picture; check that the result still lets you select the text. That step also makes images smaller, even at its sharpest setting, ${DEEP_COMPRESSION_PRESETS.at(-1)!.label}, which keeps images up to ${DEEP_COMPRESSION_PRESETS.at(-1)!.dpi} DPI, and like ${nameOf("ocr-pdf")} it runs on our secure server rather than in your browser.`,
           `If you want gray page images rather than a PDF, ${nameOf("pdf-to-png")} has a ${PNG_GRAY} option under Colour, and it also runs in your browser.`,
           `To make the gray copy searchable again, run it through ${nameOf("ocr-pdf")}, which adds a recognised text layer; ${GRAY_PRINT.label} gives it more pixels to read. Unlike this tool, ${nameOf("ocr-pdf")} runs on our secure server rather than in your browser.`,
         ],
@@ -5076,7 +5265,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I still select or search the text afterwards?",
-        answer: `No. Each page is stored as one image, so the text is part of the picture. ${nameOf("ocr-pdf")} can add a recognised text layer to the gray copy, but it runs on our secure server rather than in your browser.`,
+        answer: `No. Each page is stored as one image, so the text is part of the picture. The Grayscale switch on ${nameOf("compress-pdf")}'s secure-server step rewrites the PDF in gray instead of turning each page into a picture; check that the result still lets you select the text. ${nameOf("ocr-pdf")} can add a recognised text layer to the gray copy. Both run on our secure server rather than in your browser.`,
       },
       {
         question: "Why is the gray PDF bigger than the original?",
@@ -5088,7 +5277,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-highlight-text-in-a-pdf",
@@ -5447,16 +5636,16 @@ export const guides: Guide[] = [
       "add a date to a pdf footer",
     ],
     intro: [
-      `To add a header and footer to a PDF, open ${nameOf("header-footer")}, add your PDF, type a line in Header text, a line in Footer text, or both, and press Add header & footer. Each line is drawn on every page, and you download the stamped copy.`,
-      "The footer starts out as Page {n} of {total}, so a plain page count needs no typing at all. The {n}, {total} and {date} buttons beside each field add a field that fills itself in page by page: {n} is the page number, {total} the number of pages in the file, and {date} today's date as your browser writes it.",
+      `To add a header and footer to a PDF, open ${nameOf("header-footer")}, add your PDF, type in the Header boxes, the Footer boxes, or both, and press Add header & footer. Each band has a Left, a Center and a Right box, the lines go on every page unless you change that under Pages, and you download the stamped copy.`,
+      "The footer starts out as Page {n} of {total}, so a plain page count needs no typing at all. The {n}, {total} and {date} buttons under each band add a field that fills itself in page by page: {n} is the page number, {total} the number of pages in the file, and {date} today's date as your browser writes it.",
       `The PDF is read and rewritten in your browser, so it stays on your device, and there is no account to create. It takes one PDF at a time, up to ${ceilingMb("header-footer")} MB.`,
     ],
     steps: [
       `Open the ${nameOf("header-footer")} tool.`,
       "Drop your PDF on the panel that says “Drop your PDF here, or browse”, or click it to choose the file. Its name, page count and size appear above the editor.",
-      "Type the top line in Header text and the bottom line in Footer text. The {n}, {total} and {date} buttons add that field to the end of the line; leave a field empty to skip that band.",
-      "Choose Left, Center or Right under each field. The chip beside the Header and Footer headings shows how page 1 will read.",
-      "Press Add header & footer. It works once either field has text.",
+      "Type the top lines in Header left, Header center and Header right, and the bottom lines in the three Footer boxes; leave a box empty to skip it. The {n}, {total} and {date} buttons add that field to the end of the box you last used in that band.",
+      "Check the chip beside the Header and Footer headings: it shows how the band will read on the first stamped page.",
+      "Press Add header & footer. It works once any box has text.",
       `When the panel reads Header & footer added, press Download PDF. report.pdf is saved as ${HF_EXAMPLE_OUT}.`,
     ],
     sections: [
@@ -5470,17 +5659,18 @@ export const guides: Guide[] = [
       },
       {
         id: "what-you-can-change",
-        heading: "What you can change, and what is fixed",
+        heading: "What you can change, and what it leaves alone",
         body: [
-          "You choose the wording, the fields and each band's alignment. The font size, the grey ink and the distance from the edge are fixed, and each band holds one line in one position, so the same band cannot carry text at the left and the right at once.",
-          "Every page gets the same lines, the first page included. The text is drawn on top of the page with no background, and nothing is moved to make room, so text already printed near the edge will overlap it, and running the tool twice gives two headers. A page stored sideways still gets its header at the top as you view it, reading level.",
+          "You choose the wording, the fields and which box each line goes in: a band can carry text at the left, the center and the right at once, such as a company name at the left of the header and the date at its right. Two lines that would run into each other are refused, with a message naming both.",
+          `Under Size, margin, font and color you also set the look of both bands: a font size from ${HF_SIZES} (it starts at ${DEFAULT_HEADER_FOOTER_SIZE}), a margin from the page edge of ${HF_MARGINS}, the font (${HF_FONTS}) and the ink colour.`,
+          "Every page gets the same lines unless you open Pages: Leave the cover page blank skips page 1 but still counts it, Start on page begins the lines on a later page, First number sets the {n} that page shows, and Skip last pages leaves an appendix bare. {total} is then the last number printed. The text is drawn on top of the page with no background, and nothing is moved to make room, so text already printed near the edge will overlap it, and running the tool twice gives two headers. A page stored sideways still gets its header at the top as you view it, reading level.",
         ],
       },
       {
         id: "languages-and-scripts",
         heading: "Languages and scripts",
         body: [
-          `While everything in both lines fits the Western European character set, it is set in Helvetica. One character outside it moves both lines to a Noto typeface that the page fetches from pdf.xyz's own site and embeds in the file; that request carries nothing from your document. The scripts it can draw are ${DRAWN_SCRIPTS}.`,
+          `While everything in both lines fits the Western European character set, it is set in the font you pick. One character outside it moves both lines to a matching typeface that the page fetches from pdf.xyz's own site and embeds in the file; that request carries nothing from your document. The scripts it can draw are ${DRAWN_SCRIPTS}.`,
           `${RTL_REFUSED} text is refused, because each line is laid out left to right and would come out reversed. So is text in a script no shipped font draws, such as ${listOr(NO_FACE_EXAMPLES)}, and emoji. Both lines share one font, so a header and footer that would need two, such as Japanese above Bengali, are refused too, and the message names the scripts involved.`,
         ],
       },
@@ -5488,7 +5678,7 @@ export const guides: Guide[] = [
         id: "header-footer-or-page-numbers",
         heading: "Header & Footer, Page Numbers or a watermark",
         body: [
-          `For numbers alone, ${nameOf("page-numbers")} offers more control: a choice of positions, Start on page to leave a cover unnumbered, and First number to start counting from somewhere other than 1. ${nameOf("header-footer")} has neither setting; it is for your own words along the top and bottom edges, with the number worked in if you want it.`,
+          `For numbers alone, ${nameOf("page-numbers")} offers more control over the number itself: ${STAMP_POSITIONS.length} positions, a Bates number style and Facing pages. ${nameOf("header-footer")} shares its page settings (Start on page, First number, a blank cover and skipped last pages) and is for your own words along the top and bottom edges, with the number worked in if you want it.`,
           `For a word across the middle of every page, such as DRAFT or CONFIDENTIAL, ${nameOf("watermark-pdf")} is made for that. All three run in your browser.`,
         ],
       },
@@ -5501,16 +5691,16 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I leave the header off the cover page?",
-        answer: `Not with this tool: every page gets the same lines. If what you need on the other pages is a number, ${nameOf("page-numbers")} has a Start on page setting that skips the cover.`,
+        answer:
+          "Yes. Open Pages and tick Leave the cover page blank. Page 1 gets nothing but is still counted, so with the default footer on a twelve-page file, page 2 reads Page 2 of 12. To count from the first stamped page instead, set Start on page.",
       },
       {
         question: "Can I change the font, size or colour?",
-        answer:
-          "No. The size, the grey ink and the margin are fixed. The typeface follows your characters: Helvetica for Western European text, and an embedded Noto face when a character needs one.",
+        answer: `Yes. Open Size, margin, font and color to pick a size from ${HF_SIZES}, a margin of ${HF_MARGINS}, ${HF_FONTS}, and any ink colour. The font you pick is used for Western European text; a character outside that set moves both bands to a matching typeface.`,
       },
       {
         question: "Does my PDF leave my device?",
-        answer: `No. It is opened, stamped and saved in your browser tab, up to ${ceilingMb("header-footer")} MB. When your text or the date needs a Noto font, the page fetches the font file from pdf.xyz's own site, and that request carries no part of your document.`,
+        answer: `No. It is opened, stamped and saved in your browser tab, up to ${ceilingMb("header-footer")} MB. When your text or the date needs a font the PDF format does not build in, the page fetches the font file from pdf.xyz's own site, and that request carries no part of your document.`,
       },
       {
         question: "Why was my header text refused?",
@@ -5522,7 +5712,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-convert-a-text-file-to-pdf",
@@ -5717,10 +5907,10 @@ export const guides: Guide[] = [
     steps: [
       `Open the ${nameOf("ai-extract")} tool. Extract data works once the status badge reads Secure server.`,
       "Drop one PDF on the box that says “Add your PDF, or browse”, or click it to choose the file. It needs selectable text; for a scan, run OCR PDF first.",
-      `Under Fields to extract, type a field name of up to ${MAX_FIELD_NAME_CHARS} characters, such as invoice_number, and choose its type: ${EXTRACT_FIELD_TYPES}. Add field adds a row, up to ${MAX_EXTRACTION_FIELDS}.`,
+      `Under Fields to extract, type a field name of up to ${MAX_FIELD_NAME_CHARS} characters, such as invoice_number, and choose its type: ${EXTRACT_FIELD_TYPES}. Optionally, type a hint of up to ${MAX_FIELD_DESCRIPTION_CHARS} characters in the box under the name, such as “the grand total including VAT, not the subtotal”; the model reads it beside the name, and your JSON key stays the name. Add field adds a row, up to ${MAX_EXTRACTION_FIELDS}.`,
       `Or press Prompt and describe what you want in the What to extract box, up to ${EXTRACT_PROMPT_CHARS} characters.`,
       "Press Extract data. Your PDF uploads over an encrypted connection to our secure server, and the button follows the job while the model reads.",
-      `Press Download ${EXTRACT_EXAMPLE_ZIP}, the button named after your file: invoice.pdf comes back as ${EXTRACT_EXAMPLE_ZIP}. Save it to your device before you close the tab.`,
+      `Press Download ${EXTRACT_EXAMPLE_ZIP}, the button named after your file: invoice.pdf comes back as ${EXTRACT_EXAMPLE_ZIP}. Save it to your device before you close the tab. To open the values in a spreadsheet, press Download CSV beside it.`,
     ],
     sections: [
       {
@@ -5736,14 +5926,14 @@ export const guides: Guide[] = [
         heading: "What you download",
         body: [
           `In the ZIP, model-output.json is the model's reply as it was returned. extraction.json holds the same data; with a field schema it lists every field you asked for, in your order and under your names, and a key the model respelled is mapped back to your name. ${AI_EXTRACT_UNRETURNED_NULL}`,
-          `extraction.md lays the data out as a Field and Value table, or as a numbered list when the reply is a list. ${AI_EXTRACT_NULL_CELL_LEGEND} manifest.json records the provider and model, your fields or prompt, and how much of the document was read, and README.txt describes the package. There is no CSV or spreadsheet; for data in rows and columns, ${nameOf("extract-tables")} writes a CSV per table and an Excel workbook.`,
+          `extraction.md lays the data out as a Field and Value table, or as a numbered list when the reply is a list. ${AI_EXTRACT_NULL_CELL_LEGEND} manifest.json records the provider and model, your fields or prompt, and how much of the document was read, and README.txt describes the package. Beside the ZIP, Download CSV saves the same data as a CSV, built by the page from extraction.json, whenever it is an object or a list of objects: ${AI_EXTRACT_CSV_SHAPE}. ${AI_EXTRACT_NULL_CSV_LEGEND} For data laid out in rows and columns in the PDF itself, ${nameOf("extract-tables")} writes a CSV per table and an Excel workbook.`,
         ],
       },
       {
         id: "nulls-and-wrong-values",
         heading: "Nulls, wrong values and long documents",
         body: [
-          `${AI_EXTRACT_NULL_MEANING} ${AI_EXTRACT_NOT_NULL_WARNING} A wrong value comes from the model's reading or from the text it was given: a misread OCR layer, or side-by-side columns read across as one line, can mislead it. When a page holds several similar figures, name the exact one you want.`,
+          `${AI_EXTRACT_NULL_MEANING} ${AI_EXTRACT_NOT_NULL_WARNING} A wrong value comes from the model's reading or from the text it was given: a misread OCR layer, or side-by-side columns read across as one line, can mislead it. When a page holds several similar figures, name the exact one you want in the field's hint, or in your prompt.`,
           `The model reads a bounded amount of the document's text, and the exact figure is stated on the ${nameOf("ai-extract")} page itself. Past that point the text is dropped, and the result says how far the reading got. ${AI_EXTRACT_NULL_PAST_CUT} Files themselves are capped at ${ceilingMb("ai-extract")} MB.`,
         ],
       },
@@ -5779,7 +5969,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I get the data as CSV or Excel?",
-        answer: `Not from this tool: it writes JSON and a Markdown table. For tables, ${nameOf("extract-tables")} returns a CSV per table and an Excel workbook, without AI, on our secure server.`,
+        answer: `As CSV, yes: when the data is an object or a list of objects, a Download CSV button beside the ZIP saves it, built by the page from extraction.json. There is no Excel workbook, though Excel opens the CSV. For tables in the PDF itself, ${nameOf("extract-tables")} returns a CSV per table and an Excel workbook, without AI, on our secure server.`,
       },
       {
         question: "Can it extract data from a scanned PDF?",
@@ -5787,7 +5977,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   // Added 2026-10-31, the last four tools without a guide of their own.
   // PNG to PDF: written for what is particular to PNG, not a second JPG
@@ -5851,7 +6041,7 @@ export const guides: Guide[] = [
         id: "screenshot-page-size",
         heading: "How big a screenshot's page is",
         body: [
-          `The image is laid out at one point per pixel, and a point is 1/${PT_PER_INCH} of an inch, so screenshots are large on paper. On the default ${US_LETTER_LABEL} page with its ${PNG_DEFAULT_MARGIN_IN} in margin, a screenshot ${PNG_SHOT_PX} pixels wide is shrunk to ${PNG_SHOT_ON_PAPER_IN} inches across. No pixel is thrown away by that, so zooming in on the PDF still shows the detail. With ${PNG_FIT_LABEL}, the same screenshot gets a page about ${PNG_SHOT_FIT_PAGE_IN} inches wide, which reads well on screen; to print it, use your printer's fit-to-page setting.`,
+          `The image is laid out at one point per pixel, and a point is 1/${PT_PER_INCH} of an inch, so screenshots are large on paper. On a ${US_LETTER_LABEL} page with the default ${PNG_DEFAULT_MARGIN_IN} in margin, a screenshot ${PNG_SHOT_PX} pixels wide is shrunk to ${PNG_SHOT_ON_PAPER_IN} inches across, or ${PNG_SHOT_ON_A4_IN} inches on ${labelOf(IMAGE_PAGE_SIZES, "a4")}. No pixel is thrown away by that, so zooming in on the PDF still shows the detail. With ${PNG_FIT_LABEL}, the same screenshot gets a page about ${PNG_SHOT_FIT_PAGE_IN} inches wide, which reads well on screen; to print it, use your printer's fit-to-page setting.`,
           `A small image is never enlarged, so an icon stays icon-sized on a paper page. A long scrolling capture stays one image on one page: it is not cut across several pages. On a paper size it is shrunk to the page's height, so choose ${PNG_FIT_LABEL} to keep it readable. Even then a page side cannot pass ${PNG_MAX_PAGE_IN} inches, and a longer capture is scaled down to fit that. Any DPI value stored in the PNG is ignored.`,
         ],
       },
@@ -5881,7 +6071,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-06",
+    updated: "2026-11-07",
   },
   // HTML to PDF: an HTML FILE (or code saved as one), never a URL — that is
   // how-to-convert-a-webpage-to-pdf. Read off the worker: the upload is
@@ -5976,13 +6166,15 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   // Overlay PDF, titled for the task it truly does: lay one PDF on every
   // page of another. Read off overlay.ts and overlay-runner.tsx: the overlay
-  // is always centred (fitOverlayRect has no position), there is no page
-  // range (every base page gets an overlay page), Cycle pages walks the
-  // overlay in order and starts again (overlayPageIndexFor), and an overlay
+  // is always centred (fitOverlayRect has no position), Selected pages limits
+  // it to a page list (overlayPdf `pages`, which take the overlay pages in
+  // turn; added 2026-11-07, audit overlay-pdf#2), the four paging modes map
+  // overlay pages in order (overlayPageIndexFor: Cycle starts again, Repeat
+  // last page keeps the last, Once, then stop leaves the rest), and an overlay
   // page with no content is skipped and named. In-browser, so the word
   // "upload" appears nowhere, Word to PDF included.
   {
@@ -6029,10 +6221,10 @@ export const guides: Guide[] = [
       },
       {
         id: "first-page-only",
-        heading: "A letterhead on the first page only",
+        heading: "The first page only, or a continuation sheet",
         body: [
-          "There is no page range: every page of the letter gets a page of the overlay. When the overlay PDF has more than one page, a Multi-page overlay choice appears. First page on all puts its first page everywhere; Cycle pages gives letter page one the overlay's page one, page two its page two, and so on, starting again from the first when the overlay runs out.",
-          `So for the first page only, make an overlay PDF with as many pages as the letter, the letterhead on its first page and the rest left empty, and choose Cycle pages. An overlay page with no content at all is skipped, and the result says which; with ${OVERLAY_BEHIND} or ${OVERLAY_MULTIPLY}, an empty white page changes nothing you can see either. If your letterhead is a PNG or JPEG image rather than a PDF, ${nameOf("watermark-pdf")} can place an image and limit it to the pages you list.`,
+          `Under Pages, choose ${OVERLAY_SELECTED_PAGES} and type 1: only the first page gets the letterhead, and the result names the pages it left unchanged. A list such as 1, 3-5 works the same way.`,
+          `When the overlay PDF has more than one page, a Multi-page overlay choice appears. ${OVERLAY_FIRST_ON_ALL} puts its first page everywhere. ${OVERLAY_CYCLE} gives letter page one the overlay's page one, page two its page two, and so on, starting again from the first when the overlay runs out. ${OVERLAY_REPEAT_LAST} matches pages the same way, then keeps using the overlay's last page. ${OVERLAY_ONCE} matches them once and leaves the pages after the overlay's last page as they were. So for a full letterhead on page one and a continuation sheet on every later page, make the overlay a two-page PDF, letterhead first, and choose ${OVERLAY_REPEAT_LAST}. If your letterhead is a PNG or JPEG image rather than a PDF, ${nameOf("watermark-pdf")} can place an image and limit it to the pages you list.`,
         ],
       },
     ],
@@ -6061,7 +6253,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   // Optimize PDF for Web: `qpdf --linearize` and nothing else
   // (pdf-structure/native.ts linearizeArgs), no options; the worker refuses
@@ -6140,7 +6332,12 @@ export const guides: Guide[] = [
       {
         question: "Can I optimize a digitally signed PDF?",
         answer:
-          "Not without breaking the signature. Linearizing rewrites the whole file, so the bytes a certificate signature covers no longer match and it stops validating. Linearize the unsigned version and sign it last; then check the signed copy, because signing adds data at the end of the file and a viewer may no longer report it as linearized.",
+          "Not without breaking the signature. Linearizing rewrites the whole file, so the bytes a certificate signature covers no longer match and it stops validating. Before anything is uploaded, the page reads the file for signatures, says how many it found, and keeps the button off until you confirm. Linearize the unsigned version and sign it last; then check the signed copy, because signing adds data at the end of the file and a viewer may no longer report it as linearized.",
+      },
+      {
+        question: "What if my PDF is already linearized?",
+        answer:
+          "The page reads the file before anything is uploaded and says so when it already passes the same linearization test the result is held to. Running it again stays possible, and uploads the file as usual.",
       },
       {
         question: "What happens to my file after the job?",
@@ -6148,7 +6345,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   // Split PDF Pages in Half (#260), read off split-half.ts and
   // split-half-runner.tsx: Direction (Left and right | Top and bottom), Page

@@ -256,6 +256,20 @@ export function htmlPrintGeometry(
 }
 
 /**
+ * The CSS-pixel width "Paper width" (viewport `auto`) lays the page out at
+ * on this paper and these margins: the printable width, rounded. 739 on the
+ * default Letter with Normal margins — under the 768 px tablet width, so a
+ * site with no print styles can come out in its tablet layout (audit
+ * webpage-to-pdf#5, 2026-11-07). The panel names it on the option and the
+ * FAQ states it, both from here.
+ */
+export function htmlPaperWidthPx(options: HtmlRenderOptions): number {
+  return Math.round(
+    htmlPrintGeometry({ ...options, viewport: "auto" }).layoutWidthPx,
+  );
+}
+
+/**
  * The height of the one page "one long page" prints, in inches: the
  * content's measured CSS height, scaled as printed, plus a 16 px allowance
  * for the difference between a measured and a printed layout (white space at

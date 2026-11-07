@@ -1,7 +1,7 @@
 "use client";
 
 import { RunReason } from "@/components/tools/runner/run-reason";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Download,
   EyeOff,
@@ -18,6 +18,7 @@ import {
   DEFAULT_REDACT_PRESET_ID,
   redactedOutputName,
   validateRedactions,
+  wholePageRedactions,
   DEFAULT_REDACTION_DRAFT,
   REDACT_DPI_PRESETS,
   REDACTION_FILL_OPTIONS,
@@ -31,6 +32,7 @@ import {
   type RedactMethod,
 } from "@/lib/pdf/redact-output";
 import type { FoundText } from "@/lib/pdf/redact-find";
+import { PageRangeError } from "@/lib/pdf/ranges";
 import { RedactFindPanel } from "./redact-find-panel";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
@@ -54,6 +56,8 @@ import type { LoadedPdf } from "./use-single-pdf";
 /** A redaction box plus a stable id for list rendering. */
 interface Box extends RedactionRect {
   id: number;
+  /** Added from "Whole pages": the box is the page. */
+  whole?: boolean;
 }
 
 /** What a run produced, by either method. */
@@ -67,6 +71,16 @@ interface RedactOutcome {
   /** Remove: chosen matches searched for again in the output, not found. */
   verified: number;
 }
+
+/**
+ * The flatten engine, through a seam a test can swap and put back. A
+ * `vi.mock` of `@/lib/pdf/redact` would leave this module, and everything it
+ * imports, cached bound to the stub for the next test file
+ * (`src/tests/mock-isolation.test.ts`); `chatWithPdfDeps` is the same shape.
+ */
+export const redactRunnerDeps: { redact: typeof redactPdf } = {
+  redact: redactPdf,
+};
 
 const METHOD_LABEL = Object.fromEntries(
   REDACT_METHODS.map((m) => [m.id, m.label]),
@@ -84,7 +98,7 @@ export function RedactRunner() {
   );
 }
 
-function RedactEditor({
+export function RedactEditor({
   pdf,
   onReset,
 }: {
@@ -114,6 +128,8 @@ function RedactEditor({
   const areaCount = boxes.length + textRects.length;
   useUnsavedGuard(areaCount > 0 && !result, "your redaction areas");
   const [formError, setFormError] = useState<string | null>(null);
+  const [wholePages, setWholePages] = useState("");
+  const wholePagesId = useId();
   const [progress, setProgress] = useState<{
     done: number;
     total: number;
@@ -187,6 +203,29 @@ function RedactEditor({
     setBoxes((prev) => [...prev, { ...draft, id: idRef.current++ }]);
   };
 
+  // "Whole pages" (audit redact-pdf#5): one page-sized box per listed page,
+  // through the same list, validator and engines as a typed box.
+  const addWholePages = () => {
+    if (!pageSizes) return;
+    let rects: RedactionRect[];
+    try {
+      rects = wholePageRedactions(wholePages, pageSizes);
+    } catch (err) {
+      if (!(err instanceof PageRangeError)) throw err;
+      setFormError(err.message);
+      return;
+    }
+    setFormError(null);
+    setBoxes((prev) => {
+      const have = new Set(prev.filter((b) => b.whole).map((b) => b.page));
+      const added = rects
+        .filter((r) => !have.has(r.page))
+        .map((r) => ({ ...r, whole: true, id: idRef.current++ }));
+      return [...prev, ...added];
+    });
+    setWholePages("");
+  };
+
   const removeBox = (id: number) =>
     setBoxes((prev) => prev.filter((box) => box.id !== id));
 
@@ -223,7 +262,7 @@ function RedactEditor({
     }
     setProgress({ done: 0, total: pdf.pageCount });
     void run(async (): Promise<RedactOutcome> => {
-      const redacted = await redactPdf(pdf.bytes, {
+      const redacted = await redactRunnerDeps.redact(pdf.bytes, {
         rects: [...manual, ...textRects],
         fill,
         dpi: preset.dpi,
@@ -355,6 +394,41 @@ function RedactEditor({
             >
               <Plus className="size-4" aria-hidden />
               Add area
+            </button>
+          </div>
+
+          <div className="border-line flex flex-col gap-2 border-t pt-4 sm:flex-row sm:items-end">
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
+              <label
+                htmlFor={wholePagesId}
+                className="text-muted text-xs font-medium"
+              >
+                Whole pages
+              </label>
+              <input
+                id={wholePagesId}
+                type="text"
+                inputMode="numeric"
+                value={wholePages}
+                placeholder="e.g. 3, 7-9"
+                onChange={(event) => setWholePages(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    addWholePages();
+                  }
+                }}
+                className="border-line text-fg placeholder:text-muted focus:border-accent/40 focus:ring-accent/50 bg-canvas rounded-ctl h-11 w-full border px-3.5 text-sm transition outline-none focus:ring-2"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={addWholePages}
+              aria-disabled={!pageSizes || undefined}
+              className={buttonVariants({ variant: "secondary", size: "md" })}
+            >
+              <Plus className="size-4" aria-hidden />
+              Add whole pages
             </button>
           </div>
 
@@ -513,8 +587,9 @@ function BoxList({
             {index + 1}
           </span>
           <span className="text-muted min-w-0 flex-1 truncate text-xs">
-            Page {box.page} · x {box.x}, y {box.y} · {box.width} × {box.height}{" "}
-            pt
+            {box.whole
+              ? `Page ${box.page} · whole page`
+              : `Page ${box.page} · x ${box.x}, y ${box.y} · ${box.width} × ${box.height} pt`}
           </span>
           <button
             type="button"

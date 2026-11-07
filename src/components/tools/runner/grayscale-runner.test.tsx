@@ -13,7 +13,11 @@ import type { ReactNode } from "react";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { PDFDocument, PDFName, PDFRawStream, rgb } from "pdf-lib";
 import { getRunnerKind } from "@/lib/pdf/registry";
-import { grayscaleTitle } from "@/lib/pdf/grayscale";
+import {
+  GRAYSCALE_DPI_PRESETS,
+  grayscalePresetTradeoff,
+  grayscaleTitle,
+} from "@/lib/pdf/grayscale";
 import { ToolRunner } from "./tool-runner";
 import { runnerMounted } from "@/tests/runner-mounted";
 
@@ -195,10 +199,14 @@ async function expectDeviceGrayPages(out: Uint8Array): Promise<void> {
   expect(spaces).toEqual(["/DeviceGray", "/DeviceGray"]);
 }
 
-/** Upload `bytes` as `fileName`, convert at the default preset, download. */
+/**
+ * Upload `bytes` as `fileName`, convert at the default preset (or the one
+ * whose radio is named `preset`), download.
+ */
 async function convertThroughTheUi(
   bytes: Uint8Array,
   fileName: string,
+  preset?: string,
 ): Promise<Uint8Array> {
   const kind = getRunnerKind(SLUG);
   expect(kind, `the registry no longer maps ${SLUG} to a runner`).toBe(
@@ -221,6 +229,11 @@ async function convertThroughTheUi(
     name: /convert to grayscale/i,
   });
   await waitFor(() => expect(run).toBeEnabled());
+  if (preset !== undefined) {
+    const radio = screen.getByRole("radio", { name: preset });
+    fireEvent.click(radio);
+    expect(radio).toHaveAttribute("aria-checked", "true");
+  }
   fireEvent.click(run);
 
   const download = await screen.findByRole(
@@ -299,4 +312,74 @@ describe("grayscale-pdf: the Title of the file the visitor downloads", () => {
       expect(PRE_FIX_TITLE).not.toContain(needle);
     }
   });
+});
+
+/**
+ * Audit grayscale-pdf#4 (2026-11-07): the sharpest preset was Print at 150
+ * DPI, half the usual print standard, for a tool whose first use case is a
+ * monochrome laser printer. A 300 DPI preset now exists; read here as the
+ * pixel width of the page images in the downloaded file — 144 pt is 2 in.
+ */
+describe("grayscale-pdf: the 300 DPI preset reaches the page images", () => {
+  const widths = async (out: Uint8Array) =>
+    (await PDFDocument.load(out)).context
+      .enumerateIndirectObjects()
+      .map(([, obj]) => obj)
+      .filter(
+        (obj): obj is PDFRawStream =>
+          obj instanceof PDFRawStream &&
+          obj.dict.get(PDFName.of("Subtype"))?.toString() === "/Image",
+      )
+      .map((obj) => Number(obj.dict.get(PDFName.of("Width"))?.toString()));
+
+  it("the sharpest preset is 300 DPI, and a 2 in page comes out 600 px wide", async () => {
+    const sharpest = GRAYSCALE_DPI_PRESETS.reduce((a, b) =>
+      b.dpi > a.dpi ? b : a,
+    );
+    expect(sharpest.dpi).toBe(300);
+    const out = await convertThroughTheUi(
+      await makeSource(),
+      "chart.pdf",
+      `${sharpest.label} (${sharpest.dpi} DPI)`,
+    );
+    expect(await widths(out)).toEqual([600, 600]);
+  }, 30_000);
+
+  // Review 2026-11-08: the cost line appeared under the radiogroup with no
+  // link to it, so a screen-reader user picking Fine print was never told
+  // the cost the page copy promises "a line under the choice gives".
+  it("the Fine print cost line is announced: a polite live region drawn before the pick", async () => {
+    const { container } = render(
+      <Router>
+        <ToolRunner kind={getRunnerKind(SLUG)!} slug={SLUG} />
+      </Router>,
+    );
+    await runnerMounted(container);
+    fireEvent.change(container.querySelector('input[type="file"]')!, {
+      target: {
+        files: [
+          new File([(await makeSource()).slice()], "chart.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
+    });
+    await screen.findByRole("button", { name: /convert to grayscale/i });
+    const region = container.querySelector(
+      '[aria-live="polite"][data-preset-tradeoff]',
+    );
+    expect(region, "no live region before the pick").not.toBeNull();
+    expect(region!.textContent).toBe("");
+    const fine = GRAYSCALE_DPI_PRESETS.find((p) => p.id === "fine")!;
+    fireEvent.click(
+      screen.getByRole("radio", { name: `${fine.label} (${fine.dpi} DPI)` }),
+    );
+    expect(region!.textContent).toBe(grayscalePresetTradeoff("fine"));
+    expect(region!.isConnected).toBe(true);
+  });
+
+  it("control: the default is still Print, 300 px wide", async () => {
+    const out = await convertThroughTheUi(await makeSource(), "chart.pdf");
+    expect(await widths(out)).toEqual([300, 300]);
+  }, 30_000);
 });

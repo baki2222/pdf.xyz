@@ -2,6 +2,7 @@ import { drawRasterImage, embedRasterImage, loadPdfLib } from "./pdf-lib";
 import { PdfEngineError, loadPdf } from "./engine";
 import { outputName } from "./files";
 import { displayedPageSize } from "./page-frame";
+import { parsePageList } from "./ranges";
 // Types only: the rasterizer loads when a redaction runs (below), not with
 // Redact PDF's page.
 import type { RasterCanvasInfo, RasterPage, RasterizeOptions } from "./render";
@@ -204,6 +205,26 @@ export function validateRedactions(
   });
 
   return issues;
+}
+
+/**
+ * One box per page in `pages` ("3, 7-9", the range parser's syntax), each the
+ * size of its page AS DISPLAYED — the space every redaction box is in — so a
+ * whole page is blacked out by the same path as a typed box (audit
+ * redact-pdf#5). Throws `PageRangeError` for an empty list or a page past the
+ * end; sorted and de-duplicated.
+ */
+export function wholePageRedactions(
+  pages: string,
+  pageSizes: readonly PageSize[],
+): RedactionRect[] {
+  return parsePageList(pages, pageSizes.length).map((index) => ({
+    page: index + 1,
+    x: 0,
+    y: 0,
+    width: pageSizes[index]!.width,
+    height: pageSizes[index]!.height,
+  }));
 }
 
 function clampInt(value: number, min: number, max: number): number {

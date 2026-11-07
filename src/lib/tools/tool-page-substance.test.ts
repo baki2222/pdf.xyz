@@ -66,6 +66,8 @@ import {
   inches,
 } from "@/lib/pdf/page-geometry";
 import {
+  RASTER_BACKGROUNDS,
+  RASTER_BACKGROUND_LABEL,
   RASTER_MAX_DEVICE_PX,
   RASTER_PREVIEW_LIMIT,
   RASTER_RESOLUTIONS,
@@ -841,11 +843,32 @@ describe("the page tools' answers are what their engines produce", () => {
     expect(picked.length).toBeGreaterThan(2);
     for (let i = 1; i < picked.length; i += 1)
       expect(picked[i]! - picked[i - 1]!).toBe(2);
-    expect(
-      page("remove-pages")
-        .faq.map((e) => e.answer)
-        .join(" "),
-    ).toContain(EVERY_OTHER_PAGE_EXAMPLE);
+  });
+
+  // INVERTED 2026-11-07 (audit remove-pages#2). Until then this test also
+  // required the Delete Pages FAQ to contain the typed list — it pinned the
+  // workaround "type 2, 4, 6, 8 … and press Select", impractical on a
+  // 300-page scan, as the answer to "How do I delete every other page?".
+  // The Odd pages / Even pages chips arrived (page-select-runner.tsx), so the
+  // answer must now lead with the chip, and typing is only the fallback.
+  it("the every-other-page answer leads with the Even pages chip the runner draws", () => {
+    const runner = readFileSync(
+      path.join(
+        process.cwd(),
+        "src/components/tools/runner/page-select-runner.tsx",
+      ),
+      "utf8",
+    );
+    const answer = page("remove-pages").faq.find((e) =>
+      /every other page/i.test(e.question),
+    )?.answer;
+    expect(answer, "the FAQ still asks the question").toBeTruthy();
+    for (const chip of ["Even pages", "Odd pages"]) {
+      // The label is a chip the runner really draws, and the answer names it.
+      expect(runner).toMatch(new RegExp(`>\\s*${chip}\\s*<`));
+      expect(answer).toContain(chip);
+    }
+    expect(answer).not.toMatch(/^Type the pages/);
   });
 });
 
@@ -1401,18 +1424,39 @@ describe("the converters' pages describe the page they produce", () => {
     }
   });
 
-  it("PDF to PNG claims no transparency while its renderer paints white", () => {
-    const tool = tools.find((t) => t.slug === "pdf-to-png")!;
-    // Precondition: the runner passes no background, and the renderer's
-    // default is white.
-    expect(withoutComments(runnerSource(tool.slug))).not.toMatch(/background/);
-    expect(withoutComments(read("src/lib/pdf/render.ts"))).toMatch(
-      /background = "#ffffff"/,
+  // INVERTED 2026-11-07 (audit pdf-to-png#5), history kept: this was "PDF
+  // to PNG claims no transparency while its renderer paints white", and held
+  // /transparen/ off the page while the runner passed no background and
+  // render.ts defaulted to white. The runner now offers a Background choice,
+  // so the page must name it — in the runner's own label — and must not
+  // claim it for PDF to JPG, which has no alpha channel.
+  it("PDF to PNG names the transparent background it offers, in the runner's label; PDF to JPG does not", () => {
+    const png = tools.find((t) => t.slug === "pdf-to-png")!;
+    const jpg = tools.find((t) => t.slug === "pdf-to-jpg")!;
+    const clear = RASTER_BACKGROUNDS.find((b) => b.id === "transparent")!;
+    // Precondition: the runner draws the chips from that table, and passes
+    // the choice on (the pixels are read in render-transparent.test.ts).
+    const runner = withoutComments(runnerSource(png.slug));
+    expect(runner).toMatch(/RASTER_BACKGROUNDS\.map/);
+    expect(runner).toMatch(/transparent: true/);
+    const pngCopy = copyAbout(png).join("\n");
+    expect(pngCopy).toContain(
+      `${clear.label} under ${RASTER_BACKGROUND_LABEL}`,
     );
-    const shipped =
-      "Render PDF pages as crisp, lossless PNG images with a transparent or white background.";
-    expect(/transparen/i.test(shipped)).toBe(true);
-    expect(copyAbout(tool).filter((t) => /transparen/i.test(t))).toEqual([]);
+    // The copy is honest about what stays white.
+    expect(pngCopy).toMatch(/white rectangle/);
+    // The catalogue description (tool card, meta description) names both
+    // backgrounds, in the runner's labels. Review 2026-11-08: it still said
+    // "on a white background" under a comment pointing at the guard this
+    // branch retired. catalog.ts writes the words out rather than importing
+    // pdf-to-image.ts into the catalogue chunk, so this is what ties them.
+    const white = RASTER_BACKGROUNDS.find((b) => b.id === "white")!;
+    expect(png.description).toContain(
+      `on a ${white.label.toLowerCase()} or ${clear.label.toLowerCase()} background`,
+    );
+    expect(
+      copyAbout(jpg).filter((t) => /transparent background/i.test(t)),
+    ).toEqual([]);
   });
 
   it("the raster pages name every preset, and the cap the renderer uses", () => {

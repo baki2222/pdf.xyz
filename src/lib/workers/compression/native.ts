@@ -45,6 +45,7 @@ import {
   resolveNativeCompressionConfig,
   type NativeCompressionConfig,
 } from "./native-config";
+import { DEEP_MONO_MIN_DPI } from "@/lib/pdf/offered-kinds";
 
 /** stdout/stderr capture ceiling. Our engines are `-QUIET` and write to a file, so this is generous. */
 const EXEC_MAX_BUFFER = 16 * 1024 * 1024;
@@ -175,7 +176,10 @@ export function nativeArgs(
           "-dDownsampleMonoImages=true",
           `-dColorImageResolution=${targetDpi}`,
           `-dGrayImageResolution=${targetDpi}`,
-          `-dMonoImageResolution=${targetDpi}`,
+          // Black-and-white scans keep their text legible: never below
+          // DEEP_MONO_MIN_DPI, even on the Extreme preset or a ladder rung
+          // (audit compress-pdf#3). The ladder's cuts land on colour and gray.
+          `-dMonoImageResolution=${Math.max(targetDpi, DEEP_MONO_MIN_DPI)}`,
           // Every colour — images, text, drawing — through DeviceGray. The
           // engine re-reads the output's images (`image-colour.ts`) and fails
           // the run if one still has more than one component.

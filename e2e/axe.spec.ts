@@ -29,6 +29,7 @@ const PAGES = [
   "/tools",
   "/workspace",
   "/privacy",
+  "/security",
   `/guides/${GUIDE_META[0]!.slug}`,
   ...getAllToolSlugs().map((slug) => `/tools/${slug}`),
 ];
@@ -72,7 +73,7 @@ async function violations(page: Page): Promise<Violation[]> {
 test.describe("accessibility: axe WCAG 2.x A/AA on every landing page", () => {
   test("health: the set holds every catalogue tool and the other routes", () => {
     expect(getAllToolSlugs().length).toBeGreaterThanOrEqual(50);
-    expect(PAGES.length).toBe(getAllToolSlugs().length + 5);
+    expect(PAGES.length).toBe(getAllToolSlugs().length + 6);
   });
 
   test("POSITIVE CONTROL: a planted nested control and a tiny target are found", async ({

@@ -273,7 +273,7 @@ export function RedactFindPanel({
             text, so nothing on{" "}
             {index.pagesWithoutText.length === 1 ? "it" : "them"} can be found.
             Cover {index.pagesWithoutText.length === 1 ? "it" : "them"} with
-            areas by position.
+            Whole pages or with areas by position below.
           </p>
         )}
 

@@ -164,6 +164,7 @@ export const SPLIT_MODES = [
   "size",
   "bookmarks",
   "text",
+  "oddEven",
 ] as const;
 export type SplitMode = (typeof SPLIT_MODES)[number];
 export const SPLIT_MODE_LABEL: Record<SplitMode, string> = {
@@ -173,6 +174,7 @@ export const SPLIT_MODE_LABEL: Record<SplitMode, string> = {
   size: "By file size",
   bookmarks: "By bookmarks",
   text: "By text",
+  oddEven: "Odd and even pages",
 };
 export const SPLIT_MODE_FACT: Record<SplitMode, string> = {
   ranges: "custom page ranges",
@@ -181,6 +183,7 @@ export const SPLIT_MODE_FACT: Record<SplitMode, string> = {
   size: "a maximum file size per part",
   bookmarks: "top-level bookmarks",
   text: "every page that contains a word or phrase you type",
+  oddEven: "the odd pages into one file and the even pages into another",
 };
 
 /** Sign PDF — the typed signature's font styles. */
@@ -243,15 +246,74 @@ export const OVERLAY_FITS: readonly OverlayFitOption[] = [
   },
 ] as const;
 
-/** Grayscale PDF — the rasterization presets the runner offers. */
+/** Overlay PDF — which overlay page is used for each base page. */
+export type OverlayPaging = "repeat" | "cycle" | "last" | "once";
+
+export interface OverlayPagingOption {
+  id: OverlayPaging;
+  label: string;
+  hint: string;
+}
+
+/**
+ * The paging modes offered for a multi-page overlay, in the order the runner
+ * shows them; `repeat` is the default. The labels and hints are what the
+ * control renders, and the tool page reads them from here.
+ */
+export const OVERLAY_PAGINGS: readonly OverlayPagingOption[] = [
+  {
+    id: "repeat",
+    label: "First page on all",
+    hint: "Use only the overlay's first page, on every page.",
+  },
+  {
+    id: "cycle",
+    label: "Cycle pages",
+    hint: "Overlay page 1 on page 1, page 2 on page 2, and so on, starting again from overlay page 1 when the overlay runs out.",
+  },
+  {
+    id: "last",
+    label: "Repeat last page",
+    hint: "Match pages in order, then keep using the overlay's last page: a cover letterhead on page 1 and a continuation sheet on every page after it.",
+  },
+  {
+    id: "once",
+    label: "Once, then stop",
+    hint: "Match pages in order and stop when the overlay runs out: pages past its last page are left unchanged.",
+  },
+] as const;
+
+/**
+ * Edit PDF — the toolbar group holding the form-field tools, which other tool
+ * pages (Create Fillable Forms) send readers to. `create-forms-runner.test.tsx`
+ * holds the editor's TOOL_GROUPS to a group of this name with a signature
+ * field in it.
+ */
+export const EDITOR_FORMS_GROUP = "Forms";
+
+/** Overlay PDF — which base pages get the overlay; `all` is the default. */
+export const OVERLAY_PAGE_SCOPES = [
+  { id: "all", label: "All pages" },
+  { id: "some", label: "Selected pages" },
+] as const;
+
+export type OverlayPageScope = (typeof OVERLAY_PAGE_SCOPES)[number]["id"];
+
+/**
+ * Grayscale PDF — the rasterization presets the runner offers. "fine" (300
+ * DPI, the usual print standard) arrived 2026-11-07 (audit grayscale-pdf#4):
+ * until then the sharpest was Print at 150. Print stays the default.
+ */
 export const GRAYSCALE_DPI_PRESETS = [
   { id: "screen", label: "Screen", dpi: 96 },
   { id: "print", label: "Print", dpi: 150 },
+  { id: "fine", label: "Fine print", dpi: 300 },
 ] as const;
 
 /**
  * Compress PDF — the image resolutions the optional secure-worker step offers,
- * sent as `targetDpi` (the worker's Ghostscript downsamples every image to it).
+ * sent as `targetDpi` (the worker's Ghostscript downsamples colour and gray
+ * images to it; black-and-white images stop at {@link DEEP_MONO_MIN_DPI}).
  */
 export const DEEP_COMPRESSION_PRESETS = [
   // 72 DPI is also the worker's floor (`MIN_DPI` in compression/engine.ts).
@@ -260,3 +322,12 @@ export const DEEP_COMPRESSION_PRESETS = [
   { dpi: 150, label: "Balanced" },
   { dpi: 300, label: "High quality" },
 ] as const;
+
+/**
+ * Compress PDF's deep step never takes black-and-white (1-bit) images below
+ * this resolution, whatever the Quality or Target size (audit compress-pdf#3).
+ * Scanned text breaks up under 300 DPI while bilevel images are already
+ * small, and Ghostscript's own /screen and /ebook presets keep mono at 300.
+ * `nativeArgs` (compression/native.ts) sends `max(targetDpi, this)`.
+ */
+export const DEEP_MONO_MIN_DPI = 300;

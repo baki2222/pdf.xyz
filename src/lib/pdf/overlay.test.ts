@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import { PdfEngineError } from "./engine";
 import {
   OVERLAY_LAYERS,
+  OVERLAY_PAGINGS,
   clampOpacity,
   fitOverlayRect,
   neededOverlayIndices,
@@ -227,6 +228,21 @@ describe("overlayPageIndexFor", () => {
     expect(seq).toEqual([0, 1, 0, 1, 0]);
   });
 
+  it("repeats the LAST overlay page once the overlay runs out (cover + continuation)", () => {
+    // A two-page letterhead on a five-page letter: cover, then continuation
+    // on every later page. Cycle put the cover back on pages 3 and 5.
+    const seq = [0, 1, 2, 3, 4].map((i) => overlayPageIndexFor(i, 2, "last"));
+    expect(seq).toEqual([0, 1, 1, 1, 1]);
+    expect(
+      [0, 1, 2, 3, 4].map((i) => overlayPageIndexFor(i, 2, "cycle")),
+    ).toEqual([0, 1, 0, 1, 0]);
+  });
+
+  it("matches pages once, then leaves the rest without an overlay", () => {
+    const seq = [0, 1, 2, 3, 4].map((i) => overlayPageIndexFor(i, 2, "once"));
+    expect(seq).toEqual([0, 1, -1, -1, -1]);
+  });
+
   it("returns -1 when there are no overlay pages", () => {
     expect(overlayPageIndexFor(0, 0, "cycle")).toBe(-1);
     expect(overlayPageIndexFor(2, 0, "repeat")).toBe(-1);
@@ -242,6 +258,25 @@ describe("neededOverlayIndices", () => {
     expect(neededOverlayIndices(3, 2, "cycle")).toEqual([0, 1]);
     expect(neededOverlayIndices(2, 5, "cycle")).toEqual([0, 1]);
     expect(neededOverlayIndices(5, 3, "cycle")).toEqual([0, 1, 2]);
+  });
+
+  it("needs only the reachable pages for last-page and once paging", () => {
+    expect(neededOverlayIndices(5, 2, "last")).toEqual([0, 1]);
+    expect(neededOverlayIndices(2, 5, "last")).toEqual([0, 1]);
+    expect(neededOverlayIndices(5, 2, "once")).toEqual([0, 1]);
+  });
+
+  it("offers every paging mode the engine maps, each with a label and hint", () => {
+    expect(OVERLAY_PAGINGS.map((p) => p.id)).toEqual([
+      "repeat",
+      "cycle",
+      "last",
+      "once",
+    ]);
+    for (const option of OVERLAY_PAGINGS) {
+      expect(option.label.length).toBeGreaterThan(0);
+      expect(option.hint.length).toBeGreaterThan(0);
+    }
   });
 
   it("needs nothing for empty inputs", () => {
@@ -308,6 +343,82 @@ describe("overlayPdf", () => {
     expect(result.paging).toBe("cycle");
     const out = await PDFDocument.load(result.bytes);
     expect(out.getPageCount()).toBe(3);
+  });
+
+  it("leaves base pages past the overlay unchanged with Once, then stop", async () => {
+    const base = await basePdf([
+      [500, 500],
+      [500, 500],
+      [500, 500],
+      [500, 500],
+    ]);
+    const overlay = await overlayDoc(2);
+    const once = await overlayPdf(base, overlay, { paging: "once" });
+    expect(once.paging).toBe("once");
+    expect(once.pageCount).toBe(4);
+    expect(once.overlaidPageCount).toBe(2);
+    const last = await overlayPdf(base, overlay, { paging: "last" });
+    expect(last.overlaidPageCount).toBe(4);
+  });
+
+  it("overlays only the selected pages, mapping overlay pages from the first selected one", async () => {
+    // A letterhead on page 1 only, or a template that skips a cover: the
+    // overlay goes on the listed pages and the rest are left as they were.
+    const base = await basePdf([
+      [500, 500],
+      [500, 500],
+      [500, 500],
+      [500, 500],
+    ]);
+    const overlay = await overlayDoc(2);
+    const result = await overlayPdf(base, overlay, {
+      paging: "once",
+      pages: [1, 2, 3],
+    });
+    expect(result.pageCount).toBe(4);
+    expect(result.overlaidPageCount).toBe(2);
+    expect(result.pages).toEqual([1, 2, 3]);
+    const out = await PDFDocument.load(result.bytes);
+    const drawn = out
+      .getPages()
+      .map((page) => (page.node.Contents() ? 1 : 0) as number);
+    // Page 1 was never selected and page 4 is past the overlay ("once").
+    expect(drawn).toEqual([0, 1, 1, 0]);
+
+    const first = await overlayPdf(base, overlay, { pages: [0] });
+    expect(first.overlaidPageCount).toBe(1);
+    expect(
+      (await overlayPdf(base, overlay)).pages,
+      "no selection means every page",
+    ).toBeNull();
+  });
+
+  it("gives the selected pages the overlay's pages in turn, skipping nothing for a gap", async () => {
+    // "1, 3-4" with a two-page overlay: page 3 is the SECOND selected page,
+    // so it takes overlay page 2, not overlay page 3 (the copy says "in
+    // turn"; it once said only "counted from the first selected page").
+    const base = await basePdf([
+      [500, 500],
+      [500, 500],
+      [500, 500],
+      [500, 500],
+    ]);
+    const result = await overlayPdf(base, await overlayDoc(2), {
+      paging: "once",
+      pages: [0, 2, 3],
+    });
+    expect(result.overlaidPageCount).toBe(2);
+    const out = await PDFDocument.load(result.bytes);
+    expect(
+      out.getPages().map((page) => (page.node.Contents() ? 1 : 0) as number),
+    ).toEqual([1, 0, 1, 0]);
+  });
+
+  it("refuses a selection with no page of the base PDF in it", async () => {
+    const base = await basePdf([[500, 500]]);
+    await expect(
+      overlayPdf(base, await overlayDoc(1), { pages: [5] }),
+    ).rejects.toThrow(PdfEngineError);
   });
 
   it("clamps out-of-range opacity", async () => {

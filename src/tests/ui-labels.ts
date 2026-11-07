@@ -64,7 +64,8 @@
  *   string it can render: JSX text, string literals, template literals (each
  *   `${…}` a wildcard), JSX children with expressions (each `{…}` a
  *   wildcard). A drop zone's "…, or" title is also read with the "browse"
- *   control that follows it on screen.
+ *   control that follows it on screen; a TEMPLATE title is composed only
+ *   once its hole is resolved per tool (see `uiOf`), never as a wildcard.
  *
  * ── VISIBLE, NOT MERELY PRESENT (2026-10-31) ────────────────────────────────
  *
@@ -121,6 +122,11 @@ import ts from "typescript";
 import path from "node:path";
 import { formatForToken } from "@/lib/intent/formats";
 import { tools } from "@/lib/tools";
+import {
+  DOCUMENT_NOUNS,
+  OFFICE_TO_PDF_TOOLS,
+  type OfficeToPdfTool,
+} from "@/lib/workers/office-conversion/tools";
 import {
   SRC,
   ownPanelModules,
@@ -698,6 +704,9 @@ export function renderedBy(file: string): Rendered {
 
 const { bySlug } = ownPanelModules();
 
+const isOfficeTool = (slug: string): slug is OfficeToPdfTool =>
+  (OFFICE_TO_PDF_TOOLS as readonly string[]).includes(slug);
+
 /** The module a tool page mounts as its panel, or null when it mounts none. */
 export const panelFileOf = (slug: string): string | null =>
   bySlug.get(slug)?.file ?? null;
@@ -720,6 +729,22 @@ export function uiOf(slugs: readonly string[]): Rendered & { files: string[] } {
     for (const s of r.hidden) hidden.add(s);
     patterns.push(...r.patterns);
     for (const s of r.leads) leads.add(s);
+  }
+  // A drop-zone title that is a TEMPLATE whose hole is a per-tool constant
+  // (the Office panel's `Add your ${DOCUMENT_NOUNS[tool]}, or`, since
+  // audit excel-to-pdf#5) is resolved PER SLUG, never left as a hole: a hole
+  // accepts any words, and composing one with "browse" passed “Add your
+  // spreadsheet, or browse” on Excel to PDF, whose box says "workbook"
+  // (review of 95e722d5). The resolved title counts only while a template in
+  // scope still draws it, so a reworded panel drops it rather than keeping a
+  // stale literal alive. tool-page-ui-labels.test.ts ("a drop zone's
+  // template title composes with “browse” only with that tool's own noun")
+  // holds this resolution per tool, a wrong noun included.
+  for (const slug of slugs) {
+    if (!isOfficeTool(slug)) continue;
+    const title = `Add your ${DOCUMENT_NOUNS[slug]}, or`;
+    if (patterns.some((re) => re.source.endsWith(", or$") && re.test(title)))
+      exact.add(title);
   }
   // Visible anywhere in the scope is visible.
   for (const s of exact) hidden.delete(s);

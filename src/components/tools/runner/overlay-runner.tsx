@@ -13,14 +13,18 @@ import {
 import {
   OVERLAY_FITS,
   OVERLAY_LAYERS,
+  OVERLAY_PAGE_SCOPES,
+  OVERLAY_PAGINGS,
   overlayOutputName,
   overlayPdf,
   type OverlayFit,
   type OverlayLayer,
+  type OverlayPageScope,
   type OverlayPaging,
   type OverlayResult,
 } from "@/lib/pdf/overlay";
 import { getPageCount } from "@/lib/pdf/engine";
+import { formatPageNumbers, parsePageList } from "@/lib/pdf/ranges";
 import { downloadBytes, readFileBytes } from "@/lib/pdf/browser";
 import { validatePdfFile } from "@/lib/pdf/files";
 import { buttonVariants } from "@/components/ui/button";
@@ -38,7 +42,12 @@ import {
 } from "./runner-kit";
 import { RunBar } from "./run-bar";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
-import { PrivacyLine, RangeField, SegmentedControl } from "./stamp-controls";
+import {
+  PrivacyLine,
+  RangeField,
+  SegmentedControl,
+  TextField,
+} from "./stamp-controls";
 import type { LoadedPdf } from "./use-single-pdf";
 
 /** A loaded overlay/stamp document: its bytes plus page count. */
@@ -76,6 +85,9 @@ function OverlayEditor({
   const [fit, setFit] = useState<OverlayFit>("fit");
   const [paging, setPaging] = useState<OverlayPaging>("repeat");
   const [layer, setLayer] = useState<OverlayLayer>("front");
+  const [scope, setScope] = useState<OverlayPageScope>("all");
+  const [pageInput, setPageInput] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
   const layerOption = describeLayer(layer);
 
   const multiPageOverlay = (overlay?.pageCount ?? 0) > 1;
@@ -106,18 +118,39 @@ function OverlayEditor({
 
   const onRun = () => {
     if (!overlay) return;
+    let pages: number[] | undefined;
+    if (scope === "some") {
+      try {
+        pages = parsePageList(pageInput, pdf.pageCount);
+      } catch (err) {
+        setFormError(errorMessage(err));
+        return;
+      }
+    }
+    setFormError(null);
     void run(() =>
       overlayPdf(pdf.bytes, overlay.bytes, {
         opacity: opacity / 100,
         fit,
         paging: effectivePaging,
         layer,
+        pages,
       }),
     );
   };
 
   if (result) {
     const skipped = result.skippedBlankOverlayPages;
+    const targets =
+      result.pages ?? Array.from({ length: result.pageCount }, (_, i) => i);
+    const unselected = result.pages
+      ? Array.from({ length: result.pageCount }, (_, i) => i).filter(
+          (i) => !result.pages!.includes(i),
+        )
+      : [];
+    // With "Once, then stop", the selected pages past the overlay's last page.
+    const beyond =
+      result.paging === "once" ? targets.slice(result.overlayPageCount) : [];
     return (
       <ResultPanel
         title="Overlay applied"
@@ -127,6 +160,18 @@ function OverlayEditor({
         onAdjust={reset}
         expectedPages={pdf.pageCount}
       >
+        {unselected.length > 0 && (
+          <p className="text-muted text-sm">
+            {unselected.length === 1
+              ? `Page ${unselected[0]! + 1} was not selected, so it is unchanged.`
+              : `Pages ${formatPageNumbers(unselected.map((i) => i + 1))} were not selected, so they are unchanged.`}
+          </p>
+        )}
+        {beyond.length > 0 && (
+          <p className="text-muted text-sm">
+            {`The overlay has ${result.overlayPageCount} pages, so ${beyond.length === 1 ? "page" : "pages"} ${formatPageNumbers(beyond.map((i) => i + 1))} ${beyond.length === 1 ? "was" : "were"} left unchanged.`}
+          </p>
+        )}
         {skipped.length > 0 && (
           <p className="text-muted text-sm">
             {skipped.length === 1
@@ -248,21 +293,49 @@ function OverlayEditor({
               label="How overlay pages map to base pages"
               value={effectivePaging}
               onChange={setPaging}
-              options={[
-                {
-                  value: "repeat",
-                  label: "First page on all",
-                  title: "Use only the overlay's first page on every base page",
-                },
-                {
-                  value: "cycle",
-                  label: "Cycle pages",
-                  title: "Walk the overlay pages in order, repeating as needed",
-                },
-              ]}
+              options={OVERLAY_PAGINGS.map((option) => ({
+                value: option.id,
+                label: option.label,
+                title: option.hint,
+              }))}
             />
+            <p className="text-muted text-xs leading-relaxed">
+              {describePaging(effectivePaging).hint}
+            </p>
           </div>
         )}
+        <div className="flex flex-col gap-2">
+          <span className="text-muted text-xs font-medium">Pages</span>
+          <SegmentedControl
+            label="Overlay page scope"
+            value={scope}
+            onChange={(value) => {
+              setScope(value);
+              setFormError(null);
+            }}
+            options={OVERLAY_PAGE_SCOPES.map((option) => ({
+              value: option.id,
+              label: option.label,
+            }))}
+          />
+          {scope === "some" && (
+            <TextField
+              label="Pages to overlay"
+              value={pageInput}
+              onChange={(value) => {
+                setPageInput(value);
+                setFormError(null);
+              }}
+              placeholder="e.g. 1, 3-5"
+            />
+          )}
+          {scope === "some" && multiPageOverlay && (
+            <p className="text-muted text-xs leading-relaxed">
+              The selected pages take the overlay’s pages in turn: the first
+              gets overlay page 1, the next overlay page 2.
+            </p>
+          )}
+        </div>
       </RunnerSection>
 
       <div className="grid gap-3 sm:grid-cols-3">
@@ -288,6 +361,7 @@ function OverlayEditor({
         browser.
       </PrivacyLine>
 
+      {formError && <ErrorNote message={formError} />}
       {error && <ErrorNote message={error} />}
 
       <RunBar>
@@ -320,6 +394,13 @@ function OverlayEditor({
 
 function describeFit(fit: OverlayFit): string {
   return OVERLAY_FITS.find((option) => option.id === fit)?.label ?? "Fit page";
+}
+
+function describePaging(paging: OverlayPaging) {
+  return (
+    OVERLAY_PAGINGS.find((option) => option.id === paging) ??
+    OVERLAY_PAGINGS[0]!
+  );
 }
 
 function describeLayer(layer: OverlayLayer) {

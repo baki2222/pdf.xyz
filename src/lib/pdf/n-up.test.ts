@@ -10,6 +10,9 @@ import {
   degrees,
 } from "pdf-lib";
 import { describe, expect, it } from "vitest";
+import { getToolBySlug } from "@/lib/tools";
+import { getToolContent } from "@/lib/tools/content";
+import { getGuideBySlug } from "@/lib/guides";
 import {
   N_UP_COUNTS,
   N_UP_MARGINS,
@@ -118,20 +121,61 @@ const opts = (over: Partial<NUpOptions> = {}): NUpOptions => ({
   order: "across",
   margin: "none",
   borders: false,
+  rtl: false,
   ...over,
 });
 
-const A4 = N_UP_SHEETS.find((s) => s.id === "a4")!.size;
+const A4 = N_UP_SHEETS.find((s) => s.id === "a4")!.size!;
 
 describe("nUpGrid and nUpCells", () => {
   it("has a grid for every count, whose cells number the count", () => {
-    expect(N_UP_COUNTS).toEqual([2, 4, 6, 9]);
+    // 3, 8, 12 and 16 added 2026-11-07 (audit n-up-pdf#2): 8 and 16 are
+    // the handout and proof-sheet counts both competitors with this tool offer.
+    expect(N_UP_COUNTS).toEqual([2, 3, 4, 6, 8, 9, 12, 16]);
     for (const n of N_UP_COUNTS) {
       for (const landscape of [false, true]) {
         const g = nUpGrid(n, landscape);
         expect(g.cols * g.rows).toBe(n);
       }
     }
+  });
+
+  it("the catalogue's card names the most pages per sheet, never a range that skips counts", () => {
+    // The tagline and description are typed in the catalogue, which cannot
+    // import this module; they said "2, 4, 6 or 9" until 2026-11-07, then
+    // "2 to 16", which reads as any count in between while 5, 7, 10, 11 and
+    // 13-15 are not offered (review of audit n-up-pdf#2). "Up to 16" is true.
+    const tool = getToolBySlug("n-up-pdf")!;
+    const most = `up to ${N_UP_COUNTS.at(-1)}`;
+    expect(tool.tagline.toLowerCase()).toContain(most);
+    expect(tool.description.toLowerCase()).toContain(most);
+    // "N to M" is a claim that every count from N to M is offered.
+    const skipped = (text: string): number[] =>
+      [...text.matchAll(/\b(\d+) to (\d+)\b/g)].flatMap(([, a, b]) =>
+        Array.from(
+          { length: Number(b) - Number(a) + 1 },
+          (_, k) => Number(a) + k,
+        ).filter((n) => !(N_UP_COUNTS as readonly number[]).includes(n)),
+      );
+    expect(
+      skipped("Put 2 to 16 pages on one sheet."),
+      "positive control",
+    ).not.toEqual([]);
+    const surfaces = [
+      tool.tagline,
+      tool.description,
+      getToolContent("n-up-pdf")!.metaDescription,
+      getGuideBySlug("how-to-print-multiple-pages-per-sheet")!.description,
+    ];
+    expect(
+      surfaces.every((t) => t.length > 0),
+      "health check",
+    ).toBe(true);
+    for (const text of surfaces) expect(skipped(text), text).toEqual([]);
+    // …and every paper size the Sheet size chips offer (since 2026-11-07,
+    // audit n-up-pdf#3; it named A4 and US Letter only).
+    for (const sheet of N_UP_SHEETS.filter((s) => s.size))
+      expect(tool.description).toContain(sheet.label);
   });
 
   it("tiles the sheet exactly, margin at the edges and between cells", () => {
@@ -267,6 +311,114 @@ describe("nUpPdf, read back by pdf.js", () => {
       expect(sheets[0]!.width).toBeCloseTo(612, 1);
       expect(sheets[0]!.labels).toHaveLength(perSheet);
     }
+  });
+
+  it("8, 12 and 16 per sheet fit that many pages on one sheet, in reading order", async () => {
+    for (const perSheet of [8, 12, 16] as const) {
+      const result = await nUpPdf(
+        await labelledPdf(perSheet + 1),
+        opts({ perSheet, orientation: "portrait" }),
+      );
+      expect(result.sheets).toBe(2);
+      expect(result.grid.cols * result.grid.rows).toBe(perSheet);
+      const sheets = await readSheets(result.bytes);
+      expect(sheets[0]!.labels).toHaveLength(perSheet);
+      expect(sheets[1]!.labels.map((l) => l.text)).toEqual([
+        `P${perSheet + 1}`,
+      ]);
+      const at = Object.fromEntries(sheets[0]!.labels.map((l) => [l.text, l]));
+      // Across, then down: P2 right of P1 on the same row; the first page
+      // of row two sits under P1.
+      const next = `P${result.grid.cols + 1}`;
+      expect(at.P2!.x).toBeGreaterThan(at.P1!.x);
+      expect(at.P2!.y).toBeCloseTo(at.P1!.y, 1);
+      expect(at[next]!.x).toBeCloseTo(at.P1!.x, 1);
+      expect(at[next]!.y).toBeGreaterThan(at.P1!.y);
+    }
+  });
+
+  it("3 per sheet stacks three portrait pages, or sets them side by side on landscape", async () => {
+    expect(nUpGrid(3, false)).toEqual({ cols: 1, rows: 3 });
+    expect(nUpGrid(3, true)).toEqual({ cols: 3, rows: 1 });
+    const result = await nUpPdf(
+      await labelledPdf(3),
+      opts({ perSheet: 3, orientation: "auto" }),
+    );
+    expect(result.sheets).toBe(1);
+    expect((await readSheets(result.bytes))[0]!.labels).toHaveLength(3);
+  });
+
+  it("offers A3, A5 and US Legal sheets beside A4 and US Letter, and the original page size", async () => {
+    expect(N_UP_SHEETS.map((s) => s.id)).toEqual([
+      "a4",
+      "letter",
+      "legal",
+      "a3",
+      "a5",
+      "source",
+    ]);
+    // A3 is the proof sheet for 4-up A4: each A4 page lands at full A4 size
+    // in its quarter.
+    const a3 = N_UP_SHEETS.find((s) => s.id === "a3")!.size!;
+    expect(a3.width).toBeCloseTo(841.89, 1);
+    expect(a3.height).toBeCloseTo(1190.55, 1);
+    const result = await nUpPdf(await labelledPdf(4), opts({ sheet: "a3" }));
+    const [sheet] = await readSheets(result.bytes);
+    expect(sheet!.width).toBeCloseTo(a3.width, 1);
+    expect(sheet!.height).toBeCloseTo(a3.height, 1);
+    expect(sheet!.labels).toHaveLength(4);
+  });
+
+  it("'Original page size' makes each sheet the size of the first page", async () => {
+    // 300 x 400 pages, 2 per sheet on Auto: the sheet is 300 x 400 turned
+    // landscape, so the two pages sit side by side at half scale.
+    const result = await nUpPdf(
+      await labelledPdf(4),
+      opts({ sheet: "source", perSheet: 2, orientation: "auto" }),
+    );
+    expect(result.orientation).toBe("landscape");
+    const sheets = await readSheets(result.bytes);
+    expect(sheets).toHaveLength(2);
+    expect(sheets[0]!.width).toBeCloseTo(400, 1);
+    expect(sheets[0]!.height).toBeCloseTo(300, 1);
+    const portrait = await nUpPdf(
+      await labelledPdf(4),
+      opts({ sheet: "source", perSheet: 4, orientation: "portrait" }),
+    );
+    const [p] = await readSheets(portrait.bytes);
+    expect(p!.width).toBeCloseTo(300, 1);
+    expect(p!.height).toBeCloseTo(400, 1);
+  });
+
+  it("right to left mirrors the columns: P1 top-right, P2 to its left", async () => {
+    // An Arabic, Hebrew or manga handout read right to left: page 2 must sit
+    // to the LEFT of page 1, or the sheet reads backwards.
+    const across = await nUpPdf(await labelledPdf(4), opts({ rtl: true }));
+    const [sheet] = await readSheets(across.bytes);
+    const at = Object.fromEntries(sheet!.labels.map((l) => [l.text, l]));
+    const halfW = A4.width / 2;
+    const halfH = A4.height / 2;
+    expect(at.P1!.x).toBeGreaterThan(halfW);
+    expect(at.P1!.y).toBeLessThan(halfH);
+    expect(at.P2!.x).toBeLessThan(halfW);
+    expect(at.P2!.y).toBeLessThan(halfH);
+    expect(at.P3!.x).toBeGreaterThan(halfW);
+    expect(at.P3!.y).toBeGreaterThan(halfH);
+    // Down, then across: P2 under P1 in the right column, P3 starts the left.
+    const down = await nUpPdf(
+      await labelledPdf(4),
+      opts({ rtl: true, order: "down" }),
+    );
+    const [d] = await readSheets(down.bytes);
+    const dat = Object.fromEntries(d!.labels.map((l) => [l.text, l]));
+    expect(dat.P2!.x).toBeCloseTo(dat.P1!.x, 1);
+    expect(dat.P2!.y).toBeGreaterThan(dat.P1!.y);
+    expect(dat.P3!.x).toBeLessThan(dat.P1!.x);
+    // Control: left to right keeps P2 to the right of P1.
+    expect(
+      nUpCells(A4, { cols: 2, rows: 1 }, "across", 0, false)[1]!.x,
+    ).toBeGreaterThan(0);
+    expect(nUpCells(A4, { cols: 2, rows: 1 }, "across", 0, true)[1]!.x).toBe(0);
   });
 
   it("draws a page carrying /Rotate 90 the way a viewer shows it", async () => {

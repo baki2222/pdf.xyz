@@ -16,3 +16,18 @@ export const OFFICE_TO_PDF_TOOLS = [
   POWERPOINT_TO_PDF_TOOL,
 ] as const;
 export type OfficeToPdfTool = (typeof OFFICE_TO_PDF_TOOLS)[number];
+
+/**
+ * What each tool's users call the file: the Office panel's drop zone ("Add
+ * your workbook, or browse") and the refusals both use it. Only the noun
+ * lives here, in the leaf the browser panel imports. The program names and
+ * Protect commands the refusals quote are in ./document-words, which only
+ * the server engine and the tool pages read. Measured 2026-11-07: carrying
+ * them here put about 120 B gz on every page that loads this leaf (every
+ * worker tool page, /status, and the home desk's ticket).
+ */
+export const DOCUMENT_NOUNS: Record<OfficeToPdfTool, string> = {
+  [WORD_TO_PDF_TOOL]: "document",
+  [EXCEL_TO_PDF_TOOL]: "workbook",
+  [POWERPOINT_TO_PDF_TOOL]: "presentation",
+};

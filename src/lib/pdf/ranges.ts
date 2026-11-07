@@ -1,5 +1,4 @@
-import { sanitizeSegment } from "./files";
-import type { PageRange, SplitPart } from "./types";
+import type { PageRange } from "./types";
 
 /**
  * Pure page-range math. No pdf-lib, no DOM — just parsing and expanding the
@@ -162,29 +161,4 @@ export function formatPageNumbers(pageNumbers: readonly number[]): string {
     else runs.push({ start: page - 1, end: page - 1 });
   }
   return runs.map(formatRange).join(", ");
-}
-
-/**
- * Build named split parts from ranges. Names are zero-padded and carry the page
- * range so a folder of outputs sorts and reads sensibly. The base goes through
- * the same {@link sanitizeSegment} as every other output name, so a source
- * called "Q3: plan?.pdf" cannot write a ZIP entry Windows refuses to extract.
- */
-export function buildSplitParts(
-  base: string,
-  ranges: PageRange[],
-): SplitPart[] {
-  const safeBase = sanitizeSegment(base);
-  const pad = String(ranges.length).length;
-  return ranges.map((range, i) => {
-    const seq = String(i + 1).padStart(pad, "0");
-    const label =
-      range.start === range.end
-        ? `page-${range.start + 1}`
-        : `pages-${range.start + 1}-${range.end + 1}`;
-    return {
-      name: `${safeBase}-${seq}-${label}.pdf`,
-      indices: rangeToIndices(range),
-    };
-  });
 }

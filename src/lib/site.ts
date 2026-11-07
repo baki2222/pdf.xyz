@@ -185,7 +185,7 @@ export const footerNav: { title: string; items: FooterNavItem[] }[] = [
     items: [
       { label: "About", href: "/#about" },
       { label: "How files are handled", href: "/#privacy" },
-      { label: "Security practices", href: "/#security" },
+      { label: "Security practices", href: "/security" },
       { label: "Contact", href: "/#contact" },
     ],
   },

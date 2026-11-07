@@ -381,6 +381,8 @@ test("a staged hand-off uploads nothing either: Flatten PDF's Continue with Prot
   expect(wire.uploads, "a staged file was uploaded before Run").toEqual([]);
 
   await page.getByLabel("New password").fill("correct horse");
+  // Protect asks twice (audit protect-pdf#3).
+  await page.getByLabel("Confirm password").fill("correct horse");
   await page.getByRole("button", { name: "Encrypt PDF" }).click();
   await expect(card(page, "Your PDF is protected and ready.")).toBeVisible({
     timeout: 20_000,

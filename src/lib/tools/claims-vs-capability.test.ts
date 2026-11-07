@@ -139,9 +139,14 @@ import {
   toolApplicationSchema,
 } from "@/lib/structured-data";
 import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
-import { rasterFormatForSlug } from "@/lib/pdf/pdf-to-image";
 import { imagesToPdf } from "@/lib/pdf/image-to-pdf";
-import { IMAGE_MARGINS, IMAGE_PAGE_SIZES } from "@/lib/pdf/image-page-layout";
+import {
+  DEFAULT_IMAGE_PAGE_OPTIONS,
+  IMAGE_MARGINS,
+  IMAGE_PAGE_SIZES,
+  imagePageSizeById,
+} from "@/lib/pdf/image-page-layout";
+import { imagePageSizeForLocales } from "@/lib/pdf/image-page-defaults";
 import { mergePdfs } from "@/lib/pdf/engine";
 import { addWatermark } from "@/lib/pdf/watermark";
 import { signatureRequestDeps } from "@/lib/workers/request-signatures/native";
@@ -813,7 +818,10 @@ const RULES: readonly ClaimRule[] = [
     ],
     synonyms: ["The layout is fixed.", "There are no page size settings."],
     honest: [
-      "Unless you change the page setup, that page is US Letter (8.5 × 11 in) portrait with a 0.5 in margin.",
+      // Was "that page is US Letter (8.5 × 11 in) portrait with a 0.5 in
+      // margin." until 2026-11-07, when the paper began following the
+      // browser's region (audit jpg-to-pdf#1).
+      "Unless you change the page setup, that page is portrait with a 0.5 in margin, and its size is A4 (8.27 × 11.69 in), or US Letter (8.5 × 11 in) if your browser's preferred language is set for a country that uses Letter paper, such as the United States, Canada, Mexico or the Philippines.",
       "Fit to image makes each page the size of its image instead, plus the margin.",
       "Larger images are scaled down to fit; smaller ones are never enlarged.",
     ],
@@ -828,66 +836,18 @@ const RULES: readonly ClaimRule[] = [
       };
     },
   },
-  {
-    id: "PDF to PNG produces a transparent background",
-    subjects: () =>
-      slugsOfKind("pdf-to-image").filter(
-        (slug) => rasterFormatForSlug(slug) === "png",
-      ),
-    shapes: {
-      transparent: /\btransparen(?:t|cy)\b/i,
-      alpha: /\balpha(?:\s+channel)?\b/i,
-    },
-    shipped: [
-      "Render PDF pages as crisp, lossless PNG images with a transparent or white background.",
-    ],
-    synonyms: ["Every PNG keeps an alpha channel."],
-    honest: [
-      "Render PDF pages as crisp, lossless PNG images on a white background — right in your browser, so the file stays on your device.",
-    ],
-    probe: async () => {
-      // The runner never passes a background, so the rasterizer's default
-      // paints every PNG. Both halves are read: a runner that starts passing
-      // one, or a default that stops being opaque, is the capability arriving.
-      const file = runnerFileForKind("pdf-to-image");
-      if (!file) throw new Error("no runner module for pdf-to-image");
-      const runner = withoutComments(read(file));
-      const render = withoutComments(read("src/lib/pdf/render.ts"));
-      const optionDefaults = (name: string) =>
-        new RegExp(
-          `export async function ${name}(?:<[^>]*>)?\\(\\s*bytes[^,]*,\\s*\\{([\\s\\S]*?)\\}\\s*:\\s*\\w+`,
-        ).exec(render)?.[1];
-      const rasterize = optionDefaults("rasterizePdf");
-      if (!rasterize)
-        throw new Error("could not find rasterizePdf's option defaults");
-      // Follow the default to wherever it is applied. Until the grayscale fix
-      // (wave 1, 2026-09-27) rasterizePdf defaulted `background` itself; it now
-      // forwards `...rest` to capturePdfPages, which does. Reading only
-      // rasterizePdf's own signature then found no white default and reported
-      // the capability ARRIVED — a probe of the wrong function, not a new
-      // feature. A shape that is neither fails loudly rather than guess.
-      let defaults = rasterize;
-      if (!/\bbackground\b/.test(rasterize)) {
-        const forwards =
-          /\.\.\.rest\b/.test(rasterize) &&
-          /capturePdfPages\(\s*bytes,\s*\{\s*\.\.\.rest\b/.test(render);
-        const captured = forwards
-          ? optionDefaults("capturePdfPages")
-          : undefined;
-        if (!captured)
-          throw new Error(
-            "rasterizePdf neither defaults `background` nor forwards its options to capturePdfPages — find where the PNG background is decided and point this probe there",
-          );
-        defaults = captured;
-      }
-      const whiteDefault = /background\s*=\s*"#ffffff"/.test(defaults);
-      const runnerChooses = /\bbackground\b|transparen|alpha/i.test(runner);
-      return {
-        present: runnerChooses || !whiteDefault,
-        evidence: `runner mentions a background: ${runnerChooses}; rasterizePdf defaults to white: ${whiteDefault}`,
-      };
-    },
-  },
+  // RETIRED 2026-11-07, history kept: "PDF to PNG produces a transparent
+  // background". It held "transparent" and "alpha channel" off the PDF to PNG
+  // page (the shipped sentence was "Render PDF pages as crisp, lossless PNG
+  // images with a transparent or white background.") while the runner passed
+  // no background and capturePdfPages defaulted to "#ffffff". Its probe read
+  // both halves, and audit pdf-to-png#5 made it go true, as it was built to:
+  // the runner now offers RASTER_BACKGROUNDS and passes `transparent`, and
+  // capturePdfPages hands pdf.js an alpha context. What the page may claim is
+  // pinned on a real output instead — src/lib/pdf/render-transparent.test.ts
+  // reads alpha 0 off a rendered PNG, pdf-to-image-chain.test.tsx reads the
+  // choice at pdf.js's render call, and tool-page-substance.test.ts holds the
+  // page's wording to the runner's labels.
   // RETIRED 2026-10-24, history kept: "watermarks can be images, logos, or
   // tiled". It held "text or image watermark … and tiling" off every page
   // while WatermarkOptions had no image or tile key, and its probe read that
@@ -1589,8 +1549,26 @@ describe("the replacement copy states what the output actually is", () => {
     expect(names(jpg, MARGIN_WORDS).length).toBeGreaterThan(0);
   });
 
-  it("image-to-PDF: the default the copy states is what the engine draws with no options", async () => {
+  it("image-to-PDF: the default the copy states is what the runner starts on", async () => {
     // Was the whole test while the layout was fixed: Letter, portrait, 36pt.
+    // Until 2026-11-07 it held the copy to the engine's no-options page;
+    // since audit jpg-to-pdf#1 the RUNNER starts on the paper of the
+    // browser's region, so the papers a default sentence names must be
+    // exactly the ones the runner can start on, each drawn as named.
+    const regions = [["en-US"], ["en-GB"], ["bn-BD"], ["fr-CA"], ["de"]];
+    const starts = new Map<string, [number, number]>();
+    for (const locales of regions) {
+      const pageSize = imagePageSizeForLocales(locales);
+      const page = await drawn(2000, 4000, {
+        ...DEFAULT_IMAGE_PAGE_OPTIONS,
+        pageSize,
+      });
+      starts.set(imagePageSizeById(pageSize).label, [page.width, page.height]);
+    }
+    // Health: the regions above reach both papers, so "exactly" has teeth.
+    expect(starts.size).toBe(2);
+    for (const [label, size] of starts)
+      expect(size, `${label} is drawn as named`).toEqual(PAPER[label]);
     const wide = await drawn(4000, 2000);
     const tall = await drawn(2000, 4000);
     const margin = Math.min(wide.image.x, tall.image.y);
@@ -1606,11 +1584,11 @@ describe("the replacement copy states what the output actually is", () => {
         0,
       );
       for (const sentence of defaults) {
-        for (const paper of names(sentence, PAPER))
-          expect(
-            [wide.width, wide.height],
-            `${subject}: "${sentence}"`,
-          ).toEqual(PAPER[paper]);
+        const papers = names(sentence, PAPER);
+        if (papers.length > 0)
+          expect([...papers].sort(), `${subject}: "${sentence}"`).toEqual(
+            [...starts.keys()].sort(),
+          );
         for (const phrase of names(sentence, MARGIN_WORDS))
           expect(margin, `${subject}: "${sentence}"`).toBeCloseTo(
             MARGIN_WORDS[phrase]!,

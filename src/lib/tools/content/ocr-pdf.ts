@@ -1,7 +1,6 @@
 import type { ToolContent } from "./types";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import {
-  DEFAULT_OCR_LANGUAGE,
   MAX_OCR_LANGUAGES,
   OCR_LANGUAGES,
   OCR_IMAGE_MAX_TURN_PIXELS,
@@ -13,12 +12,13 @@ import {
   type OcrOutputMode,
 } from "@/lib/jobs/ocr";
 import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
+import { OCR_START_SENTENCE } from "@/lib/jobs/ocr-start-copy";
 
 /*
  * Behaviour claims below were read from the implementation on 2026-09-27:
  *  - src/components/tools/ocr-worker-panel.tsx — control labels ("Languages",
  *    "Output", "Redo existing OCR", the "Add a scan to OCR" drop zone, "Run
- *    OCR on the worker"), English preselected, the per-job language cap, the
+ *    OCR on the worker"), English preselected (plus browser languages since; see ocr-start-copy.ts), the per-job language cap, the
  *    "Recognition summary", one file per run. Until 2026-09-27 the checkbox
  *    was "Skip pages that already have text"; this page told readers to tick
  *    it after it was gone (fixed 2026-10-07);
@@ -112,7 +112,6 @@ const NON_LATIN = new Intl.ListFormat("en", { type: "conjunction" }).format(
 const SHORT_NON_LATIN = NON_LATIN_EXAMPLES.slice(0, 2)
   .map(describeOcrLanguage)
   .join(" and ");
-const DEFAULT_LANGUAGE = describeOcrLanguage(DEFAULT_OCR_LANGUAGE);
 
 /** The output chip labels exactly as the panel renders them. */
 function modeLabel(id: OcrOutputMode): string {
@@ -167,7 +166,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Select the languages printed on the page",
-      body: `Under Languages, ${DEFAULT_LANGUAGE} is selected to start with. Add every language the document actually uses, up to ${MAX_OCR_LANGUAGES}; to swap one out once you are at the limit, deselect a language first.`,
+      body: `Under Languages, ${OCR_START_SENTENCE}. Add every language the document actually uses, up to ${MAX_OCR_LANGUAGES}; to swap one out once you are at the limit, deselect a language first.`,
     },
     {
       title: "Choose what you want back",

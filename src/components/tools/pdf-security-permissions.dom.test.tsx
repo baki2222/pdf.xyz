@@ -32,7 +32,11 @@ import {
 import { dropSheetsLive } from "@/tests/drop-sheets-live";
 import { PDF_PERMISSIONS } from "@/lib/jobs/pdf-permission-labels";
 import { AES128_PASSWORD_CHARSET_MESSAGE } from "@/lib/jobs/pdf-security";
-import { PdfSecurityWorkerPanel } from "./pdf-security-worker-panel";
+import {
+  CONFIRM_PASSWORD_FIRST,
+  PASSWORDS_DIFFER,
+  PdfSecurityWorkerPanel,
+} from "./pdf-security-worker-panel";
 
 afterEach(() => {
   cleanup();
@@ -133,7 +137,7 @@ function answerWithLocalWorker(
 
 const protectTool = tools.find((t) => t.slug === "protect-pdf")!;
 
-async function fillForm() {
+async function fillForm({ confirm = true }: { confirm?: boolean } = {}) {
   const { container } = render(<PdfSecurityWorkerPanel tool={protectTool} />);
   await runButton();
   await dropSheetsLive();
@@ -152,7 +156,18 @@ async function fillForm() {
   fireEvent.change(await screen.findByLabelText("New password"), {
     target: { value: "open-sesame" },
   });
+  if (confirm)
+    fireEvent.change(await screen.findByLabelText("Confirm password"), {
+      target: { value: "open-sesame" },
+    });
   return container;
+}
+
+/** Type the owner password a second time, as the panel asks. */
+function confirmOwner(value: string) {
+  fireEvent.change(screen.getByLabelText("Confirm owner password"), {
+    target: { value },
+  });
 }
 
 const runButton = () => screen.findByRole("button", { name: /encrypt pdf/i });
@@ -192,6 +207,7 @@ describe("Protect PDF: permissions", { timeout: 30_000 }, () => {
       document.getElementById("pdf-security-owner-password-hint"),
     ).toHaveTextContent(/different password/i);
     fireEvent.change(owner, { target: { value: "owner-sesame" } });
+    confirmOwner("owner-sesame");
     await waitFor(() => expect(run).not.toHaveAttribute("aria-disabled"));
     fireEvent.click(run);
     await screen.findByText("Your PDF is protected and ready.", undefined, {
@@ -212,6 +228,7 @@ describe("Protect PDF: permissions", { timeout: 30_000 }, () => {
     fireEvent.change(await screen.findByLabelText("Owner password"), {
       target: { value: "owner-sesame" },
     });
+    confirmOwner("owner-sesame");
     const run = await runButton();
     await waitFor(() => expect(run).not.toHaveAttribute("aria-disabled"));
     fireEvent.click(run);
@@ -262,6 +279,9 @@ describe(
       fireEvent.change(screen.getByLabelText("New password"), {
         target: { value: BANGLA },
       });
+      fireEvent.change(screen.getByLabelText("Confirm password"), {
+        target: { value: BANGLA },
+      });
       fireEvent.click(screen.getByRole("radio", { name: /AES-128/ }));
       const run = await runButton();
       await waitFor(() => expect(run).toHaveAttribute("aria-disabled", "true"));
@@ -295,6 +315,7 @@ describe(
       const owner = await screen.findByLabelText("Owner password");
       const cyrillic = String.fromCodePoint(0x043f, 0x0430, 0x0440, 0x043e);
       fireEvent.change(owner, { target: { value: cyrillic } });
+      confirmOwner(cyrillic);
       const run = await runButton();
       await waitFor(() => expect(run).toHaveAttribute("aria-disabled", "true"));
       expect(
@@ -305,6 +326,7 @@ describe(
 
       // Positive control: a Latin owner password at the same strength runs.
       fireEvent.change(owner, { target: { value: "owner-sesame" } });
+      confirmOwner("owner-sesame");
       await waitFor(() => expect(run).not.toHaveAttribute("aria-disabled"));
       fireEvent.click(run);
       await screen.findByText("Your PDF is protected and ready.", undefined, {
@@ -313,6 +335,110 @@ describe(
       expect(asked).toHaveLength(1);
       expect(asked[0]!.keyLength).toBe(128);
       expect(asked[0]!.ownerPassword).toBe("owner-sesame");
+    });
+  },
+);
+
+// Audit protect-pdf#3 (2026-11-06): the new password was typed once, into a
+// masked field, and "can't be recovered". One typo and the protected file
+// opens for nobody, its source gone with the link. iLovePDF, Smallpdf and
+// Adobe ask twice; so does this panel now, for the owner password too.
+describe(
+  "Protect PDF: each password is typed twice",
+  { timeout: 30_000 },
+  () => {
+    it("Run waits for the open password to be confirmed, and a mismatch says so", async () => {
+      const asked = answerWithLocalWorker(() => -4);
+      await fillForm({ confirm: false });
+      const run = await runButton();
+      const confirm = await screen.findByLabelText("Confirm password");
+      expect(confirm).toHaveAttribute("type", "password");
+      await waitFor(() => expect(run).toHaveAttribute("aria-disabled", "true"));
+      expect(run).toHaveAccessibleDescription(CONFIRM_PASSWORD_FIRST);
+
+      // Mid-typing, a shorter confirmation is not yet a mismatch: no alert
+      // interrupts, and Run's reason stays the live state.
+      const hint = () =>
+        document.getElementById("pdf-security-password-confirm-hint");
+      fireEvent.change(confirm, { target: { value: "open-sesam" } });
+      expect(hint()).not.toHaveTextContent(PASSWORDS_DIFFER);
+      expect(hint()).not.toHaveAttribute("role", "alert");
+      expect(run).toHaveAccessibleDescription(CONFIRM_PASSWORD_FIRST);
+      // Leaving the field says it.
+      fireEvent.blur(confirm);
+      expect(hint()).toHaveTextContent(PASSWORDS_DIFFER);
+      expect(hint()).toHaveAttribute("role", "alert");
+      expect(run).toHaveAttribute("aria-disabled", "true");
+      fireEvent.click(run);
+      expect(asked).toHaveLength(0);
+
+      fireEvent.change(confirm, { target: { value: "open-sesame" } });
+      expect(
+        document.getElementById("pdf-security-password-confirm-hint"),
+      ).not.toHaveTextContent(PASSWORDS_DIFFER);
+      await waitFor(() => expect(run).not.toHaveAttribute("aria-disabled"));
+      fireEvent.click(run);
+      await screen.findByText("Your PDF is protected and ready.", undefined, {
+        timeout: 10_000,
+      });
+      expect(asked).toHaveLength(1);
+      expect(asked[0]!.userPassword).toBe("open-sesame");
+    });
+
+    it("the owner password is confirmed too before restrictions are sent", async () => {
+      const asked = answerWithLocalWorker((opts) => pFor(opts.permissions!));
+      await fillForm();
+      fireEvent.click(screen.getByRole("checkbox", { name: /^Printing/ }));
+      fireEvent.change(await screen.findByLabelText("Owner password"), {
+        target: { value: "owner-sesame" },
+      });
+      const run = await runButton();
+      const confirm = screen.getByLabelText("Confirm owner password");
+      // As long as the password and still different: a mismatch at once,
+      // without waiting for the field to be left.
+      fireEvent.change(confirm, { target: { value: "owner-sesamE" } });
+      expect(
+        document.getElementById("pdf-security-owner-password-confirm-hint"),
+      ).toHaveTextContent(PASSWORDS_DIFFER);
+      await waitFor(() => expect(run).toHaveAttribute("aria-disabled", "true"));
+      fireEvent.click(run);
+      expect(asked).toHaveLength(0);
+
+      fireEvent.change(confirm, { target: { value: "owner-sesame" } });
+      await waitFor(() => expect(run).not.toHaveAttribute("aria-disabled"));
+      fireEvent.click(run);
+      await screen.findByText("Your PDF is protected and ready.", undefined, {
+        timeout: 10_000,
+      });
+      expect(asked[0]!.ownerPassword).toBe("owner-sesame");
+    });
+
+    it("the tool page tells the reader about both confirmations", async () => {
+      const { default: content } =
+        await import("@/lib/tools/content/protect-pdf");
+      const steps = content.steps.map((st) => st.body).join(" ");
+      expect(steps).toContain(
+        "Enter it in the New password field, then type it again in Confirm password. Encrypt PDF stays off until the two match, and a mismatch is pointed out under the second field.",
+      );
+      expect(steps).toContain(
+        "then type an Owner password that differs from the open password, and type it again in Confirm owner password;",
+      );
+      expect(steps).toContain(
+        "Press Encrypt PDF once a file is in place and each password matches its confirmation.",
+      );
+    });
+
+    it("control: Unlock PDF asks for its password once", async () => {
+      answerWithLocalWorker(() => -4);
+      render(
+        <PdfSecurityWorkerPanel
+          tool={tools.find((t) => t.slug === "unlock-pdf")!}
+        />,
+      );
+      expect(
+        await screen.findByLabelText("Current password"),
+      ).toBeInTheDocument();
+      expect(screen.queryByLabelText(/^Confirm/)).toBeNull();
     });
   },
 );

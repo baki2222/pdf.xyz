@@ -13,7 +13,13 @@ import { webOptimizedOutputName } from "@/lib/workers/processor/pdf-structure";
  *    when this ships" button only once the worker is known to be off), the
  *    compact dropzone "Add a PDF, or browse", one file only, the "Optimize on the worker" button, and
  *    "Download <name>" on success. There is no options control and no
- *    password field.
+ *    password field. ADDED 2026-11-07 (audit optimize-web#2): a picked file
+ *    is scanned in the browser for /ByteRange signatures
+ *    (countDigitalSignatures, web-input-notices.tsx) before any upload; a
+ *    signed file gets a warning and Run stays off until "Optimize anyway" is
+ *    ticked (worker-tool-answers and tick-label-claims hold the quote to the
+ *    panel's source). The same read runs isLinearized on the input and
+ *    shows AlreadyLinearizedNote, advisory only (audit optimize-web#3). Pinned in pdf-structure-worker-panel.test.tsx.
  *  - engine: src/lib/workers/pdf-structure/native.ts runs `qpdf --linearize`
  *    and nothing else; engine.ts refuses input that fails looksCompletePdf (no
  *    `%PDF-` header in the first 1 KiB, or no `%%EOF` anywhere after it), and
@@ -132,8 +138,12 @@ const content: ToolContent = {
       a: "Before qpdf runs, the file must have a PDF header (%PDF-) near its start and an end-of-file marker (%%EOF) after it; padding or other data after that marker is allowed. A file with no header is refused as not readable as a PDF; it is usually not a PDF at all, and Repair PDF refuses it too. A file with a header but no end marker is refused as damaged or cut off, which is what an interrupted download loses; Repair PDF accepts such files and the message sends you there, so repair it first and optimize the repaired copy. Deeper damage in a file that has both markers is not refused: if qpdf can work around it the job succeeds, and qpdf's warnings are listed above the download so you can check the rebuilt parts against your original. Encrypted files that ask for a password before opening fail, because this tool hands qpdf no password and has no field for one; take the password off with Unlock PDF first. A qpdf error, a timeout, or output that is missing either marker or is not actually linearized ends in a failed job with no download, never a half-written file.",
     },
     {
+      q: "What if my PDF is already linearized?",
+      a: "Before anything is uploaded, the panel reads the file, and if it already passes the same linearization test the result is held to, it says the PDF is already linearized for fast web view and does not need this step. The button stays on, because some people re-linearize on purpose; running it again uploads the file as usual.",
+    },
+    {
       q: "Is it safe to linearize a digitally signed PDF?",
-      a: "No. Linearizing rewrites the whole file, so the byte ranges a certificate-based digital signature covers no longer match and the signature will stop validating. If a document needs both, linearize the unsigned version and sign it last. Signing tools usually append the signature as an update at the end of the file, after which a viewer may no longer report it as linearized, so run the check above on the signed copy.",
+      a: `No. Linearizing rewrites the whole file, so the byte ranges a certificate-based digital signature covers no longer match and the signature will stop validating. Before anything is uploaded, the panel reads the file for signatures: if it finds any, it says how many, and the button stays off until you tick the box that begins “Optimize anyway”. If a document needs both, linearize the unsigned version and sign it last. Signing tools usually append the signature as an update at the end of the file, after which a viewer may no longer report it as linearized, so run the check above on the signed copy.`,
     },
   ],
 

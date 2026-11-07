@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Download, FileText, ShieldCheck, Sparkles, Timer } from "lucide-react";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import { aiReadLimitFor } from "@/lib/jobs/ai-read-limit";
@@ -22,7 +22,14 @@ import {
   runWorkerSummarize,
   type SummarizeWorkerResult,
 } from "@/lib/workers/summarize-client";
-import { downloadBytes } from "@/lib/pdf/browser";
+import { downloadBlob, downloadBytes } from "@/lib/pdf/browser";
+import {
+  readSummaryFromPackage,
+  summaryFileName,
+  type SummaryReadBack,
+} from "@/lib/workers/summarize-package";
+import { buttonVariants } from "@/components/ui/button";
+import { CopyTextButton } from "./copy-text-button";
 import { TruncationNotice } from "./truncation-notice";
 import type { Tool } from "@/lib/tools/types";
 import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
@@ -108,7 +115,7 @@ export function SummarizeWorkerPanel({ tool }: { tool: Tool }) {
         {
           icon: Download,
           label: "You get",
-          value: "ZIP · summary.md + summary.txt + manifest",
+          value: "Summary on the page · copy, TXT, Markdown or ZIP",
         },
         {
           icon: Timer,
@@ -330,19 +337,131 @@ function SummaryBuilder({ tool, refuse }: { tool: Tool; refuse: PickRefusal }) {
             job={outcome.job}
             consequence="This summarises those pages, not the whole document."
           />
-          <p className="text-ok text-sm">
-            Your AI summary package is ready — the summary in Markdown and plain
-            text, plus a manifest recording the model and honest scope.
-          </p>
-          <DownloadCta
-            onClick={() =>
-              downloadBytes(outcome.output, outcome.artifact.filename)
-            }
-          >
-            Download {outcome.artifact.filename}
-          </DownloadCta>
+          <SummaryResultBody
+            output={outcome.output}
+            filename={outcome.artifact.filename}
+          />
         </ResultCard>
       )}
     </div>
+  );
+}
+
+/**
+ * The finished summary, ON THE PAGE (audit summarize-pdf#1): read back from
+ * the package already in the browser's memory, shown in a scroll box, with
+ * Copy, a plain-text download, a Markdown download and the full ZIP.
+ *
+ * Until the package has been read — or when it cannot be (`null`) — the card
+ * says only what is certainly true, the package sentence and its button: a
+ * reader is never told "read it below" above an empty box.
+ */
+export function SummaryResultBody({
+  output,
+  filename,
+}: {
+  output: Uint8Array;
+  filename: string;
+}) {
+  // Keyed by the bytes it was read from, so a new result never shows the
+  // previous summary while its own package is being read.
+  const [read, setRead] = useState<{
+    from: Uint8Array;
+    summary: SummaryReadBack | null;
+  } | null>(null);
+  useEffect(() => {
+    let live = true;
+    void readSummaryFromPackage(output).then((summary) => {
+      if (live) setRead({ from: output, summary });
+    });
+    return () => {
+      live = false;
+    };
+  }, [output]);
+  const summary = read?.from === output ? read.summary : undefined;
+
+  const zipButton = (
+    <DownloadCta onClick={() => downloadBytes(output, filename)}>
+      Download {filename}
+    </DownloadCta>
+  );
+
+  if (!summary) {
+    return (
+      <>
+        <p className="text-ok text-sm">
+          Your AI summary package is ready — the summary in Markdown and plain
+          text, plus a manifest recording the model and honest scope.
+        </p>
+        {zipButton}
+      </>
+    );
+  }
+
+  const txtName = summaryFileName(filename, "txt");
+  const mdName = summaryFileName(filename, "md");
+  // The labels name the format, not the file: buttonVariants never wraps, and
+  // a name of up to MAX_DISPLAY_FILENAME_LENGTH would spill out of a phone's
+  // card. The ZIP button below wraps and names the file; the download keeps
+  // its own name (`<stem>-summary.txt` / `.md`).
+  const fileButton = buttonVariants({
+    variant: "secondary",
+    className: "w-full sm:w-auto",
+  });
+  return (
+    <>
+      <p className="text-ok text-sm">
+        Your AI summary is ready — read it below, copy it, or save it as plain
+        text or Markdown. The ZIP adds a manifest recording the model and honest
+        scope.
+      </p>
+      <section
+        aria-label="Summary"
+        // Focusable so a keyboard can scroll a long summary.
+        tabIndex={0}
+        className="border-line text-fg bg-canvas rounded-panel focus-visible:ring-ok/50 max-h-96 overflow-auto border p-4 text-sm leading-6 whitespace-pre-wrap outline-none focus-visible:ring-2"
+      >
+        {summary.text}
+      </section>
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start">
+        <CopyTextButton
+          text={summary.text}
+          label="Copy summary"
+          size="md"
+          className="w-full sm:w-auto"
+        />
+        <button
+          type="button"
+          data-download=""
+          onClick={() =>
+            downloadBlob(
+              new Blob([summary.text], { type: "text/plain;charset=utf-8" }),
+              txtName,
+            )
+          }
+          className={fileButton}
+        >
+          <Download className="size-4" aria-hidden />
+          Download TXT
+        </button>
+        <button
+          type="button"
+          data-download=""
+          onClick={() =>
+            downloadBlob(
+              new Blob([summary.markdown], {
+                type: "text/markdown;charset=utf-8",
+              }),
+              mdName,
+            )
+          }
+          className={fileButton}
+        >
+          <Download className="size-4" aria-hidden />
+          Download Markdown
+        </button>
+      </div>
+      {zipButton}
+    </>
   );
 }

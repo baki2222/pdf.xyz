@@ -1,0 +1,202 @@
+/**
+ * Split PDF's page counts its modes in words ("in one of six ways") and
+ * lists them by name in the intro and the "choose a mode" step. Nothing held
+ * either to SPLIT_MODES: when the seventh mode ("Odd and even pages", audit
+ * split-pdf#6, 2026-11-07) arrived, every copy guard stayed green over a page
+ * that still said six. This holds the count and the list to the runner's own
+ * table, in both directions: every mode is named, and the number is the
+ * table's length.
+ */
+import { describe, expect, it } from "vitest";
+import { SPLIT_MODES, SPLIT_MODE_LABEL } from "@/lib/pdf/offered-kinds";
+import { getToolBySlug } from "@/lib/tools";
+import {
+  pageFaq,
+  pageIntro,
+  pageSteps,
+  pageUseCases,
+  stepText,
+} from "@/lib/tools/page-copy";
+import { buildSplitParts, oddEvenParts } from "@/lib/pdf/split-parts";
+import { guides } from "@/lib/guides/catalog";
+
+const WORDS = [
+  "zero",
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+  "six",
+  "seven",
+  "eight",
+  "nine",
+  "ten",
+];
+
+const tool = getToolBySlug("split-pdf")!;
+const intro = pageIntro(tool).join(" ");
+const steps = pageSteps(tool).map(stepText);
+
+describe("Split PDF's copy counts and names every split mode", () => {
+  it("the subjects exist (health)", () => {
+    expect(tool).toBeTruthy();
+    expect(SPLIT_MODES.length).toBeGreaterThanOrEqual(6);
+    expect(intro.length).toBeGreaterThan(200);
+  });
+
+  it("the intro's count is the number of modes the runner offers", () => {
+    const stated = [...intro.matchAll(/\bin one of (\w+) ways\b/gi)].map((m) =>
+      m[1]!.toLowerCase(),
+    );
+    expect(stated, "the intro states a count").toHaveLength(1);
+    expect(stated[0]).toBe(WORDS[SPLIT_MODES.length]);
+  });
+
+  it("the split guide's count is the same number", () => {
+    const guide = guides.find((g) => g.slug === "how-to-split-a-pdf");
+    expect(guide, "the split guide exists").toBeTruthy();
+    const text = guide!.sections.flatMap((s) => s.body).join(" ");
+    const stated = [...text.matchAll(/\boffers (\w+) ways\b/gi)].map((m) =>
+      m[1]!.toLowerCase(),
+    );
+    expect(stated, "the guide states a count").toHaveLength(1);
+    expect(stated[0]).toBe(WORDS[SPLIT_MODES.length]);
+    expect(text).toContain(SPLIT_MODE_LABEL.oddEven.toLowerCase());
+  });
+
+  it("the intro and the choose step name every mode", () => {
+    const choose = steps.find((s) => /How to split/.test(s));
+    expect(choose, "a step names the How to split control").toBeTruthy();
+    for (const mode of SPLIT_MODES) {
+      expect(intro, `intro names ${mode}`).toContain(SPLIT_MODE_LABEL[mode]);
+      expect(choose, `step names ${mode}`).toContain(SPLIT_MODE_LABEL[mode]);
+    }
+  });
+
+  it("control: a count one off, or a missing name, is caught", () => {
+    expect(WORDS[SPLIT_MODES.length - 1]).not.toBe(WORDS[SPLIT_MODES.length]);
+    const without = intro.replace(SPLIT_MODE_LABEL.oddEven, "");
+    expect(without).not.toContain(SPLIT_MODE_LABEL.oddEven);
+  });
+});
+
+/**
+ * Audit split-pdf#5 (2026-11-07): By bookmarks names each file after its
+ * bookmark, and Odd and even pages (split-pdf#6) names its two files by
+ * side. The FAQ "What are the split files called?" said every piece was
+ * <name>-<seq>-<page span> "in every mode", which both made false. Its
+ * examples must be names the code really builds, and it must not claim one
+ * pattern for every mode.
+ */
+describe("Split PDF's file-name answer is what the code names the files", () => {
+  const answer = pageFaq(tool).find((f) =>
+    /what are the split files called/i.test(f.question),
+  )?.answer;
+
+  it("the answer exists (health)", () => {
+    expect(answer).toBeTruthy();
+  });
+
+  it("every example name is one buildSplitParts or oddEvenParts produces", () => {
+    const titled = buildSplitParts(
+      "report",
+      [
+        { start: 0, end: 0 },
+        { start: 1, end: 9 },
+      ],
+      [undefined, "Chapter 2"],
+    )[1]!.name;
+    const sides = oddEvenParts("report", 2).map((p) => p.name);
+    for (const name of [titled, ...sides]) expect(answer).toContain(name);
+    // Every report-….pdf the answer quotes is one of the names built here
+    // or a page-span name buildSplitParts gives for twelve parts.
+    const spans = buildSplitParts("report", [
+      { start: 0, end: 2 },
+      ...Array.from({ length: 10 }, (_, i) => ({ start: 3 + i, end: 3 + i })),
+      { start: 39, end: 39 },
+    ]).map((p) => p.name);
+    const known = new Set([titled, ...sides, ...spans]);
+    // Spaces allowed: a bookmark name usually has one ("report-2-Chapter
+    // 2.pdf"), and a scan stopping at a space could not see it (review of
+    // 4ba1773f).
+    const quoted = answer!.match(/\breport-[^,;"”]+?\.pdf\b/g) ?? [];
+    expect(quoted.length).toBeGreaterThanOrEqual(4);
+    expect(quoted.filter((n) => !known.has(n))).toEqual([]);
+  });
+
+  it("it names the box that turns bookmark names off, and claims no single pattern", () => {
+    expect(answer).toContain("Name each file after its bookmark");
+    expect(answer).not.toMatch(/\bin every mode\b/i);
+  });
+});
+
+/**
+ * Review of b59c0bde (2026-11-07): the use case for Odd and even pages
+ * blamed the interleaving on "a scanner that feeds one side of a stack and
+ * then the other". That feed gives every front first and then every back
+ * (often reversed), which Odd and even pages would NOT separate. Fronts on
+ * 1, 3, 5 and backs on 2, 4, 6 come from a DUPLEX scanner, which reads each
+ * sheet's front and then its back. Any sentence that gives the scanner as
+ * the cause must say duplex, and none may describe a one-side-then-the-other
+ * feed.
+ */
+const ONE_SIDE_THEN_THE_OTHER =
+  /\bone side\b[^.]*\b(?:then|and then|followed by)\s+the other\b|\btwo[- ]pass\b/i;
+const SCANNER_CAUSE = /\bscanner\b/i;
+function wrongScanCause(sentence: string): boolean {
+  return (
+    ONE_SIDE_THEN_THE_OTHER.test(sentence) ||
+    (SCANNER_CAUSE.test(sentence) &&
+      /\b1, 3, 5\b/.test(sentence) &&
+      !/\bduplex\b/i.test(sentence))
+  );
+}
+
+describe("Split PDF says which scanner interleaves fronts and backs", () => {
+  const SHIPPED = [
+    "A scanner that feeds one side of a stack and then the other leaves the fronts on pages 1, 3, 5 and the backs on 2, 4, 6.",
+  ];
+  const SYNONYMS = [
+    "Scan one side of the stack, then the other, and the fronts land on 1, 3, 5.",
+    "A two-pass scan puts the fronts on odd pages.",
+  ];
+  const HONEST = [
+    // A guide sentence the first draft of this shape caught ("second pass").
+    "Reordering happens before the merge runs, so arranging the list correctly the first time saves you a second pass.",
+    "A duplex scanner reads each sheet's front and then its back, so the fronts land on pages 1, 3, 5 and the backs on 2, 4, 6.",
+    "Pages 1, 3, 5 and so on go into one file: the fronts of a double-sided scan.",
+  ];
+  it.each([...SHIPPED, ...SYNONYMS])("catches: %s", (s) => {
+    expect(wrongScanCause(s)).toBe(true);
+  });
+  it.each(HONEST)("passes: %s", (s) => {
+    expect(wrongScanCause(s)).toBe(false);
+  });
+
+  const guideCopy = guides
+    .filter((g) => g.tools.includes("split-pdf"))
+    .flatMap((g) => [
+      g.description,
+      ...g.intro,
+      ...g.steps,
+      ...g.sections.flatMap((x) => x.body),
+      ...g.faq.flatMap((f) => [f.question, f.answer]),
+    ]);
+  const copy = [
+    ...pageIntro(tool),
+    ...pageUseCases(tool).flatMap((u) => [u.title, u.body]),
+    ...steps,
+    ...pageFaq(tool).flatMap((f) => [f.question, f.answer]),
+    ...guideCopy,
+  ];
+  const sentences = copy.flatMap((t) => t.split(/(?<=[.!?])\s+/));
+
+  it("the use case names the scanner, and it is a duplex one", () => {
+    // Health: the subject exists, so "no wrong cause" is not vacuous.
+    const cause = sentences.filter((s) => SCANNER_CAUSE.test(s));
+    expect(cause.length).toBeGreaterThanOrEqual(1);
+    expect(cause.join(" ")).toMatch(/\bduplex\b/i);
+    expect(sentences.filter(wrongScanCause)).toEqual([]);
+  });
+});

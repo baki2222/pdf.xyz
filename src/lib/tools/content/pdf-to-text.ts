@@ -69,7 +69,7 @@ const content: ToolContent = {
 
   intro: [
     `PDF to Text reads the text stored in one PDF and saves it as a plain UTF-8 .txt file. A PDF records where each run of text sits rather than where its lines end, and some files leave out the spaces between words, so the extractor, pdf.js, works both out from positions: a new line where the text drops down the page, a space where the gap between letters is wide enough to be one. Pages are separated by one blank line, a page with no text adds nothing, and no page numbers or markers are inserted. Typefaces, bold, colour, pictures and ruled lines are left behind.`,
-    `Extraction runs inside your browser tab, so the PDF is not uploaded to pdf.xyz. It takes one file at a time, up to ${MAX_MB} MB. Before you save, the result gives the character count and how many of the document's pages it came from, names any page with no selectable text, and shows the full text in a scrollable box you can copy from.`,
+    `Extraction runs inside your browser tab, so the PDF is not uploaded to pdf.xyz. It takes one file at a time, up to ${MAX_MB} MB. Before you save, the result gives the character count and how many of the document's pages it came from, names any page with no selectable text, and shows the full text in a scrollable box, with a Copy text button that puts all of it on your clipboard.`,
     `Text comes out in reading order where the order the PDF stores it in is out of step with the page: a title or heading stored after the text under it, a running header stored last, and a footer or page number stored first are each moved to where they read. A page stored a column at a time comes out a column at a time, while a page carrying rotated or vertical text, or more separate pieces of text than the extractor will sort (a detailed map can have that many), keeps the order stored in the file. A scanned page stores a picture, not characters, so an image-only PDF is reported as having no selectable text rather than producing an empty file. Hidden text is the opposite case: white lettering, words under a black box drawn on top, and the invisible layer an OCR pass adds are all extracted.`,
   ],
 
@@ -103,7 +103,7 @@ const content: ToolContent = {
     },
     {
       title: "Check the preview",
-      body: 'Under "Text extracted" you see the character and page counts and the text itself in a scrollable box. Select any part of it to copy just that passage.',
+      body: 'Under "Text extracted" you see the character and page counts and the text itself in a scrollable box. Press Copy text to put all of it on your clipboard, or select any part of it to copy just that passage.',
     },
     {
       title: "Download TXT",

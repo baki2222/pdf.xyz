@@ -239,6 +239,12 @@ describe("runAiExtract — provider-injected deterministic success", () => {
     expect(provider.calls[0]!.system).toMatch(/null/i);
     expect(provider.calls[0]!.system).toContain("invoice_number");
     expect(provider.calls[0]!.system).toContain("total");
+    // A field's hint (its `description`, set by the panel's "Field N hint"
+    // input since audit ai-extract#4) reaches the model beside the name — the
+    // claim the page makes ("the model reads the hint beside the name").
+    expect(provider.calls[0]!.system).toContain(
+      '- "total" (number) — grand total incl. tax',
+    );
     expect(provider.calls[0]!.messages[0]!.content).toContain("INV-42");
     // Deterministic extraction: temperature pinned to 0.
     expect(provider.calls[0]!.temperature).toBe(0);

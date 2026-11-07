@@ -42,17 +42,34 @@ import {
 } from "@/lib/handoff";
 import { takeCarriedHandoff } from "@/lib/handoff/carry";
 import { continueTargetsFor } from "@/lib/intent/next-steps";
-import { analyzePdf } from "@/lib/pdf/analyze";
+import {
+  analyzePdf,
+  IMAGE_HEAVY_SHARE,
+  LOSSLESS_MIN_RATIO,
+} from "@/lib/pdf/analyze";
 import { getToolBySlug, tools } from "@/lib/tools";
+import compressContent from "@/lib/tools/content/compress-pdf";
 import type { NativeCompressor } from "@/lib/workers/compression/engine";
 import { createLocalDevAdapter } from "@/lib/workers/local-dev";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { DevWorkerStore } from "@/lib/workers/store";
 import { encryptPdf } from "@/tests/encrypted-pdf";
-import { colourImagePdf } from "@/lib/workers/compression/colour-image-pdf";
+import {
+  colourImagePdf,
+  noisePhotoPdf,
+} from "@/lib/workers/compression/colour-image-pdf";
 import { makeSignedPdf } from "@/tests/signed-pdf";
 import { dropSheetsLive } from "@/tests/drop-sheets-live";
-import { CompressRunner, UNLOCK_TOOL_HREF } from "./compress-runner";
+import {
+  CompressRunner,
+  UNLOCK_TOOL_HREF,
+  qualityChipTitle,
+} from "./compress-runner";
+import {
+  DEEP_COMPRESSION_PRESETS,
+  DEEP_MONO_MIN_DPI,
+} from "@/lib/pdf/offered-kinds";
+import { nativeArgs } from "@/lib/workers/compression/native";
 import { ToolRunProvider } from "./tool-context";
 
 const router = {
@@ -476,6 +493,84 @@ describe("Compress: a digitally signed PDF", { timeout: 30_000 }, () => {
  * path in a browser). Now: the file as it came in, said to be unchanged,
  * and the ending carrying it.
  */
+/*
+ * Audit compress-pdf#7 (2026-11-06): the headline checked "the repack saved
+ * 3%" BEFORE "images are 40% of the file", so a scan that was mostly images
+ * but also carried a little structural overhead got "Lossless cleanup shrank
+ * this file" and nothing pointing at the step that could shrink its images.
+ */
+describe(
+  "Compress: an image-heavy PDF the repack also trims",
+  { timeout: 30_000 },
+  () => {
+    /** Incompressible image pixels, plus text pages without object streams. */
+    async function imageHeavyTrimmablePdf(): Promise<Uint8Array> {
+      const doc = await PDFDocument.load(
+        await noisePhotoPdf({ px: 96, inches: 2 }),
+      );
+      const font = await doc.embedFont(StandardFonts.Helvetica);
+      for (let i = 0; i < 12; i++) {
+        doc.addPage([300, 300]).drawText(`Scan note ${i + 1}`, {
+          x: 20,
+          y: 150,
+          size: 14,
+          font,
+        });
+      }
+      return doc.save({ useObjectStreams: false });
+    }
+
+    it("keeps the lossless headline AND says the images are the bulk of the file", async () => {
+      const bytes = await imageHeavyTrimmablePdf();
+      // Health check: the fixture is what the test says it is.
+      const { analysis } = await analyzePdf(bytes);
+      const share = analysis.imageBytes / analysis.originalBytes;
+      const saved =
+        (analysis.originalBytes - analysis.optimizedBytes) /
+        analysis.originalBytes;
+      expect(share).toBeGreaterThanOrEqual(IMAGE_HEAVY_SHARE);
+      expect(saved).toBeGreaterThanOrEqual(LOSSLESS_MIN_RATIO);
+
+      answerWorkerStatus();
+      const { container } = render(withRouter(<CompressRunner />));
+      await drop(container, [asFile(bytes, "scan.pdf")]);
+      const headline = await screen.findByRole(
+        "group",
+        { name: /analysis complete/i },
+        { timeout: 10_000 },
+      );
+      expect(
+        within(headline).getByText("Lossless cleanup shrank this file"),
+      ).toBeInTheDocument();
+      expect(headline).toHaveTextContent(
+        `About ${Math.round(share * 100)}% of this file is images. Real size wins come from downsampling them, which runs on our secure server below.`,
+      );
+    });
+
+    it("the page describes the rule the panel follows", () => {
+      const intro = compressContent.intro.join(" ");
+      expect(intro).toContain(
+        `So whenever images make up ${Math.round(IMAGE_HEAVY_SHARE * 100)}% or more of the file, the analysis points you to the optional deep image compression step, even when the repack's own saving reaches the ${Math.round(LOSSLESS_MIN_RATIO * 100)}% that earns the lossless headline.`,
+      );
+    });
+
+    it("control: a text-only file the repack trims gets no image advice", async () => {
+      answerWorkerStatus();
+      const { container } = render(withRouter(<CompressRunner />));
+      await drop(container, [asFile(await plainPdf(3), "plain.pdf")]);
+      const headline = await screen.findByRole(
+        "group",
+        { name: /analysis complete/i },
+        { timeout: 10_000 },
+      );
+      expect(
+        within(headline).getByText("Lossless cleanup shrank this file"),
+      ).toBeInTheDocument();
+      expect(headline).not.toHaveTextContent(/of this file is images/);
+    });
+  },
+);
+
 describe("Compress: an already-lean PDF", { timeout: 30_000 }, () => {
   /**
    * Lean, and NOT the repack's own bytes. Written with object streams, as
@@ -880,3 +975,28 @@ describe(
     });
   },
 );
+
+// Review of audit compress-pdf#3 (2026-11-07): each Quality chip's title said
+// `${dpi} DPI`, as if every image went there. Ghostscript keeps black-and-white
+// images at DEEP_MONO_MIN_DPI or more, so the title names both.
+describe("Quality chip titles say what the engine is sent", () => {
+  it("names the colour/gray DPI and the black-and-white floor nativeArgs sends", () => {
+    // Health check: there are levels to title.
+    expect(DEEP_COMPRESSION_PRESETS.length).toBeGreaterThan(0);
+    for (const { dpi } of DEEP_COMPRESSION_PRESETS) {
+      const args = nativeArgs("ghostscript", "gs", "/i", "/o", dpi).args;
+      const sent = (flag: string) =>
+        args.find((a) => a.startsWith(`-d${flag}=`))?.split("=")[1];
+      expect(sent("ColorImageResolution")).toBe(String(dpi));
+      expect(sent("GrayImageResolution")).toBe(String(dpi));
+      const title = qualityChipTitle(dpi);
+      expect(title).toBe(
+        `Colour and gray images: ${dpi} DPI. Black-and-white images: ${sent("MonoImageResolution")} DPI.`,
+      );
+    }
+    // Positive control: at the lowest level the two numbers differ.
+    const lowest = Math.min(...DEEP_COMPRESSION_PRESETS.map((p) => p.dpi));
+    expect(qualityChipTitle(lowest)).toContain(`${DEEP_MONO_MIN_DPI} DPI`);
+    expect(lowest).toBeLessThan(DEEP_MONO_MIN_DPI);
+  });
+});

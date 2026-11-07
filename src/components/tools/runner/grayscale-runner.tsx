@@ -14,6 +14,7 @@ import {
   grayscaleOutputName,
   grayscalePdf,
   grayscalePresetById,
+  grayscalePresetTradeoff,
   type GrayscaleResult,
 } from "@/lib/pdf/grayscale";
 import { downloadBytes } from "@/lib/pdf/browser";
@@ -129,6 +130,16 @@ export function GrayscaleEditor({
             label: `${preset.label} (${preset.dpi} DPI)`,
           }))}
         />
+        {/* A polite live region that is always drawn, so a screen reader
+            hears the cost the moment a sharper preset is picked (a region
+            mounted with its text is not announced). */}
+        <div aria-live="polite" data-preset-tradeoff="">
+          {grayscalePresetTradeoff(presetId) && (
+            <p className="text-muted text-xs leading-relaxed">
+              {grayscalePresetTradeoff(presetId)}
+            </p>
+          )}
+        </div>
       </RunnerSection>
 
       <div className="grid gap-3 sm:grid-cols-3">

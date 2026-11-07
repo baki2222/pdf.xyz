@@ -143,9 +143,9 @@ export const tools: Tool[] = [
   {
     slug: "n-up-pdf",
     name: "Multiple Pages per Sheet",
-    tagline: "Put 2, 4, 6 or 9 pages on one sheet.",
+    tagline: "Put up to 16 pages on one sheet.",
     description:
-      "Put 2, 4, 6 or 9 PDF pages on each A4 or US Letter sheet, in the order you pick, with optional borders. Runs in your browser.",
+      "Put up to 16 PDF pages on each sheet, A4, US Letter, A3, A5, US Legal or your page's own size, in the order you pick. Runs in your browser.",
     category: "organize",
     icon: "nUp",
     processing: "client",
@@ -567,10 +567,15 @@ export const tools: Tool[] = [
     tagline: "Export pages as lossless PNGs.",
     cardSummary: "Save each page as a sharp PNG image.",
     description:
-      // Was "with a transparent or white background": every page is rendered
-      // onto white (render.ts), and the runner offers no transparent option;
-      // claims-vs-capability.test.ts goes red the day that changes.
-      `Render PDF pages as crisp, lossless PNG images on a white background, at ${RESOLUTION_DPIS} DPI — right in your browser, so the file stays on your device.`,
+      // HISTORY: was "with a transparent or white background" while every
+      // page was rendered onto white, then "on a white background" until the
+      // runner gained its Background choice (audit pdf-to-png#5, 2026-11-07).
+      // The words are written out, not imported from pdf-to-image.ts, to keep
+      // that module out of the catalogue chunk; tool-page-substance.test.ts
+      // ("PDF to PNG names the transparent background it offers") holds them
+      // to RASTER_BACKGROUNDS, and render-transparent.test.ts reads the
+      // pixels.
+      `Render PDF pages as crisp, lossless PNG images on a white or transparent background, at ${RESOLUTION_DPIS} DPI — right in your browser, so the file stays on your device.`,
     category: "convert-from",
     icon: "png",
     processing: "client",
@@ -785,10 +790,10 @@ export const tools: Tool[] = [
     name: "PDF Header & Footer",
     tagline: "Add running headers and footers.",
     description:
-      // The runner offers ONE text field per band with a Left/Center/Right
-      // picker (not three slots at once) and the {n}/{total}/{date} buttons;
-      // tool-page-content.test.ts pins the steps to those exports.
-      "Add a header and footer to every page of a PDF in your browser — your own text plus the page number, page count or today's date, aligned left, center or right.",
+      // The runner offers three boxes per band, Left/Center/Right, all used at
+      // once (audit header-footer#3, 2026-11-07), and the {n}/{total}/{date}
+      // buttons; tool-page-content.test.ts pins the steps to those exports.
+      "Add a header and footer to the pages of a PDF in your browser — your own text plus the page number, page count or today's date, at the left, center and right.",
     category: "edit",
     icon: "headerFooter",
     processing: "client",
@@ -917,7 +922,7 @@ export const tools: Tool[] = [
       "add fields",
       "acroform",
     ],
-    related: ["fill-forms", "sign-pdf", "request-signatures", "edit-pdf"],
+    related: ["fill-forms", "edit-pdf", "sign-pdf", "request-signatures"],
   },
 
   // ─────────────────────────────── Security ───────────────────────────────

@@ -66,6 +66,18 @@ if (ceilingMb === null) {
   throw new Error("rotate-pdf content states a file ceiling it cannot find");
 }
 const unlockLinkMinutes = DEFAULT_RETENTION.outputTtlMinutes;
+/**
+ * OCR PDF's "Turn pages upright" box (#265, OCRmyPDF --rotate-pages), named
+ * here since 2026-11-07 (audit rotate-pdf#3): only the rotate guide pointed
+ * to it, while the tool page, where a reader with a long jumbled scan lands,
+ * described turning pages by hand alone. Not quoted: the label is OCR PDF's
+ * panel, not this one (tool-faq-substance.test.ts holds it to that panel).
+ * To stay within the page's 4-6 written FAQs, the question it replaced,
+ * "Does rotating reduce quality or re-render the pages?", is left to the
+ * derived answer the page already serves (tool-facts.ts, "Does rotating
+ * reduce the quality of my PDF?"), which says the same.
+ */
+const OCR_NAME = getToolBySlug("ocr-pdf")?.name ?? "OCR PDF";
 
 const content: ToolContent = {
   slug: "rotate-pdf",
@@ -129,16 +141,16 @@ const content: ToolContent = {
       a: "Yes. Each tile has its own left and right arrows that turn only that page, whatever is selected. Left, Right and 180° act on the current selection instead.",
     },
     {
-      q: "Does rotating reduce quality or re-render the pages?",
-      a: "No. The pages are not re-rendered: only each page's rotation setting is updated, and its content is left exactly as it was, so text stays text and images keep their original resolution.",
-    },
-    {
       q: "Why is the Apply rotation button greyed out?",
       a: "It activates only when at least one page will end up at a different angle from the one it opened with. Four quarter turns, or Reset, bring pages back to where they started and leave nothing to apply.",
     },
     {
       q: "Does anything get lost when I rotate a PDF here?",
       a: "No. Rotation saves the same document with a new angle on its pages. Page content, dimensions and order stay as they were, and so do web links, links between pages, comments, bookmarks, the title and author, page labels such as i, ii, iii, attached files, the accessibility tags of a tagged PDF, and the fillable form with any values already typed into it. The copy lists pdf.xyz as its producer and creator, with a new modification date. The file is saved again as a whole, so a digital (certificate) signature it already carries stops verifying; the tool warns you before you apply the rotation, so keep the signed original if you need it.",
+    },
+    {
+      q: "Can it find the sideways pages for me?",
+      a: `Not here: this tool turns the pages you choose. For a scanned document, ${OCR_NAME} can: its Turn pages upright option checks which way up each scanned page with no text yet reads, and turns the ones that are wrong while it makes the file searchable. A page needs enough text to tell which way is up, so one with a single line may be left as it is; turn that one here. Unlike rotation, ${OCR_NAME} uploads the file over TLS to pdf.xyz's secure server, the input is deleted when the job finishes, and the download link expires after ${unlockLinkMinutes} minutes.`,
     },
     {
       q: "Can I rotate a password-protected PDF, and is my file uploaded?",

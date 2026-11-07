@@ -1,10 +1,12 @@
 import type { ToolContent } from "./types";
+import { AI_EXTRACT_CSV_SHAPE } from "@/lib/workers/ai-extract-package";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { aiReadLimitFor } from "@/lib/jobs/ai-read-limit";
 import {
   EXTRACTION_FIELD_TYPES,
   MAX_EXTRACTION_FIELDS,
   MAX_EXTRACTION_PROMPT_CHARS,
+  MAX_FIELD_DESCRIPTION_CHARS,
   MAX_FIELD_NAME_CHARS,
   extractionOutputName,
 } from "@/lib/jobs/ai-extract";
@@ -18,6 +20,7 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
 import {
   AI_EXTRACT_NOT_NULL_WARNING,
   AI_EXTRACT_NULL_CELL_LEGEND,
+  AI_EXTRACT_NULL_CSV_LEGEND,
   AI_EXTRACT_NULL_INSTRUCTION,
   AI_EXTRACT_NULL_MEANING,
   AI_EXTRACT_NULL_PAST_CUT,
@@ -41,7 +44,11 @@ import {
  *    The result is fetched into the page BEFORE the "Download <file>" button
  *    appears (runSecurityJob downloads artifact.url, the button calls
  *    downloadBytes on those bytes) — so it is the worker's link that lapses,
- *    not the button. The UI has NO field-description input, even though the job
+ *    not the button. Since 2026-11-07 each row has a "Field N hint" input (max
+ *    MAX_FIELD_DESCRIPTION_CHARS), sent as the field's `description`, which the
+ *    engine's prompt puts beside the name; held at the wire by
+ *    components/tools/ai-extract-field-hint.test.tsx. Until then the UI had NO
+ *    field-description input, even though the job
  *    contract accepts one, so none is described here.
  *  - src/lib/jobs/ai-extract.ts — field names must be unique ignoring case and
  *    surrounding spaces (`fieldNameKey`). Since 2026-09-28 the panel runs the
@@ -58,11 +65,13 @@ import {
  *    (prompt mode: the same; schema mode: `reconcileWithSchema().values` —
  *    every requested field in order, respelled keys mapped back, a dropped
  *    field null), extraction.md, manifest.json (missing/renamed/extra keys) and
- *    README.txt. No CSV is written. extraction.md is a Field | Value table (a
- *    numbered list for a list reply), a null shown as AI_EXTRACT_NULL_CELL (a
- *    null inside a list as "_(null)_"), a dropped
- *    field as "_(not returned by the model)_", and unrequested keys in a
- *    separate table.
+ *    README.txt. No CSV is in the ZIP; since 2026-11-07 the panel's Download
+ *    CSV builds one in the browser from extraction.json
+ *    (src/lib/workers/ai-extract-package.ts, AI_EXTRACT_CSV_SHAPE).
+ *    extraction.md is a Field | Value table (a numbered list for a list
+ *    reply), a null shown as AI_EXTRACT_NULL_CELL (a null inside a list as
+ *    "_(null)_"), a dropped field as "_(not returned by the model)_", and
+ *    unrequested keys in a separate table.
  *  - src/lib/workers/processor/ai-extract.ts + executor/executor.ts — a
  *    non-JSON reply is `internal_error`, retryable, and the executor REQUEUES a
  *    retryable failure while attempts remain; only the last attempt's failure
@@ -100,6 +109,8 @@ import {
 
 /** The per-file cap a worker-tier upload is refused above, in whole MB. */
 const CEILING_MB = Math.round(WORKER_FILE_CEILING / (1024 * 1024));
+/** The per-field hint's limit, from the job contract the worker enforces. */
+const MAX_HINT_CHARS = MAX_FIELD_DESCRIPTION_CHARS.toLocaleString("en-US");
 const OUTPUT_TTL = DEFAULT_RETENTION.outputTtlMinutes;
 /** What one run reads: the figure the FAQ and the panel's Limit row state too. */
 const MAX_CHARS = aiReadLimitFor("ai-extract").toLocaleString("en-US");
@@ -169,7 +180,7 @@ const content: ToolContent = {
     },
     {
       title: "Pick Field schema or Prompt",
-      body: `Field schema is selected at first. Under Fields to extract, type a name of up to ${MAX_FIELD_NAME_CHARS} characters, set its type in the drop-down, and use Add field for more rows, up to ${MAX_EXTRACTION_FIELDS}. The bin icon deletes a row, except the last one left. Rows left blank are skipped. Two fields cannot share a name, even if only their capital letters differ: the page flags the repeat under the row and keeps Extract data inactive until you rename it. Choose Prompt to type into the What to extract box instead.`,
+      body: `Field schema is selected at first. Under Fields to extract, type a name of up to ${MAX_FIELD_NAME_CHARS} characters, set its type in the drop-down, and optionally type a hint of up to ${MAX_HINT_CHARS} characters in the box under it, such as "the grand total including VAT, not the subtotal": the model reads the hint beside the name, and your JSON key stays the name. Use Add field for more rows, up to ${MAX_EXTRACTION_FIELDS}. The bin icon deletes a row, except the last one left. Rows left blank are skipped. Two fields cannot share a name, even if only their capital letters differ: the page flags the repeat under the row and keeps Extract data inactive until you rename it. Choose Prompt to type into the What to extract box instead.`,
     },
     {
       title: "Press Extract data",
@@ -188,7 +199,7 @@ const content: ToolContent = {
     },
     {
       q: "What is inside the ZIP I download, and can I get CSV or Excel?",
-      a: `The ZIP holds five files. model-output.json is the model's JSON reply as it was returned. extraction.json holds the same data. With a field schema, it lists every field you asked for, in your order and under your names, and a key the model respelled is mapped back to your name. ${AI_EXTRACT_UNRETURNED_NULL} With a prompt, it is the reply as given. extraction.md lays the data out as a Field and Value table, or as a numbered list if the reply is a list. ${AI_EXTRACT_NULL_CELL_LEGEND} It marks a requested field the model never returned as not returned by the model, and lists any keys you did not ask for in a separate table. manifest.json records the provider, the model, your prompt or schema, the page and character counts, any cut, and which fields were missing, respelled or extra. README.txt describes the package. There is no CSV or spreadsheet in it. For data laid out in rows and columns, Extract Tables writes one CSV per table plus an Excel workbook.`,
+      a: `The ZIP holds five files. model-output.json is the model's JSON reply as it was returned. extraction.json holds the same data. With a field schema, it lists every field you asked for, in your order and under your names, and a key the model respelled is mapped back to your name. ${AI_EXTRACT_UNRETURNED_NULL} With a prompt, it is the reply as given. extraction.md lays the data out as a Field and Value table, or as a numbered list if the reply is a list. ${AI_EXTRACT_NULL_CELL_LEGEND} It marks a requested field the model never returned as not returned by the model, and lists any keys you did not ask for in a separate table. manifest.json records the provider, the model, your prompt or schema, the page and character counts, any cut, and which fields were missing, respelled or extra. README.txt describes the package. The ZIP holds no CSV, but when the data is an object or a list of objects, a Download CSV button beside the ZIP saves one, built by the page from extraction.json without another AI run: ${AI_EXTRACT_CSV_SHAPE}. ${AI_EXTRACT_NULL_CSV_LEGEND} There is no Excel workbook, though Excel opens the CSV. For tables laid out in rows and columns in the PDF itself, Extract Tables writes one CSV per table plus an Excel workbook.`,
     },
     {
       q: "Is my document sent to an AI company, and is it used for training?",
@@ -204,7 +215,7 @@ const content: ToolContent = {
     },
     {
       q: "Why did my extraction fail, or come back null or wrong?",
-      a: `When the model's reply is not valid JSON, our server can put the job back in its queue for another attempt by itself. Once the attempts run out, the job fails with nothing to download and a message saying a retry may succeed. A wrong value comes from the model's reply or from the text it was given: an OCR layer with misread characters, or side-by-side columns read across as one line, can mislead it. Compare the value with the page, and when a page holds several similar figures, name the exact one you want in a prompt or in a descriptive field name. ${AI_EXTRACT_NULL_INSTRUCTION} ${AI_EXTRACT_NULL_MEANING} ${AI_EXTRACT_NOT_NULL_WARNING} A single-value field asked of a column of figures is where this happens most, since every row holds a candidate.`,
+      a: `When the model's reply is not valid JSON, our server can put the job back in its queue for another attempt by itself. Once the attempts run out, the job fails with nothing to download and a message saying a retry may succeed. A wrong value comes from the model's reply or from the text it was given: an OCR layer with misread characters, or side-by-side columns read across as one line, can mislead it. Compare the value with the page, and when a page holds several similar figures, name the exact one you want in a prompt, or in the hint under a field. ${AI_EXTRACT_NULL_INSTRUCTION} ${AI_EXTRACT_NULL_MEANING} ${AI_EXTRACT_NOT_NULL_WARNING} A single-value field asked of a column of figures is where this happens most, since every row holds a candidate.`,
     },
   ],
 

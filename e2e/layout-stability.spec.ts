@@ -771,6 +771,12 @@ test.describe("layout stability through load, hydration and scroll", () => {
               '[data-slot="worker-status"]>div>:last-child{order:-1}' +
               "[data-tool-panel] [data-drop-sheet]," +
               "[data-tool-panel] #pdf-security-password," +
+              // Since 2026-11-07 (audit protect-pdf#3) a Confirm password
+              // block (label, field, hint) sits under New password. Left in,
+              // it pushes the slot out of the panel's first screen and the
+              // injected defect moves nothing a reader sees: this control
+              // went red for the wrong reason on PR #284.
+              '[data-tool-panel] div:has(> div > label[for="pdf-security-password-confirm"]),' +
               "[data-tool-panel] [role=radiogroup]{display:none !important}";
             document.head.append(style);
           };

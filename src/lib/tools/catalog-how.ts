@@ -1,4 +1,3 @@
-import { US_LETTER_LABEL } from "@/lib/pdf/page-geometry";
 import {
   RASTER_RESOLUTION_CHOICES as RESOLUTION_CHOICES,
   RASTER_PREVIEW_LIMIT,
@@ -70,7 +69,7 @@ export const TOOL_HOW: Readonly<Record<string, readonly string[]>> = {
   "jpg-to-pdf": [
     "Pick one or more JPG or PNG images — they stay on your device.",
     "Put them in page order: drag an image onto the place you want, or use its “Move up” and “Move down” buttons.",
-    `Set “Page size”, “Orientation”, “Margin” and “Output” if you want to — left alone, each image is centred on its own ${US_LETTER_LABEL} portrait page in one PDF.`,
+    "Set “Page size”, “Orientation”, “Margin” and “Output” if you want to — left alone, each image is centred on its own portrait page in one PDF.",
     "Click “Create PDF” — the PDF is assembled in your browser.",
     "Download the PDF — or, with One PDF per image and more than one image, the ZIP of PDFs.",
   ],
@@ -154,8 +153,8 @@ export const TOOL_HOW: Readonly<Record<string, readonly string[]>> = {
   ],
   "header-footer": [
     "Open the PDF you want to label — it stays on your device.",
-    "Type your header text, footer text, or both — {n}, {total} and {date} insert the page number, the page count and today's date.",
-    "Choose Left, Center or Right alignment for each.",
+    "Type your header, footer, or both, in each band's Left, Center and Right boxes — {n}, {total} and {date} insert the page number, the page count and today's date.",
+    "Leave a box empty to skip it; a band can use all three.",
     "Download your PDF.",
   ],
   "sign-pdf": [

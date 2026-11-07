@@ -8,7 +8,6 @@ import { splitPdf } from "@/lib/pdf/engine";
 import type { TopLevelBookmark } from "@/lib/pdf/split-modes";
 const loadSplitModes = () => import("@/lib/pdf/split-modes");
 import {
-  buildSplitParts,
   formatPageNumbers,
   parseRanges,
   rangeToIndices,
@@ -16,6 +15,7 @@ import {
   rangesFromStarts,
   rangesPerPage,
 } from "@/lib/pdf/ranges";
+import { buildSplitParts, oddEvenParts } from "@/lib/pdf/split-parts";
 import type { NamedBytes, SplitPart } from "@/lib/pdf/types";
 import { planTextSplit } from "@/lib/pdf/split-text";
 import {
@@ -107,6 +107,9 @@ export function SplitEditor({
   const mergeId = useId();
   const bookmarksNoteId = useId();
   const textCaseId = useId();
+  // By bookmarks: name each file after its bookmark (audit split-pdf#5).
+  const [nameByBookmark, setNameByBookmark] = useState(true);
+  const nameByBookmarkId = useId();
   const [textQuery, setTextQuery] = useState("");
   const [textCase, setTextCase] = useState(false);
   // Each page's selectable text, read the first time "By text" is chosen.
@@ -214,11 +217,22 @@ export function SplitEditor({
         for (const m of marks) {
           if (!titleAt.has(m.pageIndex)) titleAt.set(m.pageIndex, m.title);
         }
+        const titles = ranges.map((r) => titleAt.get(r.start));
         return {
-          parts: buildSplitParts(base, ranges).map((part, i) => ({
+          parts: buildSplitParts(
+            base,
+            ranges,
+            nameByBookmark ? titles : undefined,
+          ).map((part, i) => ({
             ...part,
             label: titleAt.get(ranges[i]!.start) ?? "Before the first bookmark",
           })),
+          previewError: null,
+        };
+      }
+      if (mode === "oddEven") {
+        return {
+          parts: oddEvenParts(base, pdf.pageCount),
           previewError: null,
         };
       }
@@ -255,6 +269,7 @@ export function SplitEditor({
     size,
     sizeValid,
     marks,
+    nameByBookmark,
     targetBytes,
     textPlan,
   ]);
@@ -464,6 +479,14 @@ export function SplitEditor({
         </label>
       )}
 
+      {mode === "oddEven" && (
+        <p className="text-muted text-sm">
+          Pages 1, 3, 5 and so on go into one file, pages 2, 4, 6 and so on into
+          another: the fronts and the backs of a double-sided scan.
+          {pdf.pageCount < 2 && " This PDF has one page, so there is one file."}
+        </p>
+      )}
+
       {mode === "perPage" && (
         <p className="text-muted text-sm">
           Every page becomes its own PDF — {pdf.pageCount} files in total.
@@ -501,6 +524,20 @@ export function SplitEditor({
           A new file starts at each top-level bookmark&apos;s page. Pages before
           the first bookmark become a file of their own.
         </p>
+      )}
+      {mode === "bookmarks" && marks !== null && marks.length > 0 && (
+        <label
+          htmlFor={nameByBookmarkId}
+          className="text-fg flex min-h-11 items-center gap-2 text-sm"
+        >
+          <input
+            id={nameByBookmarkId}
+            type="checkbox"
+            checked={nameByBookmark}
+            onChange={(e) => setNameByBookmark(e.target.checked)}
+          />
+          <span>Name each file after its bookmark</span>
+        </label>
       )}
 
       {mode === "text" && (

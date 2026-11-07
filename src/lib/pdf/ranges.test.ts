@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildSplitParts,
   formatPageNumbers,
   formatRange,
   PageRangeError,
@@ -10,6 +9,11 @@ import {
   rangesPerPage,
   rangeToIndices,
 } from "./ranges";
+import {
+  buildSplitParts,
+  oddEvenParts,
+  SPLIT_TITLE_MAX_CHARS,
+} from "./split-parts";
 
 describe("parsePageList", () => {
   it("parses single pages into 0-based indices", () => {
@@ -149,5 +153,68 @@ describe("formatPageNumbers", () => {
       const typed = formatPageNumbers(pages).replace(/–/g, "-");
       expect(parsePageList(typed, pageCount).map((i) => i + 1)).toEqual(pages);
     }
+  });
+});
+
+describe("oddEvenParts (audit split-pdf#6)", () => {
+  it("puts pages 1, 3, 5 … in one part and 2, 4, 6 … in the other", () => {
+    expect(oddEvenParts("scan", 5)).toEqual([
+      { name: "scan-odd-pages.pdf", indices: [0, 2, 4] },
+      { name: "scan-even-pages.pdf", indices: [1, 3] },
+    ]);
+  });
+  it("every page lands in exactly one part", () => {
+    const parts = oddEvenParts("x", 8);
+    expect(parts.flatMap((p) => p.indices).sort((a, b) => a - b)).toEqual([
+      0, 1, 2, 3, 4, 5, 6, 7,
+    ]);
+  });
+  it("a one-page document has no even part", () => {
+    expect(oddEvenParts("one", 1)).toEqual([
+      { name: "one-odd-pages.pdf", indices: [0] },
+    ]);
+  });
+  it("sanitises the base like every other part name", () => {
+    expect(oddEvenParts("Q3: plan?", 2)[0]!.name).toBe("Q3 plan-odd-pages.pdf");
+  });
+});
+
+describe("buildSplitParts with titles (audit split-pdf#5)", () => {
+  const ranges = [
+    { start: 0, end: 0 },
+    { start: 1, end: 2 },
+    { start: 3, end: 4 },
+  ];
+  it("names a part after its title, keeping the sequence number first", () => {
+    expect(
+      buildSplitParts("book", ranges, [
+        undefined,
+        "Chapter 2",
+        "Chapter 3",
+      ]).map((p) => p.name),
+    ).toEqual([
+      "book-1-page-1.pdf",
+      "book-2-Chapter 2.pdf",
+      "book-3-Chapter 3.pdf",
+    ]);
+  });
+  it("a title is made safe for every file system, and a blank one keeps the page span", () => {
+    const names = buildSplitParts("book", ranges, [
+      "  ",
+      'Q3: "plan"? / notes.',
+      "x".repeat(200),
+    ]).map((p) => p.name);
+    expect(names[0]).toBe("book-1-page-1.pdf");
+    expect(names[1]).toBe("book-2-Q3 plan notes.pdf");
+    expect(names[2]!.length).toBeLessThanOrEqual(
+      "book-3-".length + SPLIT_TITLE_MAX_CHARS + ".pdf".length,
+    );
+  });
+  it("without titles the names are what they always were", () => {
+    expect(buildSplitParts("book", ranges).map((p) => p.name)).toEqual([
+      "book-1-page-1.pdf",
+      "book-2-pages-2-3.pdf",
+      "book-3-pages-4-5.pdf",
+    ]);
   });
 });

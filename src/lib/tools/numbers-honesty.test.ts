@@ -42,6 +42,10 @@ import {
   RETENTION_WINDOW_MINUTES,
   RETENTION_WINDOWS,
 } from "@/lib/retention-windows";
+import { SIZE_PRESETS } from "@/lib/pdf/size-presets";
+import { guides } from "@/lib/guides/catalog";
+import { GUIDE_META } from "@/lib/guides/meta.generated";
+import { projectGuideMeta } from "@/lib/guides/meta";
 import { MAX_IMAGE_BYTES, MAX_SOURCE_BYTES } from "./limits";
 import { processingSplit } from "./processing-split";
 import { copyFiles as sharedCopyFiles, toolContentFiles } from "./copy-surface";
@@ -145,6 +149,15 @@ const OWNED: { value: number; units: readonly string[]; source: string }[] = [
     units: ["mb"],
     source: "MAX_SOURCE_BYTES (tools/limits, text/markdown source cap)",
   },
+  // The file-size presets Compress PDF's Target size and JPG / PNG to PDF's
+  // Max file size offer (one list), registered by ITERATING it on 2026-11-07,
+  // when the size guides' titles began naming "1 MB" (audit search-demand#2).
+  // Only the whole-MB ones: KB is not a unit this census reads.
+  ...SIZE_PRESETS.filter((p) => p.bytes % MB === 0).map((p) => ({
+    value: p.bytes / MB,
+    units: ["mb"] as const,
+    source: `SIZE_PRESETS (${p.label}, the size panels' preset)`,
+  })),
   // Every retention clock the policy pages state, registered by ITERATING the
   // derivation rather than by retyping its keys: a clock added there is owned
   // here the same day. They overlap on purpose — 1 day is the job record's TTL
@@ -242,8 +255,20 @@ function ownersOf({ value, unit }: UnitLiteral): string[] {
  * pages; importing the walk is the mechanical version of "the same surface".
  */
 function copyFiles(): string[] {
-  return sharedCopyFiles();
+  return sharedCopyFiles().filter((f) => relative(f) !== GENERATED_GUIDE_META);
 }
+
+/**
+ * The guides' palette metadata, NOT read by this census since 2026-11-07.
+ * It is a projection of `src/lib/guides/catalog.ts` (titles, keywords),
+ * written by `pnpm guides:meta`, so every figure in it is either interpolated
+ * in the catalogue (derived) or hand-written there — and the catalogue IS
+ * read. Read here too, it reported the catalogue's DERIVED figures as
+ * hand-written ("1 MB" from `SIZE_PRESETS`). The exemption holds only while
+ * the projection does: the test "the guides' generated metadata is the
+ * catalogue's projection" asserts it, and that the walk still reaches the file.
+ */
+const GENERATED_GUIDE_META = "src/lib/guides/meta.generated.ts";
 
 /** Source with comments removed — a docblock citing a figure is not a claim. */
 function withoutComments(source: string): string {
@@ -391,6 +416,15 @@ describe("user-facing copy does not hand-write figures the code owns", () => {
         `the census no longer reads ${expected} — figures stated or owned there are unchecked`,
       ).toContain(expected);
     }
+  });
+
+  it("the guides' generated metadata is the catalogue's projection, so skipping it loses nothing", () => {
+    // Both halves of the exemption above: the shared walk really reaches the
+    // file (so the filter names a member, not a typo), and every literal in it
+    // is one the catalogue — which this census reads — interpolated or wrote.
+    expect(sharedCopyFiles().map(relative)).toContain(GENERATED_GUIDE_META);
+    expect(copyFiles().map(relative)).toContain("src/lib/guides/catalog.ts");
+    expect(GUIDE_META).toEqual(projectGuideMeta(guides));
   });
 
   it("reads every tool page's content file", () => {

@@ -136,6 +136,21 @@ export interface MergeOptions {
    * re-count expects them (they depend on the first page's height).
    */
   onContentsPages?: (pages: number) => void;
+  /**
+   * For double-sided printing: after each file whose selected page count is
+   * odd, except the last file, add a blank page the size of that file's last
+   * page, so the next file starts on the front of a sheet; with a contents
+   * page, an odd number of contents pages is followed by a blank too.
+   */
+  blankAfterOdd?: boolean;
+  /** Told how many blank pages `blankAfterOdd` added, for the page re-count. */
+  onBlankPages?: (pages: number) => void;
+  /**
+   * Per file, a name printed small at the bottom left of each page it gives
+   * (`merge-filename.ts`), so a printed page shows which file it came from.
+   * Blank pages from `blankAfterOdd` and contents pages carry none.
+   */
+  fileNames?: readonly string[];
 }
 
 /** Concatenate several PDFs into one, in the order given. */
@@ -171,6 +186,44 @@ export async function mergePdfs(
     documentState: "merge",
     ...(options.fileBookmarks ? { fileBookmarks: options.fileBookmarks } : {}),
   });
+  if (options.fileNames) {
+    if (options.fileNames.length !== files.length) {
+      throw new Error("one file name per file");
+    }
+    // Loaded with the option, so a plain merge never pays for it. Drawn
+    // before the blank pads are inserted, so those stay blank.
+    const names = options.fileNames;
+    const { stampFileNames } = await import("./merge-filename");
+    let at = 0;
+    await stampFileNames(
+      lib,
+      sources.map(({ indices }, i) => {
+        const group = {
+          name: names[i]!,
+          pages: pages.slice(at, at + indices.length),
+        };
+        at += indices.length;
+        return group;
+      }),
+    );
+  }
+  // Blank pages added for double-sided printing: after odd files, and after
+  // an odd contents block, which would otherwise move every file onto the
+  // back of a sheet.
+  let added = 0;
+  if (options.blankAfterOdd) {
+    // After assembly, so bookmarks and contents entries, which point at page
+    // objects, still open each file's first page; the contents page numbers
+    // are read from the final order, blanks included.
+    let at = 0;
+    sources.forEach(({ indices }, i) => {
+      at += indices.length;
+      if (indices.length % 2 === 0 || i === sources.length - 1) return;
+      const { width, height } = out.getPage(at + added - 1).getSize();
+      out.insertPage(at + added, [width, height]);
+      added += 1;
+    });
+  }
   if (options.contentsPage) {
     const titles = options.contentsPage;
     const { addContentsPages } = await import("./merge-contents");
@@ -183,9 +236,13 @@ export async function mergePdfs(
     // Added before it is reported: `f?.(x)` does not evaluate `x` when `f`
     // is absent, which once skipped the contents page for every caller that
     // did not ask for the count.
-    const added = await addContentsPages(lib, out, entries);
-    options.onContentsPages?.(added);
+    const { contents, blank } = await addContentsPages(lib, out, entries, {
+      padToEven: options.blankAfterOdd === true,
+    });
+    added += blank;
+    options.onContentsPages?.(contents);
   }
+  if (options.blankAfterOdd) options.onBlankPages?.(added);
   stamp(out);
   return out.save();
 }

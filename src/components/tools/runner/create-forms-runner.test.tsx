@@ -23,6 +23,11 @@ import { PDFDocument } from "pdf-lib";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { dropSheetsLive } from "@/tests/drop-sheets-live";
 import { CreateFormsRunner } from "./create-forms-runner";
+import { EDITOR_FIELD_LABEL } from "@/lib/pdf/editor/model";
+import { EDITOR_FORMS_GROUP } from "@/lib/pdf/offered-kinds";
+import { getToolBySlug } from "@/lib/tools";
+import { getToolContent } from "@/lib/tools/content";
+import { TOOL_GROUPS } from "./editor/toolbar";
 
 const router = {
   back: () => {},
@@ -176,6 +181,49 @@ describe(
         (screen.getByLabelText(/default selection/i) as HTMLSelectElement)
           .value,
       ).toBe("B");
+    });
+  },
+);
+
+describe(
+  "Create Forms: points to Edit PDF's drag-out form fields (audit create-forms#1)",
+  { timeout: 30_000 },
+  () => {
+    // The page said there was "no canvas for dragging fields into place" and
+    // "no signature field type", while Edit PDF's Forms group drags out every
+    // field this builder makes plus a signature field. A visitor who wanted
+    // either was never told where it was.
+    const editPdf = getToolBySlug("edit-pdf")!;
+    const signature = EDITOR_FIELD_LABEL.signature;
+
+    it("the Forms group exists in the editor and holds a signature field", () => {
+      const group = TOOL_GROUPS.find((g) => g.name === EDITOR_FORMS_GROUP);
+      expect(
+        group,
+        `no "${EDITOR_FORMS_GROUP}" group in the toolbar`,
+      ).toBeTruthy();
+      expect(group!.tools).toContain("field-signature");
+      expect(editPdf.processing).toBe("client");
+    });
+
+    it("the coordinate help links to Edit PDF, naming Forms and the signature field", async () => {
+      await openBuilder([612, 792]);
+      const link = screen.getByRole("link", { name: editPdf.name });
+      expect(link.getAttribute("href")).toBe(`/tools/${editPdf.slug}`);
+      const help = link.closest("div")!.textContent ?? "";
+      expect(help).toContain(EDITOR_FORMS_GROUP);
+      expect(help.toLowerCase()).toContain(signature.toLowerCase());
+    });
+
+    it("the tool page says the same, and no longer that no tool drags fields", () => {
+      const content = getToolContent("create-forms")!;
+      const text = [
+        ...content.intro,
+        ...content.faqs.map((f) => `${f.q} ${f.a}`),
+      ].join(" ");
+      expect(text).toContain(editPdf.name);
+      expect(text).toContain(`its ${EDITOR_FORMS_GROUP} group`);
+      expect(text.toLowerCase()).toContain(signature.toLowerCase());
     });
   },
 );

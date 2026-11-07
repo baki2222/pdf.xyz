@@ -107,7 +107,7 @@ const content: ToolContent = {
     },
     {
       title: "Select the pages to keep",
-      body: "Click a thumbnail to add or remove that page; Shift-click adds every page between the last one you clicked and this one. To pick by number instead, fill in the field whose placeholder reads “e.g. 1-3, 5”, then click the Select chip beside it or hit Enter. The Select all, Clear and Invert buttons change the whole set at once.",
+      body: "Click a thumbnail to add or remove that page; Shift-click adds every page between the last one you clicked and this one. To pick by number instead, fill in the field whose placeholder reads “e.g. 1-3, 5”, then click the Select chip beside it or hit Enter. The Select all, Clear and Invert buttons change the whole set at once, and Odd pages or Even pages selects every other page: 1, 3, 5 and so on, the fronts of a double-sided scan, or 2, 4, 6 and so on.",
     },
     {
       title: "Run the extraction",

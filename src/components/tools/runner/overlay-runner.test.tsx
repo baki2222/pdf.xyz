@@ -12,7 +12,11 @@ import type { ReactNode } from "react";
 import { PDFDocument, rgb } from "pdf-lib";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { getRunnerKind } from "@/lib/pdf/registry";
-import { OVERLAY_LAYERS } from "@/lib/pdf/overlay";
+import {
+  OVERLAY_LAYERS,
+  OVERLAY_PAGE_SCOPES,
+  OVERLAY_PAGINGS,
+} from "@/lib/pdf/overlay";
 import { regionMean, renderPdfPages, type Rgb } from "@/tests/pdf-render";
 import { getToolBySlug } from "@/lib/tools";
 import { pageSteps, stepText } from "@/lib/tools/page-copy";
@@ -246,5 +250,115 @@ describe("overlay-pdf: what the downloaded file shows", () => {
         );
       }
     }
+  }, 30_000);
+
+  it("a multi-page overlay offers every paging mode the engine maps, and the page names each", async () => {
+    // Cycle wrapped a two-page letterhead set back to the cover on pages 3
+    // and 5; "Repeat last page" is the cover + continuation case. A mode the
+    // engine maps but the control omits is a mode no user can reach.
+    expect(OVERLAY_PAGINGS.length).toBeGreaterThanOrEqual(4);
+    const { container } = render(
+      <Router>
+        <ToolRunner kind="overlay" slug={SLUG} />
+      </Router>,
+    );
+    await runnerMounted(container);
+    const baseInput =
+      container.querySelector<HTMLInputElement>('input[type="file"]');
+    fireEvent.change(baseInput!, {
+      target: { files: [pdfFile(await letter(), "letter.pdf")] },
+    });
+    await screen.findByText(/drop the overlay pdf here/i);
+    const doc = await PDFDocument.create();
+    doc.addPage([612, 792]).drawRectangle({ x: 0, y: 0, width: 9, height: 9 });
+    doc.addPage([612, 792]).drawRectangle({ x: 0, y: 0, width: 9, height: 9 });
+    const overlayInput =
+      container.querySelector<HTMLInputElement>('input[type="file"]');
+    fireEvent.change(overlayInput!, {
+      target: { files: [pdfFile(await doc.save(), "set.pdf")] },
+    });
+    const group = await screen.findByRole("radiogroup", {
+      name: /how overlay pages map to base pages/i,
+    });
+    const labels = Array.from(group.querySelectorAll('[role="radio"]')).map(
+      (el) => el.textContent?.trim() ?? "",
+    );
+    expect(labels).toEqual(OVERLAY_PAGINGS.map((p) => p.label));
+    const steps = servedSteps().join(" ");
+    for (const label of labels) {
+      expect(label.length).toBeGreaterThan(0);
+      expect(steps, `the steps never name "${label}"`).toContain(`"${label}"`);
+    }
+    // The chosen mode says what it does, under the control.
+    const last = OVERLAY_PAGINGS.find((p) => p.id === "last")!;
+    fireEvent.click(screen.getByRole("radio", { name: last.label }));
+    expect(screen.getByText(last.hint)).toBeTruthy();
+  }, 30_000);
+
+  it("Selected pages puts the letterhead only on the pages listed, and the result says which were left", async () => {
+    // A letterhead on page 1 only, a "Received" stamp on the first page: the
+    // overlay went on every page, with no way to list them.
+    const { container } = render(
+      <Router>
+        <ToolRunner kind="overlay" slug={SLUG} />
+      </Router>,
+    );
+    await runnerMounted(container);
+    const two = await PDFDocument.create();
+    for (let i = 0; i < 2; i += 1) {
+      two.addPage([612, 792]).drawRectangle({
+        x: 150,
+        y: 250,
+        width: 312,
+        height: 292,
+        color: rgb(0, 0, 0),
+      });
+    }
+    fireEvent.change(
+      container.querySelector<HTMLInputElement>('input[type="file"]')!,
+      { target: { files: [pdfFile(await two.save(), "letter.pdf")] } },
+    );
+    await screen.findByText(/drop the overlay pdf here/i);
+    fireEvent.change(
+      container.querySelector<HTMLInputElement>('input[type="file"]')!,
+      { target: { files: [pdfFile(await letterhead(), "letterhead.pdf")] } },
+    );
+    await screen.findByText("letterhead.pdf");
+    const scope = screen.getByRole("radiogroup", {
+      name: /overlay page scope/i,
+    });
+    const scopeLabels = Array.from(scope.querySelectorAll('[role="radio"]'));
+    expect(scopeLabels.map((el) => el.textContent?.trim())).toEqual(
+      OVERLAY_PAGE_SCOPES.map((o) => o.label),
+    );
+    const some = OVERLAY_PAGE_SCOPES.find((o) => o.id === "some")!.label;
+    // The page's steps name both choices the visitor is shown.
+    const steps = servedSteps().join(" ");
+    for (const o of OVERLAY_PAGE_SCOPES)
+      expect(steps, `the steps never name "${o.label}"`).toContain(
+        `"${o.label}"`,
+      );
+    const selected = scopeLabels.find((el) => el.textContent?.trim() === some);
+    expect(selected, "a Selected pages choice").toBeTruthy();
+    fireEvent.click(selected!);
+    fireEvent.change(screen.getByLabelText("Pages to overlay"), {
+      target: { value: "2" },
+    });
+    const run = screen.getByRole("button", { name: /overlay onto 2 pages/i });
+    fireEvent.click(run);
+    const download = await screen.findByRole(
+      "button",
+      { name: /download overlaid pdf/i },
+      { timeout: 10_000 },
+    );
+    const summary = download.closest('[role="group"]')?.textContent ?? "";
+    expect(summary).toContain("1 of 2 pages");
+    expect(summary).toContain("Page 1 was not selected, so it is unchanged.");
+    fireEvent.click(download);
+    const bytes = new Uint8Array(await downloads[0]!.arrayBuffer());
+    const [first, second] = await renderPdfPages(bytes);
+    expect(isRed(regionMean(first!, ...BAND))).toBe(false);
+    expect(isDark(regionMean(first!, ...BODY))).toBe(true);
+    expect(isRed(regionMean(second!, ...BAND))).toBe(true);
   }, 30_000);
 });

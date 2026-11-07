@@ -11,6 +11,7 @@ import {
   signalOption,
   type RunControl,
 } from "../attempt-abort";
+import { DOCUMENT_WORDS } from "./document-words";
 import {
   EXCEL_TO_PDF_TOOL,
   POWERPOINT_TO_PDF_TOOL,
@@ -63,32 +64,11 @@ export type OfficeConversionRun =
   | { ok: false; kind: "failed"; message: string };
 
 /**
- * What each tool's users call the file and the program that saves it. Exported
- * so a page that quotes a refusal names the same command the refusal does.
+ * What each tool's users call the file and the program that saves it. Lives in
+ * the leaf `./tools` so the browser panel's drop zone says the same noun the
+ * refusals do; re-exported here for the pages that already import it.
  */
-export const DOCUMENT_WORDS: Record<
-  OfficeToPdfTool,
-  { noun: string; app: string; ext: string; protect: string }
-> = {
-  [WORD_TO_PDF_TOOL]: {
-    noun: "document",
-    app: "Word",
-    ext: ".docx",
-    protect: "File > Info > Protect Document",
-  },
-  [EXCEL_TO_PDF_TOOL]: {
-    noun: "workbook",
-    app: "Excel",
-    ext: ".xlsx",
-    protect: "File > Info > Protect Workbook",
-  },
-  [POWERPOINT_TO_PDF_TOOL]: {
-    noun: "presentation",
-    app: "PowerPoint",
-    ext: ".pptx",
-    protect: "File > Info > Protect Presentation",
-  },
-};
+export { DOCUMENT_WORDS } from "./document-words";
 
 /**
  * Where an OpenDocument file's password comes off: LibreOffice saves a copy

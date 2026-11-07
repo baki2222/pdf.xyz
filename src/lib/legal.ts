@@ -27,6 +27,13 @@ export const LEGAL_CONTACT = "legal@pdf.xyz";
  */
 export const LEGAL_UPDATED = "2026-10-10";
 
+/**
+ * The date shown on /security, ISO, by the same rule. Its own date because
+ * that page was written on it (audit platform#9); printing LEGAL_UPDATED
+ * there would have dated new copy a month before it existed.
+ */
+export const SECURITY_UPDATED = "2026-11-07";
+
 /** The youngest age at which someone may use pdf.xyz (terms §2). */
 export const MINIMUM_AGE = 13;
 

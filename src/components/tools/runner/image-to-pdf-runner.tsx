@@ -33,9 +33,12 @@ import {
   IMAGE_ORIENTATIONS,
   IMAGE_OUTPUTS,
   IMAGE_PAGE_SIZES,
+  PHOTO_DETAILS_CHOICES,
+  PHOTO_DETAILS_LABELS,
   type ImageOutputId,
   type ImagePageOptions,
 } from "@/lib/pdf/image-page-layout";
+import { imagePageSizeForLocales } from "@/lib/pdf/image-page-defaults";
 import { inches } from "@/lib/pdf/page-geometry";
 import {
   KB,
@@ -305,11 +308,21 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
   }, [handoff.status, handoff.files, addFiles]);
 
   const { busy, error, result, run, reset } = useAsyncRun<ImagePdfResult>();
-  // Page setup. The defaults are the layout every image PDF had before these
-  // options existed (US Letter, portrait, 36pt margin, one PDF).
-  const [page, setPage] = useState<ImagePageOptions>({
+  // Page setup. Orientation, margin and output are the layout every image
+  // PDF had before these options existed (portrait, 36pt margin, one PDF);
+  // the page size starts on the paper of the browser's region, Letter or A4
+  // (audit jpg-to-pdf#1). Read once, lazily: the chips are drawn only after
+  // an image is added, so the server's render never shows this state.
+  const [page, setPage] = useState<ImagePageOptions>(() => ({
     ...DEFAULT_IMAGE_PAGE_OPTIONS,
-  });
+    pageSize: imagePageSizeForLocales(
+      typeof navigator === "undefined"
+        ? []
+        : navigator.languages?.length
+          ? navigator.languages
+          : [navigator.language],
+    ),
+  }));
   const [outputMode, setOutputMode] =
     useState<ImageOutputId>(DEFAULT_IMAGE_OUTPUT);
   const { zipping, zipError, downloadZip } = useZipDownload();
@@ -667,6 +680,31 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
               ))}
             </div>
           </RunnerSection>
+          {/* Only a JPEG carries details the choice can act on: a PNG's
+              chunks never reach the PDF (png-embed copies IDAT only), and a
+              WebP, GIF or BMP is saved again with its pixels alone. So the
+              choice is shown only while the list holds a JPEG, on PNG to
+              PDF as on JPG to PDF (image-to-pdf-photo-details.test.tsx). */}
+          {items.some((item) => item.type === IMAGE_MIME.jpg) && (
+            <RunnerSection title={PHOTO_DETAILS_LABELS.heading}>
+              <div
+                role="group"
+                aria-label={PHOTO_DETAILS_LABELS.heading}
+                className="flex flex-wrap gap-2"
+              >
+                {PHOTO_DETAILS_CHOICES.map((c) => (
+                  <ChipButton
+                    key={c.id}
+                    onClick={() => setPageOption({ photoDetails: c.id })}
+                    disabled={busy}
+                    active={c.id === (page.photoDetails ?? "remove")}
+                  >
+                    {c.label}
+                  </ChipButton>
+                ))}
+              </div>
+            </RunnerSection>
+          )}
           <RunnerSection title={MAX_SIZE_LABELS.heading}>
             <div
               role="group"

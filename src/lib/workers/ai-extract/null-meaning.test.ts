@@ -109,6 +109,7 @@ import {
 import { resetTelemetry } from "@/lib/telemetry/track";
 import type { AiProvider } from "../ai/provider";
 import { runAiExtract } from "./engine";
+import { extractionRows } from "../ai-extract-package";
 import { userTruncationNotice } from "../ai/truncation";
 import {
   renderToolPages,
@@ -476,6 +477,25 @@ const POSITIVE: Readonly<Record<keyof typeof NULL_WORDS, PositiveBound>> = {
       "quotes the cell's label, whole": [
         'In extraction.md a null reads "not found".',
         'In extraction.md a null reads "not found, or several different values for the field".',
+      ],
+    },
+  },
+  AI_EXTRACT_NULL_CSV_LEGEND: {
+    // ONE part, held to the CODE, not to a string: the cell the CSV writer
+    // actually writes for a null (an independent bound, rule 3). If
+    // `extractionRows` ever wrote "null" or the cell label, this goes red.
+    parts: {
+      "says a null is the cell the CSV writer writes for one: empty": (
+        phrase,
+      ) =>
+        extractionRows({ field: null })?.[1]?.[0] === "" &&
+        /\bthe CSV\b/.test(phrase) &&
+        /\ba null is an empty cell\b/i.test(phrase),
+    },
+    onlyRefusedBy: {
+      "says a null is the cell the CSV writer writes for one: empty": [
+        'In the CSV a null reads "null".',
+        "In the CSV a null is left out of the row.",
       ],
     },
   },

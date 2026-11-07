@@ -71,8 +71,8 @@ import {
   MAX_EXTRACTION_FIELDS,
 } from "@/lib/jobs/ai-extract";
 import { MAX_CONTEXT_EXCHANGES } from "@/lib/workers/chat-with-pdf-conversation";
-import { IMAGE_HEAVY_SHARE } from "@/lib/pdf/analyze";
-import { buildSplitParts } from "@/lib/pdf/ranges";
+import { IMAGE_HEAVY_SHARE, LOSSLESS_MIN_RATIO } from "@/lib/pdf/analyze";
+import { buildSplitParts } from "@/lib/pdf/split-parts";
 import {
   DEFAULT_REDACT_METHOD,
   DEFAULT_REDACT_PRESET_ID,
@@ -84,14 +84,18 @@ import {
 import { PII_CATEGORIES, PII_NOUN } from "@/lib/pdf/redact-categories";
 import {
   DEEP_COMPRESSION_PRESETS,
+  DEEP_MONO_MIN_DPI,
   EDITOR_KINDS,
   EDITOR_KIND_FACT,
+  EDITOR_FORMS_GROUP,
   COMMENT_KINDS,
   MARKUP_KINDS,
   FIELD_TYPE_FACT,
   GRAYSCALE_DPI_PRESETS,
   NEW_FIELD_TYPES,
   OVERLAY_FITS,
+  OVERLAY_PAGE_SCOPES,
+  OVERLAY_PAGINGS,
   SIGNATURE_SOURCE_FACT,
   SIGNATURE_SOURCES,
   SPLIT_MODE_FACT,
@@ -121,7 +125,13 @@ import {
   IMAGE_PAGE_SIZES,
   imageMarginPoints,
   imagePageSizeById,
+  type ImagePageSize,
 } from "@/lib/pdf/image-page-layout";
+import {
+  LETTER_PAPER_REGIONS,
+  LETTER_REGION_PAGE_SIZE,
+  WORLD_PAGE_SIZE,
+} from "@/lib/pdf/image-page-defaults";
 import {
   MARKDOWN_BLOCK_KINDS,
   type MarkdownBlockKind,
@@ -214,6 +224,12 @@ const overlayFitLabels = listed(
   "or",
 );
 
+/** Overlay paging modes as the overlay runner's control labels them. */
+const overlayPagingLabels = listed(
+  OVERLAY_PAGINGS.map((paging) => paging.label),
+  "or",
+);
+
 /* ------------------------------------------------------------------ *
  *  Facts — each line's source is the runner constant or UI it names.
  * ------------------------------------------------------------------ */
@@ -295,13 +311,34 @@ function orJoin(items: readonly string[]): string {
     : `${items.slice(0, -1).join(", ")} or ${items.at(-1)}`;
 }
 
-/** "US Letter (8.5 × 11 in)" for the default size, from the same table. */
-const DEFAULT_IMAGE_SIZE = (() => {
-  const size = imagePageSizeById(DEFAULT_IMAGE_PAGE_OPTIONS.pageSize);
-  return size.size
+/**
+ * How the page copy states the paper Image to PDF's runner starts on, from
+ * the tables in src/lib/pdf/image-page-layout.ts: "A4, or US Letter if your
+ * browser's preferred language is set for a country that uses Letter paper,
+ * such as …" (audit jpg-to-pdf#1, 2026-11-07). `nameOf` lets a caller add
+ * the size in inches; the countries named are the first four Letter
+ * regions. src/lib/tools/image-page-default-copy.test.ts holds every page
+ * that describes the default to this sentence.
+ */
+export function imageDefaultPaperCopy(
+  nameOf: (size: ImagePageSize) => string = (size) => size.label,
+): string {
+  const names = LETTER_PAPER_REGIONS.slice(0, 4).map((r) => r.name);
+  return `${nameOf(imagePageSizeById(WORLD_PAGE_SIZE))}, or ${nameOf(imagePageSizeById(LETTER_REGION_PAGE_SIZE))} if your browser's preferred language is set for a country that uses Letter paper, such as ${orJoin(names)}`;
+}
+
+/**
+ * "A4 (8.27 × 11.69 in), or US Letter (8.5 × 11 in) if your browser's …":
+ * the paper the runner STARTS on, which follows the browser's region since
+ * 2026-11-07 (audit jpg-to-pdf#1). Until then this was one size, US Letter,
+ * read from DEFAULT_IMAGE_PAGE_OPTIONS — which is still the engine's default
+ * for a caller passing no options, but no longer what a person gets.
+ */
+const DEFAULT_IMAGE_SIZE = imageDefaultPaperCopy((size) =>
+  size.size
     ? `${size.label} (${inches(size.size.width)} × ${inches(size.size.height)} in)`
-    : size.label;
-})();
+    : size.label,
+);
 const DEFAULT_IMAGE_ORIENTATION = IMAGE_ORIENTATIONS.find(
   (o) => o.id === DEFAULT_IMAGE_PAGE_OPTIONS.orientation,
 )!.label.toLowerCase();
@@ -318,7 +355,7 @@ const DEFAULT_IMAGE_ORIENTATION = IMAGE_ORIENTATIONS.find(
 export const IMAGE_PAGE_OPTIONS_FACT = `Page size: ${orJoin(IMAGE_PAGE_SIZES.map((s) => s.label))}. Orientation: ${orJoin(IMAGE_ORIENTATIONS.map((o) => o.label))} (Auto turns the page for a wide image). Margin: ${orJoin(IMAGE_MARGINS.map((m) => (m.points > 0 ? `${m.label} (${inches(m.points)} in)` : m.label)))}.`;
 
 /** Image to PDF's page, as the engine lays it out. */
-export const IMAGE_PAGE_FACT = `Each image goes on its own page, centred. Unless you change the page setup, that page is ${DEFAULT_IMAGE_SIZE} ${DEFAULT_IMAGE_ORIENTATION} with a ${inches(imageMarginPoints(DEFAULT_IMAGE_PAGE_OPTIONS.margin))} in margin. Larger images are scaled down to fit; smaller ones are never enlarged. Fit to image makes each page the size of its image instead, plus the margin.`;
+export const IMAGE_PAGE_FACT = `Each image goes on its own page, centred. Unless you change the page setup, that page is ${DEFAULT_IMAGE_ORIENTATION} with a ${inches(imageMarginPoints(DEFAULT_IMAGE_PAGE_OPTIONS.margin))} in margin, and its size is ${DEFAULT_IMAGE_SIZE}. Larger images are scaled down to fit; smaller ones are never enlarged. Fit to image makes each page the size of its image instead, plus the margin.`;
 
 /**
  * JPG / PNG to PDF's TIFF input (2026-11-04), from the reader's own leaf
@@ -1135,7 +1172,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         rebuildEntry(tool, "subset"),
         {
           question: "How do I delete every other page?",
-          answer: `Type the pages as a list — for example ${EVERY_OTHER_PAGE_EXAMPLE} — and press “Select”; those pages are selected, and “Delete” removes them.`,
+          answer: `Press “Even pages” to select pages 2, 4, 6 and so on, the blank backs of a double-sided scan, or “Odd pages” for 1, 3, 5 and so on; “Delete” then removes them. For any other pattern, type the pages as a list — for example ${EVERY_OTHER_PAGE_EXAMPLE} — and press “Select”.`,
         },
         {
           question: "Can I get a deleted page back?",
@@ -1266,11 +1303,11 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
       return [
         {
           question: "Does compressing reduce the quality of my PDF?",
-          answer: `Not in your browser: that step re-saves the same pages, packed more tightly, and every page looks exactly as before. Only the optional secure-server step changes quality — it lowers the resolution of images sharper than the level you pick: ${dpiChoices(DEEP_COMPRESSION_PRESETS)}. Its Grayscale switch is off unless you tick it: ${DEEP_COMPRESSION_GRAYSCALE_HINT}`,
+          answer: `Not in your browser: that step re-saves the same pages, packed more tightly, and every page looks exactly as before. Only the optional secure-server step changes quality — it lowers the resolution of colour and gray images sharper than the level you pick: ${dpiChoices(DEEP_COMPRESSION_PRESETS)}. On every level, black-and-white images are never taken below ${DEEP_MONO_MIN_DPI} DPI, so scanned text stays legible. Its Grayscale switch is off unless you tick it: ${DEEP_COMPRESSION_GRAYSCALE_HINT}`,
         },
         {
           question: "How much smaller will my PDF get?",
-          answer: `That depends on what the file holds, so no figure is promised in advance. The in-browser step measures the exact saving before you download, and offers the download only when the file got smaller. When it saves little and images make up ${percent(IMAGE_HEAVY_SHARE)}% or more of the file, it points you to the secure-server step, which is where the images themselves are made smaller.`,
+          answer: `That depends on what the file holds, so no figure is promised in advance. The in-browser step measures the exact saving before you download, and offers the download only when the file got smaller. Whenever images make up ${percent(IMAGE_HEAVY_SHARE)}% or more of the file, it points you to the secure-server step, which is where the images themselves are made smaller — even when the lossless repack also saves ${percent(LOSSLESS_MIN_RATIO)}% or more.`,
         },
       ];
     case "sign":
@@ -1356,11 +1393,12 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         {
           question: "What can a header or footer show?",
           answer:
-            "Any text you type, plus {n} for the page number, {total} for the number of pages and {date} for today's date, written the way your device writes dates — or, when that form has characters none of our fonts can draw beside your text, in Latin digits in the same order, or as YYYY-MM-DD. Each is one line, aligned left, center or right.",
+            "Any text you type, plus {n} for the page number, {total} for the number of pages and {date} for today's date, written the way your device writes dates — or, when that form has characters none of our fonts can draw beside your text, in Latin digits in the same order, or as YYYY-MM-DD. Each band has a left, a center and a right box, one line each, and can use all three at once.",
         },
         {
           question: "Can I leave the first page without a header or footer?",
-          answer: `No: the header and footer go on every page. To number the pages but skip a cover, use ${toolName("page-numbers")}, which can start on a later page.`,
+          answer:
+            "Yes. Open “Pages” under the footer and tick “Leave the cover page blank”: page 1 gets nothing but still counts as “First number”, so page 2 shows the number after it. To leave more pages bare, set “Start on page” to the first page that should carry the lines and “First number” to the {n} it shows; “Skip last pages” leaves pages at the end bare and uncounted. {total} is the last number printed.",
         },
       ];
     case "crop":
@@ -1406,8 +1444,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
       return [
         {
           question: "Can I add a letterhead or logo to every page?",
-          answer:
-            "Yes. Save it as a PDF and add it as the overlay: its first page is drawn over every page of your document. With a multi-page overlay you can choose “Cycle pages” instead, to use its pages in turn.",
+          answer: `Yes. Save it as a PDF and add it as the overlay: its first page is drawn over every page of your document. With a multi-page overlay you choose how its pages map to yours: ${overlayPagingLabels}.`,
         },
         {
           question: "How is the overlay sized on each page?",
@@ -1423,7 +1460,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         },
         {
           question: `What resolution does ${tool.name} use?`,
-          answer: `You choose: ${dpiChoices(GRAYSCALE_DPI_PRESETS)}. The higher setting gives sharper pages and a larger file.`,
+          answer: `You choose: ${dpiChoices(GRAYSCALE_DPI_PRESETS)}. A higher setting gives sharper pages and a larger file.`,
         },
       ];
     case "fill-forms":
@@ -1445,7 +1482,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
           question: `Can ${tool.name} add a signature field?`,
           answer: `No. It adds ${listed(
             NEW_FIELD_TYPES.map((t) => FIELD_TYPE_FACT[t]),
-          )}. To sign a document yourself, use ${toolName("sign-pdf")}; to prepare one for other people to sign, use ${toolName("request-signatures")}.`,
+          )}, placed by coordinates. ${toolName("edit-pdf")} can: drag out a signature field, or any of those fields, onto the page with the tools in its ${EDITOR_FORMS_GROUP} group, in your browser, ready for someone to sign. To sign a document yourself, use ${toolName("sign-pdf")}.`,
         },
         {
           question: "How do I place a field?",
@@ -1848,16 +1885,27 @@ function aiReliabilityFaq(tool: Tool): ToolFaqEntry[] {
 }
 
 /**
+ * The derived formats question, or `null` for a tool that has none. Exported
+ * so `pageFaq` can skip it where the authored FAQ already answers it.
+ */
+export function officeInputFaqQuestion(tool: Tool): string | null {
+  return OFFICE_TO_PDF_SLUGS.has(tool.slug)
+    ? `Which files can ${tool.name} convert?`
+    : null;
+}
+
+/**
  * Which files an Office → PDF tool takes, from its catalogue `accept` — which
  * `worker-tool-answers.test.ts` holds to the extension check the worker runs
  * (`supportsOfficeInput`) in both directions.
  */
 function officeInputFaq(tool: Tool): ToolFaqEntry[] {
-  if (!OFFICE_TO_PDF_SLUGS.has(tool.slug)) return [];
+  const question = officeInputFaqQuestion(tool);
+  if (question === null) return [];
   const extensions = tool.accept.map((f) => `.${f.toLowerCase()}`);
   return [
     {
-      question: `Which files can ${tool.name} convert?`,
+      question,
       answer: `Files ending in ${listed(extensions, "or")}. Our server checks the extension before converting, and a file with any other extension is refused.`,
     },
   ];
@@ -1997,6 +2045,12 @@ export function modeFaq(tool: Tool): readonly ToolFaqEntry[] {
 }
 
 /**
+ * The derived size question. Exported so `pageFaq` can skip it where the
+ * authored FAQ already asks the size and states the same ceiling.
+ */
+export const SIZE_FAQ_QUESTION = "How large can my file be?";
+
+/**
  * The per-tool FACTS, each derived from the constant its engine enforces: the
  * file ceiling, the AI allowance and reading (or translating) ceiling, and
  * OCR's language count. These stay on every page, authored content or not —
@@ -2054,7 +2108,7 @@ export function factFaq(tool: Tool): readonly ToolFaqEntry[] {
   const ceilingMb = toolFileCeilingMb(tool);
   if (ceilingMb !== null) {
     entries.push({
-      question: `How large can my file be?`,
+      question: SIZE_FAQ_QUESTION,
       answer: `Up to ${ceilingMb} MB per file.`,
     });
   }
@@ -2185,7 +2239,7 @@ const DERIVED_STEPS: Record<string, readonly string[]> = {
   "overlay-pdf": [
     "Pick the base PDF you want to stamp — it stays on your device.",
     "Add the overlay PDF: a letterhead, stamp or template.",
-    `Choose the scale — ${overlayFitLabels} — and the opacity. For a multi-page overlay, use its first page on every page or cycle through its pages.`,
+    `Choose the scale — ${overlayFitLabels} — and the opacity. For a multi-page overlay, choose how its pages map to yours: ${overlayPagingLabels}. To stamp only some pages, choose ${OVERLAY_PAGE_SCOPES.find((o) => o.id === "some")!.label} and list them.`,
     "Download the overlaid PDF.",
   ],
   "protect-pdf": [
