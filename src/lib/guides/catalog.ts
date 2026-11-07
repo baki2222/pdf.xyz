@@ -6140,7 +6140,12 @@ export const guides: Guide[] = [
       {
         question: "Can I optimize a digitally signed PDF?",
         answer:
-          "Not without breaking the signature. Linearizing rewrites the whole file, so the bytes a certificate signature covers no longer match and it stops validating. Linearize the unsigned version and sign it last; then check the signed copy, because signing adds data at the end of the file and a viewer may no longer report it as linearized.",
+          "Not without breaking the signature. Linearizing rewrites the whole file, so the bytes a certificate signature covers no longer match and it stops validating. Before anything is uploaded, the page reads the file for signatures, says how many it found, and keeps the button off until you confirm. Linearize the unsigned version and sign it last; then check the signed copy, because signing adds data at the end of the file and a viewer may no longer report it as linearized.",
+      },
+      {
+        question: "What if my PDF is already linearized?",
+        answer:
+          "The page reads the file before anything is uploaded and says so when it already passes the same linearization test the result is held to. Running it again stays possible, and uploads the file as usual.",
       },
       {
         question: "What happens to my file after the job?",
@@ -6148,7 +6153,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   // Split PDF Pages in Half (#260), read off split-half.ts and
   // split-half-runner.tsx: Direction (Left and right | Top and bottom), Page
