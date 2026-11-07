@@ -118,6 +118,19 @@ describe.each([
     expect(content.faqs.map((f) => f.q)).not.toContain(
       "Why did Create PDF fail on a file it accepted?",
     );
+    // CHANGED after review, 2026-11-08: the PNG FAQ said every damaged or
+    // cut-off image is refused, "exactly as Create PDF will embed it". A JPG
+    // is read only to its header (image-intake.test.ts: one cut off after
+    // its frame header is accepted), and Create PDF embeds a stripped copy.
+    expect(text(content)).not.toMatch(/exactly as Create PDF/);
+    expect(text(content)).not.toMatch(/damaged or cut-off image/);
+  });
+
+  it("the PNG FAQ states the JPG limit the check really has", () => {
+    if (_slug !== "png-to-pdf") return;
+    const faq = content.faqs.find((f) => /turned away/.test(f.q))!.a;
+    expect(faq).toMatch(/a JPG whose header cannot be read/);
+    expect(faq).toMatch(/JPG cut off after its header/);
   });
 
   it("no longer sends a sideways image to Rotate PDF after the fact", () => {

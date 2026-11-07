@@ -2,8 +2,8 @@
  * The add-time decode check on JPG / PNG to PDF (audit png-to-pdf#8,
  * 2026-11-08). Adding a file used to check only its first bytes, so an
  * animated PNG or a PNG cut off halfway got into the list and then stopped
- * Create PDF, after the user had arranged everything. Now the very embed the
- * engine runs is tried as the file is added, into a throwaway document, and
+ * Create PDF, after the user had arranged everything. Now the engine's own
+ * reader is tried as the file is added, into a throwaway document, and
  * a file that fails is refused there with the other rejections, in the
  * engine's own words ({@link undecodableImageMessage}).
  *
@@ -33,6 +33,11 @@ export function undecodableImageMessage(
  * a JPEG's recorded turn takes the path it will take at run (and
  * raster-draw-boundary.test.ts holds this module like every embedder).
  * Nothing is kept.
+ *
+ * LIMITS (image-intake.test.ts pins the first): a JPEG is read only to its
+ * frame header, so one cut off after it passes here and at run alike; and
+ * this embeds the raw JPEG, where Create PDF with Photo details on Remove
+ * embeds a stripped copy with the same header.
  */
 export async function imageDecodes(
   bytes: Uint8Array,
