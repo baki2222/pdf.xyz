@@ -2,7 +2,9 @@ import type { ToolContent } from "./types";
 import {
   OVERLAY_FITS,
   OVERLAY_LAYERS,
+  OVERLAY_PAGINGS,
   type OverlayLayer,
+  type OverlayPaging,
 } from "@/lib/pdf/overlay";
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
@@ -76,6 +78,24 @@ const LAYER_LABELS = new Intl.ListFormat("en", {
   type: "disjunction",
 }).format(OVERLAY_LAYERS.map((option) => `"${option.label}"`));
 
+/** The Multi-page overlay buttons, labelled exactly as the control shows them. */
+const pagingLabel = (id: OverlayPaging): string => {
+  const option = OVERLAY_PAGINGS.find((candidate) => candidate.id === id);
+  if (!option) {
+    throw new Error(
+      `overlay-pdf content names a paging mode "${id}" the runner does not offer`,
+    );
+  }
+  return option.label;
+};
+const FIRST_ON_ALL = pagingLabel("repeat");
+const CYCLE = pagingLabel("cycle");
+const REPEAT_LAST = pagingLabel("last");
+const ONCE = pagingLabel("once");
+const PAGING_LABELS = new Intl.ListFormat("en", {
+  type: "disjunction",
+}).format(OVERLAY_PAGINGS.map((option) => `"${option.label}"`));
+
 /*
  * The password FAQ sends people to Unlock PDF and describes it as an upload.
  * That is only true while Unlock PDF runs on the worker, so the claim is tied
@@ -145,7 +165,7 @@ const content: ToolContent = {
     },
     {
       title: "A different template page for each page",
-      body: "A multi-page overlay can be applied in order, so the cover, continuation and closing sheets of a three-page letterhead set land on the matching pages of a three-page report.",
+      body: `A multi-page overlay can be applied in order. "${REPEAT_LAST}" puts a cover letterhead on page one and the continuation sheet on every page after it, however long the letter. "${CYCLE}" lands each page of a three-page template set on the matching page of a three-page report, and starts again from its first page if the report is longer.`,
     },
   ],
 
@@ -160,7 +180,7 @@ const content: ToolContent = {
     },
     {
       title: "Set layer, scale and opacity",
-      body: `Under "Placement", choose ${LAYER_LABELS} for Layer, ${SCALE_LABELS} for Scale, and drag the Opacity slider. If the overlay has more than one page, a "Multi-page overlay" choice appears: "First page on all" or "Cycle pages".`,
+      body: `Under "Placement", choose ${LAYER_LABELS} for Layer, ${SCALE_LABELS} for Scale, and drag the Opacity slider. If the overlay has more than one page, a "Multi-page overlay" choice appears: ${PAGING_LABELS}.`,
     },
     {
       title: "Apply and download",
@@ -183,7 +203,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I use a different overlay page for each page of my document?",
-      a: 'Yes, when the overlay PDF has more than one page. Choose "Cycle pages" and base page one gets overlay page one, page two gets page two, and so on, starting again from the first overlay page when the overlay runs out. "First page on all" ignores the rest and repeats page one.',
+      a: `Yes, when the overlay PDF has more than one page. Choose "${CYCLE}" and base page one gets overlay page one, page two gets page two, and so on, starting again from the first overlay page when the overlay runs out. "${REPEAT_LAST}" matches pages the same way but keeps using the overlay's last page once it runs out. "${ONCE}" matches them once and leaves the pages after the overlay's last page unchanged. "${FIRST_ON_ALL}" ignores the rest and repeats page one. For a full letterhead on page one and a continuation sheet on the rest, make the overlay a two-page PDF, letterhead first, and choose "${REPEAT_LAST}": "${CYCLE}" would put the letterhead back on pages three, five and so on.`,
     },
     {
       q: "My overlay is a filled-in form. Will the answers show?",

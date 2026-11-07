@@ -12,7 +12,7 @@ import type { ReactNode } from "react";
 import { PDFDocument, rgb } from "pdf-lib";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { getRunnerKind } from "@/lib/pdf/registry";
-import { OVERLAY_LAYERS } from "@/lib/pdf/overlay";
+import { OVERLAY_LAYERS, OVERLAY_PAGINGS } from "@/lib/pdf/overlay";
 import { regionMean, renderPdfPages, type Rgb } from "@/tests/pdf-render";
 import { getToolBySlug } from "@/lib/tools";
 import { pageSteps, stepText } from "@/lib/tools/page-copy";
@@ -246,5 +246,48 @@ describe("overlay-pdf: what the downloaded file shows", () => {
         );
       }
     }
+  }, 30_000);
+
+  it("a multi-page overlay offers every paging mode the engine maps, and the page names each", async () => {
+    // Cycle wrapped a two-page letterhead set back to the cover on pages 3
+    // and 5; "Repeat last page" is the cover + continuation case. A mode the
+    // engine maps but the control omits is a mode no user can reach.
+    expect(OVERLAY_PAGINGS.length).toBeGreaterThanOrEqual(4);
+    const { container } = render(
+      <Router>
+        <ToolRunner kind="overlay" slug={SLUG} />
+      </Router>,
+    );
+    await runnerMounted(container);
+    const baseInput =
+      container.querySelector<HTMLInputElement>('input[type="file"]');
+    fireEvent.change(baseInput!, {
+      target: { files: [pdfFile(await letter(), "letter.pdf")] },
+    });
+    await screen.findByText(/drop the overlay pdf here/i);
+    const doc = await PDFDocument.create();
+    doc.addPage([612, 792]).drawRectangle({ x: 0, y: 0, width: 9, height: 9 });
+    doc.addPage([612, 792]).drawRectangle({ x: 0, y: 0, width: 9, height: 9 });
+    const overlayInput =
+      container.querySelector<HTMLInputElement>('input[type="file"]');
+    fireEvent.change(overlayInput!, {
+      target: { files: [pdfFile(await doc.save(), "set.pdf")] },
+    });
+    const group = await screen.findByRole("radiogroup", {
+      name: /how overlay pages map to base pages/i,
+    });
+    const labels = Array.from(group.querySelectorAll('[role="radio"]')).map(
+      (el) => el.textContent?.trim() ?? "",
+    );
+    expect(labels).toEqual(OVERLAY_PAGINGS.map((p) => p.label));
+    const steps = servedSteps().join(" ");
+    for (const label of labels) {
+      expect(label.length).toBeGreaterThan(0);
+      expect(steps, `the steps never name "${label}"`).toContain(`"${label}"`);
+    }
+    // The chosen mode says what it does, under the control.
+    const last = OVERLAY_PAGINGS.find((p) => p.id === "last")!;
+    fireEvent.click(screen.getByRole("radio", { name: last.label }));
+    expect(screen.getByText(last.hint)).toBeTruthy();
   }, 30_000);
 });

@@ -8,7 +8,11 @@ import {
   assertFormFieldTextDrawable,
   formTextsDrawnOnRegeneration,
 } from "./unicode-font";
-import type { OverlayFit } from "./offered-kinds";
+import {
+  OVERLAY_PAGINGS,
+  type OverlayFit,
+  type OverlayPaging,
+} from "./offered-kinds";
 
 /**
  * Overlay one PDF onto another, entirely in-browser with pdf-lib. The
@@ -36,11 +40,13 @@ import type { OverlayFit } from "./offered-kinds";
 
 // The offered scale modes live in the offered-kinds leaf, where the tool page's
 // answer reads them too; re-exported so existing importers keep working.
-export type { OverlayFit, OverlayFitOption } from "./offered-kinds";
-export { OVERLAY_FITS } from "./offered-kinds";
-
-/** Which overlay page is used for each base page. */
-export type OverlayPaging = "repeat" | "cycle";
+export type {
+  OverlayFit,
+  OverlayFitOption,
+  OverlayPaging,
+  OverlayPagingOption,
+} from "./offered-kinds";
+export { OVERLAY_FITS, OVERLAY_PAGINGS } from "./offered-kinds";
 
 /** Where the overlay goes relative to the base page's own content. */
 export type OverlayLayer = "front" | "back" | "multiply";
@@ -222,24 +228,33 @@ export function placeOverlay(input: PlaceOverlayInput): OverlayPlacement {
  * The 0-based overlay page to use for a given base page.
  *  - `repeat`: always the first overlay page.
  *  - `cycle` : walk the overlay pages in order, wrapping around.
- * Returns -1 when there are no overlay pages.
+ *  - `last`  : walk them in order, then keep the last one.
+ *  - `once`  : walk them in order, then nothing.
+ * Returns -1 when no overlay page applies (none exist, or `once` ran out).
  */
 export function overlayPageIndexFor(
   baseIndex: number,
   overlayCount: number,
   paging: OverlayPaging,
 ): number {
-  if (overlayCount <= 0) return -1;
-  if (paging === "repeat") return 0;
-  const i = baseIndex % overlayCount;
-  return i < 0 ? i + overlayCount : i;
+  if (overlayCount <= 0 || baseIndex < 0) return -1;
+  switch (paging) {
+    case "repeat":
+      return 0;
+    case "last":
+      return Math.min(baseIndex, overlayCount - 1);
+    case "once":
+      return baseIndex < overlayCount ? baseIndex : -1;
+    case "cycle":
+      return baseIndex % overlayCount;
+  }
 }
 
 /**
  * The distinct overlay page indices we must embed to overlay `baseCount` pages.
  *  - `repeat`: just page 0.
- *  - `cycle` : the first `min(overlayCount, baseCount)` pages — every index the
- *    cyclic mapping can actually reach, and no more.
+ *  - `cycle`, `last`, `once`: the first `min(overlayCount, baseCount)` pages —
+ *    every index those in-order mappings can actually reach, and no more.
  */
 export function neededOverlayIndices(
   baseCount: number,
@@ -440,8 +455,8 @@ async function embedOverlayPages(
     } catch {
       throw new PdfEngineError(
         `Overlay page ${index + 1} couldn't be applied — it may use features we can't process yet.` +
-          (paging === "cycle" && index > 0
-            ? " Try “First page on all” to use only the overlay's first page."
+          (paging !== "repeat" && index > 0
+            ? ` Try “${OVERLAY_PAGINGS[0]!.label}” to use only the overlay's first page.`
             : ""),
       );
     }

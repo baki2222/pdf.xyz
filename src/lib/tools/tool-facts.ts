@@ -92,6 +92,7 @@ import {
   GRAYSCALE_DPI_PRESETS,
   NEW_FIELD_TYPES,
   OVERLAY_FITS,
+  OVERLAY_PAGINGS,
   SIGNATURE_SOURCE_FACT,
   SIGNATURE_SOURCES,
   SPLIT_MODE_FACT,
@@ -211,6 +212,12 @@ const encryptionLabels = listed(
 /** Overlay scale modes as the overlay runner's control labels them. */
 const overlayFitLabels = listed(
   OVERLAY_FITS.map((fit) => fit.label),
+  "or",
+);
+
+/** Overlay paging modes as the overlay runner's control labels them. */
+const overlayPagingLabels = listed(
+  OVERLAY_PAGINGS.map((paging) => paging.label),
   "or",
 );
 
@@ -1406,8 +1413,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
       return [
         {
           question: "Can I add a letterhead or logo to every page?",
-          answer:
-            "Yes. Save it as a PDF and add it as the overlay: its first page is drawn over every page of your document. With a multi-page overlay you can choose “Cycle pages” instead, to use its pages in turn.",
+          answer: `Yes. Save it as a PDF and add it as the overlay: its first page is drawn over every page of your document. With a multi-page overlay you choose how its pages map to yours: ${overlayPagingLabels}.`,
         },
         {
           question: "How is the overlay sized on each page?",
@@ -2185,7 +2191,7 @@ const DERIVED_STEPS: Record<string, readonly string[]> = {
   "overlay-pdf": [
     "Pick the base PDF you want to stamp — it stays on your device.",
     "Add the overlay PDF: a letterhead, stamp or template.",
-    `Choose the scale — ${overlayFitLabels} — and the opacity. For a multi-page overlay, use its first page on every page or cycle through its pages.`,
+    `Choose the scale — ${overlayFitLabels} — and the opacity. For a multi-page overlay, choose how its pages map to yours: ${overlayPagingLabels}.`,
     "Download the overlaid PDF.",
   ],
   "protect-pdf": [

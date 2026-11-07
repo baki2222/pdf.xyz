@@ -13,6 +13,7 @@ import {
 import {
   OVERLAY_FITS,
   OVERLAY_LAYERS,
+  OVERLAY_PAGINGS,
   overlayOutputName,
   overlayPdf,
   type OverlayFit,
@@ -21,6 +22,7 @@ import {
   type OverlayResult,
 } from "@/lib/pdf/overlay";
 import { getPageCount } from "@/lib/pdf/engine";
+import { formatPageNumbers } from "@/lib/pdf/ranges";
 import { downloadBytes, readFileBytes } from "@/lib/pdf/browser";
 import { validatePdfFile } from "@/lib/pdf/files";
 import { buttonVariants } from "@/components/ui/button";
@@ -127,6 +129,17 @@ function OverlayEditor({
         onAdjust={reset}
         expectedPages={pdf.pageCount}
       >
+        {result.paging === "once" &&
+          result.pageCount > result.overlayPageCount && (
+            <p className="text-muted text-sm">
+              {`The overlay has ${result.overlayPageCount} pages, so pages ${formatPageNumbers(
+                Array.from(
+                  { length: result.pageCount - result.overlayPageCount },
+                  (_, k) => result.overlayPageCount + k + 1,
+                ),
+              )} were left unchanged.`}
+            </p>
+          )}
         {skipped.length > 0 && (
           <p className="text-muted text-sm">
             {skipped.length === 1
@@ -248,19 +261,15 @@ function OverlayEditor({
               label="How overlay pages map to base pages"
               value={effectivePaging}
               onChange={setPaging}
-              options={[
-                {
-                  value: "repeat",
-                  label: "First page on all",
-                  title: "Use only the overlay's first page on every base page",
-                },
-                {
-                  value: "cycle",
-                  label: "Cycle pages",
-                  title: "Walk the overlay pages in order, repeating as needed",
-                },
-              ]}
+              options={OVERLAY_PAGINGS.map((option) => ({
+                value: option.id,
+                label: option.label,
+                title: option.hint,
+              }))}
             />
+            <p className="text-muted text-xs leading-relaxed">
+              {describePaging(effectivePaging).hint}
+            </p>
           </div>
         )}
       </RunnerSection>
@@ -320,6 +329,13 @@ function OverlayEditor({
 
 function describeFit(fit: OverlayFit): string {
   return OVERLAY_FITS.find((option) => option.id === fit)?.label ?? "Fit page";
+}
+
+function describePaging(paging: OverlayPaging) {
+  return (
+    OVERLAY_PAGINGS.find((option) => option.id === paging) ??
+    OVERLAY_PAGINGS[0]!
+  );
 }
 
 function describeLayer(layer: OverlayLayer) {

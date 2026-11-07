@@ -239,6 +239,7 @@ import {
 import {
   OVERLAY_FITS,
   OVERLAY_LAYERS,
+  OVERLAY_PAGINGS,
   overlayOutputName,
   type OverlayLayer,
 } from "@/lib/pdf/overlay";
@@ -709,6 +710,10 @@ const OVERLAY_FIT = labelOf(OVERLAY_FITS, "fit");
 const OVERLAY_STRETCH = labelOf(OVERLAY_FITS, "stretch");
 const OVERLAY_ACTUAL = labelOf(OVERLAY_FITS, "actual");
 const OVERLAY_EXAMPLE_OUT = overlayOutputName("letter.pdf");
+const OVERLAY_FIRST_ON_ALL = labelOf(OVERLAY_PAGINGS, "repeat");
+const OVERLAY_CYCLE = labelOf(OVERLAY_PAGINGS, "cycle");
+const OVERLAY_REPEAT_LAST = labelOf(OVERLAY_PAGINGS, "last");
+const OVERLAY_ONCE = labelOf(OVERLAY_PAGINGS, "once");
 
 /** Split PDF Pages in Half's choices, as its runner labels them. */
 const HALF_LEFT_RIGHT = labelOf(SPLIT_DIRECTIONS, "left-right");
@@ -5981,8 +5986,9 @@ export const guides: Guide[] = [
   // Overlay PDF, titled for the task it truly does: lay one PDF on every
   // page of another. Read off overlay.ts and overlay-runner.tsx: the overlay
   // is always centred (fitOverlayRect has no position), there is no page
-  // range (every base page gets an overlay page), Cycle pages walks the
-  // overlay in order and starts again (overlayPageIndexFor), and an overlay
+  // range (every base page gets an overlay page), the four paging modes map
+  // overlay pages in order (overlayPageIndexFor: Cycle starts again, Repeat
+  // last page keeps the last, Once, then stop leaves the rest), and an overlay
   // page with no content is skipped and named. In-browser, so the word
   // "upload" appears nowhere, Word to PDF included.
   {
@@ -6031,8 +6037,8 @@ export const guides: Guide[] = [
         id: "first-page-only",
         heading: "A letterhead on the first page only",
         body: [
-          "There is no page range: every page of the letter gets a page of the overlay. When the overlay PDF has more than one page, a Multi-page overlay choice appears. First page on all puts its first page everywhere; Cycle pages gives letter page one the overlay's page one, page two its page two, and so on, starting again from the first when the overlay runs out.",
-          `So for the first page only, make an overlay PDF with as many pages as the letter, the letterhead on its first page and the rest left empty, and choose Cycle pages. An overlay page with no content at all is skipped, and the result says which; with ${OVERLAY_BEHIND} or ${OVERLAY_MULTIPLY}, an empty white page changes nothing you can see either. If your letterhead is a PNG or JPEG image rather than a PDF, ${nameOf("watermark-pdf")} can place an image and limit it to the pages you list.`,
+          `There is no page range: every page of the letter gets a page of the overlay. When the overlay PDF has more than one page, a Multi-page overlay choice appears. ${OVERLAY_FIRST_ON_ALL} puts its first page everywhere. ${OVERLAY_CYCLE} gives letter page one the overlay's page one, page two its page two, and so on, starting again from the first when the overlay runs out. ${OVERLAY_REPEAT_LAST} matches pages the same way, then keeps using the overlay's last page. ${OVERLAY_ONCE} matches them once and leaves the pages after the overlay's last page as they were.`,
+          `So for a full letterhead on page one and a continuation sheet on every later page, make the overlay a two-page PDF, letterhead first, and choose ${OVERLAY_REPEAT_LAST}. For the first page only, make a two-page overlay with the letterhead on page one and page two left empty, and choose ${OVERLAY_ONCE} or ${OVERLAY_REPEAT_LAST}. An overlay page with no content at all is skipped, and the result says which; with ${OVERLAY_BEHIND} or ${OVERLAY_MULTIPLY}, an empty white page changes nothing you can see either. If your letterhead is a PNG or JPEG image rather than a PDF, ${nameOf("watermark-pdf")} can place an image and limit it to the pages you list.`,
         ],
       },
     ],
@@ -6061,7 +6067,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   // Optimize PDF for Web: `qpdf --linearize` and nothing else
   // (pdf-structure/native.ts linearizeArgs), no options; the worker refuses
