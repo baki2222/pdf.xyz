@@ -125,7 +125,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your presentation",
-      body: 'Drop one .pptx, .ppt or .odp file on the box that reads "Add your document, or browse", or click browse to pick it. The box takes a file at once, and Convert to PDF works only when the status badge next to "Office conversion" says "Secure server"; any other badge comes with a note on the state of the converter under that button.',
+      body: `Drop one .pptx, .ppt or .odp file on the box that reads "Add your ${PROTECT.noun}, or browse", or click browse to pick it. The box takes a file at once, and Convert to PDF works only when the status badge next to "Office conversion" says "Secure server"; any other badge comes with a note on the state of the converter under that button.`,
     },
     {
       title: "Check the file you picked",

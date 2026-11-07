@@ -23,6 +23,10 @@ import { canRunOfficeConversion } from "@/lib/workers/office-conversion-client";
 import { resetTelemetry } from "@/lib/telemetry/track";
 import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
 import { READY_WORKER_STATUS as READY } from "@/tests/ready-worker-status";
+import {
+  DOCUMENT_WORDS,
+  type OfficeToPdfTool,
+} from "@/lib/workers/office-conversion/engine";
 import { resetWorkerStatusForTests } from "./use-worker-status";
 import { OfficeConversionWorkerPanel } from "./office-conversion-worker-panel";
 
@@ -144,4 +148,33 @@ describe("the Office panel's words", () => {
       "Conversion is unavailable right now.",
     );
   });
+
+  /*
+   * The drop zone said "Add your document, or browse" over the hint "Office
+   * document" on all three pages (audits excel-to-pdf#5, powerpoint-to-pdf#7).
+   * It now names the file the way the engine's own refusals do
+   * (`DOCUMENT_WORDS`) and lists the formats the catalogue row accepts.
+   */
+  it("positive control: the derivation names what a reader expects", () => {
+    expect(DOCUMENT_WORDS["excel-to-pdf"].noun).toBe("workbook");
+    expect(DOCUMENT_WORDS["powerpoint-to-pdf"].noun).toBe("presentation");
+    expect(tool("powerpoint-to-pdf").accept).toEqual(["PPTX", "PPT", "ODP"]);
+  });
+
+  it.each(SLUGS)(
+    "%s: the drop zone names this tool's file and its formats",
+    async (slug: OfficeToPdfTool) => {
+      const { container } = await renderWith(READY, slug);
+      const text = container.textContent ?? "";
+      const noun = DOCUMENT_WORDS[slug].noun;
+      const formats = tool(slug).accept;
+      const listed = `${formats.slice(0, -1).join(", ")} or ${formats.at(-1)}`;
+      expect(text).toContain(`Add your ${noun}, or browse`);
+      expect(text).toContain(`${listed} file`);
+      expect(text).not.toContain("Office document");
+      expect(text).toMatch(
+        new RegExp(`LibreOffice turns your ${noun} into a PDF`),
+      );
+    },
+  );
 });

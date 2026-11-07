@@ -19,6 +19,10 @@ import { pickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import { OFFICE_CONVERSION_RUN_LABEL } from "@/lib/tools/office-run-label";
 import {
+  DOCUMENT_WORDS,
+  type OfficeToPdfTool,
+} from "@/lib/workers/office-conversion/tools";
+import {
   DownloadCta,
   Dropzone,
   ResultCard,
@@ -64,7 +68,7 @@ import {
  */
 const STATUS_SLOT = "min-h-[23.5rem] sm:min-h-[15rem] lg:min-h-[15rem]";
 
-type OfficeTool = "word-to-pdf" | "excel-to-pdf" | "powerpoint-to-pdf";
+type OfficeTool = OfficeToPdfTool;
 
 function isOfficeTool(slug: string): slug is OfficeTool {
   return (
@@ -88,6 +92,20 @@ function acceptFor(tool: Tool): string {
   return [...new Set(tokens)].join(",");
 }
 
+/**
+ * The drop zone's hint: the catalogue row's formats, "XLSX, XLS, CSV or ODS
+ * file". It read "Office document" on all three pages, a deck page included
+ * (audits excel-to-pdf#5, powerpoint-to-pdf#7).
+ */
+function formatsHint(tool: Tool): string {
+  const formats = tool.accept;
+  const listed =
+    formats.length <= 1
+      ? formats.join("")
+      : `${formats.slice(0, -1).join(", ")} or ${formats[formats.length - 1]}`;
+  return `${listed} file`;
+}
+
 export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
   const ceilingBytes = toolFileCeilingBytes(tool);
   const officeTool: OfficeTool = isOfficeTool(tool.slug)
@@ -98,7 +116,7 @@ export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
     <WorkerPanelShell
       tool={tool}
       engine={{ label: "Office conversion", icon: FileText }}
-      description="LibreOffice turns your document into a PDF on our secure server. If it cannot, you will see why."
+      description={`LibreOffice turns your ${DOCUMENT_WORDS[officeTool].noun} into a PDF on our secure server. If it cannot, you will see why.`}
       canRun={(status) =>
         canRunOfficeConversion(status) && isOfficeTool(tool.slug)
       }
@@ -211,8 +229,8 @@ function OfficeRunArea({
           accept={accept}
           multiple={false}
           compact
-          title="Add your document, or"
-          hint="Office document"
+          title={`Add your ${DOCUMENT_WORDS[tool].noun}, or`}
+          hint={formatsHint(catalogTool)}
         />
       )}
       <WorkerGate

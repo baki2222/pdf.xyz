@@ -780,6 +780,17 @@ export function matches(
     if (clauses.has(candidate)) return `= “${candidate}”`;
     const p = ui.patterns.find((re) => re.test(candidate));
     if (p) return `~ ${p.source}`;
+    // A drop zone's TEMPLATE title (`Add your ${noun}, or`, the Office
+    // panel since audit excel-to-pdf#5) is followed by its "browse" control
+    // exactly as a literal one is (see leadingClauses).
+    const title = candidate.endsWith(", or browse")
+      ? candidate.slice(0, -" browse".length)
+      : null;
+    const q =
+      title && ui.exact.has("browse")
+        ? ui.patterns.find((re) => re.test(title))
+        : undefined;
+    if (q) return `~ ${q.source} + “browse”`;
   }
   return null;
 }

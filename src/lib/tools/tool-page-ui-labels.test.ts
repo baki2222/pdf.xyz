@@ -327,6 +327,22 @@ describe("the shared predicate, on phrases tool pages shipped", () => {
     expect(extractLabels("marked SAMPLE at low opacity")).toEqual([]);
   });
 
+  it("a drop zone's template title composes with “browse”, and its words still count", () => {
+    // office-conversion-worker-panel.tsx: `Add your ${noun}, or` + browse.
+    expect(
+      missingOf(
+        "excel-to-pdf",
+        "Click the box marked “Add your workbook, or browse”.",
+      ),
+    ).toEqual([]);
+    expect(
+      missingOf(
+        "excel-to-pdf",
+        "Click the box marked “Drop your workbook, or browse”.",
+      ),
+    ).toEqual(["Drop your workbook, or browse"]);
+  });
+
   it("a template's leading clause is a label; a head with no clause is not", () => {
     // compress-batch.tsx: `Download all (${n})`.
     expect(uiOf(["compress-pdf"]).leads.has("Download all")).toBe(true);

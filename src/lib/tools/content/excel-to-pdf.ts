@@ -13,7 +13,7 @@ import {
 /*
  * Behaviour claims below were read from the code on 2026-09-27:
  *  - panel: src/components/tools/office-conversion-worker-panel.tsx — ONE file
- *    (`multiple={false}`) through a drop zone titled "Add your document, or"
+ *    (`multiple={false}`) through a drop zone titled "Add your workbook, or"
  *    + "browse", a "Remove" button to clear it, a "Convert to PDF" button
  *    (busy label below), then "Your PDF is ready." and a
  *    "Download <name>" button. No layout options, no sheet picker, no password
@@ -160,7 +160,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your spreadsheet",
-      body: `Click the dashed area marked "Add your document, or browse" to pick one ${formatsOr} file, or drag the file onto it. Its name then appears in place of that area, and Remove clears it if you chose the wrong one. The area takes a file at once; Convert to PDF works only while the panel's badge says "Secure server".`,
+      body: `Click the dashed area marked "Add your ${EXCEL_WORDS.noun}, or browse" to pick one ${formatsOr} file, or drag the file onto it. Its name then appears in place of that area, and Remove clears it if you chose the wrong one. The area takes a file at once; Convert to PDF works only while the panel's badge says "Secure server".`,
     },
     {
       title: "Start the conversion",
