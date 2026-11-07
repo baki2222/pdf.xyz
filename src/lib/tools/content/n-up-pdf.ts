@@ -1,6 +1,6 @@
 import type { ToolContent } from "./types";
 import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
-import { N_UP_COUNTS, N_UP_SHEETS } from "@/lib/pdf/n-up";
+import { N_UP_COUNTS, N_UP_RTL_LABEL, N_UP_SHEETS } from "@/lib/pdf/n-up";
 
 // The byte ceiling the n-up runner's file gate refuses above.
 const MAX_MB = Math.round(RUNNER_FILE_CEILINGS["n-up"] / (1024 * 1024));
@@ -55,7 +55,7 @@ const content: ToolContent = {
     },
     {
       title: "Set the order and spacing",
-      body: "Under Order choose Across, then down or Down, then across. Pick a Margin of None, Small or Large, and tick “Draw a thin border around each page” if you want outlines.",
+      body: `Under Order choose Across, then down or Down, then across. Pick a Margin of None, Small or Large, and tick “Draw a thin border around each page” if you want outlines. For a document read from right to left, tick “${N_UP_RTL_LABEL}”.`,
     },
     {
       title: "Create and download",
@@ -78,7 +78,7 @@ const content: ToolContent = {
     },
     {
       q: "What order are the pages placed in?",
-      a: "Across, then down fills each row from left to right and then moves to the next row, the way you read. Down, then across fills each column from top to bottom and then moves right. When the last sheet is not full, its remaining cells are left empty.",
+      a: `Across, then down fills each row from left to right and then moves to the next row, the way you read. Down, then across fills each column from top to bottom and then moves right. When the last sheet is not full, its remaining cells are left empty. Tick “${N_UP_RTL_LABEL}” and both orders run from the right instead: page one sits top right and page two to its left, so a right-to-left document reads the right way round.`,
     },
     {
       q: "Can I mix page sizes in one file?",

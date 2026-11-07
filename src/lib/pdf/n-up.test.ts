@@ -119,6 +119,7 @@ const opts = (over: Partial<NUpOptions> = {}): NUpOptions => ({
   order: "across",
   margin: "none",
   borders: false,
+  rtl: false,
   ...over,
 });
 
@@ -360,6 +361,37 @@ describe("nUpPdf, read back by pdf.js", () => {
     const [p] = await readSheets(portrait.bytes);
     expect(p!.width).toBeCloseTo(300, 1);
     expect(p!.height).toBeCloseTo(400, 1);
+  });
+
+  it("right to left mirrors the columns: P1 top-right, P2 to its left", async () => {
+    // An Arabic, Hebrew or manga handout read right to left: page 2 must sit
+    // to the LEFT of page 1, or the sheet reads backwards.
+    const across = await nUpPdf(await labelledPdf(4), opts({ rtl: true }));
+    const [sheet] = await readSheets(across.bytes);
+    const at = Object.fromEntries(sheet!.labels.map((l) => [l.text, l]));
+    const halfW = A4.width / 2;
+    const halfH = A4.height / 2;
+    expect(at.P1!.x).toBeGreaterThan(halfW);
+    expect(at.P1!.y).toBeLessThan(halfH);
+    expect(at.P2!.x).toBeLessThan(halfW);
+    expect(at.P2!.y).toBeLessThan(halfH);
+    expect(at.P3!.x).toBeGreaterThan(halfW);
+    expect(at.P3!.y).toBeGreaterThan(halfH);
+    // Down, then across: P2 under P1 in the right column, P3 starts the left.
+    const down = await nUpPdf(
+      await labelledPdf(4),
+      opts({ rtl: true, order: "down" }),
+    );
+    const [d] = await readSheets(down.bytes);
+    const dat = Object.fromEntries(d!.labels.map((l) => [l.text, l]));
+    expect(dat.P2!.x).toBeCloseTo(dat.P1!.x, 1);
+    expect(dat.P2!.y).toBeGreaterThan(dat.P1!.y);
+    expect(dat.P3!.x).toBeLessThan(dat.P1!.x);
+    // Control: left to right keeps P2 to the right of P1.
+    expect(
+      nUpCells(A4, { cols: 2, rows: 1 }, "across", 0, false)[1]!.x,
+    ).toBeGreaterThan(0);
+    expect(nUpCells(A4, { cols: 2, rows: 1 }, "across", 0, true)[1]!.x).toBe(0);
   });
 
   it("draws a page carrying /Rotate 90 the way a viewer shows it", async () => {

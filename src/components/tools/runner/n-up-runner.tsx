@@ -209,6 +209,14 @@ export function NUpEditor({
         checked={options.borders}
         onChange={(borders) => set({ borders })}
       />
+      <CheckboxField
+        // Typed here so the page-copy guards read it in the runner's source;
+        // n-up-runner.test.tsx finds this box by N_UP_RTL_LABEL, which the
+        // tool page and guide quote, so the two cannot drift apart.
+        label="Right to left, for Arabic, Hebrew or manga"
+        checked={options.rtl}
+        onChange={(rtl) => set({ rtl })}
+      />
 
       <PrivacyLine>
         The sheets are made on your device — the PDF never leaves your browser.

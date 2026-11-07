@@ -99,6 +99,12 @@ export const N_UP_ORDERS: readonly { id: NUpOrder; label: string }[] = [
 export const N_UP_MARGINS = IMAGE_MARGINS;
 export type NUpMarginId = (typeof IMAGE_MARGINS)[number]["id"];
 
+/**
+ * The right-to-left checkbox's label (audit n-up-pdf#4, 2026-11-07): with it
+ * ticked the columns are mirrored, so page 2 sits to the LEFT of page 1.
+ */
+export const N_UP_RTL_LABEL = "Right to left, for Arabic, Hebrew or manga";
+
 /** A border's line width, in points. */
 export const N_UP_BORDER_PT = 0.5;
 
@@ -109,6 +115,8 @@ export interface NUpOptions {
   order: NUpOrder;
   margin: NUpMarginId;
   borders: boolean;
+  /** Fill each row from the right: mirror the column order. */
+  rtl: boolean;
 }
 
 export const DEFAULT_N_UP_OPTIONS: Readonly<NUpOptions> = {
@@ -118,6 +126,7 @@ export const DEFAULT_N_UP_OPTIONS: Readonly<NUpOptions> = {
   order: "across",
   margin: "small",
   borders: false,
+  rtl: false,
 };
 
 /** Columns × rows for a count on a sheet of the given orientation. */
@@ -148,21 +157,24 @@ export function nUpGrid(
 /**
  * The cell boxes of one sheet, in the order pages fill them: "across" fills a
  * row left to right and then moves down; "down" fills a column top to bottom
- * and then moves right. The margin is kept at the sheet's edge AND between
- * cells. Boxes are in PDF space (origin bottom-left).
+ * and then moves right. With `rtl` the columns are mirrored: rows fill right
+ * to left and "down" moves left. The margin is kept at the sheet's edge AND
+ * between cells. Boxes are in PDF space (origin bottom-left).
  */
 export function nUpCells(
   sheet: { width: number; height: number },
   grid: { cols: number; rows: number },
   order: NUpOrder,
   margin: number,
+  rtl = false,
 ): Box[] {
   const { cols, rows } = grid;
   const cellW = (sheet.width - margin * (cols + 1)) / cols;
   const cellH = (sheet.height - margin * (rows + 1)) / rows;
   const cells: Box[] = [];
   for (let i = 0; i < cols * rows; i += 1) {
-    const col = order === "across" ? i % cols : Math.floor(i / rows);
+    const ltrCol = order === "across" ? i % cols : Math.floor(i / rows);
+    const col = rtl ? cols - 1 - ltrCol : ltrCol;
     const row = order === "across" ? Math.floor(i / cols) : i % rows;
     cells.push({
       x: margin + col * (cellW + margin),
@@ -267,6 +279,7 @@ export async function nUpPdf(
     grid,
     options.order,
     marginPoints(options.margin),
+    options.rtl,
   );
 
   const out = await lib.PDFDocument.create();

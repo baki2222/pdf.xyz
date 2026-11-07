@@ -126,6 +126,7 @@ import {
   N_UP_MARGINS,
   N_UP_ORDERS,
   N_UP_ORIENTATIONS,
+  N_UP_RTL_LABEL,
   N_UP_SHEETS,
   type NUpCount,
 } from "@/lib/pdf/n-up";
@@ -3777,7 +3778,7 @@ export const guides: Guide[] = [
       `Open the ${nameOf("n-up-pdf")} tool and drop your PDF where it says Drop your PDF here, or click browse. It stays on your device.`,
       `Under Pages per sheet, choose ${N_UP_COUNT_NAMES} per sheet. Beside the heading, the tool shows how many sheets that makes.`,
       `Under Sheet size choose ${N_UP_SHEET_NAMES}, and under Orientation keep ${N_UP_AUTO} or choose ${N_UP_FIXED_ORIENTATIONS}.`,
-      `Under Order choose ${N_UP_ORDER_NAMES}, and under Margin choose ${N_UP_MARGIN_NAMES}. Tick Draw a thin border around each page for an outline you can cut along.`,
+      `Under Order choose ${N_UP_ORDER_NAMES}, and under Margin choose ${N_UP_MARGIN_NAMES}. Tick Draw a thin border around each page for an outline you can cut along, and tick ${N_UP_RTL_LABEL} for a document read from right to left.`,
       `Press Create sheets, then Download PDF. The copy is named after yours, with the count added, such as -${upName(4)}.`,
     ],
     sections: [
@@ -3786,7 +3787,7 @@ export const guides: Guide[] = [
         heading: "How the pages are laid out",
         body: [
           `${N_UP_AUTO} picks portrait or landscape, whichever draws the first page largest: two portrait pages sit side by side on a landscape sheet, and four fill a portrait sheet in a grid. Each page is scaled to fit its place with its proportions kept, so a landscape page among portrait ones is simply drawn smaller. ${labelOf(N_UP_SHEETS, "source")} makes each sheet the size of your first page, turned the way Orientation says; a ${labelOf(N_UP_SHEETS, "a3")} sheet holds four ${labelOf(N_UP_SHEETS, "a4")} pages at their full size.`,
-          `${N_UP_ACROSS} fills each row from left to right and then moves down, the way you read. ${N_UP_DOWN} fills each column from top to bottom and then moves right, like newspaper columns. When the last sheet is not full, its remaining places are left empty. The margin keeps the same space at the sheet's edges and between pages, and the border is a ${N_UP_BORDER_PT}-point line.`,
+          `${N_UP_ACROSS} fills each row from left to right and then moves down, the way you read. ${N_UP_DOWN} fills each column from top to bottom and then moves right, like newspaper columns. With ${N_UP_RTL_LABEL} ticked, both run from the right instead, so page two sits to the left of page one. When the last sheet is not full, its remaining places are left empty. The margin keeps the same space at the sheet's edges and between pages, and the border is a ${N_UP_BORDER_PT}-point line.`,
         ],
       },
       {
