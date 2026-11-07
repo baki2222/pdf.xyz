@@ -35,7 +35,7 @@ const OCR_LINK_MINUTES = DEFAULT_RETENTION.outputTtlMinutes;
  * whose `load` throws on ANY /Encrypt dictionary — so a permissions-only PDF
  * that opens without a password was refused too, with "This PDF is
  * password-protected". AMENDED 2026-11-08 (audit compare-pdf#5): the card's
- * count is `readPagesWithPdfjs` now, so such a file is compared; one that
+ * count is pdf.js's (`countPagesWithPdfjs`) now, so such a file is compared; one that
  * needs a password is still refused (compare-restricted.test.tsx).
  * The Size delta TILE prints `formatBytes(Math.abs(sizeDelta))` with a "+"
  * only when non-negative, so a smaller second file shows no sign there; only

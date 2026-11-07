@@ -86,7 +86,7 @@ function restrictedFileMeets(slug: string): Restricted | null {
   // A runner that counts pages with pdf.js and never loads the file through
   // pdf-lib (Compare PDF, since 2026-11-08) reads what pdf.js opens.
   if (
-    /\breadPagesWithPdfjs\(/.test(source) &&
+    /\b(?:readPagesWithPdfjs|countPagesWithPdfjs)\(/.test(source) &&
     !/\b(?:getPageCount|getPageRotations|loadPdf|SinglePdfRunner|useSinglePdf)\b/.test(
       source,
     )

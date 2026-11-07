@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { downloadBlob, readFileBytes } from "@/lib/pdf/browser";
 import { partitionPdfFiles } from "@/lib/pdf/files";
-import { readPagesWithPdfjs } from "@/lib/pdf/pdfjs";
+import { countPagesWithPdfjs } from "@/lib/pdf/pdfjs-page-count";
 import { extractPdfText, type ExtractedPdfText } from "@/lib/pdf/text";
 import {
   compareExtractedPdfText,
@@ -122,8 +122,9 @@ export function ComparePdfRunner({
         // restrictions was skipped here until 2026-11-08 (audit
         // compare-pdf#5), although nothing is written and pdf.js reads it.
         // One that needs a password is still refused, in pdf.js's words.
-        const [{ pageCount }, probe] = await Promise.all([
-          readPagesWithPdfjs(bytes),
+        // Only the count: no page is opened (`pdfjs-page-count.ts`).
+        const [pageCount, probe] = await Promise.all([
+          countPagesWithPdfjs(bytes),
           readPreflight(bytes, "image-only"),
         ]);
         // Cleared or removed while loading: its slot is no longer held.
