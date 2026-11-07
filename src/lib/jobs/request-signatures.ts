@@ -209,6 +209,37 @@ function parseSigner(
   return { ok: true, value: { name: name.value, email } };
 }
 
+/** Which input of a signer row is at fault, and what to tell the person. */
+export interface SignerRowProblem {
+  field: "name" | "email";
+  message: string;
+}
+
+/**
+ * Why the worker would refuse this signer row, or `null` when it accepts it.
+ * It runs the worker's own signer parse, so the panel cannot let through a row
+ * the worker refuses, or quietly leave out one it would accept. The name
+ * messages are the parser's; the email one drops the API path for words.
+ */
+export function signerRowProblem(row: {
+  name: string;
+  email: string;
+}): SignerRowProblem | null {
+  const parsed = parseSigner(row, 0);
+  if (parsed.ok) return null;
+  const detail = parsed.error.body.error.details?.[0];
+  if (detail?.field.endsWith(".email")) {
+    return {
+      field: "email",
+      message: `Enter a valid email address, like name@company.com (max ${MAX_SIGNER_EMAIL_CHARS} characters).`,
+    };
+  }
+  return {
+    field: "name",
+    message: detail?.message ?? parsed.error.body.error.message,
+  };
+}
+
 function parseFraction(value: unknown, field: string): ParseResult<number> {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return invalid(`\`${field}\` must be a finite number.`, field);

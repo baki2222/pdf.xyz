@@ -2,7 +2,11 @@ import type { ToolContent } from "./types";
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
-import { MAX_REQUEST_SIGNERS } from "@/lib/jobs/request-signatures";
+import {
+  MAX_REQUEST_SIGNERS,
+  MAX_SIGNER_EMAIL_CHARS,
+  MAX_SIGNER_NAME_CHARS,
+} from "@/lib/jobs/request-signatures";
 
 /*
  * Every behavioral claim below was read from the code on 2026-09-27:
@@ -33,8 +37,13 @@ import { MAX_REQUEST_SIGNERS } from "@/lib/jobs/request-signatures";
  *    the artifact bytes BEFORE the result card renders; the Download button
  *    calls downloadBytes on bytes already in the page. No link is shown, so the
  *    output TTL does not bound the button — closing the tab does.
- *  - rows: cleanSigners keeps a row only when it has a name AND an email that
- *    matches EMAIL_SHAPE; other rows are dropped without a message.
+ *  - rows: CHANGED 2026-11-06 (audit #18). Until then cleanSigners dropped any
+ *    row without a name AND an EMAIL_SHAPE email, without a message. Now each
+ *    non-blank row is checked by signerRowProblem (the worker's own signer
+ *    parse): an invalid row shows its reason once left, sets aria-invalid,
+ *    and blocks Prepare; a wholly blank row is ignored. Name, email and title
+ *    inputs carry the worker's maxLength (MAX_SIGNER_NAME_CHARS,
+ *    MAX_SIGNER_EMAIL_CHARS, MAX_REQUEST_TITLE_CHARS).
  *  - layout: buildFields() puts one signature box per signer at x 8%, 40% of
  *    the page wide, rows starting 6% above the bottom edge and stacking up
  *    (signer 1 lowest), row height min(11%, 60% / signers) — constant for a
@@ -132,7 +141,7 @@ const content: ToolContent = {
     },
     {
       title: "List the signers",
-      body: `Under Signers, enter a Full name and email address for each person. Add signer adds a row, up to ${maxSigners}, and the bin icon removes one while more than one row remains. A row missing its name or a valid-looking email is left out of the package without a warning.`,
+      body: `Under Signers, enter a Full name and email address for each person. Add signer adds a row, up to ${maxSigners}, and the bin icon removes one while more than one row remains. A row with anything in it needs both a name, up to ${MAX_SIGNER_NAME_CHARS} characters, and a valid-looking email, up to ${MAX_SIGNER_EMAIL_CHARS}: until it has them, the row says what is missing once you leave it and Prepare signature request stays disabled, so no signer is left out of the package. A row left wholly empty is ignored.`,
     },
     {
       title: "Set the order and the page",
@@ -140,7 +149,7 @@ const content: ToolContent = {
     },
     {
       title: "Prepare and download",
-      body: 'Press Prepare signature request. It stays disabled until a PDF and one complete signer row exist, while the PDF is still being read ("Reading…" beside its name), and for an encrypted PDF. Once pressed, its label follows the job: "Uploading your file…", then "Waiting for our server…" while it is queued, "Preparing request…" while our server adds the fields, and "Downloading the result…" as the package comes back. The Download button for the file ending in -signature-request.zip then saves a copy the page already holds; there is no link to come back to, so keep the tab open until the ZIP is saved.',
+      body: 'Press Prepare signature request. It stays disabled until a PDF and one complete signer row exist, while any row is incomplete, while the PDF is still being read ("Reading…" beside its name), and for an encrypted PDF. Once pressed, its label follows the job: "Uploading your file…", then "Waiting for our server…" while it is queued, "Preparing request…" while our server adds the fields, and "Downloading the result…" as the package comes back. The Download button for the file ending in -signature-request.zip then saves a copy the page already holds; there is no link to come back to, so keep the tab open until the ZIP is saved.',
     },
   ],
 

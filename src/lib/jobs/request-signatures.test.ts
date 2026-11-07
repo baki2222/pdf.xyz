@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_REQUEST_SIGNERS,
   MAX_REQUEST_FIELDS,
+  MAX_SIGNER_EMAIL_CHARS,
+  MAX_SIGNER_NAME_CHARS,
   REQUEST_SIGNATURE_FIELD_TYPES,
   parseSignatureRequestOptions,
+  signerRowProblem,
   signatureRequestOutputName,
 } from "./request-signatures";
 
@@ -236,5 +239,55 @@ describe("signatureRequestOutputName", () => {
     expect(signatureRequestOutputName("")).toBe(
       "document-signature-request.zip",
     );
+  });
+});
+
+// Audit #18 (2026-11-06): the panel kept its own copy of the email shape and
+// no length rule, so a row it let through could be refused by the worker and
+// a row it filtered out vanished silently. The row check now IS the worker's
+// signer parse; this corpus holds the two to the same answer, both ways.
+describe("signerRowProblem agrees with the worker's signer parse", () => {
+  const rows: { name: string; email: string }[] = [
+    { name: "Ada Lovelace", email: "ada@example.com" },
+    { name: "  Ada  ", email: "  ada@example.com " },
+    { name: "Bob Typo", email: "b@x,com" },
+    { name: "Bob Typo", email: "bob@company" },
+    { name: "", email: "bob@example.com" },
+    { name: "Bob", email: "" },
+    { name: "x".repeat(MAX_SIGNER_NAME_CHARS), email: "a@b.co" },
+    { name: "x".repeat(MAX_SIGNER_NAME_CHARS + 1), email: "a@b.co" },
+    {
+      name: "Long Mail",
+      email: `${"a".repeat(MAX_SIGNER_EMAIL_CHARS)}@b.co`,
+    },
+    { name: "Tab\there", email: "a@b.co" },
+  ];
+
+  it("a row passes the panel exactly when it passes the worker", () => {
+    let refused = 0;
+    for (const row of rows) {
+      const viaWorker = parseSignatureRequestOptions({
+        ...validOptions(),
+        signers: [row, { name: "Alan Turing", email: "alan@example.com" }],
+      }).ok;
+      const problem = signerRowProblem(row);
+      expect(problem === null, JSON.stringify(row)).toBe(viaWorker);
+      if (problem) refused += 1;
+    }
+    // Health check: the corpus exercises both answers.
+    expect(refused).toBeGreaterThanOrEqual(5);
+    expect(rows.length - refused).toBeGreaterThanOrEqual(2);
+  });
+
+  it("names the field at fault in words a person can act on", () => {
+    expect(signerRowProblem({ name: "Bob", email: "b@x,com" })).toMatchObject({
+      field: "email",
+    });
+    expect(
+      signerRowProblem({ name: "", email: "bob@example.com" }),
+    ).toMatchObject({ field: "name" });
+    expect(
+      signerRowProblem({ name: "Bob", email: "b@x,com" })?.message,
+    ).not.toMatch(/signers\[/);
   });
 });

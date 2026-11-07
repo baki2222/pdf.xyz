@@ -234,7 +234,13 @@ export function protectArgs(
     }
   }
   encrypt.push("--");
-  return [...encrypt, inputPath, outputPath];
+  // AES-128 (R4) passwords are PDFDocEncoding. qpdf's default (auto) mode only
+  // warns about one it cannot convert and writes its raw UTF-8 bytes — exit 3,
+  // which `qpdfWroteOutput` accepts. Unicode mode converts it or fails the run.
+  // The job validator refuses such a password first; this is the second bound.
+  // AES-256 takes UTF-8 as is, so its argv stays the one that shipped.
+  const mode = opts.keyLength === 128 ? ["--password-mode=unicode"] : [];
+  return [...mode, ...encrypt, inputPath, outputPath];
 }
 
 /** qpdf 11 restriction flag for each switch turned off (R3+ encryption). */
