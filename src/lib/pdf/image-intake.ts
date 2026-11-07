@@ -11,6 +11,7 @@
  * stays in its lazy chunk, loaded on the first PNG as before.
  */
 import {
+  drawRasterImage,
   embedRasterImage,
   loadPdfLib,
   type RasterImageFormat,
@@ -27,7 +28,11 @@ export function undecodableImageMessage(
 /**
  * Whether `bytes` embed as `format` the way Create PDF embeds them: a PNG
  * through `png-embed.ts` (every chunk read, the image data inflated in
- * full), a JPEG through pdf-lib's reader (its frame header). Nothing is kept.
+ * full), a JPEG through pdf-lib's reader (its frame header) — then drawn
+ * through `drawRasterImage` on a one-point page, the engine's own draw, so
+ * a JPEG's recorded turn takes the path it will take at run (and
+ * raster-draw-boundary.test.ts holds this module like every embedder).
+ * Nothing is kept.
  */
 export async function imageDecodes(
   bytes: Uint8Array,
@@ -36,9 +41,16 @@ export async function imageDecodes(
   try {
     const lib = await loadPdfLib();
     const doc = await lib.PDFDocument.create();
-    if (format === "png")
-      await (await import("./png-embed")).embedPngAsStored(doc, bytes);
-    else await embedRasterImage(doc, bytes, "jpg");
+    const image =
+      format === "png"
+        ? await (await import("./png-embed")).embedPngAsStored(doc, bytes)
+        : await embedRasterImage(doc, bytes, "jpg");
+    await drawRasterImage(doc.addPage([1, 1]), image, {
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+    });
     return true;
   } catch {
     return false;
