@@ -40,6 +40,7 @@ import {
   type WebpageCaptureOptions,
 } from "@/lib/jobs/webpage-capture-options";
 import { HIDE_OVERLAYS_SCRIPT } from "./overlays";
+import { stampFooterTemplate } from "./stamp";
 import {
   LAZY_SCROLL_FRAME_WAIT_MS,
   LAZY_SCROLL_MEASURE,
@@ -119,6 +120,8 @@ export interface ChromiumSeams {
    * which the policy refuses before any fetch seam could see it.
    */
   onRequest?: (request: { url: string; resourceType?: string }) => void;
+  /** The clock the address-and-date stamp reads. Default `new Date()`. */
+  now?: () => Date;
   /** The environment Chromium's must be CUT DOWN from. Default process.env. */
   parentEnv?: Record<string, string | undefined>;
   platform?: NodeJS.Platform;
@@ -1065,7 +1068,24 @@ export function createNativeChromiumPdfRunner(
     options: HtmlRenderOptions,
     signal: AbortSignal | undefined,
   ): Promise<Uint8Array> {
-    const plan = planPrint(options);
+    // Webpages get bookmarks from their headings, and the address-and-date
+    // line when it was asked for (audit webpage-to-pdf#7, `./stamp`).
+    const plan = planPrint(
+      options,
+      target.kind === "url"
+        ? {
+            outline: true,
+            ...(target.capture.stamp
+              ? {
+                  footerTemplate: stampFooterTemplate(
+                    target.url,
+                    (seams.now ?? (() => new Date()))(),
+                  ),
+                }
+              : {}),
+          }
+        : {},
+    );
     const bytes = await withBrowser(signal, (cdp) => drive(cdp, target, plan));
     if (
       bytes.byteLength === 0 ||

@@ -20,6 +20,11 @@ import { DEFAULT_HTML_RENDER_OPTIONS } from "@/lib/jobs/html-render-options";
 import { DEFAULT_WEBPAGE_CAPTURE_OPTIONS } from "@/lib/jobs/webpage-capture-options";
 import { HIDE_OVERLAYS_SCRIPT } from "./overlays";
 import {
+  STAMP_EMPTY_HEADER,
+  WEBPAGE_OUTLINE_PARAMS,
+  stampFooterTemplate,
+} from "./stamp";
+import {
   LAZY_SCROLL_MAX_MS,
   LAZY_SCROLL_MEASURE,
   LAZY_SCROLL_NEXT_FRAMES,
@@ -713,6 +718,39 @@ describe("native Chromium HTML renderer", () => {
             String(m.params.expression).startsWith("window.scrollTo")),
       ),
     ).toEqual([]);
+  });
+
+  it("a webpage prints with bookmarks from its headings, an upload as before; the stamp is a footer with the address and the clock's UTC time, only when asked (audit webpage-to-pdf#7)", async () => {
+    const printOf = (fake: ReturnType<typeof fakeChromium>) =>
+      fake.sent.find((m) => m.method === "Page.printToPDF")!.params;
+    const web = fakeChromium();
+    await runner(web).renderUrl("https://public.example/");
+    expect(printOf(web)).toMatchObject({
+      ...WEBPAGE_OUTLINE_PARAMS,
+      displayHeaderFooter: false,
+    });
+    expect(printOf(web)).not.toHaveProperty("footerTemplate");
+
+    const upload = fakeChromium();
+    await runner(upload).renderHtml(HTML);
+    expect(printOf(upload)).not.toHaveProperty("generateDocumentOutline");
+
+    const at = new Date(Date.UTC(2026, 10, 8, 9, 30));
+    const stamped = fakeChromium();
+    await runner(stamped, { now: () => at }).renderUrl(
+      "https://public.example/terms",
+      DEFAULT_HTML_RENDER_OPTIONS,
+      {},
+      { ...DEFAULT_WEBPAGE_CAPTURE_OPTIONS, stamp: true },
+    );
+    expect(printOf(stamped)).toMatchObject({
+      displayHeaderFooter: true,
+      headerTemplate: STAMP_EMPTY_HEADER,
+      footerTemplate: stampFooterTemplate("https://public.example/terms", at),
+    });
+    expect(printOf(stamped).footerTemplate).toContain(
+      "https://public.example/terms on 8 November 2026, 09:30 UTC",
+    );
   });
 
   it("every other request goes through the network policy", async () => {

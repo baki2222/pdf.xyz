@@ -4,8 +4,17 @@ import {
   WEBPAGE_OVERLAY_ANSWER,
   WEBPAGE_PRINT_STYLES_SENTENCE,
   WEBPAGE_SCROLL_SENTENCE,
+  WEBPAGE_OUTLINE_SENTENCE,
   WEBPAGE_SETTINGS_STEP,
+  WEBPAGE_STAMP_RETENTION_SENTENCE,
+  WEBPAGE_STAMP_SENTENCE,
 } from "./webpage-capture-copy";
+import {
+  STAMP_EMPTY_HEADER,
+  WEBPAGE_OUTLINE_PARAMS,
+  stampDate,
+  stampText,
+} from "@/lib/workers/html-render/stamp";
 import { LAZY_SCROLL_MAX_STEPS } from "@/lib/workers/html-render/lazy-scroll";
 import {
   DEFAULT_WEBPAGE_CAPTURE_OPTIONS,
@@ -82,6 +91,32 @@ describe("Webpage to PDF capture copy", () => {
     );
     expect(guide).toContain(WEBPAGE_SCROLL_SENTENCE);
     expect(guide).not.toMatch(/nothing scrolls the page/i);
+  });
+
+  it("the stamp and outline sentences match what the print call adds, on the page and in the guide (audit webpage-to-pdf#7)", () => {
+    expect(DEFAULT_WEBPAGE_CAPTURE_OPTIONS.stamp).toBe(false);
+    expect(WEBPAGE_STAMP_SENTENCE).toContain(
+      `unless you tick ${WEBPAGE_CAPTURE_LABELS.stamp}`,
+    );
+    // The example is the stamp's own format, from the worker's formatter.
+    expect(WEBPAGE_STAMP_SENTENCE).toContain(
+      stampDate(new Date(Date.UTC(2026, 10, 8, 14, 3))),
+    );
+    expect(stampText("https://x.example/", new Date(0))).toMatch(/UTC$/);
+    // The empty header is why the title is never printed.
+    expect(STAMP_EMPTY_HEADER).not.toMatch(/title|date/);
+    expect(WEBPAGE_STAMP_SENTENCE).toMatch(/never adds the page's title/);
+    expect(WEBPAGE_OUTLINE_PARAMS.generateDocumentOutline).toBe(true);
+    const page = JSON.stringify(toolContent["webpage-to-pdf"]);
+    const guide = JSON.stringify(
+      getGuideBySlug("how-to-convert-a-webpage-to-pdf"),
+    );
+    for (const text of [page, guide]) {
+      expect(text).toContain(WEBPAGE_STAMP_SENTENCE);
+      expect(text).toContain(WEBPAGE_OUTLINE_SENTENCE);
+      expect(text).not.toMatch(/adds no date, title, address/);
+    }
+    expect(page).toContain(WEBPAGE_STAMP_RETENTION_SENTENCE);
   });
 
   it("the page no longer says cookie notices cannot be removed", () => {

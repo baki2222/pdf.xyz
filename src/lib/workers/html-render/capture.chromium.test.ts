@@ -149,12 +149,38 @@ async function pdfImageCount(bytes: Uint8Array): Promise<number> {
   return count;
 }
 
+/** Headings for the outline, and a <title> that must never be stamped. */
+const STAMP_TITLE = "Stamp proof title only in head";
+const HEADINGS_PAGE = `<!doctype html><html><head><meta charset="utf-8">
+<title>${STAMP_TITLE}</title></head><body>
+<h1>Outline first heading</h1><p>${ARTICLE}</p>
+<h2>Outline second heading</h2><p>More text</p>
+<h2>Outline third heading</h2><p>Last text</p></body></html>`;
+
+/** The PDF's bookmark titles, depth-first. */
+async function pdfOutline(bytes: Uint8Array): Promise<string[]> {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const task = pdfjs.getDocument({ data: new Uint8Array(bytes) });
+  const doc = await task.promise;
+  const out: string[] = [];
+  const walk = (items: { title: string; items: unknown[] }[] | null) => {
+    for (const item of items ?? []) {
+      out.push(item.title);
+      walk(item.items as { title: string; items: unknown[] }[]);
+    }
+  };
+  walk((await doc.getOutline()) as { title: string; items: unknown[] }[]);
+  await task.destroy();
+  return out;
+}
+
 const pages: Record<string, string> = {
   "/overlay": OVERLAY_PAGE,
   "/shell": SHELL_PAGE,
   "/consent": CONSENT_PAGE,
   "/media": MEDIA_PAGE,
   "/lazy": LAZY_PAGE,
+  "/headings": HEADINGS_PAGE,
 };
 
 const resolve: Resolve = async (host) => {
@@ -284,6 +310,45 @@ describe.skipIf(!BIN)(
       );
       expect(await pdfImageCount(bytes)).toBe(2);
     }, 90_000);
+
+    // audit webpage-to-pdf#7: bookmarks from the page's headings, always.
+    it("a webpage's PDF has bookmarks from its headings", async () => {
+      const bytes = await runner.renderUrl("https://public.example/headings");
+      expect(await pdfOutline(bytes)).toEqual([
+        "Outline first heading",
+        "Outline second heading",
+        "Outline third heading",
+      ]);
+    }, 90_000);
+
+    // audit webpage-to-pdf#7: the address and date, only when asked for.
+    // The default render is the control: neither is printed.
+    it("Add the address and date prints the address asked for and the capture time in UTC, and never the title", async () => {
+      const sourceUrl = "https://public.example/headings";
+      const plain = await pdfText(await runner.renderUrl(sourceUrl));
+      expect(plain).not.toContain("public.example");
+      expect(plain).not.toMatch(/\bUTC\b/);
+      for (const layout of [
+        DEFAULT_HTML_RENDER_OPTIONS,
+        { ...DEFAULT_HTML_RENDER_OPTIONS, margin: "none" as const },
+        { ...DEFAULT_HTML_RENDER_OPTIONS, onePage: true },
+      ]) {
+        const text = await pdfText(
+          await runner.renderUrl(
+            sourceUrl,
+            layout,
+            {},
+            capture({ stamp: true }),
+          ),
+        );
+        expect(text, JSON.stringify(layout)).toContain(ARTICLE);
+        expect(text, JSON.stringify(layout)).toContain(sourceUrl);
+        expect(text, JSON.stringify(layout)).toMatch(
+          /\b\d{1,2} [A-Z][a-z]+ \d{4}, \d{2}:\d{2} UTC\b/,
+        );
+        expect(text).not.toContain(STAMP_TITLE);
+      }
+    }, 120_000);
 
     it("never hides a fixed full-screen frame that holds the page's main content", async () => {
       const text = await render("/shell", { hideOverlays: true });

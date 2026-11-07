@@ -4,8 +4,11 @@ import { htmlLayoutAnswer } from "@/lib/tools/html-layout-copy";
 import {
   WEBPAGE_OVERLAY_ANSWER,
   WEBPAGE_PRINT_STYLES_SENTENCE,
+  WEBPAGE_OUTLINE_SENTENCE,
   WEBPAGE_SCROLL_SENTENCE,
   WEBPAGE_SETTINGS_STEP,
+  WEBPAGE_STAMP_RETENTION_SENTENCE,
+  WEBPAGE_STAMP_SENTENCE,
 } from "@/lib/tools/webpage-capture-copy";
 import { WEBPAGE_CAPTURE_LABELS } from "@/lib/jobs/webpage-capture-options";
 
@@ -93,13 +96,16 @@ const content: ToolContent = {
   intro: [
     `Webpage to PDF turns a web address into a PDF without you opening the page. Paste the link and a headless copy of Chromium, the engine behind Chrome and Edge, loads it, lets its JavaScript run for a fixed budget of page time, and prints it to PDF with backgrounds included and any page size the site's print stylesheet sets. Text stays text, so the PDF can be searched and copied from. ${WEBPAGE_PRINT_STYLES_SENTENCE}`,
     `pdf.xyz's secure server fetches the page, not your browser. The job carries only the address you typed, sent over TLS, and the site sees our server's visit with none of your cookies. The temporary folder Chromium runs in is removed after each render, the download link lapses after ${LINK_MINUTES} minutes, and a storage rule on a daily cycle erases the stored copy after that. The full address is deleted from the job queue when the job finishes; the job's status record keeps only the PDF's file name, built from the site and path without the query string, until that record times out.`,
-    `Our server arrives as a signed-out stranger, so members-only walls and paywalls come along, and so do cookie banners unless you tick ${WEBPAGE_CAPTURE_LABELS.hideOverlays}. The PDF carries the page and nothing else: pdf.xyz adds no date, title, address or page-number lines. Addresses written as localhost or as a private IPv4 number are refused before any job starts. For an HTML file on your computer, use HTML to PDF instead.`,
+    `Our server arrives as a signed-out stranger, so members-only walls and paywalls come along, and so do cookie banners unless you tick ${WEBPAGE_CAPTURE_LABELS.hideOverlays}. ${WEBPAGE_STAMP_SENTENCE} Addresses written as localhost or as a private IPv4 number are refused before any job starts. For an HTML file on your computer, use HTML to PDF instead.`,
   ],
 
   useCases: [
     {
       title: "Keep a public page as it reads today",
-      body: "Terms of service, a returns policy or a price list can change without notice. Convert the page on the day you rely on it and keep the PDF, named with the date, in your own files; the PDF itself adds no date or address line.",
+      // Until 2026-11-08: "keep the PDF, named with the date, in your own
+      // files; the PDF itself adds no date or address line" — true until
+      // the stamp option (audit webpage-to-pdf#7).
+      body: `Terms of service, a returns policy or a price list can change without notice. Convert the page on the day you rely on it with ${WEBPAGE_CAPTURE_LABELS.stamp} ticked, so the foot of every page says where it came from and when, and keep the PDF in your own files.`,
     },
     {
       title: "Save a job posting before it closes",
@@ -107,7 +113,7 @@ const content: ToolContent = {
     },
     {
       title: "Read documentation offline",
-      body: "Turn a long reference or tutorial page into a searchable PDF for a flight or an e-reader instead of a stack of screenshots.",
+      body: `Turn a long reference or tutorial page into a searchable PDF for a flight or an e-reader instead of a stack of screenshots. ${WEBPAGE_OUTLINE_SENTENCE}`,
     },
     {
       title: "Check how your own site prints",
@@ -167,7 +173,7 @@ const content: ToolContent = {
     },
     {
       q: "What happens to the address and the PDF afterwards?",
-      a: `The address is saved with the job so our server knows which page to open, and it is deleted from the job queue when the job finishes (an automatic retry keeps it until the last attempt). The job's status record keeps the PDF's file name, made from the site and path without any query string, until that record expires. The PDF's download link works for ${LINK_MINUTES} minutes; after that, a storage rule that runs daily erases the file.`,
+      a: `The address is saved with the job so our server knows which page to open, and it is deleted from the job queue when the job finishes (an automatic retry keeps it until the last attempt). The job's status record keeps the PDF's file name, made from the site and path without any query string, until that record expires. The PDF's download link works for ${LINK_MINUTES} minutes; after that, a storage rule that runs daily erases the file. ${WEBPAGE_STAMP_RETENTION_SENTENCE}`,
     },
   ],
 

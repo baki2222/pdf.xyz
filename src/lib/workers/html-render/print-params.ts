@@ -20,6 +20,11 @@ import {
   onePageHeightInches,
   type HtmlRenderOptions,
 } from "@/lib/jobs/html-render-options";
+import {
+  STAMP_EMPTY_HEADER,
+  STAMP_MIN_MARGIN_INCHES,
+  WEBPAGE_OUTLINE_PARAMS,
+} from "./stamp";
 
 /**
  * What every render asks `Page.printToPDF` for — stated, not inherited. The
@@ -37,19 +42,49 @@ export const PRINT_TO_PDF_OPTIONS = {
   preferCSSPageSize: true,
 } as const;
 
+/**
+ * Webpage to PDF's additions to the print (audit webpage-to-pdf#7,
+ * `./stamp`): bookmarks from the headings, and the address-and-date footer.
+ * Absent, the print is exactly what it was.
+ */
+export interface PrintExtras {
+  outline?: boolean;
+  /** A `footerTemplate`; a header that draws nothing goes with it. */
+  footerTemplate?: string;
+}
+
 export interface PrintPlan {
   viewport: { width: number; height: number } | null;
   measure: { widthPx: number } | null;
   printParams: (contentHeightPx?: number) => Record<string, unknown>;
 }
 
-export function planPrint(options: HtmlRenderOptions): PrintPlan {
+function extraParams(extras: PrintExtras): Record<string, unknown> {
+  return {
+    ...(extras.outline ? WEBPAGE_OUTLINE_PARAMS : {}),
+    ...(extras.footerTemplate !== undefined
+      ? {
+          displayHeaderFooter: true,
+          headerTemplate: STAMP_EMPTY_HEADER,
+          footerTemplate: extras.footerTemplate,
+        }
+      : {}),
+  };
+}
+
+export function planPrint(
+  options: HtmlRenderOptions,
+  extras: PrintExtras = {},
+): PrintPlan {
   if (isDefaultHtmlRenderOptions(options))
     return {
       viewport: null,
       measure: null,
-      printParams: () => ({ ...PRINT_TO_PDF_OPTIONS }),
+      // Chromium's default margins (0.4 in) leave the stamp its room.
+      printParams: () => ({ ...PRINT_TO_PDF_OPTIONS, ...extraParams(extras) }),
     };
+  // A stamped page keeps at least STAMP_MIN_MARGIN_INCHES at its foot.
+  const stamped = extras.footerTemplate !== undefined;
   const g = htmlPrintGeometry(options);
   const screen = HTML_VIEWPORTS.find((v) => v.id === options.viewport);
   return {
@@ -61,6 +96,9 @@ export function planPrint(options: HtmlRenderOptions): PrintPlan {
     printParams: (contentHeightPx) => {
       if (options.onePage && contentHeightPx === undefined)
         throw new Error("one long page needs the content's measured height");
+      const marginBottom = stamped
+        ? Math.max(g.marginInches, STAMP_MIN_MARGIN_INCHES)
+        : g.marginInches;
       return {
         ...PRINT_TO_PDF_OPTIONS,
         preferCSSPageSize: g.preferCSSPageSize,
@@ -69,13 +107,15 @@ export function planPrint(options: HtmlRenderOptions): PrintPlan {
         landscape: false,
         paperWidth: g.paperInches[0],
         paperHeight: options.onePage
-          ? onePageHeightInches(g, contentHeightPx!)
+          ? onePageHeightInches(g, contentHeightPx!) +
+            (marginBottom - g.marginInches)
           : g.paperInches[1],
         marginTop: g.marginInches,
-        marginBottom: g.marginInches,
+        marginBottom,
         marginLeft: g.marginInches,
         marginRight: g.marginInches,
         ...(g.scale !== 1 ? { scale: g.scale } : {}),
+        ...extraParams(extras),
       };
     },
   };

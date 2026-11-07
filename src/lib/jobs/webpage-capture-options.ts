@@ -15,18 +15,23 @@
  *   - `printStyles` (on) — print with the site's print stylesheet, as every
  *     render did. Off, Chromium is told to use SCREEN media before measuring
  *     and printing, so the PDF shows the page's screen layout (audit
- *     webpage-to-pdf#3).
+ *     webpage-to-pdf#3);
+ *   - `stamp` (off) — a line at the foot of every page with the address the
+ *     job asked for and the capture time in UTC
+ *     (`@/lib/workers/html-render/stamp`, audit webpage-to-pdf#7).
  */
 import { apiError, type ParseResult } from "./responses";
 
 export interface WebpageCaptureOptions {
   hideOverlays: boolean;
   printStyles: boolean;
+  stamp: boolean;
 }
 
 export const DEFAULT_WEBPAGE_CAPTURE_OPTIONS: WebpageCaptureOptions = {
   hideOverlays: false,
   printStyles: true,
+  stamp: false,
 };
 
 /**
@@ -39,6 +44,7 @@ export const WEBPAGE_CAPTURE_CHOICES: readonly {
 }[] = [
   { key: "hideOverlays", label: "Hide cookie notices and pop-ups" },
   { key: "printStyles", label: "Use the site's print styles" },
+  { key: "stamp", label: "Add the address and date" },
 ];
 
 /** Each checkbox's label by option key. */

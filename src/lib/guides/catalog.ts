@@ -122,7 +122,9 @@ import {
   WEBPAGE_CAPTURE_SENTENCE,
   WEBPAGE_OVERLAY_ANSWER,
   WEBPAGE_PRINT_STYLES_SENTENCE,
+  WEBPAGE_OUTLINE_SENTENCE,
   WEBPAGE_SCROLL_SENTENCE,
+  WEBPAGE_STAMP_SENTENCE,
 } from "@/lib/tools/webpage-capture-copy";
 import { WEBPAGE_CAPTURE_LABELS } from "@/lib/jobs/webpage-capture-options";
 import { MAX_SCAN_SIDE_PX, SCAN_PAGE_SIZES } from "@/lib/pdf/scan-to-pdf";
@@ -3381,7 +3383,7 @@ export const guides: Guide[] = [
         id: "what-gets-printed",
         heading: "What ends up in the PDF",
         body: [
-          `The PDF carries the page and nothing else: pdf.xyz adds no date, title, address or page-number lines. Backgrounds are printed. ${WEBPAGE_PRINT_STYLES_SENTENCE} Words a site draws as a picture or on a canvas stay pictures.`,
+          `${WEBPAGE_STAMP_SENTENCE} ${WEBPAGE_OUTLINE_SENTENCE} Backgrounds are printed. ${WEBPAGE_PRINT_STYLES_SENTENCE} Words a site draws as a picture or on a canvas stay pictures.`,
           `Its scripts run within a fixed budget of time. ${WEBPAGE_SCROLL_SENTENCE} Adverts shown to a new visitor can appear too, and so can cookie notices and pop-ups unless you tick ${WEBPAGE_CAPTURE_LABELS.hideOverlays}.`,
         ],
       },

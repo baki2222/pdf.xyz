@@ -23,12 +23,29 @@ import {
 import { CONSENT_MANAGERS } from "@/lib/workers/html-render/overlays";
 import { HTML_LAYOUT_STEP } from "@/lib/tools/html-layout-copy";
 import { LAZY_SCROLL_MAX_STEPS } from "@/lib/workers/html-render/lazy-scroll";
+import { stampDate } from "@/lib/workers/html-render/stamp";
 
 const list = (items: readonly string[]) =>
   new Intl.ListFormat("en", { type: "conjunction" }).format(items);
 
 const HIDE = WEBPAGE_CAPTURE_LABELS.hideOverlays;
 const PRINT = WEBPAGE_CAPTURE_LABELS.printStyles;
+const STAMP = WEBPAGE_CAPTURE_LABELS.stamp;
+
+/**
+ * What the print adds (audit webpage-to-pdf#7, `@/lib/workers/html-render/
+ * stamp`): nothing unless the stamp is ticked; then the footer template the
+ * worker prints — the address the job asked for and the time in UTC — with
+ * an empty header, so never the page's <title> or page numbers.
+ */
+export const WEBPAGE_STAMP_SENTENCE = `The PDF carries the page and nothing else unless you tick ${STAMP}: then a line at the foot of every page gives the address you entered and the time it was captured, in UTC, such as ${stampDate(new Date(Date.UTC(2026, 10, 8, 14, 3)))}. pdf.xyz never adds the page's title or page numbers.`;
+
+/** Bookmarks from the headings, on every webpage render (`WEBPAGE_OUTLINE_PARAMS`). */
+export const WEBPAGE_OUTLINE_SENTENCE =
+  "The page's headings become the PDF's bookmarks, so a long page can be navigated from your PDF reader's bookmark panel.";
+
+/** The privacy consequence of the stamp, for the retention answer. */
+export const WEBPAGE_STAMP_RETENTION_SENTENCE = `With ${STAMP} ticked, the address is also printed inside the PDF, and stays there in every copy you keep or share.`;
 const SHARE_PCT = Math.round(OVERLAY_MIN_SHARE * 100);
 
 /** The FAQ answer to "Can I hide cookie notices, pop-ups or ads?". */
@@ -49,7 +66,7 @@ export const WEBPAGE_PRINT_STYLES_SENTENCE = `A site that ships a print styleshe
 export const WEBPAGE_SCROLL_SENTENCE = `Before printing, our server scrolls the page down a screen at a time, up to ${LAZY_SCROLL_MAX_STEPS} screens, and gives it a moment at each stop, so images a site loads only as you scroll usually come in. An endless feed prints only what those ${LAZY_SCROLL_MAX_STEPS} screens load, and a page that scrolls inside a box of its own, rather than as a whole, is not scrolled.`;
 
 /** The how-to sentence for the Capture group. */
-export const WEBPAGE_CAPTURE_SENTENCE = `Under ${WEBPAGE_CAPTURE_GROUP_LABEL}, tick ${HIDE} to print the page without a consent banner or a pop-up over it, and untick ${PRINT} to get the layout a browser window shows instead of the one the site made for printing.`;
+export const WEBPAGE_CAPTURE_SENTENCE = `Under ${WEBPAGE_CAPTURE_GROUP_LABEL}, tick ${HIDE} to print the page without a consent banner or a pop-up over it, untick ${PRINT} to get the layout a browser window shows instead of the one the site made for printing, and tick ${STAMP} to record where and when the page was captured.`;
 
 /** The tool page's layout step, with the Capture group added to it. */
 export const WEBPAGE_SETTINGS_STEP = {

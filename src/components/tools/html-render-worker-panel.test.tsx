@@ -396,6 +396,21 @@ describe("HtmlRenderWorkerPanel — Webpage to PDF capture options", () => {
     );
   });
 
+  it(`"${WEBPAGE_CAPTURE_LABELS.stamp}" starts unticked, and ticking it sends stamp: true (audit webpage-to-pdf#7)`, async () => {
+    await mountUrl();
+    const box = screen.getByRole<HTMLInputElement>("checkbox", {
+      name: new RegExp(WEBPAGE_CAPTURE_LABELS.stamp),
+    });
+    expect(box.checked).toBe(false);
+    fireEvent.click(box);
+    run();
+    await vi.waitFor(() =>
+      expect(sentOptions()).toEqual([
+        { stamp: true, url: "https://example.com/" },
+      ]),
+    );
+  });
+
   it("control: HTML to PDF has no Capture group", async () => {
     vi.stubGlobal(
       "fetch",
