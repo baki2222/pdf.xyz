@@ -53,6 +53,36 @@ describe("zipFiles", () => {
     const one = await zip.file("one.pdf")!.async("uint8array");
     expect(Array.from(one)).toEqual([1, 2, 3]);
   });
+
+  // THE DEFECT (found 2026-11-08 by the batch design review): JSZip's
+  // `zip.file(name, …)` REPLACES an entry of the same name. Batch Compress
+  // names each output after its input, so two different files both called
+  // scan.pdf (picked from two folders) came back as ONE entry in the ZIP. The
+  // second file's result silently replaced the first, and the page still said
+  // "2 files done".
+  it("keeps every file when two outputs share a name", async () => {
+    const blob = await zipFiles([
+      { name: "scan-compressed.pdf", bytes: new Uint8Array([1]) },
+      { name: "scan-compressed.pdf", bytes: new Uint8Array([2]) },
+      { name: "Scan-Compressed.pdf", bytes: new Uint8Array([3]) },
+    ]);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const entries = Object.values(zip.files).filter((entry) => !entry.dir);
+    // Health check: one entry per input, whatever the names.
+    expect(entries).toHaveLength(3);
+    const byName: Record<string, number[]> = {};
+    for (const entry of entries) {
+      byName[entry.name] = Array.from(await entry.async("uint8array"));
+    }
+    // The first keeps its name; later ones gain " (2)", " (3)" before the
+    // extension, in input order. A differently-cased name counts as taken,
+    // since Windows and macOS extract case-insensitively.
+    expect(byName).toEqual({
+      "scan-compressed.pdf": [1],
+      "scan-compressed (2).pdf": [2],
+      "Scan-Compressed (3).pdf": [3],
+    });
+  });
 });
 
 describe("downloadBytes", () => {
