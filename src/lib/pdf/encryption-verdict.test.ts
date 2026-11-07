@@ -367,8 +367,12 @@ describe("the way out is real", () => {
       "edit-runner.tsx",
       "fill-forms-runner.tsx",
     ]);
-    // 2026-11-08: Rotate PDF (audit rotate-pdf#2).
-    expect(grantTools).toEqual(["rotate-runner.tsx"]);
+    // 2026-11-08: Rotate PDF (audit rotate-pdf#2) and Extract Images
+    // (audit extract-images#3).
+    expect(grantTools).toEqual([
+      "extract-images-runner.tsx",
+      "rotate-runner.tsx",
+    ]);
   });
 
   /*

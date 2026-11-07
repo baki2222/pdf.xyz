@@ -220,11 +220,13 @@ describe("encryption claims on tool pages match the runner's reader", () => {
     expect(by("offers-worker")).toEqual(["compress-pdf"]);
     // 2026-10-29: the two tools that fill a restricted file's form; on
     // 2026-10-30 Annotate PDF, the same editor, began to open one too.
-    // 2026-11-08: Rotate PDF, for the author's page-assembly grant
-    // (`restricted-grant.tsx`; audit rotate-pdf#2).
+    // 2026-11-08: Rotate PDF and Extract Images, for one grant each — page
+    // assembly, content copying (`restricted-grant.tsx`; audit rotate-pdf#2,
+    // extract-images#3).
     expect(by("opens-protected")).toEqual([
       "annotate-pdf",
       "edit-pdf",
+      "extract-images",
       "fill-forms",
       "rotate-pdf",
     ]);
@@ -240,7 +242,7 @@ describe("encryption claims on tool pages match the runner's reader", () => {
       )
       .map((s) => s.tool.slug)
       .sort();
-    expect(grantTools).toEqual(["rotate-pdf"]);
+    expect(grantTools).toEqual(["extract-images", "rotate-pdf"]);
     expect(
       by("opens-protected").filter((slug) => !grantTools.includes(slug)),
     ).toEqual(

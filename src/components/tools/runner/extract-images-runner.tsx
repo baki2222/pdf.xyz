@@ -34,6 +34,11 @@ import { RunBar } from "./run-bar";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
 import { useZipDownload } from "./use-zip-download";
+import {
+  RestrictedGrantNote,
+  RestrictedGrantRefusal,
+  grantAllows,
+} from "./restricted-grant";
 
 /** Cap on how many image previews render in the grid; the ZIP still holds all. */
 const PREVIEW_LIMIT = 24;
@@ -43,6 +48,13 @@ const MIME: Record<ExtractedImage["format"], string> = {
   png: "image/png",
 };
 
+/**
+ * A PDF its author restricted opens here when the author allows copying its
+ * content (/P bit 5, "copy or otherwise extract text and graphics"): the
+ * images come out of the decrypted copy, and nothing is written back.
+ * Withheld, the tool names the permission and the owner password
+ * (`./restricted-grant`). Refused at upload until 2026-11-08.
+ */
 export function ExtractImagesRunner() {
   return (
     <SinglePdfRunner
@@ -50,8 +62,15 @@ export function ExtractImagesRunner() {
       handoffSlug="extract-images"
       toolName="Extract Images"
       writesPdf={false}
+      openProtected
     >
-      {(pdf, reset) => <ExtractImagesEditor pdf={pdf} onReset={reset} />}
+      {(pdf, reset) =>
+        pdf.protection && !grantAllows(pdf.protection, "copy") ? (
+          <RestrictedGrantRefusal pdf={pdf} grant="copy" onReset={reset} />
+        ) : (
+          <ExtractImagesEditor pdf={pdf} onReset={reset} />
+        )
+      }
     </SinglePdfRunner>
   );
 }
@@ -99,6 +118,7 @@ export function ExtractImagesEditor({
   return (
     <div className="flex flex-col gap-5">
       <FileHeader pdf={pdf} />
+      {pdf.protection && <RestrictedGrantNote grant="copy" />}
 
       <RunnerSection
         title="What gets extracted"
