@@ -109,6 +109,67 @@ const drawing = files.filter((file) =>
   usesTextApi(stripComments(readFileSync(file, "utf8"))),
 );
 
+/**
+ * The ways a module can come by a pdf-lib font of its own. A module that does
+ * none of them can only draw with a font a CALLER handed it.
+ */
+const FONT_SOURCE = [
+  /\.embedFont\s*\(/,
+  /\.embedStandardFont\s*\(/,
+  /\bStandardFonts\b/,
+];
+
+function makesFont(source: string): boolean {
+  return FONT_SOURCE.some((re) => re.test(source));
+}
+
+const SPECIFIER = /(?:from|import)\s*\(?\s*["']([^"']+)["']/g;
+
+/** `file`'s import specifiers resolved to a path without extension. */
+const targetCache = new Map<string, string[]>();
+function importTargets(file: string): string[] {
+  const hit = targetCache.get(file);
+  if (hit) return hit;
+  const source = stripComments(readFileSync(file, "utf8"));
+  const targets = [...source.matchAll(SPECIFIER)].flatMap((m) => {
+    const spec = m[1]!;
+    if (spec.startsWith("@/")) return [path.join(SRC, spec.slice(2))];
+    if (spec.startsWith(".")) return [path.resolve(path.dirname(file), spec)];
+    return [];
+  });
+  targetCache.set(file, targets);
+  return targets;
+}
+
+const stem = (file: string) => file.replace(/\.tsx?$/, "");
+
+/** The non-test modules under src/ that import `file`. */
+function importersOf(file: string): string[] {
+  const target = stem(file);
+  return files.filter((other) =>
+    importTargets(other).some(
+      (t) => t === target || t === path.join(target, "index"),
+    ),
+  );
+}
+
+/**
+ * A DELEGATE draws or measures with fonts it is given: it makes no font of its
+ * own, and a module that DOES go through the chooser imports it. Added
+ * 2026-11-08 for `markdown-runs.ts` (Markdown to PDF's inline bold, italic
+ * and code), which lays out runs in the fonts `markdown-to-pdf.ts` embeds
+ * through `embedDrawingFont`. Its fonts can come from nowhere else: every
+ * module that makes a font is itself in `drawing` and held to the rule.
+ */
+function isDelegate(file: string): boolean {
+  if (makesFont(stripComments(readFileSync(file, "utf8")))) return false;
+  return importersOf(file).some(
+    (importer) =>
+      CHOOSER.has(importer) ||
+      isRouted(stripComments(readFileSync(importer, "utf8"))),
+  );
+}
+
 describe("text-drawing call sites", () => {
   it("the scan found a plausible number of them", () => {
     // Bounded in BOTH directions. Too few means the patterns stopped matching
@@ -161,6 +222,7 @@ describe("text-drawing call sites", () => {
     const unrouted = drawing
       .filter((file) => !CHOOSER.has(file))
       .filter((file) => !isRouted(stripComments(readFileSync(file, "utf8"))))
+      .filter((file) => !isDelegate(file))
       .map((file) => path.relative(ROOT, file));
     expect(
       unrouted,
@@ -201,6 +263,34 @@ describe("text-drawing call sites", () => {
       true,
     );
     expect(isRouted('import { PDFDocument } from "pdf-lib";')).toBe(false);
+  });
+
+  it("a delegate is a module that makes no font and is imported by a routed one", () => {
+    // Positive control: the one delegate today, and the routed module it is
+    // reached from.
+    const runs = path.join(SRC, "lib/pdf/markdown-runs.ts");
+    expect(drawing).toContain(runs);
+    expect(importersOf(runs)).toContain(
+      path.join(SRC, "lib/pdf/markdown-to-pdf.ts"),
+    );
+    expect(isDelegate(runs)).toBe(true);
+    // Every way of making a font disqualifies, so a module cannot become a
+    // delegate by embedding a face under another spelling.
+    expect(makesFont("await doc.embedFont(bytes)")).toBe(true);
+    expect(makesFont("await doc.embedStandardFont(name)")).toBe(true);
+    expect(makesFont("StandardFonts.Courier")).toBe(true);
+    expect(makesFont("page.drawText(s, { font })")).toBe(false);
+    // Negative control: a drawing module that makes its own font is never a
+    // delegate, whoever imports it — and that set is not empty.
+    const makers = drawing.filter((f) =>
+      makesFont(stripComments(readFileSync(f, "utf8"))),
+    );
+    expect(makers.length).toBeGreaterThan(0);
+    expect(makers.filter(isDelegate)).toEqual([]);
+    // Health: the import walk sees edges at all.
+    expect(
+      importersOf(path.join(SRC, "lib/pdf/unicode-font.ts")).length,
+    ).toBeGreaterThan(3);
   });
 });
 
