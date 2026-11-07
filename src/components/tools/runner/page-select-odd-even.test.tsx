@@ -59,12 +59,11 @@ async function pagesIn(blob: Blob): Promise<number[]> {
   return doc.getPages().map((p) => Math.round(p.getWidth()) - 100);
 }
 
-async function runWith(
+/** Mounts the runner for `slug` and loads a `count`-page PDF into it. */
+async function mountWith(
   slug: "extract-pages" | "remove-pages",
-  chip: RegExp,
-  action: RegExp,
-  count = 5,
-): Promise<number[]> {
+  count: number,
+): Promise<void> {
   const kind = getRunnerKind(slug);
   expect(kind, `the registry no longer maps ${slug}`).toBeTruthy();
   const { container } = render(
@@ -89,6 +88,15 @@ async function runWith(
     { name: /^select all$/i },
     { timeout: 10_000 },
   );
+}
+
+async function runWith(
+  slug: "extract-pages" | "remove-pages",
+  chip: RegExp,
+  action: RegExp,
+  count = 5,
+): Promise<number[]> {
+  await mountWith(slug, count);
   fireEvent.click(screen.getByRole("button", { name: chip }));
   const go = screen.getByRole("button", { name: action });
   await waitFor(() => expect(go).toBeEnabled());
@@ -128,6 +136,22 @@ describe("Extract Pages and Delete Pages · Odd pages / Even pages", () => {
       await runWith("remove-pages", /^even pages$/i, /^delete 2 pages$/i),
     ).toEqual([1, 3, 5]);
   }, 30_000);
+
+  // Review of 84df0961: nothing held the one-page case, and deleting the
+  // disabled state left every test green.
+  it.each(["extract-pages", "remove-pages"] as const)(
+    "%s · on a one-page PDF, Even pages is disabled and Odd pages is not",
+    async (slug) => {
+      await mountWith(slug, 1);
+      expect(
+        screen.getByRole("button", { name: /^even pages$/i }),
+      ).toHaveAttribute("aria-disabled", "true");
+      expect(
+        screen.getByRole("button", { name: /^odd pages$/i }),
+      ).not.toHaveAttribute("aria-disabled");
+    },
+    30_000,
+  );
 
   it("Delete · Odd pages removes 1, 3 and 5, leaving 2 and 4", async () => {
     expect(
