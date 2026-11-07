@@ -33,6 +33,7 @@ import {
   IMAGE_ORIENTATIONS,
   IMAGE_OUTPUTS,
   IMAGE_PAGE_SIZES,
+  imagePageSizeForLocales,
   type ImageOutputId,
   type ImagePageOptions,
 } from "@/lib/pdf/image-page-layout";
@@ -305,11 +306,21 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
   }, [handoff.status, handoff.files, addFiles]);
 
   const { busy, error, result, run, reset } = useAsyncRun<ImagePdfResult>();
-  // Page setup. The defaults are the layout every image PDF had before these
-  // options existed (US Letter, portrait, 36pt margin, one PDF).
-  const [page, setPage] = useState<ImagePageOptions>({
+  // Page setup. Orientation, margin and output are the layout every image
+  // PDF had before these options existed (portrait, 36pt margin, one PDF);
+  // the page size starts on the paper of the browser's region, Letter or A4
+  // (audit jpg-to-pdf#1). Read once, lazily: the chips are drawn only after
+  // an image is added, so the server's render never shows this state.
+  const [page, setPage] = useState<ImagePageOptions>(() => ({
     ...DEFAULT_IMAGE_PAGE_OPTIONS,
-  });
+    pageSize: imagePageSizeForLocales(
+      typeof navigator === "undefined"
+        ? []
+        : navigator.languages?.length
+          ? navigator.languages
+          : [navigator.language],
+    ),
+  }));
   const [outputMode, setOutputMode] =
     useState<ImageOutputId>(DEFAULT_IMAGE_OUTPUT);
   const { zipping, zipError, downloadZip } = useZipDownload();

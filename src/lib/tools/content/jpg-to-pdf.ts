@@ -1,10 +1,16 @@
 import type { ToolContent } from "./types";
 import { MAX_IMAGE_MB } from "@/lib/tools/limits";
 import {
+  DEFAULT_IMAGE_PAGE_OPTIONS,
   IMAGE_MARGINS,
   IMAGE_ORIENTATIONS,
   IMAGE_PAGE_SIZES,
+  LETTER_REGION_PAGE_SIZE,
+  WORLD_PAGE_SIZE,
+  imageMarginPoints,
+  imagePageSizeById,
 } from "@/lib/pdf/image-page-layout";
+import { imageDefaultPaperCopy } from "@/lib/tools/tool-facts";
 import { inches } from "@/lib/pdf/page-geometry";
 import {
   MAX_TIFF_PAGES,
@@ -34,6 +40,16 @@ const MARGINS = or(
     m.points > 0 ? `${m.label} (${inches(m.points)} in)` : m.label,
   ),
 );
+
+/**
+ * The page the runner starts on (audit jpg-to-pdf#1, 2026-11-07): A4, or US
+ * Letter for a browser set to a Letter country, from the runner's own
+ * tables. image-page-default-copy.test.ts holds this page to it.
+ */
+const DEFAULT_PAPER = imageDefaultPaperCopy();
+const WORLD_SIZE = imagePageSizeById(WORLD_PAGE_SIZE).label;
+const LETTER_SIZE = imagePageSizeById(LETTER_REGION_PAGE_SIZE).label;
+const DEFAULT_MARGIN = `${inches(imageMarginPoints(DEFAULT_IMAGE_PAGE_OPTIONS.margin))} in`;
 
 /**
  * Max file size (2026-10-31), every word from the panel's own constants:
@@ -94,8 +110,10 @@ const LIMIT_MET = limitOutcome({
  * orientation-6 photo and failed PNG bytes named fake.jpg; both behaviours
  * have since been replaced (above), and the page no longer describes them.
  *
- * The option lists are derived from the chip tables; the default ("US
- * Letter", "portrait", "0.5 in") is written out, and
+ * The option lists are derived from the chip tables; the default paper
+ * and margin are too since 2026-11-07, when the runner began starting on A4
+ * or US Letter by the browser's region (audit jpg-to-pdf#1; until then the
+ * default "US Letter", "portrait", "0.5 in" was written out here), and
  * claims-vs-capability.test.ts holds every paper and margin this page names
  * to the runner's offer and to the page the engine draws.
  *
@@ -152,7 +170,7 @@ const content: ToolContent = {
   metaDescription: `Combine JPG and JPEG photos into a single PDF, a page per photo, arranged as you like. Built in your browser, not uploaded. Up to ${MAX_IMAGE_MB} MB a photo.`,
   intro: [
     "JPG to PDF takes a batch of JPG or JPEG photos and builds a single PDF with one image on each page. You add the pictures, put them in the order you want, and press Create PDF. The assembly happens inside this browser tab: your photos are read from your device, laid onto pages there, and the finished PDF is saved when you press Download PDF. The images are not uploaded to pdf.xyz.",
-    `Unless you change the page setup, each photo goes on a white, portrait US Letter page, centred inside a 0.5 in margin. Before you create the PDF you can pick the page size (${SIZES}), the orientation (${ORIENTATIONS}) and the margin (${MARGINS}). Auto turns the page sideways for a photo that is wider than it is tall, and Fit to image makes each page exactly the size of its photo plus the margin. On every page size a photo is shrunk only if it is too big to fit; one that already fits is never enlarged, so a low-resolution picture can look small in the middle of an A4 page.`,
+    `Unless you change the page setup, each photo goes on a white, portrait page, centred inside a ${DEFAULT_MARGIN} margin, and the page is ${DEFAULT_PAPER}. Before you create the PDF you can pick the page size (${SIZES}), the orientation (${ORIENTATIONS}) and the margin (${MARGINS}). Auto turns the page sideways for a photo that is wider than it is tall, and Fit to image makes each page exactly the size of its photo plus the margin. On every page size a photo is shrunk only if it is too big to fit; one that already fits is never enlarged, so a low-resolution picture can look small in the middle of an A4 page.`,
     `With ${LIMIT} left at ${NO_LIMIT}, the JPEG data is copied into the PDF as it is rather than re-encoded, so there is no second round of compression and the PDF ends up close to the combined size of your photos. If an upload form caps the size, choose ${LIMIT} (${LIMIT_PRESETS}, or a number of KB of your own): when the PDF comes out bigger, your browser saves the photos again at a lower quality and pixel size until it fits, and tells you the size it reached. A single photo may be as large as ${MAX_IMAGE_MB} MB. PNG images, transparent ones included, can go into the same PDF, and any transparent areas come out white. WebP, GIF and BMP images can go in too: your browser decodes each one and it is saved into the PDF again, as a high-quality JPEG when it has no transparency and as a PNG when it does, so unlike a JPEG it is re-encoded. A GIF contributes its first frame only.`,
     "TIFF files go in too, including the multi-page TIFFs that scanners and fax software write: every page of the TIFF becomes a page of the PDF, in order, and black-and-white fax pages (CCITT Group 4) are read as well as colour ones. The TIFF is read in this tab, like everything else here, and its pages are stored without loss rather than turned into JPEGs. Each page keeps the size it had on paper, from the resolution saved in the TIFF, so under Fit to image a 300 dpi A4 scan becomes an A4 page.",
   ],
@@ -189,7 +207,7 @@ const content: ToolContent = {
     },
     {
       title: "Choose the page setup",
-      body: `Below the list, Page size, Orientation and Margin set how each page is laid out, ${LIMIT} caps the size of the PDF, and Output chooses One PDF or One PDF per image, which with more than one image arrives as a ZIP. Left alone they give the usual layout: US Letter, portrait, a 0.5 in margin, ${NO_LIMIT.toLowerCase()} on size, one PDF. Orientation does not apply to Fit to image, whose pages already take each photo's shape. With One PDF per image, a ${LIMIT} applies to each PDF on its own.`,
+      body: `Below the list, Page size, Orientation and Margin set how each page is laid out, ${LIMIT} caps the size of the PDF, and Output chooses One PDF or One PDF per image, which with more than one image arrives as a ZIP. Left alone they give the usual layout: ${WORLD_SIZE} (${LETTER_SIZE} in a country that uses Letter paper), portrait, a ${DEFAULT_MARGIN} margin, ${NO_LIMIT.toLowerCase()} on size, one PDF. Orientation does not apply to Fit to image, whose pages already take each photo's shape. With One PDF per image, a ${LIMIT} applies to each PDF on its own.`,
     },
     {
       title: "Press Create PDF",

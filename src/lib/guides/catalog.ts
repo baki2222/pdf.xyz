@@ -677,7 +677,21 @@ const PNG_SHOT_H = 1080;
 const PNG_SHOT_PX = PNG_SHOT_W.toLocaleString("en-US");
 const inchesOf = (pt: number) => (pt / PT_PER_INCH).toFixed(1);
 const PNG_SHOT_ON_PAPER_IN = inchesOf(
-  imagePageLayout(PNG_SHOT_W, PNG_SHOT_H, DEFAULT_IMAGE_PAGE_OPTIONS).width,
+  imagePageLayout(PNG_SHOT_W, PNG_SHOT_H, {
+    ...DEFAULT_IMAGE_PAGE_OPTIONS,
+    pageSize: "letter",
+  }).width,
+);
+/**
+ * The same screenshot on A4 (audit jpg-to-pdf#1, 2026-11-07): the runner
+ * starts on A4 unless the browser is set to a Letter country, so the guide
+ * gives both widths rather than calling Letter "the default page".
+ */
+const PNG_SHOT_ON_A4_IN = inchesOf(
+  imagePageLayout(PNG_SHOT_W, PNG_SHOT_H, {
+    ...DEFAULT_IMAGE_PAGE_OPTIONS,
+    pageSize: "a4",
+  }).width,
 );
 const PNG_SHOT_FIT_PAGE_IN = inchesOf(
   imagePageLayout(PNG_SHOT_W, PNG_SHOT_H, {
@@ -1133,7 +1147,7 @@ export const guides: Guide[] = [
     slug: "how-to-convert-jpg-to-pdf",
     title: "How to convert JPG to PDF",
     description:
-      "Combine JPG photos into one PDF right in your browser — your files never leave your device. One photo per US Letter page, in the order you set.",
+      "Combine JPG photos into one PDF right in your browser — your files never leave your device. One photo per A4 or Letter page, in the order you set.",
     tools: ["jpg-to-pdf", "png-to-pdf", "pdf-to-jpg"],
     keywords: [
       "jpg to pdf",
@@ -1227,7 +1241,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-11-06",
+    updated: "2026-11-07",
   },
   {
     // ONE guide for the intent, from two lanes: L07 wrote this slug for the
@@ -5851,7 +5865,7 @@ export const guides: Guide[] = [
         id: "screenshot-page-size",
         heading: "How big a screenshot's page is",
         body: [
-          `The image is laid out at one point per pixel, and a point is 1/${PT_PER_INCH} of an inch, so screenshots are large on paper. On the default ${US_LETTER_LABEL} page with its ${PNG_DEFAULT_MARGIN_IN} in margin, a screenshot ${PNG_SHOT_PX} pixels wide is shrunk to ${PNG_SHOT_ON_PAPER_IN} inches across. No pixel is thrown away by that, so zooming in on the PDF still shows the detail. With ${PNG_FIT_LABEL}, the same screenshot gets a page about ${PNG_SHOT_FIT_PAGE_IN} inches wide, which reads well on screen; to print it, use your printer's fit-to-page setting.`,
+          `The image is laid out at one point per pixel, and a point is 1/${PT_PER_INCH} of an inch, so screenshots are large on paper. On a ${US_LETTER_LABEL} page with the default ${PNG_DEFAULT_MARGIN_IN} in margin, a screenshot ${PNG_SHOT_PX} pixels wide is shrunk to ${PNG_SHOT_ON_PAPER_IN} inches across, or ${PNG_SHOT_ON_A4_IN} inches on ${labelOf(IMAGE_PAGE_SIZES, "a4")}. No pixel is thrown away by that, so zooming in on the PDF still shows the detail. With ${PNG_FIT_LABEL}, the same screenshot gets a page about ${PNG_SHOT_FIT_PAGE_IN} inches wide, which reads well on screen; to print it, use your printer's fit-to-page setting.`,
           `A small image is never enlarged, so an icon stays icon-sized on a paper page. A long scrolling capture stays one image on one page: it is not cut across several pages. On a paper size it is shrunk to the page's height, so choose ${PNG_FIT_LABEL} to keep it readable. Even then a page side cannot pass ${PNG_MAX_PAGE_IN} inches, and a longer capture is scaled down to fit that. Any DPI value stored in the PNG is ignored.`,
         ],
       },
@@ -5881,7 +5895,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-06",
+    updated: "2026-11-07",
   },
   // HTML to PDF: an HTML FILE (or code saved as one), never a URL — that is
   // how-to-convert-a-webpage-to-pdf. Read off the worker: the upload is
