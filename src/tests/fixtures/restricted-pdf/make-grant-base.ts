@@ -13,7 +13,7 @@ import { writeFileSync } from "node:fs";
 import { deflateSync } from "node:zlib";
 import { PDFDocument } from "pdf-lib";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
-import { embedRasterImage } from "@/lib/pdf/pdf-lib";
+import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 
 export const GRANT_FIXTURE_TEXT = "RESTRICTED-GRANT-FIXTURE";
 
@@ -66,11 +66,12 @@ export async function makeGrantBase(): Promise<Uint8Array> {
     GRANT_FIXTURE_TEXT,
     `${GRANT_FIXTURE_TEXT} page 2`,
   ]);
-  // Through the one raster embedder (`raster-embedder-boundary.test.ts`).
+  // Through the one raster embedder and drawer
+  // (`raster-embedder-boundary.test.ts`, `raster-draw-boundary.test.ts`).
   const image = await embedRasterImage(doc, checkerPng(), "png");
   const first = doc.addPage([612, 792]);
   first.drawText(GRANT_FIXTURE_TEXT, { x: 72, y: 720, size: 18, font });
-  first.drawImage(image, { x: 72, y: 560, width: 96, height: 96 });
+  await drawRasterImage(first, image, { x: 72, y: 560, width: 96, height: 96 });
   const second = doc.addPage([612, 792]);
   second.drawText(`${GRANT_FIXTURE_TEXT} page 2`, {
     x: 72,
