@@ -2181,7 +2181,7 @@ export const guides: Guide[] = [
         id: "selecting-pages",
         heading: "Three ways to select pages",
         body: [
-          "Clicking a thumbnail selects that page, and clicking it again deselects it. Holding Shift while you click selects every page between the one you touched last and this one — the quick way to clear out a run of pages at the end of a scan.",
+          "Clicking a thumbnail selects that page, and clicking it again deselects it. Holding Shift while you click selects every page between the one you touched last and this one — the quick way to clear out a run of pages at the end of a scan. When a thumbnail is too small to tell a blank page or a repeat from its neighbours, the enlarge button in the tile's top corner opens the page large, with Previous page and Next page to step through and Select page to mark it.",
           `Typing is faster in a long document. Enter single pages and ranges separated by commas — 1-3, 5 selects pages one to three and page five — and press Select. A range can be left open: 10- runs from page ten to the end. To delete every other page, press Even pages for 2, 4, 6 and so on, or Odd pages for 1, 3, 5 and so on.`,
           "Select all, Clear, Invert, Odd pages and Even pages work on the whole selection. Invert flips it — every selected page becomes unselected and every other page becomes selected — which helps when it is easier to pick the pages you want to keep.",
         ],
@@ -2228,7 +2228,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-11-07",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-convert-markdown-to-pdf",
