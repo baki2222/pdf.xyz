@@ -5,6 +5,7 @@ import { JPEG_30X20, JPEG_HEIGHT, JPEG_WIDTH } from "@/tests/jpeg-fixtures";
 import {
   greyPng,
   jpegWithExifResolution,
+  jpegWithJfifAndExif,
   jpegWithJfifDensity,
   ppmOf,
 } from "@/tests/density-fixtures";
@@ -69,6 +70,10 @@ describe("stored resolution under Fit to image (audits jpg-to-pdf#4, png-to-pdf#
     ["JFIF APP0, dots per inch", jpegWithJfifDensity(300)],
     ["JFIF APP0, dots per cm", jpegWithJfifDensity(118, 118, 2)],
     ["Exif XResolution, inches", jpegWithExifResolution(300)],
+    // ResolutionUnit 3: 118 px/cm is 299.72 dpi. ADDED after review: with
+    // the cm factor read as 1 this page came out 2.54 times too big, and
+    // nothing went red.
+    ["Exif XResolution, centimetres", jpegWithExifResolution(118, 3)],
   ])("a JPEG's %s sizes the page", async (_how, bytes) => {
     const dpi = storedImageDpi(bytes)!;
     expect(dpi).toBeGreaterThan(299);
@@ -90,6 +95,50 @@ describe("stored resolution under Fit to image (audits jpg-to-pdf#4, png-to-pdf#
     expect(storedImageDpi(bytes)).toBeUndefined();
     const page = await pageOf(await imagesToPdf("jpg", [jpg(bytes)], FIT));
     expect([page.width, page.height]).toEqual([JPEG_WIDTH, JPEG_HEIGHT]);
+  });
+
+  /*
+   * The placeholder decision, typed rather than read from PLACEHOLDER_DPIS
+   * (ADDED after review, 2026-11-08): the table above maps the constant, so
+   * `PLACEHOLDER_DPIS = [72]` shrank the test with the defect and a Windows
+   * screenshot stating 96 dpi got a page at three quarters of its size.
+   */
+  it("72 and 96 dpi are placeholders: the decision, in literals", () => {
+    expect(PLACEHOLDER_DPIS).toEqual([72, 96]);
+    expect(isPlausibleDpi(72)).toBe(false);
+    expect(isPlausibleDpi(96)).toBe(false);
+  });
+
+  it("a 96 dpi JFIF JPEG keeps one pixel per point", async () => {
+    const page = await pageOf(
+      await imagesToPdf("jpg", [jpg(jpegWithJfifDensity(96))], FIT),
+    );
+    expect([page.width, page.height]).toEqual([JPEG_WIDTH, JPEG_HEIGHT]);
+  });
+
+  it("a 96 dpi pHYs PNG (a Windows screenshot) keeps one pixel per point", async () => {
+    const shot = greyPng(40, 30, { x: ppmOf(96), y: ppmOf(96), unit: 1 });
+    const page = await pageOf(await imagesToPdf("png", [png(shot)], FIT));
+    expect([page.width, page.height]).toEqual([40, 30]);
+  });
+
+  /*
+   * Which of JFIF and Exif wins (ADDED after review): the first PLAUSIBLE
+   * one, JFIF first. A JFIF placeholder falls through to Exif; a plausible
+   * JFIF is used even when Exif says otherwise.
+   */
+  it("JFIF at the 72 dpi placeholder falls back to Exif's 300 dpi", async () => {
+    const bytes = jpegWithJfifAndExif(72, 300);
+    expect(storedImageDpi(bytes)).toBeCloseTo(300, 6);
+    const page = await pageOf(await imagesToPdf("jpg", [jpg(bytes)], FIT));
+    expect(page.width).toBeCloseTo((JPEG_WIDTH * 72) / 300, 3);
+  });
+
+  it("a plausible JFIF density takes precedence over Exif's", async () => {
+    const bytes = jpegWithJfifAndExif(150, 300);
+    expect(storedImageDpi(bytes)).toBeCloseTo(150, 6);
+    const page = await pageOf(await imagesToPdf("jpg", [jpg(bytes)], FIT));
+    expect(page.width).toBeCloseTo((JPEG_WIDTH * 72) / 150, 3);
   });
 
   it("a PNG's pHYs in unit 0 (aspect only) is ignored", () => {

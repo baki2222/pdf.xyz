@@ -60,8 +60,8 @@ function segment(marker: number, payload: Uint8Array): Uint8Array {
   return out;
 }
 
-/** The 30×20 fixture with a JFIF APP0 stating `x` × `y` in `units`. */
-export function jpegWithJfifDensity(x: number, y = x, units = 1): Uint8Array {
+/** A JFIF APP0 segment stating `x` × `y` in `units`. */
+function jfifSegment(x: number, y = x, units = 1): Uint8Array {
   const p = Buffer.from([
     0x4a,
     0x46,
@@ -78,7 +78,12 @@ export function jpegWithJfifDensity(x: number, y = x, units = 1): Uint8Array {
     0,
     0,
   ]);
-  return spliceAfterSoi(JPEG_30X20, segment(0xe0, p));
+  return segment(0xe0, p);
+}
+
+/** The 30×20 fixture with a JFIF APP0 stating `x` × `y` in `units`. */
+export function jpegWithJfifDensity(x: number, y = x, units = 1): Uint8Array {
+  return spliceAfterSoi(JPEG_30X20, jfifSegment(x, y, units));
 }
 
 /**
@@ -109,6 +114,22 @@ export function jpegWithExifResolution(dpi: number, unit = 2): Uint8Array {
   t.writeUInt32BE(1, values + 12);
   const payload = Buffer.concat([Buffer.from("Exif\0\0", "latin1"), t]);
   return spliceAfterSoi(JPEG_30X20, segment(0xe1, payload));
+}
+
+/**
+ * The 30×20 fixture with a JFIF APP0 stating `jfifDpi` (dots per inch) AND,
+ * after it, an Exif APP1 stating `exifDpi` in `exifUnit`: the order cameras
+ * and scanners write them in.
+ */
+export function jpegWithJfifAndExif(
+  jfifDpi: number,
+  exifDpi: number,
+  exifUnit = 2,
+): Uint8Array {
+  return spliceAfterSoi(
+    jpegWithExifResolution(exifDpi, exifUnit),
+    jfifSegment(jfifDpi),
+  );
 }
 
 /**
