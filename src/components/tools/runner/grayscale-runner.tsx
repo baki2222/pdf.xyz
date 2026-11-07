@@ -78,6 +78,7 @@ export function GrayscaleRunner() {
           <GrayscalePassword
             key={`${error.file.name}:${error.file.size}:${error.file.lastModified}`}
             file={error.file}
+            opensWithoutPassword={error.verdict === "opens-without-password"}
             onOpened={setUnlocked}
           />
         ) : null

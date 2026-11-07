@@ -29,6 +29,13 @@ export { GRAYSCALE_PASSWORD_LABEL };
 export const GRAYSCALE_PASSWORD_HINT =
   "Type the password that opens this PDF, or its owner password. It is checked here in your browser against the file itself and never uploaded.";
 
+/**
+ * For a file that opens WITHOUT a password (the restricted verdict): only its
+ * owner password can change anything, so the hint asks for that one alone.
+ */
+export const GRAYSCALE_OWNER_PASSWORD_HINT =
+  "This PDF opens without a password, so only its owner password helps here. It is checked here in your browser against the file itself and never uploaded.";
+
 export const GRAYSCALE_WRONG_PASSWORD =
   "That password doesn't open this PDF. Nothing was changed.";
 
@@ -53,9 +60,12 @@ export function grayscaleWithheldMessage(permissions: PdfPermissions): string {
 
 export function GrayscalePassword({
   file,
+  opensWithoutPassword = false,
   onOpened,
 }: {
   file: File;
+  /** The refusal's verdict was "opens-without-password". */
+  opensWithoutPassword?: boolean;
   onOpened: (pdf: LoadedPdf) => void;
 }) {
   const id = useId();
@@ -133,7 +143,9 @@ export function GrayscalePassword({
         </button>
       </div>
       <p id={`${id}-hint`} className="text-muted text-xs">
-        {GRAYSCALE_PASSWORD_HINT}
+        {opensWithoutPassword
+          ? GRAYSCALE_OWNER_PASSWORD_HINT
+          : GRAYSCALE_PASSWORD_HINT}
       </p>
       {problem && <ErrorNote message={problem} />}
     </form>

@@ -27,6 +27,7 @@ import { ToolRunner } from "./tool-runner";
 import { runnerMounted } from "@/tests/runner-mounted";
 import {
   GRAYSCALE_OPENED_NOTE,
+  GRAYSCALE_OWNER_PASSWORD_HINT,
   GRAYSCALE_PASSWORD_HINT,
   GRAYSCALE_PASSWORD_LABEL,
   GRAYSCALE_WRONG_PASSWORD,
@@ -169,6 +170,8 @@ describe("grayscale-pdf: the password typed in the panel", () => {
     await screen.findByText(GRAYSCALE_WRONG_PASSWORD, undefined, {
       timeout: 10_000,
     });
+    // "cleared as it is checked": the field does not keep what was typed.
+    expect((field as HTMLInputElement).value).toBe("");
 
     await typePassword(field, FIXTURE_OPEN_PASSWORD);
     await screen.findByText(GRAYSCALE_OPENED_NOTE, undefined, {
@@ -200,6 +203,10 @@ describe("grayscale-pdf: the password typed in the panel", () => {
   it("a file that opens without a password but is restricted: only the owner password converts it", async () => {
     const fixture = RESTRICTED_FIXTURES[0]!;
     const field = await drop(fixture.file);
+    // It opens without a password, so only the owner password can help, and
+    // the hint asks for that one alone.
+    expect(screen.getByText(GRAYSCALE_OWNER_PASSWORD_HINT)).toBeTruthy();
+    expect(screen.queryByText(GRAYSCALE_PASSWORD_HINT)).toBeNull();
     await typePassword(field, fixture.owner);
     const out = await convert();
     expect((await PDFDocument.load(out)).getPageCount()).toBe(1);
