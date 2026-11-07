@@ -142,7 +142,7 @@ const content: ToolContent = {
     },
     {
       title: "Pick the output quality",
-      body: `Under "Output quality", choose ${PRESET_LABELS}. ${PRINT.label} is selected by default; ${SCREEN.label} renders fewer pixels per page and usually gives a smaller file, and ${FINE.label} is for small type on a laser printer. When ${FINE.label} is chosen, a line under the choice gives the cost: it draws ${FINE_TIMES} times the pixels of ${PRINT.label} on every page, so the file is larger and takes longer to make.`,
+      body: `Under "Output quality", choose ${PRESET_LABELS}. ${PRINT.label} is selected by default; ${SCREEN.label} renders fewer pixels per page and usually gives a smaller file, and ${FINE.label} is for small type and fine lines on paper. When ${FINE.label} is chosen, a line under the choice gives the cost: it draws ${FINE_TIMES} times the pixels of ${PRINT.label} on every page, so the file is larger and takes longer to make.`,
     },
     {
       title: "Convert to grayscale",
@@ -165,7 +165,7 @@ const content: ToolContent = {
     },
     {
       q: `What is the difference between ${SCREEN.label}, ${PRINT.label} and ${FINE.label}?`,
-      a: `They set how many pixels each page is drawn at: ${SCREEN.dpi} DPI for ${SCREEN.label}, ${PRINT.dpi} DPI for ${PRINT.label} and ${FINE.dpi} DPI for ${FINE.label}. ${SCREEN.label} suits reading on a monitor and keeps the file lighter; ${PRINT.label} keeps small type and fine lines crisper on paper; ${FINE.label} matches the resolution laser printers are usually rated at, for the smallest type and hairlines, and the file grows with it. There is also a ceiling on how many pixels one side of a page may be drawn at, so the browser does not run out of memory: a poster-size page can come out with fewer pixels than the setting asks for, and a sharper setting reaches that ceiling on smaller pages: ${FINE.label} at about ${FINE_CAP_IN} in on a side, which still covers A4, US Letter and US Legal.`,
+      a: `They set how many pixels each page is drawn at: ${SCREEN.dpi} DPI for ${SCREEN.label}, ${PRINT.dpi} DPI for ${PRINT.label} and ${FINE.dpi} DPI for ${FINE.label}. ${SCREEN.label} suits reading on a monitor and keeps the file lighter; ${PRINT.label} keeps small type and fine lines crisper on paper; ${FINE.label} matches the resolution usually asked for when images are printed, for the smallest type and hairlines, and the file grows with it. There is also a ceiling on how many pixels one side of a page may be drawn at, so the browser does not run out of memory: a poster-size page can come out with fewer pixels than the setting asks for, and a sharper setting reaches that ceiling on smaller pages: ${FINE.label} at about ${FINE_CAP_IN} in on a side, which still covers A4, US Letter and US Legal.`,
     },
     {
       q: "Will a print shop's preflight check see the file as grayscale?",
