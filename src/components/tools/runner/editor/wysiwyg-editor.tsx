@@ -2217,6 +2217,7 @@ export function WysiwygEditor({
     <PropertiesPanel
       selection={selection}
       bucket={panelBucket}
+      tool={state.tool}
       defaults={state.defaults}
       onPatch={patchSelection}
       onDelete={deleteSelected}

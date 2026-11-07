@@ -229,11 +229,17 @@ export function PropertiesPanel({
   onDuplicate,
   onStack,
   pageIds = [],
+  tool,
   className,
 }: {
   selection: EditorObject[];
   /** The tool's bucket when nothing is selected. */
   bucket: StyleBucket | null;
+  /**
+   * The active tool: Comment shares the note's bucket, but with nothing
+   * selected it gets a comment's panel, not a note's.
+   */
+  tool?: Tool;
   defaults: Defaults;
   onPatch: (patch: StylePatch, key: string) => void;
   onDelete: () => void;
@@ -261,8 +267,10 @@ export function PropertiesPanel({
         : first.kind === "note" && first.sticky
           ? STICKY_LABEL
           : EDITOR_OBJECT_LABEL[first.kind]
-    : (NEW_TITLE[kind] ??
-      `New ${kind === "shape" ? "shape" : kind === "line" ? "line" : kind}`);
+    : tool === "comment"
+      ? `New ${STICKY_LABEL.toLowerCase()}`
+      : (NEW_TITLE[kind] ??
+        `New ${kind === "shape" ? "shape" : kind === "line" ? "line" : kind}`);
   const unicode = selection.some(
     (o) => (o.kind === "text" || o.kind === "note") && needsUnicodeFace(o.text),
   );
@@ -270,7 +278,9 @@ export function PropertiesPanel({
   const set = (patch: StylePatch, key: string) => onPatch(patch, key);
   // A comment's words are shown by the reader's popup, in its own font:
   // only its colour is the editor's to set.
-  const stickySel = first?.kind === "note" && !!first.sticky;
+  const stickySel = first
+    ? first.kind === "note" && !!first.sticky
+    : tool === "comment";
   const textMarkup =
     kind === "highlight" || kind === "underline" || kind === "strikeout";
 
@@ -285,10 +295,11 @@ export function PropertiesPanel({
         <Field label="Colour">
           <input
             type="color"
-            aria-label="Comment colour"
+            aria-label={`${STICKY_LABEL} colour`}
             value={shown.fill ?? "#fef08a"}
             onChange={(e) => set({ fill: e.target.value }, "fill")}
-            className="h-8 w-10 cursor-pointer"
+            // 44 px on a phone, where it is a touch target.
+            className="h-11 w-12 cursor-pointer sm:h-8 sm:w-10"
           />
         </Field>
       )}
