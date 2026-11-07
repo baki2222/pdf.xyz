@@ -81,7 +81,7 @@ describe("protectArgs — restriction flags", () => {
       },
     });
     const dashdash = args.indexOf("--");
-    const flags = args.slice(4, dashdash);
+    const flags = args.slice(args.indexOf("--encrypt") + 4, dashdash);
     expect(flags).toEqual([
       "--use-aes=y",
       "--print=none",

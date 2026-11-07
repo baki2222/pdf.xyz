@@ -476,8 +476,15 @@ export const tools: Tool[] = [
     // real export against this copy.
     tagline: "Editable DOCX from a PDF's text and pictures.",
     cardSummary: "Turn a PDF's text and pictures into an editable Word file.",
+    // CHANGED 2026-11-06 (audit #41): ended "scans need OCR first", stale
+    // since OCR moved into the same job on 2026-10-24 (the panel's
+    // WORD_OCR_LABEL checkbox). Held to the ~165-char serp ceiling by
+    // catalog-descriptions.test.ts. The label is written out, not imported:
+    // importing @/lib/jobs/pdf-office-export here pulled it into the ticket's
+    // lazy catalogue chunk (+144 B gz, 2026-11-07). The same test holds this
+    // text to WORD_OCR_LABEL, so a renamed checkbox fails it.
     description:
-      "Turn a PDF's text into editable Word (DOCX) paragraphs in reading order, its pictures placed between them. Fonts and layout are not recreated; scans need OCR first.",
+      "Turn a PDF's text and pictures into editable Word (DOCX) in reading order. Fonts and layout are not recreated; for a scan, tick “Recognise text in scans (OCR)”.",
     category: "convert-from",
     icon: "word",
     processing: "server",

@@ -15,11 +15,31 @@
  * permissions-only file must NOT (it opens without a password; rejecting it
  * would break files that convert today).
  *
+ * And page orientation (2026-11-06): the fixture `worker:options-proof` runs
+ * through compress-pdf (`../compression/rotation-proof`), here through the PDF/A
+ * conversion. Every page must display as it did; the input must really hold
+ * the shapes the default heuristic turns; and, as the positive control, the
+ * same conversion with `-dAutoRotatePages` taken out of the argv must turn at
+ * least one page. Measured on the production image before the flag existed:
+ * the production argv turned three of the fixture's four pages. Without the
+ * control, a Ghostscript whose default stopped turning pages would pass this
+ * blind, as compress-pdf's check did on the fixture's first version.
+ *
  * Content-free output: statuses and counts only — no path, no document text.
  */
 import { PDFDocument, rgb } from "pdf-lib";
-import { runPdfToPdfA, type PdfArchiveDeps } from "./engine";
+import {
+  runPdfToPdfA,
+  type PdfArchiveDeps,
+  type PdfArchiveRun,
+} from "./engine";
 import { inspectPdfAMarkers } from "./pdfa-markers";
+import {
+  fixtureVerdict,
+  orientationVerdict,
+  pageOrientations,
+  rotationProofPdf,
+} from "../compression/rotation-proof";
 
 export const PDFA_PROOF_PASS = 0;
 export const PDFA_PROOF_FAIL = 1;
@@ -39,7 +59,19 @@ export interface PdfAProofSeams {
     user: string,
     owner: string,
   ) => Promise<Uint8Array>;
+  /**
+   * The same PDF/A engine with `-dAutoRotatePages` taken out of its argv, so
+   * Ghostscript runs its default `/PageByPage`. The rotation check's positive
+   * control: it must turn a page of the fixture, or "rotation kept" cannot fail
+   * on this Ghostscript. Absent: the control FAILS, like a missing encryptor.
+   */
+  autoRotating?: PdfArchiveDeps;
   log?: (line: string) => void;
+}
+
+/** A failed run as `kind` or `kind/reason`: statuses only. */
+function runFailure(run: Exclude<PdfArchiveRun, { ok: true }>): string {
+  return `${run.kind}${"reason" in run ? `/${run.reason}` : ""}`;
 }
 
 /**
@@ -73,6 +105,10 @@ export async function runPdfAImageProof(
     return PDFA_PROOF_UNAVAILABLE;
   }
   let failed = false;
+  const check = (ok: boolean, name: string, detail: string) => {
+    log(`${ok ? "PASS" : "FAIL"} ${name}: ${detail}`);
+    if (!ok) failed = true;
+  };
   const input = seams.input ?? (await pdfaProofInput());
 
   const plain = await runPdfToPdfA(input, deps);
@@ -93,6 +129,49 @@ export async function runPdfAImageProof(
         `PASS plain document: declares PDF/A-${markers.part}${markers.conformance?.toLowerCase()} with a /GTS_PDFA1 output intent; ${plain.meta.outputBytes} bytes; ${plain.meta.notes.length} engine note(s)`,
       );
     }
+  }
+
+  // ── page orientation (2026-11-06) ────────────────────────────────────────
+  // The argv test proves `-dAutoRotatePages=/None` is ASKED for; this reads
+  // back what Ghostscript did with it. Before the password checks, which
+  // return early when no encryptor is wired.
+  const rotationInput = await rotationProofPdf();
+  const wanted = await pageOrientations(rotationInput);
+  const fixture = fixtureVerdict(wanted);
+  check(fixture.ok, "rotation fixture", fixture.detail);
+  if (!seams.autoRotating) {
+    check(
+      false,
+      "rotation control",
+      "no engine without -dAutoRotatePages is wired, so nothing shows 'rotation kept' can fail",
+    );
+  } else {
+    const control = await runPdfToPdfA(rotationInput, seams.autoRotating);
+    if (!control.ok) {
+      check(false, "rotation control", runFailure(control));
+    } else {
+      const left = orientationVerdict(
+        wanted,
+        await pageOrientations(control.output),
+      );
+      check(
+        !left.ok,
+        "rotation control",
+        left.ok
+          ? `the conversion without -dAutoRotatePages turned no page, so 'rotation kept' cannot fail on this Ghostscript (or the control's argv still carries the flag): ${left.detail}`
+          : `without -dAutoRotatePages Ghostscript turns the fixture: ${left.detail}`,
+      );
+    }
+  }
+  const archived = await runPdfToPdfA(rotationInput, deps);
+  if (!archived.ok) {
+    check(false, "rotation run", runFailure(archived));
+  } else {
+    const kept = orientationVerdict(
+      wanted,
+      await pageOrientations(archived.output),
+    );
+    check(kept.ok, "rotation kept", kept.detail);
   }
 
   if (!seams.encrypt) {

@@ -269,8 +269,11 @@ function mapProviderFailure(
         ok: false,
         kind: "too_large",
         retryable: false,
+        // The words of chat, extract and translate. Until 2026-11-06 (audit
+        // #50) this said "or a briefer summary": the length sets only the
+        // output budget, so that advice reran the same input, charged again.
         message:
-          "This document is too large for the AI model's context window. Try a shorter PDF or a briefer summary.",
+          "This document is too large for the AI model's context window. Try a shorter PDF or split it first.",
         ...carry,
       };
     case "timeout":

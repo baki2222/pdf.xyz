@@ -45,9 +45,13 @@ export const XLSX_NUMBER_EXAMPLES = ["1,250.00", "$4.20", "15%"] as const;
  * promised, said wherever the page describes the grid.
  * `claims-vs-capability.test.ts` runs a straddling cell through the engine and
  * requires the merge this sentence warns about.
+ *
+ * Until 2026-11-06 it also warned about "a table starts on a page's first
+ * line": the page's first-line indent was trimmed, moving that header left.
+ * That was fixed at the source (audit #7, `parseLayoutText`), so the clause went.
  */
 export const XLSX_MERGE_CAVEAT =
-  "Where one cell runs across a column boundary, or a table starts on a page's first line, columns can merge — check them against the PDF.";
+  "Where one cell runs across a column boundary, columns can merge — check them against the PDF.";
 
 /** A value the page says stays text — run by the same test. */
 export const XLSX_TEXT_EXAMPLE = "2026-01-05";

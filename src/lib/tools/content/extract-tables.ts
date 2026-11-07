@@ -6,6 +6,10 @@ import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { MAX_SIGNIFICANT_DIGITS } from "@/lib/workers/ooxml/sheet-cells";
 import { LONG_CELL_WORDS } from "@/lib/workers/pdf-text/flow";
 import { tableExtractOutputName } from "@/lib/workers/processor/table-extract";
+import { CSV_FORMULA_LEADS } from "@/lib/workers/table-extract/engine";
+
+/** "=, +, - or @" — the CSV formula leads, from the engine that neutralises them. */
+const CSV_LEADS_PHRASE = `${CSV_FORMULA_LEADS.slice(0, -1).join(", ")} or ${CSV_FORMULA_LEADS.at(-1)}`;
 
 /*
  * Behaviour claims below were read from the implementation on 2026-09-27,
@@ -28,7 +32,9 @@ import { tableExtractOutputName } from "@/lib/workers/processor/table-extract";
  *    is not mostly list items, no sentence wrapping between rows. Its known
  *    limits: side-by-side tables merge, a wrapped first-column cell ends its
  *    table, a centred note under a table can become its last row. Output:
- *    ZIP of table-N.csv (RFC-4180, no BOM) plus tables.xlsx with a sheet
+ *    ZIP of table-N.csv (RFC-4180, UTF-8 BOM and formula-leading cells
+ *    prefixed with an apostrophe since 2026-11-06, audit #31; before that,
+ *    no BOM and cells raw) plus tables.xlsx with a sheet
  *    "Table N (pP)" per TABLE, cells through the shared writer
  *    (`../ooxml/sheet-cells`: numbers as numbers);
  *  - src/lib/workers/processor/table-extract.ts — the "-tables.zip" name.
@@ -76,7 +82,7 @@ const content: ToolContent = {
     },
     {
       title: "Getting a table into pandas, R or a database",
-      body: "Each detected grid is saved as its own RFC-4180 CSV file, so a script can read table-1.csv directly instead of parsing an Excel workbook.",
+      body: `Each detected grid is saved as its own RFC-4180 CSV file, so a script can read table-1.csv directly instead of parsing an Excel workbook. Read it as utf-8-sig, since it starts with a byte-order mark, and expect a leading apostrophe on a text cell that starts with ${CSV_LEADS_PHRASE}, which keeps Excel from running it as a formula.`,
     },
     {
       title: "Long reports with one table per page",
@@ -126,7 +132,7 @@ const content: ToolContent = {
     },
     {
       q: "Does Excel see my numbers as numbers?",
-      a: `Yes, when a cell holds exactly one number. Values such as ${XLSX_NUMBER_EXAMPLES.join(", ")} or -4 are stored in tables.xlsx as numbers with a matching format, so they can be summed straight away. A code with a leading zero such as 00123, a number of more than ${MAX_SIGNIFICANT_DIGITS} significant digits, a European 1.250,00, a date or a bracketed negative stays text exactly as printed. The CSV files have no byte-order mark, so if accented characters look wrong after a double-click, open them through Excel's text import.`,
+      a: `Yes, when a cell holds exactly one number. Values such as ${XLSX_NUMBER_EXAMPLES.join(", ")} or -4 are stored in tables.xlsx as numbers with a matching format, so they can be summed straight away. A code with a leading zero such as 00123, a number of more than ${MAX_SIGNIFICANT_DIGITS} significant digits, a European 1.250,00, a date or a bracketed negative stays text exactly as printed. The CSV files start with a UTF-8 byte-order mark, so a double-click opens accented and non-Latin text correctly in Excel. A CSV cell that starts with ${CSV_LEADS_PHRASE} and is not a number or a lone dash gets a leading apostrophe, so Excel shows it as text instead of running it as a formula; tables.xlsx keeps such a cell as plain text.`,
     },
   ],
 

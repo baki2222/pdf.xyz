@@ -122,6 +122,23 @@ describe("argument builders", () => {
     expect(args).toContain("--use-aes=y");
   });
 
+  // Audit #12 (2026-11-06): in qpdf's default (auto) password mode a 128-bit
+  // password with no PDFDocEncoding form only draws a WARNING (exit 3, which
+  // the runner accepts) and is written as raw UTF-8 that readers do not
+  // accept. Unicode mode converts it or fails the run outright. The parser
+  // refuses such a password first; this is the second, independent bound.
+  it("asks qpdf to convert a 128-bit password or fail, never to warn", () => {
+    const args = protectArgs("/in", "/out", {
+      userPassword: "u",
+      ownerPassword: "o",
+      keyLength: 128,
+    });
+    expect(args.indexOf("--password-mode=unicode")).toBeGreaterThanOrEqual(0);
+    expect(args.indexOf("--password-mode=unicode")).toBeLessThan(
+      args.indexOf("--encrypt"),
+    );
+  });
+
   it("builds the decrypt and is-encrypted vectors", () => {
     expect(unlockArgs("/in", "/out", { password: "p" })).toEqual([
       "--password=p",

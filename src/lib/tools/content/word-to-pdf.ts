@@ -4,6 +4,7 @@ import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeiling } from "@/lib/tools/file-ceilings";
 import { resolveNativeOfficeConversionConfig } from "@/lib/workers/office-conversion/native-config";
 import { ODF_PASSWORD_REMOVAL } from "@/lib/workers/office-conversion/engine";
+import { OFFICE_CONVERSION_RUN_LABEL as RUN } from "@/lib/tools/office-run-label";
 
 /**
  * Facts this copy leans on, each read from the code that makes it true
@@ -134,7 +135,7 @@ const content: ToolContent = {
       body: 'Drag a .docx, .doc, .odt or .rtf onto the box that says "Add your document, or browse", or click it to open your file picker. The chosen file\'s name then shows above the button, next to a Remove button for swapping it out.',
     },
     {
-      title: "Press Convert to PDF",
+      title: `Press ${RUN}`,
       body: 'The document is sent to pdf.xyz\'s secure server over an encrypted connection. The button reads "Uploading your file…", then "Waiting for our server…" while the job is queued, "Converting to PDF…" while LibreOffice converts it, and "Downloading the result…" as the finished PDF is fetched back into the tab.',
     },
     {
@@ -166,11 +167,14 @@ const content: ToolContent = {
     },
     {
       q: "Why would a Word file fail to convert?",
-      a: `A conversion stops with an error when the file needs a password to open, is too damaged for LibreOffice to open, or takes LibreOffice longer than its ${timeLimitSeconds}-second limit. This page has no password field. A locked .docx or .odt is recognised before LibreOffice runs, and the job stops with a message saying where the password comes off: in Word, File, Info, Protect Document, Encrypt with Password, then clear it; for an .odt, ${ODF_PASSWORD_REMOVAL.app}'s ${ODF_PASSWORD_REMOVAL.steps}. Convert the saved copy. Each failure shows a message under the Convert to PDF button instead of a Download button.`,
+      a: `A conversion stops with an error when the file needs a password to open, is too damaged for LibreOffice to open, or takes LibreOffice longer than its ${timeLimitSeconds}-second limit. This page has no password field. A locked .docx or .odt is recognised before LibreOffice runs, and the job stops with a message saying where the password comes off: in Word, File, Info, Protect Document, Encrypt with Password, then clear it; for an .odt, ${ODF_PASSWORD_REMOVAL.app}'s ${ODF_PASSWORD_REMOVAL.steps}. Convert the saved copy. Each failure shows a message under the ${RUN} button instead of a Download button.`,
     },
     {
-      q: "Why is there no upload area, only a notice?",
-      a: 'The panel first checks whether our secure server can run LibreOffice. You can add a file at once; it goes to our secure server only after a check confirms our server and you press Convert to PDF. If the badge reads "Not enabled", that button stays off and a "Notify me when this ships" button appears under it. If it reads "Status unknown", the status check did not answer, and a "Check again" button retries it.',
+      // CHANGED 2026-11-06 (audit #41): the question was "Why is there no
+      // upload area, only a notice?", stale since the drop zone moved out of
+      // the status slot on 2026-10-21 (WP-10) and now always renders.
+      q: `Why is the ${RUN} button greyed out?`,
+      a: `It stays off until you have added a document and a check has confirmed that our secure server can run LibreOffice. The document goes to our secure server only after that check and when you press ${RUN}. If the badge reads "Not enabled", that button stays off and a "Notify me when this ships" button appears under it. If it reads "Status unknown", the status check did not answer, and a "Check again" button retries it.`,
     },
   ],
 

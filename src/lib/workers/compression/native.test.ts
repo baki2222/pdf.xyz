@@ -352,3 +352,41 @@ describe("probeNativeTools / nativeCompressionDeps — from the environment", ()
     });
   });
 });
+
+/**
+ * Until 2026-11-06 (audit #21) the deep step passed `-dPDFSETTINGS=/ebook` and nothing
+ * else about rotation. Ghostscript's /ebook distiller defaults set AutoRotatePages to
+ * /All, so pdfwrite may re-orient pages from their dominant text direction — a
+ * landscape table or a page of vertical text could come back turned — and the engine's
+ * only structural check afterwards is the page count. Compression must never change
+ * how a page is oriented, so the argv says so, AFTER the preset it overrides.
+ *
+ * This proves the question asked, not the answer: only Ghostscript in the worker image
+ * can show a rotated fixture comes back as it went in.
+ */
+describe("nativeArgs — Ghostscript never re-orients pages", () => {
+  it.each([
+    ["colour", {}],
+    ["grayscale", { grayscale: true }],
+  ] as const)(
+    "%s: -dAutoRotatePages=/None follows the /ebook preset",
+    (_l, opts) => {
+      const { args } = nativeArgs(
+        "ghostscript",
+        "gs",
+        "/tmp/j/input.pdf",
+        "/tmp/j/output.pdf",
+        150,
+        opts,
+      );
+      const preset = args.indexOf("-dPDFSETTINGS=/ebook");
+      const rotate = args.indexOf("-dAutoRotatePages=/None");
+      expect(preset).toBeGreaterThanOrEqual(0);
+      expect(rotate).toBeGreaterThan(preset);
+      // Exactly one AutoRotatePages, so no later flag can undo it.
+      expect(args.filter((a) => a.startsWith("-dAutoRotatePages"))).toEqual([
+        "-dAutoRotatePages=/None",
+      ]);
+    },
+  );
+});

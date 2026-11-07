@@ -15,7 +15,9 @@ import {
 } from "lucide-react";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import {
+  AES128_PASSWORD_CHARSET_MESSAGE,
   DEFAULT_PDF_KEY_LENGTH,
+  isPdfDocEncodable,
   MAX_PDF_PASSWORD_BYTES,
   PASSWORD_QUEUE_LIFETIME,
   PDF_ENCRYPTION_LEVELS,
@@ -339,15 +341,30 @@ function SecurityRunArea({
   const passwordBytes = passwordByteLength(password);
   const tooLong = passwordBytes > MAX_PDF_PASSWORD_BYTES;
   const passwordMissing = isPasswordMissing(mode, password);
+  // AES-128 stores the password in PDFDocEncoding; the job validator refuses
+  // one with no such form, so the panel says so before anything uploads.
+  const notLatinFor128 =
+    mode === "protect" &&
+    keyLength === 128 &&
+    (!isPdfDocEncodable(password) ||
+      (restricting && !isPdfDocEncodable(ownerPassword)));
   const canSubmit =
     file !== null &&
     !passwordMissing &&
     !tooLong &&
+    !notLatinFor128 &&
     ownerProblem === null &&
     !busy;
 
   const start = useCallback(async () => {
-    if (!file || passwordMissing || tooLong || ownerProblem || !available)
+    if (
+      !file ||
+      passwordMissing ||
+      tooLong ||
+      notLatinFor128 ||
+      ownerProblem ||
+      !available
+    )
       return;
     await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
@@ -378,6 +395,7 @@ function SecurityRunArea({
     mode,
     tooLong,
     passwordMissing,
+    notLatinFor128,
     ownerProblem,
     restricting,
     ownerPassword,
@@ -445,7 +463,7 @@ function SecurityRunArea({
         id="pdf-security-password-hint"
         className={cn(
           "text-xs leading-relaxed",
-          tooLong ? "text-warn" : "text-muted",
+          tooLong || notLatinFor128 ? "text-warn" : "text-muted",
         )}
       >
         {mode === "protect"
@@ -458,6 +476,7 @@ function SecurityRunArea({
         {tooLong
           ? ` Too long: ${passwordBytes}/${MAX_PDF_PASSWORD_BYTES} bytes.`
           : ""}
+        {notLatinFor128 ? ` ${AES128_PASSWORD_CHARSET_MESSAGE}` : ""}
       </p>
 
       {mode === "protect" && (

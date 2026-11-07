@@ -1,5 +1,6 @@
 import JSZip from "jszip";
 import {
+  parseSheetNumber,
   SheetStyles,
   STYLES_CONTENT_TYPE_OVERRIDE,
   stylesRelationship,
@@ -676,11 +677,46 @@ export function detectTablesOnPage(page: PdfLayoutPage): DetectedTable[] {
 // CSV / XLSX serialization
 // ---------------------------------------------------------------------------
 
+/** The UTF-8 byte-order mark each table-N.csv starts with. */
+export const CSV_BOM = String.fromCharCode(0xfeff);
+
+/**
+ * The printable characters that make Excel and LibreOffice read a CSV cell as
+ * a FORMULA (OWASP, "CSV Injection"). Quoting does not stop it. Exported so
+ * the Extract Tables FAQ names exactly these.
+ */
+export const CSV_FORMULA_LEADS = ["=", "+", "-", "@"] as const;
+
+/** {@link CSV_FORMULA_LEADS} plus the tab and carriage return OWASP adds. */
+const FORMULA_LEAD = new Set<string>([...CSV_FORMULA_LEADS, "\t", "\r"]);
+
+/**
+ * A CSV cell, RFC-4180 quoted, and never a live formula (audit #31).
+ *
+ * A PDF from anywhere can carry `=HYPERLINK(…)` or a DDE string, and until
+ * 2026-11-06 it reached table-N.csv raw, to be evaluated on open. A cell with a
+ * formula lead now gets a leading apostrophe, as OWASP recommends, unless it is
+ * a value the workbook stores as a number (`-4`, `-1,250.00`, the shared
+ * {@link parseSheetNumber}) or a lone `-`, the usual nil: neither is a formula,
+ * and both stay exactly as printed. tables.xlsx needs none of this, since its
+ * text cells are inline strings.
+ */
 function csvCell(value: string): string {
-  return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+  const neutralised =
+    FORMULA_LEAD.has(value.charAt(0)) &&
+    value !== "-" &&
+    !parseSheetNumber(value);
+  const text = neutralised ? `'${value}` : value;
+  return neutralised || /[",\r\n]/.test(text)
+    ? `"${text.replace(/"/g, '""')}"`
+    : text;
 }
 
-/** Serialize rows to an RFC-4180 CSV string: CRLF row separators, no trailing CRLF. */
+/**
+ * Serialize rows to an RFC-4180 CSV string: CRLF row separators, no trailing
+ * CRLF, formula-leading cells neutralised. The file's byte-order mark is added
+ * by {@link buildTablesZip}, not here.
+ */
 export function toCsv(rows: string[][]): string {
   return rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
 }
@@ -737,13 +773,18 @@ async function buildXlsx(tables: DetectedTable[]): Promise<Uint8Array> {
 /**
  * Package detected tables into a real ZIP: one RFC-4180 CSV per table
  * (`table-1.csv`, `table-2.csv`, …) plus a combined `tables.xlsx` workbook.
+ *
+ * Each CSV starts with {@link CSV_BOM}. Without it, Excel opens a
+ * double-clicked CSV in the legacy code page and accented, Bengali or Cyrillic
+ * text comes out garbled; pandas (`utf-8-sig`) and R read the mark and drop it.
+ * Until 2026-11-06 the files had none (audit #31).
  */
 export async function buildTablesZip(
   tables: DetectedTable[],
 ): Promise<Uint8Array> {
   const zip = new JSZip();
   tables.forEach((table, i) =>
-    zip.file(`table-${i + 1}.csv`, toCsv(table.rows)),
+    zip.file(`table-${i + 1}.csv`, CSV_BOM + toCsv(table.rows)),
   );
   zip.file("tables.xlsx", await buildXlsx(tables));
   return new Uint8Array(await zip.generateAsync({ type: "uint8array" }));

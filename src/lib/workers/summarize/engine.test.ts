@@ -140,6 +140,15 @@ describe("runSummarize — honest failures", () => {
     });
     expect(run.ok).toBe(false);
     if (!run.ok) expect(run.kind).toBe("too_large");
+    // Audit #50 (summarize-pdf#6, 2026-11-06): the advice was "Try a shorter
+    // PDF or a briefer summary". The length option sets only the OUTPUT
+    // budget; the input that overflowed the context is the same at every
+    // length, so a briefer summary reruns the same failure, charged again.
+    if (!run.ok) {
+      expect(run.message).not.toMatch(/summary/i);
+      expect(run.message).toMatch(/shorter PDF/);
+      expect(run.message).toMatch(/split/i);
+    }
   });
 });
 

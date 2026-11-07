@@ -1837,7 +1837,7 @@ export const guides: Guide[] = [
         id: "crooked-or-sideways-scans",
         heading: "Crooked or sideways scans",
         body: [
-          "A page fed through the scanner at a slight angle, or scanned sideways or upside down, is read badly or not at all. Two boxes in the tool fix that in the same run: tick “Straighten crooked pages” to level pages that went in at an angle, and “Turn pages upright” to turn pages that face the wrong way. Both work on PDF pages that have no text yet; a JPG or PNG is read as it is.",
+          "A page fed through the scanner at a slight angle, or scanned sideways or upside down, is read badly or not at all. Two boxes in the tool fix that in the same run: tick “Straighten crooked pages” to level pages that went in at an angle, and “Turn pages upright” to turn pages that face the wrong way. Both work on PDF pages that have no text yet. A JPG or PNG is not checked by either box, but a phone photo is still read the way up your phone shows it.",
         ],
       },
       {
@@ -1889,7 +1889,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-11-01",
+    updated: "2026-11-06",
   },
   {
     slug: "how-to-password-protect-a-pdf",
@@ -2317,7 +2317,7 @@ export const guides: Guide[] = [
     slug: "how-to-repair-a-damaged-pdf",
     title: "How to repair a damaged or corrupted PDF",
     description:
-      "Rebuild a damaged PDF with qpdf on a secure server that deletes the input when the job finishes, and see what had to be fixed. No account needed.",
+      "Rebuild a damaged PDF with qpdf on a secure server that deletes the input when the job finishes, and read what qpdf reported working around. No account needed.",
     tools: ["repair-pdf", "unlock-pdf", "ocr-pdf"],
     keywords: [
       "repair pdf",
@@ -2335,7 +2335,9 @@ export const guides: Guide[] = [
       "Open the Repair PDF tool.",
       `Upload the damaged PDF — it travels over an encrypted connection, and files up to ${ceilingMb("repair-pdf")} MB are accepted. It only has to start like a PDF, so a truncated file is taken in.`,
       "Press “Repair on our secure server”. qpdf rewrites the file's structure on our secure server, which deletes the input when the job finishes.",
-      "If the file had to be rebuilt, read the list above the download: it names what was reconstructed.",
+      // CHANGED 2026-11-06 (audit #41): said the list "names what was
+      // reconstructed"; it holds qpdf's diagnostics, and can be absent.
+      "If a notice appears above the download, read qpdf's messages in it: they say what qpdf found and worked around. No notice does not mean the file is guaranteed intact.",
       `Download the repaired PDF. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
     ],
     sections: [
@@ -2395,7 +2397,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-10-30",
+    updated: "2026-11-06",
   },
   {
     slug: "how-to-add-page-numbers-to-a-pdf",
@@ -3014,7 +3016,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-30",
+    updated: "2026-11-06",
   },
   {
     slug: "how-to-convert-pdf-to-powerpoint",
@@ -5298,7 +5300,7 @@ export const guides: Guide[] = [
         id: "what-you-download",
         heading: "What you download",
         body: [
-          "The ZIP holds table-1.csv, table-2.csv and so on, one per table, plus tables.xlsx with a sheet per table named by its number and page, such as Table 1 (p3). The CSV files follow the common RFC 4180 layout with no byte-order mark, so a script can read them directly; if accented letters look wrong after a double-click, open the file through Excel's text import.",
+          "The ZIP holds table-1.csv, table-2.csv and so on, one per table, plus tables.xlsx with a sheet per table named by its number and page, such as Table 1 (p3). The CSV files follow the common RFC 4180 layout, so a script can read them directly, and start with a UTF-8 byte-order mark, so a double-click opens accented letters correctly in Excel; a script should read them as utf-8-sig. A text cell that starts with =, +, - or @ carries a leading apostrophe, so Excel shows it as text instead of running it as a formula.",
           `In tables.xlsx, a cell that holds exactly one number, such as ${XLSX_AMOUNTS}, is stored as a number, so a formula can add up the column. A code with leading zeros such as 00123, a number of more than ${MAX_SIGNIFICANT_DIGITS} significant digits, a European 1.250,00, a date and a negative in brackets stay text, exactly as printed.`,
         ],
       },
@@ -5342,7 +5344,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-06",
   },
   {
     slug: "how-to-convert-pdf-to-markdown",

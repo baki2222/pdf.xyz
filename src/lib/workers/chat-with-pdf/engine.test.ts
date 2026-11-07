@@ -230,6 +230,30 @@ describe("runChatWithPdf — provider-injected deterministic success", () => {
     });
   });
 
+  // Audit #41 (chat-with-pdf#8, 2026-11-06): the citation reader matched only
+  // the single "[p.N]" form, so a grouped "[p.3, p.5]" or a range "[pp. 1-2]"
+  // was dropped from manifest.citedPages and the "Cited pages" line.
+  it("counts grouped and ranged citations, within the page range", async () => {
+    const run = await runChatWithPdf(INPUT, QUESTION, {
+      extract: extractorForPages(["one", "two", "three", "four", "five"]),
+      provider: providerReturning(
+        SUCCESS(
+          "Totals are on [p.3, p.5]; the terms span [pp. 1-2]; see also [p. 4] and [p.9, 12].",
+        ),
+      ),
+      now: () => "2026-11-06T00:00:00.000Z",
+    });
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    const zip = await JSZip.loadAsync(run.output);
+    const manifest = JSON.parse(
+      await zip.file("manifest.json")!.async("string"),
+    );
+    // 9 and 12 are past the 5-page document and are dropped, as before.
+    expect(manifest.answer.citedPages).toEqual([1, 2, 3, 4, 5]);
+    expect(run.meta).toMatchObject({ citedPages: 5 });
+  });
+
   it("prepends the conversation context turns before the final question", async () => {
     const provider = providerReturning(SUCCESS("It is due on March 1 [p.1]."));
     const run = await runChatWithPdf(

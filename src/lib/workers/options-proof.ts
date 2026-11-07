@@ -20,6 +20,19 @@
  *     first rung, top down, whose lone run fit, with every sharper rung over
  *     it, in colour, pages verified; and an unreachable one not met after
  *     every rung, at the smallest size any rung made;
+ *   - page orientation (2026-11-06, audit #21): a four-page file, mostly
+ *     sideways (a /Rotate 90 portrait, two landscape pages of vertical text)
+ *     with one upright portrait, through the deep step at the default
+ *     resolution. Its /ebook preset sets `/All`, one decision for the whole
+ *     document; the same deep step with the flag taken out must turn a page
+ *     (positive control: measured, it turned all four); every output page
+ *     DISPLAYS as its input page did
+ *     (MediaBox turned by /Rotate: gs moves a /Rotate 90 into the page content,
+ *     which changes /Rotate and not the page a reader sees, so /Rotate alone
+ *     is not the property), the input really has all three shapes (the fixture is
+ *     not vacuous), and the file read back is the ENGINE's (smaller, every
+ *     page) — the no-worse swap hands back the original, which would pass
+ *     blind. Runs only where Ghostscript is installed, like the rest;
  *   - permissions: the output's /P, read without a password
  *     (`readEncryptPermissions`), withholds exactly the switches asked for at
  *     both key lengths; qpdf's OWN `--show-encryption` reports the same /P (a
@@ -46,7 +59,17 @@ import {
   colourImagePdf,
   noisePhotoPdf,
 } from "@/lib/workers/compression/colour-image-pdf";
-import { runCompression, type CompressionDeps } from "./compression/engine";
+import {
+  DEFAULT_TARGET_DPI,
+  runCompression,
+  type CompressionDeps,
+} from "./compression/engine";
+import {
+  fixtureVerdict,
+  orientationVerdict,
+  pageOrientations,
+  rotationProofPdf,
+} from "./compression/rotation-proof";
 import { PDFArray, PDFDocument, PDFName, PDFRawStream } from "pdf-lib";
 import { TARGET_DPI_LADDER, ladderRungs } from "./compression/target-ladder";
 import { MIN_TARGET_BYTES } from "@/lib/pdf/compress-target";
@@ -97,6 +120,13 @@ async function imageFilters(bytes: Uint8Array): Promise<string[]> {
 
 export interface OptionsProofDeps {
   compression: CompressionDeps;
+  /**
+   * The same compression engine with `-dAutoRotatePages` taken out of its argv,
+   * so the deep step's /ebook preset decides (`/All`). The rotation check's
+   * positive control: it must turn a page of the fixture, or "rotation kept"
+   * cannot fail on this Ghostscript. Absent: the control FAILS.
+   */
+  compressionAutoRotating?: CompressionDeps;
   /**
    * The engine entry the target-size checks call; the real `runCompression`
    * unless a test swaps in a wrong one to show the checks can fail.
@@ -256,6 +286,69 @@ export async function runWorkerOptionsProof(
       ? "a run without grayscale still reads as colour"
       : `${kept.kind}: ${kept.message}`,
   );
+
+  // ── page orientation (2026-11-06, audit #21) ────────────────────────────
+  // The argv test proves `-dAutoRotatePages=/None` is ASKED for; this reads
+  // back what the engine did with it (see `./compression/rotation-proof`).
+  const rotationInput = await rotationProofPdf();
+  const wanted = await pageOrientations(rotationInput);
+  const fixture = fixtureVerdict(wanted);
+  check(fixture.ok, "rotation fixture", fixture.detail);
+  // ADDED the same day, after the first in-image run: with the fixture's
+  // first version (three pages) the deep step turned nothing even with its
+  // flag deleted, so "rotation kept" passed whatever the argv said. The
+  // engine itself must show the check can fail: the same deep step, flag
+  // taken out, has to turn a page.
+  if (!deps.compressionAutoRotating) {
+    check(
+      false,
+      "rotation control",
+      "no compression engine without -dAutoRotatePages is wired, so nothing shows 'rotation kept' can fail",
+    );
+  } else {
+    const control = await runCompression(
+      rotationInput,
+      { profile: "deep", targetDpi: DEFAULT_TARGET_DPI },
+      deps.compressionAutoRotating,
+    );
+    if (!control.ok) {
+      check(false, "rotation control", `${control.kind}: ${control.message}`);
+    } else {
+      const left = orientationVerdict(
+        wanted,
+        await pageOrientations(control.output),
+      );
+      check(
+        !left.ok,
+        "rotation control",
+        left.ok
+          ? `the deep step without -dAutoRotatePages turned no page${control.output === rotationInput ? " (the original came back: the no-worse rule)" : ""}, so 'rotation kept' cannot fail on this Ghostscript (or the control's argv still carries the flag): ${left.detail}`
+          : `without -dAutoRotatePages the deep step turns the fixture: ${left.detail}`,
+      );
+    }
+  }
+  const rotated = await runCompression(
+    rotationInput,
+    { profile: "deep", targetDpi: DEFAULT_TARGET_DPI },
+    deps.compression,
+  );
+  if (!rotated.ok) {
+    check(false, "rotation run", `${rotated.kind}: ${rotated.message}`);
+  } else {
+    check(
+      rotated.output !== rotationInput &&
+        rotated.meta.outputBytes < rotated.meta.originalBytes &&
+        rotated.meta.pageCheck === "verified" &&
+        rotated.meta.pagesOut === wanted.length,
+      "rotation engine output",
+      `${rotated.meta.originalBytes} -> ${rotated.meta.outputBytes} B, pageCheck ${rotated.meta.pageCheck}, pages out ${rotated.meta.pagesOut}`,
+    );
+    const verdict = orientationVerdict(
+      wanted,
+      await pageOrientations(rotated.output),
+    );
+    check(verdict.ok, "rotation kept", verdict.detail);
+  }
 
   // ── target size (2026-10-31) ────────────────────────────────────────────
   // INVERTED the same day. This section first asserted that each rung's size

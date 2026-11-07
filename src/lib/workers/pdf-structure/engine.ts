@@ -11,9 +11,13 @@
  */
 
 import { acceptsDamagedPdf } from "@/lib/jobs/damaged-input";
-import { looksLikePdf, looksRepairable } from "../compression/engine";
+import {
+  looksCompletePdf,
+  looksLikePdf,
+  looksRepairable,
+} from "../compression/engine";
 import { isLinearized } from "@/lib/pdf/linearization";
-import { QpdfRefusedError } from "./errors";
+import { QpdfRefusedError, QpdfTimedOutError } from "./errors";
 import {
   rethrowIfAttemptAbort,
   signalOption,
@@ -31,14 +35,24 @@ export type PdfStructureEngine = typeof PDF_STRUCTURE_ENGINE;
 /**
  * What a qpdf run produced: the bytes, and what qpdf said about getting there.
  *
- * `warnings` is non-empty when qpdf exited 3 — its documented "warnings issued,
- * output produced" status, which for a damaged file IS a successful recovery.
+ * `warnings` can be non-empty only when qpdf exited 3 — its documented
+ * "warnings issued, output produced" status, which for a damaged file IS a
+ * successful recovery — and can be empty even then (see `recovered`).
  * The lines are sanitized in `native.ts` before they reach here; nothing that
  * arrives is a path, a filename, or document content.
  */
 export interface QpdfStructureOutput {
   bytes: Uint8Array;
   warnings: string[];
+  /**
+   * qpdf exited 3: it rebuilt the file, whatever survived sanitizing. Its own
+   * field because an exit 3 can arrive with no line to show (empty stderr, or
+   * every line withheld), and until 2026-11-06 the result read that as a clean
+   * run — the panel then said "found no structural damage" about a rebuilt
+   * file. Optional so a runner that cannot tell (a test stub) falls back to
+   * whether any warning arrived.
+   */
+  recovered?: boolean;
 }
 
 export interface QpdfStructureRunner {
@@ -88,7 +102,12 @@ export type PdfStructureRun =
   | { ok: false; kind: "password_protected"; message: string }
   /** qpdf refused the document for any other reason. Final, likewise. */
   | { ok: false; kind: "unreadable"; message: string }
-  /** The run did not finish (timeout, spawn/IO error, unusable output). */
+  /**
+   * qpdf passed its per-run time limit. Final: the same bytes against the same
+   * limit time out again (audit #36, 2026-11-06).
+   */
+  | { ok: false; kind: "timeout"; message: string }
+  /** The run did not finish (spawn/IO error, unusable output). */
   | { ok: false; kind: "failed"; message: string };
 
 const UNSUPPORTED_MESSAGE =
@@ -124,6 +143,17 @@ const REFUSAL_MESSAGES: Record<
   },
 };
 
+/**
+ * What a user reads when qpdf runs out of time, by operation: what happened, that
+ * a retry would end the same way, and the next step. Content-free like the rest.
+ */
+const TIMEOUT_MESSAGES: Record<"repair" | "linearize", string> = {
+  repair:
+    "This PDF took too long to rebuild, so nothing was produced, and trying again would take just as long. A very large file can do this: split it into parts with Split PDF if it opens, and repair each part.",
+  linearize:
+    "This PDF took too long to optimize for the web, so nothing was produced, and trying again would take just as long. Split it into parts with Split PDF, and optimize each part.",
+};
+
 function refused(
   error: QpdfRefusedError,
   operation: "repair" | "linearize",
@@ -152,9 +182,14 @@ const failed = (): PdfStructureRun => ({
  *    one there is no document, and the answer is `invalid_pdf` — which names no
  *    other tool, because Repair PDF refuses the same bytes.
  *  - repair-pdf needs nothing more: it exists to accept damage.
- *  - optimize-web also needs the `%%EOF` trailer ({@link looksLikePdf}). A file
- *    with a header and no trailer was cut off; it is refused as `damaged`, and
- *    that message and its error code send the user to Repair PDF.
+ *  - optimize-web also needs a `%%EOF` trailer somewhere after the header
+ *    ({@link looksCompletePdf}). A file with a header and no trailer was cut
+ *    off; it is refused as `damaged`, and that message and its error code send
+ *    the user to Repair PDF. Bytes AFTER the trailer are allowed: until
+ *    2026-11-06 (audit #50) this floor was `looksLikePdf`, whose `%%EOF` must
+ *    sit in the last 2 KiB, so a complete PDF with padding after it was told
+ *    it "may have been cut off" and never reached qpdf. The OUTPUT is still
+ *    held to `looksLikePdf`.
  *
  * What this floor does NOT do is catch damage behind an intact trailer (a
  * broken xref, bad offsets). Those files reach qpdf, which rebuilds them and
@@ -174,7 +209,7 @@ const failed = (): PdfStructureRun => ({
  */
 function inputFloor(operation: "repair" | "linearize") {
   const tool = operation === "repair" ? REPAIR_TOOL : OPTIMIZE_WEB_TOOL;
-  return acceptsDamagedPdf(tool) ? looksRepairable : looksLikePdf;
+  return acceptsDamagedPdf(tool) ? looksRepairable : looksCompletePdf;
 }
 
 async function preflight(
@@ -241,6 +276,12 @@ async function runStructure(
     // This was a bare `catch {}` mapping every throw to `failed` — the kind the
     // processor retries — so a locked PDF was run three times.
     if (error instanceof QpdfRefusedError) return refused(error, operation);
+    if (error instanceof QpdfTimedOutError)
+      return {
+        ok: false,
+        kind: "timeout",
+        message: TIMEOUT_MESSAGES[operation],
+      };
     return failed();
   }
 
@@ -258,7 +299,8 @@ async function runStructure(
       operation,
       inputBytes: input.byteLength,
       outputBytes: result.bytes.byteLength,
-      recoveredWithWarnings: result.warnings.length > 0,
+      recoveredWithWarnings:
+        result.recovered === true || result.warnings.length > 0,
       warnings: result.warnings,
     },
   };

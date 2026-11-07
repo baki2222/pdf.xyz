@@ -51,11 +51,12 @@
  *    own columns only when two or more of its rows are together; a widely
  *    spaced one is placed row by row on the first table's columns;
  *  - a one-run line directly below a table that starts inside a column is
- *    taken as the table's (a centred footnote there lands under that column);
- *  - the caller trims each page, so a page's FIRST line loses its indent. A
- *    header row there that starts with an empty cell has its headings moved
- *    left (measured: "Date" lands in A, "Qty" and "Amount" share a cell), and
- *    where a shifted run straddles a gutter those columns merge for the table.
+ *    taken as the table's (a centred footnote there lands under that column).
+ *
+ * Until 2026-11-06 this list also said a page's FIRST line lost its indent,
+ * because the caller trimmed each page, so a header row starting with an empty
+ * cell had its headings moved one column left (audit #7). `parseLayoutText`
+ * now keeps that indent; parse.test.ts runs the header through this grid.
  */
 
 interface Segment {

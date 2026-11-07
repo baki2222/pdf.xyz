@@ -5,7 +5,7 @@ import {
   isEncryptedOoxml,
   LibreOfficeRunError,
 } from "./errors";
-import { officeContentRefusal } from "./input-content";
+import { officeContentRefusal, SIGNED_OFFICE_INPUTS } from "./input-content";
 import {
   rethrowIfAttemptAbort,
   signalOption,
@@ -113,6 +113,32 @@ export const OFFICE_INPUT_EXTENSIONS: Record<
   [POWERPOINT_TO_PDF_TOOL]: ["pptx", "ppt", "odp"],
 };
 
+/**
+ * The words of the "could not be converted" advice, by the INPUT's extension.
+ *
+ * Until 2026-11-06 (audit #40) the advice was DOCUMENT_WORDS[tool] for every
+ * input, so a damaged .odt or .rtf was told to open it in Word and "save it
+ * again as .docx", an .ods to use Excel and .xlsx, an .odp PowerPoint and
+ * .pptx. The extensions whose bytes say the file is NOT a Microsoft format —
+ * the content-checked ones, `SIGNED_OFFICE_INPUTS` — now get their own: an
+ * OpenDocument file goes back to LibreOffice (or the app that saved it) as
+ * its own type, with the password route `ODF_PASSWORD_REMOVAL` names; an RTF
+ * or CSV file, which cannot carry a password, back to the app that saved it.
+ * Any other Microsoft format, legacy or current, keeps the tool's words.
+ */
+function resaveAdvice(tool: OfficeToPdfTool, ext: string): string {
+  const signed = SIGNED_OFFICE_INPUTS[ext];
+  // Plain-text formats carry no password, so no password route is offered:
+  // RTF (content-checked) and CSV (not, so not in SIGNED_OFFICE_INPUTS — it
+  // was told to "remove the password in Excel" until 2026-11-06).
+  if (signed?.format === "RTF" || ext === "csv")
+    return `Open it in the app that saved it, save it again as .${ext}, and retry.`;
+  if (signed)
+    return `If it is password-protected, open it in ${ODF_PASSWORD_REMOVAL.app} (or the app that saved it) and choose ${ODF_PASSWORD_REMOVAL.steps}; otherwise open it there, save it again as .${ext}, and retry.`;
+  const words = DOCUMENT_WORDS[tool];
+  return `If it is password-protected, remove the password in ${words.app} and try again; otherwise open it in ${words.app}, save it again as ${words.ext}, and retry.`;
+}
+
 function extensionOf(filename: string): string {
   const dot = filename.lastIndexOf(".");
   return dot > 0 ? filename.slice(dot + 1).toLowerCase() : "";
@@ -187,7 +213,7 @@ export async function runOfficeToPdf(
   const unreadable: OfficeConversionRun = {
     ok: false,
     kind: "unreadable",
-    message: `This ${words.noun} could not be converted. If it is password-protected, remove the password in ${words.app} and try again; otherwise open it in ${words.app}, save it again as ${words.ext}, and retry.`,
+    message: `This ${words.noun} could not be converted. ${resaveAdvice(tool, extensionOf(filename))}`,
   };
   let output: Uint8Array;
   try {

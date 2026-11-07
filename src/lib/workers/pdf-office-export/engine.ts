@@ -23,6 +23,7 @@ import { rethrowIfAttemptAbort, type RunControl } from "../attempt-abort";
 import { layoutGrid } from "./layout-grid";
 import {
   PageScanDecodeBudgetError,
+  PageScanTimeoutError,
   PageScanUnreadableError,
   PageScanTooLargeError,
   scannedPageText,
@@ -161,7 +162,13 @@ export type PdfOfficeExportFailureKind =
    * Our defect, not the PDF's, and the same on every attempt.
    */
   | "incomplete_output"
-  /** Anything that might not happen again: a timeout, a spawn failure. */
+  /**
+   * The page scan passed its deadline. The deadline is per attempt and the
+   * bytes are the same, so a retry can only time out again (audit #36,
+   * 2026-11-06: it was `failed`, and retried).
+   */
+  | "timeout"
+  /** Anything that might not happen again: a spawn failure, an IO error. */
   | "failed";
 export type PdfOfficeExportRun =
   | {
@@ -799,6 +806,13 @@ export async function runPdfOfficeExport(
         limitBytes: error.limitBytes,
         message:
           "This PDF's pictures are too large in total for the worker to convert. Split it into smaller PDFs, or compress its images, then try again.",
+      };
+    if (error instanceof PageScanTimeoutError)
+      return {
+        ok: false,
+        kind: "timeout",
+        message:
+          "This PDF took too long to read, so it was not converted, and trying again would take just as long. Split it into smaller PDFs with Split PDF, then convert each part.",
       };
     return classifyFailure(error, input, deps);
   }

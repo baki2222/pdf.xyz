@@ -25,7 +25,13 @@ import type { WorkerStatus } from "@/lib/workers/status";
 import { getProviderReadiness } from "@/lib/workers/providers";
 import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
 import { resolveAiReadiness } from "@/lib/workers/ai/readiness";
-import { MAX_CONTEXT_TURNS } from "@/lib/jobs/chat-with-pdf";
+import {
+  MAX_CONTEXT_TURNS,
+  MAX_QUESTION_CHARS,
+} from "@/lib/jobs/chat-with-pdf";
+import { JOB_LIMITS } from "@/lib/jobs/types";
+import { parseCreateJobRequest } from "@/lib/jobs/validation";
+import { runWorkerChatWithPdf as realRunWorkerChatWithPdf } from "@/lib/workers/chat-with-pdf-client";
 import type { AiProvider } from "@/lib/workers/ai/provider";
 import { runChatWithPdf } from "@/lib/workers/chat-with-pdf/engine";
 import { resetTelemetry } from "@/lib/telemetry/track";
@@ -238,9 +244,15 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
       await screen.findByText(/sent with the previous exchange as context/i),
     ).toBeInTheDocument();
     // And the fact that makes the re-upload comprehensible rather than surprising.
+    // INVERTED 2026-11-06 (audit #41): this pinned "our server keeps nothing
+    // between questions", which was false — each answer ZIP (question and
+    // answer inside) is stored for the output lifetime. The FAQ was narrowed
+    // to "does not link one question to the next" on 2026-09-27; the panel
+    // sentence was missed, and this assertion held it in place.
     expect(
-      screen.getByText(/our server keeps nothing between questions/i),
+      screen.getByText(/our server does not link one question to the next/i),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/keeps nothing/i)).toBeNull();
   });
 
   it("keeps an unreadable answer out of context instead of guessing what the model said", async () => {
@@ -680,4 +692,108 @@ describe("ChatWithPdfWorkerPanel — what the job declares", () => {
       counted,
     );
   });
+});
+
+/**
+ * Audit #19, at the point of consumption. The conversation module sizes the context
+ * around the question (`buildChatContext(exchanges, question)`), and its own tests
+ * prove that — but the PANEL is where the question and the context meet, and a panel
+ * that went back to `buildChatContext(carryable)` passed every one of them (review of
+ * 2026-11-06: reverted, 73/73 green). So here the follow-up goes through the panel AND
+ * the real client driver, and the assertion is on the `POST /api/jobs` body as it
+ * leaves, judged by the route's own `parseCreateJobRequest`.
+ */
+describe("ChatWithPdfWorkerPanel — a long follow-up still fits the job request", () => {
+  /** The first exchange: long and Bengali, so the context alone nearly fills 8 KB. */
+  const FIRST_QUESTION = "নোটিশ ".repeat(300).trim();
+  const FIRST_ANSWER = "উত্তর ".repeat(1000).trim();
+
+  /** The real driver over a wire that records the job-create body and answers with
+   * the route's own verdict on it. */
+  function wire(bodies: Record<string, unknown>[]) {
+    const reply = (
+      status: number,
+      json: unknown,
+      bytes = new ArrayBuffer(0),
+    ) => ({
+      ok: status >= 200 && status < 300,
+      status,
+      json: async () => json,
+      arrayBuffer: async () => bytes,
+    });
+    return async (input: string, init?: { body?: ArrayBuffer }) => {
+      if (input === "/api/uploads")
+        return reply(200, {
+          uploadId: "up",
+          slots: [
+            { fileId: "f_1234567890", url: "/put", method: "PUT", headers: {} },
+          ],
+        });
+      if (input === "/put") return reply(200, {});
+      if (input === "/api/jobs") {
+        const raw = new TextDecoder().decode(init?.body);
+        const body = JSON.parse(raw) as Record<string, unknown>;
+        bodies.push(body);
+        const parsed = parseCreateJobRequest(body);
+        if (!parsed.ok)
+          return reply(parsed.error.status, { error: parsed.error });
+        // Accepted: end the run here; the body is what is under test.
+        return reply(503, { error: { code: "unavailable", message: "stop" } });
+      }
+      throw new Error(`unexpected request ${input}`);
+    };
+  }
+
+  it.each([
+    ["700 Bengali characters (the audit's repro)", "ক".repeat(700)],
+    ["the box's maximum, in Bengali", "ক".repeat(MAX_QUESTION_CHARS)],
+  ])(
+    "a follow-up of %s is accepted, with context",
+    async (_label, followUp) => {
+      stubStatus();
+      const bodies: Record<string, unknown>[] = [];
+      runWorkerChatWithPdf
+        .mockImplementationOnce(() =>
+          workerSuccess(FIRST_QUESTION, FIRST_ANSWER),
+        )
+        .mockImplementationOnce((input, controls) =>
+          realRunWorkerChatWithPdf(input, {
+            ...controls,
+            fetchImpl: wire(bodies),
+            sleep: async () => {},
+          }),
+        );
+
+      render(<Panel />);
+      await screen.findByRole("textbox");
+      await ask(FIRST_QUESTION);
+      await screen.findByText(/উত্তর/);
+
+      fireEvent.change(await screen.findByRole("textbox"), {
+        target: { value: followUp },
+      });
+      const submit = screen.getByRole("button", {
+        name: /ask the pdf|send follow-up/i,
+      });
+      await waitFor(() => expect(submit).not.toBeDisabled());
+      fireEvent.click(submit);
+      await waitFor(() => expect(bodies).toHaveLength(1));
+
+      const body = bodies[0]!;
+      // Health: this is the follow-up, carrying the long exchange.
+      const options = body.options as {
+        question: string;
+        context?: { role: string; content: string }[];
+      };
+      expect(options.question).toBe(followUp);
+      expect(options.context?.length ?? 0).toBeGreaterThan(0);
+      expect(
+        new TextEncoder().encode(JSON.stringify(options)).byteLength,
+      ).toBeLessThanOrEqual(JOB_LIMITS.maxOptionsBytes);
+      const parsed = parseCreateJobRequest(body);
+      expect(parsed.ok, JSON.stringify(parsed.ok ? {} : parsed.error)).toBe(
+        true,
+      );
+    },
+  );
 });

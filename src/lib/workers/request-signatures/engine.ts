@@ -43,6 +43,12 @@ export const REQUEST_SIGNATURES_ENGINE = "pdf-lib-signature-request" as const;
 export interface PdfGeometry {
   pageCount: number;
   pageSizes: { width: number; height: number }[];
+  /**
+   * Fully qualified names of the form fields the PDF already has. The engine
+   * numbers its own fields past these, so a PDF this tool prepared before can
+   * be prepared again. Absent means none are known.
+   */
+  fieldNames?: readonly string[];
 }
 
 /**
@@ -158,7 +164,8 @@ function fieldName(
  * touching the preparer, fail as `unsupported` when no preparer is wired, as
  * `delivery_unconfigured` when external delivery is requested without a provider,
  * as `invalid_request` when a field targets a page the document doesn't have or
- * the inspector cannot open the PDF (a {@link PdfEngineError}: locked or damaged),
+ * the inspector cannot open the PDF or the placer refuses it in words (a
+ * {@link PdfEngineError}: locked, damaged, or a form value its font cannot redraw),
  * and as `failed` if anything else throws — never a fabricated "signed" result. On
  * success, return a real ZIP package (prepared PDF + manifest + README + audit).
  */
@@ -207,8 +214,8 @@ export async function runSignatureRequest(
   // loader's own words ("Unlock it first"). This used to fall into the bare catch
   // below as retryable `failed`: three attempts at a doomed job, then a message
   // that discarded the one sentence the user could act on. Keyed on the TYPE the
-  // loader throws, and scoped to `inspect`, so a transient crash here or in
-  // `place` still retries.
+  // loader throws, so any other crash here still retries. `place` gets the same
+  // rule in the catch below.
   let geometry: PdfGeometry;
   try {
     geometry = await inspect(input);
@@ -229,6 +236,11 @@ export async function runSignatureRequest(
     // is a deterministic property of THIS request+document → invalid_request.
     const placed: PlacedField[] = [];
     const perSigner = new Map<string, number>();
+    // Names the PDF already holds (a package this tool prepared before, or a
+    // form that happens to use the same shape) are skipped: pdf-lib refuses a
+    // second field of the same name, and that refusal used to surface as a
+    // retryable `failed` on a job that could never succeed.
+    const taken = new Set(geometry.fieldNames ?? []);
     const manifestFields: ManifestField[] = [];
     for (const field of options.fields) {
       const size = geometry.pageSizes[field.page - 1];
@@ -241,9 +253,11 @@ export async function runSignatureRequest(
       }
       const order = field.signer + 1;
       const seqKey = `${field.signer}:${field.type}`;
-      const seq = (perSigner.get(seqKey) ?? 0) + 1;
+      let seq = (perSigner.get(seqKey) ?? 0) + 1;
+      while (taken.has(fieldName(order, field.type, seq))) seq += 1;
       perSigner.set(seqKey, seq);
       const name = fieldName(order, field.type, seq);
+      taken.add(name);
       placed.push({
         name,
         page: field.page,
@@ -370,7 +384,14 @@ export async function runSignatureRequest(
         outputBytes: output.byteLength,
       },
     };
-  } catch {
+  } catch (err) {
+    // `place` refuses a property of THESE bytes in words — an existing field
+    // value the form's font cannot redraw, a page tree it cannot write — as a
+    // PdfEngineError. That is a bad request, never a retry, and its sentence
+    // is the one the user can act on. Anything else may be transient.
+    if (err instanceof PdfEngineError) {
+      return { ok: false, kind: "invalid_request", message: err.message };
+    }
     return {
       ok: false,
       kind: "failed",

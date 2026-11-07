@@ -21,7 +21,7 @@ import {
 } from "./native-config";
 import { sanitizeNativeDiagnostics } from "../native-diagnostics";
 import { QPDF_EXIT_ERROR, QPDF_EXIT_WARNINGS } from "../qpdf-exit";
-import { QpdfRefusedError } from "./errors";
+import { QpdfRefusedError, QpdfTimedOutError } from "./errors";
 import {
   AttemptAbortedError,
   isAttemptAbort,
@@ -218,7 +218,7 @@ export function createNativeQpdfStructureRunner(
       // this tool exists to perform, on precisely the inputs it exists for.
       const clean = result.code === 0;
       const recovered = result.code === QPDF_EXIT_WARNINGS;
-      if (result.timedOut) throw new Error("qpdf timed out.");
+      if (result.timedOut) throw new QpdfTimedOutError();
       // Exit 2 is qpdf refusing the DOCUMENT, and it will refuse the same bytes
       // the same way on every attempt. Ask once, while the file is still on
       // disk, whether the reason is a password — the one cause the user can
@@ -256,6 +256,7 @@ export function createNativeQpdfStructureRunner(
       }
       return {
         bytes,
+        recovered,
         warnings: recovered
           ? sanitizeQpdfWarnings(text(result.stderr), [
               inputPath,
