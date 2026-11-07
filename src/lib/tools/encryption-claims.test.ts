@@ -137,9 +137,15 @@ const RESTRICTED_FILE =
 /** Encrypted files in general, not one kind of them. */
 const ANY_ENCRYPTED =
   /\b(?:any|all|every)\b[^.]{0,20}\bencrypt\w*|\bencryption of any kind\b|\bencrypted PDFs?\b(?!,? (?:that|which|needing))/i;
-/** The file is turned away. */
+/**
+ * The file is turned away. "blocks signing" (2026-11-08) is the l09 lane's
+ * dropped opener, "Any encryption blocks signing, whether it guards opening
+ * the file or only printing and copying." — false once Sign PDF opens a
+ * restricted file. Only "blocks" + what the TOOL does: "blocks printing" is
+ * an author's restriction (RESTRICTED_FILE), not a refusal.
+ */
 const REFUSED =
-  /\b(?:refus\w*|reject\w*|stop(?:s|ped)?|turned away|turns? (?:it )?away)\b/i;
+  /\b(?:refus\w*|reject\w*|stop(?:s|ped)?|turned away|turns? (?:it )?away|blocks (?:signing|filling|it|the file))\b/i;
 /** The file is read or converted after all. */
 const GETS_THROUGH =
   /\blike any other\b|\bno obstacle\b|\bconverts?\b|\bis (?:read|converted|opened)\b/i;
@@ -336,6 +342,22 @@ describe("encryption claims on tool pages match the runner's reader", () => {
       falseClaims(
         "A PDF that opens without a password but restricts editing is refused with a message naming those restrictions.",
         "refuses",
+      ),
+    ).toEqual([]);
+    // sign-pdf's opener in lane l09, dropped at the w3 integration: Sign PDF
+    // opens a restricted file (`openProtected`), so "any encryption blocks
+    // signing" is false of it.
+    expect(
+      falseClaims(
+        "Any encryption blocks signing, whether it guards opening the file or only printing and copying.",
+        "opens-protected",
+      ),
+    ).toHaveLength(1);
+    // An author's "blocks printing" is the restriction, not a refusal.
+    expect(
+      falseClaims(
+        "A PDF whose author blocks printing opens here with the author's limits in force.",
+        "opens-protected",
       ),
     ).toEqual([]);
     // The retired quotation is not a sentence any surface says.
