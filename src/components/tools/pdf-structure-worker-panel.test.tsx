@@ -693,6 +693,45 @@ describe("optimize-web: what the picked file already is, before any upload", () 
     expect(uploadsRequested()).toBe(0);
   });
 
+  it("a tick given for one signed file does not unlock the next signed file", async () => {
+    const first = await signedPdf({ signatures: 2 });
+    const second = await signedPdf({ signatures: 1 });
+    const run = await pick("optimize-web", first);
+    const tick = await screen.findByRole("checkbox", {
+      name: "Optimize anyway — I understand the digital signatures will show as invalid",
+    });
+    fireEvent.click(tick);
+    // Positive control: the tick does unlock Run for the file it was given on.
+    expect(run).not.toHaveAttribute("aria-disabled");
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    const input = await vi.waitFor(() => {
+      const found = readyFileInput();
+      if (!found) throw new Error("no file input yet");
+      return found;
+    });
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File([second.slice()], "other.pdf", { type: "application/pdf" }),
+        ],
+      },
+    });
+    await screen.findByRole("group", {
+      name: "This PDF has 1 digital signature",
+    });
+    const again = screen.getByRole("checkbox", {
+      name: "Optimize anyway — I understand the digital signature will show as invalid",
+    });
+    expect(again).not.toBeChecked();
+    const nextRun = screen.getByRole("button", {
+      name: /on our secure server/i,
+    });
+    expect(nextRun).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(nextRun);
+    expect(uploadsRequested()).toBe(0);
+  });
+
   it("control: an unsigned PDF shows no signature warning and runs at once", async () => {
     const run = await pick("optimize-web", INPUT);
     expect(run).not.toHaveAttribute("aria-disabled");
