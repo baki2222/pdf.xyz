@@ -280,6 +280,14 @@ export const OVERLAY_PAGINGS: readonly OverlayPagingOption[] = [
   },
 ] as const;
 
+/**
+ * Edit PDF — the toolbar group holding the form-field tools, which other tool
+ * pages (Create Fillable Forms) send readers to. `create-forms-runner.test.tsx`
+ * holds the editor's TOOL_GROUPS to a group of this name with a signature
+ * field in it.
+ */
+export const EDITOR_FORMS_GROUP = "Forms";
+
 /** Overlay PDF — which base pages get the overlay; `all` is the default. */
 export const OVERLAY_PAGE_SCOPES = [
   { id: "all", label: "All pages" },

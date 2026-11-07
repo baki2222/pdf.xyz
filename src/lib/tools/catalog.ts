@@ -917,7 +917,7 @@ export const tools: Tool[] = [
       "add fields",
       "acroform",
     ],
-    related: ["fill-forms", "sign-pdf", "request-signatures", "edit-pdf"],
+    related: ["fill-forms", "edit-pdf", "sign-pdf", "request-signatures"],
   },
 
   // ─────────────────────────────── Security ───────────────────────────────

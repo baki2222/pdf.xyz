@@ -20,8 +20,10 @@ import {
  * build and render reliably. It is NOT a visual PDF editor — there are no drag
  * handles, no live canvas, and no arbitrary rich styling (fonts, borders,
  * colors). Fields are placed by numeric coordinates in PDF points. It does NOT
- * create signature fields (pdf-lib cannot render a usable signature widget) and
- * it does NOT produce XFA (dynamic XML) forms — only the classic AcroForm
+ * create signature fields — Edit PDF's Forms group drags those out, as an
+ * unsigned `/Sig` widget written through pdf-lib (editor/model.ts; until
+ * 2026-11-07 this said pdf-lib could not render one, audit create-forms#1) —
+ * and it does NOT produce XFA (dynamic XML) forms — only the classic AcroForm
  * dictionary every viewer understands. Coordinates are measured in PDF points
  * (1pt = 1/72") from the *bottom-left* corner of the page AS A READER SEES IT:
  * the visible (crop) box, turned by the page's `/Rotate`. They are mapped into

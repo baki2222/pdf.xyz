@@ -37,6 +37,10 @@ import {
   NEW_FIELD_TYPES,
 } from "@/lib/pdf/offered-kinds";
 import { downloadBytes } from "@/lib/pdf/browser";
+import Link from "next/link";
+import { EDITOR_FIELD_LABEL } from "@/lib/pdf/editor/model";
+import { EDITOR_FORMS_GROUP } from "@/lib/pdf/offered-kinds";
+import { getToolEntry } from "@/lib/tools/directory";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -467,6 +471,16 @@ function FormBuilder({
   );
 }
 
+/*
+ * Edit PDF drags out the same field types plus a signature field (audit
+ * create-forms#1); the help box names it, by the catalogue's own entry.
+ */
+const EDIT_PDF = (() => {
+  const tool = getToolEntry("edit-pdf");
+  if (!tool) throw new Error("create-forms links to an Edit PDF that is gone");
+  return tool;
+})();
+
 /* ------------------------------------------------------------------ *
  *  Coordinate help
  * ------------------------------------------------------------------ */
@@ -487,9 +501,16 @@ function CoordinateHelp({ context }: { context: NewFormContext }) {
             : ""}
         </span>
         <span className="text-muted">
-          This adds classic fillable AcroForm fields by coordinates — it
-          isn&apos;t a visual drag-and-drop editor, and it doesn&apos;t create
-          signature fields.
+          This adds classic fillable AcroForm fields by coordinates. Prefer to
+          drag fields into place on the page, or need a{" "}
+          {EDITOR_FIELD_LABEL.signature.toLowerCase()}?{" "}
+          <Link
+            href={`/tools/${EDIT_PDF.slug}`}
+            className="text-fg font-medium underline underline-offset-2"
+          >
+            {EDIT_PDF.name}
+          </Link>{" "}
+          does both under {EDITOR_FORMS_GROUP}, in your browser too.
           {context.existingNames.length > 0
             ? ` This PDF already has ${context.existingNames.length} field${
                 context.existingNames.length === 1 ? "" : "s"

@@ -86,6 +86,7 @@ import {
   DEEP_COMPRESSION_PRESETS,
   EDITOR_KINDS,
   EDITOR_KIND_FACT,
+  EDITOR_FORMS_GROUP,
   COMMENT_KINDS,
   MARKUP_KINDS,
   FIELD_TYPE_FACT,
@@ -1452,7 +1453,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
           question: `Can ${tool.name} add a signature field?`,
           answer: `No. It adds ${listed(
             NEW_FIELD_TYPES.map((t) => FIELD_TYPE_FACT[t]),
-          )}. To sign a document yourself, use ${toolName("sign-pdf")}; to prepare one for other people to sign, use ${toolName("request-signatures")}.`,
+          )}, placed by coordinates. ${toolName("edit-pdf")} can: drag out a signature field, or any of those fields, onto the page with the tools in its ${EDITOR_FORMS_GROUP} group, in your browser, ready for someone to sign. To sign a document yourself, use ${toolName("sign-pdf")}.`,
         },
         {
           question: "How do I place a field?",

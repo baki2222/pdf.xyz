@@ -1,5 +1,8 @@
 import type { ToolContent } from "./types";
 import { getToolBySlug } from "@/lib/tools";
+import { modeUploadsFiles } from "@/lib/tools/processing-split";
+import { EDITOR_FIELD_LABEL } from "@/lib/pdf/editor/model";
+import { EDITOR_FORMS_GROUP } from "@/lib/pdf/offered-kinds";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { RADIO_STACK_GAP } from "@/lib/pdf/create-forms";
 import { rasterScaleForDpi } from "@/lib/pdf/pdf-to-image";
@@ -51,6 +54,20 @@ const betaSentence =
 /** Points per inch, from the function the renderer uses to convert them. */
 const POINTS_PER_INCH = Math.round(1 / rasterScaleForDpi(1));
 
+/*
+ * Edit PDF drags out the same field types plus a signature field (its Forms
+ * group, editor/model.ts). Audit create-forms#1 (2026-11-07): this page said
+ * neither existed and never named it. The name and the in-browser claim are
+ * read from the catalogue.
+ */
+const EDIT_PDF = getToolBySlug("edit-pdf");
+if (!EDIT_PDF || modeUploadsFiles(EDIT_PDF.processing)) {
+  throw new Error(
+    "create-forms content says Edit PDF runs in the browser, but it does not",
+  );
+}
+const SIGNATURE_FIELD = EDITOR_FIELD_LABEL.signature;
+
 const content: ToolContent = {
   slug: "create-forms",
 
@@ -62,7 +79,7 @@ const content: ToolContent = {
   intro: [
     "Create Fillable Forms turns a flat PDF, such as a printed-style application or checklist, into one people can type into. You describe each field in a card: its type, a unique name, the page it sits on, and its box in whole PDF points measured from the page's bottom-left corner. Each card shows the width and height of the page it points at, and the Page box only accepts pages the document has.",
     "The output is a classic AcroForm, the form type PDF readers with form support can fill. Text fields can carry pre-filled text, a character limit and multiple lines; checkboxes can start ticked; dropdowns can accept free typing, and lists can accept several selections; dropdowns, lists and radio groups take their choices one per line. Existing pages and AcroForm fields are kept, and new names are checked against the old ones first.",
-    `Your browser does the whole build: the PDF is read from your device, the fields are written into it in memory, and the result is saved to your device without a copy going to pdf.xyz. PDFs up to ${maxMb} MB are accepted.${betaSentence} There is no canvas for dragging fields into place, no font, border or colour styling, no signature field type and no XFA output; if the source carries an XFA layer, for instance a hybrid AcroForm-and-XFA form, the saved copy drops that layer and keeps only its AcroForm fields. A password-protected PDF is refused until you unlock it.`,
+    `Your browser does the whole build: the PDF is read from your device, the fields are written into it in memory, and the result is saved to your device without a copy going to pdf.xyz. PDFs up to ${maxMb} MB are accepted.${betaSentence} This builder has no canvas for dragging fields into place and no ${SIGNATURE_FIELD.toLowerCase()} type: ${EDIT_PDF.name} does both with the field tools in its ${EDITOR_FORMS_GROUP} group, also in your browser. There is no font, border or colour styling and no XFA output; if the source carries an XFA layer, for instance a hybrid AcroForm-and-XFA form, the saved copy drops that layer and keeps only its AcroForm fields. A password-protected PDF is refused until you unlock it.`,
   ],
 
   useCases: [
@@ -117,8 +134,8 @@ const content: ToolContent = {
       a: "No. The fields are added by code running in your browser tab and the file is saved straight to your device, so pdf.xyz never receives the document or what you type into the cards.",
     },
     {
-      q: "Can I style the fields?",
-      a: "No. Fields come in one plain default style, with no choice of font, colour or border.",
+      q: "Can I style the fields or drag them into place?",
+      a: `Not here: fields come in one plain default style, with no choice of font, colour or border, and are placed by the numbers on each card. ${EDIT_PDF.name} lets you drag out text fields, checkboxes, dropdowns, radio groups and a ${SIGNATURE_FIELD.toLowerCase()} straight onto the page with the field tools in its ${EDITOR_FORMS_GROUP} group, saved as real form fields, and it also runs in your browser.`,
     },
     {
       q: "Why was a default value or a dropdown or list option refused for its characters?",
