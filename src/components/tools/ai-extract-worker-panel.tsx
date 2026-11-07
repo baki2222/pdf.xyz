@@ -528,6 +528,8 @@ export function AiExtractResultBody({
         <DownloadCta onClick={() => downloadBytes(output, filename)}>
           Download {filename}
         </DownloadCta>
+        {/* "Download CSV", not the file name: buttonVariants never wraps,
+            so a long name would spill out of a phone-width card. */}
         {csv !== null && (
           <button
             type="button"
@@ -544,7 +546,7 @@ export function AiExtractResultBody({
             })}
           >
             <Download className="size-4" aria-hidden />
-            Download CSV ({csvName})
+            Download CSV
           </button>
         )}
       </div>

@@ -19,6 +19,7 @@ import {
 } from "@testing-library/react";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 import { extractionOutputName } from "@/lib/jobs/ai-extract";
+import { MAX_DISPLAY_FILENAME_LENGTH } from "@/lib/jobs/filenames";
 import { runAiExtract } from "@/lib/workers/ai-extract/engine";
 import { CSV_BOM } from "@/lib/workers/ooxml/csv";
 import { AiExtractResultBody } from "./ai-extract-worker-panel";
@@ -91,7 +92,7 @@ describe("AI Data Extraction result — Download CSV", () => {
     );
     fireEvent.click(
       await screen.findByRole("button", {
-        name: "Download CSV (invoice-extraction.csv)",
+        name: "Download CSV",
       }),
     );
     await waitFor(() => expect(blobs).toHaveLength(1));
@@ -104,6 +105,33 @@ describe("AI Data Extraction result — Download CSV", () => {
     expect(
       screen.getByRole("button", { name: `Download ${ZIP}` }),
     ).toBeTruthy();
+  });
+
+  it("a 128-character name never lands in a label that cannot wrap", async () => {
+    // buttonVariants is whitespace-nowrap: a filename inside the CSV button
+    // spills out of a phone-width card. The ZIP button (DownloadCta) wraps.
+    const longZip = extractionOutputName(
+      `${"Quarterly-financial-report-2026-final-".repeat(4)}.pdf`,
+    );
+    expect(longZip.length).toBe(MAX_DISPLAY_FILENAME_LENGTH);
+    const stem = longZip.replace(/-extraction\.zip$/, "");
+    const { container } = render(
+      <AiExtractResultBody
+        output={await realPackage({ invoice_number: "INV-7", total: 120.5 })}
+        filename={longZip}
+      />,
+    );
+    await screen.findByRole("button", { name: "Download CSV" });
+    const nowrap = [...container.querySelectorAll<HTMLElement>("*")].filter(
+      (el) => /(^|\s)whitespace-nowrap(\s|$)/.test(el.className),
+    );
+    // Health check: the scan sees the CSV button it is meant to judge.
+    expect(nowrap.length).toBeGreaterThanOrEqual(1);
+    for (const el of nowrap) expect(el.textContent).not.toContain(stem);
+    // Positive control: the name IS on the page, on the button that wraps.
+    expect(
+      screen.getByRole("button", { name: `Download ${longZip}` }).className,
+    ).not.toMatch(/whitespace-nowrap/);
   });
 
   it("bytes with no extraction.json offer the ZIP only, and no CSV", async () => {

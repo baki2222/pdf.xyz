@@ -25,6 +25,7 @@ import JSZip from "jszip";
 import { runSummarize } from "@/lib/workers/summarize/engine";
 import { SUMMARY_PACKAGE_FILES } from "@/lib/workers/summarize-package";
 import { summaryOutputName } from "@/lib/jobs/summarize-pdf";
+import { MAX_DISPLAY_FILENAME_LENGTH } from "@/lib/jobs/filenames";
 import { COPY_STATUS } from "./copy-text-button";
 import { SummaryResultBody } from "./summarize-worker-panel";
 
@@ -107,13 +108,9 @@ describe("Summarize PDF result — the summary is on the page", () => {
     render(<SummaryResultBody output={await realPackage()} filename={ZIP} />);
     await screen.findByRole("region", { name: "Summary" });
     expect(screen.getByRole("button", { name: "Copy summary" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Download TXT" })).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "Download TXT (lease-summary.txt)" }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("button", {
-        name: "Download Markdown (lease-summary.md)",
-      }),
+      screen.getByRole("button", { name: "Download Markdown" }),
     ).toBeTruthy();
     expect(
       screen.getByRole("button", { name: `Download ${ZIP}` }),
@@ -183,6 +180,36 @@ describe("Summarize PDF result — the summary is on the page", () => {
       ),
     );
     expect(screen.queryByText(/three years/)).toBeNull();
+  });
+
+  it("a 128-character name never lands in a label that cannot wrap", async () => {
+    // A phone column is ~343px; a button styled by buttonVariants is
+    // whitespace-nowrap, so a filename inside it spills out of the card. The
+    // property: no non-wrapping element carries the file's name, whatever its
+    // length. The ZIP button (DownloadCta) wraps, and names the file.
+    const longZip = summaryOutputName(
+      `${"Quarterly-financial-report-2026-final-".repeat(4)}.pdf`,
+    );
+    expect(longZip.length).toBe(MAX_DISPLAY_FILENAME_LENGTH);
+    const stem = longZip.replace(/-summary\.zip$/, "");
+    const { container } = render(
+      <SummaryResultBody output={await realPackage()} filename={longZip} />,
+    );
+    await screen.findByRole("region", { name: "Summary" });
+    expect(screen.getByRole("button", { name: "Download TXT" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Download Markdown" }),
+    ).toBeTruthy();
+    const nowrap = [...container.querySelectorAll<HTMLElement>("*")].filter(
+      (el) => /(^|\s)whitespace-nowrap(\s|$)/.test(el.className),
+    );
+    // Health check: the scan sees the file buttons it is meant to judge.
+    expect(nowrap.length).toBeGreaterThanOrEqual(2);
+    for (const el of nowrap) expect(el.textContent).not.toContain(stem);
+    // Positive control: the name IS on the page, on the button that wraps.
+    expect(
+      screen.getByRole("button", { name: `Download ${longZip}` }).className,
+    ).not.toMatch(/whitespace-nowrap/);
   });
 
   it("Copy puts exactly the summary on the clipboard and says so", async () => {

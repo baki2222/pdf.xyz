@@ -400,6 +400,10 @@ export function SummaryResultBody({
 
   const txtName = summaryFileName(filename, "txt");
   const mdName = summaryFileName(filename, "md");
+  // The labels name the format, not the file: buttonVariants never wraps, and
+  // a name of up to MAX_DISPLAY_FILENAME_LENGTH would spill out of a phone's
+  // card. The ZIP button below wraps and names the file; the download keeps
+  // its own name (`<stem>-summary.txt` / `.md`).
   const fileButton = buttonVariants({
     variant: "secondary",
     className: "w-full sm:w-auto",
@@ -438,7 +442,7 @@ export function SummaryResultBody({
           className={fileButton}
         >
           <Download className="size-4" aria-hidden />
-          Download TXT ({txtName})
+          Download TXT
         </button>
         <button
           type="button"
@@ -454,7 +458,7 @@ export function SummaryResultBody({
           className={fileButton}
         >
           <Download className="size-4" aria-hidden />
-          Download Markdown ({mdName})
+          Download Markdown
         </button>
       </div>
       {zipButton}
