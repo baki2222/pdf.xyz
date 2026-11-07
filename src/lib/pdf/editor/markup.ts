@@ -15,8 +15,12 @@ import type { TextRun } from "./runs";
  * no text (a scan), the box: flattened as drawn, saved as a comment snapped
  * to any text lines under it (`snapHighlightQuads`).
  *
- * Feature-scoped on purpose: only the editor's lazy chunk and its export
- * import this, never a first-load module (the bundle budget, 2026-11-07).
+ * A feature-scoped module of its own (the bundle budget, 2026-11-07).
+ * Importers today: the editor's lazy chunk (`editor-state`, `toolbar`,
+ * `properties`, `object-svg`, `wysiwyg-editor`), its export
+ * (`editor-export.ts`, `comments.ts`), the editor model (`model.ts`, and
+ * through it Create Forms' runner, Create Forms' and Edit PDF's content and
+ * the guides catalogue), and Annotate and Edit PDF's content directly.
  */
 
 export const TEXT_MARKUPS = [

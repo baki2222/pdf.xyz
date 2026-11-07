@@ -5,9 +5,16 @@
  * §12.5.6.14) — always, even when the other markups are flattened, because
  * a popup cannot be drawn into a page (`comments.ts`, `editor-export.ts`).
  *
- * Feature-scoped (the bundle budget, 2026-11-07): the editor's chunk and
- * its export import this; first-load code does not.
+ * A feature-scoped module of its own (the bundle budget, 2026-11-07).
+ * Importers today: the editor's lazy chunk and session, Annotate PDF's
+ * runner (its footer), the export (`comments.ts`), the editor model
+ * (`model.ts`, and through it Create Forms' runner, Create Forms' and Edit
+ * PDF's content and the guides catalogue), the tool facts, and Annotate and
+ * Edit PDF's content directly.
  */
+
+/** How wide a new comment's popup is, points. */
+export const STICKY_POPUP_WIDTH = 200;
 
 /** The icon's side, viewer points — overlay, hit box and /Rect alike. */
 export const STICKY_ICON = 20;

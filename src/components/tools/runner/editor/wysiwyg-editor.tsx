@@ -106,10 +106,11 @@ import {
   type GlyphMetric,
   type TextMarkup,
 } from "@/lib/pdf/editor/markup";
-import { STICKY_ICON, stickyPopupOrigin } from "@/lib/pdf/editor/sticky";
-
-/** How wide a new comment's popup is, points. */
-const STICKY_POPUP_WIDTH = 200;
+import {
+  STICKY_ICON,
+  STICKY_POPUP_WIDTH,
+  stickyPopupOrigin,
+} from "@/lib/pdf/editor/sticky";
 import { cn } from "@/lib/utils";
 import { ErrorNote, useAnnouncer } from "../runner-kit";
 import { PagePreviewPlaceholder } from "../page-preview-placeholder";
