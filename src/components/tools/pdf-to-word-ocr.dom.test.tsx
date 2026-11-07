@@ -464,12 +464,38 @@ describe("PDF to Word: OCR PDF's page choices beside the switch", () => {
     fireEvent.click(
       await screen.findByRole("checkbox", { name: /^Redo existing OCR/ }),
     );
-    expect(
-      screen.getByRole("checkbox", { name: "Straighten crooked pages" }),
-    ).toHaveAttribute("aria-disabled", "true");
+    const straighten = screen.getByRole("checkbox", {
+      name: "Straighten crooked pages",
+    });
+    expect(straighten).toHaveAttribute("aria-disabled", "true");
+    // The guard, not only the attribute (review, 2026-11-08): a click on the
+    // waiting box does not tick it, and nothing extra travels.
+    fireEvent.click(straighten);
+    expect(straighten).not.toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: /export docx/i }));
     await screen.findByText("Your DOCX file is ready.");
     expect(net.sent[0]).toMatchObject({ ocr: true, redoOcr: true });
+    expect(net.sent[0]).not.toHaveProperty("deskew");
+  });
+
+  it("each of Straighten and Redo says why it waits for the other, and is named by its label alone", async () => {
+    stubNetwork(true);
+    await addFile();
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /recognise text in scans/i }),
+    );
+    const redo = await screen.findByRole("checkbox", {
+      name: "Redo existing OCR",
+    });
+    const straighten = screen.getByRole("checkbox", {
+      name: "Straighten crooked pages",
+    });
+    expect(redo).toHaveAccessibleDescription(
+      /Not with Straighten crooked pages\./,
+    );
+    expect(straighten).toHaveAccessibleDescription(
+      /Not with Redo existing OCR\./,
+    );
   });
 });
 

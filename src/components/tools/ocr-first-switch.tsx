@@ -70,6 +70,7 @@ export function OcrFirstSwitch({
   hint: string;
 }) {
   const deskewId = useId();
+  const redoId = useId();
   const { on, rotatePages, deskew, redoOcr } = choice;
   return (
     <div className="border-line rounded-panel flex flex-col gap-3 border p-3">
@@ -150,14 +151,23 @@ export function OcrFirstSwitch({
                   if (!busy && !deskew) choice.setRedoOcr(event.target.checked);
                 }}
                 aria-disabled={busy || deskew || undefined}
+                // Named by its label alone, as Straighten is: its hint names
+                // Straighten, and says why it waits while that box is on.
+                aria-labelledby={`${redoId}-name`}
+                aria-describedby={`${redoId}-hint`}
                 className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4 aria-disabled:opacity-50"
               />
               <span className="flex flex-col gap-0.5">
-                <span className="text-fg font-medium">Redo existing OCR</span>
-                <span className="text-muted text-xs leading-relaxed">
+                <span id={`${redoId}-name`} className="text-fg font-medium">
+                  Redo existing OCR
+                </span>
+                <span
+                  id={`${redoId}-hint`}
+                  className="text-muted text-xs leading-relaxed"
+                >
                   For a PDF whose earlier OCR text is poor: that text is removed
                   and those pages are recognised again. Text typed into the
-                  document is kept.
+                  document is kept. Not with Straighten crooked pages.
                 </span>
               </span>
             </label>
