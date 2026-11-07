@@ -31,6 +31,7 @@ import { readAsViewer } from "@/tests/pdfjs-viewer";
 import { HeaderFooterEditor } from "./header-footer-runner";
 import type { LoadedPdf } from "./use-single-pdf";
 import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
+import { recallOptions, rememberOptions } from "@/lib/intent/option-memory";
 
 const NOW = new Date(2026, 8, 27, 12, 0, 0);
 
@@ -73,6 +74,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  window.localStorage.clear();
   resetAnnouncer();
   vi.useRealTimers();
   Intl.DateTimeFormat = RealDateTimeFormat;
@@ -109,7 +111,7 @@ describe("header-footer runner: {date} in a locale we cannot draw", () => {
       expect(new Intl.DateTimeFormat().resolvedOptions().locale).toBe(locale);
 
       render(<HeaderFooterEditor pdf={await loadedPdf()} onReset={() => {}} />);
-      fireEvent.change(screen.getByLabelText("Footer text"), {
+      fireEvent.change(screen.getByLabelText("Footer center"), {
         target: { value: "Printed {date}" },
       });
 
@@ -154,7 +156,7 @@ describe("header-footer runner: a header too wide for the page", () => {
 
   it("is refused on screen with how much of it fits, and no file is offered", async () => {
     render(<HeaderFooterEditor pdf={await loadedPdf()} onReset={() => {}} />);
-    fireEvent.change(screen.getByLabelText("Header text"), {
+    fireEvent.change(screen.getByLabelText("Header center"), {
       target: { value: NOTICE },
     });
     fireEvent.click(screen.getByRole("button", { name: /add header/i }));
@@ -228,5 +230,85 @@ describe("header-footer runner: page settings", () => {
     // RunButton stays focusable and says why (aria-disabled, never disabled).
     expect(run.getAttribute("aria-disabled")).toBe("true");
     expect(screen.getByText(/no page gets the header or footer/i)).toBeTruthy();
+  });
+});
+
+/**
+ * Audit header-footer#3 (2026-11-06): the engine takes left, center and right
+ * slots per band, but the runner sent `{ [align]: text }` — one slot per band
+ * — so "Acme Ltd" at the left beside a date at the right could not be made.
+ * The chain: six fields, the real engine, the downloaded page's positions.
+ */
+describe("header-footer runner: left, center and right in one band", () => {
+  it("offers three fields per band, the footer's page count in the center", async () => {
+    render(<HeaderFooterEditor pdf={await loadedPdf()} onReset={() => {}} />);
+    for (const band of ["Header", "Footer"])
+      for (const slot of ["left", "center", "right"])
+        expect(screen.getByLabelText(`${band} ${slot}`)).toBeTruthy();
+    expect(
+      (screen.getByLabelText("Footer center") as HTMLInputElement).value,
+    ).toBe("Page {n} of {total}");
+  });
+
+  it("stamps text at the left and the right of the same band", async () => {
+    render(<HeaderFooterEditor pdf={await loadedPdf(2)} onReset={() => {}} />);
+    fireEvent.change(screen.getByLabelText("Header left"), {
+      target: { value: "Acme Ltd" },
+    });
+    fireEvent.change(screen.getByLabelText("Header right"), {
+      target: { value: "Draft 3" },
+    });
+    fireEvent.change(screen.getByLabelText("Footer left"), {
+      target: { value: "Confidential" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /add header/i }));
+    await screen.findByRole("heading", { name: /header & footer added/i });
+    fireEvent.click(screen.getByRole("button", { name: /download pdf/i }));
+    const pages = await readAsViewer(
+      new Uint8Array(await downloaded!.arrayBuffer()),
+    );
+    expect(pages).toHaveLength(2);
+    for (const [i, page] of pages.entries()) {
+      const at = (s: string) => {
+        const run = page.runs.find((r) => r.str === s);
+        expect(run, `page ${i + 1} has no "${s}"`).toBeTruthy();
+        return run!;
+      };
+      expect(at("Acme Ltd").x).toBeLessThan(at("Draft 3").x);
+      expect(at("Confidential").x).toBeLessThan(at(`Page ${i + 1} of 2`).x);
+    }
+  });
+
+  it("starts the default footer in the box a one-box footer last used", async () => {
+    rememberOptions("header-footer", { footerAlign: "right" });
+    render(<HeaderFooterEditor pdf={await loadedPdf()} onReset={() => {}} />);
+    expect(
+      (screen.getByLabelText("Footer right") as HTMLInputElement).value,
+    ).toBe("Page {n} of {total}");
+    expect(
+      (screen.getByLabelText("Footer center") as HTMLInputElement).value,
+    ).toBe("");
+    // Moved to the left and run: the left box is what is kept.
+    fireEvent.change(screen.getByLabelText("Footer right"), {
+      target: { value: "" },
+    });
+    fireEvent.change(screen.getByLabelText("Footer left"), {
+      target: { value: "{n}" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /add header/i }));
+    await screen.findByRole("heading", { name: /header & footer added/i });
+    expect(recallOptions("header-footer")).toEqual({ footerAlign: "left" });
+  });
+
+  it("inserts a field into the box last used in that band", async () => {
+    render(<HeaderFooterEditor pdf={await loadedPdf()} onReset={() => {}} />);
+    const right = screen.getByLabelText("Header right") as HTMLInputElement;
+    fireEvent.focus(right);
+    // The first {date} button is the header's.
+    fireEvent.click(screen.getAllByRole("button", { name: "{date}" })[0]!);
+    expect(right.value).toBe("{date}");
+    expect(
+      (screen.getByLabelText("Header center") as HTMLInputElement).value,
+    ).toBe("");
   });
 });

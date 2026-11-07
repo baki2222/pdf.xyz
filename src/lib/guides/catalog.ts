@@ -5447,15 +5447,15 @@ export const guides: Guide[] = [
       "add a date to a pdf footer",
     ],
     intro: [
-      `To add a header and footer to a PDF, open ${nameOf("header-footer")}, add your PDF, type a line in Header text, a line in Footer text, or both, and press Add header & footer. Each line is drawn on every page, and you download the stamped copy.`,
-      "The footer starts out as Page {n} of {total}, so a plain page count needs no typing at all. The {n}, {total} and {date} buttons beside each field add a field that fills itself in page by page: {n} is the page number, {total} the number of pages in the file, and {date} today's date as your browser writes it.",
+      `To add a header and footer to a PDF, open ${nameOf("header-footer")}, add your PDF, type in the Header boxes, the Footer boxes, or both, and press Add header & footer. Each band has a Left, a Center and a Right box, the lines are drawn on every page, and you download the stamped copy.`,
+      "The footer starts out as Page {n} of {total}, so a plain page count needs no typing at all. The {n}, {total} and {date} buttons under each band add a field that fills itself in page by page: {n} is the page number, {total} the number of pages in the file, and {date} today's date as your browser writes it.",
       `The PDF is read and rewritten in your browser, so it stays on your device, and there is no account to create. It takes one PDF at a time, up to ${ceilingMb("header-footer")} MB.`,
     ],
     steps: [
       `Open the ${nameOf("header-footer")} tool.`,
       "Drop your PDF on the panel that says “Drop your PDF here, or browse”, or click it to choose the file. Its name, page count and size appear above the editor.",
-      "Type the top line in Header text and the bottom line in Footer text. The {n}, {total} and {date} buttons add that field to the end of the line; leave a field empty to skip that band.",
-      "Choose Left, Center or Right under each field. The chip beside the Header and Footer headings shows how page 1 will read.",
+      "Type the top lines in Header left, Header center and Header right, and the bottom lines in the three Footer boxes; leave a box empty to skip it. The {n}, {total} and {date} buttons add that field to the end of the box you last used in that band.",
+      "Check the chip beside the Header and Footer headings: it shows how the band will read on the first stamped page.",
       "Press Add header & footer. It works once either field has text.",
       `When the panel reads Header & footer added, press Download PDF. report.pdf is saved as ${HF_EXAMPLE_OUT}.`,
     ],
@@ -5472,7 +5472,7 @@ export const guides: Guide[] = [
         id: "what-you-can-change",
         heading: "What you can change, and what is fixed",
         body: [
-          "You choose the wording, the fields and each band's alignment. The font size, the grey ink and the distance from the edge are fixed, and each band holds one line in one position, so the same band cannot carry text at the left and the right at once.",
+          "You choose the wording, the fields and which box each line goes in: a band can carry text at the left, the center and the right at once, such as a company name at the left of the header and the date at its right. Two lines that would run into each other are refused, with a message naming both. The font size, the grey ink and the distance from the edge are fixed.",
           "Every page gets the same lines unless you open Pages: Leave the cover page blank skips page 1 but still counts it, Start on page begins the lines on a later page, First number sets the {n} that page shows, and Skip last pages leaves an appendix bare. {total} is then the last number printed. The text is drawn on top of the page with no background, and nothing is moved to make room, so text already printed near the edge will overlap it, and running the tool twice gives two headers. A page stored sideways still gets its header at the top as you view it, reading level.",
         ],
       },

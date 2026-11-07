@@ -154,8 +154,8 @@ export const TOOL_HOW: Readonly<Record<string, readonly string[]>> = {
   ],
   "header-footer": [
     "Open the PDF you want to label — it stays on your device.",
-    "Type your header text, footer text, or both — {n}, {total} and {date} insert the page number, the page count and today's date.",
-    "Choose Left, Center or Right alignment for each.",
+    "Type your header, footer, or both, in each band's Left, Center and Right boxes — {n}, {total} and {date} insert the page number, the page count and today's date.",
+    "Leave a box empty to skip it; a band can use all three.",
     "Download your PDF.",
   ],
   "sign-pdf": [

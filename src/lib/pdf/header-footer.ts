@@ -259,6 +259,47 @@ export async function addHeaderFooter(
     }
   });
 
+  // Two slots of one band, each of which fits alone, can still meet: a long
+  // left line runs under the centred one. Measured as placeStamp lays them out
+  // across the page as a reader sees it, with a space's width between them,
+  // and refused rather than drawn as an overprint (audit header-footer#3).
+  const gap = font.widthOfTextAtSize(" ", fontSize);
+  pages.forEach(({ page, n, at }) => {
+    const tokens = { n, total, date: options.date };
+    const across = viewerSize(visibleBox(page), page.getRotation().angle).width;
+    for (const v of ["top", "bottom"] as const) {
+      const spans = slots
+        .filter((slot) => slot.v === v)
+        .map((slot) => {
+          const text = applyTokens(slot.text, tokens);
+          const width =
+            text.trim().length === 0
+              ? 0
+              : font.widthOfTextAtSize(text, fontSize);
+          const start =
+            slot.h === "left"
+              ? margin
+              : slot.h === "right"
+                ? across - margin - width
+                : (across - width) / 2;
+          return { h: slot.h, start, end: start + width, width };
+        })
+        .filter((span) => span.width > 0);
+      // SLOT_ALIGN order: left, center, right — each pair once.
+      for (let i = 0; i < spans.length; i += 1) {
+        for (let j = i + 1; j < spans.length; j += 1) {
+          const a = spans[i]!;
+          const b = spans[j]!;
+          if (a.end + gap <= b.start) continue;
+          const band = v === "top" ? "header" : "footer";
+          throw new PdfEngineError(
+            `The ${band}'s ${a.h} and ${b.h} text overlap on page ${at + 1}: each fits alone, but together they need more room than the line has. Shorten one of them.`,
+          );
+        }
+      }
+    }
+  });
+
   pages.forEach(({ page, n }) => {
     const tokens = { n, total, date: options.date };
     const box = visibleBox(page);

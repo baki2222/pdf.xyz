@@ -1355,7 +1355,9 @@ export const CASES: Record<string, ToolCase> = {
     artifact: "pdf",
     run: async (ctx) => {
       await uploadTextPdf(ctx, "framed.pdf", { pages: 2 });
-      await ctx.page.getByLabel("Header text").fill("E2E-HEADER-MARK");
+      await ctx.page
+        .getByLabel("Header center", { exact: true })
+        .fill("E2E-HEADER-MARK");
       // Default footer stays "Page {n} of {total}".
       return runAndDownload(
         ctx,

@@ -393,3 +393,41 @@ describe("header-footer: which pages, and what {n} and {total} count", () => {
     ).rejects.toThrow(/No page gets the header or footer/);
   });
 });
+
+/**
+ * Audit header-footer#3 (2026-11-06): the runner filled one slot per band, so
+ * "Acme Ltd" at the left with the date at the right could not be made. With
+ * three slots in use, two of them can meet: each alone fits the page, and the
+ * pair would be drawn over each other. That is refused, like a slot too wide
+ * for the page, rather than shipped as an unreadable overprint.
+ */
+describe("header-footer: three slots in one band", () => {
+  it("draws left, center and right in their places on the same line", async () => {
+    const out = await addHeaderFooter(await blankPdf(1), {
+      header: { left: "LEFTMARK", center: "MIDMARK", right: "RIGHTMARK" },
+    });
+    const [page] = await readAsViewer(out);
+    const at = (s: string) => page!.runs.find((r) => r.str === s)!;
+    expect(at("LEFTMARK").x).toBeLessThan(at("MIDMARK").x);
+    expect(at("MIDMARK").x).toBeLessThan(at("RIGHTMARK").x);
+    expect(at("LEFTMARK").y).toBeCloseTo(at("RIGHTMARK").y, 0);
+  });
+
+  it("refuses two slots that would overlap, naming both", async () => {
+    const long = "Acme Corporation quarterly financial statement draft";
+    await expect(
+      addHeaderFooter(await blankPdf(1), {
+        footer: { left: long, center: long },
+      }),
+    ).rejects.toThrow(/footer's left and center text overlap on page 1/);
+  });
+
+  it("control: the same two lines in different bands are fine", async () => {
+    const long = "Acme Corporation quarterly financial statement draft";
+    const out = await addHeaderFooter(await blankPdf(1), {
+      header: { left: long },
+      footer: { center: long },
+    });
+    expect((await PDFDocument.load(out)).getPageCount()).toBe(1);
+  });
+});

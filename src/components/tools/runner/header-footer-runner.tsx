@@ -32,13 +32,16 @@ import {
   MoreOptions,
   NumberField,
   PrivacyLine,
-  SegmentedControl,
   TextField,
   TokenButtons,
 } from "./stamp-controls";
 import type { LoadedPdf } from "./use-single-pdf";
 
-/** Exported so the tool page steps can be pinned to what the picker offers. */
+/**
+ * The three boxes each band offers, in order. Each box's name is its band and
+ * this label ("Header left", "Footer center"); exported so the tool page and
+ * option memory are pinned to the boxes the editor draws.
+ */
 export const ALIGN_OPTIONS: { value: HAlign; label: string }[] = [
   { value: "left", label: "Left" },
   { value: "center", label: "Center" },
@@ -64,6 +67,68 @@ export function HeaderFooterRunner() {
   );
 }
 
+/** One band's text per box. */
+type BandText = Record<HAlign, string>;
+
+const EMPTY_BAND: BandText = { left: "", center: "", right: "" };
+
+/** The footer a new document starts with, in the box it was last used in. */
+const DEFAULT_FOOTER = "Page {n} of {total}";
+
+/** What `band`'s boxes send the engine: only the ones holding text. */
+function zoneOf(band: BandText): HeaderFooterZone | undefined {
+  const zone: HeaderFooterZone = {};
+  for (const { value } of ALIGN_OPTIONS)
+    if (band[value].trim()) zone[value] = band[value];
+  return Object.keys(zone).length > 0 ? zone : undefined;
+}
+
+/**
+ * A band's three boxes and its field buttons. The buttons add to the box last
+ * typed in or clicked in this band, which `target` holds; the Insert line
+ * names it so the reader knows where the field will land.
+ */
+function BandFields({
+  band,
+  text,
+  onChange,
+  placeholders,
+}: {
+  band: "Header" | "Footer";
+  text: BandText;
+  onChange: (next: BandText) => void;
+  placeholders: Partial<Record<HAlign, string>>;
+}) {
+  const [target, setTarget] = useState<HAlign>(
+    () =>
+      ALIGN_OPTIONS.find(({ value }) => text[value].trim())?.value ?? "center",
+  );
+  const targetLabel = ALIGN_OPTIONS.find((o) => o.value === target)!.label;
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="grid gap-3 sm:grid-cols-3">
+        {ALIGN_OPTIONS.map(({ value, label }) => (
+          <div key={value} onFocus={() => setTarget(value)}>
+            <TextField
+              label={`${band} ${label.toLowerCase()}`}
+              value={text[value]}
+              onChange={(next) => onChange({ ...text, [value]: next })}
+              placeholder={placeholders[value]}
+            />
+          </div>
+        ))}
+      </div>
+      <TokenButtons
+        tokens={TOKENS}
+        into={`${band} ${targetLabel.toLowerCase()}`}
+        onInsert={(token) =>
+          onChange({ ...text, [target]: text[target] + token })
+        }
+      />
+    </div>
+  );
+}
+
 export function HeaderFooterEditor({
   pdf,
   onReset,
@@ -71,15 +136,21 @@ export function HeaderFooterEditor({
   pdf: LoadedPdf;
   onReset: () => void;
 }) {
-  const [headerText, setHeaderText] = useState("");
-  // The last alignments chosen here, never the words (option memory).
+  // The box the footer's single line was in last time, never the words
+  // (option memory): the default footer starts there.
   const [kept] = useState(() => recallOptions("header-footer"));
-  const [headerAlign, setHeaderAlign] = useState<HAlign>(
-    kept.headerAlign ?? "center",
-  );
-  const [footerText, setFooterText] = useState("Page {n} of {total}");
-  const [footerAlign, setFooterAlign] = useState<HAlign>(
-    kept.footerAlign ?? "center",
+  const [header, setHeader] = useState<BandText>(EMPTY_BAND);
+  const [footer, setFooter] = useState<BandText>(() => ({
+    ...EMPTY_BAND,
+    [kept.footerAlign ?? "center"]: DEFAULT_FOOTER,
+  }));
+  // Every template the user wrote, for the {date} resolver and the gate.
+  const templates = useMemo(
+    () => [
+      ...ALIGN_OPTIONS.map(({ value }) => header[value]),
+      ...ALIGN_OPTIONS.map(({ value }) => footer[value]),
+    ],
+    [header, footer],
   );
   // Which pages get the bands. Like Page Numbers' Start on page and First
   // number, these belong to ONE document and are never remembered (audit #28).
@@ -111,7 +182,7 @@ export function HeaderFooterEditor({
   const [date, setDate] = useState(() => stampDateCandidates()[0] ?? "");
   useEffect(() => {
     let live = true;
-    resolveStampDate([headerText, footerText])
+    resolveStampDate(templates)
       .then((resolved) => {
         if (live) setDate(resolved);
       })
@@ -122,36 +193,40 @@ export function HeaderFooterEditor({
     return () => {
       live = false;
     };
-  }, [headerText, footerText]);
+  }, [templates]);
 
   // The preview reads as the FIRST page that gets the bands.
   const sampleTokens = useMemo(
     () => ({ n: plan.stamps[0]?.n ?? startAt, total: plan.total, date }),
     [plan, startAt, date],
   );
-  const headerPreview = applyTokens(headerText, sampleTokens);
-  const footerPreview = applyTokens(footerText, sampleTokens);
+  // Each band's boxes as page 1 reads them, left to right.
+  const preview = (band: BandText) =>
+    ALIGN_OPTIONS.map(({ value }) => applyTokens(band[value], sampleTokens))
+      .filter((line) => line.trim())
+      .join("  ·  ");
+  const headerPreview = preview(header);
+  const footerPreview = preview(footer);
 
-  const hasContent =
-    headerText.trim().length > 0 || footerText.trim().length > 0;
+  const hasContent = templates.some((t) => t.trim().length > 0);
 
   const onRun = () => {
-    rememberOptions("header-footer", { headerAlign, footerAlign });
-    const header: HeaderFooterZone | undefined = headerText.trim()
-      ? { [headerAlign]: headerText }
-      : undefined;
-    const footer: HeaderFooterZone | undefined = footerText.trim()
-      ? { [footerAlign]: footerText }
-      : undefined;
+    // A footer in exactly one box is remembered by that box; otherwise the
+    // last choice stands.
+    const footerBoxes = ALIGN_OPTIONS.filter(({ value }) =>
+      footer[value].trim(),
+    );
+    if (footerBoxes.length === 1)
+      rememberOptions("header-footer", { footerAlign: footerBoxes[0]!.value });
     return run(async () =>
       addHeaderFooter(pdf.bytes, {
-        header,
-        footer,
+        header: zoneOf(header),
+        footer: zoneOf(footer),
         startPage,
         startAt,
         skipCover,
         skipLast,
-        date: await resolveStampDate([headerText, footerText]),
+        date: await resolveStampDate(templates),
       }),
     );
   };
@@ -198,26 +273,12 @@ export function HeaderFooterEditor({
           )
         }
       >
-        <div className="flex flex-col gap-3">
-          <TextField
-            label="Header text"
-            value={headerText}
-            onChange={setHeaderText}
-            placeholder="e.g. Acme Corporation — Confidential"
-          />
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <SegmentedControl
-              label="Header alignment"
-              value={headerAlign}
-              onChange={setHeaderAlign}
-              options={ALIGN_OPTIONS}
-            />
-            <TokenButtons
-              tokens={TOKENS}
-              onInsert={(token) => setHeaderText((prev) => prev + token)}
-            />
-          </div>
-        </div>
+        <BandFields
+          band="Header"
+          text={header}
+          onChange={setHeader}
+          placeholders={{ left: "e.g. Acme Ltd", right: "e.g. {date}" }}
+        />
       </RunnerSection>
 
       <RunnerSection
@@ -230,26 +291,15 @@ export function HeaderFooterEditor({
           )
         }
       >
-        <div className="flex flex-col gap-3">
-          <TextField
-            label="Footer text"
-            value={footerText}
-            onChange={setFooterText}
-            placeholder="e.g. Page {n} of {total}"
-          />
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <SegmentedControl
-              label="Footer alignment"
-              value={footerAlign}
-              onChange={setFooterAlign}
-              options={ALIGN_OPTIONS}
-            />
-            <TokenButtons
-              tokens={TOKENS}
-              onInsert={(token) => setFooterText((prev) => prev + token)}
-            />
-          </div>
-        </div>
+        <BandFields
+          band="Footer"
+          text={footer}
+          onChange={setFooter}
+          placeholders={{
+            left: "e.g. Confidential",
+            right: "e.g. {n} / {total}",
+          }}
+        />
       </RunnerSection>
 
       <MoreOptions label="Pages" open={pagesOpen} onToggle={setPagesOpen}>

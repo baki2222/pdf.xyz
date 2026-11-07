@@ -125,9 +125,6 @@ describe("the registered schemas hold no free text", () => {
     expect(S["page-numbers"].format.values).toEqual(
       FORMAT_PRESETS.map((p) => p.value),
     );
-    expect(S["header-footer"].headerAlign.values).toEqual(
-      ALIGN_OPTIONS.map((o) => o.value),
-    );
     expect(S["header-footer"].footerAlign.values).toEqual(
       ALIGN_OPTIONS.map((o) => o.value),
     );
@@ -182,7 +179,7 @@ describe("the store", () => {
             startAt: 7,
           },
           watermark: { opacity: 1000, rotation: "45" },
-          "header-footer": { headerAlign: "right", footerAlign: "sideways" },
+          "header-footer": { headerAlign: "right", footerAlign: "left" },
         },
       }),
     );
@@ -191,7 +188,10 @@ describe("the store", () => {
     // at all (audit #28), so a stored one — even a valid one, as an older
     // build wrote it — is dropped like any field the schema does not name.
     expect(recallOptions("page-numbers")).toEqual({});
-    expect(recallOptions("header-footer")).toEqual({ headerAlign: "right" });
+    // headerAlign was kept until 2026-11-07 (one box per band); the six-box
+    // editor has nothing to place with it, so an older build's value is
+    // dropped and only the footer's box survives.
+    expect(recallOptions("header-footer")).toEqual({ footerAlign: "left" });
     expect(recallOptions("watermark")).toEqual({});
   });
 

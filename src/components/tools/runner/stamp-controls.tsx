@@ -263,15 +263,19 @@ export function NumberField({
 export function TokenButtons({
   tokens,
   onInsert,
+  into,
 }: {
   tokens: { token: string; label: string }[];
   onInsert: (token: string) => void;
+  /** The field the buttons add to, when a panel has more than one. */
+  into?: string;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <span className="text-muted text-[11px] tracking-wide uppercase">
         Insert
       </span>
+      {into && <span className="text-muted text-[11px]">into {into}</span>}
       {tokens.map(({ token, label }) => (
         <button
           key={token}
