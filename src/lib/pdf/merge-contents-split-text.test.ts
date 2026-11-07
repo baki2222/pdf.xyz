@@ -185,6 +185,58 @@ describe("merge: contents page", () => {
   });
 });
 
+describe("merge: contents page with a blank page after odd files (review of audit merge-pdf#3)", () => {
+  // Odd/even was once worked out before the contents were put in front, so
+  // one contents page moved every file onto the BACK of a sheet: 3/2/1-page
+  // files started on pages 2 and 6. The contents block is now made even.
+  it("keeps every file's first page on the front of a sheet (an even 0-based index)", async () => {
+    let contents = -1;
+    let blanks = -1;
+    const out = await mergePdfs(
+      [
+        await makePdf([11, 12, 13]),
+        await makePdf([21, 22]),
+        await makePdf([31]),
+      ],
+      {
+        contentsPage: ["a", "b", "c"],
+        blankAfterOdd: true,
+        onContentsPages: (n) => {
+          contents = n;
+        },
+        onBlankPages: (n) => {
+          blanks = n;
+        },
+      },
+    );
+    const w = await widths(out);
+    const firsts = [11, 21, 31].map((x) => w.indexOf(x));
+    expect(
+      firsts.every((i) => i % 2 === 0),
+      `widths ${w}`,
+    ).toBe(true);
+    // The re-count the receipt makes: own pages + contents + blanks.
+    expect(contents + blanks + 6).toBe(w.length);
+    expect(contents).toBe(1);
+    // The pad after the contents page is blank, and the numbers count it.
+    const doc = await PDFDocument.load(out);
+    expect(doc.getPage(1).node.Contents()).toBeUndefined();
+    expect(await linkTargets(out, 0)).toEqual(firsts);
+    const { pages } = await extractPdfText(out, legacy);
+    const toc = pages[0]!.text.replace(/[ .]{3,}/g, " … ");
+    expect(toc).toMatch(new RegExp(`a … ${firsts[0]! + 1}`));
+    expect(toc).toMatch(new RegExp(`b … ${firsts[1]! + 1}`));
+    expect(toc).toMatch(new RegExp(`c … ${firsts[2]! + 1}`));
+  });
+
+  it("without the blank option, one contents page gets no pad (control)", async () => {
+    const out = await mergePdfs([await makePdf([11]), await makePdf([21])], {
+      contentsPage: ["a", "b"],
+    });
+    expect(await widths(out)).toEqual([300, 11, 21]);
+  });
+});
+
 async function textPdf(pages: string[][]): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);

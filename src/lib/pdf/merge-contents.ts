@@ -56,16 +56,20 @@ function latinOnly(text: string): string {
 }
 
 /**
- * Insert the contents pages at the front of `out`. Returns how many pages
- * were inserted.
+ * Insert the contents pages at the front of `out`. With `padToEven`, an odd
+ * number of them is followed by one blank page, so a merged file that
+ * starts on the front of a sheet still does when printed double-sided; the
+ * entries' numbers count it. Returns how many contents and blank pages were
+ * inserted.
  */
 export async function addContentsPages(
   lib: PdfLibModule,
   out: PDFDocument,
   entries: readonly ContentsEntry[],
-): Promise<number> {
+  { padToEven = false }: { padToEven?: boolean } = {},
+): Promise<{ contents: number; blank: number }> {
   const { PDFName, rgb } = lib;
-  if (entries.length === 0) return 0;
+  if (entries.length === 0) return { contents: 0, blank: 0 };
   const first = out.getPage(0);
   const { width: w0, height: h0 } = first.getSize();
   const turned = first.getRotation().angle % 180 !== 0;
@@ -98,6 +102,8 @@ export async function addContentsPages(
   for (let p = 0; p < pageCount; p++) {
     pages.push(out.insertPage(p, [width, height]));
   }
+  const blank = padToEven && pageCount % 2 === 1 ? 1 : 0;
+  if (blank) out.insertPage(pageCount, [width, height]);
   const order = out.getPages();
   for (let p = 0; p < pageCount; p++) {
     const page = pages[p]!;
@@ -160,5 +166,5 @@ export async function addContentsPages(
       page.node.addAnnot(link);
     });
   }
-  return pageCount;
+  return { contents: pageCount, blank };
 }

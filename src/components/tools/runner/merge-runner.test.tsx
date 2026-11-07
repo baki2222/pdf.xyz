@@ -128,6 +128,31 @@ describe("merge-pdf: the options reach the downloaded file", () => {
     expect(summary).toContain("6 pages (1 blank)");
   }, 30_000);
 
+  it("with 'Add a contents page' ticked too, every file still starts on the front of a sheet", async () => {
+    // Review of audit merge-pdf#3: one contents page in front once moved
+    // every file onto the back of a sheet.
+    await mountWith([
+      pdfFile(await pdfOfWidths([11, 12, 13]), "a.pdf"),
+      pdfFile(await pdfOfWidths([21, 22]), "b.pdf"),
+      pdfFile(await pdfOfWidths([31]), "c.pdf"),
+    ]);
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: /add a blank page after files with an odd page count/i,
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /^add a contents page/i }),
+    );
+    const { widths, summary } = await mergeAndRead();
+    const firsts = [11, 21, 31].map((x) => widths.indexOf(x));
+    expect(
+      firsts.every((i) => i % 2 === 0),
+      `widths ${widths}`,
+    ).toBe(true);
+    expect(summary).toContain(`${widths.length} pages (1 contents, 2 blank)`);
+  }, 30_000);
+
   it("CONTROL: left unticked, nothing is added", async () => {
     await mountWith([
       pdfFile(await pdfOfWidths([11, 12, 13]), "a.pdf"),

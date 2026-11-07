@@ -139,7 +139,8 @@ export interface MergeOptions {
   /**
    * For double-sided printing: after each file whose selected page count is
    * odd, except the last file, add a blank page the size of that file's last
-   * page, so the next file starts on the front of a sheet.
+   * page, so the next file starts on the front of a sheet; with a contents
+   * page, an odd number of contents pages is followed by a blank too.
    */
   blankAfterOdd?: boolean;
   /** Told how many blank pages `blankAfterOdd` added, for the page re-count. */
@@ -206,12 +207,15 @@ export async function mergePdfs(
       }),
     );
   }
+  // Blank pages added for double-sided printing: after odd files, and after
+  // an odd contents block, which would otherwise move every file onto the
+  // back of a sheet.
+  let added = 0;
   if (options.blankAfterOdd) {
     // After assembly, so bookmarks and contents entries, which point at page
     // objects, still open each file's first page; the contents page numbers
     // are read from the final order, blanks included.
     let at = 0;
-    let added = 0;
     sources.forEach(({ indices }, i) => {
       at += indices.length;
       if (indices.length % 2 === 0 || i === sources.length - 1) return;
@@ -219,7 +223,6 @@ export async function mergePdfs(
       out.insertPage(at + added, [width, height]);
       added += 1;
     });
-    options.onBlankPages?.(added);
   }
   if (options.contentsPage) {
     const titles = options.contentsPage;
@@ -233,9 +236,13 @@ export async function mergePdfs(
     // Added before it is reported: `f?.(x)` does not evaluate `x` when `f`
     // is absent, which once skipped the contents page for every caller that
     // did not ask for the count.
-    const added = await addContentsPages(lib, out, entries);
-    options.onContentsPages?.(added);
+    const { contents, blank } = await addContentsPages(lib, out, entries, {
+      padToEven: options.blankAfterOdd === true,
+    });
+    added += blank;
+    options.onContentsPages?.(contents);
   }
+  if (options.blankAfterOdd) options.onBlankPages?.(added);
   stamp(out);
   return out.save();
 }
