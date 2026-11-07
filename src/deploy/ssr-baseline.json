@@ -142,7 +142,7 @@
         "How to convert a PDF to black and white",
         "How to convert a PDF to text",
         "How to convert a Word document to PDF",
-        "How to convert a scanned PDF to editable Word",
+        "How to convert a scanned PDF to Word",
         "How to convert a text file (TXT) to PDF",
         "How to convert an HTML file to PDF",
         "How to create a fillable PDF form",
@@ -1684,11 +1684,11 @@
       ]
     },
     "guides/how-to-convert-a-scanned-pdf-to-word.html": {
-      "title": "How to convert a scanned PDF to editable Word — pdf.xyz",
+      "title": "How to convert a scanned PDF to Word — pdf.xyz",
       "description": "Turn a scanned PDF into an editable Word (DOCX) file: tick “Recognise text in scans (OCR)” and our server reads the text with OCR, then converts it.",
       "canonical": "https://pdf.xyz/guides/how-to-convert-a-scanned-pdf-to-word",
       "robots": "index, follow",
-      "h1": ["How to convert a scanned PDF to editable Word"],
+      "h1": ["How to convert a scanned PDF to Word"],
       "h2": [
         "A searchable PDF, or a photo instead of a PDF",
         "Choosing the languages",

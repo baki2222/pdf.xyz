@@ -544,7 +544,7 @@ export const GUIDE_META: readonly GuideMeta[] = [
   },
   {
     slug: "how-to-convert-a-scanned-pdf-to-word",
-    title: "How to convert a scanned PDF to editable Word",
+    title: "How to convert a scanned PDF to Word",
     primary: "pdf-to-word",
     keywords: [
       "scanned pdf to word",
