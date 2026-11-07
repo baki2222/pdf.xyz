@@ -58,6 +58,7 @@ import { userPasswordEncryptedPdf } from "@/tests/encrypted-pdf-fixture";
 import { parseRanges } from "@/lib/pdf/ranges";
 import {
   IMAGE_HEAVY_SHARE,
+  LOSSLESS_MIN_RATIO,
   analyzePdf,
   summarizeAnalysis,
 } from "@/lib/pdf/analyze";
@@ -603,6 +604,35 @@ describe("compress answers what each of its two paths does", () => {
     expect(answer(tool.slug, /How much smaller/)).toContain(
       `${Math.round(IMAGE_HEAVY_SHARE * 100)}% or more`,
     );
+  });
+
+  it("the How-much-smaller answer states the rule imageHeavy follows, whatever the saving", () => {
+    const summary = (share: number, savedRatio: number) =>
+      summarizeAnalysis({
+        pageCount: 1,
+        originalBytes: 1000,
+        imageCount: 1,
+        imageBytes: Math.round(share * 1000),
+        optimizedBytes: Math.round(1000 * (1 - savedRatio)),
+        signatureCount: 0,
+      });
+    // The panel points to the server whenever imageHeavy is set: also when
+    // the repack itself saves LOSSLESS_MIN_RATIO or more.
+    const both = summary(IMAGE_HEAVY_SHARE, LOSSLESS_MIN_RATIO);
+    expect(both.recommendation).toBe("lossless-helps");
+    expect(both.imageHeavy).toBe(true);
+    expect(summary(IMAGE_HEAVY_SHARE - 0.01, 0).imageHeavy).toBe(false);
+    const tool = mounting("compress")[0]!;
+    expect(runnerSource(tool.slug)).toMatch(/summary\.imageHeavy &&/);
+    const served = answer(tool.slug, /How much smaller/);
+    expect(served).toContain(
+      `Whenever images make up ${Math.round(IMAGE_HEAVY_SHARE * 100)}% or more of the file`,
+    );
+    expect(served).toContain(
+      `even when the lossless repack also saves ${Math.round(LOSSLESS_MIN_RATIO * 100)}% or more`,
+    );
+    // The old condition, "when it saves little", is gone.
+    expect(served).not.toMatch(/saves little/);
   });
 });
 

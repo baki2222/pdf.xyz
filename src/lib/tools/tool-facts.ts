@@ -71,7 +71,7 @@ import {
   MAX_EXTRACTION_FIELDS,
 } from "@/lib/jobs/ai-extract";
 import { MAX_CONTEXT_EXCHANGES } from "@/lib/workers/chat-with-pdf-conversation";
-import { IMAGE_HEAVY_SHARE } from "@/lib/pdf/analyze";
+import { IMAGE_HEAVY_SHARE, LOSSLESS_MIN_RATIO } from "@/lib/pdf/analyze";
 import { buildSplitParts } from "@/lib/pdf/ranges";
 import {
   DEFAULT_REDACT_METHOD,
@@ -1271,7 +1271,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         },
         {
           question: "How much smaller will my PDF get?",
-          answer: `That depends on what the file holds, so no figure is promised in advance. The in-browser step measures the exact saving before you download, and offers the download only when the file got smaller. When it saves little and images make up ${percent(IMAGE_HEAVY_SHARE)}% or more of the file, it points you to the secure-server step, which is where the images themselves are made smaller.`,
+          answer: `That depends on what the file holds, so no figure is promised in advance. The in-browser step measures the exact saving before you download, and offers the download only when the file got smaller. Whenever images make up ${percent(IMAGE_HEAVY_SHARE)}% or more of the file, it points you to the secure-server step, which is where the images themselves are made smaller — even when the lossless repack also saves ${percent(LOSSLESS_MIN_RATIO)}% or more.`,
         },
       ];
     case "sign":
