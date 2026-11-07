@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_JPEG_QUALITY_ID,
+  RASTER_JPEG_QUALITIES,
+  jpegQualityById,
   DEFAULT_JPEG_QUALITY,
   DEFAULT_RESOLUTION_ID,
   RASTER_EXT,
@@ -80,6 +83,20 @@ describe("clampJpegQuality", () => {
     expect(clampJpegQuality(Number.POSITIVE_INFINITY)).toBe(
       DEFAULT_JPEG_QUALITY,
     );
+  });
+});
+
+describe("JPEG quality presets (audit pdf-to-jpg#3)", () => {
+  it("run from smallest file to best quality, inside the clamp, defaulting to the old quality", () => {
+    const values = RASTER_JPEG_QUALITIES.map((q) => q.quality);
+    // pdf-to-jpg.ts calls the FIRST preset the lightest: hold it to that.
+    expect([...values].sort((a, b) => a - b)).toEqual(values);
+    expect(new Set(values).size).toBe(values.length);
+    for (const v of values) expect(clampJpegQuality(v)).toBe(v);
+    expect(jpegQualityById(DEFAULT_JPEG_QUALITY_ID).quality).toBe(
+      DEFAULT_JPEG_QUALITY,
+    );
+    expect(jpegQualityById("nonsense").id).toBe(DEFAULT_JPEG_QUALITY_ID);
   });
 });
 

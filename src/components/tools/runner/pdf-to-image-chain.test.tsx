@@ -17,12 +17,16 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import JSZip from "jszip";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { PDFDocument } from "pdf-lib";
 import { resetAnnouncer } from "@/components/a11y/live-region";
 import {
+  DEFAULT_JPEG_QUALITY,
+  JPEG_QUALITY_LABEL,
+  RASTER_JPEG_QUALITIES,
   RASTER_RESOLUTIONS,
   pageImageName,
   zipOutputName,
@@ -756,4 +760,106 @@ describe("a failed page without onPageFailed still rejects (Redact, Grayscale)",
       { index: 2, message: "Page 3 could not be rendered." },
     ]);
   }, 30_000);
+});
+
+/* ------------------------------------------------------------------ *
+ *  JPEG quality (audit pdf-to-jpg#3, 2026-11-07)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Every JPEG was encoded at DEFAULT_JPEG_QUALITY and the page said "There is
+ * no quality slider". Now PDF to JPG offers RASTER_JPEG_QUALITIES; read here
+ * at the encoder (the quality `toBlob` is called with) after a real run, and
+ * PDF to PNG offers no such choice.
+ */
+describe("PDF to JPG — the Quality choice reaches the encoder", () => {
+  beforeEach(() => window.localStorage.clear());
+
+  async function mount(format: "jpg" | "png") {
+    const doc = await PDFDocument.create();
+    doc.addPage([100, 100]);
+    const file = new File([new Uint8Array(await doc.save())], "q.pdf", {
+      type: "application/pdf",
+    });
+    const router = {
+      back: () => {},
+      forward: () => {},
+      refresh: () => {},
+      push: () => {},
+      replace: () => {},
+      prefetch: () => {},
+      bfcacheId: "test",
+    };
+    const { container } = render(
+      <AppRouterContext.Provider value={router}>
+        <PdfToImageRunner format={format} />
+      </AppRouterContext.Provider>,
+    );
+    fireEvent.change(container.querySelector('input[type="file"]')!, {
+      target: { files: [file] },
+    });
+    await screen.findByRole(
+      "button",
+      { name: /render 1 page/i },
+      { timeout: 10_000 },
+    );
+  }
+
+  /** Render with the chip for `id` pressed (or none), return toBlob's quality. */
+  async function qualityFor(id: string | null): Promise<unknown> {
+    const seen: unknown[] = [];
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+      function (
+        this: HTMLCanvasElement,
+        callback: BlobCallback,
+        type?: string,
+        quality?: unknown,
+      ) {
+        expect(type).toBe("image/jpeg");
+        seen.push(quality);
+        callback(new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])]));
+      },
+    );
+    await mount("jpg");
+    const group = screen.getByRole("group", { name: JPEG_QUALITY_LABEL });
+    if (id !== null) {
+      const preset = RASTER_JPEG_QUALITIES.find((q) => q.id === id)!;
+      const chip = within(group).getByRole("button", {
+        name: new RegExp(`^${preset.label}`),
+      });
+      fireEvent.click(chip);
+      expect(chip).toHaveAttribute("aria-pressed", "true");
+    }
+    fireEvent.click(screen.getByRole("button", { name: /render 1 page/i }));
+    await screen.findByRole(
+      "button",
+      { name: /download jpg/i },
+      { timeout: 20_000 },
+    );
+    expect(seen).toHaveLength(1);
+    return seen[0];
+  }
+
+  it("each preset encodes at its own quality", async () => {
+    // Health: the presets are distinct, so one value cannot pass for another.
+    const values = RASTER_JPEG_QUALITIES.map((q) => q.quality);
+    expect(new Set(values).size).toBe(values.length);
+    for (const preset of RASTER_JPEG_QUALITIES) {
+      expect(await qualityFor(preset.id)).toBe(preset.quality);
+      // Not restoreAllMocks: that would drop beforeEach's non-painting
+      // render; the toBlob spy is re-pointed by the next qualityFor.
+      cleanup();
+    }
+  }, 30_000);
+
+  it("the default is the quality the page has always used", async () => {
+    expect(await qualityFor(null)).toBe(DEFAULT_JPEG_QUALITY);
+  });
+
+  it("control: PDF to PNG has no Quality choice", async () => {
+    await mount("png");
+    expect(
+      screen.queryByRole("group", { name: JPEG_QUALITY_LABEL }),
+    ).toBeNull();
+  });
 });

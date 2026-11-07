@@ -63,6 +63,9 @@ import {
 import { TRANSLATE_LANGUAGES } from "@/lib/jobs/translate-pdf";
 import {
   DEFAULT_JPEG_QUALITY,
+  DEFAULT_JPEG_QUALITY_ID,
+  JPEG_QUALITY_LABEL,
+  RASTER_JPEG_QUALITIES,
   DEFAULT_RESOLUTION_ID,
   RASTER_MAX_DEVICE_PX,
   RASTER_PREVIEW_LIMIT,
@@ -1278,7 +1281,7 @@ export const guides: Guide[] = [
         id: "jpg-or-png",
         heading: "JPG or PNG?",
         body: [
-          `JPG files are smaller and suit photographs and scanned pages; each page is encoded at a fixed JPEG quality of ${Math.round(DEFAULT_JPEG_QUALITY * 100)}%. PNG is lossless — every pixel is kept exactly — which suits text, line art and screenshots, at the cost of larger files.`,
+          `JPG files are smaller and suit photographs and scanned pages. PDF to JPG's ${JPEG_QUALITY_LABEL} choice sets how hard each page is compressed: ${RASTER_JPEG_QUALITIES.map((q) => `${q.label} (${Math.round(q.quality * 100)}%)`).join(", ")}, with ${RASTER_JPEG_QUALITIES.find((q) => q.id === DEFAULT_JPEG_QUALITY_ID)!.label} (${Math.round(DEFAULT_JPEG_QUALITY * 100)}%) selected at the start; a lower one gives a smaller file. PNG is lossless — every pixel is kept exactly — which suits text, line art and screenshots, at the cost of larger files.`,
           "Both are rendered on a white background, so any transparent area of a page comes out white.",
         ],
       },
@@ -1333,7 +1336,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-rotate-a-pdf",

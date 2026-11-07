@@ -96,6 +96,33 @@ export const RASTER_MAX_DEVICE_PX = 5000;
 /** Default JPEG quality (0..1) — high, visually near-lossless but compact. */
 export const DEFAULT_JPEG_QUALITY = 0.92;
 
+/**
+ * PDF to JPG's Quality choice (audit pdf-to-jpg#3, 2026-11-07); until then
+ * every JPEG was encoded at {@link DEFAULT_JPEG_QUALITY} and the page said
+ * there was no quality slider. The default preset IS that quality, so a
+ * reader who touches nothing gets the JPEGs they always got.
+ */
+export const RASTER_JPEG_QUALITIES = [
+  { id: "smaller", label: "Smaller file", quality: 0.75 },
+  { id: "standard", label: "Standard", quality: DEFAULT_JPEG_QUALITY },
+  { id: "maximum", label: "Maximum", quality: 1 },
+] as const;
+
+export type RasterJpegQualityId = (typeof RASTER_JPEG_QUALITIES)[number]["id"];
+
+export const DEFAULT_JPEG_QUALITY_ID: RasterJpegQualityId = "standard";
+
+/** The section heading the runner shows and the page names. */
+export const JPEG_QUALITY_LABEL = "Quality";
+
+/** Resolve a quality preset id, falling back to the default preset. */
+export function jpegQualityById(id: string) {
+  return (
+    RASTER_JPEG_QUALITIES.find((q) => q.id === id) ??
+    RASTER_JPEG_QUALITIES.find((q) => q.id === DEFAULT_JPEG_QUALITY_ID)!
+  );
+}
+
 /** Clamp a JPEG quality into canvas' meaningful [0.1, 1] range; NaN → default. */
 export function clampJpegQuality(quality: number): number {
   if (!Number.isFinite(quality)) return DEFAULT_JPEG_QUALITY;
