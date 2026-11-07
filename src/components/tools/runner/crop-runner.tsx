@@ -53,6 +53,8 @@ import {
 import type { LoadedPdf } from "./use-single-pdf";
 import { CropDisclosure } from "./crop-disclosure";
 import { usePageImage } from "./use-page-image";
+import { evenPages, oddPages } from "./selection";
+import { pagesInText } from "./page-picker-text";
 
 const START_MARGIN = 24;
 const MAX_MARGIN = 300;
@@ -62,6 +64,26 @@ const clampPct = (value: number) => Math.max(0, Math.min(49, value));
 
 type CropMode = "uniform" | "per-side" | "auto";
 type Edge = keyof CropMargins;
+type CropScope = "all" | "odd" | "even" | "range";
+
+/** Said under the preview for a page the chosen pages leave out. */
+export const OUT_OF_SCOPE_NOTE =
+  "This page is not one of the pages you chose, so it stays uncropped.";
+
+/**
+ * The pages a scope crops, or null for every page. A Selected pages list that
+ * does not parse yet names none, so the preview shows no box it cannot keep.
+ */
+function scopePages(
+  scope: CropScope,
+  rangeInput: string,
+  pageCount: number,
+): Set<number> | null {
+  if (scope === "all") return null;
+  if (scope === "odd") return oddPages(pageCount);
+  if (scope === "even") return evenPages(pageCount);
+  return pagesInText(rangeInput, pageCount);
+}
 const EDGES: readonly Edge[] = ["top", "right", "bottom", "left"];
 
 /** Each handle's accessible name — "Top edge", and so on. */
@@ -156,7 +178,7 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
   });
   const [mode, setMode] = useState<CropMode>("uniform");
   const [unit, setUnit] = useState<LengthUnit>("pt");
-  const [scope, setScope] = useState<"all" | "range">("all");
+  const [scope, setScope] = useState<CropScope>("all");
   const [rangeInput, setRangeInput] = useState("");
   const [rangeError, setRangeError] = useState<string | null>(null);
   const [count, setCount] = useState(pdf.pageCount);
@@ -189,9 +211,16 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
 
   // The margins the preview draws: the slider values, or in Auto the
   // proposal for the page being reviewed (none for a blank page).
-  const shownPage = mode === "auto" ? previewPage : 0;
-  const shownMargins: CropMargins | null =
-    mode === "auto" ? (autoMargins?.[shownPage] ?? null) : margins;
+  // Every mode steps through the pages (audit crop-pdf#2): the manual
+  // preview was pinned to page 1, even when the chosen pages left it out.
+  const shownPage = Math.min(previewPage, Math.max(0, pdf.pageCount - 1));
+  const chosen = scopePages(scope, rangeInput, pdf.pageCount);
+  const inScope = chosen === null || chosen.has(shownPage);
+  const shownMargins: CropMargins | null = !inScope
+    ? null
+    : mode === "auto"
+      ? (autoMargins?.[shownPage] ?? null)
+      : margins;
   const pageSize = sizes[shownPage] ?? null;
   const preview =
     pageSize && pageSize.width > 0 && pageSize.height > 0
@@ -257,6 +286,8 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
         setRangeError(errorMessage(err));
         return;
       }
+    } else if (scope !== "all") {
+      pages = [...scopePages(scope, rangeInput, pdf.pageCount)!];
     }
     setRangeError(null);
     if (mode === "auto") {
@@ -404,9 +435,20 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
           <SegmentedControl
             label="Page scope"
             value={scope}
-            onChange={setScope}
+            onChange={(next) => {
+              setScope(next);
+              // Show the first page the new scope crops.
+              if (next === "odd") setPreviewPage(0);
+              if (next === "even") setPreviewPage(1);
+            }}
             options={[
               { value: "all", label: "All pages" },
+              ...(pdf.pageCount > 1
+                ? ([
+                    { value: "odd", label: "Odd pages" },
+                    { value: "even", label: "Even pages" },
+                  ] as const)
+                : []),
               { value: "range", label: "Selected pages" },
             ]}
           />
@@ -429,11 +471,9 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
       <RunnerSection
         title="Crop preview"
         aside={
-          mode === "auto" && plan ? (
-            <span className="text-muted tnum text-xs">
-              Page {shownPage + 1} of {pdf.pageCount}
-            </span>
-          ) : undefined
+          <span className="text-muted tnum text-xs">
+            Page {shownPage + 1} of {pdf.pageCount}
+          </span>
         }
       >
         <div className="border-line bg-canvas rounded-panel flex flex-col items-center gap-3 border p-5">
@@ -490,34 +530,39 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
               {EDGE_HINT}
             </p>
           )}
-          {mode === "auto" && plan && (
-            <>
-              <p className="text-muted text-xs" role="status">
-                {plan.blank.includes(shownPage)
-                  ? "This page looks blank, so it is left uncropped."
-                  : plan.unread.includes(shownPage)
-                    ? "This page could not be read, so it is left uncropped."
-                    : "The dashed box is what this page keeps."}
-              </p>
-              <div className="flex items-center gap-2">
-                <ChipButton
-                  onClick={() => setPreviewPage((p) => Math.max(0, p - 1))}
-                  disabled={shownPage === 0}
-                >
-                  <ChevronLeft className="size-3.5" aria-hidden />
-                  Previous page
-                </ChipButton>
-                <ChipButton
-                  onClick={() =>
-                    setPreviewPage((p) => Math.min(pdf.pageCount - 1, p + 1))
-                  }
-                  disabled={shownPage >= pdf.pageCount - 1}
-                >
-                  Next page
-                  <ChevronRight className="size-3.5" aria-hidden />
-                </ChipButton>
-              </div>
-            </>
+          {!inScope && (
+            <p className="text-muted text-xs" role="status">
+              {OUT_OF_SCOPE_NOTE}
+            </p>
+          )}
+          {mode === "auto" && plan && inScope && (
+            <p className="text-muted text-xs" role="status">
+              {plan.blank.includes(shownPage)
+                ? "This page looks blank, so it is left uncropped."
+                : plan.unread.includes(shownPage)
+                  ? "This page could not be read, so it is left uncropped."
+                  : "The dashed box is what this page keeps."}
+            </p>
+          )}
+          {pdf.pageCount > 1 && (
+            <div className="flex items-center gap-2">
+              <ChipButton
+                onClick={() => setPreviewPage((p) => Math.max(0, p - 1))}
+                disabled={shownPage === 0}
+              >
+                <ChevronLeft className="size-3.5" aria-hidden />
+                Previous page
+              </ChipButton>
+              <ChipButton
+                onClick={() =>
+                  setPreviewPage((p) => Math.min(pdf.pageCount - 1, p + 1))
+                }
+                disabled={shownPage >= pdf.pageCount - 1}
+              >
+                Next page
+                <ChevronRight className="size-3.5" aria-hidden />
+              </ChipButton>
+            </div>
           )}
         </div>
       </RunnerSection>
