@@ -18,37 +18,31 @@ import {
 import { PDFDocument } from "pdf-lib";
 import { resetAnnouncer } from "@/components/a11y/live-region";
 import type { RedactionRect } from "@/lib/pdf/redact";
+import { RedactEditor, redactRunnerDeps } from "./redact-runner";
 
-const engine = vi.hoisted(() => ({ rects: null as RedactionRect[] | null }));
+const engine = { rects: null as RedactionRect[] | null };
 
-vi.mock("@/lib/pdf/redact", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/pdf/redact")>();
-  return {
-    ...actual,
-    redactPdf: vi.fn(
-      async (bytes: Uint8Array, options: { rects: RedactionRect[] }) => {
-        engine.rects = options.rects;
-        return {
-          bytes,
-          pageCount: 3,
-          redactionCount: options.rects.length,
-          totalImageBytes: 0,
-          undecodedImages: 0,
-        };
-      },
-    ),
-  };
-});
-
-import { RedactEditor } from "./redact-runner";
+const realFlatten = redactRunnerDeps.flatten;
 
 beforeEach(() => {
   engine.rects = null;
+  // The flatten engine needs a canvas jsdom lacks; record what it is handed.
+  redactRunnerDeps.flatten = async (bytes, options) => {
+    engine.rects = options.rects;
+    return {
+      bytes,
+      pageCount: 3,
+      redactionCount: options.rects.length,
+      totalImageBytes: 0,
+      undecodedImages: 0,
+    };
+  };
   URL.createObjectURL = vi.fn(() => "blob:redact-test");
   URL.revokeObjectURL = vi.fn();
 });
 
 afterEach(() => {
+  redactRunnerDeps.flatten = realFlatten;
   cleanup();
   resetAnnouncer();
   vi.restoreAllMocks();
