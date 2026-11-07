@@ -16,6 +16,7 @@ import {
 } from "@testing-library/react";
 import { resetAnnouncer } from "@/components/a11y/live-region";
 import { JPEG_30X20, spliceAfterSoi } from "@/tests/jpeg-fixtures";
+import { PNG_1PX } from "@/tests/pdf-text-fixtures";
 import { withAppRouter } from "@/tests/app-router";
 import {
   PHOTO_DETAILS_CHOICES,
@@ -45,16 +46,28 @@ const PHOTO = spliceAfterSoi(
   new Uint8Array([0xff, 0xfe, 0, GPS.length + 2, ...Buffer.from(GPS)]),
 );
 
+const JPEG_FILE = () =>
+  new File([new Uint8Array(PHOTO)], "phone.jpg", { type: "image/jpeg" });
+const PNG_FILE = () =>
+  new File([new Uint8Array(PNG_1PX)], "logo.png", { type: "image/png" });
+
+/** Add files to a runner and wait until each is listed. */
+async function add(container: HTMLElement, files: File[]) {
+  fireEvent.change(container.querySelector('input[type="file"]')!, {
+    target: { files },
+  });
+  for (const f of files) {
+    await screen.findByText(f.name, undefined, { timeout: 4_000 });
+  }
+}
+
+const detailsGroup = () =>
+  screen.queryByRole("group", { name: PHOTO_DETAILS_LABELS.heading });
+
 async function mount() {
   const { container } = render(withAppRouter(<ImageToPdfRunner kind="jpg" />));
-  const file = new File([new Uint8Array(PHOTO)], "phone.jpg", {
-    type: "image/jpeg",
-  });
-  fireEvent.change(container.querySelector('input[type="file"]')!, {
-    target: { files: [file] },
-  });
-  await screen.findByText("phone.jpg", undefined, { timeout: 4_000 });
-  return screen.getByRole("group", { name: PHOTO_DETAILS_LABELS.heading });
+  await add(container, [JPEG_FILE()]);
+  return detailsGroup()!;
 }
 
 const chip = (group: HTMLElement, id: string) =>
@@ -106,5 +119,38 @@ describe("JPG to PDF · photo location & camera details", () => {
     expect(chip(group, "keep")).toHaveAttribute("aria-pressed", "true");
     const pdf = await createAndDownload();
     expect(pdf.includes(Buffer.from(GPS, "latin1"))).toBe(true);
+  });
+});
+
+/**
+ * Review (2026-11-08): PNG to PDF shares this runner, so it showed the choice
+ * for PNGs too, where it does nothing: png-embed copies only IDAT, so a PNG's
+ * metadata never reaches the PDF, and "Keep" suggested otherwise. The choice
+ * now appears only while the list holds a JPEG, on either page.
+ */
+describe("the choice is offered only where a JPEG can use it", () => {
+  it("PNG to PDF with only PNGs: no choice; add a JPEG and it appears", async () => {
+    const { container } = render(
+      withAppRouter(<ImageToPdfRunner kind="png" />),
+    );
+    await add(container, [PNG_FILE()]);
+    // Health: the page-setup controls ARE drawn, so absence is not a blank.
+    expect(
+      screen.getByRole("button", { name: /Create PDF/ }),
+    ).toBeInTheDocument();
+    expect(detailsGroup()).toBeNull();
+    await add(container, [JPEG_FILE()]);
+    expect(detailsGroup()).not.toBeNull();
+  });
+
+  it("JPG to PDF with only a PNG added: no choice either", async () => {
+    const { container } = render(
+      withAppRouter(<ImageToPdfRunner kind="jpg" />),
+    );
+    await add(container, [PNG_FILE()]);
+    expect(
+      screen.getByRole("button", { name: /Create PDF/ }),
+    ).toBeInTheDocument();
+    expect(detailsGroup()).toBeNull();
   });
 });

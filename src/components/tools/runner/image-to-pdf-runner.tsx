@@ -669,24 +669,31 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
               ))}
             </div>
           </RunnerSection>
-          <RunnerSection title={PHOTO_DETAILS_LABELS.heading}>
-            <div
-              role="group"
-              aria-label={PHOTO_DETAILS_LABELS.heading}
-              className="flex flex-wrap gap-2"
-            >
-              {PHOTO_DETAILS_CHOICES.map((c) => (
-                <ChipButton
-                  key={c.id}
-                  onClick={() => setPageOption({ photoDetails: c.id })}
-                  disabled={busy}
-                  active={c.id === (page.photoDetails ?? "remove")}
-                >
-                  {c.label}
-                </ChipButton>
-              ))}
-            </div>
-          </RunnerSection>
+          {/* Only a JPEG carries details the choice can act on: a PNG's
+              chunks never reach the PDF (png-embed copies IDAT only), and a
+              WebP, GIF or BMP is saved again with its pixels alone. So the
+              choice is shown only while the list holds a JPEG, on PNG to
+              PDF as on JPG to PDF (image-to-pdf-photo-details.test.tsx). */}
+          {items.some((item) => item.type === IMAGE_MIME.jpg) && (
+            <RunnerSection title={PHOTO_DETAILS_LABELS.heading}>
+              <div
+                role="group"
+                aria-label={PHOTO_DETAILS_LABELS.heading}
+                className="flex flex-wrap gap-2"
+              >
+                {PHOTO_DETAILS_CHOICES.map((c) => (
+                  <ChipButton
+                    key={c.id}
+                    onClick={() => setPageOption({ photoDetails: c.id })}
+                    disabled={busy}
+                    active={c.id === (page.photoDetails ?? "remove")}
+                  >
+                    {c.label}
+                  </ChipButton>
+                ))}
+              </div>
+            </RunnerSection>
+          )}
           <RunnerSection title={MAX_SIZE_LABELS.heading}>
             <div
               role="group"
