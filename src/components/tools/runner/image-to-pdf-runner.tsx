@@ -933,7 +933,13 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
             )}
           </RunnerSection>
           <RunnerSection title="Margin">
-            <div className="flex flex-wrap gap-2">
+            {/* Named like its siblings (Small images, Max file size,
+                Bookmarks): two groups now offer "None" and "Custom". */}
+            <div
+              role="group"
+              aria-label="Margin"
+              className="flex flex-wrap gap-2"
+            >
               {IMAGE_MARGINS.map((m) => (
                 <ChipButton
                   key={m.id}

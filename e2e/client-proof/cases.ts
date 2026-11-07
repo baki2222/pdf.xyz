@@ -2769,7 +2769,10 @@ export const VARIANTS: readonly VariantCase[] = [
         ctx.page.getByText("shot.png", { exact: true }),
       ).toBeVisible();
       await ctx.page.getByRole("button", { name: "Fit to image" }).click();
-      await ctx.page.getByRole("button", { name: "None", exact: true }).click();
+      await ctx.page
+        .getByRole("group", { name: "Margin" })
+        .getByRole("button", { name: "None", exact: true })
+        .click();
       return runAndDownload(
         ctx,
         /create pdf/i,
@@ -2960,6 +2963,7 @@ export const VARIANTS: readonly VariantCase[] = [
         ctx.page.getByText("five.png", { exact: true }),
       ).toBeVisible();
       await ctx.page
+        .getByRole("group", { name: "Max file size" })
         .getByRole("button", { name: "Custom", exact: true })
         .click();
       await ctx.page
@@ -3432,7 +3436,10 @@ export const VARIANTS: readonly VariantCase[] = [
       // The list counts PDF pages, not files: the second TIFF fills 3–4.
       await expect(ctx.page.getByText(/^Pages 3–4/)).toBeVisible();
       await ctx.page.getByRole("button", { name: "Fit to image" }).click();
-      await ctx.page.getByRole("button", { name: "None", exact: true }).click();
+      await ctx.page
+        .getByRole("group", { name: "Margin" })
+        .getByRole("button", { name: "None", exact: true })
+        .click();
       return runAndDownload(
         ctx,
         /create pdf/i,
@@ -3512,7 +3519,10 @@ export const VARIANTS: readonly VariantCase[] = [
       ]);
       await expect(ctx.page.getByText(/^Pages 3–4/)).toBeVisible();
       await ctx.page.getByRole("button", { name: "Fit to image" }).click();
-      await ctx.page.getByRole("button", { name: "None", exact: true }).click();
+      await ctx.page
+        .getByRole("group", { name: "Margin" })
+        .getByRole("button", { name: "None", exact: true })
+        .click();
       await ctx.page
         .getByRole("button", { name: "One PDF per image (ZIP)" })
         .click();
@@ -3586,7 +3596,10 @@ export const VARIANTS: readonly VariantCase[] = [
       ]);
       await expect(ctx.page.getByText(/^Page 1/)).toBeVisible();
       await ctx.page.getByRole("button", { name: "Fit to image" }).click();
-      await ctx.page.getByRole("button", { name: "None", exact: true }).click();
+      await ctx.page
+        .getByRole("group", { name: "Margin" })
+        .getByRole("button", { name: "None", exact: true })
+        .click();
       return runAndDownload(
         ctx,
         /create pdf/i,
