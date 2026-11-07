@@ -204,7 +204,7 @@ const content: ToolContent = {
   useCases: [
     {
       title: "A step-by-step screenshot trail",
-      body: `Bug reports and how-to notes often start as a folder of numbered screenshots. ${SORT} puts them in sequence, with ${PER_IMAGE_BOOKMARK} chosen under ${BOOKMARKS}, a reader can jump to any of them from the bookmark panel, and the interface text stays sharp.`,
+      body: `Bug reports and how-to notes often start as a folder of numbered screenshots. ${SORT} puts them in sequence. With ${PER_IMAGE_BOOKMARK} chosen under ${BOOKMARKS}, a reader can jump to any of them from the bookmark panel, and the interface text stays sharp.`,
     },
     {
       title: "Logo and artwork proofs",
