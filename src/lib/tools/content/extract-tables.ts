@@ -69,8 +69,7 @@ const content: ToolContent = {
 
   seoTitle: "Extract Tables from PDF to Excel and CSV",
 
-  metaDescription:
-    "Extract tables from a text-based PDF to CSV and Excel: each table found, even several on one page, gets its own CSV and sheet. Scans are read with OCR.",
+  metaDescription: `Extract tables from a PDF to CSV and Excel, each in its own CSV and sheet, even several on one page. Tick “${WORD_OCR_LABEL}” to read a scan.`,
 
   intro: [
     `Copying a table out of a PDF usually pastes as one long column, or as rows glued together with spaces. Extract Tables reads the position of every word on a page, puts words on the same line into one row, joins words set a normal space apart into one cell, and finds columns from the white-space gutters that run down the rows. It keeps a block as a table only when at least two columns each hold something in two or more rows, one column holds short values of fewer than ${LONG_CELL_WORDS} words each (and is not mostly bullet items), and no sentence wraps from one row into the next.`,

@@ -18,6 +18,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { OFFICE_OCR_TOOLS } from "@/lib/jobs/office-export-ocr";
+import { WORD_OCR_LABEL } from "@/lib/jobs/pdf-office-export";
 import { getToolContent } from "@/lib/tools/content";
 import { guides } from "./catalog";
 import type { Guide } from "./types";
@@ -109,5 +110,25 @@ describe("a tool with the OCR switch never says it has no settings", () => {
       ),
     ];
     expect(found).toEqual([]);
+  });
+});
+
+/**
+ * Extract Tables' meta description (review, 2026-11-08) read "Extract tables
+ * from a text-based PDF … Scans are read with OCR.": it limited the tool to
+ * text-based PDFs, then said scans work, and never said OCR is opt-in. It
+ * must now offer the switch as something the reader turns on, and not limit
+ * the tool to text-based PDFs.
+ */
+describe("Extract Tables' meta description offers OCR as a choice", () => {
+  const description = getToolContent("extract-tables")?.metaDescription ?? "";
+
+  it("health check: the description exists", () => {
+    expect(description.length).toBeGreaterThan(40);
+  });
+
+  it("says the reader ticks the OCR switch for a scan, and does not limit itself to text-based PDFs", () => {
+    expect(description).toContain(`Tick “${WORD_OCR_LABEL}” to read a scan`);
+    expect(description).not.toMatch(/text-based/i);
   });
 });
