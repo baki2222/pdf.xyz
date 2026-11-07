@@ -16,6 +16,7 @@ import {
   EXTRACTION_FIELD_TYPES,
   MAX_EXTRACTION_FIELDS,
   MAX_EXTRACTION_PROMPT_CHARS,
+  MAX_FIELD_DESCRIPTION_CHARS,
   MAX_FIELD_NAME_CHARS,
   duplicateFieldMessage,
   duplicateFieldNames,
@@ -355,6 +356,28 @@ function AiExtractBuilder({
                     <Trash2 className="size-3.5" aria-hidden />
                   </button>
                 </div>
+                {/* The job contract's per-field description, sent to the
+                    model beside the name (engine `describeField`), so a hint
+                    tells similar figures apart without changing the JSON
+                    key. Until 2026-11-07 no input set it (audit
+                    ai-extract#4). 44px on a phone: it is on the way to Run. */}
+                <input
+                  type="text"
+                  aria-label={`Field ${i + 1} hint`}
+                  value={field.description ?? ""}
+                  onChange={(e) => {
+                    const description = e.target.value.slice(
+                      0,
+                      MAX_FIELD_DESCRIPTION_CHARS,
+                    );
+                    setFields((prev) =>
+                      prev.map((f, j) => (j === i ? { ...f, description } : f)),
+                    );
+                  }}
+                  maxLength={MAX_FIELD_DESCRIPTION_CHARS}
+                  placeholder="hint (optional), e.g. total incl. VAT, not subtotal"
+                  className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 rounded-ctl min-h-11 w-full border px-3 py-1.5 text-sm outline-none sm:min-h-0"
+                />
                 {earlier !== undefined && (
                   <p id={problemId} className="text-err text-xs">
                     {duplicateFieldMessage(i, earlier)}

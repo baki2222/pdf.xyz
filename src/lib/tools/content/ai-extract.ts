@@ -6,6 +6,7 @@ import {
   EXTRACTION_FIELD_TYPES,
   MAX_EXTRACTION_FIELDS,
   MAX_EXTRACTION_PROMPT_CHARS,
+  MAX_FIELD_DESCRIPTION_CHARS,
   MAX_FIELD_NAME_CHARS,
   extractionOutputName,
 } from "@/lib/jobs/ai-extract";
@@ -43,7 +44,11 @@ import {
  *    The result is fetched into the page BEFORE the "Download <file>" button
  *    appears (runSecurityJob downloads artifact.url, the button calls
  *    downloadBytes on those bytes) — so it is the worker's link that lapses,
- *    not the button. The UI has NO field-description input, even though the job
+ *    not the button. Since 2026-11-07 each row has a "Field N hint" input (max
+ *    MAX_FIELD_DESCRIPTION_CHARS), sent as the field's `description`, which the
+ *    engine's prompt puts beside the name; held at the wire by
+ *    components/tools/ai-extract-field-hint.test.tsx. Until then the UI had NO
+ *    field-description input, even though the job
  *    contract accepts one, so none is described here.
  *  - src/lib/jobs/ai-extract.ts — field names must be unique ignoring case and
  *    surrounding spaces (`fieldNameKey`). Since 2026-09-28 the panel runs the
@@ -103,6 +108,8 @@ import {
  */
 
 /** The per-file cap a worker-tier upload is refused above, in whole MB. */
+/** The per-field hint's limit, from the job contract the worker enforces. */
+const MAX_HINT_CHARS = MAX_FIELD_DESCRIPTION_CHARS.toLocaleString("en-US");
 const CEILING_MB = Math.round(WORKER_FILE_CEILING / (1024 * 1024));
 const OUTPUT_TTL = DEFAULT_RETENTION.outputTtlMinutes;
 /** What one run reads: the figure the FAQ and the panel's Limit row state too. */
@@ -173,7 +180,7 @@ const content: ToolContent = {
     },
     {
       title: "Pick Field schema or Prompt",
-      body: `Field schema is selected at first. Under Fields to extract, type a name of up to ${MAX_FIELD_NAME_CHARS} characters, set its type in the drop-down, and use Add field for more rows, up to ${MAX_EXTRACTION_FIELDS}. The bin icon deletes a row, except the last one left. Rows left blank are skipped. Two fields cannot share a name, even if only their capital letters differ: the page flags the repeat under the row and keeps Extract data inactive until you rename it. Choose Prompt to type into the What to extract box instead.`,
+      body: `Field schema is selected at first. Under Fields to extract, type a name of up to ${MAX_FIELD_NAME_CHARS} characters, set its type in the drop-down, and optionally type a hint of up to ${MAX_HINT_CHARS} characters in the box under it, such as "the grand total including VAT, not the subtotal": the model reads the hint beside the name, and your JSON key stays the name. Use Add field for more rows, up to ${MAX_EXTRACTION_FIELDS}. The bin icon deletes a row, except the last one left. Rows left blank are skipped. Two fields cannot share a name, even if only their capital letters differ: the page flags the repeat under the row and keeps Extract data inactive until you rename it. Choose Prompt to type into the What to extract box instead.`,
     },
     {
       title: "Press Extract data",
@@ -208,7 +215,7 @@ const content: ToolContent = {
     },
     {
       q: "Why did my extraction fail, or come back null or wrong?",
-      a: `When the model's reply is not valid JSON, our server can put the job back in its queue for another attempt by itself. Once the attempts run out, the job fails with nothing to download and a message saying a retry may succeed. A wrong value comes from the model's reply or from the text it was given: an OCR layer with misread characters, or side-by-side columns read across as one line, can mislead it. Compare the value with the page, and when a page holds several similar figures, name the exact one you want in a prompt or in a descriptive field name. ${AI_EXTRACT_NULL_INSTRUCTION} ${AI_EXTRACT_NULL_MEANING} ${AI_EXTRACT_NOT_NULL_WARNING} A single-value field asked of a column of figures is where this happens most, since every row holds a candidate.`,
+      a: `When the model's reply is not valid JSON, our server can put the job back in its queue for another attempt by itself. Once the attempts run out, the job fails with nothing to download and a message saying a retry may succeed. A wrong value comes from the model's reply or from the text it was given: an OCR layer with misread characters, or side-by-side columns read across as one line, can mislead it. Compare the value with the page, and when a page holds several similar figures, name the exact one you want in a prompt, or in the hint under a field. ${AI_EXTRACT_NULL_INSTRUCTION} ${AI_EXTRACT_NULL_MEANING} ${AI_EXTRACT_NOT_NULL_WARNING} A single-value field asked of a column of figures is where this happens most, since every row holds a candidate.`,
     },
   ],
 

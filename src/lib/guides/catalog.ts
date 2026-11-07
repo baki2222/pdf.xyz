@@ -225,6 +225,7 @@ import {
   EXTRACTION_FIELD_TYPES,
   MAX_EXTRACTION_FIELDS,
   MAX_EXTRACTION_PROMPT_CHARS,
+  MAX_FIELD_DESCRIPTION_CHARS,
   MAX_FIELD_NAME_CHARS,
   extractionOutputName,
 } from "@/lib/jobs/ai-extract";
@@ -5719,7 +5720,7 @@ export const guides: Guide[] = [
     steps: [
       `Open the ${nameOf("ai-extract")} tool. Extract data works once the status badge reads Secure server.`,
       "Drop one PDF on the box that says “Add your PDF, or browse”, or click it to choose the file. It needs selectable text; for a scan, run OCR PDF first.",
-      `Under Fields to extract, type a field name of up to ${MAX_FIELD_NAME_CHARS} characters, such as invoice_number, and choose its type: ${EXTRACT_FIELD_TYPES}. Add field adds a row, up to ${MAX_EXTRACTION_FIELDS}.`,
+      `Under Fields to extract, type a field name of up to ${MAX_FIELD_NAME_CHARS} characters, such as invoice_number, and choose its type: ${EXTRACT_FIELD_TYPES}. Optionally, type a hint of up to ${MAX_FIELD_DESCRIPTION_CHARS} characters in the box under the name, such as “the grand total including VAT, not the subtotal”; the model reads it beside the name, and your JSON key stays the name. Add field adds a row, up to ${MAX_EXTRACTION_FIELDS}.`,
       `Or press Prompt and describe what you want in the What to extract box, up to ${EXTRACT_PROMPT_CHARS} characters.`,
       "Press Extract data. Your PDF uploads over an encrypted connection to our secure server, and the button follows the job while the model reads.",
       `Press Download ${EXTRACT_EXAMPLE_ZIP}, the button named after your file: invoice.pdf comes back as ${EXTRACT_EXAMPLE_ZIP}. Save it to your device before you close the tab. To open the values in a spreadsheet, press Download CSV beside it.`,
@@ -5745,7 +5746,7 @@ export const guides: Guide[] = [
         id: "nulls-and-wrong-values",
         heading: "Nulls, wrong values and long documents",
         body: [
-          `${AI_EXTRACT_NULL_MEANING} ${AI_EXTRACT_NOT_NULL_WARNING} A wrong value comes from the model's reading or from the text it was given: a misread OCR layer, or side-by-side columns read across as one line, can mislead it. When a page holds several similar figures, name the exact one you want.`,
+          `${AI_EXTRACT_NULL_MEANING} ${AI_EXTRACT_NOT_NULL_WARNING} A wrong value comes from the model's reading or from the text it was given: a misread OCR layer, or side-by-side columns read across as one line, can mislead it. When a page holds several similar figures, name the exact one you want in the field's hint, or in your prompt.`,
           `The model reads a bounded amount of the document's text, and the exact figure is stated on the ${nameOf("ai-extract")} page itself. Past that point the text is dropped, and the result says how far the reading got. ${AI_EXTRACT_NULL_PAST_CUT} Files themselves are capped at ${ceilingMb("ai-extract")} MB.`,
         ],
       },
