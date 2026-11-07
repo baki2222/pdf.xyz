@@ -24,6 +24,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { inflateSync } from "node:zlib";
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRawStream } from "pdf-lib";
@@ -334,12 +335,43 @@ describe("header-footer runner: left, center and right in one band", () => {
     render(<HeaderFooterEditor pdf={await loadedPdf()} onReset={() => {}} />);
     const right = screen.getByLabelText("Header right") as HTMLInputElement;
     fireEvent.focus(right);
-    // The first {date} button is the header's.
-    fireEvent.click(screen.getAllByRole("button", { name: "{date}" })[0]!);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Insert {date} into Header right" }),
+    );
     expect(right.value).toBe("{date}");
     expect(
       (screen.getByLabelText("Header center") as HTMLInputElement).value,
     ).toBe("");
+  });
+
+  // Review of audit header-footer#3 (2026-11-07): the field buttons were
+  // named only "{n}", "{total}" and "{date}" — the same in both bands — while
+  // the box they fill is whichever was last focused, named only by a visible
+  // span the buttons were not tied to. A screen-reader user could not tell
+  // where a field would land. They were about 20px tall on a phone.
+  it("names the box each field button fills, in its group and its own name", async () => {
+    render(<HeaderFooterEditor pdf={await loadedPdf()} onReset={() => {}} />);
+    const groupOf = (name: string) => screen.getByRole("group", { name });
+    for (const band of ["Header", "Footer"]) {
+      const group = groupOf(`Insert into ${band} center`);
+      for (const token of ["{n}", "{total}", "{date}"])
+        expect(
+          within(group).getByRole("button", {
+            name: `Insert ${token} into ${band} center`,
+          }).textContent,
+        ).toBe(token);
+    }
+    fireEvent.focus(screen.getByLabelText("Footer left"));
+    const left = within(groupOf("Insert into Footer left"));
+    const button = left.getByRole("button", {
+      name: "Insert {n} into Footer left",
+    });
+    // The header's group still names its own box.
+    expect(groupOf("Insert into Header center")).toBeTruthy();
+    // At least 44px tall on a phone; compact from the sm breakpoint.
+    expect(button.className.split(/\s+/)).toEqual(
+      expect.arrayContaining(["min-h-11", "sm:min-h-0"]),
+    );
   });
 });
 
