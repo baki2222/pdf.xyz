@@ -198,18 +198,50 @@ describe("photo details", () => {
       `Under ${PHOTO_DETAILS_LABELS.heading}, ${chosen} is chosen`,
     );
     expect(answer).toContain(`Choose ${label("keep")} to put each JPEG`);
+    // Keep is not "exactly as it is": the test below sees the rotation tag
+    // change, so the answer must say so.
+    expect(answer).toContain("apart from a rotation tag reset to upright");
     // The default named is the one that removes them.
     expect(chosen).toBe(label("remove"));
   });
 
-  it("are kept, byte for byte, when the user keeps them", async () => {
+  /**
+   * HISTORY: until review this test was "are kept, byte for byte, when the
+   * user keeps them" and checked only the length and the GPS text, while the
+   * FAQ said Keep put each JPEG in "exactly as it is, metadata and all". On a
+   * turned photo that was false: uprightJpeg rewrites the Orientation value
+   * to 1 on the Keep path too. Now the stream is compared byte by byte, and
+   * the one difference allowed is located independently of uprightJpeg: the
+   * value of the IFD entry whose tag is 0x0112, which held 6 and now holds 1.
+   */
+  it("are kept with Keep, every byte but the rotation tag's value", async () => {
     const pdf = await run({
       ...DEFAULT_IMAGE_PAGE_OPTIONS,
       photoDetails: "keep",
     });
     const embedded = embeddedImageStream(await PDFDocument.load(pdf));
-    expect(embedded.length).toBe(photo.length);
     expect(has(embedded, GPS)).toBe(true);
+    expect(embedded.length).toBe(photo.length);
+    const changed = [...embedded.keys()].filter(
+      (i) => embedded[i] !== photo[i],
+    );
+    // Positive control: the photo really was turned, so something must change.
+    expect(readJpegOrientation(photo)).toBe(6);
+    expect(changed.length).toBeGreaterThan(0);
+    const at = changed[0]!;
+    const value = changed.length === 1 && photo[at] === 0 ? at - 1 : at;
+    // Whatever changed sits inside one two-byte SHORT value...
+    expect(changed.every((i) => i === value || i === value + 1)).toBe(true);
+    // ...that is the value of an IFD entry tagged 0x0112 (Orientation),
+    // read in either byte order: tag(2) type(2) count(4) value.
+    const tag = [photo[value - 8], photo[value - 7]];
+    const littleEndian = tag[0] === 0x12 && tag[1] === 0x01;
+    expect(littleEndian || (tag[0] === 0x01 && tag[1] === 0x12)).toBe(true);
+    const short = (b: Uint8Array) =>
+      littleEndian
+        ? b[value]! | (b[value + 1]! << 8)
+        : (b[value]! << 8) | b[value + 1]!;
+    expect([short(photo), short(embedded)]).toEqual([6, 1]);
   });
 });
 

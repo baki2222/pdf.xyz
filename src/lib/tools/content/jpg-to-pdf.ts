@@ -69,7 +69,9 @@ const LIMIT_MET = limitOutcome({
  * each JPEG's Exif (GPS included), XMP, IPTC, comment and other APPn
  * segments, and anything appended after its end, are removed WITHOUT
  * re-encoding; JFIF, the ICC profile and Adobe APP14 are kept, and so is
- * every byte of the image data. "Keep" embeds the file as before. The EXIF
+ * every byte of the image data. "Keep" embeds the file as before: metadata
+ * and all, except that a turned photo's Orientation tag is rewritten to 1
+ * (uprightJpeg, jpeg-orientation.ts) on BOTH paths. The EXIF
  * turn is read before the Exif goes. The paragraph below describes the
  * "Keep" path, which was the only path until then.
  *
@@ -227,11 +229,11 @@ const content: ToolContent = {
     },
     {
       q: "Does converting JPG to PDF reduce photo quality?",
-      a: `Not with ${LIMIT} at ${NO_LIMIT}. Then each JPEG's image data goes in as it is, not decompressed and saved again (only the details your camera stored beside the pixels are removed, unless you keep them), so every pixel of the original is still there even when the photo is displayed smaller to fit the page, and the PDF is as heavy as the photos. With a ${LIMIT} that the PDF is over, yes, on purpose: the photos are saved again with fewer pixels and stronger compression until the PDF fits, and the panel says the images were saved again.`,
+      a: `Not with ${LIMIT} at ${NO_LIMIT}. Then each JPEG's image data goes in as it is, not decompressed and saved again (the details your camera stored beside the pixels are removed unless you keep them, and a kept rotation tag is reset to upright), so every pixel of the original is still there even when the photo is displayed smaller to fit the page, and the PDF is as heavy as the photos. With a ${LIMIT} that the PDF is over, yes, on purpose: the photos are saved again with fewer pixels and stronger compression until the PDF fits, and the panel says the images were saved again.`,
     },
     {
       q: "Does the PDF keep my photos' metadata, such as location?",
-      a: `Not unless you ask it to. Under ${DETAILS}, ${REMOVE} is chosen from the start: the camera details, the date taken, GPS coordinates, any embedded preview and comments stored in each JPEG are left out of the PDF, and the image data is copied as it is, so no quality is lost. A colour profile stored in the JPEG stays with it. Choose ${KEEP} to put each JPEG into the PDF exactly as it is, metadata and all. A photo saved again to fit a ${LIMIT} keeps only its pixels either way. WebP, GIF and BMP images are saved again by your browser, which keeps only their pixels.`,
+      a: `Not unless you ask it to. Under ${DETAILS}, ${REMOVE} is chosen from the start: the camera details, the date taken, GPS coordinates, any embedded preview and comments stored in each JPEG are left out of the PDF, and the image data is copied as it is, so no quality is lost. A colour profile stored in the JPEG stays with it. Choose ${KEEP} to put each JPEG in with its metadata, apart from a rotation tag reset to upright on a turned phone photo, so the PDF does not turn it twice. A photo saved again to fit a ${LIMIT} keeps only its pixels either way. WebP, GIF and BMP images are saved again by your browser, which keeps only their pixels.`,
     },
     {
       q: "Can I add PNG, WebP, GIF, BMP or TIFF images?",

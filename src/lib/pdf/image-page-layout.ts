@@ -72,8 +72,11 @@ export const IMAGE_OUTPUTS: readonly { id: ImageOutputId; label: string }[] = [
 /**
  * What happens to a JPEG's camera and location details (Exif, GPS, XMP,
  * IPTC, comments, appended previews). "remove" strips those segments without
- * re-encoding (`stripJpegMetadata`); "keep" embeds the file as it is, as every
- * JPEG was until 2026-11-07. Not page setup, but it rides on the same options
+ * re-encoding (`stripJpegMetadata`); "keep" embeds the file with its metadata,
+ * as every JPEG was until 2026-11-07, except that a turned photo's EXIF
+ * Orientation value is rewritten to 1 (`uprightJpeg`) so no viewer turns it
+ * twice; image-to-pdf.test.ts "are kept ... apart from the rotation tag"
+ * holds that to the byte. Not page setup, but it rides on the same options
  * so every path that builds the PDF (the size ladder too) sees it.
  */
 export type PhotoDetailsId = "remove" | "keep";

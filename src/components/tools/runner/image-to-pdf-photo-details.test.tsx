@@ -100,7 +100,7 @@ describe("JPG to PDF · photo location & camera details", () => {
     expect(pdf.includes(Buffer.from(GPS, "latin1"))).toBe(false);
   });
 
-  it("Keep puts the JPEG in as it is, location and all", async () => {
+  it("Keep puts the JPEG in with its location details", async () => {
     const group = await mount();
     fireEvent.click(chip(group, "keep"));
     expect(chip(group, "keep")).toHaveAttribute("aria-pressed", "true");
