@@ -218,6 +218,7 @@ import { MAX_SIGNIFICANT_DIGITS } from "@/lib/workers/ooxml/sheet-cells";
 import {
   HEADING_MAX_CHARS,
   HEADING_SIZE_RATIO,
+  MARKDOWN_LINK_SCHEMES,
   PARAGRAPH_GAP_RATIO,
   markdownOutputName,
 } from "@/lib/pdf/pdf-to-markdown";
@@ -653,6 +654,8 @@ const TABLES_EXAMPLE_ZIP = tableExtractOutputName("report.pdf", "zip");
 
 /** PDF to Markdown (2026-10-31), from the converter's own constants. */
 const MD_HEADING_PCT = Math.round((HEADING_SIZE_RATIO - 1) * 100);
+/** "http:, https: or mailto:": the link addresses PDF to Markdown keeps. */
+const MD_LINK_SCHEMES = `${MARKDOWN_LINK_SCHEMES.slice(0, -1).join(", ")} or ${MARKDOWN_LINK_SCHEMES.at(-1)}`;
 const MD_EXAMPLE_OUT = markdownOutputName("report.pdf");
 
 /**
@@ -5569,13 +5572,14 @@ export const guides: Guide[] = [
           "The file name, minus its extension, becomes the # title. In a PDF of more than one page, each page that has text gets its own ## Page heading with its page number.",
           `Within a page, lines that wrap are joined back into sentences, and a word hyphenated at a line end is rejoined. A new paragraph starts where the gap between two lines is more than ${PARAGRAPH_GAP_RATIO} times the spacing of a paragraph's wrapped lines, where a line is indented like a first line, or where the text moves back up the page to a new column without a sentence running on across it. A page with no wrapped line gives no spacing to measure and can arrive as one paragraph.`,
           `A short line set at least ${MD_HEADING_PCT}% larger than the body text becomes a heading, larger sizes ranking higher; one longer than ${HEADING_MAX_CHARS} characters or ending in a full stop, comma or semicolon stays ordinary text. Lines that start with -, *, +, a number, or a bullet character such as • stay list items.`,
+          `A link whose address starts with ${MD_LINK_SCHEMES} becomes a Markdown link over the words it covers, such as [setup guide](https://example.com/guide); a link to a page inside the PDF keeps its words only.`,
         ],
       },
       {
         id: "what-is-left-out",
         heading: "What is left out",
         body: [
-          "Font weight and style are not read, so nothing comes out bold or italic. Images are dropped, and so are the web addresses behind links. A table's cells run together as plain words, without its grid.",
+          "Font weight and style are not read, so nothing comes out bold or italic. Images are dropped. A table's cells run together as plain words, without its grid.",
           `For the tables themselves, ${nameOf("extract-tables")} detects them by where the words sit and returns CSV files and an Excel workbook, but it runs on our secure server rather than in your browser. For the text with its line breaks as they are and no Markdown added, ${nameOf("pdf-to-text")} reads the same text, also in your browser.`,
         ],
       },
@@ -5619,7 +5623,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-add-a-header-and-footer-to-a-pdf",

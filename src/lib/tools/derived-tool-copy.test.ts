@@ -303,22 +303,65 @@ describe("tools that read only embedded text say scans need OCR, and never promi
    * not a use (loading is not running), so the local name has to appear
    * again outside the import statement.
    */
-  function readsEmbeddedText(source: string): boolean {
-    const IMPORT = /import\s*\{([^}]*)\}\s*from\s*["']@\/lib\/pdf\/text["'];?/g;
-    const locals = [...source.matchAll(IMPORT)].flatMap((m) =>
+  /** The names `source` imports from `from` and uses outside the import. */
+  function usedImports(source: string, from: string): string[] {
+    const quoted = from.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+    const IMPORT = new RegExp(
+      `import\\s*\\{([^}]*)\\}\\s*from\\s*["']${quoted}["'];?`,
+      "g",
+    );
+    const specs = [...source.matchAll(IMPORT)].flatMap((m) =>
       m[1]!
         .split(",")
-        .map((spec) => spec.trim().replace(/^type\s+/, ""))
-        .filter(Boolean)
+        .map((spec) => spec.trim())
+        .filter((spec) => spec && !spec.startsWith("type "))
         .map((spec) => {
           const [imported, local] = spec.split(/\s+as\s+/);
           return { imported: imported!, local: (local ?? imported)! };
-        })
-        .filter(({ imported }) => TEXT_EXTRACTORS.includes(imported))
-        .map(({ local }) => local),
+        }),
     );
     const body = source.replace(IMPORT, "");
-    return locals.some((local) => new RegExp(`\\b${local}\\b`).test(body));
+    return specs
+      .filter(({ local }) => new RegExp(`\\b${local}\\b`).test(body))
+      .map(({ imported }) => imported);
+  }
+
+  /**
+   * Does `source` USE one of {@link TEXT_EXTRACTORS} from `@/lib/pdf/text`,
+   * directly or through one `@/lib/pdf/*` module that uses one from `./text`?
+   * The hop is followed because PDF to Markdown's runner reads through its
+   * own reader (`pdf-to-markdown-read`, 2026-11-08, for links): a detector
+   * that read the runner's imports alone lost the tool from the set.
+   */
+  function readsEmbeddedText(source: string, hops = 1): boolean {
+    if (
+      usedImports(source, "@/lib/pdf/text").some((name) =>
+        TEXT_EXTRACTORS.includes(name),
+      )
+    ) {
+      return true;
+    }
+    if (hops === 0) return false;
+    return [...source.matchAll(/from\s*["']@\/lib\/pdf\/([\w-]+)["']/g)]
+      .map((m) => m[1]!)
+      .filter((name) => name !== "text")
+      .filter((name) => usedImports(source, `@/lib/pdf/${name}`).length > 0)
+      .some((name) => {
+        const file = `src/lib/pdf/${name}.ts`;
+        let hopSource: string;
+        try {
+          hopSource = withoutComments(read(file));
+        } catch {
+          return false;
+        }
+        return readsEmbeddedText(
+          hopSource.replace(
+            /from\s*["']\.\/text["']/g,
+            'from "@/lib/pdf/text"',
+          ),
+          hops - 1,
+        );
+      });
   }
 
   function embeddedTextOnly(): string[] {
@@ -357,6 +400,19 @@ describe("tools that read only embedded text say scans need OCR, and never promi
     expect(
       readsEmbeddedText(
         'import { extractPdfText } from "./elsewhere"; extractPdfText(b);',
+      ),
+    ).toBe(false);
+    // One hop through a pdf module that reads `./text` — and only when the
+    // hop is used: PDF to Markdown's reader, imported and called, or not.
+    const reader = 'from "@/lib/pdf/pdf-to-markdown-read";';
+    expect(
+      readsEmbeddedText(`import { pdfToMarkdown } ${reader} pdfToMarkdown(b);`),
+    ).toBe(true);
+    expect(readsEmbeddedText(`import { pdfToMarkdown } ${reader}`)).toBe(false);
+    // A pdf module that does not read text is not a hop.
+    expect(
+      readsEmbeddedText(
+        'import { markdownOutputName } from "@/lib/pdf/pdf-to-markdown"; markdownOutputName(n);',
       ),
     ).toBe(false);
   });

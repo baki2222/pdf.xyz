@@ -754,6 +754,16 @@ export type PdfTextReader = () => Promise<
 >;
 
 /**
+ * More of a page, read from the same open pdf.js page as its text: PDF to
+ * Markdown reads each page's links here, so the document is parsed once.
+ */
+export type PageAlsoRead = (
+  page: { getAnnotations(params?: { intent?: string }): Promise<unknown[]> },
+  items: TextItemLike[],
+  pageNumber: number,
+) => Promise<void>;
+
+/**
  * Open a PDF with pdfjs and hand each page's text items to `perPage`. The one
  * `getDocument` call both extractors share, so they cannot drift in options.
  */
@@ -761,6 +771,7 @@ async function readPageTextItems<T>(
   bytes: Uint8Array,
   perPage: (items: TextItemLike[], pageNumber: number) => T,
   loadReader: PdfTextReader = loadPdfjs,
+  alsoRead?: PageAlsoRead,
 ): Promise<{ pageCount: number; pages: T[] }> {
   const pdfjs = await loadReader();
   const data = bytes.slice();
@@ -775,7 +786,9 @@ async function readPageTextItems<T>(
         const content = await page.getTextContent({
           includeMarkedContent: false,
         });
-        pages.push(perPage(content.items as TextItemLike[], pageNumber));
+        const items = content.items as TextItemLike[];
+        pages.push(perPage(items, pageNumber));
+        await alsoRead?.(page, items, pageNumber);
       } finally {
         page.cleanup();
       }
@@ -876,11 +889,18 @@ export async function extractPdfTextItems(
  */
 export async function extractPdfLines(
   bytes: Uint8Array,
+  /** See {@link PageAlsoRead}. */
+  alsoRead?: PageAlsoRead,
+  /** See {@link PdfTextReader}; tests pass pdfjs's legacy build. */
+  loadReader: PdfTextReader = loadPdfjs,
 ): Promise<ExtractedPdfLines> {
   const { pageCount, pages } = await readPageTextItems(
     bytes,
     linePageFromItems,
+    loadReader,
+    alsoRead,
   );
+
   return assembleExtraction(pageCount, pages);
 }
 

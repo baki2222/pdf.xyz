@@ -13,7 +13,33 @@ import type { ExtractedPdfText, ExtractedTextPage, TextLine } from "./text";
  */
 export type PdfToMarkdownPage = ExtractedTextPage & {
   lines: readonly TextLine[] | null;
+  /**
+   * The web links on the page (`./pdf-to-markdown-read`). Optional, because
+   * the converter is also fed text with no annotations at all; the runner's
+   * chain is `pdfToMarkdown`, and `pdf-to-markdown-read.test.ts` reads links
+   * through it from a real PDF.
+   */
+  links?: readonly MarkdownLink[];
 };
+
+/**
+ * The schemes a Markdown link may carry; a link to anything else (a script, a
+ * file, a page inside the PDF) keeps its words only. Here rather than in the
+ * reader so the tool page can name them without importing pdf.js's loader.
+ */
+export const MARKDOWN_LINK_SCHEMES = ["http:", "https:", "mailto:"] as const;
+
+/**
+ * A /Link annotation's web address and the words it covers. `top`/`bottom` are
+ * the link's vertical extent in PDF points (y up), so a phrase is linked only
+ * in the block that sits where the link does.
+ */
+export interface MarkdownLink {
+  text: string;
+  url: string;
+  top: number;
+  bottom: number;
+}
 
 export type PdfToMarkdownInput = Pick<
   ExtractedPdfText,
@@ -30,10 +56,23 @@ export interface PdfToMarkdownResult {
   pageCount: number;
   characterCount: number;
   hasMarkdown: boolean;
+  /** Links written as `[text](url)` or `<url>`. */
+  linkCount: number;
 }
 
 export function markdownOutputName(sourceName: string): string {
   return outputName(sourceName, "markdown", "md");
+}
+
+/** The result's summary line: what was written, and what was kept. */
+export function markdownSummary(result: PdfToMarkdownResult): string {
+  const parts = [
+    `${result.characterCount.toLocaleString()} Markdown characters from ${result.pageCount} page${result.pageCount === 1 ? "" : "s"}`,
+  ];
+  if (result.linkCount > 0) {
+    parts.push(`${result.linkCount} link${result.linkCount === 1 ? "" : "s"}`);
+  }
+  return parts.join(" · ");
 }
 
 function titleFromSource(sourceName?: string): string {
@@ -167,16 +206,100 @@ export function joinWrappedLines(lines: readonly string[]): string {
  *  Blocks
  * ------------------------------------------------------------------ */
 
-type Block =
+/** Where a block sits on its page, in PDF points (y up); geometry only. */
+interface Span {
+  top: number;
+  bottom: number;
+}
+
+type Block = (
   | { kind: "paragraph"; lines: string[] }
   | { kind: "item"; marker: string; lines: string[] }
-  | { kind: "heading"; size: number; lines: string[] };
+  | { kind: "heading"; size: number; lines: string[] }
+) & { span?: Span };
+
+/* ------------------------------------------------------------------ *
+ *  Links
+ * ------------------------------------------------------------------ */
+
+/** Whether `text[start, end)` is a whole run of words, not part of one. */
+function onWordBoundaries(text: string, start: number, end: number): boolean {
+  const word = /[\p{L}\p{N}]/u;
+  return (
+    !(start > 0 && word.test(text[start - 1]!) && word.test(text[start]!)) &&
+    !(end < text.length && word.test(text[end]!) && word.test(text[end - 1]!))
+  );
+}
+
+/** A URL as a Markdown destination: nothing in it can end or split the link. */
+function markdownUrl(url: string): string {
+  return url.replace(/[\s()<>]/g, (c) => encodeURIComponent(c));
+}
+
+function linkMarkdown(text: string, url: string): string {
+  const destination = markdownUrl(url);
+  // An address shown as its own text is an autolink, not `[x](x)`.
+  if (text === url || `${text}/` === url) return `<${destination}>`;
+  const label = escapeInline(text).replace(/[[\]\\]/g, "\\$&");
+  return `[${label}](${destination})`;
+}
+
+/**
+ * Turns a block's joined text into escaped inline Markdown, writing each of
+ * the page's links over the first unclaimed run of its words — in a block
+ * that sits where the link does, when both have geometry. Each link is
+ * written once; one whose words are not found (a hyphen rejoined across its
+ * line break, say) leaves the text as it was.
+ */
+function pageLinker(links: readonly MarkdownLink[]) {
+  const used = links.map(() => false);
+  let count = 0;
+  const write = (raw: string, span: Span | undefined): string => {
+    const taken: { start: number; end: number; url: string }[] = [];
+    links.forEach((link, i) => {
+      if (used[i]) return;
+      if (span && (link.bottom > span.top || link.top < span.bottom)) return;
+      for (
+        let at = raw.indexOf(link.text);
+        at !== -1;
+        at = raw.indexOf(link.text, at + 1)
+      ) {
+        const end = at + link.text.length;
+        if (
+          onWordBoundaries(raw, at, end) &&
+          !taken.some((t) => at < t.end && end > t.start)
+        ) {
+          taken.push({ start: at, end, url: link.url });
+          used[i] = true;
+          return;
+        }
+      }
+    });
+    taken.sort((a, b) => a.start - b.start);
+    let out = "";
+    let at = 0;
+    for (const t of taken) {
+      out += escapeInline(raw.slice(at, t.start));
+      out += linkMarkdown(raw.slice(t.start, t.end), t.url);
+      at = t.end;
+    }
+    count += taken.length;
+    return out + escapeInline(raw.slice(at));
+  };
+  return { write, count: () => count };
+}
+
+type Linker = ReturnType<typeof pageLinker>;
 
 /** Heading font sizes are bucketed to half a point before being ranked. */
 const headingKey = (size: number) => Math.round(size * 2) / 2;
 
-function renderBlock(block: Block, headingLevel: (size: number) => number) {
-  const text = escapeInline(joinWrappedLines(block.lines));
+function renderBlock(
+  block: Block,
+  headingLevel: (size: number) => number,
+  linker: Linker,
+) {
+  const text = linker.write(joinWrappedLines(block.lines), block.span);
   if (!text) return "";
   switch (block.kind) {
     case "paragraph":
@@ -192,11 +315,12 @@ function renderBlock(block: Block, headingLevel: (size: number) => number) {
 function renderBlocks(
   blocks: Block[],
   headingLevel: (size: number) => number,
+  linker: Linker,
 ): string {
   let out = "";
   let previous: Block | null = null;
   for (const block of blocks) {
-    const rendered = renderBlock(block, headingLevel);
+    const rendered = renderBlock(block, headingLevel, linker);
     if (!rendered) continue;
     if (out) {
       // Items of one list stay on consecutive lines (a tight list); every
@@ -452,7 +576,20 @@ function blocksFromGeometry(lines: GeoLine[], bodySize: number): Block[] {
   // The open block and the line that opened it.
   let open: { block: Block; anchor: GeoLine } | null = null;
   let prev: GeoLine | null = null;
+  // A block's span runs from its top line's cap height to its bottom line's
+  // descenders, so a link box drawn round the words falls inside it.
+  const extend = (block: Block, line: GeoLine) => {
+    const top = line.y + line.size;
+    const bottom = line.y - line.size * 0.4;
+    block.span = block.span
+      ? {
+          top: Math.max(block.span.top, top),
+          bottom: Math.min(block.span.bottom, bottom),
+        }
+      : { top, bottom };
+  };
   const start = (block: Block, line: GeoLine) => {
+    extend(block, line);
     blocks.push(block);
     open = { block, anchor: line };
   };
@@ -513,6 +650,7 @@ function blocksFromGeometry(lines: GeoLine[], bodySize: number): Block[] {
         step <= line.size * 1.6
       ) {
         heading.lines.push(line.text);
+        extend(heading, line);
       } else {
         start({ kind: "heading", size: line.size, lines: [line.text] }, line);
       }
@@ -535,8 +673,10 @@ function blocksFromGeometry(lines: GeoLine[], bodySize: number): Block[] {
           continues = false;
         }
       }
-      if (continues && current) current.block.lines.push(line.text);
-      else start({ kind: "paragraph", lines: [line.text] }, line);
+      if (continues && current) {
+        current.block.lines.push(line.text);
+        extend(current.block, line);
+      } else start({ kind: "paragraph", lines: [line.text] }, line);
     }
     prev = line;
   }
@@ -557,6 +697,7 @@ export function extractedTextToMarkdown(
       pageCount: extracted.pageCount,
       characterCount: 0,
       hasMarkdown: false,
+      linkCount: 0,
     };
   }
 
@@ -597,8 +738,15 @@ export function extractedTextToMarkdown(
   const sections: string[] = [
     `# ${escapeInline(normalizeMarkdownLine(titleFromSource(options.sourceName)))}`,
   ];
+  let linkCount = 0;
   extracted.pages.forEach((page, index) => {
-    const pageMarkdown = renderBlocks(pageBlocks[index] ?? [], headingLevel);
+    const linker = pageLinker(page.links ?? []);
+    const pageMarkdown = renderBlocks(
+      pageBlocks[index] ?? [],
+      headingLevel,
+      linker,
+    );
+    linkCount += linker.count();
     if (!pageMarkdown) return;
     if (includePageHeadings) sections.push(`## Page ${page.pageNumber}`);
     sections.push(pageMarkdown);
@@ -610,5 +758,6 @@ export function extractedTextToMarkdown(
     pageCount: extracted.pageCount,
     characterCount: markdown.length,
     hasMarkdown: markdown.length > 0,
+    linkCount,
   };
 }

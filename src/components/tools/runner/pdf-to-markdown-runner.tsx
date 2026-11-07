@@ -8,12 +8,12 @@ import {
   ScanText,
 } from "lucide-react";
 import { downloadBlob } from "@/lib/pdf/browser";
-import { extractPdfLines } from "@/lib/pdf/text";
 import {
-  extractedTextToMarkdown,
   markdownOutputName,
+  markdownSummary,
   type PdfToMarkdownResult,
 } from "@/lib/pdf/pdf-to-markdown";
+import { pdfToMarkdown } from "@/lib/pdf/pdf-to-markdown-read";
 import { buttonVariants } from "@/components/ui/button";
 import {
   ErrorNote,
@@ -53,10 +53,7 @@ function PdfToMarkdownEditor({
 }) {
   const { busy, error, result, run } = useAsyncRun<PdfToMarkdownResult>();
   const onRun = () =>
-    run(async () => {
-      const extracted = await extractPdfLines(pdf.bytes);
-      return extractedTextToMarkdown(extracted, { sourceName: pdf.file.name });
-    });
+    run(() => pdfToMarkdown(pdf.bytes, { sourceName: pdf.file.name }));
 
   if (result) {
     const filename = markdownOutputName(pdf.file.name);
@@ -67,7 +64,7 @@ function PdfToMarkdownEditor({
         }
         summary={
           result.hasMarkdown
-            ? `${result.characterCount.toLocaleString()} Markdown characters from ${result.pageCount} page${result.pageCount === 1 ? "" : "s"}`
+            ? markdownSummary(result)
             : "Scanned/image-only PDFs need OCR before text can be converted to Markdown."
         }
         onReset={onReset}

@@ -46,6 +46,8 @@ import {
   PARAGRAPH_GAP_RATIO,
 } from "@/lib/pdf/pdf-to-markdown";
 import type { ExtractedPdfLines } from "@/lib/pdf/text";
+import { MARKDOWN_LINK_SCHEMES } from "@/lib/pdf/pdf-to-markdown";
+import { linksFromPage } from "@/lib/pdf/pdf-to-markdown-read";
 
 /** The tool the pdf-to-markdown runner mounts on, through the page's dispatch. */
 const SLUGS = supportedToolSlugs.filter(
@@ -126,6 +128,11 @@ describe("pdf-to-markdown: the page describes the structure the converter builds
     "No. A PDF stores text as positioned lines, not as headings or tables, and this converter does not guess at them.",
     'The file\'s name becomes the title, each page gets a "Page N" heading when there is more than one, lines are joined into paragraphs, and lines that begin with a bullet (-, * or +) or a number stay list items.',
     "Lines that wrap are joined into paragraphs; a line that starts with a list marker (-, *, + or a number) stays a list item.",
+    // Until 2026-11-08 (audit pdf-to-markdown#3): the reader now keeps a
+    // web link's address, so each of these went false.
+    "Font weight and style are not read, so nothing becomes bold or italic; table cells run together as plain text; images and the web addresses behind links are dropped.",
+    "The table grid, bold and italic, link targets and images are lost; table cells come through as words.",
+    "Images are dropped, and so are the web addresses behind links.",
   ];
   const BANNED: RegExp[] = [
     // Every line break, not only a wrap, said to become a space.
@@ -140,6 +147,8 @@ describe("pdf-to-markdown: the page describes the structure the converter builds
     /\bonly headings\b/i,
     /\bheading levels\b[^.]*\blost\b/i,
     /\bdoes not guess\b/i,
+    // Links said to lose their address.
+    /\b(web addresses behind links|link targets)\b/i,
     // A glyph bullet said to merge into the paragraph.
     new RegExp(`${GLYPHS}[^.]*\\bmerge`),
     // A list of markers that stops at the ASCII ones.
@@ -261,6 +270,43 @@ describe("pdf-to-markdown: the page describes the structure the converter builds
     );
     expect(after(PITCH * PARAGRAPH_GAP_RATIO * 0.95)).toMatch(
       /ends it\. Next line here\./,
+    );
+  });
+
+  it("the page names the link schemes the reader keeps, and each is kept (audit pdf-to-markdown#3)", () => {
+    const text = served(SLUGS[0]!).join(" ");
+    const named = `${MARKDOWN_LINK_SCHEMES.slice(0, -1).join(", ")} or ${MARKDOWN_LINK_SCHEMES.at(-1)}`;
+    expect(text).toContain(`starts with ${named}`);
+    const linked = (url: string) => {
+      const input = pdf([{ text: "Read the setup guide first.", y: 700 }]);
+      // 27 characters over 270pt: "setup guide" is x 162..272, and the box
+      // covers its letters' centres.
+      const links = linksFromPage(
+        [
+          {
+            str: "Read the setup guide first.",
+            transform: [11, 0, 0, 11, 72, 700],
+            width: 270,
+            height: 11,
+          },
+        ],
+        [{ subtype: "Link", url, rect: [162, 696, 272, 712] }],
+      );
+      return extractedTextToMarkdown(
+        { ...input, pages: input.pages.map((p) => ({ ...p, links })) },
+        { sourceName: "r.pdf" },
+      ).markdown;
+    };
+    for (const scheme of MARKDOWN_LINK_SCHEMES) {
+      const url =
+        scheme === "mailto:"
+          ? "mailto:a@example.com"
+          : `${scheme}//example.com/g`;
+      expect(linked(url)).toContain(`Read the [setup guide](${url}) first.`);
+    }
+    // CONTROL: a scheme the page does not name keeps its words only.
+    expect(linked("ftp://example.com/g")).toContain(
+      "Read the setup guide first.",
     );
   });
 
