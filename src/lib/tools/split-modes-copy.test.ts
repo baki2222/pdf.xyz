@@ -117,7 +117,10 @@ describe("Split PDF's file-name answer is what the code names the files", () => 
       { start: 39, end: 39 },
     ]).map((p) => p.name);
     const known = new Set([titled, ...sides, ...spans]);
-    const quoted = answer!.match(/\breport-[^\s,]+?\.pdf\b/g) ?? [];
+    // Spaces allowed: a bookmark name usually has one ("report-2-Chapter
+    // 2.pdf"), and a scan stopping at a space could not see it (review of
+    // 4ba1773f).
+    const quoted = answer!.match(/\breport-[^,;"”]+?\.pdf\b/g) ?? [];
     expect(quoted.length).toBeGreaterThanOrEqual(4);
     expect(quoted.filter((n) => !known.has(n))).toEqual([]);
   });
