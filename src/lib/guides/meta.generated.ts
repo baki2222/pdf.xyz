@@ -543,6 +543,19 @@ export const GUIDE_META: readonly GuideMeta[] = [
     ],
   },
   {
+    slug: "how-to-convert-a-scanned-pdf-to-word",
+    title: "How to convert a scanned PDF to editable Word",
+    primary: "pdf-to-word",
+    keywords: [
+      "scanned pdf to word",
+      "ocr pdf to word",
+      "pdf to word ocr",
+      "convert scanned pdf to editable word",
+      "scanned document to word",
+      "image pdf to word",
+    ],
+  },
+  {
     slug: "how-to-convert-bangla-pdf-to-word",
     title: "How to convert Bangla PDF to Word",
     primary: "pdf-to-word",

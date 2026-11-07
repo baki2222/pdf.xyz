@@ -43,6 +43,10 @@
     "contentHash": "ddadfab6d93831dce9292a5641436125443cef418855483b0e775c17b40f74d0",
     "updated": "2026-10-31"
   },
+  "how-to-convert-a-scanned-pdf-to-word": {
+    "contentHash": "5ccae2e10975ef56c775430c04d913f4499c757372118775824f6a0aab93b323",
+    "updated": "2026-11-07"
+  },
   "how-to-convert-a-text-file-to-pdf": {
     "contentHash": "c7dd54756725db08c8495da9526526f707ce6c6912158c23dd8f802cc00ba2f2",
     "updated": "2026-10-31"
@@ -100,8 +104,8 @@
     "updated": "2026-10-31"
   },
   "how-to-convert-pdf-to-word": {
-    "contentHash": "c525695a44f4ca4cb0391c0f0a24100f11b5f9deb46808c4b26ffd7dab6065ad",
-    "updated": "2026-10-30"
+    "contentHash": "c81368ed8ba45dc1b9c3170d887bf75665bf3ad74fc18b25cb0a744b836e5dc8",
+    "updated": "2026-11-07"
   },
   "how-to-convert-powerpoint-to-pdf": {
     "contentHash": "ab2e1a3b124eb7751973315507b7f800ee4d9751aaa6540f3744d7716aebf536",

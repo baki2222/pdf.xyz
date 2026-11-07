@@ -98,6 +98,7 @@ import {
   type OcrOutputMode,
 } from "@/lib/jobs/ocr";
 import {
+  WORD_OCR_HINT,
   WORD_OCR_LABEL,
   XLSX_CELL_BREAK_PHRASE,
   XLSX_MERGE_CAVEAT,
@@ -1112,7 +1113,10 @@ export const guides: Guide[] = [
         id: "scanned-pdfs",
         heading: "Scanned PDFs and neighboring tools",
         body: [
-          "The tools listed beside PDF to Word cover the jobs next door. If your PDF is a scan — photographed or scanned pages rather than typed text — run it through the OCR PDF tool first, which recognizes the text in scanned pages so there is real text to carry into Word.",
+          // CHANGED 2026-11-07 (audit search-demand#5): told a reader with a
+          // scan to run OCR PDF first, stale since 2026-10-24, when PDF to
+          // Word gained its own OCR switch (scanned-pdf-to-word.test.ts).
+          `If your PDF is a scan — photographed or scanned pages rather than typed text — tick “${WORD_OCR_LABEL}” before you press Export DOCX. Our server then recognises the text in the scanned pages and converts the result in the same job, so there is real text to carry into Word. ${nameOf("ocr-pdf")}, listed beside it, is for when you want a searchable PDF instead of a Word file.`,
           "If you want the same text as a plain .txt file rather than a DOCX, PDF to Text pulls it out right in your browser. And when the editing is done, Word to PDF converts your finished document back in the other direction.",
         ],
       },
@@ -1138,11 +1142,11 @@ export const guides: Guide[] = [
       },
       {
         question: "Will the Word document look like my original PDF?",
-        answer: `No. It holds the PDF's words and pictures, not its design. ${PDF_TO_WORD_KEEPS} If your PDF is a scanned image rather than typed text, use the OCR PDF tool first so there is recognized text to convert.`,
+        answer: `No. It holds the PDF's words and pictures, not its design. ${PDF_TO_WORD_KEEPS} If your PDF is a scanned image rather than typed text, tick “${WORD_OCR_LABEL}” so there is recognised text to convert.`,
       },
     ],
     published: "2026-09-17",
-    updated: "2026-10-30",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-convert-jpg-to-pdf",
@@ -4344,6 +4348,99 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
+    updated: "2026-11-07",
+  },
+  // Added 2026-11-07 for the "scanned PDF to Word" / "OCR PDF to Word"
+  // search family (audit search-demand#5). PDF to Word has run OCR in the
+  // same job since 2026-10-24 (WORD_OCR_LABEL); the panel's own sentence for
+  // it is WORD_OCR_HINT, quoted whole. The shape of the DOCX (each scanned
+  // page's picture, then its text) is the one the Bangla guide's measured run
+  // held and the hint states; the language lists are the picker's own.
+  {
+    slug: "how-to-convert-a-scanned-pdf-to-word",
+    title: "How to convert a scanned PDF to editable Word",
+    description: `Turn a scanned PDF into an editable Word (DOCX) file: tick “${WORD_OCR_LABEL}” and our server reads the text with OCR, then converts it.`,
+    tools: ["pdf-to-word", "ocr-pdf", "jpg-to-pdf"],
+    keywords: [
+      "scanned pdf to word",
+      "ocr pdf to word",
+      "pdf to word ocr",
+      "convert scanned pdf to editable word",
+      "scanned document to word",
+      "image pdf to word",
+    ],
+    intro: [
+      `To turn a scanned PDF into a Word document you can edit, open ${nameOf("pdf-to-word")}, add the PDF, tick “${WORD_OCR_LABEL}”, pick the languages the document is written in under Languages, and press Export DOCX. Our server reads the words on each scanned page with OCR (optical character recognition) and writes them into a DOCX file as text you can edit, copy and search.`,
+      `A scanned page holds a picture of its words, not the words themselves, so without that switch there is no text on it for the conversion to carry. With it, the panel says what happens: “${WORD_OCR_HINT}”`,
+      `This runs on our secure server, not in your browser. Our privacy policy says the uploaded file is deleted when the job ends, the result can be downloaded for ${RETENTION_WINDOWS.outputLink}, and the stored copy is erased by a daily storage rule some time after it is ${RETENTION_WINDOWS.outputStorageRule} old.`,
+    ],
+    steps: [
+      `Open the ${nameOf("pdf-to-word")} tool and drop your scanned PDF where it says Add your PDF, or click to pick one. Files up to ${ceilingMb("pdf-to-word")} MB are accepted.`,
+      `Tick “${WORD_OCR_LABEL}”.`,
+      `Under Languages, select every language the pages are written in, up to ${MAX_OCR_LANGUAGES}. ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} is selected when the page opens; deselect it if the document has no ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} in it.`,
+      "Press Export DOCX, which uploads your PDF over an encrypted connection to our server, where the OCR and the conversion run in one job.",
+      `Download the DOCX when it is ready. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
+      "Open it in Word, LibreOffice or Google Docs and read the text through against the page before you rely on it.",
+    ],
+    sections: [
+      {
+        id: "what-you-get",
+        heading: "What the Word file holds",
+        body: [
+          "Each scanned page comes through as its picture, followed by the text read from it, as plain paragraphs you can edit, search and copy. Keep the picture while you check the text against it, and delete it when you no longer need it.",
+          "The look of the page is not rebuilt: fonts, columns, tables and spacing are not carried over, and a line of the scan can arrive as a paragraph of its own, so expect to join some lines and style the headings yourself.",
+          "A PDF that mixes typed pages and scanned ones can go through with the switch on: pages that already have text are kept as they are, and only the scanned ones are read.",
+        ],
+      },
+      {
+        id: "choosing-languages",
+        heading: "Choosing the languages",
+        body: [
+          "The language you pick decides the result. A page read in the wrong language does not fail: it comes back as letters that look like words and mean nothing, with no error, so select the language the scan is written in, and add a second one if the pages mix two.",
+          `The picker offers ${PDF_TO_WORD_OCR_LANGUAGE_CODES.length} of the ${OCR_LANGUAGES.length} languages ${nameOf("ocr-pdf")} reads. ${RTL_OCR_NAMES} are not offered here: written right to left, their recognised words come out of the conversion out of order. For those, use ${nameOf("ocr-pdf")}, which reads them in order in its searchable PDF and its text.`,
+        ],
+      },
+      {
+        id: "getting-a-good-result",
+        heading: "Getting a good result",
+        body: [
+          "OCR reads printed and typed text: letters, forms, contracts, book pages and office documents. It is not made for handwriting, which usually comes back as nonsense or not at all.",
+          "The clearer the scan, the fewer mistakes. Scan in your scanner's document or text setting rather than a low-resolution preview, keep the page straight and flat, and avoid shadows, glare and blur when you photograph a page with a phone.",
+        ],
+      },
+      {
+        id: "other-routes",
+        heading: "A searchable PDF, or a photo instead of a PDF",
+        body: [
+          `If you need to find and copy the words but not edit them, ${nameOf("ocr-pdf")} keeps the page exactly as it looks and lays the recognised text invisibly under it.`,
+          `If your scan is a JPG or PNG photo rather than a PDF, turn it into a PDF first with ${nameOf("jpg-to-pdf")}, which runs in your browser, then convert that PDF here with “${WORD_OCR_LABEL}” ticked.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Can I convert a scanned PDF to Word for free?",
+        answer: `Yes. There is no account and no payment: open ${nameOf("pdf-to-word")}, tick “${WORD_OCR_LABEL}”, pick the languages, and download the DOCX.`,
+      },
+      {
+        question: "Is OCR PDF a separate step?",
+        answer: `No. “${WORD_OCR_LABEL}” runs the OCR inside the same job, so one run of ${nameOf("pdf-to-word")} gives you the Word file. ${nameOf("ocr-pdf")} is for when you want a searchable PDF instead.`,
+      },
+      {
+        question: "Why does my text come out as gibberish?",
+        answer: `Because the page was read in the wrong language. ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} is selected when the page opens; select the language your scan is written in and run the job again. A blurry or sideways scan can cause the same symptom.`,
+      },
+      {
+        question: "Can it read handwriting?",
+        answer:
+          "No. The OCR is made for printed and typed text; handwriting usually comes back as nonsense or not at all.",
+      },
+      {
+        question: "Is my file uploaded?",
+        answer: `Yes. OCR needs a recognition engine that runs on our secure server, so your PDF is uploaded over an encrypted connection. The uploaded file is deleted when the job ends, and the result can be downloaded for ${RETENTION_WINDOWS.outputLink}.`,
+      },
+    ],
+    published: "2026-11-07",
     updated: "2026-11-07",
   },
   // Added 2026-10-31 for the "Bangla PDF to Word" search family. Written
