@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import {
+  Fragment,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -693,7 +700,10 @@ export function PropertiesPanel({
         </div>
       )}
 
-      {selection.length > 0 && repeat}
+      {/* Its own key: the caller keys RepeatOnPages by the selection's ids,
+          which for one object is the very key LinkFields and FieldFields
+          carry beside it, and React then drew a link's fields twice. */}
+      {selection.length > 0 && <Fragment key="repeat">{repeat}</Fragment>}
       {selection.length > 0 && (
         <div className="flex gap-2">
           {kind !== "textedit" && (
