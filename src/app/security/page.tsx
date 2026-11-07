@@ -33,7 +33,7 @@ const strong = "text-fg font-semibold";
 export const metadata: Metadata = buildMetadata({
   title: "Security practices",
   description:
-    "How pdf.xyz protects your files: many tools never upload them, and server tools use an encrypted connection, check uploads for malware and delete them when the job ends.",
+    "How pdf.xyz protects your files: many tools never upload them; server tools use an encrypted connection, check uploads for malware and delete them when the job ends.",
   path: "/security",
 });
 

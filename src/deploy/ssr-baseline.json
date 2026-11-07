@@ -8072,7 +8072,7 @@
     },
     "security.html": {
       "title": "Security practices — pdf.xyz",
-      "description": "How pdf.xyz protects your files: many tools never upload them, and server tools use an encrypted connection, check uploads for malware and delete them when the job ends.",
+      "description": "How pdf.xyz protects your files: many tools never upload them; server tools use an encrypted connection, check uploads for malware and delete them when the job ends.",
       "canonical": "https://pdf.xyz/security",
       "robots": "index, follow",
       "h1": ["Security practices"],
