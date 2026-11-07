@@ -1,10 +1,16 @@
 import type { ToolContent } from "./types";
 import { MAX_IMAGE_MB } from "@/lib/tools/limits";
 import {
+  DEFAULT_IMAGE_PAGE_OPTIONS,
   IMAGE_MARGINS,
   IMAGE_ORIENTATIONS,
   IMAGE_PAGE_SIZES,
+  LETTER_REGION_PAGE_SIZE,
+  WORLD_PAGE_SIZE,
+  imageMarginPoints,
+  imagePageSizeById,
 } from "@/lib/pdf/image-page-layout";
+import { imageDefaultPaperCopy } from "@/lib/tools/tool-facts";
 import { inches } from "@/lib/pdf/page-geometry";
 import { tiffRefusal } from "@/lib/pdf/tiff-limits";
 import {
@@ -27,6 +33,16 @@ const MARGINS = or(
     m.points > 0 ? `${m.label} (${inches(m.points)} in)` : m.label,
   ),
 );
+
+/**
+ * The page the runner starts on (audit jpg-to-pdf#1, 2026-11-07): A4, or US
+ * Letter for a browser set to a Letter country, from the runner's own
+ * tables. image-page-default-copy.test.ts holds this page to it.
+ */
+const DEFAULT_PAPER = imageDefaultPaperCopy();
+const WORLD_SIZE = imagePageSizeById(WORLD_PAGE_SIZE).label;
+const LETTER_SIZE = imagePageSizeById(LETTER_REGION_PAGE_SIZE).label;
+const DEFAULT_MARGIN = `${inches(imageMarginPoints(DEFAULT_IMAGE_PAGE_OPTIONS.margin))} in`;
 
 /**
  * Max file size (2026-10-31), every word from the panel's own constants:
@@ -55,7 +71,9 @@ const LIMIT_MET = limitOutcome({
  *    Move up / Move down / Remove, Clear, Create PDF ("Creating PDF…"),
  *    result panel "PNG PDF created" with Download PDF. Since 2026-10-24 also
  *    Page size, Orientation, Margin and Output chips
- *    (src/lib/pdf/image-page-layout.ts), defaulting to the old fixed layout;
+ *    (src/lib/pdf/image-page-layout.ts), defaulting to the old fixed layout
+ *    except the page size, which since 2026-11-07 starts on A4, or US Letter
+ *    for a browser set to a Letter country (audit jpg-to-pdf#1);
  *    "One PDF per image (ZIP)" gives Download ZIP for more than one image.
  *  - The result panel's "Start over" is not described. HISTORY: its onReset
  *    (`clearItems`) once emptied the list without clearing the run's
@@ -133,7 +151,7 @@ const content: ToolContent = {
   metaDescription: `Combine PNG screenshots, diagrams and logos into a single PDF in your browser. Pixels are kept without JPEG blur, up to ${MAX_IMAGE_MB} MB a file, and nothing is uploaded.`,
   intro: [
     `PNG to PDF places every PNG you add on a page of its own and saves the set as a single PDF. It suits what people keep as PNG in the first place — screenshots, diagrams, line art, logos on a transparent background — where crisp edges matter more than a small file. With ${LIMIT} left at ${NO_LIMIT}, a PNG is never turned into JPEG on the way: its pixels are stored with lossless Flate compression, so small interface text is not smudged by block artefacts. Each PNG keeps its own depth too, sixteen bits per channel included. WebP, GIF and BMP images are taken too: your browser decodes each one and it is saved again, as a PNG when it has transparency and as a high-quality JPEG when it has none, and an animated GIF gives its first frame only. If an upload form caps the size, choose ${LIMIT} (${LIMIT_PRESETS}, or Custom): when the PDF comes out bigger, your browser saves the images again as JPEGs, softer and with any transparent areas turned white, until it fits.`,
-    `Unless you change the page setup, every page is a portrait US Letter sheet with a white background and a 0.5 in margin. You can pick the page size (${SIZES}), the orientation (${ORIENTATIONS}) and the margin (${MARGINS}) first; Fit to image makes each page the size of its PNG plus the margin, which suits screenshots. A PNG bigger than the space is scaled down to fit and centred. A smaller one is never enlarged: it is drawn at one PDF point per pixel, so a tiny icon stays tiny. Any DPI value stored inside the PNG is ignored.`,
+    `Unless you change the page setup, every page is a portrait sheet with a white background and a ${DEFAULT_MARGIN} margin, and its size is ${DEFAULT_PAPER}. You can pick the page size (${SIZES}), the orientation (${ORIENTATIONS}) and the margin (${MARGINS}) first; Fit to image makes each page the size of its PNG plus the margin, which suits screenshots. A PNG bigger than the space is scaled down to fit and centred. A smaller one is never enlarged: it is drawn at one PDF point per pixel, so a tiny icon stays tiny. Any DPI value stored inside the PNG is ignored.`,
     "TIFF images are taken as well, multi-page TIFFs from scanners and fax software included: every page of the TIFF becomes a page of the PDF, in order, black-and-white fax pages (CCITT Group 4) among them. Unlike a PNG, a TIFF page is laid out at the size it had on paper, read from the resolution saved in the file, so under Fit to image a 300 dpi A4 scan is an A4 page. Its pixels are stored without loss, a black-and-white page as one bit per pixel.",
     `The work happens in this browser tab: your PNGs are read from your device, laid out there, and handed back as a download, and none of them is uploaded to pdf.xyz. Each file may be up to ${MAX_IMAGE_MB} MB.`,
   ],
@@ -166,7 +184,7 @@ const content: ToolContent = {
     },
     {
       title: "Choose the page setup",
-      body: `Below the list, Page size, Orientation and Margin set the page, ${LIMIT} caps the size of the PDF, and Output chooses One PDF or One PDF per image, which with more than one image arrives as a ZIP. Left alone: US Letter, portrait, a 0.5 in margin, ${NO_LIMIT.toLowerCase()} on size, one PDF. With One PDF per image, a ${LIMIT} applies to each PDF on its own.`,
+      body: `Below the list, Page size, Orientation and Margin set the page, ${LIMIT} caps the size of the PDF, and Output chooses One PDF or One PDF per image, which with more than one image arrives as a ZIP. Left alone: ${WORLD_SIZE} (${LETTER_SIZE} in a country that uses Letter paper), portrait, a ${DEFAULT_MARGIN} margin, ${NO_LIMIT.toLowerCase()} on size, one PDF. With One PDF per image, a ${LIMIT} applies to each PDF on its own.`,
     },
     {
       title: "Press Create PDF",

@@ -109,3 +109,38 @@ describe.each(KINDS)("$kind to PDF · reordering images", (k) => {
     expect(screen.queryByText(/keep drop order/i)).toBeNull();
   });
 });
+
+/**
+ * Audit jpg-to-pdf#1 (2026-11-07): the Page size chips started on US Letter
+ * for every visitor. They now start on the paper of the browser's region.
+ */
+describe("image to PDF · the page size starts on the browser's paper", () => {
+  const real = Object.getOwnPropertyDescriptor(window.navigator, "languages");
+  afterEach(() => {
+    if (real) Object.defineProperty(window.navigator, "languages", real);
+    else delete (window.navigator as { languages?: unknown }).languages;
+  });
+  const speak = (languages: string[]) =>
+    Object.defineProperty(window.navigator, "languages", {
+      configurable: true,
+      get: () => languages,
+    });
+
+  it.each([
+    [["en-GB"], "A4"],
+    [["bn-BD", "en-US"], "A4"],
+    [["en-US"], "US Letter"],
+    [["fr-CA"], "US Letter"],
+  ])("%j starts on %s", async (languages, label) => {
+    speak(languages);
+    await mount(KINDS[0], ["alpha.jpg"]);
+    const chip = screen.getByRole("button", { name: new RegExp(`^${label}`) });
+    expect(chip).toHaveAttribute("aria-pressed", "true");
+    // Exactly one size is chosen: the other paper is not also pressed.
+    const other = label === "A4" ? /^US Letter/ : /^A4/;
+    expect(screen.getByRole("button", { name: other })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+});

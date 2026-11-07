@@ -53,6 +53,7 @@ import {
   REPAIR_WARNINGS_ANSWER,
   IMAGE_PAGE_FACT,
   IMAGE_PAGE_OPTIONS_FACT,
+  imageDefaultPaperCopy,
   TEXT_PAGE_FACT,
   TRANSLATE_LANGUAGES_ANSWER,
   countWord,
@@ -707,7 +708,21 @@ const PNG_SHOT_H = 1080;
 const PNG_SHOT_PX = PNG_SHOT_W.toLocaleString("en-US");
 const inchesOf = (pt: number) => (pt / PT_PER_INCH).toFixed(1);
 const PNG_SHOT_ON_PAPER_IN = inchesOf(
-  imagePageLayout(PNG_SHOT_W, PNG_SHOT_H, DEFAULT_IMAGE_PAGE_OPTIONS).width,
+  imagePageLayout(PNG_SHOT_W, PNG_SHOT_H, {
+    ...DEFAULT_IMAGE_PAGE_OPTIONS,
+    pageSize: "letter",
+  }).width,
+);
+/**
+ * The same screenshot on A4 (audit jpg-to-pdf#1, 2026-11-07): the runner
+ * starts on A4 unless the browser is set to a Letter country, so the guide
+ * gives both widths rather than calling Letter "the default page".
+ */
+const PNG_SHOT_ON_A4_IN = inchesOf(
+  imagePageLayout(PNG_SHOT_W, PNG_SHOT_H, {
+    ...DEFAULT_IMAGE_PAGE_OPTIONS,
+    pageSize: "a4",
+  }).width,
 );
 const PNG_SHOT_FIT_PAGE_IN = inchesOf(
   imagePageLayout(PNG_SHOT_W, PNG_SHOT_H, {
@@ -917,7 +932,7 @@ export const guides: Guide[] = [
         id: "choose-a-split-mode",
         heading: "Choose the right split mode",
         body: [
-          "Split PDF offers six ways to divide a document, and picking the right one saves rework. Custom page ranges fit documents with a known structure: give each chapter, exhibit, or section its own range and each becomes its own file. The every-N-pages rule fits uniform documents — batch scans, multi-page statements, anything that repeats at a fixed length — because you set the interval once and the tool cuts at every boundary. One file per page is the blunt instrument: every single page becomes its own PDF, useful when each page must stand alone. By file size packs pages into each file until the next one would take it over the limit you set, and by bookmarks starts a file at each top-level bookmark.",
+          "Split PDF offers seven ways to divide a document, and picking the right one saves rework. Custom page ranges fit documents with a known structure: give each chapter, exhibit, or section its own range and each becomes its own file. The every-N-pages rule fits uniform documents — batch scans, multi-page statements, anything that repeats at a fixed length — because you set the interval once and the tool cuts at every boundary. One file per page is the blunt instrument: every single page becomes its own PDF, useful when each page must stand alone. By file size packs pages into each file until the next one would take it over the limit you set, by bookmarks starts a file at each top-level bookmark and names it after the bookmark, and odd and even pages puts pages 1, 3, 5 and so on in one file and 2, 4, 6 and so on in another, which pulls apart the fronts and backs of a double-sided scan.",
           "By text is for documents that announce their own boundaries: a batch of invoices where each begins with “Invoice number”, or statements that each open with “Account summary”. Every page whose text contains the phrase starts a new file, and pages before the first one form a file of their own. Line breaks inside the phrase do not matter, and capitals only count when Match case is ticked. It reads the PDF's own text, so a scanned page without a text layer cannot start a file; the tool names any such pages, and OCR PDF can add the missing text first.",
           "If what you actually want is a handful of specific pages combined into one new document — rather than the whole file divided into pieces — the Extract Pages tool is the closer fit. It lets you pick pages by clicking thumbnails or typing a range like 1-3, 5, then exports them as a brand-new PDF, also right in your browser.",
         ],
@@ -971,7 +986,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-10-25",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-compress-a-pdf",
@@ -1166,7 +1181,7 @@ export const guides: Guide[] = [
     slug: "how-to-convert-jpg-to-pdf",
     title: "How to convert JPG to PDF",
     description:
-      "Combine JPG photos into one PDF right in your browser — your files never leave your device. One photo per US Letter page, in the order you set.",
+      "Combine JPG photos into one PDF right in your browser — your files never leave your device. One photo per A4 or Letter page, in the order you set.",
     tools: ["jpg-to-pdf", "png-to-pdf", "pdf-to-jpg"],
     keywords: [
       "jpg to pdf",
@@ -1240,8 +1255,9 @@ export const guides: Guide[] = [
       },
       {
         question: "Does JPG to PDF have page size or margin settings?",
-        // Was "No." — true until 2026-10-24.
-        answer: `Yes. ${IMAGE_PAGE_OPTIONS_FACT} If you change nothing, every image goes on a ${US_LETTER_LABEL} portrait page with a ${inches(IMAGE_PAGE_MARGIN_PT)} in margin, scaled down to fit if it is larger than that space.`,
+        // Was "No." — true until 2026-10-24. Said the page was US Letter for
+        // everyone until the review of 2b60fd4c (2026-11-07).
+        answer: `Yes. ${IMAGE_PAGE_OPTIONS_FACT} If you change nothing, every image goes on a portrait page with a ${inches(IMAGE_PAGE_MARGIN_PT)} in margin, scaled down to fit if it is larger than that space, and the page is ${imageDefaultPaperCopy()}.`,
       },
       {
         question: "How large can my JPG files be?",
@@ -1260,7 +1276,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-11-06",
+    updated: "2026-11-07",
   },
   {
     // ONE guide for the intent, from two lanes: L07 wrote this slug for the
@@ -2136,8 +2152,8 @@ export const guides: Guide[] = [
         heading: "Three ways to select pages",
         body: [
           "Clicking a thumbnail selects that page, and clicking it again deselects it. Holding Shift while you click selects every page between the one you touched last and this one — the quick way to clear out a run of pages at the end of a scan.",
-          `Typing is faster in a long document. Enter single pages and ranges separated by commas — 1-3, 5 selects pages one to three and page five — and press Select. A range can be left open: 10- runs from page ten to the end. To delete every other page, list them: ${EVERY_OTHER_PAGE_EXAMPLE}.`,
-          "Select all, Clear and Invert work on the whole selection. Invert flips it — every selected page becomes unselected and every other page becomes selected — which helps when it is easier to pick the pages you want to keep.",
+          `Typing is faster in a long document. Enter single pages and ranges separated by commas — 1-3, 5 selects pages one to three and page five — and press Select. A range can be left open: 10- runs from page ten to the end. To delete every other page, press Even pages for 2, 4, 6 and so on, or Odd pages for 1, 3, 5 and so on.`,
+          "Select all, Clear, Invert, Odd pages and Even pages work on the whole selection. Invert flips it — every selected page becomes unselected and every other page becomes selected — which helps when it is easier to pick the pages you want to keep.",
         ],
       },
       {
@@ -2174,7 +2190,7 @@ export const guides: Guide[] = [
       },
       {
         question: "How do I delete every other page?",
-        answer: `Type the pages as a list — for example ${EVERY_OTHER_PAGE_EXAMPLE} — and press Select; those pages are selected, and Delete removes them.`,
+        answer: `Press Even pages to select pages 2, 4, 6 and so on, or Odd pages for 1, 3, 5 and so on, and Delete removes them. For another pattern, type the pages as a list — for example ${EVERY_OTHER_PAGE_EXAMPLE} — and press Select.`,
       },
       {
         question: "How large can the PDF be?",
@@ -2182,7 +2198,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-10-07",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-convert-markdown-to-pdf",
@@ -3364,7 +3380,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-extract-images-from-a-pdf",
@@ -4749,8 +4765,8 @@ export const guides: Guide[] = [
         heading: "Ways to select pages",
         body: [
           "Clicking a thumbnail selects that page, and clicking it again deselects it. Holding Shift while you click selects every page between the one you touched last and this one.",
-          `In a long document, typing is faster. Enter single pages and ranges separated by commas, such as 1-3, 5, and press Select. A range can be left open: 8- runs from page eight to the end. To keep every other page, list them: ${EVERY_OTHER_PAGE_EXAMPLE}. Typing a list replaces the current selection, and you can fine-tune it by clicking thumbnails afterwards.`,
-          "Select all, Clear and Invert change the whole selection at once. Invert is handy when it is easier to click the few pages you do not want: select those, press Invert, and extract the rest.",
+          `In a long document, typing is faster. Enter single pages and ranges separated by commas, such as 1-3, 5, and press Select. A range can be left open: 8- runs from page eight to the end. To keep every other page, press Odd pages for 1, 3, 5 and so on, or Even pages for 2, 4, 6 and so on. Typing a list replaces the current selection, and you can fine-tune it by clicking thumbnails afterwards.`,
+          "Select all, Clear, Invert, Odd pages and Even pages change the whole selection at once. Invert is handy when it is easier to click the few pages you do not want: select those, press Invert, and extract the rest.",
         ],
       },
       {
@@ -4796,7 +4812,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-summarize-a-pdf",
@@ -5994,7 +6010,7 @@ export const guides: Guide[] = [
         id: "screenshot-page-size",
         heading: "How big a screenshot's page is",
         body: [
-          `The image is laid out at one point per pixel, and a point is 1/${PT_PER_INCH} of an inch, so screenshots are large on paper. On the default ${US_LETTER_LABEL} page with its ${PNG_DEFAULT_MARGIN_IN} in margin, a screenshot ${PNG_SHOT_PX} pixels wide is shrunk to ${PNG_SHOT_ON_PAPER_IN} inches across. No pixel is thrown away by that, so zooming in on the PDF still shows the detail. With ${PNG_FIT_LABEL}, the same screenshot gets a page about ${PNG_SHOT_FIT_PAGE_IN} inches wide, which reads well on screen; to print it, use your printer's fit-to-page setting.`,
+          `The image is laid out at one point per pixel, and a point is 1/${PT_PER_INCH} of an inch, so screenshots are large on paper. On a ${US_LETTER_LABEL} page with the default ${PNG_DEFAULT_MARGIN_IN} in margin, a screenshot ${PNG_SHOT_PX} pixels wide is shrunk to ${PNG_SHOT_ON_PAPER_IN} inches across, or ${PNG_SHOT_ON_A4_IN} inches on ${labelOf(IMAGE_PAGE_SIZES, "a4")}. No pixel is thrown away by that, so zooming in on the PDF still shows the detail. With ${PNG_FIT_LABEL}, the same screenshot gets a page about ${PNG_SHOT_FIT_PAGE_IN} inches wide, which reads well on screen; to print it, use your printer's fit-to-page setting.`,
           `A small image is never enlarged, so an icon stays icon-sized on a paper page. A long scrolling capture stays one image on one page: it is not cut across several pages. On a paper size it is shrunk to the page's height, so choose ${PNG_FIT_LABEL} to keep it readable. Even then a page side cannot pass ${PNG_MAX_PAGE_IN} inches, and a longer capture is scaled down to fit that. Any DPI value stored in the PNG is ignored.`,
         ],
       },
@@ -6024,7 +6040,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-06",
+    updated: "2026-11-07",
   },
   // HTML to PDF: an HTML FILE (or code saved as one), never a URL — that is
   // how-to-convert-a-webpage-to-pdf. Read off the worker: the upload is
@@ -6119,7 +6135,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   // Overlay PDF, titled for the task it truly does: lay one PDF on every
   // page of another. Read off overlay.ts and overlay-runner.tsx: the overlay

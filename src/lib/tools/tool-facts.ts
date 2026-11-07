@@ -119,8 +119,12 @@ import {
   IMAGE_ORIENTATIONS,
   IMAGE_OUTPUTS,
   IMAGE_PAGE_SIZES,
+  LETTER_PAPER_REGIONS,
+  LETTER_REGION_PAGE_SIZE,
+  WORLD_PAGE_SIZE,
   imageMarginPoints,
   imagePageSizeById,
+  type ImagePageSize,
 } from "@/lib/pdf/image-page-layout";
 import {
   MARKDOWN_BLOCK_KINDS,
@@ -295,13 +299,34 @@ function orJoin(items: readonly string[]): string {
     : `${items.slice(0, -1).join(", ")} or ${items.at(-1)}`;
 }
 
-/** "US Letter (8.5 × 11 in)" for the default size, from the same table. */
-const DEFAULT_IMAGE_SIZE = (() => {
-  const size = imagePageSizeById(DEFAULT_IMAGE_PAGE_OPTIONS.pageSize);
-  return size.size
+/**
+ * How the page copy states the paper Image to PDF's runner starts on, from
+ * the tables in src/lib/pdf/image-page-layout.ts: "A4, or US Letter if your
+ * browser's preferred language is set for a country that uses Letter paper,
+ * such as …" (audit jpg-to-pdf#1, 2026-11-07). `nameOf` lets a caller add
+ * the size in inches; the countries named are the first four Letter
+ * regions. src/lib/tools/image-page-default-copy.test.ts holds every page
+ * that describes the default to this sentence.
+ */
+export function imageDefaultPaperCopy(
+  nameOf: (size: ImagePageSize) => string = (size) => size.label,
+): string {
+  const names = LETTER_PAPER_REGIONS.slice(0, 4).map((r) => r.name);
+  return `${nameOf(imagePageSizeById(WORLD_PAGE_SIZE))}, or ${nameOf(imagePageSizeById(LETTER_REGION_PAGE_SIZE))} if your browser's preferred language is set for a country that uses Letter paper, such as ${orJoin(names)}`;
+}
+
+/**
+ * "A4 (8.27 × 11.69 in), or US Letter (8.5 × 11 in) if your browser's …":
+ * the paper the runner STARTS on, which follows the browser's region since
+ * 2026-11-07 (audit jpg-to-pdf#1). Until then this was one size, US Letter,
+ * read from DEFAULT_IMAGE_PAGE_OPTIONS — which is still the engine's default
+ * for a caller passing no options, but no longer what a person gets.
+ */
+const DEFAULT_IMAGE_SIZE = imageDefaultPaperCopy((size) =>
+  size.size
     ? `${size.label} (${inches(size.size.width)} × ${inches(size.size.height)} in)`
-    : size.label;
-})();
+    : size.label,
+);
 const DEFAULT_IMAGE_ORIENTATION = IMAGE_ORIENTATIONS.find(
   (o) => o.id === DEFAULT_IMAGE_PAGE_OPTIONS.orientation,
 )!.label.toLowerCase();
@@ -318,7 +343,7 @@ const DEFAULT_IMAGE_ORIENTATION = IMAGE_ORIENTATIONS.find(
 export const IMAGE_PAGE_OPTIONS_FACT = `Page size: ${orJoin(IMAGE_PAGE_SIZES.map((s) => s.label))}. Orientation: ${orJoin(IMAGE_ORIENTATIONS.map((o) => o.label))} (Auto turns the page for a wide image). Margin: ${orJoin(IMAGE_MARGINS.map((m) => (m.points > 0 ? `${m.label} (${inches(m.points)} in)` : m.label)))}.`;
 
 /** Image to PDF's page, as the engine lays it out. */
-export const IMAGE_PAGE_FACT = `Each image goes on its own page, centred. Unless you change the page setup, that page is ${DEFAULT_IMAGE_SIZE} ${DEFAULT_IMAGE_ORIENTATION} with a ${inches(imageMarginPoints(DEFAULT_IMAGE_PAGE_OPTIONS.margin))} in margin. Larger images are scaled down to fit; smaller ones are never enlarged. Fit to image makes each page the size of its image instead, plus the margin.`;
+export const IMAGE_PAGE_FACT = `Each image goes on its own page, centred. Unless you change the page setup, that page is ${DEFAULT_IMAGE_ORIENTATION} with a ${inches(imageMarginPoints(DEFAULT_IMAGE_PAGE_OPTIONS.margin))} in margin, and its size is ${DEFAULT_IMAGE_SIZE}. Larger images are scaled down to fit; smaller ones are never enlarged. Fit to image makes each page the size of its image instead, plus the margin.`;
 
 /**
  * JPG / PNG to PDF's TIFF input (2026-11-04), from the reader's own leaf
@@ -1135,7 +1160,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         rebuildEntry(tool, "subset"),
         {
           question: "How do I delete every other page?",
-          answer: `Type the pages as a list — for example ${EVERY_OTHER_PAGE_EXAMPLE} — and press “Select”; those pages are selected, and “Delete” removes them.`,
+          answer: `Press “Even pages” to select pages 2, 4, 6 and so on, the blank backs of a double-sided scan, or “Odd pages” for 1, 3, 5 and so on; “Delete” then removes them. For any other pattern, type the pages as a list — for example ${EVERY_OTHER_PAGE_EXAMPLE} — and press “Select”.`,
         },
         {
           question: "Can I get a deleted page back?",

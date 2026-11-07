@@ -7,7 +7,11 @@ import {
   IMAGE_MARGINS,
   IMAGE_PAGE_SIZES,
   MAX_PAGE_SIDE_PT,
+  LETTER_PAPER_REGIONS,
+  LETTER_REGION_PAGE_SIZE,
+  WORLD_PAGE_SIZE,
   imagePageLayout,
+  imagePageSizeForLocales,
   type ImagePageOptions,
 } from "./image-page-layout";
 import { IMAGE_PAGE_MARGIN_PT, US_LETTER_PT } from "./page-geometry";
@@ -249,5 +253,42 @@ describe("image to PDF — the options reach the output", () => {
     }
     expect(perImageZipName("png", "x.jpg")).toBe("x-pdfs.zip");
     expect(perImageZipName("png")).toBe("png-images-pdfs.zip");
+  });
+});
+
+/**
+ * Audit jpg-to-pdf#1 (2026-11-06): every visitor got US Letter until they
+ * changed the chip, so most of the world printed a Letter page on A4 paper.
+ * The runner now starts on the paper of the browser's region: Letter where
+ * CLDR says the region prints on Letter, A4 everywhere else.
+ */
+describe("image page size — the default follows the browser's region", () => {
+  it.each([
+    [["en-US"], "letter"],
+    [["fr-CA", "en"], "letter"],
+    [["es-MX"], "letter"],
+    [["en-PH"], "letter"],
+    [["en-GB"], "a4"],
+    [["bn-BD", "en-US"], "a4"],
+    [["de-DE"], "a4"],
+    [["en-IN"], "a4"],
+    [["fr"], "a4"],
+    [["en"], "letter"],
+    [[], "a4"],
+    [["not a locale!"], "a4"],
+  ] as const)("%j → %s", (locales, expected) => {
+    expect(imagePageSizeForLocales(locales)).toBe(expected);
+  });
+
+  it("every Letter region and the world default are sizes the chips offer", () => {
+    // Health: the list is not empty, so "every region" is not vacuous.
+    expect(LETTER_PAPER_REGIONS.length).toBeGreaterThanOrEqual(4);
+    for (const region of LETTER_PAPER_REGIONS) {
+      expect(imagePageSizeForLocales([`en-${region.code}`])).toBe("letter");
+    }
+    const offered = IMAGE_PAGE_SIZES.map((s) => s.id);
+    expect(offered).toContain(WORLD_PAGE_SIZE);
+    expect(offered).toContain(LETTER_REGION_PAGE_SIZE);
+    expect(WORLD_PAGE_SIZE).not.toBe(LETTER_REGION_PAGE_SIZE);
   });
 });

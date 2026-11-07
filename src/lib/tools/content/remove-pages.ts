@@ -71,7 +71,7 @@ const content: ToolContent = {
   metaDescription: `Remove pages from a PDF by clicking thumbnails or typing a list like 2-4, 9. Processed on your device; the file is not uploaded. Up to ${ceilingMb} MB.`,
 
   intro: [
-    "Delete Pages takes one PDF, drops the pages you pick, and hands back a new file with every remaining page in its original order. You can choose pages by clicking their thumbnails, Shift-clicking to grab a whole run, or entering 1-3, 7, 12- in the range box. When you only want to keep a handful of pages, select those and press Invert: everything else becomes the selection.",
+    "Delete Pages takes one PDF, drops the pages you pick, and hands back a new file with every remaining page in its original order. You can choose pages by clicking their thumbnails, Shift-clicking to grab a whole run, or entering 1-3, 7, 12- in the range box. When you only want to keep a handful of pages, select those and press Invert: everything else becomes the selection. To clear out the blank backs of a double-sided scan, press Even pages.",
     `All of the deleting happens in your browser, where the chosen PDF is loaded into the tab's memory, the shortened copy is assembled there, and the file is not uploaded. The in-browser loader stops at ${ceilingMb} MB, so a bigger file is refused by its size alone, before any of it is read. On long documents the first thumbnails render up front and the rest fill in as you scroll down the page board.`,
     "Kept pages are copied as they are, so their text stays selectable and their rotation, images and annotations come through. So do the bookmarks that open a kept page, the kept pages' form fields, still fillable, and the document's title and author, page labels and language. Any encrypted PDF is refused until it has been unlocked, including a file your viewer shows with no password prompt.",
   ],
@@ -102,7 +102,7 @@ const content: ToolContent = {
     },
     {
       title: "Select the pages to remove",
-      body: "Click thumbnails, Shift-click for a run, or fill in the field whose placeholder reads e.g. 1-3, 5, then press Select or Enter. Select all, Clear and Invert adjust the selection.",
+      body: "Click thumbnails, Shift-click for a run, or fill in the field whose placeholder reads e.g. 1-3, 5, then press Select or Enter. Select all, Clear and Invert adjust the selection, and Even pages or Odd pages selects every other page in one press: 2, 4, 6 and so on, or 1, 3, 5 and so on.",
     },
     {
       title: "Delete them",

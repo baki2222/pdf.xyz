@@ -3,6 +3,7 @@ import { modeUploadsFiles } from "@/lib/tools/processing-split";
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeiling, toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
+import { buildSplitParts, oddEvenParts } from "@/lib/pdf/ranges";
 
 /**
  * Where-the-file-goes and the size cap are read from the catalogue and the
@@ -19,6 +20,28 @@ if (!splitTool || modeUploadsFiles(splitTool.processing)) {
 }
 const ceiling = toolFileCeiling(splitTool);
 const CEILING_MB = toolFileCeilingMb(splitTool);
+
+/**
+ * The file names the FAQ quotes, built by the code that names the parts
+ * (2026-11-07, audits split-pdf#5 and #6): a twelve-part split's first and
+ * last page-span names, a By bookmarks part named after its bookmark, and
+ * the two Odd and even pages files. split-modes-copy.test.ts holds every
+ * quoted name to these functions.
+ */
+const SPAN_NAMES = buildSplitParts("report", [
+  { start: 0, end: 2 },
+  ...Array.from({ length: 10 }, (_, i) => ({ start: 3 + i, end: 3 + i })),
+  { start: 39, end: 39 },
+]).map((part) => part.name);
+const TITLED_NAME = buildSplitParts(
+  "report",
+  [
+    { start: 0, end: 0 },
+    { start: 1, end: 9 },
+  ],
+  [undefined, "Chapter 2"],
+)[1]!.name;
+const [ODD_NAME, EVEN_NAME] = oddEvenParts("report", 2).map((p) => p.name);
 if (
   ceiling.tier !== "in-browser" ||
   ceiling.runner !== "split" ||
@@ -87,7 +110,7 @@ const content: ToolContent = {
     "Split a PDF by page ranges, every N pages, each page, a maximum file size, its bookmarks or a word on the page. It runs in your browser; no upload.",
 
   intro: [
-    `Split PDF cuts one document into several smaller PDFs in one of six ways. Custom ranges turns each comma-separated range you type into its own file, so "1-3, 4-9, 10-" gives you three documents, or, with "Merge selected ranges into one file" ticked, one document holding those pages in the order you typed them. Every N pages chops the file into equal chunks of the size you set, and any pages left over form a shorter final file. Each page makes every page its own PDF. By file size packs consecutive pages into each file until the next page would take it over the megabytes you set. By bookmarks starts a new file at the page of each top-level bookmark; it is greyed out, with the reason shown, for a PDF that has none. By text starts a new file at every page that contains a word or phrase you type, such as "Invoice number", with Match case when capitals matter. Except for By file size, whose pieces are only known once they are built, a preview lists every file the split will create, with its name and page count, before anything runs.`,
+    `Split PDF cuts one document into several smaller PDFs in one of seven ways. Custom ranges turns each comma-separated range you type into its own file, so "1-3, 4-9, 10-" gives you three documents, or, with "Merge selected ranges into one file" ticked, one document holding those pages in the order you typed them. Every N pages chops the file into equal chunks of the size you set, and any pages left over form a shorter final file. Each page makes every page its own PDF. By file size packs consecutive pages into each file until the next page would take it over the megabytes you set. By bookmarks starts a new file at the page of each top-level bookmark and names the file after it; it is greyed out, with the reason shown, for a PDF that has none. By text starts a new file at every page that contains a word or phrase you type, such as "Invoice number", with Match case when capitals matter. Odd and even pages puts pages 1, 3, 5 and so on into one file and pages 2, 4, 6 and so on into another, which separates the fronts and backs of a double-sided scan. Except for By file size, whose pieces are only known once they are built, a preview lists every file the split will create, with its name and page count, before anything runs.`,
     `The cutting is done by pdf-lib, a JavaScript PDF library your browser fetches the moment you add a file, and By text reads each page's text with pdf.js, shipped with the page. There is no upload anywhere: reading the pages, building each piece and, when there is more than one, packing them into a ZIP all happen on your device. A PDF can be up to ${CEILING_MB} MB; a bigger one is refused on its file size alone, before any of its bytes are read.`,
     `Every piece is a new PDF built from copies of the original pages, so their text, images, page size and rotation come through unchanged. Each piece also keeps the document's title, author, subject and keywords, its page labels and language, the bookmarks that open one of its pages, and the form fields on its pages, still fillable. Attached files, XMP metadata and the accessibility tags of a tagged PDF are not carried into the pieces. An encrypted file is refused as it loads, even one that opens without a password and only restricts printing or copying.`,
   ],
@@ -104,6 +127,10 @@ const content: ToolContent = {
     {
       title: "One file per invoice or receipt",
       body: "When a statement holds one invoice per page, Each page makes every page a standalone PDF, numbered so that a folder lists them in page order.",
+    },
+    {
+      title: "Fronts and backs of a double-sided scan",
+      body: "A duplex scanner reads each sheet's front and then its back, so the fronts land on pages 1, 3, 5 and the backs on 2, 4, 6. Odd and even pages gives you each side as its own PDF in one run.",
     },
     {
       title: "Overlapping handouts from one deck",
@@ -126,7 +153,7 @@ const content: ToolContent = {
     },
     {
       title: "Pick a split mode",
-      body: "Under How to split, choose Custom ranges, Every N pages, Each page, By file size, By bookmarks or By text.",
+      body: "Under How to split, choose Custom ranges, Every N pages, Each page, By file size, By bookmarks, By text or Odd and even pages.",
     },
     {
       title: "Set the ranges or the chunk size",
@@ -157,7 +184,7 @@ const content: ToolContent = {
     },
     {
       q: "What are the split files called?",
-      a: "Each piece takes the original name, a sequence number and its page span, for example report-01-pages-1-3.pdf or report-12-page-40.pdf, in every mode. With ten or more pieces the number is zero-padded so they sort in order, and the ZIP that holds multiple pieces is named after the original with -split added. Ranges merged into one file download as that one PDF, named after the original with -split added.",
+      a: `Each piece takes the original name, a sequence number and its page span, for example ${SPAN_NAMES[0]} or ${SPAN_NAMES.at(-1)}. With ten or more pieces the number is zero-padded so they sort in order. By bookmarks puts each bookmark's title in place of the page span, such as ${TITLED_NAME}, with characters a file name cannot hold left out; untick “Name each file after its bookmark” to keep the page spans, and pages before the first bookmark always keep theirs. Odd and even pages makes ${ODD_NAME} and ${EVEN_NAME}. The ZIP that holds multiple pieces is named after the original with -split added. Ranges merged into one file download as that one PDF, named after the original with -split added.`,
     },
     {
       q: "Can I split a password-protected PDF?",

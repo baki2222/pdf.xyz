@@ -24,6 +24,8 @@ import {
   HTML_ONE_PAGE_MAX_INCHES,
   HTML_PAGE_SIZES,
   HTML_VIEWPORTS,
+  DEFAULT_HTML_RENDER_OPTIONS,
+  htmlPaperWidthPx,
 } from "@/lib/jobs/html-render-options";
 
 const list = (items: readonly string[]) =>
@@ -36,13 +38,25 @@ const WIDTHS = list(
 );
 const AUTO_SIZE = HTML_PAGE_SIZES.find((s) => s.inches === null)!.label;
 
+/**
+ * What the default screen width means in pixels (audit webpage-to-pdf#5,
+ * 2026-11-07), from the geometry the worker prints with.
+ */
+const AUTO_WIDTH = HTML_VIEWPORTS.find((v) => v.width === null)!.label;
+const AUTO_WIDTH_PX = htmlPaperWidthPx(DEFAULT_HTML_RENDER_OPTIONS);
+const DEFAULT_MARGIN = HTML_MARGINS.find(
+  (m) => m.id === DEFAULT_HTML_RENDER_OPTIONS.margin,
+)!.label;
+const TABLET_PX = HTML_VIEWPORTS.find((v) => v.id === "tablet")!.width;
+const DESKTOP = HTML_VIEWPORTS.find((v) => v.id === "desktop")!.label;
+
 /** The FAQ answer to "Can I choose the page size, margins or orientation?". */
 export function htmlLayoutAnswer(source: "file" | "site"): string {
   const rule =
     source === "file"
       ? "a CSS @page rule in your file"
       : "a page size the site's print stylesheet sets";
-  return `Yes, under Page layout: Page size (${SIZES}), Orientation, Margins (${MARGINS}), Screen width and One long page. Leave Page size on ${AUTO_SIZE} and ${rule} still decides the paper, US Letter when there is none; choose a size, a screen width or One long page and your choice decides it instead. Screen width lays the page out as on a ${WIDTHS} pixel wide screen and scales it to fit the paper. One long page prints the whole page on a single page as tall as its content, up to ${HTML_ONE_PAGE_MAX_INCHES} inches; anything longer continues on more pages.`;
+  return `Yes, under Page layout: Page size (${SIZES}), Orientation, Margins (${MARGINS}), Screen width and One long page. Leave Page size on ${AUTO_SIZE} and ${rule} still decides the paper, US Letter when there is none; choose a size, a screen width or One long page and your choice decides it instead. Screen width lays the page out as on a ${WIDTHS} pixel wide screen and scales it to fit the paper. Its default, ${AUTO_WIDTH}, lays the page out at the paper's printable width, ${AUTO_WIDTH_PX} pixels on US Letter with ${DEFAULT_MARGIN} margins; that is narrower than a ${TABLET_PX} pixel tablet screen, so a site without print styles may come out in its tablet or phone layout, and ${DESKTOP} gives its desktop layout. One long page prints the whole page on a single page as tall as its content, up to ${HTML_ONE_PAGE_MAX_INCHES} inches; anything longer continues on more pages.`;
 }
 
 /** The how-to step for the layout group. */
