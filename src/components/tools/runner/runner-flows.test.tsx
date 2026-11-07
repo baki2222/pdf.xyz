@@ -648,3 +648,54 @@ describe("Text and Markdown to PDF read a file in the encoding it was saved in",
     }, 30_000);
   }
 });
+
+/**
+ * Audit #34's two runner wirings, read where the user meets them. The review
+ * found that a mutation dropping `{ keepFormFeeds: true }` from the file
+ * decode, and one making the pasted-text note return null, left every runner
+ * test green: the converter was tested, the runner's call into it was not.
+ */
+describe("Text to PDF keeps a file's form feeds and names pasted control characters (audit #34)", () => {
+  it("a loaded file with a form feed downloads as two pages", async () => {
+    const downloads: Blob[] = [];
+    const previous = URL.createObjectURL;
+    URL.createObjectURL = (blob: Blob | MediaSource) => {
+      if (blob instanceof Blob && blob.type === "application/pdf") {
+        downloads.push(blob);
+      }
+      return "blob:download";
+    };
+    try {
+      const { container } = renderRunner(<TextToPdfRunner />);
+      pick(container, [
+        new File(["page one\fpage two"], "report.txt", { type: "text/plain" }),
+      ]);
+      const box = () => container.querySelector("textarea")!;
+      await waitFor(() => expect(box().value).toBe("page one\fpage two"));
+      fireEvent.click(screen.getByRole("button", { name: /create pdf/i }));
+      await screen.findByText("PDF created", undefined, { timeout: 10_000 });
+      fireEvent.click(screen.getByRole("button", { name: /download pdf/i }));
+      expect(downloads).toHaveLength(1);
+      const doc = await PDFDocument.load(
+        new Uint8Array(await downloads[0]!.arrayBuffer()),
+      );
+      expect(doc.getPageCount()).toBe(2);
+    } finally {
+      URL.createObjectURL = previous;
+    }
+  }, 30_000);
+
+  it("pasted terminal colour codes are named as left out", async () => {
+    renderRunner(<TextToPdfRunner />);
+    const box = screen.getByPlaceholderText(/plain text here/);
+    // CONTROL: plain text carries no note.
+    fireEvent.change(box, { target: { value: "red text" } });
+    expect(screen.queryByText(/control character/)).toBeNull();
+    fireEvent.change(box, {
+      target: { value: `${String.fromCharCode(0x1b)}[31mred text` },
+    });
+    await screen.findByText(
+      "1 control character is left out of the PDF — they have no printable shape.",
+    );
+  });
+});
