@@ -208,7 +208,11 @@ describe("header-footer runner: page settings", () => {
     expect(screen.getByText(/applied to 2 of 3 pages/i)).toBeTruthy();
   });
 
-  it("starts on a later page and counts from First number", async () => {
+  // Was "starts on a later page and counts from First number", though it
+  // never set First number: dropping `startAt` from the Run call kept it
+  // green (review of audit header-footer#2, 2026-11-07). Each page setting
+  // now has a test that fails when its own line leaves the Run call.
+  it("starts on a later page, which counts as First number", async () => {
     render(<HeaderFooterEditor pdf={await loadedPdf(3)} onReset={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: /^pages/i }));
     fireEvent.change(screen.getByLabelText("Start on page"), {
@@ -216,6 +220,31 @@ describe("header-footer runner: page settings", () => {
     });
     expect(screen.getByText("Page 1 of 2")).toBeTruthy();
     expect(await runAndRead()).toEqual(["", "Page 1 of 2", "Page 2 of 2"]);
+  });
+
+  it("counts {n} and {total} from First number", async () => {
+    render(<HeaderFooterEditor pdf={await loadedPdf(3)} onReset={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /^pages/i }));
+    fireEvent.change(screen.getByLabelText("First number"), {
+      target: { value: "5" },
+    });
+    expect(screen.getByText("Page 5 of 7")).toBeTruthy();
+    expect(await runAndRead()).toEqual([
+      "Page 5 of 7",
+      "Page 6 of 7",
+      "Page 7 of 7",
+    ]);
+  });
+
+  it("leaves the last pages bare and out of {total}", async () => {
+    render(<HeaderFooterEditor pdf={await loadedPdf(3)} onReset={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /^pages/i }));
+    fireEvent.change(screen.getByLabelText("Skip last pages"), {
+      target: { value: "1" },
+    });
+    expect(screen.getByText("Page 1 of 2")).toBeTruthy();
+    expect(await runAndRead()).toEqual(["Page 1 of 2", "Page 2 of 2", ""]);
+    expect(screen.getByText(/applied to 2 of 3 pages/i)).toBeTruthy();
   });
 
   it("will not run when the settings leave no page", async () => {
