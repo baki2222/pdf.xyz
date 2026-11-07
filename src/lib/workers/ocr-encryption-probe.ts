@@ -3,7 +3,7 @@ import { openHandler } from "@/lib/pdf/security/document";
 /**
  * Does this encrypted PDF open with the EMPTY password — a viewer's
  * question, asked of the file's own encryption dictionary (the in-house
- * standard security handler, `@/lib/pdf/security`). Only the dictionary and
+ * standard security handler, `@/lib/pdf/security/standard-handler`). Only the dictionary and
  * the key check are read: nothing is decrypted, written or lifted.
  *
  * Asked by the OCR runner only after OCRmyPDF refused the file as encrypted
