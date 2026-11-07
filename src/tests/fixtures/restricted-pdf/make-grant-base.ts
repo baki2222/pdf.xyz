@@ -11,7 +11,8 @@
  */
 import { writeFileSync } from "node:fs";
 import { deflateSync } from "node:zlib";
-import { PDFDocument, StandardFonts } from "pdf-lib";
+import { PDFDocument } from "pdf-lib";
+import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 
 export const GRANT_FIXTURE_TEXT = "RESTRICTED-GRANT-FIXTURE";
 
@@ -59,7 +60,11 @@ export async function makeGrantBase(): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   doc.setTitle("pdf.xyz restricted grant fixture");
   doc.setProducer("pdf-lib (pdf.xyz fixture step 1)");
-  const font = await doc.embedFont(StandardFonts.Helvetica);
+  // Through the one chooser (Western text: the standard sans face).
+  const font = await embedDrawingFont(doc, [
+    GRANT_FIXTURE_TEXT,
+    `${GRANT_FIXTURE_TEXT} page 2`,
+  ]);
   const image = await doc.embedPng(checkerPng());
   const first = doc.addPage([612, 792]);
   first.drawText(GRANT_FIXTURE_TEXT, { x: 72, y: 720, size: 18, font });
