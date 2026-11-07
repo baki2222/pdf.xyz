@@ -29,6 +29,16 @@ import { outputName } from "@/lib/pdf/files";
  *    filters, /ImageMask stencils, custom /Decode arrays on pixel images,
  *    CMYK, Lab, Separation, DeviceN and palettes over them, other bit depths,
  *    inline images, oversized or undecodable streams.
+ *    SUPERSEDED 2026-11-06 (audit #44), history kept above: a JPEG's
+ *    /Decode is still neither applied nor skipped, but one whose /Decode is
+ *    not [0 1] per channel now carries a note (jpegDecodeNote): "Saved as
+ *    stored, with its colours inverted" when every pair is [1 0], and a
+ *    general "a /Decode array that changes its colours" note otherwise —
+ *    except a CMYK JPEG with Adobe's APP14 marker and every pair inverted,
+ *    the usual compensation for Photoshop's inverted CMYK. The pixel ceiling
+ *    (MAX_DECODED_PIXELS) moved below the DCT branch at the same time: it
+ *    guards decoding, and a JPEG is never decoded, so a JPEG over it is saved
+ *    instead of skipped as "too large".
  *    History: on 2026-09-27 this bullet said "no alpha, /SMask never read"
  *    and listed Indexed and inline images as unscanned or skipped. That was
  *    true of the extractor it was read from and false from 8e398575 on, and
@@ -92,7 +102,7 @@ const content: ToolContent = {
 
   intro: [
     "A picture inside a PDF is usually stored as its own image object, at whatever resolution it had when the document was made. This tool reads those objects directly instead of photographing the page, so a product shot, a scanned photo or a chart that was placed as a picture comes back at its real pixel dimensions, with no surrounding text, margins or page background. It runs in your browser: the PDF is read on your device and is not uploaded.",
-    "What you get depends on how each image was stored. JPEG images, CMYK JPEGs included, are written out byte-for-byte as .jpg files. Raw RGB or grayscale pixels at 8 bits per channel, or 1-bit black and white, are rebuilt as lossless PNGs at native size, and so are palette (indexed) images over RGB or gray, expanded from their palette. Nested form objects are searched too, and a picture reused on several pages is saved once, under the first page it appears on.",
+    "What you get depends on how each image was stored. JPEG images, CMYK JPEGs and very large scans included, are written out byte-for-byte as .jpg files; one the PDF draws with its colours inverted is still saved as stored, with a note that the file looks like a negative of the page. Raw RGB or grayscale pixels at 8 bits per channel, or 1-bit black and white, are rebuilt as lossless PNGs at native size, and so are palette (indexed) images over RGB or gray, expanded from their palette. Nested form objects are searched too, and a picture reused on several pages is saved once, under the first page it appears on.",
     `Several kinds of image are not recovered yet: JPEG 2000, CCITT and JBIG2 fax-style bitmaps, CMYK pixel images, spot-colour and Lab images (including palette, or indexed, images built on them), other bit depths, stencil masks painted on their own, pixel images with a custom decode array, and images written inline in a page's drawing instructions. Each one is counted as skipped under its reason rather than guessed at. Files up to ${maxMb} MB are accepted, and encrypted PDFs are refused until they are unlocked.`,
   ],
 

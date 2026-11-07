@@ -22,6 +22,8 @@ import {
   rasterCapInches,
   rasterCapNote,
   zipFailureFallback,
+  skippedPagesNote,
+  cancelledRunNote,
   RASTER_RESOLUTIONS,
   pageImageName,
   resolutionById,
@@ -70,6 +72,16 @@ export interface RasterResult {
   grayscale: boolean;
   /** Pages in the source document — what each file's page number is out of. */
   documentPages: number;
+  /**
+   * 0-based pages that failed to render and were left out (audit #37): the
+   * rest are delivered, and the panel names these.
+   */
+  failedPages: number[];
+  /**
+   * Set when the reader pressed Cancel: the pages finished before it are the
+   * result, out of `asked`.
+   */
+  cancelled?: { asked: number };
 }
 
 export function PdfToImageRunner({ format }: { format: RasterFormat }) {
@@ -100,7 +112,8 @@ function PdfToImageEditor({
   onReset: () => void;
 }) {
   const label = format.toUpperCase();
-  const { busy, error, result, run, reset } = useAsyncRun<RasterResult>();
+  const { busy, error, result, run, reset } =
+    useAsyncRun<RasterResult | null>();
   // A long PDF opens at Screen, said with its reason (smart default);
   // otherwise at the resolution last chosen here (option memory).
   // Both fetched while the file opened (`raster-defaults-chunk`).
@@ -143,6 +156,9 @@ function PdfToImageEditor({
     total: number;
   } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // The controller the reader stopped with Cancel — told apart from an
+  // abort on unmount or a re-run, which keeps nothing.
+  const cancelledRef = useRef<AbortController | null>(null);
 
   // Abort any in-flight render if this editor unmounts (e.g. "Start over").
   useEffect(() => {
@@ -172,6 +188,8 @@ function PdfToImageEditor({
     setProgress({ done: 0, total: pages.length });
     void run(async () => {
       const { rasterizePdf } = await import("@/lib/pdf/render");
+      const failedPages: number[] = [];
+      let firstFailure = "";
       const rendered = await rasterizePdf(pdf.bytes, {
         format,
         dpi: resolution.dpi,
@@ -179,13 +197,27 @@ function PdfToImageEditor({
         grayscale,
         signal: controller.signal,
         onProgress: (done, total) => setProgress({ done, total }),
+        // One bad page is named and left out; it no longer costs the pages
+        // already rendered (audit #37).
+        onPageFailed: ({ index, message }) => {
+          failedPages.push(index);
+          firstFailure ||= message;
+        },
       });
-      if (controller.signal.aborted) {
-        // Editor is unmounting; surface nothing.
+      const cancelled = cancelledRef.current === controller;
+      if (controller.signal.aborted && !cancelled) {
+        // Editor is unmounting, or a new run replaced this one; surface nothing.
         throw new Error("Rendering was cancelled.");
       }
       if (rendered.length === 0) {
-        throw new Error("No pages could be rendered from this PDF.");
+        if (cancelled) {
+          // Stopped before a page finished: nothing to keep, nothing wrong.
+          setProgress(null);
+          return null;
+        }
+        throw new Error(
+          `No pages could be rendered from this PDF.${firstFailure ? ` ${firstFailure}` : ""}`,
+        );
       }
       return {
         pages: rendered,
@@ -196,8 +228,19 @@ function PdfToImageEditor({
         dpi: resolution.dpi,
         grayscale,
         documentPages: pdf.pageCount,
+        failedPages,
+        ...(cancelled ? { cancelled: { asked: pages.length } } : {}),
       } satisfies RasterResult;
     });
+  };
+
+  // Stop the run in hand and keep what it finished (audit #37). The engine
+  // already resolves early with the pages so far on abort.
+  const onCancel = () => {
+    const controller = abortRef.current;
+    if (!controller || controller.signal.aborted) return;
+    cancelledRef.current = controller;
+    controller.abort();
   };
 
   // Changing the resolution clears a finished render so the user can re-render.
@@ -368,7 +411,16 @@ function PdfToImageEditor({
       {error && <ErrorNote message={error} />}
 
       <RunBar>
-        <div className="flex justify-end">
+        <div className="flex flex-wrap items-start justify-end gap-3">
+          {busy && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className={buttonVariants({ variant: "secondary", size: "lg" })}
+            >
+              Cancel
+            </button>
+          )}
           <RunButton
             onClick={onRun}
             busy={busy}
@@ -465,6 +517,12 @@ export function ImageResult({
   // The preset names a DPI; pages too large for it were rendered lower, and
   // the engine said which. Without this the summary overstated every one.
   const capNote = rasterCapNote(result.pages, result.dpi, RASTER_MAX_DEVICE_PX);
+  const skippedNote = skippedPagesNote(
+    result.failedPages,
+    lowerResolutionThan(result.resolutionId)?.label,
+  );
+  const stoppedNote =
+    result.cancelled && cancelledRunNote(pageCount, result.cancelled.asked);
 
   return (
     <ResultPanel
@@ -489,6 +547,19 @@ export function ImageResult({
         <UndecodedImagesNotice
           count={result.pages.reduce((sum, p) => sum + p.undecodedImages, 0)}
         />
+        {[stoppedNote, skippedNote].map(
+          (note) =>
+            note && (
+              <div
+                key={note}
+                role="status"
+                className="border-warn/40 bg-warn/10 text-warn rounded-panel flex items-start gap-3 border px-4 py-3.5 text-sm"
+              >
+                <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+                <p className="leading-relaxed">{note}</p>
+              </div>
+            ),
+        )}
         {capNote && (
           <div className="border-warn/40 bg-warn/10 text-warn rounded-panel flex items-start gap-3 border px-4 py-3.5 text-sm">
             <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />

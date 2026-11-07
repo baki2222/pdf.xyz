@@ -5796,6 +5796,11 @@ export const guides: Guide[] = [
   // predictor; an SMask only where some alpha was below 255; palette and
   // greyscale PDFs larger than their PNGs. The same facts are recorded on the
   // tool page (`content/png-to-pdf.ts`), probed 2026-09-27.
+  // SUPERSEDED 2026-11-06 (audit #10), history kept above: those facts were
+  // pdf-lib's. src/lib/pdf/png-embed.ts now embeds each PNG as stored —
+  // DeviceGray, Indexed, its own bit depth (16 included), /Predictor 15,
+  // iCCP as ICCBased — so the PDF stays close to the PNGs' size; the size
+  // section below was rewritten to say so (png-embed.test.ts).
   {
     slug: "how-to-convert-png-to-pdf",
     title: "How to convert PNG to PDF (screenshots and logos)",
@@ -5813,7 +5818,7 @@ export const guides: Guide[] = [
     intro: [
       `To convert PNG images to PDF, open ${nameOf("png-to-pdf")}, add your PNGs, put them in order, press Create PDF, then press Download PDF. Each PNG becomes one page of the PDF. It is made in your browser, so the images stay on your device, and each one can be up to ${MAX_IMAGE_MB} MB.`,
       `PNG is the format of screenshots, charts and logos because it keeps every pixel, and the PDF keeps them too. With ${MAX_SIZE_LABELS.heading} left at ${MAX_SIZE_LABELS.none}, a PNG goes into the PDF with lossless compression, never as a JPEG, so small interface text and sharp edges come out as they were.`,
-      "What is particular to PNG is covered below: what happens to see-through areas, why the PDF can be larger than the images, and how big a screenshot's page turns out.",
+      "What is particular to PNG is covered below: what happens to see-through areas, how large the PDF comes out, and how big a screenshot's page turns out.",
     ],
     steps: [
       `Open the ${nameOf("png-to-pdf")} tool and drop your PNGs on the box at the top of the page, or click it to pick them. JPG, ${OTHER_NAMES} images can go into the same PDF.`,
@@ -5834,10 +5839,10 @@ export const guides: Guide[] = [
       },
       {
         id: "file-size",
-        heading: "Why a PDF of PNGs can be larger than the PNGs",
+        heading: "How large the PDF comes out",
         body: [
-          "Inside the PDF every PNG is stored as eight-bit full colour, compressed without loss but without PNG's own row filters. A palette PNG, the compact kind with a short list of colours that many programs save icons and simple charts as, and a greyscale PNG are expanded to full colour, so the PDF can be much larger than the files you added.",
-          `A PNG with sixteen bits per channel is cut down to eight, the one change made to its pixels. If the PDF must be smaller, ${MAX_SIZE_LABELS.heading} trades sharpness for size; with screenshots full of small text, try the largest size the form allows.`,
+          "Inside the PDF each PNG keeps its own encoding. A greyscale PNG stays greyscale, a palette PNG (the compact kind with a short list of colours that many programs save icons and simple charts as) keeps its list, sixteen bits per channel stay sixteen, and PNG's own compression is kept, so a PDF of PNGs comes out close to the size of the files you added. A PNG with transparency, or an interlaced one, is compressed again the same way, so its size can differ a little from the file's.",
+          `A colour profile in the PNG, such as the Display P3 profile a Mac screenshot carries, is kept too, so colours look as they do in the PNG. If the PDF must be smaller, ${MAX_SIZE_LABELS.heading} trades sharpness for size; with screenshots full of small text, try the largest size the form allows.`,
         ],
       },
       {
@@ -5852,16 +5857,16 @@ export const guides: Guide[] = [
     faq: [
       {
         question: "Will my PNG lose quality in the PDF?",
-        answer: `Not with ${MAX_SIZE_LABELS.heading} at ${MAX_SIZE_LABELS.none}: the pixels are stored without loss, never as a JPEG. The only change is that a sixteen-bit PNG is cut down to eight bits per channel. A ${MAX_SIZE_LABELS.heading} the PDF is over is the exception you choose: then every image is saved again as a JPEG, smaller and softer, until the PDF fits.`,
+        answer: `Not with ${MAX_SIZE_LABELS.heading} at ${MAX_SIZE_LABELS.none}: the pixels are stored without loss, never as a JPEG. They keep their bit depth and colour profile too. A ${MAX_SIZE_LABELS.heading} the PDF is over is the exception you choose: then every image is saved again as a JPEG, smaller and softer, until the PDF fits.`,
       },
       {
         question: "Does PNG to PDF keep transparency?",
         answer: `Yes, as a soft mask over a white page, so see-through areas look white on screen and in print, and soft edges blend into the white. A ${MAX_SIZE_LABELS.heading} that has to save the images again fills those areas with white instead.`,
       },
       {
-        question: "Why is my PDF larger than my PNG files?",
+        question: "Will the PDF be much larger than my PNG files?",
         answer:
-          "Because each PNG is stored as full colour in the PDF. A palette or greyscale PNG is expanded to full colour on the way, which can make the PDF far heavier than the files you added.",
+          "No. Each PNG keeps its own compression, colours and bit depth inside the PDF, so the PDF comes out close to the size of the PNGs together. A PNG with transparency, or an interlaced one, is compressed again, so its share can differ a little.",
       },
       {
         question: "Can I put PNG and JPG images in one PDF?",
@@ -5874,7 +5879,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-04",
+    updated: "2026-11-06",
   },
   // HTML to PDF: an HTML FILE (or code saved as one), never a URL — that is
   // how-to-convert-a-webpage-to-pdf. Read off the worker: the upload is

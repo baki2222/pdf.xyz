@@ -8,7 +8,7 @@
  */
 
 import { baseName, sanitizeSegment } from "./files";
-import { parsePageList } from "./ranges";
+import { formatPageNumbers, parsePageList } from "./ranges";
 import {
   RASTER_RESOLUTIONS,
   type RasterFormat,
@@ -215,4 +215,37 @@ export function rasterCapNote(
   const verb = single ? "it was" : "they were";
   const at = same ? `${lowest} DPI` : `as low as ${lowest} DPI`;
   return `${subject} too large for ${requestedDpi} DPI — ${verb} rendered at ${at}, because images are limited to ${maxDevicePx.toLocaleString("en-US")} pixels on a side.`;
+}
+
+/**
+ * What the result panel says when pages could not be rendered and were left
+ * out (audit #37) — `null` when none were. The images that did render are
+ * delivered; this names the ones that are missing, so a ZIP one page short
+ * is never mistaken for the whole document. A lower preset is offered when
+ * there is one: a page too heavy for the canvas at one DPI may fit at less.
+ */
+export function skippedPagesNote(
+  failed: readonly number[],
+  lowerResolution: string | undefined,
+): string | null {
+  if (failed.length === 0) return null;
+  const numbers = formatPageNumbers(
+    [...failed].sort((a, b) => a - b).map((i) => i + 1),
+  );
+  const subject =
+    failed.length === 1
+      ? `Page ${numbers} could not be rendered, so it was`
+      : `Pages ${numbers} could not be rendered, so they were`;
+  const retry = lowerResolution
+    ? ` Rendering again at ${lowerResolution} may get ${failed.length === 1 ? "it" : "them"} through.`
+    : "";
+  return `${subject} left out; every other page is here.${retry}`;
+}
+
+/**
+ * What the result panel says after the reader pressed Cancel (audit #37):
+ * the run stopped, and the pages finished before it are kept.
+ */
+export function cancelledRunNote(done: number, asked: number): string {
+  return `Rendering was stopped after ${done} of ${asked} pages; the pages finished before that are here.`;
 }
