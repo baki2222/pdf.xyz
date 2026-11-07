@@ -28,6 +28,7 @@ import {
   type OptimizeRecommendation,
 } from "@/lib/pdf/analyze";
 import { downloadBytes } from "@/lib/pdf/browser";
+import { removedLine } from "@/lib/pdf/compress-cleanup";
 import { LOCKED_PDF_COPY } from "@/lib/pdf/encryption";
 import { DEEP_COMPRESSION_PRESETS } from "@/lib/pdf/offered-kinds";
 import { DEEP_COMPRESSION_GRAYSCALE_HINT } from "@/lib/pdf/compress-grayscale";
@@ -650,6 +651,14 @@ function CompressEditor({
           }
         />
       </div>
+
+      {/* What the repack dropped that no page shows (audit compress-pdf#6),
+          counted from the run itself; nothing is said when it was nothing. */}
+      {removedLine(analysis.removed) && (
+        <p className="text-muted text-xs leading-relaxed">
+          {removedLine(analysis.removed)}
+        </p>
+      )}
 
       {/* EVERY ENDING IS A FORK, a saving or not. With nothing saved there
           is still a file — often one carried here from Merge PDF and never

@@ -37,6 +37,7 @@ async function makeImagePdf(imageBytes: number): Promise<Uint8Array> {
 }
 
 const analysis = (over: Partial<PdfAnalysis>): PdfAnalysis => ({
+  removed: { thumbnails: 0, unreferenced: 0 },
   pageCount: 1,
   originalBytes: 1000,
   imageCount: 0,

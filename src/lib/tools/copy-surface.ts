@@ -216,6 +216,8 @@ export function copyFiles(): string[] {
     path.join(ROOT, "src", "lib", "pdf", "compress-image-quality.ts"),
     // Compress PDF's batch on our secure server: its choice labels (2026-11-08).
     path.join(ROOT, "src", "lib", "pdf", "compress-batch-copy.ts"),
+    // Compress PDF's lossless cleanup sentence and line (2026-11-08).
+    path.join(ROOT, "src", "lib", "pdf", "compress-cleanup.ts"),
     // JPG / PNG to PDF's Max file size (2026-10-31): labels, hint, outcome
     // lines, and the browser re-encoder's error messages.
     path.join(ROOT, "src", "lib", "pdf", "image-size-limit.ts"),

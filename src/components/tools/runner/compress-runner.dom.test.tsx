@@ -31,7 +31,8 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { PDFDocument, StandardFonts } from "pdf-lib";
+import { PDFDocument, PDFName, StandardFonts } from "pdf-lib";
+import { removedLine } from "@/lib/pdf/compress-cleanup";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import {
@@ -728,6 +729,43 @@ describe("Compress: an already-lean PDF", { timeout: 30_000 }, () => {
     ).toBe(true);
   });
 });
+
+describe(
+  "Compress: what the repack drops (audit compress-pdf#6)",
+  { timeout: 30_000 },
+  () => {
+    it("says how many unused objects and thumbnails it dropped, read from the run", async () => {
+      answerWorkerStatus(null);
+      const doc = await PDFDocument.load(await plainPdf(2));
+      const ctx = doc.context;
+      const thumb = ctx.register(ctx.stream(new Uint8Array(4000), {}));
+      doc.getPage(0).node.set(PDFName.of("Thumb"), thumb);
+      ctx.register(ctx.stream(new Uint8Array(9000), {}));
+      const bytes = await doc.save({ useObjectStreams: false });
+      const { container } = render(withRouter(<CompressRunner />));
+      await drop(container, [asFile(bytes, "bloated.pdf")]);
+      expect(
+        await screen.findByText(
+          removedLine({ thumbnails: 1, unreferenced: 2 })!,
+          undefined,
+          { timeout: 10_000 },
+        ),
+      ).toBeVisible();
+    });
+
+    it("control: a file with nothing to drop gets no such line", async () => {
+      answerWorkerStatus(null);
+      const { container } = render(withRouter(<CompressRunner />));
+      await drop(container, [asFile(await plainPdf(2), "plain.pdf")]);
+      await screen.findByRole(
+        "group",
+        { name: /analysis complete/i },
+        { timeout: 10_000 },
+      );
+      expect(screen.queryByText(/the repack also dropped/i)).toBeNull();
+    });
+  },
+);
 
 describe("Compress batch", { timeout: 30_000 }, () => {
   it("flags a signed file, keeps it out of Download all until confirmed, and names a restricted file honestly", async () => {
