@@ -181,62 +181,115 @@ function referenceKey(label: string): string {
 }
 
 /**
- * HTML's named character references that Markdown sources actually use. An
- * unknown name prints as typed, which loses nothing.
+ * HTML's Latin-1 named references, in code-point order from U+00A0: the
+ * accented letters Western text uses most (`&eacute;`, `&uuml;`, `&szlig;`).
+ * Each code point is DERIVED from its position, never typed, so the table
+ * cannot hold one name with a mistyped number. All 96 are WinAnsi-drawable.
  */
-const NAMED_ENTITIES: Record<string, number> = {
+const LATIN1_ENTITY_NAMES = (
+  "nbsp iexcl cent pound curren yen brvbar sect uml copy ordf laquo not shy " +
+  "reg macr deg plusmn sup2 sup3 acute micro para middot cedil sup1 ordm " +
+  "raquo frac14 frac12 frac34 iquest Agrave Aacute Acirc Atilde Auml Aring " +
+  "AElig Ccedil Egrave Eacute Ecirc Euml Igrave Iacute Icirc Iuml ETH Ntilde " +
+  "Ograve Oacute Ocirc Otilde Ouml times Oslash Ugrave Uacute Ucirc Uuml " +
+  "Yacute THORN szlig agrave aacute acirc atilde auml aring aelig ccedil " +
+  "egrave eacute ecirc euml igrave iacute icirc iuml eth ntilde ograve " +
+  "oacute ocirc otilde ouml divide oslash ugrave uacute ucirc uuml yacute " +
+  "thorn yuml"
+).split(" ");
+
+/** Greek letters, also in code-point order (U+0391 and U+03B1 on). */
+const GREEK_UPPER_NAMES = (
+  "Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota Kappa Lambda Mu Nu Xi " +
+  "Omicron Pi Rho - Sigma Tau Upsilon Phi Chi Psi Omega"
+).split(" ");
+const GREEK_LOWER_NAMES = (
+  "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi " +
+  "omicron pi rho sigmaf sigma tau upsilon phi chi psi omega"
+).split(" ");
+
+function namesFrom(names: string[], first: number): [string, number][] {
+  // "-" holds a code point that has no name (U+03A2 is unassigned).
+  return names.flatMap((name, i) =>
+    name === "-" ? [] : [[name, first + i] as [string, number]],
+  );
+}
+
+/**
+ * HTML's named character references: every Latin-1 and Greek name, plus the
+ * punctuation, symbols and arrows Markdown sources use. An unknown name
+ * prints as typed, which loses nothing.
+ */
+export const NAMED_ENTITIES: Record<string, number> = {
+  ...Object.fromEntries(namesFrom(LATIN1_ENTITY_NAMES, 0xa0)),
+  ...Object.fromEntries(namesFrom(GREEK_UPPER_NAMES, 0x391)),
+  ...Object.fromEntries(namesFrom(GREEK_LOWER_NAMES, 0x3b1)),
   amp: 0x26,
   lt: 0x3c,
   gt: 0x3e,
   quot: 0x22,
   apos: 0x27,
-  nbsp: 0xa0,
-  copy: 0xa9,
-  reg: 0xae,
-  trade: 0x2122,
-  hellip: 0x2026,
-  mdash: 0x2014,
+  OElig: 0x152,
+  oelig: 0x153,
+  Scaron: 0x160,
+  scaron: 0x161,
+  Yuml: 0x178,
+  Zcaron: 0x17d,
+  zcaron: 0x17e,
+  fnof: 0x192,
+  circ: 0x2c6,
+  tilde: 0x2dc,
+  ensp: 0x2002,
+  emsp: 0x2003,
+  thinsp: 0x2009,
+  zwnj: 0x200c,
+  zwj: 0x200d,
   ndash: 0x2013,
+  mdash: 0x2014,
   lsquo: 0x2018,
   rsquo: 0x2019,
   sbquo: 0x201a,
   ldquo: 0x201c,
   rdquo: 0x201d,
   bdquo: 0x201e,
-  laquo: 0xab,
-  raquo: 0xbb,
-  deg: 0xb0,
-  plusmn: 0xb1,
-  times: 0xd7,
-  divide: 0xf7,
-  middot: 0xb7,
+  dagger: 0x2020,
+  Dagger: 0x2021,
   bull: 0x2022,
-  sect: 0xa7,
-  para: 0xb6,
+  hellip: 0x2026,
+  permil: 0x2030,
+  prime: 0x2032,
+  Prime: 0x2033,
+  lsaquo: 0x2039,
+  rsaquo: 0x203a,
   euro: 0x20ac,
-  pound: 0xa3,
-  yen: 0xa5,
-  cent: 0xa2,
-  frac12: 0xbd,
-  frac14: 0xbc,
-  frac34: 0xbe,
-  sup2: 0xb2,
-  sup3: 0xb3,
-  micro: 0xb5,
+  trade: 0x2122,
   larr: 0x2190,
   uarr: 0x2191,
   rarr: 0x2192,
   darr: 0x2193,
   harr: 0x2194,
+  lArr: 0x21d0,
   rArr: 0x21d2,
+  hArr: 0x21d4,
+  minus: 0x2212,
+  infin: 0x221e,
+  asymp: 0x2248,
+  ne: 0x2260,
+  le: 0x2264,
+  ge: 0x2265,
   check: 0x2713,
-  shy: 0xad,
-  ensp: 0x2002,
-  emsp: 0x2003,
-  thinsp: 0x2009,
-  zwj: 0x200d,
-  zwnj: 0x200c,
 };
+
+/**
+ * HTML reads a numeric reference in 0x80-0x9F as Windows-1252, so `&#150;`
+ * is an en dash. The five slots Windows-1252 leaves empty stay undecoded.
+ */
+const WINDOWS_1252_C1 = [
+  0x20ac, 0, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021, 0x02c6, 0x2030,
+  0x0160, 0x2039, 0x0152, 0, 0x017d, 0, 0, 0x2018, 0x2019, 0x201c, 0x201d,
+  0x2022, 0x2013, 0x2014, 0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0, 0x017e,
+  0x0178,
+];
 
 const ENTITY =
   /^&(?:#[xX]([0-9A-Fa-f]{1,6})|#([0-9]{1,7})|([A-Za-z][A-Za-z0-9]{1,31}));/;
@@ -252,6 +305,14 @@ function matchEntity(text: string): { ch: string; length: number } | null {
     cp = named;
   } else {
     cp = m[1] !== undefined ? parseInt(m[1], 16) : Number(m[2]);
+    // A control character has nothing to draw, and refusing the document
+    // over an invisible one names a character the reader cannot see: printed
+    // as typed instead. 0x80-0x9F are read as Windows-1252, as HTML does.
+    if ((cp > 0 && cp < 0x20) || cp === 0x7f) return null;
+    if (cp >= 0x80 && cp <= 0x9f) {
+      cp = WINDOWS_1252_C1[cp - 0x80]!;
+      if (!cp) return null;
+    }
     // CommonMark: an invalid or NUL code point becomes U+FFFD.
     if (cp === 0 || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) {
       cp = 0xfffd;
@@ -266,18 +327,38 @@ function decodeEntities(text: string): string {
 }
 
 /**
- * Element names HTML has. Only these are read as tags, so `Array<string>`,
- * `<T>` and `<config>` in prose print as typed rather than vanishing.
+ * Element names HTML has: every current one, the obsolete ones READMEs still
+ * carry, and the svg and math roots. Only these are read as tags, so
+ * `Array<string>`, `<T>` and `<config>` in prose print as typed rather than
+ * vanishing. The test checks this against TypeScript's DOM typings, so a
+ * name left out here is a failing test, not a tag printed on the page.
  */
 const HTML_ELEMENTS = new Set(
   (
-    "a abbr address article aside b bdi bdo big blockquote br caption center " +
-    "cite code col colgroup dd del details dfn div dl dt em figcaption figure " +
-    "font footer h1 h2 h3 h4 h5 h6 header hr i img ins kbd li main mark nav " +
-    "ol p picture pre q s samp section small source span strike strong sub " +
-    "summary sup table tbody td tfoot th thead tr tt u ul var video wbr"
+    "a abbr address area article aside audio b base bdi bdo blockquote body " +
+    "br button canvas caption cite code col colgroup data datalist dd del " +
+    "details dfn dialog div dl dt em embed fieldset figcaption figure footer " +
+    "form h1 h2 h3 h4 h5 h6 head header hgroup hr html i iframe img input " +
+    "ins kbd label legend li link main map mark menu meta meter nav noscript " +
+    "object ol optgroup option output p picture pre progress q rp rt ruby s " +
+    "samp script search section select slot small source span strong style " +
+    "sub summary sup table tbody td template textarea tfoot th thead time " +
+    "title tr track u ul var video wbr " +
+    // Obsolete, still seen in READMEs.
+    "acronym applet basefont big blink center dir font frame frameset " +
+    "marquee nobr noembed noframes param rb rtc strike tt xmp " +
+    "svg math"
   ).split(" "),
 );
+
+/** Elements whose content a browser never shows: hidden with it. */
+const HIDDEN_CONTENT_ELEMENTS = new Set(["script", "style", "template"]);
+
+/** A line that opens a hidden-content element. */
+const HIDDEN_BLOCK = /^<(script|style|template)(?=[\s>]|$)/i;
+
+/** Embedded media: printed as its address, the way an image is. */
+const MEDIA_ELEMENTS = new Set(["video", "audio", "source", "iframe", "embed"]);
 
 const OPEN_TAG =
   /^<([A-Za-z][A-Za-z0-9-]*)((?:\s+[A-Za-z_:][\w.:-]*(?:\s*=\s*(?:[^\s"'=<>`]+|'[^']*'|"[^"]*"))?)*)\s*\/?>/;
@@ -353,6 +434,11 @@ class InlineSource {
 
   /** The last `-->` found, and from where; -1 once none is left. */
   private commentClose = { from: -1, at: -2 };
+  /** Per hidden-content element: the last close tag found, and from where. */
+  private readonly hiddenClose = new Map<
+    string,
+    { from: number; at: number; end: number }
+  >();
 
   constructor(readonly src: string) {
     this.linkBudget = src.length * 4 + 65_536;
@@ -369,6 +455,24 @@ class InlineSource {
     const at = this.src.indexOf("-->", from);
     this.commentClose = { from, at };
     return at;
+  }
+
+  /**
+   * Index just past the first `</name>` at or after `from`, or -1.
+   * Remembered per name, so a paragraph of unclosed `<script>` stays linear.
+   */
+  hiddenContentEnd(name: string, from: number): number {
+    const last = this.hiddenClose.get(name);
+    if (last && from >= last.from && (last.at === -1 || last.at >= from)) {
+      return last.end;
+    }
+    const pattern = new RegExp(`</${name}\\s*>`, "gi");
+    pattern.lastIndex = from;
+    const m = pattern.exec(this.src);
+    const at = m ? m.index : -1;
+    const end = m ? m.index + m[0].length : -1;
+    this.hiddenClose.set(name, { from, at, end });
+    return end;
   }
 
   /** Index of a backtick run of EXACTLY `n` at or after `from`, or -1. */
@@ -622,8 +726,27 @@ function tokenizeInline(
 ): InlineUnit[] {
   const source = new InlineSource(src);
   const out: InlineUnit[] = [];
-  // Open `<a>` tags: the address to print after the label, and where it began.
-  const anchors: { href: string; at: number }[] = [];
+  // The open `<a>` tag: the address to print after its label, and where the
+  // label began. One at a time, as in a browser, where an `<a>` closes the
+  // one still open. Until the audit #11 review this was a stack, and every
+  // `</a>` re-read its whole label, nested ones included: 40,000 nested
+  // anchors (560 KB) took 78.5 s.
+  let anchor: { href: string; at: number } | null = null;
+  const closeAnchor = () => {
+    const open = anchor;
+    anchor = null;
+    if (!open?.href) return;
+    // Each unit is read by at most one anchor, so this stays linear.
+    const label = out
+      .slice(open.at)
+      .map((u) => u.ch)
+      .join("")
+      .trim();
+    if (!label) pushAll(out, literalUnits(open.href));
+    else if (label !== open.href) {
+      pushAll(out, literalUnits(` (${open.href})`));
+    }
+  };
   let i = 0;
   while (i < src.length) {
     const c = src[i]!;
@@ -722,29 +845,33 @@ function tokenizeInline(
       }
       const tag = OPEN_TAG.exec(window) ?? CLOSE_TAG.exec(window);
       const name = tag?.[1]!.toLowerCase();
-      if (tag && name && HTML_ELEMENTS.has(name)) {
+      const closing = tag?.[0][1] === "/";
+      if (tag && name && HIDDEN_CONTENT_ELEMENTS.has(name) && !closing) {
+        // Hidden with its content, as a browser hides it. Unclosed, it prints
+        // as typed, like an unclosed comment.
+        const end = source.hiddenContentEnd(name, i + tag[0].length);
+        if (end >= 0) {
+          i = end;
+          continue;
+        }
+      } else if (tag && name && HTML_ELEMENTS.has(name)) {
         i += tag[0].length;
-        if (tag[0][1] === "/") {
-          if (name === "a") {
-            const anchor = anchors.pop();
-            if (anchor?.href) {
-              const label = out
-                .slice(anchor.at)
-                .map((u) => u.ch)
-                .join("")
-                .trim();
-              if (!label) pushAll(out, literalUnits(anchor.href));
-              else if (label !== anchor.href) {
-                pushAll(out, literalUnits(` (${anchor.href})`));
-              }
-            }
-          }
+        if (closing) {
+          if (name === "a") closeAnchor();
           continue;
         }
         const attributes = tagAttributes(tag[2] ?? "");
         if (name === "br") out.push({ ch: "\n", kind: "break" });
         else if (name === "a") {
-          anchors.push({ href: attributes.get("href") ?? "", at: out.length });
+          closeAnchor();
+          anchor = { href: attributes.get("href") ?? "", at: out.length };
+        } else if (MEDIA_ELEMENTS.has(name)) {
+          pushAll(out, literalUnits(attributes.get("src") ?? ""));
+        } else if (
+          name === "input" &&
+          attributes.get("type")?.toLowerCase() === "checkbox"
+        ) {
+          pushAll(out, literalUnits(attributes.has("checked") ? "[x]" : "[ ]"));
         } else if (name === "img") {
           const alt = attributes.get("alt") ?? "";
           const imageSrc = attributes.get("src") ?? "";
@@ -769,6 +896,8 @@ function tokenizeInline(
     out.push({ ch, kind: "text" });
     i += ch.length;
   }
+  // An `<a>` never closed still prints its address: nothing goes missing.
+  closeAnchor();
   return out;
 }
 
@@ -1217,6 +1346,8 @@ function parseBlocks(
   let previousBlank = true;
   // A search for `-->` from this line found none, so later ones cannot.
   let noCommentCloseFrom = Infinity;
+  // The same, per hidden-content element (`</script>`, `</style>`...).
+  const noHiddenCloseFrom = new Map<string, number>();
 
   const flushParagraph = () => {
     if (!paragraph.length) return;
@@ -1336,6 +1467,36 @@ function parseBlocks(
         // What follows `-->` on its line is read as the next line. The array
         // is this parse's own (a split of the source, or a quote's content).
         lines[close] = rest;
+        i = close - 1;
+        previousBlank = true;
+        continue;
+      }
+    }
+
+    // A <script>, <style> or <template> that runs over several lines is
+    // hidden whole, blank lines inside it too (CommonMark HTML block 1), as a
+    // browser hides it. One that closes on its own line is left to the inline
+    // pass; one that never closes prints.
+    const hiddenOpen = indent <= 3 && !quote && HIDDEN_BLOCK.exec(trimmed);
+    if (hiddenOpen) {
+      const name = hiddenOpen[1]!.toLowerCase();
+      const closer = new RegExp(`</${name}\\s*>`, "i");
+      let close = -1;
+      const searched = noHiddenCloseFrom.get(name) ?? Infinity;
+      if (!closer.test(trimmed) && i + 1 < searched) {
+        for (let j = i + 1; j < lines.length; j++) {
+          if (closer.test(lines[j]!)) {
+            close = j;
+            break;
+          }
+        }
+        if (close < 0) noHiddenCloseFrom.set(name, i + 1);
+      }
+      if (close > i) {
+        flushParagraph();
+        const last = lines[close]!;
+        const m = closer.exec(last)!;
+        lines[close] = last.slice(m.index + m[0].length);
         i = close - 1;
         previousBlank = true;
         continue;

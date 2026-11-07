@@ -278,6 +278,26 @@ describe("markdown-to-pdf: the page describes what the renderer draws", () => {
         "a b\nc & d",
       ]);
       expect(text('<img src="s.png" alt="Shot">')).toEqual(["Shot (s.png)"]);
+      // Review of audit #11: the page said "other HTML tags are left out"
+      // while <script> printed its body and <input> its tag. Each clause the
+      // page names runs through the parser here.
+      expect(
+        text(
+          "x <script>alert(1)</script> y <style>p{}</style> z <template>t</template>",
+        ),
+      ).toEqual(["x y z"]);
+      expect(
+        text('<input type="checkbox" checked> done <label>l</label>'),
+      ).toEqual(["[x] done l"]);
+      for (const tag of ["video", "audio", "iframe", "embed"]) {
+        expect(text(`<${tag} src="m.bin"></${tag}>`)).toEqual(["m.bin"]);
+      }
+      // "other HTML tags are left out": an input that is not a checkbox, and
+      // a tag between words, leave only the words.
+      expect(
+        text('name <input type="text"> <span class="c">kept</span>'),
+      ).toEqual(["name kept"]);
+      expect(text("caf&eacute;")).toEqual(["café"]);
       const numbers = parseMarkdownBlocks("1. a\n1. b\n1. c").map((b) =>
         b.kind === "list-item" ? b.index : 0,
       );
@@ -289,6 +309,11 @@ describe("markdown-to-pdf: the page describes what the renderer draws", () => {
         "<br> starts a new line",
         "1. 1. 1. print as 1, 2, 3",
         "&amp;",
+        "&eacute;",
+        "a <script>, <style> or <template> is hidden with its content",
+        "a video, audio, iframe or embed tag its address",
+        "a checkbox [ ] or [x]",
+        "other HTML tags are left out with the text between them kept",
       ]) {
         expect(page).toContain(claim);
       }

@@ -18,6 +18,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   MARGIN,
+  NAMED_ENTITIES,
   PAGE_WIDTH,
   markdownPdfOutputName,
   markdownToPdf,
@@ -418,6 +419,8 @@ describe("the inline tokenizer stays linear up to the source cap", () => {
     ["unknown tag names", "<config> "],
     ["entity candidates", "&amp &#x "],
     ["undefined references", "[a][b] [^c] "],
+    // Added with the audit #11 review's hidden-content elements.
+    ["unclosed scripts", "<script> <STYLE> "],
   ])("%s", (_label, unit) => {
     const source = repeat(unit);
     const started = performance.now();
@@ -1476,5 +1479,177 @@ describe("raw HTML, entities, references, breaks and containers (audit #11)", ()
     // CONTROL: a new list (after a paragraph) starts from its own number.
     expect(index("1. a\n1. b\n\npara\n\n1. c")).toEqual([1, 2, null, 1]);
     expect(index("1. a\n- b\n1. c")).toEqual([1, null, 1]);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ *  Audit #11, review follow-ups (2026-11-06). The first fix shipped four
+ *  holes: nested <a> tags made the tokenizer quadratic (40k nested anchors
+ *  took 78.5 s), only 50 hand-picked entity names were decoded, so
+ *  `caf&eacute;` printed raw, `<script>`, `<style>` and `<input>` printed as
+ *  tag text while the FAQ said "other HTML tags are left out", and nothing
+ *  tested that a list item's later paragraph is drawn without a marker.
+ * ------------------------------------------------------------------ */
+
+describe("raw HTML and entities, read the way the FAQ says (audit #11 review)", () => {
+  // Against a yardstick, not the wall clock (see "links nested to the cap"
+  // for why a constant bound flakes on CI). The yardstick is the same shape
+  // with <i> for <a>: as many tags, as many bytes, no label to read. Before
+  // the review each </a> re-read its whole label, nested ones included:
+  // 757 ms at 5k anchors, 78.5 s at 40k, hours at the cap. The eighth-size
+  // case exists so a quadratic mutant goes red in seconds, not hours.
+  it.each([
+    ["an eighth of the source cap", 8],
+    ["the source cap", 1],
+  ])("nested anchors at %s stay linear", (_label, divisor) => {
+    const shape = (tag: string) => {
+      const open = `<${tag} href="x">`;
+      const close = `</${tag}>`;
+      const n = Math.floor(
+        (MAX_SOURCE_BYTES / divisor - 1) / (open.length + close.length),
+      );
+      return { n, source: open.repeat(n) + "y" + close.repeat(n) };
+    };
+    const time = (source: string) => {
+      const started = performance.now();
+      const text = paragraphText(source);
+      return { text, ms: performance.now() - started };
+    };
+    const flat = shape("i");
+    const nested = shape("a");
+    expect(nested.source.length).toBe(flat.source.length);
+    const baseline = time(flat.source);
+    // Health check: the yardstick did the work it stands for.
+    expect(baseline.text).toBe("y");
+    expect(baseline.ms).toBeGreaterThan(0);
+    const run = time(nested.source);
+    // A browser closes an open <a> when the next one opens, so each outer
+    // anchor is empty and prints its address, and only the innermost wraps
+    // "y". No tag text prints and no address goes missing.
+    expect(run.text).toBe("x".repeat(nested.n - 1) + "y (x)");
+    // Measured 2026-11-07 (local): 20 ms against a 16 ms yardstick at an
+    // eighth of the cap, 159 ms against 91 ms at the cap. The stack this
+    // replaced took over 10 s at the eighth.
+    expect(run.ms).toBeLessThan(baseline.ms * 10 + 250);
+  });
+
+  it("an anchor left open still prints its address", () => {
+    expect(paragraphText('<a href="https://u.dev">site')).toBe(
+      "site (https://u.dev)",
+    );
+    // CONTROL: closed, it prints the same way once.
+    expect(paragraphText('<a href="https://u.dev">site</a>')).toBe(
+      "site (https://u.dev)",
+    );
+  });
+
+  it("every HTML element's tag is left out, with the text between kept", () => {
+    // The set is DISCOVERED from TypeScript's DOM typings, not typed here: a
+    // name this file forgot is a name the reader would see printed.
+    const dom = readFileSync(
+      path.join(process.cwd(), "node_modules/typescript/lib/lib.dom.d.ts"),
+      "utf8",
+    );
+    const start = dom.indexOf("interface HTMLElementTagNameMap {");
+    const names = [
+      ...dom.slice(start, dom.indexOf("\n}", start)).matchAll(/"([a-z0-9]+)"/g),
+    ].map((m) => m[1]!);
+    // Health check, both ways.
+    expect(names.length).toBeGreaterThan(100);
+    expect(names.length).toBeLessThan(200);
+    expect(names).toEqual(expect.arrayContaining(["input", "script"]));
+    const leaked = names.filter((name) =>
+      paragraphText(`x <${name} class="c">in</${name}> z`).includes("<"),
+    );
+    expect(leaked).toEqual([]);
+    // POSITIVE CONTROL: a name that is not an element still prints.
+    expect(paragraphText("x <config>in</config> z")).toBe(
+      "x <config>in</config> z",
+    );
+  });
+
+  it("script, style and template content is hidden, as a browser hides it", () => {
+    expect(paragraphText("x <script>alert(1)</script> y")).toBe("x y");
+    expect(paragraphText("a <STYLE>p{color:red}</style> b")).toBe("a b");
+    expect(paragraphText("a <template><b>t</b></template> b")).toBe("a b");
+    expect(
+      parseMarkdownBlocks(
+        "Intro\n\n<script>\nlet a = 1;\n\nrun(a);\n</script>\nAfter",
+      ),
+    ).toEqual([
+      { kind: "paragraph", text: "Intro" },
+      { kind: "paragraph", text: "After" },
+    ]);
+    // CONTROL: never closed, it prints as typed - nothing goes missing silently.
+    expect(paragraphText("x <script>never closed")).toBe(
+      "x <script>never closed",
+    );
+  });
+
+  it("media prints its address, and a checkbox its state", () => {
+    expect(paragraphText('<video src="demo.mp4"></video>')).toBe("demo.mp4");
+    expect(
+      paragraphText(
+        '<audio controls><source src="a.ogg" type="audio/ogg"></audio>',
+      ),
+    ).toBe("a.ogg");
+    expect(paragraphText('<input type="checkbox" checked> done')).toBe(
+      "[x] done",
+    );
+    expect(paragraphText('<input type="checkbox"> todo')).toBe("[ ] todo");
+    // CONTROL: an input that is not a checkbox shows nothing of its tag.
+    expect(paragraphText('name <input type="text"> here')).toBe("name here");
+  });
+
+  it("every Latin-1 entity decodes, derived from its code point", () => {
+    expect(paragraphText("caf&eacute; &uuml;ber &szlig; &Ntilde;")).toBe(
+      "café über ß Ñ",
+    );
+    // Positive control on the table: all 96 Latin-1 names, plus the rest.
+    expect(Object.keys(NAMED_ENTITIES).length).toBeGreaterThanOrEqual(96 + 50);
+    // An independent bound: a name built as letter + accent must decode to
+    // that letter with that accent, so a code point off by one is caught.
+    const accents: Record<string, string> = {
+      grave: "̀",
+      acute: "́",
+      circ: "̂",
+      tilde: "̃",
+      uml: "̈",
+      ring: "̊",
+      cedil: "̧",
+    };
+    const checked = Object.entries(NAMED_ENTITIES).filter(([name, cp]) => {
+      const m = /^([A-Za-z])(grave|acute|circ|tilde|uml|ring|cedil)$/.exec(
+        name,
+      );
+      if (!m || cp < 0xa0 || cp > 0xff) return false;
+      expect(String.fromCodePoint(cp).normalize("NFD"), name).toBe(
+        `${m[1]}${accents[m[2]!]}`,
+      );
+      return true;
+    });
+    expect(checked.length).toBeGreaterThan(40);
+    // Both ends of the Latin-1 run, so a shifted start is caught too.
+    expect(NAMED_ENTITIES.nbsp).toBe(0xa0);
+    expect(NAMED_ENTITIES.yuml).toBe(0xff);
+  });
+
+  it("a numeric reference to a control character prints as typed", () => {
+    expect(paragraphText("a&#1;b")).toBe("a&#1;b");
+    // HTML reads 0x80-0x9F as Windows-1252, so &#150; is an en dash.
+    expect(paragraphText("1&#150;2 &#128;5")).toBe("1–2 €5");
+    // CONTROL: an ordinary numeric reference still decodes.
+    expect(paragraphText("&#65;&#x42;")).toBe("AB");
+  });
+
+  it("a list item's later paragraph is drawn without a marker, under its text", async () => {
+    const runs = await drawnRuns(
+      await markdownToPdf("1. a\n\n   para two\n2. b"),
+    );
+    const markers = runs.filter((r) => /^\d+\.$/.test(r.text.trim()));
+    expect(markers.map((r) => r.text.trim())).toEqual(["1.", "2."]);
+    const x = (t: string) => runs.find((r) => r.text === t)!.x;
+    expect(x("para two")).toBeCloseTo(x("a"), 1);
+    expect(x("para two")).toBeGreaterThan(markers[0]!.x);
   });
 });
