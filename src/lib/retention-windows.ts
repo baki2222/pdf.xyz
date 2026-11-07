@@ -80,3 +80,12 @@ export const RETENTION_WINDOW_MINUTES = {
   outputStorageRule: policy.derivedFrom.artifactBackstopDays * 24 * 60,
   jobRecord: DEFAULT_JOB_TTL_SECONDS / 60,
 } as const;
+
+/**
+ * What erases an upload that never reaches a job's end, as /privacy and
+ * /security both say it. A lower bound, never a deadline: the rule runs
+ * daily and erasure becomes DUE at the window, so the file can outlive it
+ * (review of 92b65cb0, where /security's "once it is 30 days old" dropped the
+ * "or longer"). Pinned on both pages by `security/security-page.test.ts`.
+ */
+export const ORPHAN_UPLOAD_ERASURE = `a storage rule that runs on a daily cycle and removes uploads after they are ${RETENTION_WINDOWS.inputStorageRule} old, so such a file can stay in storage for ${RETENTION_WINDOWS.inputStorageRule} or longer`;

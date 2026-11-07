@@ -194,7 +194,7 @@ export function workerPipelineStages(
       id: "upload",
       title: "Encrypted upload",
       description:
-        "Your file is uploaded directly to short-lived object storage over a pre-signed URL.",
+        "Your file goes straight to short-lived storage over a private, time-limited upload link.",
     },
     checksStage(malwareScanActive, tool),
     capabilityForMode(tool.processing) === "ai" ? AI_PROCESS : WORKER_PROCESS,

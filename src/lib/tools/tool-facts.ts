@@ -1883,16 +1883,27 @@ function aiReliabilityFaq(tool: Tool): ToolFaqEntry[] {
 }
 
 /**
+ * The derived formats question, or `null` for a tool that has none. Exported
+ * so `pageFaq` can skip it where the authored FAQ already answers it.
+ */
+export function officeInputFaqQuestion(tool: Tool): string | null {
+  return OFFICE_TO_PDF_SLUGS.has(tool.slug)
+    ? `Which files can ${tool.name} convert?`
+    : null;
+}
+
+/**
  * Which files an Office → PDF tool takes, from its catalogue `accept` — which
  * `worker-tool-answers.test.ts` holds to the extension check the worker runs
  * (`supportsOfficeInput`) in both directions.
  */
 function officeInputFaq(tool: Tool): ToolFaqEntry[] {
-  if (!OFFICE_TO_PDF_SLUGS.has(tool.slug)) return [];
+  const question = officeInputFaqQuestion(tool);
+  if (question === null) return [];
   const extensions = tool.accept.map((f) => `.${f.toLowerCase()}`);
   return [
     {
-      question: `Which files can ${tool.name} convert?`,
+      question,
       answer: `Files ending in ${listed(extensions, "or")}. Our server checks the extension before converting, and a file with any other extension is refused.`,
     },
   ];
@@ -2032,6 +2043,12 @@ export function modeFaq(tool: Tool): readonly ToolFaqEntry[] {
 }
 
 /**
+ * The derived size question. Exported so `pageFaq` can skip it where the
+ * authored FAQ already asks the size and states the same ceiling.
+ */
+export const SIZE_FAQ_QUESTION = "How large can my file be?";
+
+/**
  * The per-tool FACTS, each derived from the constant its engine enforces: the
  * file ceiling, the AI allowance and reading (or translating) ceiling, and
  * OCR's language count. These stay on every page, authored content or not —
@@ -2089,7 +2106,7 @@ export function factFaq(tool: Tool): readonly ToolFaqEntry[] {
   const ceilingMb = toolFileCeilingMb(tool);
   if (ceilingMb !== null) {
     entries.push({
-      question: `How large can my file be?`,
+      question: SIZE_FAQ_QUESTION,
       answer: `Up to ${ceilingMb} MB per file.`,
     });
   }

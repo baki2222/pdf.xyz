@@ -16,3 +16,33 @@ export const OFFICE_TO_PDF_TOOLS = [
   POWERPOINT_TO_PDF_TOOL,
 ] as const;
 export type OfficeToPdfTool = (typeof OFFICE_TO_PDF_TOOLS)[number];
+
+/**
+ * What each tool's users call the file and the program that saves it. Exported
+ * so a page that quotes a refusal names the same command the refusal does, and
+ * so the Office panel's drop zone ("Add your workbook, or browse") uses the
+ * refusals' noun. Here, in the leaf, because that panel is browser code.
+ */
+export const DOCUMENT_WORDS: Record<
+  OfficeToPdfTool,
+  { noun: string; app: string; ext: string; protect: string }
+> = {
+  [WORD_TO_PDF_TOOL]: {
+    noun: "document",
+    app: "Word",
+    ext: ".docx",
+    protect: "File > Info > Protect Document",
+  },
+  [EXCEL_TO_PDF_TOOL]: {
+    noun: "workbook",
+    app: "Excel",
+    ext: ".xlsx",
+    protect: "File > Info > Protect Workbook",
+  },
+  [POWERPOINT_TO_PDF_TOOL]: {
+    noun: "presentation",
+    app: "PowerPoint",
+    ext: ".pptx",
+    protect: "File > Info > Protect Presentation",
+  },
+};

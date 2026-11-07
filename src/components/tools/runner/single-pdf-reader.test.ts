@@ -211,11 +211,16 @@ interface Runner {
  * is judged by its default here, and the mount test below holds the page to
  * passing no props. Left unfollowed, the seam's name had no definition and
  * the walk stopped ("no definition found for extract()").
+ *
+ * The same holds for a deps OBJECT a test swaps and puts back
+ * (`redactRunnerDeps = { redact: redactPdf }` in redact-runner.tsx, added
+ * 2026-11-07 because a `vi.mock` of the engine left the shared module cache
+ * bound to the stub): `name: default` is followed like `name = default`.
  */
 function seamDefault(source: string, name: string): string | null {
-  const m = new RegExp(`[{,]\\s*${name}\\s*=\\s*([A-Za-z_]\\w*)\\s*[,}]`).exec(
-    source,
-  );
+  const m = new RegExp(
+    `[{,]\\s*${name}\\s*[=:]\\s*([A-Za-z_]\\w*)\\s*[,}]`,
+  ).exec(source);
   return m ? m[1]! : null;
 }
 
@@ -277,6 +282,13 @@ describe("single-PDF runners read with the library they run on", () => {
       ),
     ).toBe("extractPdfText");
     expect(seamDefault("const extract = pickEngine();", "extract")).toBeNull();
+    // …and in a deps object, past its type annotation.
+    expect(
+      seamDefault(
+        "const d: { redact: typeof redactPdf } = {\n  redact: redactPdf,\n};",
+        "redact",
+      ),
+    ).toBe("redactPdf");
   });
 
   const runners = singlePdfRunners();

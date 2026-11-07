@@ -4622,7 +4622,7 @@ export const guides: Guide[] = [
     steps: [
       `Open the ${nameOf("excel-to-pdf")} tool.`,
       "Before you start, set the page layout in Excel if a wide sheet must fit: choose landscape and fit-all-columns-on-one-page scaling, then save. The tool has no layout settings of its own.",
-      "Drag your .xlsx, .xls, .csv or .ods onto the box that says “Add your document, or browse”, or click it to choose the file. Remove swaps it for another.",
+      "Drag your .xlsx, .xls, .csv or .ods onto the box that says “Add your workbook, or browse”, or click it to choose the file. Remove swaps it for another.",
       "Press Convert to PDF. Your spreadsheet uploads over an encrypted connection, and the button follows the job while LibreOffice converts it.",
       `When “Your PDF is ready.” appears, press Download. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save the PDF before you close the tab.`,
     ],
@@ -4679,7 +4679,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-04",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-convert-powerpoint-to-pdf",
@@ -4704,7 +4704,7 @@ export const guides: Guide[] = [
     steps: [
       `Open the ${nameOf("powerpoint-to-pdf")} tool.`,
       "In PowerPoint, unhide any slide you want in the PDF and save. Hidden slides and speaker notes are left out.",
-      "Drag your .pptx, .ppt or .odp onto the box that says “Add your document, or browse”, or click it to choose the file. Remove swaps it for another.",
+      "Drag your .pptx, .ppt or .odp onto the box that says “Add your presentation, or browse”, or click it to choose the file. Remove swaps it for another.",
       "Press Convert to PDF. The deck uploads over an encrypted connection, and the button follows the job while LibreOffice converts it.",
       `When “Your PDF is ready.” appears, press Download. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save the PDF before you close the tab.`,
       "Skim the pages before you send them: a missing font or an elaborate effect can come out slightly different.",
@@ -4761,7 +4761,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-04",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-extract-pages-from-a-pdf",

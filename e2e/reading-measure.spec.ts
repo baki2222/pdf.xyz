@@ -92,7 +92,7 @@ function measureLines(selector: string): Omit<Reading, "url"> {
   };
 }
 
-/** Every guide the index links, and both policy pages. */
+/** Every guide the index links, both policy pages and /security (same frame). */
 async function pages(page: Page): Promise<string[]> {
   await page.goto("/guides");
   const hrefs = await page
@@ -104,6 +104,7 @@ async function pages(page: Page): Promise<string[]> {
     ...hrefs.filter((h) => /^\/guides\/.+/.test(h)),
     "/privacy",
     "/terms",
+    "/security",
   ];
 }
 

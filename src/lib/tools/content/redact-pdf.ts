@@ -50,6 +50,10 @@ import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
  *    the removal re-reads the output and refuses to save if a ticked match
  *    is still in its text (redact-find.test.ts). Areas by position are
  *    still typed as numbers; there is no click-and-drag drawing here.
+ *    2026-11-07 (audit redact-pdf#5): "Whole pages" + "Add whole pages"
+ *    add one page-sized area per listed page (`wholePageRedactions`, in the
+ *    displayed space; redact-whole-pages.test.ts runs Remove on a turned,
+ *    cropped page, redact-runner.test.tsx the field to the engine).
  *  - images pdf.js cannot decode come out blank and the result says so
  *    (UndecodedImagesNotice with `redaction`, which states the count).
  *  - OCR PDF, Unlock PDF and Protect PDF are all processing "server" in
@@ -80,7 +84,7 @@ const content: ToolContent = {
 
   intro: [
     "Redact PDF removes the parts of a document you mark instead of hiding them. A black rectangle drawn with an annotation tool is a separate object on top of the page, and the words beneath it can still be copied out of the file. Here each black-out area is painted into the pixels of a rendered page image, and the output is built from those images alone, so under a box there is no text, vector or form layer left to recover.",
-    `The whole job runs in your browser tab: pdf.js, shipped with the page, reads and draws each page and the new file is assembled there, so the PDF is not uploaded. Find text searches the PDF's own text for a name or a number on every page at once, with Match case and Whole word, and Detect personal data finds email addresses, phone numbers, payment card numbers that pass the card checksum, IBANs that pass the IBAN checksum and dates that follow a “Date of birth” or “DOB” label. Every match lands in a review list, ticked, so you untick anything that should stay. You can also place an area by typing its page, its position from the bottom-left corner and its size in PDF points. One PDF at a time, up to ${MAX_MB} MB.`,
+    `The whole job runs in your browser tab: pdf.js, shipped with the page, reads and draws each page and the new file is assembled there, so the PDF is not uploaded. Find text searches the PDF's own text for a name or a number on every page at once, with Match case and Whole word, and Detect personal data finds email addresses, phone numbers, payment card numbers that pass the card checksum, IBANs that pass the IBAN checksum and dates that follow a “Date of birth” or “DOB” label. Every match lands in a review list, ticked, so you untick anything that should stay. You can also place an area by typing its page, its position from the bottom-left corner and its size in PDF points, or cover entire pages at once by listing them under Whole pages. One PDF at a time, up to ${MAX_MB} MB.`,
     `Under Method, “Flatten every page”, selected when the tool opens, rebuilds every page as a picture, including pages you did not mark, at ${PRESET_LABELS}: the result cannot be selected, searched or filled in, and links, bookmarks and the original title and author are not carried over. “Remove text under boxes” takes out only what lies under each box — its text, the covered pixels of a picture and any annotation there — and keeps the rest of the file as it was, still searchable. Before it saves, it searches the result for every ticked match again and stops if one is still there.`,
   ],
 
@@ -118,7 +122,7 @@ const content: ToolContent = {
     },
     {
       title: "Enter each redaction area",
-      body: 'Under "Redaction areas", fill in Page, X (pt), Y (pt), Width (pt) and Height (pt), then press "Add area". X and Y place the box\'s lower-left corner, measured from the page\'s bottom-left at 72 points to the inch (the note beside the heading says the same), and the line above the fields gives that page\'s size in points. A box that runs past the page edge is refused with a message naming the page size. Each accepted area gets its own trash button.',
+      body: 'Under "Redaction areas", fill in Page, X (pt), Y (pt), Width (pt) and Height (pt), then press "Add area". X and Y place the box\'s lower-left corner, measured from the page\'s bottom-left at 72 points to the inch (the note beside the heading says the same), and the line above the fields gives that page\'s size in points. A box that runs past the page edge is refused with a message naming the page size. Each accepted area gets its own trash button. To cover an entire page, such as a scanned ID, type it under "Whole pages" (one page or a list like 3, 7-9) and press "Add whole pages": each page becomes one area the size of that page, listed as "Page 3 · whole page", in the space the page is shown in, turned or cropped pages included.',
     },
     {
       title: "Choose method, fill and quality",
