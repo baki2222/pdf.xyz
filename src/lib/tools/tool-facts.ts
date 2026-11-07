@@ -1365,7 +1365,10 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         },
         {
           question: "How do I place a highlight?",
-          answer: `Highlight is the tool the editor opens on: drag across the page where it goes, then drag its handles to fit. A highlight is a see-through box, so it tints whatever lies under it rather than following the words.`,
+          // WAS "A highlight is a see-through box, so it tints whatever lies
+          // under it rather than following the words" until 2026-11-08,
+          // when a press on text began selecting words (audit annotate-pdf#3).
+          answer: `Highlight is the tool the editor opens on: press on a word and drag to the last word you want, and the highlight follows the selected text line by line; a click marks one word. Where there is no selectable text, such as a scanned page, the same drag draws a see-through box you can resize from its handles.`,
         },
       ];
     case "watermark":

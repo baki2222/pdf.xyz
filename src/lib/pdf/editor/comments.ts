@@ -291,7 +291,9 @@ export function writeComments(
     const toContent = (x: number, y: number) => viewerToContent(x, y, frame);
     switch (obj.kind) {
       case "highlight": {
-        const quads = snapHighlightQuads(obj, ctx.runs[obj.page] ?? []);
+        // Text selected to mark is its own quads; a dragged box snaps.
+        const quads =
+          obj.quads ?? snapHighlightQuads(obj, ctx.runs[obj.page] ?? []);
         // Corner order as viewers read /QuadPoints: upper-left, upper-right,
         // lower-left, lower-right — of the quad AS DISPLAYED, so the "top"
         // follows the text on a turned page.

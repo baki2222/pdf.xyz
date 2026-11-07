@@ -187,6 +187,12 @@ export interface HighlightObject extends Base, Boxed {
    * squiggly. Absent on objects made before 2026-11-08 — a highlight.
    */
   markup?: TextMarkup;
+  /**
+   * The lines of text it was made by selecting, one box per line (viewer
+   * points); the object's box is their bounds. Absent for a box dragged
+   * where there is no text — the box is the marked area.
+   */
+  quads?: Rect[];
 }
 
 export interface InkObject extends Base {
@@ -421,6 +427,17 @@ export function moveObject<T extends EditorObject>(
         ...obj,
         points: obj.points.map((p) => ({ x: p.x + dx, y: p.y + dy })),
       };
+    case "highlight":
+      return {
+        ...obj,
+        x: obj.x + dx,
+        y: obj.y + dy,
+        ...(obj.quads
+          ? {
+              quads: obj.quads.map((q) => ({ ...q, x: q.x + dx, y: q.y + dy })),
+            }
+          : {}),
+      };
     default:
       return { ...obj, x: obj.x + dx, y: obj.y + dy };
   }
@@ -462,6 +479,24 @@ export function resizeObject<T extends EditorObject>(
         points: obj.points.map((p) => ({
           x: next.x + (p.x - from.x) * sx,
           y: next.y + (p.y - from.y) * sy,
+        })),
+      };
+    }
+    case "highlight": {
+      if (!obj.quads) return { ...obj, x: next.x, y: next.y, width, height };
+      const sx = from.width === 0 ? 1 : width / from.width;
+      const sy = from.height === 0 ? 1 : height / from.height;
+      return {
+        ...obj,
+        x: next.x,
+        y: next.y,
+        width,
+        height,
+        quads: obj.quads.map((q) => ({
+          x: next.x + (q.x - from.x) * sx,
+          y: next.y + (q.y - from.y) * sy,
+          width: q.width * sx,
+          height: q.height * sy,
         })),
       };
     }
@@ -583,6 +618,9 @@ export function cloneObject<T extends EditorObject>(obj: T): T {
   }
   if (copy.kind === "field") {
     return { ...copy, options: [...copy.options] } as T;
+  }
+  if (copy.kind === "highlight" && copy.quads) {
+    return { ...copy, quads: copy.quads.map((q) => ({ ...q })) } as T;
   }
   return copy;
 }

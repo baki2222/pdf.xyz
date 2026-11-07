@@ -25,8 +25,9 @@ export function AnnotateRunner() {
       firstStep={
         <>
           <span className="font-semibold">Mark up:</span> Highlight is ready —
-          drag across the page where it goes. Underline, Strikethrough,
-          Whiteout, Redact, Draw and Note are beside it in the toolbar.
+          drag across the words to mark, or click one word. Underline,
+          Strikethrough, Whiteout, Redact, Draw and Note are beside it in the
+          toolbar.
         </>
       }
       emptyReason="Add a highlight, underline, strikethrough, whiteout, redaction, drawing or note to a page first."

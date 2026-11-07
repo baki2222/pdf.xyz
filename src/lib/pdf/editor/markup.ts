@@ -1,4 +1,5 @@
 import type { Rect } from "./model";
+import type { TextRun } from "./runs";
 
 /**
  * Text markup: the four ISO 32000-1 §12.5.6.10 kinds a reviewer marks words
@@ -7,9 +8,12 @@ import type { Rect } from "./model";
  * writer (`comments.ts`) all draw them from, so the three cannot disagree.
  *
  * A text markup is a `highlight` object with a `markup` (absent on objects
- * made before 2026-11-08: a highlight). Its marked area is the box drawn —
- * saved as a comment, snapped to the text lines under it
- * (`snapHighlightQuads`), as a highlight always was.
+ * made before 2026-11-08: a highlight). Its marked area is `quads` — one box
+ * per line of the text selected, read from pdf.js's text runs
+ * ({@link selectTextQuads}) and drawn as stored by the overlay, the
+ * flattened export and the comment — or, for a box dragged where there is
+ * no text (a scan), the box: flattened as drawn, saved as a comment snapped
+ * to any text lines under it (`snapHighlightQuads`).
  *
  * Feature-scoped on purpose: only the editor's lazy chunk and its export
  * import this, never a first-load module (the bundle budget, 2026-11-07).
@@ -95,4 +99,144 @@ export function markupStroke(
   }
   points.push({ x: x1, y: mid + (up ? -amp : amp) });
   return { points, width };
+}
+
+/* ------------------------------ selecting text ----------------------------- */
+
+const ANGLE_TOLERANCE = 1;
+/** How far outside a run's box a press still lands on it, points. */
+const SLOP = 2;
+
+function horizontal(run: TextRun): boolean {
+  const a = ((run.angle % 360) + 360) % 360;
+  return Math.min(a, 360 - a) <= ANGLE_TOLERANCE;
+}
+
+function contains(r: Rect, p: { x: number; y: number }, slop: number) {
+  return (
+    p.x >= r.x - slop &&
+    p.x <= r.x + r.width + slop &&
+    p.y >= r.y - slop &&
+    p.y <= r.y + r.height + slop
+  );
+}
+
+/** The run under `p`, among horizontal runs, or null. */
+export function runUnder(
+  runs: readonly TextRun[],
+  p: { x: number; y: number },
+): TextRun | null {
+  return runs.find((r) => horizontal(r) && contains(r.rect, p, SLOP)) ?? null;
+}
+
+/** The run nearest `p`: the same line first, then the nearest line. */
+function nearestRun(list: readonly TextRun[], p: { x: number; y: number }) {
+  let best = 0;
+  let bestScore = Infinity;
+  list.forEach((r, i) => {
+    const dy = Math.max(0, r.rect.y - p.y, p.y - (r.rect.y + r.rect.height));
+    const dx = Math.max(0, r.rect.x - p.x, p.x - (r.rect.x + r.rect.width));
+    const score = dy * 1000 + dx;
+    if (score < bestScore) {
+      bestScore = score;
+      best = i;
+    }
+  });
+  return best;
+}
+
+/** The character boundary nearest `x` in a run (its letters taken as equal widths). */
+function charAt(run: TextRun, x: number): number {
+  const n = run.str.length;
+  const t = run.rect.width > 0 ? (x - run.rect.x) / run.rect.width : 0;
+  return Math.max(0, Math.min(n, Math.round(t * n)));
+}
+
+const SPACE = /\s/;
+function wordStart(str: string, i: number): number {
+  while (i > 0 && !SPACE.test(str[i - 1]!)) i -= 1;
+  return i;
+}
+function wordEnd(str: string, i: number): number {
+  while (i < str.length && !SPACE.test(str[i]!)) i += 1;
+  return i;
+}
+
+/**
+ * The text a press-and-drag from `a` to `b` selects, as one quad per line
+ * (viewer points) — or null when `a` is not on text, and the drag is a box.
+ *
+ * Like a viewer's text selection: from the word under `a` to the word under
+ * (or nearest) `b`, in the runs' reading order (pdf.js's), whole words at
+ * both ends, each line clipped to what is selected on it. A press without a
+ * drag selects the one word under it. Horizontal text only: turned text is
+ * marked with a box.
+ */
+export function selectTextQuads(
+  runs: readonly TextRun[],
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+): Rect[] | null {
+  const list = runs.filter(horizontal);
+  const startRun = runUnder(list, a);
+  if (!startRun) return null;
+  let i = list.indexOf(startRun);
+  let ci = charAt(startRun, a.x);
+  let j = nearestRun(list, b);
+  let cj = charAt(list[j]!, b.x);
+  if (j < i || (j === i && cj < ci)) {
+    [i, j] = [j, i];
+    [ci, cj] = [cj, ci];
+  }
+  ci = wordStart(list[i]!.str, ci);
+  cj = wordEnd(list[j]!.str, cj);
+  const pieces: Rect[] = [];
+  for (let k = i; k <= j; k++) {
+    const run = list[k]!;
+    const n = run.str.length;
+    const c0 = k === i ? ci : 0;
+    const c1 = k === j ? cj : n;
+    if (c1 <= c0 || n === 0) continue;
+    const x0 = run.rect.x + (run.rect.width * c0) / n;
+    const x1 = run.rect.x + (run.rect.width * c1) / n;
+    pieces.push({
+      x: x0,
+      y: run.rect.y,
+      width: x1 - x0,
+      height: run.rect.height,
+    });
+  }
+  if (pieces.length === 0) return null;
+  // Pieces side by side on one line merge; a column gutter does not.
+  const out: Rect[] = [];
+  for (const p of pieces) {
+    const last = out[out.length - 1];
+    const sameLine =
+      last &&
+      Math.abs(last.y + last.height / 2 - (p.y + p.height / 2)) <
+        Math.min(last.height, p.height) / 2;
+    const gap = last ? p.x - (last.x + last.width) : Infinity;
+    if (
+      last &&
+      sameLine &&
+      gap >= -1 &&
+      gap <= Math.min(last.height, p.height)
+    ) {
+      const x0 = Math.min(last.x, p.x);
+      const y0 = Math.min(last.y, p.y);
+      const x1 = Math.max(last.x + last.width, p.x + p.width);
+      const y1 = Math.max(last.y + last.height, p.y + p.height);
+      out[out.length - 1] = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+    } else out.push(p);
+  }
+  return out;
+}
+
+/** The box around a set of quads. */
+export function quadsBounds(quads: readonly Rect[]): Rect {
+  const x0 = Math.min(...quads.map((q) => q.x));
+  const y0 = Math.min(...quads.map((q) => q.y));
+  const x1 = Math.max(...quads.map((q) => q.x + q.width));
+  const y1 = Math.max(...quads.map((q) => q.y + q.height));
+  return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
 }

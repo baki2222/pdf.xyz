@@ -265,41 +265,55 @@ export function ObjectShape({
         />
       );
     case "highlight": {
-      const stroke = markupStroke(obj, markupOf(obj));
-      if (stroke) {
-        // Underline, strikethrough, squiggly: the line the export draws,
-        // over a clear box that keeps the whole box clickable.
+      const markup = markupOf(obj);
+      // Text selected to mark: each line's quad; a dragged box: the box —
+      // what the export draws (`editor-export.ts`).
+      const quads = obj.quads ?? [obj];
+      if (markup === "highlight") {
         return (
           <>
-            <rect
-              x={obj.x}
-              y={obj.y}
-              width={obj.width}
-              height={obj.height}
-              fill="transparent"
-            />
-            <polyline
-              points={stroke.points.map((p) => `${p.x},${p.y}`).join(" ")}
-              fill="none"
-              stroke={obj.color}
-              strokeOpacity={obj.opacity}
-              strokeWidth={stroke.width}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
+            {quads.map((q, i) => (
+              <rect
+                key={i}
+                x={q.x}
+                y={q.y}
+                width={q.width}
+                height={q.height}
+                fill={obj.color}
+                fillOpacity={obj.opacity}
+                style={{ mixBlendMode: "multiply" }}
+              />
+            ))}
           </>
         );
       }
+      // Underline, strikethrough, squiggly: the line the export draws,
+      // over a clear box that keeps the whole box clickable.
       return (
-        <rect
-          x={obj.x}
-          y={obj.y}
-          width={obj.width}
-          height={obj.height}
-          fill={obj.color}
-          fillOpacity={obj.opacity}
-          style={{ mixBlendMode: "multiply" }}
-        />
+        <>
+          <rect
+            x={obj.x}
+            y={obj.y}
+            width={obj.width}
+            height={obj.height}
+            fill="transparent"
+          />
+          {quads.map((q, i) => {
+            const stroke = markupStroke(q, markup)!;
+            return (
+              <polyline
+                key={i}
+                points={stroke.points.map((p) => `${p.x},${p.y}`).join(" ")}
+                fill="none"
+                stroke={obj.color}
+                strokeOpacity={obj.opacity}
+                strokeWidth={stroke.width}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            );
+          })}
+        </>
       );
     }
     case "link":

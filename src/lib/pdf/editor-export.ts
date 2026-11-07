@@ -633,33 +633,38 @@ export async function exportEditedPdf(
       }
       case "highlight": {
         const markup = markupOf(obj);
-        const stroke = markupStroke(obj, markup);
-        if (!stroke) {
-          const at = rectAnchor(obj, frame);
-          page.drawRectangle({
-            x: at.x,
-            y: at.y,
-            width: obj.width,
-            height: obj.height,
-            rotate,
-            color: color(rgb, obj.color),
-            opacity: clampOpacity(obj.opacity),
-            blendMode: BlendMode.Multiply,
-          });
-          break;
-        }
-        // Underline, strikethrough, squiggly: the line the overlay drew
-        // (`markupStroke`), each segment mapped like every other point.
-        const pts = stroke.points.map((p) => viewerToContent(p.x, p.y, frame));
-        for (let i = 1; i < pts.length; i++) {
-          page.drawLine({
-            start: pts[i - 1]!,
-            end: pts[i]!,
-            thickness: stroke.width,
-            color: color(rgb, obj.color),
-            opacity: clampOpacity(obj.opacity),
-            lineCap: markup === "squiggly" ? LineCapStyle.Round : undefined,
-          });
+        // Text selected to mark: each line's quad; a dragged box: the box.
+        for (const quad of obj.quads ?? [obj]) {
+          const stroke = markupStroke(quad, markup);
+          if (!stroke) {
+            const at = rectAnchor(quad, frame);
+            page.drawRectangle({
+              x: at.x,
+              y: at.y,
+              width: quad.width,
+              height: quad.height,
+              rotate,
+              color: color(rgb, obj.color),
+              opacity: clampOpacity(obj.opacity),
+              blendMode: BlendMode.Multiply,
+            });
+            continue;
+          }
+          // Underline, strikethrough, squiggly: the line the overlay drew
+          // (`markupStroke`), each segment mapped like every other point.
+          const pts = stroke.points.map((p) =>
+            viewerToContent(p.x, p.y, frame),
+          );
+          for (let i = 1; i < pts.length; i++) {
+            page.drawLine({
+              start: pts[i - 1]!,
+              end: pts[i]!,
+              thickness: stroke.width,
+              color: color(rgb, obj.color),
+              opacity: clampOpacity(obj.opacity),
+              lineCap: markup === "squiggly" ? LineCapStyle.Round : undefined,
+            });
+          }
         }
         break;
       }

@@ -253,3 +253,84 @@ describe("text markup flattened into the page", () => {
     expect(top[0]).toBeGreaterThan(top[2] + 60);
   });
 });
+
+describe("text selected to mark (audit annotate-pdf#3)", () => {
+  // Two lines' worth of selected text, as the editor stores it: the quads
+  // the selection covered, the box around them.
+  const QUADS: Rect[] = [
+    { x: 200, y: 300, width: 150, height: 20 },
+    { x: 72, y: 324, width: 90, height: 20 },
+  ];
+  const selected = (markup: TextMarkup): EditorObject => ({
+    id: "s",
+    kind: "highlight",
+    markup,
+    page: 0,
+    x: 72,
+    y: 300,
+    width: 278,
+    height: 44,
+    quads: QUADS,
+    color: "#dc2626",
+    opacity: 1,
+  });
+
+  it("saved as a comment, the quads are the selection's, not the box", async () => {
+    const out = await exportEditedPdf(
+      await page(),
+      [selected("highlight")],
+      undefined,
+      { markups: "comments" },
+    );
+    const [a] = await annotations(out.bytes);
+    expect(a!.subtype).toBe("Highlight");
+    expect(a!.quads).toHaveLength(2);
+    a!.quads.forEach((q, i) => {
+      const want = QUADS[i]!;
+      expect(Math.abs(q.x - want.x)).toBeLessThanOrEqual(TOL);
+      expect(Math.abs(q.y - want.y)).toBeLessThanOrEqual(TOL);
+      expect(Math.abs(q.width - want.width)).toBeLessThanOrEqual(TOL);
+      expect(Math.abs(q.height - want.height)).toBeLessThanOrEqual(TOL);
+    });
+  });
+
+  it.each([0, 90])(
+    "flattened, only the selected lines are painted — the box's empty corner stays paper (/Rotate %i)",
+    async (rotate) => {
+      const out = await exportEditedPdf(await page(rotate), [
+        selected("highlight"),
+      ]);
+      const PW = rotate === 90 ? 792 : 612;
+      const PH = rotate === 90 ? 612 : 792;
+      const [img] = await renderPdfPages(out.bytes, PW);
+      const at = (x: number, y: number) =>
+        regionMean(img!, x / PW, y / PH, (x + 20) / PW, (y + 8) / PH);
+      // Inside each quad: red.
+      const first = at(250, 306);
+      const second = at(100, 330);
+      expect(first[0]).toBeGreaterThan(first[2] + 60);
+      expect(second[0]).toBeGreaterThan(second[2] + 60);
+      // The box's top-left corner (left of the first line's selection)
+      // and its bottom-right (right of the second's): no paint.
+      expect(Math.min(...at(90, 306))).toBeGreaterThan(245);
+      expect(Math.min(...at(250, 330))).toBeGreaterThan(245);
+    },
+  );
+
+  it("an underline of selected text runs under each selected line only", async () => {
+    const out = await exportEditedPdf(await page(), [selected("underline")]);
+    const [img] = await renderPdfPages(out.bytes, 612);
+    const y = markupStroke(QUADS[1]!, "underline")!.points[0]!.y;
+    const band = (x: number) =>
+      regionMean(
+        img!,
+        x / 612,
+        (y - 0.6) / 792,
+        (x + 20) / 612,
+        (y + 0.6) / 792,
+      );
+    expect(band(100)[0]).toBeGreaterThan(band(100)[2] + 60);
+    // Same height, right of the second line's selection: paper.
+    expect(Math.min(...band(250))).toBeGreaterThan(245);
+  });
+});

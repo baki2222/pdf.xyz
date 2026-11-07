@@ -100,6 +100,11 @@ import {
   type TextRun,
 } from "@/lib/pdf/editor/runs";
 import { CSS_FONT_STACK, needsUnicodeFace } from "@/lib/pdf/editor/text";
+import {
+  quadsBounds,
+  selectTextQuads,
+  type TextMarkup,
+} from "@/lib/pdf/editor/markup";
 import { cn } from "@/lib/utils";
 import { ErrorNote, useAnnouncer } from "../runner-kit";
 import { PagePreviewPlaceholder } from "../page-preview-placeholder";
@@ -220,6 +225,47 @@ const PLACING: ReadonlySet<Tool> = new Set([
   "field-radio",
   "field-signature",
 ]);
+
+/** The text-markup tools, and the markup each places (`markup.ts`). */
+const TEXT_MARKUP_TOOLS: ReadonlyMap<Tool, TextMarkup> = new Map<
+  Tool,
+  TextMarkup
+>([
+  ["highlight", "highlight"],
+  ["underline", "underline"],
+  ["strikeout", "strikeout"],
+]);
+
+/**
+ * A text markup over the words a press at `a` and a release at `b` select
+ * on the page's runs — or null when the press is not on text, and the tool
+ * draws a box instead (a scan, a figure).
+ */
+function markSelectedText(
+  tool: Tool,
+  page: number,
+  runs: readonly TextRun[],
+  a: Pt,
+  b: Pt,
+  defaults: Defaults,
+  id: string,
+): EditorObject | null {
+  const markup = TEXT_MARKUP_TOOLS.get(tool);
+  if (!markup) return null;
+  const quads = selectTextQuads(runs, a, b);
+  if (!quads) return null;
+  // The map's keys are exactly these three tools, each its own bucket.
+  const bucket = tool as "highlight" | "underline" | "strikeout";
+  return {
+    id,
+    kind: "highlight",
+    page,
+    ...quadsBounds(quads),
+    quads,
+    ...defaults[bucket],
+    markup,
+  };
+}
 
 /** One click places one of these where it lands (and the tool stays on). */
 const QUICK: ReadonlySet<Tool> = new Set(["date", "initials", "name", "check"]);
@@ -747,16 +793,21 @@ export function WysiwygEditor({
 
   // Which page list the pages asked for so far were asked under.
   const runsAskedFor = useRef(pages);
-  const wantRuns = state.tool === "edittext" || finding;
+  // Highlight, Underline and Strikethrough read the runs too: a press on
+  // text selects words to mark (`selectTextQuads`), not a box.
+  const editingText = state.tool === "edittext" || finding;
+  const wantRuns = editingText || TEXT_MARKUP_TOOLS.has(state.tool);
   useEffect(() => {
     if (!wantRuns || !doc || !frames) return;
     if (runsAskedFor.current !== pages) {
       runsAskedFor.current = pages;
       runsAsked.current.clear();
     }
-    void loadStyles().catch(() =>
-      setRunNotice("This PDF's text could not be read for editing."),
-    );
+    if (editingText) {
+      void loadStyles().catch(() =>
+        setRunNotice("This PDF's text could not be read for editing."),
+      );
+    }
     const wanted = finding ? frames.map((_, i) => i) : [...near];
     const list = pages;
     const store = (i: number, placed: TextRun[]) =>
@@ -776,7 +827,7 @@ export function WysiwygEditor({
         store(i, placeRuns(i, read, frames[i]!));
       });
     }
-  }, [wantRuns, finding, doc, frames, near, loadStyles, pages]);
+  }, [wantRuns, editingText, finding, doc, frames, near, loadStyles, pages]);
 
   // Runs a person can edit: an invisible OCR layer is not offered.
   const editableRuns = useMemo(() => {
@@ -1774,15 +1825,25 @@ export function WysiwygEditor({
           return;
         case "create": {
           d.current = clampPt(pt);
-          const obj = makeObject(
-            d.tool,
-            d.page,
-            rectFromPoints(d.start, d.current),
-            d.start,
-            d.current,
-            stateRef.current.defaults,
-            d.id,
-          );
+          const obj =
+            markSelectedText(
+              d.tool,
+              d.page,
+              runsRef.current[d.page] ?? [],
+              d.start,
+              d.current,
+              stateRef.current.defaults,
+              d.id,
+            ) ??
+            makeObject(
+              d.tool,
+              d.page,
+              rectFromPoints(d.start, d.current),
+              d.start,
+              d.current,
+              stateRef.current.defaults,
+              d.id,
+            );
           if (obj) show({ [d.id]: obj });
           return;
         }
@@ -1864,7 +1925,19 @@ export function WysiwygEditor({
               scale >=
             4;
           let obj = previewOf(d.id) ?? null;
+          // A click on a word marks that word.
           if (!dragged) {
+            obj = markSelectedText(
+              d.tool,
+              d.page,
+              runsRef.current[d.page] ?? [],
+              d.start,
+              d.start,
+              s.defaults,
+              d.id,
+            );
+          }
+          if (!dragged && !obj) {
             const size = CLICK_SIZE[d.tool] ?? { width: 100, height: 60 };
             const f = frames[d.page]!;
             const rect = {
