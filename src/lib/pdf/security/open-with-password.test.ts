@@ -9,6 +9,7 @@ import {
   readRestrictedFixture,
 } from "@/tests/restricted-pdf-fixtures";
 import { openWithPassword } from "./open-with-password";
+import { ProtectedPdf } from "./protected-pdf";
 
 /**
  * Opening an encrypted PDF with a password the person types, in the browser
@@ -78,5 +79,39 @@ describe("openWithPassword", () => {
     expect(result.kind).toBe("wrong-password");
     const plain = await openWithPassword(new Uint8Array([1, 2, 3]), "x");
     expect(plain.kind).toBe("unsupported");
+  });
+});
+
+describe("one in-browser opener", () => {
+  // Review of audit grayscale-pdf#6: openWithPassword was ProtectedPdf.open
+  // copied with a password parameter added. Now ProtectedPdf.open takes the
+  // password, and openWithPassword is a view of what it returns.
+  it("ProtectedPdf.open takes the open password, and says which password it was", async () => {
+    const bytes = readRestrictedFixture(OPEN_PASSWORD_FIXTURE.file);
+    expect((await ProtectedPdf.open(bytes)).kind).toBe("needs-password");
+    const opened = await ProtectedPdf.open(bytes, FIXTURE_OPEN_PASSWORD);
+    expect(opened.kind).toBe("opened");
+    if (opened.kind !== "opened") return;
+    expect(opened.pdf.authenticatedAs).toBe("user");
+    expect(await pdfjsText(opened.pdf.plain)).toContain(GRANT_FIXTURE_TEXT);
+  });
+
+  it("openWithPassword answers from ProtectedPdf.open", async () => {
+    const calls: unknown[][] = [];
+    const real = ProtectedPdf.open.bind(ProtectedPdf);
+    const spy = (...args: Parameters<typeof ProtectedPdf.open>) => {
+      calls.push(args);
+      return real(...args);
+    };
+    const original = ProtectedPdf.open;
+    ProtectedPdf.open = spy;
+    try {
+      const bytes = readRestrictedFixture(OPEN_PASSWORD_FIXTURE.file);
+      const result = await openWithPassword(bytes, FIXTURE_OPEN_PASSWORD);
+      expect(result.kind).toBe("opened");
+      expect(calls).toEqual([[bytes, FIXTURE_OPEN_PASSWORD]]);
+    } finally {
+      ProtectedPdf.open = original;
+    }
   });
 });

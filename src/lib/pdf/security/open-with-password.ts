@@ -1,16 +1,13 @@
-import {
-  permissionsFromP,
-  type PdfPermissions,
-} from "@/lib/jobs/pdf-permissions";
-import { decryptDocument, openHandler, writePlain } from "./document";
+import type { PdfPermissions } from "@/lib/jobs/pdf-permissions";
+import { ProtectedPdf } from "./protected-pdf";
 import type { Authenticated } from "./standard-handler";
 
 /**
  * An encrypted PDF opened with a password the person typed — decrypted in
- * the browser by the same handler Edit PDF uses, never uploaded. Says WHICH
- * password it was and what the author grants, so the tool can decide
- * whether what it is about to write would lift a restriction: a copy made
- * from `plain` carries no encryption at all.
+ * the browser by `ProtectedPdf.open`, the opener Edit PDF uses, never
+ * uploaded. Says WHICH password it was and what the author grants, so the
+ * tool can decide whether what it is about to write would lift a
+ * restriction: a copy made from `plain` carries no encryption at all.
  *
  * The password is used and dropped: nothing here keeps, logs or sends it.
  */
@@ -33,20 +30,15 @@ export async function openWithPassword(
   bytes: Uint8Array,
   password: string,
 ): Promise<PasswordOpenResult> {
-  try {
-    const { handler, xref } = await openHandler(bytes, password);
-    if (!handler) return { kind: "wrong-password" };
-    const doc = await decryptDocument(bytes, handler, xref);
-    return {
-      kind: "opened",
-      plain: await writePlain(doc),
-      as: handler.authenticatedAs,
-      permissions: permissionsFromP(handler.effectiveP),
-    };
-  } catch (err) {
-    return {
-      kind: "unsupported",
-      reason: err instanceof Error ? err.message : "unknown",
-    };
-  }
+  // The same opener Edit PDF and the restricted-file tools use, with the
+  // typed password in place of the empty one.
+  const result = await ProtectedPdf.open(bytes, password);
+  if (result.kind === "needs-password") return { kind: "wrong-password" };
+  if (result.kind === "unsupported") return result;
+  return {
+    kind: "opened",
+    plain: result.pdf.plain,
+    as: result.pdf.authenticatedAs,
+    permissions: result.pdf.permissions,
+  };
 }

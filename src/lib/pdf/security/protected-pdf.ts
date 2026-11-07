@@ -13,6 +13,7 @@ import { writeIncrementalUpdate, type IncrementalResult } from "./incremental";
 import {
   StandardSecurityHandler,
   UnsupportedEncryptionError,
+  type Authenticated,
 } from "./standard-handler";
 
 /**
@@ -129,10 +130,22 @@ export class ProtectedPdf {
     });
   }
 
-  /** @internal — {@link openProtectedPdf} */
-  static async open(bytes: Uint8Array): Promise<OpenProtectedResult> {
+  /** Which password opened the file: "owner" may waive every restriction. */
+  get authenticatedAs(): Authenticated {
+    return this.handler.authenticatedAs;
+  }
+
+  /**
+   * @internal — {@link openProtectedPdf}, and `./open-with-password` with a
+   * password the person typed: the one in-browser opener. "needs-password"
+   * means `password` (empty: none) does not open it.
+   */
+  static async open(
+    bytes: Uint8Array,
+    password = "",
+  ): Promise<OpenProtectedResult> {
     try {
-      const { handler, xref } = await openHandler(bytes);
+      const { handler, xref } = await openHandler(bytes, password);
       if (!handler) return { kind: "needs-password" };
       const doc = await decryptDocument(bytes, handler, xref);
       const plain = await writePlain(doc);
