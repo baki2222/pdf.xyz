@@ -211,6 +211,7 @@ export function PropertiesPanel({
   onPatch,
   onDelete,
   onDuplicate,
+  repeat,
   onStack,
   pageIds = [],
   className,
@@ -222,6 +223,8 @@ export function PropertiesPanel({
   onPatch: (patch: StylePatch, key: string) => void;
   onDelete: () => void;
   onDuplicate: () => void;
+  /** "Repeat on" pages for the selection, when it can be repeated. */
+  repeat?: ReactNode;
   /** Z-order: move the selection within its page's stack. */
   onStack?: (move: StackMove) => void;
   /** The displayed pages' ids, in order — a link's "go to page" choices. */
@@ -619,6 +622,7 @@ export function PropertiesPanel({
         </div>
       )}
 
+      {selection.length > 0 && repeat}
       {selection.length > 0 && (
         <div className="flex gap-2">
           {kind !== "textedit" && (

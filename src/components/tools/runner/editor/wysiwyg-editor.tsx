@@ -125,6 +125,8 @@ import {
   type StylePatch,
 } from "./properties";
 import { SignaturePanel } from "./signature-panel";
+import { RepeatOnPages } from "./repeat-on-pages";
+import { canRepeat, repeatCopies } from "@/lib/pdf/editor/repeat-on-pages";
 import { ThumbnailRail, type PageOps, type RailPage } from "./thumbnail-rail";
 import { EditorToolbar, FIELD_TOOL, TOOL_BUTTONS } from "./toolbar";
 
@@ -917,6 +919,37 @@ export function WysiwygEditor({
         ? objectBounds(obj, (o) => kit.height(o))
         : objectBounds(obj, () => 20),
     [kit],
+  );
+
+  /**
+   * "Repeat on" (audit sign-pdf#6): a copy of the selection at the same
+   * spot on each of `pages`, as ONE undoable step; the original stays
+   * selected.
+   */
+  const repeatSelection = useCallback(
+    (pages: number[]) => {
+      const s = stateRef.current;
+      const source = s.objects.filter((o) => s.selected.includes(o.id));
+      if (!frames || !canRepeat(source)) return;
+      const copies = repeatCopies(source, pages, frames, boundsOf);
+      if (copies.length === 0) return;
+      let at = s.objects.length;
+      dispatch({
+        type: "commit",
+        command: {
+          label: "Repeat on pages",
+          changes: copies.map((c) => ({
+            id: c.id,
+            before: null,
+            after: c,
+            at: at++,
+          })),
+        },
+        select: source.map((o) => o.id),
+        say: `Repeated on ${pages.length} page${pages.length === 1 ? "" : "s"}`,
+      });
+    },
+    [dispatch, frames, boundsOf],
   );
 
   /** Every form field name in use: the file's and the editor's. */
@@ -2075,6 +2108,16 @@ export function WysiwygEditor({
       onPatch={patchSelection}
       onDelete={deleteSelected}
       onDuplicate={() => pasteObjects(selection, "Duplicate")}
+      repeat={
+        canRepeat(selection) ? (
+          <RepeatOnPages
+            key={selection.map((o) => o.id).join(" ")}
+            pageCount={state.pages.length}
+            from={selection[0]!.page}
+            onRepeat={repeatSelection}
+          />
+        ) : undefined
+      }
       onStack={stack}
       pageIds={pageIds}
     />

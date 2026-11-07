@@ -5,6 +5,10 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { SUPPORTED_SCRIPTS, UNSUPPORTED_SCRIPTS } from "@/lib/pdf/font-packs";
 import { MAX_SAVED_SIGNATURES } from "@/lib/pdf/editor/saved-signatures";
 import { SIGNATURE_INKS } from "@/lib/pdf/editor/signature-ink";
+import {
+  REPEAT_TARGETS,
+  REPEAT_TARGET_LABEL,
+} from "@/lib/pdf/editor/repeat-on-pages";
 
 /*
  * Every behavioral claim below was read from, or probed against, the code.
@@ -37,7 +41,11 @@ import { SIGNATURE_INKS } from "@/lib/pdf/editor/signature-ink";
  *  - placing: a click places it centred on the point; a picture resizes from
  *    its corners keeping its proportions, a typed one is a text box (its
  *    Size in the properties). Every further click places another copy, on
- *    any page. Rotated and cropped pages: the displayed frame
+ *    any page. "Repeat on" (editor/repeat-on-pages.tsx, shown in the
+ *    properties of a selected signature, initials, name or date on a PDF of
+ *    two or more pages): REPEAT_TARGETS — a copy at the same spot on each
+ *    target page (pulled in on a smaller page), one undo step, the custom
+ *    list in `parsePageList`'s syntax. Rotated and cropped pages: the displayed frame
  *    (`editor-export.test.ts`).
  *  - saved: `editor/saved-signatures.ts` — localStorage only, opt-in, at
  *    most MAX_SAVED_SIGNATURES, try/catch around every access.
@@ -61,6 +69,11 @@ const list = (items: readonly string[]) =>
 /** The ink swatches, named as the panel names them, black first. */
 const inks = new Intl.ListFormat("en", { type: "disjunction" }).format(
   SIGNATURE_INKS.map((i) => i.label),
+);
+
+/** "Repeat on"'s choices, as the control names them. */
+const repeatTargets = new Intl.ListFormat("en", { type: "disjunction" }).format(
+  REPEAT_TARGETS.map((t) => REPEAT_TARGET_LABEL[t]),
 );
 
 /** Scripts a typed name can be written in beyond Latin, from the shipped packs. */
@@ -98,7 +111,7 @@ const content: ToolContent = {
     },
     {
       title: "Initials on every page",
-      body: "Choose Initials, then click on each page that needs them: every click places another set, and they are all written in one pass. They come from the name in your typed signature, or from a name you type once.",
+      body: `Choose Initials and click where they go on one page. With them selected, pick ${repeatTargets} (such as 2-5, 8) under Repeat on and press Repeat: a copy lands at the same spot on each of those pages, and every copy can still be moved or deleted on its own. The same works for a signature, a name or a date. Initials come from the name in your typed signature, or from a name you type once.`,
     },
     {
       title: "Date it and tick the boxes",
@@ -121,7 +134,7 @@ const content: ToolContent = {
     },
     {
       title: "Place it",
-      body: "Tap or click the page where it goes. Drag it to move it and drag a corner to resize it; a picture keeps its proportions. Click Sign again to place another copy, on this page or any other.",
+      body: "Tap or click the page where it goes. Drag it to move it and drag a corner to resize it; a picture keeps its proportions. Click Sign again to place another copy, on this page or any other, or, with it selected, use Repeat on to copy it to every page, the last page or the pages you list.",
     },
     {
       title: "Sign and save",

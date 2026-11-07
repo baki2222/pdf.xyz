@@ -18,7 +18,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { withAppRouter } from "@/tests/app-router";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { PDFDocument } from "pdf-lib";
+import {
+  PDFArray,
+  PDFDocument,
+  PDFName,
+  PDFRawStream,
+  decodePDFRawStream,
+} from "pdf-lib";
 import { SignRunner } from "./sign-runner";
 
 // The router comes from its context (`withAppRouter`), not a module mock:
@@ -370,4 +376,73 @@ describe("Sign PDF says when 'Save for next time' could not save", () => {
     // Health check: the save really happened, so the control is not vacuous.
     expect(localStorage.length).toBeGreaterThan(0);
   });
+});
+
+/*
+ * Audit sign-pdf#6 and #2 (2026-11-06), driven through the real runner: a
+ * typed signature in blue, placed once, repeated on all pages with "Repeat
+ * on", applied — and read back out of the file Apply & download writes.
+ */
+describe("Sign PDF repeats a signature on every page", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("one placement + Repeat on All pages draws it on each page, in the chosen ink", async () => {
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < 3; i += 1) doc.addPage([612, 792]);
+    const file = new File([(await doc.save()).slice().buffer], "lease.pdf", {
+      type: "application/pdf",
+    });
+    const blobs: Blob[] = [];
+    const realCreate = URL.createObjectURL;
+    vi.spyOn(URL, "createObjectURL").mockImplementation((b) => {
+      if (b instanceof Blob && b.type === "application/pdf") blobs.push(b);
+      return realCreate ? realCreate.call(URL, b) : "blob:mock";
+    });
+    const { container } = render(withAppRouter(<SignRunner />));
+    const input =
+      container.querySelector<HTMLInputElement>('input[type="file"]');
+    fireEvent.change(input!, { target: { files: [file] } });
+    await screen.findByRole("tab", { name: "Draw" }, { timeout: 8000 });
+
+    source("Type");
+    fireEvent.change(screen.getByLabelText("Your name"), {
+      target: { value: "Ada Lovelace" },
+    });
+    fireEvent.click(screen.getByRole("radio", { name: "Blue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use signature" }));
+    const page1 = await screen.findByRole(
+      "group",
+      { name: "Page 1 of 3" },
+      { timeout: 8000 },
+    );
+    await vi.waitFor(() => {
+      fireEvent.pointerDown(page1, { button: 0, clientX: 5, clientY: 5 });
+      expect(screen.getByLabelText("Repeat on")).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Repeat" }));
+    fireEvent.click(screen.getByRole("button", { name: /Apply & download/ }));
+    await vi.waitFor(() => expect(blobs.length).toBeGreaterThan(0), {
+      timeout: 15000,
+    });
+
+    const out = await PDFDocument.load(
+      new Uint8Array(await blobs.at(-1)!.arrayBuffer()),
+    );
+    const texts = out.getPages().map((p) => {
+      const c = p.node.get(PDFName.of("Contents"));
+      const refs = c instanceof PDFArray ? c.asArray() : c ? [c] : [];
+      return refs
+        .map((r) =>
+          new TextDecoder("latin1").decode(
+            decodePDFRawStream(out.context.lookup(r) as PDFRawStream).decode(),
+          ),
+        )
+        .join("\n");
+    });
+    // Each page shows the name, filled blue (#1d4ed8 = .1137 .3059 .8471).
+    for (const [i, t] of texts.entries()) {
+      expect(t, `page ${i + 1}`).toMatch(/\bTj\b|\bTJ\b/);
+      expect(t, `page ${i + 1}`).toMatch(/0?\.11\d* 0?\.30\d* 0?\.84\d* rg/);
+    }
+  }, 60_000);
 });

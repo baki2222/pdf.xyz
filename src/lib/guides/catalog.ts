@@ -18,6 +18,10 @@
 import { getToolBySlug } from "@/lib/tools";
 import { STAMP_POSITIONS } from "@/lib/pdf/stamp";
 import { SIGNATURE_INKS } from "@/lib/pdf/editor/signature-ink";
+import {
+  REPEAT_TARGETS,
+  REPEAT_TARGET_LABEL,
+} from "@/lib/pdf/editor/repeat-on-pages";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { MAX_IMAGE_MB, MAX_SOURCE_MB } from "@/lib/tools/limits";
 import {
@@ -1817,6 +1821,7 @@ export const guides: Guide[] = [
       `If you type it, pick the look: ${signatureStyles.join(" or ")} style.`,
       `If you draw or type it, pick the ink: ${signatureInks}. Blue ink makes the original easy to tell from a copy.`,
       "Place the signature exactly where the document needs it — the tool is built for precise placement.",
+      `Need it on more than one page, such as initials on every page of a contract? Select what you placed and use Repeat on: ${new Intl.ListFormat("en", { type: "disjunction" }).format(REPEAT_TARGETS.map((t) => REPEAT_TARGET_LABEL[t]))}. Each copy lands at the same spot.`,
       "Export your signed PDF and save it to your device.",
     ],
     sections: [
