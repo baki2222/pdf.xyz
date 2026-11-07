@@ -234,7 +234,7 @@ const content: ToolContent = {
     },
     {
       title: "Press Create PDF",
-      body: "The button reads Creating PDF… while your browser builds one page per image in the order shown. A PNG or JPG that cannot be decoded was already turned away when you added it. A damaged TIFF page, or a WebP, GIF or BMP your browser cannot decode, still halts the whole run, and the error names that file; remove it and press Create PDF again.",
+      body: "The button reads Creating PDF… while your browser builds one page per image in the order shown. A PNG that is cut off, damaged or animated, or a JPG whose header cannot be read, was already turned away when you added it. A damaged TIFF page, or a WebP, GIF or BMP your browser cannot decode, still halts the whole run, and the error names that file; remove it and press Create PDF again.",
     },
     {
       title: "Save the PDF",

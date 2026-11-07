@@ -39,6 +39,55 @@ const ENLARGE = SMALL_IMAGES_CHOICES.find((c) => c.id === "enlarge")!.label;
  * (image-to-pdf-options.test.tsx) and the engine tests named per block.
  */
 
+/*
+ * A claim that EVERY JPG or PNG that cannot be decoded is turned away. False
+ * for a JPG: the check reads it only to its header (image-intake.test.ts:
+ * "accepts a JPEG cut off after its frame header"). What may be said is what
+ * imageDecodes refuses: a damaged, cut-off or animated PNG, or a JPG whose
+ * HEADER cannot be read. The corpus is every sentence the lane shipped with
+ * the claim; the test below holds it in both directions.
+ */
+const UNDECODABLE_CLAIMS = [
+  /\b(JPG|PNG)s?\b[^.]*\b(cannot|can't|could not) be decoded\b[^.]*\b(never reach|turned away|refused|left out|rejected)/i,
+  /\b(JPG|PNG)s?\b[^.]*\bwhose image data (cannot|can't|could not) be read\b/i,
+];
+const SHIPPED_UNDECODABLE_CLAIMS = [
+  // jpg-to-pdf, Create PDF step (6ae74fde)
+  "Each file's contents were already checked when you added it, so a PNG saved with a .jpg name simply goes in as a PNG, and a JPG or PNG that cannot be decoded never reached the list.",
+  // jpg-to-pdf, add step (6ae74fde)
+  "A JPG or PNG is also tried the way Create PDF will use it, so one whose image data cannot be read, such as a PNG cut off halfway or an animated PNG, is turned away with a note naming it.",
+  // png-to-pdf, Create PDF step (6ae74fde)
+  "A PNG or JPG that cannot be decoded was already turned away when you added it.",
+];
+
+describe("the undecodable-image ban list and its corpus", () => {
+  it("every shipped claim is caught by some pattern", () => {
+    for (const s of SHIPPED_UNDECODABLE_CLAIMS)
+      expect(
+        UNDECODABLE_CLAIMS.some((re) => re.test(s)),
+        s,
+      ).toBe(true);
+  });
+
+  it("every pattern catches some shipped claim", () => {
+    for (const re of UNDECODABLE_CLAIMS)
+      expect(
+        SHIPPED_UNDECODABLE_CLAIMS.some((s) => re.test(s)),
+        String(re),
+      ).toBe(true);
+  });
+
+  it("the narrowed wording is not caught", () => {
+    expect(
+      UNDECODABLE_CLAIMS.some((re) =>
+        re.test(
+          "A PNG that is cut off, damaged or animated, or a JPG whose header cannot be read, is turned away with a note naming it.",
+        ),
+      ),
+    ).toBe(false);
+  });
+});
+
 const text = (c: typeof jpg) =>
   [
     ...c.intro,
@@ -124,6 +173,21 @@ describe.each([
     // its frame header is accepted), and Create PDF embeds a stripped copy.
     expect(text(content)).not.toMatch(/exactly as Create PDF/);
     expect(text(content)).not.toMatch(/damaged or cut-off image/);
+  });
+
+  it("claims no undecodable JPG is refused, and states the JPG limit, on both pages", () => {
+    // ADDED after review, 2026-11-08: d7e4ef05 narrowed only the PNG FAQ;
+    // the JPG page's add and Create PDF steps, and the PNG page's Create PDF
+    // step, still said every JPG that cannot be decoded is refused.
+    const sentences = text(content).split(/(?<=[.?!])\s+/);
+    const claims = sentences.filter((s) =>
+      UNDECODABLE_CLAIMS.some((re) => re.test(s)),
+    );
+    expect(claims).toEqual([]);
+    // Positive control: the same split finds the sentence that must be there.
+    expect(
+      sentences.filter((s) => /JPG cut off after its header is not/.test(s)),
+    ).toHaveLength(1);
   });
 
   it("the PNG FAQ states the JPG limit the check really has", () => {
