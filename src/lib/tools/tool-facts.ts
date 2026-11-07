@@ -137,6 +137,7 @@ import {
   type MarkdownBlockKind,
 } from "@/lib/pdf/markdown-blocks";
 import { HEADING_SIZE_RATIO } from "@/lib/pdf/pdf-to-markdown";
+import { PDF_LINK_SCHEMES } from "@/lib/pdf/markdown-runs";
 import {
   MAX_TIFF_PAGES,
   MAX_TIFF_PAGE_PIXELS,
@@ -387,12 +388,19 @@ const MARKDOWN_BLOCK_PHRASE: Record<MarkdownBlockKind, string> = {
  * It said "Tables, bold, italics and links print as plain text" until the
  * merge with L09 (20ba6ce), which draws GFM tables as a grid and horizontal
  * rules as rules; both joined the renderer's union and, through the compile
- * check, this list.
+ * check, this list. Until 2026-11-08 (audit markdown-to-pdf#6) it said "Bold
+ * and italics print as plain text"; the renderer now draws styled runs and
+ * link annotations (`markdown-runs.ts`), and the schemes a link opens for are
+ * read off PDF_LINK_SCHEMES. The review of that change found "opens when
+ * clicked" said with no scope: a link in a table cell still only prints
+ * (markdown-runs.test.ts reads no annotation for it), so the sentence says
+ * "outside table cells".
  */
 export const MARKDOWN_SYNTAX_FACT = (() => {
   const names = MARKDOWN_BLOCK_KINDS.map((k) => MARKDOWN_BLOCK_PHRASE[k]);
   const list = `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
-  return `${list[0]!.toUpperCase()}${list.slice(1)}. Bold and italics print as plain text, and a link keeps its address in parentheses.`;
+  const schemes = PDF_LINK_SCHEMES.map((s) => s.slice(0, -1));
+  return `${list[0]!.toUpperCase()}${list.slice(1)}. In paragraphs, list items and quotes, bold, italics and backtick code are set in their own faces. A link keeps its address in parentheses, and outside table cells it opens when clicked if that address is ${schemes.slice(0, -1).join(", ")} or ${schemes.at(-1)}.`;
 })();
 
 /**
@@ -736,7 +744,7 @@ const FACTS: Record<string, readonly ToolFact[]> = {
   "pdf-to-markdown": [
     {
       label: "Structure",
-      value: `The file name becomes the # title, a PDF with more than one page gets a ## Page N heading before each page's text, and short lines set at least ${PDF_TO_MARKDOWN_HEADING_PERCENT}% larger than the body text become headings.`,
+      value: `The file name becomes the # title, a PDF with more than one page gets a ## Page N heading before each page's text unless you untick Start each page with a Page heading, and short lines set at least ${PDF_TO_MARKDOWN_HEADING_PERCENT}% larger than the body text become headings.`,
     },
     {
       label: "Paragraphs and lists",
@@ -745,7 +753,7 @@ const FACTS: Record<string, readonly ToolFact[]> = {
     },
     {
       label: "Not rebuilt",
-      value: `Tables, images and text styling are not recreated — table rows come through as plain text. For tables, use ${toolName("extract-tables")}.`,
+      value: `Images and text styling are not recreated. A table whose cells line up in columns becomes a Markdown table; for the tables as CSV or Excel files, use ${toolName("extract-tables")}.`,
     },
   ],
   "pdf-to-text": [
@@ -1532,7 +1540,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
       return [
         {
           question: `Does ${tool.name} keep headings, bold text and tables?`,
-          answer: `Partly. A PDF stores text as positioned lines, not as headings or tables, so the converter infers structure from size and position. The file's name becomes the title, each page gets a "Page N" heading when there is more than one, short lines set at least ${PDF_TO_MARKDOWN_HEADING_PERCENT}% larger than the body text become headings, lines are joined into paragraphs, and lines that begin with a bullet (-, *, + or a character such as •) or a number stay list items. Bold, italics, links and table layout are not carried over — table rows come through as plain text — and images are not exported. For tables, ${toolName("extract-tables")} detects them by their layout and exports CSV and Excel files.`,
+          answer: `Partly. A PDF stores text as positioned lines, not as headings or tables, so the converter infers structure from size and position. The file's name becomes the title, each page gets a "Page N" heading when there is more than one (unless you turn that off), short lines set at least ${PDF_TO_MARKDOWN_HEADING_PERCENT}% larger than the body text become headings, lines are joined into paragraphs, and lines that begin with a bullet (-, *, + or a character such as •) or a number stay list items. A table whose cells line up in columns becomes a Markdown table, and a link to a web page or an email address keeps its address. Bold and italics are not carried over, and images are not exported. For the tables as CSV and Excel files, ${toolName("extract-tables")} detects them by their layout.`,
         },
         scannedTextEntry(tool),
       ];

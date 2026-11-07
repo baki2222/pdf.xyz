@@ -2182,8 +2182,16 @@ describe("the remaining in-browser tools answer what their engines do", () => {
     ).toBe(false);
     for (const tool of mounting("pdf-to-markdown")) {
       const src = runnerSource(tool.slug);
-      expect(src).toContain("extractedTextToMarkdown(");
-      expect(src).not.toContain("includePageHeadings");
+      // Since 2026-11-08 the runner calls its reader's chain (links, audit
+      // pdf-to-markdown#3), and the chain calls the converter above.
+      expect(src).toContain("pdfToMarkdown(");
+      expect(
+        readFileSync("src/lib/pdf/pdf-to-markdown-read.ts", "utf8"),
+      ).toContain("extractedTextToMarkdown(");
+      // INVERTED 2026-11-08 (audit pdf-to-markdown#6): this asserted the
+      // runner never passed includePageHeadings, when page headings were
+      // forced on. They are a checkbox now, and the runner passes its state.
+      expect(src).toContain("includePageHeadings: pageHeadings");
       expect(answer(tool.slug, /headings, bold/)).toContain(
         '"Page N" heading when there is more than one',
       );

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   Download,
   FileText,
@@ -8,12 +9,18 @@ import {
   ScanText,
 } from "lucide-react";
 import { downloadBlob } from "@/lib/pdf/browser";
-import { extractPdfLines } from "@/lib/pdf/text";
 import {
-  extractedTextToMarkdown,
+  DEFAULT_PAGE_HEADINGS,
+  DEFAULT_REMOVE_REPEATED_LINES,
   markdownOutputName,
+  markdownSummary,
   type PdfToMarkdownResult,
 } from "@/lib/pdf/pdf-to-markdown";
+import {
+  PAGE_HEADINGS_HINT,
+  REPEATED_LINES_HINT,
+} from "@/lib/tools/pdf-to-markdown-options";
+import { pdfToMarkdown } from "@/lib/pdf/pdf-to-markdown-read";
 import { buttonVariants } from "@/components/ui/button";
 import {
   ErrorNote,
@@ -21,7 +28,6 @@ import {
   RunButton,
   RunnerSection,
   useAsyncRun,
-  NO_ADJUST,
   NO_OUTPUT,
   textOutputFile,
 } from "./runner-kit";
@@ -44,19 +50,27 @@ export function PdfToMarkdownRunner() {
   );
 }
 
-function PdfToMarkdownEditor({
+export function PdfToMarkdownEditor({
   pdf,
   onReset,
 }: {
   pdf: LoadedPdf;
   onReset: () => void;
 }) {
-  const { busy, error, result, run } = useAsyncRun<PdfToMarkdownResult>();
+  const { busy, error, result, run, reset } =
+    useAsyncRun<PdfToMarkdownResult>();
+  const [removeRepeatedLines, setRemoveRepeatedLines] = useState(
+    DEFAULT_REMOVE_REPEATED_LINES,
+  );
+  const [pageHeadings, setPageHeadings] = useState(DEFAULT_PAGE_HEADINGS);
   const onRun = () =>
-    run(async () => {
-      const extracted = await extractPdfLines(pdf.bytes);
-      return extractedTextToMarkdown(extracted, { sourceName: pdf.file.name });
-    });
+    run(() =>
+      pdfToMarkdown(pdf.bytes, {
+        sourceName: pdf.file.name,
+        removeRepeatedLines,
+        includePageHeadings: pageHeadings,
+      }),
+    );
 
   if (result) {
     const filename = markdownOutputName(pdf.file.name);
@@ -67,7 +81,7 @@ function PdfToMarkdownEditor({
         }
         summary={
           result.hasMarkdown
-            ? `${result.characterCount.toLocaleString()} Markdown characters from ${result.pageCount} page${result.pageCount === 1 ? "" : "s"}`
+            ? markdownSummary(result)
             : "Scanned/image-only PDFs need OCR before text can be converted to Markdown."
         }
         onReset={onReset}
@@ -82,7 +96,7 @@ function PdfToMarkdownEditor({
               )
             : NO_OUTPUT("no selectable text, so no Markdown was written")
         }
-        onAdjust={NO_ADJUST("PDF to Markdown has no settings to change")}
+        onAdjust={reset}
       >
         {result.hasMarkdown ? (
           <div className="flex flex-col gap-4">
@@ -137,14 +151,59 @@ function PdfToMarkdownEditor({
           <InfoTile
             icon={FileCode2}
             title="Clean Markdown"
-            body="Creates page headings, paragraphs, and preserves obvious list lines."
+            body="Writes headings, paragraphs and list lines, with tables and web links where the PDF has them."
           />
           <InfoTile
             icon={ScanText}
             title="Honest scope"
-            body="It converts embedded selectable text, not scanned images or AI-detected tables."
+            body="It converts embedded selectable text, not scanned images. Tables are found by how their words line up, not by AI."
           />
         </div>
+      </RunnerSection>
+
+      <RunnerSection title="Options">
+        {pdf.pageCount > 1 && (
+          <label className="text-muted flex min-h-11 items-start gap-2.5 text-sm">
+            <input
+              type="checkbox"
+              checked={pageHeadings}
+              onChange={(event) => {
+                if (!busy) setPageHeadings(event.target.checked);
+              }}
+              aria-disabled={busy || undefined}
+              className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4"
+            />
+            <span className="flex flex-col gap-0.5">
+              <span className="text-fg font-medium">
+                Start each page with a Page heading
+              </span>
+              <span className="text-muted text-xs leading-relaxed">
+                {PAGE_HEADINGS_HINT}
+              </span>
+            </span>
+          </label>
+        )}
+        <label className="text-muted flex min-h-11 items-start gap-2.5 text-sm">
+          <input
+            type="checkbox"
+            checked={removeRepeatedLines}
+            // readOnly-style guard rather than `disabled`: a disabled input
+            // drops focus mid-run (the #46 rule).
+            onChange={(event) => {
+              if (!busy) setRemoveRepeatedLines(event.target.checked);
+            }}
+            aria-disabled={busy || undefined}
+            className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4"
+          />
+          <span className="flex flex-col gap-0.5">
+            <span className="text-fg font-medium">
+              Leave out repeated headers and footers
+            </span>
+            <span className="text-muted text-xs leading-relaxed">
+              {REPEATED_LINES_HINT}
+            </span>
+          </span>
+        </label>
       </RunnerSection>
 
       {error && <ErrorNote message={error} />}

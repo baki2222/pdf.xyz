@@ -46,6 +46,20 @@ import {
   PARAGRAPH_GAP_RATIO,
 } from "@/lib/pdf/pdf-to-markdown";
 import type { ExtractedPdfLines } from "@/lib/pdf/text";
+import {
+  DEFAULT_PAGE_HEADINGS,
+  DEFAULT_REMOVE_REPEATED_LINES,
+  EDGE_LINES,
+  MARKDOWN_LINK_SCHEMES,
+  REPEATED_LINE_MIN_PAGES,
+  REPEATED_LINE_SHARE,
+} from "@/lib/pdf/pdf-to-markdown";
+import {
+  PAGE_HEADINGS_HINT,
+  REPEATED_LINES_HINT,
+} from "./pdf-to-markdown-options";
+
+import { linksFromPage } from "@/lib/pdf/pdf-to-markdown-read";
 
 /** The tool the pdf-to-markdown runner mounts on, through the page's dispatch. */
 const SLUGS = supportedToolSlugs.filter(
@@ -126,6 +140,21 @@ describe("pdf-to-markdown: the page describes the structure the converter builds
     "No. A PDF stores text as positioned lines, not as headings or tables, and this converter does not guess at them.",
     'The file\'s name becomes the title, each page gets a "Page N" heading when there is more than one, lines are joined into paragraphs, and lines that begin with a bullet (-, * or +) or a number stay list items.',
     "Lines that wrap are joined into paragraphs; a line that starts with a list marker (-, *, + or a number) stays a list item.",
+    // Until 2026-11-08 (audit pdf-to-markdown#3): the reader now keeps a
+    // web link's address, so each of these went false.
+    "Font weight and style are not read, so nothing becomes bold or italic; table cells run together as plain text; images and the web addresses behind links are dropped.",
+    "The table grid, bold and italic, link targets and images are lost; table cells come through as words.",
+    "Images are dropped, and so are the web addresses behind links.",
+    // Until 2026-11-08 (audit pdf-to-markdown#4): a detected table is now a
+    // Markdown table.
+    "Font weight and style are not read, so nothing becomes bold or italic; table cells run together as plain text; images are dropped.",
+    "The table grid, bold and italic and images are lost; table cells come through as words.",
+    "Tables, images and text styling are not recreated — table rows come through as plain text.",
+    "Not as Markdown tables.",
+    "A table's cells run together as plain words, without its grid.",
+    // Until 2026-11-08 (audit pdf-to-markdown#5): the runner has an option.
+    "There is nothing to set first.",
+    "It takes one PDF at a time, up to 50 MB, and there are no settings to choose.",
   ];
   const BANNED: RegExp[] = [
     // Every line break, not only a wrap, said to become a space.
@@ -140,6 +169,13 @@ describe("pdf-to-markdown: the page describes the structure the converter builds
     /\bonly headings\b/i,
     /\bheading levels\b[^.]*\blost\b/i,
     /\bdoes not guess\b/i,
+    // Links said to lose their address.
+    /\b(web addresses behind links|link targets)\b/i,
+    // Tables said never to become Markdown tables.
+    /\btable(?:'s)? (cells|rows) (run together|come through)\b/i,
+    /\bnot as Markdown tables\b/i,
+    // A runner with an option said to have none.
+    /\b(nothing to set|no settings)\b/i,
     // A glyph bullet said to merge into the paragraph.
     new RegExp(`${GLYPHS}[^.]*\\bmerge`),
     // A list of markers that stops at the ASCII ones.
@@ -262,6 +298,131 @@ describe("pdf-to-markdown: the page describes the structure the converter builds
     expect(after(PITCH * PARAGRAPH_GAP_RATIO * 0.95)).toMatch(
       /ends it\. Next line here\./,
     );
+  });
+
+  it("the page names the link schemes the reader keeps, and each is kept (audit pdf-to-markdown#3)", () => {
+    const text = served(SLUGS[0]!).join(" ");
+    const named = `${MARKDOWN_LINK_SCHEMES.slice(0, -1).join(", ")} or ${MARKDOWN_LINK_SCHEMES.at(-1)}`;
+    expect(text).toContain(`starts with ${named}`);
+    const linked = (url: string) => {
+      const input = pdf([{ text: "Read the setup guide first.", y: 700 }]);
+      // 27 characters over 270pt: "setup guide" is x 162..272, and the box
+      // covers its letters' centres.
+      const links = linksFromPage(
+        [
+          {
+            str: "Read the setup guide first.",
+            transform: [11, 0, 0, 11, 72, 700],
+            width: 270,
+            height: 11,
+          },
+        ],
+        [{ subtype: "Link", url, rect: [162, 696, 272, 712] }],
+      );
+      return extractedTextToMarkdown(
+        { ...input, pages: input.pages.map((p) => ({ ...p, links })) },
+        { sourceName: "r.pdf" },
+      ).markdown;
+    };
+    for (const scheme of MARKDOWN_LINK_SCHEMES) {
+      const url =
+        scheme === "mailto:"
+          ? "mailto:a@example.com"
+          : `${scheme}//example.com/g`;
+      expect(linked(url)).toContain(`Read the [setup guide](${url}) first.`);
+    }
+    // CONTROL: a scheme the page does not name keeps its words only.
+    expect(linked("ftp://example.com/g")).toContain(
+      "Read the setup guide first.",
+    );
+  });
+
+  it("the page's table claim holds in the converter (audit pdf-to-markdown#4)", () => {
+    const text = served(SLUGS[0]!).join(" ");
+    expect(text).toContain(
+      "A table whose cells line up in columns becomes a Markdown table with its first row as the header",
+    );
+    const rows = ["Item Qty", "Apples 3"];
+    const input = pdf(rows.map((row, i) => ({ text: row, y: 700 - i * 14 })));
+    const table = {
+      rows: [
+        ["Item", "Qty"],
+        ["Apples", "3"],
+      ],
+      top: 700,
+      bottom: 686,
+    };
+    const withTable = extractedTextToMarkdown(
+      { ...input, pages: input.pages.map((p) => ({ ...p, tables: [table] })) },
+      { sourceName: "r.pdf" },
+    ).markdown;
+    expect(withTable).toContain(
+      "| Item | Qty |\n| --- | --- |\n| Apples | 3 |",
+    );
+    // CONTROL: "one that shares its rows with other text ... stays as plain
+    // lines" — a line on its rows holding more than its cells.
+    const shared = pdf([
+      { text: "Item Qty and a note", y: 700 },
+      { text: "Apples 3", y: 686 },
+    ]);
+    expect(
+      extractedTextToMarkdown(
+        {
+          ...shared,
+          pages: shared.pages.map((p) => ({ ...p, tables: [table] })),
+        },
+        { sourceName: "r.pdf" },
+      ).markdown,
+    ).not.toContain("| --- |");
+  });
+
+  it("the page names the header-and-footer option and its rule, from the converter's constants (audit pdf-to-markdown#5)", () => {
+    const text = served(SLUGS[0]!).join(" ");
+    // The label is the runner's JSX text; tick-label-claims.test.ts holds the
+    // quoted name after "Untick" to a checkbox that exists.
+    expect(text).toContain(
+      '"Leave out repeated headers and footers" starts ticked',
+    );
+    expect(text).toContain(REPEATED_LINES_HINT);
+    // The hint states the converter's own numbers.
+    expect(REPEATED_LINES_HINT).toContain(`${EDGE_LINES} lines`);
+    expect(REPEATED_LINES_HINT).toContain(
+      `${Math.round(REPEATED_LINE_SHARE * 100)}% of the pages that have text`,
+    );
+    expect(REPEATED_LINES_HINT).toContain(
+      `${REPEATED_LINE_MIN_PAGES} or more pages have text`,
+    );
+    expect(DEFAULT_REMOVE_REPEATED_LINES).toBe(true);
+  });
+
+  it("the page-heading option does what the page says (audit pdf-to-markdown#6)", () => {
+    const text = served(SLUGS[0]!).join(" ");
+    expect(text).toContain(
+      'unless you untick "Start each page with a Page heading"',
+    );
+    expect(text).toContain(PAGE_HEADINGS_HINT);
+    expect(DEFAULT_PAGE_HEADINGS).toBe(true);
+    const twoPages = (includePageHeadings?: boolean) => {
+      const one = pdf([
+        { text: "Results", y: 740, size: 11 * HEADING_SIZE_RATIO },
+        ...BODY.slice(0, 2),
+      ]);
+      const two = pdf([{ text: "carried on over the break.", y: 740 }]);
+      const pages = [one.pages[0]!, { ...two.pages[0]!, pageNumber: 2 }];
+      return extractedTextToMarkdown(
+        { ...one, pageCount: 2, pages },
+        { sourceName: "r.pdf", includePageHeadings },
+      ).markdown;
+    };
+    // On (the default): a ## Page heading per page, detected headings below.
+    expect(twoPages()).toMatch(/^## Page 2$/m);
+    expect(twoPages()).toMatch(/^### Results$/m);
+    // Off: no page headings, headings "start at ##", and the sentence the
+    // page break cut "is joined back up".
+    const off = twoPages(false);
+    expect(off).not.toContain("## Page");
+    expect(off).toMatch(/^## Results$/m);
+    expect(off).toContain("and then a carried on over the break.");
   });
 
   it("every bullet character the page names becomes a list item", () => {

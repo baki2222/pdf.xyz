@@ -227,15 +227,21 @@ import {
   chatAnswerOutputName,
 } from "@/lib/jobs/chat-with-pdf";
 import { MAX_CONTEXT_EXCHANGES } from "@/lib/workers/chat-with-pdf-conversation";
+import {
+  PAGE_HEADINGS_HINT as MD_PAGE_HEADINGS_HINT,
+  REPEATED_LINES_HINT as MD_REPEATED_HINT,
+} from "@/lib/tools/pdf-to-markdown-options";
 import { tableExtractOutputName } from "@/lib/workers/processor/table-extract";
 import { LONG_CELL_WORDS } from "@/lib/workers/pdf-text/flow";
 import { MAX_SIGNIFICANT_DIGITS } from "@/lib/workers/ooxml/sheet-cells";
 import {
   HEADING_MAX_CHARS,
   HEADING_SIZE_RATIO,
+  MARKDOWN_LINK_SCHEMES,
   PARAGRAPH_GAP_RATIO,
   markdownOutputName,
 } from "@/lib/pdf/pdf-to-markdown";
+
 import {
   SUPPORTED_SCRIPTS,
   UNSUPPORTED_SCRIPTS,
@@ -668,6 +674,8 @@ const TABLES_EXAMPLE_ZIP = tableExtractOutputName("report.pdf", "zip");
 
 /** PDF to Markdown (2026-10-31), from the converter's own constants. */
 const MD_HEADING_PCT = Math.round((HEADING_SIZE_RATIO - 1) * 100);
+/** "http:, https: or mailto:": the link addresses PDF to Markdown keeps. */
+const MD_LINK_SCHEMES = `${MARKDOWN_LINK_SCHEMES.slice(0, -1).join(", ")} or ${MARKDOWN_LINK_SCHEMES.at(-1)}`;
 const MD_EXAMPLE_OUT = markdownOutputName("report.pdf");
 
 /**
@@ -2308,7 +2316,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-09-28",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-redact-a-pdf",
@@ -5567,12 +5575,12 @@ export const guides: Guide[] = [
     intro: [
       `To convert a PDF to Markdown, open ${nameOf("pdf-to-markdown")}, add your PDF, press Create Markdown, check the preview, and press Download MD. You get a UTF-8 .md file built from the text stored in the PDF.`,
       "A PDF stores positioned lines, not headings, paragraphs or lists, so the structure is worked out from the size and position of each line. It is usually close, rarely perfect: read the result before you publish it or paste it into a wiki.",
-      `The Markdown is made in your browser with pdf.js, so your PDF stays on your device and there is no account to create. It takes one PDF at a time, up to ${ceilingMb("pdf-to-markdown")} MB, and there are no settings to choose.`,
+      `The Markdown is made in your browser with pdf.js, so your PDF stays on your device and there is no account to create. It takes one PDF at a time, up to ${ceilingMb("pdf-to-markdown")} MB, and its settings, “Leave out repeated headers and footers” and, for a PDF of more than one page, “Start each page with a Page heading”, both start ticked.`,
     ],
     steps: [
       `Open the ${nameOf("pdf-to-markdown")} tool.`,
       "Drop your PDF on the panel that says “Drop your PDF here, or browse”, or click it to choose the file. Its name, page count and size appear.",
-      "Press Create Markdown. The button reads Creating Markdown… while every page's text is read and arranged.",
+      `Leave “Leave out repeated headers and footers” ticked to drop running headers, footers and page numbers, or untick “Leave out repeated headers and footers” to keep every line. Untick “Start each page with a Page heading” for one continuous text. Press Create Markdown. The button reads Creating Markdown… while every page's text is read and arranged.`,
       "Under “Markdown created”, check the character and page counts and read the Markdown in the scrollable box. Select any part of it to copy just that passage.",
       `Press Download MD. report.pdf is saved as ${MD_EXAMPLE_OUT}. Start over clears the page for another document.`,
     ],
@@ -5581,17 +5589,19 @@ export const guides: Guide[] = [
         id: "what-structure-you-get",
         heading: "What structure you get",
         body: [
-          "The file name, minus its extension, becomes the # title. In a PDF of more than one page, each page that has text gets its own ## Page heading with its page number.",
+          `The file name, minus its extension, becomes the # title. In a PDF of more than one page, each page that has text gets its own ## Page heading with its page number, unless you untick “Start each page with a Page heading”. ${MD_PAGE_HEADINGS_HINT}`,
           `Within a page, lines that wrap are joined back into sentences, and a word hyphenated at a line end is rejoined. A new paragraph starts where the gap between two lines is more than ${PARAGRAPH_GAP_RATIO} times the spacing of a paragraph's wrapped lines, where a line is indented like a first line, or where the text moves back up the page to a new column without a sentence running on across it. A page with no wrapped line gives no spacing to measure and can arrive as one paragraph.`,
           `A short line set at least ${MD_HEADING_PCT}% larger than the body text becomes a heading, larger sizes ranking higher; one longer than ${HEADING_MAX_CHARS} characters or ending in a full stop, comma or semicolon stays ordinary text. Lines that start with -, *, +, a number, or a bullet character such as • stay list items.`,
+          `A link whose address starts with ${MD_LINK_SCHEMES} becomes a Markdown link over the words it covers, such as [setup guide](https://example.com/guide); a link to a page inside the PDF keeps its words only.`,
+          `With “Leave out repeated headers and footers” ticked: ${MD_REPEATED_HINT}`,
         ],
       },
       {
         id: "what-is-left-out",
         heading: "What is left out",
         body: [
-          "Font weight and style are not read, so nothing comes out bold or italic. Images are dropped, and so are the web addresses behind links. A table's cells run together as plain words, without its grid.",
-          `For the tables themselves, ${nameOf("extract-tables")} detects them by where the words sit and returns CSV files and an Excel workbook, but it runs on our secure server rather than in your browser. For the text with its line breaks as they are and no Markdown added, ${nameOf("pdf-to-text")} reads the same text, also in your browser.`,
+          "Font weight and style are not read, so nothing comes out bold or italic. Images are dropped.",
+          `A table becomes a Markdown table when its cells line up in columns, found by the same detector ${nameOf("extract-tables")} uses. A table it does not find, or one that shares its rows with other text, comes through as lines of words. For the tables as CSV files and an Excel workbook, ${nameOf("extract-tables")} runs on our secure server rather than in your browser. For the text with its line breaks as they are and no Markdown added, ${nameOf("pdf-to-text")} reads the same text, also in your browser.`,
         ],
       },
       {
@@ -5618,7 +5628,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Are tables kept?",
-        answer: `Not as Markdown tables. Their cells come through as plain words. ${nameOf("extract-tables")} returns tables as CSV and Excel files instead, on our secure server.`,
+        answer: `Yes, when the cells line up in columns: the table is written as a Markdown table, its first row the header row. A table the detector does not find comes through as lines of words. ${nameOf("extract-tables")} returns tables as CSV and Excel files instead, on our secure server.`,
       },
       {
         question: "Why are my headings missing?",
@@ -5634,7 +5644,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-add-a-header-and-footer-to-a-pdf",

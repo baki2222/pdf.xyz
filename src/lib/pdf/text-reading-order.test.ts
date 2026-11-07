@@ -1475,9 +1475,11 @@ describe("every consumer reads through a route the fixtures run", () => {
     expect(consumers.length).toBeLessThanOrEqual(60);
     const byFile = Object.fromEntries(consumers.map((c) => [c.file, c.names]));
     // One positive control per shape that carries a route or an answer.
-    expect(
-      byFile["src/components/tools/runner/pdf-to-markdown-runner.tsx"],
-    ).toContain("extractPdfLines");
+    // PDF to Markdown's runner reads through its own reader since
+    // 2026-11-08 (links, audit pdf-to-markdown#3), which takes this route.
+    expect(byFile["src/lib/pdf/pdf-to-markdown-read.ts"]).toContain(
+      "extractPdfLines",
+    );
     expect(
       byFile["src/components/tools/runner/compare-pdf-runner.tsx"],
     ).toContain("extractPdfText");
