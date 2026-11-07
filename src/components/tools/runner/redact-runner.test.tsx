@@ -59,7 +59,9 @@ async function threePages(): Promise<Uint8Array> {
 
 async function renderEditor() {
   const bytes = await threePages();
-  const file = new File([bytes], "id-scan.pdf", { type: "application/pdf" });
+  const file = new File([new Uint8Array(bytes)], "id-scan.pdf", {
+    type: "application/pdf",
+  });
   render(
     <RedactEditor
       pdf={{
