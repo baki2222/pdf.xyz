@@ -5,6 +5,8 @@ import {
   grayscalePresetById,
 } from "@/lib/pdf/grayscale";
 import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
+import { DEEP_COMPRESSION_PRESETS } from "@/lib/pdf/offered-kinds";
+import { getToolBySlug } from "@/lib/tools";
 
 /*
  * Behaviour claims below were read from the implementation on 2026-09-27:
@@ -66,6 +68,17 @@ const SCREEN = grayscalePresetById("screen");
 const PRINT = grayscalePresetById("print");
 const MAX_MB = Math.round(RUNNER_FILE_CEILINGS.grayscale / (1024 * 1024));
 const OUTPUT_TTL = DEFAULT_RETENTION.outputTtlMinutes;
+/**
+ * Compress PDF's secure-server Grayscale switch (audit grayscale-pdf#2,
+ * 2026-11-07): Ghostscript pdfwrite with -sColorConversionStrategy=Gray
+ * (workers/compression/native.ts), which rewrites the PDF rather than
+ * rasterising it. The same step downsamples images to the DPI picked there,
+ * so its sharpest preset is named as the bound. Until this date the select-
+ * text answer sent readers only to OCR PDF.
+ */
+const COMPRESS = getToolBySlug("compress-pdf")!.name;
+const OCR = getToolBySlug("ocr-pdf")!.name;
+const DEEP_TOP = DEEP_COMPRESSION_PRESETS.at(-1)!;
 const PRESET_LABELS = GRAYSCALE_DPI_PRESETS.map(
   (preset) => `${preset.label} (${preset.dpi} DPI)`,
 ).join(" or ");
@@ -128,7 +141,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I still select or search the text after converting?",
-      a: `No. Each page is stored as one image, so the text is part of the picture. OCR PDF can add a recognized text layer to the gray copy, and the ${PRINT.label} setting gives it more pixels to read. Unlike this tool, OCR PDF uploads the file over TLS to pdf.xyz's secure server; there the input is deleted when the job finishes, the result's download link expires after ${OUTPUT_TTL} minutes, and a daily storage rule erases the stored copy after that.`,
+      a: `No. Each page is stored as one image, so the text is part of the picture. If you need the original text kept, ${COMPRESS} turns a PDF gray another way: its optional secure-server step has a Grayscale switch, and there Ghostscript rewrites the PDF with every colour turned to gray instead of turning each page into a picture, so text normally stays text you can select and search. That step also makes images smaller, even at its sharpest setting, ${DEEP_TOP.label}, which keeps images up to ${DEEP_TOP.dpi} DPI, so it is not only a colour change. Or keep this tool's copy and run it through ${OCR}, which adds a recognized text layer; the ${PRINT.label} setting gives it more pixels to read. Unlike this tool, ${COMPRESS}'s secure-server step and ${OCR} upload the file over TLS to pdf.xyz's secure server; there the input is deleted when the job finishes, the result's download link expires after ${OUTPUT_TTL} minutes, and a daily storage rule erases the stored copy after that.`,
     },
     {
       q: `What is the difference between ${SCREEN.label} and ${PRINT.label}?`,

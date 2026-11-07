@@ -554,6 +554,34 @@ describe("compress answers what each of its two paths does", () => {
     expect(parseCompressionOptions({ grayscale: true }).ok).toBe(true);
   });
 
+  // Audit grayscale-pdf#2 (2026-11-07): Grayscale PDF's select-text answer
+  // sent readers only to OCR PDF, though Compress PDF's secure-server step can
+  // turn a PDF gray WITHOUT rasterising it. The answer may name that route
+  // only while (a) the Compress panel draws a Grayscale switch, (b) the
+  // engine asks Ghostscript's pdfwrite device — which rewrites the PDF, not an
+  // image device — for gray, and (c) the DPI it names is the sharpest preset.
+  it("Grayscale PDF's select-text answer names Compress PDF's Grayscale route, and that route rewrites rather than rasterises", () => {
+    const served = answer("grayscale-pdf", /select or search the text/);
+    const compress = mounting("compress")[0]!;
+    expect(served).toContain(`${compress.name} turns a PDF gray another way`);
+    expect(served).toContain("Grayscale switch");
+    expect(runnerSource(compress.slug)).toMatch(/>Grayscale</);
+    const { args } = nativeArgs("ghostscript", "gs", "in", "out", 300, {
+      grayscale: true,
+    });
+    expect(args).toContain("-sDEVICE=pdfwrite");
+    expect(args).toContain("-sColorConversionStrategy=Gray");
+    const top = DEEP_COMPRESSION_PRESETS.at(-1)!;
+    expect(Math.max(...DEEP_COMPRESSION_PRESETS.map((p) => p.dpi))).toBe(
+      top.dpi,
+    );
+    expect(served).toContain(
+      `${top.label}, which keeps images up to ${top.dpi} DPI`,
+    );
+    // It is a server route, and the answer says so.
+    expect(served).toMatch(/upload the file over TLS/);
+  });
+
   it("the image-heavy share in the answer is the one the analysis switches on", () => {
     const at = (share: number) =>
       summarizeAnalysis({

@@ -5064,6 +5064,7 @@ export const guides: Guide[] = [
         id: "related-tools",
         heading: "Gray images, or searchable text again",
         body: [
+          `If the text must stay selectable, ${nameOf("compress-pdf")} turns a PDF gray another way. Its optional secure-server step has a Grayscale switch: Ghostscript rewrites the PDF with every colour turned to gray instead of turning each page into a picture, so text normally stays text. That step also makes images smaller, even at its sharpest setting, ${DEEP_COMPRESSION_PRESETS.at(-1)!.label}, which keeps images up to ${DEEP_COMPRESSION_PRESETS.at(-1)!.dpi} DPI, and like ${nameOf("ocr-pdf")} it runs on our secure server rather than in your browser.`,
           `If you want gray page images rather than a PDF, ${nameOf("pdf-to-png")} has a ${PNG_GRAY} option under Colour, and it also runs in your browser.`,
           `To make the gray copy searchable again, run it through ${nameOf("ocr-pdf")}, which adds a recognised text layer; ${GRAY_PRINT.label} gives it more pixels to read. Unlike this tool, ${nameOf("ocr-pdf")} runs on our secure server rather than in your browser.`,
         ],
@@ -5081,7 +5082,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I still select or search the text afterwards?",
-        answer: `No. Each page is stored as one image, so the text is part of the picture. ${nameOf("ocr-pdf")} can add a recognised text layer to the gray copy, but it runs on our secure server rather than in your browser.`,
+        answer: `No. Each page is stored as one image, so the text is part of the picture. ${nameOf("compress-pdf")} can turn a PDF gray with its text kept, through the Grayscale switch on its secure-server step, and ${nameOf("ocr-pdf")} can add a recognised text layer to the gray copy; both run on our secure server rather than in your browser.`,
       },
       {
         question: "Why is the gray PDF bigger than the original?",
@@ -5093,7 +5094,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-highlight-text-in-a-pdf",
