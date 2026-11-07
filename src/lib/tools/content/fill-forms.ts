@@ -42,8 +42,11 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
  *    false) — stated as that conditional, not as a claim about how common
  *    pure-XFA forms are;
  *  - alphabet: assertFormFieldTextDrawable (src/lib/pdf/unicode-font.ts) runs
- *    over EVERY string value sent, including values pre-loaded from the form,
- *    when "Fill form" is pressed; it refuses characters outside WinAnsi
+ *    over every string value sent when "Fill form" is pressed. Since audit #15
+ *    (2026-11-06) the runner sends only values the person CHANGED
+ *    (changedValues in fill-forms-runner.tsx) and the engine saves with
+ *    updateFieldAppearances: false, so a pre-loaded value is neither checked
+ *    nor redrawn: it stays as it came. It refuses characters outside WinAnsi
  *    (src/lib/pdf/winansi.ts), names only the first few and counts the rest
  *    (showCharacters — its cut-off is a bare literal, so no number is stated),
  *    with no substitution;
@@ -141,7 +144,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I type accented letters or other alphabets into the fields?",
-      a: "Western accented letters such as é, ñ, ü and ß work. Cyrillic, Greek, Arabic, Bengali, Chinese and other characters outside the standard PDF fonts' alphabet are refused when you press Fill form, with a message listing them, and nothing becomes a question mark. The check also covers text the form already held in an editable field, so clear or replace such a value to continue. For a signature, Sign PDF's Type option embeds a font for Cyrillic, Greek, Bengali and Chinese names, though not Arabic.",
+      a: "Western accented letters such as é, ñ, ü and ß work. Cyrillic, Greek, Arabic, Bengali, Chinese and other characters outside the standard PDF fonts' alphabet are refused when you press Fill form, with a message listing them, and nothing becomes a question mark. Only the answers you change are checked and redrawn. Text the form already held, in any alphabet, is left exactly as it was. For a signature, Sign PDF's Type option embeds a font for Cyrillic, Greek, Bengali and Chinese names, though not Arabic.",
     },
     {
       q: "Does it work with XFA or Adobe LiveCycle forms?",

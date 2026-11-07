@@ -315,6 +315,7 @@ function AiExtractBuilder({
                     className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 rounded-ctl w-0 flex-1 border px-3 py-1.5 text-sm outline-none"
                   />
                   <select
+                    aria-label={`Field ${i + 1} type`}
                     value={field.type}
                     onChange={(e) => {
                       const type = e.target.value as ExtractionFieldType;
@@ -341,7 +342,7 @@ function AiExtractBuilder({
                       )
                     }
                     aria-disabled={fields.length <= 1 || undefined}
-                    aria-label="Remove field"
+                    aria-label={`Remove field ${i + 1}`}
                     className="border-line text-muted hover:text-fg rounded-ctl grid size-8 shrink-0 place-items-center border transition aria-disabled:opacity-40"
                   >
                     <Trash2 className="size-3.5" aria-hidden />

@@ -204,6 +204,24 @@ function initialValues(fields: FormFieldInfo[]): Record<string, FieldValue> {
   return out;
 }
 
+/**
+ * Only the answers that differ from what the PDF already held. Sending an
+ * unchanged field back made the engine rewrite it, and pdf-lib redraws a
+ * rewritten text field in Helvetica: one typed answer restyled every text
+ * field on a Courier form (audit #15, pinned in the runner test).
+ */
+function changedValues(
+  values: Record<string, FieldValue>,
+  baseline: Record<string, FieldValue>,
+): Record<string, FieldValue> {
+  return Object.fromEntries(
+    Object.entries(values).filter(
+      ([name, value]) =>
+        JSON.stringify(value) !== JSON.stringify(baseline[name]),
+    ),
+  );
+}
+
 function FieldsEditor({
   pdf,
   inspection,
@@ -222,12 +240,11 @@ function FieldsEditor({
   const [values, setValues] = useState<Record<string, FieldValue>>(() =>
     initialValues(inspection.fields),
   );
-  // Answers typed or chosen and not yet written into the PDF.
-  const [initial] = useState(() => JSON.stringify(values));
-  useUnsavedGuard(
-    JSON.stringify(values) !== initial && !result,
-    "your answers",
-  );
+  // What the PDF already held: the baseline both for "unsaved answers" and
+  // for which fields are sent to be written.
+  const [baseline] = useState(() => values);
+  const changed = changedValues(values, baseline);
+  useUnsavedGuard(Object.keys(changed).length > 0 && !result, "your answers");
   const [flatten, setFlatten] = useState(false);
 
   const editable = useMemo(
@@ -251,10 +268,10 @@ function FieldsEditor({
     void run(async () => {
       const { applyFormValues } = await import("@/lib/pdf/forms");
       if (!restricted || !protection)
-        return applyFormValues(pdf.bytes, values, { flatten });
+        return applyFormValues(pdf.bytes, changed, { flatten });
       // Flattening rewrites the page, which the author did not allow; the
       // values go into the fields, saved back under the author's encryption.
-      const filled = await applyFormValues(pdf.bytes, values, {
+      const filled = await applyFormValues(pdf.bytes, changed, {
         flatten: false,
       });
       const saved = await protection.saveChanges(filled.bytes);
@@ -354,16 +371,19 @@ function FieldsEditor({
         >
           {editable.map((field) => (
             <FieldRow key={field.name} field={field}>
-              <FieldControl
-                field={field}
-                value={values[field.name] ?? ""}
-                onChange={(value) => setValue(field.name, value)}
-              />
+              {(labelId) => (
+                <FieldControl
+                  field={field}
+                  labelId={labelId}
+                  value={values[field.name] ?? ""}
+                  onChange={(value) => setValue(field.name, value)}
+                />
+              )}
             </FieldRow>
           ))}
           {readOnly.map((field) => (
             <FieldRow key={field.name} field={field}>
-              <ReadOnlyControl field={field} />
+              {() => <ReadOnlyControl field={field} />}
             </FieldRow>
           ))}
         </fieldset>
@@ -426,17 +446,26 @@ function FieldsEditor({
  *  Field row + per-type controls
  * ------------------------------------------------------------------ */
 
+/**
+ * One field's row. The field's name is the accessible name of its control:
+ * the row gives the name an id and hands it to the control, which points
+ * `aria-labelledby` at it. Before audit #16 (2026-11-06) the name was a span
+ * tied to nothing, so a screen reader announced "Type here…", an unnamed
+ * combo box, or "Checked" — pinned in the runner test.
+ */
 function FieldRow({
   field,
   children,
 }: {
   field: FormFieldInfo;
-  children: ReactNode;
+  children: (labelId: string) => ReactNode;
 }) {
+  const labelId = useId();
   return (
     <div className="grid gap-2 border-b p-3.5 last:border-b-0 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] sm:items-center sm:gap-4">
       <div className="flex min-w-0 flex-col gap-0.5">
         <span
+          id={labelId}
           className="text-fg truncate text-sm font-medium"
           title={field.name}
         >
@@ -452,7 +481,7 @@ function FieldRow({
           {field.widgetLabel}
         </span>
       </div>
-      <div className="min-w-0">{children}</div>
+      <div className="min-w-0">{children(labelId)}</div>
     </div>
   );
 }
@@ -480,10 +509,12 @@ function asArray(value: FieldValue): string[] {
 
 function FieldControl({
   field,
+  labelId,
   value,
   onChange,
 }: {
   field: FormFieldInfo;
+  labelId: string;
   value: FieldValue;
   onChange: (value: FieldValue) => void;
 }) {
@@ -492,15 +523,23 @@ function FieldControl({
       return (
         <TextControl
           field={field}
+          labelId={labelId}
           value={asString(value)}
           onChange={onChange}
         />
       );
     case "checkbox":
-      return <CheckboxControl checked={asBool(value)} onChange={onChange} />;
+      return (
+        <CheckboxControl
+          labelId={labelId}
+          checked={asBool(value)}
+          onChange={onChange}
+        />
+      );
     case "radio":
       return (
         <ChoiceControl
+          labelId={labelId}
           options={field.options ?? []}
           selected={asString(value) ? [asString(value)] : []}
           multiple={false}
@@ -513,6 +552,7 @@ function FieldControl({
         return (
           <ComboControl
             field={field}
+            labelId={labelId}
             value={asString(value)}
             onChange={onChange}
           />
@@ -521,6 +561,7 @@ function FieldControl({
       if (field.multiselect) {
         return (
           <ChoiceControl
+            labelId={labelId}
             options={field.options ?? []}
             selected={asArray(value)}
             multiple
@@ -532,6 +573,7 @@ function FieldControl({
       return (
         <SelectControl
           field={field}
+          labelId={labelId}
           value={asString(value)}
           onChange={onChange}
         />
@@ -539,6 +581,7 @@ function FieldControl({
     case "optionlist":
       return (
         <ChoiceControl
+          labelId={labelId}
           options={field.options ?? []}
           selected={asArray(value)}
           multiple={field.multiselect ?? false}
@@ -555,10 +598,12 @@ function FieldControl({
 
 function TextControl({
   field,
+  labelId,
   value,
   onChange,
 }: {
   field: FormFieldInfo;
+  labelId: string;
   value: string;
   onChange: (value: FieldValue) => void;
 }) {
@@ -567,6 +612,7 @@ function TextControl({
     <div className="flex flex-col gap-1">
       {field.multiline ? (
         <textarea
+          aria-labelledby={labelId}
           value={value}
           maxLength={field.maxLength}
           rows={3}
@@ -577,6 +623,7 @@ function TextControl({
       ) : (
         <input
           type="text"
+          aria-labelledby={labelId}
           value={value}
           maxLength={field.maxLength}
           onChange={(event) => onChange(event.target.value)}
@@ -594,9 +641,11 @@ function TextControl({
 }
 
 function CheckboxControl({
+  labelId,
   checked,
   onChange,
 }: {
+  labelId: string;
   checked: boolean;
   onChange: (value: FieldValue) => void;
 }) {
@@ -604,6 +653,7 @@ function CheckboxControl({
     <label className="text-muted inline-flex cursor-pointer items-center gap-2 text-sm">
       <input
         type="checkbox"
+        aria-labelledby={labelId}
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
         className="accent-accent size-4"
@@ -615,15 +665,18 @@ function CheckboxControl({
 
 function SelectControl({
   field,
+  labelId,
   value,
   onChange,
 }: {
   field: FormFieldInfo;
+  labelId: string;
   value: string;
   onChange: (value: FieldValue) => void;
 }) {
   return (
     <select
+      aria-labelledby={labelId}
       value={value}
       onChange={(event) => onChange(event.target.value)}
       className={INPUT_CLASS}
@@ -640,10 +693,12 @@ function SelectControl({
 
 function ComboControl({
   field,
+  labelId,
   value,
   onChange,
 }: {
   field: FormFieldInfo;
+  labelId: string;
   value: string;
   onChange: (value: FieldValue) => void;
 }) {
@@ -652,6 +707,7 @@ function ComboControl({
     <div className="flex flex-col gap-1">
       <input
         type="text"
+        aria-labelledby={labelId}
         value={value}
         list={listId}
         onChange={(event) => onChange(event.target.value)}
@@ -669,12 +725,14 @@ function ComboControl({
 
 /** A radio (single) or checkbox (multi) group over a fixed option set. */
 function ChoiceControl({
+  labelId,
   options,
   selected,
   multiple,
   variant,
   onChange,
 }: {
+  labelId: string;
   options: string[];
   selected: string[];
   multiple: boolean;
@@ -700,7 +758,11 @@ function ChoiceControl({
   }
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div
+      role={variant === "radio" ? "radiogroup" : "group"}
+      aria-labelledby={labelId}
+      className="flex flex-col gap-1.5"
+    >
       {options.map((option) => {
         const active = set.has(option);
         return (

@@ -1149,8 +1149,10 @@ describe("the form tools answer what happens to the fields", () => {
     const plain = await inspectFormFields(await pdfWithPages([[300, 400]]));
     expect(plain.hasFields).toBe(false);
     for (const tool of mounting("fill-forms")) {
+      // 2026-11-06 (audit #15): the runner sends only the CHANGED answers
+      // (`changed`, not every field's `values`); the flatten option is the same.
       expect(runnerSource(tool.slug)).toMatch(
-        /applyFormValues\(pdf\.bytes, values, \{ flatten \}\)/,
+        /applyFormValues\(pdf\.bytes, changed, \{ flatten \}\)/,
       );
       expect(answer(tool.slug, /stop the answers/)).toMatch(
         /Leave it unticked and the fields stay fillable/,
@@ -1191,6 +1193,48 @@ describe("the form tools answer what happens to the fields", () => {
       expect(answer(tool.slug, /place a field/)).toContain(
         "bottom-left corner",
       );
+    }
+  });
+});
+
+describe("Create Forms' alphabet question names only what the engine refuses", () => {
+  // 2026-11-06, review of audit #39: the engine stopped refusing field names
+  // and radio options, the ANSWER said so, and the QUESTION still asked "Why
+  // was a field name or option refused". The subjects come from the engine.
+  it("a name or radio option the engine accepts is not in the question; what it refuses is", async () => {
+    const at = { page: 1, x: 30, width: 120, height: 20 } as const;
+    const accepted = await createFormFields(await pdfWithPages([[300, 400]]), [
+      { ...at, type: "text", name: "Имя", y: 300 },
+      {
+        ...at,
+        type: "radio",
+        name: "r",
+        y: 250,
+        width: 15,
+        height: 15,
+        options: ["Да", "Нет"],
+      },
+    ]);
+    expect(accepted.names).toEqual(["Имя", "r"]);
+    await expect(
+      createFormFields(await pdfWithPages([[300, 400]]), [
+        { ...at, type: "dropdown", name: "d", y: 300, options: ["Да"] },
+      ]),
+    ).rejects.toThrow(/Д/);
+    await expect(
+      createFormFields(await pdfWithPages([[300, 400]]), [
+        { ...at, type: "text", name: "t", y: 300, defaultValue: "Да" },
+      ]),
+    ).rejects.toThrow(/Д/);
+    for (const tool of mounting("create-forms")) {
+      const hits = page(tool.slug).faq.filter((e) =>
+        /refused for its characters/.test(e.question),
+      );
+      expect(hits).toHaveLength(1);
+      const question = hits[0]!.question;
+      expect(question).not.toMatch(/\bname\b|radio/i);
+      expect(question).toMatch(/default/i);
+      expect(question).toMatch(/option/i);
     }
   });
 });

@@ -30,6 +30,7 @@ import {
   type NewOptionListField,
   type NewRadioField,
   type NewTextField,
+  type PageDimensions,
 } from "@/lib/pdf/create-forms";
 import {
   FIELD_TYPE_BUTTON_LABELS,
@@ -153,17 +154,37 @@ interface FieldDraft {
   multiselect: boolean;
 }
 
-function makeDraft(id: string, n: number): FieldDraft {
+const DRAFT_WIDTH = 200;
+const DRAFT_HEIGHT = 24;
+/** The first card's top gap: y = 700 on a US Letter page, as it always was. */
+const DRAFT_TOP_GAP = 92;
+const DRAFT_STEP = 44;
+
+/**
+ * A new card, placed on page 1 AS IT IS. The position used to be a fixed
+ * x 72, y 700, stepping down 44 pt per card: right for portrait Letter, but
+ * past the top of a landscape Letter (612 tall) or A5 (595) page, so the
+ * builder opened with "Field extends past page 1" and a disabled "Create
+ * form" (audit #39, pinned in create-forms-runner.test.tsx).
+ */
+function makeDraft(
+  id: string,
+  n: number,
+  page: PageDimensions | undefined,
+): FieldDraft {
+  const { width = 612, height = 792 } = page ?? {};
+  const top = height - DRAFT_TOP_GAP;
+  // Step new rows down the page so they don't all stack on one spot.
+  const y = Math.max(Math.min(96, top), top - ((n - 1) % 14) * DRAFT_STEP);
   return {
     id,
     type: "text",
     name: `field_${n}`,
     page: 1,
-    x: 72,
-    // Step new rows down the page so they don't all stack on one spot.
-    y: Math.max(96, 700 - ((n - 1) % 14) * 44),
-    width: 200,
-    height: 24,
+    x: Math.max(0, Math.min(72, width - DRAFT_WIDTH)),
+    y: Math.max(0, y),
+    width: DRAFT_WIDTH,
+    height: DRAFT_HEIGHT,
     defaultValue: "",
     multiline: false,
     maxLength: "",
@@ -172,6 +193,27 @@ function makeDraft(id: string, n: number): FieldDraft {
     editable: false,
     multiselect: false,
   };
+}
+
+/**
+ * Clear a choice default that is no longer one of the options. A default is
+ * shared across types and modes, and was cleared only when the options text
+ * changed: a default typed under "Allow custom typing" outlived the toggle, or
+ * a switch to List or Radio, hidden behind a select reading "— None —" while
+ * the card said it "isn't one of the options" — and choosing "— None —"
+ * fires no change, so the person was stuck (audit #39). Every edit of a card
+ * passes through here, so no path can leave such a default behind. The match
+ * is the one `validateFormFields` makes: trimmed.
+ */
+function withLiveDefault(d: FieldDraft): FieldDraft {
+  const choice =
+    d.type === "radio" ||
+    d.type === "optionlist" ||
+    (d.type === "dropdown" && !d.editable);
+  const def = d.defaultValue.trim();
+  if (!choice || !def) return d;
+  const options = parseOptions(d.optionsText).map((o) => o.trim());
+  return options.includes(def) ? d : { ...d, defaultValue: "" };
 }
 
 /** Convert a UI draft into the strict, validated spec the engine consumes. */
@@ -216,7 +258,6 @@ function draftToSpec(d: FieldDraft): NewFormField {
         options: parseOptions(d.optionsText),
       };
       if (d.editable) spec.editable = true;
-      if (d.multiselect) spec.multiselect = true;
       if (d.defaultValue) spec.defaultValue = d.defaultValue;
       return spec;
     }
@@ -276,8 +317,9 @@ function FormBuilder({
 }) {
   const { busy, error, result, run, reset } = useAsyncRun<CreateFormResult>();
   const counter = useRef(1);
+  const firstPage = context.pageSizes[0];
   const [drafts, setDrafts] = useState<FieldDraft[]>(() => [
-    makeDraft("f1", 1),
+    makeDraft("f1", 1, firstPage),
   ]);
   // Anything changed from the one blank field the builder starts with.
   const [pristine] = useState(() => JSON.stringify(drafts));
@@ -305,13 +347,13 @@ function FormBuilder({
   const addField = () => {
     counter.current += 1;
     const n = counter.current;
-    setDrafts((prev) => [...prev, makeDraft(`f${n}`, n)]);
+    setDrafts((prev) => [...prev, makeDraft(`f${n}`, n, firstPage)]);
   };
   const removeField = (id: string) =>
     setDrafts((prev) => prev.filter((d) => d.id !== id));
   const updateField = (id: string, patch: Partial<FieldDraft>) =>
     setDrafts((prev) =>
-      prev.map((d) => (d.id === id ? { ...d, ...patch } : d)),
+      prev.map((d) => (d.id === id ? withLiveDefault({ ...d, ...patch }) : d)),
     );
 
   const onRun = () => {
@@ -598,20 +640,8 @@ function TypeOptions({
   onChange: (patch: Partial<FieldDraft>) => void;
 }) {
   const options = parseOptions(draft.optionsText);
-
-  // Changing the option list clears a default that's no longer valid.
-  const setOptions = (optionsText: string) => {
-    const next = parseOptions(optionsText);
-    const patch: Partial<FieldDraft> = { optionsText };
-    if (
-      draft.defaultValue &&
-      !draft.editable &&
-      !next.includes(draft.defaultValue)
-    ) {
-      patch.defaultValue = "";
-    }
-    onChange(patch);
-  };
+  // A default the new options no longer name is cleared by `withLiveDefault`.
+  const setOptions = (optionsText: string) => onChange({ optionsText });
 
   switch (draft.type) {
     case "text":
@@ -654,19 +684,15 @@ function TypeOptions({
       return (
         <div className="flex flex-col gap-3">
           <OptionsEditor value={draft.optionsText} onChange={setOptions} />
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Toggle
-              label="Allow custom typing"
-              description="Combo box: accept values outside the list."
-              checked={draft.editable}
-              onChange={(editable) => onChange({ editable })}
-            />
-            <Toggle
-              label="Allow multiple selections"
-              checked={draft.multiselect}
-              onChange={(multiselect) => onChange({ multiselect })}
-            />
-          </div>
+          {/* No "Allow multiple selections" here: a dropdown is a combo box,
+              and viewers ignore MultiSelect on one (audit #39). List offers
+              it, and honours it. */}
+          <Toggle
+            label="Allow custom typing"
+            description="Combo box: accept values outside the list."
+            checked={draft.editable}
+            onChange={(editable) => onChange({ editable })}
+          />
           {draft.editable ? (
             <TextField
               label="Default value (optional)"
