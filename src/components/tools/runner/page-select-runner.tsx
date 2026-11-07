@@ -24,8 +24,10 @@ import {
 import { RunBar } from "./run-bar";
 import {
   allIndices,
+  evenPages,
   invertSelection,
   isAllSelected,
+  oddPages,
   selectRange,
   toggleIndex,
 } from "./selection";
@@ -145,6 +147,17 @@ function PageSelectEditor({
   };
   const invert = () =>
     setSelected((prev) => invertSelection(prev, pdf.pageCount));
+  // Pages 1, 3, 5… or 2, 4, 6… in one press: the fronts or the backs of a
+  // duplex scan (audits extract-pages#4, remove-pages#2). The same helpers
+  // and labels as Rotate PDF.
+  const pickOdd = () => {
+    setSelected(oddPages(pdf.pageCount));
+    anchorRef.current = null;
+  };
+  const pickEven = () => {
+    setSelected(evenPages(pdf.pageCount));
+    anchorRef.current = null;
+  };
 
   const applyRange = () => {
     try {
@@ -221,6 +234,10 @@ function PageSelectEditor({
             Clear
           </ChipButton>
           <ChipButton onClick={invert}>Invert</ChipButton>
+          <ChipButton onClick={pickOdd}>Odd pages</ChipButton>
+          <ChipButton onClick={pickEven} disabled={pdf.pageCount < 2}>
+            Even pages
+          </ChipButton>
           <span className="bg-wash mx-1 h-4 w-px" aria-hidden />
           <input
             type="text"

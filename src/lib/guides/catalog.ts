@@ -4621,8 +4621,8 @@ export const guides: Guide[] = [
         heading: "Ways to select pages",
         body: [
           "Clicking a thumbnail selects that page, and clicking it again deselects it. Holding Shift while you click selects every page between the one you touched last and this one.",
-          `In a long document, typing is faster. Enter single pages and ranges separated by commas, such as 1-3, 5, and press Select. A range can be left open: 8- runs from page eight to the end. To keep every other page, list them: ${EVERY_OTHER_PAGE_EXAMPLE}. Typing a list replaces the current selection, and you can fine-tune it by clicking thumbnails afterwards.`,
-          "Select all, Clear and Invert change the whole selection at once. Invert is handy when it is easier to click the few pages you do not want: select those, press Invert, and extract the rest.",
+          `In a long document, typing is faster. Enter single pages and ranges separated by commas, such as 1-3, 5, and press Select. A range can be left open: 8- runs from page eight to the end. To keep every other page, press Odd pages for 1, 3, 5 and so on, or Even pages for 2, 4, 6 and so on. Typing a list replaces the current selection, and you can fine-tune it by clicking thumbnails afterwards.`,
+          "Select all, Clear, Invert, Odd pages and Even pages change the whole selection at once. Invert is handy when it is easier to click the few pages you do not want: select those, press Invert, and extract the rest.",
         ],
       },
       {
@@ -4668,7 +4668,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-summarize-a-pdf",
