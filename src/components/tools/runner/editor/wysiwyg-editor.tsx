@@ -2544,6 +2544,7 @@ export function WysiwygEditor({
                         ? { ...state.editing.base, text: state.editing.text }
                         : null
                     }
+                    runsRead={runs[slot.index]?.length ?? null}
                     runs={
                       state.tool === "edittext"
                         ? (editableRuns[slot.index]?.filter(
@@ -2770,6 +2771,7 @@ function PageSheet({
   objects,
   pendingNew,
   runs,
+  runsRead,
   findHits,
   onRunActivate,
   previewNew,
@@ -2811,6 +2813,8 @@ function PageSheet({
   pendingNew: TextBoxObject | NoteObject | TextEditObject | null;
   /** Edit text: the runs to outline (null when the tool is not active). */
   runs: TextRun[] | null;
+  /** How many text runs have been read on this page, or null (not read). */
+  runsRead: number | null;
   findHits: { rect: Rect; current: boolean }[];
   onRunActivate: (run: TextRun) => void;
   previewNew: EditorObject[];
@@ -2865,6 +2869,7 @@ function PageSheet({
       data-editor-page={index}
       data-source-page={source ?? "blank"}
       data-page-pt={`${frame.width}x${frame.height}`}
+      data-runs-read={runsRead ?? undefined}
       role="group"
       aria-label={`Page ${index + 1} of ${count}`}
       className={cn(
