@@ -63,6 +63,22 @@ export interface OfficeInputProofDeps {
   readonly locked: readonly LockedOfficeFile[];
   /** The unlocked twin of one of them, and the word its PDF must carry. */
   readonly lockedTwin: LockedOfficeFile & { readonly word: string };
+  /** CSVs in known encodings, through Excel to PDF (see CsvCharsetCase). */
+  readonly csv: readonly CsvCharsetCase[];
+}
+
+/**
+ * A CSV in a known encoding and the accented word its PDF must carry.
+ * ADDED 2026-11-07, when production's "excel-to-pdf (csv)" proof found UTF-8
+ * text printed as mojibake: the worker now imports a UTF-8 CSV as UTF-8 and
+ * leaves any other CSV on LibreOffice's default (`csvImportFilter`). Only an
+ * image run can show that LibreOffice reads both as intended.
+ */
+export interface CsvCharsetCase {
+  readonly encoding: "utf-8" | "windows-1252";
+  readonly name: string;
+  readonly word: string;
+  readonly build: () => Uint8Array;
 }
 
 /** A password-locked file and the tool it is sent to. */
@@ -232,6 +248,36 @@ export async function runOfficeInputProof(
     else
       fail(
         `locked twin, ${twin.name}: converted, but "${twin.word}" is not in its text`,
+      );
+  }
+
+  // CSV character sets: one of each encoding, or a fix for one could break
+  // the other unseen; and a word with a non-ASCII letter, or the case
+  // proves nothing about the character set.
+  const encodings = new Set(deps.csv.map((c) => c.encoding));
+  for (const needed of ["utf-8", "windows-1252"] as const)
+    if (!encodings.has(needed))
+      fail(`the CSV cases hold no ${needed} file; the proof needs one of each`);
+  for (const c of deps.csv) {
+    const label = `csv ${c.name} (${c.encoding})`;
+    if (![...c.word].some((ch) => ch.charCodeAt(0) > 0x7f)) {
+      fail(
+        `${label}: its word "${c.word}" is plain ASCII, so it proves nothing`,
+      );
+      continue;
+    }
+    const run = await runOfficeToPdf("excel-to-pdf", c.build(), c.name, {
+      libreoffice: deps.libreoffice,
+    });
+    if (!run.ok) {
+      fail(`${label}: the engine answered ${run.kind}: ${run.message}`);
+      continue;
+    }
+    const text = await deps.extract(run.output);
+    if (text.text.includes(c.word)) pass(`${label}: "${c.word}" in its text`);
+    else
+      fail(
+        `${label}: "${c.word}" is not in its text (${text.characterCount} characters read)`,
       );
   }
   return { ok, lines };

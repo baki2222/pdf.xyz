@@ -72,10 +72,15 @@ import {
  *
  * NOT stated, because no real job has checked it: whether every sheet is
  * exported, whether print areas are honoured, how charts render, what an
- * encrypted workbook does on the worker, and which CSV delimiter/encoding is
- * assumed (the CSV use case says the page has no such option, which is true).
- * The worker proof harness only asserts that an XLSX and a CSV come back as
- * a PDF.
+ * encrypted workbook does on the worker, and which CSV delimiter is assumed
+ * (the CSV use case says the page has no such option, which is true).
+ *
+ * The CSV ENCODING is stated, since 2026-11-07: a CSV whose bytes are UTF-8
+ * is imported as UTF-8 and any other is left to LibreOffice's Western
+ * default (office-conversion/native.ts `csvImportFilter`). Production's
+ * "excel-to-pdf (csv)" proof found UTF-8 "Zürich" printed as mojibake before
+ * that; `pnpm worker:office-input-proof` now converts one CSV of each
+ * encoding in the image (`src/tests/csv-charset-fixtures.ts`).
  */
 
 /** Where Excel removes a password: the words the engine's refusal uses. */
@@ -125,7 +130,7 @@ const content: ToolContent = {
 
   intro: [
     `Excel to PDF turns one spreadsheet into a PDF that anyone can open, print or file without owning Excel. Add one ${formatsOr} file, press Convert to PDF, and LibreOffice, the open-source office suite, opens it on pdf.xyz's secure server and exports it with its own PDF writer. Output that lacks a PDF's opening signature or end-of-file marker is discarded, and the panel shows an error instead of a download.`,
-    `This page has no layout controls: pdf.xyz hands LibreOffice your file and no conversion settings at all, so orientation, scaling and where wide columns break across pages are left to whatever page setup the workbook carries and to LibreOffice's defaults. A CSV carries no page setup, so it always gets the defaults. If a wide sheet has to fit, the file is the only place to say so: set orientation and fit-to-width scaling in your spreadsheet app and save before you upload. The result is a printout, not a working spreadsheet: a formula cell shows the figure it displayed when LibreOffice opened the file, and nothing in the PDF recalculates if the source numbers change later.`,
+    `This page has no layout controls: pdf.xyz hands LibreOffice your file and no layout settings at all, so orientation, scaling and where wide columns break across pages are left to whatever page setup the workbook carries and to LibreOffice's defaults. A CSV carries no page setup, so it always gets the defaults. If a wide sheet has to fit, the file is the only place to say so: set orientation and fit-to-width scaling in your spreadsheet app and save before you upload. The result is a printout, not a working spreadsheet: a formula cell shows the figure it displayed when LibreOffice opened the file, and nothing in the PDF recalculates if the source numbers change later.`,
     `None of the conversion happens on your computer. The spreadsheet travels over TLS to pdf.xyz's secure server, is kept only for its job (through an automatic retry, if a temporary error triggers one), and is deleted as soon as that job ends, whether it succeeded or failed. The converted PDF stays downloadable from our server for ${LINK_MINUTES} minutes, and this page fetches it the moment it is ready; after that window, a storage rule that runs once a day erases the stored PDF.`,
   ],
 
@@ -144,7 +149,7 @@ const content: ToolContent = {
     },
     {
       title: "Make a CSV export readable",
-      body: "Bank, CRM and analytics exports arrive as raw delimited text. Converting paginates them with plain default formatting, since a CSV stores none. There is no delimiter or character-set option, so check the columns split as expected.",
+      body: "Bank, CRM and analytics exports arrive as raw delimited text. Converting paginates them with plain default formatting, since a CSV stores none. A CSV saved as UTF-8, with or without a byte-order mark, keeps letters such as ü and é; one saved in another encoding is read as Western European text. There is no delimiter option, so check the columns split as expected.",
     },
     {
       title: "Try an old .xls from a colleague",

@@ -99,6 +99,8 @@ import {
   xlsxProofFile,
 } from "@/tests/office-sheet-proof-fixtures";
 import { OFFICE_INPUT_FIXTURES, odsWith } from "@/tests/office-input-fixtures";
+import { CSV_CHARSET_CASES } from "@/tests/csv-charset-fixtures";
+import type { CsvCharsetCase } from "@/lib/workers/office-conversion/input-proof";
 import { drmBook, epub3Book } from "@/tests/epub-fixtures";
 import { epub3Verdict, readEpubPdf } from "@/lib/workers/epub/proof";
 import { lockedOdfFixtures } from "@/tests/locked-odf";
@@ -578,6 +580,13 @@ async function pdfPlainText(bytes: Buffer): Promise<string> {
   }
   await task.destroy();
   return text.replace(/\s+/g, " ");
+}
+
+/** One of the CSV charset cases the in-image proof converts too. */
+function csvCase(encoding: CsvCharsetCase["encoding"]): CsvCharsetCase {
+  const found = CSV_CHARSET_CASES.find((c) => c.encoding === encoding);
+  if (!found) throw new Error(`no ${encoding} CSV case`);
+  return found;
 }
 
 /** One of the OpenDocument / RTF fixtures the in-image proof converts too. */
@@ -1477,6 +1486,28 @@ const SPECS: ProofSpec[] = [
     expect: isPdf,
     want: "PDF",
     verify: (bytes) => sheetVerdict(bytes),
+  },
+  // The control for the UTF-8 import above (2026-11-07): a Windows-1252 CSV
+  // must keep its accented letters too. Importing EVERY CSV as UTF-8 would
+  // pass the case above and turn "Müller" into "M�ller" here.
+  {
+    tool: "excel-to-pdf",
+    label: "excel-to-pdf (csv, windows-1252)",
+    make: async () => Buffer.from(csvCase("windows-1252").build()),
+    name: "names.csv",
+    type: "text/csv",
+    expect: isPdf,
+    want: "PDF",
+    verify: async (bytes) => {
+      const word = csvCase("windows-1252").word;
+      const text = await pdfPlainText(bytes);
+      return {
+        ok: text.includes(word),
+        detail: text.includes(word)
+          ? `"${word}" in its text`
+          : `"${word}" is not in its text`,
+      };
+    },
   },
   {
     tool: "powerpoint-to-pdf",
