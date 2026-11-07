@@ -218,6 +218,9 @@ export function copyFiles(): string[] {
     // JPG / PNG to PDF's per-image Rotate button (2026-11-08, audit
     // png-to-pdf#2): its tooltip and accessible name.
     path.join(ROOT, "src", "lib", "pdf", "image-rotation.ts"),
+    // Which stored resolutions Fit to image ignores (2026-11-08, audits
+    // jpg-to-pdf#4 / png-to-pdf#4).
+    path.join(ROOT, "src", "lib", "pdf", "image-density.ts"),
     // What UTIF's require("pako") resolves to in the browser bundle
     // (2026-11-04): one error sentence, thrown only if UTIF's Deflate path
     // is ever reached.

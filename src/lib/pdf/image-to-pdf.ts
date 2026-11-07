@@ -15,6 +15,7 @@ import {
   type ImagePageOptions,
 } from "./image-page-layout";
 import { stripJpegMetadata } from "./jpeg-metadata";
+import { atStoredDpi, storedImageDpi } from "./image-density";
 import {
   turnedShape,
   unturnedBox,
@@ -568,9 +569,16 @@ async function addImagePage(
   }
   // Lay the image out as the browser SHOWED it: a portrait phone photo is
   // stored as landscape pixels plus an EXIF turn, and the preview is upright.
-  const shown = prepared
+  const pixels = prepared
     ? { width: prepared.layoutWidth, height: prepared.layoutHeight }
     : rasterDisplaySize(image);
+  // Under Fit to image, at the resolution the ORIGINAL file states, when it
+  // is plausible (`image-density.ts`), as a TIFF page is; one pixel per
+  // point otherwise, and always on a paper size.
+  const shown =
+    options.pageSize === "fit"
+      ? atStoredDpi(pixels, storedImageDpi(file.bytes))
+      : pixels;
   await drawImagePage(
     lib,
     doc,

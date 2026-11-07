@@ -15,6 +15,7 @@ import {
 import { imageDefaultPaperCopy } from "@/lib/tools/tool-facts";
 import { inches } from "@/lib/pdf/page-geometry";
 import { IMAGE_ROTATION_LABELS } from "@/lib/pdf/image-rotation";
+import { IGNORED_DPI_COPY } from "@/lib/pdf/image-density";
 
 /** The card button that turns one image (audit png-to-pdf#2). */
 const ROTATE = IMAGE_ROTATION_LABELS.button;
@@ -129,7 +130,10 @@ const LIMIT_MET = limitOutcome({
  *    depth (a fax page stays a 1-bit DeviceGray image, not 8-bit RGB) and
  *    laid out at its size on paper from XResolution/YResolution. PNG's DPI
  *    is still not read, so the "one point per pixel" sentence now names PNG
- *    and TIFF apart. src/lib/pdf/tiff.test.ts renders the saved PDFs through
+ *    and TIFF apart. SUPERSEDED 2026-11-08 (audit png-to-pdf#4), history
+ *    kept: under Fit to image a PNG's pHYs sets its page size when it is
+ *    plausible (src/lib/pdf/image-density.ts; image-density.test.ts reads
+ *    an A4 page back from a 300 dpi PNG scan). src/lib/pdf/tiff.test.ts renders the saved PDFs through
  *    pdf.js. HEIC and AVIF are still refused by name. What still reaches Create PDF and fails
  *    is a file with a valid signature pdf-lib cannot parse (a 2-frame APNG,
  *    a damaged image). tool-page-substance.test.ts holds the steps to every
@@ -157,8 +161,8 @@ const content: ToolContent = {
   metaDescription: `Combine PNG screenshots, diagrams and logos into a single PDF in your browser. Pixels are kept without JPEG blur, up to ${MAX_IMAGE_MB} MB a file, and nothing is uploaded.`,
   intro: [
     `PNG to PDF places every PNG you add on a page of its own and saves the set as a single PDF. It suits what people keep as PNG in the first place — screenshots, diagrams, line art, logos on a transparent background — where crisp edges matter more than a small file. With ${LIMIT} left at ${NO_LIMIT}, a PNG is never turned into JPEG on the way: its pixels are stored with lossless Flate compression, so small interface text is not smudged by block artefacts. Each PNG keeps its own depth too, sixteen bits per channel included. WebP, GIF and BMP images are taken too: your browser decodes each one and it is saved again, as a PNG when it has transparency and as a high-quality JPEG when it has none, and an animated GIF gives its first frame only. If an upload form caps the size, choose ${LIMIT} (${LIMIT_PRESETS}, or Custom): when the PDF comes out bigger, your browser saves the images again as JPEGs, softer and with any transparent areas turned white, until it fits.`,
-    `Unless you change the page setup, every page is a portrait sheet with a white background and a ${DEFAULT_MARGIN} margin, and its size is ${DEFAULT_PAPER}. You can pick the page size (${SIZES}), the orientation (${ORIENTATIONS}) and the margin (${MARGINS}) first; Fit to image makes each page the size of its PNG plus the margin, which suits screenshots. A PNG bigger than the space is scaled down to fit and centred. A smaller one is never enlarged: it is drawn at one PDF point per pixel, so a tiny icon stays tiny. Any DPI value stored inside the PNG is ignored.`,
-    "TIFF images are taken as well, multi-page TIFFs from scanners and fax software included: every page of the TIFF becomes a page of the PDF, in order, black-and-white fax pages (CCITT Group 4) among them. Unlike a PNG, a TIFF page is laid out at the size it had on paper, read from the resolution saved in the file, so under Fit to image a 300 dpi A4 scan is an A4 page. Its pixels are stored without loss, a black-and-white page as one bit per pixel.",
+    `Unless you change the page setup, every page is a portrait sheet with a white background and a ${DEFAULT_MARGIN} margin, and its size is ${DEFAULT_PAPER}. You can pick the page size (${SIZES}), the orientation (${ORIENTATIONS}) and the margin (${MARGINS}) first; Fit to image makes each page the size of its PNG plus the margin, which suits screenshots. A PNG bigger than the space is scaled down to fit and centred. A smaller one is never enlarged: it is drawn at one PDF point per pixel, so a tiny icon stays tiny. Under Fit to image, a resolution saved in the PNG sets the page's size on paper instead, so a 300 dpi scan of an A4 sheet saved as a PNG becomes an A4 page; a stated ${IGNORED_DPI_COPY}, counts as none.`,
+    "TIFF images are taken as well, multi-page TIFFs from scanners and fax software included: every page of the TIFF becomes a page of the PDF, in order, black-and-white fax pages (CCITT Group 4) among them. A TIFF page is laid out at the size it had on paper, read from the resolution saved in the file, on every page size and not only under Fit to image. Its pixels are stored without loss, a black-and-white page as one bit per pixel.",
     `The work happens in this browser tab: your PNGs are read from your device, laid out there, and handed back as a download, and none of them is uploaded to pdf.xyz. Each file may be up to ${MAX_IMAGE_MB} MB.`,
   ],
   useCases: [
