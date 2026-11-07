@@ -158,6 +158,7 @@ import {
   TARGET_SIZE_PRESETS,
   targetOutcome,
 } from "@/lib/pdf/compress-target";
+import { MB, sizeLabel } from "@/lib/pdf/size-presets";
 import {
   LIMIT_EXAMPLE,
   LIMIT_TIME_BUDGET_MS,
@@ -275,7 +276,6 @@ function targetPreset(bytes: number): string {
 }
 const KB_BYTES = TARGET_KB;
 const TARGET_PRESET_100 = targetPreset(100 * KB_BYTES);
-const TARGET_PRESET_200 = targetPreset(200 * KB_BYTES);
 /** The ladder's floor and the panel's default Quality, by their own labels. */
 const TARGET_FLOOR_LABEL = DEEP_COMPRESSION_PRESETS[0].label;
 const TARGET_DEFAULT_QUALITY_LABEL = (() => {
@@ -285,6 +285,15 @@ const TARGET_DEFAULT_QUALITY_LABEL = (() => {
 })();
 /** A whole-KB target under 100,000 bytes, for a portal that counts KB as 1,000. */
 const PORTAL_SAFE_100_KB = Math.floor(100_000 / KB_BYTES);
+/**
+ * A size people search for that is not a preset (2 MB), by label and as the
+ * Custom box takes it, in whole KB.
+ */
+const OFF_PRESET_BYTES = 2 * MB;
+const OFF_PRESET_LABEL = sizeLabel(OFF_PRESET_BYTES);
+const OFF_PRESET_KB = OFF_PRESET_BYTES / KB_BYTES;
+/** A preset as searchers type it: "100 KB" -> "100kb", "1 MB" -> "1mb". */
+const searchSpelling = (label: string) => label.replace(" ", "").toLowerCase();
 /** The panel's own sentence for a met target, from the function it calls. */
 const TARGET_EXAMPLE_SENTENCE = targetOutcome({
   ...TARGET_EXAMPLE,
@@ -348,6 +357,13 @@ const listAnd = (items: readonly string[]) =>
   new Intl.ListFormat("en", { type: "conjunction" }).format(items);
 const listOr = (items: readonly string[]) =>
   new Intl.ListFormat("en", { type: "disjunction" }).format(items);
+/**
+ * The panels' size presets for a TITLE: "100 KB, 200 KB, 500 KB or 1 MB",
+ * without the serial comma, so the size guides' titles fit the 65-character
+ * results-page ceiling (size-guide-titles.test.ts measures them).
+ */
+const titleSizes = (labels: readonly string[]) =>
+  `${labels.slice(0, -1).join(", ")} or ${labels.at(-1)}`;
 
 /** Add Watermark's Font choices, as its runner labels them. */
 const WATERMARK_FONTS = listOr(
@@ -493,7 +509,6 @@ function limitPreset(bytes: number): string {
   return preset.label;
 }
 const LIMIT_100 = limitPreset(100 * KB_BYTES);
-const LIMIT_200 = limitPreset(200 * KB_BYTES);
 const LIMIT_PRESET_LABELS = MAX_SIZE_PRESETS.map((p) => p.label);
 const LIMIT_MET_SENTENCE = limitOutcome({
   ...LIMIT_EXAMPLE,
@@ -4150,14 +4165,18 @@ export const guides: Guide[] = [
   // from the panel's constants (`compress-target.ts`, `offered-kinds.ts`),
   // the retention windows from the code the privacy page reads, and the
   // KB arithmetic from the same KB the panel compares with.
+  // CHANGED 2026-11-07 (audit search-demand#2): titled "…to 100 KB (or 200
+  // KB)" until then, though the panel offers every preset; the title now
+  // names them all, and size-guide-titles.test.ts holds it to the list.
   {
     slug: "how-to-compress-a-pdf-to-100-kb",
-    title: `How to compress a PDF to ${TARGET_PRESET_100} (or ${TARGET_PRESET_200})`,
+    title: `How to compress a PDF to ${titleSizes(TARGET_PRESET_LABELS)}`,
     description: `Make a PDF fit an upload limit of ${listOr(TARGET_PRESET_LABELS)}: pick a target size, and our server shrinks the images until it fits or can go no smaller.`,
     tools: ["compress-pdf", "split-pdf", "remove-pages"],
     keywords: [
-      "compress pdf to 100kb",
-      "compress pdf to 200kb",
+      ...TARGET_PRESET_LABELS.map(
+        (l) => `compress pdf to ${searchSpelling(l)}`,
+      ),
       "reduce pdf size to 100 kb",
       "make a pdf smaller for an upload form",
       "compress pdf to a specific size",
@@ -4224,25 +4243,33 @@ export const guides: Guide[] = [
         answer: `Yes, to reach a target: the size breakdown and the lossless copy run in your browser, but a target is reached by the deep step on our server. ${HYBRID_WORKER_STEP} The uploaded file is deleted when the job ends, and the result can be downloaded for ${RETENTION_WINDOWS.outputLink}.`,
       },
       {
+        question: `Can I compress a PDF to ${OFF_PRESET_LABEL}, or another size?`,
+        answer: `Yes, if the file is bigger than that now. Choose “${TARGET_SIZE_LABELS.custom}” under “${TARGET_SIZE_LABELS.heading}” and type the size in KB: ${OFF_PRESET_KB} KB for ${OFF_PRESET_LABEL}.`,
+      },
+      {
         question: "How large can my PDF be?",
         answer: `Up to ${ceilingMb("compress-pdf")} MB per file.`,
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   // Added 2026-10-31 with JPG / PNG to PDF's Max file size. Every label and
   // figure is read from the panel's constants (`image-size-limit.ts`), the
   // met sentence from the function the panel calls, and the KB arithmetic
   // from the same KB the compress guide uses.
+  // CHANGED 2026-11-07 (audit search-demand#2): titled "How to convert JPG
+  // to PDF under 100 KB (or 200 KB)" until then; it now names every preset
+  // the panel offers, inside the 65-character results-page ceiling.
   {
     slug: "how-to-convert-jpg-to-pdf-under-100-kb",
-    title: `How to convert JPG to PDF under ${LIMIT_100} (or ${LIMIT_200})`,
+    title: `Convert JPG to PDF under ${titleSizes(LIMIT_PRESET_LABELS)}`,
     description: `Make a PDF of a photo, signature or scan that fits a limit of ${listOr(LIMIT_PRESET_LABELS)}. Your browser shrinks the image until it fits.`,
     tools: ["jpg-to-pdf", "png-to-pdf"],
     keywords: [
-      "jpg to pdf under 100kb",
-      "jpg to pdf under 200kb",
+      ...LIMIT_PRESET_LABELS.map(
+        (l) => `jpg to pdf under ${searchSpelling(l)}`,
+      ),
       "convert photo to pdf under 100 kb",
       "signature jpg to pdf under 100kb",
       "image to pdf less than 100kb",
@@ -4308,12 +4335,16 @@ export const guides: Guide[] = [
           "No. The image is shrunk and the PDF is made in your browser tab; the file is not sent to pdf.xyz.",
       },
       {
+        question: `Can I make the PDF fit 300 KB, ${OFF_PRESET_LABEL} or another size?`,
+        answer: `Yes. Choose “${MAX_SIZE_LABELS.custom}” under “${MAX_SIZE_LABELS.heading}” and type the size in KB: 300 for 300 KB, ${OFF_PRESET_KB} for ${OFF_PRESET_LABEL}.`,
+      },
+      {
         question: "How large can my image be?",
         answer: `Up to ${MAX_IMAGE_MB} MB per image.`,
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   // Added 2026-10-31 for the "Bangla PDF to Word" search family. Written
   // only after production read a Bengali page back, measured: the proof is

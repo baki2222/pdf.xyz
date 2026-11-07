@@ -514,11 +514,13 @@ export const GUIDE_META: readonly GuideMeta[] = [
   },
   {
     slug: "how-to-compress-a-pdf-to-100-kb",
-    title: "How to compress a PDF to 100 KB (or 200 KB)",
+    title: "How to compress a PDF to 100 KB, 200 KB, 500 KB or 1 MB",
     primary: "compress-pdf",
     keywords: [
       "compress pdf to 100kb",
       "compress pdf to 200kb",
+      "compress pdf to 500kb",
+      "compress pdf to 1mb",
       "reduce pdf size to 100 kb",
       "make a pdf smaller for an upload form",
       "compress pdf to a specific size",
@@ -527,11 +529,13 @@ export const GUIDE_META: readonly GuideMeta[] = [
   },
   {
     slug: "how-to-convert-jpg-to-pdf-under-100-kb",
-    title: "How to convert JPG to PDF under 100 KB (or 200 KB)",
+    title: "Convert JPG to PDF under 100 KB, 200 KB, 500 KB or 1 MB",
     primary: "jpg-to-pdf",
     keywords: [
       "jpg to pdf under 100kb",
       "jpg to pdf under 200kb",
+      "jpg to pdf under 500kb",
+      "jpg to pdf under 1mb",
       "convert photo to pdf under 100 kb",
       "signature jpg to pdf under 100kb",
       "image to pdf less than 100kb",
