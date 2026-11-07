@@ -66,7 +66,7 @@ export const WEBPAGE_PRINT_STYLES_SENTENCE = `A site that ships a print styleshe
 export const WEBPAGE_SCROLL_SENTENCE = `Before printing, our server scrolls the page down a screen at a time, up to ${LAZY_SCROLL_MAX_STEPS} screens, and gives it a moment at each stop, so images a site loads only as you scroll usually come in. An endless feed prints only what those ${LAZY_SCROLL_MAX_STEPS} screens load, and a page that scrolls inside a box of its own, rather than as a whole, is not scrolled.`;
 
 /** The how-to sentence for the Capture group. */
-export const WEBPAGE_CAPTURE_SENTENCE = `Under ${WEBPAGE_CAPTURE_GROUP_LABEL}, tick ${HIDE} to print the page without a consent banner or a pop-up over it, untick ${PRINT} to get the layout a browser window shows instead of the one the site made for printing, and tick ${STAMP} to record where and when the page was captured.`;
+export const WEBPAGE_CAPTURE_SENTENCE = `Under ${WEBPAGE_CAPTURE_GROUP_LABEL}, tick ${HIDE} to hide the consent windows of common cookie tools and large pop-ups, untick ${PRINT} to get the layout a browser window shows instead of the one the site made for printing, and tick ${STAMP} to record where and when the page was captured.`;
 
 /** The tool page's layout step, with the Capture group added to it. */
 export const WEBPAGE_SETTINGS_STEP = {

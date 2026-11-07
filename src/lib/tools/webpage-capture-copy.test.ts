@@ -119,6 +119,48 @@ describe("Webpage to PDF capture copy", () => {
     expect(page).toContain(WEBPAGE_STAMP_RETENTION_SENTENCE);
   });
 
+  /**
+   * Hide cookie notices and pop-ups removes the windows of the listed consent
+   * tools and LARGE pop-ups only: overlays.ts keeps a small bar from an
+   * unlisted tool, and any pop-up under the share. Three sentences once said
+   * the option always cleared them (review of b1313c8c); each is kept below
+   * as the corpus the bans must catch.
+   */
+  const UNCONDITIONAL_HIDE_CLAIMS: readonly RegExp[] = [
+    new RegExp(
+      `(cookie|consent|pop-up)[^.]*unless you tick ${WEBPAGE_CAPTURE_LABELS.hideOverlays}`,
+      "i",
+    ),
+    /without (a|any) (consent|cookie) (banner|notice|window)/i,
+  ];
+  const SHIPPED_UNCONDITIONAL = [
+    `so members-only walls and paywalls come along, and so do cookie banners unless you tick ${WEBPAGE_CAPTURE_LABELS.hideOverlays}.`,
+    `Adverts shown to a new visitor can appear too, and so can cookie notices and pop-ups unless you tick ${WEBPAGE_CAPTURE_LABELS.hideOverlays}.`,
+    `tick ${WEBPAGE_CAPTURE_LABELS.hideOverlays} to print the page without a consent banner or a pop-up over it,`,
+  ];
+
+  it("every unconditional-hide ban catches a shipped sentence, and every shipped sentence is caught", () => {
+    for (const re of UNCONDITIONAL_HIDE_CLAIMS)
+      expect(SHIPPED_UNCONDITIONAL.some((t) => re.test(t))).toBe(true);
+    for (const t of SHIPPED_UNCONDITIONAL)
+      expect(UNCONDITIONAL_HIDE_CLAIMS.some((re) => re.test(t))).toBe(true);
+  });
+
+  it("no capture sentence says the option always clears cookie notices and pop-ups", () => {
+    const page = JSON.stringify(toolContent["webpage-to-pdf"]);
+    const guide = JSON.stringify(
+      getGuideBySlug("how-to-convert-a-webpage-to-pdf"),
+    );
+    for (const text of [page, guide, WEBPAGE_CAPTURE_SENTENCE])
+      for (const re of UNCONDITIONAL_HIDE_CLAIMS) expect(text).not.toMatch(re);
+    // What replaced them: the common tools and large pop-ups, as the code does.
+    expect(WEBPAGE_CAPTURE_SENTENCE).toMatch(
+      /consent windows of common cookie tools and large pop-ups/,
+    );
+    expect(page).toContain(WEBPAGE_CAPTURE_SENTENCE);
+    expect(guide).toContain(WEBPAGE_CAPTURE_SENTENCE);
+  });
+
   it("the page no longer says cookie notices cannot be removed", () => {
     const page = JSON.stringify(toolContent["webpage-to-pdf"]);
     expect(page).not.toMatch(/Ads cannot be removed/);
