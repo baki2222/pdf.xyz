@@ -63,6 +63,7 @@ import { DevWorkerStore } from "@/lib/workers/store";
 import { encryptPdf } from "@/tests/encrypted-pdf";
 import { LOCKED_PDF_COPY } from "@/lib/pdf/encryption";
 import { BATCH_RESTRICTED_NOTE } from "@/lib/pdf/compress-batch-copy";
+import { useWorkerStatus } from "../use-worker-status";
 import {
   colourImagePdf,
   noisePhotoPdf,
@@ -220,6 +221,20 @@ async function drop(container: HTMLElement, files: File[]) {
   const input = container.querySelector('input[type="file"]');
   expect(input, "the runner offers a file picker").not.toBeNull();
   fireEvent.drop(input!.closest("label")!, { dataTransfer: { files } });
+}
+
+/**
+ * The runner, plus the phase of the worker status it reads, so a test can
+ * wait until the status has been ANSWERED before it asserts an absence.
+ */
+function WithStatusPhase() {
+  const { phase } = useWorkerStatus();
+  return (
+    <>
+      <output data-testid="status-phase">{phase}</output>
+      <CompressRunner />
+    </>
+  );
 }
 
 const WORKER_PANEL = "Deep image compression (secure server)";
@@ -973,20 +988,72 @@ describe(
 
     it("with no secure server, the batch offers only the lossless repack", async () => {
       answerWorkerStatus(null);
-      const { container } = render(withRouter(<CompressRunner />));
+      const { container } = render(withRouter(<WithStatusPhase />));
       await drop(container, [
         asFile(await plainPdf(2), "one.pdf"),
         asFile(await plainPdf(3), "two.pdf"),
       ]);
       await screen.findByRole("button", { name: /^compress 2 pdfs$/i });
+      // First the status has to have been answered (the 503 is an error),
+      // or the absence below is only "not loaded yet".
+      expect(
+        await screen.findByTestId("status-phase", {}, { timeout: 10_000 }),
+      ).toBeInTheDocument();
       await waitFor(() =>
+        expect(screen.getByTestId("status-phase")).toHaveTextContent("error"),
+      );
+      expect(
+        screen.queryByRole("radio", { name: /compress images on our server/i }),
+      ).toBeNull();
+    });
+
+    // Review of cb0eb82e: the test above passed with the batch's gate
+    // replaced by `true`, because a 503 hides the radio before the gate is
+    // asked, and its wait passed on the first tick. Here the status LOADS
+    // (200) and says the server cannot take the jobs, so only the gate
+    // (canRunDeepCompression) can keep the radio away.
+    it.each([
+      [
+        "local dev without native compression",
+        {
+          ...DEEP_READY,
+          compress: { lossless: true, deep: false, engines: [] },
+        },
+      ],
+      [
+        "a deployed worker that is not drainable",
+        {
+          mode: "deployed",
+          localDevOnly: false,
+          providers: { storage: { ready: true }, queue: { ready: true } },
+          daemon: { drainable: false },
+          compress: { lossless: true, deep: false, engines: [] },
+        },
+      ],
+    ])(
+      "a loaded status that cannot take the jobs (%s) offers no server option",
+      async (_name, status) => {
+        answerWorkerStatus(status as unknown as WorkerStatus);
+        const { container } = render(withRouter(<WithStatusPhase />));
+        await drop(container, [
+          asFile(await plainPdf(2), "one.pdf"),
+          asFile(await plainPdf(3), "two.pdf"),
+        ]);
+        await screen.findByRole("button", { name: /^compress 2 pdfs$/i });
+        await waitFor(
+          () =>
+            expect(screen.getByTestId("status-phase")).toHaveTextContent(
+              "ready",
+            ),
+          { timeout: 10_000 },
+        );
         expect(
           screen.queryByRole("radio", {
             name: /compress images on our server/i,
           }),
-        ).toBeNull(),
-      );
-    });
+        ).toBeNull();
+      },
+    );
   },
 );
 
