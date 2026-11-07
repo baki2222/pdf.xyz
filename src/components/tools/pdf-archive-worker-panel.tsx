@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useId, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
+import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
+import { PdfASignatureWarning } from "./pdfa-signature-warning";
 import { Archive, FileDown, FileUp, ShieldCheck, Timer } from "lucide-react";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import {
@@ -116,6 +118,36 @@ function ArchiveRunArea({ refuse }: { refuse: PickRefusal }) {
   const levelId = useId();
   const levelHint =
     PDFA_LEVELS.find((l) => l.id === level)?.hint ?? DEFAULT_PDFA_LEVEL.hint;
+  // Audit pdf-to-pdfa#6: the picked file's digital signatures, counted in
+  // the browser before any upload. Keyed by the file, so a count and a
+  // confirmation given for one file never carry to the next.
+  const [signatures, setSignatures] = useState<{
+    file: File;
+    count: number;
+  } | null>(null);
+  const [confirmedFor, setConfirmedFor] = useState<File | null>(null);
+  const signatureWarningId = useId();
+  useEffect(() => {
+    if (!file) return;
+    let live = true;
+    file
+      .arrayBuffer()
+      .then((buf) => {
+        if (live)
+          setSignatures({
+            file,
+            count: countDigitalSignatures(new Uint8Array(buf)),
+          });
+      })
+      // An unreadable file is the upload's problem to report, not this note's.
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [file]);
+  const signatureCount = signatures?.file === file ? signatures.count : 0;
+  const signaturesConfirmed = confirmedFor !== null && confirmedFor === file;
+  const heldBySignatures = signatureCount > 0 && !signaturesConfirmed;
   const job = useWorkerJob<PdfArchiveWorkerResult>({
     tool: "pdf-to-pdfa",
     resume: (id, controls) =>
@@ -128,6 +160,18 @@ function ArchiveRunArea({ refuse }: { refuse: PickRefusal }) {
   });
   const start = useCallback(async () => {
     if (!file || !available) return;
+    if (!signaturesConfirmed) {
+      // The gate reads the file it is about to upload, so a press that lands
+      // before the pick-time read finished cannot send a signed file unasked.
+      const count = await file.arrayBuffer().then(
+        (buf) => countDigitalSignatures(new Uint8Array(buf)),
+        () => 0,
+      );
+      if (count > 0) {
+        setSignatures({ file, count });
+        return;
+      }
+    }
     await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const result = await runWorkerPdfToPdfA(
@@ -136,7 +180,7 @@ function ArchiveRunArea({ refuse }: { refuse: PickRefusal }) {
       );
       return result;
     });
-  }, [file, run, available, level]);
+  }, [file, run, available, level, signaturesConfirmed]);
   const detail =
     status?.daemon.detail ?? "Our secure server is not drainable here.";
   return (
@@ -179,6 +223,14 @@ function ArchiveRunArea({ refuse }: { refuse: PickRefusal }) {
           hint="PDF"
         />
       )}
+      {file && signatureCount > 0 && (
+        <PdfASignatureWarning
+          id={signatureWarningId}
+          count={signatureCount}
+          confirmed={signaturesConfirmed}
+          onConfirm={(yes) => setConfirmedFor(yes ? file : null)}
+        />
+      )}
       <div className="flex flex-col gap-1">
         <label htmlFor={levelId} className="text-fg text-sm font-medium">
           {PDFA_LEVEL_LABEL}
@@ -219,7 +271,8 @@ function ArchiveRunArea({ refuse }: { refuse: PickRefusal }) {
           <WorkerRunButton
             onClick={start}
             busy={busy}
-            disabled={!ready || !file}
+            disabled={!ready || !file || heldBySignatures}
+            describedBy={heldBySignatures ? signatureWarningId : undefined}
             busyLabel={jobBusyLabel(job.phase, "Converting to PDF/A…")}
             icon={Archive}
           >

@@ -4991,6 +4991,7 @@ export const guides: Guide[] = [
         body: [
           `Converting a scan to PDF/A does not make its text searchable: a scanned page stays a picture of words. Run it through ${nameOf("ocr-pdf")} first, which adds a searchable text layer on our secure server, then convert that file and search the PDF/A copy to confirm the words survived.`,
           `The page has no password field, so Ghostscript is never given one. If your file asks for a password when it opens, ${nameOf("unlock-pdf")} removes it once you enter that password; then convert the unlocked copy. The PDF/A copy is written without encryption, which PDF/A does not allow in any case.`,
+          "A digitally signed PDF loses its signatures as valid ones, because the conversion rewrites the whole file. Your browser checks for signatures before anything is uploaded; if it finds any, the panel says how many and waits until you confirm. Keep the signed original beside the PDF/A copy.",
           "Our server first looks for a PDF header at the start of your file and an end-of-file marker near its end. A file missing either, such as a download that stopped partway, is refused as one that could not be read as a PDF, and nothing is produced.",
         ],
       },

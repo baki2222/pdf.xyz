@@ -28,6 +28,10 @@ import type { WorkerStatus } from "@/lib/workers/status";
 import { PDF_ARCHIVE_PASSWORD_REQUIRED_CODE } from "@/lib/workers/pdf-archive/contract";
 import { stubJobNetwork } from "@/tests/stub-job-network";
 import { PdfArchiveWorkerPanel } from "./pdf-archive-worker-panel";
+import { signedPdf } from "@/tests/signed-pdf";
+import { PdfASignatureWarning } from "./pdfa-signature-warning";
+import pdfaContent from "@/lib/tools/content/pdf-to-pdfa";
+import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
 
 const tool = getToolBySlug("pdf-to-pdfa")!;
 
@@ -126,5 +130,91 @@ describe("PdfArchiveWorkerPanel failure outcomes", () => {
     expect(text).not.toMatch(/anything Ghostscript has to remove is listed/i);
     expect(text).toMatch(/what Ghostscript reports/i);
     expect(text).toMatch(/substitut/i);
+  });
+});
+
+/*
+ * Audit pdf-to-pdfa#6 (2026-11-08): Ghostscript rewrites the whole file, so
+ * a digital signature in it does not survive as a valid signature. The panel
+ * uploaded a signed contract without a word. It now counts signatures in the
+ * browser (`countDigitalSignatures`, the scan Optimize for Web uses) before
+ * anything is uploaded, names them, and holds Run until the reader confirms.
+ */
+describe("PdfArchiveWorkerPanel: a signed PDF is named before any upload", () => {
+  async function pick(bytes: Uint8Array) {
+    const network = stubJobNetwork(READY);
+    render(<PdfArchiveWorkerPanel tool={tool} />);
+    const input = await waitFor(() => {
+      const el = document.querySelector<HTMLInputElement>('input[type="file"]');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File([bytes.slice()], "contract.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
+    });
+    const run = await screen.findByRole("button", {
+      name: /convert to pdf\/a/i,
+    });
+    return { network, run };
+  }
+
+  it("names the signatures and holds Run until the box is ticked", async () => {
+    const signed = await signedPdf({ signatures: 2 });
+    expect(countDigitalSignatures(signed)).toBe(2);
+    const { network, run } = await pick(signed);
+    const warning = await screen.findByRole("group", {
+      name: "This PDF has 2 digital signatures",
+    });
+    expect(warning).toHaveTextContent(
+      "Converting to PDF/A rewrites the whole file, so they will not survive as valid signatures",
+    );
+    expect(run).toHaveAttribute("aria-disabled", "true");
+    expect(run).toHaveAttribute("aria-describedby", warning.id);
+    fireEvent.click(run);
+    expect(network.uploads()).toBe(0);
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: "Convert anyway — I understand the digital signatures will not survive",
+      }),
+    );
+    expect(run).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(run);
+    await waitFor(() => expect(network.uploads()).toBe(1));
+  });
+
+  it("CONTROL: an unsigned PDF shows no warning and runs at once", async () => {
+    const unsigned = await signedPdf({ signatures: 0 });
+    expect(countDigitalSignatures(unsigned)).toBe(0);
+    const { network, run } = await pick(unsigned);
+    fireEvent.click(run);
+    await waitFor(() => expect(network.uploads()).toBe(1));
+    expect(
+      screen.queryByRole("group", { name: /digital signature/ }),
+    ).toBeNull();
+  });
+});
+
+describe("pdf-to-pdfa: the page describes the signature gate the panel runs", () => {
+  it("the box the page names is the one the warning renders", async () => {
+    render(
+      <PdfASignatureWarning
+        id="w"
+        count={1}
+        confirmed={false}
+        onConfirm={() => {}}
+      />,
+    );
+    const label = screen.getByRole("checkbox").closest("label")!.textContent!;
+    const begins = /begins "([^"]+)"/.exec(
+      pdfaContent.steps.map((s) => s.body).join(" "),
+    )?.[1];
+    expect(begins).toBeDefined();
+    expect(label.startsWith(begins!)).toBe(true);
   });
 });

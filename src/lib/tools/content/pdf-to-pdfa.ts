@@ -110,6 +110,12 @@ const EXAMPLE_OUT = pdfaOutputName(EXAMPLE_IN);
  *  - input check: the SAME `looksLikePdf` runs on the input before gs, so a
  *    file whose `%%EOF` is missing (a truncated download) is refused as "could
  *    not be read as a PDF" even though it is a PDF.
+ *  - signatures (2026-11-08, audit pdf-to-pdfa#6): the panel counts them in
+ *    the browser with countDigitalSignatures on pick AND again on the bytes
+ *    Run is about to upload; a signed file shows PdfASignatureWarning
+ *    (pdfa-signature-warning.tsx) and Run stays aria-disabled until its
+ *    "Convert anyway" box is ticked. Whether gs drops the signature field or
+ *    keeps it broken is not checked, so the copy says "not valid", no more.
  *  - document properties (2026-11-08, audit pdf-to-pdfa#3): the worker reads
  *    Title, Author, Subject and Keywords with pdf-lib (pdf-archive/docinfo.ts)
  *    and writes the ones it can encode faithfully into the prefix as a
@@ -183,7 +189,7 @@ const content: ToolContent = {
     },
     {
       title: "Add one PDF",
-      body: 'Drop it on the area reading "Add a PDF, or", or click browse. Its name replaces the drop area, with Remove beside it to swap files.',
+      body: 'Drop it on the area reading "Add a PDF, or", or click browse. Its name replaces the drop area, with Remove beside it to swap files. Before anything is uploaded, your browser checks the file for digital signatures: converting rewrites the whole file, so a signature will not survive as a valid one. If it finds any, the panel says how many, and Convert to PDF/A stays off until you tick the box that begins "Convert anyway".',
     },
     {
       title: "Choose the PDF/A level",
