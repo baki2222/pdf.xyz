@@ -5,7 +5,16 @@ import {
   COMBINED_CSV_NAME,
   COMBINED_SHEET_NAME,
 } from "@/lib/jobs/extract-tables-options";
-import { XLSX_NUMBER_EXAMPLES } from "@/lib/jobs/pdf-office-export";
+import {
+  XLSX_NUMBER_EXAMPLES,
+  XLSX_TEXT_EXAMPLE,
+} from "@/lib/jobs/pdf-office-export";
+import {
+  SHEET_DATE_EXAMPLES,
+  SHEET_LAKH_EXAMPLE,
+  SHEET_NEGATIVE_EXAMPLES,
+  SHEET_NOTE_MARK_EXAMPLE,
+} from "@/lib/jobs/sheet-number-examples";
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { MAX_SIGNIFICANT_DIGITS } from "@/lib/workers/ooxml/sheet-cells";
@@ -137,7 +146,7 @@ const content: ToolContent = {
     },
     {
       q: "Does Excel see my numbers as numbers?",
-      a: `Yes, when a cell holds exactly one number. Values such as ${XLSX_NUMBER_EXAMPLES.join(", ")} or -4 are stored in tables.xlsx as numbers with a matching format, so they can be summed straight away. A code with a leading zero such as 00123, a number of more than ${MAX_SIGNIFICANT_DIGITS} significant digits, a European 1.250,00, a date or a bracketed negative stays text exactly as printed. The CSV files start with a UTF-8 byte-order mark, so a double-click opens accented and non-Latin text correctly in Excel. A CSV cell that starts with ${CSV_LEADS_PHRASE} and is not a number or a lone dash gets a leading apostrophe, so Excel shows it as text instead of running it as a formula; tables.xlsx keeps such a cell as plain text.`,
+      a: `Yes, when a cell holds exactly one number. Values such as ${XLSX_NUMBER_EXAMPLES.join(", ")} or -4 are stored in tables.xlsx as numbers with a matching format, so they can be summed straight away, and so is an amount in Indian lakh grouping such as ${SHEET_LAKH_EXAMPLE} and an accounting negative such as ${SHEET_NEGATIVE_EXAMPLES[0]} or ${SHEET_NEGATIVE_EXAMPLES[1]}; a date that cannot be read two ways, such as ${SHEET_DATE_EXAMPLES[0]} or ${SHEET_DATE_EXAMPLES[1]}, becomes a real date. A code with a leading zero such as 00123, a number of more than ${MAX_SIGNIFICANT_DIGITS} significant digits, a European 1.250,00, a date written as ${XLSX_TEXT_EXAMPLE}, which reads differently from country to country, or a bare bracketed number such as ${SHEET_NOTE_MARK_EXAMPLE} stays text exactly as printed. The CSV files start with a UTF-8 byte-order mark, so a double-click opens accented and non-Latin text correctly in Excel. A CSV cell that starts with ${CSV_LEADS_PHRASE} and is not a number or a lone dash gets a leading apostrophe, so Excel shows it as text instead of running it as a formula; tables.xlsx keeps such a cell as plain text.`,
     },
   ],
 

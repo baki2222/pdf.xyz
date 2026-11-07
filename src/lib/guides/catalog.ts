@@ -119,6 +119,12 @@ import {
   SHEET_PER_PAGE_LABEL,
 } from "@/lib/jobs/pdf-to-excel-options";
 import {
+  SHEET_DATE_EXAMPLES,
+  SHEET_LAKH_EXAMPLE,
+  SHEET_NEGATIVE_EXAMPLES,
+  SHEET_NOTE_MARK_EXAMPLE,
+} from "@/lib/jobs/sheet-number-examples";
+import {
   COMBINE_TABLES_LABEL,
   COMBINED_CSV_NAME,
   COMBINED_SHEET_NAME,
@@ -3069,7 +3075,7 @@ export const guides: Guide[] = [
         id: "numbers-stay-numbers",
         heading: "Amounts arrive as numbers",
         body: [
-          `An amount or a percentage written like ${XLSX_AMOUNTS} is stored as a number, so SUM adds a column up without converting anything, and the comma inside an amount never splits it. A date such as ${XLSX_TEXT_EXAMPLE}, a European-style 1.250,00, a negative in brackets and a code with leading zeros stay text, so convert those columns before you calculate with them.`,
+          `An amount or a percentage written like ${XLSX_AMOUNTS} is stored as a number, so SUM adds a column up without converting anything, and the comma inside an amount never splits it. So is an amount in Indian lakh grouping such as ${SHEET_LAKH_EXAMPLE} and an accounting negative such as ${SHEET_NEGATIVE_EXAMPLES[0]} or ${SHEET_NEGATIVE_EXAMPLES[1]}, and a date that cannot be read two ways, such as ${SHEET_DATE_EXAMPLES[0]} or ${SHEET_DATE_EXAMPLES[1]}, becomes a real date. A date written as ${XLSX_TEXT_EXAMPLE}, which reads differently from country to country, a European-style 1.250,00, a bare bracketed number such as ${SHEET_NOTE_MARK_EXAMPLE} and a code with leading zeros stay text, so convert those columns before you calculate with them.`,
         ],
       },
       {
@@ -3088,7 +3094,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Will SUM work on the numbers?",
-        answer: `For amounts and percentages written like ${XLSX_AMOUNTS}, yes: each is stored as a number. Dates such as ${XLSX_TEXT_EXAMPLE}, European-style 1.250,00, negatives in brackets and codes with leading zeros stay text.`,
+        answer: `For amounts and percentages written like ${XLSX_AMOUNTS}, yes: each is stored as a number, and so is an amount in Indian lakh grouping such as ${SHEET_LAKH_EXAMPLE} and an accounting negative such as ${SHEET_NEGATIVE_EXAMPLES[0]} or ${SHEET_NEGATIVE_EXAMPLES[1]}. A date written as ${XLSX_TEXT_EXAMPLE}, which reads differently from country to country, European-style 1.250,00, a bare bracketed number such as ${SHEET_NOTE_MARK_EXAMPLE} and codes with leading zeros stay text.`,
       },
       {
         question: "Can I convert a scanned PDF to Excel?",
@@ -5499,7 +5505,7 @@ export const guides: Guide[] = [
         heading: "What you download",
         body: [
           "The ZIP holds table-1.csv, table-2.csv and so on, one per table, plus tables.xlsx with a sheet per table named by its number and page, such as Table 1 (p3). The CSV files follow the common RFC 4180 layout, so a script can read them directly, and start with a UTF-8 byte-order mark, so a double-click opens accented letters correctly in Excel; a script should read them as utf-8-sig. A text cell that starts with =, +, - or @ carries a leading apostrophe, so Excel shows it as text instead of running it as a formula.",
-          `In tables.xlsx, a cell that holds exactly one number, such as ${XLSX_AMOUNTS}, is stored as a number, so a formula can add up the column. A code with leading zeros such as 00123, a number of more than ${MAX_SIGNIFICANT_DIGITS} significant digits, a European 1.250,00, a date and a negative in brackets stay text, exactly as printed.`,
+          `In tables.xlsx, a cell that holds exactly one number, such as ${XLSX_AMOUNTS}, is stored as a number, so a formula can add up the column, and so is an amount in Indian lakh grouping such as ${SHEET_LAKH_EXAMPLE} and an accounting negative such as ${SHEET_NEGATIVE_EXAMPLES[0]} or ${SHEET_NEGATIVE_EXAMPLES[1]}; a date that cannot be read two ways, such as ${SHEET_DATE_EXAMPLES[0]} or ${SHEET_DATE_EXAMPLES[1]}, becomes a real date. A code with leading zeros such as 00123, a number of more than ${MAX_SIGNIFICANT_DIGITS} significant digits, a European 1.250,00, a date written as ${XLSX_TEXT_EXAMPLE} and a bare bracketed number such as ${SHEET_NOTE_MARK_EXAMPLE} stay text, exactly as printed.`,
         ],
       },
       {
@@ -5530,7 +5536,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Will Excel see my numbers as numbers?",
-        answer: `Yes, in tables.xlsx, when a cell holds exactly one number such as ${XLSX_AMOUNTS}. Dates, codes with leading zeros, European-style 1.250,00 and negatives in brackets stay text. The CSV files are plain text, so the program that opens them decides.`,
+        answer: `Yes, in tables.xlsx, when a cell holds exactly one number such as ${XLSX_AMOUNTS}, ${SHEET_LAKH_EXAMPLE} or ${SHEET_NEGATIVE_EXAMPLES[0]}, and a date such as ${SHEET_DATE_EXAMPLES[0]} is a real date. A date written as ${XLSX_TEXT_EXAMPLE}, codes with leading zeros, European-style 1.250,00 and a bare bracketed number such as ${SHEET_NOTE_MARK_EXAMPLE} stay text. The CSV files are plain text, so the program that opens them decides.`,
       },
       {
         question: "Is my PDF uploaded?",

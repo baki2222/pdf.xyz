@@ -73,6 +73,12 @@ import { createPdfOfficeExportProcessor } from "@/lib/workers/processor/pdf-offi
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
 import { cellsByRef, readXlsxSheet } from "@/lib/workers/ooxml/sheet-read";
 import { MAX_SIGNIFICANT_DIGITS } from "@/lib/workers/ooxml/sheet-cells";
+import {
+  SHEET_DATE_EXAMPLES,
+  SHEET_LAKH_EXAMPLE,
+  SHEET_NEGATIVE_EXAMPLES,
+  SHEET_NOTE_MARK_EXAMPLE,
+} from "@/lib/jobs/sheet-number-examples";
 import { flowText, type PdfFlowText } from "@/lib/workers/pdf-text/flow";
 import { parseBboxFlow, parseBboxLayout } from "@/lib/workers/pdf-text/parse";
 import { PdfTextExecError } from "@/lib/workers/pdf-text/errors";
@@ -489,10 +495,13 @@ describe("PDF to Excel: the sheet is the page's sentence", () => {
     // that stay text; each is run, and the digit limit has a control on
     // both sides of it.
     const served = answer("pdf-to-excel", /SUM/);
+    // INVERTED 2026-11-08 (audit pdf-to-excel#4): "(1,250.00)" was in this
+    // list and the page said "negatives in brackets … stay text". A bracketed
+    // AMOUNT is now negative (the test below); a bare (3) still stays text.
     const STAYS_TEXT = [
       XLSX_TEXT_EXAMPLE,
       "1.250,00",
-      "(1,250.00)",
+      SHEET_NOTE_MARK_EXAMPLE,
       "00123",
       "1".repeat(MAX_SIGNIFICANT_DIGITS + 1),
     ];
@@ -510,10 +519,36 @@ describe("PDF to Excel: the sheet is the page's sentence", () => {
     for (const said of [
       XLSX_TEXT_EXAMPLE,
       "1.250,00",
-      "negatives in brackets",
+      SHEET_NOTE_MARK_EXAMPLE,
       "leading zeros",
       `${MAX_SIGNIFICANT_DIGITS} significant digits`,
       ...XLSX_NUMBER_EXAMPLES,
+    ])
+      expect(served, said).toContain(said);
+  });
+
+  it("lakh amounts, accounting negatives and unambiguous dates the page names are numbers and dates (audit pdf-to-excel#4)", async () => {
+    const served = answer("pdf-to-excel", /SUM/);
+    const cell = async (value: string) =>
+      (await sheetOf([`Ref    ${value}`])).rows[0]!.cells[1]!;
+    expect(await cell(SHEET_LAKH_EXAMPLE)).toMatchObject({
+      type: "number",
+      value: "125000.00",
+    });
+    for (const negative of SHEET_NEGATIVE_EXAMPLES)
+      expect(await cell(negative), negative).toMatchObject({
+        type: "number",
+        value: "-1250.00",
+      });
+    for (const date of SHEET_DATE_EXAMPLES) {
+      const read = await cell(date);
+      expect(read.type, date).toBe("number");
+      expect(read.format, date).toMatch(/yyyy/);
+    }
+    for (const said of [
+      SHEET_LAKH_EXAMPLE,
+      ...SHEET_NEGATIVE_EXAMPLES,
+      ...SHEET_DATE_EXAMPLES,
     ])
       expect(served, said).toContain(said);
   });
@@ -552,12 +587,21 @@ describe("PDF to Excel: the sheet is the page's sentence", () => {
 describe("Extract Tables: tables.xlsx is the page's numbers answer", () => {
   it("each value the page calls a number is one in the workbook, and each it calls text stays text", async () => {
     const served = answer("extract-tables", /numbers/i);
-    const NUMBERS = [...XLSX_NUMBER_EXAMPLES, "-4"];
+    // INVERTED 2026-11-08 (audit pdf-to-excel#4): "(1,250.00)" and the ISO
+    // date were TEXT here, and the page said a date or a bracketed negative
+    // stays text. Both are now numbers; a bare (3) and 05/01/2026 stay text.
+    const NUMBERS = [
+      ...XLSX_NUMBER_EXAMPLES,
+      "-4",
+      SHEET_LAKH_EXAMPLE,
+      ...SHEET_NEGATIVE_EXAMPLES,
+      ...SHEET_DATE_EXAMPLES,
+    ];
     const TEXT = [
       "00123",
       "1.250,00",
       XLSX_TEXT_EXAMPLE,
-      "(1,250.00)",
+      SHEET_NOTE_MARK_EXAMPLE,
       "1".repeat(MAX_SIGNIFICANT_DIGITS + 1),
     ];
     const values = [...NUMBERS, ...TEXT];
@@ -582,7 +626,8 @@ describe("Extract Tables: tables.xlsx is the page's numbers answer", () => {
       "00123",
       "1.250,00",
       `${MAX_SIGNIFICANT_DIGITS} significant digits`,
-      "bracketed negative",
+      XLSX_TEXT_EXAMPLE,
+      SHEET_NOTE_MARK_EXAMPLE,
     ])
       expect(served, said).toContain(said);
   });

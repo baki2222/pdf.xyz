@@ -12,6 +12,12 @@ import {
   pageSheetName,
   SHEET_PER_PAGE_LABEL,
 } from "@/lib/jobs/pdf-to-excel-options";
+import {
+  SHEET_DATE_EXAMPLES,
+  SHEET_LAKH_EXAMPLE,
+  SHEET_NEGATIVE_EXAMPLES,
+  SHEET_NOTE_MARK_EXAMPLE,
+} from "@/lib/jobs/sheet-number-examples";
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { MAX_SIGNIFICANT_DIGITS } from "@/lib/workers/ooxml/sheet-cells";
@@ -38,7 +44,9 @@ import { MAX_SIGNIFICANT_DIGITS } from "@/lib/workers/ooxml/sheet-cells";
  *    cells are runs split at tabs and 2+ spaces, NEVER at a comma, placed in
  *    the column they sit in, so an empty cell stays empty; its limits are
  *    XLSX_MERGE_CAVEAT. src/lib/workers/ooxml/sheet-cells.ts — an amount or
- *    a percentage is a numeric cell; dates, 1.250,00, bracketed negatives,
+ *    a percentage is a numeric cell, and since 2026-11-08 (audit
+ *    pdf-to-excel#4) so are lakh grouping and accounting negatives, and an
+ *    unambiguous date is a date; 05/01/2026, 1.250,00, a bare (3),
  *    leading-zero codes and more than MAX_SIGNIFICANT_DIGITS digits stay
  *    text; columns go past Z (columnRef).
  *  - src/lib/workers/table-extract/engine.ts — Extract Tables finds every
@@ -81,7 +89,7 @@ const content: ToolContent = {
 
   intro: [
     `PDF to Excel reads the selectable text of one PDF and writes it into a single worksheet, named "${XLSX_SHEET_NAME}", inside an XLSX workbook, or into one sheet per page when you tick ${SHEET_PER_PAGE_LABEL}. The text is pulled with poppler's pdftotext in layout mode, which pads each line with spaces so a printed table row keeps gaps between its columns. Each non-empty line becomes one spreadsheet row, split into cells at ${XLSX_CELL_BREAK_PHRASE}; a single space or a comma never starts a new cell. Rows that line up are treated as one table, and each value goes in the column it sits in on the page, so an empty cell stays empty. In the single sheet, pages follow one another with no blank row between them, so page headers, footers and page numbers printed as text end up among the data rows; with ${SHEET_PER_PAGE_LABEL} ticked, each page is a sheet of its own, named ${pageSheetName(1)}, ${pageSheetName(2)} and so on, and a page with no text gets an empty sheet so the numbers still match.`,
-    `This is layout placement, not table detection: ruling lines and cell borders are ignored and merged cells are not rebuilt. ${XLSX_MERGE_CAVEAT} An amount or a percentage such as ${AMOUNTS} is stored as a number a formula can add up, and the comma inside it never splits it; a date such as ${XLSX_TEXT_EXAMPLE}, a European-style 1.250,00, a negative in brackets and a code with leading zeros stay text. To pull individual tables out of a page, Extract Tables finds each table by where its words sit and exports it on its own.`,
+    `This is layout placement, not table detection: ruling lines and cell borders are ignored and merged cells are not rebuilt. ${XLSX_MERGE_CAVEAT} An amount or a percentage such as ${AMOUNTS} is stored as a number a formula can add up, and the comma inside it never splits it; so are an amount in Indian lakh grouping such as ${SHEET_LAKH_EXAMPLE} and an accounting negative such as ${SHEET_NEGATIVE_EXAMPLES[0]} or ${SHEET_NEGATIVE_EXAMPLES[1]}, and a date that cannot be read two ways, such as ${SHEET_DATE_EXAMPLES[0]} or ${SHEET_DATE_EXAMPLES[1]}, becomes a real date. A date written as ${XLSX_TEXT_EXAMPLE}, which reads differently from country to country, a European-style 1.250,00, a bare bracketed number such as ${SHEET_NOTE_MARK_EXAMPLE} and a code with leading zeros stay text. To pull individual tables out of a page, Extract Tables finds each table by where its words sit and exports it on its own.`,
     `Poppler is a native program that a browser cannot run, so the export happens on pdf.xyz's secure server and each run takes one PDF of at most ${CEILING_MB} MB, sent over TLS. Our server deletes your PDF when the export job finishes. Your workbook can be fetched from its link for ${OUTPUT_TTL} minutes, and once that link has expired a daily storage rule erases the stored XLSX.`,
   ],
 
@@ -126,7 +134,7 @@ const content: ToolContent = {
     },
     {
       q: "Will SUM work on my numbers?",
-      a: `For amounts and percentages written like ${AMOUNTS}, yes: each is stored as a number. Dates such as ${XLSX_TEXT_EXAMPLE}, European-style 1.250,00, negatives in brackets, codes with leading zeros and numbers longer than ${MAX_SIGNIFICANT_DIGITS} significant digits stay text, so convert those columns before summing.`,
+      a: `For amounts and percentages written like ${AMOUNTS}, yes: each is stored as a number, and so is an amount in Indian lakh grouping such as ${SHEET_LAKH_EXAMPLE} and an accounting negative such as ${SHEET_NEGATIVE_EXAMPLES[0]} or ${SHEET_NEGATIVE_EXAMPLES[1]}. A date that cannot be read two ways, such as ${SHEET_DATE_EXAMPLES[0]} or ${SHEET_DATE_EXAMPLES[1]}, is stored as a real date. A date written as ${XLSX_TEXT_EXAMPLE}, which reads differently from country to country, European-style 1.250,00, a bare bracketed number such as ${SHEET_NOTE_MARK_EXAMPLE}, codes with leading zeros and numbers longer than ${MAX_SIGNIFICANT_DIGITS} significant digits stay text, so convert those columns before summing.`,
     },
     {
       q: "How is this different from Extract Tables?",
