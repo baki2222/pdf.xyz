@@ -659,6 +659,40 @@ describe("optimize-web: what the picked file already is, before any upload", () 
     await vi.waitFor(() => expect(uploadsRequested()).toBe(1));
   });
 
+  it("a press that lands before the pick-time read finishes still cannot send a signed file", async () => {
+    const signed = await signedPdf({ signatures: 2 });
+    // Hold the FIRST read of the file (the pick-time read) open; every later
+    // read, including the one start() makes, goes through as normal.
+    const real = Blob.prototype.arrayBuffer;
+    let release: () => void = () => {};
+    const reads = vi
+      .spyOn(Blob.prototype, "arrayBuffer")
+      .mockImplementationOnce(function (this: Blob) {
+        const later = real.call(this);
+        return new Promise<ArrayBuffer>((resolve) => {
+          release = () => void later.then(resolve);
+        });
+      });
+    const run = await pick("optimize-web", signed);
+    // Health check: the read is still pending, so Run has nothing to hold it.
+    expect(reads).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[data-web-input="read"]')).toBeNull();
+    expect(run).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(run);
+    // start() read the bytes itself, found the signatures, and stopped.
+    const warning = await screen.findByRole("group", {
+      name: "This PDF has 2 digital signatures",
+    });
+    expect(reads.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(run).toHaveAttribute("aria-disabled", "true");
+    expect(run).toHaveAttribute("aria-describedby", warning.id);
+    release();
+    await vi.waitFor(() =>
+      expect(document.querySelector('[data-web-input="read"]')).not.toBeNull(),
+    );
+    expect(uploadsRequested()).toBe(0);
+  });
+
   it("control: an unsigned PDF shows no signature warning and runs at once", async () => {
     const run = await pick("optimize-web", INPUT);
     expect(run).not.toHaveAttribute("aria-disabled");
