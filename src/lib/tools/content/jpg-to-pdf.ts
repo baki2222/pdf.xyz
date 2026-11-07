@@ -1,4 +1,5 @@
 import type { ToolContent } from "./types";
+import { getToolBySlug } from "@/lib/tools";
 import { MAX_IMAGE_MB } from "@/lib/tools/limits";
 import {
   IMAGE_MARGINS,
@@ -17,6 +18,19 @@ import {
   MAX_SIZE_PRESETS,
   limitOutcome,
 } from "@/lib/pdf/image-size-limit";
+
+/**
+ * The formats the page names in its search snippet, read from the catalogue's
+ * `accept` list: JPEG is folded into JPG (one file type, two spellings) and
+ * WEBP is written the way its makers write it. ADDED 2026-11-07 (audit
+ * search-demand#1): the snippet said "Combine JPG and JPEG photos" while the
+ * tool took seven formats; image-search-words.test.ts holds every accepted
+ * format to the description.
+ */
+const ACCEPT = getToolBySlug("jpg-to-pdf")?.accept ?? [];
+const SNIPPET_FORMATS = ACCEPT.filter(
+  (f) => f !== "JPEG" || !ACCEPT.includes("JPG"),
+).map((f) => (f === "WEBP" ? "WebP" : f));
 
 /** The TIFF reader's ceilings (`tiff-limits.ts`), as the copy states them. */
 const TIFF_MP = MAX_TIFF_PAGE_PIXELS / 1_000_000;
@@ -148,8 +162,11 @@ const LIMIT_MET = limitOutcome({
  */
 const content: ToolContent = {
   slug: "jpg-to-pdf",
-  seoTitle: "JPG to PDF — Combine Photos in Your Browser",
-  metaDescription: `Combine JPG and JPEG photos into a single PDF, a page per photo, arranged as you like. Built in your browser, not uploaded. Up to ${MAX_IMAGE_MB} MB a photo.`,
+  // CHANGED 2026-11-07 (audit search-demand#1): was "JPG to PDF — Combine
+  // Photos in Your Browser" and "Combine JPG and JPEG photos into a single
+  // PDF…"; the page is the site's image-to-PDF page and now says so.
+  seoTitle: "JPG to PDF — Turn Images & Photos into a PDF",
+  metaDescription: `Turn ${or(SNIPPET_FORMATS)} images and photos into one PDF in your browser, not uploaded. Pick the page size and margin. Up to ${MAX_IMAGE_MB} MB each.`,
   intro: [
     "JPG to PDF takes a batch of JPG or JPEG photos and builds a single PDF with one image on each page. You add the pictures, put them in the order you want, and press Create PDF. The assembly happens inside this browser tab: your photos are read from your device, laid onto pages there, and the finished PDF is saved when you press Download PDF. The images are not uploaded to pdf.xyz.",
     `Unless you change the page setup, each photo goes on a white, portrait US Letter page, centred inside a 0.5 in margin. Before you create the PDF you can pick the page size (${SIZES}), the orientation (${ORIENTATIONS}) and the margin (${MARGINS}). Auto turns the page sideways for a photo that is wider than it is tall, and Fit to image makes each page exactly the size of its photo plus the margin. On every page size a photo is shrunk only if it is too big to fit; one that already fits is never enlarged, so a low-resolution picture can look small in the middle of an A4 page.`,

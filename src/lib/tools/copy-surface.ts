@@ -159,6 +159,10 @@ export function copyFiles(): string[] {
     path.join(ROOT, "src", "lib", "structured-data.ts"),
     path.join(ROOT, "src", "lib", "jobs", "capabilities.ts"),
     path.join(ROOT, "src", "lib", "jobs", "ocr.ts"),
+    // What the OCR language picker starts on (2026-11-07), one sentence the
+    // guides and OCR PDF's page all render; ocr-start-copy.test.ts holds it
+    // to the picker's hook.
+    path.join(ROOT, "src", "lib", "jobs", "ocr-start-copy.ts"),
     path.join(ROOT, "src", "lib", "jobs", "pdf-security.ts"),
     // Protect PDF's permission switch labels and their two "why it cannot
     // be turned off" sentences (2026-10-24), drawn by the panel and the page.

@@ -125,7 +125,12 @@ describe("the guides catalogue is structurally sound", () => {
     // Orientation tag (#276). "tiff to pdf" is its own search family, and the
     // WebP / GIF / BMP guide does not cover multi-page or fax TIFFs (64 → 65).
     // Checked against `tiff.ts`, `tiff-limits.ts` and `addTiffPages`.
-    expect(slugs.length).toBeLessThanOrEqual(65);
+    // Revisited 2026-11-07 (audit search-demand#5): "How to convert a scanned
+    // PDF to editable Word" (65 -> 66). PDF to Word has run OCR in the same
+    // job since 2026-10-24, and "scanned pdf to word" / "ocr pdf to word" had
+    // no page; the Bangla guide answers a language, not the general search.
+    // Checked against WORD_OCR_LABEL, WORD_OCR_HINT and the Word panel.
+    expect(slugs.length).toBeLessThanOrEqual(66);
     for (const guide of guides) {
       expect(
         copyStrings(guide).length,

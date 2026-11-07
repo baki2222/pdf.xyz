@@ -36,12 +36,16 @@
     "updated": "2026-11-01"
   },
   "how-to-compress-a-pdf-to-100-kb": {
-    "contentHash": "7c28882f37a5b9a585c41aed922381c37f5e808d3187448b1153dccd7f402fd4",
-    "updated": "2026-10-31"
+    "contentHash": "027821c6d88e8b771c666bfc7b3df2a5fb898111f334995581cfae2814038edf",
+    "updated": "2026-11-07"
   },
   "how-to-convert-a-pdf-to-black-and-white": {
     "contentHash": "ddadfab6d93831dce9292a5641436125443cef418855483b0e775c17b40f74d0",
     "updated": "2026-10-31"
+  },
+  "how-to-convert-a-scanned-pdf-to-word": {
+    "contentHash": "fea1c384f957aacf2f556b3d6e97b426a01a6d89913e23927931d1b2adfeb59a",
+    "updated": "2026-11-07"
   },
   "how-to-convert-a-text-file-to-pdf": {
     "contentHash": "c7dd54756725db08c8495da9526526f707ce6c6912158c23dd8f802cc00ba2f2",
@@ -52,8 +56,8 @@
     "updated": "2026-10-31"
   },
   "how-to-convert-bangla-pdf-to-word": {
-    "contentHash": "577543159b525d7a27560381eba16e3cdb0d7bfceef6f608f3c83e55a5d7cdd2",
-    "updated": "2026-10-31"
+    "contentHash": "fa0298de07302bd68902cfaaf74369118f7ae5ca9f6971751382283fc4f94067",
+    "updated": "2026-11-07"
   },
   "how-to-convert-excel-to-pdf": {
     "contentHash": "56def86eba55fc979a1ab8fa2b69904cfacd635a9d6ba2dabe8d9e126771fc29",
@@ -64,8 +68,8 @@
     "updated": "2026-11-06"
   },
   "how-to-convert-jpg-to-pdf-under-100-kb": {
-    "contentHash": "7fa0fdf084fab60f368070cdf9886d98da90ea5777dd465f4177f197e587b0a7",
-    "updated": "2026-10-31"
+    "contentHash": "f2a12218f0acbe288fb4d6b4d3dce5496e499c91ca0324240b7833265cb6210f",
+    "updated": "2026-11-07"
   },
   "how-to-convert-markdown-to-pdf": {
     "contentHash": "69693c14c48f139b66a63514e3759367d705663c94aeb644f8fe9a63f6f321af",
@@ -100,8 +104,8 @@
     "updated": "2026-10-31"
   },
   "how-to-convert-pdf-to-word": {
-    "contentHash": "c525695a44f4ca4cb0391c0f0a24100f11b5f9deb46808c4b26ffd7dab6065ad",
-    "updated": "2026-10-30"
+    "contentHash": "c81368ed8ba45dc1b9c3170d887bf75665bf3ad74fc18b25cb0a744b836e5dc8",
+    "updated": "2026-11-07"
   },
   "how-to-convert-powerpoint-to-pdf": {
     "contentHash": "ab2e1a3b124eb7751973315507b7f800ee4d9751aaa6540f3744d7716aebf536",
@@ -172,8 +176,8 @@
     "updated": "2026-10-30"
   },
   "how-to-ocr-a-pdf-in-other-languages": {
-    "contentHash": "9681666d6d13002b6edbe0bdb0d6453d793b025ee7f0fec26c1749edcb6df334",
-    "updated": "2026-10-31"
+    "contentHash": "1249cb16226284f75b3a2daf9e1e3c0af8217db24d95fbb967284294850aeec4",
+    "updated": "2026-11-07"
   },
   "how-to-password-protect-a-pdf": {
     "contentHash": "c3e09d8c34f432f1984b8e5fdb16ccef133bed7928bb128d1dbd882d509294a2",

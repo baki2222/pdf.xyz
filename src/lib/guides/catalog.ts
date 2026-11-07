@@ -98,6 +98,7 @@ import {
   type OcrOutputMode,
 } from "@/lib/jobs/ocr";
 import {
+  WORD_OCR_HINT,
   WORD_OCR_LABEL,
   XLSX_CELL_BREAK_PHRASE,
   XLSX_MERGE_CAVEAT,
@@ -158,6 +159,7 @@ import {
   TARGET_SIZE_PRESETS,
   targetOutcome,
 } from "@/lib/pdf/compress-target";
+import { MB, sizeLabel } from "@/lib/pdf/size-presets";
 import {
   LIMIT_EXAMPLE,
   LIMIT_TIME_BUDGET_MS,
@@ -177,6 +179,7 @@ import {
   imagePageLayout,
 } from "@/lib/pdf/image-page-layout";
 import { RETENTION_WINDOWS } from "@/lib/retention-windows";
+import { OCR_START_SENTENCE } from "@/lib/jobs/ocr-start-copy";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
 import {
   PDFA_EXPECTED_CONFORMANCE,
@@ -275,7 +278,6 @@ function targetPreset(bytes: number): string {
 }
 const KB_BYTES = TARGET_KB;
 const TARGET_PRESET_100 = targetPreset(100 * KB_BYTES);
-const TARGET_PRESET_200 = targetPreset(200 * KB_BYTES);
 /** The ladder's floor and the panel's default Quality, by their own labels. */
 const TARGET_FLOOR_LABEL = DEEP_COMPRESSION_PRESETS[0].label;
 const TARGET_DEFAULT_QUALITY_LABEL = (() => {
@@ -285,6 +287,19 @@ const TARGET_DEFAULT_QUALITY_LABEL = (() => {
 })();
 /** A whole-KB target under 100,000 bytes, for a portal that counts KB as 1,000. */
 const PORTAL_SAFE_100_KB = Math.floor(100_000 / KB_BYTES);
+/**
+ * A size people search for that is not a preset (2 MB), by label and as the
+ * Custom box takes it, in whole KB.
+ */
+const OFF_PRESET_BYTES = 2 * MB;
+const OFF_PRESET_LABEL = sizeLabel(OFF_PRESET_BYTES);
+const OFF_PRESET_KB = OFF_PRESET_BYTES / KB_BYTES;
+/** A smaller off-preset size for the JPG guide's Max file size (300 KB). */
+const OFF_PRESET_SMALL_BYTES = 300 * KB_BYTES;
+const OFF_PRESET_SMALL_LABEL = sizeLabel(OFF_PRESET_SMALL_BYTES);
+const OFF_PRESET_SMALL_KB = OFF_PRESET_SMALL_BYTES / KB_BYTES;
+/** A preset as searchers type it: "100 KB" -> "100kb", "1 MB" -> "1mb". */
+const searchSpelling = (label: string) => label.replace(" ", "").toLowerCase();
 /** The panel's own sentence for a met target, from the function it calls. */
 const TARGET_EXAMPLE_SENTENCE = targetOutcome({
   ...TARGET_EXAMPLE,
@@ -348,6 +363,13 @@ const listAnd = (items: readonly string[]) =>
   new Intl.ListFormat("en", { type: "conjunction" }).format(items);
 const listOr = (items: readonly string[]) =>
   new Intl.ListFormat("en", { type: "disjunction" }).format(items);
+/**
+ * The panels' size presets for a TITLE: "100 KB, 200 KB, 500 KB or 1 MB",
+ * without the serial comma, so the size guides' titles fit the 65-character
+ * results-page ceiling (size-guide-titles.test.ts measures them).
+ */
+const titleSizes = (labels: readonly string[]) =>
+  `${labels.slice(0, -1).join(", ")} or ${labels.at(-1)}`;
 
 /** Add Watermark's Font choices, as its runner labels them. */
 const WATERMARK_FONTS = listOr(
@@ -493,7 +515,6 @@ function limitPreset(bytes: number): string {
   return preset.label;
 }
 const LIMIT_100 = limitPreset(100 * KB_BYTES);
-const LIMIT_200 = limitPreset(200 * KB_BYTES);
 const LIMIT_PRESET_LABELS = MAX_SIZE_PRESETS.map((p) => p.label);
 const LIMIT_MET_SENTENCE = limitOutcome({
   ...LIMIT_EXAMPLE,
@@ -1097,7 +1118,10 @@ export const guides: Guide[] = [
         id: "scanned-pdfs",
         heading: "Scanned PDFs and neighboring tools",
         body: [
-          "The tools listed beside PDF to Word cover the jobs next door. If your PDF is a scan — photographed or scanned pages rather than typed text — run it through the OCR PDF tool first, which recognizes the text in scanned pages so there is real text to carry into Word.",
+          // CHANGED 2026-11-07 (audit search-demand#5): told a reader with a
+          // scan to run OCR PDF first, stale since 2026-10-24, when PDF to
+          // Word gained its own OCR switch (scanned-pdf-to-word.test.ts).
+          `If your PDF is a scan — photographed or scanned pages rather than typed text — tick “${WORD_OCR_LABEL}” before you press Export DOCX. Our server then recognises the text in the scanned pages and converts the result in the same job, so there is real text to carry into Word. ${nameOf("ocr-pdf")}, listed beside it, is for when you want a searchable PDF instead of a Word file.`,
           "If you want the same text as a plain .txt file rather than a DOCX, PDF to Text pulls it out right in your browser. And when the editing is done, Word to PDF converts your finished document back in the other direction.",
         ],
       },
@@ -1123,11 +1147,11 @@ export const guides: Guide[] = [
       },
       {
         question: "Will the Word document look like my original PDF?",
-        answer: `No. It holds the PDF's words and pictures, not its design. ${PDF_TO_WORD_KEEPS} If your PDF is a scanned image rather than typed text, use the OCR PDF tool first so there is recognized text to convert.`,
+        answer: `No. It holds the PDF's words and pictures, not its design. ${PDF_TO_WORD_KEEPS} If your PDF is a scanned image rather than typed text, tick “${WORD_OCR_LABEL}” so there is recognised text to convert.`,
       },
     ],
     published: "2026-09-17",
-    updated: "2026-10-30",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-convert-jpg-to-pdf",
@@ -3194,12 +3218,12 @@ export const guides: Guide[] = [
     ],
     intro: [
       `To OCR a PDF in a language other than English, open ${nameOf("ocr-pdf")}, select every language printed on the page under Languages, add your scan, and press Recognize text. ${OCR_LANGUAGES.length} languages are offered, including ${OCR_EXAMPLE_NAMES}, and one job can combine up to ${MAX_OCR_LANGUAGES}.`,
-      `Choosing the language is the step that decides the result. ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} is selected when the page opens, and a page read in the wrong language does not fail: the engine returns fluent-looking nonsense in the alphabet it was given, with no error.`,
+      `Choosing the language is the step that decides the result. ${OCR_START_SENTENCE}, and a page read in the wrong language does not fail: the engine returns fluent-looking nonsense in the alphabet it was given, with no error.`,
       `${nameOf("ocr-pdf")} runs on a secure server. Your scan, up to ${ceilingMb("ocr-pdf")} MB, travels over an encrypted connection and is deleted when the job finishes, and the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
     ],
     steps: [
       `Open the ${nameOf("ocr-pdf")} tool.`,
-      `Under Languages, select every language the document uses, up to ${MAX_OCR_LANGUAGES}. ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} starts selected; deselect it if the page has none.`,
+      `Under Languages, select every language the document uses, up to ${MAX_OCR_LANGUAGES}. ${OCR_START_SENTENCE}; deselect any the page does not use.`,
       `Under Output, choose ${ocrModeLabel("searchable-pdf")}, ${ocrModeLabel("text")} for a .txt file, or ${ocrModeLabel("both")}.`,
       "Drop one PDF, JPG or PNG into the Add a scan to OCR area and press Recognize text. The file uploads over an encrypted connection only when you press it.",
       `Download the result. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
@@ -3254,7 +3278,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-convert-a-webpage-to-pdf",
@@ -4150,14 +4174,18 @@ export const guides: Guide[] = [
   // from the panel's constants (`compress-target.ts`, `offered-kinds.ts`),
   // the retention windows from the code the privacy page reads, and the
   // KB arithmetic from the same KB the panel compares with.
+  // CHANGED 2026-11-07 (audit search-demand#2): titled "…to 100 KB (or 200
+  // KB)" until then, though the panel offers every preset; the title now
+  // names them all, and size-guide-titles.test.ts holds it to the list.
   {
     slug: "how-to-compress-a-pdf-to-100-kb",
-    title: `How to compress a PDF to ${TARGET_PRESET_100} (or ${TARGET_PRESET_200})`,
+    title: `How to compress a PDF to ${titleSizes(TARGET_PRESET_LABELS)}`,
     description: `Make a PDF fit an upload limit of ${listOr(TARGET_PRESET_LABELS)}: pick a target size, and our server shrinks the images until it fits or can go no smaller.`,
     tools: ["compress-pdf", "split-pdf", "remove-pages"],
     keywords: [
-      "compress pdf to 100kb",
-      "compress pdf to 200kb",
+      ...TARGET_PRESET_LABELS.map(
+        (l) => `compress pdf to ${searchSpelling(l)}`,
+      ),
       "reduce pdf size to 100 kb",
       "make a pdf smaller for an upload form",
       "compress pdf to a specific size",
@@ -4224,25 +4252,33 @@ export const guides: Guide[] = [
         answer: `Yes, to reach a target: the size breakdown and the lossless copy run in your browser, but a target is reached by the deep step on our server. ${HYBRID_WORKER_STEP} The uploaded file is deleted when the job ends, and the result can be downloaded for ${RETENTION_WINDOWS.outputLink}.`,
       },
       {
+        question: `Can I compress a PDF to ${OFF_PRESET_LABEL}, or another size?`,
+        answer: `Yes, if the file is bigger than that now. Choose “${TARGET_SIZE_LABELS.custom}” under “${TARGET_SIZE_LABELS.heading}” and type the size in KB: ${OFF_PRESET_KB} KB for ${OFF_PRESET_LABEL}.`,
+      },
+      {
         question: "How large can my PDF be?",
         answer: `Up to ${ceilingMb("compress-pdf")} MB per file.`,
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   // Added 2026-10-31 with JPG / PNG to PDF's Max file size. Every label and
   // figure is read from the panel's constants (`image-size-limit.ts`), the
   // met sentence from the function the panel calls, and the KB arithmetic
   // from the same KB the compress guide uses.
+  // CHANGED 2026-11-07 (audit search-demand#2): titled "How to convert JPG
+  // to PDF under 100 KB (or 200 KB)" until then; it now names every preset
+  // the panel offers, inside the 65-character results-page ceiling.
   {
     slug: "how-to-convert-jpg-to-pdf-under-100-kb",
-    title: `How to convert JPG to PDF under ${LIMIT_100} (or ${LIMIT_200})`,
+    title: `Convert JPG to PDF under ${titleSizes(LIMIT_PRESET_LABELS)}`,
     description: `Make a PDF of a photo, signature or scan that fits a limit of ${listOr(LIMIT_PRESET_LABELS)}. Your browser shrinks the image until it fits.`,
     tools: ["jpg-to-pdf", "png-to-pdf"],
     keywords: [
-      "jpg to pdf under 100kb",
-      "jpg to pdf under 200kb",
+      ...LIMIT_PRESET_LABELS.map(
+        (l) => `jpg to pdf under ${searchSpelling(l)}`,
+      ),
       "convert photo to pdf under 100 kb",
       "signature jpg to pdf under 100kb",
       "image to pdf less than 100kb",
@@ -4308,12 +4344,109 @@ export const guides: Guide[] = [
           "No. The image is shrunk and the PDF is made in your browser tab; the file is not sent to pdf.xyz.",
       },
       {
+        question: `Can I make the PDF fit ${OFF_PRESET_SMALL_LABEL}, ${OFF_PRESET_LABEL} or another size?`,
+        answer: `Yes. Choose “${MAX_SIZE_LABELS.custom}” under “${MAX_SIZE_LABELS.heading}” and type the size in KB: ${OFF_PRESET_SMALL_KB} for ${OFF_PRESET_SMALL_LABEL}, ${OFF_PRESET_KB} for ${OFF_PRESET_LABEL}.`,
+      },
+      {
         question: "How large can my image be?",
         answer: `Up to ${MAX_IMAGE_MB} MB per image.`,
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
+  },
+  // Added 2026-11-07 for the "scanned PDF to Word" / "OCR PDF to Word"
+  // search family (audit search-demand#5). PDF to Word has run OCR in the
+  // same job since 2026-10-24 (WORD_OCR_LABEL); the panel's own sentence for
+  // it is WORD_OCR_HINT, quoted whole. The shape of the DOCX (each scanned
+  // page's picture, then its text) is the one the Bangla guide's measured run
+  // held and the hint states; the language lists are the picker's own.
+  {
+    slug: "how-to-convert-a-scanned-pdf-to-word",
+    title: "How to convert a scanned PDF to editable Word",
+    description: `Turn a scanned PDF into an editable Word (DOCX) file: tick “${WORD_OCR_LABEL}” and our server reads the text with OCR, then converts it.`,
+    tools: ["pdf-to-word", "ocr-pdf", "jpg-to-pdf"],
+    keywords: [
+      "scanned pdf to word",
+      "ocr pdf to word",
+      "pdf to word ocr",
+      "convert scanned pdf to editable word",
+      "scanned document to word",
+      "image pdf to word",
+    ],
+    intro: [
+      `To turn a scanned PDF into a Word document you can edit, open ${nameOf("pdf-to-word")}, add the PDF, tick “${WORD_OCR_LABEL}”, pick the languages the document is written in under Languages, and press Export DOCX. Our server reads the words on each scanned page with OCR (optical character recognition) and writes them into a DOCX file as text you can edit, copy and search.`,
+      `A scanned page holds a picture of its words, not the words themselves, so without that switch there is no text on it for the conversion to carry. With it, the panel says what happens: “${WORD_OCR_HINT}”`,
+      `This runs on our secure server, not in your browser. Our privacy policy says the uploaded file is deleted when the job ends, the result can be downloaded for ${RETENTION_WINDOWS.outputLink}, and the stored copy is erased by a daily storage rule some time after it is ${RETENTION_WINDOWS.outputStorageRule} old.`,
+    ],
+    steps: [
+      `Open the ${nameOf("pdf-to-word")} tool and drop your scanned PDF where it says Add your PDF, or click to pick one. Files up to ${ceilingMb("pdf-to-word")} MB are accepted.`,
+      `Tick “${WORD_OCR_LABEL}”.`,
+      `Under Languages, select every language the pages are written in, up to ${MAX_OCR_LANGUAGES}. ${OCR_START_SENTENCE}; deselect any the document is not written in.`,
+      "Press Export DOCX, which uploads your PDF over an encrypted connection to our server, where the OCR and the conversion run in one job.",
+      `Download the DOCX when it is ready. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
+      "Open it in Word, LibreOffice or Google Docs and read the text through against the page before you rely on it.",
+    ],
+    sections: [
+      {
+        id: "what-you-get",
+        heading: "What the Word file holds",
+        body: [
+          "Each scanned page comes through as its picture, followed by the text read from it, as plain paragraphs you can edit, search and copy. Keep the picture while you check the text against it, and delete it when you no longer need it.",
+          "The look of the page is not rebuilt: fonts, columns, tables and spacing are not carried over, and a line of the scan can arrive as a paragraph of its own, so expect to join some lines and style the headings yourself.",
+          "A PDF that mixes typed pages and scanned ones can go through with the switch on: pages that already have text are kept as they are, and only the scanned ones are read.",
+        ],
+      },
+      {
+        id: "choosing-languages",
+        heading: "Choosing the languages",
+        body: [
+          "The language you pick decides the result. A page read in the wrong language does not fail: it comes back as letters that look like words and mean nothing, with no error, so select the language the scan is written in, and add a second one if the pages mix two.",
+          `The picker offers ${PDF_TO_WORD_OCR_LANGUAGE_CODES.length} of the ${OCR_LANGUAGES.length} languages ${nameOf("ocr-pdf")} reads. ${RTL_OCR_NAMES} are not offered here: written right to left, their recognised words come out of the conversion out of order. For those, use ${nameOf("ocr-pdf")}, which reads them in order in its searchable PDF and its text.`,
+        ],
+      },
+      {
+        id: "getting-a-good-result",
+        heading: "Getting a good result",
+        body: [
+          "OCR reads printed and typed text: letters, forms, contracts, book pages and office documents. It is not made for handwriting, which usually comes back as nonsense or not at all.",
+          "The clearer the scan, the fewer mistakes. Scan in your scanner's document or text setting rather than a low-resolution preview, keep the page straight and flat, and avoid shadows, glare and blur when you photograph a page with a phone.",
+        ],
+      },
+      {
+        id: "other-routes",
+        heading: "A searchable PDF, or a photo instead of a PDF",
+        body: [
+          `If you need to find and copy the words but not edit them, ${nameOf("ocr-pdf")} keeps the page exactly as it looks and lays the recognised text invisibly under it.`,
+          `If your scan is a JPG or PNG photo rather than a PDF, turn it into a PDF first with ${nameOf("jpg-to-pdf")}, which runs in your browser, then convert that PDF here with “${WORD_OCR_LABEL}” ticked.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Can I convert a scanned PDF to Word for free?",
+        answer: `Yes. There is no account and no payment: open ${nameOf("pdf-to-word")}, tick “${WORD_OCR_LABEL}”, pick the languages, and download the DOCX.`,
+      },
+      {
+        question: "Is OCR PDF a separate step?",
+        answer: `No. “${WORD_OCR_LABEL}” runs the OCR inside the same job, so one run of ${nameOf("pdf-to-word")} gives you the Word file. ${nameOf("ocr-pdf")} is for when you want a searchable PDF instead.`,
+      },
+      {
+        question: "Why does my text come out as gibberish?",
+        answer: `Because the page was read in the wrong language. ${OCR_START_SENTENCE}; select the language your scan is written in, deselect any it is not, and run the job again. A blurry or sideways scan can cause the same symptom.`,
+      },
+      {
+        question: "Can it read handwriting?",
+        answer:
+          "No. The OCR is made for printed and typed text; handwriting usually comes back as nonsense or not at all.",
+      },
+      {
+        question: "Is my file uploaded?",
+        answer: `Yes. OCR needs a recognition engine that runs on our secure server, so your PDF is uploaded over an encrypted connection. The uploaded file is deleted when the job ends, and the result can be downloaded for ${RETENTION_WINDOWS.outputLink}.`,
+      },
+    ],
+    published: "2026-11-07",
+    updated: "2026-11-07",
   },
   // Added 2026-10-31 for the "Bangla PDF to Word" search family. Written
   // only after production read a Bengali page back, measured: the proof is
@@ -4340,7 +4473,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       `To turn a scanned ${BN} PDF into a Word document you can edit, open ${nameOf("pdf-to-word")}, add the PDF, tick “${WORD_OCR_LABEL}”, select ${BN} under Languages, and press Export DOCX. Our server reads the ${BN} letters on each page with OCR (optical character recognition), then writes them into a DOCX file as text you can edit, copy and search.`,
-      `Choosing ${BN} is the step that decides the result. ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} is selected when the page opens, and a ${BN} page read as ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} does not fail: it comes back as Latin letters that look like words and mean nothing, with no error.`,
+      `Choosing ${BN} is the step that decides the result. ${OCR_START_SENTENCE}, and a ${BN} page read as ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} does not fail: it comes back as Latin letters that look like words and mean nothing, with no error.`,
       `This runs on our secure server, not in your browser. Our privacy policy says the uploaded file is deleted when the job ends, the result can be downloaded for ${RETENTION_WINDOWS.outputLink}, and the stored copy is erased by a daily storage rule some time after it is ${RETENTION_WINDOWS.outputStorageRule} old.`,
     ],
     steps: [
@@ -4387,7 +4520,7 @@ export const guides: Guide[] = [
       {
         question:
           "Why does my Bangla text come out as English-looking gibberish?",
-        answer: `Because the page was read with the wrong language. ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} is selected when the page opens; select ${BN} under Languages and run the job again. A blurry or sideways scan can cause the same symptom.`,
+        answer: `Because the page was read with the wrong language. ${OCR_START_SENTENCE}; select ${BN} under Languages and run the job again. A blurry or sideways scan can cause the same symptom.`,
       },
       {
         question: "My PDF already has selectable Bangla text. Do I need OCR?",
@@ -4409,7 +4542,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-convert-excel-to-pdf",
