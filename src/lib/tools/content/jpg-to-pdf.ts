@@ -4,6 +4,8 @@ import {
   IMAGE_MARGINS,
   IMAGE_ORIENTATIONS,
   IMAGE_PAGE_SIZES,
+  PHOTO_DETAILS_CHOICES,
+  PHOTO_DETAILS_LABELS,
 } from "@/lib/pdf/image-page-layout";
 import { inches } from "@/lib/pdf/page-geometry";
 import {
@@ -36,6 +38,16 @@ const MARGINS = or(
 );
 
 /**
+ * Photo details (2026-11-07, audit jpg-to-pdf#5): the heading and both chips
+ * from the runner's table, so a rename moves the page with it.
+ */
+const DETAILS = PHOTO_DETAILS_LABELS.heading;
+const choice = (id: string) =>
+  PHOTO_DETAILS_CHOICES.find((c) => c.id === id)!.label;
+const REMOVE = choice("remove");
+const KEEP = choice("keep");
+
+/**
  * Max file size (2026-10-31), every word from the panel's own constants:
  * the heading, the No limit chip, the presets, and the panel's own met
  * sentence (`limitOutcome`) — so a rename in the panel moves this page with
@@ -53,6 +65,14 @@ const LIMIT_MET = limitOutcome({
 }).text;
 
 /**
+ * PHOTO DETAILS, since 2026-11-07 (src/lib/pdf/jpeg-metadata.ts): by default
+ * each JPEG's Exif (GPS included), XMP, IPTC, comment and other APPn
+ * segments, and anything appended after its end, are removed WITHOUT
+ * re-encoding; JFIF, the ICC profile and Adobe APP14 are kept, and so is
+ * every byte of the image data. "Keep" embeds the file as before. The EXIF
+ * turn is read before the Exif goes. The paragraph below describes the
+ * "Keep" path, which was the only path until then.
+ *
  * Written against src/lib/pdf/image-to-pdf.ts and
  * src/components/tools/runner/image-to-pdf-runner.tsx, re-read 2026-10-06:
  * fixed US Letter portrait pages, filled white, fixed margin, images centred
@@ -153,7 +173,7 @@ const content: ToolContent = {
   intro: [
     "JPG to PDF takes a batch of JPG or JPEG photos and builds a single PDF with one image on each page. You add the pictures, put them in the order you want, and press Create PDF. The assembly happens inside this browser tab: your photos are read from your device, laid onto pages there, and the finished PDF is saved when you press Download PDF. The images are not uploaded to pdf.xyz.",
     `Unless you change the page setup, each photo goes on a white, portrait US Letter page, centred inside a 0.5 in margin. Before you create the PDF you can pick the page size (${SIZES}), the orientation (${ORIENTATIONS}) and the margin (${MARGINS}). Auto turns the page sideways for a photo that is wider than it is tall, and Fit to image makes each page exactly the size of its photo plus the margin. On every page size a photo is shrunk only if it is too big to fit; one that already fits is never enlarged, so a low-resolution picture can look small in the middle of an A4 page.`,
-    `With ${LIMIT} left at ${NO_LIMIT}, the JPEG data is copied into the PDF as it is rather than re-encoded, so there is no second round of compression and the PDF ends up close to the combined size of your photos. If an upload form caps the size, choose ${LIMIT} (${LIMIT_PRESETS}, or a number of KB of your own): when the PDF comes out bigger, your browser saves the photos again at a lower quality and pixel size until it fits, and tells you the size it reached. A single photo may be as large as ${MAX_IMAGE_MB} MB. PNG images, transparent ones included, can go into the same PDF, and any transparent areas come out white. WebP, GIF and BMP images can go in too: your browser decodes each one and it is saved into the PDF again, as a high-quality JPEG when it has no transparency and as a PNG when it does, so unlike a JPEG it is re-encoded. A GIF contributes its first frame only.`,
+    `With ${LIMIT} left at ${NO_LIMIT}, the JPEG image data is copied into the PDF as it is rather than re-encoded, so there is no second round of compression and the PDF ends up close to the combined size of your photos. If an upload form caps the size, choose ${LIMIT} (${LIMIT_PRESETS}, or a number of KB of your own): when the PDF comes out bigger, your browser saves the photos again at a lower quality and pixel size until it fits, and tells you the size it reached. A single photo may be as large as ${MAX_IMAGE_MB} MB. PNG images, transparent ones included, can go into the same PDF, and any transparent areas come out white. WebP, GIF and BMP images can go in too: your browser decodes each one and it is saved into the PDF again, as a high-quality JPEG when it has no transparency and as a PNG when it does, so unlike a JPEG it is re-encoded. A GIF contributes its first frame only.`,
     "TIFF files go in too, including the multi-page TIFFs that scanners and fax software write: every page of the TIFF becomes a page of the PDF, in order, and black-and-white fax pages (CCITT Group 4) are read as well as colour ones. The TIFF is read in this tab, like everything else here, and its pages are stored without loss rather than turned into JPEGs. Each page keeps the size it had on paper, from the resolution saved in the TIFF, so under Fit to image a 300 dpi A4 scan becomes an A4 page.",
   ],
   useCases: [
@@ -189,7 +209,7 @@ const content: ToolContent = {
     },
     {
       title: "Choose the page setup",
-      body: `Below the list, Page size, Orientation and Margin set how each page is laid out, ${LIMIT} caps the size of the PDF, and Output chooses One PDF or One PDF per image, which with more than one image arrives as a ZIP. Left alone they give the usual layout: US Letter, portrait, a 0.5 in margin, ${NO_LIMIT.toLowerCase()} on size, one PDF. Orientation does not apply to Fit to image, whose pages already take each photo's shape. With One PDF per image, a ${LIMIT} applies to each PDF on its own.`,
+      body: `Below the list, Page size, Orientation and Margin set how each page is laid out, ${LIMIT} caps the size of the PDF, ${DETAILS} chooses ${REMOVE} or ${KEEP} for what your camera stored beside the pixels, and Output chooses One PDF or One PDF per image, which with more than one image arrives as a ZIP. Left alone they give the usual layout: US Letter, portrait, a 0.5 in margin, photo details removed, ${NO_LIMIT.toLowerCase()} on size, one PDF. Orientation does not apply to Fit to image, whose pages already take each photo's shape. With One PDF per image, a ${LIMIT} applies to each PDF on its own.`,
     },
     {
       title: "Press Create PDF",
@@ -207,11 +227,11 @@ const content: ToolContent = {
     },
     {
       q: "Does converting JPG to PDF reduce photo quality?",
-      a: `Not with ${LIMIT} at ${NO_LIMIT}. Then each JPEG goes in as it is, not decompressed and saved again (a turned phone photo only has its rotation tag reset to upright), so every pixel of the original is still there even when the photo is displayed smaller to fit the page, and the PDF is as heavy as the photos. With a ${LIMIT} that the PDF is over, yes, on purpose: the photos are saved again with fewer pixels and stronger compression until the PDF fits, and the panel says the images were saved again.`,
+      a: `Not with ${LIMIT} at ${NO_LIMIT}. Then each JPEG's image data goes in as it is, not decompressed and saved again (only the details your camera stored beside the pixels are removed, unless you keep them), so every pixel of the original is still there even when the photo is displayed smaller to fit the page, and the PDF is as heavy as the photos. With a ${LIMIT} that the PDF is over, yes, on purpose: the photos are saved again with fewer pixels and stronger compression until the PDF fits, and the panel says the images were saved again.`,
     },
     {
       q: "Does the PDF keep my photos' metadata, such as location?",
-      a: `With ${LIMIT} at ${NO_LIMIT}, yes. Because each JPEG goes into the PDF as it is, apart from a rotation tag reset to upright, any metadata stored inside it travels too, including camera details and GPS coordinates if your camera recorded them. Strip it from the photos first if the PDF will be shared widely. A photo saved again to fit a ${LIMIT} keeps only its pixels: its camera details and location are not in the PDF.`,
+      a: `Not unless you ask it to. Under ${DETAILS}, ${REMOVE} is chosen from the start: the camera details, the date taken, GPS coordinates, any embedded preview and comments stored in each JPEG are left out of the PDF, and the image data is copied as it is, so no quality is lost. A colour profile stored in the JPEG stays with it. Choose ${KEEP} to put each JPEG into the PDF exactly as it is, metadata and all. A photo saved again to fit a ${LIMIT} keeps only its pixels either way. WebP, GIF and BMP images are saved again by your browser, which keeps only their pixels.`,
     },
     {
       q: "Can I add PNG, WebP, GIF, BMP or TIFF images?",

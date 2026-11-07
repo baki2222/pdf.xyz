@@ -11,8 +11,10 @@ import { PdfEngineError } from "./engine";
 import {
   DEFAULT_IMAGE_PAGE_OPTIONS,
   imagePageLayout,
+  removesPhotoDetails,
   type ImagePageOptions,
 } from "./image-page-layout";
+import { stripJpegMetadata } from "./jpeg-metadata";
 import type { NamedBytes } from "./types";
 
 const PRODUCER = "pdf.xyz";
@@ -459,7 +461,12 @@ async function addTiffPages(
     let stored;
     if (swap) {
       try {
-        image = await embedRasterImage(doc, swap.bytes, swap.format);
+        image = await embedRasterImage(
+          doc,
+          swap.bytes,
+          swap.format,
+          jpegOptions(options),
+        );
       } catch {
         throw new PdfEngineError(
           `"${file.name}" page ${page.number} could not be made smaller.`,
@@ -483,6 +490,18 @@ async function addTiffPages(
     await drawImagePage(lib, doc, image, shown, options, page.orientation);
   }
 }
+
+/**
+ * A JPEG's camera and location segments go unless the user kept them; the
+ * DCT data is not touched (`jpeg-metadata.ts`). A JPEG the stripper cannot
+ * walk is embedded as it is.
+ */
+const jpegOptions = (options: ImagePageOptions) =>
+  removesPhotoDetails(options)
+    ? {
+        rewriteJpeg: (bytes: Uint8Array) => stripJpegMetadata(bytes) ?? bytes,
+      }
+    : {};
 
 /** Embed one image and draw it on its own page, laid out by `options`. */
 async function addImagePage(
@@ -519,7 +538,7 @@ async function addImagePage(
     image =
       format === "png"
         ? await (await import("./png-embed")).embedPngAsStored(doc, bytes)
-        : await embedRasterImage(doc, bytes, format);
+        : await embedRasterImage(doc, bytes, format, jpegOptions(options));
   } catch {
     throw new PdfEngineError(
       `"${file.name}" could not be decoded as a ${format === "jpg" ? "JPG" : "PNG"} image.`,

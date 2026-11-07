@@ -33,6 +33,8 @@ import {
   IMAGE_ORIENTATIONS,
   IMAGE_OUTPUTS,
   IMAGE_PAGE_SIZES,
+  PHOTO_DETAILS_CHOICES,
+  PHOTO_DETAILS_LABELS,
   type ImageOutputId,
   type ImagePageOptions,
 } from "@/lib/pdf/image-page-layout";
@@ -663,6 +665,24 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
                       {inches(m.points)} in
                     </span>
                   )}
+                </ChipButton>
+              ))}
+            </div>
+          </RunnerSection>
+          <RunnerSection title={PHOTO_DETAILS_LABELS.heading}>
+            <div
+              role="group"
+              aria-label={PHOTO_DETAILS_LABELS.heading}
+              className="flex flex-wrap gap-2"
+            >
+              {PHOTO_DETAILS_CHOICES.map((c) => (
+                <ChipButton
+                  key={c.id}
+                  onClick={() => setPageOption({ photoDetails: c.id })}
+                  disabled={busy}
+                  active={c.id === (page.photoDetails ?? "remove")}
+                >
+                  {c.label}
                 </ChipButton>
               ))}
             </div>
