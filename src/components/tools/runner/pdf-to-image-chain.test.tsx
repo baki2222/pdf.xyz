@@ -34,6 +34,7 @@ import {
   zipOutputName,
 } from "@/lib/pdf/pdf-to-image";
 import { capturePdfPages, rasterizePdf } from "@/lib/pdf/render";
+import { recallOptions } from "@/lib/intent/option-memory";
 import { RASTER_MAX_DEVICE_PX } from "@/lib/pdf/render-utils";
 import { PdfToImageRunner } from "./pdf-to-image-runner";
 
@@ -808,7 +809,10 @@ describe("PDF to JPG — the Quality choice reaches the encoder", () => {
   }
 
   /** Render with the chip for `id` pressed (or none), return toBlob's quality. */
-  async function qualityFor(id: string | null): Promise<unknown> {
+  async function qualityFor(
+    id: string | null,
+    beforeRender?: (group: HTMLElement) => void,
+  ): Promise<unknown> {
     const seen: unknown[] = [];
     vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
       function (
@@ -832,6 +836,7 @@ describe("PDF to JPG — the Quality choice reaches the encoder", () => {
       fireEvent.click(chip);
       expect(chip).toHaveAttribute("aria-pressed", "true");
     }
+    beforeRender?.(group);
     fireEvent.click(screen.getByRole("button", { name: /render 1 page/i }));
     await screen.findByRole(
       "button",
@@ -857,6 +862,41 @@ describe("PDF to JPG — the Quality choice reaches the encoder", () => {
   it("the default is the quality the page has always used", async () => {
     expect(await qualityFor(null)).toBe(DEFAULT_JPEG_QUALITY);
   });
+
+  /**
+   * The intro says "this browser remembers the one you convert with". Until
+   * review nothing tested the write or the read-back: neutering the
+   * runner's `quality` write left every test green. Composed chain: pick,
+   * convert, remount with the same storage, and the chip AND the encoder
+   * both show the remembered preset.
+   */
+  it("a picked Quality is remembered: the next visit opens on it and encodes at it", async () => {
+    const maximum = RASTER_JPEG_QUALITIES.at(-1)!;
+    // Health: the remembered preset is not the one the page opens on anyway.
+    expect(maximum.quality).not.toBe(DEFAULT_JPEG_QUALITY);
+    expect(await qualityFor(maximum.id)).toBe(maximum.quality);
+    cleanup();
+    let shown: string[] = [];
+    const quality = await qualityFor(null, (group) => {
+      shown = within(group)
+        .getAllByRole("button", { pressed: true })
+        .map((b) => b.textContent ?? "");
+    });
+    expect(shown).toHaveLength(1);
+    expect(shown[0]!.startsWith(maximum.label)).toBe(true);
+    expect(quality).toBe(maximum.quality);
+  }, 30_000);
+
+  it("control: converting without touching Quality remembers no quality", async () => {
+    // Something else IS picked, so the runner does write its memory; the
+    // write must simply carry no `quality`.
+    await qualityFor(null, () => {
+      fireEvent.click(screen.getByRole("button", { name: /^Screen/ }));
+    });
+    const stored = recallOptions("pdf-to-image");
+    expect(stored.resolution).toBe("screen");
+    expect("quality" in stored).toBe(false);
+  }, 30_000);
 
   it("control: PDF to PNG has no Quality choice", async () => {
     await mount("png");
