@@ -8,7 +8,11 @@ import {
   assertFormFieldTextDrawable,
   formTextsDrawnOnRegeneration,
 } from "./unicode-font";
-import type { OverlayFit } from "./offered-kinds";
+import {
+  OVERLAY_PAGINGS,
+  type OverlayFit,
+  type OverlayPaging,
+} from "./offered-kinds";
 
 /**
  * Overlay one PDF onto another, entirely in-browser with pdf-lib. The
@@ -36,11 +40,18 @@ import type { OverlayFit } from "./offered-kinds";
 
 // The offered scale modes live in the offered-kinds leaf, where the tool page's
 // answer reads them too; re-exported so existing importers keep working.
-export type { OverlayFit, OverlayFitOption } from "./offered-kinds";
-export { OVERLAY_FITS } from "./offered-kinds";
-
-/** Which overlay page is used for each base page. */
-export type OverlayPaging = "repeat" | "cycle";
+export type {
+  OverlayFit,
+  OverlayFitOption,
+  OverlayPageScope,
+  OverlayPaging,
+  OverlayPagingOption,
+} from "./offered-kinds";
+export {
+  OVERLAY_FITS,
+  OVERLAY_PAGE_SCOPES,
+  OVERLAY_PAGINGS,
+} from "./offered-kinds";
 
 /** Where the overlay goes relative to the base page's own content. */
 export type OverlayLayer = "front" | "back" | "multiply";
@@ -222,24 +233,33 @@ export function placeOverlay(input: PlaceOverlayInput): OverlayPlacement {
  * The 0-based overlay page to use for a given base page.
  *  - `repeat`: always the first overlay page.
  *  - `cycle` : walk the overlay pages in order, wrapping around.
- * Returns -1 when there are no overlay pages.
+ *  - `last`  : walk them in order, then keep the last one.
+ *  - `once`  : walk them in order, then nothing.
+ * Returns -1 when no overlay page applies (none exist, or `once` ran out).
  */
 export function overlayPageIndexFor(
   baseIndex: number,
   overlayCount: number,
   paging: OverlayPaging,
 ): number {
-  if (overlayCount <= 0) return -1;
-  if (paging === "repeat") return 0;
-  const i = baseIndex % overlayCount;
-  return i < 0 ? i + overlayCount : i;
+  if (overlayCount <= 0 || baseIndex < 0) return -1;
+  switch (paging) {
+    case "repeat":
+      return 0;
+    case "last":
+      return Math.min(baseIndex, overlayCount - 1);
+    case "once":
+      return baseIndex < overlayCount ? baseIndex : -1;
+    case "cycle":
+      return baseIndex % overlayCount;
+  }
 }
 
 /**
  * The distinct overlay page indices we must embed to overlay `baseCount` pages.
  *  - `repeat`: just page 0.
- *  - `cycle` : the first `min(overlayCount, baseCount)` pages — every index the
- *    cyclic mapping can actually reach, and no more.
+ *  - `cycle`, `last`, `once`: the first `min(overlayCount, baseCount)` pages —
+ *    every index those in-order mappings can actually reach, and no more.
  */
 export function neededOverlayIndices(
   baseCount: number,
@@ -261,6 +281,13 @@ export interface OverlayOptions {
   paging?: OverlayPaging;
   /** On top, behind the page's content, or multiplied on top; defaults to `front`. */
   layer?: OverlayLayer;
+  /**
+   * 0-based base pages to overlay, in any order; every page when omitted.
+   * The selected pages take the overlay pages in turn, in page order: the
+   * lowest gets overlay page 1, the next overlay page 2, whatever the gap
+   * between them. Pages not listed are unchanged.
+   */
+  pages?: readonly number[];
 }
 
 export interface OverlayResult {
@@ -281,14 +308,17 @@ export interface OverlayResult {
   skippedBlankOverlayPages: number[];
   /** Base pages that actually received an overlay (fewer when some were skipped). */
   overlaidPageCount: number;
+  /** The 0-based base pages selected, sorted; `null` when every page was. */
+  pages: number[] | null;
 }
 
 const GENERIC_APPLY_FAILURE =
   "The overlay PDF couldn't be applied — it may use features we can't process yet.";
 
 /**
- * Overlay `overlayBytes` onto every page of `baseBytes`. The base document's
- * page count and page sizes are preserved; only overlaid content is added.
+ * Overlay `overlayBytes` onto every page of `baseBytes`, or only the pages in
+ * `options.pages`. The base document's page count and page sizes are
+ * preserved; only overlaid content is added.
  */
 export async function overlayPdf(
   baseBytes: Uint8Array,
@@ -313,8 +343,21 @@ export async function overlayPdf(
     throw new PdfEngineError("The overlay PDF has no pages.");
   }
 
+  const selected =
+    options.pages === undefined
+      ? null
+      : [...new Set(options.pages)]
+          .filter((i) => Number.isInteger(i) && i >= 0 && i < baseCount)
+          .sort((a, b) => a - b);
+  if (selected && selected.length === 0) {
+    throw new PdfEngineError(
+      `None of the selected pages is in the base PDF, which has ${baseCount} page${baseCount === 1 ? "" : "s"}.`,
+    );
+  }
+  const targets = selected ?? Array.from({ length: baseCount }, (_, i) => i);
+
   const lib = await loadPdfLib();
-  const indices = neededOverlayIndices(baseCount, overlayCount, paging);
+  const indices = neededOverlayIndices(targets.length, overlayCount, paging);
   const embedded = await embedOverlayPages(
     lib,
     base,
@@ -338,10 +381,11 @@ export async function overlayPdf(
   try {
     const pages = base.getPages();
     let overlaidPageCount = 0;
-    for (let i = 0; i < baseCount; i += 1) {
-      const page = pages[i];
+    for (let k = 0; k < targets.length; k += 1) {
+      const page = pages[targets[k]!];
       if (!page) continue;
-      const entry = embedded.get(overlayPageIndexFor(i, overlayCount, paging));
+      // The selected pages take the overlay pages in turn (k, not the page).
+      const entry = embedded.get(overlayPageIndexFor(k, overlayCount, paging));
       // A blank overlay page draws nothing on the base pages mapped to it.
       if (!entry) continue;
       const place = placeOverlay({
@@ -377,6 +421,7 @@ export async function overlayPdf(
       layer,
       skippedBlankOverlayPages,
       overlaidPageCount,
+      pages: selected,
     };
   } catch (err) {
     if (err instanceof PdfEngineError) throw err;
@@ -440,8 +485,8 @@ async function embedOverlayPages(
     } catch {
       throw new PdfEngineError(
         `Overlay page ${index + 1} couldn't be applied — it may use features we can't process yet.` +
-          (paging === "cycle" && index > 0
-            ? " Try “First page on all” to use only the overlay's first page."
+          (paging !== "repeat" && index > 0
+            ? ` Try “${OVERLAY_PAGINGS[0]!.label}” to use only the overlay's first page.`
             : ""),
       );
     }

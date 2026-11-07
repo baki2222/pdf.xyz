@@ -1,6 +1,12 @@
 import type { ToolContent } from "./types";
 import { MAX_PDF_BYTES } from "@/lib/pdf/files";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
+import { MERGE_SORTS, MERGE_SORT_LABEL } from "@/lib/pdf/merge-order";
+
+/** The Sort buttons, in the order and words the runner draws them. */
+const SORT_LABELS = new Intl.ListFormat("en", { type: "disjunction" }).format(
+  MERGE_SORTS.map((sort) => MERGE_SORT_LABEL[sort]),
+);
 
 /**
  * The size the merge runner refuses above. `MergeRunner.addFiles` calls
@@ -74,6 +80,28 @@ const linkMinutes = DEFAULT_RETENTION.outputTtlMinutes;
  * offer file bookmarks or a contents page in this mode (a file has no single
  * first page); source bookmarks point at page objects and still resolve.
  * One after another stays the default and is the merge it always was.
+ *
+ * ADDED 2026-11-07 (audit merge-pdf#3; merge-split-options.test.ts reads the
+ * widths back, merge-runner.test.tsx drives the checkbox to the download):
+ * "Add a blank page after files with an odd page count" adds, after each file
+ * whose selected page count is odd except the last, one blank page the size
+ * of that file's last page. It is added after the pages are assembled, so
+ * file bookmarks and contents lines still open each file's first page, and
+ * the contents numbers count the blanks. Not offered with Alternate pages.
+ *
+ * ADDED 2026-11-07 (audit merge-pdf#6; merge-filename.ts, read back through
+ * pdf.js in merge-contents-split-text.test.ts and from the download in
+ * merge-runner.test.tsx): "Print each file's name at the foot of its pages"
+ * draws each file's name without its extension, 8 pt (down to 6 pt, then cut
+ * with "…" when too wide), at the bottom left of each page that file gives,
+ * as a reader sees the page. Blank pads and contents pages carry none. Not
+ * offered with Alternate pages.
+ *
+ * ADDED 2026-11-07 (audit merge-pdf#7; merge-order.ts, held in
+ * merge-split-options.test.ts and from the download in merge-runner.test.tsx):
+ * Sort "Oldest first" / "Newest first" order by File.lastModified, ties in
+ * the order added. The finding's other half, one page size for the whole
+ * merge, is not an option here: Resize PDF does it, in the browser, after.
  */
 const content: ToolContent = {
   slug: "merge-pdf",
@@ -115,11 +143,11 @@ const content: ToolContent = {
     },
     {
       title: "Put them in order",
-      body: "Drag a row, or press its up and down arrow buttons, which also work from the keyboard, or sort the whole list by Name A–Z, Name Z–A or As added. The top row supplies the opening pages; the X button removes a file. Page order stays at One after another unless you pick Alternate pages.",
+      body: `Drag a row, or press its up and down arrow buttons, which also work from the keyboard, or sort the whole list by ${SORT_LABELS}. ${MERGE_SORT_LABEL["modified-asc"]} and ${MERGE_SORT_LABEL["modified-desc"]} use each file's last-modified date, for scans whose names carry none. The top row supplies the opening pages; the X button removes a file. Page order stays at One after another unless you pick Alternate pages.`,
     },
     {
       title: "Pick pages and bookmarks (optional)",
-      body: "Leave a file's Pages box empty to take all of it, or type pages such as 1-3, 5 to take only those. Tick “Add a bookmark for each file” for a bookmark per file in the result, and “Add a contents page” for a first page that lists every file with the page it starts on.",
+      body: "Leave a file's Pages box empty to take all of it, or type pages such as 1-3, 5 to take only those. Tick “Add a bookmark for each file” for a bookmark per file in the result, “Add a contents page” for a first page that lists every file with the page it starts on, “Add a blank page after files with an odd page count” if you will print the result double-sided, so every file starts on the front of a sheet, and “Print each file's name at the foot of its pages” to mark every printed page with the file it came from.",
     },
     {
       title: "Add anything you missed",

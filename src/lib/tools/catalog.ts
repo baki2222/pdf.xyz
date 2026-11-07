@@ -143,9 +143,9 @@ export const tools: Tool[] = [
   {
     slug: "n-up-pdf",
     name: "Multiple Pages per Sheet",
-    tagline: "Put 2, 4, 6 or 9 pages on one sheet.",
+    tagline: "Put up to 16 pages on one sheet.",
     description:
-      "Put 2, 4, 6 or 9 PDF pages on each A4 or US Letter sheet, in the order you pick, with optional borders. Runs in your browser.",
+      "Put up to 16 PDF pages on each sheet, A4, US Letter, A3, A5, US Legal or your page's own size, in the order you pick. Runs in your browser.",
     category: "organize",
     icon: "nUp",
     processing: "client",
@@ -917,7 +917,7 @@ export const tools: Tool[] = [
       "add fields",
       "acroform",
     ],
-    related: ["fill-forms", "sign-pdf", "request-signatures", "edit-pdf"],
+    related: ["fill-forms", "edit-pdf", "sign-pdf", "request-signatures"],
   },
 
   // ─────────────────────────────── Security ───────────────────────────────

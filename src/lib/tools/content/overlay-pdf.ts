@@ -2,7 +2,10 @@ import type { ToolContent } from "./types";
 import {
   OVERLAY_FITS,
   OVERLAY_LAYERS,
+  OVERLAY_PAGE_SCOPES,
+  OVERLAY_PAGINGS,
   type OverlayLayer,
+  type OverlayPaging,
 } from "@/lib/pdf/overlay";
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
@@ -76,6 +79,26 @@ const LAYER_LABELS = new Intl.ListFormat("en", {
   type: "disjunction",
 }).format(OVERLAY_LAYERS.map((option) => `"${option.label}"`));
 
+/** The Multi-page overlay buttons, labelled exactly as the control shows them. */
+const pagingLabel = (id: OverlayPaging): string => {
+  const option = OVERLAY_PAGINGS.find((candidate) => candidate.id === id);
+  if (!option) {
+    throw new Error(
+      `overlay-pdf content names a paging mode "${id}" the runner does not offer`,
+    );
+  }
+  return option.label;
+};
+const FIRST_ON_ALL = pagingLabel("repeat");
+const CYCLE = pagingLabel("cycle");
+const REPEAT_LAST = pagingLabel("last");
+const ONCE = pagingLabel("once");
+const ALL_PAGES = OVERLAY_PAGE_SCOPES.find((o) => o.id === "all")!.label;
+const SELECTED_PAGES = OVERLAY_PAGE_SCOPES.find((o) => o.id === "some")!.label;
+const PAGING_LABELS = new Intl.ListFormat("en", {
+  type: "disjunction",
+}).format(OVERLAY_PAGINGS.map((option) => `"${option.label}"`));
+
 /*
  * The password FAQ sends people to Unlock PDF and describes it as an upload.
  * That is only true while Unlock PDF runs on the worker, so the claim is tied
@@ -125,7 +148,7 @@ const content: ToolContent = {
     "Stamp a letterhead, approval mark or ruled template PDF over every page of another PDF. Both files stay in your browser. Set scale, opacity and page cycling.",
 
   intro: [
-    `${toolName} lays one PDF on top of another. The base is your document; the overlay is a letterhead, a "Received" stamp, a draft banner or a ruled template. Each base page gets the overlay drawn on top of its content, behind it, or blended with ${MULTIPLY}, as you choose under Layer, and the result keeps the base's page count and page sizes exactly. A base page mapped to a blank overlay page is left as it was, and the result says which.`,
+    `${toolName} lays one PDF on top of another. The base is your document; the overlay is a letterhead, a "Received" stamp, a draft banner or a ruled template. Each base page gets the overlay drawn on top of its content, behind it, or blended with ${MULTIPLY}, as you choose under Layer, and the result keeps the base's page count and page sizes exactly. Under Pages, "${SELECTED_PAGES}" limits the overlay to the pages you list, such as only page one. A page left out, or mapped to a blank overlay page, is left as it was, and the result says which.`,
     `The overlay is embedded as vector content, not a picture: its lines stay sharp at any zoom, its text stays selectable, and a stamp repeated on every page is stored only once. Both PDFs are combined in your browser with pdf-lib, neither is uploaded, and each may be up to ${maxMb} MB.`,
     `What a viewer shows on the overlay page is carried over as drawing: its own content plus the visible appearance of any filled-in field, stamp or comment on it, so typed answers show but can no longer be edited, and links in the overlay do not work as links. The base keeps its own form fields and title, its Producer and Creator properties become ${STAMP_PRODUCER}, and its modification date becomes the moment you ran the overlay.`,
   ],
@@ -137,7 +160,7 @@ const content: ToolContent = {
     },
     {
       title: "Stamping a document as received or approved",
-      body: "Lay a stamp PDF over an invoice before filing it, opaque for a solid mark or at lower opacity so a large stamp does not hide the figures beneath.",
+      body: `Lay a stamp PDF over an invoice before filing it, opaque for a solid mark or at lower opacity so a large stamp does not hide the figures beneath. "${SELECTED_PAGES}" with 1 stamps only the first page.`,
     },
     {
       title: "Checking a design against a print template",
@@ -145,7 +168,7 @@ const content: ToolContent = {
     },
     {
       title: "A different template page for each page",
-      body: "A multi-page overlay can be applied in order, so the cover, continuation and closing sheets of a three-page letterhead set land on the matching pages of a three-page report.",
+      body: `A multi-page overlay can be applied in order. "${REPEAT_LAST}" puts a cover letterhead on page one and the continuation sheet on every page after it, however long the letter. "${CYCLE}" lands each page of a three-page template set on the matching page of a three-page report, and starts again from its first page if the report is longer.`,
     },
   ],
 
@@ -159,8 +182,8 @@ const content: ToolContent = {
       body: 'In the "Overlay PDF" section, drag the stamp, letterhead or template onto "Drop the overlay PDF here, or", or click "browse". The same file checks apply. Its name and page count appear, and the "Remove overlay" cross beside them clears a wrong pick.',
     },
     {
-      title: "Set layer, scale and opacity",
-      body: `Under "Placement", choose ${LAYER_LABELS} for Layer, ${SCALE_LABELS} for Scale, and drag the Opacity slider. If the overlay has more than one page, a "Multi-page overlay" choice appears: "First page on all" or "Cycle pages".`,
+      title: "Set layer, scale, opacity and pages",
+      body: `Under "Placement", choose ${LAYER_LABELS} for Layer, ${SCALE_LABELS} for Scale, and drag the Opacity slider. If the overlay has more than one page, a "Multi-page overlay" choice appears: ${PAGING_LABELS}. Under Pages, keep "${ALL_PAGES}" or choose "${SELECTED_PAGES}" and type a list such as 1, 3-5; the pages you list then take the overlay’s pages in turn, the first getting overlay page 1 and the next overlay page 2.`,
     },
     {
       title: "Apply and download",
@@ -183,7 +206,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I use a different overlay page for each page of my document?",
-      a: 'Yes, when the overlay PDF has more than one page. Choose "Cycle pages" and base page one gets overlay page one, page two gets page two, and so on, starting again from the first overlay page when the overlay runs out. "First page on all" ignores the rest and repeats page one.',
+      a: `Yes, when the overlay PDF has more than one page. Choose "${CYCLE}" and base page one gets overlay page one, page two gets page two, and so on, starting again from the first overlay page when the overlay runs out. "${REPEAT_LAST}" matches pages the same way but keeps using the overlay's last page once it runs out. "${ONCE}" matches them once and leaves the pages after the overlay's last page unchanged. "${FIRST_ON_ALL}" ignores the rest and repeats page one. For a full letterhead on page one and a continuation sheet on the rest, make the overlay a two-page PDF, letterhead first, and choose "${REPEAT_LAST}": "${CYCLE}" would put the letterhead back on pages three, five and so on.`,
     },
     {
       q: "My overlay is a filled-in form. Will the answers show?",

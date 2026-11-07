@@ -31,21 +31,51 @@ import { stampProducer } from "./stamp";
  * directly, and checks where each page lands by reading the output with pdf.js.
  */
 
-export type NUpCount = 2 | 4 | 6 | 9;
+/**
+ * The pages-per-sheet counts offered. 3, 8, 12 and 16 joined 2, 4, 6 and 9 on
+ * 2026-11-07 (audit n-up-pdf#2): 8 and 16 are the usual handout and
+ * proof-sheet counts. Each needs a grid in {@link nUpGrid}; the switch there
+ * fails to compile when one is missing.
+ */
+export const N_UP_COUNTS = [2, 3, 4, 6, 8, 9, 12, 16] as const;
 
-export const N_UP_COUNTS: readonly NUpCount[] = [2, 4, 6, 9];
+export type NUpCount = (typeof N_UP_COUNTS)[number];
 
-export type NUpSheetId = "a4" | "letter";
+/** The paper sizes offered, Image to PDF's table, in its order. */
+const PAPER_SHEETS = ["a4", "letter", "legal", "a3", "a5"] as const;
 
-export const N_UP_SHEETS: readonly {
+/**
+ * A paper size, or `source`: each sheet the size of the source's FIRST page
+ * as a viewer shows it (turned by Orientation like any other sheet). A3, A5,
+ * US Legal and `source` joined A4 and US Letter on 2026-11-07 (audit
+ * n-up-pdf#3): A3 is the proof sheet for 4-up A4.
+ */
+export type NUpSheetId = (typeof PAPER_SHEETS)[number] | "source";
+
+export interface NUpSheet {
   id: NUpSheetId;
   label: string;
-  size: { width: number; height: number };
-}[] = (["a4", "letter"] as const).map((id) => {
-  const found = IMAGE_PAGE_SIZES.find((s) => s.id === id);
-  if (!found?.size) throw new Error(`n-up: no page size "${id}"`);
-  return { id, label: found.label, size: found.size };
-});
+  /** Points; absent for `source`, whose size is the first page's. */
+  size?: { width: number; height: number };
+}
+
+export const N_UP_SHEETS: readonly NUpSheet[] = [
+  ...PAPER_SHEETS.map((id) => {
+    const found = IMAGE_PAGE_SIZES.find((s) => s.id === id);
+    if (!found?.size) throw new Error(`n-up: no page size "${id}"`);
+    return { id, label: found.label, size: found.size };
+  }),
+  { id: "source", label: "Original page size" },
+];
+
+/** The sheet's size before Orientation turns it. */
+export function nUpSheetSize(
+  id: NUpSheetId,
+  firstPage: { width: number; height: number },
+): { width: number; height: number } {
+  const size = N_UP_SHEETS.find((s) => s.id === id)?.size;
+  return size ?? { width: firstPage.width, height: firstPage.height };
+}
 
 export type NUpOrientation = "auto" | "portrait" | "landscape";
 
@@ -69,6 +99,12 @@ export const N_UP_ORDERS: readonly { id: NUpOrder; label: string }[] = [
 export const N_UP_MARGINS = IMAGE_MARGINS;
 export type NUpMarginId = (typeof IMAGE_MARGINS)[number]["id"];
 
+/**
+ * The right-to-left checkbox's label (audit n-up-pdf#4, 2026-11-07): with it
+ * ticked the columns are mirrored, so page 2 sits to the LEFT of page 1.
+ */
+export const N_UP_RTL_LABEL = "Right to left, for Arabic, Hebrew or manga";
+
 /** A border's line width, in points. */
 export const N_UP_BORDER_PT = 0.5;
 
@@ -79,6 +115,8 @@ export interface NUpOptions {
   order: NUpOrder;
   margin: NUpMarginId;
   borders: boolean;
+  /** Fill each row from the right: mirror the column order. */
+  rtl: boolean;
 }
 
 export const DEFAULT_N_UP_OPTIONS: Readonly<NUpOptions> = {
@@ -88,6 +126,7 @@ export const DEFAULT_N_UP_OPTIONS: Readonly<NUpOptions> = {
   order: "across",
   margin: "small",
   borders: false,
+  rtl: false,
 };
 
 /** Columns × rows for a count on a sheet of the given orientation. */
@@ -98,33 +137,44 @@ export function nUpGrid(
   switch (perSheet) {
     case 2:
       return landscape ? { cols: 2, rows: 1 } : { cols: 1, rows: 2 };
+    case 3:
+      return landscape ? { cols: 3, rows: 1 } : { cols: 1, rows: 3 };
     case 4:
       return { cols: 2, rows: 2 };
     case 6:
       return landscape ? { cols: 3, rows: 2 } : { cols: 2, rows: 3 };
+    case 8:
+      return landscape ? { cols: 4, rows: 2 } : { cols: 2, rows: 4 };
     case 9:
       return { cols: 3, rows: 3 };
+    case 12:
+      return landscape ? { cols: 4, rows: 3 } : { cols: 3, rows: 4 };
+    case 16:
+      return { cols: 4, rows: 4 };
   }
 }
 
 /**
  * The cell boxes of one sheet, in the order pages fill them: "across" fills a
  * row left to right and then moves down; "down" fills a column top to bottom
- * and then moves right. The margin is kept at the sheet's edge AND between
- * cells. Boxes are in PDF space (origin bottom-left).
+ * and then moves right. With `rtl` the columns are mirrored: rows fill right
+ * to left and "down" moves left. The margin is kept at the sheet's edge AND
+ * between cells. Boxes are in PDF space (origin bottom-left).
  */
 export function nUpCells(
   sheet: { width: number; height: number },
   grid: { cols: number; rows: number },
   order: NUpOrder,
   margin: number,
+  rtl = false,
 ): Box[] {
   const { cols, rows } = grid;
   const cellW = (sheet.width - margin * (cols + 1)) / cols;
   const cellH = (sheet.height - margin * (rows + 1)) / rows;
   const cells: Box[] = [];
   for (let i = 0; i < cols * rows; i += 1) {
-    const col = order === "across" ? i % cols : Math.floor(i / rows);
+    const ltrCol = order === "across" ? i % cols : Math.floor(i / rows);
+    const col = rtl ? cols - 1 - ltrCol : ltrCol;
     const row = order === "across" ? Math.floor(i / cols) : i % rows;
     cells.push({
       x: margin + col * (cellW + margin),
@@ -166,7 +216,7 @@ export function chooseSheetOrientation(
   firstPage: { width: number; height: number },
 ): "portrait" | "landscape" {
   if (options.orientation !== "auto") return options.orientation;
-  const size = N_UP_SHEETS.find((s) => s.id === options.sheet)!.size;
+  const size = nUpSheetSize(options.sheet, firstPage);
   const margin = marginPoints(options.margin);
   const scaleFor = (landscape: boolean) => {
     const sheet = orientedSheet(size, landscape);
@@ -204,8 +254,10 @@ export async function nUpPdf(
   bytes: Uint8Array,
   options: NUpOptions,
 ): Promise<NUpResult> {
-  if (!N_UP_COUNTS.includes(options.perSheet)) {
-    throw new PdfEngineError("Choose 2, 4, 6 or 9 pages per sheet.");
+  if (!(N_UP_COUNTS as readonly number[]).includes(options.perSheet)) {
+    throw new PdfEngineError(
+      `Choose ${N_UP_COUNTS.slice(0, -1).join(", ")} or ${N_UP_COUNTS.at(-1)} pages per sheet.`,
+    );
   }
   const lib = await loadPdfLib();
   const source = await loadPdf(bytes);
@@ -218,7 +270,7 @@ export async function nUpPdf(
   const orientation = chooseSheetOrientation(options, firstFrame);
   const landscape = orientation === "landscape";
   const sheetSize = orientedSheet(
-    N_UP_SHEETS.find((s) => s.id === options.sheet)!.size,
+    nUpSheetSize(options.sheet, firstFrame),
     landscape,
   );
   const grid = nUpGrid(options.perSheet, landscape);
@@ -227,6 +279,7 @@ export async function nUpPdf(
     grid,
     options.order,
     marginPoints(options.margin),
+    options.rtl,
   );
 
   const out = await lib.PDFDocument.create();

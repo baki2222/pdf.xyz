@@ -2168,7 +2168,7 @@ export const CASES: Record<string, ToolCase> = {
     assert: async (buf) => {
       const sheets = await pdfTextPositions(buf);
       expect(sheets.length, NUP_FAILS.sheets).toBe(2);
-      const a4 = N_UP_SHEETS.find((s) => s.id === "a4")!.size;
+      const a4 = N_UP_SHEETS.find((s) => s.id === "a4")!.size!;
       sheets.forEach((sheet, s) => {
         expect(
           [Math.round(sheet.width), Math.round(sheet.height)],
@@ -3697,7 +3697,7 @@ export const PROOF_LIMITS: Record<string, string> = {
   "resize-pdf":
     "Only the defaults: A4, Match each page, Scale content to fit, all pages. Change canvas only, custom sizes and units, selected pages, pages carrying /Rotate or an inset CropBox, and links moved with the content are proven in Node by src/lib/pdf/resize.test.ts, through pdf.js, not in a real browser.",
   "n-up-pdf":
-    "Only the defaults: 2 per sheet, A4, Auto (portrait here), Across, then down, Small margin, no borders. 4, 6 and 9 per sheet, Down, then across, US Letter, borders and /Rotate pages are proven in Node by src/lib/pdf/n-up.test.ts, through pdf.js, not in a real browser.",
+    "Only the defaults: 2 per sheet, A4, Auto (portrait here), Across, then down, Small margin, no borders. Every other count per sheet, Down, then across, US Letter, borders and /Rotate pages are proven in Node by src/lib/pdf/n-up.test.ts, through pdf.js, not in a real browser.",
   "split-pdf-pages-in-half":
     "Only the defaults: Left and right, Left page first, every page, on unrotated pages. Right page first, Top and bottom, Selected pages, the two cover checkboxes, /Rotate pages and an existing CropBox are proven in Node by src/lib/pdf/split-half.test.ts, which renders every output half through pdf.js against the source page's own render, not in a real browser.",
   "sign-pdf":

@@ -116,6 +116,7 @@ import {
   GRAYSCALE_DPI_PRESETS,
   NEW_FIELD_TYPES,
   OVERLAY_FITS,
+  OVERLAY_PAGINGS,
 } from "@/lib/pdf/offered-kinds";
 import { DEEP_COMPRESSION_GRAYSCALE_HINT } from "@/lib/pdf/compress-grayscale";
 import { MIN_CROP_DIMENSION, PT_PER_INCH } from "@/lib/pdf/page-geometry";
@@ -1570,7 +1571,14 @@ describe("the remaining in-browser tools answer what their engines do", () => {
       "each page drew the same (first) page",
     ).toBe(1);
     for (const tool of mounting("overlay")) {
-      expect(runnerSource(tool.slug)).toContain('label: "Cycle pages"');
+      // WAS `toContain('label: "Cycle pages"')`, a typed label in the runner.
+      // Since audit overlay-pdf#1 (2026-11-07) the runner renders every
+      // paging mode from OVERLAY_PAGINGS (overlay-runner.test.tsx reads the
+      // rendered radios), so the pin is on that relationship, and the page's
+      // letterhead answer names each mode the control offers.
+      expect(runnerSource(tool.slug)).toContain("OVERLAY_PAGINGS.map(");
+      for (const p of OVERLAY_PAGINGS)
+        expect(answer(tool.slug, /letterhead/)).toContain(p.label);
       const sized = answer(tool.slug, /sized/);
       for (const f of OVERLAY_FITS)
         expect(sized).toContain(`${f.label}: ${f.hint}`);

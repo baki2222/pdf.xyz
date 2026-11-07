@@ -185,6 +185,58 @@ describe("merge: contents page", () => {
   });
 });
 
+describe("merge: contents page with a blank page after odd files (review of audit merge-pdf#3)", () => {
+  // Odd/even was once worked out before the contents were put in front, so
+  // one contents page moved every file onto the BACK of a sheet: 3/2/1-page
+  // files started on pages 2 and 6. The contents block is now made even.
+  it("keeps every file's first page on the front of a sheet (an even 0-based index)", async () => {
+    let contents = -1;
+    let blanks = -1;
+    const out = await mergePdfs(
+      [
+        await makePdf([11, 12, 13]),
+        await makePdf([21, 22]),
+        await makePdf([31]),
+      ],
+      {
+        contentsPage: ["a", "b", "c"],
+        blankAfterOdd: true,
+        onContentsPages: (n) => {
+          contents = n;
+        },
+        onBlankPages: (n) => {
+          blanks = n;
+        },
+      },
+    );
+    const w = await widths(out);
+    const firsts = [11, 21, 31].map((x) => w.indexOf(x));
+    expect(
+      firsts.every((i) => i % 2 === 0),
+      `widths ${w}`,
+    ).toBe(true);
+    // The re-count the receipt makes: own pages + contents + blanks.
+    expect(contents + blanks + 6).toBe(w.length);
+    expect(contents).toBe(1);
+    // The pad after the contents page is blank, and the numbers count it.
+    const doc = await PDFDocument.load(out);
+    expect(doc.getPage(1).node.Contents()).toBeUndefined();
+    expect(await linkTargets(out, 0)).toEqual(firsts);
+    const { pages } = await extractPdfText(out, legacy);
+    const toc = pages[0]!.text.replace(/[ .]{3,}/g, " … ");
+    expect(toc).toMatch(new RegExp(`a … ${firsts[0]! + 1}`));
+    expect(toc).toMatch(new RegExp(`b … ${firsts[1]! + 1}`));
+    expect(toc).toMatch(new RegExp(`c … ${firsts[2]! + 1}`));
+  });
+
+  it("without the blank option, one contents page gets no pad (control)", async () => {
+    const out = await mergePdfs([await makePdf([11]), await makePdf([21])], {
+      contentsPage: ["a", "b"],
+    });
+    expect(await widths(out)).toEqual([300, 11, 21]);
+  });
+});
+
 async function textPdf(pages: string[][]): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -196,6 +248,88 @@ async function textPdf(pages: string[][]): Promise<Uint8Array> {
   });
   return doc.save();
 }
+
+describe("merge: each file's name at the foot of its pages (audit merge-pdf#6)", () => {
+  // Exhibit bundles, homework packs, statement bundles: a printed page has
+  // to say which file it came from.
+  it("prints a file's name on each of its pages, and none on a blank pad", async () => {
+    const out = await mergePdfs(
+      [await makePdf([300, 310]), await makePdf([320])],
+      {
+        fileNames: ["exhibit-a", "statement 2026-10"],
+        blankAfterOdd: true,
+      },
+    );
+    const { pages } = await extractPdfText(out, legacy);
+    expect(pages.map((p) => p.text.trim())).toEqual([
+      "exhibit-a",
+      "exhibit-a",
+      "statement 2026-10",
+    ]);
+    // The first file (two pages) needs no pad and the second is last. Here
+    // the first file has one page, so a pad follows it, and stays blank.
+    const padded = await mergePdfs(
+      [await makePdf([300]), await makePdf([310])],
+      { fileNames: ["one", "two"], blankAfterOdd: true },
+    );
+    const read = await extractPdfText(padded, legacy);
+    expect(read.pages.map((p) => p.text.trim())).toEqual(["one", "", "two"]);
+  });
+
+  it("puts it at the bottom left of the page as a reader sees it", async () => {
+    const out = await mergePdfs([await makePdf([300])], {
+      fileNames: ["exhibit-a"],
+    });
+    const lib = await legacy();
+    const doc = await lib.getDocument({ data: out.slice(), verbosity: 0 })
+      .promise;
+    const page = await doc.getPage(1);
+    const viewport = page.getViewport({ scale: 1 });
+    const items = (await page.getTextContent()).items.filter(
+      (i) => "str" in i && i.str === "exhibit-a",
+    ) as { transform: number[] }[];
+    expect(items).toHaveLength(1);
+    const [x, y] = viewport.convertToViewportPoint(
+      items[0]!.transform[4]!,
+      items[0]!.transform[5]!,
+    );
+    expect(x).toBeLessThan(60);
+    expect(y).toBeGreaterThan(viewport.height - 40);
+  });
+
+  it("shortens a name too long for the page rather than running off it", async () => {
+    const long = "a very long exhibit name ".repeat(12).trim();
+    const out = await mergePdfs([await makePdf([200])], {
+      fileNames: [long],
+    });
+    const { pages } = await extractPdfText(out, legacy);
+    const text = pages[0]!.text.trim();
+    expect(text.endsWith("…")).toBe(true);
+    expect(text.length).toBeLessThan(long.length);
+  });
+
+  it("never fails the merge on a name no one font can draw: mixed scripts and an emoji", async () => {
+    // Review of audit merge-pdf#6: every name went into ONE font, so a
+    // Bengali name beside a Chinese one, or an emoji, failed the whole merge
+    // with a message about "text" the visitor never typed.
+    const out = await mergePdfs(
+      [await makePdf([300]), await makePdf([310]), await makePdf([320])],
+      { fileNames: ["বাংলা", "中文", "report 😀"] },
+    );
+    const { pages } = await extractPdfText(out, legacy);
+    const text = pages.map((p) => p.text.replace(/\s+/g, " ").trim());
+    expect(text[0]).toMatch(/\p{Script=Bengali}/u);
+    expect(text[1]).toBe("中文");
+    // The emoji cannot be drawn; the rest of the name still is.
+    expect(text[2]).toBe("report");
+  });
+
+  it("without the option nothing is printed (control)", async () => {
+    const out = await mergePdfs([await makePdf([300])]);
+    const { pages } = await extractPdfText(out, legacy);
+    expect(pages[0]!.text.trim()).toBe("");
+  });
+});
 
 describe("split: by text", () => {
   const PAGES = [

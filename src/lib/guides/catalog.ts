@@ -80,6 +80,7 @@ import {
 import { MAX_EDIT_IMAGE_BYTES } from "@/lib/pdf/edit";
 import {
   DEEP_COMPRESSION_PRESETS,
+  EDITOR_FORMS_GROUP,
   SIGNATURE_SOURCES,
   SIGNATURE_STYLE_LABEL,
   SIGNATURE_STYLES,
@@ -127,6 +128,7 @@ import {
   N_UP_MARGINS,
   N_UP_ORDERS,
   N_UP_ORIENTATIONS,
+  N_UP_RTL_LABEL,
   N_UP_SHEETS,
   type NUpCount,
 } from "@/lib/pdf/n-up";
@@ -139,7 +141,7 @@ import {
   previewPageNumber,
   type NumberStyle,
 } from "@/lib/pdf/page-numbers";
-import { MERGE_MODE_LABEL } from "@/lib/pdf/merge-order";
+import { MERGE_MODE_LABEL, MERGE_SORT_LABEL } from "@/lib/pdf/merge-order";
 import {
   DECODED_IMAGE_LABELS,
   REFUSED_IMAGE_LABELS,
@@ -251,6 +253,8 @@ import { AI_EXTRACT_CSV_SHAPE } from "@/lib/workers/ai-extract-package";
 import {
   OVERLAY_FITS,
   OVERLAY_LAYERS,
+  OVERLAY_PAGE_SCOPES,
+  OVERLAY_PAGINGS,
   overlayOutputName,
   type OverlayLayer,
 } from "@/lib/pdf/overlay";
@@ -757,6 +761,11 @@ const OVERLAY_FIT = labelOf(OVERLAY_FITS, "fit");
 const OVERLAY_STRETCH = labelOf(OVERLAY_FITS, "stretch");
 const OVERLAY_ACTUAL = labelOf(OVERLAY_FITS, "actual");
 const OVERLAY_EXAMPLE_OUT = overlayOutputName("letter.pdf");
+const OVERLAY_FIRST_ON_ALL = labelOf(OVERLAY_PAGINGS, "repeat");
+const OVERLAY_CYCLE = labelOf(OVERLAY_PAGINGS, "cycle");
+const OVERLAY_REPEAT_LAST = labelOf(OVERLAY_PAGINGS, "last");
+const OVERLAY_ONCE = labelOf(OVERLAY_PAGINGS, "once");
+const OVERLAY_SELECTED_PAGES = labelOf(OVERLAY_PAGE_SCOPES, "some");
 
 /** Split PDF Pages in Half's choices, as its runner labels them. */
 const HALF_LEFT_RIGHT = labelOf(SPLIT_DIRECTIONS, "left-right");
@@ -849,6 +858,7 @@ export const guides: Guide[] = [
         body: [
           "The merged document is built from your list, top to bottom: the first file in the list becomes the first pages of the output, and every file after it is appended in sequence. Drag files into position to set that order, or use the move buttons on each row if you prefer clicking to dragging.",
           "It is worth a final glance at the list before you merge. Reordering happens before the merge runs, so arranging the list correctly the first time saves you a second pass. If you want finer control after the fact, Organize Pages lets you reorder, rotate, duplicate, and delete pages on a visual page board.",
+          `Scans and statements often have names that say nothing about when they were made. ${MERGE_SORT_LABEL["modified-asc"]} and ${MERGE_SORT_LABEL["modified-desc"]}, beside the name sorts, order the list by each file's last-modified date instead, as your browser reports it; files with the same date keep the order you added them in.`,
         ],
       },
       {
@@ -857,6 +867,14 @@ export const guides: Guide[] = [
         body: [
           "Tick “Add a contents page” before you merge and the combined PDF opens with a page headed Contents: one line per file, its name and the page it starts on, and clicking a line jumps to that page. The numbers count the contents page itself, so they match the page numbers your PDF reader shows.",
           "The contents follow your list from top to bottom and the pages you picked for each file, so a file you took only three pages of starts where those three pages are. A long list continues onto a second contents page. Bookmarks, including the ones “Add a bookmark for each file” writes, still open the right pages.",
+        ],
+      },
+      {
+        id: "printing-the-merged-pdf",
+        heading: "Printing the merged PDF",
+        body: [
+          "Printed on both sides, a file with an odd number of pages ends on the front of a sheet, so the next file starts on its back. Tick “Add a blank page after files with an odd page count” before you merge: each such file gets one blank page the size of its last page, so every file starts on a fresh sheet. The last file gets none, and the contents page numbers and bookmarks count the blanks.",
+          "For an exhibit bundle or a pack of statements, tick “Print each file's name at the foot of its pages”: each page carries the name of the file it came from, without the .pdf ending, in small text at the bottom left, so a loose printed page can be traced. A name too long for the page is shortened with an ellipsis. Blank and contents pages get none.",
         ],
       },
       {
@@ -902,7 +920,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-10-30",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-split-a-pdf",
@@ -1639,6 +1657,7 @@ export const guides: Guide[] = [
         body: [
           "The tool accepts a PDF and produces a PDF — specifically a reusable, fillable AcroForm document. The tool is in beta — the five field types above are the supported set. Because the fields are genuine form fields rather than flat marks on the page, one saved copy can be distributed and completed over and over, with each person entering their own answers.",
           `Each PDF can be up to ${ceilingMb("create-forms")} MB. When it is time to complete the form, the Fill Forms tool handles the other half of the job: it fills a PDF's existing AcroForm fields — text, checkboxes, radio buttons, dropdowns, and lists — right in the browser. And when a form needs a signature to finish it, the Sign PDF tool adds one.`,
+          `This tool places fields by typed coordinates. To drag fields into place on the page instead, or to add an empty signature field for someone to sign later, use ${nameOf("edit-pdf")}: the tools in its ${EDITOR_FORMS_GROUP} group drag out text fields, checkboxes, dropdowns, radio groups and signature fields, saved as real form fields, also in your browser.`,
         ],
       },
     ],
@@ -1668,7 +1687,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-27",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-fill-out-a-pdf-form",
@@ -3801,7 +3820,7 @@ export const guides: Guide[] = [
   {
     slug: "how-to-print-multiple-pages-per-sheet",
     title: `How to print multiple pages per sheet (${upName(2)}, ${upName(4)})`,
-    description: `Put ${N_UP_COUNT_NAMES} PDF pages on each ${N_UP_SHEET_NAMES} sheet, in the order you pick, with margins and optional borders. Runs in your browser.`,
+    description: `Put up to ${N_UP_COUNTS.at(-1)} PDF pages on each sheet, ${labelOf(N_UP_SHEETS, "a4")}, ${labelOf(N_UP_SHEETS, "letter")}, ${labelOf(N_UP_SHEETS, "a3")} or another size, in the order you pick, with margins and borders. Runs in your browser.`,
     tools: ["n-up-pdf", "resize-pdf", "organize-pages"],
     keywords: [
       "how to print multiple pages per sheet",
@@ -3820,7 +3839,7 @@ export const guides: Guide[] = [
       `Open the ${nameOf("n-up-pdf")} tool and drop your PDF where it says Drop your PDF here, or click browse. It stays on your device.`,
       `Under Pages per sheet, choose ${N_UP_COUNT_NAMES} per sheet. Beside the heading, the tool shows how many sheets that makes.`,
       `Under Sheet size choose ${N_UP_SHEET_NAMES}, and under Orientation keep ${N_UP_AUTO} or choose ${N_UP_FIXED_ORIENTATIONS}.`,
-      `Under Order choose ${N_UP_ORDER_NAMES}, and under Margin choose ${N_UP_MARGIN_NAMES}. Tick Draw a thin border around each page for an outline you can cut along.`,
+      `Under Order choose ${N_UP_ORDER_NAMES}, and under Margin choose ${N_UP_MARGIN_NAMES}. Tick Draw a thin border around each page for an outline you can cut along, and tick ${N_UP_RTL_LABEL} for a document read from right to left.`,
       `Press Create sheets, then Download PDF. The copy is named after yours, with the count added, such as -${upName(4)}.`,
     ],
     sections: [
@@ -3828,8 +3847,8 @@ export const guides: Guide[] = [
         id: "layout",
         heading: "How the pages are laid out",
         body: [
-          `${N_UP_AUTO} picks portrait or landscape, whichever draws the first page largest: two portrait pages sit side by side on a landscape sheet, and four fill a portrait sheet in a grid. Each page is scaled to fit its place with its proportions kept, so a landscape page among portrait ones is simply drawn smaller.`,
-          `${N_UP_ACROSS} fills each row from left to right and then moves down, the way you read. ${N_UP_DOWN} fills each column from top to bottom and then moves right, like newspaper columns. When the last sheet is not full, its remaining places are left empty. The margin keeps the same space at the sheet's edges and between pages, and the border is a ${N_UP_BORDER_PT}-point line.`,
+          `${N_UP_AUTO} picks portrait or landscape, whichever draws the first page largest: two portrait pages sit side by side on a landscape sheet, and four fill a portrait sheet in a grid. Each page is scaled to fit its place with its proportions kept, so a landscape page among portrait ones is simply drawn smaller. ${labelOf(N_UP_SHEETS, "source")} makes each sheet the size of your first page, turned the way Orientation says; one ${labelOf(N_UP_SHEETS, "a3")} sheet holds four ${labelOf(N_UP_SHEETS, "a4")} pages at their full size.`,
+          `${N_UP_ACROSS} fills each row from left to right and then moves down, the way you read. ${N_UP_DOWN} fills each column from top to bottom and then moves right, like newspaper columns. With ${N_UP_RTL_LABEL} ticked, both run from the right instead, so page two sits to the left of page one. When the last sheet is not full, its remaining places are left empty. The margin keeps the same space at the sheet's edges and between pages, and the border is a ${N_UP_BORDER_PT}-point line.`,
         ],
       },
       {
@@ -3875,7 +3894,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-30",
-    updated: "2026-10-30",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-add-bates-numbers-to-a-pdf",
@@ -6142,9 +6161,11 @@ export const guides: Guide[] = [
   },
   // Overlay PDF, titled for the task it truly does: lay one PDF on every
   // page of another. Read off overlay.ts and overlay-runner.tsx: the overlay
-  // is always centred (fitOverlayRect has no position), there is no page
-  // range (every base page gets an overlay page), Cycle pages walks the
-  // overlay in order and starts again (overlayPageIndexFor), and an overlay
+  // is always centred (fitOverlayRect has no position), Selected pages limits
+  // it to a page list (overlayPdf `pages`, which take the overlay pages in
+  // turn; added 2026-11-07, audit overlay-pdf#2), the four paging modes map
+  // overlay pages in order (overlayPageIndexFor: Cycle starts again, Repeat
+  // last page keeps the last, Once, then stop leaves the rest), and an overlay
   // page with no content is skipped and named. In-browser, so the word
   // "upload" appears nowhere, Word to PDF included.
   {
@@ -6191,10 +6212,10 @@ export const guides: Guide[] = [
       },
       {
         id: "first-page-only",
-        heading: "A letterhead on the first page only",
+        heading: "The first page only, or a continuation sheet",
         body: [
-          "There is no page range: every page of the letter gets a page of the overlay. When the overlay PDF has more than one page, a Multi-page overlay choice appears. First page on all puts its first page everywhere; Cycle pages gives letter page one the overlay's page one, page two its page two, and so on, starting again from the first when the overlay runs out.",
-          `So for the first page only, make an overlay PDF with as many pages as the letter, the letterhead on its first page and the rest left empty, and choose Cycle pages. An overlay page with no content at all is skipped, and the result says which; with ${OVERLAY_BEHIND} or ${OVERLAY_MULTIPLY}, an empty white page changes nothing you can see either. If your letterhead is a PNG or JPEG image rather than a PDF, ${nameOf("watermark-pdf")} can place an image and limit it to the pages you list.`,
+          `Under Pages, choose ${OVERLAY_SELECTED_PAGES} and type 1: only the first page gets the letterhead, and the result names the pages it left unchanged. A list such as 1, 3-5 works the same way.`,
+          `When the overlay PDF has more than one page, a Multi-page overlay choice appears. ${OVERLAY_FIRST_ON_ALL} puts its first page everywhere. ${OVERLAY_CYCLE} gives letter page one the overlay's page one, page two its page two, and so on, starting again from the first when the overlay runs out. ${OVERLAY_REPEAT_LAST} matches pages the same way, then keeps using the overlay's last page. ${OVERLAY_ONCE} matches them once and leaves the pages after the overlay's last page as they were. So for a full letterhead on page one and a continuation sheet on every later page, make the overlay a two-page PDF, letterhead first, and choose ${OVERLAY_REPEAT_LAST}. If your letterhead is a PNG or JPEG image rather than a PDF, ${nameOf("watermark-pdf")} can place an image and limit it to the pages you list.`,
         ],
       },
     ],
@@ -6223,7 +6244,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   // Optimize PDF for Web: `qpdf --linearize` and nothing else
   // (pdf-structure/native.ts linearizeArgs), no options; the worker refuses

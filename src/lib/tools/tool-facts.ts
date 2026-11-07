@@ -86,12 +86,15 @@ import {
   DEEP_COMPRESSION_PRESETS,
   EDITOR_KINDS,
   EDITOR_KIND_FACT,
+  EDITOR_FORMS_GROUP,
   COMMENT_KINDS,
   MARKUP_KINDS,
   FIELD_TYPE_FACT,
   GRAYSCALE_DPI_PRESETS,
   NEW_FIELD_TYPES,
   OVERLAY_FITS,
+  OVERLAY_PAGE_SCOPES,
+  OVERLAY_PAGINGS,
   SIGNATURE_SOURCE_FACT,
   SIGNATURE_SOURCES,
   SPLIT_MODE_FACT,
@@ -215,6 +218,12 @@ const encryptionLabels = listed(
 /** Overlay scale modes as the overlay runner's control labels them. */
 const overlayFitLabels = listed(
   OVERLAY_FITS.map((fit) => fit.label),
+  "or",
+);
+
+/** Overlay paging modes as the overlay runner's control labels them. */
+const overlayPagingLabels = listed(
+  OVERLAY_PAGINGS.map((paging) => paging.label),
   "or",
 );
 
@@ -1432,8 +1441,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
       return [
         {
           question: "Can I add a letterhead or logo to every page?",
-          answer:
-            "Yes. Save it as a PDF and add it as the overlay: its first page is drawn over every page of your document. With a multi-page overlay you can choose “Cycle pages” instead, to use its pages in turn.",
+          answer: `Yes. Save it as a PDF and add it as the overlay: its first page is drawn over every page of your document. With a multi-page overlay you choose how its pages map to yours: ${overlayPagingLabels}.`,
         },
         {
           question: "How is the overlay sized on each page?",
@@ -1471,7 +1479,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
           question: `Can ${tool.name} add a signature field?`,
           answer: `No. It adds ${listed(
             NEW_FIELD_TYPES.map((t) => FIELD_TYPE_FACT[t]),
-          )}. To sign a document yourself, use ${toolName("sign-pdf")}; to prepare one for other people to sign, use ${toolName("request-signatures")}.`,
+          )}, placed by coordinates. ${toolName("edit-pdf")} can: drag out a signature field, or any of those fields, onto the page with the tools in its ${EDITOR_FORMS_GROUP} group, in your browser, ready for someone to sign. To sign a document yourself, use ${toolName("sign-pdf")}.`,
         },
         {
           question: "How do I place a field?",
@@ -2211,7 +2219,7 @@ const DERIVED_STEPS: Record<string, readonly string[]> = {
   "overlay-pdf": [
     "Pick the base PDF you want to stamp — it stays on your device.",
     "Add the overlay PDF: a letterhead, stamp or template.",
-    `Choose the scale — ${overlayFitLabels} — and the opacity. For a multi-page overlay, use its first page on every page or cycle through its pages.`,
+    `Choose the scale — ${overlayFitLabels} — and the opacity. For a multi-page overlay, choose how its pages map to yours: ${overlayPagingLabels}. To stamp only some pages, choose ${OVERLAY_PAGE_SCOPES.find((o) => o.id === "some")!.label} and list them.`,
     "Download the overlaid PDF.",
   ],
   "protect-pdf": [

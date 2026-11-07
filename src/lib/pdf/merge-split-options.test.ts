@@ -21,7 +21,7 @@ import {
   parseRanges,
   rangesFromStarts,
 } from "./ranges";
-import { sortMergeItems } from "./merge-order";
+import { MERGE_SORTS, sortMergeItems } from "./merge-order";
 import {
   makeStructuredPdf,
   STRUCTURED_FIELD_VALUE,
@@ -275,6 +275,53 @@ describe("merge: a bookmark for each file", () => {
   });
 });
 
+describe("merge: a blank page after a file with an odd page count (audit merge-pdf#3)", () => {
+  // Printed double-sided, a file with an odd page count makes the next file
+  // start on the BACK of its last sheet. A blank of the last page's size
+  // after each such file (not the last one) puts every file on a front.
+  it("pads each odd file but the last, with a blank the size of its last page", async () => {
+    const a = await makePdf([11, 12, 13]);
+    const b = await makePdf([21, 22]);
+    const c = await makePdf([31]);
+    let blanks = -1;
+    const out = await mergePdfs([a, b, c, a], {
+      blankAfterOdd: true,
+      onBlankPages: (n) => {
+        blanks = n;
+      },
+    });
+    // a (3, odd) + blank 13 · b (2) · c (1, odd) + blank 31 · a (last, no pad)
+    expect(await widths(out)).toEqual([
+      11, 12, 13, 13, 21, 22, 31, 31, 11, 12, 13,
+    ]);
+    expect(blanks).toBe(2);
+    const doc = await PDFDocument.load(out);
+    expect(doc.getPage(3).node.Contents(), "the pad is blank").toBeUndefined();
+    expect(doc.getPage(7).node.Contents()).toBeUndefined();
+  });
+
+  it("counts the selected pages, and each file bookmark still opens its first page", async () => {
+    const a = await makePdf([11, 12]);
+    const b = await makePdf([21, 22]);
+    const out = await mergePdfs([a, b], {
+      pages: [[0], undefined],
+      blankAfterOdd: true,
+      fileBookmarks: ["a.pdf", "b.pdf"],
+    });
+    expect(await widths(out)).toEqual([11, 11, 21, 22]);
+    expect((await readOutline(out)).map((o) => [o.title, o.page])).toEqual([
+      ["a.pdf", 0],
+      ["b.pdf", 2],
+    ]);
+  });
+
+  it("off (the default), nothing is added (control)", async () => {
+    const a = await makePdf([11, 12, 13]);
+    const b = await makePdf([21]);
+    expect(await widths(await mergePdfs([a, b]))).toEqual([11, 12, 13, 21]);
+  });
+});
+
 describe("merge: sort", () => {
   const items = [
     { name: "b-report.pdf", seq: 0 },
@@ -298,6 +345,26 @@ describe("merge: sort", () => {
       "A-cover.pdf",
     ]);
   });
+  it("Oldest first and Newest first order by the file's last-modified time (audit merge-pdf#7)", () => {
+    // Scans and monthly statements whose names carry no date: when they
+    // were made is the only order that matches.
+    const dated = [
+      { name: "scan.pdf", seq: 0, modified: 3_000 },
+      { name: "scan (1).pdf", seq: 1, modified: 1_000 },
+      { name: "scan (2).pdf", seq: 2, modified: 2_000 },
+      { name: "same-time.pdf", seq: 3, modified: 2_000 },
+    ];
+    expect(MERGE_SORTS).toContain("modified-asc");
+    expect(MERGE_SORTS).toContain("modified-desc");
+    expect(sortMergeItems(dated, "modified-asc").map((i) => i.seq)).toEqual([
+      1, 2, 3, 0,
+    ]);
+    // Ties keep the order the files were added, both ways.
+    expect(sortMergeItems(dated, "modified-desc").map((i) => i.seq)).toEqual([
+      0, 2, 3, 1,
+    ]);
+  });
+
   it("As added restores the order the files came in", () => {
     const shuffled = sortMergeItems(items, "name-desc");
     expect(sortMergeItems(shuffled, "added").map((i) => i.seq)).toEqual([

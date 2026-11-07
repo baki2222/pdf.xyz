@@ -94,7 +94,7 @@ const NO_FACE_EXAMPLE =
  * JPG to PDF / PNG to PDF paint a full-page white rectangle under the image
  * (image-to-pdf.ts), so their output is opaque when used as an overlay.
  * Overlay / Stamp has its own Opacity slider (10-100 in overlay-runner.tsx)
- * and, for a multi-page overlay, "First page on all" or "Cycle pages", so the
+ * and, for a multi-page overlay, the paging modes in OVERLAY_PAGINGS, so the
  * FAQ says "a page from a second PDF" and "washes them out", not "hides".
  * The slider bounds (opacity, rotation, font size) are inline literals in
  * watermark-runner.tsx with no exported constant, so this copy names the

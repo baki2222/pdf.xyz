@@ -246,6 +246,59 @@ export const OVERLAY_FITS: readonly OverlayFitOption[] = [
   },
 ] as const;
 
+/** Overlay PDF — which overlay page is used for each base page. */
+export type OverlayPaging = "repeat" | "cycle" | "last" | "once";
+
+export interface OverlayPagingOption {
+  id: OverlayPaging;
+  label: string;
+  hint: string;
+}
+
+/**
+ * The paging modes offered for a multi-page overlay, in the order the runner
+ * shows them; `repeat` is the default. The labels and hints are what the
+ * control renders, and the tool page reads them from here.
+ */
+export const OVERLAY_PAGINGS: readonly OverlayPagingOption[] = [
+  {
+    id: "repeat",
+    label: "First page on all",
+    hint: "Use only the overlay's first page, on every page.",
+  },
+  {
+    id: "cycle",
+    label: "Cycle pages",
+    hint: "Overlay page 1 on page 1, page 2 on page 2, and so on, starting again from overlay page 1 when the overlay runs out.",
+  },
+  {
+    id: "last",
+    label: "Repeat last page",
+    hint: "Match pages in order, then keep using the overlay's last page: a cover letterhead on page 1 and a continuation sheet on every page after it.",
+  },
+  {
+    id: "once",
+    label: "Once, then stop",
+    hint: "Match pages in order and stop when the overlay runs out: pages past its last page are left unchanged.",
+  },
+] as const;
+
+/**
+ * Edit PDF — the toolbar group holding the form-field tools, which other tool
+ * pages (Create Fillable Forms) send readers to. `create-forms-runner.test.tsx`
+ * holds the editor's TOOL_GROUPS to a group of this name with a signature
+ * field in it.
+ */
+export const EDITOR_FORMS_GROUP = "Forms";
+
+/** Overlay PDF — which base pages get the overlay; `all` is the default. */
+export const OVERLAY_PAGE_SCOPES = [
+  { id: "all", label: "All pages" },
+  { id: "some", label: "Selected pages" },
+] as const;
+
+export type OverlayPageScope = (typeof OVERLAY_PAGE_SCOPES)[number]["id"];
+
 /** Grayscale PDF — the rasterization presets the runner offers. */
 export const GRAYSCALE_DPI_PRESETS = [
   { id: "screen", label: "Screen", dpi: 96 },
