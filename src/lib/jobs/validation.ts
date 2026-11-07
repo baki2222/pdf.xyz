@@ -23,6 +23,7 @@ import {
 import { apiError, type ParseResult } from "./responses";
 import { sanitizeDisplayFilename } from "./filenames";
 import { parseHtmlRenderOptions } from "./html-render-options";
+import { parseWebpageCaptureOptions } from "./webpage-capture-options";
 import { HTML_RENDER_TOOLS } from "@/lib/workers/html-render/tools";
 // Leaves with no imports: the parsers the worker runs again before it
 // converts, so creation and the worker cannot disagree.
@@ -404,6 +405,11 @@ export function parseCreateJobRequest(
   if (tool.slug === "pdf-to-pdfa") {
     const level = parsePdfALevel(options);
     if (!level.ok) return unprocessable(level.message, "options.level");
+  }
+  // Webpage to PDF's capture options, refused here for the same reason.
+  if (tool.slug === "webpage-to-pdf") {
+    const capture = parseWebpageCaptureOptions(options);
+    if (!capture.ok) return capture;
   }
 
   const keyResult = parseIdempotencyKey(input.idempotencyKey);

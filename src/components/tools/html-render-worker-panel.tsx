@@ -46,6 +46,12 @@ import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
 import { decodeTextFile } from "@/lib/text/decode-text-file";
 import { useStagedHandoff } from "./use-staged-handoff";
 import { HtmlRenderLayoutOptions } from "./html-render-layout-options";
+import { WebpageCaptureGroup } from "./webpage-capture-options";
+import {
+  DEFAULT_WEBPAGE_CAPTURE_OPTIONS,
+  webpageCaptureOptionsBag,
+  type WebpageCaptureOptions,
+} from "@/lib/jobs/webpage-capture-options";
 import { EpubLayoutOptions } from "./epub-layout-options";
 import { EpubFilePicker } from "./epub-file-picker";
 import {
@@ -246,6 +252,9 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
   const [bookLayout, setBookLayout] = useState<EpubRenderOptions>(
     DEFAULT_EPUB_RENDER_OPTIONS,
   );
+  const [capture, setCapture] = useState<WebpageCaptureOptions>(
+    DEFAULT_WEBPAGE_CAPTURE_OPTIONS,
+  );
 
   const address = normalizeWebpageAddress(url);
   const start = useCallback(async () => {
@@ -257,7 +266,11 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
         ? epubRenderOptionsBag(bookLayout)
         : htmlRenderOptionsBag(layout);
     await run(async (controls) => {
-      if (mode === "url") return runWorkerWebpageToPdf(address, controls, bag);
+      if (mode === "url")
+        return runWorkerWebpageToPdf(address, controls, {
+          ...bag,
+          ...webpageCaptureOptionsBag(capture),
+        });
       if (!file)
         return {
           ok: false as const,
@@ -275,7 +288,7 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
         ? runWorkerEpubToPdf(input, controls)
         : runWorkerHtmlToPdf(input, controls);
     });
-  }, [file, mode, address, run, available, layout, bookLayout]);
+  }, [file, mode, address, run, available, layout, bookLayout, capture]);
 
   // The address is checked HERE, in words, before any job exists: a length
   // check used to let `https://https://…` and bare `example.com` through to
@@ -404,6 +417,17 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
           disabled={busy}
           onChange={(next) => {
             setLayout(next);
+            setOutcome(null);
+          }}
+        />
+      )}
+
+      {mode === "url" && (
+        <WebpageCaptureGroup
+          value={capture}
+          disabled={busy}
+          onChange={(next) => {
+            setCapture(next);
             setOutcome(null);
           }}
         />

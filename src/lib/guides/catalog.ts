@@ -134,6 +134,15 @@ import {
   HTML_LAYOUT_STEP,
   htmlLayoutAnswer,
 } from "@/lib/tools/html-layout-copy";
+import {
+  WEBPAGE_CAPTURE_SENTENCE,
+  WEBPAGE_OVERLAY_ANSWER,
+  WEBPAGE_PRINT_STYLES_SENTENCE,
+  WEBPAGE_OUTLINE_SENTENCE,
+  WEBPAGE_SCROLL_SENTENCE,
+  WEBPAGE_STAMP_SENTENCE,
+} from "@/lib/tools/webpage-capture-copy";
+import { WEBPAGE_CAPTURE_LABELS } from "@/lib/jobs/webpage-capture-options";
 import { MAX_SCAN_SIDE_PX, SCAN_PAGE_SIZES } from "@/lib/pdf/scan-to-pdf";
 import { SCAN_ENHANCEMENTS } from "@/lib/pdf/scan-enhance";
 import { METADATA_DATE_FIELDS, METADATA_TEXT_FIELDS } from "@/lib/pdf/metadata";
@@ -3403,6 +3412,7 @@ export const guides: Guide[] = [
       `Open the ${nameOf("webpage-to-pdf")} tool.`,
       "Select everything in the address field, which starts with https://, and paste the full link from your browser's address bar over it. Only http and https links are accepted.",
       HTML_LAYOUT_STEP.body,
+      WEBPAGE_CAPTURE_SENTENCE,
       "Press Render PDF. The address is uploaded to our secure server over an encrypted connection, and Chromium opens and prints the page.",
       `When “Your PDF is ready.” appears, press Download. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save the PDF right away.`,
     ],
@@ -3419,8 +3429,8 @@ export const guides: Guide[] = [
         id: "what-gets-printed",
         heading: "What ends up in the PDF",
         body: [
-          "The PDF carries the page and nothing else: pdf.xyz adds no date, title, address or page-number lines. Backgrounds are printed, and a site that ships a print stylesheet gets that layout. Words a site draws as a picture or on a canvas stay pictures.",
-          "Nothing scrolls the page, and its scripts run within a fixed budget of time, so an endless feed prints only what it loads unscrolled, and images that load only as you scroll can be missing. Cookie notices and adverts shown to a new visitor can appear too.",
+          `${WEBPAGE_STAMP_SENTENCE} ${WEBPAGE_OUTLINE_SENTENCE} Backgrounds are printed. ${WEBPAGE_PRINT_STYLES_SENTENCE} Words a site draws as a picture or on a canvas stay pictures.`,
+          `Its scripts run within a fixed budget of time. ${WEBPAGE_SCROLL_SENTENCE} Adverts shown to a new visitor can appear too, and so can cookie notices and pop-ups, though ticking ${WEBPAGE_CAPTURE_LABELS.hideOverlays} removes the common ones.`,
         ],
       },
       {
@@ -3442,6 +3452,10 @@ export const guides: Guide[] = [
         answer: htmlLayoutAnswer("site"),
       },
       {
+        question: "Can I hide cookie notices, pop-ups or ads?",
+        answer: WEBPAGE_OVERLAY_ANSWER,
+      },
+      {
         question: "Is the text in the PDF selectable?",
         answer:
           "Yes. It is a printed PDF, not a screenshot, so words can be selected, copied and found with Ctrl+F. Words a site draws as a picture or on a canvas stay pictures.",
@@ -3456,7 +3470,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-11-07",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-extract-images-from-a-pdf",

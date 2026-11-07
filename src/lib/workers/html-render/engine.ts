@@ -10,6 +10,10 @@ import {
   DEFAULT_HTML_RENDER_OPTIONS,
   type HtmlRenderOptions,
 } from "@/lib/jobs/html-render-options";
+import {
+  DEFAULT_WEBPAGE_CAPTURE_OPTIONS,
+  type WebpageCaptureOptions,
+} from "@/lib/jobs/webpage-capture-options";
 
 export {
   HTML_RENDER_TOOLS,
@@ -103,10 +107,12 @@ export interface ChromiumPdfRunner {
     options?: HtmlRenderOptions,
     run?: RunControl,
   ): Promise<Uint8Array>;
+  /** `capture` absent = every capture default (Webpage to PDF only). */
   renderUrl(
     url: string,
     options?: HtmlRenderOptions,
     run?: RunControl,
+    capture?: WebpageCaptureOptions,
   ): Promise<Uint8Array>;
 }
 
@@ -245,6 +251,7 @@ export async function runWebpageToPdf(
   options: HtmlRenderOptions = DEFAULT_HTML_RENDER_OPTIONS,
   /** The attempt's abort signal, passed to Chromium. */
   signal?: AbortSignal,
+  capture: WebpageCaptureOptions = DEFAULT_WEBPAGE_CAPTURE_OPTIONS,
 ): Promise<HtmlRenderRun> {
   if (!isSafePublicHttpUrl(url)) {
     return {
@@ -257,7 +264,12 @@ export async function runWebpageToPdf(
   if (!deps.chromium) return unsupported();
   let output: Uint8Array;
   try {
-    output = await deps.chromium.renderUrl(url, options, signalOption(signal));
+    output = await deps.chromium.renderUrl(
+      url,
+      options,
+      signalOption(signal),
+      capture,
+    );
   } catch (error) {
     rethrowIfAttemptAbort(error);
     // What the SITE did reaches the user; until 2026-09 every error here,

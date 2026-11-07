@@ -248,6 +248,26 @@ describe("Excel and PDF/A layout options are refused at job creation (review 202
   });
 });
 
+describe("Webpage to PDF capture options at job creation", () => {
+  it("refuses a non-boolean, naming the field; accepts a boolean (audit webpage-to-pdf#1)", () => {
+    const bad = parseCreateJobRequest({
+      tool: "webpage-to-pdf",
+      options: { url: "https://example.com/report", hideOverlays: "yes" },
+    });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok)
+      expect(bad.error.body.error.details?.[0]?.field).toBe(
+        "options.hideOverlays",
+      );
+    expect(
+      parseCreateJobRequest({
+        tool: "webpage-to-pdf",
+        options: { url: "https://example.com/report", hideOverlays: true },
+      }).ok,
+    ).toBe(true);
+  });
+});
+
 describe("public URL SSRF guard", () => {
   it.each([
     "file:///etc/passwd",

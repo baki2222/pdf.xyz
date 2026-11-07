@@ -6,6 +6,7 @@ import {
 } from "@/lib/jobs";
 import { isSafePublicHttpUrl } from "@/lib/jobs/validation";
 import { parseHtmlRenderOptions } from "@/lib/jobs/html-render-options";
+import { parseWebpageCaptureOptions } from "@/lib/jobs/webpage-capture-options";
 import {
   HTML_TO_PDF_TOOL,
   WEBPAGE_TO_PDF_TOOL,
@@ -222,11 +223,21 @@ export function createHtmlRenderProcessor(deps: HtmlRenderDeps): Processor {
             retryable: false,
           });
         }
+        // Hide pop-ups and the rest: the API's parser again, for the same
+        // reason as the layout's.
+        const capture = parseWebpageCaptureOptions(input.options);
+        if (!capture.ok)
+          return processorFail({
+            code: capture.error.body.error.code,
+            message: capture.error.body.error.message,
+            retryable: false,
+          });
         const run = await runWebpageToPdf(
           url,
           deps,
           layout.value,
           input.signal,
+          capture.value,
         );
         if (!run.ok) return processorFail(jobError(run));
         return processorOk(

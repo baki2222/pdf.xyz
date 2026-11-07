@@ -11,6 +11,7 @@ import {
   type WebpageFetchFailure,
 } from "./engine";
 import { DEFAULT_HTML_RENDER_OPTIONS } from "@/lib/jobs/html-render-options";
+import { DEFAULT_WEBPAGE_CAPTURE_OPTIONS } from "@/lib/jobs/webpage-capture-options";
 
 const PDF = new TextEncoder().encode(
   "%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
@@ -75,6 +76,7 @@ describe("html-render engine", () => {
       "https://example.com/report",
       layout,
       {},
+      DEFAULT_WEBPAGE_CAPTURE_OPTIONS,
     );
   });
 
@@ -91,6 +93,7 @@ describe("html-render engine", () => {
       "https://example.com/report",
       DEFAULT_HTML_RENDER_OPTIONS,
       {},
+      DEFAULT_WEBPAGE_CAPTURE_OPTIONS,
     );
   });
 

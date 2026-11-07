@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_HTML_RENDER_OPTIONS } from "@/lib/jobs/html-render-options";
+import { DEFAULT_WEBPAGE_CAPTURE_OPTIONS } from "@/lib/jobs/webpage-capture-options";
 import {
   createHtmlRenderProcessor,
   htmlPdfOutputName,
@@ -77,6 +78,7 @@ describe("html-render processor", () => {
       "https://example.com/report",
       DEFAULT_HTML_RENDER_OPTIONS,
       {},
+      DEFAULT_WEBPAGE_CAPTURE_OPTIONS,
     );
     if (result.ok)
       expect(result.artifacts[0]?.filename).toBe("example.com-report.pdf");
@@ -107,6 +109,7 @@ describe("html-render processor", () => {
         onePage: true,
       },
       {},
+      DEFAULT_WEBPAGE_CAPTURE_OPTIONS,
     );
     await processor.process({
       tool: "html-to-pdf",
@@ -129,6 +132,35 @@ describe("html-render processor", () => {
       },
       {},
     );
+  });
+
+  it("parses a webpage job's capture options and renders with them (audit webpage-to-pdf#1)", async () => {
+    const renderUrl = vi.fn(async () => PDF);
+    const processor = createHtmlRenderProcessor({
+      chromium: { renderHtml: vi.fn(), renderUrl },
+    });
+    await processor.process({
+      tool: "webpage-to-pdf",
+      inputs: [],
+      options: { url: "https://example.com/report", hideOverlays: true },
+    });
+    expect(renderUrl).toHaveBeenCalledWith(
+      "https://example.com/report",
+      DEFAULT_HTML_RENDER_OPTIONS,
+      {},
+      { ...DEFAULT_WEBPAGE_CAPTURE_OPTIONS, hideOverlays: true },
+    );
+    renderUrl.mockClear();
+    const refused = await processor.process({
+      tool: "webpage-to-pdf",
+      inputs: [],
+      options: { url: "https://example.com/report", hideOverlays: "yes" },
+    });
+    expect(refused).toMatchObject({
+      ok: false,
+      error: { code: "invalid_request", retryable: false },
+    });
+    expect(renderUrl).not.toHaveBeenCalled();
   });
 
   it("refuses a layout value it does not offer, finally, before rendering", async () => {
