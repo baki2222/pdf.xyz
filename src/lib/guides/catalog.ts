@@ -4671,7 +4671,7 @@ export const guides: Guide[] = [
       "tl;dr of a pdf",
     ],
     intro: [
-      `To summarize a PDF, open ${nameOf("summarize-pdf")}, add your file, choose a length and a format, and press Summarize PDF. An AI model writes a summary of the document's text, and you download it as a ZIP with Markdown and plain-text copies.`,
+      `To summarize a PDF, open ${nameOf("summarize-pdf")}, add your file, choose a length and a format, and press Summarize PDF. An AI model writes a summary of the document's text, which appears on the page to read and copy; you can also save it as plain text, as Markdown, or as a ZIP that adds a record of the model.`,
       "Use the summary to decide what to read, not in place of reading. The model is told to work only from the document's text and to add no facts, yet a summary can still leave a point out or get one wrong, so check anything you plan to act on against the original pages.",
       `${nameOf("summarize-pdf")} is one of the AI tools, so the work does not happen in your browser. Your PDF uploads over an encrypted connection to our secure server, which extracts the selectable text and sends that text, not the file, to a third-party AI provider. Your PDF is deleted when the job ends, and the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
     ],
@@ -4681,7 +4681,7 @@ export const guides: Guide[] = [
       `Pick a length under Summary length (${listOr(Object.values(SUMMARY_LENGTH_LABEL))}) and a shape under Format (${SUMMARY_FORMAT_NAMES}). The page starts on ${SUMMARY_LENGTH_LABEL[DEFAULT_SUMMARY_LENGTH]} and ${SUMMARY_FORMAT_LABEL[DEFAULT_SUMMARY_FORMAT]}.`,
       `Optionally, type up to ${SUMMARY_FOCUS_CHARS} characters in Focus (optional), such as “deadlines and costs”, to say what the summary should pay attention to.`,
       "Press Summarize PDF. Your PDF uploads over an encrypted connection to our secure server, and the button follows the job while the model writes.",
-      `Download the ZIP; report.pdf comes back as ${SUMMARY_EXAMPLE_ZIP}. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it to your device.`,
+      `Read the summary on the page and press Copy summary to paste it elsewhere, or download it as plain text, as Markdown or as the ZIP; report.pdf comes back as ${SUMMARY_EXAMPLE_ZIP}. Our server's link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save what you need to your device.`,
     ],
     sections: [
       {
@@ -4697,7 +4697,7 @@ export const guides: Guide[] = [
         id: "what-you-get-back",
         heading: "What you get back",
         body: [
-          "The download is a ZIP holding summary.md, summary.txt, manifest.json and README.txt. The Markdown and plain-text files hold the same summary; the manifest and README record which provider and model wrote it and the options you chose.",
+          "The summary appears on the page, with Copy summary and a download each for the plain text and the Markdown. The full download is a ZIP holding summary.md, summary.txt, manifest.json and README.txt. The Markdown and plain-text files hold the same summary; the manifest and README record which provider and model wrote it and the options you chose.",
           `The model reads a bounded amount of the document's text, and the exact figure is stated on the Summarize PDF page itself. A longer document is summarized from its first page up to that point, and both the results panel and summary.md say how far the reading got, by page. Files themselves are capped at ${ceilingMb("summarize-pdf")} MB.`,
         ],
       },
@@ -4742,7 +4742,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-convert-pdf-to-pdfa",

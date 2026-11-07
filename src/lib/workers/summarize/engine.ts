@@ -26,6 +26,7 @@ import type {
 import type { AiProvider, AiCompletionResult } from "../ai/provider";
 import { AI_INPUT_LIMITS } from "@/lib/jobs/types";
 import type { AiUsageMeta } from "@/lib/jobs/ai-results";
+import { SUMMARY_PACKAGE_FILES } from "../summarize-package";
 
 /**
  * Summarize PDF engine for the `summarize-pdf` AI tool.
@@ -574,8 +575,10 @@ async function buildPackage(
   _options: SummarizeOptions,
 ): Promise<Uint8Array> {
   const zip = new JSZip();
-  zip.file("summary.md", renderMarkdown(summary, manifest));
-  zip.file("summary.txt", summary);
+  // Entry names from the module the panel reads them back with, so the page
+  // that shows the summary and the worker that writes it cannot drift apart.
+  zip.file(SUMMARY_PACKAGE_FILES.markdown, renderMarkdown(summary, manifest));
+  zip.file(SUMMARY_PACKAGE_FILES.text, summary);
   zip.file("manifest.json", JSON.stringify(manifest, null, 2));
   zip.file("README.txt", renderReadme(manifest));
   return new Uint8Array(await zip.generateAsync({ type: "uint8array" }));

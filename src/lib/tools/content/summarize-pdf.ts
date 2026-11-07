@@ -65,6 +65,12 @@ import { DEFAULT_OCR_OUTPUT_MODE, OCR_OUTPUT_MODES } from "@/lib/jobs/ocr";
  *    before anything is uploaded, so such a PDF is never charged (re-read
  *    2026-10-06; the scan answer used to say the refusal came from the worker
  *    after the charge);
+ *  - src/components/tools/summarize-worker-panel.tsx SummaryResultBody (read
+ *    2026-11-07) — the summary read back from the package in the page
+ *    (src/lib/workers/summarize-package.ts, the entry names the engine
+ *    writes), shown in a "Summary" box with "Copy summary", "Download TXT",
+ *    "Download Markdown" and the ZIP; held by
+ *    components/tools/summary-result.test.tsx over a REAL engine package;
  *  - src/lib/workers/pdf-security-client.ts — runSecurityJob fetches the
  *    artifact as soon as the job completes, so the panel's Download button
  *    saves bytes already in the page; the 60-minute figure is the worker's
@@ -241,8 +247,8 @@ const content: ToolContent = {
       body: `Type up to ${FOCUS_CHARS} characters in Focus (optional) to say what the summary should emphasise; the field stops accepting text at that length. Leave it empty for a general summary.`,
     },
     {
-      title: "Summarize and download",
-      body: `Press Summarize PDF. The button then shows where the job is: Uploading your file…, Waiting for our server… if it is queued, Summarizing… while our server reads the text and the model writes, and Downloading the result…. When it finishes, the panel has already fetched the result and shows a button naming the ZIP (report.pdf becomes ${EXAMPLE_ZIP}). The ZIP holds summary.md, summary.txt, manifest.json with the provider, model and options, and README.txt.`,
+      title: "Summarize, read and save",
+      body: `Press Summarize PDF. The button then shows where the job is: Uploading your file…, Waiting for our server… if it is queued, Summarizing… while our server reads the text and the model writes, and Downloading the result…. When it finishes, the panel has already fetched the result and shows the summary on the page, with Copy summary, a download each for the plain text and the Markdown, and a button naming the ZIP (report.pdf becomes ${EXAMPLE_ZIP}). The ZIP holds summary.md, summary.txt, manifest.json with the provider, model and options, and README.txt.`,
     },
   ],
 
