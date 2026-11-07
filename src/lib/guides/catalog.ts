@@ -179,6 +179,7 @@ import {
   imagePageLayout,
 } from "@/lib/pdf/image-page-layout";
 import { RETENTION_WINDOWS } from "@/lib/retention-windows";
+import { OCR_START_SENTENCE } from "@/lib/jobs/ocr-start-copy";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
 import {
   PDFA_EXPECTED_CONFORMANCE,
@@ -3213,12 +3214,12 @@ export const guides: Guide[] = [
     ],
     intro: [
       `To OCR a PDF in a language other than English, open ${nameOf("ocr-pdf")}, select every language printed on the page under Languages, add your scan, and press Recognize text. ${OCR_LANGUAGES.length} languages are offered, including ${OCR_EXAMPLE_NAMES}, and one job can combine up to ${MAX_OCR_LANGUAGES}.`,
-      `Choosing the language is the step that decides the result. ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} is selected when the page opens, and a page read in the wrong language does not fail: the engine returns fluent-looking nonsense in the alphabet it was given, with no error.`,
+      `Choosing the language is the step that decides the result. ${OCR_START_SENTENCE}, and a page read in the wrong language does not fail: the engine returns fluent-looking nonsense in the alphabet it was given, with no error.`,
       `${nameOf("ocr-pdf")} runs on a secure server. Your scan, up to ${ceilingMb("ocr-pdf")} MB, travels over an encrypted connection and is deleted when the job finishes, and the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
     ],
     steps: [
       `Open the ${nameOf("ocr-pdf")} tool.`,
-      `Under Languages, select every language the document uses, up to ${MAX_OCR_LANGUAGES}. ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} starts selected; deselect it if the page has none.`,
+      `Under Languages, select every language the document uses, up to ${MAX_OCR_LANGUAGES}. ${OCR_START_SENTENCE}; deselect any the page does not use.`,
       `Under Output, choose ${ocrModeLabel("searchable-pdf")}, ${ocrModeLabel("text")} for a .txt file, or ${ocrModeLabel("both")}.`,
       "Drop one PDF, JPG or PNG into the Add a scan to OCR area and press Recognize text. The file uploads over an encrypted connection only when you press it.",
       `Download the result. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
@@ -3273,7 +3274,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-convert-a-webpage-to-pdf",
@@ -4377,7 +4378,7 @@ export const guides: Guide[] = [
     steps: [
       `Open the ${nameOf("pdf-to-word")} tool and drop your scanned PDF where it says Add your PDF, or click to pick one. Files up to ${ceilingMb("pdf-to-word")} MB are accepted.`,
       `Tick “${WORD_OCR_LABEL}”.`,
-      `Under Languages, select every language the pages are written in, up to ${MAX_OCR_LANGUAGES}. ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} is selected when the page opens; deselect it if the document has no ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} in it.`,
+      `Under Languages, select every language the pages are written in, up to ${MAX_OCR_LANGUAGES}. ${OCR_START_SENTENCE}; deselect any the document is not written in.`,
       "Press Export DOCX, which uploads your PDF over an encrypted connection to our server, where the OCR and the conversion run in one job.",
       `Download the DOCX when it is ready. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
       "Open it in Word, LibreOffice or Google Docs and read the text through against the page before you rely on it.",
@@ -4428,7 +4429,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Why does my text come out as gibberish?",
-        answer: `Because the page was read in the wrong language. ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} is selected when the page opens; select the language your scan is written in and run the job again. A blurry or sideways scan can cause the same symptom.`,
+        answer: `Because the page was read in the wrong language. ${OCR_START_SENTENCE}; select the language your scan is written in, deselect any it is not, and run the job again. A blurry or sideways scan can cause the same symptom.`,
       },
       {
         question: "Can it read handwriting?",
@@ -4468,7 +4469,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       `To turn a scanned ${BN} PDF into a Word document you can edit, open ${nameOf("pdf-to-word")}, add the PDF, tick “${WORD_OCR_LABEL}”, select ${BN} under Languages, and press Export DOCX. Our server reads the ${BN} letters on each page with OCR (optical character recognition), then writes them into a DOCX file as text you can edit, copy and search.`,
-      `Choosing ${BN} is the step that decides the result. ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} is selected when the page opens, and a ${BN} page read as ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} does not fail: it comes back as Latin letters that look like words and mean nothing, with no error.`,
+      `Choosing ${BN} is the step that decides the result. ${OCR_START_SENTENCE}, and a ${BN} page read as ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} does not fail: it comes back as Latin letters that look like words and mean nothing, with no error.`,
       `This runs on our secure server, not in your browser. Our privacy policy says the uploaded file is deleted when the job ends, the result can be downloaded for ${RETENTION_WINDOWS.outputLink}, and the stored copy is erased by a daily storage rule some time after it is ${RETENTION_WINDOWS.outputStorageRule} old.`,
     ],
     steps: [
@@ -4515,7 +4516,7 @@ export const guides: Guide[] = [
       {
         question:
           "Why does my Bangla text come out as English-looking gibberish?",
-        answer: `Because the page was read with the wrong language. ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} is selected when the page opens; select ${BN} under Languages and run the job again. A blurry or sideways scan can cause the same symptom.`,
+        answer: `Because the page was read with the wrong language. ${OCR_START_SENTENCE}; select ${BN} under Languages and run the job again. A blurry or sideways scan can cause the same symptom.`,
       },
       {
         question: "My PDF already has selectable Bangla text. Do I need OCR?",
@@ -4537,7 +4538,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-convert-excel-to-pdf",
