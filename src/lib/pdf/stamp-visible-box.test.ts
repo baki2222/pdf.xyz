@@ -18,6 +18,8 @@ import { describe, expect, it } from "vitest";
 import { withoutComments } from "@/lib/tools/copy-surface";
 import { cropPdf } from "./crop";
 import { addHeaderFooter } from "./header-footer";
+import { mergePdfs } from "./engine";
+import { MERGE_FILENAME_MARGIN } from "./merge-filename";
 import { addPageNumbers } from "./page-numbers";
 import { STAMP_POSITIONS, visibleBox } from "./stamp";
 import { addWatermark } from "./watermark";
@@ -205,6 +207,23 @@ const DRIVERS: Record<string, Driver> = {
       );
       expect((fc.x + fc.endX) / 2, `${label}: footer centre`).toBeCloseTo(
         page.width / 2,
+        0,
+      );
+    },
+  },
+  // Merge PDF's "Print each file's name at the foot of its pages" (audit
+  // merge-pdf#6): bottom left, at its own margin, through mergePdfs.
+  "src/lib/pdf/merge-filename.ts": {
+    run: (input) => mergePdfs([input], { fileNames: ["FN"] }),
+    check: (page, _index, label) => {
+      const run = runOn(page, "FN", label);
+      expectVisibleAndLevel(page, run, label);
+      expect(run.x, `${label}: left edge`).toBeCloseTo(
+        MERGE_FILENAME_MARGIN,
+        0,
+      );
+      expect(run.y, `${label}: baseline`).toBeCloseTo(
+        page.height - MERGE_FILENAME_MARGIN,
         0,
       );
     },
