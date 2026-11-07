@@ -17,7 +17,15 @@
  */
 import type { Tool } from "./types";
 import { getToolContent, type ToolContent } from "./content";
-import { factFaq, howToSteps, toolFaq, type ToolFaqEntry } from "./tool-facts";
+import {
+  factFaq,
+  howToSteps,
+  officeInputFaqQuestion,
+  SIZE_FAQ_QUESTION,
+  toolFaq,
+  type ToolFaqEntry,
+} from "./tool-facts";
+import { toolFileCeilingMb } from "./file-ceilings";
 import { guidesForTool, type ToolGuide } from "@/lib/guides";
 
 /** One step of "How it works": a short title when authored, and its text. */
@@ -82,6 +90,14 @@ export function stepText(step: PageStep): string {
  * the tool's mode" in `content/content.test.ts`, which reads everything this
  * module returns. A derived question the author already asked, word for word,
  * is not repeated. Without authored content, the whole derived FAQ, as before.
+ *
+ * Nor is one the author asked in OTHER words and answered with the same fact
+ * (audit powerpoint-to-pdf#7): "How large a presentation can I convert?"
+ * stating the ceiling's MB figure covers "How large can my file be?", and an
+ * authored entry naming every accepted format covers "Which files can … convert?".
+ * The topic alone is not enough — the fact must be in the authored answer —
+ * so `faq-overlap.test.ts` checks both that no page asks a topic twice and
+ * that no page loses the fact.
  */
 export function pageFaq(tool: Tool): readonly ToolFaqEntry[] {
   const content = pageContent(tool);
@@ -90,8 +106,55 @@ export function pageFaq(tool: Tool): readonly ToolFaqEntry[] {
   const asked = new Set(authored.map((f) => f.question.toLowerCase()));
   return [
     ...authored,
-    ...factFaq(tool).filter((f) => !asked.has(f.question.toLowerCase())),
+    ...factFaq(tool).filter(
+      (f) =>
+        !asked.has(f.question.toLowerCase()) &&
+        !authoredCovers(tool, authored, f.question),
+    ),
   ];
+}
+
+/** A question about which inputs the tool takes. Exported for the guards. */
+export const FORMAT_TOPIC =
+  /\b(?:which|what) (?:files|file types|formats)\b|\bconvert\b.*\b(?:ODP|ODS|ODT|RTF|CSV|Keynote|Google Slides)\b/i;
+
+/** Does `text` state `mb` megabytes ("50 MB", "50.0 MB")? */
+function statesMb(text: string, mb: number): boolean {
+  return [...text.matchAll(/(\d+(?:\.\d+)?)\s*MB\b/g)].some(
+    (m) => Number(m[1]) === mb,
+  );
+}
+
+/** A question about how big the input may be. Exported for the guards. */
+export const SIZE_TOPIC = /\bhow (?:large|big)\b|\blimit on file size\b/i;
+
+/** Does an authored entry already ask `derived`'s topic and state its fact? */
+function authoredCovers(
+  tool: Tool,
+  authored: readonly ToolFaqEntry[],
+  derived: string,
+): boolean {
+  if (derived === SIZE_FAQ_QUESTION) {
+    const mb = toolFileCeilingMb(tool);
+    return (
+      mb !== null &&
+      authored.some(
+        (f) => SIZE_TOPIC.test(f.question) && statesMb(f.answer, mb),
+      )
+    );
+  }
+  if (derived === officeInputFaqQuestion(tool)) {
+    return authored.some(
+      (f) =>
+        FORMAT_TOPIC.test(f.question) &&
+        tool.accept.every((format) =>
+          new RegExp(`(?:^|[\\s.(])${format}\\b`, "i").test(
+            `${f.question} ${f.answer}`,
+          ),
+        ),
+    );
+  }
+  return false;
 }
 
 /** Guide slugs the authored content links, in its order. */

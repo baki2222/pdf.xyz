@@ -132,7 +132,7 @@ import {
   TRANSLATE_LANGUAGES_ANSWER,
 } from "./tool-facts";
 import { withoutComments } from "./copy-surface";
-import { pageDescription, pageIntro } from "./page-copy";
+import { FORMAT_TOPIC, pageDescription, pageIntro } from "./page-copy";
 import { panelDispatchArms, panelFile } from "@/tests/worker-panel-dispatch";
 import {
   renderToolPages,
@@ -1991,7 +1991,10 @@ describe("Office → PDF pages name the extensions the worker takes", () => {
     for (const slug of OFFICE_TO_PDF_TOOLS) {
       const own = getToolBySlug(slug)!.accept.map((f) => f.toLowerCase());
       expect(own.length).toBeGreaterThan(0);
-      const served = answer(slug, /which files/i);
+      // The formats question, whichever words asked it: since audit
+      // powerpoint-to-pdf#7 an authored one that names every format replaces
+      // the derived "Which files can … convert?" (`pageFaq`).
+      const served = answer(slug, FORMAT_TOPIC);
       for (const ext of allExts) {
         const taken = supportsOfficeInput(slug, `file.${ext}`);
         expect(taken, `${slug} .${ext}`).toBe(own.includes(ext));
