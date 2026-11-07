@@ -783,6 +783,108 @@ describe("Compress batch", { timeout: 30_000 }, () => {
 });
 
 describe(
+  "Compress batch on our secure server (audit compress-pdf#5)",
+  { timeout: 30_000 },
+  () => {
+    // Through the REAL local-dev adapter, as the single-file tests: only the
+    // Ghostscript binary is played, so what each job asked for is read at
+    // the engine, and what was uploaded is read at the upload.
+    it("one Quality and Grayscale for every file, each uploaded and compressed in turn", async () => {
+      const seen: { targetDpi: number; grayscale?: boolean }[] = [];
+      const { uploads } = answerWithLocalWorker(async (_input, ctx) => {
+        seen.push({
+          targetDpi: ctx.options.targetDpi,
+          grayscale: ctx.options.grayscale,
+        });
+        return colourImagePdf({ components: 1, size: 8 });
+      });
+      const a = await colourImagePdf({ components: 3, size: 8, pad: 90_000 });
+      const b = await colourImagePdf({ components: 3, size: 8, pad: 70_000 });
+      const { container } = render(withRouter(<CompressRunner />));
+      await drop(container, [asFile(a, "a.pdf"), asFile(b, "b.pdf")]);
+
+      const lossless = await screen.findByRole("radio", {
+        name: /in your browser/i,
+      });
+      expect(lossless).toBeChecked();
+      fireEvent.click(
+        await screen.findByRole(
+          "radio",
+          { name: /compress images on our server/i },
+          { timeout: 10_000 },
+        ),
+      );
+      expect(screen.getByText(/uploads each file/i)).toBeVisible();
+      fireEvent.click(screen.getByRole("button", { name: "Extreme" }));
+      fireEvent.click(screen.getByRole("checkbox", { name: /grayscale/i }));
+      fireEvent.click(
+        screen.getByRole("button", { name: /compress 2 pdfs on our server/i }),
+      );
+      await screen.findByText(/batch complete/i, {}, { timeout: 10_000 });
+
+      expect(seen).toEqual([
+        { targetDpi: 72, grayscale: true },
+        { targetDpi: 72, grayscale: true },
+      ]);
+      // Each file went up as it was dropped, one job each.
+      expect(uploads.map((u) => u.byteLength)).toEqual([
+        a.byteLength,
+        b.byteLength,
+      ]);
+      expect(
+        screen.getByRole("button", { name: /download all \(2\)/i }),
+      ).toBeInTheDocument();
+      const rows = within(
+        screen.getByRole("list", { name: /files in this batch/i }),
+      );
+      expect(
+        rows.getByRole("button", { name: /download compressed a\.pdf/i }),
+      ).toBeInTheDocument();
+    });
+
+    it("the lossless batch stays the default and uploads nothing", async () => {
+      const { uploads } = answerWithLocalWorker(async () =>
+        colourImagePdf({ components: 3, size: 8 }),
+      );
+      const { container } = render(withRouter(<CompressRunner />));
+      await drop(container, [
+        asFile(await plainPdf(2), "one.pdf"),
+        asFile(await plainPdf(3), "two.pdf"),
+      ]);
+      // The server option is offered (the worker is up)…
+      await screen.findByRole(
+        "radio",
+        { name: /compress images on our server/i },
+        { timeout: 10_000 },
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: /^compress 2 pdfs$/i }),
+      );
+      await screen.findByText(/batch complete/i, {}, { timeout: 10_000 });
+      // …and not taken unless chosen.
+      expect(uploads).toHaveLength(0);
+    });
+
+    it("with no secure server, the batch offers only the lossless repack", async () => {
+      answerWorkerStatus(null);
+      const { container } = render(withRouter(<CompressRunner />));
+      await drop(container, [
+        asFile(await plainPdf(2), "one.pdf"),
+        asFile(await plainPdf(3), "two.pdf"),
+      ]);
+      await screen.findByRole("button", { name: /^compress 2 pdfs$/i });
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("radio", {
+            name: /compress images on our server/i,
+          }),
+        ).toBeNull(),
+      );
+    });
+  },
+);
+
+describe(
   "Compress: Extreme and Grayscale on our secure server",
   { timeout: 30_000 },
   () => {

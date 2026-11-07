@@ -94,6 +94,8 @@ describe("the copy surface reaches what the guards must read", () => {
       "src/lib/pdf/compress-target.ts",
       // Added 2026-11-08: Compress PDF's Image quality labels and hint.
       "src/lib/pdf/compress-image-quality.ts",
+      // Added 2026-11-08: Compress PDF's batch-on-the-server choice labels.
+      "src/lib/pdf/compress-batch-copy.ts",
       // Added 2026-10-31: JPG / PNG to PDF's Max file size — its labels,
       // hint and outcome lines, and the re-encoder's error messages.
       "src/lib/pdf/image-size-limit.ts",

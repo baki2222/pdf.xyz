@@ -19,6 +19,10 @@ import {
   imageQualityLevel,
 } from "@/lib/pdf/compress-image-quality";
 import {
+  BATCH_DEEP_LABEL,
+  BATCH_LOSSLESS_LABEL,
+} from "@/lib/pdf/compress-batch-copy";
+import {
   RUNNER_FILE_CEILINGS,
   WORKER_FILE_CEILING,
 } from "@/lib/tools/file-ceilings";
@@ -125,14 +129,17 @@ const content: ToolContent = {
     },
     {
       title: "A folder of invoices or statements",
-      body: "Select several PDFs and each is repacked in turn on your device. Download them one by one, or press “Download all” for a single ZIP. Deep image compression takes one file at a time.",
+      // CHANGED 2026-11-08 (audit compress-pdf#5): ended "Deep image
+      // compression takes one file at a time." until the batch could run on
+      // our server too.
+      body: `Select several PDFs and each is repacked in turn on your device. Download them one by one, or press “Download all” for a single ZIP. When our secure server is available, choose “${BATCH_DEEP_LABEL}” instead of “${BATCH_LOSSLESS_LABEL}” before you start, and each file is uploaded and compressed in turn with one Quality and Grayscale setting for them all.`,
     },
   ],
 
   steps: [
     {
       title: "Add your PDF",
-      body: "Drop a PDF onto the box or click browse. One file opens the full analysis; two or more go to the in-browser batch list, where “Compress N PDFs” repacks each one.",
+      body: `Drop a PDF onto the box or click browse. One file opens the full analysis; two or more go to the batch list, where “Compress N PDFs” repacks each one in your browser, or, with “${BATCH_DEEP_LABEL}” chosen, sends each one to our server in turn.`,
     },
     {
       title: "Read the breakdown",
@@ -155,7 +162,7 @@ const content: ToolContent = {
     },
     {
       q: "Is my file uploaded when I use Compress PDF?",
-      a: `Not by default. ${HYBRID_WORKER_STEP} Here that step is the “Compress images on our server” button: the analysis and the lossless copy both run in your browser, and the button is shown only once the panel has confirmed a secure server is available.`,
+      a: `Not by default. ${HYBRID_WORKER_STEP} Here that step is the “${BATCH_DEEP_LABEL}” button, or the batch's choice of the same name: the analysis and the lossless copy both run in your browser, and the button and the choice are shown only once the page has confirmed a secure server is available.`,
     },
     {
       q: "Can I compress a PDF to a specific target size?",
@@ -172,7 +179,7 @@ const content: ToolContent = {
     },
     {
       q: "What happens with a password-protected or damaged PDF?",
-      a: "A PDF that needs a password to open is refused with a request to unlock it with its password first. One that opens freely but restricts printing or editing cannot be repacked in your browser, so the page offers our secure server's deep step for it instead; our server may not be able to process an encrypted file, and says so if it cannot. In a batch of several files, such a file fails with a note to compress it on its own. An unreadable file gets an error instead of a download. On the deep step our server rejects a result with fewer pages than the original; if it cannot count the original's pages, it returns the smaller file with a warning that it was not checked page-for-page.",
+      a: "A PDF that needs a password to open is refused with a request to unlock it with its password first. One that opens freely but restricts printing or editing cannot be repacked in your browser, so the page offers our secure server's deep step for it instead; our server may not be able to process an encrypted file, and says so if it cannot. In a lossless batch of several files, such a file fails with a note to compress it on its own; a batch run on our secure server sends it there like any other file. An unreadable file gets an error instead of a download. On the deep step our server rejects a result with fewer pages than the original; if it cannot count the original's pages, it returns the smaller file with a warning that it was not checked page-for-page.",
     },
     {
       q: "Does compressing keep a digital signature valid?",
