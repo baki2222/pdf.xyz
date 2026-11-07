@@ -583,6 +583,57 @@ describe("compress answers what each of its two paths does", () => {
     expect(served).toMatch(/upload the file over TLS/);
   });
 
+  // Review (2026-11-08): the first copy said the Grayscale route keeps "text
+  // you can select and search", "text normally stays text", and "can turn a
+  // PDF gray with its text kept". All three rested on the argv above, the
+  // author's artifact; nobody had extracted text from a real output. Until a
+  // worker job proves it (CLAUDE.md rule 5), the page and the guide say what
+  // the argv shows (a rewrite, not a picture) and tell the reader to check the
+  // text, and the property claims are banned. The ban list is checked both
+  // ways: each pattern catches one of the sentences that shipped.
+  it("the Grayscale route is not promised to keep selectable text, on the page or in the guide, until a real output proves it", async () => {
+    const BANNED = [
+      /text you can select and search/i,
+      /text (normally )?stays text/i,
+      /gray with its text kept/i,
+    ];
+    const SHIPPED = [
+      "so text normally stays text you can select and search.",
+      "instead of turning each page into a picture, so text normally stays text.",
+      "Compress PDF can turn a PDF gray with its text kept, through the Grayscale switch",
+    ];
+    for (const re of BANNED) {
+      expect(
+        SHIPPED.some((line) => re.test(line)),
+        String(re),
+      ).toBe(true);
+    }
+    for (const line of SHIPPED) {
+      expect(
+        BANNED.some((re) => re.test(line)),
+        line,
+      ).toBe(true);
+    }
+    const CHECK = "check that the result still lets you select the text";
+    const page = answer("grayscale-pdf", /select or search the text/);
+    const { guides } = await import("@/lib/guides/catalog");
+    const guide = guides.find(
+      (g) => g.slug === "how-to-convert-a-pdf-to-black-and-white",
+    )!;
+    const guideFaq = guide.faq.find((f) =>
+      /select or search/.test(f.question),
+    )!;
+    const guideSection = guide.sections
+      .map((sec) => JSON.stringify(sec))
+      .find((t) => t.includes("Grayscale switch"))!;
+    const corpus = { page, guideFaq: guideFaq.answer, guideSection };
+    for (const [where, text] of Object.entries(corpus)) {
+      expect(text, where).toContain("Grayscale switch");
+      expect(text, where).toContain(CHECK);
+      for (const re of BANNED) expect(text, where).not.toMatch(re);
+    }
+  });
+
   // Audit rotate-pdf#3 (2026-11-07): the Rotate PDF page described only
   // turning pages by hand, though OCR PDF's "Turn pages upright" box finds
   // sideways scans itself (#265) and only the rotate GUIDE said so. The page
