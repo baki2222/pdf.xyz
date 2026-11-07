@@ -214,7 +214,12 @@ import {
   UNSUPPORTED_SCRIPTS,
   monospaceClaimSentence,
 } from "@/lib/pdf/font-packs";
-import { headerFooterOutputName } from "@/lib/pdf/header-footer";
+import {
+  DEFAULT_HEADER_FOOTER_SIZE,
+  HEADER_FOOTER_MARGIN_LABELS,
+  HEADER_FOOTER_SIZES,
+  headerFooterOutputName,
+} from "@/lib/pdf/header-footer";
 import { textPdfOutputName } from "@/lib/pdf/text-to-pdf";
 import {
   MAX_REQUEST_SIGNERS,
@@ -645,6 +650,10 @@ if (
 
 /** PDF Header & Footer (2026-10-31): the download name from its own helper. */
 const HF_EXAMPLE_OUT = headerFooterOutputName("report.pdf");
+/** Its style choices (2026-11-07), named from the lists the controls draw. */
+const HF_SIZES = `${HEADER_FOOTER_SIZES.min} to ${HEADER_FOOTER_SIZES.max} pt`;
+const HF_MARGINS = listOr(Object.values(HEADER_FOOTER_MARGIN_LABELS));
+const HF_FONTS = listOr(Object.values(STAMP_FONT_LABELS));
 
 /** Text to PDF (2026-10-31): download names, as its runner names them. */
 const TXT_EXAMPLE_OUT = textPdfOutputName("notes.txt");
@@ -5472,7 +5481,8 @@ export const guides: Guide[] = [
         id: "what-you-can-change",
         heading: "What you can change, and what is fixed",
         body: [
-          "You choose the wording, the fields and which box each line goes in: a band can carry text at the left, the center and the right at once, such as a company name at the left of the header and the date at its right. Two lines that would run into each other are refused, with a message naming both. The font size, the grey ink and the distance from the edge are fixed.",
+          "You choose the wording, the fields and which box each line goes in: a band can carry text at the left, the center and the right at once, such as a company name at the left of the header and the date at its right. Two lines that would run into each other are refused, with a message naming both.",
+          `Under Size, margin, font and color you also set the look of both bands: a font size from ${HF_SIZES} (it starts at ${DEFAULT_HEADER_FOOTER_SIZE}), a margin from the page edge of ${HF_MARGINS}, the font (${HF_FONTS}) and the ink colour.`,
           "Every page gets the same lines unless you open Pages: Leave the cover page blank skips page 1 but still counts it, Start on page begins the lines on a later page, First number sets the {n} that page shows, and Skip last pages leaves an appendix bare. {total} is then the last number printed. The text is drawn on top of the page with no background, and nothing is moved to make room, so text already printed near the edge will overlap it, and running the tool twice gives two headers. A page stored sideways still gets its header at the top as you view it, reading level.",
         ],
       },
@@ -5506,8 +5516,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I change the font, size or colour?",
-        answer:
-          "No. The size, the grey ink and the margin are fixed. The typeface follows your characters: Helvetica for Western European text, and an embedded Noto face when a character needs one.",
+        answer: `Yes. Open Size, margin, font and color to pick a size from ${HF_SIZES}, a margin of ${HF_MARGINS}, ${HF_FONTS}, and any ink colour. The font you pick is used for Western European text; a character outside that set moves both bands to an embedded Noto face.`,
       },
       {
         question: "Does my PDF leave my device?",

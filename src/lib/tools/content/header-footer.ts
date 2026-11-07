@@ -9,7 +9,15 @@ import {
   unsupportedScriptFor,
 } from "@/lib/pdf/font-packs";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
-import { stampDateCandidates } from "@/lib/pdf/header-footer";
+import {
+  DEFAULT_HEADER_FOOTER_SIZE,
+  HEADER_FOOTER_MARGIN_LABELS,
+  HEADER_FOOTER_MARGINS,
+  HEADER_FOOTER_SIZES,
+  stampDateCandidates,
+  type HeaderFooterMargin,
+} from "@/lib/pdf/header-footer";
+import { STAMP_FONT_LABELS } from "@/lib/pdf/stamp";
 
 /*
  * Every behavioral claim below was read from, or probed against, the code:
@@ -37,8 +45,11 @@ import { stampDateCandidates } from "@/lib/pdf/header-footer";
  *  - engine: addHeaderFooter() in src/lib/pdf/header-footer.ts loads the
  *    ORIGINAL document, draws text on the planned pages with no background, sets
  *    Producer/Creator to pdf.xyz (stampProducer) and saves it. Font size,
- *    margin and ink are engine defaults the runner never sets, so the copy
- *    says "fixed" and types none of them. placeStamp() cancels a page's
+ *    margin, family and ink are set under "Size, margin, font and color"
+ *    (audit header-footer#4, 2026-11-07; until then engine defaults the
+ *    runner never set, and the FAQ said "fixed"); every number and name the
+ *    copy gives is read from HEADER_FOOTER_SIZES / _MARGINS / _MARGIN_LABELS
+ *    and STAMP_FONT_LABELS below. placeStamp() cancels a page's
  *    /Rotate so text lands at the visual top/bottom reading level.
  *    applyTokens() also accepts {page}/{pages}, case-insensitively.
  *  - font choice (embedDrawingFont): Helvetica only when EVERY drawn string is
@@ -147,6 +158,16 @@ if (
   );
 }
 const linkMinutes = DEFAULT_RETENTION.outputTtlMinutes;
+const orList = (items: readonly string[]) =>
+  new Intl.ListFormat("en", { type: "disjunction" }).format(items);
+const marginChoices = orList(
+  (Object.keys(HEADER_FOOTER_MARGINS) as HeaderFooterMargin[]).map(
+    (key) =>
+      `${HEADER_FOOTER_MARGIN_LABELS[key]} (${HEADER_FOOTER_MARGINS[key]} pt)`,
+  ),
+);
+const fontChoices = orList(Object.values(STAMP_FONT_LABELS));
+const sizeRange = `${HEADER_FOOTER_SIZES.min} to ${HEADER_FOOTER_SIZES.max} pt, starting at ${DEFAULT_HEADER_FOOTER_SIZE}`;
 const scriptsList = new Intl.ListFormat("en", { type: "conjunction" }).format(
   SUPPORTED_SCRIPTS,
 );
@@ -162,7 +183,7 @@ const content: ToolContent = {
   intro: [
     'Header & Footer writes one line of text at the top of every page, one at the bottom, or both: a company name and "Confidential" above, "Page 3 of 12" below, or a draft date worked into either line. Use it to make a stack of exported pages read as one finished document before it goes to a client, a clerk or a printer.',
     `Each band has three boxes, Left, Center and Right, so a company name can sit at the left of the header with the date at its right. Fields fill themselves in page by page: {n} becomes the page number, {total} the file's page count, and {date} today's date in your browser's date format. The footer starts out as "Page {n} of {total}", and a preview beside each heading shows how the first stamped page will read. Open Pages to leave the cover page blank, start on a later page, count {n} from another first number, or leave the last pages bare. Pages stored sideways still get their header at the top as you see it, reading level.`,
-    `The PDF, up to ${ceilingMb} MB, is read and rewritten in your browser and is not uploaded. Text is added on top of the existing pages rather than rebuilding them, so form fields and their values, the title and author, and page rotation came through intact in our test; the Producer and Creator entries are set to pdf.xyz. Nothing is shifted to make room, so check pages that already print close to the edge.`,
+    `The PDF, up to ${ceilingMb} MB, is read and rewritten in your browser and is not uploaded. Text is added on top of the existing pages rather than rebuilding them, so form fields and their values, the title and author, and page rotation came through intact in our test; the Producer and Creator entries are set to pdf.xyz. Nothing is shifted to make room, so check pages that already print close to the edge; the Margin setting moves the lines nearer to it or further in.`,
   ],
 
   useCases: [
@@ -222,7 +243,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I change the font, size, colour or margin?",
-      a: "No: the small size, slate-grey ink and distance from the edge are fixed. You choose the wording, the fields and which of each band's Left, Center and Right boxes they go in. The typeface follows the characters: while everything in both bands fits the Western Windows-1252 set, German and French accents included, both are set in Helvetica; one character outside it, such as Polish ł, moves both bands to a Noto face. Because the size is fixed, a line wider than the page between its margins is refused before anything is written, with how many of its characters fit, rather than running off the edge.",
+      a: `Yes, under Size, margin, font and color, and the choices apply to both bands. Font size runs from ${sizeRange}; the margin from the page edge is ${marginChoices}, starting at ${HEADER_FOOTER_MARGIN_LABELS.medium}; the font is ${fontChoices}; and Color picks the ink, slate grey until you change it. The font you pick is used while everything in both bands fits the Western Windows-1252 set, German and French accents included; one character outside it, such as Polish ł, moves both bands to a Noto face. A line wider than the page between its margins is refused before anything is written, with how many of its characters fit, rather than running off the edge; a smaller size or margin makes room.`,
     },
     {
       q: "Will it cover or remove an existing header?",

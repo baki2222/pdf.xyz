@@ -5,14 +5,28 @@ import { useEffect, useMemo, useState } from "react";
 import { Download, PanelTop } from "lucide-react";
 import {
   addHeaderFooter,
+  DEFAULT_HEADER_FOOTER_SIZE,
+  HEADER_FOOTER_MARGIN_LABELS,
+  HEADER_FOOTER_MARGINS,
+  HEADER_FOOTER_SIZES,
   headerFooterOutputName,
   headerFooterPlan,
   NO_PAGE_STAMPED,
   resolveStampDate,
   stampDateCandidates,
+  type HeaderFooterMargin,
   type HeaderFooterZone,
 } from "@/lib/pdf/header-footer";
-import { applyTokens, type HAlign } from "@/lib/pdf/stamp";
+import {
+  applyTokens,
+  hexToRgb,
+  INK,
+  rgbToHex,
+  STAMP_FONT_FAMILIES,
+  STAMP_FONT_LABELS,
+  type HAlign,
+  type StampFontFamily,
+} from "@/lib/pdf/stamp";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
 import { recallOptions, rememberOptions } from "@/lib/intent/option-memory";
@@ -29,9 +43,12 @@ import { RunBar } from "./run-bar";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import {
   CheckboxField,
+  ColorField,
   MoreOptions,
   NumberField,
   PrivacyLine,
+  RangeField,
+  SegmentedControl,
   TextField,
   TokenButtons,
 } from "./stamp-controls";
@@ -66,6 +83,9 @@ export function HeaderFooterRunner() {
     </SinglePdfRunner>
   );
 }
+
+/** The default ink as a colour-input value; any other value is a choice. */
+const DEFAULT_INK_HEX = rgbToHex(INK);
 
 /** One band's text per box. */
 type BandText = Record<HAlign, string>;
@@ -159,6 +179,13 @@ export function HeaderFooterEditor({
   const [startAt, setStartAt] = useState(1);
   const [skipCover, setSkipCover] = useState(false);
   const [skipLast, setSkipLast] = useState(0);
+  // How the lines look. Untouched, a run draws exactly what it always did:
+  // Helvetica, 10 pt, slate ink, 32 pt from the edge.
+  const [styleOpen, setStyleOpen] = useState(false);
+  const [fontSize, setFontSize] = useState(DEFAULT_HEADER_FOOTER_SIZE);
+  const [margin, setMargin] = useState<HeaderFooterMargin>("medium");
+  const [font, setFont] = useState<StampFontFamily>("helvetica");
+  const [inkHex, setInkHex] = useState(DEFAULT_INK_HEX);
   const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
 
   // The engine's own arithmetic, so the preview, the summary and the Run gate
@@ -226,6 +253,14 @@ export function HeaderFooterEditor({
         startAt,
         skipCover,
         skipLast,
+        fontSize,
+        margin: HEADER_FOOTER_MARGINS[margin],
+        font,
+        // The default ink is passed as nothing at all, so an untouched run
+        // draws exactly the colour it always did.
+        ...(inkHex !== DEFAULT_INK_HEX && hexToRgb(inkHex)
+          ? { color: hexToRgb(inkHex)! }
+          : {}),
         date: await resolveStampDate(templates),
       }),
     );
@@ -336,6 +371,48 @@ export function HeaderFooterEditor({
             />
           </div>
         </div>
+      </MoreOptions>
+
+      <MoreOptions
+        label="Size, margin, font and color"
+        open={styleOpen}
+        onToggle={setStyleOpen}
+      >
+        <RangeField
+          label="Font size"
+          value={fontSize}
+          min={HEADER_FOOTER_SIZES.min}
+          max={HEADER_FOOTER_SIZES.max}
+          onChange={setFontSize}
+          format={(v) => `${v} pt`}
+        />
+        <div className="flex flex-col gap-2">
+          <span className="text-muted text-xs font-medium">Margin</span>
+          <SegmentedControl
+            label="Margin from the page edge"
+            value={margin}
+            onChange={setMargin}
+            options={(
+              Object.keys(HEADER_FOOTER_MARGINS) as HeaderFooterMargin[]
+            ).map((key) => ({
+              value: key,
+              label: HEADER_FOOTER_MARGIN_LABELS[key],
+            }))}
+          />
+        </div>
+        <div className="flex flex-col gap-2">
+          <span className="text-muted text-xs font-medium">Font</span>
+          <SegmentedControl
+            label="Header and footer font"
+            value={font}
+            onChange={setFont}
+            options={STAMP_FONT_FAMILIES.map((family) => ({
+              value: family,
+              label: STAMP_FONT_LABELS[family],
+            }))}
+          />
+        </div>
+        <ColorField label="Color" value={inkHex} onChange={setInkHex} />
       </MoreOptions>
 
       <PrivacyLine>

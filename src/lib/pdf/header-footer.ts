@@ -16,6 +16,7 @@ import {
   visibleBox,
   type HAlign,
   type RGB,
+  type StampFontFamily,
   type VAlign,
 } from "./stamp";
 
@@ -35,17 +36,46 @@ export interface HeaderFooterZone {
   right?: string;
 }
 
+/** The font sizes the runner offers, in points, and the one it starts at. */
+export const HEADER_FOOTER_SIZES = { min: 6, max: 28 } as const;
+export const DEFAULT_HEADER_FOOTER_SIZE = 10;
+
+/**
+ * The margin presets the runner offers, in points from the page edge. Medium
+ * is the 32 pt every run used before the margin could be chosen.
+ */
+export const HEADER_FOOTER_MARGINS = {
+  small: 18,
+  medium: 32,
+  large: 60,
+} as const;
+
+export type HeaderFooterMargin = keyof typeof HEADER_FOOTER_MARGINS;
+
+/**
+ * The presets as the runner labels them, smallest first. Here rather than in
+ * the runner so the tool page can name them from the list the buttons are
+ * drawn from.
+ */
+export const HEADER_FOOTER_MARGIN_LABELS: Record<HeaderFooterMargin, string> = {
+  small: "Small",
+  medium: "Medium",
+  large: "Large",
+};
+
 export interface HeaderFooterOptions extends PagePlanOptions {
   header?: HeaderFooterZone;
   footer?: HeaderFooterZone;
-  /** Font size in points. Defaults to 10. */
+  /** Font size in points, clamped to 6–72. Defaults to 10. */
   fontSize?: number;
-  /** Margin from the page edge in points. Defaults to 32. */
+  /** Margin from the page edge in points. Defaults to 32 (medium). */
   margin?: number;
   /** Value substituted for `{date}` tokens (runner supplies the locale string). */
   date?: string;
   /** Ink color (0–1 channels). Defaults to a dark slate. */
   color?: RGB;
+  /** Type family for Western text. Defaults to Helvetica. */
+  font?: StampFontFamily;
 }
 
 interface Slot {
@@ -192,8 +222,11 @@ export async function addHeaderFooter(
 ): Promise<Uint8Array> {
   validateHeaderFooter(options);
 
-  const fontSize = clamp(options.fontSize ?? 10, 6, 72);
-  const margin = clamp(options.margin ?? 32, 0, 240);
+  const fontSize = clamp(options.fontSize ?? DEFAULT_HEADER_FOOTER_SIZE, 6, 72);
+  const margin = clamp(options.margin ?? HEADER_FOOTER_MARGINS.medium, 0, 240);
+  // A smaller size is a way out only while there is a smaller size to pick.
+  const orSmaller =
+    fontSize > HEADER_FOOTER_SIZES.min ? " or pick a smaller font size" : "";
   const { degrees, rgb } = await loadPdfLib();
   const color = toRgb(rgb, options.color ?? INK);
   const slots = [
@@ -226,7 +259,12 @@ export async function addHeaderFooter(
       if (text.trim().length > 0) drawn.push(text);
     }
   });
-  const font = await embedStampFont(doc, drawn);
+  const font = await embedStampFont(
+    doc,
+    drawn,
+    "regular",
+    options.font ?? "helvetica",
+  );
 
   // Every slot must fit between the margins of the page as a reader sees it,
   // checked on every page before anything is drawn. Unbounded, a centred
@@ -242,8 +280,9 @@ export async function addHeaderFooter(
       const width = font.widthOfTextAtSize(text, fontSize);
       if (width <= room) continue;
       const band = slot.v === "top" ? "header" : "footer";
-      // The longest opening that fits, measured, not averaged: the Header &
-      // Footer panel has no font-size control, so length is the remedy.
+      // The longest opening that fits at this size, measured, not averaged,
+      // so the message can say how much to cut; a smaller size is the other
+      // remedy, named while one is offered.
       const chars = Array.from(text);
       let lo = 0;
       let hi = chars.length;
@@ -254,7 +293,7 @@ export async function addHeaderFooter(
         else hi = mid - 1;
       }
       throw new PdfEngineError(
-        `The ${band}'s ${slot.h} text is too wide for page ${at + 1}: it needs ${Math.ceil(width)} pt and the page has ${Math.floor(room)} pt between its margins, room for ${lo} of its ${chars.length} characters. Shorten it.`,
+        `The ${band}'s ${slot.h} text is too wide for page ${at + 1}: it needs ${Math.ceil(width)} pt and the page has ${Math.floor(room)} pt between its margins, room for ${lo} of its ${chars.length} characters. Shorten it${orSmaller}.`,
       );
     }
   });
@@ -293,7 +332,7 @@ export async function addHeaderFooter(
           if (a.end + gap <= b.start) continue;
           const band = v === "top" ? "header" : "footer";
           throw new PdfEngineError(
-            `The ${band}'s ${a.h} and ${b.h} text overlap on page ${at + 1}: each fits alone, but together they need more room than the line has. Shorten one of them.`,
+            `The ${band}'s ${a.h} and ${b.h} text overlap on page ${at + 1}: each fits alone, but together they need more room than the line has. Shorten one of them${orSmaller}.`,
           );
         }
       }

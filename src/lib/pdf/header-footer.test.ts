@@ -1,9 +1,20 @@
 // @native-canvas
-import { PDFDocument, degrees } from "pdf-lib";
+import { inflateSync } from "node:zlib";
+import {
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFName,
+  PDFRawStream,
+  degrees,
+} from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import { PdfEngineError } from "./engine";
 import {
   addHeaderFooter,
+  DEFAULT_HEADER_FOOTER_SIZE,
+  HEADER_FOOTER_MARGINS,
+  HEADER_FOOTER_SIZES,
   hasHeaderFooterContent,
   headerFooterOutputName,
   resolveStampDate,
@@ -429,5 +440,95 @@ describe("header-footer: three slots in one band", () => {
       footer: { center: long },
     });
     expect((await PDFDocument.load(out)).getPageCount()).toBe(1);
+  });
+});
+
+/**
+ * Audit header-footer#4 (2026-11-06): font size, margin, ink and typeface were
+ * engine defaults the runner never set, and the FAQ answered "No". They are
+ * now the runner's choice; the defaults stay what every earlier run drew.
+ */
+describe("header-footer: size, margin, font and colour", () => {
+  async function baseFonts(bytes: Uint8Array): Promise<string[]> {
+    const doc = await PDFDocument.load(bytes);
+    const fonts = doc
+      .getPage(0)
+      .node.Resources()
+      ?.lookupMaybe(PDFName.of("Font"), PDFDict);
+    return (fonts?.keys() ?? []).map((key) =>
+      String(fonts!.lookup(key, PDFDict).get(PDFName.of("BaseFont"))),
+    );
+  }
+  async function content(bytes: Uint8Array): Promise<string> {
+    const doc = await PDFDocument.load(bytes);
+    const page = doc.getPage(0);
+    const contents = doc.context.lookup(page.node.get(PDFName.of("Contents")));
+    const streams =
+      contents instanceof PDFArray
+        ? contents.asArray().map((ref) => doc.context.lookup(ref))
+        : [contents];
+    return streams
+      .filter((x): x is PDFRawStream => x instanceof PDFRawStream)
+      .map((x) => {
+        const raw = Buffer.from(x.getContents());
+        const filter = x.dict.get(PDFName.of("Filter"));
+        return (filter ? inflateSync(raw) : raw).toString("latin1");
+      })
+      .join("\n");
+  }
+  const footerRun = async (bytes: Uint8Array) =>
+    (await readAsViewer(bytes))[0]!.runs.find((r) => r.str === "FOOTMARK")!;
+
+  it("health: the defaults are what earlier runs drew — Helvetica, 10 pt, 32 pt in", async () => {
+    expect(DEFAULT_HEADER_FOOTER_SIZE).toBe(10);
+    expect(HEADER_FOOTER_MARGINS.medium).toBe(32);
+    const out = await addHeaderFooter(await blankPdf(1), {
+      footer: { center: "FOOTMARK" },
+    });
+    expect(await baseFonts(out)).toEqual(["/Helvetica"]);
+    expect(800 - (await footerRun(out)).y).toBeCloseTo(32, 0);
+  });
+
+  it("draws the size, margin, typeface and colour asked for", async () => {
+    const small = await addHeaderFooter(await blankPdf(1), {
+      footer: { center: "FOOTMARK" },
+      font: "times",
+    });
+    const big = await addHeaderFooter(await blankPdf(1), {
+      footer: { center: "FOOTMARK" },
+      font: "times",
+      fontSize: 20,
+      margin: HEADER_FOOTER_MARGINS.large,
+      color: { r: 0.8, g: 0.1, b: 0.3 },
+    });
+    expect(await baseFonts(big)).toEqual(["/Times-Roman"]);
+    expect(await content(big)).toMatch(/\b0\.8 0\.1 0\.3 rg\b/);
+    const [a, b] = [await footerRun(small), await footerRun(big)];
+    expect((b.endX - b.x) / (a.endX - a.x)).toBeCloseTo(2, 1);
+    expect(800 - b.y).toBeCloseTo(HEADER_FOOTER_MARGINS.large, 0);
+    const courier = await addHeaderFooter(await blankPdf(1), {
+      footer: { center: "FOOTMARK" },
+      font: "courier",
+    });
+    expect(await baseFonts(courier)).toEqual(["/Courier"]);
+  });
+
+  it("the offered sizes sit inside what the engine draws, and the margins grow", () => {
+    expect(HEADER_FOOTER_SIZES.min).toBeGreaterThanOrEqual(6);
+    expect(HEADER_FOOTER_SIZES.max).toBeLessThanOrEqual(72);
+    expect(DEFAULT_HEADER_FOOTER_SIZE).toBeGreaterThanOrEqual(
+      HEADER_FOOTER_SIZES.min,
+    );
+    const m = HEADER_FOOTER_MARGINS;
+    expect(m.small < m.medium && m.medium < m.large).toBe(true);
+  });
+
+  it("a line too wide at this size says a smaller size is a way out", async () => {
+    await expect(
+      addHeaderFooter(await blankPdf(1), {
+        header: { center: "W".repeat(40) },
+        fontSize: 28,
+      }),
+    ).rejects.toThrow(/Shorten it or pick a smaller font size\./);
   });
 });

@@ -25,7 +25,8 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { PDFDocument } from "pdf-lib";
+import { inflateSync } from "node:zlib";
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRawStream } from "pdf-lib";
 import { resetAnnouncer } from "@/components/a11y/live-region";
 import { readAsViewer } from "@/tests/pdfjs-viewer";
 import { HeaderFooterEditor } from "./header-footer-runner";
@@ -310,5 +311,85 @@ describe("header-footer runner: left, center and right in one band", () => {
     expect(
       (screen.getByLabelText("Header center") as HTMLInputElement).value,
     ).toBe("");
+  });
+});
+
+/**
+ * Audit header-footer#4 (2026-11-06): the engine took a size, a margin and an
+ * ink the runner never set, and the FAQ said "No" to changing them. The chain:
+ * the runner's own controls, the real engine, the downloaded file.
+ */
+describe("header-footer runner: size, margin, font and color", () => {
+  async function drawnWith(bytes: Uint8Array) {
+    const doc = await PDFDocument.load(bytes);
+    const page = doc.getPage(0);
+    const fonts = page.node
+      .Resources()
+      ?.lookupMaybe(PDFName.of("Font"), PDFDict);
+    const baseFonts = (fonts?.keys() ?? []).map((key) =>
+      String(fonts!.lookup(key, PDFDict).get(PDFName.of("BaseFont"))),
+    );
+    const contents = doc.context.lookup(page.node.get(PDFName.of("Contents")));
+    const streams =
+      contents instanceof PDFArray
+        ? contents.asArray().map((ref) => doc.context.lookup(ref))
+        : [contents];
+    const ops = streams
+      .filter((x): x is PDFRawStream => x instanceof PDFRawStream)
+      .map((x) => {
+        const raw = Buffer.from(x.getContents());
+        return (
+          x.dict.get(PDFName.of("Filter")) ? inflateSync(raw) : raw
+        ).toString("latin1");
+      })
+      .join(" ");
+    return { baseFonts, ops };
+  }
+
+  it("draws the size, margin, typeface and colour picked", async () => {
+    render(<HeaderFooterEditor pdf={await loadedPdf()} onReset={() => {}} />);
+    fireEvent.change(screen.getByLabelText("Footer center"), {
+      target: { value: "FOOTMARK" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /size, margin, font and color/i }),
+    );
+    fireEvent.change(screen.getByLabelText("Font size"), {
+      target: { value: "20" },
+    });
+    fireEvent.click(screen.getByRole("radio", { name: "Large" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Times" }));
+    fireEvent.change(screen.getByLabelText("Color"), {
+      target: { value: "#cc0000" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /add header/i }));
+    await screen.findByRole("heading", { name: /header & footer added/i });
+    fireEvent.click(screen.getByRole("button", { name: /download pdf/i }));
+    const bytes = new Uint8Array(await downloaded!.arrayBuffer());
+    const { baseFonts, ops } = await drawnWith(bytes);
+    expect(baseFonts).toEqual(["/Times-Roman"]);
+    expect(ops).toMatch(/(^|\s)0\.8 0 0 rg(\s|$)/);
+    expect(ops).toMatch(/(^|\s)20 Tf(\s|$)/);
+    const [page] = await readAsViewer(bytes);
+    const run = page!.runs.find((r) => r.str === "FOOTMARK")!;
+    // Large is 60 pt from the bottom edge of the 792 pt page.
+    expect(792 - run.y).toBeCloseTo(60, 0);
+  });
+
+  it("control: untouched, the run draws what it always did", async () => {
+    render(<HeaderFooterEditor pdf={await loadedPdf()} onReset={() => {}} />);
+    fireEvent.change(screen.getByLabelText("Footer center"), {
+      target: { value: "FOOTMARK" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /add header/i }));
+    await screen.findByRole("heading", { name: /header & footer added/i });
+    fireEvent.click(screen.getByRole("button", { name: /download pdf/i }));
+    const bytes = new Uint8Array(await downloaded!.arrayBuffer());
+    const { baseFonts, ops } = await drawnWith(bytes);
+    expect(baseFonts).toEqual(["/Helvetica"]);
+    expect(ops).toMatch(/(^|\s)10 Tf(\s|$)/);
+    const [page] = await readAsViewer(bytes);
+    const run = page!.runs.find((r) => r.str === "FOOTMARK")!;
+    expect(792 - run.y).toBeCloseTo(32, 0);
   });
 });

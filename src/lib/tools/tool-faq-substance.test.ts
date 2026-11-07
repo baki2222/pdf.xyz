@@ -71,10 +71,16 @@ import { addWatermark } from "@/lib/pdf/watermark";
 import { addPageNumbers } from "@/lib/pdf/page-numbers";
 import {
   addHeaderFooter,
+  DEFAULT_HEADER_FOOTER_SIZE,
+  HEADER_FOOTER_MARGIN_LABELS,
+  HEADER_FOOTER_MARGINS,
+  HEADER_FOOTER_SIZES,
   resolveStampDate,
   stampDateCandidates,
+  type HeaderFooterMargin,
 } from "@/lib/pdf/header-footer";
-import { applyTokens } from "@/lib/pdf/stamp";
+import { applyTokens, STAMP_FONT_LABELS } from "@/lib/pdf/stamp";
+import { guides } from "@/lib/guides/catalog";
 import { cropPdf } from "@/lib/pdf/crop";
 import { flattenPdf } from "@/lib/pdf/flatten";
 import {
@@ -1017,6 +1023,56 @@ describe("the stamping tools answer where and what they stamp", () => {
       expect(coverAnswer).toContain("page 2 reads Page 2 of 12");
       expect(drawnText(twelve, 1)).toContain("Page 2 of 12");
       expect(drawnText(twelve, 0)).not.toContain("Page 1 of 12");
+
+      // Audit header-footer#4 (2026-11-07): this answer said "No: the small
+      // size, slate-grey ink and distance from the edge are fixed." The
+      // runner now sets all four, so the answer names the choices from the
+      // constants the controls are drawn from, and no served sentence — tool
+      // page or guide — may call them fixed. The shipped sentences are the
+      // caught corpus.
+      const style = answer(tool.slug, /font, size, colour or margin/);
+      expect(style).toMatch(/^Yes, under Size, margin, font and color\b/);
+      expect(style).toContain(
+        `${HEADER_FOOTER_SIZES.min} to ${HEADER_FOOTER_SIZES.max} pt, starting at ${DEFAULT_HEADER_FOOTER_SIZE}`,
+      );
+      for (const key of Object.keys(
+        HEADER_FOOTER_MARGINS,
+      ) as HeaderFooterMargin[])
+        expect(style).toContain(
+          `${HEADER_FOOTER_MARGIN_LABELS[key]} (${HEADER_FOOTER_MARGINS[key]} pt)`,
+        );
+      for (const name of Object.values(STAMP_FONT_LABELS))
+        expect(style).toContain(name);
+      for (const label of [
+        "Size, margin, font and color",
+        "Font size",
+        "Color",
+      ])
+        expect(src).toContain(`label="${label}"`);
+      expect(src).toMatch(/STAMP_FONT_FAMILIES\.map\(/);
+      expect(src).toMatch(/HEADER_FOOTER_MARGIN_LABELS\[key\]/);
+      const saysFixed = (x: string) =>
+        /\b(size|ink|margin|distance from the edge|colou?r)\b[^.]*\bfixed\b/i.test(
+          x,
+        );
+      for (const shipped of [
+        "No: the small size, slate-grey ink and distance from the edge are fixed.",
+        "The font size, the grey ink and the distance from the edge are fixed.",
+        "No. The size, the grey ink and the margin are fixed.",
+      ])
+        expect(saysFixed(shipped), shipped).toBe(true);
+      const guide = guides.find(
+        (g) => g.slug === "how-to-add-a-header-and-footer-to-a-pdf",
+      );
+      expect(guide, "the header/footer guide is gone").toBeTruthy();
+      const guideText = JSON.stringify(guide);
+      const servedSentences = [
+        ...page(tool.slug).text.split(/(?<=[.!?])\s+/),
+        ...page(tool.slug).faq.flatMap((e) => e.answer.split(/(?<=[.!?])\s+/)),
+        ...guideText.split(/(?<=[.!?])\s+/),
+      ];
+      expect(servedSentences.length).toBeGreaterThan(40);
+      expect(servedSentences.filter(saysFixed)).toEqual([]);
 
       // The refusal answer said "a browser set to Persian writes the date in
       // Persian digits, which are refused like Arabic, so type the date by
