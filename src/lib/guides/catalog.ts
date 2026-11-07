@@ -6000,8 +6000,8 @@ export const guides: Guide[] = [
   // Overlay PDF, titled for the task it truly does: lay one PDF on every
   // page of another. Read off overlay.ts and overlay-runner.tsx: the overlay
   // is always centred (fitOverlayRect has no position), Selected pages limits
-  // it to a page list (overlayPdf `pages`, counted from the first listed
-  // page; added 2026-11-07, audit overlay-pdf#2), the four paging modes map
+  // it to a page list (overlayPdf `pages`, which take the overlay pages in
+  // turn; added 2026-11-07, audit overlay-pdf#2), the four paging modes map
   // overlay pages in order (overlayPageIndexFor: Cycle starts again, Repeat
   // last page keeps the last, Once, then stop leaves the rest), and an overlay
   // page with no content is skipped and named. In-browser, so the word

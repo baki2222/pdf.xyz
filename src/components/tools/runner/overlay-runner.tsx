@@ -331,8 +331,8 @@ function OverlayEditor({
           )}
           {scope === "some" && multiPageOverlay && (
             <p className="text-muted text-xs leading-relaxed">
-              Overlay pages are counted from the first selected page: it gets
-              overlay page 1.
+              The selected pages take the overlay’s pages in turn: the first
+              gets overlay page 1, the next overlay page 2.
             </p>
           )}
         </div>

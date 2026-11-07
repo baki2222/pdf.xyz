@@ -393,6 +393,27 @@ describe("overlayPdf", () => {
     ).toBeNull();
   });
 
+  it("gives the selected pages the overlay's pages in turn, skipping nothing for a gap", async () => {
+    // "1, 3-4" with a two-page overlay: page 3 is the SECOND selected page,
+    // so it takes overlay page 2, not overlay page 3 (the copy says "in
+    // turn"; it once said only "counted from the first selected page").
+    const base = await basePdf([
+      [500, 500],
+      [500, 500],
+      [500, 500],
+      [500, 500],
+    ]);
+    const result = await overlayPdf(base, await overlayDoc(2), {
+      paging: "once",
+      pages: [0, 2, 3],
+    });
+    expect(result.overlaidPageCount).toBe(2);
+    const out = await PDFDocument.load(result.bytes);
+    expect(
+      out.getPages().map((page) => (page.node.Contents() ? 1 : 0) as number),
+    ).toEqual([1, 0, 1, 0]);
+  });
+
   it("refuses a selection with no page of the base PDF in it", async () => {
     const base = await basePdf([[500, 500]]);
     await expect(

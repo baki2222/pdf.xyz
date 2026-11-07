@@ -183,7 +183,7 @@ const content: ToolContent = {
     },
     {
       title: "Set layer, scale, opacity and pages",
-      body: `Under "Placement", choose ${LAYER_LABELS} for Layer, ${SCALE_LABELS} for Scale, and drag the Opacity slider. If the overlay has more than one page, a "Multi-page overlay" choice appears: ${PAGING_LABELS}. Under Pages, keep "${ALL_PAGES}" or choose "${SELECTED_PAGES}" and type a list such as 1, 3-5; overlay pages are then counted from the first page you listed.`,
+      body: `Under "Placement", choose ${LAYER_LABELS} for Layer, ${SCALE_LABELS} for Scale, and drag the Opacity slider. If the overlay has more than one page, a "Multi-page overlay" choice appears: ${PAGING_LABELS}. Under Pages, keep "${ALL_PAGES}" or choose "${SELECTED_PAGES}" and type a list such as 1, 3-5; the pages you list then take the overlay’s pages in turn, the first getting overlay page 1 and the next overlay page 2.`,
     },
     {
       title: "Apply and download",

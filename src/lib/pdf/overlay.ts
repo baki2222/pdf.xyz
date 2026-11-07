@@ -283,8 +283,9 @@ export interface OverlayOptions {
   layer?: OverlayLayer;
   /**
    * 0-based base pages to overlay, in any order; every page when omitted.
-   * Overlay pages map from the first selected page, so with Cycle pages the
-   * lowest selected page gets overlay page 1. Pages not listed are unchanged.
+   * The selected pages take the overlay pages in turn, in page order: the
+   * lowest gets overlay page 1, the next overlay page 2, whatever the gap
+   * between them. Pages not listed are unchanged.
    */
   pages?: readonly number[];
 }
@@ -383,7 +384,7 @@ export async function overlayPdf(
     for (let k = 0; k < targets.length; k += 1) {
       const page = pages[targets[k]!];
       if (!page) continue;
-      // Overlay pages are counted from the first selected page.
+      // The selected pages take the overlay pages in turn (k, not the page).
       const entry = embedded.get(overlayPageIndexFor(k, overlayCount, paging));
       // A blank overlay page draws nothing on the base pages mapped to it.
       if (!entry) continue;
