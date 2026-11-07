@@ -77,7 +77,9 @@ function sentences(texts: string[]): string[] {
 }
 
 describe("a tool with the OCR switch never says it has no settings", () => {
-  const subjects = guides.filter((g) => OCR_FIRST_TOOLS.includes(g.tools[0]));
+  const subjects = guides.filter((g) =>
+    OCR_FIRST_TOOLS.includes(g.tools[0] ?? ""),
+  );
 
   it("health check: finds a guide and a tool page for each OCR-first tool", () => {
     for (const tool of OCR_FIRST_TOOLS) {
