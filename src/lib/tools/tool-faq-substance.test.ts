@@ -971,9 +971,52 @@ describe("the stamping tools answer where and what they stamp", () => {
       expect(served).toMatch(/Latin digits/);
       expect(served).toContain("YYYY-MM-DD");
       expect(stampDateCandidates(now).at(-1)).toBe("2026-09-27");
-      expect(answer(tool.slug, /first page without/)).toMatch(
-        /go on every page/,
+      // INVERTED (history kept): this answer said "No: the header and footer
+      // go on every page" and was pinned here to /go on every page/, true
+      // while the engine looped over every page. Audit header-footer#2
+      // (2026-11-06) gave the runner page settings, so the answer now names
+      // them — each one a control the runner renders — and the engine is run
+      // with the one it leads with: page 1 carries nothing, page 2 counts 2.
+      const skip = answer(tool.slug, /first page without/);
+      expect(skip).not.toMatch(/go on every page/);
+      const named = [...skip.matchAll(/“([^”]+)”/g)].map((m) => m[1]!);
+      expect(new Set(named)).toEqual(
+        new Set([
+          "Pages",
+          "Leave the cover page blank",
+          "Start on page",
+          "First number",
+          "Skip last pages",
+        ]),
       );
+      for (const label of named) expect(src).toContain(`label="${label}"`);
+      const cover0 = await PDFDocument.load(bytes);
+      const blankCover = await PDFDocument.load(
+        await addHeaderFooter(bytes, {
+          footer: { center: "{n}/{total}" },
+          skipCover: true,
+        }),
+      );
+      // The fixture's own "Page 1" label stays; the band does not appear.
+      expect(drawnText(blankCover, 0)).toEqual(drawnText(cover0, 0));
+      expect(drawnText(blankCover, 1)).toContain("2/3");
+      // The tool page's own cover answer names the same controls, and its
+      // worked example is what the engine draws for the runner's default
+      // footer on a 12-page file with the cover left blank.
+      const coverAnswer = answer(tool.slug, /header off the cover page/);
+      for (const label of named.filter((l) => l !== "Pages"))
+        expect(coverAnswer).toContain(label);
+      expect(coverAnswer).toMatch(/^Yes\. Open Pages /);
+      expect(src).toContain('"Page {n} of {total}"');
+      const twelve = await PDFDocument.load(
+        await addHeaderFooter(
+          await pdfWithPages(Array.from({ length: 12 }, () => [300, 400])),
+          { footer: { center: "Page {n} of {total}" }, skipCover: true },
+        ),
+      );
+      expect(coverAnswer).toContain("page 2 reads Page 2 of 12");
+      expect(drawnText(twelve, 1)).toContain("Page 2 of 12");
+      expect(drawnText(twelve, 0)).not.toContain("Page 1 of 12");
 
       // The refusal answer said "a browser set to Persian writes the date in
       // Persian digits, which are refused like Arabic, so type the date by

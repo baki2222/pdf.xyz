@@ -6,6 +6,8 @@ import { Download, PanelTop } from "lucide-react";
 import {
   addHeaderFooter,
   headerFooterOutputName,
+  headerFooterPlan,
+  NO_PAGE_STAMPED,
   resolveStampDate,
   stampDateCandidates,
   type HeaderFooterZone,
@@ -26,6 +28,9 @@ import {
 import { RunBar } from "./run-bar";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import {
+  CheckboxField,
+  MoreOptions,
+  NumberField,
   PrivacyLine,
   SegmentedControl,
   TextField,
@@ -76,7 +81,28 @@ export function HeaderFooterEditor({
   const [footerAlign, setFooterAlign] = useState<HAlign>(
     kept.footerAlign ?? "center",
   );
+  // Which pages get the bands. Like Page Numbers' Start on page and First
+  // number, these belong to ONE document and are never remembered (audit #28).
+  const [pagesOpen, setPagesOpen] = useState(false);
+  const [startPage, setStartPage] = useState(1);
+  const [startAt, setStartAt] = useState(1);
+  const [skipCover, setSkipCover] = useState(false);
+  const [skipLast, setSkipLast] = useState(0);
   const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
+
+  // The engine's own arithmetic, so the preview, the summary and the Run gate
+  // cannot disagree with what is drawn.
+  const plan = useMemo(
+    () =>
+      headerFooterPlan(pdf.pageCount, {
+        startPage,
+        startAt,
+        skipCover,
+        skipLast,
+      }),
+    [pdf.pageCount, startPage, startAt, skipCover, skipLast],
+  );
+  const stampedCount = plan.stamps.length;
 
   // `{date}` in the reader's own locale format when a face we ship can draw it
   // beside what they typed, else the same day in Latin digits, else ISO. The
@@ -98,9 +124,10 @@ export function HeaderFooterEditor({
     };
   }, [headerText, footerText]);
 
+  // The preview reads as the FIRST page that gets the bands.
   const sampleTokens = useMemo(
-    () => ({ n: 1, total: pdf.pageCount, date }),
-    [pdf.pageCount, date],
+    () => ({ n: plan.stamps[0]?.n ?? startAt, total: plan.total, date }),
+    [plan, startAt, date],
   );
   const headerPreview = applyTokens(headerText, sampleTokens);
   const footerPreview = applyTokens(footerText, sampleTokens);
@@ -120,6 +147,10 @@ export function HeaderFooterEditor({
       addHeaderFooter(pdf.bytes, {
         header,
         footer,
+        startPage,
+        startAt,
+        skipCover,
+        skipLast,
         date: await resolveStampDate([headerText, footerText]),
       }),
     );
@@ -129,7 +160,11 @@ export function HeaderFooterEditor({
     return (
       <ResultPanel
         title="Header & footer added"
-        summary={`Applied to all ${pdf.pageCount} page${pdf.pageCount === 1 ? "" : "s"} · ${formatBytes(result.byteLength)}`}
+        summary={`${
+          stampedCount === pdf.pageCount
+            ? `Applied to all ${pdf.pageCount} page${pdf.pageCount === 1 ? "" : "s"}`
+            : `Applied to ${stampedCount} of ${pdf.pageCount} pages`
+        } · ${formatBytes(result.byteLength)}`}
         onReset={onReset}
         output={outputFile(result, headerFooterOutputName(pdf.file.name))}
         onAdjust={reset}
@@ -217,6 +252,42 @@ export function HeaderFooterEditor({
         </div>
       </RunnerSection>
 
+      <MoreOptions label="Pages" open={pagesOpen} onToggle={setPagesOpen}>
+        <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <NumberField
+              label="Start on page"
+              value={startPage}
+              min={1}
+              max={Math.max(1, pdf.pageCount)}
+              onChange={setStartPage}
+            />
+            <NumberField
+              label="First number"
+              value={startAt}
+              min={0}
+              max={99999}
+              onChange={setStartAt}
+            />
+          </div>
+          <CheckboxField
+            label="Leave the cover page blank"
+            checked={skipCover}
+            onChange={setSkipCover}
+            hint="Page 1 gets no header or footer but is still counted, so page 2 shows {n} as 2."
+          />
+          <div className="max-w-52">
+            <NumberField
+              label="Skip last pages"
+              value={skipLast}
+              min={0}
+              max={Math.max(0, pdf.pageCount - 1)}
+              onChange={setSkipLast}
+            />
+          </div>
+        </div>
+      </MoreOptions>
+
       <PrivacyLine>
         Headers and footers are drawn on your device — nothing is uploaded.
       </PrivacyLine>
@@ -226,14 +297,20 @@ export function HeaderFooterEditor({
       <RunBar>
         <div className="flex justify-end">
           <RunReason
-            reason={!hasContent ? "Type a header or a footer first." : null}
+            reason={
+              !hasContent
+                ? "Type a header or a footer first."
+                : stampedCount === 0
+                  ? NO_PAGE_STAMPED
+                  : null
+            }
           >
             {(describedBy) => (
               <RunButton
                 onClick={onRun}
                 busy={busy}
                 describedBy={describedBy}
-                disabled={!hasContent}
+                disabled={!hasContent || stampedCount === 0}
                 busyLabel="Applying…"
               >
                 <PanelTop className="size-4" aria-hidden />

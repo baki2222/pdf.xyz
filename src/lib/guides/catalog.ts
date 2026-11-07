@@ -5473,7 +5473,7 @@ export const guides: Guide[] = [
         heading: "What you can change, and what is fixed",
         body: [
           "You choose the wording, the fields and each band's alignment. The font size, the grey ink and the distance from the edge are fixed, and each band holds one line in one position, so the same band cannot carry text at the left and the right at once.",
-          "Every page gets the same lines, the first page included. The text is drawn on top of the page with no background, and nothing is moved to make room, so text already printed near the edge will overlap it, and running the tool twice gives two headers. A page stored sideways still gets its header at the top as you view it, reading level.",
+          "Every page gets the same lines unless you open Pages: Leave the cover page blank skips page 1 but still counts it, Start on page begins the lines on a later page, First number sets the {n} that page shows, and Skip last pages leaves an appendix bare. {total} is then the last number printed. The text is drawn on top of the page with no background, and nothing is moved to make room, so text already printed near the edge will overlap it, and running the tool twice gives two headers. A page stored sideways still gets its header at the top as you view it, reading level.",
         ],
       },
       {
@@ -5488,7 +5488,7 @@ export const guides: Guide[] = [
         id: "header-footer-or-page-numbers",
         heading: "Header & Footer, Page Numbers or a watermark",
         body: [
-          `For numbers alone, ${nameOf("page-numbers")} offers more control: a choice of positions, Start on page to leave a cover unnumbered, and First number to start counting from somewhere other than 1. ${nameOf("header-footer")} has neither setting; it is for your own words along the top and bottom edges, with the number worked in if you want it.`,
+          `For numbers alone, ${nameOf("page-numbers")} offers more control over the number itself: ${STAMP_POSITIONS.length} positions, a Bates number style and Facing pages. ${nameOf("header-footer")} shares its page settings (Start on page, First number, a blank cover and skipped last pages) and is for your own words along the top and bottom edges, with the number worked in if you want it.`,
           `For a word across the middle of every page, such as DRAFT or CONFIDENTIAL, ${nameOf("watermark-pdf")} is made for that. All three run in your browser.`,
         ],
       },
@@ -5501,7 +5501,8 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I leave the header off the cover page?",
-        answer: `Not with this tool: every page gets the same lines. If what you need on the other pages is a number, ${nameOf("page-numbers")} has a Start on page setting that skips the cover.`,
+        answer:
+          "Yes. Open Pages and tick Leave the cover page blank. Page 1 gets nothing but is still counted, so page 2 reads Page 2 of 12 on a twelve-page file. To count from the first stamped page instead, set Start on page.",
       },
       {
         question: "Can I change the font, size or colour?",
@@ -5522,7 +5523,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-convert-a-text-file-to-pdf",

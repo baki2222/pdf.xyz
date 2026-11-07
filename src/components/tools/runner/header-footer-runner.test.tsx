@@ -81,17 +81,17 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function loadedPdf(): Promise<LoadedPdf> {
+async function loadedPdf(pages = 1): Promise<LoadedPdf> {
   const doc = await PDFDocument.create();
-  doc.addPage([612, 792]);
+  for (let i = 0; i < pages; i += 1) doc.addPage([612, 792]);
   const bytes = await doc.save();
   return {
     file: new File([Buffer.from(bytes)], "input.pdf", {
       type: "application/pdf",
     }),
     bytes,
-    pageCount: 1,
-    rotations: [0],
+    pageCount: pages,
+    rotations: Array.from({ length: pages }, () => 0),
     digitalSignatures: countDigitalSignatures(bytes),
   };
 }
@@ -167,5 +167,66 @@ describe("header-footer runner: a header too wide for the page", () => {
     expect(
       screen.queryByRole("heading", { name: /header & footer added/i }),
     ).toBeNull();
+  });
+});
+
+/** Run the editor as it stands and return each downloaded page's text. */
+async function runAndRead(): Promise<string[]> {
+  fireEvent.click(screen.getByRole("button", { name: /add header/i }));
+  await waitFor(
+    () => {
+      const alert = screen.queryByRole("alert");
+      if (alert) throw new Error(`Run was refused: ${alert.textContent}`);
+      screen.getByRole("heading", { name: /header & footer added/i });
+    },
+    { timeout: 3000 },
+  );
+  fireEvent.click(screen.getByRole("button", { name: /download pdf/i }));
+  expect(downloaded, "the download button produced no file").not.toBeNull();
+  const bytes = new Uint8Array(await downloaded!.arrayBuffer());
+  return (await readAsViewer(bytes)).map((p) =>
+    p.runs.map((r) => r.str).join(" "),
+  );
+}
+
+/**
+ * Audit header-footer#2 (2026-11-06): no page options at all — the FAQ
+ * answered "Can I leave the header off the cover page?" with "Not here". The
+ * chain: the runner's own controls, the real engine, the downloaded pages.
+ */
+describe("header-footer runner: page settings", () => {
+  it("leaves the cover blank while still counting it", async () => {
+    render(<HeaderFooterEditor pdf={await loadedPdf(3)} onReset={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /^pages/i }));
+    fireEvent.click(screen.getByLabelText(/leave the cover page blank/i));
+    // The preview shows the first page that gets the footer.
+    expect(screen.getByText("Page 2 of 3")).toBeTruthy();
+    expect(await runAndRead()).toEqual(["", "Page 2 of 3", "Page 3 of 3"]);
+    expect(screen.getByText(/applied to 2 of 3 pages/i)).toBeTruthy();
+  });
+
+  it("starts on a later page and counts from First number", async () => {
+    render(<HeaderFooterEditor pdf={await loadedPdf(3)} onReset={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /^pages/i }));
+    fireEvent.change(screen.getByLabelText("Start on page"), {
+      target: { value: "2" },
+    });
+    expect(screen.getByText("Page 1 of 2")).toBeTruthy();
+    expect(await runAndRead()).toEqual(["", "Page 1 of 2", "Page 2 of 2"]);
+  });
+
+  it("will not run when the settings leave no page", async () => {
+    render(<HeaderFooterEditor pdf={await loadedPdf(2)} onReset={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /^pages/i }));
+    fireEvent.change(screen.getByLabelText("Start on page"), {
+      target: { value: "2" },
+    });
+    fireEvent.change(screen.getByLabelText("Skip last pages"), {
+      target: { value: "1" },
+    });
+    const run = screen.getByRole("button", { name: /add header/i });
+    // RunButton stays focusable and says why (aria-disabled, never disabled).
+    expect(run.getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByText(/no page gets the header or footer/i)).toBeTruthy();
   });
 });

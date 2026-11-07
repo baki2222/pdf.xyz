@@ -1,6 +1,7 @@
 import { loadPdfLib } from "./pdf-lib";
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
+import { numberingPlan } from "./page-plan";
 import {
   applyTokens,
   clamp,
@@ -183,41 +184,12 @@ export function previewPageNumber(
   return formatLabel(format, n, total);
 }
 
-export interface NumberingPlan {
-  /** Pages that get a label: 0-based index and the number it shows. */
-  stamps: { index: number; n: number }[];
-  /** The last number printed — what {total} becomes. */
-  total: number;
-}
-
 /**
- * Which pages carry which number — pure arithmetic, shared by the engine and
- * the runner's preview and summary so the two cannot disagree.
- *
- * Counted pages run from Start on page to the last page before the skipped
- * tail; the cover (page 1 of the file) is counted but not stamped when
- * `skipCover` is set.
+ * Which pages carry which number. Shared with Header & Footer, so the two
+ * tools cannot disagree about what Start on page, First number, a blank cover
+ * or skipped last pages mean; re-exported here for the runner and its tests.
  */
-export function numberingPlan(
-  pageCount: number,
-  options: Pick<
-    PageNumberOptions,
-    "startPage" | "startAt" | "skipCover" | "skipLast"
-  > = {},
-): NumberingPlan {
-  const startPage = Math.max(1, Math.floor(options.startPage ?? 1));
-  const startAt = Math.floor(options.startAt ?? 1);
-  const skipLast = clamp(Math.floor(options.skipLast ?? 0), 0, pageCount);
-  const lastPage = pageCount - skipLast;
-  const counted = Math.max(0, lastPage - (startPage - 1));
-  const total = startAt + counted - 1;
-  const stamps: { index: number; n: number }[] = [];
-  for (let index = startPage - 1; index < lastPage; index += 1) {
-    if (options.skipCover && index === 0) continue;
-    stamps.push({ index, n: startAt + (index - (startPage - 1)) });
-  }
-  return { stamps, total };
-}
+export { numberingPlan, type NumberingPlan } from "./page-plan";
 
 const MIRROR: Record<HAlign, HAlign> = {
   left: "right",

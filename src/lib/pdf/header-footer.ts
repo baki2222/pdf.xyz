@@ -1,6 +1,7 @@
 import { loadPdfLib } from "./pdf-lib";
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
+import { numberingPlan, type PagePlanOptions } from "./page-plan";
 import { canDrawInOneFace } from "./unicode-font";
 import {
   applyTokens,
@@ -22,7 +23,9 @@ import {
  * Stamp running headers and/or footers onto an existing PDF, fully in-browser.
  * Each band has independent left / center / right slots, and every slot supports
  * dynamic `{n}`, `{total}`, and `{date}` tokens. A slot wider than the page
- * between its margins is refused, never clipped at the edge.
+ * between its margins is refused, never clipped at the edge. Which pages get
+ * the bands, and what `{n}` and `{total}` count, follow {@link numberingPlan}
+ * — the same arithmetic as Add Page Numbers.
  */
 
 /** Left / center / right text slots for one band (header or footer). */
@@ -32,7 +35,7 @@ export interface HeaderFooterZone {
   right?: string;
 }
 
-export interface HeaderFooterOptions {
+export interface HeaderFooterOptions extends PagePlanOptions {
   header?: HeaderFooterZone;
   footer?: HeaderFooterZone;
   /** Font size in points. Defaults to 10. */
@@ -81,6 +84,22 @@ export function validateHeaderFooter(options: HeaderFooterOptions): void {
     throw new PdfEngineError("Add header or footer text to stamp.");
   }
 }
+
+/**
+ * The pages the bands go on and the `{n}` each shows, `{total}` being the last
+ * `{n}` printed. Exported so the runner's preview, summary and Run gate use
+ * the engine's own arithmetic.
+ */
+export function headerFooterPlan(
+  pageCount: number,
+  options: PagePlanOptions = {},
+) {
+  return numberingPlan(pageCount, options);
+}
+
+/** The refusal (and the runner's Run reason) when no page would be stamped. */
+export const NO_PAGE_STAMPED =
+  "No page gets the header or footer with these page settings.";
 
 /**
  * Invisible bidi controls. Intl wraps the separators of right-to-left dates in
@@ -183,16 +202,25 @@ export async function addHeaderFooter(
   ];
 
   const doc = await loadPdf(bytes);
-  const pages = doc.getPages();
-  const total = pages.length;
+  const all = doc.getPages();
+  const plan = headerFooterPlan(all.length, options);
+  if (plan.stamps.length === 0) throw new PdfEngineError(NO_PAGE_STAMPED);
+  const total = plan.total;
+  // Only the planned pages, each with the `{n}` it shows and its place in
+  // the file (`at`, 0-based) for messages a reader can find.
+  const pages = plan.stamps.map(({ index, n }) => ({
+    page: all[index]!,
+    n,
+    at: index,
+  }));
 
   // Every slot on every page, tokens already substituted. `{date}` is supplied
   // by the runner as a locale string, so a Bengali or Japanese date can arrive
   // in a header whose template is pure ASCII — the font has to be chosen from
   // what will be DRAWN, not from what was typed.
   const drawn: string[] = [];
-  pages.forEach((_page, index) => {
-    const tokens = { n: index + 1, total, date: options.date };
+  pages.forEach(({ n }) => {
+    const tokens = { n, total, date: options.date };
     for (const slot of slots) {
       const text = applyTokens(slot.text, tokens);
       if (text.trim().length > 0) drawn.push(text);
@@ -204,8 +232,8 @@ export async function addHeaderFooter(
   // checked on every page before anything is drawn. Unbounded, a centred
   // 151-character notice on A4 started 44 pt off the left edge and the run
   // reported success over a clipped file (audit #27).
-  pages.forEach((page, index) => {
-    const tokens = { n: index + 1, total, date: options.date };
+  pages.forEach(({ page, n, at }) => {
+    const tokens = { n, total, date: options.date };
     const across = viewerSize(visibleBox(page), page.getRotation().angle).width;
     const room = Math.max(0, across - 2 * margin);
     for (const slot of slots) {
@@ -226,13 +254,13 @@ export async function addHeaderFooter(
         else hi = mid - 1;
       }
       throw new PdfEngineError(
-        `The ${band}'s ${slot.h} text is too wide for page ${index + 1}: it needs ${Math.ceil(width)} pt and the page has ${Math.floor(room)} pt between its margins, room for ${lo} of its ${chars.length} characters. Shorten it.`,
+        `The ${band}'s ${slot.h} text is too wide for page ${at + 1}: it needs ${Math.ceil(width)} pt and the page has ${Math.floor(room)} pt between its margins, room for ${lo} of its ${chars.length} characters. Shorten it.`,
       );
     }
   });
 
-  pages.forEach((page, index) => {
-    const tokens = { n: index + 1, total, date: options.date };
+  pages.forEach(({ page, n }) => {
+    const tokens = { n, total, date: options.date };
     const box = visibleBox(page);
     const pageRotation = page.getRotation().angle;
 

@@ -22,11 +22,16 @@ import { stampDateCandidates } from "@/lib/pdf/header-footer";
  *    field has text; result panel "Header & footer added" / "Download PDF";
  *    filename `<name>-header-footer.pdf` via outputName. The engine can fill
  *    left, center and right slots at once, but the runner sends ONE slot per
- *    band, so this page never claims three positions per band.
+ *    band, so this page never claims three positions per band. A "Pages"
+ *    disclosure (audit header-footer#2, 2026-11-07) holds Start on page,
+ *    First number, "Leave the cover page blank" and Skip last pages, which
+ *    the engine resolves through numberingPlan (src/lib/pdf/page-plan.ts),
+ *    the same arithmetic as Add Page Numbers; the chip previews the FIRST
+ *    page that gets the bands.
  *  - dropzone hint (SinglePdfRunner): "One PDF · header & footer applied
  *    locally in your browser"; FileHeader shows name, page count and size.
  *  - engine: addHeaderFooter() in src/lib/pdf/header-footer.ts loads the
- *    ORIGINAL document, draws text on every page with no background, sets
+ *    ORIGINAL document, draws text on the planned pages with no background, sets
  *    Producer/Creator to pdf.xyz (stampProducer) and saves it. Font size,
  *    margin and ink are engine defaults the runner never sets, so the copy
  *    says "fixed" and types none of them. placeStamp() cancels a page's
@@ -152,7 +157,7 @@ const content: ToolContent = {
 
   intro: [
     'Header & Footer writes one line of text at the top of every page, one at the bottom, or both: a company name and "Confidential" above, "Page 3 of 12" below, or a draft date worked into either line. Use it to make a stack of exported pages read as one finished document before it goes to a client, a clerk or a printer.',
-    `Each band gets its own text and its own Left, Center or Right alignment. Fields fill themselves in page by page: {n} becomes the page number, {total} the file's page count, and {date} today's date in your browser's date format. The footer starts out as "Page {n} of {total}", and a preview beside each heading shows how page 1 will read. Pages stored sideways still get their header at the top as you see it, reading level.`,
+    `Each band gets its own text and its own Left, Center or Right alignment. Fields fill themselves in page by page: {n} becomes the page number, {total} the file's page count, and {date} today's date in your browser's date format. The footer starts out as "Page {n} of {total}", and a preview beside each heading shows how the first stamped page will read. Open Pages to leave the cover page blank, start on a later page, count {n} from another first number, or leave the last pages bare. Pages stored sideways still get their header at the top as you see it, reading level.`,
     `The PDF, up to ${ceilingMb} MB, is read and rewritten in your browser and is not uploaded. Text is added on top of the existing pages rather than rebuilding them, so form fields and their values, the title and author, and page rotation came through intact in our test; the Producer and Creator entries are set to pdf.xyz. Nothing is shifted to make room, so check pages that already print close to the edge.`,
   ],
 
@@ -193,6 +198,10 @@ const content: ToolContent = {
       body: "Choose Left, Center or Right under each field; both start centred. Each band holds one line in the position you pick.",
     },
     {
+      title: "Choose the pages, if not all",
+      body: "Every page gets the lines unless you open Pages. Tick Leave the cover page blank to skip page 1 while still counting it, set Start on page and First number to begin later or count from another number, or set Skip last pages to leave an appendix bare. {total} becomes the last number printed.",
+    },
+    {
       title: "Add and download",
       body: "Press Add header & footer, active once either field has text. When the panel reads Header & footer added, press Download PDF; the saved name adds -header-footer before .pdf.",
     },
@@ -205,7 +214,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I leave the header off the cover page?",
-      a: "Not here; every page gets the text. For numbers alone, Add Page Numbers has Start on page and First number settings. Otherwise split off the cover with Split PDF, stamp the rest and rejoin with Merge PDF; {n} and {total} then count only the stamped pages.",
+      a: "Yes. Open Pages and tick Leave the cover page blank: page 1 gets no header or footer but is still counted, so page 2 reads Page 2 of 12. To leave several opening pages bare and count from the first stamped one, set Start on page instead, with First number as the {n} that page shows; Skip last pages does the same for the end of the file. {total} is always the last number printed.",
     },
     {
       q: "Can I change the font, size, colour or margin?",

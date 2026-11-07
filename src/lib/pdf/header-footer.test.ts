@@ -328,3 +328,68 @@ describe("header-footer {date} draws in every locale", () => {
     expect(seen.no).toBeGreaterThan(0);
   });
 });
+
+/**
+ * Audit header-footer#2 (2026-11-06): every page got the text, {n} always
+ * started at 1 and {total} was always the file's page count, so the most
+ * common header request — leave the cover alone — had a FAQ answer of "Not
+ * here". The pages a band goes on now come from Page Numbers' own
+ * `numberingPlan`, so the two tools cannot disagree about what Start on page,
+ * First number, a blank cover or skipped last pages mean.
+ */
+describe("header-footer: which pages, and what {n} and {total} count", () => {
+  async function stamped(
+    pages: number,
+    options: Parameters<typeof addHeaderFooter>[1],
+  ): Promise<string[]> {
+    const out = await addHeaderFooter(await blankPdf(pages), options);
+    return (await readAsViewer(out)).map((p) =>
+      p.runs.map((r) => r.str).join(" "),
+    );
+  }
+
+  it("health: with no page options every page is stamped, counting from 1", async () => {
+    expect(
+      await stamped(3, { footer: { center: "Page {n} of {total}" } }),
+    ).toEqual(["Page 1 of 3", "Page 2 of 3", "Page 3 of 3"]);
+  });
+
+  it("a blank cover is counted but carries nothing", async () => {
+    expect(
+      await stamped(3, {
+        footer: { center: "Page {n} of {total}" },
+        skipCover: true,
+      }),
+    ).toEqual(["", "Page 2 of 3", "Page 3 of 3"]);
+  });
+
+  it("Start on page leaves earlier pages alone and counts from First number", async () => {
+    expect(
+      await stamped(4, {
+        header: { center: "Acme" },
+        footer: { center: "{n}/{total}" },
+        startPage: 2,
+        startAt: 1,
+      }),
+    ).toEqual(["", "Acme 1/3", "Acme 2/3", "Acme 3/3"]);
+    expect(
+      await stamped(2, { footer: { center: "{n}/{total}" }, startAt: 10 }),
+    ).toEqual(["10/11", "11/11"]);
+  });
+
+  it("skipped last pages are neither stamped nor counted", async () => {
+    expect(
+      await stamped(4, { footer: { center: "{n}/{total}" }, skipLast: 2 }),
+    ).toEqual(["1/2", "2/2", "", ""]);
+  });
+
+  it("refuses settings that leave no page to stamp", async () => {
+    await expect(
+      addHeaderFooter(await blankPdf(2), {
+        footer: { center: "x" },
+        startPage: 2,
+        skipLast: 1,
+      }),
+    ).rejects.toThrow(/No page gets the header or footer/);
+  });
+});
