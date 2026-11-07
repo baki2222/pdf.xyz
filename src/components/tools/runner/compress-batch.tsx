@@ -18,11 +18,29 @@ import {
   Info,
   Play,
   RefreshCw,
+  ServerCog,
   X,
 } from "lucide-react";
 import { optimizeLossless, type LosslessResult } from "@/lib/pdf/analyze";
-import { classifyPdfAccess, LOCKED_PDF_COPY } from "@/lib/pdf/encryption";
-import { PdfEngineError } from "@/lib/pdf/engine";
+import {
+  classifyPdfAccess,
+  LOCKED_PDF_COPY,
+  type PdfAccess,
+} from "@/lib/pdf/encryption";
+import { PdfEngineError, loadPdf } from "@/lib/pdf/engine";
+import { loadPdfLib } from "@/lib/pdf/pdf-lib";
+import { countSignatures } from "@/lib/pdf/signed";
+import { DEEP_COMPRESSION_PRESETS } from "@/lib/pdf/offered-kinds";
+import { DEEP_COMPRESSION_GRAYSCALE_HINT } from "@/lib/pdf/compress-grayscale";
+import { runWorkerCompression } from "@/lib/workers/client";
+import {
+  BATCH_DEEP_LABEL,
+  BATCH_LOSSLESS_LABEL,
+  BATCH_MODE_HEADING,
+  BATCH_RESTRICTED_NOTE,
+} from "@/lib/pdf/compress-batch-copy";
+import { useWorkerStatus } from "../use-worker-status";
+import { canRunDeepCompression, qualityChipTitle } from "./compress-deep-gate";
 import { downloadBytes, readFileBytes } from "@/lib/pdf/browser";
 import { outputName } from "@/lib/pdf/files";
 import type { NamedBytes } from "@/lib/pdf/types";
@@ -31,6 +49,7 @@ import { cn, formatBytes } from "@/lib/utils";
 import type { BatchItem } from "@/lib/batch";
 import { HandoffLoadedBadge, type Arrival } from "./handoff-notice";
 import {
+  ChipButton,
   ErrorNote,
   RunEnding,
   Spinner,
@@ -58,6 +77,27 @@ export interface CompressResult {
    * when the repack is delivered, none when the original is.
    */
   signatureCount: number;
+  /**
+   * The deep path only: the input could not be read in the browser (an
+   * encrypted file), so its signatures were not counted.
+   */
+  signaturesUnchecked?: boolean;
+}
+
+/**
+ * A batch row's refusal of a locked file, in the single-file path's words. A
+ * restricted file is pointed at the single-file panel, the one place that
+ * warns before our server writes a copy without the owner's restrictions.
+ */
+function lockedRefusal(
+  kind: Exclude<PdfAccess["kind"], "unencrypted">,
+): PdfEngineError {
+  return new PdfEngineError(
+    kind === "restricted"
+      ? `${LOCKED_PDF_COPY.restricted} ${BATCH_RESTRICTED_NOTE}`
+      : LOCKED_PDF_COPY[kind],
+    { kind: "encrypted" },
+  );
 }
 
 /**
@@ -70,17 +110,7 @@ async function repackOrExplain(bytes: Uint8Array): Promise<LosslessResult> {
   } catch (err) {
     if (err instanceof PdfEngineError && err.kind === "encrypted") {
       const access = await classifyPdfAccess(bytes);
-      if (access.kind === "restricted") {
-        throw new PdfEngineError(
-          `${LOCKED_PDF_COPY.restricted} Compress it on its own to use our secure server.`,
-          { kind: "encrypted" },
-        );
-      }
-      if (access.kind !== "unencrypted") {
-        throw new PdfEngineError(LOCKED_PDF_COPY[access.kind], {
-          kind: "encrypted",
-        });
-      }
+      if (access.kind !== "unencrypted") throw lockedRefusal(access.kind);
     }
     throw err;
   }
@@ -121,6 +151,82 @@ export async function compressBatchFile(file: File): Promise<CompressResult> {
   };
 }
 
+/** One setting for every file of a deep batch (audit compress-pdf#5). */
+export interface BatchDeepOptions {
+  targetDpi: number;
+  grayscale: boolean;
+}
+
+/** Signatures in `bytes`, or `null` when the browser cannot read the file. */
+async function signaturesIn(bytes: Uint8Array): Promise<number | null> {
+  try {
+    const lib = await loadPdfLib();
+    return countSignatures(lib, await loadPdf(bytes));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * One batch row on our secure server (audit compress-pdf#5): the same job
+ * the single-file panel runs, one file at a time. As there, a file that did
+ * not get smaller comes back as it came in, except on a Grayscale run,
+ * whose gray file is a different document and always ships.
+ */
+export async function compressBatchFileDeep(
+  file: File,
+  options: BatchDeepOptions,
+  signal?: AbortSignal,
+): Promise<CompressResult> {
+  const bytes = await readFileBytes(file);
+  // Read the lock BEFORE anything is uploaded (review of cb0eb82e).
+  // Ghostscript writes an unencrypted copy, so a restricted file would come
+  // back with its author's restrictions gone and no owner password given;
+  // the single-file panel shows a warning first, a batch row cannot. A file
+  // that needs a password to open cannot be compressed by anyone. Both get
+  // the lossless batch's own words, and none of their bytes leave.
+  // An "unreadable" file still goes: pdf.js failing to open it is not a lock,
+  // and our server may read what the browser cannot.
+  const access = await classifyPdfAccess(bytes);
+  if (access.kind === "restricted" || access.kind === "password-required") {
+    throw lockedRefusal(access.kind);
+  }
+  const res = await runWorkerCompression(
+    {
+      filename: file.name,
+      bytes,
+      profile: "deep",
+      targetDpi: options.targetDpi,
+      grayscale: options.grayscale,
+    },
+    signal ? { signal } : {},
+  );
+  if (!res.ok) throw new Error(res.message);
+  const output = res.output;
+  if (!options.grayscale && output.byteLength >= bytes.byteLength) {
+    return {
+      outputName: file.name,
+      bytes,
+      originalBytes: bytes.byteLength,
+      optimizedBytes: bytes.byteLength,
+      savedBytes: 0,
+      unchanged: true,
+      signatureCount: 0,
+    };
+  }
+  const signatures = await signaturesIn(bytes);
+  return {
+    outputName: res.artifact.filename || outputName(file.name, "compressed"),
+    bytes: output,
+    originalBytes: bytes.byteLength,
+    optimizedBytes: output.byteLength,
+    savedBytes: Math.max(0, bytes.byteLength - output.byteLength),
+    unchanged: false,
+    signatureCount: signatures ?? 0,
+    ...(signatures === null ? { signaturesUnchecked: true } : {}),
+  };
+}
+
 /**
  * Batch compress: run the **lossless** structural repack (pdf-lib) over several
  * PDFs, one at a time, entirely in the browser. This is the only deterministic,
@@ -148,9 +254,27 @@ export function CompressBatchRunner({
     [files],
   );
 
+  // Where the batch runs: the lossless repack in this browser (the default),
+  // or, opted into, our secure server with one Quality and Grayscale for
+  // every file (audit compress-pdf#5). Offered only when a server can take
+  // the jobs: the single-file panel's own gate.
+  const shared = useWorkerStatus();
+  const deepAvailable =
+    shared.phase !== "loading" &&
+    shared.phase !== "error" &&
+    canRunDeepCompression(shared.status);
+  const [mode, setMode] = useState<"lossless" | "deep">("lossless");
+  const [dpi, setDpi] = useState<number>(150);
+  const [grayscale, setGrayscale] = useState(false);
+  const deep = mode === "deep" && deepAvailable;
+  const modeName = useId();
+
   const process = useCallback(
-    (file: File): Promise<CompressResult> => compressBatchFile(file),
-    [],
+    (file: File, signal: AbortSignal): Promise<CompressResult> =>
+      deep
+        ? compressBatchFileDeep(file, { targetDpi: dpi, grayscale }, signal)
+        : compressBatchFile(file),
+    [deep, dpi, grayscale],
   );
 
   const { state, progress, start, cancel, reset, running } =
@@ -227,18 +351,106 @@ export function CompressBatchRunner({
         />
       )}
 
-      {/* Honest scope banner: lossless-only, on-device. */}
+      {/* Honest scope banner: what THIS batch will do, and where. */}
       <div className="bg-panel border-line rounded-panel flex items-start gap-2.5 border p-4">
-        <Info className="text-accent mt-0.5 size-4 shrink-0" aria-hidden />
+        {deep ? (
+          <ServerCog className="text-info mt-0.5 size-4 shrink-0" aria-hidden />
+        ) : (
+          <Info className="text-accent mt-0.5 size-4 shrink-0" aria-hidden />
+        )}
         <p className="text-muted text-sm leading-relaxed">
-          Batch <span className="text-fg">lossless compression</span> repacks
-          each PDF&apos;s structure in your browser — every page looks the same,
-          and nothing is uploaded. A digitally signed file is flagged, because
-          any rewrite makes its signatures show as invalid. It doesn&apos;t
-          re-encode images; image-heavy files need our secure server (open a
-          single file to see that path).
+          {deep ? (
+            <>
+              <span className="text-fg">Deep image compression</span>{" "}
+              downsamples and re-encodes each PDF&apos;s images on our secure
+              server, one file at a time, with the settings below. A file that
+              does not get smaller comes back unchanged. A digitally signed file
+              is flagged, because any rewrite makes its signatures show as
+              invalid.
+            </>
+          ) : (
+            <>
+              Batch <span className="text-fg">lossless compression</span>{" "}
+              repacks each PDF&apos;s structure in your browser — every page
+              looks the same, and nothing is uploaded. A digitally signed file
+              is flagged, because any rewrite makes its signatures show as
+              invalid. It doesn&apos;t re-encode images
+              {deepAvailable
+                ? `; for image-heavy files, choose “${BATCH_DEEP_LABEL}” below.`
+                : "."}
+            </>
+          )}
         </p>
       </div>
+
+      {state.phase === "idle" && deepAvailable && (
+        <fieldset className="flex flex-col gap-2">
+          <legend className="text-muted mb-1 text-[11px] font-medium tracking-wide uppercase">
+            {BATCH_MODE_HEADING}
+          </legend>
+          <label className="text-fg flex min-h-11 items-center gap-2.5 text-sm">
+            <input
+              type="radio"
+              name={modeName}
+              checked={mode === "lossless"}
+              onChange={() => setMode("lossless")}
+              className="accent-accent size-4"
+            />
+            {BATCH_LOSSLESS_LABEL}
+          </label>
+          <label className="text-fg flex min-h-11 items-center gap-2.5 text-sm">
+            <input
+              type="radio"
+              name={modeName}
+              checked={mode === "deep"}
+              onChange={() => setMode("deep")}
+              className="accent-accent size-4"
+            />
+            {BATCH_DEEP_LABEL}
+          </label>
+          {deep && (
+            <div className="flex flex-col gap-3 pl-6">
+              <p className="text-warn text-xs leading-relaxed">
+                Running this uploads each file to our secure server, one at a
+                time.
+              </p>
+              <div
+                role="group"
+                aria-label="Quality"
+                className="flex flex-wrap items-center gap-2"
+              >
+                <span className="text-muted text-[11px] font-medium tracking-wide uppercase">
+                  Quality
+                </span>
+                {DEEP_COMPRESSION_PRESETS.map((q) => (
+                  <ChipButton
+                    key={q.dpi}
+                    onClick={() => setDpi(q.dpi)}
+                    active={dpi === q.dpi}
+                    title={qualityChipTitle(q.dpi)}
+                  >
+                    {q.label}
+                  </ChipButton>
+                ))}
+              </div>
+              <label className="text-muted flex min-h-11 items-start gap-2.5 text-sm">
+                <input
+                  type="checkbox"
+                  checked={grayscale}
+                  onChange={(event) => setGrayscale(event.target.checked)}
+                  className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4"
+                />
+                <span className="flex flex-col gap-0.5">
+                  <span className="text-fg font-medium">Grayscale</span>
+                  <span className="text-muted text-xs leading-relaxed">
+                    {DEEP_COMPRESSION_GRAYSCALE_HINT}
+                  </span>
+                </span>
+              </label>
+            </div>
+          )}
+        </fieldset>
+      )}
 
       {/* Accessible progress */}
       <div className="flex flex-col gap-2">
@@ -327,7 +539,9 @@ export function CompressBatchRunner({
       {/* Controls */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-muted text-xs">
-          Files are processed one at a time, on your device.
+          {deep
+            ? "Files are uploaded and compressed one at a time, on our secure server."
+            : "Files are processed one at a time, on your device."}
         </p>
         <div className="flex flex-wrap items-center gap-2">
           {state.phase === "idle" && (
@@ -350,6 +564,7 @@ export function CompressBatchRunner({
               >
                 <Play className="size-4" aria-hidden />
                 Compress {files.length} PDF{files.length === 1 ? "" : "s"}
+                {deep ? " on our server" : ""}
               </button>
             </>
           )}
@@ -480,6 +695,16 @@ function BatchDetail({ item }: { item: BatchItem<CompressResult> }) {
       ) : (
         <>Nothing came out smaller — your file, unchanged</>
       );
+      if (r.signaturesUnchecked) {
+        return (
+          <>
+            {size} ·{" "}
+            <span className="text-warn">
+              encrypted, so not checked for digital signatures
+            </span>
+          </>
+        );
+      }
       if (r.signatureCount === 0) return size;
       return (
         <>

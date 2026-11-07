@@ -17,6 +17,7 @@
 // into the client bundle. `isTerminalStatus` is the only runtime value used.
 import type { Job, JobArtifact } from "@/lib/jobs/types";
 import type { CompressionProfile } from "./compression/engine";
+import type { ImageQuality } from "@/lib/pdf/compress-image-quality";
 import type { WorkerJobPhase } from "./job-polling";
 import { forwardStatus } from "./phases";
 import { loadJobRun } from "./job-run-lazy";
@@ -35,6 +36,8 @@ export interface CompressWorkerInput {
   grayscale?: boolean;
   /** The size the file must fit, in bytes (`deep` only); absent ⇒ no target. */
   targetBytes?: number;
+  /** How hard images are JPEG-compressed (`deep` only; needs Ghostscript). */
+  imageQuality?: ImageQuality;
 }
 
 export interface CompressWorkerSuccess {
@@ -169,6 +172,17 @@ async function runWorkerCompressionSteps(
   // Likewise only when set: a run with "No target" sends what it always did.
   if (input.profile === "deep" && input.targetBytes !== undefined) {
     options_.targetBytes = input.targetBytes;
+  }
+  // And a JPEG level only when it is not the preset's own (audit
+  // compress-pdf#4): a Medium run sends what it always did. The literal is
+  // DEFAULT_IMAGE_QUALITY, typed here so this browser module imports only a
+  // type; client.test.ts sends DEFAULT_IMAGE_QUALITY and pins the two equal.
+  if (
+    input.profile === "deep" &&
+    input.imageQuality !== undefined &&
+    input.imageQuality !== "medium"
+  ) {
+    options_.imageQuality = input.imageQuality;
   }
   const jobRes = await fetchImpl("/api/jobs", {
     method: "POST",

@@ -91,6 +91,7 @@ import {
   SIGNATURE_STYLE_LABEL,
   SIGNATURE_STYLES,
 } from "@/lib/pdf/offered-kinds";
+import { IMAGE_QUALITY_LEVELS } from "@/lib/pdf/compress-image-quality";
 import { STAMP_FONT_FAMILIES, STAMP_FONT_LABELS } from "@/lib/pdf/stamp";
 import { LENGTH_UNITS } from "@/lib/pdf/length-units";
 import { MIN_CROP_DIMENSION } from "@/lib/pdf/page-geometry";
@@ -320,6 +321,13 @@ const KB_BYTES = TARGET_KB;
 const TARGET_PRESET_100 = targetPreset(100 * KB_BYTES);
 /** The ladder's floor and the panel's default Quality, by their own labels. */
 const TARGET_FLOOR_LABEL = DEEP_COMPRESSION_PRESETS[0].label;
+/**
+ * The ladder's last JPEG level, by its chip's label: since audit
+ * compress-pdf#4 (2026-11-08) the ladder lowers image quality after the
+ * resolution floor (`target-ladder.ts`).
+ */
+const TARGET_LOWEST_QUALITY_LABEL =
+  IMAGE_QUALITY_LEVELS[IMAGE_QUALITY_LEVELS.length - 1]!.label;
 const TARGET_DEFAULT_QUALITY_LABEL = (() => {
   const preset = DEEP_COMPRESSION_PRESETS.find((p) => p.dpi === 150);
   if (!preset) throw new Error("the guide's default Quality is not offered");
@@ -4270,8 +4278,8 @@ export const guides: Guide[] = [
       "pdf size for online application",
     ],
     intro: [
-      `To compress a PDF to ${TARGET_PRESET_100}, open ${nameOf("compress-pdf")}, add the file, and in the “Deep image compression (secure server)” panel choose a “${TARGET_SIZE_LABELS.heading}” of ${TARGET_PRESET_100} — or ${listOr(TARGET_PRESET_LABELS.slice(1))}, or “${TARGET_SIZE_LABELS.custom}” for a number of KB of your own. Then press Compress images on our server. Our server starts at your Quality setting, lowers the resolution of the images step by step, as far as ${TARGET_FLOOR_LABEL}, and gives back the highest-quality version that fits.`,
-      `Whether a file can get that small depends on what is in it. A colour or gray scan, or a phone photo of a page, is mostly picture, and picture resolution is what this lowers, so such files often shrink a long way. A scan made in black-and-white mode shrinks less: black-and-white images are never taken below ${DEEP_MONO_MIN_DPI} DPI, so scanned text stays legible. A PDF that is mostly typed text, or whose size comes from its fonts, may hardly shrink at all; then the panel tells you the smallest file it could make, and you can still download it.`,
+      `To compress a PDF to ${TARGET_PRESET_100}, open ${nameOf("compress-pdf")}, add the file, and in the “Deep image compression (secure server)” panel choose a “${TARGET_SIZE_LABELS.heading}” of ${TARGET_PRESET_100} — or ${listOr(TARGET_PRESET_LABELS.slice(1))}, or “${TARGET_SIZE_LABELS.custom}” for a number of KB of your own. Then press Compress images on our server. Our server starts at your Quality setting, lowers the resolution of the images step by step, as far as ${TARGET_FLOOR_LABEL}, then lowers their JPEG quality, as far as “${TARGET_LOWEST_QUALITY_LABEL}”, and gives back the highest-quality version that fits.`,
+      `Whether a file can get that small depends on what is in it. A colour or gray scan, or a phone photo of a page, is mostly picture, and picture resolution and JPEG quality are what this lowers, so such files often shrink a long way. A scan made in black-and-white mode shrinks less: black-and-white images are never taken below ${DEEP_MONO_MIN_DPI} DPI, so scanned text stays legible. A PDF that is mostly typed text, or whose size comes from its fonts, may hardly shrink at all; then the panel tells you the smallest file it could make, and you can still download it.`,
       `This step uploads your file to our server; the size breakdown and the lossless copy on the same page run in your browser. Our privacy policy says the uploaded file is deleted when the job ends, the result can be downloaded for ${RETENTION_WINDOWS.outputLink}, and the stored copy is erased by a daily storage rule some time after it is ${RETENTION_WINDOWS.outputStorageRule} old.`,
     ],
     steps: [
@@ -4287,7 +4295,7 @@ export const guides: Guide[] = [
         id: "how-the-target-is-reached",
         heading: "How the target is reached",
         body: [
-          `Our server makes the file at your Quality setting first, then at each lower resolution in turn, as far as ${TARGET_FLOOR_LABEL}, and stops at the first one at or under the target: the sharpest version that fits. If none fits, it gives you the smallest file it made, with a line saying it is above your target.`,
+          `Our server makes the file at your Quality setting first, then at each lower resolution in turn, as far as ${TARGET_FLOOR_LABEL}, then at ${TARGET_FLOOR_LABEL} with each lower JPEG quality, as far as “${TARGET_LOWEST_QUALITY_LABEL}”, and stops at the first one at or under the target: the sharpest version that fits. If none fits, it gives you the smallest file it made, with a line saying it is above your target.`,
           "A lower resolution usually makes a smaller file, but not always. For each picture, the program that does the work chooses how to store it, and at a lower setting it can choose a way that takes more room. So the server measures every file it makes rather than assuming, and a run where nothing fits tries every setting before it answers, which takes longer.",
           "Only the pictures in the file are made smaller. Typed text and drawn lines are not pictures, so they stay as sharp as before, and they are also why a text-heavy PDF cannot be squeezed much. The server checks that the result opens as a PDF and, when it can count them, that no page went missing.",
           `Colour is kept. The server never turns pages gray to reach a size: it does that only when you tick “Grayscale”, and gray pages are often much smaller.`,
@@ -4318,7 +4326,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Why is my PDF still above the target?",
-        answer: `Because none of the resolutions our server tried, down to ${TARGET_FLOOR_LABEL}, made a small enough file. That happens with a mostly-text PDF, where there are few pictures to shrink, and with long documents full of photos. Try “Grayscale”, or split the file.`,
+        answer: `Because none of the settings our server tried, down to ${TARGET_FLOOR_LABEL} at “${TARGET_LOWEST_QUALITY_LABEL}” JPEG quality, made a small enough file. That happens with a mostly-text PDF, where there are few pictures to shrink, and with long documents full of photos. Try “Grayscale”, or split the file.`,
       },
       {
         question: "Will my PDF turn black and white to hit the target?",
@@ -4339,7 +4347,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-07",
+    updated: "2026-11-08",
   },
   // Added 2026-10-31 with JPG / PNG to PDF's Max file size. Every label and
   // figure is read from the panel's constants (`image-size-limit.ts`), the

@@ -41,6 +41,16 @@
  *    drops colour to hit a size; the panel suggests it, the person decides.
  *  - engines: only Ghostscript reads the resolution. qpdf and mutool would
  *    make the same file on every rung, so for them the ladder is one run.
+ *
+ * ── IMAGE QUALITY AFTER RESOLUTION (audit compress-pdf#4, 2026-11-08) ─────
+ *
+ * Until then every rung was a resolution, so a scan already small in pixels
+ * ran out at 72 DPI with its JPEG quality never lowered. Now, below the 72
+ * DPI floor, the ladder keeps 72 and steps the JPEG level down from the one
+ * the person chose (`compress-image-quality.ts`) to the lowest. Resolution
+ * first, because it usually costs less visible quality per byte; the
+ * person's own level is the ceiling, never raised. Every rung is still
+ * measured, and the same first-fit / smallest rules apply.
  */
 import type {
   CompressionOptions,
@@ -48,12 +58,22 @@ import type {
   NativeCompressor,
 } from "./engine";
 import { rethrowIfAttemptAbort } from "../attempt-abort";
+import {
+  DEFAULT_IMAGE_QUALITY,
+  IMAGE_QUALITY_LEVELS,
+  lowerImageQualities,
+  type ImageQuality,
+} from "@/lib/pdf/compress-image-quality";
 
 /** The rungs below the chosen Quality, highest first. Ends at the worker's 72 DPI floor. */
 export const TARGET_DPI_LADDER = [300, 200, 150, 120, 96, 72] as const;
 
-/** One run per rung, plus the chosen Quality when it is not itself a rung. */
-export const MAX_TARGET_ATTEMPTS = TARGET_DPI_LADDER.length + 1;
+/**
+ * One run per resolution rung, plus the chosen Quality when it is not itself
+ * a rung, plus one per JPEG level below the highest at the floor.
+ */
+export const MAX_TARGET_ATTEMPTS =
+  TARGET_DPI_LADDER.length + 1 + IMAGE_QUALITY_LEVELS.length - 1;
 
 /** No rung starts with less time than this left in the budget. */
 export const MIN_RUNG_MS = 1_000;
@@ -61,14 +81,40 @@ export const MIN_RUNG_MS = 1_000;
 /** The engines whose output depends on the resolution asked for. */
 const DPI_TOOLS: readonly CompressionTool[] = ["ghostscript"];
 
-/** The rungs for a run whose chosen Quality is `startDpi`, highest first. */
+/** The resolution rungs for a run whose chosen Quality is `startDpi`, highest first. */
 export function ladderRungs(startDpi: number): number[] {
   return [startDpi, ...TARGET_DPI_LADDER.filter((dpi) => dpi < startDpi)];
 }
 
-/** One rung that ran: its resolution and the size it made (`null`: it failed). */
+/** One rung: a resolution and a JPEG level. */
+export interface TargetRung {
+  dpi: number;
+  quality: ImageQuality;
+}
+
+/**
+ * Every rung for a run: the resolutions at the chosen JPEG level, then the
+ * lower levels at the last (lowest) resolution.
+ */
+export function targetRungs(
+  startDpi: number,
+  startQuality: ImageQuality = DEFAULT_IMAGE_QUALITY,
+): TargetRung[] {
+  const dpis = ladderRungs(startDpi);
+  const floor = dpis[dpis.length - 1]!;
+  return [
+    ...dpis.map((dpi) => ({ dpi, quality: startQuality })),
+    ...lowerImageQualities(startQuality).map((quality) => ({
+      dpi: floor,
+      quality,
+    })),
+  ];
+}
+
+/** One rung that ran: its resolution, JPEG level and the size it made (`null`: it failed). */
 export interface TargetAttempt {
   dpi: number;
+  quality: ImageQuality;
   bytes: number | null;
 }
 
@@ -90,6 +136,8 @@ export interface TargetLadderReport {
   tried: TargetAttempt[];
   /** The rung whose file was chosen; `null` when none was usable. */
   chosenDpi: number | null;
+  /** That rung's JPEG level; `null` when none was usable. */
+  chosenQuality: ImageQuality | null;
   stoppedBy: TargetStop;
 }
 
@@ -115,9 +163,10 @@ export async function runTargetLadder(
   options: CompressionOptions & { targetBytes: number },
   deps: TargetLadderDeps,
 ): Promise<TargetLadderRun> {
-  const rungs = DPI_TOOLS.includes(deps.engine)
-    ? ladderRungs(options.targetDpi)
-    : [options.targetDpi];
+  const startQuality = options.imageQuality ?? DEFAULT_IMAGE_QUALITY;
+  const rungs: TargetRung[] = DPI_TOOLS.includes(deps.engine)
+    ? targetRungs(options.targetDpi, startQuality)
+    : [{ dpi: options.targetDpi, quality: startQuality }];
   const started = deps.now();
   const remaining = () =>
     deps.budgetMs === undefined
@@ -125,10 +174,10 @@ export async function runTargetLadder(
       : deps.budgetMs - (deps.now() - started);
   const tried: TargetAttempt[] = [];
   /** The smallest usable file made so far, and its rung. */
-  let smallest: { dpi: number; output: Uint8Array } | null = null;
+  let smallest: (TargetRung & { output: Uint8Array }) | null = null;
   let stoppedBy: TargetStop = "exhausted";
 
-  for (const [i, dpi] of rungs.entries()) {
+  for (const [i, { dpi, quality }] of rungs.entries()) {
     const left = remaining();
     // The first rung always runs, on the whole budget; later ones only with
     // enough of it left to be worth starting.
@@ -141,8 +190,16 @@ export async function runTargetLadder(
       const bytes = await deps.native(input, {
         engine: deps.engine,
         // Grayscale and every other option ride along untouched; only the
-        // resolution changes from rung to rung.
-        options: { ...options, targetDpi: dpi },
+        // resolution and the JPEG level change from rung to rung. The level
+        // is sent only when it is not the preset's own, so a rung at the
+        // default asks the engine exactly what it always did.
+        options: {
+          ...withoutQuality(options),
+          targetDpi: dpi,
+          ...(quality === DEFAULT_IMAGE_QUALITY
+            ? {}
+            : { imageQuality: quality }),
+        },
         ...(left === undefined ? {} : { timeoutMs: left }),
         ...(deps.signal ? { signal: deps.signal } : {}),
       });
@@ -152,7 +209,7 @@ export async function runTargetLadder(
       rethrowIfAttemptAbort(error);
       out = null;
     }
-    tried.push({ dpi, bytes: out ? out.byteLength : null });
+    tried.push({ dpi, quality, bytes: out ? out.byteLength : null });
     if (!out) {
       stoppedBy = "engine_error";
       break;
@@ -165,12 +222,13 @@ export async function runTargetLadder(
           targetBytes: options.targetBytes,
           tried,
           chosenDpi: dpi,
+          chosenQuality: quality,
           stoppedBy: "fit",
         },
       };
     }
     if (!smallest || out.byteLength < smallest.output.byteLength) {
-      smallest = { dpi, output: out };
+      smallest = { dpi, quality, output: out };
     }
   }
 
@@ -178,9 +236,17 @@ export async function runTargetLadder(
     targetBytes: options.targetBytes,
     tried,
     chosenDpi: smallest ? smallest.dpi : null,
+    chosenQuality: smallest ? smallest.quality : null,
     stoppedBy,
   };
   return smallest
     ? { ok: true, output: smallest.output, report }
     : { ok: false, report };
+}
+
+/** `options` without its JPEG level: each rung sets its own. */
+function withoutQuality(options: CompressionOptions): CompressionOptions {
+  const rest = { ...options };
+  delete rest.imageQuality;
+  return rest;
 }
