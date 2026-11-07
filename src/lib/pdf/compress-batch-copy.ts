@@ -13,3 +13,12 @@ export const BATCH_LOSSLESS_LABEL = "Lossless, in your browser";
 
 /** The legend over the two choices. */
 export const BATCH_MODE_HEADING = "Where to compress";
+
+/**
+ * What a batch row says after the lock note when the file only restricts
+ * changes. The batch refuses such a file in BOTH modes before anything of it
+ * is uploaded (review of cb0eb82e): our server writes a copy without the
+ * owner's restrictions, and only the single-file panel warns about that first.
+ */
+export const BATCH_RESTRICTED_NOTE =
+  "Compress it on its own to use our secure server.";

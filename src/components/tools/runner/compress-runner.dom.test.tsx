@@ -61,6 +61,8 @@ import { createLocalDevAdapter } from "@/lib/workers/local-dev";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { DevWorkerStore } from "@/lib/workers/store";
 import { encryptPdf } from "@/tests/encrypted-pdf";
+import { LOCKED_PDF_COPY } from "@/lib/pdf/encryption";
+import { BATCH_RESTRICTED_NOTE } from "@/lib/pdf/compress-batch-copy";
 import {
   colourImagePdf,
   noisePhotoPdf,
@@ -878,6 +880,72 @@ describe(
       expect(
         rows.getByRole("button", { name: /download compressed a\.pdf/i }),
       ).toBeInTheDocument();
+    });
+
+    // Review of cb0eb82e: the deep batch uploaded every file without reading
+    // its lock first. Ghostscript writes an unencrypted copy, so a restricted
+    // file came back with its author's restrictions lifted, no owner password
+    // given and no warning shown; a file that needs a password to open went
+    // up for nothing. Both are now refused in the browser, as the lossless
+    // batch refuses them, and nothing of theirs is uploaded.
+    it("a locked file is refused in the browser and never uploaded; the plain file still runs", async () => {
+      const { uploads } = answerWithLocalWorker(async () =>
+        colourImagePdf({ components: 3, size: 8 }),
+      );
+      const plain = await colourImagePdf({
+        components: 3,
+        size: 8,
+        pad: 60_000,
+      });
+      const restricted = await encryptPdf(await plainPdf(1), {
+        userPassword: "",
+        ownerPassword: "owner-secret",
+      });
+      const needsPassword = await encryptPdf(await plainPdf(1), {
+        userPassword: "user-secret",
+        ownerPassword: "owner-secret",
+      });
+      const { container } = render(withRouter(<CompressRunner />));
+      await drop(container, [
+        asFile(plain, "plain.pdf"),
+        asFile(restricted, "restricted.pdf"),
+        asFile(needsPassword, "locked.pdf"),
+      ]);
+      fireEvent.click(
+        await screen.findByRole(
+          "radio",
+          { name: /compress images on our server/i },
+          { timeout: 10_000 },
+        ),
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: /compress 3 pdfs on our server/i }),
+      );
+      await screen.findByText(/batch complete/i, {}, { timeout: 10_000 });
+
+      // Only the plain file went up.
+      expect(uploads).toHaveLength(1);
+      expect(Buffer.from(uploads[0]!).equals(Buffer.from(plain))).toBe(true);
+      const rows = within(
+        screen.getByRole("list", { name: /files in this batch/i }),
+      );
+      const restrictedRow = rows.getByText("restricted.pdf").closest("li")!;
+      expect(restrictedRow).toHaveTextContent(LOCKED_PDF_COPY.restricted);
+      expect(restrictedRow).toHaveTextContent(BATCH_RESTRICTED_NOTE);
+      expect(
+        within(restrictedRow).queryByRole("button", {
+          name: /download compressed/i,
+        }),
+      ).toBeNull();
+      const lockedRow = rows.getByText("locked.pdf").closest("li")!;
+      expect(lockedRow).toHaveTextContent(LOCKED_PDF_COPY["password-required"]);
+      // The page says the same: until this review its FAQ said a batch on
+      // our server "sends it there like any other file".
+      const faq = compressContent.faqs.map((f) => f.a).join(" ");
+      expect(faq).toContain(
+        "both kinds fail in your browser before anything of them is uploaded",
+      );
+      expect(faq).not.toContain("like any other file");
     });
 
     it("the lossless batch stays the default and uploads nothing", async () => {

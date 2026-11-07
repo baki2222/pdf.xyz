@@ -22,7 +22,11 @@ import {
   X,
 } from "lucide-react";
 import { optimizeLossless, type LosslessResult } from "@/lib/pdf/analyze";
-import { classifyPdfAccess, LOCKED_PDF_COPY } from "@/lib/pdf/encryption";
+import {
+  classifyPdfAccess,
+  LOCKED_PDF_COPY,
+  type PdfAccess,
+} from "@/lib/pdf/encryption";
 import { PdfEngineError, loadPdf } from "@/lib/pdf/engine";
 import { loadPdfLib } from "@/lib/pdf/pdf-lib";
 import { countSignatures } from "@/lib/pdf/signed";
@@ -33,6 +37,7 @@ import {
   BATCH_DEEP_LABEL,
   BATCH_LOSSLESS_LABEL,
   BATCH_MODE_HEADING,
+  BATCH_RESTRICTED_NOTE,
 } from "@/lib/pdf/compress-batch-copy";
 import { useWorkerStatus } from "../use-worker-status";
 import { canRunDeepCompression, qualityChipTitle } from "./compress-deep-gate";
@@ -80,6 +85,22 @@ export interface CompressResult {
 }
 
 /**
+ * A batch row's refusal of a locked file, in the single-file path's words. A
+ * restricted file is pointed at the single-file panel, the one place that
+ * warns before our server writes a copy without the owner's restrictions.
+ */
+function lockedRefusal(
+  kind: Exclude<PdfAccess["kind"], "unencrypted">,
+): PdfEngineError {
+  return new PdfEngineError(
+    kind === "restricted"
+      ? `${LOCKED_PDF_COPY.restricted} ${BATCH_RESTRICTED_NOTE}`
+      : LOCKED_PDF_COPY[kind],
+    { kind: "encrypted" },
+  );
+}
+
+/**
  * The repack, with an encrypted file's refusal told apart by what a reader can
  * open — the same classification, and the same words, as the single-file path.
  */
@@ -89,17 +110,7 @@ async function repackOrExplain(bytes: Uint8Array): Promise<LosslessResult> {
   } catch (err) {
     if (err instanceof PdfEngineError && err.kind === "encrypted") {
       const access = await classifyPdfAccess(bytes);
-      if (access.kind === "restricted") {
-        throw new PdfEngineError(
-          `${LOCKED_PDF_COPY.restricted} Compress it on its own to use our secure server.`,
-          { kind: "encrypted" },
-        );
-      }
-      if (access.kind !== "unencrypted") {
-        throw new PdfEngineError(LOCKED_PDF_COPY[access.kind], {
-          kind: "encrypted",
-        });
-      }
+      if (access.kind !== "unencrypted") throw lockedRefusal(access.kind);
     }
     throw err;
   }
@@ -168,6 +179,18 @@ export async function compressBatchFileDeep(
   signal?: AbortSignal,
 ): Promise<CompressResult> {
   const bytes = await readFileBytes(file);
+  // Read the lock BEFORE anything is uploaded (review of cb0eb82e).
+  // Ghostscript writes an unencrypted copy, so a restricted file would come
+  // back with its author's restrictions gone and no owner password given;
+  // the single-file panel shows a warning first, a batch row cannot. A file
+  // that needs a password to open cannot be compressed by anyone. Both get
+  // the lossless batch's own words, and none of their bytes leave.
+  // An "unreadable" file still goes: pdf.js failing to open it is not a lock,
+  // and our server may read what the browser cannot.
+  const access = await classifyPdfAccess(bytes);
+  if (access.kind === "restricted" || access.kind === "password-required") {
+    throw lockedRefusal(access.kind);
+  }
   const res = await runWorkerCompression(
     {
       filename: file.name,
