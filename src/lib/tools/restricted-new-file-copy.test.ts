@@ -30,7 +30,7 @@ describe("a restricted PDF in a tool whose output is a new file", () => {
     ).rejects.toThrow(PDF_RESTRICTED_MESSAGE);
   });
 
-  for (const slug of ["merge-pdf"]) {
+  for (const slug of ["merge-pdf", "extract-pages"]) {
     it(`${slug}: the page says why, and names the owner password`, () => {
       const answers = pageFaq(getToolBySlug(slug)!).map((f) => f.answer);
       const why = answers.find((a) =>
