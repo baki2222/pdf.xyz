@@ -9,8 +9,11 @@ const COUNTS = `${N_UP_COUNTS.slice(0, -1).join(", ")} or ${N_UP_COUNTS.at(-1)}`
 const PAPER = N_UP_SHEETS.filter((s) => s.size).map((s) => s.label);
 const PAPER_NAMES = `${PAPER.slice(0, -1).join(", ")} or ${PAPER.at(-1)}`;
 const SOURCE_SHEET = N_UP_SHEETS.find((s) => s.id === "source")!.label;
-/** "2 to 16": the fewest and most pages per sheet the runner offers. */
-const RANGE = `${N_UP_COUNTS[0]} to ${N_UP_COUNTS.at(-1)}`;
+/**
+ * "up to 16": the most pages per sheet the runner offers. Not "2 to 16",
+ * which reads as every count in between (n-up.test.ts holds this).
+ */
+const RANGE = `up to ${N_UP_COUNTS.at(-1)}`;
 
 const content: ToolContent = {
   slug: "n-up-pdf",

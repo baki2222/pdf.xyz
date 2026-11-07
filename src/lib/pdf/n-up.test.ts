@@ -11,6 +11,8 @@ import {
 } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import { getToolBySlug } from "@/lib/tools";
+import { getToolContent } from "@/lib/tools/content";
+import { getGuideBySlug } from "@/lib/guides";
 import {
   N_UP_COUNTS,
   N_UP_MARGINS,
@@ -138,13 +140,38 @@ describe("nUpGrid and nUpCells", () => {
     }
   });
 
-  it("the catalogue's card names the offered range of counts", () => {
+  it("the catalogue's card names the most pages per sheet, never a range that skips counts", () => {
     // The tagline and description are typed in the catalogue, which cannot
-    // import this module; they said "2, 4, 6 or 9" until 2026-11-07.
+    // import this module; they said "2, 4, 6 or 9" until 2026-11-07, then
+    // "2 to 16", which reads as any count in between while 5, 7, 10, 11 and
+    // 13-15 are not offered (review of audit n-up-pdf#2). "Up to 16" is true.
     const tool = getToolBySlug("n-up-pdf")!;
-    const range = `${N_UP_COUNTS[0]} to ${N_UP_COUNTS.at(-1)}`;
-    expect(tool.tagline).toContain(range);
-    expect(tool.description).toContain(range);
+    const most = `up to ${N_UP_COUNTS.at(-1)}`;
+    expect(tool.tagline.toLowerCase()).toContain(most);
+    expect(tool.description.toLowerCase()).toContain(most);
+    // "N to M" is a claim that every count from N to M is offered.
+    const skipped = (text: string): number[] =>
+      [...text.matchAll(/\b(\d+) to (\d+)\b/g)].flatMap(([, a, b]) =>
+        Array.from(
+          { length: Number(b) - Number(a) + 1 },
+          (_, k) => Number(a) + k,
+        ).filter((n) => !(N_UP_COUNTS as readonly number[]).includes(n)),
+      );
+    expect(
+      skipped("Put 2 to 16 pages on one sheet."),
+      "positive control",
+    ).not.toEqual([]);
+    const surfaces = [
+      tool.tagline,
+      tool.description,
+      getToolContent("n-up-pdf")!.metaDescription,
+      getGuideBySlug("how-to-print-multiple-pages-per-sheet")!.description,
+    ];
+    expect(
+      surfaces.every((t) => t.length > 0),
+      "health check",
+    ).toBe(true);
+    for (const text of surfaces) expect(skipped(text), text).toEqual([]);
     // …and every paper size the Sheet size chips offer (since 2026-11-07,
     // audit n-up-pdf#3; it named A4 and US Letter only).
     for (const sheet of N_UP_SHEETS.filter((s) => s.size))

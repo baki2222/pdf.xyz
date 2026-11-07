@@ -143,9 +143,9 @@ export const tools: Tool[] = [
   {
     slug: "n-up-pdf",
     name: "Multiple Pages per Sheet",
-    tagline: "Put 2 to 16 pages on one sheet.",
+    tagline: "Put up to 16 pages on one sheet.",
     description:
-      "Put 2 to 16 PDF pages on each sheet, A4, US Letter, A3, A5, US Legal or your page's own size, in the order you pick. Runs in your browser.",
+      "Put up to 16 PDF pages on each sheet, A4, US Letter, A3, A5, US Legal or your page's own size, in the order you pick. Runs in your browser.",
     category: "organize",
     icon: "nUp",
     processing: "client",
