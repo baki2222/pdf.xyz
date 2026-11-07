@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { join } from "node:path";
 import {
+  CSV_UTF8_INFILTER,
+  csvImportFilter,
   libreOfficeConvertArgs,
   createNativeLibreOfficePdfRunner,
   nativeOfficeConversionDeps,
@@ -68,6 +70,62 @@ describe("native LibreOffice Office converter", () => {
       "/tmp/out",
       "/tmp/in.docx",
     ]);
+  });
+
+  describe("a CSV's character set (measured in the worker image, 2026-11-07)", () => {
+    // LibreOffice handed a CSV with no import options reads it in its
+    // Western default: UTF-8 "Zürich" printed as "ZÃ¼rich", which is how
+    // production's "excel-to-pdf (csv)" proof failed. Forcing UTF-8 on every
+    // CSV is no fix either: a Windows-1252 "Zürich" then printed "Z�rich".
+    const ascii = (s: string) => [...s].map((c) => c.charCodeAt(0));
+    const UTF8_CSV = new TextEncoder().encode("Town,Visitors\nZürich,980\n");
+    const BOM_CSV = new Uint8Array([0xef, 0xbb, 0xbf, ...UTF8_CSV]);
+    const CP1252_CSV = new Uint8Array([
+      ...ascii("Town,Visitors\nZ"),
+      0xfc,
+      ...ascii("rich,980\n"),
+    ]);
+    const ASCII_CSV = new TextEncoder().encode("Town,Visitors\nBern,980\n");
+
+    async function argsFor(bytes: Uint8Array, name: string) {
+      const exec = vi.fn(async () => ({ code: 0, timedOut: false }));
+      const runner = createNativeLibreOfficePdfRunner(config, {
+        exec,
+        fs: fsStub(),
+        resolveOnPath: (bin) => bin === "soffice",
+      });
+      await runner.convertToPdf(bytes, name);
+      return (exec.mock.calls[0] as unknown as [string, string[]])[1];
+    }
+    const FILTER = `--infilter=${CSV_UTF8_INFILTER}`;
+
+    it("CONTROL: the filter is LibreOffice's CSV import with character set 76 (UTF-8)", () => {
+      expect(CSV_UTF8_INFILTER).toBe("Text - txt - csv (StarCalc):44,34,76,1");
+    });
+
+    it("a UTF-8 CSV with non-ASCII text is imported as UTF-8, the file still last", async () => {
+      const args = await argsFor(UTF8_CSV, "towns.csv");
+      expect(args).toContain(FILTER);
+      expect(args.indexOf(FILTER)).toBeLessThan(args.indexOf("--convert-to"));
+      expect(args.at(-1)).toBe(join("/tmp/pdfxyz-office-1", "input.csv"));
+    });
+
+    it("so is one that starts with a byte-order mark", async () => {
+      expect(await argsFor(BOM_CSV, "towns.csv")).toContain(FILTER);
+    });
+
+    it("a Windows-1252 CSV keeps the default that reads it correctly", async () => {
+      expect(await argsFor(CP1252_CSV, "towns.csv")).not.toContain(FILTER);
+    });
+
+    it("an ASCII-only CSV is handed over exactly as before", async () => {
+      expect(await argsFor(ASCII_CSV, "towns.csv")).not.toContain(FILTER);
+    });
+
+    it("a file that is not a CSV never gets the CSV filter, even as UTF-8 text", async () => {
+      expect(await argsFor(UTF8_CSV, "notes.docx")).not.toContain(FILTER);
+      expect(csvImportFilter(UTF8_CSV, "input.CSV")).toBe(CSV_UTF8_INFILTER);
+    });
   });
 
   it("converts through temp input/output and cleans up", async () => {

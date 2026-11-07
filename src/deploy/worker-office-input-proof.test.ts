@@ -118,6 +118,9 @@ describe("the in-image OpenDocument / RTF proof runs, from the workflow to the c
     expect(imports.get("OFFICE_INPUT_FIXTURES")).toBe(
       "@/tests/office-input-fixtures",
     );
+    expect(imports.get("CSV_CHARSET_CASES")).toBe(
+      "@/tests/csv-charset-fixtures",
+    );
 
     const calls: TS.CallExpression[] = [];
     walk(file, (n) => {
@@ -138,6 +141,7 @@ describe("the in-image OpenDocument / RTF proof runs, from the workflow to the c
       "extract",
       "fixtures",
       "spreadsheetBytes",
+      "csv",
     ])
       expect(props.has(key), `runOfficeInputProof is not given ${key}`).toBe(
         true,
@@ -159,6 +163,7 @@ describe("the in-image OpenDocument / RTF proof runs, from the workflow to the c
     expect(props.get("fixtures")!.getText(file)).toBe(
       "fixtures: OFFICE_INPUT_FIXTURES",
     );
+    expect(props.get("csv")!.getText(file)).toBe("csv: CSV_CHARSET_CASES");
     // No LibreOffice or pdftotext, no conclusion: exit 2, never a pass.
     for (const needed of [/!libreoffice/, /!extract/, /return 2;/])
       expect(file.getFullText()).toMatch(needed);

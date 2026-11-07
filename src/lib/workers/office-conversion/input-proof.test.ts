@@ -17,6 +17,7 @@ import {
   odtWith,
 } from "@/tests/office-input-fixtures";
 import { lockedOdfFixtures } from "@/tests/locked-odf";
+import { CSV_CHARSET_CASES } from "@/tests/csv-charset-fixtures";
 import type { LibreOfficePdfRunner } from "./engine";
 import { LibreOfficeRunError } from "./errors";
 import { officeContentRefusal, SIGNED_OFFICE_INPUTS } from "./input-content";
@@ -26,7 +27,19 @@ const enc = new TextEncoder();
 const dec = new TextDecoder();
 
 /** The words a reader of the file would see: content.xml's text, or the RTF's. */
+const latin1 = (bytes: Uint8Array) => String.fromCharCode(...bytes);
+/** A CSV read the way the worker reads it since 2026-11-07. */
+function csvText(bytes: Uint8Array): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return latin1(bytes);
+  }
+}
+const isCsv = (bytes: Uint8Array) => bytes[0] !== 0x50 && bytes[0] !== 0x7b;
+
 async function wordsIn(bytes: Uint8Array): Promise<string> {
+  if (isCsv(bytes)) return csvText(bytes);
   if (bytes[0] === 0x7b) return dec.decode(bytes).replace(/\\[a-z0-9]+ ?/g, "");
   const zip = await JSZip.loadAsync(bytes);
   const xml = (await zip.file("content.xml")?.async("string")) ?? "";
@@ -79,6 +92,7 @@ async function deps(
     fixtures: OFFICE_INPUT_FIXTURES,
     spreadsheetBytes: await odsWith("Renamed"),
     ...lockedOdfFixtures(),
+    csv: CSV_CHARSET_CASES,
     ...over,
   };
 }
@@ -119,7 +133,11 @@ describe("the proof's verdict", () => {
     expect(result.ok).toBe(true);
     const { locked } = lockedOdfFixtures();
     expect(result.lines.filter((l) => l.startsWith("ok"))).toHaveLength(
-      OFFICE_INPUT_FIXTURES.length + 2 + locked.length + 1,
+      OFFICE_INPUT_FIXTURES.length +
+        2 +
+        locked.length +
+        1 +
+        CSV_CHARSET_CASES.length,
     );
   });
 
@@ -133,8 +151,8 @@ describe("the proof's verdict", () => {
     expect(result.ok).toBe(false);
     expect(
       result.lines.filter((l) => /is not in its text/.test(l)),
-      // Every fixture, and the locked files' unlocked twin.
-    ).toHaveLength(OFFICE_INPUT_FIXTURES.length + 1);
+      // Every fixture, the locked files' unlocked twin, and every CSV.
+    ).toHaveLength(OFFICE_INPUT_FIXTURES.length + 1 + CSV_CHARSET_CASES.length);
   });
 
   it("fails a converter that answers every file with the same PDF", async () => {
@@ -228,6 +246,56 @@ describe("the proof's verdict", () => {
     expect(result.ok).toBe(false);
     expect(result.lines.filter((l) => l.startsWith("FAIL")).join("\n")).toMatch(
       /locked twin, open\.odt: converted, but "NOTINIT" is not in its text/,
+    );
+  });
+});
+
+describe("the CSV character-set cases", () => {
+  const csvFails = (lines: readonly string[]) =>
+    lines.filter((l) => l.startsWith("FAIL  csv "));
+  const nameOf = (line: string) => /FAIL {2}csv (\S+)/.exec(line)?.[1];
+  const reading = (
+    decode: (b: Uint8Array) => string,
+  ): LibreOfficePdfRunner => ({
+    convertToPdf: async (input) =>
+      isCsv(input) ? pdfOf(decode(input)) : honest.convertToPdf(input, ""),
+  });
+
+  it("fails a converter that reads every CSV in the Western default (production, 2026-11-07)", async () => {
+    const result = await runOfficeInputProof(
+      await deps({ libreoffice: reading(latin1) }),
+    );
+    expect(result.ok).toBe(false);
+    expect(csvFails(result.lines).map(nameOf)).toEqual([
+      "towns.csv",
+      "cheeses.csv",
+    ]);
+  });
+
+  it("fails a converter that forces UTF-8 on every CSV (the fix that breaks Windows-1252)", async () => {
+    const result = await runOfficeInputProof(
+      await deps({ libreoffice: reading((b) => new TextDecoder().decode(b)) }),
+    );
+    expect(result.ok).toBe(false);
+    expect(csvFails(result.lines).map(nameOf)).toEqual(["names.csv"]);
+  });
+
+  it("fails a run with no Windows-1252 case, and a case whose word is plain ASCII", async () => {
+    const result = await runOfficeInputProof(
+      await deps({
+        csv: [
+          CSV_CHARSET_CASES[0]!,
+          { ...CSV_CHARSET_CASES[0]!, name: "plain.csv", word: "Town" },
+        ],
+      }),
+    );
+    expect(result.ok).toBe(false);
+    const fails = result.lines.filter((l) => l.startsWith("FAIL"));
+    expect(fails).toContain(
+      "FAIL  the CSV cases hold no windows-1252 file; the proof needs one of each",
+    );
+    expect(fails).toContain(
+      'FAIL  csv plain.csv (utf-8): its word "Town" is plain ASCII, so it proves nothing',
     );
   });
 });

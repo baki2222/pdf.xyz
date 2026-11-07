@@ -21,6 +21,7 @@ import { nativeOfficeConversionDeps } from "@/lib/workers/office-conversion/nati
 import { pdfOfficeExportDeps } from "@/lib/workers/pdf-office-export/native";
 import { OFFICE_INPUT_FIXTURES, odsWith } from "@/tests/office-input-fixtures";
 import { lockedOdfFixtures } from "@/tests/locked-odf";
+import { CSV_CHARSET_CASES } from "@/tests/csv-charset-fixtures";
 
 async function main(): Promise<number> {
   const libreoffice = nativeOfficeConversionDeps(process.env).libreoffice;
@@ -37,6 +38,7 @@ async function main(): Promise<number> {
     fixtures: OFFICE_INPUT_FIXTURES,
     spreadsheetBytes: await odsWith("Renamed"),
     ...lockedOdfFixtures(),
+    csv: CSV_CHARSET_CASES,
   });
   for (const line of result.lines) console.log(line);
   console.log(result.ok ? "PROVEN" : "FAIL");

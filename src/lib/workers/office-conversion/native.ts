@@ -103,9 +103,47 @@ export function resolveOnPath(binary: string): boolean {
   return false;
 }
 
+/**
+ * LibreOffice's CSV import filter with its options: comma-separated,
+ * double-quoted text, character set 76 (UTF-8), read from line 1.
+ *
+ * Measured 2026-11-07 in the production worker image (no LANG set): a CSV
+ * handed to LibreOffice with no import options is read in its Western
+ * default, so a UTF-8 "Zürich" printed as "ZÃ¼rich". That is how the
+ * production proof "excel-to-pdf (csv)" failed. Forcing UTF-8 on every CSV
+ * is no fix either, because a Windows-1252 "Zürich" then printed with U+FFFD
+ * in place of the ü. So {@link csvImportFilter} passes this only for a CSV
+ * whose bytes ARE UTF-8, and leaves any other CSV on the default that reads
+ * it correctly.
+ */
+export const CSV_UTF8_INFILTER = "Text - txt - csv (StarCalc):44,34,76,1";
+
+const STRICT_UTF8 = new TextDecoder("utf-8", { fatal: true });
+
+/**
+ * The import filter a file needs, or null for LibreOffice's own choice:
+ * {@link CSV_UTF8_INFILTER} for a `.csv` that holds non-ASCII bytes and
+ * decodes as UTF-8 (a byte-order mark included). An ASCII-only CSV reads
+ * the same either way, and is handed over exactly as before.
+ */
+export function csvImportFilter(
+  input: Uint8Array,
+  inputName: string,
+): string | null {
+  if (!/\.csv$/i.test(inputName)) return null;
+  if (input.every((byte) => byte < 0x80)) return null;
+  try {
+    STRICT_UTF8.decode(input);
+  } catch {
+    return null;
+  }
+  return CSV_UTF8_INFILTER;
+}
+
 export function libreOfficeConvertArgs(
   inputPath: string,
   outputDir: string,
+  infilter: string | null = null,
 ): string[] {
   return [
     "--headless",
@@ -113,6 +151,9 @@ export function libreOfficeConvertArgs(
     "--nofirststartwizard",
     "--nodefault",
     "--nolockcheck",
+    // Before --convert-to, as LibreOffice reads its options; the input file
+    // stays LAST (a file named before --convert-to is opened, not converted).
+    ...(infilter ? [`--infilter=${infilter}`] : []),
     "--convert-to",
     "pdf",
     "--outdir",
@@ -170,7 +211,11 @@ export function createNativeLibreOfficePdfRunner(
         throwIfAttemptAborted(run.signal);
         const result = await exec(
           binary,
-          libreOfficeConvertArgs(inputPath, dir),
+          libreOfficeConvertArgs(
+            inputPath,
+            dir,
+            csvImportFilter(input, inputName),
+          ),
           {
             timeout: config.timeoutMs,
             maxBuffer: EXEC_MAX_BUFFER,
