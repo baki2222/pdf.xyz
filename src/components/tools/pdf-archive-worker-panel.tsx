@@ -37,6 +37,7 @@ import {
   DEFAULT_PDFA_LEVEL,
   PDFA_LEVELS,
   PDFA_LEVEL_LABEL,
+  PDFA_LEVEL_NAMES,
   type PdfALevelId,
 } from "@/lib/workers/pdf-archive/levels";
 import { PDFA_COLOUR_NOTE } from "@/lib/workers/pdf-archive/colour";
@@ -89,7 +90,7 @@ export function PdfArchiveWorkerPanel({ tool }: { tool: Tool }) {
         {
           icon: FileDown,
           label: "You get",
-          value: `${PDFA_LEVELS.map((l) => l.standard).join(", ")} (best effort, not validated)`,
+          value: `${PDFA_LEVEL_NAMES} (best effort, not validated)`,
         },
         {
           icon: Timer,
