@@ -5,6 +5,11 @@ import {
   type PdfSecurityWorkerOptions,
   type PdfSecurityWorkerResult,
 } from "./pdf-security-client";
+import {
+  DEFAULT_PDFA_LEVEL,
+  PDFA_LEVEL_OPTION,
+  type PdfALevelId,
+} from "./pdf-archive/levels";
 
 const PDF_TO_PDFA_TOOL = "pdf-to-pdfa";
 
@@ -13,6 +18,20 @@ export type PdfArchiveWorkerResult = PdfSecurityWorkerResult;
 export interface PdfArchiveWorkerInput {
   filename: string;
   bytes: Uint8Array;
+  /** The level picker's choice (`./pdf-archive/levels`); PDF/A-2b if absent. */
+  level?: PdfALevelId;
+}
+
+/**
+ * The job's option bag: empty for PDF/A-2b, exactly the request the tool
+ * sent before the level picker, and `{ level }` for any other level.
+ */
+export function pdfaJobOptions(
+  input: PdfArchiveWorkerInput,
+): Record<string, unknown> {
+  return input.level && input.level !== DEFAULT_PDFA_LEVEL.id
+    ? { [PDFA_LEVEL_OPTION]: input.level }
+    : {};
 }
 
 export async function runWorkerPdfToPdfA(
@@ -23,7 +42,7 @@ export async function runWorkerPdfToPdfA(
     PDF_TO_PDFA_TOOL,
     input.filename,
     input.bytes,
-    {},
+    pdfaJobOptions(input),
     // The wait is jobPollFor("pdf-to-pdfa") — PDF_TO_PDFA_JOB_POLL in
     // `@/lib/jobs/client-wait`, derived from Ghostscript's own budget —
     // unless the caller names one.

@@ -15,6 +15,13 @@ import {
 } from "./native-config";
 import { sanitizeNativeDiagnostics } from "../native-diagnostics";
 import { PDF_ARCHIVE_PASSWORD_PROBE_TIMEOUT_MS } from "./contract";
+import { pdfaLevelForStandard, type PdfALevel } from "./levels";
+import { PDFA_COLOUR_STRATEGY } from "./colour";
+import {
+  docInfoPdfmark,
+  readCarriedDocInfo,
+  type CarriedDocInfo,
+} from "./docinfo";
 import { QPDF_EXIT_ERROR, QPDF_EXIT_WARNINGS } from "../qpdf-exit";
 import {
   AttemptAbortedError,
@@ -219,16 +226,23 @@ function postscriptString(text: string): string {
  *     `-sColorConversionStrategy=RGB`, so the stock file's guess is not needed;
  *   - the stock `/Title (Title) /DOCINFO pdfmark` is gone. It is a placeholder
  *     the recipe tells users to customise, and running it as-is would overwrite
- *     every user's document title with the word "Title".
+ *     every user's document title with the word "Title". In its place, since
+ *     2026-11-08 (audit pdf-to-pdfa#3), is the user's OWN title, author,
+ *     subject and keywords, read from the input (`./docinfo`), when there are
+ *     any it can write faithfully; with none, the prefix is as it was.
  *
  * Without this file there is no OutputIntent, and a PDF/A file that uses
  * device-dependent colour without one is not PDF/A: that was the argv until
  * this function existed.
  */
-export function pdfaDefinition(iccProfilePath: string): string {
+export function pdfaDefinition(
+  iccProfilePath: string,
+  docInfo: CarriedDocInfo = {},
+): string {
+  const carried = docInfoPdfmark(docInfo);
   return [
     "%!",
-    "% pdf.xyz PDF/A-2b prefix: Ghostscript's PDFA_def.ps recipe (see native.ts).",
+    "% pdf.xyz PDF/A prefix: Ghostscript's PDFA_def.ps recipe (see native.ts).",
     `/ICCProfile ${postscriptString(iccProfilePath)} def`,
     "[/_objdef {icc_PDFA} /type /stream /OBJ pdfmark",
     "[{icc_PDFA} << /N 3 >> /PUT pdfmark",
@@ -241,6 +255,7 @@ export function pdfaDefinition(iccProfilePath: string): string {
     "  /OutputConditionIdentifier (sRGB)",
     ">> /PUT pdfmark",
     "[{Catalog} << /OutputIntents [ {OutputIntent_PDFA} ] >> /PUT pdfmark",
+    ...(carried ? [carried] : []),
     "",
   ].join("\n");
 }
@@ -250,6 +265,8 @@ export function ghostscriptPdfAArgs(
   outputPath: string,
   pdfaDefPath: string,
   iccProfilePath: string,
+  /** The ISO 19005 part the job asked for (`./levels`); 2 by default. */
+  part: PdfALevel["part"] = "2",
 ): string[] {
   return [
     // OBSERVED, UNRESOLVED, RECORDED HERE BECAUSE WE QUOTE IT TO USERS: with
@@ -260,7 +277,11 @@ export function ghostscriptPdfAArgs(
     // ours to answer. It is no longer taken on trust either way: every output
     // is parsed by `inspectPdfAMarkers` (engine.ts) and refused unless its XMP
     // says part 2 / conformance B and it carries a /GTS_PDFA1 OutputIntent.
-    "-dPDFA=2",
+    `-dPDFA=${part}`,
+    // PDF/A-1 is built on PDF 1.4 (ISO 19005-1), so its file says 1.4.
+    // Parts 2 and 3 keep pdfwrite's own default, exactly as before the
+    // level picker (audit pdf-to-pdfa#1).
+    ...(part === "1" ? ["-dCompatibilityLevel=1.4"] : []),
     "-dBATCH",
     "-dNOPAUSE",
     // Required by the PDF/A prefix: its pdfmarks must survive into the
@@ -300,7 +321,9 @@ export function ghostscriptPdfAArgs(
     // WAS `-sProcessColorModel=DeviceRGB`. The PDF/A recipe converts colour
     // with ColorConversionStrategy and describes it with the OutputIntent the
     // prefix embeds; the old flag did neither.
-    "-sColorConversionStrategy=RGB",
+    // The panel and the page say so (`./colour`, audit pdf-to-pdfa#5): CMYK
+    // and spot colours come back as RGB.
+    `-sColorConversionStrategy=${PDFA_COLOUR_STRATEGY}`,
     "-sDEVICE=pdfwrite",
     // NEVER RE-ORIENT A PAGE. Without this pdfwrite runs its default
     // `/PageByPage`: it guesses each page's orientation from its text and
@@ -403,6 +426,14 @@ export function createNativeGhostscriptPdfARunner(
   return {
     async convertToPdfA(input, options) {
       const signal = options?.signal;
+      // The standard names the level; an unknown one is a caller bug, and
+      // guessing a part for it would ship a file under the wrong name.
+      const level = pdfaLevelForStandard(options.standard);
+      if (!level)
+        throw new GhostscriptRunError(
+          "engine_exit",
+          `Unknown PDF/A standard ${String(options.standard)}.`,
+        );
       if (input.byteLength > config.maxInputBytes)
         throw new Error("Input exceeds size limit.");
       throwIfAttemptAborted(signal);
@@ -415,12 +446,17 @@ export function createNativeGhostscriptPdfARunner(
       const inputPath = path.join(dir, "input.pdf");
       const outputPath = path.join(dir, "output.pdf");
       const defPath = path.join(dir, "pdfa-def.ps");
+      // The original's title, author, subject and keywords, for the prefix.
+      // Never throws: an unreadable or encrypted input carries none.
+      const docInfo = await readCarriedDocInfo(input);
       try {
         try {
           await fs.writeFile(inputPath, input);
           await fs.writeFile(
             defPath,
-            new TextEncoder().encode(pdfaDefinition(config.iccProfile)),
+            new TextEncoder().encode(
+              pdfaDefinition(config.iccProfile, docInfo),
+            ),
           );
         } catch {
           throw new GhostscriptRunError("io", "Could not stage the input.");
@@ -440,6 +476,7 @@ export function createNativeGhostscriptPdfARunner(
             outputPath,
             defPath,
             config.iccProfile,
+            level.part,
           ),
           {
             timeout: config.timeoutMs,

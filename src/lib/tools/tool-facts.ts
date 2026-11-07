@@ -51,6 +51,10 @@ import {
 } from "@/lib/jobs/pdf-office-export";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
 import {
+  CARRIED_DOCINFO_RULE,
+  CARRIED_DOCINFO_WORDS,
+} from "@/lib/workers/pdf-archive/docinfo-words";
+import {
   MAX_DOCX_PICTURES,
   MAX_LAYERS_PER_PAGE,
 } from "@/lib/workers/pdf-office-export/picture-limits";
@@ -1754,12 +1758,12 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
     case "pdf-to-pdfa":
       return [
         {
-          question: `Is the ${PDF_A_STANDARD} file validated?`,
-          answer: `No. Ghostscript converts the file to ${PDF_A_STANDARD}, but the result is not checked against the PDF/A specification, so treat it as a best-effort conversion rather than a certificate of compliance.`,
+          question: "Is the PDF/A file validated?",
+          answer: `No. Ghostscript converts the file to the level you pick (${PDF_A_STANDARD} unless you change it), but the result is not checked against the PDF/A specification, so treat it as a best-effort conversion rather than a certificate of compliance.`,
         },
         {
           question: "What does the conversion remove?",
-          answer: `Whatever ${PDF_A_STANDARD} cannot hold. Ghostscript drops it and reports it, and up to ${MAX_TOOL_NOTES} of its messages are listed with your download under “What PDF/A could not keep:”, followed by a count of any it leaves out. Document metadata is the usual casualty.`,
+          answer: `Whatever the PDF/A level cannot hold. Ghostscript drops it and reports it, and up to ${MAX_TOOL_NOTES} of its messages are listed with your download under “What PDF/A could not keep:”, followed by a count of any it leaves out. The most common line is about the original's document information; its ${CARRIED_DOCINFO_WORDS} are written into the copy separately. ${CARRIED_DOCINFO_RULE}`,
         },
       ];
     case "request-signatures": {

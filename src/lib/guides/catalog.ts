@@ -207,6 +207,21 @@ import { RETENTION_WINDOWS } from "@/lib/retention-windows";
 import { OCR_START_SENTENCE } from "@/lib/jobs/ocr-start-copy";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
 import {
+  FIT_COLUMNS_TO_WIDTH_LABEL,
+  ONE_PAGE_PER_SHEET_LABEL,
+  ORIENTATION_CHOICE_WORDS,
+  ORIENTATION_LABEL,
+} from "@/lib/workers/office-conversion/sheet-layout";
+import {
+  PDFA_LEVEL_LABEL,
+  PDFA_LEVEL_NAMES,
+} from "@/lib/workers/pdf-archive/levels";
+import {
+  CARRIED_DOCINFO_RULE,
+  CARRIED_DOCINFO_WORDS,
+} from "@/lib/workers/pdf-archive/docinfo-words";
+import { PDFA_COLOUR_NOTE } from "@/lib/workers/pdf-archive/colour";
+import {
   PDFA_EXPECTED_CONFORMANCE,
   PDFA_EXPECTED_PART,
 } from "@/lib/workers/pdf-archive/pdfa-markers";
@@ -3248,7 +3263,7 @@ export const guides: Guide[] = [
         id: "excel-and-powerpoint",
         heading: "Excel and PowerPoint files",
         body: [
-          `${nameOf("excel-to-pdf")} takes an Excel workbook, a CSV file or an OpenDocument spreadsheet and has LibreOffice print it to PDF. There is no sheet picker and no layout setting on the page, so set landscape and fit-to-page scaling in your spreadsheet app before converting if the columns split across pages.`,
+          `${nameOf("excel-to-pdf")} takes an Excel workbook, a CSV file or an OpenDocument spreadsheet and has LibreOffice print it to PDF. There is no sheet picker. If columns split across pages, tick ${FIT_COLUMNS_TO_WIDTH_LABEL} for an .xlsx, or tick ${ONE_PAGE_PER_SHEET_LABEL} to make each sheet a single page sized to fit.`,
           `${nameOf("powerpoint-to-pdf")} takes a .pptx, .ppt or .odp and writes one slide per page. Speaker notes and slides marked hidden are not exported, so unhide any slide you want in the PDF first.`,
         ],
       },
@@ -3286,7 +3301,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-11-04",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-ocr-a-pdf-in-other-languages",
@@ -4647,12 +4662,12 @@ export const guides: Guide[] = [
     ],
     intro: [
       `To convert an Excel spreadsheet to PDF, open ${nameOf("excel-to-pdf")}, add your .xlsx, .xls, .csv or .ods file, press Convert to PDF, and download the result. Anyone can open, print or file the PDF without owning Excel, and nobody can overtype a cell by accident.`,
-      "The PDF is a printout of your spreadsheet, not a working copy of it. Each formula cell shows the figure it displayed when the file was opened, and nothing in the PDF recalculates later. The pages are laid out by LibreOffice, the open-source office suite, using the page setup saved in your workbook.",
+      "The PDF is a printout of your spreadsheet, not a working copy of it. Each formula cell shows the figure it displayed when the file was opened, and nothing in the PDF recalculates later. The pages are laid out by LibreOffice, the open-source office suite, using the page setup saved in your workbook unless you change the layout in the tool.",
       `${nameOf("excel-to-pdf")} runs on a secure server. Your spreadsheet, up to ${ceilingMb("excel-to-pdf")} MB, travels over an encrypted connection and is deleted when the job ends; the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
     ],
     steps: [
       `Open the ${nameOf("excel-to-pdf")} tool.`,
-      "Before you start, set the page layout in Excel if a wide sheet must fit: choose landscape and fit-all-columns-on-one-page scaling, then save. The tool has no layout settings of its own.",
+      `If a wide sheet must not split across pages, tick ${FIT_COLUMNS_TO_WIDTH_LABEL} in the tool (an .xlsx only, with Landscape under ${ORIENTATION_LABEL} if you like), or tick ${ONE_PAGE_PER_SHEET_LABEL} to make each sheet a single page.`,
       "Drag your .xlsx, .xls, .csv or .ods onto the box that says “Add your workbook, or browse”, or click it to choose the file. Remove swaps it for another.",
       "Press Convert to PDF. Your spreadsheet uploads over an encrypted connection, and the button follows the job while LibreOffice converts it.",
       `When “Your PDF is ready.” appears, press Download. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save the PDF before you close the tab.`,
@@ -4662,8 +4677,9 @@ export const guides: Guide[] = [
         id: "how-the-pages-are-laid-out",
         heading: "How the pages are laid out",
         body: [
-          "The converter gets your file and no settings at all. Orientation, scaling and where wide columns break onto a new page come from the page setup saved in the workbook, and LibreOffice's defaults fill in the rest. So if columns spill onto extra pages or the text comes out tiny, fix it in your spreadsheet app: set landscape and fit-to-width scaling, save, and convert again.",
-          "A CSV file is plain text and cannot store any page setup, so it always gets the default layout and plain formatting. If a CSV export needs to fit the page, open it in your spreadsheet app, set the layout, save it as .xlsx and convert that copy.",
+          "Left as it is, the converter follows your file: orientation, scaling and where wide columns break onto a new page come from the page setup saved in the workbook, and LibreOffice's defaults fill in the rest.",
+          `For an .xlsx file, the tool can change two of those settings. ${ORIENTATION_LABEL} sets ${ORIENTATION_CHOICE_WORDS} for every sheet, and ${FIT_COLUMNS_TO_WIDTH_LABEL} scales each sheet down until every column fits across the page, with rows carrying on to further pages. Both are written into the workbook's page setup before LibreOffice opens it. An .xls, .csv or .ods keeps the setup saved in it; save it as .xlsx to use them.`,
+          `Tick ${ONE_PAGE_PER_SHEET_LABEL} and nothing is split: each sheet becomes one page as large as its content, so a long sheet makes a long page. Its paper size and print areas are ignored, and hidden sheets are included. It works for a CSV too, which cannot store any page setup of its own, and while it is ticked the orientation and fit settings are hidden, because it overrides them.`,
         ],
       },
       {
@@ -4692,8 +4708,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Why are my columns split across pages?",
-        answer:
-          "Because the converter follows the workbook's own page setup and has no layout options. In Excel or LibreOffice Calc, set landscape and fit-all-columns-on-one-page scaling, save, and convert again. A CSV stores no page setup, so save it as .xlsx first.",
+        answer: `Because, left as it is, the converter follows the workbook's own page setup. For an .xlsx, tick ${FIT_COLUMNS_TO_WIDTH_LABEL}, with Landscape under ${ORIENTATION_LABEL} if the sheet is wide, and every column fits across each page while rows carry on to the next. Or tick ${ONE_PAGE_PER_SHEET_LABEL} to make each sheet a single page sized to fit, CSV files included.`,
       },
       {
         question: "Which files can I convert?",
@@ -4710,7 +4725,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-07",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-convert-powerpoint-to-pdf",
@@ -4966,7 +4981,7 @@ export const guides: Guide[] = [
   {
     slug: "how-to-convert-pdf-to-pdfa",
     title: "How to convert a PDF to PDF/A",
-    description: `Convert a PDF to ${PDF_A_STANDARD} for archiving with Ghostscript on a secure server, and read what it had to drop before you download. No account needed.`,
+    description: `Convert a PDF to ${PDFA_LEVEL_NAMES} for archiving with Ghostscript on a secure server, and read what it dropped before you download. No account needed.`,
     tools: ["pdf-to-pdfa", "ocr-pdf", "unlock-pdf"],
     keywords: [
       "how to convert pdf to pdf/a",
@@ -4977,13 +4992,14 @@ export const guides: Guide[] = [
       "archive pdf",
     ],
     intro: [
-      `To convert a PDF to PDF/A, open ${nameOf("pdf-to-pdfa")}, add your PDF, press Convert to PDF/A, read any notes, and download the copy. PDF/A is the archiving form of PDF, meant for documents that must still open and look the same years from now, and every job here targets ${PDF_A_STANDARD}.`,
-      "The copy is rewritten by Ghostscript, the open-source PDF engine, with its PDF/A-2 setting switched on. Conformance level b (basic) is about how the pages look; the tagged structure that level a requires is not added. Nothing checks the result against the PDF/A specification afterwards, so treat it as a best-effort conversion, not a certificate.",
+      `To convert a PDF to PDF/A, open ${nameOf("pdf-to-pdfa")}, add your PDF, press Convert to PDF/A, read any notes, and download the copy. PDF/A is the archiving form of PDF, meant for documents that must still open and look the same years from now. The copy is ${PDF_A_STANDARD} unless you pick another level: ${PDFA_LEVEL_NAMES}.`,
+      "The copy is rewritten by Ghostscript, the open-source PDF engine, with the PDF/A setting for your level switched on. Conformance level b (basic) is about how the pages look; the tagged structure that level a requires is not added. Nothing checks the result against the PDF/A specification afterwards, so treat it as a best-effort conversion, not a certificate.",
       `${nameOf("pdf-to-pdfa")} runs on a secure server, because that is where Ghostscript is installed. Your PDF, up to ${ceilingMb("pdf-to-pdfa")} MB, travels over an encrypted connection and is deleted once the job is over; the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
     ],
     steps: [
       `Open the ${nameOf("pdf-to-pdfa")} tool. The badge at the top reads Secure server when conversion is available; otherwise Convert to PDF/A stays off and nothing is sent.`,
       "Drop one PDF on the area that says “Add a PDF, or browse”, or click it to choose the file. Remove, beside its name, swaps it for another.",
+      `Leave ${PDFA_LEVEL_LABEL} on ${PDF_A_STANDARD} unless your archive or portal names another level; then pick it.`,
       "Press Convert to PDF/A. Your PDF uploads over an encrypted connection to our secure server, and the button follows the job while Ghostscript rewrites it.",
       "If Ghostscript reported anything, “What PDF/A could not keep” lists it above “Your PDF/A file is ready.” Read it before you replace your original.",
       `Press Download to save the copy: report.pdf comes back as ${PDFA_EXAMPLE_OUT}. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it before you close the tab.`,
@@ -4994,7 +5010,9 @@ export const guides: Guide[] = [
         id: "what-the-conversion-drops",
         heading: "What the conversion drops, and how you find out",
         body: [
-          "Some of what a PDF can carry has no place in PDF/A. Ghostscript is told to drop it and carry on rather than abandon the job, and what it reports while doing so is shown above your download in its own words, with any line that names a file path held back. The line you are most likely to meet ends in “discarding DOCINFO”: DOCINFO is the older place a PDF keeps its title, author and producer, and the notice does not say which fields went, so open the copy's document properties if they matter.",
+          "Some of what a PDF can carry has no place in PDF/A. Ghostscript is told to drop it and carry on rather than abandon the job, and what it reports while doing so is shown above your download in its own words, with any line that names a file path held back. The line you are most likely to meet ends in “discarding DOCINFO”: DOCINFO is the older place a PDF keeps its title, author and producer, and the notice is about the original's copy of it.",
+          `Before Ghostscript runs, our server reads your PDF's ${CARRIED_DOCINFO_WORDS} and has Ghostscript write them into the PDF/A copy. ${CARRIED_DOCINFO_RULE} Open the copy's document properties to see what arrived.`,
+          PDFA_COLOUR_NOTE,
           "PDF/A also requires every font to be embedded. Where your original only names a font without carrying it, Ghostscript uses one from its own set; on our secure server, NimbusSans was seen standing in for Helvetica. The notes do not report that swap, so compare the copy with the original page by page before you rely on it.",
         ],
       },
@@ -5002,8 +5020,8 @@ export const guides: Guide[] = [
         id: "what-is-checked",
         heading: "What is checked, and what is not",
         body: [
-          `Before the copy is returned, our server checks that it is not empty, that it has a PDF header and end-of-file marker, and that it declares ${PDF_A_STANDARD}: PDF/A identification part ${PDFA_EXPECTED_PART} and conformance ${PDFA_EXPECTED_CONFORMANCE} in its metadata, plus an embedded colour profile. If either declaration is missing, no file is returned.`,
-          "A declaration is not proof of conformance. If a university repository, court or records system needs PDF/A, run its own checker, or an independent validator such as veraPDF, on the copy. There is no level picker either: a portal that names PDF/A-1b or PDF/A-3b needs other software.",
+          `Before the copy is returned, our server checks that it is not empty, that it has a PDF header and end-of-file marker, and that it declares the level you picked (for ${PDF_A_STANDARD}, PDF/A identification part ${PDFA_EXPECTED_PART} and conformance ${PDFA_EXPECTED_CONFORMANCE}) in its metadata, plus an embedded colour profile. If either declaration is missing, or names another level, no file is returned.`,
+          "A declaration is not proof of conformance. If a university repository, court or records system needs PDF/A, run its own checker, or an independent validator such as veraPDF, on the copy.",
         ],
       },
       {
@@ -5012,6 +5030,7 @@ export const guides: Guide[] = [
         body: [
           `Converting a scan to PDF/A does not make its text searchable: a scanned page stays a picture of words. Run it through ${nameOf("ocr-pdf")} first, which adds a searchable text layer on our secure server, then convert that file and search the PDF/A copy to confirm the words survived.`,
           `The page has no password field, so Ghostscript is never given one. If your file asks for a password when it opens, ${nameOf("unlock-pdf")} removes it once you enter that password; then convert the unlocked copy. The PDF/A copy is written without encryption, which PDF/A does not allow in any case.`,
+          "A digitally signed PDF loses its signatures as valid ones, because the conversion rewrites the whole file. Your browser checks for signatures before anything is uploaded; if it finds any, the panel says how many and waits until you confirm. Keep the signed original beside the PDF/A copy.",
           "Our server first looks for a PDF header at the start of your file and an end-of-file marker near its end. A file missing either, such as a download that stopped partway, is refused as one that could not be read as a PDF, and nothing is produced.",
         ],
       },
@@ -5026,16 +5045,15 @@ export const guides: Guide[] = [
     faq: [
       {
         question: "Will the converted file pass a PDF/A validator?",
-        answer: `It targets ${PDF_A_STANDARD}, but pdf.xyz runs no PDF/A validator. Our server checks that the copy declares the standard and carries a colour profile, and returns no file if it does not; a declaration is not proof, so check the copy with the validator your archive uses.`,
+        answer: `It targets the level you picked, ${PDF_A_STANDARD} unless you changed it, but pdf.xyz runs no PDF/A validator. Our server checks that the copy declares that level and carries a colour profile, and returns no file if it does not; a declaration is not proof, so check the copy with the validator your archive uses.`,
       },
       {
         question: "Can I convert to a different PDF/A level?",
-        answer: `No. There is no level picker, and every conversion targets ${PDF_A_STANDARD}. If an archive asks for another level, such as PDF/A-1b or PDF/A-3b, you need software that offers it.`,
+        answer: `Yes, within level b: ${PDFA_LEVEL_LABEL} offers ${PDFA_LEVEL_NAMES}, starting on ${PDF_A_STANDARD}. PDF/A-1 does not allow transparency, so compare the pages of a PDF/A-1b copy. The a and u levels, which need tagged structure and guaranteed Unicode text, are not offered.`,
       },
       {
         question: "What does “discarding DOCINFO” mean?",
-        answer:
-          "Ghostscript found text in the PDF's older information dictionary, where the title, author and producer live, that it could not carry into PDF/A's metadata, and dropped that dictionary. It does not list which fields went, so check the copy's document properties if the title or author matters.",
+        answer: `Ghostscript found text in your original's older information dictionary, where the title, author and producer live, that it could not carry into PDF/A's metadata, and dropped that copy of it. Our server writes the ${CARRIED_DOCINFO_WORDS} into the PDF/A file separately. ${CARRIED_DOCINFO_RULE} So check the copy's document properties to see what arrived.`,
       },
       {
         question: "Does PDF/A make a scanned PDF searchable?",
@@ -5047,7 +5065,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-convert-pdf-to-png",

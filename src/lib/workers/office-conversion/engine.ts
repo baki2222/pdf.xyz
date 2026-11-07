@@ -13,6 +13,13 @@ import {
 } from "../attempt-abort";
 import { DOCUMENT_WORDS } from "./document-words";
 import {
+  FIT_COLUMNS_TO_WIDTH_LABEL,
+  ORIENTATION_LABEL,
+  acceptsPageSetup,
+  needsPageSetup,
+  type SheetLayout,
+} from "./sheet-layout";
+import {
   EXCEL_TO_PDF_TOOL,
   POWERPOINT_TO_PDF_TOOL,
   WORD_TO_PDF_TOOL,
@@ -33,6 +40,8 @@ export interface LibreOfficePdfRunner {
     input: Uint8Array,
     filename: string,
     run?: RunControl,
+    /** Excel to PDF's page layout; absent is LibreOffice's plain export. */
+    layout?: SheetLayout,
   ): Promise<Uint8Array>;
 }
 
@@ -138,6 +147,8 @@ export async function runOfficeToPdf(
   deps: OfficeConversionDeps,
   /** The attempt's abort signal, passed to LibreOffice. */
   signal?: AbortSignal,
+  /** Excel to PDF's page layout (`./sheet-layout`); ignored by the others. */
+  layout?: SheetLayout,
 ): Promise<OfficeConversionRun> {
   if (!supportsOfficeInput(tool, filename)) {
     return {
@@ -195,13 +206,47 @@ export async function runOfficeToPdf(
     kind: "unreadable",
     message: `This ${words.noun} could not be converted. ${resaveAdvice(tool, extensionOf(filename))}`,
   };
+  // Orientation and fit-to-width are written into the workbook's own page
+  // setup before LibreOffice opens it (`./xlsx-page-setup`, loaded only
+  // here). Refused, never ignored, on a file that rewrite cannot reach.
+  let source = input;
+  if (tool === EXCEL_TO_PDF_TOOL && layout && needsPageSetup(layout)) {
+    if (!acceptsPageSetup(filename))
+      return {
+        ok: false,
+        kind: "invalid_input",
+        message: `${ORIENTATION_LABEL} and ${FIT_COLUMNS_TO_WIDTH_LABEL} work on .xlsx files only, so this file was not converted. Convert it without them.`,
+      };
+    const { applyXlsxPageSetup } = await import("./xlsx-page-setup");
+    const applied = await applyXlsxPageSetup(input, {
+      orientation: layout.orientation,
+      fitColumnsToWidth: layout.fitColumnsToWidth,
+    });
+    if (!applied.ok)
+      return {
+        ok: false,
+        kind: "unreadable",
+        message: `This workbook's page setup could not be changed, so it was not converted. Convert it without ${ORIENTATION_LABEL} and ${FIT_COLUMNS_TO_WIDTH_LABEL}, or open it in Excel, save it again as .xlsx, and retry.`,
+      };
+    source = applied.bytes;
+  }
   let output: Uint8Array;
   try {
-    output = await deps.libreoffice.convertToPdf(
-      input,
-      filename,
-      signalOption(signal),
-    );
+    // The layout goes to LibreOffice only for a spreadsheet that asked for
+    // more than the default, so every other run is called exactly as before.
+    output =
+      tool === EXCEL_TO_PDF_TOOL && layout?.onePagePerSheet
+        ? await deps.libreoffice.convertToPdf(
+            source,
+            filename,
+            signalOption(signal),
+            layout,
+          )
+        : await deps.libreoffice.convertToPdf(
+            source,
+            filename,
+            signalOption(signal),
+          );
   } catch (error) {
     rethrowIfAttemptAbort(error);
     if (!(error instanceof LibreOfficeRunError))
