@@ -2311,7 +2311,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-10-25",
+    updated: "2026-11-06",
   },
   {
     slug: "how-to-repair-a-damaged-pdf",
@@ -3614,15 +3614,15 @@ export const guides: Guide[] = [
         heading: "The second copy, XMP",
         body: [
           "Many PDFs keep the same information twice: once in the document information entries and again in an XMP packet, a block of XML that Acrobat and other readers prefer when it is there. A tool that changed only the first copy would leave those readers showing the old title.",
-          "So when a file has XMP, a note beside Document properties says so, and saving replaces the packet with a fresh one holding the same values as the fields. Anything else the old packet held is not kept. A file with no XMP packet does not get one.",
+          "So when a file has XMP, a note beside Document properties says so, and saving replaces the packet with a fresh one holding the same values as the fields. A PDF/A or PDF/UA identification in the old packet is carried over, so an archive file still declares itself one; anything else the old packet held is not kept. A file with no XMP packet does not get one.",
         ],
       },
       {
         id: "remove-all",
         heading: "What Remove all metadata takes out, and what it leaves",
         body: [
-          `Remove all metadata deletes the ${METADATA_TEXT_NAMES} entries, both dates, and the XMP packet. Every page is kept as it was.`,
-          `It does not touch what is on the pages, or the comments, form fields, bookmarks and the metadata inside embedded images. If the private details are in the text or pictures on a page, use ${nameOf("redact-pdf")} to remove them from the page itself.`,
+          `Remove all metadata deletes the ${METADATA_TEXT_NAMES} entries, both dates, and the XMP packet, along with each page's own XMP packet, the private data apps such as Illustrator and Office keep on pages (PieceInfo), and any earlier copy of those entries an earlier save left in the file. Every page is kept as it was.`,
+          `It does not touch what is on the pages, or the comments, form fields, bookmarks, attached files and the metadata inside embedded images. If the private details are in the text or pictures on a page, use ${nameOf("redact-pdf")} to remove them from the page itself.`,
         ],
       },
       {
@@ -3662,7 +3662,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-30",
-    updated: "2026-10-30",
+    updated: "2026-11-06",
   },
   {
     slug: "how-to-resize-pdf-pages",

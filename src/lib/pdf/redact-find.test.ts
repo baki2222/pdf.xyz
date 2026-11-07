@@ -1,7 +1,19 @@
 // @native-canvas
 import { describe, expect, it } from "vitest";
-import { PDFDocument, StandardFonts, degrees } from "pdf-lib";
 import {
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFHexString,
+  PDFName,
+  PDFRawStream,
+  PDFString,
+  StandardFonts,
+  decodePDFRawStream,
+  degrees,
+} from "pdf-lib";
+import {
+  MAX_FOUND,
   PII_CATEGORIES,
   detectInText,
   detectPersonalData,
@@ -11,7 +23,7 @@ import {
   readRedactText,
   type PiiCategory,
 } from "./redact-find";
-import { redactPdfByRemoval } from "./redact-remove";
+import { SCRUBBED_TEXT, redactPdfByRemoval } from "./redact-remove";
 import { extractPdfText, type PdfTextReader } from "./text";
 
 /**
@@ -147,7 +159,7 @@ describe("readRedactText → matches → boxes", () => {
     // Boxes come from the drawn glyphs, not an estimate, for a plain font.
     expect(index.placement.estimated).toBe(0);
     expect(index.placement.glyphs).toBeGreaterThan(10);
-    const found = detectPersonalData(index, PII_CATEGORIES);
+    const found = detectPersonalData(index, PII_CATEGORIES).matches;
     const byKind = (k: PiiCategory) =>
       found.filter((f) => f.kind === k).map((f) => `${f.page}:${f.text}`);
     expect(byKind("email")).toEqual([
@@ -191,7 +203,7 @@ describe("redactPdfByRemoval", () => {
   it("removes every detected string from the text, and leaves the rest", async () => {
     const bytes = await fixture();
     const index = await readRedactText(bytes, legacy);
-    const found = detectPersonalData(index, PII_CATEGORIES);
+    const found = detectPersonalData(index, PII_CATEGORIES).matches;
     expect(found.length).toBe(7);
     const result = await redactPdfByRemoval(
       bytes,
@@ -252,7 +264,7 @@ describe("redactPdfByRemoval", () => {
   it("refuses a file whose chosen text survives (the check can fail)", async () => {
     const bytes = await fixture();
     const index = await readRedactText(bytes, legacy);
-    const [card] = detectPersonalData(index, ["card"]);
+    const [card] = detectPersonalData(index, ["card"]).matches;
     // A box somewhere else entirely: nothing under it is the card number.
     await expect(
       redactPdfByRemoval(
@@ -270,7 +282,7 @@ describe("redactPdfByRemoval", () => {
   it("places boxes on a rotated page so the removal still lands", async () => {
     const bytes = await fixture(90);
     const index = await readRedactText(bytes, legacy);
-    const found = detectPersonalData(index, ["email", "card"]);
+    const found = detectPersonalData(index, ["email", "card"]).matches;
     expect(found.length).toBe(3);
     const result = await redactPdfByRemoval(
       bytes,
@@ -286,5 +298,395 @@ describe("redactPdfByRemoval", () => {
     const [p1] = await textOf(result.bytes);
     expect(p1).not.toContain("4111 1111 1111 1111");
     expect(p1).toContain("Keep this sentence exactly.");
+  });
+});
+
+/**
+ * Audit #3 (2026-11-06): "Remove text under boxes" re-checked only the PAGE
+ * text, so a chosen name survived in the Title, Author, XMP, a bookmark and a
+ * comment while the result said it was "not in its text".
+ */
+describe("redactPdfByRemoval: the chosen text outside the page text", () => {
+  const NAME = "Jane Q. Example";
+
+  async function withHiddenCopies(
+    extra?: (doc: PDFDocument) => void,
+  ): Promise<Uint8Array> {
+    const doc = await PDFDocument.load(await fixture());
+    doc.setTitle(`Report on ${NAME}`);
+    doc.setAuthor(NAME);
+    doc.setSubject("Kept subject");
+    const ctx = doc.context;
+    doc.catalog.set(
+      PDFName.of("Metadata"),
+      ctx.register(
+        ctx.stream(
+          `<x:xmpmeta xmlns:x="adobe:ns:meta/"><dc:creator>${NAME}</dc:creator><dc:format>application/pdf</dc:format></x:xmpmeta>`,
+          { Type: "Metadata", Subtype: "XML" },
+        ),
+      ),
+    );
+    const outlinesRef = ctx.nextRef();
+    const itemRef = ctx.nextRef();
+    const keptRef = ctx.nextRef();
+    const page1 = doc.getPage(0).ref;
+    ctx.assign(
+      itemRef,
+      ctx.obj({
+        Title: PDFHexString.fromText(NAME),
+        Parent: outlinesRef,
+        Next: keptRef,
+        Dest: [page1, "Fit"],
+      }),
+    );
+    ctx.assign(
+      keptRef,
+      ctx.obj({
+        Title: PDFString.of("Kept bookmark"),
+        Parent: outlinesRef,
+        Prev: itemRef,
+        Dest: [page1, "Fit"],
+      }),
+    );
+    ctx.assign(
+      outlinesRef,
+      ctx.obj({ Type: "Outlines", First: itemRef, Last: keptRef, Count: 2 }),
+    );
+    doc.catalog.set(PDFName.of("Outlines"), outlinesRef);
+    const note = ctx.register(
+      ctx.obj({
+        Type: "Annot",
+        Subtype: "Text",
+        Rect: [400, 40, 420, 60],
+        Contents: PDFString.of(`Call ${NAME} back`),
+      }),
+    );
+    const kept = ctx.register(
+      ctx.obj({
+        Type: "Annot",
+        Subtype: "Text",
+        Rect: [440, 40, 460, 60],
+        Contents: PDFString.of("Kept comment"),
+      }),
+    );
+    doc.getPage(0).node.set(PDFName.of("Annots"), ctx.obj([note, kept]));
+    extra?.(doc);
+    return doc.save();
+  }
+
+  function catalogXmp(doc: PDFDocument): string {
+    const xmp = doc.catalog.lookup(PDFName.of("Metadata"));
+    if (!(xmp instanceof PDFRawStream))
+      throw new Error("no catalog XMP stream");
+    return new TextDecoder().decode(decodePDFRawStream(xmp).decode());
+  }
+
+  function bookmarkTitles(doc: PDFDocument): string[] {
+    const outlines = doc.catalog.lookup(PDFName.of("Outlines"), PDFDict);
+    const titles: string[] = [];
+    for (
+      let item = outlines.lookup(PDFName.of("First"));
+      item instanceof PDFDict;
+      item = item.lookup(PDFName.of("Next"))
+    ) {
+      titles.push(text(item.lookup(PDFName.of("Title"))));
+    }
+    return titles;
+  }
+
+  function text(o: unknown): string {
+    return o instanceof PDFString || o instanceof PDFHexString
+      ? o.decodeText()
+      : "";
+  }
+
+  async function removeName(
+    bytes: Uint8Array,
+    query = NAME,
+    options = { matchCase: true, wholeWord: false },
+  ) {
+    const index = await readRedactText(bytes, legacy);
+    const { matches } = findTextMatches(index, query, options);
+    expect(matches.length).toBe(1);
+    return redactPdfByRemoval(
+      bytes,
+      {
+        rects: matches.flatMap((f) =>
+          f.rects.map((r) => ({ ...r, fromText: true })),
+        ),
+        verify: matches,
+        loadReader: legacy,
+      },
+      { decodeJpeg: null },
+    );
+  }
+
+  it("takes it out of the properties, XMP, bookmark titles and comments, and keeps the rest", async () => {
+    const source = await withHiddenCopies();
+    const result = await removeName(source);
+    const out = await PDFDocument.load(result.bytes, { updateMetadata: false });
+    // The page text check still holds.
+    expect((await textOf(result.bytes))[0]).not.toContain(NAME);
+    expect(out.getTitle() ?? "").not.toContain(NAME);
+    expect(out.getAuthor() ?? "").not.toContain(NAME);
+    expect(out.getSubject()).toBe("Kept subject");
+    // Unconditional (it was behind `if (xmp instanceof PDFRawStream)`, so a
+    // packet deleted outright passed): the packet is there, keeps the rest
+    // of its content, and no longer holds the name.
+    const packet = catalogXmp(out);
+    expect(packet).toContain("<dc:format>application/pdf</dc:format>");
+    expect(packet).toContain(SCRUBBED_TEXT);
+    expect(packet).not.toContain(NAME);
+    const outlines = out.catalog.lookup(PDFName.of("Outlines"), PDFDict);
+    const titles: string[] = [];
+    for (
+      let item = outlines.lookup(PDFName.of("First"));
+      item instanceof PDFDict;
+      item = item.lookup(PDFName.of("Next"))
+    ) {
+      titles.push(text(item.lookup(PDFName.of("Title"))));
+    }
+    expect(titles.length).toBe(2);
+    expect(titles.join("|")).not.toContain(NAME);
+    expect(titles).toContain("Kept bookmark");
+    const annots = out.getPage(0).node.lookup(PDFName.of("Annots"), PDFArray);
+    const comments = annots
+      .asArray()
+      .map((a) =>
+        text(out.context.lookup(a, PDFDict).lookup(PDFName.of("Contents"))),
+      );
+    expect(comments.join("|")).not.toContain(NAME);
+    expect(comments).toContain("Kept comment");
+    // Positive control: every one of those held the name in the input.
+    const src = await PDFDocument.load(source, { updateMetadata: false });
+    expect(src.getAuthor()).toBe(NAME);
+    expect(src.getTitle()).toContain(NAME);
+  });
+
+  it("refuses when the name is still somewhere it cannot take it out (a form field's value)", async () => {
+    const source = await withHiddenCopies((doc) => {
+      const form = doc.getForm();
+      const field = form.createTextField("guardian");
+      field.setText(`Guardian ${NAME}`);
+      field.addToPage(doc.getPage(1), {
+        x: 56,
+        y: 100,
+        width: 200,
+        height: 20,
+      });
+    });
+    await expect(removeName(source)).rejects.toThrow(
+      /still in the file outside the page text \(in a form field\)/,
+    );
+  });
+
+  /**
+   * Review of the #3 fix: the off-page scrub and check matched case-SENSITIVE
+   * substrings of the page slice, whatever options Find ran with. Find opens
+   * case-insensitive, so a Title in capitals kept the name while the result
+   * said it was checked; and a whole-word "Jane" rewrote "Janeway".
+   */
+  it("matches off the page the way Find matched on it: case-insensitive", async () => {
+    const source = await withHiddenCopies((doc) => {
+      doc.setTitle("Report on JANE Q. EXAMPLE");
+      doc.setAuthor("jane q. example");
+    });
+    const result = await removeName(source, "jane q. example", {
+      matchCase: false,
+      wholeWord: false,
+    });
+    const out = await PDFDocument.load(result.bytes, { updateMetadata: false });
+    expect(out.getTitle()).toBe(`Report on ${SCRUBBED_TEXT}`);
+    expect(out.getAuthor()).toBe(SCRUBBED_TEXT);
+    // Positive control: the input held both, in other cases than the page.
+    const src = await PDFDocument.load(source, { updateMetadata: false });
+    expect(src.getTitle()).toBe("Report on JANE Q. EXAMPLE");
+    expect(src.getAuthor()).toBe("jane q. example");
+  });
+
+  it("matches off the page the way Find matched on it: whole words only", async () => {
+    const source = await withHiddenCopies((doc) => {
+      doc.setTitle("Janeway notes");
+      const outlines = doc.catalog.lookup(PDFName.of("Outlines"), PDFDict);
+      outlines
+        .lookup(PDFName.of("First"), PDFDict)
+        .set(PDFName.of("Title"), PDFHexString.fromText("Janeway chapter"));
+      const field = doc.getForm().createTextField("ship");
+      field.setText("Janeway");
+      field.addToPage(doc.getPage(1), {
+        x: 56,
+        y: 100,
+        width: 200,
+        height: 20,
+      });
+    });
+    // Whole word: the page has "Jane" once as a word ("jane.example" is
+    // lower case), and the off-page strings have it only inside "Janeway".
+    const result = await removeName(source, "Jane", {
+      matchCase: true,
+      wholeWord: true,
+    });
+    const out = await PDFDocument.load(result.bytes, { updateMetadata: false });
+    expect(out.getTitle()).toBe("Janeway notes");
+    expect(bookmarkTitles(out)).toEqual(["Janeway chapter", "Kept bookmark"]);
+    expect(out.getForm().getTextField("ship").getText()).toBe("Janeway");
+    // The whole word "Jane" off the page still goes.
+    expect(out.getAuthor()).toBe(`${SCRUBBED_TEXT} Q. Example`);
+  });
+
+  it("Detect items match off the page as whole words, in any case", async () => {
+    const EMAIL = "jane.example@mail.test";
+    const source = await withHiddenCopies((doc) => {
+      doc.setSubject("Write to JANE.EXAMPLE@MAIL.TEST");
+      doc.setKeywords(["jane.example@mail.testing"]);
+    });
+    const index = await readRedactText(source, legacy);
+    const emails = detectPersonalData(index, ["email"]).matches;
+    expect(emails.map((e) => e.text)).toEqual([EMAIL, EMAIL]);
+    const result = await redactPdfByRemoval(
+      source,
+      {
+        rects: emails.flatMap((f) =>
+          f.rects.map((r) => ({ ...r, fromText: true })),
+        ),
+        verify: emails,
+        loadReader: legacy,
+      },
+      { decodeJpeg: null },
+    );
+    const out = await PDFDocument.load(result.bytes, { updateMetadata: false });
+    expect(out.getSubject()).toBe(`Write to ${SCRUBBED_TEXT}`);
+    expect(out.getKeywords()).toBe("jane.example@mail.testing");
+  });
+
+  it("finds the name in XMP where it is written XML-escaped", async () => {
+    const FIRM = "O'Neil & Sons";
+    const source = await withHiddenCopies((doc) => {
+      doc.getPage(1).drawText(`Agent: ${FIRM}`, {
+        x: 56,
+        y: 600,
+        size: 12,
+        font: doc.embedStandardFont(StandardFonts.Helvetica),
+      });
+      const ctx = doc.context;
+      doc.catalog.set(
+        PDFName.of("Metadata"),
+        ctx.register(
+          ctx.stream(
+            `<x:xmpmeta xmlns:x="adobe:ns:meta/"><dc:publisher>O&apos;Neil &amp; Sons</dc:publisher><dc:rights>O&#39;Neil &#x26; Sons</dc:rights><dc:format>application/pdf</dc:format></x:xmpmeta>`,
+            { Type: "Metadata", Subtype: "XML" },
+          ),
+        ),
+      );
+    });
+    const result = await removeName(source, FIRM, {
+      matchCase: false,
+      wholeWord: false,
+    });
+    const out = await PDFDocument.load(result.bytes, { updateMetadata: false });
+    const packet = catalogXmp(out);
+    expect(packet).not.toMatch(/Neil/);
+    expect(packet).toContain(
+      `<dc:publisher>${SCRUBBED_TEXT}</dc:publisher><dc:rights>${SCRUBBED_TEXT}</dc:rights><dc:format>application/pdf</dc:format>`,
+    );
+    // Positive control: the input packet held both escaped forms.
+    const src = await PDFDocument.load(source, { updateMetadata: false });
+    expect(catalogXmp(src)).toContain("O&apos;Neil &amp; Sons");
+    expect(catalogXmp(src)).toContain("O&#39;Neil &#x26; Sons");
+  });
+
+  it("refuses when the name is in a page's own XMP packet", async () => {
+    const source = await withHiddenCopies((doc) => {
+      const ctx = doc.context;
+      doc
+        .getPage(1)
+        .node.set(
+          PDFName.of("Metadata"),
+          ctx.register(
+            ctx.stream(
+              `<x:xmpmeta xmlns:x="adobe:ns:meta/"><dc:creator>${NAME}</dc:creator></x:xmpmeta>`,
+              { Type: "Metadata", Subtype: "XML" },
+            ),
+          ),
+        );
+    });
+    await expect(removeName(source)).rejects.toThrow(
+      /still in the file outside the page text \(in the document's XMP metadata\)/,
+    );
+  });
+});
+
+/**
+ * Audit #13 (2026-11-06): Find and Detect read only the page content, so a
+ * name in a filled form field or a comment got "No matches" with no word that
+ * those were never searched; and Detect stopped at MAX_FOUND with no sign of
+ * it, so a long document read as "500 items found" and nothing more.
+ */
+describe("what Find and Detect cannot see is said, not silent", () => {
+  it("names the pages with filled form fields and with comments", async () => {
+    const doc = await PDFDocument.load(await fixture());
+    const form = doc.getForm();
+    const field = form.createTextField("guardian");
+    field.setText("Guardian John Roe");
+    field.addToPage(doc.getPage(1), { x: 56, y: 100, width: 200, height: 20 });
+    const empty = form.createTextField("blank");
+    empty.addToPage(doc.getPage(0), { x: 56, y: 60, width: 200, height: 20 });
+    const ctx = doc.context;
+    doc.getPage(0).node.set(
+      PDFName.of("Annots"),
+      ctx.obj([
+        ...(doc
+          .getPage(0)
+          .node.lookup(PDFName.of("Annots"), PDFArray)
+          ?.asArray() ?? []),
+        ctx.register(
+          ctx.obj({
+            Type: "Annot",
+            Subtype: "Text",
+            Rect: [400, 40, 420, 60],
+            Contents: PDFString.of("Call John Roe back"),
+          }),
+        ),
+      ]),
+    );
+    const index = await readRedactText(await doc.save(), legacy);
+    // Positive control: the name really is not in what Find searches.
+    expect(
+      findTextMatches(index, "John Roe", { matchCase: false, wholeWord: false })
+        .matches,
+    ).toEqual([]);
+    expect(index.notSearched).toEqual({ formFields: [2], comments: [1] });
+    // And a plain page reports nothing.
+    expect((await readRedactText(await fixture(), legacy)).notSearched).toEqual(
+      { formFields: [], comments: [] },
+    );
+  });
+
+  it("Detect says when it stopped at the cap", async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const perPage = 10;
+    const pages = Math.ceil((MAX_FOUND + 100) / perPage);
+    for (let p = 0; p < pages; p++) {
+      const page = doc.addPage([595, 842]);
+      for (let i = 0; i < perPage; i++) {
+        page.drawText(`person${p}x${i}@mail.test`, {
+          x: 56,
+          y: 780 - i * 24,
+          size: 12,
+          font,
+        });
+      }
+    }
+    const index = await readRedactText(await doc.save(), legacy);
+    const all = detectPersonalData(index, ["email"]);
+    expect(all.matches.length).toBe(MAX_FOUND);
+    expect(all.capped).toBe(true);
+    const few = detectPersonalData(
+      await readRedactText(await fixture(), legacy),
+      ["email"],
+    );
+    expect(few.capped).toBe(false);
+    expect(few.matches.length).toBe(2);
   });
 });

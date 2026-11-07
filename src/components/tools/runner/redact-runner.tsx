@@ -253,8 +253,9 @@ function RedactEditor({
           <p className="text-muted text-sm" role="status">
             Checked: {result.verified === 1 ? "the" : `all ${result.verified}`}{" "}
             chosen text {result.verified === 1 ? "match was" : "matches were"}{" "}
-            searched for again in the redacted file and{" "}
-            {result.verified === 1 ? "is" : "are"} not in its text.
+            searched for again in the redacted file — its page text, properties,
+            bookmarks, comments and form fields — and{" "}
+            {result.verified === 1 ? "is" : "are"} not in it.
           </p>
         )}
         <button
@@ -622,7 +623,9 @@ function RemoveNote() {
         </span>{" "}
         The rest of every page stays as it was — its text can still be selected
         and searched — and so do bookmarks, links outside the boxes and the
-        document&apos;s properties. Some content can&apos;t be removed this way
+        document&apos;s properties — except that text you chose with Find text
+        or Detect personal data is also taken out of the properties, bookmark
+        titles and comments. Some content can&apos;t be removed this way
         (vertical text, a form field or certain images under a box); the
         redaction then stops and says so, and Flatten every page handles it.
       </p>

@@ -166,8 +166,9 @@ export function MetadataEditor({
           {result.replacedXmp && (
             <p className="text-muted max-w-2xl text-sm">
               This PDF also carried XMP metadata. It was replaced with the
-              values above, so readers that show XMP agree with them; anything
-              else it held was not kept.
+              values above, so readers that show XMP agree with them. A PDF/A or
+              PDF/UA identification it held was carried over; anything else it
+              held was not kept.
             </p>
           )}
           {result.removedXmp && (

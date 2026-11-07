@@ -1,7 +1,17 @@
 // @native-canvas
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
-import { PDFDocument, PDFName, PDFStream } from "pdf-lib";
+import {
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFHexString,
+  PDFName,
+  PDFRawStream,
+  PDFStream,
+  PDFString,
+  decodePDFRawStream,
+} from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import {
   METADATA_DATE_FIELDS,
@@ -220,6 +230,198 @@ describe("writePdfMetadata — edit", () => {
   });
 });
 
+/**
+ * Audit #29 (2026-11-06): an edit replaced the XMP packet wholesale, so a
+ * PDF/A file (our own PDF to PDF/A output among them) lost its pdfaid
+ * identification on a title change; and both dates went through the editor's
+ * minute-precision field and back, so an untouched CreationDate lost its
+ * seconds and its offset became Z.
+ */
+describe("writePdfMetadata — edit keeps what was not edited", () => {
+  // Ghostscript writes the attribute spelling; others write elements.
+  const PDFA_XMP = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:title><rdf:Alt><rdf:li xml:lang="x-default">Archived</rdf:li></rdf:Alt></dc:title>
+</rdf:Description>
+<rdf:Description rdf:about="" xmlns:id="http://www.aiim.org/pdfa/ns/id/" id:part='2'>
+<id:conformance>B</id:conformance>
+</rdf:Description>
+<rdf:Description rdf:about="" xmlns:pdfuaid="http://www.aiim.org/pdfua/ns/id/">
+<pdfuaid:part>1</pdfuaid:part>
+</rdf:Description>
+</rdf:RDF></x:xmpmeta><?xpacket end="w"?>`;
+
+  async function withXmp(xmp: string, creationDate?: string) {
+    const doc = await PDFDocument.create();
+    doc.addPage([300, 300]);
+    doc.setTitle("Archived");
+    const stream = doc.context.stream(new TextEncoder().encode(xmp), {
+      Type: "Metadata",
+      Subtype: "XML",
+    });
+    doc.catalog.set(PDFName.of("Metadata"), doc.context.register(stream));
+    const info = doc.context.lookup(doc.context.trailerInfo.Info, PDFDict);
+    if (creationDate) {
+      info.set(PDFName.of("CreationDate"), PDFString.of(creationDate));
+      info.set(PDFName.of("ModDate"), PDFString.of(creationDate));
+    }
+    return doc.save({ useObjectStreams: false });
+  }
+
+  /** What the runner sends: every field through its draft and back. */
+  async function titleOnlyEdit(source: Uint8Array, title: string) {
+    const reading = await readPdfMetadata(source);
+    const values: PdfMetadata = {
+      ...reading,
+      title,
+      creationDate: fromLocalInputValue(
+        toLocalInputValue(reading.creationDate),
+      ),
+      modificationDate: fromLocalInputValue(
+        toLocalInputValue(reading.modificationDate),
+      ),
+    };
+    return writePdfMetadata(source, { kind: "edit", values });
+  }
+
+  it("keeps the PDF/A and PDF/UA identification through a title edit", async () => {
+    const source = await withXmp(PDFA_XMP);
+    // Control: the source declares it.
+    expect(new TextDecoder().decode(source)).toContain("id:part='2'");
+    const result = await titleOnlyEdit(source, "New title");
+    const { xmp } = await pdfjsMetadata(result.bytes);
+    expect(xmp?.get("dc:title")).toBe("New title");
+    expect(xmp?.get("pdfaid:part")).toBe("2");
+    expect(xmp?.get("pdfaid:conformance")).toBe("B");
+    expect(xmp?.get("pdfuaid:part")).toBe("1");
+  });
+
+  /**
+   * Review of the #29 fix: pdfaid and pdfuaid were carried, the extension
+   * schema that DESCRIBES pdfuaid was not. In PDF/A-2 and -3 pdfuaid is not a
+   * predefined schema, so a PDF/A + PDF/UA file (LibreOffice writes these) is
+   * valid only with that description (veraPDF 6.6.2.3.1). Here the bindings
+   * its body uses sit on rdf:RDF, as they may: the copy must bring them.
+   */
+  const EXTENSION = `<pdfaExtension:schemas><rdf:Bag><rdf:li rdf:parseType="Resource">
+<pdfaSchema:namespaceURI>http://www.aiim.org/pdfua/ns/id/</pdfaSchema:namespaceURI>
+<pdfaSchema:prefix>pdfuaid</pdfaSchema:prefix>
+<pdfaSchema:schema>PDF/UA identification schema</pdfaSchema:schema>
+<pdfaSchema:property><rdf:Seq><rdf:li rdf:parseType="Resource">
+<pdfaProperty:category>internal</pdfaProperty:category>
+<pdfaProperty:description>PDF/UA version identifier</pdfaProperty:description>
+<pdfaProperty:name>part</pdfaProperty:name>
+<pdfaProperty:valueType>Integer</pdfaProperty:valueType>
+</rdf:li></rdf:Seq></pdfaSchema:property>
+</rdf:li></rdf:Bag></pdfaExtension:schemas>`;
+  const PDFA_UA_XMP = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:pdfaSchema="http://www.aiim.org/pdfa/ns/schema#" xmlns:pdfaProperty="http://www.aiim.org/pdfa/ns/property#">
+<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:title><rdf:Alt><rdf:li xml:lang="x-default">Archived</rdf:li></rdf:Alt></dc:title>
+</rdf:Description>
+<rdf:Description rdf:about="" xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/">
+<pdfaid:part>2</pdfaid:part><pdfaid:conformance>A</pdfaid:conformance>
+</rdf:Description>
+<rdf:Description rdf:about="" xmlns:pdfuaid="http://www.aiim.org/pdfua/ns/id/">
+<pdfuaid:part>1</pdfuaid:part>
+</rdf:Description>
+<rdf:Description rdf:about="" xmlns:pdfaExtension="http://www.aiim.org/pdfa/ns/extension/">
+${EXTENSION}
+</rdf:Description>
+</rdf:RDF></x:xmpmeta><?xpacket end="w"?>`;
+
+  function outputXmp(bytes: Uint8Array): Promise<string> {
+    return PDFDocument.load(bytes, { updateMetadata: false }).then((doc) => {
+      const xmp = doc.catalog.lookup(PDFName.of("Metadata"));
+      if (!(xmp instanceof PDFRawStream))
+        throw new Error("no catalog XMP stream");
+      return new TextDecoder().decode(decodePDFRawStream(xmp).decode());
+    });
+  }
+
+  it("keeps the extension schema that describes pdfuaid, with its namespace bindings", async () => {
+    const source = await withXmp(PDFA_UA_XMP);
+    const result = await titleOnlyEdit(source, "New title");
+    const packet = await outputXmp(result.bytes);
+    // The identification and the description of it, both.
+    expect(packet).toContain("<pdfuaid:part>1</pdfuaid:part>");
+    expect(packet).toContain(EXTENSION);
+    // Every prefix the copied element uses is bound in the new packet.
+    const used = new Set(
+      [...EXTENSION.matchAll(/<\/?([A-Za-z_][\w.-]*):/g)].map((m) => m[1]!),
+    );
+    expect([...used].sort()).toEqual([
+      "pdfaExtension",
+      "pdfaProperty",
+      "pdfaSchema",
+      "rdf",
+    ]);
+    for (const prefix of used) {
+      expect(packet, prefix).toMatch(new RegExp(`xmlns:${prefix}="`));
+    }
+    const { xmp } = await pdfjsMetadata(result.bytes);
+    expect(xmp?.get("dc:title")).toBe("New title");
+    expect(xmp?.get("pdfuaid:part")).toBe("1");
+  });
+
+  it("carries no extension schema from a packet that declares no identification", async () => {
+    const NO_ID = PDFA_UA_XMP.replace(
+      /<rdf:Description rdf:about="" xmlns:pdfu?aid=[\s\S]*?<\/rdf:Description>\n/g,
+      "",
+    );
+    // Control: the identification is gone and the extension is still there.
+    expect(NO_ID).not.toContain("pdfuaid:part");
+    expect(NO_ID).not.toContain("pdfaid:part");
+    expect(NO_ID).toContain(EXTENSION);
+    const result = await titleOnlyEdit(await withXmp(NO_ID), "New title");
+    expect(await outputXmp(result.bytes)).not.toContain("pdfaExtension");
+  });
+
+  it("adds no identification to a packet that had none", async () => {
+    const result = await titleOnlyEdit(await withXmp(OLD_XMP), "New title");
+    const { xmp } = await pdfjsMetadata(result.bytes);
+    expect(xmp?.get("dc:title")).toBe("New title");
+    expect(xmp?.get("pdfaid:part")).toBeNull();
+    expect(xmp?.get("pdfuaid:part")).toBeNull();
+  });
+
+  it("an untouched date keeps its seconds and its offset", async () => {
+    const STAMP = "D:20200101123456+05'00'";
+    const source = await withXmp(OLD_XMP, STAMP);
+    const result = await titleOnlyEdit(source, "New title");
+    const out = await PDFDocument.load(result.bytes, { updateMetadata: false });
+    const info = out.context.lookup(out.context.trailerInfo.Info, PDFDict);
+    for (const key of ["CreationDate", "ModDate"]) {
+      const value = info.lookup(PDFName.of(key));
+      expect(
+        value instanceof PDFString || value instanceof PDFHexString
+          ? value.decodeText()
+          : value,
+        key,
+      ).toBe(STAMP);
+    }
+    expect(result.saved.creationDate?.toISOString()).toBe(
+      "2020-01-01T07:34:56.000Z",
+    );
+  });
+
+  it("a date the person changed is written as typed", async () => {
+    const source = await withXmp(OLD_XMP, "D:20200101123456+05'00'");
+    const reading = await readPdfMetadata(source);
+    const result = await writePdfMetadata(source, {
+      kind: "edit",
+      values: {
+        ...reading,
+        creationDate: fromLocalInputValue("2021-03-04T05:06"),
+      },
+    });
+    expect(result.saved.creationDate?.getTime()).toBe(
+      fromLocalInputValue("2021-03-04T05:06")!.getTime(),
+    );
+  });
+});
+
 describe("writePdfMetadata — remove all", () => {
   it("strips the Info dictionary and the XMP stream, pages kept", async () => {
     const source = await sourcePdf({ xmp: true });
@@ -258,6 +460,82 @@ describe("writePdfMetadata — remove all", () => {
     const raw = Buffer.from(result.bytes).toString("latin1").toUpperCase();
     expect(raw).not.toContain("OLD XMP TITLE");
     expect(raw).not.toContain(OLD_TITLE_HEX);
+  });
+
+  /**
+   * Audit #4 (2026-11-06): remove-all deleted only the object the trailer's
+   * /Info named and the catalog XMP, then saved every object pdf-lib had
+   * parsed — an earlier Info left orphaned by an incremental save, a page's
+   * own XMP and its /PieceInfo all came through the "clean" file.
+   */
+  it("leaves no old author anywhere: orphaned Info, page XMP, PieceInfo", async () => {
+    const doc = await PDFDocument.load(await sourcePdf({ xmp: true }));
+    const ctx = doc.context;
+    // An earlier Info dictionary nothing refers to any more.
+    ctx.register(ctx.obj({ Author: PDFString.of("SecretOldAuthor") }));
+    const page = doc.getPage(0).node;
+    page.set(
+      PDFName.of("Metadata"),
+      ctx.register(
+        ctx.stream("<x:xmpmeta>PageXmpAuthor</x:xmpmeta>", {
+          Type: "Metadata",
+          Subtype: "XML",
+        }),
+      ),
+    );
+    page.set(
+      PDFName.of("PieceInfo"),
+      ctx.obj({
+        Illustrator: { Private: { Author: PDFString.of("PieceInfoAuthor") } },
+      }),
+    );
+    doc.catalog.set(
+      PDFName.of("PieceInfo"),
+      ctx.obj({ Word: { Private: PDFString.of("DocPieceInfoAuthor") } }),
+    );
+    // A string that is reachable and no metadata: it must survive, which
+    // proves the walk below reads the output's strings at all.
+    doc.catalog.set(PDFName.of("Lang"), PDFString.of("en-GB"));
+    const source = await doc.save({ useObjectStreams: false });
+    const NAMES = [
+      "SecretOldAuthor",
+      "PageXmpAuthor",
+      "PieceInfoAuthor",
+      "DocPieceInfoAuthor",
+    ];
+
+    /** Every string and every decoded stream in every object of `bytes`. */
+    const everything = async (bytes: Uint8Array): Promise<string> => {
+      const d = await PDFDocument.load(bytes, { updateMetadata: false });
+      const parts: string[] = [];
+      const visit = (o: unknown): void => {
+        if (o instanceof PDFString || o instanceof PDFHexString) {
+          parts.push(o.decodeText());
+        } else if (o instanceof PDFDict) {
+          for (const [, v] of o.entries()) visit(v);
+        } else if (o instanceof PDFArray) {
+          o.asArray().forEach(visit);
+        } else if (o instanceof PDFRawStream) {
+          visit(o.dict);
+          parts.push(
+            new TextDecoder("latin1").decode(decodePDFRawStream(o).decode()),
+          );
+        }
+      };
+      for (const [, obj] of d.context.enumerateIndirectObjects()) visit(obj);
+      return parts.join(" | ");
+    };
+    // Positive control: the source holds every one of them.
+    const before = await everything(source);
+    for (const name of NAMES) expect(before, name).toContain(name);
+
+    const result = await writePdfMetadata(source, { kind: "remove-all" });
+    const after = await everything(result.bytes);
+    for (const name of NAMES) expect(after, name).not.toContain(name);
+    // Pages and their content are still there.
+    const out = await PDFDocument.load(result.bytes, { updateMetadata: false });
+    expect(out.getPageCount()).toBe(2);
+    expect(after).toContain("en-GB");
   });
 
   it("control: the source really did carry everything removed", async () => {
