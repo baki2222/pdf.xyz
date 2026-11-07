@@ -92,3 +92,15 @@ first file's grant (P −300, owner `owner-openrestr-test`).
 
 The worker-image proof (`scripts/worker-restricted-edit-proof.ts`) does not use
 these files: it encrypts `make-base.ts`'s form with the image's own qpdf.
+
+## The restricted + signed fixture (2026-11-08)
+
+`python -I make-signed.py <this folder>` with pypdf 6.19.0: `grant-base.pdf`
+plus one signed signature field (a `/Sig` value, signed in structure like
+`src/tests/signed-pdf.ts`, not in cryptography), encrypted RC4 128-bit (V2
+R3). The `/ByteRange` is a fixed-width placeholder patched after the save, so
+it names the encrypted file's real offsets around its `/Contents` hole.
+
+| file                             | producer | V / R | cipher  | grant (pdf.js `getPermissions()`) | owner password      |
+| -------------------------------- | -------- | ----- | ------- | --------------------------------- | ------------------- |
+| `pypdf-r3-signed-restricted.pdf` | pypdf    | V2 R3 | RC4 128 | 4, 32, 256, 512, 2048 (P −1052)   | `owner-signed-test` |

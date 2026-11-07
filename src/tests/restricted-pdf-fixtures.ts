@@ -170,3 +170,20 @@ export const OPEN_PASSWORD_RESTRICTED_FIXTURE: GrantFixture = {
 
 /** The open password of the two fixtures above (a test value). */
 export const FIXTURE_OPEN_PASSWORD = "open-test";
+
+/**
+ * Restricted AND certificate-signed (`make-signed.py`, pypdf R3 RC4-128): the
+ * grant base with one signed signature field whose `/ByteRange` names the
+ * encrypted file's real offsets around its `/Contents` hole. Opens with no
+ * password; grants printing, comments and form filling only (/P -1052).
+ */
+export const SIGNED_RESTRICTED_FIXTURE: GrantFixture = {
+  file: "pypdf-r3-signed-restricted.pdf",
+  producer: "pypdf",
+  v: 2,
+  r: 3,
+  owner: "owner-signed-test",
+  permissions: [4, 32, 256, 512, 2048],
+  objectStreams: false,
+  pageCount: 2,
+};

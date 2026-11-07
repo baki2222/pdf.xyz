@@ -64,10 +64,16 @@ import {
  *    password opens with ProtectionBanner; the Sign tool is locked
  *    (toolAllowed: not a comment tool) until the owner password, checked
  *    in the browser, unlocks every tool and the copy saves unencrypted
- *    (UNLOCKED_NOTE). sign-restricted.test.tsx drives it. Such a file is
- *    never appended to (`appendsToSigned` needs `protection === undefined`):
- *    if it is also certificate-signed, the unlocked copy is written whole
- *    and the runner's SignedInputNotice says the signature will not verify.
+ *    (UNLOCKED_NOTE). sign-restricted.test.tsx drives it. A signature on
+ *    such a file is never countersigned by appending (`appendsToSigned`
+ *    needs `protection === undefined`, and signing needs the unlock): if it
+ *    is also certificate-signed, the unlocked copy is written whole and the
+ *    runner's SignedInputNotice says the signature will not verify
+ *    (sign-restricted.test.tsx, with `pypdf-r3-signed-restricted.pdf`).
+ *    A comment-only save BEFORE unlocking is the other path, and it IS an
+ *    incremental update under the author's encryption
+ *    (`protection.saveChanges`); the FAQ sentence is scoped to signing so
+ *    it does not cover that, and the notice errs on the safe side there.
  *  - result: "PDF signed", "Download signed PDF", `signatureOutputName`.
  */
 const signTool = getToolBySlug("sign-pdf");
@@ -176,7 +182,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I sign a password-protected or already certified PDF?",
-      a: `A PDF that needs a password to open cannot be signed here until Unlock PDF removes that password. Unlike signing, Unlock PDF does not run in your browser: the file is uploaded over TLS to pdf.xyz's secure server, the input is deleted when the job finishes, the unlocked copy's link expires after ${linkMinutes} minutes, and the stored copy is erased by a daily storage rule after that. A PDF that opens without a password but carries any restriction from its author (on changes, printing, copying or anything else) opens here with the author's limits in force: a signature is drawn into the page, so it needs the owner password, which you type above the pages and which is checked in your browser against the file itself, never uploaded. The signed copy is then saved without the author's encryption, as Unlock PDF would save it. A PDF that already carries a certificate signature, such as a contract the other party signed first, can be countersigned here: your signature is added to the end of the file as an update, and the bytes their signature covers are left exactly as they were, so it still verifies for the version they signed. A viewer that checks signatures will also show that the document changed after it was signed, and a signature certified to allow no changes reports yours as breaking that. An edit that takes something out of the file — ${listRemovals(REMOVALS, "disjunction")} — is the exception: the whole file is written again so that it is really gone, the earlier signature no longer verifies, and the editor says so beside Apply before you press it. A PDF that is both restricted by its author and certificate-signed is not appended to: once its owner password unlocks it, the copy is written whole without the author's encryption, so the earlier signature no longer verifies, and a warning above the pages says so before you start.`,
+      a: `A PDF that needs a password to open cannot be signed here until Unlock PDF removes that password. Unlike signing, Unlock PDF does not run in your browser: the file is uploaded over TLS to pdf.xyz's secure server, the input is deleted when the job finishes, the unlocked copy's link expires after ${linkMinutes} minutes, and the stored copy is erased by a daily storage rule after that. A PDF that opens without a password but carries any restriction from its author (on changes, printing, copying or anything else) opens here with the author's limits in force: a signature is drawn into the page, so it needs the owner password, which you type above the pages and which is checked in your browser against the file itself, never uploaded. The signed copy is then saved without the author's encryption, as Unlock PDF would save it. A PDF that already carries a certificate signature, such as a contract the other party signed first, can be countersigned here: your signature is added to the end of the file as an update, and the bytes their signature covers are left exactly as they were, so it still verifies for the version they signed. A viewer that checks signatures will also show that the document changed after it was signed, and a signature certified to allow no changes reports yours as breaking that. An edit that takes something out of the file — ${listRemovals(REMOVALS, "disjunction")} — is the exception: the whole file is written again so that it is really gone, the earlier signature no longer verifies, and the editor says so beside Apply before you press it. A PDF that is both restricted by its author and certificate-signed is not countersigned by appending: once its owner password unlocks it for signing, the copy is written whole without the author's encryption, so the earlier signature no longer verifies, and a warning above the pages says so before you start.`,
     },
   ],
 
