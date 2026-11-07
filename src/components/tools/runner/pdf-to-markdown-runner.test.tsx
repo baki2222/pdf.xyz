@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { resetAnnouncer } from "@/components/a11y/live-region";
 import {
   DEFAULT_PAGE_HEADINGS,
   DEFAULT_REMOVE_REPEATED_LINES,
 } from "@/lib/pdf/pdf-to-markdown";
+import * as reader from "@/lib/pdf/pdf-to-markdown-read";
 import { PdfToMarkdownEditor } from "./pdf-to-markdown-runner";
 
 /**
@@ -17,15 +18,22 @@ import { PdfToMarkdownEditor } from "./pdf-to-markdown-runner";
  * 1980 tests green while unticking the box did nothing.
  */
 
-const convert = vi.hoisted(() =>
-  vi.fn((..._args: unknown[]) => new Promise<never>(() => {})),
-);
-vi.mock("@/lib/pdf/pdf-to-markdown-read", () => ({ pdfToMarkdown: convert }));
+// A spy on the module's own export, not `vi.mock`: under `isolate: false`
+// a mock would leave this runner cached bound to the stub for every later
+// file that imports it (src/tests/mock-isolation.test.ts). The spy is
+// restored after the file, so the shared instance is the real one again.
+const convert = vi
+  .spyOn(reader, "pdfToMarkdown")
+  .mockImplementation(() => new Promise<never>(() => {}));
 
 afterEach(() => {
   cleanup();
   resetAnnouncer();
   convert.mockClear();
+});
+
+afterAll(() => {
+  convert.mockRestore();
 });
 
 const REPEATED = "Leave out repeated headers and footers";
