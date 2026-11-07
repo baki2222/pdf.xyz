@@ -1424,6 +1424,15 @@ describe("the converters' pages describe the page they produce", () => {
     );
     // The copy is honest about what stays white.
     expect(pngCopy).toMatch(/white rectangle/);
+    // The catalogue description (tool card, meta description) names both
+    // backgrounds, in the runner's labels. Review 2026-11-08: it still said
+    // "on a white background" under a comment pointing at the guard this
+    // branch retired. catalog.ts writes the words out rather than importing
+    // pdf-to-image.ts into the catalogue chunk, so this is what ties them.
+    const white = RASTER_BACKGROUNDS.find((b) => b.id === "white")!;
+    expect(png.description).toContain(
+      `on a ${white.label.toLowerCase()} or ${clear.label.toLowerCase()} background`,
+    );
     expect(
       copyAbout(jpg).filter((t) => /transparent background/i.test(t)),
     ).toEqual([]);

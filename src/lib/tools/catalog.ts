@@ -567,10 +567,15 @@ export const tools: Tool[] = [
     tagline: "Export pages as lossless PNGs.",
     cardSummary: "Save each page as a sharp PNG image.",
     description:
-      // Was "with a transparent or white background": every page is rendered
-      // onto white (render.ts), and the runner offers no transparent option;
-      // claims-vs-capability.test.ts goes red the day that changes.
-      `Render PDF pages as crisp, lossless PNG images on a white background, at ${RESOLUTION_DPIS} DPI — right in your browser, so the file stays on your device.`,
+      // HISTORY: was "with a transparent or white background" while every
+      // page was rendered onto white, then "on a white background" until the
+      // runner gained its Background choice (audit pdf-to-png#5, 2026-11-07).
+      // The words are written out, not imported from pdf-to-image.ts, to keep
+      // that module out of the catalogue chunk; tool-page-substance.test.ts
+      // ("PDF to PNG names the transparent background it offers") holds them
+      // to RASTER_BACKGROUNDS, and render-transparent.test.ts reads the
+      // pixels.
+      `Render PDF pages as crisp, lossless PNG images on a white or transparent background, at ${RESOLUTION_DPIS} DPI — right in your browser, so the file stays on your device.`,
     category: "convert-from",
     icon: "png",
     processing: "client",
