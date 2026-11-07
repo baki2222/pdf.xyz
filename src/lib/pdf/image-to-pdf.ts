@@ -17,6 +17,7 @@ import {
 import { stripJpegMetadata } from "./jpeg-metadata";
 import { atStoredDpi, storedImageDpi } from "./image-density";
 import { sizeForLayout } from "./image-enlarge";
+import { pageSetupProblem } from "./image-page-custom";
 import {
   turnedShape,
   unturnedBox,
@@ -326,6 +327,16 @@ export function validateImagePdfInputs(
   }
 }
 
+/**
+ * The page setup can be laid out: a custom page has a size, and no margin
+ * swallows the page (`pageSetupProblem`). The runner says so before Create
+ * PDF in the unit being typed; this is the engine refusing it anyway.
+ */
+function validatePageSetup(options: ImagePageOptions): void {
+  const problem = pageSetupProblem(options);
+  if (problem) throw new PdfEngineError(problem);
+}
+
 export function imagePdfOutputName(
   kind: ImagePdfKind,
   firstName?: string,
@@ -610,6 +621,7 @@ export async function imagesToPdf(
   options: ImagePageOptions = DEFAULT_IMAGE_PAGE_OPTIONS,
 ): Promise<Uint8Array> {
   validateImagePdfInputs(kind, files);
+  validatePageSetup(options);
   const lib = await loadPdfLib();
   const doc = await newImageDoc(lib, files[0]!);
   for (const file of files) await addImagePage(lib, doc, file, options);
@@ -626,6 +638,7 @@ export async function imagesToPdfs(
   options: ImagePageOptions = DEFAULT_IMAGE_PAGE_OPTIONS,
 ): Promise<NamedBytes[]> {
   validateImagePdfInputs(kind, files);
+  validatePageSetup(options);
   const lib = await loadPdfLib();
   const names = perImageNames(files);
   const out: NamedBytes[] = [];
@@ -650,6 +663,7 @@ export async function buildImagePdf(
   prepared: readonly PreparedEntry[] = [],
 ): Promise<Uint8Array> {
   validateImagePdfInputs(kind, files);
+  validatePageSetup(options);
   const lib = await loadPdfLib();
   const doc = await newImageDoc(lib, files[0]!);
   for (const [i, file] of files.entries())

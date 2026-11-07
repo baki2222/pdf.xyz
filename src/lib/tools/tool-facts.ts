@@ -136,6 +136,7 @@ import {
   SMALL_IMAGES_CHOICES,
   SMALL_IMAGES_LABELS,
 } from "@/lib/pdf/image-enlarge";
+import { CUSTOM_PAGE_LABELS } from "@/lib/pdf/image-page-custom";
 import {
   MARKDOWN_BLOCK_KINDS,
   type MarkdownBlockKind,
@@ -356,7 +357,7 @@ const DEFAULT_IMAGE_ORIENTATION = IMAGE_ORIENTATIONS.find(
  * options and this sentence arrived together, and
  * claims-vs-capability.test.ts runs the engine with every listed size.
  */
-export const IMAGE_PAGE_OPTIONS_FACT = `Page size: ${orJoin(IMAGE_PAGE_SIZES.map((s) => s.label))}. Orientation: ${orJoin(IMAGE_ORIENTATIONS.map((o) => o.label))} (Auto turns the page for a wide image). Margin: ${orJoin(IMAGE_MARGINS.map((m) => (m.points > 0 ? `${m.label} (${inches(m.points)} in)` : m.label)))}.`;
+export const IMAGE_PAGE_OPTIONS_FACT = `Page size: ${orJoin([...IMAGE_PAGE_SIZES.map((s) => s.label), `${CUSTOM_PAGE_LABELS.chip} (a width and height in mm or inches)`])}. Orientation: ${orJoin(IMAGE_ORIENTATIONS.map((o) => o.label))} (Auto turns the page for a wide image). Margin: ${orJoin([...IMAGE_MARGINS.map((m) => (m.points > 0 ? `${m.label} (${inches(m.points)} in)` : m.label)), `${CUSTOM_PAGE_LABELS.chip} (in mm or inches)`])}.`;
 
 /** "Enlarge to fit" under "Small images": the runner's own labels. */
 const ENLARGE_CHOICE = SMALL_IMAGES_CHOICES.find((c) => c.id === "enlarge")!;

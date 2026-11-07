@@ -14,6 +14,15 @@ import {
   SMALL_IMAGES_LABELS,
 } from "@/lib/pdf/image-enlarge";
 
+import {
+  CUSTOM_PAGE_COPY,
+  CUSTOM_PAGE_LABELS,
+  MAX_CUSTOM_MARGIN_PT,
+  MAX_CUSTOM_PAGE_PT,
+  MIN_CUSTOM_PAGE_PT,
+} from "@/lib/pdf/image-page-custom";
+import { IMAGE_PAGE_OPTIONS_FACT } from "./tool-facts";
+
 const ENLARGE = SMALL_IMAGES_CHOICES.find((c) => c.id === "enlarge")!.label;
 
 /*
@@ -63,6 +72,13 @@ describe.each([
     expect(text(content)).not.toMatch(/never enlarged/);
   });
 
+  it("describes the Custom page size and margin, with the engine's limits", () => {
+    // image-page-custom.test.ts draws 105 x 148 mm (A6) and 4 x 6 in pages.
+    expect(content.intro.join(" ")).toContain(CUSTOM_PAGE_COPY);
+    const setup = content.steps.find((s) => /Page size/.test(s.body))!.body;
+    expect(setup).toContain(`each end in ${CUSTOM_PAGE_LABELS.chip}`);
+  });
+
   it("no longer sends a sideways image to Rotate PDF after the fact", () => {
     // INVERTED 2026-11-08: the JPG FAQ answered a sideways photo with "open
     // the PDF in Rotate PDF"; the card's own button does it now.
@@ -89,5 +105,22 @@ describe("the ignored-resolution sentence is the rule's own numbers", () => {
     expect(of("how-to-convert-png-to-pdf")).toContain(IGNORED_DPI_COPY);
     expect(of("how-to-convert-tiff-to-pdf")).toContain(IGNORED_DPI_COPY);
     expect(all).not.toMatch(/DPI value stored in the PNG is ignored/);
+  });
+});
+
+describe("the Custom copy is the limits' own numbers", () => {
+  it("states each bound in inches", () => {
+    for (const pt of [
+      MIN_CUSTOM_PAGE_PT,
+      MAX_CUSTOM_PAGE_PT,
+      MAX_CUSTOM_MARGIN_PT,
+    ])
+      expect(CUSTOM_PAGE_COPY).toContain(
+        `${(pt / 72).toLocaleString("en-US")} in`,
+      );
+  });
+
+  it("the Page setup fact offers Custom for both", () => {
+    expect(IMAGE_PAGE_OPTIONS_FACT.match(/Custom \(/g)).toHaveLength(2);
   });
 });

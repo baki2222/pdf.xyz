@@ -16,7 +16,13 @@
  */
 import { IMAGE_PAGE_MARGIN_PT, US_LETTER_PT } from "./page-geometry";
 
-export type ImagePageSizeId = "fit" | "a4" | "letter" | "legal" | "a3" | "a5";
+/**
+ * "custom" (2026-11-08, audit jpg-to-pdf#3) is NOT in {@link IMAGE_PAGE_SIZES}:
+ * its size is typed by the user and travels as `customSize`; its chip, units
+ * and limits live in `image-page-custom.ts`.
+ */
+export type ImagePageSizeId =
+  "fit" | "a4" | "letter" | "legal" | "a3" | "a5" | "custom";
 
 export interface ImagePageSize {
   id: ImagePageSizeId;
@@ -50,7 +56,8 @@ export const IMAGE_ORIENTATIONS: readonly {
   { id: "landscape", label: "Landscape" },
 ];
 
-export type ImageMarginId = "none" | "small" | "large";
+/** "custom": typed by the user, carried as `customMarginPt`. */
+export type ImageMarginId = "none" | "small" | "large" | "custom";
 
 export const IMAGE_MARGINS: readonly {
   id: ImageMarginId;
@@ -108,6 +115,10 @@ export interface ImagePageOptions {
   /** Absent reads as "remove": the private choice is the default. */
   photoDetails?: PhotoDetailsId;
   smallImages?: SmallImagesId;
+  /** With pageSize "custom": the typed size, portrait, in points. */
+  customSize?: { width: number; height: number };
+  /** With margin "custom": the typed margin, in points. */
+  customMarginPt?: number;
 }
 
 /**
@@ -168,8 +179,14 @@ export function imagePageLayout(
   height: number,
   options: ImagePageOptions = DEFAULT_IMAGE_PAGE_OPTIONS,
 ): ImagePageLayout {
-  const margin = imageMarginPoints(options.margin);
-  const size = imagePageSizeById(options.pageSize).size;
+  const margin =
+    options.margin === "custom" && options.customMarginPt !== undefined
+      ? options.customMarginPt
+      : imageMarginPoints(options.margin);
+  const size =
+    options.pageSize === "custom" && options.customSize
+      ? options.customSize
+      : imagePageSizeById(options.pageSize).size;
 
   if (!size) {
     // The page grows with the image, up to PDF's page-side limit.

@@ -34,12 +34,24 @@ import {
   IMAGE_ORIENTATIONS,
   IMAGE_OUTPUTS,
   IMAGE_PAGE_SIZES,
+  imageMarginPoints,
+  imagePageSizeById,
   PHOTO_DETAILS_CHOICES,
   PHOTO_DETAILS_LABELS,
   type ImageOutputId,
   type ImagePageOptions,
 } from "@/lib/pdf/image-page-layout";
 import { imagePageSizeForLocales } from "@/lib/pdf/image-page-defaults";
+import {
+  CUSTOM_PAGE_LABELS,
+  LENGTH_UNITS,
+  customMargin,
+  customPageSize,
+  lengthToPoints,
+  pageSetupProblem,
+  pointsToLength,
+  type LengthUnitId,
+} from "@/lib/pdf/image-page-custom";
 import {
   SMALL_IMAGES_CHOICES,
   SMALL_IMAGES_LABELS,
@@ -336,6 +348,100 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
           : [navigator.language],
     ),
   }));
+  // Custom page size and margin (audits jpg-to-pdf#3 / png-to-pdf#5): typed
+  // in mm or inches, millimetres unless the paper started on US Letter.
+  const [unit, setUnit] = useState<LengthUnitId>(() =>
+    page.pageSize === "letter" ? "in" : "mm",
+  );
+  const [customW, setCustomW] = useState("");
+  const [customH, setCustomH] = useState("");
+  const [customMarginText, setCustomMarginText] = useState("");
+  // The exact points a Custom field was started on, so switching unit
+  // converts 210 mm to 8.27 in and back to 210, not 210.06.
+  const startedOn = useRef<Record<"w" | "h" | "m", number>>({
+    w: 0,
+    h: 0,
+    m: 0,
+  });
+  const typedSize = customPageSize(customW, customH, unit);
+  const typedMargin = customMargin(customMarginText, unit);
+  /** The options the engine gets: the chips plus whatever was typed. */
+  const pageSetup: ImagePageOptions = {
+    ...page,
+    ...(page.pageSize === "custom" && !("problem" in typedSize)
+      ? { customSize: typedSize }
+      : {}),
+    ...(page.margin === "custom" && typeof typedMargin === "number"
+      ? { customMarginPt: typedMargin }
+      : {}),
+  };
+  const setupProblem =
+    page.pageSize === "custom" && "problem" in typedSize
+      ? typedSize.problem
+      : page.margin === "custom" && typeof typedMargin === "object"
+        ? typedMargin.problem
+        : pageSetupProblem(pageSetup, unit);
+  /** Custom starts on the paper (or margin) that was chosen, in the unit. */
+  const chooseCustomSize = () => {
+    if (busy) return;
+    if (!customW && !customH) {
+      const from =
+        imagePageSizeById(page.pageSize === "fit" ? "a4" : page.pageSize)
+          .size ?? imagePageSizeById("a4").size!;
+      startedOn.current.w = from.width;
+      startedOn.current.h = from.height;
+      setCustomW(pointsToLength(from.width, unit));
+      setCustomH(pointsToLength(from.height, unit));
+    }
+    setPageOption({ pageSize: "custom" });
+  };
+  const chooseCustomMargin = () => {
+    if (busy) return;
+    if (!customMarginText) {
+      startedOn.current.m = imageMarginPoints(page.margin);
+      setCustomMarginText(pointsToLength(startedOn.current.m, unit));
+    }
+    setPageOption({ margin: "custom" });
+  };
+  /** A new unit keeps the lengths already typed, converted. */
+  const changeUnit = (next: LengthUnitId) => {
+    if (busy || next === unit) return;
+    const convert = (
+      text: string,
+      set: (v: string) => void,
+      key: "w" | "h" | "m",
+    ) => {
+      const start = startedOn.current[key];
+      const pt =
+        text === pointsToLength(start, unit)
+          ? start
+          : (lengthToPoints(text, unit) ??
+            (text.trim() === "0" ? 0 : undefined));
+      if (pt !== undefined) set(pointsToLength(pt, next));
+    };
+    convert(customW, setCustomW, "w");
+    convert(customH, setCustomH, "h");
+    convert(customMarginText, setCustomMarginText, "m");
+    setUnit(next);
+  };
+  const unitChips = (
+    <div
+      role="group"
+      aria-label={CUSTOM_PAGE_LABELS.unit}
+      className="flex flex-wrap gap-2"
+    >
+      {LENGTH_UNITS.map((u) => (
+        <ChipButton
+          key={u.id}
+          onClick={() => changeUnit(u.id)}
+          disabled={busy}
+          active={u.id === unit}
+        >
+          {u.label}
+        </ChipButton>
+      ))}
+    </div>
+  );
   const [outputMode, setOutputMode] =
     useState<ImageOutputId>(DEFAULT_IMAGE_OUTPUT);
   const { zipping, zipError, downloadZip } = useZipDownload();
@@ -415,7 +521,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
           const fits = await fit.imagesToPdfsUnderLimit(
             kind,
             inputs,
-            page,
+            pageSetup,
             limitBytes,
           );
           return {
@@ -427,15 +533,18 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
         const one = await fit.imagesToPdfUnderLimit(
           kind,
           inputs,
-          page,
+          pageSetup,
           limitBytes,
           imagePdfOutputName(kind, inputs[0]?.name),
         );
         return { kind: "single", bytes: one.bytes, fits: [one] };
       }
       return perImage
-        ? { kind: "per-image", files: await imagesToPdfs(kind, inputs, page) }
-        : { kind: "single", bytes: await imagesToPdf(kind, inputs, page) };
+        ? {
+            kind: "per-image",
+            files: await imagesToPdfs(kind, inputs, pageSetup),
+          }
+        : { kind: "single", bytes: await imagesToPdf(kind, inputs, pageSetup) };
     });
 
   // Every PDF page the list becomes: a multi-page TIFF is several.
@@ -679,7 +788,41 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
                   {size.label}
                 </ChipButton>
               ))}
+              <ChipButton
+                onClick={chooseCustomSize}
+                disabled={busy}
+                active={page.pageSize === "custom"}
+                title="A width and height of your own, in mm or inches"
+              >
+                {CUSTOM_PAGE_LABELS.chip}
+              </ChipButton>
             </div>
+            {page.pageSize === "custom" && (
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  aria-label={CUSTOM_PAGE_LABELS.width}
+                  value={customW}
+                  readOnly={busy}
+                  onChange={(event) => setCustomW(event.target.value)}
+                  className={lengthInputClass}
+                />
+                <span className="text-muted text-xs" aria-hidden>
+                  ×
+                </span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  aria-label={CUSTOM_PAGE_LABELS.height}
+                  value={customH}
+                  readOnly={busy}
+                  onChange={(event) => setCustomH(event.target.value)}
+                  className={lengthInputClass}
+                />
+                {unitChips}
+              </div>
+            )}
           </RunnerSection>
           <RunnerSection title="Orientation">
             <div className="flex flex-wrap gap-2">
@@ -722,7 +865,37 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
                   )}
                 </ChipButton>
               ))}
+              <ChipButton
+                onClick={chooseCustomMargin}
+                disabled={busy}
+                active={page.margin === "custom"}
+              >
+                {CUSTOM_PAGE_LABELS.chip}
+              </ChipButton>
             </div>
+            {page.margin === "custom" && (
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  aria-label={CUSTOM_PAGE_LABELS.margin}
+                  value={customMarginText}
+                  readOnly={busy}
+                  onChange={(event) => setCustomMarginText(event.target.value)}
+                  className={lengthInputClass}
+                />
+                {page.pageSize === "custom" ? (
+                  <span className="text-muted text-xs">{unit}</span>
+                ) : (
+                  unitChips
+                )}
+              </div>
+            )}
+            {setupProblem && (
+              <p className="text-warn text-xs leading-relaxed" role="status">
+                {setupProblem}
+              </p>
+            )}
           </RunnerSection>
           {/* Audits jpg-to-pdf#4 / png-to-pdf#4: an image smaller than the
               paper is kept at its size unless Enlarge to fit is chosen. */}
@@ -888,7 +1061,10 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
             onClick={onRun}
             busy={busy}
             disabled={
-              items.length === 0 || loading > 0 || limitBytes === "invalid"
+              items.length === 0 ||
+              loading > 0 ||
+              limitBytes === "invalid" ||
+              Boolean(setupProblem)
             }
             busyLabel="Creating PDF…"
           >
@@ -900,6 +1076,10 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
     </div>
   );
 }
+
+/** A typed length (custom page side or margin): 44px tall, like the chips. */
+const lengthInputClass =
+  "border-line text-fg focus:border-accent/40 focus:ring-accent/50 bg-canvas rounded-ctl h-11 w-20 border px-3 text-sm transition outline-none focus:ring-2";
 
 const iconButtonClass =
   "tap inline-grid size-8 place-items-center rounded-ctl border border-line bg-wash text-muted transition hover:bg-wash aria-disabled:cursor-not-allowed aria-disabled:opacity-40";

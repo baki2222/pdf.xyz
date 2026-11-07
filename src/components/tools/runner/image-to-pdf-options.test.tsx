@@ -24,6 +24,7 @@ import {
   SMALL_IMAGES_CHOICES,
   SMALL_IMAGES_LABELS,
 } from "@/lib/pdf/image-enlarge";
+import { CUSTOM_PAGE_LABELS } from "@/lib/pdf/image-page-custom";
 
 import { ImageToPdfRunner } from "./image-to-pdf-runner";
 
@@ -173,5 +174,73 @@ describe("image to PDF · Small images", () => {
     fireEvent.click(screen.getByRole("button", { name: "Fit to image" }));
     expect(chip("enlarge")).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByText(SMALL_IMAGES_LABELS.fitNote)).toBeInTheDocument();
+  });
+});
+
+/** Audits jpg-to-pdf#3 / png-to-pdf#5: a custom page size and margin. */
+describe("image to PDF · Custom page size and margin", () => {
+  const section = (title: string) =>
+    // RunnerSection: the heading's row, then the controls, in one div.
+    screen.getByRole("heading", { name: title }).parentElement!.parentElement!;
+  const customIn = (title: string) =>
+    within(section(title)).getByRole("button", {
+      name: CUSTOM_PAGE_LABELS.chip,
+    });
+  const type = (label: string, value: string) =>
+    fireEvent.change(screen.getByRole("textbox", { name: label }), {
+      target: { value },
+    });
+
+  it("a 4 × 6 in page typed in inches is the downloaded PDF's page", async () => {
+    await mount([jpeg("print.jpg")]);
+    fireEvent.click(customIn("Page size"));
+    fireEvent.click(
+      within(
+        screen.getByRole("group", { name: CUSTOM_PAGE_LABELS.unit }),
+      ).getByRole("button", { name: "in" }),
+    );
+    type(CUSTOM_PAGE_LABELS.width, "4");
+    type(CUSTOM_PAGE_LABELS.height, "6");
+    const [page] = await pages(await createAndDownload());
+    expect([page!.width, page!.height]).toEqual([288, 432]);
+  });
+
+  it("starts the Custom fields on the paper that was chosen", async () => {
+    await mount([jpeg("print.jpg")]);
+    fireEvent.click(screen.getByRole("button", { name: "A4" }));
+    fireEvent.click(customIn("Page size"));
+    const field = (name: string) => screen.getByRole("textbox", { name });
+    const unitChip = (name: string) =>
+      within(
+        screen.getByRole("group", { name: CUSTOM_PAGE_LABELS.unit }),
+      ).getByRole("button", { name });
+    // jsdom's browser is en-US, a Letter country: inches first.
+    expect(unitChip("in")).toHaveAttribute("aria-pressed", "true");
+    expect(field(CUSTOM_PAGE_LABELS.width)).toHaveValue("8.27");
+    expect(field(CUSTOM_PAGE_LABELS.height)).toHaveValue("11.69");
+    // Switching unit converts from the paper's exact size, not the rounding.
+    fireEvent.click(unitChip("mm"));
+    expect(field(CUSTOM_PAGE_LABELS.width)).toHaveValue("210");
+    expect(field(CUSTOM_PAGE_LABELS.height)).toHaveValue("297");
+  });
+
+  it("a custom margin reaches the PDF, and one that leaves no room stops Create PDF", async () => {
+    await mount([jpeg("print.jpg")]);
+    fireEvent.click(screen.getByRole("button", { name: "Fit to image" }));
+    fireEvent.click(customIn("Margin"));
+    fireEvent.click(
+      within(
+        screen.getByRole("group", { name: CUSTOM_PAGE_LABELS.unit }),
+      ).getByRole("button", { name: "mm" }),
+    );
+    type(CUSTOM_PAGE_LABELS.margin, "abc");
+    expect(screen.getByRole("button", { name: /Create PDF/ })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    expect(screen.getByText(/Enter a margin from 0 to/)).toBeInTheDocument();
+    type(CUSTOM_PAGE_LABELS.margin, "25.4");
+    const [page] = await pages(await createAndDownload());
+    expect(page!.width).toBeCloseTo(JPEG_WIDTH + 144, 6);
   });
 });

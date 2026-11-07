@@ -223,6 +223,8 @@ export function copyFiles(): string[] {
     path.join(ROOT, "src", "lib", "pdf", "image-density.ts"),
     // Small images: Keep size / Enlarge to fit (2026-11-08).
     path.join(ROOT, "src", "lib", "pdf", "image-enlarge.ts"),
+    // Custom page size and margin (2026-11-08, audit jpg-to-pdf#3).
+    path.join(ROOT, "src", "lib", "pdf", "image-page-custom.ts"),
     // What UTIF's require("pako") resolves to in the browser bundle
     // (2026-11-04): one error sentence, thrown only if UTIF's Deflate path
     // is ever reached.
