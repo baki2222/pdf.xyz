@@ -14,9 +14,13 @@
  *      backdrop behind one — UNLESS it holds a `main`, `article` or
  *      `[role=main]` element or more than half of the page's text, so a
  *      site whose whole layout is a fixed full-screen frame keeps it.
- * Then, because consent pop-ups lock scrolling, `overflow: hidden` (or
- * `clip`) on the root and body is set back to `visible`, so the print is not
- * cut at the first screen.
+ * Then, because consent pop-ups lock scrolling, a vertical `overflow:
+ * hidden` (or `clip`) on the root and body is set back to `visible`, so the
+ * print is not cut at the first screen. The lock is read from the vertical
+ * axis only, so a site's own `overflow-x: hidden` (computed as `hidden auto`)
+ * is not mistaken for one; both axes are then reset, because `visible` on
+ * one axis beside `hidden` on the other computes to `auto`, and the body
+ * stays a one-screen scroll box (capture.chromium.test.ts went red on that).
  *
  * What it does NOT do: block adverts, block any request, or hide a small bar
  * pinned to an edge that is not one of the listed tools. It can still hide
@@ -132,7 +136,7 @@ export const HIDE_OVERLAYS_SCRIPT = `(() => {
   for (const el of [document.documentElement, body]) {
     if (!el) continue;
     const cs = getComputedStyle(el);
-    if (/hidden|clip/.test(cs.overflowY) || /hidden|clip/.test(cs.overflow)) {
+    if (/hidden|clip/.test(cs.overflowY)) {
       el.style.setProperty("overflow", "visible", "important");
       unlocked += 1;
     }
