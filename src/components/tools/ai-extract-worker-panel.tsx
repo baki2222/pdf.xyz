@@ -122,7 +122,7 @@ export function AiExtractWorkerPanel({ tool }: { tool: Tool }) {
           icon: Download,
           label: "You get",
           value:
-            "ZIP · extraction.json + model-output.json + extraction.md + manifest · CSV made in your browser",
+            "ZIP · extraction.json + model-output.json + extraction.md + manifest · a CSV built by the page when the data is an object or a list of objects",
         },
         {
           icon: Timer,
@@ -520,7 +520,7 @@ export function AiExtractResultBody({
       </p>
       {csv !== null && (
         <p className="text-muted text-xs leading-relaxed">
-          The CSV is made here in your browser from extraction.json:{" "}
+          The CSV is built by the page from extraction.json:{" "}
           {AI_EXTRACT_CSV_SHAPE}. {AI_EXTRACT_NULL_CSV_LEGEND}
         </p>
       )}
