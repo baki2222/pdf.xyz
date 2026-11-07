@@ -8,6 +8,10 @@ import {
   XLSX_SHEET_NAME,
   XLSX_TEXT_EXAMPLE,
 } from "@/lib/jobs/pdf-office-export";
+import {
+  pageSheetName,
+  SHEET_PER_PAGE_LABEL,
+} from "@/lib/jobs/pdf-to-excel-options";
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { MAX_SIGNIFICANT_DIGITS } from "@/lib/workers/ooxml/sheet-cells";
@@ -76,7 +80,7 @@ const content: ToolContent = {
     "Export a PDF's text to an XLSX sheet: one row per line, each value in its column, amounts as numbers. A secure server converts it, then deletes your PDF.",
 
   intro: [
-    `PDF to Excel reads the selectable text of one PDF and writes it into a single worksheet, named "${XLSX_SHEET_NAME}", inside an XLSX workbook. The text is pulled with poppler's pdftotext in layout mode, which pads each line with spaces so a printed table row keeps gaps between its columns. Each non-empty line becomes one spreadsheet row, split into cells at ${XLSX_CELL_BREAK_PHRASE}; a single space or a comma never starts a new cell. Rows that line up are treated as one table, and each value goes in the column it sits in on the page, so an empty cell stays empty. Pages follow one another with no blank row between them, so page headers, footers and page numbers printed as text end up among the data rows.`,
+    `PDF to Excel reads the selectable text of one PDF and writes it into a single worksheet, named "${XLSX_SHEET_NAME}", inside an XLSX workbook, or into one sheet per page when you tick ${SHEET_PER_PAGE_LABEL}. The text is pulled with poppler's pdftotext in layout mode, which pads each line with spaces so a printed table row keeps gaps between its columns. Each non-empty line becomes one spreadsheet row, split into cells at ${XLSX_CELL_BREAK_PHRASE}; a single space or a comma never starts a new cell. Rows that line up are treated as one table, and each value goes in the column it sits in on the page, so an empty cell stays empty. In the single sheet, pages follow one another with no blank row between them, so page headers, footers and page numbers printed as text end up among the data rows; with ${SHEET_PER_PAGE_LABEL} ticked, each page is a sheet of its own, named ${pageSheetName(1)}, ${pageSheetName(2)} and so on, and a page with no text gets an empty sheet so the numbers still match.`,
     `This is layout placement, not table detection: ruling lines and cell borders are ignored and merged cells are not rebuilt. ${XLSX_MERGE_CAVEAT} An amount or a percentage such as ${AMOUNTS} is stored as a number a formula can add up, and the comma inside it never splits it; a date such as ${XLSX_TEXT_EXAMPLE}, a European-style 1.250,00, a negative in brackets and a code with leading zeros stay text. To pull individual tables out of a page, Extract Tables finds each table by where its words sit and exports it on its own.`,
     `Poppler is a native program that a browser cannot run, so the export happens on pdf.xyz's secure server and each run takes one PDF of at most ${CEILING_MB} MB, sent over TLS. Our server deletes your PDF when the export job finishes. Your workbook can be fetched from its link for ${OUTPUT_TTL} minutes, and once that link has expired a daily storage rule erases the stored XLSX.`,
   ],
@@ -103,7 +107,7 @@ const content: ToolContent = {
     },
     {
       title: "Press Export XLSX",
-      body: `A PDF larger than ${CEILING_MB} MB is refused as soon as you pick it, before its bytes leave your device. Otherwise pressing Export XLSX uploads it: the button reads "Uploading your file…", then "Waiting for our server…", "Exporting XLSX…" while our server converts it, and "Downloading the result…" until the finished XLSX is sitting in the page. A PDF with no selectable text stops here, with an error asking you to run OCR first and a link to OCR PDF.`,
+      body: `Tick ${SHEET_PER_PAGE_LABEL} first if you want each page on a sheet of its own. A PDF larger than ${CEILING_MB} MB is refused as soon as you pick it, before its bytes leave your device. Otherwise pressing Export XLSX uploads it: the button reads "Uploading your file…", then "Waiting for our server…", "Exporting XLSX…" while our server converts it, and "Downloading the result…" until the finished XLSX is sitting in the page. A PDF with no selectable text stops here, with an error asking you to run OCR first and a link to OCR PDF.`,
     },
     {
       title: "Save the workbook",
@@ -111,7 +115,7 @@ const content: ToolContent = {
     },
     {
       title: "Tidy the sheet",
-      body: "Check dates, codes and any other values that stayed text, delete rows that came from page headers and footers, and compare any merged columns against the PDF.",
+      body: `Check dates, codes and any other values that stayed text, delete rows that came from page headers and footers, and compare any merged columns against the PDF. With ${SHEET_PER_PAGE_LABEL}, the sheet tabs tell you which page each row came from.`,
     },
   ],
 

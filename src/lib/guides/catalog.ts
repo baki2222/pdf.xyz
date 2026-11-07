@@ -115,6 +115,10 @@ import {
   XLSX_TEXT_EXAMPLE,
 } from "@/lib/jobs/pdf-office-export";
 import {
+  pageSheetName,
+  SHEET_PER_PAGE_LABEL,
+} from "@/lib/jobs/pdf-to-excel-options";
+import {
   COMBINE_TABLES_LABEL,
   COMBINED_CSV_NAME,
   COMBINED_SHEET_NAME,
@@ -3058,7 +3062,7 @@ export const guides: Guide[] = [
         heading: "How each line becomes a row",
         body: [
           `Every non-empty line of the PDF's text becomes one row, and a line breaks into cells at ${XLSX_CELL_BREAK_PHRASE}; a single space or a comma never starts a new cell. Rows that line up are treated as one table, so a blank cell stays blank and the values after it stay under their own headings. ${XLSX_MERGE_CAVEAT}`,
-          "Pages follow one another with no blank row between them, so page headers, footers and page numbers printed as text end up among the data rows. Ruling lines and cell borders are ignored, merged cells are not rebuilt, and fonts, colours and images are not carried over.",
+          `By default, pages follow one another in the one sheet with no blank row between them, so page headers, footers and page numbers printed as text end up among the data rows; tick ${SHEET_PER_PAGE_LABEL} before you export to give each page a sheet of its own, named ${pageSheetName(1)}, ${pageSheetName(2)} and so on. Ruling lines and cell borders are ignored, merged cells are not rebuilt, and fonts, colours and images are not carried over.`,
         ],
       },
       {
@@ -3100,7 +3104,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-11-06",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-convert-pdf-to-powerpoint",

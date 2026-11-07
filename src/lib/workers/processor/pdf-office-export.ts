@@ -1,6 +1,7 @@
 import type { JobError } from "@/lib/jobs";
 import type { JobResults } from "@/lib/jobs/results";
 import { parsePdfToWordOptions } from "@/lib/jobs/ocr";
+import { parsePdfToExcelOptions } from "@/lib/jobs/pdf-to-excel-options";
 import { WORD_OCR_LABEL } from "@/lib/jobs/pdf-office-export";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
 import { OCR_REFUSAL_MESSAGES } from "../ocr-engine-errors";
@@ -211,8 +212,8 @@ export function createPdfOfficeExportProcessor(
       if (bad) return bad;
       const file = input.inputs[0]!;
 
-      // PDF to Word's one option: OCR first. Validated for Word only — Excel
-      // and PowerPoint take no options and keep ignoring the bag, as before.
+      // PDF to Word's one option: OCR first. Validated for Word only; Excel
+      // has its own (below) and PowerPoint takes none and ignores the bag.
       let bytes = file.bytes;
       let ocrResults: JobResults | undefined;
       if (input.tool === PDF_TO_WORD_TOOL) {
@@ -285,11 +286,25 @@ export function createPdfOfficeExportProcessor(
         }
       }
 
+      // PDF to Excel's one option: a sheet per page (audit pdf-to-excel#3).
+      let excel: { sheetPerPage: boolean } = { sheetPerPage: false };
+      if (input.tool === PDF_TO_EXCEL_TOOL) {
+        const parsed = parsePdfToExcelOptions(input.options);
+        if (!parsed.ok)
+          return processorFail({
+            code: parsed.error.body.error.code,
+            message: parsed.error.body.error.message,
+            retryable: false,
+          });
+        excel = parsed.value;
+      }
+
       const run = await runPdfOfficeExport(
         input.tool,
         bytes,
         deps,
         input.signal,
+        excel,
       );
       if (!run.ok) {
         const error = jobError(run);

@@ -18,6 +18,8 @@ export interface PdfOfficeExportWorkerInput {
    * Absent = today's request, with an empty options bag.
    */
   ocr?: { languages: readonly string[] };
+  /** PDF to Excel only: one sheet per page. Absent = one sheet. */
+  sheetPerPage?: boolean;
 }
 
 export function runWorkerPdfOfficeExport(
@@ -27,7 +29,9 @@ export function runWorkerPdfOfficeExport(
   const ocrFirst = input.tool === "pdf-to-word" && input.ocr !== undefined;
   const jobOptions: Record<string, unknown> = ocrFirst
     ? { ocr: true, languages: [...input.ocr!.languages] }
-    : {};
+    : input.tool === "pdf-to-excel" && input.sheetPerPage
+      ? { sheetPerPage: true }
+      : {};
   return runSecurityJob(
     input.tool,
     input.filename,

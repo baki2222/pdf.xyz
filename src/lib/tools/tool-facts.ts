@@ -1677,7 +1677,10 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
       return [
         {
           question: `How does ${tool.name} lay out the spreadsheet?`,
-          answer: `In one sheet, named “${XLSX_SHEET_NAME}”. Each line of the PDF's selectable text becomes a row, split into cells at ${XLSX_CELL_BREAK_PHRASE}, and each cell goes in the column where its text sits on the line, so an empty cell stays empty. A comma never splits a cell, and an amount or a percentage, such as ${listed([...XLSX_NUMBER_EXAMPLES], "or")}, is stored as a number a formula can add up. A date such as ${XLSX_TEXT_EXAMPLE} stays text, and nothing becomes a formula. ${XLSX_MERGE_CAVEAT}`,
+          // CHANGED 2026-11-08 (audit pdf-to-excel#3): "By default" and the
+          // option sentence. The option's label is not imported here, to
+          // keep this module's client importers from carrying it.
+          answer: `By default in one sheet, named “${XLSX_SHEET_NAME}”; its one option gives each page a sheet of its own instead. Each line of the PDF's selectable text becomes a row, split into cells at ${XLSX_CELL_BREAK_PHRASE}, and each cell goes in the column where its text sits on the line, so an empty cell stays empty. A comma never splits a cell, and an amount or a percentage, such as ${listed([...XLSX_NUMBER_EXAMPLES], "or")}, is stored as a number a formula can add up. A date such as ${XLSX_TEXT_EXAMPLE} stays text, and nothing becomes a formula. ${XLSX_MERGE_CAVEAT}`,
         },
         {
           question: `Should I use ${tool.name} or ${toolName("extract-tables")}?`,
