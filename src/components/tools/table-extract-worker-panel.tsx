@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { TABLE_OCR_HINT } from "@/lib/jobs/office-export-ocr";
+import { OcrFirstSwitch, useOcrFirstChoice } from "./ocr-first-switch";
 import { Download, ShieldCheck, Table, Timer } from "lucide-react";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import {
@@ -64,7 +66,9 @@ export function TableExtractWorkerPanel({ tool }: { tool: Tool }) {
     <WorkerPanelShell
       tool={tool}
       engine={{ label: "Table detection", icon: Table }}
-      description="Our server reads the PDF’s selectable text with its page positions, detects aligned table grids, and returns a ZIP of CSV files plus a combined Excel workbook. Scanned PDFs and PDFs without tables fail honestly."
+      // CHANGED 2026-11-08 (audit extract-tables#3): "Scanned PDFs and PDFs
+      // without tables fail honestly." — before the OCR switch below.
+      description="Our server reads the PDF’s selectable text with its page positions, detects aligned table grids, and returns a ZIP of CSV files plus a combined Excel workbook. Turn on OCR below for a scan; a PDF without tables fails honestly."
       canRun={canRunTableExtract}
       specRows={[
         { icon: Download, label: "You get", value: "ZIP · CSV + XLSX" },
@@ -109,19 +113,23 @@ function TableExtractRunArea({
     setOutcome(null);
     setFile(files[0] ?? null);
   });
+  // OCR first, in the same job (2026-11-08, audit extract-tables#3).
+  const ocr = useOcrFirstChoice(status);
+  const ocrRequest = ocr.request;
   const start = useCallback(async () => {
-    if (!file || !available) return;
+    if (!file || !available || ocr.blocked) return;
     await run(async (controls) => {
       const result = await runWorkerTableExtract(
         {
           filename: file.name,
           bytes: new Uint8Array(await file.arrayBuffer()),
+          ...(ocrRequest ? { ocr: ocrRequest } : {}),
         },
         controls,
       );
       return result;
     });
-  }, [file, run, available]);
+  }, [file, run, available, ocr.blocked, ocrRequest]);
   // Read only once the status says this panel cannot run.
   const unavailableDetail =
     status?.daemon.detail ?? "Our secure server is not drainable here.";
@@ -166,6 +174,7 @@ function TableExtractRunArea({
           hint="Selectable PDF"
         />
       )}
+      <OcrFirstSwitch choice={ocr} busy={busy} hint={TABLE_OCR_HINT} />
       <WorkerGate
         reserve={STATUS_SLOT}
         job={job}
@@ -174,7 +183,7 @@ function TableExtractRunArea({
           <WorkerRunButton
             onClick={start}
             busy={busy}
-            disabled={!ready || !file}
+            disabled={!ready || !file || ocr.blocked}
             busyLabel={jobBusyLabel(job.phase, "Extracting tables…")}
             icon={Table}
           >
@@ -196,8 +205,8 @@ function TableExtractRunArea({
           <p className="text-info flex items-start gap-1.5 text-xs leading-relaxed">
             <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
             Your PDF uploads to a private secure-server job only when you press{" "}
-            {RUN_LABEL}. Only aligned tables in selectable text are extracted;
-            scanned/image-only PDFs need OCR first.
+            {RUN_LABEL}. Only aligned tables in selectable text are extracted; a
+            scan needs the OCR switch on.
           </p>
         }
         off={

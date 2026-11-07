@@ -1,14 +1,8 @@
 import type { JobError } from "@/lib/jobs";
 import type { JobResults } from "@/lib/jobs/results";
-import { parsePdfToWordOptions } from "@/lib/jobs/ocr";
-import { WORD_OCR_LABEL } from "@/lib/jobs/pdf-office-export";
 import { OFFICE_OCR_TOOLS } from "@/lib/jobs/office-export-ocr";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
-import { OCR_REFUSAL_MESSAGES } from "../ocr-engine-errors";
-import { describeByteCeiling } from "../engine-file-ceilings";
-
-/** The tool slug the OCR processor serves; PDF to Word asks it by name. */
-const OCR_TOOL_SLUG = "ocr-pdf";
+import { ocrFirstMessages, runOcrFirst } from "./ocr-first";
 import {
   MAX_DISPLAY_FILENAME_LENGTH,
   sanitizeDisplayFilename,
@@ -162,30 +156,13 @@ const OUTPUT_NOUNS: Record<PdfOfficeExportTool, string> = {
 };
 
 /**
- * What "Recognise text in scans (OCR)" says when OCR cannot help, in words
- * for THIS panel and THIS tool. The OCR processor's own copy is written for
- * OCR PDF's panel. Since 2026-11-08 (audit pdf-to-excel#2,
- * pdf-to-powerpoint#4) the switch is on all three exports, so the tool name
- * and the file it makes are the tool's, never "PDF to Word" on an Excel job.
+ * What "Recognise text in scans (OCR)" says when OCR cannot help, for THIS
+ * tool. Since 2026-11-08 (audit pdf-to-excel#2, pdf-to-powerpoint#4) the
+ * switch is on all three exports, so the tool name and the file it makes are
+ * the tool's, never "PDF to Word" on an Excel job.
  */
 export function officeOcrMessages(tool: PdfOfficeExportTool) {
-  const name = TOOL_NAMES[tool];
-  return {
-    unavailable: `Recognising text in scans needs OCR, which isn't available on this worker. Turn off “${WORD_OCR_LABEL}” to convert the selectable text alone. Nothing was converted.`,
-    // CHANGED 2026-11-08 (audit pdf-to-word#3): "… Turn off “…” and convert
-    // again." — the only way out until this panel had Redo existing OCR.
-    priorText: `This PDF already has a text layer, and the OCR engine would not add a second one. Turn on “Redo existing OCR” to replace a poor text layer, or turn off “${WORD_OCR_LABEL}” to convert the text it has. Nothing was converted.`,
-    noText: `OCR ran, but found no text in this PDF to put in ${OUTPUT_NOUNS[tool]}. Check the languages you chose match the page. Nothing was converted.`,
-    /** The upload itself is over the export's ceiling — said before OCR runs. */
-    tooLarge: (limit: number) =>
-      `This PDF is larger than ${describeByteCeiling(limit)}, the most ${name} converts per file. Nothing was converted.`,
-    /**
-     * OCR's searchable PDF outgrew the ceiling the upload was under: a text
-     * layer adds bytes, and OCR may re-encode the page images.
-     */
-    grew: (size: number, limit: number) =>
-      `Recognising the text made this PDF ${describeByteCeiling(size)}, past the ${describeByteCeiling(limit)} ${name} converts per file. Split the PDF and convert the parts. Nothing was converted.`,
-  };
+  return ocrFirstMessages(TOOL_NAMES[tool], OUTPUT_NOUNS[tool]);
 }
 
 /** Wiring beyond the export engine: the processors a job may run first. */
@@ -246,79 +223,16 @@ export function createPdfOfficeExportProcessor(
       let ocrResults: JobResults | undefined;
       const messages = officeOcrMessages(input.tool);
       if (OCR_FIRST_TOOLS.includes(input.tool)) {
-        const parsed = parsePdfToWordOptions(input.options);
-        if (!parsed.ok)
-          return processorFail({
-            code: parsed.error.body.error.code,
-            message: parsed.error.body.error.message,
-            retryable: false,
-          });
-        if (parsed.value.ocr) {
-          const ocr = chain.ocr;
-          if (!ocr || !ocr.capability().ready)
-            return processorFail({
-              code: "not_implemented",
-              message: messages.unavailable,
-              retryable: false,
-            });
-          // The export's input ceiling, checked HERE as well as in the
-          // engine. Until 2026-11-06 (audit #50) only the engine checked it,
-          // against OCR's OUTPUT: an over-ceiling upload was recognised for
-          // minutes before the refusal, and a searchable PDF that grew past
-          // the ceiling was reported as "The PDF input exceeds the worker's
-          // size limit." — no number, blaming a file the page had accepted.
-          const maxInput = deps.limits?.maxInputBytes;
-          if (maxInput !== undefined && bytes.byteLength > maxInput)
-            return processorFail({
-              code: "payload_too_large",
-              message: messages.tooLarge(maxInput),
-              retryable: false,
-            });
-          // The OCR processor itself: option validation, the installed-pack
-          // check and the refusal mapping are OCR PDF's, not a copy of them.
-          const recognised = await ocr.process({
-            ...input,
-            tool: OCR_TOOL_SLUG,
-            // The page choices since 2026-11-08 (audit pdf-to-word#3):
-            // until then only languages went, so a sideways or crooked scan
-            // was recognised as it lay.
-            options: {
-              languages: parsed.value.languages,
-              outputMode: "searchable-pdf",
-              rotatePages: parsed.value.rotatePages,
-              deskew: parsed.value.deskew,
-              redoOcr: parsed.value.redoOcr,
-            },
-          });
-          if (!recognised.ok) {
-            // Its refusal copy names OCR PDF's switch; say this panel's.
-            const prior =
-              recognised.error.message === OCR_REFUSAL_MESSAGES["prior-text"];
-            return processorFail(
-              prior
-                ? { ...recognised.error, message: messages.priorText }
-                : recognised.error,
-            );
-          }
-          const pdf = recognised.artifacts.find(
-            (a) => a.contentType === "application/pdf",
-          );
-          if (!pdf)
-            return processorFail({
-              code: "internal_error",
-              message: "The OCR engine produced no searchable PDF.",
-              retryable: true,
-            });
-          // Deterministic, so final: the same scan recognises to the same size.
-          if (maxInput !== undefined && pdf.bytes.byteLength > maxInput)
-            return processorFail({
-              code: "payload_too_large",
-              message: messages.grew(pdf.bytes.byteLength, maxInput),
-              retryable: false,
-            });
-          bytes = pdf.bytes;
-          ocrResults = recognised.results;
-        }
+        const first = await runOcrFirst(
+          input,
+          bytes,
+          chain.ocr,
+          messages,
+          deps.limits?.maxInputBytes,
+        );
+        if (!first.ok) return first.result;
+        bytes = first.bytes;
+        ocrResults = first.results;
       }
 
       const run = await runPdfOfficeExport(

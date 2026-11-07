@@ -167,6 +167,9 @@ export function copyFiles(): string[] {
     // The PDF to Office exports' OCR switch hints, per tool (2026-11-08,
     // audit pdf-to-excel#2), drawn by the export panel.
     path.join(ROOT, "src", "lib", "jobs", "office-export-ocr.ts"),
+    // What the OCR-first step says when OCR cannot help (2026-11-08), read
+    // by the PDF to Office and Extract Tables panels' job errors.
+    path.join(ROOT, "src", "lib", "workers", "processor", "ocr-first.ts"),
     // Protect PDF's permission switch labels and their two "why it cannot
     // be turned off" sentences (2026-10-24), drawn by the panel and the page.
     path.join(ROOT, "src", "lib", "jobs", "pdf-permission-labels.ts"),

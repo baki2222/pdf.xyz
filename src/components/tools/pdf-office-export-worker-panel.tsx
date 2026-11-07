@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useId, useState } from "react";
+import { useCallback, useState } from "react";
 import { Download, FileText, ShieldCheck, Timer } from "lucide-react";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import {
@@ -30,12 +30,11 @@ import {
 } from "./worker-panel-shell";
 import { OfficeExportCoverageNotice } from "./office-export-coverage";
 import { OfficeExportNextStep } from "./office-export-notices";
-import { OcrLanguagePicker, useOcrLanguageChoice } from "./ocr-language-picker";
+import { OcrFirstSwitch, useOcrFirstChoice } from "./ocr-first-switch";
 import {
   OFFICE_OCR_HINTS,
   offersOfficeOcr,
 } from "@/lib/jobs/office-export-ocr";
-import { PDF_TO_WORD_OCR_LANGUAGE_CODES } from "@/lib/jobs/ocr";
 
 /**
  * The status slot's reserved height (see `WorkerStatusSlot` and
@@ -192,23 +191,9 @@ function PdfOfficeRunArea({
   // 2026-10-24, PDF to Excel and PDF to PowerPoint since 2026-11-08
   // (`OFFICE_OCR_TOOLS`).
   const offersOcr = offersOfficeOcr(tool);
-  const [ocrOn, setOcrOn] = useState(false);
-  // Right-to-left scripts are left out: their words come out of the
-  // conversion out of order (`PDF_TO_WORD_OCR_LANGUAGE_CODES`).
-  const languageChoice = useOcrLanguageChoice(
-    status,
-    PDF_TO_WORD_OCR_LANGUAGE_CODES,
-  );
-  // OCR PDF's page choices (audit pdf-to-word#3, 2026-11-08). Straighten
-  // and Redo turn each other off, as on OCR PDF; parseOcrOptions refuses
-  // the pair on the server as well.
-  const [rotatePages, setRotatePages] = useState(false);
-  const [deskew, setDeskew] = useState(false);
-  const [redoOcr, setRedoOcr] = useState(false);
-  const deskewId = useId();
-  const ocrAvailable = status?.ocr.available === true;
-  const ocrBlocked = offersOcr && ocrOn && !ocrAvailable;
-  const languages = languageChoice.selected;
+  const ocr = useOcrFirstChoice(status);
+  const ocrBlocked = offersOcr && ocr.blocked;
+  const ocrRequest = offersOcr ? ocr.request : undefined;
   const start = useCallback(async () => {
     if (!file || !available || ocrBlocked) return;
     await run(async (controls) => {
@@ -217,27 +202,13 @@ function PdfOfficeRunArea({
           tool,
           filename: file.name,
           bytes: new Uint8Array(await file.arrayBuffer()),
-          ...(offersOcr && ocrOn
-            ? { ocr: { languages, rotatePages, deskew, redoOcr } }
-            : {}),
+          ...(ocrRequest ? { ocr: ocrRequest } : {}),
         },
         controls,
       );
       return result;
     });
-  }, [
-    file,
-    tool,
-    run,
-    available,
-    ocrBlocked,
-    offersOcr,
-    ocrOn,
-    languages,
-    rotatePages,
-    deskew,
-    redoOcr,
-  ]);
+  }, [file, tool, run, available, ocrBlocked, ocrRequest]);
   // Read only once the status says this panel cannot run.
   const unavailableDetail =
     status?.daemon.detail ?? "Our secure server is not drainable here.";
@@ -283,113 +254,11 @@ function PdfOfficeRunArea({
         />
       )}
       {offersOcr && (
-        <div className="border-line rounded-panel flex flex-col gap-3 border p-3">
-          <label className="text-muted flex items-start gap-2.5 text-sm">
-            <input
-              type="checkbox"
-              checked={ocrOn}
-              // Guarded, never `disabled`: focus stays put mid-run (#46).
-              onChange={(event) => {
-                if (!busy) setOcrOn(event.target.checked);
-              }}
-              aria-disabled={busy || undefined}
-              className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4"
-            />
-            <span className="flex flex-col gap-0.5">
-              <span className="text-fg font-medium">
-                Recognise text in scans (OCR)
-              </span>
-              <span className="text-muted text-xs leading-relaxed">
-                {OFFICE_OCR_HINTS[tool as keyof typeof OFFICE_OCR_HINTS]}
-              </span>
-            </span>
-          </label>
-          {ocrOn &&
-            (ocrAvailable ? (
-              <>
-                <OcrLanguagePicker choice={languageChoice} />
-                <label className="text-muted flex min-h-11 items-start gap-2.5 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={rotatePages}
-                    // Guarded, never `disabled`: focus stays put (#46).
-                    onChange={(event) => {
-                      if (!busy) setRotatePages(event.target.checked);
-                    }}
-                    aria-disabled={busy || undefined}
-                    className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4"
-                  />
-                  <span className="flex flex-col gap-0.5">
-                    <span className="text-fg font-medium">
-                      Turn pages upright
-                    </span>
-                    <span className="text-muted text-xs leading-relaxed">
-                      Sideways or upside-down scanned pages without text.
-                    </span>
-                  </span>
-                </label>
-                <label className="text-muted flex min-h-11 items-start gap-2.5 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={deskew}
-                    // Off while Redo is on: OCRmyPDF refuses the pair.
-                    onChange={(event) => {
-                      if (!busy && !redoOcr) setDeskew(event.target.checked);
-                    }}
-                    aria-disabled={busy || redoOcr || undefined}
-                    // Named by its label alone: the hint names the other
-                    // box, and a name containing it would answer for both.
-                    aria-labelledby={`${deskewId}-name`}
-                    aria-describedby={`${deskewId}-hint`}
-                    className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4 aria-disabled:opacity-50"
-                  />
-                  <span className="flex flex-col gap-0.5">
-                    <span
-                      id={`${deskewId}-name`}
-                      className="text-fg font-medium"
-                    >
-                      Straighten crooked pages
-                    </span>
-                    <span
-                      id={`${deskewId}-hint`}
-                      className="text-muted text-xs leading-relaxed"
-                    >
-                      For scanned pages without text; each one it levels is
-                      redrawn as a new image. Not with Redo existing OCR.
-                    </span>
-                  </span>
-                </label>
-                <label className="text-muted flex min-h-11 items-start gap-2.5 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={redoOcr}
-                    // Off while Straighten is on, as above.
-                    onChange={(event) => {
-                      if (!busy && !deskew) setRedoOcr(event.target.checked);
-                    }}
-                    aria-disabled={busy || deskew || undefined}
-                    className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4 aria-disabled:opacity-50"
-                  />
-                  <span className="flex flex-col gap-0.5">
-                    <span className="text-fg font-medium">
-                      Redo existing OCR
-                    </span>
-                    <span className="text-muted text-xs leading-relaxed">
-                      For a PDF whose earlier OCR text is poor: that text is
-                      removed and those pages are recognised again. Text typed
-                      into the document is kept.
-                    </span>
-                  </span>
-                </label>
-              </>
-            ) : (
-              <p className="text-warn text-xs leading-relaxed">
-                {status?.ocr.detail ??
-                  "OCR isn't available on this server, so this option can't run here."}{" "}
-                Turn it off to convert the selectable text alone.
-              </p>
-            ))}
-        </div>
+        <OcrFirstSwitch
+          choice={ocr}
+          busy={busy}
+          hint={OFFICE_OCR_HINTS[tool as keyof typeof OFFICE_OCR_HINTS]}
+        />
       )}
       <WorkerGate
         reserve={STATUS_SLOT}

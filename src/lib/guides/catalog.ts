@@ -5454,7 +5454,7 @@ export const guides: Guide[] = [
     slug: "how-to-extract-tables-from-a-pdf",
     title: "How to extract tables from a PDF",
     description:
-      "Pull the tables out of a text-based PDF into CSV files and one Excel workbook, a sheet per table. It runs on a secure server; scans need OCR first.",
+      "Pull the tables out of a PDF into CSV files and one Excel workbook, a sheet per table. It runs on a secure server, and can read a scan with OCR first.",
     tools: ["extract-tables", "pdf-to-excel", "ocr-pdf"],
     keywords: [
       "how to extract tables from a pdf",
@@ -5506,14 +5506,14 @@ export const guides: Guide[] = [
         heading: "Extract Tables, PDF to Excel, or OCR first",
         body: [
           `${nameOf("pdf-to-excel")} puts every line of the PDF's text into one sheet, each value in the column it sits in, which suits getting all of the text into a grid. ${nameOf("extract-tables")} keeps only the table-shaped blocks, each on its own sheet. Both run on our secure server.`,
-          `A scanned page has no text to read, so it produces nothing, and a file with no text on any page stops with a message pointing you to ${nameOf("ocr-pdf")}. Run it there with the page's language selected, choose a searchable PDF as the result, and bring that file back.`,
+          `A scanned page has no text to read on its own. Tick “${WORD_OCR_LABEL}” before you press Extract tables and pick the page's languages: our server recognises the words first, with ${nameOf("ocr-pdf")}'s engine, and looks for tables in the result in the same job. Without it, a file with no text on any page stops with a message pointing you to ${nameOf("ocr-pdf")}.`,
         ],
       },
     ],
     faq: [
       {
         question: "Can it extract tables from a scanned PDF?",
-        answer: `Not directly. A scan holds a picture of its words, so there are no word positions to read. Run it through ${nameOf("ocr-pdf")} first to add a text layer, then extract the tables from the searchable copy, and check the figures, since recognition can misread them.`,
+        answer: `Yes, with “${WORD_OCR_LABEL}” ticked. A scan holds a picture of its words, so on its own there are no word positions to read; with the switch on, our server runs ${nameOf("ocr-pdf")}'s engine first and extracts the tables from the recognised text in the same job. Check the figures, since recognition can misread them.`,
       },
       {
         question: "Why did a page with an obvious table give nothing?",
@@ -5533,7 +5533,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-06",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-convert-pdf-to-markdown",

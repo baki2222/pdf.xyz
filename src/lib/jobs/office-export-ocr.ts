@@ -11,6 +11,15 @@
  */
 import { WORD_OCR_HINT } from "./pdf-office-export";
 
+/**
+ * Extract Tables' hint for the same switch (2026-11-08, audit
+ * extract-tables#3). Not in {@link OFFICE_OCR_TOOLS}: that list is the PDF
+ * to Office processor's, and Extract Tables has its own processor, which
+ * always runs the shared OCR-first step (`workers/processor/ocr-first.ts`).
+ */
+export const TABLE_OCR_HINT =
+  "Runs OCR on our secure server first, in the languages you pick, then looks for tables in the recognised text, all in one job. Pages that already have text are kept as they are. Check the figures against the scan, since recognition can misread them.";
+
 /** The exports whose panel offers the OCR switch. */
 export const OFFICE_OCR_TOOLS = [
   "pdf-to-word",

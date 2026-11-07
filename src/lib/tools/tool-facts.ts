@@ -1848,7 +1848,10 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
         },
         {
           question: `Can ${tool.name} read a scanned PDF?`,
-          answer: `No. A scanned page is a picture with no selectable text, so the job stops and says so rather than guessing. Run the scan through ${toolName("ocr-pdf")} first, then extract from the result.`,
+          // CHANGED 2026-11-08 (audit extract-tables#3): "No. … Run the scan
+          // through OCR PDF first, then extract from the result." — true until
+          // the panel could run OCR in the same job.
+          answer: `Yes, with “${WORD_OCR_LABEL}” turned on. On its own a scanned page is a picture with no selectable text, so the job stops and says so rather than guessing. With the switch on, our server runs ${toolName("ocr-pdf")}'s engine first, in the languages you pick, and looks for tables in the recognised text in the same job. Check the figures against the scan, since recognition can misread them.`,
         },
       ];
     case "summarize-pdf":

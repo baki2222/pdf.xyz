@@ -27,8 +27,10 @@ import type { PdfFlowExtractor } from "@/lib/workers/pdf-office-export/engine";
 import { noPictures } from "@/tests/page-scan-stubs";
 import { readyFileInput } from "@/tests/worker-ready";
 import { PdfOfficeExportWorkerPanel } from "./pdf-office-export-worker-panel";
+import { TableExtractWorkerPanel } from "./table-extract-worker-panel";
 
-type OcrTool = "pdf-to-word" | "pdf-to-excel" | "pdf-to-powerpoint";
+type OcrTool =
+  "pdf-to-word" | "pdf-to-excel" | "pdf-to-powerpoint" | "extract-tables";
 const providers = getProviderReadiness("remote-configured");
 
 function status(ocrAvailable: boolean): WorkerStatus {
@@ -76,6 +78,7 @@ function status(ocrAvailable: boolean): WorkerStatus {
 const SCAN = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31]);
 const SEARCHABLE = new TextEncoder().encode("%PDF-1.7 searchable");
 const WORDS = "Scanned receipt total 41.20 recognised by OCR";
+const TABLE_WORD = "Recognised-receipt";
 
 const extractFlow: PdfFlowExtractor = async (bytes) => ({
   pageCount: 1,
@@ -134,6 +137,27 @@ function worker() {
       },
       extractFlow,
       scanPages: noPictures,
+    },
+    // A table only in OCR's output: header row, one row of the words.
+    tableExtract: {
+      extractLayout: async (bytes) => ({
+        pageCount: 1,
+        pages: [
+          {
+            pageNumber: 1,
+            width: 400,
+            height: 300,
+            items: Buffer.from(bytes).equals(Buffer.from(SEARCHABLE))
+              ? [
+                  { text: "Item", x: 50, y: 100, width: 20, height: 10 },
+                  { text: "Total", x: 250, y: 100, width: 20, height: 10 },
+                  { text: TABLE_WORD, x: 50, y: 80, width: 60, height: 10 },
+                  { text: "41.20", x: 250, y: 80, width: 20, height: 10 },
+                ]
+              : [],
+          },
+        ],
+      }),
     },
   });
   return { registry, ocrAsked };
@@ -221,7 +245,14 @@ function stubNetwork(ocrAvailable: boolean, tool: OcrTool = "pdf-to-word") {
 }
 
 async function addFile(tool: OcrTool = "pdf-to-word") {
-  render(<PdfOfficeExportWorkerPanel tool={getToolBySlug(tool)!} />);
+  const catalogTool = getToolBySlug(tool)!;
+  render(
+    tool === "extract-tables" ? (
+      <TableExtractWorkerPanel tool={catalogTool} />
+    ) : (
+      <PdfOfficeExportWorkerPanel tool={catalogTool} />
+    ),
+  );
   const input = await vi.waitFor(() => {
     const found = readyFileInput();
     if (!found) throw new Error("no file input yet");
@@ -439,5 +470,46 @@ describe("PDF to Word: OCR PDF's page choices beside the switch", () => {
     fireEvent.click(screen.getByRole("button", { name: /export docx/i }));
     await screen.findByText("Your DOCX file is ready.");
     expect(net.sent[0]).toMatchObject({ ocr: true, redoOcr: true });
+  });
+});
+
+/**
+ * Audit extract-tables#3 (2026-11-08): the same switch on Extract Tables.
+ * Until then a scan failed with "Run OCR PDF first" and the visitor went to
+ * OCR PDF and back.
+ */
+describe("Extract Tables: Recognise text in scans (OCR)", () => {
+  it("control: off by default — no options travel and OCR never runs", async () => {
+    const net = stubNetwork(true, "extract-tables");
+    await addFile("extract-tables");
+    fireEvent.click(screen.getByRole("button", { name: /extract tables/i }));
+    await waitFor(() => expect(net.sent).toHaveLength(1));
+    expect(net.sent[0]).toEqual({});
+    expect(net.ocrAsked).toEqual([]);
+  });
+
+  it("on: the chosen languages and a page choice travel, and the ZIP's CSV holds the recognised table", async () => {
+    const net = stubNetwork(true, "extract-tables");
+    await addFile("extract-tables");
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /recognise text in scans/i }),
+    );
+    await screen.findByRole("group", { name: "OCR languages" });
+    fireEvent.click(screen.getByRole("button", { name: "German" }));
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /^Turn pages upright/ }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /extract tables/i }));
+    await screen.findAllByText(/Your tables are ready/);
+    expect(net.sent[0]).toMatchObject({ ocr: true, rotatePages: true });
+    expect((net.sent[0] as { languages: string[] }).languages).toContain("deu");
+    expect(net.ocrAsked).toHaveLength(1);
+    const zip = await JSZip.loadAsync(net.output()!);
+    const csvs = Object.keys(zip.files).filter((n) => n.endsWith(".csv"));
+    expect(csvs.length).toBeGreaterThan(0);
+    const csv = (
+      await Promise.all(csvs.map((n) => zip.file(n)!.async("string")))
+    ).join("");
+    expect(csv).toContain(TABLE_WORD);
   });
 });
