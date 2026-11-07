@@ -77,6 +77,11 @@ export const RAW_COLOUR_ALLOWANCE: Record<string, Record<string, string>> = {
     "bg-white": PAPER,
     "ring-black/10": `${PAPER} (its edge)`,
   },
+  // The enlarged page of Delete / Extract Pages' board (2026-11-08).
+  "src/components/tools/runner/page-zoom-dialog.tsx": {
+    "bg-white": PAPER,
+    "ring-black/5": `${PAPER} (its edge)`,
+  },
   "src/components/tools/runner/crop-runner.tsx": {
     "bg-white/90": PAPER,
     "ring-black/10": `${PAPER} (its edge)`,

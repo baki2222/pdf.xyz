@@ -679,7 +679,7 @@ function EdgeHandle({
         onChange(clamp(next));
       }}
       className={cn(
-        "tap focus-visible:ring-accent/50 absolute z-10 grid size-6 -translate-x-1/2 -translate-y-1/2 touch-none place-items-center rounded-full outline-none focus-visible:ring-2",
+        "tap focus-visible:ring-accent/50 rounded-tag absolute z-10 grid size-6 -translate-x-1/2 -translate-y-1/2 touch-none place-items-center outline-none focus-visible:ring-2",
         vertical ? "cursor-ns-resize" : "cursor-ew-resize",
       )}
       style={position}
@@ -687,7 +687,7 @@ function EdgeHandle({
       <span
         aria-hidden
         className={cn(
-          "bg-accent rounded-full shadow-sm ring-2 ring-white",
+          "bg-accent rounded-tag ring-canvas shadow-sm ring-2",
           vertical ? "h-1.5 w-5" : "h-5 w-1.5",
         )}
       />
