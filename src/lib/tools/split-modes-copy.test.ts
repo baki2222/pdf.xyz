@@ -10,7 +10,8 @@
 import { describe, expect, it } from "vitest";
 import { SPLIT_MODES, SPLIT_MODE_LABEL } from "@/lib/pdf/offered-kinds";
 import { getToolBySlug } from "@/lib/tools";
-import { pageIntro, pageSteps, stepText } from "@/lib/tools/page-copy";
+import { pageFaq, pageIntro, pageSteps, stepText } from "@/lib/tools/page-copy";
+import { buildSplitParts, oddEvenParts } from "@/lib/pdf/ranges";
 import { guides } from "@/lib/guides/catalog";
 
 const WORDS = [
@@ -71,5 +72,52 @@ describe("Split PDF's copy counts and names every split mode", () => {
     expect(WORDS[SPLIT_MODES.length - 1]).not.toBe(WORDS[SPLIT_MODES.length]);
     const without = intro.replace(SPLIT_MODE_LABEL.oddEven, "");
     expect(without).not.toContain(SPLIT_MODE_LABEL.oddEven);
+  });
+});
+
+/**
+ * Audit split-pdf#5 (2026-11-07): By bookmarks names each file after its
+ * bookmark, and Odd and even pages (split-pdf#6) names its two files by
+ * side. The FAQ "What are the split files called?" said every piece was
+ * <name>-<seq>-<page span> "in every mode", which both made false. Its
+ * examples must be names the code really builds, and it must not claim one
+ * pattern for every mode.
+ */
+describe("Split PDF's file-name answer is what the code names the files", () => {
+  const answer = pageFaq(tool).find((f) =>
+    /what are the split files called/i.test(f.question),
+  )?.answer;
+
+  it("the answer exists (health)", () => {
+    expect(answer).toBeTruthy();
+  });
+
+  it("every example name is one buildSplitParts or oddEvenParts produces", () => {
+    const titled = buildSplitParts(
+      "report",
+      [
+        { start: 0, end: 0 },
+        { start: 1, end: 9 },
+      ],
+      [undefined, "Chapter 2"],
+    )[1]!.name;
+    const sides = oddEvenParts("report", 2).map((p) => p.name);
+    for (const name of [titled, ...sides]) expect(answer).toContain(name);
+    // Every report-….pdf the answer quotes is one of the names built here
+    // or a page-span name buildSplitParts gives for twelve parts.
+    const spans = buildSplitParts("report", [
+      { start: 0, end: 2 },
+      ...Array.from({ length: 10 }, (_, i) => ({ start: 3 + i, end: 3 + i })),
+      { start: 39, end: 39 },
+    ]).map((p) => p.name);
+    const known = new Set([titled, ...sides, ...spans]);
+    const quoted = answer!.match(/\breport-[^\s,]+?\.pdf\b/g) ?? [];
+    expect(quoted.length).toBeGreaterThanOrEqual(4);
+    expect(quoted.filter((n) => !known.has(n))).toEqual([]);
+  });
+
+  it("it names the box that turns bookmark names off, and claims no single pattern", () => {
+    expect(answer).toContain("Name each file after its bookmark");
+    expect(answer).not.toMatch(/\bin every mode\b/i);
   });
 });

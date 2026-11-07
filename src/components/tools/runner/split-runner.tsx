@@ -108,6 +108,9 @@ export function SplitEditor({
   const mergeId = useId();
   const bookmarksNoteId = useId();
   const textCaseId = useId();
+  // By bookmarks: name each file after its bookmark (audit split-pdf#5).
+  const [nameByBookmark, setNameByBookmark] = useState(true);
+  const nameByBookmarkId = useId();
   const [textQuery, setTextQuery] = useState("");
   const [textCase, setTextCase] = useState(false);
   // Each page's selectable text, read the first time "By text" is chosen.
@@ -215,8 +218,13 @@ export function SplitEditor({
         for (const m of marks) {
           if (!titleAt.has(m.pageIndex)) titleAt.set(m.pageIndex, m.title);
         }
+        const titles = ranges.map((r) => titleAt.get(r.start));
         return {
-          parts: buildSplitParts(base, ranges).map((part, i) => ({
+          parts: buildSplitParts(
+            base,
+            ranges,
+            nameByBookmark ? titles : undefined,
+          ).map((part, i) => ({
             ...part,
             label: titleAt.get(ranges[i]!.start) ?? "Before the first bookmark",
           })),
@@ -262,6 +270,7 @@ export function SplitEditor({
     size,
     sizeValid,
     marks,
+    nameByBookmark,
     targetBytes,
     textPlan,
   ]);
@@ -516,6 +525,20 @@ export function SplitEditor({
           A new file starts at each top-level bookmark&apos;s page. Pages before
           the first bookmark become a file of their own.
         </p>
+      )}
+      {mode === "bookmarks" && marks !== null && marks.length > 0 && (
+        <label
+          htmlFor={nameByBookmarkId}
+          className="text-fg flex min-h-11 items-center gap-2 text-sm"
+        >
+          <input
+            id={nameByBookmarkId}
+            type="checkbox"
+            checked={nameByBookmark}
+            onChange={(e) => setNameByBookmark(e.target.checked)}
+          />
+          <span>Name each file after its bookmark</span>
+        </label>
       )}
 
       {mode === "text" && (

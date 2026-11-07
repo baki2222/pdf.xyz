@@ -10,6 +10,7 @@ import {
   rangesEveryN,
   rangesPerPage,
   rangeToIndices,
+  SPLIT_TITLE_MAX_CHARS,
 } from "./ranges";
 
 describe("parsePageList", () => {
@@ -173,5 +174,45 @@ describe("oddEvenParts (audit split-pdf#6)", () => {
   });
   it("sanitises the base like every other part name", () => {
     expect(oddEvenParts("Q3: plan?", 2)[0]!.name).toBe("Q3 plan-odd-pages.pdf");
+  });
+});
+
+describe("buildSplitParts with titles (audit split-pdf#5)", () => {
+  const ranges = [
+    { start: 0, end: 0 },
+    { start: 1, end: 2 },
+    { start: 3, end: 4 },
+  ];
+  it("names a part after its title, keeping the sequence number first", () => {
+    expect(
+      buildSplitParts("book", ranges, [
+        undefined,
+        "Chapter 2",
+        "Chapter 3",
+      ]).map((p) => p.name),
+    ).toEqual([
+      "book-1-page-1.pdf",
+      "book-2-Chapter 2.pdf",
+      "book-3-Chapter 3.pdf",
+    ]);
+  });
+  it("a title is made safe for every file system, and a blank one keeps the page span", () => {
+    const names = buildSplitParts("book", ranges, [
+      "  ",
+      'Q3: "plan"? / notes.',
+      "x".repeat(200),
+    ]).map((p) => p.name);
+    expect(names[0]).toBe("book-1-page-1.pdf");
+    expect(names[1]).toBe("book-2-Q3 plan notes.pdf");
+    expect(names[2]!.length).toBeLessThanOrEqual(
+      "book-3-".length + SPLIT_TITLE_MAX_CHARS + ".pdf".length,
+    );
+  });
+  it("without titles the names are what they always were", () => {
+    expect(buildSplitParts("book", ranges).map((p) => p.name)).toEqual([
+      "book-1-page-1.pdf",
+      "book-2-pages-2-3.pdf",
+      "book-3-pages-4-5.pdf",
+    ]);
   });
 });

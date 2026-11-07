@@ -145,3 +145,75 @@ describe("Split PDF · odd and even pages", () => {
     expect(screen.queryByText("one-even-pages.pdf")).toBeNull();
   });
 });
+
+/**
+ * Audit split-pdf#5 (2026-11-07): By bookmarks showed each part's bookmark
+ * title in the preview, then downloaded it as <name>-03-pages-41-80.pdf, so
+ * a report split into chapters had to be renamed file by file. Each file is
+ * now named after its bookmark unless "Name each file after its bookmark" is
+ * unticked.
+ */
+describe("Split PDF · By bookmarks names files after their bookmarks", () => {
+  async function bookmarked(): Promise<Uint8Array> {
+    const { PDFName, PDFString, PDFNumber } = await import("pdf-lib");
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < 5; i++) doc.addPage([300, 400]);
+    const ctx = doc.context;
+    const outlines = ctx.nextRef();
+    const starts = [1, 3];
+    const refs = starts.map(() => ctx.nextRef());
+    starts.forEach((start, i) => {
+      ctx.assign(
+        refs[i]!,
+        ctx.obj({
+          Title: PDFString.of(i === 0 ? "Chapter: One?" : "Appendix"),
+          Parent: outlines,
+          Dest: ctx.obj([doc.getPage(start).ref, PDFName.of("Fit")]),
+          ...(i > 0 ? { Prev: refs[i - 1] } : {}),
+          ...(i < starts.length - 1 ? { Next: refs[i + 1] } : {}),
+        }),
+      );
+    });
+    ctx.assign(
+      outlines,
+      ctx.obj({
+        Type: PDFName.of("Outlines"),
+        First: refs[0],
+        Last: refs[refs.length - 1],
+        Count: PDFNumber.of(starts.length),
+      }),
+    );
+    doc.catalog.set(PDFName.of("Outlines"), outlines);
+    return doc.save();
+  }
+
+  it("previews each bookmarked part under its title, and the box turns it off", async () => {
+    const source = await bookmarked();
+    render(
+      <SplitEditor pdf={loaded(source, "report.pdf", 5)} onReset={() => {}} />,
+    );
+    const mode = screen.getByRole("button", {
+      name: SPLIT_MODE_LABEL.bookmarks,
+    });
+    fireEvent.click(mode);
+    // Health: the outline was read (the preview shows the bookmark label).
+    expect(
+      await screen.findByText("Appendix", undefined, { timeout: 5_000 }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText("report-3-Appendix.pdf", undefined, {
+        timeout: 5_000,
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("report-2-Chapter One.pdf")).toBeInTheDocument();
+    // Pages before the first bookmark have no title: the page span stays.
+    expect(screen.getByText("report-1-page-1.pdf")).toBeInTheDocument();
+    const box = screen.getByRole("checkbox", {
+      name: /name each file after its bookmark/i,
+    });
+    expect(box).toBeChecked();
+    fireEvent.click(box);
+    expect(screen.getByText("report-3-pages-4-5.pdf")).toBeInTheDocument();
+    expect(screen.queryByText("report-3-Appendix.pdf")).toBeNull();
+  }, 20_000);
+});
