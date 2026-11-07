@@ -98,7 +98,7 @@ export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
     <WorkerPanelShell
       tool={tool}
       engine={{ label: "Office conversion", icon: FileText }}
-      description="LibreOffice converts your uploaded document into a real PDF on our isolated server. It produces a PDF artifact or fails honestly — no placeholder output."
+      description="LibreOffice turns your document into a PDF on our secure server. If it cannot, you will see why."
       canRun={(status) =>
         canRunOfficeConversion(status) && isOfficeTool(tool.slug)
       }
@@ -143,7 +143,7 @@ function OfficeRunArea({
   catalogTool: Tool;
   accept: string;
 }) {
-  const { available, status } = useWorkerPanel();
+  const { available } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
   const job = useWorkerJob<OfficeConversionWorkerResult>({
     tool: tool,
@@ -241,14 +241,13 @@ function OfficeRunArea({
         }
         off={
           <>
+            {/* Plain words (audit word-to-pdf#5): this read the daemon's
+                account of queues and object storage, or "not drainable". */}
             <p className="text-muted text-sm leading-relaxed">
-              {status?.daemon.detail ??
-                "Our secure server is not drainable here."}
+              Conversion is unavailable right now.
             </p>
             <p className="text-muted text-xs leading-relaxed">
-              {RUN_LABEL} stays off until our server is ready, so{" "}
-              {catalogTool.name} never pretends to process input it cannot
-              actually convert.
+              {RUN_LABEL} stays off until our server is ready.
             </p>
           </>
         }
