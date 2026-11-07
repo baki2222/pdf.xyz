@@ -19,6 +19,8 @@ import {
   lineLeft,
   needsUnicodeFace,
 } from "@/lib/pdf/editor/text";
+import { markupOf, markupStroke } from "@/lib/pdf/editor/markup";
+import { STICKY_ICON, stickyPopupOrigin } from "@/lib/pdf/editor/sticky";
 import type { TextKit } from "./measure";
 
 /**
@@ -148,6 +150,51 @@ export function ObjectShape({
     case "text":
       return hideWords ? null : <Words obj={obj} kit={kit} inset={0} />;
     case "note": {
+      if (obj.sticky) {
+        // A comment: its icon; while its words are typed, the popup's
+        // paper beside it (the textarea sits on it).
+        const pop = stickyPopupOrigin(obj);
+        const s = STICKY_ICON;
+        return (
+          <>
+            <g data-sticky-icon="">
+              <title>{obj.text}</title>
+              <rect
+                x={obj.x + 0.5}
+                y={obj.y + 0.5}
+                width={s - 1}
+                height={s - 1}
+                rx={2}
+                fill={obj.fill}
+                stroke="#9e851a"
+                strokeWidth={1}
+              />
+              {[0.32, 0.5, 0.68].map((t) => (
+                <line
+                  key={t}
+                  x1={obj.x + s * 0.22}
+                  x2={obj.x + s * 0.78}
+                  y1={obj.y + s * t}
+                  y2={obj.y + s * t}
+                  stroke="#5c4d0f"
+                  strokeWidth={1.2}
+                />
+              ))}
+            </g>
+            {hideWords && (
+              <rect
+                x={pop.x}
+                y={pop.y}
+                width={obj.width}
+                height={Math.max(kit.height(obj) + NOTE_PADDING * 2, 48)}
+                fill={obj.fill}
+                stroke="#9e851a"
+                strokeWidth={0.75}
+              />
+            )}
+          </>
+        );
+      }
       const height = Math.max(
         kit.height(obj) + NOTE_PADDING * 2,
         obj.height ?? 0,
@@ -263,18 +310,58 @@ export function ObjectShape({
           vectorEffect="non-scaling-stroke"
         />
       );
-    case "highlight":
+    case "highlight": {
+      const markup = markupOf(obj);
+      // Text selected to mark: each line's quad; a dragged box: the box —
+      // what the export draws (`editor-export.ts`).
+      const quads = obj.quads ?? [obj];
+      if (markup === "highlight") {
+        return (
+          <>
+            {quads.map((q, i) => (
+              <rect
+                key={i}
+                x={q.x}
+                y={q.y}
+                width={q.width}
+                height={q.height}
+                fill={obj.color}
+                fillOpacity={obj.opacity}
+                style={{ mixBlendMode: "multiply" }}
+              />
+            ))}
+          </>
+        );
+      }
+      // Underline, strikethrough, squiggly: the line the export draws,
+      // over a clear box that keeps the whole box clickable.
       return (
-        <rect
-          x={obj.x}
-          y={obj.y}
-          width={obj.width}
-          height={obj.height}
-          fill={obj.color}
-          fillOpacity={obj.opacity}
-          style={{ mixBlendMode: "multiply" }}
-        />
+        <>
+          <rect
+            x={obj.x}
+            y={obj.y}
+            width={obj.width}
+            height={obj.height}
+            fill="transparent"
+          />
+          {quads.map((q, i) => {
+            const stroke = markupStroke(q, markup)!;
+            return (
+              <polyline
+                key={i}
+                points={stroke.points.map((p) => `${p.x},${p.y}`).join(" ")}
+                fill="none"
+                stroke={obj.color}
+                strokeOpacity={obj.opacity}
+                strokeWidth={stroke.width}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            );
+          })}
+        </>
       );
+    }
     case "link":
       return (
         <rect
@@ -321,6 +408,8 @@ export function ObjectShape({
           strokeWidth={obj.strokeWidth}
           strokeOpacity={obj.opacity}
           strokeLinecap="round"
+          strokeLinejoin="round"
+          style={obj.highlighter ? { mixBlendMode: "multiply" } : undefined}
         />
       );
     }

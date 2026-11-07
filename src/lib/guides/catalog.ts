@@ -5293,7 +5293,7 @@ export const guides: Guide[] = [
     slug: "how-to-highlight-text-in-a-pdf",
     title: "How to highlight text in a PDF",
     description:
-      "Drag a highlight over the words on a PDF page, set its colour and opacity, then flatten it into the page or keep it as a comment. It runs in your browser.",
+      "Select words on a PDF page to highlight them, set the colour and opacity, then flatten the highlight into the page or keep it as a comment. It runs in your browser.",
     tools: ["annotate-pdf", "edit-pdf", "redact-pdf"],
     keywords: [
       "how to highlight text in a pdf",
@@ -5304,14 +5304,14 @@ export const guides: Guide[] = [
       "mark up a pdf",
     ],
     intro: [
-      `To highlight text in a PDF, open ${nameOf("annotate-pdf")}, add your PDF, and drag across the words you want to mark. Highlight is already chosen when the pages appear, and a see-through yellow bar lands where you drag. Press Apply & download when you are done, and the marked copy downloads.`,
-      "A highlight here is a rectangle you draw over the words, not a selection of the text itself, so you decide how much it covers: half a line, or a whole paragraph in one drag. If you save it as a comment rather than into the page, it is fitted to the lines of text under it, the way a PDF viewer's own highlight looks.",
+      `To highlight text in a PDF, open ${nameOf("annotate-pdf")}, add your PDF, and drag across the words you want to mark. Highlight is already chosen when the pages appear, and a see-through yellow band follows the words you select, line by line. Press Apply & download when you are done, and the marked copy downloads.`,
+      "Press on the first word and drag to the last, as you would select text in a PDF viewer: the highlight covers whole words in reading order, one band per line, and a click on a word highlights just that word. Where there is no selectable text, such as a scanned page, the same drag draws a see-through box instead, so you decide how much it covers.",
       `The PDF is drawn, marked and saved in your browser, so it stays on your device, and there is no account to create. It takes one PDF of up to ${ceilingMb("annotate-pdf")} MB.`,
     ],
     steps: [
       `Open the ${nameOf("annotate-pdf")} tool.`,
       "Drop your PDF on the panel that says “Drop your PDF here, or browse”, or click it to choose the file. Its pages appear in a scrolling view, with Highlight already selected in the toolbar.",
-      "Drag across the words you want to mark. A single click instead drops a short bar you can stretch afterwards.",
+      "Press on the first word you want to mark and drag to the last. A single click on a word marks that word; on a scanned page, the drag draws a box, and a click drops a short bar you can stretch afterwards.",
       `To change the colour, use Colour in the panel beside the page; Opacity starts at ${HIGHLIGHT_OPACITY_PCT}%. With nothing selected, these set the next highlight; to change one already on the page, choose Select, click it, and the panel sets that one. With Select you can also drag a highlight to move it, or drag a handle to resize it.`,
       "Under “Highlights, drawings, notes and shapes”, beside Apply & download, keep Flatten into the page, or choose to save markups as comments instead.",
       `Press Apply & download. The copy downloads at once, named after your file: report.pdf becomes ${ANNOTATED_EXAMPLE_OUT}. Under Annotated PDF ready, Download annotated PDF saves it again.`,
@@ -5322,14 +5322,14 @@ export const guides: Guide[] = [
         heading: "Flattened into the page, or saved as comments",
         body: [
           "Flatten into the page, the choice selected to start, draws each highlight into the page itself, with its colour multiplied over the words so they stay readable. It shows in every viewer and printout, the original text stays selectable, and nothing becomes an image. The cost is that it cannot be taken out later except with an editor that changes page content, so keep the original if you may want an unmarked copy.",
-          "Saving markups as comments writes each highlight as a standard PDF highlight annotation instead. Where the box lies over lines of text, it is fitted to them: one band per line, as tall as the line and as wide as the text inside your box. A strip of the box above, below or between the lines that has no text in it and is at least two lines tall, such as a chart below a line, stays highlighted at the full width of your box. Space beside the text on the same lines, such as a picture next to a short line, is not kept. Over a picture of text, such as a scanned page, the whole highlight stays the box you drew. Other PDF apps list it as a comment and let you select, edit or delete it; there are no reply threads here.",
+          "Saving markups as comments writes each highlight as a standard PDF highlight annotation instead. A highlight made by selecting text keeps exactly the lines you selected. A box drawn by dragging from a spot with no text is fitted to the text under it: where the box lies over lines of text, it is fitted to them: one band per line, as tall as the line and as wide as the text inside your box. A strip of the box above, below or between the lines that has no text in it and is at least two lines tall, such as a chart below a line, stays highlighted at the full width of your box. Space beside the text on the same lines, such as a picture next to a short line, is not kept. Over a picture of text, such as a scanned page, the whole highlight stays the box you drew. Other PDF apps list it as a comment and let you select, edit or delete it; there are no reply threads here.",
         ],
       },
       {
         id: "other-marks",
         heading: "Notes, drawings and covers on the same page",
         body: [
-          "Highlight sits in the toolbar's Mark up group, beside Whiteout, Redact, Draw for freehand ink, and Note for a typed note on coloured paper; the Shapes group has Rectangle, Ellipse, Line and Arrow. Anything you place can be moved, resized, restyled or deleted before you apply, and Undo and Redo step back and forward.",
+          "Highlight sits in the toolbar's Mark up group, beside Underline and Strikethrough, which mark words the same way, and Whiteout, Redact, Draw for freehand ink, Highlighter for a freehand marker stroke that tints the words without hiding them, Note for a typed note on coloured paper, and Comment for a sticky-note icon whose words open in a popup. A highlight's Style in the panel switches it between Highlight, Underline, Strikethrough and Squiggly; the Shapes group has Rectangle, Ellipse, Line and Arrow. Anything you place can be moved, resized, restyled or deleted before you apply, and Undo and Redo step back and forward.",
           `Whiteout only paints a white box: the words under it are still in the file, and search, copy and text extraction can find them. Redact removes what lies under its box. Both are always written into the page, even when the other markups are saved as comments, because a comment can be deleted by whoever opens the file. For a document you need to hand over with words removed, ${nameOf("redact-pdf")} also works in your browser and can search the text for what to remove.`,
           `${nameOf("edit-pdf")} opens the same editor on Select, with the same Highlight in its toolbar, for when you also need to change the PDF's own words.`,
         ],
@@ -5347,7 +5347,7 @@ export const guides: Guide[] = [
       {
         question: "Can I highlight text by selecting it, like in a PDF viewer?",
         answer:
-          "No. You drag a see-through box over the words instead of selecting them. Flattened, it covers exactly the area you draw. Saved as a comment, it fits itself to the lines of text under the box, one band per line, the way a viewer's own text highlight looks.",
+          "Yes. Press on a word and drag to the last word you want: the highlight follows the selected text in reading order, whole words, one band per line, and those bands are what is saved, flattened or as a comment. A click on one word highlights that word. Underline and Strikethrough, beside Highlight in the toolbar, work the same way. Pressing where there is no selectable text draws a box instead.",
       },
       {
         question: "Can I change the highlight colour?",
@@ -5359,8 +5359,13 @@ export const guides: Guide[] = [
           "Saved as a comment, yes: a PDF app that edits comments can select and delete it. Flattened, only with an editor that can change page content, because the highlight is drawn into the page. Before you press Apply & download, any highlight can be selected and deleted, or undone.",
       },
       {
+        question: "Can I highlight freehand, like with a marker?",
+        answer:
+          "Yes. Highlighter, beside Draw in the Mark up group, follows your pointer with a wide, see-through yellow stroke. Its colour is multiplied over the page, as a highlight's is, so the words under it stay dark and readable rather than being painted over. Width, colour and opacity are set in the panel beside the page.",
+      },
+      {
         question: "Can I highlight a scanned PDF?",
-        answer: `Yes. A highlight is a box drawn over the page, so it works on a picture of text too. Saved as a comment, it stays the box you drew, because there are no text lines under it to fit to. To make the words searchable as well, run the scan through ${nameOf("ocr-pdf")} first, which runs on our secure server rather than in your browser.`,
+        answer: `Yes. On a page with no selectable text, the drag draws a box over the page, so it works on a picture of text too. Saved as a comment, it stays the box you drew, because there are no text lines under it to fit to. To make the words searchable as well, run the scan through ${nameOf("ocr-pdf")} first, which runs on our secure server rather than in your browser.`,
       },
       {
         question: "Is my PDF sent anywhere when I highlight it?",
@@ -5369,7 +5374,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-06",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-chat-with-a-pdf",

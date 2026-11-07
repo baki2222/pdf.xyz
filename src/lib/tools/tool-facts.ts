@@ -149,6 +149,7 @@ import {
 } from "@/lib/pdf/tiff-limits";
 import { getRunnerKind, type RunnerKind } from "@/lib/pdf/registry";
 import { tools } from "./catalog";
+import { STICKY_STAYS_COMMENT } from "@/lib/pdf/editor/sticky";
 import { toolFileCeilingMb } from "./file-ceilings";
 import type { Tool } from "./types";
 
@@ -1365,7 +1366,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
             MARKUP_KINDS.filter((k) => isCommentKind(k)).map(
               (k) => EDITOR_KIND_FACT[k],
             ),
-          )} into the page itself, so a reader shows them as part of the page, not as comments. Choose Save markups as comments and they are written as standard PDF annotations instead, as are ${COMMENT_KINDS.filter(
+          )} into the page itself, so a reader shows them as part of the page, not as comments. ${STICKY_STAYS_COMMENT} Choose Save markups as comments and they are written as standard PDF annotations instead, as are ${COMMENT_KINDS.filter(
             (k) => !(MARKUP_KINDS as readonly string[]).includes(k),
           )
             .map((k) => EDITOR_KIND_FACT[k])
@@ -1379,7 +1380,10 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         },
         {
           question: "How do I place a highlight?",
-          answer: `Highlight is the tool the editor opens on: drag across the page where it goes, then drag its handles to fit. A highlight is a see-through box, so it tints whatever lies under it rather than following the words.`,
+          // WAS "A highlight is a see-through box, so it tints whatever lies
+          // under it rather than following the words" until 2026-11-08,
+          // when a press on text began selecting words (audit annotate-pdf#3).
+          answer: `Highlight is the tool the editor opens on: press on a word and drag to the last word you want, and the highlight follows the selected text line by line; a click marks one word. Where there is no selectable text, such as a scanned page, the same drag draws a see-through box you can resize from its handles.`,
         },
       ];
     case "watermark":

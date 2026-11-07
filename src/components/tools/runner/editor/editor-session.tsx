@@ -29,6 +29,12 @@ import { SinglePdfRunner } from "../single-pdf-runner";
 import { useUnsavedGuard } from "../use-unsaved-guard";
 import type { LoadedPdf } from "../use-single-pdf";
 import {
+  COMMENT_AUTHOR_LABEL,
+  STICKY_STAYS_COMMENT,
+  readCommentAuthor,
+  writeCommentAuthor,
+} from "@/lib/pdf/editor/sticky";
+import {
   editorReducer,
   hasEdits,
   initialEditorState,
@@ -130,6 +136,9 @@ function EditorSession({
   // How highlights, drawings, notes, shapes and lines are saved. A
   // restricted PDF has no choice: comments are all its author allows.
   const [markups, setMarkups] = useState<MarkupMode>("flatten");
+  // The name written as comments' author (/T): typed by the person, kept in
+  // this browser only (`sticky.ts`), never sent anywhere.
+  const [author, setAuthor] = useState(readCommentAuthor);
   const { busy, error, result, run, reset, setError } =
     useAsyncRun<EditorExportResult>();
   const name = config.outputName(pdf.file.name);
@@ -159,13 +168,14 @@ function EditorSession({
             pdf.bytes,
             objects.filter(isCommentObject),
             undefined,
-            { fills: next.fills, markups: "comments" },
+            { fills: next.fills, markups: "comments", author },
           )
         : await exportEditedPdf(pdf.bytes, objects, undefined, {
             pages: next.pages,
             removedLinks: removedLinks(next),
             fills: next.fills,
             markups,
+            author,
           });
       const out =
         restricted && protection
@@ -227,6 +237,7 @@ function EditorSession({
 
   const empty = !edited && !state.editing?.text.trim();
   const hasMarkups = state.objects.some(isCommentObject);
+  const hasSticky = state.objects.some((o) => o.kind === "note" && o.sticky);
   return (
     <Suspense fallback={null}>
       <WysiwygEditor
@@ -276,11 +287,23 @@ function EditorSession({
                 }
               >
                 {hasMarkups && (
-                  <MarkupChoice
-                    value={restricted ? "comments" : markups}
-                    onChange={setMarkups}
-                    fixed={restricted}
-                  />
+                  <div className="flex min-w-0 flex-col gap-3">
+                    <MarkupChoice
+                      value={restricted ? "comments" : markups}
+                      onChange={setMarkups}
+                      fixed={restricted}
+                      sticky={hasSticky}
+                    />
+                    {(restricted || markups === "comments" || hasSticky) && (
+                      <CommentAuthor
+                        value={author}
+                        onChange={(name) => {
+                          setAuthor(name);
+                          writeCommentAuthor(name);
+                        }}
+                      />
+                    )}
+                  </div>
                 )}
                 <RunReason reason={empty ? config.emptyReason : null}>
                   {(describedBy) => (
@@ -305,6 +328,44 @@ function EditorSession({
   );
 }
 
+/** What the name field is called, and what it promises. */
+const COMMENT_AUTHOR_HINT =
+  "Shown as the author of each comment in other PDF apps. Kept in this browser only.";
+
+/**
+ * The optional author name (/T) for comments, shown once something will be
+ * saved as one. Blank writes no author: nobody is invented.
+ */
+function CommentAuthor({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (name: string) => void;
+}) {
+  const id = useId();
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <label htmlFor={id} className="text-fg text-xs font-semibold">
+        {COMMENT_AUTHOR_LABEL}
+      </label>
+      <input
+        id={id}
+        type="text"
+        value={value}
+        maxLength={80}
+        autoComplete="name"
+        aria-describedby={`${id}-hint`}
+        onChange={(e) => onChange(e.target.value)}
+        className="border-line bg-canvas text-fg rounded-ctl h-11 max-w-xs border px-3 text-sm"
+      />
+      <p id={`${id}-hint`} className="text-muted max-w-md text-[11px]">
+        {COMMENT_AUTHOR_HINT}
+      </p>
+    </div>
+  );
+}
+
 /**
  * "Save markups as comments (editable in other PDF apps)" or "Flatten into
  * the page", beside Apply, once there is a markup to save. On a restricted
@@ -314,10 +375,13 @@ function MarkupChoice({
   value,
   onChange,
   fixed,
+  sticky,
 }: {
   value: MarkupMode;
   onChange: (mode: MarkupMode) => void;
   fixed: boolean;
+  /** A Comment is placed: it stays a comment whichever is chosen. */
+  sticky: boolean;
 }) {
   const id = useId();
   if (fixed) {
@@ -367,6 +431,14 @@ function MarkupChoice({
         <p className="text-muted max-w-md text-[11px] leading-relaxed">
           Whiteout, redaction, text, pictures and signatures are still written
           into the page.
+        </p>
+      )}
+      {value === "flatten" && sticky && (
+        <p
+          data-sticky-hint=""
+          className="text-muted max-w-md text-[11px] leading-relaxed"
+        >
+          {STICKY_STAYS_COMMENT}
         </p>
       )}
     </fieldset>

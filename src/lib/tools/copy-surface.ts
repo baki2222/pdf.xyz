@@ -195,6 +195,10 @@ export function copyFiles(): string[] {
     // Translate PDF's warning when Auto-detect meets a PDF already in the
     // target language (2026-11-06, audit #38), drawn by the panel.
     path.join(ROOT, "src", "lib", "jobs", "translate-script.ts"),
+    // The editor's Comment (sticky note) label and the one sentence every
+    // flattening description names it in (2026-11-08), drawn by the run bar,
+    // Annotate PDF's footer and the Annotate and Edit PDF pages.
+    path.join(ROOT, "src", "lib", "pdf", "editor", "sticky.ts"),
     // Word, Excel and PowerPoint to PDF's refusal of an .odt, .ods, .odp or
     // .rtf whose bytes are another format (2026-11-04): new phrase code, so
     // walked rather than recorded outside.
