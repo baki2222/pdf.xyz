@@ -103,6 +103,7 @@ import { CSS_FONT_STACK, needsUnicodeFace } from "@/lib/pdf/editor/text";
 import {
   quadsBounds,
   selectTextQuads,
+  type GlyphMetric,
   type TextMarkup,
 } from "@/lib/pdf/editor/markup";
 import { STICKY_ICON, stickyPopupOrigin } from "@/lib/pdf/editor/sticky";
@@ -261,10 +262,11 @@ function markSelectedText(
   b: Pt,
   defaults: Defaults,
   id: string,
+  metrics: readonly GlyphMetric[],
 ): EditorObject | null {
   const markup = TEXT_MARKUP_TOOLS.get(tool);
   if (!markup) return null;
-  const quads = selectTextQuads(runs, a, b);
+  const quads = selectTextQuads(runs, a, b, metrics);
   if (!quads) return null;
   // The map's keys are exactly these three tools, each its own bucket.
   const bucket = tool as "highlight" | "underline" | "strikeout";
@@ -512,6 +514,10 @@ export function WysiwygEditor({
   footer?: ReactNode;
 }) {
   const kit = useTextKit();
+  const kitRef = useRef(kit);
+  useLayoutEffect(() => {
+    kitRef.current = kit;
+  }, [kit]);
   // Below `sm` (640 px): docked toolbar and a properties sheet. The editor
   // first renders after a file opens, on the client, so this is read before
   // its first paint and nothing moves between the two layouts.
@@ -1881,6 +1887,7 @@ export function WysiwygEditor({
               d.current,
               stateRef.current.defaults,
               d.id,
+              kitRef.current?.metrics ?? [],
             ) ??
             makeObject(
               d.tool,
@@ -1982,6 +1989,7 @@ export function WysiwygEditor({
               d.start,
               s.defaults,
               d.id,
+              kitRef.current?.metrics ?? [],
             );
           }
           if (!dragged && !obj) {

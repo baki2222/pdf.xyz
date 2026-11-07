@@ -167,3 +167,68 @@ describe("the copy that answers 'can I select text to highlight?'", () => {
     }
   });
 });
+
+/**
+ * Review of a8bee7eb (2026-11-08): character positions inside a run were
+ * taken as equal widths, so in a proportional font a band could stop short
+ * of the selected word or run into the next — an "i" is a quarter of a "W".
+ * Where letters fall now comes from real font metrics (`runOffsets`).
+ */
+describe("where letters fall inside a run", () => {
+  const SIZE = 20;
+  const STR = "iiiiii WWWWWW";
+  async function metrics() {
+    const { PDFDocument, StandardFonts } = await import("pdf-lib");
+    const doc = await PDFDocument.create();
+    const helv = await doc.embedFont(StandardFonts.Helvetica);
+    const mono = await doc.embedFont(StandardFonts.Courier);
+    return {
+      helv: (s: string, size: number) => helv.widthOfTextAtSize(s, size),
+      mono: (s: string, size: number) => mono.widthOfTextAtSize(s, size),
+    };
+  }
+  function lineOf(width: number): TextRun {
+    const r = run(STR, { x: 100, y: 100, width, height: SIZE * 1.14 });
+    return { ...r, size: SIZE };
+  }
+
+  it("a click on the wide word of a mixed-width run marks from that word's real left edge", async () => {
+    const { helv, mono } = await metrics();
+    const line = lineOf(helv(STR, SIZE));
+    const left = 100 + helv("iiiiii ", SIZE);
+    const wide = helv("WWWWWW", SIZE);
+    const mid = left + wide / 2;
+    const quads = selectTextQuads(
+      [line],
+      { x: mid, y: 110 },
+      { x: mid, y: 110 },
+      [mono, helv],
+    );
+    expect(quads).toHaveLength(1);
+    expect(quads![0]!.x).toBeCloseTo(left, 6);
+    // To the run's end: the word's width as the font sets it in the run
+    // (the AFM kerns space-W, so the total is not the parts' sum).
+    expect(quads![0]!.x + quads![0]!.width).toBeCloseTo(
+      100 + line.rect.width,
+      6,
+    );
+    // What equal widths would have said: 7/13 of the way, ~30 pt to the right.
+    expect(
+      Math.abs(quads![0]!.x - (100 + (line.rect.width * 7) / 13)),
+    ).toBeGreaterThan(20);
+  });
+
+  it("control: a monospaced run picks the mono metric, and its letters are equal steps", async () => {
+    const { helv, mono } = await metrics();
+    const line = lineOf(mono(STR, SIZE));
+    const step = line.rect.width / STR.length;
+    const quads = selectTextQuads(
+      [line],
+      { x: 100 + step * 10, y: 110 },
+      { x: 100 + step * 10, y: 110 },
+      [helv, mono],
+    );
+    expect(quads![0]!.x).toBeCloseTo(100 + step * 7, 6);
+    expect(quads![0]!.width).toBeCloseTo(step * 6, 6);
+  });
+});

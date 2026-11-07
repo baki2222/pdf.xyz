@@ -13,6 +13,7 @@ import {
   createStandardMeasure,
   layoutText,
   needsUnicodeFace,
+  STANDARD_FACES,
   standardFontKey,
   type Measure,
   type TextLayout,
@@ -40,6 +41,11 @@ export interface TextKit {
   request(text: string): void;
   /** Text height for `objectBounds`. */
   height(obj: TextBoxObject | NoteObject): number;
+  /**
+   * Every standard face's widths, for where letters fall inside a run of
+   * the PDF's own text (`runOffsets` in `markup.ts` picks the nearest).
+   */
+  metrics: readonly Measure[];
   version: number;
 }
 
@@ -138,6 +144,7 @@ export function useTextKit(): TextKit | null {
     return {
       version,
       request,
+      metrics: STANDARD_FACES.map((face) => standard(face)),
       layout,
       height: (obj) => layout(obj).height,
       styled: (obj, text = obj.text) => !needsUnicodeFace(text),

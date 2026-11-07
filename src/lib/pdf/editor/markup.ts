@@ -145,11 +145,57 @@ function nearestRun(list: readonly TextRun[], p: { x: number; y: number }) {
   return best;
 }
 
-/** The character boundary nearest `x` in a run (its letters taken as equal widths). */
-function charAt(run: TextRun, x: number): number {
+/** Width of `text` at `size` points in one font (`text.ts`'s `Measure`). */
+export type GlyphMetric = (text: string, size: number) => number;
+
+/**
+ * Where each character boundary of a run sits, points from its left edge
+ * (`n + 1` offsets, the last the run's width).
+ *
+ * pdf.js gives a run's whole advance, not each glyph's. The letters' share
+ * of it comes from real font metrics: of the `metrics` offered (the
+ * standard faces' AFM widths — sans, serif, mono and their weights), the
+ * one whose width for the whole string at the run's size comes nearest the
+ * run's real width, scaled so the ends agree. An "i" is then a quarter of a
+ * "W", as on the page; a monospaced run picks the mono metric and gets equal
+ * steps. With no metric (not loaded yet), letters are taken as equal widths.
+ */
+export function runOffsets(
+  run: TextRun,
+  metrics: readonly GlyphMetric[] = [],
+): number[] {
   const n = run.str.length;
-  const t = run.rect.width > 0 ? (x - run.rect.x) / run.rect.width : 0;
-  return Math.max(0, Math.min(n, Math.round(t * n)));
+  const w = run.rect.width;
+  const equal = () => Array.from({ length: n + 1 }, (_, i) => (w * i) / n);
+  if (n === 0) return [0];
+  let best: GlyphMetric | null = null;
+  let bestErr = Infinity;
+  for (const m of metrics) {
+    const total = m(run.str, run.size);
+    if (!(total > 0)) continue;
+    const err = Math.abs(Math.log(total / w));
+    if (err < bestErr) {
+      bestErr = err;
+      best = m;
+    }
+  }
+  if (!best || !(w > 0)) return equal();
+  const total = best(run.str, run.size);
+  const out = [0];
+  for (let i = 1; i < n; i++)
+    out.push((w * best(run.str.slice(0, i), run.size)) / total);
+  out.push(w);
+  return out;
+}
+
+/** The character boundary nearest `x` in a run, given its offsets. */
+function charAt(run: TextRun, offsets: readonly number[], x: number): number {
+  const dx = x - run.rect.x;
+  let best = 0;
+  for (let i = 1; i < offsets.length; i++) {
+    if (Math.abs(offsets[i]! - dx) < Math.abs(offsets[best]! - dx)) best = i;
+  }
+  return best;
 }
 
 const SPACE = /\s/;
@@ -170,20 +216,28 @@ function wordEnd(str: string, i: number): number {
  * (or nearest) `b`, in the runs' reading order (pdf.js's), whole words at
  * both ends, each line clipped to what is selected on it. A press without a
  * drag selects the one word under it. Horizontal text only: turned text is
- * marked with a box.
+ * marked with a box. Where letters fall inside a run comes from
+ * `metrics` ({@link runOffsets}).
  */
 export function selectTextQuads(
   runs: readonly TextRun[],
   a: { x: number; y: number },
   b: { x: number; y: number },
+  metrics: readonly GlyphMetric[] = [],
 ): Rect[] | null {
   const list = runs.filter(horizontal);
   const startRun = runUnder(list, a);
   if (!startRun) return null;
+  const offsets = new Map<TextRun, number[]>();
+  const offsetsOf = (run: TextRun) => {
+    let o = offsets.get(run);
+    if (!o) offsets.set(run, (o = runOffsets(run, metrics)));
+    return o;
+  };
   let i = list.indexOf(startRun);
-  let ci = charAt(startRun, a.x);
+  let ci = charAt(startRun, offsetsOf(startRun), a.x);
   let j = nearestRun(list, b);
-  let cj = charAt(list[j]!, b.x);
+  let cj = charAt(list[j]!, offsetsOf(list[j]!), b.x);
   if (j < i || (j === i && cj < ci)) {
     [i, j] = [j, i];
     [ci, cj] = [cj, ci];
@@ -197,8 +251,9 @@ export function selectTextQuads(
     const c0 = k === i ? ci : 0;
     const c1 = k === j ? cj : n;
     if (c1 <= c0 || n === 0) continue;
-    const x0 = run.rect.x + (run.rect.width * c0) / n;
-    const x1 = run.rect.x + (run.rect.width * c1) / n;
+    const o = offsetsOf(run);
+    const x0 = run.rect.x + o[c0]!;
+    const x1 = run.rect.x + o[c1]!;
     pieces.push({
       x: x0,
       y: run.rect.y,
