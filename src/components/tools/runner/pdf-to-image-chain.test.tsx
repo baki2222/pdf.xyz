@@ -898,6 +898,22 @@ describe("PDF to JPG — the Quality choice reaches the encoder", () => {
     expect("quality" in stored).toBe(false);
   }, 30_000);
 
+  it("each Quality chip's accessible name gives its number a unit", async () => {
+    // Was "Smaller file75": the label run into a bare number. The visible
+    // number is hidden from assistive technology and said in full instead.
+    await mount("jpg");
+    const group = screen.getByRole("group", { name: JPEG_QUALITY_LABEL });
+    expect(within(group).getAllByRole("button")).toHaveLength(
+      RASTER_JPEG_QUALITIES.length,
+    );
+    for (const q of RASTER_JPEG_QUALITIES) {
+      const n = Math.round(q.quality * 100);
+      within(group).getByRole("button", {
+        name: `${q.label}, quality ${n} out of 100`,
+      });
+    }
+  });
+
   it("control: PDF to PNG has no Quality choice", async () => {
     await mount("png");
     expect(

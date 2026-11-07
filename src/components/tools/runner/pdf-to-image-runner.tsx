@@ -456,8 +456,11 @@ function PdfToImageEditor({
                 active={q.id === qualityId}
               >
                 {q.label}
-                <span className="text-muted text-[10px]">
+                <span aria-hidden="true" className="text-muted text-[10px]">
                   {Math.round(q.quality * 100)}
+                </span>
+                <span className="sr-only">
+                  , quality {Math.round(q.quality * 100)} out of 100
                 </span>
               </ChipButton>
             ))}
