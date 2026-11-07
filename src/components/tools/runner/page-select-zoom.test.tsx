@@ -187,6 +187,16 @@ describe("Delete Pages · view a page larger", () => {
     expect(
       await screen.findByRole("dialog", { name: "Page 2 of 3" }),
     ).toBeInTheDocument();
+    // jsdom's showModal moves no focus, so without this the opener would
+    // never lose focus and the restore below could not fail (review of
+    // 340419bb: removing the restore line left this test green). A browser
+    // puts focus inside the dialog; do the same, then prove it left.
+    const inside = screen.getByRole("button", { name: /close/i });
+    inside.focus();
+    expect(screen.getByRole("dialog")).toContainElement(
+      document.activeElement as HTMLElement,
+    );
+    expect(document.activeElement).not.toBe(opener);
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(document.activeElement).toBe(opener);
