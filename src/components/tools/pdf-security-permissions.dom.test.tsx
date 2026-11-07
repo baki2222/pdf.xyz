@@ -356,10 +356,18 @@ describe(
       await waitFor(() => expect(run).toHaveAttribute("aria-disabled", "true"));
       expect(run).toHaveAccessibleDescription(CONFIRM_PASSWORD_FIRST);
 
+      // Mid-typing, a shorter confirmation is not yet a mismatch: no alert
+      // interrupts, and Run's reason stays the live state.
+      const hint = () =>
+        document.getElementById("pdf-security-password-confirm-hint");
       fireEvent.change(confirm, { target: { value: "open-sesam" } });
-      expect(
-        document.getElementById("pdf-security-password-confirm-hint"),
-      ).toHaveTextContent(PASSWORDS_DIFFER);
+      expect(hint()).not.toHaveTextContent(PASSWORDS_DIFFER);
+      expect(hint()).not.toHaveAttribute("role", "alert");
+      expect(run).toHaveAccessibleDescription(CONFIRM_PASSWORD_FIRST);
+      // Leaving the field says it.
+      fireEvent.blur(confirm);
+      expect(hint()).toHaveTextContent(PASSWORDS_DIFFER);
+      expect(hint()).toHaveAttribute("role", "alert");
       expect(run).toHaveAttribute("aria-disabled", "true");
       fireEvent.click(run);
       expect(asked).toHaveLength(0);
@@ -386,7 +394,9 @@ describe(
       });
       const run = await runButton();
       const confirm = screen.getByLabelText("Confirm owner password");
-      fireEvent.change(confirm, { target: { value: "owner-sesam" } });
+      // As long as the password and still different: a mismatch at once,
+      // without waiting for the field to be left.
+      fireEvent.change(confirm, { target: { value: "owner-sesamE" } });
       expect(
         document.getElementById("pdf-security-owner-password-confirm-hint"),
       ).toHaveTextContent(PASSWORDS_DIFFER);

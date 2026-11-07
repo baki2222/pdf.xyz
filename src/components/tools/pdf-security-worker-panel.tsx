@@ -260,6 +260,7 @@ export function PasswordField({
   onChange,
   busy,
   autoComplete,
+  onBlur,
 }: {
   id: string;
   label: string;
@@ -267,6 +268,7 @@ export function PasswordField({
   onChange: (value: string) => void;
   busy: boolean;
   autoComplete: string;
+  onBlur?: () => void;
 }) {
   const [reveal, setReveal] = useState(false);
   return (
@@ -281,6 +283,7 @@ export function PasswordField({
           type={reveal ? "text" : "password"}
           value={value}
           onChange={(event) => onChange(event.target.value)}
+          onBlur={onBlur}
           readOnly={busy}
           autoComplete={autoComplete}
           spellCheck={false}
@@ -311,8 +314,10 @@ export function PasswordField({
 
 /**
  * A password typed a second time, under the first. The mismatch is said only
- * once something is typed here: an empty box is a step not yet taken, and
- * Run's reason names it.
+ * once it is one: when the field is left, or when the confirmation is already
+ * as long as the password. A shorter, still-being-typed confirmation is a step
+ * not yet taken, and Run's reason names it; an alert mid-typing would
+ * interrupt a screen reader on every keystroke.
  */
 function ConfirmPasswordField({
   id,
@@ -321,6 +326,7 @@ function ConfirmPasswordField({
   onChange,
   busy,
   differs,
+  expectedLength,
 }: {
   id: string;
   label: string;
@@ -328,8 +334,12 @@ function ConfirmPasswordField({
   onChange: (value: string) => void;
   busy: boolean;
   differs: boolean;
+  /** Length of the password this field must repeat. */
+  expectedLength: number;
 }) {
-  const shown = differs && value.length > 0;
+  const [left, setLeft] = useState(false);
+  const shown =
+    differs && value.length > 0 && (left || value.length >= expectedLength);
   return (
     <div className="flex flex-col gap-1.5">
       <PasswordField
@@ -337,6 +347,7 @@ function ConfirmPasswordField({
         label={label}
         value={value}
         onChange={onChange}
+        onBlur={() => setLeft(true)}
         busy={busy}
         autoComplete="new-password"
       />
@@ -563,6 +574,7 @@ function SecurityRunArea({
           onChange={setPasswordAgain}
           busy={busy}
           differs={unconfirmed}
+          expectedLength={password.length}
         />
       )}
 
@@ -819,6 +831,7 @@ function PermissionControls({
             onChange={onOwnerPasswordAgain}
             busy={busy}
             differs={ownerUnconfirmed}
+            expectedLength={ownerPassword.length}
           />
         </div>
       )}
