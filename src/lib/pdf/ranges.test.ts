@@ -3,6 +3,7 @@ import {
   buildSplitParts,
   formatPageNumbers,
   formatRange,
+  oddEvenParts,
   PageRangeError,
   parsePageList,
   parseRanges,
@@ -149,5 +150,28 @@ describe("formatPageNumbers", () => {
       const typed = formatPageNumbers(pages).replace(/–/g, "-");
       expect(parsePageList(typed, pageCount).map((i) => i + 1)).toEqual(pages);
     }
+  });
+});
+
+describe("oddEvenParts (audit split-pdf#6)", () => {
+  it("puts pages 1, 3, 5 … in one part and 2, 4, 6 … in the other", () => {
+    expect(oddEvenParts("scan", 5)).toEqual([
+      { name: "scan-odd-pages.pdf", indices: [0, 2, 4] },
+      { name: "scan-even-pages.pdf", indices: [1, 3] },
+    ]);
+  });
+  it("every page lands in exactly one part", () => {
+    const parts = oddEvenParts("x", 8);
+    expect(parts.flatMap((p) => p.indices).sort((a, b) => a - b)).toEqual([
+      0, 1, 2, 3, 4, 5, 6, 7,
+    ]);
+  });
+  it("a one-page document has no even part", () => {
+    expect(oddEvenParts("one", 1)).toEqual([
+      { name: "one-odd-pages.pdf", indices: [0] },
+    ]);
+  });
+  it("sanitises the base like every other part name", () => {
+    expect(oddEvenParts("Q3: plan?", 2)[0]!.name).toBe("Q3 plan-odd-pages.pdf");
   });
 });

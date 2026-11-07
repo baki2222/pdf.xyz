@@ -188,3 +188,23 @@ export function buildSplitParts(
     };
   });
 }
+
+/**
+ * Split PDF's "odd and even pages" mode (audit split-pdf#6, 2026-11-07):
+ * pages 1, 3, 5 … in one part and 2, 4, 6 … in another — the fronts and
+ * backs of a double-sided scan. A one-page document has no even part. The
+ * base is sanitised like every other part name.
+ */
+export function oddEvenParts(base: string, pageCount: number): SplitPart[] {
+  const safeBase = sanitizeSegment(base);
+  const every = (first: number) =>
+    Array.from(
+      { length: Math.max(0, Math.ceil((pageCount - first) / 2)) },
+      (_, i) => first + i * 2,
+    );
+  const parts: SplitPart[] = [
+    { name: `${safeBase}-odd-pages.pdf`, indices: every(0) },
+    { name: `${safeBase}-even-pages.pdf`, indices: every(1) },
+  ];
+  return parts.filter((part) => part.indices.length > 0);
+}

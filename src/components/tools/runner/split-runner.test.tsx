@@ -102,3 +102,46 @@ describe("Split PDF · part names", () => {
     expect(screen.queryByText(/^Q3: plan\?-/)).toBeNull();
   });
 });
+
+/**
+ * Audit split-pdf#6 (2026-11-07): no way to separate a duplex scan's fronts
+ * from its backs short of typing "1, 3, 5, …" with Merge ticked. The
+ * "odd and even pages" mode makes two files in one press: pages 1, 3, 5 …
+ * and pages 2, 4, 6 ….
+ */
+describe("Split PDF · odd and even pages", () => {
+  it("previews two files, the odd pages and the even pages, and splits into them", async () => {
+    const label = SPLIT_MODE_LABEL.oddEven;
+    // Health: the mode exists by its label, so the click below is real.
+    expect(label).toBeTruthy();
+    const source = await pdfWithPages(5);
+    render(
+      <SplitEditor pdf={loaded(source, "scan.pdf", 5)} onReset={() => {}} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: label }));
+    const odd = screen.getByText("scan-odd-pages.pdf").closest("li")!;
+    const even = screen.getByText("scan-even-pages.pdf").closest("li")!;
+    expect(odd).toHaveTextContent("3 pages");
+    expect(even).toHaveTextContent("2 pages");
+    fireEvent.click(
+      screen.getByRole("button", { name: /split into 2 files/i }),
+    );
+    expect(
+      await screen.findByText(/2 files created/, undefined, {
+        timeout: 10_000,
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("a one-page PDF has no even pages: one file, said plainly", async () => {
+    const source = await pdfWithPages(1);
+    render(
+      <SplitEditor pdf={loaded(source, "one.pdf", 1)} onReset={() => {}} />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: SPLIT_MODE_LABEL.oddEven }),
+    );
+    expect(screen.getByText("one-odd-pages.pdf")).toBeInTheDocument();
+    expect(screen.queryByText("one-even-pages.pdf")).toBeNull();
+  });
+});

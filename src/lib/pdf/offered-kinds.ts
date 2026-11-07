@@ -164,6 +164,7 @@ export const SPLIT_MODES = [
   "size",
   "bookmarks",
   "text",
+  "oddEven",
 ] as const;
 export type SplitMode = (typeof SPLIT_MODES)[number];
 export const SPLIT_MODE_LABEL: Record<SplitMode, string> = {
@@ -173,6 +174,7 @@ export const SPLIT_MODE_LABEL: Record<SplitMode, string> = {
   size: "By file size",
   bookmarks: "By bookmarks",
   text: "By text",
+  oddEven: "Odd and even pages",
 };
 export const SPLIT_MODE_FACT: Record<SplitMode, string> = {
   ranges: "custom page ranges",
@@ -181,6 +183,7 @@ export const SPLIT_MODE_FACT: Record<SplitMode, string> = {
   size: "a maximum file size per part",
   bookmarks: "top-level bookmarks",
   text: "every page that contains a word or phrase you type",
+  oddEven: "the odd pages into one file and the even pages into another",
 };
 
 /** Sign PDF — the typed signature's font styles. */

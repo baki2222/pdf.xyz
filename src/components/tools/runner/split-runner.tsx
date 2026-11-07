@@ -10,6 +10,7 @@ const loadSplitModes = () => import("@/lib/pdf/split-modes");
 import {
   buildSplitParts,
   formatPageNumbers,
+  oddEvenParts,
   parseRanges,
   rangeToIndices,
   rangesEveryN,
@@ -219,6 +220,12 @@ export function SplitEditor({
             ...part,
             label: titleAt.get(ranges[i]!.start) ?? "Before the first bookmark",
           })),
+          previewError: null,
+        };
+      }
+      if (mode === "oddEven") {
+        return {
+          parts: oddEvenParts(base, pdf.pageCount),
           previewError: null,
         };
       }
@@ -462,6 +469,14 @@ export function SplitEditor({
             className="bg-canvas/60 border-line text-fg focus:border-accent/40 focus:ring-accent/50 rounded-ctl w-32 border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
           />
         </label>
+      )}
+
+      {mode === "oddEven" && (
+        <p className="text-muted text-sm">
+          Pages 1, 3, 5 and so on go into one file, pages 2, 4, 6 and so on into
+          another: the fronts and the backs of a double-sided scan.
+          {pdf.pageCount < 2 && " This PDF has one page, so there is one file."}
+        </p>
       )}
 
       {mode === "perPage" && (

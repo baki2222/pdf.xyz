@@ -87,7 +87,7 @@ const content: ToolContent = {
     "Split a PDF by page ranges, every N pages, each page, a maximum file size, its bookmarks or a word on the page. It runs in your browser; no upload.",
 
   intro: [
-    `Split PDF cuts one document into several smaller PDFs in one of six ways. Custom ranges turns each comma-separated range you type into its own file, so "1-3, 4-9, 10-" gives you three documents, or, with "Merge selected ranges into one file" ticked, one document holding those pages in the order you typed them. Every N pages chops the file into equal chunks of the size you set, and any pages left over form a shorter final file. Each page makes every page its own PDF. By file size packs consecutive pages into each file until the next page would take it over the megabytes you set. By bookmarks starts a new file at the page of each top-level bookmark; it is greyed out, with the reason shown, for a PDF that has none. By text starts a new file at every page that contains a word or phrase you type, such as "Invoice number", with Match case when capitals matter. Except for By file size, whose pieces are only known once they are built, a preview lists every file the split will create, with its name and page count, before anything runs.`,
+    `Split PDF cuts one document into several smaller PDFs in one of seven ways. Custom ranges turns each comma-separated range you type into its own file, so "1-3, 4-9, 10-" gives you three documents, or, with "Merge selected ranges into one file" ticked, one document holding those pages in the order you typed them. Every N pages chops the file into equal chunks of the size you set, and any pages left over form a shorter final file. Each page makes every page its own PDF. By file size packs consecutive pages into each file until the next page would take it over the megabytes you set. By bookmarks starts a new file at the page of each top-level bookmark; it is greyed out, with the reason shown, for a PDF that has none. By text starts a new file at every page that contains a word or phrase you type, such as "Invoice number", with Match case when capitals matter. Odd and even pages puts pages 1, 3, 5 and so on into one file and pages 2, 4, 6 and so on into another, which separates the fronts and backs of a double-sided scan. Except for By file size, whose pieces are only known once they are built, a preview lists every file the split will create, with its name and page count, before anything runs.`,
     `The cutting is done by pdf-lib, a JavaScript PDF library your browser fetches the moment you add a file, and By text reads each page's text with pdf.js, shipped with the page. There is no upload anywhere: reading the pages, building each piece and, when there is more than one, packing them into a ZIP all happen on your device. A PDF can be up to ${CEILING_MB} MB; a bigger one is refused on its file size alone, before any of its bytes are read.`,
     `Every piece is a new PDF built from copies of the original pages, so their text, images, page size and rotation come through unchanged. Each piece also keeps the document's title, author, subject and keywords, its page labels and language, the bookmarks that open one of its pages, and the form fields on its pages, still fillable. Attached files, XMP metadata and the accessibility tags of a tagged PDF are not carried into the pieces. An encrypted file is refused as it loads, even one that opens without a password and only restricts printing or copying.`,
   ],
@@ -104,6 +104,10 @@ const content: ToolContent = {
     {
       title: "One file per invoice or receipt",
       body: "When a statement holds one invoice per page, Each page makes every page a standalone PDF, numbered so that a folder lists them in page order.",
+    },
+    {
+      title: "Fronts and backs of a double-sided scan",
+      body: "A scanner that feeds one side of a stack and then the other leaves the fronts on pages 1, 3, 5 and the backs on 2, 4, 6. Odd and even pages gives you each side as its own PDF in one run.",
     },
     {
       title: "Overlapping handouts from one deck",
@@ -126,7 +130,7 @@ const content: ToolContent = {
     },
     {
       title: "Pick a split mode",
-      body: "Under How to split, choose Custom ranges, Every N pages, Each page, By file size, By bookmarks or By text.",
+      body: "Under How to split, choose Custom ranges, Every N pages, Each page, By file size, By bookmarks, By text or Odd and even pages.",
     },
     {
       title: "Set the ranges or the chunk size",
