@@ -3136,7 +3136,7 @@ export const guides: Guide[] = [
         id: "scanned-pages",
         heading: "Scanned pages",
         body: [
-          `A scanned page holds a picture of its words, so its slide carries the page as a picture and those words are not text. Run ${nameOf("ocr-pdf")} on the scan first and convert the result: its slides then also carry the recognised words, in invisible text boxes over each picture. The note beside the download names any pages that had no selectable text.`,
+          `A scanned page holds a picture of its words, so its slide carries the page as a picture and those words are not text. Tick “${WORD_OCR_LABEL}” before you press Export PPTX and pick the languages printed on the page: our server recognises the words first and converts the result in the same job, so its slides also carry the recognised words, in invisible text boxes over each picture. The note beside the download names any pages that had no selectable text. ${nameOf("ocr-pdf")}, listed beside it, is for when you want a searchable PDF instead of a deck.`,
         ],
       },
       {
@@ -3156,7 +3156,7 @@ export const guides: Guide[] = [
       },
       {
         question: "What happens to a scanned PDF?",
-        answer: `It is converted, as pictures: each scanned page lands on its slide as a picture, and its words are not text. Run ${nameOf("ocr-pdf")} first and convert the OCR'd copy to have the recognised words in invisible text boxes over each picture.`,
+        answer: `It is converted, as pictures: each scanned page lands on its slide as a picture, and its words are not text. Tick “${WORD_OCR_LABEL}” to have the recognised words in invisible text boxes over each picture, in the same job; choose every language printed on the page, since OCR in the wrong language gives plausible-looking gibberish rather than an error.`,
       },
       {
         question: "Why is a paragraph split into separate text boxes?",
@@ -3173,7 +3173,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-11-04",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-convert-word-to-pdf",

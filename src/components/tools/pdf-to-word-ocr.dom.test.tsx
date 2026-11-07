@@ -28,7 +28,7 @@ import { noPictures } from "@/tests/page-scan-stubs";
 import { readyFileInput } from "@/tests/worker-ready";
 import { PdfOfficeExportWorkerPanel } from "./pdf-office-export-worker-panel";
 
-type OcrTool = "pdf-to-word" | "pdf-to-excel";
+type OcrTool = "pdf-to-word" | "pdf-to-excel" | "pdf-to-powerpoint";
 const providers = getProviderReadiness("remote-configured");
 
 function status(ocrAvailable: boolean): WorkerStatus {
@@ -336,5 +336,40 @@ describe("PDF to Excel: Recognise text in scans (OCR)", () => {
       await Promise.all(parts.map((n) => zip.file(n)!.async("string")))
     ).join("");
     expect(xml).toContain(WORDS);
+  });
+});
+
+/**
+ * Audit pdf-to-powerpoint#4 (2026-11-08): the same switch on PDF to
+ * PowerPoint. A scan converted as pictures before, and still does with the
+ * switch off; on, OCR runs first in the same job.
+ */
+describe("PDF to PowerPoint: Recognise text in scans (OCR)", () => {
+  it("control: off by default — no options travel and OCR never runs", async () => {
+    const net = stubNetwork(true, "pdf-to-powerpoint");
+    await addFile("pdf-to-powerpoint");
+    fireEvent.click(screen.getByRole("button", { name: /export pptx/i }));
+    await screen.findByText("Your PPTX file is ready.");
+    expect(net.sent[0]).toEqual({});
+    expect(net.ocrAsked).toEqual([]);
+  });
+
+  it("on: the chosen languages travel to OCR, run first in the same job", async () => {
+    const net = stubNetwork(true, "pdf-to-powerpoint");
+    await addFile("pdf-to-powerpoint");
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: new RegExp(WORD_OCR_LABEL.replace(/[()]/g, "\\$&")),
+      }),
+    );
+    await screen.findByRole("group", { name: "OCR languages" });
+    fireEvent.click(screen.getByRole("button", { name: "German" }));
+    fireEvent.click(screen.getByRole("button", { name: /export pptx/i }));
+    await screen.findByText("Your PPTX file is ready.");
+    expect(net.sent[0]).toMatchObject({ ocr: true });
+    expect(net.ocrAsked).toEqual([
+      (net.sent[0] as { languages: string[] }).languages,
+    ]);
+    expect((net.sent[0] as { languages: string[] }).languages).toContain("deu");
   });
 });

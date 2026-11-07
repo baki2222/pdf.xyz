@@ -453,7 +453,10 @@ export const RTL_OCR_LANGUAGES: readonly OcrLanguage[] = [
 export const PDF_TO_WORD_OCR_LANGUAGE_CODES: readonly OcrLanguage[] =
   OCR_LANGUAGE_CODES.filter((code) => !RTL_OCR_LANGUAGES.includes(code));
 
-/** Why a right-to-left language is refused by PDF to Word's OCR option. */
+/**
+ * Why a right-to-left language is refused by the PDF to Office exports' OCR
+ * option (Word's since 2026-10-25; Excel and PowerPoint read the same list).
+ */
 export const PDF_TO_WORD_RTL_REFUSAL =
   "Right-to-left languages (Arabic, Hebrew, Persian, Urdu) are not available for OCR inside a PDF to Office conversion: their words can come out of the conversion out of order. OCR PDF reads them in order.";
 

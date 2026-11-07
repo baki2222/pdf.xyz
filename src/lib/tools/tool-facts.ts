@@ -1723,7 +1723,10 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
         },
         {
           question: `Can ${tool.name} convert a scanned PDF?`,
-          answer: `Yes, as pictures. A scanned page has no selectable text, only a picture of its words, so its slide carries the page as a picture and those words are not editable text; the note beside the download names those pages. Run the scan through ${toolName("ocr-pdf")} first to have its words as text as well: the converted slides then carry them in invisible text boxes over each picture.`,
+          // CHANGED 2026-11-08 (audit pdf-to-powerpoint#4): "Run the scan
+          // through OCR PDF first to have its words as text as well" — true
+          // until the panel could run OCR in the same job.
+          answer: `Yes, as pictures. A scanned page has no selectable text, only a picture of its words, so its slide carries the page as a picture and those words are not editable text; the note beside the download names those pages. Turn on “${WORD_OCR_LABEL}” to have its words as text as well: our server runs ${toolName("ocr-pdf")}'s engine first, in the languages you pick, and the converted slides then carry the words in invisible text boxes over each picture.`,
         },
       ];
     case "repair-pdf":

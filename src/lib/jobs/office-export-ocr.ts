@@ -12,7 +12,11 @@
 import { WORD_OCR_HINT } from "./pdf-office-export";
 
 /** The exports whose panel offers the OCR switch. */
-export const OFFICE_OCR_TOOLS = ["pdf-to-word", "pdf-to-excel"] as const;
+export const OFFICE_OCR_TOOLS = [
+  "pdf-to-word",
+  "pdf-to-excel",
+  "pdf-to-powerpoint",
+] as const;
 export type OfficeOcrTool = (typeof OFFICE_OCR_TOOLS)[number];
 
 export function offersOfficeOcr(tool: string): tool is OfficeOcrTool {
@@ -24,4 +28,6 @@ export const OFFICE_OCR_HINTS: Record<OfficeOcrTool, string> = {
   "pdf-to-word": WORD_OCR_HINT,
   "pdf-to-excel":
     "Runs OCR on our secure server first, in the languages you pick, then converts, all in one job. Recognised words are placed into cells by where they sit on the page; pages that already have text are kept as they are.",
+  "pdf-to-powerpoint":
+    "Runs OCR on our secure server first, in the languages you pick, then converts, all in one job. A scanned page stays a picture on its slide, with its recognised words in invisible text boxes over it, so they can be selected and searched; pages that already have text are kept as they are.",
 };

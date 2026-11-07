@@ -250,3 +250,45 @@ describe("PDF to Excel, OCR first — one job (audit pdf-to-excel#2)", () => {
       expect(result.error.code).not.toBe(OFFICE_EXPORT_ERROR_CODES.noText);
   });
 });
+
+describe("PDF to PowerPoint, OCR first — one job (audit pdf-to-powerpoint#4)", () => {
+  it("control: without OCR a scan still converts, as pictures, with no words in the slide", async () => {
+    const { processor, asked } = registry("pdf-to-powerpoint");
+    const result = await processor.process(job("pdf-to-powerpoint", {}));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(asked).toEqual([]);
+    expect(
+      await partsText(result.artifacts[0]!.bytes, "ppt/slides/"),
+    ).not.toContain(RECOGNISED);
+  });
+
+  it("with OCR on, the slide carries the recognised words, in a text box drawn with no fill", async () => {
+    const { processor, asked } = registry("pdf-to-powerpoint");
+    const result = await processor.process(
+      job("pdf-to-powerpoint", { ocr: true, languages: ["eng"] }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(asked).toEqual([SEARCHABLE_REQUEST]);
+    expect(result.artifacts[0]!.filename).toBe("scan.pptx");
+    const zip = await JSZip.loadAsync(result.artifacts[0]!.bytes);
+    const slide = await zip.file("ppt/slides/slide1.xml")!.async("string");
+    expect(slide).toContain(RECOGNISED);
+    // Invisible, as the OCR'd PDF draws it: the run has no fill.
+    expect(slide).toMatch(/<a:noFill\/>/);
+    expect(result.results?.ocr?.languages).toEqual(["eng"]);
+  });
+
+  it("an upload over the ceiling is refused before OCR, naming PDF to PowerPoint", async () => {
+    const { processor, asked } = registry("pdf-to-powerpoint", ocrmypdf, {
+      maxInputBytes: SCAN.byteLength - 1,
+    });
+    const result = await processor.process(
+      job("pdf-to-powerpoint", { ocr: true }),
+    );
+    expect(asked).toEqual([]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toMatch(/PDF to PowerPoint/);
+  });
+});

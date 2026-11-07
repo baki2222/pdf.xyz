@@ -116,11 +116,13 @@ const EXPORT_COPY: Record<
     note: "Running this uses a private secure-server job. A PDF with no selectable text at all, such as a scan, needs the OCR switch on.",
     hint: "Selectable PDF",
   },
+  // CHANGED 2026-11-08 (audit pdf-to-powerpoint#4): "…; run OCR first to
+  // have its words as text too." — before the OCR switch below.
   "pdf-to-powerpoint": {
     badge: "Pages to slides",
     summary:
-      "Our server reads each page and builds a real PPTX file: pictures where the page shows them, text in text boxes at their places, other drawing as pictures. A scanned page comes through as a picture; run OCR first to have its words as text too.",
-    note: "Running this uses a private secure-server job. A scanned page comes through as a picture on its slide; run OCR first to have its words as text.",
+      "Our server reads each page and builds a real PPTX file: pictures where the page shows them, text in text boxes at their places, other drawing as pictures. A scanned page comes through as a picture; turn on OCR below to have its words in invisible text boxes over it.",
+    note: "Running this uses a private secure-server job. A scanned page comes through as a picture on its slide; with the OCR switch on, its words come too.",
     hint: "One PDF",
   },
 };
@@ -187,7 +189,8 @@ function PdfOfficeRunArea({
     setFile(files[0] ?? null);
   });
   // OCR first, in the same job, with OCR PDF's languages: PDF to Word since
-  // 2026-10-24, PDF to Excel since 2026-11-08 (`OFFICE_OCR_TOOLS`).
+  // 2026-10-24, PDF to Excel and PDF to PowerPoint since 2026-11-08
+  // (`OFFICE_OCR_TOOLS`).
   const offersOcr = offersOfficeOcr(tool);
   const [ocrOn, setOcrOn] = useState(false);
   // Right-to-left scripts are left out: their words come out of the

@@ -237,8 +237,9 @@ export function createPdfOfficeExportProcessor(
       const file = input.inputs[0]!;
 
       // The one option: OCR first. PDF to Word's since 2026-10-24; Excel's
-      // since 2026-11-08 (audit pdf-to-excel#2). Until then Excel ignored
-      // its options bag, so a scan could only be refused.
+      // and PowerPoint's since 2026-11-08 (audit pdf-to-excel#2,
+      // pdf-to-powerpoint#4). Until then both ignored their options bag: an
+      // Excel scan could only be refused, a PowerPoint one came as pictures.
       let bytes = file.bytes;
       let ocrResults: JobResults | undefined;
       const messages = officeOcrMessages(input.tool);
