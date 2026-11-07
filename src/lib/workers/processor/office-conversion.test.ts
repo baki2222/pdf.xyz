@@ -392,3 +392,96 @@ function encryptedOoxml(): Uint8Array {
   out.set(pkg.subarray(512, 600), 640);
   return out;
 }
+
+/**
+ * Excel to PDF's "Put each sheet on one page" (audit excel-to-pdf#1,
+ * 2026-11-08), through the composed chain: the job's option bag, the
+ * processor, the engine, the native runner, and the argv soffice is given.
+ * A unit test of the target string alone would pass while the processor
+ * dropped the option on the way, which is the seam this pins.
+ */
+describe("excel-to-pdf one page per sheet reaches soffice's argv", () => {
+  const CSV = new TextEncoder().encode("Town,Visitors\nBern,980\n");
+  const SINGLE_PAGE_TARGET =
+    'pdf:calc_pdf_Export:{"SinglePageSheets":{"type":"boolean","value":"true"}}';
+
+  async function argvFor(tool: string, options: Record<string, unknown>) {
+    const exec = vi.fn(async () => ({ code: 0, timedOut: false }));
+    const config: NativeOfficeConversionConfig = {
+      enabled: true,
+      candidates: ["soffice"],
+      overridden: false,
+      timeoutMs: 120_000,
+      maxInputBytes: 10_000,
+      maxOutputBytes: 10_000,
+      tmpDir: "/tmp",
+    };
+    const libreoffice = createNativeLibreOfficePdfRunner(config, {
+      exec,
+      resolveOnPath: (bin) => bin === "soffice",
+      fs: {
+        mkdtemp: async () => "/tmp/pdfxyz-office-1",
+        writeFile: async () => {},
+        readFile: async () => PDF,
+        rm: async () => {},
+      },
+    });
+    const result = await createOfficeConversionProcessor({
+      libreoffice,
+    }).process({
+      tool,
+      options,
+      inputs: [
+        {
+          fileId: "f",
+          filename: tool === "excel-to-pdf" ? "towns.csv" : "notes.docx",
+          contentType: "text/csv",
+          bytes: CSV,
+        },
+      ],
+    });
+    const argv = exec.mock.calls[0]
+      ? (exec.mock.calls[0] as unknown as [string, string[]])[1]
+      : null;
+    return { result, argv };
+  }
+
+  it("asks LibreOffice's Calc PDF filter for SinglePageSheets", async () => {
+    const { result, argv } = await argvFor("excel-to-pdf", {
+      onePagePerSheet: true,
+    });
+    expect(result.ok).toBe(true);
+    expect(argv).not.toBeNull();
+    const at = argv!.indexOf("--convert-to");
+    expect(argv![at + 1]).toBe(SINGLE_PAGE_TARGET);
+    // The target is valid JSON after the filter name, as LibreOffice parses it.
+    expect(
+      JSON.parse(argv![at + 1]!.slice("pdf:calc_pdf_Export:".length)),
+    ).toEqual({ SinglePageSheets: { type: "boolean", value: "true" } });
+  });
+
+  it("CONTROL: without the option the argv is exactly as before", async () => {
+    for (const options of [{}, { onePagePerSheet: false }]) {
+      const { argv } = await argvFor("excel-to-pdf", options);
+      expect(argv![argv!.indexOf("--convert-to") + 1]).toBe("pdf");
+    }
+  });
+
+  it("is Excel's alone: Word to PDF never sends a Calc filter", async () => {
+    const { argv } = await argvFor("word-to-pdf", { onePagePerSheet: true });
+    expect(argv![argv!.indexOf("--convert-to") + 1]).toBe("pdf");
+  });
+
+  it("a value that is not a boolean is refused before soffice runs", async () => {
+    const { result, argv } = await argvFor("excel-to-pdf", {
+      onePagePerSheet: "yes",
+    });
+    expect(argv).toBeNull();
+    expect(result.ok).toBe(false);
+    if (!result.ok)
+      expect(result.error).toMatchObject({
+        code: "unprocessable_entity",
+        retryable: false,
+      });
+  });
+});

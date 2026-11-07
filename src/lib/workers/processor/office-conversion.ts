@@ -14,6 +14,7 @@ import {
   type OfficeConversionRun,
   type OfficeToPdfTool,
 } from "../office-conversion/engine";
+import { parseSheetLayout } from "../office-conversion/sheet-layout";
 import {
   processorFail,
   processorOk,
@@ -132,12 +133,26 @@ export function createOfficeConversionProcessor(
       const inputError = requireSingleInput(input);
       if (inputError) return inputError;
       const file = input.inputs[0]!;
+      // Excel's layout option, read with the parser the panel's option key
+      // comes from. A malformed value is the request's fault: refused once,
+      // before LibreOffice runs, never coerced into a different output.
+      const layout =
+        input.tool === EXCEL_TO_PDF_TOOL
+          ? parseSheetLayout(input.options)
+          : null;
+      if (layout && !layout.ok)
+        return processorFail({
+          code: "unprocessable_entity",
+          message: layout.message,
+          retryable: false,
+        });
       const run = await runOfficeToPdf(
         input.tool,
         file.bytes,
         file.filename,
         deps,
         input.signal,
+        layout?.value,
       );
       if (!run.ok) return processorFail(jobError(run));
       return processorOk(

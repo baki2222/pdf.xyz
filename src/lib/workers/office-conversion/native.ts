@@ -16,6 +16,7 @@ import {
   resolveNativeOfficeConversionConfig,
   type NativeOfficeConversionConfig,
 } from "./native-config";
+import type { SheetLayout } from "./sheet-layout";
 
 const EXEC_MAX_BUFFER = 16 * 1024 * 1024;
 
@@ -140,10 +141,27 @@ export function csvImportFilter(
   return CSV_UTF8_INFILTER;
 }
 
+/**
+ * LibreOffice's Calc PDF export with `SinglePageSheets` on: every sheet
+ * becomes one page sized to its content (`./sheet-layout`). JSON filter
+ * options on `--convert-to` are LibreOffice 7.4's syntax; the worker image's
+ * Debian bookworm ships 7.4. No shell sees this string: `execFile` passes it
+ * as one argument.
+ */
+export const CALC_SINGLE_PAGE_SHEETS_TARGET = `pdf:calc_pdf_Export:${JSON.stringify(
+  { SinglePageSheets: { type: "boolean", value: "true" } },
+)}`;
+
+/** What follows `--convert-to`: plain `pdf` unless a layout asks for more. */
+export function pdfConvertTarget(layout?: SheetLayout): string {
+  return layout?.onePagePerSheet ? CALC_SINGLE_PAGE_SHEETS_TARGET : "pdf";
+}
+
 export function libreOfficeConvertArgs(
   inputPath: string,
   outputDir: string,
   infilter: string | null = null,
+  convertTarget: string = "pdf",
 ): string[] {
   return [
     "--headless",
@@ -155,7 +173,7 @@ export function libreOfficeConvertArgs(
     // stays LAST (a file named before --convert-to is opened, not converted).
     ...(infilter ? [`--infilter=${infilter}`] : []),
     "--convert-to",
-    "pdf",
+    convertTarget,
     "--outdir",
     outputDir,
     inputPath,
@@ -195,7 +213,7 @@ export function createNativeLibreOfficePdfRunner(
     config.candidates[0] ??
     "soffice";
   return {
-    async convertToPdf(input, filename, run = {}) {
+    async convertToPdf(input, filename, run = {}, layout) {
       if (input.byteLength > config.maxInputBytes)
         throw new Error("Input exceeds size limit.");
       throwIfAttemptAborted(run.signal);
@@ -215,6 +233,7 @@ export function createNativeLibreOfficePdfRunner(
             inputPath,
             dir,
             csvImportFilter(input, inputName),
+            pdfConvertTarget(layout),
           ),
           {
             timeout: config.timeoutMs,

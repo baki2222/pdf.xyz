@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useId, useState } from "react";
 import { Download, FileText, ShieldCheck, Timer } from "lucide-react";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import {
@@ -22,6 +22,7 @@ import {
   DOCUMENT_NOUNS,
   type OfficeToPdfTool,
 } from "@/lib/workers/office-conversion/tools";
+import { SHEET_LAYOUT_CHECKBOXES } from "@/lib/workers/office-conversion/sheet-layout";
 import {
   DownloadCta,
   Dropzone,
@@ -163,6 +164,9 @@ function OfficeRunArea({
 }) {
   const { available } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
+  // Excel to PDF only (audit excel-to-pdf#1): LibreOffice's SinglePageSheets.
+  const [onePagePerSheet, setOnePagePerSheet] = useState(false);
+  const layoutHintId = useId();
   const job = useWorkerJob<OfficeConversionWorkerResult>({
     tool: tool,
     resume: (id, controls) =>
@@ -181,12 +185,13 @@ function OfficeRunArea({
           tool,
           filename: file.name,
           bytes: new Uint8Array(await file.arrayBuffer()),
+          layout: { onePagePerSheet },
         },
         controls,
       );
       return result;
     });
-  }, [file, tool, run, available]);
+  }, [file, tool, run, available, onePagePerSheet]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -233,6 +238,28 @@ function OfficeRunArea({
           hint={formatsHint(catalogTool)}
         />
       )}
+      {tool === "excel-to-pdf" &&
+        SHEET_LAYOUT_CHECKBOXES.map((choice) => (
+          <div key={choice.option} className="flex flex-col gap-1">
+            <label className="text-fg flex min-h-11 items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={onePagePerSheet}
+                disabled={busy}
+                aria-describedby={layoutHintId}
+                onChange={(e) => {
+                  setOutcome(null);
+                  setOnePagePerSheet(e.target.checked);
+                }}
+                className="accent-accent size-4"
+              />
+              {choice.label}
+            </label>
+            <p id={layoutHintId} className="text-muted text-xs leading-relaxed">
+              {choice.hint}
+            </p>
+          </div>
+        ))}
       <WorkerGate
         reserve={STATUS_SLOT}
         job={job}

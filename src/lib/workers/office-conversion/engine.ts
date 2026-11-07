@@ -12,6 +12,7 @@ import {
   type RunControl,
 } from "../attempt-abort";
 import { DOCUMENT_WORDS } from "./document-words";
+import type { SheetLayout } from "./sheet-layout";
 import {
   EXCEL_TO_PDF_TOOL,
   POWERPOINT_TO_PDF_TOOL,
@@ -33,6 +34,8 @@ export interface LibreOfficePdfRunner {
     input: Uint8Array,
     filename: string,
     run?: RunControl,
+    /** Excel to PDF's page layout; absent is LibreOffice's plain export. */
+    layout?: SheetLayout,
   ): Promise<Uint8Array>;
 }
 
@@ -138,6 +141,8 @@ export async function runOfficeToPdf(
   deps: OfficeConversionDeps,
   /** The attempt's abort signal, passed to LibreOffice. */
   signal?: AbortSignal,
+  /** Excel to PDF's page layout (`./sheet-layout`); ignored by the others. */
+  layout?: SheetLayout,
 ): Promise<OfficeConversionRun> {
   if (!supportsOfficeInput(tool, filename)) {
     return {
@@ -197,11 +202,21 @@ export async function runOfficeToPdf(
   };
   let output: Uint8Array;
   try {
-    output = await deps.libreoffice.convertToPdf(
-      input,
-      filename,
-      signalOption(signal),
-    );
+    // The layout goes to LibreOffice only for a spreadsheet that asked for
+    // more than the default, so every other run is called exactly as before.
+    output =
+      tool === EXCEL_TO_PDF_TOOL && layout?.onePagePerSheet
+        ? await deps.libreoffice.convertToPdf(
+            input,
+            filename,
+            signalOption(signal),
+            layout,
+          )
+        : await deps.libreoffice.convertToPdf(
+            input,
+            filename,
+            signalOption(signal),
+          );
   } catch (error) {
     rethrowIfAttemptAbort(error);
     if (!(error instanceof LibreOfficeRunError))
