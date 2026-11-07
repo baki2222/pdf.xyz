@@ -19,8 +19,8 @@ import { GUIDE_META } from "../src/lib/guides/meta.generated";
  * control below proves the rules are live: a run that finds nothing on a page
  * with a planted defect would make every pass here meaningless.
  */
-const require = createRequire(join(process.cwd(), "package.json"));
-const AXE = require.resolve("axe-core/axe.min.js");
+const fromRoot = createRequire(join(process.cwd(), "package.json"));
+const AXE = fromRoot.resolve("axe-core/axe.min.js");
 
 const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
