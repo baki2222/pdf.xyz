@@ -201,6 +201,44 @@ describe("Extract Tables panel — failures link the tool that fixes them", () =
     );
   });
 
+  it("offers PDF to Excel and OCR PDF when no table is detected (audit extract-tables#5)", async () => {
+    stubNetwork(
+      await failedJobFrom(
+        async () => ({
+          pageCount: 1,
+          pages: [
+            {
+              pageNumber: 1,
+              width: 400,
+              height: 300,
+              items: [
+                {
+                  text: "Just running prose here.",
+                  x: 50,
+                  y: 100,
+                  width: 120,
+                  height: 10,
+                },
+              ],
+            },
+          ],
+        }),
+        new Uint8Array([0x25, 0x50, 0x44, 0x46]),
+      ),
+    );
+    await extractOnePdf();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /No table-like structure/,
+    );
+    expect(
+      screen.getByRole("link", { name: "Open PDF to Excel" }),
+    ).toHaveAttribute("href", "/tools/pdf-to-excel");
+    expect(screen.getByRole("link", { name: "Open OCR PDF" })).toHaveAttribute(
+      "href",
+      "/tools/ocr-pdf",
+    );
+  });
+
   it("POSITIVE CONTROL: a retryable failure links nothing", async () => {
     stubNetwork(
       await failedJobFrom(
@@ -404,5 +442,7 @@ describe("Extract Tables page — says what the result card says", () => {
     expect(page).toContain(lines[0]!.replace(/\.$/, ""));
     expect(lines[1]).toMatch(/^No table was detected on /);
     expect(page).toContain("No table was detected on");
+    // The no-tables failure's links, named as the panel labels them.
+    expect(page).toContain("links to PDF to Excel and OCR PDF");
   });
 });

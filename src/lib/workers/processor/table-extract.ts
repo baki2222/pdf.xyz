@@ -1,6 +1,9 @@
 import type { JobError } from "@/lib/jobs";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
-import { parseExtractTablesOptions } from "@/lib/jobs/extract-tables-options";
+import {
+  EXTRACT_TABLES_NO_TABLES_CODE,
+  parseExtractTablesOptions,
+} from "@/lib/jobs/extract-tables-options";
 import {
   MAX_DISPLAY_FILENAME_LENGTH,
   sanitizeDisplayFilename,
@@ -84,9 +87,12 @@ function jobError(run: Failure): JobError {
         message: run.message,
         retryable: false,
       };
+    // Its own code since 2026-11-08 (audit extract-tables#5): the panel
+    // offers PDF to Excel and OCR PDF from it. `unprocessable_entity` linked
+    // nothing.
     case "no_tables":
       return {
-        code: "unprocessable_entity",
+        code: EXTRACT_TABLES_NO_TABLES_CODE,
         message: run.message,
         retryable: false,
       };

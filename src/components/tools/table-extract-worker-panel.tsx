@@ -32,6 +32,7 @@ import { OfficeExportNextStep } from "./office-export-notices";
 import { COMBINE_TABLES_HINT } from "@/lib/jobs/extract-tables-options";
 import {
   TableExtractFindings,
+  TableExtractNoTablesStep,
   tablesReadySentence,
 } from "./table-extract-findings";
 
@@ -212,10 +213,13 @@ function TableExtractRunArea({
           <>
             <WorkerJobStatus job={job} />
             {outcome?.ok === false && !outcome.stillRunning && (
-              <OfficeExportNextStep
-                code={outcome.code}
-                message={outcome.message}
-              />
+              <>
+                <OfficeExportNextStep
+                  code={outcome.code}
+                  message={outcome.message}
+                />
+                <TableExtractNoTablesStep code={outcome.code} />
+              </>
             )}
           </>
         }

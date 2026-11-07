@@ -1,8 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import type { Job } from "@/lib/jobs/types";
 import type { TableExtractResultMeta } from "@/lib/jobs/table-extract-results";
-import { COMBINED_SHEET_NAME } from "@/lib/jobs/extract-tables-options";
+import {
+  COMBINED_SHEET_NAME,
+  EXTRACT_TABLES_NO_TABLES_CODE,
+} from "@/lib/jobs/extract-tables-options";
 
 /*
  * What Extract Tables found, said on its result card (audit extract-tables#4,
@@ -81,6 +85,42 @@ export function TableExtractFindings({ job }: { job: Job | undefined }) {
       {lines.map((line) => (
         <p key={line}>{line}</p>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Where to go when no table was detected (audit extract-tables#5): PDF to
+ * Excel for text that is not laid out as a grid, OCR PDF for pages that are
+ * pictures. Keyed on the failure's CODE, never on its sentence.
+ */
+export function TableExtractNoTablesStep({
+  code,
+}: {
+  code: string | undefined;
+}) {
+  if (code !== EXTRACT_TABLES_NO_TABLES_CODE) return null;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className="text-muted text-sm leading-relaxed">
+        No block of the text lined up as columns of short values. PDF to Excel
+        puts every line of the text into a sheet instead, and if the pages are
+        scans, OCR PDF adds their text first.
+      </p>
+      <div className="flex flex-wrap gap-x-4 gap-y-1">
+        <Link
+          href="/tools/pdf-to-excel"
+          className="text-fg text-sm font-medium underline underline-offset-4"
+        >
+          Open PDF to Excel
+        </Link>
+        <Link
+          href="/tools/ocr-pdf"
+          className="text-fg text-sm font-medium underline underline-offset-4"
+        >
+          Open OCR PDF
+        </Link>
+      </div>
     </div>
   );
 }

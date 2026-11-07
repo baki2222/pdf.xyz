@@ -102,7 +102,7 @@ const content: ToolContent = {
     },
     {
       title: "Press Extract tables",
-      body: `One option sits above the button: ${COMBINE_TABLES_LABEL}, off unless you tick it. A file over ${CEILING_MB} MB is refused as soon as you pick it, before anything is read or sent. While the job runs, the button reads Uploading your file…, Waiting for our server…, Extracting tables… and Downloading the result… in turn, and it stays busy until the ZIP has come back to your browser. A scan with no text, or a file in which no table is detected, shows an error beneath the button in place of a result.`,
+      body: `One option sits above the button: ${COMBINE_TABLES_LABEL}, off unless you tick it. A file over ${CEILING_MB} MB is refused as soon as you pick it, before anything is read or sent. While the job runs, the button reads Uploading your file…, Waiting for our server…, Extracting tables… and Downloading the result… in turn, and it stays busy until the ZIP has come back to your browser. A scan with no text, or a file in which no table is detected, shows an error beneath the button in place of a result; when no table is detected, it comes with links to PDF to Excel and OCR PDF.`,
     },
     {
       title: "Download the ZIP",
@@ -129,7 +129,7 @@ const content: ToolContent = {
     },
     {
       q: "Why did a page with an obvious table return nothing?",
-      a: `A block counts as a table only when at least two columns each hold something in two or more rows, one column holds short values of fewer than ${LONG_CELL_WORDS} words each (and is not mostly bullet items), and no sentence wraps from one row into the next. Two columns of prose, side-by-side bulleted lists and letterhead lines fail those tests on purpose. A table in which every column holds longer text can fail them too, as can one cut into single rows by one-line subheadings. If nothing in the file passes, the job ends with the message that no table-like structure was detected.`,
+      a: `A block counts as a table only when at least two columns each hold something in two or more rows, one column holds short values of fewer than ${LONG_CELL_WORDS} words each (and is not mostly bullet items), and no sentence wraps from one row into the next. Two columns of prose, side-by-side bulleted lists and letterhead lines fail those tests on purpose. A table in which every column holds longer text can fail them too, as can one cut into single rows by one-line subheadings. If nothing in the file passes, the job ends with the message that no table-like structure was detected and links to PDF to Excel and OCR PDF: the first puts every line of the text into a sheet, the second adds text to pages that are scans.`,
     },
     {
       q: "What happens to a table that runs over several pages?",

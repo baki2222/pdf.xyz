@@ -9,7 +9,10 @@ import { PDFDocument } from "pdf-lib";
 import { PdfTextExecError } from "../pdf-text/errors";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
 import { rc4EncryptedPdf } from "@/tests/pdf-office-fixtures";
-import { COMBINED_CSV_NAME } from "@/lib/jobs/extract-tables-options";
+import {
+  COMBINED_CSV_NAME,
+  EXTRACT_TABLES_NO_TABLES_CODE,
+} from "@/lib/jobs/extract-tables-options";
 import { sanitizeJobResults } from "@/lib/jobs/results";
 
 const PDF = new TextEncoder().encode(
@@ -101,7 +104,13 @@ describe("table-extract processor", () => {
     }
   });
 
-  it("fails as unprocessable when no tables are present", async () => {
+  /*
+   * INVERTED 2026-11-08 (audit extract-tables#5). This expected the generic
+   * `unprocessable_entity`, a code no panel links a next step from, so a
+   * prose PDF ended on the error sentence alone. The failure now carries its
+   * own code, and the panel offers PDF to Excel and OCR PDF from it.
+   */
+  it("fails with its own no-tables code when no tables are present", async () => {
     const prose = vi.fn(async () => ({
       pageCount: 1,
       pages: [
@@ -136,7 +145,11 @@ describe("table-extract processor", () => {
       ],
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe("unprocessable_entity");
+    if (!result.ok)
+      expect(result.error).toMatchObject({
+        code: EXTRACT_TABLES_NO_TABLES_CODE,
+        retryable: false,
+      });
   });
 
   it("rejects malformed input count", async () => {

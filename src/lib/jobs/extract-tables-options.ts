@@ -57,3 +57,11 @@ export function parseExtractTablesOptions(
   }
   return { ok: true, value: { combine: raw === true } };
 }
+
+/**
+ * The job error code for "no table was detected" (audit extract-tables#5).
+ * Until 2026-11-08 the failure carried the generic `unprocessable_entity`,
+ * which no panel links a next step from; the panel keys its PDF to Excel and
+ * OCR PDF links on this code, never on the message text.
+ */
+export const EXTRACT_TABLES_NO_TABLES_CODE = "pdf_no_tables";

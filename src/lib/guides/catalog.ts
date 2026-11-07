@@ -5487,7 +5487,7 @@ export const guides: Guide[] = [
         heading: "What counts as a table",
         body: [
           `A block of lines is kept as a table only when at least two columns each hold something in two or more rows, one column holds short values of fewer than ${LONG_CELL_WORDS} words each and is not mostly bullet items, and no sentence wraps from one row into the next. Titles, captions, paragraph lines and footnotes end a table rather than joining it, so one page can give several tables.`,
-          "Two columns of prose, side-by-side bulleted lists and letterhead lines fail those tests on purpose. A table whose every column holds longer text can fail them too. If nothing in the file passes, the job ends with a message that no table-like structure was detected, and no ZIP is made.",
+          `Two columns of prose, side-by-side bulleted lists and letterhead lines fail those tests on purpose. A table whose every column holds longer text can fail them too. If nothing in the file passes, the job ends with a message that no table-like structure was detected, and no ZIP is made; links under it open ${nameOf("pdf-to-excel")}, which puts every line of the text into a sheet, and ${nameOf("ocr-pdf")}, for pages that are scans.`,
         ],
       },
       {
