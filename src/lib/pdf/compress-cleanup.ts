@@ -61,42 +61,56 @@ export function dropUnseen(lib: PdfLibModule, doc: PDFDocument): RepackRemoved {
   const { PDFArray, PDFDict, PDFName, PDFRef, PDFStream } = lib;
   const THUMB = PDFName.of("Thumb");
   let thumbnails = 0;
+  const thumbValues: PDFObject[] = [];
   for (const page of doc.getPages()) {
-    if (page.node.has(THUMB)) {
+    const thumb = page.node.get(THUMB);
+    if (thumb) {
+      thumbValues.push(thumb);
       page.node.delete(THUMB);
       thumbnails += 1;
     }
   }
 
   const ctx = doc.context;
-  const reached = new Set<string>();
-  const stack: PDFObject[] = [];
-  const t = ctx.trailerInfo;
-  for (const root of [t.Root, t.Info, t.Encrypt, t.ID]) {
-    if (root) stack.push(root);
-  }
-  while (stack.length > 0) {
-    const obj = stack.pop()!;
-    if (obj instanceof PDFRef) {
-      const key = obj.toString();
-      if (reached.has(key)) continue;
-      reached.add(key);
-      const target = ctx.lookup(obj);
-      if (target) stack.push(target);
-    } else if (obj instanceof PDFStream) {
-      stack.push(obj.dict);
-    } else if (obj instanceof PDFDict) {
-      for (const [, value] of obj.entries()) stack.push(value);
-    } else if (obj instanceof PDFArray) {
-      for (let i = 0; i < obj.size(); i++) stack.push(obj.get(i));
+  /** Every indirect object reachable from `roots`, skipping those in `stop`. */
+  const walk = (roots: PDFObject[], stop: Set<string>): Set<string> => {
+    const reached = new Set<string>();
+    const stack = [...roots];
+    while (stack.length > 0) {
+      const obj = stack.pop()!;
+      if (obj instanceof PDFRef) {
+        const key = obj.toString();
+        if (reached.has(key) || stop.has(key)) continue;
+        reached.add(key);
+        const target = ctx.lookup(obj);
+        if (target) stack.push(target);
+      } else if (obj instanceof PDFStream) {
+        stack.push(obj.dict);
+      } else if (obj instanceof PDFDict) {
+        for (const [, value] of obj.entries()) stack.push(value);
+      } else if (obj instanceof PDFArray) {
+        for (let i = 0; i < obj.size(); i++) stack.push(obj.get(i));
+      }
     }
-  }
+    return reached;
+  };
+  const t = ctx.trailerInfo;
+  const reached = walk(
+    [t.Root, t.Info, t.Encrypt, t.ID].filter((r): r is PDFObject => !!r),
+    new Set(),
+  );
+  // What the removed thumbnails alone held (the image stream, an indirect
+  // colour space and its lookup): dropped below, but counted as the
+  // thumbnail, not again as "unused". Until the review of 36048d58 every
+  // thumbnail's stream was counted twice.
+  const ofThumbnails = walk(thumbValues, reached);
 
   let unreferenced = 0;
   for (const [ref] of ctx.enumerateIndirectObjects()) {
-    if (!reached.has(ref.toString())) {
+    const key = ref.toString();
+    if (!reached.has(key)) {
       ctx.delete(ref);
-      unreferenced += 1;
+      if (!ofThumbnails.has(key)) unreferenced += 1;
     }
   }
   return { thumbnails, unreferenced };

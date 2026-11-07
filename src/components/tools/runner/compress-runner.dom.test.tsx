@@ -763,7 +763,9 @@ describe(
       await drop(container, [asFile(bytes, "bloated.pdf")]);
       expect(
         await screen.findByText(
-          removedLine({ thumbnails: 1, unreferenced: 2 })!,
+          // One orphan and one thumbnail. Until the review of 36048d58 this
+          // read { unreferenced: 2 }: the thumbnail's stream counted twice.
+          removedLine({ thumbnails: 1, unreferenced: 1 })!,
           undefined,
           { timeout: 10_000 },
         ),

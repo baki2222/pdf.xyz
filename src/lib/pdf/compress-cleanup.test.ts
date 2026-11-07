@@ -105,8 +105,41 @@ describe("the lossless repack drops what no page can show", () => {
     const { optimized, analysis } = await analyzePdf(bytes);
     expect(await streamsMarked(optimized, ORPHAN_MARK)).toHaveLength(0);
     expect(analysis.optimizedBytes).toBe(optimized.byteLength);
-    // One orphan stream, plus the thumbnail's stream once its link is gone.
-    expect(analysis.removed).toEqual({ thumbnails: 1, unreferenced: 2 });
+    // INVERTED after review of 36048d58: this pinned
+    // { thumbnails: 1, unreferenced: 2 }, "one orphan stream, plus the
+    // thumbnail's stream once its link is gone", so the panel counted every
+    // thumbnail twice ("2 unused objects and 1 page thumbnail" for a file
+    // with ONE orphan). A thumbnail's own objects belong to the thumbnail.
+    expect(analysis.removed).toEqual({ thumbnails: 1, unreferenced: 1 });
+  });
+
+  it("a thumbnail's own indirect objects (its colour space) are counted as the thumbnail, not as unused objects", async () => {
+    const doc = await PDFDocument.create();
+    doc.addPage([200, 200]);
+    const ctx = doc.context;
+    const palette = ctx.register(
+      ctx.obj(["Indexed", "DeviceRGB", 1, ctx.register(ctx.stream(noise(6)))]),
+    );
+    const thumb = ctx.register(
+      ctx.stream(noise(400, 5), {
+        Width: 20,
+        Height: 20,
+        BitsPerComponent: 8,
+        ColorSpace: palette,
+      }),
+    );
+    doc.getPage(0).node.set(PDFName.of("Thumb"), thumb);
+    // One real orphan, so the count has something to count.
+    ctx.register(ctx.stream(noise(300, 11), { Subject: ORPHAN_MARK }));
+    const { optimized, analysis } = await analyzePdf(
+      await doc.save({ useObjectStreams: false }),
+    );
+    expect(analysis.removed).toEqual({ thumbnails: 1, unreferenced: 1 });
+    // ...and the thumbnail's objects are gone all the same.
+    const out = await PDFDocument.load(optimized);
+    expect(out.context.enumerateIndirectObjects().length).toBeLessThan(
+      doc.context.enumerateIndirectObjects().length - 3,
+    );
   });
 
   it("a file with nothing to drop reports nothing removed", async () => {
@@ -119,8 +152,11 @@ describe("the lossless repack drops what no page can show", () => {
   it("the page states the cleanup, and the panel's line counts only what was removed", () => {
     expect(compressContent.intro.join(" ")).toContain(REPACK_CLEANUP_SENTENCE);
     expect(removedLine({ thumbnails: 0, unreferenced: 0 })).toBeNull();
-    expect(removedLine({ thumbnails: 1, unreferenced: 2 })).toBe(
-      "The repack also dropped 2 unused objects and 1 page thumbnail.",
+    expect(removedLine({ thumbnails: 3, unreferenced: 2 })).toBe(
+      "The repack also dropped 2 unused objects and 3 page thumbnails.",
+    );
+    expect(removedLine({ thumbnails: 1, unreferenced: 1 })).toBe(
+      "The repack also dropped 1 unused object and 1 page thumbnail.",
     );
     expect(removedLine({ thumbnails: 0, unreferenced: 1 })).toBe(
       "The repack also dropped 1 unused object.",
