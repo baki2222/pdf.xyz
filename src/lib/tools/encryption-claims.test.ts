@@ -83,6 +83,15 @@ function restrictedFileMeets(slug: string): Restricted | null {
   const source = runnerSource(slug);
   if (source === null) return null;
   if (/\breader="pdfjs"/.test(source)) return "opens";
+  // A runner that counts pages with pdf.js and never loads the file through
+  // pdf-lib (Compare PDF, since 2026-11-08) reads what pdf.js opens.
+  if (
+    /\breadPagesWithPdfjs\(/.test(source) &&
+    !/\b(?:getPageCount|getPageRotations|loadPdf|SinglePdfRunner|useSinglePdf)\b/.test(
+      source,
+    )
+  )
+    return "opens";
   if (/\bclassifyLocked\s*:\s*true\b/.test(source)) return "offers-worker";
   // A bare JSX flag on its own line: `openProtected` (see `use-single-pdf`).
   if (/^\s*openProtected\s*$/m.test(source)) return "opens-protected";
@@ -211,7 +220,10 @@ describe("encryption claims on tool pages match the runner's reader", () => {
         .sort();
     // The pdfjs runners (`single-pdf-reader.test.ts` holds that set) mount
     // these four pages; Compress is the one that offers the worker.
+    // 2026-11-08: Compare PDF, whose card count moved to pdf.js (audit
+    // compare-pdf#5).
     expect(by("opens")).toEqual([
+      "compare-pdf",
       "pdf-to-jpg",
       "pdf-to-markdown",
       "pdf-to-png",
