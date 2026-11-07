@@ -119,21 +119,23 @@ export function SiteFooter() {
               key={category.id}
               className="border-line border-b sm:mb-6 sm:break-inside-avoid sm:border-0 sm:[&::details-content]:[content-visibility:visible]"
             >
-              {/* On a phone the name opens its group; from `sm` the groups
-                  stand open and the name is its category page's link. */}
-              <summary className="text-fg flex cursor-pointer list-none items-center justify-between py-3 text-sm font-semibold sm:cursor-auto sm:py-0 sm:pb-2 [&::-webkit-details-marker]:hidden">
-                <span className="sm:hidden">{category.name}</span>
-                <Link
-                  href={categoryHref(category.id)}
-                  className="hover:text-accent transition-colors max-sm:hidden"
-                >
-                  {category.name}
-                </Link>
-                <ChevronDown
-                  className="text-muted size-4 sm:hidden"
-                  aria-hidden
-                />
+              {/* On a phone the name opens its group. From `sm` the groups
+                  stand open, the summary is hidden, and the name is its
+                  category page's link, OUTSIDE the summary. Until 2026-11-07
+                  the link sat inside it, a control nested in a control: axe's
+                  nested-interactive on every page, where a keyboard or
+                  screen-reader user met a toggle that was also a link. The
+                  link is at least 24px tall (WCAG 2.5.8, axe target-size). */}
+              <summary className="text-fg flex cursor-pointer list-none items-center justify-between py-3 text-sm font-semibold sm:hidden [&::-webkit-details-marker]:hidden">
+                <span>{category.name}</span>
+                <ChevronDown className="text-muted size-4" aria-hidden />
               </summary>
+              <Link
+                href={categoryHref(category.id)}
+                className="text-fg hover:text-accent hidden min-h-6 items-center pb-2 text-sm font-semibold transition-colors sm:flex"
+              >
+                {category.name}
+              </Link>
               <ul className="flex flex-col gap-2 pb-3 sm:gap-1.5 sm:pb-0">
                 {tools.map((tool) => (
                   <li key={tool.slug}>

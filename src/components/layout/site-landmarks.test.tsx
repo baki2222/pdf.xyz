@@ -341,6 +341,22 @@ describe("the footer", () => {
     // Closed on arrival (a phone sees eight headings); the links are in the DOM.
     expect(details.filter((d) => d.open)).toEqual([]);
   });
+
+  // A <summary> is itself a control (it toggles its <details>); a link inside
+  // one nests a control in a control. Until 2026-11-07 every category heading
+  // did, on every page (axe nested-interactive); e2e/axe.spec.ts holds the
+  // whole site to axe, and this holds the footer to it without a browser.
+  it("no summary in the footer holds a link or a button", () => {
+    const { container } = render(at("/", <SiteFooter />));
+    const summaries = [...container.querySelectorAll("summary")];
+    // Health: the summaries this is about exist.
+    expect(summaries.length).toBe(categories.length);
+    expect(
+      summaries
+        .filter((s) => s.querySelector("a, button, input, select, textarea"))
+        .map((s) => s.textContent),
+    ).toEqual([]);
+  });
 });
 
 /**
