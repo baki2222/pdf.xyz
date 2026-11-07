@@ -10,6 +10,7 @@ import {
 import {
   DEFAULT_HIGHLIGHT,
   DEFAULT_NOTE_FILL,
+  DEFAULT_UNDERLINE,
   DEFAULT_STROKE,
   DEFAULT_TEXT_STYLE,
   linkUntouched,
@@ -61,6 +62,8 @@ export const TOOLS = [
   "whiteout",
   "redact",
   "highlight",
+  "underline",
+  "strikeout",
   "ink",
   "note",
 ] as const;
@@ -103,6 +106,9 @@ export interface Defaults {
   };
   line: { stroke: string; strokeWidth: number; opacity: number };
   highlight: { color: string; opacity: number };
+  /** Underline and squiggly (`markup.ts`). */
+  underline: { color: string; opacity: number };
+  strikeout: { color: string; opacity: number };
   ink: { stroke: string; strokeWidth: number; opacity: number };
   redact: { fill: RedactFill };
   mark: { glyph: MarkGlyph; color: string };
@@ -121,6 +127,8 @@ export const INITIAL_DEFAULTS: Defaults = {
   shape: { stroke: DEFAULT_STROKE, strokeWidth: 2, fill: null, opacity: 1 },
   line: { stroke: DEFAULT_STROKE, strokeWidth: 2, opacity: 1 },
   highlight: { color: DEFAULT_HIGHLIGHT, opacity: 0.4 },
+  underline: { color: DEFAULT_UNDERLINE, opacity: 1 },
+  strikeout: { color: DEFAULT_STROKE, opacity: 1 },
   ink: { stroke: "#1d4ed8", strokeWidth: 2.5, opacity: 1 },
   redact: { fill: "black" },
   mark: { glyph: "check", color: "#111827" },
@@ -180,6 +188,8 @@ export const COMMENT_TOOLS: ReadonlySet<Tool> = new Set<Tool>([
   "line",
   "arrow",
   "highlight",
+  "underline",
+  "strikeout",
   "ink",
   "note",
 ]);

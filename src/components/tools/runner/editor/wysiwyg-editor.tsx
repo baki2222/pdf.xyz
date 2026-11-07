@@ -211,6 +211,8 @@ const PLACING: ReadonlySet<Tool> = new Set([
   "whiteout",
   "redact",
   "highlight",
+  "underline",
+  "strikeout",
   "link",
   "field-text",
   "field-checkbox",
@@ -347,7 +349,16 @@ function makeObject(
     case "redact":
       return { id, kind: "redact", page, ...rect, fill: defaults.redact.fill };
     case "highlight":
-      return { id, kind: "highlight", page, ...rect, ...defaults.highlight };
+    case "underline":
+    case "strikeout":
+      return {
+        id,
+        kind: "highlight",
+        page,
+        ...rect,
+        ...defaults[tool],
+        markup: tool,
+      };
     case "link":
       return {
         id,
@@ -389,6 +400,8 @@ const CLICK_SIZE: Partial<Record<Tool, { width: number; height: number }>> = {
   whiteout: { width: 140, height: 28 },
   redact: { width: 140, height: 20 },
   highlight: { width: 160, height: 18 },
+  underline: { width: 160, height: 18 },
+  strikeout: { width: 160, height: 18 },
   line: { width: 120, height: 0 },
   arrow: { width: 120, height: 0 },
   link: { width: 140, height: 20 },

@@ -19,6 +19,7 @@ import {
   lineLeft,
   needsUnicodeFace,
 } from "@/lib/pdf/editor/text";
+import { markupOf, markupStroke } from "@/lib/pdf/editor/markup";
 import type { TextKit } from "./measure";
 
 /**
@@ -263,7 +264,32 @@ export function ObjectShape({
           vectorEffect="non-scaling-stroke"
         />
       );
-    case "highlight":
+    case "highlight": {
+      const stroke = markupStroke(obj, markupOf(obj));
+      if (stroke) {
+        // Underline, strikethrough, squiggly: the line the export draws,
+        // over a clear box that keeps the whole box clickable.
+        return (
+          <>
+            <rect
+              x={obj.x}
+              y={obj.y}
+              width={obj.width}
+              height={obj.height}
+              fill="transparent"
+            />
+            <polyline
+              points={stroke.points.map((p) => `${p.x},${p.y}`).join(" ")}
+              fill="none"
+              stroke={obj.color}
+              strokeOpacity={obj.opacity}
+              strokeWidth={stroke.width}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </>
+        );
+      }
       return (
         <rect
           x={obj.x}
@@ -275,6 +301,7 @@ export function ObjectShape({
           style={{ mixBlendMode: "multiply" }}
         />
       );
+    }
     case "link":
       return (
         <rect

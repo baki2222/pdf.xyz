@@ -66,7 +66,9 @@ export const EDITOR_KIND_FACT: Record<EditorKind, string> = {
   line: "lines and arrows",
   whiteout: "whiteout boxes",
   redact: "redaction boxes that remove the text and picture pixels under them",
-  highlight: "highlights",
+  // Variants included: Underline and Strikethrough place a highlight object
+  // with another `markup`, and Squiggly is its fourth Style (2026-11-08).
+  highlight: "highlights, underlines, strikethroughs and squiggly underlines",
   ink: "freehand drawing",
   note: "notes",
 };

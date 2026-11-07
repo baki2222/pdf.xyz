@@ -19,6 +19,7 @@ import {
   type SignatureStyle,
 } from "../offered-kinds";
 import type { RasterImageFormat } from "../pdf-lib";
+import { TEXT_MARKUP_LABEL, markupOf, type TextMarkup } from "./markup";
 
 export const EDITOR_FONTS = ["helvetica", "times", "courier"] as const;
 export type EditorFont = (typeof EDITOR_FONTS)[number];
@@ -181,6 +182,11 @@ export interface HighlightObject extends Base, Boxed {
   kind: "highlight";
   color: string;
   opacity: number;
+  /**
+   * Which text markup (`markup.ts`): highlight, underline, strikethrough or
+   * squiggly. Absent on objects made before 2026-11-08 — a highlight.
+   */
+  markup?: TextMarkup;
 }
 
 export interface InkObject extends Base {
@@ -694,6 +700,8 @@ export function describeObject(obj: EditorObject): string {
       return `${obj.arrow ? "Arrow" : "Line"} on ${page}`;
     case "mark":
       return `${obj.glyph === "check" ? "Check mark" : "Cross"} on ${page}`;
+    case "highlight":
+      return `${TEXT_MARKUP_LABEL[markupOf(obj)]} on ${page}`;
     case "link":
       return obj.target.type === "uri"
         ? `Link to ${describeLinkTarget(obj.target, () => null)} on ${page}`
@@ -759,4 +767,5 @@ export const DEFAULT_TEXT_STYLE: TextStyle = {
 
 export const DEFAULT_NOTE_FILL = "#fef08a";
 export const DEFAULT_HIGHLIGHT = "#facc15";
+export const DEFAULT_UNDERLINE = "#2563eb";
 export const DEFAULT_STROKE = "#dc2626";

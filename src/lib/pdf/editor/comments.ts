@@ -16,6 +16,7 @@ import {
   type Rect,
 } from "./model";
 import type { TextRun } from "./runs";
+import { TEXT_MARKUP_SUBTYPE, markupOf, markupStroke } from "./markup";
 import { layoutText, lineBaseline, lineLeft } from "./text";
 
 /**
@@ -26,7 +27,10 @@ import { layoutText, lineBaseline, lineLeft } from "./text";
  *
  *   Highlight → /Highlight with /QuadPoints (snapped to the text lines under
  *               the box when there are any, the box's textless bands kept
- *               as drawn — {@link snapHighlightQuads})
+ *               as drawn — {@link snapHighlightQuads}); Underline,
+ *               Strikethrough and Squiggly → /Underline, /StrikeOut and
+ *               /Squiggly on the same quads, each stroking the line
+ *               `markup.ts` places in a quad
  *   Draw      → /Ink with /InkList
  *   Note      → /FreeText: the editor's note is a visible box of words on
  *               coloured paper, which is a FreeText, not a /Text sticky icon
@@ -299,18 +303,39 @@ export function writeComments(
         ]);
         const rect = boxOf(corners.flat());
         const [r, g, b] = rgbOf(obj.color);
-        const paths = corners
-          .map(
-            ([ul, ur, ll, lr]) =>
-              `${nums(ul!.x, ul!.y)} m ${nums(ur!.x, ur!.y)} l ${nums(lr!.x, lr!.y)} l ${nums(ll!.x, ll!.y)} l h`,
-          )
-          .join("\n");
+        const markup = markupOf(obj);
+        let content: string;
+        if (markup === "highlight") {
+          const paths = corners
+            .map(
+              ([ul, ur, ll, lr]) =>
+                `${nums(ul!.x, ul!.y)} m ${nums(ur!.x, ur!.y)} l ${nums(lr!.x, lr!.y)} l ${nums(ll!.x, ll!.y)} l h`,
+            )
+            .join("\n");
+          content = `q /GS0 gs ${nums(r, g, b)} rg\n${paths}\nf Q`;
+        } else {
+          // The line each quad carries, as the flattened export draws it.
+          const paths = quads
+            .map((q) => {
+              const st = markupStroke(q, markup)!;
+              const [first, ...rest] = st.points.map((p) =>
+                toContent(p.x, p.y),
+              );
+              return (
+                `${num(st.width)} w ${nums(first!.x, first!.y)} m` +
+                rest.map((p) => ` ${nums(p.x, p.y)} l`).join("") +
+                " S"
+              );
+            })
+            .join("\n");
+          content = `q /GS0 gs ${nums(r, g, b)} RG 1 J 1 j\n${paths}\nQ`;
+        }
         const ap = appearance(
           rect,
-          `q /GS0 gs ${nums(r, g, b)} rg\n${paths}\nf Q`,
-          gs(obj.opacity, true),
+          content,
+          gs(obj.opacity, markup === "highlight"),
         );
-        add(page, "Highlight", rect, ap, {
+        add(page, TEXT_MARKUP_SUBTYPE[markup], rect, ap, {
           C: [r, g, b],
           CA: clampOpacity(obj.opacity),
           QuadPoints: corners.flatMap((c) => c.flatMap((p) => [p.x, p.y])),

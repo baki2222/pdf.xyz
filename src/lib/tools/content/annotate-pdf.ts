@@ -7,6 +7,7 @@ import {
   fontPack,
 } from "@/lib/pdf/font-packs";
 import { formatBytes } from "@/lib/utils";
+import { TEXT_MARKUPS, TEXT_MARKUP_LABEL } from "@/lib/pdf/editor/markup";
 
 /**
  * The annotate runner's own input gate (`useSinglePdf` → `validatePdfFile` →
@@ -37,6 +38,11 @@ function listOf(items: readonly string[], joiner = "and"): string {
  *    Redact joined the group on 2026-10-24 and only the derived fact said so.
  *  - Highlight: a filled rectangle drawn with the Multiply blend at the
  *    chosen opacity (40% by default) — `editor-export.ts`.
+ *  - Text markup (2026-11-08, audit annotate-pdf#2): Underline and
+ *    Strikethrough buttons beside Highlight, and a Style menu (Highlight,
+ *    Underline, Strikethrough, Squiggly — TEXT_MARKUPS in `markup.ts`) on
+ *    a selected one; saved as comments they are /Underline, /StrikeOut and
+ *    /Squiggly annotations (`editor-export-markup.test.ts`).
  *  - Notes: typed on the page, wrapped in their box, on a coloured paper;
  *    each note's text chooses its OWN face (`embedDrawingFont` per object),
  *    WAS "Every note in one Apply shares a single font" until 2026-10-24 —
@@ -91,6 +97,12 @@ const packsBySize = [...FONT_PACKS].sort((a, b) => a.bytes - b.bytes);
 const smallestPack = packsBySize[0]!;
 const largestPack = packsBySize[packsBySize.length - 1]!;
 
+/** "Highlight, Underline, Strikethrough or Squiggly": the Style menu's choices. */
+const styleChoices = listOf(
+  TEXT_MARKUPS.map((m) => TEXT_MARKUP_LABEL[m]),
+  "or",
+);
+
 const content: ToolContent = {
   slug: "annotate-pdf",
 
@@ -100,9 +112,9 @@ const content: ToolContent = {
     "Highlight, draw, add notes and white out a PDF by clicking on its pages, then flatten them or save them as editable comments, in your browser. No upload.",
 
   intro: [
-    "Annotate PDF shows every page of your document and opens with Highlight ready: drag across the page and a translucent bar lands there. Beside it in the toolbar are Whiteout, Redact, Draw for freehand ink and Note for a typed note on coloured paper, and the rest of the editor's tools, among them text, pictures, signatures, rectangles, ellipses, lines and arrows. Whiteout only paints over what is under it; Redact removes the text and picture pixels under its box. Anything you place can be dragged, resized from its handles, restyled or deleted, and every step can be undone.",
+    "Annotate PDF shows every page of your document and opens with Highlight ready: drag across the page and a translucent bar lands there. Beside it in the toolbar are Underline and Strikethrough for marking words the same way, Whiteout, Redact, Draw for freehand ink and Note for a typed note on coloured paper, and the rest of the editor's tools, among them text, pictures, signatures, rectangles, ellipses, lines and arrows. Whiteout only paints over what is under it; Redact removes the text and picture pixels under its box. Anything you place can be dragged, resized from its handles, restyled or deleted, and every step can be undone.",
     `The whole job runs in your browser: the PDF is drawn, marked and saved there, with no upload, so it stays on your device. The limit is ${CEILING_MB} MB. A PDF that needs a password to open has to be unlocked first; one that opens without a password but whose author restricted changes opens with only what the author allows, as described below. Notes in the Western European character set are drawn in a built-in font; otherwise the page fetches a Noto typeface from this site, covering ${noteScripts}. A note with characters none of those faces draws, such as ${refusedExamples}${emojiClause}, stops the export with a message naming them.${rtlClause}`,
-    "Beside Apply & download you choose how highlights, drawings, notes, shapes and lines are saved. Flatten into the page, the default, draws them as content inside the page, so they show in every viewer and printout, the original text stays selectable and nothing becomes an image. Save markups as comments writes each one as a standard PDF annotation instead (a highlight, an ink drawing, a free-text note, a square, circle or line, each with its own appearance), which other PDF apps list as comments and let you select, edit or delete. Whiteout and redaction are always written into the page: a comment can be deleted by whoever opens the file, so a cover saved as one would hide nothing.",
+    "Beside Apply & download you choose how highlights, drawings, notes, shapes and lines are saved. Flatten into the page, the default, draws them as content inside the page, so they show in every viewer and printout, the original text stays selectable and nothing becomes an image. Save markups as comments writes each one as a standard PDF annotation instead (a highlight, underline, strikethrough or squiggly underline, an ink drawing, a free-text note, a square, circle or line, each with its own appearance), which other PDF apps list as comments and let you select, edit or delete. Whiteout and redaction are always written into the page: a comment can be deleted by whoever opens the file, so a cover saved as one would hide nothing.",
     "A PDF whose author restricted changes, but that opens without a password, opens here with the author's rules in force. If the author allows comments, highlights, drawings, notes, shapes and lines are always saved as comments, never flattened, and the copy you download keeps the author's encryption, restrictions and owner password, with the original file kept byte for byte and the comments added after it. If the author does not allow comments, the mark-up tools stay locked and the page says so. Either way, typing the owner password into the page unlocks every tool for that file, checked in your browser and not sent anywhere, and the copy is then saved without encryption.",
   ],
 
@@ -132,11 +144,11 @@ const content: ToolContent = {
     },
     {
       title: "Mark up the page",
-      body: "Drag across the page to highlight. Choose Whiteout, Redact, Draw or Note in the Mark up group for the others: Whiteout, Redact and Highlight draw where you drag, Draw follows your pointer, and Note opens a box to type in where you click.",
+      body: "Drag across the page to highlight. Choose Underline, Strikethrough, Whiteout, Redact, Draw or Note in the Mark up group for the others: Whiteout, Redact, Highlight, Underline and Strikethrough draw where you drag, Draw follows your pointer, and Note opens a box to type in where you click.",
     },
     {
       title: "Adjust",
-      body: "With Select, drag a markup to move it or drag a handle to resize it. The panel beside the page sets colour and opacity, and font, size and paper colour for notes. Undo and Redo step back and forward.",
+      body: `With Select, drag a markup to move it or drag a handle to resize it. The panel beside the page sets colour and opacity, a highlight's Style (${styleChoices}), and font, size and paper colour for notes. Undo and Redo step back and forward.`,
     },
     {
       title: "Apply and download",
@@ -148,6 +160,10 @@ const content: ToolContent = {
     {
       q: "Can I highlight text by selecting it?",
       a: "No. A highlight is a see-through rectangle you drag over the words, not a selection of them. Flattened, it covers exactly the area you draw. Saved as a comment, it fits itself to the lines of text under the box: one band per line, as tall as the line and as wide as the text inside your box, the way a viewer's own text highlight looks. A strip of the box above, below or between the lines that has no text in it and is at least two lines tall, such as a chart below a line, stays highlighted at the full width of your box. Space beside the text on the same lines, such as a picture next to a short line, is not kept. To hide text rather than mark it, use Redact PDF.",
+    },
+    {
+      q: "Can I underline or strike through text?",
+      a: `Yes. Underline and Strikethrough sit beside Highlight in the Mark up group and are placed the same way. Select one and the panel's Style menu turns it into a ${styleChoices} mark. Flattened, the line is drawn into the page; saved as comments, each is a standard underline, strikeout or squiggly annotation, fitted to the lines of text under it as a highlight is, which other PDF apps list in their comment panel.`,
     },
     {
       q: "Can I take a markup out after saving?",

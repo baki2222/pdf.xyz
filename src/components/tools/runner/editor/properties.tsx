@@ -40,6 +40,12 @@ import {
 } from "@/lib/pdf/editor/quick-fields";
 import { ownFontCovers, substituteLabel } from "@/lib/pdf/editor/runs";
 import { needsUnicodeFace } from "@/lib/pdf/editor/text";
+import {
+  TEXT_MARKUPS,
+  TEXT_MARKUP_LABEL,
+  markupOf,
+  type TextMarkup,
+} from "@/lib/pdf/editor/markup";
 import type { Defaults, Tool } from "./editor-state";
 
 /**
@@ -69,8 +75,10 @@ export function bucketOf(obj: EditorObject): StyleBucket {
       return "shape";
     case "line":
       return "line";
-    case "highlight":
-      return "highlight";
+    case "highlight": {
+      const markup = markupOf(obj);
+      return markup === "squiggly" ? "underline" : markup;
+    }
     case "ink":
       return "ink";
     default:
@@ -91,7 +99,9 @@ export function bucketOfTool(tool: Tool): StyleBucket | null {
     case "arrow":
       return "line";
     case "highlight":
-      return "highlight";
+    case "underline":
+    case "strikeout":
+      return tool;
     case "ink":
       return "ink";
     case "whiteout":
@@ -132,6 +142,7 @@ export type StylePatch = Partial<{
   value: string;
   checked: boolean;
   multiline: boolean;
+  markup: TextMarkup;
 }>;
 
 /** A row: its name, then its control(s) — each control carries its own name. */
@@ -240,7 +251,9 @@ export function PropertiesPanel({
   const title = first
     ? selection.length > 1
       ? `${selection.length} items selected`
-      : EDITOR_OBJECT_LABEL[first.kind]
+      : first.kind === "highlight"
+        ? TEXT_MARKUP_LABEL[markupOf(first)]
+        : EDITOR_OBJECT_LABEL[first.kind]
     : (NEW_TITLE[kind] ??
       `New ${kind === "shape" ? "shape" : kind === "line" ? "line" : kind}`);
   const unicode = selection.some(
@@ -248,6 +261,8 @@ export function PropertiesPanel({
   );
 
   const set = (patch: StylePatch, key: string) => onPatch(patch, key);
+  const textMarkup =
+    kind === "highlight" || kind === "underline" || kind === "strikeout";
 
   return (
     <section
@@ -439,11 +454,30 @@ export function PropertiesPanel({
         />
       )}
 
-      {kind === "highlight" && (
+      {textMarkup && first && (
+        <Field label="Style">
+          <select
+            aria-label="Markup style"
+            value={markupOf(first as { markup?: TextMarkup })}
+            onChange={(e) =>
+              set({ markup: e.target.value as TextMarkup }, "markup")
+            }
+            className={input}
+          >
+            {TEXT_MARKUPS.map((m) => (
+              <option key={m} value={m}>
+                {TEXT_MARKUP_LABEL[m]}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+
+      {textMarkup && (
         <Field label="Colour">
           <input
             type="color"
-            aria-label="Highlight colour"
+            aria-label={`${kind === "highlight" ? "Highlight" : "Line"} colour`}
             value={shown.color}
             onChange={(e) => set({ color: e.target.value }, "color")}
             className="h-8 w-10 cursor-pointer"
@@ -454,7 +488,7 @@ export function PropertiesPanel({
       {(kind === "shape" ||
         kind === "line" ||
         kind === "ink" ||
-        kind === "highlight" ||
+        textMarkup ||
         kind === "image") && (
         <Field label={`Opacity ${Math.round((shown.opacity ?? 1) * 100)}%`}>
           <input
@@ -646,6 +680,9 @@ export function PropertiesPanel({
 }
 
 const NEW_TITLE: Partial<Record<StyleBucket, string>> = {
+  highlight: `New ${TEXT_MARKUP_LABEL.highlight.toLowerCase()}`,
+  underline: `New ${TEXT_MARKUP_LABEL.underline.toLowerCase()}`,
+  strikeout: `New ${TEXT_MARKUP_LABEL.strikeout.toLowerCase()}`,
   date: "Date",
   person: "Initials and name",
   mark: "Check mark",

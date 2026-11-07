@@ -5319,7 +5319,7 @@ export const guides: Guide[] = [
         id: "other-marks",
         heading: "Notes, drawings and covers on the same page",
         body: [
-          "Highlight sits in the toolbar's Mark up group, beside Whiteout, Redact, Draw for freehand ink, and Note for a typed note on coloured paper; the Shapes group has Rectangle, Ellipse, Line and Arrow. Anything you place can be moved, resized, restyled or deleted before you apply, and Undo and Redo step back and forward.",
+          "Highlight sits in the toolbar's Mark up group, beside Underline and Strikethrough, which mark words the same way, and Whiteout, Redact, Draw for freehand ink, and Note for a typed note on coloured paper. A highlight's Style in the panel switches it between Highlight, Underline, Strikethrough and Squiggly; the Shapes group has Rectangle, Ellipse, Line and Arrow. Anything you place can be moved, resized, restyled or deleted before you apply, and Undo and Redo step back and forward.",
           `Whiteout only paints a white box: the words under it are still in the file, and search, copy and text extraction can find them. Redact removes what lies under its box. Both are always written into the page, even when the other markups are saved as comments, because a comment can be deleted by whoever opens the file. For a document you need to hand over with words removed, ${nameOf("redact-pdf")} also works in your browser and can search the text for what to remove.`,
           `${nameOf("edit-pdf")} opens the same editor on Select, with the same Highlight in its toolbar, for when you also need to change the PDF's own words.`,
         ],
@@ -5359,7 +5359,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-06",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-chat-with-a-pdf",

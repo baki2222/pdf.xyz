@@ -29,7 +29,9 @@ import {
   TextCursorInput,
   SquareSlash,
   StickyNote,
+  Strikethrough,
   Type,
+  Underline,
   Undo2,
   ZoomIn,
   ZoomOut,
@@ -38,6 +40,7 @@ import { cn } from "@/lib/utils";
 import { MAX_ZOOM, MIN_ZOOM } from "@/lib/pdf/editor/geometry";
 import { MARKUP_KINDS, type EditorKind } from "@/lib/pdf/offered-kinds";
 import type { EditorFieldType } from "@/lib/pdf/editor/model";
+import { TEXT_MARKUP_LABEL } from "@/lib/pdf/editor/markup";
 import { toolAllowed, type EditorLock, type Tool } from "./editor-state";
 
 /**
@@ -74,9 +77,21 @@ const SPEC: Record<Tool, ToolButtonSpec> = {
   redact: { tool: "redact", label: "Redact", key: "B", icon: SquareSlash },
   highlight: {
     tool: "highlight",
-    label: "Highlight",
+    label: TEXT_MARKUP_LABEL.highlight,
     key: "H",
     icon: Highlighter,
+  },
+  underline: {
+    tool: "underline",
+    label: TEXT_MARKUP_LABEL.underline,
+    key: "U",
+    icon: Underline,
+  },
+  strikeout: {
+    tool: "strikeout",
+    label: TEXT_MARKUP_LABEL.strikeout,
+    key: "",
+    icon: Strikethrough,
   },
   ink: { tool: "ink", label: "Draw", key: "D", icon: Pencil },
   note: { tool: "note", label: "Note", key: "N", icon: StickyNote },
@@ -117,14 +132,19 @@ const SPEC: Record<Tool, ToolButtonSpec> = {
   },
 };
 
-/** The Mark-up group is the offered-kinds list Annotate PDF's page counts. */
-const MARKUP_TOOL: Record<(typeof MARKUP_KINDS)[number], Tool> = {
-  whiteout: "whiteout",
-  redact: "redact",
-  highlight: "highlight",
-  ink: "ink",
-  note: "note",
-} satisfies Partial<Record<EditorKind, Tool>>;
+/**
+ * The Mark-up group is the offered-kinds list Annotate PDF's page counts,
+ * each kind followed by the tools that place a variant of it: Underline and
+ * Strikethrough place a highlight object with another `markup` (2026-11-08,
+ * audit annotate-pdf#2).
+ */
+const MARKUP_TOOLS: Record<(typeof MARKUP_KINDS)[number], Tool[]> = {
+  whiteout: ["whiteout"],
+  redact: ["redact"],
+  highlight: ["highlight", "underline", "strikeout"],
+  ink: ["ink"],
+  note: ["note"],
+} satisfies Partial<Record<EditorKind, Tool[]>>;
 
 export const TOOL_GROUPS: { name: string; tools: Tool[] }[] = [
   { name: "Select", tools: ["select"] },
@@ -153,7 +173,7 @@ export const TOOL_GROUPS: { name: string; tools: Tool[] }[] = [
     ],
   },
   { name: "Shapes", tools: ["rect", "ellipse", "line", "arrow"] },
-  { name: "Mark up", tools: MARKUP_KINDS.map((k) => MARKUP_TOOL[k]) },
+  { name: "Mark up", tools: MARKUP_KINDS.flatMap((k) => MARKUP_TOOLS[k]) },
 ];
 
 /** The form-field tools, and the field type each places. */

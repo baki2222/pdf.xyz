@@ -52,6 +52,7 @@ import {
   type MarkupMode,
 } from "./editor/comments";
 import { placeRuns, type PdfjsTextItem, type TextRun } from "./editor/runs";
+import { markupOf, markupStroke } from "./editor/markup";
 import {
   layoutText,
   lineBaseline,
@@ -631,17 +632,35 @@ export async function exportEditedPdf(
         break;
       }
       case "highlight": {
-        const at = rectAnchor(obj, frame);
-        page.drawRectangle({
-          x: at.x,
-          y: at.y,
-          width: obj.width,
-          height: obj.height,
-          rotate,
-          color: color(rgb, obj.color),
-          opacity: clampOpacity(obj.opacity),
-          blendMode: BlendMode.Multiply,
-        });
+        const markup = markupOf(obj);
+        const stroke = markupStroke(obj, markup);
+        if (!stroke) {
+          const at = rectAnchor(obj, frame);
+          page.drawRectangle({
+            x: at.x,
+            y: at.y,
+            width: obj.width,
+            height: obj.height,
+            rotate,
+            color: color(rgb, obj.color),
+            opacity: clampOpacity(obj.opacity),
+            blendMode: BlendMode.Multiply,
+          });
+          break;
+        }
+        // Underline, strikethrough, squiggly: the line the overlay drew
+        // (`markupStroke`), each segment mapped like every other point.
+        const pts = stroke.points.map((p) => viewerToContent(p.x, p.y, frame));
+        for (let i = 1; i < pts.length; i++) {
+          page.drawLine({
+            start: pts[i - 1]!,
+            end: pts[i]!,
+            thickness: stroke.width,
+            color: color(rgb, obj.color),
+            opacity: clampOpacity(obj.opacity),
+            lineCap: markup === "squiggly" ? LineCapStyle.Round : undefined,
+          });
+        }
         break;
       }
       case "shape": {
