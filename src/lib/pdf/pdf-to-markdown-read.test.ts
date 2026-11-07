@@ -9,7 +9,12 @@ import {
   type PDFFont,
   type PDFPage,
 } from "pdf-lib";
-import { extractedTextToMarkdown, markdownSummary } from "./pdf-to-markdown";
+import {
+  DEFAULT_REMOVE_REPEATED_LINES,
+  extractedTextToMarkdown,
+  markdownSummary,
+  REPEATED_LINE_MIN_PAGES,
+} from "./pdf-to-markdown";
 import { linksFromPage, pdfToMarkdown } from "./pdf-to-markdown-read";
 
 /**
@@ -390,5 +395,149 @@ describe("a detected table replaces its lines only when they hold exactly its wo
     expect(result.tableCount).toBe(0);
     expect(result.markdown).toContain("Item Qty see note");
     expect(result.markdown).not.toContain("| --- |");
+  });
+});
+
+/** `pages` pages, each with a running header, a paragraph and "Page N of M". */
+async function reportPdf(pages: number): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (let n = 1; n <= pages; n += 1) {
+    const page = doc.addPage([612, 792]);
+    page.drawText("ACME Corp Confidential", { x: 72, y: 750, size: 9, font });
+    // Body lines differ from page to page, as a real report's do.
+    const word = ["first", "second", "third", "fourth", "fifth"][n - 1];
+    [
+      `The ${word} part opens with a sentence that wraps from this line`,
+      `onto the next one, and the ${word} part then`,
+      `ends on the ${word} page.`,
+    ].forEach((line, i) =>
+      page.drawText(line, { x: 72, y: 700 - i * 14, size: 11, font }),
+    );
+    page.drawText(`Page ${n} of ${pages}`, { x: 280, y: 40, size: 9, font });
+  }
+  return doc.save({ useObjectStreams: false });
+}
+
+const count = (text: string, needle: RegExp) =>
+  [...text.matchAll(new RegExp(needle, "g"))].length;
+
+describe("PDF to Markdown leaves out repeated running headers and footers", () => {
+  it("drops a header and a page-number footer that repeat on every page", async () => {
+    const result = await pdfToMarkdown(
+      await reportPdf(4),
+      { removeRepeatedLines: true },
+      legacy,
+    );
+    expect(result.markdown).not.toContain("ACME Corp Confidential");
+    expect(result.markdown).not.toMatch(/Page \d of 4/);
+    // The body of every page is kept.
+    expect(count(result.markdown, /part then ends on the \w+ page\./)).toBe(4);
+    expect(result.removedLineCount).toBe(8);
+    expect(markdownSummary(result)).toContain(
+      "8 repeated header and footer lines left out",
+    );
+  });
+
+  it("CONTROL: with the option off, every header and footer is kept", async () => {
+    const result = await pdfToMarkdown(
+      await reportPdf(4),
+      { removeRepeatedLines: false },
+      legacy,
+    );
+    expect(count(result.markdown, /ACME Corp Confidential/)).toBe(4);
+    expect(count(result.markdown, /Page \d of 4/)).toBe(4);
+    expect(result.removedLineCount).toBe(0);
+  });
+
+  it(`CONTROL: a document under ${REPEATED_LINE_MIN_PAGES} pages keeps them`, async () => {
+    const pages = REPEATED_LINE_MIN_PAGES - 1;
+    const { markdown } = await pdfToMarkdown(
+      await reportPdf(pages),
+      { removeRepeatedLines: true },
+      legacy,
+    );
+    expect(count(markdown, /ACME Corp Confidential/)).toBe(pages);
+  });
+
+  it("is on unless the caller turns it off", async () => {
+    const { removedLineCount } = await pdfToMarkdown(
+      await reportPdf(4),
+      {},
+      legacy,
+    );
+    expect(DEFAULT_REMOVE_REPEATED_LINES).toBe(true);
+    expect(removedLineCount).toBe(8);
+  });
+});
+
+describe("what is NOT a running header", () => {
+  /** Pages of [text, y] lines, in the converter's input shape. */
+  const doc = (pages: [string, number][][]) => {
+    const built = pages.map((lines, i) => {
+      const text = lines.map(([t]) => t).join("\n");
+      return {
+        pageNumber: i + 1,
+        text,
+        characterCount: text.length,
+        lines: lines.map(([t, y]) => ({
+          text: t,
+          x: 72,
+          y,
+          size: 11,
+          fontName: null,
+        })),
+      };
+    });
+    const text = built.map((p) => p.text).join("\n\n");
+    return extractedTextToMarkdown(
+      {
+        pageCount: built.length,
+        pages: built,
+        text,
+        characterCount: text.length,
+        hasText: true,
+      },
+      { removeRepeatedLines: true },
+    );
+  };
+  const body = (n: number): [string, number][] => [
+    [`Body text number ${"abcdefgh"[n]} that wraps onto`, 700],
+    [`a second line ${"ijklmnop"[n]} and closes.`, 686],
+    [`A last line ${"qrstuvwx"[n]} here.`, 660],
+  ];
+
+  it("a numbered heading that does not count the pages is kept", () => {
+    // "Step 2" heads page 1, "Step 3" page 2 ... and "Step 7" page 4: the
+    // numbers do not move with the page number by one offset.
+    const steps = [2, 3, 5, 7];
+    const result = doc(steps.map((s, n) => [[`Step ${s}`, 740], ...body(n)]));
+    for (const s of steps) expect(result.markdown).toContain(`Step ${s}`);
+    expect(result.removedLineCount).toBe(0);
+  });
+
+  it("CONTROL: the same lines counting the pages are left out", () => {
+    const result = doc(
+      [0, 1, 2, 3].map((n) => [[`Step ${n + 4}`, 740], ...body(n)]),
+    );
+    expect(result.markdown).not.toMatch(/Step \d/);
+    expect(result.removedLineCount).toBe(4);
+  });
+
+  it("a line that repeats but moves up and down the page is kept", () => {
+    const result = doc(
+      [0, 1, 2, 3].map((n) => [["Draft", 740 - n * 30], ...body(n)]),
+    );
+    expect(result.markdown.split("Draft").length - 1).toBe(4);
+  });
+
+  it("a page whose every line repeats is not emptied", () => {
+    const same: [string, number][] = [
+      ["Sign here", 740],
+      ["Name", 700],
+      ["Date", 660],
+    ];
+    const result = doc([same, same, same, same]);
+    expect(result.markdown.split("Sign here").length - 1).toBe(4);
   });
 });

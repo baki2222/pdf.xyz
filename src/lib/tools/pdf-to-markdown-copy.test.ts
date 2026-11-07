@@ -46,7 +46,15 @@ import {
   PARAGRAPH_GAP_RATIO,
 } from "@/lib/pdf/pdf-to-markdown";
 import type { ExtractedPdfLines } from "@/lib/pdf/text";
-import { MARKDOWN_LINK_SCHEMES } from "@/lib/pdf/pdf-to-markdown";
+import {
+  DEFAULT_REMOVE_REPEATED_LINES,
+  EDGE_LINES,
+  MARKDOWN_LINK_SCHEMES,
+  REPEATED_LINE_MIN_PAGES,
+  REPEATED_LINE_SHARE,
+} from "@/lib/pdf/pdf-to-markdown";
+import { REPEATED_LINES_HINT } from "./pdf-to-markdown-options";
+
 import { linksFromPage } from "@/lib/pdf/pdf-to-markdown-read";
 
 /** The tool the pdf-to-markdown runner mounts on, through the page's dispatch. */
@@ -140,6 +148,9 @@ describe("pdf-to-markdown: the page describes the structure the converter builds
     "Tables, images and text styling are not recreated — table rows come through as plain text.",
     "Not as Markdown tables.",
     "A table's cells run together as plain words, without its grid.",
+    // Until 2026-11-08 (audit pdf-to-markdown#5): the runner has an option.
+    "There is nothing to set first.",
+    "It takes one PDF at a time, up to 50 MB, and there are no settings to choose.",
   ];
   const BANNED: RegExp[] = [
     // Every line break, not only a wrap, said to become a space.
@@ -159,6 +170,8 @@ describe("pdf-to-markdown: the page describes the structure the converter builds
     // Tables said never to become Markdown tables.
     /\btable(?:'s)? (cells|rows) (run together|come through)\b/i,
     /\bnot as Markdown tables\b/i,
+    // A runner with an option said to have none.
+    /\b(nothing to set|no settings)\b/i,
     // A glyph bullet said to merge into the paragraph.
     new RegExp(`${GLYPHS}[^.]*\\bmerge`),
     // A list of markers that stops at the ASCII ones.
@@ -357,6 +370,25 @@ describe("pdf-to-markdown: the page describes the structure the converter builds
         { sourceName: "r.pdf" },
       ).markdown,
     ).not.toContain("| --- |");
+  });
+
+  it("the page names the header-and-footer option and its rule, from the converter's constants (audit pdf-to-markdown#5)", () => {
+    const text = served(SLUGS[0]!).join(" ");
+    // The label is the runner's JSX text; tick-label-claims.test.ts holds the
+    // quoted name after "Untick" to a checkbox that exists.
+    expect(text).toContain(
+      '"Leave out repeated headers and footers" starts ticked',
+    );
+    expect(text).toContain(REPEATED_LINES_HINT);
+    // The hint states the converter's own numbers.
+    expect(REPEATED_LINES_HINT).toContain(`${EDGE_LINES} lines`);
+    expect(REPEATED_LINES_HINT).toContain(
+      `${Math.round(REPEATED_LINE_SHARE * 100)}% of the pages`,
+    );
+    expect(REPEATED_LINES_HINT).toContain(
+      `${REPEATED_LINE_MIN_PAGES} pages or more`,
+    );
+    expect(DEFAULT_REMOVE_REPEATED_LINES).toBe(true);
   });
 
   it("every bullet character the page names becomes a list item", () => {

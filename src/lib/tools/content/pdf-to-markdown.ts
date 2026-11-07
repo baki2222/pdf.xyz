@@ -9,6 +9,7 @@ import {
   markdownOutputName,
   PARAGRAPH_GAP_RATIO,
 } from "@/lib/pdf/pdf-to-markdown";
+import { REPEATED_LINES_HINT } from "@/lib/tools/pdf-to-markdown-options";
 
 /**
  * The byte cap this runner's own gate (`useSinglePdf` → `validatePdfFile`,
@@ -138,7 +139,7 @@ const content: ToolContent = {
     },
     {
       title: "Press Create Markdown",
-      body: 'There is nothing to set first. The button reads "Creating Markdown…" while every page\'s text is read and rearranged on your device.',
+      body: `Under Options, "Leave out repeated headers and footers" starts ticked: ${REPEATED_LINES_HINT} Untick "Leave out repeated headers and footers" to keep every line. The button reads "Creating Markdown…" while every page's text is read and rearranged on your device.`,
     },
     {
       title: "Read the result",
@@ -165,7 +166,7 @@ const content: ToolContent = {
     },
     {
       q: "Is the wording changed during conversion?",
-      a: 'Words are not rewritten, and they come out in reading order where the order the PDF stores them in is out of step with the page: a title or heading stored after the text under it, a running header stored last, and a footer or page number stored first are each moved to where they read, while a page stored a column at a time comes out a column at a time. Runs of spaces shrink to one. A word hyphenated at a line end is rejoined, so "exam-" and "ple" become "example"; a compound broken at its own hyphen, like "well-" and "known", loses the hyphen too, while one followed by a capital or a digit keeps it, as in "Jean-Paul". A paragraph that would otherwise read as Markdown syntax (one to six # signs and a space, a rule such as --- or ***, a code fence, a > quote or a | table row) gets a backslash so a Markdown viewer shows it as typed, and a < or & that would open an HTML tag or entity is escaped; other asterisks, underscores and backticks pass through and may be formatted by a Markdown viewer.',
+      a: `Words are not rewritten, and they come out in reading order where the order the PDF stores them in is out of step with the page: a title or heading stored after the text under it, a running header stored last, and a footer or page number stored first are each moved to where they read, while a page stored a column at a time comes out a column at a time. A header or footer repeated across the pages is left out instead while "Leave out repeated headers and footers" is ticked, as it starts, and the summary line says how many lines that was. Runs of spaces shrink to one. A word hyphenated at a line end is rejoined, so "exam-" and "ple" become "example"; a compound broken at its own hyphen, like "well-" and "known", loses the hyphen too, while one followed by a capital or a digit keeps it, as in "Jean-Paul". A paragraph that would otherwise read as Markdown syntax (one to six # signs and a space, a rule such as --- or ***, a code fence, a > quote or a | table row) gets a backslash so a Markdown viewer shows it as typed, and a < or & that would open an HTML tag or entity is escaped; other asterisks, underscores and backticks pass through and may be formatted by a Markdown viewer.`,
     },
     {
       q: `How is this different from ${textName}?`,

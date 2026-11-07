@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   Download,
   FileText,
@@ -9,10 +10,12 @@ import {
 } from "lucide-react";
 import { downloadBlob } from "@/lib/pdf/browser";
 import {
+  DEFAULT_REMOVE_REPEATED_LINES,
   markdownOutputName,
   markdownSummary,
   type PdfToMarkdownResult,
 } from "@/lib/pdf/pdf-to-markdown";
+import { REPEATED_LINES_HINT } from "@/lib/tools/pdf-to-markdown-options";
 import { pdfToMarkdown } from "@/lib/pdf/pdf-to-markdown-read";
 import { buttonVariants } from "@/components/ui/button";
 import {
@@ -21,7 +24,6 @@ import {
   RunButton,
   RunnerSection,
   useAsyncRun,
-  NO_ADJUST,
   NO_OUTPUT,
   textOutputFile,
 } from "./runner-kit";
@@ -51,9 +53,18 @@ function PdfToMarkdownEditor({
   pdf: LoadedPdf;
   onReset: () => void;
 }) {
-  const { busy, error, result, run } = useAsyncRun<PdfToMarkdownResult>();
+  const { busy, error, result, run, reset } =
+    useAsyncRun<PdfToMarkdownResult>();
+  const [removeRepeatedLines, setRemoveRepeatedLines] = useState(
+    DEFAULT_REMOVE_REPEATED_LINES,
+  );
   const onRun = () =>
-    run(() => pdfToMarkdown(pdf.bytes, { sourceName: pdf.file.name }));
+    run(() =>
+      pdfToMarkdown(pdf.bytes, {
+        sourceName: pdf.file.name,
+        removeRepeatedLines,
+      }),
+    );
 
   if (result) {
     const filename = markdownOutputName(pdf.file.name);
@@ -79,7 +90,7 @@ function PdfToMarkdownEditor({
               )
             : NO_OUTPUT("no selectable text, so no Markdown was written")
         }
-        onAdjust={NO_ADJUST("PDF to Markdown has no settings to change")}
+        onAdjust={reset}
       >
         {result.hasMarkdown ? (
           <div className="flex flex-col gap-4">
@@ -142,6 +153,30 @@ function PdfToMarkdownEditor({
             body="It converts embedded selectable text, not scanned images. Tables are found by how their words line up, not by AI."
           />
         </div>
+      </RunnerSection>
+
+      <RunnerSection title="Options">
+        <label className="text-muted flex min-h-11 items-start gap-2.5 text-sm">
+          <input
+            type="checkbox"
+            checked={removeRepeatedLines}
+            // readOnly-style guard rather than `disabled`: a disabled input
+            // drops focus mid-run (the #46 rule).
+            onChange={(event) => {
+              if (!busy) setRemoveRepeatedLines(event.target.checked);
+            }}
+            aria-disabled={busy || undefined}
+            className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4"
+          />
+          <span className="flex flex-col gap-0.5">
+            <span className="text-fg font-medium">
+              Leave out repeated headers and footers
+            </span>
+            <span className="text-muted text-xs leading-relaxed">
+              {REPEATED_LINES_HINT}
+            </span>
+          </span>
+        </label>
       </RunnerSection>
 
       {error && <ErrorNote message={error} />}

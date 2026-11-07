@@ -64,7 +64,29 @@ export type PdfToMarkdownInput = Pick<
 export interface PdfToMarkdownOptions {
   sourceName?: string;
   includePageHeadings?: boolean;
+  /**
+   * Leave out running headers and footers ({@link repeatedEdgeLines}).
+   * Defaults to {@link DEFAULT_REMOVE_REPEATED_LINES}.
+   */
+  removeRepeatedLines?: boolean;
 }
+
+/** Repeated headers and footers are left out unless the user keeps them. */
+export const DEFAULT_REMOVE_REPEATED_LINES = true;
+
+/**
+ * A running header or footer is one of the top or bottom
+ * {@link EDGE_LINES} lines of a page...
+ */
+export const EDGE_LINES = 2;
+/** ...whose text, digits aside, is at an edge of at least this share of pages... */
+export const REPEATED_LINE_SHARE = 0.5;
+/**
+ * ...in a document of at least this many pages with text. Two pages are too
+ * few to tell a running header from a title repeated on a cover and a first
+ * page.
+ */
+export const REPEATED_LINE_MIN_PAGES = 3;
 
 export interface PdfToMarkdownResult {
   markdown: string;
@@ -75,6 +97,8 @@ export interface PdfToMarkdownResult {
   linkCount: number;
   /** Tables written as GFM pipe tables. */
   tableCount: number;
+  /** Running header and footer lines left out. */
+  removedLineCount: number;
 }
 
 export function markdownOutputName(sourceName: string): string {
@@ -88,6 +112,11 @@ export function markdownSummary(result: PdfToMarkdownResult): string {
   ];
   if (result.linkCount > 0) {
     parts.push(`${result.linkCount} link${result.linkCount === 1 ? "" : "s"}`);
+  }
+  if (result.removedLineCount > 0) {
+    parts.push(
+      `${result.removedLineCount} repeated header and footer line${result.removedLineCount === 1 ? "" : "s"} left out`,
+    );
   }
   if (result.tableCount > 0) {
     parts.push(
@@ -747,6 +776,88 @@ function blocksFromGeometry(
   return blocks;
 }
 
+/**
+ * A line's identity across pages: case and spacing ignored, and every run of
+ * digits the same, so "Page 3 of 30" and "Page 4 of 30" are one line, and so
+ * are the bare numbers "3" and "4".
+ */
+const edgeKey = (text: string) =>
+  collapseWhitespace(text).toLowerCase().replace(/\d+/g, "#");
+
+/**
+ * The running headers and footers of a document: for each page, the indices
+ * of its lines to leave out.
+ *
+ * A line is left out when all of these hold:
+ *  - it is one of the top or bottom {@link EDGE_LINES} lines of its page;
+ *  - the same line (see `edgeKey`) is at an edge of at least
+ *    {@link REPEATED_LINE_SHARE} of the pages with text, in a document of at
+ *    least {@link REPEATED_LINE_MIN_PAGES} such pages, at the same height on
+ *    each (within half its font size): a running header does not move;
+ *  - where the line has digits, one of its numbers COUNTS THE PAGES — it is
+ *    the page number plus the same offset on every page ("Page 3 of 30",
+ *    "- 12 -"). Without that, "Step 1" and "Step 2" heading two pages would
+ *    be one line.
+ * A page is never emptied: one whose every line qualifies keeps them all.
+ */
+function repeatedEdgeLines(
+  pages: readonly (GeoLine[] | null)[],
+): Set<number>[] {
+  const none = () => pages.map(() => new Set<number>());
+  const candidates = pages.flatMap((lines, p) => {
+    if (!lines?.length) return [];
+    const byHeight = lines
+      .map((line, i) => ({ line, i }))
+      .sort((a, b) => b.line.y - a.line.y);
+    const edge = new Map(
+      [...byHeight.slice(0, EDGE_LINES), ...byHeight.slice(-EDGE_LINES)].map(
+        (entry) => [entry.i, entry.line],
+      ),
+    );
+    return [...edge].map(([i, line]) => ({
+      page: p,
+      i,
+      line,
+      key: edgeKey(line.text),
+      numbers: [...line.text.matchAll(/\d+/g)].map((m) => Number(m[0])),
+    }));
+  });
+  const counted = pages.filter((lines) => lines?.length).length;
+  if (counted < REPEATED_LINE_MIN_PAGES) return none();
+  const needed = Math.max(2, Math.ceil(counted * REPEATED_LINE_SHARE));
+
+  const groups = new Map<string, typeof candidates>();
+  for (const c of candidates) {
+    groups.set(c.key, [...(groups.get(c.key) ?? []), c]);
+  }
+  const out = none();
+  for (const group of groups.values()) {
+    // One per page, at the height most of them share.
+    const ys = group.map((c) => c.line.y).sort((a, b) => a - b);
+    const y = ys[Math.floor(ys.length / 2)]!;
+    let members = group.filter(
+      (c) => Math.abs(c.line.y - y) <= c.line.size * 0.5,
+    );
+    const digits = members[0]?.numbers.length ?? 0;
+    if (digits > 0) {
+      // A number that is the page number plus one offset on every page.
+      const counter = Array.from({ length: digits }, (_, k) => k).find((k) => {
+        const offsets = new Set(members.map((c) => c.numbers[k]! - c.page));
+        return offsets.size === 1;
+      });
+      const fixed = members.every(
+        (c) => c.numbers.join() === members[0]!.numbers.join(),
+      );
+      if (counter === undefined && !fixed) members = [];
+    }
+    if (new Set(members.map((c) => c.page)).size < needed) continue;
+    for (const c of members) out[c.page]!.add(c.i);
+  }
+  return out.map((set, p) =>
+    set.size >= (pages[p]?.length ?? 0) ? new Set<number>() : set,
+  );
+}
+
 /** Each non-space character of `texts`, sorted: what they say, in any order. */
 const characters = (texts: readonly string[]) =>
   [...texts.join("").replace(/\s+/g, "")].sort().join("");
@@ -821,13 +932,22 @@ export function extractedTextToMarkdown(
       hasMarkdown: false,
       linkCount: 0,
       tableCount: 0,
+      removedLineCount: 0,
     };
   }
 
   const includePageHeadings =
     options.includePageHeadings ?? extracted.pageCount > 1;
 
-  const geometry = extracted.pages.map((page) => geoLines(page.lines));
+  const read = extracted.pages.map((page) => geoLines(page.lines));
+  const repeated =
+    (options.removeRepeatedLines ?? DEFAULT_REMOVE_REPEATED_LINES)
+      ? repeatedEdgeLines(read)
+      : read.map(() => new Set<number>());
+  const removedLineCount = repeated.reduce((sum, set) => sum + set.size, 0);
+  const geometry = read.map(
+    (lines, p) => lines?.filter((_, i) => !repeated[p]!.has(i)) ?? null,
+  );
   const bodySize = bodySizeOf(
     geometry.filter((lines): lines is GeoLine[] => lines !== null),
   );
@@ -885,5 +1005,6 @@ export function extractedTextToMarkdown(
     hasMarkdown: markdown.length > 0,
     linkCount,
     tableCount,
+    removedLineCount,
   };
 }
