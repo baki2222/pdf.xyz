@@ -116,14 +116,18 @@ const EXCEPTIONS: readonly {
     label: "Choose a PNG or JPG image",
     reason: "an sr-only input the measured Image button opens",
   })),
-  // Edit PDF's help text names two tools in its own sentence. A link in a
-  // line of running text is WCAG 2.5.8's inline exception: growing it to
-  // 44px would split the paragraph's lines apart.
-  ...["OCR PDF", "PDF to Word"].map((label) => ({
+  // Edit PDF's help text names a tool in its own sentence. A link in a line
+  // of running text is WCAG 2.5.8's inline exception: growing it to 44px
+  // would split the paragraph's lines apart. It named two tools, "OCR PDF"
+  // and "PDF to Word", until 2026-11-07, when audit #32 found the OCR PDF
+  // advice false (Edit text refuses an OCR text layer) and the note began
+  // sending a scan to PDF to Word with OCR alone; this spec then caught the
+  // stale "OCR PDF" entry excusing nothing.
+  {
     slug: "edit-pdf",
-    label,
+    label: "PDF to Word",
     reason: "an inline link inside a sentence (WCAG 2.5.8 inline exception)",
-  })),
+  },
 ];
 
 /** The fewest panel controls any popular tool shows with a file in. */
