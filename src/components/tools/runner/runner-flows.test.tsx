@@ -583,6 +583,52 @@ describe("Organize PDF inserts a blank page where the tile says", () => {
 });
 
 /**
+ * Audit #23 (2026-11-06): the editor's Ctrl/Cmd+Z listener stayed bound on the
+ * "Pages organized" screen (it is rendered by the same editor), and the
+ * summary and `expectedPages` read the LIVE arrangement. An undo there
+ * rewrote "4 pages" to "3 pages" while the file already built still had 4,
+ * and "Back to adjust" returned to an arrangement that was not the file's.
+ */
+describe("Organize PDF's result screen describes the file that was built", () => {
+  it("Ctrl+Z and Ctrl+Y after export change neither the summary nor the arrangement", async () => {
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < 3; i++) doc.addPage([300 + i, 400]);
+    const bytes = await doc.save();
+    const { container } = renderRunner(<OrganizeRunner />);
+    pick(container, [
+      new File([bytes.slice()], "three.pdf", { type: "application/pdf" }),
+    ]);
+    fireEvent.click(
+      await screen.findByRole(
+        "button",
+        { name: "Duplicate page 1" },
+        { timeout: 10_000 },
+      ),
+    );
+    // Health: the shortcut works in the editor, so the guard below is not
+    // vacuous — undo and redo really move the arrangement here.
+    expect(screen.getByText("4 pages in output")).toBeTruthy();
+    fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
+    expect(screen.getByText("3 pages in output")).toBeTruthy();
+    fireEvent.keyDown(document.body, { key: "y", ctrlKey: true });
+    expect(screen.getByText("4 pages in output")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /apply & export/i }));
+    await screen.findByText("Pages organized", undefined, { timeout: 10_000 });
+    expect(screen.getByText(/^4 pages in your new order/)).toBeTruthy();
+
+    fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
+    fireEvent.keyDown(document.body, { key: "z", metaKey: true });
+    expect(screen.getByText(/^4 pages in your new order/)).toBeTruthy();
+    expect(screen.queryByText(/^3 pages in your new order/)).toBeNull();
+
+    // Back to adjust returns to the arrangement the file was built from.
+    fireEvent.click(screen.getByRole("button", { name: /back to adjust/i }));
+    expect(screen.getByText("4 pages in output")).toBeTruthy();
+  }, 30_000);
+});
+
+/**
  * A picked .txt or .md file reaches the editor as the text its author wrote.
  *
  * Both runners used `file.text()`, which is UTF-8 or nothing: a Windows-1252
@@ -647,4 +693,55 @@ describe("Text and Markdown to PDF read a file in the encoding it was saved in",
       await screen.findByText(/1 character in this text could not be read/);
     }, 30_000);
   }
+});
+
+/**
+ * Audit #34's two runner wirings, read where the user meets them. The review
+ * found that a mutation dropping `{ keepFormFeeds: true }` from the file
+ * decode, and one making the pasted-text note return null, left every runner
+ * test green: the converter was tested, the runner's call into it was not.
+ */
+describe("Text to PDF keeps a file's form feeds and names pasted control characters (audit #34)", () => {
+  it("a loaded file with a form feed downloads as two pages", async () => {
+    const downloads: Blob[] = [];
+    const previous = URL.createObjectURL;
+    URL.createObjectURL = (blob: Blob | MediaSource) => {
+      if (blob instanceof Blob && blob.type === "application/pdf") {
+        downloads.push(blob);
+      }
+      return "blob:download";
+    };
+    try {
+      const { container } = renderRunner(<TextToPdfRunner />);
+      pick(container, [
+        new File(["page one\fpage two"], "report.txt", { type: "text/plain" }),
+      ]);
+      const box = () => container.querySelector("textarea")!;
+      await waitFor(() => expect(box().value).toBe("page one\fpage two"));
+      fireEvent.click(screen.getByRole("button", { name: /create pdf/i }));
+      await screen.findByText("PDF created", undefined, { timeout: 10_000 });
+      fireEvent.click(screen.getByRole("button", { name: /download pdf/i }));
+      expect(downloads).toHaveLength(1);
+      const doc = await PDFDocument.load(
+        new Uint8Array(await downloads[0]!.arrayBuffer()),
+      );
+      expect(doc.getPageCount()).toBe(2);
+    } finally {
+      URL.createObjectURL = previous;
+    }
+  }, 30_000);
+
+  it("pasted terminal colour codes are named as left out", async () => {
+    renderRunner(<TextToPdfRunner />);
+    const box = screen.getByPlaceholderText(/plain text here/);
+    // CONTROL: plain text carries no note.
+    fireEvent.change(box, { target: { value: "red text" } });
+    expect(screen.queryByText(/control character/)).toBeNull();
+    fireEvent.change(box, {
+      target: { value: `${String.fromCharCode(0x1b)}[31mred text` },
+    });
+    await screen.findByText(
+      "1 control character is left out of the PDF — they have no printable shape.",
+    );
+  });
 });

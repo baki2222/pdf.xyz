@@ -347,6 +347,11 @@ describe("the removal method's sentences are what a real removal writes", () => 
     // And that is what the page says of this method.
     expect(REDACT_REMOVE_FACT).toMatch(/still selectable and searchable/);
     expect(REDACT_REMOVE_FACT).toMatch(/bookmarks and properties/);
+    // Chosen text is scrubbed off the page too (audit #3, 2026-11-06); the
+    // removal that does it is proved in redact-find.test.ts.
+    expect(REDACT_REMOVE_FACT).toMatch(
+      /also taken out of the properties, the bookmark titles and the comments/,
+    );
     expect(served().text).toContain(REDACT_REMOVE_FACT);
   });
 });
@@ -383,5 +388,39 @@ describe("no redact sentence says only the redacted pages are flattened", () => 
     expect(runner).not.toMatch(ONLY_REDACTED);
     expect(served().text).not.toMatch(ONLY_REDACTED);
     expect(guideText).not.toMatch(ONLY_REDACTED);
+  });
+});
+
+describe("no redact answer says chosen text stays in the bookmarks and properties", () => {
+  /**
+   * Review of audit #3 (2026-11-06): the removal now takes chosen text out of
+   * the properties and bookmark titles and removes comments carrying it, but
+   * the searchability answer still said "bookmarks, links and properties
+   * elsewhere stay" with no exception. The shipped sentence is the corpus.
+   */
+  const SHIPPED = [
+    "Choose “Remove text under boxes” when the rest must stay searchable: only what is under each box is taken out, and bookmarks, links and properties elsewhere stay.",
+  ];
+  const SAYS_THEY_STAY = /\b(?:bookmarks|properties)\b[^.]*\bstay\b/i;
+  const SAYS_THE_EXCEPTION = /\bbookmark titles\b/i;
+
+  it("the pattern catches the sentence that shipped, and its exception does not", () => {
+    for (const s of SHIPPED) {
+      expect(SAYS_THEY_STAY.test(s), s).toBe(true);
+      expect(SAYS_THE_EXCEPTION.test(s), s).toBe(false);
+    }
+  });
+
+  it("every served or guide answer that says they stay also says what is taken out", () => {
+    const answers = [
+      ...served().faq.map((e) => e.answer),
+      ...guides
+        .filter((g) => g.tools.includes("redact-pdf"))
+        .flatMap((g) => g.faq.map((f) => f.answer)),
+    ];
+    const staying = answers.filter((a) => SAYS_THEY_STAY.test(a));
+    // Health check: the searchability answer is one of them.
+    expect(staying.length).toBeGreaterThan(0);
+    for (const a of staying) expect(a, a).toMatch(SAYS_THE_EXCEPTION);
   });
 });

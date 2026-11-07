@@ -1,7 +1,15 @@
 // @native-canvas
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
-import { PDFDocument, StandardFonts, degrees, rgb } from "pdf-lib";
+import {
+  PDFDict,
+  PDFDocument,
+  PDFName,
+  PDFString,
+  StandardFonts,
+  degrees,
+  rgb,
+} from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import { mergePdfs, PdfEncryptedError, PdfEngineError } from "./engine";
 import {
@@ -400,5 +408,168 @@ describe("which pages are split", () => {
 
   it("names the output in the house style", () => {
     expect(splitHalfOutputName("book.pdf")).toBe("book-halved.pdf");
+  });
+});
+
+/**
+ * Page labels and annotations after a split (audit #43). Until 2026-11-06
+ * every output page took its source page's label, so the two halves of
+ * sheet 2 both read "2" (labels 1,1,2,2,3,3) and typing a page number in a
+ * viewer landed on the left half; and the second copy of a split page cloned
+ * EVERY annotation, so a note on the right half also sat, out of view, on
+ * the left half's page — twice in a viewer's comment list.
+ */
+describe("labels and annotations after a split", () => {
+  async function spreads(count: number): Promise<PDFDocument> {
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < count; i += 1) doc.addPage([800, 560]);
+    return doc;
+  }
+
+  async function labels(bytes: Uint8Array): Promise<string[] | null> {
+    const lib = await pdfjs();
+    const task = lib.getDocument({ data: bytes.slice(), verbosity: 0 });
+    const pdf = await task.promise;
+    try {
+      return await pdf.getPageLabels();
+    } finally {
+      await task.destroy();
+    }
+  }
+
+  async function annotationsPerPage(bytes: Uint8Array) {
+    const lib = await pdfjs();
+    const task = lib.getDocument({ data: bytes.slice(), verbosity: 0 });
+    const pdf = await task.promise;
+    try {
+      const out: string[][] = [];
+      for (let n = 1; n <= pdf.numPages; n += 1) {
+        const annots = await (await pdf.getPage(n)).getAnnotations();
+        out.push(
+          annots.map(
+            (a: { subtype: string; fieldName?: string }) =>
+              a.fieldName ?? a.subtype,
+          ),
+        );
+      }
+      return out;
+    } finally {
+      await task.destroy();
+    }
+  }
+
+  it("no two pages share a label once a page is split", async () => {
+    const doc = await spreads(3);
+    doc.catalog.set(
+      PDFName.of("PageLabels"),
+      doc.context.obj({ Nums: [0, { S: "D" }] }),
+    );
+    const input = await doc.save();
+    expect(await labels(input)).toEqual(["1", "2", "3"]);
+    const result = await splitPagesInHalf(input, {
+      direction: "left-right",
+      order: "left-first",
+    });
+    // The source labels counted the sheets the split replaces, so they are
+    // dropped: pdf.js reports null, and a viewer numbers the pages 1..n, one
+    // number per page. (Until the 2026-11-06 review this assertion sat inside
+    // `if (out !== null)`, so a file that kept its labels skipped it.)
+    expect(await labels(result.bytes)).toBeNull();
+  });
+
+  it("an annotation stays only on the half its rectangle is on", async () => {
+    const doc = await spreads(1);
+    const page = doc.getPage(0);
+    const note = (rect: number[], contents: string) =>
+      doc.context.register(
+        doc.context.obj({
+          Type: "Annot",
+          Subtype: "Text",
+          Rect: rect,
+          Contents: PDFString.of(contents),
+        }),
+      );
+    // One note on the right half, one on the left, one across the fold.
+    page.node.set(
+      PDFName.of("Annots"),
+      doc.context.obj([
+        note([600, 300, 620, 320], "right"),
+        note([100, 300, 120, 320], "left"),
+        note([390, 300, 410, 320], "fold"),
+      ]),
+    );
+    const form = doc.getForm();
+    const field = form.createTextField("right.field");
+    field.addToPage(page, { x: 500, y: 100, width: 200, height: 30 });
+    field.setText("on the right");
+    const result = await splitPagesInHalf(await doc.save(), {
+      direction: "left-right",
+      order: "left-first",
+    });
+    const contents = async (bytes: Uint8Array) => {
+      const lib = await pdfjs();
+      const task = lib.getDocument({ data: bytes.slice(), verbosity: 0 });
+      const pdf = await task.promise;
+      try {
+        const out: string[][] = [];
+        for (let n = 1; n <= pdf.numPages; n += 1) {
+          const annots = await (await pdf.getPage(n)).getAnnotations();
+          out.push(
+            annots.map(
+              (a: { fieldName?: string; contentsObj?: { str: string } }) =>
+                a.fieldName ?? a.contentsObj?.str ?? "",
+            ),
+          );
+        }
+        return out;
+      } finally {
+        await task.destroy();
+      }
+    };
+    expect(await contents(result.bytes)).toEqual([
+      ["left", "fold"],
+      ["right", "fold", "right.field"],
+    ]);
+    // The field has exactly one widget left, on the right half's page.
+    const out = await PDFDocument.load(result.bytes);
+    expect(
+      out.getForm().getTextField("right.field").acroField.getWidgets(),
+    ).toHaveLength(1);
+  });
+
+  it("a popup goes where its parent goes, wherever its own rectangle lies", async () => {
+    const doc = await spreads(1);
+    const page = doc.getPage(0);
+    const { context } = doc;
+    // A note on the right half whose popup window is drawn over the left
+    // half — common: viewers open a popup beside its note, often across the
+    // fold. Judged by its own /Rect the popup would land on the left page,
+    // detached from its note.
+    const noteRef = context.register(
+      context.obj({
+        Type: "Annot",
+        Subtype: "Text",
+        Rect: [600, 300, 620, 320],
+        Contents: PDFString.of("right"),
+      }),
+    );
+    const popupRef = context.register(
+      context.obj({
+        Type: "Annot",
+        Subtype: "Popup",
+        Rect: [100, 250, 300, 350],
+        Parent: noteRef,
+      }),
+    );
+    context.lookup(noteRef, PDFDict).set(PDFName.of("Popup"), popupRef);
+    page.node.set(PDFName.of("Annots"), context.obj([noteRef, popupRef]));
+    const result = await splitPagesInHalf(await doc.save(), {
+      direction: "left-right",
+      order: "left-first",
+    });
+    expect(await annotationsPerPage(result.bytes)).toEqual([
+      [],
+      ["Text", "Popup"],
+    ]);
   });
 });

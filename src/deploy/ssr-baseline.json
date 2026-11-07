@@ -3497,11 +3497,11 @@
       "h2": [
         "Common questions",
         "How big a screenshot's page is",
+        "How large the PDF comes out",
         "Related guides",
         "Step by step",
         "Tools used in this guide",
-        "What happens to transparent areas",
-        "Why a PDF of PNGs can be larger than the PNGs"
+        "What happens to transparent areas"
       ],
       "jsonLdTypes": [
         "Answer",

@@ -424,7 +424,7 @@ const REDACT_DEFAULT_METHOD = REDACT_METHODS.find(
 export const REDACT_OUTPUT_FACT = `With “${REDACT_FLATTEN}”, the method selected when the tool opens, every page — not only the ones with a box — is rebuilt as a flat ${REDACT_IMAGE_NAME} image, so the result has no selectable or searchable text, links, form fields, annotations or bookmarks on any page.`;
 
 /** What the removal method keeps and takes, as `redact-remove.ts` does it. */
-export const REDACT_REMOVE_FACT = `With “${REDACT_REMOVE}”, only what lies under each box is taken out of the file — its text, the covered pixels of any picture and any annotation there — and the rest of every page stays as it was, still selectable and searchable, along with the file's bookmarks and properties. Vertical text, a form field or certain images under a box cannot be removed this way, and the redaction then stops with a message instead of saving.`;
+export const REDACT_REMOVE_FACT = `With “${REDACT_REMOVE}”, only what lies under each box is taken out of the file — its text, the covered pixels of any picture and any annotation there — and the rest of every page stays as it was, still selectable and searchable, along with the file's bookmarks and properties. Text chosen with Find text or Detect personal data is also taken out of the properties, the bookmark titles and the comments that carry it, and the saved file is searched for it again — its page text and every property, bookmark, comment and form field — and is not saved if it is still there. Vertical text, a form field or certain images under a box cannot be removed this way, and the redaction then stops with a message instead of saving.`;
 
 /** Why a redaction cannot be undone, as the assembler makes it. */
 export const REDACT_MECHANISM = `The box is not laid over the text. With “${REDACT_FLATTEN}”, each page is rendered to a ${REDACT_IMAGE_NAME} image, the box is painted into that image's pixels, and a new PDF is built from the images alone. None of the original's text, drawings, form fields or annotations is copied into it, and neither is its document information — the new file's only title is “${REDACTED_PDF_TITLE}”.`;
@@ -704,7 +704,7 @@ const FACTS: Record<string, readonly ToolFact[]> = {
     {
       label: "Paragraphs and lists",
       value:
-        "Lines that wrap are joined into paragraphs, split where the page leaves a wider gap or indents a line; a line that starts with a list marker (-, *, +, •, ▪ or a number) stays a list item.",
+        "Lines that wrap are joined into paragraphs, split where the page leaves a wider gap or indents a line; a line that starts with a list marker (-, *, +, •, ▪ or a number) stays a list item, unless it only wraps a sentence that is still running.",
     },
     {
       label: "Not rebuilt",
@@ -1169,7 +1169,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         {
           question: `Can I combine several images into one PDF?`,
           answer:
-            "Yes — each image becomes one page, in the order shown. Use “Move up” and “Move down” to change it before you create the PDF.",
+            "Yes — each image becomes one page, in the order shown. Drag an image onto another's place, or use “Move up” and “Move down”, to change it before you create the PDF.",
         },
         ...(tool.accept.includes("PNG")
           ? [

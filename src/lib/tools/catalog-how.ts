@@ -69,14 +69,14 @@ export const TOOL_HOW: Readonly<Record<string, readonly string[]>> = {
   // runners and requires their own steps).
   "jpg-to-pdf": [
     "Pick one or more JPG or PNG images — they stay on your device.",
-    "Put them in page order with each image's “Move up” and “Move down” buttons.",
+    "Put them in page order: drag an image onto the place you want, or use its “Move up” and “Move down” buttons.",
     `Set “Page size”, “Orientation”, “Margin” and “Output” if you want to — left alone, each image is centred on its own ${US_LETTER_LABEL} portrait page in one PDF.`,
     "Click “Create PDF” — the PDF is assembled in your browser.",
     "Download the PDF — or, with One PDF per image and more than one image, the ZIP of PDFs.",
   ],
   "png-to-pdf": [
     "Pick one or more PNG or JPG images — they stay on your device.",
-    "Put them in page order with each image's “Move up” and “Move down” buttons.",
+    "Put them in page order: drag an image onto the place you want, or use its “Move up” and “Move down” buttons.",
     "Set “Page size”, “Orientation”, “Margin” and “Output” if you want to — left alone, each image goes on its own page in one PDF.",
     "Click “Create PDF” — the PDF is assembled in your browser.",
     "Download the PDF — or, with One PDF per image and more than one image, the ZIP of PDFs.",

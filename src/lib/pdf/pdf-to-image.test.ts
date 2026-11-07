@@ -5,13 +5,16 @@ import {
   RASTER_EXT,
   RASTER_MIME,
   RASTER_RESOLUTIONS,
+  cancelledRunNote,
   clampJpegQuality,
+  lowerResolutionThan,
   pageImageName,
   pageNumberWidth,
   rasterFormatForSlug,
   rasterScaleForDpi,
   resolutionById,
   shouldZipPages,
+  skippedPagesNote,
   zipOutputName,
 } from "./pdf-to-image";
 
@@ -132,5 +135,31 @@ describe("zipOutputName", () => {
     expect(zipOutputName("report.pdf", "png")).toBe("report-png.zip");
     expect(zipOutputName("report.pdf", "jpg")).toBe("report-jpg.zip");
     expect(zipOutputName("", "png")).toBe("document-png.zip");
+  });
+});
+
+describe("skippedPagesNote / cancelledRunNote (audit #37)", () => {
+  const lowest = RASTER_RESOLUTIONS[0]!;
+  const above = RASTER_RESOLUTIONS[1]!;
+  it("says nothing when no page was left out", () => {
+    expect(skippedPagesNote([], undefined)).toBeNull();
+  });
+  it("names one page, 1-based, and offers the next preset down", () => {
+    const lower = lowerResolutionThan(above.id)!.label;
+    expect(lower).toBe(lowest.label);
+    expect(skippedPagesNote([39], lower)).toBe(
+      `Page 40 could not be rendered, so it was left out; every other page is here. Rendering again at ${lowest.label} may get it through.`,
+    );
+  });
+  it("names several pages in order, and offers nothing below the lowest preset", () => {
+    expect(lowerResolutionThan(lowest.id)).toBeUndefined();
+    expect(skippedPagesNote([9, 2, 3], undefined)).toBe(
+      "Pages 3–4, 10 could not be rendered, so they were left out; every other page is here.",
+    );
+  });
+  it("says how far a cancelled run got", () => {
+    expect(cancelledRunNote(2, 4)).toBe(
+      "Rendering was stopped after 2 of 4 pages; the pages finished before that are here.",
+    );
   });
 });

@@ -12,8 +12,17 @@ import { stampProducer } from "./stamp";
  *  - "fit": the page becomes the target size and its visible content is
  *    scaled (down or up, proportions kept) to fit it, centred. Done IN PLACE —
  *    the page's own content stream is wrapped in one `cm`, and every
- *    annotation's `Rect` (and `QuadPoints`) goes through the same matrix — so
- *    links, comments and form fields stay on the page, at the right spot.
+ *    annotation's points (`Rect`, `QuadPoints`, `L`, `Vertices`, `CL`,
+ *    `InkList`) go through the same matrix, once per annotation, as does
+ *    every explicit destination that opens the page (bookmarks, links,
+ *    named destinations) — so links, comments, form fields and the places
+ *    bookmarks jump to stay on the page, at the right spot. `/RD` (the inset
+ *    of a Square, Circle or FreeText border inside its Rect) is NOT scaled:
+ *    a viewer draws the stored appearance stream regardless, and only a
+ *    viewer that regenerates the appearance would read an unscaled inset.
+ *    Until audit #26
+ *    (2026-11-06) only `Rect` and `QuadPoints` moved, and destinations not
+ *    at all.
  *    (Embedding the page as a form XObject would scale the drawing and leave
  *    every annotation behind.)
  *  - "canvas": the content keeps its size; only the page box changes, centred
@@ -201,38 +210,130 @@ function wrapContent(
   page.node.set(key, doc.context.obj([head, ...items, tail]));
 }
 
-/** Put a number array (`Rect`, `QuadPoints`) through the fit transform. */
+/** Put a flat x,y,x,y… number array through the fit transform. */
 function transformPoints(values: number[], t: FitTransform): number[] {
   return values.map((v, i) =>
     i % 2 === 0 ? v * t.scale + t.tx : v * t.scale + t.ty,
   );
 }
 
+/**
+ * The annotation keys that hold points in the page's user space, flat
+ * x,y,x,y…: the box, text-markup quads, a line's ends, a polygon's or
+ * polyline's vertices, a free-text callout. `InkList` holds arrays of them.
+ */
+const POINT_KEYS = ["Rect", "QuadPoints", "L", "Vertices", "CL"] as const;
+
 function transformAnnotations(
   lib: PdfLibModule,
   doc: PDFDocument,
   page: PDFPage,
   t: FitTransform,
+  done: Set<unknown>,
 ): void {
   const { PDFArray, PDFDict, PDFName, PDFNumber } = lib;
   const annots = page.node.Annots();
   if (!annots) return;
+  /** The numbers of `raw`, or undefined when it is not all numbers. */
+  const numbersOf = (raw: unknown): number[] | undefined => {
+    const arr = raw ? doc.context.lookup(raw as never) : undefined;
+    if (!(arr instanceof PDFArray)) return undefined;
+    const nums = arr
+      .asArray()
+      .map((v) => doc.context.lookup(v))
+      .map((v) => (v instanceof PDFNumber ? v.asNumber() : NaN));
+    return nums.some((v) => !Number.isFinite(v)) ? undefined : nums;
+  };
   for (let i = 0; i < annots.size(); i += 1) {
     const annot = doc.context.lookup(annots.get(i));
     if (!(annot instanceof PDFDict)) continue;
-    for (const name of ["Rect", "QuadPoints"]) {
+    // Two pages may list one annotation object: it is moved once.
+    if (done.has(annot)) continue;
+    done.add(annot);
+    for (const name of POINT_KEYS) {
       const key = PDFName.of(name);
-      const raw = annot.get(key);
-      const arr = raw ? doc.context.lookup(raw) : undefined;
-      if (!(arr instanceof PDFArray)) continue;
-      const nums = arr
-        .asArray()
-        .map((v) => doc.context.lookup(v))
-        .map((v) => (v instanceof PDFNumber ? v.asNumber() : NaN));
-      if (nums.some((v) => !Number.isFinite(v))) continue;
-      annot.set(key, doc.context.obj(transformPoints(nums, t)));
+      const nums = numbersOf(annot.get(key));
+      if (nums) annot.set(key, doc.context.obj(transformPoints(nums, t)));
+    }
+    const ink = annot.lookupMaybe(PDFName.of("InkList"), PDFArray);
+    if (ink) {
+      const paths = ink.asArray().map((path) => numbersOf(path));
+      if (paths.every((p) => p !== undefined)) {
+        annot.set(
+          PDFName.of("InkList"),
+          doc.context.obj(paths.map((p) => transformPoints(p, t))),
+        );
+      }
     }
   }
+}
+
+/**
+ * The coordinates an explicit destination holds, by position after the page
+ * and the fit type (ISO 32000-2 table 151): "x" or "y" in the page's user
+ * space. `/Fit` and `/FitB` hold none; `/XYZ`'s third number is a zoom.
+ */
+const DESTINATION_COORDINATES: Record<string, ("x" | "y")[]> = {
+  XYZ: ["x", "y"],
+  FitH: ["y"],
+  FitBH: ["y"],
+  FitV: ["x"],
+  FitBV: ["x"],
+  FitR: ["x", "y", "x", "y"],
+};
+
+/**
+ * Put every explicit destination that opens a resized page through that
+ * page's fit transform: bookmarks, links, GoTo actions, named destinations,
+ * the open action — wherever one sits. They are found by SHAPE (an array
+ * whose first item is a resized page and whose second is a fit type), over
+ * every object in the file, rather than by walking a list of the places a
+ * destination may hang, so one in a place nobody listed still moves. A `null`
+ * coordinate ("keep the current one") stays null.
+ */
+function transformDestinations(
+  lib: PdfLibModule,
+  doc: PDFDocument,
+  byPage: Map<unknown, FitTransform>,
+): void {
+  const { PDFArray, PDFDict, PDFName, PDFNumber, PDFRef, PDFStream } = lib;
+  const context = doc.context;
+  const seen = new Set<unknown>();
+  const visit = (obj: unknown, depth: number): void => {
+    if (depth > 64 || seen.has(obj)) return;
+    if (obj instanceof PDFArray) {
+      seen.add(obj);
+      const page = obj.get(0);
+      const kind = obj.size() > 1 ? obj.get(1) : undefined;
+      const t = page instanceof PDFRef ? byPage.get(page) : undefined;
+      const slots =
+        kind instanceof PDFName
+          ? DESTINATION_COORDINATES[kind.decodeText()]
+          : undefined;
+      if (t && slots) {
+        slots.forEach((axis, k) => {
+          const value = context.lookup(obj.get(k + 2));
+          if (!(value instanceof PDFNumber)) return;
+          const v = value.asNumber();
+          obj.set(
+            k + 2,
+            PDFNumber.of(
+              axis === "x" ? v * t.scale + t.tx : v * t.scale + t.ty,
+            ),
+          );
+        });
+        return;
+      }
+      obj.asArray().forEach((item) => visit(item, depth + 1));
+    } else if (obj instanceof PDFDict) {
+      seen.add(obj);
+      for (const [, value] of obj.entries()) visit(value, depth + 1);
+    } else if (obj instanceof PDFStream) {
+      seen.add(obj);
+      visit(obj.dict, depth);
+    }
+  };
+  for (const [, obj] of context.enumerateIndirectObjects()) visit(obj, 0);
 }
 
 /** Resize the chosen pages of a PDF. */
@@ -263,6 +364,8 @@ export async function resizePdf(
     throw new PdfEngineError("Select at least one page to resize.");
   }
 
+  const moved = new Set<unknown>();
+  const fitted = new Map<unknown, FitTransform>();
   for (const index of scoped) {
     const page = pages[index];
     if (!page) continue;
@@ -283,7 +386,8 @@ export async function resizePdf(
     }
     const t = fitTransform(frame.box, content.width, content.height);
     wrapContent(lib, doc, page, t);
-    transformAnnotations(lib, doc, page, t);
+    transformAnnotations(lib, doc, page, t, moved);
+    fitted.set(page.ref, t);
     setPageBox(lib, page, {
       x: 0,
       y: 0,
@@ -291,6 +395,8 @@ export async function resizePdf(
       height: content.height,
     });
   }
+
+  if (fitted.size > 0) transformDestinations(lib, doc, fitted);
 
   stampProducer(doc);
   return {

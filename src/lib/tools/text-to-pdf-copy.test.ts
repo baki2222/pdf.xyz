@@ -202,6 +202,21 @@ describe("Text to PDF's page matches its decoder and its fonts", () => {
     expect(describeDecoding(unmarked)).toMatch(/UTF-16/);
   });
 
+  it("licence: pasted control characters are left out and a form feed starts a page, as the FAQ says (audit #34)", async () => {
+    const page = served(SLUGS[0]!).join(" ");
+    expect(page).toContain(
+      "left out of the PDF whether the text was loaded or pasted",
+    );
+    expect(page).toContain("a form feed");
+    const ESC = String.fromCharCode(0x1b);
+    const FF = String.fromCharCode(0x0c);
+    const { PDFDocument } = await import("pdf-lib");
+    const pages = async (text: string) =>
+      (await PDFDocument.load(await textToPdf(text))).getPageCount();
+    expect(await pages(`${ESC}[31mone${ESC}[0m${FF}two`)).toBe(2);
+    expect(await pages("one two")).toBe(1);
+  });
+
   it("licence: Polish and Russian text is set in Geist Mono, one width, and nothing Noto is fetched", async () => {
     const { bytes, requested } = await recording(
       "Zażółć gęślą jaźń\nПривет, мир\nWide iii",

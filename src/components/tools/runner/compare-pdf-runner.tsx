@@ -3,6 +3,7 @@
 import { createElement, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
+  ArrowLeftRight,
   Download,
   FileDiff,
   FileText,
@@ -75,66 +76,82 @@ export function ComparePdfRunner({
   const [rejections, setRejections] = useState<Rejection[]>([]);
   const [loading, setLoading] = useState(0);
   const idRef = useRef(0);
+  // The slots already spoken for — loaded cards AND files still loading — and
+  // the order each was added in. Counted here, not from `items.length`: a
+  // second pick that lands while the first is loading would read 0 cards,
+  // be granted a slot, and push out a file the person picked first.
+  const reservedRef = useRef(new Set<string>());
+  const seqOf = useRef(new Map<string, number>());
   const handoff = useToolHandoff("compare-pdf");
   const preloadedRef = useRef(false);
 
-  const addFiles = useCallback(
-    async (files: File[]) => {
-      const { accepted, rejected } = partitionPdfFiles(files);
-      if (rejected.length > 0) {
-        setRejections((prev) => [
-          ...prev,
-          ...rejected.map((r) => ({ name: r.file.name, reason: r.reason })),
+  const addFiles = useCallback(async (files: File[]) => {
+    const { accepted, rejected } = partitionPdfFiles(files);
+    if (rejected.length > 0) {
+      setRejections((prev) => [
+        ...prev,
+        ...rejected.map((r) => ({ name: r.file.name, reason: r.reason })),
+      ]);
+    }
+    const slots = accepted.slice(0, Math.max(0, 2 - reservedRef.current.size));
+    if (accepted.length > slots.length) {
+      setRejections((prev) => [
+        ...prev,
+        ...accepted.slice(slots.length).map((file) => ({
+          name: file.name,
+          reason:
+            "Compare PDF uses exactly two PDF files. Remove one before adding another.",
+        })),
+      ]);
+    }
+    const reserved = slots.map((file) => {
+      const seq = idRef.current++;
+      const id = `compare-${seq}`;
+      reservedRef.current.add(id);
+      seqOf.current.set(id, seq);
+      return { file, id, seq };
+    });
+    setLoading((n) => n + slots.length);
+    for (const { file, id, seq } of reserved) {
+      try {
+        const bytes = await readFileBytes(file);
+        // The probe reads beside the page count, so a scan's hint is
+        // drawn with its card, not after it.
+        const [pageCount, probe] = await Promise.all([
+          getPageCount(bytes),
+          readPreflight(bytes, "image-only"),
         ]);
-      }
-      const slots = accepted.slice(0, Math.max(0, 2 - items.length));
-      if (accepted.length > slots.length) {
-        setRejections((prev) => [
-          ...prev,
-          ...accepted.slice(slots.length).map((file) => ({
-            name: file.name,
-            reason:
-              "Compare PDF uses exactly two PDF files. Remove one before adding another.",
-          })),
-        ]);
-      }
-      setLoading((n) => n + slots.length);
-      for (const file of slots) {
-        try {
-          const bytes = await readFileBytes(file);
-          // The probe reads beside the page count, so a scan's hint is
-          // drawn with its card, not after it.
-          const [pageCount, probe] = await Promise.all([
-            getPageCount(bytes),
-            readPreflight(bytes, "image-only"),
-          ]);
-          const id = `compare-${idRef.current++}`;
-          setItems((prev) =>
-            [
-              ...prev,
-              {
-                id,
-                name: file.name,
-                size: file.size,
-                bytes,
-                pageCount,
-                file,
-                probe,
-              },
-            ].slice(0, 2),
+        // Cleared or removed while loading: its slot is no longer held.
+        if (!reservedRef.current.has(id)) continue;
+        const card: CompareItem = {
+          id,
+          name: file.name,
+          size: file.size,
+          bytes,
+          pageCount,
+          file,
+          probe,
+        };
+        // In the order the files were added, whatever order they load in.
+        setItems((prev) => {
+          const at = prev.findIndex(
+            (other) => (seqOf.current.get(other.id) ?? -1) > seq,
           );
-        } catch (err) {
-          setRejections((prev) => [
-            ...prev,
-            { name: file.name, reason: errorMessage(err) },
-          ]);
-        } finally {
-          setLoading((n) => n - 1);
-        }
+          return at === -1
+            ? [...prev, card]
+            : [...prev.slice(0, at), card, ...prev.slice(at)];
+        });
+      } catch (err) {
+        reservedRef.current.delete(id);
+        setRejections((prev) => [
+          ...prev,
+          { name: file.name, reason: errorMessage(err) },
+        ]);
+      } finally {
+        setLoading((n) => n - 1);
       }
-    },
-    [items.length],
-  );
+    }
+  }, []);
 
   useEffect(() => {
     if (preloadedRef.current) return;
@@ -161,11 +178,17 @@ export function ComparePdfRunner({
         loading={loading}
         rejections={rejections}
         onFiles={addFiles}
-        onRemove={(id) =>
-          setItems((prev) => prev.filter((item) => item.id !== id))
+        onRemove={(id) => {
+          reservedRef.current.delete(id);
+          setItems((prev) => prev.filter((item) => item.id !== id));
+        }}
+        onSwap={() =>
+          setItems((prev) => (prev.length === 2 ? [prev[1]!, prev[0]!] : prev))
         }
         onClearRejections={() => setRejections([])}
         onClear={() => {
+          // A file still loading keeps no slot either: it is dropped on arrival.
+          reservedRef.current = new Set();
           setItems([]);
           setRejections([]);
         }}
@@ -215,6 +238,7 @@ export function ComparePdfEditor({
   rejections,
   onFiles,
   onRemove,
+  onSwap,
   onClearRejections,
   onClear,
   extract = extractPdfText,
@@ -224,6 +248,12 @@ export function ComparePdfEditor({
   rejections: Rejection[];
   onFiles: (files: File[]) => void;
   onRemove: (id: string) => void;
+  /**
+   * Puts PDF 2 in the PDF 1 slot and back. PDF 1 is the baseline every delta
+   * is signed from, and picking both at once fills the slots in whatever
+   * order the file picker returns. The runner always passes it.
+   */
+  onSwap?: () => void;
   onClearRejections: () => void;
   /**
    * Empties both file slots, so "Start over" lands on the empty runner. It
@@ -404,6 +434,22 @@ export function ComparePdfEditor({
             );
           })}
         </div>
+        {onSwap && items.length === 2 && (
+          <button
+            type="button"
+            onClick={() => {
+              if (!busy) onSwap();
+            }}
+            aria-disabled={busy || undefined}
+            className={buttonVariants({
+              variant: "secondary",
+              className: "mt-3",
+            })}
+          >
+            <ArrowLeftRight className="size-4" aria-hidden />
+            Swap PDF 1 and PDF 2
+          </button>
+        )}
         <div className="mt-4 grid gap-3 sm:grid-cols-3">
           <InfoTile
             icon={ShieldCheck}

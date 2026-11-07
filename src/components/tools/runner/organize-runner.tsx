@@ -91,7 +91,12 @@ function OrganizeEditor({
   const [overIndex, setOverIndex] = useState<number | null>(null);
   const [grabbedUid, setGrabbedUid] = useState<string | null>(null);
   const uidRef = useRef(pdf.pageCount);
-  const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
+  // The bytes AND the page count they were built with: the result screen
+  // describes the file, not whatever the arrangement became afterwards.
+  const { busy, error, result, run, reset } = useAsyncRun<{
+    bytes: Uint8Array;
+    pageCount: number;
+  }>();
   const { announce, node: announcer } = useAnnouncer();
   const { thumbs, rendered, status, capped, eagerCount, requestPage } =
     usePdfThumbnails(pdf.bytes, pdf.pageCount);
@@ -131,10 +136,14 @@ function OrganizeEditor({
   };
 
   // Ctrl/⌘+Z to undo, Ctrl/⌘+Shift+Z or Ctrl+Y to redo — while the editor is
-  // mounted and focus isn't in a text field (this editor has none, but guard
-  // anyway so the shortcut is safe to own globally). `dispatch` is stable; we
-  // re-bind on `history` changes so canUndo/canRedo read the current timeline.
+  // on screen and focus isn't in a text field (this editor has none, but guard
+  // anyway so the shortcut is safe to own globally). Not on the result screen:
+  // the same component renders it, and an undo there rewrote the arrangement
+  // under a file that was already built. `dispatch` is stable; we re-bind on
+  // `history` changes so canUndo/canRedo read the current timeline.
+  const showingResult = result !== null;
   useEffect(() => {
+    if (showingResult) return;
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
       const target = e.target as HTMLElement | null;
@@ -163,7 +172,7 @@ function OrganizeEditor({
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [history, announce]);
+  }, [history, announce, showingResult]);
 
   const move = (from: number, to: number) => {
     if (to < 0 || to >= items.length || to === from) return;
@@ -268,30 +277,31 @@ function OrganizeEditor({
       }
     };
 
-  const onRun = () =>
-    run(() =>
-      organizePages(
-        pdf.bytes,
-        items.map(({ sourceIndex, rotation, blank }) =>
-          blank ? { sourceIndex, rotation, blank } : { sourceIndex, rotation },
-        ),
-      ),
+  const onRun = () => {
+    const plan = items.map(({ sourceIndex, rotation, blank }) =>
+      blank ? { sourceIndex, rotation, blank } : { sourceIndex, rotation },
     );
+    return run(async () => ({
+      bytes: await organizePages(pdf.bytes, plan),
+      pageCount: plan.length,
+    }));
+  };
 
   if (result) {
+    const { bytes, pageCount } = result;
     return (
       <ResultPanel
         title="Pages organized"
-        summary={`${items.length} page${items.length === 1 ? "" : "s"} in your new order · ${formatBytes(result.byteLength)}`}
+        summary={`${pageCount} page${pageCount === 1 ? "" : "s"} in your new order · ${formatBytes(bytes.byteLength)}`}
         onReset={onReset}
-        output={outputFile(result, outputName(pdf.file.name, "organized"))}
+        output={outputFile(bytes, outputName(pdf.file.name, "organized"))}
         onAdjust={reset}
-        expectedPages={items.length}
+        expectedPages={pageCount}
       >
         <button
           type="button"
           onClick={() =>
-            downloadBytes(result, outputName(pdf.file.name, "organized"))
+            downloadBytes(bytes, outputName(pdf.file.name, "organized"))
           }
           className={buttonVariants({ variant: "primary", size: "lg" })}
         >

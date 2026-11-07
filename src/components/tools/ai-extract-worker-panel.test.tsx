@@ -218,3 +218,30 @@ describe("AiExtractWorkerPanel — what the job declares", () => {
     expect(network.jobBodies[0]!.declaredCharacters).toBe(counted);
   });
 });
+
+/**
+ * Audit #16 (2026-11-06), WCAG 4.1.2: each schema row's type select had no
+ * name at all, and every row's bin button was named "Remove field", so with
+ * two rows a screen-reader user heard two unnamed comboboxes and could not
+ * tell which field a delete removed. The name input beside them was always
+ * "Field N name" — the pattern the other two controls now follow.
+ */
+describe("AiExtractWorkerPanel — every row's controls say which field they act on", () => {
+  it("names each type select and each remove button by its row", async () => {
+    await openBuilder();
+    await waitFor(() => nameInput(1));
+    fireEvent.click(screen.getByRole("button", { name: /add field/i }));
+    await screen.findByRole("textbox", { name: "Field 2 name" });
+    const selects = screen.getAllByRole("combobox");
+    expect(selects.map((s) => s.getAttribute("aria-label") ?? "")).toEqual([
+      "Field 1 type",
+      "Field 2 type",
+    ]);
+    for (const n of [1, 2]) {
+      screen.getByRole("combobox", { name: `Field ${n} type` });
+      screen.getByRole("button", { name: `Remove field ${n}` });
+    }
+    // Positive control: the name input keeps the pattern these now follow.
+    screen.getByRole("textbox", { name: "Field 2 name" });
+  });
+});

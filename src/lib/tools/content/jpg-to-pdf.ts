@@ -71,6 +71,10 @@ const LIMIT_MET = limitOutcome({
  * saying PNG works (image-to-pdf-accept.test.ts). Only an image whose
  * signature is valid but whose data pdf-lib cannot parse fails at Create PDF
  * ('"x" could not be decoded as a JPG image.').
+ * SUPERSEDED 2026-11-06 (audit #10), history kept above: a PNG added here
+ * is parsed by src/lib/pdf/png-embed.ts, not pdf-lib, and a PNG it cannot
+ * parse fails with '"x" could not be decoded as a PNG image.'; JPEGs are
+ * still embedded by pdf-lib.
  *
  * PAGE SETUP, since 2026-10-24 (src/lib/pdf/image-page-layout.ts): the runner
  * shows Page size, Orientation, Margin and Output chips, built from the same
@@ -181,7 +185,7 @@ const content: ToolContent = {
     },
     {
       title: "Set the page order",
-      body: "Under Image order, each thumbnail is labelled with the page it will become. The up and down arrows on a thumbnail (Move up, Move down) shift a photo one place, the cross (Remove) takes it out, and Clear below the list empties it.",
+      body: "Under Image order, each thumbnail is labelled with the page it will become. The up and down arrows on a thumbnail (Move up, Move down) shift a photo one place, the cross (Remove) takes it out, and Clear below the list empties it. To move a photo further in one go, drag its thumbnail onto the place you want.",
     },
     {
       title: "Choose the page setup",

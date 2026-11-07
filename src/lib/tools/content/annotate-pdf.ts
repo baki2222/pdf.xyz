@@ -147,7 +147,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Can I highlight text by selecting it?",
-      a: "No. A highlight is a see-through rectangle you drag over the words, not a selection of them. Flattened, it covers exactly the area you draw. Saved as a comment, it fits itself to the lines of text under the box: one band per line, as tall as the line and as wide as your box, the way a viewer's own text highlight looks. To hide text rather than mark it, use Redact PDF.",
+      a: "No. A highlight is a see-through rectangle you drag over the words, not a selection of them. Flattened, it covers exactly the area you draw. Saved as a comment, it fits itself to the lines of text under the box: one band per line, as tall as the line and as wide as the text inside your box, the way a viewer's own text highlight looks. A strip of the box above, below or between the lines that has no text in it and is at least two lines tall, such as a chart below a line, stays highlighted at the full width of your box. Space beside the text on the same lines, such as a picture next to a short line, is not kept. To hide text rather than mark it, use Redact PDF.",
     },
     {
       q: "Can I take a markup out after saving?",

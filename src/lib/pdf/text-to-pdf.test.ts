@@ -1,4 +1,12 @@
-import { PDFDict, PDFDocument, PDFName, StandardFonts } from "pdf-lib";
+import {
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFName,
+  PDFRawStream,
+  StandardFonts,
+} from "pdf-lib";
+import { inflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import {
   layoutPlainText,
@@ -289,4 +297,74 @@ describe("the monospace promise holds beyond WinAnsi", () => {
     expect(code, "no embedded face drew the code block").toBeDefined();
     expect([...code!.advanceWidths]).toHaveLength(1);
   }, 60_000);
+});
+
+/*
+ * Audit #34 (2026-11-06). Only a LOADED file went through the decoder's
+ * control-character strip, so pasted terminal output (ESC colour codes), a
+ * form feed or a bell reached the font check, which refused the document as
+ * "a script it cannot draw yet" and named an invisible character. And a form
+ * feed, the page break of RFCs and man pages, was deleted as noise.
+ */
+describe("control characters in pasted text (audit #34)", () => {
+  const ESC = String.fromCharCode(0x1b);
+  const FF = String.fromCharCode(0x0c);
+  /** Every string drawn on each page, read from pdf-lib's hex Tj operands. */
+  const pageTexts = async (bytes: Uint8Array) => {
+    const doc = await PDFDocument.load(bytes);
+    return doc.getPages().map((page) => {
+      const contents = doc.context.lookup(
+        page.node.get(PDFName.of("Contents")),
+      );
+      const refs =
+        contents instanceof PDFArray ? contents.asArray() : [contents];
+      const decoded = refs
+        .map((ref) =>
+          inflateSync(
+            Buffer.from(
+              (doc.context.lookup(ref) as PDFRawStream).getContents(),
+            ),
+          ).toString("latin1"),
+        )
+        .join(" ");
+      return [...decoded.matchAll(/<([0-9A-Fa-f]*)>\s*Tj/g)]
+        .map((m) => Buffer.from(m[1]!, "hex").toString("latin1"))
+        .join("\n");
+    });
+  };
+
+  it("terminal colour codes, a bell and a vertical tab convert, with the codes dropped", async () => {
+    const BEL = String.fromCharCode(7);
+    const VT = String.fromCharCode(11);
+    const pages = await pageTexts(
+      await textToPdf(
+        `${ESC}[31mred${ESC}[0m and ${ESC}[1;32mgreen${ESC}[m\nding${BEL} a${VT}b`,
+      ),
+    );
+    expect(pages).toHaveLength(1);
+    expect(pages[0]).toContain("red and green");
+    expect(pages[0]).toContain("ding ab");
+    expect(pages[0]).not.toContain("[31m");
+  });
+
+  it("a form feed starts a new page", async () => {
+    const pages = await pageTexts(
+      await textToPdf(`Page one\n${FF}Page two${FF}`),
+    );
+    expect(pages).toHaveLength(2);
+    expect(pages[0]).toContain("Page one");
+    expect(pages[1]).toContain("Page two");
+  });
+
+  it("CONTROL: text with no form feed stays on one page", async () => {
+    const pages = await pageTexts(await textToPdf("Page one\nPage two"));
+    expect(pages).toHaveLength(1);
+    expect(pages[0]).toContain("Page two");
+  });
+
+  it("text that is nothing but control characters is refused as empty", async () => {
+    await expect(
+      textToPdf(`${ESC}[0m${String.fromCharCode(7)}`),
+    ).rejects.toThrow(/Add some text/);
+  });
 });

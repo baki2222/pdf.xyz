@@ -323,7 +323,14 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
     if (busy) return;
     setPage((prev) => ({ ...prev, ...next }));
   };
+  // Drag-and-drop reordering, as Merge and Organize have; the arrow buttons
+  // stay as the keyboard path.
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
   const move = (from: number, to: number) => {
+    // An arrow at the end of the list moves nothing, so it must not clear
+    // the natural-order note either (aria-disabled does not block a click).
+    if (to < 0 || to >= items.length || to === from) return;
     setItems((prev) => reorder(prev, from, to));
     setOrdered(null);
   };
@@ -500,13 +507,37 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
             {items.map((item, index) => (
               <div
                 key={item.id}
-                className="border-line bg-wash rounded-panel overflow-hidden border"
+                draggable={!busy}
+                onDragStart={() => setDragIndex(index)}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setOverIndex(index);
+                }}
+                onDrop={() => {
+                  if (dragIndex !== null && !busy) move(dragIndex, index);
+                  setDragIndex(null);
+                  setOverIndex(null);
+                }}
+                onDragEnd={() => {
+                  setDragIndex(null);
+                  setOverIndex(null);
+                }}
+                className={cn(
+                  "bg-wash rounded-panel overflow-hidden border transition",
+                  overIndex === index &&
+                    dragIndex !== null &&
+                    dragIndex !== index
+                    ? "border-accent/40 ring-accent/50 ring-1"
+                    : "border-line",
+                  dragIndex === index && "opacity-50",
+                )}
               >
                 {item.previewUrl ? (
                   /* eslint-disable-next-line @next/next/no-img-element */
                   <img
                     src={item.previewUrl}
                     alt=""
+                    draggable={false}
                     className="bg-canvas h-40 w-full object-contain"
                   />
                 ) : (
@@ -518,7 +549,10 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
                   </div>
                 )}
                 <div className="flex items-center gap-2 p-3">
-                  <GripVertical className="text-muted size-4" aria-hidden />
+                  <GripVertical
+                    className="text-muted size-4 shrink-0 cursor-grab"
+                    aria-hidden
+                  />
                   <div className="min-w-0 flex-1">
                     <p className="text-fg truncate text-sm font-medium">
                       {item.name}
@@ -537,6 +571,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
                     type="button"
                     onClick={() => move(index, index - 1)}
                     aria-disabled={index === 0 || undefined}
+                    aria-label={`Move ${item.name} earlier`}
                     className={iconButtonClass}
                     title="Move up"
                   >
@@ -546,6 +581,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
                     type="button"
                     onClick={() => move(index, index + 1)}
                     aria-disabled={index === items.length - 1 || undefined}
+                    aria-label={`Move ${item.name} later`}
                     className={iconButtonClass}
                     title="Move down"
                   >
@@ -554,6 +590,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
                   <button
                     type="button"
                     onClick={() => remove(item.id)}
+                    aria-label={`Remove ${item.name}`}
                     className={iconButtonClass}
                     title="Remove"
                   >

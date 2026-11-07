@@ -1,4 +1,4 @@
-import { PdfEngineError } from "./engine";
+import { PdfEngineError, pdfLoadError } from "./engine";
 import { loadPdfLib } from "./pdf-lib";
 import { loadPdf, stampProducer } from "./stamp";
 import { viewerFrame } from "./page-frame";
@@ -13,9 +13,21 @@ import { rectAnchor, viewerRectToContent } from "./editor/geometry";
 import type { RedactionFill, RedactionRect } from "./redact-defaults";
 import { REDACT_METHODS } from "./redact-output";
 import { validateRedactions } from "./redact";
-import { readRedactText, searchPattern, type FoundText } from "./redact-find";
+import {
+  readRedactText,
+  searchPattern,
+  type FoundText,
+  type SearchOptions,
+} from "./redact-find";
 import type { PdfTextReader } from "./text";
 import { loadPdfjs } from "./pdfjs";
+import type {
+  PDFDict as PdfDict,
+  PDFDocument,
+  PDFObject,
+  PDFRawStream as PDFRawStreamT,
+} from "pdf-lib";
+import type { PdfLibModule } from "./pdf-lib";
 
 /**
  * Redact PDF's "Remove text under boxes" method: the engine Edit PDF's Redact
@@ -24,7 +36,10 @@ import { loadPdfjs } from "./pdfjs";
  * overwritten in a copy of that picture, the annotations under it are
  * removed, objects nothing refers to any more are dropped, and then the box
  * is filled. Everything else stays as it was: text, links, bookmarks and
- * document properties outside the boxes.
+ * document properties outside the boxes — except that a match chosen from
+ * Find text or Detect personal data is also taken out of the places a reader
+ * sees it off the page ({@link scrubOffPage}): the document properties and
+ * XMP, bookmark titles, and the comments that carry it (those are removed).
  *
  * What that engine cannot do safely it refuses (vertical text, an inline
  * image or nested content under a box, a form field under a box, an image
@@ -34,8 +49,10 @@ import { loadPdfjs } from "./pdfjs";
  *
  * The result is checked before it is returned: every match the user chose
  * from Find text or Detect personal data is searched for again in the
- * OUTPUT's text, and if any is still there the redaction fails rather than
- * handing back a file that still contains it.
+ * OUTPUT's text, and in every string and XMP packet of the OUTPUT's objects
+ * ({@link offPageHit}) — a form field's value, a link, an attachment's name —
+ * and if any is still there the redaction fails rather than handing back a
+ * file that still contains it.
  */
 
 export interface RemovalBox extends RedactionRect {
@@ -51,8 +68,13 @@ export interface RemovalBox extends RedactionRect {
 export interface RemovalOptions {
   rects: readonly RemovalBox[];
   fill?: RedactionFill;
-  /** The matches the boxes came from: each must be absent from the output. */
-  verify?: readonly Pick<FoundText, "page" | "text">[];
+  /**
+   * The matches the boxes came from: each must be absent from the output.
+   * `match` is how each was found, and off the page it is matched the same
+   * way (a case-insensitive Find also takes "JANE" out of the Title; a
+   * whole-word one leaves "Janeway" alone).
+   */
+  verify?: readonly Pick<FoundText, "page" | "text" | "match">[];
   /** The pdf.js build the verification reads with (tests pass the legacy one). */
   loadReader?: PdfTextReader;
 }
@@ -61,7 +83,10 @@ export interface RemovalResult {
   bytes: Uint8Array;
   pageCount: number;
   redactionCount: number;
-  /** Matches searched for again in the output and not found. */
+  /**
+   * Matches searched for again in the output — its page text and every
+   * string and XMP packet in its objects — and not found.
+   */
   verified: number;
 }
 
@@ -75,6 +100,236 @@ function countOn(pageText: string, text: string): number {
   const pattern = searchPattern(text, { matchCase: true, wholeWord: false });
   if (!pattern) return 0;
   return [...pageText.matchAll(pattern)].length;
+}
+
+/** What a chosen match is replaced with in a string it is taken out of. */
+export const SCRUBBED_TEXT = "[redacted]";
+
+/** A chosen text, and how it was matched on the page. */
+interface Chosen {
+  text: string;
+  match: SearchOptions;
+}
+
+/**
+ * The patterns a chosen text is looked for with off the page: `plain` for a
+ * PDF string, `xml` for the raw text of an XMP packet, where "&" may be
+ * written "&amp;" and "'" "&apos;" or "&#39;".
+ */
+function offPagePatterns(chosen: readonly Chosen[]): {
+  text: string;
+  plain: RegExp;
+  xml: RegExp;
+}[] {
+  return chosen.flatMap(({ text, match }) => {
+    const plain = searchPattern(text, match);
+    const xml = searchPattern(text, match, { xml: true });
+    return plain && xml ? [{ text, plain, xml }] : [];
+  });
+}
+
+function decodePacket(lib: PdfLibModule, stream: PDFRawStreamT): string {
+  try {
+    return new TextDecoder().decode(lib.decodePDFRawStream(stream).decode());
+  } catch {
+    // A packet whose filter cannot be decoded is read as stored.
+    return new TextDecoder().decode(stream.contents);
+  }
+}
+
+/**
+ * Keys whose strings are not text a person wrote (dates, file IDs, unique
+ * annotation names): a chosen "2024" must not rewrite a CreationDate or fail
+ * the check on one.
+ */
+const NOT_TEXT = new Set(["CreationDate", "ModDate", "M", "ID", "NM"]);
+
+function stringText(
+  lib: PdfLibModule,
+  o: PDFObject | undefined,
+): string | null {
+  return o instanceof lib.PDFString || o instanceof lib.PDFHexString
+    ? o.decodeText()
+    : null;
+}
+
+function anyMatch(value: string, patterns: readonly RegExp[]): boolean {
+  return patterns.some((p) => {
+    p.lastIndex = 0;
+    return p.test(value);
+  });
+}
+
+/**
+ * Take every chosen string out of what a reader sees off the page: the
+ * document properties (Info) and XMP have it replaced with
+ * {@link SCRUBBED_TEXT}, so do bookmark titles, and a comment that carries it
+ * (in its text, author or subject) is removed with its pop-up — a comment's
+ * appearance can draw the text, so rewriting its /Contents alone would not
+ * take it out. Form fields are left to the check ({@link offPageHit}): their
+ * value is drawn by an appearance this cannot rewrite.
+ */
+function scrubOffPage(
+  lib: PdfLibModule,
+  doc: PDFDocument,
+  chosen: readonly Chosen[],
+): void {
+  const { PDFDict, PDFArray, PDFName, PDFHexString, PDFRawStream } = lib;
+  const found = offPagePatterns(chosen);
+  if (found.length === 0) return;
+  const patterns = found.map((f) => f.plain);
+  const xmlPatterns = found.map((f) => f.xml);
+  const scrubWith = (value: string, ps: readonly RegExp[]) =>
+    ps.reduce((v, p) => v.replace(p, SCRUBBED_TEXT), value);
+  const scrub = (value: string) => scrubWith(value, patterns);
+  const scrubEntry = (dict: PdfDict, key: string) => {
+    const name = PDFName.of(key);
+    const value = stringText(lib, dict.lookup(name));
+    if (value !== null && anyMatch(value, patterns)) {
+      dict.set(name, PDFHexString.fromText(scrub(value)));
+    }
+  };
+  const ctx = doc.context;
+
+  const info = ctx.lookup(ctx.trailerInfo.Info);
+  if (info instanceof PDFDict) {
+    for (const [key] of info.entries()) {
+      if (!NOT_TEXT.has(key.decodeText())) scrubEntry(info, key.decodeText());
+    }
+  }
+
+  const xmpName = PDFName.of("Metadata");
+  const xmp = doc.catalog.lookup(xmpName);
+  if (xmp instanceof PDFRawStream) {
+    // A packet that cannot be decoded is read as stored, and left to the
+    // check if that is not text.
+    const packet = decodePacket(lib, xmp);
+    if (anyMatch(packet, xmlPatterns)) {
+      doc.catalog.set(
+        xmpName,
+        ctx.register(
+          ctx.stream(scrubWith(packet, xmlPatterns), {
+            Type: "Metadata",
+            Subtype: "XML",
+          }),
+        ),
+      );
+    }
+  }
+
+  const seen = new Set<PDFObject>();
+  const walk = (node: PDFObject | undefined) => {
+    for (
+      let item = node;
+      item instanceof PDFDict && !seen.has(item);
+      item = item.lookup(PDFName.of("Next"))
+    ) {
+      seen.add(item);
+      scrubEntry(item, "Title");
+      walk(item.lookup(PDFName.of("First")));
+    }
+  };
+  const outlines = doc.catalog.lookup(PDFName.of("Outlines"));
+  if (outlines instanceof PDFDict) walk(outlines.lookup(PDFName.of("First")));
+
+  for (const page of doc.getPages()) {
+    const annots = page.node.lookup(PDFName.of("Annots"));
+    if (!(annots instanceof PDFArray)) continue;
+    const entries = annots.asArray();
+    const dicts = entries.map((a) => ctx.lookup(a));
+    const dropped = new Set<PDFObject>();
+    dicts.forEach((d, i) => {
+      if (!(d instanceof PDFDict)) return;
+      if (d.get(PDFName.of("Subtype")) === PDFName.of("Widget")) return;
+      const carries = ["Contents", "T", "Subj", "RC"].some((k) => {
+        const v = stringText(lib, d.lookup(PDFName.of(k)));
+        return v !== null && anyMatch(v, patterns);
+      });
+      if (!carries) return;
+      dropped.add(entries[i]!);
+      dropped.add(d);
+      const popup = d.get(PDFName.of("Popup"));
+      if (popup) dropped.add(popup);
+    });
+    if (dropped.size === 0) continue;
+    const kept = entries.filter((a, i) => {
+      const d = dicts[i];
+      if (dropped.has(a) || (d && dropped.has(d))) return false;
+      const parent = d instanceof PDFDict ? d.get(PDFName.of("Parent")) : null;
+      return !(parent && dropped.has(parent));
+    });
+    page.node.set(PDFName.of("Annots"), ctx.obj(kept));
+  }
+}
+
+/**
+ * Where a chosen string is still in a saved file outside its page text: every
+ * string in every object (a form field's value, a link, an attachment's name,
+ * and what {@link scrubOffPage} rewrote) and every XMP packet. Page content
+ * streams are not read here — the page text check covers them, through the
+ * reader a person would use. Read from the OUTPUT bytes, not from the
+ * document that wrote them.
+ */
+async function offPageHit(
+  lib: PdfLibModule,
+  bytes: Uint8Array,
+  chosen: readonly Chosen[],
+): Promise<{ text: string; where: string } | null> {
+  const { PDFDict, PDFArray, PDFName, PDFRawStream } = lib;
+  // Not `loadPdf`: its default `updateMetadata` would write pdf-lib's own
+  // Producer and Creator over the output's before they are read.
+  let out: PDFDocument;
+  try {
+    out = await lib.PDFDocument.load(bytes, { updateMetadata: false });
+  } catch (err) {
+    throw await pdfLoadError(err, bytes);
+  }
+  const where = (key: string | null): string => {
+    switch (key) {
+      case "V":
+      case "DV":
+      case "T":
+      case "TU":
+        return "a form field";
+      case "URI":
+        return "a link";
+      case "F":
+      case "UF":
+      case "Desc":
+        return "an attached file";
+      case "XMP":
+        return "the document's XMP metadata";
+      default:
+        return "the file's hidden data";
+    }
+  };
+  const roots: [PDFObject, string | null][] = [];
+  for (const [, obj] of out.context.enumerateIndirectObjects()) {
+    roots.push([obj, null]);
+  }
+  const info = out.context.trailerInfo.Info;
+  if (info) roots.push([info, null]);
+  for (const { text, plain: pattern, xml } of offPagePatterns(chosen)) {
+    const stack = [...roots];
+    while (stack.length) {
+      const [o, key] = stack.pop()!;
+      if (key !== null && NOT_TEXT.has(key)) continue;
+      const value = stringText(lib, o);
+      if (value !== null) {
+        if (anyMatch(value, [pattern])) return { text, where: where(key) };
+      } else if (o instanceof PDFDict) {
+        for (const [k, v] of o.entries()) stack.push([v, k.decodeText()]);
+      } else if (o instanceof PDFArray) {
+        for (const v of o.asArray()) stack.push([v, key]);
+      } else if (o instanceof PDFRawStream) {
+        stack.push([o.dict, null]);
+        if (o.dict.get(PDFName.of("Type")) !== PDFName.of("Metadata")) continue;
+        const packet = decodePacket(lib, o);
+        if (anyMatch(packet, [xml])) return { text, where: where("XMP") };
+      }
+    }
+  }
+  return null;
 }
 
 export async function redactPdfByRemoval(
@@ -143,6 +398,15 @@ export async function redactPdfByRemoval(
     }
     throw err;
   }
+  const chosenTexts = [
+    ...new Map(
+      verify.map((v) => [
+        `${v.text}\u0000${v.match.matchCase}\u0000${v.match.wholeWord}`,
+        { text: v.text, match: v.match },
+      ]),
+    ).values(),
+  ];
+  scrubOffPage(lib, doc, chosenTexts);
   pruneUnreachable(lib, doc);
 
   // The boxes, drawn over the rewritten pages.
@@ -181,6 +445,12 @@ export async function redactPdfByRemoval(
         );
       }
       verified += n;
+    }
+    const hidden = await offPageHit(lib, out, chosenTexts);
+    if (hidden) {
+      throw new PdfEngineError(
+        `“${hidden.text}” is still in the file outside the page text (in ${hidden.where}), so the file was not saved. Choose “${FLATTEN_LABEL}” instead.`,
+      );
     }
   }
 

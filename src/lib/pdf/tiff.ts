@@ -32,7 +32,9 @@
  * image (WhiteIsZero via `/Decode [1 0]`), gray is DeviceGray, a palette is
  * `/Indexed`, RGB and CMYK are themselves; an alpha channel is an `/SMask`.
  * Nothing is JPEG-recompressed. 16-bit samples are cut to 8 bits, as a
- * 16-bit PNG is.
+ * 16-bit PNG is. SUPERSEDED 2026-11-06 (audit #10), history kept: a 16-bit
+ * PNG now keeps its sixteen bits (src/lib/pdf/png-embed.ts); a TIFF's are
+ * still cut to 8.
  *
  * ── PAGE SIZE ─────────────────────────────────────────────────────────────
  *

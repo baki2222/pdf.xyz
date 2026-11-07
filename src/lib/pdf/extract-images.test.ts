@@ -1527,3 +1527,164 @@ describe("extractPdfImages — inline images", () => {
     expect(result.skipped[0]!.reason).toMatch(/stencil/i);
   });
 });
+
+// ── JPEG /Decode and the pixel ceiling (audit #44, 2026-11-06) ───────────────
+//
+// HISTORY: the pixel ceiling (MAX_DECODED_PIXELS) ran BEFORE the DCTDecode
+// branch, so a JPEG over it was skipped as "Image too large to process"
+// although a JPEG is copied byte for byte and never decoded; and the /Decode
+// check ran AFTER it, so a gray or RGB JPEG the page draws inverted was saved
+// as a negative of the page with no caveat. Both were the order, not the
+// statements.
+
+describe("extractPdfImages — JPEG /Decode and the pixel ceiling (audit #44)", () => {
+  /** A DCT image XObject over `bytes`, with any extra dictionary keys. */
+  const dctImage =
+    (
+      bytes: Uint8Array,
+      colorSpace: string,
+      extra: { Decode?: number[] } = {},
+      size = { width: 1, height: 1 },
+    ) =>
+    (ctx: PDFContext) => [
+      [
+        ctx.stream(bytes, {
+          Type: "XObject",
+          Subtype: "Image",
+          Width: size.width,
+          Height: size.height,
+          ColorSpace: colorSpace,
+          BitsPerComponent: 8,
+          Filter: "DCTDecode",
+          ...extra,
+        }),
+      ],
+    ];
+
+  /** JPG_1X1 with an Adobe APP14 segment right after SOI. */
+  const withAdobeApp14 = (jpeg: Uint8Array) =>
+    Uint8Array.from([
+      0xff,
+      0xd8,
+      0xff,
+      0xee,
+      0x00,
+      0x0e,
+      ...Buffer.from("Adobe", "latin1"),
+      0x00,
+      0x64,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x02,
+      ...jpeg.subarray(2),
+    ]);
+
+  it("an RGB JPEG with an inverting /Decode is kept byte-for-byte, with a caveat that it is inverted", async () => {
+    const result = await extractPdfImages(
+      await pdfWithImages(
+        dctImage(JPG_1X1, "DeviceRGB", { Decode: [1, 0, 1, 0, 1, 0] }),
+      ),
+    );
+    expect(result.skipped).toEqual([]);
+    const img = result.images[0]!;
+    expect(Buffer.from(img.bytes).equals(Buffer.from(JPG_1X1))).toBe(true);
+    expect(img.note).toMatch(/inverted/i);
+  });
+
+  it("a gray JPEG with /Decode [1 0] carries the same caveat", async () => {
+    const result = await extractPdfImages(
+      await pdfWithImages(dctImage(JPG_1X1, "DeviceGray", { Decode: [1, 0] })),
+    );
+    expect(result.images[0]!.note).toMatch(/inverted/i);
+  });
+
+  // Review: a /Decode that rescales without inverting (here [0 0.5], half
+  // brightness) was flagged as "inverted" and "a negative of the page".
+  it("a gray JPEG with a rescaling, non-inverting /Decode is flagged, but not as inverted", async () => {
+    const result = await extractPdfImages(
+      await pdfWithImages(
+        dctImage(JPG_1X1, "DeviceGray", { Decode: [0, 0.5] }),
+      ),
+    );
+    const note = result.images[0]!.note;
+    expect(note).toMatch(/\/Decode array that changes its colours/);
+    expect(note).not.toMatch(/invert|negative/i);
+  });
+
+  it("a mixed /Decode (one channel inverted, one not) is not called a negative", async () => {
+    const result = await extractPdfImages(
+      await pdfWithImages(
+        dctImage(JPG_1X1, "DeviceRGB", { Decode: [1, 0, 0, 1, 0, 1] }),
+      ),
+    );
+    const note = result.images[0]!.note;
+    expect(note).toMatch(/\/Decode array that changes its colours/);
+    expect(note).not.toMatch(/negative/i);
+  });
+
+  it("control: a JPEG that spells out the default /Decode has no caveat", async () => {
+    const result = await extractPdfImages(
+      await pdfWithImages(
+        dctImage(JPG_1X1, "DeviceRGB", { Decode: [0, 1, 0, 1, 0, 1] }),
+      ),
+    );
+    expect(result.images[0]!.note).toBeUndefined();
+  });
+
+  it("an Adobe (APP14) CMYK JPEG with the inverting /Decode that compensates for it has no caveat", async () => {
+    const adobe = withAdobeApp14(JPG_1X1);
+    const result = await extractPdfImages(
+      await pdfWithImages(
+        dctImage(adobe, "DeviceCMYK", { Decode: [1, 0, 1, 0, 1, 0, 1, 0] }),
+      ),
+    );
+    expect(result.skipped).toEqual([]);
+    expect(
+      Buffer.from(result.images[0]!.bytes).equals(Buffer.from(adobe)),
+    ).toBe(true);
+    expect(result.images[0]!.note).toBeUndefined();
+  });
+
+  it("control: the same CMYK /Decode on a JPEG with no Adobe marker is flagged", async () => {
+    const result = await extractPdfImages(
+      await pdfWithImages(
+        dctImage(JPG_1X1, "DeviceCMYK", { Decode: [1, 0, 1, 0, 1, 0, 1, 0] }),
+      ),
+    );
+    expect(result.images[0]!.note).toMatch(/inverted/i);
+  });
+
+  it("a JPEG over the pixel ceiling is saved, since nothing is decoded", async () => {
+    const result = await extractPdfImages(
+      await pdfWithImages(
+        dctImage(JPG_1X1, "DeviceRGB", {}, { width: 12000, height: 9000 }),
+      ),
+    );
+    expect(result.skipped).toEqual([]);
+    expect(result.images).toHaveLength(1);
+    expect(result.images[0]!.format).toBe("jpg");
+  });
+
+  it("control: a pixel image over the ceiling is still skipped before any decode", async () => {
+    const result = await extractPdfImages(
+      await pdfWithImages((ctx) => [
+        [
+          ctx.flateStream(new Uint8Array(3), {
+            Type: "XObject",
+            Subtype: "Image",
+            Width: 12000,
+            Height: 9000,
+            ColorSpace: "DeviceRGB",
+            BitsPerComponent: 8,
+          }),
+        ],
+      ]),
+    );
+    expect(result.images).toEqual([]);
+    expect(result.skipped.map((s) => s.reason)).toEqual([
+      "Image too large to process (12000×9000)",
+    ]);
+  });
+});

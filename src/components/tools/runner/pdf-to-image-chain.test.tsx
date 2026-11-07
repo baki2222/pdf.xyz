@@ -27,6 +27,7 @@ import {
   pageImageName,
   zipOutputName,
 } from "@/lib/pdf/pdf-to-image";
+import { capturePdfPages, rasterizePdf } from "@/lib/pdf/render";
 import { RASTER_MAX_DEVICE_PX } from "@/lib/pdf/render-utils";
 import { PdfToImageRunner } from "./pdf-to-image-runner";
 
@@ -131,6 +132,7 @@ type Legacy = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
 let legacy: Legacy;
 let savedWorkerSrc: string;
 let pageProto: { render: (...args: unknown[]) => unknown };
+let docProto: { getPage: (pageNumber: number) => Promise<unknown> };
 
 beforeAll(async () => {
   legacy = await import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -144,7 +146,9 @@ beforeAll(async () => {
   const doc = await PDFDocument.create();
   doc.addPage([10, 10]);
   const task = legacy.getDocument({ data: await doc.save() });
-  const page = await (await task.promise).getPage(1);
+  const loaded = await task.promise;
+  docProto = Object.getPrototypeOf(loaded);
+  const page = await loaded.getPage(1);
   pageProto = Object.getPrototypeOf(page);
   await task.destroy();
 });
@@ -500,5 +504,256 @@ describe("PDF to PNG — Select pages renders exactly those pages", () => {
     const zip = await JSZip.loadAsync(saved);
     expect(Object.keys(zip.files)).toHaveLength(4);
     expect(encoded.map((e) => e.width)).toEqual(WIDTHS.map(pxFor));
+  }, 30_000);
+});
+
+/* ------------------------------------------------------------------ *
+ *  A page that fails, and a run the reader stops (audit #37)
+ * ------------------------------------------------------------------ */
+
+/**
+ * HISTORY (audit #37, 2026-11-06): `capturePdfPages` turned any one page's
+ * failure into `throw new Error("Page N could not be rendered.")` and dropped
+ * the pages it had already rendered, so a 300-page run lost everything to one
+ * bad page near the end; and there was no Cancel — the AbortController was
+ * only aborted on unmount, and an abort was reported as an error.
+ *
+ * Through the REAL `rasterizePdf`, with only pdf.js's paint stubbed: page 3's
+ * render rejects (or, for Cancel, never settles until it is cancelled).
+ */
+describe("PDF to PNG — one page failing, or Cancel, keeps the finished pages", () => {
+  const WIDTHS = [100, 200, 300, 400] as const;
+  const HIGH = RASTER_RESOLUTIONS.find((r) => r.id === "high")!;
+  const pxFor = (points: number) => Math.floor((points / 72) * HIGH.dpi);
+  beforeEach(() => window.localStorage.clear());
+
+  /** Make page `n`'s render behave as `render(n)` says; the rest succeed. */
+  function renderPages(
+    behave: (n: number) => { promise: Promise<void>; cancel: () => void },
+  ) {
+    vi.spyOn(pageProto, "render").mockImplementation(function (this: {
+      pageNumber: number;
+    }) {
+      return behave(this.pageNumber);
+    });
+  }
+
+  async function loadFourPages() {
+    const doc = await PDFDocument.create();
+    for (const w of WIDTHS) doc.addPage([w, 100]);
+    const name = "set.pdf";
+    const file = new File([new Uint8Array(await doc.save())], name, {
+      type: "application/pdf",
+    });
+    const router = {
+      back: () => {},
+      forward: () => {},
+      refresh: () => {},
+      push: () => {},
+      replace: () => {},
+      prefetch: () => {},
+      bfcacheId: "test",
+    };
+    const { container } = render(
+      <AppRouterContext.Provider value={router}>
+        <PdfToImageRunner format="png" />
+      </AppRouterContext.Provider>,
+    );
+    const input =
+      container.querySelector<HTMLInputElement>('input[type="file"]');
+    fireEvent.change(input!, { target: { files: [file] } });
+    await screen.findByRole(
+      "button",
+      { name: /render 4 pages/i },
+      { timeout: 10_000 },
+    );
+    return name;
+  }
+
+  async function savedZip(name: string) {
+    const download = await screen.findByRole(
+      "button",
+      { name: /download zip/i },
+      { timeout: 20_000 },
+    );
+    fireEvent.click(download);
+    await waitFor(() => expect(downloads).toHaveLength(1));
+    expect(downloads[0]!.name).toBe(zipOutputName(name, "png"));
+    return JSZip.loadAsync(await readBlob(downloads[0]!.blob!));
+  }
+
+  const ok = () => ({ promise: Promise.resolve(), cancel: () => {} });
+
+  it("page 3 fails to render: pages 1, 2 and 4 are delivered, and page 3 is named", async () => {
+    renderPages((n) =>
+      n === 3
+        ? { promise: Promise.reject(new Error("bad stream")), cancel: () => {} }
+        : ok(),
+    );
+    const name = await loadFourPages();
+    fireEvent.click(screen.getByRole("button", { name: /render 4 pages/i }));
+    const zip = await savedZip(name);
+    expect(Object.keys(zip.files).sort()).toEqual(
+      [0, 1, 3].map((i) => pageImageName(name, i, 4, "png")).sort(),
+    );
+    for (const index of [0, 1, 3]) {
+      const png = await zip
+        .file(pageImageName(name, index, 4, "png"))!
+        .async("uint8array");
+      expect(pngSize(png).width, `page ${index + 1}`).toBe(
+        pxFor(WIDTHS[index]!),
+      );
+    }
+    expect(screen.getByText(/3 PNG images ready/)).toBeTruthy();
+    expect(
+      screen.getByText(/Page 3 could not be rendered, so it was left out/),
+    ).toBeTruthy();
+  }, 30_000);
+
+  it("control: when every page fails, it is still an error, and nothing downloads", async () => {
+    renderPages(() => ({
+      promise: Promise.reject(new Error("bad stream")),
+      cancel: () => {},
+    }));
+    await loadFourPages();
+    fireEvent.click(screen.getByRole("button", { name: /render 4 pages/i }));
+    expect(
+      await screen.findByText(
+        /No pages could be rendered from this PDF/,
+        {},
+        {
+          timeout: 20_000,
+        },
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /download/i })).toBeNull();
+  }, 30_000);
+
+  it("Cancel stops a run and keeps the pages already finished", async () => {
+    let started = false;
+    renderPages((n) => {
+      if (n !== 3) return ok();
+      started = true;
+      let cancel = () => {};
+      const promise = new Promise<void>((_, reject) => {
+        cancel = () =>
+          reject(
+            new legacy.RenderingCancelledException("Rendering cancelled."),
+          );
+      });
+      return { promise, cancel };
+    });
+    const name = await loadFourPages();
+    fireEvent.click(screen.getByRole("button", { name: /render 4 pages/i }));
+    await waitFor(() => expect(started).toBe(true), { timeout: 20_000 });
+    fireEvent.click(screen.getByRole("button", { name: /^cancel$/i }));
+    const zip = await savedZip(name);
+    expect(Object.keys(zip.files).sort()).toEqual(
+      [0, 1].map((i) => pageImageName(name, i, 4, "png")).sort(),
+    );
+    expect(screen.getByText(/2 PNG images ready/)).toBeTruthy();
+    expect(
+      screen.getByText(/Rendering was stopped after 2 of 4 pages/),
+    ).toBeTruthy();
+    // Health: page 4 never rendered — Cancel stopped the run, not a failure.
+    expect(encoded.map((e) => e.width)).toEqual([pxFor(100), pxFor(200)]);
+  }, 30_000);
+});
+
+/**
+ * The other half of audit #37's contract: WITHOUT `onPageFailed`, a failed
+ * page still rejects the call. Redact (`rasterizePdf`) and Grayscale
+ * (`capturePdfPages`) build one PDF that must hold every page, so a page that
+ * is dropped there is a page missing from the output with nothing said.
+ *
+ * Review found nothing tested this: deleting the rejecting branch (and calling
+ * `onPageFailed?.(...)`) left every test green, and the "every page fails"
+ * control above cannot tell — the runner errors on zero pages either way. So
+ * these go through the two exported entry points directly, with ONE page
+ * failing and the rest fine, and each has a positive control in which the
+ * same stub with `onPageFailed` resolves with the other pages.
+ */
+describe("a failed page without onPageFailed still rejects (Redact, Grayscale)", () => {
+  async function fourPages(): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+    for (const w of [100, 200, 300, 400]) doc.addPage([w, 100]);
+    return doc.save();
+  }
+
+  function failPageRender(n: number) {
+    vi.spyOn(pageProto, "render").mockImplementation(function (this: {
+      pageNumber: number;
+    }) {
+      return this.pageNumber === n
+        ? { promise: Promise.reject(new Error("bad stream")), cancel: () => {} }
+        : { promise: Promise.resolve(), cancel: () => {} };
+    });
+  }
+
+  function failGetPage(n: number) {
+    const real = docProto.getPage;
+    vi.spyOn(docProto, "getPage").mockImplementation(function (
+      this: unknown,
+      pageNumber: number,
+    ) {
+      return pageNumber === n
+        ? Promise.reject(new Error("broken page object"))
+        : real.call(this, pageNumber);
+    });
+  }
+
+  const captureWidth = (canvas: HTMLCanvasElement) => canvas.width;
+
+  it("rasterizePdf (Redact's path) rejects when page 3 fails to render", async () => {
+    failPageRender(3);
+    await expect(
+      rasterizePdf(await fourPages(), { format: "png", dpi: 72 }),
+    ).rejects.toThrow("Page 3 could not be rendered.");
+  }, 30_000);
+
+  it("capturePdfPages (Grayscale's path) rejects when page 3 fails to render", async () => {
+    failPageRender(3);
+    await expect(
+      capturePdfPages(await fourPages(), { dpi: 72, capture: captureWidth }),
+    ).rejects.toThrow("Page 3 could not be rendered.");
+  }, 30_000);
+
+  it("capturePdfPages rejects when page 3's page object cannot be read", async () => {
+    failGetPage(3);
+    await expect(
+      capturePdfPages(await fourPages(), { dpi: 72, capture: captureWidth }),
+    ).rejects.toThrow("Page 3 could not be rendered.");
+  }, 30_000);
+
+  it("positive control: the same render stub WITH onPageFailed resolves with pages 1, 2 and 4, reporting index 2", async () => {
+    failPageRender(3);
+    const failed: { index: number; message: string }[] = [];
+    const pages = await rasterizePdf(await fourPages(), {
+      format: "png",
+      dpi: 72,
+      onPageFailed: (f) => failed.push(f),
+    });
+    expect(pages.map((p) => p.index)).toEqual([0, 1, 3]);
+    expect(failed).toEqual([
+      { index: 2, message: "Page 3 could not be rendered." },
+    ]);
+  }, 30_000);
+
+  it("positive control: a broken page object WITH onPageFailed is skipped and named, and pages 1, 2 and 4 are captured", async () => {
+    failGetPage(3);
+    const failed: { index: number; message: string }[] = [];
+    const pages = await capturePdfPages(await fourPages(), {
+      dpi: 72,
+      capture: captureWidth,
+      onPageFailed: (f) => failed.push(f),
+    });
+    expect(pages.map((p) => [p.index, p.data])).toEqual([
+      [0, 100],
+      [1, 200],
+      [3, 400],
+    ]);
+    expect(failed).toEqual([
+      { index: 2, message: "Page 3 could not be rendered." },
+    ]);
   }, 30_000);
 });

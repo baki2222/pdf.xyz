@@ -182,10 +182,16 @@ describe("the store", () => {
             startAt: 7,
           },
           watermark: { opacity: 1000, rotation: "45" },
+          "header-footer": { headerAlign: "right", footerAlign: "sideways" },
         },
       }),
     );
-    expect(recallOptions("page-numbers")).toEqual({ startAt: 7 });
+    // History: until 2026-11-06 the kept field here was page-numbers'
+    // startAt (7). Start on page and First number are no longer remembered
+    // at all (audit #28), so a stored one — even a valid one, as an older
+    // build wrote it — is dropped like any field the schema does not name.
+    expect(recallOptions("page-numbers")).toEqual({});
+    expect(recallOptions("header-footer")).toEqual({ headerAlign: "right" });
     expect(recallOptions("watermark")).toEqual({});
   });
 
@@ -196,12 +202,16 @@ describe("the store", () => {
     } as never);
     rememberOptions("page-numbers", {
       format: "Invoice {n} SECRET",
+      position: "top-left",
       startAt: 3,
     } as never);
     const stored = raw()!;
     expect(stored).not.toContain("TOP SECRET");
     expect(stored).not.toContain("Invoice");
-    expect(recallOptions("page-numbers")).toEqual({ startAt: 3 });
+    // History: until 2026-11-06 this expected { startAt: 3 }; First number
+    // belongs to one document and is no longer kept (audit #28).
+    expect(stored).not.toContain("startAt");
+    expect(recallOptions("page-numbers")).toEqual({ position: "top-left" });
   });
 
   it("a browser that refuses storage remembers nothing and throws nothing", () => {
@@ -279,5 +289,67 @@ describe("the wire: what the real editors store holds no typed text", () => {
     expect(
       (screen.getByLabelText(/^rotation/i) as HTMLInputElement).value,
     ).toBe("-15");
+  });
+});
+
+/**
+ * Audit #28 (2026-11-06): Start on page and First number were remembered, and
+ * the position was restored with nothing on screen saying so. After a run on
+ * a 20-page thesis with Start on page 5, an unrelated 3-page letter opened
+ * with Start on page clamped to 3 — only its last page numbered, as "Page 1
+ * of 1" — and the tool page's copy ("sits at Bottom center unless you click
+ * another") was false for every returning visitor.
+ *
+ * THE PROPERTY: a field that belongs to ONE document never reaches the next
+ * one, and a choice that is carried over is visible and undoable.
+ */
+describe("page numbers: what carries over to the next file", () => {
+  const field = (name: RegExp) =>
+    (screen.getByLabelText(name) as HTMLInputElement).value;
+
+  it("Start on page and First number belong to one document: the next file opens at 1 and 1", async () => {
+    // A run, through the real editor, that sets every remembered choice.
+    render(<PageNumbersEditor pdf={await loaded(20)} onReset={() => {}} />);
+    fireEvent.change(screen.getByLabelText(/^start on page/i), {
+      target: { value: "5" },
+    });
+    fireEvent.change(screen.getByLabelText(/^first number/i), {
+      target: { value: "501" },
+    });
+    fireEvent.click(screen.getByRole("radio", { name: /top right/i }));
+    fireEvent.click(screen.getByRole("button", { name: /add page numbers/i }));
+    await screen.findByRole("group", { name: /page numbers added/i });
+    // Health: the run really stored something, so the next editor reads a
+    // non-empty record rather than passing on an empty store.
+    expect(recallOptions("page-numbers").position).toBe("top-right");
+    cleanup();
+
+    render(<PageNumbersEditor pdf={await loaded(3)} onReset={() => {}} />);
+    expect(field(/^start on page/i)).toBe("1");
+    expect(field(/^first number/i)).toBe("1");
+    expect(screen.getByText("Page 1 of 3")).toBeInTheDocument();
+  });
+
+  it("a restored position says so, and Use defaults puts it back to Bottom center", async () => {
+    rememberOptions("page-numbers", { position: "top-right" });
+    render(<PageNumbersEditor pdf={await loaded(3)} onReset={() => {}} />);
+    expect(screen.getByRole("radio", { name: /top right/i })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    expect(screen.getByText(/your last settings/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /use defaults/i }));
+    expect(
+      screen.getByRole("radio", { name: /bottom center/i }),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(screen.queryByText(/your last settings/i)).toBeNull();
+  });
+
+  it("control: a first visit shows no restored-settings note", async () => {
+    render(<PageNumbersEditor pdf={await loaded(3)} onReset={() => {}} />);
+    expect(
+      screen.getByRole("radio", { name: /bottom center/i }),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(screen.queryByText(/your last settings/i)).toBeNull();
   });
 });

@@ -188,7 +188,11 @@ describe("pdf-to-markdown: the facts describe what the converter emits", () => {
     // Health: the parse found the markers, not one blob.
     expect(markers.length).toBeGreaterThanOrEqual(4);
     for (const marker of markers) {
-      const out = md([`Intro text\n${marker} item\nafter`]);
+      // The intro is a finished sentence. Until audit #8 (2026-11-06) it was
+      // "Intro text" with no stop, and any marker after it opened an item;
+      // now a line that wraps a running sentence stays in its paragraph, and
+      // the fact names that exception (checked below).
+      const out = md([`Intro text.\n${marker} item\nafter`]);
       // A Markdown list item: a number keeps its number, and an unordered
       // marker may come out as any unordered marker (the converter writes
       // `- `). Until 2026-09-27 this demanded the marker's own character.
@@ -200,10 +204,24 @@ describe("pdf-to-markdown: the facts describe what the converter emits", () => {
       );
       // CONTROL: the same line without its marker is not a list item, so the
       // match above is the marker's doing.
-      expect(md(["Intro text\nitem\nafter"])).not.toMatch(
+      expect(md(["Intro text.\nitem\nafter"])).not.toMatch(
         /^(?:[-*+]|\d+[.)]) /m,
       );
     }
+  });
+
+  it("a line that only wraps a running sentence stays in its paragraph, as the fact says", () => {
+    expect(facts).toMatch(
+      /unless it only wraps a sentence that is still running/i,
+    );
+    const wrapped = md([
+      "Sales were flat for the whole decade until\n2023. Revenue grew after that",
+    ]);
+    expect(wrapped).toContain("until 2023. Revenue grew after that");
+    // CONTROL: after a finished sentence the same line is a list item.
+    expect(
+      md(["Sales were flat for the whole decade then.\n2023. Revenue grew"]),
+    ).toMatch(/^2023\. Revenue grew$/m);
   });
 
   it("table rows arrive as plain text — no Markdown table is written", () => {

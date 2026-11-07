@@ -132,11 +132,33 @@ export function batesFormat(prefix: string, digits: number): string {
   return `${prefix}{n:${width}}`;
 }
 
+/** The tokens a page-number format can use; every other `{word}` is refused. */
+export const PAGE_NUMBER_TOKENS = ["n", "total", "page", "pages"] as const;
+
+/**
+ * Anything shaped like a token: a word in braces, optionally padded. Literal
+ * braces that hold no word (`{1}`, `{ }`) are text, not a token.
+ */
+const ANY_TOKEN = /\{([a-z][a-z0-9_]*)(?::\d+)?\}/gi;
+
 export function validatePageNumberFormat(format: string): void {
   if (format.trim().length === 0) {
     throw new PdfEngineError(
       'Add a page-number format, for example "Page {n} of {total}".',
     );
+  }
+  // `applyTokens` (shared with Header & Footer) also knows {date}, which page
+  // numbers never fill: it was erased to nothing. And a token from another
+  // tool ({p}) printed as typed. Both are refused before the run.
+  for (const [token, word] of format.matchAll(ANY_TOKEN)) {
+    if (
+      !(PAGE_NUMBER_TOKENS as readonly string[]).includes(word!.toLowerCase())
+    ) {
+      const known = PAGE_NUMBER_TOKENS.map((t) => `{${t}}`).join(", ");
+      throw new PdfEngineError(
+        `Page numbers cannot fill "${token}". Use ${known}, or a padded one like {n:6}.`,
+      );
+    }
   }
   for (const [token, , width] of format.matchAll(WIDTH_TOKEN)) {
     const digits = Number(width);

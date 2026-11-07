@@ -341,9 +341,15 @@ export function ScanRunner() {
       <RunBar>
         <div className="flex justify-end gap-3">
           {items.length > 0 && (
+            // Held while Create PDF runs, like every other input here: the
+            // run has already read the photos (useAsyncRun also drops a
+            // result that lands after a reset).
             <button
               type="button"
-              onClick={clearItems}
+              onClick={() => {
+                if (!busy) clearItems();
+              }}
+              aria-disabled={busy || undefined}
               className={buttonVariants({ variant: "secondary", size: "lg" })}
             >
               Clear

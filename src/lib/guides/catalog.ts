@@ -1156,7 +1156,7 @@ export const guides: Guide[] = [
       `Pick the JPG, PNG, ${OTHER_NAMES_OR} images you want in the PDF — they stay on your device the whole time.`,
       // The arrows are icons: "Move up" / "Move down" are their tooltips,
       // never drawn (guide-ui-labels.test.ts reads `title` as not visible).
-      "Put them in page order with the up and down arrows on each photo.",
+      "Put them in page order by dragging a photo onto the place you want, or with the up and down arrows on each photo.",
       "Create the PDF — it is assembled in your browser, not on a server.",
       "Save the finished PDF to your device.",
     ],
@@ -1227,7 +1227,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-11-04",
+    updated: "2026-11-06",
   },
   {
     // ONE guide for the intent, from two lanes: L07 wrote this slug for the
@@ -2311,7 +2311,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-10-25",
+    updated: "2026-11-06",
   },
   {
     slug: "how-to-repair-a-damaged-pdf",
@@ -3616,15 +3616,15 @@ export const guides: Guide[] = [
         heading: "The second copy, XMP",
         body: [
           "Many PDFs keep the same information twice: once in the document information entries and again in an XMP packet, a block of XML that Acrobat and other readers prefer when it is there. A tool that changed only the first copy would leave those readers showing the old title.",
-          "So when a file has XMP, a note beside Document properties says so, and saving replaces the packet with a fresh one holding the same values as the fields. Anything else the old packet held is not kept. A file with no XMP packet does not get one.",
+          "So when a file has XMP, a note beside Document properties says so, and saving replaces the packet with a fresh one holding the same values as the fields. A PDF/A or PDF/UA identification in the old packet is carried over, so an archive file still declares itself one; anything else the old packet held is not kept. A file with no XMP packet does not get one.",
         ],
       },
       {
         id: "remove-all",
         heading: "What Remove all metadata takes out, and what it leaves",
         body: [
-          `Remove all metadata deletes the ${METADATA_TEXT_NAMES} entries, both dates, and the XMP packet. Every page is kept as it was.`,
-          `It does not touch what is on the pages, or the comments, form fields, bookmarks and the metadata inside embedded images. If the private details are in the text or pictures on a page, use ${nameOf("redact-pdf")} to remove them from the page itself.`,
+          `Remove all metadata deletes the ${METADATA_TEXT_NAMES} entries, both dates, and the XMP packet, along with each page's own XMP packet, the private data apps such as Illustrator and Office keep on pages (PieceInfo), and any earlier copy of those entries an earlier save left in the file. Every page is kept as it was.`,
+          `It does not touch what is on the pages, or the comments, form fields, bookmarks, attached files and the metadata inside embedded images. If the private details are in the text or pictures on a page, use ${nameOf("redact-pdf")} to remove them from the page itself.`,
         ],
       },
       {
@@ -3664,7 +3664,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-30",
-    updated: "2026-10-30",
+    updated: "2026-11-06",
   },
   {
     slug: "how-to-resize-pdf-pages",
@@ -5123,7 +5123,7 @@ export const guides: Guide[] = [
         heading: "Flattened into the page, or saved as comments",
         body: [
           "Flatten into the page, the choice selected to start, draws each highlight into the page itself, with its colour multiplied over the words so they stay readable. It shows in every viewer and printout, the original text stays selectable, and nothing becomes an image. The cost is that it cannot be taken out later except with an editor that changes page content, so keep the original if you may want an unmarked copy.",
-          "Saving markups as comments writes each highlight as a standard PDF highlight annotation instead. Where the box lies over lines of text, it is fitted to them: one band per line, as tall as the line and as wide as your box. Over a picture of text, such as a scanned page, it stays the box you drew. Other PDF apps list it as a comment and let you select, edit or delete it; there are no reply threads here.",
+          "Saving markups as comments writes each highlight as a standard PDF highlight annotation instead. Where the box lies over lines of text, it is fitted to them: one band per line, as tall as the line and as wide as the text inside your box. A strip of the box above, below or between the lines that has no text in it and is at least two lines tall, such as a chart below a line, stays highlighted at the full width of your box. Space beside the text on the same lines, such as a picture next to a short line, is not kept. Over a picture of text, such as a scanned page, the whole highlight stays the box you drew. Other PDF apps list it as a comment and let you select, edit or delete it; there are no reply threads here.",
         ],
       },
       {
@@ -5170,7 +5170,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-06",
   },
   {
     slug: "how-to-chat-with-a-pdf",
@@ -5798,6 +5798,11 @@ export const guides: Guide[] = [
   // predictor; an SMask only where some alpha was below 255; palette and
   // greyscale PDFs larger than their PNGs. The same facts are recorded on the
   // tool page (`content/png-to-pdf.ts`), probed 2026-09-27.
+  // SUPERSEDED 2026-11-06 (audit #10), history kept above: those facts were
+  // pdf-lib's. src/lib/pdf/png-embed.ts now embeds each PNG as stored —
+  // DeviceGray, Indexed, its own bit depth (16 included), /Predictor 15,
+  // iCCP as ICCBased — so the PDF stays close to the PNGs' size; the size
+  // section below was rewritten to say so (png-embed.test.ts).
   {
     slug: "how-to-convert-png-to-pdf",
     title: "How to convert PNG to PDF (screenshots and logos)",
@@ -5815,7 +5820,7 @@ export const guides: Guide[] = [
     intro: [
       `To convert PNG images to PDF, open ${nameOf("png-to-pdf")}, add your PNGs, put them in order, press Create PDF, then press Download PDF. Each PNG becomes one page of the PDF. It is made in your browser, so the images stay on your device, and each one can be up to ${MAX_IMAGE_MB} MB.`,
       `PNG is the format of screenshots, charts and logos because it keeps every pixel, and the PDF keeps them too. With ${MAX_SIZE_LABELS.heading} left at ${MAX_SIZE_LABELS.none}, a PNG goes into the PDF with lossless compression, never as a JPEG, so small interface text and sharp edges come out as they were.`,
-      "What is particular to PNG is covered below: what happens to see-through areas, why the PDF can be larger than the images, and how big a screenshot's page turns out.",
+      "What is particular to PNG is covered below: what happens to see-through areas, how large the PDF comes out, and how big a screenshot's page turns out.",
     ],
     steps: [
       `Open the ${nameOf("png-to-pdf")} tool and drop your PNGs on the box at the top of the page, or click it to pick them. JPG, ${OTHER_NAMES} images can go into the same PDF.`,
@@ -5836,10 +5841,10 @@ export const guides: Guide[] = [
       },
       {
         id: "file-size",
-        heading: "Why a PDF of PNGs can be larger than the PNGs",
+        heading: "How large the PDF comes out",
         body: [
-          "Inside the PDF every PNG is stored as eight-bit full colour, compressed without loss but without PNG's own row filters. A palette PNG, the compact kind with a short list of colours that many programs save icons and simple charts as, and a greyscale PNG are expanded to full colour, so the PDF can be much larger than the files you added.",
-          `A PNG with sixteen bits per channel is cut down to eight, the one change made to its pixels. If the PDF must be smaller, ${MAX_SIZE_LABELS.heading} trades sharpness for size; with screenshots full of small text, try the largest size the form allows.`,
+          "Inside the PDF each PNG keeps its own encoding. A greyscale PNG stays greyscale, a palette PNG (the compact kind with a short list of colours that many programs save icons and simple charts as) keeps its list, sixteen bits per channel stay sixteen, and PNG's own compression is kept, so a PDF of PNGs comes out close to the size of the files you added. A PNG with transparency, or an interlaced one, is compressed again the same way, so its size can differ a little from the file's.",
+          `A colour profile in the PNG, such as the Display P3 profile a Mac screenshot carries, is kept too, so colours look as they do in the PNG. If the PDF must be smaller, ${MAX_SIZE_LABELS.heading} trades sharpness for size; with screenshots full of small text, try the largest size the form allows.`,
         ],
       },
       {
@@ -5854,16 +5859,16 @@ export const guides: Guide[] = [
     faq: [
       {
         question: "Will my PNG lose quality in the PDF?",
-        answer: `Not with ${MAX_SIZE_LABELS.heading} at ${MAX_SIZE_LABELS.none}: the pixels are stored without loss, never as a JPEG. The only change is that a sixteen-bit PNG is cut down to eight bits per channel. A ${MAX_SIZE_LABELS.heading} the PDF is over is the exception you choose: then every image is saved again as a JPEG, smaller and softer, until the PDF fits.`,
+        answer: `Not with ${MAX_SIZE_LABELS.heading} at ${MAX_SIZE_LABELS.none}: the pixels are stored without loss, never as a JPEG. They keep their bit depth and colour profile too. A ${MAX_SIZE_LABELS.heading} the PDF is over is the exception you choose: then every image is saved again as a JPEG, smaller and softer, until the PDF fits.`,
       },
       {
         question: "Does PNG to PDF keep transparency?",
         answer: `Yes, as a soft mask over a white page, so see-through areas look white on screen and in print, and soft edges blend into the white. A ${MAX_SIZE_LABELS.heading} that has to save the images again fills those areas with white instead.`,
       },
       {
-        question: "Why is my PDF larger than my PNG files?",
+        question: "Will the PDF be much larger than my PNG files?",
         answer:
-          "Because each PNG is stored as full colour in the PDF. A palette or greyscale PNG is expanded to full colour on the way, which can make the PDF far heavier than the files you added.",
+          "No. Each PNG keeps its own compression, colours and bit depth inside the PDF, so the PDF comes out close to the size of the PNGs together. A PNG with transparency, or an interlaced one, is compressed again, so its share can differ a little.",
       },
       {
         question: "Can I put PNG and JPG images in one PDF?",
@@ -5876,7 +5881,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-04",
+    updated: "2026-11-06",
   },
   // HTML to PDF: an HTML FILE (or code saved as one), never a URL — that is
   // how-to-convert-a-webpage-to-pdf. Read off the worker: the upload is

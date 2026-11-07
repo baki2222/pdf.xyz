@@ -74,8 +74,9 @@ export const OPTION_SCHEMAS = {
       "{n}",
       "- {n} -",
     ] as const),
-    startPage: int(1, 99999),
-    startAt: int(0, 99999),
+    // Not Start on page or First number: they belong to ONE document. Kept,
+    // a 3-page letter after a "start on page 5" run was numbered only on
+    // page 3 (audit #28, 2026-11-06).
   },
   // Never the text.
   watermark: {

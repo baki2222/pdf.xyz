@@ -1,4 +1,4 @@
-import type { PDFPage } from "pdf-lib";
+import type { PDFObject, PDFPage } from "pdf-lib";
 import { loadPdf } from "./engine";
 import { loadPdfLib } from "./pdf-lib";
 import { viewerFrame } from "./page-frame";
@@ -32,6 +32,11 @@ import { MAX_FOUND, type PiiCategory } from "./redact-categories";
  * that passes its mod-97 check, and a date that follows a "Date of birth" or
  * "DOB" label. `redact-find.test.ts` holds every category to fixture strings
  * and to decoys it must not match.
+ *
+ * Neither reads a filled form field's value or a comment: those are not page
+ * text. The index names the pages that hold them ({@link NotSearched}) so the
+ * panel can say so, and both searches report when they stopped at
+ * {@link MAX_FOUND}.
  */
 
 export {
@@ -57,6 +62,12 @@ export interface FoundText {
   after: string;
   /** One box per text run the match covers (bottom-left origin, points). */
   rects: RedactionRect[];
+  /**
+   * How this match was found — the options Find ran with, or
+   * {@link DETECT_MATCH} — so the same text is matched the same way where
+   * the removal looks for it off the page (properties, XMP, bookmarks).
+   */
+  match: SearchOptions;
 }
 
 interface IndexedRun {
@@ -79,12 +90,23 @@ interface PageIndex {
   frame: ExportFrame;
 }
 
+/**
+ * 1-based pages holding text that Find and Detect do not search: a filled
+ * form field's value, and a comment's text. Each is drawn on the page (a
+ * flattened page shows it), so the user must cover it by position.
+ */
+export interface NotSearched {
+  formFields: number[];
+  comments: number[];
+}
+
 /** A document's text, indexed for search. */
 export interface RedactTextIndex {
   pageCount: number;
   pages: PageIndex[];
   /** 1-based pages with no selectable text at all (scans, blank pages). */
   pagesWithoutText: number[];
+  notSearched: NotSearched;
   /** Runs whose boxes come from their glyphs / from a share of their width. */
   placement: { glyphs: number; estimated: number };
 }
@@ -169,6 +191,54 @@ function finiteTransform(t: unknown): Mat | null {
   return m.every(Number.isFinite) ? (m as Mat) : null;
 }
 
+/** Annotation subtypes that carry no text of their own. */
+const NOT_A_COMMENT = new Set(["Widget", "Link", "Popup"]);
+
+/** Which of Find's blind spots a page holds: field values, comments. */
+function pageNotSearched(
+  lib: Awaited<ReturnType<typeof loadPdfLib>>,
+  page: PDFPage,
+): { formField: boolean; comment: boolean } {
+  const { PDFArray, PDFDict, PDFName, PDFString, PDFHexString } = lib;
+  const hasText = (o: PDFObject | undefined): boolean => {
+    if (o instanceof PDFString || o instanceof PDFHexString) {
+      return o.decodeText().trim().length > 0;
+    }
+    return o instanceof PDFArray && o.asArray().some((v) => hasText(v));
+  };
+  const out = { formField: false, comment: false };
+  const annots = page.node.lookup(PDFName.of("Annots"));
+  if (!(annots instanceof PDFArray)) return out;
+  for (const ref of annots.asArray()) {
+    const annot = page.doc.context.lookup(ref);
+    if (!(annot instanceof PDFDict)) continue;
+    const subtype = annot.lookup(PDFName.of("Subtype"));
+    const kind = subtype instanceof PDFName ? subtype.decodeText() : "";
+    if (kind === "Widget") {
+      // The value is on the widget or on the field it belongs to.
+      const seen = new Set<PDFObject>();
+      for (
+        let node: PDFObject | undefined = annot;
+        node instanceof PDFDict && !seen.has(node);
+        node = node.lookup(PDFName.of("Parent"))
+      ) {
+        seen.add(node);
+        if (hasText(node.lookup(PDFName.of("V")))) {
+          out.formField = true;
+          break;
+        }
+      }
+    } else if (
+      !NOT_A_COMMENT.has(kind) &&
+      (hasText(annot.lookup(PDFName.of("Contents"))) ||
+        hasText(annot.lookup(PDFName.of("RC"))))
+    ) {
+      out.comment = true;
+    }
+  }
+  return out;
+}
+
 /**
  * Read every page's text and where each character sits. `loadReader` is the
  * pdf.js build (tests pass the legacy one, as `extractPdfText` allows).
@@ -186,6 +256,12 @@ export async function readRedactText(
   );
   const pages: PageIndex[] = [];
   const pagesWithoutText: number[] = [];
+  const notSearched: NotSearched = { formFields: [], comments: [] };
+  pdfPages.forEach((page, i) => {
+    const blind = pageNotSearched(lib, page);
+    if (blind.formField) notSearched.formFields.push(i + 1);
+    if (blind.comment) notSearched.comments.push(i + 1);
+  });
   const placement = { glyphs: 0, estimated: 0 };
 
   items.forEach((pageItems, i) => {
@@ -240,7 +316,7 @@ export async function readRedactText(
       frame,
     });
   });
-  return { pageCount, pages, pagesWithoutText, placement };
+  return { pageCount, pages, pagesWithoutText, notSearched, placement };
 }
 
 /* ----------------------------- boxes ----------------------------- */
@@ -359,6 +435,7 @@ function found(
   kind: FoundKind,
   start: number,
   end: number,
+  match: SearchOptions,
 ): FoundText | null {
   const rects = rectsFor(page, start, end);
   if (rects.length === 0) return null;
@@ -370,6 +447,7 @@ function found(
     before: oneLine(page.text.slice(Math.max(0, start - CONTEXT), start)),
     after: oneLine(page.text.slice(end, end + CONTEXT)),
     rects,
+    match: { matchCase: match.matchCase, wholeWord: match.wholeWord },
   };
 }
 
@@ -384,14 +462,48 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** The pattern a search runs: literal, white space matching any run of it. */
+/**
+ * How a detected item is matched where it is looked for again off the page:
+ * as a whole word (a detected "jane@mail.test" is not in
+ * "jane@mail.testing"), in any case (an address or an IBAN in capitals is
+ * the same one).
+ */
+export const DETECT_MATCH: SearchOptions = {
+  matchCase: false,
+  wholeWord: true,
+};
+
+/** The five characters XML escapes, and every form it may write each in. */
+const XML_FORMS: Record<string, string> = {
+  "&": "&|&amp;|&#0*38;|&#[xX]0*26;",
+  "<": "<|&lt;|&#0*60;|&#[xX]0*3[cC];",
+  ">": ">|&gt;|&#0*62;|&#[xX]0*3[eE];",
+  "'": "'|&apos;|&#0*39;|&#[xX]0*27;",
+  '"': '"|&quot;|&#0*34;|&#[xX]0*22;',
+};
+
+function escapeXmlWord(word: string): string {
+  return [...word]
+    .map((ch) => {
+      const forms = XML_FORMS[ch];
+      return forms ? `(?:${forms})` : escapeRegExp(ch);
+    })
+    .join("");
+}
+
+/**
+ * The pattern a search runs: literal, white space matching any run of it.
+ * With `xml`, each character XML escapes also matches its escaped forms, for
+ * searching the raw text of an XMP packet.
+ */
 export function searchPattern(
   query: string,
   { matchCase, wholeWord }: SearchOptions,
+  { xml = false }: { xml?: boolean } = {},
 ): RegExp | null {
   const words = query.trim().split(/\s+/u).filter(Boolean);
   if (words.length === 0) return null;
-  const body = words.map(escapeRegExp).join("\\s+");
+  const body = words.map(xml ? escapeXmlWord : escapeRegExp).join("\\s+");
   const source = wholeWord
     ? `(?<![\\p{L}\\p{N}_])${body}(?![\\p{L}\\p{N}_])`
     : body;
@@ -409,7 +521,13 @@ export function findTextMatches(
   for (const page of index.pages) {
     for (const m of page.text.matchAll(pattern)) {
       if (m[0].length === 0) continue;
-      const hit = found(page, "search", m.index, m.index + m[0].length);
+      const hit = found(
+        page,
+        "search",
+        m.index,
+        m.index + m[0].length,
+        options,
+      );
       if (!hit) continue;
       if (matches.length >= MAX_FOUND) return { matches, capped: true };
       matches.push(hit);
@@ -561,17 +679,23 @@ export function detectInText(
   return out.sort((a, b) => a.start - b.start);
 }
 
+/**
+ * Every detected item, in page order, up to {@link MAX_FOUND}; `capped` when
+ * there were more — the panel must say so, or a long document reads as fully
+ * detected while its later pages were never reached.
+ */
 export function detectPersonalData(
   index: RedactTextIndex,
   categories: readonly PiiCategory[],
-): FoundText[] {
-  const out: FoundText[] = [];
+): { matches: FoundText[]; capped: boolean } {
+  const matches: FoundText[] = [];
   for (const page of index.pages) {
     for (const d of detectInText(page.text, categories)) {
-      const hit = found(page, d.kind, d.start, d.end);
-      if (hit) out.push(hit);
-      if (out.length >= MAX_FOUND) return out;
+      const hit = found(page, d.kind, d.start, d.end, DETECT_MATCH);
+      if (!hit) continue;
+      if (matches.length >= MAX_FOUND) return { matches, capped: true };
+      matches.push(hit);
     }
   }
-  return out;
+  return { matches, capped: false };
 }

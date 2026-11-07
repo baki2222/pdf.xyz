@@ -372,6 +372,14 @@ describe("split: by file size", () => {
     );
   });
 
+  // Audit #46 (2026-11-06): by-size parts reach the ZIP through the same
+  // namer, so a source name Windows cannot hold must not reach an entry.
+  it("names its parts from a sanitised base", async () => {
+    const source = await makeNoisyPdf([5, 5]);
+    const { files } = await splitPdfBySize(source, 1e9, "Q3: plan?");
+    expect(files.map((f) => f.name)).toEqual(["Q3 plan-1-pages-1-2.pdf"]);
+  });
+
   it("reports a single page bigger than the target and still writes it alone", async () => {
     const source = await makeNoisyPdf([5, 300, 5]);
     const small = await splitPdfBySize(source, 1e9, "doc");

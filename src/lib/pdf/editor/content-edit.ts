@@ -1033,37 +1033,8 @@ export async function applyContentEdits(
 /**
  * Drop every object nothing reachable from the trailer refers to — the
  * page's old content stream, a replaced image — so the removed text and
- * pixels are not still in the saved file as orphans.
+ * pixels are not still in the saved file as orphans. Lives in a leaf module
+ * so Edit PDF Metadata's "Remove all" can use it without this engine. Its
+ * `cut` parameter drops a deleted page even where a reference to it remains.
  */
-export function pruneUnreachable(lib: PdfLibModule, doc: PDFDocument): number {
-  const { PDFRef, PDFDict, PDFArray, PDFStream } = lib;
-  const ctx = doc.context;
-  const seen = new Set<string>();
-  const queue: PDFObject[] = [];
-  const t = ctx.trailerInfo;
-  for (const o of [t.Root, t.Info, t.Encrypt, t.ID]) if (o) queue.push(o);
-  while (queue.length) {
-    const o = queue.pop()!;
-    if (o instanceof PDFRef) {
-      const k = o.toString();
-      if (seen.has(k)) continue;
-      seen.add(k);
-      const v = ctx.lookup(o);
-      if (v) queue.push(v);
-    } else if (o instanceof PDFDict) {
-      for (const [, v] of o.entries()) queue.push(v);
-    } else if (o instanceof PDFArray) {
-      for (const v of o.asArray()) queue.push(v);
-    } else if (o instanceof PDFStream) {
-      queue.push(o.dict);
-    }
-  }
-  let dropped = 0;
-  for (const [ref] of ctx.enumerateIndirectObjects()) {
-    if (!seen.has(ref.toString())) {
-      ctx.delete(ref);
-      dropped++;
-    }
-  }
-  return dropped;
-}
+export { pruneUnreachable } from "../prune-unreachable";

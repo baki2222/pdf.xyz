@@ -44,6 +44,7 @@ import {
   type FileField,
 } from "./editor/fields";
 import { isIdentity, sourcePages, type PageRef } from "./editor/pages";
+import { prepareDeletedPages, type DeletedPages } from "./editor/deleted-pages";
 import {
   isCommentObject,
   writeComments,
@@ -206,15 +207,24 @@ export async function readEditorDocument(
 /**
  * Replay the page list on the file: turn pages, add blank ones, and put
  * every kept page in its new place; a page left out is deleted. Returns
- * whether any page was deleted (its content is then pruned from the file).
+ * the deleted pages when there are any (`editor/deleted-pages.ts`: the
+ * bookmarks, links and form fields that named them are cleared out here,
+ * and the caller prunes the pages themselves from the file), else null.
  */
 function applyPageList(
   lib: Awaited<ReturnType<typeof loadPdfLib>>,
   doc: Awaited<ReturnType<typeof loadPdf>>,
   list: readonly PageRef[],
-): boolean {
+): DeletedPages | null {
   const original = doc.getPages();
-  if (isIdentity(list, original.length)) return false;
+  if (isIdentity(list, original.length)) return null;
+  const kept = new Set(
+    list.flatMap((ref) => (ref.source === null ? [] : [ref.source])),
+  );
+  const forget =
+    kept.size < original.length
+      ? prepareDeletedPages(lib, doc, kept)
+      : undefined;
   const used = new Set<number>();
   const final = list.map((ref) => {
     if (ref.source === null) {
@@ -237,7 +247,7 @@ function applyPageList(
   }
   for (let i = doc.getPageCount() - 1; i >= 0; i -= 1) doc.removePage(i);
   final.forEach((page, i) => doc.insertPage(i, page));
-  return used.size < original.length;
+  return forget ? forget() : null;
 }
 
 /** One problem with the object list, before anything is drawn. */
@@ -410,7 +420,8 @@ export async function exportEditedPdf(
   }
   // Pages first: reordered, turned, inserted and deleted as displayed, so
   // every object below is drawn in the frame of the page it was placed on.
-  if (applyPageList(lib, doc, pageList)) pruneUnreachable(lib, doc);
+  const deleted = applyPageList(lib, doc, pageList);
+  if (deleted) pruneUnreachable(lib, doc, deleted.cut);
   const pageIds = pageList.map((p) => p.id);
   const pages = doc.getPages();
   const frames: ExportFrame[] = pages.map((page) => viewerFrame(page));
@@ -777,7 +788,13 @@ export async function exportEditedPdf(
     // Through the one chooser: field text is WinAnsi (checked in
     // `editor/fields.ts`), so this is the standard sans face.
     const helvetica = await embedDrawingFont(doc, [""], "sans");
-    filled = fillFileFields(lib, doc, fills, helvetica);
+    // A fill for a field that went with a deleted page has nothing to fill.
+    const live = Object.fromEntries(
+      Object.entries(fills).filter(
+        ([name]) => !deleted?.removedFields.has(name),
+      ),
+    );
+    filled = fillFileFields(lib, doc, live, helvetica);
     writeNewFields(lib, doc, pages, frames, newFields, helvetica);
   }
 

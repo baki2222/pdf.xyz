@@ -165,6 +165,29 @@ describe("splitPdf", () => {
     expect(await widths(outputs[2]!.bytes)).toEqual([30]);
   });
 
+  // Audit #46 (2026-11-06): part names took the source's base name raw, so
+  // "Q3: plan?.pdf" (legal on macOS/Linux) wrote ZIP entries Windows cannot
+  // extract, while the ZIP's own name was sanitised by outputName.
+  it("names parts with the same sanitised base as every other output", () => {
+    const names = buildSplitParts('Q3: plan? <a|b> "x" *%/\\', [
+      { start: 0, end: 1 },
+      { start: 2, end: 2 },
+    ]).map((p) => p.name);
+    expect(names).toEqual([
+      "Q3 plan ab x-1-pages-1-2.pdf",
+      "Q3 plan ab x-2-page-3.pdf",
+    ]);
+    // Health: the same characters outputName strips are absent from each.
+    for (const name of names) expect(name).not.toMatch(/[/\\?%*:|"<>]/);
+    // Positive control: a clean base passes through untouched.
+    expect(buildSplitParts("doc", [{ start: 0, end: 0 }])[0]!.name).toBe(
+      "doc-1-page-1.pdf",
+    );
+    expect(buildSplitParts("  ", [{ start: 0, end: 0 }])[0]!.name).toBe(
+      "document-1-page-1.pdf",
+    );
+  });
+
   it("throws when there are no parts", async () => {
     await expect(splitPdf(await makePdf(2), [])).rejects.toBeInstanceOf(
       PdfEngineError,
@@ -501,5 +524,54 @@ describe("mergePdfs keeps a file's internal links pointing into the tree", () =>
       )
         pageObjects++;
     expect(pageObjects).toBe(3);
+  });
+});
+
+/**
+ * An invalid `/Rotate` — not a multiple of 90 (audit #45). The spec forbids
+ * it and pdf.js and Acrobat show such a page UPRIGHT (pdf.js: a rotate whose
+ * `% 90` is not 0 becomes 0). Until 2026-11-06 the rotation reader snapped
+ * `/Rotate 45` to 90, so Rotate PDF's board showed the page sideways and its
+ * save wrote `/Rotate 90` to a page the user never touched — it now opened
+ * sideways in every viewer — while the summary, comparing against the
+ * snapped value, did not count it.
+ */
+describe("an invalid /Rotate is read as a viewer reads it", () => {
+  async function withRotate45(): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+    doc.addPage([10, 100]).node.set(PDFName.of("Rotate"), PDFNumber.of(45));
+    doc.addPage([20, 100]);
+    return doc.save();
+  }
+  /** The raw /Rotate of each page, as written. */
+  async function rawRotate(bytes: Uint8Array): Promise<number[]> {
+    const doc = await PDFDocument.load(bytes);
+    return doc
+      .getPages()
+      .map(
+        (p) =>
+          p.node.lookupMaybe(PDFName.of("Rotate"), PDFNumber)?.asNumber() ?? 0,
+      );
+  }
+
+  it("getPageRotations reports the page upright, as viewers show it", async () => {
+    expect(await getPageRotations(await withRotate45())).toEqual([0, 0]);
+  });
+
+  it("Rotate PDF's save leaves the untouched page upright", async () => {
+    const bytes = await withRotate45();
+    const board = await getPageRotations(bytes);
+    const out = await setPageRotations(bytes, [board[0]!, 90]);
+    const [first, second] = await rawRotate(out);
+    // Upright in every viewer: 0, or anything that is not a multiple of 90.
+    expect(first! % 90 !== 0 || first! % 360 === 0).toBe(true);
+    expect(second).toBe(90);
+  });
+
+  it("a quarter turn starts from what the viewer showed", async () => {
+    const bytes = await withRotate45();
+    expect(await getPageRotations(await rotatePages(bytes, [0], 90))).toEqual([
+      90, 0,
+    ]);
   });
 });

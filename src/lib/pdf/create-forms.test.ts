@@ -931,3 +931,104 @@ describe("existing fields are preserved untouched", () => {
     });
   }
 });
+
+/* ------------------------------------------------------------------ *
+ *  Audit #39 (2026-11-06)
+ * ------------------------------------------------------------------ */
+
+const box39 = { page: 1, x: 20, width: 120, height: 20 } as const;
+
+describe("createFormFields — only text that is DRAWN is held to WinAnsi (audit #39)", () => {
+  it("a Cyrillic checkbox name and Cyrillic radio options are created and round-trip", async () => {
+    const result = await createFormFields(await blankPdf(), [
+      { ...box39, type: "checkbox", name: "Согласие", y: 700, checked: false },
+      {
+        ...box39,
+        type: "radio",
+        name: "ответ",
+        y: 600,
+        width: 15,
+        height: 15,
+        options: ["Да", "Нет"],
+        defaultValue: "Нет",
+      },
+    ]);
+    expect(result.names).toEqual(["Согласие", "ответ"]);
+    const { fields } = await inspectFormFields(result.bytes);
+    expect(byName(fields, "Согласие").type).toBe("checkbox");
+    expect(byName(fields, "ответ")).toMatchObject({
+      type: "radio",
+      options: ["Да", "Нет"],
+      selected: ["Нет"],
+    });
+  });
+
+  it("control: a text default and a dropdown option ARE drawn, so they are still refused by name", async () => {
+    await expect(
+      createFormFields(await blankPdf(), [
+        {
+          ...box39,
+          type: "text",
+          name: "city",
+          y: 700,
+          defaultValue: "Москва",
+        },
+      ]),
+    ).rejects.toThrow(/М/);
+    await expect(
+      createFormFields(await blankPdf(), [
+        {
+          ...box39,
+          type: "dropdown",
+          name: "city",
+          y: 700,
+          options: ["Москва"],
+        },
+      ]),
+    ).rejects.toThrow(/М/);
+    await expect(
+      createFormFields(await blankPdf(), [
+        {
+          ...box39,
+          type: "optionlist",
+          name: "city",
+          y: 650,
+          height: 60,
+          options: ["Paris", "Москва"],
+        },
+      ]),
+    ).rejects.toThrow(/М/);
+  });
+});
+
+describe("createFormFields — a dropdown is single-choice (audit #39)", () => {
+  it("never sets MultiSelect on a combo box, which no viewer honours", async () => {
+    const spec = {
+      ...box39,
+      type: "dropdown",
+      name: "pick",
+      y: 700,
+      options: ["a", "b"],
+      multiselect: true,
+    } as NewFormField;
+    const result = await createFormFields(await blankPdf(), [spec]);
+    const doc = await PDFDocument.load(result.bytes);
+    expect(doc.getForm().getDropdown("pick").isMultiselect()).toBe(false);
+  });
+
+  it("control: a list box still takes several selections", async () => {
+    const result = await createFormFields(await blankPdf(), [
+      {
+        ...box39,
+        type: "optionlist",
+        name: "langs",
+        y: 650,
+        height: 60,
+        options: ["EN", "FR"],
+        multiselect: true,
+      },
+    ]);
+    const doc = await PDFDocument.load(result.bytes);
+    expect(doc.getForm().getOptionList("langs").isMultiselect()).toBe(true);
+  });
+});
