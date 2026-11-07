@@ -38,6 +38,7 @@ import {
   type QpdfStructureExecResult,
 } from "@/lib/workers/pdf-structure/native";
 import { LiveRegion, resetAnnouncer } from "@/components/a11y/live-region";
+import { LOST_CONNECTION } from "./worker-job";
 import { formatBytes } from "@/lib/utils";
 import { isLinearized } from "@/lib/pdf/linearization";
 import { linearizedPdf } from "@/tests/linearized-pdf-fixture";
@@ -731,6 +732,22 @@ describe("optimize-web: what the picked file already is, before any upload", () 
     fireEvent.click(nextRun);
     expect(uploadsRequested()).toBe(0);
   });
+
+  it.each(["optimize-web", "repair-pdf"] as const)(
+    "%s: a file that cannot be read at Run ends as the job's own failure",
+    async (slug) => {
+      const run = await pick(slug, INPUT);
+      // From here on, every read fails: the file moved or was deleted.
+      const reads = vi
+        .spyOn(Blob.prototype, "arrayBuffer")
+        .mockRejectedValue(new DOMException("gone", "NotReadableError"));
+      fireEvent.click(run);
+      expect(await screen.findByText(LOST_CONNECTION.message)).toBeVisible();
+      // Health check: the failure came from the read this test broke.
+      expect(reads).toHaveBeenCalled();
+      expect(uploadsRequested()).toBe(0);
+    },
+  );
 
   it("control: an unsigned PDF shows no signature warning and runs at once", async () => {
     const run = await pick("optimize-web", INPUT);
