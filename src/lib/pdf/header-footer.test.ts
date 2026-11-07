@@ -6,6 +6,7 @@ import {
   PDFDocument,
   PDFName,
   PDFRawStream,
+  StandardFonts,
   degrees,
 } from "pdf-lib";
 import { describe, expect, it } from "vitest";
@@ -431,6 +432,76 @@ describe("header-footer: three slots in one band", () => {
         footer: { left: long, center: long },
       }),
     ).rejects.toThrow(/footer's left and center text overlap on page 1/);
+  });
+
+  // Review of audit header-footer#3 (2026-11-07): `a.end + gap <= b.start`
+  // could lose its gap and every test stayed green. Two lines a hair apart
+  // read as one, so the refusal starts a space's width before they touch:
+  // the left line grows by an "i" (2.22 pt at 10 pt, under a space's
+  // 2.78 pt) until it lands inside that space, and the line one "i" shorter
+  // is the control that still passes.
+  it("refuses two slots closer than a space, and accepts the one just clear", async () => {
+    const metrics = await (
+      await PDFDocument.create()
+    ).embedFont(StandardFonts.Helvetica);
+    const at10 = (s: string) => metrics.widthOfTextAtSize(s, 10);
+    const gap = at10(" ");
+    const center = "MIDMARK";
+    const start = (600 - at10(center)) / 2;
+    const margin = HEADER_FOOTER_MARGINS.medium;
+    let n = 1;
+    while (margin + at10("i".repeat(n + 1)) + gap <= start) n += 1;
+    const clear = "i".repeat(n);
+    const close = "i".repeat(n + 1);
+    // Health: `close` is inside the space but does not overlap.
+    expect(margin + at10(clear) + gap).toBeLessThanOrEqual(start);
+    expect(margin + at10(close) + gap).toBeGreaterThan(start);
+    expect(margin + at10(close)).toBeLessThanOrEqual(start);
+    await expect(
+      addHeaderFooter(await blankPdf(1), {
+        footer: { left: close, center },
+      }),
+    ).rejects.toThrow(/footer's left and center text overlap on page 1/);
+    const ok = await addHeaderFooter(await blankPdf(1), {
+      footer: { left: clear, center },
+    });
+    expect((await PDFDocument.load(ok)).getPageCount()).toBe(1);
+  });
+
+  it("refuses a center and a right line that meet", async () => {
+    const long = "Acme Corporation quarterly financial statement draft";
+    await expect(
+      addHeaderFooter(await blankPdf(1), {
+        header: { center: long, right: long },
+      }),
+    ).rejects.toThrow(/header's center and right text overlap on page 1/);
+  });
+
+  it("measures the line across a quarter-turned page as a reader sees it", async () => {
+    // Each line fits alone on a 595 pt A4; together they need more than the
+    // 531 pt between its margins and less than the 778 pt a turned page
+    // (842 pt across) has, so upright they meet and turned they do not.
+    const metrics = await (
+      await PDFDocument.create()
+    ).embedFont(StandardFonts.Helvetica);
+    const at10 = (s: string) => metrics.widthOfTextAtSize(s, 10);
+    const room = (across: number) => across - 2 * HEADER_FOOTER_MARGINS.medium;
+    let line = "Acme";
+    while (2 * at10(line) <= room(595.28)) line += " Acme";
+    expect(at10(line)).toBeLessThan(room(595.28));
+    expect(2 * at10(line) + at10(" ")).toBeLessThan(room(841.89));
+    const a4 = async (rotate: number) => {
+      const doc = await PDFDocument.create();
+      doc.addPage([595.28, 841.89]).setRotation(degrees(rotate));
+      return doc.save();
+    };
+    await expect(
+      addHeaderFooter(await a4(0), { header: { left: line, right: line } }),
+    ).rejects.toThrow(/header's left and right text overlap/);
+    const turned = await addHeaderFooter(await a4(90), {
+      header: { left: line, right: line },
+    });
+    expect((await PDFDocument.load(turned)).getPageCount()).toBe(1);
   });
 
   it("control: the same two lines in different bands are fine", async () => {
