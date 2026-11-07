@@ -3,10 +3,12 @@ import {
   extractedTextToMarkdown,
   MARKDOWN_LINK_SCHEMES,
   type MarkdownLink,
+  type MarkdownTable,
   type PdfToMarkdownInput,
   type PdfToMarkdownOptions,
   type PdfToMarkdownResult,
 } from "./pdf-to-markdown";
+import { tablesOfPage } from "./pdf-to-markdown-tables";
 import { extractPdfLines, type PdfTextReader, type TextItemLike } from "./text";
 
 /**
@@ -192,10 +194,12 @@ export async function readPdfForMarkdown(
   loadReader: PdfTextReader = loadPdfjs,
 ): Promise<PdfToMarkdownInput> {
   const links: MarkdownLink[][] = [];
+  const tables: MarkdownTable[][] = [];
   const extracted = await extractPdfLines(
     bytes,
     async (page, items, pageNumber) => {
       const annotations = await page.getAnnotations({ intent: "display" });
+      tables[pageNumber - 1] = tablesOfPage(items, pageNumber);
       links[pageNumber - 1] = linksFromPage(
         items,
         annotations as AnnotationLike[],
@@ -208,6 +212,7 @@ export async function readPdfForMarkdown(
     pages: extracted.pages.map((page, i) => ({
       ...page,
       links: links[i] ?? [],
+      tables: tables[i] ?? [],
     })),
   };
 }

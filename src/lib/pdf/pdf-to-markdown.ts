@@ -20,7 +20,22 @@ export type PdfToMarkdownPage = ExtractedTextPage & {
    * through it from a real PDF.
    */
   links?: readonly MarkdownLink[];
+  /**
+   * The tables Extract Tables' detector finds on the page
+   * (`./pdf-to-markdown-tables`). Optional for the same reason as `links`.
+   */
+  tables?: readonly MarkdownTable[];
 };
+
+/**
+ * A detected table: its cells, and the baselines (PDF points, y up) of its
+ * first and last rows, so its lines can be found on the page.
+ */
+export interface MarkdownTable {
+  rows: string[][];
+  top: number;
+  bottom: number;
+}
 
 /**
  * The schemes a Markdown link may carry; a link to anything else (a script, a
@@ -58,6 +73,8 @@ export interface PdfToMarkdownResult {
   hasMarkdown: boolean;
   /** Links written as `[text](url)` or `<url>`. */
   linkCount: number;
+  /** Tables written as GFM pipe tables. */
+  tableCount: number;
 }
 
 export function markdownOutputName(sourceName: string): string {
@@ -71,6 +88,11 @@ export function markdownSummary(result: PdfToMarkdownResult): string {
   ];
   if (result.linkCount > 0) {
     parts.push(`${result.linkCount} link${result.linkCount === 1 ? "" : "s"}`);
+  }
+  if (result.tableCount > 0) {
+    parts.push(
+      `${result.tableCount} table${result.tableCount === 1 ? "" : "s"}`,
+    );
   }
   return parts.join(" · ");
 }
@@ -216,6 +238,7 @@ type Block = (
   | { kind: "paragraph"; lines: string[] }
   | { kind: "item"; marker: string; lines: string[] }
   | { kind: "heading"; size: number; lines: string[] }
+  | { kind: "table"; rows: string[][]; lines: string[] }
 ) & { span?: Span };
 
 /* ------------------------------------------------------------------ *
@@ -294,11 +317,33 @@ type Linker = ReturnType<typeof pageLinker>;
 /** Heading font sizes are bucketed to half a point before being ranked. */
 const headingKey = (size: number) => Math.round(size * 2) / 2;
 
+/**
+ * A GFM pipe table. The first row is the header row GFM requires; a `|` in a
+ * cell is escaped so it stays in its cell. Rows are padded to the widest.
+ */
+function renderTable(rows: string[][], linker: Linker, span?: Span): string {
+  const width = Math.max(...rows.map((row) => row.length));
+  const line = (cells: string[]) => `| ${cells.join(" | ")} |`;
+  const cell = (text: string | undefined) =>
+    linker.write(collapseWhitespace(text ?? ""), span).replace(/\|/g, "\\|");
+  const [head = [], ...body] = rows.map((row) =>
+    Array.from({ length: width }, (_, i) => cell(row[i])),
+  );
+  return [
+    line(head),
+    line(Array.from({ length: width }, () => "---")),
+    ...body.map(line),
+  ].join("\n");
+}
+
 function renderBlock(
   block: Block,
   headingLevel: (size: number) => number,
   linker: Linker,
 ) {
+  if (block.kind === "table") {
+    return renderTable(block.rows, linker, block.span);
+  }
   const text = linker.write(joinWrappedLines(block.lines), block.span);
   if (!text) return "";
   switch (block.kind) {
@@ -383,6 +428,13 @@ export const HEADING_SIZE_RATIO = 1.2;
 
 /** Headings are short. Longer large-font text is a pull quote or a cover blurb. */
 export const HEADING_MAX_CHARS = 80;
+
+/**
+ * A line belongs to a detected table's rows when its baseline is within this
+ * multiple of the body size of the table's first-to-last row range — the
+ * detector's own row tolerance (0.6 of the median height).
+ */
+export const TABLE_ROW_TOLERANCE = 0.6;
 
 interface GeoLine {
   text: string;
@@ -517,7 +569,12 @@ const ENDS_CLAUSE = /[.!?:;]["'\u201D\u2019)\]]*$/;
  * module with no blank lines at all and every page used to collapse into one
  * paragraph. Paragraphs are recovered from the baseline steps instead.
  */
-function blocksFromGeometry(lines: GeoLine[], bodySize: number): Block[] {
+function blocksFromGeometry(
+  lines: GeoLine[],
+  bodySize: number,
+  /** Blocks to place before `lines[index]` (or at the end), ending the open one. */
+  inserts: ReadonlyMap<number, Block[]> = new Map(),
+): Block[] {
   // The page's line pitch, from the steps between consecutive body-size
   // lines (see `linePitch`). Steps under half a line are super/subscript
   // shifts, not lines. A page with no wrapped line at all has only gap steps,
@@ -595,6 +652,12 @@ function blocksFromGeometry(lines: GeoLine[], bodySize: number): Block[] {
   };
 
   for (const [index, line] of lines.entries()) {
+    const placed = inserts.get(index);
+    if (placed) {
+      blocks.push(...placed);
+      open = null;
+      prev = null;
+    }
     const step = prev ? prev.y - line.y : 0;
     // A step back UP the page is a new column or an out-of-order block. It
     // ends the paragraph unless the sentence visibly runs on: the previous
@@ -680,7 +743,66 @@ function blocksFromGeometry(lines: GeoLine[], bodySize: number): Block[] {
     }
     prev = line;
   }
+  blocks.push(...(inserts.get(lines.length) ?? []));
   return blocks;
+}
+
+/** Each non-space character of `texts`, sorted: what they say, in any order. */
+const characters = (texts: readonly string[]) =>
+  [...texts.join("").replace(/\s+/g, "")].sort().join("");
+
+/**
+ * Take each detected table's lines out of the page and say where its block
+ * goes instead. A table's lines are the page's lines on its rows (baselines
+ * from its first row to its last, give or take {@link TABLE_ROW_TOLERANCE} of
+ * the body size), and they are replaced ONLY when they hold exactly the
+ * table's characters: a line on the same rows that is not in the table (a
+ * second column of prose beside it) means the table stays prose, so no word
+ * is ever lost or written twice.
+ */
+function placeTables(
+  lines: GeoLine[],
+  tables: readonly MarkdownTable[],
+  bodySize: number,
+): { lines: GeoLine[]; inserts: Map<number, Block[]>; placed: number } {
+  const tolerance = bodySize * TABLE_ROW_TOLERANCE;
+  const taken = new Set<number>();
+  const at: { index: number; block: Block }[] = [];
+  for (const table of tables) {
+    const indices = lines.flatMap((line, i) =>
+      line.y <= table.top + tolerance && line.y >= table.bottom - tolerance
+        ? [i]
+        : [],
+    );
+    if (
+      !indices.length ||
+      indices.some((i) => taken.has(i)) ||
+      characters(indices.map((i) => lines[i]!.text)) !==
+        characters(table.rows.flat())
+    ) {
+      continue;
+    }
+    for (const i of indices) taken.add(i);
+    const size = Math.max(...indices.map((i) => lines[i]!.size));
+    at.push({
+      index: indices[0]!,
+      block: {
+        kind: "table",
+        rows: table.rows,
+        lines: [],
+        span: { top: table.top + size, bottom: table.bottom - size * 0.4 },
+      },
+    });
+  }
+  const kept: GeoLine[] = [];
+  const inserts = new Map<number, Block[]>();
+  lines.forEach((line, i) => {
+    for (const { block } of at.filter((a) => a.index === i)) {
+      inserts.set(kept.length, [...(inserts.get(kept.length) ?? []), block]);
+    }
+    if (!taken.has(i)) kept.push(line);
+  });
+  return { lines: kept, inserts, placed: at.length };
 }
 
 /* ------------------------------------------------------------------ *
@@ -698,6 +820,7 @@ export function extractedTextToMarkdown(
       characterCount: 0,
       hasMarkdown: false,
       linkCount: 0,
+      tableCount: 0,
     };
   }
 
@@ -708,11 +831,13 @@ export function extractedTextToMarkdown(
   const bodySize = bodySizeOf(
     geometry.filter((lines): lines is GeoLine[] => lines !== null),
   );
+  let tableCount = 0;
   const pageBlocks = extracted.pages.map((page, index) => {
     const lines = geometry[index];
-    return lines && bodySize !== null
-      ? blocksFromGeometry(lines, bodySize)
-      : blocksFromText(page.text);
+    if (!lines || bodySize === null) return blocksFromText(page.text);
+    const tables = placeTables(lines, page.tables ?? [], bodySize);
+    tableCount += tables.placed;
+    return blocksFromGeometry(tables.lines, bodySize, tables.inserts);
   });
 
   // Headings nest under the outline this function already writes: `#` is the
@@ -759,5 +884,6 @@ export function extractedTextToMarkdown(
     characterCount: markdown.length,
     hasMarkdown: markdown.length > 0,
     linkCount,
+    tableCount,
   };
 }

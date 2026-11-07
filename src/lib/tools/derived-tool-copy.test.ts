@@ -61,6 +61,8 @@ import {
 import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
 import { GRAYSCALE_DPI_PRESETS } from "@/lib/pdf/grayscale";
 import { extractedTextToMarkdown } from "@/lib/pdf/pdf-to-markdown";
+import { tablesOfPage } from "@/lib/pdf/pdf-to-markdown-tables";
+
 import {
   PDF_OFFICE_EXPORT_TOOLS,
   runPdfOfficeExport,
@@ -224,11 +226,50 @@ describe("pdf-to-markdown: the facts describe what the converter emits", () => {
     ).toMatch(/^2023\. Revenue grew$/m);
   });
 
-  it("table rows arrive as plain text — no Markdown table is written", () => {
-    expect(facts).toMatch(/table rows come through as plain text/i);
-    const out = md(["Name    Qty\nPear    4"]);
-    expect(out).toContain("Pear");
-    expect(out).not.toMatch(/^\|/m);
+  // INVERTED 2026-11-08 (audit pdf-to-markdown#4). This was "table rows
+  // arrive as plain text — no Markdown table is written", pinned to the fact
+  // "table rows come through as plain text". The reader now runs Extract
+  // Tables' detector over each page, so the fact and this test say the
+  // opposite; the detector runs here on items laid out as pdf.js reports them.
+  it("a table whose cells line up becomes a Markdown table, as the fact says", () => {
+    expect(facts).toMatch(
+      /table whose cells line up in columns becomes a Markdown table/i,
+    );
+    const rows = [
+      ["Name", "Qty"],
+      ["Pear", "4"],
+      ["Plum", "12"],
+    ];
+    const items = rows.flatMap(([name, qty], r) => [
+      {
+        str: name!,
+        transform: [11, 0, 0, 11, 72, 720 - r * 14],
+        width: name!.length * 6,
+        height: 11,
+      },
+      {
+        str: qty!,
+        transform: [11, 0, 0, 11, 250, 720 - r * 14],
+        width: qty!.length * 6,
+        height: 11,
+      },
+    ]);
+    const page = extracted([rows.map((r) => r.join(" ")).join("\n")]);
+    const out = extractedTextToMarkdown(
+      {
+        ...page,
+        pages: page.pages.map((p) => ({
+          ...p,
+          tables: tablesOfPage(items, 1),
+        })),
+      },
+      { sourceName: "report.pdf" },
+    ).markdown;
+    expect(out).toContain(
+      "| Name | Qty |\n| --- | --- |\n| Pear | 4 |\n| Plum | 12 |",
+    );
+    // CONTROL: the same lines with no table detected stay plain text.
+    expect(md([rows.map((r) => r.join(" ")).join("\n")])).not.toMatch(/^\|/m);
   });
 
   it("a PDF with no selectable text produces nothing", () => {

@@ -5579,8 +5579,8 @@ export const guides: Guide[] = [
         id: "what-is-left-out",
         heading: "What is left out",
         body: [
-          "Font weight and style are not read, so nothing comes out bold or italic. Images are dropped. A table's cells run together as plain words, without its grid.",
-          `For the tables themselves, ${nameOf("extract-tables")} detects them by where the words sit and returns CSV files and an Excel workbook, but it runs on our secure server rather than in your browser. For the text with its line breaks as they are and no Markdown added, ${nameOf("pdf-to-text")} reads the same text, also in your browser.`,
+          "Font weight and style are not read, so nothing comes out bold or italic. Images are dropped.",
+          `A table becomes a Markdown table when its cells line up in columns, found by the same detector ${nameOf("extract-tables")} uses. A table it does not find, or one that shares its rows with other text, comes through as lines of words. For the tables as CSV files and an Excel workbook, ${nameOf("extract-tables")} runs on our secure server rather than in your browser. For the text with its line breaks as they are and no Markdown added, ${nameOf("pdf-to-text")} reads the same text, also in your browser.`,
         ],
       },
       {
@@ -5607,7 +5607,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Are tables kept?",
-        answer: `Not as Markdown tables. Their cells come through as plain words. ${nameOf("extract-tables")} returns tables as CSV and Excel files instead, on our secure server.`,
+        answer: `Yes, when the cells line up in columns: the table is written as a Markdown table, its first row the header row. A table the detector does not find comes through as lines of words. ${nameOf("extract-tables")} returns tables as CSV and Excel files instead, on our secure server.`,
       },
       {
         question: "Why are my headings missing?",

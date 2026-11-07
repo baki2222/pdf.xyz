@@ -9,7 +9,7 @@ import {
   type PDFFont,
   type PDFPage,
 } from "pdf-lib";
-import { markdownSummary } from "./pdf-to-markdown";
+import { extractedTextToMarkdown, markdownSummary } from "./pdf-to-markdown";
 import { linksFromPage, pdfToMarkdown } from "./pdf-to-markdown-read";
 
 /**
@@ -230,5 +230,165 @@ describe("linksFromPage: the words a link covers", () => {
       ],
     );
     expect(links.map((l) => l.text)).toEqual(["long anchor text"]);
+  });
+});
+
+/** A page with a paragraph, a table drawn cell by cell, and a paragraph. */
+async function tablePdf(rows: string[][]): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([612, 792]);
+  const draw = (text: string, x: number, y: number) =>
+    page.drawText(text, { x, y, size: 11, font });
+  draw("Prices for the spring order are listed in the table below,", 72, 720);
+  draw("and every amount is in euros.", 72, 706);
+  const columns = [72, 240, 360];
+  rows.forEach((cells, r) =>
+    cells.forEach((cell, c) => draw(cell, columns[c]!, 670 - r * 18)),
+  );
+  draw("Orders close on Friday.", 72, 670 - rows.length * 18 - 30);
+  return doc.save({ useObjectStreams: false });
+}
+
+const PRICES = [
+  ["Item", "Quantity", "Price"],
+  ["Apples", "3", "1.20"],
+  ["Pears|Quinces", "12", "4.80"],
+  ["Plums", "7", "2.10"],
+];
+
+describe("PDF to Markdown writes a detected table as a GFM table", () => {
+  it("puts the table where its lines were, with the paragraphs around it", async () => {
+    const result = await pdfToMarkdown(
+      await tablePdf(PRICES),
+      { sourceName: "prices.pdf" },
+      legacy,
+    );
+    expect(result.markdown).toContain(
+      [
+        "| Item | Quantity | Price |",
+        "| --- | --- | --- |",
+        "| Apples | 3 | 1.20 |",
+        // A pipe inside a cell is escaped, so it stays in its cell.
+        "| Pears\\|Quinces | 12 | 4.80 |",
+        "| Plums | 7 | 2.10 |",
+      ].join("\n"),
+    );
+    expect(result.markdown).toMatch(
+      /euros\.\n\n\| Item [^\n]*\n[\s\S]*\| Plums \| 7 \| 2\.10 \|\n\nOrders close on Friday\.$/,
+    );
+    expect(result.tableCount).toBe(1);
+    expect(markdownSummary(result)).toMatch(/ · 1 table$/);
+  });
+
+  it("CONTROL: a page of prose has no table, and no word is lost either way", async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const page = doc.addPage([612, 792]);
+    [
+      "A page of ordinary prose that wraps from one line onto the",
+      "next, with nothing lined up in columns at all, and which",
+      "ends here.",
+    ].forEach((line, i) =>
+      page.drawText(line, { x: 72, y: 700 - i * 14, size: 11, font }),
+    );
+    const prose = await pdfToMarkdown(await doc.save(), {}, legacy);
+    expect(prose.markdown).not.toContain("| --- |");
+    expect(prose.tableCount).toBe(0);
+    // The table's cells, in order, are the cells drawn: none lost or added.
+    const { markdown } = await pdfToMarkdown(
+      await tablePdf(PRICES),
+      {},
+      legacy,
+    );
+    const cells = markdown
+      .split("\n")
+      .filter((line) => line.startsWith("| "))
+      .flatMap((line) => line.slice(2, -2).split(/ (?<!\\)\| /));
+    expect(cells.filter((cell) => cell !== "---")).toEqual(
+      PRICES.flat().map((word) => word.replace("|", "\\|")),
+    );
+  });
+});
+
+describe("PDF to Markdown's tables: two columns of prose stay prose", () => {
+  it("CONTROL: side-by-side paragraphs are not read as a two-column table", async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const page = doc.addPage([612, 792]);
+    const left = [
+      "The left column starts with a sentence that",
+      "wraps onto a second line and then a third",
+      "line before it ends with a full stop.",
+    ];
+    const right = [
+      "The right column has its own text that",
+      "runs down the page beside the left one,",
+      "with lines of a similar length to it.",
+    ];
+    left.forEach((line, i) =>
+      page.drawText(line, { x: 72, y: 700 - i * 14, size: 10, font }),
+    );
+    right.forEach((line, i) =>
+      page.drawText(line, { x: 320, y: 700 - i * 14, size: 10, font }),
+    );
+    const { markdown, tableCount } = await pdfToMarkdown(
+      await doc.save(),
+      {},
+      legacy,
+    );
+    expect(tableCount).toBe(0);
+    expect(markdown).not.toContain("|");
+    expect(markdown).toContain("a third line before it ends with a full stop.");
+  });
+});
+
+describe("a detected table replaces its lines only when they hold exactly its words", () => {
+  const convert = (rowTexts: string[]) => {
+    const lines = rowTexts.map((text, i) => ({
+      text,
+      x: 72,
+      y: 700 - i * 14,
+      size: 11,
+      fontName: null,
+    }));
+    const text = rowTexts.join("\n");
+    return extractedTextToMarkdown({
+      pageCount: 1,
+      text,
+      characterCount: text.length,
+      hasText: true,
+      pages: [
+        {
+          pageNumber: 1,
+          text,
+          characterCount: text.length,
+          lines,
+          tables: [
+            {
+              rows: [
+                ["Item", "Qty"],
+                ["Apples", "3"],
+              ],
+              top: 700,
+              bottom: 686,
+            },
+          ],
+        },
+      ],
+    });
+  };
+
+  it("writes the table when the lines on its rows are its cells", () => {
+    const result = convert(["Item Qty", "Apples 3"]);
+    expect(result.tableCount).toBe(1);
+    expect(result.markdown).toContain("| Item | Qty |\n| --- | --- |");
+  });
+
+  it("CONTROL: a line on its rows with words the table lacks keeps every word as prose", () => {
+    const result = convert(["Item Qty see note", "Apples 3"]);
+    expect(result.tableCount).toBe(0);
+    expect(result.markdown).toContain("Item Qty see note");
+    expect(result.markdown).not.toContain("| --- |");
   });
 });

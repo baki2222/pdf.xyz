@@ -133,6 +133,13 @@ describe("pdf-to-markdown: the page describes the structure the converter builds
     "Font weight and style are not read, so nothing becomes bold or italic; table cells run together as plain text; images and the web addresses behind links are dropped.",
     "The table grid, bold and italic, link targets and images are lost; table cells come through as words.",
     "Images are dropped, and so are the web addresses behind links.",
+    // Until 2026-11-08 (audit pdf-to-markdown#4): a detected table is now a
+    // Markdown table.
+    "Font weight and style are not read, so nothing becomes bold or italic; table cells run together as plain text; images are dropped.",
+    "The table grid, bold and italic and images are lost; table cells come through as words.",
+    "Tables, images and text styling are not recreated — table rows come through as plain text.",
+    "Not as Markdown tables.",
+    "A table's cells run together as plain words, without its grid.",
   ];
   const BANNED: RegExp[] = [
     // Every line break, not only a wrap, said to become a space.
@@ -149,6 +156,9 @@ describe("pdf-to-markdown: the page describes the structure the converter builds
     /\bdoes not guess\b/i,
     // Links said to lose their address.
     /\b(web addresses behind links|link targets)\b/i,
+    // Tables said never to become Markdown tables.
+    /\btable(?:'s)? (cells|rows) (run together|come through)\b/i,
+    /\bnot as Markdown tables\b/i,
     // A glyph bullet said to merge into the paragraph.
     new RegExp(`${GLYPHS}[^.]*\\bmerge`),
     // A list of markers that stops at the ASCII ones.
@@ -308,6 +318,45 @@ describe("pdf-to-markdown: the page describes the structure the converter builds
     expect(linked("ftp://example.com/g")).toContain(
       "Read the setup guide first.",
     );
+  });
+
+  it("the page's table claim holds in the converter (audit pdf-to-markdown#4)", () => {
+    const text = served(SLUGS[0]!).join(" ");
+    expect(text).toContain(
+      "A table whose cells line up in columns becomes a Markdown table with its first row as the header",
+    );
+    const rows = ["Item Qty", "Apples 3"];
+    const input = pdf(rows.map((row, i) => ({ text: row, y: 700 - i * 14 })));
+    const table = {
+      rows: [
+        ["Item", "Qty"],
+        ["Apples", "3"],
+      ],
+      top: 700,
+      bottom: 686,
+    };
+    const withTable = extractedTextToMarkdown(
+      { ...input, pages: input.pages.map((p) => ({ ...p, tables: [table] })) },
+      { sourceName: "r.pdf" },
+    ).markdown;
+    expect(withTable).toContain(
+      "| Item | Qty |\n| --- | --- |\n| Apples | 3 |",
+    );
+    // CONTROL: "one that shares its rows with other text ... stays as plain
+    // lines" — a line on its rows holding more than its cells.
+    const shared = pdf([
+      { text: "Item Qty and a note", y: 700 },
+      { text: "Apples 3", y: 686 },
+    ]);
+    expect(
+      extractedTextToMarkdown(
+        {
+          ...shared,
+          pages: shared.pages.map((p) => ({ ...p, tables: [table] })),
+        },
+        { sourceName: "r.pdf" },
+      ).markdown,
+    ).not.toContain("| --- |");
   });
 
   it("every bullet character the page names becomes a list item", () => {

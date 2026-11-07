@@ -139,7 +139,7 @@ function PdfToMarkdownEditor({
           <InfoTile
             icon={ScanText}
             title="Honest scope"
-            body="It converts embedded selectable text, not scanned images or AI-detected tables."
+            body="It converts embedded selectable text, not scanned images. Tables are found by how their words line up, not by AI."
           />
         </div>
       </RunnerSection>

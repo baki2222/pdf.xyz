@@ -745,7 +745,7 @@ const FACTS: Record<string, readonly ToolFact[]> = {
     },
     {
       label: "Not rebuilt",
-      value: `Tables, images and text styling are not recreated — table rows come through as plain text. For tables, use ${toolName("extract-tables")}.`,
+      value: `Images and text styling are not recreated. A table whose cells line up in columns becomes a Markdown table; for the tables as CSV or Excel files, use ${toolName("extract-tables")}.`,
     },
   ],
   "pdf-to-text": [
@@ -1532,7 +1532,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
       return [
         {
           question: `Does ${tool.name} keep headings, bold text and tables?`,
-          answer: `Partly. A PDF stores text as positioned lines, not as headings or tables, so the converter infers structure from size and position. The file's name becomes the title, each page gets a "Page N" heading when there is more than one, short lines set at least ${PDF_TO_MARKDOWN_HEADING_PERCENT}% larger than the body text become headings, lines are joined into paragraphs, and lines that begin with a bullet (-, *, + or a character such as •) or a number stay list items. Bold, italics, links and table layout are not carried over — table rows come through as plain text — and images are not exported. For tables, ${toolName("extract-tables")} detects them by their layout and exports CSV and Excel files.`,
+          answer: `Partly. A PDF stores text as positioned lines, not as headings or tables, so the converter infers structure from size and position. The file's name becomes the title, each page gets a "Page N" heading when there is more than one, short lines set at least ${PDF_TO_MARKDOWN_HEADING_PERCENT}% larger than the body text become headings, lines are joined into paragraphs, and lines that begin with a bullet (-, *, + or a character such as •) or a number stay list items. A table whose cells line up in columns becomes a Markdown table, and a link to a web page or an email address keeps its address. Bold and italics are not carried over, and images are not exported. For the tables as CSV and Excel files, ${toolName("extract-tables")} detects them by their layout.`,
         },
         scannedTextEntry(tool),
       ];
