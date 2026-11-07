@@ -130,6 +130,7 @@ export function MergeRunner() {
   } = useAsyncRun<{
     bytes: Uint8Array;
     contentsPages: number;
+    blankPages: number;
   }>();
   const result = merged?.bytes ?? null;
   const { announce, node: announcer } = useAnnouncer();
@@ -137,6 +138,8 @@ export function MergeRunner() {
   const bookmarksId = useId();
   const [contentsPage, setContentsPage] = useState(false);
   const contentsId = useId();
+  const [blankAfterOdd, setBlankAfterOdd] = useState(false);
+  const blankId = useId();
   // How the pages are ordered: one file after another (the merge it always
   // was), or one page from each file in turn.
   const [mode, setMode] = useState<MergeMode>("append");
@@ -278,6 +281,7 @@ export function MergeRunner() {
     setOrdered(null);
     setFileBookmarks(false);
     setContentsPage(false);
+    setBlankAfterOdd(false);
     setMode("append");
   };
 
@@ -320,9 +324,10 @@ export function MergeRunner() {
             reverse: items.map((i) => i.reverse),
           },
         );
-        return { bytes, contentsPages: 0 };
+        return { bytes, contentsPages: 0, blankPages: 0 };
       }
       let contentsPages = 0;
+      let blankPages = 0;
       const bytes = await mergePdfs(
         items.map((i) => i.bytes),
         {
@@ -342,9 +347,17 @@ export function MergeRunner() {
                 },
               }
             : {}),
+          ...(blankAfterOdd
+            ? {
+                blankAfterOdd: true,
+                onBlankPages: (n: number) => {
+                  blankPages = n;
+                },
+              }
+            : {}),
         },
       );
-      return { bytes, contentsPages };
+      return { bytes, contentsPages, blankPages };
     });
 
   const totalPages = items.reduce(
@@ -352,18 +365,27 @@ export function MergeRunner() {
     0,
   );
 
+  // Pages the merge added beyond the files' own: contents and blank pads.
+  const contentsCount = merged?.contentsPages ?? 0;
+  const blankCount = merged?.blankPages ?? 0;
+  const outputPages = totalPages + contentsCount + blankCount;
+  const added = [
+    ...(contentsCount > 0 ? [`${contentsCount} contents`] : []),
+    ...(blankCount > 0 ? [`${blankCount} blank`] : []),
+  ];
+
   if (result) {
     return (
       <ResultPanel
         title="PDFs merged"
-        summary={`${items.length} files combined into one PDF · ${totalPages + (merged?.contentsPages ?? 0)} pages${merged?.contentsPages ? ` (${merged.contentsPages} contents)` : ""} · ${formatBytes(result.byteLength)}`}
+        summary={`${items.length} files combined into one PDF · ${outputPages} pages${added.length > 0 ? ` (${added.join(", ")})` : ""} · ${formatBytes(result.byteLength)}`}
         onReset={startOver}
         output={outputFile(result, mergedOutputName(items.map((i) => i.name)))}
         // The list and its order stay: clearing the result shows them again.
         onAdjust={reset}
         // Every page of every file, in one document — a re-count that
         // differs is said on the receipt.
-        expectedPages={totalPages + (merged?.contentsPages ?? 0)}
+        expectedPages={outputPages}
       >
         <button
           type="button"
@@ -686,6 +708,26 @@ export function MergeRunner() {
                 A first page listing each file by name with the page it starts
                 on; click a line to go there. It follows the order and pages
                 chosen above.
+              </span>
+            </span>
+          </label>
+
+          <label
+            htmlFor={blankId}
+            className="text-fg flex items-start gap-2 text-sm"
+          >
+            <input
+              id={blankId}
+              type="checkbox"
+              checked={blankAfterOdd}
+              onChange={(e) => setBlankAfterOdd(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              Add a blank page after files with an odd page count
+              <span className="text-muted block text-xs">
+                For double-sided printing: each file then starts on the front of
+                a sheet. The last file gets none.
               </span>
             </span>
           </label>

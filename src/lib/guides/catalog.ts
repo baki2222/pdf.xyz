@@ -821,6 +821,13 @@ export const guides: Guide[] = [
         ],
       },
       {
+        id: "print-double-sided",
+        heading: "Printing the merged PDF double-sided",
+        body: [
+          "Printed on both sides, a file with an odd number of pages ends on the front of a sheet, so the next file starts on its back. Tick “Add a blank page after files with an odd page count” before you merge: each such file gets one blank page the size of its last page, so every file starts on a fresh sheet. The last file gets none, and the contents page numbers and bookmarks count the blanks.",
+        ],
+      },
+      {
         id: "where-the-merge-runs",
         heading: "Where the merge actually runs",
         body: [
@@ -863,7 +870,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-10-30",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-split-a-pdf",

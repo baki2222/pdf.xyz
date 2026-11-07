@@ -74,6 +74,14 @@ const linkMinutes = DEFAULT_RETENTION.outputTtlMinutes;
  * offer file bookmarks or a contents page in this mode (a file has no single
  * first page); source bookmarks point at page objects and still resolve.
  * One after another stays the default and is the merge it always was.
+ *
+ * ADDED 2026-11-07 (audit merge-pdf#3; merge-split-options.test.ts reads the
+ * widths back, merge-runner.test.tsx drives the checkbox to the download):
+ * "Add a blank page after files with an odd page count" adds, after each file
+ * whose selected page count is odd except the last, one blank page the size
+ * of that file's last page. It is added after the pages are assembled, so
+ * file bookmarks and contents lines still open each file's first page, and
+ * the contents numbers count the blanks. Not offered with Alternate pages.
  */
 const content: ToolContent = {
   slug: "merge-pdf",
@@ -119,7 +127,7 @@ const content: ToolContent = {
     },
     {
       title: "Pick pages and bookmarks (optional)",
-      body: "Leave a file's Pages box empty to take all of it, or type pages such as 1-3, 5 to take only those. Tick “Add a bookmark for each file” for a bookmark per file in the result, and “Add a contents page” for a first page that lists every file with the page it starts on.",
+      body: "Leave a file's Pages box empty to take all of it, or type pages such as 1-3, 5 to take only those. Tick “Add a bookmark for each file” for a bookmark per file in the result, “Add a contents page” for a first page that lists every file with the page it starts on, and “Add a blank page after files with an odd page count” if you will print the result double-sided, so every file starts on the front of a sheet.",
     },
     {
       title: "Add anything you missed",

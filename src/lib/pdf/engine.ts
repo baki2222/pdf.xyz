@@ -136,6 +136,14 @@ export interface MergeOptions {
    * re-count expects them (they depend on the first page's height).
    */
   onContentsPages?: (pages: number) => void;
+  /**
+   * For double-sided printing: after each file whose selected page count is
+   * odd, except the last file, add a blank page the size of that file's last
+   * page, so the next file starts on the front of a sheet.
+   */
+  blankAfterOdd?: boolean;
+  /** Told how many blank pages `blankAfterOdd` added, for the page re-count. */
+  onBlankPages?: (pages: number) => void;
 }
 
 /** Concatenate several PDFs into one, in the order given. */
@@ -171,6 +179,21 @@ export async function mergePdfs(
     documentState: "merge",
     ...(options.fileBookmarks ? { fileBookmarks: options.fileBookmarks } : {}),
   });
+  if (options.blankAfterOdd) {
+    // After assembly, so bookmarks and contents entries, which point at page
+    // objects, still open each file's first page; the contents page numbers
+    // are read from the final order, blanks included.
+    let at = 0;
+    let added = 0;
+    sources.forEach(({ indices }, i) => {
+      at += indices.length;
+      if (indices.length % 2 === 0 || i === sources.length - 1) return;
+      const { width, height } = out.getPage(at + added - 1).getSize();
+      out.insertPage(at + added, [width, height]);
+      added += 1;
+    });
+    options.onBlankPages?.(added);
+  }
   if (options.contentsPage) {
     const titles = options.contentsPage;
     const { addContentsPages } = await import("./merge-contents");
