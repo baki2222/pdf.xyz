@@ -60,7 +60,16 @@ import {
 } from "@/lib/workers/compression/colour-image-pdf";
 import { makeSignedPdf } from "@/tests/signed-pdf";
 import { dropSheetsLive } from "@/tests/drop-sheets-live";
-import { CompressRunner, UNLOCK_TOOL_HREF } from "./compress-runner";
+import {
+  CompressRunner,
+  UNLOCK_TOOL_HREF,
+  qualityChipTitle,
+} from "./compress-runner";
+import {
+  DEEP_COMPRESSION_PRESETS,
+  DEEP_MONO_MIN_DPI,
+} from "@/lib/pdf/offered-kinds";
+import { nativeArgs } from "@/lib/workers/compression/native";
 import { ToolRunProvider } from "./tool-context";
 
 const router = {
@@ -966,3 +975,28 @@ describe(
     });
   },
 );
+
+// Review of audit compress-pdf#3 (2026-11-07): each Quality chip's title said
+// `${dpi} DPI`, as if every image went there. Ghostscript keeps black-and-white
+// images at DEEP_MONO_MIN_DPI or more, so the title names both.
+describe("Quality chip titles say what the engine is sent", () => {
+  it("names the colour/gray DPI and the black-and-white floor nativeArgs sends", () => {
+    // Health check: there are levels to title.
+    expect(DEEP_COMPRESSION_PRESETS.length).toBeGreaterThan(0);
+    for (const { dpi } of DEEP_COMPRESSION_PRESETS) {
+      const args = nativeArgs("ghostscript", "gs", "/i", "/o", dpi).args;
+      const sent = (flag: string) =>
+        args.find((a) => a.startsWith(`-d${flag}=`))?.split("=")[1];
+      expect(sent("ColorImageResolution")).toBe(String(dpi));
+      expect(sent("GrayImageResolution")).toBe(String(dpi));
+      const title = qualityChipTitle(dpi);
+      expect(title).toBe(
+        `Colour and gray images: ${dpi} DPI. Black-and-white images: ${sent("MonoImageResolution")} DPI.`,
+      );
+    }
+    // Positive control: at the lowest level the two numbers differ.
+    const lowest = Math.min(...DEEP_COMPRESSION_PRESETS.map((p) => p.dpi));
+    expect(qualityChipTitle(lowest)).toContain(`${DEEP_MONO_MIN_DPI} DPI`);
+    expect(lowest).toBeLessThan(DEEP_MONO_MIN_DPI);
+  });
+});

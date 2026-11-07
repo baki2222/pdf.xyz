@@ -28,7 +28,10 @@ import {
 } from "@/lib/pdf/analyze";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { LOCKED_PDF_COPY } from "@/lib/pdf/encryption";
-import { DEEP_COMPRESSION_PRESETS } from "@/lib/pdf/offered-kinds";
+import {
+  DEEP_COMPRESSION_PRESETS,
+  DEEP_MONO_MIN_DPI,
+} from "@/lib/pdf/offered-kinds";
 import { DEEP_COMPRESSION_GRAYSCALE_HINT } from "@/lib/pdf/compress-grayscale";
 import {
   KB,
@@ -84,6 +87,15 @@ import { useToolHandoff } from "./use-tool-handoff";
 import { useWorkerStatus } from "../use-worker-status";
 
 /** Where a PDF that needs a password gets unlocked; pinned to the catalog by the runner test. */
+/**
+ * A Quality chip's title: the resolution colour and gray images are taken to,
+ * and the one black-and-white images keep. The worker never sends mono below
+ * DEEP_MONO_MIN_DPI (native.ts); the dom test composes this with its argv.
+ */
+export function qualityChipTitle(dpi: number): string {
+  return `Colour and gray images: ${dpi} DPI. Black-and-white images: ${Math.max(dpi, DEEP_MONO_MIN_DPI)} DPI.`;
+}
+
 export const UNLOCK_TOOL_HREF = "/tools/unlock-pdf";
 
 interface Rejection {
@@ -1037,7 +1049,7 @@ function DeepRunControls({
             onClick={() => onDpi(q.dpi)}
             active={dpi === q.dpi}
             disabled={busy}
-            title={`${q.dpi} DPI`}
+            title={qualityChipTitle(q.dpi)}
           >
             {q.label}
           </ChipButton>
