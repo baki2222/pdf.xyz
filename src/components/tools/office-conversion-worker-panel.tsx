@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useId, useState } from "react";
+import { Fragment, useCallback, useId, useState } from "react";
 import { Download, FileText, ShieldCheck, Timer } from "lucide-react";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import {
@@ -22,7 +22,16 @@ import {
   DOCUMENT_NOUNS,
   type OfficeToPdfTool,
 } from "@/lib/workers/office-conversion/tools";
-import { SHEET_LAYOUT_CHECKBOXES } from "@/lib/workers/office-conversion/sheet-layout";
+import {
+  FIT_COLUMNS_TO_WIDTH_OPTION,
+  ONE_PAGE_PER_SHEET_OPTION,
+  ORIENTATION_LABEL,
+  PAGE_SETUP_XLSX_ONLY_NOTE,
+  SHEET_LAYOUT_CHECKBOXES,
+  SHEET_ORIENTATIONS,
+  acceptsPageSetup,
+  type SheetOrientation,
+} from "@/lib/workers/office-conversion/sheet-layout";
 import {
   DownloadCta,
   Dropzone,
@@ -164,9 +173,12 @@ function OfficeRunArea({
 }) {
   const { available } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
-  // Excel to PDF only (audit excel-to-pdf#1): LibreOffice's SinglePageSheets.
-  const [onePagePerSheet, setOnePagePerSheet] = useState(false);
-  const layoutHintId = useId();
+  // Excel to PDF only (audit excel-to-pdf#1): each checkbox's state keyed by
+  // its own option, and the orientation select (null keeps the file's).
+  const [checked, setChecked] = useState<Record<string, boolean>>({});
+  const [orientation, setOrientation] = useState<SheetOrientation | null>(null);
+  const layoutId = useId();
+  const onePagePerSheet = checked[ONE_PAGE_PER_SHEET_OPTION] === true;
   const job = useWorkerJob<OfficeConversionWorkerResult>({
     tool: tool,
     resume: (id, controls) =>
@@ -185,13 +197,23 @@ function OfficeRunArea({
           tool,
           filename: file.name,
           bytes: new Uint8Array(await file.arrayBuffer()),
-          layout: { onePagePerSheet },
+          layout: {
+            onePagePerSheet,
+            orientation,
+            fitColumnsToWidth: checked[FIT_COLUMNS_TO_WIDTH_OPTION] === true,
+          },
         },
         controls,
       );
       return result;
     });
-  }, [file, tool, run, available, onePagePerSheet]);
+  }, [file, tool, run, available, onePagePerSheet, orientation, checked]);
+
+  const orientationId = `${layoutId}-orientation`;
+  // Page setup does nothing beside one page per sheet, and the worker can
+  // rewrite it only in an .xlsx (`sheet-layout.ts`).
+  const pageSetupShown = !onePagePerSheet;
+  const pageSetupFits = !file || acceptsPageSetup(file.name);
 
   return (
     <div className="flex flex-col gap-4">
@@ -239,29 +261,81 @@ function OfficeRunArea({
         />
       )}
       {tool === "excel-to-pdf" &&
-        SHEET_LAYOUT_CHECKBOXES.map((choice) => (
-          <div key={choice.option} className="flex flex-col gap-1">
-            <label className="text-fg flex min-h-11 items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={onePagePerSheet}
-                aria-disabled={busy}
-                aria-describedby={layoutHintId}
-                onChange={(e) => {
-                  // Locked while a job runs, but kept in the focus order.
-                  if (busy) return;
-                  setOutcome(null);
-                  setOnePagePerSheet(e.target.checked);
-                }}
-                className="accent-accent size-4"
-              />
-              {choice.label}
-            </label>
-            <p id={layoutHintId} className="text-muted text-xs leading-relaxed">
-              {choice.hint}
-            </p>
-          </div>
-        ))}
+        SHEET_LAYOUT_CHECKBOXES.map((choice) => {
+          const isPageSetup = choice.option === FIT_COLUMNS_TO_WIDTH_OPTION;
+          if (isPageSetup && !pageSetupShown) return null;
+          if (isPageSetup && !pageSetupFits)
+            return (
+              <p
+                key={choice.option}
+                className="text-muted text-xs leading-relaxed"
+              >
+                {PAGE_SETUP_XLSX_ONLY_NOTE}
+              </p>
+            );
+          const hintId = `${layoutId}-${choice.option}-hint`;
+          return (
+            <Fragment key={choice.option}>
+              {isPageSetup && (
+                <div className="flex flex-col gap-1">
+                  <label
+                    htmlFor={orientationId}
+                    className="text-fg text-sm font-medium"
+                  >
+                    {ORIENTATION_LABEL}
+                  </label>
+                  <select
+                    id={orientationId}
+                    value={orientation ?? ""}
+                    aria-disabled={busy}
+                    onChange={(e) => {
+                      // Locked while a job runs, but kept in the focus order.
+                      if (busy) return;
+                      setOutcome(null);
+                      setOrientation(
+                        e.target.value === ""
+                          ? null
+                          : (e.target.value as SheetOrientation),
+                      );
+                    }}
+                    className="border-line bg-wash text-fg focus:border-accent/40 rounded-ctl min-h-11 border px-3 py-1.5 text-sm outline-none"
+                  >
+                    {SHEET_ORIENTATIONS.map((o) => (
+                      <option key={o.label} value={o.value ?? ""}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="flex flex-col gap-1">
+                <label className="text-fg flex min-h-11 items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={checked[choice.option] === true}
+                    aria-disabled={busy}
+                    aria-describedby={hintId}
+                    onChange={(e) => {
+                      // Locked while a job runs, but kept in the focus order.
+                      if (busy) return;
+                      setOutcome(null);
+                      const value = e.target.checked;
+                      setChecked((prev) => ({
+                        ...prev,
+                        [choice.option]: value,
+                      }));
+                    }}
+                    className="accent-accent size-4"
+                  />
+                  {choice.label}
+                </label>
+                <p id={hintId} className="text-muted text-xs leading-relaxed">
+                  {choice.hint}
+                </p>
+              </div>
+            </Fragment>
+          );
+        })}
       <WorkerGate
         reserve={STATUS_SLOT}
         job={job}

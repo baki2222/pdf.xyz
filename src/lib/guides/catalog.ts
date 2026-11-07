@@ -190,7 +190,12 @@ import {
 import { RETENTION_WINDOWS } from "@/lib/retention-windows";
 import { OCR_START_SENTENCE } from "@/lib/jobs/ocr-start-copy";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
-import { ONE_PAGE_PER_SHEET_LABEL } from "@/lib/workers/office-conversion/sheet-layout";
+import {
+  FIT_COLUMNS_TO_WIDTH_LABEL,
+  ONE_PAGE_PER_SHEET_LABEL,
+  ORIENTATION_CHOICE_WORDS,
+  ORIENTATION_LABEL,
+} from "@/lib/workers/office-conversion/sheet-layout";
 import {
   PDFA_LEVEL_LABEL,
   PDFA_LEVEL_NAMES,
@@ -3227,7 +3232,7 @@ export const guides: Guide[] = [
         id: "excel-and-powerpoint",
         heading: "Excel and PowerPoint files",
         body: [
-          `${nameOf("excel-to-pdf")} takes an Excel workbook, a CSV file or an OpenDocument spreadsheet and has LibreOffice print it to PDF. There is no sheet picker. If columns split across pages, tick ${ONE_PAGE_PER_SHEET_LABEL} to make each sheet a single page sized to fit, or set landscape and fit-to-page scaling in your spreadsheet app before converting.`,
+          `${nameOf("excel-to-pdf")} takes an Excel workbook, a CSV file or an OpenDocument spreadsheet and has LibreOffice print it to PDF. There is no sheet picker. If columns split across pages, tick ${FIT_COLUMNS_TO_WIDTH_LABEL} for an .xlsx, or tick ${ONE_PAGE_PER_SHEET_LABEL} to make each sheet a single page sized to fit.`,
           `${nameOf("powerpoint-to-pdf")} takes a .pptx, .ppt or .odp and writes one slide per page. Speaker notes and slides marked hidden are not exported, so unhide any slide you want in the PDF first.`,
         ],
       },
@@ -4626,12 +4631,12 @@ export const guides: Guide[] = [
     ],
     intro: [
       `To convert an Excel spreadsheet to PDF, open ${nameOf("excel-to-pdf")}, add your .xlsx, .xls, .csv or .ods file, press Convert to PDF, and download the result. Anyone can open, print or file the PDF without owning Excel, and nobody can overtype a cell by accident.`,
-      "The PDF is a printout of your spreadsheet, not a working copy of it. Each formula cell shows the figure it displayed when the file was opened, and nothing in the PDF recalculates later. The pages are laid out by LibreOffice, the open-source office suite, using the page setup saved in your workbook unless you ask for one page per sheet.",
+      "The PDF is a printout of your spreadsheet, not a working copy of it. Each formula cell shows the figure it displayed when the file was opened, and nothing in the PDF recalculates later. The pages are laid out by LibreOffice, the open-source office suite, using the page setup saved in your workbook unless you change the layout in the tool.",
       `${nameOf("excel-to-pdf")} runs on a secure server. Your spreadsheet, up to ${ceilingMb("excel-to-pdf")} MB, travels over an encrypted connection and is deleted when the job ends; the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
     ],
     steps: [
       `Open the ${nameOf("excel-to-pdf")} tool.`,
-      `If a wide sheet must not split across pages, either tick ${ONE_PAGE_PER_SHEET_LABEL} in the tool, or set landscape and fit-all-columns-on-one-page scaling in Excel and save before you start.`,
+      `If a wide sheet must not split across pages, tick ${FIT_COLUMNS_TO_WIDTH_LABEL} in the tool (an .xlsx only, with Landscape under ${ORIENTATION_LABEL} if you like), or tick ${ONE_PAGE_PER_SHEET_LABEL} to make each sheet a single page.`,
       "Drag your .xlsx, .xls, .csv or .ods onto the box that says “Add your workbook, or browse”, or click it to choose the file. Remove swaps it for another.",
       "Press Convert to PDF. Your spreadsheet uploads over an encrypted connection, and the button follows the job while LibreOffice converts it.",
       `When “Your PDF is ready.” appears, press Download. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save the PDF before you close the tab.`,
@@ -4642,8 +4647,8 @@ export const guides: Guide[] = [
         heading: "How the pages are laid out",
         body: [
           "Left as it is, the converter follows your file: orientation, scaling and where wide columns break onto a new page come from the page setup saved in the workbook, and LibreOffice's defaults fill in the rest.",
-          `Tick ${ONE_PAGE_PER_SHEET_LABEL} and nothing is split: each sheet becomes one page as large as its content, so a long sheet makes a long page. Its paper size and print areas are ignored, and hidden sheets are included. It works for a CSV too, which cannot store any page setup of its own.`,
-          "The tool has no orientation or fit-to-width setting. For pages of a normal paper size with every column fitting across, set landscape and fit-to-width scaling in your spreadsheet app, save it as .xlsx, and convert that copy.",
+          `For an .xlsx file, the tool can change two of those settings. ${ORIENTATION_LABEL} sets ${ORIENTATION_CHOICE_WORDS} for every sheet, and ${FIT_COLUMNS_TO_WIDTH_LABEL} scales each sheet down until every column fits across the page, with rows carrying on to further pages. Both are written into the workbook's page setup before LibreOffice opens it. An .xls, .csv or .ods keeps the setup saved in it; save it as .xlsx to use them.`,
+          `Tick ${ONE_PAGE_PER_SHEET_LABEL} and nothing is split: each sheet becomes one page as large as its content, so a long sheet makes a long page. Its paper size and print areas are ignored, and hidden sheets are included. It works for a CSV too, which cannot store any page setup of its own, and while it is ticked the orientation and fit settings are hidden, because it overrides them.`,
         ],
       },
       {
@@ -4672,7 +4677,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Why are my columns split across pages?",
-        answer: `Because, left as it is, the converter follows the workbook's own page setup. Tick ${ONE_PAGE_PER_SHEET_LABEL} to make each sheet a single page sized to fit, CSV files included. For normal-sized pages instead, set landscape and fit-all-columns-on-one-page scaling in Excel or LibreOffice Calc, save it as .xlsx, and convert again.`,
+        answer: `Because, left as it is, the converter follows the workbook's own page setup. For an .xlsx, tick ${FIT_COLUMNS_TO_WIDTH_LABEL}, with Landscape under ${ORIENTATION_LABEL} if the sheet is wide, and every column fits across each page while rows carry on to the next. Or tick ${ONE_PAGE_PER_SHEET_LABEL} to make each sheet a single page sized to fit, CSV files included.`,
       },
       {
         question: "Which files can I convert?",

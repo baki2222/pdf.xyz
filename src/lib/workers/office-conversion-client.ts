@@ -6,7 +6,10 @@ import {
   type PdfSecurityWorkerResult,
 } from "./pdf-security-client";
 import {
+  FIT_COLUMNS_TO_WIDTH_OPTION,
   ONE_PAGE_PER_SHEET_OPTION,
+  ORIENTATION_OPTION,
+  acceptsPageSetup,
   type SheetLayout,
 } from "./office-conversion/sheet-layout";
 
@@ -22,15 +25,26 @@ export interface OfficeConversionWorkerInput {
 
 /**
  * The job's option bag: empty, as it always was, unless Excel to PDF asked
- * for one page per sheet. Nothing else ever carries the key, so a Word or
- * PowerPoint job is byte-for-byte the request it was.
+ * for a layout. One page per sheet ignores page setup, so with it ticked
+ * nothing else is sent; orientation and fit-to-width are sent only for a
+ * file whose page setup the worker can rewrite (.xlsx), which is also the
+ * only file the panel shows those controls for. Nothing else ever carries
+ * these keys, so a Word or PowerPoint job is byte-for-byte the request it
+ * was.
  */
 export function officeJobOptions(
   input: OfficeConversionWorkerInput,
 ): Record<string, unknown> {
-  return input.tool === "excel-to-pdf" && input.layout?.onePagePerSheet
-    ? { [ONE_PAGE_PER_SHEET_OPTION]: true }
-    : {};
+  const layout = input.layout;
+  if (input.tool !== "excel-to-pdf" || !layout) return {};
+  if (layout.onePagePerSheet) return { [ONE_PAGE_PER_SHEET_OPTION]: true };
+  if (!acceptsPageSetup(input.filename)) return {};
+  return {
+    ...(layout.orientation ? { [ORIENTATION_OPTION]: layout.orientation } : {}),
+    ...(layout.fitColumnsToWidth
+      ? { [FIT_COLUMNS_TO_WIDTH_OPTION]: true }
+      : {}),
+  };
 }
 
 export function runWorkerOfficeToPdf(

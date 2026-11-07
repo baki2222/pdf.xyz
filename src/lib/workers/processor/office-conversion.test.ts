@@ -6,6 +6,7 @@ import {
 import { createNativeLibreOfficePdfRunner } from "../office-conversion/native";
 import type { NativeOfficeConversionConfig } from "../office-conversion/native-config";
 import { readFileSync } from "node:fs";
+import JSZip from "jszip";
 
 const PDF = new TextEncoder().encode(
   "%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
@@ -483,5 +484,134 @@ describe("excel-to-pdf one page per sheet reaches soffice's argv", () => {
         code: "unprocessable_entity",
         retryable: false,
       });
+  });
+});
+
+/*
+ * Review 2026-11-08 (audit excel-to-pdf#1): orientation and fit-to-width are
+ * written into the workbook's own page setup before soffice runs. This runs
+ * the composed chain - option bag, processor, engine, the lazily loaded
+ * rewrite, the native runner with only exec and fs stubbed - and unzips the
+ * bytes soffice is actually handed.
+ */
+describe("excel-to-pdf orientation and fit-to-width reach the workbook soffice opens", () => {
+  const SHEET =
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData><pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/></worksheet>';
+
+  async function workbook(): Promise<Uint8Array> {
+    const zip = new JSZip();
+    zip.file(
+      "[Content_Types].xml",
+      '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>',
+    );
+    zip.file("_rels/.rels", "<Relationships/>");
+    zip.file("xl/workbook.xml", "<workbook/>");
+    zip.file("xl/worksheets/sheet1.xml", SHEET);
+    return zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
+  }
+
+  async function run(
+    tool: string,
+    filename: string,
+    options: Record<string, unknown>,
+  ) {
+    const written: Uint8Array[] = [];
+    const exec = vi.fn(async () => ({ code: 0, timedOut: false }));
+    const libreoffice = createNativeLibreOfficePdfRunner(
+      {
+        enabled: true,
+        candidates: ["soffice"],
+        overridden: false,
+        timeoutMs: 120_000,
+        maxInputBytes: 1_000_000,
+        maxOutputBytes: 10_000,
+        tmpDir: "/tmp",
+      },
+      {
+        exec,
+        resolveOnPath: (bin) => bin === "soffice",
+        fs: {
+          mkdtemp: async () => "/tmp/pdfxyz-office-1",
+          writeFile: async (_file, data) => {
+            written.push(data);
+          },
+          readFile: async () => PDF,
+          rm: async () => {},
+        },
+      },
+    );
+    const bytes = await workbook();
+    const result = await createOfficeConversionProcessor({
+      libreoffice,
+    }).process({
+      tool,
+      options,
+      inputs: [{ fileId: "f", filename, contentType: "x", bytes }],
+    });
+    const argv = exec.mock.calls[0]
+      ? (exec.mock.calls[0] as unknown as [string, string[]])[1]
+      : null;
+    const sheet = written[0]
+      ? await (
+          await JSZip.loadAsync(written[0])
+        )
+          .file("xl/worksheets/sheet1.xml")
+          ?.async("string")
+      : undefined;
+    return { result, argv, sheet };
+  }
+
+  it("landscape + fit columns: soffice opens a workbook that says so", async () => {
+    const { result, argv, sheet } = await run("excel-to-pdf", "wide.xlsx", {
+      orientation: "landscape",
+      fitColumnsToWidth: true,
+    });
+    expect(result.ok).toBe(true);
+    expect(sheet).toContain('<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>');
+    expect(sheet).toContain(
+      '<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>',
+    );
+    // Page setup is read from the file, so the export is the plain one.
+    expect(argv![argv!.indexOf("--convert-to") + 1]).toBe("pdf");
+  });
+
+  it("portrait alone sets the orientation and does not switch scaling on", async () => {
+    const { sheet } = await run("excel-to-pdf", "wide.xlsx", {
+      orientation: "portrait",
+    });
+    expect(sheet).toContain(
+      '<pageSetup paperSize="9" orientation="portrait"/>',
+    );
+    expect(sheet).not.toContain("fitTo");
+  });
+
+  it("CONTROL: with no layout the bytes soffice gets are the upload's", async () => {
+    const { sheet } = await run("excel-to-pdf", "wide.xlsx", {});
+    expect(sheet).toBe(SHEET);
+  });
+
+  it("refused before soffice on a file its rewrite cannot reach", async () => {
+    const { result, argv } = await run("excel-to-pdf", "towns.csv", {
+      fitColumnsToWidth: true,
+    });
+    expect(argv).toBeNull();
+    expect(result.ok).toBe(false);
+    if (!result.ok)
+      expect(result.error).toMatchObject({
+        code: "unprocessable_entity",
+        retryable: false,
+        message: expect.stringContaining("work on .xlsx files only"),
+      });
+  });
+
+  it("refuses one page per sheet combined with page setup", async () => {
+    const { result, argv } = await run("excel-to-pdf", "wide.xlsx", {
+      onePagePerSheet: true,
+      orientation: "landscape",
+    });
+    expect(argv).toBeNull();
+    expect(result.ok).toBe(false);
+    if (!result.ok)
+      expect(result.error.message).toContain("cannot be combined");
   });
 });

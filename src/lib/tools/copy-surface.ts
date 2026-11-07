@@ -192,7 +192,8 @@ export function copyFiles(): string[] {
       "compression",
       "rotation-proof.ts",
     ),
-    // Excel to PDF's "Put each sheet on one page" label and hint
+    // Excel to PDF's layout labels and hints (one page per sheet,
+    // orientation, fit columns to width; the .xlsx-only note)
     // (2026-11-08, audit excel-to-pdf#1), drawn by the Office panel.
     path.join(
       ROOT,
