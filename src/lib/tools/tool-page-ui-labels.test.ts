@@ -99,13 +99,11 @@ const NOT_OUR_LABELS: Readonly<Record<string, NotOurLabel>> = {
   "Track Changes": {
     why: "Microsoft Word's review feature, in the reader's editor — pdf-to-word's use case for an exported DOCX",
   },
-  "could not be decoded as a PNG image": {
-    why: "an engine refusal the panel shows, quoted from the message, not a control — png-to-pdf's FAQ",
-    evidence: {
-      file: "src/lib/pdf/image-to-pdf.ts",
-      text: 'could not be decoded as a ${format === "jpg" ? "JPG" : "PNG"} image.',
-    },
-  },
+  // RETIRED 2026-11-08 (audit png-to-pdf#8), history kept: "could not be
+  // decoded as a PNG image" was quoted bare by png-to-pdf's FAQ "Why did
+  // Create PDF fail on a file it accepted?". That refusal now comes at add
+  // time (src/lib/pdf/image-intake.ts), and both pages show it whole, after
+  // "such as", like every other pick-time refusal.
 };
 
 /**

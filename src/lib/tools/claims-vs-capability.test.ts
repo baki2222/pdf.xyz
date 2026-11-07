@@ -823,7 +823,9 @@ const RULES: readonly ClaimRule[] = [
       // browser's region (audit jpg-to-pdf#1).
       "Unless you change the page setup, that page is portrait with a 0.5 in margin, and its size is A4 (8.27 × 11.69 in), or US Letter (8.5 × 11 in) if your browser's preferred language is set for a country that uses Letter paper, such as the United States, Canada, Mexico or the Philippines.",
       "Fit to image makes each page the size of its image instead, plus the margin.",
-      "Larger images are scaled down to fit; smaller ones are never enlarged.",
+      // Was "smaller ones are never enlarged." until 2026-11-08, when the
+      // Small images choice arrived (audits jpg-to-pdf#4 / png-to-pdf#4).
+      "Larger images are scaled down to fit; smaller ones keep their own size unless you choose Enlarge to fit under Small images, which scales them up to the margin.",
     ],
     probe: async () => {
       // "Fixed" is true only while the runner offers none of the settings.

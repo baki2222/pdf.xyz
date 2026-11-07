@@ -95,6 +95,13 @@ describe("the copy surface reaches what the guards must read", () => {
       // Added 2026-10-31: JPG / PNG to PDF's Max file size — its labels,
       // hint and outcome lines, and the re-encoder's error messages.
       "src/lib/pdf/image-size-limit.ts",
+      // Added 2026-11-08: JPG / PNG to PDF's wave-3 controls (lane w3-l05).
+      "src/lib/pdf/image-rotation.ts",
+      "src/lib/pdf/image-density.ts",
+      "src/lib/pdf/image-enlarge.ts",
+      "src/lib/pdf/image-intake.ts",
+      "src/lib/pdf/image-bookmarks.ts",
+      "src/lib/pdf/image-page-custom.ts",
       "src/lib/pdf/image-reencode.ts",
       "src/lib/pdf/offered-kinds.ts",
       "src/lib/pdf/overlay.ts",
