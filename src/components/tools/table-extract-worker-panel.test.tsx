@@ -213,3 +213,54 @@ describe("Extract Tables panel — failures link the tool that fixes them", () =
     expect(screen.queryByRole("link", { name: /^Open / })).toBeNull();
   });
 });
+
+describe("Extract Tables panel — “Combine tables into one sheet” (audit extract-tables#2)", () => {
+  /** The options bag of the job-create request, read off the wire. */
+  async function jobOptionsSent(tick: boolean) {
+    stubNetwork(
+      await failedJobFrom(
+        async () => {
+          throw new Error("the run did not finish");
+        },
+        new Uint8Array([0x25, 0x50, 0x44, 0x46]),
+      ),
+    );
+    render(<TableExtractWorkerPanel tool={tool} />);
+    const box = screen.getByRole("checkbox", {
+      name: /Combine tables into one sheet/,
+    });
+    expect(box).not.toBeChecked();
+    if (tick) fireEvent.click(box);
+    const input = await vi.waitFor(() => {
+      const found = readyFileInput();
+      if (!found) throw new Error("no file input yet");
+      return found;
+    });
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], "s.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /extract tables/i }));
+    await screen.findByRole("alert");
+    const calls = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    const create = calls.find(([url]) => url === "/api/jobs");
+    if (!create) throw new Error("no job was created");
+    const body = JSON.parse(
+      new TextDecoder().decode((create[1] as { body: ArrayBuffer }).body),
+    ) as { options: Record<string, unknown> };
+    return body.options;
+  }
+
+  it("ticked, the job asks for one sheet", async () => {
+    expect(await jobOptionsSent(true)).toEqual({ combine: true });
+  });
+
+  it("left alone, the job is the request every page sent before the option", async () => {
+    expect(await jobOptionsSent(false)).toEqual({});
+  });
+});

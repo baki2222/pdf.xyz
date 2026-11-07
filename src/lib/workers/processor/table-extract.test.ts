@@ -9,6 +9,7 @@ import { PDFDocument } from "pdf-lib";
 import { PdfTextExecError } from "../pdf-text/errors";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
 import { rc4EncryptedPdf } from "@/tests/pdf-office-fixtures";
+import { COMBINED_CSV_NAME } from "@/lib/jobs/extract-tables-options";
 
 const PDF = new TextEncoder().encode(
   "%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
@@ -249,6 +250,52 @@ describe("table-extract processor — document failures are final and name their
       expect(result.error).toMatchObject({
         code: "internal_error",
         retryable: true,
+      });
+  });
+});
+
+describe("table-extract processor — “Combine tables into one sheet” (audit extract-tables#2)", () => {
+  function job(options: Record<string, unknown>) {
+    return createTableExtractProcessor({ extractLayout, limits: {} }).process({
+      tool: "extract-tables",
+      options,
+      inputs: [
+        {
+          fileId: "f",
+          filename: "report.pdf",
+          contentType: "application/pdf",
+          bytes: PDF,
+        },
+      ],
+    });
+  }
+
+  it("`combine: true` writes the one combined CSV, read back from the artifact", async () => {
+    const result = await job({ combine: true });
+    if (!result.ok) throw new Error(result.error.message);
+    const zip = await JSZip.loadAsync(result.artifacts[0]!.bytes);
+    expect(Object.keys(zip.files).sort()).toEqual([
+      COMBINED_CSV_NAME,
+      "tables.xlsx",
+    ]);
+    expect(result.meta).toMatchObject({ combined: true });
+  });
+
+  it("an empty bag is the old request: one CSV per table", async () => {
+    const result = await job({});
+    if (!result.ok) throw new Error(result.error.message);
+    const zip = await JSZip.loadAsync(result.artifacts[0]!.bytes);
+    expect(zip.file("table-1.csv")).not.toBeNull();
+    expect(result.meta).toMatchObject({ combined: false });
+  });
+
+  it("a non-boolean `combine` is refused, not guessed", async () => {
+    const result = await job({ combine: "yes" });
+    expect(result.ok).toBe(false);
+    if (!result.ok)
+      expect(result.error).toMatchObject({
+        code: "invalid_request",
+        retryable: false,
       });
   });
 });

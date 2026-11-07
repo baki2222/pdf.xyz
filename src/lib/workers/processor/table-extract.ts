@@ -1,5 +1,6 @@
 import type { JobError } from "@/lib/jobs";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
+import { parseExtractTablesOptions } from "@/lib/jobs/extract-tables-options";
 import {
   MAX_DISPLAY_FILENAME_LENGTH,
   sanitizeDisplayFilename,
@@ -101,6 +102,7 @@ function meta(m: TableExtractMeta): ProcessorMeta {
     tool: m.tool,
     tableCount: m.tableCount,
     pageCount: m.pageCount,
+    combined: m.combined,
     inputBytes: m.inputBytes,
     outputBytes: m.outputBytes,
   };
@@ -133,8 +135,19 @@ export function createTableExtractProcessor(deps: TableExtractDeps): Processor {
         });
       const bad = inputError(input);
       if (bad) return bad;
+      // "Combine tables into one sheet" (audit extract-tables#2). An empty
+      // bag is the request every page sent before it: one sheet per table.
+      const parsed = parseExtractTablesOptions(input.options);
+      if (!parsed.ok)
+        return processorFail({
+          code: parsed.error.body.error.code,
+          message: parsed.error.body.error.message,
+          retryable: false,
+        });
       const file = input.inputs[0]!;
-      const run = await runTableExtract(file.bytes, deps, input.signal);
+      const run = await runTableExtract(file.bytes, deps, input.signal, {
+        combine: parsed.value.combine,
+      });
       if (!run.ok) return processorFail(jobError(run));
       return processorOk(
         [

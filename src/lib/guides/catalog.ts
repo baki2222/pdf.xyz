@@ -115,6 +115,11 @@ import {
   XLSX_TEXT_EXAMPLE,
 } from "@/lib/jobs/pdf-office-export";
 import {
+  COMBINE_TABLES_LABEL,
+  COMBINED_CSV_NAME,
+  COMBINED_SHEET_NAME,
+} from "@/lib/jobs/extract-tables-options";
+import {
   HTML_LAYOUT_STEP,
   htmlLayoutAnswer,
 } from "@/lib/tools/html-layout-copy";
@@ -5466,7 +5471,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       `To extract tables from a PDF, open ${nameOf("extract-tables")}, add your PDF, press Extract tables, and download the ZIP. Each table it finds comes back as its own CSV file and as its own sheet in one Excel workbook, with the titles and paragraphs around it left out.`,
-      "It finds tables by where the words sit on the page: words on one line form a row, words set a normal space apart stay in one cell, and columns come from the white space that runs down the rows. There are no settings to choose. It reads only text stored in the PDF as text, so a scanned table needs OCR first.",
+      `It finds tables by where the words sit on the page: words on one line form a row, words set a normal space apart stay in one cell, and columns come from the white space that runs down the rows. One setting, ${COMBINE_TABLES_LABEL}, puts every table on a single sheet instead of one sheet each. It reads only text stored in the PDF as text, so a scanned table needs OCR first.`,
       `${nameOf("extract-tables")} runs on a secure server, not in your browser, because the word positions come from a native PDF text engine. Your PDF, up to ${ceilingMb("extract-tables")} MB, travels over an encrypted connection and is deleted when the job finishes; the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
     ],
     steps: [
@@ -5498,7 +5503,7 @@ export const guides: Guide[] = [
         heading: "Layouts to check by hand",
         body: [
           "Three layouts trip the detector: two tables side by side on the same rows come out as one wide table, a cell that wraps in the first column ends its table early, and a centred one-line note directly under a table can be taken as its last row. A one-line subheading set in a table's first column also ends it, so a sectioned table can come back as several. Merged header cells are not rebuilt.",
-          "Each page is read on its own, so a table that runs over three pages comes out as at least one table per page, with any header row the PDF repeats on each page repeated in each sheet. Stack the sheets and delete the repeated headers to rebuild it.",
+          `Each page is read on its own, so by default a table that runs over three pages comes out as at least one table per page, with any header row the PDF repeats on each page repeated in each sheet. Tick ${COMBINE_TABLES_LABEL} before you press Extract tables to get one sheet, ${COMBINED_SHEET_NAME}, and one ${COMBINED_CSV_NAME}: a part on the next page that starts with the same header row is joined to the part before it, and the repeated header is left out.`,
         ],
       },
       {
@@ -5529,11 +5534,11 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I choose which pages to read?",
-        answer: `No. There are no options: every page is read. To work on a few pages, make a smaller PDF of them first with ${nameOf("extract-pages")}, which runs in your browser, and remember that the page numbers on the sheet tabs then count the pages of that copy.`,
+        answer: `No. Every page is read; the one option, ${COMBINE_TABLES_LABEL}, changes only how the tables are laid out. To work on a few pages, make a smaller PDF of them first with ${nameOf("extract-pages")}, which runs in your browser, and remember that the page numbers on the sheet tabs then count the pages of that copy.`,
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-06",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-convert-pdf-to-markdown",

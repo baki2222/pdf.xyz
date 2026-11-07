@@ -1830,8 +1830,12 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
       return [
         {
           question: `What does ${tool.name} download?`,
+          // CHANGED 2026-11-08 (audit extract-tables#2): "By default" and
+          // the last sentence, when the panel gained its combine option. Its
+          // label and file names are not imported here, to keep this module's
+          // client importers from carrying them; the tool page names them.
           answer:
-            "A ZIP with one CSV file per table it found (table-1.csv, table-2.csv and so on) and tables.xlsx, an Excel workbook holding every table on its own sheet, named after the table's number and page.",
+            "By default, a ZIP with one CSV file per table it found (table-1.csv, table-2.csv and so on) and tables.xlsx, an Excel workbook holding every table on its own sheet, named after the table's number and page. Its one option puts every table on a single sheet and in a single CSV instead.",
         },
         {
           question: `How does ${tool.name} find a table?`,

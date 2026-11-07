@@ -1,5 +1,10 @@
 import type { ToolContent } from "./types";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
+import {
+  COMBINE_TABLES_LABEL,
+  COMBINED_CSV_NAME,
+  COMBINED_SHEET_NAME,
+} from "@/lib/jobs/extract-tables-options";
 import { XLSX_NUMBER_EXAMPLES } from "@/lib/jobs/pdf-office-export";
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
@@ -67,7 +72,7 @@ const content: ToolContent = {
   seoTitle: "Extract Tables from PDF to Excel and CSV",
 
   metaDescription:
-    "Extract tables from a text-based PDF to CSV and Excel: each table found, even several on one page, gets its own CSV and sheet. Scanned PDFs need OCR PDF first.",
+    "Extract tables from a text-based PDF to CSV and Excel: each table gets its own CSV and sheet, or all go on one sheet. Scanned PDFs need OCR PDF first.",
 
   intro: [
     `Copying a table out of a PDF usually pastes as one long column, or as rows glued together with spaces. Extract Tables reads the position of every word on a page, puts words on the same line into one row, joins words set a normal space apart into one cell, and finds columns from the white-space gutters that run down the rows. It keeps a block as a table only when at least two columns each hold something in two or more rows, one column holds short values of fewer than ${LONG_CELL_WORDS} words each (and is not mostly bullet items), and no sentence wraps from one row into the next.`,
@@ -86,7 +91,7 @@ const content: ToolContent = {
     },
     {
       title: "Long reports with one table per page",
-      body: "A multi-page appendix yields one numbered CSV and one sheet per table found, and each sheet name carries the page number, so every result can be traced back to where it came from.",
+      body: `A multi-page appendix yields one numbered CSV and one sheet per table found, and each sheet name carries the page number, so every result can be traced back to where it came from. To have them all in one place instead, tick ${COMBINE_TABLES_LABEL}.`,
     },
   ],
 
@@ -97,11 +102,11 @@ const content: ToolContent = {
     },
     {
       title: "Press Extract tables",
-      body: `Table detection takes no options, so this button is the only control. A file over ${CEILING_MB} MB is refused as soon as you pick it, before anything is read or sent. While the job runs, the button reads Uploading your file…, Waiting for our server…, Extracting tables… and Downloading the result… in turn, and it stays busy until the ZIP has come back to your browser. A scan with no text, or a file in which no table is detected, shows an error beneath the button in place of a result.`,
+      body: `One option sits above the button: ${COMBINE_TABLES_LABEL}, off unless you tick it. A file over ${CEILING_MB} MB is refused as soon as you pick it, before anything is read or sent. While the job runs, the button reads Uploading your file…, Waiting for our server…, Extracting tables… and Downloading the result… in turn, and it stays busy until the ZIP has come back to your browser. A scan with no text, or a file in which no table is detected, shows an error beneath the button in place of a result.`,
     },
     {
       title: "Download the ZIP",
-      body: `The button under the ready message reads Download followed by the output name, so report.pdf comes back as ${EXAMPLE_ZIP}. That button appears only once your browser has fetched the ZIP, so clicking it writes the file to disk without another trip to the server. Inside are table-1.csv, table-2.csv and so on, plus tables.xlsx with sheets named like Table 1 (p3).`,
+      body: `The button under the ready message reads Download followed by the output name, so report.pdf comes back as ${EXAMPLE_ZIP}. That button appears only once your browser has fetched the ZIP, so clicking it writes the file to disk without another trip to the server. Inside are table-1.csv, table-2.csv and so on, plus tables.xlsx with sheets named like Table 1 (p3). With ${COMBINE_TABLES_LABEL} ticked, it holds one ${COMBINED_CSV_NAME} and a tables.xlsx with the one sheet ${COMBINED_SHEET_NAME}.`,
     },
     {
       title: "Check each sheet against its page",
@@ -128,7 +133,7 @@ const content: ToolContent = {
     },
     {
       q: "What happens to a table that runs over several pages?",
-      a: "Each page is analysed on its own, so a table spanning three pages comes out as separate CSV files and sheets, at least one for each page whose part of it is detected as a table, and a header row the PDF repeats on each page is repeated in each sheet too. Stack the sheets and delete the repeats to rebuild it.",
+      a: `Each page is analysed on its own, so by default a table spanning three pages comes out as separate CSV files and sheets, at least one for each page whose part of it is detected as a table, with a header row the PDF repeats on each page repeated in each sheet. Tick ${COMBINE_TABLES_LABEL} to get one sheet, ${COMBINED_SHEET_NAME}, and one ${COMBINED_CSV_NAME} instead: every table in page order with an empty row between tables, and a part on the next page that starts with the same header row joined to the part before it, its repeated header left out. A part whose header differs, or that skips a page, starts a new table there.`,
     },
     {
       q: "Does Excel see my numbers as numbers?",

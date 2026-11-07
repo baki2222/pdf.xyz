@@ -29,6 +29,7 @@ import {
   workerOutput,
 } from "./worker-panel-shell";
 import { OfficeExportNextStep } from "./office-export-notices";
+import { COMBINE_TABLES_HINT } from "@/lib/jobs/extract-tables-options";
 
 /**
  * The status slot's reserved height (see `WorkerStatusSlot` and
@@ -99,6 +100,7 @@ function TableExtractRunArea({
 }) {
   const { available, status } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
+  const [combine, setCombine] = useState(false);
   const job = useWorkerJob<TableExtractWorkerResult>({
     tool: "extract-tables",
     resume: (id, controls) =>
@@ -116,12 +118,13 @@ function TableExtractRunArea({
         {
           filename: file.name,
           bytes: new Uint8Array(await file.arrayBuffer()),
+          ...(combine ? { combine: true } : {}),
         },
         controls,
       );
       return result;
     });
-  }, [file, run, available]);
+  }, [file, run, available, combine]);
   // Read only once the status says this panel cannot run.
   const unavailableDetail =
     status?.daemon.detail ?? "Our secure server is not drainable here.";
@@ -166,6 +169,26 @@ function TableExtractRunArea({
           hint="Selectable PDF"
         />
       )}
+      <label className="border-line rounded-panel text-muted flex min-h-11 items-start gap-2.5 border p-3 text-sm">
+        <input
+          type="checkbox"
+          checked={combine}
+          // Guarded, never `disabled`: focus stays put mid-run (#46).
+          onChange={(event) => {
+            if (!busy) setCombine(event.target.checked);
+          }}
+          aria-disabled={busy || undefined}
+          className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4"
+        />
+        <span className="flex flex-col gap-0.5">
+          <span className="text-fg font-medium">
+            Combine tables into one sheet
+          </span>
+          <span className="text-muted text-xs leading-relaxed">
+            {COMBINE_TABLES_HINT}
+          </span>
+        </span>
+      </label>
       <WorkerGate
         reserve={STATUS_SLOT}
         job={job}
