@@ -50,7 +50,7 @@ export function PdfToMarkdownRunner() {
   );
 }
 
-function PdfToMarkdownEditor({
+export function PdfToMarkdownEditor({
   pdf,
   onReset,
 }: {
