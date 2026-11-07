@@ -188,6 +188,66 @@ describe("worker job validation", () => {
   });
 });
 
+describe("Excel and PDF/A layout options are refused at job creation (review 2026-11-08)", () => {
+  // Before: these reached the worker, after the upload and a queue wait,
+  // and were refused only there. HTML render options were already refused
+  // here; these now are too, by the same parser the worker runs.
+  it("refuses a bad Excel layout and a PDF/A level it does not offer", () => {
+    for (const options of [
+      { orientation: "auto" },
+      { fitColumnsToWidth: "yes" },
+      { onePagePerSheet: true, orientation: "landscape" },
+    ]) {
+      const bad = parseCreateJobRequest({
+        tool: "excel-to-pdf",
+        inputs: ["f_1234567890"],
+        options,
+      });
+      expect(bad.ok, JSON.stringify(options)).toBe(false);
+      if (!bad.ok)
+        expect(bad.error.body.error.code).toBe("unprocessable_entity");
+    }
+    const level = parseCreateJobRequest({
+      tool: "pdf-to-pdfa",
+      inputs: ["f_1234567890"],
+      options: { level: "2u" },
+    });
+    expect(level.ok).toBe(false);
+    if (!level.ok)
+      expect(level.error.body.error.details?.[0]?.field).toBe("options.level");
+  });
+
+  it("CONTROL: valid values and the empty bag pass, and other tools are not judged", () => {
+    for (const options of [
+      {},
+      { onePagePerSheet: true },
+      { orientation: "landscape", fitColumnsToWidth: true },
+    ])
+      expect(
+        parseCreateJobRequest({
+          tool: "excel-to-pdf",
+          inputs: ["f_1234567890"],
+          options,
+        }).ok,
+      ).toBe(true);
+    for (const options of [{}, { level: "1b" }, { level: "3b" }])
+      expect(
+        parseCreateJobRequest({
+          tool: "pdf-to-pdfa",
+          inputs: ["f_1234567890"],
+          options,
+        }).ok,
+      ).toBe(true);
+    expect(
+      parseCreateJobRequest({
+        tool: "word-to-pdf",
+        inputs: ["f_1234567890"],
+        options: { orientation: "auto", level: "2u" },
+      }).ok,
+    ).toBe(true);
+  });
+});
+
 describe("public URL SSRF guard", () => {
   it.each([
     "file:///etc/passwd",
