@@ -759,14 +759,25 @@ export function createNativeChromiumPdfRunner(
     if (target.kind === "url" && target.capture.hideOverlays)
       await isolated("pdfxyz-overlays", HIDE_OVERLAYS_SCRIPT);
 
-    // One long page: lay the PRINT styles out at the printed width, and read
-    // the content's height from the layout — not from page script, which
-    // could report anything.
+    // "Use the site's print styles" unticked (audit webpage-to-pdf#3): the
+    // page is measured and printed with its SCREEN styles. Sent before the
+    // measure and again before the print, so neither can see print media.
+    const screenMedia = target.kind === "url" && !target.capture.printStyles;
+    if (screenMedia)
+      await cdp.send(
+        "Emulation.setEmulatedMedia",
+        { media: "screen" },
+        pageSession,
+      );
+
+    // One long page: lay the chosen styles (print, unless screen was asked
+    // for) out at the printed width, and read the content's height from the
+    // layout — not from page script, which could report anything.
     let contentHeight: number | undefined;
     if (plan.measure) {
       await cdp.send(
         "Emulation.setEmulatedMedia",
-        { media: "print" },
+        { media: screenMedia ? "screen" : "print" },
         pageSession,
       );
       await cdp.send(

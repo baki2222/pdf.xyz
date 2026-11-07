@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   WEBPAGE_CAPTURE_SENTENCE,
   WEBPAGE_OVERLAY_ANSWER,
+  WEBPAGE_PRINT_STYLES_SENTENCE,
   WEBPAGE_SETTINGS_STEP,
 } from "./webpage-capture-copy";
 import {
+  DEFAULT_WEBPAGE_CAPTURE_OPTIONS,
   OVERLAY_MIN_SHARE,
+  WEBPAGE_CAPTURE_LABELS,
   WEBPAGE_CAPTURE_CHOICES,
   WEBPAGE_CAPTURE_GROUP_LABEL,
 } from "@/lib/jobs/webpage-capture-options";
@@ -49,6 +52,20 @@ describe("Webpage to PDF capture copy", () => {
       expect(guide).toContain(c.label);
     }
     expect(WEBPAGE_SETTINGS_STEP.body).toContain(WEBPAGE_CAPTURE_SENTENCE);
+  });
+
+  it("the print-styles sentence names the default and the screen alternative, on the page and in the guide", () => {
+    expect(DEFAULT_WEBPAGE_CAPTURE_OPTIONS.printStyles).toBe(true);
+    expect(WEBPAGE_PRINT_STYLES_SENTENCE).toMatch(/stays ticked; untick it/);
+    expect(WEBPAGE_PRINT_STYLES_SENTENCE).toContain(
+      WEBPAGE_CAPTURE_LABELS.printStyles,
+    );
+    expect(JSON.stringify(toolContent["webpage-to-pdf"])).toContain(
+      WEBPAGE_PRINT_STYLES_SENTENCE,
+    );
+    expect(
+      JSON.stringify(getGuideBySlug("how-to-convert-a-webpage-to-pdf")),
+    ).toContain(WEBPAGE_PRINT_STYLES_SENTENCE);
   });
 
   it("the page no longer says cookie notices cannot be removed", () => {

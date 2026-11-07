@@ -602,6 +602,34 @@ describe("native Chromium HTML renderer", () => {
     }
   });
 
+  it("Use the site's print styles unticked sends screen media before measuring and printing — and nothing by default (audit webpage-to-pdf#3)", async () => {
+    const media = (fake: ReturnType<typeof fakeChromium>) =>
+      fake.sent.filter((m) => m.method === "Emulation.setEmulatedMedia");
+    const fake = fakeChromium();
+    await runner(fake).renderUrl(
+      "https://public.example/",
+      { ...DEFAULT_HTML_RENDER_OPTIONS, onePage: true },
+      {},
+      { ...DEFAULT_WEBPAGE_CAPTURE_OPTIONS, printStyles: false },
+    );
+    const sent = media(fake);
+    expect(sent.map((m) => m.params)).toEqual([
+      { media: "screen" },
+      { media: "screen" },
+    ]);
+    const at = (m: Sent) => fake.sent.indexOf(m);
+    const measure = fake.sent.find(
+      (m) => m.method === "Page.getLayoutMetrics",
+    )!;
+    const print = fake.sent.find((m) => m.method === "Page.printToPDF")!;
+    expect(at(sent[1]!)).toBeLessThan(at(measure));
+    expect(at(measure)).toBeLessThan(at(print));
+
+    const quiet = fakeChromium();
+    await runner(quiet).renderUrl("https://public.example/");
+    expect(media(quiet)).toEqual([]);
+  });
+
   it("every other request goes through the network policy", async () => {
     const fake = fakeChromium({
       paused: [

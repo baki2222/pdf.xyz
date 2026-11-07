@@ -17,6 +17,8 @@ import {
 /** The line under each checkbox: what ticking it does. */
 const HINTS: Readonly<Record<keyof WebpageCaptureOptions, string>> = {
   hideOverlays: `Hides the windows of common cookie-consent tools, and pop-ups covering at least ${Math.round(OVERLAY_MIN_SHARE * 100)}% of the screen. It can hide real content, so check the PDF.`,
+  printStyles:
+    "Untick to print the page as it looks in a browser window, ignoring the layout the site made for printing.",
 };
 
 export function WebpageCaptureGroup({

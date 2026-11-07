@@ -27,13 +27,22 @@ const list = (items: readonly string[]) =>
   new Intl.ListFormat("en", { type: "conjunction" }).format(items);
 
 const HIDE = WEBPAGE_CAPTURE_LABELS.hideOverlays;
+const PRINT = WEBPAGE_CAPTURE_LABELS.printStyles;
 const SHARE_PCT = Math.round(OVERLAY_MIN_SHARE * 100);
 
 /** The FAQ answer to "Can I hide cookie notices, pop-ups or ads?". */
 export const WEBPAGE_OVERLAY_ANSWER = `Cookie notices and pop-ups, usually: tick ${HIDE} under ${WEBPAGE_CAPTURE_GROUP_LABEL}. Before printing, it hides the consent windows of ${CONSENT_MANAGERS.length} widely used cookie-consent tools (${list(CONSENT_MANAGERS.map((m) => m.name))}) and anything pinned to the screen that covers at least ${SHARE_PCT}% of it, unless that holds the page's main content or most of its text, and it turns scrolling back on when a pop-up had locked it. It is off by default because a site can pin real content over the screen too, so glance at the PDF. A small bar pinned to an edge by a tool not on that list stays, and adverts are not removed: the page prints as a new, signed-out visitor sees it.`;
 
+/**
+ * What "Use the site's print styles" does (audit webpage-to-pdf#3): on by
+ * default, the print as it always was; unticked, native.ts sends
+ * `Emulation.setEmulatedMedia {media: "screen"}` before measuring and
+ * printing.
+ */
+export const WEBPAGE_PRINT_STYLES_SENTENCE = `A site that ships a print stylesheet gets that layout while ${PRINT} stays ticked; untick it to print the page with its screen styles, as a browser window shows it.`;
+
 /** The how-to sentence for the Capture group. */
-export const WEBPAGE_CAPTURE_SENTENCE = `Under ${WEBPAGE_CAPTURE_GROUP_LABEL}, tick ${HIDE} to print the page without a consent banner or a pop-up over it; left unticked, the page prints as a new visitor first sees it.`;
+export const WEBPAGE_CAPTURE_SENTENCE = `Under ${WEBPAGE_CAPTURE_GROUP_LABEL}, tick ${HIDE} to print the page without a consent banner or a pop-up over it, and untick ${PRINT} to get the layout a browser window shows instead of the one the site made for printing.`;
 
 /** The tool page's layout step, with the Capture group added to it. */
 export const WEBPAGE_SETTINGS_STEP = {

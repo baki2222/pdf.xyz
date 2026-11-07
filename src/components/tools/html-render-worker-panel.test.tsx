@@ -381,6 +381,21 @@ describe("HtmlRenderWorkerPanel — Webpage to PDF capture options", () => {
     );
   });
 
+  it(`"${WEBPAGE_CAPTURE_LABELS.printStyles}" starts ticked, and unticking it sends printStyles: false (audit webpage-to-pdf#3)`, async () => {
+    await mountUrl();
+    const box = screen.getByRole<HTMLInputElement>("checkbox", {
+      name: new RegExp(WEBPAGE_CAPTURE_LABELS.printStyles),
+    });
+    expect(box.checked).toBe(true);
+    fireEvent.click(box);
+    run();
+    await vi.waitFor(() =>
+      expect(sentOptions()).toEqual([
+        { printStyles: false, url: "https://example.com/" },
+      ]),
+    );
+  });
+
   it("control: HTML to PDF has no Capture group", async () => {
     vi.stubGlobal(
       "fetch",

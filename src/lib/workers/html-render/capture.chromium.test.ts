@@ -92,10 +92,21 @@ const consentToken = (i: number) => `ConsentFixtureToken${i}x`;
 const CONSENT_PAGE = `<!doctype html><html><head><meta charset="utf-8"></head>
 <body><h1>${ARTICLE}</h1>${CONSENT_SELECTORS.map((sel, i) => elementFor(sel, consentToken(i))).join("")}</body></html>`;
 
+/** Words only print media shows, and words only screen media shows. */
+const PRINT_ONLY = "Print stylesheet only words";
+const SCREEN_ONLY = "Screen layout only words";
+const MEDIA_PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>
+@media print { .screen-only { display: none } }
+@media screen { .print-only { display: none } }
+</style></head><body><h1>${ARTICLE}</h1>
+<p class="print-only">${PRINT_ONLY}</p><p class="screen-only">${SCREEN_ONLY}</p>
+</body></html>`;
+
 const pages: Record<string, string> = {
   "/overlay": OVERLAY_PAGE,
   "/shell": SHELL_PAGE,
   "/consent": CONSENT_PAGE,
+  "/media": MEDIA_PAGE,
 };
 
 const resolve: Resolve = async (host) => {
@@ -180,6 +191,29 @@ describe.skipIf(!BIN)(
           .map((t, i) => [t, CONSENT_SELECTORS[i]])
           .filter(([t]) => hidden.includes(t!)),
       ).toEqual([]);
+    }, 90_000);
+
+    // audit webpage-to-pdf#3. The default is the control: print media.
+    it("prints with the site's print styles by default, and with its screen styles when that is unticked", async () => {
+      const print = await render("/media", {});
+      expect(print).toContain(PRINT_ONLY);
+      expect(print).not.toContain(SCREEN_ONLY);
+      const screen = await render("/media", { printStyles: false });
+      expect(screen).toContain(ARTICLE);
+      expect(screen).toContain(SCREEN_ONLY);
+      expect(screen).not.toContain(PRINT_ONLY);
+    }, 90_000);
+
+    it("one long page measures and prints the screen styles too", async () => {
+      const bytes = await runner.renderUrl(
+        "https://public.example/media",
+        { ...DEFAULT_HTML_RENDER_OPTIONS, onePage: true },
+        {},
+        capture({ printStyles: false }),
+      );
+      const text = await pdfText(bytes);
+      expect(text).toContain(SCREEN_ONLY);
+      expect(text).not.toContain(PRINT_ONLY);
     }, 90_000);
 
     it("never hides a fixed full-screen frame that holds the page's main content", async () => {

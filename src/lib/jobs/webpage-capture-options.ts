@@ -11,16 +11,22 @@
  * client that sends none of these keys gets nothing new:
  *   - `hideOverlays` (off) — hide cookie-consent windows and pop-ups that
  *     cover the screen (`@/lib/workers/html-render/overlays` says exactly
- *     what is hidden). Off by default because it can hide real content.
+ *     what is hidden). Off by default because it can hide real content;
+ *   - `printStyles` (on) — print with the site's print stylesheet, as every
+ *     render did. Off, Chromium is told to use SCREEN media before measuring
+ *     and printing, so the PDF shows the page's screen layout (audit
+ *     webpage-to-pdf#3).
  */
 import { apiError, type ParseResult } from "./responses";
 
 export interface WebpageCaptureOptions {
   hideOverlays: boolean;
+  printStyles: boolean;
 }
 
 export const DEFAULT_WEBPAGE_CAPTURE_OPTIONS: WebpageCaptureOptions = {
   hideOverlays: false,
+  printStyles: true,
 };
 
 /**
@@ -30,7 +36,10 @@ export const DEFAULT_WEBPAGE_CAPTURE_OPTIONS: WebpageCaptureOptions = {
 export const WEBPAGE_CAPTURE_CHOICES: readonly {
   key: keyof WebpageCaptureOptions;
   label: string;
-}[] = [{ key: "hideOverlays", label: "Hide cookie notices and pop-ups" }];
+}[] = [
+  { key: "hideOverlays", label: "Hide cookie notices and pop-ups" },
+  { key: "printStyles", label: "Use the site's print styles" },
+];
 
 /** Each checkbox's label by option key. */
 export const WEBPAGE_CAPTURE_LABELS = Object.fromEntries(

@@ -3,6 +3,7 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { htmlLayoutAnswer } from "@/lib/tools/html-layout-copy";
 import {
   WEBPAGE_OVERLAY_ANSWER,
+  WEBPAGE_PRINT_STYLES_SENTENCE,
   WEBPAGE_SETTINGS_STEP,
 } from "@/lib/tools/webpage-capture-copy";
 import { WEBPAGE_CAPTURE_LABELS } from "@/lib/jobs/webpage-capture-options";
@@ -86,7 +87,7 @@ const content: ToolContent = {
   metaDescription: `Paste a public link and Chromium on pdf.xyz's secure server loads the live page, runs its scripts and prints it to a PDF with real, selectable text.`,
 
   intro: [
-    "Webpage to PDF turns a web address into a PDF without you opening the page. Paste the link and a headless copy of Chromium, the engine behind Chrome and Edge, loads it, lets its JavaScript run for a fixed budget of page time, and prints it to PDF with backgrounds included and any page size the site's print stylesheet sets. Text stays text, so the PDF can be searched and copied from, and a site that ships a print stylesheet gets that layout.",
+    `Webpage to PDF turns a web address into a PDF without you opening the page. Paste the link and a headless copy of Chromium, the engine behind Chrome and Edge, loads it, lets its JavaScript run for a fixed budget of page time, and prints it to PDF with backgrounds included and any page size the site's print stylesheet sets. Text stays text, so the PDF can be searched and copied from. ${WEBPAGE_PRINT_STYLES_SENTENCE}`,
     `pdf.xyz's secure server fetches the page, not your browser. The job carries only the address you typed, sent over TLS, and the site sees our server's visit with none of your cookies. The temporary folder Chromium runs in is removed after each render, the download link lapses after ${LINK_MINUTES} minutes, and a storage rule on a daily cycle erases the stored copy after that. The full address is deleted from the job queue when the job finishes; the job's status record keeps only the PDF's file name, built from the site and path without the query string, until that record times out.`,
     `Our server arrives as a signed-out stranger, so members-only walls and paywalls come along, and so do cookie banners unless you tick ${WEBPAGE_CAPTURE_LABELS.hideOverlays}. The PDF carries the page and nothing else: pdf.xyz adds no date, title, address or page-number lines. Addresses written as localhost or as a private IPv4 number are refused before any job starts. For an HTML file on your computer, use HTML to PDF instead.`,
   ],
@@ -106,7 +107,7 @@ const content: ToolContent = {
     },
     {
       title: "Check how your own site prints",
-      body: "The PDF shows the result of your print CSS rather than your screen layout, including any @page size it sets, with backgrounds printed and no header or footer lines added. The site must be reachable from the public internet: a localhost address is refused, and a preview that only resolves inside your office network cannot be reached.",
+      body: `By default the PDF shows the result of your print CSS rather than your screen layout, including any @page size it sets, with backgrounds printed and no header or footer lines added; untick ${WEBPAGE_CAPTURE_LABELS.printStyles} to print the screen layout for comparison. The site must be reachable from the public internet: a localhost address is refused, and a preview that only resolves inside your office network cannot be reached.`,
     },
   ],
 
