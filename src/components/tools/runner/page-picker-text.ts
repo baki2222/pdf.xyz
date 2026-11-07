@@ -74,16 +74,17 @@ export function rangesTextFromCuts(
 }
 
 /**
- * Which file (1-based) each page lands in under a typed split list — the first
- * range that holds it — or null for a page no range names.
+ * Which files (1-based) each page lands in under a typed split list — every
+ * range that holds it, in order, so a page in two overlapping ranges ("1-3,
+ * 2-4") is in both — or an empty list for a page no range names.
  */
-export function partOfEachPage(
-  text: string,
-  pageCount: number,
-): (number | null)[] {
-  const parts: (number | null)[] = new Array(Math.max(0, pageCount)).fill(null);
+export function partsOfEachPage(text: string, pageCount: number): number[][] {
+  const parts: number[][] = Array.from(
+    { length: Math.max(0, pageCount) },
+    () => [],
+  );
   rangesIn(text, pageCount).forEach(({ start, end }, part) => {
-    for (let i = start; i <= end; i++) parts[i] ??= part + 1;
+    for (let i = start; i <= end; i++) parts[i]!.push(part + 1);
   });
   return parts;
 }

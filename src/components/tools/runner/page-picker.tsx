@@ -10,7 +10,7 @@
  *  - `select`: each tile toggles its page (Shift extends a run), with Select
  *    all, Clear, Odd pages and Even pages above the grid.
  *  - `cut`: each tile but the last carries a "Cut after page N" toggle, and a
- *    badge with the file the page lands in — the split points, chosen by eye.
+ *    badge with the file(s) the page lands in — the split points, by eye.
  *
  * Presentational over a set the caller owns: the caller derives `value` from
  * its typed box and writes the box back in `onChange` (page-picker-text.ts),
@@ -55,8 +55,11 @@ export interface PagePickerProps {
   onChange: (next: Set<number>) => void;
   /** The grid's accessible name. */
   label: string;
-  /** `cut`: the 1-based file each page lands in, or null for none. */
-  partOf?: readonly (number | null)[];
+  /**
+   * `cut`: the 1-based files each page lands in (more than one where typed
+   * ranges overlap), or an empty list for none.
+   */
+  partOf?: readonly (readonly number[])[];
   /** A short line under a tile's name, e.g. its page size. */
   caption?: (index: number) => string | undefined;
   disabled?: boolean;
@@ -219,14 +222,14 @@ export function PagePicker({
               </div>
             );
           }
-          const part = partOf?.[i] ?? null;
+          const parts = partOf?.[i] ?? [];
           const cut = value.has(i);
           return (
             <div key={i} data-picker-page={i} className="contents">
               <PageTile
                 {...common}
-                cornerBadge={part ?? undefined}
-                dimmed={part === null}
+                cornerBadge={parts.length ? parts.join(", ") : undefined}
+                dimmed={parts.length === 0}
                 actions={
                   i < pageCount - 1 ? (
                     <button

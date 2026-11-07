@@ -4,7 +4,7 @@ import {
   cutsInRanges,
   pageListText,
   pagesInText,
-  partOfEachPage,
+  partsOfEachPage,
   rangesTextFromCuts,
 } from "./page-picker-text";
 
@@ -41,13 +41,25 @@ describe("page picker text", () => {
     expect(pagesInText("1-", 0).size).toBe(0);
     expect(pagesInText("9", 3).size).toBe(0);
     expect(cutsInRanges("3-1", 5).size).toBe(0);
-    expect(partOfEachPage("abc", 3)).toEqual([null, null, null]);
+    expect(partsOfEachPage("abc", 3)).toEqual([[], [], []]);
     // Positive control: the same helpers do see a valid box.
     expect([...pagesInText("2-3", 3)]).toEqual([1, 2]);
   });
 
-  it("each page names the first file that holds it; a gap names none", () => {
-    expect(partOfEachPage("1-2, 4", 5)).toEqual([1, 1, null, 2, null]);
+  // Was "each page names the first file that holds it" (7d46f446): a page in
+  // two overlapping ranges then showed one file while landing in two, against
+  // the note "the badge on each page is the file it lands in". Inverted.
+  it("each page names every file that holds it; a gap names none", () => {
+    expect(partsOfEachPage("1-2, 4", 5)).toEqual([[1], [1], [], [2], []]);
+    expect(partsOfEachPage("1-3, 2-4", 5)).toEqual([
+      [1],
+      [1, 2],
+      [1, 2],
+      [2],
+      [],
+    ]);
+    // The same range typed twice is two files, both holding the page.
+    expect(partsOfEachPage("2, 2", 3)).toEqual([[], [1, 2], []]);
     expect(cutsInRanges("1-2", 5)).toEqual(new Set([1]));
   });
 });
