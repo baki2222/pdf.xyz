@@ -19,6 +19,8 @@ import { resetAnnouncer } from "@/components/a11y/live-region";
 import { apply, boxOf, drawnImages } from "@/tests/drawn-images";
 import { JPEG_30X20, JPEG_HEIGHT, JPEG_WIDTH } from "@/tests/jpeg-fixtures";
 import { withAppRouter } from "@/tests/app-router";
+import { animatedPng, greyPng } from "@/tests/density-fixtures";
+import { undecodableImageMessage } from "@/lib/pdf/image-intake";
 import { IMAGE_ROTATION_LABELS } from "@/lib/pdf/image-rotation";
 import {
   SMALL_IMAGES_CHOICES,
@@ -302,3 +304,42 @@ describe("image to PDF · Sort by name and Bookmarks", () => {
     expect(titles).toEqual(["one.jpg", "two.jpg"]);
   });
 });
+
+/** Audit png-to-pdf#8: an image Create PDF could not use is refused as added. */
+describe("image to PDF · a file that cannot be decoded is refused when added", () => {
+  const png = (name: string, bytes: Uint8Array) =>
+    new File([new Uint8Array(bytes)], name, { type: "image/png" });
+  const whole = greyPng(8, 8);
+
+  it("a cut-off PNG and an animated PNG are named and left out; the good one stays", async () => {
+    const { container } = render(
+      withAppRouter(<ImageToPdfRunner kind="png" />),
+    );
+    fireEvent.change(container.querySelector('input[type="file"]')!, {
+      target: {
+        files: [
+          png("good.png", whole),
+          png("cut.png", whole.subarray(0, Math.floor(whole.length * 0.6))),
+          png("moving.png", animatedPng(whole)),
+        ],
+      },
+    });
+    await screen.findByText("good.png", undefined, { timeout: 4_000 });
+    const alert = await screen.findByText(
+      new RegExp(escape(undecodableImageMessage("cut.png", "png"))),
+    );
+    expect(alert.textContent).toContain(
+      undecodableImageMessage("moving.png", "png"),
+    );
+    // Not in the list: only the good image became a card.
+    expect(screen.queryByText("cut.png")).toBeNull();
+    expect(screen.queryByText("moving.png")).toBeNull();
+    // And Create PDF runs on what is left.
+    const pdf = await createAndDownload();
+    expect((await PDFDocument.load(pdf)).getPageCount()).toBe(1);
+  });
+});
+
+function escape(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

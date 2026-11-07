@@ -19,6 +19,7 @@ import { atStoredDpi, storedImageDpi } from "./image-density";
 import { sizeForLayout } from "./image-enlarge";
 import { pageSetupProblem } from "./image-page-custom";
 import { writeImageBookmarks } from "./image-bookmarks";
+import { undecodableImageMessage } from "./image-intake";
 import {
   turnedShape,
   unturnedBox,
@@ -578,9 +579,8 @@ async function addImagePage(
         ? await (await import("./png-embed")).embedPngAsStored(doc, bytes)
         : await embedRasterImage(doc, bytes, format, jpegOptions(options));
   } catch {
-    throw new PdfEngineError(
-      `"${file.name}" could not be decoded as a ${format === "jpg" ? "JPG" : "PNG"} image.`,
-    );
+    // The runner says the same as the file is added (`image-intake.ts`).
+    throw new PdfEngineError(undecodableImageMessage(file.name, format));
   }
   // Lay the image out as the browser SHOWED it: a portrait phone photo is
   // stored as landscape pixels plus an EXIF turn, and the preview is upright.

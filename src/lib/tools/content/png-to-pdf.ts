@@ -16,6 +16,7 @@ import { imageDefaultPaperCopy } from "@/lib/tools/tool-facts";
 import { inches } from "@/lib/pdf/page-geometry";
 import { IMAGE_ROTATION_LABELS } from "@/lib/pdf/image-rotation";
 import { IGNORED_DPI_COPY } from "@/lib/pdf/image-density";
+import { undecodableImageMessage } from "@/lib/pdf/image-intake";
 import {
   CUSTOM_PAGE_COPY,
   CUSTOM_PAGE_LABELS,
@@ -33,6 +34,9 @@ import {
 
 /** The card button that turns one image (audit png-to-pdf#2). */
 const ROTATE = IMAGE_ROTATION_LABELS.button;
+
+/** The add-time refusal of an undecodable image (audit png-to-pdf#8). */
+const UNDECODABLE_PNG = undecodableImageMessage("chart.png", "png");
 
 /** Small images and its two chips (audit png-to-pdf#4), as the runner says. */
 const SMALL = SMALL_IMAGES_LABELS.heading;
@@ -168,6 +172,11 @@ const LIMIT_MET = limitOutcome({
  *    #10), history kept: for a PNG the parser is src/lib/pdf/png-embed.ts,
  *    not pdf-lib; it refuses the same two cases (a 2-frame APNG, a cut-off
  *    or damaged PNG) with the same "could not be decoded" message.
+ *    SUPERSEDED 2026-11-08 (audit png-to-pdf#8), history kept: the runner
+ *    now embeds each PNG and JPG into a throwaway document AS IT IS ADDED
+ *    (src/lib/pdf/image-intake.ts), so those two are refused at pick time
+ *    in the engine's words; the FAQ "Why did Create PDF fail on a file it
+ *    accepted?" became "Why was a PNG I added turned away?".
  *  - The option lists are derived from the chip tables; the default page
  *    words are held to the engine by claims-vs-capability.test.ts.
  *  - MAX FILE SIZE, since 2026-10-31 (src/lib/pdf/image-size-limit.ts): with
@@ -213,7 +222,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your PNG files",
-      body: `Drag PNGs onto the box reading "Drop PNG images here, or browse", or click anywhere in it to open your file picker; JPG photos are accepted too, and so are WebP, GIF, BMP and TIFF images; a multi-page TIFF fills one page per TIFF page. Files added later join the end of the list. A file that is left out gets a note naming it and the reason: "Choose PNG, JPG, WebP, GIF, BMP or TIFF images." for another type, "File is empty." for a zero-byte file, "Max ${MAX_IMAGE_MB} MB per image." for one that is too big, "Could not read this file — pick it again." when the file cannot be read, and a note naming the real format, such as "chart.png" is an AVIF image., when its contents are none of those. A TIFF can also be turned away by page, with a note naming it, such as ${TIFF_TOO_LARGE}`,
+      body: `Drag PNGs onto the box reading "Drop PNG images here, or browse", or click anywhere in it to open your file picker; JPG photos are accepted too, and so are WebP, GIF, BMP and TIFF images; a multi-page TIFF fills one page per TIFF page. Files added later join the end of the list. A file that is left out gets a note naming it and the reason: "Choose PNG, JPG, WebP, GIF, BMP or TIFF images." for another type, "File is empty." for a zero-byte file, "Max ${MAX_IMAGE_MB} MB per image." for one that is too big, "Could not read this file — pick it again." when the file cannot be read, and a note naming the real format, such as "chart.png" is an AVIF image., when its contents are none of those. A PNG or JPG is also tried the way Create PDF will use it, so a PNG that is cut off, damaged or animated (more than one frame) is turned away with a note naming it, such as ${UNDECODABLE_PNG} A TIFF can also be turned away by page, with a note naming it, such as ${TIFF_TOO_LARGE}`,
     },
     {
       title: "Arrange the image order",
@@ -225,7 +234,7 @@ const content: ToolContent = {
     },
     {
       title: "Press Create PDF",
-      body: "The button reads Creating PDF… while your browser builds one page per image in the order shown. An image that cannot be decoded halts the whole run, and the error names that file; remove it and press Create PDF again.",
+      body: "The button reads Creating PDF… while your browser builds one page per image in the order shown. A PNG or JPG that cannot be decoded was already turned away when you added it. A damaged TIFF page, or a WebP, GIF or BMP your browser cannot decode, still halts the whole run, and the error names that file; remove it and press Create PDF again.",
     },
     {
       title: "Save the PDF",
@@ -250,8 +259,8 @@ const content: ToolContent = {
       a: "Yes. This page also takes JPG and JPEG photos, so screenshots and photos can go into one PDF in a single pass, each on its own page in the order you set. PNGs are stored losslessly. A JPG keeps its original JPEG data and is not compressed again; only a rotation recorded in its EXIF data is applied, so a phone photo stands upright.",
     },
     {
-      q: "Why did Create PDF fail on a file it accepted?",
-      a: 'Adding a file checks its name, its size and the first bytes of its contents, so a file whose contents are not a PNG, JPG, WebP, GIF, BMP or TIFF is turned away as you add it, even when it is named .png, and a JPEG or WebP saved with a .png name is accepted and placed as what it really is. What that check cannot see is an animated PNG with more than one frame, or a damaged image whose first bytes look right: it gets into the list and then fails with "could not be decoded as a PNG image" (or "as a JPG image"), which stops the whole PDF. Remove the file the message names and run it again. A TIFF is checked further when you add it, page by page, for its size and the way it is stored; a damaged TIFF page stops Create PDF with a note naming the page.',
+      q: "Why was a PNG I added turned away?",
+      a: `Adding a file checks its name, its size and the first bytes of its contents, so a file whose contents are not a PNG, JPG, WebP, GIF, BMP or TIFF is turned away as you add it, even when it is named .png, and a JPEG or WebP saved with a .png name is accepted and placed as what it really is. A PNG or JPG is then embedded once, into a throwaway copy, exactly as Create PDF will embed it: an animated PNG with more than one frame, or a damaged or cut-off image whose first bytes look right, fails there and is turned away with a note such as ${UNDECODABLE_PNG} The rest of your images stay in the list. A TIFF is checked further when you add it, page by page, for its size and the way it is stored; a damaged TIFF page still stops Create PDF with a note naming the page.`,
     },
     {
       q: "Are my images uploaded anywhere?",

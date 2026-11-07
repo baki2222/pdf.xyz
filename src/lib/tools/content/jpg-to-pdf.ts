@@ -19,6 +19,7 @@ import { imageDefaultPaperCopy } from "@/lib/tools/tool-facts";
 import { inches } from "@/lib/pdf/page-geometry";
 import { IMAGE_ROTATION_LABELS } from "@/lib/pdf/image-rotation";
 import { IGNORED_DPI_COPY } from "@/lib/pdf/image-density";
+import { undecodableImageMessage } from "@/lib/pdf/image-intake";
 import {
   CUSTOM_PAGE_COPY,
   CUSTOM_PAGE_LABELS,
@@ -36,6 +37,9 @@ import {
 
 /** The card button that turns one image (audit png-to-pdf#2). */
 const ROTATE = IMAGE_ROTATION_LABELS.button;
+
+/** The add-time refusal of an undecodable image (audit png-to-pdf#8). */
+const UNDECODABLE_JPG = undecodableImageMessage("photo.jpg", "jpg");
 
 /** Small images and its two chips (audit jpg-to-pdf#4), as the runner says. */
 const SMALL = SMALL_IMAGES_LABELS.heading;
@@ -274,7 +278,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your JPG images",
-      body: `Drop JPG or JPEG files (PNG works too) onto the box that reads "Drop JPG images here, or browse", or click it to pick them. The box stays on the page, so you can add more in several goes. WebP, GIF, BMP and TIFF files are taken as well. An alert below the box names each file it turns away: "Choose PNG, JPG, WebP, GIF, BMP or TIFF images." for another type, "File is empty." for a zero-byte file, "Max ${MAX_IMAGE_MB} MB per image." for one that is too big, "Could not read this file — pick it again." when the file cannot be read, and a note naming the real format, such as "photo.jpg" is an AVIF image., when a file's contents are none of those. A TIFF can also be turned away by page, with a note naming it, such as ${TIFF_TOO_LARGE}`,
+      body: `Drop JPG or JPEG files (PNG works too) onto the box that reads "Drop JPG images here, or browse", or click it to pick them. The box stays on the page, so you can add more in several goes. WebP, GIF, BMP and TIFF files are taken as well. An alert below the box names each file it turns away: "Choose PNG, JPG, WebP, GIF, BMP or TIFF images." for another type, "File is empty." for a zero-byte file, "Max ${MAX_IMAGE_MB} MB per image." for one that is too big, "Could not read this file — pick it again." when the file cannot be read, and a note naming the real format, such as "photo.jpg" is an AVIF image., when a file's contents are none of those. A JPG or PNG is also tried the way Create PDF will use it, so one whose image data cannot be read, such as a PNG cut off halfway or an animated PNG, is turned away with a note naming it, such as ${UNDECODABLE_JPG} A TIFF can also be turned away by page, with a note naming it, such as ${TIFF_TOO_LARGE}`,
     },
     {
       title: "Set the page order",
@@ -286,7 +290,7 @@ const content: ToolContent = {
     },
     {
       title: "Press Create PDF",
-      body: 'The button changes to Creating PDF… while the pages are built on your device. Each file\'s contents were already checked when you added it, so a PNG saved with a .jpg name simply goes in as a PNG. A file whose image data cannot be read stops the run with a message naming it, such as "photo.jpg" could not be decoded as a JPG image. A damaged TIFF page stops it the same way, naming the page, such as "scan.tif" page 2 is damaged and could not be read.',
+      body: 'The button changes to Creating PDF… while the pages are built on your device. Each file\'s contents were already checked when you added it, so a PNG saved with a .jpg name simply goes in as a PNG, and a JPG or PNG that cannot be decoded never reached the list. A damaged TIFF page still stops the run, naming the page, such as "scan.tif" page 2 is damaged and could not be read.',
     },
     {
       title: "Download the PDF",

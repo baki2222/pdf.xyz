@@ -22,6 +22,7 @@ import {
   MIN_CUSTOM_PAGE_PT,
 } from "@/lib/pdf/image-page-custom";
 import { IMAGE_PAGE_OPTIONS_FACT } from "./tool-facts";
+import { undecodableImageMessage } from "@/lib/pdf/image-intake";
 import {
   IMAGE_BOOKMARKS_CHOICES,
   IMAGE_BOOKMARKS_LABELS,
@@ -96,6 +97,23 @@ describe.each([
       `${IMAGE_BOOKMARKS_LABELS.heading} chooses None or ${perImage.label}`,
     );
     expect(all).toMatch(/in One PDF of two or more/);
+  });
+
+  it("says an undecodable JPG or PNG is turned away as it is added, in the runner's words", () => {
+    // image-to-pdf-options.test.tsx adds a cut-off and an animated PNG and
+    // reads these words in the alert; image-intake.test.ts holds the engine.
+    const add = content.steps[0]!.body;
+    expect(add).toMatch(/could not be decoded as a (PNG|JPG) image\./);
+    expect(add).toContain(
+      _slug === "png-to-pdf"
+        ? undecodableImageMessage("chart.png", "png")
+        : undecodableImageMessage("photo.jpg", "jpg"),
+    );
+    // INVERTED 2026-11-08: the PNG page answered "Why did Create PDF fail
+    // on a file it accepted?" with the case this check now refuses.
+    expect(content.faqs.map((f) => f.q)).not.toContain(
+      "Why did Create PDF fail on a file it accepted?",
+    );
   });
 
   it("no longer sends a sideways image to Rotate PDF after the fact", () => {

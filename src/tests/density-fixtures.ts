@@ -110,3 +110,20 @@ export function jpegWithExifResolution(dpi: number, unit = 2): Uint8Array {
   const payload = Buffer.concat([Buffer.from("Exif\0\0", "latin1"), t]);
   return spliceAfterSoi(JPEG_30X20, segment(0xe1, payload));
 }
+
+/**
+ * `png` with an acTL chunk declaring `frames` frames right after IHDR: an
+ * animated PNG, which png-embed refuses (audit png-to-pdf#8).
+ */
+export function animatedPng(png: Uint8Array, frames = 2): Uint8Array {
+  const data = Buffer.alloc(8);
+  data.writeUInt32BE(frames, 0);
+  const ihdrEnd = 8 + 12 + 13;
+  return new Uint8Array(
+    Buffer.concat([
+      png.subarray(0, ihdrEnd),
+      chunk("acTL", data),
+      png.subarray(ihdrEnd),
+    ]),
+  );
+}
