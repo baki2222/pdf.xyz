@@ -220,7 +220,13 @@ function offenders(): string[] {
 describe("a page that says tick names a checkbox that exists", () => {
   it("health check: the checkbox labels are discovered from every component, wrappers included", () => {
     expect(CHECKBOXES.length).toBeGreaterThanOrEqual(7);
-    expect(CHECKBOXES.length).toBeLessThan(40);
+    // Ceiling raised 40 → 60 on 2026-11-08 at the w3 worker integration: the
+    // composed tree has 44, every one a real checkbox (members printed and
+    // read, not counted). Each lane added its own — Combine tables into one
+    // sheet, One sheet per page, Excel's sheet layout pair, Webpage to PDF's
+    // capture group, the OCR-first switches — and each stayed under 40 alone.
+    // The bound still catches a discovery bug that multiplies the set.
+    expect(CHECKBOXES.length).toBeLessThan(60);
     // Every checkbox resolved to at least one name, so none is invisible.
     expect(CHECKBOXES.filter((c) => c.labels.length === 0)).toEqual([]);
     // Positive controls: a plain <label>, a nested <span> label, and one
