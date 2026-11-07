@@ -19,9 +19,17 @@ import { imageDefaultPaperCopy } from "@/lib/tools/tool-facts";
 import { inches } from "@/lib/pdf/page-geometry";
 import { IMAGE_ROTATION_LABELS } from "@/lib/pdf/image-rotation";
 import { IGNORED_DPI_COPY } from "@/lib/pdf/image-density";
+import {
+  SMALL_IMAGES_CHOICES,
+  SMALL_IMAGES_LABELS,
+} from "@/lib/pdf/image-enlarge";
 
 /** The card button that turns one image (audit png-to-pdf#2). */
 const ROTATE = IMAGE_ROTATION_LABELS.button;
+
+/** Small images and its two chips (audit jpg-to-pdf#4), as the runner says. */
+const SMALL = SMALL_IMAGES_LABELS.heading;
+const [KEEP_SIZE, ENLARGE] = SMALL_IMAGES_CHOICES.map((c) => c.label);
 import {
   MAX_TIFF_PAGES,
   MAX_TIFF_PAGE_PIXELS,
@@ -218,7 +226,7 @@ const content: ToolContent = {
   metaDescription: `Turn ${or(SNIPPET_FORMATS)} images and photos into one PDF in your browser, not uploaded. Pick the page size and margin. Up to ${MAX_IMAGE_MB} MB each.`,
   intro: [
     "JPG to PDF takes a batch of JPG or JPEG photos and builds a single PDF with one image on each page. You add the pictures, put them in the order you want, and press Create PDF. The assembly happens inside this browser tab: your photos are read from your device, laid onto pages there, and the finished PDF is saved when you press Download PDF. The images are not uploaded to pdf.xyz.",
-    `Unless you change the page setup, each photo goes on a white, portrait page, centred inside a ${DEFAULT_MARGIN} margin, and the page is ${DEFAULT_PAPER}. Before you create the PDF you can pick the page size (${SIZES}), the orientation (${ORIENTATIONS}) and the margin (${MARGINS}). Auto turns the page sideways for a photo that is wider than it is tall, and Fit to image makes each page the size of its photo plus the margin: at the resolution saved in the file when it states one, so a 300 dpi scan of an A4 sheet saved as a JPEG becomes an A4 page, and at one point per pixel when it does not. A stated ${IGNORED_DPI_COPY}, counts as none. On every page size a photo is shrunk only if it is too big to fit; one that already fits is never enlarged, so a low-resolution picture can look small in the middle of an A4 page.`,
+    `Unless you change the page setup, each photo goes on a white, portrait page, centred inside a ${DEFAULT_MARGIN} margin, and the page is ${DEFAULT_PAPER}. Before you create the PDF you can pick the page size (${SIZES}), the orientation (${ORIENTATIONS}) and the margin (${MARGINS}). Auto turns the page sideways for a photo that is wider than it is tall, and Fit to image makes each page the size of its photo plus the margin: at the resolution saved in the file when it states one, so a 300 dpi scan of an A4 sheet saved as a JPEG becomes an A4 page, and at one point per pixel when it does not. A stated ${IGNORED_DPI_COPY}, counts as none. On every page size a photo is shrunk only if it is too big to fit. One that already fits keeps its size, so a low-resolution picture can look small in the middle of an A4 page, unless you choose ${ENLARGE} under ${SMALL}: then it is scaled up until it meets the margin, softer the more it grows because no pixels are added.`,
     `With ${LIMIT} left at ${NO_LIMIT}, the JPEG image data is copied into the PDF as it is rather than re-encoded, so there is no second round of compression and the PDF ends up close to the combined size of your photos. If an upload form caps the size, choose ${LIMIT} (${LIMIT_PRESETS}, or a number of KB of your own): when the PDF comes out bigger, your browser saves the photos again at a lower quality and pixel size until it fits, and tells you the size it reached. A single photo may be as large as ${MAX_IMAGE_MB} MB. PNG images, transparent ones included, can go into the same PDF, and any transparent areas come out white. WebP, GIF and BMP images can go in too: your browser decodes each one and it is saved into the PDF again, as a high-quality JPEG when it has no transparency and as a PNG when it does, so unlike a JPEG it is re-encoded. A GIF contributes its first frame only.`,
     "TIFF files go in too, including the multi-page TIFFs that scanners and fax software write: every page of the TIFF becomes a page of the PDF, in order, and black-and-white fax pages (CCITT Group 4) are read as well as colour ones. The TIFF is read in this tab, like everything else here, and its pages are stored without loss rather than turned into JPEGs. Each page keeps the size it had on paper, from the resolution saved in the TIFF, so under Fit to image a 300 dpi A4 scan becomes an A4 page.",
   ],
@@ -255,7 +263,7 @@ const content: ToolContent = {
     },
     {
       title: "Choose the page setup",
-      body: `Below the list, Page size, Orientation and Margin set how each page is laid out, ${LIMIT} caps the size of the PDF, ${DETAILS} chooses ${REMOVE} or ${KEEP} for what your camera stored beside the pixels, and Output chooses One PDF or One PDF per image, which with more than one image arrives as a ZIP. Left alone they give the usual layout: ${WORLD_SIZE} (${LETTER_SIZE} in a country that uses Letter paper), portrait, a ${DEFAULT_MARGIN} margin, photo details removed, ${NO_LIMIT.toLowerCase()} on size, one PDF. Orientation does not apply to Fit to image, whose pages already take each photo's shape. With One PDF per image, a ${LIMIT} applies to each PDF on its own.`,
+      body: `Below the list, Page size, Orientation and Margin set how each page is laid out, ${SMALL} chooses ${KEEP_SIZE} or ${ENLARGE} for a photo smaller than the paper, ${LIMIT} caps the size of the PDF, ${DETAILS} chooses ${REMOVE} or ${KEEP} for what your camera stored beside the pixels, and Output chooses One PDF or One PDF per image, which with more than one image arrives as a ZIP. Left alone they give the usual layout: ${WORLD_SIZE} (${LETTER_SIZE} in a country that uses Letter paper), portrait, a ${DEFAULT_MARGIN} margin, small photos kept at their size, photo details removed, ${NO_LIMIT.toLowerCase()} on size, one PDF. Orientation and ${SMALL} do not apply to Fit to image, whose pages already take each photo's shape and size. With One PDF per image, a ${LIMIT} applies to each PDF on its own.`,
     },
     {
       title: "Press Create PDF",

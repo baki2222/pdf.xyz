@@ -1327,7 +1327,10 @@ describe("the converters' pages describe the page they produce", () => {
       )!.answer;
       expect(answer).toContain(US_LETTER_LABEL);
       expect(answer).toContain(`${inches(IMAGE_PAGE_MARGIN_PT)} in margin`);
-      expect(answer).toMatch(/never enlarged/);
+      // INVERTED 2026-11-08 (audits jpg-to-pdf#4 / png-to-pdf#4): this
+      // matched /never enlarged/. The default still never enlarges (the
+      // 1 0 0 1 matrix above); the answer now names the choice that does.
+      expect(answer).toMatch(/smaller ones keep their own size unless/);
     }
     expect(
       page("png-to-pdf").faq.find((e) => /transparent/.test(e.question))!

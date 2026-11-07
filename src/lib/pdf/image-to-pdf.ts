@@ -16,6 +16,7 @@ import {
 } from "./image-page-layout";
 import { stripJpegMetadata } from "./jpeg-metadata";
 import { atStoredDpi, storedImageDpi } from "./image-density";
+import { sizeForLayout } from "./image-enlarge";
 import {
   turnedShape,
   unturnedBox,
@@ -439,7 +440,9 @@ async function drawImagePage(
   orientation?: ExifOrientation,
   turn: ImageQuarterTurn = 0,
 ): Promise<void> {
-  const seen = turnedShape(shown, turn);
+  // "Enlarge to fit" on a paper size hands the layout an image too big for
+  // any page, which it then shrinks to the margin (`image-enlarge.ts`).
+  const seen = sizeForLayout(turnedShape(shown, turn), options);
   const layout = imagePageLayout(seen.width, seen.height, options);
   const page = doc.addPage([layout.pageWidth, layout.pageHeight]);
   page.drawRectangle({

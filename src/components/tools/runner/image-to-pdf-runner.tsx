@@ -41,6 +41,10 @@ import {
 } from "@/lib/pdf/image-page-layout";
 import { imagePageSizeForLocales } from "@/lib/pdf/image-page-defaults";
 import {
+  SMALL_IMAGES_CHOICES,
+  SMALL_IMAGES_LABELS,
+} from "@/lib/pdf/image-enlarge";
+import {
   IMAGE_ROTATION_LABELS,
   nextQuarterTurn,
   type ImageQuarterTurn,
@@ -719,6 +723,31 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
                 </ChipButton>
               ))}
             </div>
+          </RunnerSection>
+          {/* Audits jpg-to-pdf#4 / png-to-pdf#4: an image smaller than the
+              paper is kept at its size unless Enlarge to fit is chosen. */}
+          <RunnerSection title={SMALL_IMAGES_LABELS.heading}>
+            <div
+              role="group"
+              aria-label={SMALL_IMAGES_LABELS.heading}
+              className="flex flex-wrap gap-2"
+            >
+              {SMALL_IMAGES_CHOICES.map((c) => (
+                <ChipButton
+                  key={c.id}
+                  onClick={() => setPageOption({ smallImages: c.id })}
+                  disabled={busy || fitToImage}
+                  active={!fitToImage && c.id === (page.smallImages ?? "keep")}
+                >
+                  {c.label}
+                </ChipButton>
+              ))}
+            </div>
+            {fitToImage && (
+              <p className="text-muted text-xs">
+                {SMALL_IMAGES_LABELS.fitNote}
+              </p>
+            )}
           </RunnerSection>
           {/* Only a JPEG carries details the choice can act on: a PNG's
               chunks never reach the PDF (png-embed copies IDAT only), and a

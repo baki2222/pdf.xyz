@@ -133,6 +133,10 @@ import {
   WORLD_PAGE_SIZE,
 } from "@/lib/pdf/image-page-defaults";
 import {
+  SMALL_IMAGES_CHOICES,
+  SMALL_IMAGES_LABELS,
+} from "@/lib/pdf/image-enlarge";
+import {
   MARKDOWN_BLOCK_KINDS,
   type MarkdownBlockKind,
 } from "@/lib/pdf/markdown-blocks";
@@ -354,8 +358,15 @@ const DEFAULT_IMAGE_ORIENTATION = IMAGE_ORIENTATIONS.find(
  */
 export const IMAGE_PAGE_OPTIONS_FACT = `Page size: ${orJoin(IMAGE_PAGE_SIZES.map((s) => s.label))}. Orientation: ${orJoin(IMAGE_ORIENTATIONS.map((o) => o.label))} (Auto turns the page for a wide image). Margin: ${orJoin(IMAGE_MARGINS.map((m) => (m.points > 0 ? `${m.label} (${inches(m.points)} in)` : m.label)))}.`;
 
-/** Image to PDF's page, as the engine lays it out. */
-export const IMAGE_PAGE_FACT = `Each image goes on its own page, centred. Unless you change the page setup, that page is ${DEFAULT_IMAGE_ORIENTATION} with a ${inches(imageMarginPoints(DEFAULT_IMAGE_PAGE_OPTIONS.margin))} in margin, and its size is ${DEFAULT_IMAGE_SIZE}. Larger images are scaled down to fit; smaller ones are never enlarged. Fit to image makes each page the size of its image instead, plus the margin.`;
+/** "Enlarge to fit" under "Small images": the runner's own labels. */
+const ENLARGE_CHOICE = SMALL_IMAGES_CHOICES.find((c) => c.id === "enlarge")!;
+
+/**
+ * Image to PDF's page, as the engine lays it out. "smaller ones are never
+ * enlarged" until 2026-11-08 (audits jpg-to-pdf#4 / png-to-pdf#4), when the
+ * Small images choice arrived; it is still the default.
+ */
+export const IMAGE_PAGE_FACT = `Each image goes on its own page, centred. Unless you change the page setup, that page is ${DEFAULT_IMAGE_ORIENTATION} with a ${inches(imageMarginPoints(DEFAULT_IMAGE_PAGE_OPTIONS.margin))} in margin, and its size is ${DEFAULT_IMAGE_SIZE}. Larger images are scaled down to fit; smaller ones keep their own size unless you choose ${ENLARGE_CHOICE.label} under ${SMALL_IMAGES_LABELS.heading}, which scales them up to the margin. Fit to image makes each page the size of its image instead, plus the margin.`;
 
 /**
  * JPG / PNG to PDF's TIFF input (2026-11-04), from the reader's own leaf

@@ -93,12 +93,21 @@ export const PHOTO_DETAILS_CHOICES: readonly {
   { id: "keep", label: "Keep" },
 ];
 
+/**
+ * Whether an image smaller than the paper is scaled up to the margin
+ * (`image-enlarge.ts`, which holds the labels and the rule, so this module
+ * — on OCR PDF's first load — carries the type alone). Absent reads as
+ * "keep": placed at its own size, as every image always was.
+ */
+export type SmallImagesId = "keep" | "enlarge";
+
 export interface ImagePageOptions {
   pageSize: ImagePageSizeId;
   orientation: ImageOrientationId;
   margin: ImageMarginId;
   /** Absent reads as "remove": the private choice is the default. */
   photoDetails?: PhotoDetailsId;
+  smallImages?: SmallImagesId;
 }
 
 /**

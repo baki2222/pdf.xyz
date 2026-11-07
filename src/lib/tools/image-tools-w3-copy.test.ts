@@ -9,6 +9,12 @@ import {
   PLACEHOLDER_DPIS,
 } from "@/lib/pdf/image-density";
 import { guides } from "@/lib/guides/catalog";
+import {
+  SMALL_IMAGES_CHOICES,
+  SMALL_IMAGES_LABELS,
+} from "@/lib/pdf/image-enlarge";
+
+const ENLARGE = SMALL_IMAGES_CHOICES.find((c) => c.id === "enlarge")!.label;
 
 /*
  * The claims JPG / PNG to PDF's pages make about the wave-3 controls (audit
@@ -44,6 +50,17 @@ describe.each([
     // INVERTED 2026-11-08: the PNG page said "Any DPI value stored inside
     // the PNG is ignored", and the JPG source that its DPI "is not read".
     expect(text(content)).not.toMatch(/DPI value stored[^.]*ignored/i);
+  });
+
+  it("names Enlarge to fit under Small images, and the default it leaves alone", () => {
+    // image-enlarge.test.ts: Enlarge to fit meets the margin; the default
+    // keeps a 30 x 20 image at 30 x 20.
+    expect(text(content)).toContain(
+      `unless you choose ${ENLARGE} under ${SMALL_IMAGES_LABELS.heading}`,
+    );
+    expect(text(content)).toMatch(/small (images|photos) kept at their size/);
+    // INVERTED 2026-11-08: "never enlarged" was true while no choice existed.
+    expect(text(content)).not.toMatch(/never enlarged/);
   });
 
   it("no longer sends a sideways image to Rotate PDF after the fact", () => {

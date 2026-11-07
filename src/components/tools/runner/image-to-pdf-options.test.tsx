@@ -12,13 +12,19 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { PDFDocument } from "pdf-lib";
 import { resetAnnouncer } from "@/components/a11y/live-region";
-import { apply, drawnImages } from "@/tests/drawn-images";
+import { apply, boxOf, drawnImages } from "@/tests/drawn-images";
 import { JPEG_30X20, JPEG_HEIGHT, JPEG_WIDTH } from "@/tests/jpeg-fixtures";
 import { withAppRouter } from "@/tests/app-router";
 import { IMAGE_ROTATION_LABELS } from "@/lib/pdf/image-rotation";
+import {
+  SMALL_IMAGES_CHOICES,
+  SMALL_IMAGES_LABELS,
+} from "@/lib/pdf/image-enlarge";
+
 import { ImageToPdfRunner } from "./image-to-pdf-runner";
 
 const URL_STATICS = ["createObjectURL", "revokeObjectURL"] as const;
@@ -126,5 +132,46 @@ describe("image to PDF · Rotate on a card", () => {
     fireEvent.click(rotate);
     fireEvent.click(rotate);
     expect(screen.queryByText(/°/)).toBeNull();
+  });
+});
+
+/** Audits jpg-to-pdf#4 / png-to-pdf#4: Small images, Keep size or Enlarge. */
+describe("image to PDF · Small images", () => {
+  const group = () =>
+    screen.getByRole("group", { name: SMALL_IMAGES_LABELS.heading });
+  const chip = (id: string) =>
+    within(group()).getByRole("button", {
+      name: SMALL_IMAGES_CHOICES.find((c) => c.id === id)!.label,
+    });
+  const imageWidth = async (pdf: Uint8Array) => {
+    const b = boxOf((await drawnImages(pdf))[0]!.ctm);
+    return b.x1 - b.x0;
+  };
+
+  it("starts on Keep size, and the small photo stays its own size", async () => {
+    await mount([jpeg("small.jpg")]);
+    fireEvent.click(screen.getByRole("button", { name: "A4" }));
+    expect(chip("keep")).toHaveAttribute("aria-pressed", "true");
+    expect(await imageWidth(await createAndDownload())).toBeCloseTo(
+      JPEG_WIDTH,
+      6,
+    );
+  });
+
+  it("Enlarge to fit scales the photo up to the margin in the downloaded PDF", async () => {
+    await mount([jpeg("small.jpg")]);
+    fireEvent.click(screen.getByRole("button", { name: "A4" }));
+    fireEvent.click(chip("enlarge"));
+    expect(chip("enlarge")).toHaveAttribute("aria-pressed", "true");
+    const pdf = await createAndDownload();
+    const page = (await PDFDocument.load(pdf)).getPage(0).getSize();
+    expect(await imageWidth(pdf)).toBeGreaterThan(page.width / 2);
+  });
+
+  it("is switched off, with a note, under Fit to image", async () => {
+    await mount([jpeg("small.jpg")]);
+    fireEvent.click(screen.getByRole("button", { name: "Fit to image" }));
+    expect(chip("enlarge")).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByText(SMALL_IMAGES_LABELS.fitNote)).toBeInTheDocument();
   });
 });

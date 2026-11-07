@@ -221,6 +221,8 @@ export function copyFiles(): string[] {
     // Which stored resolutions Fit to image ignores (2026-11-08, audits
     // jpg-to-pdf#4 / png-to-pdf#4).
     path.join(ROOT, "src", "lib", "pdf", "image-density.ts"),
+    // Small images: Keep size / Enlarge to fit (2026-11-08).
+    path.join(ROOT, "src", "lib", "pdf", "image-enlarge.ts"),
     // What UTIF's require("pako") resolves to in the browser bundle
     // (2026-11-04): one error sentence, thrown only if UTIF's Deflate path
     // is ever reached.

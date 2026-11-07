@@ -98,6 +98,7 @@ describe("the copy surface reaches what the guards must read", () => {
       // Added 2026-11-08: JPG / PNG to PDF's wave-3 controls (lane w3-l05).
       "src/lib/pdf/image-rotation.ts",
       "src/lib/pdf/image-density.ts",
+      "src/lib/pdf/image-enlarge.ts",
       "src/lib/pdf/image-reencode.ts",
       "src/lib/pdf/offered-kinds.ts",
       "src/lib/pdf/overlay.ts",
