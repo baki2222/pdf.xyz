@@ -139,7 +139,7 @@ import {
   previewPageNumber,
   type NumberStyle,
 } from "@/lib/pdf/page-numbers";
-import { MERGE_MODE_LABEL } from "@/lib/pdf/merge-order";
+import { MERGE_MODE_LABEL, MERGE_SORT_LABEL } from "@/lib/pdf/merge-order";
 import {
   DECODED_IMAGE_LABELS,
   REFUSED_IMAGE_LABELS,
@@ -810,6 +810,7 @@ export const guides: Guide[] = [
         body: [
           "The merged document is built from your list, top to bottom: the first file in the list becomes the first pages of the output, and every file after it is appended in sequence. Drag files into position to set that order, or use the move buttons on each row if you prefer clicking to dragging.",
           "It is worth a final glance at the list before you merge. Reordering happens before the merge runs, so arranging the list correctly the first time saves you a second pass. If you want finer control after the fact, Organize Pages lets you reorder, rotate, duplicate, and delete pages on a visual page board.",
+          `Scans and statements often have names that say nothing about when they were made. ${MERGE_SORT_LABEL["modified-asc"]} and ${MERGE_SORT_LABEL["modified-desc"]}, beside the name sorts, order the list by each file's last-modified date instead, as your browser reports it; files with the same date keep the order you added them in.`,
         ],
       },
       {

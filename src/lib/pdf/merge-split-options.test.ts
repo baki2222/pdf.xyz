@@ -21,7 +21,7 @@ import {
   parseRanges,
   rangesFromStarts,
 } from "./ranges";
-import { sortMergeItems } from "./merge-order";
+import { MERGE_SORTS, sortMergeItems } from "./merge-order";
 import {
   makeStructuredPdf,
   STRUCTURED_FIELD_VALUE,
@@ -345,6 +345,26 @@ describe("merge: sort", () => {
       "A-cover.pdf",
     ]);
   });
+  it("Oldest first and Newest first order by the file's last-modified time (audit merge-pdf#7)", () => {
+    // Scans and monthly statements whose names carry no date: when they
+    // were made is the only order that matches.
+    const dated = [
+      { name: "scan.pdf", seq: 0, modified: 3_000 },
+      { name: "scan (1).pdf", seq: 1, modified: 1_000 },
+      { name: "scan (2).pdf", seq: 2, modified: 2_000 },
+      { name: "same-time.pdf", seq: 3, modified: 2_000 },
+    ];
+    expect(MERGE_SORTS).toContain("modified-asc");
+    expect(MERGE_SORTS).toContain("modified-desc");
+    expect(sortMergeItems(dated, "modified-asc").map((i) => i.seq)).toEqual([
+      1, 2, 3, 0,
+    ]);
+    // Ties keep the order the files were added, both ways.
+    expect(sortMergeItems(dated, "modified-desc").map((i) => i.seq)).toEqual([
+      0, 2, 3, 1,
+    ]);
+  });
+
   it("As added restores the order the files came in", () => {
     const shuffled = sortMergeItems(items, "name-desc");
     expect(sortMergeItems(shuffled, "added").map((i) => i.seq)).toEqual([

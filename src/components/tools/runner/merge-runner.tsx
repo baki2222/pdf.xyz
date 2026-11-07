@@ -75,6 +75,8 @@ interface MergeItem {
   cover: Thumbnail | null;
   /** Where it came in the drop: "Keep drop order" sorts by this. */
   seq: number;
+  /** The file's last-modified time (ms), for "Oldest first" / "Newest first". */
+  modified: number;
   /** The pages to take, as typed ("1-3, 5"); empty takes every page. */
   range: string;
   /** Alternate pages only: take this file's pages last first. */
@@ -222,6 +224,7 @@ export function MergeRunner() {
               pageCount,
               cover: null,
               seq: seqOf.get(file) ?? 0,
+              modified: file.lastModified,
               range: "",
               reverse: false,
             },

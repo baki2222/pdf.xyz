@@ -156,4 +156,26 @@ describe("merge-pdf: the options reach the downloaded file", () => {
     // Named as the bookmarks are: the file name without its .pdf ending.
     expect(pages.map((p) => p.text.trim())).toEqual(["exhibit-a", "exhibit-b"]);
   }, 30_000);
+
+  it("'Oldest first' and 'Newest first' order the files by when they were last modified", async () => {
+    // Names carry no date, and the drop order is neither: only the files'
+    // own modified times put them in the order they were made.
+    await mountWith([
+      pdfFile(await pdfOfWidths([20]), "scan.pdf", Date.UTC(2026, 1, 1)),
+      pdfFile(await pdfOfWidths([10]), "scan (1).pdf", Date.UTC(2026, 0, 1)),
+      pdfFile(await pdfOfWidths([30]), "scan (2).pdf", Date.UTC(2026, 2, 1)),
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Oldest first" }));
+    expect((await mergeAndRead()).widths).toEqual([10, 20, 30]);
+  }, 30_000);
+
+  it("'Newest first' is the reverse", async () => {
+    await mountWith([
+      pdfFile(await pdfOfWidths([20]), "scan.pdf", Date.UTC(2026, 1, 1)),
+      pdfFile(await pdfOfWidths([10]), "scan (1).pdf", Date.UTC(2026, 0, 1)),
+      pdfFile(await pdfOfWidths([30]), "scan (2).pdf", Date.UTC(2026, 2, 1)),
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Newest first" }));
+    expect((await mergeAndRead()).widths).toEqual([30, 20, 10]);
+  }, 30_000);
 });

@@ -1,6 +1,12 @@
 import type { ToolContent } from "./types";
 import { MAX_PDF_BYTES } from "@/lib/pdf/files";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
+import { MERGE_SORTS, MERGE_SORT_LABEL } from "@/lib/pdf/merge-order";
+
+/** The Sort buttons, in the order and words the runner draws them. */
+const SORT_LABELS = new Intl.ListFormat("en", { type: "disjunction" }).format(
+  MERGE_SORTS.map((sort) => MERGE_SORT_LABEL[sort]),
+);
 
 /**
  * The size the merge runner refuses above. `MergeRunner.addFiles` calls
@@ -90,6 +96,12 @@ const linkMinutes = DEFAULT_RETENTION.outputTtlMinutes;
  * with "…" when too wide), at the bottom left of each page that file gives,
  * as a reader sees the page. Blank pads and contents pages carry none. Not
  * offered with Alternate pages.
+ *
+ * ADDED 2026-11-07 (audit merge-pdf#7; merge-order.ts, held in
+ * merge-split-options.test.ts and from the download in merge-runner.test.tsx):
+ * Sort "Oldest first" / "Newest first" order by File.lastModified, ties in
+ * the order added. The finding's other half, one page size for the whole
+ * merge, is not an option here: Resize PDF does it, in the browser, after.
  */
 const content: ToolContent = {
   slug: "merge-pdf",
@@ -131,7 +143,7 @@ const content: ToolContent = {
     },
     {
       title: "Put them in order",
-      body: "Drag a row, or press its up and down arrow buttons, which also work from the keyboard, or sort the whole list by Name A–Z, Name Z–A or As added. The top row supplies the opening pages; the X button removes a file. Page order stays at One after another unless you pick Alternate pages.",
+      body: `Drag a row, or press its up and down arrow buttons, which also work from the keyboard, or sort the whole list by ${SORT_LABELS}. ${MERGE_SORT_LABEL["modified-asc"]} and ${MERGE_SORT_LABEL["modified-desc"]} use each file's last-modified date, for scans whose names carry none. The top row supplies the opening pages; the X button removes a file. Page order stays at One after another unless you pick Alternate pages.`,
     },
     {
       title: "Pick pages and bookmarks (optional)",
