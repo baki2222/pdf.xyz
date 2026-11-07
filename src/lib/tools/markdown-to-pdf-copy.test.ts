@@ -179,6 +179,12 @@ describe("markdown-to-pdf: the page describes what the renderer draws", () => {
     "Strikethrough markers are removed without drawing a line, raw HTML prints literally, and task-list boxes print as [ ] or [x].",
     "A badge prints as its alt text followed by the image and link addresses, a screenshot with no alt text as its bare address, and any HTML in the README as literal tags.",
     "Numbered lists keep the numbers you typed.",
+    // Audit markdown-to-pdf#6 (2026-11-08): inline styling and clickable
+    // links are drawn now.
+    "Inline bold, italics and backtick code are flattened into plain body text.",
+    "A link prints as its label followed by the address in parentheses and is not clickable.",
+    "Bold and italics print as plain text, and a link keeps its address in parentheses.",
+    "Bold and italic print as plain text, links print as the label with its URL, and images as their alt text and URL.",
     "Besides the tool's own code, the only other thing it may fetch is Noto font data from pdf.xyz's own server, when your text or file name goes beyond the Western European set: usually one file, from 137.8 KB for Bengali to 10.1 MB for Chinese, and a second only if the first cannot shape every character.",
   ];
   const BANNED: RegExp[] = [
@@ -202,6 +208,9 @@ describe("markdown-to-pdf: the page describes what the renderer draws", () => {
     // Raw HTML said to print as typed, and lazy numbering said to be kept.
     /\bHTML\b[^.]*\bliteral(?:ly)?\b/i,
     /\bnumbers you typed\b/i,
+    // Inline styling said to be dropped, and links said not to open.
+    /\b(?:bold|italics?)\b[^.]*\b(?:plain (?:body )?text|flattened)\b/i,
+    /\bnot clickable\b/i,
   ];
 
   it("the banned shapes and the sentences that shipped catch each other (both directions)", () => {

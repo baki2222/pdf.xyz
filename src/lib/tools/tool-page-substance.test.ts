@@ -1569,8 +1569,14 @@ describe("the converters' pages describe the page they produce", () => {
     const answer = page("markdown-to-pdf").faq.find((e) =>
       /Which Markdown/.test(e.question),
     )!.answer;
-    expect(answer).toMatch(/Bold and italics print as plain text/);
-    expect(answer).toMatch(/address in parentheses/);
+    // INVERTED 2026-11-08 (audit markdown-to-pdf#6): this matched "Bold and
+    // italics print as plain text", true until the renderer drew styled runs
+    // and clickable links (markdown-runs.test.ts reads both from the PDF).
+    expect(answer).toMatch(
+      /bold, italics and backtick code are set in their own faces/,
+    );
+    expect(answer).not.toMatch(/Bold and italics print as plain text/);
+    expect(answer).toMatch(/address in parentheses and opens when clicked/);
     // The sentence that shipped until the merge, false once tables are drawn.
     expect(answer).not.toMatch(/\btables?\b[^.]*\bplain text\b/i);
     const guideAnswer = guides

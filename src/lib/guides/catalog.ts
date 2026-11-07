@@ -2301,7 +2301,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-09-28",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-redact-a-pdf",

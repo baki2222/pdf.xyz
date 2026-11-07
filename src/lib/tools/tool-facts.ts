@@ -137,6 +137,7 @@ import {
   type MarkdownBlockKind,
 } from "@/lib/pdf/markdown-blocks";
 import { HEADING_SIZE_RATIO } from "@/lib/pdf/pdf-to-markdown";
+import { PDF_LINK_SCHEMES } from "@/lib/pdf/markdown-runs";
 import {
   MAX_TIFF_PAGES,
   MAX_TIFF_PAGE_PIXELS,
@@ -387,12 +388,16 @@ const MARKDOWN_BLOCK_PHRASE: Record<MarkdownBlockKind, string> = {
  * It said "Tables, bold, italics and links print as plain text" until the
  * merge with L09 (20ba6ce), which draws GFM tables as a grid and horizontal
  * rules as rules; both joined the renderer's union and, through the compile
- * check, this list.
+ * check, this list. Until 2026-11-08 (audit markdown-to-pdf#6) it said "Bold
+ * and italics print as plain text"; the renderer now draws styled runs and
+ * link annotations (`markdown-runs.ts`), and the schemes a link opens for are
+ * read off PDF_LINK_SCHEMES.
  */
 export const MARKDOWN_SYNTAX_FACT = (() => {
   const names = MARKDOWN_BLOCK_KINDS.map((k) => MARKDOWN_BLOCK_PHRASE[k]);
   const list = `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
-  return `${list[0]!.toUpperCase()}${list.slice(1)}. Bold and italics print as plain text, and a link keeps its address in parentheses.`;
+  const schemes = PDF_LINK_SCHEMES.map((s) => s.slice(0, -1));
+  return `${list[0]!.toUpperCase()}${list.slice(1)}. In paragraphs, list items and quotes, bold, italics and backtick code are set in their own faces, and a link keeps its address in parentheses and opens when clicked if that address is ${schemes.slice(0, -1).join(", ")} or ${schemes.at(-1)}.`;
 })();
 
 /**
