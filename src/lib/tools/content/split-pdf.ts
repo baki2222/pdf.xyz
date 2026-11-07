@@ -130,7 +130,7 @@ const content: ToolContent = {
     },
     {
       title: "Fronts and backs of a double-sided scan",
-      body: "A scanner that feeds one side of a stack and then the other leaves the fronts on pages 1, 3, 5 and the backs on 2, 4, 6. Odd and even pages gives you each side as its own PDF in one run.",
+      body: "A duplex scanner reads each sheet's front and then its back, so the fronts land on pages 1, 3, 5 and the backs on 2, 4, 6. Odd and even pages gives you each side as its own PDF in one run.",
     },
     {
       title: "Overlapping handouts from one deck",

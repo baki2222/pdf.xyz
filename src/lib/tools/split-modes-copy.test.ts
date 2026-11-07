@@ -10,7 +10,13 @@
 import { describe, expect, it } from "vitest";
 import { SPLIT_MODES, SPLIT_MODE_LABEL } from "@/lib/pdf/offered-kinds";
 import { getToolBySlug } from "@/lib/tools";
-import { pageFaq, pageIntro, pageSteps, stepText } from "@/lib/tools/page-copy";
+import {
+  pageFaq,
+  pageIntro,
+  pageSteps,
+  pageUseCases,
+  stepText,
+} from "@/lib/tools/page-copy";
 import { buildSplitParts, oddEvenParts } from "@/lib/pdf/ranges";
 import { guides } from "@/lib/guides/catalog";
 
@@ -119,5 +125,75 @@ describe("Split PDF's file-name answer is what the code names the files", () => 
   it("it names the box that turns bookmark names off, and claims no single pattern", () => {
     expect(answer).toContain("Name each file after its bookmark");
     expect(answer).not.toMatch(/\bin every mode\b/i);
+  });
+});
+
+/**
+ * Review of b59c0bde (2026-11-07): the use case for Odd and even pages
+ * blamed the interleaving on "a scanner that feeds one side of a stack and
+ * then the other". That feed gives every front first and then every back
+ * (often reversed), which Odd and even pages would NOT separate. Fronts on
+ * 1, 3, 5 and backs on 2, 4, 6 come from a DUPLEX scanner, which reads each
+ * sheet's front and then its back. Any sentence that gives the scanner as
+ * the cause must say duplex, and none may describe a one-side-then-the-other
+ * feed.
+ */
+const ONE_SIDE_THEN_THE_OTHER =
+  /\bone side\b[^.]*\b(?:then|and then|followed by)\s+the other\b|\btwo[- ]pass\b/i;
+const SCANNER_CAUSE = /\bscanner\b/i;
+function wrongScanCause(sentence: string): boolean {
+  return (
+    ONE_SIDE_THEN_THE_OTHER.test(sentence) ||
+    (SCANNER_CAUSE.test(sentence) &&
+      /\b1, 3, 5\b/.test(sentence) &&
+      !/\bduplex\b/i.test(sentence))
+  );
+}
+
+describe("Split PDF says which scanner interleaves fronts and backs", () => {
+  const SHIPPED = [
+    "A scanner that feeds one side of a stack and then the other leaves the fronts on pages 1, 3, 5 and the backs on 2, 4, 6.",
+  ];
+  const SYNONYMS = [
+    "Scan one side of the stack, then the other, and the fronts land on 1, 3, 5.",
+    "A two-pass scan puts the fronts on odd pages.",
+  ];
+  const HONEST = [
+    // A guide sentence the first draft of this shape caught ("second pass").
+    "Reordering happens before the merge runs, so arranging the list correctly the first time saves you a second pass.",
+    "A duplex scanner reads each sheet's front and then its back, so the fronts land on pages 1, 3, 5 and the backs on 2, 4, 6.",
+    "Pages 1, 3, 5 and so on go into one file: the fronts of a double-sided scan.",
+  ];
+  it.each([...SHIPPED, ...SYNONYMS])("catches: %s", (s) => {
+    expect(wrongScanCause(s)).toBe(true);
+  });
+  it.each(HONEST)("passes: %s", (s) => {
+    expect(wrongScanCause(s)).toBe(false);
+  });
+
+  const guideCopy = guides
+    .filter((g) => g.tools.includes("split-pdf"))
+    .flatMap((g) => [
+      g.description,
+      ...g.intro,
+      ...g.steps,
+      ...g.sections.flatMap((x) => x.body),
+      ...g.faq.flatMap((f) => [f.question, f.answer]),
+    ]);
+  const copy = [
+    ...pageIntro(tool),
+    ...pageUseCases(tool).flatMap((u) => [u.title, u.body]),
+    ...steps,
+    ...pageFaq(tool).flatMap((f) => [f.question, f.answer]),
+    ...guideCopy,
+  ];
+  const sentences = copy.flatMap((t) => t.split(/(?<=[.!?])\s+/));
+
+  it("the use case names the scanner, and it is a duplex one", () => {
+    // Health: the subject exists, so "no wrong cause" is not vacuous.
+    const cause = sentences.filter((s) => SCANNER_CAUSE.test(s));
+    expect(cause.length).toBeGreaterThanOrEqual(1);
+    expect(cause.join(" ")).toMatch(/\bduplex\b/i);
+    expect(sentences.filter(wrongScanCause)).toEqual([]);
   });
 });
