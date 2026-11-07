@@ -37,6 +37,7 @@ import {
   PDFA_LEVEL_LABEL,
   type PdfALevelId,
 } from "@/lib/workers/pdf-archive/levels";
+import { PDFA_COLOUR_NOTE } from "@/lib/workers/pdf-archive/colour";
 
 /**
  * The status slot's reserved height (see `WorkerStatusSlot` and
@@ -207,6 +208,8 @@ function ArchiveRunArea({ refuse }: { refuse: PickRefusal }) {
         >
           {levelHint}
         </p>
+        {/* Audit pdf-to-pdfa#5: said before Run, not after the download. */}
+        <p className="text-muted text-xs leading-relaxed">{PDFA_COLOUR_NOTE}</p>
       </div>
       <WorkerGate
         reserve={STATUS_SLOT}

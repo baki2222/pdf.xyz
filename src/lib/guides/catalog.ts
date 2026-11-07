@@ -196,6 +196,7 @@ import {
   PDFA_LEVEL_NAMES,
 } from "@/lib/workers/pdf-archive/levels";
 import { CARRIED_DOCINFO_WORDS } from "@/lib/workers/pdf-archive/docinfo-words";
+import { PDFA_COLOUR_NOTE } from "@/lib/workers/pdf-archive/colour";
 import {
   PDFA_EXPECTED_CONFORMANCE,
   PDFA_EXPECTED_PART,
@@ -4972,6 +4973,7 @@ export const guides: Guide[] = [
         body: [
           "Some of what a PDF can carry has no place in PDF/A. Ghostscript is told to drop it and carry on rather than abandon the job, and what it reports while doing so is shown above your download in its own words, with any line that names a file path held back. The line you are most likely to meet ends in “discarding DOCINFO”: DOCINFO is the older place a PDF keeps its title, author and producer, and the notice is about the original's copy of it.",
           `Before Ghostscript runs, our server reads your PDF's ${CARRIED_DOCINFO_WORDS} and has Ghostscript write them into the PDF/A copy. A field is carried only when it uses plain letters, digits and Western European characters; one with curly quotes, dashes or another script is left out rather than altered. Open the copy's document properties to see what arrived.`,
+          PDFA_COLOUR_NOTE,
           "PDF/A also requires every font to be embedded. Where your original only names a font without carrying it, Ghostscript uses one from its own set; on our secure server, NimbusSans was seen standing in for Helvetica. The notes do not report that swap, so compare the copy with the original page by page before you rely on it.",
         ],
       },

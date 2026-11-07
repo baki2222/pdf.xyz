@@ -16,6 +16,7 @@ import {
 import { sanitizeNativeDiagnostics } from "../native-diagnostics";
 import { PDF_ARCHIVE_PASSWORD_PROBE_TIMEOUT_MS } from "./contract";
 import { pdfaLevelForStandard, type PdfALevel } from "./levels";
+import { PDFA_COLOUR_STRATEGY } from "./colour";
 import {
   docInfoPdfmark,
   readCarriedDocInfo,
@@ -320,7 +321,9 @@ export function ghostscriptPdfAArgs(
     // WAS `-sProcessColorModel=DeviceRGB`. The PDF/A recipe converts colour
     // with ColorConversionStrategy and describes it with the OutputIntent the
     // prefix embeds; the old flag did neither.
-    "-sColorConversionStrategy=RGB",
+    // The panel and the page say so (`./colour`, audit pdf-to-pdfa#5): CMYK
+    // and spot colours come back as RGB.
+    `-sColorConversionStrategy=${PDFA_COLOUR_STRATEGY}`,
     "-sDEVICE=pdfwrite",
     // NEVER RE-ORIENT A PAGE. Without this pdfwrite runs its default
     // `/PageByPage`: it guesses each page's orientation from its text and

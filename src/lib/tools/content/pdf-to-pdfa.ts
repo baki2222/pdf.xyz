@@ -13,6 +13,7 @@ import {
   PDFA_OUTPUT_INTENT_SUBTYPE,
 } from "@/lib/workers/pdf-archive/pdfa-markers";
 import { pdfaOutputName } from "@/lib/workers/processor/pdf-archive";
+import { PDFA_COLOUR_NOTE } from "@/lib/workers/pdf-archive/colour";
 import {
   CARRIED_DOCINFO_WORDS,
   MAX_CARRIED_FIELD_CHARS,
@@ -152,7 +153,7 @@ const content: ToolContent = {
 
   intro: [
     `PDF to PDF/A, an online converter, rewrites an ordinary PDF as PDF/A, the archiving format meant for documents that must still open and look the same years from now. Unless you change ${PDFA_LEVEL_LABEL}, the copy is ${PDF_A_STANDARD}: conformance level b of PDF/A-2 (ISO 19005-2). The picker offers ${PDFA_LEVEL_NAMES}, for an archive or portal that names one. Ghostscript's pdfwrite device rebuilds the file with the matching PDF/A setting switched on. Level b (basic) is about visual appearance; the tagged structure that level a requires is not added, so the a and u levels are not offered.`,
-    `Some of what a PDF can carry has no place in PDF/A, and the converter is told to drop it and keep going rather than abandon the job. What Ghostscript reports while doing so appears above your download in its own words: at most ${NOTE_LINES} distinct lines, each cut to ${NOTE_CHARS} characters, with any line naming a file path held back and a closing line saying further messages were not shown. The line you are most likely to meet ends in "discarding DOCINFO", because most PDFs carry producer or creator text. Before Ghostscript runs, our server reads your PDF's ${CARRIED_DOCINFO_WORDS} and writes them into the copy itself, so that notice does not mean they are gone. Nothing checks the output against the PDF/A specification afterwards, so treat it as a best-effort conversion, not a certificate.`,
+    `Some of what a PDF can carry has no place in PDF/A, and the converter is told to drop it and keep going rather than abandon the job. What Ghostscript reports while doing so appears above your download in its own words: at most ${NOTE_LINES} distinct lines, each cut to ${NOTE_CHARS} characters, with any line naming a file path held back and a closing line saying further messages were not shown. The line you are most likely to meet ends in "discarding DOCINFO", because most PDFs carry producer or creator text. Before Ghostscript runs, our server reads your PDF's ${CARRIED_DOCINFO_WORDS} and writes them into the copy itself, so that notice does not mean they are gone. ${PDFA_COLOUR_NOTE} Nothing checks the output against the PDF/A specification afterwards, so treat it as a best-effort conversion, not a certificate.`,
     `The conversion happens where Ghostscript is installed, on pdf.xyz's secure server, so your PDF (one per job, ${CEILING_MB} MB at most) travels there over TLS. Once the job is over our server deletes your original. You then have ${LINK_MINUTES} minutes to download the archive version, and whatever is still in storage after that is wiped by the next daily sweep.`,
   ],
 
