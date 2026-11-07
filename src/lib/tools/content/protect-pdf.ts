@@ -30,6 +30,10 @@ import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
  *    draws a "Permissions" group (PDF_PERMISSIONS, every box ticked), and
  *    once one is unticked an "Owner password" field that must differ from
  *    the open password; only then are `ownerPassword` and `permissions` sent.
+ *    ADDED 2026-11-07 (audit protect-pdf#3): "Confirm password" under the
+ *    new password and "Confirm owner password" under the owner password;
+ *    Run stays off until each pair matches, and PASSWORDS_DIFFER shows under
+ *    a confirmation that differs (pdf-security-permissions.dom.test.tsx).
  *  - src/lib/jobs/pdf-security.ts — the owner password defaults to the open
  *    password; the byte bound; control characters refused; AES-256 default;
  *    ADDED 2026-11-06 (audit #12): at 128-bit a password with no
@@ -136,8 +140,8 @@ const content: ToolContent = {
       body: "Drop a single PDF on the area labelled Add a PDF to password-protect, or browse for one. A Remove button beside the file name lets you swap it.",
     },
     {
-      title: "Type the new password",
-      body: `Enter it in the New password field. It is masked; the eye button reveals it so you can check for typos. It can be up to ${PW_BYTES} bytes long.`,
+      title: "Type the new password twice",
+      body: `Enter it in the New password field, then type it again in Confirm password. Encrypt PDF stays off until the two match, and a mismatch is pointed out under the second field. Both are masked; the eye button reveals either one so you can check for typos. It can be up to ${PW_BYTES} bytes long.`,
     },
     {
       title: "Choose the encryption strength",
@@ -145,7 +149,7 @@ const content: ToolContent = {
     },
     {
       title: "Optional: restrict permissions",
-      body: `Under Permissions, every box starts ticked. Untick what readers may not do, then type an Owner password that differs from the open password; it is the one that lifts the restrictions later.`,
+      body: `Under Permissions, every box starts ticked. Untick what readers may not do, then type an Owner password that differs from the open password, and type it again in Confirm owner password; it is the one that lifts the restrictions later.`,
     },
     {
       title: "Encrypt and download",

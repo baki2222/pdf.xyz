@@ -81,6 +81,10 @@ const DRIVERS: Record<
       fireEvent.change(await screen.findByLabelText("New password"), {
         target: { value: "correct horse" },
       });
+      // Protect asks twice (audit protect-pdf#3).
+      fireEvent.change(await screen.findByLabelText("Confirm password"), {
+        target: { value: "correct horse" },
+      });
     },
     run: /encrypt pdf/i,
   },

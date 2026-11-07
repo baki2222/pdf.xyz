@@ -137,6 +137,24 @@ export function ownerPasswordProblem(
   return null;
 }
 
+/**
+ * Protect asks for each password twice (audit protect-pdf#3, 2026-11-06). A
+ * masked field and a password that "can't be recovered" make one typo a file
+ * that opens for nobody, found only after the source and the link are gone.
+ */
+export const PASSWORDS_DIFFER = "The passwords do not match.";
+/** Run's reason while the open password's confirmation is empty or differs. */
+export const CONFIRM_PASSWORD_FIRST =
+  "Type the new password again in Confirm password.";
+/** Run's reason while the owner password's confirmation is empty or differs. */
+export const CONFIRM_OWNER_PASSWORD_FIRST =
+  "Type the owner password again in Confirm owner password.";
+
+/** True while `repeat` is not the same password as `value`. */
+export function needsConfirming(value: string, repeat: string): boolean {
+  return value !== repeat;
+}
+
 /** Number of UTF-8 bytes a password occupies (the bound qpdf actually enforces). */
 function passwordByteLength(password: string): number {
   return new TextEncoder().encode(password).length;
@@ -292,6 +310,51 @@ export function PasswordField({
 }
 
 /**
+ * A password typed a second time, under the first. The mismatch is said only
+ * once something is typed here: an empty box is a step not yet taken, and
+ * Run's reason names it.
+ */
+function ConfirmPasswordField({
+  id,
+  label,
+  value,
+  onChange,
+  busy,
+  differs,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  busy: boolean;
+  differs: boolean;
+}) {
+  const shown = differs && value.length > 0;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <PasswordField
+        id={id}
+        label={label}
+        value={value}
+        onChange={onChange}
+        busy={busy}
+        autoComplete="new-password"
+      />
+      <p
+        id={`${id}-hint`}
+        role={shown ? "alert" : undefined}
+        className={cn(
+          "text-xs leading-relaxed",
+          shown ? "text-warn" : "text-muted",
+        )}
+      >
+        {shown ? PASSWORDS_DIFFER : "Type the same password again."}
+      </p>
+    </div>
+  );
+}
+
+/**
  * The available state: an uploader, a masked password field (plus an encryption
  * strength selector for protect), and a run button that drives the real, documented
  * job flow. Reached only when the status endpoint honestly reports the worker
@@ -309,6 +372,9 @@ function SecurityRunArea({
   const { available, status } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
   const [password, setPassword] = useState("");
+  // Protect only: the same passwords, typed a second time.
+  const [passwordAgain, setPasswordAgain] = useState("");
+  const [ownerPasswordAgain, setOwnerPasswordAgain] = useState("");
   const [keyLength, setKeyLength] = useState<PdfKeyLength>(
     DEFAULT_PDF_KEY_LENGTH,
   );
@@ -348,9 +414,15 @@ function SecurityRunArea({
     keyLength === 128 &&
     (!isPdfDocEncodable(password) ||
       (restricting && !isPdfDocEncodable(ownerPassword)));
+  const unconfirmed =
+    mode === "protect" && needsConfirming(password, passwordAgain);
+  const ownerUnconfirmed =
+    restricting && needsConfirming(ownerPassword, ownerPasswordAgain);
   const canSubmit =
     file !== null &&
     !passwordMissing &&
+    !unconfirmed &&
+    !ownerUnconfirmed &&
     !tooLong &&
     !notLatinFor128 &&
     ownerProblem === null &&
@@ -360,6 +432,8 @@ function SecurityRunArea({
     if (
       !file ||
       passwordMissing ||
+      unconfirmed ||
+      ownerUnconfirmed ||
       tooLong ||
       notLatinFor128 ||
       ownerProblem ||
@@ -395,6 +469,8 @@ function SecurityRunArea({
     mode,
     tooLong,
     passwordMissing,
+    unconfirmed,
+    ownerUnconfirmed,
     notLatinFor128,
     ownerProblem,
     restricting,
@@ -480,6 +556,17 @@ function SecurityRunArea({
       </p>
 
       {mode === "protect" && (
+        <ConfirmPasswordField
+          id="pdf-security-password-confirm"
+          label="Confirm password"
+          value={passwordAgain}
+          onChange={setPasswordAgain}
+          busy={busy}
+          differs={unconfirmed}
+        />
+      )}
+
+      {mode === "protect" && (
         <div className="flex flex-col gap-2">
           <span className="text-muted text-xs font-medium">
             Encryption strength
@@ -537,6 +624,9 @@ function SecurityRunArea({
           ownerPassword={ownerPassword}
           onOwnerPassword={setOwnerPassword}
           ownerProblem={ownerProblem}
+          ownerPasswordAgain={ownerPasswordAgain}
+          onOwnerPasswordAgain={setOwnerPasswordAgain}
+          ownerUnconfirmed={ownerUnconfirmed}
         />
       )}
 
@@ -548,11 +638,17 @@ function SecurityRunArea({
           <RunReason
             after
             reason={
-              ready && file !== null && passwordMissing
-                ? mode === "protect"
-                  ? "Type a new password first."
-                  : "Type the password that opens this PDF first."
-                : null
+              !ready || file === null
+                ? null
+                : passwordMissing
+                  ? mode === "protect"
+                    ? "Type a new password first."
+                    : "Type the password that opens this PDF first."
+                  : unconfirmed
+                    ? CONFIRM_PASSWORD_FIRST
+                    : ownerUnconfirmed && ownerProblem === null
+                      ? CONFIRM_OWNER_PASSWORD_FIRST
+                      : null
             }
           >
             {(describedBy) => (
@@ -635,6 +731,9 @@ function PermissionControls({
   ownerPassword,
   onOwnerPassword,
   ownerProblem,
+  ownerPasswordAgain,
+  onOwnerPasswordAgain,
+  ownerUnconfirmed,
 }: {
   chosen: PdfPermissions;
   onChange: (next: PdfPermissions) => void;
@@ -644,6 +743,9 @@ function PermissionControls({
   ownerPassword: string;
   onOwnerPassword: (value: string) => void;
   ownerProblem: string | null;
+  ownerPasswordAgain: string;
+  onOwnerPasswordAgain: (value: string) => void;
+  ownerUnconfirmed: boolean;
 }) {
   return (
     <fieldset className="border-line rounded-panel flex flex-col gap-2 border p-3">
@@ -710,6 +812,14 @@ function PermissionControls({
             open password.
             {ownerProblem && ownerPassword.length > 0 ? ` ${ownerProblem}` : ""}
           </p>
+          <ConfirmPasswordField
+            id="pdf-security-owner-password-confirm"
+            label="Confirm owner password"
+            value={ownerPasswordAgain}
+            onChange={onOwnerPasswordAgain}
+            busy={busy}
+            differs={ownerUnconfirmed}
+          />
         </div>
       )}
       <p className="text-muted text-xs leading-relaxed">
