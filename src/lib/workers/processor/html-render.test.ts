@@ -221,4 +221,27 @@ describe("html-render processor", () => {
       "example.com-a-b.pdf",
     );
   });
+
+  /*
+   * Audit #48 (2026-11-06): the slug was cut from the percent-encoded path
+   * and the punycode host through an ASCII-only allowlist, so a Cyrillic
+   * path came out as "D0-9C-D0-BE-..." and an IDN host as "xn-bcher-kva".
+   */
+  it("keeps a non-Latin path and host readable in the output name", () => {
+    expect(webpagePdfOutputName("https://ru.wikipedia.org/wiki/Москва")).toBe(
+      "ru.wikipedia.org-wiki-Москва.pdf",
+    );
+    expect(webpagePdfOutputName("https://bn.wikipedia.org/wiki/ঢাকা")).toBe(
+      "bn.wikipedia.org-wiki-ঢাকা.pdf",
+    );
+    expect(webpagePdfOutputName("https://bücher.de/")).toBe("bücher.de.pdf");
+    // Encoded punctuation still becomes a dash, and a malformed escape does
+    // not throw the name away.
+    expect(webpagePdfOutputName("https://example.com/a%2Fb%3Fc")).toBe(
+      "example.com-a-b-c.pdf",
+    );
+    expect(webpagePdfOutputName("https://example.com/100%25-%E0%A4")).toBe(
+      "example.com-100-25-E0-A4.pdf",
+    );
+  });
 });

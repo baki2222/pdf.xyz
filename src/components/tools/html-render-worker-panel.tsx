@@ -13,6 +13,12 @@ import {
 } from "lucide-react";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import {
+  WEBPAGE_ADDRESS_PREFIX,
+  collapseRepeatedScheme,
+  normalizeWebpageAddress,
+  webpageAddressProblem,
+} from "./webpage-address";
+import {
   canRunHtmlRender,
   runWorkerEpubToPdf,
   runWorkerHtmlToPdf,
@@ -215,7 +221,7 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
   const RUN_LABEL = mode === "epub" ? CONVERT_LABEL : RENDER_LABEL;
   const { available, status } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
-  const [url, setUrl] = useState("https://");
+  const [url, setUrl] = useState(WEBPAGE_ADDRESS_PREFIX);
   const urlId = useId();
   const job = useWorkerJob<HtmlRenderWorkerResult>({
     tool: tool.slug,
@@ -241,6 +247,7 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
     DEFAULT_EPUB_RENDER_OPTIONS,
   );
 
+  const address = normalizeWebpageAddress(url);
   const start = useCallback(async () => {
     if (!available) return;
     // Only what differs from the defaults travels, so an untouched layout
@@ -250,8 +257,7 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
         ? epubRenderOptionsBag(bookLayout)
         : htmlRenderOptionsBag(layout);
     await run(async (controls) => {
-      if (mode === "url")
-        return runWorkerWebpageToPdf(url.trim(), controls, bag);
+      if (mode === "url") return runWorkerWebpageToPdf(address, controls, bag);
       if (!file)
         return {
           ok: false as const,
@@ -269,10 +275,13 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
         ? runWorkerEpubToPdf(input, controls)
         : runWorkerHtmlToPdf(input, controls);
     });
-  }, [file, mode, url, run, available, layout, bookLayout]);
+  }, [file, mode, address, run, available, layout, bookLayout]);
 
-  const missing =
-    mode === "url" ? url.trim().length <= "https://".length : !file;
+  // The address is checked HERE, in words, before any job exists: a length
+  // check used to let `https://https://…` and bare `example.com` through to
+  // the API's developer message (audit #33, 2026-11-06).
+  const addressProblem = mode === "url" ? webpageAddressProblem(address) : null;
+  const missing = mode === "url" ? addressProblem !== null : !file;
   const detail =
     status?.daemon.detail ?? "Our secure server is not drainable here.";
 
@@ -281,8 +290,17 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
       {staged}
       {mode === "url" ? (
         // Named by a visible label: the placeholder used to be the field's
-        // only name, and it vanishes on the first keystroke.
-        <div className="flex flex-col gap-1.5">
+        // only name, and it vanishes on the first keystroke. A form, so
+        // paste-then-Enter (a phone's Go key) starts the render; noValidate,
+        // because the address is checked in words below, not by a bubble.
+        <form
+          noValidate
+          className="flex flex-col gap-1.5"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!busy && available && !missing) void start();
+          }}
+        >
           <label htmlFor={urlId} className="text-fg text-xs font-medium">
             Web address
           </label>
@@ -290,18 +308,21 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
             id={urlId}
             type="url"
             inputMode="url"
+            enterKeyHint="go"
             autoComplete="url"
             autoCapitalize="none"
             spellCheck={false}
             value={url}
             onChange={(event) => {
-              setUrl(event.target.value);
+              // A link pasted after the prefix loses the doubled scheme at
+              // once, in the field the user is looking at.
+              setUrl(collapseRepeatedScheme(event.target.value));
               setOutcome(null);
             }}
             className="border-line text-fg placeholder:text-muted focus:border-accent/40 focus:ring-accent/50 bg-panel rounded-ctl w-full border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
             placeholder="https://example.com"
           />
-        </div>
+        </form>
       ) : mode === "epub" ? (
         <EpubFilePicker
           tool={tool}
@@ -393,14 +414,7 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
         job={job}
         bytes={mode === "url" ? undefined : file?.size}
         run={(ready) => (
-          <RunReason
-            after
-            reason={
-              ready && missing && mode === "url"
-                ? "Type the page's address first."
-                : null
-            }
-          >
+          <RunReason after reason={ready ? addressProblem : null}>
             {(describedBy) => (
               <WorkerRunButton
                 onClick={start}
