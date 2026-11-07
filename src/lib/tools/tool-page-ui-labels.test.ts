@@ -55,6 +55,10 @@ import { tools } from "@/lib/tools";
 import { toolContent, type ToolContent } from "@/lib/tools/content";
 import { ROOT, rel } from "@/tests/tool-panel-modules";
 import {
+  DOCUMENT_WORDS,
+  OFFICE_TO_PDF_TOOLS,
+} from "@/lib/workers/office-conversion/tools";
+import {
   COMPONENTS,
   RULES,
   auditLabels,
@@ -327,20 +331,35 @@ describe("the shared predicate, on phrases tool pages shipped", () => {
     expect(extractLabels("marked SAMPLE at low opacity")).toEqual([]);
   });
 
-  it("a drop zone's template title composes with “browse”, and its words still count", () => {
-    // office-conversion-worker-panel.tsx: `Add your ${noun}, or` + browse.
+  it("a drop zone's template title composes with “browse” only with that tool's own noun", () => {
+    // office-conversion-worker-panel.tsx: `Add your ${noun}, or` + browse,
+    // the noun DOCUMENT_WORDS[tool].noun, resolved per slug in uiOf.
+    const box = (title: string) => `Click the box marked “${title}”.`;
+    for (const slug of OFFICE_TO_PDF_TOOLS) {
+      const title = `Add your ${DOCUMENT_WORDS[slug].noun}, or browse`;
+      expect(missingOf(slug, box(title)), slug).toEqual([]);
+    }
+    // A wrong head is reported…
     expect(
-      missingOf(
-        "excel-to-pdf",
-        "Click the box marked “Add your workbook, or browse”.",
-      ),
-    ).toEqual([]);
-    expect(
-      missingOf(
-        "excel-to-pdf",
-        "Click the box marked “Drop your workbook, or browse”.",
-      ),
+      missingOf("excel-to-pdf", box("Drop your workbook, or browse")),
     ).toEqual(["Drop your workbook, or browse"]);
+    // …and so is the right head with a wrong noun: the template's hole is
+    // not a wildcard (review of 95e722d5 passed both of these).
+    expect(
+      missingOf("excel-to-pdf", box("Add your spreadsheet, or browse")),
+    ).toEqual(["Add your spreadsheet, or browse"]);
+    expect(missingOf("word-to-pdf", box("Add your file, or browse"))).toEqual([
+      "Add your file, or browse",
+    ]);
+    // One Office tool's noun is not another's.
+    expect(
+      missingOf("excel-to-pdf", box("Add your document, or browse")),
+    ).toEqual(["Add your document, or browse"]);
+    // Health: the resolution happens only where the Office panel is mounted.
+    expect(uiOf(["excel-to-pdf"]).exact.has("Add your workbook, or")).toBe(
+      true,
+    );
+    expect(uiOf(["merge-pdf"]).exact.has("Add your workbook, or")).toBe(false);
   });
 
   it("a template's leading clause is a label; a head with no clause is not", () => {
