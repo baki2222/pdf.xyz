@@ -49,6 +49,12 @@ import {
 } from "@/lib/pdf/analyze";
 import { getToolBySlug, tools } from "@/lib/tools";
 import compressContent from "@/lib/tools/content/compress-pdf";
+import {
+  IMAGE_QUALITY_HINT,
+  IMAGE_QUALITY_LABELS,
+  IMAGE_QUALITY_LEVELS,
+  imageQualityNotApplied,
+} from "@/lib/pdf/compress-image-quality";
 import type { NativeCompressor } from "@/lib/workers/compression/engine";
 import { createLocalDevAdapter } from "@/lib/workers/local-dev";
 import type { WorkerStatus } from "@/lib/workers/status";
@@ -118,7 +124,11 @@ afterEach(() => {
  * stand-in is the native binary, which `native` plays. Returns every body the
  * runner uploaded, so a test can compare them with the file it dropped.
  */
-function answerWithLocalWorker(native: NativeCompressor) {
+function answerWithLocalWorker(
+  native: NativeCompressor,
+  /** Rewrites the created job as the browser receives it (an older worker). */
+  rewriteJob?: (job: Record<string, unknown>) => Record<string, unknown>,
+) {
   const store = new DevWorkerStore();
   const adapter = createLocalDevAdapter({
     store,
@@ -156,7 +166,17 @@ function answerWithLocalWorker(native: NativeCompressor) {
           return put.ok ? json({}) : json({ error: put.reason }, 400);
         }
         if (url === "/api/jobs" && init?.method === "POST") {
-          return reply(await adapter.createJob(parsed()));
+          const created = await adapter.createJob(parsed());
+          return reply(
+            rewriteJob && created.ok
+              ? {
+                  ...created,
+                  value: rewriteJob(
+                    created.value as unknown as Record<string, unknown>,
+                  ) as unknown as typeof created.value,
+                }
+              : created,
+          );
         }
         const artifact = /^\/api\/artifacts\/local\/([^/]+)$/.exec(url);
         if (artifact) {
@@ -920,7 +940,10 @@ describe(
       );
       // Every rung runs (was [72]: the floor-first shortcut, inverted the
       // same day), and the smallest file made — 72 DPI here — is returned.
-      expect(seen.map((s) => s.targetDpi)).toEqual([150, 120, 96, 72]);
+      // Since audit compress-pdf#4 (2026-11-08) the floor is followed by
+      // Low and Lowest image quality at 72 DPI (was [150, 120, 96, 72]);
+      // this played engine ignores the level, so 72's file is the smallest.
+      expect(seen.map((s) => s.targetDpi)).toEqual([150, 120, 96, 72, 72, 72]);
       expect(line).toHaveTextContent(
         /^The smallest we could make is 7\d\.\d KB, above your 40 KB target\. Try Grayscale, or split the file\.$/,
       );
@@ -972,6 +995,103 @@ describe(
         screen.getByText(/enter a whole number of kb from 20/i),
       ).toBeVisible();
       expect(run).toHaveAttribute("aria-disabled", "true");
+    });
+  },
+);
+
+describe(
+  "Compress: Image quality under Advanced (audit compress-pdf#4)",
+  { timeout: 30_000 },
+  () => {
+    // Through the REAL local-dev adapter — parser, planner, engine, ladder —
+    // with only the Ghostscript binary played, so what reaches the engine is
+    // read at the engine.
+    async function runWith(
+      choose: () => void,
+      rewriteJob?: Parameters<typeof answerWithLocalWorker>[1],
+    ) {
+      const seen: { targetDpi: number; imageQuality?: string }[] = [];
+      answerWithLocalWorker(async (_input, ctx) => {
+        seen.push({
+          targetDpi: ctx.options.targetDpi,
+          ...(ctx.options.imageQuality
+            ? { imageQuality: ctx.options.imageQuality }
+            : {}),
+        });
+        return colourImagePdf({ components: 3, size: 8 });
+      }, rewriteJob);
+      const input = await colourImagePdf({
+        components: 3,
+        size: 8,
+        pad: 200_000,
+      });
+      const { container } = render(withRouter(<CompressRunner />));
+      await drop(container, [asFile(input, "scan.pdf")]);
+      const run = await screen.findByRole(
+        "button",
+        { name: /compress images on our server/i },
+        { timeout: 10_000 },
+      );
+      choose();
+      fireEvent.click(run);
+      await screen.findByRole(
+        "button",
+        { name: /download compressed pdf/i },
+        { timeout: 10_000 },
+      );
+      return seen;
+    }
+
+    it("is closed by default, Medium is chosen, and a default run sends no level", async () => {
+      const seen = await runWith(() => {
+        const toggle = screen.getByRole("button", {
+          name: IMAGE_QUALITY_LABELS.disclosure,
+        });
+        expect(toggle).toHaveAttribute("aria-expanded", "false");
+      });
+      expect(seen).toEqual([{ targetDpi: 150 }]);
+    });
+
+    it("Advanced opens Image quality; Low reaches the engine", async () => {
+      const seen = await runWith(() => {
+        fireEvent.click(
+          screen.getByRole("button", { name: IMAGE_QUALITY_LABELS.disclosure }),
+        );
+        const group = screen.getByRole("group", {
+          name: IMAGE_QUALITY_LABELS.heading,
+        });
+        const chips = within(group).getAllByRole("button");
+        expect(chips.map((c) => c.textContent)).toEqual(
+          IMAGE_QUALITY_LEVELS.map((l) => l.label),
+        );
+        expect(
+          within(group).getByRole("button", { name: "Medium" }),
+        ).toHaveAttribute("aria-pressed", "true");
+        expect(screen.getByText(IMAGE_QUALITY_HINT)).toBeVisible();
+        fireEvent.click(within(group).getByRole("button", { name: "Low" }));
+      });
+      expect(seen).toEqual([{ targetDpi: 150, imageQuality: "low" }]);
+      // This worker read the level, and its record says so: no warning.
+      expect(screen.queryByText(imageQualityNotApplied("low"))).toBeNull();
+    });
+
+    it("a worker that did not read the level (an older image) is named, not passed off as Low", async () => {
+      const pickLow = () => {
+        fireEvent.click(
+          screen.getByRole("button", { name: IMAGE_QUALITY_LABELS.disclosure }),
+        );
+        fireEvent.click(screen.getByRole("button", { name: "Low" }));
+      };
+      // The record as an image older than the option writes it.
+      await runWith(pickLow, (job) => {
+        const results = job.results as {
+          compression: Record<string, unknown>;
+        };
+        const { imageQuality: _drop, ...compression } = results.compression;
+        void _drop;
+        return { ...job, results: { ...results, compression } };
+      });
+      expect(screen.getByText(imageQualityNotApplied("low"))).toBeVisible();
     });
   },
 );

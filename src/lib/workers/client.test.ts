@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
+import { DEFAULT_IMAGE_QUALITY } from "@/lib/pdf/compress-image-quality";
 import type { Job, UploadSession } from "@/lib/jobs";
 import { runWorkerCompression, type FetchLike } from "./client";
 
@@ -210,7 +211,26 @@ describe("runWorkerCompression", () => {
       { ...input, targetBytes: 200 * 1024 },
       { fetchImpl: makeFetch(routes).fetchImpl },
     );
-    expect(bodies).toHaveLength(3);
+    // Image quality (audit compress-pdf#4): sent only when not the preset's
+    // own level, so a Medium run's request is byte-for-byte what it was.
+    await runWorkerCompression(
+      { ...input, imageQuality: "low" },
+      { fetchImpl: makeFetch(routes).fetchImpl },
+    );
+    await runWorkerCompression(
+      { ...input, imageQuality: DEFAULT_IMAGE_QUALITY },
+      { fetchImpl: makeFetch(routes).fetchImpl },
+    );
+    expect(bodies).toHaveLength(5);
+    expect((bodies[3] as { options: unknown }).options).toEqual({
+      profile: "deep",
+      targetDpi: 150,
+      imageQuality: "low",
+    });
+    expect((bodies[4] as { options: unknown }).options).toEqual({
+      profile: "deep",
+      targetDpi: 150,
+    });
     expect((bodies[2] as { options: unknown }).options).toEqual({
       profile: "deep",
       targetDpi: 150,

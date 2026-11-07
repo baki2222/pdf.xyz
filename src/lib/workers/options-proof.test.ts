@@ -103,19 +103,32 @@ async function faithfulCopy(
 /**
  * Ghostscript, played: gray when asked, colour otherwise — and, since the
  * target-size proof (2026-10-31), a file of `MEASURED_KB[dpi]` KB (pdf-lib
- * writes the /Subject pad as UTF-16 hex, 4 B a character).
+ * writes the /Subject pad as UTF-16 hex, 4 B a character). Since audit
+ * compress-pdf#4 (2026-11-08) a lower JPEG level makes a smaller file, as
+ * the real engine does on a photo; `honourQuality: false` plays one that
+ * ignores the level.
  */
-const ghostscript: NativeCompressor = async (input, ctx) =>
-  isRotationFixture(input)
-    ? faithfulCopy(input)
-    : ctx.options.grayscale
-      ? colourImagePdf({ components: 1, size: 96, pages: 2 })
-      : colourImagePdf({
-          components: 3,
-          size: 48,
-          pages: 2,
-          pad: (MEASURED_KB[ctx.options.targetDpi] ?? 400) * 256,
-        });
+const QUALITY_SCALE: Record<string, number> = { low: 0.8, lowest: 0.6 };
+const playedGhostscript =
+  (honourQuality = true): NativeCompressor =>
+  async (input, ctx) =>
+    isRotationFixture(input)
+      ? faithfulCopy(input)
+      : ctx.options.grayscale
+        ? colourImagePdf({ components: 1, size: 96, pages: 2 })
+        : colourImagePdf({
+            components: 3,
+            size: 48,
+            pages: 2,
+            pad: Math.round(
+              (MEASURED_KB[ctx.options.targetDpi] ?? 400) *
+                256 *
+                (honourQuality
+                  ? (QUALITY_SCALE[ctx.options.imageQuality ?? ""] ?? 1)
+                  : 1),
+            ),
+          });
+const ghostscript = playedGhostscript();
 
 function qpdf(writeP: (perms: PdfPermissions) => number): QpdfRunner {
   const outputs = new Set<Uint8Array>();
@@ -359,6 +372,32 @@ describe("runWorkerOptionsProof", { timeout: 30_000 }, () => {
     ).toBe(true);
   });
 
+  it("FAILS a Ghostscript that ignores the image quality it is sent (audit compress-pdf#4)", async () => {
+    const lines: string[] = [];
+    expect(
+      await runWorkerOptionsProof(
+        deps({
+          compression: {
+            tools: { ghostscript: true, qpdf: false, mutool: false },
+            native: playedGhostscript(false),
+          },
+          log: (l) => lines.push(l),
+        }),
+      ),
+    ).toBe(1);
+    // "target met" fails too, on its fixture guard: with the JPEG rungs all
+    // the floor's size, the sharpest fit IS the smallest file.
+    expect(
+      lines.filter((l) => l.startsWith("FAIL ")).map((l) => l.split(":")[0]),
+    ).toContain("FAIL image quality lowers the file");
+    // Control: the honouring engine passes the same check.
+    const ok: string[] = [];
+    await runWorkerOptionsProof(deps({ log: (l) => ok.push(l) }));
+    expect(
+      ok.some((l) => l.startsWith("PASS image quality lowers the file:")),
+    ).toBe(true);
+  });
+
   it("FAILS a ladder that returns a NON-minimal file when the target is not met", async () => {
     // The ladder as first written: on not-met, the floor's file — which, on
     // these non-monotonic sizes, is not the smallest one it made.
@@ -411,13 +450,15 @@ describe("runWorkerOptionsProof", { timeout: 30_000 }, () => {
   });
 
   it("FAILS a ladder that returns a fit that is not the sharpest", async () => {
-    // Prefers the floor whenever the floor fits.
+    // Prefers the bottom of the ladder whenever it fits. Since audit
+    // compress-pdf#4 that is 72 DPI at the lowest JPEG level (was 72 DPI
+    // alone, which now ladders on to the same Low fit the real one finds).
     const floorFirst: typeof runCompression = async (input, options, d) => {
       if (options.targetBytes === undefined)
         return runCompression(input, options, d);
       const floor = await runCompression(
         input,
-        { ...options, targetDpi: 72 },
+        { ...options, targetDpi: 72, imageQuality: "lowest" },
         d,
       );
       return floor.ok && floor.meta.target?.met

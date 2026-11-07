@@ -12,6 +12,7 @@ import Link from "next/link";
 import {
   AlertTriangle,
   Boxes,
+  ChevronDown,
   FileText,
   Gauge,
   ImageIcon,
@@ -33,6 +34,14 @@ import {
   DEEP_MONO_MIN_DPI,
 } from "@/lib/pdf/offered-kinds";
 import { DEEP_COMPRESSION_GRAYSCALE_HINT } from "@/lib/pdf/compress-grayscale";
+import {
+  DEFAULT_IMAGE_QUALITY,
+  IMAGE_QUALITY_HINT,
+  IMAGE_QUALITY_LABELS,
+  IMAGE_QUALITY_LEVELS,
+  imageQualityNotApplied,
+  type ImageQuality,
+} from "@/lib/pdf/compress-image-quality";
 import {
   KB,
   MIN_TARGET_BYTES,
@@ -798,6 +807,9 @@ function WorkerDeepPanel({
         : shared.status;
   const [dpi, setDpi] = useState<number>(150);
   const [grayscale, setGrayscale] = useState(false);
+  const [imageQuality, setImageQuality] = useState<ImageQuality>(
+    DEFAULT_IMAGE_QUALITY,
+  );
   const [target, setTarget] = useState<TargetChoice>("none");
   const [customKb, setCustomKb] = useState("");
   const [busy, setBusy] = useState(false);
@@ -806,6 +818,9 @@ function WorkerDeepPanel({
   // which the reader may have changed since.
   const [ranGrayscale, setRanGrayscale] = useState(false);
   const [ranTarget, setRanTarget] = useState<number | null>(null);
+  const [ranImageQuality, setRanImageQuality] = useState<ImageQuality>(
+    DEFAULT_IMAGE_QUALITY,
+  );
   const targetBytes = chosenTargetBytes(target, customKb, originalBytes);
 
   const canRunDeep = canRunDeepCompression(status);
@@ -834,11 +849,13 @@ function WorkerDeepPanel({
         profile: "deep",
         targetDpi: dpi,
         grayscale,
+        imageQuality,
         ...(typeof targetBytes === "number" ? { targetBytes } : {}),
       });
       // Its card draws with its ending (`endingReady`).
       if (res.ok) await endingReady();
       setRanGrayscale(grayscale);
+      setRanImageQuality(imageQuality);
       setRanTarget(typeof targetBytes === "number" ? targetBytes : null);
       setOutcome(res);
     } catch {
@@ -894,7 +911,10 @@ function WorkerDeepPanel({
           onDpi={setDpi}
           grayscale={grayscale}
           onGrayscale={setGrayscale}
+          imageQuality={imageQuality}
+          onImageQuality={setImageQuality}
           ranGrayscale={ranGrayscale}
+          ranImageQuality={ranImageQuality}
           target={target}
           onTarget={setTarget}
           customKb={customKb}
@@ -957,7 +977,10 @@ function DeepRunControls({
   onDpi,
   grayscale,
   onGrayscale,
+  imageQuality,
+  onImageQuality,
   ranGrayscale,
+  ranImageQuality,
   target,
   onTarget,
   customKb,
@@ -976,8 +999,12 @@ function DeepRunControls({
   onDpi: (dpi: number) => void;
   grayscale: boolean;
   onGrayscale: (on: boolean) => void;
+  imageQuality: ImageQuality;
+  onImageQuality: (quality: ImageQuality) => void;
   /** Whether the run that drew `outcome` asked for grayscale. */
   ranGrayscale: boolean;
+  /** The JPEG level the run that drew `outcome` asked for. */
+  ranImageQuality: ImageQuality;
   target: TargetChoice;
   onTarget: (choice: TargetChoice) => void;
   customKb: string;
@@ -1021,6 +1048,13 @@ function DeepRunControls({
           grayscale: ranGrayscale,
         })
       : null;
+  // A level other than the default that the job record does not show was
+  // ignored by the worker (an image older than the option): said so, rather
+  // than letting the card pass the file off as that level.
+  const qualityIgnored =
+    outcome?.ok === true &&
+    ranImageQuality !== DEFAULT_IMAGE_QUALITY &&
+    outcome.job?.results?.compression?.imageQuality !== ranImageQuality;
   const noGainTarget = reached
     ? `${reached.text} Your original came back unchanged, so there is no smaller file to download.`
     : null;
@@ -1029,6 +1063,12 @@ function DeepRunControls({
     `Compression finished. ${noGainTarget ?? "Our server could not shrink this file further without losing quality — the original is already efficient."}`,
   );
   const customId = useId();
+  const advancedId = useId();
+  // Closed by default, and open when a level other than the default is
+  // chosen, so a choice is never hidden from the person who made it.
+  const [advancedOpen, setAdvancedOpen] = useState(
+    imageQuality !== DEFAULT_IMAGE_QUALITY,
+  );
 
   return (
     <div className="flex flex-col gap-3 pl-6">
@@ -1142,6 +1182,53 @@ function DeepRunControls({
         </span>
       </label>
 
+      {/* Image quality, apart from resolution (audit compress-pdf#4). A
+          button rather than <details>, as the other worker panels do; 44px
+          tall, as every control on the way to Run is on a phone. */}
+      <div className="flex flex-col gap-2">
+        <button
+          type="button"
+          aria-expanded={advancedOpen}
+          aria-controls={advancedId}
+          onClick={() => setAdvancedOpen((open) => !open)}
+          className="text-accent hover:text-fg inline-flex min-h-11 items-center gap-1.5 self-start text-sm font-medium transition"
+        >
+          <ChevronDown
+            className={cn("size-4 transition", advancedOpen && "rotate-180")}
+            aria-hidden
+          />
+          {IMAGE_QUALITY_LABELS.disclosure}
+        </button>
+        <div
+          id={advancedId}
+          hidden={!advancedOpen}
+          className="flex flex-col gap-2"
+        >
+          <div
+            role="group"
+            aria-label={IMAGE_QUALITY_LABELS.heading}
+            className="flex flex-wrap items-center gap-2"
+          >
+            <span className="text-muted text-[11px] font-medium tracking-wide uppercase">
+              {IMAGE_QUALITY_LABELS.heading}
+            </span>
+            {IMAGE_QUALITY_LEVELS.map((level) => (
+              <ChipButton
+                key={level.id}
+                onClick={() => onImageQuality(level.id)}
+                active={imageQuality === level.id}
+                disabled={busy}
+              >
+                {level.label}
+              </ChipButton>
+            ))}
+          </div>
+          <p className="text-muted text-xs leading-relaxed">
+            {IMAGE_QUALITY_HINT}
+          </p>
+        </div>
+      </div>
+
       <WorkerRunButton
         onClick={onRun}
         busy={busy}
@@ -1182,6 +1269,11 @@ function DeepRunControls({
                 )}
               >
                 {reached.text}
+              </p>
+            )}
+            {qualityIgnored && (
+              <p className="text-warn text-sm">
+                {imageQualityNotApplied(ranImageQuality)}
               </p>
             )}
             {savedBytes > 0 ? (

@@ -212,6 +212,8 @@ export function copyFiles(): string[] {
     path.join(ROOT, "src", "lib", "pdf", "compress-grayscale.ts"),
     // Compress PDF's Target size labels, hint and outcome (2026-10-31).
     path.join(ROOT, "src", "lib", "pdf", "compress-target.ts"),
+    // Compress PDF's Image quality labels and hint (2026-11-08).
+    path.join(ROOT, "src", "lib", "pdf", "compress-image-quality.ts"),
     // JPG / PNG to PDF's Max file size (2026-10-31): labels, hint, outcome
     // lines, and the browser re-encoder's error messages.
     path.join(ROOT, "src", "lib", "pdf", "image-size-limit.ts"),

@@ -71,7 +71,12 @@ import {
   rotationProofPdf,
 } from "./compression/rotation-proof";
 import { PDFArray, PDFDocument, PDFName, PDFRawStream } from "pdf-lib";
-import { TARGET_DPI_LADDER, ladderRungs } from "./compression/target-ladder";
+import {
+  TARGET_DPI_LADDER,
+  targetRungs,
+  type TargetRung,
+} from "./compression/target-ladder";
+import { DEFAULT_IMAGE_QUALITY } from "@/lib/pdf/compress-image-quality";
 import { MIN_TARGET_BYTES } from "@/lib/pdf/compress-target";
 import { grayscaleVerdict, hasColourImage } from "./compression/image-colour";
 import { runProtect, type PdfSecurityDeps } from "./pdf-security/engine";
@@ -366,67 +371,95 @@ export async function runWorkerOptionsProof(
   // 1380 px over 3 in is 460 DPI: above 1.5x the top rung, so every rung
   // downsamples (`noisePhotoPdf`).
   const compress = deps.compress ?? runCompression;
-  const rungs = ladderRungs(TARGET_DPI_LADDER[0]);
+  // Since audit compress-pdf#4 (2026-11-08) a rung is a resolution AND a
+  // JPEG level: below 72 DPI the ladder lowers the level at 72. Every rung,
+  // JPEG ones included, gets its lone run, and the checks below compare the
+  // ladder with those — the same properties, over the longer ladder.
+  const rungs = targetRungs(TARGET_DPI_LADDER[0]);
+  const key = (r: Pick<TargetRung, "dpi" | "quality">) =>
+    `${r.dpi}:${r.quality}`;
+  const lone = (r: TargetRung) => ({
+    profile: "deep" as const,
+    targetDpi: r.dpi,
+    ...(r.quality === DEFAULT_IMAGE_QUALITY ? {} : { imageQuality: r.quality }),
+  });
   // Each fixture is built once: the noise photo is the one the checks use,
   // and its lone runs are the independent sizes they are judged against.
   const photo = await noisePhotoPdf({ px: 1380, inches: 3, pages: 2 });
-  const single = new Map<number, number>();
+  const single = new Map<string, number>();
+  const smoothSingle = new Map<string, number>();
   for (const kind of ["noise", "smooth"] as const) {
     const sample =
       kind === "noise"
         ? photo
         : await noisePhotoPdf({ px: 1380, inches: 3, pages: 2, kind });
     const parts: string[] = [];
-    for (const dpi of rungs) {
-      const r = await runCompression(
-        sample,
-        { profile: "deep", targetDpi: dpi },
-        deps.compression,
-      );
-      if (kind === "noise" && r.ok && r.meta.target === undefined) {
-        single.set(dpi, r.output.length);
+    for (const rung of rungs) {
+      const r = await runCompression(sample, lone(rung), deps.compression);
+      if (r.ok && r.meta.target === undefined) {
+        (kind === "noise" ? single : smoothSingle).set(
+          key(rung),
+          r.output.length,
+        );
       }
       parts.push(
         r.ok
-          ? `${dpi} DPI ${r.output.length} B ${(await imageFilters(r.output)).join("+")}`
-          : `${dpi} DPI ${r.kind}`,
+          ? `${key(rung)} ${r.output.length} B ${(await imageFilters(r.output)).join("+")}`
+          : `${key(rung)} ${r.kind}`,
       );
     }
     log(`INFO target rungs, ${kind} photo: ${parts.join(", ")}`);
   }
-  const sizes = rungs.map((dpi) => single.get(dpi) ?? Number.NaN);
+  const sizes = rungs.map((r) => single.get(key(r)) ?? Number.NaN);
   check(
     sizes.every(Number.isFinite) && new Set(sizes).size > 1,
     "target rungs differ",
-    `the resolution changes the file: ${rungs.map((dpi, i) => `${dpi} DPI ${sizes[i]} B`).join(", ")}`,
+    `the resolution changes the file: ${rungs.map((r, i) => `${key(r)} ${sizes[i]} B`).join(", ")}`,
+  );
+  // The JPEG axis does something on an ordinary photo (audit
+  // compress-pdf#4): at the 72 DPI floor, the lowest level makes a smaller
+  // file than the preset's own. The smooth photo, because AutoFilter may
+  // keep the noise one lossless, where no JPEG level applies (the INFO
+  // lines above name the encoder of every rung).
+  const floorRungs = rungs.filter((r) => r.dpi === rungs.at(-1)!.dpi);
+  const atDefault = smoothSingle.get(key(floorRungs[0]!));
+  const atLowest = smoothSingle.get(key(floorRungs.at(-1)!));
+  check(
+    floorRungs.length > 1 &&
+      atDefault !== undefined &&
+      atLowest !== undefined &&
+      atLowest < atDefault,
+    "image quality lowers the file",
+    `smooth photo at the floor: ${floorRungs.map((r) => `${key(r)} ${smoothSingle.get(key(r))} B`).join(", ")}`,
   );
   // Met: just over the SECOND-smallest rung. Two rungs fit, and the answer
   // must be the sharper of them — not the smallest file — while the top rung
   // is over the target, so a sharper rung is tried and missed first.
   const bySize = [...sizes].sort((a, b) => a - b);
   const metTarget = bySize[1]! + 512;
-  const wantDpi = rungs.find(
-    (dpi) => (single.get(dpi) ?? Infinity) <= metTarget,
-  );
-  const smallestDpi = rungs[sizes.indexOf(bySize[0]!)];
+  const want = rungs.find((r) => (single.get(key(r)) ?? Infinity) <= metTarget);
+  const smallest = rungs[sizes.indexOf(bySize[0]!)];
   if (
     !(sizes[0]! > metTarget) ||
-    wantDpi === undefined ||
-    wantDpi === smallestDpi
+    want === undefined ||
+    smallest === undefined ||
+    key(want) === key(smallest)
   ) {
     check(
       false,
       "target met",
-      `fixture: the top rung (${sizes[0]} B) must be over ${metTarget} B, and the sharpest fit (${wantDpi} DPI) must not be the smallest file (${smallestDpi} DPI)`,
+      `fixture: the top rung (${sizes[0]} B) must be over ${metTarget} B, and the sharpest fit (${want && key(want)}) must not be the smallest file (${smallest && key(smallest)})`,
     );
   } else {
     const met = await compress(
       photo,
-      { profile: "deep", targetDpi: rungs[0]!, targetBytes: metTarget },
+      { profile: "deep", targetDpi: rungs[0]!.dpi, targetBytes: metTarget },
       deps.compression,
     );
     const t = met.ok ? met.meta.target : undefined;
-    const at = t ? t.tried.findIndex((a) => a.dpi === t.dpi) : -1;
+    const at = t
+      ? t.tried.findIndex((a) => a.dpi === t.dpi && a.quality === t.quality)
+      : -1;
     const sharperMissed =
       !!t &&
       at >= 0 &&
@@ -437,12 +470,13 @@ export async function runWorkerOptionsProof(
         met.output.length <= metTarget &&
         t.tried[at]?.bytes === met.output.length &&
         sharperMissed &&
-        t.dpi === wantDpi &&
+        t.dpi === want.dpi &&
+        t.quality === want.quality &&
         met.meta.pageCheck === "verified" &&
         (await hasColourImage(met.output)),
       "target met",
       met.ok
-        ? `target ${metTarget} B: ${met.output.length} B at ${t?.dpi} DPI (first lone fit ${wantDpi} DPI) after ${t?.attempts} runs [${t?.tried.map((a) => `${a.dpi}:${a.bytes}`).join(" ")}], sharper rungs all over: ${sharperMissed}, pages ${met.meta.pageCheck}`
+        ? `target ${metTarget} B: ${met.output.length} B at ${t?.dpi}:${t?.quality} (first lone fit ${key(want)}) after ${t?.attempts} runs [${t?.tried.map((a) => `${key(a)}:${a.bytes}`).join(" ")}], sharper rungs all over: ${sharperMissed}, pages ${met.meta.pageCheck}`
         : `${met.kind}: ${met.message}`,
     );
   }
@@ -458,7 +492,7 @@ export async function runWorkerOptionsProof(
   } else {
     const miss = await compress(
       photo,
-      { profile: "deep", targetDpi: rungs[0]!, targetBytes: missTarget },
+      { profile: "deep", targetDpi: rungs[0]!.dpi, targetBytes: missTarget },
       deps.compression,
     );
     const t = miss.ok ? miss.meta.target : undefined;
@@ -472,7 +506,7 @@ export async function runWorkerOptionsProof(
         Math.abs(miss.output.length - smallestAlone) <= 512,
       "target not met",
       miss.ok
-        ? `target ${missTarget} B: ${miss.output.length} B at ${t?.dpi} DPI after ${t?.attempts} runs [${t?.tried.map((a) => `${a.dpi}:${a.bytes}`).join(" ")}], smallest lone run ${smallestAlone} B, met ${t?.met}`
+        ? `target ${missTarget} B: ${miss.output.length} B at ${t?.dpi}:${t?.quality} after ${t?.attempts} runs [${t?.tried.map((a) => `${key(a)}:${a.bytes}`).join(" ")}], smallest lone run ${smallestAlone} B, met ${t?.met}`
         : `${miss.kind}: ${miss.message}`,
     );
   }

@@ -26,6 +26,12 @@ import { hasColourImage } from "./image-colour";
 import { rethrowIfAttemptAbort } from "../attempt-abort";
 import { MAX_TARGET_BYTES, MIN_TARGET_BYTES } from "@/lib/pdf/compress-target";
 import {
+  DEFAULT_IMAGE_QUALITY,
+  IMAGE_QUALITY_LEVELS,
+  isImageQuality,
+  type ImageQuality,
+} from "@/lib/pdf/compress-image-quality";
+import {
   runTargetLadder,
   type TargetAttempt,
   type TargetLadderReport,
@@ -75,6 +81,21 @@ export interface CompressionOptions {
    * (`./target-ladder.ts`). Absent ⇒ one run at `targetDpi`, as before.
    */
   targetBytes?: number;
+  /**
+   * How hard images are JPEG-compressed (deep only, Ghostscript only), apart
+   * from their resolution (audit compress-pdf#4). Absent ⇒ the /ebook
+   * preset's own level, {@link DEFAULT_IMAGE_QUALITY}. A target ladder starts
+   * here and steps it down after the resolution rungs (`./target-ladder.ts`).
+   */
+  imageQuality?: ImageQuality;
+}
+
+/** True when `options` asks for a JPEG level other than the preset's own. */
+export function asksForImageQuality(options: CompressionOptions): boolean {
+  return (
+    options.imageQuality !== undefined &&
+    options.imageQuality !== DEFAULT_IMAGE_QUALITY
+  );
 }
 
 /**
@@ -195,6 +216,40 @@ export function parseCompressionOptions(
     targetBytes = t;
   }
 
+  let imageQuality: ImageQuality | undefined;
+  if (options.imageQuality !== undefined) {
+    const q = options.imageQuality;
+    const levels = IMAGE_QUALITY_LEVELS.map((l) => `"${l.id}"`).join(", ");
+    if (!isImageQuality(q)) {
+      return {
+        ok: false,
+        error: apiError(
+          "invalid_request",
+          `\`options.imageQuality\` must be one of ${levels}.`,
+          [{ field: "options.imageQuality", message: `Expected ${levels}.` }],
+        ),
+      };
+    }
+    // Same rule as grayscale: the lossless repack never re-encodes an image.
+    // The preset's own level asks for nothing, so it is accepted anywhere.
+    if (q !== DEFAULT_IMAGE_QUALITY && rawProfile === "lossless") {
+      return {
+        ok: false,
+        error: apiError(
+          "invalid_request",
+          '`options.imageQuality` needs the "deep" profile.',
+          [
+            {
+              field: "options.imageQuality",
+              message: 'Image quality needs the "deep" profile.',
+            },
+          ],
+        ),
+      };
+    }
+    imageQuality = q;
+  }
+
   return {
     ok: true,
     value: {
@@ -202,6 +257,7 @@ export function parseCompressionOptions(
       targetDpi,
       grayscale,
       ...(targetBytes === undefined ? {} : { targetBytes }),
+      ...(imageQuality === undefined ? {} : { imageQuality }),
     },
   };
 }
@@ -259,6 +315,18 @@ export function planCompression(
       requires: GRAYSCALE_TOOLS,
       reason:
         "Grayscale conversion requires Ghostscript, which is not installed in this environment.",
+    };
+  }
+  // Only Ghostscript re-encodes images at a chosen JPEG level; qpdf and
+  // mutool would run and ignore it, a success nobody asked for.
+  if (asksForImageQuality(options)) {
+    const gs = GRAYSCALE_TOOLS.find((tool) => tools[tool]);
+    if (gs) return { supported: true, engine: gs };
+    return {
+      supported: false,
+      requires: GRAYSCALE_TOOLS,
+      reason:
+        "Choosing an image quality requires Ghostscript, which is not installed in this environment.",
     };
   }
   const available = DEEP_COMPRESSION_TOOLS.find((tool) => tools[tool]);
@@ -473,6 +541,8 @@ export interface CompressionTargetMeta {
    * before a rung was usable).
    */
   dpi: number | null;
+  /** That file's JPEG level; `null` exactly when `dpi` is. */
+  quality: ImageQuality | null;
   tried: TargetAttempt[];
   stoppedBy: TargetStop;
 }
@@ -660,6 +730,7 @@ export async function runCompression(
       met: finalBytes !== null && finalBytes <= ladder.targetBytes,
       attempts: ladder.tried.length,
       dpi: shippedLadderFile ? ladder.chosenDpi : null,
+      quality: shippedLadderFile ? ladder.chosenQuality : null,
       tried: ladder.tried,
       stoppedBy: ladder.stoppedBy,
     };
