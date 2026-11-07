@@ -31,9 +31,15 @@ import { stampProducer } from "./stamp";
  * directly, and checks where each page lands by reading the output with pdf.js.
  */
 
-export type NUpCount = 2 | 4 | 6 | 9;
+/**
+ * The pages-per-sheet counts offered. 3, 8, 12 and 16 joined 2, 4, 6 and 9 on
+ * 2026-11-07 (audit n-up-pdf#2): 8 and 16 are the usual handout and
+ * proof-sheet counts. Each needs a grid in {@link nUpGrid}; the switch there
+ * fails to compile when one is missing.
+ */
+export const N_UP_COUNTS = [2, 3, 4, 6, 8, 9, 12, 16] as const;
 
-export const N_UP_COUNTS: readonly NUpCount[] = [2, 4, 6, 9];
+export type NUpCount = (typeof N_UP_COUNTS)[number];
 
 export type NUpSheetId = "a4" | "letter";
 
@@ -98,12 +104,20 @@ export function nUpGrid(
   switch (perSheet) {
     case 2:
       return landscape ? { cols: 2, rows: 1 } : { cols: 1, rows: 2 };
+    case 3:
+      return landscape ? { cols: 3, rows: 1 } : { cols: 1, rows: 3 };
     case 4:
       return { cols: 2, rows: 2 };
     case 6:
       return landscape ? { cols: 3, rows: 2 } : { cols: 2, rows: 3 };
+    case 8:
+      return landscape ? { cols: 4, rows: 2 } : { cols: 2, rows: 4 };
     case 9:
       return { cols: 3, rows: 3 };
+    case 12:
+      return landscape ? { cols: 4, rows: 3 } : { cols: 3, rows: 4 };
+    case 16:
+      return { cols: 4, rows: 4 };
   }
 }
 
@@ -204,8 +218,10 @@ export async function nUpPdf(
   bytes: Uint8Array,
   options: NUpOptions,
 ): Promise<NUpResult> {
-  if (!N_UP_COUNTS.includes(options.perSheet)) {
-    throw new PdfEngineError("Choose 2, 4, 6 or 9 pages per sheet.");
+  if (!(N_UP_COUNTS as readonly number[]).includes(options.perSheet)) {
+    throw new PdfEngineError(
+      `Choose ${N_UP_COUNTS.slice(0, -1).join(", ")} or ${N_UP_COUNTS.at(-1)} pages per sheet.`,
+    );
   }
   const lib = await loadPdfLib();
   const source = await loadPdf(bytes);

@@ -10,6 +10,7 @@ import {
   degrees,
 } from "pdf-lib";
 import { describe, expect, it } from "vitest";
+import { getToolBySlug } from "@/lib/tools";
 import {
   N_UP_COUNTS,
   N_UP_MARGINS,
@@ -125,13 +126,24 @@ const A4 = N_UP_SHEETS.find((s) => s.id === "a4")!.size;
 
 describe("nUpGrid and nUpCells", () => {
   it("has a grid for every count, whose cells number the count", () => {
-    expect(N_UP_COUNTS).toEqual([2, 4, 6, 9]);
+    // 3, 8, 12 and 16 added 2026-11-07 (audit n-up-pdf#2): 8 and 16 are
+    // the handout and proof-sheet counts both competitors with this tool offer.
+    expect(N_UP_COUNTS).toEqual([2, 3, 4, 6, 8, 9, 12, 16]);
     for (const n of N_UP_COUNTS) {
       for (const landscape of [false, true]) {
         const g = nUpGrid(n, landscape);
         expect(g.cols * g.rows).toBe(n);
       }
     }
+  });
+
+  it("the catalogue's card names the offered range of counts", () => {
+    // The tagline and description are typed in the catalogue, which cannot
+    // import this module; they said "2, 4, 6 or 9" until 2026-11-07.
+    const tool = getToolBySlug("n-up-pdf")!;
+    const range = `${N_UP_COUNTS[0]} to ${N_UP_COUNTS.at(-1)}`;
+    expect(tool.tagline).toContain(range);
+    expect(tool.description).toContain(range);
   });
 
   it("tiles the sheet exactly, margin at the edges and between cells", () => {
@@ -267,6 +279,41 @@ describe("nUpPdf, read back by pdf.js", () => {
       expect(sheets[0]!.width).toBeCloseTo(612, 1);
       expect(sheets[0]!.labels).toHaveLength(perSheet);
     }
+  });
+
+  it("8, 12 and 16 per sheet fit that many pages on one sheet, in reading order", async () => {
+    for (const perSheet of [8, 12, 16] as const) {
+      const result = await nUpPdf(
+        await labelledPdf(perSheet + 1),
+        opts({ perSheet, orientation: "portrait" }),
+      );
+      expect(result.sheets).toBe(2);
+      expect(result.grid.cols * result.grid.rows).toBe(perSheet);
+      const sheets = await readSheets(result.bytes);
+      expect(sheets[0]!.labels).toHaveLength(perSheet);
+      expect(sheets[1]!.labels.map((l) => l.text)).toEqual([
+        `P${perSheet + 1}`,
+      ]);
+      const at = Object.fromEntries(sheets[0]!.labels.map((l) => [l.text, l]));
+      // Across, then down: P2 right of P1 on the same row; the first page
+      // of row two sits under P1.
+      const next = `P${result.grid.cols + 1}`;
+      expect(at.P2!.x).toBeGreaterThan(at.P1!.x);
+      expect(at.P2!.y).toBeCloseTo(at.P1!.y, 1);
+      expect(at[next]!.x).toBeCloseTo(at.P1!.x, 1);
+      expect(at[next]!.y).toBeGreaterThan(at.P1!.y);
+    }
+  });
+
+  it("3 per sheet stacks three portrait pages, or sets them side by side on landscape", async () => {
+    expect(nUpGrid(3, false)).toEqual({ cols: 1, rows: 3 });
+    expect(nUpGrid(3, true)).toEqual({ cols: 3, rows: 1 });
+    const result = await nUpPdf(
+      await labelledPdf(3),
+      opts({ perSheet: 3, orientation: "auto" }),
+    );
+    expect(result.sheets).toBe(1);
+    expect((await readSheets(result.bytes))[0]!.labels).toHaveLength(3);
   });
 
   it("draws a page carrying /Rotate 90 the way a viewer shows it", async () => {

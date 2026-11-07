@@ -3832,7 +3832,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-30",
-    updated: "2026-10-30",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-add-bates-numbers-to-a-pdf",

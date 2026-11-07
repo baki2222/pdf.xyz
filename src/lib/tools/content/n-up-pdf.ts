@@ -5,13 +5,15 @@ import { N_UP_COUNTS } from "@/lib/pdf/n-up";
 // The byte ceiling the n-up runner's file gate refuses above.
 const MAX_MB = Math.round(RUNNER_FILE_CEILINGS["n-up"] / (1024 * 1024));
 const COUNTS = `${N_UP_COUNTS.slice(0, -1).join(", ")} or ${N_UP_COUNTS.at(-1)}`;
+/** "2 to 16": the fewest and most pages per sheet the runner offers. */
+const RANGE = `${N_UP_COUNTS[0]} to ${N_UP_COUNTS.at(-1)}`;
 
 const content: ToolContent = {
   slug: "n-up-pdf",
 
   seoTitle: "N-up PDF — Multiple Pages per Sheet, No Upload",
 
-  metaDescription: `Put ${COUNTS} PDF pages on each A4 or US Letter sheet, ordered across or down, with margins and optional borders. Runs in your browser; no upload.`,
+  metaDescription: `Put ${RANGE} PDF pages on each A4 or US Letter sheet, ordered across or down, with margins and optional borders. Runs in your browser; no upload.`,
 
   intro: [
     `Multiple Pages per Sheet, also called n-up, shrinks several pages of a PDF onto each sheet of a new PDF: ${COUNTS} to a sheet. It is the print dialog's pages-per-sheet setting, saved as a file, so you can send it, check it on screen, or print it on any printer without hunting for that setting.`,
@@ -22,7 +24,7 @@ const content: ToolContent = {
   useCases: [
     {
       title: "Printing slides as handouts",
-      body: "A 30-slide presentation exported to PDF prints on 30 sheets. Six to a sheet, ordered across then down, it fits on five, readable enough to follow along.",
+      body: "A 30-slide presentation exported to PDF prints on 30 sheets. Six to a sheet, ordered across then down, it fits on five, readable enough to follow along; eight to a sheet fits it on four.",
     },
     {
       title: "Saving paper on drafts for review",
@@ -30,7 +32,7 @@ const content: ToolContent = {
     },
     {
       title: "Contact-sheet overviews",
-      body: "Nine pages to a sheet gives a quick visual overview of a long document, a portfolio or a set of scans, to spot the page you are looking for.",
+      body: "Nine or sixteen pages to a sheet gives a quick visual overview of a long document, a portfolio or a set of scans, to spot the page you are looking for.",
     },
     {
       title: "Index cards and small notes",
@@ -64,7 +66,7 @@ const content: ToolContent = {
     },
     {
       q: "Is the text still sharp and searchable on the sheets?",
-      a: "Yes. Each page is placed as its own vector drawing, scaled down, not turned into an image, so text stays selectable and sharp when you zoom in. What changes is its printed size: at nine to a sheet, body text becomes small.",
+      a: "Yes. Each page is placed as its own vector drawing, scaled down, not turned into an image, so text stays selectable and sharp when you zoom in. What changes is its printed size: at nine to a sheet body text becomes small, and at sixteen it is for an overview rather than reading.",
     },
     {
       q: "What happens to links, form fields and comments?",
