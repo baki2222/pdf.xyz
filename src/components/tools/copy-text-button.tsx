@@ -81,7 +81,10 @@ export function CopyTextButton({
         )}
         {label}
       </button>
-      <p role="status" aria-live="polite" className="text-muted text-xs">
+      {/* A bare polite live region, present before the press so the change
+          is announced. Not role="status": the result panel's own notes
+          (PDF to Text's empty-pages note) are THE status of a result. */}
+      <p aria-live="polite" className="text-muted text-xs">
         {state === "idle" ? "" : COPY_STATUS[state]}
       </p>
     </div>
