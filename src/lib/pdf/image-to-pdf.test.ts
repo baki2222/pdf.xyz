@@ -8,7 +8,14 @@ import {
   JPEG_HEIGHT,
   JPEG_WIDTH,
   jpegWithOrientation,
+  spliceAfterSoi,
 } from "@/tests/jpeg-fixtures";
+import {
+  DEFAULT_IMAGE_PAGE_OPTIONS,
+  PHOTO_DETAILS_CHOICES,
+  PHOTO_DETAILS_LABELS,
+  type ImagePageOptions,
+} from "./image-page-layout";
 import { readJpegOrientation } from "./jpeg-orientation";
 import {
   buildImagePdf,
@@ -129,6 +136,115 @@ describe("image-to-pdf", () => {
   });
 });
 
+/** The one image XObject's raw (DCT) bytes. */
+function embeddedImageStream(doc: PDFDocument): Uint8Array {
+  const streams = doc.context
+    .enumerateIndirectObjects()
+    .map(([, obj]) => obj)
+    .filter(
+      (obj): obj is PDFRawStream =>
+        obj instanceof PDFRawStream &&
+        obj.dict.get(PDFName.of("Subtype"))?.toString() === "/Image",
+    );
+  expect(streams).toHaveLength(1);
+  return streams[0]!.getContents();
+}
+
+/**
+ * Photo details (audit jpg-to-pdf#5, 2026-11-07). Until then every JPEG went
+ * into the PDF byte for byte, Exif and GPS included, and the FAQ told users to
+ * strip it elsewhere. Now the camera and location segments are removed by
+ * default, losslessly (jpeg-metadata.ts), and "keep" embeds the file as before.
+ */
+describe("photo details", () => {
+  const GPS = "GPS 23.8103N 90.4125E";
+  const photo = spliceAfterSoi(
+    jpegWithOrientation(6),
+    new Uint8Array([0xff, 0xfe, 0, GPS.length + 2, ...Buffer.from(GPS)]),
+  );
+  const has = (bytes: Uint8Array, text: string) =>
+    Buffer.from(bytes).includes(Buffer.from(text, "latin1"));
+  const run = (options?: ImagePageOptions) =>
+    imagesToPdf(
+      "jpg",
+      [{ name: "phone.jpg", type: "image/jpeg", bytes: photo }],
+      options,
+    );
+
+  it("health check: the photo carries Exif and the GPS text", () => {
+    expect(has(photo, "Exif")).toBe(true);
+    expect(has(photo, GPS)).toBe(true);
+  });
+
+  it("are removed by default, and the photo is still drawn upright", async () => {
+    expect(DEFAULT_IMAGE_PAGE_OPTIONS.photoDetails).toBe("remove");
+    const pdf = await run();
+    const embedded = embeddedImageStream(await PDFDocument.load(pdf));
+    expect(has(embedded, "Exif")).toBe(false);
+    expect(has(embedded, GPS)).toBe(false);
+    expect(has(pdf, GPS)).toBe(false);
+    const [drawn] = await drawnImages(pdf);
+    expect([drawn!.width, drawn!.height]).toEqual([JPEG_WIDTH, JPEG_HEIGHT]);
+    expect(placementMismatches(drawn!, 6)).toEqual([]);
+  });
+
+  it("the page says what the default does, in the runner's words", async () => {
+    const page = (await import("@/lib/tools/content/jpg-to-pdf")).default;
+    const answer = page.faqs.find((f) => /metadata/.test(f.q))!.a;
+    const label = (id: string) =>
+      PHOTO_DETAILS_CHOICES.find((c) => c.id === id)!.label;
+    const chosen = label(DEFAULT_IMAGE_PAGE_OPTIONS.photoDetails!);
+    expect(answer).toContain(
+      `Under ${PHOTO_DETAILS_LABELS.heading}, ${chosen} is chosen`,
+    );
+    expect(answer).toContain(`Choose ${label("keep")} to put each JPEG`);
+    // Keep is not "exactly as it is": the test below sees the rotation tag
+    // change, so the answer must say so.
+    expect(answer).toContain("apart from a rotation tag reset to upright");
+    // The default named is the one that removes them.
+    expect(chosen).toBe(label("remove"));
+  });
+
+  /**
+   * HISTORY: until review this test was "are kept, byte for byte, when the
+   * user keeps them" and checked only the length and the GPS text, while the
+   * FAQ said Keep put each JPEG in "exactly as it is, metadata and all". On a
+   * turned photo that was false: uprightJpeg rewrites the Orientation value
+   * to 1 on the Keep path too. Now the stream is compared byte by byte, and
+   * the one difference allowed is located independently of uprightJpeg: the
+   * value of the IFD entry whose tag is 0x0112, which held 6 and now holds 1.
+   */
+  it("are kept with Keep, every byte but the rotation tag's value", async () => {
+    const pdf = await run({
+      ...DEFAULT_IMAGE_PAGE_OPTIONS,
+      photoDetails: "keep",
+    });
+    const embedded = embeddedImageStream(await PDFDocument.load(pdf));
+    expect(has(embedded, GPS)).toBe(true);
+    expect(embedded.length).toBe(photo.length);
+    const changed = [...embedded.keys()].filter(
+      (i) => embedded[i] !== photo[i],
+    );
+    // Positive control: the photo really was turned, so something must change.
+    expect(readJpegOrientation(photo)).toBe(6);
+    expect(changed.length).toBeGreaterThan(0);
+    const at = changed[0]!;
+    const value = changed.length === 1 && photo[at] === 0 ? at - 1 : at;
+    // Whatever changed sits inside one two-byte SHORT value...
+    expect(changed.every((i) => i === value || i === value + 1)).toBe(true);
+    // ...that is the value of an IFD entry tagged 0x0112 (Orientation),
+    // read in either byte order: tag(2) type(2) count(4) value.
+    const tag = [photo[value - 8], photo[value - 7]];
+    const littleEndian = tag[0] === 0x12 && tag[1] === 0x01;
+    expect(littleEndian || (tag[0] === 0x01 && tag[1] === 0x12)).toBe(true);
+    const short = (b: Uint8Array) =>
+      littleEndian
+        ? b[value]! | (b[value + 1]! << 8)
+        : (b[value]! << 8) | b[value + 1]!;
+    expect([short(photo), short(embedded)]).toEqual([6, 1]);
+  });
+});
+
 /**
  * A phone photo comes out the way the browser showed it.
  *
@@ -213,20 +329,15 @@ describe("EXIF Orientation reaches the page", () => {
   it("the embedded stream no longer asks a viewer to turn it again", async () => {
     // Once the page turns the photo, a viewer that also honoured EXIF inside
     // the DCT stream would turn it twice. The tag is rewritten to 1; nothing
-    // else about the stream changes.
+    // else about the stream changes. Since 2026-11-07 this holds with photo
+    // details KEPT; by default the Exif block is removed altogether (below).
     const input = jpegWithOrientation(6, { bigEndian: true });
-    const { pdf } = await convert(input);
-    const doc = await PDFDocument.load(pdf);
-    const streams = doc.context
-      .enumerateIndirectObjects()
-      .map(([, obj]) => obj)
-      .filter(
-        (obj): obj is PDFRawStream =>
-          obj instanceof PDFRawStream &&
-          obj.dict.get(PDFName.of("Subtype"))?.toString() === "/Image",
-      );
-    expect(streams).toHaveLength(1);
-    const embedded = streams[0]!.getContents();
+    const pdf = await imagesToPdf(
+      "jpg",
+      [{ name: "phone.jpg", type: "image/jpeg", bytes: input }],
+      { ...DEFAULT_IMAGE_PAGE_OPTIONS, photoDetails: "keep" },
+    );
+    const embedded = embeddedImageStream(await PDFDocument.load(pdf));
     expect(embedded.length).toBe(input.length);
     expect(readJpegOrientation(embedded)).toBe(1);
     const changed = [...embedded.keys()].filter(

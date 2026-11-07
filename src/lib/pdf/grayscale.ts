@@ -75,6 +75,19 @@ export function grayscalePresetById(
 }
 
 /**
+ * What a preset sharper than the default costs, said under the control when
+ * it is chosen (audit grayscale-pdf#4): pixels grow with the square of the
+ * DPI, and the file and the run with them. `null` for the default and below.
+ */
+export function grayscalePresetTradeoff(id: string): string | null {
+  const preset = grayscalePresetById(id);
+  const base = grayscalePresetById("print");
+  if (preset.dpi <= base.dpi) return null;
+  const times = Math.round((preset.dpi / base.dpi) ** 2);
+  return `${preset.label} draws ${times} times the pixels of ${base.label} on every page: smaller type prints sharper, and the file is larger and takes longer to make.`;
+}
+
+/**
  * Convert a PDF to a grayscale PDF by rendering every page locally, taking its
  * luminance plane, and rebuilding a PDF of single-channel (DeviceGray) page
  * images at matching page dimensions.

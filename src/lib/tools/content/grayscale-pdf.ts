@@ -3,8 +3,12 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import {
   GRAYSCALE_DPI_PRESETS,
   grayscalePresetById,
+  grayscalePresetTradeoff,
 } from "@/lib/pdf/grayscale";
 import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
+import { DEEP_COMPRESSION_PRESETS } from "@/lib/pdf/offered-kinds";
+import { RASTER_MAX_DEVICE_PX } from "@/lib/pdf/pdf-to-image";
+import { getToolBySlug } from "@/lib/tools";
 
 /*
  * Behaviour claims below were read from the implementation on 2026-09-27:
@@ -64,18 +68,47 @@ import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
  */
 const SCREEN = grayscalePresetById("screen");
 const PRINT = grayscalePresetById("print");
+const FINE = grayscalePresetById("fine");
+/** "A, B or C" from the runner's own preset table. */
+const listOr = (items: readonly string[]) =>
+  items.length < 2
+    ? (items[0] ?? "")
+    : `${items.slice(0, -1).join(", ")} or ${items.at(-1)}`;
+/** Fine print's pixel multiple over Print, as the runner's line states it. */
+const FINE_TIMES = Math.round((FINE.dpi / PRINT.dpi) ** 2);
+if (!grayscalePresetTradeoff(FINE.id)?.includes(`${FINE_TIMES} times`)) {
+  throw new Error("grayscale-pdf content: the runner's trade-off line changed");
+}
+/** The longest page side kept at Fine print's full DPI, to a tenth of an inch. */
+const FINE_CAP_IN = Math.floor((RASTER_MAX_DEVICE_PX / FINE.dpi) * 10) / 10;
+if (FINE_CAP_IN < 14) {
+  // US Legal is 14 in long: the FAQ says the cap still covers it.
+  throw new Error("grayscale-pdf content: Fine print no longer fits US Legal");
+}
 const MAX_MB = Math.round(RUNNER_FILE_CEILINGS.grayscale / (1024 * 1024));
 const OUTPUT_TTL = DEFAULT_RETENTION.outputTtlMinutes;
-const PRESET_LABELS = GRAYSCALE_DPI_PRESETS.map(
-  (preset) => `${preset.label} (${preset.dpi} DPI)`,
-).join(" or ");
+/**
+ * Compress PDF's secure-server Grayscale switch (audit grayscale-pdf#2,
+ * 2026-11-07): Ghostscript pdfwrite with -sColorConversionStrategy=Gray
+ * (workers/compression/native.ts), which rewrites the PDF rather than
+ * rasterising it. The same step downsamples images to the DPI picked there,
+ * so its sharpest preset is named as the bound. Until this date the select-
+ * text answer sent readers only to OCR PDF.
+ */
+const COMPRESS = getToolBySlug("compress-pdf")!.name;
+const OCR = getToolBySlug("ocr-pdf")!.name;
+const DEEP_TOP = DEEP_COMPRESSION_PRESETS.at(-1)!;
+const PRESET_LABELS = listOr(
+  GRAYSCALE_DPI_PRESETS.map((preset) => `${preset.label} (${preset.dpi} DPI)`),
+);
+const PRESET_DPIS = listOr(GRAYSCALE_DPI_PRESETS.map((p) => String(p.dpi)));
 
 const content: ToolContent = {
   slug: "grayscale-pdf",
 
   seoTitle: "Grayscale PDF — Convert a Color PDF to Grayscale",
 
-  metaDescription: `Turn a color PDF into shades of gray in your browser, with no upload. Choose ${SCREEN.dpi} or ${PRINT.dpi} DPI. Text becomes part of a page image, so keep the original.`,
+  metaDescription: `Turn a color PDF into shades of gray in your browser, with no upload. Choose ${PRESET_DPIS} DPI. Text becomes part of a page image, so keep the original.`,
 
   intro: [
     "Grayscale PDF returns a copy of your document in which every page is shades of gray. Each page is drawn to an image and every pixel becomes a weighted brightness value that counts green most and blue least, so pure red and pure green end up as two distinct grays rather than one. The gray images go into a new PDF, each page at the size the original displays at.",
@@ -109,7 +142,7 @@ const content: ToolContent = {
     },
     {
       title: "Pick the output quality",
-      body: `Under "Output quality", choose ${PRESET_LABELS}. ${PRINT.label} is selected by default; ${SCREEN.label} renders fewer pixels per page and usually gives a smaller file.`,
+      body: `Under "Output quality", choose ${PRESET_LABELS}. ${PRINT.label} is selected by default; ${SCREEN.label} renders fewer pixels per page and usually gives a smaller file, and ${FINE.label} is for small type and fine lines on paper. When ${FINE.label} is chosen, a line under the choice gives the cost: it draws ${FINE_TIMES} times the pixels of ${PRINT.label} on every page, so the file is larger and takes longer to make.`,
     },
     {
       title: "Convert to grayscale",
@@ -128,11 +161,11 @@ const content: ToolContent = {
     },
     {
       q: "Can I still select or search the text after converting?",
-      a: `No. Each page is stored as one image, so the text is part of the picture. OCR PDF can add a recognized text layer to the gray copy, and the ${PRINT.label} setting gives it more pixels to read. Unlike this tool, OCR PDF uploads the file over TLS to pdf.xyz's secure server; there the input is deleted when the job finishes, the result's download link expires after ${OUTPUT_TTL} minutes, and a daily storage rule erases the stored copy after that.`,
+      a: `No. Each page is stored as one image, so the text is part of the picture. If you need the original text kept, ${COMPRESS} turns a PDF gray another way: its optional secure-server step has a Grayscale switch, and there Ghostscript rewrites the PDF with every colour turned to gray instead of turning each page into a picture; check that the result still lets you select the text before you rely on it. That step also makes images smaller, even at its sharpest setting, ${DEEP_TOP.label}, which keeps images up to ${DEEP_TOP.dpi} DPI, so it is not only a colour change. Or keep this tool's copy and run it through ${OCR}, which adds a recognized text layer; the ${PRINT.label} setting gives it more pixels to read. Unlike this tool, ${COMPRESS}'s secure-server step and ${OCR} upload the file over TLS to pdf.xyz's secure server; there the input is deleted when the job finishes, the result's download link expires after ${OUTPUT_TTL} minutes, and a daily storage rule erases the stored copy after that.`,
     },
     {
-      q: `What is the difference between ${SCREEN.label} and ${PRINT.label}?`,
-      a: `They set how many pixels each page is drawn at: ${SCREEN.dpi} DPI for ${SCREEN.label}, ${PRINT.dpi} DPI for ${PRINT.label}. ${SCREEN.label} suits reading on a monitor and keeps the file lighter; ${PRINT.label} keeps small type and fine lines crisper on paper. There is also a ceiling on how many pixels one side of a page may be drawn at, so the browser does not run out of memory: a poster-size page can come out with fewer pixels than the setting asks for, and ${PRINT.label} reaches that ceiling on smaller pages than ${SCREEN.label} does.`,
+      q: `What is the difference between ${SCREEN.label}, ${PRINT.label} and ${FINE.label}?`,
+      a: `They set how many pixels each page is drawn at: ${SCREEN.dpi} DPI for ${SCREEN.label}, ${PRINT.dpi} DPI for ${PRINT.label} and ${FINE.dpi} DPI for ${FINE.label}. ${SCREEN.label} suits reading on a monitor and keeps the file lighter; ${PRINT.label} keeps small type and fine lines crisper on paper; ${FINE.label} matches the resolution usually asked for when images are printed, for the smallest type and hairlines, and the file grows with it. There is also a ceiling on how many pixels one side of a page may be drawn at, so the browser does not run out of memory: a poster-size page can come out with fewer pixels than the setting asks for, and a sharper setting reaches that ceiling on smaller pages: ${FINE.label} at about ${FINE_CAP_IN} in on a side, which still covers A4, US Letter and US Legal.`,
     },
     {
       q: "Will a print shop's preflight check see the file as grayscale?",

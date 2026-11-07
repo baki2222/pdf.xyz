@@ -1,7 +1,10 @@
 import type { ToolContent } from "./types";
 import {
   DEFAULT_JPEG_QUALITY,
+  DEFAULT_JPEG_QUALITY_ID,
   DEFAULT_RESOLUTION_ID,
+  JPEG_QUALITY_LABEL,
+  RASTER_JPEG_QUALITIES,
   RASTER_PREVIEW_LIMIT,
   RASTER_RESOLUTIONS,
   pageImageName,
@@ -38,8 +41,13 @@ import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
  *    YCbCr): rasterCapture encodes the luminance plane with encodeGrayJpeg, a
  *    one-component JPEG — pdf-to-image-options.test.ts and the e2e proof read
  *    the component count from the bytes.
- *  - quality: the runner passes no quality, so rasterizePdf encodes with
- *    clampJpegQuality(DEFAULT_JPEG_QUALITY) on a "#ffffff" background.
+ *  - quality (SUPERSEDED 2026-11-07, audit pdf-to-jpg#3; history kept): the
+ *    runner passed no quality, so rasterizePdf encoded with
+ *    clampJpegQuality(DEFAULT_JPEG_QUALITY) on a "#ffffff" background, and
+ *    the intro said "There is no quality slider". Now the runner offers
+ *    RASTER_JPEG_QUALITIES under JPEG_QUALITY_LABEL and passes the chosen
+ *    preset's quality; the default preset is DEFAULT_JPEG_QUALITY, and
+ *    pdf-to-image-chain.test.tsx reads each preset at the encoder.
  *  - file names: pageImageName / zipOutputName, called here with the same
  *    arguments shape the runner uses, so the examples cannot drift.
  *  - encryption (AMENDED 2026-10-06): the runner reads with reader="pdfjs"
@@ -98,6 +106,20 @@ if (!longStart || longStart.id === DEFAULT_RESOLUTION_ID) {
 const longLabel = resolutionById(longStart.id).label;
 const startSentence = `${standard.label} is selected at the start for a PDF of up to ${LARGE_RASTER_PAGES} pages and ${longLabel} for a longer one; once you convert at a resolution you picked, this browser remembers it and opens a PDF of up to ${LARGE_RASTER_PAGES} pages at it next time.`;
 const quality = Math.round(DEFAULT_JPEG_QUALITY * 100);
+/** "Smaller file (75), Standard (92) or Maximum (100)", from the runner's table. */
+const qualityChoices = (() => {
+  const items = RASTER_JPEG_QUALITIES.map(
+    (q) => `${q.label} (${Math.round(q.quality * 100)})`,
+  );
+  return `${items.slice(0, -1).join(", ")} or ${items.at(-1)}`;
+})();
+const qualityDefault = RASTER_JPEG_QUALITIES.find(
+  (q) => q.id === DEFAULT_JPEG_QUALITY_ID,
+)!;
+const qualitySmallest = RASTER_JPEG_QUALITIES[0];
+if (Math.round(qualityDefault.quality * 100) !== quality) {
+  throw new Error("pdf-to-jpg content: the default quality preset changed");
+}
 
 /** US Letter is 612 x 792 PDF points; pixels = points x the renderer's scale. */
 const LETTER_WIDTH_PT = 612;
@@ -129,7 +151,7 @@ const content: ToolContent = {
 
   intro: [
     `PDF to JPG paints the pages of your PDF — all of them, or only the ones you pick — onto a canvas with pdf.js and saves each one as a JPEG picture, in colour or in grayscale, with the page's built-in rotation applied. The renderer and its decoders for JPEG 2000 and JBIG2 images load from pdf.xyz itself, and all of the drawing and encoding is done by your own browser: the PDF is not uploaded.`,
-    `There are ${RASTER_RESOLUTIONS.length} resolutions to choose from: ${presetList}. ${startSentence} There is no quality slider; every JPEG is encoded at quality ${quality} out of 100 on a white background, since JPEG cannot store transparency. A one-page PDF downloads as a single file (flyer.pdf becomes ${exampleSingle}). When more than one page is rendered they arrive as a ZIP: all pages of a ${EXAMPLE_PAGES}-page report.pdf become ${exampleZip}, holding ${exampleFirst} through ${exampleLast}, with page numbers zero-padded to the width of the page count so the images sort in reading order. Grayscale saves single-channel JPEGs, which are smaller than colour ones.`,
+    `There are ${RASTER_RESOLUTIONS.length} resolutions to choose from: ${presetList}. ${startSentence} Under ${JPEG_QUALITY_LABEL}, choose ${qualityChoices} out of 100; ${qualityDefault.label} is selected at the start, and this browser remembers the one you convert with. ${qualitySmallest.label} gives the lightest JPEGs for an upload limit, at the cost of some sharpness around text. Every JPEG has a white background, since JPEG cannot store transparency. A one-page PDF downloads as a single file (flyer.pdf becomes ${exampleSingle}). When more than one page is rendered they arrive as a ZIP: all pages of a ${EXAMPLE_PAGES}-page report.pdf become ${exampleZip}, holding ${exampleFirst} through ${exampleLast}, with page numbers zero-padded to the width of the page count so the images sort in reading order. Grayscale saves single-channel JPEGs, which are smaller than colour ones.`,
     `It converts a single PDF per run, up to ${maxMb} MB. One that needs a password to open stops at the loading step, with a message saying it is password-protected. A PDF that opens without a password converts even if its author restricted printing or copying. When pdf.js fails to decode an embedded image, the result panel states how many images could not be decoded rather than leaving you to spot the gap yourself.`,
   ],
 
@@ -162,8 +184,8 @@ const content: ToolContent = {
       body: `Under Resolution, click ${presetList}. A higher DPI gives sharper text and larger files.`,
     },
     {
-      title: "Choose the pages and colour",
-      body: "Under Pages, keep All pages, or click Select pages and type the ones you want, such as 1-3, 5 or 8- for page 8 to the end; a page the PDF does not have is named in a note, and nothing renders until the range is fixed. Under Colour, pick Colour or Grayscale.",
+      title: "Choose the pages, colour and quality",
+      body: `Under Pages, keep All pages, or click Select pages and type the ones you want, such as 1-3, 5 or 8- for page 8 to the end; a page the PDF does not have is named in a note, and nothing renders until the range is fixed. Under Colour, pick Colour or Grayscale, and under ${JPEG_QUALITY_LABEL}, pick ${qualityChoices}.`,
     },
     {
       title: "Render the pages",
@@ -194,7 +216,7 @@ const content: ToolContent = {
     },
     {
       q: "Is JPG the right format for text-heavy pages?",
-      a: `JPEG is lossy and suits photos and scans best; around sharp black-on-white edges it can leave faint smudges even at quality ${quality}. PDF to PNG renders the same pages at the same resolutions losslessly, keeping type and line art crisp.`,
+      a: `JPEG is lossy and suits photos and scans best; around sharp black-on-white edges it can leave faint smudges even at ${qualityDefault.label} (${quality}). PDF to PNG renders the same pages at the same resolutions losslessly, keeping type and line art crisp.`,
     },
     {
       q: "What does the warning about images that could not be decoded mean?",

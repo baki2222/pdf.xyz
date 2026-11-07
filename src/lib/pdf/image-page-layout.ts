@@ -69,18 +69,53 @@ export const IMAGE_OUTPUTS: readonly { id: ImageOutputId; label: string }[] = [
   { id: "per-image", label: "One PDF per image (ZIP)" },
 ];
 
+/**
+ * What happens to a JPEG's camera and location details (Exif, GPS, XMP,
+ * IPTC, comments, appended previews). "remove" strips those segments without
+ * re-encoding (`stripJpegMetadata`); "keep" embeds the file with its metadata,
+ * as every JPEG was until 2026-11-07, except that a turned photo's EXIF
+ * Orientation value is rewritten to 1 (`uprightJpeg`) so no viewer turns it
+ * twice; image-to-pdf.test.ts "are kept ... apart from the rotation tag"
+ * holds that to the byte. Not page setup, but it rides on the same options
+ * so every path that builds the PDF (the size ladder too) sees it.
+ */
+export type PhotoDetailsId = "remove" | "keep";
+
+export const PHOTO_DETAILS_LABELS = {
+  heading: "Photo location & camera details",
+} as const;
+
+export const PHOTO_DETAILS_CHOICES: readonly {
+  id: PhotoDetailsId;
+  label: string;
+}[] = [
+  { id: "remove", label: "Remove" },
+  { id: "keep", label: "Keep" },
+];
+
 export interface ImagePageOptions {
   pageSize: ImagePageSizeId;
   orientation: ImageOrientationId;
   margin: ImageMarginId;
+  /** Absent reads as "remove": the private choice is the default. */
+  photoDetails?: PhotoDetailsId;
 }
 
-/** The layout every image PDF had before these options existed. */
+/**
+ * The layout every image PDF had before these options existed — and, since
+ * 2026-11-07, photo details removed, which they were not before.
+ */
 export const DEFAULT_IMAGE_PAGE_OPTIONS: Readonly<ImagePageOptions> = {
   pageSize: "letter",
   orientation: "portrait",
   margin: "large",
+  photoDetails: "remove",
 };
+
+/** Whether a JPEG's camera and location segments are stripped. */
+export function removesPhotoDetails(options: ImagePageOptions): boolean {
+  return options.photoDetails !== "keep";
+}
 
 export const DEFAULT_IMAGE_OUTPUT: ImageOutputId = "single";
 

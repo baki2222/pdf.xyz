@@ -64,6 +64,11 @@ import {
 import { TRANSLATE_LANGUAGES } from "@/lib/jobs/translate-pdf";
 import {
   DEFAULT_JPEG_QUALITY,
+  DEFAULT_JPEG_QUALITY_ID,
+  JPEG_QUALITY_LABEL,
+  RASTER_BACKGROUNDS,
+  RASTER_BACKGROUND_LABEL,
+  RASTER_JPEG_QUALITIES,
   DEFAULT_RESOLUTION_ID,
   RASTER_MAX_DEVICE_PX,
   RASTER_PREVIEW_LIMIT,
@@ -615,6 +620,8 @@ const OCR_PDF_MODE = ocrModeLabel("searchable-pdf");
  */
 const GRAY_SCREEN = grayscalePresetById("screen");
 const GRAY_PRINT = grayscalePresetById("print");
+const GRAY_FINE = grayscalePresetById("fine");
+const GRAY_DPIS = listOr(GRAYSCALE_DPI_PRESETS.map((p) => String(p.dpi)));
 const GRAY_PRESET_CHOICES = listOr(
   GRAYSCALE_DPI_PRESETS.map((p) => `${p.label} (${p.dpi} DPI)`),
 );
@@ -1349,8 +1356,8 @@ export const guides: Guide[] = [
         id: "jpg-or-png",
         heading: "JPG or PNG?",
         body: [
-          `JPG files are smaller and suit photographs and scanned pages; each page is encoded at a fixed JPEG quality of ${Math.round(DEFAULT_JPEG_QUALITY * 100)}%. PNG is lossless — every pixel is kept exactly — which suits text, line art and screenshots, at the cost of larger files.`,
-          "Both are rendered on a white background, so any transparent area of a page comes out white.",
+          `JPG files are smaller and suit photographs and scanned pages. PDF to JPG's ${JPEG_QUALITY_LABEL} choice sets how hard each page is compressed: ${RASTER_JPEG_QUALITIES.map((q) => `${q.label} (${Math.round(q.quality * 100)}%)`).join(", ")}, with ${RASTER_JPEG_QUALITIES.find((q) => q.id === DEFAULT_JPEG_QUALITY_ID)!.label} (${Math.round(DEFAULT_JPEG_QUALITY * 100)}%) selected at the start; a lower one gives a smaller file. PNG is lossless — every pixel is kept exactly — which suits text, line art and screenshots, at the cost of larger files.`,
+          `JPG pages are always rendered on a white background, since JPEG cannot store transparency. PDF to PNG renders on white too, unless you pick ${RASTER_BACKGROUNDS.find((b) => b.id === "transparent")!.label} under ${RASTER_BACKGROUND_LABEL}.`,
         ],
       },
       {
@@ -1404,7 +1411,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-rotate-a-pdf",
@@ -5060,7 +5067,7 @@ export const guides: Guide[] = [
         heading: "What you download",
         body: [
           `A one-page PDF saves as a single image named after the file: logo.pdf gives ${PNG_EXAMPLE_SINGLE}. With more than one page rendered, the images come in one ZIP, numbered with leading zeros so they sort in reading order: all pages of a ${PNG_EXAMPLE_PAGES}-page manual.pdf give ${PNG_EXAMPLE_ZIP}, starting with ${PNG_EXAMPLE_FIRST}. A page keeps its number from the document when you pick only some, so page 7 of that manual is ${PNG_EXAMPLE_PAGE_7}.`,
-          "Pages are painted onto white, so every PNG has a solid white background. If a picture inside the PDF cannot be decoded, it comes out blank while the rest of the page renders, and the result gives the number of images affected across the document.",
+          `Pages are painted onto white unless you pick ${RASTER_BACKGROUNDS.find((b) => b.id === "transparent")!.label} under ${RASTER_BACKGROUND_LABEL}: then whatever the page does not paint is see-through, which suits a logo or signature, though a page that paints its own white rectangle stays white. If a picture inside the PDF cannot be decoded, it comes out blank while the rest of the page renders, and the result gives the number of images affected across the document.`,
         ],
       },
       {
@@ -5096,7 +5103,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-convert-pdf-to-text",
@@ -5189,7 +5196,7 @@ export const guides: Guide[] = [
   {
     slug: "how-to-convert-a-pdf-to-black-and-white",
     title: "How to convert a PDF to black and white",
-    description: `Turn a color PDF into shades of gray for printing, right in your browser. Choose ${GRAY_SCREEN.dpi} or ${GRAY_PRINT.dpi} DPI; pages become images, so keep the original.`,
+    description: `Turn a color PDF into shades of gray for printing, right in your browser. Choose ${GRAY_DPIS} DPI; pages become images, so keep the original.`,
     tools: ["grayscale-pdf", "pdf-to-png", "ocr-pdf"],
     keywords: [
       "how to convert a pdf to black and white",
@@ -5225,7 +5232,7 @@ export const guides: Guide[] = [
         heading: "Why the file can get bigger",
         body: [
           `A page of text is a few drawing instructions in the original and a full picture in the copy, so a text-only PDF usually grows, often by a lot. A scanned or photo-heavy PDF can shrink instead. The result shows both sizes, and when the copy is larger it says so: “${GRAYSCALE_GREW_NOTE}”`,
-          `${GRAY_SCREEN.label} (${GRAY_SCREEN.dpi} DPI) draws fewer pixels per page than ${GRAY_PRINT.label} (${GRAY_PRINT.dpi} DPI), so it gives a lighter file that reads well on a monitor. ${GRAY_PRINT.label} keeps small type and fine lines crisper on paper.`,
+          `${GRAY_SCREEN.label} (${GRAY_SCREEN.dpi} DPI) draws fewer pixels per page than ${GRAY_PRINT.label} (${GRAY_PRINT.dpi} DPI), so it gives a lighter file that reads well on a monitor. ${GRAY_PRINT.label} keeps small type and fine lines crisper on paper, and ${GRAY_FINE.label} (${GRAY_FINE.dpi} DPI), the resolution usually asked for when images are printed, crisper still; it draws ${Math.round((GRAY_FINE.dpi / GRAY_PRINT.dpi) ** 2)} times the pixels of ${GRAY_PRINT.label}, so the file grows with it.`,
         ],
       },
       {
@@ -5240,6 +5247,7 @@ export const guides: Guide[] = [
         id: "related-tools",
         heading: "Gray images, or searchable text again",
         body: [
+          `If the text must stay selectable, ${nameOf("compress-pdf")} turns a PDF gray another way. Its optional secure-server step has a Grayscale switch: Ghostscript rewrites the PDF with every colour turned to gray instead of turning each page into a picture; check that the result still lets you select the text. That step also makes images smaller, even at its sharpest setting, ${DEEP_COMPRESSION_PRESETS.at(-1)!.label}, which keeps images up to ${DEEP_COMPRESSION_PRESETS.at(-1)!.dpi} DPI, and like ${nameOf("ocr-pdf")} it runs on our secure server rather than in your browser.`,
           `If you want gray page images rather than a PDF, ${nameOf("pdf-to-png")} has a ${PNG_GRAY} option under Colour, and it also runs in your browser.`,
           `To make the gray copy searchable again, run it through ${nameOf("ocr-pdf")}, which adds a recognised text layer; ${GRAY_PRINT.label} gives it more pixels to read. Unlike this tool, ${nameOf("ocr-pdf")} runs on our secure server rather than in your browser.`,
         ],
@@ -5257,7 +5265,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I still select or search the text afterwards?",
-        answer: `No. Each page is stored as one image, so the text is part of the picture. ${nameOf("ocr-pdf")} can add a recognised text layer to the gray copy, but it runs on our secure server rather than in your browser.`,
+        answer: `No. Each page is stored as one image, so the text is part of the picture. The Grayscale switch on ${nameOf("compress-pdf")}'s secure-server step rewrites the PDF in gray instead of turning each page into a picture; check that the result still lets you select the text. ${nameOf("ocr-pdf")} can add a recognised text layer to the gray copy. Both run on our secure server rather than in your browser.`,
       },
       {
         question: "Why is the gray PDF bigger than the original?",
@@ -5269,7 +5277,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-highlight-text-in-a-pdf",

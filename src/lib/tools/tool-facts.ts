@@ -1458,7 +1458,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         },
         {
           question: `What resolution does ${tool.name} use?`,
-          answer: `You choose: ${dpiChoices(GRAYSCALE_DPI_PRESETS)}. The higher setting gives sharper pages and a larger file.`,
+          answer: `You choose: ${dpiChoices(GRAYSCALE_DPI_PRESETS)}. A higher setting gives sharper pages and a larger file.`,
         },
       ];
     case "fill-forms":

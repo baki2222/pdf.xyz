@@ -110,12 +110,23 @@ export async function embedRasterImage(
   doc: PDFDocument,
   bytes: Uint8Array,
   format: RasterImageFormat,
+  {
+    rewriteJpeg,
+  }: {
+    /**
+     * Applied to the JPEG AFTER its EXIF turn is read — JPG to PDF passes
+     * `stripJpegMetadata` here, which removes the Exif that holds the turn.
+     * Passed in rather than imported so this module stays small.
+     */
+    rewriteJpeg?: (bytes: Uint8Array) => Uint8Array;
+  } = {},
 ): Promise<PDFImage> {
   if (format === "png") return doc.embedPng(normalizeImageBytes(bytes));
   // The DCT stream is embedded as-is (lossless); only a turn requested by EXIF
   // is lifted out of it and recorded for {@link drawRasterImage}.
   const upright = uprightJpeg(bytes);
-  const image = await doc.embedJpg(normalizeImageBytes(upright.bytes));
+  const jpeg = rewriteJpeg ? rewriteJpeg(upright.bytes) : upright.bytes;
+  const image = await doc.embedJpg(normalizeImageBytes(jpeg));
   if (upright.orientation !== 1) orientations.set(image, upright.orientation);
   return image;
 }

@@ -95,6 +95,9 @@ export const OPTION_SCHEMAS = {
     resolution: oneOf(["screen", "high", "print"] as const),
     // Colour or grayscale; the page range is typed text and is never kept.
     color: oneOf(["color", "gray"] as const),
+    // PDF to JPG's Quality preset (RASTER_JPEG_QUALITIES; option-memory.test
+    // holds these ids to that table).
+    quality: oneOf(["smaller", "standard", "maximum"] as const),
   },
 } as const satisfies Readonly<Record<string, Schema>>;
 

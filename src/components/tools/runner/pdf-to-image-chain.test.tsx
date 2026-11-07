@@ -17,17 +17,24 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import JSZip from "jszip";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { PDFDocument } from "pdf-lib";
 import { resetAnnouncer } from "@/components/a11y/live-region";
 import {
+  DEFAULT_JPEG_QUALITY,
+  JPEG_QUALITY_LABEL,
+  RASTER_BACKGROUNDS,
+  RASTER_BACKGROUND_LABEL,
+  RASTER_JPEG_QUALITIES,
   RASTER_RESOLUTIONS,
   pageImageName,
   zipOutputName,
 } from "@/lib/pdf/pdf-to-image";
 import { capturePdfPages, rasterizePdf } from "@/lib/pdf/render";
+import { recallOptions } from "@/lib/intent/option-memory";
 import { RASTER_MAX_DEVICE_PX } from "@/lib/pdf/render-utils";
 import { PdfToImageRunner } from "./pdf-to-image-runner";
 
@@ -756,4 +763,249 @@ describe("a failed page without onPageFailed still rejects (Redact, Grayscale)",
       { index: 2, message: "Page 3 could not be rendered." },
     ]);
   }, 30_000);
+});
+
+/* ------------------------------------------------------------------ *
+ *  JPEG quality (audit pdf-to-jpg#3, 2026-11-07)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Every JPEG was encoded at DEFAULT_JPEG_QUALITY and the page said "There is
+ * no quality slider". Now PDF to JPG offers RASTER_JPEG_QUALITIES; read here
+ * at the encoder (the quality `toBlob` is called with) after a real run, and
+ * PDF to PNG offers no such choice.
+ */
+describe("PDF to JPG — the Quality choice reaches the encoder", () => {
+  beforeEach(() => window.localStorage.clear());
+
+  async function mount(format: "jpg" | "png") {
+    const doc = await PDFDocument.create();
+    doc.addPage([100, 100]);
+    const file = new File([new Uint8Array(await doc.save())], "q.pdf", {
+      type: "application/pdf",
+    });
+    const router = {
+      back: () => {},
+      forward: () => {},
+      refresh: () => {},
+      push: () => {},
+      replace: () => {},
+      prefetch: () => {},
+      bfcacheId: "test",
+    };
+    const { container } = render(
+      <AppRouterContext.Provider value={router}>
+        <PdfToImageRunner format={format} />
+      </AppRouterContext.Provider>,
+    );
+    fireEvent.change(container.querySelector('input[type="file"]')!, {
+      target: { files: [file] },
+    });
+    await screen.findByRole(
+      "button",
+      { name: /render 1 page/i },
+      { timeout: 10_000 },
+    );
+  }
+
+  /** Render with the chip for `id` pressed (or none), return toBlob's quality. */
+  async function qualityFor(
+    id: string | null,
+    beforeRender?: (group: HTMLElement) => void,
+  ): Promise<unknown> {
+    const seen: unknown[] = [];
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+      function (
+        this: HTMLCanvasElement,
+        callback: BlobCallback,
+        type?: string,
+        quality?: unknown,
+      ) {
+        expect(type).toBe("image/jpeg");
+        seen.push(quality);
+        callback(new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])]));
+      },
+    );
+    await mount("jpg");
+    const group = screen.getByRole("group", { name: JPEG_QUALITY_LABEL });
+    if (id !== null) {
+      const preset = RASTER_JPEG_QUALITIES.find((q) => q.id === id)!;
+      const chip = within(group).getByRole("button", {
+        name: new RegExp(`^${preset.label}`),
+      });
+      fireEvent.click(chip);
+      expect(chip).toHaveAttribute("aria-pressed", "true");
+    }
+    beforeRender?.(group);
+    fireEvent.click(screen.getByRole("button", { name: /render 1 page/i }));
+    await screen.findByRole(
+      "button",
+      { name: /download jpg/i },
+      { timeout: 20_000 },
+    );
+    expect(seen).toHaveLength(1);
+    return seen[0];
+  }
+
+  it("each preset encodes at its own quality", async () => {
+    // Health: the presets are distinct, so one value cannot pass for another.
+    const values = RASTER_JPEG_QUALITIES.map((q) => q.quality);
+    expect(new Set(values).size).toBe(values.length);
+    for (const preset of RASTER_JPEG_QUALITIES) {
+      expect(await qualityFor(preset.id)).toBe(preset.quality);
+      // Not restoreAllMocks: that would drop beforeEach's non-painting
+      // render; the toBlob spy is re-pointed by the next qualityFor.
+      cleanup();
+    }
+  }, 30_000);
+
+  it("the default is the quality the page has always used", async () => {
+    expect(await qualityFor(null)).toBe(DEFAULT_JPEG_QUALITY);
+  });
+
+  /**
+   * The intro says "this browser remembers the one you convert with". Until
+   * review nothing tested the write or the read-back: neutering the
+   * runner's `quality` write left every test green. Composed chain: pick,
+   * convert, remount with the same storage, and the chip AND the encoder
+   * both show the remembered preset.
+   */
+  it("a picked Quality is remembered: the next visit opens on it and encodes at it", async () => {
+    const maximum = RASTER_JPEG_QUALITIES.at(-1)!;
+    // Health: the remembered preset is not the one the page opens on anyway.
+    expect(maximum.quality).not.toBe(DEFAULT_JPEG_QUALITY);
+    expect(await qualityFor(maximum.id)).toBe(maximum.quality);
+    cleanup();
+    let shown: string[] = [];
+    const quality = await qualityFor(null, (group) => {
+      shown = within(group)
+        .getAllByRole("button", { pressed: true })
+        .map((b) => b.textContent ?? "");
+    });
+    expect(shown).toHaveLength(1);
+    expect(shown[0]!.startsWith(maximum.label)).toBe(true);
+    expect(quality).toBe(maximum.quality);
+  }, 30_000);
+
+  it("control: converting without touching Quality remembers no quality", async () => {
+    // Something else IS picked, so the runner does write its memory; the
+    // write must simply carry no `quality`.
+    await qualityFor(null, () => {
+      fireEvent.click(screen.getByRole("button", { name: /^Screen/ }));
+    });
+    const stored = recallOptions("pdf-to-image");
+    expect(stored.resolution).toBe("screen");
+    expect("quality" in stored).toBe(false);
+  }, 30_000);
+
+  it("each Quality chip's accessible name gives its number a unit", async () => {
+    // Was "Smaller file75": the label run into a bare number. The visible
+    // number is hidden from assistive technology and said in full instead.
+    await mount("jpg");
+    const group = screen.getByRole("group", { name: JPEG_QUALITY_LABEL });
+    expect(within(group).getAllByRole("button")).toHaveLength(
+      RASTER_JPEG_QUALITIES.length,
+    );
+    for (const q of RASTER_JPEG_QUALITIES) {
+      const n = Math.round(q.quality * 100);
+      within(group).getByRole("button", {
+        name: `${q.label}, quality ${n} out of 100`,
+      });
+    }
+  });
+
+  it("control: PDF to PNG has no Quality choice", async () => {
+    await mount("png");
+    expect(
+      screen.queryByRole("group", { name: JPEG_QUALITY_LABEL }),
+    ).toBeNull();
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ *  Transparent background (audit pdf-to-png#5, 2026-11-07)
+ * ------------------------------------------------------------------ */
+
+/**
+ * The runner's Background choice, read at pdf.js's `render` call. The pixels
+ * themselves are read in src/lib/pdf/render-transparent.test.ts, through a
+ * real canvas; here the render is stubbed, so what is checked is that the
+ * choice reaches it.
+ */
+describe("PDF to PNG — the Background choice reaches pdf.js", () => {
+  async function mount(format: "jpg" | "png") {
+    const doc = await PDFDocument.create();
+    doc.addPage([100, 100]);
+    const file = new File([new Uint8Array(await doc.save())], "logo.pdf", {
+      type: "application/pdf",
+    });
+    const router = {
+      back: () => {},
+      forward: () => {},
+      refresh: () => {},
+      push: () => {},
+      replace: () => {},
+      prefetch: () => {},
+      bfcacheId: "test",
+    };
+    const { container } = render(
+      <AppRouterContext.Provider value={router}>
+        <PdfToImageRunner format={format} />
+      </AppRouterContext.Provider>,
+    );
+    fireEvent.change(container.querySelector('input[type="file"]')!, {
+      target: { files: [file] },
+    });
+    await screen.findByRole(
+      "button",
+      { name: /render 1 page/i },
+      { timeout: 10_000 },
+    );
+  }
+
+  /** Render with `label` pressed (or the default), return render's params. */
+  async function renderParams(id: string | null) {
+    await mount("png");
+    const group = screen.getByRole("group", { name: RASTER_BACKGROUND_LABEL });
+    if (id !== null) {
+      const chip = within(group).getByRole("button", {
+        name: RASTER_BACKGROUNDS.find((b) => b.id === id)!.label,
+      });
+      fireEvent.click(chip);
+      expect(chip).toHaveAttribute("aria-pressed", "true");
+    }
+    fireEvent.click(screen.getByRole("button", { name: /render 1 page/i }));
+    await screen.findByRole(
+      "button",
+      { name: /download png/i },
+      { timeout: 20_000 },
+    );
+    const calls = vi.mocked(pageProto.render).mock.calls;
+    expect(calls).toHaveLength(1);
+    return calls[0]![0] as {
+      canvas: unknown;
+      canvasContext?: unknown;
+      background?: string;
+    };
+  }
+
+  it("Transparent hands pdf.js an alpha context and a clear background", async () => {
+    const params = await renderParams("transparent");
+    expect(params.canvas).toBeNull();
+    expect("canvasContext" in params).toBe(true);
+    expect(params.background).toBe("rgba(0,0,0,0)");
+  });
+
+  it("control: White, the default, paints the page white as before", async () => {
+    const params = await renderParams(null);
+    expect(params.canvas).not.toBeNull();
+    expect(params.background).toBe("#ffffff");
+  });
+
+  it("control: PDF to JPG has no Background choice", async () => {
+    await mount("jpg");
+    expect(
+      screen.queryByRole("group", { name: RASTER_BACKGROUND_LABEL }),
+    ).toBeNull();
+  });
 });

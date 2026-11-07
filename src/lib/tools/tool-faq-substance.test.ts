@@ -166,6 +166,7 @@ import {
 import { runAiExtract } from "@/lib/workers/ai-extract/engine";
 import type { AiProvider } from "@/lib/workers/ai/provider";
 import { withoutComments } from "./copy-surface";
+import { panelFileOf } from "@/tests/ui-labels";
 import {
   FACTS_SLUGS,
   SPLIT_NAME_EXAMPLES,
@@ -593,6 +594,108 @@ describe("compress answers what each of its two paths does", () => {
         .args,
     ).toContain("-sColorConversionStrategy=Gray");
     expect(parseCompressionOptions({ grayscale: true }).ok).toBe(true);
+  });
+
+  // Audit grayscale-pdf#2 (2026-11-07): Grayscale PDF's select-text answer
+  // sent readers only to OCR PDF, though Compress PDF's secure-server step can
+  // turn a PDF gray WITHOUT rasterising it. The answer may name that route
+  // only while (a) the Compress panel draws a Grayscale switch, (b) the
+  // engine asks Ghostscript's pdfwrite device — which rewrites the PDF, not an
+  // image device — for gray, and (c) the DPI it names is the sharpest preset.
+  it("Grayscale PDF's select-text answer names Compress PDF's Grayscale route, and that route rewrites rather than rasterises", () => {
+    const served = answer("grayscale-pdf", /select or search the text/);
+    const compress = mounting("compress")[0]!;
+    expect(served).toContain(`${compress.name} turns a PDF gray another way`);
+    expect(served).toContain("Grayscale switch");
+    expect(runnerSource(compress.slug)).toMatch(/>Grayscale</);
+    const { args } = nativeArgs("ghostscript", "gs", "in", "out", 300, {
+      grayscale: true,
+    });
+    expect(args).toContain("-sDEVICE=pdfwrite");
+    expect(args).toContain("-sColorConversionStrategy=Gray");
+    const top = DEEP_COMPRESSION_PRESETS.at(-1)!;
+    expect(Math.max(...DEEP_COMPRESSION_PRESETS.map((p) => p.dpi))).toBe(
+      top.dpi,
+    );
+    expect(served).toContain(
+      `${top.label}, which keeps images up to ${top.dpi} DPI`,
+    );
+    // It is a server route, and the answer says so.
+    expect(served).toMatch(/upload the file over TLS/);
+  });
+
+  // Review (2026-11-08): the first copy said the Grayscale route keeps "text
+  // you can select and search", "text normally stays text", and "can turn a
+  // PDF gray with its text kept". All three rested on the argv above, the
+  // author's artifact; nobody had extracted text from a real output. Until a
+  // worker job proves it (CLAUDE.md rule 5), the page and the guide say what
+  // the argv shows (a rewrite, not a picture) and tell the reader to check the
+  // text, and the property claims are banned. The ban list is checked both
+  // ways: each pattern catches one of the sentences that shipped.
+  it("the Grayscale route is not promised to keep selectable text, on the page or in the guide, until a real output proves it", async () => {
+    const BANNED = [
+      /text you can select and search/i,
+      /text (normally )?stays text/i,
+      /gray with its text kept/i,
+    ];
+    const SHIPPED = [
+      "so text normally stays text you can select and search.",
+      "instead of turning each page into a picture, so text normally stays text.",
+      "Compress PDF can turn a PDF gray with its text kept, through the Grayscale switch",
+    ];
+    for (const re of BANNED) {
+      expect(
+        SHIPPED.some((line) => re.test(line)),
+        String(re),
+      ).toBe(true);
+    }
+    for (const line of SHIPPED) {
+      expect(
+        BANNED.some((re) => re.test(line)),
+        line,
+      ).toBe(true);
+    }
+    const CHECK = "check that the result still lets you select the text";
+    const page = answer("grayscale-pdf", /select or search the text/);
+    const { guides } = await import("@/lib/guides/catalog");
+    const guide = guides.find(
+      (g) => g.slug === "how-to-convert-a-pdf-to-black-and-white",
+    )!;
+    const guideFaq = guide.faq.find((f) =>
+      /select or search/.test(f.question),
+    )!;
+    const guideSection = guide.sections
+      .map((sec) => JSON.stringify(sec))
+      .find((t) => t.includes("Grayscale switch"))!;
+    const corpus = { page, guideFaq: guideFaq.answer, guideSection };
+    for (const [where, text] of Object.entries(corpus)) {
+      expect(text, where).toContain("Grayscale switch");
+      expect(text, where).toContain(CHECK);
+      for (const re of BANNED) expect(text, where).not.toMatch(re);
+    }
+  });
+
+  // Audit rotate-pdf#3 (2026-11-07): the Rotate PDF page described only
+  // turning pages by hand, though OCR PDF's "Turn pages upright" box finds
+  // sideways scans itself (#265) and only the rotate GUIDE said so. The page
+  // may point there while OCR PDF's panel draws that box and sends it on as
+  // `rotatePages`, and it must say the route uploads the file.
+  it("Rotate PDF's page points to OCR PDF's Turn pages upright box, which exists and is sent on", () => {
+    const served = answer("rotate-pdf", /sideways pages for me/);
+    const ocr = tools.find((t) => t.slug === "ocr-pdf")!;
+    expect(served).toContain(`${ocr.name} can`);
+    expect(served).toContain("Turn pages upright option");
+    const panel = panelFileOf(ocr.slug);
+    expect(panel, "OCR PDF mounts no panel").not.toBeNull();
+    const source = withoutComments(
+      readFileSync(
+        path.isAbsolute(panel!) ? panel! : path.join(ROOT, panel!),
+        "utf8",
+      ),
+    );
+    expect(source).toMatch(/>Turn pages upright</);
+    expect(source).toMatch(/rotatePages/);
+    expect(served).toMatch(/uploads the file over TLS/);
   });
 
   it("the image-heavy share in the answer is the one the analysis switches on", () => {

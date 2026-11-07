@@ -13,9 +13,18 @@ import {
 import type { RasterPage } from "@/lib/pdf/render";
 import { RASTER_MAX_DEVICE_PX } from "@/lib/pdf/render-utils";
 import {
+  DEFAULT_JPEG_QUALITY_ID,
+  DEFAULT_RASTER_BACKGROUND,
   DEFAULT_RASTER_COLOR,
   DEFAULT_RESOLUTION_ID,
+  JPEG_QUALITY_LABEL,
+  RASTER_BACKGROUNDS,
+  RASTER_BACKGROUND_LABEL,
   RASTER_COLORS,
+  RASTER_JPEG_QUALITIES,
+  jpegQualityById,
+  type RasterBackgroundId,
+  type RasterJpegQualityId,
   RASTER_MIME,
   RASTER_PREVIEW_LIMIT as PREVIEW_LIMIT,
   lowerResolutionThan,
@@ -139,6 +148,18 @@ function PdfToImageEditor({
       prep?.memory.recallOptions("pdf-to-image").color ?? DEFAULT_RASTER_COLOR,
   );
   const [colorPicked, setColorPicked] = useState(false);
+  // PDF to JPG's Quality preset, remembered like Resolution once picked.
+  const [qualityId, setQualityId] = useState<RasterJpegQualityId>(
+    () =>
+      prep?.memory.recallOptions("pdf-to-image").quality ??
+      DEFAULT_JPEG_QUALITY_ID,
+  );
+  const [qualityPicked, setQualityPicked] = useState(false);
+  // PDF to PNG's page background; not remembered — a transparent page is a
+  // choice for one file (a logo, a signature), not a habit.
+  const [background, setBackground] = useState<RasterBackgroundId>(
+    DEFAULT_RASTER_BACKGROUND,
+  );
   const [pageChoice, setPageChoice] = useState<RasterPageChoice>({
     mode: "all",
     range: "",
@@ -175,12 +196,13 @@ function PdfToImageEditor({
       (id) => id === resolution.id,
     );
     if (rangeError || selection.length === 0) return;
-    if (picked || colorPicked) {
+    if (picked || colorPicked || qualityPicked) {
       const prior = memory?.recallOptions("pdf-to-image") ?? {};
       memory?.rememberOptions("pdf-to-image", {
         ...prior,
         ...(picked && kept ? { resolution: kept } : {}),
         ...(colorPicked ? { color } : {}),
+        ...(qualityPicked ? { quality: qualityId } : {}),
       });
     }
     const pages = selection;
@@ -193,6 +215,13 @@ function PdfToImageEditor({
       const rendered = await rasterizePdf(pdf.bytes, {
         format,
         dpi: resolution.dpi,
+        // PNG is lossless: the encoder ignores a quality for it.
+        ...(format === "jpg"
+          ? { quality: jpegQualityById(qualityId).quality }
+          : {}),
+        ...(format === "png" && background === "transparent"
+          ? { transparent: true }
+          : {}),
         pages,
         grayscale,
         signal: controller.signal,
@@ -265,6 +294,17 @@ function PdfToImageEditor({
     if (busy) return;
     setColor(id);
     setColorPicked(true);
+    clearResult();
+  };
+  const changeQuality = (id: RasterJpegQualityId) => {
+    if (busy) return;
+    setQualityId(id);
+    setQualityPicked(true);
+    clearResult();
+  };
+  const changeBackground = (id: RasterBackgroundId) => {
+    if (busy) return;
+    setBackground(id);
     clearResult();
   };
   const changePages = (next: RasterPageChoice) => {
@@ -379,6 +419,54 @@ function PdfToImageEditor({
           ))}
         </div>
       </RunnerSection>
+
+      {format === "png" && (
+        <RunnerSection title={RASTER_BACKGROUND_LABEL}>
+          <div
+            role="group"
+            aria-label={RASTER_BACKGROUND_LABEL}
+            className="flex flex-wrap gap-2"
+          >
+            {RASTER_BACKGROUNDS.map((b) => (
+              <ChipButton
+                key={b.id}
+                onClick={() => changeBackground(b.id)}
+                disabled={busy}
+                active={b.id === background}
+              >
+                {b.label}
+              </ChipButton>
+            ))}
+          </div>
+        </RunnerSection>
+      )}
+
+      {format === "jpg" && (
+        <RunnerSection title={JPEG_QUALITY_LABEL}>
+          <div
+            role="group"
+            aria-label={JPEG_QUALITY_LABEL}
+            className="flex flex-wrap gap-2"
+          >
+            {RASTER_JPEG_QUALITIES.map((q) => (
+              <ChipButton
+                key={q.id}
+                onClick={() => changeQuality(q.id)}
+                disabled={busy}
+                active={q.id === qualityId}
+              >
+                {q.label}
+                <span aria-hidden="true" className="text-muted text-[10px]">
+                  {Math.round(q.quality * 100)}
+                </span>
+                <span className="sr-only">
+                  , quality {Math.round(q.quality * 100)} out of 100
+                </span>
+              </ChipButton>
+            ))}
+          </div>
+        </RunnerSection>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-3">
         <InfoTile

@@ -29,7 +29,11 @@ import {
 } from "@/components/tools/runner/page-numbers-runner";
 import { WatermarkEditor } from "@/components/tools/runner/watermark-runner";
 import type { LoadedPdf } from "@/components/tools/runner/use-single-pdf";
-import { RASTER_COLORS, RASTER_RESOLUTIONS } from "@/lib/pdf/pdf-to-image";
+import {
+  RASTER_COLORS,
+  RASTER_JPEG_QUALITIES,
+  RASTER_RESOLUTIONS,
+} from "@/lib/pdf/pdf-to-image";
 import { STAMP_POSITIONS } from "@/lib/pdf/stamp";
 import { OPTIONS_STORAGE_KEY } from "./options-key";
 import {
@@ -133,6 +137,9 @@ describe("the registered schemas hold no free text", () => {
     );
     expect(S["pdf-to-image"].color.values).toEqual(
       RASTER_COLORS.map((c) => c.id),
+    );
+    expect(S["pdf-to-image"].quality.values).toEqual(
+      RASTER_JPEG_QUALITIES.map((q) => q.id),
     );
   });
 

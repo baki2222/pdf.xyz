@@ -3,6 +3,7 @@ import { grayscaleImageData, luminancePlane } from "./render";
 import {
   grayscaleOutputName,
   grayscalePresetById,
+  grayscalePresetTradeoff,
   pageSizeForRaster,
 } from "./grayscale";
 
@@ -49,7 +50,45 @@ describe("grayscale helpers", () => {
 
   it("resolves known presets and falls back to print", () => {
     expect(grayscalePresetById("screen").dpi).toBe(96);
+    expect(grayscalePresetById("fine").dpi).toBe(300);
     expect(grayscalePresetById("unknown").id).toBe("print");
+  });
+
+  it("says what a preset sharper than Print costs, and nothing for the rest", () => {
+    expect(grayscalePresetTradeoff("fine")).toContain(
+      "4 times the pixels of Print",
+    );
+    expect(grayscalePresetTradeoff("print")).toBeNull();
+    expect(grayscalePresetTradeoff("screen")).toBeNull();
+  });
+
+  /**
+   * HISTORY: the first Fine print copy said 300 DPI "matches the resolution
+   * laser printers are usually rated at". Office and home laser printers are
+   * rated at 600 or 1200 dpi, so that was false. 300 DPI is what is usually
+   * asked for when images are printed (offered-kinds.ts says the same), and
+   * the sentence is only true while the preset IS 300, so this pins the
+   * phrase to the constant on the tool page and in the guide.
+   */
+  it("describes Fine print by what 300 DPI is, on the page and in the guide", async () => {
+    const PHRASE = "the resolution usually asked for when images are printed";
+    const fine = grayscalePresetById("fine");
+    const page = (await import("@/lib/tools/content/grayscale-pdf")).default;
+    const { guides } = await import("@/lib/guides/catalog");
+    const guide = guides.find(
+      (g) => g.slug === "how-to-convert-a-pdf-to-black-and-white",
+    );
+    const corpus = [
+      JSON.stringify(page),
+      JSON.stringify(guide ?? null),
+    ] as const;
+    expect(guide).toBeDefined();
+    expect(fine.dpi).toBe(300);
+    for (const text of corpus) {
+      expect(text).toContain(`${fine.label}`);
+      expect(text).toContain(PHRASE);
+      expect(text).not.toMatch(/laser printers? (are|is) (usually )?rated/i);
+    }
   });
 
   it("preserves PDF point dimensions when present", () => {
