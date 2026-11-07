@@ -130,7 +130,7 @@ describe("nativeArgs — fixed argv, no shell interpolation", () => {
     expect(sent).toBe(String(DEEP_MONO_MIN_DPI));
     const text = compressContent.intro.join(" ");
     expect(text).toContain(
-      `Black-and-white images, the kind most office scanners make, never go below ${sent} DPI on any setting`,
+      `Black-and-white images, such as text scanned in black-and-white mode, never go below ${sent} DPI on any setting`,
     );
   });
 
