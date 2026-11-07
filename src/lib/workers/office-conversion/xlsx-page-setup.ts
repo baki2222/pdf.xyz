@@ -82,6 +82,45 @@ export function withAttribute(
   return tag.replace(/\s*(\/?>)$/, ` ${name}="${value}"$1`);
 }
 
+/** One child element of `<worksheet>` itself (depth 1), by position. */
+interface TopLevelChild {
+  /** Local name, without any prefix. */
+  name: string;
+  /** Offset of its start tag's `<`. */
+  start: number;
+  /** Its start tag as written. */
+  tag: string;
+}
+
+// A comment, CDATA, PI/declaration, or a start/end/empty tag whose attribute
+// values may hold `>`.
+const MARKUP =
+  /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<[?!][^>]*>|<(\/?)(?:[A-Za-z_][\w.-]*:)?([A-Za-z_][\w.-]*)(?:"[^"]*"|'[^']*'|[^'">])*?(\/?)>/g;
+
+/**
+ * The worksheet root's own children. `extLst`, `pageSetup`, `headerFooter`
+ * and others also occur NESTED (a data bar's `cfRule`, a `sheetView`, a
+ * `customSheetView`), so a search of the whole document finds the wrong one;
+ * only depth 1 is CT_Worksheet's sequence.
+ */
+export function topLevelChildren(xml: string, from: number): TopLevelChild[] {
+  const children: TopLevelChild[] = [];
+  const markup = new RegExp(MARKUP.source, "g");
+  markup.lastIndex = from;
+  let depth = 0;
+  for (let m = markup.exec(xml); m; m = markup.exec(xml)) {
+    if (m[2] === undefined) continue; // comment, CDATA, PI
+    if (m[1] === "/") {
+      if (depth === 0) break; // </worksheet>
+      depth -= 1;
+      continue;
+    }
+    if (depth === 0) children.push({ name: m[2], start: m.index, tag: m[0] });
+    if (m[3] !== "/") depth += 1;
+  }
+  return children;
+}
+
 /** Rewrite one worksheet's XML. Returns null when it is not a worksheet. */
 export function rewriteWorksheetXml(
   xml: string,
@@ -97,12 +136,15 @@ export function rewriteWorksheetXml(
   if (setup.orientation) attrs.push(["orientation", setup.orientation]);
   if (setup.fitColumnsToWidth)
     attrs.push(["fitToWidth", "1"], ["fitToHeight", "0"]);
-  const pageSetup = new RegExp(`<${p}pageSetup\\b[^>]*?/?>`);
-  const found = pageSetup.exec(out);
+  const children = topLevelChildren(out, root.index + root[0].length);
+  const found = children.find((c) => c.name === "pageSetup");
   if (found) {
-    let tag = found[0];
+    let tag = found.tag;
     for (const [name, value] of attrs) tag = withAttribute(tag, name, value);
-    out = out.replace(found[0], tag);
+    out =
+      out.slice(0, found.start) +
+      tag +
+      out.slice(found.start + found.tag.length);
   } else {
     // paperSize first: a pageSetup with none means Letter (OOXML's default,
     // ECMA-376 18.3.1.63), while a sheet with NO pageSetup printed on A4 in
@@ -110,13 +152,9 @@ export function rewriteWorksheetXml(
     // 2026-11-07: without this, adding orientation turned A4 pages into
     // Letter ones. "9" is A4, the paper the sheet had.
     const tag = `<${p}pageSetup ${[[`paperSize`, A4_PAPER_SIZE], ...attrs].map(([n, v]) => `${n}="${v}"`).join(" ")}/>`;
-    const after = AFTER_PAGE_SETUP.map((name) =>
-      out.search(new RegExp(`<${p}${name}\\b`)),
-    ).filter((i) => i >= 0);
-    const at =
-      after.length > 0
-        ? Math.min(...after)
-        : out.lastIndexOf(`</${p}worksheet>`);
+    const follows = new Set<string>(AFTER_PAGE_SETUP);
+    const next = children.find((c) => follows.has(c.name));
+    const at = next ? next.start : out.lastIndexOf(`</${p}worksheet>`);
     if (at < 0) return null;
     out = out.slice(0, at) + tag + out.slice(at);
   }

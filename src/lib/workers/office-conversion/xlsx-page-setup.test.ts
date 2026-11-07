@@ -92,6 +92,47 @@ describe("rewriting a worksheet's page setup (audit excel-to-pdf#1)", () => {
     expect(out).not.toContain("fitTo");
   });
 
+  it("places a new pageSetup among worksheet's own children, not inside a data bar's extLst", () => {
+    // Excel 2010+ data bars nest <extLst> inside <cfRule>, which comes
+    // BEFORE pageMargins; a search of the whole document found that one.
+    const dataBar =
+      '<conditionalFormatting sqref="A1:A3"><cfRule type="dataBar" priority="1"><dataBar><cfvo type="min"/><cfvo type="max"/><color rgb="FF638EC6"/></dataBar><extLst><ext uri="{B025F937-C7B1-47D3-B67F-A62EFF666E3E}" xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"><x14:id>{00000000-0000-0000-0000-000000000001}</x14:id></ext></extLst></cfRule></conditionalFormatting>';
+    const topExt =
+      '<extLst><ext uri="{78C0D931-6437-407d-A8EE-F0AAD7539E65}"><x14:conditionalFormattings xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"/></ext></extLst>';
+    const out = rewriteWorksheetXml(
+      `<worksheet ${NS}><sheetViews><sheetView workbookViewId="0"><extLst><ext uri="{x}"/></extLst></sheetView></sheetViews>${DATA}${dataBar}${MARGINS}${topExt}</worksheet>`,
+      FIT,
+    )!;
+    const tag =
+      '<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>';
+    expect(out).toContain(`${MARGINS}${tag}${topExt}</worksheet>`);
+    expect(out.split(tag)).toHaveLength(2);
+    expect(out).toContain(dataBar);
+  });
+
+  it("edits the worksheet's own pageSetup, not a custom view's, and adds one when only a view has it", () => {
+    const view =
+      '<customSheetViews><customSheetView guid="{1}"><pageMargins left="1" right="1" top="1" bottom="1" header="0" footer="0"/><pageSetup orientation="portrait"/><headerFooter/></customSheetView></customSheetViews>';
+    // Only the custom view has a pageSetup: the sheet gets its own.
+    const added = rewriteWorksheetXml(
+      `<worksheet ${NS}>${DATA}${view}${MARGINS}</worksheet>`,
+      FIT,
+    )!;
+    expect(added).toContain(view);
+    expect(added).toContain(
+      `${MARGINS}<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/></worksheet>`,
+    );
+    // Both have one: the sheet's is edited, the view's is left alone.
+    const edited = rewriteWorksheetXml(
+      `<worksheet ${NS}>${DATA}${view}${MARGINS}<pageSetup paperSize="1"/></worksheet>`,
+      FIT,
+    )!;
+    expect(edited).toContain(view);
+    expect(edited).toContain(
+      `${MARGINS}<pageSetup paperSize="1" orientation="landscape" fitToWidth="1" fitToHeight="0"/></worksheet>`,
+    );
+  });
+
   it("follows a namespace prefix on the root element", () => {
     const out = rewriteWorksheetXml(
       `<x:worksheet xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><x:sheetData/></x:worksheet>`,
