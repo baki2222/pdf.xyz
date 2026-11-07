@@ -84,6 +84,7 @@ import {
 import { PII_CATEGORIES, PII_NOUN } from "@/lib/pdf/redact-categories";
 import {
   DEEP_COMPRESSION_PRESETS,
+  DEEP_MONO_MIN_DPI,
   EDITOR_KINDS,
   EDITOR_KIND_FACT,
   COMMENT_KINDS,
@@ -1266,7 +1267,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
       return [
         {
           question: "Does compressing reduce the quality of my PDF?",
-          answer: `Not in your browser: that step re-saves the same pages, packed more tightly, and every page looks exactly as before. Only the optional secure-server step changes quality — it lowers the resolution of images sharper than the level you pick: ${dpiChoices(DEEP_COMPRESSION_PRESETS)}. Its Grayscale switch is off unless you tick it: ${DEEP_COMPRESSION_GRAYSCALE_HINT}`,
+          answer: `Not in your browser: that step re-saves the same pages, packed more tightly, and every page looks exactly as before. Only the optional secure-server step changes quality — it lowers the resolution of colour and gray images sharper than the level you pick: ${dpiChoices(DEEP_COMPRESSION_PRESETS)}. On every level, black-and-white images are never taken below ${DEEP_MONO_MIN_DPI} DPI, so scanned text stays legible. Its Grayscale switch is off unless you tick it: ${DEEP_COMPRESSION_GRAYSCALE_HINT}`,
         },
         {
           question: "How much smaller will my PDF get?",

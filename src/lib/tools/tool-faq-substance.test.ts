@@ -98,6 +98,7 @@ import {
 } from "@/lib/pdf/pdf-to-markdown";
 import {
   DEEP_COMPRESSION_PRESETS,
+  DEEP_MONO_MIN_DPI,
   EDITOR_KINDS,
   EDITOR_KIND_FACT,
   MARKUP_KINDS,
@@ -523,8 +524,11 @@ describe("compress answers what each of its two paths does", () => {
     expect(runnerSource(tool.slug)).toMatch(
       /const DEEP_QUALITY = DEEP_COMPRESSION_PRESETS/,
     );
-    // Ghostscript is the engine the deep path prefers, and it downsamples to
-    // exactly the DPI sent; every offered level is one the worker accepts.
+    // Ghostscript is the engine the deep path prefers. It downsamples colour
+    // and gray images to exactly the DPI sent, but black-and-white images to
+    // no less than DEEP_MONO_MIN_DPI (audit compress-pdf#3); every offered
+    // level is one the worker accepts. Until 2026-11-07 this comment said
+    // "exactly the DPI sent" for every image, and asserted only the Color flag.
     expect(DEEP_COMPRESSION_TOOLS[0]).toBe("ghostscript");
     const served = answer(tool.slug, /reduce the quality/);
     expect(served).toMatch(/^Not in your browser/);
@@ -537,6 +541,30 @@ describe("compress answers what each of its two paths does", () => {
         nativeArgs("ghostscript", "gs", "in", "out", preset.dpi).args,
       ).toContain(`-dColorImageResolution=${preset.dpi}`);
     }
+  });
+
+  it("the answer says what the engine does to black-and-white images", () => {
+    const tool = mounting("compress")[0]!;
+    const served = answer(tool.slug, /reduce the quality/);
+    const monoSent = (dpi: number) => {
+      const flag = nativeArgs("ghostscript", "gs", "in", "out", dpi).args.find(
+        (a) => a.startsWith("-dMonoImageResolution="),
+      );
+      // Health check: the flag the answer is composed with exists.
+      expect(flag).toBeDefined();
+      return Number(flag!.split("=")[1]);
+    };
+    const raised = DEEP_COMPRESSION_PRESETS.filter(
+      (p) => monoSent(p.dpi) !== p.dpi,
+    );
+    // Positive control: at least one offered level keeps mono above it, so
+    // the exception is live, and the floor it keeps is the constant.
+    expect(raised.length).toBeGreaterThan(0);
+    for (const p of raised) expect(monoSent(p.dpi)).toBe(DEEP_MONO_MIN_DPI);
+    expect(served).toContain(
+      `black-and-white images are never taken below ${DEEP_MONO_MIN_DPI} DPI`,
+    );
+    expect(served).toMatch(/colour and gray images sharper than the level/);
   });
 
   it("the Grayscale sentence the answer says is the one the panel draws, and the engine is asked for it", () => {
