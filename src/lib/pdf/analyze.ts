@@ -62,6 +62,12 @@ export interface OptimizationSummary {
   savedBytes: number;
   /** Fraction saved by the lossless repack (0–1). */
   savedRatio: number;
+  /**
+   * Images make up {@link IMAGE_HEAVY_SHARE} or more of the file. Independent
+   * of `recommendation`: a file the repack trims can still be mostly images,
+   * and the panel says so beside the lossless headline (audit compress-pdf#7).
+   */
+  imageHeavy: boolean;
   recommendation: OptimizeRecommendation;
 }
 
@@ -147,14 +153,16 @@ export function summarizeAnalysis(analysis: PdfAnalysis): OptimizationSummary {
   );
   const savedRatio = originalBytes > 0 ? savedBytes / originalBytes : 0;
 
+  const imageHeavy = imageShare >= IMAGE_HEAVY_SHARE;
+
   let recommendation: OptimizeRecommendation;
   if (savedRatio >= LOSSLESS_MIN_RATIO) {
     recommendation = "lossless-helps";
-  } else if (imageShare >= IMAGE_HEAVY_SHARE) {
+  } else if (imageHeavy) {
     recommendation = "needs-worker";
   } else {
     recommendation = "already-lean";
   }
 
-  return { imageShare, savedBytes, savedRatio, recommendation };
+  return { imageShare, savedBytes, savedRatio, imageHeavy, recommendation };
 }

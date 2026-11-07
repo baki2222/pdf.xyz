@@ -428,6 +428,11 @@ function pct(ratio: number): number {
   return Math.round(ratio * 100);
 }
 
+/** What an image-heavy file is told, under either headline it can get. */
+function imageAdvice(imageShare: number): string {
+  return `About ${pct(imageShare)}% of this file is images. Real size wins come from downsampling them, which runs on our secure server below.`;
+}
+
 /**
  * The headline, qualified for a signed file. "Lossless" is true of every page
  * a reader sees and false of the file a signature validator reads, so a signed
@@ -572,8 +577,14 @@ function CompressEditor({
               (signed
                 ? `Repacking this PDF saved ${formatBytes(summary.savedBytes)} (${pct(summary.savedRatio)}%) without changing how any page looks.`
                 : `Repacking this PDF losslessly saved ${formatBytes(summary.savedBytes)} (${pct(summary.savedRatio)}%) — no quality lost.`)}
+            {/* An image-heavy file hears about its images whichever headline
+                it got: a small lossless gain must not hide the step that can
+                shrink the bulk of the file (audit compress-pdf#7). */}
+            {summary.recommendation === "lossless-helps" &&
+              summary.imageHeavy &&
+              ` ${imageAdvice(summary.imageShare)}`}
             {summary.recommendation === "needs-worker" &&
-              `About ${pct(summary.imageShare)}% of this file is images. Real size wins come from downsampling them, which runs on our secure server below.`}
+              imageAdvice(summary.imageShare)}
             {summary.recommendation === "already-lean" &&
               "There's little structural overhead to remove, and images aren't the bulk of the file. Deeper compression would trade away quality."}
           </p>
