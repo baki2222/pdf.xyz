@@ -267,6 +267,31 @@ describe("Crop PDF · crop on the rendered page", () => {
     expect(handle).toHaveAttribute("aria-valuenow", String(START - 9));
     expect((await cropAndRead()).bottom).toBeCloseTo(START - 9, 6);
   });
+
+  // Review of 5e22e05b: ArrowUp/ArrowRight always ADDED margin, so on the top
+  // edge ArrowDown moved the dashed line up and on the right edge ArrowRight
+  // moved it left — the hint says "use the arrow keys" on an edge you can
+  // see. Now each edge moves the way the arrow points on screen.
+  it("the arrow keys move the top and right edges the way they point", async () => {
+    await openRunner();
+    chooseMode("Per side");
+    const top = await screen.findByRole("slider", { name: "Top edge" });
+    fireEvent.keyDown(top, { key: "ArrowDown" }); // down the page: inward
+    fireEvent.keyDown(top, { key: "ArrowDown" });
+    fireEvent.keyDown(top, { key: "ArrowUp" }); // back up: outward
+    expect(top).toHaveAttribute("aria-valuenow", String(START + 1));
+    const right = screen.getByRole("slider", { name: "Right edge" });
+    fireEvent.keyDown(right, { key: "ArrowLeft", shiftKey: true }); // inward
+    fireEvent.keyDown(right, { key: "ArrowRight" }); // outward
+    expect(right).toHaveAttribute("aria-valuenow", String(START + 9));
+    const left = screen.getByRole("slider", { name: "Left edge" });
+    fireEvent.keyDown(left, { key: "ArrowRight" }); // inward
+    const lost = await cropAndRead();
+    expect(lost.top).toBeCloseTo(START + 1, 6);
+    expect(lost.right).toBeCloseTo(START + 9, 6);
+    expect(lost.left).toBeCloseTo(START + 1, 6);
+    expect(lost.bottom).toBeCloseTo(START, 6);
+  });
 });
 
 describe("Crop PDF · the page says what the preview does", () => {

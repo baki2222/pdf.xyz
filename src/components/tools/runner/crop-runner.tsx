@@ -664,12 +664,38 @@ function EdgeHandle({
       }}
       onKeyDown={(event) => {
         const step = event.shiftKey ? 10 : 1;
-        const by: Record<string, number> = {
-          ArrowUp: step,
-          ArrowRight: step,
-          ArrowDown: -step,
-          ArrowLeft: -step,
-        };
+        // Along the edge's own axis the edge moves the way the arrow points
+        // on screen: Down/Right move the top/left edges in, Up/Left the
+        // bottom/right ones. The two cross-axis keys keep the slider
+        // convention (Up/Right add margin) so every arrow does something.
+        const by: Record<string, number> =
+          edge === "top"
+            ? {
+                ArrowDown: step,
+                ArrowUp: -step,
+                ArrowRight: step,
+                ArrowLeft: -step,
+              }
+            : edge === "bottom"
+              ? {
+                  ArrowUp: step,
+                  ArrowDown: -step,
+                  ArrowRight: step,
+                  ArrowLeft: -step,
+                }
+              : edge === "left"
+                ? {
+                    ArrowRight: step,
+                    ArrowLeft: -step,
+                    ArrowUp: step,
+                    ArrowDown: -step,
+                  }
+                : {
+                    ArrowLeft: step,
+                    ArrowRight: -step,
+                    ArrowUp: step,
+                    ArrowDown: -step,
+                  };
         let next: number | null = null;
         if (event.key in by) next = points + by[event.key]!;
         else if (event.key === "Home") next = 0;
