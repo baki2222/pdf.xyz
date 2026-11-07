@@ -13,7 +13,12 @@ import { webOptimizedOutputName } from "@/lib/workers/processor/pdf-structure";
  *    when this ships" button only once the worker is known to be off), the
  *    compact dropzone "Add a PDF, or browse", one file only, the "Optimize on the worker" button, and
  *    "Download <name>" on success. There is no options control and no
- *    password field.
+ *    password field. ADDED 2026-11-07 (audit optimize-web#2): a picked file
+ *    is scanned in the browser for /ByteRange signatures
+ *    (countDigitalSignatures, web-input-notices.tsx) before any upload; a
+ *    signed file gets a warning and Run stays off until "Optimize anyway" is
+ *    ticked (worker-tool-answers and tick-label-claims hold the quote to the
+ *    panel's source). Pinned in pdf-structure-worker-panel.test.tsx.
  *  - engine: src/lib/workers/pdf-structure/native.ts runs `qpdf --linearize`
  *    and nothing else; engine.ts refuses input that fails looksCompletePdf (no
  *    `%PDF-` header in the first 1 KiB, or no `%%EOF` anywhere after it), and
@@ -133,7 +138,7 @@ const content: ToolContent = {
     },
     {
       q: "Is it safe to linearize a digitally signed PDF?",
-      a: "No. Linearizing rewrites the whole file, so the byte ranges a certificate-based digital signature covers no longer match and the signature will stop validating. If a document needs both, linearize the unsigned version and sign it last. Signing tools usually append the signature as an update at the end of the file, after which a viewer may no longer report it as linearized, so run the check above on the signed copy.",
+      a: `No. Linearizing rewrites the whole file, so the byte ranges a certificate-based digital signature covers no longer match and the signature will stop validating. Before anything is uploaded, the panel reads the file for signatures: if it finds any, it says how many, and the button stays off until you tick the box that begins “Optimize anyway”. If a document needs both, linearize the unsigned version and sign it last. Signing tools usually append the signature as an update at the end of the file, after which a viewer may no longer report it as linearized, so run the check above on the signed copy.`,
     },
   ],
 
