@@ -10,12 +10,16 @@ import {
 } from "lucide-react";
 import { downloadBlob } from "@/lib/pdf/browser";
 import {
+  DEFAULT_PAGE_HEADINGS,
   DEFAULT_REMOVE_REPEATED_LINES,
   markdownOutputName,
   markdownSummary,
   type PdfToMarkdownResult,
 } from "@/lib/pdf/pdf-to-markdown";
-import { REPEATED_LINES_HINT } from "@/lib/tools/pdf-to-markdown-options";
+import {
+  PAGE_HEADINGS_HINT,
+  REPEATED_LINES_HINT,
+} from "@/lib/tools/pdf-to-markdown-options";
 import { pdfToMarkdown } from "@/lib/pdf/pdf-to-markdown-read";
 import { buttonVariants } from "@/components/ui/button";
 import {
@@ -58,11 +62,13 @@ function PdfToMarkdownEditor({
   const [removeRepeatedLines, setRemoveRepeatedLines] = useState(
     DEFAULT_REMOVE_REPEATED_LINES,
   );
+  const [pageHeadings, setPageHeadings] = useState(DEFAULT_PAGE_HEADINGS);
   const onRun = () =>
     run(() =>
       pdfToMarkdown(pdf.bytes, {
         sourceName: pdf.file.name,
         removeRepeatedLines,
+        includePageHeadings: pageHeadings,
       }),
     );
 
@@ -145,7 +151,7 @@ function PdfToMarkdownEditor({
           <InfoTile
             icon={FileCode2}
             title="Clean Markdown"
-            body="Creates page headings, paragraphs, and preserves obvious list lines."
+            body="Writes headings, paragraphs and list lines, with tables and web links where the PDF has them."
           />
           <InfoTile
             icon={ScanText}
@@ -156,6 +162,27 @@ function PdfToMarkdownEditor({
       </RunnerSection>
 
       <RunnerSection title="Options">
+        {pdf.pageCount > 1 && (
+          <label className="text-muted flex min-h-11 items-start gap-2.5 text-sm">
+            <input
+              type="checkbox"
+              checked={pageHeadings}
+              onChange={(event) => {
+                if (!busy) setPageHeadings(event.target.checked);
+              }}
+              aria-disabled={busy || undefined}
+              className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4"
+            />
+            <span className="flex flex-col gap-0.5">
+              <span className="text-fg font-medium">
+                Start each page with a Page heading
+              </span>
+              <span className="text-muted text-xs leading-relaxed">
+                {PAGE_HEADINGS_HINT}
+              </span>
+            </span>
+          </label>
+        )}
         <label className="text-muted flex min-h-11 items-start gap-2.5 text-sm">
           <input
             type="checkbox"

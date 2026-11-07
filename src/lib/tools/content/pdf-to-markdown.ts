@@ -9,7 +9,10 @@ import {
   markdownOutputName,
   PARAGRAPH_GAP_RATIO,
 } from "@/lib/pdf/pdf-to-markdown";
-import { REPEATED_LINES_HINT } from "@/lib/tools/pdf-to-markdown-options";
+import {
+  PAGE_HEADINGS_HINT,
+  REPEATED_LINES_HINT,
+} from "@/lib/tools/pdf-to-markdown-options";
 
 /**
  * The byte cap this runner's own gate (`useSinglePdf` → `validatePdfFile`,
@@ -109,10 +112,10 @@ const content: ToolContent = {
   seoTitle: "PDF to Markdown: Convert PDF to MD in Your Browser",
 
   metaDescription:
-    "Turn a PDF's selectable text into a Markdown .md file with a # title, ## Page headings and list lines kept apart. It runs in your browser, with no upload.",
+    "Turn a PDF's selectable text into a Markdown .md file with headings, lists, tables and links, and ## Page headings if you want them. In your browser, no upload.",
 
   intro: [
-    `PDF to Markdown writes the text layer of one PDF out as a .md file. The file name, minus its extension, becomes the # title, and in a multi-page PDF each page that yields text gets its own "## Page" heading with its original page number. Within a page, lines that wrap are joined back into sentences, a word hyphenated at a line end is rejoined, and list lines, whether they start with -, *, +, a number or a bullet character such as •, stay on lines of their own as Markdown list items.`,
+    `PDF to Markdown writes the text layer of one PDF out as a .md file. The file name, minus its extension, becomes the # title, and in a multi-page PDF each page that yields text gets its own "## Page" heading with its original page number, unless you untick "Start each page with a Page heading": then the text runs on from page to page, a sentence broken by a page break is joined back up, and headings found on the page start at ##. Within a page, lines that wrap are joined back into sentences, a word hyphenated at a line end is rejoined, and list lines, whether they start with -, *, +, a number or a bullet character such as •, stay on lines of their own as Markdown list items.`,
     `Paragraph breaks are worked out from where the lines sit on the page: a new paragraph starts where the gap between two lines is more than ${PARAGRAPH_GAP_RATIO} times the spacing between the wrapped lines of a paragraph, where a line is indented like the first line of a paragraph, or where the text moves back up the page to a new column without a sentence running on across it. A page with no wrapped line gives no spacing to measure and can arrive as one paragraph, and a page that mixes line spacings may split more often than it should, so check the breaks before you publish.`,
     `The Markdown is built on your own device, in this browser tab, and the PDF is not uploaded to pdf.xyz; each run takes a single file of at most ${MAX_MB} MB. A short line set at least ${HEADING_PERCENT}% larger than the body text becomes a Markdown heading, larger sizes ranking higher. Font weight and style are not read, so nothing becomes bold or italic, and images are dropped. A table whose cells line up in columns becomes a Markdown table with its first row as the header, found by the same detector ${tablesName} uses; a table it does not find, or one that shares its rows with other text, stays as plain lines. A link whose address starts with ${LINK_SCHEMES} keeps it: the words it covers become a Markdown link, such as [setup guide](https://example.com/guide). A page with no text layer, such as a scan, adds nothing, and a PDF where no page yields text gets a "No selectable text found" result instead of an empty file.`,
   ],
@@ -139,11 +142,11 @@ const content: ToolContent = {
     },
     {
       title: "Press Create Markdown",
-      body: `Under Options, "Leave out repeated headers and footers" starts ticked: ${REPEATED_LINES_HINT} Untick "Leave out repeated headers and footers" to keep every line. The button reads "Creating Markdown…" while every page's text is read and rearranged on your device.`,
+      body: `Under Options, "Leave out repeated headers and footers" starts ticked: ${REPEATED_LINES_HINT} Untick "Leave out repeated headers and footers" to keep every line. For a PDF of more than one page, "Start each page with a Page heading" starts ticked too: ${PAGE_HEADINGS_HINT} The button reads "Creating Markdown…" while every page's text is read and rearranged on your device.`,
     },
     {
       title: "Read the result",
-      body: 'Under the heading "Markdown created", a summary line gives the number of Markdown characters and the PDF\'s page count, plus how many links kept their address when any did, with the Markdown itself below in a box you can scroll and select from.',
+      body: 'Under the heading "Markdown created", a summary line gives the number of Markdown characters and the PDF\'s page count, plus, when there were any, how many links kept their address, how many header and footer lines were left out and how many tables were written, with the Markdown itself below in a box you can scroll and select from.',
     },
     {
       title: "Download MD",
@@ -158,7 +161,7 @@ const content: ToolContent = {
     },
     {
       q: "Does it keep headings, tables, bold text and links?",
-      a: `Headings, partly. Besides the # title made from the file name and, in a multi-page PDF, the ## Page headings, short lines set at least ${HEADING_PERCENT}% larger than the body text become Markdown headings, the larger sizes ranked higher. A heading set less than ${HEADING_PERCENT}% larger, longer than ${HEADING_MAX_CHARS} characters, or ending in a full stop, comma or semicolon stays ordinary text. A numbered heading such as "1. Introduction" stays a heading and keeps its number, and each numbered line is a heading of its own. Bold and italic and images are lost. A table whose cells line up in columns is written as a Markdown table, its first row the header row and any | inside a cell escaped; one the detector does not find comes through as lines of words. A link keeps its address when it starts with ${LINK_SCHEMES}: the words it covers become [words](address), and words that are the address itself become <address>. A link to a page inside the PDF, or to any other kind of address, keeps its words only.`,
+      a: `Headings, partly. Besides the # title made from the file name and, in a multi-page PDF, the ## Page headings (unless you untick "Start each page with a Page heading"), short lines set at least ${HEADING_PERCENT}% larger than the body text become Markdown headings, the larger sizes ranked higher. A heading set less than ${HEADING_PERCENT}% larger, longer than ${HEADING_MAX_CHARS} characters, or ending in a full stop, comma or semicolon stays ordinary text. A numbered heading such as "1. Introduction" stays a heading and keeps its number, and each numbered line is a heading of its own. Bold and italic and images are lost. A table whose cells line up in columns is written as a Markdown table, its first row the header row and any | inside a cell escaped; one the detector does not find comes through as lines of words. A link keeps its address when it starts with ${LINK_SCHEMES}: the words it covers become [words](address), and words that are the address itself become <address>. A link to a page inside the PDF, or to any other kind of address, keeps its words only.`,
     },
     {
       q: "Which bullet styles become Markdown lists?",

@@ -63,6 +63,12 @@ export type PdfToMarkdownInput = Pick<
 
 export interface PdfToMarkdownOptions {
   sourceName?: string;
+  /**
+   * Start each page of a PDF of more than one page with `## Page N`
+   * (a one-page PDF never gets one). Defaults to
+   * {@link DEFAULT_PAGE_HEADINGS}. Off, detected headings start at `##` and a
+   * paragraph that runs over a page break is joined back together.
+   */
   includePageHeadings?: boolean;
   /**
    * Leave out running headers and footers ({@link repeatedEdgeLines}).
@@ -70,6 +76,12 @@ export interface PdfToMarkdownOptions {
    */
   removeRepeatedLines?: boolean;
 }
+
+/**
+ * Page headings stay on by default, as they were before they could be turned
+ * off: in a chat assistant's input they let a reader point at a page.
+ */
+export const DEFAULT_PAGE_HEADINGS = true;
 
 /** Repeated headers and footers are left out unless the user keeps them. */
 export const DEFAULT_REMOVE_REPEATED_LINES = true;
@@ -386,23 +398,61 @@ function renderBlock(
   }
 }
 
+interface Rendered {
+  kind: Block["kind"];
+  text: string;
+}
+
 function renderBlocks(
   blocks: Block[],
   headingLevel: (size: number) => number,
   linker: Linker,
-): string {
+): Rendered[] {
+  return blocks.flatMap((block) => {
+    const text = renderBlock(block, headingLevel, linker);
+    return text ? [{ kind: block.kind, text }] : [];
+  });
+}
+
+function joinRendered(rendered: readonly Rendered[]): string {
   let out = "";
-  let previous: Block | null = null;
-  for (const block of blocks) {
-    const rendered = renderBlock(block, headingLevel, linker);
-    if (!rendered) continue;
+  let previous: Rendered | null = null;
+  for (const block of rendered) {
     if (out) {
       // Items of one list stay on consecutive lines (a tight list); every
       // other boundary is a blank line.
       out += previous?.kind === "item" && block.kind === "item" ? "\n" : "\n\n";
     }
-    out += rendered;
+    out += block.text;
     previous = block;
+  }
+  return out;
+}
+
+/**
+ * Join pages into one run of blocks, for Markdown without page headings: a
+ * page's last paragraph and the next page's first become one when the
+ * sentence visibly runs on — no closing punctuation before the break, a
+ * lower-case letter after it (the rule a column break uses) — with a word
+ * hyphenated over the break rejoined as `joinWrappedLines` does.
+ */
+function flowPages(pages: readonly Rendered[][]): Rendered[] {
+  const out: Rendered[] = [];
+  for (const page of pages) {
+    const [first, ...rest] = page;
+    if (!first) continue;
+    const last = out.at(-1);
+    if (
+      last?.kind === "paragraph" &&
+      first.kind === "paragraph" &&
+      !ENDS_CLAUSE.test(last.text) &&
+      /^\p{Ll}/u.test(first.text)
+    ) {
+      last.text = joinWrappedLines([last.text, first.text]);
+    } else {
+      out.push({ ...first });
+    }
+    out.push(...rest.map((block) => ({ ...block })));
   }
   return out;
 }
@@ -937,7 +987,8 @@ export function extractedTextToMarkdown(
   }
 
   const includePageHeadings =
-    options.includePageHeadings ?? extracted.pageCount > 1;
+    (options.includePageHeadings ?? DEFAULT_PAGE_HEADINGS) &&
+    extracted.pageCount > 1;
 
   const read = extracted.pages.map((page) => geoLines(page.lines));
   const repeated =
@@ -984,18 +1035,22 @@ export function extractedTextToMarkdown(
     `# ${escapeInline(normalizeMarkdownLine(titleFromSource(options.sourceName)))}`,
   ];
   let linkCount = 0;
-  extracted.pages.forEach((page, index) => {
+  const rendered = extracted.pages.map((page, index) => {
     const linker = pageLinker(page.links ?? []);
-    const pageMarkdown = renderBlocks(
-      pageBlocks[index] ?? [],
-      headingLevel,
-      linker,
-    );
+    const blocks = renderBlocks(pageBlocks[index] ?? [], headingLevel, linker);
     linkCount += linker.count();
-    if (!pageMarkdown) return;
-    if (includePageHeadings) sections.push(`## Page ${page.pageNumber}`);
-    sections.push(pageMarkdown);
+    return blocks;
   });
+  if (includePageHeadings) {
+    extracted.pages.forEach((page, index) => {
+      const blocks = rendered[index] ?? [];
+      if (!blocks.length) return;
+      sections.push(`## Page ${page.pageNumber}`, joinRendered(blocks));
+    });
+  } else {
+    const flowed = joinRendered(flowPages(rendered));
+    if (flowed) sections.push(flowed);
+  }
 
   const markdown = sections.join("\n\n").trim();
   return {

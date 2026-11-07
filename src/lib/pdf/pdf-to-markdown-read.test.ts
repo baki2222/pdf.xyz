@@ -10,6 +10,7 @@ import {
   type PDFPage,
 } from "pdf-lib";
 import {
+  DEFAULT_PAGE_HEADINGS,
   DEFAULT_REMOVE_REPEATED_LINES,
   extractedTextToMarkdown,
   markdownSummary,
@@ -539,5 +540,78 @@ describe("what is NOT a running header", () => {
     ];
     const result = doc([same, same, same, same]);
     expect(result.markdown.split("Sign here").length - 1).toBe(4);
+  });
+});
+
+describe("Page headings are an option, and without them text flows across pages", () => {
+  /** Two pages of [text, y, size?] lines, in the converter's input shape. */
+  const twoPages = (
+    pages: [string, number, number?][][],
+    options: { includePageHeadings?: boolean } = {},
+  ) => {
+    const built = pages.map((lines, i) => {
+      const text = lines.map(([t]) => t).join("\n");
+      return {
+        pageNumber: i + 1,
+        text,
+        characterCount: text.length,
+        lines: lines.map(([t, y, size]) => ({
+          text: t,
+          x: 72,
+          y,
+          size: size ?? 11,
+          fontName: null,
+        })),
+      };
+    });
+    const text = built.map((p) => p.text).join("\n\n");
+    return extractedTextToMarkdown(
+      {
+        pageCount: built.length,
+        pages: built,
+        text,
+        characterCount: text.length,
+        hasText: true,
+      },
+      { sourceName: "flow.pdf", ...options },
+    ).markdown;
+  };
+  const RUNS_ON: [string, number, number?][][] = [
+    [
+      ["Results", 740, 16],
+      ["The survey ran for a whole year, and the results", 700],
+      ["show that sales held steady until", 686],
+    ],
+    [
+      ["growth returned in the spring of that year,", 740],
+      ["and it lasted to the end.", 726],
+    ],
+  ];
+
+  it(`starts each page with ## Page N by default (${DEFAULT_PAGE_HEADINGS ? "on" : "off"})`, () => {
+    expect(DEFAULT_PAGE_HEADINGS).toBe(true);
+    const markdown = twoPages(RUNS_ON);
+    expect(markdown).toContain("## Page 1");
+    expect(markdown).toContain("## Page 2");
+    expect(markdown).toContain("### Results");
+  });
+
+  it("with page headings off, a sentence that runs over the page break is one paragraph", () => {
+    const markdown = twoPages(RUNS_ON, { includePageHeadings: false });
+    expect(markdown).not.toContain("## Page");
+    expect(markdown).toContain(
+      "show that sales held steady until growth returned in the spring of that year, and it lasted to the end.",
+    );
+    // Detected headings take the level the page headings held.
+    expect(markdown).toMatch(/^## Results$/m);
+  });
+
+  it("CONTROL: a page that ends its sentence still starts a new paragraph", () => {
+    const ended = structuredClone(RUNS_ON);
+    ended[0]![2]![0] = "show that sales held steady.";
+    const markdown = twoPages(ended, { includePageHeadings: false });
+    expect(markdown).toContain(
+      "show that sales held steady.\n\ngrowth returned in the spring",
+    );
   });
 });

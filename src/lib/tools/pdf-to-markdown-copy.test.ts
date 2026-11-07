@@ -47,13 +47,17 @@ import {
 } from "@/lib/pdf/pdf-to-markdown";
 import type { ExtractedPdfLines } from "@/lib/pdf/text";
 import {
+  DEFAULT_PAGE_HEADINGS,
   DEFAULT_REMOVE_REPEATED_LINES,
   EDGE_LINES,
   MARKDOWN_LINK_SCHEMES,
   REPEATED_LINE_MIN_PAGES,
   REPEATED_LINE_SHARE,
 } from "@/lib/pdf/pdf-to-markdown";
-import { REPEATED_LINES_HINT } from "./pdf-to-markdown-options";
+import {
+  PAGE_HEADINGS_HINT,
+  REPEATED_LINES_HINT,
+} from "./pdf-to-markdown-options";
 
 import { linksFromPage } from "@/lib/pdf/pdf-to-markdown-read";
 
@@ -389,6 +393,36 @@ describe("pdf-to-markdown: the page describes the structure the converter builds
       `${REPEATED_LINE_MIN_PAGES} pages or more`,
     );
     expect(DEFAULT_REMOVE_REPEATED_LINES).toBe(true);
+  });
+
+  it("the page-heading option does what the page says (audit pdf-to-markdown#6)", () => {
+    const text = served(SLUGS[0]!).join(" ");
+    expect(text).toContain(
+      'unless you untick "Start each page with a Page heading"',
+    );
+    expect(text).toContain(PAGE_HEADINGS_HINT);
+    expect(DEFAULT_PAGE_HEADINGS).toBe(true);
+    const twoPages = (includePageHeadings?: boolean) => {
+      const one = pdf([
+        { text: "Results", y: 740, size: 11 * HEADING_SIZE_RATIO },
+        ...BODY.slice(0, 2),
+      ]);
+      const two = pdf([{ text: "carried on over the break.", y: 740 }]);
+      const pages = [one.pages[0]!, { ...two.pages[0]!, pageNumber: 2 }];
+      return extractedTextToMarkdown(
+        { ...one, pageCount: 2, pages },
+        { sourceName: "r.pdf", includePageHeadings },
+      ).markdown;
+    };
+    // On (the default): a ## Page heading per page, detected headings below.
+    expect(twoPages()).toMatch(/^## Page 2$/m);
+    expect(twoPages()).toMatch(/^### Results$/m);
+    // Off: no page headings, headings "start at ##", and the sentence the
+    // page break cut "is joined back up".
+    const off = twoPages(false);
+    expect(off).not.toContain("## Page");
+    expect(off).toMatch(/^## Results$/m);
+    expect(off).toContain("and then a carried on over the break.");
   });
 
   it("every bullet character the page names becomes a list item", () => {
