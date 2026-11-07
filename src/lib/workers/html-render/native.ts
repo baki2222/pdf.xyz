@@ -36,6 +36,11 @@ import {
   type HtmlRenderOptions,
 } from "@/lib/jobs/html-render-options";
 import {
+  DEFAULT_WEBPAGE_CAPTURE_OPTIONS,
+  type WebpageCaptureOptions,
+} from "@/lib/jobs/webpage-capture-options";
+import { HIDE_OVERLAYS_SCRIPT } from "./overlays";
+import {
   AttemptAbortedError,
   signalOption,
   throwIfAttemptAborted,
@@ -288,7 +293,8 @@ export function probeChromiumFromConfig(
 }
 
 type RenderTarget =
-  { kind: "html"; bytes: Uint8Array } | { kind: "url"; url: string };
+  | { kind: "html"; bytes: Uint8Array }
+  | { kind: "url"; url: string; capture: WebpageCaptureOptions };
 
 /**
  * What a main-frame document's answer says about the page a user asked for:
@@ -724,27 +730,34 @@ export function createNativeChromiumPdfRunner(
     if (target.kind === "url" && pageVerdict)
       throw new WebpageFetchError(pageVerdict);
 
-    // An upload's relative links resolve against the synthetic origin, and
-    // Chromium would print them as clickable links to it (audit #48). They
-    // are unlinked — their text stays — in an isolated world, so a page
-    // script that redefined the DOM cannot skip it. In-page jumps stay.
-    if (target.kind === "html") {
+    /** Evaluate in a fresh isolated world: page script cannot redefine it. */
+    const isolated = async (worldName: string, expression: string) => {
       const { executionContextId } = await cdp.send<{
         executionContextId: number;
       }>(
         "Page.createIsolatedWorld",
-        { frameId: mainFrameId, worldName: "pdfxyz-unlink" },
+        { frameId: mainFrameId, worldName },
         pageSession,
       );
       await cdp.send(
         "Runtime.evaluate",
-        {
-          expression: UNLINK_SYNTHETIC_ORIGIN,
-          contextId: executionContextId,
-        },
+        { expression, contextId: executionContextId, returnByValue: true },
         pageSession,
       );
-    }
+    };
+
+    // An upload's relative links resolve against the synthetic origin, and
+    // Chromium would print them as clickable links to it (audit #48). They
+    // are unlinked — their text stays — in an isolated world, so a page
+    // script that redefined the DOM cannot skip it. In-page jumps stay.
+    if (target.kind === "html")
+      await isolated("pdfxyz-unlink", UNLINK_SYNTHETIC_ORIGIN);
+
+    // "Hide cookie notices and pop-ups" (audit webpage-to-pdf#1): after the
+    // page has run, before anything is measured or printed. `./overlays`
+    // says exactly what it hides.
+    if (target.kind === "url" && target.capture.hideOverlays)
+      await isolated("pdfxyz-overlays", HIDE_OVERLAYS_SCRIPT);
 
     // One long page: lay the PRINT styles out at the printed width, and read
     // the content's height from the layout — not from page script, which
@@ -1063,8 +1076,9 @@ export function createNativeChromiumPdfRunner(
       url,
       options = DEFAULT_HTML_RENDER_OPTIONS,
       run: RunControl = {},
+      capture = DEFAULT_WEBPAGE_CAPTURE_OPTIONS,
     ) {
-      return render({ kind: "url", url }, options, run.signal);
+      return render({ kind: "url", url, capture }, options, run.signal);
     },
   };
 }

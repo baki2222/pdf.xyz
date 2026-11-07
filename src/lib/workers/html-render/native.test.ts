@@ -16,6 +16,8 @@ import type { NativeHtmlRenderConfig } from "./native-config";
 import type { RenderNetworkSeams } from "./network";
 import { WebpageFetchError, type WebpageFetchFailure } from "./engine";
 import { DEFAULT_HTML_RENDER_OPTIONS } from "@/lib/jobs/html-render-options";
+import { DEFAULT_WEBPAGE_CAPTURE_OPTIONS } from "@/lib/jobs/webpage-capture-options";
+import { HIDE_OVERLAYS_SCRIPT } from "./overlays";
 
 const PDF = new TextEncoder().encode(
   "%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
@@ -162,6 +164,8 @@ function fakeChromium(
                 ? 9
                 : 0,
           });
+        case "Page.createIsolatedWorld":
+          return reply(msg, { executionContextId: 7 });
         case "Page.getLayoutMetrics":
           return reply(msg, { cssContentSize: { height: 2400 } });
         case "IO.read":
@@ -561,6 +565,41 @@ describe("native Chromium HTML renderer", () => {
       9,
     );
     expect(print.params.displayHeaderFooter).toBe(false);
+  });
+
+  it("Hide cookie notices and pop-ups runs its script in an isolated world after the page's time, before printing — and only when asked, only for a webpage (audit webpage-to-pdf#1)", async () => {
+    const evaluated = (fake: ReturnType<typeof fakeChromium>) =>
+      fake.sent.filter(
+        (m) =>
+          m.method === "Runtime.evaluate" &&
+          m.params.expression === HIDE_OVERLAYS_SCRIPT,
+      );
+    const fake = fakeChromium();
+    await runner(fake).renderUrl(
+      "https://public.example/",
+      DEFAULT_HTML_RENDER_OPTIONS,
+      {},
+      { ...DEFAULT_WEBPAGE_CAPTURE_OPTIONS, hideOverlays: true },
+    );
+    const hits = evaluated(fake);
+    expect(hits).toHaveLength(1);
+    expect(typeof hits[0]!.params.contextId).toBe("number");
+    const at = (m: Sent) => fake.sent.indexOf(m);
+    const budget = fake.sent.find(
+      (m) => m.method === "Emulation.setVirtualTimePolicy",
+    )!;
+    const print = fake.sent.find((m) => m.method === "Page.printToPDF")!;
+    expect(at(budget)).toBeLessThan(at(hits[0]!));
+    expect(at(hits[0]!)).toBeLessThan(at(print));
+
+    for (const off of [
+      (r: ReturnType<typeof runner>) => r.renderUrl("https://public.example/"),
+      (r: ReturnType<typeof runner>) => r.renderHtml(HTML),
+    ]) {
+      const quiet = fakeChromium();
+      await off(runner(quiet));
+      expect(evaluated(quiet)).toEqual([]);
+    }
   });
 
   it("every other request goes through the network policy", async () => {

@@ -1,9 +1,11 @@
 import type { ToolContent } from "./types";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
+import { htmlLayoutAnswer } from "@/lib/tools/html-layout-copy";
 import {
-  HTML_LAYOUT_STEP,
-  htmlLayoutAnswer,
-} from "@/lib/tools/html-layout-copy";
+  WEBPAGE_OVERLAY_ANSWER,
+  WEBPAGE_SETTINGS_STEP,
+} from "@/lib/tools/webpage-capture-copy";
+import { WEBPAGE_CAPTURE_LABELS } from "@/lib/jobs/webpage-capture-options";
 
 /*
  * Behaviour claims below were read from the implementation on 2026-09-27:
@@ -12,8 +14,9 @@ import {
  *    "https://example.com"), the "Render PDF" button (busy label
  *    "Rendering PDF…"), errors in an ErrorNote under the button, and on success
  *    "Your PDF is ready." with a "Download <filename>" button. Since
- *    2026-10-25 a Page layout group (src/lib/tools/html-layout-copy.ts); no header or
- *    delay setting;
+ *    2026-10-25 a Page layout group (src/lib/tools/html-layout-copy.ts); since
+ *    2026-11-08 a Capture group (src/lib/tools/webpage-capture-copy.ts:
+ *    hide cookie notices and pop-ups); no delay setting;
  *  - src/lib/workers/html-render-client.ts — the job body is
  *    { tool, inputs: [], options: { ...layout, url } } (layout empty unless
  *    a setting was changed) and the client fetches the
@@ -85,7 +88,7 @@ const content: ToolContent = {
   intro: [
     "Webpage to PDF turns a web address into a PDF without you opening the page. Paste the link and a headless copy of Chromium, the engine behind Chrome and Edge, loads it, lets its JavaScript run for a fixed budget of page time, and prints it to PDF with backgrounds included and any page size the site's print stylesheet sets. Text stays text, so the PDF can be searched and copied from, and a site that ships a print stylesheet gets that layout.",
     `pdf.xyz's secure server fetches the page, not your browser. The job carries only the address you typed, sent over TLS, and the site sees our server's visit with none of your cookies. The temporary folder Chromium runs in is removed after each render, the download link lapses after ${LINK_MINUTES} minutes, and a storage rule on a daily cycle erases the stored copy after that. The full address is deleted from the job queue when the job finishes; the job's status record keeps only the PDF's file name, built from the site and path without the query string, until that record times out.`,
-    "Our server arrives as a signed-out stranger, so cookie banners, members-only walls and paywalls come along. The PDF carries the page and nothing else: pdf.xyz adds no date, title, address or page-number lines. Addresses written as localhost or as a private IPv4 number are refused before any job starts. For an HTML file on your computer, use HTML to PDF instead.",
+    `Our server arrives as a signed-out stranger, so members-only walls and paywalls come along, and so do cookie banners unless you tick ${WEBPAGE_CAPTURE_LABELS.hideOverlays}. The PDF carries the page and nothing else: pdf.xyz adds no date, title, address or page-number lines. Addresses written as localhost or as a private IPv4 number are refused before any job starts. For an HTML file on your computer, use HTML to PDF instead.`,
   ],
 
   useCases: [
@@ -112,7 +115,7 @@ const content: ToolContent = {
       title: "Paste the full address",
       body: 'The field starts with "https://". Paste the complete link from your address bar, over the prefix or after it: a doubled https:// is removed as you paste, and an address typed without one, such as example.com, gets it. Hitting Enter in the field starts the render as well. Only http and https links are accepted, and an address our server cannot open, such as localhost or a private network, is explained under the button before any job starts. If our secure server is unavailable, the Render PDF button stays off and a status note and a "Notify me when this ships" button appear under it.',
     },
-    HTML_LAYOUT_STEP,
+    WEBPAGE_SETTINGS_STEP,
     {
       title: "Press Render PDF",
       body: "The button activates once the field holds more than its starting https://. Your address goes to our secure server, where Chromium opens and prints the page.",
@@ -141,11 +144,14 @@ const content: ToolContent = {
       a: "Usually. It is a full Chromium, so single-page apps, client-rendered articles and pages that fill in after loading get their scripts run before printing, but only within a fixed rendering budget, and nothing scrolls the page: an endless feed prints only what it loads unscrolled, and images a site's script fetches only as you scroll can be missing.",
     },
     {
-      q: "Can I set the page size, margins or orientation, or remove ads?",
+      q: "Can I set the page size or margins, or hide cookie notices and ads?",
       // Until 2026-10-25 the answer began "Not here. The tool has one field
       // and one button" — true until the Page layout group shipped
-      // (src/lib/tools/html-layout-copy.ts).
-      a: `${htmlLayoutAnswer("site")} Ads cannot be removed: the page prints as a new, signed-out visitor sees it, so cookie notices or adverts shown to a new visitor can appear. To tidy the result, drop pages with Delete Pages or trim edges with Crop PDF.`,
+      // (src/lib/tools/html-layout-copy.ts). Until 2026-11-08 the question
+      // was "… orientation, or remove ads?" and answered "Ads cannot be removed … cookie
+      // notices or adverts shown to a new visitor can appear"; cookie
+      // notices have their own option (audit webpage-to-pdf#1).
+      a: `${htmlLayoutAnswer("site")} ${WEBPAGE_OVERLAY_ANSWER} To tidy the result further, drop pages with Delete Pages or trim edges with Crop PDF.`,
     },
     {
       q: "Will the text be selectable, or is it a screenshot?",

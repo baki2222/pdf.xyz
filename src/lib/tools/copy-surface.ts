@@ -174,6 +174,11 @@ export function copyFiles(): string[] {
     // (2026-10-25), drawn by the panel; and the two proof modules' verdict
     // lines and fixture pages, walked for the reason options-proof.ts is.
     path.join(ROOT, "src", "lib", "jobs", "html-render-options.ts"),
+    // Webpage to PDF's Capture labels and field errors (2026-11-08), drawn
+    // by the panel; and the consent-tool names and hiding script the copy
+    // counts and names (audit webpage-to-pdf#1). New phrase code, walked.
+    path.join(ROOT, "src", "lib", "jobs", "webpage-capture-options.ts"),
+    path.join(ROOT, "src", "lib", "workers", "html-render", "overlays.ts"),
     path.join(ROOT, "src", "lib", "workers", "html-render", "layout-proof.ts"),
     path.join(ROOT, "src", "lib", "workers", "ocr-languages-proof.ts"),
     // The OCR deskew proof's verdict lines and fixture words (2026-11-01),
