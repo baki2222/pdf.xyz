@@ -413,6 +413,9 @@ describe(
       expect(steps).toContain(
         "then type an Owner password that differs from the open password, and type it again in Confirm owner password;",
       );
+      expect(steps).toContain(
+        "Press Encrypt PDF once a file is in place and each password matches its confirmation.",
+      );
     });
 
     it("control: Unlock PDF asks for its password once", async () => {

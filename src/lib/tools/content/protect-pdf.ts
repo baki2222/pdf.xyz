@@ -153,7 +153,7 @@ const content: ToolContent = {
     },
     {
       title: "Encrypt and download",
-      body: `Press Encrypt PDF once a file and a password are both in place. When "Your PDF is protected and ready." appears, use the button beneath it; for ${EXAMPLE_INPUT} it reads Download ${EXAMPLE_OUTPUT}. Open the saved file once to confirm it asks for the password.`,
+      body: `Press Encrypt PDF once a file is in place and each password matches its confirmation. When "Your PDF is protected and ready." appears, use the button beneath it; for ${EXAMPLE_INPUT} it reads Download ${EXAMPLE_OUTPUT}. Open the saved file once to confirm it asks for the password.`,
     },
   ],
 
