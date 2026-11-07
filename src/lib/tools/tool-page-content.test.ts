@@ -246,8 +246,27 @@ describe("tool pages link where they send the reader", () => {
     }
     // Was ["pdf-to-word", "redact-pdf"] until 2026-10-24 (Phase 2): the
     // note sent a reader to Redact PDF to delete data. Redact is now a tool
-    // INSIDE the editor, and the note sends a scan to OCR PDF first.
-    expect(named).toEqual(expect.arrayContaining(["pdf-to-word", "ocr-pdf"]));
+    // INSIDE the editor.
+    //
+    // INVERTED 2026-11-06 (audit #32). This line pinned
+    // `arrayContaining(["pdf-to-word", "ocr-pdf"])`: the note sent a scan to
+    // OCR PDF "first", but Edit text refuses OCR PDF's invisible text layer
+    // (`editor/content-edit.ts`, "This text is an invisible layer"), so the
+    // advice was a dead end that the page's own intro contradicted.
+    expect(named).toContain("pdf-to-word");
+    expect(named).not.toContain("ocr-pdf");
+  });
+
+  it("the scope note and the page's intro give a scan the same way out", () => {
+    // The two sentences a scan's reader meets, pinned to each other: the
+    // note under the editor and the intro above it (audit #32).
+    const note = renderToStaticMarkup(createElement(HonestScopeNote)).replace(
+      /<[^>]+>/g,
+      "",
+    );
+    const advice = `${tool("pdf-to-word").name} with its OCR option ticked`;
+    expect(pageCopy.pageIntro(tool("edit-pdf")).join(" ")).toContain(advice);
+    expect(note).toContain(advice);
   });
 });
 

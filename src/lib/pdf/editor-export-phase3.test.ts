@@ -3,11 +3,19 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  PDFArray,
+  PDFDict,
   PDFDocument,
+  PDFHexString,
   PDFName,
+  PDFRef,
+  PDFStream,
   PDFString,
   StandardFonts,
+  decodePDFRawStream,
   degrees,
+  type PDFPage,
+  type PDFRawStream,
 } from "pdf-lib";
 import { readAsViewer } from "@/tests/pdf-viewer-read";
 import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
@@ -602,6 +610,495 @@ describe("page operations are replayed on the file, objects with their page", ()
     expect(saved.context.lookup(gone!.ref)).toBeUndefined();
     expect(saved.context.lookup(contents(gone))).toBeUndefined();
     expect(saved.context.lookup(contents(kept))).toBeDefined();
+  });
+
+  // Audit #2 (2026-11-06): the page tree dropped a deleted page, but a
+  // bookmark, a form field or a link still referred to it, so the page node,
+  // its content stream and the field (with its value) stayed in the saved
+  // file. The test above used a file with none of those, so it could not
+  // see it.
+  describe("a deleted page that something still refers to", () => {
+    const SECRET = "123-45-6789";
+    /** What a case adds to the fixture, before it is saved. */
+    interface Fixture {
+      doc: PDFDocument;
+      one: PDFPage;
+      two: PDFPage;
+      /** The `ssn` field's dict and its one widget. */
+      ssn: PDFRef;
+      widget: PDFRef;
+    }
+    /**
+     * Two labelled pages; page 1 holds a filled field, page 2 another.
+     * `tweak` changes the file before it is saved.
+     */
+    async function referenced(
+      tweak?: (f: Fixture) => void,
+    ): Promise<Uint8Array> {
+      const doc = await PDFDocument.load(await labelled(2));
+      const [one, two] = doc.getPages();
+      const form = doc.getForm();
+      const ssn = form.createTextField("ssn");
+      ssn.setText(SECRET);
+      ssn.addToPage(one!, { x: 72, y: 600, width: 200, height: 20 });
+      const kept = form.createTextField("name");
+      kept.setText("Ada");
+      kept.addToPage(two!, { x: 72, y: 600, width: 200, height: 20 });
+      // A bookmark to each page, and a link on page 2 back to page 1.
+      const ctx = doc.context;
+      const rootRef = ctx.nextRef();
+      const aRef = ctx.nextRef();
+      const bRef = ctx.nextRef();
+      ctx.assign(
+        aRef,
+        ctx.obj({
+          Title: PDFString.of("Gone"),
+          Parent: rootRef,
+          Next: bRef,
+          Dest: [one!.ref, "Fit"],
+        }),
+      );
+      ctx.assign(
+        bRef,
+        ctx.obj({
+          Title: PDFString.of("Kept"),
+          Parent: rootRef,
+          Prev: aRef,
+          Dest: [two!.ref, "Fit"],
+        }),
+      );
+      ctx.assign(
+        rootRef,
+        ctx.obj({ Type: "Outlines", First: aRef, Last: bRef, Count: 2 }),
+      );
+      doc.catalog.set(PDFName.of("Outlines"), rootRef);
+      const link = ctx.register(
+        ctx.obj({
+          Type: "Annot",
+          Subtype: "Link",
+          Rect: [72, 100, 200, 120],
+          Dest: [one!.ref, "Fit"],
+        }),
+      );
+      two!.node.addAnnot(link);
+      // Named destinations, both kinds, and an open action, to each page.
+      doc.catalog.set(
+        PDFName.of("Dests"),
+        ctx.obj({ gone: [one!.ref, "Fit"], kept: [two!.ref, "Fit"] }),
+      );
+      doc.catalog.set(
+        PDFName.of("Names"),
+        ctx.obj({
+          Dests: ctx.obj({
+            Names: [
+              PDFString.of("gone"),
+              [one!.ref, "Fit"],
+              PDFString.of("kept"),
+              [two!.ref, "Fit"],
+            ],
+          }),
+        }),
+      );
+      doc.catalog.set(PDFName.of("OpenAction"), ctx.obj([one!.ref, "Fit"]));
+      // A tagged file's structure element names its page too; nothing here
+      // rewrites the structure tree, so only the prune's cut can see it.
+      doc.catalog.set(
+        PDFName.of("StructTreeRoot"),
+        ctx.obj({
+          Type: "StructTreeRoot",
+          K: ctx.obj({ S: "P", Pg: one!.ref }),
+        }),
+      );
+      const widget = ssn.acroField.getWidgets()[0]!;
+      tweak?.({
+        doc,
+        one: one!,
+        two: two!,
+        ssn: ssn.acroField.ref,
+        widget: ctx.getObjectRef(widget.dict)!,
+      });
+      return doc.save();
+    }
+
+    /** Every string in the saved file, decoded. */
+    function strings(doc: PDFDocument): string[] {
+      const out: string[] = [];
+      const walk = (o: unknown, depth: number): void => {
+        if (depth > 50) return;
+        if (o instanceof PDFString || o instanceof PDFHexString) {
+          out.push(o.decodeText());
+        } else if (o instanceof PDFDict) {
+          for (const [, v] of o.entries()) walk(v, depth + 1);
+        } else if (o instanceof PDFArray) {
+          for (const v of o.asArray()) walk(v, depth + 1);
+        } else if (o instanceof PDFStream) {
+          walk(o.dict, depth + 1);
+          // And the stream's bytes, decoded: an appearance stream draws the
+          // field's value as text.
+          let data: Uint8Array;
+          try {
+            data = decodePDFRawStream(o as PDFRawStream).decode();
+          } catch {
+            data = o.getContents();
+          }
+          out.push(Buffer.from(data).toString("latin1"));
+        }
+      };
+      for (const [, obj] of doc.context.enumerateIndirectObjects()) {
+        walk(obj, 0);
+      }
+      return out;
+    }
+    /** `text` as a content stream shows it in hex: `<3132…> Tj`. */
+    const hex = (text: string) =>
+      Buffer.from(text, "latin1").toString("hex").toUpperCase();
+    /**
+     * Does any string, or any stream's decoded bytes, hold `text`, as it is
+     * or in the hex a content stream shows it in?
+     */
+    const holds = (doc: PDFDocument, text: string) =>
+      strings(doc).some(
+        (s) => s.includes(text) || s.toUpperCase().includes(hex(text)),
+      );
+    /** Export with page 1 deleted, and load the result. */
+    async function deleteFirst(bytes: Uint8Array): Promise<PDFDocument> {
+      const pages = deletePage(sourcePages(2), 0, [])!.pages;
+      const out = await exportEditedPdf(bytes, [], undefined, { pages });
+      return PDFDocument.load(out.bytes);
+    }
+    const fieldNames = (doc: PDFDocument) =>
+      doc
+        .getForm()
+        .getFields()
+        .map((f) => f.getName());
+    /** Every indirect reference in `array` names an object in the file. */
+    const allResolve = (doc: PDFDocument, array: PDFArray) =>
+      array
+        .asArray()
+        .every(
+          (o) => !(o instanceof PDFRef) || doc.context.lookup(o) !== undefined,
+        );
+
+    it("leaves no page node, content, field or value of it behind", async () => {
+      const bytes = await referenced();
+      const src = await PDFDocument.load(bytes);
+      const [gone, kept] = src.getPages();
+      const contents = (page: typeof gone) =>
+        page!.node.lookup(PDFName.of("Contents"), PDFArray).asArray();
+      // The streams only the deleted page draws: pdf-lib shares its q/Q
+      // wrapper streams between pages, and those must stay.
+      const goneOnly = contents(gone).filter(
+        (ref) => !contents(kept).includes(ref),
+      );
+      // Health check: the source holds what must go.
+      expect(goneOnly.length).toBeGreaterThan(0);
+      expect(src.getForm().getFieldMaybe("ssn")).toBeDefined();
+      expect(strings(src)).toContain(SECRET);
+
+      const pages = deletePage(sourcePages(2), 0, [])!.pages;
+      const out = await exportEditedPdf(bytes, [], undefined, { pages });
+      expect(out.pageCount).toBe(1);
+      expect(await pageTexts(out.bytes)).toEqual(["PAGE TWO"]);
+      const saved = await PDFDocument.load(out.bytes);
+      expect(saved.context.lookup(gone!.ref)).toBeUndefined();
+      for (const ref of goneOnly) {
+        expect(saved.context.lookup(ref as PDFRef)).toBeUndefined();
+      }
+      // The field on the deleted page, and its value, are gone; the kept
+      // page's field is not (a positive control for the walk).
+      const names = saved
+        .getForm()
+        .getFields()
+        .map((f) => f.getName());
+      expect(names).toEqual(["name"]);
+      expect(holds(saved, SECRET)).toBe(false);
+      expect(holds(saved, "Ada")).toBe(true);
+    });
+
+    // Review of audit #2: only the page node was cut, so a referrer this
+    // code does not name kept the deleted page's annotations, and their
+    // values, alive: a structure tree's /OBJR to the widget (an accessible
+    // Acrobat form), or a kept page's reply (/IRT) to a note on it. And the
+    // structure tree's own text for the page (/Alt, /ActualText) stayed.
+    it("a referrer it does not name keeps nothing of the page's annotations", async () => {
+      const bytes = await referenced(({ doc, one, two, widget }) => {
+        const ctx = doc.context;
+        const note = ctx.register(
+          ctx.obj({
+            Type: "Annot",
+            Subtype: "Text",
+            Rect: [0, 0, 10, 10],
+            Contents: PDFString.of(`note ${SECRET}`),
+            P: one.ref,
+          }),
+        );
+        one.node.addAnnot(note);
+        const reply = ctx.register(
+          ctx.obj({
+            Type: "Annot",
+            Subtype: "Text",
+            Rect: [0, 0, 10, 10],
+            Contents: PDFString.of("a reply"),
+            IRT: note,
+          }),
+        );
+        two.node.addAnnot(reply);
+        doc.catalog.set(
+          PDFName.of("StructTreeRoot"),
+          ctx.obj({
+            Type: "StructTreeRoot",
+            K: [
+              ctx.register(
+                ctx.obj({
+                  S: "Form",
+                  Pg: one.ref,
+                  K: ctx.obj({ Type: "OBJR", Obj: widget, Pg: one.ref }),
+                }),
+              ),
+              ctx.register(
+                ctx.obj({
+                  S: "Figure",
+                  Pg: one.ref,
+                  Alt: PDFString.of(`alt ${SECRET}`),
+                  ActualText: PDFString.of(`actual ${SECRET}`),
+                  K: 0,
+                }),
+              ),
+              ctx.register(
+                ctx.obj({
+                  S: "Figure",
+                  Pg: two.ref,
+                  Alt: PDFString.of("kept alt"),
+                  K: 0,
+                }),
+              ),
+            ],
+          }),
+        );
+      });
+      const src = await PDFDocument.load(bytes);
+      // Health check: the secret is in four strings (value, note, alt,
+      // actual text) AND, in hex, in a decoded stream (the widget's
+      // appearance), so both halves of `holds` are exercised.
+      expect(strings(src).filter((s) => s.includes(SECRET))).toHaveLength(4);
+      expect(strings(src).some((s) => s.includes(`<${hex(SECRET)}> Tj`))).toBe(
+        true,
+      );
+
+      const saved = await deleteFirst(bytes);
+      expect(fieldNames(saved)).toEqual(["name"]);
+      expect(holds(saved, SECRET)).toBe(false);
+      // Positive controls: the reply, and the kept page's alt text, stay.
+      expect(holds(saved, "a reply")).toBe(true);
+      expect(holds(saved, "kept alt")).toBe(true);
+    });
+
+    it("an annotation a kept page lists too is not cut with the deleted one", async () => {
+      const bytes = await referenced(({ doc, one, two }) => {
+        const ctx = doc.context;
+        const shared = ctx.register(
+          ctx.obj({
+            Type: "Annot",
+            Subtype: "Text",
+            Rect: [0, 0, 10, 10],
+            Contents: PDFString.of("on both pages"),
+          }),
+        );
+        one.node.addAnnot(shared);
+        two.node.addAnnot(shared);
+      });
+      const saved = await deleteFirst(bytes);
+      expect(holds(saved, "on both pages")).toBe(true);
+      expect(allResolve(saved, saved.getPages()[0]!.node.Annots()!)).toBe(true);
+    });
+
+    it("a calculation order (/CO) that names the field keeps no reference to it", async () => {
+      const bytes = await referenced(({ doc, ssn }) => {
+        const acroForm = doc.catalog.lookup(PDFName.of("AcroForm"), PDFDict);
+        const name = doc.getForm().getTextField("name").acroField.ref;
+        acroForm.set(PDFName.of("CO"), doc.context.obj([ssn, name]));
+      });
+      const saved = await deleteFirst(bytes);
+      const order = saved.catalog
+        .lookup(PDFName.of("AcroForm"), PDFDict)
+        .lookup(PDFName.of("CO"), PDFArray);
+      expect(order.asArray()).toEqual([
+        saved.getForm().getTextField("name").acroField.ref,
+      ]);
+      expect(allResolve(saved, order)).toBe(true);
+    });
+
+    it("an outline whose only bookmark went is removed, and so is its page mode", async () => {
+      const bytes = await referenced(({ doc, one }) => {
+        const ctx = doc.context;
+        const rootRef = ctx.nextRef();
+        const only = ctx.register(
+          ctx.obj({
+            Title: PDFString.of("Only gone"),
+            Parent: rootRef,
+            Dest: [one.ref, "Fit"],
+          }),
+        );
+        ctx.assign(
+          rootRef,
+          ctx.obj({ Type: "Outlines", First: only, Last: only, Count: 1 }),
+        );
+        doc.catalog.set(PDFName.of("Outlines"), rootRef);
+        doc.catalog.set(PDFName.of("PageMode"), PDFName.of("UseOutlines"));
+      });
+      const saved = await deleteFirst(bytes);
+      expect(saved.catalog.get(PDFName.of("Outlines"))).toBeUndefined();
+      expect(saved.catalog.get(PDFName.of("PageMode"))).toBeUndefined();
+      expect(holds(saved, "Only gone")).toBe(false);
+    });
+
+    it("a link and an open action that go there by a GoTo action are dropped", async () => {
+      const bytes = await referenced(({ doc, one, two }) => {
+        const ctx = doc.context;
+        // Swap the fixture's /Dest link for an /A GoTo one.
+        const annots = two.node.Annots()!;
+        for (let i = annots.size() - 1; i >= 0; i -= 1) {
+          const a = ctx.lookup(annots.get(i), PDFDict);
+          if (a.get(PDFName.of("Subtype")) === PDFName.of("Link")) {
+            annots.remove(i);
+          }
+        }
+        two.node.addAnnot(
+          ctx.register(
+            ctx.obj({
+              Type: "Annot",
+              Subtype: "Link",
+              Rect: [72, 100, 200, 120],
+              A: { S: "GoTo", D: [one.ref, "Fit"] },
+            }),
+          ),
+        );
+        doc.catalog.set(
+          PDFName.of("OpenAction"),
+          ctx.obj({ S: "GoTo", D: [one.ref, "Fit"] }),
+        );
+      });
+      const saved = await deleteFirst(bytes);
+      const subtypes = (
+        saved.getPages()[0]!.node.Annots()?.asArray() ?? []
+      ).map((a) =>
+        String((saved.context.lookup(a) as PDFDict).get(PDFName.of("Subtype"))),
+      );
+      expect(subtypes).toEqual(["/Widget"]);
+      expect(saved.catalog.get(PDFName.of("OpenAction"))).toBeUndefined();
+    });
+
+    it("a widget is on the page when the page lists it, even with no /P", async () => {
+      const bytes = await referenced(({ doc, widget }) => {
+        doc.context.lookup(widget, PDFDict).delete(PDFName.of("P"));
+      });
+      const saved = await deleteFirst(bytes);
+      expect(fieldNames(saved)).toEqual(["name"]);
+      expect(holds(saved, SECRET)).toBe(false);
+    });
+
+    it("a widget is on the page when its /P names it, even unlisted", async () => {
+      const bytes = await referenced(({ doc, one, widget }) => {
+        const ctx = doc.context;
+        one.node.set(PDFName.of("Annots"), ctx.obj([]));
+        // A structure /OBJR still names the widget, which no page lists: only
+        // the fields that went can cut it.
+        doc.catalog.set(
+          PDFName.of("StructTreeRoot"),
+          ctx.obj({
+            Type: "StructTreeRoot",
+            K: ctx.obj({
+              S: "Form",
+              Pg: one.ref,
+              K: ctx.obj({ Type: "OBJR", Obj: widget, Pg: one.ref }),
+            }),
+          }),
+        );
+      });
+      const saved = await deleteFirst(bytes);
+      expect(fieldNames(saved)).toEqual(["name"]);
+      expect(holds(saved, SECRET)).toBe(false);
+    });
+
+    // Review of audit #2: deleting any page rebuilt the whole outline, so a
+    // bookmark the rebuild does not carry (to another file, a launch) went
+    // even when no bookmark pointed at the deleted page.
+    it("an outline with no bookmark to the deleted page is left as it was", async () => {
+      const bytes = await referenced(({ doc, two }) => {
+        const ctx = doc.context;
+        const rootRef = ctx.nextRef();
+        const aRef = ctx.nextRef();
+        const bRef = ctx.nextRef();
+        ctx.assign(
+          aRef,
+          ctx.obj({
+            Title: PDFString.of("Elsewhere"),
+            Parent: rootRef,
+            Next: bRef,
+            A: { S: "GoToR", F: PDFString.of("other.pdf"), D: [0, "Fit"] },
+          }),
+        );
+        ctx.assign(
+          bRef,
+          ctx.obj({
+            Title: PDFString.of("Kept"),
+            Parent: rootRef,
+            Prev: aRef,
+            Dest: [two.ref, "Fit"],
+          }),
+        );
+        ctx.assign(
+          rootRef,
+          ctx.obj({ Type: "Outlines", First: aRef, Last: bRef, Count: 2 }),
+        );
+        doc.catalog.set(PDFName.of("Outlines"), rootRef);
+      });
+      const saved = await deleteFirst(bytes);
+      expect(holds(saved, "Elsewhere")).toBe(true);
+      expect(holds(saved, "Kept")).toBe(true);
+    });
+
+    it("drops the bookmark and the link to it, keeps the rest", async () => {
+      const bytes = await referenced();
+      const pages = deletePage(sourcePages(2), 0, [])!.pages;
+      const out = await exportEditedPdf(bytes, [], undefined, { pages });
+      const saved = await PDFDocument.load(out.bytes);
+      const titles = strings(saved);
+      expect(titles).not.toContain("Gone");
+      expect(titles).toContain("Kept");
+      const kept = saved.getPages()[0]!;
+      const outline = saved.catalog.lookup(PDFName.of("Outlines"), PDFDict);
+      const first = outline.lookup(PDFName.of("First"), PDFDict);
+      const dest = first.lookup(PDFName.of("Dest"), PDFArray);
+      expect(dest.get(0)).toBe(kept.ref);
+      const subtypes = (kept.node.Annots()?.asArray() ?? []).map((a) =>
+        String((saved.context.lookup(a) as PDFDict).get(PDFName.of("Subtype"))),
+      );
+      expect(subtypes).toEqual(["/Widget"]);
+      // Named destinations to it go, the others stay; so does an open
+      // action that opened it.
+      const dests = saved.catalog.lookup(PDFName.of("Dests"), PDFDict);
+      expect(dests.keys().map(String)).toEqual(["/kept"]);
+      const tree = saved.catalog
+        .lookup(PDFName.of("Names"), PDFDict)
+        .lookup(PDFName.of("Dests"), PDFDict)
+        .lookup(PDFName.of("Names"), PDFArray);
+      expect(tree.size()).toBe(2);
+      expect((tree.lookup(0) as PDFString).decodeText()).toBe("kept");
+      expect(saved.catalog.get(PDFName.of("OpenAction"))).toBeUndefined();
+    });
+
+    it("a fill for a field on the deleted page does not fail the export", async () => {
+      const bytes = await referenced();
+      const pages = deletePage(sourcePages(2), 0, [])!.pages;
+      const out = await exportEditedPdf(bytes, [], undefined, {
+        pages,
+        fills: { ssn: "987-65-4321", name: "Grace" },
+      });
+      const saved = await PDFDocument.load(out.bytes);
+      expect(saved.getForm().getTextField("name").getText()).toBe("Grace");
+      expect(holds(saved, "987-65-4321")).toBe(false);
+    });
   });
 
   it("a rotated page's box-shaped objects turn exactly with it", async () => {

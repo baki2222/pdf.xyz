@@ -13,7 +13,9 @@ import { renderPdfPages, regionMean } from "@/tests/pdf-render";
 import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
 import { awaitPdfjsDocument } from "./pdfjs";
 import { exportEditedPdf } from "./editor-export";
-import { snapHighlightQuads } from "./editor/comments";
+import { GAP_LINES, snapHighlightQuads } from "./editor/comments";
+import { guides } from "@/lib/guides/catalog";
+import annotate from "@/lib/tools/content/annotate-pdf";
 import {
   DEFAULT_TEXT_STYLE,
   type EditorObject,
@@ -401,6 +403,42 @@ describe("markups as comments: what stays page content, and what is written", ()
     expect(q.y).toBeGreaterThan(165);
     expect(q.y + q.height).toBeLessThan(205);
   });
+
+  // Audit #30 (2026-11-06): a box over a line of text AND a figure below it
+  // exported only the line's band; the figure's part of the box, which the
+  // preview and the flattened export both highlight, was dropped.
+  it("a highlight over a line and the figure below it keeps the figure's part", async () => {
+    const bytes = await blankPage(0, "SNAP THIS LINE");
+    const box = { x: 90, y: 160, width: 120, height: 250 };
+    const out = await exportEditedPdf(
+      bytes,
+      [
+        {
+          id: "h",
+          kind: "highlight",
+          page: 0,
+          ...box,
+          color: "#facc15",
+          opacity: 0.4,
+        },
+      ],
+      undefined,
+      { markups: "comments" },
+    );
+    const { annotations } = await readAnnotations(out.bytes);
+    const [line, figure] = annotations[0]!.quads;
+    expect(annotations[0]!.quads).toHaveLength(2);
+    expect(line!.height).toBeLessThan(30);
+    // The rest of the box, its full width, from the line down to its edge.
+    expect(Math.abs(figure!.x - box.x)).toBeLessThanOrEqual(TOL);
+    expect(Math.abs(figure!.width - box.width)).toBeLessThanOrEqual(TOL);
+    expect(Math.abs(figure!.y - (line!.y + line!.height))).toBeLessThanOrEqual(
+      TOL,
+    );
+    expect(
+      Math.abs(figure!.y + figure!.height - (box.y + box.height)),
+    ).toBeLessThanOrEqual(TOL);
+  });
 });
 
 describe("snapHighlightQuads", () => {
@@ -437,6 +475,116 @@ describe("snapHighlightQuads", () => {
       { x: 10, y: 2, width: 90, height: 12 },
       { x: 5, y: 22, width: 20, height: 12 },
     ]);
+  });
+
+  it("keeps the part of the box over no text: a figure below, above or between lines", () => {
+    // Audit #30 (2026-11-06): only the text bands were kept.
+    const line = run({ x: 72, y: 100, width: 300, height: 12 });
+    expect(
+      snapHighlightQuads({ x: 72, y: 100, width: 400, height: 300 }, [line]),
+    ).toEqual([
+      { x: 72, y: 100, width: 300, height: 12 },
+      { x: 72, y: 112, width: 400, height: 288 },
+    ]);
+    expect(
+      snapHighlightQuads({ x: 72, y: 0, width: 400, height: 112 }, [line]),
+    ).toEqual([
+      { x: 72, y: 0, width: 400, height: 100 },
+      { x: 72, y: 100, width: 300, height: 12 },
+    ]);
+    const below = run({ x: 72, y: 300, width: 100, height: 12 });
+    expect(
+      snapHighlightQuads({ x: 72, y: 100, width: 400, height: 212 }, [
+        line,
+        below,
+      ]),
+    ).toEqual([
+      { x: 72, y: 100, width: 300, height: 12 },
+      { x: 72, y: 112, width: 400, height: 188 },
+      { x: 72, y: 300, width: 100, height: 12 },
+    ]);
+  });
+
+  it("a line's own spacing, and the box's slack around its text, stay snapped", () => {
+    // Double-spaced 12 pt lines (a 14.4 pt gap) and 10 pt of slack above
+    // and below: no quad of the box's own.
+    const quads = snapHighlightQuads({ x: 0, y: 0, width: 200, height: 84 }, [
+      run({ x: 0, y: 10, width: 150, height: 12 }),
+      run({ x: 0, y: 36.4, width: 150, height: 12 }),
+      run({ x: 0, y: 62, width: 150, height: 12 }),
+    ]);
+    expect(quads.map((q) => q.y)).toEqual([10, 36.4, 62]);
+  });
+
+  // Review of audit #30: GAP_LINES was pinned from below only (the spacing
+  // control); every figure band above was far past any threshold. Both
+  // sides, from the exported constant; the copy test below pins its value.
+  it("a band of the box's own starts at exactly GAP_LINES lines: at it kept, under it snapped", () => {
+    const h = 12;
+    const line = run({ x: 72, y: 100, width: 300, height: h });
+    const at = GAP_LINES * h;
+    expect(at).toBeGreaterThan(0);
+    expect(
+      snapHighlightQuads({ x: 72, y: 100, width: 400, height: h + at }, [line]),
+    ).toEqual([
+      { x: 72, y: 100, width: 300, height: h },
+      { x: 72, y: 100 + h, width: 400, height: at },
+    ]);
+    expect(
+      snapHighlightQuads({ x: 72, y: 100, width: 400, height: h + at - 0.5 }, [
+        line,
+      ]),
+    ).toEqual([{ x: 72, y: 100, width: 300, height: h }]);
+  });
+
+  it("space beside the text on its own lines is not kept: a figure to the right of short lines", () => {
+    const quads = snapHighlightQuads(
+      { x: 72, y: 100, width: 400, height: 24 },
+      [
+        run({ x: 72, y: 100, width: 100, height: 12 }),
+        run({ x: 72, y: 112, width: 100, height: 12 }),
+      ],
+    );
+    expect(quads).toEqual([
+      { x: 72, y: 100, width: 100, height: 12 },
+      { x: 72, y: 112, width: 100, height: 12 },
+    ]);
+  });
+
+  // The guide and the FAQ describe this function; they once said a part of
+  // the box with no text under it "stays highlighted as you drew it", true
+  // only of a band above, below or between lines, GAP_LINES tall or more.
+  describe("the copy that describes it", () => {
+    const WORDS = ["zero", "one", "two", "three", "four", "five"];
+    const guide = guides.find(
+      (g) => g.slug === "how-to-highlight-text-in-a-pdf",
+    );
+    const faq = annotate.faqs.find(
+      (f) => f.q === "Can I highlight text by selecting it?",
+    );
+    const sources = [
+      ["the highlight guide", JSON.stringify(guide?.sections ?? null)],
+      ["the Annotate PDF FAQ", faq?.a ?? ""],
+    ] as const;
+
+    it("health: both texts are found and speak of saving as comments", () => {
+      expect(guide).toBeDefined();
+      expect(faq).toBeDefined();
+      for (const [, text] of sources) expect(text).toMatch(/comment/);
+    });
+
+    it.each(sources)(
+      "%s states GAP_LINES as the threshold, and that space beside the text goes",
+      (_, text) => {
+        const m = /at least (\w+) lines? tall/.exec(text);
+        expect(m).not.toBeNull();
+        expect(WORDS.indexOf(m![1]!)).toBe(GAP_LINES);
+        expect(text).toMatch(/above, below or between the lines/);
+        expect(text).toMatch(
+          /beside the text on the same lines[^.]*is not kept/,
+        );
+      },
+    );
   });
 
   it("ignores a run the box barely grazes, and a turned run", () => {

@@ -1034,6 +1034,7 @@ export async function applyContentEdits(
  * Drop every object nothing reachable from the trailer refers to — the
  * page's old content stream, a replaced image — so the removed text and
  * pixels are not still in the saved file as orphans. Lives in a leaf module
- * so Edit PDF Metadata's "Remove all" can use it without this engine.
+ * so Edit PDF Metadata's "Remove all" can use it without this engine. Its
+ * `cut` parameter drops a deleted page even where a reference to it remains.
  */
 export { pruneUnreachable } from "../prune-unreachable";
