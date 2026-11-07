@@ -22,6 +22,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { getToolBySlug } from "@/lib/tools";
 import type { WorkerStatus } from "@/lib/workers/status";
@@ -32,6 +33,10 @@ import { signedPdf } from "@/tests/signed-pdf";
 import { PdfASignatureWarning } from "./pdfa-signature-warning";
 import pdfaContent from "@/lib/tools/content/pdf-to-pdfa";
 import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
+import {
+  PDFA_LEVEL_LABEL,
+  PDFA_LEVEL_OPTION,
+} from "@/lib/workers/pdf-archive/levels";
 
 const tool = getToolBySlug("pdf-to-pdfa")!;
 
@@ -216,5 +221,64 @@ describe("pdf-to-pdfa: the page describes the signature gate the panel runs", ()
     )?.[1];
     expect(begins).toBeDefined();
     expect(label.startsWith(begins!)).toBe(true);
+  });
+});
+
+/*
+ * Audit pdf-to-pdfa#1, review 2026-11-08: the chain tests start at the
+ * option bag, so a panel that dropped `level` from the request (a user
+ * picking PDF/A-1b and getting PDF/A-2b under the 1b label) passed every
+ * one of them. This starts at the select the user changes and ends at the
+ * job the worker receives.
+ */
+describe("PdfArchiveWorkerPanel: the PDF/A level reaches the job", () => {
+  async function convertWith(levelName?: string) {
+    const network = stubJobNetwork(READY);
+    render(<PdfArchiveWorkerPanel tool={tool} />);
+    const input = await waitFor(() => {
+      const el = document.querySelector<HTMLInputElement>('input[type="file"]');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    const unsigned = await signedPdf({ signatures: 0 });
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File([unsigned.slice()], "report.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
+    });
+    const run = await screen.findByRole("button", {
+      name: /convert to pdf\/a/i,
+    });
+    if (levelName) {
+      const select = screen.getByRole("combobox", { name: PDFA_LEVEL_LABEL });
+      const option = within(select).getByRole("option", { name: levelName });
+      fireEvent.change(select, {
+        target: { value: (option as HTMLOptionElement).value },
+      });
+      expect(select).toHaveDisplayValue(levelName);
+    }
+    fireEvent.click(run);
+    await waitFor(() => expect(network.jobBodies).toHaveLength(1));
+    return network.jobBodies[0]!.options;
+  }
+
+  it("PDF/A-1b chosen in the picker is the level the job asks for", async () => {
+    expect(await convertWith("PDF/A-1b")).toEqual({
+      [PDFA_LEVEL_OPTION]: "1b",
+    });
+  });
+
+  it("PDF/A-3b likewise", async () => {
+    expect(await convertWith("PDF/A-3b")).toEqual({
+      [PDFA_LEVEL_OPTION]: "3b",
+    });
+  });
+
+  it("CONTROL: left on the default, the job carries the empty bag it always did", async () => {
+    expect(await convertWith()).toEqual({});
   });
 });
