@@ -11,6 +11,10 @@ import {
   SIGNATURE_STYLE_LABEL,
   type SignatureStyle,
 } from "@/lib/pdf/offered-kinds";
+import {
+  SIGNATURE_INKS,
+  type SignatureInk,
+} from "@/lib/pdf/editor/signature-ink";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Dropzone } from "../runner-kit";
@@ -38,6 +42,10 @@ import {
  *    (Helvetica) face — the faces Sign PDF's copy names — not a picture;
  *  - uploaded: cropped to the ink, its paper keyed out unless "Remove paper
  *    background" is unticked (shown only for a file with no transparency).
+ *
+ * Draw and Type take an ink from `SIGNATURE_INKS` (audit sign-pdf#2): the
+ * pad strokes in it and a typed name is written in it. An uploaded picture
+ * keeps the colours it has, so the swatches are not shown for it.
  *
  * "Save for next time" is opt-in and keeps the signature in this browser's
  * storage only (`./saved-signatures`); nothing is ever sent anywhere.
@@ -90,6 +98,7 @@ function SavedThumb({ saved }: { saved: SavedSignature }) {
       <span
         className="text-fg truncate text-lg"
         style={{
+          color: saved.color,
           fontFamily: PREVIEW_FONT[saved.style],
           fontStyle: saved.style === "signature" ? "italic" : "normal",
         }}
@@ -124,6 +133,7 @@ export function SignaturePanel({
   const [drawn, setDrawn] = useState<ImageSignature | null>(null);
   const [name, setName] = useState("");
   const [style, setStyle] = useState<SignatureStyle>("signature");
+  const [ink, setInk] = useState<SignatureInk["hex"]>(SIGNATURE_INKS[0].hex);
   const [uploadPixels, setUploadPixels] = useState<RgbaImage | null>(null);
   const [uploadIsPhoto, setUploadIsPhoto] = useState(false);
   const [removeBackground, setRemoveBackground] = useState(true);
@@ -202,9 +212,9 @@ export function SignaturePanel({
       const text = name.trim();
       if (!text) return setError("Type your name first.");
       const notice = remember
-        ? keep(saveSignature({ kind: "typed", text, style }))
+        ? keep(saveSignature({ kind: "typed", text, style, color: ink }))
         : undefined;
-      onReady({ kind: "typed", text, style }, notice);
+      onReady({ kind: "typed", text, style, color: ink }, notice);
       return;
     }
     const sig = source === "draw" ? drawn : uploaded;
@@ -223,7 +233,12 @@ export function SignaturePanel({
 
   const reuse = async (s: SavedSignature) => {
     if (s.kind === "typed") {
-      onReady({ kind: "typed", text: s.text, style: s.style });
+      onReady({
+        kind: "typed",
+        text: s.text,
+        style: s.style,
+        ...(s.color ? { color: s.color } : {}),
+      });
       return;
     }
     const bytes = bytesOfDataUrl(s.dataUrl);
@@ -314,8 +329,42 @@ export function SignaturePanel({
           drawn on it (and its Clear) survives a switch — the defect Sign
           PDF's form had until its audit (sign-runner.test.tsx). The hidden
           wrapper carries no display class to compete with `hidden`. */}
+      {source !== "upload" && (
+        <div
+          role="radiogroup"
+          aria-label="Ink colour"
+          className="flex flex-wrap items-center gap-1"
+        >
+          <span aria-hidden className="text-muted mr-1 text-xs font-medium">
+            Ink
+          </span>
+          {SIGNATURE_INKS.map((i) => (
+            <button
+              key={i.id}
+              type="button"
+              role="radio"
+              aria-checked={ink === i.hex}
+              aria-label={i.label}
+              title={i.label}
+              onClick={() => setInk(i.hex)}
+              className={cn(
+                "rounded-ctl grid h-11 w-11 place-items-center border",
+                ink === i.hex
+                  ? "border-accent ring-accent/40 ring-2"
+                  : "border-line",
+              )}
+            >
+              <span
+                aria-hidden
+                className="size-5 rounded-full"
+                style={{ backgroundColor: i.hex }}
+              />
+            </button>
+          ))}
+        </div>
+      )}
       <div hidden={source !== "draw"}>
-        <SignaturePad onChange={setDrawn} />
+        <SignaturePad onChange={setDrawn} ink={ink} />
       </div>
       {source === "type" && (
         <div className="flex flex-col gap-2">
@@ -355,6 +404,7 @@ export function SignaturePanel({
               aria-hidden
               className="text-fg truncate text-3xl"
               style={{
+                color: ink,
                 fontFamily: PREVIEW_FONT[style],
                 fontStyle: style === "signature" ? "italic" : "normal",
               }}

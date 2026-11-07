@@ -17,6 +17,7 @@
  */
 import { getToolBySlug } from "@/lib/tools";
 import { STAMP_POSITIONS } from "@/lib/pdf/stamp";
+import { SIGNATURE_INKS } from "@/lib/pdf/editor/signature-ink";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { MAX_IMAGE_MB, MAX_SOURCE_MB } from "@/lib/tools/limits";
 import {
@@ -283,6 +284,10 @@ import type { Guide } from "./types";
  * style and naming a "print-and-scan style" the runner does not have.
  */
 const signatureWays = countWord(SIGNATURE_SOURCES.length);
+/** Sign PDF's ink swatches, as the panel names them (audit sign-pdf#2). */
+const signatureInks = new Intl.ListFormat("en", { type: "disjunction" }).format(
+  SIGNATURE_INKS.map((i) => i.label),
+);
 
 /** Compress PDF's Target size presets, labelled as its panel labels them. */
 const TARGET_PRESET_LABELS = TARGET_SIZE_PRESETS.map((p) => p.label);
@@ -1810,6 +1815,7 @@ export const guides: Guide[] = [
       "Pick the PDF you need to sign — the file stays on your device the entire time.",
       "Create your signature: draw it, type it, or pick a signature image you already have.",
       `If you type it, pick the look: ${signatureStyles.join(" or ")} style.`,
+      `If you draw or type it, pick the ink: ${signatureInks}. Blue ink makes the original easy to tell from a copy.`,
       "Place the signature exactly where the document needs it — the tool is built for precise placement.",
       "Export your signed PDF and save it to your device.",
     ],
@@ -1872,7 +1878,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-10-24",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-make-a-scanned-pdf-searchable",

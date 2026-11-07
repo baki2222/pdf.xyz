@@ -1311,7 +1311,7 @@ export function WysiwygEditor({
         const y = Math.min(Math.max(0, at.y - height / 2), f.height - height);
         const id = newObjectId();
         commitAdd(
-          typedSignatureObject(id, page, x, y, width, p.text, p.style),
+          typedSignatureObject(id, page, x, y, width, p.text, p.style, p.color),
           "Signature placed",
         );
         dispatch({ type: "tool", tool: "select" });

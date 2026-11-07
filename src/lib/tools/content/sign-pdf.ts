@@ -4,6 +4,7 @@ import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { SUPPORTED_SCRIPTS, UNSUPPORTED_SCRIPTS } from "@/lib/pdf/font-packs";
 import { MAX_SAVED_SIGNATURES } from "@/lib/pdf/editor/saved-signatures";
+import { SIGNATURE_INKS } from "@/lib/pdf/editor/signature-ink";
 
 /*
  * Every behavioral claim below was read from, or probed against, the code.
@@ -17,7 +18,10 @@ import { MAX_SAVED_SIGNATURES } from "@/lib/pdf/editor/saved-signatures";
  *
  *  - panel: editor/signature-panel.tsx — Draw / Type / Upload
  *    (SIGNATURE_SOURCES), opening on Type; Type has "Your name" and Style Script /
- *    Print; Upload shows "Remove paper background", ticked, only for a file
+ *    Print; Draw and Type show the "Ink colour" swatches (SIGNATURE_INKS,
+ *    black first) — the pad's strokes are tinted to it (`tintInk`) and a
+ *    typed name is filled with it; Upload, which keeps the picture's own
+ *    colours, does not show them; Upload shows "Remove paper background", ticked, only for a file
  *    with no transparency (`isOpaque`); "Save for next time" (opt-in) and the
  *    "Saved on this device" list with a delete button each; "Use signature".
  *  - drawn: signature-pad.tsx crops each drawing to its ink
@@ -53,6 +57,11 @@ const linkMinutes = DEFAULT_RETENTION.outputTtlMinutes;
 
 const list = (items: readonly string[]) =>
   new Intl.ListFormat("en", { type: "conjunction" }).format(items);
+
+/** The ink swatches, named as the panel names them, black first. */
+const inks = new Intl.ListFormat("en", { type: "disjunction" }).format(
+  SIGNATURE_INKS.map((i) => i.label),
+);
 
 /** Scripts a typed name can be written in beyond Latin, from the shipped packs. */
 const otherScripts = list(SUPPORTED_SCRIPTS.filter((s) => s !== "Latin"));
@@ -108,7 +117,7 @@ const content: ToolContent = {
     },
     {
       title: "Create the signature",
-      body: "The panel opens on Type: write your name under Your name and pick Script or Print; the preview uses your browser's fonts, so it only approximates the final lettering. Draw gives a pad with a Clear chip, and the third tab takes a PNG or JPEG from your device. Tick Save for next time to keep it in this browser for later, then press Use signature.",
+      body: `The panel opens on Type: write your name under Your name and pick Script or Print; the preview uses your browser's fonts, so it only approximates the final lettering. Draw gives a pad with a Clear chip, and the third tab takes a PNG or JPEG from your device. For a drawn or typed signature, pick the ink: ${inks}, with ${SIGNATURE_INKS[0].label} chosen until you change it; a picture of your signature keeps its own colours. Tick Save for next time to keep it in this browser for later, then press Use signature.`,
     },
     {
       title: "Place it",

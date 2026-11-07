@@ -6,8 +6,15 @@
  * The panel now passes a notice with the signature, which the editor says.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { SAVED_SIGNATURES_KEY } from "@/lib/pdf/editor/saved-signatures";
+import { SIGNATURE_INKS } from "@/lib/pdf/editor/signature-ink";
 import { SignaturePanel } from "./signature-panel";
 
 afterEach(() => {
@@ -56,5 +63,51 @@ describe("SignaturePanel — Save for next time", () => {
     });
     const onReady = signTyped(false);
     expect(onReady.mock.calls[0]![1]).toBeUndefined();
+  });
+});
+
+/*
+ * Audit sign-pdf#2 (2026-11-06): no ink colour could be chosen. The panel
+ * offers the palette's swatches for Draw and Type; a typed signature carries
+ * the chosen ink to the editor, and a saved one keeps it.
+ */
+describe("SignaturePanel — ink colour", () => {
+  it("a typed signature carries the chosen ink, and keeps it when saved", () => {
+    const onReady = vi.fn();
+    render(<SignaturePanel onReady={onReady} onClose={() => {}} />);
+    const group = screen.getByRole("radiogroup", { name: "Ink colour" });
+    const blue = SIGNATURE_INKS.find((i) => i.id === "blue")!;
+    const swatch = within(group).getByRole("radio", { name: blue.label });
+    expect(swatch.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(swatch);
+    expect(swatch.getAttribute("aria-checked")).toBe("true");
+    fireEvent.change(screen.getByLabelText("Your name"), {
+      target: { value: "Ada Lovelace" },
+    });
+    fireEvent.click(screen.getByLabelText("Save for next time"));
+    fireEvent.click(screen.getByRole("button", { name: "Use signature" }));
+    expect(onReady.mock.calls[0]![0]).toMatchObject({
+      kind: "typed",
+      color: blue.hex,
+    });
+    const stored = JSON.parse(localStorage.getItem(SAVED_SIGNATURES_KEY)!);
+    expect(stored[0]).toMatchObject({ kind: "typed", color: blue.hex });
+  });
+
+  it("control: left alone, the ink is the palette's first, black", () => {
+    const onReady = signTyped(false);
+    expect(onReady.mock.calls[0]![0]).toMatchObject({
+      color: SIGNATURE_INKS[0]!.hex,
+    });
+  });
+
+  it("every swatch is reachable by name and at least 44px tall", () => {
+    render(<SignaturePanel onReady={() => {}} onClose={() => {}} />);
+    const group = screen.getByRole("radiogroup", { name: "Ink colour" });
+    const radios = within(group).getAllByRole("radio");
+    expect(radios.map((r) => r.getAttribute("aria-label"))).toEqual(
+      SIGNATURE_INKS.map((i) => i.label),
+    );
+    for (const r of radios) expect(r.className).toMatch(/\bh-11\b/);
   });
 });
