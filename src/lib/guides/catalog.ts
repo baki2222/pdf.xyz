@@ -3345,7 +3345,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   {
     slug: "how-to-extract-images-from-a-pdf",
@@ -5990,7 +5990,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-07",
   },
   // Overlay PDF, titled for the task it truly does: lay one PDF on every
   // page of another. Read off overlay.ts and overlay-runner.tsx: the overlay

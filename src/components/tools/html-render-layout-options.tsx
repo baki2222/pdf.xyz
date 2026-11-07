@@ -12,6 +12,7 @@ import {
   HTML_ORIENTATIONS,
   HTML_PAGE_SIZES,
   HTML_VIEWPORTS,
+  htmlPaperWidthPx,
   htmlPrintGeometry,
   type HtmlMargin,
   type HtmlOrientation,
@@ -28,6 +29,15 @@ export function htmlLayoutNote(options: HtmlRenderOptions): string | null {
   const notes: string[] = [];
   const g = htmlPrintGeometry(options);
   const screen = HTML_VIEWPORTS.find((v) => v.id === options.viewport);
+  // Paper width under a tablet's width: many sites then show their tablet
+  // or phone layout (audit webpage-to-pdf#5). The widths are the menu's own.
+  const tablet = HTML_VIEWPORTS.find((v) => v.id === "tablet")?.width;
+  const desktop = HTML_VIEWPORTS.find((v) => v.id === "desktop")?.label;
+  const paperPx = htmlPaperWidthPx(options);
+  if (!screen?.width && tablet && desktop && paperPx < tablet)
+    notes.push(
+      `Paper width lays the page out ${paperPx}px wide${options.pageSize === "auto" ? " on Letter" : ""}, narrower than a ${tablet}px tablet screen, so a site without print styles may show its tablet or phone layout. Choose ${desktop} under Screen width for its desktop layout.`,
+    );
   if (screen?.width) {
     notes.push(
       g.scaleClamped
@@ -115,7 +125,9 @@ export function HtmlRenderLayoutOptions({
           >
             {HTML_VIEWPORTS.map((v) => (
               <option key={v.id} value={v.id}>
-                {v.label}
+                {v.width
+                  ? v.label
+                  : `${v.label} (${htmlPaperWidthPx(value)} px)`}
               </option>
             ))}
           </select>
