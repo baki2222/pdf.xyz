@@ -48,7 +48,15 @@ export interface CompressResult {
   originalBytes: number;
   optimizedBytes: number;
   savedBytes: number;
-  /** Digital signatures in the input; the repacked bytes invalidate every one. */
+  /**
+   * True when `bytes` are the input exactly as it came in: the repack was not
+   * smaller, so there is nothing better to hand back.
+   */
+  unchanged: boolean;
+  /**
+   * Digital signatures the delivered bytes invalidate: every one in the input
+   * when the repack is delivered, none when the original is.
+   */
   signatureCount: number;
 }
 
@@ -79,6 +87,41 @@ async function repackOrExplain(bytes: Uint8Array): Promise<LosslessResult> {
 }
 
 /**
+ * One batch row's work: read, repack, and say what came of it.
+ *
+ * A repack that is not smaller is never delivered. pdf-lib rewrites the
+ * Producer/Creator/dates and the cross-reference, so a small, already-compact
+ * file can come back LARGER. Until 2026-11-06 (audit #20) the batch shipped it
+ * anyway, as "-optimized.pdf", under a row that said "no change"; the
+ * single-file path has always offered the original instead, and so does this.
+ */
+export async function compressBatchFile(file: File): Promise<CompressResult> {
+  const bytes = await readFileBytes(file);
+  const { bytes: optimized, signatureCount } = await repackOrExplain(bytes);
+  if (optimized.byteLength >= bytes.byteLength) {
+    return {
+      outputName: file.name,
+      bytes,
+      originalBytes: bytes.byteLength,
+      optimizedBytes: bytes.byteLength,
+      savedBytes: 0,
+      unchanged: true,
+      // The file's own bytes: its signatures are exactly as they were.
+      signatureCount: 0,
+    };
+  }
+  return {
+    outputName: outputName(file.name, "optimized"),
+    bytes: optimized,
+    originalBytes: bytes.byteLength,
+    optimizedBytes: optimized.byteLength,
+    savedBytes: bytes.byteLength - optimized.byteLength,
+    unchanged: false,
+    signatureCount,
+  };
+}
+
+/**
  * Batch compress: run the **lossless** structural repack (pdf-lib) over several
  * PDFs, one at a time, entirely in the browser. This is the only deterministic,
  * no-input compression we can honestly do client-side — it never re-encodes
@@ -105,18 +148,10 @@ export function CompressBatchRunner({
     [files],
   );
 
-  const process = useCallback(async (file: File): Promise<CompressResult> => {
-    const bytes = await readFileBytes(file);
-    const { bytes: optimized, signatureCount } = await repackOrExplain(bytes);
-    return {
-      outputName: outputName(file.name, "optimized"),
-      bytes: optimized,
-      originalBytes: bytes.byteLength,
-      optimizedBytes: optimized.byteLength,
-      savedBytes: Math.max(0, bytes.byteLength - optimized.byteLength),
-      signatureCount,
-    };
-  }, []);
+  const process = useCallback(
+    (file: File): Promise<CompressResult> => compressBatchFile(file),
+    [],
+  );
 
   const { state, progress, start, cancel, reset, running } =
     useBatchRunner<CompressResult>(units, process);
@@ -409,7 +444,7 @@ function BatchRow({
           onClick={() =>
             downloadBytes(item.result!.bytes, item.result!.outputName)
           }
-          aria-label={`Download compressed ${item.name}`}
+          aria-label={`Download ${item.result.unchanged ? "unchanged" : "compressed"} ${item.name}`}
           className="text-muted hover:bg-wash hover:text-fg rounded-ctl grid size-8 shrink-0 place-items-center transition"
         >
           <Download className="size-4" aria-hidden />
@@ -438,14 +473,13 @@ function BatchDetail({ item }: { item: BatchItem<CompressResult> }) {
     case "done": {
       const r = item.result;
       if (!r) return null;
-      const size =
-        r.savedBytes > 0 ? (
-          <span className="text-ok">
-            {`−${formatBytes(r.savedBytes)} (${pct(r.savedBytes, r.originalBytes)}%) · ${formatBytes(r.optimizedBytes)}`}
-          </span>
-        ) : (
-          <>Already lean — no change</>
-        );
+      const size = !r.unchanged ? (
+        <span className="text-ok">
+          {`−${formatBytes(r.savedBytes)} (${pct(r.savedBytes, r.originalBytes)}%) · ${formatBytes(r.optimizedBytes)}`}
+        </span>
+      ) : (
+        <>Nothing came out smaller — your file, unchanged</>
+      );
       if (r.signatureCount === 0) return size;
       return (
         <>

@@ -5,9 +5,11 @@ import {
   chromiumArgs,
   chromiumEnv,
   createNativeChromiumPdfRunner,
+  htmlDocumentContentType,
   nativeHtmlRenderDeps,
   probeChromiumFromConfig,
   PRINT_TO_PDF_OPTIONS,
+  UNLINK_SYNTHETIC_ORIGIN,
   type ChromiumLaunch,
 } from "./native";
 import type { NativeHtmlRenderConfig } from "./native-config";
@@ -55,6 +57,12 @@ function fakeChromium(
     paused?: Paused[];
     /** Requests the page makes once loaded, while its virtual time runs. */
     pausedAfterLoad?: Paused[];
+    /**
+     * How many loads, counted from the first, show Chromium's XML
+     * `<parsererror>` in the DOM (a package document that is not
+     * well-formed). Default 0.
+     */
+    parserErrorLoads?: number;
   } = {},
 ) {
   const sent: Sent[] = [];
@@ -88,6 +96,7 @@ function fakeChromium(
     };
     const reply = (msg: Sent, result: unknown) =>
       emit({ id: msg.id, result, sessionId: msg.sessionId });
+    let loads = 0;
 
     const handle = (msg: Sent) => {
       sent.push(msg);
@@ -100,6 +109,7 @@ function fakeChromium(
         case "Page.getFrameTree":
           return reply(msg, { frameTree: { frame: { id: "T" } } });
         case "Page.navigate": {
+          loads += 1;
           const url = msg.params.url as string;
           const pauses: Paused[] = [
             { url, resourceType: "Document" },
@@ -142,6 +152,16 @@ function fakeChromium(
         }
         case "Page.printToPDF":
           return reply(msg, { stream: "H" });
+        case "DOM.getDocument":
+          return reply(msg, { root: { nodeId: 1 } });
+        case "DOM.querySelector":
+          return reply(msg, {
+            nodeId:
+              msg.params.selector === "parsererror" &&
+              loads <= (opts.parserErrorLoads ?? 0)
+                ? 9
+                : 0,
+          });
         case "Page.getLayoutMetrics":
           return reply(msg, { cssContentSize: { height: 2400 } });
         case "IO.read":
@@ -292,6 +312,187 @@ describe("native Chromium HTML renderer", () => {
     expect(Buffer.from(String(doc.params.body), "base64").toString()).toBe(
       "<h1>Hello</h1>",
     );
+  });
+
+  /*
+   * Audit #5 (2026-11-06): the upload was served as bare `text/html`, so a
+   * UTF-8 file with no declaration decoded as windows-1252 ("cafÃ©"). The
+   * decoded-PDF proof is in native.chromium.test.ts; this pins the header.
+   */
+  it("serves an undeclared UTF-8 upload as UTF-8", async () => {
+    const fake = fakeChromium();
+    await runner(fake).renderHtml(new TextEncoder().encode("<h1>café</h1>"));
+    const doc = fake.sent.find(
+      (m) => m.method === "Fetch.fulfillRequest" && m.params.requestId === "r0",
+    )!;
+    expect(doc.params.responseHeaders).toEqual([
+      { name: "Content-Type", value: "text/html; charset=utf-8" },
+    ]);
+  });
+
+  /*
+   * Audit #48 (2026-11-06): an upload's relative links printed as links to
+   * the synthetic origin. The decoded-annotation proof is in
+   * native.chromium.test.ts; this pins the ORDER — unlinked before printing —
+   * and that a webpage's own links are never touched.
+   */
+  it("unlinks an upload's synthetic-origin links before printing, and only an upload's", async () => {
+    const fake = fakeChromium();
+    await runner(fake).renderHtml(HTML);
+    const methods = fake.sent.map((m) => m.method);
+    const unlink = fake.sent.findIndex(
+      (m) =>
+        m.method === "Runtime.evaluate" &&
+        m.params.expression === UNLINK_SYNTHETIC_ORIGIN,
+    );
+    expect(unlink).toBeGreaterThan(methods.indexOf("Page.navigate"));
+    expect(unlink).toBeLessThan(methods.indexOf("Page.printToPDF"));
+
+    const web = fakeChromium();
+    await runner(web)
+      .renderUrl("https://public.example/")
+      .catch(() => {});
+    // Health check: the webpage really reached the print, so the absence
+    // below is not a render that stopped early.
+    expect(web.sent.map((m) => m.method)).toContain("Page.printToPDF");
+    expect(web.sent.map((m) => m.method)).not.toContain("Runtime.evaluate");
+  });
+
+  /*
+   * Review of a5d422c3 (audit #6): the reload-as-HTML sequence was proven
+   * only through a real Chromium, which never shows a chapter that fails
+   * BOTH parsers — so the refusal to print the banner had no test at all.
+   */
+  describe("a package document Chromium's XML parser rejects", () => {
+    const chapter = `${HTML_DOCUMENT_URL}OEBPS/ch1.xhtml`;
+    const XHTML =
+      '<?xml version="1.0" encoding="utf-8"?>\n' +
+      '<html xmlns="http://www.w3.org/1999/xhtml"><head><title/>' +
+      '<style type="text/css"/></head><body><p>BODY&nbsp;TEXT</p>' +
+      '<a id="p5"/>after<br/><img src="i.png" alt=""/></body></html>';
+    const pkg = {
+      documents: [{ url: chapter, viewport: null, printParams: {} }],
+      serve: (url: string) =>
+        url === chapter
+          ? {
+              body: new TextEncoder().encode(XHTML),
+              contentType: "application/xhtml+xml",
+            }
+          : null,
+    };
+    const chapterAnswers = (fake: ReturnType<typeof fakeChromium>) =>
+      fake.sent.filter(
+        (m) =>
+          m.method === "Fetch.fulfillRequest" &&
+          m.params.responseCode === 200 &&
+          (m.params.responseHeaders as { value: string }[]).length === 1,
+      );
+
+    it("is loaded again as text/html, and printed once", async () => {
+      const fake = fakeChromium({ parserErrorLoads: 1 });
+      const pdfs = await runner(fake).renderPackage(pkg);
+      expect(pdfs).toHaveLength(1);
+      const answers = chapterAnswers(fake);
+      expect(answers).toHaveLength(2);
+      expect(answers.map((m) => m.params.responseHeaders)).toEqual([
+        [{ name: "Content-Type", value: "application/xhtml+xml" }],
+        [{ name: "Content-Type", value: "text/html; charset=utf-8" }],
+      ]);
+      expect(
+        fake.sent.filter((m) => m.method === "Page.printToPDF"),
+      ).toHaveLength(1);
+    });
+
+    /*
+     * Review of a5d422c3: the HTML parser reads `<title/>` as an OPEN title,
+     * which swallows the chapter as title text — silently, past the second
+     * parsererror check. An XHTML empty element is served as an open-close
+     * pair; a void element (`<br/>`, `<img/>`) is left alone.
+     */
+    it("is served with its empty elements as open-close pairs", async () => {
+      const fake = fakeChromium({ parserErrorLoads: 1 });
+      await runner(fake).renderPackage(pkg);
+      const [first, second] = chapterAnswers(fake).map((m) =>
+        Buffer.from(m.params.body as string, "base64").toString("utf8"),
+      );
+      expect(first).toBe(XHTML);
+      expect(second).toBe(
+        XHTML.replace("<title/>", "<title></title>")
+          .replace(
+            '<style type="text/css"/>',
+            '<style type="text/css"></style>',
+          )
+          .replace('<a id="p5"/>', '<a id="p5"></a>'),
+      );
+      // Health check: the void elements really are in what was served.
+      expect(second).toContain("<br/>");
+      expect(second).toContain('<img src="i.png" alt=""/>');
+    });
+
+    it("fails the render when the HTML parser rejects it too; nothing is printed", async () => {
+      const fake = fakeChromium({ parserErrorLoads: 2 });
+      await expect(runner(fake).renderPackage(pkg)).rejects.toThrow(
+        /could not be parsed as XML or HTML/,
+      );
+      // Health check: the reload really happened, so the absence of a print
+      // below is the refusal, not a render that stopped at the first load.
+      expect(chapterAnswers(fake)).toHaveLength(2);
+      expect(fake.sent.map((m) => m.method)).not.toContain("Page.printToPDF");
+    });
+  });
+
+  it("leaves a BOM, a declared charset, or non-UTF-8 bytes to Chromium", () => {
+    const utf8 = (s: string) => new TextEncoder().encode(s);
+    expect(htmlDocumentContentType(utf8("<p>café</p>"))).toBe(
+      "text/html; charset=utf-8",
+    );
+    expect(
+      htmlDocumentContentType(
+        new Uint8Array([0xef, 0xbb, 0xbf, ...utf8("<p>café</p>")]),
+      ),
+    ).toBe("text/html");
+    expect(
+      htmlDocumentContentType(utf8('<meta charset="windows-1252"><p>x</p>')),
+    ).toBe("text/html");
+    expect(
+      htmlDocumentContentType(
+        utf8(
+          '<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso-8859-1">',
+        ),
+      ),
+    ).toBe("text/html");
+    /*
+     * Review of 9b169477: "charset=" anywhere counted as a declaration, so
+     * these undeclared UTF-8 files stayed windows-1252. A declaration is a
+     * meta tag's own charset attribute naming a real encoding, or an
+     * http-equiv Content-Type meta — in the first 1024 bytes, outside
+     * comments, where Chromium's prescan looks.
+     */
+    const undeclared = [
+      "<p>Set charset= in your page. café</p>",
+      '<meta name="description" content="on charset=utf-8 errors"><p>café</p>',
+      "<p>prose: <meta charset= here café</p>",
+      '<!-- <meta charset="windows-1252"> --><p>café</p>',
+      `<p>${"x".repeat(1100)}</p><meta charset="windows-1252"><p>café</p>`,
+    ];
+    for (const html of undeclared)
+      expect(htmlDocumentContentType(utf8(html)), html).toBe(
+        "text/html; charset=utf-8",
+      );
+    expect(
+      htmlDocumentContentType(utf8("<meta charset=windows-1252><p>café</p>")),
+    ).toBe("text/html");
+    expect(
+      htmlDocumentContentType(
+        utf8(
+          "<meta content='text/html; charset=iso-8859-1' http-equiv=content-type>",
+        ),
+      ),
+    ).toBe("text/html");
+    // "café" in windows-1252, undeclared: not UTF-8, so the old default.
+    expect(
+      htmlDocumentContentType(new Uint8Array([0x63, 0x61, 0x66, 0xe9])),
+    ).toBe("text/html");
   });
 
   /*

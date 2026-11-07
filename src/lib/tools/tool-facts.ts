@@ -1586,9 +1586,19 @@ export const TRANSLATE_LANGUAGES_ANSWER = `${TRANSLATE_LANGUAGES.length} languag
 export const REPAIR_TAKES =
   "Any file that starts like a PDF, including one that is truncated or whose internal structure is broken: our server rewrites what it can read into a new, well-formed PDF. If what comes back is still not a readable PDF, the job fails and you get no file rather than a broken one. A file that does not start like a PDF is refused.";
 
-/** What the warning list beside a repaired download means (`RepairWarnings`). */
+/**
+ * What the warning list beside a repaired download means (`RepairWarnings`).
+ *
+ * CHANGED 2026-11-06 (audit #41): this said the list "names what had to be
+ * reconstructed" and that "a file that needed no reconstruction comes back
+ * without the list". Both overstated it: the list is qpdf's own stderr
+ * diagnostics (bounded and sanitised), not an inventory of what was rebuilt,
+ * and qpdf can exit 3 — rebuilt — with empty stderr, which shows no list
+ * (`recoveredWithWarnings` is `warnings.length > 0`, pdf-structure/engine.ts).
+ * The wording now matches the tool page's own (content/repair-pdf.ts).
+ */
 export const REPAIR_WARNINGS_ANSWER =
-  "That the file was damaged and has been rebuilt. The repair succeeded, and the list under “This PDF was damaged and has been rebuilt.” names what had to be reconstructed, so you can check those parts against your original. A file that needed no reconstruction comes back without the list.";
+  "That qpdf found damage in the file's structure and rebuilt it. The repair succeeded, and the list under “This PDF was damaged and has been rebuilt.” holds qpdf's own messages about what it found and worked around, so you can check the parts they mention against your original. They are qpdf's diagnostics, not a full inventory of what was rebuilt. No list means no warning text came back from qpdf; it does not mean the file is guaranteed intact.";
 
 /**
  * Addresses the URL check refuses, named in Webpage to PDF's answer —

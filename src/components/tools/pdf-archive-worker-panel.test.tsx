@@ -111,4 +111,20 @@ describe("PdfArchiveWorkerPanel failure outcomes", () => {
     render(<PdfArchiveWorkerPanel tool={tool} />);
     expect(await screen.findByText(/not validated/i)).toBeInTheDocument();
   });
+
+  // Audit #41 (2026-11-06): the description said "anything Ghostscript has
+  // to remove is listed with your download". It is not: -dQUIET suppresses
+  // the font-substitution line (and it names a path, so it would be withheld
+  // anyway), and the notes are capped. The page body says the notes hold
+  // only what Ghostscript reports; the panel now says the same.
+  it("promises only what Ghostscript reports, not everything it removes", async () => {
+    stubJobNetwork(READY);
+    const { container } = render(<PdfArchiveWorkerPanel tool={tool} />);
+    await screen.findByText(/not validated/i);
+    const text = container.textContent ?? "";
+    expect(text).toMatch(/PDF\/A conversion uses Ghostscript/);
+    expect(text).not.toMatch(/anything Ghostscript has to remove is listed/i);
+    expect(text).toMatch(/what Ghostscript reports/i);
+    expect(text).toMatch(/substitut/i);
+  });
 });

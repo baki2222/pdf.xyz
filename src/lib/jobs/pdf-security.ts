@@ -189,6 +189,47 @@ function invalid(message: string, field: string): ParseResult<never> {
 const CONTROL_CHAR = /[\u0000-\u001F\u007F]/;
 
 /**
+ * The non-Latin-1 characters PDFDocEncoding (ISO 32000-1, Annex D) has a code
+ * for: the accents in 0x18-0x1F, the typographic symbols in 0x80-0x9E, and the
+ * euro sign at 0xA0.
+ */
+const PDF_DOC_EXTRA = new Set([
+  0x02d8, 0x02c7, 0x02c6, 0x02d9, 0x02dd, 0x02db, 0x02da, 0x02dc, 0x2022,
+  0x2020, 0x2021, 0x2026, 0x2014, 0x2013, 0x0192, 0x2044, 0x2039, 0x203a,
+  0x2212, 0x2030, 0x201e, 0x201c, 0x201d, 0x2018, 0x2019, 0x201a, 0x2122,
+  0xfb01, 0xfb02, 0x0141, 0x0152, 0x0160, 0x0178, 0x017d, 0x0131, 0x0142,
+  0x0153, 0x0161, 0x017e, 0x20ac,
+]);
+
+/**
+ * True when every character of `password` has a PDFDocEncoding code, so an
+ * AES-128 (R4) file can store it the way readers encode what the person types.
+ * Latin-1 maps to itself except the slots PDFDocEncoding gives other glyphs
+ * (0x7F-0xA0) and soft hyphen (0xAD), which it leaves undefined. Bengali,
+ * Cyrillic, Greek and CJK have no code at all.
+ */
+export function isPdfDocEncodable(password: string): boolean {
+  for (const ch of password) {
+    const cp = ch.codePointAt(0)!;
+    if (cp < 0x18 || (cp >= 0x20 && cp < 0x7f)) continue;
+    if (cp >= 0xa1 && cp <= 0xff && cp !== 0xad) continue;
+    if (PDF_DOC_EXTRA.has(cp)) continue;
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Why a password cannot protect at AES-128. Content-free: it names the rule,
+ * never the characters. Shared with the panel so both say the same thing.
+ * "Latin letters" alone would be false: the set is Latin-1 plus Annex D's few
+ * extras, so most Central European and Turkish letters are refused. The
+ * example letters are pinned against isPdfDocEncodable in the tests, and the
+ * labels come from PDF_ENCRYPTION_LEVELS like the FAQ's.
+ */
+export const AES128_PASSWORD_CHARSET_MESSAGE = `${describePdfKeyLength(128)} passwords can use only basic Latin and Western European letters, digits and common symbols (letters such as ą, č or ğ are not available). Choose ${describePdfKeyLength(256)} to use this password.`;
+
+/**
  * Validate one password field. Content-free by construction: it reports only
  * which RULE failed (missing, empty, too long, illegal character) and NEVER
  * echoes the password. Returns the string on success. `field` names the offending
@@ -261,6 +302,18 @@ export function parseProtectPdfOptions(
       );
     }
     keyLength = options.keyLength;
+  }
+
+  // AES-128 (R4) stores the password in PDFDocEncoding. One with no such form
+  // would be written as raw UTF-8 (qpdf only warns), which most readers will
+  // not accept when the person types it: refuse it here, in words.
+  if (keyLength === 128) {
+    if (!isPdfDocEncodable(password.value)) {
+      return invalid(AES128_PASSWORD_CHARSET_MESSAGE, "options.password");
+    }
+    if (!isPdfDocEncodable(ownerPassword)) {
+      return invalid(AES128_PASSWORD_CHARSET_MESSAGE, "options.ownerPassword");
+    }
   }
 
   const permissions = parsePermissions(options.permissions);

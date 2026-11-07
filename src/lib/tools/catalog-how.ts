@@ -62,7 +62,7 @@ export const TOOL_HOW: Readonly<Record<string, readonly string[]>> = {
   "repair-pdf": [
     "Upload the damaged PDF over an encrypted connection — it only has to start like a PDF, so a truncated file is taken in.",
     "Press “Repair on our secure server”: qpdf rewrites the file's structure on our secure server, which deletes the input when the job finishes.",
-    `Download the repaired PDF — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. If the file had to be rebuilt, a list above the download says what was reconstructed.`,
+    `Download the repaired PDF — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. If qpdf reported problems, a notice above the download holds its own messages; no notice does not mean the file is guaranteed intact.`,
   ],
   // Authored because the runner takes MANY images, and the default steps
   // say "pick your file" (tool-page-content.test.ts discovers multi-file

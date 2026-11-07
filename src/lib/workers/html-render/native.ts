@@ -12,6 +12,7 @@ import {
   type ChromiumPackageRunner,
   type ChromiumPdfRunner,
   type DocumentPackage,
+  type PackageDocument,
   type HtmlRenderDeps,
   type WebpageFetchFailure,
 } from "./engine";
@@ -335,6 +336,148 @@ export function mainDocumentVerdict(
   return null;
 }
 
+/** A byte-order mark: UTF-8, UTF-16 BE or UTF-16 LE. */
+function startsWithBom(bytes: Uint8Array): boolean {
+  return (
+    (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) ||
+    (bytes[0] === 0xfe && bytes[1] === 0xff) ||
+    (bytes[0] === 0xff && bytes[1] === 0xfe)
+  );
+}
+
+/** How far Chromium's prescan looks for a `<meta>` declaration, in bytes. */
+const CHARSET_PRESCAN_BYTES = 1024;
+
+/** One `<meta ...>` tag's attributes, as written. */
+const META_TAG =
+  /<meta\b((?:\s+[^\s>"'/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+))?|\s*\/)*)\s*>/gi;
+const ATTRIBUTE =
+  /([^\s>"'/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
+
+/** True when `label` names an encoding a browser knows. */
+function isEncodingLabel(label: string): boolean {
+  try {
+    new TextDecoder(label.trim());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True when the file declares its own encoding where Chromium looks for one:
+ * in the first {@link CHARSET_PRESCAN_BYTES} bytes, outside comments, a
+ * `<meta>` whose OWN `charset` attribute names a real encoding, or a
+ * `<meta http-equiv="content-type" content="...; charset=...">`. Read as
+ * latin1 so any byte sequence is searchable; the markup is ASCII in every
+ * encoding Chromium sniffs. "charset=" in prose, in another meta's
+ * `content`, or in a comment is not a declaration (review of 9b169477).
+ */
+function declaresCharset(bytes: Uint8Array): boolean {
+  const head = Buffer.from(bytes.subarray(0, CHARSET_PRESCAN_BYTES))
+    .toString("latin1")
+    .replace(/<!--[\s\S]*?(?:-->|$)/g, "");
+  for (const [, attrs = ""] of head.matchAll(META_TAG)) {
+    const named = new Map<string, string>();
+    for (const [, name, dq, sq, bare] of attrs.matchAll(ATTRIBUTE))
+      if (!named.has(name!.toLowerCase()))
+        named.set(name!.toLowerCase(), dq ?? sq ?? bare ?? "");
+    const charset = named.get("charset");
+    if (charset !== undefined && isEncodingLabel(charset)) return true;
+    const content = /charset\s*=\s*["']?([^"';\s]+)/i.exec(
+      named.get("content") ?? "",
+    );
+    if (
+      named.get("http-equiv")?.trim().toLowerCase() === "content-type" &&
+      content &&
+      isEncodingLabel(content[1]!)
+    )
+      return true;
+  }
+  return false;
+}
+
+/** HTML's void elements: the only ones whose `<x/>` the HTML parser closes. */
+const VOID_ELEMENTS = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "param",
+  "source",
+  "track",
+  "wbr",
+]);
+
+/** A self-closing start tag: its name, then its attributes as written. */
+const SELF_CLOSING_TAG =
+  /<([a-zA-Z][\w:.-]*)((?:\s+[^\s>"'/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+))?)*)\s*\/>/g;
+
+/**
+ * An XHTML document made ready for the HTML parser: every empty element
+ * written `<x/>` that is not void becomes `<x></x>`. The HTML parser ignores
+ * the slash, so `<title/>` OPENS a title and the rest of the chapter becomes
+ * its text — lost silently, with no `<parsererror>` to see (review of
+ * a5d422c3). Read as latin1, so every other byte is returned unchanged.
+ */
+export function xhtmlEmptyElementsForHtml(bytes: Uint8Array): Uint8Array {
+  const text = Buffer.from(bytes).toString("latin1");
+  const out = text.replace(
+    SELF_CLOSING_TAG,
+    (tag, name: string, attrs: string) =>
+      VOID_ELEMENTS.has(name.toLowerCase())
+        ? tag
+        : `<${name}${attrs}></${name}>`,
+  );
+  return out === text ? bytes : new Uint8Array(Buffer.from(out, "latin1"));
+}
+
+/**
+ * The Content-Type an uploaded HTML document is served with.
+ *
+ * A BOM or a declared charset is left to Chromium (an HTTP charset would
+ * OVERRIDE the `<meta>` — the header outranks it), so a legacy-encoded upload
+ * that says what it is reads exactly as it says. A file that declares nothing
+ * falls to Chromium's default, windows-1252 — which turned every UTF-8
+ * "café" into "cafÃ©" while the job succeeded (audit #5, 2026-11-06). Such a
+ * file is served as UTF-8 when its bytes ARE valid UTF-8, which is the only
+ * reading in which they are text at all; otherwise it keeps the old default.
+ */
+export function htmlDocumentContentType(bytes: Uint8Array): string {
+  if (startsWithBom(bytes)) return "text/html";
+  if (declaresCharset(bytes)) return "text/html";
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return "text/html; charset=utf-8";
+  } catch {
+    return "text/html";
+  }
+}
+
+/**
+ * Run in the uploaded page before it prints: removes the `href` of every
+ * `<a>`/`<area>` that resolves to {@link HTML_DOCUMENT_URL}'s origin, unless
+ * it is a jump within the document itself (`#id`), which Chromium prints as
+ * an in-PDF destination. A link the author pointed anywhere else is kept.
+ */
+export const UNLINK_SYNTHETIC_ORIGIN = `(() => {
+  const origin = ${JSON.stringify(new URL(HTML_DOCUMENT_URL).origin)};
+  const self = document.URL.split("#")[0];
+  for (const a of document.querySelectorAll("a[href], area[href]")) {
+    let u;
+    try { u = new URL(a.href); } catch { continue; }
+    if (u.origin !== origin) continue;
+    if (u.hash && u.href.slice(0, -u.hash.length) === self) continue;
+    a.removeAttribute("href");
+  }
+})()`;
+
 // The print arguments, and the layout options that change them, live in
 // `./print-params`; re-exported here, where the tests and tool pages read it.
 export { PRINT_TO_PDF_OPTIONS };
@@ -452,9 +595,12 @@ export function createNativeChromiumPdfRunner(
           {
             requestId: p.requestId,
             responseCode: 200,
-            // No charset: Chromium sniffs a BOM or <meta charset> exactly as
-            // it did when it read the file from disk.
-            responseHeaders: [{ name: "Content-Type", value: "text/html" }],
+            responseHeaders: [
+              {
+                name: "Content-Type",
+                value: htmlDocumentContentType(target.bytes),
+              },
+            ],
             body: Buffer.from(target.bytes).toString("base64"),
           },
           sessionId,
@@ -578,6 +724,28 @@ export function createNativeChromiumPdfRunner(
     if (target.kind === "url" && pageVerdict)
       throw new WebpageFetchError(pageVerdict);
 
+    // An upload's relative links resolve against the synthetic origin, and
+    // Chromium would print them as clickable links to it (audit #48). They
+    // are unlinked — their text stays — in an isolated world, so a page
+    // script that redefined the DOM cannot skip it. In-page jumps stay.
+    if (target.kind === "html") {
+      const { executionContextId } = await cdp.send<{
+        executionContextId: number;
+      }>(
+        "Page.createIsolatedWorld",
+        { frameId: mainFrameId, worldName: "pdfxyz-unlink" },
+        pageSession,
+      );
+      await cdp.send(
+        "Runtime.evaluate",
+        {
+          expression: UNLINK_SYNTHETIC_ORIGIN,
+          contextId: executionContextId,
+        },
+        pageSession,
+      );
+    }
+
     // One long page: lay the PRINT styles out at the printed width, and read
     // the content's height from the layout — not from page script, which
     // could report anything.
@@ -625,13 +793,31 @@ export function createNativeChromiumPdfRunner(
    *     origin is answered from the package (404 when `serve` has nothing),
    *     and every other request is FAILED before any fetch — a package is
    *     self-contained, so nothing is fetched from the web;
-   *   - the output cap holds for the documents together.
+   *   - the output cap holds for the documents together;
+   *   - a document Chromium's XML parser rejects (its `<parsererror>` is in
+   *     the DOM) is loaded again as `text/html`, with its non-void empty
+   *     elements (`<title/>`, `<a id="p5"/>`) written as open-close pairs so
+   *     the HTML parser does not read them as open tags. What that parser
+   *     was proven to recover is in the tests (an undefined `&nbsp;`, an
+   *     unclosed `<br>`, an empty `<title/>`), not every malformed book; one
+   *     that still shows the error fails the render — Chromium's error
+   *     banner is never printed (audit #6). `native.test.ts` pins both
+   *     branches against a fake Chromium.
    */
   async function drivePackage(
     cdp: CdpConnection,
     pkg: DocumentPackage,
   ): Promise<Uint8Array[]> {
     const budgets = new Map<string, () => void>();
+    /** Documents to serve as HTML: their XML parse failed. By `URL.href`. */
+    const servedAsHtml = new Set<string>();
+    const hrefOf = (url: string) => {
+      try {
+        return new URL(url).href;
+      } catch {
+        return url;
+      }
+    };
     const answer = async (event: CdpEvent): Promise<void> => {
       const p = event.params as {
         requestId: string;
@@ -642,15 +828,24 @@ export function createNativeChromiumPdfRunner(
       if (p.request.url.startsWith(HTML_DOCUMENT_URL)) {
         const hit =
           p.request.method === "GET" ? pkg.serve(p.request.url) : null;
+        const asHtml = hit !== null && servedAsHtml.has(hrefOf(p.request.url));
+        const contentType = !hit
+          ? "text/plain"
+          : asHtml
+            ? htmlDocumentContentType(hit.body)
+            : hit.contentType;
+        const body = !hit
+          ? ""
+          : Buffer.from(
+              asHtml ? xhtmlEmptyElementsForHtml(hit.body) : hit.body,
+            ).toString("base64");
         await cdp.send(
           "Fetch.fulfillRequest",
           {
             requestId: p.requestId,
             responseCode: hit ? 200 : 404,
-            responseHeaders: [
-              { name: "Content-Type", value: hit?.contentType ?? "text/plain" },
-            ],
-            body: hit ? Buffer.from(hit.body).toString("base64") : "",
+            responseHeaders: [{ name: "Content-Type", value: contentType }],
+            body,
           },
           event.sessionId,
         );
@@ -686,12 +881,8 @@ export function createNativeChromiumPdfRunner(
       }
     });
 
-    const out: Uint8Array[] = [];
-    let total = 0;
-    for (const doc of pkg.documents) {
-      // A document the package cannot serve would print as an empty 404.
-      if (!pkg.serve(doc.url))
-        throw new Error("a document of the package could not be served");
+    /** A tab with `doc` loaded and its virtual time spent. */
+    const load = async (doc: PackageDocument) => {
       const { targetId } = await cdp.send<{ targetId: string }>(
         "Target.createTarget",
         { url: "about:blank" },
@@ -729,6 +920,39 @@ export function createNativeChromiumPdfRunner(
       );
       await budget;
       budgets.delete(sessionId);
+      return { targetId, sessionId };
+    };
+    /** True when Chromium's XML parser rejected the loaded document. */
+    const xmlParseFailed = async (sessionId: string) => {
+      const { root } = await cdp.send<{ root: { nodeId: number } }>(
+        "DOM.getDocument",
+        { depth: 0 },
+        sessionId,
+      );
+      const { nodeId } = await cdp.send<{ nodeId: number }>(
+        "DOM.querySelector",
+        { nodeId: root.nodeId, selector: "parsererror" },
+        sessionId,
+      );
+      return nodeId > 0;
+    };
+
+    const out: Uint8Array[] = [];
+    let total = 0;
+    for (const doc of pkg.documents) {
+      // A document the package cannot serve would print as an empty 404.
+      if (!pkg.serve(doc.url))
+        throw new Error("a document of the package could not be served");
+      let { targetId, sessionId } = await load(doc);
+      if (await xmlParseFailed(sessionId)) {
+        await cdp.send("Target.closeTarget", { targetId }).catch(() => {});
+        servedAsHtml.add(hrefOf(doc.url));
+        ({ targetId, sessionId } = await load(doc));
+        if (await xmlParseFailed(sessionId))
+          throw new Error(
+            "a document of the package could not be parsed as XML or HTML",
+          );
+      }
       const bytes = await printToPdf(
         cdp,
         sessionId,

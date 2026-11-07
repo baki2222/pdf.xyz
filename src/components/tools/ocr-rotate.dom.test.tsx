@@ -319,7 +319,9 @@ describe("OCR PDF: Turn pages upright, panel → job → processor → argv", ()
     fireEvent.click(rotateBox());
     expect(rotateBox()).not.toBeChecked();
     expect(
-      screen.getByText(/off for this file: a jpg or png is read as it is/i),
+      screen.getByText(
+        /off for this file\. a phone photo is still read the way up/i,
+      ),
     ).toBeInTheDocument();
     run();
     await screen.findByText(/OCR complete/);

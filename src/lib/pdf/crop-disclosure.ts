@@ -19,7 +19,9 @@
 export const REDACT_TOOL_NAME = "Redact PDF";
 export const REDACT_TOOL_HREF = "/tools/redact-pdf";
 
-export const CROP_KEEPS_CONTENT = `Cropping hides everything outside the box, but that content stays inside the file, and anyone with the file can bring it back by resetting the crop in another editor. To remove part of a page permanently, use ${REDACT_TOOL_NAME} on the original before you split it.`;
+// CHANGED 2026-11-06 (audit #41): ended "before you split it", copied from
+// SPLIT_HALF_KEEPS_CONTENT below; Crop PDF splits nothing.
+export const CROP_KEEPS_CONTENT = `Cropping hides everything outside the box, but that content stays inside the file, and anyone with the file can bring it back by resetting the crop in another editor. To remove part of a page permanently, use ${REDACT_TOOL_NAME} on the original before you crop it.`;
 
 /**
  * The same disclosure for Split PDF Pages in Half, whose halves are made the same

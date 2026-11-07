@@ -16,6 +16,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { tools } from "./catalog";
+import { WORD_OCR_LABEL } from "@/lib/jobs/pdf-office-export";
 
 const SERP_CEILING = 165;
 
@@ -35,5 +36,14 @@ describe("catalog descriptions", () => {
           `${t.slug}: ${t.description.length} chars — the tail past ~${SERP_CEILING} is invisible in search results`,
       );
     expect(over, over.join("\n")).toEqual([]);
+  });
+
+  // catalog.ts writes the PDF to Word checkbox's label out instead of
+  // importing it (the import pulled the jobs module into the ticket's lazy
+  // catalogue chunk). This holds the two equal: rename the checkbox and the
+  // description fails here, not in front of a reader.
+  it("PDF to Word's description names the OCR checkbox by its real label", () => {
+    const word = tools.find((t) => t.slug === "pdf-to-word")!;
+    expect(word.description).toContain(`tick “${WORD_OCR_LABEL}”`);
   });
 });

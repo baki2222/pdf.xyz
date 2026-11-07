@@ -15,9 +15,12 @@ import { webOptimizedOutputName } from "@/lib/workers/processor/pdf-structure";
  *    "Download <name>" on success. There is no options control and no
  *    password field.
  *  - engine: src/lib/workers/pdf-structure/native.ts runs `qpdf --linearize`
- *    and nothing else; engine.ts refuses input that fails looksLikePdf (no
- *    `%PDF-` header in the first 1 KiB or no `%%EOF` in the last 2 KiB), and
- *    holds the output to the same check. qpdf exit 3 ("warnings, output
+ *    and nothing else; engine.ts refuses input that fails looksCompletePdf (no
+ *    `%PDF-` header in the first 1 KiB, or no `%%EOF` anywhere after it), and
+ *    holds the output to looksLikePdf (`%%EOF` in the last 2 KiB). CHANGED
+ *    2026-11-06 (audit #50): the input was held to looksLikePdf too, so a
+ *    complete PDF with over 2 KiB of padding after its marker was refused as
+ *    cut off; the FAQ now says data after the marker is allowed. qpdf exit 3 ("warnings, output
  *    written") is ACCEPTED for linearize too, so damage inside a file that
  *    passes looksLikePdf is worked around, and (since 2026-09-27) the
  *    processor attaches qpdf's warnings for BOTH tools; OptimizeOutcome shows
@@ -126,7 +129,7 @@ const content: ToolContent = {
     },
     {
       q: "Why was my PDF refused or why did the job fail?",
-      a: "Before qpdf runs, the file must have a PDF header (%PDF-) near its start and an end-of-file marker (%%EOF) near its end. A file with no header is refused as not readable as a PDF; it is usually not a PDF at all, and Repair PDF refuses it too. A file with a header but no end marker is refused as damaged or cut off, which is what an interrupted download loses; Repair PDF accepts such files and the message sends you there, so repair it first and optimize the repaired copy. Deeper damage in a file that has both markers is not refused: if qpdf can work around it the job succeeds, and qpdf's warnings are listed above the download so you can check the rebuilt parts against your original. Encrypted files that ask for a password before opening fail, because this tool hands qpdf no password and has no field for one; take the password off with Unlock PDF first. A qpdf error, a timeout, or output that is missing either marker or is not actually linearized ends in a failed job with no download, never a half-written file.",
+      a: "Before qpdf runs, the file must have a PDF header (%PDF-) near its start and an end-of-file marker (%%EOF) after it; padding or other data after that marker is allowed. A file with no header is refused as not readable as a PDF; it is usually not a PDF at all, and Repair PDF refuses it too. A file with a header but no end marker is refused as damaged or cut off, which is what an interrupted download loses; Repair PDF accepts such files and the message sends you there, so repair it first and optimize the repaired copy. Deeper damage in a file that has both markers is not refused: if qpdf can work around it the job succeeds, and qpdf's warnings are listed above the download so you can check the rebuilt parts against your original. Encrypted files that ask for a password before opening fail, because this tool hands qpdf no password and has no field for one; take the password off with Unlock PDF first. A qpdf error, a timeout, or output that is missing either marker or is not actually linearized ends in a failed job with no download, never a half-written file.",
     },
     {
       q: "Is it safe to linearize a digitally signed PDF?",

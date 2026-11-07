@@ -145,7 +145,7 @@ const content: ToolContent = {
     },
     {
       q: "Is my file uploaded when I redact it here?",
-      a: `No. Rendering and rebuilding happen in your browser with a pdf.js server bundled into the site, and the PDF, up to ${MAX_MB} MB, stays on your device.`,
+      a: `No. Rendering and rebuilding happen in your browser with the pdf.js library (and its web worker) bundled into the site, and the PDF, up to ${MAX_MB} MB, stays on your device.`,
     },
     {
       q: "What happens with a password-protected PDF?",

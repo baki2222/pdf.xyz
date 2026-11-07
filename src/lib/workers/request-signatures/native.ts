@@ -30,6 +30,10 @@ import type {
  * A trailer with no catalog LOADS and then throws a bare TypeError on the page
  * walk; that is damage in the bytes, so it is reported as the loader reports
  * damage (a {@link PdfEngineError}), not as a transient crash.
+ *
+ * It also reports the names of the fields the form already has, so the engine
+ * can number its own past them. A form pdf-lib cannot read reports none here;
+ * `place` meets the same form and decides.
  */
 const inspect: PdfInspector = async (bytes) => {
   const doc = await loadPdf(bytes);
@@ -43,7 +47,16 @@ const inspect: PdfInspector = async (bytes) => {
     const { width, height } = visiblePageFrame(page);
     return { width, height };
   });
-  return { pageCount: pageSizes.length, pageSizes };
+  let fieldNames: string[] = [];
+  try {
+    fieldNames = doc
+      .getForm()
+      .getFields()
+      .map((field) => field.getName());
+  } catch {
+    fieldNames = [];
+  }
+  return { pageCount: pageSizes.length, pageSizes, fieldNames };
 };
 
 /**

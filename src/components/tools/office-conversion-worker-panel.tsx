@@ -17,6 +17,7 @@ import { toolFileCeilingBytes } from "@/lib/tools/file-ceilings";
 import type { Tool } from "@/lib/tools/types";
 import { pickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
+import { OFFICE_CONVERSION_RUN_LABEL } from "@/lib/tools/office-run-label";
 import {
   DownloadCta,
   Dropzone,
@@ -131,7 +132,7 @@ export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
   );
 }
 
-const RUN_LABEL = "Convert to PDF";
+const RUN_LABEL = OFFICE_CONVERSION_RUN_LABEL;
 
 function OfficeRunArea({
   tool,

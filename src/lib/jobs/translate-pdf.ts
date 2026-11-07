@@ -96,6 +96,21 @@ const SOURCE_SET: ReadonlySet<string> = new Set<string>([
   ...TRANSLATE_LANGUAGES,
 ]);
 
+/**
+ * The refusal for a request whose source and target are the same language — one
+ * sentence shared by the parser and the panel, so the browser blocks the run with the
+ * words the API would refuse it with.
+ *
+ * Added 2026-11-06 (audit #38): the two languages were validated separately and never
+ * compared, so "Spanish into Spanish" was accepted, charged up to a third of the daily
+ * AI allowance, and returned a copy of the text it was given.
+ */
+export function translateSameLanguageMessage(
+  language: TranslateLanguage,
+): string {
+  return `The source and target are both ${LANGUAGE_NAMES[language]}. Choose a different language to translate into.`;
+}
+
 /** Max length of the optional free-text translation directive. */
 export const MAX_TRANSLATE_INSTRUCTIONS_CHARS = 300;
 
@@ -131,9 +146,12 @@ function isObject(value: unknown): value is Record<string, unknown> {
  * Parse the free-form `options` bag of a `translate-pdf` job into typed, validated
  * options. Strict and honest: a target language is REQUIRED and must be in the
  * allow-list (never coerced), the source language defaults to auto-detect but is
- * validated when given, and the optional directive is bounded and control-character-
- * free. Mirrors `parseSummarizeOptions`, differing only in that translation cannot
- * proceed without a target — so an options-less request is honestly rejected.
+ * validated when given and may not equal the target, and the optional directive is
+ * bounded and control-character-free. Mirrors `parseSummarizeOptions`, differing
+ * only in that translation cannot proceed without a target — so an options-less
+ * request is honestly rejected. (Auto-detect into the document's own language
+ * cannot be seen here; the panel warns about it from the extracted text, see
+ * `./translate-script`.)
  */
 export function parseTranslateOptions(
   options: Record<string, unknown>,
@@ -166,6 +184,14 @@ export function parseTranslateOptions(
       );
     }
     sourceLanguage = options.sourceLanguage as TranslateSourceLanguage;
+  }
+  // Translating a document into the language it is already in gives back a copy of it
+  // and still spends the allowance, so the pair is refused before a job exists.
+  if (sourceLanguage === targetLanguage) {
+    return invalid(
+      translateSameLanguageMessage(targetLanguage),
+      "sourceLanguage",
+    );
   }
 
   const result: TranslateOptions = { targetLanguage, sourceLanguage };

@@ -6544,7 +6544,7 @@
     },
     "guides/how-to-repair-a-damaged-pdf.html": {
       "title": "How to repair a damaged or corrupted PDF — pdf.xyz",
-      "description": "Rebuild a damaged PDF with qpdf on a secure server that deletes the input when the job finishes, and see what had to be fixed. No account needed.",
+      "description": "Rebuild a damaged PDF with qpdf on a secure server that deletes the input when the job finishes, and read what qpdf reported working around. No account needed.",
       "canonical": "https://pdf.xyz/guides/how-to-repair-a-damaged-pdf",
       "robots": "index, follow",
       "h1": ["How to repair a damaged or corrupted PDF"],

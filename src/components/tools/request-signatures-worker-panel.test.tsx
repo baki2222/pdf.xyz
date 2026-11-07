@@ -20,7 +20,12 @@ import {
 } from "@testing-library/react";
 import { PDFDocument } from "pdf-lib";
 import { getToolBySlug } from "@/lib/tools";
-import { signatureBlockFields } from "@/lib/jobs/request-signatures";
+import {
+  MAX_REQUEST_TITLE_CHARS,
+  MAX_SIGNER_EMAIL_CHARS,
+  MAX_SIGNER_NAME_CHARS,
+  signatureBlockFields,
+} from "@/lib/jobs/request-signatures";
 import {
   PDF_ENCRYPTED_UNKNOWN_MESSAGE,
   PDF_NEEDS_PASSWORD_MESSAGE,
@@ -276,5 +281,104 @@ describe("RequestBuilder signature page", () => {
     expect(
       screen.getByRole("button", { name: /Prepare signature request/ }),
     ).not.toHaveAttribute("aria-disabled", "true");
+  });
+});
+
+/**
+ * Audit #18 (2026-11-06). A row with a name and a mistyped email
+ * ("b@x,com") was filtered out of the request without a word: the package
+ * went out with one signer fewer, and the page's own How-to said so. The
+ * inputs also had no length caps, so an over-long name uploaded the PDF and
+ * was refused by the worker afterwards.
+ */
+describe("RequestBuilder signer rows", () => {
+  function fillRow(index: number, name: string, email: string) {
+    fireEvent.change(screen.getByLabelText(`Signer ${index} name`), {
+      target: { value: name },
+    });
+    const emailInput = screen.getByLabelText(`Signer ${index} email`);
+    fireEvent.change(emailInput, { target: { value: email } });
+    fireEvent.blur(emailInput);
+  }
+  const runButton = () =>
+    screen.getByRole("button", { name: /Prepare signature request/ });
+
+  it("marks a row with a malformed email invalid and blocks Prepare, instead of dropping the signer", async () => {
+    const { container } = render(<Builder />);
+    pick(container, await pdfFile(1));
+    fireEvent.click(screen.getByRole("button", { name: /Add signer/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add signer/ }));
+    fillRow(1, "Ada Lovelace", "ada@example.com");
+    fillRow(2, "Bob Typo", "b@x,com");
+    fillRow(3, "Cy Valid", "cy@example.com");
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Signer 2 email")).toHaveAttribute(
+        "aria-invalid",
+        "true",
+      ),
+    );
+    expect(screen.getByLabelText("Signer 1 email")).not.toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+    const email2 = screen.getByLabelText("Signer 2 email");
+    const describedBy = email2.getAttribute("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy!)?.textContent).toMatch(
+      /valid email/i,
+    );
+    expect(runButton()).toHaveAttribute("aria-disabled", "true");
+
+    // Fixing the row includes the signer: all three blocks are drawn.
+    fillRow(2, "Bob Typo", "bob@example.com");
+    await waitFor(() =>
+      expect(runButton()).not.toHaveAttribute("aria-disabled", "true"),
+    );
+    const preview = await screen.findByTestId("signature-page-preview");
+    expect(preview.querySelectorAll("[data-field-box]")).toHaveLength(
+      signatureBlockFields(3, 1, true).length,
+    );
+  });
+
+  it("a row with an email and no name is invalid too, while an untouched blank row is not", async () => {
+    const { container } = render(<Builder />);
+    pick(container, await pdfFile(1));
+    fireEvent.click(screen.getByRole("button", { name: /Add signer/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add signer/ }));
+    fillRow(1, "Ada Lovelace", "ada@example.com");
+    fillRow(2, "", "bob@example.com");
+    await waitFor(() =>
+      expect(screen.getByLabelText("Signer 2 name")).toHaveAttribute(
+        "aria-invalid",
+        "true",
+      ),
+    );
+    expect(runButton()).toHaveAttribute("aria-disabled", "true");
+    // Row 3 was never filled: it is not a signer and not an error.
+    expect(screen.getByLabelText("Signer 3 name")).not.toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Remove signer 2" }));
+    await waitFor(() =>
+      expect(runButton()).not.toHaveAttribute("aria-disabled", "true"),
+    );
+  });
+
+  it("caps each input at the length the worker accepts", () => {
+    render(<Builder />);
+    expect(screen.getByLabelText("Signer 1 name")).toHaveAttribute(
+      "maxLength",
+      String(MAX_SIGNER_NAME_CHARS),
+    );
+    expect(screen.getByLabelText("Signer 1 email")).toHaveAttribute(
+      "maxLength",
+      String(MAX_SIGNER_EMAIL_CHARS),
+    );
+    expect(screen.getByLabelText(/Request title/)).toHaveAttribute(
+      "maxLength",
+      String(MAX_REQUEST_TITLE_CHARS),
+    );
   });
 });

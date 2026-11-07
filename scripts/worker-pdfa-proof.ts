@@ -12,7 +12,11 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PDFDocument, StandardFonts } from "pdf-lib";
-import { nativePdfArchiveDeps } from "@/lib/workers/pdf-archive/native";
+import {
+  defaultGhostscriptExec,
+  nativePdfArchiveDeps,
+  type GhostscriptExec,
+} from "@/lib/workers/pdf-archive/native";
 import {
   pdfaProofInput,
   runPdfAImageProof,
@@ -76,11 +80,27 @@ async function qpdfEncrypt(
   }
 }
 
+/**
+ * The real runner with `-dAutoRotatePages` taken out of the argv it builds:
+ * Ghostscript's default `/PageByPage`, the rotation check's positive control.
+ * Only that one switch differs, so the control and the run under test are the
+ * same engine, prefix and profile.
+ */
+const withoutAutoRotate: GhostscriptExec = (command, args, options) =>
+  defaultGhostscriptExec(
+    command,
+    args.filter((arg) => !arg.startsWith("-dAutoRotatePages")),
+    options,
+  );
+
 proofInputWithText()
   .then((input) =>
     runPdfAImageProof(nativePdfArchiveDeps(process.env), {
       encrypt: qpdfEncrypt,
       input,
+      autoRotating: nativePdfArchiveDeps(process.env, {
+        exec: withoutAutoRotate,
+      }),
     }),
   )
   .then((code) => process.exit(code))

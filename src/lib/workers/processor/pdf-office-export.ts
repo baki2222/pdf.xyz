@@ -4,6 +4,7 @@ import { parsePdfToWordOptions } from "@/lib/jobs/ocr";
 import { WORD_OCR_LABEL } from "@/lib/jobs/pdf-office-export";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
 import { OCR_REFUSAL_MESSAGES } from "../ocr-engine-errors";
+import { describeByteCeiling } from "../engine-file-ceilings";
 
 /** The tool slug the OCR processor serves; PDF to Word asks it by name. */
 const OCR_TOOL_SLUG = "ocr-pdf";
@@ -113,6 +114,15 @@ function jobError(run: Failure): JobError {
         message: run.message,
         retryable: false,
       };
+    // The page scan passed its per-attempt deadline on these bytes, and would
+    // again. Until 2026-11-06 (audit #36) it fell through to the retryable
+    // branch below: several deadlines, then a message naming no way forward.
+    case "timeout":
+      return {
+        code: "unprocessable_entity",
+        message: run.message,
+        retryable: false,
+      };
     case "failed":
     default:
       return { code: "internal_error", message: run.message, retryable: true };
@@ -140,7 +150,16 @@ export const WORD_OCR_MESSAGES = {
   priorText: `This PDF already has a text layer, and the OCR engine would not add a second one. Turn off “${WORD_OCR_LABEL}” and convert again. Nothing was converted.`,
   noText:
     "OCR ran, but found no text in this PDF to put in a Word document. Check the languages you chose match the page. Nothing was converted.",
-} as const;
+  /** The upload itself is over the export's ceiling — said before OCR runs. */
+  tooLarge: (limit: number) =>
+    `This PDF is larger than ${describeByteCeiling(limit)}, the most PDF to Word converts per file. Nothing was converted.`,
+  /**
+   * OCR's searchable PDF outgrew the ceiling the upload was under: a text
+   * layer adds bytes, and OCR may re-encode the page images.
+   */
+  grew: (size: number, limit: number) =>
+    `Recognising the text made this PDF ${describeByteCeiling(size)}, past the ${describeByteCeiling(limit)} PDF to Word converts per file. Split the PDF and convert the parts. Nothing was converted.`,
+};
 
 /** Wiring beyond the export engine: the processors a job may run first. */
 export interface PdfOfficeExportChain {
@@ -212,6 +231,19 @@ export function createPdfOfficeExportProcessor(
               message: WORD_OCR_MESSAGES.unavailable,
               retryable: false,
             });
+          // The export's input ceiling, checked HERE as well as in the
+          // engine. Until 2026-11-06 (audit #50) only the engine checked it,
+          // against OCR's OUTPUT: an over-ceiling upload was recognised for
+          // minutes before the refusal, and a searchable PDF that grew past
+          // the ceiling was reported as "The PDF input exceeds the worker's
+          // size limit." — no number, blaming a file the page had accepted.
+          const maxInput = deps.limits?.maxInputBytes;
+          if (maxInput !== undefined && bytes.byteLength > maxInput)
+            return processorFail({
+              code: "payload_too_large",
+              message: WORD_OCR_MESSAGES.tooLarge(maxInput),
+              retryable: false,
+            });
           // The OCR processor itself: option validation, the installed-pack
           // check and the refusal mapping are OCR PDF's, not a copy of them.
           const recognised = await ocr.process({
@@ -240,6 +272,13 @@ export function createPdfOfficeExportProcessor(
               code: "internal_error",
               message: "The OCR engine produced no searchable PDF.",
               retryable: true,
+            });
+          // Deterministic, so final: the same scan recognises to the same size.
+          if (maxInput !== undefined && pdf.bytes.byteLength > maxInput)
+            return processorFail({
+              code: "payload_too_large",
+              message: WORD_OCR_MESSAGES.grew(pdf.bytes.byteLength, maxInput),
+              retryable: false,
             });
           bytes = pdf.bytes;
           ocrResults = recognised.results;

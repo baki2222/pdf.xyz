@@ -340,6 +340,37 @@ export function looksRepairable(bytes: Uint8Array): boolean {
 }
 
 /**
+ * The INPUT floor for a tool that needs a COMPLETE PDF but not a tidy one: a
+ * `%PDF-` header ({@link looksRepairable}) and a `%%EOF` marker anywhere after
+ * it, searched from the end so the last one is found first.
+ *
+ * {@link looksLikePdf} wants `%%EOF` in the last 2 KiB, which is right for
+ * OUTPUT this worker wrote and wrong for input: a complete PDF followed by
+ * padding or appended data (a scanner's NUL fill, a block-padded upload, a log
+ * line a web system added) has its trailer, just not last, and qpdf and pdf.js
+ * open it. Until 2026-11-06 (audit #50) optimize-web held its input to
+ * `looksLikePdf` and refused such a file as "cut off". A file truncated before
+ * its trailer still has no `%%EOF`, and is still refused here. A file cut off
+ * inside a later incremental update keeps an earlier `%%EOF` and passes; qpdf
+ * then decides, and reports what it worked around.
+ */
+export function looksCompletePdf(bytes: Uint8Array): boolean {
+  if (!looksRepairable(bytes)) return false;
+  for (let i = bytes.byteLength - PDF_EOF.length; i >= PDF_HEADER.length; i--) {
+    if (bytes[i] !== PDF_EOF[0]) continue;
+    let match = true;
+    for (let j = 1; j < PDF_EOF.length; j++) {
+      if (bytes[i + j] !== PDF_EOF[j]) {
+        match = false;
+        break;
+      }
+    }
+    if (match) return true;
+  }
+  return false;
+}
+
+/**
  * Real, lossless structural repack via pdf-lib. Re-serializes with object
  * streams and refreshes the producer; it never changes rendered content. Throws
  * if the bytes are not a readable PDF.

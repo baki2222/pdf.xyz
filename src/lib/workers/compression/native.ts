@@ -160,6 +160,12 @@ export function nativeArgs(
           "-sDEVICE=pdfwrite",
           "-dCompatibilityLevel=1.7",
           "-dPDFSETTINGS=/ebook",
+          // /ebook's distiller defaults set AutoRotatePages=/All: pdfwrite would
+          // turn pages to their dominant text direction (a landscape table, a
+          // page of vertical text), and the engine checks only the page count
+          // afterwards. Compression never re-orients a page. After the preset,
+          // which it overrides (audit #21, 2026-11-06).
+          "-dAutoRotatePages=/None",
           "-dNOPAUSE",
           "-dBATCH",
           "-dQUIET",

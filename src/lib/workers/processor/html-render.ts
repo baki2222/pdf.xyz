@@ -1,3 +1,4 @@
+import { domainToUnicode } from "node:url";
 import type { JobError } from "@/lib/jobs";
 import {
   MAX_DISPLAY_FILENAME_LENGTH,
@@ -40,19 +41,47 @@ export function htmlPdfOutputName(originalName: unknown): string {
   return trimName(String(originalName ?? FALLBACK_STEM));
 }
 
+/** A path segment as its author wrote it; a malformed escape stays as is. */
+function decodeSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
+/**
+ * Host plus path, in the script the user typed: the path is percent-DECODED
+ * and the host turned back from punycode before the slug keeps letters,
+ * marks and digits of ANY script (audit #48, 2026-11-06 — an ASCII-only
+ * allowlist over the encoded form turned "Москва" into "D0-9C-D0-BE-…").
+ *
+ * Chosen knowingly: unlike a browser's address bar, this decodes a
+ * look-alike host too (`xn--80ak6aa92e.com` names its file "аррӏе.com",
+ * Cyrillic). The name is only a file name for an address the user typed
+ * themselves, never a claim about which site it is, so readability wins.
+ */
 export function webpagePdfOutputName(rawUrl: string): string {
   try {
     const url = new URL(rawUrl);
+    const host = domainToUnicode(url.hostname) || url.hostname;
     const path = url.pathname
-      .replace(/^\/+|\/+$/g, "")
-      .replace(/\/+|[^a-zA-Z0-9._-]+/g, "-");
-    const slug = `${url.hostname}${path ? `-${path}` : ""}`
-      .replace(/[^a-zA-Z0-9._-]+/g, "-")
+      .split("/")
+      .filter(Boolean)
+      .map(decodeSegment)
+      .join("-");
+    const slug = `${host}${path ? `-${path}` : ""}`
+      .normalize("NFC")
+      .replace(/[^\p{L}\p{M}\p{N}._-]+/gu, "-")
       .replace(/-+/g, "-")
       .replace(/^-|-$/g, "");
     const tail = ".pdf";
     const budget = Math.max(1, MAX_DISPLAY_FILENAME_LENGTH - tail.length);
-    return `${(slug || FALLBACK_STEM).slice(0, budget).trim() || FALLBACK_STEM}${tail}`;
+    const stem = Array.from(slug || FALLBACK_STEM)
+      .slice(0, budget)
+      .join("")
+      .trim();
+    return `${stem || FALLBACK_STEM}${tail}`;
   } catch {
     return `${FALLBACK_STEM}.pdf`;
   }

@@ -197,7 +197,29 @@ interface Runner {
   file: string;
   reader: "pdfjs" | "pdf-lib";
   consumers: string[];
+  /** Consumers that arrived through a seam's default (see seamDefault). */
+  seams: string[];
+  /** The component the runner file exports, for the mount check. */
+  component: string | null;
 }
+
+/**
+ * A runner may take its engine as a parameter so a test can hand in a fake
+ * (`extract = extractPdfText` in pdf-to-text-runner.tsx, added 2026-11-06 for
+ * the result-line test of audit #50). What runs on the page is the DEFAULT,
+ * and only if the page passes nothing, so a consumer reached through a seam
+ * is judged by its default here, and the mount test below holds the page to
+ * passing no props. Left unfollowed, the seam's name had no definition and
+ * the walk stopped ("no definition found for extract()").
+ */
+function seamDefault(source: string, name: string): string | null {
+  const m = new RegExp(`[{,]\\s*${name}\\s*=\\s*([A-Za-z_]\\w*)\\s*[,}]`).exec(
+    source,
+  );
+  return m ? m[1]! : null;
+}
+
+const TOOL_RUNNER = join(RUNNER_DIR, "tool-runner.tsx");
 
 function singlePdfRunners(): Runner[] {
   return readdirSync(RUNNER_DIR)
@@ -207,17 +229,33 @@ function singlePdfRunners(): Runner[] {
       source: readFileSync(join(RUNNER_DIR, file), "utf8"),
     }))
     .filter(({ source }) => /<SinglePdfRunner\b/.test(source))
-    .map(({ file, source }) => ({
-      file,
-      reader: /<SinglePdfRunner\b[^>]*\breader="pdfjs"/.test(source)
-        ? ("pdfjs" as const)
-        : ("pdf-lib" as const),
-      consumers: [
+    .map(({ file, source }) => {
+      const called = [
         ...new Set(
           [...source.matchAll(/\b(\w+)\(\s*pdf\.bytes\b/g)].map((m) => m[1]!),
         ),
-      ],
-    }));
+      ];
+      const seams = called.filter(
+        (name) =>
+          functionBody(name, join(RUNNER_DIR, file)) === null &&
+          seamDefault(source, name) !== null,
+      );
+      return {
+        file,
+        reader: /<SinglePdfRunner\b[^>]*\breader="pdfjs"/.test(source)
+          ? ("pdfjs" as const)
+          : ("pdf-lib" as const),
+        consumers: [
+          ...new Set(
+            called.map((name) =>
+              seams.includes(name) ? seamDefault(source, name)! : name,
+            ),
+          ),
+        ],
+        seams,
+        component: /export function (\w+)\s*\(/.exec(source)?.[1] ?? null,
+      };
+    });
 }
 
 describe("single-PDF runners read with the library they run on", () => {
@@ -231,9 +269,35 @@ describe("single-PDF runners read with the library they run on", () => {
     // classifier runs only in a catch; the loader it explains does not.
     expect(refusalOnlyFunctions().has("pdfLoadError")).toBe(true);
     expect(refusalOnlyFunctions().has("loadPdf")).toBe(false);
+    // A seam resolves to its default only in a parameter list.
+    expect(
+      seamDefault(
+        "function R({ extract = extractPdfText }: P = {})",
+        "extract",
+      ),
+    ).toBe("extractPdfText");
+    expect(seamDefault("const extract = pickEngine();", "extract")).toBeNull();
   });
 
   const runners = singlePdfRunners();
+
+  it("a seam is judged by its default, and the page mounts that runner with no props", () => {
+    const seamed = runners.filter((r) => r.seams.length > 0);
+    // Health: the one seam this was written for is found (a corpus that
+    // quietly loses it would pass the mount check vacuously).
+    expect(seamed.map((r) => r.file)).toContain("pdf-to-text-runner.tsx");
+    const mount = readFileSync(TOOL_RUNNER, "utf8");
+    for (const r of seamed) {
+      for (const seam of r.seams)
+        expect(r.consumers, r.file).not.toContain(seam);
+      expect(r.component, `${r.file} exports no component`).toBeTruthy();
+      // The default runs only if the page passes nothing for the seam.
+      expect(mount, `${r.component} is mounted`).toContain(
+        `<${r.component} />`,
+      );
+      expect(mount).not.toMatch(new RegExp(`<${r.component}\\s+\\w`));
+    }
+  });
 
   it("health check: the walk found the runners, and the runners' byte consumers", () => {
     expect(runners.length).toBeGreaterThan(15);

@@ -27,7 +27,15 @@
  * The round trip through a real presentation engine, which asks whether the
  * slides LOOK like the pages, is `fidelity.roundtrip.test.ts`.
  */
-import { PDFDocument, StandardFonts } from "pdf-lib";
+import {
+  clip,
+  endPath,
+  PDFDocument,
+  popGraphicsState,
+  pushGraphicsState,
+  rectangle,
+  StandardFonts,
+} from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import {
   cellGridPdf,
@@ -79,6 +87,7 @@ import {
   MAX_LAYERS_PER_PAGE,
   PAGE_DECODE_BUDGET_BYTES,
   scanPdfPages,
+  scannedPageText,
 } from "./page-scan";
 import { MAX_DECODED_IMAGE_PIXELS, openNodePdf } from "./pdfjs-node";
 import { inspectPptxPackage } from "./pptx-inspect";
@@ -1233,4 +1242,122 @@ describe("a line set in a standard face pdf.js gives no ascent", () => {
       expect(JSON.stringify(deck), face).not.toMatch(/NaN|null/);
     }
   }, 60_000);
+});
+
+/**
+ * TEXT THE PAGE HIDES STAYS HIDDEN (audit #35, 2026-11-06). Pictures and
+ * vector art were cut to the clip; a line of text never was, so text a
+ * CropBox or a clip path hides came back as a text box off the slide — in
+ * PowerPoint's canvas, selection pane, search and copy. A user who cropped a
+ * page to hide a margin got the margin back.
+ */
+describe("text outside the CropBox or a clip is not written to the deck", () => {
+  async function hiddenTextPdf(): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    // Page 1: a crop that keeps only the top half.
+    const cropped = doc.addPage([612, 792]);
+    cropped.drawText("Inside crop", { x: 72, y: 700, size: 14, font });
+    cropped.drawText("Outside crop", { x: 72, y: 100, size: 14, font });
+    cropped.setCropBox(0, 400, 612, 392);
+    // Page 2: a clip rectangle around the first line only.
+    const clipped = doc.addPage([612, 792]);
+    clipped.pushOperators(
+      pushGraphicsState(),
+      rectangle(0, 650, 612, 100),
+      clip(),
+      endPath(),
+    );
+    clipped.drawText("Inside clip", { x: 72, y: 700, size: 14, font });
+    clipped.drawText("Outside clip", { x: 72, y: 300, size: 14, font });
+    clipped.pushOperators(popGraphicsState());
+    clipped.drawText("After the clip", { x: 72, y: 200, size: 14, font });
+    return doc.save();
+  }
+
+  it("the page reader keeps only what the page shows", async () => {
+    const scan = await scanPdfPages(await hiddenTextPdf());
+    const texts = scan.pages.map(scannedPageText);
+    // Positive controls: the shown lines are read, so an empty answer is not
+    // what passes the absence checks below.
+    expect(texts[0]).toContain("Inside crop");
+    expect(texts[1]).toContain("Inside clip");
+    expect(texts[1]).toContain("After the clip");
+    expect(texts[0]).not.toContain("Outside crop");
+    expect(texts[1]).not.toContain("Outside clip");
+  });
+
+  it("the deck holds no text box for hidden text, and none off its slide", async () => {
+    const run = await runPdfOfficeExport(
+      "pdf-to-powerpoint",
+      await hiddenTextPdf(),
+      {
+        ...pdfOfficeExportDeps(),
+        extract: async () => ({
+          pageCount: 2,
+          pages: [],
+          text: "",
+          characterCount: 0,
+          hasText: false,
+        }),
+      },
+    );
+    if (!run.ok) throw new Error(`${run.kind}: ${run.message}`);
+    const deck = await readDeck(run.output);
+    const all = deck.slides.flatMap((s) => s.texts.map((t) => t.text.trim()));
+    expect(all).toContain("Inside crop");
+    expect(all).not.toContain("Outside crop");
+    expect(all).not.toContain("Outside clip");
+    const offSlide = deck.slides.flatMap((s) =>
+      s.texts.filter(
+        (t) => t.y < 0 || t.x < 0 || t.y >= deck.height || t.x >= deck.width,
+      ),
+    );
+    expect(offSlide.map((t) => t.text)).toEqual([]);
+  });
+
+  // The opposite failure: dropping text the page DOES show. A line the crop
+  // or clip edge cuts through shows its upper half, so it is read whole
+  // (review of e85a4a5e, 2026-11-06: a full-containment test passed all of
+  // this suite until this control existed).
+  it("CONTROL: a line the crop or clip edge cuts through is still read, and reaches the deck", async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    // Baseline 4 pt under the crop's bottom edge (y = 400): the descent and
+    // the lower part of each letter are cut, the ascent is shown.
+    const cropped = doc.addPage([612, 792]);
+    cropped.drawText("Straddles crop", { x: 72, y: 396, size: 14, font });
+    cropped.setCropBox(0, 400, 612, 392);
+    // Baseline 4 pt under the clip's bottom edge (y = 650).
+    const clipped = doc.addPage([612, 792]);
+    clipped.pushOperators(
+      pushGraphicsState(),
+      rectangle(0, 650, 612, 100),
+      clip(),
+      endPath(),
+    );
+    clipped.drawText("Straddles clip", { x: 72, y: 646, size: 14, font });
+    clipped.pushOperators(popGraphicsState());
+    const pdf = await doc.save();
+
+    const texts = (await scanPdfPages(pdf)).pages.map(scannedPageText);
+    expect(texts[0]).toContain("Straddles crop");
+    expect(texts[1]).toContain("Straddles clip");
+
+    const run = await runPdfOfficeExport("pdf-to-powerpoint", pdf, {
+      ...pdfOfficeExportDeps(),
+      extract: async () => ({
+        pageCount: 2,
+        pages: [],
+        text: "",
+        characterCount: 0,
+        hasText: false,
+      }),
+    });
+    if (!run.ok) throw new Error(`${run.kind}: ${run.message}`);
+    const deck = await readDeck(run.output);
+    const all = deck.slides.flatMap((s) => s.texts.map((t) => t.text.trim()));
+    expect(all).toContain("Straddles crop");
+    expect(all).toContain("Straddles clip");
+  });
 });

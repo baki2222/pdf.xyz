@@ -6,7 +6,11 @@ import { rc4EncryptedPdf } from "@/tests/pdf-office-fixtures";
 import { pptxBefore20260927 } from "@/tests/pptx-before-2026-09-27";
 import { PdfTextExecError } from "../pdf-text/errors";
 import type { PdfFlowExtractor } from "../pdf-office-export/engine";
-import { scanPdfPages } from "../pdf-office-export/page-scan";
+import {
+  PageScanTimeoutError,
+  scanPdfPages,
+  type PdfPageScanner,
+} from "../pdf-office-export/page-scan";
 import {
   scannedPdf,
   undecodablePicturePdf,
@@ -380,5 +384,53 @@ describe("pdf-office-export processor", () => {
       pagesMissingPictures: [2],
       emptySlideCount: 1,
     });
+  });
+});
+
+/**
+ * Until 2026-11-06 (audit #36) a scan that passed its deadline fell through to
+ * `classifyFailure`'s retryable `failed`: "The PDF could not be exported to an Office
+ * file." The deadline is per attempt and the bytes are the same, so each retry could
+ * only time out again, and the message named neither length nor a way forward.
+ */
+describe("pdf-office-export — a page scan past its deadline is final", () => {
+  const timingOut: PdfPageScanner = async () => {
+    throw new PageScanTimeoutError();
+  };
+  for (const tool of ["pdf-to-powerpoint", "pdf-to-word"] as const) {
+    it(`${tool}: not retried, and told to split the PDF`, async () => {
+      const processor = createPdfOfficeExportProcessor({
+        extract,
+        extractFlow,
+        scanPages: timingOut,
+        limits: {},
+      });
+      const result = await processor.process({ ...oneInput(), tool });
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error).toMatchObject({
+        code: "unprocessable_entity",
+        retryable: false,
+      });
+      expect(result.error.message).toMatch(/took too long/);
+      expect(result.error.message).toMatch(/Split PDF/);
+    });
+  }
+
+  it("POSITIVE CONTROL: any other scan throw is still a retryable failure", async () => {
+    const processor = createPdfOfficeExportProcessor({
+      extract,
+      extractFlow,
+      scanPages: async () => {
+        throw new Error("spawn EAGAIN");
+      },
+      limits: {},
+    });
+    const result = await processor.process({
+      ...oneInput(),
+      tool: "pdf-to-powerpoint",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.retryable).toBe(true);
   });
 });

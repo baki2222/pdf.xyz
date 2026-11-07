@@ -16,6 +16,7 @@ import { WebpageFetchError } from "./engine";
 import { findChromium } from "./test-chromium";
 import type { PinnedFetch, Resolve } from "./network";
 import { printChromeLeaks } from "./print-chrome";
+import { HTML_DOCUMENT_URL } from "./document-url";
 
 /**
  * THE POINT OF CONSUMPTION for the renderer's isolation: a real Chromium,
@@ -42,6 +43,25 @@ async function pdfText(bytes: Uint8Array): Promise<string> {
   }
   await task.destroy();
   return text.replace(/\s+/g, " ");
+}
+
+/** Every link annotation: its URL, or a count of in-document jumps. */
+async function pdfLinks(bytes: Uint8Array) {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const task = pdfjs.getDocument({ data: new Uint8Array(bytes) });
+  const doc = await task.promise;
+  const urls: string[] = [];
+  let internal = 0;
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i);
+    for (const a of await page.getAnnotations()) {
+      if (a.subtype !== "Link") continue;
+      if (typeof a.url === "string") urls.push(a.url);
+      else if (a.dest) internal += 1;
+    }
+  }
+  await task.destroy();
+  return { urls, internal };
 }
 
 const work = mkdtempSync(path.join(tmpdir(), "pdfxyz-isolation-"));
@@ -347,6 +367,64 @@ describe.skipIf(!BIN)(
         reason: "challenge",
         status: 403,
       });
+    }, 90_000);
+
+    /*
+     * Audit #5 (2026-11-06): an upload with neither a BOM nor a charset
+     * declaration was served as bare `text/html`, so Chromium decoded UTF-8
+     * as windows-1252 and printed "cafÃ©" — and the job succeeded.
+     */
+    it("a UTF-8 upload with no charset declaration prints as its own text", async () => {
+      const text = await pdfText(
+        await runner.renderHtml(
+          new TextEncoder().encode(
+            "<h1>Résumé – café naïve 日本語</h1><p>Zoë’s plain body</p>",
+          ),
+        ),
+      );
+      expect(text, text).toContain("Résumé – café naïve");
+      expect(text, text).toContain("Zoë’s plain body");
+      expect(text, text).not.toContain("Ã");
+    }, 90_000);
+
+    it("an upload that declares a legacy charset is still read in it", async () => {
+      // "café" in windows-1252: é is the single byte 0xE9, invalid as UTF-8.
+      const head = new TextEncoder().encode(
+        '<meta charset="windows-1252"><h1>Legacy caf',
+      );
+      const bytes = new Uint8Array([
+        ...head,
+        0xe9,
+        ...new TextEncoder().encode(" body</h1>"),
+      ]);
+      const text = await pdfText(await runner.renderHtml(bytes));
+      expect(text, text).toContain("Legacy café body");
+    }, 90_000);
+
+    /*
+     * Audit #48 (2026-11-06): the upload is served at HTML_DOCUMENT_URL, so a
+     * relative link such as about.html became a clickable link to
+     * https://document.invalid/about.html — our reserved host, never theirs.
+     */
+    it("an uploaded page's relative links do not become links to the synthetic origin", async () => {
+      const page = `<!doctype html><html><head><meta charset="utf-8"></head><body>
+<p><a href="about.html">About page link</a></p>
+<p><a href="?q=1">Query link</a> <a href="">Empty link</a></p>
+<p><a href="#later">Jump link</a></p>
+<p><a href="https://example.com/outside">Outside link</a></p>
+<h2 id="later" style="margin-top:400px">Later heading</h2></body></html>`;
+      const pdf = await runner.renderHtml(new TextEncoder().encode(page));
+      const links = await pdfLinks(pdf);
+      expect(
+        links.urls.filter((u) => u.startsWith(HTML_DOCUMENT_URL)),
+        links.urls.join(" | "),
+      ).toEqual([]);
+      // Positive controls: a link the user wrote survives, and so does the
+      // in-page jump (as a destination, not a URL).
+      expect(links.urls).toContain("https://example.com/outside");
+      expect(links.internal).toBeGreaterThan(0);
+      // The text of a stripped link still prints.
+      expect(await pdfText(pdf)).toContain("About page link");
     }, 90_000);
 
     it("a broken image or iframe inside a page does not fail it", async () => {

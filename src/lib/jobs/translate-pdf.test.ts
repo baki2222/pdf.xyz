@@ -3,10 +3,13 @@ import {
   DEFAULT_TRANSLATE_SOURCE,
   LANGUAGE_NAMES,
   MAX_TRANSLATE_INSTRUCTIONS_CHARS,
+  TRANSLATE_LANGUAGES,
   describeTranslateRequest,
   parseTranslateOptions,
+  translateSameLanguageMessage,
   translationOutputName,
 } from "./translate-pdf";
+import { parseAiToolOptions } from "./ai-tool-options";
 
 describe("parseTranslateOptions", () => {
   it("accepts a target language and defaults the source to auto-detect", () => {
@@ -133,5 +136,48 @@ describe("translationOutputName", () => {
 
   it("falls back to a neutral stem for unusable names", () => {
     expect(translationOutputName(null)).toBe("document-translation.zip");
+  });
+});
+
+/**
+ * Until 2026-11-06 (audit #38) each language was validated on its own and the pair
+ * never compared, so "Spanish into Spanish" was accepted, charged up to a third of the
+ * daily AI allowance, and came back as a copy of the text it was given.
+ */
+describe("parseTranslateOptions — the source and target must differ", () => {
+  it.each(TRANSLATE_LANGUAGES.map((code) => [code]))(
+    "refuses %s into itself, naming the language",
+    (code) => {
+      const r = parseTranslateOptions({
+        targetLanguage: code,
+        sourceLanguage: code,
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.error.body.error.details?.[0]?.field).toBe("sourceLanguage");
+        expect(r.error.body.error.message).toBe(
+          translateSameLanguageMessage(code),
+        );
+        expect(r.error.body.error.message).toContain(LANGUAGE_NAMES[code]);
+      }
+    },
+  );
+
+  it("the route refuses it before anything is charged (the route's own table)", () => {
+    const r = parseAiToolOptions("translate-pdf", {
+      targetLanguage: "es",
+      sourceLanguage: "es",
+    });
+    expect(r?.ok).toBe(false);
+  });
+
+  it("POSITIVE CONTROL: a different pair, and auto-detect, are still accepted", () => {
+    expect(
+      parseTranslateOptions({ targetLanguage: "es", sourceLanguage: "en" }).ok,
+    ).toBe(true);
+    expect(
+      parseTranslateOptions({ targetLanguage: "es", sourceLanguage: "auto" })
+        .ok,
+    ).toBe(true);
   });
 });

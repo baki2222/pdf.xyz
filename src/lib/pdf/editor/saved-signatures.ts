@@ -9,7 +9,12 @@ import type { SignatureStyle } from "@/lib/pdf/offered-kinds";
  * with it, and it never leaves the device; deleting it in the panel removes
  * it. Storage can be unavailable (a private window, blocked site data) or
  * full, so every read and write is wrapped and fails to "nothing saved"
- * rather than breaking the editor.
+ * rather than breaking the editor — and since 2026-11-06 (audit #50) a save
+ * that did not happen SAYS so: `saveSignature` reports whether it kept the
+ * signature, and the list it returns is what storage actually holds. Until
+ * then a refused write still returned (and the panel showed) the new
+ * signature, gone on the next visit, and an over-size picture was dropped
+ * without a word.
  */
 
 export const SAVED_SIGNATURES_KEY = "pdfxyz.saved-signatures";
@@ -65,14 +70,30 @@ export function readSavedSignatures(
   }
 }
 
-function write(list: SavedSignature[], storage: Storage | undefined) {
+/** True when `list` is now what storage holds. */
+function write(list: SavedSignature[], storage: Storage | undefined): boolean {
+  if (!storage) return false;
   try {
-    if (list.length === 0) storage?.removeItem(SAVED_SIGNATURES_KEY);
-    else storage?.setItem(SAVED_SIGNATURES_KEY, JSON.stringify(list));
+    if (list.length === 0) storage.removeItem(SAVED_SIGNATURES_KEY);
+    else storage.setItem(SAVED_SIGNATURES_KEY, JSON.stringify(list));
+    return true;
   } catch {
     // Full or blocked: the signature is still used, just not remembered.
+    return false;
   }
 }
+
+/** Why a signature was not kept. */
+export type NotSavedReason = "too_large" | "storage";
+
+/** What `saveSignature` did: the stored list, and whether the new one is in it. */
+export type SaveResult =
+  | { readonly kept: true; readonly list: SavedSignature[] }
+  | {
+      readonly kept: false;
+      readonly reason: NotSavedReason;
+      readonly list: SavedSignature[];
+    };
 
 function toDataUrl(sig: ImageSignature): string {
   let binary = "";
@@ -99,11 +120,14 @@ export function bytesOfDataUrl(url: string): Uint8Array | null {
 
 let counter = 0;
 
-/** Keep `entry` (newest first, no duplicates); returns the new list. */
+/**
+ * Keep `entry` (newest first, no duplicates). Returns the list storage now
+ * holds, and whether `entry` is in it.
+ */
 export function saveSignature(
   entry: ToSave,
   storage: Storage | undefined = browserStorage(),
-): SavedSignature[] {
+): SaveResult {
   const list = readSavedSignatures(storage);
   counter += 1;
   const id = `s${Date.now().toString(36)}${counter}`;
@@ -112,7 +136,8 @@ export function saveSignature(
     next = { id, kind: "typed", text: entry.text, style: entry.style };
   } else {
     const dataUrl = toDataUrl(entry.sig);
-    if (dataUrl.length > MAX_DATA_URL_CHARS) return list;
+    if (dataUrl.length > MAX_DATA_URL_CHARS)
+      return { kept: false, reason: "too_large", list };
     next = { id, kind: "image", format: entry.sig.format, dataUrl };
   }
   const same = (s: SavedSignature) =>
@@ -124,8 +149,8 @@ export function saveSignature(
     0,
     MAX_SAVED_SIGNATURES,
   );
-  write(updated, storage);
-  return updated;
+  if (!write(updated, storage)) return { kept: false, reason: "storage", list };
+  return { kept: true, list: updated };
 }
 
 export function forgetSignature(

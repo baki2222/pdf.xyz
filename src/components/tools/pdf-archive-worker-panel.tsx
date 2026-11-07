@@ -69,7 +69,11 @@ export function PdfArchiveWorkerPanel({ tool }: { tool: Tool }) {
     <WorkerPanelShell
       tool={tool}
       engine={{ label: "PDF/A conversion", icon: Archive }}
-      description="PDF/A conversion uses Ghostscript on our isolated server to create an archive-oriented PDF/A-2b file. It produces a real PDF output or fails honestly — no browser placeholder and no fabricated compliance claim. We do not validate the result against the PDF/A specification, so this is a best-effort conversion rather than a certification. PDF/A cannot represent everything a PDF can, and anything Ghostscript has to remove is listed with your download."
+      // CHANGED 2026-11-06 (audit #41): ended "anything Ghostscript has to
+      // remove is listed with your download". -dQUIET suppresses the font
+      // substitution line and the notes are capped (content/pdf-to-pdfa.ts),
+      // so only what Ghostscript reports is listed.
+      description="PDF/A conversion uses Ghostscript on our isolated server to create an archive-oriented PDF/A-2b file. It produces a real PDF output or fails honestly — no browser placeholder and no fabricated compliance claim. We do not validate the result against the PDF/A specification, so this is a best-effort conversion rather than a certification. PDF/A cannot represent everything a PDF can; what Ghostscript reports dropping is listed with your download, but not every change it makes — a font it substitutes is not reported, so compare the pages before you replace an original."
       canRun={canRunPdfArchive}
       specRows={[
         { icon: FileUp, label: "You add", value: "One PDF" },

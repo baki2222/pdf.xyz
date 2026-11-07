@@ -224,3 +224,91 @@ describe("HtmlRenderWorkerPanel — the address field is named", () => {
     expect(screen.queryByLabelText("Web address")).toBeNull();
   });
 });
+
+/*
+ * Audit #33 (2026-11-06): the field starts with "https://" and only its
+ * LENGTH was checked, so pasting a full link after the prefix, or typing a
+ * bare domain, sent the job and came back as the API's developer message
+ * ("`options.url` must be a public http(s) URL (no localhost, private, or
+ * link-local hosts).") — blaming localhost for a typo. Enter did nothing.
+ */
+describe("HtmlRenderWorkerPanel — the address is fixed or explained before any job", () => {
+  const urlTool = getToolBySlug("webpage-to-pdf")!;
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  async function mountUrl() {
+    fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: async () => READY });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<HtmlRenderWorkerPanel tool={urlTool} />);
+    await screen.findByText("Secure server");
+    return screen.getByLabelText<HTMLInputElement>("Web address");
+  }
+
+  /** The `options.url` of every job the panel created. */
+  const sentUrls = () =>
+    fetchMock.mock.calls
+      .filter(([url]) => url === "/api/jobs")
+      .map(
+        ([, init]) =>
+          (
+            JSON.parse(
+              new TextDecoder().decode(
+                (init as RequestInit).body as ArrayBuffer,
+              ),
+            ) as {
+              options: { url: string };
+            }
+          ).options.url,
+      );
+
+  const renderButton = () => screen.getByRole("button", { name: "Render PDF" });
+
+  it("a full link pasted after the prefix is sent with one scheme", async () => {
+    const field = await mountUrl();
+    fireEvent.change(field, {
+      target: { value: "https://https://example.com/page" },
+    });
+    expect(field.value).toBe("https://example.com/page");
+    fireEvent.click(renderButton());
+    await vi.waitFor(() =>
+      expect(sentUrls()).toEqual(["https://example.com/page"]),
+    );
+  });
+
+  it("a bare domain is sent as https://", async () => {
+    const field = await mountUrl();
+    fireEvent.change(field, { target: { value: "www.example.com" } });
+    fireEvent.click(renderButton());
+    await vi.waitFor(() =>
+      expect(sentUrls()).toEqual(["https://www.example.com"]),
+    );
+  });
+
+  it("an address our server cannot open is explained in plain words, and never sent", async () => {
+    const field = await mountUrl();
+    fireEvent.change(field, { target: { value: "http://localhost:3000/" } });
+    expect(renderButton()).toHaveAttribute("aria-disabled", "true");
+    const reason = screen.getByText(/not on the public internet/);
+    expect(reason.textContent).not.toMatch(/`|options\.url/);
+    fireEvent.submit(field.closest("form")!);
+    // Control: the same field with a public address does start a job, so
+    // the silence above is the refusal, not a panel that sends nothing.
+    expect(sentUrls()).toEqual([]);
+    fireEvent.change(field, { target: { value: "https://example.com" } });
+    expect(renderButton()).not.toHaveAttribute("aria-disabled");
+  });
+
+  it("Enter in the field starts the render, and phones show a Go key", async () => {
+    const field = await mountUrl();
+    expect(field.getAttribute("enterkeyhint")).toBe("go");
+    fireEvent.change(field, { target: { value: "https://example.com" } });
+    const form = field.closest("form");
+    expect(form, "the field must sit in a form for Enter to submit").not.toBe(
+      null,
+    );
+    fireEvent.submit(form!);
+    await vi.waitFor(() => expect(sentUrls()).toEqual(["https://example.com"]));
+  });
+});

@@ -9,6 +9,7 @@ import {
   shouldZipPages,
   zipOutputName,
 } from "@/lib/pdf/pdf-to-image";
+import { LARGE_RASTER_PAGES, defaultResolution } from "@/lib/intent/defaults";
 import { getRunnerKind } from "@/lib/pdf/registry";
 import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
 
@@ -70,6 +71,16 @@ const presets = RASTER_RESOLUTIONS;
 const lowest = presets[0]!;
 const highest = presets[presets.length - 1]!;
 const standard = resolutionById(DEFAULT_RESOLUTION_ID);
+// What the runner opens at (pdf-to-image-runner.tsx): a long PDF at the
+// smart default, otherwise the resolution last picked in this browser
+// (option memory), otherwise DEFAULT_RESOLUTION_ID. ADDED 2026-11-06 (audit
+// #41): the page said only that the default was "selected at the start".
+const longStart = defaultResolution(LARGE_RASTER_PAGES + 1, RASTER_RESOLUTIONS);
+if (!longStart || longStart.id === DEFAULT_RESOLUTION_ID) {
+  throw new Error("pdf-to-png content: the long-PDF resolution rule changed");
+}
+const longLabel = resolutionById(longStart.id).label;
+const startSentence = `${standard.label} is selected at the start for a PDF of up to ${LARGE_RASTER_PAGES} pages and ${longLabel} for a longer one; once you convert at a resolution you picked, this browser remembers it and opens a PDF of up to ${LARGE_RASTER_PAGES} pages at it next time.`;
 const POINTS_PER_INCH = Math.round(1 / rasterScaleForDpi(1));
 
 const presetChoices = presets.map((r) => `${r.label} (${r.dpi} DPI)`);
@@ -139,7 +150,7 @@ const content: ToolContent = {
     },
     {
       title: "Choose a resolution",
-      body: `The Resolution row has one chip per preset, each captioned with its DPI: ${presetSentence}. ${standard.label} is preselected; choose another before you render if you need smaller or sharper images.`,
+      body: `The Resolution row has one chip per preset, each captioned with its DPI: ${presetSentence}. ${startSentence} Choose another before you render if you need smaller or sharper images.`,
     },
     {
       title: "Choose the pages and colour",
@@ -162,7 +173,7 @@ const content: ToolContent = {
     },
     {
       q: "Which resolution should I choose?",
-      a: `PDF pages are sized in points, ${POINTS_PER_INCH} of them per inch, and the renderer turns every inch of page into as many pixels as the chosen DPI, unless the page is big enough to reach the pixel ceiling. Choose ${lowest.label} (${lowest.dpi} DPI) for pages that will only be looked at on a monitor, keep the preselected ${standard.label} (${standard.dpi} DPI) when unsure, and move up to ${highest.label} (${highest.dpi} DPI) for printing or for zooming into small print. Doubling the DPI roughly quadruples the pixels on each page, so files grow and rendering slows.`,
+      a: `PDF pages are sized in points, ${POINTS_PER_INCH} of them per inch, and the renderer turns every inch of page into as many pixels as the chosen DPI, unless the page is big enough to reach the pixel ceiling. Choose ${lowest.label} (${lowest.dpi} DPI) for pages that will only be looked at on a monitor, keep ${standard.label} (${standard.dpi} DPI) when unsure, and move up to ${highest.label} (${highest.dpi} DPI) for printing or for zooming into small print. Doubling the DPI roughly quadruples the pixels on each page, so files grow and rendering slows.`,
     },
     {
       q: "Can I convert only some pages?",

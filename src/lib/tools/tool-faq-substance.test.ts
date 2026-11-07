@@ -116,6 +116,8 @@ import { nativeArgs } from "@/lib/workers/compression/native";
 import {
   PDF_ENCRYPTION_LEVELS,
   PDF_KEY_LENGTHS,
+  describePdfKeyLength,
+  parseProtectPdfOptions,
 } from "@/lib/jobs/pdf-security";
 import {
   runProtect,
@@ -1822,6 +1824,40 @@ describe("the secure-worker tools answer what their engines do", () => {
     const already = answer(tool.slug, /already has a password/);
     expect(already).toMatch(/^No — it is turned away/);
     expect(already).toMatch(/owner \(permissions\) password/);
+  });
+
+  // Audit #12 (2026-11-06): this answer invited non-Latin characters while
+  // AES-128 stored them as bytes readers do not accept. It now states the
+  // 128-bit rule, and the rule is the validator's, checked both ways.
+  it("protect: the password rules answer states the AES-128 character rule the validator applies", () => {
+    const rules = answer("protect-pdf", /rules for the password itself/);
+    expect(rules).toContain(
+      `${describePdfKeyLength(128)} stores the password in the PDF's own Latin character set`,
+    );
+    expect(rules).toContain(`needs ${describePdfKeyLength(256)}`);
+    // Review of audit #12: "only Latin letters" was false of the validator,
+    // which refuses most Latin Extended-A letters (Polish, Czech, Turkish...).
+    // The answer must admit that, and every accented letter it names as
+    // refused must be one the validator really refuses.
+    expect(rules).not.toMatch(/only Latin letters/);
+    expect(rules).toMatch(/Western European/);
+    const named = [...rules].filter(
+      (ch) => ch.codePointAt(0)! > 0x7f && /\p{L}/u.test(ch),
+    );
+    expect(named.length).toBeGreaterThanOrEqual(2);
+    for (const ch of named) {
+      expect(
+        parseProtectPdfOptions({ password: `open${ch}`, keyLength: 128 }).ok,
+        ch,
+      ).toBe(false);
+    }
+    const bangla = String.fromCodePoint(0x09aa, 0x09be, 0x09b8, 0x0993);
+    expect(
+      parseProtectPdfOptions({ password: bangla, keyLength: 128 }).ok,
+    ).toBe(false);
+    expect(
+      parseProtectPdfOptions({ password: bangla, keyLength: 256 }).ok,
+    ).toBe(true);
   });
 
   it("unlock: a wrong password or an unlocked file produces no file", async () => {

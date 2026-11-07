@@ -16,6 +16,7 @@ import { describe, expect, it, vi } from "vitest";
 import { parseCreateJobRequest } from "@/lib/jobs/validation";
 import {
   MAX_CONTEXT_TURNS,
+  MAX_QUESTION_CHARS,
   MAX_TURN_CHARS,
   parseChatOptions,
 } from "@/lib/jobs/chat-with-pdf";
@@ -285,5 +286,61 @@ describe("context fits the request the API will actually accept", () => {
     // silently omitting the byte-budget ones would understate what the model was told.
     const built = buildChatContext(exchanges(8, "z".repeat(MAX_TURN_CHARS)));
     expect(built.droppedExchanges).toBe(8 - built.turns.length / 2);
+  });
+});
+
+/**
+ * The question travels in the SAME `options` object as the context, so the byte budget
+ * has to be sized from the question actually being asked.
+ *
+ * Until 2026-11-06 (audit #19) the context was budgeted against a fixed 2 KB reserve for
+ * the question, while the box accepts `MAX_QUESTION_CHARS` characters — and a Bengali,
+ * Hindi or CJK character is three UTF-8 bytes. A follow-up of ~700 Bengali characters
+ * after a long exchange was refused with 413 "`options` is larger than 8 KB" AFTER the
+ * PDF had been uploaded, and every retry rebuilt the identical body. The test above only
+ * ever asked "What does section 4 say?", so it never composed a long question with a
+ * full context.
+ */
+describe("context leaves room for the question actually being asked", () => {
+  const longBengaliExchange = [
+    exchange("নোটিশ ".repeat(300), "উত্তর ".repeat(1000)),
+  ];
+
+  const submit = (question: string, exchanges: readonly ChatExchange[]) => {
+    const built = buildChatContext(exchanges, question);
+    const parsed = parseCreateJobRequest({
+      tool: "chat-with-pdf",
+      inputs: ["f_1234567890"],
+      inputNames: ["doc.pdf"],
+      options: {
+        question,
+        ...(built.turns.length > 0 ? { context: built.turns } : {}),
+      },
+    });
+    return { built, parsed };
+  };
+
+  it.each([
+    ["700 Bengali characters (the audit's repro)", "ক".repeat(700)],
+    ["the box's maximum, in Bengali", "ক".repeat(MAX_QUESTION_CHARS)],
+    ["the box's maximum, in CJK", "漢".repeat(MAX_QUESTION_CHARS)],
+    ["the box's maximum, in English", "q".repeat(MAX_QUESTION_CHARS)],
+    ["the box's maximum, all escaped quotes", '"'.repeat(MAX_QUESTION_CHARS)],
+  ])(
+    "a follow-up of %s after a long exchange is accepted, with context",
+    (_label, question) => {
+      const { built, parsed } = submit(question, longBengaliExchange);
+      expect(parsed.ok, JSON.stringify(parsed.ok ? {} : parsed.error)).toBe(
+        true,
+      );
+      // Still a follow-up: the newest exchange travels, shortened if it must be.
+      expect(built.turns).toHaveLength(2);
+    },
+  );
+
+  it("a short question keeps the context it had before (no budget is lost)", () => {
+    const short = buildChatContext(longBengaliExchange, "Why?");
+    const none = buildChatContext(longBengaliExchange);
+    expect(short.turns).toEqual(none.turns);
   });
 });

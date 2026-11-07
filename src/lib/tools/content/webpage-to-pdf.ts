@@ -10,8 +10,7 @@ import {
  *  - src/components/tools/html-render-worker-panel.tsx — url mode for this
  *    slug: one text field prefilled with "https://" (placeholder
  *    "https://example.com"), the "Render PDF" button (busy label
- *    "Rendering PDF…", disabled until the trimmed field is longer than
- *    "https://"), errors in an ErrorNote under the button, and on success
+ *    "Rendering PDF…"), errors in an ErrorNote under the button, and on success
  *    "Your PDF is ready." with a "Download <filename>" button. Since
  *    2026-10-25 a Page layout group (src/lib/tools/html-layout-copy.ts); no header or
  *    delay setting;
@@ -28,8 +27,13 @@ import {
  *    .lan, .test …), a single-label name, or any non-public IPv4 or IPv6
  *    literal. Probed 2026-10-06: http://localhost./, http://[fc00::1]/,
  *    http://[::ffff:127.0.0.1]/ and https://https://example.com (a paste
- *    after the prefilled prefix; host "https", one label) are all REFUSED, so
- *    step 1 says the doubled prefix is refused. Checked at job creation and
+ *    after the prefilled prefix; host "https", one label) are all REFUSED.
+ *    Since 2026-11-06 (audit #33) the panel reads the field first
+ *    (src/components/tools/webpage-address.ts): a doubled scheme collapses to the
+ *    pasted one as it is typed, a scheme-less dotted host gets https://, and
+ *    Render PDF stays off with a plain reason under it (and Enter does
+ *    nothing) until the address passes the same classifier — pinned equal to
+ *    `isSafePublicHttpUrl` by webpage-address.test.ts. Checked at job creation and
  *    again in the worker (html-render processor `readUrl`, engine
  *    `runWebpageToPdf`);
  *  - src/lib/workers/html-render/network.ts — while rendering, every request
@@ -106,7 +110,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Paste the full address",
-      body: 'The field starts with "https://". Select it all and paste the complete link from your address bar over it: pasting after the prefix gives https://https://…, which is refused before any job starts. Only http and https links are accepted. If our secure server is unavailable, the Render PDF button stays off and a status note and a "Notify me when this ships" button appear under it.',
+      body: 'The field starts with "https://". Paste the complete link from your address bar, over the prefix or after it: a doubled https:// is removed as you paste, and an address typed without one, such as example.com, gets it. Hitting Enter in the field starts the render as well. Only http and https links are accepted, and an address our server cannot open, such as localhost or a private network, is explained under the button before any job starts. If our secure server is unavailable, the Render PDF button stays off and a status note and a "Notify me when this ships" button appear under it.',
     },
     HTML_LAYOUT_STEP,
     {

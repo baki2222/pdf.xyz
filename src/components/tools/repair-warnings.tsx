@@ -69,7 +69,9 @@ export function RepairOutcome({ job }: { job: Job | undefined }) {
 const WARNING_COPY = {
   repair: {
     lead: "This PDF was damaged and has been rebuilt.",
-    body: "The repair succeeded; what follows is what had to be reconstructed, so you can check those parts against the original.",
+    // CHANGED 2026-11-06 (audit #41): "what follows is what had to be
+    // reconstructed" — the lines are qpdf's diagnostics, not an inventory.
+    body: "The repair succeeded; what follows is what qpdf reported finding and working around, so you can check those parts against the original.",
   },
   optimize: {
     lead: "qpdf found problems in this PDF's structure and worked around them while optimizing it.",

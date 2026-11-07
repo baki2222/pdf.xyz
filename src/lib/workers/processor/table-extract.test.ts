@@ -4,7 +4,7 @@ import {
   createTableExtractProcessor,
   tableExtractOutputName,
 } from "./table-extract";
-import type { PdfLayout } from "../table-extract/engine";
+import { CSV_BOM, type PdfLayout } from "../table-extract/engine";
 import { PDFDocument } from "pdf-lib";
 import { PdfTextExecError } from "../pdf-text/errors";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
@@ -92,8 +92,9 @@ describe("table-extract processor", () => {
         tableCount: 1,
       });
       const zip = await JSZip.loadAsync(result.artifacts[0]!.bytes);
+      // Until 2026-11-06 this expected no byte-order mark (audit #31).
       expect(await zip.file("table-1.csv")!.async("string")).toBe(
-        "Name,Age\r\nAlice,30",
+        CSV_BOM + "Name,Age\r\nAlice,30",
       );
     }
   });

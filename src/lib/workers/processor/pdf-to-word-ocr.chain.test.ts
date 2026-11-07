@@ -42,7 +42,11 @@ const extract = async () => ({
   hasText: false,
 });
 
-function registry(runner?: OcrRunner, installed?: string[]) {
+function registry(
+  runner?: OcrRunner,
+  installed?: string[],
+  limits?: { maxInputBytes?: number },
+) {
   const asked: OcrOptions[] = [];
   const wrapped: OcrRunner | undefined = runner
     ? async (input) => {
@@ -58,7 +62,12 @@ function registry(runner?: OcrRunner, installed?: string[]) {
           ...(installed ? { installedLanguages: installed } : {}),
         }
       : {},
-    pdfOfficeExport: { extract, extractFlow, scanPages: noPictures },
+    pdfOfficeExport: {
+      extract,
+      extractFlow,
+      scanPages: noPictures,
+      ...(limits ? { limits } : {}),
+    },
   });
   return { processor: reg.resolve("pdf-to-word")!, asked };
 }
@@ -203,5 +212,61 @@ describe("PDF to Word, OCR first — one job", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.retryable).toBe(false);
     expect(ran).toBe(false);
+  });
+});
+
+/**
+ * Audit #50 (pdf-to-word#4, 2026-11-06): the export's input ceiling was
+ * checked against OCR's OUTPUT, after the full OCR pass. A searchable PDF can
+ * be larger than its scan, so a file the page accepted was recognised for
+ * minutes and then refused with "The PDF input exceeds the worker's size
+ * limit." — no number, and blaming the upload. Now the upload is checked
+ * BEFORE OCR runs, and an OCR result that grew past the ceiling is named as
+ * such, with the figure.
+ */
+describe("PDF to Word, OCR first — the export's size ceiling", () => {
+  it("refuses an upload over the ceiling before OCR runs", async () => {
+    let ran = false;
+    const { processor } = registry(
+      async (input) => {
+        ran = true;
+        return ocrmypdf(input);
+      },
+      undefined,
+      { maxInputBytes: SCAN.byteLength - 1 },
+    );
+    const result = await processor.process(job({ ocr: true }));
+    expect(result.ok).toBe(false);
+    expect(ran).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("payload_too_large");
+      expect(result.error.retryable).toBe(false);
+    }
+  });
+
+  it("names an OCR result that grew past the ceiling, with the figure, not the upload", async () => {
+    // Positive control on the fixture: the searchable PDF IS larger.
+    expect(SEARCHABLE.byteLength).toBeGreaterThan(SCAN.byteLength);
+    const { processor } = registry(ocrmypdf, undefined, {
+      maxInputBytes: SCAN.byteLength,
+    });
+    const result = await processor.process(job({ ocr: true }));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("payload_too_large");
+    expect(result.error.retryable).toBe(false);
+    expect(result.error.message).not.toBe(
+      "The PDF input exceeds the worker's size limit.",
+    );
+    expect(result.error.message).toMatch(/recogni[sz]/i);
+    expect(result.error.message).toMatch(/\d/);
+  });
+
+  it("control: under the ceiling both before and after OCR, it converts", async () => {
+    const { processor } = registry(ocrmypdf, undefined, {
+      maxInputBytes: SEARCHABLE.byteLength,
+    });
+    const result = await processor.process(job({ ocr: true }));
+    expect(result.ok).toBe(true);
   });
 });
