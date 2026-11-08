@@ -15,8 +15,11 @@ import {
   type PdfjsForAccess,
 } from "../../lib/pdf/encryption";
 import { loadPdfLib } from "../../lib/pdf/pdf-lib";
+import { awaitPdfjsDocument } from "../../lib/pdf/pdfjs";
 import { readXref } from "../../lib/pdf/security/document";
 import { openProtectedPdf } from "../../lib/pdf/security/protected-pdf";
+import { PDFJS_DOCUMENT_DEFAULTS } from "../../lib/pdf/wasm-assets";
+import { ZERO_WIDTH_ROW_LIMIT } from "../../lib/pdf/xref-prescan";
 import { reportResult } from "./bounded";
 import {
   ONE_PAGE,
@@ -36,6 +39,19 @@ async function legacyPdfjs(): Promise<PdfjsForAccess> {
 }
 
 const peakMb = () => Math.round(process.resourceUsage().maxRSS / 1024);
+
+const BIG_INDEX = "[0 2147483647]";
+
+/** `bytes` with one `from` replaced by `to` (same length: offsets hold). */
+function sameLength(bytes: Uint8Array, from: string, to: string): Uint8Array {
+  if (from.length !== to.length) throw new Error("lengths differ");
+  const t = new TextDecoder("latin1").decode(bytes);
+  const at = t.indexOf(from);
+  if (at < 0) throw new Error(`${from} not found`);
+  const out = bytes.slice();
+  for (let i = 0; i < to.length; i += 1) out[at + i] = to.charCodeAt(i);
+  return out;
+}
 
 const FIXTURES: Record<string, () => Uint8Array | Promise<Uint8Array>> = {
   // SIB-01: an object stream that declares /N 999999999 but holds one member.
@@ -59,6 +75,57 @@ const FIXTURES: Record<string, () => Uint8Array | Promise<Uint8Array>> = {
       trailer: `/Encrypt 5 0 R ${r3.idEntry}`,
     });
   },
+  // SIB-03 (review): spellings pdf.js's lexer and dictionary read as a
+  // zero-width /W, each over the same 2^31-entry /Index. The first two
+  // drove pdf.js out of memory past the first, literal-only pre-scan.
+  "xref-w0-real": () =>
+    xrefStreamPdf({ objects: ONE_PAGE, w: "[0 0 0.0]", index: BIG_INDEX }),
+  "xref-w0-negzero": () =>
+    xrefStreamPdf({ objects: ONE_PAGE, w: "[0 0 -0]", index: BIG_INDEX }),
+  // A negative width reads no bytes: [+0 -5 .0] is zero bytes a row.
+  "xref-w0-signs": () =>
+    xrefStreamPdf({ objects: ONE_PAGE, w: "[+0 -5 .0]", index: BIG_INDEX }),
+  // A later key wins in pdf.js's dictionary.
+  "xref-w0-dup": () =>
+    xrefStreamPdf({
+      objects: ONE_PAGE,
+      index: BIG_INDEX,
+      xrefDict: "/W [0 0 0]",
+    }),
+  // #57 is W: pdf.js decodes the name.
+  "xref-w0-escaped": () =>
+    xrefStreamPdf({
+      objects: ONE_PAGE,
+      index: BIG_INDEX,
+      xrefDict: "/#57 [0 0 0]",
+    }),
+  // No /Index: pdf.js walks [0 /Size].
+  "xref-w0-size": () =>
+    xrefStreamPdf({ objects: ONE_PAGE, w: "[0 0 0]", size: "2147483647" }),
+  // pdf.js reads the stream at startxref without asking its /Type.
+  "xref-w0-notype": () =>
+    sameLength(
+      xrefStreamPdf({ objects: ONE_PAGE, w: "[0 0 0]", index: BIG_INDEX }),
+      "/Type /XRef",
+      "/Type /XReg",
+    ),
+  // An indirect /W (ISO 32000-1 7.5.8.2 says these "shall be direct").
+  "xref-w-indirect": () =>
+    xrefStreamPdf({
+      objects: [...ONE_PAGE, "[0 0 0]"],
+      w: "5 0 R",
+      index: BIG_INDEX,
+    }),
+  // The zero-width bound's second, independent check: what pdf.js itself
+  // spends walking ZERO_WIDTH_ROW_LIMIT such rows, against six.
+  "xref-w0-six": () =>
+    xrefStreamPdf({ objects: ONE_PAGE, w: "[0 0 0]", index: "[0 6]" }),
+  "xref-w0-at-limit": () =>
+    xrefStreamPdf({
+      objects: ONE_PAGE,
+      w: "[0 0 0]",
+      index: `[0 ${ZERO_WIDTH_ROW_LIMIT}]`,
+    }),
   // SIB-05: a 1 GiB zero bomb as the xref stream, single and chained.
   "xref-bomb": () =>
     ownerOnlyEncrypted(ONE_PAGE, {
@@ -98,6 +165,22 @@ const ENTRIES: Record<string, (bytes: Uint8Array) => Promise<unknown>> = {
     return {
       settled: (await classifyPdfAccess(bytes, await legacyPdfjs())).kind,
     };
+  },
+  // pdf.js alone, no pre-scan: what it costs to be asked.
+  async pdfjs(bytes) {
+    const lib = await legacyPdfjs();
+    const task = lib.getDocument({
+      data: bytes.slice(),
+      ...PDFJS_DOCUMENT_DEFAULTS,
+    });
+    try {
+      const doc = await awaitPdfjsDocument(task);
+      return { settled: "opened", pages: doc.numPages };
+    } catch (err) {
+      return { settled: "threw", name: (err as Error).name };
+    } finally {
+      await task.destroy().catch(() => {});
+    }
   },
   async probe(bytes) {
     return { settled: await probePdfEncryption(bytes, legacyPdfjs) };

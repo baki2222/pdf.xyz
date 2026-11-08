@@ -2,7 +2,7 @@
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { deflateSync } from "node:zlib";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, PDFName } from "pdf-lib";
 import { describe, expect, test } from "vitest";
 import { openProtectedCopy } from "@/components/tools/runner/open-protected";
 import { classifyPdfAccess, type PdfjsForAccess } from "@/lib/pdf/encryption";
@@ -147,6 +147,25 @@ describe("SIB-07: an owner-only page that cannot be parsed is never dropped sile
   }
 });
 
+describe("SIB-07 (review): only a lost page-tree node refuses the open", () => {
+  test(
+    "SIB-07: an unreadable object off the page tree (a /Metadata) is tolerated, page kept",
+    async () => {
+      // The first fix refused the WHOLE file for any lost object reachable
+      // from /Root. pdf.js and pdf-lib read such an object as null and show
+      // the document, so a damaged /Metadata, font or annotation must not
+      // cost the file its editor; only a lost page loses a page.
+      const bytes = ownerOnlyEncrypted([
+        "<< /Type /Catalog /Pages 2 0 R /Metadata 5 0 R >>",
+        ...ONE_PAGE.slice(1),
+        "<< /Bad [0 0 1e309 200] >>",
+      ]);
+      expect(await plainPages(bytes)).toBe(1);
+    },
+    T,
+  );
+});
+
 describe("SIB-08: a page count is a positive integer, or no verdict", () => {
   for (const count of ["-1", "0"]) {
     test(
@@ -199,6 +218,56 @@ describe("SIB-09: a trailer that names /Encrypt is never reported as unencrypted
       });
       const access = await classifyPdfAccess(bytes, await pdfjs());
       expect(access).toEqual({ kind: "unreadable" });
+    },
+    T,
+  );
+
+  test(
+    "SIB-09: an escaped /Encr#79pt names /Encrypt too (pdf.js decodes the name)",
+    async () => {
+      const plain = text(
+        ownerOnlyEncrypted(ONE_PAGE, { encryptEntry: () => "77 0 R" }),
+      );
+      // The trailer follows the table that startxref names: offsets hold.
+      const bytes = latin1(
+        plain.replace("/Encrypt 77 0 R", "/Encr#79pt 77 0 R"),
+      );
+      expect(text(bytes)).toContain("/Encr#79pt 77 0 R");
+      const access = await classifyPdfAccess(bytes, await pdfjs());
+      expect(access).toEqual({ kind: "unreadable" });
+    },
+    T,
+  );
+
+  test(
+    "SIB-09: an attachment stored unfiltered that holds an encrypted PDF's trailer does not lock the file",
+    async () => {
+      // Review of the first fix: it searched the WHOLE file for `trailer`,
+      // so this real shape (an encrypted PDF attached without a filter, as
+      // portfolios and e-sign audit copies do) was refused as unreadable.
+      // The property is "the trailer pdf.js decrypts with names /Encrypt":
+      // the newest section's, reached from startxref.
+      const doc = await PDFDocument.create();
+      doc.addPage([200, 200]);
+      const inner =
+        "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n" +
+        "<< /Size 6 /Root 1 0 R /Encrypt 5 0 R /ID [<00><00>] >>\n" +
+        "startxref\n0\n%%EOF\n";
+      const attached = doc.context.stream(inner, { Type: "EmbeddedFile" });
+      doc.catalog.set(PDFName.of("PieceInfo"), doc.context.register(attached));
+      const bytes = await doc.save({ useObjectStreams: false });
+      expect(text(bytes)).toContain("/Encrypt 5 0 R");
+      expect(await classifyPdfAccess(bytes, await pdfjs())).toEqual({
+        kind: "unencrypted",
+        pageCount: 1,
+      });
+      // The same attachment in an object-stream layout (an xref STREAM is
+      // the trailer).
+      const packed = await doc.save({ useObjectStreams: true });
+      expect(await classifyPdfAccess(packed, await pdfjs())).toEqual({
+        kind: "unencrypted",
+        pageCount: 1,
+      });
     },
     T,
   );

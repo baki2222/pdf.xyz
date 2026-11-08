@@ -592,9 +592,11 @@ export async function openHandler(
 }
 
 /**
- * Throw when an object the xref names, but that could not be read, is
- * reachable from /Root: the plain copy would silently lack it (a page, its
- * resources), and a document missing part of itself is not "opened".
+ * Throw when an object the xref names, but that could not be read, is the
+ * catalog or a node of the page tree: the plain copy would silently have
+ * fewer pages, and a document missing a page is not "opened". A lost object
+ * off the tree (a font, an annotation, /Metadata) is read as null, as pdf.js
+ * and pdf-lib read it, and the document still opens with every page.
  */
 function refuseIfReachable(
   lib: PdfLibModule,
@@ -605,24 +607,33 @@ function refuseIfReachable(
   const seen = new Set<number>();
   const stack: PDFObject[] = [];
   const root = trailer.get(lib.PDFName.of("Root"));
-  if (root) stack.push(root);
+  const lostRef = (obj: PDFObject | undefined) => {
+    if (!(obj instanceof lib.PDFRef)) return false;
+    if (lost.has(obj.objectNumber))
+      throw new UnreadablePdfError(
+        `Object ${obj.objectNumber} of this PDF is unreadable.`,
+      );
+    return true;
+  };
+  lostRef(root);
+  const catalog = root ? context.lookup(root) : undefined;
+  if (catalog instanceof lib.PDFDict) {
+    const pages = catalog.get(lib.PDFName.of("Pages"));
+    if (pages) stack.push(pages);
+  }
   while (stack.length > 0) {
     const obj = stack.pop()!;
-    if (obj instanceof lib.PDFRef) {
-      const n = obj.objectNumber;
-      if (lost.has(n))
-        throw new UnreadablePdfError(`Object ${n} of this PDF is unreadable.`);
+    if (lostRef(obj)) {
+      const n = (obj as PDFRefT).objectNumber;
       if (seen.has(n)) continue;
       seen.add(n);
-      const target = context.lookup(obj);
-      if (target) stack.push(target);
-    } else if (obj instanceof lib.PDFArray) {
-      for (const item of obj.asArray()) stack.push(item);
-    } else if (obj instanceof lib.PDFStream) {
-      stack.push(obj.dict);
-    } else if (obj instanceof lib.PDFDict) {
-      for (const [, value] of obj.entries()) stack.push(value);
     }
+    const node = obj instanceof lib.PDFRef ? context.lookup(obj) : obj;
+    if (!(node instanceof lib.PDFDict)) continue;
+    const kids = node.get(lib.PDFName.of("Kids"));
+    const list = kids instanceof lib.PDFRef ? context.lookup(kids) : kids;
+    lostRef(kids);
+    if (list instanceof lib.PDFArray) stack.push(...list.asArray());
   }
 }
 

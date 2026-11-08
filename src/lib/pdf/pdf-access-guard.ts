@@ -1,5 +1,6 @@
 import type { PdfAccess } from "./encryption";
 import { awaitPdfjsDocument } from "./pdfjs";
+import { prescanXref } from "./xref-prescan";
 
 /**
  * The checks around {@link classifyPdfAccess}'s pdf.js open (lane l02 of the
@@ -33,10 +34,13 @@ export { awaitPdfjsDocument };
  */
 export const ACCESS_DEADLINE_MS = 30_000;
 
-/** The deadline passed. */
+/**
+ * The deadline passed. Its message is for logs only: {@link refusedVerdict}
+ * turns it into "unreadable", and no reader is shown it.
+ */
 export class AccessDeadlineError extends Error {
   constructor(ms: number) {
-    super(`The PDF did not open within ${ms} ms.`);
+    super(`deadline ${ms} ms`);
     this.name = "AccessDeadlineError";
   }
 }
@@ -71,51 +75,17 @@ export interface AccessFacts {
   readonly emptyPasswordOpens: boolean | null;
 }
 
-const latin1 = new TextDecoder("latin1");
-/** `/Encrypt` as a whole name: a delimiter, whitespace or the end follows. */
-const ENCRYPT_NAME = /\/Encrypt(?=[\s/<>[\]()%{}]|$)/;
-const XREF_NAME = /\/XRef(?=[\s/<>[\]()%{}]|$)/g;
-const W_ARRAY = /\/W\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s*\]/;
-/** How far a trailer or an xref-stream dictionary is read: 4 KiB. */
-const WINDOW = 4096;
-
-/** Every trailer dictionary, and every xref-stream dictionary, as text. */
-function trailerWindows(text: string): { trailers: string[]; xrefs: string[] } {
-  const trailers: string[] = [];
-  for (let at = text.indexOf("trailer"); at >= 0;) {
-    trailers.push(text.slice(at, at + WINDOW));
-    at = text.indexOf("trailer", at + 7);
-  }
-  const xrefs: string[] = [];
-  for (const m of text.matchAll(XREF_NAME)) {
-    const from = text.lastIndexOf("obj", m.index);
-    const start = from >= 0 && m.index - from <= WINDOW ? from : m.index;
-    const end = text.indexOf("stream", m.index);
-    xrefs.push(
-      text.slice(
-        start,
-        end >= 0 && end - m.index <= WINDOW ? end : m.index + WINDOW,
-      ),
-    );
-  }
-  return { trailers, xrefs };
-}
-
 /**
  * Read the facts. Never throws. Our own reader (`./security/document`, its
  * own chunk) is loaded only for a file whose trailer names /Encrypt.
  */
 export async function readAccessFacts(bytes: Uint8Array): Promise<AccessFacts> {
-  const { trailers, xrefs } = trailerWindows(latin1.decode(bytes));
   // SIB-03: rows zero bytes wide read nothing, so pdf.js walks the /Index
-  // count (2^31 in the hostile file) and runs out of memory.
-  const zeroWidth = xrefs.some((d) => {
-    const w = W_ARRAY.exec(d);
-    return w !== null && Number(w[1]) + Number(w[2]) + Number(w[3]) === 0;
-  });
-  const namesEncrypt = [...trailers, ...xrefs].some((d) =>
-    ENCRYPT_NAME.test(d),
-  );
+  // count (2^31 in the hostile file) and runs out of memory. SIB-09: the
+  // trailer pdf.js decrypts with, not every `trailer` in the file (an
+  // attachment stored unfiltered may hold another PDF's). `./xref-prescan`
+  // reads both the way pdf.js does.
+  const { unbounded: zeroWidth, namesEncrypt } = prescanXref(bytes);
   if (zeroWidth || !namesEncrypt)
     return { refuse: zeroWidth, namesEncrypt, emptyPasswordOpens: null };
   try {

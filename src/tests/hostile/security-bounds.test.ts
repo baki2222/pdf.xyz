@@ -93,6 +93,51 @@ describe("lane l02: hostile structure is read in bounded time and memory", () =>
   );
 
   test(
+    "SIB-03: every spelling pdf.js reads as a zero-width /W is unreadable, not walked",
+    async () => {
+      // Review of the first fix: its pre-scan matched only the literal
+      // `/W [0 0 0]`, and `[0 0 0.0]` / `[0 0 -0]` drove pdf.js out of memory
+      // ("memory" outcome) exactly as the original finding did.
+      for (const fixture of [
+        "xref-w0-real",
+        "xref-w0-negzero",
+        "xref-w0-signs",
+        "xref-w0-dup",
+        "xref-w0-escaped",
+        "xref-w0-size",
+        "xref-w0-notype",
+        "xref-w-indirect",
+      ]) {
+        const v = settled(await run(fixture, "classify"));
+        expect(v, fixture).toMatchObject({ settled: "unreadable" });
+        expect(v.peakMb as number, fixture).toBeLessThan(PEAK_MB);
+      }
+    },
+    8 * T,
+  );
+
+  test(
+    "SIB-03: the rows the pre-scan still hands pdf.js cost pdf.js nothing measurable (second bound on ZERO_WIDTH_ROW_LIMIT)",
+    async () => {
+      // Measured 2026-11-08 (Windows, Node 24): 6 rows peak 479 MB, 65,536
+      // rows 476 MB; 1,000,000 rows add about 180 MB and 2^31 run out of
+      // memory. 64 MB is the slack between two runs of the same file.
+      const six = settled(await run("xref-w0-six", "pdfjs"));
+      const atLimit = settled(await run("xref-w0-at-limit", "pdfjs"));
+      expect(atLimit).toMatchObject({ settled: "opened", pages: 1 });
+      expect((atLimit.peakMb as number) - (six.peakMb as number)).toBeLessThan(
+        64,
+      );
+      // Time against the same machine's six-row run (a full parallel suite
+      // slows both; it failed a fixed 3 s once that way).
+      expect(atLimit.ms as number).toBeLessThan(
+        Math.max(3_000, 4 * (six.ms as number)),
+      );
+    },
+    2 * T,
+  );
+
+  test(
     "SIB-03: probePdfEncryption says 'could not tell' (null) on it",
     async () => {
       const v = settled(await run("xref-w0-plain", "probe"));
