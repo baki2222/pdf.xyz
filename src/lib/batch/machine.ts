@@ -13,10 +13,20 @@ export type BatchEvent<R> =
   | { type: "start" }
   /** Mark a queued item as running. */
   | { type: "item-start"; id: string }
-  /** Record a successful item result. */
-  | { type: "item-success"; id: string; result: R }
+  /** Record a successful item result, with a sentence that is not a failure. */
+  | { type: "item-success"; id: string; result: R; note?: string }
   /** Record an item failure with a user-facing message. */
   | { type: "item-error"; id: string; error: string }
+  /** Record that a running item was deliberately left out, and why. */
+  | { type: "item-skip"; id: string; reason: string }
+  /**
+   * Queue the named FAILED items again, from a settled batch, keeping every
+   * other row (and every finished result) as it is. The batch goes back to
+   * `idle`, so a `start` runs exactly the re-queued items.
+   */
+  | { type: "retry"; ids: readonly string[] }
+  /** Take a file out of the list before anything has run. */
+  | { type: "remove"; id: string }
   /** Cancel: queued items become `canceled`; an in-flight item finishes. */
   | { type: "cancel" }
   /** Re-seed the batch back to a fresh `idle` state. */
@@ -78,7 +88,13 @@ export function batchReducer<R>(
     case "item-success": {
       const { items, changed } = mapItem(state.items, event.id, (item) =>
         item.status === "running"
-          ? { ...item, status: "done", result: event.result, error: undefined }
+          ? {
+              ...item,
+              status: "done",
+              result: event.result,
+              error: undefined,
+              ...(event.note ? { note: event.note } : {}),
+            }
           : item,
       );
       if (!changed) return state;
@@ -99,6 +115,39 @@ export function batchReducer<R>(
       const phase =
         state.phase === "running" && allSettled(items) ? "done" : state.phase;
       return { ...state, items, phase };
+    }
+
+    case "item-skip": {
+      const { items, changed } = mapItem(state.items, event.id, (item) =>
+        item.status === "running"
+          ? { ...item, status: "skipped", reason: event.reason }
+          : item,
+      );
+      if (!changed) return state;
+      const phase =
+        state.phase === "running" && allSettled(items) ? "done" : state.phase;
+      return { ...state, items, phase };
+    }
+
+    case "retry": {
+      // Only a batch at rest is retried: a running one still owns its queue.
+      if (state.phase !== "done" && state.phase !== "canceled") return state;
+      const ids = new Set(event.ids);
+      let changed = false;
+      const items = state.items.map((item) => {
+        if (item.status !== "error" || !ids.has(item.id)) return item;
+        changed = true;
+        const { error: _error, ...rest } = item;
+        return { ...rest, status: "queued" as const };
+      });
+      return changed ? { phase: "idle", items } : state;
+    }
+
+    case "remove": {
+      // Before Run only: once a file has run, its row is its record.
+      if (state.phase !== "idle") return state;
+      const items = state.items.filter((item) => item.id !== event.id);
+      return items.length === state.items.length ? state : { ...state, items };
     }
 
     case "cancel": {
@@ -123,10 +172,17 @@ export function batchReducer<R>(
 
 /** Derive display-ready progress counts from a batch state. */
 export function batchProgress<R>(state: BatchState<R>): BatchProgress {
-  const counts = { queued: 0, running: 0, done: 0, error: 0, canceled: 0 };
+  const counts = {
+    queued: 0,
+    running: 0,
+    done: 0,
+    error: 0,
+    skipped: 0,
+    canceled: 0,
+  };
   for (const item of state.items) counts[item.status] += 1;
   const total = state.items.length;
-  const settled = counts.done + counts.error + counts.canceled;
+  const settled = counts.done + counts.error + counts.skipped + counts.canceled;
   return {
     total,
     ...counts,
