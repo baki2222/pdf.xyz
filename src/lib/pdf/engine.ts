@@ -306,6 +306,21 @@ export async function deletePages(
 }
 
 /**
+ * Refuse a rotation that is not a number (NaN, ±Infinity) before any page is
+ * touched (hostile matrix PS-15). Without it a NaN reached pdf-lib's
+ * `degrees()` and the person saw its raw TypeError. Refused, not read as 0:
+ * 0 is a real instruction, and `rotatePages(…, NaN)` would have set a turned
+ * page back upright. Local, not exported: this module rides first loads.
+ */
+function refuseNonFiniteRotations(angles: readonly number[]): void {
+  if (angles.some((a) => typeof a !== "number" || !Number.isFinite(a))) {
+    throw new PdfEngineError(
+      "Each page rotation must be a number of degrees, such as 90 or -90.",
+    );
+  }
+}
+
+/**
  * Rotate the given pages by a signed quarter-turn delta (e.g. 90 or -90),
  * relative to each page's current rotation.
  */
@@ -314,6 +329,7 @@ export async function rotatePages(
   indices: number[],
   turn: number,
 ): Promise<Uint8Array> {
+  refuseNonFiniteRotations([turn]);
   const { degrees, toDegrees } = await loadPdfLib();
   const src = await load(bytes);
   const count = src.getPageCount();
@@ -348,6 +364,7 @@ export async function setPageRotations(
   bytes: Uint8Array,
   rotations: readonly Rotation[],
 ): Promise<Uint8Array> {
+  refuseNonFiniteRotations(rotations);
   const { degrees } = await loadPdfLib();
   const doc = await load(bytes);
   const pages = doc.getPages();
@@ -428,6 +445,7 @@ export async function organizePages(
   bytes: Uint8Array,
   plan: OrganizePlanItem[],
 ): Promise<Uint8Array> {
+  refuseNonFiniteRotations(plan.map((item) => item.rotation));
   const lib = await loadPdfLib();
   const src = await load(bytes);
   const count = src.getPageCount();

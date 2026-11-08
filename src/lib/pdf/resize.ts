@@ -159,6 +159,26 @@ export function canvasBox(box: Box, width: number, height: number): Box {
   };
 }
 
+/**
+ * Whether a viewer reading `box` back as corners (`x`, `x + width`) gets its
+ * width and height, to {@link BOX_SPAN_TOLERANCE_PT}. False once the corner
+ * coordinates are so large that adding the size to them rounds it away.
+ */
+function holdsSize(box: Box): boolean {
+  return (
+    Math.abs(box.x + box.width - box.x - box.width) <= BOX_SPAN_TOLERANCE_PT &&
+    Math.abs(box.y + box.height - box.y - box.height) <= BOX_SPAN_TOLERANCE_PT
+  );
+}
+
+/**
+ * 0.01 pt (1/7200 in): far below anything a printer or screen resolves, and
+ * far above the rounding a real page sees (a 14,400 pt corner is off by about
+ * 2e-12). Doubles keep a 0.01 pt step up to corners near 7e13 pt, so only a
+ * page box billions of times the spec's 14,400 pt limit is refused.
+ */
+const BOX_SPAN_TOLERANCE_PT = 0.01;
+
 function sanitizeIndices(indices: number[], count: number): number[] {
   const set = new Set<number>();
   for (const i of indices) {
@@ -377,11 +397,18 @@ export async function resizePdf(
     );
     const content = contentSize(displayed, frame.rotation);
     if (options.mode === "canvas") {
-      setPageBox(
-        lib,
-        page,
-        canvasBox(frame.box, content.width, content.height),
-      );
+      const box = canvasBox(frame.box, content.width, content.height);
+      // A box centred on a page wider than any double can offset by a few
+      // hundred points loses its width: on a 1e20-wide MediaBox
+      // (5e19 + 612) - 5e19 is 0, and the page came out 0 wide while the
+      // job reported success (hostile matrix EDIT-10). Refuse the page
+      // when the box as written would not span the size asked for.
+      if (!holdsSize(box)) {
+        throw new PdfEngineError(
+          `Page ${index + 1} is too large to change its canvas. Choose Scale content to fit instead.`,
+        );
+      }
+      setPageBox(lib, page, box);
       continue;
     }
     const t = fitTransform(frame.box, content.width, content.height);
