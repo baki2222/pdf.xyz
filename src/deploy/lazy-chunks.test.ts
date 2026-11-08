@@ -525,8 +525,21 @@ describe("the catalogue ships in one chunk, shared by every surface that reads i
  * B (+5). 33.21 + 5/1024 = 33.2149. Why not leave it: this machine reads
  * 7 to 16 B under CI (PR #292 failed CI at >= 33.2 from 33,990 here, and
  * passed under 33.21), so 33,995 here can be 34,011 on CI, over 33.21.
+ *
+ * RAISED 33.215 -> 33.236 on 2026-11-08, for batch P3. No new code reaches
+ * the ticket. P3 widened next.config.mjs's BATCH_IMPORT to `./runner/batch/`
+ * so the worker batch loader's shared code stays in the one batch chunk, and
+ * webpack re-split the ticket's modules. One machine, both from an empty
+ * .next (main 3d118978 vs the branch): 33,995 -> 34,016 B (+21).
+ *   - +16: the same modules (raw 20,308 -> 20,304 B) cut differently between
+ *     two chunks (906 + 7855 -> 8933 + 6873); gzip does not compress across
+ *     the cut.
+ *   - +5: one more chunk id in a loader list (3472, the existing
+ *     "went on to" history module, now merged with 1091/6329).
+ * 33.215 + 21/1024 = 33.2355. CI's 7-16 B bracket keeps 34,016 here under
+ * 34,033 B there.
  */
-const TICKET_FETCH_GZ_KB = 33.215;
+const TICKET_FETCH_GZ_KB = 33.236;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));
