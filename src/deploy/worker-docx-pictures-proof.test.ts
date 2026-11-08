@@ -271,17 +271,56 @@ describe("the production proof asks PDF to Word about its picture, and LibreOffi
     );
 
   it("each OCR page choice has an ON spec and an OFF control, judged on the DOCX by the shared verdict", () => {
+    // [tag, option, verdict, ON want, OFF want, the fixture both send].
+    // The fixture is pinned as a RELATIONSHIP where one exists: the OCR PDF
+    // proof of the same flag sends it, and that proof is what showed the
+    // fixture exercises the flag. Redo has no OCR PDF twin, so its fixture
+    // is pinned by text: without the stale layer, 'replaced' passes on any
+    // worker that runs OCR at all.
     const choices = [
-      ["upright", "rotatePages", "uprightDocxVerdict"],
-      ["deskew", "deskew", "deskewDocxVerdict"],
-      ["redo", "redoOcr", "redoDocxVerdict"],
+      [
+        "upright",
+        "rotatePages",
+        "uprightDocxVerdict",
+        "read",
+        "unread",
+        "ocr-pdf (upright)",
+      ],
+      [
+        "deskew",
+        "deskew",
+        "deskewDocxVerdict",
+        "straight",
+        "crooked",
+        "ocr-pdf (deskew)",
+      ],
+      ["redo", "redoOcr", "redoDocxVerdict", "replaced", "kept", null],
     ] as const;
+    const makeOf = (s: TS.ObjectLiteralExpression) =>
+      prop(s, "make")?.initializer.getText(file).replace(/\s+/g, " ");
+    // The string literals a verify passes, in order: exactly [want].
+    const literalsOf = (s: TS.ObjectLiteralExpression) => {
+      const out: string[] = [];
+      const walk = (n: TS.Node) => {
+        if (ts.isStringLiteral(n)) out.push(n.text);
+        ts.forEachChild(n, walk);
+      };
+      const init = prop(s, "verify")?.initializer;
+      if (init) walk(init);
+      return out;
+    };
     // Health: the set is the six it claims, so "each" below is not vacuous.
     expect(pageChoiceSpecs()).toHaveLength(choices.length * 2);
-    for (const [tag, option, verdict] of choices) {
-      for (const [suffix, value] of [
-        ["", "true"],
-        [" off control", "false"],
+    for (const [tag, option, verdict, onWant, offWant, twin] of choices) {
+      const fixture =
+        twin === null
+          ? "async () => withStaleTextLayer(await scannedTextPdf())"
+          : makeOf(specs.find((s) => str(s, "label") === twin)!);
+      // Positive control for the twin lookup: it names a real fixture.
+      expect(fixture, tag).toMatch(/^(upsideDownScan|crookedScan|async )/);
+      for (const [suffix, value, want] of [
+        ["", "true", onWant],
+        [" off control", "false", offWant],
       ] as const) {
         const label = `pdf-to-word (ocr, ${tag}${suffix})`;
         const found = specs.filter((s) => str(s, "label") === label);
@@ -295,11 +334,16 @@ describe("the production proof asks PDF to Word about its picture, and LibreOffi
           prop(found[0]!, "verify")?.initializer.getText(file),
           label,
         ).toMatch(new RegExp(`\\b${verdict}\\(`));
+        expect(literalsOf(found[0]!), label).toEqual([want]);
+        expect(makeOf(found[0]!), label).toBe(fixture);
       }
       expect(importsOf(file).get(verdict)).toBe(
         "@/lib/workers/pdf-office-export/ocr-first-proof",
       );
     }
+    expect(importsOf(file).get("withStaleTextLayer")).toBe(
+      "@/lib/workers/pdf-office-export/ocr-first-proof",
+    );
   });
 
   it("the pdf-to-word spec sends the Word proof PDF and verifies the picture", () => {

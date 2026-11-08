@@ -234,6 +234,18 @@ describe("uprightDocxVerdict (PDF to Word, Turn pages upright)", () => {
     expect(off.ok, off.detail).toBe(true);
   });
 
+  it("negative (the off control's own defect): every sentinel word read fails 'unread'", async () => {
+    // The page really was turned. If 'unread' passed this, the off control
+    // would pass on any DOCX with a picture and text, and show nothing.
+    const turned = await docx({
+      picture: PNG,
+      lines: [UPRIGHT_SENTINEL, "body text"],
+    });
+    const off = await uprightDocxVerdict(turned, "unread");
+    expect(off.ok, off.detail).toBe(false);
+    expect(off.detail).toContain("4 of 4 upright-sentinel words");
+  });
+
   it("health: no picture, or no text at all, fails both ways", async () => {
     const noPicture = await docx({ lines: [UPRIGHT_SENTINEL] });
     expect((await uprightDocxVerdict(noPicture, "read")).ok).toBe(false);
@@ -375,6 +387,30 @@ describe("deskewDocxVerdict (PDF to Word, Straighten)", () => {
     expect((await deskewDocxVerdict(observed, "straight", rasterise)).ok).toBe(
       false,
     );
+  });
+
+  it("negative (the off control's own defect): a level picture fails 'crooked'", async () => {
+    // The page really was straightened. If 'crooked' passed this, the off
+    // control would pass on any DOCX with a picture and text.
+    const level = await docx({
+      picture: await barsPicture(0),
+      lines: [DESKEW_SENTINEL],
+    });
+    const off = await deskewDocxVerdict(level, "crooked", rasterise);
+    expect(off.ok, off.detail).toBe(false);
+    expect(off.detail).toMatch(/measures -?0\.\d\d°/);
+  });
+
+  it("negative: a picture at 1.5° (half-straightened) fails both verdicts", async () => {
+    const half = await docx({
+      picture: await barsPicture(1.5),
+      lines: [DESKEW_SENTINEL],
+    });
+    const on = await deskewDocxVerdict(half, "straight", rasterise);
+    expect(on.ok, on.detail).toBe(false);
+    expect(on.detail).toMatch(/measures 1\.\d\d°/);
+    const off = await deskewDocxVerdict(half, "crooked", rasterise);
+    expect(off.ok, off.detail).toBe(false);
   });
 
   it("negative: level but unread (no sentinel) fails", async () => {
