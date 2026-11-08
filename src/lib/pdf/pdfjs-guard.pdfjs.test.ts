@@ -36,6 +36,7 @@ import { readPagesWithPdfjs } from "./pdfjs";
 import {
   MAX_DECODED_STREAM_BYTES,
   MAX_GRAPHICS_STATE_DEPTH,
+  RASTER_MAX_BILEVEL_PIXELS,
   RASTER_MAX_IMAGE_PIXELS,
   pdfjsPageCount,
   pdfjsPageError,
@@ -269,7 +270,7 @@ describe("the stream preflight: thresholds against real files and a second bound
     expect(over.exceeded).toBe("q-depth");
     // 100,000 balanced pairs never nest past 1, and a name is not an op. (A
     // `q` inside a string literal IS counted: the counter does not parse
-    // strings, which can only err high, and a real page would need 4,096 of
+    // strings, which can only err high, and a real page would need 16,384 of
     // them before it mattered.)
     const balanced = await scanPdfStreams(
       page("q Q\n".repeat(100_000) + "/q /Q0 q0 Tj"),
@@ -306,6 +307,120 @@ describe("the stream preflight: thresholds against real files and a second bound
     });
   });
 
+  it("STAMP-14, the first fix's bounds were inverted: one stream 5,000 deep (1.5 s on base) now passes; 32 streams x 1,020 on one page (66 s) are refused", async () => {
+    const onePage = (streams: string[]) =>
+      rawPdf([
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Contents [${streams.map((_, i) => `${i + 4} 0 R`).join(" ")}] >>`,
+        ...streams.map((stream) => ({ dict: "", stream })),
+      ]);
+    // History: a per-stream bound of 4,096 refused this file, and a file-wide
+    // sum of 32,768 admitted the next one, which read for 66 s.
+    const deep = await scanPdfStreams(onePage(["q\n".repeat(5_000)]));
+    expect(deep).toMatchObject({ maxQReach: 5_000, exceeded: null });
+    const split = await scanPdfStreams(
+      onePage(Array.from({ length: 32 }, () => "q\n".repeat(1_020))),
+    );
+    // The scan stops at the first stream past the bound (the 17th: 17,340).
+    expect(split.exceeded).toBe("q-depth");
+    expect(split.maxQReach).toBeGreaterThan(MAX_GRAPHICS_STATE_DEPTH);
+    // The reach is (what the others leave open) + (a stream's deepest): a
+    // balanced stream 3,000 deep after 14,000 leaked q reaches 17,000.
+    const stacked = await scanPdfStreams(
+      onePage([
+        "q\n".repeat(14_000),
+        "q\n".repeat(3_000) + "Q\n".repeat(3_000),
+      ]),
+    );
+    expect(stacked).toMatchObject({ maxQReach: 17_000, exceeded: "q-depth" });
+  });
+
+  it("CO-08: the raster budget is per decode cost, so a bilevel scan is not held to the colour bound", async () => {
+    const image = (dict: string) =>
+      scanPdfStreams(
+        rawPdf([
+          "<< /Type /Catalog /Pages 2 0 R >>",
+          "<< /Type /Pages /Kids [] /Count 0 >>",
+          { dict: `/Type /XObject /Subtype /Image ${dict}`, stream: "x" },
+        ]),
+      );
+    const A3_600 = "/Width 7016 /Height 9921"; // 69.6 MP
+    const over = (s: { smallestOverBudgetImage: number | null }) =>
+      s.smallestOverBudgetImage;
+    // History: the first fix held every image to 50 MP and refused this scan,
+    // which base renders in 0.4 s.
+    expect(
+      over(
+        await image(
+          `${A3_600} /BitsPerComponent 1 /ColorSpace /DeviceGray /Filter /FlateDecode`,
+        ),
+      ),
+    ).toBeNull();
+    expect(
+      over(await image(`${A3_600} /ImageMask true /BitsPerComponent 1`)),
+    ).toBeNull();
+    expect(
+      over(
+        await image(
+          `${A3_600} /BitsPerComponent 1 /ColorSpace /CalGray /Filter /CCITTFaxDecode`,
+        ),
+      ),
+    ).toBeNull();
+    // Expanded to RGB by pdf.js like any colour image: the colour budget.
+    expect(
+      over(
+        await image(
+          `${A3_600} /BitsPerComponent 1 /ColorSpace [/Indexed /DeviceRGB 1 <000000FFFFFF>]`,
+        ),
+      ),
+    ).toBe(7016 * 9921);
+    expect(
+      over(
+        await image(
+          `${A3_600} /BitsPerComponent 8 /ColorSpace /DeviceGray /Filter /FlateDecode`,
+        ),
+      ),
+    ).toBe(7016 * 9921);
+    expect(
+      over(
+        await image(
+          `${A3_600} /BitsPerComponent 8 /ColorSpace /DeviceRGB /Filter /DCTDecode`,
+        ),
+      ),
+    ).toBe(7016 * 9921);
+    // Each budget's own boundary.
+    const h = RASTER_MAX_IMAGE_PIXELS / 5_000;
+    expect(
+      over(
+        await image(
+          `/Width 5000 /Height ${h} /BitsPerComponent 8 /ColorSpace /DeviceRGB`,
+        ),
+      ),
+    ).toBeNull();
+    expect(
+      over(
+        await image(
+          `/Width 5000 /Height ${h + 1} /BitsPerComponent 8 /ColorSpace /DeviceRGB`,
+        ),
+      ),
+    ).toBe(5_000 * (h + 1));
+    expect(
+      over(
+        await image(
+          `/Width 20000 /Height 20000 /BitsPerComponent 1 /ColorSpace /DeviceGray`,
+        ),
+      ),
+    ).toBeNull();
+    expect(
+      over(
+        await image(
+          `/Width 20000 /Height 20001 /BitsPerComponent 1 /ColorSpace /DeviceGray`,
+        ),
+      ),
+    ).toBe(20000 * 20001);
+  });
+
   it("second bound: the per-stream ceiling is the product's TIFF page ceiling, and the raster pixel ceiling sits between a 600-dpi A4 scan and MAX_DECODED_PIXELS", () => {
     expect(MAX_DECODED_STREAM_BYTES).toBe(MAX_TIFF_PAGE_BYTES);
     // From paper and dots alone: A4 = 8.27 x 11.69 in.
@@ -313,7 +428,14 @@ describe("the stream preflight: thresholds against real files and a second bound
     expect(a4At600).toBeGreaterThan(30_000_000);
     expect(RASTER_MAX_IMAGE_PIXELS).toBeGreaterThan(a4At600);
     expect(RASTER_MAX_IMAGE_PIXELS).toBeLessThan(MAX_DECODED_PIXELS);
+    // A0 = 33.11 x 46.81 in; a 400-dpi A0 bilevel scan rendered in 1.2-2.8 s.
+    const a0At400 = Math.round(33.11 * 400) * Math.round(46.81 * 400);
+    expect(RASTER_MAX_BILEVEL_PIXELS).toBeGreaterThan(a0At400);
+    expect(RASTER_MAX_BILEVEL_PIXELS).toBeGreaterThan(RASTER_MAX_IMAGE_PIXELS);
     // ISO 32000-1 Annex C: Acrobat nests q at most 28 deep.
     expect(MAX_GRAPHICS_STATE_DEPTH).toBeGreaterThan(28 * 100);
+    // Measured on base: 24,576 deep read in 5.7-5.9 s and 32,640 in 66 s, so
+    // the bound stays below the last depth measured as cheap.
+    expect(MAX_GRAPHICS_STATE_DEPTH).toBeLessThan(24_576);
   });
 });

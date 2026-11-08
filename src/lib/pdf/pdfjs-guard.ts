@@ -56,50 +56,59 @@ export const MAX_DECODED_STREAM_BYTES = MAX_DECODED_PIXELS * 4;
 export const MAX_DECODED_TOTAL_BYTES = MAX_DECODED_STREAM_BYTES * 4;
 
 /**
- * The deepest `q` nesting one content stream may reach: 4,096.
+ * The deepest `q` nesting any one page may reach: 16,384.
+ *
+ * pdf.js chains every saved state onto the last one's prototype, so each `q`
+ * makes every later state read slower. `extractPdfText` on one page, text
+ * before and after the `q`s, measured on base (2026-11-08, pdfjs-dist
+ * 6.2.108, Node, tsx start-up of ~0.6 s included): 5k 1.5 s, 10k 2.8 s,
+ * 16,384 2.8-3.2 s, 24,576 5.7-5.9 s, 32,640 (32 streams) 66 s, 100k 493 s
+ * (STAMP-14). The cost falls off a cliff between 24k and 32k, so the bound
+ * sits at half the cliff: a page at the bound reads in about 3 s.
  *
  * ISO 32000-1 Annex C (Table C.1) lists 28 as Acrobat's graphics-state
- * nesting limit, so a file real viewers draw sits far below this; 4,096 is
- * ~146x that. pdf.js chains every saved state onto the last one's prototype,
- * so each `q` makes every later state read slower: `getTextContent` measured
- * 1k: 0.66 s, 10k: 1.5 s, 20k: 4.3 s, 40k: 37 s, 100k: 493 s (STAMP-14).
- */
-export const MAX_GRAPHICS_STATE_DEPTH = 4_096;
-
-/**
- * The most `q` all content streams together may leave open: 32,768.
+ * nesting limit, so a file real viewers draw sits far below this.
  *
- * The scan cannot tell which streams one page concatenates (a page's
- * /Contents array, the forms it paints), so 100 streams of 1,000 unclosed `q`
- * would pass {@link MAX_GRAPHICS_STATE_DEPTH} one stream at a time and still
- * nest 100,000 deep on one page. The file-wide sum bounds every page from
- * above. Eight per bound: a 4,000-page file that leaves 8 `q` open on every
- * page still opens (real producers that leak leave one or two); the worst a
- * split file can then reach, 32k on one page, measured ~20 s of text read
- * where 100k took 493 s.
+ * The scan cannot tell which streams one page concatenates (a /Contents
+ * array, the forms it paints), so it bounds every page from above: a page
+ * that ends in stream i was at most (what every OTHER stream leaves open) +
+ * (stream i's own deepest point) deep. {@link PdfStreamScan.maxQReach} is the
+ * largest of those, and it is this figure that is held to the bound. One
+ * stream 16,384 deep reads; 32 streams of 1,020 (32,640) do not; a document
+ * whose pages leak `q` passes while the leaks sum to 16,384 or less (4,000
+ * pages leaking 4 each).
  */
-export const MAX_UNCLOSED_Q_TOTAL = MAX_GRAPHICS_STATE_DEPTH * 8;
+export const MAX_GRAPHICS_STATE_DEPTH = 16_384;
 
 /**
- * The most pixels one image may have on the RASTER path (thumbnails, PDF to
- * JPG/PNG, Grayscale, Redact): 50,000,000.
+ * The most pixels one colour or 8-bit image may have on the RASTER path
+ * (thumbnails, PDF to JPG/PNG, Grayscale, Redact): 50,000,000.
  *
  * pdf.js decodes an image at full size before it scales it to the page, as
- * one step `renderTask.cancel()` cannot interrupt. One 72-dpi page holding
- * one Flate RGB image, measured through `capturePdfPages` (Node,
- * `@napi-rs/canvas`): 9 MP 1.2 s, 25 MP 4.6 s, 50 MP 12.0 s, 100 MP 43.5 s
- * (exactly `MAX_DECODED_PIXELS`; CO-08 saw 42 s and 1.5 GB). The cost is
- * superlinear, so half the product's pixel ceiling keeps a page well inside
- * 30 s. 50 MP still takes a 600-dpi A4 scan (4,960 x 7,016 = 34.8 MP) and a
- * 300-dpi A2 (34.8 MP); a 600-dpi A3 (69.6 MP) is over it, and is refused by
- * name rather than drawn for most of a minute.
- *
- * Not pdf.js's own `maxImageSize`: under the default `stopAtErrors: false`
- * pdf.js drops an image over it with a console warning and paints the page
- * without it (pdf.worker.mjs `buildPaintImageXObject`), a blank nothing
- * reports.
+ * one step `renderTask.cancel()` cannot interrupt, and the cost is per PIXEL
+ * for anything above 1 bit (every sample becomes RGBA). One 72-dpi page
+ * holding one Flate image, measured through `rasterizePdf` on base (Node,
+ * `@napi-rs/canvas`): RGB 9 MP 1.2 s, 25 MP 4.6 s, 50 MP 12-22 s, 100 MP
+ * 43.5 s (CO-08 saw 42 s and 1.5 GB); 8-bit GRAY 50 MP 12.2 s, 150 MP 86 s;
+ * DCT (JPEG) RGB 50 MP 12-18 s. Half the product's pixel ceiling keeps a page
+ * inside ~20 s. 50 MP still takes a 600-dpi A4 scan (4,960 x 7,016 = 34.8 MP)
+ * and a 300-dpi A2 (34.8 MP).
  */
 export const RASTER_MAX_IMAGE_PIXELS = MAX_DECODED_PIXELS / 2;
+
+/**
+ * The most pixels one BILEVEL image (1 bit per sample, one gray component or
+ * an /ImageMask) may have on the raster path: 400,000,000.
+ *
+ * pdf.js paints 1-bpc gray through its packed GRAYSCALE_1BPP path, 20-50x
+ * cheaper per pixel than colour: Flate 1-bit, measured on base, 69.6 MP (a
+ * 600-dpi A3 scan) 0.38-0.45 s, 248 MP (a 400-dpi A0) 1.2-2.8 s. Four times
+ * the product's pixel ceiling admits both measured scans with room; past it
+ * nothing was measured, so nothing is admitted. CCITT and JBIG2 bilevel
+ * images decode through other code (pdf.js's CCITT decoder, its JBIG2
+ * decoder) whose cost was not measured; they are held to the same figure.
+ */
+export const RASTER_MAX_BILEVEL_PIXELS = MAX_DECODED_PIXELS * 4;
 
 /** Copy for a file whose streams expand past the bounds above. */
 export const PDF_EXPANDS_TOO_FAR_MESSAGE =
@@ -109,22 +118,15 @@ export const PDF_EXPANDS_TOO_FAR_MESSAGE =
 export const PDF_NESTED_TOO_DEEPLY_MESSAGE =
   "This PDF's page content is nested too deeply to read safely.";
 
-/** Copy for an image over RASTER_MAX_IMAGE_PIXELS on the raster path. */
+/**
+ * Copy for an image over its raster budget, on a path that writes pixels.
+ * "Over 50 megapixels" is true of every image refused: both budgets are at
+ * least {@link RASTER_MAX_IMAGE_PIXELS}.
+ */
 export const PDF_IMAGE_TOO_LARGE_MESSAGE =
   "This PDF contains an image too large to render in your browser (over 50 megapixels).";
 
-/**
- * pdf.js's page count, or a typed refusal. pdf.js reports the root /Count as
- * given when it is 0 or negative, and `getPage(1)` then refuses ("Invalid
- * page request"), so there is no page it can read: the honest answer is the
- * unreadable-file copy, never "-1 pages" or "no text".
- */
-export function pdfjsPageCount(numPages: unknown): number {
-  if (typeof numPages === "number" && Number.isInteger(numPages)) {
-    if (numPages >= 1) return numPages;
-  }
-  throw new PdfEngineError(UNREADABLE_PDF_MESSAGE, { kind: "unreadable" });
-}
+export { pdfjsPageCount } from "./pdfjs-num-pages";
 
 /** pdf.js's names for a failure that is about the document's structure. */
 const PDFJS_PAGE_WALK_FAILURES = new Set([
@@ -179,8 +181,19 @@ export interface PdfStreamScan {
   maxQDepth: number;
   /** `q` left open at the end of each content stream, summed over the file. */
   unclosedQ: number;
+  /**
+   * The deepest any page could reach: the largest, over content streams, of
+   * (what every other stream leaves open) + (this stream's deepest point).
+   */
+  maxQReach: number;
   /** Largest image XObject, in pixels (Width x Height). */
   maxImagePixels: number;
+  /**
+   * The fewest pixels of any image over its raster budget
+   * ({@link RASTER_MAX_IMAGE_PIXELS}, or {@link RASTER_MAX_BILEVEL_PIXELS}
+   * for a bilevel one); null when every image is within budget.
+   */
+  smallestOverBudgetImage: number | null;
   /** The first bound the scan stopped at, or null. */
   exceeded: "stream-bytes" | "total-bytes" | "q-depth" | null;
 }
@@ -374,6 +387,20 @@ async function inflateCounting(
 const FLATE = new Set(["FlateDecode", "Fl"]);
 
 /**
+ * An image pdf.js paints through its cheap 1-bit path: an /ImageMask, or 1
+ * bit per sample in ONE gray component named in the dictionary itself. An
+ * Indexed, ICC (by reference) or colour 1-bit image is expanded to RGB like
+ * any other, so it is not bilevel here; a missing colour space errs the same
+ * way (held to the colour budget).
+ */
+function isBilevel(dict: string): boolean {
+  if (/\/(?:ImageMask|IM)\s+true\b/.test(dict)) return true;
+  if (intEntry(dict, "BitsPerComponent") !== 1 && intEntry(dict, "BPC") !== 1)
+    return false;
+  return /\/(?:ColorSpace|CS)\s*\/(?:DeviceGray|CalGray|G)\b/.test(dict);
+}
+
+/**
  * One pass over every stream in `bytes`, bounded: each non-image stream's
  * leading Flate stages are inflated (counted, never kept) and its `q` depth
  * measured; each image's Width x Height is read from its dictionary. Stops at
@@ -390,9 +417,13 @@ export async function scanPdfStreams(
     totalBytes: 0,
     maxQDepth: 0,
     unclosedQ: 0,
+    maxQReach: 0,
     maxImagePixels: 0,
+    smallestOverBudgetImage: null,
     exceeded: null,
   };
+  // max over content streams of (deepest point - left open): see maxQReach.
+  let maxQExcess = 0;
   let at = 0;
   for (;;) {
     const kw = indexOfWord(bytes, STREAM, at);
@@ -421,7 +452,18 @@ export async function scanPdfStreams(
     if (/\/Subtype\s*\/Image\b/.test(dict)) {
       const w = intEntry(dict, "Width") ?? 0;
       const h = intEntry(dict, "Height") ?? 0;
-      scan.maxImagePixels = Math.max(scan.maxImagePixels, w * h);
+      const pixels = w * h;
+      scan.maxImagePixels = Math.max(scan.maxImagePixels, pixels);
+      const budget = isBilevel(dict)
+        ? RASTER_MAX_BILEVEL_PIXELS
+        : RASTER_MAX_IMAGE_PIXELS;
+      if (
+        pixels > budget &&
+        (scan.smallestOverBudgetImage === null ||
+          pixels < scan.smallestOverBudgetImage)
+      ) {
+        scan.smallestOverBudgetImage = pixels;
+      }
       continue;
     }
 
@@ -456,37 +498,79 @@ export async function scanPdfStreams(
     if (q) {
       scan.maxQDepth = Math.max(scan.maxQDepth, q.max);
       scan.unclosedQ += q.depth;
+      maxQExcess = Math.max(maxQExcess, q.max - q.depth);
+      scan.maxQReach = scan.unclosedQ + maxQExcess;
     }
     if (decoded > MAX_DECODED_STREAM_BYTES) scan.exceeded = "stream-bytes";
     else if (scan.totalBytes > MAX_DECODED_TOTAL_BYTES)
       scan.exceeded = "total-bytes";
-    else if (scan.maxQDepth > MAX_GRAPHICS_STATE_DEPTH)
+    else if (scan.maxQReach > MAX_GRAPHICS_STATE_DEPTH)
       scan.exceeded = "q-depth";
-    else if (scan.unclosedQ > MAX_UNCLOSED_Q_TOTAL) scan.exceeded = "q-depth";
     if (scan.exceeded) break;
   }
   return scan;
 }
 
+/** What {@link preflightPdfjsBytes} found that a raster path acts on. */
+export interface PdfjsPreflight {
+  /**
+   * For a PREVIEW (thumbnails): pdf.js's own `maxImageSize`, set just below
+   * the smallest over-budget image, so pdf.js skips that image before it
+   * decodes it and paints the rest of the page. Absent when every image is
+   * within budget, and pdf.js then behaves exactly as before.
+   */
+  previewOptions: { maxImageSize?: number };
+  /** Whether any image is over its raster budget. */
+  overBudgetImage: boolean;
+}
+
 /**
  * Refuse, with a typed error, a file pdf.js would inflate past the memory
- * bounds above or whose content nests past {@link MAX_GRAPHICS_STATE_DEPTH};
- * with `raster`, also one holding an image over
- * {@link RASTER_MAX_IMAGE_PIXELS}. Call it before `getDocument`.
+ * bounds above or whose content nests past {@link MAX_GRAPHICS_STATE_DEPTH}.
+ * Call it before `getDocument`.
+ *
+ * Images are left to the caller, because previews and outputs differ:
+ *
+ *  - a preview spreads {@link PdfjsPreflight.previewOptions} into
+ *    `getDocument`: the page's tile shows the page without the over-budget
+ *    image instead of stalling ~40 s on it, and every other page's tile is
+ *    unchanged;
+ *  - a path that WRITES pixels (PDF to JPG/PNG, Grayscale, Redact) calls
+ *    {@link refuseOverBudgetImages}: a page written without its image would
+ *    be a wrong document, so the file is refused by name.
+ *
+ * Why not per page on the output path: pdf.js 6 does not report the skip.
+ * Under the default `stopAtErrors: false` it warns and paints without the
+ * image; under `stopAtErrors: true` its error reaches `_pumpOperatorList`
+ * after the render has started, which ends the operator list early and lets
+ * the render RESOLVE on a truncated page (measured: `getOperatorList` on
+ * CO-08's file with both options resolves with 0 operators, no error). The
+ * byte scan cannot tell which page paints which image (resources are
+ * inherited and may sit in object streams), so the refusal is the file's.
  *
  * The refusals carry no `kind`: the file is not unreadable, it is more than
  * this tier will process.
  */
 export async function preflightPdfjsBytes(
   bytes: Uint8Array,
-  { raster = false }: { raster?: boolean } = {},
-): Promise<void> {
+): Promise<PdfjsPreflight> {
   const scan = await scanPdfStreams(bytes);
   if (scan.exceeded === "q-depth") {
     throw new PdfEngineError(PDF_NESTED_TOO_DEEPLY_MESSAGE);
   }
   if (scan.exceeded) throw new PdfEngineError(PDF_EXPANDS_TOO_FAR_MESSAGE);
-  if (raster && scan.maxImagePixels > RASTER_MAX_IMAGE_PIXELS) {
+  if (scan.smallestOverBudgetImage === null) {
+    return { previewOptions: {}, overBudgetImage: false };
+  }
+  return {
+    previewOptions: { maxImageSize: scan.smallestOverBudgetImage - 1 },
+    overBudgetImage: true,
+  };
+}
+
+/** The output paths' refusal of a file holding an over-budget image. */
+export function refuseOverBudgetImages(preflight: PdfjsPreflight): void {
+  if (preflight.overBudgetImage) {
     throw new PdfEngineError(PDF_IMAGE_TOO_LARGE_MESSAGE);
   }
 }

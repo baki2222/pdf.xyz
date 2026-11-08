@@ -1,5 +1,5 @@
 import { awaitPdfjsDocument, loadPdfjs, type PdfjsModule } from "./pdfjs";
-import { pdfjsPageCount } from "./pdfjs-guard";
+import { pdfjsPageCount } from "./pdfjs-num-pages";
 import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
 
 /**

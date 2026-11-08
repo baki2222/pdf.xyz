@@ -83,11 +83,17 @@ export async function createThumbnailRenderer(
 ): Promise<ThumbnailRenderer> {
   // Bounds pdf.js lacks (hostile matrix CO-03/06/08, STAMP-14): ./pdfjs-guard.
   const guard = await import("./pdfjs-guard");
-  await guard.preflightPdfjsBytes(bytes, { raster: true });
+  // A preview: an image over its raster budget is skipped by pdf.js before
+  // it decodes it (CO-08), so its page's tile shows the rest of the page.
+  const { previewOptions } = await guard.preflightPdfjsBytes(bytes);
   const pdfjs = await loadPdfjs();
   // Hand pdfjs a private copy; it may detach the buffer it receives.
   const data = bytes.slice();
-  const loadingTask = pdfjs.getDocument({ data, ...PDFJS_DOCUMENT_DEFAULTS });
+  const loadingTask = pdfjs.getDocument({
+    data,
+    ...PDFJS_DOCUMENT_DEFAULTS,
+    ...previewOptions,
+  });
   const doc = await awaitPdfjsDocument(loadingTask);
   let numPages: number;
   try {
@@ -522,7 +528,9 @@ export async function capturePdfPages<T>(
 ): Promise<CapturedPage<T>[]> {
   if (typeof document === "undefined") return [];
   const guard = await import("./pdfjs-guard");
-  await guard.preflightPdfjsBytes(bytes, { raster: true });
+  // This path writes pixels: a page without its image would be a wrong
+  // document, so an image over its raster budget refuses the file (CO-08).
+  guard.refuseOverBudgetImages(await guard.preflightPdfjsBytes(bytes));
   const pdfjs = await loadPdfjs();
   // Hand pdfjs a private copy; it may detach the buffer it receives.
   const data = bytes.slice();

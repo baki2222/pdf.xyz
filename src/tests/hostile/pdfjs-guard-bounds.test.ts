@@ -54,6 +54,20 @@ describe("pdf.js consumers stay bounded on hostile streams", () => {
     expect(v.text).toContain("Hostile control");
   }, 60_000);
 
+  test("STAMP-14, split: one page of 32 streams x 1,020 unclosed q (32,640 deep) is refused, not read for 66 s", async () => {
+    const v = settled(await runBounded(CHILD, ["stamp14-split-text"], 30_000));
+    expect(v.error).toMatchObject({
+      name: "PdfEngineError",
+      message: PDF_NESTED_TOO_DEEPLY_MESSAGE,
+    });
+  }, 60_000);
+
+  test("STAMP-14 control: one stream 5,000 deep (1.45-1.55 s on base) still reads", async () => {
+    const v = settled(await runBounded(CHILD, ["stamp14-5k-text"], 30_000));
+    expect(v).toMatchObject({ ok: true, pageCount: 1 });
+    expect(v.text).toContain("END");
+  }, 60_000);
+
   test("CO-08: a 100 MP image is refused by name before pdf.js decodes it", async () => {
     const v = settled(
       await runBounded(CHILD, ["co08-raster"], 30_000, { maxOldSpaceMb: 2048 }),
@@ -62,6 +76,45 @@ describe("pdf.js consumers stay bounded on hostile streams", () => {
       name: "PdfEngineError",
       message: PDF_IMAGE_TOO_LARGE_MESSAGE,
     });
+    // Second bound: refused before the decode (42 s and 1.5 GB unfixed).
+    expect(v.maxRssMb as number).toBeLessThan(900);
+  }, 60_000);
+
+  test("CO-08 bilevel: a 600-dpi A3 1-bit scan (69.6 MP, 0.38-0.45 s on base) still rasterizes", async () => {
+    const v = settled(
+      await runBounded(CHILD, ["co08-bilevel-a3-raster"], 60_000, {
+        maxOldSpaceMb: 2048,
+      }),
+    );
+    expect(v).toMatchObject({ ok: true, pages: 1 });
+  }, 90_000);
+
+  test("CO-08 output path: a file whose page 2 holds the 100 MP image is refused by name, even under onPageFailed", async () => {
+    // A page written without its image would be a wrong document, and pdf.js
+    // 6 cannot say which page skipped one (see preflightPdfjsBytes), so the
+    // output paths refuse the file.
+    const v = settled(
+      await runBounded(CHILD, ["co08-per-page-raster"], 30_000, {
+        maxOldSpaceMb: 2048,
+      }),
+    );
+    expect(v.error).toMatchObject({
+      name: "PdfEngineError",
+      message: PDF_IMAGE_TOO_LARGE_MESSAGE,
+    });
+  }, 60_000);
+
+  test("CO-08 previews: both pages get a thumbnail, in seconds; pdf.js skips only the 100 MP image", async () => {
+    // History: the first fix refused the whole file at createThumbnailRenderer,
+    // and every caller swallows that (`catch {}`), so a file with one huge
+    // image silently had no previews at all.
+    const v = settled(
+      await runBounded(CHILD, ["co08-per-page-thumbs"], 30_000, {
+        maxOldSpaceMb: 2048,
+      }),
+    );
+    expect(v).toMatchObject({ ok: true, previews: [true, true] });
+    expect(v.maxRssMb as number).toBeLessThan(900);
   }, 60_000);
 
   test("CO-08 positive control: a 9 MP image page still rasterizes", async () => {
