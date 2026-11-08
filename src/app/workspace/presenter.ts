@@ -10,7 +10,7 @@
  * adds what the workspace shows besides.
  */
 
-import { BATCH_LIMITS } from "@/lib/batch/limits";
+import { batchMaxFilesFor } from "@/lib/batch/tools";
 import { buildToolIndex } from "@/lib/intent/tool-index";
 import { capabilityForMode, describeCapability } from "@/lib/jobs";
 import { isToolSupported } from "@/lib/pdf/registry";
@@ -25,11 +25,13 @@ export function buildToolSummaries(): WorkspaceToolSummary[] {
     const capability = describeCapability(capabilityForMode(entry.processing));
     const tool = getToolBySlug(entry.slug);
     const badge = tool?.badge;
-    // A PDF batch caps its files (`capBatchFiles`): every batch module the
-    // runners load reaches it, which `batch-claims.test.ts` holds.
+    // A batch of PDFs, or of text files, caps its files (`capBatchFiles`,
+    // at `batchMaxFilesFor`): every batch module the runners load reaches
+    // it, which `batch-claims.test.ts` holds.
     const batchMaxFiles =
-      entry.handoffMode === "batch" && tool?.accept.includes("PDF")
-        ? BATCH_LIMITS.clientMaxFiles
+      entry.handoffMode === "batch" &&
+      (tool?.accept.includes("PDF") || tool?.accept.includes("TXT"))
+        ? batchMaxFilesFor(entry.slug)
         : undefined;
     return {
       ...entry,

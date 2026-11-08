@@ -87,6 +87,11 @@ const NO_OUTCOME_OF_ITS_OWN: Record<string, string> = {
   // view" below.
   "settings-batch-runner.tsx":
     "renders <BatchView>; its outcome is batch/batch-view.tsx's summary heading (useOutcomeFocus)",
+  // Batch plan P2: the images batch (PDF to JPG and PNG, Extract Images)
+  // draws the same view. (Text to PDF's batch does too; it is
+  // text-to-pdf-batch.tsx, a name this walk does not read.)
+  "images-batch-runner.tsx":
+    "renders <BatchView>; its outcome is batch/batch-view.tsx's summary heading (useOutcomeFocus)",
 };
 
 /** The view every batch hands its outcome to. */

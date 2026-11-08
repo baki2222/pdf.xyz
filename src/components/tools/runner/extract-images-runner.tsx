@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
@@ -31,7 +32,11 @@ import {
   outputFile,
 } from "./runner-kit";
 import { RunBar } from "./run-bar";
-import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
+import {
+  FileHeader,
+  SinglePdfRunner,
+  type SinglePdfBatch,
+} from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
 import { useZipDownload } from "./use-zip-download";
 import {
@@ -49,16 +54,37 @@ const MIME: Record<ExtractedImage["format"], string> = {
 };
 
 /**
+ * Two or more PDFs: the batch (batch plan P2), its own chunk, fetched only
+ * when they arrive — never with a visit to this page.
+ */
+const ExtractImagesBatch = dynamic(
+  () =>
+    import("./batch/extract-images-batch").then((m) => m.ExtractImagesBatch),
+  {
+    loading: () => (
+      <div
+        aria-hidden
+        className="border-line bg-wash rounded-panel h-40 w-full border"
+      />
+    ),
+  },
+);
+const batch = (props: SinglePdfBatch) => <ExtractImagesBatch {...props} />;
+
+/**
  * A PDF its author restricted opens here when the author allows copying its
  * content (/P bit 5, "copy or otherwise extract text and graphics"): the
  * images come out of the decrypted copy, and nothing is written back.
  * Withheld, the tool names the permission and the owner password
- * (`./restricted-grant`). Refused at upload until 2026-11-08.
+ * (`./restricted-grant`). Refused at upload until 2026-11-08. That is
+ * the single-file editor; the batch refuses a restricted file on its row
+ * (`./batch/images-batch-runner`).
  */
 export function ExtractImagesRunner() {
   return (
     <SinglePdfRunner
-      hint="One PDF · pulls out the images embedded in it, at their original resolution — all in your browser"
+      hint="One or more PDFs · pulls out the images embedded in each, at their original resolution — all in your browser"
+      batch={batch}
       handoffSlug="extract-images"
       toolName="Extract Images"
       writesPdf={false}

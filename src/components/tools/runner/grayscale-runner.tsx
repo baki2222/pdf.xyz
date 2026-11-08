@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 import {
   Download,
@@ -34,10 +35,28 @@ import {
   FileHeader,
   SignedInputNotice,
   SinglePdfRunner,
+  type SinglePdfBatch,
 } from "./single-pdf-runner";
 import { GRAYSCALE_OPENED_NOTE, GrayscalePassword } from "./grayscale-password";
 import { PrivacyLine, SegmentedControl } from "./stamp-controls";
 import type { LoadedPdf } from "./use-single-pdf";
+
+/**
+ * Two or more PDFs: the batch (batch plan P2), its own chunk, fetched only
+ * when they arrive — never with a visit to this page.
+ */
+const GrayscaleBatch = dynamic(
+  () => import("./batch/grayscale-batch").then((m) => m.GrayscaleBatch),
+  {
+    loading: () => (
+      <div
+        aria-hidden
+        className="border-line bg-wash rounded-panel h-40 w-full border"
+      />
+    ),
+  },
+);
+const batch = (props: SinglePdfBatch) => <GrayscaleBatch {...props} />;
 
 /**
  * An encrypted PDF is refused as it opens, and under the refusal the panel
@@ -45,7 +64,8 @@ import type { LoadedPdf } from "./use-single-pdf";
  * open password of a file whose author withholds nothing, or the owner
  * password. The decrypted copy then opens here as any other file would.
  * Until 2026-11-08 the refusal was the end of the page (audit
- * grayscale-pdf#6).
+ * grayscale-pdf#6). That is the single-file panel; the batch takes no
+ * password and refuses an encrypted file on its row (`./batch/grayscale-batch`).
  */
 export function GrayscaleRunner() {
   const [unlocked, setUnlocked] = useState<LoadedPdf | null>(null);
@@ -70,7 +90,8 @@ export function GrayscaleRunner() {
     );
   return (
     <SinglePdfRunner
-      hint="One PDF · pages rasterized to grayscale locally in your browser"
+      hint="One or more PDFs · pages rasterized to grayscale locally in your browser"
+      batch={batch}
       handoffSlug="grayscale-pdf"
       toolName="Grayscale PDF"
       errorAside={(error) =>

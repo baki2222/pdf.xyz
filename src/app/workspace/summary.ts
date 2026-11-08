@@ -25,9 +25,11 @@ export interface WorkspaceToolSummary extends ToolIndexEntry {
   /** True when the tool has a working in-browser runner (launchable now). */
   live: boolean;
   /**
-   * For a tool whose in-browser batch takes PDFs, how many files one batch
-   * takes (`BATCH_LIMITS.clientMaxFiles`); the rest of a larger set are
-   * listed in the batch with their reason. Absent for every other tool.
+   * For a tool whose in-browser batch takes PDFs or text files, how many
+   * files one batch takes (`batchMaxFilesFor`: the raster cap for the tools
+   * that draw pages as images, the client cap for the rest); the rest of a
+   * larger set are listed in the batch with their reason. Absent for every
+   * other tool.
    */
   batchMaxFiles?: number;
 }

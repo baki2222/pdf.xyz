@@ -9,9 +9,11 @@
  *  - `collect`: the runner takes many files and combines them (merge).
  *  - `batch`  : the runner takes many files and processes each one (compress,
  *               and since batch plan P1 rotate, flatten, page numbers,
- *               watermark and split in half, through their settings batch).
+ *               watermark and split in half, through their settings batch;
+ *               since P2 grayscale, PDF to JPG and PNG, extract images and
+ *               text to PDF).
  *  - `single` : the runner works on exactly one file at a time (split,
- *               organize, extract/delete pages, text conversion) — a handoff
+ *               organize, extract/delete pages, PDF to text) — a handoff
  *               pre-loads the first eligible file.
  *  - `stage`  : a secure-worker or AI panel (every tool with no in-browser
  *               runner, which `tool-page-registry.test.ts` routes to a
@@ -54,10 +56,10 @@ const MODE_BY_KIND: Record<RunnerKind, HandoffMode> = {
   "extract-pages": "single",
   "pdf-to-text": "single",
   "pdf-to-markdown": "single",
-  "text-to-pdf": "single",
+  "text-to-pdf": "batch",
   "markdown-to-pdf": "single",
   "image-to-pdf": "batch",
-  "pdf-to-image": "single",
+  "pdf-to-image": "batch",
   "page-numbers": "batch",
   watermark: "batch",
   "header-footer": "single",
@@ -65,13 +67,13 @@ const MODE_BY_KIND: Record<RunnerKind, HandoffMode> = {
   sign: "single",
   flatten: "batch",
   overlay: "single",
-  grayscale: "single",
+  grayscale: "batch",
   redact: "single",
   "fill-forms": "single",
   "create-forms": "single",
   annotate: "single",
   edit: "single",
-  "extract-images": "single",
+  "extract-images": "batch",
   compare: "collect",
   scan: "batch",
   metadata: "single",

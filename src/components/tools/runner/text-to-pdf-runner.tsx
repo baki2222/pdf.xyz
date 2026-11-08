@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { MAX_SOURCE_BYTES, MAX_SOURCE_MB } from "@/lib/tools/limits";
 import {
   useCallback,
@@ -55,6 +56,22 @@ import { monospaceClaimSentence } from "@/lib/pdf/font-packs";
  */
 const MONOSPACE_CLAIM = `Paginated Letter-size PDF. ${monospaceClaimSentence()} Other characters, in the text or its file name, can move the whole document to a proportional Noto face.`;
 
+/**
+ * Two or more text files: the batch (batch plan P2), one PDF per file, its
+ * own chunk, fetched only when they arrive — never with a visit to this page.
+ */
+const TextToPdfBatch = dynamic(
+  () => import("./batch/text-to-pdf-batch").then((m) => m.TextToPdfBatch),
+  {
+    loading: () => (
+      <div
+        aria-hidden
+        className="border-line bg-wash rounded-panel h-40 w-full border"
+      />
+    ),
+  },
+);
+
 interface TextSource {
   name: string;
   text: string;
@@ -75,6 +92,8 @@ export function TextToPdfRunner() {
   );
   const [loadError, setLoadError] = useState<string | null>(null);
   const seededRef = useRef(false);
+  // Two or more files, picked, dropped or handed over: the batch.
+  const [many, setMany] = useState<File[] | null>(null);
 
   const readTextFile = useCallback(async (file: File) => {
     if (!isLikelyTextFile(file)) {
@@ -105,7 +124,10 @@ export function TextToPdfRunner() {
 
   useEffect(() => {
     if (seededRef.current) return;
-    if (handoff.status === "ready" && handoff.files.length > 0) {
+    if (handoff.status === "ready" && handoff.files.length > 1) {
+      seededRef.current = true;
+      queueMicrotask(() => setMany(handoff.files));
+    } else if (handoff.status === "ready" && handoff.files.length > 0) {
       seededRef.current = true;
       queueMicrotask(() => {
         void readTextFile(handoff.files[0]!);
@@ -113,7 +135,31 @@ export function TextToPdfRunner() {
     }
   }, [handoff.status, handoff.files, readTextFile]);
 
+  const resetMany = useCallback(() => setMany(null), []);
+  // A Remove that leaves one file opens it in the editor, as a pick would.
+  const narrowTo = useCallback(
+    (file: File) => {
+      setMany(null);
+      void readTextFile(file);
+    },
+    [readTextFile],
+  );
+
   if (handoff.status === "loading") return <HandoffLoading />;
+
+  if (many)
+    return (
+      <TextToPdfBatch
+        files={many}
+        onReset={resetMany}
+        onSingle={narrowTo}
+        arrival={
+          handoff.status === "ready"
+            ? { origin: handoff.origin, skipped: handoff.skipped }
+            : null
+        }
+      />
+    );
 
   return (
     <div className="flex flex-col gap-4">
@@ -129,7 +175,11 @@ export function TextToPdfRunner() {
         boxId={boxId}
         source={source}
         onSource={setSource}
-        onFile={(files) => files[0] && void readTextFile(files[0])}
+        onFile={(files) =>
+          files.length > 1
+            ? setMany(files)
+            : files[0] && void readTextFile(files[0])
+        }
         loadError={loadError}
         onClearError={() => setLoadError(null)}
       />
@@ -205,9 +255,9 @@ function TextToPdfEditor({
         busy={busy}
         onFiles={onFile}
         accept="text/plain,.txt"
-        multiple={false}
-        title="Drop a TXT file here, or"
-        hint="Plain text only · converted locally in your browser"
+        multiple
+        title="Drop TXT files here, or"
+        hint="One or more TXT files · plain text only, converted locally in your browser — several become one PDF each"
       />
 
       <RunnerSection
