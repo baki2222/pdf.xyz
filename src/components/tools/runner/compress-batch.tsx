@@ -345,9 +345,9 @@ export function CompressBatchRunner({
           <>
             <span className="text-fg">Deep image compression</span> downsamples
             and re-encodes each PDF&apos;s images on our secure server, one file
-            at a time, with the settings below. A file that does not get
-            smaller comes back unchanged. A digitally signed file is flagged,
-            because any rewrite makes its signatures show as invalid.
+            at a time, with the settings below. A file that does not get smaller
+            comes back unchanged. A digitally signed file is flagged, because
+            any rewrite makes its signatures show as invalid.
           </>
         ) : (
           <>
@@ -393,8 +393,7 @@ export function CompressBatchRunner({
       {deep && (
         <div className="flex flex-col gap-3 pl-6">
           <p className="text-warn text-xs leading-relaxed">
-            Running this uploads each file to our secure server, one at a
-            time.
+            Running this uploads each file to our secure server, one at a time.
           </p>
           <div
             role="group"
