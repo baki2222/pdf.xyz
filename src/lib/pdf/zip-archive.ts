@@ -1,5 +1,5 @@
 import JSZip from "jszip";
-import type { NamedBytes } from "./types";
+import type { ZipEntry } from "./types";
 
 /**
  * The archive builder behind `zipFiles` (`./browser`). It lives in its own
@@ -43,15 +43,27 @@ function withCopyNumber(name: string, copy: number): string {
   return `${name.slice(0, name.length - ext.length)} (${copy})${ext}`;
 }
 
-/** Bundle named byte blobs into one ZIP; every input becomes its own entry. */
+/**
+ * An entry's content as JSZip takes it. A Blob goes in as a PROMISE of its
+ * bytes, which JSZip resolves as it writes that entry: no copy is made before
+ * the archive is built, and no `FileReader` is needed (JSZip reads a raw Blob
+ * through one, which Node and some workers do not have).
+ */
+function contentOf(entry: ZipEntry): Uint8Array | Promise<Uint8Array> {
+  return "blob" in entry
+    ? entry.blob.arrayBuffer().then((buffer) => new Uint8Array(buffer))
+    : entry.bytes;
+}
+
+/** Bundle named files into one ZIP; every input becomes its own entry. */
 export function buildZip(
-  files: readonly NamedBytes[],
+  files: readonly ZipEntry[],
   compression: "DEFLATE" | "STORE",
 ): Promise<Blob> {
   const zip = new JSZip();
   const names = uniqueEntryNames(files.map((file) => file.name));
   files.forEach((file, index) => {
-    zip.file(names[index]!, file.bytes);
+    zip.file(names[index]!, contentOf(file));
   });
   return zip.generateAsync({
     type: "blob",
