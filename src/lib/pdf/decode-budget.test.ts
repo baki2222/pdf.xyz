@@ -1,11 +1,13 @@
 // The decode budget (lane l01), checked where it is cheap to check in-process.
 // The hostile cases themselves (hangs and GiB bombs) run in child processes in
 // src/tests/hostile/decode-budget.test.ts.
+import { execSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { deflateSync } from "node:zlib";
 import {
+  PDFContext,
   PDFDocument,
   PDFName,
   PDFRawStream,
@@ -53,6 +55,8 @@ describe("the patch is in every pdf-lib build a consumer loads", () => {
     "core/streams/DecodeStream.js",
     "core/parser/PDFParser.js",
     "core/parser/PDFXRefStreamParser.js",
+    "core/streams/decode.js",
+    "core/embedders/PDFPageEmbedder.js",
   ];
 
   it("health: two builds, and no resolution path the guard cannot see", () => {
@@ -66,6 +70,26 @@ describe("the patch is in every pdf-lib build a consumer loads", () => {
       const text = readFileSync(path.join(build, file), "utf8");
       expect(text, `${build}/${file}`).toContain("pdf.xyz patch");
     }
+  });
+
+  it("no code imports a pdf-lib build file directly (dist/ is unpatched)", () => {
+    // The guard above covers what the manifest resolves; a deep import such as
+    // `pdf-lib/dist/pdf-lib.esm.js` would bypass it, and the budget with it.
+    // The set is git's own list of tracked code files, not a typed directory.
+    const files = execSync("git ls-files", { encoding: "utf8" })
+      .split("\n")
+      .filter((f) => /\.(?:[cm]?[jt]sx?)$/.test(f));
+    const DEEP = new RegExp(
+      String.raw`(?:from\s*|import\s*\(\s*|require\s*\(\s*)["']pdf-lib/(?!package\.json["'])`,
+    );
+    // Health: the set is the repository, and the pattern sees a deep import.
+    expect(files.length).toBeGreaterThan(1000);
+    // (Built from pieces, so this file does not match its own pattern.)
+    const deepImport = ["import x from ", '"pdf-lib', '/dist/x.js";'].join("");
+    expect(DEEP.test(deepImport)).toBe(true);
+    expect(DEEP.test(`import { PDFDocument } from "pdf-lib";`)).toBe(false);
+    const offenders = files.filter((f) => DEEP.test(readFileSync(f, "utf8")));
+    expect(offenders).toEqual([]);
   });
 
   it("each build's default budget is the one our copy states", () => {
@@ -125,6 +149,87 @@ describe("decode budget: behaviour", () => {
     expect(typed).toBeInstanceOf(PdfEngineError);
     expect(typed!.message).toMatch(/^Overlay page 3 holds/);
     expect(asDecodeBudgetRefusal(new Error("plain"))).toBeUndefined();
+  });
+});
+
+describe("decode budget: one ledger per operation", () => {
+  const LEDGER = Symbol.for("pdf-lib.decodeLedger");
+
+  /** Every ledger a load creates, captured as the parser installs it. */
+  async function loadLedgers(files: Uint8Array[]) {
+    const seen: { spent: number }[] = [];
+    const proto = PDFContext.prototype as unknown as Record<symbol, unknown>;
+    Object.defineProperty(proto, LEDGER, {
+      configurable: true,
+      get: () => undefined,
+      set(this: object, value: { spent: number }) {
+        seen.push(value);
+        Object.defineProperty(this, LEDGER, {
+          value,
+          configurable: true,
+          writable: true,
+        });
+      },
+    });
+    const contexts: PDFContext[] = [];
+    try {
+      for (const bytes of files) {
+        contexts.push((await PDFDocument.load(bytes)).context);
+      }
+    } finally {
+      delete proto[LEDGER];
+    }
+    return { seen, contexts };
+  }
+
+  it("the load's ledger ends with the load: later decodes are their own operations", async () => {
+    // Two streams of 0.75 MiB each under a 1 MiB budget: each fits alone, the
+    // two together do not. Charged to a ledger left behind by the load, the
+    // second would be refused, and so would extract-images on any real file
+    // whose images add up past the budget.
+    const doc = await PDFDocument.create();
+    doc.addPage([100, 100]);
+    const a = doc.context.register(await flateZeros(0.75 * MiB));
+    const b = doc.context.register(await flateZeros(0.75 * MiB));
+    const loaded = await PDFDocument.load(await doc.save());
+    for (const ref of [a, b]) {
+      const stream = loaded.context.lookup(ref);
+      if (!(stream instanceof PDFRawStream)) throw new Error("not a stream");
+      const bytes = withDecodeBudget(MiB, () =>
+        decodePDFRawStream(stream).decode(),
+      );
+      expect(bytes).toHaveLength(0.75 * MiB);
+    }
+    const { contexts } = await loadLedgers([await doc.save()]);
+    expect(Object.getOwnPropertySymbols(contexts[0]!)).not.toContain(LEDGER);
+  });
+
+  it("a load's ledger counts every stream it inflates, across object streams", async () => {
+    // Positive control for the hostile STAMP-12 case, in-process: the same
+    // ledger object sees both object streams of one load.
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < 40; i += 1) doc.addPage([100, 100]);
+    const { seen } = await loadLedgers([
+      await doc.save({ useObjectStreams: true, objectsPerTick: Infinity }),
+    ]);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.spent).toBeGreaterThan(1000);
+  });
+
+  it("real producers' loads spend far under the budget (the legit corpus)", async () => {
+    // Second, independent bound on the per-load total: what loading each
+    // legit-corpus file actually inflates (object streams, xref streams).
+    const dir = path.join(process.cwd(), "src/tests/fixtures/legit-corpus");
+    const names = readdirSync(dir).filter((f) => f.endsWith(".pdf"));
+    expect(names.length).toBeGreaterThanOrEqual(14);
+    const { seen } = await loadLedgers(
+      names.map((f) => new Uint8Array(readFileSync(path.join(dir, f)))),
+    );
+    // Health: one ledger per load, and the object-stream files charged it.
+    expect(seen).toHaveLength(names.length);
+    const largest = Math.max(...seen.map((l) => l.spent));
+    expect(largest).toBeGreaterThan(1000);
+    expect(DEFAULT_DECODE_BUDGET_BYTES).toBeGreaterThanOrEqual(1000 * largest);
   });
 });
 

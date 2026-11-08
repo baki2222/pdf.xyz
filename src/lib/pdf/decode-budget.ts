@@ -11,6 +11,14 @@ import { PdfEngineError } from "./engine-errors";
  * `decodePDFRawStream` call in our own code. Without it a 1 MB file inflated to
  * 1 GiB in the user's tab, and a 3 KB one did the same through two Flate layers.
  *
+ * The same budget also bounds each OPERATION in total, through a ledger every
+ * stream of that operation charges: one load (all its object and xref
+ * streams) and one embedded page (every entry of its /Contents array). A
+ * per-stream cap alone let twenty object streams of 100 MiB each, or one
+ * 200 MiB stream named four times in /Contents, add up to GiBs. Decodes our
+ * own code makes after a load are separate operations, each under its own
+ * per-stream budget.
+ *
  * The patch also stops pdf-lib's xref-stream parser from looping on a /W width
  * or an entry count the stream's data cannot hold (a 451-byte file hung the
  * tab forever); that part needs nothing from this module.

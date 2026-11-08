@@ -12,6 +12,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { deflateSync } from "node:zlib";
 import { PDFDocument, PDFName } from "pdf-lib";
 import { afterAll, describe, expect, test } from "vitest";
 import { DEFAULT_DECODE_BUDGET_BYTES } from "@/lib/pdf/decode-budget";
@@ -22,6 +23,8 @@ import {
 } from "./conversion-out.fixtures";
 import {
   ONE_PAGE,
+  concatBytes,
+  latin1,
   rawPdf,
   reflate,
   xrefStreamPdf as psXrefStreamPdf,
@@ -197,6 +200,104 @@ describe("STAMP-13: a content-stream bomb as the overlay", () => {
   }, 90_000);
 });
 
+/**
+ * A one-page PDF whose page names ONE content stream `times` times in its
+ * /Contents array. pdf-lib's page embedder decodes every entry, keeps them all
+ * and joins them, so a stream under the per-stream budget multiplies.
+ */
+const repeatedContentPdf = (
+  filter: string,
+  stream: Uint8Array,
+  times: number,
+) =>
+  rawPdf({
+    objects: [
+      ONE_PAGE[0]!,
+      ONE_PAGE[1]!,
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents [${Array(times).fill("4 0 R").join(" ")}] >>`,
+      { dict: `/Filter ${filter}`, stream },
+    ],
+  });
+
+describe("PS-02 / STAMP-13: a /Contents array repeating one stream under the budget", () => {
+  // The reviewer's case: one stream that inflates to 200 MiB, under the
+  // per-stream budget, named four times. Before the operation ledger, n-up
+  // decoded all four (+1,618 MB) and wrote the bomb back out.
+  const repeated = () =>
+    repeatedContentPdf(
+      "[/FlateDecode /FlateDecode]",
+      reflate(zeroBomb(200)),
+      4,
+    );
+  test("PS-02: n-up refuses a page whose /Contents names a 200 MiB stream four times", async () => {
+    const r = settled(await run("nup", repeated()));
+    expect(r.error).toBe("PdfDecodeBudgetError");
+    expect(r.growthMb).toBeLessThan(REFUSED_BOMB_MB);
+  }, 90_000);
+
+  test("STAMP-13: overlay refuses the same page as its overlay, naming it", async () => {
+    const r = settled(await run("overlay", repeated()));
+    expect(r.error).toBe("PdfDecodeBudgetError");
+    expect(r.message).toMatch(/^Overlay page 1 /);
+    expect(r.growthMb).toBeLessThan(REFUSED_BOMB_MB);
+  }, 90_000);
+
+  test("PS-02: positive control: two 64 MiB entries (128 MiB in all) still lay out", async () => {
+    // The ledger is per embedded page, and an array is legal: half the budget
+    // across two entries must pass, and the instrument must see it decoded.
+    const r = settled(
+      await run("nup", repeatedContentPdf("/FlateDecode", zeroBomb(64), 2)),
+    );
+    expect(r.ok).toMatchObject({ sheets: 1 });
+    expect(r.growthMb).toBeGreaterThan(120);
+  }, 90_000);
+});
+
+/**
+ * A one-page PDF followed by `count` object streams, each [/FlateDecode
+ * /FlateDecode] and inflating to `mib` MiB (one object, then NUL padding,
+ * which is PDF whitespace). Each stays under the per-stream budget; together
+ * they are far past it, and pdf-lib inflates every one inside load().
+ */
+function manyObjStmPdf(count: number, mib: number): Uint8Array {
+  const head = "100 0 ";
+  const body = concatBytes(
+    latin1(`${head}<< /Padding true >>
+`),
+    new Uint8Array(mib * MiB),
+  );
+  const stream = reflate(new Uint8Array(deflateSync(body, { level: 9 })));
+  const objStm = {
+    dict: `/Type /ObjStm /N 1 /First ${head.length} /Filter [/FlateDecode /FlateDecode]`,
+    stream,
+  };
+  return rawPdf({ objects: [...ONE_PAGE, ...Array(count).fill(objStm)] });
+}
+
+describe("STAMP-12: many object streams, each under the budget", () => {
+  // The reviewer's case, scaled: 20 x 100 MiB. Before the per-load ledger
+  // each stream passed its own check and load() inflated 2 GB (1 s per
+  // 250 MiB, so a 1 MB file of these froze the tab for ~20 minutes).
+  const hostile = () => manyObjStmPdf(20, 100);
+  for (const entry of ["load", "watermark"]) {
+    test(`STAMP-12: ${entry} refuses 20 object streams of 100 MiB each (2 GB in all)`, async () => {
+      const started = Date.now();
+      const r = settled(await run(entry, hostile()));
+      expect(r.error).toBe("PdfDecodeBudgetError");
+      expect(r.message).toContain(`${BUDGET_MB} MB`);
+      expect(r.growthMb).toBeLessThan(REFUSED_BOMB_MB);
+      // Refused once 256 MiB in all is inflated: about 1 s of inflate, not 8.
+      expect(Date.now() - started).toBeLessThan(30_000);
+    }, 90_000);
+  }
+
+  test("STAMP-12: positive control: 2 object streams of 100 MiB (200 MiB in all) still load", async () => {
+    const r = settled(await run("load", manyObjStmPdf(2, 100)));
+    expect(r.ok).toEqual({ pages: 1 });
+    expect(r.growthMb).toBeGreaterThan(90);
+  }, 90_000);
+});
+
 describe("CO-07: extract-images bounds decoded bytes", () => {
   test("CO-07: the inline-image scan stops past its budget on a chained 1 GiB content stream", async () => {
     const r = settled(await run("extract", await chainedFlateBombPdf()));
@@ -207,6 +308,38 @@ describe("CO-07: extract-images bounds decoded bytes", () => {
     expect(skipped.map((s) => s.reason)).toContain(
       "Page content too large to check for inline images",
     );
+  }, 90_000);
+
+  test("CO-07: the inline-image scan has a total, not only a per-stream cap", async () => {
+    // Ten pages, each with its OWN 60 MiB content stream (under the 64 MiB
+    // per-stream cap). Before the total, all ten were inflated (600 MiB);
+    // the scan now stops after 256 MiB and says which pages it did not check.
+    const pages = 10;
+    const content = reflate(zeroBomb(60));
+    const kids = Array.from({ length: pages }, (_, i) => `${3 + i} 0 R`);
+    const objects = [
+      "<< /Type /Catalog /Pages 2 0 R >>",
+      `<< /Type /Pages /Kids [${kids.join(" ")}] /Count ${pages} >>`,
+      ...Array.from(
+        { length: pages },
+        (_, i) =>
+          `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents ${3 + pages + i} 0 R >>`,
+      ),
+      ...Array.from({ length: pages }, () => ({
+        dict: "/Filter [/FlateDecode /FlateDecode]",
+        stream: content,
+      })),
+    ];
+    const started = Date.now();
+    const r = settled(await run("extract", rawPdf({ objects })));
+    const skipped = (r.ok as { skipped: { page: number; reason: string }[] })
+      .skipped;
+    const unchecked = skipped.filter((s) =>
+      s.reason.startsWith("Too much page content in this PDF"),
+    );
+    // 256 MiB / 60 MiB: pages 1-4 scanned (the 5th gets the last 16 MiB).
+    expect(unchecked.map((s) => s.page)).toEqual([6, 7, 8, 9, 10]);
+    expect(Date.now() - started).toBeLessThan(30_000);
   }, 90_000);
 
   test("CO-07: a 100-megapixel image is written as a compressed PNG, not 300 MB stored", async () => {

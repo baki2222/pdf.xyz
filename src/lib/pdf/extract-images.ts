@@ -120,6 +120,15 @@ const MAX_XOBJECT_DEPTH = 24;
 const INLINE_SCAN_BYTES = 64 * 1024 * 1024;
 
 /**
+ * How much content the inline-image scan decodes for one extraction, in all.
+ * The per-stream cap alone let N distinct streams of 60 MiB each (568 bytes
+ * apiece, chained Flate) cost N x 60 MiB of inflate: a time bomb. Four
+ * streams at the per-stream cap; past it the remaining streams are reported
+ * as not checked, never refused. The legit corpus's largest stream is 1 MB.
+ */
+const INLINE_SCAN_TOTAL_BYTES = 4 * INLINE_SCAN_BYTES;
+
+/**
  * A decode asked for N bytes stops after the block that crosses N, and that
  * block may overshoot. zlib's blocks hold at most 16,384 symbols of up to 258
  * bytes (about 4 MiB); 16 MiB, or an eighth of the request when larger,
@@ -228,9 +237,21 @@ export async function extractPdfImages(
   // resource walk alone cannot see them. Each one found is reported as skipped:
   // a page (or form) whose only images are inline would otherwise read as
   // "this PDF has no images".
+  let scanLeft = INLINE_SCAN_TOTAL_BYTES;
   const scanContent = (streams: PDFObject | undefined, page: number) => {
     for (const stream of contentStreams(streams, doc.context, seen)) {
-      const prefix = decodePrefix(stream, INLINE_SCAN_BYTES);
+      if (scanLeft <= 0) {
+        skip(
+          page,
+          normalizeFilters(stream.dict).join(", ") || "(none)",
+          "Too much page content in this PDF to check this page for inline images",
+        );
+        continue;
+      }
+      const max = Math.min(INLINE_SCAN_BYTES, scanLeft);
+      const prefix = decodePrefix(stream, max);
+      // A stream that could not be decoded still cost up to `max` to try.
+      scanLeft -= prefix ? prefix.data.length : max;
       if (!prefix) continue;
       const { data, more } = prefix;
       if (more) {
