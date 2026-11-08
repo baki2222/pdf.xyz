@@ -3,7 +3,11 @@ import { getToolBySlug } from "@/lib/tools";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { MAX_LISTED_PAGES } from "@/lib/jobs/office-export-results";
 import { WORD_OCR_LABEL } from "@/lib/jobs/pdf-office-export";
-import { describeOcrLanguage, RTL_OCR_LANGUAGES } from "@/lib/jobs/ocr";
+import {
+  describeOcrLanguage,
+  REDO_OCR_SCOPE,
+  RTL_OCR_LANGUAGES,
+} from "@/lib/jobs/ocr";
 import { toolFileCeiling } from "@/lib/tools/file-ceilings";
 import {
   MAX_BILEVEL_PICTURE_SIDE,
@@ -199,7 +203,7 @@ const content: ToolContent = {
     },
     {
       q: "What happens to pages that are scans?",
-      a: `A scan has no selectable text, only a picture of its words. In a PDF that also has typed pages, a scanned page comes through as that picture, on its own Word page, with no editable words, and beside the download the panel says how many pages had text and names the ones that came through only as pictures (up to ${MAX_LISTED_PAGES}, then a count of the rest). If no page has any selectable text, the job is turned away instead, since a document of page pictures would have nothing in it to edit; lettering converted to vector outlines has the same effect. Tick “${WORD_OCR_LABEL}” to have the words as text: our server runs OCR first, keeping pages that already have text as they are, and converts its result. OCR in the wrong language does not fail, it produces plausible-looking gibberish, so choose every language printed on the page. With the switch on, three of OCR PDF's boxes sit beside it: “Turn pages upright” for sideways or upside-down scanned pages, “Straighten crooked pages” for pages scanned at a slight angle, and “Redo existing OCR” for a PDF whose earlier OCR text is poor; Straighten and Redo cannot be ticked together. ${RTL_WORD_SENTENCE}`,
+      a: `A scan has no selectable text, only a picture of its words. In a PDF that also has typed pages, a scanned page comes through as that picture, on its own Word page, with no editable words, and beside the download the panel says how many pages had text and names the ones that came through only as pictures (up to ${MAX_LISTED_PAGES}, then a count of the rest). If no page has any selectable text, the job is turned away instead, since a document of page pictures would have nothing in it to edit; lettering converted to vector outlines has the same effect. Tick “${WORD_OCR_LABEL}” to have the words as text: our server runs OCR first, keeping pages that already have text as they are, and converts its result. OCR in the wrong language does not fail, it produces plausible-looking gibberish, so choose every language printed on the page. With the switch on, three of OCR PDF's boxes sit beside it: “Turn pages upright” for sideways or upside-down scanned pages, “Straighten crooked pages” for pages scanned at a slight angle, and “Redo existing OCR” for a PDF whose earlier OCR text is poor, to have those pages read again; Straighten and Redo cannot be ticked together. ${REDO_OCR_SCOPE} ${RTL_WORD_SENTENCE}`,
     },
     {
       q: "How are tables and multi-column pages handled?",

@@ -231,7 +231,10 @@ export interface NativeOcrArgsContext {
   /** The isolated temp dir; outputs are placed inside it. */
   workDir: string;
   languages: readonly string[];
-  /** Replace an existing OCR text layer (`--redo-ocr`) instead of keeping it. */
+  /**
+   * Recognize pages with an existing OCR layer again (`--redo-ocr`) instead
+   * of keeping them; which old layers go is `REDO_OCR_LAYER_OUTCOMES`.
+   */
   redoOcr: boolean;
   /**
    * Straighten skewed pages before recognition (`--deskew`). OCRmyPDF only;
@@ -287,8 +290,10 @@ export const OCR_ROTATE_PAGES_THRESHOLD = 5;
  *    sidecar is produced with `--sidecar`. `--output-type pdf` avoids the PDF/A
  *    path (which would additionally require Ghostscript). Exactly ONE of
  *    `--skip-text` (the default: a page that already has text is kept as it is)
- *    or `--redo-ocr` (the opt-in: invisible OCR text is replaced, typed text is
- *    kept) is always passed. Passing neither is not a neutral default — OCRmyPDF
+ *    or `--redo-ocr` (the opt-in: pages with hidden OCR text are recognized
+ *    again and typed text is kept; only the old layers OCRmyPDF detects are
+ *    taken away, and its OWN layer is not one of them — measured, see
+ *    `REDO_OCR_LAYER_OUTCOMES` in src/lib/jobs/ocr.ts) is always passed. Passing neither is not a neutral default — OCRmyPDF
  *    then aborts the whole job on the first page with text (exit 6) or on a
  *    tagged PDF, which is what every "searchable" scan and office export used to
  *    hit. Passing both is a usage error. `--force-ocr` is never passed: it

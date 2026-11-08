@@ -18,6 +18,7 @@ import {
   DEFAULT_OCR_OUTPUT_MODE,
   OCR_MAX_INPUT_FILES,
   OCR_OUTPUT_MODES,
+  REDO_OCR_SCOPE,
   describeOcrLanguage,
   describeOcrRequest,
   ocrConfidenceLooksLow,
@@ -298,8 +299,8 @@ function OcrBody({
           <span className="text-muted text-xs leading-relaxed">
             Pages that already have text keep it, and only the pages without
             text are recognized. Turn this on when a PDF&apos;s existing OCR
-            text is poor: that text is removed and those pages are recognized
-            again. Text typed into the document is kept either way. PDFs only.
+            text is poor, and those pages are recognized again. {REDO_OCR_SCOPE}{" "}
+            Text typed into the document is kept either way. PDFs only.
           </span>
         </span>
       </label>

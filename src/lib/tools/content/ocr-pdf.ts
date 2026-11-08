@@ -7,6 +7,7 @@ import {
   OCR_IMAGE_PAGE_BOUND,
   OCR_MIN_WORDS_FOR_CONFIDENCE_ADVICE,
   OCR_OUTPUT_MODES,
+  REDO_OCR_SCOPE,
   describeOcrLanguage,
   type OcrLanguage,
   type OcrOutputMode,
@@ -151,7 +152,7 @@ const content: ToolContent = {
     },
     {
       title: "Finish a PDF that is only partly scanned",
-      body: "When typed pages and scanned pages sit in the same file, just run it: pages that already have text are skipped and kept as they are, and only the image pages are recognised. A scanned page that already carries any text, such as a digitally added stamp or header, counts as having text and is skipped too. Tick “Redo existing OCR” only when an earlier OCR text layer is poor and should be recognised again; text typed into the document is kept either way.",
+      body: `When typed pages and scanned pages sit in the same file, just run it: pages that already have text are skipped and kept as they are, and only the image pages are recognised. A scanned page that already carries any text, such as a digitally added stamp or header, counts as having text and is skipped too. Tick “Redo existing OCR” only when an earlier OCR text layer is poor and should be recognised again. ${REDO_OCR_SCOPE} Text typed into the document is kept either way.`,
     },
     {
       title: "Straighten a scan that went in crooked",

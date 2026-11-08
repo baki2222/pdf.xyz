@@ -11,7 +11,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import JSZip from "jszip";
 import { getToolBySlug } from "@/lib/tools";
 import type { Job } from "@/lib/jobs/types";
-import { buildOcrResultMeta } from "@/lib/jobs/ocr";
+import { buildOcrResultMeta, REDO_OCR_SCOPE } from "@/lib/jobs/ocr";
 import { sanitizeJobResults } from "@/lib/jobs/results";
 import { WORD_OCR_LABEL } from "@/lib/jobs/pdf-office-export";
 import type { WorkerStatus } from "@/lib/workers/status";
@@ -496,6 +496,23 @@ describe("PDF to Word: OCR PDF's page choices beside the switch", () => {
     expect(straighten).toHaveAccessibleDescription(
       /Not with Redo existing OCR\./,
     );
+  });
+
+  it("Redo says exactly which old text it replaces and which it keeps (2026-11-08)", async () => {
+    // Until then the hint said "that text is removed", and production kept
+    // a stale layer beside the scan's words (REDO_OCR_LAYER_OUTCOMES).
+    stubNetwork(true);
+    await addFile();
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /recognise text in scans/i }),
+    );
+    const redo = await screen.findByRole("checkbox", {
+      name: "Redo existing OCR",
+    });
+    expect(redo).toHaveAccessibleDescription(
+      expect.stringContaining(REDO_OCR_SCOPE),
+    );
+    expect(redo).not.toHaveAccessibleDescription(/that text is removed/);
   });
 });
 
