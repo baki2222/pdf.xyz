@@ -139,6 +139,28 @@ import {
   MIN_TARGET_BYTES,
   TARGET_SIZE_PRESETS,
 } from "@/lib/pdf/compress-target";
+import {
+  imageQualityProofPdf,
+  imageQualityProofVerdict,
+} from "@/lib/workers/compression/image-quality-proof";
+import {
+  sheetLayoutProofVerdict,
+  wideSheetXlsx,
+} from "@/lib/workers/office-conversion/sheet-layout-proof";
+import {
+  FIT_COLUMNS_TO_WIDTH_OPTION,
+  ORIENTATION_OPTION,
+} from "@/lib/workers/office-conversion/sheet-layout";
+import {
+  pdfaLevelProofPdf,
+  pdfaLevelProofVerdict,
+} from "@/lib/workers/pdf-archive/level-proof";
+import { PDFA_LEVEL_OPTION } from "@/lib/workers/pdf-archive/levels";
+import { stampProofVerdict } from "@/lib/workers/html-render/stamp-proof";
+import {
+  createRefusalVerdict,
+  expectedCreateRefusal,
+} from "@/lib/probes/create-refusal-proof";
 
 /**
  * The target-size proofs' photo: 1380 px over 3 in (460 DPI), one page. Its
@@ -588,6 +610,37 @@ async function pdfPlainText(bytes: Buffer): Promise<string> {
   return text.replace(/\s+/g, " ");
 }
 
+/**
+ * Each page's text, in page order, for a verdict about WHICH page holds
+ * what (the last column on every page; the stamp on every page). Joined
+ * per page as `pdfPlainText` joins the whole file.
+ */
+async function pdfPageTexts(bytes: Buffer): Promise<string[]> {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const task = pdfjs.getDocument({
+    ...PDFJS_DOCUMENT_DEFAULTS,
+    data: new Uint8Array(bytes),
+  });
+  const doc = await awaitPdfjsDocument(task);
+  const pages: string[] = [];
+  for (let i = 1; i <= doc.numPages; i++) {
+    const content = await (await doc.getPage(i)).getTextContent();
+    pages.push(
+      content.items
+        .map((item) => ("str" in item ? item.str : ""))
+        .join(" ")
+        .replace(/\s+/g, " "),
+    );
+  }
+  await task.destroy();
+  return pages;
+}
+
+/** When this run began: the earliest time a stamp it asked for may name. */
+const RUN_STARTED = new Date();
+/** Worker and operator clocks are not one clock; the stamp has no seconds. */
+const CLOCK_SLACK_MS = 5 * 60_000;
+
 /** One of the CSV charset cases the in-image proof converts too. */
 function csvCase(encoding: CsvCharsetCase["encoding"]): CsvCharsetCase {
   const found = CSV_CHARSET_CASES.find((c) => c.encoding === encoding);
@@ -838,6 +891,13 @@ interface ProofSpec {
    * A job that completes is the FAIL here. `expect` is then never reached.
    */
   expectFailure?: { code: string; retryable: boolean; message: RegExp };
+  /**
+   * The proof passes only if POST /api/jobs REFUSES the request, with the
+   * status, code and field the job API's own parser gives for the same body
+   * (`@/lib/probes/create-refusal-proof`). An accepted job is the FAIL, and
+   * nothing is polled or downloaded.
+   */
+  refusedAtCreate?: true;
   want: string;
   keepArtifactAs?: string;
 }
@@ -921,6 +981,27 @@ const SPECS: ProofSpec[] = [
         DEEP_MONO_MIN_DPI,
         MONO_PROOF_SOURCE_DPI,
       ),
+  },
+  // Image quality "Lowest" (audit compress-pdf#4, wave 3). The verdict reads
+  // the quantisation table of every JPEG in the download and names the
+  // offered level it sits nearest; the photo goes in as Flate, so any JPEG
+  // was written by the worker, and a download not smaller than the upload
+  // is the no-worse swap's original. A worker image from before the option
+  // encodes at /ebook's "medium" and records no imageQuality, and FAILS.
+  {
+    tool: "compress-pdf",
+    label: "compress-pdf (image quality lowest)",
+    make: imageQualityProofPdf,
+    name: "photo.pdf",
+    type: PDF_MIME,
+    options: { profile: "deep", imageQuality: "lowest" },
+    expect: isPdf,
+    want: 'JPEG images at the "lowest" level',
+    verify: async (bytes, job) =>
+      imageQualityProofVerdict(new Uint8Array(bytes), job.results, {
+        asked: "lowest",
+        inputBytes: (await imageQualityProofPdf()).byteLength,
+      }),
   },
   // Until 2026-09-27 this sent the healthy `textPdf` under the name
   // `broken.pdf`, so the only real-job proof of Repair PDF exercised qpdf's
@@ -1225,6 +1306,59 @@ const SPECS: ProofSpec[] = [
     verify: proveDeclaredPdfA,
     want: "PDF/A",
   },
+  // The level picker and the carried title and author (audit pdf-to-pdfa#1,
+  // #3, wave 3). Each asks the engine's own question for its level, and
+  // reads Title and Author back from the Info dictionary and the XMP. A
+  // worker image from before the picker writes part 2 whatever was asked
+  // and discards the DOCINFO, so 1b and 3b FAIL on the part and all three on
+  // the title.
+  {
+    tool: "pdf-to-pdfa",
+    label: "pdf-to-pdfa (1b)",
+    make: pdfaLevelProofPdf,
+    name: "archive.pdf",
+    type: PDF_MIME,
+    options: { [PDFA_LEVEL_OPTION]: "1b" },
+    expect: isPdf,
+    verify: (bytes) => pdfaLevelProofVerdict(new Uint8Array(bytes), "1b"),
+    want: "PDF/A-1b on PDF 1.4, title and author carried",
+  },
+  {
+    tool: "pdf-to-pdfa",
+    label: "pdf-to-pdfa (2b)",
+    make: pdfaLevelProofPdf,
+    name: "archive.pdf",
+    type: PDF_MIME,
+    options: { [PDFA_LEVEL_OPTION]: "2b" },
+    expect: isPdf,
+    verify: (bytes) => pdfaLevelProofVerdict(new Uint8Array(bytes), "2b"),
+    want: "PDF/A-2b, title and author carried",
+  },
+  {
+    tool: "pdf-to-pdfa",
+    label: "pdf-to-pdfa (3b)",
+    make: pdfaLevelProofPdf,
+    name: "archive.pdf",
+    type: PDF_MIME,
+    options: { [PDFA_LEVEL_OPTION]: "3b" },
+    expect: isPdf,
+    verify: (bytes) => pdfaLevelProofVerdict(new Uint8Array(bytes), "3b"),
+    want: "PDF/A-3b, title and author carried",
+  },
+  // Refused by the WEB tier at job creation (review 2026-11-08), with what
+  // the job API's own parser answers for the same body. A web tier from
+  // before the check accepts the job, and that is the FAIL.
+  {
+    tool: "pdf-to-pdfa",
+    label: "pdf-to-pdfa (level 2u refused at creation)",
+    make: textPdf,
+    name: "archive.pdf",
+    type: PDF_MIME,
+    options: { [PDFA_LEVEL_OPTION]: "2u" },
+    refusedAtCreate: true,
+    expect: () => false,
+    want: "the job refused at creation, naming options.level",
+  },
   {
     tool: "html-to-pdf",
     make: htmlFile,
@@ -1321,6 +1455,38 @@ const SPECS: ProofSpec[] = [
         await pdfPlainText(bytes),
         WEBPAGE_PROOF.landmarks,
       ),
+  },
+  // "Add the address and date" (audit webpage-to-pdf#7, wave 3): every
+  // page's foot names the address asked for and a time inside this run, and
+  // the h1 is a bookmark. A worker image from before the option prints
+  // neither and FAILS. Hide pop-ups, print styles and lazy images change
+  // nothing on a page of ours, so they are proven in real Chromium by
+  // capture.chromium.test.ts, not here.
+  {
+    tool: "webpage-to-pdf",
+    label: "webpage-to-pdf (address and date stamp)",
+    url: WEBPAGE_PROOF.url,
+    options: { stamp: true },
+    expect: isPdf,
+    want: "every page stamped with the address and the capture time",
+    verify: async (bytes) =>
+      stampProofVerdict(new Uint8Array(bytes), await pdfPageTexts(bytes), {
+        url: WEBPAGE_PROOF.url,
+        visible: WEBPAGE_PROOF.visible,
+        window: {
+          from: new Date(RUN_STARTED.getTime() - CLOCK_SLACK_MS),
+          to: new Date(Date.now() + CLOCK_SLACK_MS),
+        },
+      }),
+  },
+  {
+    tool: "webpage-to-pdf",
+    label: "webpage-to-pdf (hideOverlays yes refused at creation)",
+    url: WEBPAGE_PROOF.url,
+    options: { hideOverlays: "yes" },
+    refusedAtCreate: true,
+    expect: () => false,
+    want: "the job refused at creation, naming options.hideOverlays",
   },
   ...(
     [
@@ -1535,6 +1701,38 @@ const SPECS: ProofSpec[] = [
           : `"${word}" is not in its text`,
       };
     },
+  },
+  // Orientation and "Fit all columns on the page width" (audit
+  // excel-to-pdf#1, wave 3): a 40 x 400 sheet with no page setup of its own.
+  // The verdict reads every page box (A4 landscape) and each page's text
+  // (the last column on EVERY page, the first and last rows present). A
+  // worker image from before the options converts the plain file, portrait
+  // with the last column on a quarter of the pages, and FAILS.
+  {
+    tool: "excel-to-pdf",
+    label: "excel-to-pdf (landscape, fit columns)",
+    make: () => wideSheetXlsx(),
+    name: "wide.xlsx",
+    type: XLSX_MIME,
+    options: {
+      [ORIENTATION_OPTION]: "landscape",
+      [FIT_COLUMNS_TO_WIDTH_OPTION]: true,
+    },
+    expect: isPdf,
+    want: "A4 landscape pages with every column on each",
+    verify: async (bytes) =>
+      sheetLayoutProofVerdict(new Uint8Array(bytes), await pdfPageTexts(bytes)),
+  },
+  {
+    tool: "excel-to-pdf",
+    label: "excel-to-pdf (orientation auto refused at creation)",
+    make: xlsxProofFile,
+    name: "sheet.xlsx",
+    type: XLSX_MIME,
+    options: { [ORIENTATION_OPTION]: "auto" },
+    refusedAtCreate: true,
+    expect: () => false,
+    want: "the job refused at creation, naming options",
   },
   {
     tool: "powerpoint-to-pdf",
@@ -1884,7 +2082,12 @@ interface ApiResponse {
   jobId?: string;
   id?: string;
   status?: string;
-  error?: { code: string; message: string; retryable?: boolean };
+  error?: {
+    code: string;
+    message: string;
+    retryable?: boolean;
+    details?: { field?: string }[];
+  };
   artifacts?: { artifactId: string; filename: string }[];
   results?: JobResults;
 }
@@ -2121,6 +2324,24 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
       };
     }
   } else if (spec.options) request.options = spec.options;
+
+  if (spec.refusedAtCreate) {
+    const expected = expectedCreateRefusal(request);
+    const created = await postJson("/api/jobs", request);
+    const verdict = createRefusalVerdict(expected, {
+      status: created.res.status,
+      body: created.body,
+    });
+    return verdict.ok
+      ? { label, outcome: "proven", seconds: seconds(), detail: verdict.detail }
+      : {
+          label,
+          outcome: "failed",
+          seconds: seconds(),
+          stage: "create job",
+          detail: verdict.detail,
+        };
+  }
 
   const created = await postJson("/api/jobs", request);
   if (!created.res.ok) {
