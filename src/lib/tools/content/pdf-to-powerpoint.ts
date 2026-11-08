@@ -1,6 +1,7 @@
 import type { ToolContent } from "./types";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
+import { WORD_OCR_LABEL } from "@/lib/jobs/pdf-office-export";
 import {
   MAX_BILEVEL_PICTURE_SIDE,
   MAX_LAYERS_PER_PAGE,
@@ -212,7 +213,7 @@ const content: ToolContent = {
   intro: [
     `PDF to PowerPoint turns each page of a PDF into a slide of a .pptx file, in page order, and the slides take the size and shape of the first page. A photo or screenshot on a page lands on its slide as a picture of its own, where the page shows it and at the size it is shown, cut to the shape the page shows it through. Every line of selectable text becomes a text box at its place, in its size, weight and colour, set in a font matched to the PDF's: fonts are not copied, so a line can run a little longer or shorter than on the page. Lines, boxes, arrows, backgrounds, and stencilled or tiled images come across as pictures of the drawing, stacked in the order the page paints them, so a box drawn over a screenshot stays over it. A page whose drawing would take more than ${LAYERS} such pictures to stack in order, such as a table that draws each cell's border after its text, becomes one picture of the page instead, with its text in invisible text boxes over it: you can select and search that text, but not see or restyle it. A picture too large for our server to handle, or one it cannot decode, is left out, and a note beside the download names its page, ${UNNOTED}. If you are looking for PDF to PPT: the file you get is a .pptx, the format PowerPoint saves in by default; the older .ppt format is not written.`,
     "What has been checked, and how. On 10 October 2026, decks this tool's export code made from five generated test PDFs and a 33-page slide-style tutorial were opened read-only by PowerPoint for Windows through its automation interface, with its alerts switched off, and saved as PDF; every page of that PDF was compared, pixel by pixel, with the page it came from, and they matched closely, pictures included. The same day the same route opened the deck of a three-page test document and read every page's text back. Whether a downloaded file opens on a double-click without PowerPoint offering to repair it has not been checked for this version, editing the slides has not been tested, and this page makes no claim about any other presentation app.",
-    `A scanned page holds a picture of its words rather than text, so its slide carries the page as a picture, and those words are not editable text. Run OCR PDF on the scan first and convert the result: its slides then also carry the recognised words, in invisible text boxes over the picture, as the OCR'd PDF does. The reading is done on a server, not inside your browser: your PDF (one per run, ${CEILING_MB} MB at most) is uploaded over TLS to pdf.xyz's secure server, where your input is deleted as each job finishes. Our server keeps the .pptx available for ${OUTPUT_TTL} minutes; after that its link fails, and a daily storage rule erases the stored copy.`,
+    `A scanned page holds a picture of its words rather than text, so its slide carries the page as a picture, and those words are not editable text. Tick “${WORD_OCR_LABEL}” and our server recognises the words first, in the languages you pick, and converts the result in the same job: its slides then also carry the recognised words, in invisible text boxes over the picture, as an OCR'd PDF does. The reading is done on a server, not inside your browser: your PDF (one per run, ${CEILING_MB} MB at most) is uploaded over TLS to pdf.xyz's secure server, where your input is deleted as each job finishes. Our server keeps the .pptx available for ${OUTPUT_TTL} minutes; after that its link fails, and a daily storage rule erases the stored copy.`,
   ],
 
   useCases: [
@@ -226,14 +227,16 @@ const content: ToolContent = {
     },
     {
       title: "Bring a scanned handout into a deck",
-      body: "A scanned page comes through as a picture of the page on its slide. To have its words as text too, run OCR PDF first: the converted slides then carry the recognised words in invisible text boxes over each picture.",
+      // CHANGED 2026-11-08 (audit pdf-to-powerpoint#4): "…, run OCR PDF
+      // first: …" — before the panel ran OCR in the same job.
+      body: `A scanned page comes through as a picture of the page on its slide. To have its words as text too, tick “${WORD_OCR_LABEL}” and pick the languages printed on it: the converted slides then carry the recognised words in invisible text boxes over each picture, ready to select, search and copy.`,
     },
   ],
 
   steps: [
     {
       title: "Check what is text in your PDF",
-      body: "Try highlighting a sentence in any PDF viewer. What highlights becomes text boxes on the slides; what does not, such as a scanned page or a photo of one, comes through as a picture. If you need a scan's words as text, run OCR PDF on the file first.",
+      body: `Try highlighting a sentence in any PDF viewer. What highlights becomes text boxes on the slides; what does not, such as a scanned page or a photo of one, comes through as a picture. If you need a scan's words as text, tick “${WORD_OCR_LABEL}” before converting.`,
     },
     {
       title: "Add your PDF",
@@ -260,7 +263,7 @@ const content: ToolContent = {
     },
     {
       q: "What happens to a scanned PDF?",
-      a: "It is converted, as pictures. A scanned page has no selectable text, only a picture of its words, so its slide carries the page as a picture and those words are not editable text; the note beside the download names the pages it happened to. For text as well, run OCR PDF on the scan first and convert the OCR'd copy: its slides carry the recognised words in invisible text boxes over each picture. PDF to Excel, whose file would hold nothing, and PDF to Word, whose document would have nothing in it to edit, still stop at a PDF with no selectable text.",
+      a: `It is converted, as pictures. A scanned page has no selectable text, only a picture of its words, so its slide carries the page as a picture and those words are not editable text; the note beside the download names the pages it happened to. For text as well, tick “${WORD_OCR_LABEL}”: our server runs OCR PDF's engine first, in the languages you pick, keeping pages that already have text as they are, and the slides carry the recognised words in invisible text boxes over each picture. OCR in the wrong language does not fail, it produces plausible-looking gibberish, so choose every language printed on the page. Without the switch, PDF to Excel, whose file would hold nothing, and PDF to Word, whose document would have nothing in it to edit, stop at a PDF with no selectable text.`,
     },
     {
       q: "Why is a paragraph split into separate text boxes?",

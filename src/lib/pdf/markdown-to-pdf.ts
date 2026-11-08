@@ -1,11 +1,21 @@
 import type { PDFDocument, PDFFont, PDFPage, RGB as PdfLibRGB } from "pdf-lib";
-import { loadPdfLib } from "./pdf-lib";
+import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
 import { outputName } from "./files";
 import { PdfEngineError } from "./engine";
 import { embedDrawingFont } from "./unicode-font";
 import { TEXT_PAGE_MARGIN_PT, US_LETTER_PT } from "./page-geometry";
 import { MARKDOWN_BLOCK_KINDS } from "./markdown-blocks";
 import { wrapTextLine } from "./text-to-pdf";
+import {
+  BOLD,
+  CODE,
+  ITALIC,
+  clickableHref,
+  drawSegments,
+  hasStyledRuns,
+  wrapRuns,
+  type InlineRun,
+} from "./markdown-runs";
 
 export { MARKDOWN_BLOCK_KINDS };
 
@@ -105,6 +115,8 @@ interface Cursor {
   fonts: PdfFonts;
   /** pdf-lib's color factory, threaded so the sync draw helpers stay sync. */
   rgb: (r: number, g: number, b: number) => PdfLibRGB;
+  /** What drawing a link needs from pdf-lib (its /URI string), likewise. */
+  lib: Pick<PdfLibModule, "PDFString" | "rgb">;
 }
 
 export function validateMarkdownInput(markdown: string): void {
@@ -128,9 +140,12 @@ export function markdownPdfOutputName(sourceName: string): string {
 /* ------------------------------------------------------------------ *
  *  Inline markup
  *
- *  This renderer draws inline text in one face per block, so inline markup
- *  is REMOVED rather than styled. That makes the one unforgivable outcome a
- *  character the user typed going missing: the previous regex chain unwrapped
+ *  The markup characters are REMOVED; since 2026-11-08 (audit
+ *  markdown-to-pdf#6) what they asked for is drawn too, from the styled runs
+ *  `renderInline` returns beside the text (bold, italic, code, and the
+ *  clickable address of a link — `markdown-runs.ts`). Removal is still where
+ *  the one unforgivable outcome lives, a character the user typed going
+ *  missing: the previous regex chain unwrapped
  *  code spans first and then ran `_x_` / `*x*` over what they exposed, so
  *  `MAX_UPLOAD_SIZE` printed as MAXUPLOADSIZE, `__init__.py` as init.py and
  *  "2 * 3 * 4" as "2  3  4" — silently, in a tool whose keyword is "readme to
@@ -389,6 +404,16 @@ interface InlineUnit {
    * `break` is a hard line break, drawn as a new line.
    */
   kind: "text" | "literal" | "code" | "break";
+  /** The clickable address this character's link opens (`clickableHref`). */
+  href?: string;
+}
+
+/** Give `units` (a link's label and printed address) the link's address. */
+function linkUnits(units: InlineUnit[], href: string | undefined): void {
+  if (href === undefined) return;
+  for (const unit of units) {
+    if (unit.kind !== "break") unit.href = href;
+  }
 }
 
 function literalUnits(text: string): InlineUnit[] {
@@ -681,14 +706,20 @@ function pushLink(
   url: string,
   context: InlineContext,
   depth: number,
+  /** An image's address is printed, never opened: images are not links. */
+  isImage = false,
 ): void {
+  const href = isImage ? undefined : clickableHref(url);
   const label = tokenizeInline(labelSource, context, depth + 1);
   const labelText = label.map((u) => u.ch).join("");
-  if (!labelText.trim()) pushAll(out, literalUnits(url));
+  const printed: InlineUnit[] = [];
+  if (!labelText.trim()) pushAll(printed, literalUnits(url));
   else {
-    pushAll(out, label);
-    if (labelText.trim() !== url) pushAll(out, literalUnits(` (${url})`));
+    pushAll(printed, label);
+    if (labelText.trim() !== url) pushAll(printed, literalUnits(` (${url})`));
   }
+  linkUnits(printed, href);
+  pushAll(out, printed);
 }
 
 /**
@@ -746,6 +777,8 @@ function tokenizeInline(
     else if (label !== open.href) {
       pushAll(out, literalUnits(` (${open.href})`));
     }
+    const href = clickableHref(open.href);
+    if (href !== undefined) linkUnits(out.slice(open.at), href);
   };
   let i = 0;
   while (i < src.length) {
@@ -821,7 +854,7 @@ function tokenizeInline(
       const link =
         matchLink(source, open) ?? matchReference(source, open, context);
       if (link) {
-        pushLink(out, link.label, link.url, context, depth);
+        pushLink(out, link.label, link.url, context, depth, isImage);
         i = link.end;
         continue;
       }
@@ -830,7 +863,9 @@ function tokenizeInline(
       const window = src.slice(i, i + LINK_SCAN_LIMIT);
       const auto = AUTOLINK.exec(window);
       if (auto) {
-        pushAll(out, literalUnits(auto[1]!));
+        const units = literalUnits(auto[1]!);
+        linkUnits(units, clickableHref(auto[1]!));
+        pushAll(out, units);
         i += auto[0].length;
         continue;
       }
@@ -887,7 +922,9 @@ function tokenizeInline(
     }
     const url = bareUrlEnd(src, i);
     if (url > i) {
-      pushAll(out, literalUnits(src.slice(i, url)));
+      const units = literalUnits(src.slice(i, url));
+      linkUnits(units, clickableHref(src.slice(i, url)));
+      pushAll(out, units);
       i = url;
       continue;
     }
@@ -926,8 +963,13 @@ interface Delimiter {
  * removes emphasis needs: decide WHICH `*`, `_` and `~` characters are markup,
  * and mark only those for removal. Plus GFM strikethrough, `~~` only.
  */
-function markEmphasis(units: InlineUnit[]): Uint8Array {
+function markEmphasis(units: InlineUnit[]): {
+  removed: Uint8Array;
+  styles: Uint8Array;
+} {
   const removed = new Uint8Array(units.length);
+  // What each character is wrapped in: BOLD and ITALIC from the pairs found.
+  const styles = new Uint8Array(units.length);
   const delimiters: Delimiter[] = [];
   for (let i = 0; i < units.length;) {
     const unit = units[i]!;
@@ -1009,6 +1051,13 @@ function markEmphasis(units: InlineUnit[]): Uint8Array {
             : opener.remaining >= 2 && closer.remaining >= 2
               ? 2
               : 1;
+        if (closer.ch !== "~") {
+          const from = opener.start + opener.remaining;
+          const to = closer.start + (closer.length - closer.remaining);
+          for (let k = from; k < to; k++) {
+            styles[k] = styles[k]! | (use === 2 ? BOLD : ITALIC);
+          }
+        }
         for (let k = 0; k < use; k++) {
           removed[opener.start + opener.remaining - 1 - k] = 1;
           removed[closer.start + (closer.length - closer.remaining) + k] = 1;
@@ -1024,7 +1073,7 @@ function markEmphasis(units: InlineUnit[]): Uint8Array {
     }
     if (closer.canOpen && closer.remaining > 0) stack.push(closer);
   }
-  return removed;
+  return { removed, styles };
 }
 
 /**
@@ -1038,30 +1087,100 @@ function stripInlineMarkdown(
   input: string,
   context: InlineContext = emptyContext(),
 ): string {
+  return renderInline(input, context).text;
+}
+
+/**
+ * {@link stripInlineMarkdown}'s text, and the same text as styled runs: what
+ * the emphasis around each character asked for (bold, italic), code spans,
+ * and the clickable address of each link. `runs` joined is exactly `text`.
+ */
+function renderInline(
+  input: string,
+  context: InlineContext = emptyContext(),
+): { text: string; runs: InlineRun[] } {
   const units = tokenizeInline(input, context);
-  const removed = markEmphasis(units);
-  let out = "";
+  const { removed, styles } = markEmphasis(units);
+  const runs: InlineRun[] = [];
+  const append = (ch: string, style: number, href?: string) => {
+    const last = runs.at(-1);
+    if (last && last.style === style && last.href === href) last.text += ch;
+    else
+      runs.push(
+        href === undefined ? { text: ch, style } : { text: ch, style, href },
+      );
+  };
   let lastWasSpace = true;
   units.forEach((unit, index) => {
     if (removed[index]) return;
     if (unit.kind === "break") {
-      out = `${out.endsWith(" ") ? out.slice(0, -1) : out}\n`;
+      const last = runs.at(-1);
+      if (last?.text.endsWith(" ")) last.text = last.text.slice(0, -1);
+      append("\n", 0);
       lastWasSpace = true;
       return;
     }
+    const style = (unit.kind === "code" ? CODE : 0) | styles[index]!;
     if (
       unit.kind !== "code" &&
       !(unit.kind === "literal" && unit.ch === "\u00A0") &&
       /\s/u.test(unit.ch)
     ) {
-      if (!lastWasSpace) out += " ";
+      if (!lastWasSpace) append(" ", style, unit.href);
       lastWasSpace = true;
       return;
     }
-    out += unit.ch;
+    append(unit.ch, style, unit.href);
     lastWasSpace = false;
   });
-  return out.trim();
+  const full = runs.map((run) => run.text).join("");
+  const text = full.trim();
+  const start = full.length - full.trimStart().length;
+  return { text, runs: sliceRuns(runs, start, start + text.length) };
+}
+
+/** `runs` cut to the characters `[start, end)` of their joined text. */
+function sliceRuns(runs: InlineRun[], start: number, end: number): InlineRun[] {
+  const out: InlineRun[] = [];
+  let at = 0;
+  for (const run of runs) {
+    const from = Math.max(start, at);
+    const to = Math.min(end, at + run.text.length);
+    if (to > from)
+      out.push({ ...run, text: run.text.slice(from - at, to - at) });
+    at += run.text.length;
+  }
+  return out.filter((run) => run.text.length > 0);
+}
+
+/**
+ * The styled runs of a block's text, kept beside the block rather than in it:
+ * `MarkdownBlock` is the parse result tests compare whole, and the runs are a
+ * drawing detail. Set for paragraphs, list items and quotes; a block with no
+ * entry, or with runs that carry no style or link, is drawn as plain text.
+ */
+const BLOCK_RUNS = new WeakMap<MarkdownBlock, InlineRun[]>();
+
+/**
+ * A heading's runs: its links and nothing else. A heading is drawn in its one
+ * bold face, so bold, italic and code are dropped and only each link's
+ * address is kept; that is what makes a heading's link open and take the
+ * link colour. Until the markdown-to-pdf#6 review headings had no runs, so a
+ * link in one printed its address but did not open.
+ */
+function headingRuns(runs: InlineRun[]): InlineRun[] {
+  return runs.map((run) =>
+    run.href === undefined
+      ? { text: run.text, style: 0 }
+      : { text: run.text, style: 0, href: run.href },
+  );
+}
+
+/** The runs {@link drawBlock} draws `block` from, if it has any. */
+export function blockRuns(
+  block: MarkdownBlock,
+): readonly InlineRun[] | undefined {
+  return BLOCK_RUNS.get(block);
 }
 
 /* ------------------------------------------------------------------ *
@@ -1227,25 +1346,31 @@ const ALERT = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\](?:[ \n]+|$)/i;
  */
 function quoteBlocks(inner: MarkdownBlock[], depth: number): MarkdownBlock[] {
   const out: MarkdownBlock[] = [];
-  const quote = (text: string, level = depth) => {
+  const quote = (text: string, level = depth, runs?: InlineRun[]) => {
     if (text) {
-      out.push(
+      const block: MarkdownBlock =
         level > 1
           ? { kind: "quote", text, depth: level }
-          : { kind: "quote", text },
-      );
+          : { kind: "quote", text };
+      if (runs) BLOCK_RUNS.set(block, runs);
+      out.push(block);
     }
   };
   inner.forEach((block, index) => {
     switch (block.kind) {
       case "quote":
-        quote(block.text, depth + (block.depth ?? 1));
+        quote(block.text, depth + (block.depth ?? 1), BLOCK_RUNS.get(block));
         return;
-      case "list-item":
+      case "list-item": {
+        const prefix = `${"  ".repeat(block.depth)}${block.continued ? "  " : `${listMarker(block)} `}`;
+        const runs = BLOCK_RUNS.get(block);
         quote(
-          `${"  ".repeat(block.depth)}${block.continued ? "  " : `${listMarker(block)} `}${block.text}`,
+          `${prefix}${block.text}`,
+          depth,
+          runs && [{ text: prefix, style: 0 }, ...runs],
         );
         return;
+      }
       case "table":
         quote(
           [block.header, ...block.rows]
@@ -1260,10 +1385,18 @@ function quoteBlocks(inner: MarkdownBlock[], depth: number): MarkdownBlock[] {
         if (alert) {
           const name = alert[1]!.toLowerCase();
           quote(name[0]!.toUpperCase() + name.slice(1));
-          quote(block.text.slice(alert[0].length));
+          // The callout's text keeps its runs (bold, links). Until the
+          // markdown-to-pdf#6 review it was passed as bare text, so a link
+          // in a [!NOTE] printed but did not open.
+          const runs = BLOCK_RUNS.get(block);
+          quote(
+            block.text.slice(alert[0].length),
+            depth,
+            runs && sliceRuns(runs, alert[0].length, block.text.length),
+          );
           return;
         }
-        quote(block.text);
+        quote(block.text, depth, BLOCK_RUNS.get(block));
         return;
       }
       default:
@@ -1333,6 +1466,7 @@ function parseBlocks(
 ): MarkdownBlock[] {
   const blocks: MarkdownBlock[] = [];
   const inline = (text: string) => stripInlineMarkdown(text, context);
+  const inlineRuns = (text: string) => renderInline(text, context);
 
   // Text is collected raw and rendered once per block, so emphasis and code
   // spans that run across a line break still pair up.
@@ -1351,8 +1485,12 @@ function parseBlocks(
 
   const flushParagraph = () => {
     if (!paragraph.length) return;
-    const text = inline(paragraph.join("\n"));
-    if (text) blocks.push({ kind: "paragraph", text });
+    const { text, runs } = inlineRuns(paragraph.join("\n"));
+    if (text) {
+      const block: MarkdownBlock = { kind: "paragraph", text };
+      BLOCK_RUNS.set(block, runs);
+      blocks.push(block);
+    }
     paragraph = [];
   };
   const flushQuote = () => {
@@ -1369,7 +1507,9 @@ function parseBlocks(
   };
   const flushItem = () => {
     if (!item) return;
-    item.block.text = inline(item.lines.join("\n"));
+    const { text, runs } = inlineRuns(item.lines.join("\n"));
+    item.block.text = text;
+    BLOCK_RUNS.set(item.block, runs);
     item = null;
   };
   const flushAll = () => {
@@ -1508,14 +1648,16 @@ function parseBlocks(
     if (paragraph.length && indent <= 3) {
       const level = SETEXT_1.test(trimmed) ? 1 : SETEXT_2.test(trimmed) ? 2 : 0;
       if (level) {
-        const heading = inline(paragraph.join("\n"));
+        const { text: heading, runs } = inlineRuns(paragraph.join("\n"));
         paragraph = [];
         if (heading) {
-          blocks.push({
+          const block: MarkdownBlock = {
             kind: "heading",
             depth: level as 1 | 2,
             text: heading,
-          });
+          };
+          BLOCK_RUNS.set(block, headingRuns(runs));
+          blocks.push(block);
         }
         previousBlank = false;
         continue;
@@ -1535,13 +1677,15 @@ function parseBlocks(
     if (heading) {
       flushAll();
       closeList();
-      const headingText = inline(heading[2] ?? "");
+      const { text: headingText, runs } = inlineRuns(heading[2] ?? "");
       if (headingText) {
-        blocks.push({
+        const block: MarkdownBlock = {
           kind: "heading",
           depth: heading[1]!.length as 1 | 2 | 3 | 4 | 5 | 6,
           text: headingText,
-        });
+        };
+        BLOCK_RUNS.set(block, headingRuns(runs));
+        blocks.push(block);
       }
       previousBlank = false;
       continue;
@@ -1821,6 +1965,48 @@ function drawLines(
   }
 }
 
+/**
+ * A block's text in its styled runs (bold, italic, code, clickable links),
+ * when it has any; null when it is plain, so it is drawn exactly as before
+ * by {@link drawLines}.
+ */
+function styledLines(
+  cursor: Cursor,
+  block: MarkdownBlock,
+  base: PDFFont,
+  maxWidth: number,
+  size: number,
+) {
+  const runs = BLOCK_RUNS.get(block);
+  if (!runs || !hasStyledRuns(runs)) return null;
+  return wrapRuns(runs, cursor.fonts, base, maxWidth, size);
+}
+
+function drawStyledLines(
+  cursor: Cursor,
+  lines: ReturnType<typeof wrapRuns>,
+  opts: {
+    x: number;
+    size: number;
+    lineHeight: number;
+    color?: PdfLibRGB;
+    /** Drawn before each line, after the page break check (a quote's bars). */
+    before?: () => void;
+  },
+): void {
+  for (const line of lines) {
+    ensureSpace(cursor, opts.lineHeight);
+    opts.before?.();
+    drawSegments(cursor.lib, cursor.page, line, {
+      x: opts.x,
+      y: cursor.y,
+      size: opts.size,
+      color: opts.color ?? cursor.rgb(0.1, 0.12, 0.18),
+    });
+    cursor.y -= opts.lineHeight;
+  }
+}
+
 const HEADING_SIZES = { 1: 22, 2: 17, 3: 14, 4: 12.5, 5: 11.5, 6: 11 };
 
 /**
@@ -1971,36 +2157,59 @@ function drawBlock(cursor: Cursor, block: MarkdownBlock): void {
       const size = HEADING_SIZES[block.depth];
       const lineHeight = size + 9;
       cursor.y -= block.depth === 1 ? 8 : 4;
-      drawLines(
+      const color =
+        block.depth === 6
+          ? cursor.rgb(0.3, 0.33, 0.42)
+          : cursor.rgb(0.05, 0.07, 0.14);
+      // Styled only when the heading has a link: headingRuns keeps no style.
+      const styled = styledLines(
         cursor,
-        wrapBlockText(block.text, cursor.fonts.bold, maxWidth, size),
-        {
-          x: MARGIN,
-          size,
-          lineHeight,
-          font: cursor.fonts.bold,
-          color:
-            block.depth === 6
-              ? cursor.rgb(0.3, 0.33, 0.42)
-              : cursor.rgb(0.05, 0.07, 0.14),
-        },
+        block,
+        cursor.fonts.bold,
+        maxWidth,
+        size,
       );
+      if (styled) {
+        drawStyledLines(cursor, styled, { x: MARGIN, size, lineHeight, color });
+      } else {
+        drawLines(
+          cursor,
+          wrapBlockText(block.text, cursor.fonts.bold, maxWidth, size),
+          { x: MARGIN, size, lineHeight, font: cursor.fonts.bold, color },
+        );
+      }
       cursor.y -= 4;
       return;
     }
-    case "paragraph":
-      drawLines(
+    case "paragraph": {
+      const styled = styledLines(
         cursor,
-        wrapBlockText(block.text, cursor.fonts.body, maxWidth, BODY_SIZE),
-        {
+        block,
+        cursor.fonts.body,
+        maxWidth,
+        BODY_SIZE,
+      );
+      if (styled) {
+        drawStyledLines(cursor, styled, {
           x: MARGIN,
           size: BODY_SIZE,
           lineHeight: BODY_LINE_HEIGHT,
-          font: cursor.fonts.body,
-        },
-      );
+        });
+      } else {
+        drawLines(
+          cursor,
+          wrapBlockText(block.text, cursor.fonts.body, maxWidth, BODY_SIZE),
+          {
+            x: MARGIN,
+            size: BODY_SIZE,
+            lineHeight: BODY_LINE_HEIGHT,
+            font: cursor.fonts.body,
+          },
+        );
+      }
       cursor.y -= 6;
       return;
+    }
     case "list-item": {
       const x =
         MARGIN +
@@ -2014,12 +2223,21 @@ function drawBlock(cursor: Cursor, block: MarkdownBlock): void {
         12,
         font.widthOfTextAtSize(`${marker} `, BODY_SIZE),
       );
-      const lines = wrapBlockText(
-        block.text,
+      const styled = styledLines(
+        cursor,
+        block,
         font,
         PAGE_WIDTH - MARGIN - x - hang,
         BODY_SIZE,
       );
+      const lines = styled
+        ? []
+        : wrapBlockText(
+            block.text,
+            font,
+            PAGE_WIDTH - MARGIN - x - hang,
+            BODY_SIZE,
+          );
       ensureSpace(cursor, BODY_LINE_HEIGHT);
       if (block.continued) {
         // A later paragraph of the item: a little air, then its text column.
@@ -2033,18 +2251,55 @@ function drawBlock(cursor: Cursor, block: MarkdownBlock): void {
           color: cursor.rgb(0.1, 0.12, 0.18),
         });
       }
-      drawLines(cursor, lines, {
-        x: x + hang,
-        size: BODY_SIZE,
-        lineHeight: BODY_LINE_HEIGHT,
-        font,
-      });
+      if (styled) {
+        drawStyledLines(cursor, styled, {
+          x: x + hang,
+          size: BODY_SIZE,
+          lineHeight: BODY_LINE_HEIGHT,
+        });
+      } else {
+        drawLines(cursor, lines, {
+          x: x + hang,
+          size: BODY_SIZE,
+          lineHeight: BODY_LINE_HEIGHT,
+          font,
+        });
+      }
       return;
     }
     case "quote": {
       // One bar per level of nesting, each QUOTE_STEP further right.
       const levels = Math.min(block.depth ?? 1, MAX_LIST_DEPTH);
       const inset = (levels - 1) * QUOTE_STEP;
+      const bars = () => {
+        for (let level = 0; level < levels; level++) {
+          cursor.page.drawRectangle({
+            x: MARGIN + level * QUOTE_STEP,
+            y: cursor.y - 4,
+            width: 3,
+            height: BODY_LINE_HEIGHT,
+            color: cursor.rgb(0.45, 0.36, 0.95),
+          });
+        }
+      };
+      const styled = styledLines(
+        cursor,
+        block,
+        cursor.fonts.italic,
+        maxWidth - 18 - inset,
+        BODY_SIZE,
+      );
+      if (styled) {
+        drawStyledLines(cursor, styled, {
+          x: MARGIN + 14 + inset,
+          size: BODY_SIZE,
+          lineHeight: BODY_LINE_HEIGHT,
+          color: cursor.rgb(0.24, 0.27, 0.38),
+          before: bars,
+        });
+        cursor.y -= 5;
+        return;
+      }
       const lines = wrapBlockText(
         block.text,
         cursor.fonts.italic,
@@ -2146,7 +2401,8 @@ export async function markdownToPdf(
 ): Promise<Uint8Array> {
   validateMarkdownInput(markdown);
   const blocks = parseMarkdownBlocks(markdown);
-  const { PDFDocument, rgb } = await loadPdfLib();
+  const lib = await loadPdfLib();
+  const { PDFDocument, rgb } = lib;
   const doc = await PDFDocument.create();
   const title =
     (options.title ?? "Markdown document").trim() || "Markdown document";
@@ -2173,7 +2429,9 @@ export async function markdownToPdf(
     y: PAGE_HEIGHT - MARGIN,
     fonts,
     rgb,
+    lib,
   };
+
   cursor.page.drawText(fitTitle(title, fonts.bold, 9), {
     x: MARGIN,
     y: PAGE_HEIGHT - 34,

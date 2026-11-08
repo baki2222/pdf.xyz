@@ -9,6 +9,11 @@ import { PDFDocument } from "pdf-lib";
 import { PdfTextExecError } from "../pdf-text/errors";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
 import { rc4EncryptedPdf } from "@/tests/pdf-office-fixtures";
+import {
+  COMBINED_CSV_NAME,
+  EXTRACT_TABLES_NO_TABLES_CODE,
+} from "@/lib/jobs/extract-tables-options";
+import { sanitizeJobResults } from "@/lib/jobs/results";
 
 const PDF = new TextEncoder().encode(
   "%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
@@ -99,7 +104,13 @@ describe("table-extract processor", () => {
     }
   });
 
-  it("fails as unprocessable when no tables are present", async () => {
+  /*
+   * INVERTED 2026-11-08 (audit extract-tables#5). This expected the generic
+   * `unprocessable_entity`, a code no panel links a next step from, so a
+   * prose PDF ended on the error sentence alone. The failure now carries its
+   * own code, and the panel offers PDF to Excel and OCR PDF from it.
+   */
+  it("fails with its own no-tables code when no tables are present", async () => {
     const prose = vi.fn(async () => ({
       pageCount: 1,
       pages: [
@@ -134,7 +145,11 @@ describe("table-extract processor", () => {
       ],
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe("unprocessable_entity");
+    if (!result.ok)
+      expect(result.error).toMatchObject({
+        code: EXTRACT_TABLES_NO_TABLES_CODE,
+        retryable: false,
+      });
   });
 
   it("rejects malformed input count", async () => {
@@ -250,5 +265,89 @@ describe("table-extract processor — document failures are final and name their
         code: "internal_error",
         retryable: true,
       });
+  });
+});
+
+describe("table-extract processor — “Combine tables into one sheet” (audit extract-tables#2)", () => {
+  function job(options: Record<string, unknown>) {
+    return createTableExtractProcessor({ extractLayout, limits: {} }).process({
+      tool: "extract-tables",
+      options,
+      inputs: [
+        {
+          fileId: "f",
+          filename: "report.pdf",
+          contentType: "application/pdf",
+          bytes: PDF,
+        },
+      ],
+    });
+  }
+
+  it("`combine: true` writes the one combined CSV, read back from the artifact", async () => {
+    const result = await job({ combine: true });
+    if (!result.ok) throw new Error(result.error.message);
+    const zip = await JSZip.loadAsync(result.artifacts[0]!.bytes);
+    expect(Object.keys(zip.files).sort()).toEqual([
+      COMBINED_CSV_NAME,
+      "tables.xlsx",
+    ]);
+    expect(result.meta).toMatchObject({ combined: true });
+  });
+
+  it("an empty bag is the old request: one CSV per table", async () => {
+    const result = await job({});
+    if (!result.ok) throw new Error(result.error.message);
+    const zip = await JSZip.loadAsync(result.artifacts[0]!.bytes);
+    expect(zip.file("table-1.csv")).not.toBeNull();
+    expect(result.meta).toMatchObject({ combined: false });
+  });
+
+  it("a non-boolean `combine` is refused, not guessed", async () => {
+    const result = await job({ combine: "yes" });
+    expect(result.ok).toBe(false);
+    if (!result.ok)
+      expect(result.error).toMatchObject({
+        code: "invalid_request",
+        retryable: false,
+      });
+  });
+});
+
+describe("table-extract processor — what was found, on the job record (audit extract-tables#4)", () => {
+  it("reports the table count and the pages tables came from, through the persistence boundary", async () => {
+    const twoOfThree = vi.fn(async () => {
+      const page = tableLayout().pages[0]!;
+      return {
+        pageCount: 3,
+        pages: [
+          { ...page, pageNumber: 1 },
+          { ...page, pageNumber: 2, items: [] },
+          { ...page, pageNumber: 3 },
+        ],
+      };
+    });
+    const result = await createTableExtractProcessor({
+      extractLayout: twoOfThree,
+    }).process({
+      tool: "extract-tables",
+      options: {},
+      inputs: [
+        {
+          fileId: "f",
+          filename: "report.pdf",
+          contentType: "application/pdf",
+          bytes: PDF,
+        },
+      ],
+    });
+    if (!result.ok) throw new Error(result.error.message);
+    expect(sanitizeJobResults(result.results)?.tables).toEqual({
+      tableCount: 2,
+      pageCount: 3,
+      tablePages: [1, 3],
+      tablePagesTruncated: false,
+      combined: false,
+    });
   });
 });

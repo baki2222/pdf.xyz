@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_OCR_LANGUAGE,
+  OCR_DESKEW_WITH_REDO_MESSAGE,
   MAX_OCR_LANGUAGES,
   OCR_LANGUAGE_CODES,
   parseOcrOptions,
@@ -17,7 +18,13 @@ describe("parsePdfToWordOptions", () => {
   it("{} is today's job: no OCR, no languages", () => {
     expect(parsePdfToWordOptions({})).toEqual({
       ok: true,
-      value: { ocr: false, languages: [] },
+      value: {
+        ocr: false,
+        languages: [],
+        rotatePages: false,
+        deskew: false,
+        redoOcr: false,
+      },
     });
   });
 
@@ -26,6 +33,9 @@ describe("parsePdfToWordOptions", () => {
     expect(r.ok && r.value).toEqual({
       ocr: true,
       languages: [DEFAULT_OCR_LANGUAGE],
+      rotatePages: false,
+      deskew: false,
+      redoOcr: false,
     });
   });
 
@@ -65,5 +75,50 @@ describe("parsePdfToWordOptions", () => {
     expect(field(parsePdfToWordOptions({ languages: ["eng"] }))).toBe(
       "options.languages",
     );
+  });
+});
+
+/**
+ * Audit pdf-to-word#3 (2026-11-08): the OCR pass sent only languages, so
+ * OCR PDF's "Turn pages upright", "Straighten crooked pages" and "Redo
+ * existing OCR" were always off here. They are now carried, validated by
+ * OCR PDF's own parser — the same booleans, the same refused pair.
+ */
+describe("parsePdfToWordOptions — OCR PDF's page choices", () => {
+  it("carries rotatePages, deskew and redoOcr when OCR is on", () => {
+    const r = parsePdfToWordOptions({
+      ocr: true,
+      languages: ["eng"],
+      rotatePages: true,
+      deskew: true,
+    });
+    expect(r.ok && r.value).toEqual({
+      ocr: true,
+      languages: ["eng"],
+      rotatePages: true,
+      deskew: true,
+      redoOcr: false,
+    });
+    const redo = parsePdfToWordOptions({ ocr: true, redoOcr: true });
+    expect(redo.ok && redo.value.redoOcr).toBe(true);
+  });
+
+  it("refuses Straighten with Redo, with OCR PDF's own message", () => {
+    const r = parsePdfToWordOptions({ ocr: true, deskew: true, redoOcr: true });
+    expect(r.ok).toBe(false);
+    if (!r.ok)
+      expect(r.error.body.error.message).toBe(OCR_DESKEW_WITH_REDO_MESSAGE);
+  });
+
+  it("refuses a page choice sent without OCR, and a non-boolean one", () => {
+    for (const key of ["rotatePages", "deskew", "redoOcr"]) {
+      expect(field(parsePdfToWordOptions({ [key]: true })), key).toBe(
+        `options.${key}`,
+      );
+      expect(
+        field(parsePdfToWordOptions({ ocr: true, [key]: "yes" })),
+        key,
+      ).toBe(`options.${key}`);
+    }
   });
 });

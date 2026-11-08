@@ -1,13 +1,9 @@
 import type { JobError } from "@/lib/jobs";
 import type { JobResults } from "@/lib/jobs/results";
-import { parsePdfToWordOptions } from "@/lib/jobs/ocr";
-import { WORD_OCR_LABEL } from "@/lib/jobs/pdf-office-export";
+import { parsePdfToExcelOptions } from "@/lib/jobs/pdf-to-excel-options";
+import { OFFICE_OCR_TOOLS } from "@/lib/jobs/office-export-ocr";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
-import { OCR_REFUSAL_MESSAGES } from "../ocr-engine-errors";
-import { describeByteCeiling } from "../engine-file-ceilings";
-
-/** The tool slug the OCR processor serves; PDF to Word asks it by name. */
-const OCR_TOOL_SLUG = "ocr-pdf";
+import { ocrFirstMessages, runOcrFirst } from "./ocr-first";
 import {
   MAX_DISPLAY_FILENAME_LENGTH,
   sanitizeDisplayFilename,
@@ -32,6 +28,12 @@ import {
 } from "./types";
 
 type Failure = Extract<PdfOfficeExportRun, { ok: false }>;
+
+/**
+ * The exports whose job may run OCR first: the panels that offer the switch
+ * (`OFFICE_OCR_TOOLS`), read from the same list so the two cannot part.
+ */
+const OCR_FIRST_TOOLS: readonly string[] = OFFICE_OCR_TOOLS;
 const FALLBACK_STEM = "document";
 
 export function pdfOfficeExportOutputName(
@@ -140,31 +142,34 @@ function meta(m: PdfOfficeExportMeta): ProcessorMeta {
   };
 }
 
-/**
- * What PDF to Word's "Recognise text in scans (OCR)" says when OCR cannot
- * help, in words for THIS panel. The OCR processor's own copy names OCR PDF's
- * controls ("Turn on “Redo existing OCR”"), which this panel does not have.
- */
-export const WORD_OCR_MESSAGES = {
-  unavailable: `Recognising text in scans needs OCR, which isn't available on this worker. Turn off “${WORD_OCR_LABEL}” to convert the selectable text alone. Nothing was converted.`,
-  priorText: `This PDF already has a text layer, and the OCR engine would not add a second one. Turn off “${WORD_OCR_LABEL}” and convert again. Nothing was converted.`,
-  noText:
-    "OCR ran, but found no text in this PDF to put in a Word document. Check the languages you chose match the page. Nothing was converted.",
-  /** The upload itself is over the export's ceiling — said before OCR runs. */
-  tooLarge: (limit: number) =>
-    `This PDF is larger than ${describeByteCeiling(limit)}, the most PDF to Word converts per file. Nothing was converted.`,
-  /**
-   * OCR's searchable PDF outgrew the ceiling the upload was under: a text
-   * layer adds bytes, and OCR may re-encode the page images.
-   */
-  grew: (size: number, limit: number) =>
-    `Recognising the text made this PDF ${describeByteCeiling(size)}, past the ${describeByteCeiling(limit)} PDF to Word converts per file. Split the PDF and convert the parts. Nothing was converted.`,
+/** The tool's name as its page and refusals say it. */
+const TOOL_NAMES: Record<PdfOfficeExportTool, string> = {
+  [PDF_TO_WORD_TOOL]: "PDF to Word",
+  [PDF_TO_EXCEL_TOOL]: "PDF to Excel",
+  [PDF_TO_POWERPOINT_TOOL]: "PDF to PowerPoint",
 };
+
+/** What a conversion that found no words would have had nothing to fill. */
+const OUTPUT_NOUNS: Record<PdfOfficeExportTool, string> = {
+  [PDF_TO_WORD_TOOL]: "a Word document",
+  [PDF_TO_EXCEL_TOOL]: "a spreadsheet",
+  [PDF_TO_POWERPOINT_TOOL]: "a slide",
+};
+
+/**
+ * What "Recognise text in scans (OCR)" says when OCR cannot help, for THIS
+ * tool. Since 2026-11-08 (audit pdf-to-excel#2, pdf-to-powerpoint#4) the
+ * switch is on all three exports, so the tool name and the file it makes are
+ * the tool's, never "PDF to Word" on an Excel job.
+ */
+export function officeOcrMessages(tool: PdfOfficeExportTool) {
+  return ocrFirstMessages(TOOL_NAMES[tool], OUTPUT_NOUNS[tool]);
+}
 
 /** Wiring beyond the export engine: the processors a job may run first. */
 export interface PdfOfficeExportChain {
   /**
-   * The OCR processor, for PDF to Word's OCR option. The SAME instance the
+   * The OCR processor, for the exports' OCR option. The SAME instance the
    * registry serves `ocr-pdf` with, so its readiness, installed-language check
    * and refusal handling are OCR PDF's own.
    */
@@ -211,78 +216,40 @@ export function createPdfOfficeExportProcessor(
       if (bad) return bad;
       const file = input.inputs[0]!;
 
-      // PDF to Word's one option: OCR first. Validated for Word only — Excel
-      // and PowerPoint take no options and keep ignoring the bag, as before.
-      let bytes = file.bytes;
-      let ocrResults: JobResults | undefined;
-      if (input.tool === PDF_TO_WORD_TOOL) {
-        const parsed = parsePdfToWordOptions(input.options);
+      // PDF to Excel's own option: a sheet per page (audit pdf-to-excel#3).
+      // Parsed BEFORE OCR first, so a malformed bag is refused at once rather
+      // than after minutes of recognition. It shares the bag with OCR's keys;
+      // each parser reads only its own.
+      let excel: { sheetPerPage: boolean } = { sheetPerPage: false };
+      if (input.tool === PDF_TO_EXCEL_TOOL) {
+        const parsed = parsePdfToExcelOptions(input.options);
         if (!parsed.ok)
           return processorFail({
             code: parsed.error.body.error.code,
             message: parsed.error.body.error.message,
             retryable: false,
           });
-        if (parsed.value.ocr) {
-          const ocr = chain.ocr;
-          if (!ocr || !ocr.capability().ready)
-            return processorFail({
-              code: "not_implemented",
-              message: WORD_OCR_MESSAGES.unavailable,
-              retryable: false,
-            });
-          // The export's input ceiling, checked HERE as well as in the
-          // engine. Until 2026-11-06 (audit #50) only the engine checked it,
-          // against OCR's OUTPUT: an over-ceiling upload was recognised for
-          // minutes before the refusal, and a searchable PDF that grew past
-          // the ceiling was reported as "The PDF input exceeds the worker's
-          // size limit." — no number, blaming a file the page had accepted.
-          const maxInput = deps.limits?.maxInputBytes;
-          if (maxInput !== undefined && bytes.byteLength > maxInput)
-            return processorFail({
-              code: "payload_too_large",
-              message: WORD_OCR_MESSAGES.tooLarge(maxInput),
-              retryable: false,
-            });
-          // The OCR processor itself: option validation, the installed-pack
-          // check and the refusal mapping are OCR PDF's, not a copy of them.
-          const recognised = await ocr.process({
-            ...input,
-            tool: OCR_TOOL_SLUG,
-            options: {
-              languages: parsed.value.languages,
-              outputMode: "searchable-pdf",
-            },
-          });
-          if (!recognised.ok) {
-            // Its refusal copy names OCR PDF's switch; say this panel's.
-            const prior =
-              recognised.error.message === OCR_REFUSAL_MESSAGES["prior-text"];
-            return processorFail(
-              prior
-                ? { ...recognised.error, message: WORD_OCR_MESSAGES.priorText }
-                : recognised.error,
-            );
-          }
-          const pdf = recognised.artifacts.find(
-            (a) => a.contentType === "application/pdf",
-          );
-          if (!pdf)
-            return processorFail({
-              code: "internal_error",
-              message: "The OCR engine produced no searchable PDF.",
-              retryable: true,
-            });
-          // Deterministic, so final: the same scan recognises to the same size.
-          if (maxInput !== undefined && pdf.bytes.byteLength > maxInput)
-            return processorFail({
-              code: "payload_too_large",
-              message: WORD_OCR_MESSAGES.grew(pdf.bytes.byteLength, maxInput),
-              retryable: false,
-            });
-          bytes = pdf.bytes;
-          ocrResults = recognised.results;
-        }
+        excel = parsed.value;
+      }
+
+      // OCR first. PDF to Word's since 2026-10-24; Excel's and PowerPoint's
+      // since 2026-11-08 (audit pdf-to-excel#2, pdf-to-powerpoint#4). Until
+      // then both ignored it: an Excel scan could only be refused, a
+      // PowerPoint one came as pictures.
+      let bytes = file.bytes;
+      let ocrResults: JobResults | undefined;
+      const messages = officeOcrMessages(input.tool);
+      if (OCR_FIRST_TOOLS.includes(input.tool)) {
+        const first = await runOcrFirst(
+          input,
+          bytes,
+          chain.ocr,
+          messages,
+          deps.limits?.maxInputBytes,
+        );
+        if (!first.ok) return first.result;
+        bytes = first.bytes;
+        ocrResults = first.results;
       }
 
       const run = await runPdfOfficeExport(
@@ -290,13 +257,14 @@ export function createPdfOfficeExportProcessor(
         bytes,
         deps,
         input.signal,
+        excel,
       );
       if (!run.ok) {
         const error = jobError(run);
         // "Run OCR first" is false advice after OCR has run.
         return processorFail(
           ocrResults && run.kind === "no_text"
-            ? { ...error, message: WORD_OCR_MESSAGES.noText }
+            ? { ...error, message: messages.noText }
             : error,
         );
       }

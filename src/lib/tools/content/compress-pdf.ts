@@ -1,5 +1,6 @@
 import type { ToolContent } from "./types";
 import { IMAGE_HEAVY_SHARE, LOSSLESS_MIN_RATIO } from "@/lib/pdf/analyze";
+import { REPACK_CLEANUP_SENTENCE } from "@/lib/pdf/compress-cleanup";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { HYBRID_WORKER_STEP } from "@/lib/tools/processing";
 import {
@@ -12,6 +13,16 @@ import {
   DEEP_COMPRESSION_PRESETS,
   DEEP_MONO_MIN_DPI,
 } from "@/lib/pdf/offered-kinds";
+import {
+  DEFAULT_IMAGE_QUALITY,
+  IMAGE_QUALITY_LABELS,
+  IMAGE_QUALITY_LEVELS,
+  imageQualityLevel,
+} from "@/lib/pdf/compress-image-quality";
+import {
+  BATCH_DEEP_LABEL,
+  BATCH_LOSSLESS_LABEL,
+} from "@/lib/pdf/compress-batch-copy";
 import {
   RUNNER_FILE_CEILINGS,
   WORKER_FILE_CEILING,
@@ -64,6 +75,17 @@ const TARGET_SENTENCE = targetOutcome({
 /** The ladder's floor, by the Quality preset's own label. */
 const FLOOR_LABEL = DEEP_COMPRESSION_PRESETS[0].label;
 
+/** “High”, “Medium”, “Low” or “Lowest” — the Image quality chips, as labelled. */
+const QUALITY_LIST = (() => {
+  const quoted = IMAGE_QUALITY_LEVELS.map((l) => `“${l.label}”`);
+  return `${quoted.slice(0, -1).join(", ")} or ${quoted[quoted.length - 1]}`;
+})();
+const QUALITY_DEFAULT_LABEL = imageQualityLevel(DEFAULT_IMAGE_QUALITY).label;
+const QUALITY_LOWEST_LABEL =
+  IMAGE_QUALITY_LEVELS[IMAGE_QUALITY_LEVELS.length - 1]!.label;
+/** The Image quality sentence (audit compress-pdf#4), shared by intro and FAQ. */
+const QUALITY_SENTENCE = `Under “${IMAGE_QUALITY_LABELS.disclosure}”, “${IMAGE_QUALITY_LABELS.heading}” sets how hard photos are JPEG-compressed, apart from their resolution: ${QUALITY_LIST}, with “${QUALITY_DEFAULT_LABEL}” the default. Images Ghostscript keeps lossless are not affected, and a server without Ghostscript refuses any level but “${QUALITY_DEFAULT_LABEL}”.`;
+
 /*
  * What the lossless repack keeps was checked against the real function
  * (`analyzePdf` in src/lib/pdf/analyze.ts) on 2026-09-27, not assumed: a
@@ -89,8 +111,8 @@ const content: ToolContent = {
 
   intro: [
     "Compress PDF starts by showing you why a file is big. Add a PDF and your browser counts its pages and images, measures the images' share of the file, and repacks it losslessly into compressed object streams. A verdict (“Lossless cleanup shrank this file”, “This PDF is image-heavy” or “This PDF is already lean”) sits above four figures: current size, pages, images and the lossless result.",
-    `That first pass runs online in your browser, on your device, and the PDF is not uploaded for it. Pages, text, bookmarks, filled-in form fields, title and author all carry over. Only a few metadata entries change: Producer and Creator become pdf.xyz, the modification date is updated, and a missing creation date is filled in. The drop box takes PDFs of up to ${MAX_MB} MB each.`,
-    `A lossless repack cannot shrink images. So whenever images make up ${IMAGE_PCT}% or more of the file, the analysis points you to the optional deep image compression step, even when the repack's own saving reaches the ${LOSSLESS_PCT}% that earns the lossless headline. That step uploads the PDF over TLS to pdf.xyz's secure server. There, Ghostscript downsamples and re-encodes images toward the resolution your Quality setting picks. Black-and-white images, such as text scanned in black-and-white mode, never go below ${DEEP_MONO_MIN_DPI} DPI on any setting, so scanned text is not broken up; the lower settings shrink colour and gray images instead. A server without Ghostscript falls back to qpdf, which recompresses streams and may re-encode some images as JPEG, or to mutool, which only cleans up and recompresses the structure; neither downsamples, and neither reads the Quality setting. With “Grayscale” ticked, Ghostscript also turns every colour on the pages into shades of gray; a server without Ghostscript refuses that request instead of returning a colour file. With a “${TARGET_SIZE_LABELS.heading}” chosen, Ghostscript runs again at lower resolutions until the file fits, or the panel tells you the smallest it could make. Your upload is deleted when the job finishes, the result link expires after ${LINK_MINUTES} minutes, and a daily storage rule erases the stored copy after that.${DEEP_CAP_SENTENCE}`,
+    `That first pass runs online in your browser, on your device, and the PDF is not uploaded for it. Pages, text, bookmarks, filled-in form fields, title and author all carry over. Only a few metadata entries change: Producer and Creator become pdf.xyz, the modification date is updated, and a missing creation date is filled in. ${REPACK_CLEANUP_SENTENCE} The drop box takes PDFs of up to ${MAX_MB} MB each.`,
+    `A lossless repack cannot shrink images. So whenever images make up ${IMAGE_PCT}% or more of the file, the analysis points you to the optional deep image compression step, even when the repack's own saving reaches the ${LOSSLESS_PCT}% that earns the lossless headline. That step uploads the PDF over TLS to pdf.xyz's secure server. There, Ghostscript downsamples and re-encodes images toward the resolution your Quality setting picks. Black-and-white images, such as text scanned in black-and-white mode, never go below ${DEEP_MONO_MIN_DPI} DPI on any setting, so scanned text is not broken up; the lower settings shrink colour and gray images instead. A server without Ghostscript falls back to qpdf, which recompresses streams and may re-encode some images as JPEG, or to mutool, which only cleans up and recompresses the structure; neither downsamples, and neither reads the Quality setting. With “Grayscale” ticked, Ghostscript also turns every colour on the pages into shades of gray; a server without Ghostscript refuses that request instead of returning a colour file. ${QUALITY_SENTENCE} With a “${TARGET_SIZE_LABELS.heading}” chosen, Ghostscript runs again at lower resolutions and then, at the lowest, at lower image quality, until the file fits, or the panel tells you the smallest it could make. Your upload is deleted when the job finishes, the result link expires after ${LINK_MINUTES} minutes, and a daily storage rule erases the stored copy after that.${DEEP_CAP_SENTENCE}`,
   ],
 
   useCases: [
@@ -108,14 +130,17 @@ const content: ToolContent = {
     },
     {
       title: "A folder of invoices or statements",
-      body: "Select several PDFs and each is repacked in turn on your device. Download them one by one, or press “Download all” for a single ZIP. Deep image compression takes one file at a time.",
+      // CHANGED 2026-11-08 (audit compress-pdf#5): ended "Deep image
+      // compression takes one file at a time." until the batch could run on
+      // our server too.
+      body: `Select several PDFs and each is repacked in turn on your device. Download them one by one, or press “Download all” for a single ZIP. When our secure server is available, choose “${BATCH_DEEP_LABEL}” instead of “${BATCH_LOSSLESS_LABEL}” before you start, and each file is uploaded and compressed in turn with one Quality and Grayscale setting for them all.`,
     },
   ],
 
   steps: [
     {
       title: "Add your PDF",
-      body: "Drop a PDF onto the box or click browse. One file opens the full analysis; two or more go to the in-browser batch list, where “Compress N PDFs” repacks each one.",
+      body: `Drop a PDF onto the box or click browse. One file opens the full analysis; two or more go to the batch list, where “Compress N PDFs” repacks each one in your browser, or, with “${BATCH_DEEP_LABEL}” chosen, sends each one to our server in turn.`,
     },
     {
       title: "Read the breakdown",
@@ -127,18 +152,18 @@ const content: ToolContent = {
     },
     {
       title: "Optional: compress images on our server",
-      body: `In the “Deep image compression (secure server)” panel, pick Extreme, Smaller, Balanced or High quality; if the file has to fit a limit, choose a “${TARGET_SIZE_LABELS.heading}” (${TARGET_PRESET_LIST}, or “${TARGET_SIZE_LABELS.custom}”). Tick “Grayscale” if you want the pages in shades of gray, and press “Compress images on our server”, which uploads your file. If it shrank, or was converted to grayscale, press “Download compressed PDF”; with a target, the panel also says whether the file is under it. If nothing shrank, the panel says the original is already efficient.`,
+      body: `In the “Deep image compression (secure server)” panel, pick Extreme, Smaller, Balanced or High quality; if the file has to fit a limit, choose a “${TARGET_SIZE_LABELS.heading}” (${TARGET_PRESET_LIST}, or “${TARGET_SIZE_LABELS.custom}”). Open “${IMAGE_QUALITY_LABELS.disclosure}” to choose an “${IMAGE_QUALITY_LABELS.heading}”. Tick “Grayscale” if you want the pages in shades of gray, and press “Compress images on our server”, which uploads your file. If it shrank, or was converted to grayscale, press “Download compressed PDF”; with a target, the panel also says whether the file is under it. If nothing shrank, the panel says the original is already efficient.`,
     },
   ],
 
   faqs: [
     {
       q: "Will compressing my PDF make it look worse?",
-      a: "Not the lossless copy, which changes how the file is packed, not what is on the pages. Deep image compression is lossy: Extreme gives up the most detail, High quality the least, and Balanced is the default. Grayscale removes all colour from the copy; your original keeps it. Afterwards our server checks that the result opens as a PDF and, if it can count them, that no pages went missing; nothing compares how the images look, so open the result before deleting your original.",
+      a: `Not the lossless copy, which changes how the file is packed, not what is on the pages. Deep image compression is lossy: Extreme gives up the most detail, High quality the least, and Balanced is the default; a lower “${IMAGE_QUALITY_LABELS.heading}” under “${IMAGE_QUALITY_LABELS.disclosure}” adds more blur and blocky edges to photos. Grayscale removes all colour from the copy; your original keeps it. Afterwards our server checks that the result opens as a PDF and, if it can count them, that no pages went missing; nothing compares how the images look, so open the result before deleting your original.`,
     },
     {
       q: "Is my file uploaded when I use Compress PDF?",
-      a: `Not by default. ${HYBRID_WORKER_STEP} Here that step is the “Compress images on our server” button: the analysis and the lossless copy both run in your browser, and the button is shown only once the panel has confirmed a secure server is available.`,
+      a: `Not by default. ${HYBRID_WORKER_STEP} Here that step is the “${BATCH_DEEP_LABEL}” button, or the batch's choice of the same name: the analysis and the lossless copy both run in your browser, and the button and the choice are shown only once the page has confirmed a secure server is available.`,
     },
     {
       q: "Can I compress a PDF to a specific target size?",
@@ -147,7 +172,7 @@ const content: ToolContent = {
       // ("compress PDF to 100 KB") had no tool. The box exists now; what it
       // does is pinned in `target-size.test.ts` and the in-image options
       // proof, and every label below is read from the panel's own constants.
-      a: `Yes, on the deep step. In the “Deep image compression (secure server)” panel, choose a “${TARGET_SIZE_LABELS.heading}”: ${TARGET_PRESET_LIST}, or “${TARGET_SIZE_LABELS.custom}” for a number of KB. Our server starts at your Quality setting and steps down, as far as ${FLOOR_LABEL}, until the file fits, and returns the highest-quality version that does; the panel then says, for example, “${TARGET_SENTENCE}” A lower setting usually makes a smaller file but not always, so each setting it tries is measured; if none fits, you get the smallest file it made and the panel says it is above your target; tick “Grayscale” or split the file and try again. How small a file can get depends on how much of it is images: a mostly-text PDF may hardly shrink at all. “${TARGET_SIZE_LABELS.none}” is the default and runs exactly as before. The step uploads your file to our server, and each run starts from your original.`,
+      a: `Yes, on the deep step. In the “Deep image compression (secure server)” panel, choose a “${TARGET_SIZE_LABELS.heading}”: ${TARGET_PRESET_LIST}, or “${TARGET_SIZE_LABELS.custom}” for a number of KB. Our server starts at your Quality setting and steps down, as far as ${FLOOR_LABEL}, then lowers the image quality, as far as “${QUALITY_LOWEST_LABEL}”, until the file fits, and returns the highest-quality version that does; the panel then says, for example, “${TARGET_SENTENCE}” A lower setting usually makes a smaller file but not always, so each setting it tries is measured; if none fits, you get the smallest file it made and the panel says it is above your target; tick “Grayscale” or split the file and try again. How small a file can get depends on how much of it is images: a mostly-text PDF may hardly shrink at all. “${TARGET_SIZE_LABELS.none}” is the default and runs exactly as before. The step uploads your file to our server, and each run starts from your original.`,
     },
     {
       q: "Why didn't my PDF get any smaller?",
@@ -155,7 +180,7 @@ const content: ToolContent = {
     },
     {
       q: "What happens with a password-protected or damaged PDF?",
-      a: "A PDF that needs a password to open is refused with a request to unlock it with its password first. One that opens freely but restricts printing or editing cannot be repacked in your browser, so the page offers our secure server's deep step for it instead; our server may not be able to process an encrypted file, and says so if it cannot. In a batch of several files, such a file fails with a note to compress it on its own. An unreadable file gets an error instead of a download. On the deep step our server rejects a result with fewer pages than the original; if it cannot count the original's pages, it returns the smaller file with a warning that it was not checked page-for-page.",
+      a: "A PDF that needs a password to open is refused with a request to unlock it with its password first. One that opens freely but restricts printing or editing cannot be repacked in your browser, so the page offers our secure server's deep step for it instead; our server may not be able to process an encrypted file, and says so if it cannot. In a batch of several files, lossless or on our secure server, both kinds fail in your browser before anything of them is uploaded, with a note to compress a restricted one on its own, where the panel warns first that its owner's restrictions may not carry over. An unreadable file gets an error instead of a download. On the deep step our server rejects a result with fewer pages than the original; if it cannot count the original's pages, it returns the smaller file with a warning that it was not checked page-for-page.",
     },
     {
       q: "Does compressing keep a digital signature valid?",

@@ -212,7 +212,7 @@ function MarkdownToPdfEditor({
           <InfoTile
             icon={ListChecks}
             title="Honest"
-            body="Bold and italic print as plain text, links print as the label with its URL, and images as their alt text and URL. Not an HTML/CSS engine."
+            body="Bold, italic and code are styled, links print with their URL and, outside table cells, open when clicked, and images print as their alt text and URL. Not an HTML/CSS engine."
           />
         </div>
       </RunnerSection>

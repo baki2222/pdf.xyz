@@ -1,6 +1,7 @@
 import JSZip from "jszip";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 import { XLSX_SHEET_NAME } from "@/lib/jobs/pdf-office-export";
+import { pageSheetName } from "@/lib/jobs/pdf-to-excel-options";
 import {
   buildOfficeExportResultMeta,
   measureOfficeExportPages,
@@ -188,20 +189,46 @@ export type PdfOfficeExportRun =
     };
 type Failure = Extract<PdfOfficeExportRun, { ok: false }>;
 
+/** PDF to Excel's options; absent = one sheet holding every page. */
+export interface PdfToExcelRenderOptions {
+  /** One sheet per page, named by `pageSheetName` (audit pdf-to-excel#3). */
+  sheetPerPage?: boolean;
+}
+
 /**
  * The XLSX: every page's `-layout` lines placed into columns by position
  * (`./layout-grid`), one sheet row per non-blank line, pages in order. Cells
  * go through the shared writer, so a value is a number when its whole text is
  * one and a column past Z is AA — see `../ooxml/sheet-cells`.
+ *
+ * By default the pages share the one sheet {@link XLSX_SHEET_NAME}. With
+ * `sheetPerPage` (since 2026-11-08) each page is a sheet of its own, an empty
+ * page an empty sheet, so sheet N is always page N.
  */
-async function xlsx(pages: ExtractedPdfText["pages"]): Promise<Uint8Array> {
-  const rows = pages.flatMap((page) => layoutGrid(page.text));
+async function xlsx(
+  pages: ExtractedPdfText["pages"],
+  options: PdfToExcelRenderOptions = {},
+): Promise<Uint8Array> {
+  const parts = options.sheetPerPage
+    ? pages.map((page) => ({
+        name: pageSheetName(page.pageNumber),
+        rows: layoutGrid(page.text),
+      }))
+    : [
+        {
+          name: XLSX_SHEET_NAME,
+          rows: pages.flatMap((page) => layoutGrid(page.text)),
+        },
+      ];
   const styles = new SheetStyles();
-  const sheet = worksheetXml(rows, styles);
+  const sheets = parts.map((part) => worksheetXml(part.rows, styles));
+  const n = parts.length;
+  const each = (f: (i: number) => string) =>
+    Array.from({ length: n }, (_, i) => f(i + 1)).join("");
   const zip = new JSZip();
   zip.file(
     "[Content_Types].xml",
-    `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>${STYLES_CONTENT_TYPE_OVERRIDE}</Types>`,
+    `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${each((i) => `<Override PartName="/xl/worksheets/sheet${i}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`)}${STYLES_CONTENT_TYPE_OVERRIDE}</Types>`,
   );
   zip.file(
     "_rels/.rels",
@@ -209,13 +236,15 @@ async function xlsx(pages: ExtractedPdfText["pages"]): Promise<Uint8Array> {
   );
   zip.file(
     "xl/_rels/workbook.xml.rels",
-    `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>${stylesRelationship("rId2")}</Relationships>`,
+    `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${each((i) => `<Relationship Id="rId${i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i}.xml"/>`)}${stylesRelationship(`rId${n + 1}`)}</Relationships>`,
   );
   zip.file(
     "xl/workbook.xml",
-    `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${xmlEscape(XLSX_SHEET_NAME)}" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${each((i) => `<sheet name="${xmlEscape(parts[i - 1]!.name)}" sheetId="${i}" r:id="rId${i}"/>`)}</sheets></workbook>`,
   );
-  zip.file("xl/worksheets/sheet1.xml", sheet);
+  sheets.forEach((sheet, i) =>
+    zip.file(`xl/worksheets/sheet${i + 1}.xml`, sheet),
+  );
   zip.file("xl/styles.xml", styles.xml());
   return new Uint8Array(await zip.generateAsync({ type: "uint8array" }));
 }
@@ -584,6 +613,7 @@ async function undeliverablePptx(
 async function renderExcel(
   input: Uint8Array,
   extract: PdfTextExtractor,
+  options: PdfToExcelRenderOptions,
 ): Promise<Rendered | null> {
   const extracted = await extract(input);
   if (!extracted.hasText || extracted.text.trim().length === 0) return null;
@@ -591,7 +621,7 @@ async function renderExcel(
     pageCount: extracted.pageCount,
     characterCount: extracted.characterCount,
     coverage: measureOfficeExportPages(extracted.pageCount, extracted.pages),
-    output: await xlsx(extracted.pages),
+    output: await xlsx(extracted.pages, options),
     filenameExt: "xlsx",
     contentType:
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -734,6 +764,8 @@ export async function runPdfOfficeExport(
   unbound: PdfOfficeExportDeps,
   /** The attempt's abort signal, passed to every child process the export starts. */
   signal?: AbortSignal,
+  /** PDF to Excel's options; ignored by Word and PowerPoint. */
+  excel: PdfToExcelRenderOptions = {},
 ): Promise<PdfOfficeExportRun> {
   const deps = boundToAttempt(unbound, signal);
   const { extract, extractFlow, scanPages } = deps;
@@ -756,7 +788,7 @@ export async function runPdfOfficeExport(
       tool === PDF_TO_WORD_TOOL
         ? await renderWord(input, extractFlow!, scanPages!, deps)
         : tool === PDF_TO_EXCEL_TOOL
-          ? await renderExcel(input, extract!)
+          ? await renderExcel(input, extract!, excel)
           : await renderPowerPoint(input, extract!, scanPages!, deps);
     if (!rendered) return NO_TEXT;
     if ("ok" in rendered) return rendered;

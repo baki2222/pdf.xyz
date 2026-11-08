@@ -42,6 +42,11 @@ import {
   type OfficeExportResultMeta,
 } from "./office-export-results";
 import {
+  buildTableExtractResultMeta,
+  isTableExtractResultMeta,
+  type TableExtractResultMeta,
+} from "./table-extract-results";
+import {
   buildAiResultMeta,
   isAiWindowMeta,
   type AiResultMeta,
@@ -97,6 +102,13 @@ export interface JobResults {
    * "nothing was left out". See {@link OfficeExportResultMeta}.
    */
   officeExport?: OfficeExportResultMeta;
+  /**
+   * How many tables Extract Tables found and the pages they came from.
+   * Present on a completed `extract-tables` job from a worker that reports
+   * it (since 2026-11-08); a missing block means "this worker did not
+   * report", not "nothing was found". See {@link TableExtractResultMeta}.
+   */
+  tables?: TableExtractResultMeta;
 }
 
 /** True when a {@link JobResults} carries at least one populated block. */
@@ -164,6 +176,11 @@ export function sanitizeJobResults(
   const officeExport = results.officeExport;
   if (isOfficeExportResultMeta(officeExport)) {
     clean.officeExport = buildOfficeExportResultMeta(officeExport);
+  }
+
+  const tables = results.tables;
+  if (isTableExtractResultMeta(tables)) {
+    clean.tables = buildTableExtractResultMeta(tables);
   }
 
   return hasJobResults(clean) ? clean : undefined;

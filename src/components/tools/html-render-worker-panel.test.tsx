@@ -21,6 +21,11 @@ import { getProviderReadiness } from "@/lib/workers/providers";
 import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
 import { resolveAiReadiness } from "@/lib/workers/ai/readiness";
 import { HtmlRenderWorkerPanel } from "./html-render-worker-panel";
+import {
+  WEBPAGE_CAPTURE_CHOICES,
+  WEBPAGE_CAPTURE_LABELS,
+  WEBPAGE_CAPTURE_GROUP_LABEL,
+} from "@/lib/jobs/webpage-capture-options";
 
 const htmlTool = getToolBySlug("html-to-pdf")!;
 const providers = getProviderReadiness("remote-configured");
@@ -310,5 +315,124 @@ describe("HtmlRenderWorkerPanel — the address is fixed or explained before any
     );
     fireEvent.submit(form!);
     await vi.waitFor(() => expect(sentUrls()).toEqual(["https://example.com"]));
+  });
+});
+
+/*
+ * Audit webpage-to-pdf#1 (2026-11-06): cookie banners and pop-ups printed
+ * over the page and nothing could hide them. The Webpage to PDF panel has a
+ * Capture group whose checkboxes travel in the job's options — only when
+ * changed, so an untouched panel sends the request it always sent.
+ */
+describe("HtmlRenderWorkerPanel — Webpage to PDF capture options", () => {
+  const urlTool = getToolBySlug("webpage-to-pdf")!;
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  async function mountUrl() {
+    fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: async () => READY });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<HtmlRenderWorkerPanel tool={urlTool} />);
+    await screen.findByText("Secure server");
+    const field = screen.getByLabelText<HTMLInputElement>("Web address");
+    fireEvent.change(field, { target: { value: "https://example.com/" } });
+  }
+
+  const sentOptions = () =>
+    fetchMock.mock.calls
+      .filter(([url]) => url === "/api/jobs")
+      .map(
+        ([, init]) =>
+          (
+            JSON.parse(
+              new TextDecoder().decode(
+                (init as RequestInit).body as ArrayBuffer,
+              ),
+            ) as { options: Record<string, unknown> }
+          ).options,
+      );
+
+  const run = () =>
+    fireEvent.click(screen.getByRole("button", { name: "Render PDF" }));
+
+  it("an untouched Capture group sends nothing new", async () => {
+    await mountUrl();
+    run();
+    await vi.waitFor(() =>
+      expect(sentOptions()).toEqual([{ url: "https://example.com/" }]),
+    );
+  });
+
+  it("each capture checkbox is named by its label alone, and its hint is its description", async () => {
+    await mountUrl();
+    expect(WEBPAGE_CAPTURE_CHOICES.length).toBeGreaterThan(0);
+    for (const choice of WEBPAGE_CAPTURE_CHOICES) {
+      const box = screen.getByRole("checkbox", { name: choice.label });
+      expect(box).toHaveAccessibleName(choice.label);
+      // The hint is read as a description, after the name, not as part of it.
+      expect(box).toHaveAccessibleDescription(/\S{3,}/);
+    }
+  });
+
+  it(`"${WEBPAGE_CAPTURE_LABELS.hideOverlays}" is a named checkbox, off, and travels when ticked`, async () => {
+    await mountUrl();
+    expect(
+      screen.getByRole("group", { name: WEBPAGE_CAPTURE_GROUP_LABEL }),
+    ).toBeTruthy();
+    const box = screen.getByRole<HTMLInputElement>("checkbox", {
+      name: WEBPAGE_CAPTURE_LABELS.hideOverlays,
+    });
+    expect(box.checked).toBe(false);
+    fireEvent.click(box);
+    run();
+    await vi.waitFor(() =>
+      expect(sentOptions()).toEqual([
+        { hideOverlays: true, url: "https://example.com/" },
+      ]),
+    );
+  });
+
+  it(`"${WEBPAGE_CAPTURE_LABELS.printStyles}" starts ticked, and unticking it sends printStyles: false (audit webpage-to-pdf#3)`, async () => {
+    await mountUrl();
+    const box = screen.getByRole<HTMLInputElement>("checkbox", {
+      name: WEBPAGE_CAPTURE_LABELS.printStyles,
+    });
+    expect(box.checked).toBe(true);
+    fireEvent.click(box);
+    run();
+    await vi.waitFor(() =>
+      expect(sentOptions()).toEqual([
+        { printStyles: false, url: "https://example.com/" },
+      ]),
+    );
+  });
+
+  it(`"${WEBPAGE_CAPTURE_LABELS.stamp}" starts unticked, and ticking it sends stamp: true (audit webpage-to-pdf#7)`, async () => {
+    await mountUrl();
+    const box = screen.getByRole<HTMLInputElement>("checkbox", {
+      name: WEBPAGE_CAPTURE_LABELS.stamp,
+    });
+    expect(box.checked).toBe(false);
+    fireEvent.click(box);
+    run();
+    await vi.waitFor(() =>
+      expect(sentOptions()).toEqual([
+        { stamp: true, url: "https://example.com/" },
+      ]),
+    );
+  });
+
+  it("control: HTML to PDF has no Capture group", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
+    );
+    render(<HtmlRenderWorkerPanel tool={htmlTool} />);
+    await screen.findByText("Secure server");
+    expect(
+      screen.queryByRole("group", { name: WEBPAGE_CAPTURE_GROUP_LABEL }),
+    ).toBeNull();
+    expect(screen.getByRole("group", { name: "Page layout" })).toBeTruthy();
   });
 });

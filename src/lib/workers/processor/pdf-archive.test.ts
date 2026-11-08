@@ -10,7 +10,8 @@ import {
   type GhostscriptExecResult,
 } from "../pdf-archive/native";
 import { resolveNativePdfArchiveConfig } from "../pdf-archive/native-config";
-import { declaredPdfA } from "@/tests/pdfa-fixtures";
+import { buildPdfAFixture, declaredPdfA } from "@/tests/pdfa-fixtures";
+import { PDFDocument } from "pdf-lib";
 
 const PDF = new TextEncoder().encode(
   "%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
@@ -206,5 +207,208 @@ describe("COMPOSED: the real native runner, through the engine, to the job error
       spawnError: "EAGAIN",
     }).process(input());
     expect(result).toMatchObject({ ok: false, error: { retryable: true } });
+  });
+});
+
+/**
+ * PDF to PDF/A's level picker (audit pdf-to-pdfa#1, 2026-11-08), through
+ * the composed chain: the job's `level` option, the processor, the engine,
+ * the native runner and the argv Ghostscript is given, then the marker
+ * check on what comes back. Each hop is where a level could be dropped and
+ * PDF/A-2b quietly shipped under another name.
+ */
+describe("the PDF/A level reaches Ghostscript and the output check", () => {
+  async function run(options: Record<string, unknown>, declaredPart: string) {
+    const output = await buildPdfAFixture({ xmp: { part: declaredPart } });
+    const exec = vi.fn(
+      async (command: string): Promise<GhostscriptExecResult> =>
+        // qpdf's --requires-password: 2 = not encrypted.
+        command === "qpdf"
+          ? { code: 2, timedOut: false }
+          : { code: 0, timedOut: false, diagnostics: "" },
+    );
+    const ghostscript = createNativeGhostscriptPdfARunner(
+      { ...resolveNativePdfArchiveConfig({}), tmpDir: "/tmp" },
+      {
+        resolveOnPath: () => true,
+        fileExists: () => true,
+        exec,
+        fs: {
+          mkdtemp: vi.fn(async () => "/tmp/pdfxyz-pdfa-1"),
+          writeFile: vi.fn(async () => {}),
+          readFile: vi.fn(async () => output),
+          rm: vi.fn(async () => {}),
+        },
+      },
+    );
+    const result = await createPdfArchiveProcessor({ ghostscript }).process({
+      ...input(),
+      options,
+    });
+    const gs = exec.mock.calls.find(([command]) => command !== "qpdf") as
+      [string, string[]] | undefined;
+    return { result, argv: gs?.[1] ?? null };
+  }
+
+  for (const [id, part] of [
+    ["1b", "1"],
+    ["2b", "2"],
+    ["3b", "3"],
+  ] as const) {
+    it(`PDF/A-${id}: -dPDFA=${part} in the argv, and an output declaring part ${part} ships`, async () => {
+      const { result, argv } = await run({ level: id }, part);
+      expect(argv).toContain(`-dPDFA=${part}`);
+      expect(argv!.filter((a) => a.startsWith("-dPDFA="))).toHaveLength(1);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.meta?.standard).toBe(`PDF/A-${id}`);
+    });
+  }
+
+  it("PDF/A-1b pins PDF 1.4, the version PDF/A-1 is built on; the others do not", async () => {
+    expect((await run({ level: "1b" }, "1")).argv).toContain(
+      "-dCompatibilityLevel=1.4",
+    );
+    for (const id of ["2b", "3b"])
+      expect(
+        (await run({ level: id }, id[0]!)).argv!.some((a) =>
+          a.startsWith("-dCompatibilityLevel"),
+        ),
+      ).toBe(false);
+  });
+
+  it("an output that declares a different part than the one asked for is refused", async () => {
+    const { result } = await run({ level: "1b" }, "2");
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "internal_error", retryable: false },
+    });
+  });
+
+  it("CONTROL: no level is PDF/A-2b, exactly the job as it ran before", async () => {
+    const { result, argv } = await run({}, "2");
+    expect(argv).toContain("-dPDFA=2");
+    expect(result.ok).toBe(true);
+  });
+
+  it("a level that is not offered is refused before Ghostscript runs", async () => {
+    for (const level of ["2a", "2u", 2, "PDF/A-1b"]) {
+      const { result, argv } = await run({ level }, "2");
+      expect(argv).toBeNull();
+      expect(result).toMatchObject({
+        ok: false,
+        error: { code: "unprocessable_entity", retryable: false },
+      });
+    }
+  });
+});
+
+/**
+ * The original's title, author, subject and keywords reach Ghostscript's
+ * PDF/A prefix (audit pdf-to-pdfa#3, 2026-11-08), through the composed
+ * chain: a real PDF's Info dictionary, the processor, the engine, the native
+ * runner, and the prefix file it writes for Ghostscript to run first. The
+ * prefix is read back as written, byte for byte.
+ */
+describe("the original's document properties reach the PDF/A prefix", () => {
+  async function prefixFor(input: Uint8Array): Promise<string> {
+    const output = await declaredPdfA();
+    const written = new Map<string, Uint8Array>();
+    const ghostscript = createNativeGhostscriptPdfARunner(
+      { ...resolveNativePdfArchiveConfig({}), tmpDir: "/tmp" },
+      {
+        resolveOnPath: () => true,
+        fileExists: () => true,
+        exec: vi.fn(async (command: string): Promise<GhostscriptExecResult> =>
+          command === "qpdf"
+            ? { code: 2, timedOut: false }
+            : { code: 0, timedOut: false, diagnostics: "" },
+        ),
+        fs: {
+          mkdtemp: vi.fn(async () => "/tmp/pdfxyz-pdfa-1"),
+          writeFile: vi.fn(async (file: string, data: Uint8Array) => {
+            written.set(file, data);
+          }),
+          readFile: vi.fn(async () => output),
+          rm: vi.fn(async () => {}),
+        },
+      },
+    );
+    const result = await createPdfArchiveProcessor({ ghostscript }).process({
+      ...input_(input),
+    });
+    expect(result.ok).toBe(true);
+    const def = [...written].find(([file]) => file.endsWith(".ps"));
+    expect(def, "the prefix file was written").toBeDefined();
+    return new TextDecoder("latin1").decode(def![1]);
+  }
+
+  function input_(bytes: Uint8Array) {
+    return { ...input(), inputs: [{ ...input().inputs[0]!, bytes }] };
+  }
+
+  async function pdfWith(set: (doc: PDFDocument) => void) {
+    const doc = await PDFDocument.create();
+    doc.addPage();
+    set(doc);
+    return doc.save();
+  }
+
+  it("writes Title, Author, Subject and Keywords as one /DOCINFO pdfmark", async () => {
+    const prefix = await prefixFor(
+      await pdfWith((doc) => {
+        doc.setTitle("Annual report 2025");
+        doc.setAuthor("Zoe Muller");
+        doc.setSubject("Board pack");
+        doc.setKeywords(["minutes", "finance"]);
+        doc.setProducer("Some Producer 1.0");
+      }),
+    );
+    expect(prefix).toContain(
+      "[/Title (Annual report 2025) /Author (Zoe Muller) /Subject (Board pack) /Keywords (minutes finance) /DOCINFO pdfmark",
+    );
+    // The producer is Ghostscript's to set; it is not carried.
+    expect(prefix).not.toContain("Some Producer");
+    // After the OutputIntent recipe, so the prefix still opens with it.
+    expect(prefix.indexOf("/DOCINFO")).toBeGreaterThan(
+      prefix.indexOf("/OutputIntents"),
+    );
+  });
+
+  /*
+   * INVERTED 2026-11-08. This test pinned that "Annual report (2025)" and
+   * "Zoë Müller" reached the prefix as `(Annual report \(2025\))` and
+   * `(Zo\353 M\374ller)`. They did, and the production image's gs 10.00.0
+   * then dropped both from the output's Info and XMP (docinfo.ts has the
+   * measurement). A value Ghostscript drops is no longer written at all.
+   */
+  it("a bracket or an accented letter is not carried: Ghostscript drops it", async () => {
+    const prefix = await prefixFor(
+      await pdfWith((doc) => {
+        doc.setTitle("Annual report (2025)");
+        doc.setAuthor("Zoë Müller");
+        doc.setSubject("Board pack");
+      }),
+    );
+    expect(prefix).toContain("[/Subject (Board pack) /DOCINFO pdfmark");
+    expect(prefix).not.toContain("/Title");
+    expect(prefix).not.toContain("/Author");
+  });
+
+  it("a field it cannot write faithfully is left out, not rewritten", async () => {
+    const prefix = await prefixFor(
+      await pdfWith((doc) => {
+        doc.setTitle("年次報告");
+        doc.setAuthor("Ana “Ann” Lee");
+        doc.setSubject("Plain subject");
+      }),
+    );
+    expect(prefix).toContain("[/Subject (Plain subject) /DOCINFO pdfmark");
+    expect(prefix).not.toContain("/Title");
+    expect(prefix).not.toContain("/Author");
+  });
+
+  it("CONTROL: a PDF with no such fields gets the prefix exactly as before", async () => {
+    const prefix = await prefixFor(await pdfWith(() => {}));
+    expect(prefix).not.toContain("DOCINFO");
   });
 });

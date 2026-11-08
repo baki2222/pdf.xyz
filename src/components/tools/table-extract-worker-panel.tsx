@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { TABLE_OCR_HINT } from "@/lib/jobs/office-export-ocr";
+import { OcrFirstSwitch, useOcrFirstChoice } from "./ocr-first-switch";
 import { Download, ShieldCheck, Table, Timer } from "lucide-react";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import {
@@ -29,6 +31,12 @@ import {
   workerOutput,
 } from "./worker-panel-shell";
 import { OfficeExportNextStep } from "./office-export-notices";
+import { COMBINE_TABLES_HINT } from "@/lib/jobs/extract-tables-options";
+import {
+  TableExtractFindings,
+  TableExtractNoTablesStep,
+  tablesReadySentence,
+} from "./table-extract-findings";
 
 /**
  * The status slot's reserved height (see `WorkerStatusSlot` and
@@ -64,7 +72,9 @@ export function TableExtractWorkerPanel({ tool }: { tool: Tool }) {
     <WorkerPanelShell
       tool={tool}
       engine={{ label: "Table detection", icon: Table }}
-      description="Our server reads the PDF’s selectable text with its page positions, detects aligned table grids, and returns a ZIP of CSV files plus a combined Excel workbook. Scanned PDFs and PDFs without tables fail honestly."
+      // CHANGED 2026-11-08 (audit extract-tables#3): "Scanned PDFs and PDFs
+      // without tables fail honestly." — before the OCR switch below.
+      description="Our server reads the PDF’s selectable text with its page positions, detects aligned table grids, and returns a ZIP of CSV files plus a combined Excel workbook. Turn on OCR below for a scan; a PDF without tables fails honestly."
       canRun={canRunTableExtract}
       specRows={[
         { icon: Download, label: "You get", value: "ZIP · CSV + XLSX" },
@@ -99,6 +109,13 @@ function TableExtractRunArea({
 }) {
   const { available, status } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
+  const [combine, setCombine] = useState(false);
+  // Whether the last run had the OCR switch on: its no-tables step then
+  // does not send the reader to OCR PDF for pages OCR already read. null
+  // until this mount starts a run: a job resumed after a reload carries no
+  // options, and the saved job holds its id only (never the options, as
+  // /privacy says), so whether OCR ran is unknown and OCR PDF is not offered.
+  const [ranWithOcr, setRanWithOcr] = useState<boolean | null>(null);
   const job = useWorkerJob<TableExtractWorkerResult>({
     tool: "extract-tables",
     resume: (id, controls) =>
@@ -109,19 +126,25 @@ function TableExtractRunArea({
     setOutcome(null);
     setFile(files[0] ?? null);
   });
+  // OCR first, in the same job (2026-11-08, audit extract-tables#3).
+  const ocr = useOcrFirstChoice(status);
+  const ocrRequest = ocr.request;
   const start = useCallback(async () => {
-    if (!file || !available) return;
+    if (!file || !available || ocr.blocked) return;
+    setRanWithOcr(ocrRequest !== undefined);
     await run(async (controls) => {
       const result = await runWorkerTableExtract(
         {
           filename: file.name,
           bytes: new Uint8Array(await file.arrayBuffer()),
+          ...(combine ? { combine: true } : {}),
+          ...(ocrRequest ? { ocr: ocrRequest } : {}),
         },
         controls,
       );
       return result;
     });
-  }, [file, run, available]);
+  }, [file, run, available, combine, ocr.blocked, ocrRequest]);
   // Read only once the status says this panel cannot run.
   const unavailableDetail =
     status?.daemon.detail ?? "Our secure server is not drainable here.";
@@ -166,6 +189,27 @@ function TableExtractRunArea({
           hint="Selectable PDF"
         />
       )}
+      <label className="border-line rounded-panel text-muted flex min-h-11 items-start gap-2.5 border p-3 text-sm">
+        <input
+          type="checkbox"
+          checked={combine}
+          // Guarded, never `disabled`: focus stays put mid-run (#46).
+          onChange={(event) => {
+            if (!busy) setCombine(event.target.checked);
+          }}
+          aria-disabled={busy || undefined}
+          className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4"
+        />
+        <span className="flex flex-col gap-0.5">
+          <span className="text-fg font-medium">
+            Combine tables into one sheet
+          </span>
+          <span className="text-muted text-xs leading-relaxed">
+            {COMBINE_TABLES_HINT}
+          </span>
+        </span>
+      </label>
+      <OcrFirstSwitch choice={ocr} busy={busy} hint={TABLE_OCR_HINT} />
       <WorkerGate
         reserve={STATUS_SLOT}
         job={job}
@@ -174,7 +218,7 @@ function TableExtractRunArea({
           <WorkerRunButton
             onClick={start}
             busy={busy}
-            disabled={!ready || !file}
+            disabled={!ready || !file || ocr.blocked}
             busyLabel={jobBusyLabel(job.phase, "Extracting tables…")}
             icon={Table}
           >
@@ -185,10 +229,16 @@ function TableExtractRunArea({
           <>
             <WorkerJobStatus job={job} />
             {outcome?.ok === false && !outcome.stillRunning && (
-              <OfficeExportNextStep
-                code={outcome.code}
-                message={outcome.message}
-              />
+              <>
+                <OfficeExportNextStep
+                  code={outcome.code}
+                  message={outcome.message}
+                />
+                <TableExtractNoTablesStep
+                  code={outcome.code}
+                  ocrRan={ranWithOcr !== false}
+                />
+              </>
             )}
           </>
         }
@@ -196,8 +246,8 @@ function TableExtractRunArea({
           <p className="text-info flex items-start gap-1.5 text-xs leading-relaxed">
             <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
             Your PDF uploads to a private secure-server job only when you press{" "}
-            {RUN_LABEL}. Only aligned tables in selectable text are extracted;
-            scanned/image-only PDFs need OCR first.
+            {RUN_LABEL}. Only aligned tables in selectable text are extracted; a
+            scan needs the OCR switch on.
           </p>
         }
         off={
@@ -214,14 +264,12 @@ function TableExtractRunArea({
       />
       {outcome?.ok === true && (
         <ResultCard
-          announce="Your tables are ready as a ZIP of CSV files plus a combined Excel workbook."
+          announce={tablesReadySentence(outcome.job)}
           output={workerOutput(outcome.output, outcome.artifact)}
           inputBytes={file?.size}
         >
-          <p className="text-ok text-sm">
-            Your tables are ready as a ZIP of CSV files plus a combined Excel
-            workbook.
-          </p>
+          <p className="text-ok text-sm">{tablesReadySentence(outcome.job)}</p>
+          <TableExtractFindings job={outcome.job} />
           <DownloadCta
             onClick={() =>
               downloadBytes(outcome.output, outcome.artifact.filename)

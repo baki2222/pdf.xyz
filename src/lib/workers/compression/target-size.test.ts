@@ -229,9 +229,18 @@ describe("runCompression with a target", () => {
       met: true,
       attempts: 2,
       dpi: 120,
+      quality: "medium",
       tried: [
-        { dpi: 150, bytes: (await outputAt(150)).byteLength },
-        { dpi: 120, bytes: (await outputAt(120)).byteLength },
+        {
+          dpi: 150,
+          quality: "medium",
+          bytes: (await outputAt(150)).byteLength,
+        },
+        {
+          dpi: 120,
+          quality: "medium",
+          bytes: (await outputAt(120)).byteLength,
+        },
       ],
       stoppedBy: "fit",
     });
@@ -264,7 +273,12 @@ describe("runCompression with a target", () => {
     );
     expect(run.ok).toBe(true);
     if (!run.ok) return;
-    expect(calls.map((c) => c.dpi)).toEqual([300, 200, 150, 120, 96, 72]);
+    // Since audit compress-pdf#4 (2026-11-08) the floor is followed by the
+    // lower JPEG levels at 72 DPI (two more runs; this played engine ignores
+    // the level, so they make the floor's file again). Was six runs.
+    expect(calls.map((c) => c.dpi)).toEqual([
+      300, 200, 150, 120, 96, 72, 72, 72,
+    ]);
     expect(run.output).toBe(await outputAt(130));
     const tried = run.meta.target!.tried.map((t) => t.bytes!);
     expect(run.output.byteLength).toBe(Math.min(...tried));
@@ -277,7 +291,7 @@ describe("runCompression with a target", () => {
     expect(run.meta.target).toMatchObject({
       targetBytes: 100 * KB,
       met: false,
-      attempts: 6,
+      attempts: 8,
       dpi: 200,
       stoppedBy: "exhausted",
     });
@@ -466,7 +480,9 @@ describe("the composed chain: engine → processor → job record → browser", 
       expect(onRecord?.compression?.target).toEqual({
         targetBytes,
         met,
-        attempts: met ? 2 : 4,
+        // Not met: 150, 120, 96, 72, then Low and Lowest at 72 (audit
+        // compress-pdf#4; was 4 before the JPEG rungs).
+        attempts: met ? 2 : 6,
         outputBytes: bytes,
       });
     }

@@ -31,7 +31,8 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { PDFDocument, StandardFonts } from "pdf-lib";
+import { PDFDocument, PDFName, StandardFonts } from "pdf-lib";
+import { removedLine } from "@/lib/pdf/compress-cleanup";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import {
@@ -49,11 +50,20 @@ import {
 } from "@/lib/pdf/analyze";
 import { getToolBySlug, tools } from "@/lib/tools";
 import compressContent from "@/lib/tools/content/compress-pdf";
+import {
+  IMAGE_QUALITY_HINT,
+  IMAGE_QUALITY_LABELS,
+  IMAGE_QUALITY_LEVELS,
+  imageQualityNotApplied,
+} from "@/lib/pdf/compress-image-quality";
 import type { NativeCompressor } from "@/lib/workers/compression/engine";
 import { createLocalDevAdapter } from "@/lib/workers/local-dev";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { DevWorkerStore } from "@/lib/workers/store";
 import { encryptPdf } from "@/tests/encrypted-pdf";
+import { LOCKED_PDF_COPY } from "@/lib/pdf/encryption";
+import { BATCH_RESTRICTED_NOTE } from "@/lib/pdf/compress-batch-copy";
+import { useWorkerStatus } from "../use-worker-status";
 import {
   colourImagePdf,
   noisePhotoPdf,
@@ -118,7 +128,11 @@ afterEach(() => {
  * stand-in is the native binary, which `native` plays. Returns every body the
  * runner uploaded, so a test can compare them with the file it dropped.
  */
-function answerWithLocalWorker(native: NativeCompressor) {
+function answerWithLocalWorker(
+  native: NativeCompressor,
+  /** Rewrites the created job as the browser receives it (an older worker). */
+  rewriteJob?: (job: Record<string, unknown>) => Record<string, unknown>,
+) {
   const store = new DevWorkerStore();
   const adapter = createLocalDevAdapter({
     store,
@@ -156,7 +170,17 @@ function answerWithLocalWorker(native: NativeCompressor) {
           return put.ok ? json({}) : json({ error: put.reason }, 400);
         }
         if (url === "/api/jobs" && init?.method === "POST") {
-          return reply(await adapter.createJob(parsed()));
+          const created = await adapter.createJob(parsed());
+          return reply(
+            rewriteJob && created.ok
+              ? {
+                  ...created,
+                  value: rewriteJob(
+                    created.value as unknown as Record<string, unknown>,
+                  ) as unknown as typeof created.value,
+                }
+              : created,
+          );
         }
         const artifact = /^\/api\/artifacts\/local\/([^/]+)$/.exec(url);
         if (artifact) {
@@ -197,6 +221,20 @@ async function drop(container: HTMLElement, files: File[]) {
   const input = container.querySelector('input[type="file"]');
   expect(input, "the runner offers a file picker").not.toBeNull();
   fireEvent.drop(input!.closest("label")!, { dataTransfer: { files } });
+}
+
+/**
+ * The runner, plus the phase of the worker status it reads, so a test can
+ * wait until the status has been ANSWERED before it asserts an absence.
+ */
+function WithStatusPhase() {
+  const { phase } = useWorkerStatus();
+  return (
+    <>
+      <output data-testid="status-phase">{phase}</output>
+      <CompressRunner />
+    </>
+  );
 }
 
 const WORKER_PANEL = "Deep image compression (secure server)";
@@ -709,6 +747,45 @@ describe("Compress: an already-lean PDF", { timeout: 30_000 }, () => {
   });
 });
 
+describe(
+  "Compress: what the repack drops (audit compress-pdf#6)",
+  { timeout: 30_000 },
+  () => {
+    it("says how many unused objects and thumbnails it dropped, read from the run", async () => {
+      answerWorkerStatus(null);
+      const doc = await PDFDocument.load(await plainPdf(2));
+      const ctx = doc.context;
+      const thumb = ctx.register(ctx.stream(new Uint8Array(4000), {}));
+      doc.getPage(0).node.set(PDFName.of("Thumb"), thumb);
+      ctx.register(ctx.stream(new Uint8Array(9000), {}));
+      const bytes = await doc.save({ useObjectStreams: false });
+      const { container } = render(withRouter(<CompressRunner />));
+      await drop(container, [asFile(bytes, "bloated.pdf")]);
+      expect(
+        await screen.findByText(
+          // One orphan and one thumbnail. Until the review of 36048d58 this
+          // read { unreferenced: 2 }: the thumbnail's stream counted twice.
+          removedLine({ thumbnails: 1, unreferenced: 1 })!,
+          undefined,
+          { timeout: 10_000 },
+        ),
+      ).toBeVisible();
+    });
+
+    it("control: a file with nothing to drop gets no such line", async () => {
+      answerWorkerStatus(null);
+      const { container } = render(withRouter(<CompressRunner />));
+      await drop(container, [asFile(await plainPdf(2), "plain.pdf")]);
+      await screen.findByRole(
+        "group",
+        { name: /analysis complete/i },
+        { timeout: 10_000 },
+      );
+      expect(screen.queryByText(/the repack also dropped/i)).toBeNull();
+    });
+  },
+);
+
 describe("Compress batch", { timeout: 30_000 }, () => {
   it("flags a signed file, keeps it out of Download all until confirmed, and names a restricted file honestly", async () => {
     answerWorkerStatus(null);
@@ -761,6 +838,226 @@ describe("Compress batch", { timeout: 30_000 }, () => {
     ).toBeInTheDocument();
   });
 });
+
+describe(
+  "Compress batch on our secure server (audit compress-pdf#5)",
+  { timeout: 30_000 },
+  () => {
+    // Through the REAL local-dev adapter, as the single-file tests: only the
+    // Ghostscript binary is played, so what each job asked for is read at
+    // the engine, and what was uploaded is read at the upload.
+    it("one Quality and Grayscale for every file, each uploaded and compressed in turn", async () => {
+      const seen: { targetDpi: number; grayscale?: boolean }[] = [];
+      const { uploads } = answerWithLocalWorker(async (_input, ctx) => {
+        seen.push({
+          targetDpi: ctx.options.targetDpi,
+          grayscale: ctx.options.grayscale,
+        });
+        return colourImagePdf({ components: 1, size: 8 });
+      });
+      const a = await colourImagePdf({ components: 3, size: 8, pad: 90_000 });
+      const b = await colourImagePdf({ components: 3, size: 8, pad: 70_000 });
+      const { container } = render(withRouter(<CompressRunner />));
+      await drop(container, [asFile(a, "a.pdf"), asFile(b, "b.pdf")]);
+
+      const lossless = await screen.findByRole("radio", {
+        name: /in your browser/i,
+      });
+      expect(lossless).toBeChecked();
+      fireEvent.click(
+        await screen.findByRole(
+          "radio",
+          { name: /compress images on our server/i },
+          { timeout: 10_000 },
+        ),
+      );
+      expect(screen.getByText(/uploads each file/i)).toBeVisible();
+      fireEvent.click(screen.getByRole("button", { name: "Extreme" }));
+      fireEvent.click(screen.getByRole("checkbox", { name: /grayscale/i }));
+      fireEvent.click(
+        screen.getByRole("button", { name: /compress 2 pdfs on our server/i }),
+      );
+      await screen.findByText(/batch complete/i, {}, { timeout: 10_000 });
+
+      expect(seen).toEqual([
+        { targetDpi: 72, grayscale: true },
+        { targetDpi: 72, grayscale: true },
+      ]);
+      // Each file went up as it was dropped, one job each.
+      expect(uploads.map((u) => u.byteLength)).toEqual([
+        a.byteLength,
+        b.byteLength,
+      ]);
+      expect(
+        screen.getByRole("button", { name: /download all \(2\)/i }),
+      ).toBeInTheDocument();
+      const rows = within(
+        screen.getByRole("list", { name: /files in this batch/i }),
+      );
+      expect(
+        rows.getByRole("button", { name: /download compressed a\.pdf/i }),
+      ).toBeInTheDocument();
+    });
+
+    // Review of cb0eb82e: the deep batch uploaded every file without reading
+    // its lock first. Ghostscript writes an unencrypted copy, so a restricted
+    // file came back with its author's restrictions lifted, no owner password
+    // given and no warning shown; a file that needs a password to open went
+    // up for nothing. Both are now refused in the browser, as the lossless
+    // batch refuses them, and nothing of theirs is uploaded.
+    it("a locked file is refused in the browser and never uploaded; the plain file still runs", async () => {
+      const { uploads } = answerWithLocalWorker(async () =>
+        colourImagePdf({ components: 3, size: 8 }),
+      );
+      const plain = await colourImagePdf({
+        components: 3,
+        size: 8,
+        pad: 60_000,
+      });
+      const restricted = await encryptPdf(await plainPdf(1), {
+        userPassword: "",
+        ownerPassword: "owner-secret",
+      });
+      const needsPassword = await encryptPdf(await plainPdf(1), {
+        userPassword: "user-secret",
+        ownerPassword: "owner-secret",
+      });
+      const { container } = render(withRouter(<CompressRunner />));
+      await drop(container, [
+        asFile(plain, "plain.pdf"),
+        asFile(restricted, "restricted.pdf"),
+        asFile(needsPassword, "locked.pdf"),
+      ]);
+      fireEvent.click(
+        await screen.findByRole(
+          "radio",
+          { name: /compress images on our server/i },
+          { timeout: 10_000 },
+        ),
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: /compress 3 pdfs on our server/i }),
+      );
+      await screen.findByText(/batch complete/i, {}, { timeout: 10_000 });
+
+      // Only the plain file went up.
+      expect(uploads).toHaveLength(1);
+      expect(Buffer.from(uploads[0]!).equals(Buffer.from(plain))).toBe(true);
+      const rows = within(
+        screen.getByRole("list", { name: /files in this batch/i }),
+      );
+      const restrictedRow = rows.getByText("restricted.pdf").closest("li")!;
+      expect(restrictedRow).toHaveTextContent(LOCKED_PDF_COPY.restricted);
+      expect(restrictedRow).toHaveTextContent(BATCH_RESTRICTED_NOTE);
+      expect(
+        within(restrictedRow).queryByRole("button", {
+          name: /download compressed/i,
+        }),
+      ).toBeNull();
+      const lockedRow = rows.getByText("locked.pdf").closest("li")!;
+      expect(lockedRow).toHaveTextContent(LOCKED_PDF_COPY["password-required"]);
+      // The page says the same: until this review its FAQ said a batch on
+      // our server "sends it there like any other file".
+      const faq = compressContent.faqs.map((f) => f.a).join(" ");
+      expect(faq).toContain(
+        "both kinds fail in your browser before anything of them is uploaded",
+      );
+      expect(faq).not.toContain("like any other file");
+    });
+
+    it("the lossless batch stays the default and uploads nothing", async () => {
+      const { uploads } = answerWithLocalWorker(async () =>
+        colourImagePdf({ components: 3, size: 8 }),
+      );
+      const { container } = render(withRouter(<CompressRunner />));
+      await drop(container, [
+        asFile(await plainPdf(2), "one.pdf"),
+        asFile(await plainPdf(3), "two.pdf"),
+      ]);
+      // The server option is offered (the worker is up)…
+      await screen.findByRole(
+        "radio",
+        { name: /compress images on our server/i },
+        { timeout: 10_000 },
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: /^compress 2 pdfs$/i }),
+      );
+      await screen.findByText(/batch complete/i, {}, { timeout: 10_000 });
+      // …and not taken unless chosen.
+      expect(uploads).toHaveLength(0);
+    });
+
+    it("with no secure server, the batch offers only the lossless repack", async () => {
+      answerWorkerStatus(null);
+      const { container } = render(withRouter(<WithStatusPhase />));
+      await drop(container, [
+        asFile(await plainPdf(2), "one.pdf"),
+        asFile(await plainPdf(3), "two.pdf"),
+      ]);
+      await screen.findByRole("button", { name: /^compress 2 pdfs$/i });
+      // First the status has to have been answered (the 503 is an error),
+      // or the absence below is only "not loaded yet".
+      expect(
+        await screen.findByTestId("status-phase", {}, { timeout: 10_000 }),
+      ).toBeInTheDocument();
+      await waitFor(() =>
+        expect(screen.getByTestId("status-phase")).toHaveTextContent("error"),
+      );
+      expect(
+        screen.queryByRole("radio", { name: /compress images on our server/i }),
+      ).toBeNull();
+    });
+
+    // Review of cb0eb82e: the test above passed with the batch's gate
+    // replaced by `true`, because a 503 hides the radio before the gate is
+    // asked, and its wait passed on the first tick. Here the status LOADS
+    // (200) and says the server cannot take the jobs, so only the gate
+    // (canRunDeepCompression) can keep the radio away.
+    it.each([
+      [
+        "local dev without native compression",
+        {
+          ...DEEP_READY,
+          compress: { lossless: true, deep: false, engines: [] },
+        },
+      ],
+      [
+        "a deployed worker that is not drainable",
+        {
+          mode: "deployed",
+          localDevOnly: false,
+          providers: { storage: { ready: true }, queue: { ready: true } },
+          daemon: { drainable: false },
+          compress: { lossless: true, deep: false, engines: [] },
+        },
+      ],
+    ])(
+      "a loaded status that cannot take the jobs (%s) offers no server option",
+      async (_name, status) => {
+        answerWorkerStatus(status as unknown as WorkerStatus);
+        const { container } = render(withRouter(<WithStatusPhase />));
+        await drop(container, [
+          asFile(await plainPdf(2), "one.pdf"),
+          asFile(await plainPdf(3), "two.pdf"),
+        ]);
+        await screen.findByRole("button", { name: /^compress 2 pdfs$/i });
+        await waitFor(
+          () =>
+            expect(screen.getByTestId("status-phase")).toHaveTextContent(
+              "ready",
+            ),
+          { timeout: 10_000 },
+        );
+        expect(
+          screen.queryByRole("radio", {
+            name: /compress images on our server/i,
+          }),
+        ).toBeNull();
+      },
+    );
+  },
+);
 
 describe(
   "Compress: Extreme and Grayscale on our secure server",
@@ -920,7 +1217,10 @@ describe(
       );
       // Every rung runs (was [72]: the floor-first shortcut, inverted the
       // same day), and the smallest file made — 72 DPI here — is returned.
-      expect(seen.map((s) => s.targetDpi)).toEqual([150, 120, 96, 72]);
+      // Since audit compress-pdf#4 (2026-11-08) the floor is followed by
+      // Low and Lowest image quality at 72 DPI (was [150, 120, 96, 72]);
+      // this played engine ignores the level, so 72's file is the smallest.
+      expect(seen.map((s) => s.targetDpi)).toEqual([150, 120, 96, 72, 72, 72]);
       expect(line).toHaveTextContent(
         /^The smallest we could make is 7\d\.\d KB, above your 40 KB target\. Try Grayscale, or split the file\.$/,
       );
@@ -972,6 +1272,103 @@ describe(
         screen.getByText(/enter a whole number of kb from 20/i),
       ).toBeVisible();
       expect(run).toHaveAttribute("aria-disabled", "true");
+    });
+  },
+);
+
+describe(
+  "Compress: Image quality under Advanced (audit compress-pdf#4)",
+  { timeout: 30_000 },
+  () => {
+    // Through the REAL local-dev adapter — parser, planner, engine, ladder —
+    // with only the Ghostscript binary played, so what reaches the engine is
+    // read at the engine.
+    async function runWith(
+      choose: () => void,
+      rewriteJob?: Parameters<typeof answerWithLocalWorker>[1],
+    ) {
+      const seen: { targetDpi: number; imageQuality?: string }[] = [];
+      answerWithLocalWorker(async (_input, ctx) => {
+        seen.push({
+          targetDpi: ctx.options.targetDpi,
+          ...(ctx.options.imageQuality
+            ? { imageQuality: ctx.options.imageQuality }
+            : {}),
+        });
+        return colourImagePdf({ components: 3, size: 8 });
+      }, rewriteJob);
+      const input = await colourImagePdf({
+        components: 3,
+        size: 8,
+        pad: 200_000,
+      });
+      const { container } = render(withRouter(<CompressRunner />));
+      await drop(container, [asFile(input, "scan.pdf")]);
+      const run = await screen.findByRole(
+        "button",
+        { name: /compress images on our server/i },
+        { timeout: 10_000 },
+      );
+      choose();
+      fireEvent.click(run);
+      await screen.findByRole(
+        "button",
+        { name: /download compressed pdf/i },
+        { timeout: 10_000 },
+      );
+      return seen;
+    }
+
+    it("is closed by default, Medium is chosen, and a default run sends no level", async () => {
+      const seen = await runWith(() => {
+        const toggle = screen.getByRole("button", {
+          name: IMAGE_QUALITY_LABELS.disclosure,
+        });
+        expect(toggle).toHaveAttribute("aria-expanded", "false");
+      });
+      expect(seen).toEqual([{ targetDpi: 150 }]);
+    });
+
+    it("Advanced opens Image quality; Low reaches the engine", async () => {
+      const seen = await runWith(() => {
+        fireEvent.click(
+          screen.getByRole("button", { name: IMAGE_QUALITY_LABELS.disclosure }),
+        );
+        const group = screen.getByRole("group", {
+          name: IMAGE_QUALITY_LABELS.heading,
+        });
+        const chips = within(group).getAllByRole("button");
+        expect(chips.map((c) => c.textContent)).toEqual(
+          IMAGE_QUALITY_LEVELS.map((l) => l.label),
+        );
+        expect(
+          within(group).getByRole("button", { name: "Medium" }),
+        ).toHaveAttribute("aria-pressed", "true");
+        expect(screen.getByText(IMAGE_QUALITY_HINT)).toBeVisible();
+        fireEvent.click(within(group).getByRole("button", { name: "Low" }));
+      });
+      expect(seen).toEqual([{ targetDpi: 150, imageQuality: "low" }]);
+      // This worker read the level, and its record says so: no warning.
+      expect(screen.queryByText(imageQualityNotApplied("low"))).toBeNull();
+    });
+
+    it("a worker that did not read the level (an older image) is named, not passed off as Low", async () => {
+      const pickLow = () => {
+        fireEvent.click(
+          screen.getByRole("button", { name: IMAGE_QUALITY_LABELS.disclosure }),
+        );
+        fireEvent.click(screen.getByRole("button", { name: "Low" }));
+      };
+      // The record as an image older than the option writes it.
+      await runWith(pickLow, (job) => {
+        const results = job.results as {
+          compression: Record<string, unknown>;
+        };
+        const { imageQuality: _drop, ...compression } = results.compression;
+        void _drop;
+        return { ...job, results: { ...results, compression } };
+      });
+      expect(screen.getByText(imageQualityNotApplied("low"))).toBeVisible();
     });
   },
 );

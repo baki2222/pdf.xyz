@@ -96,6 +96,7 @@ import {
   SIGNATURE_STYLE_LABEL,
   SIGNATURE_STYLES,
 } from "@/lib/pdf/offered-kinds";
+import { IMAGE_QUALITY_LEVELS } from "@/lib/pdf/compress-image-quality";
 import { STAMP_FONT_FAMILIES, STAMP_FONT_LABELS } from "@/lib/pdf/stamp";
 import { LENGTH_UNITS } from "@/lib/pdf/length-units";
 import { MIN_CROP_DIMENSION } from "@/lib/pdf/page-geometry";
@@ -120,9 +121,33 @@ import {
   XLSX_TEXT_EXAMPLE,
 } from "@/lib/jobs/pdf-office-export";
 import {
+  pageSheetName,
+  SHEET_PER_PAGE_LABEL,
+} from "@/lib/jobs/pdf-to-excel-options";
+import {
+  SHEET_DATE_EXAMPLES,
+  SHEET_LAKH_EXAMPLE,
+  SHEET_NEGATIVE_EXAMPLES,
+  SHEET_NOTE_MARK_EXAMPLE,
+} from "@/lib/jobs/sheet-number-examples";
+import {
+  COMBINE_TABLES_LABEL,
+  COMBINED_CSV_NAME,
+  COMBINED_SHEET_NAME,
+} from "@/lib/jobs/extract-tables-options";
+import {
   HTML_LAYOUT_STEP,
   htmlLayoutAnswer,
 } from "@/lib/tools/html-layout-copy";
+import {
+  WEBPAGE_CAPTURE_SENTENCE,
+  WEBPAGE_OVERLAY_ANSWER,
+  WEBPAGE_PRINT_STYLES_SENTENCE,
+  WEBPAGE_OUTLINE_SENTENCE,
+  WEBPAGE_SCROLL_SENTENCE,
+  WEBPAGE_STAMP_SENTENCE,
+} from "@/lib/tools/webpage-capture-copy";
+import { WEBPAGE_CAPTURE_LABELS } from "@/lib/jobs/webpage-capture-options";
 import { MAX_SCAN_SIDE_PX, SCAN_PAGE_SIZES } from "@/lib/pdf/scan-to-pdf";
 import { SCAN_ENHANCEMENTS } from "@/lib/pdf/scan-enhance";
 import { METADATA_DATE_FIELDS, METADATA_TEXT_FIELDS } from "@/lib/pdf/metadata";
@@ -206,6 +231,21 @@ import { RETENTION_WINDOWS } from "@/lib/retention-windows";
 import { OCR_START_SENTENCE } from "@/lib/jobs/ocr-start-copy";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
 import {
+  FIT_COLUMNS_TO_WIDTH_LABEL,
+  ONE_PAGE_PER_SHEET_LABEL,
+  ORIENTATION_CHOICE_WORDS,
+  ORIENTATION_LABEL,
+} from "@/lib/workers/office-conversion/sheet-layout";
+import {
+  PDFA_LEVEL_LABEL,
+  PDFA_LEVEL_NAMES,
+} from "@/lib/workers/pdf-archive/levels";
+import {
+  CARRIED_DOCINFO_RULE,
+  CARRIED_DOCINFO_WORDS,
+} from "@/lib/workers/pdf-archive/docinfo-words";
+import { PDFA_COLOUR_NOTE } from "@/lib/workers/pdf-archive/colour";
+import {
   PDFA_EXPECTED_CONFORMANCE,
   PDFA_EXPECTED_PART,
 } from "@/lib/workers/pdf-archive/pdfa-markers";
@@ -227,15 +267,21 @@ import {
   chatAnswerOutputName,
 } from "@/lib/jobs/chat-with-pdf";
 import { MAX_CONTEXT_EXCHANGES } from "@/lib/workers/chat-with-pdf-conversation";
+import {
+  PAGE_HEADINGS_HINT as MD_PAGE_HEADINGS_HINT,
+  REPEATED_LINES_HINT as MD_REPEATED_HINT,
+} from "@/lib/tools/pdf-to-markdown-options";
 import { tableExtractOutputName } from "@/lib/workers/processor/table-extract";
 import { LONG_CELL_WORDS } from "@/lib/workers/pdf-text/flow";
 import { MAX_SIGNIFICANT_DIGITS } from "@/lib/workers/ooxml/sheet-cells";
 import {
   HEADING_MAX_CHARS,
   HEADING_SIZE_RATIO,
+  MARKDOWN_LINK_SCHEMES,
   PARAGRAPH_GAP_RATIO,
   markdownOutputName,
 } from "@/lib/pdf/pdf-to-markdown";
+
 import {
   SUPPORTED_SCRIPTS,
   UNSUPPORTED_SCRIPTS,
@@ -318,6 +364,13 @@ const KB_BYTES = TARGET_KB;
 const TARGET_PRESET_100 = targetPreset(100 * KB_BYTES);
 /** The ladder's floor and the panel's default Quality, by their own labels. */
 const TARGET_FLOOR_LABEL = DEEP_COMPRESSION_PRESETS[0].label;
+/**
+ * The ladder's last JPEG level, by its chip's label: since audit
+ * compress-pdf#4 (2026-11-08) the ladder lowers image quality after the
+ * resolution floor (`target-ladder.ts`).
+ */
+const TARGET_LOWEST_QUALITY_LABEL =
+  IMAGE_QUALITY_LEVELS[IMAGE_QUALITY_LEVELS.length - 1]!.label;
 const TARGET_DEFAULT_QUALITY_LABEL = (() => {
   const preset = DEEP_COMPRESSION_PRESETS.find((p) => p.dpi === 150);
   if (!preset) throw new Error("the guide's default Quality is not offered");
@@ -672,6 +725,8 @@ const TABLES_EXAMPLE_ZIP = tableExtractOutputName("report.pdf", "zip");
 
 /** PDF to Markdown (2026-10-31), from the converter's own constants. */
 const MD_HEADING_PCT = Math.round((HEADING_SIZE_RATIO - 1) * 100);
+/** "http:, https: or mailto:": the link addresses PDF to Markdown keeps. */
+const MD_LINK_SCHEMES = `${MARKDOWN_LINK_SCHEMES.slice(0, -1).join(", ")} or ${MARKDOWN_LINK_SCHEMES.at(-1)}`;
 const MD_EXAMPLE_OUT = markdownOutputName("report.pdf");
 
 /**
@@ -2314,7 +2369,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-09-28",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-redact-a-pdf",
@@ -3074,21 +3129,21 @@ export const guides: Guide[] = [
         heading: "How each line becomes a row",
         body: [
           `Every non-empty line of the PDF's text becomes one row, and a line breaks into cells at ${XLSX_CELL_BREAK_PHRASE}; a single space or a comma never starts a new cell. Rows that line up are treated as one table, so a blank cell stays blank and the values after it stay under their own headings. ${XLSX_MERGE_CAVEAT}`,
-          "Pages follow one another with no blank row between them, so page headers, footers and page numbers printed as text end up among the data rows. Ruling lines and cell borders are ignored, merged cells are not rebuilt, and fonts, colours and images are not carried over.",
+          `By default, pages follow one another in the one sheet with no blank row between them, so page headers, footers and page numbers printed as text end up among the data rows; tick ${SHEET_PER_PAGE_LABEL} before you export to give each page a sheet of its own, named ${pageSheetName(1)}, ${pageSheetName(2)} and so on. Ruling lines and cell borders are ignored, merged cells are not rebuilt, and fonts, colours and images are not carried over.`,
         ],
       },
       {
         id: "numbers-stay-numbers",
         heading: "Amounts arrive as numbers",
         body: [
-          `An amount or a percentage written like ${XLSX_AMOUNTS} is stored as a number, so SUM adds a column up without converting anything, and the comma inside an amount never splits it. A date such as ${XLSX_TEXT_EXAMPLE}, a European-style 1.250,00, a negative in brackets and a code with leading zeros stay text, so convert those columns before you calculate with them.`,
+          `An amount or a percentage written like ${XLSX_AMOUNTS} is stored as a number, so SUM adds a column up without converting anything, and the comma inside an amount never splits it. So is an amount in Indian lakh grouping such as ${SHEET_LAKH_EXAMPLE} and an accounting negative such as ${SHEET_NEGATIVE_EXAMPLES[0]} or ${SHEET_NEGATIVE_EXAMPLES[1]}, and a date that cannot be read two ways, such as ${SHEET_DATE_EXAMPLES[0]} or ${SHEET_DATE_EXAMPLES[1]}, becomes a real date. A date written as ${XLSX_TEXT_EXAMPLE}, which reads differently from country to country, a European-style 1.250,00, a bare bracketed number such as ${SHEET_NOTE_MARK_EXAMPLE} and a code with leading zeros stay text, so convert those columns before you calculate with them.`,
         ],
       },
       {
         id: "scans-and-tables",
         heading: "Scanned PDFs and table-only exports",
         body: [
-          `A scanned page holds a picture of its words, so it has no text to export. A fully scanned PDF is refused with a message pointing to ${nameOf("ocr-pdf")}: run it there with the language the page is written in, choose a searchable PDF, and bring that file back here. If only some pages are scans, the export succeeds and the result says which pages had no text.`,
+          `A scanned page holds a picture of its words, so on its own it has no text to export. Tick “${WORD_OCR_LABEL}” before you press Export XLSX and pick the languages printed on the page: our server recognises the words first and places them into cells in the same job. Without it, a fully scanned PDF is refused, and if only some pages are scans, the export succeeds and the result says which pages had no text. ${nameOf("ocr-pdf")}, listed beside it, is for when you want a searchable PDF instead of a workbook.`,
           `${nameOf("extract-tables")} looks for tables by where the words sit, keeps only the regions that read as a grid of values, and hands back a CSV per table plus one workbook with a sheet for each. Choose it when you want the tables alone, without the headings and paragraphs around them.`,
         ],
       },
@@ -3100,11 +3155,11 @@ export const guides: Guide[] = [
       },
       {
         question: "Will SUM work on the numbers?",
-        answer: `For amounts and percentages written like ${XLSX_AMOUNTS}, yes: each is stored as a number. Dates such as ${XLSX_TEXT_EXAMPLE}, European-style 1.250,00, negatives in brackets and codes with leading zeros stay text.`,
+        answer: `For amounts and percentages written like ${XLSX_AMOUNTS}, yes: each is stored as a number, and so is an amount in Indian lakh grouping such as ${SHEET_LAKH_EXAMPLE} and an accounting negative such as ${SHEET_NEGATIVE_EXAMPLES[0]} or ${SHEET_NEGATIVE_EXAMPLES[1]}. A date written as ${XLSX_TEXT_EXAMPLE}, which reads differently from country to country, European-style 1.250,00, a bare bracketed number such as ${SHEET_NOTE_MARK_EXAMPLE} and codes with leading zeros stay text.`,
       },
       {
         question: "Can I convert a scanned PDF to Excel?",
-        answer: `Not directly: a scan has no selectable text, so the job is refused with a link to ${nameOf("ocr-pdf")}. Run OCR first with the right language, choose a searchable PDF as the result, and convert that file here.`,
+        answer: `Yes. Tick “${WORD_OCR_LABEL}” and pick the languages printed on the page: our server runs OCR first and converts the result in the same job. A wrong language does not fail, it gives plausible-looking gibberish, so choose every language on the page, and check the figures.`,
       },
       {
         question: "Does PDF to Excel upload my file?",
@@ -3116,7 +3171,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-11-06",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-convert-pdf-to-powerpoint",
@@ -3157,7 +3212,7 @@ export const guides: Guide[] = [
         id: "scanned-pages",
         heading: "Scanned pages",
         body: [
-          `A scanned page holds a picture of its words, so its slide carries the page as a picture and those words are not text. Run ${nameOf("ocr-pdf")} on the scan first and convert the result: its slides then also carry the recognised words, in invisible text boxes over each picture. The note beside the download names any pages that had no selectable text.`,
+          `A scanned page holds a picture of its words, so its slide carries the page as a picture and those words are not text. Tick “${WORD_OCR_LABEL}” before you press Export PPTX and pick the languages printed on the page: our server recognises the words first and converts the result in the same job, so its slides also carry the recognised words, in invisible text boxes over each picture. The note beside the download names any pages that had no selectable text. ${nameOf("ocr-pdf")}, listed beside it, is for when you want a searchable PDF instead of a deck.`,
         ],
       },
       {
@@ -3177,7 +3232,7 @@ export const guides: Guide[] = [
       },
       {
         question: "What happens to a scanned PDF?",
-        answer: `It is converted, as pictures: each scanned page lands on its slide as a picture, and its words are not text. Run ${nameOf("ocr-pdf")} first and convert the OCR'd copy to have the recognised words in invisible text boxes over each picture.`,
+        answer: `It is converted, as pictures: each scanned page lands on its slide as a picture, and its words are not text. Tick “${WORD_OCR_LABEL}” to have the recognised words in invisible text boxes over each picture, in the same job; choose every language printed on the page, since OCR in the wrong language gives plausible-looking gibberish rather than an error.`,
       },
       {
         question: "Why is a paragraph split into separate text boxes?",
@@ -3194,7 +3249,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-11-04",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-convert-word-to-pdf",
@@ -3238,7 +3293,7 @@ export const guides: Guide[] = [
         id: "excel-and-powerpoint",
         heading: "Excel and PowerPoint files",
         body: [
-          `${nameOf("excel-to-pdf")} takes an Excel workbook, a CSV file or an OpenDocument spreadsheet and has LibreOffice print it to PDF. There is no sheet picker and no layout setting on the page, so set landscape and fit-to-page scaling in your spreadsheet app before converting if the columns split across pages.`,
+          `${nameOf("excel-to-pdf")} takes an Excel workbook, a CSV file or an OpenDocument spreadsheet and has LibreOffice print it to PDF. There is no sheet picker. If columns split across pages, tick ${FIT_COLUMNS_TO_WIDTH_LABEL} for an .xlsx, or tick ${ONE_PAGE_PER_SHEET_LABEL} to make each sheet a single page sized to fit.`,
           `${nameOf("powerpoint-to-pdf")} takes a .pptx, .ppt or .odp and writes one slide per page. Speaker notes and slides marked hidden are not exported, so unhide any slide you want in the PDF first.`,
         ],
       },
@@ -3276,7 +3331,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-11-04",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-ocr-a-pdf-in-other-languages",
@@ -3378,6 +3433,7 @@ export const guides: Guide[] = [
       `Open the ${nameOf("webpage-to-pdf")} tool.`,
       "Select everything in the address field, which starts with https://, and paste the full link from your browser's address bar over it. Only http and https links are accepted.",
       HTML_LAYOUT_STEP.body,
+      WEBPAGE_CAPTURE_SENTENCE,
       "Press Render PDF. The address is uploaded to our secure server over an encrypted connection, and Chromium opens and prints the page.",
       `When “Your PDF is ready.” appears, press Download. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save the PDF right away.`,
     ],
@@ -3394,8 +3450,8 @@ export const guides: Guide[] = [
         id: "what-gets-printed",
         heading: "What ends up in the PDF",
         body: [
-          "The PDF carries the page and nothing else: pdf.xyz adds no date, title, address or page-number lines. Backgrounds are printed, and a site that ships a print stylesheet gets that layout. Words a site draws as a picture or on a canvas stay pictures.",
-          "Nothing scrolls the page, and its scripts run within a fixed budget of time, so an endless feed prints only what it loads unscrolled, and images that load only as you scroll can be missing. Cookie notices and adverts shown to a new visitor can appear too.",
+          `${WEBPAGE_STAMP_SENTENCE} ${WEBPAGE_OUTLINE_SENTENCE} Backgrounds are printed. ${WEBPAGE_PRINT_STYLES_SENTENCE} Words a site draws as a picture or on a canvas stay pictures.`,
+          `Its scripts run within a fixed budget of time. ${WEBPAGE_SCROLL_SENTENCE} Adverts shown to a new visitor can appear too, and so can cookie notices and pop-ups, though ticking ${WEBPAGE_CAPTURE_LABELS.hideOverlays} removes the common ones.`,
         ],
       },
       {
@@ -3417,6 +3473,10 @@ export const guides: Guide[] = [
         answer: htmlLayoutAnswer("site"),
       },
       {
+        question: "Can I hide cookie notices, pop-ups or ads?",
+        answer: WEBPAGE_OVERLAY_ANSWER,
+      },
+      {
         question: "Is the text in the PDF selectable?",
         answer:
           "Yes. It is a printed PDF, not a screenshot, so words can be selected, copied and found with Ctrl+F. Words a site draws as a picture or on a canvas stay pictures.",
@@ -3431,7 +3491,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-11-07",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-extract-images-from-a-pdf",
@@ -4268,8 +4328,8 @@ export const guides: Guide[] = [
       "pdf size for online application",
     ],
     intro: [
-      `To compress a PDF to ${TARGET_PRESET_100}, open ${nameOf("compress-pdf")}, add the file, and in the “Deep image compression (secure server)” panel choose a “${TARGET_SIZE_LABELS.heading}” of ${TARGET_PRESET_100} — or ${listOr(TARGET_PRESET_LABELS.slice(1))}, or “${TARGET_SIZE_LABELS.custom}” for a number of KB of your own. Then press Compress images on our server. Our server starts at your Quality setting, lowers the resolution of the images step by step, as far as ${TARGET_FLOOR_LABEL}, and gives back the highest-quality version that fits.`,
-      `Whether a file can get that small depends on what is in it. A colour or gray scan, or a phone photo of a page, is mostly picture, and picture resolution is what this lowers, so such files often shrink a long way. A scan made in black-and-white mode shrinks less: black-and-white images are never taken below ${DEEP_MONO_MIN_DPI} DPI, so scanned text stays legible. A PDF that is mostly typed text, or whose size comes from its fonts, may hardly shrink at all; then the panel tells you the smallest file it could make, and you can still download it.`,
+      `To compress a PDF to ${TARGET_PRESET_100}, open ${nameOf("compress-pdf")}, add the file, and in the “Deep image compression (secure server)” panel choose a “${TARGET_SIZE_LABELS.heading}” of ${TARGET_PRESET_100} — or ${listOr(TARGET_PRESET_LABELS.slice(1))}, or “${TARGET_SIZE_LABELS.custom}” for a number of KB of your own. Then press Compress images on our server. Our server starts at your Quality setting, lowers the resolution of the images step by step, as far as ${TARGET_FLOOR_LABEL}, then lowers their JPEG quality, as far as “${TARGET_LOWEST_QUALITY_LABEL}”, and gives back the highest-quality version that fits.`,
+      `Whether a file can get that small depends on what is in it. A colour or gray scan, or a phone photo of a page, is mostly picture, and picture resolution and JPEG quality are what this lowers, so such files often shrink a long way. A scan made in black-and-white mode shrinks less: black-and-white images are never taken below ${DEEP_MONO_MIN_DPI} DPI, so scanned text stays legible. A PDF that is mostly typed text, or whose size comes from its fonts, may hardly shrink at all; then the panel tells you the smallest file it could make, and you can still download it.`,
       `This step uploads your file to our server; the size breakdown and the lossless copy on the same page run in your browser. Our privacy policy says the uploaded file is deleted when the job ends, the result can be downloaded for ${RETENTION_WINDOWS.outputLink}, and the stored copy is erased by a daily storage rule some time after it is ${RETENTION_WINDOWS.outputStorageRule} old.`,
     ],
     steps: [
@@ -4285,7 +4345,7 @@ export const guides: Guide[] = [
         id: "how-the-target-is-reached",
         heading: "How the target is reached",
         body: [
-          `Our server makes the file at your Quality setting first, then at each lower resolution in turn, as far as ${TARGET_FLOOR_LABEL}, and stops at the first one at or under the target: the sharpest version that fits. If none fits, it gives you the smallest file it made, with a line saying it is above your target.`,
+          `Our server makes the file at your Quality setting first, then at each lower resolution in turn, as far as ${TARGET_FLOOR_LABEL}, then at ${TARGET_FLOOR_LABEL} with each lower JPEG quality, as far as “${TARGET_LOWEST_QUALITY_LABEL}”, and stops at the first one at or under the target: the sharpest version that fits. If none fits, it gives you the smallest file it made, with a line saying it is above your target.`,
           "A lower resolution usually makes a smaller file, but not always. For each picture, the program that does the work chooses how to store it, and at a lower setting it can choose a way that takes more room. So the server measures every file it makes rather than assuming, and a run where nothing fits tries every setting before it answers, which takes longer.",
           "Only the pictures in the file are made smaller. Typed text and drawn lines are not pictures, so they stay as sharp as before, and they are also why a text-heavy PDF cannot be squeezed much. The server checks that the result opens as a PDF and, when it can count them, that no page went missing.",
           `Colour is kept. The server never turns pages gray to reach a size: it does that only when you tick “Grayscale”, and gray pages are often much smaller.`,
@@ -4316,7 +4376,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Why is my PDF still above the target?",
-        answer: `Because none of the resolutions our server tried, down to ${TARGET_FLOOR_LABEL}, made a small enough file. That happens with a mostly-text PDF, where there are few pictures to shrink, and with long documents full of photos. Try “Grayscale”, or split the file.`,
+        answer: `Because none of the settings our server tried, down to ${TARGET_FLOOR_LABEL} at “${TARGET_LOWEST_QUALITY_LABEL}” JPEG quality, made a small enough file. That happens with a mostly-text PDF, where there are few pictures to shrink, and with long documents full of photos. Try “Grayscale”, or split the file.`,
       },
       {
         question: "Will my PDF turn black and white to hit the target?",
@@ -4337,7 +4397,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-07",
+    updated: "2026-11-08",
   },
   // Added 2026-10-31 with JPG / PNG to PDF's Max file size. Every label and
   // figure is read from the panel's constants (`image-size-limit.ts`), the
@@ -4637,12 +4697,12 @@ export const guides: Guide[] = [
     ],
     intro: [
       `To convert an Excel spreadsheet to PDF, open ${nameOf("excel-to-pdf")}, add your .xlsx, .xls, .csv or .ods file, press Convert to PDF, and download the result. Anyone can open, print or file the PDF without owning Excel, and nobody can overtype a cell by accident.`,
-      "The PDF is a printout of your spreadsheet, not a working copy of it. Each formula cell shows the figure it displayed when the file was opened, and nothing in the PDF recalculates later. The pages are laid out by LibreOffice, the open-source office suite, using the page setup saved in your workbook.",
+      "The PDF is a printout of your spreadsheet, not a working copy of it. Each formula cell shows the figure it displayed when the file was opened, and nothing in the PDF recalculates later. The pages are laid out by LibreOffice, the open-source office suite, using the page setup saved in your workbook unless you change the layout in the tool.",
       `${nameOf("excel-to-pdf")} runs on a secure server. Your spreadsheet, up to ${ceilingMb("excel-to-pdf")} MB, travels over an encrypted connection and is deleted when the job ends; the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
     ],
     steps: [
       `Open the ${nameOf("excel-to-pdf")} tool.`,
-      "Before you start, set the page layout in Excel if a wide sheet must fit: choose landscape and fit-all-columns-on-one-page scaling, then save. The tool has no layout settings of its own.",
+      `If a wide sheet must not split across pages, tick ${FIT_COLUMNS_TO_WIDTH_LABEL} in the tool (an .xlsx only, with Landscape under ${ORIENTATION_LABEL} if you like), or tick ${ONE_PAGE_PER_SHEET_LABEL} to make each sheet a single page.`,
       "Drag your .xlsx, .xls, .csv or .ods onto the box that says “Add your workbook, or browse”, or click it to choose the file. Remove swaps it for another.",
       "Press Convert to PDF. Your spreadsheet uploads over an encrypted connection, and the button follows the job while LibreOffice converts it.",
       `When “Your PDF is ready.” appears, press Download. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save the PDF before you close the tab.`,
@@ -4652,8 +4712,9 @@ export const guides: Guide[] = [
         id: "how-the-pages-are-laid-out",
         heading: "How the pages are laid out",
         body: [
-          "The converter gets your file and no settings at all. Orientation, scaling and where wide columns break onto a new page come from the page setup saved in the workbook, and LibreOffice's defaults fill in the rest. So if columns spill onto extra pages or the text comes out tiny, fix it in your spreadsheet app: set landscape and fit-to-width scaling, save, and convert again.",
-          "A CSV file is plain text and cannot store any page setup, so it always gets the default layout and plain formatting. If a CSV export needs to fit the page, open it in your spreadsheet app, set the layout, save it as .xlsx and convert that copy.",
+          "Left as it is, the converter follows your file: orientation, scaling and where wide columns break onto a new page come from the page setup saved in the workbook, and LibreOffice's defaults fill in the rest.",
+          `For an .xlsx file, the tool can change two of those settings. ${ORIENTATION_LABEL} sets ${ORIENTATION_CHOICE_WORDS} for every sheet, and ${FIT_COLUMNS_TO_WIDTH_LABEL} scales each sheet down until every column fits across the page, with rows carrying on to further pages. Both are written into the workbook's page setup before LibreOffice opens it. An .xls, .csv or .ods keeps the setup saved in it; save it as .xlsx to use them.`,
+          `Tick ${ONE_PAGE_PER_SHEET_LABEL} and nothing is split: each sheet becomes one page as large as its content, so a long sheet makes a long page. Its paper size and print areas are ignored, and hidden sheets are included. It works for a CSV too, which cannot store any page setup of its own, and while it is ticked the orientation and fit settings are hidden, because it overrides them.`,
         ],
       },
       {
@@ -4682,8 +4743,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Why are my columns split across pages?",
-        answer:
-          "Because the converter follows the workbook's own page setup and has no layout options. In Excel or LibreOffice Calc, set landscape and fit-all-columns-on-one-page scaling, save, and convert again. A CSV stores no page setup, so save it as .xlsx first.",
+        answer: `Because, left as it is, the converter follows the workbook's own page setup. For an .xlsx, tick ${FIT_COLUMNS_TO_WIDTH_LABEL}, with Landscape under ${ORIENTATION_LABEL} if the sheet is wide, and every column fits across each page while rows carry on to the next. Or tick ${ONE_PAGE_PER_SHEET_LABEL} to make each sheet a single page sized to fit, CSV files included.`,
       },
       {
         question: "Which files can I convert?",
@@ -4700,7 +4760,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-07",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-convert-powerpoint-to-pdf",
@@ -4956,7 +5016,7 @@ export const guides: Guide[] = [
   {
     slug: "how-to-convert-pdf-to-pdfa",
     title: "How to convert a PDF to PDF/A",
-    description: `Convert a PDF to ${PDF_A_STANDARD} for archiving with Ghostscript on a secure server, and read what it had to drop before you download. No account needed.`,
+    description: `Convert a PDF to ${PDFA_LEVEL_NAMES} for archiving with Ghostscript on a secure server, and read what it dropped before you download. No account needed.`,
     tools: ["pdf-to-pdfa", "ocr-pdf", "unlock-pdf"],
     keywords: [
       "how to convert pdf to pdf/a",
@@ -4967,13 +5027,14 @@ export const guides: Guide[] = [
       "archive pdf",
     ],
     intro: [
-      `To convert a PDF to PDF/A, open ${nameOf("pdf-to-pdfa")}, add your PDF, press Convert to PDF/A, read any notes, and download the copy. PDF/A is the archiving form of PDF, meant for documents that must still open and look the same years from now, and every job here targets ${PDF_A_STANDARD}.`,
-      "The copy is rewritten by Ghostscript, the open-source PDF engine, with its PDF/A-2 setting switched on. Conformance level b (basic) is about how the pages look; the tagged structure that level a requires is not added. Nothing checks the result against the PDF/A specification afterwards, so treat it as a best-effort conversion, not a certificate.",
+      `To convert a PDF to PDF/A, open ${nameOf("pdf-to-pdfa")}, add your PDF, press Convert to PDF/A, read any notes, and download the copy. PDF/A is the archiving form of PDF, meant for documents that must still open and look the same years from now. The copy is ${PDF_A_STANDARD} unless you pick another level: ${PDFA_LEVEL_NAMES}.`,
+      "The copy is rewritten by Ghostscript, the open-source PDF engine, with the PDF/A setting for your level switched on. Conformance level b (basic) is about how the pages look; the tagged structure that level a requires is not added. Nothing checks the result against the PDF/A specification afterwards, so treat it as a best-effort conversion, not a certificate.",
       `${nameOf("pdf-to-pdfa")} runs on a secure server, because that is where Ghostscript is installed. Your PDF, up to ${ceilingMb("pdf-to-pdfa")} MB, travels over an encrypted connection and is deleted once the job is over; the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
     ],
     steps: [
       `Open the ${nameOf("pdf-to-pdfa")} tool. The badge at the top reads Secure server when conversion is available; otherwise Convert to PDF/A stays off and nothing is sent.`,
       "Drop one PDF on the area that says “Add a PDF, or browse”, or click it to choose the file. Remove, beside its name, swaps it for another.",
+      `Leave ${PDFA_LEVEL_LABEL} on ${PDF_A_STANDARD} unless your archive or portal names another level; then pick it.`,
       "Press Convert to PDF/A. Your PDF uploads over an encrypted connection to our secure server, and the button follows the job while Ghostscript rewrites it.",
       "If Ghostscript reported anything, “What PDF/A could not keep” lists it above “Your PDF/A file is ready.” Read it before you replace your original.",
       `Press Download to save the copy: report.pdf comes back as ${PDFA_EXAMPLE_OUT}. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it before you close the tab.`,
@@ -4984,7 +5045,9 @@ export const guides: Guide[] = [
         id: "what-the-conversion-drops",
         heading: "What the conversion drops, and how you find out",
         body: [
-          "Some of what a PDF can carry has no place in PDF/A. Ghostscript is told to drop it and carry on rather than abandon the job, and what it reports while doing so is shown above your download in its own words, with any line that names a file path held back. The line you are most likely to meet ends in “discarding DOCINFO”: DOCINFO is the older place a PDF keeps its title, author and producer, and the notice does not say which fields went, so open the copy's document properties if they matter.",
+          "Some of what a PDF can carry has no place in PDF/A. Ghostscript is told to drop it and carry on rather than abandon the job, and what it reports while doing so is shown above your download in its own words, with any line that names a file path held back. The line you are most likely to meet ends in “discarding DOCINFO”: DOCINFO is the older place a PDF keeps its title, author and producer, and the notice is about the original's copy of it.",
+          `Before Ghostscript runs, our server reads your PDF's ${CARRIED_DOCINFO_WORDS} and has Ghostscript write them into the PDF/A copy. ${CARRIED_DOCINFO_RULE} Open the copy's document properties to see what arrived.`,
+          PDFA_COLOUR_NOTE,
           "PDF/A also requires every font to be embedded. Where your original only names a font without carrying it, Ghostscript uses one from its own set; on our secure server, NimbusSans was seen standing in for Helvetica. The notes do not report that swap, so compare the copy with the original page by page before you rely on it.",
         ],
       },
@@ -4992,8 +5055,8 @@ export const guides: Guide[] = [
         id: "what-is-checked",
         heading: "What is checked, and what is not",
         body: [
-          `Before the copy is returned, our server checks that it is not empty, that it has a PDF header and end-of-file marker, and that it declares ${PDF_A_STANDARD}: PDF/A identification part ${PDFA_EXPECTED_PART} and conformance ${PDFA_EXPECTED_CONFORMANCE} in its metadata, plus an embedded colour profile. If either declaration is missing, no file is returned.`,
-          "A declaration is not proof of conformance. If a university repository, court or records system needs PDF/A, run its own checker, or an independent validator such as veraPDF, on the copy. There is no level picker either: a portal that names PDF/A-1b or PDF/A-3b needs other software.",
+          `Before the copy is returned, our server checks that it is not empty, that it has a PDF header and end-of-file marker, and that it declares the level you picked (for ${PDF_A_STANDARD}, PDF/A identification part ${PDFA_EXPECTED_PART} and conformance ${PDFA_EXPECTED_CONFORMANCE}) in its metadata, plus an embedded colour profile. If either declaration is missing, or names another level, no file is returned.`,
+          "A declaration is not proof of conformance. If a university repository, court or records system needs PDF/A, run its own checker, or an independent validator such as veraPDF, on the copy.",
         ],
       },
       {
@@ -5002,6 +5065,7 @@ export const guides: Guide[] = [
         body: [
           `Converting a scan to PDF/A does not make its text searchable: a scanned page stays a picture of words. Run it through ${nameOf("ocr-pdf")} first, which adds a searchable text layer on our secure server, then convert that file and search the PDF/A copy to confirm the words survived.`,
           `The page has no password field, so Ghostscript is never given one. If your file asks for a password when it opens, ${nameOf("unlock-pdf")} removes it once you enter that password; then convert the unlocked copy. The PDF/A copy is written without encryption, which PDF/A does not allow in any case.`,
+          "A digitally signed PDF loses its signatures as valid ones, because the conversion rewrites the whole file. Your browser checks for signatures before anything is uploaded; if it finds any, the panel says how many and waits until you confirm. Keep the signed original beside the PDF/A copy.",
           "Our server first looks for a PDF header at the start of your file and an end-of-file marker near its end. A file missing either, such as a download that stopped partway, is refused as one that could not be read as a PDF, and nothing is produced.",
         ],
       },
@@ -5016,16 +5080,15 @@ export const guides: Guide[] = [
     faq: [
       {
         question: "Will the converted file pass a PDF/A validator?",
-        answer: `It targets ${PDF_A_STANDARD}, but pdf.xyz runs no PDF/A validator. Our server checks that the copy declares the standard and carries a colour profile, and returns no file if it does not; a declaration is not proof, so check the copy with the validator your archive uses.`,
+        answer: `It targets the level you picked, ${PDF_A_STANDARD} unless you changed it, but pdf.xyz runs no PDF/A validator. Our server checks that the copy declares that level and carries a colour profile, and returns no file if it does not; a declaration is not proof, so check the copy with the validator your archive uses.`,
       },
       {
         question: "Can I convert to a different PDF/A level?",
-        answer: `No. There is no level picker, and every conversion targets ${PDF_A_STANDARD}. If an archive asks for another level, such as PDF/A-1b or PDF/A-3b, you need software that offers it.`,
+        answer: `Yes, within level b: ${PDFA_LEVEL_LABEL} offers ${PDFA_LEVEL_NAMES}, starting on ${PDF_A_STANDARD}. PDF/A-1 does not allow transparency, so compare the pages of a PDF/A-1b copy. The a and u levels, which need tagged structure and guaranteed Unicode text, are not offered.`,
       },
       {
         question: "What does “discarding DOCINFO” mean?",
-        answer:
-          "Ghostscript found text in the PDF's older information dictionary, where the title, author and producer live, that it could not carry into PDF/A's metadata, and dropped that dictionary. It does not list which fields went, so check the copy's document properties if the title or author matters.",
+        answer: `Ghostscript found text in your original's older information dictionary, where the title, author and producer live, that it could not carry into PDF/A's metadata, and dropped that copy of it. Our server writes the ${CARRIED_DOCINFO_WORDS} into the PDF/A file separately. ${CARRIED_DOCINFO_RULE} So check the copy's document properties to see what arrived.`,
       },
       {
         question: "Does PDF/A make a scanned PDF searchable?",
@@ -5037,7 +5100,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-convert-pdf-to-png",
@@ -5480,7 +5543,7 @@ export const guides: Guide[] = [
     slug: "how-to-extract-tables-from-a-pdf",
     title: "How to extract tables from a PDF",
     description:
-      "Pull the tables out of a text-based PDF into CSV files and one Excel workbook, a sheet per table. It runs on a secure server; scans need OCR first.",
+      "Pull the tables out of a PDF into CSV files and one Excel workbook, a sheet per table by default. It runs on a secure server, and can read a scan with OCR first.",
     tools: ["extract-tables", "pdf-to-excel", "ocr-pdf"],
     keywords: [
       "how to extract tables from a pdf",
@@ -5491,15 +5554,15 @@ export const guides: Guide[] = [
       "pdf table extractor",
     ],
     intro: [
-      `To extract tables from a PDF, open ${nameOf("extract-tables")}, add your PDF, press Extract tables, and download the ZIP. Each table it finds comes back as its own CSV file and as its own sheet in one Excel workbook, with the titles and paragraphs around it left out.`,
-      "It finds tables by where the words sit on the page: words on one line form a row, words set a normal space apart stay in one cell, and columns come from the white space that runs down the rows. There are no settings to choose. It reads only text stored in the PDF as text, so a scanned table needs OCR first.",
+      `To extract tables from a PDF, open ${nameOf("extract-tables")}, add your PDF, press Extract tables, and download the ZIP. By default, each table it finds comes back as its own CSV file and as its own sheet in one Excel workbook, with the titles and paragraphs around it left out.`,
+      `It finds tables by where the words sit on the page: words on one line form a row, words set a normal space apart stay in one cell, and columns come from the white space that runs down the rows. Two switches sit above the button: ${COMBINE_TABLES_LABEL} puts every table on a single sheet instead of one sheet each, and “${WORD_OCR_LABEL}” adds a text layer before detection runs. It reads only text stored in the PDF as text, so a scanned table needs that second switch on.`,
       `${nameOf("extract-tables")} runs on a secure server, not in your browser, because the word positions come from a native PDF text engine. Your PDF, up to ${ceilingMb("extract-tables")} MB, travels over an encrypted connection and is deleted when the job finishes; the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
     ],
     steps: [
       `Open the ${nameOf("extract-tables")} tool. Extract tables works once the status badge reads Secure server.`,
       `Drop one PDF on the box that says “Add your PDF, or browse”, or click it to choose the file. A file over ${ceilingMb("extract-tables")} MB is refused as soon as you pick it, before anything is sent.`,
       "Press Extract tables. Your PDF uploads over an encrypted connection to our secure server, and the button follows the job until the ZIP is back in the page.",
-      `When the tables are ready, press Download ${TABLES_EXAMPLE_ZIP}, the button named after your file: report.pdf comes back as ${TABLES_EXAMPLE_ZIP}. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
+      `When the tables are ready, the message says how many were found and on which pages, and names any page where no table was detected. Press Download ${TABLES_EXAMPLE_ZIP}, the button named after your file: report.pdf comes back as ${TABLES_EXAMPLE_ZIP}. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
       "Open each sheet beside the page named on its tab, such as Table 1 (p3), and check its rows and columns before you use them.",
     ],
     sections: [
@@ -5508,15 +5571,15 @@ export const guides: Guide[] = [
         heading: "What counts as a table",
         body: [
           `A block of lines is kept as a table only when at least two columns each hold something in two or more rows, one column holds short values of fewer than ${LONG_CELL_WORDS} words each and is not mostly bullet items, and no sentence wraps from one row into the next. Titles, captions, paragraph lines and footnotes end a table rather than joining it, so one page can give several tables.`,
-          "Two columns of prose, side-by-side bulleted lists and letterhead lines fail those tests on purpose. A table whose every column holds longer text can fail them too. If nothing in the file passes, the job ends with a message that no table-like structure was detected, and no ZIP is made.",
+          `Two columns of prose, side-by-side bulleted lists and letterhead lines fail those tests on purpose. A table whose every column holds longer text can fail them too. If nothing in the file passes, the job ends with a message that no table-like structure was detected, and no ZIP is made; links under it open ${nameOf("pdf-to-excel")}, which puts every line of the text into a sheet, and ${nameOf("ocr-pdf")}, for pages that are scans.`,
         ],
       },
       {
         id: "what-you-download",
         heading: "What you download",
         body: [
-          "The ZIP holds table-1.csv, table-2.csv and so on, one per table, plus tables.xlsx with a sheet per table named by its number and page, such as Table 1 (p3). The CSV files follow the common RFC 4180 layout, so a script can read them directly, and start with a UTF-8 byte-order mark, so a double-click opens accented letters correctly in Excel; a script should read them as utf-8-sig. A text cell that starts with =, +, - or @ carries a leading apostrophe, so Excel shows it as text instead of running it as a formula.",
-          `In tables.xlsx, a cell that holds exactly one number, such as ${XLSX_AMOUNTS}, is stored as a number, so a formula can add up the column. A code with leading zeros such as 00123, a number of more than ${MAX_SIGNIFICANT_DIGITS} significant digits, a European 1.250,00, a date and a negative in brackets stay text, exactly as printed.`,
+          "By default the ZIP holds table-1.csv, table-2.csv and so on, one per table, plus tables.xlsx with a sheet per table named by its number and page, such as Table 1 (p3). The CSV files follow the common RFC 4180 layout, so a script can read them directly, and start with a UTF-8 byte-order mark, so a double-click opens accented letters correctly in Excel; a script should read them as utf-8-sig. A text cell that starts with =, +, - or @ carries a leading apostrophe, so Excel shows it as text instead of running it as a formula.",
+          `In tables.xlsx, a cell that holds exactly one number, such as ${XLSX_AMOUNTS}, is stored as a number, so a formula can add up the column, and so is an amount in Indian lakh grouping such as ${SHEET_LAKH_EXAMPLE} and an accounting negative such as ${SHEET_NEGATIVE_EXAMPLES[0]} or ${SHEET_NEGATIVE_EXAMPLES[1]}; a date that cannot be read two ways, such as ${SHEET_DATE_EXAMPLES[0]} or ${SHEET_DATE_EXAMPLES[1]}, becomes a real date. A code with leading zeros such as 00123, a number of more than ${MAX_SIGNIFICANT_DIGITS} significant digits, a European 1.250,00, a date written as ${XLSX_TEXT_EXAMPLE} and a bare bracketed number such as ${SHEET_NOTE_MARK_EXAMPLE} stay text, exactly as printed.`,
         ],
       },
       {
@@ -5524,22 +5587,22 @@ export const guides: Guide[] = [
         heading: "Layouts to check by hand",
         body: [
           "Three layouts trip the detector: two tables side by side on the same rows come out as one wide table, a cell that wraps in the first column ends its table early, and a centred one-line note directly under a table can be taken as its last row. A one-line subheading set in a table's first column also ends it, so a sectioned table can come back as several. Merged header cells are not rebuilt.",
-          "Each page is read on its own, so a table that runs over three pages comes out as at least one table per page, with any header row the PDF repeats on each page repeated in each sheet. Stack the sheets and delete the repeated headers to rebuild it.",
+          `Each page is read on its own, so by default a table that runs over three pages comes out as at least one table per page, with any header row the PDF repeats on each page repeated in each sheet. Tick ${COMBINE_TABLES_LABEL} before you press Extract tables to get one sheet, ${COMBINED_SHEET_NAME}, and one ${COMBINED_CSV_NAME}: a part on the next page that starts with the same header row is joined to the part before it, and the repeated header is left out.`,
         ],
       },
       {
         id: "tables-or-excel",
         heading: "Extract Tables, PDF to Excel, or OCR first",
         body: [
-          `${nameOf("pdf-to-excel")} puts every line of the PDF's text into one sheet, each value in the column it sits in, which suits getting all of the text into a grid. ${nameOf("extract-tables")} keeps only the table-shaped blocks, each on its own sheet. Both run on our secure server.`,
-          `A scanned page has no text to read, so it produces nothing, and a file with no text on any page stops with a message pointing you to ${nameOf("ocr-pdf")}. Run it there with the page's language selected, choose a searchable PDF as the result, and bring that file back.`,
+          `${nameOf("pdf-to-excel")} puts every line of the PDF's text into one sheet, each value in the column it sits in, which suits getting all of the text into a grid. ${nameOf("extract-tables")} keeps only the table-shaped blocks, each on its own sheet unless you tick ${COMBINE_TABLES_LABEL}. Both run on our secure server.`,
+          `A scanned page has no text to read on its own. Tick “${WORD_OCR_LABEL}” before you press Extract tables and pick the page's languages: our server recognises the words first, with ${nameOf("ocr-pdf")}'s engine, and looks for tables in the result in the same job. Without it, a file with no text on any page stops with a message pointing you to ${nameOf("ocr-pdf")}.`,
         ],
       },
     ],
     faq: [
       {
         question: "Can it extract tables from a scanned PDF?",
-        answer: `Not directly. A scan holds a picture of its words, so there are no word positions to read. Run it through ${nameOf("ocr-pdf")} first to add a text layer, then extract the tables from the searchable copy, and check the figures, since recognition can misread them.`,
+        answer: `Yes, with “${WORD_OCR_LABEL}” ticked. A scan holds a picture of its words, so on its own there are no word positions to read; with the switch on, our server runs ${nameOf("ocr-pdf")}'s engine first and extracts the tables from the recognised text in the same job. Check the figures, since recognition can misread them.`,
       },
       {
         question: "Why did a page with an obvious table give nothing?",
@@ -5547,7 +5610,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Will Excel see my numbers as numbers?",
-        answer: `Yes, in tables.xlsx, when a cell holds exactly one number such as ${XLSX_AMOUNTS}. Dates, codes with leading zeros, European-style 1.250,00 and negatives in brackets stay text. The CSV files are plain text, so the program that opens them decides.`,
+        answer: `Yes, in tables.xlsx, when a cell holds exactly one number such as ${XLSX_AMOUNTS}, ${SHEET_LAKH_EXAMPLE} or ${SHEET_NEGATIVE_EXAMPLES[0]}, and a date such as ${SHEET_DATE_EXAMPLES[0]} is a real date. A date written as ${XLSX_TEXT_EXAMPLE}, codes with leading zeros, European-style 1.250,00 and a bare bracketed number such as ${SHEET_NOTE_MARK_EXAMPLE} stay text. The CSV files are plain text, so the program that opens them decides.`,
       },
       {
         question: "Is my PDF uploaded?",
@@ -5555,11 +5618,11 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I choose which pages to read?",
-        answer: `No. There are no options: every page is read. To work on a few pages, make a smaller PDF of them first with ${nameOf("extract-pages")}, which runs in your browser, and remember that the page numbers on the sheet tabs then count the pages of that copy.`,
+        answer: `No. There is no page choice: every page is read. ${COMBINE_TABLES_LABEL} changes only how the tables are laid out, and the OCR switch only whether a scan is read first. To work on a few pages, make a smaller PDF of them first with ${nameOf("extract-pages")}, which runs in your browser, and remember that the page numbers on the sheet tabs then count the pages of that copy.`,
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-06",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-convert-pdf-to-markdown",
@@ -5578,12 +5641,12 @@ export const guides: Guide[] = [
     intro: [
       `To convert a PDF to Markdown, open ${nameOf("pdf-to-markdown")}, add your PDF, press Create Markdown, check the preview, and press Download MD. You get a UTF-8 .md file built from the text stored in the PDF.`,
       "A PDF stores positioned lines, not headings, paragraphs or lists, so the structure is worked out from the size and position of each line. It is usually close, rarely perfect: read the result before you publish it or paste it into a wiki.",
-      `The Markdown is made in your browser with pdf.js, so your PDF stays on your device and there is no account to create. It takes one PDF at a time, up to ${ceilingMb("pdf-to-markdown")} MB, and there are no settings to choose.`,
+      `The Markdown is made in your browser with pdf.js, so your PDF stays on your device and there is no account to create. It takes one PDF at a time, up to ${ceilingMb("pdf-to-markdown")} MB, and its settings, “Leave out repeated headers and footers” and, for a PDF of more than one page, “Start each page with a Page heading”, both start ticked.`,
     ],
     steps: [
       `Open the ${nameOf("pdf-to-markdown")} tool.`,
       "Drop your PDF on the panel that says “Drop your PDF here, or browse”, or click it to choose the file. Its name, page count and size appear.",
-      "Press Create Markdown. The button reads Creating Markdown… while every page's text is read and arranged.",
+      `Leave “Leave out repeated headers and footers” ticked to drop running headers, footers and page numbers, or untick “Leave out repeated headers and footers” to keep every line. Untick “Start each page with a Page heading” for one continuous text. Press Create Markdown. The button reads Creating Markdown… while every page's text is read and arranged.`,
       "Under “Markdown created”, check the character and page counts and read the Markdown in the scrollable box. Select any part of it to copy just that passage.",
       `Press Download MD. report.pdf is saved as ${MD_EXAMPLE_OUT}. Start over clears the page for another document.`,
     ],
@@ -5592,17 +5655,19 @@ export const guides: Guide[] = [
         id: "what-structure-you-get",
         heading: "What structure you get",
         body: [
-          "The file name, minus its extension, becomes the # title. In a PDF of more than one page, each page that has text gets its own ## Page heading with its page number.",
+          `The file name, minus its extension, becomes the # title. In a PDF of more than one page, each page that has text gets its own ## Page heading with its page number, unless you untick “Start each page with a Page heading”. ${MD_PAGE_HEADINGS_HINT}`,
           `Within a page, lines that wrap are joined back into sentences, and a word hyphenated at a line end is rejoined. A new paragraph starts where the gap between two lines is more than ${PARAGRAPH_GAP_RATIO} times the spacing of a paragraph's wrapped lines, where a line is indented like a first line, or where the text moves back up the page to a new column without a sentence running on across it. A page with no wrapped line gives no spacing to measure and can arrive as one paragraph.`,
           `A short line set at least ${MD_HEADING_PCT}% larger than the body text becomes a heading, larger sizes ranking higher; one longer than ${HEADING_MAX_CHARS} characters or ending in a full stop, comma or semicolon stays ordinary text. Lines that start with -, *, +, a number, or a bullet character such as • stay list items.`,
+          `A link whose address starts with ${MD_LINK_SCHEMES} becomes a Markdown link over the words it covers, such as [setup guide](https://example.com/guide); a link to a page inside the PDF keeps its words only.`,
+          `With “Leave out repeated headers and footers” ticked: ${MD_REPEATED_HINT}`,
         ],
       },
       {
         id: "what-is-left-out",
         heading: "What is left out",
         body: [
-          "Font weight and style are not read, so nothing comes out bold or italic. Images are dropped, and so are the web addresses behind links. A table's cells run together as plain words, without its grid.",
-          `For the tables themselves, ${nameOf("extract-tables")} detects them by where the words sit and returns CSV files and an Excel workbook, but it runs on our secure server rather than in your browser. For the text with its line breaks as they are and no Markdown added, ${nameOf("pdf-to-text")} reads the same text, also in your browser.`,
+          "Font weight and style are not read, so nothing comes out bold or italic. Images are dropped.",
+          `A table becomes a Markdown table when its cells line up in columns, found by the same detector ${nameOf("extract-tables")} uses. A table it does not find, or one that shares its rows with other text, comes through as lines of words. For the tables as CSV files and an Excel workbook, ${nameOf("extract-tables")} runs on our secure server rather than in your browser. For the text with its line breaks as they are and no Markdown added, ${nameOf("pdf-to-text")} reads the same text, also in your browser.`,
         ],
       },
       {
@@ -5629,7 +5694,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Are tables kept?",
-        answer: `Not as Markdown tables. Their cells come through as plain words. ${nameOf("extract-tables")} returns tables as CSV and Excel files instead, on our secure server.`,
+        answer: `Yes, when the cells line up in columns: the table is written as a Markdown table, its first row the header row. A table the detector does not find comes through as lines of words. ${nameOf("extract-tables")} returns tables as CSV and Excel files instead, on our secure server.`,
       },
       {
         question: "Why are my headings missing?",
@@ -5645,7 +5710,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-add-a-header-and-footer-to-a-pdf",

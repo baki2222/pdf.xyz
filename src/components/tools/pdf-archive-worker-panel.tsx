@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
+import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
+import { PdfASignatureWarning } from "./pdfa-signature-warning";
 import { Archive, FileDown, FileUp, ShieldCheck, Timer } from "lucide-react";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import {
@@ -31,6 +33,14 @@ import {
   workerOutput,
 } from "./worker-panel-shell";
 import { PdfANotes } from "./pdfa-notes";
+import {
+  DEFAULT_PDFA_LEVEL,
+  PDFA_LEVELS,
+  PDFA_LEVEL_LABEL,
+  PDFA_LEVEL_NAMES,
+  type PdfALevelId,
+} from "@/lib/workers/pdf-archive/levels";
+import { PDFA_COLOUR_NOTE } from "@/lib/workers/pdf-archive/colour";
 
 /**
  * The status slot's reserved height (see `WorkerStatusSlot` and
@@ -73,14 +83,14 @@ export function PdfArchiveWorkerPanel({ tool }: { tool: Tool }) {
       // remove is listed with your download". -dQUIET suppresses the font
       // substitution line and the notes are capped (content/pdf-to-pdfa.ts),
       // so only what Ghostscript reports is listed.
-      description="PDF/A conversion uses Ghostscript on our isolated server to create an archive-oriented PDF/A-2b file. It produces a real PDF output or fails honestly — no browser placeholder and no fabricated compliance claim. We do not validate the result against the PDF/A specification, so this is a best-effort conversion rather than a certification. PDF/A cannot represent everything a PDF can; what Ghostscript reports dropping is listed with your download, but not every change it makes — a font it substitutes is not reported, so compare the pages before you replace an original."
+      description="PDF/A conversion uses Ghostscript on our isolated server to create an archive-oriented PDF/A file at the level you pick. It produces a real PDF output or fails honestly — no browser placeholder and no fabricated compliance claim. We do not validate the result against the PDF/A specification, so this is a best-effort conversion rather than a certification. PDF/A cannot represent everything a PDF can; what Ghostscript reports dropping is listed with your download, but not every change it makes — a font it substitutes is not reported, so compare the pages before you replace an original."
       canRun={canRunPdfArchive}
       specRows={[
         { icon: FileUp, label: "You add", value: "One PDF" },
         {
           icon: FileDown,
           label: "You get",
-          value: "PDF/A-2b (best effort, not validated)",
+          value: `${PDFA_LEVEL_NAMES} (best effort, not validated)`,
         },
         {
           icon: Timer,
@@ -104,6 +114,41 @@ const RUN_LABEL = "Convert to PDF/A";
 function ArchiveRunArea({ refuse }: { refuse: PickRefusal }) {
   const { available, status } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
+  // Audit pdf-to-pdfa#1: the level the archive asks for; PDF/A-2b by default.
+  const [level, setLevel] = useState<PdfALevelId>(DEFAULT_PDFA_LEVEL.id);
+  const levelId = useId();
+  const levelHint =
+    PDFA_LEVELS.find((l) => l.id === level)?.hint ?? DEFAULT_PDFA_LEVEL.hint;
+  // Audit pdf-to-pdfa#6: the picked file's digital signatures, counted in
+  // the browser before any upload. Keyed by the file, so a count and a
+  // confirmation given for one file never carry to the next.
+  const [signatures, setSignatures] = useState<{
+    file: File;
+    count: number;
+  } | null>(null);
+  const [confirmedFor, setConfirmedFor] = useState<File | null>(null);
+  const signatureWarningId = useId();
+  useEffect(() => {
+    if (!file) return;
+    let live = true;
+    file
+      .arrayBuffer()
+      .then((buf) => {
+        if (live)
+          setSignatures({
+            file,
+            count: countDigitalSignatures(new Uint8Array(buf)),
+          });
+      })
+      // An unreadable file is the upload's problem to report, not this note's.
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [file]);
+  const signatureCount = signatures?.file === file ? signatures.count : 0;
+  const signaturesConfirmed = confirmedFor !== null && confirmedFor === file;
+  const heldBySignatures = signatureCount > 0 && !signaturesConfirmed;
   const job = useWorkerJob<PdfArchiveWorkerResult>({
     tool: "pdf-to-pdfa",
     resume: (id, controls) =>
@@ -116,15 +161,27 @@ function ArchiveRunArea({ refuse }: { refuse: PickRefusal }) {
   });
   const start = useCallback(async () => {
     if (!file || !available) return;
+    if (!signaturesConfirmed) {
+      // The gate reads the file it is about to upload, so a press that lands
+      // before the pick-time read finished cannot send a signed file unasked.
+      const count = await file.arrayBuffer().then(
+        (buf) => countDigitalSignatures(new Uint8Array(buf)),
+        () => 0,
+      );
+      if (count > 0) {
+        setSignatures({ file, count });
+        return;
+      }
+    }
     await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const result = await runWorkerPdfToPdfA(
-        { filename: file.name, bytes },
+        { filename: file.name, bytes, level },
         controls,
       );
       return result;
     });
-  }, [file, run, available]);
+  }, [file, run, available, level, signaturesConfirmed]);
   const detail =
     status?.daemon.detail ?? "Our secure server is not drainable here.";
   return (
@@ -167,6 +224,46 @@ function ArchiveRunArea({ refuse }: { refuse: PickRefusal }) {
           hint="PDF"
         />
       )}
+      {file && signatureCount > 0 && (
+        <PdfASignatureWarning
+          id={signatureWarningId}
+          count={signatureCount}
+          confirmed={signaturesConfirmed}
+          onConfirm={(yes) => setConfirmedFor(yes ? file : null)}
+        />
+      )}
+      <div className="flex flex-col gap-1">
+        <label htmlFor={levelId} className="text-fg text-sm font-medium">
+          {PDFA_LEVEL_LABEL}
+        </label>
+        <select
+          id={levelId}
+          value={level}
+          aria-disabled={busy}
+          aria-describedby={`${levelId}-hint`}
+          onChange={(e) => {
+            // Locked while a job runs, but kept in the focus order.
+            if (busy) return;
+            setOutcome(null);
+            setLevel(e.target.value as PdfALevelId);
+          }}
+          className="border-line bg-wash text-fg focus:border-accent/40 rounded-ctl min-h-11 border px-3 py-1.5 text-sm outline-none"
+        >
+          {PDFA_LEVELS.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.standard}
+            </option>
+          ))}
+        </select>
+        <p
+          id={`${levelId}-hint`}
+          className="text-muted text-xs leading-relaxed"
+        >
+          {levelHint}
+        </p>
+        {/* Audit pdf-to-pdfa#5: said before Run, not after the download. */}
+        <p className="text-muted text-xs leading-relaxed">{PDFA_COLOUR_NOTE}</p>
+      </div>
       <WorkerGate
         reserve={STATUS_SLOT}
         job={job}
@@ -175,7 +272,8 @@ function ArchiveRunArea({ refuse }: { refuse: PickRefusal }) {
           <WorkerRunButton
             onClick={start}
             busy={busy}
-            disabled={!ready || !file}
+            disabled={!ready || !file || heldBySignatures}
+            describedBy={heldBySignatures ? signatureWarningId : undefined}
             busyLabel={jobBusyLabel(job.phase, "Converting to PDF/A…")}
             icon={Archive}
           >

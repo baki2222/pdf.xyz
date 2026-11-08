@@ -2,6 +2,7 @@ import { isImageStream } from "./image-stream";
 import { loadPdfLib } from "./pdf-lib";
 import { loadPdf } from "./engine";
 import { countSignatures } from "./signed";
+import { dropUnseen, type RepackRemoved } from "./compress-cleanup";
 
 /**
  * Honest compression analysis for the "Compress PDF" tool.
@@ -43,6 +44,11 @@ export interface PdfAnalysis {
    * lossless, and the UI must say so before the download.
    */
   signatureCount: number;
+  /**
+   * What the repack dropped that no page shows (audit compress-pdf#6):
+   * page thumbnails and objects nothing refers to (`./compress-cleanup`).
+   */
+  removed: RepackRemoved;
 }
 
 /** Analysis plus the actual losslessly-optimized bytes, ready to download. */
@@ -101,6 +107,8 @@ export async function optimizeLossless(
   const signatureCount = countSignatures(lib, doc);
   doc.setProducer(PRODUCER);
   doc.setCreator(PRODUCER);
+  // Last, after the stamp: drop what no page shows (`./compress-cleanup`).
+  dropUnseen(lib, doc);
   return { bytes: await doc.save({ useObjectStreams: true }), signatureCount };
 }
 
@@ -125,6 +133,9 @@ export async function analyzePdf(bytes: Uint8Array): Promise<AnalyzeResult> {
 
   doc.setProducer(PRODUCER);
   doc.setCreator(PRODUCER);
+  // Images were counted above, in the file as given; the repack then drops
+  // what no page shows (`./compress-cleanup`, audit compress-pdf#6).
+  const removed = dropUnseen(lib, doc);
   const optimized = await doc.save({ useObjectStreams: true });
 
   return {
@@ -135,13 +146,17 @@ export async function analyzePdf(bytes: Uint8Array): Promise<AnalyzeResult> {
       imageBytes,
       optimizedBytes: optimized.byteLength,
       signatureCount,
+      removed,
     },
     optimized,
   };
 }
 
 /** Pure: derive display metrics + an honest recommendation from raw findings. */
-export function summarizeAnalysis(analysis: PdfAnalysis): OptimizationSummary {
+export function summarizeAnalysis(
+  // What was removed does not move the verdict, so callers need not say.
+  analysis: Omit<PdfAnalysis, "removed">,
+): OptimizationSummary {
   const originalBytes = Math.max(0, analysis.originalBytes);
   const imageShare =
     originalBytes > 0

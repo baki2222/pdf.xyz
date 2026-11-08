@@ -15,7 +15,21 @@
  * every pattern catches some shipped sentence.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { stubJobNetwork, type JobNetwork } from "@/tests/stub-job-network";
+import { OFFICE_CONVERSION_RUN_LABEL } from "@/lib/tools/office-run-label";
+import {
+  FIT_COLUMNS_TO_WIDTH_LABEL,
+  ONE_PAGE_PER_SHEET_LABEL,
+  ORIENTATION_LABEL,
+  PAGE_SETUP_XLSX_ONLY_NOTE,
+} from "@/lib/workers/office-conversion/sheet-layout";
 import { getToolBySlug } from "@/lib/tools";
 import type { Tool } from "@/lib/tools/types";
 import type { WorkerStatus } from "@/lib/workers/status";
@@ -177,4 +191,104 @@ describe("the Office panel's words", () => {
       );
     },
   );
+});
+
+/*
+ * Review 2026-11-08 (audit excel-to-pdf#1): the chain tests start at the
+ * option bag, so a ticked box that sent nothing passed them all (a reviewer
+ * mutated `layout: { onePagePerSheet }` to `false` and every test stayed
+ * green). These start at the controls a reader uses, found by role and
+ * name, and end at the job the worker receives.
+ */
+describe("Excel to PDF: the layout controls reach the job", () => {
+  async function pick(slug: string, filename: string) {
+    resetWorkerStatusForTests({ sleep: () => Promise.resolve() });
+    const network = stubJobNetwork(READY);
+    render(<OfficeConversionWorkerPanel tool={tool(slug)} />);
+    const input = await waitFor(() => {
+      const el = document.querySelector<HTMLInputElement>('input[type="file"]');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    fireEvent.change(input, {
+      target: { files: [new File(["PK"], filename)] },
+    });
+    await screen.findByText(filename);
+    return network;
+  }
+
+  async function convert(network: JobNetwork) {
+    const run = await screen.findByRole("button", {
+      name: OFFICE_CONVERSION_RUN_LABEL,
+    });
+    await waitFor(() => expect(run).not.toBeDisabled());
+    fireEvent.click(run);
+    await waitFor(() => expect(network.jobBodies).toHaveLength(1));
+    return network.jobBodies[0]!.options;
+  }
+
+  it("a ticked 'Put each sheet on one page' is in the job's options", async () => {
+    const network = await pick("excel-to-pdf", "wide.xlsx");
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: ONE_PAGE_PER_SHEET_LABEL }),
+    );
+    expect(await convert(network)).toEqual({ onePagePerSheet: true });
+  });
+
+  it("Landscape and a ticked fit box are in the job's options", async () => {
+    const network = await pick("excel-to-pdf", "wide.xlsx");
+    fireEvent.change(
+      screen.getByRole("combobox", { name: ORIENTATION_LABEL }),
+      { target: { value: "landscape" } },
+    );
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: FIT_COLUMNS_TO_WIDTH_LABEL }),
+    );
+    expect(await convert(network)).toEqual({
+      orientation: "landscape",
+      fitColumnsToWidth: true,
+    });
+  });
+
+  it("CONTROL: untouched, the job carries the empty bag it always did", async () => {
+    const network = await pick("excel-to-pdf", "wide.xlsx");
+    expect(await convert(network)).toEqual({});
+  });
+
+  it("one page per sheet hides the page-setup controls it would override", async () => {
+    await pick("excel-to-pdf", "wide.xlsx");
+    expect(
+      screen.getByRole("combobox", { name: ORIENTATION_LABEL }),
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: ONE_PAGE_PER_SHEET_LABEL }),
+    );
+    expect(
+      screen.queryByRole("combobox", { name: ORIENTATION_LABEL }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("checkbox", { name: FIT_COLUMNS_TO_WIDTH_LABEL }),
+    ).toBeNull();
+  });
+
+  it("a CSV gets the note, not controls it cannot honour", async () => {
+    const network = await pick("excel-to-pdf", "towns.csv");
+    expect(
+      screen.queryByRole("combobox", { name: ORIENTATION_LABEL }),
+    ).toBeNull();
+    expect(screen.getByText(PAGE_SETUP_XLSX_ONLY_NOTE)).toBeInTheDocument();
+    // One page per sheet still applies to a CSV.
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: ONE_PAGE_PER_SHEET_LABEL }),
+    );
+    expect(await convert(network)).toEqual({ onePagePerSheet: true });
+  });
+
+  it("CONTROL: Word's panel shows none of them", async () => {
+    await pick("word-to-pdf", "letter.docx");
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(
+      screen.queryByRole("combobox", { name: ORIENTATION_LABEL }),
+    ).toBeNull();
+  });
 });

@@ -30,6 +30,14 @@ export interface CompressionResultBlock {
    * tried and could not reach it.
    */
   target?: CompressionTargetBlock;
+  /**
+   * The JPEG level the worker read (audit compress-pdf#4, 2026-11-08):
+   * present only on a job that asked for one other than the default. Its
+   * absence is how the panel tells an older worker image, which ignores the
+   * option, from one that applied it. A short lowercase word; the panel only
+   * compares it with what it sent, so nothing here needs the level table.
+   */
+  imageQuality?: string;
 }
 
 /** A target-size run, as the job record carries it. Counts only. */
@@ -120,10 +128,16 @@ export function buildCompressionResultBlock(
     (pagesIn !== null && pagesOut !== null && pagesOut >= pagesIn);
 
   const target = buildTargetBlock(raw.target);
+  const imageQuality =
+    typeof raw.imageQuality === "string" &&
+    /^[a-z]{1,16}$/.test(raw.imageQuality)
+      ? raw.imageQuality
+      : undefined;
   return {
     pageCheck: justified ? claimed : "unverified",
     pagesIn,
     pagesOut,
     ...(target ? { target } : {}),
+    ...(imageQuality ? { imageQuality } : {}),
   };
 }

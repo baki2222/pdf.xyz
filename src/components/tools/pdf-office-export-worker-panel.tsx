@@ -30,9 +30,12 @@ import {
 } from "./worker-panel-shell";
 import { OfficeExportCoverageNotice } from "./office-export-coverage";
 import { OfficeExportNextStep } from "./office-export-notices";
-import { OcrLanguagePicker, useOcrLanguageChoice } from "./ocr-language-picker";
-import { WORD_OCR_HINT } from "@/lib/jobs/pdf-office-export";
-import { PDF_TO_WORD_OCR_LANGUAGE_CODES } from "@/lib/jobs/ocr";
+import { SHEET_PER_PAGE_HINT } from "@/lib/jobs/pdf-to-excel-options";
+import { OcrFirstSwitch, useOcrFirstChoice } from "./ocr-first-switch";
+import {
+  OFFICE_OCR_HINTS,
+  offersOfficeOcr,
+} from "@/lib/jobs/office-export-ocr";
 
 /**
  * The status slot's reserved height (see `WorkerStatusSlot` and
@@ -103,18 +106,23 @@ const EXPORT_COPY: Record<
     note: "Running this uses a private secure-server job. A PDF with no selectable text at all, such as a scan, needs the OCR switch on.",
     hint: "Selectable PDF",
   },
+  // CHANGED 2026-11-08 (audit pdf-to-excel#2): "…; run OCR first to include
+  // them." / "…; scanned/image-only PDFs need OCR first." — before the OCR
+  // switch below ran it in the same job.
   "pdf-to-excel": {
     badge: "Selectable text export",
     summary:
-      "Our server extracts selectable PDF text and packages it into a real XLSX file. Pages without selectable text (scans) are not included; run OCR first to include them.",
-    note: "Running this uses a private secure-server job. Only selectable text is exported; scanned/image-only PDFs need OCR first.",
+      "Our server extracts selectable PDF text and packages it into a real XLSX file. Pages without selectable text (scans) are not included; turn on OCR below to include them.",
+    note: "Running this uses a private secure-server job. A PDF with no selectable text at all, such as a scan, needs the OCR switch on.",
     hint: "Selectable PDF",
   },
+  // CHANGED 2026-11-08 (audit pdf-to-powerpoint#4): "…; run OCR first to
+  // have its words as text too." — before the OCR switch below.
   "pdf-to-powerpoint": {
     badge: "Pages to slides",
     summary:
-      "Our server reads each page and builds a real PPTX file: pictures where the page shows them, text in text boxes at their places, other drawing as pictures. A scanned page comes through as a picture; run OCR first to have its words as text too.",
-    note: "Running this uses a private secure-server job. A scanned page comes through as a picture on its slide; run OCR first to have its words as text.",
+      "Our server reads each page and builds a real PPTX file: pictures where the page shows them, text in text boxes at their places, other drawing as pictures. A scanned page comes through as a picture; turn on OCR below to have its words in invisible text boxes over it.",
+    note: "Running this uses a private secure-server job. A scanned page comes through as a picture on its slide; with the OCR switch on, its words come too.",
     hint: "One PDF",
   },
 };
@@ -180,18 +188,16 @@ function PdfOfficeRunArea({
     setOutcome(null);
     setFile(files[0] ?? null);
   });
-  // PDF to Word only: OCR first, in the same job, with OCR PDF's languages.
-  const offersOcr = tool === "pdf-to-word";
-  const [ocrOn, setOcrOn] = useState(false);
-  // Right-to-left scripts are left out: their words come out of the
-  // conversion out of order (`PDF_TO_WORD_OCR_LANGUAGE_CODES`).
-  const languageChoice = useOcrLanguageChoice(
-    status,
-    PDF_TO_WORD_OCR_LANGUAGE_CODES,
-  );
-  const ocrAvailable = status?.ocr.available === true;
-  const ocrBlocked = offersOcr && ocrOn && !ocrAvailable;
-  const languages = languageChoice.selected;
+  // OCR first, in the same job, with OCR PDF's languages: PDF to Word since
+  // 2026-10-24, PDF to Excel and PDF to PowerPoint since 2026-11-08
+  // (`OFFICE_OCR_TOOLS`).
+  const offersOcr = offersOfficeOcr(tool);
+  const ocr = useOcrFirstChoice(status);
+  const ocrBlocked = offersOcr && ocr.blocked;
+  const ocrRequest = offersOcr ? ocr.request : undefined;
+  // PDF to Excel only: one sheet per page (audit pdf-to-excel#3).
+  const offersSheets = tool === "pdf-to-excel";
+  const [sheetPerPage, setSheetPerPage] = useState(false);
   const start = useCallback(async () => {
     if (!file || !available || ocrBlocked) return;
     await run(async (controls) => {
@@ -200,13 +206,23 @@ function PdfOfficeRunArea({
           tool,
           filename: file.name,
           bytes: new Uint8Array(await file.arrayBuffer()),
-          ...(offersOcr && ocrOn ? { ocr: { languages } } : {}),
+          ...(ocrRequest ? { ocr: ocrRequest } : {}),
+          ...(offersSheets && sheetPerPage ? { sheetPerPage: true } : {}),
         },
         controls,
       );
       return result;
     });
-  }, [file, tool, run, available, ocrBlocked, offersOcr, ocrOn, languages]);
+  }, [
+    file,
+    tool,
+    run,
+    available,
+    ocrBlocked,
+    ocrRequest,
+    offersSheets,
+    sheetPerPage,
+  ]);
   // Read only once the status says this panel cannot run.
   const unavailableDetail =
     status?.daemon.detail ?? "Our secure server is not drainable here.";
@@ -252,38 +268,31 @@ function PdfOfficeRunArea({
         />
       )}
       {offersOcr && (
-        <div className="border-line rounded-panel flex flex-col gap-3 border p-3">
-          <label className="text-muted flex items-start gap-2.5 text-sm">
-            <input
-              type="checkbox"
-              checked={ocrOn}
-              // Guarded, never `disabled`: focus stays put mid-run (#46).
-              onChange={(event) => {
-                if (!busy) setOcrOn(event.target.checked);
-              }}
-              aria-disabled={busy || undefined}
-              className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4"
-            />
-            <span className="flex flex-col gap-0.5">
-              <span className="text-fg font-medium">
-                Recognise text in scans (OCR)
-              </span>
-              <span className="text-muted text-xs leading-relaxed">
-                {WORD_OCR_HINT}
-              </span>
+        <OcrFirstSwitch
+          choice={ocr}
+          busy={busy}
+          hint={OFFICE_OCR_HINTS[tool as keyof typeof OFFICE_OCR_HINTS]}
+        />
+      )}
+      {offersSheets && (
+        <label className="border-line rounded-panel text-muted flex min-h-11 items-start gap-2.5 border p-3 text-sm">
+          <input
+            type="checkbox"
+            checked={sheetPerPage}
+            // Guarded, never `disabled`: focus stays put mid-run (#46).
+            onChange={(event) => {
+              if (!busy) setSheetPerPage(event.target.checked);
+            }}
+            aria-disabled={busy || undefined}
+            className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4"
+          />
+          <span className="flex flex-col gap-0.5">
+            <span className="text-fg font-medium">One sheet per page</span>
+            <span className="text-muted text-xs leading-relaxed">
+              {SHEET_PER_PAGE_HINT}
             </span>
-          </label>
-          {ocrOn &&
-            (ocrAvailable ? (
-              <OcrLanguagePicker choice={languageChoice} />
-            ) : (
-              <p className="text-warn text-xs leading-relaxed">
-                {status?.ocr.detail ??
-                  "OCR isn't available on this server, so this option can't run here."}{" "}
-                Turn it off to convert the selectable text alone.
-              </p>
-            ))}
-        </div>
+          </span>
+        </label>
       )}
       <WorkerGate
         reserve={STATUS_SLOT}

@@ -41,6 +41,7 @@ import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
 import { REQUEST_PACKAGE_FILES } from "@/lib/jobs/request-signatures";
 import { SUMMARY_PACKAGE_FILES } from "@/lib/workers/summarize-package";
 import { AI_EXTRACT_PACKAGE_FILES } from "@/lib/workers/ai-extract-package";
+import { COMBINED_ZIP_FILES } from "@/lib/jobs/extract-tables-options";
 import { runnerModuleOf } from "@/tests/tool-panel-modules";
 
 /**
@@ -107,6 +108,7 @@ const ZIP_NAME_RECORDS: Readonly<
   REQUEST_PACKAGE_FILES,
   SUMMARY_PACKAGE_FILES,
   AI_EXTRACT_PACKAGE_FILES,
+  COMBINED_ZIP_FILES,
 };
 
 describe("a tool's advertised outputs match what its engine writes", () => {

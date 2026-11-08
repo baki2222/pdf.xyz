@@ -23,7 +23,12 @@ import {
 import { apiError, type ParseResult } from "./responses";
 import { sanitizeDisplayFilename } from "./filenames";
 import { parseHtmlRenderOptions } from "./html-render-options";
+import { parseWebpageCaptureOptions } from "./webpage-capture-options";
 import { HTML_RENDER_TOOLS } from "@/lib/workers/html-render/tools";
+// Leaves with no imports: the parsers the worker runs again before it
+// converts, so creation and the worker cannot disagree.
+import { parseSheetLayout } from "@/lib/workers/office-conversion/sheet-layout";
+import { parsePdfALevel } from "@/lib/workers/pdf-archive/levels";
 
 const HTML_RENDER_OPTION_TOOLS: ReadonlySet<string> = new Set(
   HTML_RENDER_TOOLS,
@@ -390,6 +395,21 @@ export function parseCreateJobRequest(
   if (HTML_RENDER_OPTION_TOOLS.has(tool.slug)) {
     const layout = parseHtmlRenderOptions(options);
     if (!layout.ok) return layout;
+  }
+  // Excel to PDF's layout and PDF to PDF/A's level (review 2026-11-08): the
+  // same rule, refused before the upload is spent and the queue waited on.
+  if (tool.slug === "excel-to-pdf") {
+    const layout = parseSheetLayout(options);
+    if (!layout.ok) return unprocessable(layout.message, "options");
+  }
+  if (tool.slug === "pdf-to-pdfa") {
+    const level = parsePdfALevel(options);
+    if (!level.ok) return unprocessable(level.message, "options.level");
+  }
+  // Webpage to PDF's capture options, refused here for the same reason.
+  if (tool.slug === "webpage-to-pdf") {
+    const capture = parseWebpageCaptureOptions(options);
+    if (!capture.ok) return capture;
   }
 
   const keyResult = parseIdempotencyKey(input.idempotencyKey);

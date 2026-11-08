@@ -164,9 +164,21 @@ export function copyFiles(): string[] {
     // to the picker's hook.
     path.join(ROOT, "src", "lib", "jobs", "ocr-start-copy.ts"),
     path.join(ROOT, "src", "lib", "jobs", "pdf-security.ts"),
+    // The PDF to Office exports' OCR switch hints, per tool (2026-11-08,
+    // audit pdf-to-excel#2), drawn by the export panel.
+    path.join(ROOT, "src", "lib", "jobs", "office-export-ocr.ts"),
+    // What the OCR-first step says when OCR cannot help (2026-11-08), read
+    // by the PDF to Office and Extract Tables panels' job errors.
+    path.join(ROOT, "src", "lib", "workers", "processor", "ocr-first.ts"),
     // Protect PDF's permission switch labels and their two "why it cannot
     // be turned off" sentences (2026-10-24), drawn by the panel and the page.
     path.join(ROOT, "src", "lib", "jobs", "pdf-permission-labels.ts"),
+    // Extract Tables' "Combine tables into one sheet" label and hint
+    // (2026-11-08, audit extract-tables#2), drawn by the panel and the page.
+    path.join(ROOT, "src", "lib", "jobs", "extract-tables-options.ts"),
+    // PDF to Excel's "One sheet per page" label and hint (2026-11-08, audit
+    // pdf-to-excel#3), drawn by the panel and the page.
+    path.join(ROOT, "src", "lib", "jobs", "pdf-to-excel-options.ts"),
     // The in-image options proof's verdict lines (2026-10-24): operator
     // output, walked because the record outside the walk may not grow.
     path.join(ROOT, "src", "lib", "workers", "options-proof.ts"),
@@ -174,6 +186,11 @@ export function copyFiles(): string[] {
     // (2026-10-25), drawn by the panel; and the two proof modules' verdict
     // lines and fixture pages, walked for the reason options-proof.ts is.
     path.join(ROOT, "src", "lib", "jobs", "html-render-options.ts"),
+    // Webpage to PDF's Capture labels and field errors (2026-11-08), drawn
+    // by the panel; and the consent-tool names and hiding script the copy
+    // counts and names (audit webpage-to-pdf#1). New phrase code, walked.
+    path.join(ROOT, "src", "lib", "jobs", "webpage-capture-options.ts"),
+    path.join(ROOT, "src", "lib", "workers", "html-render", "overlays.ts"),
     path.join(ROOT, "src", "lib", "workers", "html-render", "layout-proof.ts"),
     path.join(ROOT, "src", "lib", "workers", "ocr-languages-proof.ts"),
     // The OCR deskew proof's verdict lines and fixture words (2026-11-01),
@@ -192,6 +209,23 @@ export function copyFiles(): string[] {
       "compression",
       "rotation-proof.ts",
     ),
+    // Excel to PDF's layout labels and hints (one page per sheet,
+    // orientation, fit columns to width; the .xlsx-only note)
+    // (2026-11-08, audit excel-to-pdf#1), drawn by the Office panel.
+    path.join(
+      ROOT,
+      "src",
+      "lib",
+      "workers",
+      "office-conversion",
+      "sheet-layout.ts",
+    ),
+    // PDF to PDF/A's level picker: its label and each level's hint
+    // (2026-11-08, audit pdf-to-pdfa#1), drawn by the panel and the page.
+    path.join(ROOT, "src", "lib", "workers", "pdf-archive", "levels.ts"),
+    // PDF to PDF/A's colour sentence (2026-11-08, audit pdf-to-pdfa#5),
+    // drawn by the panel, the page and the guide.
+    path.join(ROOT, "src", "lib", "workers", "pdf-archive", "colour.ts"),
     // Translate PDF's warning when Auto-detect meets a PDF already in the
     // target language (2026-11-06, audit #38), drawn by the panel.
     path.join(ROOT, "src", "lib", "jobs", "translate-script.ts"),
@@ -216,6 +250,12 @@ export function copyFiles(): string[] {
     path.join(ROOT, "src", "lib", "pdf", "compress-grayscale.ts"),
     // Compress PDF's Target size labels, hint and outcome (2026-10-31).
     path.join(ROOT, "src", "lib", "pdf", "compress-target.ts"),
+    // Compress PDF's Image quality labels and hint (2026-11-08).
+    path.join(ROOT, "src", "lib", "pdf", "compress-image-quality.ts"),
+    // Compress PDF's batch on our secure server: its choice labels (2026-11-08).
+    path.join(ROOT, "src", "lib", "pdf", "compress-batch-copy.ts"),
+    // Compress PDF's lossless cleanup sentence and line (2026-11-08).
+    path.join(ROOT, "src", "lib", "pdf", "compress-cleanup.ts"),
     // JPG / PNG to PDF's Max file size (2026-10-31): labels, hint, outcome
     // lines, and the browser re-encoder's error messages.
     path.join(ROOT, "src", "lib", "pdf", "image-size-limit.ts"),

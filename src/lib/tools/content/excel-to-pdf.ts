@@ -9,6 +9,12 @@ import {
   EXCEL_TO_PDF_TOOL,
   ODF_PASSWORD_REMOVAL,
 } from "@/lib/workers/office-conversion/engine";
+import {
+  FIT_COLUMNS_TO_WIDTH_LABEL,
+  ONE_PAGE_PER_SHEET_LABEL,
+  ORIENTATION_CHOICE_WORDS,
+  ORIENTATION_LABEL,
+} from "@/lib/workers/office-conversion/sheet-layout";
 
 /*
  * Behaviour claims below were read from the code on 2026-09-27:
@@ -16,8 +22,16 @@ import {
  *    (`multiple={false}`) through a drop zone titled "Add your workbook, or"
  *    + "browse", a "Remove" button to clear it, a "Convert to PDF" button
  *    (busy label below), then "Your PDF is ready." and a
- *    "Download <name>" button. No layout options, no sheet picker, no password
- *    field. The uploader is mounted only when the badge reads "Secure worker".
+ *    "Download <name>" button. Layout options since 2026-11-08 (audit
+ *    excel-to-pdf#1, office-conversion/sheet-layout.ts), Excel's page only:
+ *    the "Put each sheet on one page" checkbox (LibreOffice's
+ *    SinglePageSheets), and, for an .xlsx only and hidden while that box is
+ *    ticked, an "Orientation" select and a "Fit all columns on the page
+ *    width" checkbox, which the worker writes into each worksheet's page
+ *    setup before LibreOffice opens it (office-conversion/xlsx-page-setup.ts,
+ *    proven on the production image 2026-11-07: 40 columns by 400 rows went
+ *    from 32 A4 pages with the last column on 8, to 4 A4 landscape pages
+ *    with it on all 4). No sheet picker, no password field. The uploader is mounted only when the badge reads "Secure worker".
  *  - download: runSecurityJob (pdf-security-client.ts) fetches the artifact
  *    BEFORE reporting success, and the Download button saves those in-memory
  *    bytes (`downloadBytes`). So the outputTtlMinutes expiry is the worker copy's
@@ -36,7 +50,11 @@ import {
  *    load has NOT been checked by a real job, so no sentence depends on it.
  *  - engine: src/lib/workers/office-conversion/{engine,native}.ts —
  *    `soffice --headless --convert-to pdf` with NO filter or page-setup
- *    options. Output must pass `looksLikePdf`, which checks a `%PDF-` header
+ *    options, unless the checkbox is ticked: then the target is
+ *    `pdf:calc_pdf_Export:{"SinglePageSheets":...true}` (native.ts
+ *    `pdfConvertTarget`), LibreOffice's "Whole sheet export", whose
+ *    documented behaviour (paper size and print ranges ignored, hidden
+ *    sheets included, one page per sheet sized to fit) is what the page says. Output must pass `looksLikePdf`, which checks a `%PDF-` header
  *    and a `%%EOF` marker ONLY — it cannot tell a blank or partial rendering
  *    from a good one, so the page claims the check, not "a complete PDF".
  *  - failures: WAS (until a02c6a98 in code, 2026-10-07 on this page) "a
@@ -130,7 +148,7 @@ const content: ToolContent = {
 
   intro: [
     `Excel to PDF turns one spreadsheet into a PDF that anyone can open, print or file without owning Excel. Add one ${formatsOr} file, press Convert to PDF, and LibreOffice, the open-source office suite, opens it on pdf.xyz's secure server and exports it with its own PDF writer. Output that lacks a PDF's opening signature or end-of-file marker is discarded, and the panel shows an error instead of a download.`,
-    `This page has no layout controls: pdf.xyz hands LibreOffice your file and no layout settings at all, so orientation, scaling and where wide columns break across pages are left to whatever page setup the workbook carries and to LibreOffice's defaults. A CSV carries no page setup, so it always gets the defaults. If a wide sheet has to fit, the file is the only place to say so: set orientation and fit-to-width scaling in your spreadsheet app and save before you upload. The result is a printout, not a working spreadsheet: a formula cell shows the figure it displayed when LibreOffice opened the file, and nothing in the PDF recalculates if the source numbers change later.`,
+    `Left as it is, the layout comes from the page setup the workbook carries and LibreOffice's defaults: orientation, scaling and where wide columns break across pages. A CSV carries no page setup, so it gets the defaults. For an .xlsx file you can override two of those settings: choose ${ORIENTATION_CHOICE_WORDS} under ${ORIENTATION_LABEL}, and tick ${FIT_COLUMNS_TO_WIDTH_LABEL} to scale each sheet down until every column fits across the page, with rows carrying on to further pages. Both are written into the workbook's own page setup before LibreOffice opens it; an .xls, .csv or .ods keeps the setup saved in it. Or tick ${ONE_PAGE_PER_SHEET_LABEL} and nothing is split: each sheet becomes a single page as large as its content, whatever its paper size and print area say, hidden sheets included. The result is a printout, not a working spreadsheet: a formula cell shows the figure it displayed when LibreOffice opened the file, and nothing in the PDF recalculates if the source numbers change later.`,
     `None of the conversion happens on your computer. The spreadsheet travels over TLS to pdf.xyz's secure server, is kept only for its job (through an automatic retry, if a temporary error triggers one), and is deleted as soon as that job ends, whether it succeeded or failed. The converted PDF stays downloadable from our server for ${LINK_MINUTES} minutes, and this page fetches it the moment it is ready; after that window, a storage rule that runs once a day erases the stored PDF.`,
   ],
 
@@ -164,7 +182,7 @@ const content: ToolContent = {
     },
     {
       title: "Start the conversion",
-      body: `With the file in place, go straight to Convert to PDF; nothing needs setting beforehand. The button shows where the job is: "Uploading your file…", then "Waiting for our server…" while it is queued, "Converting to PDF…" while LibreOffice renders it, and "Downloading the result…" as the finished PDF comes back. A Cancel button below it stops the job while it runs.`,
+      body: `With the file in place, change the layout only if you need to: for an .xlsx, pick ${ORIENTATION_CHOICE_WORDS} under ${ORIENTATION_LABEL} and tick ${FIT_COLUMNS_TO_WIDTH_LABEL} so every column fits across the page; for any spreadsheet, tick ${ONE_PAGE_PER_SHEET_LABEL} to make each sheet a single page instead. Then press Convert to PDF. The button shows where the job is: "Uploading your file…", then "Waiting for our server…" while it is queued, "Converting to PDF…" while LibreOffice renders it, and "Downloading the result…" as the finished PDF comes back. A Cancel button below it stops the job while it runs.`,
     },
     {
       title: "Save the converted PDF",
@@ -179,7 +197,7 @@ const content: ToolContent = {
     },
     {
       q: "Why are my columns split across pages, or the text tiny?",
-      a: "The converter gets your file and no layout settings. In Excel or LibreOffice Calc, set landscape and fit-all-columns-on-one-page scaling, save, and convert again. A CSV cannot store page setup, so save it as .xlsx first.",
+      a: `Unless you change the layout, the converter follows the page setup saved in your file. For an .xlsx, tick ${FIT_COLUMNS_TO_WIDTH_LABEL}, with Landscape under ${ORIENTATION_LABEL} if the sheet is wide: each sheet is scaled down until every column fits across the page, and rows carry on to further pages. Or tick ${ONE_PAGE_PER_SHEET_LABEL}, and each sheet comes out as one page sized to fit everything on it; a long sheet makes a long page, and print areas are ignored. A CSV, .xls or .ods cannot take the orientation or fit setting here, so save it as .xlsx first if you need them.`,
     },
     {
       q: "What happens to formulas and macros?",

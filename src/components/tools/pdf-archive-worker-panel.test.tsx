@@ -22,12 +22,22 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { getToolBySlug } from "@/lib/tools";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { PDF_ARCHIVE_PASSWORD_REQUIRED_CODE } from "@/lib/workers/pdf-archive/contract";
 import { stubJobNetwork } from "@/tests/stub-job-network";
 import { PdfArchiveWorkerPanel } from "./pdf-archive-worker-panel";
+import { signedPdf } from "@/tests/signed-pdf";
+import { PdfASignatureWarning } from "./pdfa-signature-warning";
+import pdfaContent from "@/lib/tools/content/pdf-to-pdfa";
+import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
+import {
+  PDFA_LEVEL_LABEL,
+  PDFA_LEVEL_NAMES,
+  PDFA_LEVEL_OPTION,
+} from "@/lib/workers/pdf-archive/levels";
 
 const tool = getToolBySlug("pdf-to-pdfa")!;
 
@@ -126,5 +136,206 @@ describe("PdfArchiveWorkerPanel failure outcomes", () => {
     expect(text).not.toMatch(/anything Ghostscript has to remove is listed/i);
     expect(text).toMatch(/what Ghostscript reports/i);
     expect(text).toMatch(/substitut/i);
+  });
+});
+
+/*
+ * Audit pdf-to-pdfa#6 (2026-11-08): Ghostscript rewrites the whole file, so
+ * a digital signature in it does not survive as a valid signature. The panel
+ * uploaded a signed contract without a word. It now counts signatures in the
+ * browser (`countDigitalSignatures`, the scan Optimize for Web uses) before
+ * anything is uploaded, names them, and holds Run until the reader confirms.
+ */
+describe("PdfArchiveWorkerPanel: a signed PDF is named before any upload", () => {
+  async function pick(bytes: Uint8Array) {
+    const network = stubJobNetwork(READY);
+    render(<PdfArchiveWorkerPanel tool={tool} />);
+    const input = await waitFor(() => {
+      const el = document.querySelector<HTMLInputElement>('input[type="file"]');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File([bytes.slice()], "contract.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
+    });
+    const run = await screen.findByRole("button", {
+      name: /convert to pdf\/a/i,
+    });
+    return { network, run };
+  }
+
+  it("names the signatures and holds Run until the box is ticked", async () => {
+    const signed = await signedPdf({ signatures: 2 });
+    expect(countDigitalSignatures(signed)).toBe(2);
+    const { network, run } = await pick(signed);
+    const warning = await screen.findByRole("group", {
+      name: "This PDF has 2 digital signatures",
+    });
+    expect(warning).toHaveTextContent(
+      "Converting to PDF/A rewrites the whole file, so they will not survive as valid signatures",
+    );
+    expect(run).toHaveAttribute("aria-disabled", "true");
+    expect(run).toHaveAttribute("aria-describedby", warning.id);
+    fireEvent.click(run);
+    expect(network.uploads()).toBe(0);
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: "Convert anyway — I understand the digital signatures will not survive",
+      }),
+    );
+    expect(run).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(run);
+    await waitFor(() => expect(network.uploads()).toBe(1));
+  });
+
+  it("CONTROL: an unsigned PDF shows no warning and runs at once", async () => {
+    const unsigned = await signedPdf({ signatures: 0 });
+    expect(countDigitalSignatures(unsigned)).toBe(0);
+    const { network, run } = await pick(unsigned);
+    fireEvent.click(run);
+    await waitFor(() => expect(network.uploads()).toBe(1));
+    expect(
+      screen.queryByRole("group", { name: /digital signature/ }),
+    ).toBeNull();
+  });
+});
+
+describe("pdf-to-pdfa: the page describes the signature gate the panel runs", () => {
+  it("the box the page names is the one the warning renders", async () => {
+    render(
+      <PdfASignatureWarning
+        id="w"
+        count={1}
+        confirmed={false}
+        onConfirm={() => {}}
+      />,
+    );
+    const label = screen.getByRole("checkbox").closest("label")!.textContent!;
+    const begins = /begins "([^"]+)"/.exec(
+      pdfaContent.steps.map((s) => s.body).join(" "),
+    )?.[1];
+    expect(begins).toBeDefined();
+    expect(label.startsWith(begins!)).toBe(true);
+  });
+});
+
+/*
+ * Audit pdf-to-pdfa#1, review 2026-11-08: the chain tests start at the
+ * option bag, so a panel that dropped `level` from the request (a user
+ * picking PDF/A-1b and getting PDF/A-2b under the 1b label) passed every
+ * one of them. This starts at the select the user changes and ends at the
+ * job the worker receives.
+ */
+describe("PdfArchiveWorkerPanel: the PDF/A level reaches the job", () => {
+  async function convertWith(levelName?: string) {
+    const network = stubJobNetwork(READY);
+    render(<PdfArchiveWorkerPanel tool={tool} />);
+    const input = await waitFor(() => {
+      const el = document.querySelector<HTMLInputElement>('input[type="file"]');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    const unsigned = await signedPdf({ signatures: 0 });
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File([unsigned.slice()], "report.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
+    });
+    const run = await screen.findByRole("button", {
+      name: /convert to pdf\/a/i,
+    });
+    if (levelName) {
+      const select = screen.getByRole("combobox", { name: PDFA_LEVEL_LABEL });
+      const option = within(select).getByRole("option", { name: levelName });
+      fireEvent.change(select, {
+        target: { value: (option as HTMLOptionElement).value },
+      });
+      expect(select).toHaveDisplayValue(levelName);
+    }
+    fireEvent.click(run);
+    await waitFor(() => expect(network.jobBodies).toHaveLength(1));
+    return network.jobBodies[0]!.options;
+  }
+
+  it("PDF/A-1b chosen in the picker is the level the job asks for", async () => {
+    expect(await convertWith("PDF/A-1b")).toEqual({
+      [PDFA_LEVEL_OPTION]: "1b",
+    });
+  });
+
+  it("PDF/A-3b likewise", async () => {
+    expect(await convertWith("PDF/A-3b")).toEqual({
+      [PDFA_LEVEL_OPTION]: "3b",
+    });
+  });
+
+  it("CONTROL: left on the default, the job carries the empty bag it always did", async () => {
+    expect(await convertWith()).toEqual({});
+  });
+});
+
+/*
+ * Review 2026-11-08 (minor): nothing showed the re-read in start() working
+ * on its own. Here the pick-time scan never finishes, so the only thing
+ * between an early press and the upload of a signed file is that re-read.
+ */
+describe("PdfArchiveWorkerPanel: a press before the pick-time scan finishes", () => {
+  it("re-reads the file and holds a signed one, uploading nothing", async () => {
+    const signed = await signedPdf({ signatures: 2 });
+    const network = stubJobNetwork(READY);
+    render(<PdfArchiveWorkerPanel tool={tool} />);
+    const input = await waitFor(() => {
+      const el = document.querySelector<HTMLInputElement>('input[type="file"]');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    const file = new File([signed.slice()], "contract.pdf", {
+      type: "application/pdf",
+    });
+    let reads = 0;
+    const real = file.arrayBuffer.bind(file);
+    // The first read (the pick-time scan) never settles; later ones do.
+    file.arrayBuffer = () => {
+      reads += 1;
+      return reads === 1 ? new Promise<ArrayBuffer>(() => {}) : real();
+    };
+    fireEvent.change(input, { target: { files: [file] } });
+    const run = await screen.findByRole("button", {
+      name: /convert to pdf\/a/i,
+    });
+    // Health check: the pick-time scan is still pending, so no warning yet
+    // and Run is not held by it.
+    await waitFor(() => expect(reads).toBe(1));
+    expect(run).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(run);
+    expect(
+      await screen.findByRole("group", {
+        name: "This PDF has 2 digital signatures",
+      }),
+    ).toBeInTheDocument();
+    expect(network.uploads()).toBe(0);
+    expect(network.jobBodies).toHaveLength(0);
+  });
+});
+
+describe("PdfArchiveWorkerPanel: the spec row names the levels as every page does", () => {
+  it("'You get' uses PDFA_LEVEL_NAMES, not the picker's order", async () => {
+    stubJobNetwork(READY);
+    render(<PdfArchiveWorkerPanel tool={tool} />);
+    expect(
+      await screen.findByText(
+        `${PDFA_LEVEL_NAMES} (best effort, not validated)`,
+      ),
+    ).toBeInTheDocument();
   });
 });

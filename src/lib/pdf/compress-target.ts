@@ -13,6 +13,10 @@
  */
 import { formatBytes } from "@/lib/utils";
 import { DEEP_COMPRESSION_PRESETS } from "./offered-kinds";
+import {
+  IMAGE_QUALITY_LABELS,
+  IMAGE_QUALITY_LEVELS,
+} from "./compress-image-quality";
 import { KB, MB, SIZE_PRESETS, sizeLabel } from "./size-presets";
 
 export { KB };
@@ -37,10 +41,12 @@ export const TARGET_SIZE_LABELS = {
 } as const;
 
 /**
- * The line under the choice. "Extreme" is the floor preset's own label, so a
- * rename moves this sentence with it.
+ * The line under the choice. "Extreme" is the floor preset's own label and
+ * "Lowest" the last JPEG level's, so a rename moves this sentence with them.
+ * Since audit compress-pdf#4 (2026-11-08) the ladder lowers the image quality
+ * after the resolution (`target-ladder.ts`); until then it stopped at Extreme.
  */
-export const TARGET_SIZE_HINT = `Our server starts at your Quality setting and steps down, as far as ${DEEP_COMPRESSION_PRESETS[0].label}, until the file fits. Each step is another run, so it can take longer. Grayscale is used only if you tick it.`;
+export const TARGET_SIZE_HINT = `Our server starts at your Quality setting and steps down, as far as ${DEEP_COMPRESSION_PRESETS[0].label}, then lowers the ${IMAGE_QUALITY_LABELS.heading.toLowerCase()}, as far as ${IMAGE_QUALITY_LEVELS[IMAGE_QUALITY_LEVELS.length - 1]!.label}, until the file fits. Each step is another run, so it can take longer. Grayscale is used only if you tick it.`;
 
 /** The sizes the copy's worked example uses ("Now 184.0 KB — under your 200 KB target."). */
 export const TARGET_EXAMPLE = { targetBytes: 200 * KB, outputBytes: 184 * KB };
