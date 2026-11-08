@@ -34,13 +34,9 @@
  * fails before any "every word is …" can pass over nothing.
  */
 import JSZip from "jszip";
-import {
-  PDFDocument,
-  TextRenderingMode,
-  popGraphicsState,
-  pushGraphicsState,
-  setTextRenderingMode,
-} from "pdf-lib";
+import { PDFDocument } from "pdf-lib";
+import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
+import { STALE_OCR_TEXT } from "../ocr-redo-proof";
 import {
   DESKEW_SENTINEL,
   FIXTURE_SKEW_DEGREES,
@@ -49,7 +45,6 @@ import {
   greyOf,
   measureBarSkew,
 } from "../ocr-deskew-proof";
-import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 import { UPRIGHT_SENTINEL } from "../ocr-rotate-proof";
 import { readDocxBody } from "./docx-read";
 
@@ -240,29 +235,18 @@ export async function uprightDocxVerdict(
   };
 }
 
-/** Words on the stale text layer; the scan's picture shows none of them. */
-export const STALE_LAYER_TEXT = "Stale layer walrus quixotic 9031";
-
 /**
- * `scan` with a STALE OCR layer added: {@link STALE_LAYER_TEXT} drawn in
- * text render mode 3 (invisible), the way an OCR engine writes its layer,
- * in the page's lower margin. Under `--skip-text` the page has text and is
- * copied through; `--redo-ocr` strips invisible text and recognises again.
+ * Words on the stale text layer; the scan's picture shows none of them. The
+ * fixture's own words (`withStaleOcrLayer` in ../ocr-redo-proof), so the
+ * fixture and this verdict cannot drift apart.
+ *
+ * REMOVED 2026-11-08: `withStaleTextLayer`, the first Redo fixture. Its
+ * docblock said "`--redo-ocr` strips invisible text"; #290's investigation in
+ * the live worker image showed OCRmyPDF 14 does NOT strip that shape (`3 Tr`
+ * set before BT). The proofs now use `withStaleOcrLayer`, whose shapes and
+ * outcomes are tabled in REDO_OCR_LAYER_OUTCOMES.
  */
-export async function withStaleTextLayer(
-  scan: Uint8Array,
-): Promise<Uint8Array> {
-  const doc = await PDFDocument.load(scan);
-  const page = doc.getPage(0);
-  const font = await embedDrawingFont(doc, [STALE_LAYER_TEXT]);
-  page.pushOperators(
-    pushGraphicsState(),
-    setTextRenderingMode(TextRenderingMode.Invisible),
-  );
-  page.drawText(STALE_LAYER_TEXT, { x: 40, y: 60, size: 14, font });
-  page.pushOperators(popGraphicsState());
-  return doc.save({ useObjectStreams: false });
-}
+export const STALE_LAYER_TEXT = STALE_OCR_TEXT;
 
 /**
  * Redo existing OCR, read from the DOCX of a scan of `line` carrying
@@ -313,10 +297,17 @@ export async function pictureAsPdf(picture: Uint8Array): Promise<Uint8Array> {
   const jpeg = picture[0] === 0xff && picture[1] === 0xd8;
   if (!png && !jpeg)
     throw new Error("the DOCX picture is neither PNG nor JPEG");
-  const image = png ? await doc.embedPng(picture) : await doc.embedJpg(picture);
-  doc
-    .addPage([image.width, image.height])
-    .drawImage(image, { x: 0, y: 0, width: image.width, height: image.height });
+  // Through the raster boundary (raster-embedder-boundary.test.ts,
+  // raster-draw-boundary.test.ts), so a JPEG's EXIF turn is honoured the
+  // way every shipped embed honours it.
+  const image = await embedRasterImage(doc, picture, png ? "png" : "jpg");
+  const page = doc.addPage([image.width, image.height]);
+  await drawRasterImage(page, image, {
+    x: 0,
+    y: 0,
+    width: image.width,
+    height: image.height,
+  });
   return doc.save();
 }
 

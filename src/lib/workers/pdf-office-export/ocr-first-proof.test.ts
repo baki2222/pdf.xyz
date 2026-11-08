@@ -9,7 +9,6 @@
  * no "every word is …" can pass over nothing.
  */
 import { describe, expect, it } from "vitest";
-import { inflateSync } from "node:zlib";
 import {
   DESKEW_SENTINEL,
   FIXTURE_SKEW_DEGREES,
@@ -19,8 +18,6 @@ import {
 import { UPRIGHT_SENTINEL } from "../ocr-rotate-proof";
 import { SCANNED_LINE } from "@/tests/word-ocr-proof-fixtures";
 import { renderPdfPages } from "@/tests/pdf-render";
-import { nodeAssetOptions } from "@/tests/pdf-image-decode";
-import { PDFJS_DOCUMENT_DEFAULTS } from "@/lib/pdf/wasm-assets";
 import { docxPackage } from "./docx-package";
 import { encodePngImage } from "./png-encode";
 import { pptxPackage, type PptxRun, type PptxShape } from "./pptx-package";
@@ -31,7 +28,6 @@ import {
   redoDocxVerdict,
   slideRuns,
   uprightDocxVerdict,
-  withStaleTextLayer,
 } from "./ocr-first-proof";
 
 const PNG = encodePngImage(4, 4, "gray8", new Uint8Array(16).fill(128));
@@ -255,48 +251,6 @@ describe("uprightDocxVerdict (PDF to Word, Turn pages upright)", () => {
     expect(
       (await uprightDocxVerdict(new Uint8Array([1, 2, 3]), "unread")).ok,
     ).toBe(false);
-  });
-});
-
-describe("withStaleTextLayer (the Redo existing OCR fixture)", () => {
-  it("adds the stale words as INVISIBLE text (render mode 3), which --redo-ocr strips", async () => {
-    const base = encodePngImage(2, 2, "gray8", new Uint8Array(4).fill(255));
-    const { PDFDocument } = await import("pdf-lib");
-    const scan = await PDFDocument.create();
-    const img = await scan.embedPng(base);
-    scan
-      .addPage([595, 842])
-      .drawImage(img, { x: 0, y: 0, width: 595, height: 842 });
-    const out = Buffer.from(await withStaleTextLayer(await scan.save()));
-    // Every content stream, inflated: the layer is drawn after `3 Tr`.
-    const streams = [...out.toString("latin1").matchAll(/stream\r?\n/g)].map(
-      (m) => {
-        const start = m.index! + m[0].length;
-        const end = out.indexOf("endstream", start);
-        try {
-          return inflateSync(out.subarray(start, end)).toString("latin1");
-        } catch {
-          return out.subarray(start, end).toString("latin1");
-        }
-      },
-    );
-    // The text-showing stream sets render mode 3 before it shows glyphs.
-    const content = streams.find((s) => /\bT[jJ]\b/.test(s));
-    expect(content, "a content stream shows text").toBeDefined();
-    const mode = content!.search(/\b3 Tr\b/);
-    expect(mode).toBeGreaterThanOrEqual(0);
-    expect(mode).toBeLessThan(content!.search(/\bT[jJ]\b/));
-    // And a reader extracts exactly the stale words: the layer --skip-text
-    // keeps and a DOCX would carry.
-    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    const doc = await pdfjs.getDocument({
-      data: new Uint8Array(out),
-      ...PDFJS_DOCUMENT_DEFAULTS,
-      ...nodeAssetOptions(),
-    }).promise;
-    const text = await (await doc.getPage(1)).getTextContent();
-    const read = text.items.map((i) => ("str" in i ? i.str : "")).join(" ");
-    expect(read.replace(/\s+/g, " ").trim()).toBe(STALE_LAYER_TEXT);
   });
 });
 
