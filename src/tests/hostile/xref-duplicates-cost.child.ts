@@ -16,7 +16,7 @@
 import { createDeflate, deflateSync } from "node:zlib";
 import { PDFDocument } from "pdf-lib";
 import { loadPdf } from "@/lib/pdf/engine";
-import { reportResult } from "./bounded";
+import { reportResult } from "./report";
 
 const [mode = "", nArg = "0"] = process.argv.slice(2);
 const N = Number(nArg);

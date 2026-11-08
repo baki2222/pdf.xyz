@@ -119,6 +119,13 @@ const ALLOWED = new Set(
     // its own `*.test.ts`; nothing on a route, a component or a barrel
     // reaches it. (Added 2026-10-11, when this check named it on first run.)
     "src/tests/powershell-json.ts",
+    // The hostile-input hang runner: spawns `node --import tsx <child>` so a
+    // hang can be killed (a synchronous parser blocks vitest's event loop).
+    // Imported only by `*.test.ts` files. Its child scripts print through
+    // `src/tests/hostile/report.ts`, which spawns nothing, so they stay out
+    // of this closure. (Added 2026-11-08; this check named the runner and
+    // eleven child scripts until reportResult moved out of it.)
+    "src/tests/hostile/bounded.ts",
   ].map((rel) => path.join(ROOT, rel)),
 );
 

@@ -395,6 +395,9 @@ export function copyFiles(): string[] {
     // The page-tree check every loader makes (2026-11-08): its refusal names
     // the page pdf-lib could not read. New module, so walked.
     path.join(ROOT, "src", "lib", "pdf", "page-tree.ts"),
+    // pdf.js's missing bounds (2026-11-08, hostile lane l07): what a file
+    // that expands too far, or nests its page content too deeply, is told.
+    path.join(ROOT, "src", "lib", "pdf", "pdfjs-guard.ts"),
   ];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {

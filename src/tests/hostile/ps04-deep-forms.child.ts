@@ -16,7 +16,7 @@ import {
 import { PdfEngineError } from "../../lib/pdf/engine-errors";
 import { mergeAlternating } from "../../lib/pdf/merge-alternate";
 import { splitPagesInHalf } from "../../lib/pdf/split-half";
-import { reportResult } from "./bounded";
+import { reportResult } from "./report";
 import { PAGE_STRUCTURE_FIXTURES } from "./page-structure.fixtures";
 
 const [id, entry] = process.argv.slice(2);

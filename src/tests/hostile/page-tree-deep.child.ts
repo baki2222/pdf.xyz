@@ -6,7 +6,7 @@ import { PdfEngineError } from "../../lib/pdf/engine-errors";
 import { getPageCount, getPageRotations } from "../../lib/pdf/engine";
 import { countPdfPagesDetailed } from "../../lib/pdf/page-count";
 import { probePdf } from "../../lib/pdf/probe";
-import { reportResult } from "./bounded";
+import { reportResult } from "./report";
 import { deepPageTreeObjects, rawPdf } from "./page-structure.raw";
 
 const [, , entry = "getPageCount", depthArg = "50000"] = process.argv;

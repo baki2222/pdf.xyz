@@ -1,7 +1,7 @@
 // Bounded cases for conversion-in-l09.test.ts: each builds ONE hostile input,
 // calls ONE entry point and reports how it settled. Run through runBounded,
 // so a regressed hang or bomb is a red result instead of a frozen run.
-import { reportResult } from "./bounded";
+import { reportResult } from "./report";
 import * as F from "./conversion-in.fixtures";
 
 const mode = process.argv[2];

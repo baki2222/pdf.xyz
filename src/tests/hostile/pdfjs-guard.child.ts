@@ -16,7 +16,7 @@ import {
   simplePdf,
 } from "./conversion-out.fixtures";
 import { buildPdf, onePageObjects, TEXT_OPS } from "./stamping.fixtures";
-import { reportResult } from "./bounded";
+import { reportResult } from "./report";
 
 const legacy = async () =>
   (await import("pdfjs-dist/legacy/build/pdf.mjs")) as unknown as Pick<

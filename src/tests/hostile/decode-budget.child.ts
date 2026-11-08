@@ -5,7 +5,7 @@
 //
 // argv: <entry> <fixture path>
 import { readFileSync } from "node:fs";
-import { reportResult } from "./bounded";
+import { reportResult } from "./report";
 import { partnerPdf } from "./stamping.fixtures";
 
 const [entry, file] = process.argv.slice(2);

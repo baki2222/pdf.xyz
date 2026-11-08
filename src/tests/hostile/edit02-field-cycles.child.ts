@@ -13,7 +13,7 @@ import { applyFormValues, inspectFormFields } from "../../lib/pdf/forms";
 import { createFormFields, readFormContext } from "../../lib/pdf/create-forms";
 import { PdfEngineError } from "../../lib/pdf/engine-errors";
 import { flattenPdf, inspectForm } from "../../lib/pdf/flatten";
-import { reportResult } from "./bounded";
+import { reportResult } from "./report";
 import {
   editingFixtures,
   rawPdf,

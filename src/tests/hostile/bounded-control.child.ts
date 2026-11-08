@@ -1,6 +1,6 @@
 // Controls for bounded.ts: each mode produces one of the four outcomes, so the
 // runner is shown able to tell a settle from a hang from a crash.
-import { reportResult } from "./bounded";
+import { reportResult } from "./report";
 
 const mode = process.argv[2];
 if (mode === "settle") reportResult({ ok: 1 });

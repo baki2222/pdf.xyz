@@ -7,24 +7,22 @@
 // ordinary red result ("hang", with the bound it exceeded).
 //
 // Protocol: the child script prints exactly one line `@@RESULT <json>` when it
-// settles. No such line before the bound is a hang; a heap/allocation failure
-// on stderr is "memory"; any other exit without the line is "internal".
+// settles, through `reportResult` in ./report (never imported from here: a
+// child that imported this spawner would join the Node-only closure). No such
+// line before the bound is a hang; a heap/allocation failure on stderr is
+// "memory"; any other exit without the line is "internal".
 //
 // The child runs under `node --import tsx`, the same loader the matrix used
 // (src/tests/hostile on test/hostile-matrix). Keep child scripts tiny: import
 // the engine, build the fixture, call ONE entry point, print the line.
 import { spawn } from "node:child_process";
+import { RESULT_PREFIX } from "./report";
 
 export type BoundedOutcome =
   | { kind: "settled"; value: unknown; ms: number }
   | { kind: "hang" | "memory" | "internal"; message: string; ms: number };
 
-const RESULT = /@@RESULT (.*)/;
-
-/** Print the settled value from inside a child script (see protocol above). */
-export function reportResult(value: unknown): void {
-  console.log(`@@RESULT ${JSON.stringify(value ?? null)}`);
-}
+const RESULT = new RegExp(`${RESULT_PREFIX}(.*)`);
 
 export function runBounded(
   childScript: string,

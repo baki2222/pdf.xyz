@@ -6,7 +6,7 @@
 import { addPageNumbers } from "../../lib/pdf/page-numbers";
 import { watermarkPdf } from "../../lib/pdf/watermark";
 import { editPdf } from "../../lib/pdf/edit";
-import { reportResult } from "./bounded";
+import { reportResult } from "./report";
 import { ctmAtLastDraw } from "./ctm-probe";
 import { STAMPING_INPUTS } from "./stamping.fixtures";
 

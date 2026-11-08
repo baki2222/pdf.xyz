@@ -20,7 +20,7 @@ import { readXref } from "../../lib/pdf/security/document";
 import { openProtectedPdf } from "../../lib/pdf/security/protected-pdf";
 import { PDFJS_DOCUMENT_DEFAULTS } from "../../lib/pdf/wasm-assets";
 import { ZERO_WIDTH_ROW_LIMIT } from "../../lib/pdf/xref-prescan";
-import { reportResult } from "./bounded";
+import { reportResult } from "./report";
 import {
   ONE_PAGE,
   ownerOnlyEncrypted,

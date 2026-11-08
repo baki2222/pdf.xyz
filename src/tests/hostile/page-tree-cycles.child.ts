@@ -12,7 +12,7 @@ import { getPageCount, getPageRotations, loadPdf } from "../../lib/pdf/engine";
 import { countPdfPagesDetailed } from "../../lib/pdf/page-count";
 import { readPdfFrames } from "../../lib/pdf/page-frame";
 import { probePdf } from "../../lib/pdf/probe";
-import { reportResult } from "./bounded";
+import { reportResult } from "./report";
 import { kidsSelfPdf } from "./conversion-out.fixtures";
 import { rawPdf } from "./page-structure.raw";
 import {

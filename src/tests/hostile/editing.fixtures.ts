@@ -1,5 +1,6 @@
 import { createDeflate, deflateSync } from "node:zlib";
-import { PDFDocument, PDFName, StandardFonts } from "pdf-lib";
+import { PDFDocument, PDFName } from "pdf-lib";
+import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 import { spliceStartxrefPastEnd } from "@/tests/damaged-xref";
 import {
   ownerOnlyEncryptedPdf,
@@ -169,10 +170,16 @@ export async function validPdf(pageCount = 2): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   doc.setCreationDate(new Date(Date.UTC(2026, 0, 1)));
   doc.setModificationDate(new Date(Date.UTC(2026, 0, 1)));
-  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const labels = Array.from(
+    { length: pageCount },
+    (_, i) => `HOSTILE-CONTROL-${i + 1}`,
+  );
+  // Through the chooser, like every module that draws text
+  // (src/deploy/text-drawing-call-sites.test.ts).
+  const font = await embedDrawingFont(doc, labels);
   for (let i = 0; i < pageCount; i += 1) {
     const page = doc.addPage([300, 400]);
-    page.drawText(`HOSTILE-CONTROL-${i + 1}`, {
+    page.drawText(labels[i]!, {
       x: 30,
       y: 300,
       size: 14,
@@ -1044,7 +1051,7 @@ async function build(): Promise<HostileFixture[]> {
     {
       id: "H11-image-100000-square",
       cls: "H11",
-      what: "image XObject 100000x100000x8bpc, 64-byte stream",
+      what: "image XObject 100000x100000x8bpc, a stream of 64 bytes",
       bytes: imageXObjectHuge(),
       pages: 1,
     },

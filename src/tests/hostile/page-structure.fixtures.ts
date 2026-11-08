@@ -52,6 +52,7 @@ import {
   zeroBomb,
   type RawObject,
 } from "./page-structure.raw";
+import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 
 export type Truth =
   | { readonly kind: "not-pdf" }
@@ -90,12 +91,18 @@ export interface PageStructureFixture {
 
 /** A well-formed `pages`-page document from pdf-lib, classic xref. */
 export async function controlPdf(pages = 3): Promise<Uint8Array> {
-  const { PDFDocument, StandardFonts } = await import("pdf-lib");
+  const { PDFDocument } = await import("pdf-lib");
   const doc = await PDFDocument.create();
-  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const labels = Array.from(
+    { length: pages },
+    (_, i) => `control page ${i + 1}`,
+  );
+  // Through the chooser, like every module that draws text
+  // (src/deploy/text-drawing-call-sites.test.ts).
+  const font = await embedDrawingFont(doc, labels);
   for (let i = 0; i < pages; i += 1) {
     const page = doc.addPage([300, 400]);
-    page.drawText(`control page ${i + 1}`, { x: 20, y: 300, size: 14, font });
+    page.drawText(labels[i]!, { x: 20, y: 300, size: 14, font });
   }
   return doc.save({ useObjectStreams: false });
 }
@@ -577,7 +584,8 @@ export const PAGE_STRUCTURE_FIXTURES: readonly PageStructureFixture[] = [
   {
     id: "H11.image",
     cls: "H11",
-    title: "image XObject declaring 100000x100000 RGB 8 bpc, 16-byte stream",
+    title:
+      "image XObject declaring 100000x100000 RGB 8 bpc, a stream of 16 bytes",
     truth: P1,
     build: () =>
       rawPdf({
