@@ -126,8 +126,14 @@ describe("worker-prove-tools — the OCR proofs are wired where they can run", (
 
   it("proves the encrypted refusal AFTER the spec that produces its input", () => {
     const refusals = ocr.filter((s) => s.props.has("expectFailure"));
-    expect(refusals).toHaveLength(1);
-    const refusal = refusals[0]!;
+    // Since 2026-11-08 two more OCR refusals (wave 3, audit ocr-pdf#4: a PDF
+    // restricted by its author, and the open-password control) read their
+    // input from a committed fixture (`make`). The ordering rule is about an
+    // input CARRIED from an earlier spec, so it is asked of those alone.
+    expect(refusals).toHaveLength(3);
+    const carried = refusals.filter((s) => s.props.has("from"));
+    expect(carried).toHaveLength(1);
+    const refusal = carried[0]!;
     const from = str(refusal.props.get("from"));
     expect(from).toBeDefined();
     const producer = all.find(

@@ -330,6 +330,25 @@ describe("redoDocxVerdict (PDF to Word, Redo existing OCR)", () => {
     expect((await redoDocxVerdict(both, SCANNED_LINE, "kept")).ok).toBe(false);
   });
 
+  it("beside (Redo on a layer OCRmyPDF keeps): every scan word AND every stale word", async () => {
+    const both = await docx({
+      picture: PNG,
+      lines: [STALE_LAYER_TEXT, SCANNED_LINE],
+    });
+    const v = await redoDocxVerdict(both, SCANNED_LINE, "beside");
+    expect(v.ok, v.detail).toBe(true);
+    // Negative: the stale layer removed (what "replaced" wants) is not beside.
+    const replaced = await docx({ picture: PNG, lines: [SCANNED_LINE] });
+    expect((await redoDocxVerdict(replaced, SCANNED_LINE, "beside")).ok).toBe(
+      false,
+    );
+    // Negative: the scan unread (Redo ignored) is not beside either.
+    const kept = await docx({ picture: PNG, lines: [STALE_LAYER_TEXT] });
+    expect((await redoDocxVerdict(kept, SCANNED_LINE, "beside")).ok).toBe(
+      false,
+    );
+  });
+
   it("health: no picture fails", async () => {
     const v = await redoDocxVerdict(
       await docx({ lines: [SCANNED_LINE] }),

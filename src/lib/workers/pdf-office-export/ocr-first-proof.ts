@@ -268,12 +268,15 @@ export async function withStaleTextLayer(
  * Redo existing OCR, read from the DOCX of a scan of `line` carrying
  * {@link STALE_LAYER_TEXT}. `"replaced"`: every word of `line` and none of
  * the stale layer's. `"kept"` (the option off, or ignored — the defect):
- * every stale word, and not every word of `line`.
+ * every stale word, and not every word of `line`. `"beside"` (2026-11-08,
+ * Redo on a layer OCRmyPDF 14 does not strip, such as its own Form XObject
+ * layer: REDO_OCR_LAYER_OUTCOMES): every word of `line` AND every stale
+ * word, the new text added beside the old.
  */
 export async function redoDocxVerdict(
   bytes: Uint8Array,
   line: string,
-  want: "replaced" | "kept",
+  want: "replaced" | "kept" | "beside",
 ): Promise<ProofVerdict> {
   const doc = await readScanDocx(bytes);
   if (isVerdict(doc)) return doc;
@@ -284,10 +287,12 @@ export async function redoDocxVerdict(
   const ok =
     want === "replaced"
       ? lineFound === lineTotal && staleFound === 0
-      : staleFound === staleTotal && lineFound < lineTotal;
+      : want === "beside"
+        ? lineFound === lineTotal && staleFound === staleTotal
+        : staleFound === staleTotal && lineFound < lineTotal;
   return {
     ok,
-    detail: `${lineFound} of ${lineTotal} scan words and ${staleFound} of ${staleTotal} stale-layer words in the DOCX text; want ${want === "replaced" ? "every scan word, no stale one" : "the stale layer kept, the scan unread"}`,
+    detail: `${lineFound} of ${lineTotal} scan words and ${staleFound} of ${staleTotal} stale-layer words in the DOCX text; want ${want === "replaced" ? "every scan word, no stale one" : want === "beside" ? "every scan word beside every stale one" : "the stale layer kept, the scan unread"}`,
   };
 }
 

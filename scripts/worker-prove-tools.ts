@@ -121,9 +121,14 @@ import {
   pptxOcrVerdict,
   redoDocxVerdict,
   uprightDocxVerdict,
-  withStaleTextLayer,
 } from "@/lib/workers/pdf-office-export/ocr-first-proof";
-import { PDF_TO_WORD_RTL_REFUSAL } from "@/lib/jobs/ocr";
+import { withStaleOcrLayer } from "@/lib/workers/ocr-redo-proof";
+import { OCR_REFUSAL_MESSAGES } from "@/lib/workers/ocr-engine-errors";
+
+import {
+  PDF_TO_WORD_RTL_REFUSAL,
+  REDO_OCR_LAYER_OUTCOMES,
+} from "@/lib/jobs/ocr";
 import {
   OCR_LANGUAGE_SAMPLES,
   sampleVerdict,
@@ -941,6 +946,19 @@ interface ProofSpec {
   keepArtifactAs?: string;
 }
 
+/**
+ * The DOCX a Redo run must give for a stale layer whose row in
+ * REDO_OCR_LAYER_OUTCOMES says `outcome`: replaced, or the new text beside it.
+ */
+function redoWant(outcome: string): "replaced" | "beside" {
+  return outcome === "replaced" ? "replaced" : "beside";
+}
+
+/** A pattern matching exactly `text`: the user-facing message, whole. */
+function exactly(text: string): RegExp {
+  return new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+}
+
 const SPECS: ProofSpec[] = [
   {
     tool: "compress-pdf",
@@ -1318,6 +1336,43 @@ const SPECS: ProofSpec[] = [
     // Never reached: with `expectFailure`, a completed job is itself the FAIL.
     expect: () => false,
     want: "a final refusal naming Unlock PDF",
+  },
+  // OCR PDF on a PDF its author restricted (wave 3, audit ocr-pdf#4, PR
+  // #288): it opens without a password, so the old "password-protected"
+  // message was wrong; the worker now names the restriction and the owner
+  // password. The open-password fixture is the control: still the old
+  // message. Both refusals are final, with no output.
+  {
+    tool: "ocr-pdf",
+    label: "ocr-pdf (restricted by its author, refused)",
+    make: () =>
+      readFileSync("src/tests/fixtures/restricted-pdf/qpdf-r6-aes256.pdf"),
+    name: "restricted.pdf",
+    type: PDF_MIME,
+    expectFailure: {
+      code: "unprocessable_entity",
+      retryable: false,
+      message: exactly(OCR_REFUSAL_MESSAGES.restricted),
+    },
+    expect: () => false,
+    want: "a final refusal naming the author's restrictions and the owner password",
+  },
+  {
+    tool: "ocr-pdf",
+    label: "ocr-pdf (open password, refused control)",
+    make: () =>
+      readFileSync(
+        "src/tests/fixtures/restricted-pdf/pypdf-r3-open-password.pdf",
+      ),
+    name: "open-password.pdf",
+    type: PDF_MIME,
+    expectFailure: {
+      code: "unprocessable_entity",
+      retryable: false,
+      message: exactly(OCR_REFUSAL_MESSAGES.encrypted),
+    },
+    expect: () => false,
+    want: "the password-protected refusal, unchanged",
   },
   // The commonest reason a PDF "won't open" is a password, and Repair PDF is
   // where a user takes it. Until 2026-09-27 that was retried three times and
@@ -1993,19 +2048,45 @@ const SPECS: ProofSpec[] = [
   {
     tool: "pdf-to-word",
     label: "pdf-to-word (ocr, redo)",
-    make: async () => withStaleTextLayer(await scannedTextPdf()),
+    // CHANGED 2026-11-08: the first fixture set `3 Tr` BEFORE its BT, a
+    // layer OCRmyPDF 14's --redo-ocr does not strip, so this case failed on
+    // a correct product (#290 has the investigation). It now carries the
+    // shape Tesseract writes, which Redo replaces; the case below carries
+    // OCRmyPDF's own layer, which it keeps. Both wants come from the one
+    // outcome table, so if a worker upgrade flips a row, its case flips.
+    make: async () => withStaleOcrLayer(await scannedTextPdf(), "tesseract"),
     name: "stale-ocr.pdf",
     type: PDF_MIME,
     options: { ocr: true, languages: ["eng"], redoOcr: true },
     expect: isZipContainer,
     want: "DOCX with the scan's words and not the stale layer's",
     verify: (bytes) =>
-      redoDocxVerdict(new Uint8Array(bytes), SCANNED_LINE, "replaced"),
+      redoDocxVerdict(
+        new Uint8Array(bytes),
+        SCANNED_LINE,
+        redoWant(REDO_OCR_LAYER_OUTCOMES.tesseract),
+      ),
+  },
+  {
+    tool: "pdf-to-word",
+    label: "pdf-to-word (ocr, redo keeps an earlier OCRmyPDF layer)",
+    make: async () => withStaleOcrLayer(await scannedTextPdf(), "ocrmypdf"),
+    name: "ocrmypdf-layer.pdf",
+    type: PDF_MIME,
+    options: { ocr: true, languages: ["eng"], redoOcr: true },
+    expect: isZipContainer,
+    want: "DOCX with the scan's words beside the earlier layer's, as the copy says",
+    verify: (bytes) =>
+      redoDocxVerdict(
+        new Uint8Array(bytes),
+        SCANNED_LINE,
+        redoWant(REDO_OCR_LAYER_OUTCOMES.ocrmypdf),
+      ),
   },
   {
     tool: "pdf-to-word",
     label: "pdf-to-word (ocr, redo off control)",
-    make: async () => withStaleTextLayer(await scannedTextPdf()),
+    make: async () => withStaleOcrLayer(await scannedTextPdf(), "tesseract"),
     name: "stale-ocr.pdf",
     type: PDF_MIME,
     options: { ocr: true, languages: ["eng"], redoOcr: false },
