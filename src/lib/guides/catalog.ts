@@ -1410,7 +1410,7 @@ export const guides: Guide[] = [
       "save pdf pages as images",
     ],
     intro: [
-      "To convert a PDF to JPG, open the PDF to JPG tool — or PDF to PNG for lossless images — add your PDF, choose a resolution, and render. Each page you choose becomes its own image, drawn right in your browser. A single page downloads as one image; several pages arrive as one ZIP with an image for each page.",
+      "To convert a PDF to JPG, open the PDF to JPG tool — or PDF to PNG for lossless images — add your PDF, choose a resolution, and render. Each page (or the pages you choose, for one PDF) becomes its own image, drawn right in your browser. A single page downloads as one image; several pages arrive as one ZIP with an image for each page.",
       "The rendering happens on your own device. The tool draws each page with pdf.js, a PDF renderer bundled with the site, and encodes it in the browser, so your PDF stays on your device from start to finish. There is no account to create.",
       `That makes it a quick way to share a page in a chat or on a slide, to drop a page into a document that only takes images, or to show a PDF on a device with no viewer. Each PDF can be up to ${ceilingMb("pdf-to-jpg")} MB.`,
     ],
@@ -5299,7 +5299,7 @@ export const guides: Guide[] = [
     intro: [
       `To make a PDF black and white, open ${nameOf("grayscale-pdf")}, add your PDF, choose an output quality, press Convert to grayscale, and download the copy. Every page comes back in shades of gray, ready for a monochrome printer or a portal that asks for grayscale files.`,
       "Shades of gray, not pure black and white: each pixel becomes a brightness value that counts green most and blue least, so pure red and pure green end up as two different grays. Nothing is pushed to solid black or white, so photos and shaded charts keep their tones.",
-      `The conversion runs in your browser with pdf.js, so your PDF stays on your device and there is no account to create. It takes one PDF of up to ${ceilingMb("grayscale-pdf")} MB.`,
+      `The conversion runs in your browser with pdf.js, so your PDF stays on your device and there is no account to create. It takes PDFs of up to ${ceilingMb("grayscale-pdf")} MB each, and two or more at once as a batch, with one output quality for them all.`,
     ],
     steps: [
       `Open the ${nameOf("grayscale-pdf")} tool.`,
@@ -5832,7 +5832,7 @@ export const guides: Guide[] = [
     ],
     steps: [
       `Open the ${nameOf("text-to-pdf")} tool.`,
-      "Drop a .txt file on the box that says “Drop a TXT file here, or browse”, or click browse to choose one. Loading a file replaces whatever is in the box.",
+      "Drop a .txt file on the box that says “Drop TXT files here, or browse”, or click browse to choose one. Loading a file replaces whatever is in the box; two or more files open a batch list instead, one PDF per file.",
       "Or paste or type straight into the Text content box. The figure beside its heading counts the characters and the size as you go, and you can edit the text before converting.",
       "Press Create PDF. The button reads Creating PDF… while the pages are set.",
       `Under “PDF created”, press Download PDF. notes.txt is saved as ${TXT_EXAMPLE_OUT}, and pasted text as ${TXT_PASTED_OUT}.`,
@@ -5890,7 +5890,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-prepare-a-pdf-for-others-to-sign",

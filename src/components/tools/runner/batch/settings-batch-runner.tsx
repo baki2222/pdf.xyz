@@ -3,13 +3,23 @@
 import { useCallback, useMemo, type ReactNode } from "react";
 import { Info } from "lucide-react";
 import { withNote, type NotedResult } from "@/lib/batch";
-import { capBatchFiles, type BatchRejection } from "@/lib/batch/limits";
+import {
+  BATCH_LIMITS,
+  capBatchFiles,
+  type BatchRejection,
+} from "@/lib/batch/limits";
 import { partitionPdfFiles } from "@/lib/pdf/files";
 import { formatBytes } from "@/lib/utils";
 import type { Arrival } from "../handoff-notice";
 import { useBatchRunner, type BatchUnit } from "../use-batch-runner";
 import { BatchView } from "./batch-view";
-import { explainLocked, openForBatch, type OpenedPdf } from "./open-for-batch";
+import { batchHalt } from "./halt";
+import {
+  explainLocked,
+  openForBatch,
+  refuseEncrypted,
+  type OpenedPdf,
+} from "./open-for-batch";
 
 /** What a tool's work hands back for one file. */
 export interface BatchFileOutput {
@@ -35,17 +45,9 @@ export interface SettingsBatchRow {
   detail: string;
 }
 
-/**
- * Said when the browser runs out of memory on a file: the files after it
- * would fail the same way, so the batch stops there and keeps every
- * finished row (`haltOn`).
- */
-export const BATCH_OUT_OF_MEMORY =
-  "This browser ran out of memory on that file, so the batch stopped there. The finished files are kept; close other tabs, or run the rest in a smaller batch.";
-
-export function batchHalt(error: unknown): string | null {
-  return error instanceof RangeError ? BATCH_OUT_OF_MEMORY : null;
-}
+// The out-of-memory halt every browser batch shares (`./halt`), re-exported
+// where the settings batch's tests first found it.
+export { BATCH_OUT_OF_MEMORY, batchHalt } from "./halt";
 
 export interface SettingsBatchRunnerProps {
   files: File[];
@@ -70,6 +72,18 @@ export interface SettingsBatchRunnerProps {
   appliesNote?: string;
   /** Said after the lock note on a restricted file, when the tool has more. */
   restrictedNote?: string;
+  /**
+   * How many files one batch takes (`batchMaxFilesFor`): a raster batch
+   * takes `BATCH_LIMITS.rasterMaxFiles`, every other the client cap.
+   */
+  maxFiles?: number;
+  /**
+   * Refuse an encrypted file before `process` runs, for a tool whose engine
+   * is pdf.js, which draws a restricted file without asking
+   * (`refuseEncrypted`). A pdf-lib engine refuses every encrypted file on
+   * its own.
+   */
+  checkAccessFirst?: boolean;
   /** One file's work, on its bytes. */
   process: (opened: OpenedPdf, signal: AbortSignal) => Promise<BatchFileOutput>;
 }
@@ -97,7 +111,8 @@ const rowOutputs = (row: SettingsBatchRow) => [
 
 /**
  * The batch for a tool with one setting for every file (batch plan P1):
- * Rotate, Flatten, Add Page Numbers, Add Watermark, Split Pages in Half. The
+ * Rotate, Flatten, Add Page Numbers, Add Watermark, Split Pages in Half, and
+ * (batch plan P2) Grayscale PDF. The
  * files are read one at a time, in this browser, through the tool's own
  * engine; nothing is uploaded. Every file the batch cannot take — not a PDF,
  * past the count or the total — is listed with its reason, never dropped.
@@ -120,11 +135,16 @@ export function SettingsBatchRunner({
   runBlocked = null,
   appliesNote,
   restrictedNote,
+  maxFiles = BATCH_LIMITS.clientMaxFiles,
+  checkAccessFirst = false,
   process,
 }: SettingsBatchRunnerProps) {
   const { accepted, rejected } = useMemo(() => {
     const pdfOnly = partitionPdfFiles(files);
-    const capped = capBatchFiles(pdfOnly.accepted);
+    const capped = capBatchFiles(pdfOnly.accepted, {
+      maxFiles,
+      maxTotalBytes: BATCH_LIMITS.clientMaxTotalBytes,
+    });
     return {
       accepted: capped.accepted,
       rejected: [
@@ -132,7 +152,7 @@ export function SettingsBatchRunner({
         ...capped.rejected,
       ] as BatchRejection<File>[],
     };
-  }, [files]);
+  }, [files, maxFiles]);
   const units = useMemo<BatchUnit[]>(
     () =>
       accepted.map((file, i) => ({
@@ -149,6 +169,7 @@ export function SettingsBatchRunner({
       signal: AbortSignal,
     ): Promise<SettingsBatchRow | NotedResult<SettingsBatchRow>> => {
       const opened = await openForBatch(file);
+      if (checkAccessFirst) await refuseEncrypted(opened.bytes, restrictedNote);
       const out = await explainLocked(
         opened.bytes,
         () => process(opened, signal),
@@ -163,7 +184,7 @@ export function SettingsBatchRunner({
       };
       return out.note ? withNote(row, out.note) : row;
     },
-    [process, restrictedNote],
+    [process, restrictedNote, checkAccessFirst],
   );
 
   const runner = useBatchRunner<SettingsBatchRow>(units, run, {

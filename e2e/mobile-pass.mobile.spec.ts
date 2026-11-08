@@ -1,5 +1,8 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
-import { SETTINGS_BATCH_TOOLS } from "../src/lib/batch/tools";
+import {
+  IMAGE_BATCH_TOOLS,
+  SETTINGS_BATCH_TOOLS,
+} from "../src/lib/batch/tools";
 import { tools } from "../src/lib/tools";
 import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
 import { READY_WORKER_STATUS } from "../src/tests/ready-worker-status";
@@ -673,7 +676,13 @@ const BATCH_VIEW_CONTROLS = [
   '[data-chunk="pdfxyz:lazy:batch-view"] button:not(fieldset button)',
   '[data-chunk="pdfxyz:lazy:batch-view"] fieldset [role="radiogroup"]:not([aria-label*="osition"]) [role="radio"]',
 ].join(", ");
-for (const slug of Object.keys(SETTINGS_BATCH_TOOLS)) {
+// Batch plan P2: Grayscale PDF (a settings batch) and the images batches.
+// Extract Images, like Flatten, has no settings.
+const NO_SETTINGS = new Set(["flatten-pdf", "extract-images"]);
+for (const slug of [
+  ...Object.keys(SETTINGS_BATCH_TOOLS),
+  ...Object.keys(IMAGE_BATCH_TOOLS),
+]) {
   test(`${slug}'s batch at 360: every control before Run is ${MIN}px`, async ({
     page,
   }) => {
@@ -703,7 +712,7 @@ for (const slug of Object.keys(SETTINGS_BATCH_TOOLS)) {
       m.seen.some((s) => / 2 PDFs /.test(s)),
       m.seen.join(" | "),
     ).toBe(true);
-    if (slug !== "flatten-pdf")
+    if (!NO_SETTINGS.has(slug))
       expect(m.seen.length, m.seen.join(" | ")).toBeGreaterThanOrEqual(6);
     expect(m.small, `under ${MIN}px: ${m.small.join(" | ")}`).toEqual([]);
     expect(m.overflow, `past the screen: ${m.overflow.join(" | ")}`).toEqual(

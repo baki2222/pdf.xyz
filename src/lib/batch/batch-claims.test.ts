@@ -10,9 +10,11 @@
  *      workspace, a home-page drop and "Continue with" carry EVERY file to
  *      such a tool, so one without a batch would open the first and drop
  *      the rest;
- *   2. the registration (`SETTINGS_BATCH_TOOLS`): the archive name the batch
- *      saves and the page quotes;
- *   3. the drop box's caption, typed in the runner: "One or more PDFs · …";
+ *   2. the registration (`SETTINGS_BATCH_TOOLS`, and since batch plan P2
+ *      `IMAGE_BATCH_TOOLS` and `TEXT_BATCH_TOOLS`): the archive name the
+ *      batch saves and the page quotes;
+ *   3. the drop box's caption, typed in the runner: "One or more PDFs · …"
+ *      (Text to PDF's: "One or more TXT files · …");
  *   4. the tool page's served copy naming the batch's archive.
  *
  * "Backed" is a property of the runner the page mounts (`ownPanelModules`,
@@ -39,6 +41,7 @@ import {
   pageUseCases,
   stepText,
 } from "@/lib/tools/page-copy";
+import { toolFacts } from "@/lib/tools/tool-facts";
 import type { Tool } from "@/lib/tools/types";
 import {
   ownPanelModules,
@@ -49,9 +52,31 @@ import {
 import { BATCH_LIMITS } from "./limits";
 import {
   BATCH_HINT_LEAD,
+  BATCH_TEXT_HINT_LEAD,
+  IMAGE_BATCH_FOLDERS,
+  IMAGE_BATCH_TOOLS,
   SETTINGS_BATCH_TOOLS,
+  TEXT_BATCH_TOOLS,
   batchLimitsSentence,
+  batchMaxFilesFor,
 } from "./tools";
+
+/** Every registered batch, by the registry that names its words. */
+const REGISTRIES = {
+  SETTINGS_BATCH_TOOLS,
+  IMAGE_BATCH_TOOLS,
+  TEXT_BATCH_TOOLS,
+} as const;
+const REGISTERED: Record<string, { registry: string; zipName: string }> =
+  Object.fromEntries(
+    Object.entries(REGISTRIES).flatMap(([registry, entries]) =>
+      Object.entries(entries).map(([slug, { zipName }]) => [
+        slug,
+        { registry, zipName },
+      ]),
+    ),
+  );
+const REGISTERED_COUNT = Object.keys(REGISTERED).length;
 
 const read = (file: string) =>
   readFileSync(path.isAbsolute(file) ? file : path.join(ROOT, file), "utf8");
@@ -61,6 +86,8 @@ const relOf = (file: string) =>
 const BATCH_VIEW = "src/components/tools/runner/batch/batch-view.tsx";
 const SETTINGS_BATCH =
   "src/components/tools/runner/batch/settings-batch-runner.tsx";
+const IMAGES_BATCH =
+  "src/components/tools/runner/batch/images-batch-runner.tsx";
 
 const { bySlug } = ownPanelModules();
 
@@ -97,12 +124,21 @@ function servedText(tool: Tool): string {
     ...pageUseCases(tool).flatMap((u) => [u.title, u.body]),
     ...pageSteps(tool).map(stepText),
     ...pageFaq(tool).flatMap((f) => [f.question, f.answer]),
+    // The facts table, served on the same page: missed until the review of
+    // P2 found "each page you choose" there as well as in the caption.
+    ...toolFacts(tool.slug).flatMap((f) => [f.label, f.value]),
   ].join("\n");
 }
 
-/** The drop box captions a runner types (`hint="…"`). */
+/**
+ * The drop box captions a runner types: `hint="…"`, or a template literal,
+ * `hint={`…`}` (PDF to JPG's and PNG's name the format). Until batch plan P2
+ * only the first shape was read, which could not see those two captions.
+ */
 const hintsOf = (runner: string) =>
-  [...read(runner).matchAll(/\bhint="([^"]+)"/g)].map((m) => m[1]!);
+  [...read(runner).matchAll(/\bhint=(?:"([^"]+)"|\{`([^`]+)`\})/g)].map(
+    (m) => (m[1] ?? m[2])!,
+  );
 
 const ARCHIVE_NAME = /\bpdfxyz-[a-z-]+\.zip\b/;
 
@@ -118,13 +154,20 @@ const rows = tools.map((tool) => {
     settings: modules.some((m) =>
       valueClosure(path.join(ROOT, m)).map(relOf).includes(SETTINGS_BATCH),
     ),
+    images: modules.some((m) =>
+      valueClosure(path.join(ROOT, m)).map(relOf).includes(IMAGES_BATCH),
+    ),
     claims: {
       handoff:
         handoffCapabilityFor(tool.slug).mode === "batch" &&
-        tool.accept.includes("PDF"),
-      registered: tool.slug in SETTINGS_BATCH_TOOLS,
+        (tool.accept.includes("PDF") || tool.accept.includes("TXT")),
+      registered: tool.slug in REGISTERED,
       caption: runner
-        ? hintsOf(runner).some((h) => h.startsWith(BATCH_HINT_LEAD))
+        ? hintsOf(runner).some(
+            (h) =>
+              h.startsWith(BATCH_HINT_LEAD) ||
+              h.startsWith(BATCH_TEXT_HINT_LEAD),
+          )
         : false,
       archive: ARCHIVE_NAME.test(servedText(tool)),
     },
@@ -139,17 +182,17 @@ describe("batch claims, walked from the catalogue", () => {
     // Compress PDF's batch shipped first, through its own runner: the walk
     // must find it, or it cannot find anything.
     expect(backed).toContain("compress-pdf");
-    expect(backed.length).toBeGreaterThanOrEqual(
-      1 + Object.keys(SETTINGS_BATCH_TOOLS).length,
-    );
+    expect(backed.length).toBeGreaterThanOrEqual(1 + REGISTERED_COUNT);
+    // Health: the registries hold P1's five and P2's five.
+    expect(REGISTERED_COUNT).toBeGreaterThanOrEqual(10);
     // Every claim kind is made somewhere: an empty claim set is vacuous.
     for (const kind of ["handoff", "registered", "caption"] as const)
       expect(
         rows.filter((r) => r.claims[kind]).length,
         `no tool makes the ${kind} claim`,
-      ).toBeGreaterThanOrEqual(Object.keys(SETTINGS_BATCH_TOOLS).length);
+      ).toBeGreaterThanOrEqual(REGISTERED_COUNT);
     expect(rows.filter((r) => r.claims.archive).length).toBeGreaterThanOrEqual(
-      Object.keys(SETTINGS_BATCH_TOOLS).length,
+      REGISTERED_COUNT,
     );
   });
 
@@ -187,25 +230,45 @@ describe("batch claims, walked from the catalogue", () => {
     ).toEqual(Object.keys(SETTINGS_BATCH_TOOLS).sort());
   });
 
-  it("each settings batch saves the archive its page names, and its page states the limits", () => {
-    const sentence = batchLimitsSentence();
-    // The sentence is built from the limits, not typed beside them.
-    expect(sentence).toContain(`${BATCH_LIMITS.clientMaxFiles} PDFs`);
-    for (const r of rows.filter((x) => x.settings)) {
-      const { zipName } =
-        SETTINGS_BATCH_TOOLS[r.slug as keyof typeof SETTINGS_BATCH_TOOLS];
-      const batchModule = r.modules.find((m) =>
-        valueClosure(path.join(ROOT, m)).map(relOf).includes(SETTINGS_BATCH),
-      )!;
+  it("the images batches and their registration are the same set", () => {
+    expect(
+      rows
+        .filter((r) => r.images)
+        .map((r) => r.slug)
+        .sort(),
+    ).toEqual(Object.keys(IMAGE_BATCH_TOOLS).sort());
+    // Health: the two shared runners are never one tool's both.
+    expect(rows.filter((r) => r.images && r.settings)).toEqual([]);
+  });
+
+  it("each registered batch saves the archive its page names, and its page states its own limits", () => {
+    // The sentence is built from the limits, not typed beside them, and a
+    // raster batch's carries the raster cap.
+    expect(batchLimitsSentence()).toContain(
+      `${BATCH_LIMITS.clientMaxFiles} PDFs`,
+    );
+    expect(batchLimitsSentence("pdf-to-png")).toContain(
+      `${BATCH_LIMITS.rasterMaxFiles} PDFs`,
+    );
+    const registeredRows = rows.filter((x) => x.slug in REGISTERED);
+    expect(registeredRows).toHaveLength(REGISTERED_COUNT);
+    for (const r of registeredRows) {
+      const { registry, zipName } = REGISTERED[r.slug]!;
+      expect(r.modules.length, `${r.slug} has no batch module`).toBe(1);
+      const batchModule = r.modules[0]!;
       expect(
         read(batchModule),
         `${batchModule} saves another tool's archive`,
-      ).toContain(`SETTINGS_BATCH_TOOLS["${r.slug}"].zipName`);
+      ).toContain(`${registry}["${r.slug}"].zipName`);
       const served = servedText(r.tool);
       expect(served, `${r.slug} does not name its archive`).toContain(zipName);
       expect(served, `${r.slug} does not state the batch limits`).toContain(
-        sentence,
+        batchLimitsSentence(r.slug),
       );
+      if (r.slug in IMAGE_BATCH_TOOLS)
+        expect(served, `${r.slug} does not say where its images go`).toContain(
+          IMAGE_BATCH_FOLDERS,
+        );
       const named = served.match(new RegExp(ARCHIVE_NAME.source, "g")) ?? [];
       expect(
         named.filter((n) => n !== zipName),
@@ -228,11 +291,16 @@ describe("batch claims, walked from the catalogue", () => {
           valueClosure(path.join(ROOT, batchModule)).map(relOf),
           `${batchModule} never reaches the cap`,
         ).toContain(LIMITS);
-    const capped = buildToolSummaries()
-      .filter((s) => s.batchMaxFiles !== undefined)
-      .map((s) => s.slug)
-      .sort();
-    expect(capped).toEqual([...backed].sort());
+    const summaries = buildToolSummaries().filter(
+      (s) => s.batchMaxFiles !== undefined,
+    );
+    expect(summaries.map((s) => s.slug).sort()).toEqual([...backed].sort());
+    // Each at its own cap: a raster batch's is the raster one.
+    for (const s of summaries)
+      expect(s.batchMaxFiles, s.slug).toBe(batchMaxFilesFor(s.slug));
+    expect(
+      summaries.some((s) => s.batchMaxFiles === BATCH_LIMITS.rasterMaxFiles),
+    ).toBe(true);
   });
 
   it("no AI tool has a batch, or is claimed to", () => {
@@ -273,13 +341,44 @@ const ONE_FILE_SHIPPED = [
   "It runs in your browser, so the PDF stays on your device, and it takes one file up to 100 MB.",
   // Review 2026-11-08: Add Page Numbers' intro, missed by the first corpus.
   "Add Page Numbers stamps a number onto every page of one PDF, or onto every page from a chosen page onward, and can leave a cover or the last pages without one.",
+  // Batch plan P2 (2026-11-08): Grayscale PDF, PDF to JPG and PNG, Extract
+  // Images and Text to PDF, as they shipped before their batch.
+  "The picker takes one PDF of up to 100 MB.",
+  'Drag a single PDF into the dashed box, or click "browse" and choose it.',
+  "It converts a single PDF per run, up to 100 MB.",
+  'Drag the PDF onto the box labelled "Drop your PDF here, or browse", or click it to pick a file up to 100 MB; if you drop several, only the first is used.',
+  "Each run converts a single PDF of at most 100 MB.",
+  "Of several dropped files, only the first is kept.",
+  "Drop one PDF where it says Drop your PDF here, or click browse to choose it.",
+  "Not in one step: this tool converts one file or one pasted text at a time, and a multi-file drop loads just the first file.",
+  "Either paste all the texts into the box one after another and convert once, or convert each file separately, reloading the page before the next one, then combine the results in order with Merge PDF.",
+  "One PDF · pages rasterized to grayscale locally in your browser",
+  "One PDF · pulls out the images embedded in it, at their original resolution — all in your browser",
+  "Drop a TXT file here, or",
+  // Review of P2 (2026-11-08): PDF to JPG and PNG promised a page choice
+  // that only the single-file editor has; the batch converts every page.
+  "One or more PDFs · each page you choose becomes a JPG image, rendered locally in your browser",
+  "Screen (96 DPI), High (150 DPI) or Print (300 DPI) — each page you choose becomes one PNG image, in colour or grayscale, rendered in your browser.",
 ];
 
 const ONE_FILE_BANS: { name: string; pattern: RegExp }[] = [
   {
-    name: "takes / holds / numbers one file",
+    name: "takes / holds / numbers / converts one file",
     pattern:
-      /\b(?:takes|holds|numbers|handles) (?:a single|one) (?:PDF|file|form)\b/i,
+      /\b(?:takes|holds|numbers|handles|converts) (?:a single|one) (?:PDF|file|form)\b/i,
+  },
+  // Batch plan P2: what a drop of several did before the batch.
+  {
+    name: "only the first file is used",
+    pattern: /\b(?:only|just) the first (?:is (?:used|kept)|file)\b/i,
+  },
+  {
+    name: "reload the page between files",
+    pattern: /\breload(?:ing)? the page before the next\b/i,
+  },
+  {
+    name: "the one-file drop box title",
+    pattern: /\bDrop an? (?:PDF|TXT file) here\b/,
   },
   {
     name: "one file at a time",
@@ -293,6 +392,12 @@ const ONE_FILE_BANS: { name: string; pattern: RegExp }[] = [
     pattern: /\b(?:Open|Drag|Drop) (?:one|a single) (?:PDF|file)\b/,
   },
   { name: "the one-file caption", pattern: /\bOne PDF ·/ },
+  // A page choice said of every run: a batch has none, it converts every
+  // page ("or the pages you choose, for one file" is the true form).
+  {
+    name: "each page you choose, said of every run",
+    pattern: /\beach page you choose becomes\b/i,
+  },
   // What the tool does, said of exactly one file ("every page of one PDF").
   {
     name: "every page of one file",
@@ -323,8 +428,8 @@ describe("one-file sentences, two ways", () => {
       ).toBe(true);
   });
 
-  it("no settings batch tool's page, guide or caption says it takes one file", () => {
-    const slugs = Object.keys(SETTINGS_BATCH_TOOLS);
+  it("no batch tool's page, guide or caption says it takes one file", () => {
+    const slugs = Object.keys(REGISTERED);
     const pages = rows
       .filter((r) => slugs.includes(r.slug))
       .map((r) => ({ where: r.slug, text: servedText(r.tool) }));
@@ -334,7 +439,7 @@ describe("one-file sentences, two ways", () => {
       .map((r) => ({ where: r.runner!, text: hintsOf(r.runner!).join("\n") }));
     // Health: every tool, a guide for most, a caption for every runner.
     expect(pages).toHaveLength(slugs.length);
-    expect(about.length).toBeGreaterThanOrEqual(slugs.length);
+    expect(about.length).toBeGreaterThanOrEqual(5);
     expect(captions).toHaveLength(slugs.length);
     const corpus = [
       ...pages,

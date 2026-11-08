@@ -15,6 +15,11 @@ import {
 import { LARGE_RASTER_PAGES, defaultResolution } from "@/lib/intent/defaults";
 import { getRunnerKind } from "@/lib/pdf/registry";
 import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
+import {
+  IMAGE_BATCH_FOLDERS,
+  IMAGE_BATCH_TOOLS,
+  batchLimitsSentence,
+} from "@/lib/batch/tools";
 
 /**
  * Background (2026-11-07, audit pdf-to-png#5): the heading and chips from
@@ -134,7 +139,7 @@ const content: ToolContent = {
 
   intro: [
     "PDF to PNG, a page-to-image converter, draws each page of a PDF (or only the pages you pick) onto a canvas and saves the result as a PNG: a picture of the whole page, with text, vector graphics and photos flattened into one image. PNG is lossless, so small type and hairline rules keep their edges instead of gaining the ringing JPEG leaves around sharp contrast. As with any page image, the words inside can no longer be selected or searched.",
-    `The conversion runs on your own device: a copy of pdf.js bundled with pdf.xyz draws the pages inside your browser tab, and the PDF is not uploaded. When a page holds JBIG2 or JPEG 2000 images, the code that decodes them is fetched from pdf.xyz's own site, never a third-party CDN. Each run converts a single PDF of at most ${ceilingMb} MB. A PDF that needs a password to open stops as it loads, with a message that it is password-protected and must be unlocked first. One that opens without a password and merely restricts printing or copying converts like any other.`,
+    `The conversion runs on your own device: a copy of pdf.js bundled with pdf.xyz draws the pages inside your browser tab, and the PDF is not uploaded. When a page holds JBIG2 or JPEG 2000 images, the code that decodes them is fetched from pdf.xyz's own site, never a third-party CDN. It takes PDFs of at most ${ceilingMb} MB each, and two or more at once open as a batch. A PDF that needs a password to open stops as it loads, with a message that it is password-protected and must be unlocked first. One that opens without a password and merely restricts printing or copying converts like any other.`,
     `Pick ${presetSentence}; pages render at that density and keep the rotation stored in the PDF, though an oversized page such as a poster is scaled down to a fixed pixel ceiling. Under ${RASTER_BACKGROUND_LABEL}, ${BG_WHITE} is selected at the start and paints each page onto white; ${BG_CLEAR} leaves every part of the page that the PDF does not paint see-through, so a logo, signature or diagram can sit on a coloured slide. A one-page PDF saves as a single image (logo.pdf gives ${exampleSingle}). When more than one page is rendered they are bundled into a ZIP, with leading zeros on the page numbers so they have as many digits as the page count: all pages of a ${EXAMPLE_PAGES}-page manual.pdf give ${exampleZip}, which contains ${exampleFirst} up to ${exampleLast}. Grayscale renders the pages in shades of grey.`,
   ],
 
@@ -152,6 +157,10 @@ const content: ToolContent = {
       body: "Chat apps, CMS image fields, marketplace listings and social posts often want an image file rather than a PDF; this gives you one image per page.",
     },
     {
+      title: "Convert a stack of PDFs at once",
+      body: `Add two or more PDFs and they open as a batch list. Pick one resolution, colour and background for all of them and press Convert with the number of files: every page of each file becomes a PNG, each file in turn, in your browser, and nothing is uploaded. Download a file's images from its row, or press “Download all” for ${IMAGE_BATCH_TOOLS["pdf-to-png"].zipName}. ${IMAGE_BATCH_FOLDERS} ${batchLimitsSentence("pdf-to-png")} To choose pages, open one file on its own. A file whose author restricted it fails on its own row in a batch; opened on its own, it converts.`,
+    },
+    {
       title: `${highest.label}-resolution page images at ${highest.dpi} DPI`,
       body: `${highest.label} asks for ${highest.dpi} pixels per inch of page, for printing a page as an image or zooming into fine detail; only a page large enough to hit the pixel ceiling comes out with fewer. ${lowest.label} at ${lowest.dpi} DPI keeps files small for on-screen use.`,
     },
@@ -160,7 +169,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your PDF",
-      body: 'Drag a PDF onto the "Drop your PDF here, or browse" panel; clicking anywhere on that panel opens a file picker instead. Of several dropped files, only the first is kept. Once it has loaded, a header above the Resolution row shows its name, how many pages it has and how large it is.',
+      body: 'Drag a PDF onto the "Drop your PDF here, or browse" panel; clicking anywhere on that panel opens a file picker instead. Two or more files open a batch list. Once one has loaded, a header above the Resolution row shows its name, how many pages it has and how large it is.',
     },
     {
       title: "Choose a resolution",

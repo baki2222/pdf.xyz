@@ -20,9 +20,58 @@ export const SETTINGS_BATCH_TOOLS = {
   "page-numbers": { zipName: "pdfxyz-numbered.zip" },
   "watermark-pdf": { zipName: "pdfxyz-watermarked.zip" },
   "split-pdf-pages-in-half": { zipName: "pdfxyz-halved.zip" },
+  // Batch plan P2: one grayscale PDF per file, at the raster cap.
+  "grayscale-pdf": { zipName: "pdfxyz-grayscale.zip" },
 } as const satisfies Record<string, { zipName: `pdfxyz-${string}.zip` }>;
 
 export type SettingsBatchSlug = keyof typeof SETTINGS_BATCH_TOOLS;
+
+/**
+ * The tools whose batch makes MANY images of each file, through
+ * `runner/batch/images-batch-runner.tsx` (batch plan P2): every page drawn
+ * as an image, or every embedded image pulled out. In the ZIP each file's
+ * images sit in a folder named after it (`IMAGE_BATCH_FOLDERS`).
+ */
+export const IMAGE_BATCH_TOOLS = {
+  "pdf-to-jpg": { zipName: "pdfxyz-jpg.zip" },
+  "pdf-to-png": { zipName: "pdfxyz-png.zip" },
+  "extract-images": { zipName: "pdfxyz-images.zip" },
+} as const satisfies Record<string, { zipName: `pdfxyz-${string}.zip` }>;
+
+/**
+ * Text to PDF's batch (batch plan P2): one PDF per text file, through
+ * `runner/batch/text-to-pdf-batch.tsx`, from its own drop box.
+ */
+export const TEXT_BATCH_TOOLS = {
+  "text-to-pdf": { zipName: "pdfxyz-text-pdfs.zip" },
+} as const satisfies Record<string, { zipName: `pdfxyz-${string}.zip` }>;
+
+/**
+ * The batches that draw pages as images or pull images out, so one input
+ * becomes many images held until the ZIP: they take
+ * `BATCH_LIMITS.rasterMaxFiles` files, every other batch
+ * `BATCH_LIMITS.clientMaxFiles`. Held to the batch modules by
+ * `batch-claims.test.ts` (each raster batch caps at this number, and only
+ * they do).
+ */
+export const RASTER_BATCH_TOOLS: readonly string[] = [
+  "grayscale-pdf",
+  ...Object.keys(IMAGE_BATCH_TOOLS),
+];
+
+/** How many files one batch of `slug` takes. */
+export function batchMaxFilesFor(slug: string): number {
+  return RASTER_BATCH_TOOLS.includes(slug)
+    ? BATCH_LIMITS.rasterMaxFiles
+    : BATCH_LIMITS.clientMaxFiles;
+}
+
+/**
+ * Where an images batch puts each file's images in its ZIP. Said on the
+ * batch and on the tool's page.
+ */
+export const IMAGE_BATCH_FOLDERS =
+  "In a batch of two or more PDFs, each one's images sit in a folder of the ZIP named after it.";
 
 /**
  * Add Page Numbers' batch numbers each file from its own first page (the
@@ -47,14 +96,21 @@ export const WATERMARK_BATCH_PAGES_NOTE =
  */
 export const BATCH_HINT_LEAD = "One or more PDFs";
 
+/** Text to PDF's drop box opens the same way, for the files it takes. */
+export const BATCH_TEXT_HINT_LEAD = "One or more TXT files";
+
 const MB = 1024 * 1024;
 
 /**
- * The batch's limits as a tool page states them, from `BATCH_LIMITS` itself:
- * "A batch takes up to 20 PDFs, 200 MB in all."
+ * A batch's limits as a tool page states them, from `BATCH_LIMITS` itself:
+ * "A batch takes up to 20 PDFs, 200 MB in all." — 10 for a raster batch
+ * (`batchMaxFilesFor`), and "text files" for Text to PDF. With no slug, the
+ * settings batches' sentence.
  */
-export function batchLimitsSentence(): string {
-  return `A batch takes up to ${BATCH_LIMITS.clientMaxFiles} PDFs, ${Math.round(
+export function batchLimitsSentence(slug?: string): string {
+  const noun = slug && slug in TEXT_BATCH_TOOLS ? "text files" : "PDFs";
+  const max = slug ? batchMaxFilesFor(slug) : BATCH_LIMITS.clientMaxFiles;
+  return `A batch takes up to ${max} ${noun}, ${Math.round(
     BATCH_LIMITS.clientMaxTotalBytes / MB,
   )} MB in all.`;
 }

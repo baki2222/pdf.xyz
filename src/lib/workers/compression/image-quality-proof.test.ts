@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PDFDocument, PDFName } from "pdf-lib";
 import type { JobResults } from "@/lib/jobs/results";
 import {
@@ -211,9 +211,22 @@ describe("imageQualityProofVerdict", () => {
   });
 
   it("the fixture is deterministic and quick to upload", async () => {
-    const a = await imageQualityProofPdf();
-    const b = await imageQualityProofPdf();
-    expect(Buffer.from(a).equals(Buffer.from(b))).toBe(true);
-    expect(a.byteLength).toBeLessThan(1_000_000);
+    // The two builds are made seconds apart ON PURPOSE. Until 2026-11-08 they
+    // were made back to back, and the test failed whenever a loaded run put
+    // them either side of a second: pdf-lib stamps the dates with the clock.
+    // Only Date is faked; timers stay real.
+    vi.useFakeTimers({
+      toFake: ["Date"],
+      now: new Date("2026-03-04T05:06:07Z"),
+    });
+    try {
+      const a = await imageQualityProofPdf();
+      vi.setSystemTime(new Date("2026-03-04T05:06:12Z"));
+      const b = await imageQualityProofPdf();
+      expect(Buffer.from(a).equals(Buffer.from(b))).toBe(true);
+      expect(a.byteLength).toBeLessThan(1_000_000);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

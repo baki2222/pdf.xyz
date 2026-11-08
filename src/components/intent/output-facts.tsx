@@ -100,10 +100,16 @@ function countOf(output: RunOutput, pdfs: readonly OutputFile[]) {
         total += result.count;
       }
       return { state: "counted", pages: total };
-    })().then((count) => {
-      settledCounts.set(output, count);
-      return count;
-    });
+    })()
+      // A file whose bytes cannot be read (a Blob the browser evicted, a read
+      // that fails) is not re-counted, like one pdf.js cannot parse. Until
+      // 2026-11-08 the rejection went unhandled and the cell stayed on
+      // "counting…" for good (PR #293's CI: two unhandled rejections).
+      .catch((): Count => ({ state: "unknown" }))
+      .then((count) => {
+        settledCounts.set(output, count);
+        return count;
+      });
     inFlight.set(output, pending);
   }
   return pending;

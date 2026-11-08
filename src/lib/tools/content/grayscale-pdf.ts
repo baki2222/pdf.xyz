@@ -10,6 +10,7 @@ import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
 import { DEEP_COMPRESSION_PRESETS } from "@/lib/pdf/offered-kinds";
 import { RASTER_MAX_DEVICE_PX } from "@/lib/pdf/pdf-to-image";
 import { getToolBySlug } from "@/lib/tools";
+import { SETTINGS_BATCH_TOOLS, batchLimitsSentence } from "@/lib/batch/tools";
 
 /*
  * Behaviour claims below were read from the implementation on 2026-09-27:
@@ -120,7 +121,7 @@ const content: ToolContent = {
 
   intro: [
     "Grayscale PDF returns a copy of your document in which every page is shades of gray. Each page is drawn to an image and every pixel becomes a weighted brightness value that counts green most and blue least, so pure red and pure green end up as two distinct grays rather than one. The gray images go into a new PDF, each page at the size the original displays at.",
-    `The conversion runs in your browser using a bundled copy of pdf.js, and your PDF is not uploaded to pdf.xyz: the file you choose is read into memory on your device, and the result is saved as a download named after the original with "-grayscale" added. The picker takes one PDF of up to ${MAX_MB} MB.`,
+    `The conversion runs in your browser using a bundled copy of pdf.js, and your PDF is not uploaded to pdf.xyz: the file you choose is read into memory on your device, and the result is saved as a download named after the original with "-grayscale" added. The picker takes PDFs of up to ${MAX_MB} MB each; two or more open as a batch.`,
     "Because every page becomes a picture (a lossless image for text-heavy pages, a JPEG for photographic ones, whichever is smaller), the result is a copy for printing or submitting, not for editing. Selectable text, sharp vector lines, links and bookmarks do not carry over, and the new file is titled after the original's own title, or its file name if it has none, with \"(grayscale)\" added. Form fields or comments are painted in from their saved appearance, so they can no longer be filled in or clicked. The new file's size follows the page count, the resolution you pick and how busy each page is, so a short text-only file can grow while a photo-heavy one can shrink. Keep the original alongside it.",
   ],
 
@@ -138,6 +139,10 @@ const content: ToolContent = {
       body: "Two data series told apart only by hue, with similar brightness, will look almost identical in the output. That flags a chart that needs patterns or direct labels before it is photocopied.",
     },
     {
+      title: "Convert a stack of PDFs to grayscale",
+      body: `Add two or more PDFs and they open as a batch list. Pick one output quality for all of them and press Convert with the number of files: each file is turned gray page by page, in turn, in your browser, and nothing is uploaded. Download a file from its row, or press “Download all” for ${SETTINGS_BATCH_TOOLS["grayscale-pdf"].zipName}. ${batchLimitsSentence("grayscale-pdf")} An encrypted file fails on its own row, since a batch takes no passwords: open it on its own to enter its password. A digitally signed file is held out of the download until you choose to include it.`,
+    },
+    {
       title: "Toning down a scanned color document",
       body: "Receipts and forms scanned in color often carry a yellow or blue cast from the paper. In the gray version that cast becomes a light gray, so the page no longer looks tinted.",
     },
@@ -146,7 +151,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your PDF",
-      body: `Drag a single PDF into the dashed box, or click "browse" and choose it. Anything over ${MAX_MB} MB, empty, not a PDF, or encrypted is refused with a reason. An encrypted PDF can still be opened with its password, typed into the field under that reason.`,
+      body: `Drag a PDF into the dashed box, or click "browse" and choose it; two or more open a batch list instead. Anything over ${MAX_MB} MB, empty, not a PDF, or encrypted is refused with a reason. An encrypted PDF can still be opened with its password, typed into the field under that reason.`,
     },
     {
       title: "Pick the output quality",

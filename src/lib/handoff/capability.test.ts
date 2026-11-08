@@ -60,6 +60,12 @@ describe("handoffCapabilityFor", () => {
       "watermark-pdf",
       "flatten-pdf",
       "split-pdf-pages-in-half",
+      // Batch plan P2 (2026-11-08), inverted out of the single list below.
+      "grayscale-pdf",
+      "pdf-to-jpg",
+      "pdf-to-png",
+      "extract-images",
+      "text-to-pdf",
     ]) {
       const capability = handoffCapabilityFor(slug);
       expect(capability).toMatchObject({
@@ -71,6 +77,12 @@ describe("handoffCapabilityFor", () => {
     }
   });
 
+  /*
+   * INVERTED 2026-11-08 (batch plan P2). text-to-pdf, pdf-to-jpg,
+   * pdf-to-png, grayscale-pdf and extract-images were in this list: each
+   * took the first file of a hand-off and dropped the rest. Each now runs a
+   * batch over two or more files (above).
+   */
   it("maps every single-file runner to single (max one file)", () => {
     for (const slug of [
       "organize-pages",
@@ -79,21 +91,16 @@ describe("handoffCapabilityFor", () => {
       "extract-pages",
       "pdf-to-text",
       "pdf-to-markdown",
-      "text-to-pdf",
       "markdown-to-pdf",
-      "pdf-to-jpg",
-      "pdf-to-png",
       "header-footer",
       "crop-pdf",
       "sign-pdf",
       "overlay-pdf",
-      "grayscale-pdf",
       "redact-pdf",
       "fill-forms",
       "create-forms",
       "annotate-pdf",
       "edit-pdf",
-      "extract-images",
     ]) {
       expect(handoffCapabilityFor(slug)).toMatchObject({
         mode: "single",

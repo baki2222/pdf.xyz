@@ -622,6 +622,11 @@ export async function capturePdfPages<T>(
         await nextFrame(); // Yield so the UI stays responsive between pages.
       } catch (err) {
         if (signal?.aborted || isRenderingCancelled(pdfjs, err)) break;
+        // Out of memory is not this page's fault: the next page, and the next
+        // file, would fail the same way. Rethrown as itself, before the
+        // skip-and-note branch and the plain-Error wrapping, so a batch's
+        // `batchHalt` can see it and stop.
+        if (err instanceof RangeError) throw err;
         const message = `Page ${i + 1} could not be rendered.`;
         if (!onPageFailed) throw new Error(message);
         onPageFailed({ index: i, message });

@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 import {
   Download,
@@ -61,7 +62,11 @@ import {
   outputFile,
 } from "./runner-kit";
 import { RunBar } from "./run-bar";
-import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
+import {
+  FileHeader,
+  SinglePdfRunner,
+  type SinglePdfBatch,
+} from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
 import { useZipDownload } from "./use-zip-download";
 import { LazyPagePicker } from "./page-picker-lazy";
@@ -95,11 +100,34 @@ export interface RasterResult {
   cancelled?: { asked: number };
 }
 
+/**
+ * Two or more PDFs: the batch (batch plan P2), its own chunk, fetched only
+ * when they arrive — never with a visit to this page.
+ */
+const PdfToImageBatch = dynamic(
+  () => import("./batch/pdf-to-image-batch").then((m) => m.PdfToImageBatch),
+  {
+    loading: () => (
+      <div
+        aria-hidden
+        className="border-line bg-wash rounded-panel h-40 w-full border"
+      />
+    ),
+  },
+);
+const batchJpg = (props: SinglePdfBatch) => (
+  <PdfToImageBatch {...props} format="jpg" />
+);
+const batchPng = (props: SinglePdfBatch) => (
+  <PdfToImageBatch {...props} format="png" />
+);
+
 export function PdfToImageRunner({ format }: { format: RasterFormat }) {
   const label = format.toUpperCase();
   return (
     <SinglePdfRunner
-      hint={`One PDF · each page you choose becomes a ${label} image, rendered locally in your browser`}
+      hint={`One or more PDFs · each page (or the pages you choose, for one file) becomes a ${label} image, rendered locally in your browser`}
+      batch={format === "png" ? batchPng : batchJpg}
       handoffSlug={format === "png" ? "pdf-to-png" : "pdf-to-jpg"}
       toolName={`PDF to ${label}`}
       writesPdf={false}

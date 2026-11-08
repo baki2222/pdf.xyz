@@ -26,6 +26,7 @@
  * browser.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createRequire } from "node:module";
 import {
   cleanup,
   fireEvent,
@@ -36,7 +37,13 @@ import {
 import type { ReactNode } from "react";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import JSZip from "jszip";
-import { PDFDocument, StandardFonts } from "pdf-lib";
+import {
+  PDFDict,
+  PDFDocument,
+  PDFName,
+  PDFRawStream,
+  StandardFonts,
+} from "pdf-lib";
 import { resetAnnouncer } from "@/components/a11y/live-region";
 import {
   __setHandoffStoreForTests,
@@ -52,7 +59,11 @@ import {
   overBytesReason,
   overCountReason,
 } from "@/lib/batch/limits";
-import { SETTINGS_BATCH_TOOLS } from "@/lib/batch/tools";
+import {
+  IMAGE_BATCH_TOOLS,
+  SETTINGS_BATCH_TOOLS,
+  batchMaxFilesFor,
+} from "@/lib/batch/tools";
 import { MAX_PDF_BYTES } from "@/lib/pdf/files";
 import { getToolBySlug } from "@/lib/tools";
 import { ownerOnlyEncryptedPdf } from "@/tests/encrypted-pdf-fixture";
@@ -79,13 +90,37 @@ function Router({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * Grayscale PDF's batch (batch plan P2) draws pages with pdf.js, which
+ * needs a canvas with a 2D context: jsdom's has none, so `canvas` is
+ * pdf.js's own Node canvas, as in `../grayscale-runner.test.tsx` — on
+ * globals, restored after each test, never a `vi.mock`.
+ */
+const requireHere = createRequire(import.meta.url);
+const napi = createRequire(requireHere.resolve("pdfjs-dist/package.json"))(
+  "@napi-rs/canvas",
+) as { createCanvas(width: number, height: number): HTMLCanvasElement };
+
 let downloads: { name: string; blob: Blob }[] = [];
 let pending: Blob | null = null;
 let fetches: string[] = [];
 const originalCreate = URL.createObjectURL;
 const originalRevoke = URL.revokeObjectURL;
 const originalFetch = globalThis.fetch;
-beforeEach(() => {
+beforeEach(async () => {
+  const worker: unknown = await import(
+    // @ts-expect-error -- pdfjs-dist ships no type declarations for its worker.
+    "pdfjs-dist/legacy/build/pdf.worker.mjs"
+  );
+  vi.stubGlobal("pdfjsWorker", worker);
+  const createElement = document.createElement.bind(document);
+  vi.spyOn(document, "createElement").mockImplementation(((
+    tag: string,
+    options?: ElementCreationOptions,
+  ) =>
+    tag.toLowerCase() === "canvas"
+      ? napi.createCanvas(1, 1)
+      : createElement(tag, options)) as typeof document.createElement);
   downloads = [];
   fetches = [];
   URL.createObjectURL = (obj: Blob | MediaSource) => {
@@ -111,6 +146,7 @@ afterEach(() => {
   URL.revokeObjectURL = originalRevoke;
   globalThis.fetch = originalFetch;
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 /** What the page does with two PDFs: every batch-mode tool that opens PDFs. */
@@ -224,6 +260,30 @@ const EXPECT: Record<keyof typeof SETTINGS_BATCH_TOOLS, Expectation> = {
       expect(texts.join(""), entry).toContain("CONFIDENTIAL");
     },
   },
+  "grayscale-pdf": {
+    run: /^convert 2 pdfs$/i,
+    restrictedNote: /Open it on its own to enter its password/,
+    check: async (bytes, entry) => {
+      // Every page is one single-channel image: DeviceGray, not colour.
+      const doc = await PDFDocument.load(bytes);
+      for (const page of doc.getPages()) {
+        const xobjects = page.node
+          .Resources()
+          ?.lookup(PDFName.of("XObject"), PDFDict);
+        const images = (xobjects?.keys() ?? []).map((key) =>
+          doc.context.lookup(xobjects!.get(key)),
+        );
+        expect(images.length, entry).toBeGreaterThan(0);
+        for (const image of images) {
+          expect(image, entry).toBeInstanceOf(PDFRawStream);
+          expect(
+            String((image as PDFRawStream).dict.get(PDFName.of("ColorSpace"))),
+            entry,
+          ).toBe("/DeviceGray");
+        }
+      }
+    },
+  },
   "split-pdf-pages-in-half": {
     run: /^split 2 pdfs$/i,
     check: async (bytes, entry) => {
@@ -245,11 +305,14 @@ describe("the request trap", () => {
 });
 
 describe("the batch set, derived from the page", () => {
-  it("is every settings batch, plus Compress as the positive control", () => {
+  it("is every settings and images batch, plus Compress as the positive control", () => {
     // Health: a derivation that found nothing would pass every case below.
     expect(BATCH_PDF_SLUGS).toContain("compress-pdf");
     expect(BATCH_PDF_SLUGS.filter((s) => s !== "compress-pdf")).toEqual(
-      Object.keys(SETTINGS_BATCH_TOOLS).sort(),
+      [
+        ...Object.keys(SETTINGS_BATCH_TOOLS),
+        ...Object.keys(IMAGE_BATCH_TOOLS),
+      ].sort(),
     );
   });
 
@@ -290,11 +353,21 @@ describe("the batch's file cap, through each page's runner", () => {
   // 1e15 }` in settings-batch-runner.tsx left every test green; the claim
   // "A batch takes up to 20 PDFs, 200 MB in all." rests on the cap RUNNING,
   // which loading limits.ts does not show.
+  // Batch plan P2: a raster batch's cap is `rasterMaxFiles`, the rest the
+  // client cap (`batchMaxFilesFor`). Until then this read clientMaxFiles
+  // for every page; the health check below keeps both caps exercised.
+  it("health: both caps are exercised by the pages below", () => {
+    const caps = new Set(BATCH_PDF_SLUGS.map(batchMaxFilesFor));
+    expect(caps).toEqual(
+      new Set([BATCH_LIMITS.clientMaxFiles, BATCH_LIMITS.rasterMaxFiles]),
+    );
+  });
+
   it.each(BATCH_PDF_SLUGS)(
-    "%s: the first clientMaxFiles open, and every file past it is listed with the reason",
+    "%s: the first batchMaxFilesFor(slug) open, and every file past it is listed with the reason",
     { timeout: 60_000 },
     async (slug) => {
-      const max = BATCH_LIMITS.clientMaxFiles;
+      const max = batchMaxFilesFor(slug);
       const { container, input } = await mount(slug);
       const bytes = await plainPdf();
       fireEvent.change(input, {

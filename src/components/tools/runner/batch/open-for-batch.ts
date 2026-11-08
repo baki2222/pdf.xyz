@@ -55,6 +55,22 @@ export function lockedRefusal(
 }
 
 /**
+ * Refuse an encrypted file BEFORE a tool's engine sees it, for the tools
+ * whose engine is pdf.js (Grayscale PDF, PDF to JPG and PNG): pdf.js draws a
+ * file whose author restricted it without asking, which would lift the
+ * author's restrictions in a batch. A file a reader opens unencrypted passes;
+ * every other fails its row in the single-file path's words.
+ */
+export async function refuseEncrypted(
+  bytes: Uint8Array,
+  restrictedNote?: string,
+): Promise<void> {
+  const access = await classifyPdfAccess(bytes);
+  if (access.kind !== "unencrypted")
+    throw lockedRefusal(access.kind, restrictedNote);
+}
+
+/**
  * Run a tool's engine on a batch file, and tell an encrypted file's refusal
  * apart by what a reader can open — the classification, and the words, of
  * the single-file path. The engine refuses every encrypted file (pdf-lib

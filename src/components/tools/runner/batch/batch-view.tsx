@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import type { BatchItem, BatchItemStatus, BatchProgress } from "@/lib/batch";
 import { announcesSettle } from "@/lib/batch/announce";
-import type { BatchRejection } from "@/lib/batch/limits";
+import { BATCH_LIMITS, type BatchRejection } from "@/lib/batch/limits";
 import { downloadBlob } from "@/lib/pdf/browser";
 import type { NamedBlob } from "@/lib/pdf/types";
 import { buttonVariants } from "@/components/ui/button";
@@ -101,6 +101,21 @@ export interface BatchViewProps<R> {
   zipName: string;
   /** What this tool offers when the ZIP cannot be built. */
   zipFallback: string;
+  /**
+   * The ZIP's compression. STORE (the default) for outputs that are already
+   * compressed (PDF, JPEG); DEFLATE where an output is not (Extract Images'
+   * PNGs keep their pixels uncompressed).
+   */
+  compression?: "STORE" | "DEFLATE";
+  /**
+   * For a tool that makes many files of each input (batch plan P2): the
+   * folder its files go in, in "Download all"'s ZIP — named after the input,
+   * and told apart from another input's folder of the same name by
+   * `uniqueEntryNames` (" (2)") — and the ZIP its row's own download saves
+   * when it made more than one file. Without it, every file sits at the
+   * archive's top level and each has its own row button.
+   */
+  bundle?: (result: R) => { folder: string; zipName: string };
   /** "Choose different files" / "New files". */
   onReset: () => void;
   /**
@@ -156,6 +171,8 @@ export function BatchView<R>({
   inputBytes: inputBytesOf,
   zipName,
   zipFallback,
+  compression = "STORE",
+  bundle,
   onReset,
   onOneLeft,
 }: BatchViewProps<R>) {
@@ -233,8 +250,12 @@ export function BatchView<R>({
   const signedCount = doneItems.filter(
     (item) => signaturesOf(item.result) > 0,
   ).length;
+  // A row that made no file (Extract Images on a PDF with no images) has
+  // nothing to download, and is not counted in "Download all".
   const downloadable = doneItems.filter(
-    (item) => includeSigned || signaturesOf(item.result) === 0,
+    (item) =>
+      (includeSigned || signaturesOf(item.result) === 0) &&
+      outputsOf(item.result).length > 0,
   );
 
   // What the batch made, as the files a download gives — and so what the
@@ -248,22 +269,70 @@ export function BatchView<R>({
     () => files.map((file) => outputFile(file.blob, file.name)),
     [files],
   );
+  // What "Download all" would bundle. Past the batch's own total it is not
+  // offered (`ZIP_MAX_BYTES`): each row's download bundles one file at a time.
+  const outputBytes = files.reduce((sum, file) => sum + file.blob.size, 0);
+  const tooBigToZip = outputBytes > ZIP_MAX_BYTES;
   const inputBytes = downloadable.reduce(
     (sum, item) => sum + inputBytesOf(item.result),
     0,
   );
 
   const { zipping, zipError, downloadZip } = useZipDownload();
+  // Whose ZIP was asked for last: "Download all" (null) or a row's id. Its
+  // button is the busy one, and a failure is said beside it, not elsewhere.
+  const [zipFor, setZipFor] = useState<string | null>(null);
   const downloadAll = useCallback(async () => {
     if (files.length === 0) return;
-    // STORE: a batch's outputs are already-compressed files, and DEFLATE
-    // would only spend a phone's CPU on them.
-    await downloadZip(
-      files.map(({ name, blob }) => ({ name, blob })),
-      zipName,
-      { compression: "STORE", fallback: zipFallback },
-    );
-  }, [files, downloadZip, zipName, zipFallback]);
+    setZipFor(null);
+    let entries = files.map(({ name, blob }) => ({ name, blob }));
+    if (bundle) {
+      // One folder per input, two inputs of one name told apart the way
+      // two files of one name are. The naming rule ships with the archive
+      // builder (`loadZipArchive` fetches the same module), never with the
+      // page.
+      const { uniqueEntryNames } = await import("@/lib/pdf/zip-archive");
+      // A folder has no extension: "scan.v2" twice is "scan.v2 (2)", never
+      // "scan (2).v2". The rule numbers before a name's last dot, so each
+      // folder is given one to number before, and it is taken off again.
+      const folders = uniqueEntryNames(
+        downloadable.map((item) => `${bundle(item.result).folder}.d`),
+      ).map((name) => name.slice(0, -2));
+      entries = downloadable.flatMap((item, i) =>
+        outputsOf(item.result).map(({ name, blob }) => ({
+          name: `${folders[i]}/${name}`,
+          blob,
+        })),
+      );
+    }
+    // STORE by default: a batch's outputs are already-compressed files, and
+    // DEFLATE would only spend a phone's CPU on them.
+    await downloadZip(entries, zipName, { compression, fallback: zipFallback });
+  }, [
+    files,
+    bundle,
+    downloadable,
+    outputsOf,
+    downloadZip,
+    zipName,
+    compression,
+    zipFallback,
+  ]);
+  // One row's files as their own ZIP, when it made more than one.
+  // Its failure has no fallback sentence: `zipFallback` points at the rows,
+  // and this IS a row.
+  const downloadRow = useCallback(
+    (id: string, result: R) => {
+      if (!bundle || zipping) return;
+      setZipFor(id);
+      void downloadZip(
+        outputsOf(result).map(({ name, blob }) => ({ name, blob })),
+        bundle(result).zipName,
+        { compression },
+      );
+    },
+    [bundle, zipping, downloadZip, outputsOf, compression],
+  );
 
   // The live region: each file as it settles (`announcesSettle`), and the
   // batch's end. "Adjusting state while rendering" keeps the previous
@@ -390,6 +459,10 @@ export function BatchView<R>({
             describe={describe}
             outputs={outputsOf}
             downloadLabel={downloadLabel}
+            onDownloadAll={bundle ? downloadRow : null}
+            zipping={zipping}
+            zipBusy={zipping && zipFor === item.id}
+            zipError={zipFor === item.id ? zipError : null}
             allowDownload={
               includeSigned ||
               item.result === undefined ||
@@ -434,7 +507,7 @@ export function BatchView<R>({
       </p>
 
       {haltReason && <ErrorNote message={haltReason} />}
-      {zipError && <ErrorNote message={zipError} />}
+      {zipError && zipFor === null && <ErrorNote message={zipError} />}
 
       {state.phase === "idle" && runBlocked && count > 0 && (
         <p id={blockedId} className="text-warn text-xs">
@@ -543,7 +616,14 @@ export function BatchView<R>({
                   Retry failed ({progress.error})
                 </button>
               )}
-              {downloadable.length > 0 && (
+              {downloadable.length > 0 && tooBigToZip ? (
+                <p className="text-muted max-w-sm text-xs">
+                  These results add up to {Math.round(outputBytes / MIB)} MB,
+                  more than one ZIP is built from here (
+                  {Math.round(ZIP_MAX_BYTES / MIB)} MB). Save each file&apos;s
+                  results from its own row.
+                </p>
+              ) : downloadable.length > 0 ? (
                 <button
                   type="button"
                   // `aria-disabled`, not `disabled`, so zipping does not blur
@@ -552,23 +632,23 @@ export function BatchView<R>({
                     if (!zipping) void downloadAll();
                   }}
                   aria-disabled={zipping || undefined}
-                  aria-busy={zipping}
+                  aria-busy={zipping && zipFor === null}
                   className={buttonVariants({
                     variant: "primary",
                     size: "sm",
                     className: CONTROL,
                   })}
                 >
-                  {zipping ? (
+                  {zipping && zipFor === null ? (
                     <Spinner />
                   ) : (
                     <FileArchive className="size-4" aria-hidden />
                   )}
-                  {zipping
+                  {zipping && zipFor === null
                     ? "Preparing ZIP…"
                     : `Download all (${downloadable.length})`}
                 </button>
-              )}
+              ) : null}
             </>
           )}
         </div>
@@ -589,8 +669,18 @@ export function BatchView<R>({
 const CONTROL = "min-h-11 sm:min-h-0";
 
 /** A row button: 44px on a phone, the old 32px from `sm` up. */
+const MIB = 1024 * 1024;
+/**
+ * The most "Download all" bundles: the batch's own total, what it holds its
+ * inputs to. Building a ZIP holds every output about twice over (the kept
+ * Blobs, each one's bytes, the archive); measured at 375px (2026-11-08),
+ * 808.6 MB of PNGs took the renderer from 171.6 MB to 1,631 MB, which no
+ * phone tab has. `batch-view-bundle.dom.test.tsx` holds both sides of it.
+ */
+const ZIP_MAX_BYTES = BATCH_LIMITS.clientMaxTotalBytes;
+
 const ROW_BUTTON =
-  "text-muted hover:bg-wash hover:text-fg rounded-ctl grid size-11 shrink-0 place-items-center transition sm:size-8";
+  "text-muted hover:bg-wash hover:text-fg rounded-ctl grid size-11 shrink-0 place-items-center transition aria-disabled:cursor-not-allowed aria-disabled:opacity-40 sm:size-8";
 
 /** One row in the batch list: status glyph, name, and per-item result/error. */
 function BatchRow<R>({
@@ -600,6 +690,10 @@ function BatchRow<R>({
   describe,
   outputs,
   downloadLabel,
+  onDownloadAll,
+  zipping,
+  zipBusy,
+  zipError,
   allowDownload,
   onRemove,
   removeRef,
@@ -610,6 +704,17 @@ function BatchRow<R>({
   describe: (result: R) => ReactNode;
   outputs: (result: R) => BatchOutputFile[];
   downloadLabel: (item: BatchItem<R>, result: R) => string;
+  /**
+   * Set for a bundling tool: a row that made several files gets ONE button,
+   * which saves them as that row's own ZIP.
+   */
+  onDownloadAll: ((id: string, result: R) => void) | null;
+  /** A ZIP is building (any): the row's ZIP button is held off, as "Download all" is. */
+  zipping: boolean;
+  /** The ZIP building is this row's own. */
+  zipBusy: boolean;
+  /** This row's own ZIP failed: said at the row, where it was asked for. */
+  zipError: string | null;
   /** False for a signed file the person has not opted into downloading. */
   allowDownload: boolean;
   /** Present before Run, while more than one file is listed. */
@@ -632,6 +737,11 @@ function BatchRow<R>({
             describe={describe}
           />
         </span>
+        {zipError && (
+          <span role="alert" className="text-err block text-xs">
+            {zipError}
+          </span>
+        )}
       </span>
       {onRemove ? (
         <button
@@ -642,6 +752,19 @@ function BatchRow<R>({
           className={ROW_BUTTON}
         >
           <X className="size-4" aria-hidden />
+        </button>
+      ) : files.length > 1 && onDownloadAll && result !== undefined ? (
+        <button
+          type="button"
+          // `aria-disabled`, not `disabled`, as on "Download all": a ZIP
+          // building does not blur the person out of the button.
+          onClick={() => onDownloadAll(item.id, result)}
+          aria-label={downloadLabel(item, result)}
+          aria-disabled={zipping || undefined}
+          aria-busy={zipBusy}
+          className={ROW_BUTTON}
+        >
+          <FileArchive className="size-4" aria-hidden />
         </button>
       ) : files.length > 0 && result !== undefined ? (
         files.map((file) => (
