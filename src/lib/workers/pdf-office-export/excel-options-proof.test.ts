@@ -101,6 +101,14 @@ describe("sheetPerPageVerdict — one sheet per page, a blank page, the number c
     expect(v.detail).toMatch(/the blank page's sheet holds/);
   });
 
+  it("NEGATIVE: the right names, but Page 3 empty — the closing row went nowhere", async () => {
+    const v = await sheetPerPageVerdict(
+      await workbook([NUMBER_PAGES[0]!, "", ""], true),
+    );
+    expect(v.ok).toBe(false);
+    expect(v.detail).toBe(`1 problem(s): page 3's sheet has no "Closing" row`);
+  });
+
   it("HEALTH: a download that is not an XLSX fails", async () => {
     const v = await sheetPerPageVerdict(new TextEncoder().encode("PK nope"));
     expect(v.ok).toBe(false);
@@ -133,6 +141,43 @@ describe("ocrSheetPerPageVerdict — OCR on + one sheet per page", () => {
     );
     expect(v.ok).toBe(false);
     expect(v.detail).toMatch(/Page 1 carries page 2's word/);
+  });
+
+  // HEALTH for the recognition checks: the right sheet names and OCR's
+  // block, but a page that came back without its words — OCR ran, the job
+  // completed, and recognised nothing. Each case empties ONE page, so the
+  // only problems are that page's missing words.
+  it("HEALTH: Page 1 empty (OCR recognised nothing on the table page) fails", async () => {
+    const v = await ocrSheetPerPageVerdict(
+      await workbook(["", SCAN_PAGES[1]!], true),
+      OCR_RESULTS,
+    );
+    expect(v.ok).toBe(false);
+    expect(v.detail).toMatch(
+      /^\d+ problem\(s\): Page 1 lacks the scanned word "item"/,
+    );
+    expect(v.detail).not.toMatch(/Page 2 lacks|carries|OCR ran in|sheets are/);
+  });
+
+  it("HEALTH: Page 2 empty (OCR recognised nothing on the prose page) fails", async () => {
+    const v = await ocrSheetPerPageVerdict(
+      await workbook([SCAN_PAGES[0]!, ""], true),
+      OCR_RESULTS,
+    );
+    expect(v.ok).toBe(false);
+    expect(v.detail).toMatch(
+      /^\d+ problem\(s\): Page 2 lacks the scanned word "thank"/,
+    );
+    expect(v.detail).not.toMatch(/Page 1 lacks|carries|OCR ran in|sheets are/);
+  });
+
+  it("NEGATIVE: OCR ran in the wrong language", async () => {
+    const v = await ocrSheetPerPageVerdict(await workbook(SCAN_PAGES, true), {
+      ocr: { ...OCR_RESULTS.ocr!, languages: ["deu"] },
+    });
+    expect(v.detail).toBe(
+      `1 problem(s): OCR ran in ["deu"], the job asked for ["eng"]`,
+    );
   });
 
   it("NEGATIVE: the pages swapped", async () => {

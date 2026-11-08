@@ -75,6 +75,48 @@ describe("numberCellProblems", () => {
     ]);
   });
 
+  /** The writer's sheet with `target`'s value cell wearing `source`'s style. */
+  function restyled(target: string, source: string) {
+    const styles = new SheetStyles();
+    const xml = worksheetXml(NUMBER_CELL_ROWS, styles);
+    const styleOf = (ref: string) => {
+      const m = new RegExp(`<c r="${ref}" s="([0-9]+)"`).exec(xml);
+      if (!m) throw new Error(`${ref} carries no style in the writer's sheet`);
+      return m[1]!;
+    };
+    const from = styleOf(target);
+    const to = styleOf(source);
+    if (from === to) throw new Error(`${target} and ${source} share a style`);
+    const out = xml.replace(
+      `<c r="${target}" s="${from}"`,
+      `<c r="${target}" s="${to}"`,
+    );
+    // The mutation's own health check: the swap landed, on that cell alone.
+    expect(out).not.toBe(xml);
+    return { xml: out, styles };
+  }
+
+  // One negative per format check: the right stored value under the wrong
+  // display format. Each targets ONE row, so its line is the only problem.
+  it.each([
+    ["Lakh", "B2", "B3", "lakh grouping"],
+    ["Bracketed", "B3", "B4", "the negative in brackets"],
+    ["Trailing minus", "B4", "B3", "the negative with a trailing minus"],
+    ["Named date", "B6", "B5", "a date"],
+  ])(
+    "NEGATIVE: %s stored right but formatted as another row's number",
+    async (label, target, source, shows) => {
+      const { xml, styles } = restyled(target, source);
+      const problems = numberCellProblems(await sheetOf(xml, styles.xml()));
+      expect(problems).toHaveLength(1);
+      expect(problems[0]).toMatch(
+        new RegExp(
+          `^${label}: stored -?[0-9.]+ but formatted ".*", which does not show ${shows}$`,
+        ),
+      );
+    },
+  );
+
   it("HEALTH: an empty sheet fails on every expected row", async () => {
     const styles = new SheetStyles();
     expect(

@@ -30,6 +30,7 @@ import {
   createTableExtractProcessor,
   TABLE_OCR_MESSAGES,
 } from "../processor/table-extract";
+import { SheetStyles, worksheetXml } from "../ooxml/sheet-cells";
 import { buildTablesZip, runTableExtract } from "./engine";
 import {
   combinedHeaderVerdict,
@@ -41,6 +42,8 @@ import {
   parseCsvGrid,
   SCAN_WITHOUT_OCR_FAILURE,
   STATEMENT_BRANCHES,
+  STATEMENT_COMBINED,
+  STATEMENT_HEADER,
   STATEMENT_PAGE_1,
   STATEMENT_PAGE_2,
 } from "./options-proof";
@@ -148,6 +151,14 @@ describe("ocrCombinedVerdict — OCR on + Combine", () => {
     expect(v.ok).toBe(false);
     expect(v.detail).toMatch(/tables.csv is empty/);
   });
+  it("NEGATIVE: OCR ran, but in another language than the job asked for", async () => {
+    const { zip, results } = await engineRun(await typedScanPages(), true, {
+      ocr: { ...OCR_RESULTS.ocr!, languages: ["deu"] },
+    });
+    expect((await ocrCombinedVerdict(zip, results)).detail).toBe(
+      '1 problem(s): OCR ran in ["deu"], the job asked for ["eng"]',
+    );
+  });
 });
 
 describe("ocrPerTableVerdict — OCR on, Combine off, a page with no table", () => {
@@ -226,6 +237,75 @@ describe("combinedHeaderVerdict — Combine on the five-page statement", () => {
     });
     expect(v.ok).toBe(false);
     expect(v.detail).toMatch(/row 6: \["Ref","Payee","Paid"\]/);
+  });
+
+  /** The engine's right ZIP with `tables.xlsx`'s one sheet rewritten as `rows`. */
+  async function withSheet(rows: readonly (readonly string[])[]) {
+    const { zip, results } = await engineRun(await repeatedHeaderPdf(), true);
+    const loaded = await JSZip.loadAsync(zip);
+    const book = await JSZip.loadAsync(
+      await loaded.file("tables.xlsx")!.async("uint8array"),
+    );
+    if (!book.file("xl/worksheets/sheet1.xml"))
+      throw new Error("the engine's workbook has no sheet1.xml to rewrite");
+    const styles = new SheetStyles();
+    book.file("xl/worksheets/sheet1.xml", worksheetXml(rows, styles));
+    book.file("xl/styles.xml", styles.xml());
+    loaded.file(
+      "tables.xlsx",
+      await book.generateAsync({ type: "uint8array" }),
+    );
+    return {
+      zip: new Uint8Array(await loaded.generateAsync({ type: "uint8array" })),
+      results,
+    };
+  }
+
+  it("HEALTH of the rewrite: the right grid, rewritten, still passes", async () => {
+    const { zip, results } = await withSheet(STATEMENT_COMBINED);
+    expect((await combinedHeaderVerdict(zip, results)).ok).toBe(true);
+  });
+
+  it("NEGATIVE: a right tables.csv beside a sheet that repeats the header", async () => {
+    // Same row count: the empty separator row carries the header instead.
+    const rows = STATEMENT_COMBINED.map((r) =>
+      r.length === 0 ? [...STATEMENT_HEADER] : r,
+    );
+    const { zip, results } = await withSheet(rows);
+    expect((await combinedHeaderVerdict(zip, results)).detail).toBe(
+      "1 problem(s): the sheet carries the header row 2 time(s), expected once",
+    );
+  });
+
+  it("NEGATIVE: a right tables.csv beside a sheet with an extra row", async () => {
+    const { zip, results } = await withSheet([
+      ...STATEMENT_COMBINED,
+      ["Hull", "3"],
+    ]);
+    expect((await combinedHeaderVerdict(zip, results)).detail).toBe(
+      `1 problem(s): the sheet has ${STATEMENT_COMBINED.length + 1} row(s), expected ${STATEMENT_COMBINED.length}`,
+    );
+  });
+
+  it("NEGATIVE: an OCR block on the text PDF's record", async () => {
+    const { zip, results } = await engineRun(
+      await repeatedHeaderPdf(),
+      true,
+      OCR_RESULTS,
+    );
+    expect((await combinedHeaderVerdict(zip, results)).detail).toBe(
+      "1 problem(s): the record carries an OCR block on a job that asked for none",
+    );
+  });
+
+  it("NEGATIVE: the right ZIP under a record that says combined: false", async () => {
+    const { zip, results } = await engineRun(await repeatedHeaderPdf(), true);
+    const v = await combinedHeaderVerdict(zip, {
+      tables: { ...results.tables!, combined: false },
+    });
+    expect(v.detail).toBe(
+      "1 problem(s): record: combined false, expected true",
+    );
   });
 
   it("NEGATIVE: the right ZIP under a record with the wrong pages", async () => {
