@@ -439,7 +439,15 @@ export async function runWorkerOptionsProof(
   // noise photo lossless, its JPEG rungs at the floor tie, and the second-
   // smallest of ALL sizes was the smallest again, so the guard below failed
   // the proof on its own fixture.
-  const bySize = [...new Set(sizes)].sort((a, b) => a - b);
+  // And "distinct" means more than 1% apart (container run 42431179352, PR
+  // #287): on the real engine the lossless noise photo's JPEG rungs at the
+  // floor were 7 B bigger than the preset's run (the PostScript the level
+  // sends, the image unchanged), so exact distinctness kept that near-tie as
+  // the second size and the target fitted the smallest rung again.
+  const bySize: number[] = [];
+  for (const size of [...new Set(sizes)].sort((a, b) => a - b)) {
+    if (bySize.length === 0 || size > bySize.at(-1)! * 1.01) bySize.push(size);
+  }
   const metTarget = bySize[1]! + 512;
   const want = rungs.find((r) => (single.get(key(r)) ?? Infinity) <= metTarget);
   const smallest = rungs[sizes.indexOf(bySize[0]!)];

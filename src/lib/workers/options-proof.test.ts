@@ -450,6 +450,54 @@ describe("runWorkerOptionsProof", { timeout: 30_000 }, () => {
     expect(code).toBe(0);
   });
 
+  // The real engine does not tie EXACTLY. Container run 42431179352 (PR
+  // #287): the noise photo at the floor gave 72:medium 143,445 B and
+  // 72:low / 72:lowest 143,452 B. The image was the same Flate stream; the
+  // 7 B are the PostScript the level sends. "Distinct sizes" kept 143,452 as
+  // the second-smallest, the target landed 512 B over it, 72:medium fitted
+  // as the sharpest AND the smallest, and the fixture guard failed the proof
+  // on its own fixture. Played here: the noise photo's JPEG rungs carry 7
+  // extra bytes.
+  it("PASSES 'target met' when the noise photo's JPEG rungs differ from the preset's by a few bytes", async () => {
+    const noiseLength = (await noisePhotoPdf({ px: 1380, inches: 3, pages: 2 }))
+      .byteLength;
+    const played = playedGhostscript(
+      (input) => input.byteLength !== noiseLength,
+    );
+    const native: NativeCompressor = async (input, ctx) => {
+      const out = await played(input, ctx);
+      const quality = ctx.options.imageQuality;
+      if (input.byteLength !== noiseLength || !quality || quality === "medium")
+        return out;
+      const padded = new Uint8Array(out.byteLength + 7);
+      padded.set(out);
+      padded.set(new TextEncoder().encode("\n%pad\n "), out.byteLength);
+      return padded;
+    };
+    const lines: string[] = [];
+    const code = await runWorkerOptionsProof(
+      deps({
+        compression: {
+          tools: { ghostscript: true, qpdf: false, mutool: false },
+          native,
+        },
+        log: (l) => lines.push(l),
+      }),
+    );
+    // Health: the noise photo's floor rungs differ, by exactly 7 bytes.
+    const noiseInfo = lines.find((l) =>
+      l.startsWith("INFO target rungs, noise photo:"),
+    );
+    const floor = [...(noiseInfo ?? "").matchAll(/72:\w+ (\d+) B/g)].map((m) =>
+      Number(m[1]),
+    );
+    expect(floor).toHaveLength(3);
+    expect(floor[1]! - floor[0]!).toBe(7);
+    expect(lines.filter((l) => l.startsWith("FAIL "))).toEqual([]);
+    expect(lines.some((l) => l.startsWith("PASS target met:"))).toBe(true);
+    expect(code).toBe(0);
+  });
+
   it("FAILS a ladder that returns a NON-minimal file when the target is not met", async () => {
     // The ladder as first written: on not-met, the floor's file — which, on
     // these non-monotonic sizes, is not the smallest one it made.
