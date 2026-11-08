@@ -40,6 +40,10 @@ const TEXT_API = [
   /\.drawText\s*\(/,
   /\bStandardFonts\b/,
   /\.embedFont\s*\(/,
+  // Making a standard face by name is making a font: a module that only does
+  // this and hands the font on must be held to the rule (review of
+  // 19d72968, 2026-11-08). No non-test module calls it today.
+  /\.embedStandardFont\s*\(/,
   /\.widthOfTextAtSize\s*\(/,
   /\.heightAtSize\s*\(/,
 ];
@@ -126,17 +130,35 @@ function makesFont(source: string): boolean {
 const SPECIFIER = /(?:from|import)\s*\(?\s*["']([^"']+)["']/g;
 
 /** `file`'s import specifiers resolved to a path without extension. */
+/**
+ * A whole `import type … from "…"` or `export type … from "…"` statement.
+ * Erased at runtime, so the module it names hands nothing over: following it
+ * would widen the importer set (CLAUDE.md rule 4). `import { type A, b }` is a
+ * value import and stays.
+ */
+const TYPE_ONLY_EDGE =
+  /\b(?:import|export)\s+type\s+[^;]*?\bfrom\s*["'][^"']+["']\s*;?/g;
+
+/** The value-import targets `source` (the text of `file`) names. */
+function specifierTargets(file: string, source: string): string[] {
+  return [...source.replace(TYPE_ONLY_EDGE, "").matchAll(SPECIFIER)].flatMap(
+    (m) => {
+      const spec = m[1]!;
+      if (spec.startsWith("@/")) return [path.join(SRC, spec.slice(2))];
+      if (spec.startsWith(".")) return [path.resolve(path.dirname(file), spec)];
+      return [];
+    },
+  );
+}
+
 const targetCache = new Map<string, string[]>();
 function importTargets(file: string): string[] {
   const hit = targetCache.get(file);
   if (hit) return hit;
-  const source = stripComments(readFileSync(file, "utf8"));
-  const targets = [...source.matchAll(SPECIFIER)].flatMap((m) => {
-    const spec = m[1]!;
-    if (spec.startsWith("@/")) return [path.join(SRC, spec.slice(2))];
-    if (spec.startsWith(".")) return [path.resolve(path.dirname(file), spec)];
-    return [];
-  });
+  const targets = specifierTargets(
+    file,
+    stripComments(readFileSync(file, "utf8")),
+  );
   targetCache.set(file, targets);
   return targets;
 }
@@ -160,13 +182,30 @@ function importersOf(file: string): string[] {
  * and code), which lays out runs in the fonts `markdown-to-pdf.ts` embeds
  * through `embedDrawingFont`. Its fonts can come from nowhere else: every
  * module that makes a font is itself in `drawing` and held to the rule.
+ *
+ * Tightened after review (2026-11-08): one routed importer used to be
+ * enough. Now EVERY importer that makes a font must be routed (or be the
+ * chooser), and at least one importer must be routed. Not "every importer
+ * routed": `tool-facts.ts` imports `PDF_LINK_SCHEMES` from markdown-runs and
+ * makes no font, so it can hand over none; the property is where the fonts
+ * come from, not who imports the module.
  */
+function delegateVerdict(
+  source: string,
+  importers: readonly { routed: boolean; source: string }[],
+): boolean {
+  if (makesFont(source)) return false;
+  if (!importers.some((i) => i.routed)) return false;
+  return importers.every((i) => i.routed || !makesFont(i.source));
+}
+
 function isDelegate(file: string): boolean {
-  if (makesFont(stripComments(readFileSync(file, "utf8")))) return false;
-  return importersOf(file).some(
-    (importer) =>
-      CHOOSER.has(importer) ||
-      isRouted(stripComments(readFileSync(importer, "utf8"))),
+  return delegateVerdict(
+    stripComments(readFileSync(file, "utf8")),
+    importersOf(file).map((importer) => {
+      const source = stripComments(readFileSync(importer, "utf8"));
+      return { routed: CHOOSER.has(importer) || isRouted(source), source };
+    }),
   );
 }
 
@@ -291,6 +330,79 @@ describe("text-drawing call sites", () => {
     expect(
       importersOf(path.join(SRC, "lib/pdf/unicode-font.ts")).length,
     ).toBeGreaterThan(3);
+  });
+
+  it("a font made with embedStandardFont is a text-API call, so its maker is held to the rule", () => {
+    // Review of 19d72968: `.embedStandardFont(` was a FONT_SOURCE and not a
+    // TEXT_API, so a module that only called it and handed the font to a
+    // delegate was seen by neither check.
+    expect(
+      usesTextApi("const f = await doc.embedStandardFont('Helvetica')"),
+    ).toBe(true);
+    // Every way of making a font is also a way of being in `drawing`.
+    for (const re of FONT_SOURCE)
+      expect(
+        TEXT_API.some((t) => t.source === re.source),
+        re.source,
+      ).toBe(true);
+  });
+
+  it("the import walk follows value edges and skips type-only ones", () => {
+    // `import type` is erased at runtime: an edge it adds is a module that
+    // cannot hand anything over (CLAUDE.md rule 4, widening the set).
+    const from = path.join(SRC, "lib/pdf/x.ts");
+    const at = (rel: string) => path.join(SRC, "lib/pdf", rel);
+    expect(
+      specifierTargets(from, 'import type { PDFFont } from "./a";'),
+    ).toEqual([]);
+    expect(
+      specifierTargets(from, 'export type { RunFonts } from "./a";'),
+    ).toEqual([]);
+    expect(
+      specifierTargets(from, 'import { type RunFonts, drawRuns } from "./b";'),
+    ).toEqual([at("b")]);
+    expect(specifierTargets(from, 'export { drawRuns } from "./c";')).toEqual([
+      at("c"),
+    ]);
+    expect(specifierTargets(from, 'const m = await import("./d");')).toEqual([
+      at("d"),
+    ]);
+    expect(specifierTargets(from, 'import "@/lib/pdf/e";')).toEqual([at("e")]);
+  });
+
+  it("a delegate needs every importer that makes a font to be routed, not just one routed importer", () => {
+    const routed = {
+      routed: true,
+      source: 'import { embedDrawingFont } from "./unicode-font";',
+    };
+    const constantsOnly = {
+      routed: false,
+      source: 'import { PDF_LINK_SCHEMES } from "./markdown-runs";',
+    };
+    const unroutedMaker = {
+      routed: false,
+      source:
+        "const f = await doc.embedStandardFont('Helvetica'); drawRuns(page, f);",
+    };
+    const drawsOnly = "page.drawText(s, { font })";
+    expect(delegateVerdict(drawsOnly, [routed])).toBe(true);
+    // An importer that makes no font can hand over only a font it was given.
+    expect(delegateVerdict(drawsOnly, [routed, constantsOnly])).toBe(true);
+    // One routed importer does not excuse an unrouted one that makes a font.
+    expect(delegateVerdict(drawsOnly, [routed, unroutedMaker])).toBe(false);
+    // No routed importer at all: nothing vouches for the fonts.
+    expect(delegateVerdict(drawsOnly, [constantsOnly])).toBe(false);
+    expect(delegateVerdict(drawsOnly, [])).toBe(false);
+    // A module that makes its own font is never a delegate.
+    expect(delegateVerdict("doc.embedFont(bytes)", [routed])).toBe(false);
+    // The real delegate's importers include a non-routed one today
+    // (tool-facts.ts reads PDF_LINK_SCHEMES), so 'every importer routed'
+    // would be the wrong property; the right one still passes it.
+    const runs = path.join(SRC, "lib/pdf/markdown-runs.ts");
+    expect(importersOf(runs)).toContain(
+      path.join(SRC, "lib/tools/tool-facts.ts"),
+    );
+    expect(isDelegate(runs)).toBe(true);
   });
 });
 
