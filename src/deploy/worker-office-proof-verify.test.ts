@@ -101,7 +101,13 @@ describe("every Office-to-PDF production proof reads what came back", () => {
   it("each one either verifies the PDF's content or proves a refusal", () => {
     const blind = office
       .filter(
-        (p) => !p.has("verify") && !p.has("expectFailure") && !p.has("refuses"),
+        // `refusedAtCreate` (2026-11-08): the web tier must refuse the
+        // request, so no PDF exists to read; its `expect` is `() => false`.
+        (p) =>
+          !p.has("verify") &&
+          !p.has("expectFailure") &&
+          !p.has("refuses") &&
+          !p.has("refusedAtCreate"),
       )
       .map(
         (p) =>

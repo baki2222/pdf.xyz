@@ -11,6 +11,11 @@
  * holds. The script runs on import, so it is read as source, through the
  * TypeScript parser — the spec object itself, not a string that could sit in
  * a comment.
+ *
+ * Since 2026-11-08 the rule binds the UNLABELLED extract-tables spec (the
+ * report proof) only: the wave-3 cases (`./options-proof`) each send their
+ * own fixture, and the second describe holds every one of them to its
+ * fixture and its verdict the same way.
  */
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
@@ -70,7 +75,10 @@ function proofSpecProblems(source: string): string[] {
           p.name.getText(file) === "tool" &&
           ts.isStringLiteral(p.initializer) &&
           p.initializer.text === "extract-tables",
-      )
+      ) &&
+      // The labelled wave-3 cases send their own fixtures and are held by
+      // the test below; this guard is about the report proof, which has none.
+      !n.properties.some((p) => p.name?.getText(file) === "label")
     )
       specs.push(n);
     ts.forEachChild(n, walk);
@@ -133,5 +141,142 @@ describe("worker-prove-tools: the extract-tables proof reads the cells", () => {
     expect(proofSpecProblems("const SPECS = [];")).toEqual([
       "no extract-tables spec",
     ]);
+  });
+});
+
+/**
+ * Every labelled Extract Tables and PDF to Excel spec (the wave-3 cases),
+ * found by walking the script — not by name — and held, both ways, to the
+ * table below: the fixture its `make` calls, and the verdict its `verify`
+ * calls or the refusal its `expectFailure` names. A labelled spec missing
+ * from the table is a case nothing here checks; a row with no spec is a case
+ * the deployment proof lost.
+ */
+const WAVE3_CASES: Record<string, { make: string; judge: string }> = {
+  "extract-tables (ocr, combined)": {
+    make: "scannedTablePdf",
+    judge: "ocrCombinedVerdict",
+  },
+  "extract-tables (ocr, page without a table)": {
+    make: "scannedTablePdf",
+    judge: "ocrPerTableVerdict",
+  },
+  "extract-tables (ocr off control)": {
+    make: "scannedTablePdf",
+    judge: "SCAN_WITHOUT_OCR_FAILURE",
+  },
+  "extract-tables (combine, repeated header)": {
+    make: "repeatedHeaderPdf",
+    judge: "combinedHeaderVerdict",
+  },
+  "extract-tables (no tables)": {
+    make: "letterPdf",
+    judge: "NO_TABLES_FAILURE",
+  },
+  "extract-tables (defaults, number cells)": {
+    make: "numberCellsPdf",
+    judge: "defaultsVerdict",
+  },
+  "pdf-to-excel (ocr, sheet per page)": {
+    make: "scannedTablePdf",
+    judge: "ocrSheetPerPageVerdict",
+  },
+  "pdf-to-excel (sheet per page, blank page, number cells)": {
+    make: "numberCellsPdf",
+    judge: "sheetPerPageVerdict",
+  },
+  "pdf-to-excel (malformed options refused before ocr)": {
+    make: "unsupportedEncryptionPdf",
+    judge: "MALFORMED_BAG_FAILURE",
+  },
+};
+
+/** Identifiers referenced anywhere inside a node (calls and plain names). */
+function names(node: TS.Node): Set<string> {
+  const out = new Set<string>();
+  const walk = (n: TS.Node) => {
+    if (ts.isIdentifier(n)) out.add(n.text);
+    ts.forEachChild(n, walk);
+  };
+  walk(node);
+  return out;
+}
+
+function wave3Problems(source: string): string[] {
+  const file = ts.createSourceFile(
+    "w.ts",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+  );
+  const found = new Map<string, TS.ObjectLiteralExpression>();
+  const problems: string[] = [];
+  const str = (spec: TS.ObjectLiteralExpression, key: string) => {
+    const p = spec.properties.find(
+      (q): q is TS.PropertyAssignment =>
+        ts.isPropertyAssignment(q) && q.name.getText(file) === key,
+    );
+    return p && ts.isStringLiteral(p.initializer) ? p.initializer.text : null;
+  };
+  const walk = (n: TS.Node) => {
+    if (ts.isObjectLiteralExpression(n)) {
+      const tool = str(n, "tool");
+      const label = str(n, "label");
+      if ((tool === "extract-tables" || tool === "pdf-to-excel") && label) {
+        if (found.has(label)) problems.push(`"${label}" appears twice`);
+        found.set(label, n);
+      }
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(file);
+  for (const label of found.keys())
+    if (!WAVE3_CASES[label]) problems.push(`"${label}" is in no row here`);
+  for (const [label, want] of Object.entries(WAVE3_CASES)) {
+    const spec = found.get(label);
+    if (!spec) {
+      problems.push(`"${label}" has no spec`);
+      continue;
+    }
+    const prop = (key: string) =>
+      spec.properties.find((p) => p.name?.getText(file) === key);
+    const make = prop("make");
+    if (!make || !names(make).has(want.make))
+      problems.push(`"${label}": \`make\` does not use ${want.make}`);
+    const judge = prop("verify") ?? prop("expectFailure");
+    if (!judge || !names(judge).has(want.judge))
+      problems.push(`"${label}": judged without ${want.judge}`);
+  }
+  return problems;
+}
+
+describe("worker-prove-tools: the wave-3 tables and Excel cases", () => {
+  const source = readFileSync(SCRIPT, "utf8");
+
+  it("each builds its fixture and is judged by its verdict", () => {
+    expect(wave3Problems(source)).toEqual([]);
+  });
+
+  it("POSITIVE CONTROL: a verdict swapped, a spec dropped, a stray label — each caught", () => {
+    const swapped = source.replace(
+      "verify: (bytes, job) => ocrCombinedVerdict(bytes, job.results),",
+      "verify: (bytes, job) => ocrPerTableVerdict(bytes, job.results),",
+    );
+    expect(swapped).not.toBe(source);
+    expect(wave3Problems(swapped)).toEqual([
+      '"extract-tables (ocr, combined)": judged without ocrCombinedVerdict',
+    ]);
+    const renamed = source.replace(
+      'label: "extract-tables (no tables)"',
+      'label: "extract-tables (prose)"',
+    );
+    expect(renamed).not.toBe(source);
+    expect(wave3Problems(renamed)).toEqual([
+      '"extract-tables (prose)" is in no row here',
+      '"extract-tables (no tables)" has no spec',
+    ]);
+    expect(wave3Problems("const SPECS = [];")).toHaveLength(
+      Object.keys(WAVE3_CASES).length,
+    );
   });
 });

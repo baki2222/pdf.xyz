@@ -91,6 +91,7 @@ import {
   INVOICE_ROWS,
   invoicePdf,
   invoiceSheetMismatches,
+  letterPdf,
 } from "@/tests/pdf-office-fixtures";
 import { handBuiltPptx, pptxTitleProofVerdict } from "@/tests/pptx-fixture";
 import {
@@ -110,11 +111,24 @@ import {
 } from "@/tests/office-font-fixtures";
 import { mixedScanPdf, mixedSidecarVerdict } from "@/tests/ocr-proof-fixtures";
 import {
+  SCANNED_LINE,
   scannedDocxVerdict,
   scannedTextPdf,
   scanOfFirstPage,
 } from "@/tests/word-ocr-proof-fixtures";
-import { PDF_TO_WORD_RTL_REFUSAL } from "@/lib/jobs/ocr";
+import {
+  deskewDocxVerdict,
+  pptxOcrVerdict,
+  redoDocxVerdict,
+  uprightDocxVerdict,
+} from "@/lib/workers/pdf-office-export/ocr-first-proof";
+import { withStaleOcrLayer } from "@/lib/workers/ocr-redo-proof";
+import { OCR_REFUSAL_MESSAGES } from "@/lib/workers/ocr-engine-errors";
+
+import {
+  PDF_TO_WORD_RTL_REFUSAL,
+  REDO_OCR_LAYER_OUTCOMES,
+} from "@/lib/jobs/ocr";
 import {
   OCR_LANGUAGE_SAMPLES,
   sampleVerdict,
@@ -139,6 +153,28 @@ import {
   MIN_TARGET_BYTES,
   TARGET_SIZE_PRESETS,
 } from "@/lib/pdf/compress-target";
+import {
+  imageQualityProofPdf,
+  imageQualityProofVerdict,
+} from "@/lib/workers/compression/image-quality-proof";
+import {
+  sheetLayoutProofVerdict,
+  wideSheetXlsx,
+} from "@/lib/workers/office-conversion/sheet-layout-proof";
+import {
+  FIT_COLUMNS_TO_WIDTH_OPTION,
+  ORIENTATION_OPTION,
+} from "@/lib/workers/office-conversion/sheet-layout";
+import {
+  pdfaLevelProofPdf,
+  pdfaLevelProofVerdict,
+} from "@/lib/workers/pdf-archive/level-proof";
+import { PDFA_LEVEL_OPTION } from "@/lib/workers/pdf-archive/levels";
+import { stampProofVerdict } from "@/lib/workers/html-render/stamp-proof";
+import {
+  createRefusalVerdict,
+  expectedCreateRefusal,
+} from "@/lib/probes/create-refusal-proof";
 
 /**
  * The target-size proofs' photo: 1380 px over 3 in (460 DPI), one page. Its
@@ -158,6 +194,25 @@ import {
   reportTablesPdf,
   tablesProofVerdict,
 } from "@/tests/table-extract-fixtures";
+import {
+  numberCellsPdf,
+  repeatedHeaderPdf,
+  scannedTablePdf,
+} from "@/tests/table-proof-fixtures";
+import {
+  combinedHeaderVerdict,
+  defaultsVerdict,
+  NO_TABLES_FAILURE,
+  ocrCombinedVerdict,
+  ocrPerTableVerdict,
+  SCAN_WITHOUT_OCR_FAILURE,
+} from "@/lib/workers/table-extract/options-proof";
+import {
+  MALFORMED_BAG_FAILURE,
+  MALFORMED_BAG_OPTIONS,
+  ocrSheetPerPageVerdict,
+  sheetPerPageVerdict,
+} from "@/lib/workers/pdf-office-export/excel-options-proof";
 import {
   recoverablyDamagedPdf,
   repairProofVerdict,
@@ -189,6 +244,7 @@ import { browserStoppedWaitingAt } from "@/lib/jobs/client-wait";
 import {
   harnessExitCode,
   judgeExpectedRefusal,
+  matchesExpectedFailure,
   orderSpecsForAllowance,
   refusalVerdict,
   specKey,
@@ -196,6 +252,7 @@ import {
   EXIT_DEFECT,
   EXIT_INCOMPLETE,
   type DeploymentProofLedger,
+  type ExpectedFailure,
   type ProofOutcome,
   type UnprovenCause,
 } from "@/lib/probes/proof-outcome";
@@ -228,8 +285,17 @@ import {
   turnedTextPage,
 } from "@/lib/workers/ocr-rotate-proof";
 import { renderPdfPages } from "@/tests/pdf-render";
+import { readNotoTtf } from "@/lib/pdf/noto-source";
+import { setFontByteSource } from "@/lib/pdf/unicode-font";
 
 const BASE = process.env.BASE ?? "https://pdf.xyz";
+
+// A fixture that draws past WinAnsi (the number-cells table's ₹) embeds a
+// Noto face, which the loader fetches from the site's own origin — there is
+// none in Node, and on 2026-11-08 the first such fixture threw before its
+// job was ever sent. Read the same TTFs the tests read (`src/tests/setup.ts`);
+// the fixture is ours, not a claim about the asset being served.
+setFontByteSource(async (pack) => readNotoTtf(pack));
 /** When set, every downloaded artifact is also written here (see its use). */
 const ARTIFACT_DIR = process.env.PROOF_ARTIFACT_DIR;
 const ONLY = process.argv.slice(2).filter((a) => !a.startsWith("-"));
@@ -588,6 +654,37 @@ async function pdfPlainText(bytes: Buffer): Promise<string> {
   return text.replace(/\s+/g, " ");
 }
 
+/**
+ * Each page's text, in page order, for a verdict about WHICH page holds
+ * what (the last column on every page; the stamp on every page). Joined
+ * per page as `pdfPlainText` joins the whole file.
+ */
+async function pdfPageTexts(bytes: Buffer): Promise<string[]> {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const task = pdfjs.getDocument({
+    ...PDFJS_DOCUMENT_DEFAULTS,
+    data: new Uint8Array(bytes),
+  });
+  const doc = await awaitPdfjsDocument(task);
+  const pages: string[] = [];
+  for (let i = 1; i <= doc.numPages; i++) {
+    const content = await (await doc.getPage(i)).getTextContent();
+    pages.push(
+      content.items
+        .map((item) => ("str" in item ? item.str : ""))
+        .join(" ")
+        .replace(/\s+/g, " "),
+    );
+  }
+  await task.destroy();
+  return pages;
+}
+
+/** When this run began: the earliest time a stamp it asked for may name. */
+const RUN_STARTED = new Date();
+/** Worker and operator clocks are not one clock; the stamp has no seconds. */
+const CLOCK_SLACK_MS = 5 * 60_000;
+
 /** One of the CSV charset cases the in-image proof converts too. */
 function csvCase(encoding: CsvCharsetCase["encoding"]): CsvCharsetCase {
   const found = CSV_CHARSET_CASES.find((c) => c.encoding === encoding);
@@ -837,9 +934,29 @@ interface ProofSpec {
    * with exactly this code and retryability, and a message matching `message`.
    * A job that completes is the FAIL here. `expect` is then never reached.
    */
-  expectFailure?: { code: string; retryable: boolean; message: RegExp };
+  expectFailure?: ExpectedFailure;
+  /**
+   * The proof passes only if POST /api/jobs REFUSES the request, with the
+   * status, code and field the job API's own parser gives for the same body
+   * (`@/lib/probes/create-refusal-proof`). An accepted job is the FAIL, and
+   * nothing is polled or downloaded.
+   */
+  refusedAtCreate?: true;
   want: string;
   keepArtifactAs?: string;
+}
+
+/**
+ * The DOCX a Redo run must give for a stale layer whose row in
+ * REDO_OCR_LAYER_OUTCOMES says `outcome`: replaced, or the new text beside it.
+ */
+function redoWant(outcome: string): "replaced" | "beside" {
+  return outcome === "replaced" ? "replaced" : "beside";
+}
+
+/** A pattern matching exactly `text`: the user-facing message, whole. */
+function exactly(text: string): RegExp {
+  return new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
 }
 
 const SPECS: ProofSpec[] = [
@@ -921,6 +1038,27 @@ const SPECS: ProofSpec[] = [
         DEEP_MONO_MIN_DPI,
         MONO_PROOF_SOURCE_DPI,
       ),
+  },
+  // Image quality "Lowest" (audit compress-pdf#4, wave 3). The verdict reads
+  // the quantisation table of every JPEG in the download and names the
+  // offered level it sits nearest; the photo goes in as Flate, so any JPEG
+  // was written by the worker, and a download not smaller than the upload
+  // is the no-worse swap's original. A worker image from before the option
+  // encodes at /ebook's "medium" and records no imageQuality, and FAILS.
+  {
+    tool: "compress-pdf",
+    label: "compress-pdf (image quality lowest)",
+    make: imageQualityProofPdf,
+    name: "photo.pdf",
+    type: PDF_MIME,
+    options: { profile: "deep", imageQuality: "lowest" },
+    expect: isPdf,
+    want: 'JPEG images at the "lowest" level',
+    verify: async (bytes, job) =>
+      imageQualityProofVerdict(new Uint8Array(bytes), job.results, {
+        asked: "lowest",
+        inputBytes: (await imageQualityProofPdf()).byteLength,
+      }),
   },
   // Until 2026-09-27 this sent the healthy `textPdf` under the name
   // `broken.pdf`, so the only real-job proof of Repair PDF exercised qpdf's
@@ -1199,6 +1337,43 @@ const SPECS: ProofSpec[] = [
     expect: () => false,
     want: "a final refusal naming Unlock PDF",
   },
+  // OCR PDF on a PDF its author restricted (wave 3, audit ocr-pdf#4, PR
+  // #288): it opens without a password, so the old "password-protected"
+  // message was wrong; the worker now names the restriction and the owner
+  // password. The open-password fixture is the control: still the old
+  // message. Both refusals are final, with no output.
+  {
+    tool: "ocr-pdf",
+    label: "ocr-pdf (restricted by its author, refused)",
+    make: () =>
+      readFileSync("src/tests/fixtures/restricted-pdf/qpdf-r6-aes256.pdf"),
+    name: "restricted.pdf",
+    type: PDF_MIME,
+    expectFailure: {
+      code: "unprocessable_entity",
+      retryable: false,
+      message: exactly(OCR_REFUSAL_MESSAGES.restricted),
+    },
+    expect: () => false,
+    want: "a final refusal naming the author's restrictions and the owner password",
+  },
+  {
+    tool: "ocr-pdf",
+    label: "ocr-pdf (open password, refused control)",
+    make: () =>
+      readFileSync(
+        "src/tests/fixtures/restricted-pdf/pypdf-r3-open-password.pdf",
+      ),
+    name: "open-password.pdf",
+    type: PDF_MIME,
+    expectFailure: {
+      code: "unprocessable_entity",
+      retryable: false,
+      message: exactly(OCR_REFUSAL_MESSAGES.encrypted),
+    },
+    expect: () => false,
+    want: "the password-protected refusal, unchanged",
+  },
   // The commonest reason a PDF "won't open" is a password, and Repair PDF is
   // where a user takes it. Until 2026-09-27 that was retried three times and
   // then "could not process this file"; it must be one attempt, naming Unlock.
@@ -1224,6 +1399,59 @@ const SPECS: ProofSpec[] = [
     expect: isPdf,
     verify: proveDeclaredPdfA,
     want: "PDF/A",
+  },
+  // The level picker and the carried title and author (audit pdf-to-pdfa#1,
+  // #3, wave 3). Each asks the engine's own question for its level, and
+  // reads Title and Author back from the Info dictionary and the XMP. A
+  // worker image from before the picker writes part 2 whatever was asked
+  // and discards the DOCINFO, so 1b and 3b FAIL on the part and all three on
+  // the title.
+  {
+    tool: "pdf-to-pdfa",
+    label: "pdf-to-pdfa (1b)",
+    make: pdfaLevelProofPdf,
+    name: "archive.pdf",
+    type: PDF_MIME,
+    options: { [PDFA_LEVEL_OPTION]: "1b" },
+    expect: isPdf,
+    verify: (bytes) => pdfaLevelProofVerdict(new Uint8Array(bytes), "1b"),
+    want: "PDF/A-1b on PDF 1.4, title and author carried",
+  },
+  {
+    tool: "pdf-to-pdfa",
+    label: "pdf-to-pdfa (2b)",
+    make: pdfaLevelProofPdf,
+    name: "archive.pdf",
+    type: PDF_MIME,
+    options: { [PDFA_LEVEL_OPTION]: "2b" },
+    expect: isPdf,
+    verify: (bytes) => pdfaLevelProofVerdict(new Uint8Array(bytes), "2b"),
+    want: "PDF/A-2b, title and author carried",
+  },
+  {
+    tool: "pdf-to-pdfa",
+    label: "pdf-to-pdfa (3b)",
+    make: pdfaLevelProofPdf,
+    name: "archive.pdf",
+    type: PDF_MIME,
+    options: { [PDFA_LEVEL_OPTION]: "3b" },
+    expect: isPdf,
+    verify: (bytes) => pdfaLevelProofVerdict(new Uint8Array(bytes), "3b"),
+    want: "PDF/A-3b, title and author carried",
+  },
+  // Refused by the WEB tier at job creation (review 2026-11-08), with what
+  // the job API's own parser answers for the same body. A web tier from
+  // before the check accepts the job, and that is the FAIL.
+  {
+    tool: "pdf-to-pdfa",
+    label: "pdf-to-pdfa (level 2u refused at creation)",
+    make: textPdf,
+    name: "archive.pdf",
+    type: PDF_MIME,
+    options: { [PDFA_LEVEL_OPTION]: "2u" },
+    refusedAtCreate: true,
+    expect: () => false,
+    want: "the job refused at creation, naming options.level",
   },
   {
     tool: "html-to-pdf",
@@ -1321,6 +1549,38 @@ const SPECS: ProofSpec[] = [
         await pdfPlainText(bytes),
         WEBPAGE_PROOF.landmarks,
       ),
+  },
+  // "Add the address and date" (audit webpage-to-pdf#7, wave 3): every
+  // page's foot names the address asked for and a time inside this run, and
+  // the h1 is a bookmark. A worker image from before the option prints
+  // neither and FAILS. Hide pop-ups, print styles and lazy images change
+  // nothing on a page of ours, so they are proven in real Chromium by
+  // capture.chromium.test.ts, not here.
+  {
+    tool: "webpage-to-pdf",
+    label: "webpage-to-pdf (address and date stamp)",
+    url: WEBPAGE_PROOF.url,
+    options: { stamp: true },
+    expect: isPdf,
+    want: "every page stamped with the address and the capture time",
+    verify: async (bytes) =>
+      stampProofVerdict(new Uint8Array(bytes), await pdfPageTexts(bytes), {
+        url: WEBPAGE_PROOF.url,
+        visible: WEBPAGE_PROOF.visible,
+        window: {
+          from: new Date(RUN_STARTED.getTime() - CLOCK_SLACK_MS),
+          to: new Date(Date.now() + CLOCK_SLACK_MS),
+        },
+      }),
+  },
+  {
+    tool: "webpage-to-pdf",
+    label: "webpage-to-pdf (hideOverlays yes refused at creation)",
+    url: WEBPAGE_PROOF.url,
+    options: { hideOverlays: "yes" },
+    refusedAtCreate: true,
+    expect: () => false,
+    want: "the job refused at creation, naming options.hideOverlays",
   },
   ...(
     [
@@ -1536,6 +1796,38 @@ const SPECS: ProofSpec[] = [
       };
     },
   },
+  // Orientation and "Fit all columns on the page width" (audit
+  // excel-to-pdf#1, wave 3): a 40 x 400 sheet with no page setup of its own.
+  // The verdict reads every page box (A4 landscape) and each page's text
+  // (the last column on EVERY page, the first and last rows present). A
+  // worker image from before the options converts the plain file, portrait
+  // with the last column on a quarter of the pages, and FAILS.
+  {
+    tool: "excel-to-pdf",
+    label: "excel-to-pdf (landscape, fit columns)",
+    make: () => wideSheetXlsx(),
+    name: "wide.xlsx",
+    type: XLSX_MIME,
+    options: {
+      [ORIENTATION_OPTION]: "landscape",
+      [FIT_COLUMNS_TO_WIDTH_OPTION]: true,
+    },
+    expect: isPdf,
+    want: "A4 landscape pages with every column on each",
+    verify: async (bytes) =>
+      sheetLayoutProofVerdict(new Uint8Array(bytes), await pdfPageTexts(bytes)),
+  },
+  {
+    tool: "excel-to-pdf",
+    label: "excel-to-pdf (orientation auto refused at creation)",
+    make: xlsxProofFile,
+    name: "sheet.xlsx",
+    type: XLSX_MIME,
+    options: { [ORIENTATION_OPTION]: "auto" },
+    refusedAtCreate: true,
+    expect: () => false,
+    want: "the job refused at creation, naming options",
+  },
   {
     tool: "powerpoint-to-pdf",
     make: handBuiltPptx,
@@ -1694,6 +1986,142 @@ const SPECS: ProofSpec[] = [
     want: "DOCX with the scan's words as text",
     verify: (bytes) => scannedDocxVerdict(new Uint8Array(bytes)),
   },
+  // OCR's page choices on PDF to Word (wave 3, audit pdf-to-word#3). The
+  // chain test proves the options reach the OCR request; these read what
+  // each one changes in the DOCX (`ocr-first-proof.ts`, controls in its
+  // test). Each ON has an OFF beside it — the same scan, the same path — so
+  // a passing ON cannot be an instrument that passes everything. A worker
+  // image older than the feature ignores the option and FAILS each ON.
+  //
+  // Turn pages upright: an upside-down scan's sentinel is text only when
+  // the page was turned before recognition.
+  {
+    tool: "pdf-to-word",
+    label: "pdf-to-word (ocr, upright)",
+    make: upsideDownScan,
+    name: "upside-down.pdf",
+    type: PDF_MIME,
+    options: { ocr: true, languages: ["eng"], rotatePages: true },
+    expect: isZipContainer,
+    want: "DOCX with the upside-down scan's words read",
+    verify: (bytes) => uprightDocxVerdict(new Uint8Array(bytes), "read"),
+  },
+  {
+    tool: "pdf-to-word",
+    label: "pdf-to-word (ocr, upright off control)",
+    make: upsideDownScan,
+    name: "upside-down.pdf",
+    type: PDF_MIME,
+    options: { ocr: true, languages: ["eng"], rotatePages: false },
+    expect: isZipContainer,
+    want: "DOCX with the upside-down scan's words NOT read",
+    verify: (bytes) => uprightDocxVerdict(new Uint8Array(bytes), "unread"),
+  },
+  // Straighten: the words are read either way at 3.5°, so the DOCX's
+  // picture is what is measured, with the OCR PDF deskew proof's instrument.
+  {
+    tool: "pdf-to-word",
+    label: "pdf-to-word (ocr, deskew)",
+    make: crookedScan,
+    name: "crooked.pdf",
+    type: PDF_MIME,
+    options: { ocr: true, languages: ["eng"], deskew: true },
+    expect: isZipContainer,
+    want: "DOCX whose scan picture is level",
+    verify: (bytes) =>
+      deskewDocxVerdict(new Uint8Array(bytes), "straight", renderPdfPages),
+  },
+  {
+    tool: "pdf-to-word",
+    label: "pdf-to-word (ocr, deskew off control)",
+    make: crookedScan,
+    name: "crooked.pdf",
+    type: PDF_MIME,
+    options: { ocr: true, languages: ["eng"], deskew: false },
+    expect: isZipContainer,
+    want: "DOCX whose scan picture is still crooked",
+    verify: (bytes) =>
+      deskewDocxVerdict(new Uint8Array(bytes), "crooked", renderPdfPages),
+  },
+  // Redo existing OCR: a scan with a STALE invisible layer. Off,
+  // `--skip-text` keeps the page and the DOCX carries the stale words.
+  {
+    tool: "pdf-to-word",
+    label: "pdf-to-word (ocr, redo)",
+    // CHANGED 2026-11-08: the first fixture set `3 Tr` BEFORE its BT, a
+    // layer OCRmyPDF 14's --redo-ocr does not strip, so this case failed on
+    // a correct product (#290 has the investigation). It now carries the
+    // shape Tesseract writes, which Redo replaces; the case below carries
+    // OCRmyPDF's own layer, which it keeps. Both wants come from the one
+    // outcome table, so if a worker upgrade flips a row, its case flips.
+    make: async () => withStaleOcrLayer(await scannedTextPdf(), "tesseract"),
+    name: "stale-ocr.pdf",
+    type: PDF_MIME,
+    options: { ocr: true, languages: ["eng"], redoOcr: true },
+    expect: isZipContainer,
+    want: "DOCX with the scan's words and not the stale layer's",
+    verify: (bytes) =>
+      redoDocxVerdict(
+        new Uint8Array(bytes),
+        SCANNED_LINE,
+        redoWant(REDO_OCR_LAYER_OUTCOMES.tesseract),
+      ),
+  },
+  {
+    tool: "pdf-to-word",
+    label: "pdf-to-word (ocr, redo keeps an earlier OCRmyPDF layer)",
+    make: async () => withStaleOcrLayer(await scannedTextPdf(), "ocrmypdf"),
+    name: "ocrmypdf-layer.pdf",
+    type: PDF_MIME,
+    options: { ocr: true, languages: ["eng"], redoOcr: true },
+    expect: isZipContainer,
+    want: "DOCX with the scan's words beside the earlier layer's, as the copy says",
+    verify: (bytes) =>
+      redoDocxVerdict(
+        new Uint8Array(bytes),
+        SCANNED_LINE,
+        redoWant(REDO_OCR_LAYER_OUTCOMES.ocrmypdf),
+      ),
+  },
+  {
+    tool: "pdf-to-word",
+    label: "pdf-to-word (ocr, redo off control)",
+    make: async () => withStaleOcrLayer(await scannedTextPdf(), "tesseract"),
+    name: "stale-ocr.pdf",
+    type: PDF_MIME,
+    options: { ocr: true, languages: ["eng"], redoOcr: false },
+    expect: isZipContainer,
+    want: "DOCX that kept the stale layer",
+    verify: (bytes) =>
+      redoDocxVerdict(new Uint8Array(bytes), SCANNED_LINE, "kept"),
+  },
+  // PDF to PowerPoint, OCR first (wave 3, audit pdf-to-powerpoint#4): an
+  // image-only handout. ON: the scan as a picture and its words as text
+  // drawn with no fill. OFF: the picture alone — the shape every deck had
+  // before, and what a worker that ignores `ocr` still returns for ON.
+  {
+    tool: "pdf-to-powerpoint",
+    label: "pdf-to-powerpoint (ocr)",
+    make: scannedTextPdf,
+    name: "handout.pdf",
+    type: PDF_MIME,
+    options: { ocr: true, languages: ["eng"] },
+    expect: isZipContainer,
+    want: "PPTX with the scan's words as unfilled text over its picture",
+    verify: (bytes) =>
+      pptxOcrVerdict(new Uint8Array(bytes), SCANNED_LINE, "ocr text"),
+  },
+  {
+    tool: "pdf-to-powerpoint",
+    label: "pdf-to-powerpoint (ocr off control)",
+    make: scannedTextPdf,
+    name: "handout.pdf",
+    type: PDF_MIME,
+    expect: isZipContainer,
+    want: "PPTX with the scan's picture and none of its words",
+    verify: (bytes) =>
+      pptxOcrVerdict(new Uint8Array(bytes), SCANNED_LINE, "pictures only"),
+  },
   // A SECOND reader for the same document: the worker's own LibreOffice,
   // through Word to PDF. It is not Word (`pnpm prove:docx-opens` is), but it
   // is a real word processor laying the document out, so a picture whose
@@ -1742,6 +2170,47 @@ const SPECS: ProofSpec[] = [
             detail: `sheet1.xml differs from the invoice in ${problems.length} place(s): ${problems.slice(0, 4).join("; ")}`,
           };
     },
+  },
+  // Wave 3 (2026-11-08), read from the workbook's sheet NAMES, which page's
+  // words sit on which sheet, and the cell types
+  // (`@/lib/workers/pdf-office-export/excel-options-proof`). The image
+  // before it ignored `sheetPerPage` (one "Extracted text" sheet), `ocr`
+  // (the scan fails pdf_no_text) and stored these amounts as text.
+  {
+    tool: "pdf-to-excel",
+    label: "pdf-to-excel (ocr, sheet per page)",
+    make: scannedTablePdf,
+    name: "scanned-statement.pdf",
+    type: PDF_MIME,
+    options: { ocr: true, languages: ["eng"], sheetPerPage: true },
+    expect: isZipContainer,
+    want: "XLSX with Page 1 and Page 2, each its own recognised words",
+    verify: (bytes, job) => ocrSheetPerPageVerdict(bytes, job.results),
+  },
+  {
+    tool: "pdf-to-excel",
+    label: "pdf-to-excel (sheet per page, blank page, number cells)",
+    make: numberCellsPdf,
+    name: "amounts.pdf",
+    type: PDF_MIME,
+    options: { sheetPerPage: true },
+    expect: isZipContainer,
+    want: "XLSX with Page 1-3, Page 2 empty, amounts and dates as numbers",
+    verify: (bytes) => sheetPerPageVerdict(bytes),
+  },
+  // OCR on, `sheetPerPage` a number, on a LOCKED file: refused for the bag
+  // with the parser's own sentence. Had OCR run first, the record would
+  // carry OCR's refusal of the locked file — the order shows at the wire.
+  {
+    tool: "pdf-to-excel",
+    label: "pdf-to-excel (malformed options refused before ocr)",
+    make: unsupportedEncryptionPdf,
+    name: "locked.pdf",
+    type: PDF_MIME,
+    options: { ...MALFORMED_BAG_OPTIONS },
+    expectFailure: MALFORMED_BAG_FAILURE,
+    expect: () => false,
+    want: "invalid_request for options.sheetPerPage, before OCR",
   },
   {
     tool: "pdf-to-powerpoint",
@@ -1810,6 +2279,86 @@ const SPECS: ProofSpec[] = [
     // cell, nothing else, and the workbook beside them. The same verdict runs
     // on real poppler in `table-extract/engine.poppler.test.ts`.
     verify: (bytes) => tablesProofVerdict(bytes),
+  },
+  // Wave 3 (2026-11-08). Each reads the property its option changes, in the
+  // ZIP and on the record (`@/lib/workers/table-extract/options-proof`, held
+  // to its controls by its test). The image before it ignored `ocr` (the
+  // scan fails pdf_no_text) and `combine`, wrote no `results.tables`, and
+  // failed a table-less PDF as unprocessable_entity — every case below
+  // FAILS on it.
+  {
+    tool: "extract-tables",
+    label: "extract-tables (ocr, combined)",
+    make: scannedTablePdf,
+    name: "scanned-statement.pdf",
+    type: PDF_MIME,
+    options: { ocr: true, languages: ["eng"], combine: true },
+    expect: isZipContainer,
+    want: "ZIP of tables.csv + one 'All tables' sheet, recognised",
+    verify: (bytes, job) => ocrCombinedVerdict(bytes, job.results),
+  },
+  // The same scan, Combine off: page 2 is prose, so the record names page 1
+  // of 2 — the "no table on pages …" the result card prints (the card is
+  // UI; `table-extract-worker-panel.test.tsx` holds its sentence).
+  {
+    tool: "extract-tables",
+    label: "extract-tables (ocr, page without a table)",
+    make: scannedTablePdf,
+    name: "scanned-statement.pdf",
+    type: PDF_MIME,
+    options: { ocr: true, languages: ["eng"] },
+    expect: isZipContainer,
+    want: "table-1.csv + 'Table 1 (p1)', recognised, page 2 none",
+    verify: (bytes, job) => ocrPerTableVerdict(bytes, job.results),
+  },
+  // The control: OCR off, the same scan, refused for having no text. It
+  // says the two passes above were OCR, not a fixture with a text layer.
+  // By design it passes on the old image too — the OCR-off path did not
+  // change; the cases above are the ones that cannot.
+  {
+    tool: "extract-tables",
+    label: "extract-tables (ocr off control)",
+    make: scannedTablePdf,
+    name: "scanned-statement.pdf",
+    type: PDF_MIME,
+    expectFailure: SCAN_WITHOUT_OCR_FAILURE,
+    expect: () => false,
+    want: "pdf_no_text, advising OCR PDF",
+  },
+  {
+    tool: "extract-tables",
+    label: "extract-tables (combine, repeated header)",
+    make: repeatedHeaderPdf,
+    name: "statement.pdf",
+    type: PDF_MIME,
+    options: { combine: true },
+    expect: isZipContainer,
+    want: "the header once, pages 1+2 joined, page 4 apart",
+    verify: (bytes, job) => combinedHeaderVerdict(bytes, job.results),
+  },
+  {
+    tool: "extract-tables",
+    label: "extract-tables (no tables)",
+    make: letterPdf,
+    name: "letter.pdf",
+    type: PDF_MIME,
+    expectFailure: NO_TABLES_FAILURE,
+    expect: () => false,
+    want: "pdf_no_tables, final",
+  },
+  // Defaults: the layout every page sent before the options existed. The
+  // old image's bytes cannot be compared once it is replaced, so this reads
+  // the SHAPE — a CSV and a sheet per table, named by page — and the cells,
+  // through the writer PDF to Excel shares.
+  {
+    tool: "extract-tables",
+    label: "extract-tables (defaults, number cells)",
+    make: numberCellsPdf,
+    name: "amounts.pdf",
+    type: PDF_MIME,
+    expect: isZipContainer,
+    want: "a CSV and a sheet per table, amounts and dates as numbers",
+    verify: (bytes, job) => defaultsVerdict(bytes, job.results),
   },
   {
     tool: "request-signatures",
@@ -1884,7 +2433,12 @@ interface ApiResponse {
   jobId?: string;
   id?: string;
   status?: string;
-  error?: { code: string; message: string; retryable?: boolean };
+  error?: {
+    code: string;
+    message: string;
+    retryable?: boolean;
+    details?: { field?: string }[];
+  };
   artifacts?: { artifactId: string; filename: string }[];
   results?: JobResults;
 }
@@ -2122,6 +2676,24 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
     }
   } else if (spec.options) request.options = spec.options;
 
+  if (spec.refusedAtCreate) {
+    const expected = expectedCreateRefusal(request);
+    const created = await postJson("/api/jobs", request);
+    const verdict = createRefusalVerdict(expected, {
+      status: created.res.status,
+      body: created.body,
+    });
+    return verdict.ok
+      ? { label, outcome: "proven", seconds: seconds(), detail: verdict.detail }
+      : {
+          label,
+          outcome: "failed",
+          seconds: seconds(),
+          stage: "create job",
+          detail: verdict.detail,
+        };
+  }
+
   const created = await postJson("/api/jobs", request);
   if (!created.res.ok) {
     return refusalResult(
@@ -2186,12 +2758,7 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
   if (spec.expectFailure) {
     const want = spec.expectFailure;
     const got = job.error;
-    const matches =
-      job.status === "failed" &&
-      got?.code === want.code &&
-      got.retryable === want.retryable &&
-      want.message.test(got.message);
-    return matches
+    return matchesExpectedFailure(job, want)
       ? {
           label,
           outcome: "proven",

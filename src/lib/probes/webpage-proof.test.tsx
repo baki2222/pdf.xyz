@@ -138,11 +138,12 @@ describe("the harness", () => {
       .split(/\n  \{\n/)
       .filter((block) => block.includes('tool: "webpage-to-pdf"'));
     // 2 until 2026-10-25; then the A4-landscape and one-long-page layout
-    // proofs joined, on the same page of ours.
-    expect(specs, "health: the webpage-to-pdf specs are gone").toHaveLength(4);
+    // proofs joined, on the same page of ours; 6 since 2026-11-08, with the
+    // address-and-date stamp proof and the hideOverlays creation refusal.
+    expect(specs, "health: the webpage-to-pdf specs are gone").toHaveLength(6);
     expect(
       specs.filter((s) => s.includes("url: WEBPAGE_PROOF.url")),
-    ).toHaveLength(3);
+    ).toHaveLength(5);
     expect(specs.join("\n")).toContain("url: WEBPAGE_PROOF.url");
     expect(specs.join("\n")).toContain(
       "verifyPageOnly(WEBPAGE_PROOF.visible, {",
