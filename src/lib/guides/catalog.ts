@@ -3199,7 +3199,7 @@ export const guides: Guide[] = [
     ],
     steps: [
       `Open the ${nameOf("pdf-to-powerpoint")} tool.`,
-      `Drop one PDF on the box, or browse for it. Files up to ${ceilingMb("pdf-to-powerpoint")} MB are accepted, and Remove takes back a wrong pick.`,
+      `Drop a PDF on the box, or browse for it. Files up to ${ceilingMb("pdf-to-powerpoint")} MB are accepted, Remove takes back a wrong pick, and two or more PDFs open a batch list.`,
       "Press Export PPTX. Your PDF uploads over an encrypted connection to our secure server, and the button follows the job while the slides are assembled.",
       `When “Your PPTX file is ready.” appears, press Download. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save the file right away.`,
       "Open the .pptx and check it against the PDF, which is the reference for fonts and drawing.",
@@ -3328,7 +3328,7 @@ export const guides: Guide[] = [
       },
       {
         question: "How big can the document be?",
-        answer: `Up to ${ceilingMb("word-to-pdf")} MB, one document per conversion. For a batch, convert one file, press Remove, and add the next.`,
+        answer: `Up to ${ceilingMb("word-to-pdf")} MB, one document per conversion. Add two or more and they convert in turn, as a batch.`,
       },
       {
         question: "Can I convert a password-protected Word file?",
@@ -4729,7 +4729,7 @@ export const guides: Guide[] = [
         body: [
           "Formulas do not come across as formulas. Each cell is printed as the result it shows, which suits a month-end report or an audit folder: later edits to the workbook never change the PDF.",
           "There is no sheet picker, so the whole workbook goes to the converter. To send just one sheet, copy it into a new workbook and convert that. A macro-enabled .xlsm is refused as soon as you add it, before anything uploads; save a copy as .xlsx first.",
-          `${nameOf("excel-to-pdf")} converts one spreadsheet per job. To hand over several as a single file, convert each one, then combine the PDFs with ${nameOf("merge-pdf")}. For Word documents, ${nameOf("word-to-pdf")} works the same way.`,
+          `${nameOf("excel-to-pdf")} converts one spreadsheet per job; add several at once and they convert in turn, as a batch. To hand them over as a single file, combine the PDFs with ${nameOf("merge-pdf")}. For Word documents, ${nameOf("word-to-pdf")} works the same way.`,
         ],
       },
       {
@@ -4809,7 +4809,7 @@ export const guides: Guide[] = [
         id: "several-decks-and-other-formats",
         heading: "Several decks, and other presentation apps",
         body: [
-          `The tool converts one presentation per job. For a workshop handout, convert each deck in turn, then combine the PDFs with ${nameOf("merge-pdf")}. Word documents go through ${nameOf("word-to-pdf")} the same way.`,
+          `The tool converts one presentation per job; add several decks at once and they convert in turn, as a batch. For a workshop handout, combine the PDFs with ${nameOf("merge-pdf")}. Word documents go through ${nameOf("word-to-pdf")} the same way.`,
           "PowerPoint's .pptx and .ppt and OpenDocument's .odp are accepted; any other type is refused before anything is uploaded. From Google Slides, download the deck as a Microsoft PowerPoint file first. From Keynote, export it to PowerPoint, then convert that file here.",
         ],
       },
@@ -4848,7 +4848,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-07",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-extract-pages-from-a-pdf",
@@ -5039,7 +5039,7 @@ export const guides: Guide[] = [
     ],
     steps: [
       `Open the ${nameOf("pdf-to-pdfa")} tool. The badge at the top reads Secure server when conversion is available; otherwise Convert to PDF/A stays off and nothing is sent.`,
-      "Drop one PDF on the area that says “Add a PDF, or browse”, or click it to choose the file. Remove, beside its name, swaps it for another.",
+      "Drop a PDF on the area that says “Add a PDF, or browse”, or click it to choose the file. Remove, beside its name, swaps it for another; two or more PDFs open a batch list.",
       `Leave ${PDFA_LEVEL_LABEL} on ${PDF_A_STANDARD} unless your archive or portal names another level; then pick it.`,
       "Press Convert to PDF/A. Your PDF uploads over an encrypted connection to our secure server, and the button follows the job while Ghostscript rewrites it.",
       "If Ghostscript reported anything, “What PDF/A could not keep” lists it above “Your PDF/A file is ready.” Read it before you replace your original.",
@@ -6379,7 +6379,7 @@ export const guides: Guide[] = [
       `The PDF, up to ${ceilingMb("optimize-web")} MB, is uploaded to our secure server and deleted when the job ends. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
     ],
     steps: [
-      "Drop your PDF on the box that says “Add a PDF, or”, or click browse to pick it. The tool takes one PDF at a time.",
+      "Drop your PDF on the box that says “Add a PDF, or”, or click browse to pick it. Two or more PDFs open a batch list, sent to our server one at a time.",
       "Press Optimize on our secure server, which uploads the file over an encrypted connection. The button reads “Uploading your file…”, then “Waiting for our server…” if there is a queue, “Optimizing on our secure server…” while qpdf works, and “Downloading the result…”.",
       "Read the lines above the download. “Your web-optimized PDF is ready.” means it worked; the line under it says the file is linearized for fast web view and shows its size before and after.",
       `Press the button reading Download and the new name: ${WEB_EXAMPLE_IN} comes back as ${WEB_EXAMPLE_OUT}. Save it before you reload the page; after a reload, run the job again.`,
@@ -6442,7 +6442,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-07",
+    updated: "2026-11-08",
   },
   // Split PDF Pages in Half (#260), read off split-half.ts and
   // split-half-runner.tsx: Direction (Left and right | Top and bottom), Page

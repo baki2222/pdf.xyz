@@ -23,6 +23,7 @@ import {
   PDFA_LEVEL_LABEL,
   PDFA_LEVEL_NAMES,
 } from "@/lib/workers/pdf-archive/levels";
+import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
 
 /**
  * The prose below explains conformance level "b" and names PDF/A-2b as the
@@ -171,6 +172,10 @@ const content: ToolContent = {
 
   useCases: [
     {
+      title: "Several files at once",
+      body: workerBatchPageSentence("pdf-to-pdfa"),
+    },
+    {
       title: "Depositing a thesis in a university repository",
       body: `Some repositories ask for PDF/A at deposit. Convert the final version here, then run the repository's own checker, or an independent validator such as veraPDF, before you submit: this tool checks only that its output is a PDF that declares ${PDF_A_STANDARD} and carries a colour profile, not that it conforms.`,
     },
@@ -194,8 +199,8 @@ const content: ToolContent = {
       body: "The badge at the top reads Secure server when conversion is available. Otherwise the panel says why and its Convert button stays off, so nothing is sent.",
     },
     {
-      title: "Add one PDF",
-      body: 'Drop it on the area reading "Add a PDF, or", or click browse. Its name replaces the drop area, with Remove beside it to swap files. Before anything is uploaded, your browser checks the file for digital signatures: converting rewrites the whole file, so a signature will not survive as a valid one. If it finds any, the panel says how many, and Convert to PDF/A stays off until you tick the box that begins "Convert anyway".',
+      title: "Add your PDF",
+      body: 'Drop it on the area reading "Add a PDF, or", or click browse; two or more PDFs open a batch list, with one level for them all, and a signed PDF in a batch is left out, unsent, with a row that says to convert it on its own. Its name replaces the drop area, with Remove beside it to swap files. Before anything is uploaded, your browser checks the file for digital signatures: converting rewrites the whole file, so a signature will not survive as a valid one. If it finds any, the panel says how many, and Convert to PDF/A stays off until you tick the box that begins "Convert anyway".',
     },
     {
       title: "Choose the PDF/A level",

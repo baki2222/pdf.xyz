@@ -14,6 +14,7 @@ import {
   EPUB_MAX_UNPACKED_BYTES,
 } from "@/lib/workers/epub/native-config";
 import { resolveNativeHtmlRenderConfig } from "@/lib/workers/html-render/native-config";
+import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
 
 /**
  * Every claim below was read off the implementation (2026-11-06):
@@ -83,6 +84,10 @@ const content: ToolContent = {
   ],
 
   useCases: [
+    {
+      title: "Several files at once",
+      body: workerBatchPageSentence("epub-to-pdf"),
+    },
     {
       title: "Print a book or a chapter on paper",
       body: `An e-reader reflows text for its screen; a printer needs pages. The PDF has fixed ${DEFAULT_SIZE} pages by default, about the size of a paperback, or Letter or A4 if you want to print on ordinary office paper.`,

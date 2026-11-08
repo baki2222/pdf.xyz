@@ -51,6 +51,6 @@ export const WORKER_BATCH_PAUSED = PER_CLIENT_KEYING_DISCLOSED
 
 /** A worker tool page's account of its batch, from the registration. */
 export function workerBatchPageSentence(slug: WorkerBatchSlug): string {
-  const { zipName, verb, noun } = WORKER_BATCH_TOOLS[slug];
-  return `Add two or more ${noun[1]} and they open as a batch list; any option you set applies to all of them. Press ${verb} with the number of files and each one runs in turn on our secure server, one job at a time; download a file from its row, or press “Download all” for ${zipName}. ${batchLimitsSentence(slug)} ${workerBatchUploadSentence()} Each file counts as one of the ${RATE_LIMITS.jobsPerHourPerClient} server jobs an hour that ${SHARED_BY}; if that limit is reached the batch pauses and carries on by itself when it lifts, as long as the page stays open.`;
+  const { zipName, noun } = WORKER_BATCH_TOOLS[slug];
+  return `Add two or more ${noun[1]} and they open as a batch list; any option you set applies to all of them. The button under the list then names the number of files; each one runs in turn on our secure server, one job at a time; download a file from its row, or press “Download all” for ${zipName}. ${batchLimitsSentence(slug)} ${workerBatchUploadSentence()} Each file counts as one of the ${RATE_LIMITS.jobsPerHourPerClient} server jobs an hour that ${SHARED_BY}; if that limit is reached the batch pauses and carries on by itself when it lifts, as long as the page stays open.`;
 }

@@ -9,6 +9,7 @@ import {
 } from "@/lib/workers/office-conversion/engine";
 import { resolveNativeOfficeConversionConfig } from "@/lib/workers/office-conversion/native-config";
 import { officePdfOutputName } from "@/lib/workers/processor/office-conversion";
+import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
 
 /**
  * The deck ceiling: the smaller of what `/api/uploads` accepts and what the
@@ -98,12 +99,16 @@ const content: ToolContent = {
   metaDescription: `Turn a PPTX, PPT or ODP deck into a PDF with one slide per page, rendered by LibreOffice. Your upload is deleted after the job; the link expires in ${LINK_MINUTES} min.`,
 
   intro: [
-    `PowerPoint to PDF takes one presentation, a modern .pptx, a legacy .ppt from PowerPoint 97–2003 or an OpenDocument .odp, and returns a PDF with one slide per page. Each page keeps the slide's shape, so a widescreen deck is not squeezed onto A4 or Letter. Text typed into text boxes stays searchable, copyable text; words inside a picture stay a picture.`,
+    `PowerPoint to PDF takes a modern .pptx, a legacy .ppt from PowerPoint 97–2003 or an OpenDocument .odp, and returns a PDF with one slide per page. Each page keeps the slide's shape, so a widescreen deck is not squeezed onto A4 or Letter. Text typed into text boxes stays searchable, copyable text; words inside a picture stay a picture.`,
     `Conversion does not happen in your browser. The deck is uploaded over TLS to pdf.xyz's secure server, and LibreOffice exports it there with its default PDF settings, because this page sends the converter no options of its own. The uploaded presentation is deleted when the job finishes, the download link expires after ${LINK_MINUTES} minutes, and the stored copy is erased by a daily storage rule after that. The converter takes decks of up to ${CEILING_MB} MB.`,
     `Animations do not carry over, so bullet points that appeared one click at a time all show together. LibreOffice's default export leaves speaker notes and hidden slides out. Because LibreOffice rather than Microsoft PowerPoint does the drawing, missing fonts are substituted and elaborate effects can shift slightly, so skim the result before you send it.`,
   ],
 
   useCases: [
+    {
+      title: "Several files at once",
+      body: workerBatchPageSentence("powerpoint-to-pdf"),
+    },
     {
       title: "Send a deck to someone without PowerPoint",
       body: "A client reading on a phone or a colleague on a Chromebook can open a PDF in whatever viewer they already have, with the visible slides in the order you set.",
@@ -118,7 +123,7 @@ const content: ToolContent = {
     },
     {
       title: "Build one handout from several decks",
-      body: "This tool converts one presentation per job. Convert each deck in turn, then combine the resulting PDFs with Merge PDF to hand out a single file for a whole workshop.",
+      body: "Add every deck at once and they convert in turn, as a batch, one presentation per job; then combine the resulting PDFs with Merge PDF to hand out a single file for a whole workshop.",
     },
   ],
 

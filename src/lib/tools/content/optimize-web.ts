@@ -3,6 +3,7 @@ import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { webOptimizedOutputName } from "@/lib/workers/processor/pdf-structure";
+import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
 
 /*
  * Every behavioral claim below was read from the code on 2026-09-27:
@@ -84,6 +85,10 @@ const content: ToolContent = {
 
   useCases: [
     {
+      title: "Several files at once",
+      body: workerBatchPageSentence("optimize-web"),
+    },
+    {
       title: "Manuals and catalogues linked from a website",
       body: "A long manual served from your own site can show its cover quickly instead of making the visitor wait for the whole file, as long as the server answers byte-range requests.",
     },
@@ -107,8 +112,8 @@ const content: ToolContent = {
       body: "On load the panel asks the server status endpoint whether a server is ready to accept jobs, and shows the answer in a badge, which reads “Secure server” on the live site. The drop box takes a file at once, and it goes to our secure server only once that answer is yes and you press the button: while the check runs the panel says “Checking our secure server…”, a failed check offers “Check again”, and if our server is not enabled it offers “Notify me when this ships”, which only adds one to a count of requests for this tool.",
     },
     {
-      title: "Add one PDF",
-      body: `Drop the PDF on the dashed drop zone, or click that zone to open a file picker. It takes a single document; drop several and all but the first are ignored. The chosen name then replaces the zone, with “Remove” beside it to start over. The upload is requested with the file's size and a type read from its name, so a file over ${ceilingMb} MB, or one whose name does not end in .pdf, is turned away before any of its bytes are sent.`,
+      title: "Add your PDF",
+      body: `Drop the PDF on the dashed drop zone, or click that zone to open a file picker; two or more PDFs open a batch list instead. The chosen name then replaces the zone, with “Remove” beside it to start over. The upload is requested with the file's size and a type read from its name, so a file over ${ceilingMb} MB, or one whose name does not end in .pdf, is turned away before any of its bytes are sent.`,
     },
     {
       title: "Click “Optimize on our secure server”",
