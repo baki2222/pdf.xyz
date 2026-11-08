@@ -5,12 +5,13 @@ import { checkPixelCeiling, jpegFrameProblem } from "./raster-check";
 import * as F from "@/tests/hostile/conversion-in.fixtures";
 
 /*
- * One ceiling, three readers (hostile matrix CI-02 / CI-04 / CI-05,
+ * One ceiling, the two readers that DECODE (hostile matrix CI-04 / CI-05,
  * 2026-11-08). pixel-ceiling.ts used to say "both engines" read the ceiling
- * while the PNG embedder inflated a 144 MP bomb without looking. Each JPG /
- * PNG to PDF reader is run here with a file ONE ROW over the ceiling, through
+ * while the PNG embedder inflated a 144 MP bomb without looking. The PNG and
+ * TIFF readers are run here with a file ONE ROW over the ceiling, through
  * the engine entry point, so a reader that drifts to its own number (or
- * stops reading it) turns this red.
+ * stops reading it) turns this red. A JPEG is copied, not decoded, and is
+ * run past the ceiling to show it still goes in.
  */
 
 const W = 10_000;
@@ -39,17 +40,15 @@ const file = (name: string, bytes: Uint8Array): ImagePdfInput => ({
   bytes,
 });
 
-describe("MAX_DECODED_PIXELS is read by every JPG / PNG to PDF reader", () => {
+describe("MAX_DECODED_PIXELS is read by every JPG / PNG to PDF reader that decodes", () => {
   it("health check: the edge is a whole number of 10,000 px rows", () => {
     expect(MAX_DECODED_PIXELS % W).toBe(0);
     expect(OVER * W).toBeGreaterThan(MAX_DECODED_PIXELS);
     expect(() => checkPixelCeiling(W, OVER - 1)).not.toThrow();
-    expect(jpegFrameProblem(F.jpegClaiming(W, OVER - 1))).toBeNull();
   });
 
   it.each([
     ["a.png", () => F.pngClaiming(W, OVER)],
-    ["a.jpg", () => F.jpegClaiming(W, OVER)],
     ["a.tif", () => tiffClaiming(W, OVER)],
   ])(
     "%s one row over the ceiling is refused by its size",
@@ -59,4 +58,19 @@ describe("MAX_DECODED_PIXELS is read by every JPG / PNG to PDF reader", () => {
       );
     },
   );
+
+  // INVERTED (review, 2026-11-08). This file first held "a.jpg one row over
+  // the ceiling is refused by its size" too, which refused real 102 MP
+  // camera JPEGs that converted before. A JPEG is held to its scan data
+  // instead (raster-check.ts), so this one carries data at 170 px a byte.
+  it("a.jpg one row over the ceiling is NOT refused: a JPEG is not decoded", async () => {
+    const base = F.jpegClaiming(W, OVER);
+    const pad = Math.ceil((W * OVER) / 170);
+    const bytes = new Uint8Array(base.length + pad);
+    bytes.set(base.subarray(0, base.length - 2));
+    bytes.set(base.subarray(base.length - 2), base.length - 2 + pad);
+    expect(jpegFrameProblem(bytes)).toBeNull();
+    const pdf = await imagesToPdf("jpg", [file("a.jpg", bytes)]);
+    expect(pdf.byteLength).toBeGreaterThan(pad);
+  });
 });

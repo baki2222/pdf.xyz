@@ -35,9 +35,9 @@ export function undecodableImageMessage(
  * raster-draw-boundary.test.ts holds this module like every embedder).
  * Nothing is kept.
  *
- * A JPEG is first walked to its scan and its end marker, and held to the
- * pixel ceiling (`raster-check.ts`), as Create PDF does; a PNG's size is
- * held to the same ceiling inside `png-embed.ts`.
+ * A JPEG is first walked to its scan and its end marker, and its size held
+ * to its scan data (`raster-check.ts`), as Create PDF does; a PNG's size is
+ * held to the pixel ceiling inside `png-embed.ts`.
  *
  * LIMITS: damage INSIDE a JPEG's scan data is not decoded, here or at run;
  * and this embeds the raw JPEG, where Create PDF with Photo details on Remove

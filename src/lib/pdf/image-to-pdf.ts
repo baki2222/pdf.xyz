@@ -597,12 +597,10 @@ async function addImagePage(
   }
   let image;
   try {
-    // A JPEG is checked to its end marker and against the pixel ceiling
-    // first: pdf-lib reads only its frame header (`raster-check.ts`).
-    if (format === "jpg") {
-      const problem = jpegFrameProblem(bytes);
-      if (problem) throw problem;
-    }
+    // A JPEG is checked to its end marker, and its size against its scan
+    // data, first: pdf-lib reads only its frame header (`raster-check.ts`).
+    if (format === "jpg" && jpegFrameProblem(bytes))
+      throw new Error("damaged JPEG");
     // A PNG keeps its own encoding — depth, palette, row filtering, colour
     // profile (`png-embed.ts`); loaded on the first PNG only.
     image =

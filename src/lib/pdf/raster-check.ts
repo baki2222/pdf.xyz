@@ -14,8 +14,18 @@
  *    gigapixel image no viewer can show (CI-02);
  *  - a header claiming 0 × 0, which is not a PDF image at all (CI-03).
  * {@link jpegFrameProblem} walks the segments to the first scan (SOS), reads
- * the frame's size there, and requires the end-of-image marker (FF D9) after
- * the scan. Inside the scan a 0xFF byte is always followed by 00 (stuffing)
+ * the frame's size there, holds that size to the scan data behind it
+ * ({@link MAX_PIXELS_PER_SCAN_BYTE}), and requires the end-of-image marker
+ * (FF D9) after the scan.
+ *
+ * NOT the pixel ceiling. A JPEG is never decoded here: pdf-lib copies its
+ * bytes into the PDF and the viewer decodes them, so the memory question
+ * {@link MAX_DECODED_PIXELS} answers does not arise, as Extract Images
+ * already decided (`extract-images.ts`). HISTORY: the first CI-02 fix held a
+ * JPEG to that ceiling and refused real 101.8 MP Fujifilm GFX100 and
+ * Hasselblad X2D photos and stitched panoramas, which converted before, with
+ * "more than the 100 megapixels" (review, 2026-11-08). The defect was never
+ * the size; it was a size the data cannot hold. Inside the scan a 0xFF byte is always followed by 00 (stuffing)
  * or a restart marker, so the first FF D9 after SOS is the image's own end;
  * an Exif thumbnail's FF D9 sits in an APP1 segment BEFORE the scan and is
  * skipped with its segment. Bytes after the end marker (a phone's appended
@@ -65,19 +75,37 @@ export function tooManyPixelsMessage(
 const isFrameMarker = (m: number) =>
   m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc;
 
+/** SOF9..SOF15: arithmetic coding, which has no one-bit floor (below). */
+const isArithmetic = (m: number) => m >= 0xc9;
+
+/**
+ * The most pixels a Huffman-coded JPEG can hold per byte of scan data: 2,048.
+ * A PROOF, not a taste. Every 8 × 8 block of every component is coded in
+ * some scan, and the shortest Huffman code is one bit, so a block costs at
+ * least one bit. The component sampled widest (H = Hmax) has at least
+ * width/8 × height/(8 × Vmax) blocks, and Vmax ≤ 4, so a frame has at least
+ * pixels/256 blocks: at least pixels/2,048 bytes. A header claiming more is
+ * claiming pixels the file does not contain.
+ * Headroom, measured with libjpeg-turbo and mozjpeg (sharp 0.35.5) on a
+ * flat grey 4,000 × 3,000 frame, the most compressible picture there is:
+ * 170 px a byte at baseline q1 to q75, 169 progressive, 339 mozjpeg — 6 ×
+ * under the bound at the worst. Arithmetic frames (SOF9+) are left out: a
+ * flat block can cost far less than a bit there (and pdf.js reads only
+ * SOF0 to SOF2).
+ */
+export const MAX_PIXELS_PER_SCAN_BYTE = 2048;
+
 /**
  * What stops a JPEG from embedding whole: `"damaged"` (no SOI, a segment
- * that runs past the end, no frame before the scan, a zero side, no scan,
- * or no end marker after it), an {@link ImageTooLarge} for a frame over the
- * ceiling, or `null` for a JPEG that may be embedded.
+ * that runs past the end, no frame before the scan, a zero side, no scan, no
+ * end marker after it, or a size the scan data cannot hold), or `null` for a
+ * JPEG that may be embedded. No pixel ceiling: the JPEG is not decoded.
  */
-export function jpegFrameProblem(
-  bytes: Uint8Array,
-): "damaged" | ImageTooLarge | null {
+export function jpegFrameProblem(bytes: Uint8Array): "damaged" | null {
   if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8)
     return "damaged";
   let at = 2;
-  let frame: { width: number; height: number } | null = null;
+  let frame: { width: number; height: number; marker: number } | null = null;
   for (;;) {
     // Markers may be padded with any number of 0xFF fill bytes.
     if (bytes[at] !== 0xff) return "damaged";
@@ -97,15 +125,22 @@ export function jpegFrameProblem(
       frame = {
         height: (bytes[at + 3]! << 8) | bytes[at + 4]!,
         width: (bytes[at + 5]! << 8) | bytes[at + 6]!,
+        marker,
       };
     }
     at += length;
     if (marker === 0xda) break;
   }
   if (!frame || frame.width === 0 || frame.height === 0) return "damaged";
-  if (frame.width * frame.height > MAX_DECODED_PIXELS)
-    return new ImageTooLarge(frame.width, frame.height);
   for (let i = bytes.indexOf(0xff, at); i >= 0; i = bytes.indexOf(0xff, i + 1))
-    if (bytes[i + 1] === 0xd9) return null;
+    if (bytes[i + 1] === 0xd9) {
+      const pixels = frame.width * frame.height;
+      if (
+        !isArithmetic(frame.marker) &&
+        pixels > MAX_PIXELS_PER_SCAN_BYTE * (i - at)
+      )
+        return "damaged";
+      return null;
+    }
   return "damaged";
 }

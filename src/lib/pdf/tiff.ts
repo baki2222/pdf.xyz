@@ -80,9 +80,19 @@ export const MIN_BELIEVED_DPI = 10;
  * pt wide, and on Letter the image was drawn as an invisible speck. The rule
  * is the page's size, not a dpi ceiling, so a real 4,000 dpi film scan (a
  * 35 mm frame, about 5,600 px, is 100 pt wide) is still laid out at its size
- * on paper; such a page falls back to one pixel per point instead.
+ * on paper; such a page falls back to one pixel per point instead. The rule
+ * applies only ABOVE {@link MAX_ORDINARY_TIFF_DPI}: a 100 px icon at 300 dpi
+ * (24 pt) keeps its size (review, 2026-11-08; the first fix enlarged it 4 ×).
  */
 export const MIN_BELIEVED_PAGE_PT = 36;
+
+/**
+ * Up to this a stated resolution is believed whatever page it makes: 2,400
+ * dpi, the line JPG / PNG to PDF draws (`MAX_PLAUSIBLE_DPI` in
+ * `image-density.ts`, not imported so this lazy chunk does not pull the
+ * layout tables in; conversion-in-l09.test.ts holds the two equal).
+ */
+export const MAX_ORDINARY_TIFF_DPI = 2400;
 
 /** One page of a TIFF, as its IFD describes it, checked but not decoded. */
 export interface TiffPage {
@@ -522,8 +532,9 @@ function checkPage(
   );
   const dpi =
     stated &&
-    Math.max((width * 72) / stated.x, (height * 72) / stated.y) >=
-      MIN_BELIEVED_PAGE_PT
+    (Math.max(stated.x, stated.y) <= MAX_ORDINARY_TIFF_DPI ||
+      Math.max((width * 72) / stated.x, (height * 72) / stated.y) >=
+        MIN_BELIEVED_PAGE_PT)
       ? stated
       : null;
   return {

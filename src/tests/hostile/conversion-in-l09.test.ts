@@ -27,7 +27,12 @@ import {
   MIN_CUSTOM_PAGE_PT,
   pageSetupProblem,
 } from "@/lib/pdf/image-page-custom";
-import { MIN_BELIEVED_PAGE_PT, readTiffPages } from "@/lib/pdf/tiff";
+import {
+  MAX_ORDINARY_TIFF_DPI,
+  MIN_BELIEVED_PAGE_PT,
+  readTiffPages,
+} from "@/lib/pdf/tiff";
+import { MAX_PLAUSIBLE_DPI } from "@/lib/pdf/image-density";
 import { scansToPdf } from "@/lib/pdf/scan-to-pdf";
 import { layoutPlainText, textToPdf } from "@/lib/pdf/text-to-pdf";
 import {
@@ -40,7 +45,7 @@ import { boxOf, drawnImages } from "@/tests/drawn-images";
 import { useNodeFontSource } from "@/tests/unicode-fonts";
 import { runBounded } from "./bounded";
 import * as F from "./conversion-in.fixtures";
-import { REAL_JPEGS } from "./real-jpegs.fixtures";
+import { FLAT_GREY_MOZJPEG, REAL_JPEGS } from "./real-jpegs.fixtures";
 
 const CHILD = "src/tests/hostile/conversion-in-l09.child.ts";
 
@@ -84,6 +89,29 @@ function withThumbnail(jpeg: Uint8Array): Uint8Array {
   seg.set([0xff, 0xe1, (payload.length + 2) >> 8, (payload.length + 2) & 255]);
   seg.set(payload, 4);
   return spliceAfterSoi(jpeg, seg);
+}
+
+/** Bytes from the end of a JPEG's first SOS header to its last FF D9. */
+function scanLength(jpeg: Uint8Array): number {
+  const sos = F.sosOffset(jpeg);
+  const headerEnd = sos + 2 + ((jpeg[sos + 2]! << 8) | jpeg[sos + 3]!);
+  return jpeg.lastIndexOf(0xd9) - 1 - headerEnd;
+}
+
+/**
+ * The control JPEG claiming `width` x `height`, its scan data padded with
+ * zero bytes (legal entropy-coded data) to `scan` bytes: the shape of a real
+ * file whose data matches its size, without encoding 100 MP in a test.
+ */
+function jpegWithScan(width: number, height: number, scan: number) {
+  const base = F.jpegClaiming(width, height);
+  const pad = scan - scanLength(base);
+  if (pad < 0) throw new Error("fixture: scan shorter than the control's");
+  const eoi = base.length - 2;
+  const out = new Uint8Array(base.length + pad);
+  out.set(base.subarray(0, eoi));
+  out.set(base.subarray(eoi), eoi + pad);
+  return out;
 }
 
 describe("fixture health", () => {
@@ -144,25 +172,73 @@ describe("CI-01: a JPEG cut off after its frame header is refused", () => {
 });
 
 describe("CI-02 / CI-03: a JPEG's declared size is checked", () => {
-  it("CI-02: a 30 x 20 JPEG claiming 65,535 x 65,535 is refused by size", async () => {
+  it("CI-02: a 30 x 20 JPEG claiming 65,535 x 65,535 is refused as damaged: its scan data cannot hold that", async () => {
+    // HISTORY: the first fix refused this with the pixel-ceiling sentence
+    // ("more than the 100 megapixels"), which also refused real 102 MP
+    // camera JPEGs (review, 2026-11-08). The defect is a size the data
+    // cannot hold, so the file is called what it is: damaged.
     await expect(
       imagesToPdf("jpg", [img("a.jpg", F.jpegClaiming(65_535, 65_535))]),
-    ).rejects.toThrow(
-      '"a.jpg" is 65,535 × 65,535 pixels, more than the 100 megapixels an image can have here.',
-    );
+    ).rejects.toThrow(undecodableImageMessage("a.jpg", "jpg"));
     expect(await imageDecodes(F.jpegClaiming(65_535, 65_535), "jpg")).toBe(
       false,
     );
   });
 
-  it("CI-02: the ceiling is the shared MAX_DECODED_PIXELS, at its edge", async () => {
-    // 10,000 x 10,000 is exactly the ceiling; one more row is over it.
-    expect(MAX_DECODED_PIXELS).toBe(10_000 * 10_000);
-    await expect(
-      imagesToPdf("jpg", [img("a.jpg", F.jpegClaiming(10_000, 10_001))]),
-    ).rejects.toThrow(/more than the 100 megapixels/);
+  // INVERTED (review, 2026-11-08). This was "CI-02: the ceiling is the
+  // shared MAX_DECODED_PIXELS, at its edge", asserting 10,000 x 10,001 was
+  // refused "by size". A JPEG is not decoded on this path, so that ceiling
+  // refused real files that converted before the lane. Each frame below
+  // carries scan data at 170 px a byte, libjpeg-turbo's ratio for a flat
+  // grey frame (measured), so it is as plausible as a real file.
+  it.each([
+    ["Fujifilm GFX100 / Hasselblad X2D", 11_648, 8_736],
+    ["Phase One IQ4 150 MP", 14_204, 10_652],
+    ["stitched panorama", 30_000, 6_000],
+  ])(
+    "CI-02: a %s JPEG (%i x %i), over 100 MP, still goes in",
+    async (_label, w, h) => {
+      const bytes = jpegWithScan(w, h, Math.ceil((w * h) / 170));
+      expect(w * h).toBeGreaterThan(MAX_DECODED_PIXELS);
+      expect(await imageDecodes(bytes, "jpg")).toBe(true);
+      const doc = await PDFDocument.load(
+        await imagesToPdf("jpg", [img("a.jpg", bytes)]),
+      );
+      expect(doc.getPageCount()).toBe(1);
+    },
+  );
+
+  it("CI-02: the bound is MAX_PIXELS_PER_SCAN_BYTE, at its edge, and it is the one-bit proof", async () => {
+    const { jpegFrameProblem, MAX_PIXELS_PER_SCAN_BYTE } =
+      await import("@/lib/pdf/raster-check");
+    // 8 bits a byte x 64 px a block x Vmax 4: one bit per block at least.
+    expect(MAX_PIXELS_PER_SCAN_BYTE).toBe(8 * 64 * 4);
+    const w = 4096;
+    const h = 4096;
+    const edge = (w * h) / MAX_PIXELS_PER_SCAN_BYTE;
+    expect(jpegFrameProblem(jpegWithScan(w, h, edge))).toBeNull();
+    expect(jpegFrameProblem(jpegWithScan(w, h, edge - 1))).toBe("damaged");
+  });
+
+  it("CI-02 second bound: the flattest real encoder output sits far under the bound", async () => {
+    const { jpegFrameProblem, MAX_PIXELS_PER_SCAN_BYTE } =
+      await import("@/lib/pdf/raster-check");
+    const ratio = (1024 * 768) / scanLength(FLAT_GREY_MOZJPEG);
+    // Health check: the fixture IS the compressible extreme it claims.
+    expect(ratio).toBeGreaterThan(300);
+    expect(ratio * 4).toBeLessThan(MAX_PIXELS_PER_SCAN_BYTE);
+    expect(jpegFrameProblem(FLAT_GREY_MOZJPEG)).toBeNull();
+    const doc = await PDFDocument.load(
+      await imagesToPdf("jpg", [img("flat.jpg", FLAT_GREY_MOZJPEG)]),
+    );
+    expect(doc.getPageCount()).toBe(1);
+  });
+
+  it("CI-02 limit: an arithmetic-coded frame (SOF9) is not held to the one-bit bound", async () => {
     const { jpegFrameProblem } = await import("@/lib/pdf/raster-check");
-    expect(jpegFrameProblem(F.jpegClaiming(10_000, 10_000))).toBeNull();
+    const bytes = F.jpegClaiming(65_535, 65_535);
+    bytes[F.sofOffset(bytes) + 1] = 0xc9;
+    expect(jpegFrameProblem(bytes)).toBeNull();
   });
 
   it.each([
@@ -238,6 +314,40 @@ describe("CI-07: a TIFF resolution that would make a speck is not believed", () 
 
   it("CI-07: the smallest believed page is the smallest custom page", () => {
     expect(MIN_BELIEVED_PAGE_PT).toBe(MIN_CUSTOM_PAGE_PT);
+  });
+
+  it.each([
+    ["a 100 x 100 px icon", 100, 100, 24],
+    ["a 140 x 50 px signature crop", 140, 50, 33.6],
+  ])(
+    "CI-07 positive control (review): %s at an ordinary 300 dpi keeps its size on paper",
+    (_label, width, height, widthPt) => {
+      // HISTORY: the first CI-07 fix ignored any resolution that made a page
+      // under half an inch, so these were laid out at 1 px a point, 4 x too
+      // big. A resolution up to MAX_PLAUSIBLE_DPI is believed whatever the
+      // page size; the half-inch rule only rescues film scans above it.
+      const [page] = readTiffPages(
+        "small.tif",
+        F.tiffWithRational(300, 1, { width, height }),
+      );
+      expect(page!.dpi).toEqual({ x: 300, y: 300 });
+      expect(page!.widthPt).toBeCloseTo(widthPt, 5);
+    },
+  );
+
+  it("CI-07: the TIFF reader's ordinary-dpi line is the JPG / PNG one", () => {
+    expect(MAX_ORDINARY_TIFF_DPI).toBe(MAX_PLAUSIBLE_DPI);
+    // At that line a 100 px page is believed (3 pt); one dpi over, not.
+    const at = (dpi: number) =>
+      readTiffPages(
+        "edge.tif",
+        F.tiffWithRational(dpi, 1, { width: 100, height: 100 }),
+      )[0]!.dpi;
+    expect(at(MAX_PLAUSIBLE_DPI)).toEqual({
+      x: MAX_PLAUSIBLE_DPI,
+      y: MAX_PLAUSIBLE_DPI,
+    });
+    expect(at(MAX_PLAUSIBLE_DPI + 1)).toBeNull();
   });
 
   it("CI-07 positive control: a 4,000 dpi film-scan resolution is still believed", () => {
