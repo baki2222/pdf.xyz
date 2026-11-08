@@ -54,7 +54,14 @@ describe("scanContentBalance: q/Q as a viewer executes them", () => {
     ["dict delimiters are not hex strings", "q /P <</MCID 0>> BDC Q", 0, 0],
     ["a /Q name is a name", "q /Q gs /q Do", 0, 1],
     ["a % comment hides the rest of its line", "q % Q Q\nq", 0, 2],
-    ["QQ and qQ are not q or Q", "q QQ qQ", 0, 1],
+    // Inverted (review of l06): this case used to assert "QQ and qQ are not
+    // q or Q" — 0 surplus, 1 open. pdf.js lexes a run of letters greedily
+    // but stops where the next letter would leave its operator table, so
+    // `QQ` is Q, Q and `qQ` is q, Q. The old reading meant `qq 2 0 0 2 0 0
+    // cm Q Q` had two "surplus" Q blanked out from under a page that pdf.js
+    // draws balanced (see the review-l06 tests below).
+    ["QQ and qQ split the way pdf.js lexes them", "q QQ qQ", 1, 0],
+    ["a number ends at a letter: 1Q is 1, Q", "q 1Q", 0, 0],
     [
       "inline image data is skipped up to EI",
       "q BI /W 3 /H 1 /CS /G /BPC 8 ID Q Q EI q",
@@ -383,6 +390,284 @@ describe("STAMP-09 / EDIT-09 at depth 100,000 (child process, independent interp
 });
 
 /* ------------------------------------------------------------------ *
+ *  Review of l06: the page's OWN bytes are rewritten only from a scan a
+ *  viewer agrees with. Blanking a surplus Q is the one step that changes
+ *  how the page's own content draws, so a misread there corrupts a page
+ *  that renders correctly today.
+ * ------------------------------------------------------------------ */
+
+function bytesOf(...parts: Array<string | number[]>): Uint8Array {
+  const out: number[] = [];
+  for (const part of parts)
+    out.push(
+      ...(typeof part === "string" ? Buffer.from(part, "latin1") : part),
+    );
+  return new Uint8Array(out);
+}
+
+/** 64 mid-gray pixel bytes with `inject` written at offset 10. */
+function pixels(inject: string): number[] {
+  const pix = new Array<number>(64).fill(0x80);
+  Buffer.from(inject, "latin1").forEach((c, k) => (pix[10 + k] = c));
+  return pix;
+}
+
+async function rawPage(
+  content: Uint8Array,
+  dict: Record<string, unknown> = {},
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const p = doc.addPage([612, 792]);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  p.node.setFontDictionary(PDFName.of("F1"), font.ref);
+  const stream = doc.context.flateStream(content, dict as never);
+  p.node.set(PDFName.of("Contents"), doc.context.register(stream));
+  return doc.save();
+}
+
+const IMAGE_HEAD = "q 100 0 0 100 50 50 cm BI /W 8 /H 8 /CS /G /BPC 8 ID ";
+
+// The reviewer's probe: an uncompressed 8x8 gray inline image whose pixel
+// bytes happen to contain " EI " and then " Q ". The page is balanced;
+// pdf.js reads `Base` at (72,700) and the image at [50,50,150,150].
+const FALSE_EI = bytesOf(
+  IMAGE_HEAD,
+  pixels(" EI Q "),
+  `\nEI Q\nq 0.5 0 0 0.5 0 0 cm Q\n${BASE_TEXT}\n`,
+);
+
+// pdf.js lexes `qq` as q, q: balanced, Base at full size. Read as one unknown
+// word, `qq` left both Q looking surplus, and blanking them shrank Base 10x.
+const DOUBLED = enc(`qq ${SCALE} Q Q ${BASE_TEXT}`);
+
+async function ownContent(bytes: Uint8Array) {
+  const read = await readAsViewer(bytes);
+  return {
+    base: read.texts
+      .filter((t) => /^Base/.test(t.str))
+      .map((t) => [t.str, Math.round(t.x), Math.round(t.y), t.size]),
+    images: read.images.map((b) => b.map((n) => Math.round(n)).join(",")),
+  };
+}
+
+const OWN_CONTENT_ENGINES: Array<[string, Engine]> = [
+  ...STAMP_ENGINES,
+  [
+    "Edit PDF rectangle",
+    async (b) =>
+      (
+        await editPdf(b, [
+          {
+            type: "rect",
+            page: 1,
+            x: 10,
+            y: 10,
+            width: 20,
+            height: 20,
+            color: "#ff0000",
+          },
+        ])
+      ).bytes,
+  ],
+];
+
+describe("review-l06: a page that renders correctly today still does after the tool", () => {
+  test("review-l06: false ' EI ' inside uncompressed inline image data is image data (length and pdf.js agree)", () => {
+    expect(scanContentBalance(FALSE_EI)).toEqual({
+      surplus: [],
+      open: 0,
+      uncertain: false,
+    });
+  });
+
+  // pdf.js accepts a false EI only when an operator, with the right number
+  // of operands, follows it. These two follow a false EI with printable
+  // bytes that fail that test, so pdf.js (and the length) read on to the
+  // real EI and the page stays certain.
+  for (const [what, inject] of [
+    ["an unknown operator ('[')", " EI [1 2 3 4 5 6 7 8] "],
+    ["the wrong operand count (3 before cm)", " EI 1 2 3 cm 4 5 6 7 8 "],
+  ] as const) {
+    test(`review-l06: a false EI followed by ${what} is still image data`, () => {
+      const content = bytesOf(
+        IMAGE_HEAD,
+        pixels(inject),
+        `\nEI Q\n${BASE_TEXT}\n`,
+      );
+      expect(scanContentBalance(content)).toEqual({
+        surplus: [],
+        open: 0,
+        uncertain: false,
+      });
+    });
+  }
+
+  test("review-l06: `qq … Q Q` is two saves and two restores, as pdf.js lexes it", () => {
+    expect(scanContentBalance(DOUBLED)).toEqual({
+      surplus: [],
+      open: 0,
+      uncertain: false,
+    });
+  });
+
+  for (const [fixtureName, content] of [
+    ["inline image data containing ' EI ' and ' Q '", FALSE_EI],
+    ["`qq <scale> Q Q`", DOUBLED],
+  ] as const) {
+    for (const [engineName, run] of OWN_CONTENT_ENGINES) {
+      test(`review-l06: ${engineName} — ${fixtureName}: the page's own text and image read where pdf.js read them before`, async () => {
+        const original = await rawPage(content);
+        const before = await ownContent(original);
+        // Health: the base line was read, at full size, where it was drawn.
+        expect(before.base).toEqual([["Base", 72, 700, 24]]);
+        expect(await ownContent(await run(original))).toEqual(before);
+      }, 60_000);
+    }
+  }
+
+  test("review-l06: on every fixture in this file, the scanner's q/Q balance is pdf.js's own (read from its operator list)", async () => {
+    // The scanner copies pdf.js's lexing rules; this is the independent
+    // check that the copy agrees with the real thing. pdf.js's operator
+    // list keeps every save and restore, so walking it gives the surplus Q
+    // a viewer actually executes. pdf.js appends a restore for every save
+    // left open at the end, so open q are read as the depth at a sentinel
+    // operator (`7 w`, used nowhere else) appended to each fixture.
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const { PDFJS_DOCUMENT_DEFAULTS } = await import("@/lib/pdf/wasm-assets");
+    const viewerBalance = async (bytes: Uint8Array) => {
+      const task = pdfjs.getDocument({
+        ...PDFJS_DOCUMENT_DEFAULTS,
+        data: bytes.slice(),
+        useWorkerFetch: false,
+        disableFontFace: true,
+      });
+      const doc = await task.promise;
+      try {
+        const list = await (await doc.getPage(1)).getOperatorList();
+        let depth = 0;
+        let surplus = 0;
+        let qQ = 0;
+        let open = -1;
+        for (const fn of list.fnArray) {
+          if (fn === pdfjs.OPS.setLineWidth) open = depth;
+          else if (fn === pdfjs.OPS.save) {
+            qQ += 1;
+            depth += 1;
+          } else if (fn === pdfjs.OPS.restore) {
+            qQ += 1;
+            if (depth === 0) surplus += 1;
+            else depth -= 1;
+          }
+        }
+        return { surplus, open, qQ };
+      } finally {
+        await task.destroy();
+      }
+    };
+    const fixtures: Array<[string, Uint8Array]> = [
+      ["false EI", FALSE_EI],
+      ["qq … Q Q", DOUBLED],
+      ["q QQ qQ", enc("q QQ qQ")],
+      ["q 1Q", enc("q 1Q")],
+      [
+        "false EI then '['",
+        bytesOf(IMAGE_HEAD, pixels(" EI [1 2 3 4 5 6 7 8] "), "\nEI Q\n"),
+      ],
+      [
+        "false EI then 3 operands for cm",
+        bytesOf(IMAGE_HEAD, pixels(" EI 1 2 3 cm 4 5 6 7 8 "), "\nEI Q\n"),
+      ],
+      ...HOSTILE.map(([name, c]): [string, Uint8Array] => [name, enc(c)]),
+    ];
+    let compared = 0;
+    for (const [name, fixture] of fixtures) {
+      const content = bytesOf([...fixture], "\n7 w\n");
+      const viewer = await viewerBalance(await rawPage(content));
+      // Health: pdf.js read q/Q from the page at all.
+      expect(viewer.qQ, name).toBeGreaterThan(0);
+      expect(viewer.open, `${name}: sentinel read`).toBeGreaterThanOrEqual(0);
+      const scan = scanContentBalance(content);
+      expect({ surplus: scan.surplus.length, open: scan.open }, name).toEqual({
+        surplus: viewer.surplus,
+        open: viewer.open,
+      });
+      compared += 1;
+    }
+    expect(compared).toBe(9);
+  }, 60_000);
+
+  test("review-l06: where pdf.js and the image's own length disagree about its end, the page is left exactly as before", async () => {
+    // pdf.js ends this image at the false EI (operators follow it);
+    // /W /H /BPC say it runs 64 bytes. Two readings, so no rewrite.
+    const content = bytesOf(
+      IMAGE_HEAD,
+      pixels(" EI Q 1 0 0 1 0 0 cm "),
+      `\nEI Q Q ${SCALE} ${BASE_TEXT}\n`,
+    );
+    expect(scanContentBalance(content).uncertain).toBe(true);
+    const doc = await PDFDocument.load(await rawPage(content));
+    const p = doc.getPage(0);
+    const before = String(p.node.get(PDFName.of("Contents")));
+    expect(await isolatePageContent(p)).toEqual({
+      kind: "skipped",
+      reason: "ambiguous",
+    });
+    expect(String(p.node.get(PDFName.of("Contents")))).toBe(before);
+  });
+
+  test("review-l06: a filtered inline image with no /L has no second reading, so a surplus Q beside it is not blanked", async () => {
+    const tail = `\nEI Q Q ${SCALE} ${BASE_TEXT}\n`;
+    const filtered = bytesOf(
+      "q BI /W 8 /H 8 /IM true /F /CCF ID ",
+      pixels(" EI Q "),
+      tail,
+    );
+    const doc = await PDFDocument.load(await rawPage(filtered));
+    const p = doc.getPage(0);
+    const before = String(p.node.get(PDFName.of("Contents")));
+    expect(await isolatePageContent(p)).toEqual({
+      kind: "skipped",
+      reason: "ambiguous",
+    });
+    expect(String(p.node.get(PDFName.of("Contents")))).toBe(before);
+
+    // Positive control: the same page with an /L the data agrees with
+    // is read for certain, and its real surplus Q is blanked.
+    const withLength = bytesOf(
+      "q BI /W 8 /H 8 /IM true /F /CCF /L 64 ID ",
+      pixels("\x80\x80\x80\x80\x80\x80"),
+      tail,
+    );
+    const ok = await PDFDocument.load(await rawPage(withLength));
+    expect(await isolatePageContent(ok.getPage(0))).toEqual({
+      kind: "isolated",
+      blanked: 1,
+      closed: 0,
+    });
+  });
+
+  test("review-l06: a content stream with a /Predictor (which pdf-lib does not undo) is not rewritten", async () => {
+    const content = enc(`Q ${SCALE} ${BASE_TEXT}`);
+    const doc = await PDFDocument.load(
+      await rawPage(content, { DecodeParms: { Predictor: 12, Columns: 4 } }),
+    );
+    const p = doc.getPage(0);
+    const before = String(p.node.get(PDFName.of("Contents")));
+    expect(await isolatePageContent(p)).toEqual({
+      kind: "skipped",
+      reason: "unreadable",
+    });
+    expect(String(p.node.get(PDFName.of("Contents")))).toBe(before);
+    // Positive control: without the predictor the same bytes are isolated.
+    const plain = await PDFDocument.load(await rawPage(content));
+    expect(await isolatePageContent(plain.getPage(0))).toMatchObject({
+      kind: "isolated",
+      blanked: 1,
+    });
+  });
+});
+
+/* ------------------------------------------------------------------ *
  *  What must NOT change.
  * ------------------------------------------------------------------ */
 
@@ -454,6 +739,18 @@ describe("decoding is bounded", () => {
       closed: 3,
     });
   });
+
+  test("scanning a full budget of ordinary operators stays bounded (0.26 s measured, 5 s allowed)", () => {
+    const unit = `q 1 0 0 1 5.5 5 cm 0 0 m 10 10 l S BT /F1 12 Tf (Hello \\) world) Tj ET Q\n`;
+    const content = enc(
+      unit.repeat(Math.floor(ISOLATION_DECODE_BUDGET / unit.length)),
+    );
+    const t0 = Date.now();
+    const got = scanContentBalance(content);
+    expect(Date.now() - t0).toBeLessThan(5_000);
+    // Health: it read the whole thing as the balanced, certain page it is.
+    expect(got).toEqual({ surplus: [], open: 0, uncertain: false });
+  }, 30_000);
 
   test("a deflate bomb as page content stops at the budget instead of inflating", async () => {
     // 1.5x the budget of zeros: pdf-lib's flate compresses it ~1000:1.
