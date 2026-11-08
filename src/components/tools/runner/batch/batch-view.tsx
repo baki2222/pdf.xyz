@@ -101,6 +101,21 @@ export interface BatchViewProps<R> {
   zipName: string;
   /** What this tool offers when the ZIP cannot be built. */
   zipFallback: string;
+  /**
+   * The ZIP's compression. STORE (the default) for outputs that are already
+   * compressed (PDF, JPEG); DEFLATE where an output is not (Extract Images'
+   * PNGs keep their pixels uncompressed).
+   */
+  compression?: "STORE" | "DEFLATE";
+  /**
+   * For a tool that makes many files of each input (batch plan P2): the
+   * folder its files go in, in "Download all"'s ZIP — named after the input,
+   * and told apart from another input's folder of the same name by
+   * `uniqueEntryNames` (" (2)") — and the ZIP its row's own download saves
+   * when it made more than one file. Without it, every file sits at the
+   * archive's top level and each has its own row button.
+   */
+  bundle?: (result: R) => { folder: string; zipName: string };
   /** "Choose different files" / "New files". */
   onReset: () => void;
   /**
@@ -156,6 +171,8 @@ export function BatchView<R>({
   inputBytes: inputBytesOf,
   zipName,
   zipFallback,
+  compression = "STORE",
+  bundle,
   onReset,
   onOneLeft,
 }: BatchViewProps<R>) {
@@ -233,8 +250,12 @@ export function BatchView<R>({
   const signedCount = doneItems.filter(
     (item) => signaturesOf(item.result) > 0,
   ).length;
+  // A row that made no file (Extract Images on a PDF with no images) has
+  // nothing to download, and is not counted in "Download all".
   const downloadable = doneItems.filter(
-    (item) => includeSigned || signaturesOf(item.result) === 0,
+    (item) =>
+      (includeSigned || signaturesOf(item.result) === 0) &&
+      outputsOf(item.result).length > 0,
   );
 
   // What the batch made, as the files a download gives — and so what the
@@ -256,14 +277,48 @@ export function BatchView<R>({
   const { zipping, zipError, downloadZip } = useZipDownload();
   const downloadAll = useCallback(async () => {
     if (files.length === 0) return;
-    // STORE: a batch's outputs are already-compressed files, and DEFLATE
-    // would only spend a phone's CPU on them.
-    await downloadZip(
-      files.map(({ name, blob }) => ({ name, blob })),
-      zipName,
-      { compression: "STORE", fallback: zipFallback },
-    );
-  }, [files, downloadZip, zipName, zipFallback]);
+    let entries = files.map(({ name, blob }) => ({ name, blob }));
+    if (bundle) {
+      // One folder per input, two inputs of one name told apart the way
+      // two files of one name are. The naming rule ships with the archive
+      // builder (`loadZipArchive` fetches the same module), never with the
+      // page.
+      const { uniqueEntryNames } = await import("@/lib/pdf/zip-archive");
+      const folders = uniqueEntryNames(
+        downloadable.map((item) => bundle(item.result).folder),
+      );
+      entries = downloadable.flatMap((item, i) =>
+        outputsOf(item.result).map(({ name, blob }) => ({
+          name: `${folders[i]}/${name}`,
+          blob,
+        })),
+      );
+    }
+    // STORE by default: a batch's outputs are already-compressed files, and
+    // DEFLATE would only spend a phone's CPU on them.
+    await downloadZip(entries, zipName, { compression, fallback: zipFallback });
+  }, [
+    files,
+    bundle,
+    downloadable,
+    outputsOf,
+    downloadZip,
+    zipName,
+    compression,
+    zipFallback,
+  ]);
+  // One row's files as their own ZIP, when it made more than one.
+  const downloadRow = useCallback(
+    (result: R) => {
+      if (!bundle || zipping) return;
+      void downloadZip(
+        outputsOf(result).map(({ name, blob }) => ({ name, blob })),
+        bundle(result).zipName,
+        { compression, fallback: zipFallback },
+      );
+    },
+    [bundle, zipping, downloadZip, outputsOf, compression, zipFallback],
+  );
 
   // The live region: each file as it settles (`announcesSettle`), and the
   // batch's end. "Adjusting state while rendering" keeps the previous
@@ -390,6 +445,7 @@ export function BatchView<R>({
             describe={describe}
             outputs={outputsOf}
             downloadLabel={downloadLabel}
+            onDownloadAll={bundle ? downloadRow : null}
             allowDownload={
               includeSigned ||
               item.result === undefined ||
@@ -600,6 +656,7 @@ function BatchRow<R>({
   describe,
   outputs,
   downloadLabel,
+  onDownloadAll,
   allowDownload,
   onRemove,
   removeRef,
@@ -610,6 +667,11 @@ function BatchRow<R>({
   describe: (result: R) => ReactNode;
   outputs: (result: R) => BatchOutputFile[];
   downloadLabel: (item: BatchItem<R>, result: R) => string;
+  /**
+   * Set for a bundling tool: a row that made several files gets ONE button,
+   * which saves them as that row's own ZIP.
+   */
+  onDownloadAll: ((result: R) => void) | null;
   /** False for a signed file the person has not opted into downloading. */
   allowDownload: boolean;
   /** Present before Run, while more than one file is listed. */
@@ -642,6 +704,15 @@ function BatchRow<R>({
           className={ROW_BUTTON}
         >
           <X className="size-4" aria-hidden />
+        </button>
+      ) : files.length > 1 && onDownloadAll && result !== undefined ? (
+        <button
+          type="button"
+          onClick={() => onDownloadAll(result)}
+          aria-label={downloadLabel(item, result)}
+          className={ROW_BUTTON}
+        >
+          <FileArchive className="size-4" aria-hidden />
         </button>
       ) : files.length > 0 && result !== undefined ? (
         files.map((file) => (
