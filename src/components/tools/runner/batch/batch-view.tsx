@@ -121,6 +121,13 @@ export interface BatchViewProps<R> {
    * plan P3): what happened, when it carries on, Continue now and Cancel.
    */
   paused?: ReactNode;
+  /**
+   * Drawn in place of "Retry failed (k)" once the batch has ended with
+   * failures (batch plan P4): a tool whose retry needs something typed
+   * again — Unlock's "Try another password" — draws its own form, and
+   * calls `retry` to run the failed rows, and only them, again.
+   */
+  retry?: (failed: number, retry: () => void) => ReactNode;
   /** "Choose different files" / "New files". */
   onReset: () => void;
   /**
@@ -179,6 +186,7 @@ export function BatchView<R>({
   compression = "STORE",
   bundle,
   paused,
+  retry: retryForm,
   onReset,
   onOneLeft,
 }: BatchViewProps<R>) {
@@ -242,6 +250,12 @@ export function BatchView<R>({
   }, [settled]);
   // Unmounted mid-batch: the rows it was held for will never be drawn.
   useEffect(() => () => settleHold.current?.(), []);
+  // A tool's own retry form (`retry`) runs the failed rows through this,
+  // as "Retry failed" does.
+  const retryRows = useCallback(() => {
+    settleHold.current = holdRunnerStage();
+    retryFailed();
+  }, [retryFailed]);
 
   const doneItems = state.items.filter(
     (item): item is BatchItem<R> & { result: R } =>
@@ -523,6 +537,14 @@ export function BatchView<R>({
         </p>
       )}
 
+      {settled && progress.error > 0 && retryForm && (
+        <RetrySlot
+          render={retryForm}
+          failed={progress.error}
+          onRetry={retryRows}
+        />
+      )}
+
       {/* Controls */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-muted text-xs">{footnote}</p>
@@ -607,7 +629,7 @@ export function BatchView<R>({
               >
                 New files
               </button>
-              {progress.error > 0 && (
+              {progress.error > 0 && !retryForm && (
                 <button
                   type="button"
                   onClick={() => {
@@ -671,6 +693,19 @@ export function BatchView<R>({
       )}
     </div>
   );
+}
+
+/** Where a tool's own retry form is drawn (`BatchViewProps.retry`). */
+function RetrySlot({
+  render,
+  failed,
+  onRetry,
+}: {
+  render: (failed: number, retry: () => void) => ReactNode;
+  failed: number;
+  onRetry: () => void;
+}) {
+  return <>{render(failed, onRetry)}</>;
 }
 
 /** A control under the list: 44px tall on a phone, `sm`'s height from `sm` up. */

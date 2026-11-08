@@ -166,11 +166,14 @@ export interface WorkerProcessOptions {
   pollIntervalMs?: number;
   maxPollAttempts?: number;
   /**
-   * A look at the file's bytes before anything is uploaded; throw a
-   * `BatchSkip` to leave it out (a signed PDF that the single-file panel
-   * would ask about first).
+   * A look at the file's bytes before anything is uploaded; throw (or
+   * reject with) a `BatchSkip` to leave it out — a signed PDF that the
+   * single-file panel would ask about first, or (batch plan P4) a PDF that
+   * Unlock finds not locked, or Protect finds already encrypted. Awaited,
+   * so a check that has to open the file (`classifyPdfAccess`) runs before
+   * the upload, never beside it.
    */
-  preflight?: (file: File, bytes: Uint8Array) => void;
+  preflight?: (file: File, bytes: Uint8Array) => void | Promise<void>;
   /** One outcome per file, as its row settles (never for a pause or a cancel). */
   report?: (outcome: WorkerOutcome) => void;
   /**
@@ -301,7 +304,8 @@ export function workerProcess(
       } else {
         const bytes = new Uint8Array(await file.arrayBuffer());
         if (signal.aborted) throw canceled();
-        options.preflight?.(file, bytes);
+        await options.preflight?.(file, bytes);
+        if (signal.aborted) throw canceled();
         result = await attempt(() =>
           run({ filename: file.name, bytes }, controls),
         );
