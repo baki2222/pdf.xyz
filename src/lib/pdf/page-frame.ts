@@ -1,5 +1,5 @@
 import type { PDFPage } from "pdf-lib";
-import { normalizeAngle } from "./rotation";
+import { viewerRotation } from "./rotation";
 import { loadPdfLib } from "./pdf-lib";
 
 /**
@@ -53,9 +53,22 @@ export interface Box {
 /** A page box (MediaBox/CropBox) in unrotated content space. */
 export type PageBox = Box;
 
-/** Snap any angle to the nearest 0/90/180/270, normalized to [0, 360). */
+/**
+ * A page's STORED `/Rotate` as the viewer applies it: a multiple of 90,
+ * normalized into [0, 360); anything else — 45, 1e9, NaN — reads as 0, which
+ * is what pdf.js 6 does (`Page.rotate` in pdf.worker.mjs) and so what the
+ * person sees in every preview.
+ *
+ * HISTORY (hostile matrix STAMP-08 / EDIT-07): this was `normalizeAngle`,
+ * which SNAPS to the nearest quarter turn, so on a `/Rotate 45` page that
+ * pdf.js shows upright every stamp, edit, form field and crop was laid out
+ * for a page turned 90°: page numbers ran sideways down the left edge and
+ * Edit measured the page 792x612. `stamp.test.ts` pinned the snap
+ * (`normalizeRotation(46) === 90`); it is inverted there. A user-chosen
+ * angle (Rotate PDF's turn) still snaps through `normalizeAngle`.
+ */
 export const normalizeRotation: (angle: number) => PageRotation =
-  normalizeAngle;
+  viewerRotation;
 
 export interface VisiblePageFrame {
   /** Visible width in points, as displayed (after `/Rotate`). */
@@ -92,6 +105,28 @@ function normalizeBox(b: Box): Box {
 }
 
 /**
+ * The page pdf.js shows when a page's MediaBox is unusable: US Letter at the
+ * origin (`LETTER_SIZE_MEDIABOX` in pdf.js 6's worker).
+ */
+const VIEWER_FALLBACK_MEDIA_BOX: Box = { x: 0, y: 0, width: 612, height: 792 };
+
+/**
+ * A normalized box a viewer accepts: every number finite and a positive
+ * width AND height. pdf.js's `getBoundingBox` warns "Empty, or invalid,
+ * /MediaBox entry" and drops any other (`[0 0 0 0]`, a width of `-0`), and
+ * so does this. Non-finite is refused here too: pdf-lib reads an overflowing
+ * literal (`1e400`) as Infinity, and no arithmetic on it is a page.
+ */
+function usableBox(b: Box): Box | null {
+  const n = normalizeBox(b);
+  return [n.x, n.y, n.width, n.height].every(Number.isFinite) &&
+    n.width > 0 &&
+    n.height > 0
+    ? n
+    : null;
+}
+
+/**
  * A page's displayed size, accounting for its rotation: a page rotated 90°/270°
  * presents its box's height as its width and vice-versa. This is the space a
  * viewer-frame coordinate (a redaction rectangle, an edit's anchor) lives in.
@@ -107,13 +142,27 @@ export function displayedPageSize(
     : { width, height };
 }
 
-/** Build a frame from the raw page boxes and `/Rotate`. Pure — shared by the reader below and tests. */
+/**
+ * Build a frame from the raw page boxes and `/Rotate`. Pure — shared by the
+ * reader below and tests.
+ *
+ * The boxes are read the way pdf.js 6 reads them (`Page.mediaBox`,
+ * `cropBox` and `view`), so the frame is the page the person sees: an
+ * unusable MediaBox ({@link usableBox}) is US Letter, an unusable CropBox is
+ * the MediaBox, and a CropBox that misses the MediaBox is the MediaBox
+ * ({@link intersect}). HISTORY (hostile matrix EDIT-06, STAMP-10, PS-10,
+ * CO-05): a `[0 0 0 0]` MediaBox, which pdf.js draws as a 612x792 page with
+ * its content, gave a 0x0 frame — Edit refused every box "outside the 0×0 pt
+ * page", page numbers centred on x = 0, the image watermark and N-up
+ * divided by zero (an `Infinity` operand, or pdf-lib's raw NaN TypeError).
+ */
 export function frameFromBoxes(
   mediaBox: Box,
   cropBox: Box,
   rotateDegrees: number,
 ): VisiblePageFrame {
-  const box = intersect(normalizeBox(cropBox), normalizeBox(mediaBox));
+  const media = usableBox(mediaBox) ?? VIEWER_FALLBACK_MEDIA_BOX;
+  const box = intersect(usableBox(cropBox) ?? media, media);
   const rotation = normalizeRotation(rotateDegrees);
   return {
     ...displayedPageSize(box.width, box.height, rotation),

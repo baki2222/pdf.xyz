@@ -1,7 +1,7 @@
 import { drawRasterImage, embedRasterImage, loadPdfLib } from "./pdf-lib";
 import { PdfEngineError, loadPdf } from "./engine";
 import { outputName } from "./files";
-import { displayedPageSize } from "./page-frame";
+import { displayedPageSize, visiblePageFrame } from "./page-frame";
 import { parsePageList } from "./ranges";
 // Types only: the rasterizer loads when a redaction runs (below), not with
 // Redact PDF's page.
@@ -281,14 +281,32 @@ export function pageSizeForRaster(
 /**
  * Read each page's displayed size (rotation-aware, in points). Used by the UI to
  * bound and validate boxes before running the redaction.
+ *
+ * It is the size the RASTER is painted against — pdf.js's
+ * `getViewport({ scale: 1 })` — because {@link redactionRectToPixels} maps a
+ * box by `canvas / pageWidth` with pdf.js's width. So it reads the page as
+ * pdf.js does: the visible frame ({@link visiblePageFrame}: boxes
+ * normalized, a zero-area box replaced as pdf.js replaces it, `/Rotate`
+ * read as the viewer applies it), times the page's `/UserUnit`, which
+ * pdf.js's viewport multiplies in (`scale *= userUnit`; a positive number,
+ * else 1 — `Page.userUnit`).
+ *
+ * HISTORY (hostile matrix CO-04, CO-05): this read pdf-lib's raw CropBox.
+ * Under `/UserUnit 2` a whole-page box covered a QUARTER of the raster and
+ * the rest stayed readable in a "redacted" file; an inverted MediaBox
+ * measured -300×-200 and a `[0 0 0 0]` one 0×0, refusing every box.
  */
 export async function getRedactPageSizes(
   bytes: Uint8Array,
 ): Promise<PageSize[]> {
+  const { PDFName, PDFNumber } = await loadPdfLib();
   const doc = await loadPdf(bytes);
   return doc.getPages().map((page) => {
-    const { width, height } = page.getCropBox();
-    return displayedPageSize(width, height, page.getRotation().angle);
+    const { width, height } = visiblePageFrame(page);
+    const raw = page.node.lookup(PDFName.of("UserUnit"));
+    const unit = raw instanceof PDFNumber ? raw.asNumber() : 1;
+    const scale = Number.isFinite(unit) && unit > 0 ? unit : 1;
+    return { width: width * scale, height: height * scale };
   });
 }
 

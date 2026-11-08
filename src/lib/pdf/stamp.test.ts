@@ -19,13 +19,20 @@ describe("resolveAlign", () => {
 });
 
 describe("normalizeRotation", () => {
-  it("snaps to the nearest quarter turn in [0, 360)", () => {
+  // INVERTED (hostile matrix STAMP-08 / EDIT-07). This test was "snaps to
+  // the nearest quarter turn" and pinned `normalizeRotation(46) === 90` —
+  // the defect: pdf.js shows a `/Rotate 46` page upright, and every stamp
+  // was laid out for a page turned 90°. A stored /Rotate that is not a
+  // multiple of 90 now reads as 0, as the viewer applies it.
+  it("reads a stored /Rotate as the viewer does, in [0, 360)", () => {
     expect(normalizeRotation(0)).toBe(0);
     expect(normalizeRotation(90)).toBe(90);
     expect(normalizeRotation(-90)).toBe(270);
     expect(normalizeRotation(450)).toBe(90);
     expect(normalizeRotation(44)).toBe(0);
-    expect(normalizeRotation(46)).toBe(90);
+    expect(normalizeRotation(46)).toBe(0);
+    expect(normalizeRotation(1e9)).toBe(0);
+    expect(normalizeRotation(NaN)).toBe(0);
   });
 });
 
