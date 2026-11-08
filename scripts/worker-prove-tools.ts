@@ -250,8 +250,17 @@ import {
   turnedTextPage,
 } from "@/lib/workers/ocr-rotate-proof";
 import { renderPdfPages } from "@/tests/pdf-render";
+import { readNotoTtf } from "@/lib/pdf/noto-source";
+import { setFontByteSource } from "@/lib/pdf/unicode-font";
 
 const BASE = process.env.BASE ?? "https://pdf.xyz";
+
+// A fixture that draws past WinAnsi (the number-cells table's ₹) embeds a
+// Noto face, which the loader fetches from the site's own origin — there is
+// none in Node, and on 2026-11-08 the first such fixture threw before its
+// job was ever sent. Read the same TTFs the tests read (`src/tests/setup.ts`);
+// the fixture is ours, not a claim about the asset being served.
+setFontByteSource(async (pack) => readNotoTtf(pack));
 /** When set, every downloaded artifact is also written here (see its use). */
 const ARTIFACT_DIR = process.env.PROOF_ARTIFACT_DIR;
 const ONLY = process.argv.slice(2).filter((a) => !a.startsWith("-"));
