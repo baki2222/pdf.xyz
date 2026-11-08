@@ -211,3 +211,124 @@ describe("BatchSkip and withNote — a row that is neither a result nor a failur
     expect(outcomes()).toEqual(["tool_completed"]);
   });
 });
+
+/**
+ * Batch plan P3: a rate limit PAUSES the batch. `pauseOn` turns the error
+ * into the moment the limit lifts; the file goes back to the queue (never a
+ * failure, never reported as one by the batch), nothing runs while paused,
+ * and the same file runs again — by itself at `resumeAt` while the tab is
+ * open, or at "Continue now", which waits for `resumeAt` too.
+ */
+describe("pauseOn — a rate limit pauses, and the batch carries on from the same file", () => {
+  const units = unitsOf("a.pdf", "b.pdf", "c.pdf");
+  class Limited extends Error {
+    constructor(readonly resumeAt: number) {
+      super("limited");
+    }
+  }
+  const pauseOn = (err: unknown) =>
+    err instanceof Limited ? err.resumeAt : null;
+
+  it("puts the file back, runs nothing until the wait is over, then runs it again and finishes", async () => {
+    const calls: string[] = [];
+    let limitedOnce = false;
+    let resumeAt = 0;
+    const process = async (file: File) => {
+      calls.push(file.name);
+      if (file.name === "b.pdf" && !limitedOnce) {
+        limitedOnce = true;
+        resumeAt = Date.now() + 400;
+        throw new Limited(resumeAt);
+      }
+      return `${file.name}:ok`;
+    };
+    const { result } = setup(units, process, {
+      reportsOutcome: false,
+      pauseOn,
+    });
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.state.phase).toBe("paused"));
+    expect(result.current.state.items.map((i) => i.status)).toEqual([
+      "done",
+      "queued",
+      "queued",
+    ]);
+    expect(result.current.resumeAt).toBe(resumeAt);
+    // "Continue now" before the wait is over does nothing: given time to
+    // run the file again, it has not.
+    act(() => result.current.continueNow());
+    await act(() => new Promise((r) => setTimeout(r, 100)));
+    expect(result.current.state.phase).toBe("paused");
+    expect(calls).toEqual(["a.pdf", "b.pdf"]);
+    await waitFor(() => expect(result.current.state.phase).toBe("done"), {
+      timeout: 3000,
+    });
+    expect(calls).toEqual(["a.pdf", "b.pdf", "b.pdf", "c.pdf"]);
+    expect(result.current.state.items.map((i) => i.status)).toEqual([
+      "done",
+      "done",
+      "done",
+    ]);
+    expect(result.current.resumeAt).toBeNull();
+    // The batch reported nothing of its own (the process reports).
+    expect(outcomes()).toEqual([]);
+  });
+
+  it("'Continue now' once the wait is over carries on without the timer", async () => {
+    const calls: string[] = [];
+    let limited = false;
+    const process = async (file: File) => {
+      calls.push(file.name);
+      if (file.name === "a.pdf" && !limited) {
+        limited = true;
+        // Already over: the press may carry on at once, timer or no timer.
+        throw new Limited(Date.now() - 1);
+      }
+      return `${file.name}:ok`;
+    };
+    const { result } = setup(units, process, { pauseOn });
+    act(() => result.current.start());
+    await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(1));
+    act(() => result.current.continueNow());
+    await waitFor(() => expect(result.current.state.phase).toBe("done"));
+    expect(calls).toEqual(["a.pdf", "a.pdf", "b.pdf", "c.pdf"]);
+  });
+
+  it("a cancel while paused cancels the paused file and every file after it, and nothing runs", async () => {
+    const calls: string[] = [];
+    const process = async (file: File) => {
+      calls.push(file.name);
+      if (file.name === "b.pdf") throw new Limited(Date.now() + 60_000);
+      return `${file.name}:ok`;
+    };
+    const { result } = setup(units, process, { pauseOn });
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.state.phase).toBe("paused"));
+    act(() => result.current.cancel());
+    await waitFor(() => expect(result.current.running).toBe(false));
+    expect(result.current.state.phase).toBe("canceled");
+    expect(result.current.state.items.map((i) => i.status)).toEqual([
+      "done",
+      "canceled",
+      "canceled",
+    ]);
+    // Give a stray timer the chance to run something: it must not.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(calls).toEqual(["a.pdf", "b.pdf"]);
+  });
+
+  it("control: without pauseOn the same error fails its row", async () => {
+    const process = async (file: File) => {
+      if (file.name === "b.pdf") throw new Limited(Date.now() + 60_000);
+      return `${file.name}:ok`;
+    };
+    const { result } = setup(units, process);
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.state.phase).toBe("done"));
+    expect(result.current.state.items.map((i) => i.status)).toEqual([
+      "done",
+      "error",
+      "done",
+    ]);
+  });
+});

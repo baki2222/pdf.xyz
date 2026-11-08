@@ -15,6 +15,7 @@ import {
   ORIENTATION_CHOICE_WORDS,
   ORIENTATION_LABEL,
 } from "@/lib/workers/office-conversion/sheet-layout";
+import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
 
 /*
  * Behaviour claims below were read from the code on 2026-09-27:
@@ -153,6 +154,10 @@ const content: ToolContent = {
   ],
 
   useCases: [
+    {
+      title: "Several files at once",
+      body: workerBatchPageSentence("excel-to-pdf"),
+    },
     {
       title: "Send figures to someone who does not use Excel",
       body: "A budget, quote or timesheet becomes pages that open in any PDF viewer, where nobody can overtype a cell by accident.",

@@ -25,6 +25,16 @@
  *     the modules that import `pollJobToTerminal` must be exactly the modules
  *     that create jobs, so a lifecycle that hides its URL in a constant still
  *     turns up.
+ *     ONE BYPASS IS ALLOWED, and it is bounded from the other side (P3
+ *     review): a reference outside the wrapper is accepted only as the TRUE
+ *     branch of a test of `<x>.reportsOutcome === false` — a caller saying
+ *     it reports the outcome itself, as a worker batch does, ONE per file
+ *     across a file's several attempts. And every product module that
+ *     writes `reportsOutcome: false` must itself hold a function that
+ *     reaches a reporter (A2), so the opt-out cannot be taken by a module
+ *     that reports nothing. That a module's reporter is the one its opt-out
+ *     relies on is not provable statically (it is handed in as a callback);
+ *     `worker-batch.test.ts` reads it at the sink, one outcome per file.
  *  B. Hand-rolled run state — every function that declares its own run state
  *     (`const [busy, …] = useState`, `useState({ busy: … })`,
  *     `const runningRef = useRef`) must call something that reaches a
@@ -465,6 +475,52 @@ function jobCreations(corpus: Corpus): LifecycleSite[] {
 }
 
 /** Why a job-creating function is not always wrapped; empty when it is. */
+/**
+ * The one accepted bypass: `n` sits in the TRUE branch of a conditional
+ * whose test is `<x>.reportsOutcome === false` (see the module docblock).
+ */
+function optedOut(n: TS.Node): boolean {
+  let child: TS.Node = n;
+  let cur: TS.Node | undefined = n.parent;
+  while (cur && !ts.isSourceFile(cur) && !isFnLike(cur)) {
+    if (ts.isConditionalExpression(cur) && cur.whenTrue === child) {
+      const t = cur.condition;
+      return (
+        ts.isBinaryExpression(t) &&
+        t.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken &&
+        ts.isPropertyAccessExpression(t.left) &&
+        t.left.name.text === "reportsOutcome" &&
+        t.right.kind === ts.SyntaxKind.FalseKeyword
+      );
+    }
+    child = cur;
+    cur = cur.parent;
+  }
+  return false;
+}
+
+/** Every product module that writes `reportsOutcome: false`, with the line. */
+function optOuts(corpus: Corpus): { file: string; line: number }[] {
+  const out: { file: string; line: number }[] = [];
+  for (const mod of corpus.modules.values()) {
+    const walk = (n: TS.Node): void => {
+      if (
+        ts.isPropertyAssignment(n) &&
+        ts.isIdentifier(n.name) &&
+        n.name.text === "reportsOutcome" &&
+        n.initializer.kind === ts.SyntaxKind.FalseKeyword
+      )
+        out.push({
+          file: mod.file,
+          line: mod.sf.getLineAndCharacterOfPosition(n.getStart()).line + 1,
+        });
+      ts.forEachChild(n, walk);
+    };
+    walk(mod.sf);
+  }
+  return out;
+}
+
 function lifecycleProblems(
   corpus: Corpus,
   site: LifecycleSite,
@@ -502,7 +558,7 @@ function lifecycleProblems(
           cur = cur.parent;
         }
         if (inside) wrapped += 1;
-        else
+        else if (!optedOut(n))
           problems.push(
             `${site.file}:${mod.sf.getLineAndCharacterOfPosition(n.getStart()).line + 1}: ${site.holder} is used outside withToolOutcome`,
           );
@@ -662,7 +718,21 @@ function analyse(corpus: Corpus) {
   const lifecycle = wrapper
     ? creations.flatMap((s) => lifecycleProblems(corpus, s, wrapper))
     : ["withToolOutcome was not found among the reporters"];
-  return { seeds, reporting, wrapper, creations, owners, lifecycle };
+  const reportingFiles = new Set([...reporting].map((k) => k.split("#")[0]!));
+  const opted = optOuts(corpus);
+  const silentOptOuts = opted
+    .filter((o) => !reportingFiles.has(o.file))
+    .map((o) => `${o.file}:${o.line}`);
+  return {
+    seeds,
+    reporting,
+    wrapper,
+    creations,
+    owners,
+    lifecycle,
+    opted,
+    silentOptOuts,
+  };
 }
 
 const REAL = corpusOf();
@@ -694,6 +764,9 @@ export function ${name}() {
   return { busy, run };
 }`;
 const LEAKY_LIFECYCLE = "src/lib/workers/__fixture-leaky.ts";
+const GATED_LIFECYCLE = "src/lib/workers/__fixture-gated.ts";
+const SILENT_OPT_OUT = `${FIXTURE_DIR}/__fixture-silent-opt-out.ts`;
+const REPORTING_OPT_OUT = `${FIXTURE_DIR}/__fixture-reporting-opt-out.ts`;
 const editor = (report: boolean) => `
 import { useEffect, useState } from "react";
 import { analyzePdf } from "@/lib/pdf/analyze";
@@ -746,6 +819,38 @@ async function steps(fetchImpl: (u: string) => Promise<unknown>) {
 export const wrapped = (f: (u: string) => Promise<unknown>) =>
   withToolOutcome("thing", () => steps(f) as never);
 export const bypass = (f: (u: string) => Promise<unknown>) => steps(f);`,
+  // The accepted bypass, and one gated on something else (still a leak).
+  [GATED_LIFECYCLE]: `
+import { pollJobToTerminal } from "./job-polling";
+import { withToolOutcome } from "@/lib/telemetry/tool-outcome";
+async function gatedSteps(fetchImpl: (u: string) => Promise<unknown>) {
+  const job = await fetchImpl("/api/jobs");
+  return pollJobToTerminal(job as never);
+}
+export const honest = (
+  f: (u: string) => Promise<unknown>,
+  o: { reportsOutcome?: boolean },
+) =>
+  o.reportsOutcome === false
+    ? gatedSteps(f)
+    : withToolOutcome("thing", () => gatedSteps(f) as never);
+export const otherGate = (
+  f: (u: string) => Promise<unknown>,
+  o: { quiet?: boolean },
+) =>
+  o.quiet === false
+    ? gatedSteps(f)
+    : withToolOutcome("thing", () => gatedSteps(f) as never);`,
+  [SILENT_OPT_OUT]: `
+export function quietRun(run: (c: object) => Promise<unknown>) {
+  return run({ reportsOutcome: false });
+}`,
+  [REPORTING_OPT_OUT]: `
+import { reportToolCompleted } from "@/lib/telemetry/tool-outcome";
+export async function loudRun(run: (c: object) => Promise<unknown>) {
+  await run({ reportsOutcome: false });
+  reportToolCompleted({});
+}`,
 });
 const C = analyse(CONTROLS);
 
@@ -897,6 +1002,38 @@ describe("the instruments", () => {
     ).toHaveLength(1);
   });
 
+  it("positive control: the reportsOutcome bypass is accepted only as that exact test; any other gate is a leak", () => {
+    const gated = C.lifecycle.filter((p) => p.includes("__fixture-gated"));
+    expect(gated).toHaveLength(1);
+    expect(gated[0]).toMatch(/gatedSteps is used outside withToolOutcome/);
+    // The flagged reference is otherGate's, not honest's.
+    const src = CONTROLS.modules.get(GATED_LIFECYCLE)!.sf;
+    const line = Number(/:(\d+):/.exec(gated[0]!)![1]);
+    expect(src.text.split(String.fromCharCode(10))[line - 1]).toMatch(
+      /gatedSteps\(f\)$/,
+    );
+    expect(
+      src.text
+        .split(String.fromCharCode(10))
+        .slice(0, line - 1)
+        .join(" "),
+    ).toMatch(/o\.quiet === false\s*$/);
+  });
+
+  it("positive control: an opt-out in a module that reports nothing is flagged; one that reports is not", () => {
+    expect(C.silentOptOuts).toEqual([`${SILENT_OPT_OUT}:3`]);
+    expect(C.opted.map((o) => o.file)).toContain(REPORTING_OPT_OUT);
+  });
+
+  it("the real opt-outs are found: the worker batch's, and the shipped client still honours it", () => {
+    const files = new Set(R.opted.map((o) => o.file));
+    // Health: the worker batch's adapter is a subject (else A2 is blind).
+    expect([...files], [...files].join("\n")).toContain(
+      "src/components/tools/runner/batch/worker-batch.ts",
+    );
+    expect(files.size).toBeGreaterThanOrEqual(2);
+  });
+
   it("positive control: a shared run hook is flagged when ANY caller hands it silent work, or nothing calls it", () => {
     const hook = C.owners.find((o) => o.file === HOOK);
     expect(hook).toMatchObject({ fn: "useFixtureRun", reaches: false });
@@ -931,6 +1068,13 @@ describe("the instruments", () => {
 describe("every tool run reaches an outcome reporter", () => {
   it("A. every job lifecycle runs only through withToolOutcome", () => {
     expect(R.lifecycle).toEqual([]);
+  });
+
+  it("A2. a module that opts a job out of the client's reporting reports outcomes itself", () => {
+    expect(
+      R.silentOptOuts,
+      "these modules pass reportsOutcome: false and hold no function that reaches reportToolCompleted/Failed",
+    ).toEqual([]);
   });
 
   it("B. every function holding its own run state calls something that reports", () => {

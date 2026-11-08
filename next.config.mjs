@@ -265,9 +265,13 @@ const BATCH_MODULE =
 
 /**
  * The `import()` requests that open a batch: a runner's loader for its batch
- * module (`./batch/<tool>-batch`, `./compress-batch`).
+ * module (`./batch/<tool>-batch`, `./compress-batch`), and since batch plan
+ * P3 a worker panel's (`./runner/batch/worker-batch-runner`). Without the
+ * panels' form their loader's chunk was not batch-born, and what it shares
+ * with the browser batches split off into chunks of its own: +19 B gzip on
+ * every page, past what OCR PDF's budget row had left.
  */
-const BATCH_IMPORT = /^\.\/(?:batch\/|compress-batch$)/;
+const BATCH_IMPORT = /^\.\/(?:runner\/)?(?:batch\/|compress-batch$)/;
 
 /**
  * An async chunk that only a batch loader opens: every group it belongs to

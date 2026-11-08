@@ -116,6 +116,11 @@ export interface BatchViewProps<R> {
    * archive's top level and each has its own row button.
    */
   bundle?: (result: R) => { folder: string; zipName: string };
+  /**
+   * Drawn while the batch is paused on a rate limit (a worker batch, batch
+   * plan P3): what happened, when it carries on, Continue now and Cancel.
+   */
+  paused?: ReactNode;
   /** "Choose different files" / "New files". */
   onReset: () => void;
   /**
@@ -173,6 +178,7 @@ export function BatchView<R>({
   zipFallback,
   compression = "STORE",
   bundle,
+  paused,
   onReset,
   onOneLeft,
 }: BatchViewProps<R>) {
@@ -438,6 +444,8 @@ export function BatchView<R>({
           />
         </div>
       </div>
+
+      {state.phase === "paused" && paused}
 
       {settled && (
         <h3

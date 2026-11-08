@@ -7,6 +7,7 @@ import { MAX_DIAGNOSTIC_LINES } from "@/lib/workers/native-diagnostics";
 import { repairedOutputName } from "@/lib/workers/processor/pdf-structure";
 import { DEFAULT_INTAKE_POLICY } from "@/lib/uploads/intake";
 import { DEFAULT_SOUNDNESS_POLICY } from "@/lib/workers/soundness/policy";
+import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
 
 /*
  * Behaviour claims below were read from the code on 2026-09-27:
@@ -126,6 +127,10 @@ const content: ToolContent = {
 
   useCases: [
     {
+      title: "Several files at once",
+      body: workerBatchPageSentence("repair-pdf"),
+    },
+    {
       title: "An attachment your viewer calls damaged",
       body: "A file clipped in transit, or saved by a program that crashed mid-write, can have a cross-reference table that no longer matches its contents. If the objects themselves are intact, a rebuilt table may be all it needs to open again.",
     },
@@ -146,7 +151,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add the damaged PDF",
-      body: `Drop one PDF onto the box reading "Add a PDF, or browse", or click it and choose the file; up to ${CEILING_MB} MB, and there are no settings to choose. The box takes a file at once; nothing is sent until the status badge at the top of the panel reads Secure server and you press Repair on our secure server.`,
+      body: `Drop a PDF onto the box reading "Add a PDF, or browse", or click it and choose the file; up to ${CEILING_MB} MB, and there are no settings to choose. Two or more PDFs open a batch list instead. The box takes a file at once; nothing is sent until the status badge at the top of the panel reads Secure server and you press Repair on our secure server.`,
     },
     {
       title: "Press Repair on our secure server",

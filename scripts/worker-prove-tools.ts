@@ -1141,6 +1141,22 @@ const SPECS: ProofSpec[] = [
     want: "linearized PDF",
     verify: async (bytes) => linearizationVerdict(bytes),
   },
+  // Batch plan P3: a worker batch is N of the single jobs above, sent one
+  // after another, each with one input. Two in a row through the public
+  // API, each judged on its own output (`pnpm worker:prove-tools
+  // worker-batch`). The page's own order — job k ends before file k+1 is
+  // reserved — is proved at the wire by e2e/worker-batch.spec.ts.
+  ...[1, 2].map((n): ProofSpec => ({
+    tool: "optimize-web",
+    label: `optimize-web (batch ${n} of 2)`,
+    group: "worker-batch",
+    make: textPdf,
+    name: `batch-${n}.pdf`,
+    type: PDF_MIME,
+    expect: isPdf,
+    want: `linearized PDF (batch file ${n} of 2)`,
+    verify: async (bytes) => linearizationVerdict(bytes),
+  })),
   {
     tool: "ocr-pdf",
     make: imagePdf,

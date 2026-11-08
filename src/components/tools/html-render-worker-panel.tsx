@@ -2,6 +2,7 @@
 
 import { RunReason } from "@/components/tools/runner/run-reason";
 import { useCallback, useEffect, useId, useState } from "react";
+import dynamic from "next/dynamic";
 import {
   BookOpen,
   Download,
@@ -143,7 +144,7 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
             mode === "url"
               ? "One public URL"
               : mode === "epub"
-                ? "One DRM-free EPUB file"
+                ? "One or more DRM-free EPUB files"
                 : "One HTML file",
         },
         { icon: Download, label: "You get", value: "PDF" },
@@ -212,6 +213,26 @@ function useUnbundledAssetsNote(file: File | null): string | null {
   return note && note.file === file ? note.text : null;
 }
 
+/**
+ * Two or more books on EPUB to PDF: the worker batch (batch plan P3), its
+ * own chunk, fetched only when they arrive. HTML to PDF and Webpage to PDF
+ * stay one file or address at a time.
+ */
+const WorkerBatch = dynamic(
+  () =>
+    import("./runner/batch/worker-batch-runner").then(
+      (m) => m.WorkerBatchRunner,
+    ),
+  {
+    loading: () => (
+      <div
+        aria-hidden
+        className="border-line bg-wash rounded-panel h-40 w-full border"
+      />
+    ),
+  },
+);
+
 const RENDER_LABEL = "Render PDF";
 /** EPUB to PDF's button: a book is converted, not a page rendered. */
 const CONVERT_LABEL = "Convert to PDF";
@@ -227,6 +248,7 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
   const RUN_LABEL = mode === "epub" ? CONVERT_LABEL : RENDER_LABEL;
   const { available, status } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
+  const [batch, setBatch] = useState<File[] | null>(null);
   const [url, setUrl] = useState(WEBPAGE_ADDRESS_PREFIX);
   const urlId = useId();
   const job = useWorkerJob<HtmlRenderWorkerResult>({
@@ -298,6 +320,39 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
   const detail =
     status?.daemon.detail ?? "Our secure server is not drainable here.";
 
+  const bookOptions = (
+    <EpubLayoutOptions
+      value={bookLayout}
+      disabled={busy}
+      onChange={(next) => {
+        setBookLayout(next);
+        setOutcome(null);
+      }}
+    />
+  );
+  if (batch && mode === "epub")
+    return (
+      <div className="flex flex-col gap-4">
+        {staged}
+        <WorkerBatch
+          tool={tool}
+          files={batch}
+          onReset={() => setBatch(null)}
+          onSingle={(one) => {
+            setBatch(null);
+            setFile(one);
+          }}
+          run={(input, controls) =>
+            runWorkerEpubToPdf(
+              { ...input, layout: epubRenderOptionsBag(bookLayout) },
+              controls,
+            )
+          }
+          settings={bookOptions}
+        />
+      </div>
+    );
+
   return (
     <div className="flex flex-col gap-4">
       {staged}
@@ -345,6 +400,7 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
             setOutcome(null);
             setFile(next);
           }}
+          onMany={setBatch}
         />
       ) : file ? (
         <div className="flex flex-col gap-2">
@@ -403,14 +459,7 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
       )}
 
       {mode === "epub" ? (
-        <EpubLayoutOptions
-          value={bookLayout}
-          disabled={busy}
-          onChange={(next) => {
-            setBookLayout(next);
-            setOutcome(null);
-          }}
-        />
+        bookOptions
       ) : (
         <HtmlRenderLayoutOptions
           value={layout}

@@ -22,6 +22,7 @@ import {
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { MAX_SIGNIFICANT_DIGITS } from "@/lib/workers/ooxml/sheet-cells";
+import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
 
 /*
  * Behaviour claims below were read from the implementation on 2026-09-27,
@@ -91,10 +92,14 @@ const content: ToolContent = {
   intro: [
     `PDF to Excel reads the selectable text of one PDF and writes it into a single worksheet, named "${XLSX_SHEET_NAME}", inside an XLSX workbook, or into one sheet per page when you tick ${SHEET_PER_PAGE_LABEL}. The text is pulled with poppler's pdftotext in layout mode, which pads each line with spaces so a printed table row keeps gaps between its columns. Each non-empty line becomes one spreadsheet row, split into cells at ${XLSX_CELL_BREAK_PHRASE}; a single space or a comma never starts a new cell. Rows that line up are treated as one table, and each value goes in the column it sits in on the page, so an empty cell stays empty. In the single sheet, pages follow one another with no blank row between them, so page headers, footers and page numbers printed as text end up among the data rows; with ${SHEET_PER_PAGE_LABEL} ticked, each page is a sheet of its own, named ${pageSheetName(1)}, ${pageSheetName(2)} and so on, and a page with no text gets an empty sheet so the numbers still match.`,
     `This is layout placement, not table detection: ruling lines and cell borders are ignored and merged cells are not rebuilt. ${XLSX_MERGE_CAVEAT} An amount or a percentage such as ${AMOUNTS} is stored as a number a formula can add up, and the comma inside it never splits it; so are an amount in Indian lakh grouping such as ${SHEET_LAKH_EXAMPLE} and an accounting negative such as ${SHEET_NEGATIVE_EXAMPLES[0]} or ${SHEET_NEGATIVE_EXAMPLES[1]}, and a date that cannot be read two ways, such as ${SHEET_DATE_EXAMPLES[0]} or ${SHEET_DATE_EXAMPLES[1]}, becomes a real date. A date written as ${XLSX_TEXT_EXAMPLE}, which reads differently from country to country, a European-style 1.250,00, a bare bracketed number such as ${SHEET_NOTE_MARK_EXAMPLE} and a code with leading zeros stay text. To pull individual tables out of a page, Extract Tables finds each table by where its words sit and exports it on its own.`,
-    `Poppler is a native program that a browser cannot run, so the export happens on pdf.xyz's secure server and each run takes one PDF of at most ${CEILING_MB} MB, sent over TLS. Our server deletes your PDF when the export job finishes. Your workbook can be fetched from its link for ${OUTPUT_TTL} minutes, and once that link has expired a daily storage rule erases the stored XLSX.`,
+    `Poppler is a native program that a browser cannot run, so the export happens on pdf.xyz's secure server: each PDF, of at most ${CEILING_MB} MB, is sent over TLS as a job of its own. Our server deletes your PDF when the export job finishes. Your workbook can be fetched from its link for ${OUTPUT_TTL} minutes, and once that link has expired a daily storage rule erases the stored XLSX.`,
   ],
 
   useCases: [
+    {
+      title: "Several files at once",
+      body: workerBatchPageSentence("pdf-to-excel"),
+    },
     {
       title: "Getting a statement's amounts into a sheet you can total",
       body: `Amounts printed as ${AMOUNTS} arrive as numbers in the column they sat in on the page, so SUM adds them up without converting anything, and the comma in an amount never splits it.`,

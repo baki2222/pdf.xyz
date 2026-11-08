@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import dynamic from "next/dynamic";
 import { Download, FileText, ShieldCheck, Timer } from "lucide-react";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import {
@@ -104,7 +105,7 @@ const EXPORT_COPY: Record<
       // too." — before the OCR switch below ran it in the same job.
       "Our server reads each page's selectable text, in reading order, and its pictures, and packages them into a real DOCX file. A scanned page comes through as a picture; turn on OCR below to have its words as text too.",
     note: "Running this uses a private secure-server job. A PDF with no selectable text at all, such as a scan, needs the OCR switch on.",
-    hint: "Selectable PDF",
+    hint: "One or more selectable PDFs",
   },
   // CHANGED 2026-11-08 (audit pdf-to-excel#2): "…; run OCR first to include
   // them." / "…; scanned/image-only PDFs need OCR first." — before the OCR
@@ -114,7 +115,7 @@ const EXPORT_COPY: Record<
     summary:
       "Our server extracts selectable PDF text and packages it into a real XLSX file. Pages without selectable text (scans) are not included; turn on OCR below to include them.",
     note: "Running this uses a private secure-server job. A PDF with no selectable text at all, such as a scan, needs the OCR switch on.",
-    hint: "Selectable PDF",
+    hint: "One or more selectable PDFs",
   },
   // CHANGED 2026-11-08 (audit pdf-to-powerpoint#4): "…; run OCR first to
   // have its words as text too." — before the OCR switch below.
@@ -123,7 +124,7 @@ const EXPORT_COPY: Record<
     summary:
       "Our server reads each page and builds a real PPTX file: pictures where the page shows them, text in text boxes at their places, other drawing as pictures. A scanned page comes through as a picture; turn on OCR below to have its words in invisible text boxes over it.",
     note: "Running this uses a private secure-server job. A scanned page comes through as a picture on its slide; with the OCR switch on, its words come too.",
-    hint: "One PDF",
+    hint: "One or more PDFs",
   },
 };
 
@@ -164,6 +165,26 @@ export function PdfOfficeExportWorkerPanel({ tool }: { tool: Tool }) {
   );
 }
 
+/**
+ * Two or more PDFs: the worker batch (batch plan P3), its own chunk,
+ * fetched only when they arrive. OCR first and one sheet per page apply
+ * to every file.
+ */
+const WorkerBatch = dynamic(
+  () =>
+    import("./runner/batch/worker-batch-runner").then(
+      (m) => m.WorkerBatchRunner,
+    ),
+  {
+    loading: () => (
+      <div
+        aria-hidden
+        className="border-line bg-wash rounded-panel h-40 w-full border"
+      />
+    ),
+  },
+);
+
 function PdfOfficeRunArea({
   tool,
   catalogTool,
@@ -178,6 +199,7 @@ function PdfOfficeRunArea({
   const { available, status } = useWorkerPanel();
   const runLabel = `Export ${output}`;
   const [file, setFile] = useState<File | null>(null);
+  const [batch, setBatch] = useState<File[] | null>(null);
   const job = useWorkerJob<PdfOfficeExportWorkerResult>({
     tool: tool,
     resume: (id, controls) =>
@@ -227,6 +249,69 @@ function PdfOfficeRunArea({
   const unavailableDetail =
     status?.daemon.detail ?? "Our secure server is not drainable here.";
 
+  const options = (
+    <>
+      {offersOcr && (
+        <OcrFirstSwitch
+          choice={ocr}
+          busy={busy}
+          hint={OFFICE_OCR_HINTS[tool as keyof typeof OFFICE_OCR_HINTS]}
+        />
+      )}
+      {offersSheets && (
+        <label className="border-line rounded-panel text-muted flex min-h-11 items-start gap-2.5 border p-3 text-sm">
+          <input
+            type="checkbox"
+            checked={sheetPerPage}
+            // Guarded, never `disabled`: focus stays put mid-run (#46).
+            onChange={(event) => {
+              if (!busy) setSheetPerPage(event.target.checked);
+            }}
+            aria-disabled={busy || undefined}
+            className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4"
+          />
+          <span className="flex flex-col gap-0.5">
+            <span className="text-fg font-medium">One sheet per page</span>
+            <span className="text-muted text-xs leading-relaxed">
+              {SHEET_PER_PAGE_HINT}
+            </span>
+          </span>
+        </label>
+      )}
+    </>
+  );
+  if (batch)
+    return (
+      <div className="flex flex-col gap-4">
+        {staged}
+        <WorkerBatch
+          tool={catalogTool}
+          files={batch}
+          onReset={() => setBatch(null)}
+          onSingle={(one) => {
+            setBatch(null);
+            setFile(one);
+          }}
+          run={(input, controls) =>
+            runWorkerPdfOfficeExport(
+              {
+                ...input,
+                tool,
+                ...(ocrRequest ? { ocr: ocrRequest } : {}),
+                ...(offersSheets && sheetPerPage ? { sheetPerPage: true } : {}),
+              },
+              controls,
+            )
+          }
+          settings={offersOcr || offersSheets ? options : undefined}
+          runBlocked={
+            ocrBlocked
+              ? "OCR first is on, and our server cannot run OCR right now."
+              : null
+          }
+        />
+      </div>
+    );
   return (
     <div className="flex flex-col gap-4">
       {staged}
@@ -258,42 +343,23 @@ function PdfOfficeRunArea({
       ) : (
         <Dropzone
           pageTarget
+          busy={busy}
           refuse={refuse}
-          onFiles={(files) => setFile(files[0] ?? null)}
+          onFiles={(files) =>
+            // Never to the batch while a job runs (one resumed after a reload
+            // has no file in hand, so this zone shows): a second job would
+            // start beside it, its status hidden behind the list.
+            files.length > 1 && !busy
+              ? setBatch(files)
+              : setFile(files[0] ?? null)
+          }
           accept="application/pdf,.pdf"
-          multiple={false}
           compact
           title="Add your PDF, or"
           hint={EXPORT_COPY[tool].hint}
         />
       )}
-      {offersOcr && (
-        <OcrFirstSwitch
-          choice={ocr}
-          busy={busy}
-          hint={OFFICE_OCR_HINTS[tool as keyof typeof OFFICE_OCR_HINTS]}
-        />
-      )}
-      {offersSheets && (
-        <label className="border-line rounded-panel text-muted flex min-h-11 items-start gap-2.5 border p-3 text-sm">
-          <input
-            type="checkbox"
-            checked={sheetPerPage}
-            // Guarded, never `disabled`: focus stays put mid-run (#46).
-            onChange={(event) => {
-              if (!busy) setSheetPerPage(event.target.checked);
-            }}
-            aria-disabled={busy || undefined}
-            className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4"
-          />
-          <span className="flex flex-col gap-0.5">
-            <span className="text-fg font-medium">One sheet per page</span>
-            <span className="text-muted text-xs leading-relaxed">
-              {SHEET_PER_PAGE_HINT}
-            </span>
-          </span>
-        </label>
-      )}
+      {options}
       <WorkerGate
         reserve={STATUS_SLOT}
         job={job}

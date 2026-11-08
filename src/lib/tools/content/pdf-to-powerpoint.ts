@@ -7,6 +7,7 @@ import {
   MAX_LAYERS_PER_PAGE,
   MAX_PICTURE_SIDE,
 } from "@/lib/workers/pdf-office-export/picture-limits";
+import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
 
 /*
  * Behaviour claims below were read from the implementation on 2026-10-10
@@ -218,6 +219,10 @@ const content: ToolContent = {
 
   useCases: [
     {
+      title: "Several files at once",
+      body: workerBatchPageSentence("pdf-to-powerpoint"),
+    },
+    {
       title: "Rebuild a deck when only the PDF survived",
       body: "Each page becomes a slide with its pictures, text and drawing where they were, so the deck starts out looking like the PDF rather than as a list of its words. Text is set in fonts matched to the PDF's and drawings arrive as pictures rather than shapes, and editing the slides has not been tested, so keep the PDF open beside you as the reference.",
     },
@@ -240,7 +245,7 @@ const content: ToolContent = {
     },
     {
       title: "Add your PDF",
-      body: `The upload box takes a file as soon as the page loads, but the Export PPTX button works only while the panel's status badge reads Secure server; if it says Not enabled or Status unknown, nothing can be sent yet. Drop one PDF on the box headed "Add your PDF, or browse"; clicking inside the dashed outline brings up the file chooser as well. Anything over ${CEILING_MB} MB is turned away at upload. If you picked the wrong file, press Remove beside its name and the box comes back for another.`,
+      body: `The upload box takes a file as soon as the page loads, but the Export PPTX button works only while the panel's status badge reads Secure server; if it says Not enabled or Status unknown, nothing can be sent yet. Drop a PDF on the box headed "Add your PDF, or browse"; clicking inside the dashed outline brings up the file chooser as well, and two or more PDFs open a batch list instead. Anything over ${CEILING_MB} MB is turned away at upload. If you picked the wrong file, press Remove beside its name and the box comes back for another.`,
     },
     {
       title: "Press Export PPTX",

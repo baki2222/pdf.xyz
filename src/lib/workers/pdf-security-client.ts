@@ -100,6 +100,14 @@ export interface PdfSecurityWorkerFailure {
    * still finish, and {@link resumeSecurityJob} picks it up by `jobId`.
    */
   stillRunning?: boolean;
+  /**
+   * How long a 429 asked to be waited out, in whole seconds, from its
+   * `Retry-After` (`./read-error`, `./slot-upload`). It travelled here at
+   * runtime, through a spread, before it was declared, so no caller could
+   * read it without a cast; a batch reads it to PAUSE on a rate limit
+   * instead of failing the file (`retry-after-typed.test.ts`).
+   */
+  retryAfterSeconds?: number;
 }
 
 export type PdfSecurityWorkerResult =
@@ -137,6 +145,12 @@ export interface PdfSecurityWorkerOptions {
   onJobCreated?: (jobId: string) => void;
   /** Called as the run moves between upload, queue, work and download. */
   onPhase?: (phase: WorkerJobPhase) => void;
+  /**
+   * `false` when the caller reports the outcome itself: a batch runs one
+   * file as several attempts (a pause re-runs it, a resume waits again) and
+   * reports ONE outcome per file (`runner/batch/worker-batch.ts`).
+   */
+  reportsOutcome?: boolean;
 }
 
 const defaultFetch: FetchLike = (input, init) =>
@@ -206,18 +220,32 @@ export async function runSecurityJob(
   declaredTextPages?: number,
 ): Promise<PdfSecurityWorkerResult> {
   // Every panel that runs a worker job comes through here, so this is where
-  // its outcome is reported — see `@/lib/telemetry/tool-outcome`.
-  return withToolOutcome(tool, () =>
-    runSecurityJobSteps(
-      tool,
-      filename,
-      bytes,
-      options,
-      opts,
-      declaredCharacters,
-      declaredTextPages,
-    ),
-  );
+  // its outcome is reported — see `@/lib/telemetry/tool-outcome` — unless
+  // the caller reports it (a batch: one outcome per file).
+  // `run-outcome-coverage.test.ts` reads this exact shape: the bypass is
+  // the true branch of a test of `reportsOutcome === false`, and only a
+  // module that reports outcomes itself may pass that `false`.
+  return opts.reportsOutcome === false
+    ? runSecurityJobSteps(
+        tool,
+        filename,
+        bytes,
+        options,
+        opts,
+        declaredCharacters,
+        declaredTextPages,
+      )
+    : withToolOutcome(tool, () =>
+        runSecurityJobSteps(
+          tool,
+          filename,
+          bytes,
+          options,
+          opts,
+          declaredCharacters,
+          declaredTextPages,
+        ),
+      );
 }
 
 async function runSecurityJobSteps(
@@ -411,7 +439,10 @@ export function resumeSecurityJob(
   // "processing" so the first read happens after one interval: the job was
   // already running when the previous wait ended.
   const job = { jobId, status: "processing" } as Job;
-  return withToolOutcome(tool, () => finishSecurityJob(tool, job, opts));
+  const finish = () => finishSecurityJob(tool, job, opts);
+  return opts.reportsOutcome === false
+    ? finish()
+    : withToolOutcome(tool, finish);
 }
 
 /**

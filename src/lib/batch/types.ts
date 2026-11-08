@@ -43,12 +43,21 @@ export interface BatchItem<R> {
   note?: string;
 }
 
-/** Overall batch phase. `done`/`canceled` are terminal. */
-export type BatchPhase = "idle" | "running" | "done" | "canceled";
+/**
+ * Overall batch phase. `done`/`canceled` are terminal. `paused` is a worker
+ * batch waiting out a rate limit (batch plan P3): work is left, nothing runs,
+ * and it goes back to `running` at `resumeAt`.
+ */
+export type BatchPhase = "idle" | "running" | "paused" | "done" | "canceled";
 
 export interface BatchState<R> {
   phase: BatchPhase;
   items: BatchItem<R>[];
+  /**
+   * While `paused`: when the batch carries on by itself (epoch ms), from the
+   * limit's own `Retry-After`. Absent in every other phase.
+   */
+  resumeAt?: number;
 }
 
 /** Seed for a batch item before it runs. */

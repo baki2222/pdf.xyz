@@ -302,3 +302,82 @@ describe("batchReducer — remove before Run", () => {
     expect(batchReducer(idle, { type: "remove", id: "zzz" })).toBe(idle);
   });
 });
+
+/**
+ * Batch plan P3: a rate limit PAUSES a worker batch. The file that was
+ * refused goes back to the queue — it never failed, the hour ran out — and
+ * the batch carries on from it at `resumeAt`. Compress and the browser
+ * batches never dispatch these, so every test above is unchanged.
+ */
+describe("batchReducer — pause on a rate limit, and resume (batch plan P3)", () => {
+  const RESUME_AT = 1_700_000_000_000;
+  const midRun = () =>
+    run(initBatch<number>(seeds), [
+      { type: "start" },
+      { type: "item-start", id: "a" },
+      { type: "item-success", id: "a", result: 1 },
+      { type: "item-start", id: "b" },
+    ]);
+
+  it("puts the running file back in the queue, never in error, and keeps the finished one", () => {
+    const paused = batchReducer(midRun(), {
+      type: "pause",
+      resumeAt: RESUME_AT,
+    });
+    expect(paused.phase).toBe("paused");
+    expect(paused.resumeAt).toBe(RESUME_AT);
+    expect(paused.items.map((i) => i.status)).toEqual([
+      "done",
+      "queued",
+      "queued",
+    ]);
+    expect(paused.items[0]!.result).toBe(1);
+    expect(paused.items.some((i) => i.error !== undefined)).toBe(false);
+    // Not settled: a paused batch has work left, and is not "done".
+    expect(isBatchSettled(paused)).toBe(false);
+    expect(batchProgress(paused).settled).toBe(1);
+  });
+
+  it("resumes into running with the same queue, and the paused file runs again", () => {
+    const resumed = run(midRun(), [
+      { type: "pause", resumeAt: RESUME_AT },
+      { type: "resume" },
+      { type: "item-start", id: "b" },
+      { type: "item-success", id: "b", result: 2 },
+      { type: "item-start", id: "c" },
+      { type: "item-success", id: "c", result: 3 },
+    ]);
+    expect(resumed.phase).toBe("done");
+    expect(resumed.resumeAt).toBeUndefined();
+    expect(resumed.items.map((i) => i.result)).toEqual([1, 2, 3]);
+  });
+
+  it("a cancel while paused cancels every queued file, the paused one too", () => {
+    const canceled = run(midRun(), [
+      { type: "pause", resumeAt: RESUME_AT },
+      { type: "cancel" },
+    ]);
+    expect(canceled.phase).toBe("canceled");
+    expect(canceled.resumeAt).toBeUndefined();
+    expect(canceled.items.map((i) => i.status)).toEqual([
+      "done",
+      "canceled",
+      "canceled",
+    ]);
+  });
+
+  it("no file starts while paused, and pause/resume outside their phase change nothing", () => {
+    const paused = batchReducer(midRun(), {
+      type: "pause",
+      resumeAt: RESUME_AT,
+    });
+    expect(batchReducer(paused, { type: "item-start", id: "b" })).toBe(paused);
+    const idle = initBatch<number>(seeds);
+    expect(batchReducer(idle, { type: "pause", resumeAt: RESUME_AT })).toBe(
+      idle,
+    );
+    expect(batchReducer(idle, { type: "resume" })).toBe(idle);
+    const running = midRun();
+    expect(batchReducer(running, { type: "resume" })).toBe(running);
+  });
+});

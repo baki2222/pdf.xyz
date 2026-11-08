@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useId, useState } from "react";
+import dynamic from "next/dynamic";
 import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
 import { PdfASignatureWarning } from "./pdfa-signature-warning";
 import { Archive, FileDown, FileUp, ShieldCheck, Timer } from "lucide-react";
@@ -86,7 +87,7 @@ export function PdfArchiveWorkerPanel({ tool }: { tool: Tool }) {
       description="PDF/A conversion uses Ghostscript on our isolated server to create an archive-oriented PDF/A file at the level you pick. It produces a real PDF output or fails honestly — no browser placeholder and no fabricated compliance claim. We do not validate the result against the PDF/A specification, so this is a best-effort conversion rather than a certification. PDF/A cannot represent everything a PDF can; what Ghostscript reports dropping is listed with your download, but not every change it makes — a font it substitutes is not reported, so compare the pages before you replace an original."
       canRun={canRunPdfArchive}
       specRows={[
-        { icon: FileUp, label: "You add", value: "One PDF" },
+        { icon: FileUp, label: "You add", value: "One or more PDFs" },
         {
           icon: FileDown,
           label: "You get",
@@ -111,9 +112,29 @@ export function PdfArchiveWorkerPanel({ tool }: { tool: Tool }) {
 
 const RUN_LABEL = "Convert to PDF/A";
 
+/**
+ * Two or more PDFs: the worker batch (batch plan P3), its own chunk,
+ * fetched only when they arrive. The level applies to every file.
+ */
+const WorkerBatch = dynamic(
+  () =>
+    import("./runner/batch/worker-batch-runner").then(
+      (m) => m.WorkerBatchRunner,
+    ),
+  {
+    loading: () => (
+      <div
+        aria-hidden
+        className="border-line bg-wash rounded-panel h-40 w-full border"
+      />
+    ),
+  },
+);
+
 function ArchiveRunArea({ refuse }: { refuse: PickRefusal }) {
-  const { available, status } = useWorkerPanel();
+  const { available, status, tool } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
+  const [batch, setBatch] = useState<File[] | null>(null);
   // Audit pdf-to-pdfa#1: the level the archive asks for; PDF/A-2b by default.
   const [level, setLevel] = useState<PdfALevelId>(DEFAULT_PDFA_LEVEL.id);
   const levelId = useId();
@@ -184,6 +205,56 @@ function ArchiveRunArea({ refuse }: { refuse: PickRefusal }) {
   }, [file, run, available, level, signaturesConfirmed]);
   const detail =
     status?.daemon.detail ?? "Our secure server is not drainable here.";
+  const levelPicker = (
+    <div className="flex flex-col gap-1">
+      <label htmlFor={levelId} className="text-fg text-sm font-medium">
+        {PDFA_LEVEL_LABEL}
+      </label>
+      <select
+        id={levelId}
+        value={level}
+        aria-disabled={busy}
+        aria-describedby={`${levelId}-hint`}
+        onChange={(e) => {
+          // Locked while a job runs, but kept in the focus order.
+          if (busy) return;
+          setOutcome(null);
+          setLevel(e.target.value as PdfALevelId);
+        }}
+        className="border-line bg-wash text-fg focus:border-accent/40 rounded-ctl min-h-11 border px-3 py-1.5 text-sm outline-none"
+      >
+        {PDFA_LEVELS.map((l) => (
+          <option key={l.id} value={l.id}>
+            {l.standard}
+          </option>
+        ))}
+      </select>
+      <p id={`${levelId}-hint`} className="text-muted text-xs leading-relaxed">
+        {levelHint}
+      </p>
+      {/* Audit pdf-to-pdfa#5: said before Run, not after the download. */}
+      <p className="text-muted text-xs leading-relaxed">{PDFA_COLOUR_NOTE}</p>
+    </div>
+  );
+  if (batch)
+    return (
+      <div className="flex flex-col gap-4">
+        {staged}
+        <WorkerBatch
+          tool={tool}
+          files={batch}
+          onReset={() => setBatch(null)}
+          onSingle={(one) => {
+            setBatch(null);
+            setFile(one);
+          }}
+          run={(input, controls) =>
+            runWorkerPdfToPdfA({ ...input, level }, controls)
+          }
+          settings={levelPicker}
+        />
+      </div>
+    );
   return (
     <div className="flex flex-col gap-4">
       {staged}
@@ -215,13 +286,20 @@ function ArchiveRunArea({ refuse }: { refuse: PickRefusal }) {
       ) : (
         <Dropzone
           pageTarget
+          busy={busy}
           refuse={refuse}
-          onFiles={(files) => setFile(files[0] ?? null)}
+          onFiles={(files) =>
+            // Never to the batch while a job runs (one resumed after a reload
+            // has no file in hand, so this zone shows): a second job would
+            // start beside it, its status hidden behind the list.
+            files.length > 1 && !busy
+              ? setBatch(files)
+              : setFile(files[0] ?? null)
+          }
           accept="application/pdf"
-          multiple={false}
           compact
           title="Add a PDF, or"
-          hint="PDF"
+          hint="One or more PDFs"
         />
       )}
       {file && signatureCount > 0 && (
@@ -232,38 +310,7 @@ function ArchiveRunArea({ refuse }: { refuse: PickRefusal }) {
           onConfirm={(yes) => setConfirmedFor(yes ? file : null)}
         />
       )}
-      <div className="flex flex-col gap-1">
-        <label htmlFor={levelId} className="text-fg text-sm font-medium">
-          {PDFA_LEVEL_LABEL}
-        </label>
-        <select
-          id={levelId}
-          value={level}
-          aria-disabled={busy}
-          aria-describedby={`${levelId}-hint`}
-          onChange={(e) => {
-            // Locked while a job runs, but kept in the focus order.
-            if (busy) return;
-            setOutcome(null);
-            setLevel(e.target.value as PdfALevelId);
-          }}
-          className="border-line bg-wash text-fg focus:border-accent/40 rounded-ctl min-h-11 border px-3 py-1.5 text-sm outline-none"
-        >
-          {PDFA_LEVELS.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.standard}
-            </option>
-          ))}
-        </select>
-        <p
-          id={`${levelId}-hint`}
-          className="text-muted text-xs leading-relaxed"
-        >
-          {levelHint}
-        </p>
-        {/* Audit pdf-to-pdfa#5: said before Run, not after the download. */}
-        <p className="text-muted text-xs leading-relaxed">{PDFA_COLOUR_NOTE}</p>
-      </div>
+      {levelPicker}
       <WorkerGate
         reserve={STATUS_SLOT}
         job={job}

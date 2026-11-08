@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useState } from "react";
+import dynamic from "next/dynamic";
 import {
   FileDown,
   FileUp,
@@ -75,6 +76,25 @@ import {
  */
 const STATUS_SLOT = "min-h-[23.5rem] sm:min-h-[15rem] lg:min-h-[15rem]";
 
+/**
+ * Two or more PDFs: the worker batch (batch plan P3), its own chunk,
+ * fetched only when they arrive.
+ */
+const WorkerBatch = dynamic(
+  () =>
+    import("./runner/batch/worker-batch-runner").then(
+      (m) => m.WorkerBatchRunner,
+    ),
+  {
+    loading: () => (
+      <div
+        aria-hidden
+        className="border-line bg-wash rounded-panel h-40 w-full border"
+      />
+    ),
+  },
+);
+
 type Mode = "repair" | "optimize";
 
 const COPY: Record<
@@ -115,7 +135,7 @@ export function PdfStructureWorkerPanel({ tool }: { tool: Tool }) {
       description={copy.blurb}
       canRun={canRunPdfStructure}
       specRows={[
-        { icon: FileUp, label: "You add", value: "One PDF" },
+        { icon: FileUp, label: "You add", value: "One or more PDFs" },
         { icon: FileDown, label: "You get", value: "PDF" },
         {
           icon: Timer,
@@ -149,6 +169,7 @@ function StructureRunArea({
 }) {
   const { available, status } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
+  const [batch, setBatch] = useState<File[] | null>(null);
   // The size of the file the CURRENT outcome came from — recorded when the run
   // starts, so a job resumed after a reload (no file in hand) reports none
   // rather than 0, and a file picked afterwards is never compared with it.
@@ -230,6 +251,23 @@ function StructureRunArea({
     status?.security.detail ??
     "This qpdf-backed server path is not enabled here.";
 
+  if (batch)
+    return (
+      <div className="flex flex-col gap-4">
+        {staged}
+        <WorkerBatch
+          tool={tool}
+          files={batch}
+          onReset={() => setBatch(null)}
+          onSingle={(one) => {
+            setBatch(null);
+            setFile(one);
+          }}
+          run={mode === "repair" ? runWorkerRepairPdf : runWorkerOptimizeWeb}
+        />
+      </div>
+    );
+
   return (
     <div
       className="flex flex-col gap-4"
@@ -266,13 +304,20 @@ function StructureRunArea({
       ) : (
         <Dropzone
           pageTarget
+          busy={busy}
           refuse={refuse}
-          onFiles={(files) => setFile(files[0] ?? null)}
+          onFiles={(files) =>
+            // Never to the batch while a job runs (one resumed after a reload
+            // has no file in hand, so this zone shows): a second job would
+            // start beside it, its status hidden behind the list.
+            files.length > 1 && !busy
+              ? setBatch(files)
+              : setFile(files[0] ?? null)
+          }
           accept="application/pdf"
-          multiple={false}
           compact
           title="Add a PDF, or"
-          hint="PDF"
+          hint="One or more PDFs"
         />
       )}
 

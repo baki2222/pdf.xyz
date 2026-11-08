@@ -57,9 +57,13 @@ import {
   IMAGE_BATCH_TOOLS,
   SETTINGS_BATCH_TOOLS,
   TEXT_BATCH_TOOLS,
+  WORKER_BATCH_TOOLS,
   batchLimitsSentence,
   batchMaxFilesFor,
+  isWorkerBatchSlug,
+  type WorkerBatchSlug,
 } from "./tools";
+import { workerBatchPageSentence } from "./worker-copy";
 
 /** Every registered batch, by the registry that names its words. */
 const REGISTRIES = {
@@ -176,6 +180,17 @@ const rows = tools.map((tool) => {
 
 const backed = rows.filter((r) => r.backed).map((r) => r.slug);
 
+/** A registered worker batch whose page's panel loads the worker batch. */
+function workerBacked(slug: string): boolean {
+  const panel = bySlug.get(slug);
+  return (
+    isWorkerBatchSlug(slug) &&
+    !!panel &&
+    panel.dispatch === "worker" &&
+    batchModulesOf(relOf(panel.file)).length > 0
+  );
+}
+
 describe("batch claims, walked from the catalogue", () => {
   it("health: the walk reads runners, finds loaders, and finds Compress (positive control)", () => {
     expect(rows.filter((r) => r.runner).length).toBeGreaterThanOrEqual(25);
@@ -203,8 +218,9 @@ describe("batch claims, walked from the catalogue", () => {
       "caption",
       "archive",
     ] as const) {
+      // A worker batch (batch plan P3) is backed by its panel's loader.
       const unbacked = rows
-        .filter((r) => r.claims[kind] && !r.backed)
+        .filter((r) => r.claims[kind] && !r.backed && !workerBacked(r.slug))
         .map((r) => r.slug);
       expect(unbacked, `${kind} claims with no batch behind them`).toEqual([]);
     }
@@ -449,6 +465,174 @@ describe("one-file sentences, two ways", () => {
     const found = corpus.flatMap(({ where, text }) =>
       ONE_FILE_BANS.filter((ban) => ban.pattern.test(text)).map(
         (ban) => `${where}: ${ban.name} — ${text.match(ban.pattern)![0]}`,
+      ),
+    );
+    expect(found).toEqual([]);
+  });
+});
+
+/**
+ * Batch plan P3: the worker batches. Their panels are the page's WORKER
+ * dispatch, not a runner, so they are walked here on their own — from the
+ * same reading of the page (`ownPanelModules`) and the same loader test
+ * (`batchModulesOf`: an `import("./…")` whose graph reaches the batch view).
+ *
+ * A worker panel can serve several tools (EPUB to PDF shares HTML to PDF's),
+ * so "backed" is a property of the panel module here, and the per-tool
+ * fork is proved by dropping two files on each registered tool's own panel
+ * (`runner/batch/worker-batches.dom.test.tsx`, with HTML to PDF as its
+ * negative control).
+ */
+const workerRows = tools
+  .map((tool) => {
+    const panel = bySlug.get(tool.slug);
+    if (!panel || panel.dispatch !== "worker") return null;
+    const file = relOf(panel.file);
+    return {
+      tool,
+      slug: tool.slug,
+      panel: file,
+      modules: batchModulesOf(file),
+      registered: isWorkerBatchSlug(tool.slug),
+    };
+  })
+  .filter((r): r is NonNullable<typeof r> => r !== null);
+
+describe("worker batch claims (batch plan P3)", () => {
+  it("health: the walk finds the worker panels, and the ten registered tools among them", () => {
+    expect(workerRows.length).toBeGreaterThanOrEqual(20);
+    const registered = workerRows.filter((r) => r.registered);
+    expect(registered.map((r) => r.slug).sort()).toEqual(
+      Object.keys(WORKER_BATCH_TOOLS).sort(),
+    );
+    expect(registered.length).toBe(10);
+  });
+
+  it("every registered worker batch's panel loads the batch, and every panel that loads it serves a registered tool", () => {
+    for (const r of workerRows.filter((x) => x.registered))
+      expect(r.modules, `${r.slug}: ${r.panel} loads no batch`).toEqual([
+        "src/components/tools/runner/batch/worker-batch-runner.tsx",
+      ]);
+    const loading = new Set(
+      workerRows.filter((r) => r.modules.length > 0).map((r) => r.panel),
+    );
+    for (const panel of loading)
+      expect(
+        workerRows.some((r) => r.panel === panel && r.registered),
+        `${panel} loads the worker batch for no registered tool`,
+      ).toBe(true);
+    // Health: five panels serve the ten tools.
+    expect(loading.size).toBe(5);
+  });
+
+  it("each registered page names its archive, states its batch, and its limits carry the worker cap", () => {
+    for (const r of workerRows.filter((x) => x.registered)) {
+      const slug = r.slug as WorkerBatchSlug;
+      const served = servedText(r.tool);
+      expect(served, `${slug} does not name its archive`).toContain(
+        WORKER_BATCH_TOOLS[slug].zipName,
+      );
+      expect(served, `${slug} does not state its batch`).toContain(
+        workerBatchPageSentence(slug),
+      );
+      expect(batchLimitsSentence(slug)).toContain(
+        `${BATCH_LIMITS.workerMaxFiles} ${WORKER_BATCH_TOOLS[slug].noun[1]}`,
+      );
+      const named = served.match(new RegExp(ARCHIVE_NAME.source, "g")) ?? [];
+      expect(
+        named.filter((n) => n !== WORKER_BATCH_TOOLS[slug].zipName),
+        `${slug} names an archive its batch does not save`,
+      ).toEqual([]);
+    }
+    // Control: an unregistered worker tool names no batch archive.
+    const html = workerRows.find((r) => r.slug === "html-to-pdf")!;
+    expect(ARCHIVE_NAME.test(servedText(html.tool))).toBe(false);
+  });
+
+  it("the hand-off still carries one file to a worker tool until batch plan P6", () => {
+    for (const slug of Object.keys(WORKER_BATCH_TOOLS))
+      expect(handoffCapabilityFor(slug).mode, slug).not.toBe("batch");
+  });
+});
+
+/**
+ * The sentences that told a reader a P3 tool takes ONE file, as they shipped
+ * before its batch (2026-11-08) — the corpus in both directions (CLAUDE.md
+ * rule 1). The P1/P2 bans above apply to these pages too; these are the
+ * shapes they did not know.
+ */
+const WORKER_ONE_FILE_SHIPPED = [
+  "Add one PDF",
+  "It takes a single document; drop several and all but the first are ignored.",
+  "Word to PDF takes one document, a Word .docx or .doc, an OpenDocument .odt or a Rich Text .rtf, and hands it to LibreOffice, running headless on pdf.xyz's secure server.",
+  "PowerPoint to PDF takes one presentation, a modern .pptx, a legacy .ppt from PowerPoint 97–2003 or an OpenDocument .odp, and returns a PDF with one slide per page.",
+  "For a batch, convert one file, press Remove, and add the next.",
+  "To hand over several as a single file, convert each one, then combine the PDFs with Merge PDF.",
+  "Convert each deck in turn, then combine the resulting PDFs with Merge PDF to hand out a single file for a whole workshop.",
+  "The page holds one PDF at a time; press Remove to swap it for another.",
+  "A run handles a single PDF, and uploads above 100 MB are refused.",
+  "each run takes one PDF of at most 100 MB, sent over TLS.",
+  'Drop one PDF onto the box reading "Add a PDF, or browse", or click it and choose the file; up to 100 MB, and there are no settings to choose.',
+];
+
+const WORKER_ONE_FILE_BANS: { name: string; pattern: RegExp }[] = [
+  {
+    name: "add one file",
+    pattern:
+      /\bAdd (?:one|a single) (?:PDF|file|document|presentation|spreadsheet|book|EPUB)\b/,
+  },
+  { name: "all but the first are ignored", pattern: /\ball but the first\b/i },
+  {
+    name: "takes one document",
+    pattern:
+      /\btakes (?:one|a single) (?:document|presentation|spreadsheet|deck|book|EPUB)\b/i,
+  },
+  {
+    name: "press Remove, and add the next",
+    pattern: /\bpress Remove,? and add the next\b/i,
+  },
+  {
+    name: "convert each one yourself",
+    pattern: /\bconvert each (?:one|deck|file|document)\b/i,
+  },
+];
+
+describe("P3 one-file sentences, two ways", () => {
+  const ALL = [...ONE_FILE_BANS, ...WORKER_ONE_FILE_BANS];
+
+  it("every shipped sentence is caught, and every new pattern catches one", () => {
+    for (const sentence of WORKER_ONE_FILE_SHIPPED)
+      expect(
+        ALL.some((ban) => ban.pattern.test(sentence)),
+        `nothing catches: ${sentence}`,
+      ).toBe(true);
+    for (const ban of WORKER_ONE_FILE_BANS)
+      expect(
+        WORKER_ONE_FILE_SHIPPED.some((sentence) => ban.pattern.test(sentence)),
+        `${ban.name} catches no shipped sentence`,
+      ).toBe(true);
+  });
+
+  it("no worker batch tool's page or guide says it takes one file", () => {
+    const slugs = Object.keys(WORKER_BATCH_TOOLS);
+    const pages = workerRows
+      .filter((r) => r.registered)
+      .map((r) => ({ where: r.slug, text: servedText(r.tool) }));
+    const about = guides.filter((g) => slugs.includes(g.tools[0]!));
+    // Health: every tool, and a guide for most.
+    expect(pages).toHaveLength(slugs.length);
+    expect(about.length).toBeGreaterThanOrEqual(5);
+    const corpus = [
+      ...pages,
+      ...about.map((g) => ({ where: g.slug, text: stringsIn(g).join("\n") })),
+    ];
+    const found = corpus.flatMap(({ where, text }) =>
+      ALL.flatMap((ban) =>
+        [
+          ...text.matchAll(
+            new RegExp(ban.pattern.source, ban.pattern.flags + "g"),
+          ),
+        ].map((m) => `${where}: ${ban.name} — ${m[0]}`),
       ),
     );
     expect(found).toEqual([]);

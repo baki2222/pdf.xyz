@@ -16,11 +16,14 @@ export function EpubFilePicker({
   file,
   busy,
   onFile,
+  onMany,
 }: {
   tool: Tool;
   file: File | null;
   busy: boolean;
   onFile: (file: File | null) => void;
+  /** Two or more books dropped at once: the batch (batch plan P3). */
+  onMany: (files: File[]) => void;
 }) {
   return file ? (
     <ChosenFileTarget
@@ -44,13 +47,18 @@ export function EpubFilePicker({
   ) : (
     <Dropzone
       pageTarget
+      busy={busy}
       refuse={(file) => pickRefusal(tool, file)}
-      onFiles={(files) => onFile(files[0] ?? null)}
+      onFiles={(files) =>
+        // Never to the batch while a job runs (one resumed after a reload
+        // has no file in hand, so this zone shows): a second job would
+        // start beside it, its status hidden behind the list.
+        files.length > 1 && !busy ? onMany(files) : onFile(files[0] ?? null)
+      }
       accept="application/epub+zip,.epub"
-      multiple={false}
       compact
       title="Add an EPUB file, or"
-      hint="EPUB"
+      hint="One or more EPUB files"
     />
   );
 }

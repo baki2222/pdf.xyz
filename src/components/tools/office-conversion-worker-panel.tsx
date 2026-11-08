@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useId, useState } from "react";
+import dynamic from "next/dynamic";
 import { Download, FileText, ShieldCheck, Timer } from "lucide-react";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import {
@@ -113,7 +114,7 @@ function formatsHint(tool: Tool): string {
     formats.length <= 1
       ? formats.join("")
       : `${formats.slice(0, -1).join(", ")} or ${formats[formats.length - 1]}`;
-  return `${listed} file`;
+  return `One or more ${listed} files`;
 }
 
 export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
@@ -162,6 +163,25 @@ export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
 
 const RUN_LABEL = OFFICE_CONVERSION_RUN_LABEL;
 
+/**
+ * Two or more documents: the worker batch (batch plan P3), its own chunk,
+ * fetched only when they arrive.
+ */
+const WorkerBatch = dynamic(
+  () =>
+    import("./runner/batch/worker-batch-runner").then(
+      (m) => m.WorkerBatchRunner,
+    ),
+  {
+    loading: () => (
+      <div
+        aria-hidden
+        className="border-line bg-wash rounded-panel h-40 w-full border"
+      />
+    ),
+  },
+);
+
 function OfficeRunArea({
   tool,
   catalogTool,
@@ -173,6 +193,7 @@ function OfficeRunArea({
 }) {
   const { available } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
+  const [batch, setBatch] = useState<File[] | null>(null);
   // Excel to PDF only (audit excel-to-pdf#1): each checkbox's state keyed by
   // its own option, and the orientation select (null keeps the file's).
   const [checked, setChecked] = useState<Record<string, boolean>>({});
@@ -215,6 +236,111 @@ function OfficeRunArea({
   const pageSetupShown = !onePagePerSheet;
   const pageSetupFits = !file || acceptsPageSetup(file.name);
 
+  const layoutOptions =
+    tool === "excel-to-pdf" &&
+    SHEET_LAYOUT_CHECKBOXES.map((choice) => {
+      const isPageSetup = choice.option === FIT_COLUMNS_TO_WIDTH_OPTION;
+      if (isPageSetup && !pageSetupShown) return null;
+      if (isPageSetup && !pageSetupFits)
+        return (
+          <p key={choice.option} className="text-muted text-xs leading-relaxed">
+            {PAGE_SETUP_XLSX_ONLY_NOTE}
+          </p>
+        );
+      const hintId = `${layoutId}-${choice.option}-hint`;
+      return (
+        <Fragment key={choice.option}>
+          {isPageSetup && (
+            <div className="flex flex-col gap-1">
+              <label
+                htmlFor={orientationId}
+                className="text-fg text-sm font-medium"
+              >
+                {ORIENTATION_LABEL}
+              </label>
+              <select
+                id={orientationId}
+                value={orientation ?? ""}
+                aria-disabled={busy}
+                onChange={(e) => {
+                  // Locked while a job runs, but kept in the focus order.
+                  if (busy) return;
+                  setOutcome(null);
+                  setOrientation(
+                    e.target.value === ""
+                      ? null
+                      : (e.target.value as SheetOrientation),
+                  );
+                }}
+                className="border-line bg-wash text-fg focus:border-accent/40 rounded-ctl min-h-11 border px-3 py-1.5 text-sm outline-none"
+              >
+                {SHEET_ORIENTATIONS.map((o) => (
+                  <option key={o.label} value={o.value ?? ""}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div className="flex flex-col gap-1">
+            <label className="text-fg flex min-h-11 items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={checked[choice.option] === true}
+                aria-disabled={busy}
+                aria-describedby={hintId}
+                onChange={(e) => {
+                  // Locked while a job runs, but kept in the focus order.
+                  if (busy) return;
+                  setOutcome(null);
+                  const value = e.target.checked;
+                  setChecked((prev) => ({
+                    ...prev,
+                    [choice.option]: value,
+                  }));
+                }}
+                className="accent-accent size-4"
+              />
+              {choice.label}
+            </label>
+            <p id={hintId} className="text-muted text-xs leading-relaxed">
+              {choice.hint}
+            </p>
+          </div>
+        </Fragment>
+      );
+    });
+  if (batch)
+    return (
+      <div className="flex flex-col gap-4">
+        {staged}
+        <WorkerBatch
+          tool={catalogTool}
+          files={batch}
+          onReset={() => setBatch(null)}
+          onSingle={(one) => {
+            setBatch(null);
+            setFile(one);
+          }}
+          run={(input, controls) =>
+            runWorkerOfficeToPdf(
+              {
+                ...input,
+                tool,
+                layout: {
+                  onePagePerSheet,
+                  orientation,
+                  fitColumnsToWidth:
+                    checked[FIT_COLUMNS_TO_WIDTH_OPTION] === true,
+                },
+              },
+              controls,
+            )
+          }
+          settings={tool === "excel-to-pdf" ? layoutOptions : undefined}
+        />
+      </div>
+    );
   return (
     <div className="flex flex-col gap-4">
       {staged}
@@ -246,96 +372,25 @@ function OfficeRunArea({
       ) : (
         <Dropzone
           pageTarget
+          busy={busy}
           refuse={(file) => pickRefusal(catalogTool, file)}
           onFiles={(files) => {
             // An over-ceiling or wrong-format file never gets here: `refuse`
             // turned it away at the pick, before it was read or uploaded.
             setOutcome(null);
-            setFile(files[0] ?? null);
+            // Never to the batch while a job runs (one resumed after a reload
+            // has no file in hand, so this zone shows): a second job would
+            // start beside it, its status hidden behind the list.
+            if (files.length > 1 && !busy) setBatch(files);
+            else setFile(files[0] ?? null);
           }}
           accept={accept}
-          multiple={false}
           compact
           title={`Add your ${DOCUMENT_NOUNS[tool]}, or`}
           hint={formatsHint(catalogTool)}
         />
       )}
-      {tool === "excel-to-pdf" &&
-        SHEET_LAYOUT_CHECKBOXES.map((choice) => {
-          const isPageSetup = choice.option === FIT_COLUMNS_TO_WIDTH_OPTION;
-          if (isPageSetup && !pageSetupShown) return null;
-          if (isPageSetup && !pageSetupFits)
-            return (
-              <p
-                key={choice.option}
-                className="text-muted text-xs leading-relaxed"
-              >
-                {PAGE_SETUP_XLSX_ONLY_NOTE}
-              </p>
-            );
-          const hintId = `${layoutId}-${choice.option}-hint`;
-          return (
-            <Fragment key={choice.option}>
-              {isPageSetup && (
-                <div className="flex flex-col gap-1">
-                  <label
-                    htmlFor={orientationId}
-                    className="text-fg text-sm font-medium"
-                  >
-                    {ORIENTATION_LABEL}
-                  </label>
-                  <select
-                    id={orientationId}
-                    value={orientation ?? ""}
-                    aria-disabled={busy}
-                    onChange={(e) => {
-                      // Locked while a job runs, but kept in the focus order.
-                      if (busy) return;
-                      setOutcome(null);
-                      setOrientation(
-                        e.target.value === ""
-                          ? null
-                          : (e.target.value as SheetOrientation),
-                      );
-                    }}
-                    className="border-line bg-wash text-fg focus:border-accent/40 rounded-ctl min-h-11 border px-3 py-1.5 text-sm outline-none"
-                  >
-                    {SHEET_ORIENTATIONS.map((o) => (
-                      <option key={o.label} value={o.value ?? ""}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <div className="flex flex-col gap-1">
-                <label className="text-fg flex min-h-11 items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={checked[choice.option] === true}
-                    aria-disabled={busy}
-                    aria-describedby={hintId}
-                    onChange={(e) => {
-                      // Locked while a job runs, but kept in the focus order.
-                      if (busy) return;
-                      setOutcome(null);
-                      const value = e.target.checked;
-                      setChecked((prev) => ({
-                        ...prev,
-                        [choice.option]: value,
-                      }));
-                    }}
-                    className="accent-accent size-4"
-                  />
-                  {choice.label}
-                </label>
-                <p id={hintId} className="text-muted text-xs leading-relaxed">
-                  {choice.hint}
-                </p>
-              </div>
-            </Fragment>
-          );
-        })}
+      {layoutOptions}
       <WorkerGate
         reserve={STATUS_SLOT}
         job={job}

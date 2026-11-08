@@ -5,6 +5,7 @@ import { toolFileCeiling } from "@/lib/tools/file-ceilings";
 import { resolveNativeOfficeConversionConfig } from "@/lib/workers/office-conversion/native-config";
 import { ODF_PASSWORD_REMOVAL } from "@/lib/workers/office-conversion/engine";
 import { OFFICE_CONVERSION_RUN_LABEL as RUN } from "@/lib/tools/office-run-label";
+import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
 
 /**
  * Facts this copy leans on, each read from the code that makes it true
@@ -94,8 +95,8 @@ const linkMinutes = DEFAULT_RETENTION.outputTtlMinutes;
 /** Who refuses above the ceiling: the converter when its cap is the lower. */
 const sizeAnswer =
   ceiling.tier === "worker" && ceiling.engine
-    ? `One document per conversion, of up to ${ceilingMb} MB, the most LibreOffice on our secure server accepts: a larger Word file is turned away as soon as you pick it, before anything uploads. Word's Compress Pictures can shrink an image-heavy file. For a batch, convert one file, press Remove, and add the next.`
-    : `One document per conversion, up to ${ceilingMb} MB. For a batch, convert one file, press Remove, and add the next.`;
+    ? `One document per conversion, of up to ${ceilingMb} MB, the most LibreOffice on our secure server accepts: a larger Word file is turned away as soon as you pick it, before anything uploads. Word's Compress Pictures can shrink an image-heavy file. Add two or more and they convert in turn, as a batch.`
+    : `One document per conversion, up to ${ceilingMb} MB. Add two or more and they convert in turn, as a batch.`;
 
 const content: ToolContent = {
   slug: "word-to-pdf",
@@ -105,12 +106,16 @@ const content: ToolContent = {
   metaDescription: `Make a PDF from a .docx, .doc, .odt or .rtf with LibreOffice on a secure server. Your file is deleted once the job ends; its PDF link expires in ${linkMinutes} minutes.`,
 
   intro: [
-    "Word to PDF takes one document, a Word .docx or .doc, an OpenDocument .odt or a Rich Text .rtf, and hands it to LibreOffice, running headless on pdf.xyz's secure server. LibreOffice lays out the pages from the page size, margins, headers and footers set in the document itself and exports a PDF named after your file. Typed text comes out as text, so it can be searched, selected and copied; a picture of text, such as a pasted scan, stays a picture.",
+    "Word to PDF takes a Word .docx or .doc, an OpenDocument .odt or a Rich Text .rtf, and hands it to LibreOffice, running headless on pdf.xyz's secure server. LibreOffice lays out the pages from the page size, margins, headers and footers set in the document itself and exports a PDF named after your file. Typed text comes out as text, so it can be searched, selected and copied; a picture of text, such as a pasted scan, stays a picture.",
     "LibreOffice reads Word's formats, but it is not Microsoft Word, and differences tend to show in fonts and floating objects. A font our server lacks is replaced by a stand-in whose letter widths may differ, which can move line and page breaks, and text boxes or wrapped images may land slightly elsewhere. Styles, tables and in-line images give it the least to reinterpret.",
     `Nothing is converted on your own computer. Your document goes to pdf.xyz's secure server over an encrypted (TLS) connection and is deleted there when the job ends. The finished PDF can be fetched for ${linkMinutes} minutes, after which a daily storage rule clears the stored copy. The converter takes Word files of up to ${ceilingMb} MB, one at a time.`,
   ],
 
   useCases: [
+    {
+      title: "Several files at once",
+      body: workerBatchPageSentence("word-to-pdf"),
+    },
     {
       title: "A CV that looks the same on the recruiter's screen",
       body: "A .docx reflows in another word processor or a phone preview. A PDF fixes the layout, so the reader sees the pages you checked.",

@@ -24,9 +24,19 @@ import { MAX_PDF_BYTES } from "@/lib/pdf/files";
  *     so a batch of them holds far more than its inputs. The per-page pixel
  *     and DPI ceilings still bind each page as they do for one file.
  *
+ *   - `workerMaxFiles` (batch plan P3) is how many files one batch sends to
+ *     our server, ONE job each, one after another. It is the one value here
+ *     that is typed, on purpose: what binds it is the hourly limit every
+ *     visitor on an address shares (`RATE_LIMITS`, one upload and one job
+ *     per file), and a value derived from that limit would make the test of
+ *     it restate itself. The test holds it to at most a sixth of the smaller
+ *     of the hourly jobs and uploads, so one batch leaves room in the hour
+ *     for five more of its size, or for a colleague's work.
+ *
  * `limits.test.ts` binds each to a second, independent bound (CLAUDE.md rule
  * 3: a constant has no relationships to constrain) — the server's own total,
- * and the 20 / 200 MB / 10 raster files the owner ruled.
+ * the hourly limits, and the 20 / 200 MB / 10 raster / 10 worker files the
+ * owner ruled.
  *
  * Imported by the batch's own modules, which a runner reaches through
  * `next/dynamic` once two or more files arrive; `lazy-chunks.test.ts` holds
@@ -36,6 +46,7 @@ export const BATCH_LIMITS = {
   clientMaxFiles: JOB_LIMITS.maxInputFiles,
   clientMaxTotalBytes: 2 * MAX_PDF_BYTES,
   rasterMaxFiles: Math.floor(JOB_LIMITS.maxInputFiles / 2),
+  workerMaxFiles: 10,
 } as const;
 
 /** A file the batch did not take, and the sentence that says why. */

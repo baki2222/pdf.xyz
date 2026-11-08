@@ -18,6 +18,7 @@ import {
   modeHasBrowserPath,
   modeUploadsFiles,
 } from "@/lib/tools/processing-split";
+import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
 
 /*
  * Behaviour claims below were read from the implementation on 2026-09-27,
@@ -149,10 +150,14 @@ const content: ToolContent = {
   intro: [
     `PDF to Word lifts the text you could highlight in a PDF, and the photos, screenshots and scans on its pages, into a .docx file that opens and edits in Word. It is not a page replica: lines the PDF wrapped are joined back into paragraphs in Word's default Normal style, each picture sits on a line of its own between the paragraphs printed above and below it, and each PDF page with text or a picture starts on a new Word page. The Word page is the size of the PDF's first page, or A4 upright when that page is landscape, such as a slide (scaled to fit, its shape kept, when it is larger than Word allows), and a picture wider or taller than the page's text area is scaled down to fit. Fonts, colours, tables, and drawings made of lines and shapes are not carried across, and bold or italics only where a whole paragraph is set in them, such as a heading.`,
     `The extractor follows the page's reading order: a page set in two columns is read one column at a time, and a table whose cells each fit on one line comes through one row per paragraph, with its cells separated by tabs rather than placed in Word table cells. If no page has selectable text, as with a scan that was never OCR'd, the job stops rather than hand you a document of page pictures with nothing in it to edit. Tick “${WORD_OCR_LABEL}” before exporting and our server runs OCR on the file first, in the languages you pick, and converts the result in the same job.`,
-    `Conversion happens on a server, not in your browser. Your PDF travels over TLS to pdf.xyz's secure server, where poppler's pdftotext reads the text layer and pdf.js finds each picture and where the page shows it. Our server deletes the uploaded PDF when the job finishes; the DOCX link expires after ${OUTPUT_TTL} minutes, and a daily storage rule then erases the stored copy. A run handles a single PDF, and uploads above ${CEILING_MB} MB are refused.`,
+    `Conversion happens on a server, not in your browser. Your PDF travels over TLS to pdf.xyz's secure server, where poppler's pdftotext reads the text layer and pdf.js finds each picture and where the page shows it. Our server deletes the uploaded PDF when the job finishes; the DOCX link expires after ${OUTPUT_TTL} minutes, and a daily storage rule then erases the stored copy. Each PDF is a job of its own, and uploads above ${CEILING_MB} MB are refused.`,
   ],
 
   useCases: [
+    {
+      title: "Several files at once",
+      body: workerBatchPageSentence("pdf-to-word"),
+    },
     {
       title: "Reuse the wording of a report or policy",
       body: "When a few pages of an existing document belong in a new one, converting saves retyping. The text arrives as paragraphs in reading order, ready to restyle in your own template.",
@@ -179,8 +184,8 @@ const content: ToolContent = {
 
   steps: [
     {
-      title: "Add one PDF",
-      body: "Drop your file on the Add your PDF area or choose browse to pick it; it is sent only when you press Export DOCX, which works once the status badge reads Secure server. The page holds one PDF at a time; press Remove to swap it for another.",
+      title: "Add your PDF",
+      body: "Drop your file on the Add your PDF area or choose browse to pick it; it is sent only when you press Export DOCX, which works once the status badge reads Secure server. Press Remove to swap it for another; two or more PDFs open a batch list instead.",
     },
     {
       title: "Press Export DOCX",
