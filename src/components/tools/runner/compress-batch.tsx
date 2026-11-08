@@ -140,6 +140,38 @@ async function signaturesIn(bytes: Uint8Array): Promise<number | null> {
 }
 
 /**
+ * A deep row up to the upload: read the file, and refuse a locked one.
+ *
+ * Read the lock BEFORE anything is uploaded (review of cb0eb82e).
+ * Ghostscript writes an unencrypted copy, so a restricted file would come
+ * back with its author's restrictions gone and no owner password given; the
+ * single-file panel shows a warning first, a batch row cannot. A file that
+ * needs a password to open cannot be compressed by anyone. Both get the
+ * lossless batch's own words, and none of their bytes leave. An "unreadable"
+ * file still goes: pdf.js failing to open it is not a lock, and our server
+ * may read what the browser cannot.
+ *
+ * Every failure HERE is reported here, once. A deep row's outcome is
+ * otherwise reported only by `runWorkerCompression` (`withToolOutcome`), and
+ * the batch runs deep rows with `reportsOutcome: false` so a server file is
+ * not counted twice — so a file that never reaches the worker client (locked,
+ * or no longer readable: moved, or its permission revoked) would otherwise be
+ * reported by nobody. `compress-batch-deep-report.dom.test.tsx` counts them.
+ */
+async function preflightDeep(file: File): Promise<Uint8Array> {
+  try {
+    const bytes = await readFileBytes(file);
+    const access = await classifyPdfAccess(bytes);
+    if (access.kind === "restricted" || access.kind === "password-required")
+      throw lockedRefusal(access.kind);
+    return bytes;
+  } catch (err) {
+    reportToolFailed({ code: failureCode(err) });
+    throw err;
+  }
+}
+
+/**
  * One batch row on our secure server (audit compress-pdf#5): the same job
  * the single-file panel runs, one file at a time. As there, a file that did
  * not get smaller comes back as it came in, except on a Grayscale run,
@@ -150,25 +182,7 @@ export async function compressBatchFileDeep(
   options: BatchDeepOptions,
   signal?: AbortSignal,
 ): Promise<CompressResult> {
-  const bytes = await readFileBytes(file);
-  // Read the lock BEFORE anything is uploaded (review of cb0eb82e).
-  // Ghostscript writes an unencrypted copy, so a restricted file would come
-  // back with its author's restrictions gone and no owner password given;
-  // the single-file panel shows a warning first, a batch row cannot. A file
-  // that needs a password to open cannot be compressed by anyone. Both get
-  // the lossless batch's own words, and none of their bytes leave.
-  // An "unreadable" file still goes: pdf.js failing to open it is not a lock,
-  // and our server may read what the browser cannot.
-  const access = await classifyPdfAccess(bytes);
-  if (access.kind === "restricted" || access.kind === "password-required") {
-    // Reported HERE: a deep row's outcome is otherwise reported only by
-    // `runWorkerCompression`, and this refusal never reaches it (the batch
-    // runs deep rows with `reportsOutcome: false`, so it is not counted
-    // twice). One report per file, either way.
-    const refusal = lockedRefusal(access.kind);
-    reportToolFailed({ code: failureCode(refusal) });
-    throw refusal;
-  }
+  const bytes = await preflightDeep(file);
   const res = await runWorkerCompression(
     {
       filename: file.name,

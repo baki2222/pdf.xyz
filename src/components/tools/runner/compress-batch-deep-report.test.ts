@@ -6,9 +6,11 @@
  * A deep row runs inside `runWorkerCompression`, which reports its own outcome
  * (`withToolOutcome`), and until 2026-11-08 the batch reported the same file a
  * second time. The batch now runs deep rows with `reportsOutcome: false` — so
- * the one deep outcome that never reaches the worker client, a locked file
+ * a deep outcome that never reaches the worker client, such as a locked file
  * refused before upload, must be reported where it is refused, or it would be
- * reported by nobody.
+ * reported by nobody. The composed chain (the runner, the hook, the worker
+ * client, and a file the browser can no longer read) is counted in
+ * `compress-batch-deep-report.dom.test.tsx`.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LOCKED_PDF_COPY } from "@/lib/pdf/encryption";
