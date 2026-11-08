@@ -7,31 +7,26 @@ import type { NamedBytes } from "./types";
  * so server components never pull DOM APIs into their bundle.
  */
 
-/*
- * jszip ships `export =` typings, so `typeof import("jszip")` in a TYPE
- * position is the class rather than the interop module shape the runtime
- * `import()` actually resolves — hence the inferred types below instead of
- * annotations.
- */
-const importJsZip = () => import("jszip");
-let jszipModule: ReturnType<typeof importJsZip> | null = null;
+const importZipArchive = () => import("./zip-archive");
+let zipArchiveModule: ReturnType<typeof importZipArchive> | null = null;
 
 /**
- * Load JSZip on first use. This module is statically imported by nearly every
- * runner, so a static `import JSZip` here rode EVERY tool page's initial load
- * — a 129 KB chunk, measured on the built artifact 2026-09-17 — while only a
+ * Load the archive builder (JSZip plus its naming rule, `./zip-archive`) on
+ * first use. This module is statically imported by nearly every runner, so a
+ * static `import JSZip` here rode EVERY tool page's initial load — a 129 KB
+ * chunk, measured on the built artifact 2026-09-17 — while only a
  * ZIP-producing RUN ever needs it. Same shape as `loadPdfLib`, for the same
  * two reasons: the fetch belongs at first use, and a rejected load is
  * forgotten rather than cached, so one offline blip cannot brick every later
  * ZIP in the session. (`chat-with-pdf-conversation.ts` reached the same
  * conclusion independently for reading these archives back.)
  */
-function loadJsZip(): ReturnType<typeof importJsZip> {
-  jszipModule ??= importJsZip().catch((error: unknown) => {
-    jszipModule = null;
+function loadZipArchive(): ReturnType<typeof importZipArchive> {
+  zipArchiveModule ??= importZipArchive().catch((error: unknown) => {
+    zipArchiveModule = null;
     throw error;
   });
-  return jszipModule;
+  return zipArchiveModule;
 }
 
 // Re-export the pure naming helpers so existing call sites can keep importing
@@ -89,21 +84,17 @@ export interface ZipOptions {
   compression?: "DEFLATE" | "STORE";
 }
 
-/** Bundle several named byte blobs into a single ZIP archive. */
+/**
+ * Bundle several named byte blobs into a single ZIP archive. Every input is
+ * its own entry: two that share a name get " (2)", " (3)", … (see
+ * `uniqueEntryNames` in `./zip-archive`).
+ */
 export async function zipFiles(
   files: NamedBytes[],
   { compression = "DEFLATE" }: ZipOptions = {},
 ): Promise<Blob> {
-  const { default: JSZip } = await loadJsZip();
-  const zip = new JSZip();
-  for (const file of files) {
-    zip.file(file.name, toArrayBuffer(file.bytes));
-  }
-  return zip.generateAsync({
-    type: "blob",
-    compression,
-    compressionOptions: compression === "DEFLATE" ? { level: 6 } : undefined,
-  });
+  const { buildZip } = await loadZipArchive();
+  return buildZip(files, compression);
 }
 
 /** Sum the byte length across a set of generated files. */

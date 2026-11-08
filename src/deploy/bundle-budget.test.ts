@@ -611,7 +611,7 @@ const BUDGETS = [
   // LOWERED 1200 → 1100 on 2026-09-17, and this time something got LIGHTER:
   // jszip left the tool pages' load-time graph (a 129 KB chunk that rode
   // every page via the static import in src/lib/pdf/browser.ts, now fetched
-  // at first ZIP-producing run — see loadJsZip there). Measured with weigh()
+  // at first ZIP-producing run — see loadZipArchive there). Measured with weigh()
   // over both artifacts: 1176 → 1060 KB. The tighter figure is the guard:
   // under the old 1200, a static jszip import could have quietly returned
   // (1060 + 129 = 1189 fits); under 1100 it cannot.

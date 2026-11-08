@@ -130,6 +130,12 @@ import { grayscaleVerdict } from "@/lib/workers/compression/image-colour";
 import { noisePhotoPdf } from "@/lib/workers/compression/colour-image-pdf";
 import { targetProofVerdict } from "@/lib/workers/compression/target-proof";
 import {
+  MONO_PROOF_SOURCE_DPI,
+  monoFloorVerdict,
+  monoScanPdf,
+} from "@/lib/workers/compression/mono-proof";
+import { DEEP_MONO_MIN_DPI } from "@/lib/pdf/offered-kinds";
+import {
   MIN_TARGET_BYTES,
   TARGET_SIZE_PRESETS,
 } from "@/lib/pdf/compress-target";
@@ -894,6 +900,27 @@ const SPECS: ProofSpec[] = [
         targetBytes: MIN_TARGET_BYTES,
         met: false,
       }),
+  },
+  // The black-and-white floor (audit compress-pdf#3, shipped 2026-11-07 in
+  // PR #284): a 600 DPI 1-bit scan compressed at a 72 DPI target must come
+  // back at about DEEP_MONO_MIN_DPI, not 72. The argv test proves only that we
+  // asked; this reads the image's samples across the page in the download.
+  // A worker image from before #284 hands back 72 DPI and FAILS here.
+  {
+    tool: "compress-pdf",
+    label: "compress-pdf (black-and-white scan keeps 300 DPI)",
+    make: async () => Buffer.from(await monoScanPdf()),
+    name: "bw-scan.pdf",
+    type: PDF_MIME,
+    options: { profile: "deep", targetDpi: 72 },
+    expect: isPdf,
+    want: `black-and-white images at ${DEEP_MONO_MIN_DPI} DPI or more`,
+    verify: (bytes) =>
+      monoFloorVerdict(
+        new Uint8Array(bytes),
+        DEEP_MONO_MIN_DPI,
+        MONO_PROOF_SOURCE_DPI,
+      ),
   },
   // Until 2026-09-27 this sent the healthy `textPdf` under the name
   // `broken.pdf`, so the only real-job proof of Repair PDF exercised qpdf's

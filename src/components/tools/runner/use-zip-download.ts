@@ -7,7 +7,7 @@ import type { NamedBytes } from "@/lib/pdf/types";
 /**
  * What a result view says when its ZIP could not be built.
  *
- * JSZip is a lazily loaded chunk (see `loadJsZip` in `@/lib/pdf/browser`),
+ * JSZip is a lazily loaded chunk (see `loadZipArchive` in `@/lib/pdf/browser`),
  * fetched only at the moment of the click, so the FIRST archive of a session is
  * also a network fetch — and it fails when the connection dropped or a deploy
  * retired the chunk since the page was opened. Every "Download ZIP" button used
