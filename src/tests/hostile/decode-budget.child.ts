@@ -54,6 +54,13 @@ async function run(): Promise<unknown> {
       const r = await overlayPdf(partnerPdf(), bytes);
       return { bytes: r.bytes.length };
     }
+    case "overlay-cycle": {
+      // The file is both base and overlay, walked page for page, so every
+      // overlay page is embedded into one destination document.
+      const { overlayPdf } = await import("../../lib/pdf/overlay");
+      const r = await overlayPdf(bytes, bytes, { paging: "cycle" });
+      return { bytes: r.bytes.length, pages: r.pageCount };
+    }
     case "extract": {
       const { extractPdfImages } = await import("../../lib/pdf/extract-images");
       const r = await extractPdfImages(bytes);
