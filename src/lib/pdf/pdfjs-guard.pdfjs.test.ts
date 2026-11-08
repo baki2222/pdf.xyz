@@ -12,6 +12,7 @@
  */
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { deflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import {
   errorMessage,
@@ -25,6 +26,13 @@ import {
   kidsSelfPdf,
   rawPdf,
 } from "@/tests/hostile/conversion-out.fixtures";
+import {
+  formRepeatPdf,
+  inlineCyclesPdf,
+  nestedFormsPdf,
+  qCycle,
+  repeatedContentsPdf,
+} from "@/tests/hostile/pdfjs-work.fixtures";
 import { unsupportedEncryptionPdf } from "@/tests/unsupported-encryption";
 import {
   PdfEncryptedError,
@@ -32,14 +40,18 @@ import {
   UNREADABLE_PDF_MESSAGE,
   pdfjsLoadError,
 } from "./engine-errors";
+import { DictMatcher, dictEntries } from "./pdf-scan-bytes";
 import { readPagesWithPdfjs } from "./pdfjs";
 import {
+  GRAPHICS_STATE_WORK_FLOOR,
   MAX_DECODED_STREAM_BYTES,
   MAX_GRAPHICS_STATE_DEPTH,
+  MAX_GRAPHICS_STATE_WORK,
   RASTER_MAX_BILEVEL_PIXELS,
   RASTER_MAX_IMAGE_PIXELS,
   pdfjsPageCount,
   pdfjsPageError,
+  preflightPdfjsBytes,
   scanPdfStreams,
 } from "./pdfjs-guard";
 import { countPagesWithPdfjs } from "./pdfjs-page-count";
@@ -243,6 +255,12 @@ describe("the stream preflight: thresholds against real files and a second bound
       expect(scan.maxImagePixels, f).toBeLessThan(
         RASTER_MAX_IMAGE_PIXELS / 100,
       );
+      // Second review: every real file sits under the work floor (so its
+      // forms may be painted any number of times), and every image's size
+      // is read.
+      expect(scan.maxQReach, f).toBeLessThanOrEqual(GRAPHICS_STATE_WORK_FLOOR);
+      expect(scan.qWork, f).toBe(0);
+      expect(scan.unknownSizeImages, f).toBe(0);
     }
     expect(streams).toBeGreaterThan(100);
     expect(inflated).toBeGreaterThan(100);
@@ -360,12 +378,19 @@ describe("the stream preflight: thresholds against real files and a second bound
     expect(
       over(await image(`${A3_600} /ImageMask true /BitsPerComponent 1`)),
     ).toBeNull();
+    // History: the first repair counted `/ColorSpace /CalGray` (a name, which
+    // is not valid PDF: CalGray is an array) as bilevel, and this test pinned
+    // it. pdf.js takes its 1-bit path only for the name DeviceGray, so the
+    // property was untrue; inverted in the second repair.
     expect(
       over(
         await image(
           `${A3_600} /BitsPerComponent 1 /ColorSpace /CalGray /Filter /CCITTFaxDecode`,
         ),
       ),
+    ).toBe(7016 * 9921);
+    expect(
+      over(await image(`${A3_600} /BPC 1 /CS /G /Filter /CCITTFaxDecode`)),
     ).toBeNull();
     // Expanded to RGB by pdf.js like any colour image: the colour budget.
     expect(
@@ -437,5 +462,243 @@ describe("the stream preflight: thresholds against real files and a second bound
     // Measured on base: 24,576 deep read in 5.7-5.9 s and 32,640 in 66 s, so
     // the bound stays below the last depth measured as cheap.
     expect(MAX_GRAPHICS_STATE_DEPTH).toBeLessThan(24_576);
+  });
+});
+
+describe("second review: q work and multiplicity, top-level image entries, a linear scan", () => {
+  const triangle = (d: number) => (d * (d + 1)) / 2;
+
+  it("STAMP-14 work: one form 16,000 deep painted 30 times is refused by its work; painted once it passes", async () => {
+    // History: the first repair held DEPTH only. This page never passes
+    // 16,000, so it passed, and read for 157 s (30 climbs of ~3-5 s each).
+    const many = await scanPdfStreams(formRepeatPdf(30, 16_000));
+    expect(many).toMatchObject({ maxQReach: 16_000, exceeded: "q-work" });
+    const once = await scanPdfStreams(formRepeatPdf(1, 16_000));
+    expect(once).toMatchObject({ maxQReach: 16_000, exceeded: null });
+    // Counted twice (as possible page content, and once per Do): the budget
+    // is set so that a form at the depth bound, painted once, still reads.
+    const atBound = await scanPdfStreams(
+      formRepeatPdf(1, MAX_GRAPHICS_STATE_DEPTH),
+    );
+    expect(atBound).toMatchObject({
+      qWork: 2 * triangle(MAX_GRAPHICS_STATE_DEPTH),
+      exceeded: null,
+    });
+    expect(2 * triangle(MAX_GRAPHICS_STATE_DEPTH)).toBe(
+      MAX_GRAPHICS_STATE_WORK,
+    );
+  });
+
+  it("STAMP-14 work: the same climb repeated inline is held to the same budget, at its exact boundary", async () => {
+    // 15 inline climbs read for 52 s on the first repair.
+    expect((await scanPdfStreams(inlineCyclesPdf(15, 16_000))).exceeded).toBe(
+      "q-work",
+    );
+    const two = await scanPdfStreams(
+      inlineCyclesPdf(2, MAX_GRAPHICS_STATE_DEPTH),
+    );
+    expect(two).toMatchObject({
+      qWork: MAX_GRAPHICS_STATE_WORK,
+      exceeded: null,
+    });
+    const twoAndOne = await scanPdfStreams(
+      rawPdf([
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [] /Count 0 >>",
+        {
+          dict: "",
+          stream: qCycle(MAX_GRAPHICS_STATE_DEPTH).repeat(2) + "q Q\n",
+        },
+      ]),
+    );
+    // One more q at depth 1 is one unit over.
+    expect(twoAndOne).toMatchObject({
+      qWork: MAX_GRAPHICS_STATE_WORK + 1,
+      exceeded: "q-work",
+    });
+  });
+
+  it("STAMP-14 depth: forms painting each other stack their depths; one stream listed 24 times stacks its leak", async () => {
+    // Measured on base: 3 nested forms of 12,000 read in 11.9 s; the first
+    // repair saw a reach of 12,000.
+    expect(await scanPdfStreams(nestedFormsPdf(3, 12_000))).toMatchObject({
+      maxQReach: 36_000,
+      exceeded: "q-depth",
+    });
+    expect(await scanPdfStreams(nestedFormsPdf(1, 12_000))).toMatchObject({
+      maxQReach: 12_000,
+      exceeded: null,
+    });
+    // 24 x 1,000 read in 4.6 s on base, and 32 listings pass the cliff.
+    expect(await scanPdfStreams(repeatedContentsPdf(24, 1_000))).toMatchObject({
+      unclosedQ: 24_000,
+      exceeded: "q-depth",
+    });
+    expect(await scanPdfStreams(repeatedContentsPdf(1, 1_000))).toMatchObject({
+      unclosedQ: 1_000,
+      exceeded: null,
+    });
+  });
+
+  it("references inside a decoded object stream count: a /Contents array kept in an ObjStm is seen", async () => {
+    const page = `<< /Type /Page /Parent 2 0 R /Contents [${"5 0 R ".repeat(20)}] >>`;
+    const objStm = deflateSync(Buffer.from(`3 0 ${page}`, "latin1"));
+    const file = (filter: string, data: Uint8Array | string) =>
+      rawPdf([
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        null,
+        { dict: `/Type /ObjStm /N 1 /First 4 ${filter}`, stream: data },
+        { dict: "", stream: "q\n".repeat(1_000) },
+      ]);
+    expect(
+      await scanPdfStreams(file("/Filter /FlateDecode", objStm)),
+    ).toMatchObject({ unclosedQ: 20_000, exceeded: "q-depth" });
+    // An object stream the scan cannot decode could name the stream any
+    // number of times: past the floor, the work has no bound.
+    const opaque = rawPdf([
+      "<< /Type /Catalog /Pages 2 0 R >>",
+      "<< /Type /Pages /Kids [] /Count 0 >>",
+      { dict: "/Type /ObjStm /N 1 /First 4 /Filter /LZWDecode", stream: "x" },
+      { dict: "", stream: qCycle(300) },
+    ]);
+    expect(await scanPdfStreams(opaque)).toMatchObject({
+      maxQReach: 300,
+      qWork: Infinity,
+      exceeded: "q-work",
+    });
+  });
+
+  it("positive control for the floor: a shallow file with nested, repeated forms has no q work to judge", async () => {
+    const s = await scanPdfStreams(nestedFormsPdf(4, 20));
+    expect(s.maxQReach).toBe(80);
+    expect(s.maxQReach).toBeLessThanOrEqual(GRAPHICS_STATE_WORK_FLOOR);
+    expect(s).toMatchObject({ qWork: 0, exceeded: null });
+    // Past the floor the same shape is judged.
+    const deep = await scanPdfStreams(nestedFormsPdf(4, 100));
+    expect(deep.maxQReach).toBe(400);
+    expect(deep.qWork).toBeGreaterThan(0);
+  });
+
+  it("CO-08: image entries are read from the top level, with abbreviations, name escapes and references", async () => {
+    const image = (dict: string, extra: string[] = []) =>
+      scanPdfStreams(
+        rawPdf([
+          "<< /Type /Catalog /Pages 2 0 R >>",
+          "<< /Type /Pages /Kids [] /Count 0 >>",
+          { dict: `/Type /XObject /Subtype /Image ${dict}`, stream: "x" },
+          ...extra,
+        ]),
+      );
+    // History: the first repair read the first `/BitsPerComponent` anywhere
+    // in the text, so this 8-bit image counted as bilevel (400 MP budget).
+    expect(
+      (
+        await image(
+          "/DecodeParms << /BitsPerComponent 1 >> /Width 12000 /Height 12000 /BitsPerComponent 8 /ColorSpace /DeviceGray",
+        )
+      ).smallestOverBudgetImage,
+    ).toBe(144_000_000);
+    // History: `/Width 4 0 R` read as no width, 0 pixels.
+    expect(
+      await image("/Width 4 0 R /Height 10000 /BitsPerComponent 8", ["10000"]),
+    ).toMatchObject({ smallestOverBudgetImage: 100_000_000 });
+    // pdf.js reads /W before /Width; a real number is a number.
+    expect(
+      (await image("/Width 10 /Height 10 /W 10000 /H 10000.0"))
+        .smallestOverBudgetImage,
+    ).toBe(100_000_000);
+    expect(
+      (await image("/Wid#74h 10000 /Height 10000")).smallestOverBudgetImage,
+    ).toBe(100_000_000);
+    // A reference the scan cannot resolve: size unknown, held to the colour
+    // budget by the preflight.
+    const unresolved = rawPdf([
+      "<< /Type /Catalog /Pages 2 0 R >>",
+      "<< /Type /Pages /Kids [] /Count 0 >>",
+      {
+        dict: "/Type /XObject /Subtype /Image /Width 99 0 R /Height 10",
+        stream: "x",
+      },
+    ]);
+    expect(await scanPdfStreams(unresolved)).toMatchObject({
+      unknownSizeImages: 1,
+      smallestOverBudgetImage: null,
+    });
+    expect(await preflightPdfjsBytes(unresolved)).toEqual({
+      previewOptions: { maxImageSize: RASTER_MAX_IMAGE_PIXELS },
+      overBudgetImage: true,
+    });
+    // Positive controls: a direct small image and a resolved small one pass.
+    expect(
+      await image("/Width 4 0 R /Height 100 /BitsPerComponent 8", ["100"]),
+    ).toMatchObject({ smallestOverBudgetImage: null, unknownSizeImages: 0 });
+  });
+
+  it("dictEntries: nested values never supply top-level keys", () => {
+    const e = dictEntries(
+      "<< /DecodeParms << /BitsPerComponent 1 /Columns (a >> b) >> /A [/B << /C 1 >>] /BitsPerComponent 8 /W 3 0 R /IM true >>",
+    );
+    expect(e.get("BitsPerComponent")).toEqual([{ kind: "number", value: 8 }]);
+    expect(e.has("Columns")).toBe(false);
+    expect(e.has("C")).toBe(false);
+    expect(e.get("W")).toEqual([{ kind: "ref", num: 3 }]);
+    expect(e.get("IM")).toEqual([{ kind: "word", word: "true" }]);
+  });
+
+  it("the dictionary matcher returns exactly what the first fix's 64 KB backward walk returned", () => {
+    // The first fix's walk, kept here as the reference.
+    const walkBack = (bytes: Uint8Array, end: number): number | null => {
+      let depth = 0;
+      const floor = Math.max(0, end - 65_536);
+      for (let i = end - 1; i > floor; i -= 1) {
+        if (bytes[i] === 0x3e && bytes[i - 1] === 0x3e) {
+          depth += 1;
+          i -= 1;
+        } else if (bytes[i] === 0x3c && bytes[i - 1] === 0x3c) {
+          depth -= 1;
+          i -= 1;
+          if (depth === 0) return i;
+        }
+      }
+      return null;
+    };
+    let seed = 7;
+    const rand = () => {
+      seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
+      return seed / 2_147_483_648;
+    };
+    const alphabet = "<<>> s";
+    let queries = 0;
+    let matched = 0;
+    for (let trial = 0; trial < 300; trial += 1) {
+      const len = 10 + Math.floor(rand() * 400);
+      const bytes = Uint8Array.from({ length: len }, () =>
+        alphabet.charCodeAt(Math.floor(rand() * alphabet.length)),
+      );
+      const m = new DictMatcher(bytes);
+      for (let end = 2; end < len; end += 1) {
+        // The scan's contract: a `>>` ends at `end`, and `end` is not `>`.
+        if (bytes[end - 1] !== 0x3e || bytes[end - 2] !== 0x3e) continue;
+        if (bytes[end] === 0x3e) continue;
+        const want = walkBack(bytes, end);
+        expect(m.startBefore(end), `trial ${trial} end ${end}`).toBe(want);
+        queries += 1;
+        if (want !== null) matched += 1;
+      }
+    }
+    // The window: a `<<` 64 KB back is too far for both; just inside is not.
+    for (const gap of [65_000, 66_000]) {
+      const far = new Uint8Array(gap + 5).fill(0x20);
+      far.set([0x3c, 0x3c], 0);
+      far.set([0x3e, 0x3e], gap + 2);
+      const want = walkBack(far, gap + 4);
+      expect(want).toBe(gap < 65_536 ? 0 : null);
+      expect(new DictMatcher(far).startBefore(gap + 4)).toBe(want);
+    }
+    // Health: the property was asked many times, both ways.
+    expect(queries).toBeGreaterThan(1_000);
+    expect(matched).toBeGreaterThan(200);
+    expect(queries - matched).toBeGreaterThan(200);
   });
 });

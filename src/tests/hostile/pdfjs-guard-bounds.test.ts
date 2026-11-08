@@ -68,6 +68,62 @@ describe("pdf.js consumers stay bounded on hostile streams", () => {
     expect(v.text).toContain("END");
   }, 60_000);
 
+  test("STAMP-14, work: one form 16,000 deep painted 30 times (157 s on the first repair) is refused in seconds", async () => {
+    // History: the first repair bounded DEPTH only. This page never goes past
+    // 16,000, so it passed, and pdf.js climbed the nest 30 times.
+    const v = settled(
+      await runBounded(CHILD, ["stamp14-form-repeat-text"], 30_000),
+    );
+    expect(v.error).toMatchObject({
+      name: "PdfEngineError",
+      message: PDF_NESTED_TOO_DEEPLY_MESSAGE,
+    });
+  }, 60_000);
+
+  test("STAMP-14, work control: the same form painted once still reads", async () => {
+    const v = settled(
+      await runBounded(CHILD, ["stamp14-form-once-text"], 30_000),
+    );
+    expect(v).toMatchObject({ ok: true, pageCount: 1 });
+    expect(v.text).toContain("MARK");
+  }, 60_000);
+
+  test("CO-08: a 100 MP image whose /Width is an indirect reference is refused like a direct one", async () => {
+    // History: the scan read `/Width 7 0 R` as no width (0 pixels) and pdf.js
+    // resolved it and decoded the whole image: 29.8 s, 1.5 GB.
+    const v = settled(
+      await runBounded(CHILD, ["co08-indirect-width-raster"], 20_000, {
+        maxOldSpaceMb: 2048,
+      }),
+    );
+    expect(v.error).toMatchObject({
+      name: "PdfEngineError",
+      message: PDF_IMAGE_TOO_LARGE_MESSAGE,
+    });
+    expect(v.maxRssMb as number).toBeLessThan(900);
+  }, 60_000);
+
+  test("the scan is linear: 4.5 MB of `>>stream` with no `<<` is scanned in seconds, not 18 s", async () => {
+    // History: each keyword walked back 64 KB looking for `<<`, synchronously,
+    // in the tab's own thread (the preflight runs before pdf.js's worker).
+    const v = settled(
+      await runBounded(CHILD, ["scan-unmatched-dict-preflight"], 20_000),
+    );
+    expect(v).toMatchObject({ ok: true, bytes: 4_500_015 });
+    expect(v.preflightMs as number).toBeLessThan(3_000);
+  }, 60_000);
+
+  test("the scan is linear: 4 MB of `<</Length 0>>stream` with no endstream is scanned in seconds", async () => {
+    // History: each keyword searched forward to the end of the file for an
+    // `endstream` that is not there: 400 KB took 7.5 s, 1.6 MB did not finish
+    // in 2 minutes.
+    const v = settled(
+      await runBounded(CHILD, ["scan-no-endstream-preflight"], 20_000),
+    );
+    expect(v).toMatchObject({ ok: true, bytes: 4_000_015 });
+    expect(v.preflightMs as number).toBeLessThan(3_000);
+  }, 60_000);
+
   test("CO-08: a 100 MP image is refused by name before pdf.js decodes it", async () => {
     const v = settled(
       await runBounded(CHILD, ["co08-raster"], 30_000, { maxOldSpaceMb: 2048 }),

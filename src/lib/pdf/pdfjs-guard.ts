@@ -3,6 +3,21 @@ import {
   UNREADABLE_PDF_MESSAGE,
   pdfjsLoadError,
 } from "./engine-errors";
+import {
+  DICT_SEARCH_WINDOW,
+  DictMatcher,
+  type DictValue,
+  RefCounter,
+  ascii,
+  dictEntries,
+  indexOfWord,
+  isDelimiter,
+  isWhite,
+  namesOf,
+  numericObjects,
+  streamObjectNumber,
+  valuesOf,
+} from "./pdf-scan-bytes";
 import { MAX_DECODED_PIXELS } from "./pixel-ceiling";
 
 /**
@@ -69,16 +84,67 @@ export const MAX_DECODED_TOTAL_BYTES = MAX_DECODED_STREAM_BYTES * 4;
  * ISO 32000-1 Annex C (Table C.1) lists 28 as Acrobat's graphics-state
  * nesting limit, so a file real viewers draw sits far below this.
  *
- * The scan cannot tell which streams one page concatenates (a /Contents
- * array, the forms it paints), so it bounds every page from above: a page
- * that ends in stream i was at most (what every OTHER stream leaves open) +
- * (stream i's own deepest point) deep. {@link PdfStreamScan.maxQReach} is the
- * largest of those, and it is this figure that is held to the bound. One
- * stream 16,384 deep reads; 32 streams of 1,020 (32,640) do not; a document
- * whose pages leak `q` passes while the leaks sum to 16,384 or less (4,000
- * pages leaking 4 each).
+ * The scan cannot tell which streams one page concatenates, so it bounds
+ * every page from above ({@link PdfStreamScan.maxQReach}):
+ *
+ *  - every `q` a content stream leaves open, times the number of times the
+ *    file NAMES that stream (`num gen R`, in object text and in decoded
+ *    object streams): a /Contents array may list one stream again and
+ *    again, and pdf.js reads it each time (second review: one 1,000-q stream
+ *    listed 24 times reached 24,000 and read for 4.6 s; the first repair
+ *    counted it once);
+ *  - plus the largest (deepest point - left open) of any non-form stream;
+ *  - plus what Form XObjects add: pdf.js paints a form on a clone of its
+ *    caller's state, so depths stack through `Do` (measured on base: three
+ *    forms painting each other, each balanced 12,000 deep, 11.9 s; the first
+ *    repair saw 12,000). A chain is every form that calls `Do`, plus the
+ *    deepest form, each once (pdf.js refuses a circular chain).
+ *
+ * One stream 16,384 deep reads; 32 streams of 1,020 (32,640) do not; a
+ * document whose pages leak `q` passes while the leaks sum to 16,384 or less
+ * (4,000 pages leaking 4 each).
+ *
+ * Depth is not the whole cost: a nest that climbs to 16,000 and comes back
+ * costs ~3 s EACH time it climbs, which this bound does not see. See
+ * {@link MAX_GRAPHICS_STATE_WORK}.
  */
 export const MAX_GRAPHICS_STATE_DEPTH = 16_384;
+
+/**
+ * The most `q` work a file may make pdf.js do: 268,451,840 (16,384 x
+ * 16,385, twice the work of one climb to {@link MAX_GRAPHICS_STATE_DEPTH}),
+ * counted as the sum, over every `q` pdf.js executes, of the depth it reaches.
+ *
+ * What costs time is CLIMBING: measured on base (2026-11-08, `extractPdfText`,
+ * Node, ~0.5 s start-up included), 16,000 q then one text op 2.8 s, and the
+ * same plus 2,000 text ops at that depth 2.6 s (text ops at depth are free);
+ * 16,000 q then 16,000 `Q q` pairs 2.7 s (re-entering a depth is free); a
+ * balanced 16,000 climb repeated 5 times 22 s, 15 times 52 s; one form
+ * holding it, painted 30 times, 157 s (the second review's case, which the
+ * depth bound alone admitted). The sum of depths at each `q` is an upper
+ * bound on the climbing, and it is what is held here, with each paint and
+ * each listing multiplied in (see `judgeGraphicsState`).
+ *
+ * At the budget, measured on base: two balanced 16,384 climbs 4.2-4.3 s; four
+ * of 11,585 4.6-5.1 s. Twice the work of one nest to the depth bound, because
+ * a form painted once is counted twice (once as possible page content, since
+ * a page's /Contents may be labelled /Subtype /Form, and once per `Do`), and
+ * that form must still read.
+ *
+ * Only judged past {@link GRAPHICS_STATE_WORK_FLOOR}: below it, every `q`
+ * runs shallow, and the multipliers (how often a form is painted) are the
+ * ordinary cost of any repeated content, not a `q` cost.
+ */
+export const MAX_GRAPHICS_STATE_WORK =
+  MAX_GRAPHICS_STATE_DEPTH * (MAX_GRAPHICS_STATE_DEPTH + 1);
+
+/**
+ * The depth below which `q` is not a cost multiplier: 256. Measured on base,
+ * an 800 KB content stream of 200,000 `q` in balanced climbs: 2 deep 1.25 s,
+ * 64 deep 2.0 s, 256 deep 2.4 s, 1,024 deep 3.3 s. Nine times Acrobat's limit
+ * of 28 (ISO 32000-1 Annex C); the legit corpus nests at most 2.
+ */
+export const GRAPHICS_STATE_WORK_FLOOR = 256;
 
 /**
  * The most pixels one colour or 8-bit image may have on the RASTER path
@@ -179,13 +245,24 @@ export interface PdfStreamScan {
   totalBytes: number;
   /** Deepest `q` nesting reached inside any one content stream. */
   maxQDepth: number;
-  /** `q` left open at the end of each content stream, summed over the file. */
+  /**
+   * `q` left open at the end of each content stream, times the number of
+   * times the file names that stream (see `RefCounter`), summed.
+   */
   unclosedQ: number;
   /**
-   * The deepest any page could reach: the largest, over content streams, of
-   * (what every other stream leaves open) + (this stream's deepest point).
+   * An upper bound on the deepest any page reaches: {@link unclosedQ} + the
+   * largest (deepest point - left open) of a non-form stream + the depth a
+   * chain of Form XObjects can add. See {@link MAX_GRAPHICS_STATE_DEPTH}.
    */
   maxQReach: number;
+  /**
+   * An upper bound on the `q` work pdf.js does (the sum, over every `q` it
+   * executes, of the depth it reaches) when {@link maxQReach} is past
+   * {@link GRAPHICS_STATE_WORK_FLOOR}; 0 at or below it. See
+   * {@link MAX_GRAPHICS_STATE_WORK}.
+   */
+  qWork: number;
   /** Largest image XObject, in pixels (Width x Height). */
   maxImagePixels: number;
   /**
@@ -194,23 +271,19 @@ export interface PdfStreamScan {
    * for a bilevel one); null when every image is within budget.
    */
   smallestOverBudgetImage: number | null;
+  /**
+   * Images whose size the scan cannot read: a /Width or /Height that refers
+   * to an object the scan cannot see (one held in an object stream), or is
+   * not a number. pdf.js resolves those; the scan treats the image as over
+   * budget.
+   */
+  unknownSizeImages: number;
   /** The first bound the scan stopped at, or null. */
-  exceeded: "stream-bytes" | "total-bytes" | "q-depth" | null;
+  exceeded:
+    "stream-bytes" | "total-bytes" | "scan-work" | "q-depth" | "q-work" | null;
 }
 
 const latin1 = new TextDecoder("latin1");
-
-/** PDF whitespace: NUL, TAB, LF, FF, CR, SPACE. */
-function isWhite(b: number): boolean {
-  return (
-    b === 0x20 ||
-    b === 0x0a ||
-    b === 0x0d ||
-    b === 0x09 ||
-    b === 0x0c ||
-    b === 0x00
-  );
-}
 
 /** A byte after which an operator may start: whitespace or a closing delimiter. */
 function endsToken(b: number): boolean {
@@ -219,124 +292,125 @@ function endsToken(b: number): boolean {
 
 /** A byte that may follow an operator: whitespace or any delimiter. */
 function startsToken(b: number): boolean {
-  return (
-    isWhite(b) ||
-    b === 0x28 || // (
-    b === 0x29 ||
-    b === 0x3c || // <
-    b === 0x3e ||
-    b === 0x5b || // [
-    b === 0x5d ||
-    b === 0x7b ||
-    b === 0x7d ||
-    b === 0x2f || // /
-    b === 0x25 // %
-  );
+  return isWhite(b) || isDelimiter(b);
 }
 
 const Q_LOWER = 0x71;
 const Q_UPPER = 0x51;
+const D_UPPER = 0x44;
+const O_LOWER = 0x6f;
 
 /**
- * A streaming `q`/`Q` depth counter: fed chunk by chunk, it tracks the running
- * nesting of standalone `q` and `Q` tokens and the deepest it reached. A `Q`
- * with nothing open is ignored, as pdf.js ignores it.
+ * A streaming operator counter for one content stream, fed chunk by chunk:
+ * the running nesting of standalone `q` and `Q` tokens, the deepest it
+ * reached, how many `q` it executed and the sum of the depths they reached
+ * (its work), and how many `Do` it executed. A `Q` with nothing open is
+ * ignored, as pdf.js ignores it.
  */
-class QDepth {
+class ContentOps {
   depth = 0;
   max = 0;
+  pushes = 0;
+  work = 0;
+  dos = 0;
   private prevEnds = true;
   private pending = 0;
+  /** 1 after a token-initial `D`, 2 after `Do`. */
+  private doState = 0;
   feed(chunk: Uint8Array): void {
-    let { depth, max, prevEnds, pending } = this;
+    let { depth, max, pushes, work, dos, prevEnds, pending, doState } = this;
     for (let i = 0; i < chunk.length; i += 1) {
       const b = chunk[i]!;
       if (pending !== 0) {
         if (startsToken(b)) {
           if (pending === Q_LOWER) {
             depth += 1;
+            pushes += 1;
+            work += depth;
             if (depth > max) max = depth;
           } else if (depth > 0) depth -= 1;
         }
         pending = 0;
       }
-      if ((b === Q_LOWER || b === Q_UPPER) && prevEnds) pending = b;
+      if (doState === 2) {
+        if (startsToken(b)) dos += 1;
+        doState = 0;
+      } else if (doState === 1) {
+        doState = b === O_LOWER ? 2 : 0;
+      }
+      if (prevEnds) {
+        if (b === Q_LOWER || b === Q_UPPER) pending = b;
+        else if (b === D_UPPER) doState = 1;
+      }
       prevEnds = endsToken(b);
     }
-    Object.assign(this, { depth, max, prevEnds, pending });
+    Object.assign(this, {
+      depth,
+      max,
+      pushes,
+      work,
+      dos,
+      prevEnds,
+      pending,
+      doState,
+    });
   }
   end(): void {
     this.feed(Uint8Array.of(0x20));
   }
 }
 
-/** The dictionary text that ends at `end` (exclusive, just past `>>`). */
-function dictBefore(bytes: Uint8Array, end: number): string | null {
-  let depth = 0;
-  const floor = Math.max(0, end - 65_536);
-  for (let i = end - 1; i > floor; i -= 1) {
-    if (bytes[i] === 0x3e && bytes[i - 1] === 0x3e) {
-      depth += 1;
-      i -= 1;
-    } else if (bytes[i] === 0x3c && bytes[i - 1] === 0x3c) {
-      depth -= 1;
-      i -= 1;
-      if (depth === 0) return latin1.decode(bytes.subarray(i, end));
-    }
-  }
-  return null;
+/** What one content stream contributes to the page-level `q` bounds. */
+interface ContentRecord {
+  /** Its object number, or null when no `num gen obj` header was found. */
+  num: number | null;
+  /** /Subtype /Form: painted by `Do` (or, if mislabelled, as page content). */
+  form: boolean;
+  max: number;
+  left: number;
+  pushes: number;
+  work: number;
+  dos: number;
 }
 
-const STREAM = Uint8Array.from("stream", (c) => c.charCodeAt(0));
-const ENDSTREAM = Uint8Array.from("endstream", (c) => c.charCodeAt(0));
-
-function matchesAt(bytes: Uint8Array, at: number, word: Uint8Array): boolean {
-  if (at < 0 || at + word.length > bytes.length) return false;
-  for (let k = 0; k < word.length; k += 1) {
-    if (bytes[at + k] !== word[k]) return false;
-  }
-  return true;
-}
-
-function indexOfWord(
-  bytes: Uint8Array,
-  word: Uint8Array,
-  from: number,
-): number {
-  const first = word[0]!;
-  for (
-    let i = bytes.indexOf(first, from);
-    i !== -1;
-    i = bytes.indexOf(first, i + 1)
-  ) {
-    if (matchesAt(bytes, i, word)) return i;
-  }
-  return -1;
-}
+const STREAM = ascii("stream");
+const ENDSTREAM = ascii("endstream");
 
 /** The filter names of a stream dictionary, in decode order. */
-function filtersOf(dict: string): string[] {
-  const m = /\/Filter\s*(\/[^\s/<>[\]()]+|\[([^\]]*)\])/.exec(dict);
-  if (!m) return [];
-  if (m[2] === undefined) return [m[1]!.slice(1)];
-  return m[2]
-    .split("/")
-    .map((s) => s.trim())
-    .filter(Boolean);
+function filtersOf(entries: Map<string, DictValue[]>): string[] {
+  const all = valuesOf(entries, "Filter");
+  const v = all[all.length - 1]; // pdf.js keeps a repeated key's last value
+  if (v === undefined) return [];
+  if (v.kind === "name") return [v.name];
+  if (v.kind === "array") {
+    return [...v.raw.matchAll(/\/([^\s/<>[\]()]+)/g)].map((m) =>
+      m[1]!.replace(/#([0-9A-Fa-f]{2})/g, (_, h: string) =>
+        String.fromCharCode(parseInt(h, 16)),
+      ),
+    );
+  }
+  // An indirect filter list: not resolved here, so not decoded.
+  return ["?"];
 }
 
-const intEntry = (dict: string, key: string): number | null => {
-  const m = new RegExp(`/${key}\\s+(\\d+)(?![\\d.]|\\s+\\d+\\s+R)`).exec(dict);
-  return m ? Number(m[1]) : null;
-};
+function lengthOf(entries: Map<string, DictValue[]>): number | null {
+  const all = valuesOf(entries, "Length");
+  const v = all[all.length - 1];
+  return v?.kind === "number" && Number.isInteger(v.value) && v.value >= 0
+    ? v.value
+    : null;
+}
 
 /** Streams whose bytes are not page content: fonts, xref, object streams. */
-function isContentLike(dict: string): boolean {
-  if (/\/Length[123]\b/.test(dict)) return false;
-  if (/\/Type\s*\/(?:XRef|ObjStm|Metadata|EmbeddedFile)\b/.test(dict))
+function isContentLike(entries: Map<string, DictValue[]>): boolean {
+  if (["Length1", "Length2", "Length3"].some((k) => entries.has(k))) {
     return false;
-  const subtype = /\/Subtype\s*\/([^\s/<>[\]()]+)/.exec(dict)?.[1];
-  return subtype === undefined || subtype === "Form";
+  }
+  const notContent = ["XRef", "ObjStm", "Metadata", "EmbeddedFile"];
+  if (namesOf(entries, "Type").some((t) => notContent.includes(t))) {
+    return false;
+  }
+  return namesOf(entries, "Subtype").every((s) => s === "Form");
 }
 
 /**
@@ -388,24 +462,73 @@ const FLATE = new Set(["FlateDecode", "Fl"]);
 
 /**
  * An image pdf.js paints through its cheap 1-bit path: an /ImageMask, or 1
- * bit per sample in ONE gray component named in the dictionary itself. An
- * Indexed, ICC (by reference) or colour 1-bit image is expanded to RGB like
- * any other, so it is not bilevel here; a missing colour space errs the same
- * way (held to the colour budget).
+ * bit per sample in ONE gray component named in the dictionary itself
+ * (pdf.js takes GRAYSCALE_1BPP only when `colorSpace.name === "DeviceGray"`).
+ * Read from the dictionary's TOP level, and every value of a key must agree;
+ * pdf.js reads the abbreviated key first, so `/IM`, `/BPC` and `/CS` count
+ * too. An Indexed, ICC, CalGray or colour 1-bit image is expanded to RGBA
+ * like any other, so it is not bilevel here; nor is a colour space by
+ * reference.
  */
-function isBilevel(dict: string): boolean {
-  if (/\/(?:ImageMask|IM)\s+true\b/.test(dict)) return true;
-  if (intEntry(dict, "BitsPerComponent") !== 1 && intEntry(dict, "BPC") !== 1)
-    return false;
-  return /\/(?:ColorSpace|CS)\s*\/(?:DeviceGray|CalGray|G)\b/.test(dict);
+function isBilevel(entries: Map<string, DictValue[]>): boolean {
+  const masks = valuesOf(entries, "IM", "ImageMask");
+  if (
+    masks.length > 0 &&
+    masks.every((v) => v.kind === "word" && v.word === "true")
+  ) {
+    return true;
+  }
+  const bpc = valuesOf(entries, "BPC", "BitsPerComponent");
+  const cs = valuesOf(entries, "CS", "ColorSpace");
+  return (
+    bpc.length > 0 &&
+    bpc.every((v) => v.kind === "number" && v.value === 1) &&
+    cs.length > 0 &&
+    cs.every(
+      (v) => v.kind === "name" && (v.name === "DeviceGray" || v.name === "G"),
+    )
+  );
 }
 
 /**
- * One pass over every stream in `bytes`, bounded: each non-image stream's
- * leading Flate stages are inflated (counted, never kept) and its `q` depth
- * measured; each image's Width x Height is read from its dictionary. Stops at
- * the first bound passed. Streams behind other filters (LZW, ASCII85) are
- * not decoded; their size is not seen.
+ * An image's pixels: the largest /W or /Width times the largest /H or
+ * /Height (pdf.js reads `dict.get("W", "Width")`, the abbreviation first), a
+ * reference resolved when the scan can see the number it names. Null when a
+ * value is anything else; 0 when a dimension is missing (pdf.js refuses such
+ * an image).
+ */
+function imagePixels(
+  entries: Map<string, DictValue[]>,
+  numberObject: (num: number) => number | undefined,
+): number | null {
+  const side = (...keys: string[]): number | null => {
+    let best = 0;
+    for (const v of valuesOf(entries, ...keys)) {
+      const n =
+        v.kind === "number"
+          ? v.value
+          : v.kind === "ref"
+            ? numberObject(v.num)
+            : undefined;
+      if (n === undefined || !Number.isFinite(n)) return null;
+      best = Math.max(best, Math.ceil(Math.abs(n)));
+    }
+    return best;
+  };
+  const w = side("W", "Width");
+  const h = side("H", "Height");
+  return w === null || h === null ? null : w * h;
+}
+
+/**
+ * One pass over every stream in `bytes`, bounded and LINEAR in the file's
+ * size: each non-image stream's leading Flate stages are inflated (counted,
+ * never kept) and its `q` and `Do` operators counted; each image's size is
+ * read from its dictionary's top level; every `num gen R` outside stream data
+ * and inside decoded object streams is counted. Stops at the first byte bound
+ * passed; the `q` bounds are judged once every reference has been counted.
+ * Streams behind other filters (LZW, ASCII85) are not decoded; their size is
+ * not seen.
  */
 export async function scanPdfStreams(
   bytes: Uint8Array,
@@ -418,12 +541,49 @@ export async function scanPdfStreams(
     maxQDepth: 0,
     unclosedQ: 0,
     maxQReach: 0,
+    qWork: 0,
     maxImagePixels: 0,
     smallestOverBudgetImage: null,
+    unknownSizeImages: 0,
     exceeded: null,
   };
-  // max over content streams of (deepest point - left open): see maxQReach.
-  let maxQExcess = 0;
+  const dicts = new DictMatcher(bytes);
+  const refs = new RefCounter();
+  const records: ContentRecord[] = [];
+  /** Stream data, [start, end) pairs in file order: not object text. */
+  const dataRanges: number[] = [];
+  let opaqueObjectStreams = 0;
+  let numeric: Map<number, number> | null = null;
+  const numberObject = (num: number) =>
+    (numeric ??= numericObjects(bytes)).get(num);
+  // Every `endstream` before `scannedTo`, each found once.
+  const endstreams: number[] = [];
+  let scannedTo = 0;
+  const endstreamFrom = (from: number): number => {
+    let lo = 0;
+    let hi = endstreams.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (endstreams[mid]! < from) lo = mid + 1;
+      else hi = mid;
+    }
+    if (lo < endstreams.length) return endstreams[lo]!;
+    while (scannedTo < bytes.length) {
+      const p = indexOfWord(bytes, ENDSTREAM, scannedTo);
+      if (p === -1) {
+        scannedTo = bytes.length;
+        break;
+      }
+      endstreams.push(p);
+      scannedTo = p + 1;
+      if (p >= from) return p;
+    }
+    return -1;
+  };
+  // Dictionary text read, in bytes. Real stream dictionaries are disjoint,
+  // so this stays under the file's size; only overlapping `<<` soups pass it.
+  let dictBytes = 0;
+  const dictBudget = 2 * bytes.length + DICT_SEARCH_WINDOW;
   let at = 0;
   for (;;) {
     const kw = indexOfWord(bytes, STREAM, at);
@@ -436,25 +596,36 @@ export async function scanPdfStreams(
     let start = at;
     if (bytes[start] === 0x0d) start += 1;
     if (bytes[start] === 0x0a) start += 1;
-    const dict = dictBefore(bytes, back + 1);
-    if (dict === null) continue;
+    const dictStart = dicts.startBefore(back + 1);
+    if (dictStart === null) continue;
+    dictBytes += back + 1 - dictStart;
+    if (dictBytes > dictBudget) {
+      scan.exceeded = "scan-work";
+      break;
+    }
+    const entries = dictEntries(
+      latin1.decode(bytes.subarray(dictStart, back + 1)),
+    );
     scan.streams += 1;
 
-    const length = intEntry(dict, "Length");
+    const length = lengthOf(entries);
     let end =
       length !== null && start + length <= bytes.length ? start + length : -1;
-    if (end === -1 || indexOfWord(bytes, ENDSTREAM, end) - end > 4) {
-      end = indexOfWord(bytes, ENDSTREAM, start);
+    if (end === -1 || endstreamFrom(end) - end > 4) {
+      end = endstreamFrom(start);
       if (end === -1) end = bytes.length;
     }
     at = Math.max(at, end);
+    dataRanges.push(start, end);
 
-    if (/\/Subtype\s*\/Image\b/.test(dict)) {
-      const w = intEntry(dict, "Width") ?? 0;
-      const h = intEntry(dict, "Height") ?? 0;
-      const pixels = w * h;
+    if (namesOf(entries, "Subtype").includes("Image")) {
+      const pixels = imagePixels(entries, numberObject);
+      if (pixels === null) {
+        scan.unknownSizeImages += 1;
+        continue;
+      }
       scan.maxImagePixels = Math.max(scan.maxImagePixels, pixels);
-      const budget = isBilevel(dict)
+      const budget = isBilevel(entries)
         ? RASTER_MAX_BILEVEL_PIXELS
         : RASTER_MAX_IMAGE_PIXELS;
       if (
@@ -467,48 +638,138 @@ export async function scanPdfStreams(
       continue;
     }
 
-    const filters = filtersOf(dict);
+    const filters = filtersOf(entries);
     let flateStages = 0;
     while (flateStages < filters.length && FLATE.has(filters[flateStages]!)) {
       flateStages += 1;
     }
-    const content = isContentLike(dict) && flateStages === filters.length;
-    const q = content ? new QDepth() : null;
+    const decodable = flateStages === filters.length;
+    const objectStream = namesOf(entries, "Type").includes("ObjStm");
+    if (objectStream && !decodable) opaqueObjectStreams += 1;
+    const ops = isContentLike(entries) && decodable ? new ContentOps() : null;
     const data = bytes.subarray(start, end);
+    refs.reset();
+    const sink: ((chunk: Uint8Array) => void) | null = ops
+      ? (c) => ops.feed(c)
+      : objectStream && decodable
+        ? (c) => refs.feed(c)
+        : null;
     let decoded: number;
     if (flateStages > 0) {
       const limit = Math.min(
         MAX_DECODED_STREAM_BYTES,
         MAX_DECODED_TOTAL_BYTES - scan.totalBytes,
       );
-      decoded = await inflateCounting(
-        data,
-        flateStages,
-        limit,
-        q && ((c) => q.feed(c)),
-      );
+      decoded = await inflateCounting(data, flateStages, limit, sink);
       scan.inflated += 1;
     } else {
       decoded = data.length;
-      if (filters.length === 0) q?.feed(data);
+      if (filters.length === 0) sink?.(data);
     }
-    q?.end();
     scan.maxStreamBytes = Math.max(scan.maxStreamBytes, decoded);
     scan.totalBytes += decoded;
-    if (q) {
-      scan.maxQDepth = Math.max(scan.maxQDepth, q.max);
-      scan.unclosedQ += q.depth;
-      maxQExcess = Math.max(maxQExcess, q.max - q.depth);
-      scan.maxQReach = scan.unclosedQ + maxQExcess;
+    if (ops) {
+      ops.end();
+      scan.maxQDepth = Math.max(scan.maxQDepth, ops.max);
+      if (ops.pushes > 0 || ops.dos > 0) {
+        records.push({
+          num: streamObjectNumber(bytes, dictStart),
+          form: namesOf(entries, "Subtype").includes("Form"),
+          max: ops.max,
+          left: ops.depth,
+          pushes: ops.pushes,
+          work: ops.work,
+          dos: ops.dos,
+        });
+      }
     }
     if (decoded > MAX_DECODED_STREAM_BYTES) scan.exceeded = "stream-bytes";
     else if (scan.totalBytes > MAX_DECODED_TOTAL_BYTES)
       scan.exceeded = "total-bytes";
-    else if (scan.maxQReach > MAX_GRAPHICS_STATE_DEPTH)
-      scan.exceeded = "q-depth";
     if (scan.exceeded) break;
   }
+  if (scan.exceeded) return scan;
+
+  // References in the file's object text: everything outside stream data.
+  refs.reset();
+  let from = 0;
+  for (let k = 0; k < dataRanges.length; k += 2) {
+    if (dataRanges[k]! > from) refs.countIn(bytes, from, dataRanges[k]!);
+    from = Math.max(from, dataRanges[k + 1]!);
+  }
+  refs.countIn(bytes, from, bytes.length);
+  judgeGraphicsState(scan, records, refs.counts, opaqueObjectStreams);
   return scan;
+}
+
+/**
+ * The page-level `q` bounds, from every content stream's counts and how
+ * often the file names it. See {@link MAX_GRAPHICS_STATE_DEPTH} and
+ * {@link MAX_GRAPHICS_STATE_WORK} for the model; each step is an upper
+ * bound, never an estimate.
+ */
+function judgeGraphicsState(
+  scan: PdfStreamScan,
+  records: ContentRecord[],
+  counts: Map<number, number>,
+  opaqueObjectStreams: number,
+): void {
+  let mostNamed = 1;
+  for (const c of counts.values()) mostNamed = Math.max(mostNamed, c);
+  // How many times pdf.js can read a stream as page content: once per time
+  // the file names it (a /Contents array may list it again and again). A
+  // stream with no header could be any object: the most-named one.
+  const times = (r: ContentRecord) =>
+    r.num === null ? mostNamed : Math.max(1, counts.get(r.num) ?? 0);
+  let unclosed = 0;
+  let excess = 0;
+  let doCalls = 0;
+  let chainOfCallers = 0;
+  let deepestForm = 0;
+  let paths = 1;
+  for (const r of records) {
+    const t = times(r);
+    unclosed += r.left * t;
+    doCalls += r.dos * t;
+    if (r.form) {
+      // pdf.js paints a form on a clone of its caller's state, so a form's
+      // depth adds to its caller's. Every form between the page and the
+      // innermost one calls `Do`, and each appears once in a chain (pdf.js
+      // refuses a circular one).
+      deepestForm = Math.max(deepestForm, r.max);
+      if (r.dos > 0) {
+        chainOfCallers += r.max;
+        paths *= 1 + r.dos;
+      }
+    } else {
+      excess = Math.max(excess, r.max - r.left);
+    }
+  }
+  scan.unclosedQ = unclosed;
+  scan.maxQReach = unclosed + excess + chainOfCallers + deepestForm;
+  if (scan.maxQReach > MAX_GRAPHICS_STATE_DEPTH) {
+    scan.exceeded = "q-depth";
+    return;
+  }
+  if (scan.maxQReach <= GRAPHICS_STATE_WORK_FLOOR) return;
+  const reach = scan.maxQReach;
+  // A stream's `q` run at most (reach - its own deepest) above the depths it
+  // counted itself, whatever calls it.
+  const once = (r: ContentRecord) => r.work + r.pushes * (reach - r.max);
+  let work = 0;
+  let deepestFormWork = 0;
+  for (const r of records) {
+    work += once(r) * times(r);
+    if (r.form) deepestFormWork = Math.max(deepestFormWork, once(r));
+  }
+  // Form paints: every `Do` read as page content starts a chain, and each
+  // calling form in a chain picks one of its `Do` or stops there.
+  const paints = doCalls * paths;
+  if (deepestFormWork > 0 && paints > 0) work += paints * deepestFormWork;
+  // An object stream the scan cannot decode may name a stream any number of
+  // times: past the floor, nothing then bounds the work.
+  scan.qWork = opaqueObjectStreams > 0 ? Infinity : work;
+  if (scan.qWork > MAX_GRAPHICS_STATE_WORK) scan.exceeded = "q-work";
 }
 
 /** What {@link preflightPdfjsBytes} found that a raster path acts on. */
@@ -526,7 +787,8 @@ export interface PdfjsPreflight {
 
 /**
  * Refuse, with a typed error, a file pdf.js would inflate past the memory
- * bounds above or whose content nests past {@link MAX_GRAPHICS_STATE_DEPTH}.
+ * bounds above, or whose content nests past {@link MAX_GRAPHICS_STATE_DEPTH}
+ * or works past {@link MAX_GRAPHICS_STATE_WORK}.
  * Call it before `getDocument`.
  *
  * Images are left to the caller, because previews and outputs differ:
@@ -555,15 +817,23 @@ export async function preflightPdfjsBytes(
   bytes: Uint8Array,
 ): Promise<PdfjsPreflight> {
   const scan = await scanPdfStreams(bytes);
-  if (scan.exceeded === "q-depth") {
+  if (scan.exceeded === "q-depth" || scan.exceeded === "q-work") {
     throw new PdfEngineError(PDF_NESTED_TOO_DEEPLY_MESSAGE);
   }
   if (scan.exceeded) throw new PdfEngineError(PDF_EXPANDS_TOO_FAR_MESSAGE);
-  if (scan.smallestOverBudgetImage === null) {
+  // An image whose size the scan cannot read is held to the colour budget:
+  // pdf.js skips anything past it in a preview, and an output refuses.
+  const unknown =
+    scan.unknownSizeImages > 0 ? RASTER_MAX_IMAGE_PIXELS + 1 : null;
+  const smallest = Math.min(
+    scan.smallestOverBudgetImage ?? Infinity,
+    unknown ?? Infinity,
+  );
+  if (smallest === Infinity) {
     return { previewOptions: {}, overBudgetImage: false };
   }
   return {
-    previewOptions: { maxImageSize: scan.smallestOverBudgetImage - 1 },
+    previewOptions: { maxImageSize: smallest - 1 },
     overBudgetImage: true,
   };
 }
