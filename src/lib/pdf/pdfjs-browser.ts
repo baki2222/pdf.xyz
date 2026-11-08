@@ -18,5 +18,11 @@ import type { PdfjsForAccess } from "./encryption";
  * copy is how the two would come to point pdf.js at different workers.
  */
 export async function loadBrowserPdfjs(): Promise<PdfjsForAccess> {
+  // The checks every pdf.js open runs first (`./pdfjs-guard`), fetched now
+  // alongside pdf.js: this is the runner kit's warm-up door, so by the time
+  // the first open needs them they are here. Awaited in order there (a file
+  // the preflight refuses must never load pdf.js), they were a round trip of
+  // their own after the file arrived (pre-hydration-upload e2e, 2026-11-08).
+  void import("./pdfjs-guard").catch(() => {});
   return (await import("./pdfjs")).loadPdfjs();
 }

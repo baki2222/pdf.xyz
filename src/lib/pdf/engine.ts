@@ -70,6 +70,14 @@ export async function pdfLoadError(
  * numbers, watermark, header/footer) share one loader and one set of messages.
  */
 export async function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
+  // The chunks a successful load needs, requested WITH the parse, not after it: chained awaits made each lazy chunk a round trip of its own (pre-hydration-upload e2e, 2026-11-08).
+  // `security/document` is the xref reader `./xref-duplicates` uses.
+  const guards = Promise.all([
+    import("./xref-duplicates"),
+    import("./page-tree"),
+    import("./security/document"),
+  ]);
+  guards.catch(() => {}); // a load that fails never awaits it
   const lib = await loadPdfLib();
   const { PDFDocument } = lib;
   let doc: PDFDocument;
@@ -81,12 +89,12 @@ export async function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
   // An object defined twice resolves to the body the xref names, as the
   // preview shows it (`./xref-duplicates`), not the last one pdf-lib parsed.
   // First, so the page-tree check below reads the objects a viewer reads.
-  const { honourXrefDuplicates } = await import("./xref-duplicates");
+  const [{ honourXrefDuplicates }, { assertPageTree }] = await guards;
   const honoured = (await honourXrefDuplicates(doc, bytes, lib)).doc;
   // pdf-lib "loads" files whose page tree it cannot walk (no catalog, a
   // cycle, a page it could not parse): checked and settled here, once, so no
   // engine meets a raw TypeError or a silently missing page (`./page-tree`).
-  await (await import("./page-tree")).assertPageTree(honoured, lib);
+  await assertPageTree(honoured, lib);
   return honoured;
 }
 

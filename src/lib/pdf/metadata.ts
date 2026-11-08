@@ -122,6 +122,9 @@ const INFO_KEYS: Record<keyof PdfMetadata, string> = {
 };
 
 async function loadUntouched(bytes: Uint8Array): Promise<PDFDocument> {
+  // `./page-tree`, requested WITH the parse, not after it: chained awaits made each lazy chunk a round trip of its own (pre-hydration-upload e2e, 2026-11-08).
+  const tree = import("./page-tree");
+  tree.catch(() => {});
   const lib = await loadPdfLib();
   const { PDFDocument } = lib;
   let doc: PDFDocument;
@@ -131,7 +134,7 @@ async function loadUntouched(bytes: Uint8Array): Promise<PDFDocument> {
     throw await pdfLoadError(err, bytes);
   }
   // The same page-tree check as `loadPdf` (`./page-tree`).
-  await (await import("./page-tree")).assertPageTree(doc, lib);
+  await (await tree).assertPageTree(doc, lib);
   return doc;
 }
 

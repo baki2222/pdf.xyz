@@ -322,12 +322,15 @@ export async function readPdfFrames(
   bytes: Uint8Array,
 ): Promise<PdfFrames | null> {
   try {
+    // `./page-tree`, requested WITH the parse, not after it: chained awaits made each lazy chunk a round trip of its own (pre-hydration-upload e2e, 2026-11-08).
+    const tree = import("./page-tree");
+    tree.catch(() => {});
     const lib = await loadPdfLib();
     const doc = await lib.PDFDocument.load(bytes, {
       ignoreEncryption: true,
       updateMetadata: false,
     });
-    await (await import("./page-tree")).assertPageTree(doc, lib);
+    await (await tree).assertPageTree(doc, lib);
     const frames = doc.getPages().map(visiblePageFrame);
     if (frames.length === 0) return null;
     return { frames, encrypted: doc.isEncrypted };

@@ -174,6 +174,9 @@ function decodePrefix(
 export async function extractPdfImages(
   pdfBytes: Uint8Array,
 ): Promise<ExtractImagesResult> {
+  // `./page-tree`, requested WITH the parse, not after it: chained awaits made each lazy chunk a round trip of its own (pre-hydration-upload e2e, 2026-11-08).
+  const tree = import("./page-tree");
+  tree.catch(() => {});
   let doc: PDFDocument;
   try {
     doc = await PDFDocument.load(pdfBytes, { throwOnInvalidObject: false });
@@ -181,7 +184,7 @@ export async function extractPdfImages(
     throw await pdfLoadError(err, pdfBytes);
   }
   // The same page-tree check as `loadPdf` (`./page-tree`).
-  await (await import("./page-tree")).assertPageTree(doc, PdfLib);
+  await (await tree).assertPageTree(doc, PdfLib);
   const pages = doc.getPages();
   const pageCount = pages.length;
 

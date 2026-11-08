@@ -100,8 +100,11 @@ export async function classifyPdfAccess(
   // and on the e2e suite's CommonJS load path (see `./pdfjs-browser`).
   let guard: typeof import("./pdf-access-guard");
   try {
-    lib = pdfjs ?? (await pdfjsSource());
-    guard = await import("./pdf-access-guard");
+    // Both fetched at once: chained, each was a round trip of its own.
+    [lib, guard] = await Promise.all([
+      pdfjs ?? pdfjsSource(),
+      import("./pdf-access-guard"),
+    ]);
   } catch {
     return { kind: "unreadable" };
   }
