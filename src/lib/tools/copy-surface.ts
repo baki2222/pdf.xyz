@@ -384,6 +384,9 @@ export function copyFiles(): string[] {
     // up front. New modules, so walked, as the ratchet asks.
     path.join(ROOT, "src", "lib", "pdf", "engine-errors.ts"),
     path.join(ROOT, "src", "lib", "pdf", "raster-format.ts"),
+    // The page-tree check every loader makes (2026-11-08): its refusal names
+    // the page pdf-lib could not read. New module, so walked.
+    path.join(ROOT, "src", "lib", "pdf", "page-tree.ts"),
   ];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
