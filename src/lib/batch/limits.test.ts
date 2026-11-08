@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { JOB_LIMITS } from "@/lib/jobs/types";
+import { JOB_LIMITS, RATE_LIMITS } from "@/lib/jobs/types";
 import { MAX_PDF_BYTES } from "@/lib/pdf/files";
 import {
   BATCH_LIMITS,
@@ -46,6 +46,30 @@ describe("BATCH_LIMITS — every value against an independent bound", () => {
     );
     expect(BATCH_LIMITS.rasterMaxFiles).toBeGreaterThanOrEqual(2);
     expect(Number.isInteger(BATCH_LIMITS.rasterMaxFiles)).toBe(true);
+  });
+
+  // Batch plan P3: a worker batch is N single jobs, each one upload and one
+  // job against the hourly limits every visitor on an address shares
+  // (`RATE_LIMITS`, `PER_CLIENT_KEYING_DISCLOSED`). The bound is the
+  // plan's: a batch takes at most a SIXTH of the smaller hourly count, so
+  // one batch leaves five more of its size, or a colleague's work, room in
+  // the same hour. It is read from `RATE_LIMITS`, never restated, so a
+  // lowered limit turns this red before a batch can outgrow it.
+  it("the worker cap is the owner's 10, and at most a sixth of the hourly jobs and uploads", () => {
+    expect(BATCH_LIMITS.workerMaxFiles).toBe(10);
+    expect(BATCH_LIMITS.workerMaxFiles).toBeLessThanOrEqual(
+      Math.floor(
+        Math.min(
+          RATE_LIMITS.jobsPerHourPerClient,
+          RATE_LIMITS.uploadsPerHourPerClient,
+        ) / 6,
+      ),
+    );
+    expect(BATCH_LIMITS.workerMaxFiles).toBeLessThanOrEqual(
+      BATCH_LIMITS.clientMaxFiles,
+    );
+    expect(BATCH_LIMITS.workerMaxFiles).toBeGreaterThanOrEqual(2);
+    expect(Number.isInteger(BATCH_LIMITS.workerMaxFiles)).toBe(true);
   });
 
   it("the refusal sentences carry the limits themselves, not typed numbers", () => {
