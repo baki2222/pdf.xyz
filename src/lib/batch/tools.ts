@@ -47,6 +47,80 @@ export const TEXT_BATCH_TOOLS = {
 } as const satisfies Record<string, { zipName: `pdfxyz-${string}.zip` }>;
 
 /**
+ * The worker tools' batches (batch plan P3), through
+ * `runner/batch/worker-batch-runner.tsx`: each file is one of today's
+ * single jobs on our server, one after another, at
+ * `BATCH_LIMITS.workerMaxFiles`. `noun` names what the tool takes, as the
+ * Run button and the limits sentence say it ("Convert 3 documents").
+ */
+export const WORKER_BATCH_TOOLS = {
+  "optimize-web": {
+    zipName: "pdfxyz-web-optimized.zip",
+    verb: "Optimize",
+    noun: ["PDF", "PDFs"],
+  },
+  "repair-pdf": {
+    zipName: "pdfxyz-repaired.zip",
+    verb: "Repair",
+    noun: ["PDF", "PDFs"],
+  },
+  "pdf-to-pdfa": {
+    zipName: "pdfxyz-pdfa.zip",
+    verb: "Convert",
+    noun: ["PDF", "PDFs"],
+  },
+  "word-to-pdf": {
+    zipName: "pdfxyz-word-pdfs.zip",
+    verb: "Convert",
+    noun: ["document", "documents"],
+  },
+  "excel-to-pdf": {
+    zipName: "pdfxyz-excel-pdfs.zip",
+    verb: "Convert",
+    noun: ["spreadsheet", "spreadsheets"],
+  },
+  "powerpoint-to-pdf": {
+    zipName: "pdfxyz-powerpoint-pdfs.zip",
+    verb: "Convert",
+    noun: ["presentation", "presentations"],
+  },
+  "epub-to-pdf": {
+    zipName: "pdfxyz-epub-pdfs.zip",
+    verb: "Convert",
+    noun: ["book", "books"],
+  },
+  "pdf-to-word": {
+    zipName: "pdfxyz-word.zip",
+    verb: "Export",
+    noun: ["PDF", "PDFs"],
+  },
+  "pdf-to-excel": {
+    zipName: "pdfxyz-excel.zip",
+    verb: "Export",
+    noun: ["PDF", "PDFs"],
+  },
+  "pdf-to-powerpoint": {
+    zipName: "pdfxyz-powerpoint.zip",
+    verb: "Export",
+    noun: ["PDF", "PDFs"],
+  },
+} as const satisfies Record<
+  string,
+  {
+    zipName: `pdfxyz-${string}.zip`;
+    verb: string;
+    noun: readonly [string, string];
+  }
+>;
+
+export type WorkerBatchSlug = keyof typeof WORKER_BATCH_TOOLS;
+
+/** Is `slug` one of the worker batches? */
+export function isWorkerBatchSlug(slug: string): slug is WorkerBatchSlug {
+  return slug in WORKER_BATCH_TOOLS;
+}
+
+/**
  * The batches that draw pages as images or pull images out, so one input
  * becomes many images held until the ZIP: they take
  * `BATCH_LIMITS.rasterMaxFiles` files, every other batch
@@ -61,6 +135,7 @@ export const RASTER_BATCH_TOOLS: readonly string[] = [
 
 /** How many files one batch of `slug` takes. */
 export function batchMaxFilesFor(slug: string): number {
+  if (isWorkerBatchSlug(slug)) return BATCH_LIMITS.workerMaxFiles;
   return RASTER_BATCH_TOOLS.includes(slug)
     ? BATCH_LIMITS.rasterMaxFiles
     : BATCH_LIMITS.clientMaxFiles;
@@ -104,11 +179,17 @@ const MB = 1024 * 1024;
 /**
  * A batch's limits as a tool page states them, from `BATCH_LIMITS` itself:
  * "A batch takes up to 20 PDFs, 200 MB in all." — 10 for a raster batch
- * (`batchMaxFilesFor`), and "text files" for Text to PDF. With no slug, the
+ * or a worker batch (`batchMaxFilesFor`), "text files" for Text to PDF,
+ * and the worker tool's own noun ("documents") for its batch. With no slug, the
  * settings batches' sentence.
  */
 export function batchLimitsSentence(slug?: string): string {
-  const noun = slug && slug in TEXT_BATCH_TOOLS ? "text files" : "PDFs";
+  const noun =
+    slug && isWorkerBatchSlug(slug)
+      ? WORKER_BATCH_TOOLS[slug].noun[1]
+      : slug && slug in TEXT_BATCH_TOOLS
+        ? "text files"
+        : "PDFs";
   const max = slug ? batchMaxFilesFor(slug) : BATCH_LIMITS.clientMaxFiles;
   return `A batch takes up to ${max} ${noun}, ${Math.round(
     BATCH_LIMITS.clientMaxTotalBytes / MB,

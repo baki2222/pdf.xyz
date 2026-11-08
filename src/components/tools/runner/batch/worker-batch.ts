@@ -90,6 +90,12 @@ export interface WorkerProcessOptions {
   sleep?: (ms: number) => Promise<void>;
   pollIntervalMs?: number;
   maxPollAttempts?: number;
+  /**
+   * A look at the file's bytes before anything is uploaded; throw a
+   * `BatchSkip` to leave it out (a signed PDF that the single-file panel
+   * would ask about first).
+   */
+  preflight?: (file: File, bytes: Uint8Array) => void;
 }
 
 function canceled(): DOMException {
@@ -151,6 +157,7 @@ export function workerProcess(
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
       if (signal.aborted) throw canceled();
+      options.preflight?.(file, bytes);
       let result = await run({ filename: file.name, bytes }, controls);
       for (
         let resumes = 0;
