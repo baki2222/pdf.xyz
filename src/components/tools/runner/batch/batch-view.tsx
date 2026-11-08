@@ -36,6 +36,7 @@ import {
   RunEnding,
   Spinner,
   outputFile,
+  useOutcomeFocus,
   warmEnding,
 } from "../runner-kit";
 import { holdRunnerStage } from "../stage-hold";
@@ -67,6 +68,11 @@ export interface BatchViewProps<R> {
   banner: ReactNode;
   /** The tool's own settings, shown while nothing has run. */
   settings?: ReactNode;
+  /**
+   * Why Run cannot be pressed yet (the settings are incomplete), or null
+   * when it can. The button stays focusable and says why beside it.
+   */
+  runBlocked?: string | null;
   /** "2 PDFs" — the count with its noun. */
   countLabel: (count: number) => string;
   /** The Run button: "Compress 2 PDFs". */
@@ -135,6 +141,7 @@ export function BatchView<R>({
   rejected = [],
   banner,
   settings,
+  runBlocked = null,
   countLabel,
   runLabel,
   runningLabel,
@@ -165,6 +172,7 @@ export function BatchView<R>({
   } = runner;
   const settled = state.phase === "done" || state.phase === "canceled";
   const count = state.items.length;
+  const blockedId = useId();
 
   // A pressed Remove unmounts the button that had focus; left to the
   // browser, focus would fall to the page and a keyboard user would start
@@ -289,14 +297,21 @@ export function BatchView<R>({
       spoken,
     });
   }
-  const announcement =
+  // The batch's end is a heading that takes focus (`useOutcomeFocus`): the
+  // Cancel or Retry button that had it is gone by then. Focus, not the live
+  // region, says it — an element that takes focus is never also a live
+  // region, or a screen reader says it twice. A batch that stopped itself
+  // says so here; its reason is the alert under the list.
+  const summary =
     state.phase === "done"
       ? doneSentence(progress)
       : state.phase === "canceled"
-        ? (haltReason ?? "Batch canceled.")
-        : state.phase === "running"
-          ? seen.spoken
-          : "";
+        ? haltReason
+          ? "Batch stopped."
+          : "Batch canceled."
+        : "";
+  const summaryFocus = useOutcomeFocus<HTMLHeadingElement>(settled, summary);
+  const announcement = state.phase === "running" ? seen.spoken : "";
 
   return (
     <div data-chunk={BATCH_VIEW_LOADED} className="flex flex-col gap-5">
@@ -355,6 +370,15 @@ export function BatchView<R>({
         </div>
       </div>
 
+      {settled && (
+        <h3
+          {...summaryFocus}
+          className="text-fg text-sm font-semibold outline-none"
+        >
+          {summary}
+        </h3>
+      )}
+
       {/* Per-item results */}
       <ul className="flex flex-col gap-2" aria-label="Files in this batch">
         {state.items.map((item) => (
@@ -412,6 +436,12 @@ export function BatchView<R>({
       {haltReason && <ErrorNote message={haltReason} />}
       {zipError && <ErrorNote message={zipError} />}
 
+      {state.phase === "idle" && runBlocked && count > 0 && (
+        <p id={blockedId} className="text-warn text-xs">
+          {runBlocked}
+        </p>
+      )}
+
       {/* Controls */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-muted text-xs">{footnote}</p>
@@ -425,19 +455,30 @@ export function BatchView<R>({
               >
                 Choose different files
               </button>
-              <button
-                ref={runButton}
-                type="button"
-                onClick={() => {
-                  settleHold.current = holdRunnerStage();
-                  void warmEnding().catch(() => {});
-                  start();
-                }}
-                className={buttonVariants({ variant: "primary", size: "sm" })}
-              >
-                <Play className="size-4" aria-hidden />
-                {runLabel(count)}
-              </button>
+              {count > 0 && (
+                <button
+                  ref={runButton}
+                  type="button"
+                  // `aria-disabled`, not `disabled`: a blocked Run keeps its
+                  // focus and says why (`runBlocked`), as `RunReason` does.
+                  aria-disabled={runBlocked ? true : undefined}
+                  aria-describedby={runBlocked ? blockedId : undefined}
+                  onClick={() => {
+                    if (runBlocked) return;
+                    settleHold.current = holdRunnerStage();
+                    void warmEnding().catch(() => {});
+                    start();
+                  }}
+                  className={buttonVariants({
+                    variant: "primary",
+                    size: "sm",
+                    className: runBlocked ? "opacity-60" : undefined,
+                  })}
+                >
+                  <Play className="size-4" aria-hidden />
+                  {runLabel(count)}
+                </button>
+              )}
             </>
           )}
 

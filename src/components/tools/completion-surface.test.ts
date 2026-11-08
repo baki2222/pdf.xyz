@@ -81,7 +81,16 @@ const NO_OUTCOME_OF_ITS_OWN: Record<string, string> = {
       ],
     ),
   ),
+  // Since 2026-11-08 (batch plan P1) the settings batch draws the generic
+  // batch view, whose end is a heading that takes focus through
+  // useOutcomeFocus — held by "the batch runners report through the batch
+  // view" below.
+  "settings-batch-runner.tsx":
+    "renders <BatchView>; its outcome is batch/batch-view.tsx's summary heading (useOutcomeFocus)",
 };
+
+/** The view every batch hands its outcome to. */
+const BATCH_VIEW = path.join("runner", "batch", "batch-view.tsx");
 
 /** The runners that hand their outcome to the shared editor session. */
 const EDITOR_SESSION = path.join("runner", "editor", "editor-session.tsx");
@@ -148,6 +157,20 @@ describe("completion surfaces", () => {
     for (const [name] of onEditor) {
       const entry = completionSurfaceFiles().find((f) => f.name === name)!;
       expect(readFileSync(entry.file, "utf8"), name).toMatch(/<EditorRunner\b/);
+    }
+  });
+
+  it("the batch runners report through the batch view", () => {
+    const view = toolSourceFiles().find((f) => f.endsWith(BATCH_VIEW));
+    expect(view, "batch-view.tsx was not found").toBeDefined();
+    expect(USES_PRIMITIVE.test(readFileSync(view!, "utf8"))).toBe(true);
+    const onView = Object.entries(NO_OUTCOME_OF_ITS_OWN).filter(([, why]) =>
+      why.startsWith("renders <BatchView>"),
+    );
+    expect(onView.length).toBeGreaterThanOrEqual(1);
+    for (const [name] of onView) {
+      const entry = completionSurfaceFiles().find((f) => f.name === name)!;
+      expect(readFileSync(entry.file, "utf8"), name).toMatch(/<BatchView\b/);
     }
   });
 

@@ -235,9 +235,15 @@ describe("BatchView — the lifted view, generic over the result", () => {
       expect(status.textContent).toBe("a.pdf: done. 1 of 2 files processed."),
     );
     releaseB();
-    await waitFor(() =>
-      expect(status.textContent).toBe("Batch complete. 1 stamped."),
-    );
+    // INVERTED 2026-11-08 (batch plan P1): the end WAS spoken by this live
+    // region. It is now a heading that takes focus (`useOutcomeFocus`) —
+    // the Cancel button that had focus is gone — and the live region falls
+    // silent, so a screen reader does not say the end twice.
+    const end = await screen.findByRole("heading", {
+      name: "Batch complete. 1 stamped.",
+    });
+    await waitFor(() => expect(document.activeElement).toBe(end));
+    expect(status.textContent).toBe("");
   });
 });
 
@@ -326,7 +332,7 @@ describe("BatchView — the live region past ANNOUNCE_EVERY_FILE_UP_TO files", (
       ),
     );
     release();
-    await waitFor(() => expect(status.textContent).toMatch(/^Batch complete/));
+    await screen.findByRole("heading", { name: /^Batch complete/ });
   });
 
   it("control: a success between strides is not spoken", async () => {
@@ -353,7 +359,7 @@ describe("BatchView — the live region past ANNOUNCE_EVERY_FILE_UP_TO files", (
       `f${ANNOUNCE_STRIDE}.pdf: done. ${ANNOUNCE_STRIDE} of ${total} files processed.`,
     );
     release();
-    await waitFor(() => expect(status.textContent).toMatch(/^Batch complete/));
+    await screen.findByRole("heading", { name: /^Batch complete/ });
   });
 });
 

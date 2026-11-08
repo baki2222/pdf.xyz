@@ -4,8 +4,10 @@ import {
   createElement,
   lazy,
   Suspense,
+  useCallback,
   useEffect,
   useRef,
+  useState,
   type ReactNode,
 } from "react";
 import { FileText, ShieldAlert } from "lucide-react";
@@ -17,6 +19,7 @@ import {
   HandoffLoadedBadge,
   HandoffLoading,
   HandoffProblem,
+  type Arrival,
 } from "./handoff-notice";
 import {
   useSinglePdf,
@@ -31,6 +34,16 @@ import { useToolHandoff, type ToolHandoff } from "./use-tool-handoff";
 const EditorBox = lazy(() =>
   import("../replace-boxes").then((m) => ({ default: m.EditorBox })),
 );
+
+/** What a tool's batch is handed when two or more PDFs arrive. */
+export interface SinglePdfBatch {
+  files: File[];
+  /** Back to the empty drop box. */
+  onReset: () => void;
+  /** A Remove left one file: open it here, in the single-file editor. */
+  onSingle: (file: File) => void;
+  arrival: Arrival | null;
+}
 
 /**
  * Handles the shared "load one PDF" lifecycle — dropzone, reading state, and
@@ -87,6 +100,7 @@ export function SinglePdfRunner({
   openProtected = false,
   errorAside,
   signedNotice,
+  batch,
 }: {
   hint?: string;
   children: (pdf: LoadedPdf, reset: () => void) => ReactNode;
@@ -122,6 +136,13 @@ export function SinglePdfRunner({
    * returning null leaves the warning below in place.
    */
   signedNotice?: (pdf: LoadedPdf) => ReactNode;
+  /**
+   * The tool's batch (batch plan P1), drawn when two or more files arrive —
+   * picked, dropped or handed over. The tool loads it with `next/dynamic`
+   * inside this callback, so a page pays for it only then. Without it the
+   * drop box takes one file, as before.
+   */
+  batch?: (props: SinglePdfBatch) => ReactNode;
 }) {
   // A tool with a preflight hint (E.9) probes the file as it opens.
   const slug = useToolRun()?.slug ?? "";
@@ -135,17 +156,51 @@ export function SinglePdfRunner({
   const selfHandoff = useToolHandoff(providedHandoff ? undefined : handoffSlug);
   const handoff = providedHandoff ?? selfHandoff;
   const editorRef = useRef<HTMLDivElement>(null);
+  const [many, setMany] = useState<File[] | null>(null);
 
-  // Pre-load the first handed-off PDF exactly once.
+  // Pre-load the first handed-off PDF exactly once — or, for a tool with a
+  // batch, every handed-off file once there are two or more.
   const openedRef = useRef(false);
   useEffect(() => {
     if (openedRef.current) return;
-    const first = handoff.status === "ready" ? handoff.files[0] : undefined;
-    if (first) {
+    const files = handoff.status === "ready" ? handoff.files : [];
+    if (batch && files.length > 1) {
       openedRef.current = true;
-      void open(first);
+      queueMicrotask(() => setMany(files));
+    } else if (files[0]) {
+      openedRef.current = true;
+      void open(files[0]);
     }
-  }, [handoff.status, handoff.files, open]);
+  }, [handoff.status, handoff.files, open, batch]);
+
+  // A batch narrowed to one file by Remove opens it here; the editor takes
+  // focus as that file opens, since the Remove button that had it is gone.
+  const [narrowed, setNarrowed] = useState<File | null>(null);
+  useEffect(() => {
+    if (pdf && pdf.file === narrowed) editorRef.current?.focus();
+  }, [pdf, narrowed]);
+
+  const resetMany = useCallback(() => setMany(null), []);
+  const narrowTo = useCallback(
+    (file: File) => {
+      setNarrowed(file);
+      setMany(null);
+      void open(file);
+    },
+    [open],
+  );
+
+  if (batch && many) {
+    return batch({
+      files: many,
+      onReset: resetMany,
+      onSingle: narrowTo,
+      arrival:
+        handoff.status === "ready"
+          ? { origin: handoff.origin, skipped: handoff.skipped }
+          : null,
+    });
+  }
 
   if (pdf) {
     const key = `${pdf.file.name}:${pdf.file.size}:${pdf.file.lastModified}`;
@@ -155,6 +210,7 @@ export function SinglePdfRunner({
         ref={editorRef}
         data-single-pdf-runner="loaded"
         data-page-drop-target=""
+        tabIndex={pdf.file === narrowed ? -1 : undefined}
         className="flex flex-col gap-4"
       >
         {handoff.status === "ready" && (
@@ -203,8 +259,12 @@ export function SinglePdfRunner({
       ) : (
         <Dropzone
           pageTarget
-          onFiles={(files) => files[0] && open(files[0])}
-          multiple={false}
+          onFiles={(files) =>
+            batch && files.length > 1
+              ? setMany(files)
+              : files[0] && open(files[0])
+          }
+          multiple={!!batch}
           hint={hint}
         />
       )}
