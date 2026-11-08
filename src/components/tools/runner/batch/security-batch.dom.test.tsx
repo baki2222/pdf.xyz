@@ -35,11 +35,16 @@ import { enterToolPage } from "@/lib/telemetry/tool-outcome";
 import { resetAnnouncer } from "@/components/a11y/live-region";
 import { resetUnsavedForTests } from "@/lib/intent/unsaved";
 import { canRunPdfSecurity } from "@/lib/workers/pdf-security-client";
-import { WRONG_PASSWORD_MESSAGE } from "@/lib/workers/pdf-security/engine";
+import {
+  OWNER_PASSWORD_REQUIRED_MESSAGE,
+  UNREADABLE_MESSAGE,
+  WRONG_PASSWORD_MESSAGE,
+} from "@/lib/workers/pdf-security/engine";
 import {
   PROTECT_NEEDS_PASSWORD_REASON,
   PROTECT_RESTRICTED_REASON,
   SECURITY_RETRY_NOTE,
+  securityBatchPageSentence,
   UNLOCK_NOT_LOCKED_REASON,
   unlockRetryHeading,
 } from "@/lib/batch/security-copy";
@@ -53,6 +58,8 @@ import {
   type StubbedJobOutcome,
 } from "@/tests/stub-job-network";
 import { PdfSecurityWorkerPanel } from "../../pdf-security-worker-panel";
+import { NO_PASSWORD_FROZEN } from "./security-batch";
+import { WORKER_BATCH_PAUSED } from "@/lib/batch/worker-copy";
 import { BATCH_VIEW_LOADED } from "./batch-view";
 
 const FIRST = "Fz-first-7Q2w";
@@ -122,6 +129,55 @@ function completed(n: number): StubbedJobOutcome {
       bytes: new TextEncoder().encode("%PDF-out"),
     },
   };
+}
+
+/** A file named .pdf whose bytes pdf.js cannot open: "unreadable". */
+function notAPdf(name: string): File {
+  return new File(["%PDF-1.7 not really a pdf %%EOF"], `${name}.pdf`, {
+    type: "application/pdf",
+  });
+}
+
+const ownerPasswordRequired: StubbedJobOutcome = {
+  status: "failed",
+  error: {
+    code: "unprocessable_entity",
+    message: OWNER_PASSWORD_REQUIRED_MESSAGE,
+    retryable: false,
+  },
+};
+
+const unreadable: StubbedJobOutcome = {
+  status: "failed",
+  error: {
+    code: "unprocessable_entity",
+    message: UNREADABLE_MESSAGE,
+    retryable: false,
+  },
+};
+
+/**
+ * Wraps the stubbed network: `handle` sees each request first and either
+ * answers it or passes it on. `count(url)` is how many requests reached it.
+ */
+function wrapFetch(
+  handle: (
+    url: string,
+    method: string,
+    pass: () => Promise<Response>,
+  ) => Promise<Response>,
+) {
+  const inner = globalThis.fetch;
+  const seen: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      seen.push(url);
+      return handle(url, init?.method ?? "GET", () => inner(input, init));
+    }),
+  );
+  return { count: (url: string) => seen.filter((u) => u === url).length };
 }
 
 const wrongPassword: StubbedJobOutcome = {
@@ -382,6 +438,160 @@ describe("Unlock PDF's batch (batch plan P4)", () => {
     }
   });
 
+  it("a restricted file and an unreadable one are sent with the frozen password: Unlock skips only a file that is not locked", async () => {
+    // Jobs run in drop order: restricted, unreadable, locked. The restricted
+    // file opens with no password; only its owner password lifts the
+    // restrictions, and the worker says so when it is not given it.
+    let jobs = 0;
+    const net = stubJobNetwork(READY_WORKER_STATUS, (body) => {
+      jobs += 1;
+      const password = (body.options as { password?: string }).password;
+      if (jobs === 1) return ownerPasswordRequired;
+      if (jobs === 2) return unreadable;
+      if (jobs === 3) return password === FIRST ? completed(3) : wrongPassword;
+      // The retry: the restricted file, now with its owner password; the
+      // damaged one stays unreadable whatever the password.
+      if (jobs === 4)
+        return password === OWNER ? completed(4) : ownerPasswordRequired;
+      return unreadable;
+    });
+    const view = await drop("unlock-pdf", [
+      base64Pdf(OWNER_ONLY_PDF_BASE64, "restricted"),
+      notAPdf("damaged"),
+      base64Pdf(USER_PASSWORD_PDF_BASE64, "locked"),
+    ]);
+    type("Current password", FIRST);
+    await pressWhenReady("Unlock 3 PDFs");
+    await screen.findByText("Batch complete. 1 done, 2 failed.", undefined, {
+      timeout: 10_000,
+    });
+    // None was left out: all three uploaded, each with the frozen password.
+    expect(view.container.textContent).not.toContain(UNLOCK_NOT_LOCKED_REASON);
+    expect(net.uploads()).toBe(3);
+    expect(net.jobBodies).toHaveLength(3);
+    for (const body of net.jobBodies) {
+      expect(body.tool).toBe("unlock-pdf");
+      expect(body.options).toEqual({ password: FIRST });
+    }
+    // Each failed row says the processor's own sentence.
+    expect(view.container.textContent).toContain(
+      OWNER_PASSWORD_REQUIRED_MESSAGE,
+    );
+    expect(view.container.textContent).toContain(UNREADABLE_MESSAGE);
+    // The owner password, typed as another password, lifts the restrictions.
+    const retry = view.container.querySelector("[data-security-retry]")!;
+    expect(retry.textContent).toContain(unlockRetryHeading(2));
+    type("Another password", OWNER, retry);
+    fireEvent.click(screen.getByRole("button", { name: "Try it on 2 PDFs" }));
+    await screen.findByText("Batch complete. 2 done, 1 failed.", undefined, {
+      timeout: 10_000,
+    });
+    expect(net.jobBodies).toHaveLength(5);
+    expect(net.jobBodies[3]!.options).toEqual({ password: OWNER });
+    expect(net.jobBodies[4]!.options).toEqual({ password: OWNER });
+    expect(
+      screen.getByRole("button", { name: "Download out-4.pdf" }),
+    ).toBeTruthy();
+    for (const secret of [FIRST, OWNER])
+      expect(leaks(view.container, secret), secret).toEqual([]);
+  }, 20_000);
+
+  it("a rate-limit pause keeps the frozen password: the resumed file is sent with it, and the end forgets it", async () => {
+    const net = stubJobNetwork(READY_WORKER_STATUS, () =>
+      completed(net.jobBodies.length),
+    );
+    let reservations = 0;
+    const served = wrapFetch(async (url, method, pass) => {
+      if (url === "/api/uploads" && method === "POST") {
+        reservations += 1;
+        if (reservations === 2)
+          return new Response(
+            JSON.stringify({
+              error: { code: "rate_limited", message: "Too many." },
+            }),
+            {
+              status: 429,
+              headers: {
+                "content-type": "application/json",
+                "Retry-After": "1",
+              },
+            },
+          );
+      }
+      return pass();
+    });
+    const view = await drop("unlock-pdf", [
+      base64Pdf(USER_PASSWORD_PDF_BASE64, "a"),
+      base64Pdf(USER_PASSWORD_PDF_BASE64, "b"),
+    ]);
+    type("Current password", FIRST);
+    await pressWhenReady("Unlock 2 PDFs");
+    await screen.findByText(WORKER_BATCH_PAUSED, undefined, {
+      timeout: 10_000,
+    });
+    // Paused, not ended: the frozen password is still held (in a ref only).
+    expect(
+      secretsHeldByReact(view.container, FIRST, { includeRefs: true }).length,
+    ).toBeGreaterThan(0);
+    expect(
+      secretsHeldByReact(view.container, FIRST, { includeRefs: false }),
+    ).toEqual([]);
+    await screen.findByText("Batch complete. 2 done, 0 failed.", undefined, {
+      timeout: 10_000,
+    });
+    // The refused reservation was asked for again; both jobs carry it.
+    expect(served.count("/api/uploads")).toBe(3);
+    expect(net.jobBodies.map((b) => b.options)).toEqual([
+      { password: FIRST },
+      { password: FIRST },
+    ]);
+    expect(view.container.textContent).not.toContain(NO_PASSWORD_FROZEN);
+    await waitFor(() =>
+      expect(
+        secretsHeldByReact(view.container, FIRST, { includeRefs: true }),
+      ).toEqual([]),
+    );
+    expect(leaks(view.container, FIRST)).toEqual([]);
+  }, 20_000);
+
+  it("Cancel forgets the frozen password at once, and the queued file is never sent", async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    const net = stubJobNetwork(READY_WORKER_STATUS, () => completed(1));
+    wrapFetch(async (url, method, pass) => {
+      if (url.startsWith("/api/uploads/local/") && method === "PUT") await held;
+      return pass();
+    });
+    const view = await drop("unlock-pdf", [
+      base64Pdf(USER_PASSWORD_PDF_BASE64, "a"),
+      base64Pdf(USER_PASSWORD_PDF_BASE64, "b"),
+    ]);
+    type("Current password", FIRST);
+    await pressWhenReady("Unlock 2 PDFs");
+    const cancel = await screen.findByRole("button", { name: "Cancel" });
+    // Control: while the first file uploads, the password is held.
+    await waitFor(() =>
+      expect(
+        secretsHeldByReact(view.container, FIRST, { includeRefs: true }).length,
+      ).toBeGreaterThan(0),
+    );
+    fireEvent.click(cancel);
+    await screen.findByText("Batch canceled.");
+    // Canceled is an end: no ref holds it, even with a file still in flight.
+    await waitFor(() =>
+      expect(
+        secretsHeldByReact(view.container, FIRST, { includeRefs: true }),
+      ).toEqual([]),
+    );
+    release();
+    await waitFor(() => expect(net.uploads()).toBe(1));
+    // The queued second file never left the browser.
+    await new Promise((r) => setTimeout(r, 200));
+    expect(net.uploads()).toBe(1);
+    expect(net.jobBodies.length).toBeLessThanOrEqual(1);
+    expect(leaks(view.container, FIRST)).toEqual([]);
+  }, 20_000);
+
   it("Run again asks for the password again: the page kept none", async () => {
     stubJobNetwork(READY_WORKER_STATUS, () => completed(1));
     const view = await drop("unlock-pdf", [
@@ -479,6 +689,35 @@ describe("Protect PDF's batch (batch plan P4)", () => {
       ).toEqual([]);
     }
   });
+
+  it("a file the browser cannot read is not refused locally on Protect: it goes to the server, which says what is wrong", async () => {
+    // The page says only a file "this browser can tell is already encrypted"
+    // is left out; this is the file it cannot tell about.
+    let jobs = 0;
+    const net = stubJobNetwork(READY_WORKER_STATUS, () => {
+      jobs += 1;
+      return jobs === 1 ? unreadable : completed(jobs);
+    });
+    const view = await drop("protect-pdf", [
+      notAPdf("damaged"),
+      await plainPdf("plain"),
+    ]);
+    expect(securityBatchPageSentence("protect-pdf")).toContain(
+      "A file this browser can tell is already encrypted is left out, unsent",
+    );
+    type("New password", FIRST);
+    type("Confirm password", FIRST);
+    await pressWhenReady("Protect 2 PDFs");
+    await screen.findByText("Batch complete. 1 done, 1 failed.", undefined, {
+      timeout: 10_000,
+    });
+    expect(net.uploads()).toBe(2);
+    expect(view.container.textContent).toContain(UNREADABLE_MESSAGE);
+    expect(view.container.textContent).not.toContain(PROTECT_RESTRICTED_REASON);
+    expect(view.container.textContent).not.toContain(
+      PROTECT_NEEDS_PASSWORD_REASON,
+    );
+  }, 20_000);
 
   it("Protect's Run waits for the confirmation, as the single-file panel does", async () => {
     stubJobNetwork(READY_WORKER_STATUS, () => completed(1));

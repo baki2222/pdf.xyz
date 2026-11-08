@@ -68,6 +68,6 @@ export function securityBatchPageSentence(
   const lead =
     slug === "unlock-pdf"
       ? "In a batch, you type one password, for the whole batch. A file that is not locked is left out, unsent, with a row that says so, and is not in the ZIP. If files fail, for example on a wrong password, Try another password runs only those files again with a new one; the files that worked keep their results."
-      : "In a batch, you type one password, and choose one encryption strength and one set of permissions, for every file. A file that is already encrypted is left out, unsent, with a row that says so.";
+      : "In a batch, you type one password, and choose one encryption strength and one set of permissions, for every file. A file this browser can tell is already encrypted is left out, unsent, with a row that says so.";
   return `${lead} The password is sent with each file's job, as it is for one file, and the page forgets it when the batch ends; to ${verb.toLowerCase()} failed files again, you type it again.`;
 }

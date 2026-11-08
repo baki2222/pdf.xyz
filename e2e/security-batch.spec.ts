@@ -7,6 +7,7 @@ import {
   USER_PASSWORD_PDF_BASE64,
 } from "../src/tests/fixtures-encrypted";
 import {
+  PROTECT_NEEDS_PASSWORD_REASON,
   PROTECT_RESTRICTED_REASON,
   UNLOCK_NOT_LOCKED_REASON,
 } from "../src/lib/batch/security-copy";
@@ -21,8 +22,9 @@ import {
  *    PUT or sent as a job; the other two run strictly in turn; the one the
  *    password does not open fails its row, and "Try another password" runs
  *    that file, and only it, again with the new password;
- *  - Protect, 3 PDFs — one already encrypted: refused before any upload,
- *    the other two each carry the same password and strength.
+ *  - Protect, 4 PDFs — one restricted by an owner password and one that
+ *    needs a password to open: both refused before any upload, the other
+ *    two each carry the same password and strength.
  */
 
 const FIRST = "e2e-first-K7m";
@@ -255,7 +257,7 @@ test("Unlock, 3 PDFs: the unlocked one never leaves, jobs run in turn, and anoth
   expect(page.url()).not.toContain(FIRST);
 });
 
-test("Protect, 3 PDFs: an encrypted one is refused before any upload", async ({
+test("Protect, 4 PDFs: the restricted one and the password-locked one are refused before any upload", async ({
   page,
 }) => {
   const { log, bodies } = await mockWorker(page, "protect-pdf", () => true);
@@ -265,9 +267,10 @@ test("Protect, 3 PDFs: an encrypted one is refused before any upload", async ({
   await input.setInputFiles([
     pdf("one", Buffer.from(await makePdfBytes("one", 1))),
     pdf("restricted", Buffer.from(OWNER_ONLY_PDF_BASE64, "base64")),
+    pdf("locked", Buffer.from(USER_PASSWORD_PDF_BASE64, "base64")),
     pdf("two", Buffer.from(await makePdfBytes("two", 1))),
   ]);
-  const run = page.getByRole("button", { name: "Protect 3 PDFs" });
+  const run = page.getByRole("button", { name: "Protect 4 PDFs" });
   await expect(run).toBeVisible();
   await page.getByLabel("New password", { exact: true }).fill(FIRST);
   await page.getByLabel("Confirm password", { exact: true }).fill(FIRST);
@@ -275,11 +278,12 @@ test("Protect, 3 PDFs: an encrypted one is refused before any upload", async ({
   await run.click();
   await expect(
     page.getByRole("heading", {
-      name: "Batch complete. 2 done, 0 failed, 1 skipped.",
+      name: "Batch complete. 2 done, 0 failed, 2 skipped.",
     }),
   ).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText(PROTECT_RESTRICTED_REASON)).toBeVisible();
-  // Two uploads, in turn; the encrypted file never reached the network.
+  await expect(page.getByText(PROTECT_NEEDS_PASSWORD_REASON)).toBeVisible();
+  // Two uploads, in turn; neither encrypted file reached the network.
   expect(log.filter((l) => l.startsWith("put"))).toEqual(["put 1", "put 2"]);
   expect(log.filter((l) => l.startsWith("reserve"))).toHaveLength(2);
   expect(log.indexOf("download 1")).toBeLessThan(log.indexOf("reserve 2"));
