@@ -31,6 +31,11 @@ import {
 } from "./table-extract-findings";
 import { EXTRACT_TABLES_NO_TABLES_CODE } from "@/lib/jobs/extract-tables-options";
 import { readyFileInput } from "@/tests/worker-ready";
+import { buildOcrResultMeta } from "@/lib/jobs/ocr";
+import {
+  createProcessorRegistry,
+  type OcrRunner,
+} from "@/lib/workers/processor";
 
 const tool = getToolBySlug("extract-tables")!;
 const providers = getProviderReadiness("remote-configured");
@@ -496,5 +501,244 @@ describe("Extract Tables — after OCR ran, OCR PDF is not offered again", () =>
     expect(screen.getByText("Open PDF to Excel")).toBeInTheDocument();
     expect(screen.queryByText("Open OCR PDF")).toBeNull();
     expect(screen.queryByText(/OCR PDF adds/)).toBeNull();
+  });
+});
+
+/**
+ * The same integration, through the PANEL (review of 8266f77f, 2026-11-08).
+ * The block above tests the two units; nothing tested where the panel wires
+ * them, and `ocrRan={false}` in the panel or `false` for the findings' OCR
+ * key each stayed green. Here the OCR switch is pressed as a person presses
+ * it, the job-create body off the wire is run through the REAL registry (OCR
+ * processor + table processor), and the card the panel draws is read.
+ */
+describe("Extract Tables panel — after an OCR-first run, OCR PDF is not offered again", () => {
+  const SEARCHABLE = new TextEncoder().encode("%PDF-1.7 searchable");
+  const OCR_READY: WorkerStatus = {
+    ...READY,
+    ocr: {
+      available: true,
+      engine: "ocrmypdf",
+      languages: ["eng", "deu"],
+      detail: "OCR ready on ocrmypdf.",
+    },
+  };
+  const prose = (pageNumber: number) => ({
+    pageNumber,
+    width: 400,
+    height: 300,
+    items: [{ text: "Just prose.", x: 50, y: 100, width: 60, height: 10 }],
+  });
+  const grid = (pageNumber: number) => ({
+    pageNumber,
+    width: 400,
+    height: 300,
+    items: [
+      { text: "Name", x: 50, y: 100, width: 20, height: 10 },
+      { text: "Age", x: 200, y: 100, width: 15, height: 10 },
+      { text: "Alice", x: 50, y: 80, width: 25, height: 10 },
+      { text: "30", x: 200, y: 80, width: 10, height: 10 },
+    ],
+  });
+
+  /**
+   * A worker that runs whatever options the panel sent. The layout is the
+   * same with or without OCR, so the two runs differ only in the switch.
+   */
+  function stubWorker(tablesOn: boolean[]) {
+    const ocrRuns: unknown[] = [];
+    const runner: OcrRunner = async ({ options }) => {
+      ocrRuns.push(options.languages);
+      return {
+        artifacts: [
+          {
+            filename: "x.pdf",
+            contentType: "application/pdf",
+            bytes: SEARCHABLE,
+          },
+        ],
+        meta: buildOcrResultMeta({
+          engine: "ocrmypdf",
+          languages: options.languages,
+          outputMode: options.outputMode,
+          producedSearchablePdf: true,
+          producedTextSidecar: false,
+          pageCount: tablesOn.length,
+        }),
+      };
+    };
+    const registry = createProcessorRegistry({
+      ocr: {
+        runner,
+        engines: { ocrmypdf: true, tesseract: false },
+        installedLanguages: ["eng", "deu"],
+      },
+      tableExtract: {
+        extractLayout: async () => ({
+          pageCount: tablesOn.length,
+          pages: tablesOn.map((t, i) => (t ? grid(i + 1) : prose(i + 1))),
+        }),
+      },
+    });
+    let output: Uint8Array = new Uint8Array();
+    const json = (body: unknown) => ({
+      ok: true,
+      status: 200,
+      json: async () => body,
+      arrayBuffer: async () => new ArrayBuffer(0),
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: { body?: ArrayBuffer }) => {
+        if (url === "/api/worker/status") return json(OCR_READY);
+        if (url === "/api/uploads")
+          return json({
+            sessionId: "s1",
+            tool: "extract-tables",
+            slots: [
+              {
+                fileId: "f1",
+                filename: "statement.pdf",
+                url: "/upload/f1",
+                method: "PUT",
+                headers: {},
+              },
+            ],
+          });
+        if (url === "/upload/f1") return json({});
+        if (url === "/download/a1")
+          return {
+            ...json({}),
+            arrayBuffer: async () => output.slice().buffer,
+          };
+        if (url === "/api/jobs") {
+          const { options } = JSON.parse(
+            new TextDecoder().decode(init!.body!),
+          ) as { options: Record<string, unknown> };
+          const result = await registry.resolve("extract-tables")!.process({
+            tool: "extract-tables",
+            options,
+            inputs: [
+              {
+                fileId: "f1",
+                filename: "statement.pdf",
+                contentType: "application/pdf",
+                bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46]),
+              },
+            ],
+          });
+          const base = {
+            jobId: "job_1",
+            tool: "extract-tables",
+            capability: "worker",
+            progress: 100,
+            createdAt: "2026-09-27T00:00:00.000Z",
+            updatedAt: "2026-09-27T00:00:00.000Z",
+          };
+          if (!result.ok)
+            return json({ ...base, status: "failed", error: result.error });
+          output = result.artifacts[0]!.bytes;
+          const results = sanitizeJobResults(result.results);
+          return json({
+            ...base,
+            status: "completed",
+            artifacts: [
+              {
+                artifactId: "a1",
+                filename: result.artifacts[0]!.filename,
+                contentType: result.artifacts[0]!.contentType,
+                bytes: output.byteLength,
+                url: "/download/a1",
+                expiresAt: "2026-09-27T01:00:00.000Z",
+              },
+            ],
+            ...(results ? { results } : {}),
+          });
+        }
+        throw new Error(`unexpected fetch ${url}`);
+      }),
+    );
+    return { ocrRuns };
+  }
+
+  async function extract(ocrOn: boolean) {
+    render(<TableExtractWorkerPanel tool={tool} />);
+    const input = await vi.waitFor(() => {
+      const found = readyFileInput();
+      if (!found) throw new Error("no file input yet");
+      return found;
+    });
+    if (ocrOn) {
+      fireEvent.click(
+        screen.getByRole("checkbox", { name: /Recognise text in scans/ }),
+      );
+      await screen.findByRole("group", { name: "OCR languages" });
+    }
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], "scan.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /extract tables/i }));
+  }
+
+  it("control: no table, OCR off: the step links OCR PDF and says what it adds", async () => {
+    const { ocrRuns } = stubWorker([false]);
+    await extract(false);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /No table-like structure/,
+    );
+    expect(ocrRuns).toHaveLength(0);
+    expect(
+      screen.getByRole("link", { name: "Open PDF to Excel" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open OCR PDF" })).toBeTruthy();
+    expect(screen.getByText(/OCR PDF adds their text first/)).toBeTruthy();
+  });
+
+  it("no table, OCR on: the step links PDF to Excel only, and does not offer OCR PDF", async () => {
+    const { ocrRuns } = stubWorker([false]);
+    await extract(true);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /No table-like structure/,
+    );
+    // OCR really ran in this job, and the step really rendered.
+    expect(ocrRuns).toHaveLength(1);
+    expect(
+      screen.getByRole("link", { name: "Open PDF to Excel" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Open OCR PDF" })).toBeNull();
+    expect(screen.queryByText(/OCR PDF adds/)).toBeNull();
+  });
+
+  it("control: tables on some pages, OCR off: the pages without one come with the OCR PDF advice", async () => {
+    const { ocrRuns } = stubWorker([true, false]);
+    await extract(false);
+    expect(
+      await screen.findByText("Found 1 table on page 1."),
+    ).toBeInTheDocument();
+    expect(ocrRuns).toHaveLength(0);
+    expect(
+      screen.getByText(
+        "No table was detected on page 2. If it is a scan, OCR PDF can add the text first.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("tables on some pages, OCR on: the pages without one are named without the OCR PDF advice", async () => {
+    const { ocrRuns } = stubWorker([true, false]);
+    await extract(true);
+    expect(
+      await screen.findByText("Found 1 table on page 1."),
+    ).toBeInTheDocument();
+    expect(ocrRuns).toHaveLength(1);
+    expect(
+      screen.getByText("No table was detected on page 2."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/OCR PDF can add the text first/)).toBeNull();
   });
 });
