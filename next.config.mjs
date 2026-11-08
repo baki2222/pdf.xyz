@@ -289,6 +289,17 @@ function batchBorn(chunk) {
 function clientWebpack(config, { isServer, dev }) {
   if (isServer || dev) return config;
   config.plugins.push(utifPakoStub);
+  // Eight hex digits of content hash in a client file name, not Next's 16.
+  // Every page's webpack runtime carries one hash per async chunk (165 on
+  // 2026-11-08) and every page's HTML one per script, so the extra eight
+  // hex digits were bytes every visit paid for. Eight is still 32 bits per
+  // name, on top of the chunk id, against at most a few hundred files.
+  // Measured and guarded in `src/deploy/chunk-hash-length.test.ts`.
+  if (config.output?.hashDigestLength !== 16)
+    throw new Error(
+      `next.config: Next's client hashDigestLength is ${config.output?.hashDigestLength}, not the 16 this override was measured against`,
+    );
+  config.output.hashDigestLength = 8;
   const groups = config.optimization?.splitChunks?.cacheGroups;
   if (!groups)
     throw new Error("next.config: no client splitChunks.cacheGroups to extend");
