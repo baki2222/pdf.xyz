@@ -13625,7 +13625,7 @@
     },
     "tools/protect-pdf.html": {
       "title": "Protect PDF with a Password: AES-256 Encryption — pdf.xyz",
-      "description": "Password-protect a PDF with AES-256 or AES-128 encryption applied by qpdf. One file up to 100 MB, no account, link expires in 60 min.",
+      "description": "Password-protect a PDF with AES-256 or AES-128 encryption applied by qpdf. Files up to 100 MB each, no account, link expires in 60 min.",
       "canonical": "https://pdf.xyz/tools/protect-pdf",
       "robots": "index, follow",
       "h1": ["Protect PDF"],

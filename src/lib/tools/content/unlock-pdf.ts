@@ -1,4 +1,6 @@
 import type { ToolContent } from "./types";
+import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
+import { securityBatchPageSentence } from "@/lib/batch/security-copy";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
@@ -12,7 +14,8 @@ import {
 /*
  * Every behavioural claim below was read from the code on 2026-09-27:
  *  - panel: src/components/tools/pdf-security-worker-panel.tsx (mode "unlock")
- *    — one PDF through a drop zone titled "Add a locked PDF, or" (followed by
+ *    — a PDF through a drop zone (two or more open the batch of
+ *    runner/batch/security-batch.tsx, batch plan P4) titled "Add a locked PDF, or" (followed by
  *    the browse control; the step quoted "Add a password-protected PDF, or
  *    browse", which the panel never rendered, until 2026-10-07),
  *    a masked "Current password" field with a Show/Hide password toggle and
@@ -119,6 +122,10 @@ const content: ToolContent = {
 
   useCases: [
     {
+      title: "A month of statements with one password",
+      body: `${workerBatchPageSentence("unlock-pdf")} ${securityBatchPageSentence("unlock-pdf")}`,
+    },
+    {
       title: "Statements and payslips that ask for a password every time",
       body: "Banks and payroll systems often lock each PDF with a date of birth or account digits. Unlock it once and the copy you keep opens without the code.",
     },
@@ -139,7 +146,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add the locked PDF",
-      body: `Drop one PDF onto the area that reads "Add a locked PDF, or browse"; clicking that area opens a file picker instead. It holds a single file of up to ${ceilingMb} MB, and the Remove button next to the file name clears it so you can pick another. Nothing is sent until you press Unlock PDF, which works once the badge reads Secure server; if no server is available, the panel explains why under that button.`,
+      body: `Drop a PDF onto the area that reads "Add a locked PDF, or browse"; clicking that area opens a file picker instead. A file can be up to ${ceilingMb} MB, and the Remove button next to its name clears it so you can pick another; two or more PDFs open a batch list instead. Nothing is sent until you press Unlock PDF, which works once the badge reads Secure server; if no server is available, the panel explains why under that button.`,
     },
     {
       title: "Type the current password",

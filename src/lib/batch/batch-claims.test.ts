@@ -64,6 +64,7 @@ import {
   type WorkerBatchSlug,
 } from "./tools";
 import { workerBatchPageSentence } from "./worker-copy";
+import { securityBatchPageSentence } from "./security-copy";
 
 /** Every registered batch, by the registry that names its words. */
 const REGISTRIES = {
@@ -498,21 +499,33 @@ const workerRows = tools
   })
   .filter((r): r is NonNullable<typeof r> => r !== null);
 
+const WORKER_BATCH_RUNNER =
+  "src/components/tools/runner/batch/worker-batch-runner.tsx";
+const SECURITY_BATCH = "src/components/tools/runner/batch/security-batch.tsx";
+/** Batch plan P4: the two tools whose batch asks for one password. */
+const SECURITY_SLUGS = { "protect-pdf": true, "unlock-pdf": true } as const;
+
 describe("worker batch claims (batch plan P3)", () => {
-  it("health: the walk finds the worker panels, and the ten registered tools among them", () => {
+  it("health: the walk finds the worker panels, and the twelve registered tools among them", () => {
     expect(workerRows.length).toBeGreaterThanOrEqual(20);
     const registered = workerRows.filter((r) => r.registered);
     expect(registered.map((r) => r.slug).sort()).toEqual(
       Object.keys(WORKER_BATCH_TOOLS).sort(),
     );
-    expect(registered.length).toBe(10);
+    // P3's ten, and P4's Protect and Unlock.
+    expect(registered.length).toBe(12);
   });
 
   it("every registered worker batch's panel loads the batch, and every panel that loads it serves a registered tool", () => {
     for (const r of workerRows.filter((x) => x.registered))
       expect(r.modules, `${r.slug}: ${r.panel} loads no batch`).toEqual([
-        "src/components/tools/runner/batch/worker-batch-runner.tsx",
+        r.slug in SECURITY_SLUGS ? SECURITY_BATCH : WORKER_BATCH_RUNNER,
       ]);
+    // Batch plan P4: Protect's and Unlock's module is the worker batch with
+    // a password form around it, never a batch of its own.
+    expect(valueClosure(path.join(ROOT, SECURITY_BATCH)).map(relOf)).toContain(
+      WORKER_BATCH_RUNNER,
+    );
     const loading = new Set(
       workerRows.filter((r) => r.modules.length > 0).map((r) => r.panel),
     );
@@ -521,8 +534,8 @@ describe("worker batch claims (batch plan P3)", () => {
         workerRows.some((r) => r.panel === panel && r.registered),
         `${panel} loads the worker batch for no registered tool`,
       ).toBe(true);
-    // Health: five panels serve the ten tools.
-    expect(loading.size).toBe(5);
+    // Health: six panels serve the twelve tools.
+    expect(loading.size).toBe(6);
   });
 
   it("each registered page names its archive, states its batch, and its limits carry the worker cap", () => {
@@ -627,6 +640,84 @@ describe("P3 one-file sentences, two ways", () => {
       ...about.map((g) => ({ where: g.slug, text: stringsIn(g).join("\n") })),
     ];
     const found = corpus.flatMap(({ where, text }) =>
+      ALL.flatMap((ban) =>
+        [
+          ...text.matchAll(
+            new RegExp(ban.pattern.source, ban.pattern.flags + "g"),
+          ),
+        ].map((m) => `${where}: ${ban.name} — ${m[0]}`),
+      ),
+    );
+    expect(found).toEqual([]);
+  });
+});
+
+/**
+ * Batch plan P4: Protect PDF and Unlock PDF. Their pages state the password
+ * the batch asks for once, and the one-file sentences they shipped before
+ * it (2026-11-09) are a corpus in both directions (CLAUDE.md rule 1): the
+ * P1–P3 bans already catch most; these are the shapes they did not know.
+ */
+const SECURITY_ONE_FILE_SHIPPED = [
+  "The panel holds a single PDF at a time, and the upload is refused above 100 MB.",
+  "Drop a single PDF on the area labelled Add a PDF to password-protect, or browse for one.",
+  "Add one PDF",
+  'Drop one PDF onto the area that reads "Add a locked PDF, or browse"; clicking that area opens a file picker instead.',
+  "It holds a single file of up to 100 MB, and the Remove button next to the file name clears it so you can pick another.",
+  "Password-protect a PDF with AES-256 or AES-128 encryption applied by qpdf. One file up to 100 MB, no account, link expires in 60 min.",
+  "Your PDF is uploaded over TLS to pdf.xyz's secure server, and the password travels with the job request so our server can encrypt that one file.",
+];
+
+const SECURITY_ONE_FILE_BANS: { name: string; pattern: RegExp }[] = [
+  { name: "one file up to", pattern: /\bOne (?:file|PDF) up to\b/i },
+  { name: "that one file", pattern: /\bthat one (?:file|PDF)\b/i },
+];
+
+describe("P4 Protect and Unlock: the batch stated, and one-file sentences two ways", () => {
+  const ALL = [
+    ...ONE_FILE_BANS,
+    ...WORKER_ONE_FILE_BANS,
+    ...SECURITY_ONE_FILE_BANS,
+  ];
+  const slugs = Object.keys(SECURITY_SLUGS) as (keyof typeof SECURITY_SLUGS)[];
+
+  it("each page states the password its batch asks for once", () => {
+    for (const slug of slugs) {
+      const tool = tools.find((t) => t.slug === slug)!;
+      expect(servedText(tool), slug).toContain(securityBatchPageSentence(slug));
+    }
+  });
+
+  it("every shipped sentence is caught, and every new pattern catches one", () => {
+    for (const sentence of SECURITY_ONE_FILE_SHIPPED)
+      expect(
+        ALL.some((ban) => ban.pattern.test(sentence)),
+        `nothing catches: ${sentence}`,
+      ).toBe(true);
+    for (const ban of SECURITY_ONE_FILE_BANS)
+      expect(
+        SECURITY_ONE_FILE_SHIPPED.some((sentence) =>
+          ban.pattern.test(sentence),
+        ),
+        `${ban.name} catches no shipped sentence`,
+      ).toBe(true);
+  });
+
+  it("neither page, nor a guide about either, says it takes one file", () => {
+    const pages = slugs.map((slug) => ({
+      where: slug,
+      text: servedText(tools.find((t) => t.slug === slug)!),
+    }));
+    const about = guides.filter((g) =>
+      (slugs as string[]).includes(g.tools[0]!),
+    );
+    // Health: both pages, and a guide for each.
+    expect(pages).toHaveLength(2);
+    expect(about.length).toBeGreaterThanOrEqual(2);
+    const found = [
+      ...pages,
+      ...about.map((g) => ({ where: g.slug, text: stringsIn(g).join("\n") })),
+    ].flatMap(({ where, text }) =>
       ALL.flatMap((ban) =>
         [
           ...text.matchAll(
