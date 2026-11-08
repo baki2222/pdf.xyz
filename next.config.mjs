@@ -263,6 +263,25 @@ const ROOT_ENTRIES = new Set([
 const BATCH_MODULE =
   /[\\/]src[\\/](?:components[\\/]tools[\\/]runner[\\/](?:batch[\\/]|compress-batch\.tsx$)|lib[\\/]batch[\\/])/;
 
+/**
+ * The `import()` requests that open a batch: a runner's loader for its batch
+ * module (`./batch/<tool>-batch`, `./compress-batch`).
+ */
+const BATCH_IMPORT = /^\.\/(?:batch\/|compress-batch$)/;
+
+/**
+ * An async chunk that only a batch loader opens: every group it belongs to
+ * was started by a `BATCH_IMPORT` request. Whatever it holds is fetched
+ * only once two or more files arrive, on whichever page.
+ */
+function batchBorn(chunk) {
+  if (chunk.canBeInitial()) return false;
+  for (const group of chunk.groupsIterable)
+    for (const origin of group.origins)
+      if (!BATCH_IMPORT.test(origin.request ?? "")) return false;
+  return true;
+}
+
 function clientWebpack(config, { isServer, dev }) {
   if (isServer || dev) return config;
   config.plugins.push(utifPakoStub);
@@ -294,6 +313,32 @@ function clientWebpack(config, { isServer, dev }) {
     priority: 25,
     enforce: true,
     test: BATCH_MODULE,
+  };
+  // What else the batch loaders' own chunks carry (batch plan P2,
+  // 2026-11-08): `use-batch-runner.ts`, the ZIP hook on a page whose runner
+  // has none, `JOB_LIMITS`, the batch view's icons. Each page's runner
+  // already holds a different share of them, so left to SplitChunks every
+  // loader kept its own copy of what its page lacked, each a chunk, and
+  // each chunk an id in the webpack runtime every page downloads first: P2's
+  // four loaders made four (176 -> 180 chunks, +33..36 B gzip on every
+  // page), past what OCR PDF's budget row had left. Taken only from chunks
+  // a batch loader alone opens (`batchBorn`), never from another lazy
+  // feature's chunk, which keeps its own copy, and never from a first load.
+  // A module a root entry carries is left to `rootShared`, which every page
+  // already loads: taken here first, an icon the layout also draws left
+  // root-shared and came back twice in OCR PDF's first load.
+  groups.batchShared = {
+    name: "batch",
+    chunks: batchBorn,
+    minChunks: 1,
+    minSize: 0,
+    priority: 24,
+    enforce: true,
+    test(module, { chunkGraph }) {
+      for (const chunk of chunkGraph.getModuleChunksIterable(module))
+        if (ROOT_ENTRIES.has(chunk.name)) return false;
+      return true;
+    },
   };
   return config;
 }
