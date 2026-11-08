@@ -27,6 +27,14 @@ export type BatchEvent<R> =
   | { type: "retry"; ids: readonly string[] }
   /** Take a file out of the list before anything has run. */
   | { type: "remove"; id: string }
+  /**
+   * A rate limit stopped the running file (batch plan P3): it goes back to
+   * the queue — it did not fail, the hour ran out — and the batch waits
+   * until `resumeAt`. Only from `running`.
+   */
+  | { type: "pause"; resumeAt: number }
+  /** Carry on after a pause: the queue runs again from the paused file. */
+  | { type: "resume" }
   /** Cancel: queued items become `canceled`; an in-flight item finishes. */
   | { type: "cancel" }
   /** Re-seed the batch back to a fresh `idle` state. */
@@ -150,6 +158,21 @@ export function batchReducer<R>(
       return items.length === state.items.length ? state : { ...state, items };
     }
 
+    case "pause": {
+      if (state.phase !== "running") return state;
+      const items = state.items.map((item) =>
+        item.status === "running"
+          ? { ...item, status: "queued" as const }
+          : item,
+      );
+      return { phase: "paused", items, resumeAt: event.resumeAt };
+    }
+
+    case "resume": {
+      if (state.phase !== "paused") return state;
+      return { phase: "running", items: state.items };
+    }
+
     case "cancel": {
       if (state.phase === "done" || state.phase === "canceled") return state;
       // Queued items never ran → canceled. A running item is left alone so its
@@ -159,6 +182,7 @@ export function batchReducer<R>(
           ? { ...item, status: "canceled" as const }
           : item,
       );
+      // A pause's `resumeAt` goes with it: nothing will resume.
       return { phase: "canceled", items };
     }
 

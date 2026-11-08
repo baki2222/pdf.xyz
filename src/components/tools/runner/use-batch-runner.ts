@@ -60,6 +60,17 @@ export interface BatchRunner<R> {
    */
   haltReason: string | null;
   running: boolean;
+  /**
+   * While paused on a rate limit (`pauseOn`): when the batch carries on by
+   * itself (epoch ms). Null in every other phase.
+   */
+  resumeAt: number | null;
+  /**
+   * Carry on after a pause without waiting for the timer — a phone that
+   * slept, a tab the browser throttled. Does nothing before `resumeAt`: the
+   * limit would only refuse the file again.
+   */
+  continueNow: () => void;
 }
 
 export interface BatchRunnerOptions {
@@ -75,6 +86,13 @@ export interface BatchRunnerOptions {
    * and the batch stops there instead of failing the rest one by one.
    */
   haltOn?: (error: unknown) => string | null | undefined;
+  /**
+   * A failure that only means "not now" (a rate limit, batch plan P3):
+   * return when it lifts (epoch ms), and the batch PAUSES there — the file
+   * goes back to the queue, never into error, and the batch carries on
+   * from it at that moment while the tab is open (or at `continueNow`).
+   */
+  pauseOn?: (error: unknown) => number | null | undefined;
 }
 
 /** What one file's `process` may hand back: a result, or a noted one. */
@@ -97,7 +115,7 @@ export type BatchProcess<R> = (
 export function useBatchRunner<R>(
   units: BatchUnit[],
   process: BatchProcess<R>,
-  { reportsOutcome = true, haltOn }: BatchRunnerOptions = {},
+  { reportsOutcome = true, haltOn, pauseOn }: BatchRunnerOptions = {},
 ): BatchRunner<R> {
   const seeds = useMemo<BatchSeed[]>(
     () => units.map((unit) => ({ id: unit.id, name: unit.name })),
@@ -124,6 +142,8 @@ export function useBatchRunner<R>(
   // Files taken out before Run stay out when the batch is run again.
   const removedRef = useRef(new Set<string>());
   const [halt, setHalt] = useState<string | null>(null);
+  // A pause's wait: resolved by its timer, by "Continue now", or by Cancel.
+  const pauseRef = useRef<{ resumeAt: number; wake: () => void } | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -167,7 +187,8 @@ export function useBatchRunner<R>(
       let failures = 0;
       let halted = false;
 
-      for (const [index, id] of ids.entries()) {
+      for (let index = 0; index < ids.length; index += 1) {
+        const id = ids[index]!;
         if (controller.signal.aborted || !mountedRef.current) break;
         const unit = unitsRef.current.find((u) => u.id === id);
         if (!unit) continue;
@@ -204,6 +225,32 @@ export function useBatchRunner<R>(
           }
           // Stopping is the user's choice, not the tool failing.
           const stopped = controller.signal.aborted || isAbort(err);
+          // "Not now": the file goes back to the queue and the batch waits,
+          // then runs this same file again. Not a failure, not reported as
+          // one here (a worker process already reported its own refusal).
+          const resumeAt = stopped ? null : (pauseOn?.(err) ?? null);
+          if (resumeAt !== null) {
+            if (!mountedRef.current) return;
+            dispatch({ type: "pause", resumeAt });
+            await new Promise<void>((resolve) => {
+              const timer = setTimeout(
+                () => wake(),
+                Math.max(0, resumeAt - Date.now()),
+              );
+              const wake = () => {
+                clearTimeout(timer);
+                controller.signal.removeEventListener("abort", wake);
+                pauseRef.current = null;
+                resolve();
+              };
+              controller.signal.addEventListener("abort", wake);
+              pauseRef.current = { resumeAt, wake };
+            });
+            if (controller.signal.aborted || !mountedRef.current) break;
+            dispatch({ type: "resume" });
+            index -= 1;
+            continue;
+          }
           if (!stopped) {
             if (reportsOutcome) reportToolFailed({ code: failureCode(err) });
             failures += 1;
@@ -235,7 +282,7 @@ export function useBatchRunner<R>(
         cancelActivity();
       else reportActivity(failures > 0 ? "failed" : "done");
     },
-    [process, reportsOutcome, haltOn],
+    [process, reportsOutcome, haltOn, pauseOn],
   );
 
   const start = useCallback(() => {
@@ -260,6 +307,11 @@ export function useBatchRunner<R>(
     if (stateRef.current.phase !== "idle") return;
     removedRef.current.add(id);
     dispatch({ type: "remove", id });
+  }, []);
+
+  const continueNow = useCallback(() => {
+    const pause = pauseRef.current;
+    if (pause && Date.now() >= pause.resumeAt) pause.wake();
   }, []);
 
   const cancel = useCallback(() => {
@@ -291,5 +343,7 @@ export function useBatchRunner<R>(
     remove,
     haltReason: state.phase === "canceled" ? halt : null,
     running: state.phase === "running",
+    resumeAt: state.phase === "paused" ? (state.resumeAt ?? null) : null,
+    continueNow,
   };
 }
