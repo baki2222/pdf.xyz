@@ -9,7 +9,7 @@ import {
 } from "@/lib/pdf/engine";
 import { outputName } from "@/lib/pdf/files";
 import type { SinglePdfBatch } from "../single-pdf-runner";
-import { SegmentedControl } from "../stamp-controls";
+import { BatchChoice } from "./batch-choice";
 import {
   SettingsBatchRunner,
   type BatchFileOutput,
@@ -70,11 +70,11 @@ export function RotateBatch(props: SinglePdfBatch) {
       restrictedNote="Rotate it on its own: Rotate PDF opens a restricted file whose author allowed page changes."
       process={process}
       settings={
-        <SegmentedControl
+        <BatchChoice
           label="Rotate every page"
           value={turn}
           onChange={setTurn}
-          options={[...ROTATE_BATCH_TURNS]}
+          options={ROTATE_BATCH_TURNS}
         />
       }
     />
