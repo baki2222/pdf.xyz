@@ -12,6 +12,7 @@ import {
 } from "pdf-lib";
 import type { RunnerKind } from "../../src/lib/pdf/registry";
 import { BATCH_VARIANTS } from "./batch-cases";
+import { IMAGE_TEXT_BATCH_VARIANTS } from "./image-batch-cases";
 import {
   encodeGrayJpeg,
   jpegComponentCount,
@@ -2506,6 +2507,8 @@ const blankJpeg = (w: number, h: number) => ({
 export const VARIANTS: readonly VariantCase[] = [
   // The settings batches (batch plan P1): a ZIP of two same-named PDFs.
   ...BATCH_VARIANTS,
+  // The images and text batches (batch plan P2): a folder per input.
+  ...IMAGE_TEXT_BATCH_VARIANTS,
   {
     slug: "pdf-to-jpg",
     name: "pages 1 and 3 only, Grayscale",

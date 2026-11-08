@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { attachConsoleGuard } from "../helpers";
 import { expectMagic } from "./artifacts";
 import { BATCH_VARIANTS } from "./batch-cases";
+import { IMAGE_TEXT_BATCH_VARIANTS } from "./image-batch-cases";
 import { expectControlRejected, type CaseContext } from "./cases";
 
 /**
@@ -12,12 +13,16 @@ import { expectControlRejected, type CaseContext } from "./cases";
  * reason. A phone is where a batch holds the most in the least memory.
  */
 
-// Health: the cases were found, one per settings batch.
+const PROOFS = [...BATCH_VARIANTS, ...IMAGE_TEXT_BATCH_VARIANTS];
+
+// Health: the cases were found, one per settings batch (P1 and Grayscale)
+// and per images or text batch (P2).
 test("the batch cases are not empty", () => {
-  expect(BATCH_VARIANTS.length).toBeGreaterThanOrEqual(5);
+  expect(BATCH_VARIANTS.length).toBeGreaterThanOrEqual(6);
+  expect(IMAGE_TEXT_BATCH_VARIANTS.length).toBeGreaterThanOrEqual(4);
 });
 
-for (const proof of BATCH_VARIANTS) {
+for (const proof of PROOFS) {
   test(`${proof.slug} on a phone: ${proof.name} — the ZIP holds both, each right`, async ({
     page,
   }) => {

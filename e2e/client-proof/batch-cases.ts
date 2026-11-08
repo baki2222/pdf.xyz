@@ -5,6 +5,7 @@ import { SETTINGS_BATCH_TOOLS } from "../../src/lib/batch/tools";
 import { fileInput, waitForHydration } from "../helpers";
 import {
   captureDownload,
+  pdfImages,
   pdfPageCount,
   pdfPageTexts,
   pdfRotations,
@@ -56,6 +57,7 @@ function entryNames(slug: Slug): string[] {
     "page-numbers": "numbered",
     "watermark-pdf": "watermarked",
     "split-pdf-pages-in-half": "halved",
+    "grayscale-pdf": "grayscale",
   };
   return [`report-${suffix[slug]}.pdf`, `report-${suffix[slug]} (2).pdf`];
 }
@@ -233,6 +235,21 @@ export const BATCH_VARIANTS: readonly VariantCase[] = [
       expect(await pdfPageCount(pdf), `${NOT_APPLIED} output ${i + 1}`).toBe(
         PAGES[i]! * 2,
       );
+    },
+  ),
+  // Batch plan P2: one grayscale PDF per file, every page one
+  // single-channel image.
+  batchCase(
+    "grayscale-pdf",
+    "grayscale",
+    /^Convert 2 PDFs$/,
+    async (pdf, i) => {
+      const images = await pdfImages(pdf);
+      expect(images.length, `${NOT_APPLIED} output ${i + 1}`).toBe(PAGES[i]!);
+      for (const image of images)
+        expect(image.colorSpace, `${NOT_APPLIED} output ${i + 1}`).toBe(
+          "/DeviceGray",
+        );
     },
   ),
 ].map(keepingArtifact);

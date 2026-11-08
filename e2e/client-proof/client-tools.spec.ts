@@ -229,6 +229,11 @@ test.describe("client tool proof — the derived set", () => {
         "flatten-pdf",
         "watermark-pdf",
         "split-pdf-pages-in-half",
+        // The images, text and grayscale batches (batch plan P2), beside
+        // pdf-to-jpg and pdf-to-png above.
+        "grayscale-pdf",
+        "extract-images",
+        "text-to-pdf",
       ]),
     );
     for (const v of VARIANTS)
