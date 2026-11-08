@@ -137,8 +137,12 @@ describe("the editor lock, when the author allows comments (/P bit 6)", () => {
       line: "line",
       arrow: "line",
       highlight: "highlight",
+      underline: "highlight",
+      strikeout: "highlight",
       ink: "ink",
+      marker: "ink",
       note: "note",
+      comment: "note",
     };
     const kinds = new Set([...COMMENT_TOOLS].map((t) => places[t]));
     expect(kinds.has(undefined)).toBe(false);
@@ -222,5 +226,82 @@ describe("the editor lock — unlock", () => {
     );
     expect(s.lock).toBeNull();
     expect(s.objects).toHaveLength(1);
+  });
+});
+
+/**
+ * The help beside a restricted page (review of 62aa1808, 2026-11-08) listed
+ * "Highlight, Draw, Note and the shapes" while the lock had also enabled
+ * Underline, Strikethrough, Highlighter and Comment. It is now built from
+ * COMMENT_TOOLS by button label (`lockedCommentHelp` in `toolbar.tsx`).
+ */
+describe("the locked help names every tool the lock allows", () => {
+  it("names every Mark up tool in COMMENT_TOOLS by its label, and the shapes", async () => {
+    const { lockedCommentHelp, TOOL_BUTTONS, TOOL_GROUPS } =
+      await import("./toolbar");
+    const markUp = TOOL_GROUPS.find((g) => g.name === "Mark up")!.tools;
+    const allowed = markUp.filter((t) => COMMENT_TOOLS.has(t));
+    // Health: the group and the set overlap in more than the old four.
+    expect(allowed.length).toBeGreaterThanOrEqual(7);
+    const help = lockedCommentHelp();
+    const missing = allowed
+      .map((t) => TOOL_BUTTONS.find((b) => b.tool === t)!.label)
+      .filter((label) => !new RegExp(`\\b${label}\\b`).test(help));
+    expect(missing).toEqual([]);
+    expect(help).toMatch(/\bthe shapes\b/);
+    // Control: the typed sentence it replaced misses four of them.
+    const old =
+      "Highlight, Draw, Note and the shapes are saved as comments, which this PDF's author allows.";
+    expect(
+      allowed
+        .map((t) => TOOL_BUTTONS.find((b) => b.tool === t)!.label)
+        .filter((label) => !new RegExp(`\\b${label}\\b`).test(old)),
+    ).toEqual(["Underline", "Strikethrough", "Highlighter", "Comment"]);
+  });
+
+  it("the editor shows that help, not a typed copy of it", async () => {
+    const { readFileSync } = await import("node:fs");
+    const path = await import("node:path");
+    const source = readFileSync(
+      path.join(
+        process.cwd(),
+        "src/components/tools/runner/editor/wysiwyg-editor.tsx",
+      ),
+      "utf8",
+    );
+    expect(source).toMatch(
+      /state\.lock\.annotate\s*\?\s*lockedCommentHelp\(\)/,
+    );
+    expect(source).not.toMatch(/are saved as comments, which this PDF/);
+  });
+
+  /*
+   * The reader of that help is the page, and the page is read by Playwright,
+   * which this suite does not run. b4ff355b changed the help and left
+   * e2e/restricted-pdf.spec.ts asserting the typed four-tool sentence word
+   * for word, a red the next CI run would have been first to see. Every e2e
+   * literal of the help (found by its wording, not by file name) must be
+   * what lockedCommentHelp() returns today.
+   */
+  it("every e2e spec that asserts the help asserts lockedCommentHelp()", async () => {
+    const { readFileSync, readdirSync } = await import("node:fs");
+    const path = await import("node:path");
+    const { lockedCommentHelp } = await import("./toolbar");
+    const dir = path.join(process.cwd(), "e2e");
+    const files = readdirSync(dir, { recursive: true, encoding: "utf8" })
+      .filter((f) => /\.ts$/.test(f))
+      .map((f) => path.join(dir, f));
+    // Health: the e2e tree was found and is not a stub.
+    expect(files.length).toBeGreaterThan(20);
+    const literal = /"([^"\n]*saved as comments, which this PDF[^"\n]*)"/g;
+    const found = files.flatMap((f) =>
+      [...readFileSync(f, "utf8").matchAll(literal)].map((m) => ({
+        file: path.relative(process.cwd(), f).split(path.sep).join("/"),
+        text: m[1]!,
+      })),
+    );
+    // Positive control: restricted-pdf.spec.ts asserts it.
+    expect(found.map((x) => x.file)).toContain("e2e/restricted-pdf.spec.ts");
+    expect(found.filter((x) => x.text !== lockedCommentHelp())).toEqual([]);
   });
 });

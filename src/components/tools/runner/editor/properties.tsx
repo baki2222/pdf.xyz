@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import {
+  Fragment,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -40,6 +47,14 @@ import {
 } from "@/lib/pdf/editor/quick-fields";
 import { ownFontCovers, substituteLabel } from "@/lib/pdf/editor/runs";
 import { needsUnicodeFace } from "@/lib/pdf/editor/text";
+import { STICKY_LABEL } from "@/lib/pdf/editor/sticky";
+import {
+  HIGHLIGHTER_LABEL,
+  TEXT_MARKUPS,
+  TEXT_MARKUP_LABEL,
+  markupOf,
+  type TextMarkup,
+} from "@/lib/pdf/editor/markup";
 import type { Defaults, Tool } from "./editor-state";
 
 /**
@@ -69,10 +84,12 @@ export function bucketOf(obj: EditorObject): StyleBucket {
       return "shape";
     case "line":
       return "line";
-    case "highlight":
-      return "highlight";
+    case "highlight": {
+      const markup = markupOf(obj);
+      return markup === "squiggly" ? "underline" : markup;
+    }
     case "ink":
-      return "ink";
+      return obj.highlighter ? "marker" : "ink";
     default:
       return obj.kind;
   }
@@ -83,6 +100,7 @@ export function bucketOfTool(tool: Tool): StyleBucket | null {
     case "text":
       return "text";
     case "note":
+    case "comment":
       return "note";
     case "rect":
     case "ellipse":
@@ -91,9 +109,13 @@ export function bucketOfTool(tool: Tool): StyleBucket | null {
     case "arrow":
       return "line";
     case "highlight":
-      return "highlight";
+    case "underline":
+    case "strikeout":
+      return tool;
     case "ink":
       return "ink";
+    case "marker":
+      return "marker";
     case "whiteout":
       return "whiteout";
     case "redact":
@@ -132,6 +154,7 @@ export type StylePatch = Partial<{
   value: string;
   checked: boolean;
   multiline: boolean;
+  markup: TextMarkup;
 }>;
 
 /** A row: its name, then its control(s) — each control carries its own name. */
@@ -211,17 +234,26 @@ export function PropertiesPanel({
   onPatch,
   onDelete,
   onDuplicate,
+  repeat,
   onStack,
   pageIds = [],
+  tool,
   className,
 }: {
   selection: EditorObject[];
   /** The tool's bucket when nothing is selected. */
   bucket: StyleBucket | null;
+  /**
+   * The active tool: Comment shares the note's bucket, but with nothing
+   * selected it gets a comment's panel, not a note's.
+   */
+  tool?: Tool;
   defaults: Defaults;
   onPatch: (patch: StylePatch, key: string) => void;
   onDelete: () => void;
   onDuplicate: () => void;
+  /** "Repeat on" pages for the selection, when it can be repeated. */
+  repeat?: ReactNode;
   /** Z-order: move the selection within its page's stack. */
   onStack?: (move: StackMove) => void;
   /** The displayed pages' ids, in order — a link's "go to page" choices. */
@@ -240,14 +272,27 @@ export function PropertiesPanel({
   const title = first
     ? selection.length > 1
       ? `${selection.length} items selected`
-      : EDITOR_OBJECT_LABEL[first.kind]
-    : (NEW_TITLE[kind] ??
-      `New ${kind === "shape" ? "shape" : kind === "line" ? "line" : kind}`);
+      : first.kind === "highlight"
+        ? TEXT_MARKUP_LABEL[markupOf(first)]
+        : first.kind === "note" && first.sticky
+          ? STICKY_LABEL
+          : EDITOR_OBJECT_LABEL[first.kind]
+    : tool === "comment"
+      ? `New ${STICKY_LABEL.toLowerCase()}`
+      : (NEW_TITLE[kind] ??
+        `New ${kind === "shape" ? "shape" : kind === "line" ? "line" : kind}`);
   const unicode = selection.some(
     (o) => (o.kind === "text" || o.kind === "note") && needsUnicodeFace(o.text),
   );
 
   const set = (patch: StylePatch, key: string) => onPatch(patch, key);
+  // A comment's words are shown by the reader's popup, in its own font:
+  // only its colour is the editor's to set.
+  const stickySel = first
+    ? first.kind === "note" && !!first.sticky
+    : tool === "comment";
+  const textMarkup =
+    kind === "highlight" || kind === "underline" || kind === "strikeout";
 
   return (
     <section
@@ -256,7 +301,20 @@ export function PropertiesPanel({
     >
       <h3 className="text-faint kicker">{title}</h3>
 
-      {(kind === "text" || kind === "note") && (
+      {stickySel && (
+        <Field label="Colour">
+          <input
+            type="color"
+            aria-label={`${STICKY_LABEL} colour`}
+            value={shown.fill ?? "#fef08a"}
+            onChange={(e) => set({ fill: e.target.value }, "fill")}
+            // 44 px on a phone, where it is a touch target.
+            className="h-11 w-12 cursor-pointer sm:h-8 sm:w-10"
+          />
+        </Field>
+      )}
+
+      {(kind === "text" || kind === "note") && !stickySel && (
         <>
           <Field label="Font">
             <select
@@ -368,7 +426,10 @@ export function PropertiesPanel({
         </>
       )}
 
-      {(kind === "shape" || kind === "line" || kind === "ink") && (
+      {(kind === "shape" ||
+        kind === "line" ||
+        kind === "ink" ||
+        kind === "marker") && (
         <>
           <Field label="Outline">
             <span className="flex items-center gap-2">
@@ -439,11 +500,30 @@ export function PropertiesPanel({
         />
       )}
 
-      {kind === "highlight" && (
+      {textMarkup && first && (
+        <Field label="Style">
+          <select
+            aria-label="Markup style"
+            value={markupOf(first as { markup?: TextMarkup })}
+            onChange={(e) =>
+              set({ markup: e.target.value as TextMarkup }, "markup")
+            }
+            className={input}
+          >
+            {TEXT_MARKUPS.map((m) => (
+              <option key={m} value={m}>
+                {TEXT_MARKUP_LABEL[m]}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+
+      {textMarkup && (
         <Field label="Colour">
           <input
             type="color"
-            aria-label="Highlight colour"
+            aria-label={`${kind === "highlight" ? "Highlight" : "Line"} colour`}
             value={shown.color}
             onChange={(e) => set({ color: e.target.value }, "color")}
             className="h-8 w-10 cursor-pointer"
@@ -454,7 +534,8 @@ export function PropertiesPanel({
       {(kind === "shape" ||
         kind === "line" ||
         kind === "ink" ||
-        kind === "highlight" ||
+        kind === "marker" ||
+        textMarkup ||
         kind === "image") && (
         <Field label={`Opacity ${Math.round((shown.opacity ?? 1) * 100)}%`}>
           <input
@@ -619,6 +700,10 @@ export function PropertiesPanel({
         </div>
       )}
 
+      {/* Its own key: the caller keys RepeatOnPages by the selection's ids,
+          which for one object is the very key LinkFields and FieldFields
+          carry beside it, and React then drew a link's fields twice. */}
+      {selection.length > 0 && <Fragment key="repeat">{repeat}</Fragment>}
       {selection.length > 0 && (
         <div className="flex gap-2">
           {kind !== "textedit" && (
@@ -646,6 +731,10 @@ export function PropertiesPanel({
 }
 
 const NEW_TITLE: Partial<Record<StyleBucket, string>> = {
+  highlight: `New ${TEXT_MARKUP_LABEL.highlight.toLowerCase()}`,
+  marker: HIGHLIGHTER_LABEL,
+  underline: `New ${TEXT_MARKUP_LABEL.underline.toLowerCase()}`,
+  strikeout: `New ${TEXT_MARKUP_LABEL.strikeout.toLowerCase()}`,
   date: "Date",
   person: "Initials and name",
   mark: "Check mark",

@@ -229,6 +229,10 @@ export function copyFiles(): string[] {
     // Translate PDF's warning when Auto-detect meets a PDF already in the
     // target language (2026-11-06, audit #38), drawn by the panel.
     path.join(ROOT, "src", "lib", "jobs", "translate-script.ts"),
+    // The editor's Comment (sticky note) label and the one sentence every
+    // flattening description names it in (2026-11-08), drawn by the run bar,
+    // Annotate PDF's footer and the Annotate and Edit PDF pages.
+    path.join(ROOT, "src", "lib", "pdf", "editor", "sticky.ts"),
     // Word, Excel and PowerPoint to PDF's refusal of an .odt, .ods, .odp or
     // .rtf whose bytes are another format (2026-11-04): new phrase code, so
     // walked rather than recorded outside.
@@ -255,6 +259,20 @@ export function copyFiles(): string[] {
     // JPG / PNG to PDF's Max file size (2026-10-31): labels, hint, outcome
     // lines, and the browser re-encoder's error messages.
     path.join(ROOT, "src", "lib", "pdf", "image-size-limit.ts"),
+    // JPG / PNG to PDF's per-image Rotate button (2026-11-08, audit
+    // png-to-pdf#2): its tooltip and accessible name.
+    path.join(ROOT, "src", "lib", "pdf", "image-rotation.ts"),
+    // Which stored resolutions Fit to image ignores (2026-11-08, audits
+    // jpg-to-pdf#4 / png-to-pdf#4).
+    path.join(ROOT, "src", "lib", "pdf", "image-density.ts"),
+    // Small images: Keep size / Enlarge to fit (2026-11-08).
+    path.join(ROOT, "src", "lib", "pdf", "image-enlarge.ts"),
+    // The add-time decode refusal (2026-11-08, audit png-to-pdf#8).
+    path.join(ROOT, "src", "lib", "pdf", "image-intake.ts"),
+    // Sort by name and Bookmarks (2026-11-08, audit png-to-pdf#6).
+    path.join(ROOT, "src", "lib", "pdf", "image-bookmarks.ts"),
+    // Custom page size and margin (2026-11-08, audit jpg-to-pdf#3).
+    path.join(ROOT, "src", "lib", "pdf", "image-page-custom.ts"),
     // What UTIF's require("pako") resolves to in the browser bundle
     // (2026-11-04): one error sentence, thrown only if UTIF's Deflate path
     // is ever reached.
@@ -272,6 +290,10 @@ export function copyFiles(): string[] {
     // refused with.
     path.join(ROOT, "src", "lib", "pdf", "editor", "links.ts"),
     path.join(ROOT, "src", "lib", "pdf", "editor", "fields.ts"),
+    // What a signed PDF's edit takes out, so it is rewritten rather than
+    // appended (2026-11-08, audit sign-pdf#5 review): the labels the
+    // editor's notices and the Sign and Annotate FAQs list.
+    path.join(ROOT, "src", "lib", "pdf", "editor", "signed-edit.ts"),
     // Redact PDF's Find text / Detect personal data labels and the removal
     // method's refusals (2026-10-25): new phrase code, so walked.
     path.join(ROOT, "src", "lib", "pdf", "redact-categories.ts"),

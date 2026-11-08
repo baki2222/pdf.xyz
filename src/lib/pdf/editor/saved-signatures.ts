@@ -24,11 +24,18 @@ export const MAX_SAVED_SIGNATURES = 5;
 const MAX_DATA_URL_CHARS = 600_000;
 
 export type SavedSignature =
-  | { id: string; kind: "typed"; text: string; style: SignatureStyle }
+  | {
+      id: string;
+      kind: "typed";
+      text: string;
+      style: SignatureStyle;
+      /** Its ink (`signature-ink.ts`); saved before inks existed = black. */
+      color?: string;
+    }
   | { id: string; kind: "image"; format: "png" | "jpg"; dataUrl: string };
 
 type ToSave =
-  | { kind: "typed"; text: string; style: SignatureStyle }
+  | { kind: "typed"; text: string; style: SignatureStyle; color?: string }
   | { kind: "image"; sig: ImageSignature };
 
 /** localStorage, or undefined where even reaching it throws. */
@@ -47,7 +54,9 @@ function isSaved(value: unknown): value is SavedSignature {
   if (v.kind === "typed")
     return (
       typeof v.text === "string" &&
-      (v.style === "signature" || v.style === "print")
+      (v.style === "signature" || v.style === "print") &&
+      (v.color === undefined ||
+        (typeof v.color === "string" && /^#[0-9a-f]{6}$/i.test(v.color)))
     );
   return (
     v.kind === "image" &&
@@ -133,7 +142,13 @@ export function saveSignature(
   const id = `s${Date.now().toString(36)}${counter}`;
   let next: SavedSignature;
   if (entry.kind === "typed") {
-    next = { id, kind: "typed", text: entry.text, style: entry.style };
+    next = {
+      id,
+      kind: "typed",
+      text: entry.text,
+      style: entry.style,
+      ...(entry.color ? { color: entry.color } : {}),
+    };
   } else {
     const dataUrl = toDataUrl(entry.sig);
     if (dataUrl.length > MAX_DATA_URL_CHARS)
@@ -143,7 +158,10 @@ export function saveSignature(
   const same = (s: SavedSignature) =>
     s.kind === next.kind &&
     (s.kind === "typed"
-      ? next.kind === "typed" && s.text === next.text && s.style === next.style
+      ? next.kind === "typed" &&
+        s.text === next.text &&
+        s.style === next.style &&
+        s.color === next.color
       : next.kind === "image" && s.dataUrl === next.dataUrl);
   const updated = [next, ...list.filter((s) => !same(s))].slice(
     0,

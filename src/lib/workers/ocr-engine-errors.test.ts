@@ -39,8 +39,29 @@ function execError(detail: {
 const CASES: {
   name: string;
   error: unknown;
+  /** What the worker read from the uploaded file itself, when it asked. */
+  context?: { opensWithoutPassword: boolean | null };
   kind: OcrRefusalKind | null;
 }[] = [
+  {
+    // Audit ocr-pdf#4: exit 8 is ANY encryption; the file decides which.
+    name: "exit 8 on a file that opens without a password — its author's restrictions",
+    error: execError({ code: 8 }),
+    context: { opensWithoutPassword: true },
+    kind: "restricted",
+  },
+  {
+    name: "exit 8 on a file that needs a password to open",
+    error: execError({ code: 8 }),
+    context: { opensWithoutPassword: false },
+    kind: "encrypted",
+  },
+  {
+    name: "exit 8 when the file could not be asked — the message true of both",
+    error: execError({ code: 8 }),
+    context: { opensWithoutPassword: null },
+    kind: "encrypted",
+  },
   {
     name: "exit 8 — EncryptedPdfError",
     error: execError({
@@ -130,7 +151,7 @@ const CASES: {
 describe("classifyOcrmypdfFailure", () => {
   for (const c of CASES) {
     it(`${c.name} → ${c.kind ?? "the run (retryable)"}`, () => {
-      expect(classifyOcrmypdfFailure(c.error)).toBe(c.kind);
+      expect(classifyOcrmypdfFailure(c.error, c.context)).toBe(c.kind);
     });
   }
 
@@ -155,6 +176,13 @@ describe("OcrEngineRefusal — actionable, fixed, content-free copy", () => {
       expect(refusal.message).toMatch(/nothing was processed/i);
     }
     expect(OCR_REFUSAL_MESSAGES.encrypted).toMatch(/Unlock PDF/);
+    // A file that opens without a password is never called
+    // password-protected; it is sent to the owner password that set it.
+    expect(OCR_REFUSAL_MESSAGES.restricted).not.toMatch(/password-protected/);
+    expect(OCR_REFUSAL_MESSAGES.restricted).toMatch(/opens without a password/);
+    expect(OCR_REFUSAL_MESSAGES.restricted).toMatch(
+      /Unlock PDF[^.]*owner \(permissions\) password/,
+    );
     expect(OCR_REFUSAL_MESSAGES.unreadable).toMatch(/Repair PDF/);
   });
 });

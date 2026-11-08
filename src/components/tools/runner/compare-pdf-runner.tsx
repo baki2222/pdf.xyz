@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { downloadBlob, readFileBytes } from "@/lib/pdf/browser";
 import { partitionPdfFiles } from "@/lib/pdf/files";
-import { getPageCount } from "@/lib/pdf/engine";
+import { countPagesWithPdfjs } from "@/lib/pdf/pdfjs-page-count";
 import { extractPdfText, type ExtractedPdfText } from "@/lib/pdf/text";
 import {
   compareExtractedPdfText,
@@ -116,9 +116,15 @@ export function ComparePdfRunner({
       try {
         const bytes = await readFileBytes(file);
         // The probe reads beside the page count, so a scan's hint is
-        // drawn with its card, not after it.
+        // drawn with its card, not after it. The count is pdf.js's, the
+        // library the comparison reads with: pdf-lib refused any /Encrypt,
+        // so a PDF that opens without a password but carries its author's
+        // restrictions was skipped here until 2026-11-08 (audit
+        // compare-pdf#5), although nothing is written and pdf.js reads it.
+        // One that needs a password is still refused, in pdf.js's words.
+        // Only the count: no page is opened (`pdfjs-page-count.ts`).
         const [pageCount, probe] = await Promise.all([
-          getPageCount(bytes),
+          countPagesWithPdfjs(bytes),
           readPreflight(bytes, "image-only"),
         ]);
         // Cleared or removed while loading: its slot is no longer held.

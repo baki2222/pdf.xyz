@@ -24,6 +24,10 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { WORKER_JOB_STORAGE_PREFIX } from "@/lib/workers/job-resume-key";
 import { WORKSPACE_STORAGE_KEY } from "@/lib/workspace/storage";
 import { SAVED_SIGNATURES_KEY } from "@/lib/pdf/editor/saved-signatures";
+import {
+  COMMENT_AUTHOR_KEY,
+  COMMENT_AUTHOR_LABEL,
+} from "@/lib/pdf/editor/sticky";
 
 export type StorageArea = "localStorage" | "sessionStorage" | "IndexedDB";
 
@@ -84,6 +88,13 @@ export const BROWSER_STORAGE: readonly BrowserStore[] = [
       "Signatures you chose to keep with “Save for next time” in Sign PDF, Edit PDF or Annotate PDF: a typed name and its style, or a picture of a signature you drew or picked. It is written only when you tick that box, and it is never uploaded.",
     lasts:
       "Until you delete it in the signature panel or clear this site's data. Only the most recent few are kept.",
+  },
+  {
+    key: COMMENT_AUTHOR_KEY,
+    perTool: false,
+    area: "localStorage",
+    holds: `The name you typed in “${COMMENT_AUTHOR_LABEL}” in Annotate PDF, Edit PDF or Sign PDF, so the next file's comments carry it as their author too. It is written only when you type a name, and it is never uploaded.`,
+    lasts: "Until you empty that field or clear this site's data.",
   },
   {
     key: HANDOFF_DB_NAME,
