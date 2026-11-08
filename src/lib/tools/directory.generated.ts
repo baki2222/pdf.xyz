@@ -100,7 +100,7 @@ export const TOOL_DIRECTORY: readonly ToolEntry[] = [
     name: "Grayscale PDF",
     processing: "client",
     accept: ["PDF"],
-    outputs: ["PDF"],
+    outputs: ["PDF", "ZIP"],
   },
   {
     slug: "word-to-pdf",
@@ -177,7 +177,7 @@ export const TOOL_DIRECTORY: readonly ToolEntry[] = [
     name: "Text to PDF",
     processing: "client",
     accept: ["TXT"],
-    outputs: ["PDF"],
+    outputs: ["PDF", "ZIP"],
   },
   {
     slug: "pdf-to-word",

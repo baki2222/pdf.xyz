@@ -16,12 +16,18 @@ import {
 import { LARGE_RASTER_PAGES, defaultResolution } from "@/lib/intent/defaults";
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
+import {
+  IMAGE_BATCH_FOLDERS,
+  IMAGE_BATCH_TOOLS,
+  batchLimitsSentence,
+} from "@/lib/batch/tools";
 
 /*
  * Every behavioural claim below was read from the code on 2026-09-27:
  *  - runner: src/components/tools/runner/pdf-to-image-runner.tsx (format
  *    "jpg") inside SinglePdfRunner — a Dropzone that renders "Drop your PDF
- *    here, or browse" (runner-kit.tsx) and uses only the first file dropped;
+ *    here, or browse" (runner-kit.tsx); two or more files open the batch
+ *    (runner/batch/pdf-to-image-batch.tsx, batch plan P2);
  *    FileHeader shows "<n> pages · <size>"; the "Resolution" section maps
  *    RASTER_RESOLUTIONS to chips showing label + "<dpi> DPI"; the run button
  *    reads "Render <n> page(s)" and "Rendering JPG… done/total" while busy.
@@ -152,7 +158,7 @@ const content: ToolContent = {
   intro: [
     `PDF to JPG paints the pages of your PDF — all of them, or only the ones you pick — onto a canvas with pdf.js and saves each one as a JPEG picture, in colour or in grayscale, with the page's built-in rotation applied. The renderer and its decoders for JPEG 2000 and JBIG2 images load from pdf.xyz itself, and all of the drawing and encoding is done by your own browser: the PDF is not uploaded.`,
     `There are ${RASTER_RESOLUTIONS.length} resolutions to choose from: ${presetList}. ${startSentence} Under ${JPEG_QUALITY_LABEL}, choose ${qualityChoices} out of 100; ${qualityDefault.label} is selected at the start, and this browser remembers the one you convert with. ${qualitySmallest.label} gives the lightest JPEGs for an upload limit, at the cost of some sharpness around text. Every JPEG has a white background, since JPEG cannot store transparency. A one-page PDF downloads as a single file (flyer.pdf becomes ${exampleSingle}). When more than one page is rendered they arrive as a ZIP: all pages of a ${EXAMPLE_PAGES}-page report.pdf become ${exampleZip}, holding ${exampleFirst} through ${exampleLast}, with page numbers zero-padded to the width of the page count so the images sort in reading order. Grayscale saves single-channel JPEGs, which are smaller than colour ones.`,
-    `It converts a single PDF per run, up to ${maxMb} MB. One that needs a password to open stops at the loading step, with a message saying it is password-protected. A PDF that opens without a password converts even if its author restricted printing or copying. When pdf.js fails to decode an embedded image, the result panel states how many images could not be decoded rather than leaving you to spot the gap yourself.`,
+    `It takes PDFs of up to ${maxMb} MB each, and two or more at once open as a batch. One that needs a password to open stops at the loading step, with a message saying it is password-protected. A PDF that opens without a password converts even if its author restricted printing or copying. When pdf.js fails to decode an embedded image, the result panel states how many images could not be decoded rather than leaving you to spot the gap yourself.`,
   ],
 
   useCases: [
@@ -169,6 +175,10 @@ const content: ToolContent = {
       body: `Some printers and photo kiosks want images rather than PDFs. At ${highest.label} (${highest.dpi} DPI) a US Letter page comes out ${letterWidthAtHighest} pixels wide.`,
     },
     {
+      title: "Convert a stack of PDFs at once",
+      body: `Add two or more PDFs and they open as a batch list. Pick one resolution, colour and quality for all of them and press Convert with the number of files: every page of each file becomes a JPG, each file in turn, in your browser, and nothing is uploaded. Download a file's images from its row, or press “Download all” for ${IMAGE_BATCH_TOOLS["pdf-to-jpg"].zipName}. ${IMAGE_BATCH_FOLDERS} ${batchLimitsSentence("pdf-to-jpg")} To choose pages, open one file on its own. A file whose author restricted it fails on its own row in a batch; opened on its own, it converts.`,
+    },
+    {
       title: "Make thumbnails for a catalogue or archive",
       body: `${lowest.label} (${lowest.dpi} DPI) gives the smallest images of the ${RASTER_RESOLUTIONS.length} presets, which suits preview grids, intranet listings and quick visual indexes of long reports.`,
     },
@@ -177,7 +187,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Choose your PDF",
-      body: `Drag the PDF onto the box labelled "Drop your PDF here, or browse", or click it to pick a file up to ${maxMb} MB; if you drop several, only the first is used. A header line then shows its page count and size.`,
+      body: `Drag the PDF onto the box labelled "Drop your PDF here, or browse", or click it to pick a file up to ${maxMb} MB; two or more open a batch list instead. A header line then shows its page count and size.`,
     },
     {
       title: "Pick a resolution",

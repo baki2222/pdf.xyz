@@ -6,6 +6,7 @@ import {
   SUPPORTED_SCRIPTS,
   UNSUPPORTED_SCRIPTS,
 } from "@/lib/pdf/font-packs";
+import { TEXT_BATCH_TOOLS, batchLimitsSentence } from "@/lib/batch/tools";
 
 /**
  * Facts this copy leans on, each read from the code that makes it true:
@@ -63,8 +64,10 @@ import {
  * Not mentioned: the result panel's "Start over" link. HISTORY: its `onReset`
  * once cleared the source text without `useAsyncRun().reset()`, so the result
  * panel stayed on screen and the editor did not come back; a2333ae7 fixed it
- * on 2026-09-27 and `runner-flows.test.tsx` drives it. The FAQ on several
- * files tells the reader to reload the page, which was true either way.
+ * on 2026-09-27 and `runner-flows.test.tsx` drives it. Until batch plan P2
+ * (2026-11-08) the FAQ on several files told the reader to reload the page
+ * between them; two or more files now open the batch
+ * (`runner/batch/text-to-pdf-batch.tsx`), one PDF per file.
  *
  * relatedGuides is empty because no guide in `src/lib/guides/catalog.ts`
  * covers plain text.
@@ -122,6 +125,10 @@ const content: ToolContent = {
       body: "When a form or portal takes PDF and nothing else, convert the text first. Every page is headed with the file name, so give the file a different name before you load it if reviewers should see another title.",
     },
     {
+      title: "Convert a folder of text files at once",
+      body: `Add two or more .txt files and they open as a batch list. Press Convert with the number of files: each becomes its own PDF, laid out as above, in turn, in your browser, and nothing is uploaded. A file that is not plain text, or is over ${MAX_SOURCE_MB} MB, is listed with the reason. Download a PDF from its row, or press “Download all” for ${TEXT_BATCH_TOOLS["text-to-pdf"].zipName}. ${batchLimitsSentence("text-to-pdf")}`,
+    },
+    {
       title: "Typeset text beyond the Western European alphabet",
       body: `Characters Courier cannot draw are set in the bundled monospace face (Geist Mono) when it can draw every one of them, and otherwise in one of ${scriptPacks.length} bundled Noto faces (${faceLabels}), picked to match the script; the conversion halts with an explanation naming any character none of them can draw.`,
     },
@@ -130,7 +137,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your text",
-      body: 'Drop a .txt file on the area marked "Drop a TXT file here, or browse", click browse to pick one, or paste straight into the Text content box. Loading a file replaces whatever is in the box.',
+      body: 'Drop a .txt file on the area marked "Drop TXT files here, or browse", click browse to pick one, or paste straight into the Text content box. Loading a file replaces whatever is in the box; two or more files open a batch list instead, one PDF per file.',
     },
     {
       title: "Check and edit it",
@@ -169,7 +176,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I turn several text files into one PDF?",
-      a: "Not in one step: this tool converts one file or one pasted text at a time, and a multi-file drop loads just the first file. Either paste all the texts into the box one after another and convert once, or convert each file separately, reloading the page before the next one, then combine the results in order with Merge PDF.",
+      a: "Not in one step. Drop several .txt files together and each becomes its own PDF, in a batch with a ZIP of them all; then combine those PDFs in order with Merge PDF. Or paste all the texts into the box one after another and convert once.",
     },
   ],
 

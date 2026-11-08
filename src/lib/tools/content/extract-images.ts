@@ -5,6 +5,11 @@ import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeiling, toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { outputName } from "@/lib/pdf/files";
+import {
+  IMAGE_BATCH_FOLDERS,
+  IMAGE_BATCH_TOOLS,
+  batchLimitsSentence,
+} from "@/lib/batch/tools";
 
 /*
  * Every behavioural claim below was read from the code on 2026-09-27:
@@ -126,6 +131,10 @@ const content: ToolContent = {
       body: "Each preview is labelled with its pixel width and height, which you can set against the size the photo is printed at to find the ones carrying far more pixels than they need. The size total adds up the extracted files before zipping, and PNGs are written uncompressed, so it can exceed the PDF itself.",
     },
     {
+      title: "Pull the images out of a stack of PDFs",
+      body: `Add two or more PDFs and they open as a batch list. Press the button that reads Extract from and the number of files: every image of each file is pulled out in turn, in your browser, and nothing is uploaded; a file with no images says so on its row. Download a file's images from its row, or press “Download all” for ${IMAGE_BATCH_TOOLS["extract-images"].zipName}. ${IMAGE_BATCH_FOLDERS} ${batchLimitsSentence("extract-images")} A file whose author restricted it fails on its own row in a batch; opened on its own, it is read when its author allows copying.`,
+    },
+    {
       title: "Pull photos out of a photo-book or portfolio export",
       body: "If a design app exported the gallery with JPEG images, those JPEGs come back exactly as the export wrote them, so nothing is compressed a second time.",
     },
@@ -134,7 +143,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Pick the PDF to scan",
-      body: `Drop one PDF where it says Drop your PDF here, or click browse to choose it. It must be ${maxMb} MB or smaller. Once it is read, its name, page count and size appear at the top.`,
+      body: `Drop the PDF where it says Drop your PDF here, or click browse to choose it; two or more open a batch list instead. Each must be ${maxMb} MB or smaller. Once it is read, its name, page count and size appear at the top.`,
     },
     {
       title: "Click Extract images",

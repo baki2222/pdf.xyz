@@ -5299,7 +5299,7 @@ export const guides: Guide[] = [
     intro: [
       `To make a PDF black and white, open ${nameOf("grayscale-pdf")}, add your PDF, choose an output quality, press Convert to grayscale, and download the copy. Every page comes back in shades of gray, ready for a monochrome printer or a portal that asks for grayscale files.`,
       "Shades of gray, not pure black and white: each pixel becomes a brightness value that counts green most and blue least, so pure red and pure green end up as two different grays. Nothing is pushed to solid black or white, so photos and shaded charts keep their tones.",
-      `The conversion runs in your browser with pdf.js, so your PDF stays on your device and there is no account to create. It takes one PDF of up to ${ceilingMb("grayscale-pdf")} MB.`,
+      `The conversion runs in your browser with pdf.js, so your PDF stays on your device and there is no account to create. It takes PDFs of up to ${ceilingMb("grayscale-pdf")} MB each, and two or more at once as a batch, with one output quality for them all.`,
     ],
     steps: [
       `Open the ${nameOf("grayscale-pdf")} tool.`,
@@ -5832,7 +5832,7 @@ export const guides: Guide[] = [
     ],
     steps: [
       `Open the ${nameOf("text-to-pdf")} tool.`,
-      "Drop a .txt file on the box that says “Drop a TXT file here, or browse”, or click browse to choose one. Loading a file replaces whatever is in the box.",
+      "Drop a .txt file on the box that says “Drop TXT files here, or browse”, or click browse to choose one. Loading a file replaces whatever is in the box; two or more files open a batch list instead, one PDF per file.",
       "Or paste or type straight into the Text content box. The figure beside its heading counts the characters and the size as you go, and you can edit the text before converting.",
       "Press Create PDF. The button reads Creating PDF… while the pages are set.",
       `Under “PDF created”, press Download PDF. notes.txt is saved as ${TXT_EXAMPLE_OUT}, and pasted text as ${TXT_PASTED_OUT}.`,
@@ -5890,7 +5890,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-prepare-a-pdf-for-others-to-sign",
