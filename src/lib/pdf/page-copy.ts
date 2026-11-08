@@ -366,15 +366,39 @@ class ForeignAwareCopier {
     return this.refs.get(ref);
   }
 
+  /**
+   * Refs still to copy, and whether a call up the stack is draining them. A
+   * ref's VALUE is copied from this work list, never from inside the copy of
+   * the object that names it, so a chain of N indirect objects (Form XObjects
+   * nested 20,000 deep, PS-04) costs N loop turns, not N x 8 stack frames.
+   * The outermost `copyRef`/`copy` drains the list before it returns, so a
+   * caller still finds every reached object assigned.
+   */
+  private readonly pending: [PDFRefT, PDFRefT][] = [];
+  private draining = false;
+
   copyRef(ref: PDFRefT): PDFRefT {
     if (this.foreign.has(ref)) return this.sentinel;
     const mapped = this.refs.get(ref);
     if (mapped) return mapped;
     const newRef = this.dest.nextRef();
     this.refs.set(ref, newRef);
-    const value = this.src.lookup(ref);
-    if (value) this.dest.assign(newRef, this.copy(value));
+    this.pending.push([ref, newRef]);
+    if (!this.draining) this.drain();
     return newRef;
+  }
+
+  private drain(): void {
+    this.draining = true;
+    try {
+      for (let next = this.pending.pop(); next; next = this.pending.pop()) {
+        const value = this.src.lookup(next[0]);
+        if (value) this.dest.assign(next[1], this.copy(value));
+      }
+    } finally {
+      this.draining = false;
+      this.pending.length = 0;
+    }
   }
 
   private copyPage(original: PDFPageLeafT) {

@@ -1,6 +1,8 @@
 import {
+  PDFArray,
   PDFButton,
   PDFCheckBox,
+  PDFDict,
   PDFDropdown,
   PDFHexString,
   PDFName,
@@ -11,6 +13,7 @@ import {
   type PDFField,
   type PDFFont,
 } from "pdf-lib";
+import { repairFieldTree } from "./form-tree";
 import { loadPdf, stampProducer } from "./stamp";
 import { assertFormFieldTextDrawable } from "./unicode-font";
 
@@ -299,6 +302,7 @@ export async function inspectFormFields(
   bytes: Uint8Array,
 ): Promise<FormInspection> {
   const doc = await loadPdf(bytes);
+  repairFieldTree({ PDFArray, PDFDict, PDFName }, doc);
   const fields = doc.getForm().getFields().map(describeField);
   const fillableCount = fields.filter((f) => isFillableType(f.type)).length;
   return {
@@ -515,6 +519,7 @@ export async function applyFormValues(
   options: ApplyFormValuesOptions = {},
 ): Promise<FillFormsResult> {
   const doc = await loadPdf(bytes);
+  repairFieldTree({ PDFArray, PDFDict, PDFName }, doc);
   const form = doc.getForm();
   const fields = form.getFields();
   const byName = new Map(
