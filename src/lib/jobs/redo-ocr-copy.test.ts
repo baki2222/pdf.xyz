@@ -21,11 +21,21 @@
  *     pattern catches some sentence that shipped;
  *  3. no source that names the option still makes the claim — the sources
  *     DISCOVERED by walking `src`, not listed, with a floor on their count
- *     and positive controls for the files known to carry the option.
+ *     and positive controls for the files known to carry the option;
+ *  4. the reader's copy, as it is served: every string of every tool page's
+ *     content and every guide is walked, and each entry that names the
+ *     option and says it takes text away carries the scope sentence, as
+ *     does every tool page that names the option at all. Added after review
+ *     2026-11-08: a mutant FAQ "Redo removes the old OCR text and reads
+ *     those pages again." passed every guard here, because the ban list is
+ *     a list (a synonym walks past it) and the scope pin named only the two
+ *     panels.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { guides } from "@/lib/guides/catalog";
+import { toolContent } from "@/lib/tools/content";
 import {
   REDO_OCR_LAYER_OUTCOMES,
   REDO_OCR_SCOPE,
@@ -69,6 +79,13 @@ describe("REDO_OCR_SCOPE states REDO_OCR_LAYER_OUTCOMES", () => {
     },
   );
 
+  it("it names its subject, so it reads right after any sentence", () => {
+    // Review 2026-11-08: an opening "It replaces…" sat after "text typed into
+    // the document is kept either way" in OCR PDF's FAQ, and read as if the
+    // typed text did the replacing.
+    expect(REDO_OCR_SCOPE).toMatch(/^Redo replaces\b/);
+  });
+
   it("the kept OCRmyPDF layer is said to stay BESIDE the new text, not instead of it", () => {
     expect(REDO_OCR_SCOPE).toMatch(/new text is added beside it/);
   });
@@ -95,6 +112,12 @@ const BAN: readonly { name: string; pattern: RegExp }[] = [
     name: "'invisible OCR text is replaced' (the argv docblock)",
     pattern: /invisible\s+OCR\s+text\s+is\s+replaced/i,
   },
+  {
+    // Found by review 2026-11-08: the opening line of the same docblock the
+    // fix corrected lower down, missed because no pattern had its shape.
+    name: "'Replace a PDF's existing OCR text layer' (the option's docblock, line 1)",
+    pattern: /replace\s+(?:a\s+PDF['’]s\s+)?existing\s+OCR\s+text\s+layer/i,
+  },
 ];
 
 /** Every sentence that shipped with the claim, verbatim from git history. */
@@ -105,6 +128,7 @@ const SHIPPED: readonly string[] = [
   "This PDF already has a text layer, and the OCR engine would not add a second one. Turn on “Redo existing OCR” to replace a poor text layer, or turn off “Recognise text in scans (OCR)” to convert the text it has. Nothing was converted.",
   "Turning it on strips invisible OCR text and recognizes those pages again, while text typed into the document itself is kept.",
   "or `--redo-ocr` (the opt-in: invisible OCR text is replaced, typed text is kept) is always passed.",
+  "Replace a PDF's existing OCR text layer instead of keeping it (OCRmyPDF `--redo-ocr`). Off by default.",
 ];
 
 const banned = (text: string) =>
@@ -227,5 +251,124 @@ describe("no source that names the option makes the claim", () => {
     expect(offendersIn("x.tsx", jsx)).toHaveLength(1);
     const dated = `// CHANGED 2026-11-08: it said "that text\n// is removed".`;
     expect(offendersIn("x.ts", dated)).toEqual([]);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ *  The reader's copy, as served: tool pages and guides
+ * ------------------------------------------------------------------ */
+
+interface Entry {
+  /** `tool:<slug>` or `guide:<slug>`, then the path to the string. */
+  where: string;
+  /** The tool page this string is on, when it is on one. */
+  tool?: string;
+  text: string;
+}
+
+function leaves(
+  value: unknown,
+  where: string,
+  tool: string | undefined,
+  out: Entry[],
+): Entry[] {
+  if (typeof value === "string") out.push({ where, tool, text: value });
+  else if (Array.isArray(value))
+    value.forEach((v, i) => leaves(v, `${where}[${i}]`, tool, out));
+  else if (value && typeof value === "object")
+    for (const [k, v] of Object.entries(value))
+      leaves(v, `${where}.${k}`, tool, out);
+  return out;
+}
+
+const ENTRIES: Entry[] = [
+  ...Object.entries(toolContent).flatMap(([slug, content]) =>
+    leaves(content, `tool:${slug}`, slug, []),
+  ),
+  ...guides.flatMap((guide) =>
+    leaves(guide, `guide:${guide.slug}`, undefined, []),
+  ),
+];
+
+const NAMES_OPTION = /Redo existing OCR/;
+/** Any verb of taking text away: the claim, in whatever words. */
+const TAKES_AWAY =
+  /\b(?:remov|replac|strip|delet|discard|eras|wip|clear|clean|drop|throw)\w*/i;
+const fold = (text: string) => text.replace(/\s+/g, " ").toLowerCase();
+const hasScope = (text: string) => fold(text).includes(fold(REDO_OCR_SCOPE));
+
+/** Where the reader's copy describes the option without its scope. */
+function unscoped(entries: readonly Entry[]): string[] {
+  const naming = entries.filter((e) => NAMES_OPTION.test(e.text));
+  const perEntry = naming
+    .filter((e) => TAKES_AWAY.test(e.text) && !hasScope(e.text))
+    .map((e) => `${e.where}: says what it takes away, without the scope`);
+  const tools = [...new Set(naming.flatMap((e) => (e.tool ? [e.tool] : [])))];
+  const perTool = tools
+    .filter((tool) => !entries.some((e) => e.tool === tool && hasScope(e.text)))
+    .map((tool) => `tool:${tool}: names the option, never its scope`);
+  return [...perEntry, ...perTool];
+}
+
+describe("the reader's copy states the scope wherever it names the option", () => {
+  it("health check: the walk reached the served copy, and the option in it", () => {
+    expect(ENTRIES.length).toBeGreaterThan(2000);
+    expect(ENTRIES.length).toBeLessThan(50000);
+    const naming = ENTRIES.filter((e) => NAMES_OPTION.test(e.text));
+    expect(naming.length).toBeGreaterThanOrEqual(6);
+    const tools = new Set(naming.map((e) => e.tool));
+    expect(tools).toContain("ocr-pdf");
+    expect(tools).toContain("pdf-to-word");
+    // and a guide, so the guide half of the walk is not blind
+    expect(naming.some((e) => e.where.startsWith("guide:"))).toBe(true);
+  });
+
+  it("every entry and every tool page that names the option carries the scope sentence", () => {
+    expect(unscoped(ENTRIES)).toEqual([]);
+  });
+
+  it("positive control: the review's mutant FAQ is seen, twice over", () => {
+    const faq = ENTRIES.find((e) => e.where === "tool:pdf-to-word.faqs[2].a");
+    expect(faq && hasScope(faq.text)).toBe(true);
+    const mutant = ENTRIES.map((e) =>
+      e === faq
+        ? {
+            ...e,
+            text: e.text.replace(
+              REDO_OCR_SCOPE,
+              "Redo removes the old OCR text and reads those pages again.",
+            ),
+          }
+        : e,
+    );
+    expect(mutant).not.toEqual(ENTRIES);
+    expect(unscoped(mutant)).toEqual([
+      "tool:pdf-to-word.faqs[2].a: says what it takes away, without the scope",
+      "tool:pdf-to-word: names the option, never its scope",
+    ]);
+  });
+
+  it("positive control: the scope in other case or wrapping counts; a bare mention needs none; a synonym is seen", () => {
+    const lower =
+      REDO_OCR_SCOPE.charAt(0).toLowerCase() + REDO_OCR_SCOPE.slice(1);
+    expect(hasScope(`Redo existing OCR: ${lower.replace(/ /g, "\n ")}`)).toBe(
+      true,
+    );
+    expect(
+      unscoped([
+        {
+          where: "guide:x",
+          text: "It cannot be combined with “Redo existing OCR”.",
+        },
+      ]),
+    ).toEqual([]);
+    expect(
+      unscoped([
+        {
+          where: "guide:x",
+          text: "“Redo existing OCR” wipes the earlier text first.",
+        },
+      ]),
+    ).toEqual(["guide:x: says what it takes away, without the scope"]);
   });
 });

@@ -27,6 +27,14 @@
  *   3. NEGATIVE CONTROL — the replaced shape with redo OFF (`--skip-text`):
  *      every stale word kept and the scan unread. Without it, a fixture the
  *      engine ignores outright would pass step 2 for the wrong reason.
+ *   4. A REAL OCRmyPDF LAYER — the scan read by the processor in
+ *      {@link REAL_LAYER_LANGUAGE} (Cyrillic words, read back as the
+ *      `ocrmypdf` shape), then redone in English: the earlier words must
+ *      be kept or gone exactly as the `ocrmypdf` row says. Steps 1–3 use a
+ *      hand-built stand-in; this is the layer a reader of our own OCR PDF
+ *      actually has, so a change to how OCRmyPDF treats its OWN graft is
+ *      seen here even while the stand-in still passes (added after review,
+ *      2026-11-08; the live image printed 10 of 10 PASS).
  *
  * Exit codes: 0 = proven; 1 = a check failed; 2 = an engine this proof needs
  * is not in the image. Output names shapes, counts and verdicts only.
@@ -293,11 +301,21 @@ export interface OcrRedoProofDeps {
 
 const PDF = "application/pdf";
 
-function job(bytes: Uint8Array, redoOcr: boolean) {
+/**
+ * The language the real-layer row first reads the English scan in, so its
+ * old words are Cyrillic and cannot be confused with the new English ones.
+ */
+export const REAL_LAYER_LANGUAGE = "rus";
+
+/** The Cyrillic words of `text`, lower-cased (the real layer's old words). */
+export const cyrillicWords = (text: string) =>
+  text.toLowerCase().match(/\p{Script=Cyrillic}+/gu) ?? [];
+
+function job(bytes: Uint8Array, redoOcr: boolean, languages = ["eng"]) {
   return {
     tool: "ocr-pdf",
     options: {
-      languages: ["eng"],
+      languages,
       outputMode: "searchable-pdf",
       redoOcr,
     } as Record<string, unknown>,
@@ -330,8 +348,13 @@ export async function runOcrRedoProof(
     log(`${ok ? "PASS" : "FAIL"} ${name}: ${detail}`);
     if (!ok) failed += 1;
   };
-  const run = async (name: string, bytes: Uint8Array, redoOcr: boolean) => {
-    const result = await deps.ocr.process(job(bytes, redoOcr));
+  const run = async (
+    name: string,
+    bytes: Uint8Array,
+    redoOcr: boolean,
+    languages?: string[],
+  ) => {
+    const result = await deps.ocr.process(job(bytes, redoOcr, languages));
     const pdf = outputPdf(result);
     if (!pdf)
       check(
@@ -400,8 +423,57 @@ export async function runOcrRedoProof(
     }
   } else check(false, "negative control", "the table names no replaced shape");
 
-  // 1 bare + N fixtures + N redo + 1 control: a short run proved less.
-  const expected = 2 + 2 * REDO_OCR_LAYER_SHAPES.length;
+  // A REAL OCRmyPDF layer, not a stand-in: the `ocrmypdf` row is what a
+  // reader gets from our own OCR PDF, and the hand-built form above only
+  // models it. Added 2026-11-08 after review: an engine or graft change that
+  // made OCRmyPDF strip or re-graft its OWN layer would leave the stand-in
+  // "kept" while real layers came back "replaced", and the copy false. Read
+  // in Russian first, so the old layer's words (Cyrillic) differ from the
+  // new ones (English): poppler hides an identical duplicate layer, so an
+  // English-over-English run cannot tell kept from replaced.
+  const realWant = REDO_OCR_LAYER_OUTCOMES.ocrmypdf;
+  const real = await run(
+    "a real OCRmyPDF layer, read in Russian",
+    deps.scan,
+    false,
+    [REAL_LAYER_LANGUAGE],
+  );
+  if (real) {
+    const realText = await pdfText(real);
+    const realShapes = await staleLayerShapes(real);
+    const oldWords = cyrillicWords(realText);
+    const scanRead = redoTextVerdict(realText, deps.line, "replaced");
+    check(
+      realShapes.length === 1 &&
+        realShapes[0] === "ocrmypdf" &&
+        oldWords.length > 0 &&
+        !scanRead.ok,
+      "instrument: a real OCRmyPDF layer reads as the ocrmypdf shape, in Cyrillic",
+      `shapes [${realShapes.join(", ")}]; ${oldWords.length} Cyrillic word(s); ${scanRead.detail.split(";")[0]}`,
+    );
+    const out = await run("redo on, real OCRmyPDF layer", real, true, ["eng"]);
+    if (out) {
+      const text = await pdfText(out);
+      const have = new Set(cyrillicWords(text));
+      const oldFound = oldWords.filter((w) => have.has(w)).length;
+      const read = new Set(words(text));
+      const lineWords = words(deps.line);
+      const lineFound = lineWords.filter((w) => read.has(w)).length;
+      const ok =
+        lineFound === lineWords.length &&
+        (realWant === "kept" ? oldFound === oldWords.length : oldFound === 0);
+      check(
+        ok,
+        `redo on, a real OCRmyPDF layer is ${realWant}`,
+        `${lineFound} of ${lineWords.length} scan words, ${oldFound} of ${oldWords.length} earlier Cyrillic words; want every scan word and ${
+          realWant === "kept" ? "every earlier word" : "no earlier word"
+        }`,
+      );
+    }
+  }
+
+  // 1 bare + N fixtures + N redo + 1 control + 2 real-layer: a short run proved less.
+  const expected = 4 + 2 * REDO_OCR_LAYER_SHAPES.length;
   if (checks !== expected) {
     log(`FAIL the proof ran ${checks} check(s), expected ${expected}`);
     failed += 1;
