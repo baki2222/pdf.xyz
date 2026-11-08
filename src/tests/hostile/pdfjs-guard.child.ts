@@ -17,6 +17,12 @@ import {
 } from "./conversion-out.fixtures";
 import { buildPdf, onePageObjects, TEXT_OPS } from "./stamping.fixtures";
 import { reportResult } from "./bounded";
+import {
+  formRepeatPdf,
+  indirectWidthPdf,
+  noEndstreamSoup,
+  unmatchedDictSoup,
+} from "./pdfjs-work.fixtures";
 
 const legacy = async () =>
   (await import("pdfjs-dist/legacy/build/pdf.mjs")) as unknown as Pick<
@@ -173,6 +179,14 @@ async function thumbs(bytes: Uint8Array) {
   return { ok: true, previews: out };
 }
 
+/** The preflight alone, as every pdf.js consumer calls it before the open. */
+async function preflight(bytes: Uint8Array) {
+  const { preflightPdfjsBytes } = await import("@/lib/pdf/pdfjs-guard");
+  const t0 = Date.now();
+  const r = await preflightPdfjsBytes(bytes);
+  return { ok: true, bytes: bytes.length, preflightMs: Date.now() - t0, ...r };
+}
+
 const CASES: Record<string, () => Promise<unknown>> = {
   "co06-text": async () => text(await chainedFlateBombPdf()),
   "co06-control-text": async () => text(CONTROL()),
@@ -187,6 +201,13 @@ const CASES: Record<string, () => Promise<unknown>> = {
   "co08-per-page-thumbs": async () => thumbs(await twoPagesOneHugeImagePdf()),
   "stamp14-split-text": async () => text(splitQPdf(32, 1_020)),
   "stamp14-5k-text": async () => text(splitQPdf(1, 5_000)),
+  "stamp14-form-repeat-text": async () => text(formRepeatPdf(30, 16_000)),
+  "stamp14-form-once-text": async () => text(formRepeatPdf(1, 16_000)),
+  "co08-indirect-width-raster": async () => raster(await indirectWidthPdf()),
+  "scan-unmatched-dict-preflight": async () =>
+    preflight(unmatchedDictSoup(500_000)),
+  "scan-no-endstream-preflight": async () =>
+    preflight(noEndstreamSoup(200_000)),
 };
 
 const run = CASES[process.argv[2] ?? ""];
