@@ -5,7 +5,7 @@ import { Download, SquareSplitHorizontal } from "lucide-react";
 import {
   SPLIT_DIRECTIONS,
   SPLIT_HALF_RUN_LABEL,
-  SPLIT_ORDERS,
+  SPLIT_ORDER_CHOICES,
   splitHalfOutputName,
   splitPagesInHalf,
   type SplitDirection,
@@ -138,24 +138,25 @@ export function SplitHalfEditor({
         </div>
       </RunnerSection>
 
-      {direction === "left-right" && (
-        <RunnerSection title="Page order">
-          <div className="flex flex-col gap-2">
-            <SegmentedControl
-              label="Page order"
-              value={order}
-              onChange={setOrder}
-              options={SPLIT_ORDERS.map((o) => ({
-                value: o.id,
-                label: o.label,
-              }))}
-            />
-            <p className="text-muted text-xs">
-              Right page first suits books read right to left.
-            </p>
-          </div>
-        </RunnerSection>
-      )}
+      {/* On both cuts (until 2026-11-08 only left and right had it). */}
+      <RunnerSection title="Page order">
+        <div className="flex flex-col gap-2">
+          <SegmentedControl
+            label="Page order"
+            value={order}
+            onChange={setOrder}
+            options={SPLIT_ORDER_CHOICES[direction].map((o) => ({
+              value: o.id,
+              label: o.label,
+            }))}
+          />
+          <p className="text-muted text-xs">
+            {direction === "left-right"
+              ? "Right page first suits books read right to left."
+              : "Bottom half first suits a sheet whose lower page is read first."}
+          </p>
+        </div>
+      </RunnerSection>
 
       <RunnerSection title="Pages">
         <div className="flex flex-col gap-4">

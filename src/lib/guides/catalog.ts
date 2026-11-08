@@ -330,6 +330,7 @@ import {
   SPLIT_DIRECTIONS,
   SPLIT_HALF_RUN_LABEL,
   SPLIT_ORDERS,
+  SPLIT_ORDER_CHOICES,
   splitHalfOutputName,
 } from "@/lib/pdf/split-half";
 import {
@@ -854,6 +855,11 @@ const HALF_LEFT_RIGHT = labelOf(SPLIT_DIRECTIONS, "left-right");
 const HALF_TOP_BOTTOM = labelOf(SPLIT_DIRECTIONS, "top-bottom");
 const HALF_LEFT_FIRST = labelOf(SPLIT_ORDERS, "left-first");
 const HALF_RIGHT_FIRST = labelOf(SPLIT_ORDERS, "right-first");
+const HALF_TOP_FIRST = labelOf(SPLIT_ORDER_CHOICES["top-bottom"], "left-first");
+const HALF_BOTTOM_FIRST = labelOf(
+  SPLIT_ORDER_CHOICES["top-bottom"],
+  "right-first",
+);
 const HALF_EXAMPLE_OUT = splitHalfOutputName("book.pdf");
 
 /** Optimize PDF for Web (2026-10-31): the download name the worker gives. */
@@ -6440,7 +6446,7 @@ export const guides: Guide[] = [
   },
   // Split PDF Pages in Half (#260), read off split-half.ts and
   // split-half-runner.tsx: Direction (Left and right | Top and bottom), Page
-  // order only for left and right, Pages (All pages | Selected pages + a
+  // order for both cuts (since 2026-11-08; left and right only before), Pages (All pages | Selected pages + a
   // list), two cover checkboxes, the cut at the exact middle of the VISIBLE
   // page (after /Rotate and any crop), only the CropBox written, so the other
   // half is hidden, not deleted (crop-disclosure.ts). In-browser, no upload;
@@ -6467,7 +6473,7 @@ export const guides: Guide[] = [
     steps: [
       `Open the ${nameOf("split-pdf-pages-in-half")} tool and drop your PDF on the box that says “Drop your PDF here, or”, or click browse to pick it. Its name and page count appear.`,
       `Under Direction, keep ${HALF_LEFT_RIGHT} for a cut down the middle of each page, or choose ${HALF_TOP_BOTTOM} for pages laid out one above the other.`,
-      `For ${HALF_LEFT_RIGHT}, set Page order: ${HALF_LEFT_FIRST} for most books, or ${HALF_RIGHT_FIRST} for a book read right to left.`,
+      `Set Page order: for ${HALF_LEFT_RIGHT}, ${HALF_LEFT_FIRST} for most books, or ${HALF_RIGHT_FIRST} for a book read right to left; for ${HALF_TOP_BOTTOM}, ${HALF_TOP_FIRST} or ${HALF_BOTTOM_FIRST}.`,
       "Under Pages, keep All pages, or choose Selected pages and type the pages to split, such as 2-9. Tick Keep the first page whole or Keep the last page whole if a cover was scanned on its own.",
       `Press ${SPLIT_HALF_RUN_LABEL}. When “Pages split in half” appears, check how many pages were split and how many the new file has, then press Download split PDF. book.pdf is saved as ${HALF_EXAMPLE_OUT}.`,
     ],
@@ -6476,7 +6482,7 @@ export const guides: Guide[] = [
         id: "order-and-covers",
         heading: "Reading order and covers",
         body: [
-          `With ${HALF_LEFT_FIRST}, the left half of each page comes first, which is the reading order of a book in English and most other languages. A book in Arabic, Hebrew, Persian or Japanese is read from the right-hand page, so choose ${HALF_RIGHT_FIRST} and each spread comes out in the order it is read. ${HALF_TOP_BOTTOM} always gives the top half first.`,
+          `With ${HALF_LEFT_FIRST}, the left half of each page comes first, which is the reading order of a book in English and most other languages. A book in Arabic, Hebrew, Persian or Japanese is read from the right-hand page, so choose ${HALF_RIGHT_FIRST} and each spread comes out in the order it is read. With ${HALF_TOP_BOTTOM}, ${HALF_TOP_FIRST} is the default, and ${HALF_BOTTOM_FIRST} puts each sheet's lower page before its upper one.`,
           "Covers are often scanned as single pages while everything between them is a spread. Keep the first page whole and Keep the last page whole leave those pages as they are, in their place, and only the spreads are split. To split only part of a document, choose Selected pages and list the pages, such as 3-40 or 2, 4, 6; every page you leave out stays whole, between the split ones.",
         ],
       },
@@ -6524,7 +6530,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-11-01",
-    updated: "2026-11-01",
+    updated: "2026-11-08",
   },
   // OCR PDF's "Straighten crooked pages" (#262): OCRmyPDF --deskew, read off
   // ocr-native.ts, jobs/ocr.ts and ocr-worker-panel.tsx. Only pages with no
