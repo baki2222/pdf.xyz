@@ -361,6 +361,22 @@ describe("deskewDocxVerdict (PDF to Word, Straighten)", () => {
     expect(off.ok, off.detail).toBe(true);
   });
 
+  it("the shape production returned on 2026-11-08 (worker before wave 3): 3.50° and 2 of 4 sentinel words is the control, and fails 'straight'", async () => {
+    // Half the sentinel survives a crooked page's trip through the Word
+    // export. That is not what the option changes, so it must not decide
+    // either verdict; the angle must.
+    const observed = await docx({
+      picture: await barsPicture(FIXTURE_SKEW_DEGREES),
+      lines: ["Deskew pr00f sentlnel 5307 and the rest of the page"],
+    });
+    const off = await deskewDocxVerdict(observed, "crooked", rasterise);
+    expect(off.ok, off.detail).toBe(true);
+    expect(off.detail).toContain("2 of 4 deskew-sentinel words");
+    expect((await deskewDocxVerdict(observed, "straight", rasterise)).ok).toBe(
+      false,
+    );
+  });
+
   it("negative: level but unread (no sentinel) fails", async () => {
     const v = await deskewDocxVerdict(
       await docx({ picture: await barsPicture(0), lines: ["something else"] }),
