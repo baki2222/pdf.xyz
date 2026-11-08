@@ -4,7 +4,9 @@ import { cn } from "@/lib/utils";
 
 /**
  * A row of choices for a batch's one setting, drawn as the runners'
- * `SegmentedControl` draws its own (a radiogroup of 44px buttons). Its own
+ * `SegmentedControl` draws its own (a radiogroup of 44px buttons), and no
+ * narrower than 44px either: Add Page Numbers' "1" preset was 29px wide on
+ * a phone (`e2e/mobile-pass.mobile.spec.ts`). Its own
  * module, in the batch's chunk: Rotate PDF's runner does not load
  * `../stamp-controls`, and a batch module importing it there put it in a
  * chunk of its own — one more entry in the webpack runtime every page
@@ -37,7 +39,7 @@ export function BatchChoice<T extends string>({
             aria-checked={active}
             onClick={() => onChange(option.value)}
             className={cn(
-              "rounded-ctl inline-flex h-11 items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition",
+              "rounded-ctl inline-flex h-11 min-w-11 items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium transition",
               active ? "bg-accent/10 text-accent" : "text-muted hover:text-fg",
             )}
           >

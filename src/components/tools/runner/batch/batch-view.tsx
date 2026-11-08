@@ -451,7 +451,11 @@ export function BatchView<R>({
               <button
                 type="button"
                 onClick={onReset}
-                className={buttonVariants({ variant: "ghost", size: "sm" })}
+                className={buttonVariants({
+                  variant: "ghost",
+                  size: "sm",
+                  className: CONTROL,
+                })}
               >
                 Choose different files
               </button>
@@ -472,7 +476,7 @@ export function BatchView<R>({
                   className={buttonVariants({
                     variant: "primary",
                     size: "sm",
-                    className: runBlocked ? "opacity-60" : undefined,
+                    className: cn(CONTROL, runBlocked && "opacity-60"),
                   })}
                 >
                   <Play className="size-4" aria-hidden />
@@ -486,7 +490,11 @@ export function BatchView<R>({
             <button
               type="button"
               onClick={cancel}
-              className={buttonVariants({ variant: "outline", size: "sm" })}
+              className={buttonVariants({
+                variant: "outline",
+                size: "sm",
+                className: CONTROL,
+              })}
             >
               <X className="size-4" aria-hidden />
               Cancel
@@ -498,7 +506,11 @@ export function BatchView<R>({
               <button
                 type="button"
                 onClick={reset}
-                className={buttonVariants({ variant: "ghost", size: "sm" })}
+                className={buttonVariants({
+                  variant: "ghost",
+                  size: "sm",
+                  className: CONTROL,
+                })}
               >
                 <RefreshCw className="size-3.5" aria-hidden />
                 Run again
@@ -506,7 +518,11 @@ export function BatchView<R>({
               <button
                 type="button"
                 onClick={onReset}
-                className={buttonVariants({ variant: "outline", size: "sm" })}
+                className={buttonVariants({
+                  variant: "outline",
+                  size: "sm",
+                  className: CONTROL,
+                })}
               >
                 New files
               </button>
@@ -520,6 +536,7 @@ export function BatchView<R>({
                   className={buttonVariants({
                     variant: "outline",
                     size: "sm",
+                    className: CONTROL,
                   })}
                 >
                   <RotateCcw className="size-3.5" aria-hidden />
@@ -536,7 +553,11 @@ export function BatchView<R>({
                   }}
                   aria-disabled={zipping || undefined}
                   aria-busy={zipping}
-                  className={buttonVariants({ variant: "primary", size: "sm" })}
+                  className={buttonVariants({
+                    variant: "primary",
+                    size: "sm",
+                    className: CONTROL,
+                  })}
                 >
                   {zipping ? (
                     <Spinner />
@@ -563,6 +584,9 @@ export function BatchView<R>({
     </div>
   );
 }
+
+/** A control under the list: 44px tall on a phone, `sm`'s height from `sm` up. */
+const CONTROL = "min-h-11 sm:min-h-0";
 
 /** A row button: 44px on a phone, the old 32px from `sm` up. */
 const ROW_BUTTON =

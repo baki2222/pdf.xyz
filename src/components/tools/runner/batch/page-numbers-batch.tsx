@@ -17,12 +17,8 @@ import {
 } from "@/lib/pdf/page-numbers";
 import type { StampPosition } from "@/lib/pdf/stamp";
 import type { SinglePdfBatch } from "../single-pdf-runner";
-import {
-  CheckboxField,
-  NumberField,
-  PositionPicker,
-  SegmentedControl,
-} from "../stamp-controls";
+import { CheckboxField, NumberField, PositionPicker } from "../stamp-controls";
+import { BatchChoice } from "./batch-choice";
 import {
   SettingsBatchRunner,
   type BatchFileOutput,
@@ -98,7 +94,7 @@ export function PageNumbersBatch(props: SinglePdfBatch) {
       process={process}
       settings={
         <>
-          <SegmentedControl
+          <BatchChoice
             label="Number format preset"
             value={format}
             onChange={setFormat}

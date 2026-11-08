@@ -94,6 +94,15 @@ describe("the workspace launch area for a PDF batch tool", () => {
     ).toBeInTheDocument();
   });
 
+  it("one file: it runs on this file, never 'each of these 1 file'", () => {
+    const { tool } = renderPanel("rotate-pdf", 1);
+    expect(
+      screen.getByText(
+        `${tool.name} runs on this file right here in your browser. It loads straight in — nothing is uploaded.`,
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("a settings batch tool is no longer 'one PDF at a time' (inverted)", () => {
     // WAS "works on one PDF at a time. It opens with your first queued
     // file" until 2026-11-08: Rotate took the first file and left the rest.

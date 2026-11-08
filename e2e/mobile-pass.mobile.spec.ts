@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
+import { SETTINGS_BATCH_TOOLS } from "../src/lib/batch/tools";
 import { tools } from "../src/lib/tools";
 import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
 import { READY_WORKER_STATUS } from "../src/tests/ready-worker-status";
@@ -655,6 +656,61 @@ test(`Compress PDF's batch at 360: each row's Remove and Download are ${MIN}px`,
     `past the screen: ${after.overflow.join(" | ")}`,
   ).toEqual([]);
 });
+
+/*
+ * Batch plan P1 (2026-11-08): the five settings batches. Every control the
+ * batch view draws before Run (each row's Remove, Run, Choose different
+ * files) and every choice row in a batch's settings, with two PDFs picked.
+ * Run and its neighbours were `sm` buttons, 36px tall on a phone, Compress's
+ * batch included; this caught them on its first run.
+ *
+ * NOT measured: the stamping controls a batch shares with its tool's
+ * single-file editor (`stamp-controls.tsx`: the position grid at 46x33, the
+ * sliders, text and number fields, checkbox labels). They are the editors'
+ * own sizes, under 44px in both; recorded as deferred, not excused here.
+ */
+const BATCH_VIEW_CONTROLS = [
+  '[data-chunk="pdfxyz:lazy:batch-view"] button:not(fieldset button)',
+  '[data-chunk="pdfxyz:lazy:batch-view"] fieldset [role="radiogroup"]:not([aria-label*="osition"]) [role="radio"]',
+].join(", ");
+for (const slug of Object.keys(SETTINGS_BATCH_TOOLS)) {
+  test(`${slug}'s batch at 360: every control before Run is ${MIN}px`, async ({
+    page,
+  }) => {
+    await page.goto(`/tools/${slug}`);
+    const input = fileInput(page);
+    await waitForHydration(input);
+    await input.setInputFiles(
+      await Promise.all(
+        ["first.pdf", "second.pdf"].map(async (name, i) => ({
+          name,
+          mimeType: "application/pdf",
+          buffer: Buffer.from(await makePdfBytes(name, i + 2)),
+        })),
+      ),
+    );
+    await expect(
+      page.getByRole("button", { name: "Remove second.pdf" }),
+    ).toBeVisible({ timeout: 20_000 });
+    const m = await measure(page, BATCH_VIEW_CONTROLS);
+    // Health: two Removes and Run were seen, and every batch with settings
+    // showed a choice row (Flatten has none).
+    expect(
+      m.seen.filter((s) => s.startsWith("Remove ")),
+      m.seen.join(" | "),
+    ).toHaveLength(2);
+    expect(
+      m.seen.some((s) => / 2 PDFs /.test(s)),
+      m.seen.join(" | "),
+    ).toBe(true);
+    if (slug !== "flatten-pdf")
+      expect(m.seen.length, m.seen.join(" | ")).toBeGreaterThanOrEqual(6);
+    expect(m.small, `under ${MIN}px: ${m.small.join(" | ")}`).toEqual([]);
+    expect(m.overflow, `past the screen: ${m.overflow.join(" | ")}`).toEqual(
+      [],
+    );
+  });
+}
 
 test(`the footer at 360: every link it shows is a ${MIN}px row`, async ({
   page,

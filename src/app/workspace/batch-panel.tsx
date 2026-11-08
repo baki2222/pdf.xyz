@@ -57,11 +57,13 @@ function statusContent(
       const verb =
         tool?.handoffMode === "collect"
           ? `combines these ${files}`
-          : `runs on each of these ${files}`;
+          : n === 1
+            ? "runs on this file"
+            : `runs on each of these ${files}`;
       return {
         tone: "ready",
         title: `Ready — ${files}`,
-        body: `${name} ${verb} right here in your browser. They load straight in — nothing is uploaded.`,
+        body: `${name} ${verb} right here in your browser. ${n === 1 ? "It loads" : "They load"} straight in — nothing is uploaded.`,
       };
     }
     case "single":
