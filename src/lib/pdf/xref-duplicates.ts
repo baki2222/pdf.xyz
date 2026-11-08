@@ -1,4 +1,11 @@
-import type { PDFDocument, PDFObject, PDFRef as PDFRefT } from "pdf-lib";
+import type {
+  PDFDict as PDFDictT,
+  PDFDocument,
+  PDFObject,
+  PDFRawStream as PDFRawStreamT,
+  PDFRef as PDFRefT,
+} from "pdf-lib";
+import { PdfEngineError, UNREADABLE_PDF_MESSAGE } from "./engine-errors";
 import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
 
 /**
@@ -31,6 +38,12 @@ import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
  *     context under the same reference. The catalog and Info dictionary, which
  *     `PDFDocument` reads eagerly at load, are refreshed when they are among
  *     them.
+ *
+ * Cost stays a constant factor of pdf-lib's own load on any file
+ * (xref-duplicates-cost.test.ts): the xref chain is checked for bounded
+ * stream sections before it is read ({@link xrefIsBounded}), each object
+ * stream is decoded once, and all re-parsing shares one byte budget; bodies
+ * that overlap, which only a crafted file has, exhaust it and are refused.
  *
  * Where the xref cannot be trusted (it cannot be read, or an entry does not
  * land on a header of that object and generation), nothing changes: pdf.js
@@ -128,10 +141,49 @@ export function scanObjectHeaders(bytes: Uint8Array): HeaderScan {
 const latin1 = new TextDecoder("latin1");
 const HEADER = /^[\0\t\n\f\r ]*(\d+)[\0\t\n\f\r ]+(\d+)[\0\t\n\f\r ]+obj/;
 
+/**
+ * How many bytes the guard's own parses may consume, all told. The bodies of
+ * distinct objects never share bytes in a file a writer produced, so
+ * re-parsing xref-selected bodies reads each byte of the file, and of each
+ * decoded object stream, at most once. Twice that, plus 64 KiB, leaves room
+ * for a parser that peeks past an object's end. Bodies that overlap (a header
+ * planted inside another object's string, and an xref naming it) can only be
+ * crafted, and following them re-reads the file once per object: past this
+ * budget the file is refused. See xref-duplicates-cost.test.ts.
+ */
+class ParseBudget {
+  private left: number;
+  constructor(bytes: number) {
+    this.left = 2 * bytes + 64 * 1024;
+  }
+  /** Decoded object-stream data is new input, and earns its own allowance. */
+  grow(bytes: number) {
+    this.left += 2 * bytes;
+  }
+  parse(lib: PdfLibModule, doc: PDFDocument, bytes: Uint8Array): PDFObject {
+    const parser = lib.PDFObjectParser.forBytes(bytes, doc.context);
+    try {
+      return parser.parseObject();
+    } finally {
+      // pdf-lib's parser keeps its position in a `bytes` ByteStream; if that
+      // ever changes, charge the whole remaining input instead.
+      const read = (
+        parser as unknown as { bytes?: { offset?: () => number } }
+      ).bytes?.offset?.();
+      this.left -= typeof read === "number" ? read : bytes.length;
+      if (this.left < 0)
+        throw new PdfEngineError(UNREADABLE_PDF_MESSAGE, {
+          kind: "unreadable",
+        });
+    }
+  }
+}
+
 /** Parse the body of the object whose header is at `offset`, if it is `num gen`. */
 function parseBodyAt(
   lib: PdfLibModule,
   doc: PDFDocument,
+  budget: ParseBudget,
   bytes: Uint8Array,
   offset: number,
   num: number,
@@ -140,10 +192,7 @@ function parseBodyAt(
   if (offset < 0 || offset >= bytes.length) return null;
   const m = HEADER.exec(latin1.decode(bytes.subarray(offset, offset + 48)));
   if (!m || Number(m[1]) !== num || Number(m[2]) !== gen) return null;
-  return lib.PDFObjectParser.forBytes(
-    bytes.subarray(offset + m[0].length),
-    doc.context,
-  ).parseObject();
+  return budget.parse(lib, doc, bytes.subarray(offset + m[0].length));
 }
 
 /** Streams whose job is structure, not content: never swapped in here. */
@@ -153,32 +202,171 @@ function isStructuralStream(lib: PdfLibModule, obj: PDFObject): boolean {
   return type === lib.PDFName.of("ObjStm") || type === lib.PDFName.of("XRef");
 }
 
-/** Member `index` of an object stream body, by its own header table. */
-function objStmMember(
-  lib: PdfLibModule,
-  doc: PDFDocument,
-  stream: PDFObject,
-  index: number,
-  num: number,
-): PDFObject | null {
+/** An object stream, decoded once: its data and its header table. */
+interface ObjStm {
+  data: Uint8Array;
+  first: number;
+  /** num, offset, num, offset, ... in table order. */
+  table: number[];
+}
+
+function openObjStm(lib: PdfLibModule, stream: PDFObject): ObjStm | null {
   if (!(stream instanceof lib.PDFRawStream)) return null;
   const n = stream.dict.get(lib.PDFName.of("N"));
   const first = stream.dict.get(lib.PDFName.of("First"));
   if (!(n instanceof lib.PDFNumber) || !(first instanceof lib.PDFNumber))
     return null;
-  if (index >= n.asNumber()) return null;
+  // pdf-lib decoded this same stream at load: it expands every /ObjStm.
   const data = lib.decodePDFRawStream(stream).decode();
   const table = latin1
-    .decode(data.subarray(0, first.asNumber()))
+    .decode(data.subarray(0, Math.max(0, first.asNumber())))
     .trim()
-    .split(/[\0\t\n\f\r ]+/);
-  if (Number(table[index * 2]) !== num) return null;
-  const at = Number(table[index * 2 + 1]);
-  if (!Number.isInteger(at) || at < 0) return null;
-  return lib.PDFObjectParser.forBytes(
-    data.subarray(first.asNumber() + at),
-    doc.context,
-  ).parseObject();
+    .split(/[\0\t\n\f\r ]+/, Math.max(0, 2 * n.asNumber()))
+    .map(Number);
+  return { data, first: first.asNumber(), table };
+}
+
+/** Member `index` of an opened object stream, if it is object `num`. */
+function objStmMember(
+  lib: PdfLibModule,
+  doc: PDFDocument,
+  budget: ParseBudget,
+  stm: ObjStm,
+  index: number,
+  num: number,
+): PDFObject | null {
+  if (stm.table[index * 2] !== num) return null;
+  const at = stm.table[index * 2 + 1];
+  if (at === undefined || !Number.isInteger(at) || at < 0) return null;
+  return budget.parse(lib, doc, stm.data.subarray(stm.first + at));
+}
+
+const FAIL = Symbol("unbounded");
+
+/** Byte search, as `./security/document.ts` does it: no string is built. */
+function find(bytes: Uint8Array, word: string, from: number, step: 1 | -1) {
+  const w = Array.from(word, (c) => c.charCodeAt(0));
+  for (let i = from; i >= 0 && i <= bytes.length - w.length; i += step) {
+    let j = 0;
+    while (j < w.length && bytes[i + j] === w[j]) j += 1;
+    if (j === w.length) return i;
+  }
+  return -1;
+}
+const lastIndexOfStartxref = (bytes: Uint8Array) =>
+  find(bytes, "startxref", bytes.length - 9, -1);
+const indexOfTrailer = (bytes: Uint8Array, from: number) =>
+  find(bytes, "trailer", from, 1);
+
+/**
+ * Every stream section of the xref chain, checked before the chain is handed
+ * to `readXref` (the editor's reader, which trusts its input's sizes). It
+ * walks the same chain the same way — the last `startxref`, each table's
+ * /XRefStm, every /Prev — parsing only dictionaries, and requires of each
+ * stream section:
+ *
+ *  - /W of three integers, each 0..8 bytes, summing to at least 1. A row of
+ *    zero bytes never runs out of data, so the reader's loop would run the
+ *    full /Index count (2,000,000,000 in the review's 1 KB file);
+ *  - /Index (or /Size) counts that are non-negative integers;
+ *  - decoded data no longer than its rows need — (row + 1 predictor byte) x
+ *    rows, plus 4 KiB — checked by decoding at most that much plus one byte;
+ *  - all the decoded data of the chain together, counting a stream as often
+ *    as the reader will decode it, within 4x the file plus 1 MiB.
+ *
+ * A chain that fails is not followed: nothing is corrected, as for an xref
+ * that cannot be read. pdf.js rejects the same zero-width rows and rebuilds
+ * the file by scanning, which keeps the last body, as pdf-lib does.
+ */
+export function xrefIsBounded(lib: PdfLibModule, bytes: Uint8Array): boolean {
+  const context = lib.PDFContext.create();
+  const at = lastIndexOfStartxref(bytes);
+  if (at < 0) return true; // readXref throws: nothing is corrected.
+  const m = /^startxref[\0\t\n\f\r ]+(\d+)/.exec(
+    latin1.decode(bytes.subarray(at, at + 40)),
+  );
+  if (!m) return true;
+  let decodedLeft = 4 * bytes.length + 1024 * 1024;
+  const num = (o: PDFObject | undefined) =>
+    o instanceof lib.PDFNumber ? o.asNumber() : undefined;
+
+  /** One stream section, as readXref's addStream will read it. */
+  const streamOk = (offset: number): PDFRawStreamT | null | typeof FAIL => {
+    const head = HEADER.exec(
+      latin1.decode(bytes.subarray(offset, offset + 48)),
+    );
+    if (!head) return null; // readXref throws on it
+    const obj = lib.PDFObjectParser.forBytes(
+      bytes.subarray(offset + head[0].length),
+      context,
+    ).parseObject();
+    if (!(obj instanceof lib.PDFRawStream)) return null;
+    const w = obj.dict.lookup(lib.PDFName.of("W"));
+    if (!(w instanceof lib.PDFArray)) return null;
+    const widths = w.asArray().map(num);
+    if (
+      widths.length < 3 ||
+      widths.some(
+        (x) => x === undefined || !Number.isInteger(x) || x < 0 || x > 8,
+      )
+    )
+      return FAIL;
+    const row = widths.slice(0, 3).reduce<number>((a, b) => a + b!, 0);
+    if (row < 1) return FAIL;
+    const index = obj.dict.get(lib.PDFName.of("Index"));
+    const counts =
+      index instanceof lib.PDFArray
+        ? index
+            .asArray()
+            .filter((_, i) => i % 2 === 1)
+            .map(num)
+        : [num(obj.dict.get(lib.PDFName.of("Size"))) ?? 0];
+    let rows = 0;
+    for (const c of counts) {
+      if (c === undefined || !Number.isInteger(c) || c < 0) return FAIL;
+      rows += c;
+    }
+    const allowed = Math.min((row + 1) * rows + 4096, decodedLeft);
+    const got = lib.decodePDFRawStream(obj).getBytes(allowed + 1).length;
+    if (got > allowed) return FAIL;
+    decodedLeft -= got;
+    return obj;
+  };
+
+  const seen = new Set<number>();
+  const queue = [Number(m[1])];
+  while (queue.length > 0) {
+    const offset = queue.shift()!;
+    if (seen.has(offset) || offset < 0 || offset >= bytes.length) continue;
+    seen.add(offset);
+    let trailer: PDFDictT;
+    const isTable =
+      latin1.decode(bytes.subarray(offset, offset + 4)) === "xref";
+    if (isTable) {
+      const t = indexOfTrailer(bytes, offset + 4);
+      if (t < 0) return true; // readXref throws
+      const dict = lib.PDFObjectParser.forBytes(
+        bytes.subarray(t + "trailer".length),
+        context,
+      ).parseObject();
+      if (!(dict instanceof lib.PDFDict)) return true;
+      trailer = dict;
+      const xrefStm = num(trailer.get(lib.PDFName.of("XRefStm")));
+      if (xrefStm !== undefined) {
+        const s = streamOk(xrefStm);
+        if (s === FAIL) return false;
+        if (s === null) return true;
+      }
+    } else {
+      const s = streamOk(offset);
+      if (s === FAIL) return false;
+      if (s === null) return true;
+      trailer = s.dict;
+    }
+    const prev = num(trailer.get(lib.PDFName.of("Prev")));
+    if (prev !== undefined) queue.push(prev);
+  }
+  return true;
 }
 
 /**
@@ -198,6 +386,9 @@ export async function honourXrefDuplicates(
     ReturnType<typeof import("./security/document").readXref>
   >["entries"];
   try {
+    // `readXref` is the editor's reader and trusts its input's sizes: it is
+    // only handed a chain whose every stream section is proven bounded.
+    if (!xrefIsBounded(lib, bytes)) return { doc, replaced: 0 };
     const { readXref } = await import("./security/document");
     ({ entries } = await readXref(lib, bytes));
   } catch {
@@ -211,21 +402,33 @@ export async function honourXrefDuplicates(
     const list = scan.headers.get(key(num, gen));
     return list ? list[list.length - 1]! : -1;
   };
-  /** Object streams already parsed here, by number. */
-  const streams = new Map<number, PDFObject | null>();
-  const streamBody = (num: number): PDFObject | null => {
+  const budget = new ParseBudget(bytes.length);
+  /** Object streams already opened here, by number: each decoded ONCE. */
+  const streams = new Map<number, ObjStm | null>();
+  const openStream = (num: number): ObjStm | null => {
     if (streams.has(num)) return streams.get(num)!;
     const entry = entries.get(num);
-    let body: PDFObject | null = null;
+    let stm: ObjStm | null = null;
     if (entry?.type === 1 && entry.offset >= 0) {
       try {
-        body = parseBodyAt(lib, doc, bytes, entry.offset, num, entry.gen);
-      } catch {
-        body = null;
+        const body = parseBodyAt(
+          lib,
+          doc,
+          budget,
+          bytes,
+          entry.offset,
+          num,
+          entry.gen,
+        );
+        stm = body && openObjStm(lib, body);
+      } catch (err) {
+        if (err instanceof PdfEngineError) throw err;
+        stm = null;
       }
     }
-    streams.set(num, body);
-    return body;
+    if (stm) budget.grow(stm.data.length);
+    streams.set(num, stm);
+    return stm;
   };
 
   const replacements: [PDFRefT, PDFObject][] = [];
@@ -238,7 +441,15 @@ export async function honourXrefDuplicates(
         // One header, or the xref names the last one: pdf-lib agrees.
         if (!headers || headers.length < 2) continue;
         if (entry.offset === headers[headers.length - 1]) continue;
-        body = parseBodyAt(lib, doc, bytes, entry.offset, num, entry.gen);
+        body = parseBodyAt(
+          lib,
+          doc,
+          budget,
+          bytes,
+          entry.offset,
+          num,
+          entry.gen,
+        );
       } else {
         // A member of object stream `entry.stream`. pdf-lib keeps whichever
         // definition it met last: a top-level header of this number AFTER
@@ -249,11 +460,14 @@ export async function honourXrefDuplicates(
         const laterStream =
           lastHeader(entry.stream, streamEntry.gen) > streamEntry.offset;
         if (!twin && !laterStream) continue;
-        const stream = streamBody(entry.stream);
-        if (!stream) continue;
-        body = objStmMember(lib, doc, stream, entry.index, num);
+        const stm = openStream(entry.stream);
+        if (!stm) continue;
+        body = objStmMember(lib, doc, budget, stm, entry.index, num);
       }
-    } catch {
+    } catch (err) {
+      // Over budget: refused (see ParseBudget). Anything else: this entry
+      // does not parse, and pdf-lib's body stands.
+      if (err instanceof PdfEngineError) throw err;
       body = null;
     }
     // An xref entry that does not land on its object: pdf.js rebuilds by
@@ -264,11 +478,17 @@ export async function honourXrefDuplicates(
   }
   if (replacements.length === 0) return { doc, replaced: 0 };
 
+  // An xref whose catalog is not a dictionary: pdf.js gives up on that xref
+  // and rebuilds the file by scanning, keeping every LAST body, as pdf-lib's
+  // parse already did. Nothing to correct.
+  const { Root, Info } = doc.context.trailerInfo;
+  const newRoot = replacements.find(([ref]) => ref === Root)?.[1];
+  if (newRoot && !(newRoot instanceof lib.PDFDict)) return { doc, replaced: 0 };
+
   for (const [ref, body] of replacements) doc.context.assign(ref, body);
 
   // `PDFDocument` reads the catalog once, in its constructor; and its default
   // load wrote Producer/ModDate into whichever Info dictionary it held then.
-  const { Root, Info } = doc.context.trailerInfo;
   const touched = new Set(replacements.map(([ref]) => ref));
   const mutable = doc as unknown as {
     catalog: unknown;

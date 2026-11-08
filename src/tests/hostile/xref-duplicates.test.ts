@@ -39,6 +39,7 @@ import { splitPagesInHalf } from "@/lib/pdf/split-half";
 import {
   honourXrefDuplicates,
   scanObjectHeaders,
+  xrefIsBounded,
 } from "@/lib/pdf/xref-duplicates";
 import { MARKER, duplicateObjectPdf } from "./conversion-out.fixtures";
 import { editingFixtures, streamBody } from "./editing.fixtures";
@@ -467,6 +468,36 @@ describe("xref shapes", () => {
   }, 30_000);
 });
 
+describe("an xref-named catalog that is not a dictionary", () => {
+  it("leaves pdf-lib's catalog, as pdf.js's rebuild does", async () => {
+    let b = "%PDF-1.7\n";
+    const o1a = b.length;
+    b += "1 0 obj\n42\nendobj\n";
+    const o2 = b.length;
+    b += "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n";
+    const o3 = b.length;
+    b += `3 0 obj\n${page(100, 4)}\nendobj\n`;
+    const o4 = b.length;
+    const c = draw("FIRST");
+    b += `4 0 obj\n<< /Length ${c.length} >>\nstream\n${c}\nendstream\nendobj\n`;
+    // pdf-lib's linear parse keeps this one; the xref names the `42`.
+    b += "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";
+    const row = (o: number) => `${String(o).padStart(10, "0")} 00000 n \n`;
+    const x = b.length;
+    b += `xref\n0 5\n0000000000 65535 f \n${row(o1a)}${row(o2)}${row(o3)}${row(o4)}trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n${x}\n%%EOF\n`;
+    const bytes = latin1(b);
+    // pdf.js gives up on that xref, rebuilds by scanning (last body wins) and
+    // shows the page; the loader must agree, not leave a `42` as the catalog
+    // to throw a TypeError on the first page walk.
+    const want = await view(bytes);
+    expect(want).toMatchObject({ pages: 1, width: 100, text: "FIRST" });
+    const doc = await loadPdf(bytes);
+    expect(doc.getPageCount()).toBe(1);
+    expect(doc.getPage(0).getWidth()).toBe(want.width);
+    expect((await view(await mergePdfs([bytes]))).text).toBe(want.text);
+  }, 30_000);
+});
+
 /* ------------------------------------------------------------------ *
  *  Scanner health, positive controls, and cost.
  * ------------------------------------------------------------------ */
@@ -516,6 +547,25 @@ describe("scanner", () => {
     const lib = await import("pdf-lib");
     const doc = await lib.PDFDocument.load(bytes);
     expect((await honourXrefDuplicates(doc, bytes)).replaced).toBe(0);
+  });
+
+  it("every real file's xref chain passes the size check (positive control)", async () => {
+    // A check that refused a real producer's xref stream (qpdf, ocrmypdf:
+    // PNG predictors, /Index subsections) would silently switch the guard off
+    // for every modern file. Negative controls: xref-duplicates-cost.test.ts.
+    const lib = await import("pdf-lib");
+    const passed = corpus.filter((name) =>
+      xrefIsBounded(lib, new Uint8Array(readFileSync(path.join(CORPUS, name)))),
+    );
+    expect(passed).toEqual(corpus);
+    expect(passed.length).toBe(14);
+    // Health: the check met real xref STREAMS, not only tables.
+    const streamed = corpus.filter((name) =>
+      /\/Type\s*\/XRef\b/.test(
+        readFileSync(path.join(CORPUS, name)).toString("latin1"),
+      ),
+    );
+    expect(streamed.length).toBeGreaterThanOrEqual(3);
   });
 
   it("no real file has an object replaced (incremental update included)", async () => {
