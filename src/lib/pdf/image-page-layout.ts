@@ -200,11 +200,17 @@ export function imagePageLayout(
     const scale = Math.min(1, room / width, room / height);
     const w = width * scale;
     const h = height * scale;
+    // ...and down to PDF's smallest page side (ISO 32000-1, Annex C: 3
+    // units), the image centred and never stretched (hostile matrix CI-08:
+    // a 1 x 1 image made a 1 x 1 pt page). Not exported: this module is on a
+    // first load.
+    const pageWidth = Math.max(w + margin * 2, 3);
+    const pageHeight = Math.max(h + margin * 2, 3);
     return {
-      pageWidth: w + margin * 2,
-      pageHeight: h + margin * 2,
-      x: margin,
-      y: margin,
+      pageWidth,
+      pageHeight,
+      x: (pageWidth - w) / 2,
+      y: (pageHeight - h) / 2,
       width: w,
       height: h,
     };

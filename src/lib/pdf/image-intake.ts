@@ -16,6 +16,7 @@ import {
   loadPdfLib,
   type RasterImageFormat,
 } from "./pdf-lib";
+import { jpegFrameProblem } from "./raster-check";
 
 /** Why Create PDF cannot use a JPEG or PNG — said at add time and at run. */
 export function undecodableImageMessage(
@@ -34,16 +35,23 @@ export function undecodableImageMessage(
  * raster-draw-boundary.test.ts holds this module like every embedder).
  * Nothing is kept.
  *
- * LIMITS (image-intake.test.ts pins the first): a JPEG is read only to its
- * frame header, so one cut off after it passes here and at run alike; and
- * this embeds the raw JPEG, where Create PDF with Photo details on Remove
- * embeds a stripped copy with the same header.
+ * A JPEG is first walked to its scan and its end marker, and held to the
+ * pixel ceiling (`raster-check.ts`), as Create PDF does; a PNG's size is
+ * held to the same ceiling inside `png-embed.ts`.
+ *
+ * LIMITS: damage INSIDE a JPEG's scan data is not decoded, here or at run;
+ * and this embeds the raw JPEG, where Create PDF with Photo details on Remove
+ * embeds a stripped copy with the same header. (Until 2026-11-08 a JPEG was
+ * read only to its frame header, so one cut off after it passed here and at
+ * run alike: image-intake.test.ts keeps that history, inverted.)
  */
 export async function imageDecodes(
   bytes: Uint8Array,
   format: RasterImageFormat,
 ): Promise<boolean> {
   try {
+    // The same frame check Create PDF runs first (`raster-check.ts`).
+    if (format === "jpg" && jpegFrameProblem(bytes)) return false;
     const lib = await loadPdfLib();
     const doc = await lib.PDFDocument.create();
     const image =
