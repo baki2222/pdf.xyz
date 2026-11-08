@@ -14,8 +14,10 @@ import {
 import { encryptPdf } from "@/tests/encrypted-pdf";
 import {
   HUGE_ROWS,
+  filterSpellings,
   flateRows,
   indexEmptyString,
+  pdfjsFilterKeys,
   prevIndirectInteger,
   recoveryPrev,
 } from "./xref-rows.fixtures";
@@ -207,6 +209,24 @@ describe("SIB-03 (review 2): the rows pdf.js walks, by every route it reads", ()
     expect(prescanXref(flateRows(XREF_ENTRY_FLOOR + 1)).unbounded).toBe(true);
   });
 
+  test("SIB-03 (review 3): every key pdf.js reads a filter from makes the rows filtered", () => {
+    // pdf.js reads `dict.get("F", "Filter")`: `/F /FlateDecode` was capped
+    // as unfiltered (19,492 entries) and peaked pdf.js at 3,422 MB.
+    const spellings = filterSpellings();
+    // Health check: the keys came out of pdf.js, and both are there.
+    expect(pdfjsFilterKeys()).toEqual(["F", "Filter"]);
+    expect(spellings).toHaveLength(6);
+    for (const filter of spellings) {
+      expect(prescanXref(flateRows(20_000_000, filter)).unbounded, filter).toBe(
+        true,
+      );
+      // Positive control: the same file at six rows is pdf.js's to read.
+      const six = prescanXref(flateRows(6, filter));
+      expect(six.unbounded, `control ${filter}`).toBe(false);
+      expect(six.streams, `control ${filter}`).toBe(1);
+    }
+  });
+
   test("the entry bound grows with the file", () => {
     expect(xrefEntryLimit(FILE_BYTES_PER_ENTRY * XREF_ENTRY_FLOOR * 4)).toBe(
       4 * XREF_ENTRY_FLOOR,
@@ -295,5 +315,24 @@ describe("SIB-09: the trailer pdf.js decrypts with", () => {
       trailer: "/Encrypt 9 0 R",
     });
     expect(prescanXref(bytes).namesEncrypt).toBe(true);
+  });
+
+  test("SIB-09 (review 3): with no readable newest section, an /XRef stream's /Encrypt counts too", () => {
+    // pdf.js's rebuild also takes the dictionary of any object whose body
+    // names /XRef. The pre-scan once kept every object's dictionary for this
+    // lookup (23 bytes of heap per file byte); it now reads the few it needs
+    // again, and nothing else tested that second read.
+    const broken = (trailer: string) =>
+      xrefStreamPdf({ objects: ONE_PAGE, startxref: "999999", trailer });
+    expect(prescanXref(broken("/Encrypt 9 0 R")).namesEncrypt).toBe(true);
+    // Control: the same file without /Encrypt, and the first with a
+    // readable startxref (only the newest section then counts, and it is
+    // that same stream).
+    expect(prescanXref(broken("")).namesEncrypt).toBe(false);
+    expect(
+      prescanXref(
+        xrefStreamPdf({ objects: ONE_PAGE, trailer: "/Encrypt 9 0 R" }),
+      ).namesEncrypt,
+    ).toBe(true);
   });
 });

@@ -5,6 +5,8 @@
  * positive control (the reviewer's controls used /Size 6; every one opens as
  * one unencrypted page in pdf.js).
  */
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { deflateSync } from "node:zlib";
 import {
   ONE_PAGE,
@@ -96,14 +98,62 @@ export function prevIndirectInteger(size: number): Uint8Array {
  * row reads a byte, so pdf.js walks all of them (a zero type byte is a free
  * entry). 20,000,000 rows deflate to under 20 KB and peak pdf.js at 3.3 GB.
  */
-export function flateRows(rows: number): Uint8Array {
+export function flateRows(
+  rows: number,
+  filter = "/Filter /FlateDecode",
+): Uint8Array {
   return xrefStreamPdf({
     objects: ONE_PAGE,
     w: "[1 0 0]",
     index: `[0 ${rows}]`,
     xrefBody: deflateSync(Buffer.alloc(rows), { level: 9 }),
-    xrefDict: "/Filter /FlateDecode",
+    xrefDict: filter,
   });
+}
+
+/**
+ * Review 3: the stream-dictionary keys pdf.js reads a stream's filter from,
+ * DISCOVERED in the shipped worker (`dict.get("F", "Filter")`, abbreviated
+ * key first), never typed here. Throws when the worker no longer spells it
+ * that way, so a renamed lookup cannot shrink this to nothing.
+ */
+export function pdfjsFilterKeys(): string[] {
+  const worker = readFileSync(
+    createRequire(import.meta.url).resolve(
+      "pdfjs-dist/legacy/build/pdf.worker.mjs",
+    ),
+    "latin1",
+  );
+  const keys = new Set<string>();
+  for (const m of worker.matchAll(/\.get\(((?:"\w+",\s*)*)"Filter"\)/g)) {
+    keys.add("Filter");
+    for (const k of m[1]!.matchAll(/"(\w+)"/g)) keys.add(k[1]!);
+  }
+  if (keys.size < 2) throw new Error("pdf.js filter lookup not found");
+  return [...keys].sort();
+}
+
+/**
+ * Every spelling of the filter pdf.js decodes, built over `flateRows`: each
+ * key it reads, with the long and the abbreviated filter name, and the name
+ * in an array.
+ */
+export function filterSpellings(): string[] {
+  const out: string[] = [];
+  for (const key of pdfjsFilterKeys())
+    for (const name of ["/FlateDecode", "/Fl", "[/Fl]"])
+      out.push(`/${key} ${name}`);
+  return out;
+}
+
+/**
+ * Review 3: `n` bytes of the smallest objects a file can hold, each one a
+ * dictionary the pre-scan reads (`0 obj<</A 1>>`). The rebuild fallback once
+ * kept every one of them in a Map, about 23 bytes of heap per file byte.
+ */
+export function denseObjects(n: number): Uint8Array {
+  const unit = "0 obj<</A 1>>\n";
+  return latin1(`%PDF-1.7\n${unit.repeat(Math.floor(n / unit.length))}`);
 }
 
 /**
