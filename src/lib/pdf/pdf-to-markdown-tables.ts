@@ -76,5 +76,31 @@ export function tablesOfPage(
     width: 0,
     height: 0,
     items: items.flatMap(wordsOfItem),
-  }).map(({ rows, top, bottom }) => ({ rows, top, bottom }));
+  })
+    .map(({ rows, top, bottom }) => ({ rows, top, bottom }))
+    .filter((table) => !isMarkerList(table));
+}
+
+/**
+ * A bullet or numbered list's marker: what sits alone in the first column
+ * of a list the detector reads as two columns.
+ */
+const LIST_MARKER =
+  /^(?:[•◦▪▫‣⁃∙·●○■□►▸–—*+-]|\(?(?:\d{1,3}|[a-z]|[ivx]{1,4})[.)])$/i;
+
+/**
+ * True when a "table" is really a list: its first column holds nothing but
+ * list markers (or nothing, on a wrapped item's hanging line), and at least
+ * one of them. The detector sees a marker and its text as two columns with a
+ * gap between, which a hanging indent makes look like a grid. PR #287's CI
+ * (run 42431179321) caught it: the e2e proof's two bullet items came out as
+ * a two-column GFM table, the wrapped line as a third row, and the list was
+ * gone. Kept to Markdown: Extract Tables' own detector is unchanged.
+ */
+export function isMarkerList(table: Pick<MarkdownTable, "rows">): boolean {
+  const first = table.rows.map((row) => (row[0] ?? "").trim());
+  return (
+    first.some((cell) => cell !== "") &&
+    first.every((cell) => cell === "" || LIST_MARKER.test(cell))
+  );
 }

@@ -639,3 +639,25 @@ describe("Page headings are an option, and without them text flows across pages"
     );
   });
 });
+
+// PR #287's CI (run 42431179321) failed the e2e client proof for PDF to
+// Markdown: on the proof's own notes.pdf, both bullet items vanished as list
+// blocks ("expected 2 item block(s) \"First bullet item\", found 0"). The
+// converter's pdf.js test stayed green because it fed the converter no
+// TABLES, and the browser chain feeds it Extract Tables' detector over pdf.js
+// items (`tablesOfPage`, audit pdf-to-markdown#4). This runs the browser's
+// whole chain on that fixture and asks the e2e proof's own question.
+describe("the browser chain on the e2e proof's structured prose", () => {
+  it("keeps every heading, paragraph and list item its own block", async () => {
+    const { makeStructuredProsePdf, structuredProseProblems } =
+      await import("../../../e2e/client-proof/fixtures");
+    const { markdown } = await pdfToMarkdown(
+      await makeStructuredProsePdf("notes.pdf", { pages: 2 }),
+      { sourceName: "notes.pdf" },
+      legacy,
+    );
+    expect(structuredProseProblems(markdown, "notes.pdf", 2), markdown).toEqual(
+      [],
+    );
+  });
+});
