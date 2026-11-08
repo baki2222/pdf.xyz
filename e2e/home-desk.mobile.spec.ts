@@ -169,6 +169,12 @@ test.describe("each row shows what its click carries, uncut", () => {
       await pdf("annex.pdf", 3),
     ]);
     const ticket = await ticketSettled(page);
+    // Since batch P1 (2026-11-08) five more tools take every dropped file,
+    // and for two PDFs they outrank the one-file tools: the first rows are
+    // Merge, Compress and Add Page Numbers, and Sign PDF sits under "More for
+    // these files". The property is the same wherever the row is: a one-file
+    // tool names the file its click carries.
+    await ticket.getByRole("button", { name: /^More for these files/ }).click();
     const sign = ticket.getByRole("link", {
       name: /^Open Sign PDF with contract\.pdf$/,
     });

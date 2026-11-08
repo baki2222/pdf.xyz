@@ -508,8 +508,17 @@ describe("the catalogue ships in one chunk, shared by every surface that reads i
  * (a `.docx` renamed `.epub` is refused by its contents). The eight counted
  * chunks went 33,784 -> 33,917 B (+133, gzip -9, main 33ad8bd9 vs the
  * branch, one machine, empty .next): 33.07 + 133/1024 = 33.20.
+ *
+ * RAISED 33.2 -> 33.21 on 2026-11-08, for batch P1 (PR #292): five tools
+ * (Rotate, Flatten, Page Numbers, Watermark, Split in Half) now take a
+ * batch, so the catalogue the ticket loads lists "ZIP" among their outputs,
+ * as Compress and PDF to JPG already do, and the handoff modes read "batch".
+ * Measured on one machine, both builds from an empty .next: the eight
+ * counted chunks went 33,982 -> 33,990 B (+8: the catalogue chunks 7599 ->
+ * 7605 and 3926 -> 3928, the other six byte-identical; main 9266c59d vs the
+ * branch). 33.2 + 8/1024 = 33.208. CI measured the branch at >= 33.2.
  */
-const TICKET_FETCH_GZ_KB = 33.2;
+const TICKET_FETCH_GZ_KB = 33.21;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));
