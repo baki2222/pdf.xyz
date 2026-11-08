@@ -67,6 +67,12 @@ export interface OcrWorkerFailure {
    * browser three), and this is what keeps its result reachable.
    */
   stillRunning?: boolean;
+  /**
+   * How long a 429 asked to be waited out, in whole seconds, from its
+   * `Retry-After` — declared as the security runner's is
+   * (`retry-after-typed.test.ts`).
+   */
+  retryAfterSeconds?: number;
 }
 
 export type OcrWorkerResult = OcrWorkerSuccess | OcrWorkerFailure;

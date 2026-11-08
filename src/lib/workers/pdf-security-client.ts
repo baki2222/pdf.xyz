@@ -100,6 +100,14 @@ export interface PdfSecurityWorkerFailure {
    * still finish, and {@link resumeSecurityJob} picks it up by `jobId`.
    */
   stillRunning?: boolean;
+  /**
+   * How long a 429 asked to be waited out, in whole seconds, from its
+   * `Retry-After` (`./read-error`, `./slot-upload`). It travelled here at
+   * runtime, through a spread, before it was declared, so no caller could
+   * read it without a cast; a batch reads it to PAUSE on a rate limit
+   * instead of failing the file (`retry-after-typed.test.ts`).
+   */
+  retryAfterSeconds?: number;
 }
 
 export type PdfSecurityWorkerResult =
