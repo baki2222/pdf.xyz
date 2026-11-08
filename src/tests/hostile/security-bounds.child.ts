@@ -36,6 +36,8 @@ import {
 import { objStmBombPdf } from "./security-bounds.fixtures";
 import {
   HUGE_ROWS,
+  denseObjects,
+  filterSpellings,
   flateRows,
   indexEmptyString,
   prevIndirectInteger,
@@ -153,6 +155,18 @@ const FIXTURES: Record<string, () => Uint8Array | Promise<Uint8Array>> = {
   // walking XREF_ENTRY_FLOOR rows that each read a byte, against six.
   "flate-rows-6": () => flateRows(6),
   "flate-rows-at-floor": () => flateRows(XREF_ENTRY_FLOOR),
+  // Review 3: the pre-scan read only `/Filter`, while pdf.js reads
+  // `dict.get("F", "Filter")`. `flate-spell-<i>` is the 20M-row bomb under
+  // filterSpellings()[i]; `flate-spell-<i>-6` is its six-row control.
+  ...Object.fromEntries(
+    filterSpellings().flatMap((filter, i) => [
+      [`flate-spell-${i}`, () => flateRows(20_000_000, filter)],
+      [`flate-spell-${i}-6`, () => flateRows(6, filter)],
+    ]),
+  ),
+  // Review 3: 20 MB of the smallest objects (`0 obj<</A 1>>`); the rebuild
+  // fallback kept a Map for each, about 23 bytes of heap per file byte.
+  "dense-objects-20mb": () => denseObjects(20_000_000),
   // The pre-scan's own quadratic (review 2): 16,000 dictionaries that never
   // close took it 33 s (`/XRef` units) and 16 s (`trailer` units).
   "unclosed-xref-16k": () => unclosedUnits("xref", 16_000),
@@ -213,6 +227,19 @@ const ENTRIES: Record<string, (bytes: Uint8Array) => Promise<unknown>> = {
     } finally {
       await task.destroy().catch(() => {});
     }
+  },
+  // The pre-scan's own memory: the RSS it adds above what the process held
+  // just before it ran (the fixture is built by then).
+  async "prescan-memory"(bytes) {
+    const before = process.memoryUsage().rss;
+    const scan = prescanXref(bytes);
+    return {
+      settled: scan.unbounded ? "refused" : "passed",
+      size: bytes.length,
+      addedMb: Math.round(
+        (process.resourceUsage().maxRSS * 1024 - before) / 1e6,
+      ),
+    };
   },
   // The pre-scan alone, on the caller's thread as readAccessFacts runs it.
   async prescan(bytes) {

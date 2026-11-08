@@ -555,9 +555,13 @@ class RowLedger {
     // pdf.js rejects the widths ("Invalid XRef entry fields length").
     if (width === null) return;
     // Rows that read bytes stop where the bytes do. Unfiltered, those are
-    // the file's; a filter can make any number of them.
+    // the file's; a filter can make any number of them. pdf.js reads the
+    // filter as `dict.get("F", "Filter")` (review 3: `/F /FlateDecode` was
+    // capped as unfiltered and drove pdf.js to 3.4 GB), so either key, with
+    // any value, counts as a filter here. xref-prescan.test.ts reads the
+    // keys back out of the shipped pdf.js worker.
     let cap =
-      width > 0 && !dict.has("Filter")
+      width > 0 && !dict.has("Filter") && !dict.has("F")
         ? Math.floor(Math.max(0, this.fileLength - dataStart) / width)
         : Infinity;
     let walked = 0;
@@ -728,25 +732,16 @@ export function prescanXref(bytes: Uint8Array): XrefPrescan {
   });
   try {
     // 1. The rows: every `obj` whose dictionary is followed by `stream`.
-    // `endobj` is not one, nor is a longer word that starts `obj`.
-    const objDicts = new Map<number, Map<string, Value> | null>();
+    // `endobj` is not one, nor is a longer word that starts `obj`. Nothing
+    // read here outlives its iteration: a Map kept per object cost about 23
+    // bytes of heap per file byte on the caller's thread (review 3), so step
+    // 3 reads again the few dictionaries it needs.
     for (
       let at = indexOfWord(bytes, "obj", 0);
       at >= 0;
       at = indexOfWord(bytes, "obj", at + 3)
     ) {
-      if (isEndobj(bytes, at)) continue;
-      if (!isSpecial(at + 3 < bytes.length ? bytes[at + 3]! : -1)) continue;
-      let read: ReadDict | null = null;
-      try {
-        // No span: a stream dictionary pdf.js can read may run any length,
-        // and the budget bounds what all of them cost together.
-        read = dictAt(bytes, at + 3, bytes.length, budget);
-      } catch (err) {
-        // Unclosed by the end of the file: pdf.js cannot read it either.
-        if (!(err instanceof Incomplete)) throw err;
-      }
-      objDicts.set(at, read?.dict ?? null);
+      const read = objDictAt(bytes, at, budget);
       if (read?.then.k === "word" && read.then.v === "stream")
         ledger.add(read.dict, read.after);
     }
@@ -797,8 +792,10 @@ export function prescanXref(bytes: Uint8Array): XrefPrescan {
     for (let at = indexOfWord(bytes, "/XRef", 0); at >= 0;) {
       const after = bytes[at + 5];
       if (after === undefined || after < 64) {
+        // Each object is read at most once: a second /XRef in the same body
+        // finds no header above the first (`floor`).
         const obj = objHeaderBefore(bytes, at, floor);
-        const dict = obj >= 0 ? objDicts.get(obj) : undefined;
+        const dict = obj >= 0 ? objDictAt(bytes, obj, budget)?.dict : undefined;
         if (dict) fallbackTrailers.push(dict);
       }
       floor = at;
@@ -823,6 +820,29 @@ export function prescanXref(bytes: Uint8Array): XrefPrescan {
     // other error is a defect here, and refusing is the side that cannot
     // hand pdf.js an unbounded walk (the legit corpus keeps it honest).
     return result(true, false);
+  }
+}
+
+/**
+ * The dictionary of the object whose `obj` keyword is at `at`, or null when
+ * that is `endobj`, a longer word, or a dictionary still open at the end of
+ * the file (pdf.js cannot read it either). Throws {@link TooDeep} and
+ * {@link OutOfBudget}.
+ */
+function objDictAt(
+  bytes: Uint8Array,
+  at: number,
+  budget: Budget,
+): ReadDict | null {
+  if (isEndobj(bytes, at)) return null;
+  if (!isSpecial(at + 3 < bytes.length ? bytes[at + 3]! : -1)) return null;
+  try {
+    // No span: a stream dictionary pdf.js can read may run any length, and
+    // the budget bounds what all of them cost together.
+    return dictAt(bytes, at + 3, bytes.length, budget);
+  } catch (err) {
+    if (!(err instanceof Incomplete)) throw err;
+    return null;
   }
 }
 

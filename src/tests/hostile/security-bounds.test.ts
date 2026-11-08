@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { runBounded, type BoundedOutcome } from "./bounded";
+import { filterSpellings } from "./xref-rows.fixtures";
 
 // Lane l02 of the hostile-input matrix: our own xref / object-stream reader
 // (`src/lib/pdf/security/document.ts`) and the pdf.js access probe
@@ -181,6 +182,42 @@ describe("lane l02: hostile structure is read in bounded time and memory", () =>
       }
     },
     3 * T,
+  );
+
+  test(
+    "SIB-03 (review 3): the 20M-row bomb is unreadable under every filter spelling pdf.js decodes; six rows open",
+    async () => {
+      // `/F /FlateDecode` (pdf.js reads `dict.get("F", "Filter")`) was
+      // 'unencrypted' after 4,038 ms at 3,422 MB peak, and could not finish
+      // at all in a 1.5 GB heap.
+      const n = filterSpellings().length;
+      expect(n).toBe(6);
+      for (let i = 0; i < n; i += 1) {
+        const bomb = settled(await run(`flate-spell-${i}`, "classify"));
+        expect(bomb, `spelling ${i}`).toMatchObject({ settled: "unreadable" });
+        expect(bomb.peakMb as number, `spelling ${i}`).toBeLessThan(PEAK_MB);
+        // Positive control: pdf.js decodes this spelling, and the pre-scan
+        // lets the honest file through.
+        const six = settled(await run(`flate-spell-${i}-6`, "classify"));
+        expect(six, `control ${i}`).toMatchObject({ settled: "unencrypted" });
+      }
+    },
+    12 * T,
+  );
+
+  test(
+    "SIB-03 (review 3): the pre-scan keeps no per-object state on a file of tiny objects",
+    async () => {
+      // It runs on the caller's (main) thread before any deadline. Keeping a
+      // Map per object cost 20 MB of `0 obj<</A 1>>` about 450 MB of heap
+      // (23 bytes per file byte; 2.3 GB at the 100 MiB upload cap). Bound:
+      // the file's own size again (transient dictionaries a young-generation
+      // GC reclaims), plus 64 MB of slack between runs.
+      const v = settled(await run("dense-objects-20mb", "prescan-memory"));
+      expect(v).toMatchObject({ settled: "passed" });
+      expect(v.addedMb as number).toBeLessThan(20 + 64);
+    },
+    T,
   );
 
   test(
