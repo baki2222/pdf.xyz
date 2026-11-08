@@ -343,9 +343,15 @@ function PdfOfficeRunArea({
       ) : (
         <Dropzone
           pageTarget
+          busy={busy}
           refuse={refuse}
           onFiles={(files) =>
-            files.length > 1 ? setBatch(files) : setFile(files[0] ?? null)
+            // Never to the batch while a job runs (one resumed after a reload
+            // has no file in hand, so this zone shows): a second job would
+            // start beside it, its status hidden behind the list.
+            files.length > 1 && !busy
+              ? setBatch(files)
+              : setFile(files[0] ?? null)
           }
           accept="application/pdf,.pdf"
           compact

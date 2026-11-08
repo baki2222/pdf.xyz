@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Info, PauseCircle, Play, X } from "lucide-react";
 import { BatchSkip, withNote, type NotedResult } from "@/lib/batch";
 import {
@@ -29,6 +36,7 @@ import type { WorkerJobPhase } from "@/lib/workers/job-polling";
 import { describeWait } from "@/lib/workers/read-error";
 import { formatBytes } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
+import { announceOutcome } from "@/components/a11y/live-region";
 import { jobBusyLabel } from "../../worker-job";
 import { useWorkerPanel } from "../../worker-panel-shell";
 import { useBatchRunner, type BatchUnit } from "../use-batch-runner";
@@ -36,6 +44,7 @@ import { useUnsavedGuard } from "../use-unsaved-guard";
 import { BatchView } from "./batch-view";
 import {
   workerBatchPause,
+  workerOutcomeReporter,
   workerProcess,
   type WorkerRun,
 } from "./worker-batch";
@@ -165,6 +174,9 @@ export function WorkerBatchRunner({
   // Where the file in flight is: one at a time, so one phase.
   const [jobPhase, setJobPhase] = useState<WorkerJobPhase | null>(null);
   const signedVerb = SIGNED_REWRITE[slug];
+  // Finished jobs whose download was refused, kept across runs of this
+  // batch so "Retry failed" fetches the result instead of a new job.
+  const [finished] = useState(() => new WeakMap<File, string>());
   const process = useMemo(() => {
     const one = workerProcess(
       run,
@@ -172,6 +184,8 @@ export function WorkerBatchRunner({
         resumeSecurityJob(jobId, { ...controls, tool: slug }),
       {
         onPhase: setJobPhase,
+        finished,
+        report: workerOutcomeReporter(slug),
         ...(signedVerb
           ? {
               preflight: (_file: File, bytes: Uint8Array) => {
@@ -199,10 +213,11 @@ export function WorkerBatchRunner({
       const note = qpdfRowNote(slug, result);
       return note ? withNote(row, note) : row;
     };
-  }, [run, slug, signedVerb]);
+  }, [run, slug, signedVerb, finished]);
 
   const runner = useBatchRunner<WorkerBatchRow>(units, process, {
-    // Every job already reports its own outcome (`withToolOutcome`).
+    // One outcome per FILE is reported by the adapter (`report` above): a
+    // file can take several attempts, and the driver sees only the last.
     reportsOutcome: false,
     pauseOn: workerBatchPause,
   });
@@ -268,6 +283,7 @@ export function WorkerBatchRunner({
         runner.resumeAt !== null ? (
           <PausedBanner
             resumeAt={runner.resumeAt}
+            done={runner.progress.done}
             onContinue={runner.continueNow}
             onCancel={runner.cancel}
           />
@@ -290,23 +306,40 @@ const CONTROL = "min-h-11 sm:min-h-0";
 
 /**
  * A rate limit paused the batch: what happened, when it carries on, and
- * the two things to do. The first sentence is spoken once, as the pause
- * begins; the countdown under it is not a live region, or a screen reader
- * would read it every second.
+ * the two things to do.
+ *
+ * The batch's own Cancel goes away as the pause begins, and focus with it,
+ * so focus moves to Continue now, which the sentences describe. When focus
+ * is somewhere else on the page it is left there, and the first sentence
+ * is spoken through the app's live region instead — a region drawn
+ * together with its words is not announced by several screen readers. The
+ * countdown is not a live region either, or it would be read every second.
  */
 function PausedBanner({
   resumeAt,
+  done,
   onContinue,
   onCancel,
 }: {
   resumeAt: number;
+  /** Files already finished: only then can any be downloaded. */
+  done: number;
   onContinue: () => void;
   onCancel: () => void;
 }) {
   const [now, setNow] = useState(() => Date.now());
+  const continueRef = useRef<HTMLButtonElement>(null);
+  const headId = useId();
+  const waitId = useId();
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    const active = document.activeElement;
+    if (!active || active === document.body)
+      continueRef.current?.focus({ preventScroll: true });
+    else announceOutcome(WORKER_BATCH_PAUSED);
   }, []);
   const left = Math.max(0, Math.ceil((resumeAt - now) / 1000));
   const ready = left === 0;
@@ -315,20 +348,24 @@ function PausedBanner({
       data-batch-paused
       className="border-warn/40 bg-warn/10 text-warn rounded-panel flex flex-col gap-3 border px-4 py-3 text-sm"
     >
-      <p role="status" className="flex items-start gap-2 font-medium">
+      <p id={headId} className="flex items-start gap-2 font-medium">
         <PauseCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
         {WORKER_BATCH_PAUSED}
       </p>
-      <p className="text-fg text-sm leading-relaxed">
+      <p id={waitId} className="text-fg text-sm leading-relaxed">
         {ready
           ? "Continuing now."
-          : `Continuing in ${describeWait(left)}, as long as this page stays open.`}{" "}
-        The finished files can be downloaded from their rows now.
+          : `Continuing in ${describeWait(left)}, as long as this page stays open.`}
+        {done > 0
+          ? " The finished files can be downloaded from their rows now."
+          : null}
       </p>
       <div className="flex flex-wrap gap-2">
         <button
+          ref={continueRef}
           type="button"
           aria-disabled={ready ? undefined : true}
+          aria-describedby={`${headId} ${waitId}`}
           onClick={() => {
             if (ready) onContinue();
           }}

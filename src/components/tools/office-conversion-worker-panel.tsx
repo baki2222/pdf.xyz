@@ -372,12 +372,16 @@ function OfficeRunArea({
       ) : (
         <Dropzone
           pageTarget
+          busy={busy}
           refuse={(file) => pickRefusal(catalogTool, file)}
           onFiles={(files) => {
             // An over-ceiling or wrong-format file never gets here: `refuse`
             // turned it away at the pick, before it was read or uploaded.
             setOutcome(null);
-            if (files.length > 1) setBatch(files);
+            // Never to the batch while a job runs (one resumed after a reload
+            // has no file in hand, so this zone shows): a second job would
+            // start beside it, its status hidden behind the list.
+            if (files.length > 1 && !busy) setBatch(files);
             else setFile(files[0] ?? null);
           }}
           accept={accept}

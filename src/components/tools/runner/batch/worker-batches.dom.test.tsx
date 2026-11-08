@@ -14,12 +14,13 @@
  * For every registered tool, two files make:
  *   - the batch view, not the single-file panel;
  *   - exactly two jobs, each of today's exact shape (this tool, ONE input);
- *   - one telemetry outcome per file — the job reports it, the batch does
- *     not (`reportsOutcome: false`);
+ *   - one telemetry outcome per file, reported by the batch's adapter; the
+ *     job client's own reporting is off for a batch's attempts;
  *   - nothing written to `useWorkerJob`'s sessionStorage resume key.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -27,7 +28,9 @@ import {
   waitFor,
 } from "@testing-library/react";
 import type { ComponentType } from "react";
-import { resetAnnouncer } from "@/components/a11y/live-region";
+import { LiveRegion, resetAnnouncer } from "@/components/a11y/live-region";
+import { resetUnsavedForTests, unsavedLabels } from "@/lib/intent/unsaved";
+import { WORKER_JOB_STORAGE_PREFIX } from "@/lib/workers/job-resume-key";
 import { WORKER_BATCH_TOOLS, type WorkerBatchSlug } from "@/lib/batch/tools";
 import {
   WORKER_BATCH_PAUSED,
@@ -131,7 +134,13 @@ afterEach(() => {
   leave();
   resetTelemetry();
   resetAnnouncer();
+  resetUnsavedForTests();
   Storage.prototype.setItem = originalSetItem;
+  try {
+    sessionStorage.clear();
+  } catch {
+    // jsdom always has it; nothing to clear otherwise.
+  }
   vi.unstubAllGlobals();
 });
 
@@ -160,6 +169,79 @@ function network() {
       },
     };
   });
+}
+
+/**
+ * A network whose n-th reservation (1-based) is refused for one second by
+ * the hourly upload limit, and whose PUTs can be held.
+ */
+function limitedNetwork(
+  script: { refuseReservation?: number; holdPut?: Promise<void> } = {},
+) {
+  let reservations = 0;
+  let jobs = 0;
+  let puts = 0;
+  const json = (value: unknown, status = 200, headers = {}) =>
+    new Response(JSON.stringify(value), {
+      status,
+      headers: { "content-type": "application/json", ...headers },
+    });
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/api/worker/status")) return json(READY);
+      if (url === "/api/uploads") {
+        reservations += 1;
+        if (reservations === script.refuseReservation)
+          return json(
+            { error: { code: "rate_limited", message: "Too many." } },
+            429,
+            { "Retry-After": "1" },
+          );
+        return json({
+          slots: [
+            {
+              fileId: `f${reservations}`,
+              url: "/__put",
+              method: "PUT",
+              headers: {},
+            },
+          ],
+        });
+      }
+      if (url === "/__put") {
+        puts += 1;
+        if (script.holdPut) await script.holdPut;
+        return json({});
+      }
+      if (url === "/api/jobs" && method === "POST") {
+        jobs += 1;
+        return json({
+          jobId: `job_${jobs}`,
+          status: "completed",
+          artifacts: [
+            {
+              artifactId: `a${jobs}`,
+              filename: `out-${jobs}.pdf`,
+              contentType: "application/pdf",
+              bytes: 8,
+              url: `/__art/${jobs}`,
+              expiresAt: new Date(0).toISOString(),
+            },
+          ],
+        });
+      }
+      if (url.startsWith("/__art/")) return new Response("%PDF-out");
+      throw new Error(`unexpected ${method} ${url}`);
+    }),
+  );
+  return {
+    reservations: () => reservations,
+    jobs: () => jobs,
+    puts: () => puts,
+  };
 }
 
 async function dropTwo(slug: string, files?: File[]) {
@@ -244,80 +326,175 @@ describe("every registered worker batch, through its page's own panel", () => {
   });
 
   it("a rate limit pauses: the banner says so, Continue now waits for the limit, the file is never failed, and the batch carries on by itself", async () => {
-    let reservations = 0;
-    let jobs = 0;
-    const json = (value: unknown, status = 200, headers = {}) =>
-      new Response(JSON.stringify(value), {
-        status,
-        headers: { "content-type": "application/json", ...headers },
-      });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input);
-        const method = init?.method ?? "GET";
-        if (url.includes("/api/worker/status")) return json(READY);
-        if (url === "/api/uploads") {
-          reservations += 1;
-          // The second file's first reservation is refused for one second.
-          if (reservations === 2)
-            return json(
-              { error: { code: "rate_limited", message: "Too many." } },
-              429,
-              { "Retry-After": "1" },
-            );
-          return json({
-            slots: [
-              {
-                fileId: `f${reservations}`,
-                url: "/__put",
-                method: "PUT",
-                headers: {},
-              },
-            ],
-          });
-        }
-        if (url === "/__put") return json({});
-        if (url === "/api/jobs" && method === "POST") {
-          jobs += 1;
-          return json({
-            jobId: `job_${jobs}`,
-            status: "completed",
-            artifacts: [
-              {
-                artifactId: `a${jobs}`,
-                filename: `out-${jobs}.pdf`,
-                contentType: "application/pdf",
-                bytes: 8,
-                url: `/__art/${jobs}`,
-                expiresAt: new Date(0).toISOString(),
-              },
-            ],
-          });
-        }
-        if (url.startsWith("/__art/")) return new Response("%PDF-out");
-        throw new Error(`unexpected ${method} ${url}`);
-      }),
-    );
+    const net = limitedNetwork({ refuseReservation: 2 });
     const { view } = await dropTwo("repair-pdf");
     const run = await screen.findByRole("button", { name: "Repair 2 PDFs" });
     await waitFor(() => expect(run).not.toHaveAttribute("aria-disabled"));
     fireEvent.click(run);
-    const status = await screen.findByText(WORKER_BATCH_PAUSED);
-    expect(status).toHaveAttribute("role", "status");
+    await screen.findByText(WORKER_BATCH_PAUSED);
     const banner = view.container.querySelector("[data-batch-paused]")!;
     expect(banner.textContent).toMatch(/Continuing in about 1 second/);
+    // One file is done, so the banner says it can be downloaded.
+    expect(banner.textContent).toContain(
+      "The finished files can be downloaded from their rows now.",
+    );
     const now = screen.getByRole("button", { name: "Continue now" });
     expect(now).toHaveAttribute("aria-disabled", "true");
+    // The batch's own Cancel went away with the pause, and focus with it:
+    // focus is on Continue now, which the pause sentences describe.
+    expect(document.activeElement).toBe(now);
+    const described = (now.getAttribute("aria-describedby") ?? "")
+      .split(" ")
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" ");
+    expect(described).toContain(WORKER_BATCH_PAUSED);
+    expect(described).toMatch(/Continuing in about 1 second/);
     expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
     expect(view.container.textContent).not.toMatch(/failed/);
+    // While paused, leaving the page asks first.
+    expect(unsavedLabels().some((l) => l.startsWith("your batch"))).toBe(true);
+    const unload = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(true);
     await screen.findByText("Batch complete. 2 done, 0 failed.", undefined, {
       timeout: 5000,
     });
     // The paused file was asked for again: three reservations, two jobs.
-    expect(reservations).toBe(3);
-    expect(jobs).toBe(2);
+    expect(net.reservations()).toBe(3);
+    expect(net.jobs()).toBe(2);
+    // One outcome per FILE: the refused attempt is not a run of the tool.
+    expect(outcomes()).toEqual(["tool_completed", "tool_completed"]);
+    // Control: once the batch has ended, nothing holds the page.
+    expect(unsavedLabels()).toEqual([]);
+    const after = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(after);
+    expect(after.defaultPrevented).toBe(false);
   });
+
+  it("paused on the FIRST file: no sentence about finished files, and with focus elsewhere the pause is spoken, not focused", async () => {
+    limitedNetwork({ refuseReservation: 1 });
+    render(
+      <>
+        <LiveRegion />
+        <input aria-label="Elsewhere on the page" />
+      </>,
+    );
+    const { view } = await dropTwo("repair-pdf");
+    const run = await screen.findByRole("button", { name: "Repair 2 PDFs" });
+    await waitFor(() => expect(run).not.toHaveAttribute("aria-disabled"));
+    // Focus is somewhere real, outside the batch, when the pause begins.
+    const elsewhere = screen.getByRole("textbox", {
+      name: "Elsewhere on the page",
+    });
+    elsewhere.focus();
+    fireEvent.click(run);
+    const banner = await waitFor(() => {
+      const el = view.container.querySelector("[data-batch-paused]");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(banner.textContent).not.toMatch(/finished files/);
+    const region = document.querySelector('p[aria-live="polite"]')!;
+    await waitFor(() => expect(region.textContent).toBe(WORKER_BATCH_PAUSED));
+    // ...and left there.
+    expect(document.activeElement).toBe(elsewhere);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(view.container.querySelector("[data-batch-paused]")).toBeNull(),
+    );
+  });
+
+  it("while the batch runs, leaving the page asks first", async () => {
+    let release: () => void = () => {};
+    const net = limitedNetwork({
+      holdPut: new Promise<void>((r) => (release = r)),
+    });
+    await dropTwo("repair-pdf");
+    // Control: before Run, nothing holds the page.
+    expect(unsavedLabels()).toEqual([]);
+    const run = await screen.findByRole("button", { name: "Repair 2 PDFs" });
+    await waitFor(() => expect(run).not.toHaveAttribute("aria-disabled"));
+    fireEvent.click(run);
+    await waitFor(() => expect(net.puts()).toBe(1));
+    expect(unsavedLabels().some((l) => l.startsWith("your batch"))).toBe(true);
+    const unload = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(true);
+    release();
+    await screen.findByText("Batch complete. 2 done, 0 failed.", undefined, {
+      timeout: 5000,
+    });
+    expect(unsavedLabels()).toEqual([]);
+  });
+
+  // One tool per panel module: the set is the registration, grouped by the
+  // panel each page mounts, never typed.
+  const perPanel = [
+    ...new Map(SLUGS.map((slug) => [bySlug.get(slug)!.file, slug])).values(),
+  ];
+  it("health: the five worker panels, one tool each", () => {
+    expect(perPanel).toHaveLength(5);
+  });
+  for (const slug of perPanel) {
+    it(`${slug}: a job resumed after a reload is running, so two files dropped then never start a batch beside it`, async () => {
+      let reservations = 0;
+      const json = (value: unknown, status = 200) =>
+        new Response(JSON.stringify(value), {
+          status,
+          headers: { "content-type": "application/json" },
+        });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          const method = init?.method ?? "GET";
+          if (url.includes("/api/worker/status")) return json(READY);
+          if (url === "/api/uploads") {
+            reservations += 1;
+            return json(
+              { error: { code: "internal_error", message: "x" } },
+              500,
+            );
+          }
+          if (url === "/api/jobs/job_saved1" && method === "GET") {
+            return json({ jobId: "job_saved1", status: "processing" });
+          }
+          if (url === "/api/jobs/job_saved1" && method === "DELETE")
+            return json({ jobId: "job_saved1", status: "canceled" });
+          throw new Error(`unexpected ${method} ${url}`);
+        }),
+      );
+      sessionStorage.setItem(
+        WORKER_JOB_STORAGE_PREFIX + slug,
+        JSON.stringify({
+          jobId: "job_saved1",
+          expiresAt: Date.now() + 600_000,
+        }),
+      );
+      const tool = getToolBySlug(slug)!;
+      leave = enterToolPage({ toolSlug: slug, capability: "secure-worker" });
+      const Panel = await panelFor(slug);
+      const view = render(<Panel tool={tool} />);
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Keep waiting" }),
+      );
+      // The resumed job runs: its Cancel is the panel's busy status.
+      await screen.findByRole("button", { name: "Cancel" });
+      const input =
+        document.querySelector<HTMLInputElement>('input[type="file"]')!;
+      expect(input).not.toBeNull();
+      fireEvent.change(input, {
+        target: { files: [fileFor(tool, "first"), fileFor(tool, "second")] },
+      });
+      await act(() => new Promise((r) => setTimeout(r, 300)));
+      expect(
+        view.container.querySelector(`[data-chunk="${BATCH_VIEW_LOADED}"]`),
+      ).toBeNull();
+      expect(reservations).toBe(0);
+      // Still the resumed job's status, in view.
+      expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+    });
+  }
 
   it("control: HTML to PDF, on the same panel as EPUB to PDF, stays one file", async () => {
     stubJobNetwork(READY);

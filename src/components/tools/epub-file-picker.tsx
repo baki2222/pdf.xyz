@@ -47,9 +47,13 @@ export function EpubFilePicker({
   ) : (
     <Dropzone
       pageTarget
+      busy={busy}
       refuse={(file) => pickRefusal(tool, file)}
       onFiles={(files) =>
-        files.length > 1 ? onMany(files) : onFile(files[0] ?? null)
+        // Never to the batch while a job runs (one resumed after a reload
+        // has no file in hand, so this zone shows): a second job would
+        // start beside it, its status hidden behind the list.
+        files.length > 1 && !busy ? onMany(files) : onFile(files[0] ?? null)
       }
       accept="application/epub+zip,.epub"
       compact
