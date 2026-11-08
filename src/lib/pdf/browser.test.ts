@@ -83,6 +83,43 @@ describe("zipFiles", () => {
       "Scan-Compressed (3).pdf": [3],
     });
   });
+
+  // Batch plan P0b: a batch keeps each finished file as a Blob, so the ZIP
+  // takes Blob entries as they are, beside bytes, with the same naming rule.
+  it("takes Blob entries beside bytes, and names them by the same rule", async () => {
+    const blob = await zipFiles([
+      { name: "a.pdf", blob: new Blob([new Uint8Array([7, 7, 7])]) },
+      { name: "a.pdf", bytes: new Uint8Array([4]) },
+      { name: "b.pdf", blob: new Blob([new Uint8Array([5, 6])]) },
+    ]);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const byName: Record<string, number[]> = {};
+    for (const entry of Object.values(zip.files).filter((e) => !e.dir)) {
+      byName[entry.name] = Array.from(await entry.async("uint8array"));
+    }
+    expect(byName).toEqual({
+      "a.pdf": [7, 7, 7],
+      "a (2).pdf": [4],
+      "b.pdf": [5, 6],
+    });
+  });
+
+  it("STORE writes each entry as it is: the archive holds the bytes uncompressed", async () => {
+    // Highly compressible content, so DEFLATE would shrink it to almost
+    // nothing; STORE must carry every byte (the batch's PDFs are already
+    // compressed, and DEFLATE would only burn a phone's CPU on them).
+    const content = new Uint8Array(64 * 1024).fill(65);
+    const stored = await zipFiles(
+      [{ name: "x.pdf", blob: new Blob([content]) }],
+      {
+        compression: "STORE",
+      },
+    );
+    const deflated = await zipFiles([{ name: "x.pdf", bytes: content }]);
+    expect(stored.size).toBeGreaterThan(content.byteLength);
+    // Control: the default really compresses, so the size above is STORE's.
+    expect(deflated.size).toBeLessThan(content.byteLength / 10);
+  });
 });
 
 describe("downloadBytes", () => {

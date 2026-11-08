@@ -16,6 +16,7 @@ export type BatchItemStatus =
   | "running" // currently processing
   | "done" // finished successfully (has `result`)
   | "error" // failed (has `error`)
+  | "skipped" // looked at and deliberately left out (has `reason`)
   | "canceled"; // never ran because the batch was canceled
 
 /** One file's slot in the batch, carrying its result or error when settled. */
@@ -29,6 +30,17 @@ export interface BatchItem<R> {
   result?: R;
   /** User-facing reason, present once `status === "error"`. */
   error?: string;
+  /**
+   * Why the file was left out, present once `status === "skipped"`. A skip is
+   * not a failure: nothing went wrong, there was nothing for the tool to do
+   * (an Unlock of a file that is not locked).
+   */
+  reason?: string;
+  /**
+   * A sentence about a finished file that is not a failure (a repair that
+   * had to guess, a file with no images to extract). Only on `done`.
+   */
+  note?: string;
 }
 
 /** Overall batch phase. `done`/`canceled` are terminal. */
@@ -52,8 +64,9 @@ export interface BatchProgress {
   running: number;
   done: number;
   error: number;
+  skipped: number;
   canceled: number;
-  /** Items in a terminal state (done + error + canceled). */
+  /** Items in a terminal state (done + error + skipped + canceled). */
   settled: number;
   /** Whole-percent completion over all items (0–100). */
   pct: number;

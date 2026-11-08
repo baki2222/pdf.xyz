@@ -1,10 +1,12 @@
 import type { ToolContent } from "./types";
 import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
+import { SETTINGS_BATCH_TOOLS, batchLimitsSentence } from "@/lib/batch/tools";
 import { MIN_CROP_DIMENSION } from "@/lib/pdf/page-geometry";
 import {
   SPLIT_DIRECTIONS,
   SPLIT_HALF_RUN_LABEL,
   SPLIT_ORDERS,
+  SPLIT_ORDER_CHOICES,
 } from "@/lib/pdf/split-half";
 
 /**
@@ -26,6 +28,8 @@ const LEFT_RIGHT = label("left-right", SPLIT_DIRECTIONS);
 const TOP_BOTTOM = label("top-bottom", SPLIT_DIRECTIONS);
 const LEFT_FIRST = label("left-first", SPLIT_ORDERS);
 const RIGHT_FIRST = label("right-first", SPLIT_ORDERS);
+const TOP_FIRST = label("left-first", SPLIT_ORDER_CHOICES["top-bottom"]);
+const BOTTOM_FIRST = label("right-first", SPLIT_ORDER_CHOICES["top-bottom"]);
 
 const content: ToolContent = {
   slug: "split-pdf-pages-in-half",
@@ -58,16 +62,20 @@ const content: ToolContent = {
       title: "Two-up handouts back to one page each",
       body: `A handout printed two pages to a sheet, one above the other, then scanned. ${TOP_BOTTOM} gives the top page, then the bottom page, for every sheet.`,
     },
+    {
+      title: "Split a whole shelf of scans",
+      body: `Add two or more PDFs and they open as a batch list, with one Direction, Page order and pair of cover checkboxes for them all. Every page of each file is split, except a cover kept whole; to split only some pages, open one file on its own. Press Split with the number of files and each one is split in turn, in your browser, with nothing uploaded. Download a file from its row, or press “Download all” for ${SETTINGS_BATCH_TOOLS["split-pdf-pages-in-half"].zipName}. ${batchLimitsSentence()}`,
+    },
   ],
 
   steps: [
     {
-      title: "Open one PDF",
-      body: `Drag the PDF into the drop area, or click it to pick the file from your device. It takes one file, up to ${ceilingMb} MB.`,
+      title: "Open your PDF",
+      body: `Drag the PDF into the drop area, or click it to pick the file from your device. It takes files of up to ${ceilingMb} MB each; two or more open a batch list.`,
     },
     {
       title: "Choose the direction and order",
-      body: `Under Direction, keep ${LEFT_RIGHT} for a vertical cut down the middle, or choose ${TOP_BOTTOM} for a cut across it. For ${LEFT_RIGHT}, Page order sets which half comes first: ${LEFT_FIRST}, or ${RIGHT_FIRST} for books read right to left.`,
+      body: `Under Direction, keep ${LEFT_RIGHT} for a vertical cut down the middle, or choose ${TOP_BOTTOM} for a cut across it. Page order sets which half comes first: for ${LEFT_RIGHT}, ${LEFT_FIRST}, or ${RIGHT_FIRST} for books read right to left; for ${TOP_BOTTOM}, ${TOP_FIRST} or ${BOTTOM_FIRST}.`,
     },
     {
       title: "Choose the pages",

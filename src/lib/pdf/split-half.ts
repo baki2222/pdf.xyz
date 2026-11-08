@@ -40,7 +40,11 @@ import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
 /** Which way each page is cut. */
 export type SplitDirection = "left-right" | "top-bottom";
 
-/** Left and right only: which half comes first in the output. */
+/**
+ * Which half comes first in the output. The ids name the left and right cut;
+ * on a top and bottom cut `left-first` is the top half first and
+ * `right-first` the bottom half first (`SPLIT_ORDER_CHOICES` labels each).
+ */
 export type SplitOrder = "left-first" | "right-first";
 
 export const SPLIT_DIRECTIONS: readonly {
@@ -56,7 +60,7 @@ export const SPLIT_DIRECTIONS: readonly {
   {
     id: "top-bottom",
     label: "Top and bottom",
-    hint: "A horizontal cut across the middle: each page becomes its top half, then its bottom half.",
+    hint: "A horizontal cut across the middle: each page becomes its top half and its bottom half.",
   },
 ];
 
@@ -65,12 +69,28 @@ export const SPLIT_ORDERS: readonly { id: SplitOrder; label: string }[] = [
   { id: "right-first", label: "Right page first" },
 ];
 
+/**
+ * The Page order choices as the runner labels them for each cut. Until
+ * 2026-11-08 a top and bottom cut ignored the order and the runner hid the
+ * control, so a sheet whose lower page is read first could not be split in
+ * reading order.
+ */
+export const SPLIT_ORDER_CHOICES: Readonly<
+  Record<SplitDirection, readonly { id: SplitOrder; label: string }[]>
+> = {
+  "left-right": SPLIT_ORDERS,
+  "top-bottom": [
+    { id: "left-first", label: "Top half first" },
+    { id: "right-first", label: "Bottom half first" },
+  ],
+};
+
 /** The run button's label, here so the page's steps quote the runner's word. */
 export const SPLIT_HALF_RUN_LABEL = "Split pages";
 
 export interface SplitHalfOptions {
   direction: SplitDirection;
-  /** Ignored for top and bottom, whose top half always comes first. */
+  /** Which half comes first, on either cut (see {@link SplitOrder}). */
   order: SplitOrder;
   /** 0-based pages to split; omitted means every page. */
   pages?: number[];
@@ -97,7 +117,8 @@ export function halvesInOrder(
   direction: SplitDirection,
   order: SplitOrder,
 ): [Half, Half] {
-  if (direction === "top-bottom") return ["top", "bottom"];
+  if (direction === "top-bottom")
+    return order === "right-first" ? ["bottom", "top"] : ["top", "bottom"];
   return order === "right-first" ? ["right", "left"] : ["left", "right"];
 }
 

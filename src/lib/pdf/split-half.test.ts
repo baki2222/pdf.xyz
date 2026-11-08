@@ -167,6 +167,11 @@ const CASES: {
   { direction: "left-right", order: "left-first", halves: ["left", "right"] },
   { direction: "left-right", order: "right-first", halves: ["right", "left"] },
   { direction: "top-bottom", order: "left-first", halves: ["top", "bottom"] },
+  // Until 2026-11-08 `halvesInOrder` ignored the order for a top and bottom
+  // cut, and the runner hid the control there, so a two-up sheet whose lower
+  // page comes first could not be split in reading order. Inverted, not
+  // deleted: the second half of the order now applies to this cut too.
+  { direction: "top-bottom", order: "right-first", halves: ["bottom", "top"] },
 ];
 
 describe("splitPagesInHalf as a viewer displays the result", () => {

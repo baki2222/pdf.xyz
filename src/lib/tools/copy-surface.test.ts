@@ -98,6 +98,8 @@ describe("the copy surface reaches what the guards must read", () => {
       "src/lib/pdf/compress-batch-copy.ts",
       // Added 2026-11-08: Compress PDF's lossless cleanup sentence and line.
       "src/lib/pdf/compress-cleanup.ts",
+      // Added 2026-11-08: the batch's refusal sentences (batch plan P0b).
+      "src/lib/batch/limits.ts",
       // Added 2026-10-31: JPG / PNG to PDF's Max file size — its labels,
       // hint and outcome lines, and the re-encoder's error messages.
       "src/lib/pdf/image-size-limit.ts",

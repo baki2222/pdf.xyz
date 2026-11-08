@@ -89,7 +89,10 @@ const CORPUS: readonly Row[] = [
   {
     mix: "two PDFs",
     files: () => [pdf("a.pdf"), pdf("b.pdf")],
-    top: ["merge-pdf", "compress-pdf", "sign-pdf"],
+    // Was sign-pdf third until 2026-11-08 (batch plan P1): Add Page Numbers
+    // now takes both PDFs in one batch, so its prior is no longer cut to the
+    // one-file share, and it outranks a tool that opens only the first.
+    top: ["merge-pdf", "compress-pdf", "page-numbers"],
   },
   {
     mix: "a scan",

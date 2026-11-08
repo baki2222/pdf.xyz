@@ -224,6 +224,11 @@ test.describe("client tool proof — the derived set", () => {
         "organize-pages",
         "merge-pdf",
         "page-numbers",
+        // The settings batches (batch plan P1), beside rotate-pdf and
+        // page-numbers above.
+        "flatten-pdf",
+        "watermark-pdf",
+        "split-pdf-pages-in-half",
       ]),
     );
     for (const v of VARIANTS)

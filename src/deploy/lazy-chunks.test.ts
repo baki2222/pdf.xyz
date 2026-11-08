@@ -30,6 +30,7 @@ import { TICKET_CHUNK_MARKER } from "@/components/intent/ticket-chunk";
 import { TICKET_DIALOG_CHUNK_MARKER } from "@/components/intent/ticket-dialog-chunk";
 import { PALETTE_CHUNK_MARKER } from "@/components/intent/palette-chunk";
 import { REPLACE_BOXES_CHUNK } from "@/components/tools/replace-boxes";
+import { BATCH_VIEW_LOADED } from "@/components/tools/runner/batch/batch-view";
 import { RESULT_ENDING_CHUNK } from "@/components/intent/result-ending-chunk";
 import { DROP_ENGINE_MARK } from "@/lib/intent/drop-engine";
 import { tools } from "@/lib/tools";
@@ -291,6 +292,18 @@ const OUR_LAZY: LazyLibrary[] = [
     why: "it arrives with the upload, on the same fetch, and runs only once a job exists",
     allowedAtLoad: {},
   },
+  // Batch plan P0b (2026-11-08): the batch view — its rows, controls, live
+  // region, ZIP button and the batch limits. Compress PDF imported its batch
+  // statically, so every visit to Compress loaded it (the batch's progress
+  // label was in its first load, measured on the build before this entry);
+  // the runner now reaches it through `next/dynamic` once a second file
+  // arrives, and no page may load it up front.
+  {
+    what: "the batch view",
+    marker: BATCH_VIEW_LOADED,
+    why: "a runner fetches it when two or more files arrive; a visit with one file, or none, never downloads it",
+    allowedAtLoad: {},
+  },
   // WP-05 review (2026-10-10): the home desk's own island. It IS first-load
   // on the home page, which renders it; the reason it sits behind a
   // `next/dynamic` boundary (`hero-desk-island.tsx`) is that every other
@@ -495,8 +508,17 @@ describe("the catalogue ships in one chunk, shared by every surface that reads i
  * (a `.docx` renamed `.epub` is refused by its contents). The eight counted
  * chunks went 33,784 -> 33,917 B (+133, gzip -9, main 33ad8bd9 vs the
  * branch, one machine, empty .next): 33.07 + 133/1024 = 33.20.
+ *
+ * RAISED 33.2 -> 33.21 on 2026-11-08, for batch P1 (PR #292): five tools
+ * (Rotate, Flatten, Page Numbers, Watermark, Split in Half) now take a
+ * batch, so the catalogue the ticket loads lists "ZIP" among their outputs,
+ * as Compress and PDF to JPG already do, and the handoff modes read "batch".
+ * Measured on one machine, both builds from an empty .next: the eight
+ * counted chunks went 33,982 -> 33,990 B (+8: the catalogue chunks 7599 ->
+ * 7605 and 3926 -> 3928, the other six byte-identical; main 9266c59d vs the
+ * branch). 33.2 + 8/1024 = 33.208. CI measured the branch at >= 33.2.
  */
-const TICKET_FETCH_GZ_KB = 33.2;
+const TICKET_FETCH_GZ_KB = 33.21;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));

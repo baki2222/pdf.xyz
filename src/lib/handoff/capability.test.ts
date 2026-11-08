@@ -46,9 +46,33 @@ describe("handoffCapabilityFor", () => {
     });
   });
 
-  it("maps every single-file runner to single (max one file)", () => {
+  /*
+   * INVERTED 2026-11-08 (batch plan P1). rotate-pdf, page-numbers,
+   * watermark-pdf and flatten-pdf were in the single list below, and
+   * split-pdf-pages-in-half was single too: each took the first file of a
+   * hand-off and dropped the rest. Each now runs a settings batch over two
+   * or more files, so a hand-off carries them all.
+   */
+  it("maps every settings-batch runner to batch (no one-file cap)", () => {
     for (const slug of [
       "rotate-pdf",
+      "page-numbers",
+      "watermark-pdf",
+      "flatten-pdf",
+      "split-pdf-pages-in-half",
+    ]) {
+      const capability = handoffCapabilityFor(slug);
+      expect(capability).toMatchObject({
+        mode: "batch",
+        supported: true,
+        minFiles: 1,
+      });
+      expect(capability.maxFiles).toBeUndefined();
+    }
+  });
+
+  it("maps every single-file runner to single (max one file)", () => {
+    for (const slug of [
       "organize-pages",
       "split-pdf",
       "remove-pages",
@@ -59,12 +83,9 @@ describe("handoffCapabilityFor", () => {
       "markdown-to-pdf",
       "pdf-to-jpg",
       "pdf-to-png",
-      "page-numbers",
-      "watermark-pdf",
       "header-footer",
       "crop-pdf",
       "sign-pdf",
-      "flatten-pdf",
       "overlay-pdf",
       "grayscale-pdf",
       "redact-pdf",

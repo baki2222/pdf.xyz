@@ -173,3 +173,132 @@ describe("batchProgress", () => {
     expect(batchProgress(initBatch<number>([])).pct).toBe(0);
   });
 });
+
+describe("batchReducer — skipped and noted files (batch plan P0b)", () => {
+  it("a skipped file is settled, carries its reason, and is not a failure", () => {
+    const final = run(initBatch<number>(seeds.slice(0, 2)), [
+      { type: "start" },
+      { type: "item-start", id: "a" },
+      { type: "item-skip", id: "a", reason: "not locked" },
+      { type: "item-start", id: "b" },
+      { type: "item-success", id: "b", result: 2, note: "repaired by guess" },
+    ]);
+    expect(final.phase).toBe("done");
+    expect(final.items[0]).toMatchObject({
+      status: "skipped",
+      reason: "not locked",
+    });
+    expect(final.items[1]).toMatchObject({
+      status: "done",
+      result: 2,
+      note: "repaired by guess",
+    });
+    expect(batchProgress(final)).toMatchObject({
+      skipped: 1,
+      error: 0,
+      done: 1,
+      settled: 2,
+      pct: 100,
+    });
+  });
+
+  it("a skip of an item that is not running changes nothing", () => {
+    const state = initBatch<number>(seeds);
+    expect(
+      batchReducer(state, { type: "item-skip", id: "a", reason: "x" }),
+    ).toBe(state);
+  });
+
+  it("a success without a note leaves no note key", () => {
+    const final = run(initBatch<number>(seeds.slice(0, 1)), [
+      { type: "start" },
+      { type: "item-start", id: "a" },
+      { type: "item-success", id: "a", result: 1 },
+    ]);
+    expect("note" in final.items[0]!).toBe(false);
+  });
+});
+
+describe("batchReducer — retry the failed files", () => {
+  const failedTwo = () =>
+    run(initBatch<number>(seeds), [
+      { type: "start" },
+      { type: "item-start", id: "a" },
+      { type: "item-success", id: "a", result: 1 },
+      { type: "item-start", id: "b" },
+      { type: "item-error", id: "b", error: "bad" },
+      { type: "item-start", id: "c" },
+      { type: "item-error", id: "c", error: "worse" },
+    ]);
+
+  it("re-queues only the named failures, keeps every finished result, and goes idle", () => {
+    const retried = batchReducer(failedTwo(), { type: "retry", ids: ["b"] });
+    expect(retried.phase).toBe("idle");
+    expect(retried.items.map((i) => i.status)).toEqual([
+      "done",
+      "queued",
+      "error",
+    ]);
+    expect(retried.items[0]!.result).toBe(1);
+    expect(retried.items[1]!.error).toBeUndefined();
+    // And a start runs it: the machine accepts the retried queue.
+    const restarted = run(retried, [
+      { type: "start" },
+      { type: "item-start", id: "b" },
+      { type: "item-success", id: "b", result: 2 },
+    ]);
+    expect(restarted.phase).toBe("done");
+    expect(restarted.items.map((i) => i.result)).toEqual([1, 2, undefined]);
+  });
+
+  it("never re-queues a done or canceled row, and is a no-op while running", () => {
+    const state = failedTwo();
+    expect(batchReducer(state, { type: "retry", ids: ["a"] })).toBe(state);
+    const running = run(initBatch<number>(seeds), [
+      { type: "start" },
+      { type: "item-start", id: "a" },
+      { type: "item-error", id: "a", error: "x" },
+    ]);
+    expect(batchReducer(running, { type: "retry", ids: ["a"] })).toBe(running);
+    const canceled = run(initBatch<number>(seeds), [
+      { type: "start" },
+      { type: "cancel" },
+    ]);
+    expect(batchReducer(canceled, { type: "retry", ids: ["a", "b"] })).toBe(
+      canceled,
+    );
+  });
+
+  it("a cancel during a retry cancels only what the retry queued", () => {
+    const state = run(failedTwo(), [
+      { type: "retry", ids: ["b", "c"] },
+      { type: "start" },
+      { type: "item-start", id: "b" },
+      { type: "cancel" },
+      { type: "item-success", id: "b", result: 2 },
+    ]);
+    expect(state.phase).toBe("canceled");
+    expect(state.items.map((i) => i.status)).toEqual([
+      "done",
+      "done",
+      "canceled",
+    ]);
+  });
+});
+
+describe("batchReducer — remove before Run", () => {
+  it("takes the file out while idle", () => {
+    const state = batchReducer(initBatch<number>(seeds), {
+      type: "remove",
+      id: "b",
+    });
+    expect(state.items.map((i) => i.id)).toEqual(["a", "c"]);
+  });
+
+  it("does nothing once the batch has started, or for an unknown id", () => {
+    const started = batchReducer(initBatch<number>(seeds), { type: "start" });
+    expect(batchReducer(started, { type: "remove", id: "b" })).toBe(started);
+    const idle = initBatch<number>(seeds);
+    expect(batchReducer(idle, { type: "remove", id: "zzz" })).toBe(idle);
+  });
+});

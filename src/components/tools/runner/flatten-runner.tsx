@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { Download, Layers, ShieldCheck, TriangleAlert } from "lucide-react";
 import {
@@ -23,7 +24,11 @@ import {
   useAsyncRun,
 } from "./runner-kit";
 import { RunBar } from "./run-bar";
-import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
+import {
+  FileHeader,
+  SinglePdfRunner,
+  type SinglePdfBatch,
+} from "./single-pdf-runner";
 import { PrivacyLine } from "./stamp-controls";
 import type { LoadedPdf } from "./use-single-pdf";
 
@@ -35,10 +40,28 @@ import type { LoadedPdf } from "./use-single-pdf";
 export const SIGNED_PDF_WARNING =
   "This PDF is digitally signed. Saving any change to it here, including flattening, means the signature will no longer verify.";
 
+/**
+ * Two or more PDFs: the batch (batch plan P1), its own chunk, fetched only
+ * when they arrive — never with a visit to this page.
+ */
+const FlattenBatch = dynamic(
+  () => import("./batch/flatten-batch").then((m) => m.FlattenBatch),
+  {
+    loading: () => (
+      <div
+        aria-hidden
+        className="border-line bg-wash rounded-panel h-40 w-full border"
+      />
+    ),
+  },
+);
+const batch = (props: SinglePdfBatch) => <FlattenBatch {...props} />;
+
 export function FlattenRunner() {
   return (
     <SinglePdfRunner
-      hint="One PDF · fillable form fields flattened locally in your browser"
+      hint="One or more PDFs · fillable form fields flattened locally in your browser"
+      batch={batch}
       handoffSlug="flatten-pdf"
       toolName="Flatten PDF"
     >

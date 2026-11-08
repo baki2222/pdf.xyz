@@ -1,5 +1,5 @@
 import { resultsKept } from "@/lib/intent/unsaved";
-import type { NamedBytes } from "./types";
+import type { NamedBytes, ZipEntry } from "./types";
 
 /**
  * Browser-only helpers: reading Files into bytes, triggering downloads, and
@@ -85,12 +85,12 @@ export interface ZipOptions {
 }
 
 /**
- * Bundle several named byte blobs into a single ZIP archive. Every input is
- * its own entry: two that share a name get " (2)", " (3)", … (see
- * `uniqueEntryNames` in `./zip-archive`).
+ * Bundle several named files — bytes or Blobs — into a single ZIP archive.
+ * Every input is its own entry: two that share a name get " (2)", " (3)", …
+ * (see `uniqueEntryNames` in `./zip-archive`).
  */
 export async function zipFiles(
-  files: NamedBytes[],
+  files: readonly ZipEntry[],
   { compression = "DEFLATE" }: ZipOptions = {},
 ): Promise<Blob> {
   const { buildZip } = await loadZipArchive();

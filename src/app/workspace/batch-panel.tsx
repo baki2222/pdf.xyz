@@ -44,14 +44,26 @@ function statusContent(
         body: "Add the files you chose above, and they open in this tool together.",
       };
     case "ready": {
+      // More files than one batch takes: the first `cap` open in it, and the
+      // batch lists the rest with the reason (`capBatchFiles`).
+      const cap = tool?.batchMaxFiles;
+      if (tool?.handoffMode === "batch" && cap !== undefined && n > cap) {
+        return {
+          tone: "ready",
+          title: `Ready — ${files}`,
+          body: `${name} runs on up to ${cap} files at a time, right here in your browser: the first ${cap} of these open in its batch, and the other ${n - cap} are listed there with the reason. They load straight in — nothing is uploaded.`,
+        };
+      }
       const verb =
         tool?.handoffMode === "collect"
           ? `combines these ${files}`
-          : `runs on each of these ${files}`;
+          : n === 1
+            ? "runs on this file"
+            : `runs on each of these ${files}`;
       return {
         tone: "ready",
         title: `Ready — ${files}`,
-        body: `${name} ${verb} right here in your browser. They load straight in — nothing is uploaded.`,
+        body: `${name} ${verb} right here in your browser. ${n === 1 ? "It loads" : "They load"} straight in — nothing is uploaded.`,
       };
     }
     case "single":

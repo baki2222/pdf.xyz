@@ -1,26 +1,7 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  CircleSlash,
-  Clock,
-  Download,
-  FileArchive,
-  Info,
-  Play,
-  RefreshCw,
-  ServerCog,
-  X,
-} from "lucide-react";
+import { useCallback, useId, useMemo, useState } from "react";
+import { Info, ServerCog } from "lucide-react";
 import { optimizeLossless, type LosslessResult } from "@/lib/pdf/analyze";
 import {
   classifyPdfAccess,
@@ -39,26 +20,17 @@ import {
   BATCH_MODE_HEADING,
   BATCH_RESTRICTED_NOTE,
 } from "@/lib/pdf/compress-batch-copy";
+import { capBatchFiles } from "@/lib/batch/limits";
+import { reportToolFailed } from "@/lib/telemetry/tool-outcome";
 import { useWorkerStatus } from "../use-worker-status";
 import { canRunDeepCompression, qualityChipTitle } from "./compress-deep-gate";
-import { downloadBytes, readFileBytes } from "@/lib/pdf/browser";
+import { readFileBytes } from "@/lib/pdf/browser";
 import { outputName } from "@/lib/pdf/files";
-import type { NamedBytes } from "@/lib/pdf/types";
-import { buttonVariants } from "@/components/ui/button";
-import { cn, formatBytes } from "@/lib/utils";
-import type { BatchItem } from "@/lib/batch";
-import { HandoffLoadedBadge, type Arrival } from "./handoff-notice";
-import {
-  ChipButton,
-  ErrorNote,
-  RunEnding,
-  Spinner,
-  outputFile,
-  warmEnding,
-} from "./runner-kit";
-import { holdRunnerStage } from "./stage-hold";
+import { formatBytes } from "@/lib/utils";
+import type { Arrival } from "./handoff-notice";
+import { ChipButton, failureCode } from "./runner-kit";
+import { BatchView } from "./batch/batch-view";
 import { useBatchRunner, type BatchUnit } from "./use-batch-runner";
-import { useZipDownload } from "./use-zip-download";
 
 /** Deterministic, on-device result of losslessly repacking one PDF. */
 export interface CompressResult {
@@ -168,6 +140,38 @@ async function signaturesIn(bytes: Uint8Array): Promise<number | null> {
 }
 
 /**
+ * A deep row up to the upload: read the file, and refuse a locked one.
+ *
+ * Read the lock BEFORE anything is uploaded (review of cb0eb82e).
+ * Ghostscript writes an unencrypted copy, so a restricted file would come
+ * back with its author's restrictions gone and no owner password given; the
+ * single-file panel shows a warning first, a batch row cannot. A file that
+ * needs a password to open cannot be compressed by anyone. Both get the
+ * lossless batch's own words, and none of their bytes leave. An "unreadable"
+ * file still goes: pdf.js failing to open it is not a lock, and our server
+ * may read what the browser cannot.
+ *
+ * Every failure HERE is reported here, once. A deep row's outcome is
+ * otherwise reported only by `runWorkerCompression` (`withToolOutcome`), and
+ * the batch runs deep rows with `reportsOutcome: false` so a server file is
+ * not counted twice — so a file that never reaches the worker client (locked,
+ * or no longer readable: moved, or its permission revoked) would otherwise be
+ * reported by nobody. `compress-batch-deep-report.dom.test.tsx` counts them.
+ */
+async function preflightDeep(file: File): Promise<Uint8Array> {
+  try {
+    const bytes = await readFileBytes(file);
+    const access = await classifyPdfAccess(bytes);
+    if (access.kind === "restricted" || access.kind === "password-required")
+      throw lockedRefusal(access.kind);
+    return bytes;
+  } catch (err) {
+    reportToolFailed({ code: failureCode(err) });
+    throw err;
+  }
+}
+
+/**
  * One batch row on our secure server (audit compress-pdf#5): the same job
  * the single-file panel runs, one file at a time. As there, a file that did
  * not get smaller comes back as it came in, except on a Grayscale run,
@@ -178,19 +182,7 @@ export async function compressBatchFileDeep(
   options: BatchDeepOptions,
   signal?: AbortSignal,
 ): Promise<CompressResult> {
-  const bytes = await readFileBytes(file);
-  // Read the lock BEFORE anything is uploaded (review of cb0eb82e).
-  // Ghostscript writes an unencrypted copy, so a restricted file would come
-  // back with its author's restrictions gone and no owner password given;
-  // the single-file panel shows a warning first, a batch row cannot. A file
-  // that needs a password to open cannot be compressed by anyone. Both get
-  // the lossless batch's own words, and none of their bytes leave.
-  // An "unreadable" file still goes: pdf.js failing to open it is not a lock,
-  // and our server may read what the browser cannot.
-  const access = await classifyPdfAccess(bytes);
-  if (access.kind === "restricted" || access.kind === "password-required") {
-    throw lockedRefusal(access.kind);
-  }
+  const bytes = await preflightDeep(file);
   const res = await runWorkerCompression(
     {
       filename: file.name,
@@ -228,30 +220,96 @@ export async function compressBatchFileDeep(
 }
 
 /**
+ * A finished row as the batch keeps it: the result's facts, and its file as a
+ * Blob. The input's bytes are let go as the row settles, so a batch holds one
+ * decoded input at a time, never all of them.
+ */
+type CompressRow = Omit<CompressResult, "bytes"> & { blob: Blob };
+
+function toRow({ bytes, ...facts }: CompressResult): CompressRow {
+  return {
+    ...facts,
+    blob: new Blob([bytes as BlobPart], { type: "application/pdf" }),
+  };
+}
+
+function pct(part: number, whole: number): number {
+  return whole > 0 ? Math.round((part / whole) * 100) : 0;
+}
+
+/** A finished row's detail line: what it saved, and what to know about it. */
+function describeRow(r: CompressRow) {
+  const size = !r.unchanged ? (
+    <span className="text-ok">
+      {`−${formatBytes(r.savedBytes)} (${pct(r.savedBytes, r.originalBytes)}%) · ${formatBytes(r.optimizedBytes)}`}
+    </span>
+  ) : (
+    <>Nothing came out smaller — your file, unchanged</>
+  );
+  if (r.signaturesUnchecked) {
+    return (
+      <>
+        {size} ·{" "}
+        <span className="text-warn">
+          encrypted, so not checked for digital signatures
+        </span>
+      </>
+    );
+  }
+  if (r.signatureCount === 0) return size;
+  return (
+    <>
+      {size} ·{" "}
+      <span className="text-warn">
+        {r.signatureCount} digital signature
+        {r.signatureCount === 1 ? "" : "s"} will show as invalid
+      </span>
+    </>
+  );
+}
+
+const rowOutputs = (r: CompressRow) => [
+  { name: r.outputName, blob: r.blob, signatureCount: r.signatureCount },
+];
+
+const pdfs = (n: number) => `${n} PDF${n === 1 ? "" : "s"}`;
+
+/**
  * Batch compress: run the **lossless** structural repack (pdf-lib) over several
  * PDFs, one at a time, entirely in the browser. This is the only deterministic,
  * no-input compression we can honestly do client-side — it never re-encodes
  * images, so we say so plainly and point image-heavy files at the secure worker.
- * Nothing is uploaded.
+ * Nothing is uploaded. The rows, controls and downloads are the generic batch
+ * view's (`./batch/batch-view`); this module brings Compress's work and words.
  */
 export function CompressBatchRunner({
   files,
   onReset,
+  onSingle,
   arrival = null,
 }: {
   files: File[];
   onReset: () => void;
+  /**
+   * A Remove left one file: it goes back to the single-file panel, with its
+   * analysis and every option, rather than staying a batch of one.
+   */
+  onSingle?: (file: File) => void;
   /** Set when the files were handed over from another page. */
   arrival?: Arrival | null;
 }) {
+  // A batch takes up to `BATCH_LIMITS.clientMaxFiles` files and
+  // `clientMaxTotalBytes` in all; every file past either is listed with its
+  // reason, never dropped silently.
+  const { accepted, rejected } = useMemo(() => capBatchFiles(files), [files]);
   const units = useMemo<BatchUnit[]>(
     () =>
-      files.map((file, i) => ({
+      accepted.map((file, i) => ({
         id: `${file.name}-${file.size}-${file.lastModified}-${i}`,
         name: file.name,
         file,
       })),
-    [files],
+    [accepted],
   );
 
   // Where the batch runs: the lossless repack in this browser (the default),
@@ -270,493 +328,178 @@ export function CompressBatchRunner({
   const modeName = useId();
 
   const process = useCallback(
-    (file: File, signal: AbortSignal): Promise<CompressResult> =>
-      deep
-        ? compressBatchFileDeep(file, { targetDpi: dpi, grayscale }, signal)
-        : compressBatchFile(file),
+    async (file: File, signal: AbortSignal): Promise<CompressRow> =>
+      toRow(
+        deep
+          ? await compressBatchFileDeep(
+              file,
+              { targetDpi: dpi, grayscale },
+              signal,
+            )
+          : await compressBatchFile(file),
+      ),
     [deep, dpi, grayscale],
   );
 
-  const { state, progress, start, cancel, reset, running } =
-    useBatchRunner<CompressResult>(units, process);
+  // A deep row runs inside `runWorkerCompression`, which reports its own
+  // outcome (`withToolOutcome`); the batch reporting it too counted every
+  // server file twice. The lossless repack reports nowhere else.
+  const runner = useBatchRunner<CompressRow>(units, process, {
+    reportsOutcome: !deep,
+  });
 
-  const settled = state.phase === "done" || state.phase === "canceled";
-  // The stage is held from the press (`./stage-hold`): the rows and the
-  // ending the batch draws come long after it. Once it settles, the hold
-  // keeps nothing past the bottom of the screen, and the rest goes at the
-  // reader's next click or key.
-  const settleHold = useRef<(() => void) | null>(null);
-  useEffect(() => {
-    if (!settled) return;
-    settleHold.current?.();
-    settleHold.current = null;
-  }, [settled]);
-  // Unmounted mid-batch: the rows it was held for will never be drawn.
-  useEffect(() => () => settleHold.current?.(), []);
-  const totalSaved = state.items.reduce(
+  const totalSaved = runner.state.items.reduce(
     (sum, item) => sum + (item.result?.savedBytes ?? 0),
     0,
   );
-  const doneItems = state.items.filter(
-    (item): item is BatchItem<CompressResult> & { result: CompressResult } =>
-      item.status === "done" && !!item.result,
-  );
-  // A signed file's repack invalidates its signatures, so it is left out of
-  // every download until the person opts it in, having been told why.
-  const [includeSigned, setIncludeSigned] = useState(false);
-  const includeSignedId = useId();
-  const signedCount = doneItems.filter(
-    (item) => item.result.signatureCount > 0,
-  ).length;
-  const downloadable = doneItems.filter(
-    (item) => includeSigned || item.result.signatureCount === 0,
-  );
 
-  // What the batch made, as the files a download gives — and so what the
-  // receipt counts and "Continue with" carries (several PDFs: only to the
-  // tool that combines them).
-  const outputs = useMemo(
-    () =>
-      downloadable.map((item) =>
-        outputFile(item.result.bytes, item.result.outputName),
-      ),
-    [downloadable],
-  );
-  const inputBytes = downloadable.reduce(
-    (sum, item) => sum + item.result.originalBytes,
-    0,
-  );
-
-  const { zipping, zipError, downloadZip } = useZipDownload();
-  const downloadAll = useCallback(async () => {
-    const named: NamedBytes[] = downloadable.map((item) => ({
-      name: item.result.outputName,
-      bytes: item.result.bytes,
-    }));
-    if (named.length === 0) return;
-    await downloadZip(named, "pdfxyz-compressed.zip", {
-      // Every file in the ZIP has its own download button above: a signed
-      // one only once it is opted in, which is also when it joins the ZIP.
-      fallback: "If it keeps failing, download the files one at a time above.",
-    });
-  }, [downloadable, downloadZip]);
-
-  return (
-    <div className="flex flex-col gap-5">
-      {arrival && (
-        <HandoffLoadedBadge
-          origin={arrival.origin}
-          count={files.length}
-          skipped={arrival.skipped}
-        />
+  const banner = (
+    <div className="bg-panel border-line rounded-panel flex items-start gap-2.5 border p-4">
+      {deep ? (
+        <ServerCog className="text-info mt-0.5 size-4 shrink-0" aria-hidden />
+      ) : (
+        <Info className="text-accent mt-0.5 size-4 shrink-0" aria-hidden />
       )}
-
-      {/* Honest scope banner: what THIS batch will do, and where. */}
-      <div className="bg-panel border-line rounded-panel flex items-start gap-2.5 border p-4">
+      <p className="text-muted text-sm leading-relaxed">
         {deep ? (
-          <ServerCog className="text-info mt-0.5 size-4 shrink-0" aria-hidden />
+          <>
+            <span className="text-fg">Deep image compression</span> downsamples
+            and re-encodes each PDF&apos;s images on our secure server, one file
+            at a time, with the settings below. A file that does not get smaller
+            comes back unchanged. A digitally signed file is flagged, because
+            any rewrite makes its signatures show as invalid.
+          </>
         ) : (
-          <Info className="text-accent mt-0.5 size-4 shrink-0" aria-hidden />
+          <>
+            Batch <span className="text-fg">lossless compression</span> repacks
+            each PDF&apos;s structure in your browser — every page looks the
+            same, and nothing is uploaded. A digitally signed file is flagged,
+            because any rewrite makes its signatures show as invalid. It
+            doesn&apos;t re-encode images
+            {deepAvailable
+              ? `; for image-heavy files, choose “${BATCH_DEEP_LABEL}” below.`
+              : "."}
+          </>
         )}
-        <p className="text-muted text-sm leading-relaxed">
-          {deep ? (
-            <>
-              <span className="text-fg">Deep image compression</span>{" "}
-              downsamples and re-encodes each PDF&apos;s images on our secure
-              server, one file at a time, with the settings below. A file that
-              does not get smaller comes back unchanged. A digitally signed file
-              is flagged, because any rewrite makes its signatures show as
-              invalid.
-            </>
-          ) : (
-            <>
-              Batch <span className="text-fg">lossless compression</span>{" "}
-              repacks each PDF&apos;s structure in your browser — every page
-              looks the same, and nothing is uploaded. A digitally signed file
-              is flagged, because any rewrite makes its signatures show as
-              invalid. It doesn&apos;t re-encode images
-              {deepAvailable
-                ? `; for image-heavy files, choose “${BATCH_DEEP_LABEL}” below.`
-                : "."}
-            </>
-          )}
-        </p>
-      </div>
-
-      {state.phase === "idle" && deepAvailable && (
-        <fieldset className="flex flex-col gap-2">
-          <legend className="text-muted mb-1 text-[11px] font-medium tracking-wide uppercase">
-            {BATCH_MODE_HEADING}
-          </legend>
-          <label className="text-fg flex min-h-11 items-center gap-2.5 text-sm">
-            <input
-              type="radio"
-              name={modeName}
-              checked={mode === "lossless"}
-              onChange={() => setMode("lossless")}
-              className="accent-accent size-4"
-            />
-            {BATCH_LOSSLESS_LABEL}
-          </label>
-          <label className="text-fg flex min-h-11 items-center gap-2.5 text-sm">
-            <input
-              type="radio"
-              name={modeName}
-              checked={mode === "deep"}
-              onChange={() => setMode("deep")}
-              className="accent-accent size-4"
-            />
-            {BATCH_DEEP_LABEL}
-          </label>
-          {deep && (
-            <div className="flex flex-col gap-3 pl-6">
-              <p className="text-warn text-xs leading-relaxed">
-                Running this uploads each file to our secure server, one at a
-                time.
-              </p>
-              <div
-                role="group"
-                aria-label="Quality"
-                className="flex flex-wrap items-center gap-2"
-              >
-                <span className="text-muted text-[11px] font-medium tracking-wide uppercase">
-                  Quality
-                </span>
-                {DEEP_COMPRESSION_PRESETS.map((q) => (
-                  <ChipButton
-                    key={q.dpi}
-                    onClick={() => setDpi(q.dpi)}
-                    active={dpi === q.dpi}
-                    title={qualityChipTitle(q.dpi)}
-                  >
-                    {q.label}
-                  </ChipButton>
-                ))}
-              </div>
-              <label className="text-muted flex min-h-11 items-start gap-2.5 text-sm">
-                <input
-                  type="checkbox"
-                  checked={grayscale}
-                  onChange={(event) => setGrayscale(event.target.checked)}
-                  className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4"
-                />
-                <span className="flex flex-col gap-0.5">
-                  <span className="text-fg font-medium">Grayscale</span>
-                  <span className="text-muted text-xs leading-relaxed">
-                    {DEEP_COMPRESSION_GRAYSCALE_HINT}
-                  </span>
-                </span>
-              </label>
-            </div>
-          )}
-        </fieldset>
-      )}
-
-      {/* Accessible progress */}
-      <div className="flex flex-col gap-2">
-        <div className="text-muted flex items-center justify-between text-xs">
-          <span>
-            {state.phase === "idle"
-              ? `${files.length} PDF${files.length === 1 ? "" : "s"} ready`
-              : `${progress.settled} of ${progress.total} done`}
-            {progress.error > 0 && (
-              <span className="text-warn"> · {progress.error} failed</span>
-            )}
-            {progress.canceled > 0 && (
-              <span className="text-muted">
-                {" "}
-                · {progress.canceled} canceled
-              </span>
-            )}
-          </span>
-          {settled && totalSaved > 0 && (
-            <span className="text-ok font-medium">
-              −{formatBytes(totalSaved)} total
-            </span>
-          )}
-        </div>
-        <div
-          role="progressbar"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={progress.pct}
-          aria-valuetext={`${progress.settled} of ${progress.total} files processed`}
-          aria-label="Batch compression progress"
-          className="bg-wash rounded-tag h-2 w-full overflow-hidden"
-        >
-          <span
-            className={cn(
-              "rounded-tag block h-full transition-[width] duration-300",
-              state.phase === "canceled" ? "bg-faint" : "bg-accent",
-            )}
-            style={{ width: `${progress.pct}%` }}
-          />
-        </div>
-      </div>
-
-      {/* Per-item results */}
-      <ul className="flex flex-col gap-2" aria-label="Files in this batch">
-        {state.items.map((item) => (
-          <BatchRow
-            key={item.id}
-            item={item}
-            allowDownload={
-              includeSigned || (item.result?.signatureCount ?? 0) === 0
-            }
-          />
-        ))}
-      </ul>
-
-      {settled && signedCount > 0 && (
-        <label
-          htmlFor={includeSignedId}
-          className="border-warn/40 bg-warn/10 text-warn rounded-panel flex items-start gap-2 border px-4 py-3 text-sm"
-        >
-          <input
-            id={includeSignedId}
-            type="checkbox"
-            checked={includeSigned}
-            onChange={(e) => setIncludeSigned(e.target.checked)}
-            className="mt-0.5"
-          />
-          <span>
-            Include {signedCount} signed file{signedCount === 1 ? "" : "s"} in
-            the download — {signedCount === 1 ? "its" : "their"} digital
-            signatures will show as invalid.
-          </span>
-        </label>
-      )}
-
-      {/* Polite completion announcement for screen readers */}
-      <p role="status" aria-live="polite" className="sr-only">
-        {state.phase === "done" &&
-          `Batch complete. ${progress.done} compressed, ${progress.error} failed.`}
-        {state.phase === "canceled" && "Batch canceled."}
       </p>
-
-      {zipError && <ErrorNote message={zipError} />}
-
-      {/* Controls */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-muted text-xs">
-          {deep
-            ? "Files are uploaded and compressed one at a time, on our secure server."
-            : "Files are processed one at a time, on your device."}
-        </p>
-        <div className="flex flex-wrap items-center gap-2">
-          {state.phase === "idle" && (
-            <>
-              <button
-                type="button"
-                onClick={onReset}
-                className={buttonVariants({ variant: "ghost", size: "sm" })}
-              >
-                Choose different files
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  settleHold.current = holdRunnerStage();
-                  void warmEnding().catch(() => {});
-                  start();
-                }}
-                className={buttonVariants({ variant: "primary", size: "sm" })}
-              >
-                <Play className="size-4" aria-hidden />
-                Compress {files.length} PDF{files.length === 1 ? "" : "s"}
-                {deep ? " on our server" : ""}
-              </button>
-            </>
-          )}
-
-          {running && (
-            <button
-              type="button"
-              onClick={cancel}
-              className={buttonVariants({ variant: "outline", size: "sm" })}
-            >
-              <X className="size-4" aria-hidden />
-              Cancel
-            </button>
-          )}
-
-          {settled && (
-            <>
-              <button
-                type="button"
-                onClick={reset}
-                className={buttonVariants({ variant: "ghost", size: "sm" })}
-              >
-                <RefreshCw className="size-3.5" aria-hidden />
-                Run again
-              </button>
-              <button
-                type="button"
-                onClick={onReset}
-                className={buttonVariants({ variant: "outline", size: "sm" })}
-              >
-                New files
-              </button>
-              {downloadable.length > 0 && (
-                <button
-                  type="button"
-                  // `aria-disabled`, not `disabled`, so zipping does not blur
-                  // the user out of the button they just pressed.
-                  onClick={() => {
-                    if (!zipping) void downloadAll();
-                  }}
-                  aria-disabled={zipping || undefined}
-                  aria-busy={zipping}
-                  className={buttonVariants({ variant: "primary", size: "sm" })}
-                >
-                  {zipping ? (
-                    <Spinner />
-                  ) : (
-                    <FileArchive className="size-4" aria-hidden />
-                  )}
-                  {zipping
-                    ? "Preparing ZIP…"
-                    : `Download all (${downloadable.length})`}
-                </button>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-
-      {settled && outputs.length > 0 && (
-        <RunEnding
-          output={outputs.length === 1 ? outputs[0]! : outputs}
-          inputBytes={inputBytes}
-          className="border-line border-t pt-5"
-        />
-      )}
     </div>
   );
-}
 
-/** One row in the batch list: status glyph, name, and per-item result/error. */
-function BatchRow({
-  item,
-  allowDownload,
-}: {
-  item: BatchItem<CompressResult>;
-  /** False for a signed file the person has not opted into downloading. */
-  allowDownload: boolean;
-}) {
-  return (
-    <li className="bg-panel border-line rounded-ctl flex items-center gap-3 border px-3 py-2.5">
-      <StatusGlyph status={item.status} />
-      <span className="min-w-0 flex-1">
-        <span className="text-fg block truncate text-sm">{item.name}</span>
-        <span className="text-muted block text-xs">
-          <BatchDetail item={item} />
-        </span>
-      </span>
-      {item.status === "done" && item.result && allowDownload && (
-        <button
-          type="button"
-          onClick={() =>
-            downloadBytes(item.result!.bytes, item.result!.outputName)
-          }
-          aria-label={`Download ${item.result.unchanged ? "unchanged" : "compressed"} ${item.name}`}
-          className="text-muted hover:bg-wash hover:text-fg rounded-ctl grid size-8 shrink-0 place-items-center transition"
-        >
-          <Download className="size-4" aria-hidden />
-        </button>
-      )}
-    </li>
-  );
-}
-
-function pct(part: number, whole: number): number {
-  return whole > 0 ? Math.round((part / whole) * 100) : 0;
-}
-
-function BatchDetail({ item }: { item: BatchItem<CompressResult> }) {
-  switch (item.status) {
-    case "queued":
-      return <>Queued</>;
-    case "running":
-      return <span className="text-accent">Compressing…</span>;
-    case "canceled":
-      return <>Canceled</>;
-    case "error":
-      return (
-        <span className="text-warn">{item.error ?? "Couldn’t compress"}</span>
-      );
-    case "done": {
-      const r = item.result;
-      if (!r) return null;
-      const size = !r.unchanged ? (
-        <span className="text-ok">
-          {`−${formatBytes(r.savedBytes)} (${pct(r.savedBytes, r.originalBytes)}%) · ${formatBytes(r.optimizedBytes)}`}
-        </span>
-      ) : (
-        <>Nothing came out smaller — your file, unchanged</>
-      );
-      if (r.signaturesUnchecked) {
-        return (
-          <>
-            {size} ·{" "}
-            <span className="text-warn">
-              encrypted, so not checked for digital signatures
+  const settings = deepAvailable ? (
+    <fieldset className="flex flex-col gap-2">
+      <legend className="text-muted mb-1 text-[11px] font-medium tracking-wide uppercase">
+        {BATCH_MODE_HEADING}
+      </legend>
+      <label className="text-fg flex min-h-11 items-center gap-2.5 text-sm">
+        <input
+          type="radio"
+          name={modeName}
+          checked={mode === "lossless"}
+          onChange={() => setMode("lossless")}
+          className="accent-accent size-4"
+        />
+        {BATCH_LOSSLESS_LABEL}
+      </label>
+      <label className="text-fg flex min-h-11 items-center gap-2.5 text-sm">
+        <input
+          type="radio"
+          name={modeName}
+          checked={mode === "deep"}
+          onChange={() => setMode("deep")}
+          className="accent-accent size-4"
+        />
+        {BATCH_DEEP_LABEL}
+      </label>
+      {deep && (
+        <div className="flex flex-col gap-3 pl-6">
+          <p className="text-warn text-xs leading-relaxed">
+            Running this uploads each file to our secure server, one at a time.
+          </p>
+          <div
+            role="group"
+            aria-label="Quality"
+            className="flex flex-wrap items-center gap-2"
+          >
+            <span className="text-muted text-[11px] font-medium tracking-wide uppercase">
+              Quality
             </span>
-          </>
-        );
-      }
-      if (r.signatureCount === 0) return size;
-      return (
-        <>
-          {size} ·{" "}
-          <span className="text-warn">
-            {r.signatureCount} digital signature
-            {r.signatureCount === 1 ? "" : "s"} will show as invalid
-          </span>
-        </>
-      );
-    }
-    default:
-      return null;
-  }
-}
+            {DEEP_COMPRESSION_PRESETS.map((q) => (
+              <ChipButton
+                key={q.dpi}
+                onClick={() => setDpi(q.dpi)}
+                active={dpi === q.dpi}
+                title={qualityChipTitle(q.dpi)}
+              >
+                {q.label}
+              </ChipButton>
+            ))}
+          </div>
+          <label className="text-muted flex min-h-11 items-start gap-2.5 text-sm">
+            <input
+              type="checkbox"
+              checked={grayscale}
+              onChange={(event) => setGrayscale(event.target.checked)}
+              className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4"
+            />
+            <span className="flex flex-col gap-0.5">
+              <span className="text-fg font-medium">Grayscale</span>
+              <span className="text-muted text-xs leading-relaxed">
+                {DEEP_COMPRESSION_GRAYSCALE_HINT}
+              </span>
+            </span>
+          </label>
+        </div>
+      )}
+    </fieldset>
+  ) : null;
 
-function StatusGlyph({
-  status,
-}: {
-  status: BatchItem<CompressResult>["status"];
-}) {
-  const base = "grid size-8 shrink-0 place-items-center rounded-panel";
-  switch (status) {
-    case "running":
-      return (
-        <span className={cn(base, "bg-accent/10 text-accent")}>
-          <Spinner />
-        </span>
-      );
-    case "done":
-      return (
-        <span className={cn(base, "bg-ok/10 text-ok")}>
-          <CheckCircle2 className="size-4" aria-hidden />
-        </span>
-      );
-    case "error":
-      return (
-        <span className={cn(base, "bg-warn/10 text-warn")}>
-          <AlertTriangle className="size-4" aria-hidden />
-        </span>
-      );
-    case "canceled":
-      return (
-        <span className={cn(base, "bg-wash text-muted")}>
-          <CircleSlash className="size-4" aria-hidden />
-        </span>
-      );
-    default:
-      return (
-        <span className={cn(base, "bg-wash text-muted")}>
-          <Clock className="size-4" aria-hidden />
-        </span>
-      );
-  }
+  return (
+    <BatchView<CompressRow>
+      runner={runner}
+      arrivedCount={files.length}
+      arrival={arrival}
+      rejected={rejected}
+      banner={banner}
+      settings={settings}
+      countLabel={pdfs}
+      runLabel={(n) => `Compress ${pdfs(n)}${deep ? " on our server" : ""}`}
+      runningLabel="Compressing…"
+      errorFallback="Couldn’t compress"
+      progressLabel="Batch compression progress"
+      footnote={
+        deep
+          ? "Files are uploaded and compressed one at a time, on our secure server."
+          : "Files are processed one at a time, on your device."
+      }
+      outputs={rowOutputs}
+      describe={describeRow}
+      downloadLabel={(item, r) =>
+        `Download ${r.unchanged ? "unchanged" : "compressed"} ${item.name}`
+      }
+      doneSentence={(p) =>
+        `Batch complete. ${p.done} compressed, ${p.error} failed.`
+      }
+      settledSummary={
+        totalSaved > 0 ? (
+          <span className="text-ok font-medium">
+            −{formatBytes(totalSaved)} total
+          </span>
+        ) : null
+      }
+      inputBytes={(r) => r.originalBytes}
+      zipName="pdfxyz-compressed.zip"
+      // Every file in the ZIP has its own download button above: a signed
+      // one only once it is opted in, which is also when it joins the ZIP.
+      zipFallback="If it keeps failing, download the files one at a time above."
+      onReset={onReset}
+      {...(onSingle
+        ? {
+            onOneLeft: (id: string) => {
+              const unit = units.find((u) => u.id === id);
+              if (unit) onSingle(unit.file);
+            },
+          }
+        : {})}
+    />
+  );
 }

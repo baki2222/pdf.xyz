@@ -81,6 +81,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
+import { BATCH_LIMITS } from "@/lib/batch/limits";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { GuideDesk } from "@/components/intent/guide-desk";
@@ -402,6 +403,16 @@ const OTHER_SIZES: readonly {
     near: /\bunpack(?:s|ed)?\b/i,
     window: 60,
     shipped: "10,000 files in all and 300 MB once unpacked",
+  },
+  // Added 2026-11-08 (batch plan P1): a batch's TOTAL, the most all of its
+  // files may add up to in the browser — never a size one file is refused
+  // above (that is still the per-file ceiling, stated beside it).
+  {
+    what: "a batch's total across its files",
+    valuesMb: [MB_OF(BATCH_LIMITS.clientMaxTotalBytes)],
+    near: /\bbatch\b[^.]*\bin all\b/i,
+    window: 60,
+    shipped: "A batch takes up to 20 PDFs, 200 MB in all.",
   },
   {
     what: "a picture inserted into the PDF",

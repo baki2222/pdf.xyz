@@ -153,7 +153,13 @@ async function textMatrixXs(bytes: Uint8Array): Promise<number[]> {
 describe("Watermark PDF's page names its controls and its fit as shipped", () => {
   it("health check: the slug, the runner and its sliders are discovered", () => {
     expect(SLUGS).toEqual(["watermark-pdf"]);
-    expect(RUNNERS).toHaveLength(1);
+    // Two since 2026-11-08 (batch plan P1): the runner and its batch, which
+    // draws a subset of the same sliders under the same labels; the page
+    // names them all once either way.
+    expect(RUNNERS.map((file) => path.basename(file)).sort()).toEqual([
+      "watermark-batch.tsx",
+      "watermark-runner.tsx",
+    ]);
     expect(SLIDERS.length).toBeGreaterThanOrEqual(3);
     expect(SLIDERS).toContain("Max font size");
   });

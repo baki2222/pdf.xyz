@@ -530,6 +530,21 @@ describe("each row leads with what the click carries", () => {
     const { container } = render(withRouter(<Desk />));
     stage(container, [await pdf("contract.pdf", 3), await pdf("annex.pdf", 1)]);
     const ticket = await suggestions();
+    // Since 2026-11-08 (batch plan P1) Add Page Numbers takes both PDFs and
+    // ranks third, where Sign PDF, a one-file tool, was: the one-file rows
+    // are under More now, so they are read there.
+    const more = within(ticket).queryByRole("button", { name: /^More/ });
+    if (more)
+      await act(async () => {
+        fireEvent.click(more);
+      });
+    const batchRow = ticket.querySelector<HTMLAnchorElement>(
+      'a[data-suggestion="page-numbers"]',
+    );
+    expect(batchRow, "a batch tool offered for two PDFs").not.toBeNull();
+    expect(
+      batchRow!.querySelector("[data-lead]")?.textContent ?? "",
+    ).not.toMatch(/^takes one file/);
     const oneFile = [
       ...ticket.querySelectorAll<HTMLAnchorElement>("a[data-suggestion]"),
     ].filter((a) =>

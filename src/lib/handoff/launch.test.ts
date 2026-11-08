@@ -59,12 +59,22 @@ describe("what a hand-off carries", () => {
     ).toEqual(["a.pdf", "b.pdf"]);
   });
 
+  // The single-file example WAS rotate-pdf until 2026-11-08 (batch plan P1),
+  // when Rotate gained a batch: it now gets every eligible file.
   it("a single-file tool gets the first eligible file only", () => {
+    expect(
+      handoffPayload("organize-pages", [docx, pdf("a.pdf"), pdf("b.pdf")]).map(
+        (f) => f.name,
+      ),
+    ).toEqual(["a.pdf"]);
+  });
+
+  it("a settings-batch tool gets every eligible file, in order", () => {
     expect(
       handoffPayload("rotate-pdf", [docx, pdf("a.pdf"), pdf("b.pdf")]).map(
         (f) => f.name,
       ),
-    ).toEqual(["a.pdf"]);
+    ).toEqual(["a.pdf", "b.pdf"]);
   });
 
   // WAS "a tool with no runner … carries nothing", with Word to PDF as the

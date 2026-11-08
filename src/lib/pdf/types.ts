@@ -43,3 +43,15 @@ export interface NamedBytes {
   name: string;
   bytes: Uint8Array;
 }
+
+/**
+ * A finished output already held as a Blob (a batch keeps each file's result
+ * that way, so its input bytes can go before the next file starts).
+ */
+export interface NamedBlob {
+  name: string;
+  blob: Blob;
+}
+
+/** One file of a ZIP: bytes, or a Blob, read (every one at once) as the archive is built. */
+export type ZipEntry = NamedBytes | NamedBlob;

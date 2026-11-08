@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { downloadBlob, zipFiles, type ZipOptions } from "@/lib/pdf/browser";
-import type { NamedBytes } from "@/lib/pdf/types";
+import type { ZipEntry } from "@/lib/pdf/types";
 
 /**
  * What a result view says when its ZIP could not be built.
@@ -53,7 +53,7 @@ export interface ZipDownloadOptions extends ZipOptions {
   fallback?: string;
 }
 
-type Zip = (files: NamedBytes[], options?: ZipOptions) => Promise<Blob>;
+type Zip = (files: ZipEntry[], options?: ZipOptions) => Promise<Blob>;
 type Save = (blob: Blob, filename: string) => void;
 
 /**
@@ -87,7 +87,7 @@ export function useZipDownload(
 
   const downloadZip = useCallback(
     async (
-      files: NamedBytes[],
+      files: ZipEntry[],
       filename: string,
       { fallback, ...zipOptions }: ZipDownloadOptions = {},
     ): Promise<boolean> => {

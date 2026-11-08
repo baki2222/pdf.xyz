@@ -63,6 +63,7 @@ import {
   rel,
   resolveSpecifier,
   runnerDispatcher,
+  valueClosure,
   type PanelModule,
 } from "@/tests/tool-panel-modules";
 
@@ -310,9 +311,20 @@ describe("a tool page's first load carries its own panel, and no other tool's", 
           .filter((f): f is string => f !== null),
       ),
     );
+    // Since 2026-11-08 (batch plan P1) the settings batch's base,
+    // `batch/settings-batch-runner.tsx`, is reached from five runners
+    // through their `next/dynamic` loaders and a batch module each: two
+    // hops, one of them an `import()`. It is reached by value from a mounted
+    // panel, so it is not dead; the walk below says so for it alone.
+    const loadedByCorpus = new Set(
+      [...corpusFiles].flatMap((file) => valueClosure(file)),
+    );
     const unseen = panelFiles.filter(
       (f) =>
-        f !== dispatcher && !corpusFiles.has(f) && !importedByCorpus.has(f),
+        f !== dispatcher &&
+        !corpusFiles.has(f) &&
+        !importedByCorpus.has(f) &&
+        !(path.basename(path.dirname(f)) === "batch" && loadedByCorpus.has(f)),
     );
     expect(
       unseen.map(rel),

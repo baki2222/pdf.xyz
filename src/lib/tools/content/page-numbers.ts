@@ -1,5 +1,10 @@
 import type { ToolContent } from "./types";
 import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
+import {
+  PAGE_NUMBER_BATCH_RESTARTS,
+  SETTINGS_BATCH_TOOLS,
+  batchLimitsSentence,
+} from "@/lib/batch/tools";
 import { toolFacts } from "@/lib/tools/tool-facts";
 import {
   BATES_MAX_DIGITS,
@@ -183,7 +188,7 @@ const content: ToolContent = {
   metaDescription: `Number PDF pages as ${presets[0]}, ${presets[1]} or your own template, skip a cover page, and pick one of ${positionCount} spots. Numbering happens on your device.`,
 
   intro: [
-    `Add Page Numbers stamps a number onto every page of one PDF, or onto every page from a chosen page onward, and can leave a cover or the last pages without one. The format starts as "${DEFAULT_PAGE_NUMBER_FORMAT}", and a row of presets switches it with one click. You can also type your own template, where {n} becomes the page's number and {total} the last number printed, so "Exhibit A – {n}" works as well as a bare figure, and a Bates number style prints a prefix with a zero-padded number, such as ${batesExample}. A Preview pill beside the Format heading shows the label the first numbered page will carry. For a document printed as a book, Facing pages swaps left and right on even pages so the number stays on the outer edge.`,
+    `Add Page Numbers stamps a number onto every page of a PDF, or onto every page from a chosen page onward, and can leave a cover or the last pages without one. The format starts as "${DEFAULT_PAGE_NUMBER_FORMAT}", and a row of presets switches it with one click. You can also type your own template, where {n} becomes the page's number and {total} the last number printed, so "Exhibit A – {n}" works as well as a bare figure, and a Bates number style prints a prefix with a zero-padded number, such as ${batesExample}. A Preview pill beside the Format heading shows the label the first numbered page will carry. For a document printed as a book, Facing pages swaps left and right on even pages so the number stays on the outer edge.`,
     `All of the numbering happens inside the open tab: your PDF is loaded from your device into memory, stamped with pdf-lib, and saved back to you, with no upload to pdf.xyz at any point. A file over ${ceilingMb} MB is refused as soon as you pick it, before any numbering starts. Plain Western labels use the font you pick, ${fontNames}, all built into the PDF format; a label in another script the tool can draw pulls a matching typeface down from the pdf.xyz site, and only the font travels, never your document.`,
     "Page content, bookmarks, links and filled-in form fields come through; each number is drawn into the page as text, in a dark slate ink unless you pick another Color, at a Small, Medium or Large margin from the edge. Document properties keep their title and author, but the producer and creator fields now read pdf.xyz. Because the pages gain new content and the whole file is written out again, a digital signature already in it will no longer validate. On a page with a rotation flag, the number still lands at the edge you see and reads horizontally. A password-protected PDF is refused when you pick it and has to be unlocked first.",
   ],
@@ -201,12 +206,16 @@ const content: ToolContent = {
       title: "Label exhibits or a document production",
       body: `The Bates number style, a prefix with a zero-padded number such as ${batesExample}, and a First number that continues from the last batch give every page a unique, fixed-width reference.`,
     },
+    {
+      title: "Number a set of separate files",
+      body: `Add two or more PDFs and they open as a batch list, with one set of settings for them all: a format preset, the position, First number, Leave the cover unnumbered and Facing pages. ${PAGE_NUMBER_BATCH_RESTARTS} Font size and margin are the single-file defaults. Press Number with the number of files and each one is numbered in turn, in your browser, with nothing uploaded. Download a file from its row, or press “Download all” for ${SETTINGS_BATCH_TOOLS["page-numbers"].zipName}. ${batchLimitsSentence()} For numbers that run on from one file to the next, such as Bates numbers across a set, combine the files with Merge PDF first, or number them one at a time and set First number for each.`,
+    },
   ],
 
   steps: [
     {
       title: "Choose a PDF",
-      body: "Drop a single PDF onto the dashed box or click browse. The settings then open under a bar giving that file's name, page count and size.",
+      body: "Drop a PDF onto the dashed box or click browse. The settings then open under a bar giving that file's name, page count and size. Two or more PDFs open a batch list instead.",
     },
     {
       title: "Pick a format",

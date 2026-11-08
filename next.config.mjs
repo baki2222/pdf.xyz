@@ -244,6 +244,25 @@ const ROOT_ENTRIES = new Set([
  * `src/deploy/first-load-duplicates.test.ts` holds the property (no module
  * twice in any page's first load), not this group.
  */
+/**
+ * Every batch module in ONE async chunk (batch plan P1, 2026-11-08): the
+ * generic batch view and settings batch (`runner/batch/`), Compress PDF's
+ * batch (`runner/compress-batch.tsx`) and the batch model
+ * (`src/lib/batch/`). Five tools load their batch with `next/dynamic`; left
+ * to SplitChunks, each loader got its own chunk and the modules they share
+ * split into more: nine new entries in the webpack runtime every page
+ * downloads first, +118 B gzip on every page, past what OCR PDF's budget
+ * row had left. Grouped, the batch costs one entry more than Compress's
+ * batch alone did (measured: 155 -> 156). The rest of what the batches
+ * share (`use-batch-runner.ts`, the ZIP hook, a few icons) stays out on
+ * purpose: grouped too, it came back as five copies of one chunk under five
+ * ids (161 entries). A tool's loader fetches the chunk only once two or
+ * more PDFs arrive; `lazy-chunks.test.ts` holds the batch view off every
+ * page's first load.
+ */
+const BATCH_MODULE =
+  /[\\/]src[\\/](?:components[\\/]tools[\\/]runner[\\/](?:batch[\\/]|compress-batch\.tsx$)|lib[\\/]batch[\\/])/;
+
 function clientWebpack(config, { isServer, dev }) {
   if (isServer || dev) return config;
   config.plugins.push(utifPakoStub);
@@ -264,6 +283,17 @@ function clientWebpack(config, { isServer, dev }) {
         if (ROOT_ENTRIES.has(chunk.name)) return true;
       return false;
     },
+  };
+  groups.batch = {
+    name: "batch",
+    chunks: "async",
+    minChunks: 1,
+    minSize: 0,
+    // Above rootShared (20): no batch module is in a root entry, and none
+    // may be pulled into a shared chunk a first load carries.
+    priority: 25,
+    enforce: true,
+    test: BATCH_MODULE,
   };
   return config;
 }

@@ -1,5 +1,5 @@
 import JSZip from "jszip";
-import type { NamedBytes } from "./types";
+import type { ZipEntry } from "./types";
 
 /**
  * The archive builder behind `zipFiles` (`./browser`). It lives in its own
@@ -43,15 +43,35 @@ function withCopyNumber(name: string, copy: number): string {
   return `${name.slice(0, name.length - ext.length)} (${copy})${ext}`;
 }
 
-/** Bundle named byte blobs into one ZIP; every input becomes its own entry. */
+/**
+ * An entry's content as JSZip takes it. A Blob goes in as a promise of its
+ * bytes, so no `FileReader` is needed (JSZip reads a raw Blob through one,
+ * which Node and some workers do not have).
+ *
+ * The memory this costs, stated plainly because it was once stated wrongly:
+ * the read is NOT lazy. `buildZip` starts `arrayBuffer()` on every Blob before
+ * JSZip writes the first entry, and JSZip keeps each entry's content until the
+ * archive is done. So while "Download all" builds a ZIP, the page holds every
+ * output twice (the Blobs a batch keeps, and a copy of each as an
+ * ArrayBuffer) plus the archive itself. Pinned in `zip-archive.test.ts`; a
+ * writer that puts the Blobs themselves into the archive is the change that
+ * would lower it.
+ */
+function contentOf(entry: ZipEntry): Uint8Array | Promise<Uint8Array> {
+  return "blob" in entry
+    ? entry.blob.arrayBuffer().then((buffer) => new Uint8Array(buffer))
+    : entry.bytes;
+}
+
+/** Bundle named files into one ZIP; every input becomes its own entry. */
 export function buildZip(
-  files: readonly NamedBytes[],
+  files: readonly ZipEntry[],
   compression: "DEFLATE" | "STORE",
 ): Promise<Blob> {
   const zip = new JSZip();
   const names = uniqueEntryNames(files.map((file) => file.name));
   files.forEach((file, index) => {
-    zip.file(names[index]!, file.bytes);
+    zip.file(names[index]!, contentOf(file));
   });
   return zip.generateAsync({
     type: "blob",

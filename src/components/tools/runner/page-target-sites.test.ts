@@ -42,6 +42,8 @@ const SECONDARY: Record<string, string> = {
     "the overlay-PDF zone, shown in the editor until an overlay is chosen: the page's drops replace the base PDF",
   "src/components/tools/runner/watermark-runner.tsx":
     "the watermark-image zone, shown in the editor when the type is Image: the page's drops replace the PDF being watermarked",
+  "src/components/tools/runner/batch/watermark-batch.tsx":
+    "the watermark-image zone in the batch's settings, shown when the type is Image: the mark for every file, never one of the PDFs",
 };
 
 function sources(dir: string): string[] {

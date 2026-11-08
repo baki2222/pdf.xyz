@@ -24,6 +24,12 @@ export interface WorkspaceToolSummary extends ToolIndexEntry {
   uploadsFiles: boolean;
   /** True when the tool has a working in-browser runner (launchable now). */
   live: boolean;
+  /**
+   * For a tool whose in-browser batch takes PDFs, how many files one batch
+   * takes (`BATCH_LIMITS.clientMaxFiles`); the rest of a larger set are
+   * listed in the batch with their reason. Absent for every other tool.
+   */
+  batchMaxFiles?: number;
 }
 
 /** Index summaries by slug for quick client-side lookup. */
