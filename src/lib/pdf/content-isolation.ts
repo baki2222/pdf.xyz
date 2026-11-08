@@ -61,7 +61,9 @@ import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
  *
  * ORDER. Call it before drawing on the page. It also works after pdf-lib has
  * already wrapped the page: it finds the wrapper's shared `q`/`Q` streams and
- * works inside them. Results are memoized per page.
+ * works inside them. Results are memoized per page, and per DOCUMENT by the
+ * list of content streams: pages that share streams share one scan and one
+ * rewritten copy, and a document-wide budget bounds the total decoded.
  */
 
 /**
@@ -69,7 +71,11 @@ import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
  * 32 MiB: every page of the 14-file legit corpus decodes to under 64 KB
  * (measured, and pinned in content-isolation.test.ts), so the headroom is
  * over 500x. Scanning 32 MiB of ordinary operators took 0.26 s (measured
- * 2026-11-08); the suite bounds it at 5 s.
+ * 2026-11-08; the suite bounds it at 5 s). The slowest shape found is inline
+ * image data full of `EI ` candidates, each of which pdf.js also tests: 8.6 s
+ * for 32 MiB, linear (bounded at 30 s in a child process). The work is
+ * linear in every shape: each inline-image search covers bytes no other
+ * search covers (see pdfjsInlineEnd).
  */
 export const ISOLATION_DECODE_BUDGET = 32 * 1024 * 1024;
 
@@ -349,60 +355,73 @@ const PRINTABLE_LOOKAHEAD = 15;
 /**
  * Where pdf.js ends inline image data starting at `from` when the filter has
  * no dedicated finder (pdf.worker Parser.findDefaultInlineStreamEnd): the
- * first `EI` followed by SPACE, LF or CR, after which the next 15 bytes are
- * printable and the next 75 lex into a known operator with the right number
- * of operands. Returns the index of that `E`, or -1 when none qualifies
- * (pdf.js then guesses).
+ * first `EI` its E/I state machine reaches that is followed by SPACE, LF or
+ * CR, after which the next 15 bytes are printable and the next 75 lex into a
+ * known operator with the right number of operands. Returns the index of
+ * that `E`, or -1 when none qualifies (pdf.js then guesses).
+ *
+ * The state machine, copied exactly: after `E`, any byte but `I` resets to
+ * the start WITHOUT re-testing that byte for `E`, so in `EEI` (or `EIEI`)
+ * pdf.js sees no `EI` at all.
+ *
+ * `knownNone`: a search from an earlier start already ran to the end of the
+ * stream and found nothing. Two runs of this machine over the same bytes are
+ * in the same state after any byte that is neither `E` nor `I` (it leaves
+ * state 0 whatever came before), and whether a candidate qualifies depends
+ * only on the bytes after it; so past the first such byte this search would
+ * repeat that one exactly, and it stops there. Without that, every image of
+ * a stream that no `EI` ends re-searched the rest of the stream: quadratic
+ * (review of l06, round 2: a 2.7 KB PDF took 49 s).
  */
-function pdfjsInlineEnd(b: Uint8Array, from: number, n: number): number {
-  for (let i = from; i + 1 < n; i += 1) {
-    if (b[i] !== 69 || b[i + 1] !== 73) continue;
-    if (i + 2 === n) return i; // EI ends the content
-    const ws = b[i + 2];
-    if (ws !== 32 && ws !== 10 && ws !== 13) continue;
-    const after = i + 3;
-    if (after >= n) return i;
-    let printable = true;
-    const stop = Math.min(n, after + PRINTABLE_LOOKAHEAD);
-    for (let k = after; k < stop; k += 1) {
-      const ch = b[k]!;
-      if (ch === 0 && b[k + 1] !== 0) continue;
-      if (ch !== 10 && ch !== 13 && (ch < 0x20 || ch > 0x7f)) {
-        printable = false;
-        break;
-      }
+function pdfjsInlineEnd(
+  b: Uint8Array,
+  from: number,
+  n: number,
+  knownNone: boolean,
+): number {
+  let state = 0;
+  for (let p = from; p < n; p += 1) {
+    const ch = b[p]!;
+    if (state === 0) state = ch === 69 ? 1 : 0;
+    else if (state === 1) state = ch === 73 ? 2 : 0;
+    else {
+      state = 0;
+      if ((ch === 32 || ch === 10 || ch === 13) && endsImage(b, p + 1, n))
+        return p - 2;
     }
-    if (!printable) continue;
-    const lx = new Lexer(
-      b,
-      after,
-      Math.min(n, after + 5 * PRINTABLE_LOOKAHEAD),
-    );
-    let args = 0;
-    let ok = false;
-    for (;;) {
-      const kind = lx.next();
-      if (kind === "eof") break;
-      if (
-        kind !== "cmd" ||
-        lx.cmd === "true" ||
-        lx.cmd === "false" ||
-        lx.cmd === "null"
-      ) {
-        args += 1;
-        continue;
-      }
-      const want = OPS.get(lx.cmd);
-      if (want === undefined) break;
-      if (want < 0 ? args <= -want : args === want) {
-        ok = true;
-        break;
-      }
-      args = 0;
-    }
-    if (ok) return i;
+    if (knownNone && ch !== 69 && ch !== 73) return -1;
   }
-  return -1;
+  return state === 2 ? n - 2 : -1; // EI ends the content
+}
+
+/** pdf.js's test of what follows a candidate `EI` and its whitespace. */
+function endsImage(b: Uint8Array, after: number, n: number): boolean {
+  if (after >= n) return true;
+  const stop = Math.min(n, after + PRINTABLE_LOOKAHEAD);
+  for (let k = after; k < stop; k += 1) {
+    const ch = b[k]!;
+    if (ch === 0 && b[k + 1] !== 0) continue;
+    if (ch !== 10 && ch !== 13 && (ch < 0x20 || ch > 0x7f)) return false;
+  }
+  const lx = new Lexer(b, after, Math.min(n, after + 5 * PRINTABLE_LOOKAHEAD));
+  let args = 0;
+  for (;;) {
+    const kind = lx.next();
+    if (kind === "eof") return false;
+    if (
+      kind !== "cmd" ||
+      lx.cmd === "true" ||
+      lx.cmd === "false" ||
+      lx.cmd === "null"
+    ) {
+      args += 1;
+      continue;
+    }
+    const want = OPS.get(lx.cmd);
+    if (want === undefined) return false;
+    if (want < 0 ? args <= -want : args === want) return true;
+    args = 0;
+  }
 }
 
 /** Filters pdf.js ends with a dedicated finder this module does not copy. */
@@ -468,10 +487,12 @@ function skipInlineImage(
   b: Uint8Array,
   idEnd: number,
   dict: Map<string, InlineValue>,
+  search: { noEiFrom: number },
 ): { resume: number; certain: boolean } {
   const n = b.length;
   const data = Math.min(n, idEnd + 1); // one whitespace byte after ID
-  const searched = pdfjsInlineEnd(b, data, n);
+  const searched = pdfjsInlineEnd(b, data, n, data >= search.noEiFrom);
+  if (searched < 0) search.noEiFrom = Math.min(search.noEiFrom, data);
   const filter = dict.get("/F") ?? dict.get("/Filter");
   const first = Array.isArray(filter) ? filter[0] : filter;
   const length = statedLength(dict);
@@ -503,6 +524,8 @@ export function scanContentBalance(b: Uint8Array): ContentBalance {
   let depth = 0;
   const surplus: number[] = [];
   let uncertain = false;
+  // Where a search for EI already ran to the end and found none.
+  const search = { noEiFrom: Infinity };
   const lx = new Lexer(b, 0, b.length);
   for (;;) {
     const kind = lx.next();
@@ -531,7 +554,7 @@ export function scanContentBalance(b: Uint8Array): ContentBalance {
         dict.set(latin1(b, lx.start, lx.pos, 32), readValue(lx, b));
       }
       if (idEnd < 0) break;
-      const { resume, certain } = skipInlineImage(b, idEnd, dict);
+      const { resume, certain } = skipInlineImage(b, idEnd, dict, search);
       if (!certain) uncertain = true;
       lx.pos = resume;
     }
@@ -540,6 +563,32 @@ export function scanContentBalance(b: Uint8Array): ContentBalance {
 }
 
 const memo = new WeakMap<object, IsolationOutcome>();
+
+/**
+ * Decoded content bytes scanned per DOCUMENT before further pages are left
+ * as they were. The per-page budget alone let N pages cost N x 32 MiB (review
+ * of l06, round 2: a 60 KB file of 50 pages, each 30 MB decoded, took 20 s).
+ * 256 MiB = eight full page budgets. The legit corpus is pinned in the suite
+ * to need under 4 MiB per document (64x headroom), and the worst case it
+ * allows is measured there in a child process.
+ */
+const ISOLATION_DOCUMENT_BUDGET = 256 * 1024 * 1024;
+
+/**
+ * Per document: decoded bytes spent, and the result for each list of
+ * content streams already scanned, so a stream shared by many pages is
+ * decoded, scanned and rewritten ONCE and every page gets the same copy.
+ */
+interface DocumentWork {
+  used: number;
+  done: Map<string, Scanned>;
+}
+interface Scanned {
+  outcome: IsolationOutcome;
+  /** What replaces the scanned streams; absent when nothing does. */
+  body?: PDFObject[];
+}
+const work = new WeakMap<object, DocumentWork>();
 
 const DECODE_CHUNK = 64 * 1024;
 
@@ -618,19 +667,31 @@ function join(parts: Uint8Array[], size: number, newline: boolean): Uint8Array {
 export async function isolatePageContent(
   page: PDFPage,
   budget: number = ISOLATION_DECODE_BUDGET,
+  documentBudget: number = ISOLATION_DOCUMENT_BUDGET,
 ): Promise<IsolationOutcome> {
   const known = memo.get(page.node);
   if (known) return known;
   const lib = await loadPdfLib();
-  const outcome = isolate(lib, page, budget);
+  const ctx = page.doc.context;
+  let doc = work.get(ctx);
+  if (!doc) work.set(ctx, (doc = { used: 0, done: new Map() }));
+  const outcome = isolate(lib, page, budget, documentBudget, doc);
   memo.set(page.node, outcome);
   return outcome;
+}
+
+/** A list of indirect streams as one key; undefined if any is direct. */
+function keyOf(lib: PdfLibModule, refs: PDFObject[]): string | undefined {
+  if (!refs.every((r) => r instanceof lib.PDFRef)) return undefined;
+  return refs.join(",");
 }
 
 function isolate(
   lib: PdfLibModule,
   page: PDFPage,
   budget: number,
+  documentBudget: number,
+  doc: DocumentWork,
 ): IsolationOutcome {
   const { PDFArray, PDFName, PDFStream } = lib;
   const ctx = page.doc.context;
@@ -667,27 +728,70 @@ function isolate(
     return { kind: "balanced" };
   }
 
+  const original = entries.slice(lo, hi);
+  const id = keyOf(lib, original);
+  let result = id === undefined ? undefined : doc.done.get(id);
+  if (!result) {
+    result = scanAndRewrite(lib, page, original, budget, documentBudget, doc);
+    if (id !== undefined) doc.done.set(id, result);
+    // A page that later names the rewritten list is already isolated.
+    const out = result.body && keyOf(lib, result.body);
+    if (out) doc.done.set(out, { outcome: { kind: "balanced" } });
+  }
+  const { outcome, body } = result;
+  if (body) {
+    if (contents instanceof PDFArray) {
+      for (let k = hi - 1; k >= lo; k -= 1) contents.remove(k);
+      body.forEach((ref, k) => contents.insert(lo + k, ref));
+    } else {
+      page.node.set(key, ctx.obj(body));
+    }
+  }
+  return outcome;
+}
+
+/**
+ * Decode and scan one list of content streams; when it is unbalanced,
+ * register what replaces it (`body`). Registers nothing otherwise.
+ */
+function scanAndRewrite(
+  lib: PdfLibModule,
+  page: PDFPage,
+  original: PDFObject[],
+  budget: number,
+  documentBudget: number,
+  doc: DocumentWork,
+): Scanned {
+  const ctx = page.doc.context;
+  const limit = Math.min(budget, Math.max(0, documentBudget - doc.used));
   const parts: Uint8Array[] = [];
   let used = 0;
-  for (let k = lo; k < hi; k += 1) {
-    const data = decodeStream(lib, ctx.lookup(entries[k]!), budget - used);
-    if (data === null) return { kind: "skipped", reason: "unreadable" };
-    if (data === "budget") return { kind: "skipped", reason: "budget" };
+  const skip = (reason: "budget" | "unreadable"): Scanned => {
+    // What was decoded before giving up is spent all the same.
+    doc.used += reason === "budget" ? limit : used;
+    return { outcome: { kind: "skipped", reason } };
+  };
+  for (const entry of original) {
+    const data = decodeStream(lib, ctx.lookup(entry), limit - used);
+    if (data === null) return skip("unreadable");
+    if (data === "budget") return skip("budget");
     parts.push(data);
     used += data.length + 1;
-    if (used > budget) return { kind: "skipped", reason: "budget" };
+    if (used > limit) return skip("budget");
   }
+  doc.used += used;
   const joined = join(parts, used, true);
   const { surplus, open, uncertain } = scanContentBalance(joined);
-  if (surplus.length === 0 && open === 0) return { kind: "balanced" };
+  if (surplus.length === 0 && open === 0)
+    return { outcome: { kind: "balanced" } };
   // Blanking rewrites the page's OWN content, so it is done only from a scan
   // a viewer agrees with. (Appending Q after the original cannot change how
   // the original draws, so an uncertain count of open q is still closed.)
   if (surplus.length > 0 && uncertain)
-    return { kind: "skipped", reason: "ambiguous" };
+    return { outcome: { kind: "skipped", reason: "ambiguous" } };
 
   // The original streams, or one rewritten copy with each surplus Q blanked.
-  let body: PDFObject[] = entries.slice(lo, hi);
+  let body: PDFObject[] = original.slice();
   if (surplus.length > 0) {
     for (const at of surplus) joined[at] = 32;
     body = [ctx.register(ctx.flateStream(joined))];
@@ -696,11 +800,8 @@ function isolate(
     // Deflated: a hostile page can leave thousands open.
     body.push(ctx.register(ctx.flateStream("Q\n".repeat(open))));
   }
-  if (contents instanceof PDFArray) {
-    for (let k = hi - 1; k >= lo; k -= 1) contents.remove(k);
-    body.forEach((ref, k) => contents.insert(lo + k, ref));
-  } else {
-    page.node.set(key, ctx.obj(body));
-  }
-  return { kind: "isolated", blanked: surplus.length, closed: open };
+  return {
+    outcome: { kind: "isolated", blanked: surplus.length, closed: open },
+    body,
+  };
 }

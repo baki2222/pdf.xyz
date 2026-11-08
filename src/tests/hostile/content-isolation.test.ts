@@ -615,6 +615,23 @@ describe("review-l06: a page that renders correctly today still does after the t
     expect(String(p.node.get(PDFName.of("Contents")))).toBe(before);
   });
 
+  test("review-l06 round 2: pdf.js's E/I state machine sees no EI in `EEI`, so an image whose last data byte is E is not 'certain'", async () => {
+    // /W 1 /H 1 /BPC 8 gray: one byte, `E`, then EI. Counting bytes ends it
+    // there; pdf.js's machine (E, then E resets without re-testing) misses
+    // that EI and reads on. Two readings: the surplus Q must not be blanked.
+    const head = "Q\nBI /W 1 /H 1 /CS /G /BPC 8 ID ";
+    const got = scanContentBalance(enc(`${head}EEI\nQ\n`));
+    expect(got.surplus[0]).toBe(0);
+    expect(got.uncertain).toBe(true);
+    // Positive control: one byte of whitespace between the data and EI, and
+    // both readings agree.
+    expect(scanContentBalance(enc(`${head}E EI\nQ\n`))).toEqual({
+      surplus: [0, 37],
+      open: 0,
+      uncertain: false,
+    });
+  });
+
   test("review-l06: a filtered inline image with no /L has no second reading, so a surplus Q beside it is not blanked", async () => {
     const tail = `\nEI Q Q ${SCALE} ${BASE_TEXT}\n`;
     const filtered = bytesOf(
@@ -697,9 +714,11 @@ describe("balanced pages are left alone", () => {
       );
       for (const p of doc.getPages()) {
         const before = String(p.node.get(PDFName.of("Contents")));
-        // At a 64 KB budget, not the default: no page skipped here is the
-        // measurement behind ISOLATION_DECODE_BUDGET's 500x headroom.
-        const outcome = await isolatePageContent(p, 64 * 1024);
+        // At a 64 KB page budget and a 4 MiB document budget, not the
+        // defaults: no page skipped here is the measurement behind the 512x
+        // headroom of ISOLATION_DECODE_BUDGET and the 64x of the 256 MiB
+        // document budget (pinned at 8 full pages in the child test below).
+        const outcome = await isolatePageContent(p, 64 * 1024, 4 * 1024 * 1024);
         pages += 1;
         expect(outcome.kind, `${file}`).not.toBe("skipped");
         if (outcome.kind === "balanced") {
@@ -769,4 +788,140 @@ describe("decoding is bounded", () => {
     });
     expect(Date.now() - t0).toBeLessThan(10_000);
   }, 60_000);
+});
+
+/* ------------------------------------------------------------------ *
+ *  Review of l06, round 2: the WORK is bounded, not only the bytes.
+ *  ISOLATION_DECODE_BUDGET bounds bytes per page. It said nothing about
+ *  (a) a scan that re-searched the rest of the stream for every inline
+ *  image with no EI (a 2.7 KB PDF took 49 s), or (b) a stream shared by
+ *  many pages, decoded, scanned and rewritten once PER PAGE (a 60 KB file
+ *  took 20 s and came out 50x larger). Both run in a child: a regression
+ *  blocks the event loop, so only a kill makes it a red.
+ * ------------------------------------------------------------------ */
+
+describe("review-l06 round 2: isolation work is bounded per stream and per document", () => {
+  const WORK = "src/tests/hostile/content-isolation-work.child.ts";
+  type Stamped = { ms: number; inBytes: number; outBytes: number };
+  const settle = async <T>(args: string[], bound: number): Promise<T> => {
+    const r = await runBounded(WORK, args, bound, { maxOldSpaceMb: 2048 });
+    expect(r.kind, JSON.stringify(r)).toBe("settled");
+    return (r as { value: T }).value;
+  };
+
+  test("a full budget of inline images that no EI ends scans in linear time", async () => {
+    const got = await settle<{
+      ms: number;
+      bytes: number;
+      surplus: number;
+      uncertain: boolean;
+    }>(["scan-ei-less", String(ISOLATION_DECODE_BUDGET)], 60_000);
+    // Health: it built and read the whole budget, and found the leading Q
+    // without trusting the guessed image ends.
+    expect(got.bytes).toBeGreaterThan(ISOLATION_DECODE_BUDGET - 16);
+    expect(got.surplus).toBe(1);
+    expect(got.uncertain).toBe(true);
+    expect(got.ms).toBeLessThan(10_000);
+  }, 90_000);
+
+  test("the costliest inline-image shape, a full budget of EI candidates pdf.js tests one by one, stays linear (8.6 s measured, 30 s allowed)", async () => {
+    // Every `EI ` passes pdf.js's printable test and costs a 75-byte lex, the
+    // same work pdf.js does to display the page. Linear, but the slowest
+    // full-budget scan found; the bound is 3.5x the measurement.
+    const got = await settle<{ ms: number; bytes: number; uncertain: boolean }>(
+      ["scan-dense-ei", String(ISOLATION_DECODE_BUDGET)],
+      90_000,
+    );
+    expect(got.bytes).toBeGreaterThan(ISOLATION_DECODE_BUDGET - 16);
+    expect(got.uncertain).toBe(true);
+    expect(got.ms).toBeLessThan(30_000);
+  }, 120_000);
+
+  test("past the document budget, pages are left as before: 12 distinct ~30 MB pages, 8 isolated (2.9 s measured, 15 s allowed)", async () => {
+    const got = await settle<{ ms: number; kinds: string[] }>(
+      ["isolate-distinct", "12"],
+      120_000,
+    );
+    expect(got.kinds).toEqual([
+      ...Array(8).fill("isolated"),
+      ...Array(4).fill("skipped:budget"),
+    ]);
+    expect(got.ms).toBeLessThan(15_000);
+  }, 150_000);
+
+  test("the reviewer's 2.7 KB PDF (80,000 EI-less images) stamps in bounded time", async () => {
+    const got = await settle<Stamped>(["stamp-ei-less", "80000"], 30_000);
+    expect(got.inBytes).toBeLessThan(10_000);
+    expect(got.ms).toBeLessThan(5_000);
+  }, 60_000);
+
+  test("one ~30 MB content stream shared by 50 pages is rewritten once, not 50 times", async () => {
+    const got = await settle<Stamped>(["stamp-shared", "50"], 60_000);
+    // One rewritten copy (~the input's own size) plus 50 small stamps; 50
+    // copies came out at 50x the input.
+    expect(got.outBytes).toBeLessThan(got.inBytes * 3);
+    expect(got.ms).toBeLessThan(10_000);
+  }, 90_000);
+
+  test("pages that share a stream share its one rewritten copy, and each is isolated", async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const ref = doc.context.register(
+      doc.context.flateStream(`Q ${SCALE} ${BASE_TEXT}`),
+    );
+    for (let i = 0; i < 3; i += 1) {
+      const p = doc.addPage([612, 792]);
+      p.node.setFontDictionary(PDFName.of("F1"), font.ref);
+      p.node.set(PDFName.of("Contents"), ref);
+    }
+    const loaded = await PDFDocument.load(await doc.save());
+    const before = loaded.context.enumerateIndirectObjects().length;
+    const outcomes = [];
+    for (const p of loaded.getPages())
+      outcomes.push(await isolatePageContent(p));
+    expect(outcomes).toEqual(
+      Array(3).fill({ kind: "isolated", blanked: 1, closed: 0 }),
+    );
+    const contents = loaded
+      .getPages()
+      .map((p) => String(p.node.get(PDFName.of("Contents"))));
+    // Health: the page really was rewritten (it no longer names the original).
+    expect(contents[0]).not.toBe(String(ref));
+    expect(new Set(contents).size).toBe(1);
+    // One rewritten stream registered for the document, not one per page.
+    expect(loaded.context.enumerateIndirectObjects().length).toBe(before + 1);
+    // And a stamp on every page lands at the control's place and size.
+    const want = await stampRuns(await addPageNumbers(await page(CONTROL)));
+    const stamped = await addPageNumbers(await loaded.save());
+    for (let n = 1; n <= 3; n += 1) {
+      const runs = (await readAsViewer(stamped, n)).texts.filter(
+        (t) => !/^Base/.test(t.str),
+      );
+      expect(runs.map((t) => t.str)).toEqual([`Page ${n} of 3`]);
+      expect(Math.round(runs[0]!.size * 100) / 100).toBe(want[0]!.size);
+      expect(Math.round(runs[0]!.y * 10) / 10).toBe(want[0]!.y);
+    }
+  }, 60_000);
+
+  test("a document-wide decode budget: past it, further pages are left as they were", async () => {
+    const doc = await PDFDocument.create();
+    const content = `Q ${SCALE} ${BASE_TEXT}`;
+    for (let i = 0; i < 3; i += 1)
+      doc
+        .addPage([612, 792])
+        .node.set(
+          PDFName.of("Contents"),
+          doc.context.register(doc.context.flateStream(`%${i}\n${content}`)),
+        );
+    const loaded = await PDFDocument.load(await doc.save());
+    const per = content.length + 4; // "%i\n" + content + the joining newline
+    const outcomes = [];
+    for (const p of loaded.getPages())
+      outcomes.push(await isolatePageContent(p, 1024, per * 2));
+    expect(outcomes).toEqual([
+      { kind: "isolated", blanked: 1, closed: 0 },
+      { kind: "isolated", blanked: 1, closed: 0 },
+      { kind: "skipped", reason: "budget" },
+    ]);
+  });
 });
