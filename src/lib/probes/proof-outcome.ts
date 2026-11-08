@@ -199,7 +199,39 @@ export function refusalVerdict(observed: ObservedRefusal): RefusalVerdict {
 /** The terminal job fields an expected-refusal proof reads. */
 export interface ObservedJob {
   status?: string;
-  error?: { code: string; message: string };
+  error?: { code: string; message: string; retryable?: boolean };
+}
+
+/**
+ * A proof that passes only when the job FAILS with this code, this
+ * retryability and a message matching `message` — the harness's
+ * `expectFailure`. Unlike {@link judgeExpectedRefusal} it reads the CODE,
+ * which is what a panel keys its next step on: Extract Tables' `pdf_no_tables`
+ * (2026-11-08) changed the code and kept the sentence, so a message-only
+ * judge passed the image before it.
+ */
+export interface ExpectedFailure {
+  code: string;
+  retryable: boolean;
+  message: RegExp;
+}
+
+/**
+ * The harness's `expectFailure` predicate, here so a unit test and the
+ * deployment run ask the same function. A completed job, any other status,
+ * or a missing error is never a match.
+ */
+export function matchesExpectedFailure(
+  job: ObservedJob,
+  want: ExpectedFailure,
+): boolean {
+  const got = job.error;
+  return (
+    job.status === "failed" &&
+    got?.code === want.code &&
+    got.retryable === want.retryable &&
+    want.message.test(got.message)
+  );
 }
 
 /**

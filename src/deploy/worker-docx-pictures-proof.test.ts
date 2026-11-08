@@ -30,6 +30,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import type * as TS from "typescript";
 import { describe, expect, it } from "vitest";
+import { REDO_OCR_LAYER_OUTCOMES } from "@/lib/jobs/ocr";
 
 const ts = createRequire(import.meta.url)("typescript") as typeof TS;
 const ROOT = process.cwd();
@@ -250,10 +251,142 @@ describe("the production proof asks PDF to Word about its picture, and LibreOffi
     );
     for (const name of ["scannedDocxVerdict", "scannedTextPdf"])
       expect(importsOf(file).get(name)).toBe("@/tests/word-ocr-proof-fixtures");
-    // Control: every pdf-to-word spec is either the pictures one or this.
+    // Control: every pdf-to-word spec is the pictures one, this, or one of
+    // the OCR page-choice proofs (asserted below). Until 2026-11-08 it was
+    // "the pictures one or this"; wave 3 added Turn pages upright,
+    // Straighten and Redo existing OCR, each an ON/OFF pair.
     expect(specs.filter((s) => str(s, "tool") === "pdf-to-word").length).toBe(
-      picturesSpecs().length + ocr.length,
+      picturesSpecs().length +
+        ocr.length +
+        pageChoiceSpecs().length +
+        redoLayerSpecs().length,
     );
+  });
+
+  // Wave 3 (audit pdf-to-word#3): each OCR page choice is proven by an ON
+  // spec and its OFF control, judged by `ocr-first-proof.ts` on the DOCX.
+  const pageChoiceSpecs = () =>
+    specs.filter(
+      (s) =>
+        str(s, "tool") === "pdf-to-word" &&
+        /^pdf-to-word \(ocr, (upright|deskew|redo)( off control)?\)$/.test(
+          str(s, "label") ?? "",
+        ),
+    );
+
+  // 2026-11-08 (#290): Redo against OCRmyPDF's OWN layer, which OCRmyPDF 14
+  // keeps; its want is read from REDO_OCR_LAYER_OUTCOMES (asserted below).
+  const REDO_LAYER_LABEL =
+    "pdf-to-word (ocr, redo keeps an earlier OCRmyPDF layer)";
+  const redoLayerSpecs = () =>
+    specs.filter((s) => str(s, "label") === REDO_LAYER_LABEL);
+
+  it("each OCR page choice has an ON spec and an OFF control, judged on the DOCX by the shared verdict", () => {
+    // [tag, option, verdict, ON want, OFF want, the fixture both send].
+    // The fixture is pinned as a RELATIONSHIP where one exists: the OCR PDF
+    // proof of the same flag sends it, and that proof is what showed the
+    // fixture exercises the flag. Redo has no OCR PDF twin, so its fixture
+    // is pinned by text: without the stale layer, 'replaced' passes on any
+    // worker that runs OCR at all.
+    const choices = [
+      [
+        "upright",
+        "rotatePages",
+        "uprightDocxVerdict",
+        "read",
+        "unread",
+        "ocr-pdf (upright)",
+      ],
+      [
+        "deskew",
+        "deskew",
+        "deskewDocxVerdict",
+        "straight",
+        "crooked",
+        "ocr-pdf (deskew)",
+      ],
+      ["redo", "redoOcr", "redoDocxVerdict", "replaced", "kept", null],
+    ] as const;
+    const makeOf = (s: TS.ObjectLiteralExpression) =>
+      prop(s, "make")?.initializer.getText(file).replace(/\s+/g, " ");
+    // The string literals a verify passes, in order: exactly [want].
+    const literalsOf = (s: TS.ObjectLiteralExpression) => {
+      const out: string[] = [];
+      const walk = (n: TS.Node) => {
+        if (ts.isStringLiteral(n)) out.push(n.text);
+        ts.forEachChild(n, walk);
+      };
+      const init = prop(s, "verify")?.initializer;
+      if (init) walk(init);
+      return out;
+    };
+    // Health: the set is the six it claims, so "each" below is not vacuous.
+    expect(pageChoiceSpecs()).toHaveLength(choices.length * 2);
+    for (const [tag, option, verdict, onWant, offWant, twin] of choices) {
+      const fixture =
+        twin === null
+          ? // CHANGED 2026-11-08 (#290): the first fixture set `3 Tr` before
+            // its BT, a layer OCRmyPDF 14 does not strip, so the ON case
+            // failed on a correct product. Now the shape Tesseract writes.
+            'async () => withStaleOcrLayer(await scannedTextPdf(), "tesseract")'
+          : makeOf(specs.find((s) => str(s, "label") === twin)!);
+      // Positive control for the twin lookup: it names a real fixture.
+      expect(fixture, tag).toMatch(/^(upsideDownScan|crookedScan|async )/);
+      for (const [suffix, value, want] of [
+        ["", "true", onWant],
+        [" off control", "false", offWant],
+      ] as const) {
+        const label = `pdf-to-word (ocr, ${tag}${suffix})`;
+        const found = specs.filter((s) => str(s, "label") === label);
+        expect(found, label).toHaveLength(1);
+        const options = prop(found[0]!, "options")?.initializer.getText(file);
+        expect(options, label).toMatch(/\bocr:\s*true\b/);
+        expect(options, label).toMatch(
+          new RegExp(`\\b${option}:\\s*${value}\\b`),
+        );
+        expect(
+          prop(found[0]!, "verify")?.initializer.getText(file),
+          label,
+        ).toMatch(new RegExp(`\\b${verdict}\\(`));
+        // Redo's ON want is read from the outcome table, not typed: the
+        // verify passes redoWant(REDO_OCR_LAYER_OUTCOMES.tesseract), and the
+        // table's row is what makes that "replaced" today.
+        if (tag === "redo" && suffix === "") {
+          expect(
+            prop(found[0]!, "verify")?.initializer.getText(file),
+            label,
+          ).toMatch(/\bredoWant\(REDO_OCR_LAYER_OUTCOMES\.tesseract\)/);
+          expect(REDO_OCR_LAYER_OUTCOMES.tesseract).toBe(want);
+        } else {
+          expect(literalsOf(found[0]!), label).toEqual([want]);
+        }
+        expect(makeOf(found[0]!), label).toBe(fixture);
+      }
+      expect(importsOf(file).get(verdict)).toBe(
+        "@/lib/workers/pdf-office-export/ocr-first-proof",
+      );
+    }
+    expect(importsOf(file).get("withStaleOcrLayer")).toBe(
+      "@/lib/workers/ocr-redo-proof",
+    );
+  });
+
+  it("Redo is also proven against OCRmyPDF's own layer, with the want its table row gives", () => {
+    const found = redoLayerSpecs();
+    expect(found).toHaveLength(1);
+    const spec = found[0]!;
+    expect(prop(spec, "make")?.initializer.getText(file)).toMatch(
+      /withStaleOcrLayer\(await scannedTextPdf\(\), "ocrmypdf"\)/,
+    );
+    const options = prop(spec, "options")?.initializer.getText(file);
+    expect(options).toMatch(/\bocr:\s*true\b/);
+    expect(options).toMatch(/\bredoOcr:\s*true\b/);
+    expect(prop(spec, "verify")?.initializer.getText(file)).toMatch(
+      /\bredoDocxVerdict\([\s\S]*redoWant\(REDO_OCR_LAYER_OUTCOMES\.ocrmypdf\)/,
+    );
+    // Today's row: OCRmyPDF 14 keeps its own layer, so the DOCX must hold
+    // the new words BESIDE the old ones ("beside" in redoDocxVerdict).
+    expect(REDO_OCR_LAYER_OUTCOMES.ocrmypdf).toBe("kept");
   });
 
   it("the pdf-to-word spec sends the Word proof PDF and verifies the picture", () => {
