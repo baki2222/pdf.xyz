@@ -72,6 +72,28 @@ export const MAX_TIFF_PAGE_BYTES = MAX_DECODED_PIXELS * 4;
  */
 export const MIN_BELIEVED_DPI = 10;
 
+/**
+ * Nor is a resolution believed that would make the page smaller than this on
+ * its longer side: half an inch, the smallest side a custom page may have
+ * (`MIN_CUSTOM_PAGE_PT`; conversion-in-l09.test.ts holds the two equal). Hostile matrix
+ * CI-07, 2026-11-08: XResolution 4,294,967,295 made a 100 px page 0.0000017
+ * pt wide, and on Letter the image was drawn as an invisible speck. The rule
+ * is the page's size, not a dpi ceiling, so a real 4,000 dpi film scan (a
+ * 35 mm frame, about 5,600 px, is 100 pt wide) is still laid out at its size
+ * on paper; such a page falls back to one pixel per point instead. The rule
+ * applies only ABOVE {@link MAX_ORDINARY_TIFF_DPI}: a 100 px icon at 300 dpi
+ * (24 pt) keeps its size (review, 2026-11-08; the first fix enlarged it 4 ×).
+ */
+export const MIN_BELIEVED_PAGE_PT = 36;
+
+/**
+ * Up to this a stated resolution is believed whatever page it makes: 2,400
+ * dpi, the line JPG / PNG to PDF draws (`MAX_PLAUSIBLE_DPI` in
+ * `image-density.ts`, not imported so this lazy chunk does not pull the
+ * layout tables in; conversion-in-l09.test.ts holds the two equal).
+ */
+export const MAX_ORDINARY_TIFF_DPI = 2400;
+
 /** One page of a TIFF, as its IFD describes it, checked but not decoded. */
 export interface TiffPage {
   /** 1-based, in the order the PDF will hold it. */
@@ -324,6 +346,14 @@ function readPages(name: string, bytes: Uint8Array): TiffPage[] {
     const number = pages.length + 1;
     if (seen.has(at)) break; // a loop back to an IFD already read: the chain ends
     seen.add(at);
+    // A next pointer past the end of the file ends the chain, keeping the
+    // pages already read, as libtiff does (hostile matrix CI-09): there is
+    // no page there to lose, and the refusal used to name a page 3 the file
+    // did not have. A FIRST pointer past the end leaves no page at all.
+    if (at + 2 > bytes.length) {
+      if (pages.length > 0) break;
+      throw new PdfEngineError(tiffRefusal.damaged(name));
+    }
     let ifd: ReturnType<typeof readIfd>;
     try {
       ifd = readIfd(reader, at);
@@ -495,11 +525,18 @@ function checkPage(
     ? reader.bytes.slice(jpegEntry.at, jpegEntry.at + jpegEntry.count)
     : null;
 
-  const dpi = resolution(
+  const stated = resolution(
     all(T.xResolution)?.[0],
     all(T.yResolution)?.[0],
     one(T.resolutionUnit, 2),
   );
+  const dpi =
+    stated &&
+    (Math.max(stated.x, stated.y) <= MAX_ORDINARY_TIFF_DPI ||
+      Math.max((width * 72) / stated.x, (height * 72) / stated.y) >=
+        MIN_BELIEVED_PAGE_PT)
+      ? stated
+      : null;
   return {
     number,
     width,

@@ -169,8 +169,9 @@ describe.each([
     );
     // CHANGED after review, 2026-11-08: the PNG FAQ said every damaged or
     // cut-off image is refused, "exactly as Create PDF will embed it". A JPG
-    // is read only to its header (image-intake.test.ts: one cut off after
-    // its frame header is accepted), and Create PDF embeds a stripped copy.
+    // was read only to its header then; since 2026-11-08 it is read to its
+    // end marker, but its image data is still not decoded, so damage inside
+    // it passes (raster-check.ts), and Create PDF embeds a stripped copy.
     expect(text(content)).not.toMatch(/exactly as Create PDF/);
     expect(text(content)).not.toMatch(/damaged or cut-off image/);
   });
@@ -185,16 +186,27 @@ describe.each([
     );
     expect(claims).toEqual([]);
     // Positive control: the same split finds the sentence that must be there.
+    // CHANGED 2026-11-08 (hostile matrix CI-01): the limit was "a JPG cut off
+    // after its header is not caught"; raster-check.ts now requires the end
+    // marker (conversion-in-l09.test.ts), so the limit left is damage inside
+    // the image data, and the old sentence must be gone.
     expect(
-      sentences.filter((s) => /JPG cut off after its header is not/.test(s)),
+      sentences.filter((s) =>
+        /JPG cut off before its end marker is turned away too, but a JPG damaged in the middle of its image data is not caught/.test(
+          s,
+        ),
+      ),
     ).toHaveLength(1);
+    expect(text(content)).not.toMatch(/JPG cut off after its header/);
   });
 
   it("the PNG FAQ states the JPG limit the check really has", () => {
     if (_slug !== "png-to-pdf") return;
     const faq = content.faqs.find((f) => /turned away/.test(f.q))!.a;
     expect(faq).toMatch(/a JPG whose header cannot be read/);
-    expect(faq).toMatch(/JPG cut off after its header/);
+    // CHANGED 2026-11-08 (CI-01): the cut-off JPG is caught now.
+    expect(faq).toMatch(/JPG cut off before its end marker is turned away/);
+    expect(faq).toMatch(/JPG damaged in the middle of its image data/);
   });
 
   it("no longer sends a sideways image to Rotate PDF after the fact", () => {

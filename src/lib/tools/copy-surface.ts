@@ -305,6 +305,8 @@ export function copyFiles(): string[] {
     // is ever reached.
     path.join(ROOT, "src", "lib", "pdf", "utif-pako-unused.ts"),
     path.join(ROOT, "src", "lib", "pdf", "image-reencode.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "raster-check.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "text-page-ceiling.ts"),
     path.join(ROOT, "src", "lib", "pdf", "offered-kinds.ts"),
     // The WYSIWYG editor's export refusals (2026-10-24): new phrase code,
     // so walked rather than recorded outside.

@@ -36,7 +36,14 @@ function jpegOfSize(width: number, height: number): Uint8Array {
       bytes[i + 6] = height & 0xff;
       bytes[i + 7] = width >> 8;
       bytes[i + 8] = width & 0xff;
-      return bytes;
+      // Zero bytes (legal scan data) before the end marker, so the header's
+      // size is one the data could hold: raster-check.ts refuses a header
+      // claiming more than 2,048 px a byte of scan (hostile matrix CI-02).
+      const pad = Math.ceil((width * height) / 2048);
+      const out = new Uint8Array(bytes.length + pad);
+      out.set(bytes.subarray(0, -2));
+      out.set(bytes.subarray(-2), bytes.length - 2 + pad);
+      return out;
     }
   }
   throw new Error("fixture has no SOF0 marker");
