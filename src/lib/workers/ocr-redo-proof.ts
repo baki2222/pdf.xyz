@@ -1,20 +1,23 @@
 /**
- * `pnpm worker:ocr-redo-proof` — what “Redo existing OCR” (OCRmyPDF
- * `--redo-ocr`) takes away, asked of the BUILT worker image's own engine and
- * judged by the text a reader receives (poppler), not by the argv.
+ * `pnpm worker:ocr-redo-proof` — what “Redo existing OCR” takes away, asked
+ * of the BUILT worker image's own engine and judged by the text a reader
+ * receives (poppler), not by the argv.
  *
- * WHY THIS EXISTS. On 2026-11-08 the wave-3 production proof of PDF to Word's
- * Redo option failed: the DOCX held every word of the scan AND every word of
- * a stale invisible layer. The argv was right (`--redo-ocr` reached
- * OCRmyPDF). OCRmyPDF 14.0.1 simply does not remove every hidden layer: it
- * removes one shape and keeps two, including the one it writes itself
- * ({@link REDO_OCR_LAYER_OUTCOMES} has the measurement). Until 2026-11-08 the copy said
- * "that text is removed" for all of them. The copy now says the table
- * ({@link REDO_OCR_SCOPE}); this proof keeps the table honest, because a
- * table of engine behaviour has no relationship any unit test can check.
+ * HISTORY. On 2026-11-08 the wave-3 production proof of PDF to Word's Redo
+ * option failed: the DOCX held every word of the scan AND every word of a
+ * stale invisible layer. The argv was right (`--redo-ocr` reached
+ * OCRmyPDF); OCRmyPDF 14.0.1 simply removes one of the shapes such a layer
+ * is stored in and keeps two, including the one it writes itself
+ * ({@link ENGINE_ALONE_OUTCOMES}). #290 made the copy say so. Since
+ * 2026-11-08 (later) the runner takes every invisible text layer out BEFORE
+ * OCRmyPDF reads the PDF (`./strip-invisible-text`), so every row of
+ * {@link REDO_OCR_LAYER_OUTCOMES} is "replaced" and the copy
+ * ({@link REDO_OCR_SCOPE}) says that. This proof keeps both tables honest,
+ * because a table of engine behaviour has no relationship any unit test can
+ * check.
  *
- * For each shape in the table, a scan of a known line carries a
- * stale layer of {@link STALE_OCR_TEXT} in that shape, and:
+ * For each shape in the table, a scan of a known line carries a stale layer
+ * of {@link STALE_OCR_TEXT} in that shape, and:
  *
  *   1. INSTRUMENT — the fixture's own text is every stale word and no scan
  *      word, and {@link staleLayerShapes} reads back exactly the shape it
@@ -22,19 +25,27 @@
  *   2. REDO ON — through the registry's OCR processor (the instance OCR PDF
  *      and every OCR-first conversion reach) with `redoOcr: true`: every
  *      scan word is read, and the stale words are gone (`replaced`) or all
- *      still there (`kept`), exactly as the table says. A row that changes
- *      goes red here, so the copy is re-decided rather than left stale.
- *   3. NEGATIVE CONTROL — the replaced shape with redo OFF (`--skip-text`):
- *      every stale word kept and the scan unread. Without it, a fixture the
- *      engine ignores outright would pass step 2 for the wrong reason.
- *   4. A REAL OCRmyPDF LAYER — the scan read by the processor in
- *      {@link REAL_LAYER_LANGUAGE} (Cyrillic words, read back as the
- *      `ocrmypdf` shape), then redone in English: the earlier words must
- *      be kept or gone exactly as the `ocrmypdf` row says. Steps 1–3 use a
- *      hand-built stand-in; this is the layer a reader of our own OCR PDF
- *      actually has, so a change to how OCRmyPDF treats its OWN graft is
- *      seen here even while the stand-in still passes (added after review,
- *      2026-11-08; the live image printed 10 of 10 PASS).
+ *      still there (`kept`), exactly as {@link REDO_OCR_LAYER_OUTCOMES} says.
+ *   3. THE ENGINE ALONE — the same, through an OCR processor whose runner
+ *      skips the pre-pass: the outcome must be {@link ENGINE_ALONE_OUTCOMES}
+ *      (two shapes KEPT). This is the defect's shape as a negative control:
+ *      it shows the fixtures exercise exactly what OCRmyPDF misses, so step
+ *      2's "replaced" is the pre-pass's doing. If an OCRmyPDF upgrade starts
+ *      removing a shape itself, this goes red and the table is re-measured.
+ *   4. REDO OFF — the first shape with redo OFF (`--skip-text`): every stale
+ *      word kept and the scan unread. Without it, a fixture the engine
+ *      ignores outright would pass step 2 for the wrong reason.
+ *   5. TYPED TEXT — a scan with a visible typed line AND a stale layer in
+ *      every shape: the fixture reads as built, and with redo on every
+ *      typed word survives, every scan word is read, and no stale word is
+ *      left. The copy promises typed text is kept; this is that promise,
+ *      in the image.
+ *   6. A REAL OCRmyPDF LAYER (a real double OCR) — the scan read by the
+ *      processor in {@link REAL_LAYER_LANGUAGE} (Cyrillic words, read back
+ *      as the `ocrmypdf` shape), then redone in English, both with the
+ *      product (want: the `ocrmypdf` row) and with the engine alone (want:
+ *      its row). Steps 1–3 use a hand-built stand-in; this is the layer a
+ *      reader of our own OCR PDF actually has.
  *
  * Exit codes: 0 = proven; 1 = a check failed; 2 = an engine this proof needs
  * is not in the image. Output names shapes, counts and verdicts only.
@@ -69,6 +80,34 @@ import type { Processor, ProcessorResult } from "./processor/types";
 
 /** Words on the stale layer; the scan's picture shows none of them. */
 export const STALE_OCR_TEXT = "Stale layer walrus quixotic 9031";
+
+/**
+ * What OCRmyPDF 14.0.1's `--redo-ocr` does ON ITS OWN to each shape — no
+ * pre-pass. MEASURED 2026-11-08 in a throwaway container of the live worker
+ * image, then pdftotext of the output (#290; until the pre-pass landed this
+ * WAS {@link REDO_OCR_LAYER_OUTCOMES}). `strip_invisible_text` in OCRmyPDF's
+ * `_graft.py` walks the PAGE content stream only, resets the mode to 0 at
+ * every `BT`, and drops a text object only if a `3 Tr` appears inside it.
+ * Step 3 of the proof checks every row, so the reason the pre-pass exists
+ * is re-measured on every image.
+ */
+export const ENGINE_ALONE_OUTCOMES = {
+  tesseract: "replaced",
+  ocrmypdf: "kept",
+  "mode-before-text": "kept",
+} as const satisfies Record<RedoOcrLayerShape, "replaced" | "kept">;
+
+/** A visible line typed onto the page, which Redo must keep. */
+export const TYPED_LINE = "Typed heading zephyr 5521 approved";
+const TYPED_AT = { x: 40, y: 780, size: 18 } as const;
+
+/** `pdf` with {@link TYPED_LINE} drawn as visible text on page 1. */
+export async function withTypedLine(pdf: Uint8Array): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(pdf);
+  const font = await embedDrawingFont(doc, [TYPED_LINE]);
+  doc.getPage(0).drawText(TYPED_LINE, { ...TYPED_AT, font });
+  return doc.save({ useObjectStreams: false });
+}
 
 /** Every shape the table names, in its order. */
 export const REDO_OCR_LAYER_SHAPES = Object.keys(
@@ -290,6 +329,11 @@ export function redoTextVerdict(
 export interface OcrRedoProofDeps {
   /** The registry's OCR processor (what `ocr-pdf` and OCR-first jobs reach). */
   ocr: Processor;
+  /**
+   * The same processor with the runner's pre-pass turned off (its
+   * `stripInvisibleText` seam passing the PDF through): OCRmyPDF alone.
+   */
+  engineAlone: Processor;
   /** A one-page scan (pixels only) of {@link OcrRedoProofDeps.line}. */
   scan: Uint8Array;
   /** The words printed on the scan. */
@@ -335,9 +379,11 @@ export async function runOcrRedoProof(
 ): Promise<0 | 1 | 2> {
   const log = deps.log ?? ((line: string) => console.log(line));
   const pdfText = deps.pdfText;
-  if (!deps.ocr.capability().ready || !pdfText) {
+  const ready =
+    deps.ocr.capability().ready && deps.engineAlone.capability().ready;
+  if (!ready || !pdfText) {
     log(
-      `MISSING ${!deps.ocr.capability().ready ? "a ready OCR engine" : "pdftotext"}: the redo proof cannot run in this image.`,
+      `MISSING ${!ready ? "a ready OCR engine" : "pdftotext"}: the redo proof cannot run in this image.`,
     );
     return 2;
   }
@@ -353,8 +399,9 @@ export async function runOcrRedoProof(
     bytes: Uint8Array,
     redoOcr: boolean,
     languages?: string[],
+    processor: Processor = deps.ocr,
   ) => {
-    const result = await deps.ocr.process(job(bytes, redoOcr, languages));
+    const result = await processor.process(job(bytes, redoOcr, languages));
     const pdf = outputPdf(result);
     if (!pdf)
       check(
@@ -392,46 +439,68 @@ export async function runOcrRedoProof(
     );
   }
 
-  for (const shape of REDO_OCR_LAYER_SHAPES) {
-    const want = REDO_OCR_LAYER_OUTCOMES[shape];
-    const out = await run(
-      `redo on, ${shape} layer`,
-      fixtures.get(shape)!,
-      true,
-    );
-    if (!out) continue;
-    const v = redoTextVerdict(await pdfText(out), deps.line, want);
-    check(v.ok, `redo on, ${shape} layer is ${want}`, v.detail);
+  // Step 2 (the product) and step 3 (the engine alone), shape by shape.
+  const tables = [
+    ["redo on", REDO_OCR_LAYER_OUTCOMES, deps.ocr],
+    ["engine alone", ENGINE_ALONE_OUTCOMES, deps.engineAlone],
+  ] as const;
+  for (const [who, table, processor] of tables) {
+    for (const shape of REDO_OCR_LAYER_SHAPES) {
+      const want = table[shape];
+      const out = await run(
+        `${who}, ${shape} layer`,
+        fixtures.get(shape)!,
+        true,
+        undefined,
+        processor,
+      );
+      if (!out) continue;
+      const v = redoTextVerdict(await pdfText(out), deps.line, want);
+      check(v.ok, `${who}, ${shape} layer is ${want}`, v.detail);
+    }
   }
 
-  const replaced = REDO_OCR_LAYER_SHAPES.find(
-    (s) => REDO_OCR_LAYER_OUTCOMES[s] === "replaced",
+  // Step 4: redo off copies the page through, stale layer and all.
+  const first = REDO_OCR_LAYER_SHAPES[0]!;
+  const off = await run(
+    `redo off, ${first} layer`,
+    fixtures.get(first)!,
+    false,
   );
-  if (replaced) {
-    const out = await run(
-      `redo off, ${replaced} layer`,
-      fixtures.get(replaced)!,
-      false,
+  if (off) {
+    const v = redoTextVerdict(await pdfText(off), deps.line, "skipped");
+    check(
+      v.ok,
+      `negative control: redo off keeps the ${first} layer`,
+      v.detail,
     );
-    if (out) {
-      const v = redoTextVerdict(await pdfText(out), deps.line, "skipped");
-      check(
-        v.ok,
-        `negative control: redo off keeps the ${replaced} layer`,
-        v.detail,
-      );
-    }
-  } else check(false, "negative control", "the table names no replaced shape");
+  }
 
-  // A REAL OCRmyPDF layer, not a stand-in: the `ocrmypdf` row is what a
-  // reader gets from our own OCR PDF, and the hand-built form above only
-  // models it. Added 2026-11-08 after review: an engine or graft change that
-  // made OCRmyPDF strip or re-graft its OWN layer would leave the stand-in
-  // "kept" while real layers came back "replaced", and the copy false. Read
-  // in Russian first, so the old layer's words (Cyrillic) differ from the
-  // new ones (English): poppler hides an identical duplicate layer, so an
+  // Step 5: typed text beside a stale layer in every shape.
+  let typed = await withTypedLine(deps.scan);
+  for (const shape of REDO_OCR_LAYER_SHAPES)
+    typed = await withStaleOcrLayer(typed, shape);
+  const typedIn = typedVerdict(await pdfText(typed), deps.line, "fixture");
+  const typedShapes = await staleLayerShapes(typed);
+  check(
+    typedIn.ok && typedShapes.length === REDO_OCR_LAYER_SHAPES.length,
+    "instrument: the typed fixture has its typed line and every stale shape",
+    `shapes [${typedShapes.join(", ")}]; ${typedIn.detail}`,
+  );
+  const typedOut = await run("redo on, typed text and old layers", typed, true);
+  if (typedOut) {
+    const v = typedVerdict(await pdfText(typedOut), deps.line, "redone");
+    check(
+      v.ok,
+      "redo on keeps typed text and replaces every old layer",
+      v.detail,
+    );
+  }
+
+  // Step 6: a REAL OCRmyPDF layer — a real double OCR. Read in Russian
+  // first, so the old layer's words (Cyrillic) differ from the new ones
+  // (English): poppler hides an identical duplicate layer, so an
   // English-over-English run cannot tell kept from replaced.
-  const realWant = REDO_OCR_LAYER_OUTCOMES.ocrmypdf;
   const real = await run(
     "a real OCRmyPDF layer, read in Russian",
     deps.scan,
@@ -451,8 +520,19 @@ export async function runOcrRedoProof(
       "instrument: a real OCRmyPDF layer reads as the ocrmypdf shape, in Cyrillic",
       `shapes [${realShapes.join(", ")}]; ${oldWords.length} Cyrillic word(s); ${scanRead.detail.split(";")[0]}`,
     );
-    const out = await run("redo on, real OCRmyPDF layer", real, true, ["eng"]);
-    if (out) {
+    const realRuns = [
+      ["redo on", REDO_OCR_LAYER_OUTCOMES.ocrmypdf, deps.ocr],
+      ["engine alone", ENGINE_ALONE_OUTCOMES.ocrmypdf, deps.engineAlone],
+    ] as const;
+    for (const [who, want, processor] of realRuns) {
+      const out = await run(
+        `${who}, real OCRmyPDF layer`,
+        real,
+        true,
+        ["eng"],
+        processor,
+      );
+      if (!out) continue;
       const text = await pdfText(out);
       const have = new Set(cyrillicWords(text));
       const oldFound = oldWords.filter((w) => have.has(w)).length;
@@ -461,19 +541,18 @@ export async function runOcrRedoProof(
       const lineFound = lineWords.filter((w) => read.has(w)).length;
       const ok =
         lineFound === lineWords.length &&
-        (realWant === "kept" ? oldFound === oldWords.length : oldFound === 0);
+        (want === "kept" ? oldFound === oldWords.length : oldFound === 0);
       check(
         ok,
-        `redo on, a real OCRmyPDF layer is ${realWant}`,
+        `${who}, a real OCRmyPDF layer is ${want}`,
         `${lineFound} of ${lineWords.length} scan words, ${oldFound} of ${oldWords.length} earlier Cyrillic words; want every scan word and ${
-          realWant === "kept" ? "every earlier word" : "no earlier word"
+          want === "kept" ? "every earlier word" : "no earlier word"
         }`,
       );
     }
   }
 
-  // 1 bare + N fixtures + N redo + 1 control + 2 real-layer: a short run proved less.
-  const expected = 4 + 2 * REDO_OCR_LAYER_SHAPES.length;
+  const expected = expectedRedoChecks();
   if (checks !== expected) {
     log(`FAIL the proof ran ${checks} check(s), expected ${expected}`);
     failed += 1;
@@ -484,4 +563,39 @@ export async function runOcrRedoProof(
       : `REDO PROOF: ${failed} FAILED`,
   );
   return failed === 0 ? 0 : 1;
+}
+
+/**
+ * 1 bare + N fixtures + N redo + N engine-alone + 1 redo-off + 2 typed + 3
+ * real-layer: a short run proved less.
+ */
+export function expectedRedoChecks(): number {
+  return 7 + 3 * REDO_OCR_LAYER_SHAPES.length;
+}
+
+/**
+ * The typed-text check's verdict. `fixture`: every typed word and every
+ * stale word, and the scan unread. `redone`: every typed word, every scan
+ * word, no stale word.
+ */
+export function typedVerdict(
+  text: string,
+  line: string,
+  want: "fixture" | "redone",
+): ProofVerdict {
+  const have = new Set(words(text));
+  const found = (s: string) => words(s).filter((w) => have.has(w)).length;
+  const all = (s: string) => found(s) === words(s).length;
+  const ok =
+    want === "fixture"
+      ? all(TYPED_LINE) && all(STALE_OCR_TEXT) && !all(line)
+      : all(TYPED_LINE) && all(line) && found(STALE_OCR_TEXT) === 0;
+  return {
+    ok,
+    detail: `${found(TYPED_LINE)} of ${words(TYPED_LINE).length} typed words, ${found(line)} of ${words(line).length} scan words, ${found(STALE_OCR_TEXT)} of ${words(STALE_OCR_TEXT).length} stale words; want ${
+      want === "fixture"
+        ? "every typed and stale word, the scan unread"
+        : "every typed and scan word, no stale one"
+    }`,
+  };
 }

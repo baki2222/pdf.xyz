@@ -954,6 +954,13 @@ function redoWant(outcome: string): "replaced" | "beside" {
   return outcome === "replaced" ? "replaced" : "beside";
 }
 
+/** The `want` line of a Redo case, from the same row as its verdict. */
+function redoWantText(outcome: string): string {
+  return redoWant(outcome) === "replaced"
+    ? "DOCX with the scan's words and not the earlier layer's"
+    : "DOCX with the scan's words beside the earlier layer's";
+}
+
 /** A pattern matching exactly `text`: the user-facing message, whole. */
 function exactly(text: string): RegExp {
   return new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
@@ -2051,9 +2058,11 @@ const SPECS: ProofSpec[] = [
     // CHANGED 2026-11-08: the first fixture set `3 Tr` BEFORE its BT, a
     // layer OCRmyPDF 14's --redo-ocr does not strip, so this case failed on
     // a correct product (#290 has the investigation). It now carries the
-    // shape Tesseract writes, which Redo replaces; the case below carries
-    // OCRmyPDF's own layer, which it keeps. Both wants come from the one
-    // outcome table, so if a worker upgrade flips a row, its case flips.
+    // shape Tesseract writes; the cases below carry OCRmyPDF's own layer and
+    // the mode-before-text shape. Since the worker's pre-pass
+    // (src/lib/workers/strip-invisible-text.ts) Redo replaces all three.
+    // Every want comes from the one outcome table, so if a row flips, its
+    // case flips.
     make: async () => withStaleOcrLayer(await scannedTextPdf(), "tesseract"),
     name: "stale-ocr.pdf",
     type: PDF_MIME,
@@ -2067,20 +2076,40 @@ const SPECS: ProofSpec[] = [
         redoWant(REDO_OCR_LAYER_OUTCOMES.tesseract),
       ),
   },
+  // CHANGED 2026-11-08: labelled "redo keeps an earlier OCRmyPDF layer"
+  // while OCRmyPDF kept it; a worker image from before the pre-pass FAILS
+  // these two now, which is the point: they prove the deployed worker.
   {
     tool: "pdf-to-word",
-    label: "pdf-to-word (ocr, redo keeps an earlier OCRmyPDF layer)",
+    label: "pdf-to-word (ocr, redo, an earlier OCRmyPDF layer)",
     make: async () => withStaleOcrLayer(await scannedTextPdf(), "ocrmypdf"),
     name: "ocrmypdf-layer.pdf",
     type: PDF_MIME,
     options: { ocr: true, languages: ["eng"], redoOcr: true },
     expect: isZipContainer,
-    want: "DOCX with the scan's words beside the earlier layer's, as the copy says",
+    want: redoWantText(REDO_OCR_LAYER_OUTCOMES.ocrmypdf),
     verify: (bytes) =>
       redoDocxVerdict(
         new Uint8Array(bytes),
         SCANNED_LINE,
         redoWant(REDO_OCR_LAYER_OUTCOMES.ocrmypdf),
+      ),
+  },
+  {
+    tool: "pdf-to-word",
+    label: "pdf-to-word (ocr, redo, mode set before text)",
+    make: async () =>
+      withStaleOcrLayer(await scannedTextPdf(), "mode-before-text"),
+    name: "mode-before-text.pdf",
+    type: PDF_MIME,
+    options: { ocr: true, languages: ["eng"], redoOcr: true },
+    expect: isZipContainer,
+    want: redoWantText(REDO_OCR_LAYER_OUTCOMES["mode-before-text"]),
+    verify: (bytes) =>
+      redoDocxVerdict(
+        new Uint8Array(bytes),
+        SCANNED_LINE,
+        redoWant(REDO_OCR_LAYER_OUTCOMES["mode-before-text"]),
       ),
   },
   {

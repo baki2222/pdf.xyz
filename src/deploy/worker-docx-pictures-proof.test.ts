@@ -275,11 +275,13 @@ describe("the production proof asks PDF to Word about its picture, and LibreOffi
     );
 
   // 2026-11-08 (#290): Redo against OCRmyPDF's OWN layer, which OCRmyPDF 14
-  // keeps; its want is read from REDO_OCR_LAYER_OUTCOMES (asserted below).
-  const REDO_LAYER_LABEL =
-    "pdf-to-word (ocr, redo keeps an earlier OCRmyPDF layer)";
+  // keeps on its own; then (the worker's pre-pass, same day) also against
+  // the mode-before-text shape. Each want is read from
+  // REDO_OCR_LAYER_OUTCOMES (asserted below). Found by label PREFIX, so a
+  // new shape's case is counted without being named here.
+  const REDO_LAYER_PREFIX = "pdf-to-word (ocr, redo, ";
   const redoLayerSpecs = () =>
-    specs.filter((s) => str(s, "label") === REDO_LAYER_LABEL);
+    specs.filter((s) => str(s, "label")?.startsWith(REDO_LAYER_PREFIX));
 
   it("each OCR page choice has an ON spec and an OFF control, judged on the DOCX by the shared verdict", () => {
     // [tag, option, verdict, ON want, OFF want, the fixture both send].
@@ -371,22 +373,44 @@ describe("the production proof asks PDF to Word about its picture, and LibreOffi
     );
   });
 
-  it("Redo is also proven against OCRmyPDF's own layer, with the want its table row gives", () => {
+  it("Redo is proven against every other layer shape, each with the want its own table row gives", () => {
     const found = redoLayerSpecs();
-    expect(found).toHaveLength(1);
-    const spec = found[0]!;
-    expect(prop(spec, "make")?.initializer.getText(file)).toMatch(
-      /withStaleOcrLayer\(await scannedTextPdf\(\), "ocrmypdf"\)/,
+    // Every shape of the table but `tesseract` (the ON/OFF pair above), once.
+    const others = Object.keys(REDO_OCR_LAYER_OUTCOMES).filter(
+      (s) => s !== "tesseract",
     );
-    const options = prop(spec, "options")?.initializer.getText(file);
-    expect(options).toMatch(/\bocr:\s*true\b/);
-    expect(options).toMatch(/\bredoOcr:\s*true\b/);
-    expect(prop(spec, "verify")?.initializer.getText(file)).toMatch(
-      /\bredoDocxVerdict\([\s\S]*redoWant\(REDO_OCR_LAYER_OUTCOMES\.ocrmypdf\)/,
-    );
-    // Today's row: OCRmyPDF 14 keeps its own layer, so the DOCX must hold
-    // the new words BESIDE the old ones ("beside" in redoDocxVerdict).
-    expect(REDO_OCR_LAYER_OUTCOMES.ocrmypdf).toBe("kept");
+    expect(found).toHaveLength(others.length);
+    const shapes = found.map((spec) => {
+      const make = prop(spec, "make")?.initializer.getText(file) ?? "";
+      const shape =
+        /withStaleOcrLayer\(\s*await scannedTextPdf\(\),\s*"([^"]+)",?\s*\)/.exec(
+          make,
+        )?.[1];
+      expect(shape, make).toBeDefined();
+      const options = prop(spec, "options")?.initializer.getText(file);
+      expect(options).toMatch(/\bocr:\s*true\b/);
+      expect(options).toMatch(/\bredoOcr:\s*true\b/);
+      // The verdict and the want line read the SAME row as the fixture's shape.
+      const row = shape === "ocrmypdf" ? "\\.ocrmypdf" : `\\["${shape}"\\]`;
+      expect(prop(spec, "verify")?.initializer.getText(file)).toMatch(
+        new RegExp(
+          `\\bredoDocxVerdict\\([\\s\\S]*redoWant\\(REDO_OCR_LAYER_OUTCOMES${row}\\)`,
+        ),
+      );
+      expect(prop(spec, "want")?.initializer.getText(file)).toMatch(
+        new RegExp(`^redoWantText\\(REDO_OCR_LAYER_OUTCOMES${row}\\)$`),
+      );
+      return shape;
+    });
+    expect(shapes.sort()).toEqual([...others].sort());
+    // INVERTED 2026-11-08: this asserted `ocrmypdf` was "kept", so the DOCX
+    // had to hold the new words BESIDE the old. The worker's pre-pass
+    // removes every shape, so every case now wants "replaced".
+    for (const shape of others)
+      expect(
+        REDO_OCR_LAYER_OUTCOMES[shape as keyof typeof REDO_OCR_LAYER_OUTCOMES],
+        shape,
+      ).toBe("replaced");
   });
 
   it("the pdf-to-word spec sends the Word proof PDF and verifies the picture", () => {

@@ -12,14 +12,22 @@
  * fed the bare scan instead of its layer (that row alone, 0 of 6 earlier
  * Cyrillic words).
  *
+ * With the runner's pre-pass (`./strip-invisible-text`, later on
+ * 2026-11-08) the proof grew the engine-alone rows and the typed page: the
+ * live image (sha256:66f57576…) printed 16 of 16 PASS, and the same tree
+ * with the pre-pass call passed through (one line of `ocr-native.ts`, `diff
+ * -r` showing only it) printed 4 FAILED — exactly the rows the "no
+ * pre-pass" fault below names, in the same order.
+ *
  *  - each fixture carries exactly the layer shape it is named for, read
  *    back from its decoded content streams, and its stale words are text a
  *    reader gets (pdf.js) — so "kept" can never pass over a layer that was
  *    never there;
  *  - every verdict fails in the direction it exists to catch;
- *  - the run fails on each engine behaviour that would make the copy false:
- *    an engine that ignores the option, one that strips every hidden layer
- *    (a future OCRmyPDF: the "kept" sentences go stale), and one that
+ *  - the run fails on each behaviour that would make the copy or a table
+ *    false: the pre-pass missing, or taking typed text with it; an engine
+ *    that ignores the option; one that strips every hidden layer by itself
+ *    (a future OCRmyPDF: ENGINE_ALONE_OUTCOMES goes stale); and one that
  *    strips none.
  */
 import { PDFDocument } from "pdf-lib";
@@ -28,9 +36,13 @@ import { REDO_OCR_LAYER_OUTCOMES } from "@/lib/jobs/ocr";
 import { readAsViewer } from "@/tests/pdfjs-viewer";
 import type { Processor } from "./processor/types";
 import {
+  ENGINE_ALONE_OUTCOMES,
   REDO_OCR_LAYER_SHAPES,
   STALE_OCR_TEXT,
+  TYPED_LINE,
+  expectedRedoChecks,
   redoTextVerdict,
+  typedVerdict,
   runOcrRedoProof,
   staleLayerShapes,
   withStaleOcrLayer,
@@ -49,11 +61,18 @@ const viewerText = async (pdf: Uint8Array) =>
   (await readAsViewer(pdf)).flatMap((p) => p.runs.map((r) => r.str)).join(" ");
 
 describe("the stale-layer fixtures", () => {
-  it("health check: the table names three shapes, and the proof walks every one", () => {
+  it("health check: both tables name the same three shapes, and the proof walks every one", () => {
     expect(REDO_OCR_LAYER_SHAPES).toEqual(Object.keys(REDO_OCR_LAYER_OUTCOMES));
+    expect(Object.keys(ENGINE_ALONE_OUTCOMES)).toEqual(REDO_OCR_LAYER_SHAPES);
     expect(REDO_OCR_LAYER_SHAPES.length).toBe(3);
-    // Both outcomes are present, so the run has a replaced row AND a kept one.
+    // CHANGED 2026-11-08: this asked REDO_OCR_LAYER_OUTCOMES for both
+    // outcomes. With the pre-pass every product row is "replaced"; the
+    // engine-alone table carries both, so the run still has a replaced row
+    // AND a kept one to tell apart.
     expect(new Set(Object.values(REDO_OCR_LAYER_OUTCOMES))).toEqual(
+      new Set(["replaced"]),
+    );
+    expect(new Set(Object.values(ENGINE_ALONE_OUTCOMES))).toEqual(
       new Set(["replaced", "kept"]),
     );
   });
@@ -93,25 +112,32 @@ describe("redoTextVerdict", () => {
 type Fault =
   | "none"
   | "ignores redo"
-  | "strips every layer"
-  | "strips none"
-  | "strips its own layer";
+  | "no pre-pass"
+  | "pre-pass drops typed text"
+  | "engine strips every layer"
+  | "engine strips none";
 
 /** What a played Russian read of the English scan says (as measured). */
 const CYRILLIC = "шуосе Зсаппе питрег";
 
 /**
- * A played OCRmyPDF: under `--redo-ocr` it reads the scan and drops the
- * stale layer only when the page carries the shape OCRmyPDF 14 detects
- * (the measurement in REDO_OCR_LAYER_OUTCOMES); under `--skip-text` it
- * copies a page with text through unread, and grafts its OWN layer (the
- * `ocrmypdf` shape) on a page without one — Cyrillic when asked for `rus`.
- * "strips its own layer" is the review's case: the hand-built stand-in is
- * kept while a layer this engine wrote is replaced.
+ * A played OCRmyPDF, as two processors. `engineAlone` is OCRmyPDF 14 as
+ * measured: under `--redo-ocr` it reads the scan and drops the stale layer
+ * only when every shape on the page is one ENGINE_ALONE_OUTCOMES calls
+ * "replaced"; under `--skip-text` it copies a page with text through unread,
+ * and grafts its OWN layer (the `ocrmypdf` shape) on a page without one —
+ * Cyrillic when asked for `rus`. `ocr` is the product: the same engine
+ * behind the runner's pre-pass, so under redo every invisible layer is gone
+ * before the engine sees it, and typed text is kept.
+ *
+ * Faults: "no pre-pass" is the mutant the image run also went red on (the
+ * product behaves as the engine alone); "pre-pass drops typed text" breaks
+ * the copy's other promise; "engine strips every layer" is a future
+ * OCRmyPDF that fixed its graft (ENGINE_ALONE_OUTCOMES would be stale);
+ * "engine strips none" one that stopped stripping even Tesseract's shape.
  */
 function played(fault: Fault) {
   const texts = new Map<Uint8Array, string>();
-  const own = new Set<Uint8Array>();
   const out = (bytes: Uint8Array, text: string) => {
     texts.set(bytes, text);
     return {
@@ -119,44 +145,52 @@ function played(fault: Fault) {
       artifacts: [{ filename: "o.pdf", contentType: "application/pdf", bytes }],
     };
   };
-  const ocr = {
-    capability: () => ({ ready: true, detail: "played" }),
-    process: async (input: {
-      options: Record<string, unknown>;
-      inputs: { bytes: Uint8Array }[];
-    }) => {
-      const source = input.inputs[0]!.bytes;
-      const shapes = await staleLayerShapes(source);
-      const languages = input.options.languages as string[];
-      const redo = input.options.redoOcr === true && fault !== "ignores redo";
-      if (!redo && shapes.length === 0) {
-        const bytes = await withStaleOcrLayer(source, "ocrmypdf");
-        own.add(bytes);
-        return out(bytes, languages.includes("rus") ? CYRILLIC : LINE);
-      }
-      const prior = texts.get(source) ?? STALE_OCR_TEXT;
-      const strips =
-        fault === "strips every layer"
-          ? true
-          : fault === "strips none"
-            ? false
-            : fault === "strips its own layer" && own.has(source)
+  const processor = (prePass: boolean) =>
+    ({
+      capability: () => ({ ready: true, detail: "played" }),
+      process: async (input: {
+        options: Record<string, unknown>;
+        inputs: { bytes: Uint8Array }[];
+      }) => {
+        const source = input.inputs[0]!.bytes;
+        const shapes = await staleLayerShapes(source);
+        const languages = input.options.languages as string[];
+        const redo = input.options.redoOcr === true && fault !== "ignores redo";
+        if (!redo && shapes.length === 0) {
+          const bytes = await withStaleOcrLayer(source, "ocrmypdf");
+          return out(bytes, languages.includes("rus") ? CYRILLIC : LINE);
+        }
+        const prior = texts.get(source) ?? (await viewerText(source));
+        const bytes = new TextEncoder().encode(`%PDF played ${texts.size}`);
+        if (!redo) return out(bytes, prior);
+        const typed = prior.includes(TYPED_LINE) ? TYPED_LINE : "";
+        const stale = prior.replace(TYPED_LINE, " ").trim();
+        const stripped =
+          prePass && fault !== "no pre-pass"
+            ? true
+            : fault === "engine strips every layer"
               ? true
-              : shapes.every((s) => REDO_OCR_LAYER_OUTCOMES[s] === "replaced");
-      const text = !redo ? prior : strips ? LINE : `${LINE} ${prior}`;
-      return out(new TextEncoder().encode(`%PDF played ${texts.size}`), text);
-    },
-  } as unknown as Processor;
+              : fault === "engine strips none"
+                ? false
+                : shapes.every((s) => ENGINE_ALONE_OUTCOMES[s] === "replaced");
+        const keepTyped = !(prePass && fault === "pre-pass drops typed text");
+        return out(
+          bytes,
+          [LINE, keepTyped ? typed : "", stripped ? "" : stale].join(" "),
+        );
+      },
+    }) as unknown as Processor;
   const pdfText = async (pdf: Uint8Array) =>
     texts.get(pdf) ?? (await viewerText(pdf));
-  return { ocr, pdfText };
+  return { ocr: processor(true), engineAlone: processor(false), pdfText };
 }
 
 async function runWith(fault: Fault) {
   const lines: string[] = [];
-  const { ocr, pdfText } = played(fault);
+  const { ocr, engineAlone, pdfText } = played(fault);
   const code = await runOcrRedoProof({
     ocr,
+    engineAlone,
     scan: await blankScan(),
     line: LINE,
     pdfText,
@@ -166,13 +200,40 @@ async function runWith(fault: Fault) {
 }
 
 describe("runOcrRedoProof", () => {
-  it("passes on the engine as measured, every check run", async () => {
+  it("passes on the engine as measured behind the pre-pass, every check run", async () => {
     const { code, lines, failed } = await runWith("none");
     expect(failed).toEqual([]);
     expect(code).toBe(0);
-    expect(lines.filter((l) => l.startsWith("PASS"))).toHaveLength(10);
+    expect(expectedRedoChecks()).toBe(16);
+    expect(lines.filter((l) => l.startsWith("PASS"))).toHaveLength(16);
     expect(lines).toContain(
-      "PASS redo on, a real OCRmyPDF layer is kept: 7 of 7 scan words, 3 of 3 earlier Cyrillic words; want every scan word and every earlier word",
+      "PASS redo on, a real OCRmyPDF layer is replaced: 7 of 7 scan words, 0 of 3 earlier Cyrillic words; want every scan word and no earlier word",
+    );
+    expect(lines).toContain(
+      "PASS engine alone, a real OCRmyPDF layer is kept: 7 of 7 scan words, 3 of 3 earlier Cyrillic words; want every scan word and every earlier word",
+    );
+    expect(lines).toContain(
+      "PASS redo on keeps typed text and replaces every old layer: 5 of 5 typed words, 7 of 7 scan words, 0 of 5 stale words; want every typed and scan word, no stale one",
+    );
+  });
+
+  it("fails without the pre-pass: every shape the engine keeps, and the typed page, go red", async () => {
+    const { code, failed } = await runWith("no pre-pass");
+    expect(code).toBe(1);
+    expect(failed.map((l) => l.split(":")[0])).toEqual([
+      "FAIL redo on, ocrmypdf layer is replaced",
+      "FAIL redo on, mode-before-text layer is replaced",
+      "FAIL redo on keeps typed text and replaces every old layer",
+      "FAIL redo on, a real OCRmyPDF layer is replaced",
+    ]);
+  });
+
+  it("fails when the pre-pass takes typed text with it", async () => {
+    const { code, failed } = await runWith("pre-pass drops typed text");
+    expect(code).toBe(1);
+    expect(failed).toHaveLength(1);
+    expect(failed[0]).toMatch(
+      /^FAIL redo on keeps typed text and replaces every old layer: 0 of 5 typed words/,
     );
   });
 
@@ -184,42 +245,60 @@ describe("runOcrRedoProof", () => {
     ).toBe(true);
   });
 
-  it("fails when the engine strips every hidden layer: the 'kept' copy would be stale", async () => {
-    const { code, failed } = await runWith("strips every layer");
+  it("fails when OCRmyPDF starts stripping every layer itself: the engine-alone table would be stale", async () => {
+    const { code, failed } = await runWith("engine strips every layer");
     expect(code).toBe(1);
     expect(
-      failed.map((l) => /redo on, (.+) layer is kept/.exec(l)?.[1]),
+      failed.map((l) => /engine alone, (.+) layer is kept/.exec(l)?.[1]),
     ).toEqual(["ocrmypdf", "mode-before-text", "a real OCRmyPDF"]);
   });
 
-  it("fails when the engine strips its OWN layer while the stand-in is kept", async () => {
-    // The review's case (2026-11-08): every hand-built row stays green, so
-    // only the real-layer row can see that the copy's main claim went false.
-    const { code, failed } = await runWith("strips its own layer");
+  it("fails when OCRmyPDF stops stripping even Tesseract's shape", async () => {
+    const { code, failed } = await runWith("engine strips none");
     expect(code).toBe(1);
     expect(failed).toHaveLength(1);
-    expect(failed[0]).toMatch(
-      /^FAIL redo on, a real OCRmyPDF layer is kept: 7 of 7 scan words, 0 of 3 earlier/,
-    );
-  });
-
-  it("fails when the engine strips no layer", async () => {
-    const { code, failed } = await runWith("strips none");
-    expect(code).toBe(1);
-    expect(failed).toHaveLength(1);
-    expect(failed[0]).toMatch(/redo on, tesseract layer is replaced/);
+    expect(failed[0]).toMatch(/engine alone, tesseract layer is replaced/);
   });
 
   it("cannot conclude without pdftotext or a ready engine", async () => {
-    const { ocr } = played("none");
+    const { ocr, engineAlone } = played("none");
     expect(
       await runOcrRedoProof({
         ocr,
+        engineAlone,
         scan: await blankScan(),
         line: LINE,
         pdfText: null,
         log: () => {},
       }),
     ).toBe(2);
+    const notReady = {
+      ...engineAlone,
+      capability: () => ({ ready: false, detail: "absent" }),
+    } as Processor;
+    expect(
+      await runOcrRedoProof({
+        ocr,
+        engineAlone: notReady,
+        scan: await blankScan(),
+        line: LINE,
+        pdfText: async () => "",
+        log: () => {},
+      }),
+    ).toBe(2);
+  });
+});
+
+describe("typedVerdict", () => {
+  const typed = `${TYPED_LINE} ${LINE}`;
+  it.each([
+    ["redone", typed, true],
+    ["redone", `${typed} ${STALE_OCR_TEXT}`, false],
+    ["redone", LINE, false],
+    ["fixture", `${TYPED_LINE} ${STALE_OCR_TEXT}`, true],
+    ["fixture", `${typed} ${STALE_OCR_TEXT}`, false],
+    ["fixture", TYPED_LINE, false],
+  ] as const)("want %s over %j → %s", (want, text, ok) => {
+    expect(typedVerdict(text, LINE, want).ok).toBe(ok);
   });
 });

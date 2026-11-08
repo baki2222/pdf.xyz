@@ -13,6 +13,13 @@
  * (`REDO_OCR_SCOPE`), and `pnpm worker:ocr-redo-proof` checks the table
  * against the image's engine.
  *
+ * CHANGED later on 2026-11-08: the worker now takes every invisible text
+ * layer out before OCRmyPDF runs (src/lib/workers/strip-invisible-text.ts),
+ * every row of the table is "replaced", and the scope sentence says so. The
+ * #290 sentences that said OCRmyPDF's layer "is kept, and the new text is
+ * added beside it" went false the same day; they joined the ban list below,
+ * with their corpus, and the test that pinned "beside" is inverted.
+ *
  * Pinned here:
  *  1. the scope sentence states each row of the table with that row's
  *     outcome — a relationship, so flipping a row without the copy is red;
@@ -49,18 +56,30 @@ import {
  */
 const READER_NAME: Record<RedoOcrLayerShape, string> = {
   tesseract: "the way Tesseract writes it",
-  ocrmypdf: "A layer added by OCRmyPDF",
-  "mode-before-text": "Other hidden text",
+  ocrmypdf: "a layer added by OCRmyPDF",
+  "mode-before-text": "other hidden text",
 };
 
 const sentences = (text: string) =>
   text.split(/(?<=\.)\s+/).filter((s) => s.length > 0);
 
 describe("REDO_OCR_SCOPE states REDO_OCR_LAYER_OUTCOMES", () => {
-  it("health check: three sentences, one per row", () => {
-    expect(sentences(REDO_OCR_SCOPE)).toHaveLength(
+  it("health check: every row's name is in the scope exactly once, and no sentence is spare", () => {
+    // CHANGED 2026-11-08: "three sentences, one per row". With every row
+    // "replaced" one sentence names all three; the relationship below is
+    // per row either way.
+    for (const name of Object.values(READER_NAME))
+      expect(REDO_OCR_SCOPE.split(name).length - 1, name).toBe(1);
+    const all = sentences(REDO_OCR_SCOPE);
+    expect(all.length).toBeGreaterThanOrEqual(1);
+    expect(all.length).toBeLessThanOrEqual(
       Object.keys(REDO_OCR_LAYER_OUTCOMES).length,
     );
+    for (const sentence of all)
+      expect(
+        Object.values(READER_NAME).some((name) => sentence.includes(name)),
+        sentence,
+      ).toBe(true);
   });
 
   it.each(Object.entries(REDO_OCR_LAYER_OUTCOMES))(
@@ -71,7 +90,7 @@ describe("REDO_OCR_SCOPE states REDO_OCR_LAYER_OUTCOMES", () => {
       expect(sentence, `no sentence names ${name}`).toBeDefined();
       if (outcome === "replaced") {
         expect(sentence).toMatch(/\breplaces\b/);
-        expect(sentence).not.toMatch(/\bkept\b/);
+        expect(sentence).not.toMatch(/\bkept\b|\bbeside\b/);
       } else {
         expect(sentence).toMatch(/\bkept\b/);
         expect(sentence).not.toMatch(/\breplace/);
@@ -86,8 +105,12 @@ describe("REDO_OCR_SCOPE states REDO_OCR_LAYER_OUTCOMES", () => {
     expect(REDO_OCR_SCOPE).toMatch(/^Redo replaces\b/);
   });
 
-  it("the kept OCRmyPDF layer is said to stay BESIDE the new text, not instead of it", () => {
-    expect(REDO_OCR_SCOPE).toMatch(/new text is added beside it/);
+  // INVERTED 2026-11-08: this pinned "new text is added beside it", true
+  // while OCRmyPDF kept its own layer. The worker's pre-pass removes it, so
+  // saying "beside" would now be the false claim.
+  it("the OCRmyPDF layer is no longer said to stay beside the new text", () => {
+    expect(REDO_OCR_LAYER_OUTCOMES.ocrmypdf).toBe("replaced");
+    expect(REDO_OCR_SCOPE).not.toMatch(/beside|\bkept\b/);
   });
 });
 
@@ -118,6 +141,21 @@ const BAN: readonly { name: string; pattern: RegExp }[] = [
     name: "'Replace a PDF's existing OCR text layer' (the option's docblock, line 1)",
     pattern: /replace\s+(?:a\s+PDF['’]s\s+)?existing\s+OCR\s+text\s+layer/i,
   },
+  // The opposite claim, false since the worker's pre-pass (2026-11-08):
+  // that an earlier layer survives Redo. #290 shipped these, true that day.
+  {
+    name: "'is kept, and the new text is added beside it' (the #290 scope)",
+    pattern: /\bkept,?\s+and\s+the\s+new\s+text\s+is\s+added\s+beside\b/i,
+  },
+  {
+    name: "'Other hidden text may be kept' (the #290 scope)",
+    pattern: /hidden\s+text\s+may\s+be\s+kept/i,
+  },
+  {
+    name: "'takes away only the old layers OCRmyPDF can detect' (the option's docblock, #290)",
+    pattern:
+      /takes\s+away\s+only\s+the\s+old\s+layers\s+OCRmyPDF\s+can\s+detect/i,
+  },
 ];
 
 /** Every sentence that shipped with the claim, verbatim from git history. */
@@ -129,6 +167,8 @@ const SHIPPED: readonly string[] = [
   "Turning it on strips invisible OCR text and recognizes those pages again, while text typed into the document itself is kept.",
   "or `--redo-ocr` (the opt-in: invisible OCR text is replaced, typed text is kept) is always passed.",
   "Replace a PDF's existing OCR text layer instead of keeping it (OCRmyPDF `--redo-ocr`). Off by default.",
+  "Redo replaces hidden OCR text written the way Tesseract writes it. A layer added by OCRmyPDF, the engine our OCR PDF uses on PDFs, is kept, and the new text is added beside it. Other hidden text may be kept as well.",
+  "Turning it on recognizes the pages with hidden OCR text again; it takes away only the old layers OCRmyPDF can detect, which is NOT the layer OCRmyPDF itself adds.",
 ];
 
 const banned = (text: string) =>

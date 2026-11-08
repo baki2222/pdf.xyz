@@ -22,13 +22,21 @@ async function main(): Promise<number> {
   const ocr = createProcessorRegistry({ ocr: nativeOcrDeps(env) }).resolve(
     "ocr-pdf",
   );
-  if (!ocr) {
+  // The same wiring with Redo's pre-pass passed through: OCRmyPDF alone, the
+  // negative control that shows which layers the engine keeps by itself.
+  const engineAlone = createProcessorRegistry({
+    ocr: nativeOcrDeps(env, {
+      stripInvisibleText: async (bytes) => ({ bytes }),
+    }),
+  }).resolve("ocr-pdf");
+  if (!ocr || !engineAlone) {
     console.log("CANNOT CONCLUDE — the registry serves no OCR processor.");
     return 2;
   }
   const extract = resolveNativePdfTextExtractor(process.env);
   return runOcrRedoProof({
     ocr,
+    engineAlone,
     scan: await scannedTextPdf(),
     line: SCANNED_LINE,
     pdfText: extract ? async (pdf) => (await extract(pdf)).text : null,
