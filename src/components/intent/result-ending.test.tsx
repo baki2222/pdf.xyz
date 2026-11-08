@@ -114,6 +114,26 @@ afterEach(() => {
 });
 
 describe("the receipt", () => {
+  // PR #293's CI (run 42480512125): every test passed, but vitest caught two
+  // unhandled rejections from the page count. A batch output whose bytes
+  // could not be read rejected inside countOf, nothing caught it, and the
+  // cell would have stayed on "counting…" for good. A PDF the receipt cannot
+  // re-open is "not re-counted", the same as one pdf.js cannot parse.
+  it("a PDF whose bytes cannot be read settles to 'not re-counted', quietly", async () => {
+    const unreadable: OutputFile = {
+      name: "lost.pdf",
+      type: "application/pdf",
+      size: 1024,
+      bytes: () => Promise.reject(new Error("read failed")),
+      file: () => new File([], "lost.pdf", { type: "application/pdf" }),
+    };
+    render(<OutputFacts output={unreadable} />);
+    await waitFor(() =>
+      expect(pagesCell()!.getAttribute("data-settles")).toBe("unknown"),
+    );
+    expect(shown()).toBe("not re-counted");
+  });
+
   it("re-opens the PDF and counts it: ONE statement — the figure, its ring and its words", async () => {
     const bytes = await pdfOf(5);
     render(<OutputFacts output={outputFile(bytes, "merged.pdf")} />);

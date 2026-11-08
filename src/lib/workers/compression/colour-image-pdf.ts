@@ -21,6 +21,19 @@ import {
   pushGraphicsState,
 } from "pdf-lib";
 
+/**
+ * One date for every fixture, so the same call makes the same bytes. pdf-lib
+ * stamps CreationDate and ModDate with the clock at create(), and inside an
+ * object stream or a byte comparison two saves a second apart differed:
+ * image-quality-proof's "the fixture is deterministic" failed under a loaded
+ * full run on 2026-11-08 (the same flake #293's CI showed in image-size-fit).
+ */
+const FIXTURE_DATE = new Date("2026-01-01T00:00:00Z");
+function pinFixtureDates(doc: PDFDocument): void {
+  doc.setCreationDate(FIXTURE_DATE);
+  doc.setModificationDate(FIXTURE_DATE);
+}
+
 export interface ColourImagePdfOptions {
   /** 1 → DeviceGray, 3 → DeviceRGB. */
   components: 1 | 3;
@@ -39,6 +52,7 @@ export async function colourImagePdf({
   pad = 0,
 }: ColourImagePdfOptions): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
+  pinFixtureDates(doc);
   const samples = new Uint8Array(size * size * components);
   // Deterministic noise, so a recompressor has real pixels to work on.
   for (let i = 0; i < samples.length; i++) samples[i] = (i * 7919) % 251;
@@ -90,6 +104,7 @@ export async function noisePhotoPdf({
   kind?: "noise" | "smooth";
 }): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
+  pinFixtureDates(doc);
   const samples = new Uint8Array(px * px * 3);
   let seed = 0x2545f491;
   for (let i = 0; i < samples.length; i++) {
