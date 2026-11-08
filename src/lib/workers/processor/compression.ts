@@ -18,6 +18,7 @@ import { compressedOutputName } from "@/lib/jobs/filenames";
 import {
   DEEP_COMPRESSION_TOOLS,
   parseCompressionOptions,
+  asksForImageQuality,
   runCompression,
   type CompressionDeps,
   type CompressionRun,
@@ -213,6 +214,14 @@ export function createCompressionProcessor(deps: CompressionDeps): Processor {
                 pageCheck: run.meta.pageCheck,
                 pagesIn: run.meta.pagesIn,
                 pagesOut: run.meta.pagesOut,
+                // The JPEG level this worker read (audit compress-pdf#4).
+                // Present only when one other than the default was asked
+                // for: its absence is how the panel tells an older worker
+                // image, which ignores the option, from this one.
+                ...(asksForImageQuality(parsed.value) &&
+                parsed.value.imageQuality
+                  ? { imageQuality: parsed.value.imageQuality }
+                  : {}),
                 ...(run.meta.target
                   ? {
                       target: {

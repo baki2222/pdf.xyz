@@ -10,12 +10,29 @@ import {
   probeChromiumFromConfig,
   PRINT_TO_PDF_OPTIONS,
   UNLINK_SYNTHETIC_ORIGIN,
+  VIRTUAL_TIME_BUDGET_MS,
   type ChromiumLaunch,
 } from "./native";
 import type { NativeHtmlRenderConfig } from "./native-config";
 import type { RenderNetworkSeams } from "./network";
 import { WebpageFetchError, type WebpageFetchFailure } from "./engine";
 import { DEFAULT_HTML_RENDER_OPTIONS } from "@/lib/jobs/html-render-options";
+import { DEFAULT_WEBPAGE_CAPTURE_OPTIONS } from "@/lib/jobs/webpage-capture-options";
+import { HIDE_OVERLAYS_SCRIPT } from "./overlays";
+import {
+  STAMP_EMPTY_HEADER,
+  WEBPAGE_OUTLINE_PARAMS,
+  stampFooterTemplate,
+} from "./stamp";
+import {
+  LAZY_SCROLL_MAX_MS,
+  LAZY_SCROLL_MEASURE,
+  LAZY_SCROLL_NEXT_FRAMES,
+  LAZY_SCROLL_SETTLE_MS,
+  LAZY_SCROLL_STEP_MS,
+  lazyScrollPositions,
+  lazyScrollTo,
+} from "./lazy-scroll";
 
 const PDF = new TextEncoder().encode(
   "%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
@@ -58,6 +75,11 @@ function fakeChromium(
     /** Requests the page makes once loaded, while its virtual time runs. */
     pausedAfterLoad?: Paused[];
     /**
+     * Requests made during ONE virtual-time budget only, counted from 1:
+     * call 1 is the page's first budget, later calls are the scroll pass.
+     */
+    pausedOnBudget?: { call: number; paused: Paused[] };
+    /**
      * How many loads, counted from the first, show Chromium's XML
      * `<parsererror>` in the DOM (a package document that is not
      * well-formed). Default 0.
@@ -97,6 +119,7 @@ function fakeChromium(
     const reply = (msg: Sent, result: unknown) =>
       emit({ id: msg.id, result, sessionId: msg.sessionId });
     let loads = 0;
+    let budgets = 0;
 
     const handle = (msg: Sent) => {
       sent.push(msg);
@@ -144,10 +167,14 @@ function fakeChromium(
               sessionId: "S",
               params: {},
             });
-          const later = opts.pausedAfterLoad ?? [];
+          budgets += 1;
+          const later =
+            opts.pausedOnBudget?.call === budgets
+              ? opts.pausedOnBudget.paused
+              : (opts.pausedAfterLoad ?? []);
           if (later.length === 0) return expire();
           budgetReply = expire;
-          later.forEach((p, i) => pause(p, `a${i}`));
+          later.forEach((p, i) => pause(p, `a${budgets}-${i}`));
           return;
         }
         case "Page.printToPDF":
@@ -162,6 +189,16 @@ function fakeChromium(
                 ? 9
                 : 0,
           });
+        case "Page.createIsolatedWorld":
+          return reply(msg, { executionContextId: 7 });
+        case "Runtime.evaluate":
+          // A page three screens tall, for the scroll pass's measure.
+          return reply(
+            msg,
+            msg.params.expression === LAZY_SCROLL_MEASURE
+              ? { result: { value: { height: 3000, viewport: 800 } } }
+              : {},
+          );
         case "Page.getLayoutMetrics":
           return reply(msg, { cssContentSize: { height: 2400 } });
         case "IO.read":
@@ -355,7 +392,20 @@ describe("native Chromium HTML renderer", () => {
     // Health check: the webpage really reached the print, so the absence
     // below is not a render that stopped early.
     expect(web.sent.map((m) => m.method)).toContain("Page.printToPDF");
-    expect(web.sent.map((m) => m.method)).not.toContain("Runtime.evaluate");
+    // CHANGED 2026-11-08 (audit webpage-to-pdf#4): this asserted no
+    // Runtime.evaluate at all for a webpage. A webpage now evaluates the
+    // scroll pass's measure, so the property is stated as what it always
+    // meant: the UNLINK script never runs on a webpage.
+    expect(
+      web.sent.filter(
+        (m) =>
+          m.method === "Runtime.evaluate" &&
+          m.params.expression === UNLINK_SYNTHETIC_ORIGIN,
+      ),
+    ).toEqual([]);
+    expect(
+      web.sent.filter((m) => m.method === "Runtime.evaluate").length,
+    ).toBeGreaterThan(0);
   });
 
   /*
@@ -561,6 +611,156 @@ describe("native Chromium HTML renderer", () => {
       9,
     );
     expect(print.params.displayHeaderFooter).toBe(false);
+  });
+
+  it("Hide cookie notices and pop-ups runs its script in an isolated world after the page's time, before printing — and only when asked, only for a webpage (audit webpage-to-pdf#1)", async () => {
+    const evaluated = (fake: ReturnType<typeof fakeChromium>) =>
+      fake.sent.filter(
+        (m) =>
+          m.method === "Runtime.evaluate" &&
+          m.params.expression === HIDE_OVERLAYS_SCRIPT,
+      );
+    const fake = fakeChromium();
+    await runner(fake).renderUrl(
+      "https://public.example/",
+      DEFAULT_HTML_RENDER_OPTIONS,
+      {},
+      { ...DEFAULT_WEBPAGE_CAPTURE_OPTIONS, hideOverlays: true },
+    );
+    const hits = evaluated(fake);
+    expect(hits).toHaveLength(1);
+    expect(typeof hits[0]!.params.contextId).toBe("number");
+    const at = (m: Sent) => fake.sent.indexOf(m);
+    const budget = fake.sent.find(
+      (m) => m.method === "Emulation.setVirtualTimePolicy",
+    )!;
+    const print = fake.sent.find((m) => m.method === "Page.printToPDF")!;
+    expect(at(budget)).toBeLessThan(at(hits[0]!));
+    expect(at(hits[0]!)).toBeLessThan(at(print));
+
+    for (const off of [
+      (r: ReturnType<typeof runner>) => r.renderUrl("https://public.example/"),
+      (r: ReturnType<typeof runner>) => r.renderHtml(HTML),
+    ]) {
+      const quiet = fakeChromium();
+      await off(runner(quiet));
+      expect(evaluated(quiet)).toEqual([]);
+    }
+  });
+
+  it("Use the site's print styles unticked sends screen media before measuring and printing — and nothing by default (audit webpage-to-pdf#3)", async () => {
+    const media = (fake: ReturnType<typeof fakeChromium>) =>
+      fake.sent.filter((m) => m.method === "Emulation.setEmulatedMedia");
+    const fake = fakeChromium();
+    await runner(fake).renderUrl(
+      "https://public.example/",
+      { ...DEFAULT_HTML_RENDER_OPTIONS, onePage: true },
+      {},
+      { ...DEFAULT_WEBPAGE_CAPTURE_OPTIONS, printStyles: false },
+    );
+    const sent = media(fake);
+    expect(sent.map((m) => m.params)).toEqual([
+      { media: "screen" },
+      { media: "screen" },
+    ]);
+    const at = (m: Sent) => fake.sent.indexOf(m);
+    const measure = fake.sent.find(
+      (m) => m.method === "Page.getLayoutMetrics",
+    )!;
+    const print = fake.sent.find((m) => m.method === "Page.printToPDF")!;
+    expect(at(sent[1]!)).toBeLessThan(at(measure));
+    expect(at(measure)).toBeLessThan(at(print));
+
+    const quiet = fakeChromium();
+    await runner(quiet).renderUrl("https://public.example/");
+    expect(media(quiet)).toEqual([]);
+  });
+
+  it("a webpage is scrolled down a screen at a time after its budget, given time at each stop, and scrolled back before printing; an upload never (audit webpage-to-pdf#4)", async () => {
+    const fake = fakeChromium();
+    await runner(fake).renderUrl("https://public.example/");
+    const evals = fake.sent
+      .filter((m) => m.method === "Runtime.evaluate")
+      .map((m) => m.params.expression as string);
+    const scrolls = evals.filter((e) => e.startsWith("window.scrollTo"));
+    expect(scrolls).toEqual([
+      ...lazyScrollPositions(3000, 800).map(lazyScrollTo),
+      lazyScrollTo(0),
+    ]);
+    expect(scrolls).toHaveLength(4);
+    // After each scroll: a wait for frames, then that stop's page time.
+    const budgets = fake.sent
+      .filter((m) => m.method === "Emulation.setVirtualTimePolicy")
+      .map((m) => m.params.budget as number);
+    expect(budgets).toEqual([
+      VIRTUAL_TIME_BUDGET_MS,
+      LAZY_SCROLL_STEP_MS,
+      LAZY_SCROLL_STEP_MS,
+      LAZY_SCROLL_STEP_MS,
+      LAZY_SCROLL_SETTLE_MS,
+    ]);
+    expect(budgets.slice(1).reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(
+      LAZY_SCROLL_MAX_MS,
+    );
+    expect(evals.filter((e) => e === LAZY_SCROLL_NEXT_FRAMES).length).toBe(4);
+    const at = (pred: (m: Sent) => boolean) => fake.sent.findIndex(pred);
+    const lastScroll = fake.sent
+      .map((m, i) => ({ m, i }))
+      .filter(
+        ({ m }) =>
+          m.method === "Runtime.evaluate" &&
+          m.params.expression === lazyScrollTo(0),
+      )
+      .map(({ i }) => i)
+      .pop()!;
+    expect(
+      at((m) => m.method === "Emulation.setVirtualTimePolicy"),
+    ).toBeLessThan(at((m) => m.params.expression === LAZY_SCROLL_MEASURE));
+    expect(lastScroll).toBeLessThan(at((m) => m.method === "Page.printToPDF"));
+
+    const upload = fakeChromium();
+    await runner(upload).renderHtml(HTML);
+    expect(
+      upload.sent.filter(
+        (m) =>
+          m.method === "Runtime.evaluate" &&
+          (m.params.expression === LAZY_SCROLL_MEASURE ||
+            String(m.params.expression).startsWith("window.scrollTo")),
+      ),
+    ).toEqual([]);
+  });
+
+  it("a webpage prints with bookmarks from its headings, an upload as before; the stamp is a footer with the address and the clock's UTC time, only when asked (audit webpage-to-pdf#7)", async () => {
+    const printOf = (fake: ReturnType<typeof fakeChromium>) =>
+      fake.sent.find((m) => m.method === "Page.printToPDF")!.params;
+    const web = fakeChromium();
+    await runner(web).renderUrl("https://public.example/");
+    expect(printOf(web)).toMatchObject({
+      ...WEBPAGE_OUTLINE_PARAMS,
+      displayHeaderFooter: false,
+    });
+    expect(printOf(web)).not.toHaveProperty("footerTemplate");
+
+    const upload = fakeChromium();
+    await runner(upload).renderHtml(HTML);
+    expect(printOf(upload)).not.toHaveProperty("generateDocumentOutline");
+
+    const at = new Date(Date.UTC(2026, 10, 8, 9, 30));
+    const stamped = fakeChromium();
+    await runner(stamped, { now: () => at }).renderUrl(
+      "https://public.example/terms",
+      DEFAULT_HTML_RENDER_OPTIONS,
+      {},
+      { ...DEFAULT_WEBPAGE_CAPTURE_OPTIONS, stamp: true },
+    );
+    expect(printOf(stamped)).toMatchObject({
+      displayHeaderFooter: true,
+      headerTemplate: STAMP_EMPTY_HEADER,
+      footerTemplate: stampFooterTemplate("https://public.example/terms", at),
+    });
+    expect(printOf(stamped).footerTemplate).toContain(
+      "https://public.example/terms on 8 November 2026, 09:30 UTC",
+    );
   });
 
   it("every other request goes through the network policy", async () => {
@@ -826,6 +1026,31 @@ describe("a webpage render is the page the site answered with, or a named failur
     });
     // Positive control: the same late navigation to a real page renders.
     expect(await failureOf(renderPath(answers, later("/fine")))).toBeNull();
+  });
+
+  it("a page that sends itself to an error while it is scrolled fails (audit webpage-to-pdf#4)", async () => {
+    // Budget 2 is the scroll pass's first step: past the check after the
+    // first budget, so only the check after the scroll pass can see it.
+    const duringScroll = (to: string, resourceType: string) => {
+      const fake = fakeChromium({
+        pausedOnBudget: {
+          call: 2,
+          paused: [{ url: `https://public.example${to}`, resourceType }],
+        },
+      });
+      return { fake, failure: failureOf(renderPath(answers, fake)) };
+    };
+    const answers = site({ "/broken": { status: 500 } });
+    const doc = duringScroll("/broken", "Document");
+    expect(await doc.failure).toEqual({ reason: "http", status: 500 });
+    // Health: the scroll pass really ran and asked for budget 2.
+    expect(
+      doc.fake.sent.filter((m) => m.method === "Emulation.setVirtualTimePolicy")
+        .length,
+    ).toBeGreaterThanOrEqual(2);
+    // Positive control: the same failing answer to an image while scrolling
+    // is part of the page, and the page renders.
+    expect(await duringScroll("/broken", "Image").failure).toBeNull();
   });
 
   it("an upload's own navigations are never judged as a site's answer", async () => {

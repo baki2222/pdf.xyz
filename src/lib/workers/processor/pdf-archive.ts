@@ -11,6 +11,7 @@ import {
   type PdfArchiveRun,
 } from "../pdf-archive/engine";
 import { PDF_ARCHIVE_PASSWORD_REQUIRED_CODE } from "../pdf-archive/contract";
+import { parsePdfALevel } from "../pdf-archive/levels";
 import {
   processorFail,
   processorOk,
@@ -128,7 +129,22 @@ export function createPdfArchiveProcessor(deps: PdfArchiveDeps): Processor {
       const inputError = singleInput(input);
       if (inputError) return inputError;
       const file = input.inputs[0]!;
-      const run = await runPdfToPdfA(file.bytes, deps, input.signal);
+      // The level picker's choice, read with the parser the panel's list
+      // comes from. An unknown level is refused, never mapped to a nearby
+      // one: an archive that asked for 1b must not receive 2b.
+      const level = parsePdfALevel(input.options);
+      if (!level.ok)
+        return processorFail({
+          code: "unprocessable_entity",
+          message: level.message,
+          retryable: false,
+        });
+      const run = await runPdfToPdfA(
+        file.bytes,
+        deps,
+        input.signal,
+        level.value,
+      );
       if (!run.ok) return processorFail(jobError(run));
       return processorOk(
         [

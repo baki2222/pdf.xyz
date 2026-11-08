@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { hasJobResults, sanitizeJobResults, type JobResults } from "./results";
+import { MAX_TABLE_PAGES_LISTED } from "./table-extract-results";
 import {
   OCR_MAX_REPORTED_CHARACTERS,
   OCR_MAX_REPORTED_PAGES,
@@ -479,5 +480,68 @@ describe("sanitizeJobResults — the PDF/A block", () => {
       pdfa: { notes: ["x"] },
     } as unknown as JobResults);
     expect(clean).toBeUndefined();
+  });
+});
+
+describe("sanitizeJobResults — Extract Tables' findings (audit extract-tables#4)", () => {
+  it("keeps the counts and the pages tables came from", () => {
+    const clean = sanitizeJobResults({
+      tables: {
+        tableCount: 3,
+        pageCount: 5,
+        tablePages: [4, 1, 1],
+        tablePagesTruncated: false,
+        combined: true,
+      },
+    });
+    expect(clean?.tables).toEqual({
+      tableCount: 3,
+      pageCount: 5,
+      tablePages: [1, 4],
+      tablePagesTruncated: false,
+      combined: true,
+    });
+  });
+
+  it("drops pages the document does not have and counts that are not counts", () => {
+    const clean = sanitizeJobResults({
+      tables: {
+        tableCount: -2,
+        pageCount: 3,
+        tablePages: [0, 2, 9, 2.5, "3" as unknown as number],
+        tablePagesTruncated: false,
+        combined: "yes" as unknown as boolean,
+      },
+    });
+    expect(clean?.tables).toEqual({
+      tableCount: 0,
+      pageCount: 3,
+      tablePages: [2],
+      tablePagesTruncated: false,
+      combined: false,
+    });
+  });
+
+  it("caps the page list and says it did", () => {
+    const n = MAX_TABLE_PAGES_LISTED + 5;
+    const clean = sanitizeJobResults({
+      tables: {
+        tableCount: n,
+        pageCount: n,
+        tablePages: Array.from({ length: n }, (_, i) => i + 1),
+        tablePagesTruncated: false,
+        combined: false,
+      },
+    });
+    expect(clean?.tables?.tablePages).toHaveLength(MAX_TABLE_PAGES_LISTED);
+    expect(clean?.tables?.tablePagesTruncated).toBe(true);
+  });
+
+  it("drops a block that did not come from the real contract", () => {
+    expect(
+      sanitizeJobResults({
+        tables: { tableCount: 1 },
+      } as unknown as JobResults),
+    ).toBeUndefined();
   });
 });

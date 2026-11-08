@@ -27,8 +27,10 @@ import type { PdfFlowExtractor } from "@/lib/workers/pdf-office-export/engine";
 import { noPictures } from "@/tests/page-scan-stubs";
 import { readyFileInput } from "@/tests/worker-ready";
 import { PdfOfficeExportWorkerPanel } from "./pdf-office-export-worker-panel";
+import { TableExtractWorkerPanel } from "./table-extract-worker-panel";
 
-const wordTool = getToolBySlug("pdf-to-word")!;
+type OcrTool =
+  "pdf-to-word" | "pdf-to-excel" | "pdf-to-powerpoint" | "extract-tables";
 const providers = getProviderReadiness("remote-configured");
 
 function status(ocrAvailable: boolean): WorkerStatus {
@@ -76,6 +78,7 @@ function status(ocrAvailable: boolean): WorkerStatus {
 const SCAN = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31]);
 const SEARCHABLE = new TextEncoder().encode("%PDF-1.7 searchable");
 const WORDS = "Scanned receipt total 41.20 recognised by OCR";
+const TABLE_WORD = "Recognised-receipt";
 
 const extractFlow: PdfFlowExtractor = async (bytes) => ({
   pageCount: 1,
@@ -119,21 +122,48 @@ function worker() {
       installedLanguages: ["eng", "deu"],
     },
     pdfOfficeExport: {
-      extract: async () => ({
-        pageCount: 1,
-        pages: [{ pageNumber: 1, text: "", characterCount: 0 }],
-        text: "",
-        characterCount: 0,
-        hasText: false,
-      }),
+      // poppler `-layout`, played as the flow is: words only after OCR.
+      extract: async (bytes) => {
+        const text = Buffer.from(bytes).equals(Buffer.from(SEARCHABLE))
+          ? WORDS
+          : "";
+        return {
+          pageCount: 1,
+          pages: [{ pageNumber: 1, text, characterCount: text.length }],
+          text,
+          characterCount: text.length,
+          hasText: text.length > 0,
+        };
+      },
       extractFlow,
       scanPages: noPictures,
+    },
+    // A table only in OCR's output: header row, one row of the words.
+    tableExtract: {
+      extractLayout: async (bytes) => ({
+        pageCount: 1,
+        pages: [
+          {
+            pageNumber: 1,
+            width: 400,
+            height: 300,
+            items: Buffer.from(bytes).equals(Buffer.from(SEARCHABLE))
+              ? [
+                  { text: "Item", x: 50, y: 100, width: 20, height: 10 },
+                  { text: "Total", x: 250, y: 100, width: 20, height: 10 },
+                  { text: TABLE_WORD, x: 50, y: 80, width: 60, height: 10 },
+                  { text: "41.20", x: 250, y: 80, width: 20, height: 10 },
+                ]
+              : [],
+          },
+        ],
+      }),
     },
   });
   return { registry, ocrAsked };
 }
 
-function stubNetwork(ocrAvailable: boolean) {
+function stubNetwork(ocrAvailable: boolean, tool: OcrTool = "pdf-to-word") {
   const { registry, ocrAsked } = worker();
   const sent: Record<string, unknown>[] = [];
   let output: Uint8Array | undefined;
@@ -150,7 +180,7 @@ function stubNetwork(ocrAvailable: boolean) {
       if (url === "/api/uploads")
         return json({
           sessionId: "s1",
-          tool: "pdf-to-word",
+          tool,
           slots: [
             {
               fileId: "f1",
@@ -167,8 +197,8 @@ function stubNetwork(ocrAvailable: boolean) {
           new TextDecoder().decode(init!.body as ArrayBuffer),
         );
         sent.push(body.options);
-        const result = await registry.resolve("pdf-to-word")!.process({
-          tool: "pdf-to-word",
+        const result = await registry.resolve(tool)!.process({
+          tool,
           options: body.options,
           inputs: [
             {
@@ -181,7 +211,7 @@ function stubNetwork(ocrAvailable: boolean) {
         });
         const base = {
           jobId: "job_1",
-          tool: "pdf-to-word",
+          tool,
           capability: "worker",
           progress: 100,
           createdAt: "2026-10-24T00:00:00.000Z",
@@ -214,8 +244,15 @@ function stubNetwork(ocrAvailable: boolean) {
   return { sent, ocrAsked, output: () => output };
 }
 
-async function addFile() {
-  render(<PdfOfficeExportWorkerPanel tool={wordTool} />);
+async function addFile(tool: OcrTool = "pdf-to-word") {
+  const catalogTool = getToolBySlug(tool)!;
+  render(
+    tool === "extract-tables" ? (
+      <TableExtractWorkerPanel tool={catalogTool} />
+    ) : (
+      <PdfOfficeExportWorkerPanel tool={catalogTool} />
+    ),
+  );
   const input = await vi.waitFor(() => {
     const found = readyFileInput();
     if (!found) throw new Error("no file input yet");
@@ -290,5 +327,215 @@ describe("PDF to Word: Recognise text in scans (OCR)", () => {
     expect(run).toHaveAttribute("aria-disabled", "true");
     fireEvent.click(run);
     expect(net.sent).toEqual([]);
+  });
+});
+
+/**
+ * Audit pdf-to-excel#2 (2026-11-08): the same switch on PDF to Excel. Until
+ * then a scan was refused and the panel sent the visitor to OCR PDF and back.
+ */
+describe("PDF to Excel: Recognise text in scans (OCR)", () => {
+  it("control: off by default — no options travel and the scan is refused", async () => {
+    const net = stubNetwork(true, "pdf-to-excel");
+    await addFile("pdf-to-excel");
+    fireEvent.click(screen.getByRole("button", { name: /export xlsx/i }));
+    await waitFor(() => expect(net.sent).toHaveLength(1));
+    expect(net.sent[0]).toEqual({});
+    expect(net.ocrAsked).toEqual([]);
+  });
+
+  it("on: the chosen languages travel, and the XLSX holds the recognised words", async () => {
+    const net = stubNetwork(true, "pdf-to-excel");
+    await addFile("pdf-to-excel");
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: new RegExp(WORD_OCR_LABEL.replace(/[()]/g, "\\$&")),
+      }),
+    );
+    await screen.findByRole("group", { name: "OCR languages" });
+    fireEvent.click(screen.getByRole("button", { name: "German" }));
+    fireEvent.click(screen.getByRole("button", { name: /export xlsx/i }));
+    await screen.findByText("Your XLSX file is ready.");
+    expect(net.sent[0]).toMatchObject({ ocr: true });
+    expect((net.sent[0] as { languages: string[] }).languages).toContain("deu");
+    expect(net.ocrAsked).toHaveLength(1);
+    const zip = await JSZip.loadAsync(net.output()!);
+    const parts = Object.keys(zip.files).filter(
+      (n) => n.startsWith("xl/") && n.endsWith(".xml"),
+    );
+    const xml = (
+      await Promise.all(parts.map((n) => zip.file(n)!.async("string")))
+    ).join("");
+    expect(xml).toContain(WORDS);
+  });
+});
+
+/**
+ * Audit pdf-to-powerpoint#4 (2026-11-08): the same switch on PDF to
+ * PowerPoint. A scan converted as pictures before, and still does with the
+ * switch off; on, OCR runs first in the same job.
+ */
+describe("PDF to PowerPoint: Recognise text in scans (OCR)", () => {
+  it("control: off by default — no options travel and OCR never runs", async () => {
+    const net = stubNetwork(true, "pdf-to-powerpoint");
+    await addFile("pdf-to-powerpoint");
+    fireEvent.click(screen.getByRole("button", { name: /export pptx/i }));
+    await screen.findByText("Your PPTX file is ready.");
+    expect(net.sent[0]).toEqual({});
+    expect(net.ocrAsked).toEqual([]);
+  });
+
+  it("on: the chosen languages travel to OCR, run first in the same job", async () => {
+    const net = stubNetwork(true, "pdf-to-powerpoint");
+    await addFile("pdf-to-powerpoint");
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: new RegExp(WORD_OCR_LABEL.replace(/[()]/g, "\\$&")),
+      }),
+    );
+    await screen.findByRole("group", { name: "OCR languages" });
+    fireEvent.click(screen.getByRole("button", { name: "German" }));
+    fireEvent.click(screen.getByRole("button", { name: /export pptx/i }));
+    await screen.findByText("Your PPTX file is ready.");
+    expect(net.sent[0]).toMatchObject({ ocr: true });
+    expect(net.ocrAsked).toEqual([
+      (net.sent[0] as { languages: string[] }).languages,
+    ]);
+    expect((net.sent[0] as { languages: string[] }).languages).toContain("deu");
+  });
+});
+
+/**
+ * Audit pdf-to-word#3 (2026-11-08): OCR PDF's "Turn pages upright",
+ * "Straighten crooked pages" and "Redo existing OCR" beside the switch, sent
+ * with the job and run by OCRmyPDF. Until then the OCR pass carried only
+ * languages, so these were always off.
+ */
+describe("PDF to Word: OCR PDF's page choices beside the switch", () => {
+  it("control: the choices appear only with OCR on, and an untouched request carries none of them", async () => {
+    const net = stubNetwork(true);
+    await addFile();
+    expect(
+      screen.queryByRole("checkbox", { name: /^Turn pages upright/ }),
+    ).toBeNull();
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /recognise text in scans/i }),
+    );
+    expect(
+      await screen.findByRole("checkbox", { name: /^Turn pages upright/ }),
+    ).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: /export docx/i }));
+    await screen.findByText("Your DOCX file is ready.");
+    expect(Object.keys(net.sent[0]!).sort()).toEqual(["languages", "ocr"]);
+  });
+
+  it("ticked: Turn pages upright and Straighten travel with the job, and Redo waits while Straighten is on", async () => {
+    const net = stubNetwork(true);
+    await addFile();
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /recognise text in scans/i }),
+    );
+    fireEvent.click(
+      await screen.findByRole("checkbox", { name: /^Turn pages upright/ }),
+    );
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Straighten crooked pages" }),
+    );
+    const redo = screen.getByRole("checkbox", { name: /^Redo existing OCR/ });
+    expect(redo).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(redo);
+    expect(redo).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: /export docx/i }));
+    await screen.findByText("Your DOCX file is ready.");
+    expect(net.sent[0]).toMatchObject({
+      ocr: true,
+      rotatePages: true,
+      deskew: true,
+    });
+    expect(net.sent[0]).not.toHaveProperty("redoOcr");
+  });
+
+  it("Redo existing OCR travels on its own", async () => {
+    const net = stubNetwork(true);
+    await addFile();
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /recognise text in scans/i }),
+    );
+    fireEvent.click(
+      await screen.findByRole("checkbox", { name: /^Redo existing OCR/ }),
+    );
+    const straighten = screen.getByRole("checkbox", {
+      name: "Straighten crooked pages",
+    });
+    expect(straighten).toHaveAttribute("aria-disabled", "true");
+    // The guard, not only the attribute (review, 2026-11-08): a click on the
+    // waiting box does not tick it, and nothing extra travels.
+    fireEvent.click(straighten);
+    expect(straighten).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: /export docx/i }));
+    await screen.findByText("Your DOCX file is ready.");
+    expect(net.sent[0]).toMatchObject({ ocr: true, redoOcr: true });
+    expect(net.sent[0]).not.toHaveProperty("deskew");
+  });
+
+  it("each of Straighten and Redo says why it waits for the other, and is named by its label alone", async () => {
+    stubNetwork(true);
+    await addFile();
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /recognise text in scans/i }),
+    );
+    const redo = await screen.findByRole("checkbox", {
+      name: "Redo existing OCR",
+    });
+    const straighten = screen.getByRole("checkbox", {
+      name: "Straighten crooked pages",
+    });
+    expect(redo).toHaveAccessibleDescription(
+      /Not with Straighten crooked pages\./,
+    );
+    expect(straighten).toHaveAccessibleDescription(
+      /Not with Redo existing OCR\./,
+    );
+  });
+});
+
+/**
+ * Audit extract-tables#3 (2026-11-08): the same switch on Extract Tables.
+ * Until then a scan failed with "Run OCR PDF first" and the visitor went to
+ * OCR PDF and back.
+ */
+describe("Extract Tables: Recognise text in scans (OCR)", () => {
+  it("control: off by default — no options travel and OCR never runs", async () => {
+    const net = stubNetwork(true, "extract-tables");
+    await addFile("extract-tables");
+    fireEvent.click(screen.getByRole("button", { name: /extract tables/i }));
+    await waitFor(() => expect(net.sent).toHaveLength(1));
+    expect(net.sent[0]).toEqual({});
+    expect(net.ocrAsked).toEqual([]);
+  });
+
+  it("on: the chosen languages and a page choice travel, and the ZIP's CSV holds the recognised table", async () => {
+    const net = stubNetwork(true, "extract-tables");
+    await addFile("extract-tables");
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /recognise text in scans/i }),
+    );
+    await screen.findByRole("group", { name: "OCR languages" });
+    fireEvent.click(screen.getByRole("button", { name: "German" }));
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /^Turn pages upright/ }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /extract tables/i }));
+    await screen.findAllByText(/Your tables are ready/);
+    expect(net.sent[0]).toMatchObject({ ocr: true, rotatePages: true });
+    expect((net.sent[0] as { languages: string[] }).languages).toContain("deu");
+    expect(net.ocrAsked).toHaveLength(1);
+    const zip = await JSZip.loadAsync(net.output()!);
+    const csvs = Object.keys(zip.files).filter((n) => n.endsWith(".csv"));
+    expect(csvs.length).toBeGreaterThan(0);
+    const csv = (
+      await Promise.all(csvs.map((n) => zip.file(n)!.async("string")))
+    ).join("");
+    expect(csv).toContain(TABLE_WORD);
   });
 });

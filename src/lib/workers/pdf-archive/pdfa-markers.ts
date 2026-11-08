@@ -115,7 +115,21 @@ function xmpProperty(
   return xmp.match(attribute)?.[2] ?? xmp.match(element)?.[1];
 }
 
-function identificationProblems(doc: PDFDocument): {
+/** The identification an output must declare: the level the job asked for. */
+export interface PdfAExpectedId {
+  part: string;
+  conformance: string;
+}
+
+const DEFAULT_EXPECTED_ID: PdfAExpectedId = {
+  part: PDFA_EXPECTED_PART,
+  conformance: PDFA_EXPECTED_CONFORMANCE,
+};
+
+function identificationProblems(
+  doc: PDFDocument,
+  expected: PdfAExpectedId,
+): {
   problems: string[];
   part?: string;
   conformance?: string;
@@ -134,13 +148,13 @@ function identificationProblems(doc: PDFDocument): {
   const part = xmpProperty(xmp, prefix, "part");
   const conformance = xmpProperty(xmp, prefix, "conformance");
   const problems: string[] = [];
-  if (part !== PDFA_EXPECTED_PART)
+  if (part !== expected.part)
     problems.push(
-      `the XMP declares PDF/A part ${part ?? "(none)"}, not ${PDFA_EXPECTED_PART}`,
+      `the XMP declares PDF/A part ${part ?? "(none)"}, not ${expected.part}`,
     );
-  if (conformance !== PDFA_EXPECTED_CONFORMANCE)
+  if (conformance !== expected.conformance)
     problems.push(
-      `the XMP declares conformance ${conformance ?? "(none)"}, not ${PDFA_EXPECTED_CONFORMANCE}`,
+      `the XMP declares conformance ${conformance ?? "(none)"}, not ${expected.conformance}`,
     );
   return {
     problems,
@@ -149,9 +163,13 @@ function identificationProblems(doc: PDFDocument): {
   };
 }
 
-/** Parse `bytes` and report whether they declare PDF/A-2b. Never throws. */
+/**
+ * Parse `bytes` and report whether they declare the expected PDF/A level:
+ * PDF/A-2b unless the job asked for another (`./levels`). Never throws.
+ */
 export async function inspectPdfAMarkers(
   bytes: Uint8Array,
+  expected: PdfAExpectedId = DEFAULT_EXPECTED_ID,
 ): Promise<PdfAMarkerReport> {
   let doc: PDFDocument;
   try {
@@ -168,7 +186,7 @@ export async function inspectPdfAMarkers(
   let id: ReturnType<typeof identificationProblems>;
   try {
     intentProblems = outputIntentProblems(doc);
-    id = identificationProblems(doc);
+    id = identificationProblems(doc, expected);
   } catch {
     // A declaration present with the wrong object type (an /OutputIntents that
     // is not an array, a filter pdf-lib cannot decode) is not a declaration.

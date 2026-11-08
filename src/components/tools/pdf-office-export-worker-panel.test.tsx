@@ -728,3 +728,64 @@ describe("PDF to PowerPoint panel — pictures that are not on their slides", ()
     expect(screen.queryByText(/looked damaged/)).toBeNull();
   });
 });
+
+describe("PDF to Excel panel — “One sheet per page” (audit pdf-to-excel#3)", () => {
+  const excelTool = getToolBySlug("pdf-to-excel")!;
+  async function optionsSent(tick: boolean) {
+    stubNetwork({
+      job: {
+        jobId: "job_1",
+        tool: "pdf-to-excel",
+        capability: "worker",
+        progress: 100,
+        status: "failed",
+        error: { code: "internal_error", message: "x", retryable: true },
+        createdAt: "2026-09-27T00:00:00.000Z",
+        updatedAt: "2026-09-27T00:00:00.000Z",
+      } as unknown as Job,
+    });
+    render(<PdfOfficeExportWorkerPanel tool={excelTool} />);
+    const box = screen.getByRole("checkbox", { name: /One sheet per page/ });
+    expect(box).not.toBeChecked();
+    if (tick) fireEvent.click(box);
+    const input = await vi.waitFor(() => {
+      const found = readyFileInput();
+      if (!found) throw new Error("no file input yet");
+      return found;
+    });
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], "r.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /export xlsx/i }));
+    await screen.findByRole("alert");
+    const calls = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    const create = calls.find(([url]) => url === "/api/jobs");
+    if (!create) throw new Error("no job was created");
+    return (
+      JSON.parse(
+        new TextDecoder().decode((create[1] as { body: ArrayBuffer }).body),
+      ) as { options: Record<string, unknown> }
+    ).options;
+  }
+
+  it("ticked, the job asks for a sheet per page", async () => {
+    expect(await optionsSent(true)).toEqual({ sheetPerPage: true });
+  });
+
+  it("left alone, the job sends the empty bag it always did", async () => {
+    expect(await optionsSent(false)).toEqual({});
+  });
+
+  it("PDF to Word has no such box", () => {
+    render(<PdfOfficeExportWorkerPanel tool={wordTool} />);
+    expect(
+      screen.queryByRole("checkbox", { name: /One sheet per page/ }),
+    ).toBeNull();
+  });
+});

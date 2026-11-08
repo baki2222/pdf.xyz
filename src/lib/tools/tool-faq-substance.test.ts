@@ -2182,8 +2182,16 @@ describe("the remaining in-browser tools answer what their engines do", () => {
     ).toBe(false);
     for (const tool of mounting("pdf-to-markdown")) {
       const src = runnerSource(tool.slug);
-      expect(src).toContain("extractedTextToMarkdown(");
-      expect(src).not.toContain("includePageHeadings");
+      // Since 2026-11-08 the runner calls its reader's chain (links, audit
+      // pdf-to-markdown#3), and the chain calls the converter above.
+      expect(src).toContain("pdfToMarkdown(");
+      expect(
+        readFileSync("src/lib/pdf/pdf-to-markdown-read.ts", "utf8"),
+      ).toContain("extractedTextToMarkdown(");
+      // INVERTED 2026-11-08 (audit pdf-to-markdown#6): this asserted the
+      // runner never passed includePageHeadings, when page headings were
+      // forced on. They are a checkbox now, and the runner passes its state.
+      expect(src).toContain("includePageHeadings: pageHeadings");
       expect(answer(tool.slug, /headings, bold/)).toContain(
         '"Page N" heading when there is more than one',
       );
@@ -2452,7 +2460,13 @@ describe("the secure-worker tools answer what their engines do", () => {
     expect(download).toContain("table-1.csv");
     expect(download).toContain("tables.xlsx");
     expect(answer(slug, /find a table/)).toContain("By where the text sits");
-    expect(answer(slug, /scanned/)).toMatch(/^No\./);
+    // INVERTED 2026-11-08 (audit extract-tables#3): this was `/^No\./`,
+    // true until the panel could run OCR in the same job. The engine still
+    // refuses a scan on its own (the `no_text` above), and the answer still
+    // says so; it now leads with the switch that gets past it.
+    const scanned = answer(slug, /scanned/);
+    expect(scanned).toMatch(/^Yes, with “Recognise text in scans \(OCR\)”/);
+    expect(scanned).toMatch(/the job stops and says so/);
   });
 
   /*

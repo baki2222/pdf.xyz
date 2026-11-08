@@ -1,6 +1,10 @@
 import type { JobError } from "@/lib/jobs";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
 import {
+  EXTRACT_TABLES_NO_TABLES_CODE,
+  parseExtractTablesOptions,
+} from "@/lib/jobs/extract-tables-options";
+import {
   MAX_DISPLAY_FILENAME_LENGTH,
   sanitizeDisplayFilename,
 } from "@/lib/jobs";
@@ -11,6 +15,7 @@ import {
   type TableExtractMeta,
   type TableExtractRun,
 } from "../table-extract/engine";
+import { ocrFirstMessages, runOcrFirst } from "./ocr-first";
 import {
   processorFail,
   processorOk,
@@ -83,9 +88,12 @@ function jobError(run: Failure): JobError {
         message: run.message,
         retryable: false,
       };
+    // Its own code since 2026-11-08 (audit extract-tables#5): the panel
+    // offers PDF to Excel and OCR PDF from it. `unprocessable_entity` linked
+    // nothing.
     case "no_tables":
       return {
-        code: "unprocessable_entity",
+        code: EXTRACT_TABLES_NO_TABLES_CODE,
         message: run.message,
         retryable: false,
       };
@@ -101,12 +109,31 @@ function meta(m: TableExtractMeta): ProcessorMeta {
     tool: m.tool,
     tableCount: m.tableCount,
     pageCount: m.pageCount,
+    combined: m.combined,
     inputBytes: m.inputBytes,
     outputBytes: m.outputBytes,
   };
 }
 
-export function createTableExtractProcessor(deps: TableExtractDeps): Processor {
+/**
+ * What "Recognise text in scans (OCR)" says on Extract Tables when OCR cannot
+ * help (since 2026-11-08, audit extract-tables#3).
+ */
+export const TABLE_OCR_MESSAGES = ocrFirstMessages("Extract Tables", "a table");
+
+/** Wiring beyond the table engine: the processor a job may run first. */
+export interface TableExtractChain {
+  /**
+   * The OCR processor: the SAME instance the registry serves `ocr-pdf` with,
+   * as the PDF to Office exports are given (`./ocr-first`).
+   */
+  ocr?: Processor;
+}
+
+export function createTableExtractProcessor(
+  deps: TableExtractDeps,
+  chain: TableExtractChain = {},
+): Processor {
   const ready = deps.extractLayout != null;
   return {
     id: "table-extract",
@@ -133,9 +160,42 @@ export function createTableExtractProcessor(deps: TableExtractDeps): Processor {
         });
       const bad = inputError(input);
       if (bad) return bad;
+      // "Combine tables into one sheet" (audit extract-tables#2). An empty
+      // bag is the request every page sent before it: one sheet per table.
+      // Parsed BEFORE OCR first, so a malformed bag is refused at once; it
+      // shares the bag with OCR's keys and each parser reads only its own.
+      const parsed = parseExtractTablesOptions(input.options);
+      if (!parsed.ok)
+        return processorFail({
+          code: parsed.error.body.error.code,
+          message: parsed.error.body.error.message,
+          retryable: false,
+        });
       const file = input.inputs[0]!;
-      const run = await runTableExtract(file.bytes, deps, input.signal);
-      if (!run.ok) return processorFail(jobError(run));
+      // OCR first, in the same job (2026-11-08, audit
+      // extract-tables#3). Until then a scan failed `no_text` and the panel
+      // sent the visitor to OCR PDF and back.
+      const first = await runOcrFirst(
+        input,
+        file.bytes,
+        chain.ocr,
+        TABLE_OCR_MESSAGES,
+        deps.limits?.maxInputBytes,
+      );
+      if (!first.ok) return first.result;
+      const ocrResults = first.results;
+      const run = await runTableExtract(first.bytes, deps, input.signal, {
+        combine: parsed.value.combine,
+      });
+      if (!run.ok) {
+        const error = jobError(run);
+        // "Run OCR PDF first" is false advice after OCR has run.
+        return processorFail(
+          ocrResults && run.kind === "no_text"
+            ? { ...error, message: TABLE_OCR_MESSAGES.noText }
+            : error,
+        );
+      }
       return processorOk(
         [
           {
@@ -144,7 +204,14 @@ export function createTableExtractProcessor(deps: TableExtractDeps): Processor {
             bytes: run.output,
           },
         ],
-        meta(run.meta),
+        { ...meta(run.meta), ocrFirst: ocrResults !== undefined },
+        // What was found and where (audit extract-tables#4): the result card
+        // says how many tables and which pages gave none. With OCR first,
+        // also what OCR did (engine, languages, pages).
+        {
+          ...(ocrResults?.ocr ? { ocr: ocrResults.ocr } : {}),
+          tables: run.findings,
+        },
       );
     },
   };

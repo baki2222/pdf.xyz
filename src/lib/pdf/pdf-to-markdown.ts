@@ -13,7 +13,48 @@ import type { ExtractedPdfText, ExtractedTextPage, TextLine } from "./text";
  */
 export type PdfToMarkdownPage = ExtractedTextPage & {
   lines: readonly TextLine[] | null;
+  /**
+   * The web links on the page (`./pdf-to-markdown-read`). Optional, because
+   * the converter is also fed text with no annotations at all; the runner's
+   * chain is `pdfToMarkdown`, and `pdf-to-markdown-read.test.ts` reads links
+   * through it from a real PDF.
+   */
+  links?: readonly MarkdownLink[];
+  /**
+   * The tables Extract Tables' detector finds on the page
+   * (`./pdf-to-markdown-tables`). Optional for the same reason as `links`.
+   */
+  tables?: readonly MarkdownTable[];
 };
+
+/**
+ * A detected table: its cells, and the baselines (PDF points, y up) of its
+ * first and last rows, so its lines can be found on the page.
+ */
+export interface MarkdownTable {
+  rows: string[][];
+  top: number;
+  bottom: number;
+}
+
+/**
+ * The schemes a Markdown link may carry; a link to anything else (a script, a
+ * file, a page inside the PDF) keeps its words only. Here rather than in the
+ * reader so the tool page can name them without importing pdf.js's loader.
+ */
+export const MARKDOWN_LINK_SCHEMES = ["http:", "https:", "mailto:"] as const;
+
+/**
+ * A /Link annotation's web address and the words it covers. `top`/`bottom` are
+ * the link's vertical extent in PDF points (y up), so a phrase is linked only
+ * in the block that sits where the link does.
+ */
+export interface MarkdownLink {
+  text: string;
+  url: string;
+  top: number;
+  bottom: number;
+}
 
 export type PdfToMarkdownInput = Pick<
   ExtractedPdfText,
@@ -22,18 +63,79 @@ export type PdfToMarkdownInput = Pick<
 
 export interface PdfToMarkdownOptions {
   sourceName?: string;
+  /**
+   * Start each page of a PDF of more than one page with `## Page N`
+   * (a one-page PDF never gets one). Defaults to
+   * {@link DEFAULT_PAGE_HEADINGS}. Off, detected headings start at `##` and a
+   * paragraph that runs over a page break is joined back together.
+   */
   includePageHeadings?: boolean;
+  /**
+   * Leave out running headers and footers ({@link repeatedEdgeLines}).
+   * Defaults to {@link DEFAULT_REMOVE_REPEATED_LINES}.
+   */
+  removeRepeatedLines?: boolean;
 }
+
+/**
+ * Page headings stay on by default, as they were before they could be turned
+ * off: in a chat assistant's input they let a reader point at a page.
+ */
+export const DEFAULT_PAGE_HEADINGS = true;
+
+/** Repeated headers and footers are left out unless the user keeps them. */
+export const DEFAULT_REMOVE_REPEATED_LINES = true;
+
+/**
+ * A running header or footer is one of the top or bottom
+ * {@link EDGE_LINES} lines of a page...
+ */
+export const EDGE_LINES = 2;
+/** ...whose text, digits aside, is at an edge of at least this share of pages... */
+export const REPEATED_LINE_SHARE = 0.5;
+/**
+ * ...in a document of at least this many pages with text. Two pages are too
+ * few to tell a running header from a title repeated on a cover and a first
+ * page.
+ */
+export const REPEATED_LINE_MIN_PAGES = 3;
 
 export interface PdfToMarkdownResult {
   markdown: string;
   pageCount: number;
   characterCount: number;
   hasMarkdown: boolean;
+  /** Links written as `[text](url)` or `<url>`. */
+  linkCount: number;
+  /** Tables written as GFM pipe tables. */
+  tableCount: number;
+  /** Running header and footer lines left out. */
+  removedLineCount: number;
 }
 
 export function markdownOutputName(sourceName: string): string {
   return outputName(sourceName, "markdown", "md");
+}
+
+/** The result's summary line: what was written, and what was kept. */
+export function markdownSummary(result: PdfToMarkdownResult): string {
+  const parts = [
+    `${result.characterCount.toLocaleString()} Markdown characters from ${result.pageCount} page${result.pageCount === 1 ? "" : "s"}`,
+  ];
+  if (result.linkCount > 0) {
+    parts.push(`${result.linkCount} link${result.linkCount === 1 ? "" : "s"}`);
+  }
+  if (result.removedLineCount > 0) {
+    parts.push(
+      `${result.removedLineCount} repeated header and footer line${result.removedLineCount === 1 ? "" : "s"} left out`,
+    );
+  }
+  if (result.tableCount > 0) {
+    parts.push(
+      `${result.tableCount} table${result.tableCount === 1 ? "" : "s"}`,
+    );
+  }
+  return parts.join(" · ");
 }
 
 function titleFromSource(sourceName?: string): string {
@@ -167,16 +269,123 @@ export function joinWrappedLines(lines: readonly string[]): string {
  *  Blocks
  * ------------------------------------------------------------------ */
 
-type Block =
+/** Where a block sits on its page, in PDF points (y up); geometry only. */
+interface Span {
+  top: number;
+  bottom: number;
+}
+
+type Block = (
   | { kind: "paragraph"; lines: string[] }
   | { kind: "item"; marker: string; lines: string[] }
-  | { kind: "heading"; size: number; lines: string[] };
+  | { kind: "heading"; size: number; lines: string[] }
+  | { kind: "table"; rows: string[][]; lines: string[] }
+) & { span?: Span };
+
+/* ------------------------------------------------------------------ *
+ *  Links
+ * ------------------------------------------------------------------ */
+
+/** Whether `text[start, end)` is a whole run of words, not part of one. */
+function onWordBoundaries(text: string, start: number, end: number): boolean {
+  const word = /[\p{L}\p{N}]/u;
+  return (
+    !(start > 0 && word.test(text[start - 1]!) && word.test(text[start]!)) &&
+    !(end < text.length && word.test(text[end]!) && word.test(text[end - 1]!))
+  );
+}
+
+/** A URL as a Markdown destination: nothing in it can end or split the link. */
+function markdownUrl(url: string): string {
+  return url.replace(/[\s()<>]/g, (c) => encodeURIComponent(c));
+}
+
+function linkMarkdown(text: string, url: string): string {
+  const destination = markdownUrl(url);
+  // An address shown as its own text is an autolink, not `[x](x)`.
+  if (text === url || `${text}/` === url) return `<${destination}>`;
+  const label = escapeInline(text).replace(/[[\]\\]/g, "\\$&");
+  return `[${label}](${destination})`;
+}
+
+/**
+ * Turns a block's joined text into escaped inline Markdown, writing each of
+ * the page's links over the first unclaimed run of its words — in a block
+ * that sits where the link does, when both have geometry. Each link is
+ * written once; one whose words are not found (a hyphen rejoined across its
+ * line break, say) leaves the text as it was.
+ */
+function pageLinker(links: readonly MarkdownLink[]) {
+  const used = links.map(() => false);
+  let count = 0;
+  const write = (raw: string, span: Span | undefined): string => {
+    const taken: { start: number; end: number; url: string }[] = [];
+    links.forEach((link, i) => {
+      if (used[i]) return;
+      if (span && (link.bottom > span.top || link.top < span.bottom)) return;
+      for (
+        let at = raw.indexOf(link.text);
+        at !== -1;
+        at = raw.indexOf(link.text, at + 1)
+      ) {
+        const end = at + link.text.length;
+        if (
+          onWordBoundaries(raw, at, end) &&
+          !taken.some((t) => at < t.end && end > t.start)
+        ) {
+          taken.push({ start: at, end, url: link.url });
+          used[i] = true;
+          return;
+        }
+      }
+    });
+    taken.sort((a, b) => a.start - b.start);
+    let out = "";
+    let at = 0;
+    for (const t of taken) {
+      out += escapeInline(raw.slice(at, t.start));
+      out += linkMarkdown(raw.slice(t.start, t.end), t.url);
+      at = t.end;
+    }
+    count += taken.length;
+    return out + escapeInline(raw.slice(at));
+  };
+  return { write, count: () => count };
+}
+
+type Linker = ReturnType<typeof pageLinker>;
 
 /** Heading font sizes are bucketed to half a point before being ranked. */
 const headingKey = (size: number) => Math.round(size * 2) / 2;
 
-function renderBlock(block: Block, headingLevel: (size: number) => number) {
-  const text = escapeInline(joinWrappedLines(block.lines));
+/**
+ * A GFM pipe table. The first row is the header row GFM requires; a `|` in a
+ * cell is escaped so it stays in its cell. Rows are padded to the widest.
+ */
+function renderTable(rows: string[][], linker: Linker, span?: Span): string {
+  const width = Math.max(...rows.map((row) => row.length));
+  const line = (cells: string[]) => `| ${cells.join(" | ")} |`;
+  const cell = (text: string | undefined) =>
+    linker.write(collapseWhitespace(text ?? ""), span).replace(/\|/g, "\\|");
+  const [head = [], ...body] = rows.map((row) =>
+    Array.from({ length: width }, (_, i) => cell(row[i])),
+  );
+  return [
+    line(head),
+    line(Array.from({ length: width }, () => "---")),
+    ...body.map(line),
+  ].join("\n");
+}
+
+function renderBlock(
+  block: Block,
+  headingLevel: (size: number) => number,
+  linker: Linker,
+) {
+  if (block.kind === "table") {
+    return renderTable(block.rows, linker, block.span);
+  }
+  const text = linker.write(joinWrappedLines(block.lines), block.span);
   if (!text) return "";
   switch (block.kind) {
     case "paragraph":
@@ -189,22 +398,61 @@ function renderBlock(block: Block, headingLevel: (size: number) => number) {
   }
 }
 
+interface Rendered {
+  kind: Block["kind"];
+  text: string;
+}
+
 function renderBlocks(
   blocks: Block[],
   headingLevel: (size: number) => number,
-): string {
+  linker: Linker,
+): Rendered[] {
+  return blocks.flatMap((block) => {
+    const text = renderBlock(block, headingLevel, linker);
+    return text ? [{ kind: block.kind, text }] : [];
+  });
+}
+
+function joinRendered(rendered: readonly Rendered[]): string {
   let out = "";
-  let previous: Block | null = null;
-  for (const block of blocks) {
-    const rendered = renderBlock(block, headingLevel);
-    if (!rendered) continue;
+  let previous: Rendered | null = null;
+  for (const block of rendered) {
     if (out) {
       // Items of one list stay on consecutive lines (a tight list); every
       // other boundary is a blank line.
       out += previous?.kind === "item" && block.kind === "item" ? "\n" : "\n\n";
     }
-    out += rendered;
+    out += block.text;
     previous = block;
+  }
+  return out;
+}
+
+/**
+ * Join pages into one run of blocks, for Markdown without page headings: a
+ * page's last paragraph and the next page's first become one when the
+ * sentence visibly runs on — no closing punctuation before the break, a
+ * lower-case letter after it (the rule a column break uses) — with a word
+ * hyphenated over the break rejoined as `joinWrappedLines` does.
+ */
+function flowPages(pages: readonly Rendered[][]): Rendered[] {
+  const out: Rendered[] = [];
+  for (const page of pages) {
+    const [first, ...rest] = page;
+    if (!first) continue;
+    const last = out.at(-1);
+    if (
+      last?.kind === "paragraph" &&
+      first.kind === "paragraph" &&
+      !ENDS_CLAUSE.test(last.text) &&
+      /^\p{Ll}/u.test(first.text)
+    ) {
+      last.text = joinWrappedLines([last.text, first.text]);
+    } else {
+      out.push({ ...first });
+    }
+    out.push(...rest.map((block) => ({ ...block })));
   }
   return out;
 }
@@ -259,6 +507,13 @@ export const HEADING_SIZE_RATIO = 1.2;
 
 /** Headings are short. Longer large-font text is a pull quote or a cover blurb. */
 export const HEADING_MAX_CHARS = 80;
+
+/**
+ * A line belongs to a detected table's rows when its baseline is within this
+ * multiple of the body size of the table's first-to-last row range — the
+ * detector's own row tolerance (0.6 of the median height).
+ */
+export const TABLE_ROW_TOLERANCE = 0.6;
 
 interface GeoLine {
   text: string;
@@ -393,7 +648,12 @@ const ENDS_CLAUSE = /[.!?:;]["'\u201D\u2019)\]]*$/;
  * module with no blank lines at all and every page used to collapse into one
  * paragraph. Paragraphs are recovered from the baseline steps instead.
  */
-function blocksFromGeometry(lines: GeoLine[], bodySize: number): Block[] {
+function blocksFromGeometry(
+  lines: GeoLine[],
+  bodySize: number,
+  /** Blocks to place before `lines[index]` (or at the end), ending the open one. */
+  inserts: ReadonlyMap<number, Block[]> = new Map(),
+): Block[] {
   // The page's line pitch, from the steps between consecutive body-size
   // lines (see `linePitch`). Steps under half a line are super/subscript
   // shifts, not lines. A page with no wrapped line at all has only gap steps,
@@ -452,12 +712,31 @@ function blocksFromGeometry(lines: GeoLine[], bodySize: number): Block[] {
   // The open block and the line that opened it.
   let open: { block: Block; anchor: GeoLine } | null = null;
   let prev: GeoLine | null = null;
+  // A block's span runs from its top line's cap height to its bottom line's
+  // descenders, so a link box drawn round the words falls inside it.
+  const extend = (block: Block, line: GeoLine) => {
+    const top = line.y + line.size;
+    const bottom = line.y - line.size * 0.4;
+    block.span = block.span
+      ? {
+          top: Math.max(block.span.top, top),
+          bottom: Math.min(block.span.bottom, bottom),
+        }
+      : { top, bottom };
+  };
   const start = (block: Block, line: GeoLine) => {
+    extend(block, line);
     blocks.push(block);
     open = { block, anchor: line };
   };
 
   for (const [index, line] of lines.entries()) {
+    const placed = inserts.get(index);
+    if (placed) {
+      blocks.push(...placed);
+      open = null;
+      prev = null;
+    }
     const step = prev ? prev.y - line.y : 0;
     // A step back UP the page is a new column or an out-of-order block. It
     // ends the paragraph unless the sentence visibly runs on: the previous
@@ -513,6 +792,7 @@ function blocksFromGeometry(lines: GeoLine[], bodySize: number): Block[] {
         step <= line.size * 1.6
       ) {
         heading.lines.push(line.text);
+        extend(heading, line);
       } else {
         start({ kind: "heading", size: line.size, lines: [line.text] }, line);
       }
@@ -535,12 +815,155 @@ function blocksFromGeometry(lines: GeoLine[], bodySize: number): Block[] {
           continues = false;
         }
       }
-      if (continues && current) current.block.lines.push(line.text);
-      else start({ kind: "paragraph", lines: [line.text] }, line);
+      if (continues && current) {
+        current.block.lines.push(line.text);
+        extend(current.block, line);
+      } else start({ kind: "paragraph", lines: [line.text] }, line);
     }
     prev = line;
   }
+  blocks.push(...(inserts.get(lines.length) ?? []));
   return blocks;
+}
+
+/**
+ * A line's identity across pages: case and spacing ignored, and every run of
+ * digits the same, so "Page 3 of 30" and "Page 4 of 30" are one line, and so
+ * are the bare numbers "3" and "4".
+ */
+const edgeKey = (text: string) =>
+  collapseWhitespace(text).toLowerCase().replace(/\d+/g, "#");
+
+/**
+ * The running headers and footers of a document: for each page, the indices
+ * of its lines to leave out.
+ *
+ * A line is left out when all of these hold:
+ *  - it is one of the top or bottom {@link EDGE_LINES} lines of its page;
+ *  - the same line (see `edgeKey`) is at an edge of at least
+ *    {@link REPEATED_LINE_SHARE} of the pages with text, in a document of at
+ *    least {@link REPEATED_LINE_MIN_PAGES} such pages, at the same height on
+ *    each (within half its font size): a running header does not move;
+ *  - where the line has digits, one of its numbers COUNTS THE PAGES — it is
+ *    the page number plus the same offset on every page ("Page 3 of 30",
+ *    "- 12 -"). Without that, "Step 1" and "Step 2" heading two pages would
+ *    be one line.
+ * A page is never emptied: one whose every line qualifies keeps them all.
+ */
+function repeatedEdgeLines(
+  pages: readonly (GeoLine[] | null)[],
+): Set<number>[] {
+  const none = () => pages.map(() => new Set<number>());
+  const candidates = pages.flatMap((lines, p) => {
+    if (!lines?.length) return [];
+    const byHeight = lines
+      .map((line, i) => ({ line, i }))
+      .sort((a, b) => b.line.y - a.line.y);
+    const edge = new Map(
+      [...byHeight.slice(0, EDGE_LINES), ...byHeight.slice(-EDGE_LINES)].map(
+        (entry) => [entry.i, entry.line],
+      ),
+    );
+    return [...edge].map(([i, line]) => ({
+      page: p,
+      i,
+      line,
+      key: edgeKey(line.text),
+      numbers: [...line.text.matchAll(/\d+/g)].map((m) => Number(m[0])),
+    }));
+  });
+  const counted = pages.filter((lines) => lines?.length).length;
+  if (counted < REPEATED_LINE_MIN_PAGES) return none();
+  const needed = Math.max(2, Math.ceil(counted * REPEATED_LINE_SHARE));
+
+  const groups = new Map<string, typeof candidates>();
+  for (const c of candidates) {
+    groups.set(c.key, [...(groups.get(c.key) ?? []), c]);
+  }
+  const out = none();
+  for (const group of groups.values()) {
+    // One per page, at the height most of them share.
+    const ys = group.map((c) => c.line.y).sort((a, b) => a - b);
+    const y = ys[Math.floor(ys.length / 2)]!;
+    let members = group.filter(
+      (c) => Math.abs(c.line.y - y) <= c.line.size * 0.5,
+    );
+    const digits = members[0]?.numbers.length ?? 0;
+    if (digits > 0) {
+      // A number that is the page number plus one offset on every page.
+      const counter = Array.from({ length: digits }, (_, k) => k).find((k) => {
+        const offsets = new Set(members.map((c) => c.numbers[k]! - c.page));
+        return offsets.size === 1;
+      });
+      const fixed = members.every(
+        (c) => c.numbers.join() === members[0]!.numbers.join(),
+      );
+      if (counter === undefined && !fixed) members = [];
+    }
+    if (new Set(members.map((c) => c.page)).size < needed) continue;
+    for (const c of members) out[c.page]!.add(c.i);
+  }
+  return out.map((set, p) =>
+    set.size >= (pages[p]?.length ?? 0) ? new Set<number>() : set,
+  );
+}
+
+/** Each non-space character of `texts`, sorted: what they say, in any order. */
+const characters = (texts: readonly string[]) =>
+  [...texts.join("").replace(/\s+/g, "")].sort().join("");
+
+/**
+ * Take each detected table's lines out of the page and say where its block
+ * goes instead. A table's lines are the page's lines on its rows (baselines
+ * from its first row to its last, give or take {@link TABLE_ROW_TOLERANCE} of
+ * the body size), and they are replaced ONLY when they hold exactly the
+ * table's characters: a line on the same rows that is not in the table (a
+ * second column of prose beside it) means the table stays prose, so no word
+ * is ever lost or written twice.
+ */
+function placeTables(
+  lines: GeoLine[],
+  tables: readonly MarkdownTable[],
+  bodySize: number,
+): { lines: GeoLine[]; inserts: Map<number, Block[]>; placed: number } {
+  const tolerance = bodySize * TABLE_ROW_TOLERANCE;
+  const taken = new Set<number>();
+  const at: { index: number; block: Block }[] = [];
+  for (const table of tables) {
+    const indices = lines.flatMap((line, i) =>
+      line.y <= table.top + tolerance && line.y >= table.bottom - tolerance
+        ? [i]
+        : [],
+    );
+    if (
+      !indices.length ||
+      indices.some((i) => taken.has(i)) ||
+      characters(indices.map((i) => lines[i]!.text)) !==
+        characters(table.rows.flat())
+    ) {
+      continue;
+    }
+    for (const i of indices) taken.add(i);
+    const size = Math.max(...indices.map((i) => lines[i]!.size));
+    at.push({
+      index: indices[0]!,
+      block: {
+        kind: "table",
+        rows: table.rows,
+        lines: [],
+        span: { top: table.top + size, bottom: table.bottom - size * 0.4 },
+      },
+    });
+  }
+  const kept: GeoLine[] = [];
+  const inserts = new Map<number, Block[]>();
+  lines.forEach((line, i) => {
+    for (const { block } of at.filter((a) => a.index === i)) {
+      inserts.set(kept.length, [...(inserts.get(kept.length) ?? []), block]);
+    }
+    if (!taken.has(i)) kept.push(line);
+  });
+  return { lines: kept, inserts, placed: at.length };
 }
 
 /* ------------------------------------------------------------------ *
@@ -557,21 +980,35 @@ export function extractedTextToMarkdown(
       pageCount: extracted.pageCount,
       characterCount: 0,
       hasMarkdown: false,
+      linkCount: 0,
+      tableCount: 0,
+      removedLineCount: 0,
     };
   }
 
   const includePageHeadings =
-    options.includePageHeadings ?? extracted.pageCount > 1;
+    (options.includePageHeadings ?? DEFAULT_PAGE_HEADINGS) &&
+    extracted.pageCount > 1;
 
-  const geometry = extracted.pages.map((page) => geoLines(page.lines));
+  const read = extracted.pages.map((page) => geoLines(page.lines));
+  const repeated =
+    (options.removeRepeatedLines ?? DEFAULT_REMOVE_REPEATED_LINES)
+      ? repeatedEdgeLines(read)
+      : read.map(() => new Set<number>());
+  const removedLineCount = repeated.reduce((sum, set) => sum + set.size, 0);
+  const geometry = read.map(
+    (lines, p) => lines?.filter((_, i) => !repeated[p]!.has(i)) ?? null,
+  );
   const bodySize = bodySizeOf(
     geometry.filter((lines): lines is GeoLine[] => lines !== null),
   );
+  let tableCount = 0;
   const pageBlocks = extracted.pages.map((page, index) => {
     const lines = geometry[index];
-    return lines && bodySize !== null
-      ? blocksFromGeometry(lines, bodySize)
-      : blocksFromText(page.text);
+    if (!lines || bodySize === null) return blocksFromText(page.text);
+    const tables = placeTables(lines, page.tables ?? [], bodySize);
+    tableCount += tables.placed;
+    return blocksFromGeometry(tables.lines, bodySize, tables.inserts);
   });
 
   // Headings nest under the outline this function already writes: `#` is the
@@ -597,12 +1034,23 @@ export function extractedTextToMarkdown(
   const sections: string[] = [
     `# ${escapeInline(normalizeMarkdownLine(titleFromSource(options.sourceName)))}`,
   ];
-  extracted.pages.forEach((page, index) => {
-    const pageMarkdown = renderBlocks(pageBlocks[index] ?? [], headingLevel);
-    if (!pageMarkdown) return;
-    if (includePageHeadings) sections.push(`## Page ${page.pageNumber}`);
-    sections.push(pageMarkdown);
+  let linkCount = 0;
+  const rendered = extracted.pages.map((page, index) => {
+    const linker = pageLinker(page.links ?? []);
+    const blocks = renderBlocks(pageBlocks[index] ?? [], headingLevel, linker);
+    linkCount += linker.count();
+    return blocks;
   });
+  if (includePageHeadings) {
+    extracted.pages.forEach((page, index) => {
+      const blocks = rendered[index] ?? [];
+      if (!blocks.length) return;
+      sections.push(`## Page ${page.pageNumber}`, joinRendered(blocks));
+    });
+  } else {
+    const flowed = joinRendered(flowPages(rendered));
+    if (flowed) sections.push(flowed);
+  }
 
   const markdown = sections.join("\n\n").trim();
   return {
@@ -610,5 +1058,8 @@ export function extractedTextToMarkdown(
     pageCount: extracted.pageCount,
     characterCount: markdown.length,
     hasMarkdown: markdown.length > 0,
+    linkCount,
+    tableCount,
+    removedLineCount,
   };
 }

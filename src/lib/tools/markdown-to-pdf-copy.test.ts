@@ -26,6 +26,8 @@
  *     names, with the shipped font files, and reading which faces the saved
  *     PDF embeds.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { inflateSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -57,9 +59,27 @@ const SLUGS = supportedToolSlugs.filter(
 );
 
 /** Everything the tool page renders, as the page renders it. */
+/**
+ * The runner's info tiles (`body="..."`), read from the runner file the
+ * tool's runner kind names: the tile copy is served on the page too, and the
+ * review of markdown-to-pdf#6 found its "open when clicked" unscoped, where
+ * no test read it.
+ */
+function runnerTiles(slug: string): string[] {
+  const file = join(
+    process.cwd(),
+    "src/components/tools/runner",
+    `${getRunnerKind(slug)}-runner.tsx`,
+  );
+  return [...readFileSync(file, "utf8").matchAll(/ body="([^"]+)"/g)].map(
+    (m) => m[1]!,
+  );
+}
+
 function served(slug: string): string[] {
   const tool = getToolBySlug(slug)!;
   return [
+    ...runnerTiles(slug),
     tool.tagline,
     pageDescription(tool),
     ...pageIntro(tool),
@@ -155,6 +175,8 @@ describe("markdown-to-pdf: the page describes what the renderer draws", () => {
   it("finds the one tool, and the page it serves is not empty (health)", () => {
     expect(SLUGS).toEqual(["markdown-to-pdf"]);
     expect(sentences(served(SLUGS[0]!)).length).toBeGreaterThan(30);
+    // The runner's tiles are read too (three: private, structured, honest).
+    expect(runnerTiles(SLUGS[0]!).length).toBeGreaterThanOrEqual(3);
   });
 
   /*
@@ -179,6 +201,18 @@ describe("markdown-to-pdf: the page describes what the renderer draws", () => {
     "Strikethrough markers are removed without drawing a line, raw HTML prints literally, and task-list boxes print as [ ] or [x].",
     "A badge prints as its alt text followed by the image and link addresses, a screenshot with no alt text as its bare address, and any HTML in the README as literal tags.",
     "Numbered lists keep the numbers you typed.",
+    // Audit markdown-to-pdf#6 (2026-11-08): inline styling and clickable
+    // links are drawn now.
+    "Inline bold, italics and backtick code are flattened into plain body text.",
+    "A link prints as its label followed by the address in parentheses and is not clickable.",
+    "Bold and italics print as plain text, and a link keeps its address in parentheses.",
+    "Bold and italic print as plain text, links print as the label with its URL, and images as their alt text and URL.",
+    // The review of markdown-to-pdf#6 (2026-11-08): "opens when clicked"
+    // with no scope, while a table cell's link only prints, and a relative
+    // link said to print "the same way" as a blue, underlined web link.
+    "A link prints as its label followed by the address in parentheses, in blue and underlined, and a web or email address (http, https or mailto) opens when the label or address is clicked; a relative link such as docs/setup.md prints the same way but does not open.",
+    "Bold, italic and code are styled, links print with their URL and open when clicked, and images print as their alt text and URL.",
+    "One character outside that set anywhere in the text or the file name, even a Polish ż or an arrow such as →, moves the body text to a single regular-weight Noto face: headings then differ by size only, quotes are upright, and inline bold and italics print in that same face, though links still open when clicked.",
     "Besides the tool's own code, the only other thing it may fetch is Noto font data from pdf.xyz's own server, when your text or file name goes beyond the Western European set: usually one file, from 137.8 KB for Bengali to 10.1 MB for Chinese, and a second only if the first cannot shape every character.",
   ];
   const BANNED: RegExp[] = [
@@ -202,6 +236,13 @@ describe("markdown-to-pdf: the page describes what the renderer draws", () => {
     // Raw HTML said to print as typed, and lazy numbering said to be kept.
     /\bHTML\b[^.]*\bliteral(?:ly)?\b/i,
     /\bnumbers you typed\b/i,
+    // Inline styling said to be dropped, and links said not to open.
+    /\b(?:bold|italics?)\b[^.]*\b(?:plain (?:body )?text|flattened)\b/i,
+    /\bnot clickable\b/i,
+    // Links said to open with no word on table cells, where they do not, and
+    // a relative link said to print like a web link.
+    /^(?!.*\btable cells?\b).*\blinks?\b.*\bopens? when\b.*\bclicked\b/i,
+    /\bprints? the same way but does not open\b/i,
   ];
 
   it("the banned shapes and the sentences that shipped catch each other (both directions)", () => {
@@ -223,6 +264,19 @@ describe("markdown-to-pdf: the page describes what the renderer draws", () => {
   });
 
   describe("each banned claim is false of the renderer (the bans' licence)", () => {
+    it("a link opens in a paragraph and a heading, and not in a table cell", async () => {
+      const annots = async (markdown: string) => {
+        const doc = await PDFDocument.load(await markdownToPdf(markdown));
+        const found = doc.getPages()[0]!.node.lookup(PDFName.of("Annots"));
+        return found instanceof PDFArray ? found.size() : 0;
+      };
+      const link = "[x](https://example.com/t)";
+      expect(await annots(`Text ${link}.`)).toBe(1);
+      expect(await annots(`# Head ${link}`)).toBe(1);
+      expect(await annots(`| a | b |\n| - | - |\n| ${link} | y |`)).toBe(0);
+      // The relative link's colour is read in markdown-runs.test.ts.
+    });
+
     it("a word wider than the line is split, in Latin and in unspaced Chinese", async () => {
       const url = `https://example.com/${"segment/".repeat(20)}end`;
       const drawn = (await runs(await markdownToPdf(`See ${url} now.`)))

@@ -46,6 +46,11 @@ import {
   type NativeCompressionConfig,
 } from "./native-config";
 import { DEEP_MONO_MIN_DPI } from "@/lib/pdf/offered-kinds";
+import {
+  DEFAULT_IMAGE_QUALITY,
+  imageQualityDistillerParams,
+  type ImageQuality,
+} from "@/lib/pdf/compress-image-quality";
 
 /** stdout/stderr capture ceiling. Our engines are `-QUIET` and write to a file, so this is generous. */
 const EXEC_MAX_BUFFER = 16 * 1024 * 1024;
@@ -144,7 +149,7 @@ export function nativeArgs(
   inputPath: string,
   outputPath: string,
   targetDpi: number,
-  opts: { grayscale?: boolean } = {},
+  opts: { grayscale?: boolean; imageQuality?: ImageQuality } = {},
 ): { command: string; args: string[] } {
   // Only Ghostscript re-renders through a colour model. Building a grayscale
   // argv for the others would run a job that cannot do what it was asked;
@@ -152,6 +157,16 @@ export function nativeArgs(
   // backstop if something does.
   if (opts.grayscale && engine !== "ghostscript") {
     throw new Error(`${engine} cannot convert colour to grayscale.`);
+  }
+  // The same backstop for a JPEG level (audit compress-pdf#4): only
+  // Ghostscript re-encodes images at one; the planner routes nothing else.
+  const quality =
+    opts.imageQuality !== undefined &&
+    opts.imageQuality !== DEFAULT_IMAGE_QUALITY
+      ? opts.imageQuality
+      : null;
+  if (quality && engine !== "ghostscript") {
+    throw new Error(`${engine} cannot set an image quality.`);
   }
   switch (engine) {
     case "ghostscript":
@@ -190,6 +205,15 @@ export function nativeArgs(
               ]
             : []),
           `-sOutputFile=${outputPath}`,
+          // A JPEG level other than /ebook's own (audit compress-pdf#4):
+          // PostScript run after the preset, which it overrides, built only
+          // from the fixed table in compress-image-quality.ts. Everything
+          // after -c is PostScript until -f names the input, so the switches
+          // above stay before it. The default level sends nothing: its argv
+          // is byte-for-byte what it was.
+          ...(quality
+            ? ["-c", imageQualityDistillerParams(quality), "-f"]
+            : []),
           inputPath,
         ],
       };
@@ -249,7 +273,12 @@ export function createNativeCompressor(
         inputPath,
         outputPath,
         ctx.options.targetDpi,
-        { grayscale: ctx.options.grayscale === true },
+        {
+          grayscale: ctx.options.grayscale === true,
+          ...(ctx.options.imageQuality
+            ? { imageQuality: ctx.options.imageQuality }
+            : {}),
+        },
       );
       throwIfAttemptAborted(ctx.signal);
       await exec(command, args, {

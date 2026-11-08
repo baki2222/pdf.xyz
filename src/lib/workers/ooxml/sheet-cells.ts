@@ -52,10 +52,15 @@ export interface SheetNumber {
 }
 
 const CURRENCY = "$£€¥₹৳";
+/** Thousands grouping (1,250) or, consistently, Indian lakh grouping (1,25,000). */
+const THOUSANDS = "\\d{1,3}(?:,\\d{3})+";
+const LAKH = "\\d{1,2}(?:,\\d{2})+,\\d{3}";
 const NUMBER = new RegExp(
-  `^([-−])?([${CURRENCY}])?([-−])?(\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.(\\d+))?(%)?$`,
+  `^([-−])?([${CURRENCY}])?([-−])?(${THOUSANDS}|${LAKH}|\\d+)(?:\\.(\\d+))?(%)?$`,
   "u",
 );
+const IS_THOUSANDS = new RegExp(`^${THOUSANDS}$`);
+const IS_LAKH = new RegExp(`^${LAKH}$`);
 /** Excel keeps 15 significant digits; a longer number is an ID, not a value. */
 export const MAX_SIGNIFICANT_DIGITS = 15;
 
@@ -73,21 +78,20 @@ function percentValue(int: string, frac: string): string {
     .replace(/\.$/, "");
 }
 
-/**
- * The number a cell's WHOLE text denotes, or `null` when it is not
- * unambiguously one — in which case the cell stays text, exactly as printed.
- *
- * Deliberately narrow, because Excel's own guessing is what users fear:
- *  - thousands grouping only in the `1,250.00` shape (groups of three); `1,25`
- *    and the European `1.250,00` stay text — no locale is guessed;
- *  - a leading zero (`00123`, `0012`) is an ID or a code and stays text;
- *    `0` and `0.5` are numbers;
- *  - more than 15 significant digits stays text (an account number would
- *    otherwise lose its tail);
- *  - one leading currency symbol OR one trailing `%`, never both; dates,
- *    ranges, parenthesised negatives and anything else stay text.
- */
-export function parseSheetNumber(text: string): SheetNumber | null {
+/** One signed amount, before any accounting wrapper is applied. */
+interface Amount {
+  negative: boolean;
+  /** Unsigned `<v>` digits. */
+  value: string;
+  /** The format for the amount shown as a positive number. */
+  positive: string;
+  /** Grouped, a fraction or a currency symbol: plainly an amount, not a mark. */
+  amountShaped: boolean;
+  percent: boolean;
+  lakh: boolean;
+}
+
+function amountOf(text: string): Amount | null {
   const m = NUMBER.exec(text);
   if (!m) return null;
   const [, sign1, currency, sign2, grouped, fraction = "", percent] = m;
@@ -97,18 +101,143 @@ export function parseSheetNumber(text: string): SheetNumber | null {
   if (int.length > 1 && int.startsWith("0")) return null;
   if ((int + fraction).replace(/^0+/, "").length > MAX_SIGNIFICANT_DIGITS)
     return null;
-  const negative = sign1 || sign2 ? "-" : "";
   const value = percent
     ? percentValue(int, fraction)
     : fraction
       ? `${int}.${fraction}`
       : int;
-  const format =
-    (currency ? `"${currency}"` : "") +
-    (grouped!.includes(",") ? "#,##0" : "0") +
-    (fraction ? `.${"0".repeat(fraction.length)}` : "") +
-    (percent ? "%" : "");
-  return { value: `${negative}${value}`, format };
+  const symbol = currency ? `"${currency}"` : "";
+  const decimals = fraction ? `.${"0".repeat(fraction.length)}` : "";
+  return {
+    negative: !!(sign1 || sign2),
+    value,
+    positive:
+      symbol +
+      (grouped!.includes(",") ? "#,##0" : "0") +
+      decimals +
+      (percent ? "%" : ""),
+    amountShaped: grouped!.includes(",") || !!fraction || !!currency,
+    percent: !!percent,
+    lakh: IS_LAKH.test(grouped!) && !IS_THOUSANDS.test(grouped!),
+  };
+}
+
+/**
+ * Indian lakh/crore grouping (1,25,000 and 1,00,00,000) as a display format.
+ * Excel has no locale-free code for it, so this is the usual conditional
+ * one: crore from 1,00,00,000, lakh from 1,00,000, thousands below. Past
+ * 99 crore the leftmost group grows instead of splitting — a display limit,
+ * never a value one.
+ */
+function lakhFormat(symbol: string, decimals: string): string {
+  return `[>=10000000]${symbol}##\\,##\\,##\\,##0${decimals};[>=100000]${symbol}##\\,##\\,##0${decimals};${symbol}##,##0${decimals}`;
+}
+
+const MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+const MONTH_NAME = new RegExp(
+  `^(\\d{1,2}) (${MONTHS.join("|")}|${MONTHS.map((m) => m.slice(0, 3)).join("|")}) (\\d{4})$`,
+);
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+/** Excel's day 0 in its 1900 date system (it counts a 29 Feb 1900 that never was). */
+const EXCEL_EPOCH = Date.UTC(1899, 11, 30);
+/** Before this day Excel's phantom 29 Feb 1900 shifts every serial by one. */
+const FIRST_SAFE_DAY = Date.UTC(1900, 2, 1);
+
+/**
+ * A date only when it cannot be read two ways and exists: ISO `2026-01-05`,
+ * or a day, an English month name and a year (`12 March 2024`, `5 Jan
+ * 2026`). `05/01/2026` is the 5th of January in one country and the 1st of
+ * May in another, so it stays text.
+ */
+function parseSheetDate(text: string): SheetNumber | null {
+  let year: number, month: number, day: number, format: string;
+  const iso = ISO_DATE.exec(text);
+  const named = iso ? null : MONTH_NAME.exec(text);
+  if (iso) {
+    [year, month, day] = [Number(iso[1]), Number(iso[2]), Number(iso[3])];
+    format = "yyyy-mm-dd";
+  } else if (named) {
+    const name = named[2]!;
+    day = Number(named[1]);
+    year = Number(named[3]);
+    month =
+      (name.length === 3
+        ? MONTHS.findIndex((m) => m.startsWith(name))
+        : MONTHS.indexOf(name)) + 1;
+    format = `${named[1]!.startsWith("0") ? "dd" : "d"} ${name.length === 3 ? "mmm" : "mmmm"} yyyy`;
+  } else return null;
+  const time = Date.UTC(year, month - 1, day);
+  const back = new Date(time);
+  if (
+    back.getUTCFullYear() !== year ||
+    back.getUTCMonth() !== month - 1 ||
+    back.getUTCDate() !== day ||
+    time < FIRST_SAFE_DAY
+  )
+    return null;
+  return { value: String((time - EXCEL_EPOCH) / 86_400_000), format };
+}
+
+/**
+ * The number a cell's WHOLE text denotes, or `null` when it is not
+ * unambiguously one — in which case the cell stays text, exactly as printed.
+ *
+ * Deliberately narrow, because Excel's own guessing is what users fear:
+ *  - grouping in the thousands shape `1,250.00` or, consistently, the lakh
+ *    shape `1,25,000.00` (since 2026-11-08, audit pdf-to-excel#4: ₹ and ৳
+ *    were accepted while the way amounts in them are printed was not); a
+ *    mixed `1,234,56,789`, `1,25` and the European `1.250,00` stay text —
+ *    no locale is guessed;
+ *  - an accounting negative, `(1,250.00)` or `1,250.00-`, is negative — but
+ *    only around something plainly an amount (grouped, a fraction or a
+ *    currency symbol): a bare `(3)` is a note mark and stays text;
+ *  - a date that cannot be read two ways and exists is a date
+ *    ({@link parseSheetDate}); `05/01/2026` stays text;
+ *  - a leading zero (`00123`, `0012`) is an ID or a code and stays text;
+ *    `0` and `0.5` are numbers;
+ *  - more than 15 significant digits stays text (an account number would
+ *    otherwise lose its tail);
+ *  - one leading currency symbol OR one trailing `%`, never both; ranges
+ *    and anything else stay text.
+ */
+export function parseSheetNumber(text: string): SheetNumber | null {
+  const date = parseSheetDate(text);
+  if (date) return date;
+  const bracketed = /^\((.+)\)$/.exec(text);
+  const trailing = bracketed ? null : /^(.+)-$/.exec(text);
+  const wrapped = bracketed ?? trailing;
+  const amount = amountOf(wrapped ? wrapped[1]! : text);
+  if (!amount) return null;
+  if (wrapped) {
+    if (amount.negative || amount.percent || !amount.amountShaped) return null;
+    const p = amount.positive;
+    return {
+      value: `-${amount.value}`,
+      format: bracketed ? `${p};(${p})` : `${p};${p}-`,
+    };
+  }
+  const symbol = /^"[^"]+"/.exec(amount.positive)?.[0] ?? "";
+  const decimals = /\.0+$/.exec(amount.positive)?.[0] ?? "";
+  return {
+    value: `${amount.negative ? "-" : ""}${amount.value}`,
+    format:
+      amount.lakh && !amount.negative
+        ? lakhFormat(symbol, decimals)
+        : amount.positive,
+  };
 }
 
 /** Excel's built-in number formats this writer can use without declaring. */

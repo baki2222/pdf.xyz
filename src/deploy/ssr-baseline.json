@@ -3039,7 +3039,7 @@
     },
     "guides/how-to-convert-pdf-to-pdfa.html": {
       "title": "How to convert a PDF to PDF/A — pdf.xyz",
-      "description": "Convert a PDF to PDF/A-2b for archiving with Ghostscript on a secure server, and read what it had to drop before you download. No account needed.",
+      "description": "Convert a PDF to PDF/A-1b, PDF/A-2b or PDF/A-3b for archiving with Ghostscript on a secure server, and read what it dropped before you download. No account needed.",
       "canonical": "https://pdf.xyz/guides/how-to-convert-pdf-to-pdfa",
       "robots": "index, follow",
       "h1": ["How to convert a PDF to PDF/A"],
@@ -5072,7 +5072,7 @@
     },
     "guides/how-to-extract-tables-from-a-pdf.html": {
       "title": "How to extract tables from a PDF — pdf.xyz",
-      "description": "Pull the tables out of a text-based PDF into CSV files and one Excel workbook, a sheet per table. It runs on a secure server; scans need OCR first.",
+      "description": "Pull the tables out of a PDF into CSV files and one Excel workbook, a sheet per table by default. It runs on a secure server, and can read a scan with OCR first.",
       "canonical": "https://pdf.xyz/guides/how-to-extract-tables-from-a-pdf",
       "robots": "index, follow",
       "h1": ["How to extract tables from a PDF"],
@@ -10828,7 +10828,7 @@
     },
     "tools/extract-tables.html": {
       "title": "Extract Tables from PDF to Excel and CSV — pdf.xyz",
-      "description": "Extract tables from a text-based PDF to CSV and Excel: each table found, even several on one page, gets its own CSV and sheet. Scanned PDFs need OCR PDF first.",
+      "description": "Extract tables from a PDF to CSV and Excel: each in its own CSV and sheet, or all on one sheet. Tick “Recognise text in scans (OCR)” to read a scan.",
       "canonical": "https://pdf.xyz/tools/extract-tables",
       "robots": "index, follow",
       "h1": ["Extract Tables"],
@@ -12729,7 +12729,7 @@
     },
     "tools/pdf-to-markdown.html": {
       "title": "PDF to Markdown: Convert PDF to MD in Your Browser — pdf.xyz",
-      "description": "Turn a PDF's selectable text into a Markdown .md file with a # title, ## Page headings and list lines kept apart. It runs in your browser, with no upload.",
+      "description": "Turn a PDF's selectable text into a Markdown .md file with headings, lists, tables and links, and ## Page headings if you want them. In your browser, no upload.",
       "canonical": "https://pdf.xyz/tools/pdf-to-markdown",
       "robots": "index, follow",
       "h1": ["PDF to Markdown"],
@@ -12839,8 +12839,8 @@
       ]
     },
     "tools/pdf-to-pdfa.html": {
-      "title": "PDF to PDF/A Converter Online — PDF/A-2b Output — pdf.xyz",
-      "description": "Convert a PDF to PDF/A-2b for archiving with Ghostscript and read what it reported dropping before you download. No PDF/A validator checks the result.",
+      "title": "PDF to PDF/A Converter: 1b, 2b or 3b — pdf.xyz",
+      "description": "Convert a PDF to PDF/A-1b, PDF/A-2b or PDF/A-3b with Ghostscript and read what it reported dropping before you download. No PDF/A validator checks the result.",
       "canonical": "https://pdf.xyz/tools/pdf-to-pdfa",
       "robots": "index, follow",
       "h1": ["PDF to PDF/A"],

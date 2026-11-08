@@ -51,6 +51,10 @@ import {
 } from "@/lib/jobs/pdf-office-export";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
 import {
+  CARRIED_DOCINFO_RULE,
+  CARRIED_DOCINFO_WORDS,
+} from "@/lib/workers/pdf-archive/docinfo-words";
+import {
   MAX_DOCX_PICTURES,
   MAX_LAYERS_PER_PAGE,
 } from "@/lib/workers/pdf-office-export/picture-limits";
@@ -137,6 +141,7 @@ import {
   type MarkdownBlockKind,
 } from "@/lib/pdf/markdown-blocks";
 import { HEADING_SIZE_RATIO } from "@/lib/pdf/pdf-to-markdown";
+import { PDF_LINK_SCHEMES } from "@/lib/pdf/markdown-runs";
 import {
   MAX_TIFF_PAGES,
   MAX_TIFF_PAGE_PIXELS,
@@ -387,12 +392,19 @@ const MARKDOWN_BLOCK_PHRASE: Record<MarkdownBlockKind, string> = {
  * It said "Tables, bold, italics and links print as plain text" until the
  * merge with L09 (20ba6ce), which draws GFM tables as a grid and horizontal
  * rules as rules; both joined the renderer's union and, through the compile
- * check, this list.
+ * check, this list. Until 2026-11-08 (audit markdown-to-pdf#6) it said "Bold
+ * and italics print as plain text"; the renderer now draws styled runs and
+ * link annotations (`markdown-runs.ts`), and the schemes a link opens for are
+ * read off PDF_LINK_SCHEMES. The review of that change found "opens when
+ * clicked" said with no scope: a link in a table cell still only prints
+ * (markdown-runs.test.ts reads no annotation for it), so the sentence says
+ * "outside table cells".
  */
 export const MARKDOWN_SYNTAX_FACT = (() => {
   const names = MARKDOWN_BLOCK_KINDS.map((k) => MARKDOWN_BLOCK_PHRASE[k]);
   const list = `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
-  return `${list[0]!.toUpperCase()}${list.slice(1)}. Bold and italics print as plain text, and a link keeps its address in parentheses.`;
+  const schemes = PDF_LINK_SCHEMES.map((s) => s.slice(0, -1));
+  return `${list[0]!.toUpperCase()}${list.slice(1)}. In paragraphs, list items and quotes, bold, italics and backtick code are set in their own faces. A link keeps its address in parentheses, and outside table cells it opens when clicked if that address is ${schemes.slice(0, -1).join(", ")} or ${schemes.at(-1)}.`;
 })();
 
 /**
@@ -736,7 +748,7 @@ const FACTS: Record<string, readonly ToolFact[]> = {
   "pdf-to-markdown": [
     {
       label: "Structure",
-      value: `The file name becomes the # title, a PDF with more than one page gets a ## Page N heading before each page's text, and short lines set at least ${PDF_TO_MARKDOWN_HEADING_PERCENT}% larger than the body text become headings.`,
+      value: `The file name becomes the # title, a PDF with more than one page gets a ## Page N heading before each page's text unless you untick Start each page with a Page heading, and short lines set at least ${PDF_TO_MARKDOWN_HEADING_PERCENT}% larger than the body text become headings.`,
     },
     {
       label: "Paragraphs and lists",
@@ -745,7 +757,7 @@ const FACTS: Record<string, readonly ToolFact[]> = {
     },
     {
       label: "Not rebuilt",
-      value: `Tables, images and text styling are not recreated — table rows come through as plain text. For tables, use ${toolName("extract-tables")}.`,
+      value: `Images and text styling are not recreated. A table whose cells line up in columns becomes a Markdown table; for the tables as CSV or Excel files, use ${toolName("extract-tables")}.`,
     },
   ],
   "pdf-to-text": [
@@ -1532,7 +1544,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
       return [
         {
           question: `Does ${tool.name} keep headings, bold text and tables?`,
-          answer: `Partly. A PDF stores text as positioned lines, not as headings or tables, so the converter infers structure from size and position. The file's name becomes the title, each page gets a "Page N" heading when there is more than one, short lines set at least ${PDF_TO_MARKDOWN_HEADING_PERCENT}% larger than the body text become headings, lines are joined into paragraphs, and lines that begin with a bullet (-, *, + or a character such as •) or a number stay list items. Bold, italics, links and table layout are not carried over — table rows come through as plain text — and images are not exported. For tables, ${toolName("extract-tables")} detects them by their layout and exports CSV and Excel files.`,
+          answer: `Partly. A PDF stores text as positioned lines, not as headings or tables, so the converter infers structure from size and position. The file's name becomes the title, each page gets a "Page N" heading when there is more than one (unless you turn that off), short lines set at least ${PDF_TO_MARKDOWN_HEADING_PERCENT}% larger than the body text become headings, lines are joined into paragraphs, and lines that begin with a bullet (-, *, + or a character such as •) or a number stay list items. A table whose cells line up in columns becomes a Markdown table, and a link to a web page or an email address keeps its address. Bold and italics are not carried over, and images are not exported. For the tables as CSV and Excel files, ${toolName("extract-tables")} detects them by their layout.`,
         },
         scannedTextEntry(tool),
       ];
@@ -1651,10 +1663,9 @@ export const PRIVATE_ADDRESS_EXAMPLES = ["localhost", "192.168.1.1"] as const;
  * the signature-request package — to hold the served page to it.
  */
 function workerFaq(tool: Tool): ToolFaqEntry[] {
-  const scanned: ToolFaqEntry = {
-    question: `Can ${tool.name} convert a scanned PDF?`,
-    answer: `Not directly. A scanned page is a picture with no selectable text: a PDF with none at all is refused rather than exported empty, and in a PDF that mixes the two, the scanned pages come through with no text. Run the scan through ${toolName("ocr-pdf")} first, then export the result.`,
-  };
+  // The shared `scanned` answer ("Not directly. … Run the scan through OCR
+  // PDF first, then export the result.") lost its last reader on 2026-11-08,
+  // when PDF to Excel gained the OCR switch; each tool now answers its own.
   switch (tool.slug) {
     case "pdf-to-word":
       // CHANGED 2026-10-17: "Its selectable text, and nothing else." and the
@@ -1677,13 +1688,22 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
       return [
         {
           question: `How does ${tool.name} lay out the spreadsheet?`,
-          answer: `In one sheet, named “${XLSX_SHEET_NAME}”. Each line of the PDF's selectable text becomes a row, split into cells at ${XLSX_CELL_BREAK_PHRASE}, and each cell goes in the column where its text sits on the line, so an empty cell stays empty. A comma never splits a cell, and an amount or a percentage, such as ${listed([...XLSX_NUMBER_EXAMPLES], "or")}, is stored as a number a formula can add up. A date such as ${XLSX_TEXT_EXAMPLE} stays text, and nothing becomes a formula. ${XLSX_MERGE_CAVEAT}`,
+          // CHANGED 2026-11-08 (audit pdf-to-excel#3): "By default" and the
+          // option sentence. The option's label is not imported here, to
+          // keep this module's client importers from carrying it.
+          answer: `By default in one sheet, named “${XLSX_SHEET_NAME}”; its one option gives each page a sheet of its own instead. Each line of the PDF's selectable text becomes a row, split into cells at ${XLSX_CELL_BREAK_PHRASE}, and each cell goes in the column where its text sits on the line, so an empty cell stays empty. A comma never splits a cell, and an amount or a percentage, such as ${listed([...XLSX_NUMBER_EXAMPLES], "or")}, is stored as a number a formula can add up. A date written as ${XLSX_TEXT_EXAMPLE}, which reads differently from country to country, stays text, and nothing becomes a formula. ${XLSX_MERGE_CAVEAT}`,
         },
         {
           question: `Should I use ${tool.name} or ${toolName("extract-tables")}?`,
           answer: `For a table on its own, ${toolName("extract-tables")}: it looks for tables by where the text sits on the page and exports each one it finds. ${tool.name} puts every line of the PDF's text in one sheet, placing each value in the column it sits in, so it suits getting all of the text into a grid rather than pulling one table out.`,
         },
-        scanned,
+        {
+          question: `Can ${tool.name} convert a scanned PDF?`,
+          // CHANGED 2026-11-08 (audit pdf-to-excel#2): the shared `scanned`
+          // answer, "Not directly. … Run the scan through OCR PDF first" —
+          // true until the panel could run OCR in the same job.
+          answer: `Yes, with “${WORD_OCR_LABEL}” turned on. On its own a scanned page is a picture with no selectable text: a PDF with none at all is refused rather than exported empty, and in a PDF that mixes the two, the scanned pages come through with no text. With the switch on, our server runs ${toolName("ocr-pdf")}'s engine first, in the languages you pick, and places the recognised words into cells in the same job. Check the figures against the scan, since recognition can misread them.`,
+        },
       ];
     case "pdf-to-powerpoint":
       // CHANGED 2026-10-10 with the engine (`pdf-office-export/page-scan.ts`).
@@ -1718,7 +1738,10 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
         },
         {
           question: `Can ${tool.name} convert a scanned PDF?`,
-          answer: `Yes, as pictures. A scanned page has no selectable text, only a picture of its words, so its slide carries the page as a picture and those words are not editable text; the note beside the download names those pages. Run the scan through ${toolName("ocr-pdf")} first to have its words as text as well: the converted slides then carry them in invisible text boxes over each picture.`,
+          // CHANGED 2026-11-08 (audit pdf-to-powerpoint#4): "Run the scan
+          // through OCR PDF first to have its words as text as well" — true
+          // until the panel could run OCR in the same job.
+          answer: `Yes, as pictures. A scanned page has no selectable text, only a picture of its words, so its slide carries the page as a picture and those words are not editable text; the note beside the download names those pages. Turn on “${WORD_OCR_LABEL}” to have its words as text as well: our server runs ${toolName("ocr-pdf")}'s engine first, in the languages you pick, and the converted slides then carry the words in invisible text boxes over each picture.`,
         },
       ];
     case "repair-pdf":
@@ -1735,12 +1758,12 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
     case "pdf-to-pdfa":
       return [
         {
-          question: `Is the ${PDF_A_STANDARD} file validated?`,
-          answer: `No. Ghostscript converts the file to ${PDF_A_STANDARD}, but the result is not checked against the PDF/A specification, so treat it as a best-effort conversion rather than a certificate of compliance.`,
+          question: "Is the PDF/A file validated?",
+          answer: `No. Ghostscript converts the file to the level you pick (${PDF_A_STANDARD} unless you change it), but the result is not checked against the PDF/A specification, so treat it as a best-effort conversion rather than a certificate of compliance.`,
         },
         {
           question: "What does the conversion remove?",
-          answer: `Whatever ${PDF_A_STANDARD} cannot hold. Ghostscript drops it and reports it, and up to ${MAX_TOOL_NOTES} of its messages are listed with your download under “What PDF/A could not keep:”, followed by a count of any it leaves out. Document metadata is the usual casualty.`,
+          answer: `Whatever the PDF/A level cannot hold. Ghostscript drops it and reports it, and up to ${MAX_TOOL_NOTES} of its messages are listed with your download under “What PDF/A could not keep:”, followed by a count of any it leaves out. The most common line is about the original's document information; its ${CARRIED_DOCINFO_WORDS} are written into the copy separately. ${CARRIED_DOCINFO_RULE}`,
         },
       ];
     case "request-signatures": {
@@ -1830,8 +1853,12 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
       return [
         {
           question: `What does ${tool.name} download?`,
+          // CHANGED 2026-11-08 (audit extract-tables#2): "By default" and
+          // the last sentence, when the panel gained its combine option. Its
+          // label and file names are not imported here, to keep this module's
+          // client importers from carrying them; the tool page names them.
           answer:
-            "A ZIP with one CSV file per table it found (table-1.csv, table-2.csv and so on) and tables.xlsx, an Excel workbook holding every table on its own sheet, named after the table's number and page.",
+            "By default, a ZIP with one CSV file per table it found (table-1.csv, table-2.csv and so on) and tables.xlsx, an Excel workbook holding every table on its own sheet, named after the table's number and page. Its one option puts every table on a single sheet and in a single CSV instead.",
         },
         {
           question: `How does ${tool.name} find a table?`,
@@ -1840,7 +1867,10 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
         },
         {
           question: `Can ${tool.name} read a scanned PDF?`,
-          answer: `No. A scanned page is a picture with no selectable text, so the job stops and says so rather than guessing. Run the scan through ${toolName("ocr-pdf")} first, then extract from the result.`,
+          // CHANGED 2026-11-08 (audit extract-tables#3): "No. … Run the scan
+          // through OCR PDF first, then extract from the result." — true until
+          // the panel could run OCR in the same job.
+          answer: `Yes, with “${WORD_OCR_LABEL}” turned on. On its own a scanned page is a picture with no selectable text, so the job stops and says so rather than guessing. With the switch on, our server runs ${toolName("ocr-pdf")}'s engine first, in the languages you pick, and looks for tables in the recognised text in the same job. Check the figures against the scan, since recognition can misread them.`,
         },
       ];
     case "summarize-pdf":

@@ -61,6 +61,8 @@ import {
 import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
 import { GRAYSCALE_DPI_PRESETS } from "@/lib/pdf/grayscale";
 import { extractedTextToMarkdown } from "@/lib/pdf/pdf-to-markdown";
+import { tablesOfPage } from "@/lib/pdf/pdf-to-markdown-tables";
+
 import {
   PDF_OFFICE_EXPORT_TOOLS,
   runPdfOfficeExport,
@@ -224,11 +226,50 @@ describe("pdf-to-markdown: the facts describe what the converter emits", () => {
     ).toMatch(/^2023\. Revenue grew$/m);
   });
 
-  it("table rows arrive as plain text — no Markdown table is written", () => {
-    expect(facts).toMatch(/table rows come through as plain text/i);
-    const out = md(["Name    Qty\nPear    4"]);
-    expect(out).toContain("Pear");
-    expect(out).not.toMatch(/^\|/m);
+  // INVERTED 2026-11-08 (audit pdf-to-markdown#4). This was "table rows
+  // arrive as plain text — no Markdown table is written", pinned to the fact
+  // "table rows come through as plain text". The reader now runs Extract
+  // Tables' detector over each page, so the fact and this test say the
+  // opposite; the detector runs here on items laid out as pdf.js reports them.
+  it("a table whose cells line up becomes a Markdown table, as the fact says", () => {
+    expect(facts).toMatch(
+      /table whose cells line up in columns becomes a Markdown table/i,
+    );
+    const rows = [
+      ["Name", "Qty"],
+      ["Pear", "4"],
+      ["Plum", "12"],
+    ];
+    const items = rows.flatMap(([name, qty], r) => [
+      {
+        str: name!,
+        transform: [11, 0, 0, 11, 72, 720 - r * 14],
+        width: name!.length * 6,
+        height: 11,
+      },
+      {
+        str: qty!,
+        transform: [11, 0, 0, 11, 250, 720 - r * 14],
+        width: qty!.length * 6,
+        height: 11,
+      },
+    ]);
+    const page = extracted([rows.map((r) => r.join(" ")).join("\n")]);
+    const out = extractedTextToMarkdown(
+      {
+        ...page,
+        pages: page.pages.map((p) => ({
+          ...p,
+          tables: tablesOfPage(items, 1),
+        })),
+      },
+      { sourceName: "report.pdf" },
+    ).markdown;
+    expect(out).toContain(
+      "| Name | Qty |\n| --- | --- |\n| Pear | 4 |\n| Plum | 12 |",
+    );
+    // CONTROL: the same lines with no table detected stay plain text.
+    expect(md([rows.map((r) => r.join(" ")).join("\n")])).not.toMatch(/^\|/m);
   });
 
   it("a PDF with no selectable text produces nothing", () => {
@@ -303,22 +344,65 @@ describe("tools that read only embedded text say scans need OCR, and never promi
    * not a use (loading is not running), so the local name has to appear
    * again outside the import statement.
    */
-  function readsEmbeddedText(source: string): boolean {
-    const IMPORT = /import\s*\{([^}]*)\}\s*from\s*["']@\/lib\/pdf\/text["'];?/g;
-    const locals = [...source.matchAll(IMPORT)].flatMap((m) =>
+  /** The names `source` imports from `from` and uses outside the import. */
+  function usedImports(source: string, from: string): string[] {
+    const quoted = from.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+    const IMPORT = new RegExp(
+      `import\\s*\\{([^}]*)\\}\\s*from\\s*["']${quoted}["'];?`,
+      "g",
+    );
+    const specs = [...source.matchAll(IMPORT)].flatMap((m) =>
       m[1]!
         .split(",")
-        .map((spec) => spec.trim().replace(/^type\s+/, ""))
-        .filter(Boolean)
+        .map((spec) => spec.trim())
+        .filter((spec) => spec && !spec.startsWith("type "))
         .map((spec) => {
           const [imported, local] = spec.split(/\s+as\s+/);
           return { imported: imported!, local: (local ?? imported)! };
-        })
-        .filter(({ imported }) => TEXT_EXTRACTORS.includes(imported))
-        .map(({ local }) => local),
+        }),
     );
     const body = source.replace(IMPORT, "");
-    return locals.some((local) => new RegExp(`\\b${local}\\b`).test(body));
+    return specs
+      .filter(({ local }) => new RegExp(`\\b${local}\\b`).test(body))
+      .map(({ imported }) => imported);
+  }
+
+  /**
+   * Does `source` USE one of {@link TEXT_EXTRACTORS} from `@/lib/pdf/text`,
+   * directly or through one `@/lib/pdf/*` module that uses one from `./text`?
+   * The hop is followed because PDF to Markdown's runner reads through its
+   * own reader (`pdf-to-markdown-read`, 2026-11-08, for links): a detector
+   * that read the runner's imports alone lost the tool from the set.
+   */
+  function readsEmbeddedText(source: string, hops = 1): boolean {
+    if (
+      usedImports(source, "@/lib/pdf/text").some((name) =>
+        TEXT_EXTRACTORS.includes(name),
+      )
+    ) {
+      return true;
+    }
+    if (hops === 0) return false;
+    return [...source.matchAll(/from\s*["']@\/lib\/pdf\/([\w-]+)["']/g)]
+      .map((m) => m[1]!)
+      .filter((name) => name !== "text")
+      .filter((name) => usedImports(source, `@/lib/pdf/${name}`).length > 0)
+      .some((name) => {
+        const file = `src/lib/pdf/${name}.ts`;
+        let hopSource: string;
+        try {
+          hopSource = withoutComments(read(file));
+        } catch {
+          return false;
+        }
+        return readsEmbeddedText(
+          hopSource.replace(
+            /from\s*["']\.\/text["']/g,
+            'from "@/lib/pdf/text"',
+          ),
+          hops - 1,
+        );
+      });
   }
 
   function embeddedTextOnly(): string[] {
@@ -357,6 +441,19 @@ describe("tools that read only embedded text say scans need OCR, and never promi
     expect(
       readsEmbeddedText(
         'import { extractPdfText } from "./elsewhere"; extractPdfText(b);',
+      ),
+    ).toBe(false);
+    // One hop through a pdf module that reads `./text` — and only when the
+    // hop is used: PDF to Markdown's reader, imported and called, or not.
+    const reader = 'from "@/lib/pdf/pdf-to-markdown-read";';
+    expect(
+      readsEmbeddedText(`import { pdfToMarkdown } ${reader} pdfToMarkdown(b);`),
+    ).toBe(true);
+    expect(readsEmbeddedText(`import { pdfToMarkdown } ${reader}`)).toBe(false);
+    // A pdf module that does not read text is not a hop.
+    expect(
+      readsEmbeddedText(
+        'import { markdownOutputName } from "@/lib/pdf/pdf-to-markdown"; markdownOutputName(n);',
       ),
     ).toBe(false);
   });

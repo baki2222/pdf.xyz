@@ -4,6 +4,7 @@ import {
 } from "@/lib/pdf/pdf-to-image";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
+import { PDFA_LEVEL_NAMES } from "@/lib/workers/pdf-archive/levels";
 import {
   MAX_REQUEST_SIGNERS,
   REQUEST_PACKAGE_FILES,
@@ -121,7 +122,8 @@ export const TOOL_HOW: Readonly<Record<string, readonly string[]>> = {
   ],
   "pdf-to-pdfa": [
     "Upload your PDF over an encrypted connection.",
-    `Press “Convert to PDF/A”: Ghostscript converts it to ${PDF_A_STANDARD} on our secure server, which deletes the input when the job finishes.`,
+    `Pick the level: ${PDFA_LEVEL_NAMES} (${PDF_A_STANDARD} unless you change it).`,
+    "Press “Convert to PDF/A”: Ghostscript converts it to that level on our secure server, which deletes the input when the job finishes.",
     `Download the result — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. Anything the conversion had to remove is listed with the download.`,
   ],
   "pdf-to-markdown": [
