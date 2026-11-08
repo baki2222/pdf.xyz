@@ -37,6 +37,17 @@ describe("BATCH_LIMITS — every value against an independent bound", () => {
     );
   });
 
+  it("the raster cap is the owner's 10, below the client cap, and still a batch", () => {
+    expect(BATCH_LIMITS.rasterMaxFiles).toBe(10);
+    // A raster file becomes many images held until the ZIP: its cap is
+    // never above the cap for tools whose file stays one file.
+    expect(BATCH_LIMITS.rasterMaxFiles).toBeLessThan(
+      BATCH_LIMITS.clientMaxFiles,
+    );
+    expect(BATCH_LIMITS.rasterMaxFiles).toBeGreaterThanOrEqual(2);
+    expect(Number.isInteger(BATCH_LIMITS.rasterMaxFiles)).toBe(true);
+  });
+
   it("the refusal sentences carry the limits themselves, not typed numbers", () => {
     expect(overCountReason(BATCH_LIMITS.clientMaxFiles)).toContain(
       `up to ${BATCH_LIMITS.clientMaxFiles} files`,

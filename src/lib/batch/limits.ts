@@ -17,10 +17,16 @@ import { MAX_PDF_BYTES } from "@/lib/pdf/files";
  *     pair of its own inputs. It is a TOTAL because every output stays in
  *     memory until the ZIP is built, so the sum, not one file's size, is
  *     what a phone has to hold.
+ *   - `rasterMaxFiles` is half of `clientMaxFiles`, for the tools that draw
+ *     every page as an image or pull every image out (Grayscale PDF, PDF to
+ *     JPG and PNG, Extract Images, batch plan P2): one file of theirs
+ *     becomes many images, every one of them held until the ZIP is built,
+ *     so a batch of them holds far more than its inputs. The per-page pixel
+ *     and DPI ceilings still bind each page as they do for one file.
  *
  * `limits.test.ts` binds each to a second, independent bound (CLAUDE.md rule
  * 3: a constant has no relationships to constrain) — the server's own total,
- * and the 20 / 200 MB the owner ruled.
+ * and the 20 / 200 MB / 10 raster files the owner ruled.
  *
  * Imported by the batch's own modules, which a runner reaches through
  * `next/dynamic` once two or more files arrive; `lazy-chunks.test.ts` holds
@@ -29,6 +35,7 @@ import { MAX_PDF_BYTES } from "@/lib/pdf/files";
 export const BATCH_LIMITS = {
   clientMaxFiles: JOB_LIMITS.maxInputFiles,
   clientMaxTotalBytes: 2 * MAX_PDF_BYTES,
+  rasterMaxFiles: Math.floor(JOB_LIMITS.maxInputFiles / 2),
 } as const;
 
 /** A file the batch did not take, and the sentence that says why. */
