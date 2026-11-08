@@ -51,6 +51,7 @@ import {
   batchMaxFilesFor,
 } from "@/lib/batch/tools";
 import { getRunnerKind } from "@/lib/pdf/registry";
+import { embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { ownerOnlyEncryptedPdf } from "@/tests/encrypted-pdf-fixture";
 import { JPEG_30X20 } from "@/tests/jpeg-fixtures";
 import { readAsViewer } from "@/tests/pdf-viewer-read";
@@ -146,7 +147,7 @@ const textFile = (text: string, name: string) =>
 async function picturePdf(pages: number): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
-  const jpeg = await doc.embedJpg(JPEG_30X20);
+  const jpeg = await embedRasterImage(doc, JPEG_30X20, "jpg");
   for (let i = 0; i < pages; i += 1) {
     const page = doc.addPage([200, 260]);
     page.drawText(`Body ${i + 1}`, { x: 20, y: 220, font, size: 12 });
