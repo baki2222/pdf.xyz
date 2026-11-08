@@ -1,4 +1,5 @@
 import type { PDFDict, PDFDocument, PDFEmbeddedPage, PDFPage } from "pdf-lib";
+import { asDecodeBudgetRefusal } from "./decode-budget";
 import { PdfEncryptedError, PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
@@ -482,7 +483,9 @@ async function embedOverlayPages(
     const page = pages[k]!;
     try {
       await page.embed();
-    } catch {
+    } catch (err) {
+      const tooLarge = asDecodeBudgetRefusal(err, `Overlay page ${index + 1}`);
+      if (tooLarge) throw tooLarge;
       throw new PdfEngineError(
         `Overlay page ${index + 1} couldn't be applied — it may use features we can't process yet.` +
           (paging !== "repeat" && index > 0

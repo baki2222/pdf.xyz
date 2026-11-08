@@ -13,3 +13,5 @@ overrides:
   "baseline-browser-mapping@<2.11.0": "^2.11.0"
   "source-map-js@<1.2.2": "^1.2.2"
   "sharp@<0.35.5": "^0.35.5"
+patchedDependencies:
+  pdf-lib@1.17.1: patches/pdf-lib@1.17.1.patch

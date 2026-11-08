@@ -1,0 +1,316 @@
+diff --git a/cjs/core/parser/PDFParser.js b/cjs/core/parser/PDFParser.js
+index 46f01e42a9232a7462cebed752ef8ae647d141f8..b85a9043a94711e7bda4ef828b409251c2a351ca 100644
+--- a/cjs/core/parser/PDFParser.js
++++ b/cjs/core/parser/PDFParser.js
+@@ -204,6 +204,11 @@ var PDFParser = /** @class */ (function (_super) {
+                         return [3 /*break*/, 5];
+                     case 4:
+                         e_1 = _a.sent();
++                        // pdf.xyz patch: a decode-budget refusal is not a
++                        // damaged object to skip past: the objects it holds
++                        // would be missing from every document written.
++                        if (e_1 && e_1.code === 'PDF_DECODE_BUDGET')
++                            throw e_1;
+                         // TODO: Add tracing/logging mechanism to track when this happens!
+                         this.bytes.moveTo(initialOffset);
+                         this.tryToParseInvalidIndirectObject();
+diff --git a/cjs/core/parser/PDFXRefStreamParser.js b/cjs/core/parser/PDFXRefStreamParser.js
+index 5af363d86dec2181ddb239f90edb69f58959bf90..5e1889c743fafccf4bf80bf85f71c26d16e803ee 100644
+--- a/cjs/core/parser/PDFXRefStreamParser.js
++++ b/cjs/core/parser/PDFXRefStreamParser.js
+@@ -7,11 +7,11 @@ var PDFName_1 = tslib_1.__importDefault(require("../objects/PDFName"));
+ var PDFNumber_1 = tslib_1.__importDefault(require("../objects/PDFNumber"));
+ var PDFRef_1 = tslib_1.__importDefault(require("../objects/PDFRef"));
+ var ByteStream_1 = tslib_1.__importDefault(require("./ByteStream"));
++var decode_1 = require("../streams/decode");
+ var PDFXRefStreamParser = /** @class */ (function () {
+     function PDFXRefStreamParser(rawStream) {
+         this.alreadyParsed = false;
+         this.dict = rawStream.dict;
+-        this.bytes = ByteStream_1.default.fromPDFRawStream(rawStream);
+         this.context = this.dict.context;
+         var Size = this.dict.lookup(PDFName_1.default.of('Size'), PDFNumber_1.default);
+         var Index = this.dict.lookup(PDFName_1.default.of('Index'));
+@@ -31,7 +31,43 @@ var PDFXRefStreamParser = /** @class */ (function () {
+         for (var idx = 0, len = W.size(); idx < len; idx++) {
+             this.byteWidths[idx] = W.lookup(idx, PDFNumber_1.default).asNumber();
+         }
++        this.entryLength = 0;
++        this.bytes = this.readRows(rawStream);
+     }
++    /**
++     * pdf.xyz patch: the parser trusted /W and /Size (or /Index) blindly. A
++     * width of 1e20 looped 1e20 times reading past the data (a 451-byte file
++     * hung forever); /W [0 0 0] or a 20-digit /Size produced entries without
++     * end; and the whole body was inflated however large. pdf-lib never uses
++     * these entries (PDFParser reads objects in file order and keeps only the
++     * trailer fields), so a table it cannot trust is read as empty, and only
++     * the bytes the declared rows need are ever decoded.
++     */
++    PDFXRefStreamParser.prototype.readRows = function (rawStream) {
++        var empty = ByteStream_1.default.of(new Uint8Array(0));
++        var widths = this.byteWidths;
++        var entryLength = 0;
++        for (var idx = 0; idx < 3; idx++) {
++            var width = widths[idx];
++            // Field widths in bytes; 8 is already past any offset JS holds.
++            if (!(Number.isInteger(width) && width >= 0 && width <= 8))
++                return empty;
++            entryLength += width;
++        }
++        var rows = 0;
++        for (var idx = 0, len = this.subsections.length; idx < len; idx++) {
++            var count = this.subsections[idx].length;
++            if (!(Number.isInteger(count) && count >= 0))
++                return empty;
++            rows += count;
++        }
++        var needed = rows * entryLength;
++        // 0 would read the whole stream; past 256 MiB is past any real table.
++        if (!(needed > 0 && needed <= 268435456))
++            return empty;
++        this.entryLength = entryLength;
++        return ByteStream_1.default.of(decode_1.decodePDFRawStream(rawStream).getBytes(needed));
++    };
+     PDFXRefStreamParser.prototype.parseIntoContext = function () {
+         if (this.alreadyParsed) {
+             throw new errors_1.ReparseError('PDFXRefStreamParser', 'parseIntoContext');
+@@ -52,10 +88,16 @@ var PDFXRefStreamParser = /** @class */ (function () {
+     };
+     PDFXRefStreamParser.prototype.parseEntries = function () {
+         var entries = [];
++        // pdf.xyz patch: never more rows than the decoded data holds.
++        var maxEntries = this.entryLength > 0
++            ? Math.floor(this.bytes.length / this.entryLength)
++            : 0;
+         var _a = this.byteWidths, typeFieldWidth = _a[0], offsetFieldWidth = _a[1], genFieldWidth = _a[2];
+         for (var subsectionIdx = 0, subsectionLen = this.subsections.length; subsectionIdx < subsectionLen; subsectionIdx++) {
+             var _b = this.subsections[subsectionIdx], firstObjectNumber = _b.firstObjectNumber, length_2 = _b.length;
+             for (var objIdx = 0; objIdx < length_2; objIdx++) {
++                if (entries.length >= maxEntries)
++                    return entries;
+                 var type = 0;
+                 for (var idx = 0, len = typeFieldWidth; idx < len; idx++) {
+                     type = (type << 8) | this.bytes.next();
+diff --git a/cjs/core/streams/DecodeStream.js b/cjs/core/streams/DecodeStream.js
+index b5472a747b3e4106cad9adfc0cbc87bf01e8530d..83ca538c5a8e6851b2f15360dab4f8a8a285bd08 100644
+--- a/cjs/core/streams/DecodeStream.js
++++ b/cjs/core/streams/DecodeStream.js
+@@ -15,6 +15,29 @@ var Stream_1 = tslib_1.__importDefault(require("./Stream"));
+ // having special cases that would be required if we used |null| for an empty
+ // buffer.
+ var emptyBuffer = new Uint8Array(0);
++// pdf.xyz patch (patches/pdf-lib@1.17.1.patch): a decode budget. One decoded
++// stream may not grow past it; growing past it throws an error whose `code` is
++// PDF_DECODE_BUDGET, before the allocation. A caller may scope a different
++// budget through globalThis[Symbol.for('pdf-lib.decodeBudget')] (shared by
++// every build of pdf-lib loaded in the page). The default is mirrored by
++// DEFAULT_DECODE_BUDGET_BYTES in src/lib/pdf/decode-budget.ts, and a test
++// reads it back out of every patched build file.
++var DEFAULT_DECODE_BUDGET = 268435456;
++var DECODE_BUDGET_KEY = Symbol.for('pdf-lib.decodeBudget');
++var decodeBudget = function () {
++    var scoped = globalThis[DECODE_BUDGET_KEY];
++    return typeof scoped === 'number' && scoped > 0
++        ? scoped
++        : DEFAULT_DECODE_BUDGET;
++};
++var decodeBudgetError = function (requested, limit) {
++    var error = new Error('A PDF stream decodes past the ' + limit + '-byte decode budget (' + requested + ' bytes requested).');
++    error.name = 'PDFDecodeBudgetError';
++    error.code = 'PDF_DECODE_BUDGET';
++    error.requested = requested;
++    error.limit = limit;
++    return error;
++};
+ /**
+  * Super class for the decoding streams
+  */
+@@ -72,7 +95,9 @@ var DecodeStream = /** @class */ (function () {
+         var end;
+         var pos = this.pos;
+         if (length) {
+-            this.ensureBuffer(pos + length);
++            // pdf.xyz patch: never pre-allocate past the budget for a
++            // length the stream may not even have.
++            this.ensureBuffer(Math.min(pos + length, decodeBudget()));
+             end = pos + length;
+             while (!this.eof && this.bufferLength < end) {
+                 this.readBlock();
+@@ -135,10 +160,18 @@ var DecodeStream = /** @class */ (function () {
+         if (requested <= buffer.byteLength) {
+             return buffer;
+         }
++        // pdf.xyz patch: refuse growth past the decode budget.
++        var limit = decodeBudget();
++        if (requested > limit) {
++            throw decodeBudgetError(requested, limit);
++        }
+         var size = this.minBufferLength;
+         while (size < requested) {
+             size *= 2;
+         }
++        if (size > limit) {
++            size = limit;
++        }
+         var buffer2 = new Uint8Array(size);
+         buffer2.set(buffer);
+         return (this.buffer = buffer2);
+diff --git a/es/core/parser/PDFParser.js b/es/core/parser/PDFParser.js
+index b5d25a1be91dddd55ab7562bf40cbc383148436f..b134b028bf6ea9e59664071d444329ad6ef37160 100644
+--- a/es/core/parser/PDFParser.js
++++ b/es/core/parser/PDFParser.js
+@@ -202,6 +202,11 @@ var PDFParser = /** @class */ (function (_super) {
+                         return [3 /*break*/, 5];
+                     case 4:
+                         e_1 = _a.sent();
++                        // pdf.xyz patch: a decode-budget refusal is not a
++                        // damaged object to skip past: the objects it holds
++                        // would be missing from every document written.
++                        if (e_1 && e_1.code === 'PDF_DECODE_BUDGET')
++                            throw e_1;
+                         // TODO: Add tracing/logging mechanism to track when this happens!
+                         this.bytes.moveTo(initialOffset);
+                         this.tryToParseInvalidIndirectObject();
+diff --git a/es/core/parser/PDFXRefStreamParser.js b/es/core/parser/PDFXRefStreamParser.js
+index 4bd9c6a892d01b8d821ab864001f5c3d6a29ccf5..ca0aea50acfa30abff2428b1b25c16ea9f4a8250 100644
+--- a/es/core/parser/PDFXRefStreamParser.js
++++ b/es/core/parser/PDFXRefStreamParser.js
+@@ -4,11 +4,11 @@ import PDFName from "../objects/PDFName";
+ import PDFNumber from "../objects/PDFNumber";
+ import PDFRef from "../objects/PDFRef";
+ import ByteStream from "./ByteStream";
++import { decodePDFRawStream } from "../streams/decode";
+ var PDFXRefStreamParser = /** @class */ (function () {
+     function PDFXRefStreamParser(rawStream) {
+         this.alreadyParsed = false;
+         this.dict = rawStream.dict;
+-        this.bytes = ByteStream.fromPDFRawStream(rawStream);
+         this.context = this.dict.context;
+         var Size = this.dict.lookup(PDFName.of('Size'), PDFNumber);
+         var Index = this.dict.lookup(PDFName.of('Index'));
+@@ -28,7 +28,43 @@ var PDFXRefStreamParser = /** @class */ (function () {
+         for (var idx = 0, len = W.size(); idx < len; idx++) {
+             this.byteWidths[idx] = W.lookup(idx, PDFNumber).asNumber();
+         }
++        this.entryLength = 0;
++        this.bytes = this.readRows(rawStream);
+     }
++    /**
++     * pdf.xyz patch: the parser trusted /W and /Size (or /Index) blindly. A
++     * width of 1e20 looped 1e20 times reading past the data (a 451-byte file
++     * hung forever); /W [0 0 0] or a 20-digit /Size produced entries without
++     * end; and the whole body was inflated however large. pdf-lib never uses
++     * these entries (PDFParser reads objects in file order and keeps only the
++     * trailer fields), so a table it cannot trust is read as empty, and only
++     * the bytes the declared rows need are ever decoded.
++     */
++    PDFXRefStreamParser.prototype.readRows = function (rawStream) {
++        var empty = ByteStream.of(new Uint8Array(0));
++        var widths = this.byteWidths;
++        var entryLength = 0;
++        for (var idx = 0; idx < 3; idx++) {
++            var width = widths[idx];
++            // Field widths in bytes; 8 is already past any offset JS holds.
++            if (!(Number.isInteger(width) && width >= 0 && width <= 8))
++                return empty;
++            entryLength += width;
++        }
++        var rows = 0;
++        for (var idx = 0, len = this.subsections.length; idx < len; idx++) {
++            var count = this.subsections[idx].length;
++            if (!(Number.isInteger(count) && count >= 0))
++                return empty;
++            rows += count;
++        }
++        var needed = rows * entryLength;
++        // 0 would read the whole stream; past 256 MiB is past any real table.
++        if (!(needed > 0 && needed <= 268435456))
++            return empty;
++        this.entryLength = entryLength;
++        return ByteStream.of(decodePDFRawStream(rawStream).getBytes(needed));
++    };
+     PDFXRefStreamParser.prototype.parseIntoContext = function () {
+         if (this.alreadyParsed) {
+             throw new ReparseError('PDFXRefStreamParser', 'parseIntoContext');
+@@ -49,10 +85,16 @@ var PDFXRefStreamParser = /** @class */ (function () {
+     };
+     PDFXRefStreamParser.prototype.parseEntries = function () {
+         var entries = [];
++        // pdf.xyz patch: never more rows than the decoded data holds.
++        var maxEntries = this.entryLength > 0
++            ? Math.floor(this.bytes.length / this.entryLength)
++            : 0;
+         var _a = this.byteWidths, typeFieldWidth = _a[0], offsetFieldWidth = _a[1], genFieldWidth = _a[2];
+         for (var subsectionIdx = 0, subsectionLen = this.subsections.length; subsectionIdx < subsectionLen; subsectionIdx++) {
+             var _b = this.subsections[subsectionIdx], firstObjectNumber = _b.firstObjectNumber, length_2 = _b.length;
+             for (var objIdx = 0; objIdx < length_2; objIdx++) {
++                if (entries.length >= maxEntries)
++                    return entries;
+                 var type = 0;
+                 for (var idx = 0, len = typeFieldWidth; idx < len; idx++) {
+                     type = (type << 8) | this.bytes.next();
+diff --git a/es/core/streams/DecodeStream.js b/es/core/streams/DecodeStream.js
+index 27ffc3268f09d0ec5b7e06ed9971a5b8090d9a6e..d82be93d68149868381ec78bb326fe27e4d11569 100644
+--- a/es/core/streams/DecodeStream.js
++++ b/es/core/streams/DecodeStream.js
+@@ -12,6 +12,29 @@ import Stream from "./Stream";
+ // having special cases that would be required if we used |null| for an empty
+ // buffer.
+ var emptyBuffer = new Uint8Array(0);
++// pdf.xyz patch (patches/pdf-lib@1.17.1.patch): a decode budget. One decoded
++// stream may not grow past it; growing past it throws an error whose `code` is
++// PDF_DECODE_BUDGET, before the allocation. A caller may scope a different
++// budget through globalThis[Symbol.for('pdf-lib.decodeBudget')] (shared by
++// every build of pdf-lib loaded in the page). The default is mirrored by
++// DEFAULT_DECODE_BUDGET_BYTES in src/lib/pdf/decode-budget.ts, and a test
++// reads it back out of every patched build file.
++var DEFAULT_DECODE_BUDGET = 268435456;
++var DECODE_BUDGET_KEY = Symbol.for('pdf-lib.decodeBudget');
++var decodeBudget = function () {
++    var scoped = globalThis[DECODE_BUDGET_KEY];
++    return typeof scoped === 'number' && scoped > 0
++        ? scoped
++        : DEFAULT_DECODE_BUDGET;
++};
++var decodeBudgetError = function (requested, limit) {
++    var error = new Error('A PDF stream decodes past the ' + limit + '-byte decode budget (' + requested + ' bytes requested).');
++    error.name = 'PDFDecodeBudgetError';
++    error.code = 'PDF_DECODE_BUDGET';
++    error.requested = requested;
++    error.limit = limit;
++    return error;
++};
+ /**
+  * Super class for the decoding streams
+  */
+@@ -69,7 +92,9 @@ var DecodeStream = /** @class */ (function () {
+         var end;
+         var pos = this.pos;
+         if (length) {
+-            this.ensureBuffer(pos + length);
++            // pdf.xyz patch: never pre-allocate past the budget for a
++            // length the stream may not even have.
++            this.ensureBuffer(Math.min(pos + length, decodeBudget()));
+             end = pos + length;
+             while (!this.eof && this.bufferLength < end) {
+                 this.readBlock();
+@@ -132,10 +157,18 @@ var DecodeStream = /** @class */ (function () {
+         if (requested <= buffer.byteLength) {
+             return buffer;
+         }
++        // pdf.xyz patch: refuse growth past the decode budget.
++        var limit = decodeBudget();
++        if (requested > limit) {
++            throw decodeBudgetError(requested, limit);
++        }
+         var size = this.minBufferLength;
+         while (size < requested) {
+             size *= 2;
+         }
++        if (size > limit) {
++            size = limit;
++        }
+         var buffer2 = new Uint8Array(size);
+         buffer2.set(buffer);
+         return (this.buffer = buffer2);

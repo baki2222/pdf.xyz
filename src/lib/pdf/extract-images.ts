@@ -33,6 +33,7 @@
 
 import {
   PDFArray,
+  PDFContext,
   PDFDict,
   PDFDocument,
   PDFHexString,
@@ -42,9 +43,9 @@ import {
   PDFRef,
   PDFString,
   decodePDFRawStream,
-  type PDFContext,
   type PDFObject,
 } from "pdf-lib";
+import { withDecodeBudget } from "./decode-budget";
 import { pdfLoadError } from "./engine";
 import { MAX_DECODED_PIXELS } from "./pixel-ceiling";
 
@@ -108,6 +109,52 @@ const MAX_PIXELS = MAX_DECODED_PIXELS;
 
 /** Deepest Form-XObject nesting we'll follow (cycle / runaway guard). */
 const MAX_XOBJECT_DEPTH = 24;
+
+/**
+ * How much of one content stream the inline-image scan decodes (CO-07: a 2 KB
+ * stream inflated to 1 GiB here, to look for `BI` operators). Inline images
+ * are small by rule (the spec advises under 4 KB) and only REPORTED, never
+ * extracted; 64 MiB is a page of vector content far denser than any real
+ * one. Past it the page is reported as not fully checked.
+ */
+const INLINE_SCAN_BYTES = 64 * 1024 * 1024;
+
+/**
+ * A decode asked for N bytes stops after the block that crosses N, and that
+ * block may overshoot. zlib's blocks hold at most 16,384 symbols of up to 258
+ * bytes (about 4 MiB); 16 MiB, or an eighth of the request when larger,
+ * leaves room for encoders with bigger blocks. Only the budget grows by it,
+ * never what is kept.
+ */
+const decodeSlack = (bytes: number) =>
+  Math.max(16 * 1024 * 1024, Math.ceil(bytes / 8));
+
+/**
+ * The first `max` decoded bytes of `stream`, and whether there is more. A
+ * stream that only ends past the budget reads as `null` (not decodable here).
+ */
+function decodePrefix(
+  stream: PDFRawStream,
+  max: number,
+): { data: Uint8Array; more: boolean } | null {
+  try {
+    return withDecodeBudget(max + decodeSlack(max), () => {
+      const decoded = decodePDFRawStream(stream);
+      // Clamped only when asked for (`forceClamped`); a plain view here.
+      const data = decoded.getBytes(max) as Uint8Array;
+      if (data.length < max) return { data, more: false };
+      let more: boolean;
+      try {
+        more = decoded.getByte() !== -1;
+      } catch {
+        more = true;
+      }
+      return { data, more };
+    });
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Extract every embedded raster image we can faithfully recover from a PDF,
@@ -183,11 +230,15 @@ export async function extractPdfImages(
   // "this PDF has no images".
   const scanContent = (streams: PDFObject | undefined, page: number) => {
     for (const stream of contentStreams(streams, doc.context, seen)) {
-      let data: Uint8Array;
-      try {
-        data = decodePDFRawStream(stream).decode();
-      } catch {
-        continue;
+      const prefix = decodePrefix(stream, INLINE_SCAN_BYTES);
+      if (!prefix) continue;
+      const { data, more } = prefix;
+      if (more) {
+        skip(
+          page,
+          normalizeFilters(stream.dict).join(", ") || "(none)",
+          "Page content too large to check for inline images",
+        );
       }
       for (const inline of findInlineImages(data)) {
         skip(
@@ -460,14 +511,28 @@ function decodeSamples(
 ): Uint8Array | string {
   const dict = stream.dict;
   const filterLabel = normalizeFilters(dict).join(", ") || "(none)";
-  let samples: Uint8Array;
-  try {
-    samples = decodePDFRawStream(stream).decode();
-  } catch {
+  const geom = readPredictorGeometry(dict, width, channels, bpc);
+  const needed = Math.ceil((width * channels * bpc) / 8) * height;
+
+  // Decode only what the declared size needs (CO-07: the whole stream used to
+  // be inflated, however far past it), with the budget derived from that size:
+  // a 100 MP RGB image legitimately needs 300 MB, far past the default budget.
+  // PNG predictors carry one tag byte per row of /Columns samples.
+  const predictedRow = Math.max(
+    1,
+    Math.ceil((geom.columns * geom.colors * geom.bitsPerComponent) / 8),
+  );
+  const encoded =
+    geom.predictor >= 10
+      ? Math.ceil(needed / predictedRow) * (predictedRow + 1)
+      : needed;
+  if (!Number.isFinite(encoded) || encoded <= 0) {
     return `Could not decode stream (${filterLabel})`;
   }
+  const prefix = decodePrefix(stream, encoded);
+  if (!prefix) return `Could not decode stream (${filterLabel})`;
+  let samples = prefix.data;
 
-  const geom = readPredictorGeometry(dict, width, channels, bpc);
   if (geom.predictor > 1) {
     const reconstructed = reversePredictor(samples, geom);
     if (!reconstructed) {
@@ -476,7 +541,6 @@ function decodeSamples(
     samples = reconstructed;
   }
 
-  const needed = Math.ceil((width * channels * bpc) / 8) * height;
   if (samples.length < needed) {
     return `Truncated image data (${samples.length}/${needed} bytes)`;
   }
@@ -1355,9 +1419,11 @@ function paeth(a: number, b: number, c: number): number {
 }
 
 // ─────────────────────────── Pure PNG encoder ────────────────────────────────
-// Dependency-free and deterministic: raw samples are wrapped in a valid PNG
-// using stored (uncompressed) DEFLATE blocks. The output is a genuine lossless
-// PNG of the embedded pixels — callers may re-compress it inside a ZIP.
+// Deterministic: raw samples are wrapped in a valid PNG whose IDAT is deflated
+// by the zlib pdf-lib already carries (pako, through `PDFContext.flateStream`),
+// so no new dependency rides along. It used to be stored, uncompressed: a
+// 10,000 x 10,000 scan of a few hundred KB inside the PDF came out as a
+// 300 MB PNG (CO-07). Lossless either way.
 
 export type PngKind = "rgb8" | "rgba8" | "gray8" | "ga8" | "gray1";
 
@@ -1394,7 +1460,7 @@ export function encodePng(
   return concatBytes([
     PNG_SIGNATURE,
     pngChunk("IHDR", ihdr),
-    pngChunk("IDAT", zlibStore(scanlines)),
+    pngChunk("IDAT", zlibDeflate(scanlines)),
     pngChunk("IEND", new Uint8Array(0)),
   ]);
 }
@@ -1430,42 +1496,9 @@ function pngChunk(type: string, data: Uint8Array): Uint8Array {
   return out;
 }
 
-/** Wrap bytes in a zlib stream using stored (type 0) DEFLATE blocks. */
-function zlibStore(data: Uint8Array): Uint8Array {
-  const MAX_BLOCK = 0xffff;
-  const blocks = Math.max(1, Math.ceil(data.length / MAX_BLOCK));
-  const out = new Uint8Array(2 + blocks * 5 + data.length + 4);
-  let p = 0;
-  out[p++] = 0x78; // CMF: deflate, 32K window
-  out[p++] = 0x01; // FLG: check bits, no dict, fastest
-
-  if (data.length === 0) {
-    out[p++] = 0x01; // final, stored
-    out[p++] = 0x00;
-    out[p++] = 0x00;
-    out[p++] = 0xff;
-    out[p++] = 0xff;
-  } else {
-    let offset = 0;
-    while (offset < data.length) {
-      const len = Math.min(MAX_BLOCK, data.length - offset);
-      out[p++] = offset + len >= data.length ? 0x01 : 0x00;
-      out[p++] = len & 0xff;
-      out[p++] = (len >>> 8) & 0xff;
-      out[p++] = ~len & 0xff;
-      out[p++] = (~len >>> 8) & 0xff;
-      out.set(data.subarray(offset, offset + len), p);
-      p += len;
-      offset += len;
-    }
-  }
-
-  const adler = adler32(data);
-  out[p++] = (adler >>> 24) & 0xff;
-  out[p++] = (adler >>> 16) & 0xff;
-  out[p++] = (adler >>> 8) & 0xff;
-  out[p++] = adler & 0xff;
-  return out.subarray(0, p);
+/** One zlib stream (header, deflate, Adler-32), as PNG's IDAT requires. */
+function zlibDeflate(data: Uint8Array): Uint8Array {
+  return PDFContext.create().flateStream(data).getContents();
 }
 
 const CRC_TABLE = (() => {
@@ -1484,24 +1517,6 @@ function crc32(bytes: Uint8Array): number {
     crc = CRC_TABLE[(crc ^ bytes[i]!) & 0xff]! ^ (crc >>> 8);
   }
   return (crc ^ 0xffffffff) >>> 0;
-}
-
-function adler32(bytes: Uint8Array): number {
-  const MOD = 65521;
-  let a = 1;
-  let b = 0;
-  let i = 0;
-  while (i < bytes.length) {
-    // Process in chunks so the sums can't overflow a 32-bit int before % MOD.
-    let n = Math.min(bytes.length - i, 5552);
-    while (n-- > 0) {
-      a += bytes[i++]!;
-      b += a;
-    }
-    a %= MOD;
-    b %= MOD;
-  }
-  return ((b << 16) | a) >>> 0;
 }
 
 function concatBytes(parts: Uint8Array[]): Uint8Array {

@@ -1,4 +1,5 @@
 import type { PDFEmbeddedPage } from "pdf-lib";
+import { asDecodeBudgetRefusal } from "./decode-budget";
 import { PdfEngineError, loadPdf } from "./engine";
 import { outputName } from "./files";
 import { IMAGE_MARGINS, IMAGE_PAGE_SIZES } from "./image-page-layout";
@@ -307,9 +308,15 @@ export async function nUpPdf(
         };
       }),
     );
-  } catch {
-    throw new PdfEngineError(
-      "The pages of this PDF could not be laid out — it may use features we can't process yet.",
+    // pdf-lib decodes the content streams here, not in embedPages (it would
+    // otherwise do it inside save(), past this catch).
+    for (const page of embedded) await page.embed();
+  } catch (err) {
+    throw (
+      asDecodeBudgetRefusal(err) ??
+      new PdfEngineError(
+        "The pages of this PDF could not be laid out — it may use features we can't process yet.",
+      )
     );
   }
   const byIndex = new Map<number, PDFEmbeddedPage>();

@@ -1,4 +1,5 @@
 import type { PDFDict, PDFDocument } from "pdf-lib";
+import { withDecodeBudget } from "./decode-budget";
 import { pdfLoadError, PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
@@ -434,11 +435,25 @@ function keepUntouchedDates(
   return kept;
 }
 
+/**
+ * The most an existing XMP packet may inflate to before it is treated as
+ * absent (EDIT-11: a 1 MB file whose packet inflated to 1 GiB). A real packet
+ * is kilobytes; 16 MiB still carries one bloated by years of editing history
+ * (Photoshop's DocumentAncestors lists reach megabytes). Over it, the edit
+ * goes on as if the file had no old packet: only its PDF/A identification and
+ * extension schemas are not carried over.
+ */
+const MAX_XMP_PACKET_BYTES = 16 * 1024 * 1024;
+
 function xmpText(lib: PdfLibModule, doc: PDFDocument): string | undefined {
   const stream = doc.catalog.lookup(lib.PDFName.of("Metadata"));
   if (!(stream instanceof lib.PDFRawStream)) return undefined;
   try {
-    return new TextDecoder().decode(lib.decodePDFRawStream(stream).decode());
+    return new TextDecoder().decode(
+      withDecodeBudget(MAX_XMP_PACKET_BYTES, () =>
+        lib.decodePDFRawStream(stream).decode(),
+      ),
+    );
   } catch {
     return undefined;
   }
