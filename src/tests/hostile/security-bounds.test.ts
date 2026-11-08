@@ -18,13 +18,17 @@ const CHILD = "src/tests/hostile/security-bounds.child.ts";
 const BOUND_MS = 20_000;
 
 /**
- * Peak RSS of the child, in MB. The honest control below measures what tsx,
- * pdf-lib and the fixture cost before any hostile byte is read (about 145 MB
- * on Windows / Node 24); the bombs inflate to 1,024 MiB, so a cap of 400 MB
- * leaves 250 MB for the fix's own bounded buffers and still sits 600 MB below
- * what a single unbounded inflate costs.
+ * What one entry point may ADD to the child's resident memory at its peak,
+ * in MB, read by ./memory.ts after the fixture is built. The bombs inflate
+ * to 1,024 MiB, so 250 MB is the room the fix's own bounded buffers get and
+ * still sits 750 MB below what a single unbounded inflate adds.
+ *
+ * WAS `PEAK_MB = 400` on the child's absolute peak (about 145 MB of tsx,
+ * pdf-lib and fixture on Windows). On CI's Linux runners the same honest
+ * file peaked at 657 MB before reading a hostile byte, so every case failed
+ * there for the wrong reason (PR #297's first CI run).
  */
-const PEAK_MB = 400;
+const GROWTH_MB = 250;
 
 async function run(fixture: string, entry: string): Promise<BoundedOutcome> {
   return runBounded(CHILD, [fixture, entry], BOUND_MS, { maxOldSpaceMb: 1024 });
@@ -52,7 +56,7 @@ describe("lane l02: hostile structure is read in bounded time and memory", () =>
     async () => {
       const v = settled(await run("objstm-n-honest", "open"));
       expect(v).toMatchObject({ settled: "opened", pages: 1 });
-      expect(v.peakMb as number).toBeLessThan(PEAK_MB);
+      expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
     },
     T,
   );
@@ -75,7 +79,7 @@ describe("lane l02: hostile structure is read in bounded time and memory", () =>
     async () => {
       const v = settled(await run("xref-w0-plain", "readXref"));
       expect(v).toMatchObject({ settled: "threw", name: "UnreadablePdfError" });
-      expect(v.peakMb as number).toBeLessThan(PEAK_MB);
+      expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
     },
     T,
   );
@@ -85,7 +89,7 @@ describe("lane l02: hostile structure is read in bounded time and memory", () =>
     async () => {
       const v = settled(await run("xref-w0-owner", "open"));
       expect(v).toMatchObject({ settled: "unsupported" });
-      expect(v.peakMb as number).toBeLessThan(PEAK_MB);
+      expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
     },
     T,
   );
@@ -96,7 +100,7 @@ describe("lane l02: hostile structure is read in bounded time and memory", () =>
       for (const fixture of ["xref-w0-plain", "xref-w0-owner"]) {
         const v = settled(await run(fixture, "classify"));
         expect(v, fixture).toMatchObject({ settled: "unreadable" });
-        expect(v.peakMb as number, fixture).toBeLessThan(PEAK_MB);
+        expect(v.growthMb as number, fixture).toBeLessThan(GROWTH_MB);
       }
     },
     2 * T,
@@ -120,7 +124,7 @@ describe("lane l02: hostile structure is read in bounded time and memory", () =>
       ]) {
         const v = settled(await run(fixture, "classify"));
         expect(v, fixture).toMatchObject({ settled: "unreadable" });
-        expect(v.peakMb as number, fixture).toBeLessThan(PEAK_MB);
+        expect(v.growthMb as number, fixture).toBeLessThan(GROWTH_MB);
       }
     },
     8 * T,
@@ -135,9 +139,9 @@ describe("lane l02: hostile structure is read in bounded time and memory", () =>
       const six = settled(await run("xref-w0-six", "pdfjs"));
       const atLimit = settled(await run("xref-w0-at-limit", "pdfjs"));
       expect(atLimit).toMatchObject({ settled: "opened", pages: 1 });
-      expect((atLimit.peakMb as number) - (six.peakMb as number)).toBeLessThan(
-        64,
-      );
+      expect(
+        (atLimit.growthMb as number) - (six.growthMb as number),
+      ).toBeLessThan(64);
       // Time against the same machine's six-row run (a full parallel suite
       // slows both; it failed a fixed 3 s once that way).
       expect(atLimit.ms as number).toBeLessThan(
@@ -163,7 +167,7 @@ describe("lane l02: hostile structure is read in bounded time and memory", () =>
       ]) {
         const v = settled(await run(fixture, "classify"));
         expect(v, fixture).toMatchObject({ settled: "unreadable" });
-        expect(v.peakMb as number, fixture).toBeLessThan(PEAK_MB);
+        expect(v.growthMb as number, fixture).toBeLessThan(GROWTH_MB);
       }
     },
     5 * T,
@@ -195,7 +199,9 @@ describe("lane l02: hostile structure is read in bounded time and memory", () =>
       for (let i = 0; i < n; i += 1) {
         const bomb = settled(await run(`flate-spell-${i}`, "classify"));
         expect(bomb, `spelling ${i}`).toMatchObject({ settled: "unreadable" });
-        expect(bomb.peakMb as number, `spelling ${i}`).toBeLessThan(PEAK_MB);
+        expect(bomb.growthMb as number, `spelling ${i}`).toBeLessThan(
+          GROWTH_MB,
+        );
         // Positive control: pdf.js decodes this spelling, and the pre-scan
         // lets the honest file through.
         const six = settled(await run(`flate-spell-${i}-6`, "classify"));
@@ -246,9 +252,9 @@ describe("lane l02: hostile structure is read in bounded time and memory", () =>
       expect(atFloor.ms as number).toBeLessThan(
         Math.max(5_000, 4 * (six.ms as number)),
       );
-      expect((atFloor.peakMb as number) - (six.peakMb as number)).toBeLessThan(
-        ENTRY_FLOOR_MB,
-      );
+      expect(
+        (atFloor.growthMb as number) - (six.growthMb as number),
+      ).toBeLessThan(ENTRY_FLOOR_MB);
     },
     2 * T,
   );
@@ -268,8 +274,8 @@ describe("lane l02: hostile structure is read in bounded time and memory", () =>
       for (const fixture of ["xref-bomb", "xref-bomb-chained"]) {
         for (const entry of ["readXref", "open"]) {
           const v = settled(await run(fixture, entry));
-          expect(v.peakMb as number, `${fixture} ${entry}`).toBeLessThan(
-            PEAK_MB,
+          expect(v.growthMb as number, `${fixture} ${entry}`).toBeLessThan(
+            GROWTH_MB,
           );
         }
       }
@@ -282,7 +288,7 @@ describe("lane l02: hostile structure is read in bounded time and memory", () =>
     async () => {
       const v = settled(await run("objstm-bomb", "open"));
       expect(v).toMatchObject({ settled: "unsupported" });
-      expect(v.peakMb as number).toBeLessThan(PEAK_MB);
+      expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
     },
     T,
   );

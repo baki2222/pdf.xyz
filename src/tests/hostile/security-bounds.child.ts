@@ -24,6 +24,7 @@ import {
   ZERO_WIDTH_ROW_LIMIT,
   prescanXref,
 } from "../../lib/pdf/xref-prescan";
+import { startMemoryMeter } from "./memory";
 import { reportResult } from "./report";
 import {
   ONE_PAGE,
@@ -46,6 +47,22 @@ import {
 } from "./xref-rows.fixtures";
 
 const req = createRequire(import.meta.url);
+
+/** Open and close a clean one-page file with the same pdf.js the entries use. */
+async function warmPdfjs(): Promise<void> {
+  const lib = await legacyPdfjs();
+  const doc = await PDFDocument.create();
+  doc.addPage([200, 200]);
+  const task = lib.getDocument({
+    data: await doc.save(),
+    ...PDFJS_DOCUMENT_DEFAULTS,
+  });
+  try {
+    await awaitPdfjsDocument(task);
+  } finally {
+    await task.destroy().catch(() => {});
+  }
+}
 async function legacyPdfjs(): Promise<PdfjsForAccess> {
   return (await import(
     pathToFileURL(req.resolve("pdfjs-dist/legacy/build/pdf.mjs")).href
@@ -231,14 +248,12 @@ const ENTRIES: Record<string, (bytes: Uint8Array) => Promise<unknown>> = {
   // The pre-scan's own memory: the RSS it adds above what the process held
   // just before it ran (the fixture is built by then).
   async "prescan-memory"(bytes) {
-    const before = process.memoryUsage().rss;
+    const meter = startMemoryMeter();
     const scan = prescanXref(bytes);
     return {
       settled: scan.unbounded ? "refused" : "passed",
       size: bytes.length,
-      addedMb: Math.round(
-        (process.resourceUsage().maxRSS * 1024 - before) / 1e6,
-      ),
+      addedMb: Math.round(meter.growthMb()),
     };
   },
   // The pre-scan alone, on the caller's thread as readAccessFacts runs it.
@@ -260,8 +275,21 @@ const run = ENTRIES[entry];
 if (!build || !run) throw new Error(`unknown case ${fixture} ${entry}`);
 void (async () => {
   const bytes = await build();
+  // pdf.js loads lazily: its first open pulls in the module and its in-thread
+  // worker, about 340 MB on Linux / Node 22, and that is not the hostile
+  // file's cost. Opened once on a clean one-page file first, so the meter
+  // below reads only what the entry spends on THIS file.
+  await warmPdfjs();
+  // The entry's own growth, after the fixture is built (./memory.ts).
+  const meter = startMemoryMeter();
   const t0 = Date.now();
   const value = (await run(bytes)) as Record<string, unknown>;
-  reportResult({ ...value, ms: Date.now() - t0, peakMb: peakMb() });
+  reportResult({
+    ...value,
+    ms: Date.now() - t0,
+    peakMb: peakMb(),
+    growthMb: Math.round(meter.growthMb()),
+    meter: meter.method,
+  });
   process.exit(0);
 })();

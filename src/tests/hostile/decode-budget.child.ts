@@ -5,13 +5,15 @@
 //
 // argv: <entry> <fixture path>
 import { readFileSync } from "node:fs";
+import { startMemoryMeter } from "./memory";
 import { reportResult } from "./report";
 import { partnerPdf } from "./stamping.fixtures";
 
 const [entry, file] = process.argv.slice(2);
 const bytes = new Uint8Array(readFileSync(file!));
-const peakMb = () => process.resourceUsage().maxRSS / 1024;
-const before = peakMb();
+// Started here, after the imports and the fixture read: the growth is the
+// entry point's alone (see ./memory.ts for why not maxRSS - before).
+const meter = startMemoryMeter();
 
 function describe(err: unknown) {
   const e = err as { name?: string; message?: string; kind?: string };
@@ -97,6 +99,16 @@ async function run(): Promise<unknown> {
 }
 
 run().then(
-  (value) => reportResult({ ok: value, growthMb: peakMb() - before }),
-  (err) => reportResult({ ...describe(err), growthMb: peakMb() - before }),
+  (value) =>
+    reportResult({
+      ok: value,
+      growthMb: meter.growthMb(),
+      meter: meter.method,
+    }),
+  (err) =>
+    reportResult({
+      ...describe(err),
+      growthMb: meter.growthMb(),
+      meter: meter.method,
+    }),
 );

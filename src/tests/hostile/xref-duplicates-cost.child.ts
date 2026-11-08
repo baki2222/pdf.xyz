@@ -16,6 +16,7 @@
 import { createDeflate, deflateSync } from "node:zlib";
 import { PDFDocument } from "pdf-lib";
 import { loadPdf } from "@/lib/pdf/engine";
+import { startMemoryMeter } from "./memory";
 import { reportResult } from "./report";
 
 const [mode = "", nArg = "0"] = process.argv.slice(2);
@@ -185,8 +186,9 @@ async function main() {
   let t = performance.now();
   await PDFDocument.load(bytes);
   const baseMs = performance.now() - t;
-  // Peak resident memory (KB), so a buffer freed before the end still counts.
-  const peak0 = process.resourceUsage().maxRSS;
+  // Peak resident memory added by the load below, so a buffer freed before
+  // the end still counts (./memory.ts).
+  const meter = startMemoryMeter();
   t = performance.now();
   let outcome: string;
   try {
@@ -199,7 +201,8 @@ async function main() {
     kb: Math.round(bytes.length / 1024),
     baseMs: Math.round(baseMs),
     ms: Math.round(performance.now() - t),
-    rssMb: Math.round((process.resourceUsage().maxRSS - peak0) / 1024),
+    rssMb: Math.round(meter.growthMb()),
+    meter: meter.method,
   });
 }
 void main();

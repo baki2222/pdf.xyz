@@ -47,12 +47,16 @@ describe("pdf.js consumers stay bounded on hostile streams", () => {
   }, 60_000);
 
   test("STAMP-14 boundary: nesting exactly MAX_GRAPHICS_STATE_DEPTH still reads", async () => {
+    // Positive controls: content AT the bound must be read, not refused, so
+    // they get time. Measured 2026-11-09: 2.6-3.2 s on Windows / Node 24,
+    // 17 s (this one) and 25 s (the work control) on Linux / Node 22 in the
+    // worker image. CI runs Node 22 under load, where 30 s was a "hang".
     const v = settled(
-      await runBounded(CHILD, ["stamp14-at-bound-text"], 30_000),
+      await runBounded(CHILD, ["stamp14-at-bound-text"], 120_000),
     );
     expect(v).toMatchObject({ ok: true, pageCount: 1 });
     expect(v.text).toContain("Hostile control");
-  }, 60_000);
+  }, 150_000);
 
   test("STAMP-14, split: one page of 32 streams x 1,020 unclosed q (32,640 deep) is refused, not read for 66 s", async () => {
     const v = settled(await runBounded(CHILD, ["stamp14-split-text"], 30_000));
@@ -81,12 +85,14 @@ describe("pdf.js consumers stay bounded on hostile streams", () => {
   }, 60_000);
 
   test("STAMP-14, work control: the same form painted once still reads", async () => {
+    // See the boundary control above for the measured times (25 s here on
+    // Linux / Node 22).
     const v = settled(
-      await runBounded(CHILD, ["stamp14-form-once-text"], 30_000),
+      await runBounded(CHILD, ["stamp14-form-once-text"], 120_000),
     );
     expect(v).toMatchObject({ ok: true, pageCount: 1 });
     expect(v.text).toContain("MARK");
-  }, 60_000);
+  }, 150_000);
 
   test("CO-08: a 100 MP image whose /Width is an indirect reference is refused like a direct one", async () => {
     // History: the scan read `/Width 7 0 R` as no width (0 pixels) and pdf.js
