@@ -771,3 +771,74 @@ describe("out of memory through the real engines", () => {
   );
 });
 
+/**
+ * Text to PDF's arrival notice belongs to files that were HANDED OVER. A
+ * visitor who arrived with one handed-over file (it opens in the editor) and
+ * then picks two of their own was told those two had been handed over
+ * (review of P2): `arrival` was read from the hand-off, whatever the source
+ * of the batch's files.
+ */
+describe("Text to PDF's batch: the hand-off notice is for handed-over files only", () => {
+  const NOTICE = "Still in this browser; nothing was uploaded.";
+  afterEach(() => {
+    __setHandoffStoreForTests(null);
+    window.history.replaceState(null, "", "/");
+  });
+  async function arriveWith(files: File[]) {
+    window.sessionStorage.clear();
+    __setHandoffStoreForTests(
+      new HandoffStore({ backend: new MemoryHandoffBackend() }),
+    );
+    const id = await stashHandoff("text-to-pdf", files, {
+      origin: { kind: "workspace" },
+    });
+    window.history.replaceState(null, "", `/tools/text-to-pdf?handoff=${id}`);
+    const { container } = render(
+      <Router>
+        <ToolRunner kind={getRunnerKind("text-to-pdf")!} slug="text-to-pdf" />
+      </Router>,
+    );
+    await runnerMounted(container);
+    return container;
+  }
+
+  it(
+    "positive control: two handed-over files carry the notice",
+    { timeout: 60_000 },
+    async () => {
+      const container = await arriveWith([
+        textFile("a", "first.txt"),
+        textFile("b", "second.txt"),
+      ]);
+      const view = await batchViewOf(container);
+      expect(view).toHaveTextContent(NOTICE);
+    },
+  );
+
+  it(
+    "one handed-over file, then two picked: the batch carries no hand-off notice",
+    { timeout: 60_000 },
+    async () => {
+      const container = await arriveWith([textFile("Handed.", "handed.txt")]);
+      await waitFor(() =>
+        expect(
+          (container.querySelector("textarea") as HTMLTextAreaElement | null)
+            ?.value,
+        ).toBe("Handed."),
+      );
+      const input =
+        container.querySelector<HTMLInputElement>('input[type="file"]');
+      expect(input, "the editor's drop box").not.toBeNull();
+      fireEvent.change(input!, {
+        target: {
+          files: [textFile("a", "mine-1.txt"), textFile("b", "mine-2.txt")],
+        },
+      });
+      const view = await batchViewOf(container);
+      expect(
+        within(view).getByText("mine-1.txt", { selector: "span" }),
+      ).toBeInTheDocument();
+      expect(view).not.toHaveTextContent(NOTICE);
+    },
+  );
+});

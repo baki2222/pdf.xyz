@@ -92,8 +92,13 @@ export function TextToPdfRunner() {
   );
   const [loadError, setLoadError] = useState<string | null>(null);
   const seededRef = useRef(false);
-  // Two or more files, picked, dropped or handed over: the batch.
-  const [many, setMany] = useState<File[] | null>(null);
+  // Two or more files, picked, dropped or handed over: the batch. Where they
+  // came from is kept with them: only handed-over files carry the hand-off
+  // notice, never files picked after one was handed over.
+  const [many, setMany] = useState<{
+    files: File[];
+    handedOver: boolean;
+  } | null>(null);
 
   const readTextFile = useCallback(async (file: File) => {
     if (!isLikelyTextFile(file)) {
@@ -126,7 +131,7 @@ export function TextToPdfRunner() {
     if (seededRef.current) return;
     if (handoff.status === "ready" && handoff.files.length > 1) {
       seededRef.current = true;
-      queueMicrotask(() => setMany(handoff.files));
+      queueMicrotask(() => setMany({ files: handoff.files, handedOver: true }));
     } else if (handoff.status === "ready" && handoff.files.length > 0) {
       seededRef.current = true;
       queueMicrotask(() => {
@@ -150,11 +155,11 @@ export function TextToPdfRunner() {
   if (many)
     return (
       <TextToPdfBatch
-        files={many}
+        files={many.files}
         onReset={resetMany}
         onSingle={narrowTo}
         arrival={
-          handoff.status === "ready"
+          many.handedOver && handoff.status === "ready"
             ? { origin: handoff.origin, skipped: handoff.skipped }
             : null
         }
@@ -177,7 +182,7 @@ export function TextToPdfRunner() {
         onSource={setSource}
         onFile={(files) =>
           files.length > 1
-            ? setMany(files)
+            ? setMany({ files, handedOver: false })
             : files[0] && void readTextFile(files[0])
         }
         loadError={loadError}
