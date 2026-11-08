@@ -1,4 +1,5 @@
 import type { PDFDocument } from "pdf-lib";
+import { asDecodeBudgetRefusal } from "./decode-budget";
 import { probePdfEncryption, type EncryptionVerdict } from "./encryption";
 import {
   PdfEncryptedError,
@@ -48,6 +49,9 @@ export async function pdfLoadError(
   probe: (bytes: Uint8Array) => Promise<EncryptionVerdict | null> = (b) =>
     probePdfEncryption(b),
 ): Promise<PdfEngineError> {
+  // pdf-lib stopped inflating at its decode budget: not damage, a bomb.
+  const tooLarge = asDecodeBudgetRefusal(err);
+  if (tooLarge) return tooLarge;
   const message = err instanceof Error ? err.message : "";
   // pdf-lib's EncryptedPDFError is an ES5-compiled subclass of Error: its
   // `name` is "Error" and `instanceof` does not hold, so its message is the

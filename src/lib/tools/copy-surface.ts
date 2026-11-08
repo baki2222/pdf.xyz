@@ -283,6 +283,9 @@ export function copyFiles(): string[] {
     // JPG / PNG to PDF's Max file size (2026-10-31): labels, hint, outcome
     // lines, and the browser re-encoder's error messages.
     path.join(ROOT, "src", "lib", "pdf", "image-size-limit.ts"),
+    // The decode-budget refusal (2026-11-08, hostile lane l01): what a file
+    // whose compressed data unpacks past the budget is told, on every tool.
+    path.join(ROOT, "src", "lib", "pdf", "decode-budget.ts"),
     // JPG / PNG to PDF's per-image Rotate button (2026-11-08, audit
     // png-to-pdf#2): its tooltip and accessible name.
     path.join(ROOT, "src", "lib", "pdf", "image-rotation.ts"),
