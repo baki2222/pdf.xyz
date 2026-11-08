@@ -31,6 +31,7 @@
  * exercise the identical code path.
  */
 
+import * as PdfLib from "pdf-lib";
 import {
   PDFArray,
   PDFContext,
@@ -180,7 +181,7 @@ export async function extractPdfImages(
     throw await pdfLoadError(err, pdfBytes);
   }
   // The same page-tree check as `loadPdf` (`./page-tree`).
-  await (await import("./page-tree")).assertPageTree(doc);
+  await (await import("./page-tree")).assertPageTree(doc, PdfLib);
   const pages = doc.getPages();
   const pageCount = pages.length;
 

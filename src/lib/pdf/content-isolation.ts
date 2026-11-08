@@ -1,5 +1,5 @@
 import type { PDFObject, PDFPage, PDFRawStream } from "pdf-lib";
-import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
+import type { PdfLibModule } from "./pdf-lib";
 
 /**
  * Isolate a page's ORIGINAL content from whatever an engine draws after it
@@ -617,11 +617,12 @@ function join(parts: Uint8Array[], size: number, newline: boolean): Uint8Array {
  */
 export async function isolatePageContent(
   page: PDFPage,
+  /** The caller's pdf-lib module (see `assertPageTree` in ./page-tree). */
+  lib: PdfLibModule,
   budget: number = ISOLATION_DECODE_BUDGET,
 ): Promise<IsolationOutcome> {
   const known = memo.get(page.node);
   if (known) return known;
-  const lib = await loadPdfLib();
   const outcome = isolate(lib, page, budget);
   memo.set(page.node, outcome);
   return outcome;

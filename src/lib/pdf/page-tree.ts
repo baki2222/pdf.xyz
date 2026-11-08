@@ -8,7 +8,7 @@ import type {
   PDFRef,
 } from "pdf-lib";
 import { PdfEngineError, UNREADABLE_PDF_MESSAGE } from "./engine-errors";
-import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
+import type { PdfLibModule } from "./pdf-lib";
 
 /**
  * The page tree, checked and settled ONCE, right after pdf-lib parses a file
@@ -488,8 +488,16 @@ export function pageTreeError(
 /**
  * Settle `doc`'s page tree, or throw the typed refusal. Every pdf-lib loader
  * that hands a document to an engine calls this right after the parse.
+ *
+ * `lib` is the caller's pdf-lib module, passed in rather than loaded here:
+ * a value import of `./pdf-lib` from this lazy module split that first-load
+ * module into a chunk of its own, and every page paid for the extra loader
+ * entry (hostile integration, 2026-11-08).
  */
-export async function assertPageTree(doc: PDFDocument): Promise<void> {
-  const verdict = settlePageTree(await loadPdfLib(), doc);
+export async function assertPageTree(
+  doc: PDFDocument,
+  lib: PdfLibModule,
+): Promise<void> {
+  const verdict = settlePageTree(lib, doc);
   if (!verdict.ok) throw pageTreeError(verdict);
 }

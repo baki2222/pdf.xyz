@@ -12,6 +12,7 @@
 // child process and measured by an independent interpreter (./ctm-probe).
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import * as PdfLib from "pdf-lib";
 import { PDFDocument, PDFName, StandardFonts } from "pdf-lib";
 import { describe, expect, test } from "vitest";
 import {
@@ -608,7 +609,7 @@ describe("review-l06: a page that renders correctly today still does after the t
     const doc = await PDFDocument.load(await rawPage(content));
     const p = doc.getPage(0);
     const before = String(p.node.get(PDFName.of("Contents")));
-    expect(await isolatePageContent(p)).toEqual({
+    expect(await isolatePageContent(p, PdfLib)).toEqual({
       kind: "skipped",
       reason: "ambiguous",
     });
@@ -625,7 +626,7 @@ describe("review-l06: a page that renders correctly today still does after the t
     const doc = await PDFDocument.load(await rawPage(filtered));
     const p = doc.getPage(0);
     const before = String(p.node.get(PDFName.of("Contents")));
-    expect(await isolatePageContent(p)).toEqual({
+    expect(await isolatePageContent(p, PdfLib)).toEqual({
       kind: "skipped",
       reason: "ambiguous",
     });
@@ -639,7 +640,7 @@ describe("review-l06: a page that renders correctly today still does after the t
       tail,
     );
     const ok = await PDFDocument.load(await rawPage(withLength));
-    expect(await isolatePageContent(ok.getPage(0))).toEqual({
+    expect(await isolatePageContent(ok.getPage(0), PdfLib)).toEqual({
       kind: "isolated",
       blanked: 1,
       closed: 0,
@@ -653,14 +654,14 @@ describe("review-l06: a page that renders correctly today still does after the t
     );
     const p = doc.getPage(0);
     const before = String(p.node.get(PDFName.of("Contents")));
-    expect(await isolatePageContent(p)).toEqual({
+    expect(await isolatePageContent(p, PdfLib)).toEqual({
       kind: "skipped",
       reason: "unreadable",
     });
     expect(String(p.node.get(PDFName.of("Contents")))).toBe(before);
     // Positive control: without the predictor the same bytes are isolated.
     const plain = await PDFDocument.load(await rawPage(content));
-    expect(await isolatePageContent(plain.getPage(0))).toMatchObject({
+    expect(await isolatePageContent(plain.getPage(0), PdfLib)).toMatchObject({
       kind: "isolated",
       blanked: 1,
     });
@@ -699,7 +700,7 @@ describe("balanced pages are left alone", () => {
         const before = String(p.node.get(PDFName.of("Contents")));
         // At a 64 KB budget, not the default: no page skipped here is the
         // measurement behind ISOLATION_DECODE_BUDGET's 500x headroom.
-        const outcome = await isolatePageContent(p, 64 * 1024);
+        const outcome = await isolatePageContent(p, PdfLib, 64 * 1024);
         pages += 1;
         expect(outcome.kind, `${file}`).not.toBe("skipped");
         if (outcome.kind === "balanced") {
@@ -722,7 +723,7 @@ describe("decoding is bounded", () => {
     );
     const p = doc.getPage(0);
     const before = String(p.node.get(PDFName.of("Contents")));
-    expect(await isolatePageContent(p, 16)).toEqual({
+    expect(await isolatePageContent(p, PdfLib, 16)).toEqual({
       kind: "skipped",
       reason: "budget",
     });
@@ -733,7 +734,7 @@ describe("decoding is bounded", () => {
     const doc = await PDFDocument.load(
       await page(`q ${SCALE} q q ${BASE_TEXT}`),
     );
-    expect(await isolatePageContent(doc.getPage(0))).toEqual({
+    expect(await isolatePageContent(doc.getPage(0), PdfLib)).toEqual({
       kind: "isolated",
       blanked: 0,
       closed: 3,
@@ -763,7 +764,7 @@ describe("decoding is bounded", () => {
     );
     const loaded = await PDFDocument.load(await doc.save());
     const t0 = Date.now();
-    expect(await isolatePageContent(loaded.getPage(0))).toEqual({
+    expect(await isolatePageContent(loaded.getPage(0), PdfLib)).toEqual({
       kind: "skipped",
       reason: "budget",
     });

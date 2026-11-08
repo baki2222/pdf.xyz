@@ -1,4 +1,4 @@
-import { isolatePageContent } from "./content-isolation";
+import type { isolatePageContent as IsolatePageContent } from "./content-isolation";
 import type { PDFImage, PDFPage } from "pdf-lib";
 import {
   drawRasterImage,
@@ -30,6 +30,19 @@ import {
   type StampPlacement,
   type StampPosition,
 } from "./stamp";
+
+/**
+ * Content isolation (`./content-isolation`) runs only when a page is written,
+ * so it is imported at call time: a static import put it in the first load of
+ * every page whose runner imports this engine (hostile lane l06, 2026-11-08).
+ */
+const isolatePageContent = async (
+  page: Parameters<typeof IsolatePageContent>[0],
+): ReturnType<typeof IsolatePageContent> =>
+  (await import("./content-isolation")).isolatePageContent(
+    page,
+    await loadPdfLib(),
+  );
 
 /**
  * Stamp a text or image watermark on the pages of a PDF, fully in-browser.

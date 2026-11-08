@@ -15,6 +15,7 @@
  * (`legit-corpus.test.ts`, including an incremental update) are the other
  * positive control; the corpus is also checked here to bound the guard's cost.
  */
+import * as PdfLib from "pdf-lib";
 import { readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -432,7 +433,7 @@ describe("xref shapes", () => {
     expect(want.text).toBe("SECOND");
     const lib = await import("pdf-lib");
     const doc = await lib.PDFDocument.load(broken);
-    expect((await honourXrefDuplicates(doc, broken)).replaced).toBe(0);
+    expect((await honourXrefDuplicates(doc, broken, PdfLib)).replaced).toBe(0);
     expect((await view(await mergePdfs([broken]))).text).toBe("SECOND");
   }, 30_000);
 
@@ -546,7 +547,7 @@ describe("scanner", () => {
     expect(scanObjectHeaders(bytes).repeated).toBe(true);
     const lib = await import("pdf-lib");
     const doc = await lib.PDFDocument.load(bytes);
-    expect((await honourXrefDuplicates(doc, bytes)).replaced).toBe(0);
+    expect((await honourXrefDuplicates(doc, bytes, PdfLib)).replaced).toBe(0);
   });
 
   it("every real file's xref chain passes the size check (positive control)", async () => {
@@ -573,7 +574,7 @@ describe("scanner", () => {
     for (const name of corpus) {
       const bytes = new Uint8Array(readFileSync(path.join(CORPUS, name)));
       const doc = await lib.PDFDocument.load(bytes);
-      const { replaced } = await honourXrefDuplicates(doc, bytes);
+      const { replaced } = await honourXrefDuplicates(doc, bytes, PdfLib);
       expect({ name, replaced }).toEqual({ name, replaced: 0 });
     }
   }, 60_000);

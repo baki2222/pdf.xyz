@@ -6,7 +6,7 @@ import type {
   PDFRef as PDFRefT,
 } from "pdf-lib";
 import { PdfEngineError, UNREADABLE_PDF_MESSAGE } from "./engine-errors";
-import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
+import type { PdfLibModule } from "./pdf-lib";
 
 /**
  * Objects defined more than once resolve to the definition the
@@ -377,11 +377,12 @@ export function xrefIsBounded(lib: PdfLibModule, bytes: Uint8Array): boolean {
 export async function honourXrefDuplicates(
   doc: PDFDocument,
   bytes: Uint8Array,
+  /** The caller's pdf-lib module (see `assertPageTree` in ./page-tree). */
+  lib: PdfLibModule,
 ): Promise<{ doc: PDFDocument; replaced: number }> {
   const scan = scanObjectHeaders(bytes);
   if (!scan.repeated && !scan.objectStreams) return { doc, replaced: 0 };
 
-  const lib = await loadPdfLib();
   let entries: Awaited<
     ReturnType<typeof import("./security/document").readXref>
   >["entries"];

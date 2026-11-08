@@ -1,5 +1,4 @@
 import type { PDFDocument } from "pdf-lib";
-import { asDecodeBudgetRefusal } from "./decode-budget";
 import { probePdfEncryption, type EncryptionVerdict } from "./encryption";
 import {
   PdfEncryptedError,
@@ -50,6 +49,9 @@ export async function pdfLoadError(
     probePdfEncryption(b),
 ): Promise<PdfEngineError> {
   // pdf-lib stopped inflating at its decode budget: not damage, a bomb.
+  // Imported here, on the failure path only: engine.ts rides the first load
+  // of every tool page whose runner imports an engine function.
+  const { asDecodeBudgetRefusal } = await import("./decode-budget");
   const tooLarge = asDecodeBudgetRefusal(err);
   if (tooLarge) return tooLarge;
   const message = err instanceof Error ? err.message : "";
@@ -68,7 +70,8 @@ export async function pdfLoadError(
  * numbers, watermark, header/footer) share one loader and one set of messages.
  */
 export async function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
-  const { PDFDocument } = await loadPdfLib();
+  const lib = await loadPdfLib();
+  const { PDFDocument } = lib;
   let doc: PDFDocument;
   try {
     doc = await PDFDocument.load(bytes);
@@ -79,11 +82,11 @@ export async function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
   // preview shows it (`./xref-duplicates`), not the last one pdf-lib parsed.
   // First, so the page-tree check below reads the objects a viewer reads.
   const { honourXrefDuplicates } = await import("./xref-duplicates");
-  const honoured = (await honourXrefDuplicates(doc, bytes)).doc;
+  const honoured = (await honourXrefDuplicates(doc, bytes, lib)).doc;
   // pdf-lib "loads" files whose page tree it cannot walk (no catalog, a
   // cycle, a page it could not parse): checked and settled here, once, so no
   // engine meets a raw TypeError or a silently missing page (`./page-tree`).
-  await (await import("./page-tree")).assertPageTree(honoured);
+  await (await import("./page-tree")).assertPageTree(honoured, lib);
   return honoured;
 }
 

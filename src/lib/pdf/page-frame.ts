@@ -322,12 +322,12 @@ export async function readPdfFrames(
   bytes: Uint8Array,
 ): Promise<PdfFrames | null> {
   try {
-    const { PDFDocument } = await loadPdfLib();
-    const doc = await PDFDocument.load(bytes, {
+    const lib = await loadPdfLib();
+    const doc = await lib.PDFDocument.load(bytes, {
       ignoreEncryption: true,
       updateMetadata: false,
     });
-    await (await import("./page-tree")).assertPageTree(doc);
+    await (await import("./page-tree")).assertPageTree(doc, lib);
     const frames = doc.getPages().map(visiblePageFrame);
     if (frames.length === 0) return null;
     return { frames, encrypted: doc.isEncrypted };
