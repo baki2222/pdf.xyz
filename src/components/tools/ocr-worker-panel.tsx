@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useCallback, useId, useMemo, useState, type ReactNode } from "react";
 import {
   FileDown,
@@ -387,6 +388,7 @@ function OcrBody({
     <OcrRunArea
       tool={tool}
       request={request}
+      contentTypeOf={contentTypeFor}
       refuse={(file) => pickRefusal(tool, file)}
       runnable={runnable}
       settings={settings}
@@ -398,6 +400,27 @@ function OcrBody({
 
 const RUN_LABEL = "Recognize text";
 
+/** Run is held while a selected language has no pack on our server. */
+const NO_PACK =
+  "This server reports no recognition pack for the selected language, so OCR can’t run here right now.";
+
+/**
+ * Two or more files: OCR PDF's batch (batch plan P5), its own chunk,
+ * fetched only when they arrive. The recognition settings above apply to
+ * every file, and each file is one of today's single OCR jobs.
+ */
+const OcrBatch = dynamic(
+  () => import("./runner/batch/ocr-batch").then((m) => m.OcrBatch),
+  {
+    loading: () => (
+      <div
+        aria-hidden
+        className="border-line bg-wash rounded-panel h-40 w-full border"
+      />
+    ),
+  },
+);
+
 /**
  * The drop zone, the run and the result. The drop zone takes a file from the
  * first paint; Run drives the real, documented job flow via
@@ -408,6 +431,7 @@ const RUN_LABEL = "Recognize text";
 function OcrRunArea({
   tool,
   request,
+  contentTypeOf,
   refuse,
   runnable,
   settings,
@@ -416,6 +440,8 @@ function OcrRunArea({
 }: {
   tool: Tool;
   request: OcrOptions;
+  /** The content type the upload sends for a file. */
+  contentTypeOf: (file: File) => string;
   refuse: PickRefusal;
   /** False when the request names a language the worker reports it lacks. */
   runnable: boolean;
@@ -426,9 +452,12 @@ function OcrRunArea({
   setFile: (file: File | null) => void;
 }) {
   const { available, status } = useWorkerPanel();
-  // How many files a drop brought beyond the one OCR reads. A drop bypasses
-  // `multiple={false}`, so without this the rest vanished without a word.
+  // How many files a drop brought beyond the first while a job runs: two or
+  // more open the batch, but never beside a running job (one resumed after
+  // a reload has no file in hand), so the rest are named, never dropped
+  // without a word.
   const [discarded, setDiscarded] = useState(0);
+  const [batch, setBatch] = useState<File[] | null>(null);
   const job = useWorkerJob<OcrWorkerResult>({
     tool: "ocr-pdf",
     resume: (id, controls) => resumeWorkerOcr(id, controls),
@@ -457,6 +486,39 @@ function OcrRunArea({
     });
   }, [file, request, run, available]);
 
+  // Two or more files open the batch, unless a job is running.
+  const take = (files: File[]) => {
+    setOutcome(null);
+    if (files.length > 1 && !busy) {
+      setDiscarded(0);
+      setFile(null);
+      setBatch(files);
+      return;
+    }
+    setFile(files[0] ?? null);
+    setDiscarded(Math.max(0, files.length - OCR_MAX_INPUT_FILES));
+  };
+
+  if (batch)
+    return (
+      <div className="flex flex-col gap-3">
+        {staged}
+        <OcrBatch
+          tool={tool}
+          files={batch}
+          onReset={() => setBatch(null)}
+          onSingle={(one) => {
+            setBatch(null);
+            setFile(one);
+          }}
+          request={request}
+          settings={settings}
+          runBlocked={runnable ? null : NO_PACK}
+          contentTypeOf={contentTypeOf}
+        />
+      </div>
+    );
+
   return (
     <div className="flex flex-col gap-3">
       {staged}
@@ -466,11 +528,7 @@ function OcrRunArea({
           accept="application/pdf,image/jpeg,image/png"
           busy={busy}
           refuse={refuse}
-          onReplace={(files) => {
-            setOutcome(null);
-            setFile(files[0] ?? null);
-            setDiscarded(Math.max(0, files.length - OCR_MAX_INPUT_FILES));
-          }}
+          onReplace={take}
         >
           <div className="border-line bg-wash text-fg rounded-ctl flex flex-wrap items-center justify-between gap-2 border px-3 py-2 text-sm">
             <span className="truncate">{file.name}</span>
@@ -491,33 +549,27 @@ function OcrRunArea({
         <Dropzone
           pageTarget
           refuse={refuse}
-          onFiles={(files) => {
-            setFile(files[0] ?? null);
-            setDiscarded(Math.max(0, files.length - OCR_MAX_INPUT_FILES));
-          }}
+          busy={busy}
+          onFiles={take}
           accept="application/pdf,image/jpeg,image/png"
-          multiple={false}
           compact
           title="Add a scan to OCR, or"
-          hint="PDF, JPG, or PNG"
+          hint="One or more PDFs, JPGs or PNGs"
         />
       )}
 
       {discarded > 0 && (
         <p className="text-warn text-xs leading-relaxed" role="status">
-          Only the first file was added — OCR runs one document per job. The
-          other {discarded === 1 ? "file was" : `${discarded} files were`} not
-          uploaded; run each as its own job.
+          Only the first file was added, because a job is running. The other{" "}
+          {discarded === 1 ? "file was" : `${discarded} files were`} not
+          uploaded; add them once it ends, and two or more open as a batch.
         </p>
       )}
 
       {settings}
 
       {available && !runnable && (
-        <p className="text-warn text-xs leading-relaxed">
-          This server reports no recognition pack for the selected language, so
-          OCR can&apos;t run here right now.
-        </p>
+        <p className="text-warn text-xs leading-relaxed">{NO_PACK}</p>
       )}
 
       <WorkerGate

@@ -14,13 +14,16 @@ import {
 } from "@/lib/jobs/ocr";
 import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
 import { OCR_START_SENTENCE } from "@/lib/jobs/ocr-start-copy";
+import { BATCH_LIMITS } from "@/lib/batch/limits";
+import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
+import { ocrBatchPageSentence } from "@/lib/batch/ocr-copy";
 
 /*
  * Behaviour claims below were read from the implementation on 2026-09-27:
  *  - src/components/tools/ocr-worker-panel.tsx — control labels ("Languages",
  *    "Output", "Redo existing OCR", the "Add a scan to OCR" drop zone, "Run
  *    OCR on the worker"), English preselected (plus browser languages since; see ocr-start-copy.ts), the per-job language cap, the
- *    "Recognition summary", one file per run. Until 2026-09-27 the checkbox
+ *    "Recognition summary", one file per job. Until 2026-09-27 the checkbox
  *    was "Skip pages that already have text"; this page told readers to tick
  *    it after it was gone (fixed 2026-10-07);
  *  - src/lib/workers/ocr-native.ts — PDFs go to OCRmyPDF (text layer added to
@@ -92,6 +95,13 @@ import { OCR_START_SENTENCE } from "@/lib/jobs/ocr-start-copy";
  * Not claimed, because it is OCRmyPDF's behaviour rather than this repo's: how
  * well a redo run separates an old OCR layer from text typed into the page,
  * beyond the panel's own "Text typed into the document is kept either way".
+ * Batch (batch plan P5, 2026-11-09): two or more files open OCR PDF's batch
+ * (src/components/tools/runner/batch/ocr-batch.tsx), each file one of
+ * today's single OCR jobs, at BATCH_LIMITS.ocrMaxFiles. Until then this page
+ * said "One scan goes in per run", "The tool takes one file per run" and
+ * "Drop one PDF, JPG or PNG"; batch-claims.test.ts holds those sentences,
+ * and the patterns that catch them, in both directions. Its words are
+ * src/lib/batch/worker-copy.ts and src/lib/batch/ocr-copy.ts.
  * Every number is interpolated from the constant that owns it.
  */
 
@@ -133,14 +143,18 @@ const content: ToolContent = {
 
   intro: [
     `A scanner or phone camera saves each page as a picture, so Ctrl+F finds nothing and no sentence can be copied out. OCR PDF reads the lettering and returns it as real text. For a PDF, your pages stay as they are and an invisible text layer is laid underneath, so the document looks the same but becomes searchable and selectable, unless you ask for crooked pages to be straightened or turned pages to be set upright. Send a JPG or PNG instead, such as a photographed receipt or a screenshot of a form, and any PDF you ask for comes back as a single page holding that image with the recognised words beneath it. A phone photo saved as a JPG is read the way up your phone shows it (up to ${OCR_IMAGE_MAX_TURN_PIXELS / 1_000_000} megapixels; a larger one is read as stored), and its page is no longer than ${OCR_IMAGE_PAGE_BOUND.label}.`,
-    `Recognition needs a native OCR engine, so this online tool does not run in your browser. Your file is uploaded over TLS to pdf.xyz's secure server, which runs OCRmyPDF on PDFs and Tesseract on images. The input is deleted when the job finishes, the download link expires after ${OUTPUT_TTL} minutes, and a daily storage rule then erases the stored result. One scan goes in per run, at most ${CEILING_MB} MB.`,
+    `Recognition needs a native OCR engine, so this online tool does not run in your browser. Your file is uploaded over TLS to pdf.xyz's secure server, which runs OCRmyPDF on PDFs and Tesseract on images. The input is deleted when the job finishes, the download link expires after ${OUTPUT_TTL} minutes, and a daily storage rule then erases the stored result. Each scan is a job of its own, at most ${CEILING_MB} MB, and up to ${BATCH_LIMITS.ocrMaxFiles} can be added at once as a batch.`,
     `Of every choice on the page, the language is the one most likely to spoil a result. ${LANGUAGE_COUNT} are on offer, with ${NON_LATIN} among them, and a single job can combine up to ${MAX_OCR_LANGUAGES}. Picking the wrong one does not produce an error: the engine matches shapes against the alphabet it was given and returns fluent-looking nonsense.`,
   ],
 
   useCases: [
     {
       title: "Search an archive of scanned letters",
-      body: "Old correspondence, deeds or minutes digitised as images become findable by name, date or phrase with a PDF viewer's search once each file carries a text layer. The tool takes one file per run, so work through a folder in turn.",
+      body: `Old correspondence, deeds or minutes digitised as images become findable by name, date or phrase with a PDF viewer's search once each file carries a text layer. Add up to ${BATCH_LIMITS.ocrMaxFiles} scans at once and they run as a batch, one after another, with the same languages for each.`,
+    },
+    {
+      title: "Recognize several scans in one go",
+      body: `${workerBatchPageSentence("ocr-pdf")} ${ocrBatchPageSentence()}`,
     },
     {
       title: "Copy a paragraph out of a photographed page",
@@ -175,7 +189,7 @@ const content: ToolContent = {
     },
     {
       title: "Add the scan and run it",
-      body: `Drop one PDF, JPG or PNG into the Add a scan to OCR area and press Recognize text. That area takes a file as soon as the page loads; the button stays off until the page confirms the OCR server is available, and your file is sent only when you press it.`,
+      body: `Drop a PDF, JPG or PNG into the Add a scan to OCR area and press Recognize text; two or more files open a batch list instead, under a button that names how many. That area takes a file as soon as the page loads; the button stays off until the page confirms the OCR server is available, and your file is sent only when you press it.`,
     },
     {
       title: "Download and check the result",
@@ -206,7 +220,7 @@ const content: ToolContent = {
     },
     {
       q: "How big a scan can I process, and how many at once?",
-      a: `One file per run, up to ${CEILING_MB} MB. For the next document, press Remove beside the current file name, add the new scan and run again: your languages and output choice stay as you left them until you reload the page. Size is not the only limit, since every page takes recognition time and a job has a time limit on our secure server, so cut a very long scan into parts with Split PDF first.`,
+      a: `Up to ${CEILING_MB} MB a file, and up to ${BATCH_LIMITS.ocrMaxFiles} files at once: two or more open as a batch, each file its own job, run one after another. Size is not the only limit, since every page takes recognition time and a job has a time limit on our secure server, so cut a very long scan into parts with Split PDF first.`,
     },
   ],
 

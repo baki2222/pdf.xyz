@@ -61,7 +61,14 @@ const READY = {
   localDevOnly: false,
   detail: "remote",
   compress: { lossless: false, deep: false, engines: [] },
-  ocr: { available: false, engine: null, languages: [], detail: "off" },
+  // Available, with one pack: OCR PDF's batch (batch plan P5) waits on the
+  // panel's own check, as every other tool's does.
+  ocr: {
+    available: true,
+    engine: "tesseract",
+    languages: ["eng"],
+    detail: "on",
+  },
   scan: { active: false, detail: "not scanned" },
   security: { available: true, operations: [], detail: "qpdf" },
   providers: {
@@ -304,8 +311,8 @@ function typeTheSecrets(slug: WorkerBatchSlug) {
 }
 
 describe("every registered worker batch, through its page's own panel", () => {
-  it("health: the registration holds P3's ten tools and P4's two, and each page mounts a worker panel", () => {
-    expect(SLUGS.length).toBe(12);
+  it("health: the registration holds P3's ten tools, P4's two and P5's OCR PDF, and each page mounts a worker panel", () => {
+    expect(SLUGS.length).toBe(13);
     for (const slug of SLUGS)
       expect(bySlug.get(slug)?.dispatch, slug).toBe("worker");
   });
@@ -472,8 +479,8 @@ describe("every registered worker batch, through its page's own panel", () => {
   const perPanel = [
     ...new Map(SLUGS.map((slug) => [bySlug.get(slug)!.file, slug])).values(),
   ];
-  it("health: the six worker panels, one tool each", () => {
-    expect(perPanel).toHaveLength(6);
+  it("health: the seven worker panels, one tool each", () => {
+    expect(perPanel).toHaveLength(7);
   });
   for (const slug of perPanel) {
     it(`${slug}: a job resumed after a reload is running, so two files dropped then never start a batch beside it`, async () => {

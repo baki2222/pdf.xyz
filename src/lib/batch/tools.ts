@@ -116,6 +116,14 @@ export const WORKER_BATCH_TOOLS = {
     verb: "Unlock",
     noun: ["PDF", "PDFs"],
   },
+  // Batch plan P5: one set of recognition settings for every file, through
+  // `runner/batch/ocr-batch.tsx`, at `BATCH_LIMITS.ocrMaxFiles`. A "scan"
+  // is a PDF, JPG or PNG, as the single-file drop box takes.
+  "ocr-pdf": {
+    zipName: "pdfxyz-ocr.zip",
+    verb: "Recognize",
+    noun: ["scan", "scans"],
+  },
 } as const satisfies Record<
   string,
   {
@@ -145,8 +153,15 @@ export const RASTER_BATCH_TOOLS: readonly string[] = [
   ...Object.keys(IMAGE_BATCH_TOOLS),
 ];
 
+/**
+ * The worker batch whose jobs take minutes (batch plan P5): it takes
+ * `BATCH_LIMITS.ocrMaxFiles`, every other worker batch `workerMaxFiles`.
+ */
+export const OCR_BATCH_SLUG = "ocr-pdf" satisfies WorkerBatchSlug;
+
 /** How many files one batch of `slug` takes. */
 export function batchMaxFilesFor(slug: string): number {
+  if (slug === OCR_BATCH_SLUG) return BATCH_LIMITS.ocrMaxFiles;
   if (isWorkerBatchSlug(slug)) return BATCH_LIMITS.workerMaxFiles;
   return RASTER_BATCH_TOOLS.includes(slug)
     ? BATCH_LIMITS.rasterMaxFiles
@@ -191,7 +206,7 @@ const MB = 1024 * 1024;
 /**
  * A batch's limits as a tool page states them, from `BATCH_LIMITS` itself:
  * "A batch takes up to 20 PDFs, 200 MB in all." — 10 for a raster batch
- * or a worker batch (`batchMaxFilesFor`), "text files" for Text to PDF,
+ * or a worker batch, 5 for OCR PDF's (`batchMaxFilesFor`), "text files" for Text to PDF,
  * and the worker tool's own noun ("documents") for its batch. With no slug, the
  * settings batches' sentence.
  */

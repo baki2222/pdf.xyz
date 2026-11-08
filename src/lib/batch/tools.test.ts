@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { BATCH_LIMITS } from "./limits";
 import {
+  OCR_BATCH_SLUG,
+  WORKER_BATCH_TOOLS,
   IMAGE_BATCH_TOOLS,
   RASTER_BATCH_TOOLS,
   SETTINGS_BATCH_TOOLS,
@@ -53,6 +55,35 @@ describe("batch caps by tool", () => {
     // Control: the two caps differ, so the sentences do.
     expect(batchLimitsSentence("grayscale-pdf")).not.toBe(
       batchLimitsSentence("rotate-pdf"),
+    );
+  });
+});
+
+/**
+ * Batch plan P5: OCR PDF's batch takes `BATCH_LIMITS.ocrMaxFiles`, and only
+ * it; every other worker batch takes `workerMaxFiles`. Its page states the
+ * OCR cap with the noun the batch counts in.
+ */
+describe("the OCR batch's cap", () => {
+  it("OCR PDF caps at ocrMaxFiles, every other worker batch at workerMaxFiles", () => {
+    expect(OCR_BATCH_SLUG in WORKER_BATCH_TOOLS).toBe(true);
+    expect(batchMaxFilesFor(OCR_BATCH_SLUG)).toBe(BATCH_LIMITS.ocrMaxFiles);
+    const others = Object.keys(WORKER_BATCH_TOOLS).filter(
+      (slug) => slug !== OCR_BATCH_SLUG,
+    );
+    // Health: P3's ten and P4's two.
+    expect(others.length).toBeGreaterThanOrEqual(12);
+    for (const slug of others)
+      expect(batchMaxFilesFor(slug), slug).toBe(BATCH_LIMITS.workerMaxFiles);
+  });
+
+  it("its page sentence carries the OCR cap and the noun the batch counts in", () => {
+    expect(batchLimitsSentence(OCR_BATCH_SLUG)).toBe(
+      `A batch takes up to ${BATCH_LIMITS.ocrMaxFiles} scans, ${BATCH_LIMITS.clientMaxTotalBytes / MB} MB in all.`,
+    );
+    // Control: the two worker caps differ, so the sentences do.
+    expect(batchLimitsSentence(OCR_BATCH_SLUG)).not.toContain(
+      `${BATCH_LIMITS.workerMaxFiles} `,
     );
   });
 });

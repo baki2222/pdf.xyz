@@ -272,23 +272,32 @@ describe("OcrWorkerPanel — the page says what one job takes", () => {
     expect(row).not.toContain(`up to ${JOB_LIMITS.maxInputFiles} files`);
   });
 
-  it("says so when a drop brings more than one file, and keeps the first", async () => {
+  // INVERTED 2026-11-09 (batch plan P5). Until then this test was "says so
+  // when a drop brings more than one file, and keeps the first": the drop
+  // zone was `multiple={false}`, a drop of three kept first.pdf, and a note
+  // said "Only the first file was added — OCR runs one document per job".
+  // Two or more files now open OCR PDF's batch, every file listed and none
+  // dropped; the note is said only while a job runs (the resumed-job test
+  // in `runner/batch/worker-batches.dom.test.tsx`).
+  it("a drop of more than one file opens the batch with every file, and no 'first file' note", async () => {
     stubFetch(AVAILABLE);
     render(<OcrWorkerPanel tool={ocrTool} />);
     await screen.findByRole("button", { name: /recognize text/i });
     const files = ["first.pdf", "second.pdf", "third.pdf"].map(
       (name) => new File(["%PDF-1.7"], name, { type: "application/pdf" }),
     );
-    // A drop bypasses `multiple={false}`; only the dropzone sees all three.
     await dropSheetsLive();
     fireEvent.drop(fileInput()!.closest("label")!, {
       dataTransfer: { files },
     });
-    expect(await screen.findByText("first.pdf")).toBeInTheDocument();
-    expect(screen.queryByText("second.pdf")).not.toBeInTheDocument();
     expect(
-      screen.getByText(/only the first file was added/i),
+      await screen.findByRole("button", { name: "Recognize 3 scans" }),
     ).toBeInTheDocument();
+    for (const name of ["first.pdf", "second.pdf", "third.pdf"])
+      expect(screen.getByText(name)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/only the first file was added/i),
+    ).not.toBeInTheDocument();
   });
 
   it("shows no such note for a single file (positive control)", async () => {
