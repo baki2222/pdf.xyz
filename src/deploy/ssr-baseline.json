@@ -5072,7 +5072,7 @@
     },
     "guides/how-to-extract-tables-from-a-pdf.html": {
       "title": "How to extract tables from a PDF — pdf.xyz",
-      "description": "Pull the tables out of a PDF into CSV files and one Excel workbook, a sheet per table. It runs on a secure server, and can read a scan with OCR first.",
+      "description": "Pull the tables out of a PDF into CSV files and one Excel workbook, a sheet per table by default. It runs on a secure server, and can read a scan with OCR first.",
       "canonical": "https://pdf.xyz/guides/how-to-extract-tables-from-a-pdf",
       "robots": "index, follow",
       "h1": ["How to extract tables from a PDF"],
