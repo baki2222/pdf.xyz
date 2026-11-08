@@ -27,8 +27,12 @@ import {
   rawPdf,
 } from "@/tests/hostile/conversion-out.fixtures";
 import {
+  chainedFlateStream,
   formRepeatPdf,
+  indirectSubtypePdf,
   inlineCyclesPdf,
+  labelledContentPdf,
+  unclosedQContent,
   nestedFormsPdf,
   qCycle,
   repeatedContentsPdf,
@@ -41,6 +45,7 @@ import {
   pdfjsLoadError,
 } from "./engine-errors";
 import { DictMatcher, dictEntries } from "./pdf-scan-bytes";
+import { ContentsRefs, objectHeaderNumber } from "./pdf-scan-objects";
 import { readPagesWithPdfjs } from "./pdfjs";
 import {
   GRAPHICS_STATE_WORK_FLOOR,
@@ -700,5 +705,299 @@ describe("second review: q work and multiplicity, top-level image entries, a lin
     expect(queries).toBeGreaterThan(1_000);
     expect(matched).toBeGreaterThan(200);
     expect(queries - matched).toBeGreaterThan(200);
+  });
+});
+
+describe("third review: no dictionary label, string or reference hides a stream from the scan", () => {
+  const deepQ = unclosedQContent(100_000);
+  const deflatedDeepQ = new Uint8Array(deflateSync(Buffer.from(deepQ)));
+
+  it("STAMP-14: a page's content stream is q-counted whatever its dictionary says", async () => {
+    // History: the scan skipped q counting for any stream labelled as an
+    // image, a font program (/Length1), XRef, ObjStm, Metadata, EmbeddedFile,
+    // or a /Subtype other than /Form. pdf.js's Page.getContentStream reads
+    // /Contents without looking at any of them: /Subtype /Image read for
+    // 90 s, /Length1 0 for 60 s.
+    const labels = [
+      "",
+      "/Subtype /Image /Width 1 /Height 1",
+      "/Length1 0",
+      "/Length2 0 /Length3 0",
+      "/Type /Metadata /Subtype /XML",
+      "/Type /EmbeddedFile",
+      "/Type /XRef",
+      "/Subtype /PS",
+      "/Type /ObjStm /N 0 /First 0",
+    ];
+    for (const label of labels) {
+      const plain = await scanPdfStreams(labelledContentPdf(label, deepQ));
+      expect(plain, label).toMatchObject({ exceeded: "q-depth" });
+      const flate = await scanPdfStreams(
+        labelledContentPdf(`${label} /Filter /FlateDecode`, deflatedDeepQ),
+      );
+      expect(flate, `${label} (Flate)`).toMatchObject({ exceeded: "q-depth" });
+    }
+    // An image label behind a reference (object 6 is /Image).
+    expect(
+      await scanPdfStreams(
+        labelledContentPdf("/Subtype 6 0 R /Width 1 /Height 1", deepQ, [
+          "/Image",
+        ]),
+      ),
+    ).toMatchObject({ exceeded: "q-depth" });
+  });
+
+  it("CO-06: a content stream labelled /Subtype /Image is inflated and bounded like any other", async () => {
+    // History: 2.4 KB of [/FlateDecode /FlateDecode] labelled as a 1x1 image
+    // was never inflated (totalBytes 0), and extractPdfText held 2,350 MB.
+    const bomb = await chainedFlateStream(MAX_DECODED_STREAM_BYTES + 2 ** 20);
+    const s = await scanPdfStreams(
+      labelledContentPdf(
+        "/Subtype /Image /Width 1 /Height 1 /Filter [/FlateDecode /FlateDecode]",
+        bomb,
+      ),
+    );
+    expect(s.exceeded).toBe("stream-bytes");
+    // Positive control: an image painted only by `Do` is still read from its
+    // dictionary, never inflated, so a real file's images cost the scan
+    // nothing (the image is 3,000 x 3,000 RGB, 27 MB decoded).
+    const ops = "q 100 0 0 100 0 0 cm /Im1 Do Q";
+    const painted = await scanPdfStreams(
+      labelledContentPdf("", ops, [
+        {
+          dict: "/Type /XObject /Subtype /Image /Width 3000 /Height 3000 /BitsPerComponent 8 /ColorSpace /DeviceRGB /Filter /FlateDecode",
+          stream: deflateSync(Buffer.alloc(3000 * 3000 * 3)),
+        },
+      ]),
+    );
+    expect(painted).toMatchObject({
+      inflated: 0,
+      totalBytes: ops.length,
+      maxImagePixels: 9_000_000,
+      exceeded: null,
+    });
+    // Builds and scans a 401 MB bomb: ~2 s alone, more under a full run.
+  }, 60_000);
+
+  it("an image-labelled stream named through an indirect /Contents array is content too; an array the scan cannot see makes every image content", async () => {
+    const file = (contents: string, extra: Parameters<typeof rawPdf>[0]) =>
+      rawPdf([
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Contents ${contents} >>`,
+        { dict: "/Subtype /Image /Width 1 /Height 1", stream: deepQ },
+        ...extra,
+      ]);
+    expect(await scanPdfStreams(file("5 0 R", ["[4 0 R]"]))).toMatchObject({
+      exceeded: "q-depth",
+    });
+    expect(await scanPdfStreams(file("[4 0 R]", []))).toMatchObject({
+      exceeded: "q-depth",
+    });
+    expect(
+      await scanPdfStreams(file("% a comment\n[4 0 R]", [])),
+    ).toMatchObject({ exceeded: "q-depth" });
+    expect(await scanPdfStreams(file("4 0 R", []))).toMatchObject({
+      exceeded: "q-depth",
+    });
+    // Object 5 sits in an object stream: the array is not visible as text.
+    const objStm = deflateSync(Buffer.from("5 0 [4 0 R]", "latin1"));
+    expect(
+      await scanPdfStreams(
+        file("5 0 R", [
+          null,
+          {
+            dict: "/Type /ObjStm /N 1 /First 4 /Filter /FlateDecode",
+            stream: objStm,
+          },
+        ]),
+      ),
+    ).toMatchObject({ exceeded: "q-depth" });
+    // The page itself in an object stream, with no /Type label (pdf.js reads
+    // an object stream by its /First and /N alone).
+    const pageStm = deflateSync(
+      Buffer.from(
+        "3 0 << /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Cont#65nts [4 0 R] >>",
+        "latin1",
+      ),
+    );
+    expect(
+      await scanPdfStreams(
+        rawPdf([
+          "<< /Type /Catalog /Pages 2 0 R >>",
+          "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+          null,
+          { dict: "/Subtype /Image /Width 1 /Height 1", stream: deepQ },
+          { dict: "/N 1 /First 4 /Filter /FlateDecode", stream: pageStm },
+        ]),
+      ),
+    ).toMatchObject({ exceeded: "q-depth" });
+    // Positive control: the same image named by nothing is an image.
+    expect(await scanPdfStreams(file("[]", []))).toMatchObject({
+      exceeded: null,
+      maxQDepth: 0,
+    });
+  });
+
+  it("a string or comment in a stream dictionary does not end it: the dictionary is parsed as pdf.js parses it", async () => {
+    // History: '/X (>>stream)' ended the dictionary at the string, so the
+    // /Filter after it was lost and the q counter read compressed bytes;
+    // extractPdfText read the page for over 60 s.
+    const dicts = [
+      "/X (>>stream) /Filter /FlateDecode",
+      "/Filter /FlateDecode /X (>>stream)",
+      "/Filter /FlateDecode /T (<<)",
+      "/T (<<) /Filter /FlateDecode",
+      "/X (a \\) >>stream) /Filter /FlateDecode",
+      "/X (>>stream 9 0 obj << >>stream) /Filter /FlateDecode",
+      "/X <3e3e> /Filter /FlateDecode %>>stream\n",
+    ];
+    for (const d of dicts) {
+      expect(
+        await scanPdfStreams(labelledContentPdf(d, deflatedDeepQ)),
+        d,
+      ).toMatchObject({ exceeded: "q-depth" });
+    }
+    const bomb = await chainedFlateStream(MAX_DECODED_STREAM_BYTES + 2 ** 20);
+    expect(
+      await scanPdfStreams(
+        labelledContentPdf(
+          "/X (>>stream) /Filter [/FlateDecode /FlateDecode]",
+          bomb,
+        ),
+      ),
+    ).toMatchObject({ exceeded: "stream-bytes" });
+    // A comment between the dictionary and `stream`, which pdf.js skips.
+    const plain = Buffer.from(
+      labelledContentPdf("/Filter /FlateDecode", deflatedDeepQ),
+    );
+    const at = plain.indexOf(">>\nstream\n");
+    const withComment = Buffer.concat([
+      plain.subarray(0, at + 2),
+      Buffer.from(" % a comment >>\n", "latin1"),
+      plain.subarray(at + 2),
+    ]);
+    expect(await scanPdfStreams(new Uint8Array(withComment))).toMatchObject({
+      exceeded: "q-depth",
+    });
+    // Positive control: the same string over a shallow page passes.
+    expect(
+      await scanPdfStreams(
+        labelledContentPdf(
+          "/X (>>stream) /Filter /FlateDecode",
+          deflateSync(Buffer.from(unclosedQContent(10))),
+        ),
+      ),
+    ).toMatchObject({ exceeded: null, maxQDepth: 10 });
+    // Builds and scans a 401 MB bomb: ~2 s alone, more under a full run.
+  }, 60_000);
+
+  it("CO-08: an image whose /Subtype is a reference is held to the image budget", async () => {
+    // History: '/Subtype 7 0 R' (object 7 is /Image) read as no subtype, so
+    // the image's pixels were never checked; rasterizePdf decoded it, 36.5 s
+    // and 1.5 GB.
+    const image = (dict: string, extra: string[] = []) =>
+      scanPdfStreams(
+        rawPdf([
+          "<< /Type /Catalog /Pages 2 0 R >>",
+          "<< /Type /Pages /Kids [] /Count 0 >>",
+          { dict, stream: "x" },
+          ...extra,
+        ]),
+      );
+    expect(
+      await image("/Subtype 4 0 R /Width 10000 /Height 10000", ["/Image"]),
+    ).toMatchObject({ smallestOverBudgetImage: 100_000_000 });
+    // A reference the scan cannot resolve may be /Image too.
+    expect(
+      await image("/Subtype 99 0 R /Width 10000 /Height 10000"),
+    ).toMatchObject({ smallestOverBudgetImage: 100_000_000 });
+    expect(
+      (await scanPdfStreams(await indirectSubtypePdf(10_000)))
+        .smallestOverBudgetImage,
+    ).toBe(100_000_000);
+    // Positive controls: a reference to /Form, and a small indirect image.
+    expect(
+      await image("/Subtype 4 0 R /BBox [0 0 1 1]", ["/Form"]),
+    ).toMatchObject({ smallestOverBudgetImage: null, maxImagePixels: 0 });
+    expect(
+      await image("/Subtype 4 0 R /Width 100 /Height 100", ["/Image"]),
+    ).toMatchObject({ smallestOverBudgetImage: null, maxImagePixels: 10_000 });
+  });
+});
+
+describe("third review: what the label-blind scan still holds back, and its readers", () => {
+  it("a font program no /Contents names keeps its q out of the bounds; a form or pattern with the same labels is counted", async () => {
+    const file = (dict: string, paint = "") =>
+      scanPdfStreams(
+        rawPdf([
+          "<< /Type /Catalog /Pages 2 0 R >>",
+          "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+          "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Resources << /XObject << /Fm1 6 0 R >> >> /Contents 4 0 R >>",
+          { dict: "", stream: `0 0 m ${paint}` },
+          null,
+          { dict, stream: "q\n".repeat(20_000) },
+        ]),
+      );
+    // Font programs are binary and hold `q` bytes (the legit corpus: up to
+    // 14 unclosed per file); summed over a document's fonts they must not
+    // refuse it.
+    expect(await file("/Length1 40000")).toMatchObject({
+      exceeded: null,
+      maxQDepth: 0,
+    });
+    expect(await file("/Subtype /Type1C")).toMatchObject({ exceeded: null });
+    // pdf.js paints a form by its /Subtype alone, and a tiling pattern by its
+    // /PatternType, whatever else the dictionary says.
+    expect(
+      await file("/Type /Metadata /Subtype /Form /Length1 1", "/Fm1 Do"),
+    ).toMatchObject({ exceeded: "q-depth" });
+    expect(await file("/Length1 1 /PatternType 1 /PaintType 1")).toMatchObject({
+      exceeded: "q-depth",
+    });
+  });
+
+  it("objectHeaderNumber reads a header as pdf.js's lexer does", () => {
+    const at = (s: string) => {
+      const b = Uint8Array.from(s, (c) => c.charCodeAt(0));
+      return objectHeaderNumber(b, s.lastIndexOf("obj"));
+    };
+    expect(at("\n12 0 obj")).toBe(12);
+    expect(at("\n12 0 % note\n obj")).toBe(12);
+    expect(at("\n12 % a\n 0 %b\nobj<<")).toBe(12);
+    expect(at("\n12 0obj")).toBe(12);
+    expect(at("\n+12 0 obj")).toBe(12);
+    expect(at("\n12.5 0 obj")).toBeNaN();
+    // Not headers: the end of an object, a keyword glued to a word.
+    expect(at("\n12 0 endobj")).toBeNull();
+    expect(at("\n12 0 objx")).toBeNull();
+    expect(at("\n0 obj")).toBeNull();
+  });
+
+  it("ContentsRefs finds the same references however its text is cut into chunks", () => {
+    const text =
+      "<< /Type /Page /Contents [4 0 R 5 0 R] >> << /Cont#65nts 6 0 R >> " +
+      "<< /Contents % c\n 7 0 R /Annots [8 0 R] >> << /Contents (not a ref) >> " +
+      "<< /Contents\n[ 9 0 R\n% c ]\n10 0 R ] /Contents 11 0 R";
+    const bytes = Uint8Array.from(text, (c) => c.charCodeAt(0));
+    const whole = new ContentsRefs();
+    whole.feed(bytes);
+    whole.reset();
+    // Health: both kinds are found, and what is not /Contents is not.
+    expect([...whole.arrays].sort((a, b) => a - b)).toEqual([4, 5, 9, 10]);
+    expect([...whole.direct].sort((a, b) => a - b)).toEqual([6, 7, 11]);
+    for (const size of [1, 2, 3, 7, 13]) {
+      const cut = new ContentsRefs();
+      for (let i = 0; i < bytes.length; i += size) {
+        cut.feed(bytes.subarray(i, i + size));
+      }
+      cut.reset();
+      expect([...cut.arrays].sort(), `chunks of ${size}`).toEqual(
+        [...whole.arrays].sort(),
+      );
+      expect([...cut.direct].sort(), `chunks of ${size}`).toEqual(
+        [...whole.direct].sort(),
+      );
+    }
   });
 });

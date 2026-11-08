@@ -14,6 +14,7 @@
 //    /BitsPerComponent 8, and one whose /Width is an indirect reference;
 //  - byte soups that made the scan's dictionary and endstream searches
 //    quadratic.
+import { deflateSync } from "node:zlib";
 import { deflatedZeros, rawPdf } from "./conversion-out.fixtures";
 
 const HELV = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
@@ -139,3 +140,52 @@ export const noEndstreamSoup = (n: number): Uint8Array =>
       "latin1",
     ),
   );
+
+// Third review: the scan trusted a stream's dictionary LABELS to decide what
+// could be page content, and read the dictionary byte by byte. pdf.js reads a
+// page's /Contents whatever its dictionary says, and parses strings.
+
+/** Text, `n` unclosed q, text: STAMP-14's page, readable by its markers. */
+export const unclosedQContent = (n: number): string =>
+  "BT /F1 9 Tf 10 100 Td (MARK) Tj ET\n" +
+  "q\n".repeat(n) +
+  "BT /F1 9 Tf 10 50 Td (END) Tj ET\n";
+
+/**
+ * One page whose /Contents is object 5, a stream whose dictionary carries
+ * `dict` (labels pdf.js ignores for page content). `extra` objects are 6...
+ */
+export function labelledContentPdf(
+  dict: string,
+  stream: string | Uint8Array,
+  extra: Parameters<typeof rawPdf>[0] = [],
+): Uint8Array {
+  return rawPdf([
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    HELV,
+    { dict, stream },
+    ...extra,
+  ]);
+}
+
+/** `total` zero bytes behind two Flate stages: ~2 KB on disk for 1 GiB. */
+export async function chainedFlateStream(total = 2 ** 30): Promise<Uint8Array> {
+  return new Uint8Array(deflateSync(await deflatedZeros(total), { level: 9 }));
+}
+
+/** A `side`-square RGB image whose /Subtype is `7 0 R` (object 7 is /Image). */
+export async function indirectSubtypePdf(side = 10_000): Promise<Uint8Array> {
+  return onePage(
+    PAINT,
+    [
+      {
+        dict: `/Type /XObject /Subtype 7 0 R /Width ${side} /Height ${side} /BitsPerComponent 8 /ColorSpace /DeviceRGB /Filter /FlateDecode`,
+        stream: await deflatedZeros(side * side * 3),
+      },
+      "/Image",
+    ],
+    "/Im1",
+  );
+}

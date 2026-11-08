@@ -17,9 +17,14 @@ import {
 } from "./conversion-out.fixtures";
 import { buildPdf, onePageObjects, TEXT_OPS } from "./stamping.fixtures";
 import { reportResult } from "./bounded";
+import { deflateSync } from "node:zlib";
 import {
+  chainedFlateStream,
   formRepeatPdf,
+  indirectSubtypePdf,
   indirectWidthPdf,
+  labelledContentPdf,
+  unclosedQContent,
   noEndstreamSoup,
   unmatchedDictSoup,
 } from "./pdfjs-work.fixtures";
@@ -204,6 +209,45 @@ const CASES: Record<string, () => Promise<unknown>> = {
   "stamp14-form-repeat-text": async () => text(formRepeatPdf(30, 16_000)),
   "stamp14-form-once-text": async () => text(formRepeatPdf(1, 16_000)),
   "co08-indirect-width-raster": async () => raster(await indirectWidthPdf()),
+  "label-image-q-text": async () =>
+    text(
+      labelledContentPdf(
+        "/Subtype /Image /Width 1 /Height 1",
+        unclosedQContent(100_000),
+      ),
+    ),
+  "label-image-control-text": async () =>
+    text(
+      labelledContentPdf(
+        "/Subtype /Image /Width 1 /Height 1",
+        unclosedQContent(10),
+      ),
+    ),
+  "label-length1-q-text": async () =>
+    text(labelledContentPdf("/Length1 0", unclosedQContent(100_000))),
+  "label-image-bomb-text": async () =>
+    text(
+      labelledContentPdf(
+        "/Subtype /Image /Width 1 /Height 1 /Filter [/FlateDecode /FlateDecode]",
+        await chainedFlateStream(),
+      ),
+    ),
+  "dict-string-flate-q-text": async () =>
+    text(
+      labelledContentPdf(
+        "/X (>>stream) /Filter /FlateDecode",
+        new Uint8Array(deflateSync(Buffer.from(unclosedQContent(100_000)))),
+      ),
+    ),
+  "dict-string-control-text": async () =>
+    text(
+      labelledContentPdf(
+        "/X (>>stream) /Filter /FlateDecode",
+        new Uint8Array(deflateSync(Buffer.from(unclosedQContent(10)))),
+      ),
+    ),
+  "co08-indirect-subtype-raster": async () =>
+    raster(await indirectSubtypePdf()),
   "scan-unmatched-dict-preflight": async () =>
     preflight(unmatchedDictSoup(500_000)),
   "scan-no-endstream-preflight": async () =>
