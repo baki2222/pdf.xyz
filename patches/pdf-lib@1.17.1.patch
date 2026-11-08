@@ -1,14 +1,51 @@
 diff --git a/cjs/core/embedders/PDFPageEmbedder.js b/cjs/core/embedders/PDFPageEmbedder.js
-index cc9344355bab44e8185323e87bd6b5a22948260d..29101b495b352c0d9e3bfae1fd9462eb7348f168 100644
+index cc9344355bab44e8185323e87bd6b5a22948260d..36e2d372ef8b3201cd9ef8ef6e80e851ac8d0f00 100644
 --- a/cjs/core/embedders/PDFPageEmbedder.js
 +++ b/cjs/core/embedders/PDFPageEmbedder.js
-@@ -69,11 +69,14 @@ var PDFPageEmbedder = /** @class */ (function () {
-     PDFPageEmbedder.prototype.decodeContents = function (contents) {
+@@ -20,6 +20,19 @@ var fullPageBoundingBox = function (page) {
+ // Returns the identity matrix, modified to position the content of the given
+ // bounding box at (0, 0).
+ var boundingBoxAdjustedMatrix = function (bb) { return [1, 0, 0, 1, -bb.left, -bb.bottom]; };
++// pdf.xyz patch: the total of page content one destination document may
++// decode, across every page embedded into it (4 x the per-stream budget).
++var DEFAULT_EMBED_TOTAL = 1073741824;
++var EMBED_LEDGER_KEY = Symbol.for('pdf-lib.embedLedger');
++var embedLedger = function (context) {
++    var ledger = context ? context[EMBED_LEDGER_KEY] : undefined;
++    if (!ledger) {
++        ledger = { spent: 0, limit: DEFAULT_EMBED_TOTAL };
++        if (context)
++            context[EMBED_LEDGER_KEY] = ledger;
++    }
++    return ledger;
++};
+ var PDFPageEmbedder = /** @class */ (function () {
+     function PDFPageEmbedder(page, boundingBox, transformationMatrix) {
+         this.page = page;
+@@ -43,7 +56,7 @@ var PDFPageEmbedder = /** @class */ (function () {
+                 _a = this.page.normalizedEntries(), Contents = _a.Contents, Resources = _a.Resources;
+                 if (!Contents)
+                     throw new errors_1.MissingPageContentsEmbeddingError();
+-                decodedContents = this.decodeContents(Contents);
++                decodedContents = this.decodeContents(Contents, context);
+                 _b = this.boundingBox, left = _b.left, bottom = _b.bottom, right = _b.right, top = _b.top;
+                 xObject = context.flateStream(decodedContents, {
+                     Type: 'XObject',
+@@ -66,14 +79,21 @@ var PDFPageEmbedder = /** @class */ (function () {
+     };
+     // `contents` is an array of streams which are merged to include them in the XObject.
+     // This methods extracts each stream and joins them with a newline character.
+-    PDFPageEmbedder.prototype.decodeContents = function (contents) {
++    PDFPageEmbedder.prototype.decodeContents = function (contents, context) {
          var newline = Uint8Array.of(CharCodes_1.default.Newline);
          var decodedContents = [];
-+        // pdf.xyz patch: one ledger for every stream the page names, so an
-+        // array repeating one stream cannot multiply it past the budget.
-+        var ledger = { spent: 0 };
++        // pdf.xyz patch: two ledgers, both charged for every /Contents entry,
++        // repeats included. This page's, at the per-stream budget, bounds
++        // MEMORY: every entry is held at once, then joined. Its parent, one
++        // per destination document (one n-up or overlay run), bounds TIME: a
++        // ledger per page alone let one stream under the budget, named by
++        // every page, multiply by the page count.
++        var ledger = { spent: 0, parent: embedLedger(context) };
          for (var idx = 0, len = contents.size(); idx < len; idx++) {
              var stream = contents.lookup(idx, PDFStream_1.default);
              var content = void 0;
@@ -133,10 +170,10 @@ index 5af363d86dec2181ddb239f90edb69f58959bf90..5e1889c743fafccf4bf80bf85f71c26d
                  for (var idx = 0, len = typeFieldWidth; idx < len; idx++) {
                      type = (type << 8) | this.bytes.next();
 diff --git a/cjs/core/streams/DecodeStream.js b/cjs/core/streams/DecodeStream.js
-index b5472a747b3e4106cad9adfc0cbc87bf01e8530d..36eb66289754e64ce8ced87bcc83e711c4a4c447 100644
+index b5472a747b3e4106cad9adfc0cbc87bf01e8530d..76edf690df09811ed0e924406b496925600f2b9d 100644
 --- a/cjs/core/streams/DecodeStream.js
 +++ b/cjs/core/streams/DecodeStream.js
-@@ -15,6 +15,29 @@ var Stream_1 = tslib_1.__importDefault(require("./Stream"));
+@@ -15,6 +15,53 @@ var Stream_1 = tslib_1.__importDefault(require("./Stream"));
  // having special cases that would be required if we used |null| for an empty
  // buffer.
  var emptyBuffer = new Uint8Array(0);
@@ -163,10 +200,52 @@ index b5472a747b3e4106cad9adfc0cbc87bf01e8530d..36eb66289754e64ce8ced87bcc83e711
 +    error.limit = limit;
 +    return error;
 +};
++// pdf.xyz patch: charge `stream`'s growth up to `upTo` bytes to the ledger of
++// the operation that decodes it and to each ledger above it (`parent`: one
++// embedded page's ledger sits under its destination document's), refusing
++// past any of their limits. Each stream is charged by its high-water mark,
++// so a byte is never charged twice.
++var chargeLedger = function (stream, upTo) {
++    var charged = stream.charged || 0;
++    if (!stream.ledger || upTo <= charged) {
++        return;
++    }
++    var growth = upTo - charged;
++    var ledger;
++    for (ledger = stream.ledger; ledger; ledger = ledger.parent) {
++        var spent = ledger.spent + growth;
++        var ledgerLimit = ledger.limit || decodeBudget();
++        if (spent > ledgerLimit) {
++            throw decodeBudgetError(spent, ledgerLimit);
++        }
++    }
++    for (ledger = stream.ledger; ledger; ledger = ledger.parent) {
++        ledger.spent += growth;
++    }
++    stream.charged = upTo;
++};
  /**
   * Super class for the decoding streams
   */
-@@ -72,7 +95,9 @@ var DecodeStream = /** @class */ (function () {
+@@ -35,7 +82,7 @@ var DecodeStream = /** @class */ (function () {
+     Object.defineProperty(DecodeStream.prototype, "isEmpty", {
+         get: function () {
+             while (!this.eof && this.bufferLength === 0) {
+-                this.readBlock();
++                this.readBlockCharged();
+             }
+             return this.bufferLength === 0;
+         },
+@@ -48,7 +95,7 @@ var DecodeStream = /** @class */ (function () {
+             if (this.eof) {
+                 return -1;
+             }
+-            this.readBlock();
++            this.readBlockCharged();
+         }
+         return this.buffer[this.pos++];
+     };
+@@ -72,10 +119,12 @@ var DecodeStream = /** @class */ (function () {
          var end;
          var pos = this.pos;
          if (length) {
@@ -176,26 +255,54 @@ index b5472a747b3e4106cad9adfc0cbc87bf01e8530d..36eb66289754e64ce8ced87bcc83e711
 +            this.ensureBuffer(Math.min(pos + length, decodeBudget()));
              end = pos + length;
              while (!this.eof && this.bufferLength < end) {
-                 this.readBlock();
-@@ -132,13 +157,36 @@ var DecodeStream = /** @class */ (function () {
+-                this.readBlock();
++                this.readBlockCharged();
+             }
+             var bufEnd = this.bufferLength;
+             if (end > bufEnd) {
+@@ -84,7 +133,7 @@ var DecodeStream = /** @class */ (function () {
+         }
+         else {
+             while (!this.eof) {
+-                this.readBlock();
++                this.readBlockCharged();
+             }
+             end = this.bufferLength;
+         }
+@@ -118,27 +167,49 @@ var DecodeStream = /** @class */ (function () {
+     DecodeStream.prototype.makeSubStream = function (start, length /* dict */) {
+         var end = start + length;
+         while (this.bufferLength <= end && !this.eof) {
+-            this.readBlock();
++            this.readBlockCharged();
+         }
+         return new Stream_1.default(this.buffer, start, length /* dict */);
+     };
+     DecodeStream.prototype.decode = function () {
+         while (!this.eof)
+-            this.readBlock();
++            this.readBlockCharged();
+         return this.buffer.subarray(0, this.bufferLength);
+     };
++    // pdf.xyz patch: every block read settles the ledger with the bytes the
++    // block actually wrote. ensureBuffer alone charges what a decoder asks
++    // for, and FlateStream asks only when its buffer is full, so a stream
++    // could write up to half its buffer uncharged (200 MiB charged as 128).
++    DecodeStream.prototype.readBlockCharged = function () {
++        this.readBlock();
++        chargeLedger(this, this.bufferLength);
++    };
+     DecodeStream.prototype.readBlock = function () {
+         throw new errors_1.MethodNotImplementedError(this.constructor.name, 'readBlock');
      };
      DecodeStream.prototype.ensureBuffer = function (requested) {
          var buffer = this.buffer;
 +        // pdf.xyz patch: charge this stream's growth to the ledger of the
-+        // operation that decodes it (one load, one page embed), so streams
-+        // that each stay under the budget cannot add up past it: a /Contents
-+        // array naming one stream N times, or N object streams in one file.
-+        var ledger = this.ledger;
-+        var charged = this.charged || 0;
-+        if (ledger && requested > charged) {
-+            var spent = ledger.spent + (requested - charged);
-+            var ledgerLimit = ledger.limit || decodeBudget();
-+            if (spent > ledgerLimit) {
-+                throw decodeBudgetError(spent, ledgerLimit);
-+            }
-+            ledger.spent = spent;
-+            this.charged = requested;
-+        }
++        // operation that decodes it (one load; every page embedded into one
++        // destination document), so streams that each stay under the budget
++        // cannot add up past it: one stream named N times, by one page's
++        // /Contents or by N pages, or N object streams in one file.
++        chargeLedger(this, requested);
          if (requested <= buffer.byteLength) {
              return buffer;
          }
@@ -260,16 +367,53 @@ index 65ff457364382a6ba6ef0e09140cb26b58aeb44b..b20de887a89ed49288c08bb4859a0a7b
      }
      else if (!!Filter) {
 diff --git a/es/core/embedders/PDFPageEmbedder.js b/es/core/embedders/PDFPageEmbedder.js
-index f38c8dd85a83b04228c5422dc47554210be331ae..1c673d5e45f27e7537ed24a93a122bdd9d834c2d 100644
+index f38c8dd85a83b04228c5422dc47554210be331ae..549f11b80f61bd663c0b0d63f8d7b611c4114b22 100644
 --- a/es/core/embedders/PDFPageEmbedder.js
 +++ b/es/core/embedders/PDFPageEmbedder.js
-@@ -67,11 +67,14 @@ var PDFPageEmbedder = /** @class */ (function () {
-     PDFPageEmbedder.prototype.decodeContents = function (contents) {
+@@ -18,6 +18,19 @@ var fullPageBoundingBox = function (page) {
+ // Returns the identity matrix, modified to position the content of the given
+ // bounding box at (0, 0).
+ var boundingBoxAdjustedMatrix = function (bb) { return [1, 0, 0, 1, -bb.left, -bb.bottom]; };
++// pdf.xyz patch: the total of page content one destination document may
++// decode, across every page embedded into it (4 x the per-stream budget).
++var DEFAULT_EMBED_TOTAL = 1073741824;
++var EMBED_LEDGER_KEY = Symbol.for('pdf-lib.embedLedger');
++var embedLedger = function (context) {
++    var ledger = context ? context[EMBED_LEDGER_KEY] : undefined;
++    if (!ledger) {
++        ledger = { spent: 0, limit: DEFAULT_EMBED_TOTAL };
++        if (context)
++            context[EMBED_LEDGER_KEY] = ledger;
++    }
++    return ledger;
++};
+ var PDFPageEmbedder = /** @class */ (function () {
+     function PDFPageEmbedder(page, boundingBox, transformationMatrix) {
+         this.page = page;
+@@ -41,7 +54,7 @@ var PDFPageEmbedder = /** @class */ (function () {
+                 _a = this.page.normalizedEntries(), Contents = _a.Contents, Resources = _a.Resources;
+                 if (!Contents)
+                     throw new MissingPageContentsEmbeddingError();
+-                decodedContents = this.decodeContents(Contents);
++                decodedContents = this.decodeContents(Contents, context);
+                 _b = this.boundingBox, left = _b.left, bottom = _b.bottom, right = _b.right, top = _b.top;
+                 xObject = context.flateStream(decodedContents, {
+                     Type: 'XObject',
+@@ -64,14 +77,21 @@ var PDFPageEmbedder = /** @class */ (function () {
+     };
+     // `contents` is an array of streams which are merged to include them in the XObject.
+     // This methods extracts each stream and joins them with a newline character.
+-    PDFPageEmbedder.prototype.decodeContents = function (contents) {
++    PDFPageEmbedder.prototype.decodeContents = function (contents, context) {
          var newline = Uint8Array.of(CharCodes.Newline);
          var decodedContents = [];
-+        // pdf.xyz patch: one ledger for every stream the page names, so an
-+        // array repeating one stream cannot multiply it past the budget.
-+        var ledger = { spent: 0 };
++        // pdf.xyz patch: two ledgers, both charged for every /Contents entry,
++        // repeats included. This page's, at the per-stream budget, bounds
++        // MEMORY: every entry is held at once, then joined. Its parent, one
++        // per destination document (one n-up or overlay run), bounds TIME: a
++        // ledger per page alone let one stream under the budget, named by
++        // every page, multiply by the page count.
++        var ledger = { spent: 0, parent: embedLedger(context) };
          for (var idx = 0, len = contents.size(); idx < len; idx++) {
              var stream = contents.lookup(idx, PDFStream);
              var content = void 0;
@@ -394,10 +538,10 @@ index 4bd9c6a892d01b8d821ab864001f5c3d6a29ccf5..ca0aea50acfa30abff2428b1b25c16ea
                  for (var idx = 0, len = typeFieldWidth; idx < len; idx++) {
                      type = (type << 8) | this.bytes.next();
 diff --git a/es/core/streams/DecodeStream.js b/es/core/streams/DecodeStream.js
-index 27ffc3268f09d0ec5b7e06ed9971a5b8090d9a6e..98fee06695c4ccd967fff80db06ae8cd773ffe35 100644
+index 27ffc3268f09d0ec5b7e06ed9971a5b8090d9a6e..d915f18294b8608af69e1c09155f6054b38aac62 100644
 --- a/es/core/streams/DecodeStream.js
 +++ b/es/core/streams/DecodeStream.js
-@@ -12,6 +12,29 @@ import Stream from "./Stream";
+@@ -12,6 +12,53 @@ import Stream from "./Stream";
  // having special cases that would be required if we used |null| for an empty
  // buffer.
  var emptyBuffer = new Uint8Array(0);
@@ -424,10 +568,52 @@ index 27ffc3268f09d0ec5b7e06ed9971a5b8090d9a6e..98fee06695c4ccd967fff80db06ae8cd
 +    error.limit = limit;
 +    return error;
 +};
++// pdf.xyz patch: charge `stream`'s growth up to `upTo` bytes to the ledger of
++// the operation that decodes it and to each ledger above it (`parent`: one
++// embedded page's ledger sits under its destination document's), refusing
++// past any of their limits. Each stream is charged by its high-water mark,
++// so a byte is never charged twice.
++var chargeLedger = function (stream, upTo) {
++    var charged = stream.charged || 0;
++    if (!stream.ledger || upTo <= charged) {
++        return;
++    }
++    var growth = upTo - charged;
++    var ledger;
++    for (ledger = stream.ledger; ledger; ledger = ledger.parent) {
++        var spent = ledger.spent + growth;
++        var ledgerLimit = ledger.limit || decodeBudget();
++        if (spent > ledgerLimit) {
++            throw decodeBudgetError(spent, ledgerLimit);
++        }
++    }
++    for (ledger = stream.ledger; ledger; ledger = ledger.parent) {
++        ledger.spent += growth;
++    }
++    stream.charged = upTo;
++};
  /**
   * Super class for the decoding streams
   */
-@@ -69,7 +92,9 @@ var DecodeStream = /** @class */ (function () {
+@@ -32,7 +79,7 @@ var DecodeStream = /** @class */ (function () {
+     Object.defineProperty(DecodeStream.prototype, "isEmpty", {
+         get: function () {
+             while (!this.eof && this.bufferLength === 0) {
+-                this.readBlock();
++                this.readBlockCharged();
+             }
+             return this.bufferLength === 0;
+         },
+@@ -45,7 +92,7 @@ var DecodeStream = /** @class */ (function () {
+             if (this.eof) {
+                 return -1;
+             }
+-            this.readBlock();
++            this.readBlockCharged();
+         }
+         return this.buffer[this.pos++];
+     };
+@@ -69,10 +116,12 @@ var DecodeStream = /** @class */ (function () {
          var end;
          var pos = this.pos;
          if (length) {
@@ -437,26 +623,54 @@ index 27ffc3268f09d0ec5b7e06ed9971a5b8090d9a6e..98fee06695c4ccd967fff80db06ae8cd
 +            this.ensureBuffer(Math.min(pos + length, decodeBudget()));
              end = pos + length;
              while (!this.eof && this.bufferLength < end) {
-                 this.readBlock();
-@@ -129,13 +154,36 @@ var DecodeStream = /** @class */ (function () {
+-                this.readBlock();
++                this.readBlockCharged();
+             }
+             var bufEnd = this.bufferLength;
+             if (end > bufEnd) {
+@@ -81,7 +130,7 @@ var DecodeStream = /** @class */ (function () {
+         }
+         else {
+             while (!this.eof) {
+-                this.readBlock();
++                this.readBlockCharged();
+             }
+             end = this.bufferLength;
+         }
+@@ -115,27 +164,49 @@ var DecodeStream = /** @class */ (function () {
+     DecodeStream.prototype.makeSubStream = function (start, length /* dict */) {
+         var end = start + length;
+         while (this.bufferLength <= end && !this.eof) {
+-            this.readBlock();
++            this.readBlockCharged();
+         }
+         return new Stream(this.buffer, start, length /* dict */);
+     };
+     DecodeStream.prototype.decode = function () {
+         while (!this.eof)
+-            this.readBlock();
++            this.readBlockCharged();
+         return this.buffer.subarray(0, this.bufferLength);
+     };
++    // pdf.xyz patch: every block read settles the ledger with the bytes the
++    // block actually wrote. ensureBuffer alone charges what a decoder asks
++    // for, and FlateStream asks only when its buffer is full, so a stream
++    // could write up to half its buffer uncharged (200 MiB charged as 128).
++    DecodeStream.prototype.readBlockCharged = function () {
++        this.readBlock();
++        chargeLedger(this, this.bufferLength);
++    };
+     DecodeStream.prototype.readBlock = function () {
+         throw new MethodNotImplementedError(this.constructor.name, 'readBlock');
      };
      DecodeStream.prototype.ensureBuffer = function (requested) {
          var buffer = this.buffer;
 +        // pdf.xyz patch: charge this stream's growth to the ledger of the
-+        // operation that decodes it (one load, one page embed), so streams
-+        // that each stay under the budget cannot add up past it: a /Contents
-+        // array naming one stream N times, or N object streams in one file.
-+        var ledger = this.ledger;
-+        var charged = this.charged || 0;
-+        if (ledger && requested > charged) {
-+            var spent = ledger.spent + (requested - charged);
-+            var ledgerLimit = ledger.limit || decodeBudget();
-+            if (spent > ledgerLimit) {
-+                throw decodeBudgetError(spent, ledgerLimit);
-+            }
-+            ledger.spent = spent;
-+            this.charged = requested;
-+        }
++        // operation that decodes it (one load; every page embedded into one
++        // destination document), so streams that each stay under the budget
++        // cannot add up past it: one stream named N times, by one page's
++        // /Contents or by N pages, or N object streams in one file.
++        chargeLedger(this, requested);
          if (requested <= buffer.byteLength) {
              return buffer;
          }

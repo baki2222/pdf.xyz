@@ -22,8 +22,10 @@ import {
   isDecodeBudgetError,
   withDecodeBudget,
 } from "./decode-budget";
+import { EMBED_TOTAL_BYTES } from "./embed-budget";
 import { PdfEngineError } from "./engine-errors";
 import { writePdfMetadata } from "./metadata";
+import { DEFAULT_N_UP_OPTIONS, nUpPdf } from "./n-up";
 
 const require = createRequire(import.meta.url);
 const MiB = 1024 * 1024;
@@ -101,6 +103,20 @@ describe("the patch is in every pdf-lib build a consumer loads", () => {
       const match = text.match(/var DEFAULT_DECODE_BUDGET = (\d+);/);
       expect(match, build).not.toBeNull();
       expect(Number(match![1])).toBe(DEFAULT_DECODE_BUDGET_BYTES);
+    }
+  });
+
+  it("each build's embed total is the one embed-budget.ts states", () => {
+    for (const build of builds) {
+      const text = readFileSync(
+        path.join(build, "core/embedders/PDFPageEmbedder.js"),
+        "utf8",
+      );
+      const match = text.match(/var DEFAULT_EMBED_TOTAL = (\d+);/);
+      expect(match, build).not.toBeNull();
+      expect(Number(match![1])).toBe(EMBED_TOTAL_BYTES);
+      // The ledger lives on the destination context, not on one page.
+      expect(text, build).toMatch(/this\.decodeContents\(Contents, context\)/);
     }
   });
 });
@@ -271,6 +287,99 @@ describe("decode budget: the number", () => {
     expect(DEFAULT_DECODE_BUDGET_BYTES).toBeGreaterThanOrEqual(100 * largest);
     expect(DEFAULT_DECODE_BUDGET_BYTES * 4).toBeLessThanOrEqual(1024 * MiB);
   });
+});
+
+describe("embed total: one ledger per destination document", () => {
+  const EMBED_LEDGER = Symbol.for("pdf-lib.embedLedger");
+
+  /** A source document of `pages` pages, each with its own content stream. */
+  async function sourceOf(pages: number, bytesEach: number) {
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < pages; i += 1) {
+      const page = doc.addPage([100, 100]);
+      const content = doc.context.register(
+        doc.context.stream(deflateSync(new Uint8Array(bytesEach).fill(32)), {
+          Filter: "FlateDecode",
+        }),
+      );
+      page.node.set(PDFName.of("Contents"), content);
+    }
+    return PDFDocument.load(await doc.save());
+  }
+
+  it("charges every page embedded into one destination to one total", async () => {
+    // Three pages of 0.4 MiB each, under a 1 MiB total seeded on the
+    // destination: two fit, the third is refused. A ledger per page would
+    // embed all three.
+    const source = await sourceOf(3, 0.4 * MiB);
+    const dest = await PDFDocument.create();
+    (dest.context as unknown as Record<symbol, unknown>)[EMBED_LEDGER] = {
+      spent: 0,
+      limit: MiB,
+    };
+    const embedded = await dest.embedPages(source.getPages());
+    await embedded[0]!.embed();
+    await embedded[1]!.embed();
+    let caught: unknown;
+    try {
+      await embedded[2]!.embed();
+    } catch (err) {
+      caught = err;
+    }
+    expect(isDecodeBudgetError(caught)).toBe(true);
+    // Positive control: each page into its own destination fits alone.
+    for (const page of source.getPages()) {
+      const own = await PDFDocument.create();
+      (own.context as unknown as Record<symbol, unknown>)[EMBED_LEDGER] = {
+        spent: 0,
+        limit: MiB,
+      };
+      const [one] = await own.embedPages([page]);
+      await one!.embed();
+    }
+  });
+
+  it("a destination with no seeded ledger gets the embed total", async () => {
+    const source = await sourceOf(1, 1000);
+    const dest = await PDFDocument.create();
+    const [one] = await dest.embedPages(source.getPages());
+    await one!.embed();
+    const ledger = (dest.context as unknown as Record<symbol, unknown>)[
+      EMBED_LEDGER
+    ] as { spent: number; limit: number };
+    expect(ledger.limit).toBe(EMBED_TOTAL_BYTES);
+    expect(ledger.spent).toBeGreaterThanOrEqual(1000);
+  });
+
+  it("sits far above the page content real producers wrote, and n-up keeps every legit file", async () => {
+    // Second, independent bound on the total: the decoded page content of
+    // each legit-corpus file, summed over its pages, and n-up run on it.
+    const dir = path.join(process.cwd(), "src/tests/fixtures/legit-corpus");
+    const files = readdirSync(dir).filter((f) => f.endsWith(".pdf"));
+    expect(files.length).toBeGreaterThanOrEqual(14);
+    let largest = 0;
+    for (const file of files) {
+      const bytes = new Uint8Array(readFileSync(path.join(dir, file)));
+      const doc = await PDFDocument.load(bytes);
+      let total = 0;
+      for (const page of doc.getPages()) {
+        const contents = page.node.normalizedEntries().Contents;
+        for (let i = 0; i < (contents?.size() ?? 0); i += 1) {
+          const stream = contents!.lookup(i);
+          if (stream instanceof PDFRawStream) {
+            total += decodePDFRawStream(stream).decode().length;
+          }
+        }
+      }
+      largest = Math.max(largest, total);
+      const r = await nUpPdf(bytes, { ...DEFAULT_N_UP_OPTIONS, perSheet: 4 });
+      expect(r.sheets, file).toBeGreaterThan(0);
+    }
+    // Health: the walk saw real content.
+    expect(largest).toBeGreaterThan(10_000);
+    expect(EMBED_TOTAL_BYTES).toBeGreaterThanOrEqual(100 * largest);
+    expect(EMBED_TOTAL_BYTES).toBeGreaterThan(DEFAULT_DECODE_BUDGET_BYTES);
+  }, 60_000);
 });
 
 describe("EDIT-11: the XMP cap keeps real packets", () => {

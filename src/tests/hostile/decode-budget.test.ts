@@ -16,6 +16,7 @@ import { deflateSync } from "node:zlib";
 import { PDFDocument, PDFName } from "pdf-lib";
 import { afterAll, describe, expect, test } from "vitest";
 import { DEFAULT_DECODE_BUDGET_BYTES } from "@/lib/pdf/decode-budget";
+import { EMBED_TOTAL_BYTES } from "@/lib/pdf/embed-budget";
 import { runBounded, type BoundedOutcome } from "./bounded";
 import {
   chainedFlateBombPdf,
@@ -243,13 +244,71 @@ describe("PS-02 / STAMP-13: a /Contents array repeating one stream under the bud
   }, 90_000);
 
   test("PS-02: positive control: two 64 MiB entries (128 MiB in all) still lay out", async () => {
-    // The ledger is per embedded page, and an array is legal: half the budget
-    // across two entries must pass, and the instrument must see it decoded.
+    // Each page has its own ledger at the budget (all its entries are held
+    // at once), and an array is legal: half the budget across two entries
+    // must pass, and the instrument must see it decoded.
     const r = settled(
       await run("nup", repeatedContentPdf("/FlateDecode", zeroBomb(64), 2)),
     );
     expect(r.ok).toMatchObject({ sheets: 1 });
     expect(r.growthMb).toBeGreaterThan(120);
+  }, 90_000);
+});
+
+/**
+ * A `pages`-page PDF whose every page has /Contents pointing at ONE stream.
+ * Each page is its own embed, so a ledger scoped to one page lets the stream
+ * multiply by the page count: the reviewer's 7,850-byte file of 60 pages x
+ * 250 MiB cost n-up 15 GB of inflate and re-deflate, 125 s on the main thread.
+ */
+function sharedContentPdf(
+  filter: string,
+  stream: Uint8Array,
+  pages: number,
+): Uint8Array {
+  const pageNums = Array.from({ length: pages }, (_, k) => k + 3);
+  const streamNum = pages + 3;
+  return rawPdf({
+    objects: [
+      ONE_PAGE[0]!,
+      `<< /Type /Pages /Kids [${pageNums.map((n) => `${n} 0 R`).join(" ")}] /Count ${pages} >>`,
+      ...pageNums.map(
+        () =>
+          `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents ${streamNum} 0 R >>`,
+      ),
+      { dict: `/Filter ${filter}`, stream },
+    ],
+  });
+}
+
+describe("PS-02 / STAMP-13: many pages sharing one content stream under the budget", () => {
+  // 24 pages x 200 MiB: 4.7 GiB of inflate and re-deflate before the
+  // destination total (measured: settled "ok" after 43 s for n-up and 50 s
+  // for overlay); refused at EMBED_TOTAL_BYTES after, about 5 pages in.
+  const shared = () =>
+    sharedContentPdf("[/FlateDecode /FlateDecode]", reflate(zeroBomb(200)), 24);
+  for (const entry of ["nup", "overlay-cycle"]) {
+    test(`PS-02 / STAMP-13: ${entry} refuses 24 pages that all name one 200 MiB stream`, async () => {
+      const started = Date.now();
+      const r = settled(await run(entry, shared(), 120_000));
+      expect(r.error).toBe("PdfDecodeBudgetError");
+      expect(r.growthMb).toBeLessThan(REFUSED_BOMB_MB);
+      // Refused once EMBED_TOTAL_BYTES is spent (about 5 pages; measured
+      // 8-9 s), not after 24 (43-50 s).
+      expect(Date.now() - started).toBeLessThan(30_000);
+    }, 150_000);
+  }
+
+  test("PS-02: positive control: 6 pages sharing one 64 MiB stream (384 MiB in all) still lay out", async () => {
+    // Past the per-stream budget in total, so this pins that the operation
+    // total is larger than it; under EMBED_TOTAL, so it must pass.
+    expect(6 * 64 * MiB).toBeGreaterThan(DEFAULT_DECODE_BUDGET_BYTES);
+    expect(6 * 64 * MiB).toBeLessThan(EMBED_TOTAL_BYTES);
+    const r = settled(
+      await run("nup", sharedContentPdf("/FlateDecode", zeroBomb(64), 6)),
+    );
+    expect(r.ok).toMatchObject({ sheets: 2 });
+    expect(r.growthMb).toBeGreaterThan(60);
   }, 90_000);
 });
 
