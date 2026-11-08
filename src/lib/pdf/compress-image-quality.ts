@@ -67,14 +67,23 @@ export function lowerImageQualities(id: ImageQuality): ImageQuality[] {
 }
 
 /**
- * The PostScript Ghostscript runs (`-c … setdistillerparams`) to set one
- * level, built only from the fixed table above — never from request text.
- * Both the AutoFilter (ACS) and the plain image dictionaries are set, for
- * colour and gray, so the level holds whichever encoder path an image takes.
+ * The PostScript Ghostscript runs (`-c …`) to set one level, built only from
+ * the fixed table above — never from request text. Both the AutoFilter (ACS)
+ * and the plain image dictionaries are set, for colour and gray, so the level
+ * holds whichever encoder path an image takes.
+ *
+ * Set twice: once before the input, and again at the start of EVERY page
+ * (a BeginPage procedure). Ghostscript 10.00's PDF interpreter restores the
+ * preset's dictionaries after page 1, so a level set only once applied to
+ * the first page alone. A photo shared by two pages then came back as two
+ * images at two levels, and "Low" made the file bigger than "Medium"
+ * (measured in the live worker image, 2026-11-08; image-quality.test.ts has
+ * the numbers).
  */
 export function imageQualityDistillerParams(id: ImageQuality): string {
   const { qFactor, subsample } = imageQualityLevel(id);
   const s = subsample ? "[2 1 1 2]" : "[1 1 1 1]";
   const dict = `<< /QFactor ${qFactor} /Blend 1 /HSamples ${s} /VSamples ${s} >>`;
-  return `<< /ColorACSImageDict ${dict} /GrayACSImageDict ${dict} /ColorImageDict ${dict} /GrayImageDict ${dict} >> setdistillerparams`;
+  const params = `<< /ColorACSImageDict ${dict} /GrayACSImageDict ${dict} /ColorImageDict ${dict} /GrayImageDict ${dict} >>`;
+  return `${params} setdistillerparams << /BeginPage { pop ${params} setdistillerparams } >> setpagedevice`;
 }
