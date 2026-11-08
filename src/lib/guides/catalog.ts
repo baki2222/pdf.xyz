@@ -5517,7 +5517,7 @@ export const guides: Guide[] = [
     slug: "how-to-extract-tables-from-a-pdf",
     title: "How to extract tables from a PDF",
     description:
-      "Pull the tables out of a PDF into CSV files and one Excel workbook, a sheet per table. It runs on a secure server, and can read a scan with OCR first.",
+      "Pull the tables out of a PDF into CSV files and one Excel workbook, a sheet per table by default. It runs on a secure server, and can read a scan with OCR first.",
     tools: ["extract-tables", "pdf-to-excel", "ocr-pdf"],
     keywords: [
       "how to extract tables from a pdf",
@@ -5528,7 +5528,7 @@ export const guides: Guide[] = [
       "pdf table extractor",
     ],
     intro: [
-      `To extract tables from a PDF, open ${nameOf("extract-tables")}, add your PDF, press Extract tables, and download the ZIP. Each table it finds comes back as its own CSV file and as its own sheet in one Excel workbook, with the titles and paragraphs around it left out.`,
+      `To extract tables from a PDF, open ${nameOf("extract-tables")}, add your PDF, press Extract tables, and download the ZIP. By default, each table it finds comes back as its own CSV file and as its own sheet in one Excel workbook, with the titles and paragraphs around it left out.`,
       `It finds tables by where the words sit on the page: words on one line form a row, words set a normal space apart stay in one cell, and columns come from the white space that runs down the rows. Two switches sit above the button: ${COMBINE_TABLES_LABEL} puts every table on a single sheet instead of one sheet each, and “${WORD_OCR_LABEL}” adds a text layer before detection runs. It reads only text stored in the PDF as text, so a scanned table needs that second switch on.`,
       `${nameOf("extract-tables")} runs on a secure server, not in your browser, because the word positions come from a native PDF text engine. Your PDF, up to ${ceilingMb("extract-tables")} MB, travels over an encrypted connection and is deleted when the job finishes; the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
     ],
@@ -5552,7 +5552,7 @@ export const guides: Guide[] = [
         id: "what-you-download",
         heading: "What you download",
         body: [
-          "The ZIP holds table-1.csv, table-2.csv and so on, one per table, plus tables.xlsx with a sheet per table named by its number and page, such as Table 1 (p3). The CSV files follow the common RFC 4180 layout, so a script can read them directly, and start with a UTF-8 byte-order mark, so a double-click opens accented letters correctly in Excel; a script should read them as utf-8-sig. A text cell that starts with =, +, - or @ carries a leading apostrophe, so Excel shows it as text instead of running it as a formula.",
+          "By default the ZIP holds table-1.csv, table-2.csv and so on, one per table, plus tables.xlsx with a sheet per table named by its number and page, such as Table 1 (p3). The CSV files follow the common RFC 4180 layout, so a script can read them directly, and start with a UTF-8 byte-order mark, so a double-click opens accented letters correctly in Excel; a script should read them as utf-8-sig. A text cell that starts with =, +, - or @ carries a leading apostrophe, so Excel shows it as text instead of running it as a formula.",
           `In tables.xlsx, a cell that holds exactly one number, such as ${XLSX_AMOUNTS}, is stored as a number, so a formula can add up the column, and so is an amount in Indian lakh grouping such as ${SHEET_LAKH_EXAMPLE} and an accounting negative such as ${SHEET_NEGATIVE_EXAMPLES[0]} or ${SHEET_NEGATIVE_EXAMPLES[1]}; a date that cannot be read two ways, such as ${SHEET_DATE_EXAMPLES[0]} or ${SHEET_DATE_EXAMPLES[1]}, becomes a real date. A code with leading zeros such as 00123, a number of more than ${MAX_SIGNIFICANT_DIGITS} significant digits, a European 1.250,00, a date written as ${XLSX_TEXT_EXAMPLE} and a bare bracketed number such as ${SHEET_NOTE_MARK_EXAMPLE} stay text, exactly as printed.`,
         ],
       },
@@ -5568,7 +5568,7 @@ export const guides: Guide[] = [
         id: "tables-or-excel",
         heading: "Extract Tables, PDF to Excel, or OCR first",
         body: [
-          `${nameOf("pdf-to-excel")} puts every line of the PDF's text into one sheet, each value in the column it sits in, which suits getting all of the text into a grid. ${nameOf("extract-tables")} keeps only the table-shaped blocks, each on its own sheet. Both run on our secure server.`,
+          `${nameOf("pdf-to-excel")} puts every line of the PDF's text into one sheet, each value in the column it sits in, which suits getting all of the text into a grid. ${nameOf("extract-tables")} keeps only the table-shaped blocks, each on its own sheet unless you tick ${COMBINE_TABLES_LABEL}. Both run on our secure server.`,
           `A scanned page has no text to read on its own. Tick “${WORD_OCR_LABEL}” before you press Extract tables and pick the page's languages: our server recognises the words first, with ${nameOf("ocr-pdf")}'s engine, and looks for tables in the result in the same job. Without it, a file with no text on any page stops with a message pointing you to ${nameOf("ocr-pdf")}.`,
         ],
       },
