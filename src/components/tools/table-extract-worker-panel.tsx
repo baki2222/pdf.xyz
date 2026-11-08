@@ -111,8 +111,11 @@ function TableExtractRunArea({
   const [file, setFile] = useState<File | null>(null);
   const [combine, setCombine] = useState(false);
   // Whether the last run had the OCR switch on: its no-tables step then
-  // does not send the reader to OCR PDF for pages OCR already read.
-  const [ranWithOcr, setRanWithOcr] = useState(false);
+  // does not send the reader to OCR PDF for pages OCR already read. null
+  // until this mount starts a run: a job resumed after a reload carries no
+  // options, and the saved job holds its id only (never the options, as
+  // /privacy says), so whether OCR ran is unknown and OCR PDF is not offered.
+  const [ranWithOcr, setRanWithOcr] = useState<boolean | null>(null);
   const job = useWorkerJob<TableExtractWorkerResult>({
     tool: "extract-tables",
     resume: (id, controls) =>
@@ -233,7 +236,7 @@ function TableExtractRunArea({
                 />
                 <TableExtractNoTablesStep
                   code={outcome.code}
-                  ocrRan={ranWithOcr}
+                  ocrRan={ranWithOcr !== false}
                 />
               </>
             )}

@@ -742,3 +742,72 @@ describe("Extract Tables panel — after an OCR-first run, OCR PDF is not offere
     expect(screen.queryByText(/OCR PDF can add the text first/)).toBeNull();
   });
 });
+
+/**
+ * A job picked up after a reload (review of 8266f77f, 2026-11-08). The OCR
+ * switch's state lived only in the run that started the job, so a resumed
+ * OCR-first job that found no table still offered OCR PDF. The job record
+ * carries no options, and the saved job holds its id only — never the
+ * options (`/privacy`'s storage list says so) — so the panel cannot know
+ * whether OCR ran, and then does not offer it: "the second only when the OCR
+ * switch was off" stays true.
+ */
+describe("Extract Tables panel — a job resumed after a reload", () => {
+  const KEY = "pdfxyz.workerJob.extract-tables";
+
+  afterEach(() => {
+    sessionStorage.clear();
+  });
+
+  async function resumeTo(job: Job) {
+    stubNetwork(job);
+    const fetchStub = fetch as unknown as ReturnType<typeof vi.fn>;
+    const answer = fetchStub.getMockImplementation()! as (
+      url: string,
+      init: unknown,
+    ) => unknown;
+    fetchStub.mockImplementation(async (url: string, init: unknown) =>
+      url === "/api/jobs/job_1"
+        ? { ok: true, status: 200, json: async () => job }
+        : answer(url, init),
+    );
+    sessionStorage.setItem(
+      KEY,
+      JSON.stringify({ jobId: "job_1", expiresAt: Date.now() + 600_000 }),
+    );
+    render(<TableExtractWorkerPanel tool={tool} />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Keep waiting/ }),
+    );
+  }
+
+  it("no table: links PDF to Excel, and does not offer OCR PDF it cannot know is a next step", async () => {
+    await resumeTo(
+      await failedJobFrom(
+        async () => ({
+          pageCount: 1,
+          pages: [
+            {
+              pageNumber: 1,
+              width: 400,
+              height: 300,
+              items: [
+                { text: "Just prose.", x: 50, y: 100, width: 60, height: 10 },
+              ],
+            },
+          ],
+        }),
+        new Uint8Array([0x25, 0x50, 0x44, 0x46]),
+      ),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /No table-like structure/,
+    );
+    // Health check: the resumed failure reached the step.
+    expect(
+      screen.getByRole("link", { name: "Open PDF to Excel" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Open OCR PDF" })).toBeNull();
+    expect(screen.queryByText(/OCR PDF adds/)).toBeNull();
+  });
+});
