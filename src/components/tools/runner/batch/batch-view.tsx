@@ -97,7 +97,16 @@ export interface BatchViewProps<R> {
   zipFallback: string;
   /** "Choose different files" / "New files". */
   onReset: () => void;
+  /**
+   * A Remove that would leave one file: the tool takes that file back to its
+   * own single-file flow (batch plan: "One file keeps today's full
+   * single-file flow"). Without it, the batch keeps the one row.
+   */
+  onOneLeft?: (id: string) => void;
 }
+
+/** "Focus Run", as opposed to a row's id, after a Remove. */
+const FOCUS_RUN = Symbol("focus-run");
 
 const TERMINAL: ReadonlySet<BatchItemStatus> = new Set([
   "done",
@@ -141,6 +150,7 @@ export function BatchView<R>({
   zipName,
   zipFallback,
   onReset,
+  onOneLeft,
 }: BatchViewProps<R>) {
   const {
     state,
@@ -155,6 +165,39 @@ export function BatchView<R>({
   } = runner;
   const settled = state.phase === "done" || state.phase === "canceled";
   const count = state.items.length;
+
+  // A pressed Remove unmounts the button that had focus; left to the
+  // browser, focus would fall to the page and a keyboard user would start
+  // again from the top. It goes to the next row's Remove, else the previous
+  // row's, else (one file left, no Remove shown) to Run.
+  const removeButtons = useRef(new Map<string, HTMLButtonElement>());
+  const runButton = useRef<HTMLButtonElement>(null);
+  const focusAfterRemove = useRef<string | typeof FOCUS_RUN | null>(null);
+  const removeItem = useCallback(
+    (id: string) => {
+      const ids = state.items.map((item) => item.id);
+      const at = ids.indexOf(id);
+      const rest = ids.filter((other) => other !== id);
+      if (rest.length === 1 && onOneLeft) {
+        onOneLeft(rest[0]!);
+        return;
+      }
+      focusAfterRemove.current =
+        rest.length > 1 ? (ids[at + 1] ?? ids[at - 1] ?? null) : FOCUS_RUN;
+      remove(id);
+    },
+    [state.items, remove, onOneLeft],
+  );
+  useEffect(() => {
+    const target = focusAfterRemove.current;
+    if (target === null) return;
+    focusAfterRemove.current = null;
+    const next =
+      target === FOCUS_RUN
+        ? runButton.current
+        : removeButtons.current.get(target);
+    next?.focus();
+  }, [state.items]);
 
   // The stage is held from the press (`../stage-hold`): the rows and the
   // ending the batch draws come long after it. Once it settles, the hold
@@ -329,8 +372,14 @@ export function BatchView<R>({
               signaturesOf(item.result) === 0
             }
             onRemove={
-              state.phase === "idle" && count > 1 ? () => remove(item.id) : null
+              state.phase === "idle" && count > 1
+                ? () => removeItem(item.id)
+                : null
             }
+            removeRef={(button) => {
+              if (button) removeButtons.current.set(item.id, button);
+              else removeButtons.current.delete(item.id);
+            }}
           />
         ))}
       </ul>
@@ -377,6 +426,7 @@ export function BatchView<R>({
                 Choose different files
               </button>
               <button
+                ref={runButton}
                 type="button"
                 onClick={() => {
                   settleHold.current = holdRunnerStage();
@@ -487,6 +537,7 @@ function BatchRow<R>({
   downloadLabel,
   allowDownload,
   onRemove,
+  removeRef,
 }: {
   item: BatchItem<R>;
   runningLabel: string;
@@ -498,6 +549,8 @@ function BatchRow<R>({
   allowDownload: boolean;
   /** Present before Run, while more than one file is listed. */
   onRemove: (() => void) | null;
+  /** The Remove button, so focus can be handed to it. */
+  removeRef: (button: HTMLButtonElement | null) => void;
 }) {
   const result = item.status === "done" ? item.result : undefined;
   const files = result !== undefined && allowDownload ? outputs(result) : [];
@@ -517,6 +570,7 @@ function BatchRow<R>({
       </span>
       {onRemove ? (
         <button
+          ref={removeRef}
           type="button"
           onClick={onRemove}
           aria-label={`Remove ${item.name}`}

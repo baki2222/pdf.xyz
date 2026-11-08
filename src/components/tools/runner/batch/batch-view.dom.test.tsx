@@ -14,6 +14,10 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { BatchSkip, withNote } from "@/lib/batch";
 import {
+  ANNOUNCE_EVERY_FILE_UP_TO,
+  ANNOUNCE_STRIDE,
+} from "@/lib/batch/announce";
+import {
   BATCH_LIMITS,
   overCountReason,
   type BatchRejection,
@@ -41,10 +45,12 @@ function Harness({
   units,
   process,
   rejected = [],
+  onOneLeft,
 }: {
   units: BatchUnit[];
   process: (f: File) => Promise<Row | ReturnType<typeof withNote<Row>>>;
   rejected?: BatchRejection<File>[];
+  onOneLeft?: (id: string) => void;
 }) {
   const runner = useBatchRunner<Row>(units, process);
   return (
@@ -67,6 +73,7 @@ function Harness({
       zipName="pdfxyz-stamped.zip"
       zipFallback="Download the files one at a time above."
       onReset={() => {}}
+      {...(onOneLeft ? { onOneLeft } : {})}
     />
   );
 }
@@ -231,6 +238,122 @@ describe("BatchView — the lifted view, generic over the result", () => {
     await waitFor(() =>
       expect(status.textContent).toBe("Batch complete. 1 stamped."),
     );
+  });
+});
+
+/**
+ * Pressing a row's Remove unmounts the very button that has focus. Left to
+ * the browser, focus falls to the document and a keyboard or screen-reader
+ * user starts again from the top of the page (review of P0b). jsdom does not
+ * turn Enter on a focused button into a click, so the press here is the
+ * click a keyboard activation fires, on the focused button; a real Enter is
+ * pressed in `e2e/compress-tool.spec.ts`.
+ */
+describe("BatchView — focus after Remove", () => {
+  const press = (name: string) => {
+    const button = screen.getByRole("button", { name });
+    button.focus();
+    expect(document.activeElement).toBe(button);
+    fireEvent.click(button);
+  };
+  const echo = async (f: File) => ({ name: f.name, blob: new Blob([f.name]) });
+
+  it("goes to the next row's Remove, then the previous one at the end, then Run", () => {
+    renderWith(
+      <Harness
+        units={unitsOf("a.pdf", "b.pdf", "c.pdf", "d.pdf")}
+        process={echo}
+      />,
+    );
+    press("Remove b.pdf");
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Remove c.pdf" }),
+    );
+    press("Remove d.pdf");
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Remove c.pdf" }),
+    );
+    press("Remove a.pdf");
+    // One file left: no Remove button remains, so Run takes focus.
+    expect(screen.queryByRole("button", { name: /^Remove / })).toBeNull();
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Stamp 1 PDFs" }),
+    );
+  });
+
+  it("a tool that hands a last file back is told which one is left", () => {
+    const left: string[] = [];
+    renderWith(
+      <Harness
+        units={unitsOf("a.pdf", "b.pdf")}
+        process={echo}
+        onOneLeft={(id) => left.push(id)}
+      />,
+    );
+    press("Remove a.pdf");
+    expect(left).toEqual(["b.pdf"]);
+  });
+});
+
+describe("BatchView — the live region past ANNOUNCE_EVERY_FILE_UP_TO files", () => {
+  it("speaks a failure that falls between strides", async () => {
+    const total = ANNOUNCE_EVERY_FILE_UP_TO + 2;
+    // The failing settle is NOT a multiple of the stride, so only the
+    // failure rule can speak it; the file after it waits on the test.
+    const failAt = ANNOUNCE_STRIDE + 2;
+    expect(failAt % ANNOUNCE_STRIDE).not.toBe(0);
+    expect(failAt).toBeLessThan(total);
+    const names = Array.from({ length: total }, (_, i) => `f${i + 1}.pdf`);
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    renderWith(
+      <Harness
+        units={unitsOf(...names)}
+        process={async (f) => {
+          if (f.name === `f${failAt + 1}.pdf`) await held;
+          if (f.name === `f${failAt}.pdf`) throw new Error("broke");
+          return { name: f.name, blob: new Blob([f.name]) };
+        }}
+      />,
+    );
+    const status = screen.getByRole("status");
+    fireEvent.click(
+      screen.getByRole("button", { name: `Stamp ${total} PDFs` }),
+    );
+    await waitFor(() =>
+      expect(status.textContent).toBe(
+        `f${failAt}.pdf: failed. ${failAt} of ${total} files processed.`,
+      ),
+    );
+    release();
+    await waitFor(() => expect(status.textContent).toMatch(/^Batch complete/));
+  });
+
+  it("control: a success between strides is not spoken", async () => {
+    const total = ANNOUNCE_EVERY_FILE_UP_TO + 2;
+    const holdAt = ANNOUNCE_STRIDE + 2;
+    const names = Array.from({ length: total }, (_, i) => `f${i + 1}.pdf`);
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    renderWith(
+      <Harness
+        units={unitsOf(...names)}
+        process={async (f) => {
+          if (f.name === `f${holdAt + 1}.pdf`) await held;
+          return { name: f.name, blob: new Blob([f.name]) };
+        }}
+      />,
+    );
+    const status = screen.getByRole("status");
+    fireEvent.click(
+      screen.getByRole("button", { name: `Stamp ${total} PDFs` }),
+    );
+    await screen.findByText(`${holdAt} of ${total} done`);
+    expect(status.textContent).toBe(
+      `f${ANNOUNCE_STRIDE}.pdf: done. ${ANNOUNCE_STRIDE} of ${total} files processed.`,
+    );
+    release();
+    await waitFor(() => expect(status.textContent).toMatch(/^Batch complete/));
   });
 });
 
