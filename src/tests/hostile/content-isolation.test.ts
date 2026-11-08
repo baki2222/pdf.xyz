@@ -830,18 +830,22 @@ describe("review-l06 round 2: isolation work is bounded per stream and per docum
     expect(got.ms).toBeLessThan(10_000);
   }, 90_000);
 
-  test("the costliest inline-image shape, a full budget of EI candidates pdf.js tests one by one, stays linear (8.6 s measured, 30 s allowed)", async () => {
+  test("the costliest inline-image shape, EI candidates pdf.js tests one by one, scans in linear time (4 MiB: 1.2 s measured, 10 s allowed)", async () => {
     // Every `EI ` passes pdf.js's printable test and costs a 75-byte lex, the
-    // same work pdf.js does to display the page. Linear, but the slowest
-    // full-budget scan found; the bound is 3.5x the measurement.
+    // same work pdf.js does to display the page. The bare scan is unmetered;
+    // isolatePageContent meters it (round 3, below), so here only linearity
+    // is the claim. Round 2 ran a full 32 MiB and said "8.6 s measured, 30 s
+    // allowed"; the round-3 reviewer measured 18.7 s under load, too close to
+    // flake. An eighth of the budget makes the same claim with a 10x margin.
+    const size = ISOLATION_DECODE_BUDGET / 8;
     const got = await settle<{ ms: number; bytes: number; uncertain: boolean }>(
-      ["scan-dense-ei", String(ISOLATION_DECODE_BUDGET)],
-      90_000,
+      ["scan-dense-ei", String(size)],
+      60_000,
     );
-    expect(got.bytes).toBeGreaterThan(ISOLATION_DECODE_BUDGET - 16);
+    expect(got.bytes).toBeGreaterThan(size - 16);
     expect(got.uncertain).toBe(true);
-    expect(got.ms).toBeLessThan(30_000);
-  }, 120_000);
+    expect(got.ms).toBeLessThan(10_000);
+  }, 90_000);
 
   test("past the document budget, pages are left as before: 12 distinct ~30 MB pages, 8 isolated (2.9 s measured, 15 s allowed)", async () => {
     const got = await settle<{ ms: number; kinds: string[] }>(
@@ -854,6 +858,72 @@ describe("review-l06 round 2: isolation work is bounded per stream and per docum
     ]);
     expect(got.ms).toBeLessThan(15_000);
   }, 150_000);
+
+  /*
+   * Review of l06, round 3: the budgets above counted BYTES, but the costliest
+   * shapes cost far more per byte than ordinary operators (an `EI ` candidate
+   * ~0.75 us, an inline image ~0.9 us, an ordinary byte ~8 ns). 8 full pages
+   * of the dense shape froze addPageNumbers for 104 s on a 318 KB file (base:
+   * under 1 s). The budget now meters WORK: each candidate test and each
+   * inline image is charged as the bytes it costs, so no shape buys more
+   * than ordinary content does. Ten distinct pages of each shape, the
+   * reviewer's multi-page repro, through the engine.
+   */
+  for (const shape of ["dense", "eiless"] as const) {
+    test(`ten distinct ~31 MiB pages of the ${shape} shape stamp in bounded time (review-l06 round 3)`, async () => {
+      const got = await settle<Stamped>(["stamp-costly", shape, "10"], 60_000);
+      // Health: it is the reviewer's small file, not a 300 MB one.
+      expect(got.inBytes).toBeLessThan(1_000_000);
+      expect(got.ms).toBeLessThan(10_000);
+    }, 90_000);
+  }
+
+  test("the worst DOCUMENT for the work meter: 20 dense pages each scanned in full under the page budget, until the document budget (1.6 s measured, 10 s allowed)", async () => {
+    // 512 KiB of `EI ` candidates costs ~23 MiB of work: under the page
+    // budget, so each page is scanned to the end and charged in full, and
+    // the document budget stops it after ~11 pages. Over the page budget
+    // (the tests above) a page stops early; this is the shape that spends
+    // the whole document budget on scanning.
+    const got = await settle<{ ms: number; kinds: string[] }>(
+      ["isolate-costly", "dense", "20", "512"],
+      60_000,
+    );
+    // Health: the early pages really were scanned to the end (ambiguous is
+    // decided only from a complete scan), and the budget then stopped it.
+    const full = got.kinds.filter((k) => k === "skipped:ambiguous").length;
+    expect(full).toBeGreaterThanOrEqual(8);
+    // 20 x 512 KiB is 10 MiB of BYTES, 1/25 of the document budget: pages
+    // are skipped only because the scan work is charged to the document.
+    expect(full).toBeLessThan(20);
+    expect(got.kinds).toEqual([
+      ...Array(full).fill("skipped:ambiguous"),
+      ...Array(20 - full).fill("skipped:budget"),
+    ]);
+    expect(got.ms).toBeLessThan(10_000);
+  }, 90_000);
+
+  test("a page whose scan would cost more than its budget is left as it was (skipped:budget), not scanned in full", async () => {
+    const got = await settle<{ ms: number; kinds: string[] }>(
+      ["isolate-costly", "dense", "2"],
+      60_000,
+    );
+    expect(got.kinds).toEqual(["skipped:budget", "skipped:budget"]);
+  }, 90_000);
+
+  test("positive control for the work meter: a page of 10,000 inline images (a bitmap-glyph page) and a surplus Q is still isolated", async () => {
+    // 10,000 certain images (each /W /H /BPC states its 1 data byte) is far
+    // past any real page in the legit corpus (none has an inline image) and
+    // costs 1/26 of the per-page budget.
+    const glyph = "BI /W 8 /H 1 /CS /G /BPC 1 ID U EI\n";
+    const doc = await PDFDocument.load(
+      await page(`Q ${glyph.repeat(10_000)}${SCALE} ${BASE_TEXT}`),
+    );
+    expect(await isolatePageContent(doc.getPage(0), PdfLib)).toEqual({
+      kind: "isolated",
+      blanked: 1,
+      closed: 0,
+    });
+  }, 60_000);
 
   test("the reviewer's 2.7 KB PDF (80,000 EI-less images) stamps in bounded time", async () => {
     const got = await settle<Stamped>(["stamp-ei-less", "80000"], 30_000);

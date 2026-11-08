@@ -54,8 +54,9 @@ import type { PdfLibModule } from "./pdf-lib";
  * undo, is never read (`unreadable`).
  *
  * BOUNDED. Decoding stops at {@link ISOLATION_DECODE_BUDGET} decoded bytes
- * per page, read in chunks, so a decompression bomb is not inflated here. A
- * page over the budget, or whose streams pdf-lib cannot decode, is left
+ * per page, read in chunks, so a decompression bomb is not inflated here, and
+ * the scan spends what is left of that budget as metered WORK (an inline image
+ * or an `EI` candidate costs more than a byte). A page over the budget, or whose streams pdf-lib cannot decode, is left
  * exactly as before (outcome `skipped`): no worse than before this module,
  * and never a refusal of a real file.
  *
@@ -67,17 +68,48 @@ import type { PdfLibModule } from "./pdf-lib";
  */
 
 /**
- * Decoded content bytes scanned per page before giving up (left as before).
- * 32 MiB: every page of the 14-file legit corpus decodes to under 64 KB
+ * WORK per page before giving up (left as before), in units of one decoded
+ * byte read once: decoded bytes, plus {@link IMAGE_WORK} per inline image
+ * and {@link CANDIDATE_WORK} per `EI` candidate tested.
+ * 32 MiB: every page of the 14-file legit corpus costs under 64 KB
  * (measured, and pinned in content-isolation.test.ts), so the headroom is
  * over 500x. Scanning 32 MiB of ordinary operators took 0.26 s (measured
- * 2026-11-08; the suite bounds it at 5 s). The slowest shape found is inline
- * image data full of `EI ` candidates, each of which pdf.js also tests: 8.6 s
- * for 32 MiB, linear (bounded at 30 s in a child process). The work is
- * linear in every shape: each inline-image search covers bytes no other
- * search covers (see pdfjsInlineEnd).
+ * 2026-11-08; the suite bounds it at 5 s).
+ *
+ * It counted BYTES until review of l06, round 3: the costliest shapes cost
+ * far more per byte than operators do, so a full byte budget of inline
+ * image data full of `EI ` candidates took 8.4 s (18.7 s under load) and
+ * eight such pages froze addPageNumbers for 104 s. Metering the work makes
+ * every shape cost about what ordinary content of the same budget costs.
+ * The scan is also linear in every shape: each inline-image search covers
+ * bytes no other search covers (see pdfjsInlineEnd).
  */
 export const ISOLATION_DECODE_BUDGET = 32 * 1024 * 1024;
+
+/** Work left to spend; see {@link ISOLATION_DECODE_BUDGET} for the unit. */
+interface Meter {
+  left: number;
+}
+
+/**
+ * The work units one `EI` candidate costs: pdf.js's printable test (15
+ * bytes) and a lex of up to 75 bytes, plus a lexer. Measured 2026-11-09 at
+ * ~0.75 us per candidate (11.2 M candidates in 8.4 s) against ~7.7 ns per
+ * ordinary byte (32 MiB in 0.26 s): ~97 bytes' worth, charged as 128.
+ */
+const CANDIDATE_WORK = 128;
+
+/**
+ * The work units one inline image costs beyond its bytes: its dictionary
+ * map and its EI search. Measured 2026-11-09 at ~0.9 us per `BI /L 1 ID x`
+ * (2.58 M images in 2.3 s), ~115 bytes' worth less its 13 bytes, charged
+ * as 128. A page of 10,000 inline images costs 1/26 of the budget (the
+ * positive control in the suite).
+ */
+const IMAGE_WORK = 128;
+
+/** pdfjsInlineEnd's result when the meter runs out. */
+const OUT_OF_WORK = -2;
 
 /** Graphics-state balance of a page's content, as a viewer executes it. */
 export interface ContentBalance {
@@ -372,12 +404,15 @@ const PRINTABLE_LOOKAHEAD = 15;
  * repeat that one exactly, and it stops there. Without that, every image of
  * a stream that no `EI` ends re-searched the rest of the stream: quadratic
  * (review of l06, round 2: a 2.7 KB PDF took 49 s).
+ *
+ * Returns {@link OUT_OF_WORK} when `meter` runs out first.
  */
 function pdfjsInlineEnd(
   b: Uint8Array,
   from: number,
   n: number,
   knownNone: boolean,
+  meter: Meter,
 ): number {
   let state = 0;
   for (let p = from; p < n; p += 1) {
@@ -386,8 +421,10 @@ function pdfjsInlineEnd(
     else if (state === 1) state = ch === 73 ? 2 : 0;
     else {
       state = 0;
-      if ((ch === 32 || ch === 10 || ch === 13) && endsImage(b, p + 1, n))
-        return p - 2;
+      if (ch === 32 || ch === 10 || ch === 13) {
+        if ((meter.left -= CANDIDATE_WORK) < 0) return OUT_OF_WORK;
+        if (endsImage(b, p + 1, n)) return p - 2;
+      }
     }
     if (knownNone && ch !== 69 && ch !== 73) return -1;
   }
@@ -482,16 +519,19 @@ function statedLength(dict: Map<string, InlineValue>): number | undefined {
  * the same `EI`: pdf.js's search, and the length the dictionary states or
  * implies. Where they differ, viewers differ too (pdf.js searches; others
  * count bytes), so no single reading of the rest of the page can be trusted.
+ * Undefined when `meter` runs out.
  */
 function skipInlineImage(
   b: Uint8Array,
   idEnd: number,
   dict: Map<string, InlineValue>,
   search: { noEiFrom: number },
-): { resume: number; certain: boolean } {
+  meter: Meter,
+): { resume: number; certain: boolean } | undefined {
   const n = b.length;
   const data = Math.min(n, idEnd + 1); // one whitespace byte after ID
-  const searched = pdfjsInlineEnd(b, data, n, data >= search.noEiFrom);
+  const searched = pdfjsInlineEnd(b, data, n, data >= search.noEiFrom, meter);
+  if (searched === OUT_OF_WORK) return undefined;
   if (searched < 0) search.noEiFrom = Math.min(search.noEiFrom, data);
   const filter = dict.get("/F") ?? dict.get("/Filter");
   const first = Array.isArray(filter) ? filter[0] : filter;
@@ -521,6 +561,15 @@ function skipInlineImage(
  * a newline (a stream boundary is a token boundary).
  */
 export function scanContentBalance(b: Uint8Array): ContentBalance {
+  return meteredScan(b, { left: Infinity }) as ContentBalance;
+}
+
+/**
+ * {@link scanContentBalance}, charging `meter` for the work beyond reading
+ * each byte once; "budget" as soon as it runs out (nothing is decided from
+ * a partial scan).
+ */
+function meteredScan(b: Uint8Array, meter: Meter): ContentBalance | "budget" {
   let depth = 0;
   const surplus: number[] = [];
   let uncertain = false;
@@ -537,6 +586,7 @@ export function scanContentBalance(b: Uint8Array): ContentBalance {
       if (depth === 0) surplus.push(lx.start);
       else depth -= 1;
     } else if (op === "BI") {
+      if ((meter.left -= IMAGE_WORK) < 0) return "budget";
       // pdf.js reads name/value pairs up to ID.
       const dict = new Map<string, InlineValue>();
       let idEnd = -1;
@@ -554,7 +604,9 @@ export function scanContentBalance(b: Uint8Array): ContentBalance {
         dict.set(latin1(b, lx.start, lx.pos, 32), readValue(lx, b));
       }
       if (idEnd < 0) break;
-      const { resume, certain } = skipInlineImage(b, idEnd, dict, search);
+      const image = skipInlineImage(b, idEnd, dict, search, meter);
+      if (!image) return "budget";
+      const { resume, certain } = image;
       if (!certain) uncertain = true;
       lx.pos = resume;
     }
@@ -565,12 +617,14 @@ export function scanContentBalance(b: Uint8Array): ContentBalance {
 const memo = new WeakMap<object, IsolationOutcome>();
 
 /**
- * Decoded content bytes scanned per DOCUMENT before further pages are left
+ * Work (decoded bytes plus scan work, in the unit of
+ * {@link ISOLATION_DECODE_BUDGET}) per DOCUMENT before further pages are left
  * as they were. The per-page budget alone let N pages cost N x 32 MiB (review
  * of l06, round 2: a 60 KB file of 50 pages, each 30 MB decoded, took 20 s).
  * 256 MiB = eight full page budgets. The legit corpus is pinned in the suite
  * to need under 4 MiB per document (64x headroom), and the worst case it
- * allows is measured there in a child process.
+ * allows is measured there in a child process (ordinary content, and the
+ * costliest scan shapes, which since round 3 are metered as work).
  */
 const ISOLATION_DOCUMENT_BUDGET = 256 * 1024 * 1024;
 
@@ -780,9 +834,13 @@ function scanAndRewrite(
     used += data.length + 1;
     if (used > limit) return skip("budget");
   }
-  doc.used += used;
   const joined = join(parts, used, true);
-  const { surplus, open, uncertain } = scanContentBalance(joined);
+  // The scan spends what decoding left of the same limit.
+  const meter: Meter = { left: limit - used };
+  const scan = meteredScan(joined, meter);
+  if (scan === "budget") return skip("budget");
+  doc.used += limit - meter.left;
+  const { surplus, open, uncertain } = scan;
   if (surplus.length === 0 && open === 0)
     return { outcome: { kind: "balanced" } };
   // Blanking rewrites the page's OWN content, so it is done only from a scan

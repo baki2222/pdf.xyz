@@ -14,6 +14,14 @@
 //                          `EI ` repeated: every one a candidate pdf.js tests
 //   isolate-distinct <pages> isolatePageContent on <pages> pages, each with
 //                          its OWN ~30 MB content stream with a surplus Q
+//   stamp-costly <shape> <pages>   (review-l06 round 3) addPageNumbers on
+//   isolate-costly <shape> <pages> <pages> DISTINCT pages of ~31 MiB decoded
+//                          each, in the costliest scan shapes: `dense` (one
+//                          inline image, then `EI ` repeated: every one a
+//                          candidate pdf.js tests) or `eiless` (`BI /L 1 ID x`
+//                          repeated). isolate-costly reports each outcome.
+//                          Optional 5th argument: KiB per page (default
+//                          31 MiB).
 import * as PdfLib from "pdf-lib";
 import { deflateSync } from "node:zlib";
 import { PDFDocument, PDFName } from "pdf-lib";
@@ -87,6 +95,30 @@ async function main() {
     }
     reportResult({ ms: Date.now() - t0, kinds });
     return;
+  } else if (mode === "stamp-costly" || mode === "isolate-costly") {
+    const pages = Number(process.argv[4]);
+    const size = Number(process.argv[5] ?? 31 * 1024) * 1024; // KiB
+
+    for (let i = 0; i < pages; i += 1) {
+      const [head, unit] =
+        arg === "dense"
+          ? [`%${i}\nQ 0.1 0 0 0.1 0 0 cm BI /L 1 ID `, "EI "]
+          : [`%${i}\nQ 0.1 0 0 0.1 0 0 cm\n`, IMAGE];
+      const body =
+        head + unit.repeat(Math.floor((size - head.length) / unit.length));
+      doc.addPage([612, 792]).node.set(PDFName.of("Contents"), raw(body));
+    }
+    if (mode === "isolate-costly") {
+      const loaded = await PDFDocument.load(await doc.save());
+      const t0 = Date.now();
+      const kinds: string[] = [];
+      for (const p of loaded.getPages()) {
+        const o = await isolatePageContent(p, PdfLib);
+        kinds.push(o.kind === "skipped" ? `skipped:${o.reason}` : o.kind);
+      }
+      reportResult({ ms: Date.now() - t0, kinds });
+      return;
+    }
   } else throw new Error(`no mode ${mode}`);
   reportResult(await stamp(doc));
 }
