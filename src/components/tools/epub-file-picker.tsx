@@ -16,11 +16,14 @@ export function EpubFilePicker({
   file,
   busy,
   onFile,
+  onMany,
 }: {
   tool: Tool;
   file: File | null;
   busy: boolean;
   onFile: (file: File | null) => void;
+  /** Two or more books dropped at once: the batch (batch plan P3). */
+  onMany: (files: File[]) => void;
 }) {
   return file ? (
     <ChosenFileTarget
@@ -45,12 +48,13 @@ export function EpubFilePicker({
     <Dropzone
       pageTarget
       refuse={(file) => pickRefusal(tool, file)}
-      onFiles={(files) => onFile(files[0] ?? null)}
+      onFiles={(files) =>
+        files.length > 1 ? onMany(files) : onFile(files[0] ?? null)
+      }
       accept="application/epub+zip,.epub"
-      multiple={false}
       compact
       title="Add an EPUB file, or"
-      hint="EPUB"
+      hint="One or more EPUB files"
     />
   );
 }
