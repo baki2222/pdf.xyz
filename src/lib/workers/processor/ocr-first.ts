@@ -20,7 +20,9 @@ export function ocrFirstMessages(name: string, noun: string) {
     unavailable: `Recognising text in scans needs OCR, which isn't available on this worker. Turn off “${WORD_OCR_LABEL}” to convert the selectable text alone. Nothing was converted.`,
     // CHANGED 2026-11-08 (audit pdf-to-word#3): "… Turn off “…” and convert
     // again." — the only way out until this panel had Redo existing OCR.
-    priorText: `This PDF already has a text layer, and the OCR engine would not add a second one. Turn on “Redo existing OCR” to replace a poor text layer, or turn off “${WORD_OCR_LABEL}” to convert the text it has. Nothing was converted.`,
+    // CHANGED again 2026-11-08: "Turn on “Redo existing OCR” to replace a
+    // poor text layer" — it does not replace every one (REDO_OCR_LAYER_OUTCOMES).
+    priorText: `This PDF already has a text layer, and the OCR engine would not add a second one. Turn on “Redo existing OCR” to have its pages read again, or turn off “${WORD_OCR_LABEL}” to convert the text it has. Nothing was converted.`,
     noText: `OCR ran, but found no text in this PDF to put in ${noun}. Check the languages you chose match the page. Nothing was converted.`,
     /** The upload itself is over the tool's ceiling — said before OCR runs. */
     tooLarge: (limit: number) =>

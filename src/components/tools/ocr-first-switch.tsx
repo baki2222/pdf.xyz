@@ -2,7 +2,7 @@
 
 import { useId, useState } from "react";
 import type { WorkerStatus } from "@/lib/workers/status";
-import { PDF_TO_WORD_OCR_LANGUAGE_CODES } from "@/lib/jobs/ocr";
+import { PDF_TO_WORD_OCR_LANGUAGE_CODES, REDO_OCR_SCOPE } from "@/lib/jobs/ocr";
 import { OcrLanguagePicker, useOcrLanguageChoice } from "./ocr-language-picker";
 
 /**
@@ -165,8 +165,8 @@ export function OcrFirstSwitch({
                   id={`${redoId}-hint`}
                   className="text-muted text-xs leading-relaxed"
                 >
-                  For a PDF whose earlier OCR text is poor: that text is removed
-                  and those pages are recognised again. Text typed into the
+                  For a PDF whose earlier OCR text is poor: those pages are
+                  recognised again. {REDO_OCR_SCOPE} Text typed into the
                   document is kept. Not with Straighten crooked pages.
                 </span>
               </span>

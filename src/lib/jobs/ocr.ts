@@ -207,15 +207,22 @@ export interface OcrOptions {
   /** What to produce (searchable PDF, text sidecar, or both). */
   outputMode: OcrOutputMode;
   /**
-   * Replace a PDF's existing OCR text layer instead of keeping it (OCRmyPDF
-   * `--redo-ocr`). Off by default.
+   * Recognize pages that already have OCR text again (OCRmyPDF
+   * `--redo-ocr`) instead of keeping them as they are. Off by default. Which
+   * old layers go and which stay beside the new text is
+   * {@link REDO_OCR_LAYER_OUTCOMES} (until 2026-11-08 this line promised to
+   * "Replace a PDF's existing OCR text layer", which is false of the layer
+   * OCRmyPDF itself adds).
    *
    * With it off, a page that already carries text is kept exactly as it is
    * (`--skip-text`) and only the pages without text are recognized — so a
    * scanner's "searchable PDF", a scan with a typed cover page, or an office
-   * export runs instead of aborting. Turning it on strips invisible OCR text and
-   * recognizes those pages again, while text typed into the document itself is
-   * kept. It never rasterizes a page (`--force-ocr` would, destroying vector
+   * export runs instead of aborting. Turning it on recognizes the pages with
+   * hidden OCR text again; it takes away only the old layers OCRmyPDF can
+   * detect, which is NOT the layer OCRmyPDF itself adds (see
+   * {@link REDO_OCR_LAYER_OUTCOMES} — until 2026-11-08 this said it "strips
+   * invisible OCR text"). Text typed into the document itself is kept. It
+   * never rasterizes a page (`--force-ocr` would, destroying vector
    * text). Image inputs have no text layer, so it does not apply to them.
    *
    * Replaced `skipTextPages` on 2026-09-27. That switch defaulted OFF and was
@@ -275,6 +282,55 @@ export interface OcrOptions {
  */
 export const OCR_DESKEW_WITH_REDO_MESSAGE =
   "“Straighten crooked pages” cannot be combined with “Redo existing OCR”. Turn one of them off. Nothing was processed.";
+
+/**
+ * Which earlier hidden text layers OCRmyPDF's `--redo-ocr` takes away, by the
+ * shape the layer is stored in. MEASURED 2026-11-08 in a throwaway container
+ * of the live worker image (OCRmyPDF 14.0.1), then pdftotext of the output:
+ *
+ *  - `tesseract`: invisible text drawn in the page's own content, with text
+ *    render mode 3 set INSIDE the `BT … ET` object — how Tesseract's PDF
+ *    renderer writes its layer. A Russian-language Tesseract layer of an
+ *    English scan came back as the English words alone: replaced.
+ *  - `ocrmypdf`: invisible text inside a Form XObject the page draws with
+ *    `Do` — how OCRmyPDF 14 grafts every layer it adds, and so how OCR PDF
+ *    saves a PDF's text. An OCRmyPDF layer read in Russian, redone in
+ *    English, came back with BOTH: two `/OCR-…` forms on the page, the
+ *    Cyrillic words beside the English. Kept.
+ *  - `mode-before-text`: invisible text in the page's content whose render
+ *    mode is set BEFORE `BT` (still in force, since `Tr` is graphics state).
+ *    The first wave-3 proof fixture had this shape, and production kept
+ *    every one of its words. Kept.
+ *
+ * Why: `strip_invisible_text` in OCRmyPDF's `_graft.py` walks the PAGE
+ * content stream only, resets the mode to 0 at every `BT`, and drops a text
+ * object only if a `3 Tr` appears inside it. `--help` says it "Attempt[s] to
+ * detect and remove the hidden OCR layer"; that word is load-bearing.
+ *
+ * {@link REDO_OCR_SCOPE} says this table to the reader, and
+ * `pnpm worker:ocr-redo-proof` (src/lib/workers/ocr-redo-proof.ts) checks
+ * every row against the image's real OCRmyPDF, so an engine upgrade that
+ * changes a row goes red there before the copy goes stale.
+ */
+export const REDO_OCR_LAYER_OUTCOMES = {
+  tesseract: "replaced",
+  ocrmypdf: "kept",
+  "mode-before-text": "kept",
+} as const satisfies Record<string, "replaced" | "kept">;
+export type RedoOcrLayerShape = keyof typeof REDO_OCR_LAYER_OUTCOMES;
+
+/**
+ * Exactly what “Redo existing OCR” takes away — {@link REDO_OCR_LAYER_OUTCOMES}
+ * in a reader's words. Shown in OCR PDF's panel, in the OCR-first panels
+ * (PDF to Word and the other conversions), and in their FAQs. Until
+ * 2026-11-08 those said "that text is removed and those pages are
+ * recognised again", which is true of one shape of three, and false of the
+ * layer our own OCR PDF writes. It names its subject ("Redo …") rather than
+ * opening on "It", so it reads right wherever it is placed (2026-11-08: in
+ * OCR PDF's FAQ an "It" sat after a sentence about typed text).
+ */
+export const REDO_OCR_SCOPE =
+  "Redo replaces hidden OCR text written the way Tesseract writes it. A layer added by OCRmyPDF, the engine our OCR PDF uses on PDFs, is kept, and the new text is added beside it. Other hidden text may be kept as well.";
 
 function invalid(message: string, field: string): ParseResult<never> {
   return {
