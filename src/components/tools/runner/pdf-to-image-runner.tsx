@@ -126,7 +126,7 @@ export function PdfToImageRunner({ format }: { format: RasterFormat }) {
   const label = format.toUpperCase();
   return (
     <SinglePdfRunner
-      hint={`One or more PDFs · each page you choose becomes a ${label} image, rendered locally in your browser`}
+      hint={`One or more PDFs · each page (or the pages you choose, for one file) becomes a ${label} image, rendered locally in your browser`}
       batch={format === "png" ? batchPng : batchJpg}
       handoffSlug={format === "png" ? "pdf-to-png" : "pdf-to-jpg"}
       toolName={`PDF to ${label}`}

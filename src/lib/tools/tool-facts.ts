@@ -434,7 +434,7 @@ function rasterFact(slug: string): ToolFact {
   const ext = rasterFormatForSlug(slug).toUpperCase();
   return {
     label: "Resolutions",
-    value: `${RASTER_RESOLUTION_CHOICES} — each page you choose becomes one ${ext} image, in ${orJoin(RASTER_COLORS.map((c) => c.label.toLowerCase()))}, rendered in your browser.`,
+    value: `${RASTER_RESOLUTION_CHOICES} — each page (or the pages you choose, for one file) becomes one ${ext} image, in ${orJoin(RASTER_COLORS.map((c) => c.label.toLowerCase()))}, rendered in your browser.`,
   };
 }
 

@@ -41,6 +41,7 @@ import {
   pageUseCases,
   stepText,
 } from "@/lib/tools/page-copy";
+import { toolFacts } from "@/lib/tools/tool-facts";
 import type { Tool } from "@/lib/tools/types";
 import {
   ownPanelModules,
@@ -123,6 +124,9 @@ function servedText(tool: Tool): string {
     ...pageUseCases(tool).flatMap((u) => [u.title, u.body]),
     ...pageSteps(tool).map(stepText),
     ...pageFaq(tool).flatMap((f) => [f.question, f.answer]),
+    // The facts table, served on the same page: missed until the review of
+    // P2 found "each page you choose" there as well as in the caption.
+    ...toolFacts(tool.slug).flatMap((f) => [f.label, f.value]),
   ].join("\n");
 }
 
@@ -351,6 +355,10 @@ const ONE_FILE_SHIPPED = [
   "One PDF · pages rasterized to grayscale locally in your browser",
   "One PDF · pulls out the images embedded in it, at their original resolution — all in your browser",
   "Drop a TXT file here, or",
+  // Review of P2 (2026-11-08): PDF to JPG and PNG promised a page choice
+  // that only the single-file editor has; the batch converts every page.
+  "One or more PDFs · each page you choose becomes a JPG image, rendered locally in your browser",
+  "Screen (96 DPI), High (150 DPI) or Print (300 DPI) — each page you choose becomes one PNG image, in colour or grayscale, rendered in your browser.",
 ];
 
 const ONE_FILE_BANS: { name: string; pattern: RegExp }[] = [
@@ -384,6 +392,12 @@ const ONE_FILE_BANS: { name: string; pattern: RegExp }[] = [
     pattern: /\b(?:Open|Drag|Drop) (?:one|a single) (?:PDF|file)\b/,
   },
   { name: "the one-file caption", pattern: /\bOne PDF ·/ },
+  // A page choice said of every run: a batch has none, it converts every
+  // page ("or the pages you choose, for one file" is the true form).
+  {
+    name: "each page you choose, said of every run",
+    pattern: /\beach page you choose becomes\b/i,
+  },
   // What the tool does, said of exactly one file ("every page of one PDF").
   {
     name: "every page of one file",

@@ -1410,7 +1410,7 @@ export const guides: Guide[] = [
       "save pdf pages as images",
     ],
     intro: [
-      "To convert a PDF to JPG, open the PDF to JPG tool — or PDF to PNG for lossless images — add your PDF, choose a resolution, and render. Each page you choose becomes its own image, drawn right in your browser. A single page downloads as one image; several pages arrive as one ZIP with an image for each page.",
+      "To convert a PDF to JPG, open the PDF to JPG tool — or PDF to PNG for lossless images — add your PDF, choose a resolution, and render. Each page (or the pages you choose, for one PDF) becomes its own image, drawn right in your browser. A single page downloads as one image; several pages arrive as one ZIP with an image for each page.",
       "The rendering happens on your own device. The tool draws each page with pdf.js, a PDF renderer bundled with the site, and encodes it in the browser, so your PDF stays on your device from start to finish. There is no account to create.",
       `That makes it a quick way to share a page in a chat or on a slide, to drop a page into a document that only takes images, or to show a PDF on a device with no viewer. Each PDF can be up to ${ceilingMb("pdf-to-jpg")} MB.`,
     ],
