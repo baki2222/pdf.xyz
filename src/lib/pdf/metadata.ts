@@ -122,11 +122,15 @@ const INFO_KEYS: Record<keyof PdfMetadata, string> = {
 
 async function loadUntouched(bytes: Uint8Array): Promise<PDFDocument> {
   const { PDFDocument } = await loadPdfLib();
+  let doc: PDFDocument;
   try {
-    return await PDFDocument.load(bytes, { updateMetadata: false });
+    doc = await PDFDocument.load(bytes, { updateMetadata: false });
   } catch (err) {
     throw await pdfLoadError(err, bytes);
   }
+  // The same page-tree check as `loadPdf` (`./page-tree`).
+  await (await import("./page-tree")).assertPageTree(doc);
+  return doc;
 }
 
 /** The trailer's Info dictionary, or `undefined` when the file has none. */

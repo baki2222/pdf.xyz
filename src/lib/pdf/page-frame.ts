@@ -278,6 +278,7 @@ export async function readPdfFrames(
       ignoreEncryption: true,
       updateMetadata: false,
     });
+    await (await import("./page-tree")).assertPageTree(doc);
     const frames = doc.getPages().map(visiblePageFrame);
     if (frames.length === 0) return null;
     return { frames, encrypted: doc.isEncrypted };

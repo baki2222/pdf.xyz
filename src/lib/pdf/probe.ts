@@ -91,6 +91,12 @@ export async function probePdf(
 
   // pdf-lib is lenient: a header and garbage parse into a document with no
   // page tree. That is a file no tool here can open, not a PDF of no pages.
+  // Nor is a tree with a cycle or a page pdf-lib could not parse: the same
+  // check every engine's loader makes (`./page-tree`) decides it here too.
+  const tree = await import("./page-tree").catch(() => null);
+  if (tree && !tree.settlePageTree(lib, doc).ok) {
+    return { read: "unreadable", ...NOTHING };
+  }
   const counted = pageCountFromDoc(doc);
   if (!counted.ok && counted.unknown === "unparseable") {
     return { read: "unreadable", ...NOTHING };

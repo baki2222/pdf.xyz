@@ -123,6 +123,8 @@ export async function extractPdfImages(
   } catch (err) {
     throw await pdfLoadError(err, pdfBytes);
   }
+  // The same page-tree check as `loadPdf` (`./page-tree`).
+  await (await import("./page-tree")).assertPageTree(doc);
   const pages = doc.getPages();
   const pageCount = pages.length;
 

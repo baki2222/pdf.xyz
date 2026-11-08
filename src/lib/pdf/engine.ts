@@ -65,11 +65,17 @@ export async function pdfLoadError(
  */
 export async function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
   const { PDFDocument } = await loadPdfLib();
+  let doc: PDFDocument;
   try {
-    return await PDFDocument.load(bytes);
+    doc = await PDFDocument.load(bytes);
   } catch (err) {
     throw await pdfLoadError(err, bytes);
   }
+  // pdf-lib "loads" files whose page tree it cannot walk (no catalog, a
+  // cycle, a page it could not parse): checked and settled here, once, so no
+  // engine meets a raw TypeError or a silently missing page (`./page-tree`).
+  await (await import("./page-tree")).assertPageTree(doc);
+  return doc;
 }
 
 /** Internal alias kept so existing call sites read the same as before. */
