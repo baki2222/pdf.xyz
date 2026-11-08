@@ -1,12 +1,24 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 import {
   DICT_SPAN_LIMIT,
+  FILE_BYTES_PER_ENTRY,
+  XREF_ENTRY_FLOOR,
   ZERO_WIDTH_ROW_LIMIT,
   prescanXref,
+  scanBudget,
+  xrefEntryLimit,
 } from "@/lib/pdf/xref-prescan";
 import { encryptPdf } from "@/tests/encrypted-pdf";
+import {
+  HUGE_ROWS,
+  flateRows,
+  indexEmptyString,
+  prevIndirectInteger,
+  recoveryPrev,
+} from "./xref-rows.fixtures";
 import {
   ONE_PAGE,
   concatBytes,
@@ -85,8 +97,11 @@ describe("SIB-03: the zero-width rule, at its bound and through the chain", () =
     );
   });
 
-  test("SIB-03: rows one byte wide are never refused, whatever the count", () => {
-    // pdf.js stops at the end of the data ("Invalid XRef byteWidths").
+  test("SIB-03: rows one byte wide over UNFILTERED data are never refused, whatever the count", () => {
+    // pdf.js stops at the end of the data ("Invalid XRef byteWidths"), and
+    // unfiltered data is no longer than the file. (History: this read
+    // "whatever the count" with no filter qualifier, and was false of a
+    // FlateDecode stream: see "the rows pdf.js walks" below.)
     for (const w of ["[1 0 0]", "[0 -1 1]", "[0 0 1.0]"])
       expect(
         prescanXref(
@@ -96,31 +111,58 @@ describe("SIB-03: the zero-width rule, at its bound and through the chain", () =
       ).toBe(false);
   });
 
-  test("SIB-03: a section reached by /Prev, with no /Type, is checked (and a /Prev written as a reference)", () => {
-    for (const asRef of [false, true]) {
-      const head = rawPdf({ objects: ONE_PAGE });
-      // An older section: a stream with no /Type, rows zero bytes wide.
-      const olderAt = head.length;
-      const older = latin1(
-        `9 0 obj\n<< /W [0 0 0] /Size 2147483647 /Length 0 >>\nstream\n\nendstream\nendobj\n`,
-      );
-      const tableAt = olderAt + older.length;
-      const prev = asRef ? `${olderAt} 0 R` : `${olderAt}`;
-      const tail = latin1(
-        `xref\n0 1\n0000000000 65535 f \ntrailer\n<< /Size 10 /Root 1 0 R /Prev ${prev} >>\nstartxref\n${tableAt}\n%%EOF\n`,
-      );
-      const bytes = concatBytes(head, older, tail);
-      expect(prescanXref(bytes).unbounded, `asRef ${asRef}`).toBe(true);
-      // Control: the same chain with rows one byte wide.
-      const fine = concatBytes(
-        head,
-        latin1(
-          `9 0 obj\n<< /W [1 0 0] /Size 2147483647 /Length 0 >>\nstream\n\nendstream\nendobj\n`,
-        ),
-        tail,
-      );
-      expect(prescanXref(fine).unbounded, `control asRef ${asRef}`).toBe(false);
-    }
+  test("SIB-03: a section reached by /Prev, with no /Type, is checked", () => {
+    const head = rawPdf({ objects: ONE_PAGE });
+    // An older section: a stream with no /Type, rows zero bytes wide.
+    const olderAt = head.length;
+    const older = latin1(
+      `9 0 obj
+<< /W [0 0 0] /Size 2147483647 /Length 0 >>
+stream
+
+endstream
+endobj
+`,
+    );
+    const tableAt = olderAt + older.length;
+    const tail = latin1(
+      `xref
+0 1
+0000000000 65535 f 
+trailer
+<< /Size 10 /Root 1 0 R /Prev ${olderAt} >>
+startxref
+${tableAt}
+%%EOF
+`,
+    );
+    expect(prescanXref(concatBytes(head, older, tail)).unbounded).toBe(true);
+    // Control: the same chain with rows one byte wide (unfiltered, so the
+    // walk ends with the stream's zero bytes).
+    const fine = concatBytes(
+      head,
+      latin1(
+        `9 0 obj
+<< /W [1 0 0] /Size 2147483647 /Length 0 >>
+stream
+
+endstream
+endobj
+`,
+      ),
+      tail,
+    );
+    expect(prescanXref(fine).unbounded).toBe(false);
+  });
+
+  // History: this test once also wrote `/Prev ${olderAt} 0 R` (a reference
+  // whose NUMBER is the offset) and passed because the scan pushed the
+  // reference's number. pdf.js never reads it that way: Dict.get resolves the
+  // reference, and the integer OBJECT is the offset. That pinned a branch
+  // pdf.js does not have and missed the one it does (review 2, attack d).
+  test("SIB-03: an indirect /Prev is read as pdf.js reads it: the integer object it names", () => {
+    expect(prescanXref(prevIndirectInteger(HUGE_ROWS)).unbounded).toBe(true);
+    expect(prescanXref(prevIndirectInteger(6)).unbounded).toBe(false);
   });
 
   test("SIB-03: a section dictionary that never closes is refused, not skipped", () => {
@@ -132,6 +174,97 @@ describe("SIB-03: the zero-width rule, at its bound and through the chain", () =
     });
     expect(prescanXref(bytes).unbounded).toBe(true);
   });
+});
+
+describe("SIB-03 (review 2): the rows pdf.js walks, by every route it reads", () => {
+  test("SIB-03: /Index written as an empty string is pdf.js's [0 /Size]", () => {
+    for (const spelling of ["()", "<>"] as const) {
+      expect(
+        prescanXref(indexEmptyString(spelling, HUGE_ROWS)).unbounded,
+        spelling,
+      ).toBe(true);
+      expect(
+        prescanXref(indexEmptyString(spelling, 6)).unbounded,
+        `control ${spelling}`,
+      ).toBe(false);
+    }
+  });
+
+  test("SIB-03: a section only a rebuild reaches (/Prev from a scanned /XRef stream) is checked", () => {
+    expect(prescanXref(recoveryPrev(HUGE_ROWS)).unbounded).toBe(true);
+    expect(prescanXref(recoveryPrev(6)).unbounded).toBe(false);
+  });
+
+  test("SIB-03: rows that each read a byte are bounded too, when a filter can make the bytes", () => {
+    // 20,000,000 rows over 20 MB of deflated zeros: a 19,887-byte file that
+    // peaked pdf.js at 3,312 MB.
+    const bomb = flateRows(20_000_000);
+    expect(bomb.length).toBeLessThan(40_000);
+    expect(prescanXref(bomb).unbounded).toBe(true);
+    // At the bound and one past it (a small file: the floor applies).
+    expect(xrefEntryLimit(1_000)).toBe(XREF_ENTRY_FLOOR);
+    expect(prescanXref(flateRows(XREF_ENTRY_FLOOR)).unbounded).toBe(false);
+    expect(prescanXref(flateRows(XREF_ENTRY_FLOOR + 1)).unbounded).toBe(true);
+  });
+
+  test("the entry bound grows with the file", () => {
+    expect(xrefEntryLimit(FILE_BYTES_PER_ENTRY * XREF_ENTRY_FLOOR * 4)).toBe(
+      4 * XREF_ENTRY_FLOOR,
+    );
+    expect(xrefEntryLimit(FILE_BYTES_PER_ENTRY * XREF_ENTRY_FLOOR - 1)).toBe(
+      XREF_ENTRY_FLOOR,
+    );
+  });
+
+  // Headroom, against the file-size term (the floor would hide it for files
+  // this small): real files spend far more than FILE_BYTES_PER_ENTRY bytes
+  // per entry, and lex far less than scanBudget. Measured 2026-11-08: the
+  // corpus's densest is 478 bytes an entry and its worst lexing 0.26 of the
+  // file; 5,000 pdf-lib pages packed in object streams, 94 bytes an entry,
+  // and 0.71 of the file lexed without object streams.
+  const headroom = (label: string, bytes: Uint8Array) => {
+    const scan = prescanXref(bytes);
+    expect(scan.unbounded, label).toBe(false);
+    if (scan.streams > 0) {
+      // Health check: a ledger that counted nothing passes any bound.
+      expect(scan.entries, label).toBeGreaterThan(0);
+      expect(bytes.length / scan.entries, label).toBeGreaterThan(
+        4 * FILE_BYTES_PER_ENTRY,
+      );
+    }
+    expect(scan.lexed, label).toBeGreaterThan(0);
+    expect(scan.lexed, label).toBeLessThan(
+      (scanBudget(bytes.length) - scanBudget(0)) / 4,
+    );
+    return scan;
+  };
+
+  test("the corpus sits far under both bounds", () => {
+    let streams = 0;
+    for (const f of FILES)
+      streams += headroom(
+        f,
+        new Uint8Array(readFileSync(path.join(DIR, f))),
+      ).streams;
+    // Positive control: the corpus does exercise the stream ledger.
+    expect(streams).toBeGreaterThanOrEqual(3);
+  });
+
+  test("a dense document sits under both bounds, in both layouts", async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    for (let i = 0; i < 5_000; i += 1)
+      doc
+        .addPage([200, 200])
+        .drawText(`p${i}`, { x: 10, y: 10, size: 8, font });
+    for (const useObjectStreams of [true, false]) {
+      const scan = headroom(
+        `objstm ${useObjectStreams}`,
+        await doc.save({ useObjectStreams }),
+      );
+      if (useObjectStreams) expect(scan.entries).toBeGreaterThan(10_000);
+    }
+  }, 60_000);
 });
 
 describe("SIB-09: the trailer pdf.js decrypts with", () => {
