@@ -53,5 +53,5 @@ export interface NamedBlob {
   blob: Blob;
 }
 
-/** One file of a ZIP: bytes, or a Blob read only when the archive is built. */
+/** One file of a ZIP: bytes, or a Blob, read (every one at once) as the archive is built. */
 export type ZipEntry = NamedBytes | NamedBlob;

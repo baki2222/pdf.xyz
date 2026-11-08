@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { uniqueEntryNames } from "./zip-archive";
+import { buildZip, uniqueEntryNames } from "./zip-archive";
 
 describe("uniqueEntryNames", () => {
   it("leaves names that are already distinct untouched", () => {
@@ -52,5 +52,40 @@ describe("uniqueEntryNames", () => {
     const out = uniqueEntryNames(names);
     expect(out).toHaveLength(names.length);
     expect(new Set(out.map((n) => n.toLowerCase())).size).toBe(names.length);
+  });
+});
+
+/**
+ * When a Blob entry's bytes are read: ALL of them, as `buildZip` is called,
+ * before the first entry is written (review of batch plan P0b). The module's
+ * comment once said "no copy is made before the archive is built", and
+ * nothing checked it; it was false. So the memory profile the comment now
+ * states is pinned here. JSZip keeps every entry's content for as long as the
+ * archive is being built, so a lazier read alone would not lower the peak:
+ * the fix that would is a writer that hands the archive the Blobs themselves.
+ * When one lands, this test is INVERTED (reads start one entry at a time),
+ * not deleted.
+ */
+describe("buildZip — Blob entries", () => {
+  it("starts reading every Blob before it returns: the copies coexist", async () => {
+    let reads = 0;
+    const entry = (name: string) => {
+      const blob = new Blob([name]);
+      const read = blob.arrayBuffer.bind(blob);
+      Object.defineProperty(blob, "arrayBuffer", {
+        value: () => {
+          reads += 1;
+          return read();
+        },
+      });
+      return { name, blob };
+    };
+    const archive = buildZip(
+      [entry("a.pdf"), entry("b.pdf"), entry("c.pdf")],
+      "STORE",
+    );
+    // Synchronously, before JSZip has written a byte.
+    expect(reads).toBe(3);
+    expect((await archive).size).toBeGreaterThan(0);
   });
 });

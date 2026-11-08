@@ -44,10 +44,18 @@ function withCopyNumber(name: string, copy: number): string {
 }
 
 /**
- * An entry's content as JSZip takes it. A Blob goes in as a PROMISE of its
- * bytes, which JSZip resolves as it writes that entry: no copy is made before
- * the archive is built, and no `FileReader` is needed (JSZip reads a raw Blob
- * through one, which Node and some workers do not have).
+ * An entry's content as JSZip takes it. A Blob goes in as a promise of its
+ * bytes, so no `FileReader` is needed (JSZip reads a raw Blob through one,
+ * which Node and some workers do not have).
+ *
+ * The memory this costs, stated plainly because it was once stated wrongly:
+ * the read is NOT lazy. `buildZip` starts `arrayBuffer()` on every Blob before
+ * JSZip writes the first entry, and JSZip keeps each entry's content until the
+ * archive is done. So while "Download all" builds a ZIP, the page holds every
+ * output twice (the Blobs a batch keeps, and a copy of each as an
+ * ArrayBuffer) plus the archive itself. Pinned in `zip-archive.test.ts`; a
+ * writer that puts the Blobs themselves into the archive is the change that
+ * would lower it.
  */
 function contentOf(entry: ZipEntry): Uint8Array | Promise<Uint8Array> {
   return "blob" in entry
