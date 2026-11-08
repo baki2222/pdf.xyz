@@ -22,6 +22,7 @@ import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared
 import JSZip from "jszip";
 import { useBatchRunner, type BatchUnit } from "../use-batch-runner";
 import { ZIP_FAILED_MESSAGE } from "../use-zip-download";
+import { BATCH_LIMITS } from "@/lib/batch/limits";
 import { BatchView } from "./batch-view";
 
 const router = {
@@ -82,8 +83,11 @@ const IMAGES: Record<string, number> = { r1: 2, r2: 2, e: 0, d1: 1, d2: 1 };
  * fail it (a ZIP that cannot be built).
  */
 let readHook: ((id: string) => Promise<ArrayBuffer>) | null = null;
+/** The size each image Blob reports, when set (a ZIP's input, without the bytes). */
+let sizeEach: number | null = null;
 afterEach(() => {
   readHook = null;
+  sizeEach = null;
 });
 function imageBlob(id: string, n: number): Blob {
   const blob = new Blob([`${id}:${n}`]);
@@ -91,6 +95,8 @@ function imageBlob(id: string, n: number): Blob {
   Object.defineProperty(blob, "arrayBuffer", {
     value: () => (readHook ? readHook(id) : read()),
   });
+  if (sizeEach !== null)
+    Object.defineProperty(blob, "size", { value: sizeEach });
   return blob;
 }
 
@@ -185,6 +191,55 @@ describe("BatchView — one folder per input", () => {
       "page-1.png": "r2:1",
       "page-2.png": "r2:2",
     });
+  });
+});
+
+/**
+ * What "Download all" may bundle. Building the ZIP holds every output twice
+ * over (the kept Blobs, each one's bytes, and the archive): measured at
+ * 375px on 2026-11-08, five ten-page Letter PDFs through PDF to PNG at
+ * 300 DPI made 808.6 MB of images and took the renderer's heap from 171.6
+ * to 1,631 MB while the archive built. Past the batch's own total
+ * (`BATCH_LIMITS.clientMaxTotalBytes`, what the batch holds its inputs to),
+ * the button is replaced by a note sending the reader to each row's own
+ * download, which bundles one file's outputs at a time.
+ */
+describe("BatchView — Download all has a ceiling on what it bundles", () => {
+  const cap = BATCH_LIMITS.clientMaxTotalBytes;
+  /** Four images in all (two rows of two) adding up to `total`. */
+  async function settleWith(total: number) {
+    sizeEach = total / 4;
+    render(
+      <AppRouterContext.Provider value={router as never}>
+        <Harness />
+      </AppRouterContext.Provider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Convert 3 PDFs" }));
+    return screen.findAllByRole("button", {
+      name: "Download the 2 images of report.pdf",
+    });
+  }
+
+  it("past it, Download all is replaced by a note sending the reader to each row", async () => {
+    const rows = await settleWith(cap + 4);
+    expect(screen.queryByRole("button", { name: /^Download all/ })).toBeNull();
+    const mb = Math.round(cap / 1024 / 1024);
+    expect(
+      screen.getByText((text) =>
+        text.includes(`more than one ZIP is built from here (${mb} MB)`),
+      ),
+    ).toHaveTextContent("Save each file's results from its own row.");
+    // The rows' own ZIPs are still there, and still work.
+    fireEvent.click(rows[0]!);
+    await waitFor(() => expect(downloads).toHaveLength(1));
+    expect(downloads[0]!.name).toBe("r1-images.zip");
+  });
+
+  it("control: at it exactly, Download all is offered", async () => {
+    await settleWith(cap);
+    expect(
+      screen.getByRole("button", { name: "Download all (2)" }),
+    ).toBeInTheDocument();
   });
 });
 

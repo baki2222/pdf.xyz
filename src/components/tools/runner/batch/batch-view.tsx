@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import type { BatchItem, BatchItemStatus, BatchProgress } from "@/lib/batch";
 import { announcesSettle } from "@/lib/batch/announce";
-import type { BatchRejection } from "@/lib/batch/limits";
+import { BATCH_LIMITS, type BatchRejection } from "@/lib/batch/limits";
 import { downloadBlob } from "@/lib/pdf/browser";
 import type { NamedBlob } from "@/lib/pdf/types";
 import { buttonVariants } from "@/components/ui/button";
@@ -269,6 +269,10 @@ export function BatchView<R>({
     () => files.map((file) => outputFile(file.blob, file.name)),
     [files],
   );
+  // What "Download all" would bundle. Past the batch's own total it is not
+  // offered (`ZIP_MAX_BYTES`): each row's download bundles one file at a time.
+  const outputBytes = files.reduce((sum, file) => sum + file.blob.size, 0);
+  const tooBigToZip = outputBytes > ZIP_MAX_BYTES;
   const inputBytes = downloadable.reduce(
     (sum, item) => sum + inputBytesOf(item.result),
     0,
@@ -612,7 +616,14 @@ export function BatchView<R>({
                   Retry failed ({progress.error})
                 </button>
               )}
-              {downloadable.length > 0 && (
+              {downloadable.length > 0 && tooBigToZip ? (
+                <p className="text-muted max-w-sm text-xs">
+                  These results add up to {Math.round(outputBytes / MIB)} MB,
+                  more than one ZIP is built from here (
+                  {Math.round(ZIP_MAX_BYTES / MIB)} MB). Save each file&apos;s
+                  results from its own row.
+                </p>
+              ) : downloadable.length > 0 ? (
                 <button
                   type="button"
                   // `aria-disabled`, not `disabled`, so zipping does not blur
@@ -637,7 +648,7 @@ export function BatchView<R>({
                     ? "Preparing ZIP…"
                     : `Download all (${downloadable.length})`}
                 </button>
-              )}
+              ) : null}
             </>
           )}
         </div>
@@ -658,6 +669,16 @@ export function BatchView<R>({
 const CONTROL = "min-h-11 sm:min-h-0";
 
 /** A row button: 44px on a phone, the old 32px from `sm` up. */
+const MIB = 1024 * 1024;
+/**
+ * The most "Download all" bundles: the batch's own total, what it holds its
+ * inputs to. Building a ZIP holds every output about twice over (the kept
+ * Blobs, each one's bytes, the archive); measured at 375px (2026-11-08),
+ * 808.6 MB of PNGs took the renderer from 171.6 MB to 1,631 MB, which no
+ * phone tab has. `batch-view-bundle.dom.test.tsx` holds both sides of it.
+ */
+const ZIP_MAX_BYTES = BATCH_LIMITS.clientMaxTotalBytes;
+
 const ROW_BUTTON =
   "text-muted hover:bg-wash hover:text-fg rounded-ctl grid size-11 shrink-0 place-items-center transition aria-disabled:cursor-not-allowed aria-disabled:opacity-40 sm:size-8";
 
