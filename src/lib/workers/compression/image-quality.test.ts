@@ -67,7 +67,29 @@ describe("nativeArgs: image quality", () => {
   it("the PostScript is built only from the table (no request text can reach it)", () => {
     for (const level of IMAGE_QUALITY_LEVELS) {
       expect(imageQualityDistillerParams(level.id)).toMatch(
-        /^[<>/A-Za-z0-9 .[\]]+ setdistillerparams$/,
+        /^[<>/A-Za-z0-9 .[\]{}]+ setpagedevice$/,
+      );
+    }
+  });
+
+  // INVERTED 2026-11-08. The first version set the level once, before the
+  // input, and the PR's in-image options proof (container run 42431179352)
+  // showed Ghostscript 10.00's PDF interpreter restoring the preset's
+  // dictionaries after page 1: a photo shared by two pages came back as TWO
+  // images (page 1 at the asked level, page 2 at /ebook's), so "Low" made the
+  // file BIGGER (11,791 B against Medium's 7,900 B). Measured in a throwaway
+  // container of the live worker image: re-setting the same dictionaries at
+  // every page start (a BeginPage procedure) keeps one image per picture,
+  // and Low then gives 6,871 B and Lowest 5,945 B.
+  it("re-applies the same dictionaries at the start of every page", () => {
+    for (const level of IMAGE_QUALITY_LEVELS) {
+      const ps = imageQualityDistillerParams(level.id);
+      const dicts = ps.match(/<< \/ColorACSImageDict .*? >> >>/g) ?? [];
+      // Once before the input, once inside BeginPage: the same text.
+      expect(dicts, ps).toHaveLength(2);
+      expect(dicts[0]).toBe(dicts[1]);
+      expect(ps).toContain(
+        `<< /BeginPage { pop ${dicts[1]} setdistillerparams } >> setpagedevice`,
       );
     }
   });
