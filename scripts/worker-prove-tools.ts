@@ -122,7 +122,10 @@ import {
   redoDocxVerdict,
   uprightDocxVerdict,
 } from "@/lib/workers/pdf-office-export/ocr-first-proof";
-import { withStaleOcrLayer } from "@/lib/workers/ocr-redo-proof";
+import {
+  redoTextVerdict,
+  withStaleOcrLayer,
+} from "@/lib/workers/ocr-redo-proof";
 import { OCR_REFUSAL_MESSAGES } from "@/lib/workers/ocr-engine-errors";
 
 import {
@@ -954,6 +957,28 @@ function redoWant(outcome: string): "replaced" | "beside" {
   return outcome === "replaced" ? "replaced" : "beside";
 }
 
+/** The `want` line of a Redo case, from the same row as its verdict. */
+function redoWantText(outcome: string): string {
+  return redoWant(outcome) === "replaced"
+    ? "DOCX with the scan's words and not the earlier layer's"
+    : "DOCX with the scan's words beside the earlier layer's";
+}
+
+/**
+ * The want of an OCR PDF Redo case's text verdict, from its table row:
+ * replaced, or (redoTextVerdict's "kept") the new words beside the old.
+ */
+function redoTextWant(outcome: string): "replaced" | "kept" {
+  return outcome === "replaced" ? "replaced" : "kept";
+}
+
+/** The `want` line of an OCR PDF Redo case, from the same row as its verdict. */
+function redoPdfWantText(outcome: string): string {
+  return redoTextWant(outcome) === "replaced"
+    ? "searchable PDF with the scan's words and not the earlier layer's"
+    : "searchable PDF with the scan's words beside the earlier layer's";
+}
+
 /** A pattern matching exactly `text`: the user-facing message, whole. */
 function exactly(text: string): RegExp {
   return new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
@@ -1165,6 +1190,33 @@ const SPECS: ProofSpec[] = [
     // file; the pure-scan `imagePdf` proof above can never hit it. The same
     // verdict runs through real poppler in `ocr-native.test.ts`.
     verify: (bytes) => mixedSidecarVerdict(bytes),
+  },
+  // Redo existing OCR in OCR PDF itself (review 2026-11-08): the most
+  // direct path the copy describes, a PDF OCR PDF already made searchable
+  // (OCRmyPDF's own form layer) redone in OCR PDF. Judged by pdf.js's text
+  // of the searchable PDF, which holds every layer a reader gets, not by the
+  // .txt sidecar, which carries what this run recognised. The want comes
+  // from the same table row as pdf-to-word's twin, so an image without the
+  // pre-pass FAILS here.
+  {
+    tool: "ocr-pdf",
+    label: "ocr-pdf (redo, an earlier OCRmyPDF layer)",
+    make: async () => withStaleOcrLayer(await scannedTextPdf(), "ocrmypdf"),
+    name: "ocrmypdf-layer.pdf",
+    type: PDF_MIME,
+    options: {
+      languages: ["eng"],
+      outputMode: "searchable-pdf",
+      redoOcr: true,
+    },
+    expect: isPdf,
+    want: redoPdfWantText(REDO_OCR_LAYER_OUTCOMES.ocrmypdf),
+    verify: async (bytes) =>
+      redoTextVerdict(
+        await pdfPlainText(bytes),
+        SCANNED_LINE,
+        redoTextWant(REDO_OCR_LAYER_OUTCOMES.ocrmypdf),
+      ),
   },
   // "Straighten crooked pages" (2026-11-01, #262). The pair is the proof:
   // ON must come back level, and OFF — the same scan, the same path — must
@@ -2051,9 +2103,11 @@ const SPECS: ProofSpec[] = [
     // CHANGED 2026-11-08: the first fixture set `3 Tr` BEFORE its BT, a
     // layer OCRmyPDF 14's --redo-ocr does not strip, so this case failed on
     // a correct product (#290 has the investigation). It now carries the
-    // shape Tesseract writes, which Redo replaces; the case below carries
-    // OCRmyPDF's own layer, which it keeps. Both wants come from the one
-    // outcome table, so if a worker upgrade flips a row, its case flips.
+    // shape Tesseract writes; the cases below carry OCRmyPDF's own layer and
+    // the mode-before-text shape. Since the worker's pre-pass
+    // (src/lib/workers/strip-invisible-text.ts) Redo replaces all three.
+    // Every want comes from the one outcome table, so if a row flips, its
+    // case flips.
     make: async () => withStaleOcrLayer(await scannedTextPdf(), "tesseract"),
     name: "stale-ocr.pdf",
     type: PDF_MIME,
@@ -2067,20 +2121,40 @@ const SPECS: ProofSpec[] = [
         redoWant(REDO_OCR_LAYER_OUTCOMES.tesseract),
       ),
   },
+  // CHANGED 2026-11-08: labelled "redo keeps an earlier OCRmyPDF layer"
+  // while OCRmyPDF kept it; a worker image from before the pre-pass FAILS
+  // these two now, which is the point: they prove the deployed worker.
   {
     tool: "pdf-to-word",
-    label: "pdf-to-word (ocr, redo keeps an earlier OCRmyPDF layer)",
+    label: "pdf-to-word (ocr, redo, an earlier OCRmyPDF layer)",
     make: async () => withStaleOcrLayer(await scannedTextPdf(), "ocrmypdf"),
     name: "ocrmypdf-layer.pdf",
     type: PDF_MIME,
     options: { ocr: true, languages: ["eng"], redoOcr: true },
     expect: isZipContainer,
-    want: "DOCX with the scan's words beside the earlier layer's, as the copy says",
+    want: redoWantText(REDO_OCR_LAYER_OUTCOMES.ocrmypdf),
     verify: (bytes) =>
       redoDocxVerdict(
         new Uint8Array(bytes),
         SCANNED_LINE,
         redoWant(REDO_OCR_LAYER_OUTCOMES.ocrmypdf),
+      ),
+  },
+  {
+    tool: "pdf-to-word",
+    label: "pdf-to-word (ocr, redo, mode set before text)",
+    make: async () =>
+      withStaleOcrLayer(await scannedTextPdf(), "mode-before-text"),
+    name: "mode-before-text.pdf",
+    type: PDF_MIME,
+    options: { ocr: true, languages: ["eng"], redoOcr: true },
+    expect: isZipContainer,
+    want: redoWantText(REDO_OCR_LAYER_OUTCOMES["mode-before-text"]),
+    verify: (bytes) =>
+      redoDocxVerdict(
+        new Uint8Array(bytes),
+        SCANNED_LINE,
+        redoWant(REDO_OCR_LAYER_OUTCOMES["mode-before-text"]),
       ),
   },
   {
