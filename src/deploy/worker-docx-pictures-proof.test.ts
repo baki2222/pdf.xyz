@@ -250,10 +250,56 @@ describe("the production proof asks PDF to Word about its picture, and LibreOffi
     );
     for (const name of ["scannedDocxVerdict", "scannedTextPdf"])
       expect(importsOf(file).get(name)).toBe("@/tests/word-ocr-proof-fixtures");
-    // Control: every pdf-to-word spec is either the pictures one or this.
+    // Control: every pdf-to-word spec is the pictures one, this, or one of
+    // the OCR page-choice proofs (asserted below). Until 2026-11-08 it was
+    // "the pictures one or this"; wave 3 added Turn pages upright,
+    // Straighten and Redo existing OCR, each an ON/OFF pair.
     expect(specs.filter((s) => str(s, "tool") === "pdf-to-word").length).toBe(
-      picturesSpecs().length + ocr.length,
+      picturesSpecs().length + ocr.length + pageChoiceSpecs().length,
     );
+  });
+
+  // Wave 3 (audit pdf-to-word#3): each OCR page choice is proven by an ON
+  // spec and its OFF control, judged by `ocr-first-proof.ts` on the DOCX.
+  const pageChoiceSpecs = () =>
+    specs.filter(
+      (s) =>
+        str(s, "tool") === "pdf-to-word" &&
+        /^pdf-to-word \(ocr, (upright|deskew|redo)( off control)?\)$/.test(
+          str(s, "label") ?? "",
+        ),
+    );
+
+  it("each OCR page choice has an ON spec and an OFF control, judged on the DOCX by the shared verdict", () => {
+    const choices = [
+      ["upright", "rotatePages", "uprightDocxVerdict"],
+      ["deskew", "deskew", "deskewDocxVerdict"],
+      ["redo", "redoOcr", "redoDocxVerdict"],
+    ] as const;
+    // Health: the set is the six it claims, so "each" below is not vacuous.
+    expect(pageChoiceSpecs()).toHaveLength(choices.length * 2);
+    for (const [tag, option, verdict] of choices) {
+      for (const [suffix, value] of [
+        ["", "true"],
+        [" off control", "false"],
+      ] as const) {
+        const label = `pdf-to-word (ocr, ${tag}${suffix})`;
+        const found = specs.filter((s) => str(s, "label") === label);
+        expect(found, label).toHaveLength(1);
+        const options = prop(found[0]!, "options")?.initializer.getText(file);
+        expect(options, label).toMatch(/\bocr:\s*true\b/);
+        expect(options, label).toMatch(
+          new RegExp(`\\b${option}:\\s*${value}\\b`),
+        );
+        expect(
+          prop(found[0]!, "verify")?.initializer.getText(file),
+          label,
+        ).toMatch(new RegExp(`\\b${verdict}\\(`));
+      }
+      expect(importsOf(file).get(verdict)).toBe(
+        "@/lib/workers/pdf-office-export/ocr-first-proof",
+      );
+    }
   });
 
   it("the pdf-to-word spec sends the Word proof PDF and verifies the picture", () => {
