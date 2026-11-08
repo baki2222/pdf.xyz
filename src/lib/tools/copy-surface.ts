@@ -280,6 +280,9 @@ export function copyFiles(): string[] {
     // The worker batch's words about our server (2026-11-08, batch plan
     // P3): when a file uploads, how long anything stays, the hourly jobs.
     path.join(ROOT, "src", "lib", "batch", "worker-copy.ts"),
+    // Protect's and Unlock's batch (2026-11-09, batch plan P4): the rows a
+    // file left out gets, the retry, and the tool pages' password sentence.
+    path.join(ROOT, "src", "lib", "batch", "security-copy.ts"),
     // JPG / PNG to PDF's Max file size (2026-10-31): labels, hint, outcome
     // lines, and the browser re-encoder's error messages.
     path.join(ROOT, "src", "lib", "pdf", "image-size-limit.ts"),

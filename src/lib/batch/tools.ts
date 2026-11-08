@@ -47,8 +47,8 @@ export const TEXT_BATCH_TOOLS = {
 } as const satisfies Record<string, { zipName: `pdfxyz-${string}.zip` }>;
 
 /**
- * The worker tools' batches (batch plan P3), through
- * `runner/batch/worker-batch-runner.tsx`: each file is one of today's
+ * The worker tools' batches (batch plan P3, and P4's Protect and Unlock),
+ * through `runner/batch/worker-batch-runner.tsx`: each file is one of today's
  * single jobs on our server, one after another, at
  * `BATCH_LIMITS.workerMaxFiles`. `noun` names what the tool takes, as the
  * Run button and the limits sentence say it ("Convert 3 documents").
@@ -102,6 +102,18 @@ export const WORKER_BATCH_TOOLS = {
   "pdf-to-powerpoint": {
     zipName: "pdfxyz-powerpoint.zip",
     verb: "Export",
+    noun: ["PDF", "PDFs"],
+  },
+  // Batch plan P4: one password (and, for Protect, one set of permissions)
+  // for every file, through `runner/batch/security-batch.tsx`.
+  "protect-pdf": {
+    zipName: "pdfxyz-protected.zip",
+    verb: "Protect",
+    noun: ["PDF", "PDFs"],
+  },
+  "unlock-pdf": {
+    zipName: "pdfxyz-unlocked.zip",
+    verb: "Unlock",
     noun: ["PDF", "PDFs"],
   },
 } as const satisfies Record<
