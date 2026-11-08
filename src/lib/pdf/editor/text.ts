@@ -134,7 +134,7 @@ export const CSS_FONT_STACK: Record<EditorFont, string> = {
     '"Courier New", Courier, "Liberation Mono", "Nimbus Mono PS", "Cousine", monospace',
 };
 
-const STANDARD_FACES: readonly StandardFace[] = [
+export const STANDARD_FACES: readonly StandardFace[] = [
   "sans",
   "sans-bold",
   "sans-oblique",

@@ -37,6 +37,7 @@ export const OCRMYPDF_EXIT_CODES = {
 /** The document-level refusals, each with its own next step. */
 export const OCR_REFUSAL_KINDS = [
   "encrypted",
+  "restricted",
   "prior-text",
   "signed",
   "unreadable",
@@ -50,6 +51,8 @@ export type OcrRefusalKind = (typeof OCR_REFUSAL_KINDS)[number];
 export const OCR_REFUSAL_MESSAGES: Record<OcrRefusalKind, string> = {
   encrypted:
     "This PDF is password-protected, so OCR can't read it. Remove the password with Unlock PDF, then run OCR again. Nothing was processed.",
+  restricted:
+    "This PDF opens without a password, but its author encrypted it with restrictions, and OCR can't add a text layer to an encrypted file without removing them. Unlock PDF removes them with the owner (permissions) password that set them; then run OCR again. Nothing was processed.",
   "prior-text":
     "This PDF already has a text layer, and the OCR engine would not add a second one. Turn on “Redo existing OCR” to replace a poor text layer. Nothing was processed.",
   signed:
@@ -79,11 +82,25 @@ const SIGNED = /digital signature/i;
 const TAGGED = /tagged pdf/i;
 
 /**
+ * What the worker read from the uploaded file itself. OCRmyPDF's exit 8 is
+ * ANY encryption, including a PDF that opens in every viewer and only
+ * carries its author's restrictions; until 2026-11-08 that file was told it
+ * was "password-protected" (audit ocr-pdf#4). `null`: the file could not be
+ * asked, and the message true of both is used.
+ */
+export interface OcrFailureContext {
+  opensWithoutPassword: boolean | null;
+}
+
+/**
  * Classify a rejected OCRmyPDF `execFile` call. Returns the refusal kind when
  * the failure belongs to the document, or `null` when it belongs to the run
  * (and so stays retryable).
  */
-export function classifyOcrmypdfFailure(error: unknown): OcrRefusalKind | null {
+export function classifyOcrmypdfFailure(
+  error: unknown,
+  context?: OcrFailureContext,
+): OcrRefusalKind | null {
   if (typeof error !== "object" || error === null) return null;
   const { code, killed, signal, stderr } = error as {
     code?: unknown;
@@ -99,7 +116,9 @@ export function classifyOcrmypdfFailure(error: unknown): OcrRefusalKind | null {
   const text = typeof stderr === "string" ? stderr : "";
   switch (code) {
     case OCRMYPDF_EXIT_CODES.encryptedPdf:
-      return "encrypted";
+      return context?.opensWithoutPassword === true
+        ? "restricted"
+        : "encrypted";
     case OCRMYPDF_EXIT_CODES.alreadyDoneOcr:
       return "prior-text";
     case OCRMYPDF_EXIT_CODES.inputFile:

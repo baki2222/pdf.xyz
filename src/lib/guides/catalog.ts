@@ -17,6 +17,11 @@
  */
 import { getToolBySlug } from "@/lib/tools";
 import { STAMP_POSITIONS } from "@/lib/pdf/stamp";
+import { SIGNATURE_INKS } from "@/lib/pdf/editor/signature-ink";
+import {
+  REPEAT_TARGETS,
+  REPEAT_TARGET_LABEL,
+} from "@/lib/pdf/editor/repeat-on-pages";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { MAX_IMAGE_MB, MAX_SOURCE_MB } from "@/lib/tools/limits";
 import {
@@ -212,6 +217,16 @@ import {
   MAX_PAGE_SIDE_PT,
   imagePageLayout,
 } from "@/lib/pdf/image-page-layout";
+import { A4_SCAN_SETUP_COPY, IGNORED_DPI_COPY } from "@/lib/pdf/image-density";
+import {
+  SMALL_IMAGES_CHOICES,
+  SMALL_IMAGES_LABELS,
+} from "@/lib/pdf/image-enlarge";
+
+/** "Enlarge to fit", the Small images choice that scales an image up. */
+const ENLARGE_LABEL = SMALL_IMAGES_CHOICES.find(
+  (c) => c.id === "enlarge",
+)!.label;
 import { RETENTION_WINDOWS } from "@/lib/retention-windows";
 import { OCR_START_SENTENCE } from "@/lib/jobs/ocr-start-copy";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
@@ -329,6 +344,10 @@ import type { Guide } from "./types";
  * style and naming a "print-and-scan style" the runner does not have.
  */
 const signatureWays = countWord(SIGNATURE_SOURCES.length);
+/** Sign PDF's ink swatches, as the panel names them (audit sign-pdf#2). */
+const signatureInks = new Intl.ListFormat("en", { type: "disjunction" }).format(
+  SIGNATURE_INKS.map((i) => i.label),
+);
 
 /** Compress PDF's Target size presets, labelled as its panel labels them. */
 const TARGET_PRESET_LABELS = TARGET_SIZE_PRESETS.map((p) => p.label);
@@ -1007,7 +1026,7 @@ export const guides: Guide[] = [
       "Open the Split PDF tool.",
       "Pick the PDF you want to split — it stays on your device the whole time.",
       "Choose a split mode: custom page ranges, every N pages, one file per page, by file size, by bookmarks or by text.",
-      "Define the split: for ranges, list the page spans that should become separate files; for the every-N-pages rule, set how many pages each piece should hold. One file per page splits at every page boundary — each page of the document becomes its own PDF. For by text, type the word or phrase that marks where each new file should start.",
+      "Define the split: for ranges, list the page spans that should become separate files, or press the scissors under a page's thumbnail to cut after it; for the every-N-pages rule, set how many pages each piece should hold. One file per page splits at every page boundary — each page of the document becomes its own PDF. For by text, type the word or phrase that marks where each new file should start.",
       "Run the split — the processing happens in your browser, not on a server.",
       "Download the result. When there is more than one piece they arrive together as a ZIP, and a single piece saves as a plain PDF. Every piece is a complete, standard PDF.",
     ],
@@ -1070,7 +1089,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-11-07",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-compress-a-pdf",
@@ -1360,7 +1379,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-11-07",
+    updated: "2026-11-08",
   },
   {
     // ONE guide for the intent, from two lanes: L07 wrote this slug for the
@@ -1393,7 +1412,7 @@ export const guides: Guide[] = [
       "Open the PDF to JPG tool, or PDF to PNG for lossless images.",
       "Add your PDF. It is read in your browser, and the file stays on your device.",
       `Under Resolution, pick ${RASTER_RESOLUTION_CHOICES}.`,
-      `Under Pages, keep All pages, or click Select pages and type the pages you want, such as 1-3, 5. Under Colour, keep ${PNG_COLOUR} or pick ${PNG_GRAY}.`,
+      `Under Pages, keep All pages, or click Select pages and type the pages you want, such as 1-3, 5, or press them on the thumbnails drawn below the box. Under Colour, keep ${PNG_COLOUR} or pick ${PNG_GRAY}.`,
       "Render the pages. A progress count shows each page as it is drawn.",
       `Download the result: a single page saves as one image, and several pages save as one ZIP with an image for each page. Each of the first ${RASTER_PREVIEW_LIMIT} pages can also be saved on its own from its preview.`,
     ],
@@ -1466,7 +1485,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-11-07",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-rotate-a-pdf",
@@ -1865,7 +1884,9 @@ export const guides: Guide[] = [
       "Pick the PDF you need to sign — the file stays on your device the entire time.",
       "Create your signature: draw it, type it, or pick a signature image you already have.",
       `If you type it, pick the look: ${signatureStyles.join(" or ")} style.`,
+      `If you draw or type it, pick the ink: ${signatureInks}. Blue ink makes the original easy to tell from a copy.`,
       "Place the signature exactly where the document needs it — the tool is built for precise placement.",
+      `Need it on more than one page, such as initials on every page of a contract? Select what you placed and use Repeat on: ${new Intl.ListFormat("en", { type: "disjunction" }).format(REPEAT_TARGETS.map((t) => REPEAT_TARGET_LABEL[t]))}. Each copy lands at the same spot.`,
       "Export your signed PDF and save it to your device.",
     ],
     sections: [
@@ -1927,7 +1948,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-10-24",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-make-a-scanned-pdf-searchable",
@@ -2236,7 +2257,7 @@ export const guides: Guide[] = [
         id: "selecting-pages",
         heading: "Three ways to select pages",
         body: [
-          "Clicking a thumbnail selects that page, and clicking it again deselects it. Holding Shift while you click selects every page between the one you touched last and this one — the quick way to clear out a run of pages at the end of a scan.",
+          "Clicking a thumbnail selects that page, and clicking it again deselects it. Holding Shift while you click selects every page between the one you touched last and this one — the quick way to clear out a run of pages at the end of a scan. When a thumbnail is too small to tell a blank page or a repeat from its neighbours, the enlarge button in the tile's top corner opens the page large, with Previous page and Next page to step through and Select page to mark it.",
           `Typing is faster in a long document. Enter single pages and ranges separated by commas — 1-3, 5 selects pages one to three and page five — and press Select. A range can be left open: 10- runs from page ten to the end. To delete every other page, press Even pages for 2, 4, 6 and so on, or Odd pages for 1, 3, 5 and so on.`,
           "Select all, Clear, Invert, Odd pages and Even pages work on the whole selection. Invert flips it — every selected page becomes unselected and every other page becomes selected — which helps when it is easier to pick the pages you want to keep.",
         ],
@@ -2283,7 +2304,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-11-07",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-convert-markdown-to-pdf",
@@ -3019,8 +3040,8 @@ export const guides: Guide[] = [
       `Open the ${nameOf("crop-pdf")} tool and drag your PDF into the drop area, or click it to choose the file. It stays on your device.`,
       `In the Crop margins section, choose Uniform for one All sides slider, or Per side for separate Top, Right, Bottom and Left sliders, and pick ${CROP_UNITS} as the unit. You can drag a slider or type a value in the box beside it.`,
       "For automatic margins, choose Auto and press Find white margins. The tool says how many pages it found content on and names any blank page, which it leaves uncropped.",
-      "In the Pages section, keep All pages, or choose Selected pages and type a list such as 2-4, 7.",
-      "Check the Crop preview, then press Crop PDF and Download cropped PDF.",
+      "In the Pages section, keep All pages, choose Odd pages or Even pages, or choose Selected pages and type a list such as 2-4, 7.",
+      "Check the Crop preview, which draws each page under a dashed box, with Previous page and Next page to step through them; in Uniform and Per side you can drag the box's edges to set the margins by eye. Then press Crop PDF and Download cropped PDF.",
     ],
     sections: [
       {
@@ -3075,7 +3096,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-29",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-convert-pdf-to-excel",
@@ -3543,11 +3564,11 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I extract images from a password-protected PDF?",
-        answer: `Not while it is encrypted: any encryption makes the file fail to open here, even when it only limits printing or copying. ${nameOf("unlock-pdf")} can remove the encryption with a password you know; it runs on a secure server, not in your browser.`,
+        answer: `Not one that needs a password to open: it is refused until ${nameOf("unlock-pdf")} removes that password, which runs on a secure server, not in your browser. A PDF that opens without a password but whose author restricted it opens here when its author allows copying its content, and its images are read in your browser; if the author withholds that, only the owner password lifts it.`,
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-30",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-reorder-pages-in-a-pdf",
@@ -3828,7 +3849,7 @@ export const guides: Guide[] = [
       `Under New page size, pick ${RESIZE_SIZE_NAMES}, or pick Custom and type a Width and Height in ${RESIZE_UNITS}.`,
       `Under Orientation, keep ${RESIZE_MATCH} so each page stays portrait or landscape as it was, or choose ${RESIZE_FIXED_ORIENTATIONS} for every page.`,
       `Under How to resize, choose ${RESIZE_FIT} or ${RESIZE_CANVAS}.`,
-      "Under Pages, keep All pages, or choose Selected pages and type a list such as 1-3, 5.",
+      "Under Pages, keep All pages, or choose Selected pages and type a list such as 1-3, 5, or press the pages on the thumbnails below the box, each labelled with its size.",
       "Press Resize PDF, then Download resized PDF. The copy is named after yours, with -resized added.",
     ],
     sections: [
@@ -3883,7 +3904,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-30",
-    updated: "2026-10-30",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-print-multiple-pages-per-sheet",
@@ -4252,7 +4273,7 @@ export const guides: Guide[] = [
         id: "page-size",
         heading: "Page size and orientation",
         body: [
-          `A ${TIFF} records how large it was on paper, as its resolution in dots per inch, and each page is laid out at that size. With ${TIFF_FIT} under Page size and ${TIFF_NO_MARGIN} under Margin, a scan of an A4 sheet becomes an A4 page. On a paper size, a page larger than the space inside the margin is shrunk to fit, and a smaller one is never enlarged. A page that records no usable resolution is laid out at one pixel per point, as JPG and PNG images are.`,
+          `A ${TIFF} records how large it was on paper, as its resolution in dots per inch, and each page is laid out at that size. With ${TIFF_FIT} under Page size and ${TIFF_NO_MARGIN} under Margin, a scan of an A4 sheet becomes an A4 page. On a paper size, a page larger than the space inside the margin is shrunk to fit, and a smaller one keeps its size unless you choose ${ENLARGE_LABEL} under ${SMALL_IMAGES_LABELS.heading}. A page that records no usable resolution is laid out at one pixel per point. Under ${TIFF_FIT}, JPG and PNG images now follow the same rule, laid out at the resolution they record unless it is ${IGNORED_DPI_COPY}.`,
           `A ${TIFF} page's Orientation tag is read and applied, so a page saved sideways with that tag comes out upright, its pixels left as they are. If a page is still sideways, the scanner saved the wrong tag or none, and ${nameOf("rotate-pdf")} can turn that page.`,
         ],
       },
@@ -4283,7 +4304,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-11-06",
-    updated: "2026-11-06",
+    updated: "2026-11-08",
   },
   // Added 2026-10-31 with the deep step's Target size. Every label is read
   // from the panel's constants (`compress-target.ts`, `offered-kinds.ts`),
@@ -5103,7 +5124,7 @@ export const guides: Guide[] = [
       `Open the ${nameOf("pdf-to-png")} tool.`,
       "Drop your PDF on the panel that says “Drop your PDF here, or browse”, or click it to choose the file. Its name, page count and size appear once it has loaded.",
       `Under Resolution, pick ${RASTER_RESOLUTION_CHOICES}.`,
-      `Under Pages, keep All pages, or click Select pages and type the pages you want, such as 1-3, 5. Under Colour, keep ${PNG_COLOUR} or pick ${PNG_GRAY}.`,
+      `Under Pages, keep All pages, or click Select pages and type the pages you want, such as 1-3, 5, or press them on the thumbnails drawn below the box. Under Colour, keep ${PNG_COLOUR} or pick ${PNG_GRAY}.`,
       "Press the Render button. It counts the pages it will draw, so it reads Render 3 pages when three are chosen, and a progress count follows each page.",
       `Press Download PNG for a single page, or Download ZIP when there are several. Each of the first ${RASTER_PREVIEW_LIMIT} pages also has its own download button on its preview.`,
     ],
@@ -5166,7 +5187,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-07",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-convert-pdf-to-text",
@@ -5336,17 +5357,17 @@ export const guides: Guide[] = [
       },
       {
         question: "Does it work on password-protected PDFs?",
-        answer: `No. Any encrypted PDF is turned away when you choose it, including one that opens without a password but restricts printing or copying, and the message says which lock it has. ${nameOf("unlock-pdf")} removes the encryption if you give it the password, but it runs on our secure server; bring the unlocked copy back here.`,
+        answer: `Yes, with its password. An encrypted PDF is turned away when you choose it, and the message says which lock it has; under it, a password field checks the password in your browser, against the file itself, and it never leaves your device. The grayscale copy has no password or encryption, so the password that opens the file is enough only when its author restricts nothing else; otherwise, including a file that opens without a password but carries its author's restrictions, it takes the owner password.`,
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-07",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-highlight-text-in-a-pdf",
     title: "How to highlight text in a PDF",
     description:
-      "Drag a highlight over the words on a PDF page, set its colour and opacity, then flatten it into the page or keep it as a comment. It runs in your browser.",
+      "Select words on a PDF page to highlight them, set the colour and opacity, then flatten the highlight into the page or keep it as a comment. It runs in your browser.",
     tools: ["annotate-pdf", "edit-pdf", "redact-pdf"],
     keywords: [
       "how to highlight text in a pdf",
@@ -5357,14 +5378,14 @@ export const guides: Guide[] = [
       "mark up a pdf",
     ],
     intro: [
-      `To highlight text in a PDF, open ${nameOf("annotate-pdf")}, add your PDF, and drag across the words you want to mark. Highlight is already chosen when the pages appear, and a see-through yellow bar lands where you drag. Press Apply & download when you are done, and the marked copy downloads.`,
-      "A highlight here is a rectangle you draw over the words, not a selection of the text itself, so you decide how much it covers: half a line, or a whole paragraph in one drag. If you save it as a comment rather than into the page, it is fitted to the lines of text under it, the way a PDF viewer's own highlight looks.",
+      `To highlight text in a PDF, open ${nameOf("annotate-pdf")}, add your PDF, and drag across the words you want to mark. Highlight is already chosen when the pages appear, and a see-through yellow band follows the words you select, line by line. Press Apply & download when you are done, and the marked copy downloads.`,
+      "Press on the first word and drag to the last, as you would select text in a PDF viewer: the highlight covers whole words in reading order, one band per line, and a click on a word highlights just that word. Where there is no selectable text, such as a scanned page, the same drag draws a see-through box instead, so you decide how much it covers.",
       `The PDF is drawn, marked and saved in your browser, so it stays on your device, and there is no account to create. It takes one PDF of up to ${ceilingMb("annotate-pdf")} MB.`,
     ],
     steps: [
       `Open the ${nameOf("annotate-pdf")} tool.`,
       "Drop your PDF on the panel that says “Drop your PDF here, or browse”, or click it to choose the file. Its pages appear in a scrolling view, with Highlight already selected in the toolbar.",
-      "Drag across the words you want to mark. A single click instead drops a short bar you can stretch afterwards.",
+      "Press on the first word you want to mark and drag to the last. A single click on a word marks that word; on a scanned page, the drag draws a box, and a click drops a short bar you can stretch afterwards.",
       `To change the colour, use Colour in the panel beside the page; Opacity starts at ${HIGHLIGHT_OPACITY_PCT}%. With nothing selected, these set the next highlight; to change one already on the page, choose Select, click it, and the panel sets that one. With Select you can also drag a highlight to move it, or drag a handle to resize it.`,
       "Under “Highlights, drawings, notes and shapes”, beside Apply & download, keep Flatten into the page, or choose to save markups as comments instead.",
       `Press Apply & download. The copy downloads at once, named after your file: report.pdf becomes ${ANNOTATED_EXAMPLE_OUT}. Under Annotated PDF ready, Download annotated PDF saves it again.`,
@@ -5375,14 +5396,14 @@ export const guides: Guide[] = [
         heading: "Flattened into the page, or saved as comments",
         body: [
           "Flatten into the page, the choice selected to start, draws each highlight into the page itself, with its colour multiplied over the words so they stay readable. It shows in every viewer and printout, the original text stays selectable, and nothing becomes an image. The cost is that it cannot be taken out later except with an editor that changes page content, so keep the original if you may want an unmarked copy.",
-          "Saving markups as comments writes each highlight as a standard PDF highlight annotation instead. Where the box lies over lines of text, it is fitted to them: one band per line, as tall as the line and as wide as the text inside your box. A strip of the box above, below or between the lines that has no text in it and is at least two lines tall, such as a chart below a line, stays highlighted at the full width of your box. Space beside the text on the same lines, such as a picture next to a short line, is not kept. Over a picture of text, such as a scanned page, the whole highlight stays the box you drew. Other PDF apps list it as a comment and let you select, edit or delete it; there are no reply threads here.",
+          "Saving markups as comments writes each highlight as a standard PDF highlight annotation instead. A highlight made by selecting text keeps exactly the lines you selected. A box drawn by dragging from a spot with no text is fitted to the text under it: where the box lies over lines of text, it is fitted to them: one band per line, as tall as the line and as wide as the text inside your box. A strip of the box above, below or between the lines that has no text in it and is at least two lines tall, such as a chart below a line, stays highlighted at the full width of your box. Space beside the text on the same lines, such as a picture next to a short line, is not kept. Over a picture of text, such as a scanned page, the whole highlight stays the box you drew. Other PDF apps list it as a comment and let you select, edit or delete it; there are no reply threads here.",
         ],
       },
       {
         id: "other-marks",
         heading: "Notes, drawings and covers on the same page",
         body: [
-          "Highlight sits in the toolbar's Mark up group, beside Whiteout, Redact, Draw for freehand ink, and Note for a typed note on coloured paper; the Shapes group has Rectangle, Ellipse, Line and Arrow. Anything you place can be moved, resized, restyled or deleted before you apply, and Undo and Redo step back and forward.",
+          "Highlight sits in the toolbar's Mark up group, beside Underline and Strikethrough, which mark words the same way, and Whiteout, Redact, Draw for freehand ink, Highlighter for a freehand marker stroke that tints the words without hiding them, Note for a typed note on coloured paper, and Comment for a sticky-note icon whose words open in a popup. A highlight's Style in the panel switches it between Highlight, Underline, Strikethrough and Squiggly; the Shapes group has Rectangle, Ellipse, Line and Arrow. Anything you place can be moved, resized, restyled or deleted before you apply, and Undo and Redo step back and forward.",
           `Whiteout only paints a white box: the words under it are still in the file, and search, copy and text extraction can find them. Redact removes what lies under its box. Both are always written into the page, even when the other markups are saved as comments, because a comment can be deleted by whoever opens the file. For a document you need to hand over with words removed, ${nameOf("redact-pdf")} also works in your browser and can search the text for what to remove.`,
           `${nameOf("edit-pdf")} opens the same editor on Select, with the same Highlight in its toolbar, for when you also need to change the PDF's own words.`,
         ],
@@ -5392,7 +5413,7 @@ export const guides: Guide[] = [
         heading: "Locked, restricted and signed PDFs",
         body: [
           `A PDF that needs a password to open has to be unlocked first; ${nameOf("unlock-pdf")} removes the password if you know it, but it runs on our secure server rather than in your browser. A PDF that opens without a password but whose author restricted changes opens here with the author's rules in force: if the author allows comments, highlights are always saved as comments and the copy keeps the author's encryption, and if not, the mark-up tools stay locked. Typing the owner password into the page unlocks every tool for that file.`,
-          "On an ordinary PDF, the copy is written out as a new file, so an existing digital signature will no longer validate, and the file's Creator and Producer become this site's name. Its pages, text, bookmarks and form fields are otherwise kept.",
+          "On an ordinary PDF, the file's Creator and Producer become this site's name. A PDF that carries a digital signature, and is not password-protected, keeps its original bytes, and your highlights are appended after them as an update, so the signature still verifies for the version that was signed, though a viewer will show the document changed afterwards. Its pages, text, bookmarks and form fields are otherwise kept.",
         ],
       },
     ],
@@ -5400,7 +5421,7 @@ export const guides: Guide[] = [
       {
         question: "Can I highlight text by selecting it, like in a PDF viewer?",
         answer:
-          "No. You drag a see-through box over the words instead of selecting them. Flattened, it covers exactly the area you draw. Saved as a comment, it fits itself to the lines of text under the box, one band per line, the way a viewer's own text highlight looks.",
+          "Yes. Press on a word and drag to the last word you want: the highlight follows the selected text in reading order, whole words, one band per line, and those bands are what is saved, flattened or as a comment. A click on one word highlights that word. Underline and Strikethrough, beside Highlight in the toolbar, work the same way. Pressing where there is no selectable text draws a box instead.",
       },
       {
         question: "Can I change the highlight colour?",
@@ -5412,8 +5433,13 @@ export const guides: Guide[] = [
           "Saved as a comment, yes: a PDF app that edits comments can select and delete it. Flattened, only with an editor that can change page content, because the highlight is drawn into the page. Before you press Apply & download, any highlight can be selected and deleted, or undone.",
       },
       {
+        question: "Can I highlight freehand, like with a marker?",
+        answer:
+          "Yes. Highlighter, beside Draw in the Mark up group, follows your pointer with a wide, see-through yellow stroke. Its colour is multiplied over the page, as a highlight's is, so the words under it stay dark and readable rather than being painted over. Width, colour and opacity are set in the panel beside the page.",
+      },
+      {
         question: "Can I highlight a scanned PDF?",
-        answer: `Yes. A highlight is a box drawn over the page, so it works on a picture of text too. Saved as a comment, it stays the box you drew, because there are no text lines under it to fit to. To make the words searchable as well, run the scan through ${nameOf("ocr-pdf")} first, which runs on our secure server rather than in your browser.`,
+        answer: `Yes. On a page with no selectable text, the drag draws a box over the page, so it works on a picture of text too. Saved as a comment, it stays the box you drew, because there are no text lines under it to fit to. To make the words searchable as well, run the scan through ${nameOf("ocr-pdf")} first, which runs on our secure server rather than in your browser.`,
       },
       {
         question: "Is my PDF sent anywhere when I highlight it?",
@@ -5422,7 +5448,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-06",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-chat-with-a-pdf",
@@ -6107,7 +6133,7 @@ export const guides: Guide[] = [
         heading: "How big a screenshot's page is",
         body: [
           `The image is laid out at one point per pixel, and a point is 1/${PT_PER_INCH} of an inch, so screenshots are large on paper. On a ${US_LETTER_LABEL} page with the default ${PNG_DEFAULT_MARGIN_IN} in margin, a screenshot ${PNG_SHOT_PX} pixels wide is shrunk to ${PNG_SHOT_ON_PAPER_IN} inches across, or ${PNG_SHOT_ON_A4_IN} inches on ${labelOf(IMAGE_PAGE_SIZES, "a4")}. No pixel is thrown away by that, so zooming in on the PDF still shows the detail. With ${PNG_FIT_LABEL}, the same screenshot gets a page about ${PNG_SHOT_FIT_PAGE_IN} inches wide, which reads well on screen; to print it, use your printer's fit-to-page setting.`,
-          `A small image is never enlarged, so an icon stays icon-sized on a paper page. A long scrolling capture stays one image on one page: it is not cut across several pages. On a paper size it is shrunk to the page's height, so choose ${PNG_FIT_LABEL} to keep it readable. Even then a page side cannot pass ${PNG_MAX_PAGE_IN} inches, and a longer capture is scaled down to fit that. Any DPI value stored in the PNG is ignored.`,
+          `On a paper size a small image keeps its size, so an icon stays icon-sized, unless you choose ${ENLARGE_LABEL} under ${SMALL_IMAGES_LABELS.heading}, which scales it up to the margin; no pixels are added, so it looks softer the more it grows. A long scrolling capture stays one image on one page: it is not cut across several pages. On a paper size it is shrunk to the page's height, so choose ${PNG_FIT_LABEL} to keep it readable. Even then a page side cannot pass ${PNG_MAX_PAGE_IN} inches, and a longer capture is scaled down to fit that. Under ${PNG_FIT_LABEL} a resolution saved in the PNG sets the page's size on paper instead: ${A4_SCAN_SETUP_COPY}, a 300 dpi scan of an A4 sheet becomes an A4 page; the sizes above are for a screenshot that states ${IGNORED_DPI_COPY}, or none at all.`,
         ],
       },
     ],
@@ -6136,7 +6162,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-07",
+    updated: "2026-11-08",
   },
   // HTML to PDF: an HTML FILE (or code saved as one), never a URL — that is
   // how-to-convert-a-webpage-to-pdf. Read off the worker: the upload is

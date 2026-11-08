@@ -168,7 +168,7 @@ const content: ToolContent = {
     },
     {
       title: "Choose the pages, colour and background",
-      body: `Under Pages, keep All pages, or click Select pages and type the pages you want, such as 1-3, 5. Under Colour, keep Colour or pick Grayscale. Under ${RASTER_BACKGROUND_LABEL}, keep ${BG_WHITE} or pick ${BG_CLEAR}.`,
+      body: `Under Pages, keep All pages, or click Select pages and type the pages you want, such as 1-3, 5, or press them on the thumbnails drawn below the box; a press updates the box, and Select all, Clear, Odd pages and Even pages pick in one go. Under Colour, keep Colour or pick Grayscale. Under ${RASTER_BACKGROUND_LABEL}, keep ${BG_WHITE} or pick ${BG_CLEAR}.`,
     },
     {
       title: "Render the pages",
@@ -191,7 +191,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I convert only some pages?",
-      a: `Yes. Click Select pages and type the page, or a list such as 1-3, 5. Only those pages are rendered. One page downloads on its own and keeps its number from the PDF — page 7 of the ${EXAMPLE_PAGES}-page manual.pdf is ${pageImageName("manual.pdf", 6, EXAMPLE_PAGES, "png")} — and several arrive in the ZIP.`,
+      a: `Yes. Click Select pages and type the page, or a list such as 1-3, 5, or press the pages you want on the thumbnails under the box. Only those pages are rendered. One page downloads on its own and keeps its number from the PDF — page 7 of the ${EXAMPLE_PAGES}-page manual.pdf is ${pageImageName("manual.pdf", 6, EXAMPLE_PAGES, "png")} — and several arrive in the ZIP.`,
     },
     {
       q: "Why is a picture missing from one of my PNGs?",

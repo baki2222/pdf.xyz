@@ -43,6 +43,32 @@ make-hash-2b-vectors.py hash-2b-vectors.json` (fixed seed). A fixture file
 has one random key, so whether it exercises that boundary is luck; these do
 on purpose. Added 2026-10-30, when the worker-image proof hit it.
 
+## The grant fixtures (2026-11-08)
+
+Two more, for the tools that ask ONE of the author's permissions rather than
+opening the editor (`src/components/tools/runner/restricted-grant.tsx`):
+
+1. `grant-base.pdf` — `pnpm exec tsx src/tests/fixtures/restricted-pdf/make-grant-base.ts grant-base.pdf`
+   (pdf-lib 1.17.1, no object streams): two Letter pages, the line
+   `RESTRICTED-GRANT-FIXTURE` on each, and an 8 x 8 RGB picture on page 1.
+2. `python -I make-grant.py <this folder>` with pypdf 6.19.0 — RC4 128-bit
+   (V2 R3), pypdf's own cipher, so no other package is needed.
+
+| file                            | producer | V / R | cipher  | grant (pdf.js `getPermissions()`) | owner password       |
+| ------------------------------- | -------- | ----- | ------- | --------------------------------- | -------------------- |
+| `pypdf-r3-assemble-copy.pdf`    | pypdf    | V2 R3 | RC4 128 | 4, 16, 512, 1024, 2048 (P −300)   | `owner-grant-test`   |
+| `pypdf-r3-no-assemble-copy.pdf` | pypdf    | V2 R3 | RC4 128 | 4, 512, 2048 (P −1340)            | `owner-nogrant-test` |
+
+The first grants copying (16) and page assembly (1024) — rotating its pages
+and extracting its images are what its author allows; change content (8),
+comments (32) and form filling (256) are withheld. The second withholds copying
+and assembly too.
+
+Two more need the OPEN password `open-test` (Grayscale PDF's password field):
+`pypdf-r3-open-password.pdf` grants everything (P −4, owner
+`owner-open-test`), and `pypdf-r3-open-password-restricted.pdf` carries the
+first file's grant (P −300, owner `owner-openrestr-test`).
+
 ## Where they are used
 
 - `src/tests/restricted-pdf-fixtures.ts` — the table above, as data.
@@ -55,8 +81,26 @@ on purpose. Added 2026-10-30, when the worker-image proof hit it.
   `/tools/edit-pdf`, then the owner password.
 - `e2e/annotate-restricted.spec.ts` — a highlight saved as a comment in
   `/tools/annotate-pdf` (R6, bit 6), and the view-only file's locked tools.
+- `src/lib/pdf/security/restricted-rotate.test.ts` and
+  `src/components/tools/runner/rotate-restricted.test.tsx` — Rotate PDF under
+  the assembly grant, and refusing without it (the grant fixtures).
+- `src/lib/pdf/security/open-with-password.test.ts` and
+  `src/components/tools/runner/grayscale-password.test.tsx` — a typed open or
+  owner password, and which one may make an unencrypted grayscale copy.
 - `src/components/tools/runner/protection-banner.test.ts` — the editor's
   banner over the R6 and view-only handlers: comments allowed, or not.
 
 The worker-image proof (`scripts/worker-restricted-edit-proof.ts`) does not use
 these files: it encrypts `make-base.ts`'s form with the image's own qpdf.
+
+## The restricted + signed fixture (2026-11-08)
+
+`python -I make-signed.py <this folder>` with pypdf 6.19.0: `grant-base.pdf`
+plus one signed signature field (a `/Sig` value, signed in structure like
+`src/tests/signed-pdf.ts`, not in cryptography), encrypted RC4 128-bit (V2
+R3). The `/ByteRange` is a fixed-width placeholder patched after the save, so
+it names the encrypted file's real offsets around its `/Contents` hole.
+
+| file                             | producer | V / R | cipher  | grant (pdf.js `getPermissions()`) | owner password      |
+| -------------------------------- | -------- | ----- | ------- | --------------------------------- | ------------------- |
+| `pypdf-r3-signed-restricted.pdf` | pypdf    | V2 R3 | RC4 128 | 4, 32, 256, 512, 2048 (P −1052)   | `owner-signed-test` |

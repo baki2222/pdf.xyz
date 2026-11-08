@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

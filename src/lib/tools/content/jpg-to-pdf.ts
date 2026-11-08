@@ -17,6 +17,42 @@ import {
 } from "@/lib/pdf/image-page-defaults";
 import { imageDefaultPaperCopy } from "@/lib/tools/tool-facts";
 import { inches } from "@/lib/pdf/page-geometry";
+import { IMAGE_ROTATION_LABELS } from "@/lib/pdf/image-rotation";
+import { A4_SCAN_SETUP_COPY, IGNORED_DPI_COPY } from "@/lib/pdf/image-density";
+import { undecodableImageMessage } from "@/lib/pdf/image-intake";
+import {
+  CUSTOM_PAGE_COPY,
+  CUSTOM_PAGE_LABELS,
+} from "@/lib/pdf/image-page-custom";
+import {
+  IMAGE_BOOKMARKS_CHOICES,
+  IMAGE_BOOKMARKS_LABELS,
+  IMAGE_ORDER_LABELS,
+  MIN_BOOKMARKED_IMAGES,
+} from "@/lib/pdf/image-bookmarks";
+import {
+  SMALL_IMAGES_CHOICES,
+  SMALL_IMAGES_LABELS,
+} from "@/lib/pdf/image-enlarge";
+
+/** The card button that turns one image (audit png-to-pdf#2). */
+const ROTATE = IMAGE_ROTATION_LABELS.button;
+
+/** The add-time refusal of an undecodable image (audit png-to-pdf#8). */
+const UNDECODABLE_JPG = undecodableImageMessage("photo.jpg", "jpg");
+
+/** Small images and its two chips (audit jpg-to-pdf#4), as the runner says. */
+const SMALL = SMALL_IMAGES_LABELS.heading;
+const [KEEP_SIZE, ENLARGE] = SMALL_IMAGES_CHOICES.map((c) => c.label);
+
+/** Sort by name and Bookmarks (audit png-to-pdf#6), as the runner says. */
+const SORT = IMAGE_ORDER_LABELS.sortByName;
+const BOOKMARKS = IMAGE_BOOKMARKS_LABELS.heading;
+const [NO_BOOKMARKS, PER_IMAGE_BOOKMARK] = IMAGE_BOOKMARKS_CHOICES.map(
+  (c) => c.label,
+);
+const BOOKMARK_MIN =
+  MIN_BOOKMARKED_IMAGES === 2 ? "two" : String(MIN_BOOKMARKED_IMAGES);
 import {
   MAX_TIFF_PAGES,
   MAX_TIFF_PAGE_PIXELS,
@@ -169,8 +205,11 @@ const LIMIT_MET = limitOutcome({
  * JPEG and uncompressed pages in black and white, gray, colour or a palette.
  * Pages are embedded LOSSLESSLY (a fax page stays 1-bit) and laid out at their
  * size on paper from the TIFF's resolution, so a 300-dpi A4 scan is an A4
- * page under Fit to image. JPEG and PNG are still laid out at one pixel per
- * point — their DPI is not read — and that did not change. A TIFF over 500
+ * page under Fit to image. JPEG and PNG were still laid out at one pixel per
+ * point — their DPI was not read. SUPERSEDED 2026-11-08 (audit jpg-to-pdf#4),
+ * history kept: under Fit to image a JPEG's JFIF or Exif resolution (a PNG's
+ * pHYs) sets its page size when plausible (src/lib/pdf/image-density.ts),
+ * and image-density.test.ts reads the saved MediaBox. A TIFF over 500
  * pages or 100 megapixels a page, or in a compression the tool cannot read,
  * is refused when it is added, naming the page; a damaged page is refused at
  * Create PDF, naming the page. src/lib/pdf/tiff.test.ts renders the saved
@@ -210,9 +249,9 @@ const content: ToolContent = {
   metaDescription: `Turn ${or(SNIPPET_FORMATS)} images and photos into one PDF in your browser, not uploaded. Pick the page size and margin. Up to ${MAX_IMAGE_MB} MB each.`,
   intro: [
     "JPG to PDF takes a batch of JPG or JPEG photos and builds a single PDF with one image on each page. You add the pictures, put them in the order you want, and press Create PDF. The assembly happens inside this browser tab: your photos are read from your device, laid onto pages there, and the finished PDF is saved when you press Download PDF. The images are not uploaded to pdf.xyz.",
-    `Unless you change the page setup, each photo goes on a white, portrait page, centred inside a ${DEFAULT_MARGIN} margin, and the page is ${DEFAULT_PAPER}. Before you create the PDF you can pick the page size (${SIZES}), the orientation (${ORIENTATIONS}) and the margin (${MARGINS}). Auto turns the page sideways for a photo that is wider than it is tall, and Fit to image makes each page exactly the size of its photo plus the margin. On every page size a photo is shrunk only if it is too big to fit; one that already fits is never enlarged, so a low-resolution picture can look small in the middle of an A4 page.`,
+    `Unless you change the page setup, each photo goes on a white, portrait page, centred inside a ${DEFAULT_MARGIN} margin, and the page is ${DEFAULT_PAPER}. Before you create the PDF you can pick the page size (${SIZES}), the orientation (${ORIENTATIONS}) and the margin (${MARGINS}). ${CUSTOM_PAGE_COPY} Auto turns the page sideways for a photo that is wider than it is tall, and Fit to image makes each page the size of its photo plus the margin: at the resolution saved in the file when it states one, and at one point per pixel when it does not. So ${A4_SCAN_SETUP_COPY}, a 300 dpi scan of an A4 sheet saved as a JPEG becomes an A4 page. A stated ${IGNORED_DPI_COPY}, counts as none. On every page size a photo is shrunk only if it is too big to fit. One that already fits keeps its size, so a low-resolution picture can look small in the middle of an A4 page, unless you choose ${ENLARGE} under ${SMALL}: then it is scaled up until it meets the margin, softer the more it grows because no pixels are added.`,
     `With ${LIMIT} left at ${NO_LIMIT}, the JPEG image data is copied into the PDF as it is rather than re-encoded, so there is no second round of compression and the PDF ends up close to the combined size of your photos. If an upload form caps the size, choose ${LIMIT} (${LIMIT_PRESETS}, or a number of KB of your own): when the PDF comes out bigger, your browser saves the photos again at a lower quality and pixel size until it fits, and tells you the size it reached. A single photo may be as large as ${MAX_IMAGE_MB} MB. PNG images, transparent ones included, can go into the same PDF, and any transparent areas come out white. WebP, GIF and BMP images can go in too: your browser decodes each one and it is saved into the PDF again, as a high-quality JPEG when it has no transparency and as a PNG when it does, so unlike a JPEG it is re-encoded. A GIF contributes its first frame only.`,
-    "TIFF files go in too, including the multi-page TIFFs that scanners and fax software write: every page of the TIFF becomes a page of the PDF, in order, and black-and-white fax pages (CCITT Group 4) are read as well as colour ones. The TIFF is read in this tab, like everything else here, and its pages are stored without loss rather than turned into JPEGs. Each page keeps the size it had on paper, from the resolution saved in the TIFF, so under Fit to image a 300 dpi A4 scan becomes an A4 page.",
+    `TIFF files go in too, including the multi-page TIFFs that scanners and fax software write: every page of the TIFF becomes a page of the PDF, in order, and black-and-white fax pages (CCITT Group 4) are read as well as colour ones. The TIFF is read in this tab, like everything else here, and its pages are stored without loss rather than turned into JPEGs. Each page keeps the size it had on paper, from the resolution saved in the TIFF, so ${A4_SCAN_SETUP_COPY}, a 300 dpi A4 scan becomes an A4 page.`,
   ],
   useCases: [
     {
@@ -239,19 +278,19 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your JPG images",
-      body: `Drop JPG or JPEG files (PNG works too) onto the box that reads "Drop JPG images here, or browse", or click it to pick them. The box stays on the page, so you can add more in several goes. WebP, GIF, BMP and TIFF files are taken as well. An alert below the box names each file it turns away: "Choose PNG, JPG, WebP, GIF, BMP or TIFF images." for another type, "File is empty." for a zero-byte file, "Max ${MAX_IMAGE_MB} MB per image." for one that is too big, "Could not read this file — pick it again." when the file cannot be read, and a note naming the real format, such as "photo.jpg" is an AVIF image., when a file's contents are none of those. A TIFF can also be turned away by page, with a note naming it, such as ${TIFF_TOO_LARGE}`,
+      body: `Drop JPG or JPEG files (PNG works too) onto the box that reads "Drop JPG images here, or browse", or click it to pick them. The box stays on the page, so you can add more in several goes. WebP, GIF, BMP and TIFF files are taken as well. An alert below the box names each file it turns away: "Choose PNG, JPG, WebP, GIF, BMP or TIFF images." for another type, "File is empty." for a zero-byte file, "Max ${MAX_IMAGE_MB} MB per image." for one that is too big, "Could not read this file — pick it again." when the file cannot be read, and a note naming the real format, such as "photo.jpg" is an AVIF image., when a file's contents are none of those. A JPG or PNG is also tried the way Create PDF will use it, so a JPG whose header cannot be read, or a PNG that is cut off, damaged or animated (more than one frame), is turned away with a note naming it, such as ${UNDECODABLE_JPG} A JPG cut off after its header is not caught, because only its header is read, when you add it and when Create PDF embeds it. A TIFF can also be turned away by page, with a note naming it, such as ${TIFF_TOO_LARGE}`,
     },
     {
       title: "Set the page order",
-      body: "Under Image order, each thumbnail is labelled with the page it will become. The up and down arrows on a thumbnail (Move up, Move down) shift a photo one place, the cross (Remove) takes it out, and Clear below the list empties it. To move a photo further in one go, drag its thumbnail onto the place you want.",
+      body: `Under Image order, each thumbnail is labelled with the page it will become. The up and down arrows on a thumbnail (Move up, Move down) shift a photo one place, the turning arrow (${ROTATE}) turns it a quarter turn clockwise with each press, the cross (Remove) takes it out, and Clear below the list empties it. A turned photo shows its angle, such as 90°, beside its size, and its page takes the turned shape. To move a photo further in one go, drag its thumbnail onto the place you want. ${SORT}, beside the heading, puts every photo in order of its file name, numbers counted as numbers (photo 2 before photo 10), photos added later included.`,
     },
     {
       title: "Choose the page setup",
-      body: `Below the list, Page size, Orientation and Margin set how each page is laid out, ${LIMIT} caps the size of the PDF, ${DETAILS} chooses ${REMOVE} or ${KEEP} for what your camera stored beside the pixels, and Output chooses One PDF or One PDF per image, which with more than one image arrives as a ZIP. Left alone they give the usual layout: ${WORLD_SIZE} (${LETTER_SIZE} in a country that uses Letter paper), portrait, a ${DEFAULT_MARGIN} margin, photo details removed, ${NO_LIMIT.toLowerCase()} on size, one PDF. Orientation does not apply to Fit to image, whose pages already take each photo's shape. With One PDF per image, a ${LIMIT} applies to each PDF on its own.`,
+      body: `Below the list, Page size, Orientation and Margin set how each page is laid out (Page size and Margin each end in ${CUSTOM_PAGE_LABELS.chip}, for a length typed in mm or inches), ${SMALL} chooses ${KEEP_SIZE} or ${ENLARGE} for a photo smaller than the paper, ${LIMIT} caps the size of the PDF, ${DETAILS} chooses ${REMOVE} or ${KEEP} for what your camera stored beside the pixels, ${BOOKMARKS} chooses ${NO_BOOKMARKS} or ${PER_IMAGE_BOOKMARK}, a bookmark named after each photo's file that opens its page, in One PDF of ${BOOKMARK_MIN} or more photos, and Output chooses One PDF or One PDF per image, which with more than one image arrives as a ZIP. Left alone they give the usual layout: ${WORLD_SIZE} (${LETTER_SIZE} in a country that uses Letter paper), portrait, a ${DEFAULT_MARGIN} margin, small photos kept at their size, no bookmarks, photo details removed, ${NO_LIMIT.toLowerCase()} on size, one PDF. Orientation and ${SMALL} do not apply to Fit to image, whose pages already take each photo's shape and size. With One PDF per image, a ${LIMIT} applies to each PDF on its own.`,
     },
     {
       title: "Press Create PDF",
-      body: 'The button changes to Creating PDF… while the pages are built on your device. Each file\'s contents were already checked when you added it, so a PNG saved with a .jpg name simply goes in as a PNG. A file whose image data cannot be read stops the run with a message naming it, such as "photo.jpg" could not be decoded as a JPG image. A damaged TIFF page stops it the same way, naming the page, such as "scan.tif" page 2 is damaged and could not be read.',
+      body: 'The button changes to Creating PDF… while the pages are built on your device. Each file\'s contents were already checked when you added it, so a PNG saved with a .jpg name simply goes in as a PNG, and a JPG whose header cannot be read, or a PNG that is cut off, damaged or animated, never reached the list. A damaged TIFF page still stops the run, naming the page, such as "scan.tif" page 2 is damaged and could not be read.',
     },
     {
       title: "Download the PDF",
@@ -261,7 +300,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Why is one of my phone photos sideways in the PDF?",
-      a: "It should not be. Phones often store a portrait photo as landscape pixels plus an EXIF orientation tag that tells viewers how to turn it. JPG to PDF reads that tag and turns the photo on the page the way your browser shows it, sized to its upright shape, without re-encoding the JPEG. A TIFF page's Orientation tag is read and applied the same way, its pixels left as they are. If a page is still sideways, the camera saved the wrong tag (or none): open the PDF in Rotate PDF, which also runs in your browser, and turn just that page.",
+      a: `It should not be. Phones often store a portrait photo as landscape pixels plus an EXIF orientation tag that tells viewers how to turn it. JPG to PDF reads that tag and turns the photo on the page the way your browser shows it, sized to its upright shape, without re-encoding the JPEG. A TIFF page's Orientation tag is read and applied the same way, its pixels left as they are. If a photo still looks sideways, the camera saved the wrong tag (or none): press ${ROTATE} on its thumbnail before you create the PDF, once for each quarter turn clockwise. The JPEG's image data is not saved again; the turn is applied as the photo is placed on its page.`,
     },
     {
       q: "Does converting JPG to PDF reduce photo quality?",

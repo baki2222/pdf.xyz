@@ -15,6 +15,16 @@ import {
   type ImagePageOptions,
 } from "./image-page-layout";
 import { stripJpegMetadata } from "./jpeg-metadata";
+import { atStoredDpi, storedImageDpi } from "./image-density";
+import { sizeForLayout } from "./image-enlarge";
+import { pageSetupProblem } from "./image-page-custom";
+import { writeImageBookmarks } from "./image-bookmarks";
+import { undecodableImageMessage } from "./image-intake";
+import {
+  turnedShape,
+  unturnedBox,
+  type ImageQuarterTurn,
+} from "./image-rotation";
 import type { NamedBytes } from "./types";
 
 const PRODUCER = "pdf.xyz";
@@ -27,6 +37,12 @@ export interface ImagePdfInput {
   name: string;
   type: string;
   bytes: Uint8Array;
+  /**
+   * The quarter turn chosen on the image's card (`image-rotation.ts`),
+   * clockwise, on top of any turn the file asks for; every page of a TIFF
+   * takes it. Absent or 0: drawn as before.
+   */
+  rotation?: ImageQuarterTurn;
 }
 
 /**
@@ -313,6 +329,16 @@ export function validateImagePdfInputs(
   }
 }
 
+/**
+ * The page setup can be laid out: a custom page has a size, and no margin
+ * swallows the page (`pageSetupProblem`). The runner says so before Create
+ * PDF in the unit being typed; this is the engine refusing it anyway.
+ */
+function validatePageSetup(options: ImagePageOptions): void {
+  const problem = pageSetupProblem(options);
+  if (problem) throw new PdfEngineError(problem);
+}
+
 export function imagePdfOutputName(
   kind: ImagePdfKind,
   firstName?: string,
@@ -414,6 +440,9 @@ export const loadTiff = () => import("./tiff");
 /**
  * A page for `image`, shown at `shown` (points), laid out by `options`;
  * `orientation`, when given, is the turn to draw it with (a TIFF page's tag).
+ * `turn` is the user's quarter turn: the page is laid out for the turned
+ * shape, and the image is drawn turned about its corner into that box
+ * (`unturnedBox`), the file's own turn still applied inside it.
  */
 async function drawImagePage(
   lib: PdfLib,
@@ -422,8 +451,12 @@ async function drawImagePage(
   shown: { width: number; height: number },
   options: ImagePageOptions,
   orientation?: ExifOrientation,
+  turn: ImageQuarterTurn = 0,
 ): Promise<void> {
-  const layout = imagePageLayout(shown.width, shown.height, options);
+  // "Enlarge to fit" on a paper size hands the layout an image too big for
+  // any page, which it then shrinks to the margin (`image-enlarge.ts`).
+  const seen = sizeForLayout(turnedShape(shown, turn), options);
+  const layout = imagePageLayout(seen.width, seen.height, options);
   const page = doc.addPage([layout.pageWidth, layout.pageHeight]);
   page.drawRectangle({
     x: 0,
@@ -433,10 +466,8 @@ async function drawImagePage(
     color: lib.rgb(1, 1, 1),
   });
   await drawRasterImage(page, image, {
-    x: layout.x,
-    y: layout.y,
-    width: layout.width,
-    height: layout.height,
+    ...unturnedBox(layout, turn),
+    ...(turn === 0 ? {} : { rotate: lib.degrees(-turn) }),
     ...(orientation === undefined ? {} : { orientation }),
   });
 }
@@ -487,7 +518,15 @@ async function addTiffPages(
       page.orientation >= 5
         ? { width: stored.height, height: stored.width }
         : stored;
-    await drawImagePage(lib, doc, image, shown, options, page.orientation);
+    await drawImagePage(
+      lib,
+      doc,
+      image,
+      shown,
+      options,
+      page.orientation,
+      file.rotation,
+    );
   }
 }
 
@@ -540,16 +579,30 @@ async function addImagePage(
         ? await (await import("./png-embed")).embedPngAsStored(doc, bytes)
         : await embedRasterImage(doc, bytes, format, jpegOptions(options));
   } catch {
-    throw new PdfEngineError(
-      `"${file.name}" could not be decoded as a ${format === "jpg" ? "JPG" : "PNG"} image.`,
-    );
+    // The runner says the same as the file is added (`image-intake.ts`).
+    throw new PdfEngineError(undecodableImageMessage(file.name, format));
   }
   // Lay the image out as the browser SHOWED it: a portrait phone photo is
   // stored as landscape pixels plus an EXIF turn, and the preview is upright.
-  const shown = prepared
+  const pixels = prepared
     ? { width: prepared.layoutWidth, height: prepared.layoutHeight }
     : rasterDisplaySize(image);
-  await drawImagePage(lib, doc, image, shown, options);
+  // Under Fit to image, at the resolution the ORIGINAL file states, when it
+  // is plausible (`image-density.ts`), as a TIFF page is; one pixel per
+  // point otherwise, and always on a paper size.
+  const shown =
+    options.pageSize === "fit"
+      ? atStoredDpi(pixels, storedImageDpi(file.bytes))
+      : pixels;
+  await drawImagePage(
+    lib,
+    doc,
+    image,
+    shown,
+    options,
+    undefined,
+    file.rotation,
+  );
 }
 
 const isPageList = (
@@ -569,9 +622,15 @@ export async function imagesToPdf(
   options: ImagePageOptions = DEFAULT_IMAGE_PAGE_OPTIONS,
 ): Promise<Uint8Array> {
   validateImagePdfInputs(kind, files);
+  validatePageSetup(options);
   const lib = await loadPdfLib();
   const doc = await newImageDoc(lib, files[0]!);
-  for (const file of files) await addImagePage(lib, doc, file, options);
+  const marks: { title: string; pageIndex: number }[] = [];
+  for (const file of files) {
+    marks.push({ title: file.name, pageIndex: doc.getPageCount() });
+    await addImagePage(lib, doc, file, options);
+  }
+  if (options.bookmarks === "per-image") writeImageBookmarks(lib, doc, marks);
   return doc.save();
 }
 
@@ -585,6 +644,7 @@ export async function imagesToPdfs(
   options: ImagePageOptions = DEFAULT_IMAGE_PAGE_OPTIONS,
 ): Promise<NamedBytes[]> {
   validateImagePdfInputs(kind, files);
+  validatePageSetup(options);
   const lib = await loadPdfLib();
   const names = perImageNames(files);
   const out: NamedBytes[] = [];
@@ -609,10 +669,16 @@ export async function buildImagePdf(
   prepared: readonly PreparedEntry[] = [],
 ): Promise<Uint8Array> {
   validateImagePdfInputs(kind, files);
+  validatePageSetup(options);
   const lib = await loadPdfLib();
   const doc = await newImageDoc(lib, files[0]!);
-  for (const [i, file] of files.entries())
+  const marks: { title: string; pageIndex: number }[] = [];
+  for (const [i, file] of files.entries()) {
+    marks.push({ title: file.name, pageIndex: doc.getPageCount() });
     await addImagePage(lib, doc, file, options, prepared[i]);
+  }
+  // The same outline as imagesToPdf: a limited run is still One PDF.
+  if (options.bookmarks === "per-image") writeImageBookmarks(lib, doc, marks);
   return doc.save();
 }
 

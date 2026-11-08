@@ -3,13 +3,15 @@
 import { useEffect, useState } from "react";
 
 /**
- * A displayed-orientation render of page `index` for the Auto preview, as an
- * object URL; null while it renders, when it fails, or when `index` is null.
- * Revoked when the page changes or the editor unmounts.
+ * A displayed-orientation render of page `index` for a preview, as an object
+ * URL; null while it renders, when it fails, or when `index` is null. Revoked
+ * when the page changes or the editor unmounts. `targetWidth` is the CSS width
+ * it is drawn at (200 for Crop's preview; the page zoom asks for more).
  */
 export function usePageImage(
   bytes: Uint8Array,
   index: number | null,
+  targetWidth = 200,
 ): string | null {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
@@ -21,7 +23,7 @@ export function usePageImage(
         const { createThumbnailRenderer } = await import("@/lib/pdf/render");
         const renderer = await createThumbnailRenderer(bytes, {
           orientation: "displayed",
-          targetWidth: 200,
+          targetWidth,
           pixelRatio: 2,
         });
         try {
@@ -42,6 +44,6 @@ export function usePageImage(
       setUrl(null);
       if (made) URL.revokeObjectURL(made);
     };
-  }, [bytes, index]);
+  }, [bytes, index, targetWidth]);
   return index === null ? null : url;
 }

@@ -56,6 +56,7 @@ import {
   splitPdf,
 } from "@/lib/pdf/engine";
 import { imagesToPdf, unsupportedImageMessage } from "@/lib/pdf/image-to-pdf";
+import { undecodableImageMessage } from "@/lib/pdf/image-intake";
 import { MAX_IMAGE_MB } from "@/lib/tools/limits";
 import { parseMarkdownBlocks } from "@/lib/pdf/markdown-to-pdf";
 import { MARKDOWN_BLOCK_KINDS } from "@/lib/pdf/markdown-blocks";
@@ -1327,7 +1328,10 @@ describe("the converters' pages describe the page they produce", () => {
       )!.answer;
       expect(answer).toContain(US_LETTER_LABEL);
       expect(answer).toContain(`${inches(IMAGE_PAGE_MARGIN_PT)} in margin`);
-      expect(answer).toMatch(/never enlarged/);
+      // INVERTED 2026-11-08 (audits jpg-to-pdf#4 / png-to-pdf#4): this
+      // matched /never enlarged/. The default still never enlarges (the
+      // 1 0 0 1 matrix above); the answer now names the choice that does.
+      expect(answer).toMatch(/smaller ones keep their own size unless/);
     }
     expect(
       page("png-to-pdf").faq.find((e) => /transparent/.test(e.question))!
@@ -1378,7 +1382,20 @@ describe("the converters' pages describe the page they produce", () => {
     expect(computed).toEqual([
       "unsupportedImageMessage(file.name, bytes)",
       "tiffRefusalText(file.name, problem)",
+      // Since 2026-11-08 (audit png-to-pdf#8): a JPG or PNG the engine
+      // cannot embed, refused as it is added; held below to its shape.
+      "undecodableImageMessage(file.name, format)",
     ]);
+    const undecodableShape = new RegExp(
+      undecodableImageMessage("NAME", "png")
+        .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+        .replace("NAME", '[^"]+')
+        .replace("PNG", "(PNG|JPG)"),
+    );
+    expect(undecodableShape.test(undecodableImageMessage("a.jpg", "jpg"))).toBe(
+      true,
+    );
+    expect(undecodableShape.test('"a.png" could not be read.')).toBe(false);
     // The TIFF refusal a page must show by example: a page over the pixel
     // ceiling, in the reader's words, any name, any size.
     const tiffShape = new RegExp(
@@ -1421,6 +1438,9 @@ describe("the converters' pages describe the page they produce", () => {
       ).toEqual([]);
       expect(served, tool.slug).toMatch(namedShape);
       expect(served, `${tool.slug}: the TIFF refusal`).toMatch(tiffShape);
+      expect(served, `${tool.slug}: the undecodable refusal`).toMatch(
+        undecodableShape,
+      );
     }
   });
 

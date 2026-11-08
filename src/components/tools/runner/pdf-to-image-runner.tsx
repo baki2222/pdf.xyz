@@ -64,6 +64,8 @@ import { RunBar } from "./run-bar";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
 import { useZipDownload } from "./use-zip-download";
+import { LazyPagePicker } from "./page-picker-lazy";
+import { pageListText, pagesInText } from "./page-picker-text";
 
 export interface RasterResult {
   pages: RasterPage[];
@@ -403,6 +405,22 @@ function PdfToImageEditor({
         {pageChoice.mode === "range" &&
           rangeError &&
           pageChoice.range.trim() && <ErrorNote message={rangeError} />}
+        {pageChoice.mode === "range" && (
+          // The same choice on the pages themselves (audit pdf-to-png#7): a
+          // press rewrites the box above, and typing redraws the pages.
+          <LazyPagePicker
+            bytes={pdf.bytes}
+            pageCount={pdf.pageCount}
+            rotations={pdf.rotations}
+            mode="select"
+            label="Pages — press a page to render it or leave it out"
+            value={pagesInText(pageChoice.range, pdf.pageCount)}
+            onChange={(next) =>
+              changePages({ mode: "range", range: pageListText(next) })
+            }
+            disabled={busy}
+          />
+        )}
       </RunnerSection>
 
       <RunnerSection title="Colour">

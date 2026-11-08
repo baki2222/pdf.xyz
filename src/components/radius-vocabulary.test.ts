@@ -187,6 +187,14 @@ const FULL: { file: string; count: number; reason: string }[] = [
     reason:
       "a radio field's glyph: round is what tells it from a checkbox, so squaring it would change its meaning",
   },
+  {
+    // Added 2026-11-08 (audit sign-pdf#2, merged in feat/w3-client): the
+    // button around it keeps rounded-ctl; only the colour sample is round.
+    file: "src/components/tools/runner/editor/signature-panel.tsx",
+    count: 1,
+    reason:
+      "colour dot inside each Ink colour swatch: a sample of the ink, not a pill or a round button",
+  },
 ];
 
 /** Verbatim strings that shipped on main (34bb612c and earlier), one per arm. */

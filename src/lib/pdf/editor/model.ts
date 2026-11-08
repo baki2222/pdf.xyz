@@ -19,6 +19,13 @@ import {
   type SignatureStyle,
 } from "../offered-kinds";
 import type { RasterImageFormat } from "../pdf-lib";
+import {
+  HIGHLIGHTER_LABEL,
+  TEXT_MARKUP_LABEL,
+  markupOf,
+  type TextMarkup,
+} from "./markup";
+import { STICKY_ICON, STICKY_LABEL } from "./sticky";
 
 export const EDITOR_FONTS = ["helvetica", "times", "courier"] as const;
 export type EditorFont = (typeof EDITOR_FONTS)[number];
@@ -83,6 +90,11 @@ export interface NoteObject extends Base, TextStyle {
   text: string;
   /** The note's paper colour. */
   fill: string;
+  /**
+   * A comment (sticky note, `sticky.ts`): an icon at x/y whose words open
+   * in a popup `width` wide — saved as a /Text annotation, never drawn.
+   */
+  sticky?: boolean;
 }
 
 export interface ImageObject extends Base, Boxed {
@@ -181,6 +193,17 @@ export interface HighlightObject extends Base, Boxed {
   kind: "highlight";
   color: string;
   opacity: number;
+  /**
+   * Which text markup (`markup.ts`): highlight, underline, strikethrough or
+   * squiggly. Absent on objects made before 2026-11-08 — a highlight.
+   */
+  markup?: TextMarkup;
+  /**
+   * The lines of text it was made by selecting, one box per line (viewer
+   * points); the object's box is their bounds. Absent for a box dragged
+   * where there is no text — the box is the marked area.
+   */
+  quads?: Rect[];
 }
 
 export interface InkObject extends Base {
@@ -190,6 +213,8 @@ export interface InkObject extends Base {
   stroke: string;
   strokeWidth: number;
   opacity: number;
+  /** The highlighter pen: painted with the Multiply blend (`markup.ts`). */
+  highlighter?: boolean;
 }
 
 /** Where a link goes. `page` names a page by its id, so it follows a reorder. */
@@ -360,6 +385,9 @@ export function objectBounds(obj: EditorObject, textHeight: TextHeight): Rect {
         height: Math.max(textHeight(obj), obj.height ?? 0),
       };
     case "note":
+      // A comment is its icon on the page; the popup is not page area.
+      if (obj.sticky)
+        return { x: obj.x, y: obj.y, width: STICKY_ICON, height: STICKY_ICON };
       return {
         x: obj.x,
         y: obj.y,
@@ -415,6 +443,17 @@ export function moveObject<T extends EditorObject>(
         ...obj,
         points: obj.points.map((p) => ({ x: p.x + dx, y: p.y + dy })),
       };
+    case "highlight":
+      return {
+        ...obj,
+        x: obj.x + dx,
+        y: obj.y + dy,
+        ...(obj.quads
+          ? {
+              quads: obj.quads.map((q) => ({ ...q, x: q.x + dx, y: q.y + dy })),
+            }
+          : {}),
+      };
     default:
       return { ...obj, x: obj.x + dx, y: obj.y + dy };
   }
@@ -459,6 +498,24 @@ export function resizeObject<T extends EditorObject>(
         })),
       };
     }
+    case "highlight": {
+      if (!obj.quads) return { ...obj, x: next.x, y: next.y, width, height };
+      const sx = from.width === 0 ? 1 : width / from.width;
+      const sy = from.height === 0 ? 1 : height / from.height;
+      return {
+        ...obj,
+        x: next.x,
+        y: next.y,
+        width,
+        height,
+        quads: obj.quads.map((q) => ({
+          x: next.x + (q.x - from.x) * sx,
+          y: next.y + (q.y - from.y) * sy,
+          width: q.width * sx,
+          height: q.height * sy,
+        })),
+      };
+    }
     default:
       return { ...obj, x: next.x, y: next.y, width, height };
   }
@@ -496,6 +553,8 @@ export const ALL_HANDLES: readonly Handle[] = [
 export function handlesFor(obj: EditorObject): readonly Handle[] {
   if (obj.kind === "textedit") return [];
   if (obj.kind === "line") return [];
+  // A comment is a fixed-size icon; its popup is the reader's to size.
+  if (obj.kind === "note" && obj.sticky) return [];
   return ALL_HANDLES;
 }
 
@@ -577,6 +636,9 @@ export function cloneObject<T extends EditorObject>(obj: T): T {
   }
   if (copy.kind === "field") {
     return { ...copy, options: [...copy.options] } as T;
+  }
+  if (copy.kind === "highlight" && copy.quads) {
+    return { ...copy, quads: copy.quads.map((q) => ({ ...q })) } as T;
   }
   return copy;
 }
@@ -680,7 +742,11 @@ export function describeObject(obj: EditorObject): string {
     case "text":
     case "note": {
       const words = obj.text.trim().slice(0, 40) || "empty";
-      return `${EDITOR_OBJECT_LABEL[obj.kind]} “${words}” on ${page}`;
+      const label =
+        obj.kind === "note" && obj.sticky
+          ? STICKY_LABEL
+          : EDITOR_OBJECT_LABEL[obj.kind];
+      return `${label} “${words}” on ${page}`;
     }
     case "textedit": {
       const words = obj.text.trim().slice(0, 40);
@@ -694,6 +760,12 @@ export function describeObject(obj: EditorObject): string {
       return `${obj.arrow ? "Arrow" : "Line"} on ${page}`;
     case "mark":
       return `${obj.glyph === "check" ? "Check mark" : "Cross"} on ${page}`;
+    case "highlight":
+      return `${TEXT_MARKUP_LABEL[markupOf(obj)]} on ${page}`;
+    case "ink":
+      return obj.highlighter
+        ? `${HIGHLIGHTER_LABEL} stroke on ${page}`
+        : `${EDITOR_OBJECT_LABEL.ink} on ${page}`;
     case "link":
       return obj.target.type === "uri"
         ? `Link to ${describeLinkTarget(obj.target, () => null)} on ${page}`
@@ -717,7 +789,8 @@ export const SIGNATURE_INK = "#0f172a";
  * style's face — Script is Times Italic, Print is Helvetica, the faces Sign
  * PDF's copy names (`sign-style-copy.test.ts` reads them back out of the
  * export). Text in another script takes the one upright Noto face, as every
- * text box does.
+ * text box does. `color` is the ink chosen in the signature panel
+ * (`./signature-ink`); left out, it is the ink Sign PDF has always used.
  */
 export function typedSignatureObject(
   id: string,
@@ -727,6 +800,7 @@ export function typedSignatureObject(
   width: number,
   text: string,
   style: SignatureStyle,
+  color: string = SIGNATURE_INK,
 ): TextBoxObject {
   return {
     id,
@@ -740,7 +814,7 @@ export function typedSignatureObject(
     italic: style === "signature",
     bold: false,
     size: TYPED_SIGNATURE_SIZE,
-    color: SIGNATURE_INK,
+    color,
     align: "left",
     lineHeight: 1.2,
   };
@@ -759,4 +833,5 @@ export const DEFAULT_TEXT_STYLE: TextStyle = {
 
 export const DEFAULT_NOTE_FILL = "#fef08a";
 export const DEFAULT_HIGHLIGHT = "#facc15";
+export const DEFAULT_UNDERLINE = "#2563eb";
 export const DEFAULT_STROKE = "#dc2626";

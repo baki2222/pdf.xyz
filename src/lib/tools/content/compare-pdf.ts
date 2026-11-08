@@ -31,10 +31,12 @@ const OCR_LINK_MINUTES = DEFAULT_RETENTION.outputTtlMinutes;
  *     The scan FAQ described the unit until 2026-10-07; tool-page-content's
  *     compare block now runs the composed function and holds the FAQ to it.
  * Text AND the page counts in the result come from pdf.js (`getTextContent`,
- * `numPages`; no OCR). The page count on each file card comes from pdf-lib,
+ * `numPages`; no OCR). The page count on each file card came from pdf-lib,
  * whose `load` throws on ANY /Encrypt dictionary — so a permissions-only PDF
- * that opens without a password is refused too, with "This PDF is
- * password-protected".
+ * that opens without a password was refused too, with "This PDF is
+ * password-protected". AMENDED 2026-11-08 (audit compare-pdf#5): the card's
+ * count is pdf.js's (`countPagesWithPdfjs`) now, so such a file is compared; one that
+ * needs a password is still refused (compare-restricted.test.tsx).
  * The Size delta TILE prints `formatBytes(Math.abs(sizeDelta))` with a "+"
  * only when non-negative, so a smaller second file shows no sign there; only
  * the report's `Bytes:` line carries the signed difference. The copy below
@@ -111,7 +113,7 @@ const content: ToolContent = {
     },
     {
       q: "What if a PDF has a password, or I add a third one?",
-      a: "An encrypted PDF is refused as it is added, listed under Some files were skipped with a note to unlock it first. That includes a file that opens freely but restricts printing or editing, since those restrictions are stored as encryption. A third PDF is skipped too, because the tool takes exactly two; remove a loaded file first.",
+      a: "A PDF that needs a password to open is refused as it is added, listed under Some files were skipped with a note to unlock it first. A PDF that opens without a password but whose author restricted it is compared like any other, because Compare PDF only reads the text and writes nothing back to either file. A third PDF is skipped too, because the tool takes exactly two; remove a loaded file first.",
     },
   ],
 

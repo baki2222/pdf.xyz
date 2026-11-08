@@ -2,6 +2,8 @@ import type { ToolContent } from "./types";
 import { MAX_PDF_BYTES } from "@/lib/pdf/files";
 import { MAX_EDIT_IMAGE_BYTES } from "@/lib/pdf/edit";
 import { MAX_ZOOM, MIN_ZOOM } from "@/lib/pdf/editor/geometry";
+import { TEXT_MARKUPS, TEXT_MARKUP_LABEL } from "@/lib/pdf/editor/markup";
+import { STICKY_STAYS_COMMENT } from "@/lib/pdf/editor/sticky";
 import {
   EDITOR_FONTS,
   EDITOR_FONT_LABEL,
@@ -68,7 +70,9 @@ import {
  *    document data.
  *  - Control names are the toolbar's (`TOOL_BUTTONS` in `editor/toolbar.tsx`:
  *    Select, Text, Image, Sign, Rectangle, Ellipse, Line, Arrow, Whiteout,
- *    Highlight, Draw, Note, Undo, Redo, Zoom in/out, Fit width) and the run
+ *    Redact, Highlight, Underline, Strikethrough, Draw, Highlighter, Note,
+ *    Comment, Undo, Redo, Zoom
+ *    in/out, Fit width) and the run
  *    button "Apply & download"; the result is "Edited PDF ready" with
  *    "Download edited PDF", and the file name gains "-edited"
  *    (`editedOutputName`).
@@ -109,6 +113,12 @@ const rtlSentence = rtlScripts
   ? ` ${rtlScripts} text is turned away, because the editor sets every line left to right and it would read reversed.`
   : "";
 
+/** The Style menu's choices, from the list it renders (`markup.ts`). */
+const styleChoices = (() => {
+  const labels = TEXT_MARKUPS.map((m) => TEXT_MARKUP_LABEL[m]);
+  return `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
+})();
+
 const content: ToolContent = {
   slug: "edit-pdf",
 
@@ -118,10 +128,10 @@ const content: ToolContent = {
     "Retype the text in a PDF, find and replace words, redact, and add text, pictures, signatures and shapes. Runs in your browser; your PDF is not uploaded.",
 
   intro: [
-    "Edit PDF shows every page of your PDF and lets you add to it by clicking on the page: text boxes you type straight onto the page, PNG or JPG pictures, a signature you draw, type or pick from a picture, today's date, your initials or name and check marks in one click, links to a web address, an email address, a phone number or another page, fillable form fields, rectangles, ellipses, lines and arrows, whiteout boxes, highlights, freehand drawing and notes. Anything you place can be selected, dragged, resized from its handles, restyled, copied or deleted, and every step can be undone.",
+    "Edit PDF shows every page of your PDF and lets you add to it by clicking on the page: text boxes you type straight onto the page, PNG or JPG pictures, a signature you draw, type or pick from a picture, today's date, your initials or name and check marks in one click, links to a web address, an email address, a phone number or another page, fillable form fields, rectangles, ellipses, lines and arrows, whiteout boxes, redaction boxes, highlights, underlines and strikethroughs that follow the words you select, freehand drawing, a highlighter pen that tints the words under it without hiding them, notes, and sticky-note comments whose words open in a popup. Anything you place can be selected, dragged, resized from its handles, restyled, copied or deleted, and every step can be undone.",
     "Edit text changes the words already in the file: click a line, retype it, and when you apply, the old words are removed from the page and yours are written where they stood, in the line's own font when that font has every letter you typed, otherwise in the closest standard font, which the editor names while you type. Find & replace does the same across every page. Redact removes the text and picture pixels under a box you draw. Whiteout only covers: the words under a whiteout box stay in the file, where search and copy still find them.",
     "Edit text works on real text. A scanned page is a picture of words, so it has nothing to edit — and OCR PDF's text layer is invisible, so Edit text does not offer it either; to change a scan's words, use PDF to Word with its OCR option ticked; text nested inside embedded objects, and vertical text, is refused with a message rather than half-changed. Each line is retyped as one line: it does not reflow a paragraph.",
-    `Everything runs in your browser tab, so your PDF is not uploaded. Files up to ${MAX_MB} MB open, each picture may be up to ${IMAGE_MB} MB, and a password-protected PDF is turned away until it has been unlocked. A PDF that opens without a password but whose author restricted changes opens with only what the author allows: filling in its form, and, when the author allows comments, highlights, drawings, notes and shapes saved as comments. The copy you download keeps the author's encryption, restrictions and owner password; enter the owner password in the editor to unlock every tool, and that copy is saved without encryption. Unless you turn, insert, delete or reorder pages in the page list, page count and page sizes are kept; the text you did not edit, form fields and the title are kept too, and rotated or cropped pages are shown and edited the way your viewer shows them. Your additions are written into the page content itself, except links and form fields, which are saved as real links and fillable fields, and highlights, drawings, notes, shapes and lines when you choose Save markups as comments beside Apply & download: those become standard PDF annotations that other PDF apps can select, edit or delete. Whiteout and redaction are always page content.`,
+    `Everything runs in your browser tab, so your PDF is not uploaded. Files up to ${MAX_MB} MB open, each picture may be up to ${IMAGE_MB} MB, and a password-protected PDF is turned away until it has been unlocked. A PDF that opens without a password but whose author restricted changes opens with only what the author allows: filling in its form, and, when the author allows comments, highlights, drawings, notes and shapes saved as comments. The copy you download keeps the author's encryption, restrictions and owner password; enter the owner password in the editor to unlock every tool, and that copy is saved without encryption. Unless you turn, insert, delete or reorder pages in the page list, page count and page sizes are kept; the text you did not edit, form fields and the title are kept too, and rotated or cropped pages are shown and edited the way your viewer shows them. Your additions are written into the page content itself, except links and form fields, which are saved as real links and fillable fields, and highlights, drawings, notes, shapes and lines when you choose Save markups as comments beside Apply & download: those become standard PDF annotations that other PDF apps can select, edit or delete. ${STICKY_STAYS_COMMENT} Whiteout and redaction are always page content.`,
   ],
 
   useCases: [
@@ -162,11 +172,11 @@ const content: ToolContent = {
     },
     {
       title: "Pick a tool and click on the page",
-      body: "Edit text outlines every line of the PDF's own text: click one and retype it. Text and Note place a box you type into straight away. Rectangle, Ellipse, Line, Arrow, Whiteout, Redact and Highlight draw where you drag, or at a standard size where you click. Draw follows your pointer. Image and Sign ask for a picture or a signature first, then place it where you click. Date, Initials, Name and Check place one where you click. Link and the Forms tools draw where you drag; then the panel sets where the link goes, or the field's name and choices. Find & replace, or Ctrl+F, searches every page.",
+      body: "Edit text outlines every line of the PDF's own text: click one and retype it. Text and Note place a box you type into straight away. Rectangle, Ellipse, Line, Arrow, Whiteout and Redact draw where you drag, or at a standard size where you click. Highlight, Underline and Strikethrough follow the words you drag across, or mark the one word you click; where there is no text, they draw a box like the others. Draw follows your pointer, and Highlighter does too with a wide see-through stroke that keeps the words under it readable. Comment drops a sticky-note icon where you click, with a popup for your words. Image and Sign ask for a picture or a signature first, then place it where you click. Date, Initials, Name and Check place one where you click. Link and the Forms tools draw where you drag; then the panel sets where the link goes, or the field's name and choices. Find & replace, or Ctrl+F, searches every page.",
     },
     {
       title: "Move, resize and style",
-      body: `With Select, click an item to select it, drag it to move it, or drag a handle to resize it; Shift-click adds to the selection, and items snap to the page's edges and centre lines and to other items' edges and centres; Order in the panel brings an item forward or sends it back. The arrow keys nudge by ${NUDGE_PT} pt, or ${NUDGE_BIG_PT} pt with Shift. The panel beside the page sets font (${fonts}), size, colour, bold, italic, alignment and line height for text, and outline, fill and opacity for shapes. Undo and Redo, or Ctrl+Z and Ctrl+Shift+Z, step back and forward.`,
+      body: `With Select, click an item to select it, drag it to move it, or drag a handle to resize it; Shift-click adds to the selection, and items snap to the page's edges and centre lines and to other items' edges and centres; Order in the panel brings an item forward or sends it back. The arrow keys nudge by ${NUDGE_PT} pt, or ${NUDGE_BIG_PT} pt with Shift. The panel beside the page sets font (${fonts}), size, colour, bold, italic, alignment and line height for text, and outline, fill and opacity for shapes. Undo and Redo, or Ctrl+Z and Ctrl+Shift+Z, step back and forward. Zoom runs from ${pct(MIN_ZOOM)} to ${pct(MAX_ZOOM)}, with the zoom buttons, the zoom menu, Ctrl and the mouse wheel, or a two-finger pinch on a touch screen; Fit width sizes the pages to the view.`,
     },
     {
       title: "Arrange the pages",
@@ -193,16 +203,16 @@ const content: ToolContent = {
       a: `Text can be written in the ${scripts} scripts.${rtlSentence} Each text box is drawn with one font, so a box can hold one of these scripts; put a second one in a box of its own. Text in those scripts uses the regular weight of its Noto font, so bold and italic apply to Latin text only.`,
     },
     {
+      q: "Can I strike through or underline words?",
+      a: `Yes. Choose ${TEXT_MARKUP_LABEL.strikeout} or ${TEXT_MARKUP_LABEL.underline} in the Mark up group, press on the first word and drag to the last: the line follows the selected text, one per line, and a click marks a single word. Select one and the panel's Style menu switches it between ${styleChoices}. Flattened, the default, the line is drawn into the page; with Save markups as comments beside Apply & download, each is a standard strikeout, underline or squiggly annotation that other PDF apps list as a comment and can delete. A strikethrough marks words for deletion; it does not remove them. To change the words themselves, use Edit text.`,
+    },
+    {
       q: "Does whiteout or Redact remove what is underneath?",
       a: "Whiteout does not: it paints a white box, and the text or image below stays in the file, where search, copy and an image extractor still reach it. Redact does: the text under its box is removed from the page, the pixels of any picture under it are overwritten, and comments under it are deleted. Lines and shapes under the box are covered, not removed. A form field, an inline picture or deeply nested content under a box is refused with a message; Redact PDF, which turns pages into images, handles those. Bookmarks and the document's properties are not changed.",
     },
     {
       q: "Does it work on rotated or cropped pages?",
       a: "Yes. Each page is shown the way a PDF viewer shows it, after any rotation setting and with only its visible area, and what you add lands exactly where you placed it and reads upright.",
-    },
-    {
-      q: "How far can I zoom?",
-      a: `From ${pct(MIN_ZOOM)} to ${pct(MAX_ZOOM)}, with the zoom buttons, the zoom menu, Ctrl and the mouse wheel, or a two-finger pinch on a touch screen. Fit width sizes the pages to the view.`,
     },
   ],
 

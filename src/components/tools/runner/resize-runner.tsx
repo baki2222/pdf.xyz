@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Download, Scaling } from "lucide-react";
 import {
   MAX_RESIZE_SIDE_PT,
@@ -39,6 +39,9 @@ import { RunBar } from "./run-bar";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import { PrivacyLine, SegmentedControl, TextField } from "./stamp-controls";
 import type { LoadedPdf } from "./use-single-pdf";
+import { LazyPagePicker } from "./page-picker-lazy";
+import { pageListText, pagesInText } from "./page-picker-text";
+import { pageSizeCaption } from "./resize-page-sizes";
 
 /** The run button's label — exported so the page's steps quote it. */
 export const RESIZE_RUN_LABEL = "Resize PDF";
@@ -77,6 +80,22 @@ export function ResizeEditor({
   const [rangeInput, setRangeInput] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const { busy, error, result, run, reset } = useAsyncRun<ResizeResult>();
+  // Each page's displayed size, for the picker's labels (audit resize-pdf#6);
+  // read once the list is first shown. Cosmetic: a failed read shows none.
+  const [pageSizes, setPageSizes] = useState<
+    { width: number; height: number }[] | null
+  >(null);
+  useEffect(() => {
+    if (scope !== "range" || pageSizes) return;
+    let alive = true;
+    import("@/lib/pdf/crop")
+      .then(({ getPageSizes }) => getPageSizes(pdf.bytes))
+      .then((read) => alive && setPageSizes(read))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [scope, pageSizes, pdf.bytes]);
 
   const target =
     sizeId === "custom"
@@ -235,6 +254,27 @@ export function ResizeEditor({
                 setFormError(null);
               }}
               placeholder="e.g. 1-3, 5"
+            />
+          )}
+          {scope === "range" && (
+            <LazyPagePicker
+              bytes={pdf.bytes}
+              pageCount={pdf.pageCount}
+              rotations={pdf.rotations}
+              mode="select"
+              label="Pages — press a page to resize it or leave it as it is"
+              value={pagesInText(rangeInput, pdf.pageCount)}
+              onChange={(next) => {
+                setRangeInput(pageListText(next));
+                setFormError(null);
+              }}
+              caption={(i) => {
+                const size = pageSizes?.[i];
+                return size
+                  ? pageSizeCaption(size.width, size.height)
+                  : undefined;
+              }}
+              disabled={busy}
             />
           )}
         </div>

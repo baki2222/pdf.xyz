@@ -137,6 +137,11 @@ import {
   WORLD_PAGE_SIZE,
 } from "@/lib/pdf/image-page-defaults";
 import {
+  SMALL_IMAGES_CHOICES,
+  SMALL_IMAGES_LABELS,
+} from "@/lib/pdf/image-enlarge";
+import { CUSTOM_PAGE_LABELS } from "@/lib/pdf/image-page-custom";
+import {
   MARKDOWN_BLOCK_KINDS,
   type MarkdownBlockKind,
 } from "@/lib/pdf/markdown-blocks";
@@ -149,6 +154,7 @@ import {
 } from "@/lib/pdf/tiff-limits";
 import { getRunnerKind, type RunnerKind } from "@/lib/pdf/registry";
 import { tools } from "./catalog";
+import { STICKY_STAYS_COMMENT } from "@/lib/pdf/editor/sticky";
 import { toolFileCeilingMb } from "./file-ceilings";
 import type { Tool } from "./types";
 
@@ -357,10 +363,17 @@ const DEFAULT_IMAGE_ORIENTATION = IMAGE_ORIENTATIONS.find(
  * options and this sentence arrived together, and
  * claims-vs-capability.test.ts runs the engine with every listed size.
  */
-export const IMAGE_PAGE_OPTIONS_FACT = `Page size: ${orJoin(IMAGE_PAGE_SIZES.map((s) => s.label))}. Orientation: ${orJoin(IMAGE_ORIENTATIONS.map((o) => o.label))} (Auto turns the page for a wide image). Margin: ${orJoin(IMAGE_MARGINS.map((m) => (m.points > 0 ? `${m.label} (${inches(m.points)} in)` : m.label)))}.`;
+export const IMAGE_PAGE_OPTIONS_FACT = `Page size: ${orJoin([...IMAGE_PAGE_SIZES.map((s) => s.label), `${CUSTOM_PAGE_LABELS.chip} (a width and height in mm or inches)`])}. Orientation: ${orJoin(IMAGE_ORIENTATIONS.map((o) => o.label))} (Auto turns the page for a wide image). Margin: ${orJoin([...IMAGE_MARGINS.map((m) => (m.points > 0 ? `${m.label} (${inches(m.points)} in)` : m.label)), `${CUSTOM_PAGE_LABELS.chip} (in mm or inches)`])}.`;
 
-/** Image to PDF's page, as the engine lays it out. */
-export const IMAGE_PAGE_FACT = `Each image goes on its own page, centred. Unless you change the page setup, that page is ${DEFAULT_IMAGE_ORIENTATION} with a ${inches(imageMarginPoints(DEFAULT_IMAGE_PAGE_OPTIONS.margin))} in margin, and its size is ${DEFAULT_IMAGE_SIZE}. Larger images are scaled down to fit; smaller ones are never enlarged. Fit to image makes each page the size of its image instead, plus the margin.`;
+/** "Enlarge to fit" under "Small images": the runner's own labels. */
+const ENLARGE_CHOICE = SMALL_IMAGES_CHOICES.find((c) => c.id === "enlarge")!;
+
+/**
+ * Image to PDF's page, as the engine lays it out. "smaller ones are never
+ * enlarged" until 2026-11-08 (audits jpg-to-pdf#4 / png-to-pdf#4), when the
+ * Small images choice arrived; it is still the default.
+ */
+export const IMAGE_PAGE_FACT = `Each image goes on its own page, centred. Unless you change the page setup, that page is ${DEFAULT_IMAGE_ORIENTATION} with a ${inches(imageMarginPoints(DEFAULT_IMAGE_PAGE_OPTIONS.margin))} in margin, and its size is ${DEFAULT_IMAGE_SIZE}. Larger images are scaled down to fit; smaller ones keep their own size unless you choose ${ENLARGE_CHOICE.label} under ${SMALL_IMAGES_LABELS.heading}, which scales them up to the margin. Fit to image makes each page the size of its image instead, plus the margin.`;
 
 /**
  * JPG / PNG to PDF's TIFF input (2026-11-04), from the reader's own leaf
@@ -894,8 +907,9 @@ export const RUNNER_MID_RUN_FETCHES: Readonly<
 > = {
   // The contents page draws each file's name (2026-10-25).
   merge: ["image-decoder", "character-map", "drawing-font"],
-  // "By text" reads each page's text through pdf.js (2026-10-25).
-  split: ["character-map"],
+  // "By text" reads each page's text through pdf.js (2026-10-25); the cut
+  // picker under Custom ranges renders page thumbnails (2026-11-08).
+  split: ["image-decoder", "character-map"],
   rotate: ["image-decoder", "character-map"],
   "delete-pages": ["image-decoder", "character-map"],
   "extract-pages": ["image-decoder", "character-map"],
@@ -925,7 +939,8 @@ export const RUNNER_MID_RUN_FETCHES: Readonly<
   compare: ["character-map"],
   scan: [],
   metadata: [],
-  resize: [],
+  // The page picker under Selected pages renders thumbnails (2026-11-08).
+  resize: ["image-decoder", "character-map"],
   "n-up": [],
   "split-half": [],
 };
@@ -1363,7 +1378,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
             MARKUP_KINDS.filter((k) => isCommentKind(k)).map(
               (k) => EDITOR_KIND_FACT[k],
             ),
-          )} into the page itself, so a reader shows them as part of the page, not as comments. Choose Save markups as comments and they are written as standard PDF annotations instead, as are ${COMMENT_KINDS.filter(
+          )} into the page itself, so a reader shows them as part of the page, not as comments. ${STICKY_STAYS_COMMENT} Choose Save markups as comments and they are written as standard PDF annotations instead, as are ${COMMENT_KINDS.filter(
             (k) => !(MARKUP_KINDS as readonly string[]).includes(k),
           )
             .map((k) => EDITOR_KIND_FACT[k])
@@ -1377,7 +1392,10 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         },
         {
           question: "How do I place a highlight?",
-          answer: `Highlight is the tool the editor opens on: drag across the page where it goes, then drag its handles to fit. A highlight is a see-through box, so it tints whatever lies under it rather than following the words.`,
+          // WAS "A highlight is a see-through box, so it tints whatever lies
+          // under it rather than following the words" until 2026-11-08,
+          // when a press on text began selecting words (audit annotate-pdf#3).
+          answer: `Highlight is the tool the editor opens on: press on a word and drag to the last word you want, and the highlight follows the selected text line by line; a click marks one word. Where there is no selectable text, such as a scanned page, the same drag draws a see-through box you can resize from its handles.`,
         },
       ];
     case "watermark":

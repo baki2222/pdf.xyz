@@ -53,6 +53,8 @@ import {
 import type { LoadedPdf } from "./use-single-pdf";
 import { CropDisclosure } from "./crop-disclosure";
 import { usePageImage } from "./use-page-image";
+import { evenPages, oddPages } from "./selection";
+import { pagesInText } from "./page-picker-text";
 
 const START_MARGIN = 24;
 const MAX_MARGIN = 300;
@@ -61,6 +63,36 @@ const MAX_MARGIN = 300;
 const clampPct = (value: number) => Math.max(0, Math.min(49, value));
 
 type CropMode = "uniform" | "per-side" | "auto";
+type Edge = keyof CropMargins;
+type CropScope = "all" | "odd" | "even" | "range";
+
+/** Said under the preview for a page the chosen pages leave out. */
+export const OUT_OF_SCOPE_NOTE =
+  "This page is not one of the pages you chose, so it stays uncropped.";
+
+/**
+ * The pages a scope crops, or null for every page. A Selected pages list that
+ * does not parse yet names none, so the preview shows no box it cannot keep.
+ */
+function scopePages(
+  scope: CropScope,
+  rangeInput: string,
+  pageCount: number,
+): Set<number> | null {
+  if (scope === "all") return null;
+  if (scope === "odd") return oddPages(pageCount);
+  if (scope === "even") return evenPages(pageCount);
+  return pagesInText(rangeInput, pageCount);
+}
+const EDGES: readonly Edge[] = ["top", "right", "bottom", "left"];
+
+/** Each handle's accessible name — "Top edge", and so on. */
+const edgeLabel = (edge: Edge) =>
+  `${edge.charAt(0).toUpperCase()}${edge.slice(1)} edge`;
+
+/** The line under the manual preview — the page's steps quote it. */
+export const EDGE_HINT =
+  "Drag an edge of the dashed box to move it, or focus an edge and use the arrow keys: one point a press, ten with Shift.";
 type AutoApply = "per-page" | "uniform";
 
 type AutoState =
@@ -146,7 +178,7 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
   });
   const [mode, setMode] = useState<CropMode>("uniform");
   const [unit, setUnit] = useState<LengthUnit>("pt");
-  const [scope, setScope] = useState<"all" | "range">("all");
+  const [scope, setScope] = useState<CropScope>("all");
   const [rangeInput, setRangeInput] = useState("");
   const [rangeError, setRangeError] = useState<string | null>(null);
   const [count, setCount] = useState(pdf.pageCount);
@@ -179,9 +211,16 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
 
   // The margins the preview draws: the slider values, or in Auto the
   // proposal for the page being reviewed (none for a blank page).
-  const shownPage = mode === "auto" ? previewPage : 0;
-  const shownMargins: CropMargins | null =
-    mode === "auto" ? (autoMargins?.[shownPage] ?? null) : margins;
+  // Every mode steps through the pages (audit crop-pdf#2): the manual
+  // preview was pinned to page 1, even when the chosen pages left it out.
+  const shownPage = Math.min(previewPage, Math.max(0, pdf.pageCount - 1));
+  const chosen = scopePages(scope, rangeInput, pdf.pageCount);
+  const inScope = chosen === null || chosen.has(shownPage);
+  const shownMargins: CropMargins | null = !inScope
+    ? null
+    : mode === "auto"
+      ? (autoMargins?.[shownPage] ?? null)
+      : margins;
   const pageSize = sizes[shownPage] ?? null;
   const preview =
     pageSize && pageSize.width > 0 && pageSize.height > 0
@@ -196,10 +235,16 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
           },
         }
       : null;
-  const pageImage = usePageImage(
-    pdf.bytes,
-    mode === "auto" && plan ? shownPage : null,
-  );
+  // The page itself, under the box, in every mode (audit crop-pdf#1): the
+  // manual modes drew an empty outline, so margins were set blind.
+  const pageImage = usePageImage(pdf.bytes, shownPage);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const setEdge = (edge: Edge, points: number) =>
+    setMargins((m) =>
+      mode === "uniform"
+        ? { top: points, right: points, bottom: points, left: points }
+        : { ...m, [edge]: points },
+    );
 
   const detect = async () => {
     detectAbort.current?.abort();
@@ -241,6 +286,8 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
         setRangeError(errorMessage(err));
         return;
       }
+    } else if (scope !== "all") {
+      pages = [...scopePages(scope, rangeInput, pdf.pageCount)!];
     }
     setRangeError(null);
     if (mode === "auto") {
@@ -388,9 +435,20 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
           <SegmentedControl
             label="Page scope"
             value={scope}
-            onChange={setScope}
+            onChange={(next) => {
+              setScope(next);
+              // Show the first page the new scope crops.
+              if (next === "odd") setPreviewPage(0);
+              if (next === "even") setPreviewPage(1);
+            }}
             options={[
               { value: "all", label: "All pages" },
+              ...(pdf.pageCount > 1
+                ? ([
+                    { value: "odd", label: "Odd pages" },
+                    { value: "even", label: "Even pages" },
+                  ] as const)
+                : []),
               { value: "range", label: "Selected pages" },
             ]}
           />
@@ -413,16 +471,16 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
       <RunnerSection
         title="Crop preview"
         aside={
-          mode === "auto" && plan ? (
-            <span className="text-muted tnum text-xs">
-              Page {shownPage + 1} of {pdf.pageCount}
-            </span>
-          ) : undefined
+          <span className="text-muted tnum text-xs">
+            Page {shownPage + 1} of {pdf.pageCount}
+          </span>
         }
       >
         <div className="border-line bg-canvas rounded-panel flex flex-col items-center gap-3 border p-5">
           {preview ? (
             <div
+              ref={sheetRef}
+              data-crop-sheet=""
               className="rounded-sheet relative w-full max-w-[200px] overflow-hidden bg-white/90 shadow-sm ring-1 ring-black/10"
               style={{ aspectRatio: `${preview.width} / ${preview.height}` }}
             >
@@ -446,6 +504,20 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
                   }}
                 />
               )}
+              {mode !== "auto" &&
+                preview.box &&
+                EDGES.map((edge) => (
+                  <EdgeHandle
+                    key={edge}
+                    edge={edge}
+                    box={preview.box!}
+                    points={margins[edge]}
+                    unit={unit}
+                    page={preview}
+                    sheetRef={sheetRef}
+                    onChange={(points) => setEdge(edge, points)}
+                  />
+                ))}
             </div>
           ) : (
             // Still, and the preview frame's own shape — not the pulsing box
@@ -453,34 +525,44 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
             // e2e/editor-arrival.spec.ts.
             <div className="bg-wash rounded-sheet relative aspect-[3/4] w-full max-w-[200px] overflow-hidden" />
           )}
-          {mode === "auto" && plan && (
-            <>
-              <p className="text-muted text-xs" role="status">
-                {plan.blank.includes(shownPage)
-                  ? "This page looks blank, so it is left uncropped."
-                  : plan.unread.includes(shownPage)
-                    ? "This page could not be read, so it is left uncropped."
-                    : "The dashed box is what this page keeps."}
-              </p>
-              <div className="flex items-center gap-2">
-                <ChipButton
-                  onClick={() => setPreviewPage((p) => Math.max(0, p - 1))}
-                  disabled={shownPage === 0}
-                >
-                  <ChevronLeft className="size-3.5" aria-hidden />
-                  Previous page
-                </ChipButton>
-                <ChipButton
-                  onClick={() =>
-                    setPreviewPage((p) => Math.min(pdf.pageCount - 1, p + 1))
-                  }
-                  disabled={shownPage >= pdf.pageCount - 1}
-                >
-                  Next page
-                  <ChevronRight className="size-3.5" aria-hidden />
-                </ChipButton>
-              </div>
-            </>
+          {mode !== "auto" && preview?.box && (
+            <p className="text-muted max-w-xs text-center text-xs">
+              {EDGE_HINT}
+            </p>
+          )}
+          {!inScope && (
+            <p className="text-muted text-xs" role="status">
+              {OUT_OF_SCOPE_NOTE}
+            </p>
+          )}
+          {mode === "auto" && plan && inScope && (
+            <p className="text-muted text-xs" role="status">
+              {plan.blank.includes(shownPage)
+                ? "This page looks blank, so it is left uncropped."
+                : plan.unread.includes(shownPage)
+                  ? "This page could not be read, so it is left uncropped."
+                  : "The dashed box is what this page keeps."}
+            </p>
+          )}
+          {pdf.pageCount > 1 && (
+            <div className="flex items-center gap-2">
+              <ChipButton
+                onClick={() => setPreviewPage((p) => Math.max(0, p - 1))}
+                disabled={shownPage === 0}
+              >
+                <ChevronLeft className="size-3.5" aria-hidden />
+                Previous page
+              </ChipButton>
+              <ChipButton
+                onClick={() =>
+                  setPreviewPage((p) => Math.min(pdf.pageCount - 1, p + 1))
+                }
+                disabled={shownPage >= pdf.pageCount - 1}
+              >
+                Next page
+                <ChevronRight className="size-3.5" aria-hidden />
+              </ChipButton>
+            </div>
           )}
         </div>
       </RunnerSection>
@@ -505,6 +587,137 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
         </div>
       </RunBar>
     </div>
+  );
+}
+
+/**
+ * One edge of the manual crop box, as a slider over that edge's margin: drag
+ * it on the page, or focus it and use the arrow keys. Pointer moves are read
+ * against the sheet's on-screen size, so a pixel is the same share of the
+ * page the preview draws (the page's displayed frame, as `cropPdf` crops).
+ */
+function EdgeHandle({
+  edge,
+  box,
+  points,
+  unit,
+  page,
+  sheetRef,
+  onChange,
+}: {
+  edge: Edge;
+  box: Record<Edge, number>;
+  points: number;
+  unit: LengthUnit;
+  page: { width: number; height: number };
+  sheetRef: React.RefObject<HTMLDivElement | null>;
+  onChange: (points: number) => void;
+}) {
+  const drag = useRef<{ x: number; y: number; points: number } | null>(null);
+  const clamp = (pt: number) =>
+    Math.max(0, Math.min(MAX_MARGIN, Math.round(pt * 100) / 100));
+  const vertical = edge === "top" || edge === "bottom";
+  const position: React.CSSProperties =
+    edge === "top"
+      ? { top: `${box.top}%`, left: "50%" }
+      : edge === "bottom"
+        ? { top: `${100 - box.bottom}%`, left: "50%" }
+        : edge === "left"
+          ? { left: `${box.left}%`, top: "50%" }
+          : { left: `${100 - box.right}%`, top: "50%" };
+  return (
+    <span
+      role="slider"
+      tabIndex={0}
+      aria-label={edgeLabel(edge)}
+      aria-orientation={vertical ? "vertical" : "horizontal"}
+      aria-valuemin={0}
+      aria-valuemax={MAX_MARGIN}
+      aria-valuenow={points}
+      aria-valuetext={formatLength(points, unit)}
+      onPointerDown={(event) => {
+        event.preventDefault();
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+        drag.current = { x: event.clientX, y: event.clientY, points };
+      }}
+      onPointerMove={(event) => {
+        const start = drag.current;
+        const rect = sheetRef.current?.getBoundingClientRect();
+        if (!start || !rect || rect.width <= 0 || rect.height <= 0) return;
+        const dx = ((event.clientX - start.x) * page.width) / rect.width;
+        const dy = ((event.clientY - start.y) * page.height) / rect.height;
+        const inward =
+          edge === "top"
+            ? dy
+            : edge === "bottom"
+              ? -dy
+              : edge === "left"
+                ? dx
+                : -dx;
+        onChange(clamp(start.points + inward));
+      }}
+      onPointerUp={() => {
+        drag.current = null;
+      }}
+      onPointerCancel={() => {
+        drag.current = null;
+      }}
+      onKeyDown={(event) => {
+        const step = event.shiftKey ? 10 : 1;
+        // Along the edge's own axis the edge moves the way the arrow points
+        // on screen: Down/Right move the top/left edges in, Up/Left the
+        // bottom/right ones. The two cross-axis keys keep the slider
+        // convention (Up/Right add margin) so every arrow does something.
+        const by: Record<string, number> =
+          edge === "top"
+            ? {
+                ArrowDown: step,
+                ArrowUp: -step,
+                ArrowRight: step,
+                ArrowLeft: -step,
+              }
+            : edge === "bottom"
+              ? {
+                  ArrowUp: step,
+                  ArrowDown: -step,
+                  ArrowRight: step,
+                  ArrowLeft: -step,
+                }
+              : edge === "left"
+                ? {
+                    ArrowRight: step,
+                    ArrowLeft: -step,
+                    ArrowUp: step,
+                    ArrowDown: -step,
+                  }
+                : {
+                    ArrowLeft: step,
+                    ArrowRight: -step,
+                    ArrowUp: step,
+                    ArrowDown: -step,
+                  };
+        let next: number | null = null;
+        if (event.key in by) next = points + by[event.key]!;
+        else if (event.key === "Home") next = 0;
+        else if (event.key === "End") next = MAX_MARGIN;
+        if (next === null) return;
+        event.preventDefault();
+        onChange(clamp(next));
+      }}
+      className={cn(
+        "tap focus-visible:ring-accent/50 rounded-tag absolute z-10 grid size-6 -translate-x-1/2 -translate-y-1/2 touch-none place-items-center outline-none focus-visible:ring-2",
+        vertical ? "cursor-ns-resize" : "cursor-ew-resize",
+      )}
+      style={position}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "bg-accent rounded-tag ring-canvas shadow-sm ring-2",
+          vertical ? "h-1.5 w-5" : "h-5 w-1.5",
+        )}
+      />
+    </span>
   );
 }
 

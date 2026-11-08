@@ -18,7 +18,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { withAppRouter } from "@/tests/app-router";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { PDFDocument } from "pdf-lib";
+import {
+  PDFArray,
+  PDFDocument,
+  PDFName,
+  PDFRawStream,
+  decodePDFRawStream,
+} from "pdf-lib";
 import { SignRunner } from "./sign-runner";
 
 // The router comes from its context (`withAppRouter`), not a module mock:
@@ -370,4 +376,235 @@ describe("Sign PDF says when 'Save for next time' could not save", () => {
     // Health check: the save really happened, so the control is not vacuous.
     expect(localStorage.length).toBeGreaterThan(0);
   });
+});
+
+/*
+ * Audit sign-pdf#6 and #2 (2026-11-06), driven through the real runner: a
+ * typed signature in blue, placed once, repeated on all pages with "Repeat
+ * on", applied — and read back out of the file Apply & download writes.
+ */
+describe("Sign PDF repeats a signature on every page", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("one placement + Repeat on All pages draws it on each page, in the chosen ink", async () => {
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < 3; i += 1) doc.addPage([612, 792]);
+    const file = new File([(await doc.save()).slice().buffer], "lease.pdf", {
+      type: "application/pdf",
+    });
+    const blobs: Blob[] = [];
+    const realCreate = URL.createObjectURL;
+    vi.spyOn(URL, "createObjectURL").mockImplementation((b) => {
+      if (b instanceof Blob && b.type === "application/pdf") blobs.push(b);
+      return realCreate ? realCreate.call(URL, b) : "blob:mock";
+    });
+    const { container } = render(withAppRouter(<SignRunner />));
+    const input =
+      container.querySelector<HTMLInputElement>('input[type="file"]');
+    fireEvent.change(input!, { target: { files: [file] } });
+    await screen.findByRole("tab", { name: "Draw" }, { timeout: 8000 });
+
+    source("Type");
+    fireEvent.change(screen.getByLabelText("Your name"), {
+      target: { value: "Ada Lovelace" },
+    });
+    fireEvent.click(screen.getByRole("radio", { name: "Blue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use signature" }));
+    const page1 = await screen.findByRole(
+      "group",
+      { name: "Page 1 of 3" },
+      { timeout: 8000 },
+    );
+    await vi.waitFor(() => {
+      fireEvent.pointerDown(page1, { button: 0, clientX: 5, clientY: 5 });
+      expect(screen.getByLabelText("Repeat on")).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Repeat" }));
+    fireEvent.click(screen.getByRole("button", { name: /Apply & download/ }));
+    await vi.waitFor(() => expect(blobs.length).toBeGreaterThan(0), {
+      timeout: 15000,
+    });
+
+    const out = await PDFDocument.load(
+      new Uint8Array(await blobs.at(-1)!.arrayBuffer()),
+    );
+    const texts = out.getPages().map((p) => {
+      const c = p.node.get(PDFName.of("Contents"));
+      const refs = c instanceof PDFArray ? c.asArray() : c ? [c] : [];
+      return refs
+        .map((r) =>
+          new TextDecoder("latin1").decode(
+            decodePDFRawStream(out.context.lookup(r) as PDFRawStream).decode(),
+          ),
+        )
+        .join("\n");
+    });
+    // Each page shows the name, filled blue (#1d4ed8 = .1137 .3059 .8471).
+    for (const [i, t] of texts.entries()) {
+      expect(t, `page ${i + 1}`).toMatch(/\bTj\b|\bTJ\b/);
+      expect(t, `page ${i + 1}`).toMatch(/0?\.11\d* 0?\.30\d* 0?\.84\d* rg/);
+    }
+  }, 60_000);
+});
+
+/*
+ * Audit sign-pdf#5 (2026-11-06), driven through the real runner: a PDF the
+ * other party signed with a certificate, countersigned here. The download
+ * must keep every byte their signature covers — the edit is appended.
+ */
+describe("Sign PDF countersigns without breaking an earlier signature", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("Apply & download appends to a signed file: its signed bytes survive", async () => {
+    const { signedPdf, signedRanges, hashedBytes } =
+      await import("@/tests/signed-pdf");
+    const original = await signedPdf({ signatures: 1 });
+    const file = new File([original.slice().buffer], "nda.pdf", {
+      type: "application/pdf",
+    });
+    const blobs: Blob[] = [];
+    const realCreate = URL.createObjectURL;
+    vi.spyOn(URL, "createObjectURL").mockImplementation((b) => {
+      if (b instanceof Blob && b.type === "application/pdf") blobs.push(b);
+      return realCreate ? realCreate.call(URL, b) : "blob:mock";
+    });
+    const { container } = render(withAppRouter(<SignRunner />));
+    fireEvent.change(
+      container.querySelector<HTMLInputElement>('input[type="file"]')!,
+      { target: { files: [file] } },
+    );
+    await screen.findByRole("tab", { name: "Draw" }, { timeout: 8000 });
+    expect(
+      container.querySelector('[data-signed-input-notice="appended"]'),
+    ).not.toBeNull();
+
+    source("Type");
+    fireEvent.change(screen.getByLabelText("Your name"), {
+      target: { value: "Ada Lovelace" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Use signature" }));
+    const page1 = await screen.findByRole(
+      "group",
+      { name: "Page 1 of 1" },
+      { timeout: 8000 },
+    );
+    const apply = () =>
+      screen.getByRole("button", { name: /Apply & download/ });
+    await vi.waitFor(() => {
+      if (
+        apply().hasAttribute("disabled") ||
+        apply().getAttribute("aria-disabled") === "true"
+      )
+        fireEvent.pointerDown(page1, { button: 0, clientX: 5, clientY: 5 });
+      expect(apply().hasAttribute("disabled")).toBe(false);
+      expect(apply().getAttribute("aria-disabled")).not.toBe("true");
+    });
+    fireEvent.click(apply());
+    await vi.waitFor(() => expect(blobs.length).toBeGreaterThan(0), {
+      timeout: 15000,
+    });
+    const out = new Uint8Array(await blobs.at(-1)!.arrayBuffer());
+
+    expect(out.length).toBeGreaterThan(original.length);
+    expect(
+      out.subarray(0, original.length).every((v, i) => v === original[i]),
+    ).toBe(true);
+    for (const r of signedRanges(original)) {
+      const a = hashedBytes(out, r);
+      const b = hashedBytes(original, r);
+      expect(a.length === b.length && a.every((v, i) => v === b[i])).toBe(true);
+    }
+    // The countersignature is in the file, and the result says what it kept.
+    const doc = await PDFDocument.load(out);
+    const c = doc.getPage(0).node.get(PDFName.of("Contents"));
+    const refs = c instanceof PDFArray ? c.asArray() : c ? [c] : [];
+    const text = refs
+      .map((r) =>
+        new TextDecoder("latin1").decode(
+          decodePDFRawStream(doc.context.lookup(r) as PDFRawStream).decode(),
+        ),
+      )
+      .join("\n");
+    expect(text).toMatch(/\bTj\b|\bTJ\b/);
+    expect(
+      await screen.findByText(/1 existing signature left intact/),
+    ).toBeTruthy();
+  }, 60_000);
+});
+
+/*
+ * Review of sign-pdf#5 (2026-11-08), through the real runner: an edit of a
+ * signed file that takes something OUT is not appended (the earlier
+ * revision would still hold what was removed). The note beside Apply says
+ * so before the click, the download is one revision, and the result line
+ * is read from the output: the signature is not "left intact".
+ */
+describe("A redaction on a signed PDF rewrites it, and says so", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("Apply with a redaction box: one revision out, signature reported lost", async () => {
+    const { EditorRunner } = await import("./editor/editor-session");
+    const { signedPdf } = await import("@/tests/signed-pdf");
+    const original = await signedPdf({ signatures: 1, text: "SECRET" });
+    const file = new File([original.slice().buffer], "nda.pdf", {
+      type: "application/pdf",
+    });
+    const blobs: Blob[] = [];
+    const realCreate = URL.createObjectURL;
+    vi.spyOn(URL, "createObjectURL").mockImplementation((b) => {
+      if (b instanceof Blob && b.type === "application/pdf") blobs.push(b);
+      return realCreate ? realCreate.call(URL, b) : "blob:mock";
+    });
+    const { container } = render(
+      withAppRouter(
+        <EditorRunner
+          slug="edit-pdf"
+          toolName="Edit PDF"
+          hint="One PDF"
+          initialTool="redact"
+          emptyReason="Change something first."
+          resultTitle="Edited PDF ready"
+          downloadLabel="Download edited PDF"
+          outputName={(n) => n}
+          footer={null}
+        />,
+      ),
+    );
+    fireEvent.change(
+      container.querySelector<HTMLInputElement>('input[type="file"]')!,
+      { target: { files: [file] } },
+    );
+    const page1 = await screen.findByRole(
+      "group",
+      { name: "Page 1 of 1" },
+      { timeout: 8000 },
+    );
+    expect(container.querySelector("[data-signed-rewrite]")).toBeNull();
+    await vi.waitFor(() => {
+      if (!container.querySelector("[data-signed-rewrite]")) {
+        fireEvent.pointerDown(page1, { button: 0, clientX: 40, clientY: 40 });
+        fireEvent.pointerUp(window, { button: 0, clientX: 40, clientY: 40 });
+      }
+      expect(container.querySelector("[data-signed-rewrite]")).not.toBeNull();
+    });
+    expect(
+      container.querySelector("[data-signed-rewrite]")!.textContent,
+    ).toMatch(/a redaction.*will no longer verify/s);
+    fireEvent.click(screen.getByRole("button", { name: /Apply & download/ }));
+    await vi.waitFor(() => expect(blobs.length).toBeGreaterThan(0), {
+      timeout: 15000,
+    });
+    const out = new Uint8Array(await blobs.at(-1)!.arrayBuffer());
+    // A rewrite: one revision, and the original is not its prefix.
+    const text = new TextDecoder("latin1").decode(out);
+    expect(text.match(/%%EOF/g)).toHaveLength(1);
+    expect(
+      out.length >= original.length &&
+        out.subarray(0, original.length).every((v, i) => v === original[i]),
+    ).toBe(false);
+    expect(
+      await screen.findByText(/1 existing signature no longer verifies/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/left intact/)).toBeNull();
+  }, 60_000);
 });

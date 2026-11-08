@@ -42,6 +42,12 @@ export function SignRunner() {
       downloadLabel="Download signed PDF"
       outputName={signatureOutputName}
       footer={<SignFooter />}
+      // A PDF its author restricted opens as it does in Edit PDF: the
+      // banner says what the author allows, and a signature (drawn into
+      // the page) waits for the owner password, checked in the browser.
+      // Refused with the editing-restrictions message until 2026-11-08,
+      // which sent the file to the server-side Unlock PDF.
+      openProtected
     />
   );
 }

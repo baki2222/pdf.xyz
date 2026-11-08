@@ -5,7 +5,7 @@
  * size follows the rung, so pdf-lib embeds them and every size measured is a
  * real PDF's. The real canvas is proven in the browser e2e case.
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PDFDocument, PDFName, PDFRawStream } from "pdf-lib";
 import { encodeGrayJpeg } from "./gray-jpeg";
 import { imagesToPdf } from "./image-to-pdf";
@@ -70,7 +70,20 @@ const opts = DEFAULT_IMAGE_PAGE_OPTIONS;
 const fast = { now: () => 0, pause: async () => {} };
 
 describe("imagesToPdfUnderLimit — the composed chain", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("a PDF already under the limit is byte-for-byte the No limit PDF", async () => {
+    // One fixed clock for both saves. The dates pdf-lib writes now sit in a
+    // COMPRESSED object stream, where the strip below cannot reach them, so
+    // two saves a second apart differed byte for byte: PR #288's CI (run
+    // 42442252672) failed here while every local run, inside one second,
+    // passed. Only Date is faked; timers stay real.
+    vi.useFakeTimers({
+      toFake: ["Date"],
+      now: new Date("2026-01-02T03:04:05Z"),
+    });
     const files = [photo("a.jpg", 80, 60)];
     const plain = await imagesToPdf("jpg", files, opts);
     const calls: ReencodeRung[] = [];
