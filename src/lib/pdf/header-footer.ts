@@ -1,3 +1,4 @@
+import { isolatePageContent } from "./content-isolation";
 import { loadPdfLib } from "./pdf-lib";
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
@@ -339,6 +340,7 @@ export async function addHeaderFooter(
     }
   });
 
+  for (const { page } of pages) await isolatePageContent(page);
   pages.forEach(({ page, n }) => {
     const tokens = { n, total, date: options.date };
     const box = visibleBox(page);

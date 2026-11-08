@@ -182,7 +182,10 @@ export async function readAsViewer(
     list.fnArray.forEach((fn, i) => {
       const args = list.argsArray[i] as unknown[];
       if (fn === OPS.save) stack.push(ctm);
-      else if (fn === OPS.restore) ctm = stack.pop() ?? [1, 0, 0, 1, 0, 0];
+      // A restore with nothing saved is ignored, as pdf.js's canvas does
+      // (`if (this.stateStack.length === 0) return`). Resetting to identity
+      // here hid STAMP-09/EDIT-09's one-surplus-Q case from every path check.
+      else if (fn === OPS.restore) ctm = stack.pop() ?? ctm;
       else if (fn === OPS.transform) ctm = mul(ctm, args as unknown as Matrix);
       else if (fn === OPS.constructPath) {
         // args: [paint op, [path data], minMax]. Path data is a flat list of

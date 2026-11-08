@@ -1,3 +1,4 @@
+import { isolatePageContent } from "./content-isolation";
 import { loadPdfLib } from "./pdf-lib";
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
@@ -231,6 +232,7 @@ export async function addPageNumbers(
     const page = pages[index]!;
     const text = formatLabel(format, n, plan.total);
     if (text.trim().length === 0) continue;
+    await isolatePageContent(page);
 
     // Physical page 2, 4, 6… is a left-hand page in a printed spread.
     const mirrored = options.facing === true && (index + 1) % 2 === 0;

@@ -1,3 +1,4 @@
+import { isolatePageContent } from "./content-isolation";
 import {
   drawRasterImage,
   embedRasterImage,
@@ -191,6 +192,7 @@ export async function signPdf(
     Math.max(MIN_SIGNATURE_WIDTH, roomWidth),
   );
   const { degrees, rgb } = await loadPdfLib();
+  await isolatePageContent(page);
   const rotate = degrees(frame.rotation);
 
   if (input.kind === "image") {

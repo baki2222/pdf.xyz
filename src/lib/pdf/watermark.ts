@@ -1,3 +1,4 @@
+import { isolatePageContent } from "./content-isolation";
 import type { PDFImage, PDFPage } from "pdf-lib";
 import {
   drawRasterImage,
@@ -342,6 +343,7 @@ export async function watermarkPdf(
 
   for (const index of targets) {
     const page = pages[index]!;
+    await isolatePageContent(page);
     const box = visibleBox(page);
     const pageRotation = page.getRotation().angle;
     const wanted = embedded

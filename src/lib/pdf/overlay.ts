@@ -1,3 +1,4 @@
+import { isolatePageContent } from "./content-isolation";
 import type { PDFDict, PDFDocument, PDFEmbeddedPage, PDFPage } from "pdf-lib";
 import { asDecodeBudgetRefusal } from "./decode-budget";
 import { PdfEncryptedError, PdfEngineError } from "./engine";
@@ -389,6 +390,7 @@ export async function overlayPdf(
       const entry = embedded.get(overlayPageIndexFor(k, overlayCount, paging));
       // A blank overlay page draws nothing on the base pages mapped to it.
       if (!entry) continue;
+      await isolatePageContent(page);
       const place = placeOverlay({
         pageBox: visibleBox(page),
         pageRotation: page.getRotation().angle,

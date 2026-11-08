@@ -1,3 +1,4 @@
+import { isolatePageContent } from "./content-isolation";
 import type {
   PDFFont,
   PDFImage,
@@ -751,6 +752,7 @@ export async function editPdf(
     const page = pages[op.page - 1];
     const frame = frames[op.page - 1];
     if (!page || !frame) continue;
+    await isolatePageContent(page);
 
     if (op.type === "image") {
       let image: PDFImage;

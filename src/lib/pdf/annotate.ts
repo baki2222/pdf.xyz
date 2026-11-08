@@ -1,3 +1,4 @@
+import { isolatePageContent } from "./content-isolation";
 import type { PDFFont, PDFPage } from "pdf-lib";
 import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
 import { PdfEngineError } from "./engine";
@@ -843,6 +844,7 @@ export async function annotatePdf(
     const page = pages[annotation.page - 1];
     const frame = frames[annotation.page - 1];
     if (!page || !frame) continue;
+    await isolatePageContent(page);
     drawAnnotation(page, annotation, font, lib, frame);
     counts[annotation.type] += 1;
   }
