@@ -54,6 +54,7 @@ import {
   UNPROVEN_VIAS,
   harnessExitCode,
   judgeExpectedRefusal,
+  matchesExpectedFailure,
   orderSpecsForAllowance,
   refusalVerdict,
   unprovenSummaryLines,
@@ -565,5 +566,38 @@ describe("the expected-refusal proof (webpage-to-pdf 404)", () => {
     });
     expect(judgeExpectedRefusal(NOT_FOUND, job)).toMatchObject({ ok: false });
     expect(judgeExpectedRefusal(NOT_FOUND, {})).toMatchObject({ ok: false });
+  });
+});
+
+describe("matchesExpectedFailure — the harness's expectFailure", () => {
+  const want = { code: "pdf_no_tables", retryable: false, message: /No table/ };
+  const failed = {
+    status: "failed",
+    error: {
+      code: "pdf_no_tables",
+      retryable: false,
+      message: "No table here.",
+    },
+  };
+  it("matches a failed job with the code, the retryability and the message", () => {
+    expect(matchesExpectedFailure(failed, want)).toBe(true);
+  });
+  it("reads the CODE: the same sentence under the old code is not a match", () => {
+    expect(
+      matchesExpectedFailure(
+        { ...failed, error: { ...failed.error, code: "unprocessable_entity" } },
+        want,
+      ),
+    ).toBe(false);
+  });
+  it("a retryable refusal, a completed job, or no error never matches", () => {
+    expect(
+      matchesExpectedFailure(
+        { ...failed, error: { ...failed.error, retryable: true } },
+        want,
+      ),
+    ).toBe(false);
+    expect(matchesExpectedFailure({ status: "completed" }, want)).toBe(false);
+    expect(matchesExpectedFailure({ status: "failed" }, want)).toBe(false);
   });
 });

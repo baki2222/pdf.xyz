@@ -91,6 +91,7 @@ import {
   INVOICE_ROWS,
   invoicePdf,
   invoiceSheetMismatches,
+  letterPdf,
 } from "@/tests/pdf-office-fixtures";
 import { handBuiltPptx, pptxTitleProofVerdict } from "@/tests/pptx-fixture";
 import {
@@ -159,6 +160,25 @@ import {
   tablesProofVerdict,
 } from "@/tests/table-extract-fixtures";
 import {
+  numberCellsPdf,
+  repeatedHeaderPdf,
+  scannedTablePdf,
+} from "@/tests/table-proof-fixtures";
+import {
+  combinedHeaderVerdict,
+  defaultsVerdict,
+  NO_TABLES_FAILURE,
+  ocrCombinedVerdict,
+  ocrPerTableVerdict,
+  SCAN_WITHOUT_OCR_FAILURE,
+} from "@/lib/workers/table-extract/options-proof";
+import {
+  MALFORMED_BAG_FAILURE,
+  MALFORMED_BAG_OPTIONS,
+  ocrSheetPerPageVerdict,
+  sheetPerPageVerdict,
+} from "@/lib/workers/pdf-office-export/excel-options-proof";
+import {
   recoverablyDamagedPdf,
   repairProofVerdict,
   unrecoverablePdf,
@@ -189,6 +209,7 @@ import { browserStoppedWaitingAt } from "@/lib/jobs/client-wait";
 import {
   harnessExitCode,
   judgeExpectedRefusal,
+  matchesExpectedFailure,
   orderSpecsForAllowance,
   refusalVerdict,
   specKey,
@@ -196,6 +217,7 @@ import {
   EXIT_DEFECT,
   EXIT_INCOMPLETE,
   type DeploymentProofLedger,
+  type ExpectedFailure,
   type ProofOutcome,
   type UnprovenCause,
 } from "@/lib/probes/proof-outcome";
@@ -837,7 +859,7 @@ interface ProofSpec {
    * with exactly this code and retryability, and a message matching `message`.
    * A job that completes is the FAIL here. `expect` is then never reached.
    */
-  expectFailure?: { code: string; retryable: boolean; message: RegExp };
+  expectFailure?: ExpectedFailure;
   want: string;
   keepArtifactAs?: string;
 }
@@ -1743,6 +1765,47 @@ const SPECS: ProofSpec[] = [
           };
     },
   },
+  // Wave 3 (2026-11-08), read from the workbook's sheet NAMES, which page's
+  // words sit on which sheet, and the cell types
+  // (`@/lib/workers/pdf-office-export/excel-options-proof`). The image
+  // before it ignored `sheetPerPage` (one "Extracted text" sheet), `ocr`
+  // (the scan fails pdf_no_text) and stored these amounts as text.
+  {
+    tool: "pdf-to-excel",
+    label: "pdf-to-excel (ocr, sheet per page)",
+    make: scannedTablePdf,
+    name: "scanned-statement.pdf",
+    type: PDF_MIME,
+    options: { ocr: true, languages: ["eng"], sheetPerPage: true },
+    expect: isZipContainer,
+    want: "XLSX with Page 1 and Page 2, each its own recognised words",
+    verify: (bytes, job) => ocrSheetPerPageVerdict(bytes, job.results),
+  },
+  {
+    tool: "pdf-to-excel",
+    label: "pdf-to-excel (sheet per page, blank page, number cells)",
+    make: numberCellsPdf,
+    name: "amounts.pdf",
+    type: PDF_MIME,
+    options: { sheetPerPage: true },
+    expect: isZipContainer,
+    want: "XLSX with Page 1-3, Page 2 empty, amounts and dates as numbers",
+    verify: (bytes) => sheetPerPageVerdict(bytes),
+  },
+  // OCR on, `sheetPerPage` a number, on a LOCKED file: refused for the bag
+  // with the parser's own sentence. Had OCR run first, the record would
+  // carry OCR's refusal of the locked file — the order shows at the wire.
+  {
+    tool: "pdf-to-excel",
+    label: "pdf-to-excel (malformed options refused before ocr)",
+    make: unsupportedEncryptionPdf,
+    name: "locked.pdf",
+    type: PDF_MIME,
+    options: { ...MALFORMED_BAG_OPTIONS },
+    expectFailure: MALFORMED_BAG_FAILURE,
+    expect: () => false,
+    want: "invalid_request for options.sheetPerPage, before OCR",
+  },
   {
     tool: "pdf-to-powerpoint",
     make: async () => Buffer.from(await pptxProofPdf()),
@@ -1810,6 +1873,86 @@ const SPECS: ProofSpec[] = [
     // cell, nothing else, and the workbook beside them. The same verdict runs
     // on real poppler in `table-extract/engine.poppler.test.ts`.
     verify: (bytes) => tablesProofVerdict(bytes),
+  },
+  // Wave 3 (2026-11-08). Each reads the property its option changes, in the
+  // ZIP and on the record (`@/lib/workers/table-extract/options-proof`, held
+  // to its controls by its test). The image before it ignored `ocr` (the
+  // scan fails pdf_no_text) and `combine`, wrote no `results.tables`, and
+  // failed a table-less PDF as unprocessable_entity — every case below
+  // FAILS on it.
+  {
+    tool: "extract-tables",
+    label: "extract-tables (ocr, combined)",
+    make: scannedTablePdf,
+    name: "scanned-statement.pdf",
+    type: PDF_MIME,
+    options: { ocr: true, languages: ["eng"], combine: true },
+    expect: isZipContainer,
+    want: "ZIP of tables.csv + one 'All tables' sheet, recognised",
+    verify: (bytes, job) => ocrCombinedVerdict(bytes, job.results),
+  },
+  // The same scan, Combine off: page 2 is prose, so the record names page 1
+  // of 2 — the "no table on pages …" the result card prints (the card is
+  // UI; `table-extract-worker-panel.test.tsx` holds its sentence).
+  {
+    tool: "extract-tables",
+    label: "extract-tables (ocr, page without a table)",
+    make: scannedTablePdf,
+    name: "scanned-statement.pdf",
+    type: PDF_MIME,
+    options: { ocr: true, languages: ["eng"] },
+    expect: isZipContainer,
+    want: "table-1.csv + 'Table 1 (p1)', recognised, page 2 none",
+    verify: (bytes, job) => ocrPerTableVerdict(bytes, job.results),
+  },
+  // The control: OCR off, the same scan, refused for having no text. It
+  // says the two passes above were OCR, not a fixture with a text layer.
+  // By design it passes on the old image too — the OCR-off path did not
+  // change; the cases above are the ones that cannot.
+  {
+    tool: "extract-tables",
+    label: "extract-tables (ocr off control)",
+    make: scannedTablePdf,
+    name: "scanned-statement.pdf",
+    type: PDF_MIME,
+    expectFailure: SCAN_WITHOUT_OCR_FAILURE,
+    expect: () => false,
+    want: "pdf_no_text, advising OCR PDF",
+  },
+  {
+    tool: "extract-tables",
+    label: "extract-tables (combine, repeated header)",
+    make: repeatedHeaderPdf,
+    name: "statement.pdf",
+    type: PDF_MIME,
+    options: { combine: true },
+    expect: isZipContainer,
+    want: "the header once, pages 1+2 joined, page 4 apart",
+    verify: (bytes, job) => combinedHeaderVerdict(bytes, job.results),
+  },
+  {
+    tool: "extract-tables",
+    label: "extract-tables (no tables)",
+    make: letterPdf,
+    name: "letter.pdf",
+    type: PDF_MIME,
+    expectFailure: NO_TABLES_FAILURE,
+    expect: () => false,
+    want: "pdf_no_tables, final",
+  },
+  // Defaults: the layout every page sent before the options existed. The
+  // old image's bytes cannot be compared once it is replaced, so this reads
+  // the SHAPE — a CSV and a sheet per table, named by page — and the cells,
+  // through the writer PDF to Excel shares.
+  {
+    tool: "extract-tables",
+    label: "extract-tables (defaults, number cells)",
+    make: numberCellsPdf,
+    name: "amounts.pdf",
+    type: PDF_MIME,
+    expect: isZipContainer,
+    want: "a CSV and a sheet per table, amounts and dates as numbers",
+    verify: (bytes, job) => defaultsVerdict(bytes, job.results),
   },
   {
     tool: "request-signatures",
@@ -2186,12 +2329,7 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
   if (spec.expectFailure) {
     const want = spec.expectFailure;
     const got = job.error;
-    const matches =
-      job.status === "failed" &&
-      got?.code === want.code &&
-      got.retryable === want.retryable &&
-      want.message.test(got.message);
-    return matches
+    return matchesExpectedFailure(job, want)
       ? {
           label,
           outcome: "proven",
