@@ -300,7 +300,7 @@ function Group({ name, children }: { name: string; children: ReactNode }) {
     <div
       role="group"
       aria-label={name}
-      className="flex shrink-0 flex-col gap-0.5"
+      className="flex min-w-0 shrink-0 flex-col gap-0.5 sm:shrink"
     >
       <span
         aria-hidden
@@ -308,7 +308,14 @@ function Group({ name, children }: { name: string; children: ReactNode }) {
       >
         {name}
       </span>
-      <div className="flex items-center gap-0.5">{children}</div>
+      {/* From `sm` a group wraps its own tools inside the toolbar's width.
+          Since wave 3 (2026-11-08) the Markup group holds nine tools, 852px
+          of buttons, and at 768px a group that could not wrap ran past the
+          Strip's clip: Note and Comment were cut off and could not be
+          pressed (PR #288's CI, continue-chain at 768 x 1024). On a phone
+          the Strip scrolls sideways and nothing is constrained, so nothing
+          wraps. */}
+      <div className="flex items-center gap-0.5 sm:flex-wrap">{children}</div>
     </div>
   );
 }
@@ -413,7 +420,10 @@ export function EditorToolbar({
   return (
     <Strip>
       {TOOL_GROUPS.map((group, i) => (
-        <div key={group.name} className="flex shrink-0 items-end">
+        <div
+          key={group.name}
+          className="flex min-w-0 shrink-0 items-end sm:max-w-full"
+        >
           {i > 0 && <Divider />}
           <Group name={group.name}>
             {group.tools.map((t) => {
