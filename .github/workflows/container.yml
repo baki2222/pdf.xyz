@@ -266,6 +266,16 @@ jobs:
       - name: Worker image OCR rotate proof — turned scans measured upright (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:ocr-rotate-proof
 
+      # "Redo existing OCR" (OCRmyPDF --redo-ocr) measured in the built image:
+      # a scan carrying a stale invisible layer in each shape of
+      # REDO_OCR_LAYER_OUTCOMES (src/lib/jobs/ocr.ts), through the registry's
+      # OCR processor. Each layer must be replaced or kept exactly as the
+      # table, and so the page copy (REDO_OCR_SCOPE), says. Control: redo off
+      # keeps the replaced shape and leaves the scan unread. The fixtures must
+      # read as built first. No user document, secret, queue or store.
+      - name: Worker image OCR redo proof — which old text layers --redo-ocr replaces (inside the built worker image)
+        run: docker run --rm pdfxyz-worker:ci pnpm worker:ocr-redo-proof
+
       # The container HEALTHCHECK / readiness probe must honestly report
       # not-configured (exit 2) when nothing is wired — it claims no job.
       - name: Worker readiness probe is honest with no config (exit 2)
