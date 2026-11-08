@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { RunReason } from "@/components/tools/runner/run-reason";
 import { useState } from "react";
 import { Download, ImageIcon, Stamp, X } from "lucide-react";
@@ -35,7 +36,11 @@ import {
   useAsyncRun,
 } from "./runner-kit";
 import { RunBar } from "./run-bar";
-import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
+import {
+  FileHeader,
+  SinglePdfRunner,
+  type SinglePdfBatch,
+} from "./single-pdf-runner";
 import {
   CheckboxField,
   ColorField,
@@ -61,10 +66,28 @@ interface PickedImage {
   bytes: Uint8Array;
 }
 
+/**
+ * Two or more PDFs: the batch (batch plan P1), its own chunk, fetched only
+ * when they arrive — never with a visit to this page.
+ */
+const WatermarkBatch = dynamic(
+  () => import("./batch/watermark-batch").then((m) => m.WatermarkBatch),
+  {
+    loading: () => (
+      <div
+        aria-hidden
+        className="border-line bg-wash rounded-panel h-40 w-full border"
+      />
+    ),
+  },
+);
+const batch = (props: SinglePdfBatch) => <WatermarkBatch {...props} />;
+
 export function WatermarkRunner() {
   return (
     <SinglePdfRunner
-      hint="One PDF · watermark applied locally in your browser"
+      hint="One or more PDFs · watermark applied locally in your browser"
+      batch={batch}
       handoffSlug="watermark-pdf"
       toolName="Add Watermark"
     >

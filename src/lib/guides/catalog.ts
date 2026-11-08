@@ -2956,7 +2956,7 @@ export const guides: Guide[] = [
     intro: [
       `To add a watermark to a PDF, open ${nameOf("watermark-pdf")}, add your file, type your text or pick a PNG or JPEG picture, choose where it goes, and press Add watermark. The download is a copy of your PDF with the mark drawn on every page you chose.`,
       `By default the mark is the word CONFIDENTIAL, set diagonally in the middle of every page. The position grid moves it to any of ${STAMP_POSITIONS.length} spots, Tile across the page repeats it in rows, and Pages and layer limits it to the pages you list or puts it behind the page's content instead of over it.`,
-      `The stamping runs in your browser tab, so your PDF and your picture stay on your device and no account is needed. ${nameOf("watermark-pdf")} takes one PDF at a time, up to ${ceilingMb("watermark-pdf")} MB.`,
+      `The stamping runs in your browser tab, so your PDF and your picture stay on your device and no account is needed. ${nameOf("watermark-pdf")} takes PDFs of up to ${ceilingMb("watermark-pdf")} MB each, and several at once as a batch, with one watermark for them all.`,
     ],
     steps: [
       `Open the ${nameOf("watermark-pdf")} tool and drop your PDF onto the box, or browse for it. The file stays on your device.`,
@@ -3021,7 +3021,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-29",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-crop-a-pdf",
@@ -4007,7 +4007,7 @@ export const guides: Guide[] = [
     intro: [
       `To add Bates numbers to a PDF, open ${nameOf("page-numbers")}, add your file, and choose ${BATES_STYLE} under Format. Type a prefix, pick how many digits the number has, and press Add page numbers. Every page gets the prefix and a number padded with zeros, starting from ${batesAt(1)}.`,
       "Bates numbering is how legal, insurance and audit work labels pages: every page in a set of documents gets its own reference, and the references never repeat. Because the number always has the same count of digits, the references sort in order and anyone can point to one page by quoting it.",
-      `It runs in your browser, so your PDF stays on your device. It numbers one file at a time, up to ${ceilingMb("page-numbers")} MB.`,
+      `It runs in your browser, so your PDF stays on your device. It takes files of up to ${ceilingMb("page-numbers")} MB each.`,
     ],
     steps: [
       `Open the ${nameOf("page-numbers")} tool and drop your PDF where it says Drop your PDF here, or click browse. It stays on your device.`,
@@ -4029,7 +4029,7 @@ export const guides: Guide[] = [
         id: "several-files",
         heading: "Numbering a set of several files",
         body: [
-          `${nameOf("page-numbers")} numbers one PDF at a time, and each file starts counting from First number. It has no way to carry the count from one file to the next on its own, so a set of files can be numbered in one of two ways.`,
+          `${nameOf("page-numbers")} can number several PDFs at once as a batch, but each file starts counting again from First number, and the batch offers the page-number presets rather than the Bates style. It has no way to carry the count from one file to the next on its own, so a set of files can be numbered in one of two ways.`,
           `The first is to combine the files with ${nameOf("merge-pdf")} before you number them, so the numbers run straight through one PDF. The second keeps the files apart: number the first file, note the last number on its last page, and set First number to the next one for the following file. A new batch of documents carries on from the last batch the same way.`,
         ],
       },
@@ -4053,7 +4053,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I Bates number several PDFs in one go?",
-        answer: `Not in one step: the tool numbers one PDF at a time, and each file starts from First number. Combine the files with ${nameOf("merge-pdf")} first so the numbers run through all of them, or number each file in turn and set First number to carry on from the last.`,
+        answer: `Not as one run of numbers: a batch numbers several PDFs at once, but each file starts again from First number, and it offers the page-number presets rather than the Bates style. Combine the files with ${nameOf("merge-pdf")} first so the numbers run through all of them, or number each file in turn and set First number to carry on from the last.`,
       },
       {
         question: "Can I write my own Bates template?",
@@ -4066,7 +4066,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-30",
-    updated: "2026-10-30",
+    updated: "2026-11-08",
   },
   {
     slug: "how-to-combine-double-sided-scans-into-one-pdf",
@@ -6468,7 +6468,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       `To split the pages of a PDF in half, open ${nameOf("split-pdf-pages-in-half")}, add the PDF, keep Direction on ${HALF_LEFT_RIGHT} and press ${SPLIT_HALF_RUN_LABEL}. Each page becomes two pages, its left half and then its right half, so a book scanned two facing pages at a time reads one page at a time.`,
-      `It runs in your browser, so the PDF stays on your device, and it takes one file up to ${ceilingMb("split-pdf-pages-in-half")} MB. Nothing on the page is redrawn: each new page is a copy of the original showing only one half, so text stays selectable and scans keep their quality.`,
+      `It runs in your browser, so the PDF stays on your device, and it takes files of up to ${ceilingMb("split-pdf-pages-in-half")} MB each, several at once as a batch. Nothing on the page is redrawn: each new page is a copy of the original showing only one half, so text stays selectable and scans keep their quality.`,
     ],
     steps: [
       `Open the ${nameOf("split-pdf-pages-in-half")} tool and drop your PDF on the box that says “Drop your PDF here, or”, or click browse to pick it. Its name and page count appear.`,

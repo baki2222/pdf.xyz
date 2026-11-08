@@ -1,6 +1,7 @@
 import type { ToolContent } from "./types";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
+import { SETTINGS_BATCH_TOOLS, batchLimitsSentence } from "@/lib/batch/tools";
 
 // The byte ceiling the flatten runner's file gate (validatePdfFile) refuses
 // above, read from the map that runner uses.
@@ -36,12 +37,16 @@ const content: ToolContent = {
       title: "Before merging filled copies of a form",
       body: "Merge PDF copies each file's pages but not its form, so how leftover fields behave in the merged file is up to the reader. Flatten each filled copy first and the answers travel as page content.",
     },
+    {
+      title: "Flatten a stack of returned forms",
+      body: `Add two or more PDFs and they open as a batch list. Press Flatten with the number of files, and each form is flattened in turn, in your browser, with nothing uploaded; each row says how many fields were flattened, and a file with no fillable fields is re-saved and named with "-resaved". Download a file from its row, or press “Download all” for ${SETTINGS_BATCH_TOOLS["flatten-pdf"].zipName}. ${batchLimitsSentence()} An encrypted file fails on its own row, and a digitally signed one is held out of the download until you choose to include it.`,
+    },
   ],
 
   steps: [
     {
       title: "Add the filled-in form",
-      body: `Release the completed form over the box marked "Drop your PDF here, or browse"; clicking anywhere inside that box opens your file picker. It holds one form at a time, and the ceiling is ${MAX_MB} MB. Encrypted PDFs are turned away, even one that opens freely but restricts editing, with an error note telling you to unlock it first.`,
+      body: `Release the completed form over the box marked "Drop your PDF here, or browse"; clicking anywhere inside that box opens your file picker. It takes forms of up to ${MAX_MB} MB each; add two or more to flatten them as a batch. Encrypted PDFs are turned away, even one that opens freely but restricts editing, with an error note telling you to unlock it first.`,
     },
     {
       title: "Check the detected fields",

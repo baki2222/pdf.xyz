@@ -44,7 +44,7 @@ export const TOOL_DIRECTORY: readonly ToolEntry[] = [
     name: "Rotate PDF",
     processing: "client",
     accept: ["PDF"],
-    outputs: ["PDF"],
+    outputs: ["PDF", "ZIP"],
   },
   {
     slug: "extract-images",
@@ -65,7 +65,7 @@ export const TOOL_DIRECTORY: readonly ToolEntry[] = [
     name: "Split PDF Pages in Half",
     processing: "client",
     accept: ["PDF"],
-    outputs: ["PDF"],
+    outputs: ["PDF", "ZIP"],
   },
   {
     slug: "compress-pdf",
@@ -261,14 +261,14 @@ export const TOOL_DIRECTORY: readonly ToolEntry[] = [
     name: "Add Page Numbers",
     processing: "client",
     accept: ["PDF"],
-    outputs: ["PDF"],
+    outputs: ["PDF", "ZIP"],
   },
   {
     slug: "watermark-pdf",
     name: "Add Watermark",
     processing: "client",
     accept: ["PDF"],
-    outputs: ["PDF"],
+    outputs: ["PDF", "ZIP"],
   },
   {
     slug: "crop-pdf",
@@ -359,7 +359,7 @@ export const TOOL_DIRECTORY: readonly ToolEntry[] = [
     name: "Flatten PDF",
     processing: "client",
     accept: ["PDF"],
-    outputs: ["PDF"],
+    outputs: ["PDF", "ZIP"],
   },
   {
     slug: "compare-pdf",

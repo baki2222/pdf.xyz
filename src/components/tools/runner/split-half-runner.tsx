@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useState } from "react";
 import { Download, SquareSplitHorizontal } from "lucide-react";
 import {
@@ -27,7 +28,11 @@ import {
   useAsyncRun,
 } from "./runner-kit";
 import { RunBar } from "./run-bar";
-import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
+import {
+  FileHeader,
+  SinglePdfRunner,
+  type SinglePdfBatch,
+} from "./single-pdf-runner";
 import {
   CheckboxField,
   PrivacyLine,
@@ -37,10 +42,28 @@ import {
 import { CropDisclosure } from "./crop-disclosure";
 import type { LoadedPdf } from "./use-single-pdf";
 
+/**
+ * Two or more PDFs: the batch (batch plan P1), its own chunk, fetched only
+ * when they arrive — never with a visit to this page.
+ */
+const SplitHalfBatch = dynamic(
+  () => import("./batch/split-half-batch").then((m) => m.SplitHalfBatch),
+  {
+    loading: () => (
+      <div
+        aria-hidden
+        className="border-line bg-wash rounded-panel h-40 w-full border"
+      />
+    ),
+  },
+);
+const batch = (props: SinglePdfBatch) => <SplitHalfBatch {...props} />;
+
 export function SplitHalfRunner() {
   return (
     <SinglePdfRunner
-      hint="One PDF · pages split in half locally in your browser"
+      hint="One or more PDFs · pages split in half locally in your browser"
+      batch={batch}
       handoffSlug="split-pdf-pages-in-half"
       toolName="Split PDF Pages in Half"
     >

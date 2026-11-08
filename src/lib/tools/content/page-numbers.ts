@@ -1,5 +1,10 @@
 import type { ToolContent } from "./types";
 import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
+import {
+  PAGE_NUMBER_BATCH_RESTARTS,
+  SETTINGS_BATCH_TOOLS,
+  batchLimitsSentence,
+} from "@/lib/batch/tools";
 import { toolFacts } from "@/lib/tools/tool-facts";
 import {
   BATES_MAX_DIGITS,
@@ -201,12 +206,16 @@ const content: ToolContent = {
       title: "Label exhibits or a document production",
       body: `The Bates number style, a prefix with a zero-padded number such as ${batesExample}, and a First number that continues from the last batch give every page a unique, fixed-width reference.`,
     },
+    {
+      title: "Number a set of separate files",
+      body: `Add two or more PDFs and they open as a batch list, with one set of settings for them all: a format preset, the position, First number, Leave the cover unnumbered and Facing pages. ${PAGE_NUMBER_BATCH_RESTARTS} Font size and margin are the single-file defaults. Press Number with the number of files and each one is numbered in turn, in your browser, with nothing uploaded. Download a file from its row, or press “Download all” for ${SETTINGS_BATCH_TOOLS["page-numbers"].zipName}. ${batchLimitsSentence()} For numbers that run on from one file to the next, such as Bates numbers across a set, combine the files with Merge PDF first, or number them one at a time and set First number for each.`,
+    },
   ],
 
   steps: [
     {
       title: "Choose a PDF",
-      body: "Drop a single PDF onto the dashed box or click browse. The settings then open under a bar giving that file's name, page count and size.",
+      body: "Drop a PDF onto the dashed box or click browse. The settings then open under a bar giving that file's name, page count and size. Two or more PDFs open a batch list instead.",
     },
     {
       title: "Pick a format",

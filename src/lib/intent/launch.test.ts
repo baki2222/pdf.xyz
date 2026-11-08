@@ -131,9 +131,11 @@ describe("carried: the tool opens with the files in it", () => {
     expect(record?.pending).toEqual({ toolSlug: "sign-pdf", parkedId: null });
   });
 
+  // The example WAS rotate-pdf until 2026-11-08 (batch plan P1): Rotate now
+  // runs a batch over two or more files, and receives them all.
   it("a single-file tool receives the first eligible file", async () => {
     await launch({
-      toolSlug: "rotate-pdf",
+      toolSlug: "organize-pages",
       files: [docx, pdf("a.pdf"), pdf("b.pdf")],
       origin: { kind: "drop", surface: "home" },
     });

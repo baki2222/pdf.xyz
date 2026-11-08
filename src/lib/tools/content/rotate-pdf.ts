@@ -3,6 +3,7 @@ import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { GRANT_PERMISSION_NAME } from "@/lib/pdf/restricted-grant-names";
+import { SETTINGS_BATCH_TOOLS, batchLimitsSentence } from "@/lib/batch/tools";
 
 /*
  * Every behavioral claim below was read from, or probed against, the code:
@@ -96,8 +97,8 @@ const content: ToolContent = {
     "Turn sideways or upside-down PDF pages the right way up: one page, a selection or all of them. The new angle is saved in the file; the PDF is not uploaded.",
 
   intro: [
-    "Rotate PDF fixes pages that open sideways or upside down: a scan fed through the wrong way, a wide spreadsheet inside a portrait report, a receipt photographed at a quarter turn. Open one PDF and each page appears as a tile previewing its current angle, with the angle printed on any tile not at 0°. Every page starts selected, so Left, Right or 180° turn the whole document at once, while a tile's own arrows fix just that page. Odd pages and Even pages select every other page in one press, and Rotate all 180° flips every page whatever is selected.",
-    `The new angle is saved permanently in each page's /Rotate entry rather than into its drawing, so text stays selectable, images are not recompressed, and any standards-following viewer opens the page the right way up. Page count and order stay exactly as they were. Your browser does the work locally and the document is not uploaded; it takes one file of up to ${ceilingMb} MB.`,
+    "Rotate PDF fixes pages that open sideways or upside down: a scan fed through the wrong way, a wide spreadsheet inside a portrait report, a receipt photographed at a quarter turn. Open a PDF and each page appears as a tile previewing its current angle, with the angle printed on any tile not at 0°. Every page starts selected, so Left, Right or 180° turn the whole document at once, while a tile's own arrows fix just that page. Odd pages and Even pages select every other page in one press, and Rotate all 180° flips every page whatever is selected.",
+    `The new angle is saved permanently in each page's /Rotate entry rather than into its drawing, so text stays selectable, images are not recompressed, and any standards-following viewer opens the page the right way up. Page count and order stay exactly as they were. Your browser does the work locally and the document is not uploaded; it takes files of up to ${ceilingMb} MB each.`,
     "Only the angle changes on the pages. Rotate PDF writes the new angle into each page of your original file instead of rebuilding it, so bookmarks, the title and author, page labels, the fillable form and anything typed into it, attached files and a tagged PDF's accessibility tags all stay as they were, and links keep pointing where they did. The file's Producer and Creator entries are rewritten to read pdf.xyz and its modification date is updated. Because the whole PDF is saved again, a digital (certificate) signature it already carries will no longer verify, and the tool warns you about this before you apply the rotation.",
   ],
 
@@ -118,12 +119,16 @@ const content: ToolContent = {
       title: "Getting orientation right before you merge or print",
       body: "Straighten each source file first, then combine them with Merge PDF so the finished pack reads one way from cover to last page.",
     },
+    {
+      title: "Rotate a stack of PDFs the same way",
+      body: `Add two or more PDFs and they open as a batch list. Choose Left or Right for a quarter turn, or 180°, and press Rotate with the number of files: every page of each file turns that way, each file in turn, in your browser, and nothing is uploaded. Download a file from its row, or press “Download all” for ${SETTINGS_BATCH_TOOLS["rotate-pdf"].zipName}. ${batchLimitsSentence()} To turn single pages, open one file on its own. A file whose author restricted changes is not rotated in a batch; it fails on its own row, and opened on its own it can be rotated when the author allows it.`,
+    },
   ],
 
   steps: [
     {
       title: "Open the PDF you want to straighten",
-      body: 'Drag one file onto the "Drop your PDF here, or browse" area (captioned "One PDF · rotate any or all pages"), or click browse. The file name, page count and size then appear above the Rotate controls.',
+      body: 'Drag the file onto the "Drop your PDF here, or browse" area (captioned "One or more PDFs · rotate any or all pages"), or click browse. The file name, page count and size then appear above the Rotate controls. Two or more files open a batch list instead.',
     },
     {
       title: "Pick the pages to turn",

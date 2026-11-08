@@ -1,5 +1,10 @@
 import type { ToolContent } from "./types";
 import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
+import {
+  SETTINGS_BATCH_TOOLS,
+  WATERMARK_BATCH_PAGES_NOTE,
+  batchLimitsSentence,
+} from "@/lib/batch/tools";
 import { FONT_PACKS, UNSUPPORTED_SCRIPTS } from "@/lib/pdf/font-packs";
 import { TILE_FIT, WATERMARK_FIT } from "@/lib/pdf/watermark";
 import {
@@ -136,7 +141,7 @@ const content: ToolContent = {
 
   intro: [
     `Add Watermark stamps a line of text or a picture on the pages of a PDF: CONFIDENTIAL, DRAFT, a recipient's name, or your logo as a PNG or JPEG. The Text field starts with CONFIDENTIAL typed in, and switching the Watermark type to Image takes a picture instead. Opacity, Rotation and Max font size sliders shape a text mark, which can be set in ${FONT_NAMES} and in Gray, Red, Blue or a Custom color; for a picture, the Image size slider replaces Max font size. By default the mark sits diagonally in the middle of every page. The position grid moves it to any of ${POSITION_COUNT} spots, Tile across the page repeats it in rows, and Pages and layer picks which pages get it and whether it goes over or behind the page's content. Each page is measured on its own, so in a document mixing portrait and landscape sheets every mark lands where it should on its page, and on pages saved with a rotation flag the angle is corrected so the diagonal leans the same way as on upright pages.`,
-    `Your browser does the stamping, using pdf-lib, and the PDF and the picture never leave the tab. Western European text, accents like é and ü included, is set in the font you pick, one built into the PDF format. Letters outside that set, such as a Polish Ł, and ${EXTRA_SCRIPTS} text first make the page download the matching Noto typeface, served by pdf.xyz: the font travels to you, the document stays put. ${RTL_REFUSED} stop the run with an error that lists the characters, rather than being stamped with the letters in reverse order. The page takes a single PDF of up to ${CEILING_MB} MB at a time, and a password-protected one has to go through Unlock PDF before it will open here.`,
+    `Your browser does the stamping, using pdf-lib, and the PDF and the picture never leave the tab. Western European text, accents like é and ü included, is set in the font you pick, one built into the PDF format. Letters outside that set, such as a Polish Ł, and ${EXTRA_SCRIPTS} text first make the page download the matching Noto typeface, served by pdf.xyz: the font travels to you, the document stays put. ${RTL_REFUSED} stop the run with an error that lists the characters, rather than being stamped with the letters in reverse order. The page takes PDFs of up to ${CEILING_MB} MB each, and a password-protected one has to go through Unlock PDF before it will open here.`,
     `The mark is real text, or an embedded picture, drawn into each page's content: over it by default, or under it with Behind content, where anything opaque on the page covers it. Page order and rotation, the title and author, and fillable form fields with their typed values all come through, and the fields stay editable; a field's own box is drawn above the page, so a filled one can cover part of the mark. The saved copy names pdf.xyz as its producer and creator, and because the saved file is rebuilt around new page content, a digital signature on the original stops validating in the watermarked copy.`,
   ],
 
@@ -166,7 +171,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Choose your PDF",
-      body: 'Drag one PDF onto the dashed box that says "Drop your PDF here, or browse"; clicking its browse link opens a file picker instead. When it has been read, the file name, page count and file size appear in a bar above the Watermark section.',
+      body: 'Drag a PDF onto the dashed box that says "Drop your PDF here, or browse"; clicking its browse link opens a file picker instead, and two or more PDFs open a batch list. When it has been read, the file name, page count and file size appear in a bar above the Watermark section.',
     },
     {
       title: "Type the text or pick a picture",
@@ -187,6 +192,10 @@ const content: ToolContent = {
   ],
 
   faqs: [
+    {
+      q: "Can I watermark several PDFs at once?",
+      a: `Yes. Add two or more PDFs and they open as a batch list, with one watermark for them all: the same text or picture, Opacity, Rotation, position or tiling, and pages. ${WATERMARK_BATCH_PAGES_NOTE} Size, font, color and layer are the single-file defaults. Press Watermark with the number of files and each one is stamped in turn, in your browser, with nothing uploaded. Download a file from its row, or press Download all for ${SETTINGS_BATCH_TOOLS["watermark-pdf"].zipName}. ${batchLimitsSentence()}`,
+    },
     {
       q: "Can I watermark only some pages, or move the mark off-center?",
       a: "Yes. Open Pages and layer, choose Selected pages and type them as 1-3, 5, or 4- for page 4 to the end; the other pages are left as they were. The position grid puts the mark in a corner, along an edge or in the middle, and Tile across the page repeats it over the whole page. For a line of text along the top or bottom edge, Header & Footer is made for that.",

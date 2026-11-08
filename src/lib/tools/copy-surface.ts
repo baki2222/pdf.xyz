@@ -262,6 +262,9 @@ export function copyFiles(): string[] {
     // A batch's refusal of a file past its count or byte total (2026-11-08,
     // batch plan P0b): the sentences are built from BATCH_LIMITS.
     path.join(ROOT, "src", "lib", "batch", "limits.ts"),
+    // The settings batch's registration (2026-11-08, batch plan P1): the
+    // archive names and the limits sentence the tool pages state.
+    path.join(ROOT, "src", "lib", "batch", "tools.ts"),
     // JPG / PNG to PDF's Max file size (2026-10-31): labels, hint, outcome
     // lines, and the browser re-encoder's error messages.
     path.join(ROOT, "src", "lib", "pdf", "image-size-limit.ts"),

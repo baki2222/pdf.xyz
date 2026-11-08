@@ -7,7 +7,9 @@
  *
  * Modes:
  *  - `collect`: the runner takes many files and combines them (merge).
- *  - `batch`  : the runner takes many files and processes each one (compress).
+ *  - `batch`  : the runner takes many files and processes each one (compress,
+ *               and since batch plan P1 rotate, flatten, page numbers,
+ *               watermark and split in half, through their settings batch).
  *  - `single` : the runner works on exactly one file at a time (rotate, split,
  *               organize, extract/delete pages, text conversion) — a handoff
  *               pre-loads the first eligible file.
@@ -45,7 +47,7 @@ export interface HandoffCapability {
 const MODE_BY_KIND: Record<RunnerKind, HandoffMode> = {
   merge: "collect",
   compress: "batch",
-  rotate: "single",
+  rotate: "batch",
   organize: "single",
   split: "single",
   "delete-pages": "single",
@@ -56,12 +58,12 @@ const MODE_BY_KIND: Record<RunnerKind, HandoffMode> = {
   "markdown-to-pdf": "single",
   "image-to-pdf": "batch",
   "pdf-to-image": "single",
-  "page-numbers": "single",
-  watermark: "single",
+  "page-numbers": "batch",
+  watermark: "batch",
   "header-footer": "single",
   crop: "single",
   sign: "single",
-  flatten: "single",
+  flatten: "batch",
   overlay: "single",
   grayscale: "single",
   redact: "single",
@@ -75,7 +77,7 @@ const MODE_BY_KIND: Record<RunnerKind, HandoffMode> = {
   metadata: "single",
   resize: "single",
   "n-up": "single",
-  "split-half": "single",
+  "split-half": "batch",
 };
 
 /** Resolve a tool slug to its handoff capability. */

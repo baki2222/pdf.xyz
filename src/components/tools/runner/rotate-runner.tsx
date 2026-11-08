@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { RunReason } from "@/components/tools/runner/run-reason";
 import { useMemo, useRef, useState } from "react";
 import {
@@ -35,7 +36,11 @@ import {
   toggleIndex,
 } from "./selection";
 import { PageTile, TileAction } from "./page-tile";
-import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
+import {
+  FileHeader,
+  SinglePdfRunner,
+  type SinglePdfBatch,
+} from "./single-pdf-runner";
 import { usePdfThumbnails } from "./use-pdf-thumbnails";
 import type { LoadedPdf } from "./use-single-pdf";
 import {
@@ -51,10 +56,28 @@ import {
  * that the owner password lifts it (`./restricted-grant`). Refused at
  * upload, with the editing-restrictions message, until 2026-11-08.
  */
+/**
+ * Two or more PDFs: the batch (batch plan P1), its own chunk, fetched only
+ * when they arrive — never with a visit to this page.
+ */
+const RotateBatch = dynamic(
+  () => import("./batch/rotate-batch").then((m) => m.RotateBatch),
+  {
+    loading: () => (
+      <div
+        aria-hidden
+        className="border-line bg-wash rounded-panel h-40 w-full border"
+      />
+    ),
+  },
+);
+const batch = (props: SinglePdfBatch) => <RotateBatch {...props} />;
+
 export function RotateRunner() {
   return (
     <SinglePdfRunner
-      hint="One PDF · rotate any or all pages"
+      hint="One or more PDFs · rotate any or all pages"
+      batch={batch}
       handoffSlug="rotate-pdf"
       toolName="Rotate PDF"
       openProtected

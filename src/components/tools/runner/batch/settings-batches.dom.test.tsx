@@ -1,0 +1,377 @@
+// @vitest-environment jsdom
+// @native-canvas
+/**
+ * The settings batches (batch plan P1), through the page's own runner: the
+ * tool page's `<ToolRunner>`, three real Files dropped on its file input,
+ * the batch's Run, and the ZIP "Download all" hands the browser — opened
+ * and read back.
+ *
+ * Composed, not unit: a batch module that works on its own proves nothing
+ * if the runner never forks to it (CLAUDE.md, "verify the composed chain").
+ * The SET of tools is derived from what the page would do with two PDFs —
+ * every in-browser tool whose hand-off mode is "batch" and that opens PDFs
+ * — never typed; Compress is in it as the positive control, since its batch
+ * shipped first.
+ *
+ * Each settings batch gets three files:
+ *   - `report.pdf`: a plain two-page file (Flatten's has a filled field);
+ *   - `report.pdf` again, digitally signed: same name, so the archive must
+ *     hold two entries, and a signed file, held back until opted in;
+ *   - `locked.pdf`: restricted by its author, which a batch must refuse in
+ *     the single-file path's words, without opening it.
+ * The archive's two files are each checked for the tool's own effect.
+ *
+ * No module is mocked (`src/tests/mock-isolation.test.ts`); `fetch` is
+ * replaced by one that fails the test, because nothing here may leave the
+ * browser.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import type { ReactNode } from "react";
+import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
+import JSZip from "jszip";
+import { PDFDocument, StandardFonts } from "pdf-lib";
+import { resetAnnouncer } from "@/components/a11y/live-region";
+import {
+  __setHandoffStoreForTests,
+  HandoffStore,
+  MemoryHandoffBackend,
+  stashHandoff,
+} from "@/lib/handoff";
+import { handoffCapabilityFor } from "@/lib/handoff/capability";
+import { LOCKED_PDF_COPY } from "@/lib/pdf/encryption";
+import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
+import { SETTINGS_BATCH_TOOLS } from "@/lib/batch/tools";
+import { getToolBySlug } from "@/lib/tools";
+import { ownerOnlyEncryptedPdf } from "@/tests/encrypted-pdf-fixture";
+import { readAsViewer } from "@/tests/pdf-viewer-read";
+import { runnerMounted } from "@/tests/runner-mounted";
+import { makeSignedPdf } from "@/tests/signed-pdf";
+import { ToolRunner } from "../tool-runner";
+import { BATCH_VIEW_LOADED } from "./batch-view";
+
+const router = {
+  back: () => {},
+  forward: () => {},
+  refresh: () => {},
+  push: () => {},
+  replace: () => {},
+  prefetch: () => {},
+  hmrRefresh: () => {},
+};
+function Router({ children }: { children: ReactNode }) {
+  return (
+    <AppRouterContext.Provider value={router as never}>
+      {children}
+    </AppRouterContext.Provider>
+  );
+}
+
+let downloads: { name: string; blob: Blob }[] = [];
+let pending: Blob | null = null;
+let fetches: string[] = [];
+const originalCreate = URL.createObjectURL;
+const originalRevoke = URL.revokeObjectURL;
+const originalFetch = globalThis.fetch;
+beforeEach(() => {
+  downloads = [];
+  fetches = [];
+  URL.createObjectURL = (obj: Blob | MediaSource) => {
+    if (obj instanceof Blob) pending = obj;
+    return "blob:settings-batches-test";
+  };
+  URL.revokeObjectURL = () => {};
+  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+    this: HTMLAnchorElement,
+  ) {
+    if (pending) downloads.push({ name: this.download, blob: pending });
+    pending = null;
+  });
+  globalThis.fetch = ((input: RequestInfo | URL) => {
+    fetches.push(String(input));
+    return Promise.reject(new Error("a browser batch made a request"));
+  }) as typeof fetch;
+});
+afterEach(() => {
+  cleanup();
+  resetAnnouncer();
+  URL.createObjectURL = originalCreate;
+  URL.revokeObjectURL = originalRevoke;
+  globalThis.fetch = originalFetch;
+  vi.restoreAllMocks();
+});
+
+/** What the page does with two PDFs: every batch-mode tool that opens PDFs. */
+const BATCH_PDF_SLUGS = [...supportedToolSlugs]
+  .filter((slug) => handoffCapabilityFor(slug).mode === "batch")
+  .filter((slug) => getToolBySlug(slug)?.accept.includes("PDF"))
+  .sort();
+
+const pdfFile = (bytes: Uint8Array, name: string) =>
+  new File([bytes.slice()], name, { type: "application/pdf" });
+
+/** A two-page file with a line of text on each page. */
+async function plainPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (let i = 0; i < 2; i += 1) {
+    doc
+      .addPage([300, 400])
+      .drawText(`Body ${i + 1}`, { x: 30, y: 300, font, size: 12 });
+  }
+  return doc.save();
+}
+
+/** A two-page file with one filled text field, for Flatten. */
+async function formPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(await plainPdf());
+  const field = doc.getForm().createTextField("name");
+  field.setText("Ada");
+  field.addToPage(doc.getPage(0), { x: 30, y: 200, width: 120, height: 20 });
+  return doc.save();
+}
+
+async function mount(slug: string) {
+  const kind = getRunnerKind(slug);
+  expect(kind, slug).toBeDefined();
+  const { container } = render(
+    <Router>
+      <ToolRunner kind={kind!} slug={slug} />
+    </Router>,
+  );
+  await runnerMounted(container);
+  const input = container.querySelector<HTMLInputElement>('input[type="file"]');
+  expect(input, `${slug}: the drop box's file input`).not.toBeNull();
+  return { container, input: input! };
+}
+
+async function batchViewOf(container: HTMLElement): Promise<HTMLElement> {
+  return waitFor(
+    () => {
+      const view = container.querySelector<HTMLElement>(
+        `[data-chunk="${BATCH_VIEW_LOADED}"]`,
+      );
+      if (!view) throw new Error("the batch view has not rendered");
+      return view;
+    },
+    // 40 s: the batch module is a `next/dynamic` chunk imported cold in
+    // this forked process, after the runner's own; under a full run one
+    // hand-off case took past 20 s and passed alone.
+    { timeout: 40_000 },
+  );
+}
+
+interface Expectation {
+  /** The Run button. */
+  run: RegExp;
+  /** Said after LOCKED_PDF_COPY.restricted, for a tool that has more. */
+  restrictedNote?: RegExp;
+  /** The tool's effect, read back from one archived output. */
+  check: (bytes: Uint8Array, entry: string) => Promise<void>;
+  /** The first file, when the tool needs more than a plain one. */
+  first?: () => Promise<Uint8Array>;
+}
+
+const EXPECT: Record<keyof typeof SETTINGS_BATCH_TOOLS, Expectation> = {
+  "rotate-pdf": {
+    run: /^rotate 2 pdfs$/i,
+    restrictedNote: /Rotate it on its own/,
+    check: async (bytes, entry) => {
+      const doc = await PDFDocument.load(bytes);
+      for (const page of doc.getPages())
+        expect(page.getRotation().angle, entry).toBe(90);
+    },
+  },
+  "flatten-pdf": {
+    run: /^flatten 2 pdfs$/i,
+    first: formPdf,
+    check: async (bytes, entry) => {
+      const doc = await PDFDocument.load(bytes);
+      const fields = doc
+        .getForm()
+        .getFields()
+        .filter((f) => f.constructor.name !== "PDFSignature");
+      expect(fields, entry).toHaveLength(0);
+    },
+  },
+  "page-numbers": {
+    run: /^number 2 pdfs$/i,
+    check: async (bytes, entry) => {
+      const doc = await PDFDocument.load(bytes);
+      const total = doc.getPageCount();
+      // Restarts in each file: page 1 of THIS file, never a count carried
+      // on from the file before it.
+      const first = (await readAsViewer(bytes, 1)).texts.map((t) => t.str);
+      expect(first.join(" "), entry).toContain(`Page 1 of ${total}`);
+    },
+  },
+  "watermark-pdf": {
+    run: /^watermark 2 pdfs$/i,
+    check: async (bytes, entry) => {
+      const texts = (await readAsViewer(bytes, 1)).texts.map((t) => t.str);
+      expect(texts.join(""), entry).toContain("CONFIDENTIAL");
+    },
+  },
+  "split-pdf-pages-in-half": {
+    run: /^split 2 pdfs$/i,
+    check: async (bytes, entry) => {
+      const doc = await PDFDocument.load(bytes);
+      const box = doc.getPage(0).getCropBox();
+      const media = doc.getPage(0).getMediaBox();
+      // Left page first: the first page is the left half.
+      expect(box.x, entry).toBe(media.x);
+      expect(box.width, entry).toBeCloseTo(media.width / 2, 3);
+    },
+  },
+};
+
+describe("the request trap", () => {
+  it("records a request (positive control): an empty list below means none was made", async () => {
+    await expect(fetch("/api/jobs")).rejects.toThrow();
+    expect(fetches).toEqual(["/api/jobs"]);
+  });
+});
+
+describe("the batch set, derived from the page", () => {
+  it("is every settings batch, plus Compress as the positive control", () => {
+    // Health: a derivation that found nothing would pass every case below.
+    expect(BATCH_PDF_SLUGS).toContain("compress-pdf");
+    expect(BATCH_PDF_SLUGS.filter((s) => s !== "compress-pdf")).toEqual(
+      Object.keys(SETTINGS_BATCH_TOOLS).sort(),
+    );
+  });
+
+  it.each(BATCH_PDF_SLUGS)(
+    "%s: two PDFs open the batch view",
+    { timeout: 60_000 },
+    async (slug) => {
+      const { container, input } = await mount(slug);
+      const bytes = await plainPdf();
+      fireEvent.change(input, {
+        target: {
+          files: [pdfFile(bytes, "one.pdf"), pdfFile(bytes, "two.pdf")],
+        },
+      });
+      const view = await batchViewOf(container);
+      expect(within(view).getByText("one.pdf")).toBeInTheDocument();
+      expect(within(view).getByText("two.pdf")).toBeInTheDocument();
+    },
+  );
+});
+
+describe("a hand-off of two PDFs", () => {
+  afterEach(() => {
+    __setHandoffStoreForTests(null);
+    window.history.replaceState(null, "", "/");
+  });
+
+  it.each(Object.keys(SETTINGS_BATCH_TOOLS))(
+    "%s: opens the batch with both files, never only the first",
+    { timeout: 60_000 },
+    async (slug) => {
+      window.sessionStorage.clear();
+      __setHandoffStoreForTests(
+        new HandoffStore({ backend: new MemoryHandoffBackend() }),
+      );
+      const bytes = await plainPdf();
+      const id = await stashHandoff(
+        slug,
+        [pdfFile(bytes, "first.pdf"), pdfFile(bytes, "second.pdf")],
+        { origin: { kind: "workspace" } },
+      );
+      window.history.replaceState(null, "", `/tools/${slug}?handoff=${id}`);
+      const { container } = render(
+        <Router>
+          <ToolRunner kind={getRunnerKind(slug)!} slug={slug} />
+        </Router>,
+      );
+      await runnerMounted(container);
+      const view = await batchViewOf(container);
+      expect(within(view).getByText("first.pdf")).toBeInTheDocument();
+      expect(within(view).getByText("second.pdf")).toBeInTheDocument();
+    },
+  );
+});
+
+describe.each(Object.keys(SETTINGS_BATCH_TOOLS) as (keyof typeof EXPECT)[])(
+  "%s's batch, through the page",
+  (slug) => {
+    it(
+      "refuses the locked file, holds the signed one back, and zips two outputs under two names",
+      { timeout: 90_000 },
+      async () => {
+        const want = EXPECT[slug];
+        const { container, input } = await mount(slug);
+        const first = await (want.first ?? plainPdf)();
+        fireEvent.change(input, {
+          target: {
+            files: [
+              pdfFile(first, "report.pdf"),
+              pdfFile(await makeSignedPdf(), "report.pdf"),
+              pdfFile(ownerOnlyEncryptedPdf(), "locked.pdf"),
+            ],
+          },
+        });
+        const view = await batchViewOf(container);
+        // Three listed: 3 PDFs, so the button says 3.
+        const run = await within(view).findByRole("button", {
+          name: new RegExp(want.run.source.replace("2", "3"), "i"),
+        });
+        fireEvent.click(run);
+
+        await within(view).findByRole(
+          "heading",
+          { name: /^Batch complete\. 2 done, 1 failed\.$/ },
+          { timeout: 60_000 },
+        );
+
+        // The locked file: refused in the single-file path's words.
+        const lockedRow = within(view)
+          .getByText("locked.pdf")
+          .closest("li") as HTMLElement;
+        expect(lockedRow).toHaveTextContent(LOCKED_PDF_COPY.restricted);
+        if (want.restrictedNote)
+          expect(lockedRow.textContent).toMatch(want.restrictedNote);
+
+        // The signed file: flagged, and out of the archive until opted in.
+        expect(
+          within(view).getByText(/1 digital signature will show as invalid/),
+        ).toBeInTheDocument();
+        expect(
+          within(view).getByRole("button", { name: "Download all (1)" }),
+        ).toBeInTheDocument();
+        fireEvent.click(
+          within(view).getByRole("checkbox", {
+            name: /Include 1 signed file in the download/,
+          }),
+        );
+        fireEvent.click(
+          within(view).getByRole("button", { name: "Download all (2)" }),
+        );
+
+        await waitFor(() => expect(downloads).toHaveLength(1), {
+          timeout: 10_000,
+        });
+        expect(downloads[0]!.name).toBe(SETTINGS_BATCH_TOOLS[slug].zipName);
+        const zip = await JSZip.loadAsync(
+          await downloads[0]!.blob.arrayBuffer(),
+        );
+        const entries = Object.keys(zip.files).sort();
+        expect(entries).toHaveLength(2);
+        expect(new Set(entries.map((e) => e.toLowerCase())).size).toBe(2);
+        for (const entry of entries) {
+          const bytes = await zip.file(entry)!.async("uint8array");
+          await want.check(bytes, entry);
+        }
+        expect(fetches, "requests made by an in-browser batch").toEqual([]);
+      },
+    );
+  },
+);

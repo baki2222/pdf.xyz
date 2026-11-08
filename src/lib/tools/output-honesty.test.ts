@@ -290,9 +290,13 @@ describe("a tool's advertised outputs match what its engine writes", () => {
       const file = component ? componentToFile.get(component) : undefined;
       if (!file) continue;
       resolved += 1;
-      // Two levels: Compress PDF's runner → its batch (a loader) → the batch
-      // view that builds the archive.
-      if (callsZip(file, 2)) archiveSlugs.add(slug);
+      // Three levels: a settings batch tool's runner → its batch (a loader)
+      // → the settings batch runner → the batch view that builds the
+      // archive (batch plan P1, 2026-11-08). Two reached Compress PDF's
+      // batch view, and the five tools behind the settings batch passed
+      // this test without declaring ZIP — unread, not right: rotate-pdf's
+      // positive control below went red at two.
+      if (callsZip(file, 3)) archiveSlugs.add(slug);
     }
     expect(
       resolved,
@@ -302,6 +306,7 @@ describe("a tool's advertised outputs match what its engine writes", () => {
     // Positive control THROUGH the walk, not beside it: these two are the
     // reason the walk follows imports and reads the registry at all.
     expect([...archiveSlugs].sort()).toContain("compress-pdf"); // two levels, via a loader
+    expect([...archiveSlugs].sort()).toContain("rotate-pdf"); // three levels, via a loader and the settings batch
     expect([...archiveSlugs].sort()).toContain("split-pdf"); // in the component
     expect([...archiveSlugs].sort()).toContain("pdf-to-png"); // through the hook
 

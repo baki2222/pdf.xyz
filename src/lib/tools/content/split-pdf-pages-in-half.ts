@@ -1,5 +1,6 @@
 import type { ToolContent } from "./types";
 import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
+import { SETTINGS_BATCH_TOOLS, batchLimitsSentence } from "@/lib/batch/tools";
 import { MIN_CROP_DIMENSION } from "@/lib/pdf/page-geometry";
 import {
   SPLIT_DIRECTIONS,
@@ -61,12 +62,16 @@ const content: ToolContent = {
       title: "Two-up handouts back to one page each",
       body: `A handout printed two pages to a sheet, one above the other, then scanned. ${TOP_BOTTOM} gives the top page, then the bottom page, for every sheet.`,
     },
+    {
+      title: "Split a whole shelf of scans",
+      body: `Add two or more PDFs and they open as a batch list, with one Direction, Page order and pair of cover checkboxes for them all. Every page of each file is split, except a cover kept whole; to split only some pages, open one file on its own. Press Split with the number of files and each one is split in turn, in your browser, with nothing uploaded. Download a file from its row, or press “Download all” for ${SETTINGS_BATCH_TOOLS["split-pdf-pages-in-half"].zipName}. ${batchLimitsSentence()}`,
+    },
   ],
 
   steps: [
     {
-      title: "Open one PDF",
-      body: `Drag the PDF into the drop area, or click it to pick the file from your device. It takes one file, up to ${ceilingMb} MB.`,
+      title: "Open your PDF",
+      body: `Drag the PDF into the drop area, or click it to pick the file from your device. It takes files of up to ${ceilingMb} MB each; two or more open a batch list.`,
     },
     {
       title: "Choose the direction and order",
