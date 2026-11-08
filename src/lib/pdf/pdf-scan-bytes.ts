@@ -88,10 +88,18 @@ export const DICT_SEARCH_WINDOW = 65_536;
  * The first fix walked BACK from each `>>` up to 64 KB, counting `>>` and
  * `<<`, so a file of `>>stream` repeated walked 64 KB per keyword. This
  * matcher reads every byte once, forward, with a stack of open `<<`, and
- * returns exactly what that backward walk returned (a property test pins the
- * two together): the nearest `<<` that balances the `>>`, if it lies within
+ * returns what that backward walk returned (a property test pins the two
+ * together): the nearest `<<` that balances the `>>`, if it lies within
  * {@link DICT_SEARCH_WINDOW}, else null. Runs of `<` or `>` pair from the
  * right, as the backward walk paired them.
+ *
+ * BYTE-WISE, like the walk it replaced: it does not know strings or
+ * comments, so `/X (>>stream)` ends a dictionary for it (third review), and
+ * the property test pins that blind spot as faithfully as the rest. It is
+ * therefore only the FALLBACK, for a `stream` keyword no object header
+ * reaches; every stream an object header reaches is read through the
+ * string-aware parser in ./pdf-scan-objects.ts (`parseObjectAt`), whose own
+ * tests feed it strings, comments and fake headers.
  */
 export class DictMatcher {
   private cursor = 0;

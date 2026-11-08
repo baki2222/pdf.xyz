@@ -18,6 +18,13 @@ import {
   streamObjectNumber,
   valuesOf,
 } from "./pdf-scan-bytes";
+import {
+  ContentsRefs,
+  arrayObjectRefs,
+  findObjectHeaders,
+  nameObjects,
+  parseObjectAt,
+} from "./pdf-scan-objects";
 import { MAX_DECODED_PIXELS } from "./pixel-ceiling";
 
 /**
@@ -47,7 +54,10 @@ import { MAX_DECODED_PIXELS } from "./pixel-ceiling";
  */
 
 /**
- * The most bytes one non-image stream may inflate to: 400,000,000.
+ * The most bytes one stream read as content may inflate to: 400,000,000.
+ * "Read as content" is every stream except an image nothing's /Contents
+ * names (see {@link scanPdfStreams}): fonts, metadata and attachments are
+ * inflated and counted as they always were.
  *
  * The same figure the product already allows for the largest decoded thing it
  * accepts from a stranger — one TIFF page, `MAX_DECODED_PIXELS * 4`
@@ -60,8 +70,8 @@ import { MAX_DECODED_PIXELS } from "./pixel-ceiling";
 export const MAX_DECODED_STREAM_BYTES = MAX_DECODED_PIXELS * 4;
 
 /**
- * The most bytes all of a file's non-image streams may inflate to together:
- * 1,600,000,000. It bounds the PREFLIGHT's own time (each byte is inflated
+ * The most bytes all of a file's streams read as content may inflate to
+ * together: 1,600,000,000. It bounds the PREFLIGHT's own time (each byte is inflated
  * once more than pdf.js would), and pdf.js's text path inflates every one of
  * them anyway. Four per-stream ceilings: a document of a few streams just
  * under the per-stream bound still opens, and a file of hundreds of
@@ -237,11 +247,11 @@ export function pdfjsPageError(err: unknown): unknown {
 export interface PdfStreamScan {
   /** Streams seen (every `stream` keyword after a dictionary). */
   streams: number;
-  /** Non-image streams whose Flate stages were inflated (counted). */
+  /** Streams read as content whose Flate stages were inflated (counted). */
   inflated: number;
-  /** Largest single decoded non-image stream, in bytes. */
+  /** Largest single decoded stream read as content, in bytes. */
   maxStreamBytes: number;
-  /** All decoded non-image streams together, in bytes. */
+  /** All decoded streams read as content together, in bytes. */
   totalBytes: number;
   /** Deepest `q` nesting reached inside any one content stream. */
   maxQDepth: number;
@@ -401,18 +411,6 @@ function lengthOf(entries: Map<string, DictValue[]>): number | null {
     : null;
 }
 
-/** Streams whose bytes are not page content: fonts, xref, object streams. */
-function isContentLike(entries: Map<string, DictValue[]>): boolean {
-  if (["Length1", "Length2", "Length3"].some((k) => entries.has(k))) {
-    return false;
-  }
-  const notContent = ["XRef", "ObjStm", "Metadata", "EmbeddedFile"];
-  if (namesOf(entries, "Type").some((t) => notContent.includes(t))) {
-    return false;
-  }
-  return namesOf(entries, "Subtype").every((s) => s === "Form");
-}
-
 /**
  * Inflate `data` through `stages` Flate passes, counting the output and
  * feeding it to `onChunk`, and stop once it passes `limit` bytes. Returns the
@@ -521,14 +519,89 @@ function imagePixels(
 }
 
 /**
+ * A stream's /Subtype values as pdf.js would see them: a name, a reference
+ * resolved to the name object it points at, or "?" when the scan cannot say
+ * (a reference it cannot resolve, anything else).
+ */
+function subtypesOf(
+  entries: Map<string, DictValue[]>,
+  nameObject: (num: number) => string | undefined,
+): string[] {
+  return valuesOf(entries, "Subtype").map((v) =>
+    v.kind === "name"
+      ? v.name
+      : v.kind === "ref"
+        ? (nameObject(v.num) ?? "?")
+        : "?",
+  );
+}
+
+/** A stream the scan has found: its dictionary and its data. */
+interface FoundStream {
+  entries: Map<string, DictValue[]>;
+  start: number;
+  end: number;
+  /** Its object number, or null when no header was read. */
+  num: number | null;
+  /** May pdf.js paint it as a Form XObject (its /Subtype says so, or might). */
+  form: boolean;
+  /**
+   * Its labels say it is not content (a font program, metadata, an xref or
+   * object stream, an attachment) and nothing but a page's /Contents could
+   * read it as content: its `q` count is kept aside until the scan knows
+   * what /Contents names. Font programs are binary and hold `q` bytes (the
+   * legit corpus: up to 14 unclosed per file), which must not add up across
+   * a document's fonts.
+   */
+  labelledNotContent: boolean;
+}
+
+/**
+ * The labels that say a stream is not content, as the first fix read them:
+ * /Length1-3 (font programs), /Type /XRef, /ObjStm, /Metadata, /EmbeddedFile,
+ * or a /Subtype that is neither /Form nor /Image (/Type1C, /XML, /PS). pdf.js
+ * reads none of them; they only decide which streams' `q` the scan holds
+ * back (see {@link FoundStream.labelledNotContent}).
+ */
+function labelledNotContent(
+  entries: Map<string, DictValue[]>,
+  subtypes: readonly string[],
+): boolean {
+  if (["Length1", "Length2", "Length3"].some((k) => entries.has(k))) {
+    return true;
+  }
+  const notContent = ["XRef", "ObjStm", "Metadata", "EmbeddedFile"];
+  if (namesOf(entries, "Type").some((t) => notContent.includes(t))) {
+    return true;
+  }
+  return entries.has("First") || subtypes.some((t) => t !== "Form");
+}
+
+/**
  * One pass over every stream in `bytes`, bounded and LINEAR in the file's
- * size: each non-image stream's leading Flate stages are inflated (counted,
- * never kept) and its `q` and `Do` operators counted; each image's size is
- * read from its dictionary's top level; every `num gen R` outside stream data
- * and inside decoded object streams is counted. Stops at the first byte bound
- * passed; the `q` bounds are judged once every reference has been counted.
- * Streams behind other filters (LZW, ASCII85) are not decoded; their size is
- * not seen.
+ * size (work past that is charged to a budget and refused): every stream
+ * pdf.js may read as content has its leading Flate stages inflated (counted,
+ * never kept) and its `q` and `Do` operators counted; every stream pdf.js
+ * may decode as an image has its size read from its dictionary's top level;
+ * every `num gen R` outside stream data and inside decoded object streams is
+ * counted. Stops at the first byte bound passed; the `q` bounds are judged
+ * once every reference has been counted. Streams behind other filters (LZW,
+ * ASCII85) are not decoded; their size is not seen.
+ *
+ * What may be content is decided WITHOUT trusting labels (third review):
+ * pdf.js reads a page's /Contents, a pattern, a glyph procedure or an
+ * appearance whatever the stream's /Type, /Length1 or /Subtype say, so every
+ * stream is q-counted except one whose /Subtype is only ever /Image. Such an
+ * image is counted as content too when anything's /Contents names it (or
+ * when the scan cannot see everything /Contents names). Images are not
+ * inflated otherwise, so a real file's images cost the scan nothing.
+ *
+ * Where a stream starts is read as pdf.js reads it: from each object's
+ * `num gen obj` header, through a parser that skips strings and comments
+ * ({@link parseObjectAt}); a `stream` keyword no header reaches (a damaged
+ * file, a header the parser does not know) falls back to the byte-wise
+ * {@link DictMatcher}. Every reading of a stream is scanned, so a disagreement
+ * can only add work, never hide a stream.
  */
 export async function scanPdfStreams(
   bytes: Uint8Array,
@@ -547,15 +620,23 @@ export async function scanPdfStreams(
     unknownSizeImages: 0,
     exceeded: null,
   };
-  const dicts = new DictMatcher(bytes);
   const refs = new RefCounter();
+  const contents = new ContentsRefs();
   const records: ContentRecord[] = [];
-  /** Stream data, [start, end) pairs in file order: not object text. */
-  const dataRanges: number[] = [];
+  /** Stream data, [start, end) pairs: not object text. */
+  const dataRanges: [number, number][] = [];
+  /** Object numbers of every stream found. */
+  const streamNums = new Set<number>();
+  /** Streams whose /Subtype is only /Image: content only if /Contents names them. */
+  const imagesOnly: FoundStream[] = [];
   let opaqueObjectStreams = 0;
+  const headers = findObjectHeaders(bytes);
   let numeric: Map<number, number> | null = null;
   const numberObject = (num: number) =>
     (numeric ??= numericObjects(bytes)).get(num);
+  let names: Map<number, string> | null = null;
+  const nameObject = (num: number) =>
+    (names ??= nameObjects(bytes, headers)).get(num);
   // Every `endstream` before `scannedTo`, each found once.
   const endstreams: number[] = [];
   let scannedTo = 0;
@@ -580,80 +661,72 @@ export async function scanPdfStreams(
     }
     return -1;
   };
-  // Dictionary text read, in bytes. Real stream dictionaries are disjoint,
-  // so this stays under the file's size; only overlapping `<<` soups pass it.
+  // Dictionary text read, in bytes. Real objects are disjoint, so this stays
+  // under the file's size; only overlapping `<<` soups pass it.
   let dictBytes = 0;
   const dictBudget = 2 * bytes.length + DICT_SEARCH_WINDOW;
-  let at = 0;
-  for (;;) {
-    const kw = indexOfWord(bytes, STREAM, at);
-    if (kw === -1) break;
-    at = kw + STREAM.length;
-    // `endstream` contains `stream`; only a keyword after `>>` starts data.
-    let back = kw - 1;
-    while (back >= 0 && isWhite(bytes[back]!)) back -= 1;
-    if (!(bytes[back] === 0x3e && bytes[back - 1] === 0x3e)) continue;
-    let start = at;
-    if (bytes[start] === 0x0d) start += 1;
-    if (bytes[start] === 0x0a) start += 1;
-    const dictStart = dicts.startBefore(back + 1);
-    if (dictStart === null) continue;
-    dictBytes += back + 1 - dictStart;
+
+  // Every object the file declares, parsed as pdf.js parses it: the `stream`
+  // keyword each dictionary really ends at, with every header that reaches it.
+  const parsed = new Map<
+    number,
+    { dictStart: number; dictEnd: number; num: number | null }[]
+  >();
+  for (const h of headers) {
+    const o = parseObjectAt(bytes, h.objAt, dictBudget - dictBytes);
+    dictBytes += o.cost;
     if (dictBytes > dictBudget) {
       scan.exceeded = "scan-work";
-      break;
+      return scan;
     }
-    const entries = dictEntries(
-      latin1.decode(bytes.subarray(dictStart, back + 1)),
-    );
-    scan.streams += 1;
+    if (o.streamKw === -1) continue;
+    const list = parsed.get(o.streamKw) ?? [];
+    list.push({
+      dictStart: o.dictStart,
+      dictEnd: o.dictEnd,
+      num: Number.isInteger(h.num) ? h.num : null,
+    });
+    parsed.set(o.streamKw, list);
+  }
 
-    const length = lengthOf(entries);
-    let end =
-      length !== null && start + length <= bytes.length ? start + length : -1;
-    if (end === -1 || endstreamFrom(end) - end > 4) {
-      end = endstreamFrom(start);
-      if (end === -1) end = bytes.length;
+  /** Inflate and q-count one stream that pdf.js may read as content. */
+  /** q counts of streams labelled as not content, until /Contents is known. */
+  const heldBack: ContentRecord[] = [];
+  const keep = (r: ContentRecord, labelled: boolean) => {
+    if (labelled) {
+      heldBack.push(r);
+      return;
     }
-    at = Math.max(at, end);
-    dataRanges.push(start, end);
-
-    if (namesOf(entries, "Subtype").includes("Image")) {
-      const pixels = imagePixels(entries, numberObject);
-      if (pixels === null) {
-        scan.unknownSizeImages += 1;
-        continue;
-      }
-      scan.maxImagePixels = Math.max(scan.maxImagePixels, pixels);
-      const budget = isBilevel(entries)
-        ? RASTER_MAX_BILEVEL_PIXELS
-        : RASTER_MAX_IMAGE_PIXELS;
-      if (
-        pixels > budget &&
-        (scan.smallestOverBudgetImage === null ||
-          pixels < scan.smallestOverBudgetImage)
-      ) {
-        scan.smallestOverBudgetImage = pixels;
-      }
-      continue;
-    }
-
+    scan.maxQDepth = Math.max(scan.maxQDepth, r.max);
+    if (r.pushes > 0 || r.dos > 0) records.push(r);
+  };
+  const readAsContent = async (
+    s: FoundStream,
+    labelled = s.labelledNotContent,
+  ): Promise<void> => {
+    const { entries } = s;
     const filters = filtersOf(entries);
     let flateStages = 0;
     while (flateStages < filters.length && FLATE.has(filters[flateStages]!)) {
       flateStages += 1;
     }
     const decodable = flateStages === filters.length;
-    const objectStream = namesOf(entries, "Type").includes("ObjStm");
+    // pdf.js reads an object stream by its /First and /N, not its /Type.
+    const objectStream =
+      namesOf(entries, "Type").includes("ObjStm") || entries.has("First");
     if (objectStream && !decodable) opaqueObjectStreams += 1;
-    const ops = isContentLike(entries) && decodable ? new ContentOps() : null;
-    const data = bytes.subarray(start, end);
+    const ops = decodable ? new ContentOps() : null;
+    const objects = objectStream && decodable;
     refs.reset();
-    const sink: ((chunk: Uint8Array) => void) | null = ops
-      ? (c) => ops.feed(c)
-      : objectStream && decodable
-        ? (c) => refs.feed(c)
-        : null;
+    contents.reset();
+    const sink = (c: Uint8Array) => {
+      ops?.feed(c);
+      if (objects) {
+        refs.feed(c);
+        contents.feed(c);
+      }
+    };
+    const data = bytes.subarray(s.start, s.end);
     let decoded: number;
     if (flateStages > 0) {
       const limit = Math.min(
@@ -664,38 +737,183 @@ export async function scanPdfStreams(
       scan.inflated += 1;
     } else {
       decoded = data.length;
-      if (filters.length === 0) sink?.(data);
+      if (filters.length === 0) sink(data);
     }
     scan.maxStreamBytes = Math.max(scan.maxStreamBytes, decoded);
     scan.totalBytes += decoded;
     if (ops) {
       ops.end();
-      scan.maxQDepth = Math.max(scan.maxQDepth, ops.max);
-      if (ops.pushes > 0 || ops.dos > 0) {
-        records.push({
-          num: streamObjectNumber(bytes, dictStart),
-          form: namesOf(entries, "Subtype").includes("Form"),
+      keep(
+        {
+          num: s.num,
+          form: s.form,
           max: ops.max,
           left: ops.depth,
           pushes: ops.pushes,
           work: ops.work,
           dos: ops.dos,
-        });
-      }
+        },
+        labelled,
+      );
     }
     if (decoded > MAX_DECODED_STREAM_BYTES) scan.exceeded = "stream-bytes";
     else if (scan.totalBytes > MAX_DECODED_TOTAL_BYTES)
       scan.exceeded = "total-bytes";
-    if (scan.exceeded) break;
+  };
+
+  /** Read one stream whose dictionary is [dictStart, dictEnd); its data end. */
+  const found = async (
+    dictStart: number,
+    dictEnd: number,
+    kw: number,
+    num: number | null,
+  ): Promise<number> => {
+    const entries = dictEntries(
+      latin1.decode(bytes.subarray(dictStart, dictEnd)),
+    );
+    scan.streams += 1;
+    if (num !== null) streamNums.add(num);
+    let start = kw + STREAM.length;
+    if (bytes[start] === 0x0d) start += 1;
+    if (bytes[start] === 0x0a) start += 1;
+    const length = lengthOf(entries);
+    let end =
+      length !== null && start + length <= bytes.length ? start + length : -1;
+    if (end === -1 || endstreamFrom(end) - end > 4) {
+      end = endstreamFrom(start);
+      if (end === -1) end = bytes.length;
+    }
+    dataRanges.push([start, end]);
+
+    const subtypes = subtypesOf(entries, nameObject);
+    const objectStream =
+      namesOf(entries, "Type").includes("ObjStm") || entries.has("First");
+    const maybeImage = subtypes.some((t) => t === "Image" || t === "?");
+    const maybeOther =
+      subtypes.length === 0 || subtypes.some((t) => t !== "Image");
+    const form = subtypes.some((t) => t === "Form" || t === "?");
+    const stream: FoundStream = {
+      entries,
+      start,
+      end,
+      num,
+      form,
+      // A form may be painted by `Do`, a tiling pattern as a fill: pdf.js
+      // reads both as content whatever else the dictionary says.
+      labelledNotContent:
+        !form &&
+        !entries.has("PatternType") &&
+        labelledNotContent(entries, subtypes),
+    };
+    if (maybeImage) {
+      const pixels = imagePixels(entries, numberObject);
+      if (pixels === null) {
+        scan.unknownSizeImages += 1;
+      } else {
+        scan.maxImagePixels = Math.max(scan.maxImagePixels, pixels);
+        const budget = isBilevel(entries)
+          ? RASTER_MAX_BILEVEL_PIXELS
+          : RASTER_MAX_IMAGE_PIXELS;
+        if (
+          pixels > budget &&
+          (scan.smallestOverBudgetImage === null ||
+            pixels < scan.smallestOverBudgetImage)
+        ) {
+          scan.smallestOverBudgetImage = pixels;
+        }
+      }
+    }
+    if (maybeOther || objectStream) await readAsContent(stream);
+    else imagesOnly.push(stream);
+    return end;
+  };
+
+  // Every `stream` keyword in file order. One a header reaches is read with
+  // that header's dictionary (each, if several reach it); any other, after
+  // a `>>`, with the byte-wise matcher's.
+  const dicts = new DictMatcher(bytes);
+  const done = new Set<number>();
+  let at = 0;
+  for (;;) {
+    const kw = indexOfWord(bytes, STREAM, at);
+    if (kw === -1) break;
+    at = kw + STREAM.length;
+    const readings = parsed.get(kw);
+    if (readings) {
+      done.add(kw);
+      for (const r of readings) {
+        at = Math.max(at, await found(r.dictStart, r.dictEnd, kw, r.num));
+        if (scan.exceeded) return scan;
+      }
+      continue;
+    }
+    // `endstream` contains `stream`; only a keyword after `>>` starts data.
+    let back = kw - 1;
+    while (back >= 0 && isWhite(bytes[back]!)) back -= 1;
+    if (!(bytes[back] === 0x3e && bytes[back - 1] === 0x3e)) continue;
+    const dictStart = dicts.startBefore(back + 1);
+    if (dictStart === null) continue;
+    dictBytes += back + 1 - dictStart;
+    if (dictBytes > dictBudget) {
+      scan.exceeded = "scan-work";
+      return scan;
+    }
+    at = Math.max(
+      at,
+      await found(
+        dictStart,
+        back + 1,
+        kw,
+        streamObjectNumber(bytes, dictStart),
+      ),
+    );
+    if (scan.exceeded) return scan;
   }
-  if (scan.exceeded) return scan;
+  // A keyword the loop jumped over (inside data a misread /Length or a
+  // byte-wise reading spanned) is still read with every header's dictionary.
+  for (const [kw, readings] of parsed) {
+    if (done.has(kw)) continue;
+    for (const r of readings) {
+      await found(r.dictStart, r.dictEnd, kw, r.num);
+      if (scan.exceeded) return scan;
+    }
+  }
+
+  // Images that a page's /Contents names are page content.
+  contents.reset();
+  contents.feed(bytes);
+  contents.reset();
+  const named = new Set<number>(contents.arrays);
+  let unseen = opaqueObjectStreams > 0;
+  const indirect = new Set(
+    [...contents.direct].filter((n) => !streamNums.has(n)),
+  );
+  for (const n of contents.direct) named.add(n);
+  const arrays = arrayObjectRefs(bytes, headers, indirect);
+  for (const n of indirect) {
+    const held = arrays.get(n);
+    // An array object in an object stream, or a name of nothing: the scan
+    // cannot see what it lists, so every image may be content.
+    if (held === undefined) unseen = true;
+    else for (const m of held) named.add(m);
+  }
+  const isNamed = (num: number | null) =>
+    unseen || num === null || named.has(num);
+  for (const r of heldBack) if (isNamed(r.num)) keep(r, false);
+  for (const s of imagesOnly) {
+    if (isNamed(s.num)) {
+      await readAsContent(s, false);
+      if (scan.exceeded) return scan;
+    }
+  }
 
   // References in the file's object text: everything outside stream data.
+  dataRanges.sort((a, b) => a[0] - b[0]);
   refs.reset();
   let from = 0;
-  for (let k = 0; k < dataRanges.length; k += 2) {
-    if (dataRanges[k]! > from) refs.countIn(bytes, from, dataRanges[k]!);
-    from = Math.max(from, dataRanges[k + 1]!);
+  for (const [start, end] of dataRanges) {
+    if (start > from) refs.countIn(bytes, from, start);
+    from = Math.max(from, end);
   }
   refs.countIn(bytes, from, bytes.length);
   judgeGraphicsState(scan, records, refs.counts, opaqueObjectStreams);

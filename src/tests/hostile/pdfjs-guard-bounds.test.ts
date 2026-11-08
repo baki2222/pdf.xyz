@@ -182,3 +182,72 @@ describe("pdf.js consumers stay bounded on hostile streams", () => {
     expect(v).toMatchObject({ ok: true, pages: 1 });
   }, 90_000);
 });
+
+describe("third review: labels, strings and references that hid a stream", () => {
+  const nested = {
+    name: "PdfEngineError",
+    message: PDF_NESTED_TOO_DEEPLY_MESSAGE,
+  };
+
+  test("STAMP-14: page content labelled /Subtype /Image (90 s hang before) is refused in seconds", async () => {
+    const v = settled(await runBounded(CHILD, ["label-image-q-text"], 30_000));
+    expect(v.error).toMatchObject(nested);
+  }, 60_000);
+
+  test("positive control: pdf.js reads an image-labelled /Contents stream as page content", async () => {
+    // Without this, the refusal above could be of a file pdf.js never reads.
+    const v = settled(
+      await runBounded(CHILD, ["label-image-control-text"], 30_000),
+    );
+    expect(v).toMatchObject({ ok: true, pageCount: 1 });
+    expect(v.text).toContain("MARK");
+  }, 60_000);
+
+  test("STAMP-14: page content labelled /Length1 0 (60 s hang before) is refused in seconds", async () => {
+    const v = settled(
+      await runBounded(CHILD, ["label-length1-q-text"], 30_000),
+    );
+    expect(v.error).toMatchObject(nested);
+  }, 60_000);
+
+  test("CO-06: a 1 GiB chained-Flate bomb labelled as a 1x1 image (2,350 MB before) is refused without inflating it", async () => {
+    const v = settled(
+      await runBounded(CHILD, ["label-image-bomb-text"], 60_000, {
+        maxOldSpaceMb: 1024,
+      }),
+    );
+    expect(v.error).toMatchObject({
+      name: "PdfEngineError",
+      message: PDF_EXPANDS_TOO_FAR_MESSAGE,
+    });
+    expect(v.maxRssMb as number).toBeLessThan(900);
+  }, 90_000);
+
+  test("STAMP-14: '(>>stream)' in the content dictionary (60 s hang before) does not hide its /Filter", async () => {
+    const v = settled(
+      await runBounded(CHILD, ["dict-string-flate-q-text"], 30_000),
+    );
+    expect(v.error).toMatchObject(nested);
+  }, 60_000);
+
+  test("positive control: the same dictionary string over a shallow page still reads", async () => {
+    const v = settled(
+      await runBounded(CHILD, ["dict-string-control-text"], 30_000),
+    );
+    expect(v).toMatchObject({ ok: true, pageCount: 1 });
+    expect(v.text).toContain("MARK");
+  }, 60_000);
+
+  test("CO-08: a 100 MP image whose /Subtype is a reference (36.5 s, 1.5 GB before) is refused by name", async () => {
+    const v = settled(
+      await runBounded(CHILD, ["co08-indirect-subtype-raster"], 20_000, {
+        maxOldSpaceMb: 2048,
+      }),
+    );
+    expect(v.error).toMatchObject({
+      name: "PdfEngineError",
+      message: PDF_IMAGE_TOO_LARGE_MESSAGE,
+    });
+    expect(v.maxRssMb as number).toBeLessThan(900);
+  }, 60_000);
+});
