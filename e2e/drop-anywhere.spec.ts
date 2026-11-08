@@ -176,8 +176,11 @@ test("/tools/rotate-pdf: a file dropped anywhere on the page opens in Rotate PDF
   await layerLive(page);
   const dataTransfer = await transfer(page, [await pdf("anywhere.pdf", 2)]);
   await heading(page).dispatchEvent("dragenter", { dataTransfer });
+  // "add", not "open", since 2026-11-08 (batch plan P1): Rotate's drop box
+  // takes several PDFs, and two or more open its batch. One still opens in
+  // the editor, below.
   await expect(page.locator("[data-drop-veil][data-open]")).toContainText(
-    "Release to open in Rotate PDF",
+    "Release to add to Rotate PDF",
   );
   // The zone the file will land in is armed.
   await expect(page.locator("[data-page-drop-target][data-armed]")).toHaveCount(

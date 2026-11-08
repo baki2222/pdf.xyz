@@ -67,8 +67,9 @@ test("hands a single PDF off from the workspace to Rotate and runs it", async ({
   await batch.getByLabel(/choose a tool/i).selectOption("rotate-pdf");
   await batch.getByRole("button", { name: /add all chosen files/i }).click();
 
-  // Rotate is one-file-at-a-time — the panel says so, honestly.
-  await expect(batch.getByText(/opens your first file/i)).toBeVisible();
+  // WAS "opens your first file" until 2026-11-08 (batch plan P1): Rotate
+  // takes every file now, and with one queued says it runs on that file.
+  await expect(batch.getByText(/runs on this file right here/i)).toBeVisible();
   await batch.getByRole("button", { name: /open rotate pdf/i }).click();
   await expect(page).toHaveURL(/\/tools\/rotate-pdf$/);
 
@@ -232,7 +233,12 @@ test("three PDFs added on the home page and sent to a one-file tool: the badge c
     await writeTempPdf("three.pdf", 1),
   ]);
 
-  await page.getByRole("link", { name: /^open sign pdf with /i }).click();
+  // Under More since 2026-11-08: Add Page Numbers takes all three PDFs now
+  // and ranks above Sign PDF, a one-file tool.
+  const sign = page.getByRole("link", { name: /^open sign pdf with /i });
+  if (!(await sign.isVisible()))
+    await page.getByRole("button", { name: /^More/ }).first().click();
+  await sign.click();
   await expect(page).toHaveURL(/\/tools\/sign-pdf$/);
 
   // Health: the badge is there and is the drop's — a missing badge would
