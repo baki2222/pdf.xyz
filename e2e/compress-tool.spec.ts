@@ -52,3 +52,43 @@ test("compress analyzes in-browser and honestly labels the worker path", async (
   expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
   expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
 });
+
+/*
+ * Batch plan P0b, review: Remove before Run, from the keyboard. Pressing a
+ * row's Remove unmounts the button that has focus; focus goes to the next
+ * row's Remove rather than falling to the page. And a Remove that leaves one
+ * file hands it to the single-file panel (its analysis, every option), which
+ * takes the focus. A real Enter, in a real browser: jsdom cannot press one.
+ */
+test("Compress batch: Remove by keyboard keeps focus, and the last file goes to the single panel", async ({
+  page,
+}) => {
+  const guard = attachConsoleGuard(page);
+  const files = await Promise.all(
+    ["first.pdf", "second.pdf", "third.pdf"].map((name) =>
+      writeTempPdf(name, 2),
+    ),
+  );
+  await page.goto("/tools/compress-pdf");
+  await uploadFiles(page, files);
+
+  const removeFirst = page.getByRole("button", { name: "Remove first.pdf" });
+  await expect(removeFirst).toBeVisible({ timeout: 20_000 });
+  await removeFirst.focus();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("button", { name: "Remove second.pdf" }),
+  ).toBeFocused();
+
+  await page.keyboard.press("Enter");
+  // One file left: the single-file panel, analysing third.pdf, has focus.
+  await expect(page.locator("[data-compress-stage]")).toBeFocused();
+  await expect(page.getByText("Current size", { exact: true })).toBeVisible();
+  await expect(page.getByText("third.pdf", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("list", { name: "Files in this batch" }),
+  ).toHaveCount(0);
+
+  expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
+  expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
+});

@@ -285,10 +285,16 @@ const pdfs = (n: number) => `${n} PDF${n === 1 ? "" : "s"}`;
 export function CompressBatchRunner({
   files,
   onReset,
+  onSingle,
   arrival = null,
 }: {
   files: File[];
   onReset: () => void;
+  /**
+   * A Remove left one file: it goes back to the single-file panel, with its
+   * analysis and every option, rather than staying a batch of one.
+   */
+  onSingle?: (file: File) => void;
   /** Set when the files were handed over from another page. */
   arrival?: Arrival | null;
 }) {
@@ -486,6 +492,14 @@ export function CompressBatchRunner({
       // one only once it is opted in, which is also when it joins the ZIP.
       zipFallback="If it keeps failing, download the files one at a time above."
       onReset={onReset}
+      {...(onSingle
+        ? {
+            onOneLeft: (id: string) => {
+              const unit = units.find((u) => u.id === id);
+              if (unit) onSingle(unit.file);
+            },
+          }
+        : {})}
     />
   );
 }

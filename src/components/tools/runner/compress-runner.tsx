@@ -157,9 +157,18 @@ export function CompressRunner() {
     if (accepted.length > 0) setFiles((prev) => [...prev, ...accepted]);
   }, []);
 
+  // A batch narrowed to one file by Remove hands it back here; the single
+  // panel then takes focus, since the button that had it is gone.
+  const [narrowed, setNarrowed] = useState(false);
+  const narrowTo = useCallback((file: File) => {
+    setNarrowed(true);
+    setFiles([file]);
+  }, []);
+
   const reset = useCallback(() => {
     setFiles([]);
     setRejections([]);
+    setNarrowed(false);
   }, []);
 
   // The analysis starts with the file, so the result's ending is fetched as
@@ -179,13 +188,23 @@ export function CompressRunner() {
 
   if (files.length >= 2) {
     return (
-      <CompressBatchRunner files={files} onReset={reset} arrival={arrival} />
+      <CompressBatchRunner
+        files={files}
+        onReset={reset}
+        onSingle={narrowTo}
+        arrival={arrival}
+      />
     );
   }
 
   if (files.length === 1) {
     return (
-      <CompressSingle file={files[0]!} onReset={reset} arrival={arrival} />
+      <CompressSingle
+        file={files[0]!}
+        onReset={reset}
+        arrival={arrival}
+        takeFocus={narrowed}
+      />
     );
   }
 
@@ -241,10 +260,13 @@ function CompressSingle({
   file,
   onReset,
   arrival,
+  takeFocus = false,
 }: {
   file: File;
   onReset: () => void;
   arrival: Arrival | null;
+  /** Arrived from a batch by Remove: the stage takes the focus that was lost. */
+  takeFocus?: boolean;
 }) {
   // Opted in: Compress has a path that does not need pdf-lib to rewrite the
   // file (the secure worker), so an encrypted file is classified rather than
@@ -259,9 +281,19 @@ function CompressSingle({
 
   const lockedNow = Boolean(locked && !loading);
 
+  const stage = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (takeFocus) stage.current?.focus();
+  }, [takeFocus]);
+
   // The stage grows into the panel's first screen; see above.
   return (
-    <div data-compress-stage="" className="flex grow flex-col">
+    <div
+      ref={stage}
+      tabIndex={takeFocus ? -1 : undefined}
+      data-compress-stage=""
+      className="flex grow flex-col outline-none"
+    >
       {error ? (
         <div className="flex flex-col gap-4">
           <ErrorNote message={error.message} cause={error} />

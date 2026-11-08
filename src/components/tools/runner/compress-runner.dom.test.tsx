@@ -787,6 +787,33 @@ describe(
 );
 
 describe("Compress batch", { timeout: 30_000 }, () => {
+  // Batch plan: "One file keeps today's full single-file flow". Removing
+  // files from a batch until one is left used to keep that file in a batch
+  // of one — lossless only, labelled "Compress 1 PDF", with none of the
+  // single-file analysis (review of P0b). It goes back to the single-file
+  // panel, and focus goes with it rather than falling to the page.
+  it("a Remove that leaves one file hands it to the single-file panel, with focus", async () => {
+    answerWorkerStatus(null);
+    const { container } = render(withRouter(<CompressRunner />));
+    await drop(container, [
+      asFile(await plainPdf(2), "a.pdf"),
+      asFile(await plainPdf(2), "b.pdf"),
+    ]);
+    const remove = await screen.findByRole("button", { name: "Remove a.pdf" });
+    remove.focus();
+    fireEvent.click(remove);
+    await waitFor(() =>
+      expect(container.querySelector("[data-compress-stage]")).not.toBeNull(),
+    );
+    expect(
+      screen.queryByRole("list", { name: /files in this batch/i }),
+    ).toBeNull();
+    const stage = container.querySelector("[data-compress-stage]");
+    expect(document.activeElement).toBe(stage);
+    expect(await screen.findAllByText("b.pdf")).not.toHaveLength(0);
+    expect(screen.queryByText("a.pdf")).toBeNull();
+  });
+
   it("flags a signed file, keeps it out of Download all until confirmed, and names a restricted file honestly", async () => {
     answerWorkerStatus(null);
     const restricted = await encryptPdf(await plainPdf(1), {
