@@ -59,6 +59,13 @@ import { ToolRunner } from "../tool-runner";
 import { BATCH_VIEW_LOADED } from "./batch-view";
 import { BATCH_OUT_OF_MEMORY } from "./halt";
 import { ImagesBatchRunner } from "./images-batch-runner";
+import { GRAYSCALE_BATCH_DEFAULT, grayscaleOneFile } from "./grayscale-batch";
+import {
+  PDF_TO_IMAGE_BATCH_DEFAULTS,
+  renderOneFile,
+} from "./pdf-to-image-batch";
+import { SettingsBatchRunner } from "./settings-batch-runner";
+import { grayscaleOutputName } from "@/lib/pdf/grayscale";
 
 const router = {
   back: () => {},
@@ -592,3 +599,175 @@ describe("an images batch that runs out of memory", () => {
     },
   );
 });
+
+/**
+ * Out of memory through the REAL engines, not a stubbed `process`: the
+ * runner's wiring above is necessary and not sufficient, because each
+ * engine draws its pages through `capturePdfPages`, whose per-page catch
+ * used to turn every error into a plain "Page N could not be rendered."
+ * (Grayscale) or swallow it as a skipped page (PDF to JPG/PNG). Either way
+ * the RangeError never reached `batchHalt` and the batch went on filling
+ * memory (adversarial review of P2, CLAUDE.md rule 5).
+ *
+ * The browser's allocation failure is played by the canvas: a 2D context
+ * wider than `limit` device pixels throws the RangeError a browser throws.
+ * `b.pdf` has one large page, `a.pdf` and `c.pdf` small ones.
+ */
+describe("out of memory through the real engines", () => {
+  const LIMIT_PX = 1500;
+  /** Small pages: 200 pt is 833 px even at 300 DPI, below the limit. */
+  async function smallPdf(): Promise<Uint8Array> {
+    return picturePdf(2);
+  }
+  /** One 800 pt page: 1,667 px at 150 DPI and above, over the limit. */
+  async function largePdf(): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    doc
+      .addPage([800, 800])
+      .drawText("Large", { x: 20, y: 700, font, size: 24 });
+    return doc.save();
+  }
+  /** Canvases whose 2D context fails over `limit` px wide, as a browser's would. */
+  function canvasesFailAbove(limit: number) {
+    vi.mocked(document.createElement).mockImplementation(((
+      tag: string,
+      options?: ElementCreationOptions,
+    ) => {
+      if (tag.toLowerCase() !== "canvas")
+        return Document.prototype.createElement.call(document, tag, options);
+      const canvas = napi.createCanvas(1, 1);
+      const getContext = canvas.getContext.bind(canvas) as (
+        ...args: unknown[]
+      ) => unknown;
+      (canvas as { getContext: unknown }).getContext = (...args: unknown[]) => {
+        if (canvas.width > limit)
+          throw new RangeError("Array buffer allocation failed");
+        return getContext(...args);
+      };
+      return canvas;
+    }) as typeof document.createElement);
+  }
+  async function threeFiles() {
+    const small = await smallPdf();
+    return [
+      pdfFile(small, "a.pdf"),
+      pdfFile(await largePdf(), "b.pdf"),
+      pdfFile(small, "c.pdf"),
+    ];
+  }
+
+  const imagesProps = (files: File[]) => ({
+    files,
+    onReset: () => {},
+    toolName: "Test Images",
+    verb: "Test",
+    runningLabel: "Testing…",
+    zipName: "pdfxyz-test.zip",
+    maxFiles: BATCH_LIMITS.rasterMaxFiles,
+    restrictedRefusal: "restricted",
+  });
+
+  async function runImages(format: "jpg" | "png", limit: number) {
+    canvasesFailAbove(limit);
+    const ran: string[] = [];
+    render(
+      <Router>
+        <ImagesBatchRunner
+          {...imagesProps(await threeFiles())}
+          process={(opened, signal) => {
+            ran.push(opened.file.name);
+            return renderOneFile(
+              opened,
+              { ...PDF_TO_IMAGE_BATCH_DEFAULTS, format },
+              signal,
+            );
+          }}
+        />
+      </Router>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Test 3 PDFs" }));
+    return ran;
+  }
+
+  async function runGrayscale(limit: number) {
+    canvasesFailAbove(limit);
+    const ran: string[] = [];
+    render(
+      <Router>
+        <SettingsBatchRunner
+          files={await threeFiles()}
+          onReset={() => {}}
+          onSingle={() => {}}
+          arrival={null}
+          toolName="Test Tool"
+          verb="Test"
+          runningLabel="Testing…"
+          zipName="pdfxyz-test.zip"
+          maxFiles={BATCH_LIMITS.rasterMaxFiles}
+          process={(opened, signal) => {
+            ran.push(opened.file.name);
+            return grayscaleOneFile(opened, GRAYSCALE_BATCH_DEFAULT, signal);
+          }}
+        />
+      </Router>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Test 3 PDFs" }));
+    return ran;
+  }
+
+  async function expectHalted(ran: string[], kept: string) {
+    await screen.findByRole(
+      "heading",
+      { name: "Batch stopped." },
+      { timeout: 40_000 },
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(BATCH_OUT_OF_MEMORY);
+    expect(ran).toEqual(["a.pdf", "b.pdf"]);
+    expect(screen.getByText("c.pdf").closest("li")).toHaveTextContent(
+      "Canceled",
+    );
+    expect(screen.getByRole("button", { name: kept })).toBeInTheDocument();
+  }
+
+  it.each(["jpg", "png"] as const)(
+    "PDF to %s (renderOneFile): a page out of memory stops the batch, never a skipped page",
+    { timeout: 60_000 },
+    async (format) => {
+      const ran = await runImages(format, LIMIT_PX);
+      await expectHalted(ran, "Download the 2 images of a.pdf as a ZIP");
+    },
+  );
+
+  it(
+    "Grayscale (grayscaleOneFile): a page out of memory stops the batch, never a failed row",
+    { timeout: 60_000 },
+    async () => {
+      const ran = await runGrayscale(LIMIT_PX);
+      await expectHalted(ran, `Download ${grayscaleOutputName("a.pdf")}`);
+    },
+  );
+
+  it(
+    "control: with room for the large page, both engines finish all three",
+    { timeout: 90_000 },
+    async () => {
+      const images = await runImages("png", Number.POSITIVE_INFINITY);
+      await screen.findByRole(
+        "heading",
+        { name: /^Batch complete\. 3 done/ },
+        { timeout: 40_000 },
+      );
+      expect(images).toEqual(["a.pdf", "b.pdf", "c.pdf"]);
+      cleanup();
+      const gray = await runGrayscale(Number.POSITIVE_INFINITY);
+      await screen.findByRole(
+        "heading",
+        { name: /^Batch complete\. 3 done/ },
+        { timeout: 40_000 },
+      );
+      expect(gray).toEqual(["a.pdf", "b.pdf", "c.pdf"]);
+    },
+  );
+});
+
