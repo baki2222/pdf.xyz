@@ -18,3 +18,5 @@ export {
   isBatchSettled,
   type BatchEvent,
 } from "./machine";
+
+export { BatchSkip, NotedResult, withNote } from "./outcome";
