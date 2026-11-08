@@ -1,3 +1,4 @@
+import { isolatePageContent } from "./content-isolation";
 import type { PDFFont, PDFImage, PDFPage, RGB as PdfLibRGB } from "pdf-lib";
 import { arrowHeadSegments, clampOpacity, parseHexColor } from "./annotate";
 import { PdfEngineError } from "./engine";
@@ -483,6 +484,9 @@ export async function exportEditedPdf(
     );
   }
 
+  // Before the rewrite below reads it, so that rewrite keeps the brackets.
+  for (const p of new Set(list.map((o) => pages[o.page])))
+    if (p) await isolatePageContent(p);
   // Edit text and Redact rewrite the page content itself — before anything
   // is drawn on top of it, so what is drawn lands over the rewritten page.
   const retextOutcomes = await applyTextAndRedactions(
