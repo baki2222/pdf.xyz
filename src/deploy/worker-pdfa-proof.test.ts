@@ -171,6 +171,9 @@ describe("the production proof asks every PDF/A artifact the engine's question",
     }
   });
 
+  const hasProp = (node: TS.ObjectLiteralExpression, name: string) =>
+    node.properties.some((p) => p.name?.getText(file) === name);
+
   const verifyOf = (node: TS.ObjectLiteralExpression) =>
     node.properties.find(
       (p): p is TS.PropertyAssignment =>
@@ -194,10 +197,36 @@ describe("the production proof asks every PDF/A artifact the engine's question",
     (tool) => {
       const mine = specs.filter((s) => s.tool === tool);
       expect(mine.length, `${tool} has no proof spec`).toBeGreaterThan(0);
+      // Since 2026-11-08 a level proof may ask the same question for the
+      // level it named: `pdfaLevelProofVerdict` calls `inspectPdfAMarkers`
+      // with that level's part (held behaviourally in level-proof.test.ts). A spec the web
+      // tier must refuse at creation downloads nothing, so has no verify.
+      let plain = 0;
       for (const spec of mine) {
-        const verify = verifyOf(spec.node);
-        expect(verify?.initializer.getText(file)).toBe("proveDeclaredPdfA");
+        if (hasProp(spec.node, "refusedAtCreate")) continue;
+        const text = verifyOf(spec.node)?.initializer.getText(file);
+        if (text === "proveDeclaredPdfA") {
+          plain++;
+          continue;
+        }
+        expect(text).toMatch(
+          /^\(bytes\) => pdfaLevelProofVerdict\(new Uint8Array\(bytes\), "(1b|2b|3b)"\)$/,
+        );
       }
+      expect(
+        plain,
+        "the default-level proof still asks proveDeclaredPdfA",
+      ).toBe(1);
+      if (
+        mine.some(
+          (s) =>
+            !hasProp(s.node, "refusedAtCreate") &&
+            verifyOf(s.node)?.initializer.getText(file) !== "proveDeclaredPdfA",
+        )
+      )
+        expect(importsOf(file).get("pdfaLevelProofVerdict")).toBe(
+          "@/lib/workers/pdf-archive/level-proof",
+        );
       expect(importsOf(file).get("proveDeclaredPdfA")).toBe(
         "@/lib/workers/pdf-archive/pdfa-markers",
       );
