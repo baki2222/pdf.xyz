@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type MouseEvent,
@@ -898,7 +899,12 @@ export function DownloadCta({
  */
 function useUnkeptResult(active: boolean) {
   const release = useRef<(() => void) | null>(null);
-  useEffect(() => {
+  // A LAYOUT effect: registered in the same commit that draws the result,
+  // before anything can press its Download. A passive effect ran a task
+  // later, and a Download pressed in between released nothing; the late
+  // registration then made the next paste ask about a file already
+  // downloaded (`unkept-result-race.dom.test.tsx`, 2026-11-08).
+  useLayoutEffect(() => {
     if (!active) return;
     const done = registerUnkeptResult();
     release.current = done;

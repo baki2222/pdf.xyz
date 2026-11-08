@@ -74,7 +74,11 @@ export async function wideSheetXlsx({
   }
   const zip = new JSZip();
   const date = new Date("2026-01-01T00:00:00Z");
-  const add = (name: string, body: string) => zip.file(name, body, { date });
+  // `createFolders: false`: JSZip otherwise adds "xl/" and "xl/worksheets/"
+  // entries stamped with the CLOCK, not `date`, so two builds two seconds
+  // apart differed and the determinism test failed on CI (2026-11-08).
+  const add = (name: string, body: string) =>
+    zip.file(name, body, { date, createFolders: false });
   add(
     "[Content_Types].xml",
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>

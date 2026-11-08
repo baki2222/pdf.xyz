@@ -626,6 +626,62 @@ describe("Organize PDF's result screen describes the file that was built", () =>
     fireEvent.click(screen.getByRole("button", { name: /back to adjust/i }));
     expect(screen.getByText("4 pages in output")).toBeTruthy();
   }, 30_000);
+
+  /**
+   * THE MOMENT THE RESULT COMMITS (2026-11-08). The test above failed on
+   * main's CI (d7c5fd35) at its last line: Back to adjust showed "3 pages
+   * in output". Its Ctrl+Z had undone the duplicate under a file already
+   * built. The shortcut was unbound in a PASSIVE effect's cleanup, which
+   * React runs a task after the result's commit, and a loaded runner let the
+   * test's key arrive inside that gap. This presses Ctrl+Z from a
+   * MutationObserver callback, the microtask right after the result's DOM
+   * writes, so the gap is hit every run rather than when CI is slow.
+   */
+  it("a Ctrl+Z pressed the moment the result is drawn does not rewrite the arrangement", async () => {
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < 3; i++) doc.addPage([300 + i, 400]);
+    const bytes = await doc.save();
+    const { container } = renderRunner(<OrganizeRunner />);
+    pick(container, [
+      new File([bytes.slice()], "three.pdf", { type: "application/pdf" }),
+    ]);
+    fireEvent.click(
+      await screen.findByRole(
+        "button",
+        { name: "Duplicate page 1" },
+        { timeout: 10_000 },
+      ),
+    );
+    expect(screen.getByText("4 pages in output")).toBeTruthy();
+
+    let pressedAtCommit = false;
+    const observer = new MutationObserver(() => {
+      if (pressedAtCommit || !screen.queryByText("Pages organized")) return;
+      pressedAtCommit = true;
+      observer.disconnect();
+      document.body.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "z",
+          ctrlKey: true,
+          bubbles: true,
+        }),
+      );
+    });
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+    fireEvent.click(screen.getByRole("button", { name: /apply & export/i }));
+    await screen.findByText("Pages organized", undefined, { timeout: 10_000 });
+    observer.disconnect();
+    // Health: the key really was pressed at the commit, not after.
+    expect(pressedAtCommit).toBe(true);
+    expect(screen.getByText(/^4 pages in your new order/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /back to adjust/i }));
+    expect(screen.getByText("4 pages in output")).toBeTruthy();
+  }, 30_000);
 });
 
 /**

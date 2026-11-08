@@ -155,9 +155,15 @@ describe.each(SUBJECTS)("$name", { timeout: 30_000 }, ({ arm, tool }) => {
     // full run the OCR arm took longer than findByText's default 1s, on
     // main at #220 and on PR #222 alike (the OCR panel still renders
     // `file.name` unchanged). The same budget the target check below has.
-    expect(
-      await screen.findByText(first.name, undefined, { timeout: 10_000 }),
-    ).toBeInTheDocument();
+    //
+    // Re-queried inside waitFor, never held: the name is drawn by the zone
+    // and then by the chip that replaces it, so a node found once can be
+    // detached by the time it is checked ("element could not be found in
+    // the document", main CI at a7aa20cf, 2026-11-06).
+    await waitFor(
+      () => expect(screen.getByText(first.name)).toBeInTheDocument(),
+      { timeout: 10_000 },
+    );
     // The zone is gone; the chip is the page's target now — once its box
     // (`ChosenFileLive`, fetched with the file it shows) is here: a cold
     // import under a loaded test run.

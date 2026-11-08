@@ -1,7 +1,14 @@
 "use client";
 
 import { RunReason } from "@/components/tools/runner/run-reason";
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -141,8 +148,13 @@ function OrganizeEditor({
   // the same component renders it, and an undo there rewrote the arrangement
   // under a file that was already built. `dispatch` is stable; we re-bind on
   // `history` changes so canUndo/canRedo read the current timeline.
+  //
+  // A LAYOUT effect, so the shortcut is unbound in the same commit that
+  // draws the result. A passive effect's cleanup ran a task later, and a
+  // Ctrl+Z inside that gap undid the arrangement under the built file
+  // (`runner-flows.test.tsx`, "pressed the moment the result is drawn").
   const showingResult = result !== null;
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (showingResult) return;
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
