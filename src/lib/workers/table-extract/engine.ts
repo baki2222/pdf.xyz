@@ -23,6 +23,10 @@ import {
   type DetectedTable,
   type PdfLayoutPage,
 } from "./detect";
+import {
+  restoreTesseractWordWidths,
+  tesseractLayerPages,
+} from "./ocr-geometry";
 
 // Detection lives in `./detect` (moved 2026-11-08) so PDF to Markdown's
 // in-browser reader can use the same detector without this module's ZIP and
@@ -94,6 +98,12 @@ export interface TableExtractDeps {
    * password? Injectable for tests; defaults to the pdf-lib + byte-scan probe.
    */
   isEncrypted?: (bytes: Uint8Array) => Promise<boolean>;
+  /**
+   * Which pages' text is Tesseract's layer, whose word boxes poppler reports
+   * one character short (`./ocr-geometry`). Injectable for tests; defaults to
+   * the pdf-lib font probe.
+   */
+  tesseractPages?: (bytes: Uint8Array) => Promise<ReadonlySet<number>>;
   limits?: { maxInputBytes?: number; maxOutputBytes?: number };
 }
 
@@ -324,7 +334,15 @@ export async function runTableExtract(
           "This PDF has no selectable text, so no tables can be extracted. Run OCR PDF first, then try again.",
       };
     }
-    const tables = layout.pages.flatMap((page) => detectTablesOnPage(page));
+    // An OCR'd page's word boxes are each one character short, which made
+    // every word space of a scanned letter wide enough to be a gutter and
+    // two of its lines a table (2026-11-08). Restored before detection.
+    const ocrPages = await (deps.tesseractPages ?? tesseractLayerPages)(input);
+    const tables = layout.pages.flatMap((page) =>
+      detectTablesOnPage(
+        ocrPages.has(page.pageNumber) ? restoreTesseractWordWidths(page) : page,
+      ),
+    );
     if (tables.length === 0) {
       return {
         ok: false,
