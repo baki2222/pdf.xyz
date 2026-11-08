@@ -69,6 +69,21 @@ export interface WorkerBatchRunnerProps {
   settings?: ReactNode;
   /** Why Run cannot be pressed for a reason of the panel's own. */
   runBlocked?: string | null;
+  /**
+   * The panel's own look at a file's bytes before it is uploaded (batch
+   * plan P4: Unlock leaves out a PDF that is not locked, Protect one that
+   * is already encrypted): throw or reject with a `BatchSkip`.
+   */
+  preflight?: (file: File, bytes: Uint8Array) => void | Promise<void>;
+  /** Run was pressed: the panel freezes what `run` will send. */
+  onRun?: () => void;
+  /**
+   * The batch ended (done or canceled), or "Run again" put it back before
+   * Run: whatever the panel froze for it is no longer needed.
+   */
+  onEnd?: () => void;
+  /** In place of "Retry failed": the panel's own retry form (`BatchView`). */
+  retry?: (failed: number, retry: () => void) => ReactNode;
 }
 
 /**
@@ -134,6 +149,10 @@ export function WorkerBatchRunner({
   run,
   settings,
   runBlocked = null,
+  preflight,
+  onRun,
+  onEnd,
+  retry,
 }: WorkerBatchRunnerProps) {
   // A page that mounts this for a tool with no registration is a bug in
   // the page, said loudly (below, after every hook).
@@ -186,12 +205,15 @@ export function WorkerBatchRunner({
         onPhase: setJobPhase,
         finished,
         report: workerOutcomeReporter(slug),
-        ...(signedVerb
+        ...(signedVerb || preflight
           ? {
-              preflight: (_file: File, bytes: Uint8Array) => {
-                const count = countDigitalSignatures(bytes);
-                if (count > 0)
-                  throw new BatchSkip(signedSkipReason(count, signedVerb));
+              preflight: async (file: File, bytes: Uint8Array) => {
+                if (signedVerb) {
+                  const count = countDigitalSignatures(bytes);
+                  if (count > 0)
+                    throw new BatchSkip(signedSkipReason(count, signedVerb));
+                }
+                await preflight?.(file, bytes);
               },
             }
           : {}),
@@ -213,7 +235,7 @@ export function WorkerBatchRunner({
       const note = qpdfRowNote(slug, result);
       return note ? withNote(row, note) : row;
     };
-  }, [run, slug, signedVerb, finished]);
+  }, [run, slug, signedVerb, finished, preflight]);
 
   const runner = useBatchRunner<WorkerBatchRow>(units, process, {
     // One outcome per FILE is reported by the adapter (`report` above): a
@@ -224,6 +246,33 @@ export function WorkerBatchRunner({
   const count = runner.state.items.length;
   const paused = runner.state.phase === "paused";
   useUnsavedGuard(runner.running || paused, "your batch");
+
+  // The batch's end, as the panel needs to hear it: once, when the phase
+  // reaches done or canceled (a pause is not an end — the paused file runs
+  // again with what was frozen).
+  const phase = runner.state.phase;
+  const onEndRef = useRef(onEnd);
+  useEffect(() => {
+    onEndRef.current = onEnd;
+  }, [onEnd]);
+  useEffect(() => {
+    if (phase === "done" || phase === "canceled") onEndRef.current?.();
+  }, [phase]);
+  const { start, reset } = runner;
+  const driven = useMemo(
+    () => ({
+      ...runner,
+      start: () => {
+        onRun?.();
+        start();
+      },
+      reset: () => {
+        reset();
+        onEndRef.current?.();
+      },
+    }),
+    [runner, start, reset, onRun],
+  );
 
   const label = (n: number) => `${n} ${noun[n === 1 ? 0 : 1]}`;
   const blocked =
@@ -249,7 +298,7 @@ export function WorkerBatchRunner({
 
   return (
     <BatchView<WorkerBatchRow>
-      runner={runner}
+      runner={driven}
       arrivedCount={files.length}
       rejected={rejected}
       banner={banner}
@@ -289,6 +338,7 @@ export function WorkerBatchRunner({
           />
         ) : null
       }
+      {...(retry ? { retry } : {})}
       onReset={onReset}
       {...(onSingle
         ? {

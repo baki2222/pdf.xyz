@@ -1,4 +1,6 @@
 import type { ToolContent } from "./types";
+import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
+import { securityBatchPageSentence } from "@/lib/batch/security-copy";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import {
@@ -20,8 +22,9 @@ import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 /*
  * Behaviour claims below were read from the implementation on 2026-09-27:
  *  - src/components/tools/pdf-security-worker-panel.tsx — the controls as the
- *    visitor sees them: the "Add a PDF to password-protect" drop zone (one
- *    file, with a Remove button), the masked "New password" field with a
+ *    visitor sees them: the "Add a PDF to password-protect" drop zone (a
+ *    file, with a Remove button; two or more open the batch of
+ *    runner/batch/security-batch.tsx, batch plan P4), the masked "New password" field with a
  *    show/hide toggle and a byte counter once the password is too long, the
  *    "Encryption strength" chips, the "Encrypt PDF" button, the
  *    "Your PDF is protected and ready." result and a "Download <name>" button.
@@ -107,15 +110,19 @@ const content: ToolContent = {
 
   seoTitle: `Protect PDF with a Password: ${STRONG} Encryption`,
 
-  metaDescription: `Password-protect a PDF with ${STRONG} or ${COMPATIBLE} encryption applied by qpdf. One file up to ${CEILING_MB} MB, no account, link expires in ${OUTPUT_TTL} min.`,
+  metaDescription: `Password-protect a PDF with ${STRONG} or ${COMPATIBLE} encryption applied by qpdf. Files up to ${CEILING_MB} MB each, no account, link expires in ${OUTPUT_TTL} min.`,
 
   intro: [
     `Protect PDF puts an open password on a document. The result is encrypted with AES, so a PDF reader asks for the password before it will show a single page. Use it when a file travels by email, a shared drive or a USB stick. The encryption is applied by qpdf, and our server re-inspects its own output: a file that does not come back encrypted fails the job instead of being handed over as if it were protected.`,
-    `qpdf is a native program, so this tool does not run in your browser. Your PDF is uploaded over TLS to pdf.xyz's secure server, and the password travels with the job request so our server can encrypt that one file. The uploaded input is deleted when the job finishes, the link to the protected copy expires after ${OUTPUT_TTL} minutes, and a daily storage rule erases the stored copy after that. The panel holds a single PDF at a time, and the upload is refused above ${CEILING_MB} MB.`,
+    `qpdf is a native program, so this tool does not run in your browser. Your PDF is uploaded over TLS to pdf.xyz's secure server, and the password travels with the job request so our server can encrypt the file. The uploaded input is deleted when the job finishes, the link to the protected copy expires after ${OUTPUT_TTL} minutes, and a daily storage rule erases the stored copy after that. A file above ${CEILING_MB} MB is refused, and two or more PDFs open a batch list, sent to our server one at a time.`,
     `By default the same password becomes the owner password and every permission stays allowed, so whoever can open the file can also print it and copy its text. Under Permissions, you can untick ${RESTRICTABLE}; the panel then asks for a separate owner password, and our server reads the finished file's permission flags back and fails the job if one does not match what you chose. Filling in forms can be blocked only once comments are: ${FORMS_FOLLOW_ANNOTATE.charAt(0).toLowerCase()}${FORMS_FOLLOW_ANNOTATE.slice(1)} Text extraction for accessibility is ${ACCESSIBILITY_ALWAYS_ALLOWED.charAt(0).toLowerCase()}${ACCESSIBILITY_ALWAYS_ALLOWED.slice(1)} A PDF that is already encrypted is refused rather than wrapped twice.`,
   ],
 
   useCases: [
+    {
+      title: "Several files with one password",
+      body: `${workerBatchPageSentence("protect-pdf")} ${securityBatchPageSentence("protect-pdf")}`,
+    },
     {
       title: "Email a payslip or tax return to an accountant",
       body: "Attach the protected copy and send the password by a different route, such as a text message or a phone call, so one intercepted email does not expose both.",
@@ -136,8 +143,8 @@ const content: ToolContent = {
 
   steps: [
     {
-      title: "Add one PDF",
-      body: "Drop a single PDF on the area labelled Add a PDF to password-protect, or browse for one. A Remove button beside the file name lets you swap it.",
+      title: "Add your PDF",
+      body: "Drop a PDF on the area labelled Add a PDF to password-protect, or browse for one. A Remove button beside the file name lets you swap it. Two or more PDFs open a batch list instead, with one set of password fields for all of them.",
     },
     {
       title: "Type the new password twice",

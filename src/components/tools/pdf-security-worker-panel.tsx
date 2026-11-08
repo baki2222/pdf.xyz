@@ -2,6 +2,7 @@
 
 import { RunReason } from "@/components/tools/runner/run-reason";
 import { useCallback, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import {
   Eye,
   EyeOff,
@@ -88,6 +89,23 @@ import {
  * 230.5/230.5px at 1024; the larger x1.035, to the half rem.
  */
 const STATUS_SLOT = "min-h-[23.5rem] sm:min-h-[15rem] lg:min-h-[15rem]";
+
+/**
+ * Two or more PDFs: Protect's or Unlock's batch (batch plan P4), its own
+ * chunk, fetched only when they arrive. One password for every file, held
+ * in a ref there, never in this panel's state.
+ */
+const SecurityBatch = dynamic(
+  () => import("./runner/batch/security-batch").then((m) => m.SecurityBatch),
+  {
+    loading: () => (
+      <div
+        aria-hidden
+        className="border-line bg-wash rounded-panel h-40 w-full border"
+      />
+    ),
+  },
+);
 
 type Mode = "protect" | "unlock";
 
@@ -209,7 +227,7 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
       description={copy.blurb}
       canRun={canRunPdfSecurity}
       specRows={[
-        { icon: FileUp, label: "You add", value: "One PDF" },
+        { icon: FileUp, label: "You add", value: "One or more PDFs" },
         { icon: FileDown, label: "You get", value: "PDF" },
         {
           icon: Timer,
@@ -382,6 +400,7 @@ function SecurityRunArea({
 }) {
   const { available, status } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
+  const [batch, setBatch] = useState<File[] | null>(null);
   const [password, setPassword] = useState("");
   // Protect only: the same passwords, typed a second time.
   const [passwordAgain, setPasswordAgain] = useState("");
@@ -491,6 +510,22 @@ function SecurityRunArea({
     available,
   ]);
 
+  if (batch)
+    return (
+      <div className="flex flex-col gap-4">
+        {staged}
+        <SecurityBatch
+          tool={tool}
+          files={batch}
+          onReset={() => setBatch(null)}
+          onSingle={(one) => {
+            setBatch(null);
+            setFile(one);
+          }}
+        />
+      </div>
+    );
+
   return (
     <div className="flex flex-col gap-4">
       {staged}
@@ -523,16 +558,28 @@ function SecurityRunArea({
         <Dropzone
           pageTarget
           refuse={refuse}
-          onFiles={(files) => setFile(files[0] ?? null)}
+          busy={busy}
+          onFiles={(files) => {
+            // Never to the batch while a job runs (one resumed after a reload
+            // has no file in hand, so this zone shows): a second job would
+            // start beside it, its status hidden behind the list. The batch
+            // asks for its own password, so the one typed here goes.
+            if (files.length > 1 && !busy) {
+              setPassword("");
+              setPasswordAgain("");
+              setOwnerPassword("");
+              setOwnerPasswordAgain("");
+              setBatch(files);
+            } else setFile(files[0] ?? null);
+          }}
           accept="application/pdf"
-          multiple={false}
           compact
           title={
             mode === "protect"
               ? "Add a PDF to password-protect, or"
               : "Add a locked PDF, or"
           }
-          hint="PDF"
+          hint="One or more PDFs"
         />
       )}
 

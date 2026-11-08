@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 /**
  * The worker batches (batch plan P3), through each page's OWN panel: the
  * module the tool page mounts (`ownPanelModules`, read from the page's
@@ -48,6 +49,8 @@ import {
 import { enterToolPage } from "@/lib/telemetry/tool-outcome";
 import { stubJobNetwork } from "@/tests/stub-job-network";
 import { signedPdf } from "@/tests/signed-pdf";
+import { USER_PASSWORD_PDF_BASE64 } from "@/tests/fixtures-encrypted";
+import { PDFDocument } from "pdf-lib";
 import { ownPanelModules } from "@/tests/tool-panel-modules";
 import { BATCH_VIEW_LOADED } from "./batch-view";
 import { signedSkipReason } from "./worker-batch-runner";
@@ -264,9 +267,45 @@ async function dropTwo(slug: string, files?: File[]) {
 
 const SLUGS = Object.keys(WORKER_BATCH_TOOLS) as WorkerBatchSlug[];
 
+/**
+ * Batch plan P4: Protect's and Unlock's Run waits for a password, typed
+ * once for every file (`security-batch.dom.test.tsx` holds the rest).
+ */
+async function twoFilesFor(slug: WorkerBatchSlug): Promise<File[] | undefined> {
+  // Each is looked at in the browser first (`classifyPdfAccess`): Unlock
+  // sends only a locked PDF, Protect only one that is not encrypted.
+  const tool = getToolBySlug(slug)!;
+  if (slug === "unlock-pdf") {
+    const locked = Buffer.from(USER_PASSWORD_PDF_BASE64, "base64");
+    return [fileFor(tool, "first", locked), fileFor(tool, "second", locked)];
+  }
+  if (slug === "protect-pdf") {
+    const doc = await PDFDocument.create();
+    doc.addPage([200, 200]);
+    const plain = await doc.save();
+    return [fileFor(tool, "first", plain), fileFor(tool, "second", plain)];
+  }
+  return undefined;
+}
+
+function typeTheSecrets(slug: WorkerBatchSlug) {
+  const set = (label: string, value: string) => {
+    const input = [
+      ...document.querySelectorAll<HTMLInputElement>("input"),
+    ].find((el) => el.labels?.[0]?.textContent === label);
+    if (!input) throw new Error(`${slug}: no field labelled ${label}`);
+    fireEvent.change(input, { target: { value } });
+  };
+  if (slug === "unlock-pdf") set("Current password", "batch-pw");
+  if (slug === "protect-pdf") {
+    set("New password", "batch-pw");
+    set("Confirm password", "batch-pw");
+  }
+}
+
 describe("every registered worker batch, through its page's own panel", () => {
-  it("health: the registration holds P3's ten tools, and each page mounts a worker panel", () => {
-    expect(SLUGS.length).toBe(10);
+  it("health: the registration holds P3's ten tools and P4's two, and each page mounts a worker panel", () => {
+    expect(SLUGS.length).toBe(12);
     for (const slug of SLUGS)
       expect(bySlug.get(slug)?.dispatch, slug).toBe("worker");
   });
@@ -274,7 +313,7 @@ describe("every registered worker batch, through its page's own panel", () => {
   for (const slug of SLUGS) {
     it(`${slug}: two files open the batch, and Run sends two of today's single jobs`, async () => {
       const net = network();
-      const { tool, view } = await dropTwo(slug);
+      const { tool, view } = await dropTwo(slug, await twoFilesFor(slug));
       await waitFor(() =>
         expect(
           view.container.querySelector(`[data-chunk="${BATCH_VIEW_LOADED}"]`),
@@ -289,6 +328,7 @@ describe("every registered worker batch, through its page's own panel", () => {
       const run = await screen.findByRole("button", {
         name: `${verb} 2 ${noun[1]}`,
       });
+      typeTheSecrets(slug);
       // Run waits for the panel's own check.
       await waitFor(() => expect(run).not.toHaveAttribute("aria-disabled"));
       fireEvent.click(run);
@@ -432,8 +472,8 @@ describe("every registered worker batch, through its page's own panel", () => {
   const perPanel = [
     ...new Map(SLUGS.map((slug) => [bySlug.get(slug)!.file, slug])).values(),
   ];
-  it("health: the five worker panels, one tool each", () => {
-    expect(perPanel).toHaveLength(5);
+  it("health: the six worker panels, one tool each", () => {
+    expect(perPanel).toHaveLength(6);
   });
   for (const slug of perPanel) {
     it(`${slug}: a job resumed after a reload is running, so two files dropped then never start a batch beside it`, async () => {
