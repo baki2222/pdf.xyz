@@ -78,6 +78,18 @@ export function pdfjsLoadError(err: unknown): unknown {
   const name = (err as { name?: unknown } | null)?.name;
   if (name === "PasswordException")
     return new PdfEncryptedError("needs-password");
+  // A security handler or encryption method pdf.js does not implement
+  // (/Adobe.PubSec, a DRM wrapper) arrives as UnknownErrorException with this
+  // message; pdf-lib refuses the same file as encrypted, so this does too.
+  // Other UnknownErrorExceptions are not always about the file: unchanged.
+  if (
+    name === "UnknownErrorException" &&
+    /unknown encryption method/i.test(
+      String((err as { message?: unknown }).message),
+    )
+  ) {
+    return new PdfEncryptedError(null);
+  }
   if (typeof name === "string" && PDFJS_UNREADABLE.has(name)) {
     return new PdfEngineError(UNREADABLE_PDF_MESSAGE, { kind: "unreadable" });
   }

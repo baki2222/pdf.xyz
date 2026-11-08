@@ -81,11 +81,21 @@ export async function createThumbnailRenderer(
   bytes: Uint8Array,
   base: RenderPageOptions = {},
 ): Promise<ThumbnailRenderer> {
+  // Bounds pdf.js lacks (hostile matrix CO-03/06/08, STAMP-14): ./pdfjs-guard.
+  const guard = await import("./pdfjs-guard");
+  await guard.preflightPdfjsBytes(bytes, { raster: true });
   const pdfjs = await loadPdfjs();
   // Hand pdfjs a private copy; it may detach the buffer it receives.
   const data = bytes.slice();
   const loadingTask = pdfjs.getDocument({ data, ...PDFJS_DOCUMENT_DEFAULTS });
   const doc = await awaitPdfjsDocument(loadingTask);
+  let numPages: number;
+  try {
+    numPages = guard.pdfjsPageCount(doc.numPages);
+  } catch (err) {
+    await loadingTask.destroy().catch(() => {});
+    throw err;
+  }
   let destroyed = false;
 
   const renderPage = async (
@@ -95,7 +105,7 @@ export async function createThumbnailRenderer(
     if (destroyed) return null;
     const signal = options.signal ?? base.signal;
     if (signal?.aborted) return null;
-    if (!Number.isInteger(index) || index < 0 || index >= doc.numPages) {
+    if (!Number.isInteger(index) || index < 0 || index >= numPages) {
       return null;
     }
 
@@ -171,7 +181,7 @@ export async function createThumbnailRenderer(
     await loadingTask.destroy().catch(() => {});
   };
 
-  return { numPages: doc.numPages, renderPage, destroy };
+  return { numPages, renderPage, destroy };
 }
 
 export interface RenderThumbnailsOptions extends RenderPageOptions {
@@ -511,6 +521,8 @@ export async function capturePdfPages<T>(
   }: CapturePagesOptions<T>,
 ): Promise<CapturedPage<T>[]> {
   if (typeof document === "undefined") return [];
+  const guard = await import("./pdfjs-guard");
+  await guard.preflightPdfjsBytes(bytes, { raster: true });
   const pdfjs = await loadPdfjs();
   // Hand pdfjs a private copy; it may detach the buffer it receives.
   const data = bytes.slice();
@@ -520,12 +532,13 @@ export async function capturePdfPages<T>(
   const pages: CapturedPage<T>[] = [];
 
   try {
+    const numPages = guard.pdfjsPageCount(doc.numPages);
     if (onDocument) {
-      onDocument({ numPages: doc.numPages, title: await documentTitle(doc) });
+      onDocument({ numPages, title: await documentTitle(doc) });
     }
     const order = only
-      ? only.filter((i) => Number.isInteger(i) && i >= 0 && i < doc.numPages)
-      : Array.from({ length: doc.numPages }, (_, i) => i);
+      ? only.filter((i) => Number.isInteger(i) && i >= 0 && i < numPages)
+      : Array.from({ length: numPages }, (_, i) => i);
     const total = order.length;
     // Pages finished either way — rendered, or failed and reported — so a
     // skipped page still moves the bar.

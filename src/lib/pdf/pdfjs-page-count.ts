@@ -1,4 +1,5 @@
 import { awaitPdfjsDocument, loadPdfjs, type PdfjsModule } from "./pdfjs";
+import { pdfjsPageCount } from "./pdfjs-guard";
 import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
 
 /**
@@ -24,7 +25,9 @@ export async function countPagesWithPdfjs(
   });
   const doc = await awaitPdfjsDocument(task);
   try {
-    return doc.numPages;
+    // pdf.js reports a root /Count of 0 or -1 as given (hostile PS-11): a
+    // card must never read "-1 pages", so that is the unreadable-file refusal.
+    return pdfjsPageCount(doc.numPages);
   } finally {
     await task.destroy().catch(() => {});
   }
