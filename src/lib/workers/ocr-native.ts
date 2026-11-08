@@ -153,8 +153,8 @@ export interface NativeOcrSeams {
    */
   pdfText?: PdfTextSeams;
   /**
-   * Redo's pre-pass: the PDF with every earlier invisible text layer taken
-   * out, handed to OCRmyPDF in place of the upload when `redoOcr` is on
+   * Redo's pre-pass: the PDF with the earlier invisible text it can remove
+   * safely taken out, handed to OCRmyPDF in place of the upload when `redoOcr` is on
    * (`./strip-invisible-text` has what it removes and what it never
    * touches). Defaults to {@link stripInvisibleText}. Injectable so the
    * in-image proof can also run OCRmyPDF WITHOUT it — the negative control
@@ -306,8 +306,8 @@ export const OCR_ROTATE_PAGES_THRESHOLD = 5;
  *    again and typed text is kept) is always passed. On its own `--redo-ocr`
  *    takes away only the old layers OCRmyPDF detects, and its OWN layer is
  *    not one of them (measured 2026-11-08, #290), so under Redo the runner
- *    hands OCRmyPDF the PDF with every invisible text layer already taken
- *    out (`./strip-invisible-text`; the outcome is `REDO_OCR_LAYER_OUTCOMES`
+ *    hands OCRmyPDF the PDF with the invisible text it can remove safely
+ *    already taken out (`./strip-invisible-text`; the outcome is `REDO_OCR_LAYER_OUTCOMES`
  *    in src/lib/jobs/ocr.ts). Passing neither is not a neutral default — OCRmyPDF
  *    then aborts the whole job on the first page with text (exit 6) or on a
  *    tagged PDF, which is what every "searchable" scan and office export used to
@@ -690,7 +690,8 @@ export function createNativeOcrRunner(
     // neither a phone's EXIF turn nor anything but its declared 72 dpi
     // (audit #9; see `./ocr-image`). A PDF is written exactly as uploaded.
     //
-    // Redo on a PDF: every earlier invisible text layer is taken out first.
+    // Redo on a PDF: earlier invisible text is taken out first (what the
+    // pass leaves is listed in `./strip-invisible-text`).
     // OCRmyPDF 14's `--redo-ocr` removes only one of the shapes such a layer
     // is stored in and keeps the one it writes itself (#290), so without
     // this a redone OCR PDF carried its old words beside the new ones.

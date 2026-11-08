@@ -9,8 +9,8 @@
  * OCRmyPDF); OCRmyPDF 14.0.1 simply removes one of the shapes such a layer
  * is stored in and keeps two, including the one it writes itself
  * ({@link ENGINE_ALONE_OUTCOMES}). #290 made the copy say so. Since
- * 2026-11-08 (later) the runner takes every invisible text layer out BEFORE
- * OCRmyPDF reads the PDF (`./strip-invisible-text`), so every row of
+ * 2026-11-08 (later) the runner takes invisible text out BEFORE OCRmyPDF
+ * reads the PDF (`./strip-invisible-text`), so every row of
  * {@link REDO_OCR_LAYER_OUTCOMES} is "replaced" and the copy
  * ({@link REDO_OCR_SCOPE}) says that. This proof keeps both tables honest,
  * because a table of engine behaviour has no relationship any unit test can

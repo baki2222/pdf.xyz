@@ -219,8 +219,9 @@ export interface OcrOptions {
    * scanner's "searchable PDF", a scan with a typed cover page, or an office
    * export runs instead of aborting. Turning it on recognizes the pages with
    * hidden OCR text again. Before OCRmyPDF reads the PDF, the worker takes
-   * out every invisible text layer, whichever shape it is stored in
-   * (src/lib/workers/strip-invisible-text.ts), because OCRmyPDF's own
+   * out the invisible text it can remove safely from the page content and
+   * the forms it draws (src/lib/workers/strip-invisible-text.ts, whose
+   * docblock lists what it leaves), because OCRmyPDF's own
    * `--redo-ocr` removes only one shape and keeps the one it writes itself
    * (see {@link REDO_OCR_LAYER_OUTCOMES}; CHANGED 2026-11-08). Text typed
    * into the document itself is kept: only invisible text is taken out. It
@@ -289,8 +290,8 @@ export const OCR_DESKEW_WITH_REDO_MESSAGE =
  * Which earlier hidden text layers “Redo existing OCR” takes away, by the
  * shape the layer is stored in — judged by the text a reader of the output
  * gets. Every row is "replaced": with Redo on, the worker's OCR runner first
- * takes every invisible text-showing operator out of the PDF
- * (src/lib/workers/strip-invisible-text.ts) and only then runs OCRmyPDF
+ * takes the invisible text-showing operators it can safely remove out of
+ * the PDF (src/lib/workers/strip-invisible-text.ts) and only then runs OCRmyPDF
  * `--redo-ocr`. MEASURED 2026-11-08 in a throwaway container of the live
  * worker image (OCRmyPDF 14.0.1), pdftotext of the output:
  *
@@ -303,6 +304,10 @@ export const OCR_DESKEW_WITH_REDO_MESSAGE =
  *    English, comes back with the English words alone.
  *  - `mode-before-text`: invisible text in the page's content whose render
  *    mode is set BEFORE `BT` (still in force, since `Tr` is graphics state).
+ *
+ * Only these three are measured, so the table is not "every hidden text":
+ * {@link REDO_OCR_SCOPE} names the three and says other hidden text may be
+ * kept, which the copy guard pins.
  *
  * CHANGED 2026-11-08: `ocrmypdf` and `mode-before-text` were "kept" — what
  * OCRmyPDF's `--redo-ocr` does on its own (`strip_invisible_text` in its
@@ -336,11 +341,20 @@ export type RedoOcrLayerShape = keyof typeof REDO_OCR_LAYER_OUTCOMES;
  * layer our own OCR PDF writes. Then (#290), until 2026-11-08's pre-pass,
  * it said exactly that: "A layer added by OCRmyPDF … is kept, and the new
  * text is added beside it. Other hidden text may be kept as well." Since
- * the worker strips every shape before OCRmyPDF runs, it says they are all
- * replaced.
+ * the worker strips every measured shape before OCRmyPDF runs, it says
+ * those three are replaced.
+ *
+ * CHANGED 2026-11-08, a third time, before merge: the pre-pass's first draft
+ * said Redo replaces the hidden text "whichever way it was stored … or
+ * other hidden text". Review: one measured shape (`mode-before-text`)
+ * licensed a claim about every shape, while the pre-pass leaves some hidden
+ * text in place by design (clip-only mode 7, text a visible line is
+ * positioned by, streams it cannot decode with certainty, annotation
+ * appearances, files it cannot walk — its docblock lists them). So it
+ * names the three shapes it measured, and says the rest may be kept.
  */
 export const REDO_OCR_SCOPE =
-  "Redo replaces the hidden text already in the PDF, whichever way it was stored: text written the way Tesseract writes it, a layer added by OCRmyPDF (the engine our OCR PDF uses on PDFs), or other hidden text.";
+  "Redo replaces earlier hidden text stored in any of three ways: text written the way Tesseract writes it, a layer added by OCRmyPDF (the engine our OCR PDF uses on PDFs), and text made invisible by a setting placed before the text block. Hidden text stored some other way may be kept.";
 
 function invalid(message: string, field: string): ParseResult<never> {
   return {

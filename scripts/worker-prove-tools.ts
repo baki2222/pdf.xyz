@@ -122,7 +122,10 @@ import {
   redoDocxVerdict,
   uprightDocxVerdict,
 } from "@/lib/workers/pdf-office-export/ocr-first-proof";
-import { withStaleOcrLayer } from "@/lib/workers/ocr-redo-proof";
+import {
+  redoTextVerdict,
+  withStaleOcrLayer,
+} from "@/lib/workers/ocr-redo-proof";
 import { OCR_REFUSAL_MESSAGES } from "@/lib/workers/ocr-engine-errors";
 
 import {
@@ -961,6 +964,21 @@ function redoWantText(outcome: string): string {
     : "DOCX with the scan's words beside the earlier layer's";
 }
 
+/**
+ * The want of an OCR PDF Redo case's text verdict, from its table row:
+ * replaced, or (redoTextVerdict's "kept") the new words beside the old.
+ */
+function redoTextWant(outcome: string): "replaced" | "kept" {
+  return outcome === "replaced" ? "replaced" : "kept";
+}
+
+/** The `want` line of an OCR PDF Redo case, from the same row as its verdict. */
+function redoPdfWantText(outcome: string): string {
+  return redoTextWant(outcome) === "replaced"
+    ? "searchable PDF with the scan's words and not the earlier layer's"
+    : "searchable PDF with the scan's words beside the earlier layer's";
+}
+
 /** A pattern matching exactly `text`: the user-facing message, whole. */
 function exactly(text: string): RegExp {
   return new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
@@ -1172,6 +1190,33 @@ const SPECS: ProofSpec[] = [
     // file; the pure-scan `imagePdf` proof above can never hit it. The same
     // verdict runs through real poppler in `ocr-native.test.ts`.
     verify: (bytes) => mixedSidecarVerdict(bytes),
+  },
+  // Redo existing OCR in OCR PDF itself (review 2026-11-08): the most
+  // direct path the copy describes, a PDF OCR PDF already made searchable
+  // (OCRmyPDF's own form layer) redone in OCR PDF. Judged by pdf.js's text
+  // of the searchable PDF, which holds every layer a reader gets, not by the
+  // .txt sidecar, which carries what this run recognised. The want comes
+  // from the same table row as pdf-to-word's twin, so an image without the
+  // pre-pass FAILS here.
+  {
+    tool: "ocr-pdf",
+    label: "ocr-pdf (redo, an earlier OCRmyPDF layer)",
+    make: async () => withStaleOcrLayer(await scannedTextPdf(), "ocrmypdf"),
+    name: "ocrmypdf-layer.pdf",
+    type: PDF_MIME,
+    options: {
+      languages: ["eng"],
+      outputMode: "searchable-pdf",
+      redoOcr: true,
+    },
+    expect: isPdf,
+    want: redoPdfWantText(REDO_OCR_LAYER_OUTCOMES.ocrmypdf),
+    verify: async (bytes) =>
+      redoTextVerdict(
+        await pdfPlainText(bytes),
+        SCANNED_LINE,
+        redoTextWant(REDO_OCR_LAYER_OUTCOMES.ocrmypdf),
+      ),
   },
   // "Straighten crooked pages" (2026-11-01, #262). The pair is the proof:
   // ON must come back level, and OFF — the same scan, the same path — must

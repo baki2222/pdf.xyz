@@ -413,6 +413,38 @@ describe("the production proof asks PDF to Word about its picture, and LibreOffi
       ).toBe("replaced");
   });
 
+  // Review 2026-11-08: every Redo case went through pdf-to-word; none
+  // through OCR PDF, though redoing an OCR PDF output in OCR PDF is the
+  // most direct path the copy describes.
+  it("OCR PDF proves Redo on OCRmyPDF's own layer, judged on the PDF's text by the same table row", () => {
+    const found = specs.filter((s) =>
+      str(s, "label")?.startsWith("ocr-pdf (redo"),
+    );
+    expect(found).toHaveLength(1);
+    const spec = found[0]!;
+    expect(str(spec, "tool")).toBe("ocr-pdf");
+    expect(prop(spec, "make")?.initializer.getText(file)).toMatch(
+      /^async \(\) => withStaleOcrLayer\(await scannedTextPdf\(\), "ocrmypdf"\)$/,
+    );
+    const options = prop(spec, "options")?.initializer.getText(file);
+    expect(options).toMatch(/\bredoOcr:\s*true\b/);
+    expect(options).toMatch(/\boutputMode:\s*"searchable-pdf"/);
+    // The PDF's own text (every layer a reader gets), not a sidecar.
+    expect(
+      prop(spec, "verify")?.initializer.getText(file).replace(/\s+/g, " "),
+    ).toMatch(
+      /\bredoTextVerdict\( await pdfPlainText\(bytes\), SCANNED_LINE, redoTextWant\(REDO_OCR_LAYER_OUTCOMES\.ocrmypdf\),? \)/,
+    );
+    expect(prop(spec, "artifact")).toBeUndefined();
+    expect(prop(spec, "want")?.initializer.getText(file)).toBe(
+      "redoPdfWantText(REDO_OCR_LAYER_OUTCOMES.ocrmypdf)",
+    );
+    expect(importsOf(file).get("redoTextVerdict")).toBe(
+      "@/lib/workers/ocr-redo-proof",
+    );
+    expect(REDO_OCR_LAYER_OUTCOMES.ocrmypdf).toBe("replaced");
+  });
+
   it("the pdf-to-word spec sends the Word proof PDF and verifies the picture", () => {
     const mine = picturesSpecs();
     expect(mine).toHaveLength(1);

@@ -20,6 +20,15 @@
  * added beside it" went false the same day; they joined the ban list below,
  * with their corpus, and the test that pinned "beside" is inverted.
  *
+ * CHANGED again before merge (review 2026-11-08): the first rewrite said
+ * Redo replaces hidden text "whichever way it was stored … or other hidden
+ * text", and this guard let it through: the `mode-before-text` row was
+ * given the reader name "other hidden text", so ONE measured shape licensed
+ * a claim about every shape (CLAUDE.md rule 2), and the ban on "hidden text
+ * may be kept" forbade the honest qualifier. Now each row has a name that
+ * describes its own shape, the scope must carry the qualifier, the ban on
+ * the qualifier is lifted, and the universal phrase is banned instead.
+ *
  * Pinned here:
  *  1. the scope sentence states each row of the table with that row's
  *     outcome — a relationship, so flipping a row without the copy is red;
@@ -57,8 +66,18 @@ import {
 const READER_NAME: Record<RedoOcrLayerShape, string> = {
   tesseract: "the way Tesseract writes it",
   ocrmypdf: "a layer added by OCRmyPDF",
-  "mode-before-text": "other hidden text",
+  // CHANGED 2026-11-08: was "other hidden text", a name for every shape.
+  "mode-before-text":
+    "made invisible by a setting placed before the text block",
 };
+
+/**
+ * The table lists the shapes MEASURED, not every way hidden text can be
+ * stored, and the pre-pass leaves some by design (its docblock lists them).
+ * So the scope must say, in a sentence of its own that names no row, that
+ * other hidden text may be kept.
+ */
+const QUALIFIER = /\bhidden text stored some other way may be kept\b/i;
 
 const sentences = (text: string) =>
   text.split(/(?<=\.)\s+/).filter((s) => s.length > 0);
@@ -67,19 +86,40 @@ describe("REDO_OCR_SCOPE states REDO_OCR_LAYER_OUTCOMES", () => {
   it("health check: every row's name is in the scope exactly once, and no sentence is spare", () => {
     // CHANGED 2026-11-08: "three sentences, one per row". With every row
     // "replaced" one sentence names all three; the relationship below is
-    // per row either way.
+    // per row either way. The one sentence that names no row is the
+    // qualifier, pinned next.
     for (const name of Object.values(READER_NAME))
       expect(REDO_OCR_SCOPE.split(name).length - 1, name).toBe(1);
     const all = sentences(REDO_OCR_SCOPE);
-    expect(all.length).toBeGreaterThanOrEqual(1);
-    expect(all.length).toBeLessThanOrEqual(
+    const naming = all.filter((sentence) =>
+      Object.values(READER_NAME).some((name) => sentence.includes(name)),
+    );
+    expect(naming.length).toBeGreaterThanOrEqual(1);
+    expect(naming.length).toBeLessThanOrEqual(
       Object.keys(REDO_OCR_LAYER_OUTCOMES).length,
     );
-    for (const sentence of all)
-      expect(
-        Object.values(READER_NAME).some((name) => sentence.includes(name)),
-        sentence,
-      ).toBe(true);
+    expect(all.filter((s) => !naming.includes(s))).toEqual(
+      all.filter((s) => QUALIFIER.test(s)),
+    );
+  });
+
+  it("says, in a sentence naming no row, that hidden text stored some other way may be kept", () => {
+    const qualifiers = sentences(REDO_OCR_SCOPE).filter((s) =>
+      QUALIFIER.test(s),
+    );
+    expect(qualifiers).toHaveLength(1);
+    for (const name of Object.values(READER_NAME))
+      expect(qualifiers[0], name).not.toContain(name);
+  });
+
+  it("no reader name stands for every shape: each describes one", () => {
+    // Rule 2: the name is what the row's measurement licenses. A catch-all
+    // ("other hidden text", "any hidden text") would let one row speak for
+    // shapes nobody measured.
+    for (const [shape, name] of Object.entries(READER_NAME))
+      expect(name, shape).not.toMatch(
+        /\b(?:other|any|all|every|whatever|whichever)\b/i,
+      );
   });
 
   it.each(Object.entries(REDO_OCR_LAYER_OUTCOMES))(
@@ -110,7 +150,11 @@ describe("REDO_OCR_SCOPE states REDO_OCR_LAYER_OUTCOMES", () => {
   // saying "beside" would now be the false claim.
   it("the OCRmyPDF layer is no longer said to stay beside the new text", () => {
     expect(REDO_OCR_LAYER_OUTCOMES.ocrmypdf).toBe("replaced");
-    expect(REDO_OCR_SCOPE).not.toMatch(/beside|\bkept\b/);
+    expect(REDO_OCR_SCOPE).not.toMatch(/beside/);
+    const sentence = sentences(REDO_OCR_SCOPE).find((s) =>
+      s.includes(READER_NAME.ocrmypdf),
+    );
+    expect(sentence).not.toMatch(/\bkept\b/);
   });
 });
 
@@ -147,9 +191,14 @@ const BAN: readonly { name: string; pattern: RegExp }[] = [
     name: "'is kept, and the new text is added beside it' (the #290 scope)",
     pattern: /\bkept,?\s+and\s+the\s+new\s+text\s+is\s+added\s+beside\b/i,
   },
+  // LIFTED 2026-11-08 (review): "'Other hidden text may be kept' (the #290
+  // scope)", /hidden\s+text\s+may\s+be\s+kept/. It is still TRUE, and the
+  // ban pushed the copy toward claiming every hidden text was replaced.
   {
-    name: "'Other hidden text may be kept' (the #290 scope)",
-    pattern: /hidden\s+text\s+may\s+be\s+kept/i,
+    // The pre-pass's first draft of the scope, committed on its branch and
+    // never served: a universal claim from three measured shapes.
+    name: "'whichever way it was stored' (the pre-pass's first scope)",
+    pattern: /whichever\s+way\s+it\s+was\s+stored/i,
   },
   {
     name: "'takes away only the old layers OCRmyPDF can detect' (the option's docblock, #290)",
@@ -169,6 +218,8 @@ const SHIPPED: readonly string[] = [
   "Replace a PDF's existing OCR text layer instead of keeping it (OCRmyPDF `--redo-ocr`). Off by default.",
   "Redo replaces hidden OCR text written the way Tesseract writes it. A layer added by OCRmyPDF, the engine our OCR PDF uses on PDFs, is kept, and the new text is added beside it. Other hidden text may be kept as well.",
   "Turning it on recognizes the pages with hidden OCR text again; it takes away only the old layers OCRmyPDF can detect, which is NOT the layer OCRmyPDF itself adds.",
+  // Committed (0e57989b) and caught by review before merge; never served.
+  "Redo replaces the hidden text already in the PDF, whichever way it was stored: text written the way Tesseract writes it, a layer added by OCRmyPDF (the engine our OCR PDF uses on PDFs), or other hidden text.",
 ];
 
 const banned = (text: string) =>
