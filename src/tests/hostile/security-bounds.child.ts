@@ -19,7 +19,11 @@ import { awaitPdfjsDocument } from "../../lib/pdf/pdfjs";
 import { readXref } from "../../lib/pdf/security/document";
 import { openProtectedPdf } from "../../lib/pdf/security/protected-pdf";
 import { PDFJS_DOCUMENT_DEFAULTS } from "../../lib/pdf/wasm-assets";
-import { ZERO_WIDTH_ROW_LIMIT } from "../../lib/pdf/xref-prescan";
+import {
+  XREF_ENTRY_FLOOR,
+  ZERO_WIDTH_ROW_LIMIT,
+  prescanXref,
+} from "../../lib/pdf/xref-prescan";
 import { reportResult } from "./report";
 import {
   ONE_PAGE,
@@ -30,6 +34,14 @@ import {
   zeroBomb,
 } from "./security-in-browser.fixtures";
 import { objStmBombPdf } from "./security-bounds.fixtures";
+import {
+  HUGE_ROWS,
+  flateRows,
+  indexEmptyString,
+  prevIndirectInteger,
+  recoveryPrev,
+  unclosedUnits,
+} from "./xref-rows.fixtures";
 
 const req = createRequire(import.meta.url);
 async function legacyPdfjs(): Promise<PdfjsForAccess> {
@@ -126,6 +138,26 @@ const FIXTURES: Record<string, () => Uint8Array | Promise<Uint8Array>> = {
       w: "[0 0 0]",
       index: `[0 ${ZERO_WIDTH_ROW_LIMIT}]`,
     }),
+  // SIB-03 (review 2): four routes to a 2^31-row walk the second pre-scan
+  // did not read, each with its /Size 6 control, and rows one byte wide over
+  // a deflate bomb (19,887 bytes; pdf.js peaked at 3,312 MB).
+  "idx-empty-str": () => indexEmptyString("()", HUGE_ROWS),
+  "idx-empty-hex": () => indexEmptyString("<>", HUGE_ROWS),
+  "recovery-prev": () => recoveryPrev(HUGE_ROWS),
+  "prev-indirect-int": () => prevIndirectInteger(HUGE_ROWS),
+  "idx-empty-str-6": () => indexEmptyString("()", 6),
+  "recovery-prev-6": () => recoveryPrev(6),
+  "prev-indirect-int-6": () => prevIndirectInteger(6),
+  "flate-rows-20m": () => flateRows(20_000_000),
+  // The entry bound's second, independent check: what pdf.js itself spends
+  // walking XREF_ENTRY_FLOOR rows that each read a byte, against six.
+  "flate-rows-6": () => flateRows(6),
+  "flate-rows-at-floor": () => flateRows(XREF_ENTRY_FLOOR),
+  // The pre-scan's own quadratic (review 2): 16,000 dictionaries that never
+  // close took it 33 s (`/XRef` units) and 16 s (`trailer` units).
+  "unclosed-xref-16k": () => unclosedUnits("xref", 16_000),
+  "unclosed-trailer-16k": () => unclosedUnits("trailer", 16_000),
+  "unclosed-xref-64k": () => unclosedUnits("xref", 64_000),
   // SIB-05: a 1 GiB zero bomb as the xref stream, single and chained.
   "xref-bomb": () =>
     ownerOnlyEncrypted(ONE_PAGE, {
@@ -181,6 +213,14 @@ const ENTRIES: Record<string, (bytes: Uint8Array) => Promise<unknown>> = {
     } finally {
       await task.destroy().catch(() => {});
     }
+  },
+  // The pre-scan alone, on the caller's thread as readAccessFacts runs it.
+  async prescan(bytes) {
+    const scan = prescanXref(bytes);
+    return {
+      settled: scan.unbounded ? "refused" : "passed",
+      size: bytes.length,
+    };
   },
   async probe(bytes) {
     return { settled: await probePdfEncryption(bytes, legacyPdfjs) };

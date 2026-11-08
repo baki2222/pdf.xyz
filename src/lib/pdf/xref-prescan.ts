@@ -9,16 +9,22 @@
  *    and a bare `-` are all 0), names with `#xx` escapes decoded (`/#57` is
  *    `/W`), and a repeated key resolved to its LAST value, as pdf.js's
  *    dictionary stores it;
- *  - the sections pdf.js reads: the chain from `startxref` (or, for a
- *    linearized file, from the first `endobj`), through every /Prev and
- *    /XRefStm, without asking a section's /Type; plus every object whose
- *    body holds `/XRef`, which is what pdf.js reads when it rebuilds a
- *    broken cross-reference by scanning;
+ *  - the rows pdf.js may walk: those of EVERY stream in the file whose
+ *    dictionary has a /W. pdf.js reaches a section by an offset (startxref,
+ *    a linearized first page, /Prev, /XRefStm, a rebuild's scan, a /Prev
+ *    from a section the rebuild found, a /Prev that is a reference to an
+ *    integer object), and every offset it can follow lands on literal
+ *    `N G obj << ... >> stream` bytes, so reading every such object answers
+ *    for all of the routes without following any of them (review 2 found
+ *    four routes a chain walk missed);
  *  - the trailer pdf.js takes /Encrypt from: the newest section's
- *    dictionary.
+ *    dictionary, read by following the chain from `startxref`.
  *
- * Nothing here decodes the whole file into a string: it reads bytes in
- * place, and each dictionary only as far as it goes.
+ * Nothing here decodes the whole file into a string, and every byte it
+ * lexes or searches past is charged to one budget proportional to the
+ * file ({@link scanBudget}): it runs on the caller's thread before any
+ * deadline, so a file of dictionaries that never close must cost it no more
+ * than a few passes over the file.
  */
 
 /** A value as pdf.js's parser hands it to a dictionary. */
@@ -27,12 +33,23 @@ type Value =
   | { t: "name"; v: string }
   | { t: "ref"; num: number }
   | { t: "arr"; v: Value[] }
+  /** A kept array (/W, /Index): its numbers, NaN where pdf.js sees no number. */
+  | { t: "nums"; v: number[] }
   | { t: "dict"; v: Map<string, Value> }
   | { t: "word"; v: string }
   | { t: "str" };
 
 /** The dictionary did not close inside the bytes it may use. */
 class Incomplete extends Error {}
+
+/** Nested past 64 levels: pdf.js would read on, so nothing can be said. */
+class TooDeep extends Error {}
+
+/** The scan's budget ({@link scanBudget}) is spent: refuse, do not guess. */
+class OutOfBudget extends Error {}
+
+/** Something pdf.js would walk past every bound: refuse. */
+class Refuse extends Error {}
 
 /**
  * Zero-width rows pdf.js may walk: 65,536. A row zero bytes wide reads
@@ -52,6 +69,73 @@ export const DICT_SPAN_LIMIT = 2 ** 20;
 
 /** Cross-reference sections followed from `startxref` before giving up. */
 const CHAIN_LIMIT = 4096;
+
+/**
+ * Entries pdf.js may store from xref STREAMS, for a small file: 2^19
+ * (524,288). pdf.js keeps one entry object per row it walks
+ * (`#entries[first + i]`), so this, not the bytes in the file, is what a
+ * row walk costs. Rows that each read a byte are still unbounded once a
+ * filter makes the bytes: 20,000,000 rows over deflated zeros are a
+ * 19,887-byte file that peaked pdf.js at 3,312 MB (review 2). Measured
+ * 2026-11-08 (Windows, Node 24, legacy build, 1 GB heap), rows one byte
+ * wide over FlateDecode against six such rows, three runs each: 2^19 rows
+ * add 62 to 69 MB, 2^20 add 154 to 199 MB, 2^22 add about 650 MB. A real
+ * file reaches 2^19 entries only past 8 MiB, where the file-size term below
+ * takes over. `security-bounds.test.ts` re-measures the floor.
+ */
+export const XREF_ENTRY_FLOOR = 2 ** 19;
+
+/**
+ * File bytes per entry above the floor: 16. Every entry a real file lists
+ * is an object it holds, and an object costs more than 16 bytes even packed
+ * in an object stream. Measured 2026-11-08 (`xref-prescan.test.ts` holds
+ * both to four times this): the legit corpus's densest file spends 478
+ * bytes an entry, and 5,000 one-word pdf-lib pages packed in object streams
+ * 94. At the 100 MiB upload cap this
+ * allows 6.5 million entries, about 900 MB in pdf.js, which a real document
+ * of that many objects costs pdf.js anyway.
+ */
+export const FILE_BYTES_PER_ENTRY = 16;
+
+/** The entries pdf.js may store for a file of `fileLength` bytes. */
+export function xrefEntryLimit(fileLength: number): number {
+  return Math.max(
+    XREF_ENTRY_FLOOR,
+    Math.floor(fileLength / FILE_BYTES_PER_ENTRY),
+  );
+}
+
+/**
+ * Row bytes pdf.js may decode, per entry allowed: 16. A row is the sum of
+ * its /W widths (a zero-width row counts as one), and a real row is at most
+ * 1 + 8 + 4 bytes (type, offset, generation); a section of rows 2^20 bytes
+ * wide over a deflate bomb would otherwise make pdf.js inflate gigabytes
+ * for one entry. Summed over every section, so revisions that each repeat a
+ * full section still fit (they would need 16 full repeats to reach it).
+ */
+const ROW_BYTES_PER_ENTRY = 16;
+
+/**
+ * Bytes the scan may lex or search past, for a file of `fileLength` bytes:
+ * eight passes over the file plus 8 MiB. A real file costs about one pass
+ * (each object's dictionary once, each trailer once; the corpus's worst is
+ * reported by `xref-prescan.test.ts`). Without it, a file of dictionaries
+ * that never close cost the scan O(n^2): 16,000 such units, 256 KB, took
+ * 33 s on the caller's thread (review 2).
+ */
+export function scanBudget(fileLength: number): number {
+  return 8 * fileLength + 8 * 2 ** 20;
+}
+
+/** Bytes left to lex; {@link charge} throws {@link OutOfBudget} past zero. */
+interface Budget {
+  left: number;
+}
+
+function charge(budget: Budget, n: number): void {
+  budget.left -= Math.max(0, n);
+  if (budget.left < 0) throw new OutOfBudget();
+}
 
 const isWhite = (c: number) =>
   c === 0x20 || c === 0x0a || c === 0x0d || c === 0x09 || c === 0x0c || c === 0;
@@ -234,9 +318,21 @@ class Lexer {
   }
 }
 
-/** pdf.js's parser: `n g R` is a reference, `<< >>` a dictionary. */
-function parseValue(lex: Lexer, token: Token, depth: number): Value {
-  if (depth > 64) throw new Incomplete();
+/**
+ * pdf.js's parser: `n g R` is a reference, `<< >>` a dictionary. Only the
+ * two arrays the scan reads (/W and /Index at a dictionary's top level) are
+ * kept, as plain numbers; every other array and every nested dictionary is
+ * parsed to move past it and then dropped, so a dictionary holding a huge
+ * array costs the scan its bytes in time, not many times its bytes in
+ * memory.
+ */
+function parseValue(
+  lex: Lexer,
+  token: Token,
+  depth: number,
+  keep = false,
+): Value {
+  if (depth > 64) throw new TooDeep();
   switch (token.k) {
     case "end":
       throw new Incomplete();
@@ -258,21 +354,34 @@ function parseValue(lex: Lexer, token: Token, depth: number): Value {
       return { t: "word", v: token.v };
     case "punct":
       if (token.v === "[") {
-        const items: Value[] = [];
+        const nums: number[] = [];
         for (let t = lex.next(); ; t = lex.next()) {
-          if (t.k === "punct" && t.v === "]") return { t: "arr", v: items };
+          if (t.k === "punct" && t.v === "]")
+            return keep ? { t: "nums", v: nums } : { t: "arr", v: [] };
           if (t.k === "end") throw new Incomplete();
-          items.push(parseValue(lex, t, depth + 1));
+          const item = parseValue(lex, t, depth + 1);
+          // pdf.js does not resolve an array's references: a reference, like
+          // any other non-number, is not the integer its checks ask for.
+          if (keep) nums.push(item.t === "num" ? item.v : NaN);
         }
       }
-      if (token.v === "<<") return { t: "dict", v: parseDictBody(lex, depth) };
+      if (token.v === "<<") {
+        parseDictBody(lex, depth, false);
+        return { t: "dict", v: new Map() };
+      }
       return { t: "word", v: token.v };
     default:
       return { t: "str" };
   }
 }
 
-function parseDictBody(lex: Lexer, depth: number): Map<string, Value> {
+const KEPT_ARRAYS = new Set(["W", "Index"]);
+
+function parseDictBody(
+  lex: Lexer,
+  depth: number,
+  top = true,
+): Map<string, Value> {
   const dict = new Map<string, Value>();
   for (let t = lex.next(); ; t = lex.next()) {
     if (t.k === "punct" && t.v === ">>") return dict;
@@ -281,28 +390,60 @@ function parseDictBody(lex: Lexer, depth: number): Map<string, Value> {
     if (t.k !== "name") continue;
     // A `>>` in a value's place is pdf.js's value too (a command object),
     // and the dictionary goes on after it.
-    dict.set(t.v, parseValue(lex, lex.next(), depth + 1));
+    const value = parseValue(
+      lex,
+      lex.next(),
+      depth + 1,
+      top && KEPT_ARRAYS.has(t.v),
+    );
+    if (top) dict.set(t.v, value);
   }
+}
+
+/** A dictionary read by {@link dictAt}. */
+interface ReadDict {
+  readonly dict: Map<string, Value>;
+  /** The token after `>>` (`stream` makes it a stream). */
+  readonly then: Token;
+  /** The offset just past that token. */
+  readonly after: number;
 }
 
 /**
  * The dictionary that starts at the next token after `from`, or null, and
- * the next token after it. Throws {@link Incomplete} past
- * {@link DICT_SPAN_LIMIT}.
+ * the token after it. Reads at most `span` bytes, each charged to `budget`.
+ * Throws {@link Incomplete} when the dictionary does not close within
+ * `span` (or the file), {@link TooDeep} past 64 levels, and
+ * {@link OutOfBudget} when the budget, not the span, cut it short.
  */
 function dictAt(
   bytes: Uint8Array,
   from: number,
-): { dict: Map<string, Value>; then: Token } | null {
-  const lex = new Lexer(
-    bytes,
-    from,
-    Math.min(bytes.length, from + DICT_SPAN_LIMIT),
-  );
-  const t = lex.next();
-  if (t.k !== "punct" || t.v !== "<<") return null;
-  const dict = parseDictBody(lex, 0);
-  return { dict, then: lex.next() };
+  span: number,
+  budget: Budget,
+): ReadDict | null {
+  const hard = Math.min(bytes.length, from + span);
+  const end = Math.min(hard, from + Math.max(0, budget.left));
+  const lex = new Lexer(bytes, from, end);
+  const spent = () => Math.min(lex.pos, end) - from;
+  try {
+    const t = lex.next();
+    if (t.k !== "punct" || t.v !== "<<") {
+      if (t.k === "end" && end < hard) throw new OutOfBudget();
+      charge(budget, spent());
+      return null;
+    }
+    const dict = parseDictBody(lex, 0);
+    const then = lex.next();
+    // The budget may have cut off the very `stream` that would count.
+    if (then.k === "end" && end < hard) throw new OutOfBudget();
+    charge(budget, spent());
+    return { dict, then, after: Math.min(lex.pos, end) };
+  } catch (err) {
+    if (err instanceof Incomplete && end < hard) throw new OutOfBudget();
+    if (!(err instanceof OutOfBudget)) charge(budget, spent());
+    throw err;
+  }
 }
 
 /** `word` in `bytes`, at or after `from` (before `end`). */
@@ -341,55 +482,115 @@ function lastIndexOfWord(
 }
 
 /**
- * Could pdf.js's xref-stream loop (`readXRefStream`) run long over `dict`?
- * Mirrors its checks: a row with no bytes in it is the only way the loop
- * outlives the data, and its count is /Index's (pdf.js: `Index || [0, Size]`).
- * A width or range pdf.js rejects (`Number.isInteger` fails) stops it; a
- * value it would resolve through a reference cannot be read here, so it
- * counts as unknown — and an indirect /W, /Index or /Size is one ISO
- * 32000-1 7.5.8.2 says "shall" not be written.
+ * The /Index ranges pdf.js walks, as flat `first, n` pairs with `n > 0`, or
+ * null when only a reference could say. pdf.js reads
+ * `dict.get("Index") || [0, Size]` and walks pairs until one is not two
+ * integers. Anything but an array falls back to /Size here: that is pdf.js's
+ * reading of every falsy value (`0`, `null`, `false`, and an empty string
+ * `()` or `<>`, which review 2 found), and for a truthy non-array pdf.js
+ * walks nothing, so the fallback only ever counts more. A reference in
+ * /Index or /Size is one ISO 32000-1 7.5.8.2 forbids ("indirect references
+ * shall not be permitted").
  */
-function zeroWidthRowsUnbounded(dict: Map<string, Value>): boolean {
-  const w = dict.get("W");
-  if (w?.t === "arr") {
-    const widths = w.v.slice(0, 3);
-    if (widths.length < 3) return false;
-    let total = 0;
-    for (const x of widths) {
-      if (x.t !== "num" || !Number.isInteger(x.v)) return false;
-      total += Math.max(0, x.v);
-    }
-    if (total > 0) return false;
-  } else if (w?.t !== "ref") return false;
-  const rows = rowCount(dict);
-  return rows === null || rows > ZERO_WIDTH_ROW_LIMIT;
-}
-
-/** Rows pdf.js would walk, or null when only a reference could say. */
-function rowCount(dict: Map<string, Value>): number | null {
+function rowRanges(dict: Map<string, Value>): number[] | null {
   const index = dict.get("Index");
   if (index?.t === "ref") return null;
-  const falsy =
-    index === undefined ||
-    (index.t === "num" && index.v === 0) ||
-    (index.t === "word" && (index.v === "null" || index.v === "false"));
-  if (!falsy) {
-    if (index.t !== "arr") return 0;
-    let rows = 0;
+  const out: number[] = [];
+  if (index?.t === "nums") {
     for (let i = 0; i + 1 < index.v.length; i += 2) {
       const first = index.v[i]!;
       const n = index.v[i + 1]!;
-      if (first.t !== "num" || n.t !== "num") break;
-      if (!Number.isInteger(first.v) || !Number.isInteger(n.v)) break;
-      rows += Math.max(0, n.v);
+      if (!Number.isInteger(first) || !Number.isInteger(n)) break;
+      if (n > 0) out.push(first, n);
     }
-    return rows;
+    return out;
   }
   const size = dict.get("Size");
   if (size?.t === "ref") return null;
-  return size?.t === "num" && Number.isInteger(size.v)
-    ? Math.max(0, size.v)
-    : 0;
+  if (size?.t === "num" && Number.isInteger(size.v) && size.v > 0)
+    out.push(0, size.v);
+  return out;
+}
+
+/** The sum of /W's first three widths as pdf.js reads them, or null. */
+function rowWidth(w: Value): number | null {
+  if (w.t !== "nums" || w.v.length < 3) return null;
+  let total = 0;
+  for (const x of w.v.slice(0, 3)) {
+    if (!Number.isInteger(x)) return null;
+    // A negative width reads no bytes (pdf.js's `j < width` loop).
+    total += Math.max(0, x);
+  }
+  return total;
+}
+
+/** Every xref-stream row the file can make pdf.js walk, summed. */
+class RowLedger {
+  /** Flat `first, n` pairs of every walk, for the union. */
+  private readonly ranges: number[] = [];
+  rows = 0;
+  rowBytes = 0;
+  streams = 0;
+
+  constructor(private readonly fileLength: number) {}
+
+  /**
+   * One stream dictionary, its data starting at `dataStart`. Throws
+   * {@link Refuse} for what no bound can be put on.
+   */
+  add(dict: Map<string, Value>, dataStart: number): void {
+    const w = dict.get("W");
+    // pdf.js reads no rows without /W (its destructuring throws first).
+    if (w === undefined) return;
+    this.streams += 1;
+    const ranges = rowRanges(dict);
+    if (ranges === null) throw new Refuse();
+    if (w.t === "ref") {
+      // An indirect /W (7.5.8.2 forbids it): its widths could be zero, or a
+      // megabyte a row. Nothing to walk is still nothing.
+      if (ranges.length > 0) throw new Refuse();
+      return;
+    }
+    const width = rowWidth(w);
+    // pdf.js rejects the widths ("Invalid XRef entry fields length").
+    if (width === null) return;
+    // Rows that read bytes stop where the bytes do. Unfiltered, those are
+    // the file's; a filter can make any number of them.
+    let cap =
+      width > 0 && !dict.has("Filter")
+        ? Math.floor(Math.max(0, this.fileLength - dataStart) / width)
+        : Infinity;
+    let walked = 0;
+    for (let i = 0; i < ranges.length && cap > 0; i += 2) {
+      const n = Math.min(ranges[i + 1]!, cap);
+      cap -= n;
+      walked += n;
+      this.ranges.push(ranges[i]!, n);
+    }
+    // A zero-width row reads nothing: no producer writes one, so only a few
+    // are left for pdf.js to recover.
+    if (width === 0 && walked > ZERO_WIDTH_ROW_LIMIT) throw new Refuse();
+    this.rows += walked;
+    this.rowBytes += walked * Math.max(1, width);
+    if (this.rowBytes > ROW_BYTES_PER_ENTRY * xrefEntryLimit(this.fileLength))
+      throw new Refuse();
+  }
+
+  /** The distinct entries pdf.js would store: the union of every walk. */
+  entries(): number {
+    const pairs: [number, number][] = [];
+    for (let i = 0; i < this.ranges.length; i += 2)
+      pairs.push([this.ranges[i]!, this.ranges[i]! + this.ranges[i + 1]!]);
+    pairs.sort((a, b) => a[0] - b[0]);
+    let total = 0;
+    let to = -Infinity;
+    for (const [lo, hi] of pairs) {
+      if (hi <= to) continue;
+      total += hi - Math.max(lo, to);
+      to = hi;
+    }
+    return total;
+  }
 }
 
 /**
@@ -413,7 +614,7 @@ function startxrefOffset(bytes: Uint8Array): number {
  * /Linearized and an /L equal to the file's length moves the first section
  * to just after the first `endobj`.
  */
-function linearizedStart(bytes: Uint8Array): number | null {
+function linearizedStart(bytes: Uint8Array, budget: Budget): number | null {
   const lex = new Lexer(bytes, 0, Math.min(bytes.length, 1024));
   // Skip the header line: `%PDF-x.y` is a comment to the lexer.
   const n = lex.next();
@@ -423,8 +624,9 @@ function linearizedStart(bytes: Uint8Array): number | null {
     return null;
   let dict: Map<string, Value> | undefined;
   try {
-    dict = dictAt(bytes, lex.pos)?.dict;
-  } catch {
+    dict = dictAt(bytes, lex.pos, DICT_SPAN_LIMIT, budget)?.dict;
+  } catch (err) {
+    if (err instanceof OutOfBudget) throw err;
     return null;
   }
   const lin = dict?.get("Linearized");
@@ -442,6 +644,7 @@ function linearizedStart(bytes: Uint8Array): number | null {
 function sectionAt(
   bytes: Uint8Array,
   offset: number,
+  budget: Budget,
 ): { dict: Map<string, Value>; next: number[] } | null {
   const lex = new Lexer(
     bytes,
@@ -453,33 +656,45 @@ function sectionAt(
   let table = false;
   if (first.k === "word" && first.v === "xref") {
     table = true;
-    const at = indexOfWord(bytes, "trailer", lex.pos);
-    if (at < 0) return null;
-    const read = dictAt(bytes, at + 7);
+    const searchEnd = Math.min(
+      bytes.length,
+      lex.pos + Math.max(0, budget.left),
+    );
+    const at = indexOfWord(bytes, "trailer", lex.pos, searchEnd);
+    charge(budget, (at < 0 ? searchEnd : at) - offset);
+    if (at < 0) {
+      if (searchEnd < bytes.length) throw new OutOfBudget();
+      return null;
+    }
+    const read = dictAt(bytes, at + 7, DICT_SPAN_LIMIT, budget);
     if (!read) return null;
     dict = read.dict;
   } else if (first.k === "num" && Number.isInteger(first.v)) {
     const gen = lex.next();
     const obj = lex.next();
+    charge(budget, lex.pos - offset);
     if (gen.k !== "num" || obj.k !== "word" || obj.v !== "obj") return null;
     // pdf.js takes the object as a section only when it is a stream.
-    const read = dictAt(bytes, lex.pos);
+    const read = dictAt(bytes, lex.pos, DICT_SPAN_LIMIT, budget);
     if (!read || read.then.k !== "word" || read.then.v !== "stream")
       return null;
     dict = read.dict;
   } else return null;
+  // Only direct offsets are followed here. The newest section (the one
+  // that names the trailer) is never reached through a reference, and the
+  // rows of every section ANY offset can reach, a reference's integer
+  // object included, are counted by prescanXref's scan of every stream.
   const next: number[] = [];
   const stm = dict.get("XRefStm");
   if (table && stm?.t === "num" && Number.isInteger(stm.v)) next.push(stm.v);
   const prev = dict.get("Prev");
   if (prev?.t === "num" && Number.isInteger(prev.v)) next.push(prev.v);
-  else if (prev?.t === "ref") next.push(prev.num);
   return { dict, next };
 }
 
 /** What the scan found. */
 export interface XrefPrescan {
-  /** A section pdf.js would walk row by row past any bound: refuse. */
+  /** pdf.js would walk rows past a bound, or the scan could not tell: refuse. */
   readonly unbounded: boolean;
   /**
    * The newest section's dictionary carries /Encrypt (the trailer pdf.js
@@ -489,100 +704,142 @@ export interface XrefPrescan {
   readonly namesEncrypt: boolean;
   /** Section dictionaries read and checked (a health check for tests). */
   readonly sections: number;
+  /** Streams with a /W whose rows were counted (a health check). */
+  readonly streams: number;
+  /** Distinct entries those rows would make pdf.js store. */
+  readonly entries: number;
+  /** Bytes lexed or searched past, against {@link scanBudget}. */
+  readonly lexed: number;
 }
 
 /** Read the sections. Never throws. */
 export function prescanXref(bytes: Uint8Array): XrefPrescan {
-  let unbounded = false;
+  const limit = xrefEntryLimit(bytes.length);
+  const budget: Budget = { left: scanBudget(bytes.length) };
+  const ledger = new RowLedger(bytes.length);
   let sections = 0;
-  const check = (dict: Map<string, Value>) => {
-    sections += 1;
-    if (zeroWidthRowsUnbounded(dict)) unbounded = true;
-  };
-
-  // The chain pdf.js reads first.
-  const lin = linearizedStart(bytes);
-  const tail = startxrefOffset(bytes);
-  // pdf.js starts from one of these; the other is read too (a superset
-  // only adds sections to check), but only pdf.js's names the trailer.
-  const starts = lin === null ? [tail] : [lin, tail];
-  let top: Map<string, Value> | null = null;
-  let topRead = false;
-  const seen = new Set<number>();
-  const queue = [...starts];
-  while (queue.length > 0 && seen.size < CHAIN_LIMIT) {
-    const offset = queue.shift()!;
-    if (seen.has(offset) || offset < 0 || offset >= bytes.length) continue;
-    seen.add(offset);
-    let section: ReturnType<typeof sectionAt> = null;
-    let incomplete = false;
-    try {
-      section = sectionAt(bytes, offset);
-    } catch {
-      incomplete = true;
-    }
-    if (!topRead) {
-      topRead = true;
-      top = section?.dict ?? null;
-    }
-    if (incomplete) {
-      // A section dictionary that does not close within 1 MiB (or nests
-      // past 64): nothing in it can be checked, and pdf.js would still
-      // read it. No real producer writes one.
-      unbounded = true;
-      continue;
-    }
-    if (!section) continue;
-    check(section.dict);
-    queue.push(...section.next);
-  }
-
-  // Every object whose body names /XRef: what pdf.js's rebuild reads.
-  const fallbackTrailers: Map<string, Value>[] = [];
-  let floor = 0;
-  for (let at = indexOfWord(bytes, "/XRef", 0); at >= 0;) {
-    const after = bytes[at + 5];
-    if (after === undefined || after < 64) {
-      const obj = objHeaderBefore(bytes, at, floor);
-      if (obj >= 0) {
-        try {
-          const dict = dictAt(bytes, obj + 3)?.dict;
-          if (dict) {
-            check(dict);
-            fallbackTrailers.push(dict);
-          }
-        } catch {
-          unbounded = true;
-        }
+  const result = (unbounded: boolean, namesEncrypt: boolean) => ({
+    unbounded,
+    namesEncrypt,
+    sections,
+    streams: ledger.streams,
+    entries: unbounded ? 0 : ledger.entries(),
+    lexed: scanBudget(bytes.length) - budget.left,
+  });
+  try {
+    // 1. The rows: every `obj` whose dictionary is followed by `stream`.
+    // `endobj` is not one, nor is a longer word that starts `obj`.
+    const objDicts = new Map<number, Map<string, Value> | null>();
+    for (
+      let at = indexOfWord(bytes, "obj", 0);
+      at >= 0;
+      at = indexOfWord(bytes, "obj", at + 3)
+    ) {
+      if (isEndobj(bytes, at)) continue;
+      if (!isSpecial(at + 3 < bytes.length ? bytes[at + 3]! : -1)) continue;
+      let read: ReadDict | null = null;
+      try {
+        // No span: a stream dictionary pdf.js can read may run any length,
+        // and the budget bounds what all of them cost together.
+        read = dictAt(bytes, at + 3, bytes.length, budget);
+      } catch (err) {
+        // Unclosed by the end of the file: pdf.js cannot read it either.
+        if (!(err instanceof Incomplete)) throw err;
       }
+      objDicts.set(at, read?.dict ?? null);
+      if (read?.then.k === "word" && read.then.v === "stream")
+        ledger.add(read.dict, read.after);
     }
-    floor = at;
-    at = indexOfWord(bytes, "/XRef", at + 5);
-  }
+    sections += ledger.streams;
+    // The union only matters once the plain sum is past the bound.
+    if (ledger.rows > limit && ledger.entries() > limit) throw new Refuse();
 
-  let namesEncrypt: boolean;
-  if (top) namesEncrypt = top.has("Encrypt");
-  else {
-    // No readable newest section: pdf.js rebuilds, and prefers a trailer
-    // that has /Encrypt over one that does not (`indexObjects`).
+    // 2. The chain pdf.js reads first, for the trailer it decrypts with.
+    const lin = linearizedStart(bytes, budget);
+    const tail = startxrefOffset(bytes);
+    // pdf.js starts from one of these; the other is read too (a superset
+    // only adds sections to check), but only pdf.js's names the trailer.
+    const starts = lin === null ? [tail] : [lin, tail];
+    let top: Map<string, Value> | null = null;
+    let topRead = false;
+    const seen = new Set<number>();
+    const queue = [...starts];
+    while (queue.length > 0 && seen.size < CHAIN_LIMIT) {
+      const offset = queue.shift()!;
+      if (seen.has(offset) || offset < 0 || offset >= bytes.length) continue;
+      seen.add(offset);
+      let section: ReturnType<typeof sectionAt> = null;
+      try {
+        section = sectionAt(bytes, offset, budget);
+      } catch (err) {
+        // A section dictionary that does not close within 1 MiB (or nests
+        // past 64): nothing in it can be checked, and pdf.js would still
+        // read it. No real producer writes one.
+        if (err instanceof Incomplete || err instanceof TooDeep)
+          throw new Refuse();
+        throw err;
+      }
+      if (!topRead) {
+        topRead = true;
+        top = section?.dict ?? null;
+      }
+      if (!section) continue;
+      sections += 1;
+      queue.push(...section.next);
+    }
+    if (top) return result(false, top.has("Encrypt"));
+
+    // 3. No readable newest section: pdf.js rebuilds, and prefers a trailer
+    // that has /Encrypt over one that does not (`indexObjects`). Its
+    // candidates: every object whose body names /XRef, and every `trailer`.
+    const fallbackTrailers: Map<string, Value>[] = [];
+    let floor = 0;
+    for (let at = indexOfWord(bytes, "/XRef", 0); at >= 0;) {
+      const after = bytes[at + 5];
+      if (after === undefined || after < 64) {
+        const obj = objHeaderBefore(bytes, at, floor);
+        const dict = obj >= 0 ? objDicts.get(obj) : undefined;
+        if (dict) fallbackTrailers.push(dict);
+      }
+      floor = at;
+      at = indexOfWord(bytes, "/XRef", at + 5);
+    }
     for (let at = indexOfWord(bytes, "trailer", 0); at >= 0;) {
       try {
-        const dict = dictAt(bytes, at + 7)?.dict;
+        const dict = dictAt(bytes, at + 7, DICT_SPAN_LIMIT, budget)?.dict;
         if (dict) fallbackTrailers.push(dict);
-      } catch {
+      } catch (err) {
         // an unclosed trailer: pdf.js cannot read it either
+        if (err instanceof OutOfBudget) throw err;
       }
       at = indexOfWord(bytes, "trailer", at + 7);
     }
-    namesEncrypt = fallbackTrailers.some((d) => d.has("Encrypt"));
+    return result(
+      false,
+      fallbackTrailers.some((d) => d.has("Encrypt")),
+    );
+  } catch {
+    // Refuse, TooDeep and OutOfBudget all mean "cannot be bounded". Any
+    // other error is a defect here, and refusing is the side that cannot
+    // hand pdf.js an unbounded walk (the legit corpus keeps it honest).
+    return result(true, false);
   }
-  return { unbounded, namesEncrypt, sections };
+}
+
+/** `obj` at `at` is the tail of `endobj`. */
+function isEndobj(bytes: Uint8Array, at: number): boolean {
+  return (
+    at >= 3 &&
+    bytes[at - 3] === 0x65 &&
+    bytes[at - 2] === 0x6e &&
+    bytes[at - 1] === 0x64
+  );
 }
 
 /** The `obj` keyword that opens the object holding `at` (not `endobj`). */
 function objHeaderBefore(bytes: Uint8Array, at: number, floor: number): number {
   for (let i = lastIndexOfWord(bytes, "obj", at, floor); i >= floor;) {
-    if (i < 3 || bytes[i - 3] !== 0x65 /* e of endobj */) return i;
+    if (!isEndobj(bytes, i)) return i;
     if (i === 0) return -1;
     i = lastIndexOfWord(bytes, "obj", i, floor);
   }

@@ -36,6 +36,15 @@ function settled(r: BoundedOutcome): Record<string, unknown> {
 
 const T = BOUND_MS + 20_000;
 
+/**
+ * What pdf.js may spend, over six rows, on XREF_ENTRY_FLOOR (2^19) rows that
+ * each read a byte: measured 2026-11-08 (Windows, Node 24, this child) at 62
+ * to 69 MB over three runs, plus the 64 MB the zero-width check below allows
+ * between two runs. Twice the floor measured 154 to 199 MB, so doubling the
+ * floor goes red here.
+ */
+const ENTRY_FLOOR_MB = 128;
+
 describe("lane l02: hostile structure is read in bounded time and memory", () => {
   test(
     "control: an honest owner-only file with an object stream opens, 1 page, cheaply",
@@ -132,6 +141,76 @@ describe("lane l02: hostile structure is read in bounded time and memory", () =>
       // slows both; it failed a fixed 3 s once that way).
       expect(atLimit.ms as number).toBeLessThan(
         Math.max(3_000, 4 * (six.ms as number)),
+      );
+    },
+    2 * T,
+  );
+
+  test(
+    "SIB-03 (review 2): every route to a long row walk is unreadable through classifyPdfAccess",
+    async () => {
+      // Each of these ran pdf.js out of memory ("memory" outcome, exit 134)
+      // past the second pre-scan: /Index as an empty string, /Prev from a
+      // section only a rebuild reaches, /Prev through an integer object, and
+      // rows one byte wide over a deflate bomb.
+      for (const fixture of [
+        "idx-empty-str",
+        "idx-empty-hex",
+        "recovery-prev",
+        "prev-indirect-int",
+        "flate-rows-20m",
+      ]) {
+        const v = settled(await run(fixture, "classify"));
+        expect(v, fixture).toMatchObject({ settled: "unreadable" });
+        expect(v.peakMb as number, fixture).toBeLessThan(PEAK_MB);
+      }
+    },
+    5 * T,
+  );
+
+  test(
+    "SIB-03 (review 2) controls: the same files at /Size 6 open as one unencrypted page",
+    async () => {
+      for (const fixture of [
+        "idx-empty-str-6",
+        "recovery-prev-6",
+        "prev-indirect-int-6",
+      ]) {
+        const v = settled(await run(fixture, "classify"));
+        expect(v, fixture).toMatchObject({ settled: "unencrypted" });
+      }
+    },
+    3 * T,
+  );
+
+  test(
+    "SIB-03 (review 2): the pre-scan itself is linear on dictionaries that never close",
+    async () => {
+      // It runs before any deadline, on the caller's (main) thread. 16,000
+      // units took 33 s and 16 s; 64,000 would take about 9 minutes.
+      for (const fixture of [
+        "unclosed-xref-16k",
+        "unclosed-trailer-16k",
+        "unclosed-xref-64k",
+      ]) {
+        const r = await run(fixture, "prescan");
+        const v = settled(r);
+        expect(v.ms as number, fixture).toBeLessThan(1_000);
+      }
+    },
+    3 * T,
+  );
+
+  test(
+    "SIB-03: the entry rows the pre-scan still hands pdf.js cost it a bounded amount (second bound on XREF_ENTRY_FLOOR)",
+    async () => {
+      const six = settled(await run("flate-rows-6", "pdfjs"));
+      const atFloor = settled(await run("flate-rows-at-floor", "pdfjs"));
+      expect(atFloor.ms as number).toBeLessThan(
+        Math.max(5_000, 4 * (six.ms as number)),
+      );
+      expect((atFloor.peakMb as number) - (six.peakMb as number)).toBeLessThan(
+        ENTRY_FLOOR_MB,
       );
     },
     2 * T,
