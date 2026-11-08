@@ -199,6 +199,9 @@ export function copyFiles(): string[] {
     // The OCR rotate proof's verdict lines and fixture words (2026-11-01),
     // walked for the same reason.
     path.join(ROOT, "src", "lib", "workers", "ocr-rotate-proof.ts"),
+    // The OCR redo proof's verdict lines and fixture words (2026-11-08),
+    // walked for the same reason.
+    path.join(ROOT, "src", "lib", "workers", "ocr-redo-proof.ts"),
     // Compress PDF's page-orientation proof fixture (2026-11-06, audit #21),
     // walked for the same reason.
     path.join(

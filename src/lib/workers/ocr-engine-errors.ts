@@ -53,8 +53,10 @@ export const OCR_REFUSAL_MESSAGES: Record<OcrRefusalKind, string> = {
     "This PDF is password-protected, so OCR can't read it. Remove the password with Unlock PDF, then run OCR again. Nothing was processed.",
   restricted:
     "This PDF opens without a password, but its author encrypted it with restrictions, and OCR can't add a text layer to an encrypted file without removing them. Unlock PDF removes them with the owner (permissions) password that set them; then run OCR again. Nothing was processed.",
+  // CHANGED 2026-11-08: "… to replace a poor text layer." Redo replaces only
+  // the layers OCRmyPDF detects, not its own (REDO_OCR_LAYER_OUTCOMES).
   "prior-text":
-    "This PDF already has a text layer, and the OCR engine would not add a second one. Turn on “Redo existing OCR” to replace a poor text layer. Nothing was processed.",
+    "This PDF already has a text layer, and the OCR engine would not add a second one. Turn on “Redo existing OCR” to have its pages read again. Nothing was processed.",
   signed:
     "This PDF is digitally signed. Adding a text layer would invalidate the signature, so OCR was not run. Nothing was processed.",
   unreadable:

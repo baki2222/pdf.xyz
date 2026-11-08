@@ -19,6 +19,7 @@ import type { Job } from "@/lib/jobs/types";
 import {
   OCR_DESKEW_WITH_REDO_MESSAGE,
   OCR_LANGUAGE_CODES,
+  REDO_OCR_SCOPE,
 } from "@/lib/jobs/ocr";
 import { sanitizeJobResults } from "@/lib/jobs/results";
 import type { WorkerStatus } from "@/lib/workers/status";
@@ -251,6 +252,17 @@ describe("OCR PDF: Straighten crooked pages, panel → job → processor → arg
     expect(args).toContain("--deskew");
     expect(args).toContain("--skip-text");
     expect(args).not.toContain("--redo-ocr");
+  });
+
+  it("Redo says exactly which old text it replaces and which it keeps (2026-11-08)", async () => {
+    // Until then: "that text is removed and those pages are recognized
+    // again", false of the layer OCRmyPDF writes (REDO_OCR_LAYER_OUTCOMES).
+    stubNetwork("application/pdf");
+    await addFile("scan.pdf", "application/pdf");
+    expect(redoBox()).toHaveAccessibleName(
+      expect.stringContaining(REDO_OCR_SCOPE),
+    );
+    expect(redoBox()).not.toHaveAccessibleName(/that text is removed/);
   });
 
   it("the panel never lets both be on: each box turns the other off", async () => {
