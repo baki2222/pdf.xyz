@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -81,7 +82,6 @@ import {
   useOutcomeFocus,
   warmEnding,
 } from "./runner-kit";
-import { CompressBatchRunner } from "./compress-batch";
 import { canRunDeepCompression, qualityChipTitle } from "./compress-deep-gate";
 
 // Moved to `./compress-deep-gate` (audit compress-pdf#5) so the batch runner
@@ -98,6 +98,24 @@ import { holdRunnerStage } from "./stage-hold";
 import { useSinglePdf, type LoadedPdf, type LockedPdf } from "./use-single-pdf";
 import { useToolHandoff } from "./use-tool-handoff";
 import { useWorkerStatus } from "../use-worker-status";
+
+/**
+ * The batch (two or more files) as its own chunk: its view, its rows, the
+ * archive button and the batch limits load only when a second file arrives,
+ * not with every visit to Compress PDF (batch plan P0b). While it loads, the
+ * stage keeps a quiet box in its place.
+ */
+const CompressBatchRunner = dynamic(
+  () => import("./compress-batch").then((m) => m.CompressBatchRunner),
+  {
+    loading: () => (
+      <div
+        aria-hidden
+        className="border-line bg-wash rounded-panel h-40 w-full border"
+      />
+    ),
+  },
+);
 
 /** Where a PDF that needs a password gets unlocked; pinned to the catalog by the runner test. */
 export const UNLOCK_TOOL_HREF = "/tools/unlock-pdf";

@@ -233,12 +233,30 @@ describe("a tool's advertised outputs match what its engine writes", () => {
       // predicate follows it. Still a CALL, never an import (ARCHIVE_CALL).
       if (ARCHIVE_CALL.test(withoutComments(source))) return true;
       if (depth === 0) return false;
+      // The relative modules this one reaches: its static VALUE imports, and
+      // (since 2026-11-08, batch plan P0b) its `import("./…")` loaders — a
+      // `next/dynamic` boundary is still the runner rendering that module.
+      // Compress PDF's batch moved behind one, and its ZIP into the shared
+      // batch view a level further down; the positive control below went red
+      // on both, as designed. Specifiers resolve against the importing file,
+      // as `.tsx` or `.ts`.
+      const specifiers: string[] = [];
       for (const m of source.matchAll(
-        /import\s+(?:type\s+)?\{[^}]*\}\s+from\s+"(\.\/[^"]+)"/g,
+        /import\s+(?:type\s+)?\{[^}]*\}\s+from\s+"(\.\.?\/[^"]+)"/g,
       )) {
-        if (/import\s+type/.test(m[0])) continue;
-        const rel2 = m[1] ?? "";
-        if (rel2 && callsZip(`${RUNNER_DIR}/${rel2.slice(2)}.tsx`, depth - 1))
+        if (!/import\s+type/.test(m[0]) && m[1]) specifiers.push(m[1]);
+      }
+      for (const m of withoutComments(source).matchAll(
+        /\bimport\(\s*"(\.\.?\/[^"]+)"\s*\)/g,
+      )) {
+        if (m[1]) specifiers.push(m[1]);
+      }
+      for (const spec of specifiers) {
+        const base = path.posix.join(path.posix.dirname(rel), spec);
+        if (
+          callsZip(`${base}.tsx`, depth - 1) ||
+          callsZip(`${base}.ts`, depth - 1)
+        )
           return true;
       }
       return false;
@@ -272,7 +290,9 @@ describe("a tool's advertised outputs match what its engine writes", () => {
       const file = component ? componentToFile.get(component) : undefined;
       if (!file) continue;
       resolved += 1;
-      if (callsZip(file, 1)) archiveSlugs.add(slug);
+      // Two levels: Compress PDF's runner → its batch (a loader) → the batch
+      // view that builds the archive.
+      if (callsZip(file, 2)) archiveSlugs.add(slug);
     }
     expect(
       resolved,
@@ -281,7 +301,7 @@ describe("a tool's advertised outputs match what its engine writes", () => {
 
     // Positive control THROUGH the walk, not beside it: these two are the
     // reason the walk follows imports and reads the registry at all.
-    expect([...archiveSlugs].sort()).toContain("compress-pdf"); // one level down
+    expect([...archiveSlugs].sort()).toContain("compress-pdf"); // two levels, via a loader
     expect([...archiveSlugs].sort()).toContain("split-pdf"); // in the component
     expect([...archiveSlugs].sort()).toContain("pdf-to-png"); // through the hook
 

@@ -91,6 +91,40 @@ function localImports(file: string): Set<string> {
   return out;
 }
 
+/**
+ * Local names a module binds to `next/dynamic(...)` at its top level: a
+ * loader is an edge as real as an import (2026-11-08, batch plan P0b — Compress
+ * PDF's batch became `const CompressBatchRunner = dynamic(...)`, and this walk,
+ * which followed only import statements, lost the one path by which
+ * compress-runner.tsx reaches the bus). `resolveComponent` already follows a
+ * loader to the module and export it names; this only lets the walk ask.
+ */
+function localLoaders(file: string): Set<string> {
+  const dynamicNames = new Set<string>();
+  const out = new Set<string>();
+  for (const stmt of source(file).statements) {
+    if (
+      ts.isImportDeclaration(stmt) &&
+      ts.isStringLiteral(stmt.moduleSpecifier) &&
+      stmt.moduleSpecifier.text === "next/dynamic" &&
+      stmt.importClause?.name &&
+      !stmt.importClause.isTypeOnly
+    )
+      dynamicNames.add(stmt.importClause.name.text);
+    if (!ts.isVariableStatement(stmt)) continue;
+    for (const d of stmt.declarationList.declarations)
+      if (
+        ts.isIdentifier(d.name) &&
+        d.initializer &&
+        ts.isCallExpression(d.initializer) &&
+        ts.isIdentifier(d.initializer.expression) &&
+        dynamicNames.has(d.initializer.expression.text)
+      )
+        out.add(d.name.text);
+  }
+  return out;
+}
+
 /** Names a module renders as a JSX tag or calls, anywhere in its body. */
 function usedNames(node: ts.Node): Set<string> {
   const out = new Set<string>();
@@ -118,7 +152,7 @@ export function reachThrough(
 ): string | null {
   if (seen.has(file)) return null;
   seen.add(file);
-  const imported = localImports(file);
+  const imported = new Set([...localImports(file), ...localLoaders(file)]);
   for (const name of usedNames(source(file))) {
     if (!imported.has(name)) continue;
     // A local import this reader cannot follow is FATAL, not a smaller set.
@@ -171,6 +205,10 @@ describe("every run a tool page can start reaches the activity bus", () => {
     expect(
       reachThrough(abs("src/components/tools/runner/list-utils.ts")),
     ).toBeNull();
+    // Through a `next/dynamic` loader: Compress PDF's batch.
+    expect(
+      reachThrough(abs("src/components/tools/runner/compress-runner.tsx")),
+    ).toBe("useBatchRunner");
     // `worker-panels.tsx` imports only types from the job hook's world; the
     // registry starts no run.
     expect(reachThrough(abs("src/components/tools/worker-panels.tsx"))).toBe(

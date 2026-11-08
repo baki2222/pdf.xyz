@@ -602,6 +602,60 @@ for (const { slug, files, least } of [
   });
 }
 
+/*
+ * Batch plan P0b (2026-11-08): a batch row's buttons. Compress PDF's batch
+ * drew its per-row Download at 32px (`size-8`), under the minimum on a phone;
+ * the generic batch view lifted out of it draws every row button at 44px below
+ * `sm`, Compress first. Both of a row's buttons are measured: Remove before
+ * Run, and Download once the file is done.
+ */
+const BATCH_ROW_BUTTONS = [
+  '[data-tool-panel] li button[aria-label^="Remove "]',
+  '[data-tool-panel] li button[aria-label^="Download "]',
+].join(", ");
+
+test(`Compress PDF's batch at 360: each row's Remove and Download are ${MIN}px`, async ({
+  page,
+}) => {
+  await page.goto("/tools/compress-pdf");
+  const input = fileInput(page);
+  await waitForHydration(input);
+  await input.setInputFiles(
+    await Promise.all(
+      ["first.pdf", "second.pdf"].map(async (name, i) => ({
+        name,
+        mimeType: "application/pdf",
+        buffer: Buffer.from(await makePdfBytes(name, i + 2)),
+      })),
+    ),
+  );
+  // Before Run: one Remove per row.
+  await expect
+    .poll(async () => (await measure(page, BATCH_ROW_BUTTONS)).seen.length, {
+      timeout: 20_000,
+    })
+    .toBe(2);
+  const before = await measure(page, BATCH_ROW_BUTTONS);
+  expect(before.seen.every((s) => s.startsWith("Remove "))).toBe(true);
+  expect(before.small, `under ${MIN}px: ${before.small.join(" | ")}`).toEqual(
+    [],
+  );
+
+  await page.getByRole("button", { name: "Compress 2 PDFs" }).click();
+  await expect(
+    page.getByRole("button", { name: "Download all (2)" }),
+  ).toBeVisible({ timeout: 60_000 });
+  // Done: one Download per row, and no Remove left.
+  const after = await measure(page, BATCH_ROW_BUTTONS);
+  expect(after.seen, after.seen.join(" | ")).toHaveLength(2);
+  expect(after.seen.every((s) => s.startsWith("Download "))).toBe(true);
+  expect(after.small, `under ${MIN}px: ${after.small.join(" | ")}`).toEqual([]);
+  expect(
+    after.overflow,
+    `past the screen: ${after.overflow.join(" | ")}`,
+  ).toEqual([]);
+});
+
 test(`the footer at 360: every link it shows is a ${MIN}px row`, async ({
   page,
 }) => {

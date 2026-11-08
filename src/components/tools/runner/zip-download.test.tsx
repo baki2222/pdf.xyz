@@ -292,7 +292,10 @@ const SCENARIOS: Record<string, () => Promise<Mounted>> = {
     };
   },
 
-  "src/components/tools/runner/compress-batch.tsx": async () => {
+  // The generic batch view calls the hook since 2026-11-08 (batch plan P0b:
+  // it was lifted out of compress-batch.tsx). Compress's batch is its one
+  // caller yet, so the proof still runs a real Compress batch through it.
+  "src/components/tools/runner/batch/batch-view.tsx": async () => {
     const names = ["alpha.pdf", "beta.pdf"];
     const files = await Promise.all(
       names.map(

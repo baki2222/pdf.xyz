@@ -30,6 +30,7 @@ import { TICKET_CHUNK_MARKER } from "@/components/intent/ticket-chunk";
 import { TICKET_DIALOG_CHUNK_MARKER } from "@/components/intent/ticket-dialog-chunk";
 import { PALETTE_CHUNK_MARKER } from "@/components/intent/palette-chunk";
 import { REPLACE_BOXES_CHUNK } from "@/components/tools/replace-boxes";
+import { BATCH_VIEW_LOADED } from "@/components/tools/runner/batch/batch-view";
 import { RESULT_ENDING_CHUNK } from "@/components/intent/result-ending-chunk";
 import { DROP_ENGINE_MARK } from "@/lib/intent/drop-engine";
 import { tools } from "@/lib/tools";
@@ -289,6 +290,18 @@ const OUR_LAZY: LazyLibrary[] = [
     what: "the worker job's poll",
     marker: STOPPED_WAITING,
     why: "it arrives with the upload, on the same fetch, and runs only once a job exists",
+    allowedAtLoad: {},
+  },
+  // Batch plan P0b (2026-11-08): the batch view — its rows, controls, live
+  // region, ZIP button and the batch limits. Compress PDF imported its batch
+  // statically, so every visit to Compress loaded it (the batch's progress
+  // label was in its first load, measured on the build before this entry);
+  // the runner now reaches it through `next/dynamic` once a second file
+  // arrives, and no page may load it up front.
+  {
+    what: "the batch view",
+    marker: BATCH_VIEW_LOADED,
+    why: "a runner fetches it when two or more files arrive; a visit with one file, or none, never downloads it",
     allowedAtLoad: {},
   },
   // WP-05 review (2026-10-10): the home desk's own island. It IS first-load
