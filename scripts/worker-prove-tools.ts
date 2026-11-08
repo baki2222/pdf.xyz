@@ -111,10 +111,18 @@ import {
 } from "@/tests/office-font-fixtures";
 import { mixedScanPdf, mixedSidecarVerdict } from "@/tests/ocr-proof-fixtures";
 import {
+  SCANNED_LINE,
   scannedDocxVerdict,
   scannedTextPdf,
   scanOfFirstPage,
 } from "@/tests/word-ocr-proof-fixtures";
+import {
+  deskewDocxVerdict,
+  pptxOcrVerdict,
+  redoDocxVerdict,
+  uprightDocxVerdict,
+  withStaleTextLayer,
+} from "@/lib/workers/pdf-office-export/ocr-first-proof";
 import { PDF_TO_WORD_RTL_REFUSAL } from "@/lib/jobs/ocr";
 import {
   OCR_LANGUAGE_SAMPLES,
@@ -1724,6 +1732,116 @@ const SPECS: ProofSpec[] = [
     expect: isZipContainer,
     want: "DOCX with the scan's words as text",
     verify: (bytes) => scannedDocxVerdict(new Uint8Array(bytes)),
+  },
+  // OCR's page choices on PDF to Word (wave 3, audit pdf-to-word#3). The
+  // chain test proves the options reach the OCR request; these read what
+  // each one changes in the DOCX (`ocr-first-proof.ts`, controls in its
+  // test). Each ON has an OFF beside it — the same scan, the same path — so
+  // a passing ON cannot be an instrument that passes everything. A worker
+  // image older than the feature ignores the option and FAILS each ON.
+  //
+  // Turn pages upright: an upside-down scan's sentinel is text only when
+  // the page was turned before recognition.
+  {
+    tool: "pdf-to-word",
+    label: "pdf-to-word (ocr, upright)",
+    make: upsideDownScan,
+    name: "upside-down.pdf",
+    type: PDF_MIME,
+    options: { ocr: true, languages: ["eng"], rotatePages: true },
+    expect: isZipContainer,
+    want: "DOCX with the upside-down scan's words read",
+    verify: (bytes) => uprightDocxVerdict(new Uint8Array(bytes), "read"),
+  },
+  {
+    tool: "pdf-to-word",
+    label: "pdf-to-word (ocr, upright off control)",
+    make: upsideDownScan,
+    name: "upside-down.pdf",
+    type: PDF_MIME,
+    options: { ocr: true, languages: ["eng"], rotatePages: false },
+    expect: isZipContainer,
+    want: "DOCX with the upside-down scan's words NOT read",
+    verify: (bytes) => uprightDocxVerdict(new Uint8Array(bytes), "unread"),
+  },
+  // Straighten: the words are read either way at 3.5°, so the DOCX's
+  // picture is what is measured, with the OCR PDF deskew proof's instrument.
+  {
+    tool: "pdf-to-word",
+    label: "pdf-to-word (ocr, deskew)",
+    make: crookedScan,
+    name: "crooked.pdf",
+    type: PDF_MIME,
+    options: { ocr: true, languages: ["eng"], deskew: true },
+    expect: isZipContainer,
+    want: "DOCX whose scan picture is level",
+    verify: (bytes) =>
+      deskewDocxVerdict(new Uint8Array(bytes), "straight", renderPdfPages),
+  },
+  {
+    tool: "pdf-to-word",
+    label: "pdf-to-word (ocr, deskew off control)",
+    make: crookedScan,
+    name: "crooked.pdf",
+    type: PDF_MIME,
+    options: { ocr: true, languages: ["eng"], deskew: false },
+    expect: isZipContainer,
+    want: "DOCX whose scan picture is still crooked",
+    verify: (bytes) =>
+      deskewDocxVerdict(new Uint8Array(bytes), "crooked", renderPdfPages),
+  },
+  // Redo existing OCR: a scan with a STALE invisible layer. Off,
+  // `--skip-text` keeps the page and the DOCX carries the stale words.
+  {
+    tool: "pdf-to-word",
+    label: "pdf-to-word (ocr, redo)",
+    make: async () => withStaleTextLayer(await scannedTextPdf()),
+    name: "stale-ocr.pdf",
+    type: PDF_MIME,
+    options: { ocr: true, languages: ["eng"], redoOcr: true },
+    expect: isZipContainer,
+    want: "DOCX with the scan's words and not the stale layer's",
+    verify: (bytes) =>
+      redoDocxVerdict(new Uint8Array(bytes), SCANNED_LINE, "replaced"),
+  },
+  {
+    tool: "pdf-to-word",
+    label: "pdf-to-word (ocr, redo off control)",
+    make: async () => withStaleTextLayer(await scannedTextPdf()),
+    name: "stale-ocr.pdf",
+    type: PDF_MIME,
+    options: { ocr: true, languages: ["eng"], redoOcr: false },
+    expect: isZipContainer,
+    want: "DOCX that kept the stale layer",
+    verify: (bytes) =>
+      redoDocxVerdict(new Uint8Array(bytes), SCANNED_LINE, "kept"),
+  },
+  // PDF to PowerPoint, OCR first (wave 3, audit pdf-to-powerpoint#4): an
+  // image-only handout. ON: the scan as a picture and its words as text
+  // drawn with no fill. OFF: the picture alone — the shape every deck had
+  // before, and what a worker that ignores `ocr` still returns for ON.
+  {
+    tool: "pdf-to-powerpoint",
+    label: "pdf-to-powerpoint (ocr)",
+    make: scannedTextPdf,
+    name: "handout.pdf",
+    type: PDF_MIME,
+    options: { ocr: true, languages: ["eng"] },
+    expect: isZipContainer,
+    want: "PPTX with the scan's words as unfilled text over its picture",
+    verify: (bytes) =>
+      pptxOcrVerdict(new Uint8Array(bytes), SCANNED_LINE, "ocr text"),
+  },
+  {
+    tool: "pdf-to-powerpoint",
+    label: "pdf-to-powerpoint (ocr off control)",
+    make: scannedTextPdf,
+    name: "handout.pdf",
+    type: PDF_MIME,
+    expect: isZipContainer,
+    want: "PPTX with the scan's picture and none of its words",
+    verify: (bytes) =>
+      pptxOcrVerdict(new Uint8Array(bytes), SCANNED_LINE, "pictures only"),
   },
   // A SECOND reader for the same document: the worker's own LibreOffice,
   // through Word to PDF. It is not Word (`pnpm prove:docx-opens` is), but it

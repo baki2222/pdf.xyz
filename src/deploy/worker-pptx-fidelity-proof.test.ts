@@ -232,8 +232,44 @@ describe("the production proof asks PDF to PowerPoint about pictures and fidelit
     expect(specs.length).toBeLessThan(200);
   });
 
+  // The unlabelled pdf-to-powerpoint spec is the pictures proof; since
+  // 2026-11-08 (wave 3, audit pdf-to-powerpoint#4) a labelled ON/OFF pair
+  // proves the OCR option (asserted below), so "the pdf-to-powerpoint spec"
+  // is the one with no label.
+  const picturesSpecs = () =>
+    specs.filter(
+      (s) =>
+        str(s, "tool") === "pdf-to-powerpoint" &&
+        prop(s, "label") === undefined,
+    );
+
+  it("every pdf-to-powerpoint spec is the pictures proof or the OCR pair, judged by the shared verdict", () => {
+    const all = specs.filter((s) => str(s, "tool") === "pdf-to-powerpoint");
+    const on = all.filter((s) => str(s, "label") === "pdf-to-powerpoint (ocr)");
+    const off = all.filter(
+      (s) => str(s, "label") === "pdf-to-powerpoint (ocr off control)",
+    );
+    expect(on).toHaveLength(1);
+    expect(off).toHaveLength(1);
+    expect(all.length).toBe(picturesSpecs().length + on.length + off.length);
+    expect(prop(on[0]!, "options")?.initializer.getText(file)).toMatch(
+      /\bocr:\s*true\b/,
+    );
+    // The control sends no OCR option at all: the plain export.
+    expect(prop(off[0]!, "options")).toBeUndefined();
+    expect(prop(on[0]!, "verify")?.initializer.getText(file)).toMatch(
+      /\bpptxOcrVerdict\([\s\S]*?"ocr text"\)/,
+    );
+    expect(prop(off[0]!, "verify")?.initializer.getText(file)).toMatch(
+      /\bpptxOcrVerdict\([\s\S]*?"pictures only"\)/,
+    );
+    expect(importsOf(file).get("pptxOcrVerdict")).toBe(
+      "@/lib/workers/pdf-office-export/ocr-first-proof",
+    );
+  });
+
   it("the pdf-to-powerpoint spec sends the proof PDF and verifies the picture", () => {
-    const mine = specs.filter((s) => str(s, "tool") === "pdf-to-powerpoint");
+    const mine = picturesSpecs();
     expect(mine).toHaveLength(1);
     const spec = mine[0]!;
     expect(prop(spec, "make")?.initializer.getText(file)).toMatch(
@@ -253,7 +289,8 @@ describe("the production proof asks PDF to PowerPoint about pictures and fidelit
   it("the round trip of that deck is judged by the fidelity instrument against the same proof PDF", () => {
     const keptAs = specs
       .filter((s) => str(s, "tool") === "pdf-to-powerpoint")
-      .map((s) => str(s, "keepArtifactAs"));
+      .map((s) => str(s, "keepArtifactAs"))
+      .filter((k) => k !== null);
     expect(keptAs).toHaveLength(1);
     const trips = specs.filter((s) => str(s, "from") === keptAs[0]);
     expect(trips).toHaveLength(1);
