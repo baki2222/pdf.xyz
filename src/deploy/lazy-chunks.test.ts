@@ -517,8 +517,16 @@ describe("the catalogue ships in one chunk, shared by every surface that reads i
  * counted chunks went 33,982 -> 33,990 B (+8: the catalogue chunks 7599 ->
  * 7605 and 3926 -> 3928, the other six byte-identical; main 9266c59d vs the
  * branch). 33.2 + 8/1024 = 33.208. CI measured the branch at >= 33.2.
+ *
+ * RAISED 33.21 -> 33.215 on 2026-11-08, for batch P2: five more tools
+ * (Grayscale, PDF to JPG, PDF to PNG, Extract Images, Text to PDF) list
+ * "ZIP" among their outputs, and their modes read "batch". One machine,
+ * both from an empty .next (main 4fd0a6f1 vs the branch): 33,990 -> 33,995
+ * B (+5). 33.21 + 5/1024 = 33.2149. Why not leave it: this machine reads
+ * 7 to 16 B under CI (PR #292 failed CI at >= 33.2 from 33,990 here, and
+ * passed under 33.21), so 33,995 here can be 34,011 on CI, over 33.21.
  */
-const TICKET_FETCH_GZ_KB = 33.21;
+const TICKET_FETCH_GZ_KB = 33.215;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));
