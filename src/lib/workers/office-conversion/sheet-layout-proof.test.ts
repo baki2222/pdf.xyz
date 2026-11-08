@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import JSZip from "jszip";
 import { PDFDocument, degrees } from "pdf-lib";
 import {
@@ -136,8 +136,22 @@ describe("sheetLayoutProofVerdict", () => {
 
 describe("wideSheetXlsx — the proof's input", () => {
   it("is deterministic, small, and has no page setup of its own", async () => {
-    const a = await wideSheetXlsx();
-    const b = await wideSheetXlsx();
+    // Built on two different clocks, five seconds apart (more than a ZIP
+    // timestamp's two-second step). Back to back on one clock, a builder
+    // that stamped the time passed except when a build crossed a two-second
+    // boundary: CI on PR #295 did, 2026-11-08 (JSZip's implicit folder entries
+    // took the clock, not the pinned date).
+    vi.useFakeTimers({ toFake: ["Date"] });
+    let a: Uint8Array;
+    let b: Uint8Array;
+    try {
+      vi.setSystemTime(new Date("2026-03-01T10:00:00Z"));
+      a = await wideSheetXlsx();
+      vi.setSystemTime(new Date("2026-03-01T10:00:05Z"));
+      b = await wideSheetXlsx();
+    } finally {
+      vi.useRealTimers();
+    }
     expect(Buffer.from(a).equals(Buffer.from(b))).toBe(true);
     expect(a.byteLength).toBeLessThan(200_000);
     const sheet = await (
