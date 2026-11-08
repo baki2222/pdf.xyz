@@ -104,15 +104,25 @@ async function openDocument(bytes: Uint8Array) {
 export async function readPagesWithPdfjs(
   bytes: Uint8Array,
 ): Promise<{ pageCount: number; rotations: Rotation[] }> {
+  // ./pdfjs-guard requested with the open, not after it (one round trip).
+  const guardModule = import("./pdfjs-guard");
+  guardModule.catch(() => {});
   const { task, doc } = await openDocument(bytes);
   try {
+    // A /Count of 0 or -1, and a page walk that fails (a /Kids cycle), get
+    // the engine's typed refusal, not "-1 pages" or raw pdf.js text
+    // (hostile CO-03, CO-11). Loaded on demand: this module is first-load.
+    const guard = await guardModule;
+    const pageCount = guard.pdfjsPageCount(doc.numPages);
     const rotations: Rotation[] = [];
-    for (let i = 1; i <= doc.numPages; i++) {
-      const page = await doc.getPage(i);
+    for (let i = 1; i <= pageCount; i++) {
+      const page = await doc
+        .getPage(i)
+        .catch((err: unknown) => Promise.reject(guard.pdfjsPageError(err)));
       rotations.push(normalizeAngle(page.rotate));
       page.cleanup();
     }
-    return { pageCount: doc.numPages, rotations };
+    return { pageCount, rotations };
   } finally {
     await task.destroy().catch(() => {});
   }

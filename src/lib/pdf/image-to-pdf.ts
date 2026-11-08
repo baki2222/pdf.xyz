@@ -21,6 +21,11 @@ import { pageSetupProblem } from "./image-page-custom";
 import { writeImageBookmarks } from "./image-bookmarks";
 import { undecodableImageMessage } from "./image-intake";
 import {
+  ImageTooLarge,
+  jpegFrameProblem,
+  tooManyPixelsMessage,
+} from "./raster-check";
+import {
   turnedShape,
   unturnedBox,
   type ImageQuarterTurn,
@@ -285,7 +290,27 @@ function describeImageBytes(bytes: Uint8Array): RefusedImageLabel | null {
   if (ascii(4, 4) === "ftyp") {
     const brand = ascii(8, 4);
     if (/^avi[fs]$/.test(brand)) return "AVIF";
-    if (/^(hei[cx]|hev[cx]|mif1|msf1)$/.test(brand)) return "HEIC";
+    if (/^(hei[cx]|hev[cx])$/.test(brand)) return "HEIC";
+    // "mif1" / "msf1" say only "an image in an ISO box": AVIF and HEIC both
+    // use them as the major brand, and the compatible brands (from offset
+    // 16 to the box's end) say which (hostile matrix CI-16). With neither
+    // named, HEIC stays the answer, as before.
+    if (/^(mif1|msf1)$/.test(brand)) {
+      // At most 64 brands are read: real ftyp boxes list a handful.
+      const size = Math.min(
+        bytes.length,
+        16 + 64 * 4,
+        ((bytes[0]! << 24) |
+          (bytes[1]! << 16) |
+          (bytes[2]! << 8) |
+          bytes[3]!) >>>
+          0,
+      );
+      const compatible: string[] = [];
+      for (let at = 16; at + 4 <= size; at += 4) compatible.push(ascii(at, 4));
+      if (compatible.some((b) => /^avi[fs]$/.test(b))) return "AVIF";
+      return "HEIC";
+    }
   }
   return null;
 }
@@ -572,13 +597,19 @@ async function addImagePage(
   }
   let image;
   try {
+    // A JPEG is checked to its end marker, and its size against its scan
+    // data, first: pdf-lib reads only its frame header (`raster-check.ts`).
+    if (format === "jpg" && jpegFrameProblem(bytes))
+      throw new Error("damaged JPEG");
     // A PNG keeps its own encoding — depth, palette, row filtering, colour
     // profile (`png-embed.ts`); loaded on the first PNG only.
     image =
       format === "png"
         ? await (await import("./png-embed")).embedPngAsStored(doc, bytes)
         : await embedRasterImage(doc, bytes, format, jpegOptions(options));
-  } catch {
+  } catch (problem) {
+    if (problem instanceof ImageTooLarge)
+      throw new PdfEngineError(tooManyPixelsMessage(file.name, problem));
     // The runner says the same as the file is added (`image-intake.ts`).
     throw new PdfEngineError(undecodableImageMessage(file.name, format));
   }

@@ -103,15 +103,21 @@ describe("pageSizeCaption", () => {
 describe("Resize PDF · pick the pages, each labelled with its size", () => {
   it("each page says its size, so the odd one out shows", async () => {
     await mount();
-    expect((await tile(1)).getAttribute("aria-label")).toBe(
+    // Each tile is drawn first and names its size once the sizes are read.
+    // `tile(n)` resolves at the first draw, so reading its label straight
+    // away raced that read: under a loaded run it saw "Page 1" (2026-11-08,
+    // after the hostile-input page-tree check added a step to the read). Wait
+    // for the exact accessible name instead: the property is that every
+    // page says its size, not that it says it on the first frame.
+    for (const name of [
       `Page 1, ${A4.label}`,
-    );
-    expect((await tile(2)).getAttribute("aria-label")).toBe(
       `Page 2, ${LETTER.label} landscape`,
-    );
-    expect((await tile(3)).getAttribute("aria-label")).toBe(
       `Page 3, ${pageSizeCaption(400, 300)}`,
-    );
+    ]) {
+      expect(
+        await screen.findByRole("button", { name }, { timeout: 10_000 }),
+      ).toHaveAttribute("aria-label", name);
+    }
   }, 30_000);
 
   it("a press writes the list; Even pages picks 2, 4, …", async () => {

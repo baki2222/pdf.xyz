@@ -1,4 +1,6 @@
+import type { isolatePageContent as IsolatePageContent } from "./content-isolation";
 import type { PDFDict, PDFDocument, PDFEmbeddedPage, PDFPage } from "pdf-lib";
+import { asDecodeBudgetRefusal } from "./decode-budget";
 import { PdfEncryptedError, PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
@@ -13,6 +15,19 @@ import {
   type OverlayFit,
   type OverlayPaging,
 } from "./offered-kinds";
+
+/**
+ * Content isolation (`./content-isolation`) runs only when a page is written,
+ * so it is imported at call time: a static import put it in the first load of
+ * every page whose runner imports this engine (hostile lane l06, 2026-11-08).
+ */
+const isolatePageContent = async (
+  page: Parameters<typeof IsolatePageContent>[0],
+): ReturnType<typeof IsolatePageContent> =>
+  (await import("./content-isolation")).isolatePageContent(
+    page,
+    await loadPdfLib(),
+  );
 
 /**
  * Overlay one PDF onto another, entirely in-browser with pdf-lib. The
@@ -388,6 +403,7 @@ export async function overlayPdf(
       const entry = embedded.get(overlayPageIndexFor(k, overlayCount, paging));
       // A blank overlay page draws nothing on the base pages mapped to it.
       if (!entry) continue;
+      await isolatePageContent(page);
       const place = placeOverlay({
         pageBox: visibleBox(page),
         pageRotation: page.getRotation().angle,
@@ -482,7 +498,9 @@ async function embedOverlayPages(
     const page = pages[k]!;
     try {
       await page.embed();
-    } catch {
+    } catch (err) {
+      const tooLarge = asDecodeBudgetRefusal(err, `Overlay page ${index + 1}`);
+      if (tooLarge) throw tooLarge;
       throw new PdfEngineError(
         `Overlay page ${index + 1} couldn't be applied — it may use features we can't process yet.` +
           (paging !== "repeat" && index > 0

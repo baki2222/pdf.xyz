@@ -773,6 +773,10 @@ async function readPageTextItems<T>(
   loadReader: PdfTextReader = loadPdfjs,
   alsoRead?: PageAlsoRead,
 ): Promise<{ pageCount: number; pages: T[] }> {
+  // Bounds and translations pdf.js lacks (hostile matrix CO-03/06/11,
+  // STAMP-14): see ./pdfjs-guard.
+  const guard = await import("./pdfjs-guard");
+  await guard.preflightPdfjsBytes(bytes);
   const pdfjs = await loadReader();
   const data = bytes.slice();
   const loadingTask = pdfjs.getDocument({ data, ...PDFJS_DOCUMENT_DEFAULTS });
@@ -780,12 +784,15 @@ async function readPageTextItems<T>(
 
   try {
     const pages: T[] = [];
-    for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
-      const page = await doc.getPage(pageNumber);
+    const pageCount = guard.pdfjsPageCount(doc.numPages);
+    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+      const page = await doc
+        .getPage(pageNumber)
+        .catch((err: unknown) => Promise.reject(guard.pdfjsPageError(err)));
       try {
-        const content = await page.getTextContent({
-          includeMarkedContent: false,
-        });
+        const content = await page
+          .getTextContent({ includeMarkedContent: false })
+          .catch((err: unknown) => Promise.reject(guard.pdfjsPageError(err)));
         const items = content.items as TextItemLike[];
         pages.push(perPage(items, pageNumber));
         await alsoRead?.(page, items, pageNumber);
@@ -793,7 +800,7 @@ async function readPageTextItems<T>(
         page.cleanup();
       }
     }
-    return { pageCount: doc.numPages, pages };
+    return { pageCount, pages };
   } finally {
     try {
       doc.cleanup();
@@ -920,17 +927,22 @@ export async function extractPdfLines(
 export async function pdfHasSelectableText(
   bytes: Uint8Array,
 ): Promise<boolean> {
+  const guard = await import("./pdfjs-guard");
+  await guard.preflightPdfjsBytes(bytes);
   const pdfjs = await loadPdfjs();
   const data = bytes.slice();
   const loadingTask = pdfjs.getDocument({ data, ...PDFJS_DOCUMENT_DEFAULTS });
   const doc = await awaitPdfjsDocument(loadingTask);
   try {
-    for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
-      const page = await doc.getPage(pageNumber);
+    const pageCount = guard.pdfjsPageCount(doc.numPages);
+    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+      const page = await doc
+        .getPage(pageNumber)
+        .catch((err: unknown) => Promise.reject(guard.pdfjsPageError(err)));
       try {
-        const content = await page.getTextContent({
-          includeMarkedContent: false,
-        });
+        const content = await page
+          .getTextContent({ includeMarkedContent: false })
+          .catch((err: unknown) => Promise.reject(guard.pdfjsPageError(err)));
         const text = textItemsToPlainText(content.items as TextItemLike[]);
         if (pageTextChunks([{ pageNumber, text }]).length > 0) return true;
       } finally {

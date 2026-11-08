@@ -1,3 +1,4 @@
+import type { isolatePageContent as IsolatePageContent } from "./content-isolation";
 import { loadPdfLib } from "./pdf-lib";
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
@@ -18,6 +19,19 @@ import {
   type StampFontFamily,
   type StampPosition,
 } from "./stamp";
+
+/**
+ * Content isolation (`./content-isolation`) runs only when a page is written,
+ * so it is imported at call time: a static import put it in the first load of
+ * every page whose runner imports this engine (hostile lane l06, 2026-11-08).
+ */
+const isolatePageContent = async (
+  page: Parameters<typeof IsolatePageContent>[0],
+): ReturnType<typeof IsolatePageContent> =>
+  (await import("./content-isolation")).isolatePageContent(
+    page,
+    await loadPdfLib(),
+  );
 
 /**
  * Stamp page numbers onto an existing PDF, fully in-browser. Position defaults
@@ -231,6 +245,7 @@ export async function addPageNumbers(
     const page = pages[index]!;
     const text = formatLabel(format, n, plan.total);
     if (text.trim().length === 0) continue;
+    await isolatePageContent(page);
 
     // Physical page 2, 4, 6… is a left-hand page in a printed spread.
     const mirrored = options.facing === true && (index + 1) % 2 === 0;

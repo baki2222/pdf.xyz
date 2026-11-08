@@ -75,6 +75,8 @@ export async function probePdf(
     return { read: "too-large", ...NOTHING };
   }
   if (bytes.byteLength === 0) return { read: "unreadable", ...NOTHING };
+  // `./page-tree`, requested WITH the parse, not after it: chained awaits made each lazy chunk a round trip of its own (pre-hydration-upload e2e, 2026-11-08).
+  const treeModule = import("./page-tree").catch(() => null);
   let lib: PdfLibModule;
   let doc: PDFDocument;
   try {
@@ -91,6 +93,12 @@ export async function probePdf(
 
   // pdf-lib is lenient: a header and garbage parse into a document with no
   // page tree. That is a file no tool here can open, not a PDF of no pages.
+  // Nor is a tree with a cycle or a page pdf-lib could not parse: the same
+  // check every engine's loader makes (`./page-tree`) decides it here too.
+  const tree = await treeModule;
+  if (tree && !tree.settlePageTree(lib, doc).ok) {
+    return { read: "unreadable", ...NOTHING };
+  }
   const counted = pageCountFromDoc(doc);
   if (!counted.ok && counted.unknown === "unparseable") {
     return { read: "unreadable", ...NOTHING };

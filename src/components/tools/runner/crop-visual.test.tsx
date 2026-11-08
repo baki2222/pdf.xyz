@@ -195,7 +195,13 @@ function drag(name: string, dx: number, dy: number) {
 }
 
 async function cropAndRead(): Promise<CropMargins> {
-  const before = blobs.length;
+  // Only the PDFs: the preview's page images go through createObjectURL too.
+  // "The last blob is the download" held only while every preview image was
+  // made before Download was pressed; a preview that drew later handed
+  // pdf-lib a PNG ("No PDF header found", 2026-11-08, once the hostile-input
+  // preflight added a step before the preview renders).
+  const pdfs = () => blobs.filter((b) => b.type === "application/pdf");
+  const before = pdfs().length;
   fireEvent.click(screen.getByRole("button", { name: /^crop pdf$/i }));
   fireEvent.click(
     await screen.findByRole(
@@ -204,9 +210,9 @@ async function cropAndRead(): Promise<CropMargins> {
       { timeout: 5000 },
     ),
   );
-  await waitFor(() => expect(blobs.length).toBeGreaterThan(before));
+  await waitFor(() => expect(pdfs().length).toBeGreaterThan(before));
   const out = await PDFDocument.load(
-    new Uint8Array(await blobs[blobs.length - 1]!.arrayBuffer()),
+    new Uint8Array(await pdfs().at(-1)!.arrayBuffer()),
   );
   const box = out.getPage(0).getCropBox();
   return {

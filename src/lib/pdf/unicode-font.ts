@@ -378,6 +378,44 @@ function refuseUncovered(codePoints: readonly number[]): never {
   );
 }
 
+/**
+ * Code points that are not characters at all: a lone UTF-16 surrogate (half
+ * of an emoji cut by a broken copy) and the Unicode noncharacters (U+FDD0 to
+ * U+FDEF, and the last two of every plane, U+FFFE and U+FFFF among them). No
+ * font draws them, and no script owns them.
+ */
+function invalidCodePoints(text: string): number[] {
+  const found = new Set<number>();
+  for (const ch of text) {
+    const cp = ch.codePointAt(0)!;
+    if (
+      (cp >= 0xd800 && cp <= 0xdfff) ||
+      (cp >= 0xfdd0 && cp <= 0xfdef) ||
+      (cp & 0xfffe) === 0xfffe
+    )
+      found.add(cp);
+  }
+  return [...found];
+}
+
+/**
+ * Refusal for {@link invalidCodePoints}, naming each by its code (hostile
+ * matrix CI-14, 2026-11-08). They used to reach the coverage check, which
+ * called a lone surrogate "a script it cannot draw yet" and printed it as a
+ * replacement mark, and U+FFFF in plain Latin text was blamed on the
+ * Bengali font. The character itself is not shown: it prints as nothing or
+ * as a mark the reader cannot search for.
+ */
+function refuseInvalid(codePoints: readonly number[]): never {
+  const codes = codePoints.map(
+    (cp) => `U+${cp.toString(16).toUpperCase().padStart(4, "0")}`,
+  );
+  throw new PdfEngineError(
+    `This text holds code points that are not characters any font can draw: ` +
+      `${showCharacters(codes)}. Delete them from the text and try again.`,
+  );
+}
+
 /** Refusal for text every character of which we can draw — but not all at once. */
 function refuseMixedScripts(labels: readonly string[]): never {
   throw new PdfEngineError(
@@ -466,6 +504,8 @@ export async function embedDrawingFont(
   }
 
   const joined = texts.join("");
+  const invalid = invalidCodePoints(joined);
+  if (invalid.length > 0) refuseInvalid(invalid);
   const coverage = await downloaded(
     loadCoverage(),
     "The table of which fonts can draw this text",

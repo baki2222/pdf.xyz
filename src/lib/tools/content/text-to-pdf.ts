@@ -1,5 +1,6 @@
 import type { ToolContent } from "./types";
 import { MAX_SOURCE_MB } from "@/lib/tools/limits";
+import { MAX_TEXT_PAGES } from "@/lib/pdf/text-page-ceiling";
 import {
   FONT_PACKS,
   monospaceClaimSentence,
@@ -160,7 +161,7 @@ const content: ToolContent = {
     },
     {
       q: "How large a text file can I convert?",
-      a: `Up to ${MAX_SOURCE_MB} MB, whether you pick a file or paste. A file larger than that on disk is turned away when you load it, and the text is measured again in UTF-8 bytes when you press Create PDF; anything over is refused with a message rather than half-converted. A Chinese or Bengali character takes several bytes in UTF-8, so such text reaches the cap at far fewer characters than English. Empty or whitespace-only text is refused too.`,
+      a: `Up to ${MAX_SOURCE_MB} MB, whether you pick a file or paste. A file larger than that on disk is turned away when you load it, and the text is measured again in UTF-8 bytes when you press Create PDF; anything over is refused with a message rather than half-converted. A Chinese or Bengali character takes several bytes in UTF-8, so such text reaches the cap at far fewer characters than English. Empty or whitespace-only text is refused too, and so is text that would make more than ${MAX_TEXT_PAGES.toLocaleString("en-US")} pages, which takes text whose lines are nearly all blank or a few characters long, or one full of page breaks.`,
     },
     {
       q: "Which languages and scripts come out correctly?",

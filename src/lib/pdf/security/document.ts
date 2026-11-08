@@ -3,6 +3,7 @@ import type {
   PDFContext,
   PDFDict as PDFDictT,
   PDFObject,
+  PDFRawStream as PDFRawStreamT,
   PDFRef as PDFRefT,
 } from "pdf-lib";
 import { loadPdfLib, type PdfLibModule } from "../pdf-lib";
@@ -54,6 +55,114 @@ export interface XrefInfo {
 }
 
 const ascii = new TextDecoder("latin1");
+
+/*
+ * Bounds on what a hostile file can make this reader do (lane l02 of the
+ * hostile-input matrix). Every loop below is driven by a number the file
+ * states, so each is clamped by something the file must also CONTAIN, and
+ * every inflate stops at what the reader needs. `security-bounds.test.ts`
+ * holds each bound to its finding, and `security-legit-headroom.test.ts`
+ * measures the real-producer corpus against the same numbers.
+ */
+
+/**
+ * ISO 32000-1 Annex C.2 (PDF 1.7 implementation limits): at most 8,388,607
+ * indirect objects in a file. A cross-reference that maps more is not one a
+ * conforming reader is expected to hold.
+ */
+export const MAX_XREF_OBJECTS = 8_388_607;
+
+/**
+ * Cross-reference entries a file of `fileBytes` may map: one per 4 bytes,
+ * never fewer than 65,536, never more than {@link MAX_XREF_OBJECTS}. An
+ * in-use object costs at least its `n 0 obj` header or, packed, its
+ * `num offset` pair in an object stream. The real-producer corpus spends 312
+ * bytes or more per entry (`security-legit-headroom.test.ts`), a 78x margin
+ * over 4; the floor keeps every small file's ordinary free list.
+ */
+export function xrefEntryLimit(fileBytes: number): number {
+  return Math.min(
+    MAX_XREF_OBJECTS,
+    Math.max(65_536, Math.floor(fileBytes / 4)),
+  );
+}
+
+/**
+ * What all of one document's object streams together may inflate to: 32x
+ * the file, at least 32 MiB, at most 512 MiB. Object streams hold only
+ * dictionaries, arrays and numbers (never streams); a deflate bomb (up to
+ * 1,032x) is refused long before it costs the tab its memory. The corpus
+ * inflates its object streams to at most 0.15x its file size
+ * (`security-legit-headroom.test.ts`), a 200x margin under 32x.
+ */
+export function objectStreamBudget(fileBytes: number): number {
+  return Math.min(512 * 2 ** 20, Math.max(32 * 2 ** 20, 32 * fileBytes));
+}
+
+/**
+ * Inflate `stream` one filter at a time, each stage stopped after `cap`
+ * bytes, so neither a bomb nor a chain of them (a stage that consumes
+ * gigabytes to emit nothing) can grow past the cap. `overflow` says the
+ * stream had more to give than `cap`.
+ */
+function decodeCapped(
+  lib: PdfLibModule,
+  stream: PDFRawStreamT,
+  cap: number,
+): { data: Uint8Array; overflow: boolean } {
+  const filter = stream.dict.lookup(lib.PDFName.of("Filter"));
+  const parms = stream.dict.lookup(lib.PDFName.of("DecodeParms"));
+  const stages: PDFObject[] =
+    filter instanceof lib.PDFArray
+      ? filter.asArray()
+      : filter === undefined
+        ? []
+        : [filter];
+  let data = stream.contents;
+  for (let i = 0; i < stages.length; i += 1) {
+    const dict = lib.PDFDict.withContext(stream.dict.context);
+    dict.set(lib.PDFName.of("Filter"), stages[i]!);
+    const p =
+      filter instanceof lib.PDFArray
+        ? parms instanceof lib.PDFArray
+          ? parms.lookup(i)
+          : undefined
+        : parms;
+    if (p instanceof lib.PDFDict) dict.set(lib.PDFName.of("DecodeParms"), p);
+    const decoder = lib.decodePDFRawStream(lib.PDFRawStream.of(dict, data));
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    while (total <= cap) {
+      const want = Math.min(1 << 16, cap + 1 - total);
+      const got = decoder.getBytes(want);
+      if (got.length > 0) chunks.push(new Uint8Array(got));
+      total += got.length;
+      if (got.length < want) break;
+    }
+    // Past the cap, a middle stage's output is cut-off input to the next, so
+    // only the last stage's first `cap` bytes are worth handing back.
+    if (total > cap && i < stages.length - 1)
+      return { data: new Uint8Array(0), overflow: true };
+    data = new Uint8Array(total);
+    let at = 0;
+    for (const c of chunks) {
+      data.set(c, at);
+      at += c.length;
+    }
+  }
+  if (data.length > cap) return { data: data.subarray(0, cap), overflow: true };
+  return { data, overflow: false };
+}
+
+/** Where each `n g obj` header is (the last one wins): the reader's recovery. */
+function scanObjectHeaders(bytes: Uint8Array): Map<number, number> {
+  const found = new Map<number, number>();
+  const re =
+    /(?<![0-9])(\d{1,10})[\0\t\n\f\r ]+\d{1,5}[\0\t\n\f\r ]+obj(?![A-Za-z0-9])/g;
+  for (const m of ascii.decode(bytes).matchAll(re))
+    found.set(Number(m[1]), m.index);
+  return found;
+}
 
 function lastIndexOf(bytes: Uint8Array, word: string, before = bytes.length) {
   const w = [...word].map((c) => c.charCodeAt(0));
@@ -178,6 +287,7 @@ export async function readXref(
   let newest: { trailer: PDFDictT; stream: boolean } | null = null;
   const seen = new Set<number>();
   const queue: number[] = [startxref];
+  const limit = xrefEntryLimit(bytes.length);
 
   const addStream = (offset: number): PDFDictT => {
     const { num: n, object } = parseAt(lib, context, bytes, offset);
@@ -187,7 +297,6 @@ export async function readXref(
       );
     xrefStreams.add(n);
     const dict = object.dict;
-    const data = unpredict(lib, dict, lib.decodePDFRawStream(object).decode());
     const w = (dict.lookup(lib.PDFName.of("W"), lib.PDFArray) as PDFArrayT)
       .asArray()
       .map((x) => num(x, lib) ?? 0);
@@ -199,6 +308,20 @@ export async function readXref(
         : [0, size];
     const [w0 = 0, w1 = 0, w2 = 0] = w;
     const rowLength = w0 + w1 + w2;
+    // A field wider than 8 bytes is past what a number holds; a zero-width
+    // row reads nothing, so its /Index count alone would drive the loop.
+    if (w.some((x) => !Number.isInteger(x) || x < 0 || x > 8))
+      throw new UnreadablePdfError("The cross-reference stream's /W is bad.");
+    if (rowLength === 0)
+      throw new UnreadablePdfError("The cross-reference rows are empty.");
+    let rowsWanted = 0;
+    for (let r = 1; r < ranges.length; r += 2)
+      if (Number.isFinite(ranges[r]!) && ranges[r]! > 0)
+        rowsWanted += ranges[r]!;
+    // Inflate only the rows the reader will use (+1 byte a row: a PNG
+    // predictor's tag), and never more rows than the file can hold.
+    const cap = Math.min(rowsWanted, limit + 1) * (rowLength + 1);
+    const data = unpredict(lib, dict, decodeCapped(lib, object, cap).data);
     const field = (at: number, width: number) => {
       let v = 0;
       for (let i = 0; i < width; i += 1) v = v * 256 + (data[at + i] ?? 0);
@@ -219,6 +342,10 @@ export async function readXref(
         if (type === 1) entries.set(n, { type: 1, offset: b, gen: c });
         else if (type === 2) entries.set(n, { type: 2, stream: b, index: c });
         else if (type === 0) entries.set(n, { type: 1, offset: -1, gen: c });
+        if (entries.size > limit)
+          throw new UnreadablePdfError(
+            "The cross-reference maps more objects than the file can hold.",
+          );
       }
     }
     return dict;
@@ -464,6 +591,52 @@ export async function openHandler(
   };
 }
 
+/**
+ * Throw when an object the xref names, but that could not be read, is the
+ * catalog or a node of the page tree: the plain copy would silently have
+ * fewer pages, and a document missing a page is not "opened". A lost object
+ * off the tree (a font, an annotation, /Metadata) is read as null, as pdf.js
+ * and pdf-lib read it, and the document still opens with every page.
+ */
+function refuseIfReachable(
+  lib: PdfLibModule,
+  context: PDFContext,
+  trailer: PDFDictT,
+  lost: Set<number>,
+): void {
+  const seen = new Set<number>();
+  const stack: PDFObject[] = [];
+  const root = trailer.get(lib.PDFName.of("Root"));
+  const lostRef = (obj: PDFObject | undefined) => {
+    if (!(obj instanceof lib.PDFRef)) return false;
+    if (lost.has(obj.objectNumber))
+      throw new UnreadablePdfError(
+        `Object ${obj.objectNumber} of this PDF is unreadable.`,
+      );
+    return true;
+  };
+  lostRef(root);
+  const catalog = root ? context.lookup(root) : undefined;
+  if (catalog instanceof lib.PDFDict) {
+    const pages = catalog.get(lib.PDFName.of("Pages"));
+    if (pages) stack.push(pages);
+  }
+  while (stack.length > 0) {
+    const obj = stack.pop()!;
+    if (lostRef(obj)) {
+      const n = (obj as PDFRefT).objectNumber;
+      if (seen.has(n)) continue;
+      seen.add(n);
+    }
+    const node = obj instanceof lib.PDFRef ? context.lookup(obj) : obj;
+    if (!(node instanceof lib.PDFDict)) continue;
+    const kids = node.get(lib.PDFName.of("Kids"));
+    const list = kids instanceof lib.PDFRef ? context.lookup(kids) : kids;
+    lostRef(kids);
+    if (list instanceof lib.PDFArray) stack.push(...list.asArray());
+  }
+}
+
 /** Decrypt every live object of `bytes` with `handler`. */
 export async function decryptDocument(
   bytes: Uint8Array,
@@ -505,6 +678,7 @@ export async function decryptDocument(
 
   // Object streams, decrypted and split once each.
   const objStreams = new Map<number, Map<number, PDFObject>>();
+  let inflateLeft = objectStreamBudget(bytes.length);
   const unpack = async (streamNum: number): Promise<Map<number, PDFObject>> => {
     const done = objStreams.get(streamNum);
     if (done) return done;
@@ -515,17 +689,28 @@ export async function decryptDocument(
     const { gen, object } = parseAt(lib, context, bytes, entry.offset);
     const stream = await decryptTop(streamNum, gen, object);
     if (!(stream instanceof lib.PDFRawStream)) return out;
-    const data = unpredict(
-      lib,
-      stream.dict,
-      lib.decodePDFRawStream(stream).decode(),
-    );
+    const inflated = decodeCapped(lib, stream, inflateLeft);
+    if (inflated.overflow)
+      throw new UnreadablePdfError(
+        "An object stream inflates past what this file can hold.",
+      );
+    inflateLeft -= inflated.data.length;
+    const data = unpredict(lib, stream.dict, inflated.data);
     const n = num(stream.dict.get(lib.PDFName.of("N")), lib) ?? 0;
     const first = num(stream.dict.get(lib.PDFName.of("First")), lib) ?? 0;
-    const head = ascii.decode(data.subarray(0, first)).trim().split(/\s+/);
-    for (let i = 0; i < n; i += 1) {
+    const firstAt =
+      Number.isInteger(first) && first >= 0 ? Math.min(first, data.length) : 0;
+    const head = ascii.decode(data.subarray(0, firstAt)).trim().split(/\s+/);
+    // /N is a claim; the header's pairs are what the stream holds.
+    const pairs = Math.min(
+      Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0,
+      Math.floor(head.length / 2),
+    );
+    for (let i = 0; i < pairs; i += 1) {
       const objNum = Number(head[i * 2]);
-      const at = first + Number(head[i * 2 + 1]);
+      const at = firstAt + Number(head[i * 2 + 1]);
+      if (!Number.isInteger(objNum) || !Number.isInteger(at)) continue;
+      if (objNum < 0 || at < firstAt || at >= data.length) continue;
       try {
         out.set(
           objNum,
@@ -541,17 +726,37 @@ export async function decryptDocument(
     return out;
   };
 
+  // Objects the xref names that nothing here could read. An unreachable one
+  // (a stale entry) costs nothing; a reachable one would leave a copy with
+  // less in it than the file, so it is refused below.
+  const lost = new Set<number>();
+  let headers: Map<number, number> | null = null;
+  const parseObject = (n: number, offset: number) => {
+    try {
+      const parsed = parseAt(lib, context, bytes, offset);
+      return parsed.num === n ? parsed : null;
+    } catch {
+      return null;
+    }
+  };
+
   for (const [n, entry] of xref.entries) {
     if (n === 0 || xref.xrefStreams.has(n)) continue;
     if (entry.type === 1) {
       if (entry.offset < 0) continue;
-      let parsed: ReturnType<typeof parseAt>;
-      try {
-        parsed = parseAt(lib, context, bytes, entry.offset);
-      } catch {
+      let parsed = parseObject(n, entry.offset);
+      if (!parsed) {
+        // A wrong offset is recovered as pdf.js recovers it: by the object's
+        // own `n g obj` header, the last one in the file.
+        headers ??= scanObjectHeaders(bytes);
+        const at = headers.get(n);
+        if (at !== undefined && at !== entry.offset)
+          parsed = parseObject(n, at);
+      }
+      if (!parsed) {
+        lost.add(n);
         continue;
       }
-      if (parsed.num !== n) continue;
       const object = parsed.object;
       if (object instanceof lib.PDFRawStream) {
         const type = object.dict.lookup(lib.PDFName.of("Type"));
@@ -572,8 +777,10 @@ export async function decryptDocument(
       const members = await unpack(entry.stream);
       const object = members.get(n);
       if (object) context.assign(lib.PDFRef.of(n, 0), object);
+      else lost.add(n);
     }
   }
+  if (lost.size > 0) refuseIfReachable(lib, context, xref.trailer, lost);
 
   const get = (key: string) => xref.trailer.get(lib.PDFName.of(key));
   context.trailerInfo = {

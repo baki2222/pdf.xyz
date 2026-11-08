@@ -169,15 +169,40 @@ function signatureValues(
   return out;
 }
 
-/** Are the bytes `range` covers identical in both files? */
+/**
+ * Are the bytes `range` covers identical in both files — and does `range`
+ * cover a revision of `a` the way a signature must?
+ *
+ * Until hostile matrix EDIT-12 only the first half was asked, so a forged
+ * `/ByteRange [0 0 0 0]` compared zero bytes and was "kept" after a full
+ * rewrite. A range a validator could accept starts at byte 0, has two or more
+ * non-empty pieces in increasing order with a hole between each (the
+ * `/Contents` it excludes), and ends at the end of a revision: the `%%EOF`
+ * of the file as it was when signed (trailing white space allowed). Any
+ * other range is invalid before the edit and after it, and is not "kept".
+ */
 function sameCovered(a: Uint8Array, b: Uint8Array, range: number[]): boolean {
-  if (range.length < 2 || range.length % 2 !== 0) return false;
+  if (range.length < 4 || range.length % 2 !== 0) return false;
+  if (range[0] !== 0) return false;
+  let end = 0;
   for (let i = 0; i < range.length; i += 2) {
     const from = range[i]!;
     const len = range[i + 1]!;
     if (!Number.isInteger(from) || !Number.isInteger(len)) return false;
-    if (from + len > a.length || from + len > b.length) return false;
-    for (let j = from; j < from + len; j += 1) if (a[j] !== b[j]) return false;
+    if (len <= 0 || (i > 0 && from <= end)) return false;
+    end = from + len;
+    if (end > a.length || end > b.length) return false;
+    for (let j = from; j < end; j += 1) if (a[j] !== b[j]) return false;
   }
-  return true;
+  return endsARevision(a, end);
+}
+
+const EOF_MARKER = Array.from("%%EOF", (c) => c.charCodeAt(0));
+
+/** Does `bytes[0, end)` end with `%%EOF`, ignoring trailing white space? */
+function endsARevision(bytes: Uint8Array, end: number): boolean {
+  let i = end;
+  while (i > 0 && [0, 9, 10, 12, 13, 32].includes(bytes[i - 1]!)) i -= 1;
+  if (i < EOF_MARKER.length) return false;
+  return EOF_MARKER.every((c, k) => bytes[i - EOF_MARKER.length + k] === c);
 }

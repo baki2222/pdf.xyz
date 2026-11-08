@@ -1,0 +1,295 @@
+// One hostile case of lane l02 (our own security parser and the pdf.js access
+// probe), run in a child process by `security-bounds.test.ts` through
+// `runBounded`: each of these either looped synchronously or allocated about
+// 1 GiB before the fix, so in-process they would stall or crash vitest.
+//
+// Usage: node --import tsx security-bounds.child.ts <case>
+// Prints one `@@RESULT {...}` line with the entry point's outcome and the
+// process's peak RSS in MB.
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
+import { PDFDocument } from "pdf-lib";
+import {
+  classifyPdfAccess,
+  probePdfEncryption,
+  type PdfjsForAccess,
+} from "../../lib/pdf/encryption";
+import { loadPdfLib } from "../../lib/pdf/pdf-lib";
+import { awaitPdfjsDocument } from "../../lib/pdf/pdfjs";
+import { readXref } from "../../lib/pdf/security/document";
+import { openProtectedPdf } from "../../lib/pdf/security/protected-pdf";
+import { PDFJS_DOCUMENT_DEFAULTS } from "../../lib/pdf/wasm-assets";
+import {
+  XREF_ENTRY_FLOOR,
+  ZERO_WIDTH_ROW_LIMIT,
+  prescanXref,
+} from "../../lib/pdf/xref-prescan";
+import { startMemoryMeter } from "./memory";
+import { reportResult } from "./report";
+import {
+  ONE_PAGE,
+  ownerOnlyEncrypted,
+  reflate,
+  standardR3,
+  xrefStreamPdf,
+  zeroBomb,
+} from "./security-in-browser.fixtures";
+import { objStmBombPdf } from "./security-bounds.fixtures";
+import {
+  HUGE_ROWS,
+  denseObjects,
+  filterSpellings,
+  flateRows,
+  indexEmptyString,
+  prevIndirectInteger,
+  recoveryPrev,
+  unclosedUnits,
+} from "./xref-rows.fixtures";
+
+const req = createRequire(import.meta.url);
+
+/** Open and close a clean one-page file with the same pdf.js the entries use. */
+async function warmPdfjs(): Promise<void> {
+  const lib = await legacyPdfjs();
+  const doc = await PDFDocument.create();
+  doc.addPage([200, 200]);
+  const task = lib.getDocument({
+    data: await doc.save(),
+    ...PDFJS_DOCUMENT_DEFAULTS,
+  });
+  try {
+    await awaitPdfjsDocument(task);
+  } finally {
+    await task.destroy().catch(() => {});
+  }
+}
+async function legacyPdfjs(): Promise<PdfjsForAccess> {
+  return (await import(
+    pathToFileURL(req.resolve("pdfjs-dist/legacy/build/pdf.mjs")).href
+  )) as PdfjsForAccess;
+}
+
+const peakMb = () => Math.round(process.resourceUsage().maxRSS / 1024);
+
+const BIG_INDEX = "[0 2147483647]";
+
+/** `bytes` with one `from` replaced by `to` (same length: offsets hold). */
+function sameLength(bytes: Uint8Array, from: string, to: string): Uint8Array {
+  if (from.length !== to.length) throw new Error("lengths differ");
+  const t = new TextDecoder("latin1").decode(bytes);
+  const at = t.indexOf(from);
+  if (at < 0) throw new Error(`${from} not found`);
+  const out = bytes.slice();
+  for (let i = 0; i < to.length; i += 1) out[at + i] = to.charCodeAt(i);
+  return out;
+}
+
+const FIXTURES: Record<string, () => Uint8Array | Promise<Uint8Array>> = {
+  // SIB-01: an object stream that declares /N 999999999 but holds one member.
+  "objstm-n-1e9": () =>
+    ownerOnlyEncrypted([...ONE_PAGE, "<< /Unrelated true >>"], {
+      pack: [5],
+      objStmN: "999999999",
+    }),
+  // Its honest twin (/N 1): the positive control.
+  "objstm-n-honest": () =>
+    ownerOnlyEncrypted([...ONE_PAGE, "<< /Unrelated true >>"], { pack: [5] }),
+  // SIB-02 / SIB-03: zero-width xref rows over a 2^31-entry /Index.
+  "xref-w0-plain": () =>
+    xrefStreamPdf({ objects: ONE_PAGE, w: "[0 0 0]", index: "[0 2147483647]" }),
+  "xref-w0-owner": () => {
+    const r3 = standardR3();
+    return xrefStreamPdf({
+      objects: [...ONE_PAGE, `<< ${r3.encryptDict} >>`],
+      w: "[0 0 0]",
+      index: "[0 2147483647]",
+      trailer: `/Encrypt 5 0 R ${r3.idEntry}`,
+    });
+  },
+  // SIB-03 (review): spellings pdf.js's lexer and dictionary read as a
+  // zero-width /W, each over the same 2^31-entry /Index. The first two
+  // drove pdf.js out of memory past the first, literal-only pre-scan.
+  "xref-w0-real": () =>
+    xrefStreamPdf({ objects: ONE_PAGE, w: "[0 0 0.0]", index: BIG_INDEX }),
+  "xref-w0-negzero": () =>
+    xrefStreamPdf({ objects: ONE_PAGE, w: "[0 0 -0]", index: BIG_INDEX }),
+  // A negative width reads no bytes: [+0 -5 .0] is zero bytes a row.
+  "xref-w0-signs": () =>
+    xrefStreamPdf({ objects: ONE_PAGE, w: "[+0 -5 .0]", index: BIG_INDEX }),
+  // A later key wins in pdf.js's dictionary.
+  "xref-w0-dup": () =>
+    xrefStreamPdf({
+      objects: ONE_PAGE,
+      index: BIG_INDEX,
+      xrefDict: "/W [0 0 0]",
+    }),
+  // #57 is W: pdf.js decodes the name.
+  "xref-w0-escaped": () =>
+    xrefStreamPdf({
+      objects: ONE_PAGE,
+      index: BIG_INDEX,
+      xrefDict: "/#57 [0 0 0]",
+    }),
+  // No /Index: pdf.js walks [0 /Size].
+  "xref-w0-size": () =>
+    xrefStreamPdf({ objects: ONE_PAGE, w: "[0 0 0]", size: "2147483647" }),
+  // pdf.js reads the stream at startxref without asking its /Type.
+  "xref-w0-notype": () =>
+    sameLength(
+      xrefStreamPdf({ objects: ONE_PAGE, w: "[0 0 0]", index: BIG_INDEX }),
+      "/Type /XRef",
+      "/Type /XReg",
+    ),
+  // An indirect /W (ISO 32000-1 7.5.8.2 says these "shall be direct").
+  "xref-w-indirect": () =>
+    xrefStreamPdf({
+      objects: [...ONE_PAGE, "[0 0 0]"],
+      w: "5 0 R",
+      index: BIG_INDEX,
+    }),
+  // The zero-width bound's second, independent check: what pdf.js itself
+  // spends walking ZERO_WIDTH_ROW_LIMIT such rows, against six.
+  "xref-w0-six": () =>
+    xrefStreamPdf({ objects: ONE_PAGE, w: "[0 0 0]", index: "[0 6]" }),
+  "xref-w0-at-limit": () =>
+    xrefStreamPdf({
+      objects: ONE_PAGE,
+      w: "[0 0 0]",
+      index: `[0 ${ZERO_WIDTH_ROW_LIMIT}]`,
+    }),
+  // SIB-03 (review 2): four routes to a 2^31-row walk the second pre-scan
+  // did not read, each with its /Size 6 control, and rows one byte wide over
+  // a deflate bomb (19,887 bytes; pdf.js peaked at 3,312 MB).
+  "idx-empty-str": () => indexEmptyString("()", HUGE_ROWS),
+  "idx-empty-hex": () => indexEmptyString("<>", HUGE_ROWS),
+  "recovery-prev": () => recoveryPrev(HUGE_ROWS),
+  "prev-indirect-int": () => prevIndirectInteger(HUGE_ROWS),
+  "idx-empty-str-6": () => indexEmptyString("()", 6),
+  "recovery-prev-6": () => recoveryPrev(6),
+  "prev-indirect-int-6": () => prevIndirectInteger(6),
+  "flate-rows-20m": () => flateRows(20_000_000),
+  // The entry bound's second, independent check: what pdf.js itself spends
+  // walking XREF_ENTRY_FLOOR rows that each read a byte, against six.
+  "flate-rows-6": () => flateRows(6),
+  "flate-rows-at-floor": () => flateRows(XREF_ENTRY_FLOOR),
+  // Review 3: the pre-scan read only `/Filter`, while pdf.js reads
+  // `dict.get("F", "Filter")`. `flate-spell-<i>` is the 20M-row bomb under
+  // filterSpellings()[i]; `flate-spell-<i>-6` is its six-row control.
+  ...Object.fromEntries(
+    filterSpellings().flatMap((filter, i) => [
+      [`flate-spell-${i}`, () => flateRows(20_000_000, filter)],
+      [`flate-spell-${i}-6`, () => flateRows(6, filter)],
+    ]),
+  ),
+  // Review 3: 20 MB of the smallest objects (`0 obj<</A 1>>`); the rebuild
+  // fallback kept a Map for each, about 23 bytes of heap per file byte.
+  "dense-objects-20mb": () => denseObjects(20_000_000),
+  // The pre-scan's own quadratic (review 2): 16,000 dictionaries that never
+  // close took it 33 s (`/XRef` units) and 16 s (`trailer` units).
+  "unclosed-xref-16k": () => unclosedUnits("xref", 16_000),
+  "unclosed-trailer-16k": () => unclosedUnits("trailer", 16_000),
+  "unclosed-xref-64k": () => unclosedUnits("xref", 64_000),
+  // SIB-05: a 1 GiB zero bomb as the xref stream, single and chained.
+  "xref-bomb": () =>
+    ownerOnlyEncrypted(ONE_PAGE, {
+      xrefBody: zeroBomb(1024),
+      xrefDict: "/Filter /FlateDecode",
+    }),
+  "xref-bomb-chained": () =>
+    ownerOnlyEncrypted(ONE_PAGE, {
+      xrefBody: reflate(zeroBomb(1024)),
+      xrefDict: "/Filter [/FlateDecode /FlateDecode]",
+    }),
+  // SIB-05 (object streams): the page lives in a 1 GiB object stream.
+  "objstm-bomb": () => objStmBombPdf(1024),
+  // SIB-06: /Encrypt /Length 1000000000.
+  "encrypt-length-1e9": () =>
+    ownerOnlyEncrypted(ONE_PAGE, {
+      encryptDict: (d) => d.replace("/Length 128", "/Length 1000000000"),
+    }),
+};
+
+const ENTRIES: Record<string, (bytes: Uint8Array) => Promise<unknown>> = {
+  async readXref(bytes) {
+    try {
+      const x = await readXref(await loadPdfLib(), bytes);
+      return { settled: "entries", entries: x.entries.size };
+    } catch (err) {
+      return { settled: "threw", name: (err as Error).name };
+    }
+  },
+  async open(bytes) {
+    const r = await openProtectedPdf(bytes);
+    if (r.kind !== "opened") return { settled: r.kind };
+    const doc = await PDFDocument.load(r.pdf.plain);
+    return { settled: "opened", pages: doc.getPageCount() };
+  },
+  async classify(bytes) {
+    return {
+      settled: (await classifyPdfAccess(bytes, await legacyPdfjs())).kind,
+    };
+  },
+  // pdf.js alone, no pre-scan: what it costs to be asked.
+  async pdfjs(bytes) {
+    const lib = await legacyPdfjs();
+    const task = lib.getDocument({
+      data: bytes.slice(),
+      ...PDFJS_DOCUMENT_DEFAULTS,
+    });
+    try {
+      const doc = await awaitPdfjsDocument(task);
+      return { settled: "opened", pages: doc.numPages };
+    } catch (err) {
+      return { settled: "threw", name: (err as Error).name };
+    } finally {
+      await task.destroy().catch(() => {});
+    }
+  },
+  // The pre-scan's own memory: the RSS it adds above what the process held
+  // just before it ran (the fixture is built by then).
+  async "prescan-memory"(bytes) {
+    const meter = startMemoryMeter();
+    const scan = prescanXref(bytes);
+    return {
+      settled: scan.unbounded ? "refused" : "passed",
+      size: bytes.length,
+      addedMb: Math.round(meter.growthMb()),
+    };
+  },
+  // The pre-scan alone, on the caller's thread as readAccessFacts runs it.
+  async prescan(bytes) {
+    const scan = prescanXref(bytes);
+    return {
+      settled: scan.unbounded ? "refused" : "passed",
+      size: bytes.length,
+    };
+  },
+  async probe(bytes) {
+    return { settled: await probePdfEncryption(bytes, legacyPdfjs) };
+  },
+};
+
+const [, , fixture = "", entry = ""] = process.argv;
+const build = FIXTURES[fixture];
+const run = ENTRIES[entry];
+if (!build || !run) throw new Error(`unknown case ${fixture} ${entry}`);
+void (async () => {
+  const bytes = await build();
+  // pdf.js loads lazily: its first open pulls in the module and its in-thread
+  // worker, about 340 MB on Linux / Node 22, and that is not the hostile
+  // file's cost. Opened once on a clean one-page file first, so the meter
+  // below reads only what the entry spends on THIS file.
+  await warmPdfjs();
+  // The entry's own growth, after the fixture is built (./memory.ts).
+  const meter = startMemoryMeter();
+  const t0 = Date.now();
+  const value = (await run(bytes)) as Record<string, unknown>;
+  reportResult({
+    ...value,
+    ms: Date.now() - t0,
+    peakMb: peakMb(),
+    growthMb: Math.round(meter.growthMb()),
+    meter: meter.method,
+  });
+  process.exit(0);
+})();

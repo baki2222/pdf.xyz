@@ -1,5 +1,6 @@
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
+import { repairFieldTree } from "./form-tree";
 import { displayedSize, pageFrame, toContentSpace } from "./page-frame";
 import { loadPdfLib } from "./pdf-lib";
 import { loadPdf, stampProducer } from "./stamp";
@@ -394,6 +395,7 @@ export async function readFormContext(
   bytes: Uint8Array,
 ): Promise<NewFormContext> {
   const doc = await loadPdf(bytes);
+  repairFieldTree(await loadPdfLib(), doc);
   // Sizes AS DISPLAYED, from the same frames createFormFields maps through, so
   // the runner's "Page 1 is W × H pt" and its bounds describe the page the
   // user is measuring on — not the unrotated media box underneath it.
@@ -428,7 +430,9 @@ export async function createFormFields(
   specs: NewFormField[],
 ): Promise<CreateFormResult> {
   const doc = await loadPdf(bytes);
-  const { degrees } = await loadPdfLib();
+  const lib = await loadPdfLib();
+  const { degrees } = lib;
+  repairFieldTree(lib, doc);
   const pages = doc.getPages();
   const frames = pages.map(pageFrame);
   const pageSizes = frames.map(displayedSize);

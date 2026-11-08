@@ -1,3 +1,4 @@
+import type { isolatePageContent as IsolatePageContent } from "./content-isolation";
 import type { PDFFont, PDFImage, PDFPage, RGB as PdfLibRGB } from "pdf-lib";
 import { arrowHeadSegments, clampOpacity, parseHexColor } from "./annotate";
 import { PdfEngineError } from "./engine";
@@ -60,6 +61,19 @@ import {
   needsUnicodeFace,
   faceFor,
 } from "./editor/text";
+
+/**
+ * Content isolation (`./content-isolation`) runs only when a page is written,
+ * so it is imported at call time: a static import put it in the first load of
+ * every page whose runner imports this engine (hostile lane l06, 2026-11-08).
+ */
+const isolatePageContent = async (
+  page: Parameters<typeof IsolatePageContent>[0],
+): ReturnType<typeof IsolatePageContent> =>
+  (await import("./content-isolation")).isolatePageContent(
+    page,
+    await loadPdfLib(),
+  );
 
 /**
  * Write the WYSIWYG editor's objects into a PDF, in the browser, with pdf-lib.
@@ -483,6 +497,9 @@ export async function exportEditedPdf(
     );
   }
 
+  // Before the rewrite below reads it, so that rewrite keeps the brackets.
+  for (const p of new Set(list.map((o) => pages[o.page])))
+    if (p) await isolatePageContent(p);
   // Edit text and Redact rewrite the page content itself — before anything
   // is drawn on top of it, so what is drawn lands over the rewritten page.
   const retextOutcomes = await applyTextAndRedactions(

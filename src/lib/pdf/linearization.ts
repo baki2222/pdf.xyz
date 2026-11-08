@@ -36,12 +36,70 @@ const WS = "\\0\\t\\n\\f\\r ";
 
 /**
  * Header line, then any run of white space and comment lines (the binary
- * marker comment `%âãÏÓ` is one), then `N G obj <<` … `>>`: the first object.
+ * marker comment `%âãÏÓ` is one), then `N G obj <<`: the first object's
+ * opening. Where the dictionary ENDS is found by {@link topLevelDict}, not by
+ * this regex: a lazy `<<…>>` stopped at the first nested `>>` and read a
+ * nested dictionary's `/L` as the file's (hostile matrix SIB-13).
  */
 const FIRST_OBJECT = new RegExp(
   `^%PDF-[^\\r\\n]*(?:[${WS}]|%[^\\r\\n]*)*` +
-    `(\\d+)[${WS}]+(\\d+)[${WS}]+obj[${WS}]*<<([\\s\\S]*?)>>`,
+    `(\\d+)[${WS}]+(\\d+)[${WS}]+obj[${WS}]*<<`,
 );
+
+/**
+ * The dictionary that opens at `from` (just past its `<<`), with everything
+ * nested in it — dictionaries, arrays, literal and hex strings — blanked to
+ * spaces, so only its OWN keys remain to be read. `null` when it does not
+ * close inside `text` (the window).
+ */
+function topLevelDict(text: string, from: number): string | null {
+  let out = "";
+  let depth = 0; // nested `<<` / `[` inside the top-level dictionary
+  let i = from;
+  while (i < text.length) {
+    const c = text[i]!;
+    const pair = text.slice(i, i + 2);
+    if (c === "(") {
+      // A literal string, with its balanced parens and `\` escapes.
+      let parens = 1;
+      i += 1;
+      while (i < text.length && parens > 0) {
+        const s = text[i]!;
+        if (s === "\\") i += 1;
+        else if (s === "(") parens += 1;
+        else if (s === ")") parens -= 1;
+        i += 1;
+      }
+      if (parens > 0) return null;
+      out += " ";
+      continue;
+    }
+    if (pair === "<<" || c === "[") {
+      depth += 1;
+      i += c === "[" ? 1 : 2;
+      out += " ";
+      continue;
+    }
+    if (pair === ">>" || c === "]") {
+      if (depth === 0) return c === "]" ? null : out;
+      depth -= 1;
+      i += c === "]" ? 1 : 2;
+      out += " ";
+      continue;
+    }
+    if (c === "<") {
+      // A hex string.
+      const end = text.indexOf(">", i + 1);
+      if (end < 0) return null;
+      i = end + 1;
+      out += " ";
+      continue;
+    }
+    out += depth === 0 ? c : " ";
+    i += 1;
+  }
+  return null;
+}
 
 /** `/Linearized <positive number>` — the name must end where the key ends. */
 const LINEARIZED_KEY = new RegExp(
@@ -82,9 +140,11 @@ export function readLinearizationDict(
   // from byte 0, so the dictionary must close inside it either way.
   const start = head.indexOf("%PDF-");
   if (start < 0) return null;
-  const first = FIRST_OBJECT.exec(head.slice(start));
+  const tail = head.slice(start);
+  const first = FIRST_OBJECT.exec(tail);
   if (!first) return null;
-  const dict = first[3]!;
+  const dict = topLevelDict(tail, first[0].length);
+  if (dict === null) return null;
 
   const flag = LINEARIZED_KEY.exec(dict);
   if (!flag || !(Number(flag[1]) > 0)) return null;

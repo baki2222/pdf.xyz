@@ -286,6 +286,9 @@ export function copyFiles(): string[] {
     // JPG / PNG to PDF's Max file size (2026-10-31): labels, hint, outcome
     // lines, and the browser re-encoder's error messages.
     path.join(ROOT, "src", "lib", "pdf", "image-size-limit.ts"),
+    // The decode-budget refusal (2026-11-08, hostile lane l01): what a file
+    // whose compressed data unpacks past the budget is told, on every tool.
+    path.join(ROOT, "src", "lib", "pdf", "decode-budget.ts"),
     // JPG / PNG to PDF's per-image Rotate button (2026-11-08, audit
     // png-to-pdf#2): its tooltip and accessible name.
     path.join(ROOT, "src", "lib", "pdf", "image-rotation.ts"),
@@ -305,6 +308,8 @@ export function copyFiles(): string[] {
     // is ever reached.
     path.join(ROOT, "src", "lib", "pdf", "utif-pako-unused.ts"),
     path.join(ROOT, "src", "lib", "pdf", "image-reencode.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "raster-check.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "text-page-ceiling.ts"),
     path.join(ROOT, "src", "lib", "pdf", "offered-kinds.ts"),
     // The WYSIWYG editor's export refusals (2026-10-24): new phrase code,
     // so walked rather than recorded outside.
@@ -390,6 +395,12 @@ export function copyFiles(): string[] {
     // up front. New modules, so walked, as the ratchet asks.
     path.join(ROOT, "src", "lib", "pdf", "engine-errors.ts"),
     path.join(ROOT, "src", "lib", "pdf", "raster-format.ts"),
+    // The page-tree check every loader makes (2026-11-08): its refusal names
+    // the page pdf-lib could not read. New module, so walked.
+    path.join(ROOT, "src", "lib", "pdf", "page-tree.ts"),
+    // pdf.js's missing bounds (2026-11-08, hostile lane l07): what a file
+    // that expands too far, or nests its page content too deeply, is told.
+    path.join(ROOT, "src", "lib", "pdf", "pdfjs-guard.ts"),
   ];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {

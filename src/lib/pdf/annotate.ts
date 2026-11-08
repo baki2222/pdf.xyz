@@ -1,3 +1,4 @@
+import type { isolatePageContent as IsolatePageContent } from "./content-isolation";
 import type { PDFFont, PDFPage } from "pdf-lib";
 import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
 import { PdfEngineError } from "./engine";
@@ -11,6 +12,19 @@ import {
 import { embedStampFont, loadPdf, stampProducer } from "./stamp";
 import { isWinAnsiEncodable, nonWinAnsiCharacters } from "./winansi";
 import type { AnnotationType } from "./offered-kinds";
+
+/**
+ * Content isolation (`./content-isolation`) runs only when a page is written,
+ * so it is imported at call time: a static import put it in the first load of
+ * every page whose runner imports this engine (hostile lane l06, 2026-11-08).
+ */
+const isolatePageContent = async (
+  page: Parameters<typeof IsolatePageContent>[0],
+): ReturnType<typeof IsolatePageContent> =>
+  (await import("./content-isolation")).isolatePageContent(
+    page,
+    await loadPdfLib(),
+  );
 
 // Re-exported from their new home. Five modules needed the same predicate once
 // a Unicode face could be embedded, and two copies of an alphabet are two
@@ -843,6 +857,7 @@ export async function annotatePdf(
     const page = pages[annotation.page - 1];
     const frame = frames[annotation.page - 1];
     if (!page || !frame) continue;
+    await isolatePageContent(page);
     drawAnnotation(page, annotation, font, lib, frame);
     counts[annotation.type] += 1;
   }

@@ -111,6 +111,10 @@ describe("the copy surface reaches what the guards must read", () => {
       "src/lib/pdf/image-bookmarks.ts",
       "src/lib/pdf/image-page-custom.ts",
       "src/lib/pdf/image-reencode.ts",
+      // Added 2026-11-08 (hostile matrix lane l09): the image size refusal
+      // and Text to PDF page ceiling refusal.
+      "src/lib/pdf/raster-check.ts",
+      "src/lib/pdf/text-page-ceiling.ts",
       "src/lib/pdf/offered-kinds.ts",
       "src/lib/pdf/overlay.ts",
       // Added 2026-10-30: the four new in-browser tools' phrase modules.
@@ -122,6 +126,8 @@ describe("the copy surface reaches what the guards must read", () => {
       "src/lib/pdf/n-up.ts",
       // Added 2026-11-01: Split PDF Pages in Half's phrase module.
       "src/lib/pdf/split-half.ts",
+      // Added 2026-11-08: the page-tree check's damaged-page refusal.
+      "src/lib/pdf/page-tree.ts",
       "src/lib/workers/read-error.ts",
       // Added 2026-10-31: the lost-attempt error's two sentences. The executor
       // discards that result, but a log or a job record could carry them.

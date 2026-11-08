@@ -1,3 +1,4 @@
+import type { isolatePageContent as IsolatePageContent } from "./content-isolation";
 import type {
   PDFFont,
   PDFImage,
@@ -20,6 +21,19 @@ import { outputName } from "./files";
 import { viewToContent, viewerFrame, type PageBox } from "./page-frame";
 import { embedStampFont, loadPdf, stampProducer } from "./stamp";
 import type { EditOpType } from "./offered-kinds";
+
+/**
+ * Content isolation (`./content-isolation`) runs only when a page is written,
+ * so it is imported at call time: a static import put it in the first load of
+ * every page whose runner imports this engine (hostile lane l06, 2026-11-08).
+ */
+const isolatePageContent = async (
+  page: Parameters<typeof IsolatePageContent>[0],
+): ReturnType<typeof IsolatePageContent> =>
+  (await import("./content-isolation")).isolatePageContent(
+    page,
+    await loadPdfLib(),
+  );
 
 /**
  * In-browser basic PDF editing built on pdf-lib only — no uploads, no worker.
@@ -751,6 +765,7 @@ export async function editPdf(
     const page = pages[op.page - 1];
     const frame = frames[op.page - 1];
     if (!page || !frame) continue;
+    await isolatePageContent(page);
 
     if (op.type === "image") {
       let image: PDFImage;

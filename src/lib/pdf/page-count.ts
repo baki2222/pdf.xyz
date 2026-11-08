@@ -50,12 +50,21 @@ export async function countPdfPagesDetailed(
 ): Promise<PageCountResult> {
   if (bytes.byteLength === 0) return { ok: false, unknown: "unparseable" };
   if (bytes.byteLength > maxBytes) return { ok: false, unknown: "too-large" };
+  // `./page-tree`, requested WITH the parse, not after it: chained awaits made each lazy chunk a round trip of its own (pre-hydration-upload e2e, 2026-11-08).
+  const tree = import("./page-tree");
+  tree.catch(() => {});
   try {
-    const { PDFDocument } = await import("pdf-lib");
-    const doc = await PDFDocument.load(bytes, {
+    const lib = await import("pdf-lib");
+    const doc = await lib.PDFDocument.load(bytes, {
       updateMetadata: false,
       ignoreEncryption: true,
     });
+    // A page tree no engine could walk (no catalog, a cycle, a page pdf-lib
+    // could not parse) is unparseable here too, not a count (`./page-tree`).
+    const { settlePageTree } = await tree;
+    if (!settlePageTree(lib, doc).ok) {
+      return { ok: false, unknown: "unparseable" };
+    }
     return pageCountFromDoc(doc);
   } catch {
     return { ok: false, unknown: "unparseable" };

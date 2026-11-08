@@ -48,6 +48,12 @@ export async function pdfLoadError(
   probe: (bytes: Uint8Array) => Promise<EncryptionVerdict | null> = (b) =>
     probePdfEncryption(b),
 ): Promise<PdfEngineError> {
+  // pdf-lib stopped inflating at its decode budget: not damage, a bomb.
+  // Imported here, on the failure path only: engine.ts rides the first load
+  // of every tool page whose runner imports an engine function.
+  const { asDecodeBudgetRefusal } = await import("./decode-budget");
+  const tooLarge = asDecodeBudgetRefusal(err);
+  if (tooLarge) return tooLarge;
   const message = err instanceof Error ? err.message : "";
   // pdf-lib's EncryptedPDFError is an ES5-compiled subclass of Error: its
   // `name` is "Error" and `instanceof` does not hold, so its message is the
@@ -64,12 +70,32 @@ export async function pdfLoadError(
  * numbers, watermark, header/footer) share one loader and one set of messages.
  */
 export async function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
-  const { PDFDocument } = await loadPdfLib();
+  // The chunks a successful load needs, requested WITH the parse, not after it: chained awaits made each lazy chunk a round trip of its own (pre-hydration-upload e2e, 2026-11-08).
+  // `security/document` is the xref reader `./xref-duplicates` uses.
+  const guards = Promise.all([
+    import("./xref-duplicates"),
+    import("./page-tree"),
+    import("./security/document"),
+  ]);
+  guards.catch(() => {}); // a load that fails never awaits it
+  const lib = await loadPdfLib();
+  const { PDFDocument } = lib;
+  let doc: PDFDocument;
   try {
-    return await PDFDocument.load(bytes);
+    doc = await PDFDocument.load(bytes);
   } catch (err) {
     throw await pdfLoadError(err, bytes);
   }
+  // An object defined twice resolves to the body the xref names, as the
+  // preview shows it (`./xref-duplicates`), not the last one pdf-lib parsed.
+  // First, so the page-tree check below reads the objects a viewer reads.
+  const [{ honourXrefDuplicates }, { assertPageTree }] = await guards;
+  const honoured = (await honourXrefDuplicates(doc, bytes, lib)).doc;
+  // pdf-lib "loads" files whose page tree it cannot walk (no catalog, a
+  // cycle, a page it could not parse): checked and settled here, once, so no
+  // engine meets a raw TypeError or a silently missing page (`./page-tree`).
+  await assertPageTree(honoured, lib);
+  return honoured;
 }
 
 /** Internal alias kept so existing call sites read the same as before. */
@@ -291,6 +317,21 @@ export async function deletePages(
 }
 
 /**
+ * Refuse a rotation that is not a number (NaN, ±Infinity) before any page is
+ * touched (hostile matrix PS-15). Without it a NaN reached pdf-lib's
+ * `degrees()` and the person saw its raw TypeError. Refused, not read as 0:
+ * 0 is a real instruction, and `rotatePages(…, NaN)` would have set a turned
+ * page back upright. Local, not exported: this module rides first loads.
+ */
+function refuseNonFiniteRotations(angles: readonly number[]): void {
+  if (angles.some((a) => typeof a !== "number" || !Number.isFinite(a))) {
+    throw new PdfEngineError(
+      "Each page rotation must be a number of degrees, such as 90 or -90.",
+    );
+  }
+}
+
+/**
  * Rotate the given pages by a signed quarter-turn delta (e.g. 90 or -90),
  * relative to each page's current rotation.
  */
@@ -299,6 +340,7 @@ export async function rotatePages(
   indices: number[],
   turn: number,
 ): Promise<Uint8Array> {
+  refuseNonFiniteRotations([turn]);
   const { degrees, toDegrees } = await loadPdfLib();
   const src = await load(bytes);
   const count = src.getPageCount();
@@ -333,6 +375,7 @@ export async function setPageRotations(
   bytes: Uint8Array,
   rotations: readonly Rotation[],
 ): Promise<Uint8Array> {
+  refuseNonFiniteRotations(rotations);
   const { degrees } = await loadPdfLib();
   const doc = await load(bytes);
   const pages = doc.getPages();
@@ -413,6 +456,7 @@ export async function organizePages(
   bytes: Uint8Array,
   plan: OrganizePlanItem[],
 ): Promise<Uint8Array> {
+  refuseNonFiniteRotations(plan.map((item) => item.rotation));
   const lib = await loadPdfLib();
   const src = await load(bytes);
   const count = src.getPageCount();

@@ -1,0 +1,3 @@
+# PDFs are byte-exact fixtures (xref offsets count every byte): never
+# convert line endings, diff or merge them as text.
+*.pdf binary

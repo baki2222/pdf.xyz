@@ -11,6 +11,9 @@ overrides:
   source-map-js@<1.2.2: ^1.2.2
   sharp@<0.35.5: ^0.35.5
 
+patchedDependencies:
+  pdf-lib@1.17.1: 4faa245aaf7ae15992dfc8cae44444e4b35246c84569cca78000bbfc6a73a6c3
+
 importers:
 
   .:
@@ -38,7 +41,7 @@ importers:
         version: 16.4.5(@babel/core@7.29.7)(@playwright/test@1.61.1)(@types/node@26.0.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       pdf-lib:
         specifier: ^1.17.1
-        version: 1.17.1
+        version: 1.17.1(patch_hash=4faa245aaf7ae15992dfc8cae44444e4b35246c84569cca78000bbfc6a73a6c3)
       pdfjs-dist:
         specifier: ^6.2.108
         version: 6.2.108
@@ -5367,7 +5370,7 @@ snapshots:
 
   pathe@2.0.3: {}
 
-  pdf-lib@1.17.1:
+  pdf-lib@1.17.1(patch_hash=4faa245aaf7ae15992dfc8cae44444e4b35246c84569cca78000bbfc6a73a6c3):
     dependencies:
       '@pdf-lib/standard-fonts': 1.0.0
       '@pdf-lib/upng': 1.0.1

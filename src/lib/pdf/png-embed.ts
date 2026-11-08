@@ -1,5 +1,6 @@
 import type { PDFDocument, PDFImage } from "pdf-lib";
 import { loadPdfLib } from "./pdf-lib";
+import { checkPixelCeiling } from "./raster-check";
 
 /**
  * A PNG into a PDF image the way the PNG itself stores it (audit #10,
@@ -32,7 +33,10 @@ import { loadPdfLib } from "./pdf-lib";
  *    drops it. gAMA, cHRM and sRGB are not read.
  *
  * Anything that is not a whole, single-frame PNG throws — the caller words
- * that as "could not be decoded as a PNG image", as it did for pdf-lib's.
+ * that as "could not be decoded as a PNG image", as it did for pdf-lib's —
+ * and a PNG whose IHDR is over the shared pixel ceiling throws
+ * `ImageTooLarge` before anything is inflated (`raster-check.ts`), which the
+ * caller words by its size.
  *
  * Loaded on the first PNG only (`image-to-pdf.ts` imports it lazily). It
  * builds the image itself and draws nothing: drawing stays in
@@ -109,6 +113,9 @@ function readPng(bytes: Uint8Array): PngParts {
     if (data.length !== length) throw new PngDamage(`${type} cut short`);
     at += 12 + length;
     if (type === "IHDR") {
+      // Exactly one IHDR (CI-10): a second one used to overwrite the first,
+      // so the PDF showed a size libpng, and the browser's preview, refuse.
+      if (header) throw new PngDamage("second IHDR");
       if (length !== 13) throw new PngDamage("IHDR");
       header = {
         width: u32(data, 0),
@@ -127,6 +134,9 @@ function readPng(bytes: Uint8Array): PngParts {
         data[12]! > 1
       )
         throw new PngDamage("IHDR values");
+      // The pixel ceiling, before a byte is inflated or allocated (CI-04,
+      // CI-05): the caller words this as the TIFF path words a page.
+      checkPixelCeiling(header.width, header.height);
     } else if (!header) {
       throw new PngDamage("IHDR is not first");
     } else if (type === "PLTE") {

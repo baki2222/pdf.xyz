@@ -9,6 +9,7 @@ import type {
 } from "pdf-lib";
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
+import { repairFieldTree } from "./form-tree";
 import { loadPdf, stampProducer } from "./stamp";
 import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
 import {
@@ -147,6 +148,7 @@ export async function inspectForm(bytes: Uint8Array): Promise<FormInspection> {
   const lib = await loadPdfLib();
   const doc = await loadPdf(bytes);
   const xfa = readXfa(doc, lib);
+  repairFieldTree(lib, doc);
   const fields = doc.getForm().getFields();
   return {
     fields: fields.length,
@@ -497,6 +499,7 @@ export async function flattenPdf(bytes: Uint8Array): Promise<FlattenResult> {
   const lib = await loadPdfLib();
   const doc = await loadPdf(bytes);
   const xfa = readXfa(doc, lib);
+  repairFieldTree(lib, doc);
   // getForm() deletes the XFA; the state above was read first, on purpose.
   const totalFields = doc.getForm().getFields().length;
   if (isDynamicXfa(xfa, totalFields)) {

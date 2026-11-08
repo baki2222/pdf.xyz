@@ -42,6 +42,9 @@ WORKDIR /app
 # --------------------------------------------------------------------------- #
 FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+# pnpm applies `patchedDependencies` (pnpm-workspace.yaml) at install, and a
+# frozen install fails outright when a patch file is missing.
+COPY patches ./patches
 RUN pnpm install --frozen-lockfile
 
 # --------------------------------------------------------------------------- #

@@ -41,14 +41,16 @@ describe("add-time decode check (audit png-to-pdf#8)", () => {
   });
 
   /*
-   * The LIMIT, pinned (ADDED after review, 2026-11-08): a JPEG is read only
-   * as far as its frame header, by pdf-lib and so by this check, so a JPEG
-   * cut off after its SOF segment is accepted here, and Create PDF does not
-   * refuse it either. The pages say only that a JPG whose header cannot be
-   * read is turned away; this test fails if that ever changes either way,
-   * so the copy can be widened with it.
+   * INVERTED 2026-11-08 (hostile matrix CI-01). This test pinned the LIMIT
+   * (ADDED after review, 2026-11-08): a JPEG was read only as far as its
+   * frame header, by pdf-lib and so by this check, so a JPEG cut off after
+   * its SOF segment was accepted here and Create PDF embedded it, giving a
+   * grey or garbled page. `raster-check.ts` now walks the JPEG's segments to
+   * its scan and requires the end-of-image marker after it, at add time and
+   * at run, so the same cut file is refused by both. The remaining limit,
+   * stated on the pages: damage INSIDE the scan data is not decoded here.
    */
-  it("accepts a JPEG cut off after its frame header, as Create PDF does", async () => {
+  it("refuses a JPEG cut off after its frame header, as Create PDF does", async () => {
     const sof = JPEG_30X20.findIndex(
       (b, i) => b === 0xff && JPEG_30X20[i + 1] === 0xc0,
     );
@@ -57,10 +59,11 @@ describe("add-time decode check (audit png-to-pdf#8)", () => {
       sof + 2 + ((JPEG_30X20[sof + 2]! << 8) | JPEG_30X20[sof + 3]!);
     const cutAfterSof = JPEG_30X20.slice(0, sofEnd);
     expect(cutAfterSof.length).toBeLessThan(JPEG_30X20.length / 2);
-    expect(await imageDecodes(cutAfterSof, "jpg")).toBe(true);
-    const pdf = await imagesToPdf("jpg", [
-      { name: "cut.jpg", type: "image/jpeg", bytes: cutAfterSof },
-    ]);
-    expect(pdf.length).toBeGreaterThan(0);
+    expect(await imageDecodes(cutAfterSof, "jpg")).toBe(false);
+    await expect(
+      imagesToPdf("jpg", [
+        { name: "cut.jpg", type: "image/jpeg", bytes: cutAfterSof },
+      ]),
+    ).rejects.toThrow(undecodableImageMessage("cut.jpg", "jpg"));
   });
 });

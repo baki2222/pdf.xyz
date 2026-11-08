@@ -133,7 +133,15 @@ export async function scansToPdf(
     };
 
     if (input.enhancement === "original") {
-      const image = await embedRasterImage(doc, input.jpeg, "jpg");
+      // The browser's JPEG encoder made these bytes; if anything else
+      // arrives, pdf-lib's own "SOI not found" must not reach the user
+      // (hostile matrix CI-12).
+      let image;
+      try {
+        image = await embedRasterImage(doc, input.jpeg, "jpg");
+      } catch {
+        throw new PdfEngineError("A photo could not be read.");
+      }
       await drawRasterImage(page, image, box);
       records.push({
         enhancement: "original",
