@@ -108,15 +108,13 @@ export interface OcrWorkerOptions {
 const defaultFetch: FetchLike = (input, init) =>
   fetch(input, init as RequestInit);
 
-/** Copy bytes into a standalone ArrayBuffer — a concrete, portable request body. */
-function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  const copy = new ArrayBuffer(bytes.byteLength);
-  new Uint8Array(copy).set(bytes);
-  return copy;
-}
-
+/**
+ * The JSON's bytes as a standalone ArrayBuffer — a concrete, portable request
+ * body. `TextEncoder.encode` returns a fresh buffer of exactly the encoded
+ * length (Encoding spec), so its own buffer is that body; no copy is needed.
+ */
 function jsonBody(value: unknown): ArrayBuffer {
-  return toArrayBuffer(new TextEncoder().encode(JSON.stringify(value)));
+  return new TextEncoder().encode(JSON.stringify(value)).buffer;
 }
 
 /** Pull an honest message + code out of a non-OK response (see `./read-error`). */

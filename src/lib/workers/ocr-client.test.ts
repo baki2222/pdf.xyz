@@ -203,6 +203,12 @@ describe("runWorkerOcr", () => {
     const jobBody = JSON.parse(
       new TextDecoder().decode(jobCall.body as ArrayBuffer),
     );
+    // The body is the JSON's bytes and nothing else: a standalone buffer of
+    // exactly their length, never a view over a larger one.
+    expect(jobCall.body).toBeInstanceOf(ArrayBuffer);
+    expect(jobCall.body!.byteLength).toBe(
+      new TextEncoder().encode(JSON.stringify(jobBody)).byteLength,
+    );
     expect(jobBody).toMatchObject({
       tool: "ocr-pdf",
       inputs: ["f_abcdefghij"],
