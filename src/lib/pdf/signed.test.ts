@@ -37,7 +37,14 @@ describe("countSignatures", () => {
   const EXPECTED = {
     field: 1,
     orphan: 1,
-    "direct-value": 1,
+    // INVERTED 2026-11-08 (hostile matrix SIB-12): was 1. This fixture's
+    // direct /V is `<< /Type /Sig /Contents <00> >>` with NO /ByteRange —
+    // nothing was ever hashed, so a rewrite invalidates nothing, and
+    // `countDigitalSignatures` (every other tool) always said 0. A direct
+    // value WITH an integer /ByteRange still counts 1: see "a DIRECT
+    // signature value with an integer /ByteRange still counts (route 2)" in
+    // src/tests/hostile/signatures-linearization.hostile.test.ts.
+    "direct-value": 0,
     "unsigned-field": 0,
   } as const satisfies Record<SignaturePlacement, number>;
 
