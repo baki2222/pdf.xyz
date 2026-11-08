@@ -6,8 +6,13 @@ import type { Rotation } from "./types";
  * Its own module (re-exported by `./engine`) because the pdf.js loader needs
  * it, and importing it from `./engine` put the page-assembly engine in the
  * first load of every page that reads text or renders a page.
+ *
+ * A non-finite angle maps to 0, so a NaN can never reach pdf-lib's
+ * `degrees()` (which throws a raw TypeError). The engines that take a plan
+ * refuse one first (`refuseNonFiniteRotations` in `./engine`); this is the floor under them.
  */
 export function normalizeAngle(angle: number): Rotation {
+  if (!Number.isFinite(angle)) return 0;
   const snapped = (((Math.round(angle / 90) * 90) % 360) + 360) % 360;
   return snapped as Rotation;
 }

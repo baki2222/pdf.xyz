@@ -114,9 +114,18 @@ export function customMargin(
 }
 
 /**
- * Why `options` cannot be laid out, or undefined when they can: a margin
- * that leaves less than {@link MIN_PRINTABLE_PT} across the page's short
- * side. Checked by the runner before Create PDF and by the engine again.
+ * Why `options` cannot be laid out, or undefined when they can: a custom
+ * margin outside 0 to {@link MAX_CUSTOM_MARGIN_PT}, a custom size outside
+ * {@link MIN_CUSTOM_PAGE_PT} to {@link MAX_CUSTOM_PAGE_PT} a side, or a
+ * margin that leaves less than {@link MIN_PRINTABLE_PT} across the page's
+ * short side. Checked by the runner before Create PDF and by the engine
+ * again, in the words {@link customMargin} and {@link customPageSize} use.
+ *
+ * HISTORY (hostile matrix CI-13, 2026-11-08): only the last rule was
+ * checked here, so NaN passed every comparison and reached pdf-lib's raw
+ * TypeError, and a margin of -1,000,000 under Fit drew a page of minus two
+ * million points. The parsers above bounded what the runner sends; the
+ * engine gate claimed to and did not.
  */
 export function pageSetupProblem(
   options: ImagePageOptions,
@@ -126,6 +135,8 @@ export function pageSetupProblem(
     options.margin === "custom" && options.customMarginPt !== undefined
       ? options.customMarginPt
       : imageMarginPoints(options.margin);
+  if (!(margin >= 0 && margin <= MAX_CUSTOM_MARGIN_PT))
+    return `Enter a margin from 0 to ${shown(MAX_CUSTOM_MARGIN_PT, unit)}.`;
   const size =
     options.pageSize === "custom"
       ? options.customSize
@@ -133,6 +144,14 @@ export function pageSetupProblem(
   if (options.pageSize === "custom" && !size)
     return "Enter a custom page size.";
   if (!size) return undefined; // Fit to image: the page grows with the margin.
+  if (
+    options.pageSize === "custom" &&
+    !(
+      Math.min(size.width, size.height) >= MIN_CUSTOM_PAGE_PT &&
+      Math.max(size.width, size.height) <= MAX_CUSTOM_PAGE_PT
+    )
+  )
+    return `Each side of a custom page must be from ${shown(MIN_CUSTOM_PAGE_PT, unit)} to ${shown(MAX_CUSTOM_PAGE_PT, unit)}.`;
   const short = Math.min(size.width, size.height);
   if (short - margin * 2 < MIN_PRINTABLE_PT)
     return `That margin leaves no room for the image on a ${shown(short, unit)} wide page. Choose a smaller margin.`;

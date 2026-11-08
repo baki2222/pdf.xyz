@@ -5,6 +5,7 @@ import { PdfEngineError } from "./engine";
 import { embedDrawingFont } from "./unicode-font";
 import { TEXT_PAGE_MARGIN_PT, US_LETTER_PT } from "./page-geometry";
 import { stripControls } from "@/lib/text/decode-text-file";
+import { MAX_TEXT_PAGES, TOO_MANY_TEXT_PAGES } from "./text-page-ceiling";
 
 const PRODUCER = "pdf.xyz";
 // The page geometry the tool page states — one value, see ./page-geometry.
@@ -122,6 +123,8 @@ export function printablePlainText(text: string): {
 /**
  * Lines wrapped to the column and cut into pages. A form feed ends the page it
  * is on, as a printer would; one after the last text adds no empty page.
+ * Throws {@link TOO_MANY_TEXT_PAGES} at the first page over
+ * {@link MAX_TEXT_PAGES}, so the work stops there (hostile matrix CI-11).
  */
 export function layoutPlainText(
   text: string,
@@ -139,6 +142,8 @@ export function layoutPlainText(
       .flatMap((line) => wrapTextLine(line, font, maxWidth));
     lineCount += lines.length;
     for (let i = 0; i < lines.length; i += linesPerPage) {
+      if (pages.length === MAX_TEXT_PAGES)
+        throw new PdfEngineError(TOO_MANY_TEXT_PAGES);
       pages.push({ lines: lines.slice(i, i + linesPerPage) });
     }
   }

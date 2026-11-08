@@ -1,4 +1,5 @@
 import type { PDFDict, PDFDocument } from "pdf-lib";
+import { withDecodeBudget } from "./decode-budget";
 import { pdfLoadError, PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
@@ -121,12 +122,20 @@ const INFO_KEYS: Record<keyof PdfMetadata, string> = {
 };
 
 async function loadUntouched(bytes: Uint8Array): Promise<PDFDocument> {
-  const { PDFDocument } = await loadPdfLib();
+  // `./page-tree`, requested WITH the parse, not after it: chained awaits made each lazy chunk a round trip of its own (pre-hydration-upload e2e, 2026-11-08).
+  const tree = import("./page-tree");
+  tree.catch(() => {});
+  const lib = await loadPdfLib();
+  const { PDFDocument } = lib;
+  let doc: PDFDocument;
   try {
-    return await PDFDocument.load(bytes, { updateMetadata: false });
+    doc = await PDFDocument.load(bytes, { updateMetadata: false });
   } catch (err) {
     throw await pdfLoadError(err, bytes);
   }
+  // The same page-tree check as `loadPdf` (`./page-tree`).
+  await (await tree).assertPageTree(doc, lib);
+  return doc;
 }
 
 /** The trailer's Info dictionary, or `undefined` when the file has none. */
@@ -434,11 +443,25 @@ function keepUntouchedDates(
   return kept;
 }
 
+/**
+ * The most an existing XMP packet may inflate to before it is treated as
+ * absent (EDIT-11: a 1 MB file whose packet inflated to 1 GiB). A real packet
+ * is kilobytes; 16 MiB still carries one bloated by years of editing history
+ * (Photoshop's DocumentAncestors lists reach megabytes). Over it, the edit
+ * goes on as if the file had no old packet: only its PDF/A identification and
+ * extension schemas are not carried over.
+ */
+const MAX_XMP_PACKET_BYTES = 16 * 1024 * 1024;
+
 function xmpText(lib: PdfLibModule, doc: PDFDocument): string | undefined {
   const stream = doc.catalog.lookup(lib.PDFName.of("Metadata"));
   if (!(stream instanceof lib.PDFRawStream)) return undefined;
   try {
-    return new TextDecoder().decode(lib.decodePDFRawStream(stream).decode());
+    return new TextDecoder().decode(
+      withDecodeBudget(MAX_XMP_PACKET_BYTES, () =>
+        lib.decodePDFRawStream(stream).decode(),
+      ),
+    );
   } catch {
     return undefined;
   }
