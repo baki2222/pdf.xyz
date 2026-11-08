@@ -9,6 +9,10 @@
  *  - Worker jobs: {@link withToolOutcome} around every function that creates a
  *    job (`POST /api/jobs`) — `runSecurityJob` (which most panels share),
  *    `runWorkerOcr`, `runWorkerCompression` and `runWorkerWebpageToPdf`.
+ *  - The worker batch (`runner/batch/worker-batch.ts`): one outcome per FILE.
+ *    A file can take several attempts (a pause re-runs it, a resume waits
+ *    again), so its attempts pass `reportsOutcome: false` to the job client
+ *    and the batch reports when the file's row settles.
  *
  * This list is not the guard. It once said "the two places every run already
  * passes through, so no runner or panel can forget" while compress-pdf and
