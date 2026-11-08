@@ -84,20 +84,6 @@ export function setPdfjsForAccessSource(source: PdfjsSource): PdfjsSource {
 }
 
 /**
- * Did the open fail for want of a password? Asked of the ENGINE's error:
- * the document is opened through `awaitPdfjsDocument` (`./pdfjs`), which turns
- * pdf.js's `PasswordException` into the engine's encrypted error with a
- * `needs-password` verdict — the same translation every other reader gets, so
- * no reader classifies a raw pdf.js failure its own way. The raw name is still
- * recognised, for a pdf.js error that reaches here untranslated.
- */
-function isPasswordRefusal(err: unknown): boolean {
-  if (typeof err !== "object" || err === null) return false;
-  const { name, verdict } = err as { name?: unknown; verdict?: unknown };
-  return name === "PasswordException" || verdict === "needs-password";
-}
-
-/**
  * Classify a PDF's lock by opening it the way a viewer does. Never throws.
  *
  * `pdfjs` defaults to the browser build the rest of the app uses; pass a module
@@ -106,13 +92,21 @@ function isPasswordRefusal(err: unknown): boolean {
 export async function classifyPdfAccess(
   bytes: Uint8Array,
   pdfjs?: PdfjsForAccess,
+  bounds: { readonly deadlineMs?: number } = {},
 ): Promise<PdfAccess> {
   let lib: PdfjsForAccess;
+  // The checks around the open, and `./pdfjs`, in their own chunk (see
+  // `./pdf-access-guard`): this module is in every tool page's first load,
+  // and on the e2e suite's CommonJS load path (see `./pdfjs-browser`).
+  let guard: typeof import("./pdf-access-guard");
   try {
     lib = pdfjs ?? (await pdfjsSource());
+    guard = await import("./pdf-access-guard");
   } catch {
     return { kind: "unreadable" };
   }
+  const facts = await guard.readAccessFacts(bytes);
+  if (facts.refuse) return { kind: "unreadable" };
   // pdf.js may transfer (detach) the buffer it is handed; the caller still
   // needs these bytes for the upload, so it gets a private copy.
   const task = lib.getDocument({
@@ -120,24 +114,22 @@ export async function classifyPdfAccess(
     ...PDFJS_DOCUMENT_DEFAULTS,
   });
   try {
-    // Imported on demand: this module is on the e2e suite's CommonJS load
-    // path (see `./pdfjs-browser`), and `./pdfjs` is not.
-    const { awaitPdfjsDocument } = await import("./pdfjs");
-    const doc = await awaitPdfjsDocument(task);
     // `EncryptFilterName` is `xref.encrypt?.filterName ?? null` in pdf.js's
-    // document info: non-null exactly when the trailer carries an /Encrypt
-    // dictionary and pdf.js is decrypting — the same fact pdf-lib refuses on.
-    // (Not `getPermissions()`: that is also null for an /Encrypt with no /P.)
-    const { info } = await doc.getMetadata();
-    const filter = (info as { EncryptFilterName?: unknown } | null)
-      ?.EncryptFilterName;
-    return filter === null || filter === undefined
-      ? { kind: "unencrypted", pageCount: doc.numPages }
-      : { kind: "restricted", pageCount: doc.numPages };
+    // document info: non-null exactly when pdf.js is decrypting. (Not
+    // `getPermissions()`: that is also null for an /Encrypt with no /P.)
+    const opened = async () => {
+      const doc = await guard.awaitPdfjsDocument(task);
+      const { info } = await doc.getMetadata();
+      const filter = (info as { EncryptFilterName?: unknown } | null)
+        ?.EncryptFilterName;
+      return guard.openedVerdict(doc.numPages, filter, facts);
+    };
+    return await guard.withDeadline(
+      opened(),
+      bounds.deadlineMs ?? guard.ACCESS_DEADLINE_MS,
+    );
   } catch (err) {
-    return isPasswordRefusal(err)
-      ? { kind: "password-required" }
-      : { kind: "unreadable" };
+    return guard.refusedVerdict(err, facts);
   } finally {
     await task.destroy().catch(() => {});
   }
