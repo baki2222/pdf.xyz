@@ -65,11 +65,16 @@ export async function pdfLoadError(
  */
 export async function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
   const { PDFDocument } = await loadPdfLib();
+  let doc: PDFDocument;
   try {
-    return await PDFDocument.load(bytes);
+    doc = await PDFDocument.load(bytes);
   } catch (err) {
     throw await pdfLoadError(err, bytes);
   }
+  // An object defined twice resolves to the body the xref names, as the
+  // preview shows it (`./xref-duplicates`), not the last one pdf-lib parsed.
+  const { honourXrefDuplicates } = await import("./xref-duplicates");
+  return (await honourXrefDuplicates(doc, bytes)).doc;
 }
 
 /** Internal alias kept so existing call sites read the same as before. */
