@@ -212,7 +212,9 @@ export function SettingsBatchRunner({
       // The saved file's own name ("Download invoice-rotated.pdf"): a word
       // like "flattened" would be false of a file that had no form.
       downloadLabel={(_item, row) => `Download ${row.name}`}
-      doneSentence={(p) => `Batch complete. ${p.done} done, ${p.error} failed.`}
+      doneSentence={(p) =>
+        `Batch complete. ${p.done} done, ${p.error} failed${p.skipped > 0 ? `, ${p.skipped} skipped` : ""}.`
+      }
       inputBytes={(row) => row.inputBytes}
       zipName={zipName}
       zipFallback="If it keeps failing, download the files one at a time above."

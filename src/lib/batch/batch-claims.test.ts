@@ -214,7 +214,13 @@ describe("batch claims, walked from the catalogue", () => {
     }
   });
 
-  it("every batch caps its files, and the workspace states that cap for exactly those tools", () => {
+  // What this proves is that limits.ts is LOADED by every batch module, not
+  // that the cap RUNS (CLAUDE.md rule 4: loading a module is not running a
+  // function). Until review 2026-11-08 it was named "every batch caps its
+  // files", and an override of the cap's limits left it green. That the
+  // cap runs is shown through each page's own runner, in
+  // runner/batch/settings-batches.dom.test.tsx ("the batch's file cap").
+  it("every batch module loads the cap, and the workspace states that cap for exactly those tools", () => {
     const LIMITS = "src/lib/batch/limits.ts";
     for (const r of rows.filter((x) => x.backed))
       for (const batchModule of r.modules)
@@ -265,6 +271,8 @@ const ONE_FILE_SHIPPED = [
   "Add Page Numbers numbers one PDF at a time, and each file starts counting from First number.",
   "Not in one step: the tool numbers one PDF at a time, and each file starts from First number.",
   "It runs in your browser, so the PDF stays on your device, and it takes one file up to 100 MB.",
+  // Review 2026-11-08: Add Page Numbers' intro, missed by the first corpus.
+  "Add Page Numbers stamps a number onto every page of one PDF, or onto every page from a chosen page onward, and can leave a cover or the last pages without one.",
 ];
 
 const ONE_FILE_BANS: { name: string; pattern: RegExp }[] = [
@@ -285,6 +293,11 @@ const ONE_FILE_BANS: { name: string; pattern: RegExp }[] = [
     pattern: /\b(?:Open|Drag|Drop) (?:one|a single) (?:PDF|file)\b/,
   },
   { name: "the one-file caption", pattern: /\bOne PDF ·/ },
+  // What the tool does, said of exactly one file ("every page of one PDF").
+  {
+    name: "every page of one file",
+    pattern: /\bevery page of (?:one|a single) (?:PDF|file)\b/i,
+  },
 ];
 
 /** Every string in a value, however deep. */

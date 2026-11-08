@@ -10,7 +10,7 @@
  *  - `batch`  : the runner takes many files and processes each one (compress,
  *               and since batch plan P1 rotate, flatten, page numbers,
  *               watermark and split in half, through their settings batch).
- *  - `single` : the runner works on exactly one file at a time (rotate, split,
+ *  - `single` : the runner works on exactly one file at a time (split,
  *               organize, extract/delete pages, text conversion) — a handoff
  *               pre-loads the first eligible file.
  *  - `stage`  : a secure-worker or AI panel (every tool with no in-browser

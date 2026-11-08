@@ -9,6 +9,13 @@
  *   - Add Watermark's page list is the same in every file and is never cut
  *     down to fit one: a file without those pages fails on its own row,
  *     unstamped, and the other file is stamped on exactly those pages.
+ *     An open-ended token ("3-") is checked as typed, never expanded, and
+ *     each file resolves it against its own page count (review 2026-11-08:
+ *     the check expanded "1-" to Number.MAX_SAFE_INTEGER pages, froze the
+ *     tab, and blocked Run with "Set maximum size exceeded").
+ *   - Add Page Numbers skips a file its settings number no page of, says
+ *     why on its row, leaves it out of the archive, and the ending counts it.
+ *   - Split PDF Pages in Half's Page order reaches every file, on either cut.
  *   - A browser out of memory stops the batch there, keeps what finished,
  *     and never runs the files after it.
  *   - A Run whose settings are incomplete keeps its focus, says why, and
@@ -32,12 +39,20 @@ import {
 import type { ReactNode } from "react";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import JSZip from "jszip";
-import { PDFDocument, StandardFonts } from "pdf-lib";
+import {
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFName,
+  PDFRawStream,
+  StandardFonts,
+  decodePDFRawStream,
+} from "pdf-lib";
 import { resetAnnouncer } from "@/components/a11y/live-region";
 import { WATERMARK_BATCH_PAGES_NOTE } from "@/lib/batch/tools";
 import { addPageNumbers, PAGE_NUMBER_MARGINS } from "@/lib/pdf/page-numbers";
 import { getRunnerKind } from "@/lib/pdf/registry";
-import { watermarkPdf } from "@/lib/pdf/watermark";
+import { DEFAULT_IMAGE_SCALE, watermarkPdf } from "@/lib/pdf/watermark";
 import { readAsViewer } from "@/tests/pdf-viewer-read";
 import { runnerMounted } from "@/tests/runner-mounted";
 import { PageNumbersEditor } from "../page-numbers-runner";
@@ -45,7 +60,7 @@ import { SplitHalfEditor } from "../split-half-runner";
 import { ToolRunner } from "../tool-runner";
 import { WatermarkEditor } from "../watermark-runner";
 import type { LoadedPdf } from "../use-single-pdf";
-import { PageNumbersBatch } from "./page-numbers-batch";
+import { PAGE_NUMBER_BATCH_NONE, PageNumbersBatch } from "./page-numbers-batch";
 import {
   BATCH_OUT_OF_MEMORY,
   SettingsBatchRunner,
@@ -216,6 +231,156 @@ describe("Add Watermark's batch: one page list, never cut down", () => {
   );
 });
 
+describe("Add Watermark's batch: an open-ended page range", () => {
+  it(
+    'takes "1-" and "3-" as typed, and stamps page 3 to the end of each file',
+    { timeout: 60_000 },
+    async () => {
+      render(
+        <Router>
+          <WatermarkBatch
+            {...batchProps([
+              pdfFile(await pdfOfPages(3), "three.pdf"),
+              pdfFile(await pdfOfPages(5), "five.pdf"),
+            ])}
+          />
+        </Router>,
+      );
+      fireEvent.click(screen.getByRole("radio", { name: "Selected pages" }));
+      const field = screen.getByLabelText(/^Pages in every file/);
+      const run = screen.getByRole("button", { name: "Watermark 2 PDFs" });
+      // On the way to "1-3", the dash alone is a whole range, not an error.
+      const typedAt = performance.now();
+      fireEvent.change(field, { target: { value: "1-" } });
+      expect(run).not.toHaveAttribute("aria-disabled");
+      fireEvent.change(field, { target: { value: "3-" } });
+      expect(run).not.toHaveAttribute("aria-disabled");
+      // Checked, not expanded: two keystrokes, nowhere near a second.
+      expect(performance.now() - typedAt).toBeLessThan(500);
+      // Control: a token no file could meet still blocks Run, in the
+      // parser's own words.
+      fireEvent.change(field, { target: { value: "5-3" } });
+      expect(run).toHaveAttribute("aria-disabled", "true");
+      expect(run).toHaveAccessibleDescription(/backwards/);
+      fireEvent.change(field, { target: { value: "3-" } });
+      fireEvent.click(run);
+      await screen.findByRole(
+        "heading",
+        { name: "Batch complete. 2 done, 0 failed." },
+        { timeout: 30_000 },
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Download all (2)" }));
+      await waitFor(() => expect(downloads).toHaveLength(1));
+      const zip = await zipOf();
+      const stamped = async (name: string, pages: number) => {
+        const out: number[] = [];
+        for (let p = 1; p <= pages; p += 1)
+          if ((await textOf(zip.get(name)!, p)).includes("CONFIDENTIAL"))
+            out.push(p);
+        return out;
+      };
+      // Each file resolves "3-" against its own page count.
+      expect(await stamped("three-watermarked.pdf", 3)).toEqual([3]);
+      expect(await stamped("five-watermarked.pdf", 5)).toEqual([3, 4, 5]);
+    },
+  );
+});
+
+describe("Add Page Numbers' batch: a file its settings number no page of", () => {
+  it(
+    "is skipped with the reason, left out of the archive, and counted in the ending",
+    { timeout: 60_000 },
+    async () => {
+      render(
+        <Router>
+          <PageNumbersBatch
+            {...batchProps([
+              pdfFile(await pdfOfPages(1), "cover.pdf"),
+              pdfFile(await pdfOfPages(3), "three.pdf"),
+            ])}
+          />
+        </Router>,
+      );
+      fireEvent.click(
+        screen.getByRole("checkbox", { name: /Leave the cover unnumbered/ }),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Number 2 PDFs" }));
+      await screen.findByRole(
+        "heading",
+        { name: "Batch complete. 1 done, 0 failed, 1 skipped." },
+        { timeout: 30_000 },
+      );
+      const coverRow = screen.getByText("cover.pdf").closest("li")!;
+      expect(coverRow).toHaveTextContent(`Skipped · ${PAGE_NUMBER_BATCH_NONE}`);
+      fireEvent.click(screen.getByRole("button", { name: "Download all (1)" }));
+      await waitFor(() => expect(downloads).toHaveLength(1));
+      const zip = await zipOf();
+      expect([...zip.keys()]).toEqual(["three-numbered.pdf"]);
+      const three = zip.get("three-numbered.pdf")!;
+      // The other file is numbered: its cover counted but bare, page 2 on.
+      expect(await textOf(three, 1)).not.toMatch(/Page \d/);
+      expect(await textOf(three, 2)).toContain("Page 2 of 3");
+    },
+  );
+});
+
+/** `pdfOfPages`' page size, for reading where each half went. */
+const SHEET = { width: 300, height: 400 };
+
+describe("Split PDF Pages in Half's batch: Page order reaches every file", () => {
+  it.each([
+    // The bottom half of an unrotated page starts at y = 0.
+    { direction: "Top and bottom", order: "Bottom half first", x: 0, y: 0 },
+    {
+      direction: "Top and bottom",
+      order: "Top half first",
+      x: 0,
+      y: SHEET.height / 2,
+    },
+    {
+      direction: "Left and right",
+      order: "Right page first",
+      x: SHEET.width / 2,
+      y: 0,
+    },
+    { direction: "Left and right", order: "Left page first", x: 0, y: 0 },
+  ])(
+    "$direction, $order: page 1 of every output starts at ($x, $y)",
+    { timeout: 60_000 },
+    async ({ direction, order, x, y }) => {
+      const sheet = await pdfOfPages(1);
+      render(
+        <Router>
+          <SplitHalfBatch
+            {...batchProps([pdfFile(sheet, "a.pdf"), pdfFile(sheet, "b.pdf")])}
+          />
+        </Router>,
+      );
+      fireEvent.click(screen.getByRole("radio", { name: direction }));
+      fireEvent.click(screen.getByRole("radio", { name: order }));
+      fireEvent.click(screen.getByRole("button", { name: "Split 2 PDFs" }));
+      fireEvent.click(
+        await screen.findByRole(
+          "button",
+          { name: "Download all (2)" },
+          { timeout: 30_000 },
+        ),
+      );
+      await waitFor(() => expect(downloads).toHaveLength(1));
+      const zip = await zipOf();
+      expect(zip.size).toBe(2);
+      for (const [name, bytes] of zip) {
+        const doc = await PDFDocument.load(bytes);
+        expect(doc.getPageCount(), name).toBe(2);
+        const [first, second] = doc.getPages().map((p) => p.getCropBox());
+        expect({ x: first!.x, y: first!.y }, name).toEqual({ x, y });
+        // Health: page 2 is the other half, not the same one again.
+        expect({ x: second!.x, y: second!.y }, name).not.toEqual({ x, y });
+      }
+    },
+  );
+});
+
 describe("a batch that runs out of memory", () => {
   it(
     "stops there, keeps the finished file, and never runs the rest",
@@ -356,6 +521,39 @@ async function loaded(): Promise<LoadedPdf> {
   };
 }
 
+/**
+ * What page 1 draws: its content streams in order, decoded, with pdf-lib's
+ * random resource-name suffixes taken out, and the fonts the file names.
+ */
+async function drawingOf(
+  bytes: Uint8Array,
+): Promise<{ ops: string; fonts: string[] }> {
+  const doc = await PDFDocument.load(bytes);
+  const contents = doc.getPage(0).node.Contents();
+  const streams =
+    contents instanceof PDFArray
+      ? contents.asArray().map((ref) => doc.context.lookup(ref))
+      : [contents];
+  const ops = streams
+    .map((s) =>
+      s instanceof PDFRawStream
+        ? new TextDecoder().decode(decodePDFRawStream(s).decode())
+        : String(s),
+    )
+    .join("\n--\n")
+    .replace(/\/([A-Za-z]+)-\d+/g, "/$1");
+  const fonts = doc.context
+    .enumerateIndirectObjects()
+    .flatMap(([, obj]) => {
+      if (!(obj instanceof PDFDict)) return [];
+      if (obj.get(PDFName.of("Type")) !== PDFName.of("Font")) return [];
+      const base = obj.get(PDFName.of("BaseFont"));
+      return base ? [String(base).replace(/^\/[A-Z]{6}\+/, "/")] : [];
+    })
+    .sort();
+  return { ops, fonts };
+}
+
 /** Which radio of a named group is checked. */
 const checkedIn = (scope: HTMLElement, group: string) =>
   within(within(scope).getByRole("radiogroup", { name: group }))
@@ -483,6 +681,103 @@ describe("option drift: the batch starts where the single-file editor does", () 
     expect(await sizeOf({})).not.toEqual(
       await sizeOf({ fontSize: fontSize / 2 }),
     );
+  });
+
+  it(
+    "Add Watermark: font, color, layer and size draw what the editor's defaults draw",
+    { timeout: 60_000 },
+    async () => {
+      // The editor's own Run on a file, then the batch's on the same file.
+      // Both pages are drawn by one engine, so a default the batch leaves
+      // to the engine and the editor sets differently (font, ink, layer,
+      // size) shows as a different drawing.
+      const input = await pdfOfPages(1);
+      const one = render(
+        <Router>
+          <WatermarkEditor
+            pdf={{
+              file: pdfFile(input, "doc.pdf"),
+              bytes: input,
+              pageCount: 1,
+              rotations: [0],
+              digitalSignatures: 0,
+            }}
+            onReset={() => {}}
+          />
+        </Router>,
+      );
+      fireEvent.click(
+        within(one.container).getByRole("button", { name: /add watermark/i }),
+      );
+      fireEvent.click(
+        await within(one.container).findByRole(
+          "button",
+          { name: /download watermarked pdf/i },
+          { timeout: 20_000 },
+        ),
+      );
+      await waitFor(() => expect(downloads).toHaveLength(1));
+      const single = new Uint8Array(await downloads[0]!.blob.arrayBuffer());
+      one.unmount();
+
+      render(
+        <Router>
+          <WatermarkBatch
+            {...batchProps([pdfFile(input, "a.pdf"), pdfFile(input, "b.pdf")])}
+          />
+        </Router>,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Watermark 2 PDFs" }));
+      fireEvent.click(
+        await screen.findByRole(
+          "button",
+          { name: "Download all (2)" },
+          { timeout: 30_000 },
+        ),
+      );
+      await waitFor(() => expect(downloads).toHaveLength(2));
+      const batch = (await zipOf()).get("a-watermarked.pdf")!;
+
+      const drawn = await drawingOf(single);
+      // Health: the mark was read, with its ink and its font.
+      expect(drawn.ops).toMatch(/ rg\b/);
+      expect(drawn.fonts.length).toBeGreaterThan(0);
+      expect(await drawingOf(batch)).toEqual(drawn);
+      // Controls: another ink, and the other layer, are seen as different.
+      const other = async (options: Parameters<typeof watermarkPdf>[2]) =>
+        drawingOf(
+          (
+            await watermarkPdf(input, "CONFIDENTIAL", {
+              opacity: 0.18,
+              rotation: 45,
+              ...options,
+            })
+          ).bytes,
+        );
+      expect(await other({})).toEqual(drawn);
+      expect(await other({ color: { r: 0.78, g: 0.12, b: 0.12 } })).not.toEqual(
+        drawn,
+      );
+      expect(await other({ layer: "behind" })).not.toEqual(drawn);
+      expect(await other({ font: "courier" })).not.toEqual(drawn);
+    },
+  );
+
+  it("Add Watermark: an image mark starts at the size the batch uses", async () => {
+    const one = render(
+      <Router>
+        <WatermarkEditor pdf={await loaded()} onReset={() => {}} />
+      </Router>,
+    );
+    fireEvent.click(
+      within(one.container).getByRole("radio", { name: "Image" }),
+    );
+    const scale = Number(
+      (within(one.container).getByLabelText("Image size") as HTMLInputElement)
+        .value,
+    );
+    // The batch passes DEFAULT_IMAGE_SCALE with every image mark.
+    expect(scale).toBe(DEFAULT_IMAGE_SCALE);
   });
 
   it("Split PDF Pages in Half: direction and order", async () => {

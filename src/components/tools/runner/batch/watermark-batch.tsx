@@ -6,7 +6,7 @@ import {
   SETTINGS_BATCH_TOOLS,
   WATERMARK_BATCH_PAGES_NOTE,
 } from "@/lib/batch/tools";
-import { parsePageList } from "@/lib/pdf/ranges";
+import { parseRanges } from "@/lib/pdf/ranges";
 import {
   DEFAULT_IMAGE_SCALE,
   watermarkImageProblem,
@@ -68,10 +68,17 @@ export async function watermarkOneFile(
   };
 }
 
-/** A typed page list's mistake that no file could fix, or null. */
+/**
+ * A typed page list's mistake that no file could fix, or null. Checked as
+ * ranges (`parseRanges`), never expanded: an open-ended token ("3-", or "1-"
+ * on the way to "1-3") resolves against the bound, and expanding it to
+ * Number.MAX_SAFE_INTEGER pages froze the tab and threw "Set maximum size
+ * exceeded" on every keystroke (review 2026-11-08). Each file resolves the
+ * list against its own page count in `watermarkPageIndices`.
+ */
 function pageListProblem(list: string): string | null {
   try {
-    parsePageList(list, Number.MAX_SAFE_INTEGER);
+    parseRanges(list, Number.MAX_SAFE_INTEGER);
     return null;
   } catch (err) {
     return errorMessage(err);

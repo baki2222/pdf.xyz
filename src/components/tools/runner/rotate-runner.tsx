@@ -50,13 +50,6 @@ import {
 } from "./restricted-grant";
 
 /**
- * A PDF its author restricted opens here when the author grants page
- * assembly (/P bit 11, which names rotation): the rotation is saved under
- * the author's own encryption. Withheld, the tool says which permission and
- * that the owner password lifts it (`./restricted-grant`). Refused at
- * upload, with the editing-restrictions message, until 2026-11-08.
- */
-/**
  * Two or more PDFs: the batch (batch plan P1), its own chunk, fetched only
  * when they arrive — never with a visit to this page.
  */
@@ -73,6 +66,14 @@ const RotateBatch = dynamic(
 );
 const batch = (props: SinglePdfBatch) => <RotateBatch {...props} />;
 
+/**
+ * A PDF its author restricted opens here when the author grants page
+ * assembly (/P bit 11, which names rotation): the rotation is saved under
+ * the author's own encryption. Withheld, the tool says which permission and
+ * that the owner password lifts it (`./restricted-grant`). Refused at
+ * upload, with the editing-restrictions message, until 2026-11-08. That is
+ * the single-file editor; the batch refuses a restricted file on its row.
+ */
 export function RotateRunner() {
   return (
     <SinglePdfRunner

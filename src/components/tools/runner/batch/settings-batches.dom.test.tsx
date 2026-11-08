@@ -47,7 +47,13 @@ import {
 import { handoffCapabilityFor } from "@/lib/handoff/capability";
 import { LOCKED_PDF_COPY } from "@/lib/pdf/encryption";
 import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
+import {
+  BATCH_LIMITS,
+  overBytesReason,
+  overCountReason,
+} from "@/lib/batch/limits";
 import { SETTINGS_BATCH_TOOLS } from "@/lib/batch/tools";
+import { MAX_PDF_BYTES } from "@/lib/pdf/files";
 import { getToolBySlug } from "@/lib/tools";
 import { ownerOnlyEncryptedPdf } from "@/tests/encrypted-pdf-fixture";
 import { readAsViewer } from "@/tests/pdf-viewer-read";
@@ -261,6 +267,78 @@ describe("the batch set, derived from the page", () => {
       const view = await batchViewOf(container);
       expect(within(view).getByText("one.pdf")).toBeInTheDocument();
       expect(within(view).getByText("two.pdf")).toBeInTheDocument();
+    },
+  );
+});
+
+/**
+ * A PDF file that reports `size` bytes. The cap reads `File.size` before any
+ * byte is opened, so the batch's total can be passed without holding 200 MB
+ * in the test.
+ */
+function sizedPdf(bytes: Uint8Array, name: string, size: number): File {
+  const f = pdfFile(bytes, name);
+  Object.defineProperty(f, "size", { value: size });
+  return f;
+}
+
+const rowsOf = (view: HTMLElement) =>
+  within(view).getByRole("list", { name: "Files in this batch" }).children;
+
+describe("the batch's file cap, through each page's runner", () => {
+  // Review 2026-11-08: the cap override `{ maxFiles: 9999, maxTotalBytes:
+  // 1e15 }` in settings-batch-runner.tsx left every test green; the claim
+  // "A batch takes up to 20 PDFs, 200 MB in all." rests on the cap RUNNING,
+  // which loading limits.ts does not show.
+  it.each(BATCH_PDF_SLUGS)(
+    "%s: the first clientMaxFiles open, and every file past it is listed with the reason",
+    { timeout: 60_000 },
+    async (slug) => {
+      const max = BATCH_LIMITS.clientMaxFiles;
+      const { container, input } = await mount(slug);
+      const bytes = await plainPdf();
+      fireEvent.change(input, {
+        target: {
+          files: Array.from({ length: max + 1 }, (_, i) =>
+            pdfFile(bytes, `scan-${i + 1}.pdf`),
+          ),
+        },
+      });
+      const view = await batchViewOf(container);
+      expect(rowsOf(view)).toHaveLength(max);
+      const alert = within(view).getByRole("alert");
+      expect(alert).toHaveTextContent(`scan-${max + 1}.pdf`);
+      expect(alert).toHaveTextContent(overCountReason(max));
+      // Control: the last file taken is a row, not in the refusal.
+      expect(within(view).getByText(`scan-${max}.pdf`)).toBeInTheDocument();
+    },
+  );
+
+  it.each(BATCH_PDF_SLUGS)(
+    "%s: a file that takes the total past clientMaxTotalBytes is listed with the reason",
+    { timeout: 60_000 },
+    async (slug) => {
+      const total = BATCH_LIMITS.clientMaxTotalBytes;
+      // Three files of 45% of the total each: two fit, the third would not.
+      const each = Math.floor(total * 0.45);
+      // Health: each file alone is one the single-file path takes.
+      expect(each).toBeLessThanOrEqual(MAX_PDF_BYTES);
+      const { container, input } = await mount(slug);
+      const bytes = await plainPdf();
+      fireEvent.change(input, {
+        target: {
+          files: [
+            sizedPdf(bytes, "big-1.pdf", each),
+            sizedPdf(bytes, "big-2.pdf", each),
+            sizedPdf(bytes, "big-3.pdf", each),
+          ],
+        },
+      });
+      const view = await batchViewOf(container);
+      expect(rowsOf(view)).toHaveLength(2);
+      const alert = within(view).getByRole("alert");
+      expect(alert).toHaveTextContent("big-3.pdf");
+      expect(alert).toHaveTextContent(overBytesReason(total));
     },
   );
 });
