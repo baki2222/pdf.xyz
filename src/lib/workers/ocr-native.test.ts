@@ -16,6 +16,7 @@ import {
   readRestrictedFixture,
 } from "@/tests/restricted-pdf-fixtures";
 import { skippedSidecarPages } from "./ocr-sidecar";
+import { malformedPdfs } from "@/tests/malformed-pdf-fixtures";
 import { stripInvisibleText } from "./strip-invisible-text";
 import type { ProcessorInputFile } from "./processor/types";
 import type { NativeOcrConfig } from "./ocr-native-config";
@@ -593,7 +594,7 @@ async function staleLayerPdf(): Promise<Uint8Array> {
   return doc.save({ useObjectStreams: false });
 }
 
-describe("createNativeOcrRunner — Redo strips every earlier invisible layer first", () => {
+describe("createNativeOcrRunner — Redo strips earlier invisible layers first", () => {
   /** A runner whose fake fs keeps the bytes handed to OCRmyPDF. */
   function capturing(seams: NativeOcrSeams = {}) {
     const written: Uint8Array[] = [];
@@ -654,6 +655,23 @@ describe("createNativeOcrRunner — Redo strips every earlier invisible layer fi
     });
     expect(seen).toEqual([stale]);
     expect(written[0]).toBe(marker);
+  });
+
+  // Review 2026-11-08: a file pdf-lib loads but cannot walk made the
+  // pre-pass throw, and the Redo job failed before OCRmyPDF (which may have
+  // repaired it) ran. The real pass is used here, not a stand-in.
+  it("a malformed PDF the pre-pass cannot walk still reaches OCRmyPDF, as uploaded", async () => {
+    const pdfs = await malformedPdfs();
+    expect(pdfs).toHaveLength(2);
+    for (const pdf of pdfs) {
+      const { runner, written } = capturing();
+      await runner({
+        options: { ...PDF_ONLY, redoOcr: true },
+        inputs: [input(pdf)],
+      });
+      expect(written).toHaveLength(1);
+      expect(written[0]).toBe(pdf);
+    }
   });
 
   it("never runs it for an image, which goes to Tesseract", async () => {

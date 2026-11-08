@@ -1,8 +1,9 @@
 /**
- * “Redo existing OCR”'s pre-pass: take every invisible text-showing operator
+ * “Redo existing OCR”'s pre-pass: take invisible text-showing operators
  * (text render mode 3) out of a PDF's pages BEFORE OCRmyPDF `--redo-ocr`
- * reads it, so the earlier OCR layer is replaced whatever shape it is stored
- * in, not only the one shape OCRmyPDF itself detects.
+ * reads it, so an earlier OCR layer is replaced in the shapes OCRmyPDF
+ * itself misses too — not every hidden text: the list of what it leaves is
+ * below, and the copy (`REDO_OCR_SCOPE`) says other hidden text may be kept.
  *
  * WHY THIS EXISTS. OCRmyPDF 14.0.1 (the live worker image) strips hidden
  * text under `--redo-ocr` only when `3 Tr` appears INSIDE a `BT … ET` of the
@@ -47,7 +48,18 @@
  *    rewriting the file must not be what changes that);
  *  - text outside the page content: annotation appearances, Type 3 glyphs,
  *    patterns. Forms nested deeper than {@link MAX_FORM_DEPTH}, or in a
- *    cycle, are treated as painting and kept.
+ *    cycle, are treated as painting and kept;
+ *  - a content stream it may be misreading ({@link ContentStrip.abandoned}):
+ *    a `Tr` whose last operand is not a number (the mode after it is
+ *    unknown), an operator outside `BX … EX` that no PDF defines (the
+ *    tokenizer may have lost its place, for instance on an `EI` inside an
+ *    inline image's data), or an unfiltered inline image whose data ends
+ *    before its own width, height and depth say it does. The whole stream
+ *    is kept, since reading on could take visible text for invisible
+ *    (review 2026-11-08);
+ *  - a document pdf-lib loads but cannot walk (a /Pages or /XObject that is
+ *    not a dictionary, say): it comes back as it went in, `unrewritable`,
+ *    for OCRmyPDF to repair or refuse exactly as before.
  *
  * When nothing is removed the input bytes are returned AS IS (the same
  * array), so a PDF with no invisible text reaches OCRmyPDF byte-identical.
@@ -69,7 +81,9 @@ import {
   num,
   parseContent,
   spliceOps,
+  type ContentOp,
   type OpReplacement,
+  type PdfValue,
 } from "@/lib/pdf/editor/content-stream";
 
 /** Text render mode 3: neither fill nor stroke nor clip — invisible text. */
@@ -96,6 +110,83 @@ const PAINT = new Set([
 ]);
 const SPACE = asciiBytes(" ");
 
+/**
+ * Every operator ISO 32000-1 (Annex A) defines, but `ID` and `EI`, which
+ * the tokenizer consumes inside `BI`. Any other operator outside `BX … EX`
+ * means the stream is not being read as a viewer reads it.
+ */
+const KNOWN_OPERATORS = new Set([
+  ...["b", "B", "b*", "B*", "BDC", "BI", "BMC", "BT", "BX", "c", "cm"],
+  ...["CS", "cs", "d", "d0", "d1", "Do", "DP", "EMC", "ET", "EX", "f"],
+  ...["F", "f*", "G", "g", "gs", "h", "i", "j", "J", "K", "k", "l", "m"],
+  ...["M", "MP", "n", "q", "Q", "re", "RG", "rg", "ri", "s", "S", "SC"],
+  ...["sc", "SCN", "scn", "sh", "T*", "Tc", "Td", "TD", "Tf", "TJ", "Tj"],
+  ...["TL", "Tm", "Tr", "Ts", "Tw", "Tz", "v", "w", "W", "W*", "y", "'"],
+  '"',
+]);
+
+/** Why a content stream was left exactly as it was. */
+export type AbandonReason = "render mode" | "unknown operator" | "inline image";
+
+/** The mode a `Tr` sets: its LAST operand, as viewers read it; null if not a number. */
+function renderModeOf(op: ContentOp): number | null {
+  const last = op.args[op.args.length - 1];
+  return isNum(last) ? last : null;
+}
+
+/** Colour components of an inline image's colour space, or null when unknown here. */
+function components(cs: PdfValue | undefined): number | null {
+  const name = Array.isArray(cs) ? cs[0] : cs;
+  if (!isName(name)) return null;
+  if (Array.isArray(cs)) return ["I", "Indexed"].includes(name.v) ? 1 : null;
+  if (["G", "DeviceGray", "I", "Indexed"].includes(name.v)) return 1;
+  if (["RGB", "DeviceRGB"].includes(name.v)) return 3;
+  if (["CMYK", "DeviceCMYK"].includes(name.v)) return 4;
+  return null;
+}
+
+/**
+ * The bytes an UNFILTERED inline image's data must hold, from its own
+ * dictionary; null when it is filtered or its size cannot be worked out.
+ */
+function inlineImageBytes(dict: Map<string, PdfValue>): number | null {
+  const get = (short: string, long: string) =>
+    dict.get(short) ?? dict.get(long);
+  const filter = get("F", "Filter");
+  if (filter != null && !(Array.isArray(filter) && filter.length === 0))
+    return null;
+  const w = get("W", "Width");
+  const h = get("H", "Height");
+  if (!isNum(w) || !isNum(h)) return null;
+  let bits: number;
+  if (get("IM", "ImageMask") === true) bits = 1;
+  else {
+    const bpc = get("BPC", "BitsPerComponent");
+    const n = components(get("CS", "ColorSpace"));
+    if (!isNum(bpc) || n === null) return null;
+    bits = bpc * n;
+  }
+  return h * Math.ceil((w * bits) / 8);
+}
+
+/** Whether, and why, a stream must be left as it is because it may be misread. */
+function abandonReason(ops: readonly ContentOp[]): AbandonReason | undefined {
+  let compat = 0;
+  for (const op of ops) {
+    if (op.op === "BX") compat += 1;
+    else if (op.op === "EX") compat = Math.max(0, compat - 1);
+    else if (op.op === "Tr") {
+      if (renderModeOf(op) === null) return "render mode";
+    } else if (op.op === "BI") {
+      const want = op.inline ? inlineImageBytes(op.inline) : null;
+      if (want !== null && op.data && op.data.end - op.data.start < want)
+        return "inline image";
+    } else if (compat === 0 && !KNOWN_OPERATORS.has(op.op))
+      return "unknown operator";
+  }
+  return undefined;
+}
+
 /** What a `Do` of a named XObject becomes. */
 export type DoOutcome =
   | { kind: "keep"; paints: boolean }
@@ -115,6 +206,8 @@ export interface ContentStrip {
   keptForPosition: number;
   /** Whether what is left puts any mark on the page. */
   paints: boolean;
+  /** Set when the stream was left as it was because it may be misread. */
+  abandoned?: AbandonReason;
 }
 
 const KEEP_PAINTS: DoOutcome = { kind: "keep", paints: true };
@@ -129,6 +222,16 @@ export function stripContentStream(
   resolve: DoResolver = () => KEEP_PAINTS,
 ): ContentStrip {
   const ops = parseContent(bytes);
+  const abandoned = abandonReason(ops);
+  if (abandoned)
+    return {
+      bytes,
+      changed: false,
+      removed: 0,
+      keptForPosition: 0,
+      paints: true,
+      abandoned,
+    };
   const replace = new Map<number, Uint8Array>();
   /** Show operators removed since the pen was last placed from the line start. */
   let pending: number[] = [];
@@ -148,7 +251,7 @@ export function stripContentStream(
         if (saved.length > 0) mode = saved.pop()!;
         return;
       case "Tr":
-        if (isNum(op.args[0])) mode = op.args[0];
+        mode = renderModeOf(op)!; // abandonReason refused a non-number
         return;
       case "BT":
       case "ET":
@@ -285,19 +388,27 @@ export interface InvisibleTextStrip {
   removed: number;
   /** Invisible text-showing operators kept because visible text relied on their advance. */
   keptForPosition: number;
-  /** Why the document was passed through untouched, when it was. */
-  untouched?: "unreadable" | "signed";
+  /**
+   * Why the document was passed through untouched, when it was: pdf-lib
+   * could not load it, it is signed, or it loaded but could not be walked.
+   */
+  untouched?: "unreadable" | "signed" | "unrewritable";
 }
 
 /**
  * Remove the invisible text from every page of `pdf`. Never throws: a
  * document it cannot or must not rewrite comes back as it went in, with
- * {@link InvisibleTextStrip.untouched} saying why.
+ * {@link InvisibleTextStrip.untouched} saying why. (Until review 2026-11-08
+ * only the load was guarded; `strip-invisible-text.test.ts` now passes
+ * loadable-but-malformed files through, and the runner test sends one on
+ * to OCRmyPDF.)
  */
 export async function stripInvisibleText(
   pdf: Uint8Array,
 ): Promise<InvisibleTextStrip> {
-  const none = (untouched?: InvisibleTextStrip["untouched"]) => ({
+  const none = (
+    untouched?: InvisibleTextStrip["untouched"],
+  ): InvisibleTextStrip => ({
     bytes: pdf,
     pagesChanged: 0,
     removed: 0,
@@ -310,6 +421,17 @@ export async function stripInvisibleText(
   } catch {
     return none("unreadable");
   }
+  try {
+    return await rewrite(doc, none);
+  } catch {
+    return none("unrewritable");
+  }
+}
+
+async function rewrite(
+  doc: PDFDocument,
+  none: (untouched?: InvisibleTextStrip["untouched"]) => InvisibleTextStrip,
+): Promise<InvisibleTextStrip> {
   if (isSigned(doc)) return none("signed");
 
   const formCache = new Map<string, ContentStrip | null>();

@@ -25,6 +25,7 @@ import {
 } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import { latin1, parseContent } from "@/lib/pdf/editor/content-stream";
+import { malformedPdfs } from "@/tests/malformed-pdf-fixtures";
 import { readAsViewer } from "@/tests/pdfjs-viewer";
 import {
   OPEN_PASSWORD_FIXTURE,
@@ -140,6 +141,107 @@ describe("stripContentStream — the text render mode, as graphics state tracks 
         `BT 3 Tr 0 Tr ${place} (shown) Tj ET`,
       );
     }
+  });
+
+  it("keeps an invisible Tj when a visible TJ follows it in the same BT", () => {
+    // Review 2026-11-08: the position check was pinned only with a visible
+    // Tj; narrowing it to Tj left every test green, though a TJ is drawn
+    // from the pen exactly as a Tj is.
+    const relied = strip(
+      "BT 3 Tr (hidden) Tj 0 Tr [(shown) -250 (more)] TJ ET",
+    );
+    expect(relied.changed).toBe(false);
+    expect(relied.keptForPosition).toBe(1);
+  });
+
+  // Review 2026-11-08: removing "BI" (or "sh") from the set of painting
+  // operators left every test green, though a form judged non-painting has
+  // its Do DROPPED. Each painting operator is pinned here, beside a control
+  // that the same stream without it does not count as painting.
+  it.each([
+    ["S", "0 0 m 9 9 l S"],
+    ["s", "0 0 m 9 9 l s"],
+    ["f", "0 0 9 9 re f"],
+    ["F", "0 0 9 9 re F"],
+    ["f*", "0 0 9 9 re f*"],
+    ["B", "0 0 9 9 re B"],
+    ["B*", "0 0 9 9 re B*"],
+    ["b", "0 0 9 9 re b"],
+    ["b*", "0 0 9 9 re b*"],
+    ["sh", "/Sh0 sh"],
+    ["BI", "BI /W 1 /H 1 /BPC 8 /CS /G ID x EI"],
+  ])("%s paints, so what is left of the stream still paints", (_op, paint) => {
+    const s = strip(`${paint} BT 3 Tr (h) Tj ET`);
+    expect(s.removed).toBe(1);
+    expect(s.paints).toBe(true);
+  });
+
+  it("control: a path ended without painting, and invisible text, paint nothing", () => {
+    const s = strip("0 0 9 9 re n BT 3 Tr (h) Tj ET");
+    expect(s.removed).toBe(1);
+    expect(s.paints).toBe(false);
+  });
+
+  it("reads Tr's LAST operand, as a viewer does, so extra leading operands do not hide visible text", () => {
+    // Review 2026-11-08: `/x 0 Tr` was read as args[0] (a name), the mode
+    // stayed 3, and the visible text after it was removed.
+    const s = strip("BT 3 Tr /x 0 Tr (shown) Tj ET");
+    expect(s.changed).toBe(false);
+    expect(s.paints).toBe(true);
+    // ...and it is READ, not given up on: the stream is not abandoned, and
+    // invisible text later in it is still removed.
+    const read = strip("BT 3 Tr /x 0 Tr (shown) Tj 3 Tr 0 -14 Td (h) Tj ET");
+    expect(read.abandoned).toBeUndefined();
+    expect(read.removed).toBe(1);
+  });
+
+  it("stops at a Tr it cannot read: the whole stream is left as it was", () => {
+    for (const bad of ["/x Tr", "Tr", "(3) Tr"]) {
+      const src = enc(`BT 3 Tr (h) Tj ${bad} (shown) Tj ET`);
+      const s = stripContentStream(src);
+      expect(s.changed, bad).toBe(false);
+      expect(s.bytes, bad).toBe(src);
+      expect(s.abandoned, bad).toBe("render mode");
+      expect(s.paints, bad).toBe(true);
+    }
+  });
+
+  it("stops at an operator it does not know, outside BX/EX: the tokenizer may have lost its place", () => {
+    const src = enc("BT 3 Tr (h) Tj ET zz");
+    const s = stripContentStream(src);
+    expect(s.changed).toBe(false);
+    expect(s.abandoned).toBe("unknown operator");
+    // Control: inside a compatibility section an unknown operator is legal.
+    const ok = strip("BX zz EX BT 3 Tr (h) Tj ET");
+    expect(ok.removed).toBe(1);
+    expect(ok.abandoned).toBeUndefined();
+  });
+
+  it("stops when an unfiltered inline image ends before its size: an EI was found inside its data", () => {
+    // Read correctly, the image's 10 bytes are "aa EI Q bb" and the text is
+    // drawn in mode 0 (visible). Read from the false EI, the Q in the data
+    // restores mode 3 and the visible text would be removed.
+    const src = enc(
+      "3 Tr q 0 Tr BX BI /W 10 /H 1 /BPC 8 /CS /G ID aa EI Q bb EI EX BT (shown) Tj ET Q",
+    );
+    const s = stripContentStream(src);
+    expect(s.changed).toBe(false);
+    expect(s.abandoned).toBe("inline image");
+    // Control: an image whose data fills its size is read on.
+    const fits = strip("BI /W 2 /H 1 /BPC 8 /CS /G ID aa EI BT 3 Tr (h) Tj ET");
+    expect(fits.abandoned).toBeUndefined();
+    expect(fits.removed).toBe(1);
+    // Control: the size counts components and bits (RGB, 1-bit masks).
+    expect(
+      strip("BI /W 1 /H 1 /BPC 8 /CS /RGB ID abc EI BT 3 Tr (h) Tj ET")
+        .abandoned,
+    ).toBeUndefined();
+    expect(
+      strip("BI /W 1 /H 1 /BPC 8 /CS /RGB ID a EI BT 3 Tr (h) Tj ET").abandoned,
+    ).toBe("inline image");
+    expect(
+      strip("BI /W 16 /H 1 /IM true ID ab EI BT 3 Tr (h) Tj ET").abandoned,
+    ).toBeUndefined();
   });
 
   it("never touches a path, a shading, an image or an inline image", () => {
@@ -372,6 +474,63 @@ describe("stripInvisibleText — what a reader of the PDF gets", () => {
     // Positive control: the same file without the signature is stripped.
     expect((await stripInvisibleText(pdf)).pagesChanged).toBe(1);
   });
+
+  it("a form holding only an inline image (or a shading) beside invisible text is copied, never dropped, and still paints", async () => {
+    for (const [paint, op] of [
+      ["BI /W 1 /H 1 /BPC 8 /CS /G ID x EI", "BI"],
+      ["/Sh0 sh", "sh"],
+    ] as const) {
+      const doc = await PDFDocument.create();
+      const form = doc.context.register(
+        doc.context.stream(`q 9 0 0 9 0 0 cm ${paint} Q BT 3 Tr (x) Tj ET`, {
+          Type: "XObject",
+          Subtype: "Form",
+          BBox: [0, 0, 595, 842],
+        }),
+      );
+      const page = doc.addPage([595, 842]);
+      const name = page.node.newXObject("Pic", form);
+      rawContent(doc, page, `${name.asString()} Do`);
+      const out = await stripInvisibleText(await doc.save());
+      expect(out.removed, op).toBe(1);
+      expect(await pageOps(out.bytes), op).toContain("Do");
+      const loaded = await PDFDocument.load(out.bytes);
+      const xobjects = loaded
+        .getPage(0)
+        .node.Resources()!
+        .lookup(PDFName.of("XObject"), PDFDict);
+      const copyName = xobjects
+        .keys()
+        .map((k) => k.asString().slice(1))
+        .find((k) => k.startsWith("PdfxyzRedo"));
+      expect(copyName, op).toBeDefined();
+      const copy = loaded.context.lookup(
+        xobjects.get(PDFName.of(copyName!)),
+      ) as PDFRawStream;
+      const copyOps = ops(decodePDFRawStream(copy).decode());
+      expect(copyOps, op).toContain(op);
+      expect(copyOps, op).not.toContain("Tj");
+    }
+  });
+
+  // Review 2026-11-08: the docblock promised "never throws", but only the
+  // load was guarded; a damaged file pdf-lib could load then threw from the
+  // page walk and failed the Redo job before OCRmyPDF (which may have
+  // repaired it) ever saw it.
+  it.each([
+    [0, "a catalog whose /Pages is not a dictionary"],
+    [1, "a page whose /XObject is not a dictionary"],
+  ])(
+    "passes a loadable but malformed PDF (%i: %s) through untouched instead of throwing",
+    async (index) => {
+      const pdfs = await malformedPdfs();
+      expect(pdfs).toHaveLength(2);
+      const pdf = pdfs[index]!;
+      const out = await stripInvisibleText(pdf);
+      expect(out.untouched).toBe("unrewritable");
+      expect(out.bytes).toBe(pdf);
+    },
+  );
 
   it("passes bytes that are not a PDF through untouched", async () => {
     const junk = enc("not a pdf at all");
