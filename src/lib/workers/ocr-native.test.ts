@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { join } from "node:path";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 import { OCR_MAX_INPUT_FILES, type OcrOptions } from "@/lib/jobs/ocr";
 import { findPopplerPdfToText } from "@/tests/pdf-office-fixtures";
 import {
@@ -16,6 +16,7 @@ import {
   readRestrictedFixture,
 } from "@/tests/restricted-pdf-fixtures";
 import { skippedSidecarPages } from "./ocr-sidecar";
+import { stripInvisibleText } from "./strip-invisible-text";
 import type { ProcessorInputFile } from "./processor/types";
 import type { NativeOcrConfig } from "./ocr-native-config";
 import {
@@ -570,6 +571,111 @@ describe("createNativeOcrRunner — success paths", () => {
     });
     const { meta } = await runner({ options: PDF_ONLY, inputs: [scan] });
     expect(meta.pageCount).toBeNull();
+  });
+});
+
+/**
+ * A one-page PDF carrying an invisible layer in the shape OCRmyPDF 14's
+ * `--redo-ocr` keeps (`3 Tr` set before `BT`, #290).
+ */
+async function staleLayerPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([595, 842]);
+  const key = page.node.newFontDictionary(font.name, font.ref);
+  page.node.addContentStream(
+    doc.context.register(
+      doc.context.stream(
+        `q 3 Tr BT ${key.asString()} 14 Tf 40 60 Td ${font.encodeText("Stale walrus").toString()} Tj ET Q`,
+      ),
+    ),
+  );
+  return doc.save({ useObjectStreams: false });
+}
+
+describe("createNativeOcrRunner — Redo strips every earlier invisible layer first", () => {
+  /** A runner whose fake fs keeps the bytes handed to OCRmyPDF. */
+  function capturing(seams: NativeOcrSeams = {}) {
+    const written: Uint8Array[] = [];
+    const { fs } = fakeFs(pdfOrText);
+    const runner = createNativeOcrRunner(cfg(), {
+      exec: async () => {},
+      fs: {
+        ...fs,
+        async writeFile(file, data) {
+          written.push(data);
+          await fs.writeFile(file, data);
+        },
+      },
+      resolveOnPath: onlyEngine("ocrmypdf"),
+      countPages: async () => 1,
+      ...seams,
+    });
+    return { runner, written };
+  }
+  const input = (bytes: Uint8Array): ProcessorInputFile => ({ ...scan, bytes });
+
+  it("hands OCRmyPDF the PDF without its invisible text when Redo is on", async () => {
+    const stale = await staleLayerPdf();
+    // Positive control: the fixture has invisible text to take out.
+    expect((await stripInvisibleText(stale)).removed).toBe(1);
+    const { runner, written } = capturing();
+    await runner({
+      options: { ...PDF_ONLY, redoOcr: true },
+      inputs: [input(stale)],
+    });
+    expect(written).toHaveLength(1);
+    expect(written[0]).not.toEqual(stale);
+    const left = await stripInvisibleText(written[0]!);
+    expect(left.untouched).toBeUndefined();
+    expect(left.removed).toBe(0);
+  });
+
+  it("control: with Redo off the upload reaches OCRmyPDF byte for byte", async () => {
+    const stale = await staleLayerPdf();
+    const { runner, written } = capturing();
+    await runner({ options: PDF_ONLY, inputs: [input(stale)] });
+    expect(written[0]).toBe(stale);
+  });
+
+  it("the pass is the injected one, so the in-image proof can run OCRmyPDF without it", async () => {
+    const stale = await staleLayerPdf();
+    const seen: Uint8Array[] = [];
+    const marker = new Uint8Array([37, 80, 68, 70]);
+    const { runner, written } = capturing({
+      stripInvisibleText: async (pdf) => {
+        seen.push(pdf);
+        return { bytes: marker };
+      },
+    });
+    await runner({
+      options: { ...PDF_ONLY, redoOcr: true },
+      inputs: [input(stale)],
+    });
+    expect(seen).toEqual([stale]);
+    expect(written[0]).toBe(marker);
+  });
+
+  it("never runs it for an image, which goes to Tesseract", async () => {
+    let called = 0;
+    const { fs } = fakeFs(pdfOrText);
+    const runner = createNativeOcrRunner(cfg(), {
+      exec: async () => {},
+      fs,
+      resolveOnPath: () => true, // BOTH engines present
+      countPages: async () => 1,
+      stripInvisibleText: async (pdf) => {
+        called += 1;
+        return { bytes: pdf };
+      },
+    });
+    const png: ProcessorInputFile = {
+      ...scan,
+      filename: "Client Scan.png",
+      contentType: "image/png",
+    };
+    await runner({ options: { ...PDF_ONLY, redoOcr: true }, inputs: [png] });
+    expect(called).toBe(0);
   });
 });
 

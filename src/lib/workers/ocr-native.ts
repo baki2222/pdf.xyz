@@ -47,6 +47,7 @@ import { OCR_ENGINES, type OcrEngine, type OcrEngineAvailability } from "./ocr";
 import { classifyOcrmypdfFailure, OcrEngineRefusal } from "./ocr-engine-errors";
 import { opensWithoutPassword } from "./ocr-encryption-probe";
 import { ocrReadyImage } from "./ocr-image";
+import { stripInvisibleText } from "./strip-invisible-text";
 import { fillSkippedSidecarPages, skippedSidecarPages } from "./ocr-sidecar";
 import {
   resolveNativePdfTextExtractor,
@@ -151,6 +152,15 @@ export interface NativeOcrSeams {
    * {@link readExistingText}. Only for tests that point it at a specific binary.
    */
   pdfText?: PdfTextSeams;
+  /**
+   * Redo's pre-pass: the PDF with every earlier invisible text layer taken
+   * out, handed to OCRmyPDF in place of the upload when `redoOcr` is on
+   * (`./strip-invisible-text` has what it removes and what it never
+   * touches). Defaults to {@link stripInvisibleText}. Injectable so the
+   * in-image proof can also run OCRmyPDF WITHOUT it — the negative control
+   * that shows which layers the engine alone keeps.
+   */
+  stripInvisibleText?: (pdf: Uint8Array) => Promise<{ bytes: Uint8Array }>;
 }
 
 const runExecFile = promisify(execFile);
@@ -233,7 +243,9 @@ export interface NativeOcrArgsContext {
   languages: readonly string[];
   /**
    * Recognize pages with an existing OCR layer again (`--redo-ocr`) instead
-   * of keeping them; which old layers go is `REDO_OCR_LAYER_OUTCOMES`.
+   * of keeping them; which old layers go is `REDO_OCR_LAYER_OUTCOMES` — all
+   * of them since 2026-11-08, because the runner strips them first
+   * (`./strip-invisible-text`), not because this flag does.
    */
   redoOcr: boolean;
   /**
@@ -291,9 +303,12 @@ export const OCR_ROTATE_PAGES_THRESHOLD = 5;
  *    path (which would additionally require Ghostscript). Exactly ONE of
  *    `--skip-text` (the default: a page that already has text is kept as it is)
  *    or `--redo-ocr` (the opt-in: pages with hidden OCR text are recognized
- *    again and typed text is kept; only the old layers OCRmyPDF detects are
- *    taken away, and its OWN layer is not one of them — measured, see
- *    `REDO_OCR_LAYER_OUTCOMES` in src/lib/jobs/ocr.ts) is always passed. Passing neither is not a neutral default — OCRmyPDF
+ *    again and typed text is kept) is always passed. On its own `--redo-ocr`
+ *    takes away only the old layers OCRmyPDF detects, and its OWN layer is
+ *    not one of them (measured 2026-11-08, #290), so under Redo the runner
+ *    hands OCRmyPDF the PDF with every invisible text layer already taken
+ *    out (`./strip-invisible-text`; the outcome is `REDO_OCR_LAYER_OUTCOMES`
+ *    in src/lib/jobs/ocr.ts). Passing neither is not a neutral default — OCRmyPDF
  *    then aborts the whole job on the first page with text (exit 6) or on a
  *    tagged PDF, which is what every "searchable" scan and office export used to
  *    hit. Passing both is a usage error. `--force-ocr` is never passed: it
@@ -636,6 +651,7 @@ export function createNativeOcrRunner(
   const exec = seams.exec ?? defaultNativeOcrExec;
   const fs = seams.fs ?? defaultFs;
   const countPages = seams.countPages ?? countPdfPages;
+  const stripRedo = seams.stripInvisibleText ?? stripInvisibleText;
   const baseTmp = config.tmpDir ?? tmpdir();
 
   return async ({ options, inputs, signal }): Promise<OcrRunResult> => {
@@ -673,10 +689,20 @@ export function createNativeOcrRunner(
     // An image goes to Tesseract upright and on a sane page: Leptonica applies
     // neither a phone's EXIF turn nor anything but its declared 72 dpi
     // (audit #9; see `./ocr-image`). A PDF is written exactly as uploaded.
+    //
+    // Redo on a PDF: every earlier invisible text layer is taken out first.
+    // OCRmyPDF 14's `--redo-ocr` removes only one of the shapes such a layer
+    // is stored in and keeps the one it writes itself (#290), so without
+    // this a redone OCR PDF carried its old words beside the new ones.
     const prepared =
       engine === "tesseract"
         ? await ocrReadyImage(input.bytes, inputExtension(input))
-        : { bytes: input.bytes, ext: inputExtension(input) };
+        : {
+            bytes: options.redoOcr
+              ? (await stripRedo(input.bytes)).bytes
+              : input.bytes,
+            ext: inputExtension(input),
+          };
     throwIfAttemptAborted(signal);
     const dir = await fs.mkdtemp(path.join(baseTmp, "pdfxyz-ocr-"));
     const inputPath = path.join(dir, `input.${prepared.ext}`);
@@ -748,9 +774,11 @@ export function createNativeOcrRunner(
       if (wantText) {
         let txt = await fs.readFile(txtOut);
         if (engine === "ocrmypdf") {
+          // The PDF OCRmyPDF read: under Redo, the one without its old
+          // invisible text, so a skipped page is never filled with it.
           txt = await fillSkippedPages(
             txt,
-            input.bytes,
+            prepared.bytes,
             seams.readExistingText,
             signal,
           );
