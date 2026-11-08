@@ -3,11 +3,14 @@
  * The in-image OCR redo proof runs — checked by walking the chain it runs
  * through: `container.yml` step → `package.json` script → a file that calls
  * `runOcrRedoProof` with the registry's OCR processor on the REAL native
- * deps and poppler. A broken link is fatal. It is the only place the table
- * behind “Redo existing OCR”'s copy (`REDO_OCR_LAYER_OUTCOMES`: which old
- * layers OCRmyPDF replaces and which it keeps) meets OCRmyPDF, and a table of
- * engine behaviour has nothing else to check it: the argv was right on
- * 2026-11-08 while the copy promised a removal the engine does not do.
+ * deps (and, since Redo's pre-pass, a second one with only that pass
+ * turned off) and poppler. A broken link is fatal. It is the only place the
+ * table behind “Redo existing OCR”'s copy (`REDO_OCR_LAYER_OUTCOMES`: which
+ * old layers Redo replaces) and the measurement behind the pre-pass
+ * (`ENGINE_ALONE_OUTCOMES`: which OCRmyPDF keeps by itself) meet OCRmyPDF,
+ * and a table of engine behaviour has nothing else to check it: the argv
+ * was right on 2026-11-08 while the copy promised a removal the engine
+ * does not do.
  * An AST, not `toContain`: comments are not nodes.
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -82,24 +85,64 @@ describe("the in-image OCR redo proof runs, from the workflow to the call", () =
     expect(callsOf(scriptFile(), "runOcrRedoProof")).toHaveLength(1);
   });
 
-  it("the OCR processor is the registry's, on the REAL native deps; poppler is the image's", () => {
+  it("the OCR processors are the registry's, on the REAL native deps; poppler is the image's", () => {
     const file = scriptFile();
+    // CHANGED 2026-11-08: one registry. Since Redo's pre-pass the proof
+    // also runs OCRmyPDF WITHOUT it (the negative control), so there are
+    // two: the product's, on the deps exactly as the daemon wires them, and
+    // the engine alone's, on the same deps with ONLY the pre-pass seam
+    // passed through. A second seam there would make "the engine alone"
+    // something else, so the set of seams is pinned, not just one.
     const registries = callsOf(file, "createProcessorRegistry");
-    expect(registries).toHaveLength(1);
-    const arg = registries[0]!.arguments[0];
-    expect(arg && ts.isObjectLiteralExpression(arg)).toBe(true);
-    const ocrProp = (arg as TS.ObjectLiteralExpression).properties.find(
-      (q) => q.name?.getText(file) === "ocr",
+    expect(registries).toHaveLength(2);
+    const depsCall = (registry: TS.CallExpression) => {
+      const arg = registry.arguments[0];
+      expect(arg && ts.isObjectLiteralExpression(arg)).toBe(true);
+      const ocrProp = (arg as TS.ObjectLiteralExpression).properties.find(
+        (q) => q.name?.getText(file) === "ocr",
+      );
+      const init =
+        ocrProp && ts.isPropertyAssignment(ocrProp)
+          ? ocrProp.initializer
+          : undefined;
+      expect(
+        init && ts.isCallExpression(init) && ts.isIdentifier(init.expression)
+          ? init.expression.text
+          : undefined,
+      ).toBe("nativeOcrDeps");
+      return init as TS.CallExpression;
+    };
+    /** The variable each registry's processor is stored in. */
+    const holder = (registry: TS.CallExpression) => {
+      let n: TS.Node = registry;
+      while (n.parent && !ts.isVariableDeclaration(n)) n = n.parent;
+      return ts.isVariableDeclaration(n) ? n.name.getText(file) : undefined;
+    };
+    const byName = new Map(registries.map((r) => [holder(r), depsCall(r)]));
+    expect([...byName.keys()].sort()).toEqual(["engineAlone", "ocr"]);
+    // The product: the daemon's deps, nothing stood in.
+    expect(byName.get("ocr")!.arguments).toHaveLength(1);
+    // The engine alone: the same env, and the pre-pass seam ONLY.
+    const alone = byName.get("engineAlone")!;
+    expect(alone.arguments).toHaveLength(2);
+    expect(alone.arguments[0]!.getText(file)).toBe(
+      byName.get("ocr")!.arguments[0]!.getText(file),
     );
-    const init =
-      ocrProp && ts.isPropertyAssignment(ocrProp)
-        ? ocrProp.initializer
-        : undefined;
+    const seams = alone.arguments[1]!;
+    expect(ts.isObjectLiteralExpression(seams)).toBe(true);
     expect(
-      init && ts.isCallExpression(init) && ts.isIdentifier(init.expression)
-        ? init.expression.text
-        : undefined,
-    ).toBe("nativeOcrDeps");
+      (seams as TS.ObjectLiteralExpression).properties.map((q) =>
+        q.name?.getText(file),
+      ),
+    ).toEqual(["stripInvisibleText"]);
+    // Each reaches the proof under its own name.
+    const proof = callsOf(file, "runOcrRedoProof")[0]!.arguments[0];
+    expect(proof && ts.isObjectLiteralExpression(proof)).toBe(true);
+    const passed = (proof as TS.ObjectLiteralExpression).properties.map((q) =>
+      q.getText(file),
+    );
+    expect(passed).toContain("ocr");
+    expect(passed).toContain("engineAlone");
     // Resolved by the slug a job carries.
     const resolved = new Set<string>();
     walk(file, (n) => {

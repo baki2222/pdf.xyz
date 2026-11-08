@@ -39,6 +39,8 @@ export interface ContentOp {
   end: number;
   /** An inline image (`BI … ID … EI`): its dictionary. */
   inline?: Map<string, PdfValue>;
+  /** An inline image's data: from just past `ID` to the `EI` that ended it. */
+  data?: { start: number; end: number };
 }
 
 const WS = new Set([0, 9, 10, 12, 13, 32]);
@@ -333,7 +335,14 @@ export function parseContent(bytes: Uint8Array): ContentOp[] {
       }
       const ei = findInlineEnd(bytes, dataStart);
       lx.pos = Math.min(bytes.length, ei + 2);
-      ops.push({ op: "BI", args: [], start, end: lx.pos, inline: dict });
+      ops.push({
+        op: "BI",
+        args: [],
+        start,
+        end: lx.pos,
+        inline: dict,
+        data: { start: Math.min(dataStart, ei), end: ei },
+      });
       args = [];
       argStart = -1;
       continue;

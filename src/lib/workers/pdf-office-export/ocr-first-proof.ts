@@ -253,9 +253,11 @@ export const STALE_LAYER_TEXT = STALE_OCR_TEXT;
  * {@link STALE_LAYER_TEXT}. `"replaced"`: every word of `line` and none of
  * the stale layer's. `"kept"` (the option off, or ignored — the defect):
  * every stale word, and not every word of `line`. `"beside"` (2026-11-08,
- * Redo on a layer OCRmyPDF 14 does not strip, such as its own Form XObject
- * layer: REDO_OCR_LAYER_OUTCOMES): every word of `line` AND every stale
- * word, the new text added beside the old.
+ * Redo on a layer OCRmyPDF 14 does not strip by itself, such as its own
+ * Form XObject layer): every word of `line` AND every stale word, the new
+ * text added beside the old. No table row asks for it since the worker's
+ * pre-pass (REDO_OCR_LAYER_OUTCOMES is all "replaced"); it stays so a row
+ * that flips back has a verdict to flip to.
  */
 export async function redoDocxVerdict(
   bytes: Uint8Array,
