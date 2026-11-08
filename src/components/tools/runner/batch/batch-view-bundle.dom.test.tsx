@@ -11,10 +11,17 @@
  * handed is opened and read back.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import JSZip from "jszip";
 import { useBatchRunner, type BatchUnit } from "../use-batch-runner";
+import { ZIP_FAILED_MESSAGE } from "../use-zip-download";
 import { BatchView } from "./batch-view";
 
 const router = {
@@ -67,24 +74,42 @@ const UNITS: BatchUnit[] = [
   name: String(name),
   file: new File([String(id)], String(name), { type: "application/pdf" }),
 }));
-const IMAGES: Record<string, number> = { r1: 2, r2: 2, e: 0 };
+const IMAGES: Record<string, number> = { r1: 2, r2: 2, e: 0, d1: 1, d2: 1 };
 
-function Harness() {
-  const runner = useBatchRunner<Row>(UNITS, async (file) => {
+/**
+ * How an input's image Blobs are read when a ZIP is built: unset, as a real
+ * Blob is. A test sets it to hold a read open (a ZIP still building) or to
+ * fail it (a ZIP that cannot be built).
+ */
+let readHook: ((id: string) => Promise<ArrayBuffer>) | null = null;
+afterEach(() => {
+  readHook = null;
+});
+function imageBlob(id: string, n: number): Blob {
+  const blob = new Blob([`${id}:${n}`]);
+  const read = blob.arrayBuffer.bind(blob);
+  Object.defineProperty(blob, "arrayBuffer", {
+    value: () => (readHook ? readHook(id) : read()),
+  });
+  return blob;
+}
+
+function Harness({ units = UNITS }: { units?: BatchUnit[] }) {
+  const runner = useBatchRunner<Row>(units, async (file) => {
     const id = String(await file.text());
     return {
       folder: file.name.replace(/\.pdf$/i, ""),
       zipName: `${id}-images.zip`,
       files: Array.from({ length: IMAGES[id]! }, (_, i) => ({
         name: `page-${i + 1}.png`,
-        blob: new Blob([`${id}:${i + 1}`]),
+        blob: imageBlob(id, i + 1),
       })),
     };
   });
   return (
     <BatchView<Row>
       runner={runner}
-      arrivedCount={UNITS.length}
+      arrivedCount={units.length}
       banner={<p>banner</p>}
       countLabel={(n) => `${n} PDFs`}
       runLabel={(n) => `Convert ${n} PDFs`}
@@ -160,5 +185,120 @@ describe("BatchView — one folder per input", () => {
       "page-1.png": "r2:1",
       "page-2.png": "r2:2",
     });
+  });
+});
+
+describe("BatchView — folders of dotted names", () => {
+  it("two inputs named scan.v2.pdf give folders scan.v2 and scan.v2 (2): a folder has no extension", async () => {
+    const units: BatchUnit[] = ["d1", "d2"].map((id) => ({
+      id,
+      name: "scan.v2.pdf",
+      file: new File([id], "scan.v2.pdf", { type: "application/pdf" }),
+    }));
+    render(
+      <AppRouterContext.Provider value={router as never}>
+        <Harness units={units} />
+      </AppRouterContext.Provider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Convert 2 PDFs" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Download all (2)" }),
+    );
+    await waitFor(() => expect(downloads).toHaveLength(1));
+    expect(await entriesOf(downloads[0]!.blob)).toEqual({
+      "scan.v2/page-1.png": "d1:1",
+      "scan.v2 (2)/page-1.png": "d2:1",
+    });
+  });
+});
+
+describe("BatchView — a row's own ZIP, as a keyboard and a screen reader meet it", () => {
+  function mount() {
+    render(
+      <AppRouterContext.Provider value={router as never}>
+        <Harness />
+      </AppRouterContext.Provider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Convert 3 PDFs" }));
+    return screen.findAllByRole("button", {
+      name: "Download the 2 images of report.pdf",
+    });
+  }
+  const rowOf = (button: HTMLElement) => button.closest("li")!;
+
+  it("while a row's ZIP builds, its button is busy and every ZIP button is aria-disabled", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    readHook = async (id) => {
+      await held;
+      return new TextEncoder().encode(id).buffer;
+    };
+    const rows = await mount();
+    fireEvent.click(rows[1]!);
+    await waitFor(() => expect(rows[1]).toHaveAttribute("aria-busy", "true"));
+    expect(rows[1]).toHaveAttribute("aria-disabled", "true");
+    // The other row is held off too, but it is not the one building.
+    expect(rows[0]).toHaveAttribute("aria-disabled", "true");
+    expect(rows[0]).not.toHaveAttribute("aria-busy", "true");
+    const all = screen.getByRole("button", { name: "Download all (2)" });
+    expect(all).toHaveAttribute("aria-disabled", "true");
+    // A second press while it builds starts nothing.
+    fireEvent.click(rows[0]!);
+    release();
+    await waitFor(() => expect(downloads).toHaveLength(1));
+    expect(downloads[0]!.name).toBe("r2-images.zip");
+    await waitFor(() =>
+      expect(rows[1]).not.toHaveAttribute("aria-busy", "true"),
+    );
+    expect(rows[0]).not.toHaveAttribute("aria-disabled");
+  });
+
+  it("while Download all builds, a row's button is aria-disabled and a press starts nothing", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    readHook = async (id) => {
+      await held;
+      return new TextEncoder().encode(id).buffer;
+    };
+    const rows = await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Download all (2)" }));
+    await waitFor(() =>
+      expect(rows[0]).toHaveAttribute("aria-disabled", "true"),
+    );
+    expect(rows[0]).not.toHaveAttribute("aria-busy", "true");
+    fireEvent.click(rows[0]!);
+    release();
+    await waitFor(() => expect(downloads).toHaveLength(1));
+    expect(downloads[0]!.name).toBe("pdfxyz-test-images.zip");
+  });
+
+  it("a row's ZIP that fails says so at that row, not beside Download all", async () => {
+    readHook = (id) =>
+      id === "r2"
+        ? Promise.reject(new Error("read failed"))
+        : Promise.resolve(new TextEncoder().encode(id).buffer);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const rows = await mount();
+    fireEvent.click(rows[1]!);
+    const alert = await within(rowOf(rows[1]!)).findByRole("alert");
+    expect(alert).toHaveTextContent(ZIP_FAILED_MESSAGE);
+    // One alert, at the row: none beside Download all, none at the other row.
+    expect(screen.getAllByRole("alert")).toEqual([alert]);
+    expect(downloads).toHaveLength(0);
+    // The next ZIP clears it.
+    readHook = null;
+    fireEvent.click(rows[0]!);
+    await waitFor(() => expect(downloads).toHaveLength(1));
+    expect(screen.queryAllByRole("alert")).toEqual([]);
+  });
+
+  it("control: Download all's failure stays beside Download all, not at a row", async () => {
+    readHook = () => Promise.reject(new Error("read failed"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const rows = await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Download all (2)" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(ZIP_FAILED_MESSAGE);
+    for (const row of rows) expect(rowOf(row)).not.toContainElement(alert);
   });
 });

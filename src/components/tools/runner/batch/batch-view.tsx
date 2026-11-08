@@ -275,8 +275,12 @@ export function BatchView<R>({
   );
 
   const { zipping, zipError, downloadZip } = useZipDownload();
+  // Whose ZIP was asked for last: "Download all" (null) or a row's id. Its
+  // button is the busy one, and a failure is said beside it, not elsewhere.
+  const [zipFor, setZipFor] = useState<string | null>(null);
   const downloadAll = useCallback(async () => {
     if (files.length === 0) return;
+    setZipFor(null);
     let entries = files.map(({ name, blob }) => ({ name, blob }));
     if (bundle) {
       // One folder per input, two inputs of one name told apart the way
@@ -284,9 +288,12 @@ export function BatchView<R>({
       // builder (`loadZipArchive` fetches the same module), never with the
       // page.
       const { uniqueEntryNames } = await import("@/lib/pdf/zip-archive");
+      // A folder has no extension: "scan.v2" twice is "scan.v2 (2)", never
+      // "scan (2).v2". The rule numbers before a name's last dot, so each
+      // folder is given one to number before, and it is taken off again.
       const folders = uniqueEntryNames(
-        downloadable.map((item) => bundle(item.result).folder),
-      );
+        downloadable.map((item) => `${bundle(item.result).folder}.d`),
+      ).map((name) => name.slice(0, -2));
       entries = downloadable.flatMap((item, i) =>
         outputsOf(item.result).map(({ name, blob }) => ({
           name: `${folders[i]}/${name}`,
@@ -308,16 +315,19 @@ export function BatchView<R>({
     zipFallback,
   ]);
   // One row's files as their own ZIP, when it made more than one.
+  // Its failure has no fallback sentence: `zipFallback` points at the rows,
+  // and this IS a row.
   const downloadRow = useCallback(
-    (result: R) => {
+    (id: string, result: R) => {
       if (!bundle || zipping) return;
+      setZipFor(id);
       void downloadZip(
         outputsOf(result).map(({ name, blob }) => ({ name, blob })),
         bundle(result).zipName,
-        { compression, fallback: zipFallback },
+        { compression },
       );
     },
-    [bundle, zipping, downloadZip, outputsOf, compression, zipFallback],
+    [bundle, zipping, downloadZip, outputsOf, compression],
   );
 
   // The live region: each file as it settles (`announcesSettle`), and the
@@ -446,6 +456,9 @@ export function BatchView<R>({
             outputs={outputsOf}
             downloadLabel={downloadLabel}
             onDownloadAll={bundle ? downloadRow : null}
+            zipping={zipping}
+            zipBusy={zipping && zipFor === item.id}
+            zipError={zipFor === item.id ? zipError : null}
             allowDownload={
               includeSigned ||
               item.result === undefined ||
@@ -490,7 +503,7 @@ export function BatchView<R>({
       </p>
 
       {haltReason && <ErrorNote message={haltReason} />}
-      {zipError && <ErrorNote message={zipError} />}
+      {zipError && zipFor === null && <ErrorNote message={zipError} />}
 
       {state.phase === "idle" && runBlocked && count > 0 && (
         <p id={blockedId} className="text-warn text-xs">
@@ -608,19 +621,19 @@ export function BatchView<R>({
                     if (!zipping) void downloadAll();
                   }}
                   aria-disabled={zipping || undefined}
-                  aria-busy={zipping}
+                  aria-busy={zipping && zipFor === null}
                   className={buttonVariants({
                     variant: "primary",
                     size: "sm",
                     className: CONTROL,
                   })}
                 >
-                  {zipping ? (
+                  {zipping && zipFor === null ? (
                     <Spinner />
                   ) : (
                     <FileArchive className="size-4" aria-hidden />
                   )}
-                  {zipping
+                  {zipping && zipFor === null
                     ? "Preparing ZIP…"
                     : `Download all (${downloadable.length})`}
                 </button>
@@ -646,7 +659,7 @@ const CONTROL = "min-h-11 sm:min-h-0";
 
 /** A row button: 44px on a phone, the old 32px from `sm` up. */
 const ROW_BUTTON =
-  "text-muted hover:bg-wash hover:text-fg rounded-ctl grid size-11 shrink-0 place-items-center transition sm:size-8";
+  "text-muted hover:bg-wash hover:text-fg rounded-ctl grid size-11 shrink-0 place-items-center transition aria-disabled:cursor-not-allowed aria-disabled:opacity-40 sm:size-8";
 
 /** One row in the batch list: status glyph, name, and per-item result/error. */
 function BatchRow<R>({
@@ -657,6 +670,9 @@ function BatchRow<R>({
   outputs,
   downloadLabel,
   onDownloadAll,
+  zipping,
+  zipBusy,
+  zipError,
   allowDownload,
   onRemove,
   removeRef,
@@ -671,7 +687,13 @@ function BatchRow<R>({
    * Set for a bundling tool: a row that made several files gets ONE button,
    * which saves them as that row's own ZIP.
    */
-  onDownloadAll: ((result: R) => void) | null;
+  onDownloadAll: ((id: string, result: R) => void) | null;
+  /** A ZIP is building (any): the row's ZIP button is held off, as "Download all" is. */
+  zipping: boolean;
+  /** The ZIP building is this row's own. */
+  zipBusy: boolean;
+  /** This row's own ZIP failed: said at the row, where it was asked for. */
+  zipError: string | null;
   /** False for a signed file the person has not opted into downloading. */
   allowDownload: boolean;
   /** Present before Run, while more than one file is listed. */
@@ -694,6 +716,11 @@ function BatchRow<R>({
             describe={describe}
           />
         </span>
+        {zipError && (
+          <span role="alert" className="text-err block text-xs">
+            {zipError}
+          </span>
+        )}
       </span>
       {onRemove ? (
         <button
@@ -708,8 +735,12 @@ function BatchRow<R>({
       ) : files.length > 1 && onDownloadAll && result !== undefined ? (
         <button
           type="button"
-          onClick={() => onDownloadAll(result)}
+          // `aria-disabled`, not `disabled`, as on "Download all": a ZIP
+          // building does not blur the person out of the button.
+          onClick={() => onDownloadAll(item.id, result)}
           aria-label={downloadLabel(item, result)}
+          aria-disabled={zipping || undefined}
+          aria-busy={zipBusy}
           className={ROW_BUTTON}
         >
           <FileArchive className="size-4" aria-hidden />
