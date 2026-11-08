@@ -124,11 +124,15 @@ test("restricted: fills the form and keeps the author's encryption", async ({
   // locked here. This fixture grants comments (/P bit 6) as well as filling,
   // so the help names both. (Until comments were saved under the author's
   // encryption, #228 pinned the fill-only sentence here; that sentence now
-  // belongs to a fill-only grant.)
+  // belongs to a fill-only grant.) The list is lockedCommentHelp() in
+  // toolbar.tsx, built from the tools the lock allows. WAS "Highlight, Draw,
+  // Note and the shapes" until 2026-11-08, when the lock also allowed
+  // Underline, Strikethrough, Highlighter and Comment; editor-lock.test.ts
+  // holds this literal equal to lockedCommentHelp().
   const help = page.locator("[data-locked-help]");
   await expect(help).toBeVisible();
   await expect(help).toHaveText(
-    "Highlight, Draw, Note and the shapes are saved as comments, which this PDF's author allows, and the form fields on the page can be filled in. Then Apply & download: the author's restrictions stay in the downloaded file; the other tools need the owner password.",
+    "Highlight, Underline, Strikethrough, Draw, Highlighter, Note, Comment and the shapes are saved as comments, which this PDF's author allows, and the form fields on the page can be filled in. Then Apply & download: the author's restrictions stay in the downloaded file; the other tools need the owner password.",
   );
   await expect(page.getByText(/Pick a tool, then/)).toHaveCount(0);
   await banner.scrollIntoViewIfNeeded();

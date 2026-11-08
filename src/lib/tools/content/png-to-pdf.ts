@@ -14,6 +14,42 @@ import {
 } from "@/lib/pdf/image-page-defaults";
 import { imageDefaultPaperCopy } from "@/lib/tools/tool-facts";
 import { inches } from "@/lib/pdf/page-geometry";
+import { IMAGE_ROTATION_LABELS } from "@/lib/pdf/image-rotation";
+import { A4_SCAN_SETUP_COPY, IGNORED_DPI_COPY } from "@/lib/pdf/image-density";
+import { undecodableImageMessage } from "@/lib/pdf/image-intake";
+import {
+  CUSTOM_PAGE_COPY,
+  CUSTOM_PAGE_LABELS,
+} from "@/lib/pdf/image-page-custom";
+import {
+  IMAGE_BOOKMARKS_CHOICES,
+  IMAGE_BOOKMARKS_LABELS,
+  IMAGE_ORDER_LABELS,
+  MIN_BOOKMARKED_IMAGES,
+} from "@/lib/pdf/image-bookmarks";
+import {
+  SMALL_IMAGES_CHOICES,
+  SMALL_IMAGES_LABELS,
+} from "@/lib/pdf/image-enlarge";
+
+/** The card button that turns one image (audit png-to-pdf#2). */
+const ROTATE = IMAGE_ROTATION_LABELS.button;
+
+/** The add-time refusal of an undecodable image (audit png-to-pdf#8). */
+const UNDECODABLE_PNG = undecodableImageMessage("chart.png", "png");
+
+/** Small images and its two chips (audit png-to-pdf#4), as the runner says. */
+const SMALL = SMALL_IMAGES_LABELS.heading;
+const [KEEP_SIZE, ENLARGE] = SMALL_IMAGES_CHOICES.map((c) => c.label);
+
+/** Sort by name and Bookmarks (audit png-to-pdf#6), as the runner says. */
+const SORT = IMAGE_ORDER_LABELS.sortByName;
+const BOOKMARKS = IMAGE_BOOKMARKS_LABELS.heading;
+const [NO_BOOKMARKS, PER_IMAGE_BOOKMARK] = IMAGE_BOOKMARKS_CHOICES.map(
+  (c) => c.label,
+);
+const BOOKMARK_MIN =
+  MIN_BOOKMARKED_IMAGES === 2 ? "two" : String(MIN_BOOKMARKED_IMAGES);
 import { tiffRefusal } from "@/lib/pdf/tiff-limits";
 import {
   MAX_SIZE_LABELS,
@@ -125,7 +161,10 @@ const LIMIT_MET = limitOutcome({
  *    depth (a fax page stays a 1-bit DeviceGray image, not 8-bit RGB) and
  *    laid out at its size on paper from XResolution/YResolution. PNG's DPI
  *    is still not read, so the "one point per pixel" sentence now names PNG
- *    and TIFF apart. src/lib/pdf/tiff.test.ts renders the saved PDFs through
+ *    and TIFF apart. SUPERSEDED 2026-11-08 (audit png-to-pdf#4), history
+ *    kept: under Fit to image a PNG's pHYs sets its page size when it is
+ *    plausible (src/lib/pdf/image-density.ts; image-density.test.ts reads
+ *    an A4 page back from a 300 dpi PNG scan). src/lib/pdf/tiff.test.ts renders the saved PDFs through
  *    pdf.js. HEIC and AVIF are still refused by name. What still reaches Create PDF and fails
  *    is a file with a valid signature pdf-lib cannot parse (a 2-frame APNG,
  *    a damaged image). tool-page-substance.test.ts holds the steps to every
@@ -133,6 +172,11 @@ const LIMIT_MET = limitOutcome({
  *    #10), history kept: for a PNG the parser is src/lib/pdf/png-embed.ts,
  *    not pdf-lib; it refuses the same two cases (a 2-frame APNG, a cut-off
  *    or damaged PNG) with the same "could not be decoded" message.
+ *    SUPERSEDED 2026-11-08 (audit png-to-pdf#8), history kept: the runner
+ *    now embeds each PNG and JPG into a throwaway document AS IT IS ADDED
+ *    (src/lib/pdf/image-intake.ts), so those two are refused at pick time
+ *    in the engine's words; the FAQ "Why did Create PDF fail on a file it
+ *    accepted?" became "Why was a PNG I added turned away?".
  *  - The option lists are derived from the chip tables; the default page
  *    words are held to the engine by claims-vs-capability.test.ts.
  *  - MAX FILE SIZE, since 2026-10-31 (src/lib/pdf/image-size-limit.ts): with
@@ -153,14 +197,14 @@ const content: ToolContent = {
   metaDescription: `Combine PNG screenshots, diagrams and logos into a single PDF in your browser. Pixels are kept without JPEG blur, up to ${MAX_IMAGE_MB} MB a file, and nothing is uploaded.`,
   intro: [
     `PNG to PDF places every PNG you add on a page of its own and saves the set as a single PDF. It suits what people keep as PNG in the first place — screenshots, diagrams, line art, logos on a transparent background — where crisp edges matter more than a small file. With ${LIMIT} left at ${NO_LIMIT}, a PNG is never turned into JPEG on the way: its pixels are stored with lossless Flate compression, so small interface text is not smudged by block artefacts. Each PNG keeps its own depth too, sixteen bits per channel included. WebP, GIF and BMP images are taken too: your browser decodes each one and it is saved again, as a PNG when it has transparency and as a high-quality JPEG when it has none, and an animated GIF gives its first frame only. If an upload form caps the size, choose ${LIMIT} (${LIMIT_PRESETS}, or Custom): when the PDF comes out bigger, your browser saves the images again as JPEGs, softer and with any transparent areas turned white, until it fits.`,
-    `Unless you change the page setup, every page is a portrait sheet with a white background and a ${DEFAULT_MARGIN} margin, and its size is ${DEFAULT_PAPER}. You can pick the page size (${SIZES}), the orientation (${ORIENTATIONS}) and the margin (${MARGINS}) first; Fit to image makes each page the size of its PNG plus the margin, which suits screenshots. A PNG bigger than the space is scaled down to fit and centred. A smaller one is never enlarged: it is drawn at one PDF point per pixel, so a tiny icon stays tiny. Any DPI value stored inside the PNG is ignored.`,
-    "TIFF images are taken as well, multi-page TIFFs from scanners and fax software included: every page of the TIFF becomes a page of the PDF, in order, black-and-white fax pages (CCITT Group 4) among them. Unlike a PNG, a TIFF page is laid out at the size it had on paper, read from the resolution saved in the file, so under Fit to image a 300 dpi A4 scan is an A4 page. Its pixels are stored without loss, a black-and-white page as one bit per pixel.",
+    `Unless you change the page setup, every page is a portrait sheet with a white background and a ${DEFAULT_MARGIN} margin, and its size is ${DEFAULT_PAPER}. You can pick the page size (${SIZES}), the orientation (${ORIENTATIONS}) and the margin (${MARGINS}) first. ${CUSTOM_PAGE_COPY} Fit to image makes each page the size of its PNG plus the margin, which suits screenshots. A PNG bigger than the space is scaled down to fit and centred. A smaller one keeps its size, drawn at one PDF point per pixel, so a tiny icon stays tiny, unless you choose ${ENLARGE} under ${SMALL}: then it is scaled up until it meets the margin, softer the more it grows because no pixels are added. Under Fit to image, a resolution saved in the PNG sets the page's size on paper instead: ${A4_SCAN_SETUP_COPY}, a 300 dpi scan of an A4 sheet saved as a PNG becomes an A4 page; a stated ${IGNORED_DPI_COPY}, counts as none.`,
+    "TIFF images are taken as well, multi-page TIFFs from scanners and fax software included: every page of the TIFF becomes a page of the PDF, in order, black-and-white fax pages (CCITT Group 4) among them. A TIFF page is laid out at the size it had on paper, read from the resolution saved in the file, on every page size and not only under Fit to image. Its pixels are stored without loss, a black-and-white page as one bit per pixel.",
     `The work happens in this browser tab: your PNGs are read from your device, laid out there, and handed back as a download, and none of them is uploaded to pdf.xyz. Each file may be up to ${MAX_IMAGE_MB} MB.`,
   ],
   useCases: [
     {
       title: "A step-by-step screenshot trail",
-      body: "Bug reports and how-to notes often start as a folder of numbered screenshots. Put them in sequence and send one PDF whose interface text is still sharp.",
+      body: `Bug reports and how-to notes often start as a folder of numbered screenshots. ${SORT} puts them in sequence. With ${PER_IMAGE_BOOKMARK} chosen under ${BOOKMARKS}, a reader can jump to any of them from the bookmark panel, and the interface text stays sharp.`,
     },
     {
       title: "Logo and artwork proofs",
@@ -178,19 +222,19 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your PNG files",
-      body: `Drag PNGs onto the box reading "Drop PNG images here, or browse", or click anywhere in it to open your file picker; JPG photos are accepted too, and so are WebP, GIF, BMP and TIFF images; a multi-page TIFF fills one page per TIFF page. Files added later join the end of the list. A file that is left out gets a note naming it and the reason: "Choose PNG, JPG, WebP, GIF, BMP or TIFF images." for another type, "File is empty." for a zero-byte file, "Max ${MAX_IMAGE_MB} MB per image." for one that is too big, "Could not read this file — pick it again." when the file cannot be read, and a note naming the real format, such as "chart.png" is an AVIF image., when its contents are none of those. A TIFF can also be turned away by page, with a note naming it, such as ${TIFF_TOO_LARGE}`,
+      body: `Drag PNGs onto the box reading "Drop PNG images here, or browse", or click anywhere in it to open your file picker; JPG photos are accepted too, and so are WebP, GIF, BMP and TIFF images; a multi-page TIFF fills one page per TIFF page. Files added later join the end of the list. A file that is left out gets a note naming it and the reason: "Choose PNG, JPG, WebP, GIF, BMP or TIFF images." for another type, "File is empty." for a zero-byte file, "Max ${MAX_IMAGE_MB} MB per image." for one that is too big, "Could not read this file — pick it again." when the file cannot be read, and a note naming the real format, such as "chart.png" is an AVIF image., when its contents are none of those. A PNG or JPG is also tried the way Create PDF will use it, so a PNG that is cut off, damaged or animated (more than one frame) is turned away with a note naming it, such as ${UNDECODABLE_PNG} A TIFF can also be turned away by page, with a note naming it, such as ${TIFF_TOO_LARGE}`,
     },
     {
       title: "Arrange the image order",
-      body: "Under Image order, each card shows a thumbnail, the file name and the page it will become. The up and down arrows on a card (Move up, Move down) shift it one place; the cross (Remove) drops it, and Clear empties the list. To move a card further in one go, drag it onto the place you want.",
+      body: `Under Image order, each card shows a thumbnail, the file name and the page it will become. The up and down arrows on a card (Move up, Move down) shift it one place; the turning arrow (${ROTATE}) turns a sideways screenshot or scan a quarter turn clockwise with each press, and the card then shows the angle, such as 90°; the cross (Remove) drops it, and Clear empties the list. The pixels are not saved again: the turn is applied as the image is placed, and its page takes the turned shape. To move a card further in one go, drag it onto the place you want. ${SORT}, beside the heading, puts every card in order of its file name, numbers counted as numbers (shot 2 before shot 10), cards added later included.`,
     },
     {
       title: "Choose the page setup",
-      body: `Below the list, Page size, Orientation and Margin set the page, ${LIMIT} caps the size of the PDF, and Output chooses One PDF or One PDF per image, which with more than one image arrives as a ZIP. Left alone: ${WORLD_SIZE} (${LETTER_SIZE} in a country that uses Letter paper), portrait, a ${DEFAULT_MARGIN} margin, ${NO_LIMIT.toLowerCase()} on size, one PDF. With One PDF per image, a ${LIMIT} applies to each PDF on its own.`,
+      body: `Below the list, Page size, Orientation and Margin set the page (Page size and Margin each end in ${CUSTOM_PAGE_LABELS.chip}, for a length typed in mm or inches), ${SMALL} chooses ${KEEP_SIZE} or ${ENLARGE} for an image smaller than the paper, ${BOOKMARKS} chooses ${NO_BOOKMARKS} or ${PER_IMAGE_BOOKMARK} (a bookmark named after each image's file that opens its page, in One PDF of ${BOOKMARK_MIN} or more images), ${LIMIT} caps the size of the PDF, and Output chooses One PDF or One PDF per image, which with more than one image arrives as a ZIP. Left alone: ${WORLD_SIZE} (${LETTER_SIZE} in a country that uses Letter paper), portrait, a ${DEFAULT_MARGIN} margin, small images kept at their size, no bookmarks, ${NO_LIMIT.toLowerCase()} on size, one PDF. With One PDF per image, a ${LIMIT} applies to each PDF on its own.`,
     },
     {
       title: "Press Create PDF",
-      body: "The button reads Creating PDF… while your browser builds one page per image in the order shown. An image that cannot be decoded halts the whole run, and the error names that file; remove it and press Create PDF again.",
+      body: "The button reads Creating PDF… while your browser builds one page per image in the order shown. A PNG that is cut off, damaged or animated, or a JPG whose header cannot be read, was already turned away when you added it. A damaged TIFF page, or a WebP, GIF or BMP your browser cannot decode, still halts the whole run, and the error names that file; remove it and press Create PDF again.",
     },
     {
       title: "Save the PDF",
@@ -215,8 +259,8 @@ const content: ToolContent = {
       a: "Yes. This page also takes JPG and JPEG photos, so screenshots and photos can go into one PDF in a single pass, each on its own page in the order you set. PNGs are stored losslessly. A JPG keeps its original JPEG data and is not compressed again; only a rotation recorded in its EXIF data is applied, so a phone photo stands upright.",
     },
     {
-      q: "Why did Create PDF fail on a file it accepted?",
-      a: 'Adding a file checks its name, its size and the first bytes of its contents, so a file whose contents are not a PNG, JPG, WebP, GIF, BMP or TIFF is turned away as you add it, even when it is named .png, and a JPEG or WebP saved with a .png name is accepted and placed as what it really is. What that check cannot see is an animated PNG with more than one frame, or a damaged image whose first bytes look right: it gets into the list and then fails with "could not be decoded as a PNG image" (or "as a JPG image"), which stops the whole PDF. Remove the file the message names and run it again. A TIFF is checked further when you add it, page by page, for its size and the way it is stored; a damaged TIFF page stops Create PDF with a note naming the page.',
+      q: "Why was a PNG I added turned away?",
+      a: `Adding a file checks its name, its size and the first bytes of its contents, so a file whose contents are not a PNG, JPG, WebP, GIF, BMP or TIFF is turned away as you add it, even when it is named .png, and a JPEG or WebP saved with a .png name is accepted and placed as what it really is. A PNG or JPG is then embedded once, into a throwaway copy, with the reader Create PDF uses: an animated PNG with more than one frame, a PNG that is damaged or cut off behind good first bytes, or a JPG whose header cannot be read fails there and is turned away with a note such as ${UNDECODABLE_PNG} The rest of your images stay in the list. A JPG cut off after its header is not caught here, because only the header is read, for this check and for Create PDF. A TIFF is checked further when you add it, page by page, for its size and the way it is stored; a damaged TIFF page still stops Create PDF with a note naming the page.`,
     },
     {
       q: "Are my images uploaded anywhere?",

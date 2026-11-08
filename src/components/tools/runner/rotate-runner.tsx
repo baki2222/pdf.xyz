@@ -38,15 +38,34 @@ import { PageTile, TileAction } from "./page-tile";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import { usePdfThumbnails } from "./use-pdf-thumbnails";
 import type { LoadedPdf } from "./use-single-pdf";
+import {
+  RestrictedGrantNote,
+  RestrictedGrantRefusal,
+  grantAllows,
+} from "./restricted-grant";
 
+/**
+ * A PDF its author restricted opens here when the author grants page
+ * assembly (/P bit 11, which names rotation): the rotation is saved under
+ * the author's own encryption. Withheld, the tool says which permission and
+ * that the owner password lifts it (`./restricted-grant`). Refused at
+ * upload, with the editing-restrictions message, until 2026-11-08.
+ */
 export function RotateRunner() {
   return (
     <SinglePdfRunner
       hint="One PDF · rotate any or all pages"
       handoffSlug="rotate-pdf"
       toolName="Rotate PDF"
+      openProtected
     >
-      {(pdf, reset) => <RotateEditor pdf={pdf} onReset={reset} />}
+      {(pdf, reset) =>
+        pdf.protection && !grantAllows(pdf.protection, "assemble") ? (
+          <RestrictedGrantRefusal pdf={pdf} grant="assemble" onReset={reset} />
+        ) : (
+          <RotateEditor pdf={pdf} onReset={reset} />
+        )
+      }
     </SinglePdfRunner>
   );
 }
@@ -102,14 +121,24 @@ function RotateEditor({
   };
 
   // In place, never a rebuild: see `setPageRotations` for what a rebuild
-  // deleted from every file this tool touched.
-  const onRun = () => run(() => setPageRotations(pdf.bytes, rotations));
+  // deleted from every file this tool touched. A restricted file's bytes are
+  // its decrypted copy; the rotation goes back onto the ORIGINAL as an
+  // incremental update under the author's encryption, which refuses any
+  // change to a page beyond its /Rotate.
+  const protection = pdf.protection;
+  const onRun = () =>
+    run(async () => {
+      const rotated = await setPageRotations(pdf.bytes, rotations);
+      return protection
+        ? (await protection.saveChanges(rotated)).bytes
+        : rotated;
+    });
 
   if (result) {
     return (
       <ResultPanel
         title="PDF rotated"
-        summary={`${changedCount} page${changedCount === 1 ? "" : "s"} rotated · ${formatBytes(result.byteLength)}`}
+        summary={`${changedCount} page${changedCount === 1 ? "" : "s"} rotated${protection ? " · author's protection kept" : ""} · ${formatBytes(result.byteLength)}`}
         onReset={onReset}
         output={outputFile(result, outputName(pdf.file.name, "rotated"))}
         onAdjust={reset}
@@ -134,6 +163,7 @@ function RotateEditor({
   return (
     <div className="flex flex-col gap-5">
       <FileHeader pdf={pdf} />
+      {protection && <RestrictedGrantNote grant="assemble" />}
 
       <RunnerSection
         title="Rotate"

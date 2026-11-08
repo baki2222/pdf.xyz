@@ -100,6 +100,17 @@ import {
   type TextRun,
 } from "@/lib/pdf/editor/runs";
 import { CSS_FONT_STACK, needsUnicodeFace } from "@/lib/pdf/editor/text";
+import {
+  quadsBounds,
+  selectTextQuads,
+  type GlyphMetric,
+  type TextMarkup,
+} from "@/lib/pdf/editor/markup";
+import {
+  STICKY_ICON,
+  STICKY_POPUP_WIDTH,
+  stickyPopupOrigin,
+} from "@/lib/pdf/editor/sticky";
 import { cn } from "@/lib/utils";
 import { ErrorNote, useAnnouncer } from "../runner-kit";
 import { PagePreviewPlaceholder } from "../page-preview-placeholder";
@@ -125,8 +136,15 @@ import {
   type StylePatch,
 } from "./properties";
 import { SignaturePanel } from "./signature-panel";
+import { RepeatOnPages } from "./repeat-on-pages";
+import { canRepeat, repeatCopies } from "@/lib/pdf/editor/repeat-on-pages";
 import { ThumbnailRail, type PageOps, type RailPage } from "./thumbnail-rail";
-import { EditorToolbar, FIELD_TOOL, TOOL_BUTTONS } from "./toolbar";
+import {
+  EditorToolbar,
+  FIELD_TOOL,
+  TOOL_BUTTONS,
+  lockedCommentHelp,
+} from "./toolbar";
 
 /**
  * The WYSIWYG editor: every page drawn by pdf.js, an object layer over each
@@ -179,7 +197,15 @@ type Drag = DragBase &
         current: Pt;
         id: string;
       }
-    | { kind: "ink"; page: number; el: HTMLElement; points: Pt[]; id: string }
+    | {
+        kind: "ink";
+        page: number;
+        el: HTMLElement;
+        points: Pt[];
+        id: string;
+        /** Drawn with the highlighter pen (Multiply, its own defaults). */
+        marker: boolean;
+      }
     | {
         kind: "marquee";
         page: number;
@@ -211,6 +237,8 @@ const PLACING: ReadonlySet<Tool> = new Set([
   "whiteout",
   "redact",
   "highlight",
+  "underline",
+  "strikeout",
   "link",
   "field-text",
   "field-checkbox",
@@ -218,6 +246,55 @@ const PLACING: ReadonlySet<Tool> = new Set([
   "field-radio",
   "field-signature",
 ]);
+
+/** The text-markup tools, and the markup each places (`markup.ts`). */
+const TEXT_MARKUP_TOOLS: ReadonlyMap<Tool, TextMarkup> = new Map<
+  Tool,
+  TextMarkup
+>([
+  ["highlight", "highlight"],
+  ["underline", "underline"],
+  ["strikeout", "strikeout"],
+]);
+
+/**
+ * A text markup over the words a press at `a` and a release at `b` select
+ * on the page's runs — or null when the press is not on text, and the tool
+ * draws a box instead (a scan, a figure).
+ */
+function markSelectedText(
+  tool: Tool,
+  page: number,
+  runs: readonly TextRun[],
+  a: Pt,
+  b: Pt,
+  defaults: Defaults,
+  id: string,
+  metrics: readonly GlyphMetric[],
+): EditorObject | null {
+  const markup = TEXT_MARKUP_TOOLS.get(tool);
+  if (!markup) return null;
+  const quads = selectTextQuads(runs, a, b, metrics);
+  if (!quads) return null;
+  // The map's keys are exactly these three tools, each its own bucket.
+  const bucket = tool as "highlight" | "underline" | "strikeout";
+  return {
+    id,
+    kind: "highlight",
+    page,
+    ...quadsBounds(quads),
+    quads,
+    ...defaults[bucket],
+    markup,
+  };
+}
+
+/** What a stroke of the pen, or of the highlighter pen, starts with. */
+function penStyle(defaults: Defaults, marker: boolean) {
+  return marker
+    ? { ...defaults.marker, highlighter: true }
+    : { ...defaults.ink, highlighter: false };
+}
 
 /** One click places one of these where it lands (and the tool stays on). */
 const QUICK: ReadonlySet<Tool> = new Set(["date", "initials", "name", "check"]);
@@ -347,7 +424,16 @@ function makeObject(
     case "redact":
       return { id, kind: "redact", page, ...rect, fill: defaults.redact.fill };
     case "highlight":
-      return { id, kind: "highlight", page, ...rect, ...defaults.highlight };
+    case "underline":
+    case "strikeout":
+      return {
+        id,
+        kind: "highlight",
+        page,
+        ...rect,
+        ...defaults[tool],
+        markup: tool,
+      };
     case "link":
       return {
         id,
@@ -389,6 +475,8 @@ const CLICK_SIZE: Partial<Record<Tool, { width: number; height: number }>> = {
   whiteout: { width: 140, height: 28 },
   redact: { width: 140, height: 20 },
   highlight: { width: 160, height: 18 },
+  underline: { width: 160, height: 18 },
+  strikeout: { width: 160, height: 18 },
   line: { width: 120, height: 0 },
   arrow: { width: 120, height: 0 },
   link: { width: 140, height: 20 },
@@ -434,6 +522,10 @@ export function WysiwygEditor({
   footer?: ReactNode;
 }) {
   const kit = useTextKit();
+  const kitRef = useRef(kit);
+  useLayoutEffect(() => {
+    kitRef.current = kit;
+  }, [kit]);
   // Below `sm` (640 px): docked toolbar and a properties sheet. The editor
   // first renders after a file opens, on the client, so this is read before
   // its first paint and nothing moves between the two layouts.
@@ -734,16 +826,21 @@ export function WysiwygEditor({
 
   // Which page list the pages asked for so far were asked under.
   const runsAskedFor = useRef(pages);
-  const wantRuns = state.tool === "edittext" || finding;
+  // Highlight, Underline and Strikethrough read the runs too: a press on
+  // text selects words to mark (`selectTextQuads`), not a box.
+  const editingText = state.tool === "edittext" || finding;
+  const wantRuns = editingText || TEXT_MARKUP_TOOLS.has(state.tool);
   useEffect(() => {
     if (!wantRuns || !doc || !frames) return;
     if (runsAskedFor.current !== pages) {
       runsAskedFor.current = pages;
       runsAsked.current.clear();
     }
-    void loadStyles().catch(() =>
-      setRunNotice("This PDF's text could not be read for editing."),
-    );
+    if (editingText) {
+      void loadStyles().catch(() =>
+        setRunNotice("This PDF's text could not be read for editing."),
+      );
+    }
     const wanted = finding ? frames.map((_, i) => i) : [...near];
     const list = pages;
     const store = (i: number, placed: TextRun[]) =>
@@ -763,7 +860,7 @@ export function WysiwygEditor({
         store(i, placeRuns(i, read, frames[i]!));
       });
     }
-  }, [wantRuns, finding, doc, frames, near, loadStyles, pages]);
+  }, [wantRuns, editingText, finding, doc, frames, near, loadStyles, pages]);
 
   // Runs a person can edit: an invisible OCR layer is not offered.
   const editableRuns = useMemo(() => {
@@ -917,6 +1014,37 @@ export function WysiwygEditor({
         ? objectBounds(obj, (o) => kit.height(o))
         : objectBounds(obj, () => 20),
     [kit],
+  );
+
+  /**
+   * "Repeat on" (audit sign-pdf#6): a copy of the selection at the same
+   * spot on each of `pages`, as ONE undoable step; the original stays
+   * selected.
+   */
+  const repeatSelection = useCallback(
+    (pages: number[]) => {
+      const s = stateRef.current;
+      const source = s.objects.filter((o) => s.selected.includes(o.id));
+      if (!frames || !canRepeat(source)) return;
+      const copies = repeatCopies(source, pages, frames, boundsOf);
+      if (copies.length === 0) return;
+      let at = s.objects.length;
+      dispatch({
+        type: "commit",
+        command: {
+          label: "Repeat on pages",
+          changes: copies.map((c) => ({
+            id: c.id,
+            before: null,
+            after: c,
+            at: at++,
+          })),
+        },
+        select: source.map((o) => o.id),
+        say: `Repeated on ${pages.length} page${pages.length === 1 ? "" : "s"}`,
+      });
+    },
+    [dispatch, frames, boundsOf],
   );
 
   /** Every form field name in use: the file's and the editor's. */
@@ -1311,7 +1439,7 @@ export function WysiwygEditor({
         const y = Math.min(Math.max(0, at.y - height / 2), f.height - height);
         const id = newObjectId();
         commitAdd(
-          typedSignatureObject(id, page, x, y, width, p.text, p.style),
+          typedSignatureObject(id, page, x, y, width, p.text, p.style, p.color),
           "Signature placed",
         );
         dispatch({ type: "tool", tool: "select" });
@@ -1356,10 +1484,36 @@ export function WysiwygEditor({
   );
 
   const startText = useCallback(
-    (kind: "text" | "note", page: number, at: Pt) => {
+    (kind: "text" | "note", page: number, at: Pt, sticky = false) => {
       const s = stateRef.current;
       const f = frames?.[page];
       if (!f) return;
+      if (sticky) {
+        // A comment: its icon centred on the click, its popup beside it.
+        const id = newObjectId();
+        const base: NoteObject = {
+          id,
+          kind: "note",
+          page,
+          x: Math.max(
+            0,
+            Math.min(at.x - STICKY_ICON / 2, f.width - STICKY_ICON),
+          ),
+          y: Math.max(
+            0,
+            Math.min(at.y - STICKY_ICON / 2, f.height - STICKY_ICON),
+          ),
+          width: STICKY_POPUP_WIDTH,
+          text: "",
+          ...s.defaults.note,
+          sticky: true,
+        };
+        dispatch({
+          type: "startEdit",
+          edit: { id, isNew: true, text: "", base },
+        });
+        return;
+      }
       const style = kind === "note" ? s.defaults.note : s.defaults.text;
       const width = Math.max(
         48,
@@ -1623,9 +1777,10 @@ export function WysiwygEditor({
         placeQuick(s.tool, page, pt);
         return;
       }
-      if (s.tool === "text" || s.tool === "note") {
+      if (s.tool === "text" || s.tool === "note" || s.tool === "comment") {
         if (hit && (hit.kind === "text" || hit.kind === "note"))
           editExisting(hit);
+        else if (s.tool === "comment") startText("note", page, pt, true);
         else startText(s.tool, page, pt);
         return;
       }
@@ -1636,13 +1791,14 @@ export function WysiwygEditor({
         }
         return;
       }
-      if (s.tool === "ink") {
+      if (s.tool === "ink" || s.tool === "marker") {
         drag.current = {
           kind: "ink",
           page,
           el,
           points: [pt],
           id: newObjectId(),
+          marker: s.tool === "marker",
         };
         return;
       }
@@ -1761,15 +1917,26 @@ export function WysiwygEditor({
           return;
         case "create": {
           d.current = clampPt(pt);
-          const obj = makeObject(
-            d.tool,
-            d.page,
-            rectFromPoints(d.start, d.current),
-            d.start,
-            d.current,
-            stateRef.current.defaults,
-            d.id,
-          );
+          const obj =
+            markSelectedText(
+              d.tool,
+              d.page,
+              runsRef.current[d.page] ?? [],
+              d.start,
+              d.current,
+              stateRef.current.defaults,
+              d.id,
+              kitRef.current?.metrics ?? [],
+            ) ??
+            makeObject(
+              d.tool,
+              d.page,
+              rectFromPoints(d.start, d.current),
+              d.start,
+              d.current,
+              stateRef.current.defaults,
+              d.id,
+            );
           if (obj) show({ [d.id]: obj });
           return;
         }
@@ -1784,7 +1951,7 @@ export function WysiwygEditor({
               kind: "ink",
               page: d.page,
               points: d.points.slice(),
-              ...stateRef.current.defaults.ink,
+              ...penStyle(stateRef.current.defaults, d.marker),
             },
           });
           return;
@@ -1851,7 +2018,20 @@ export function WysiwygEditor({
               scale >=
             4;
           let obj = previewOf(d.id) ?? null;
+          // A click on a word marks that word.
           if (!dragged) {
+            obj = markSelectedText(
+              d.tool,
+              d.page,
+              runsRef.current[d.page] ?? [],
+              d.start,
+              d.start,
+              s.defaults,
+              d.id,
+              kitRef.current?.metrics ?? [],
+            );
+          }
+          if (!dragged && !obj) {
             const size = CLICK_SIZE[d.tool] ?? { width: 100, height: 60 };
             const f = frames[d.page]!;
             const rect = {
@@ -1887,7 +2067,7 @@ export function WysiwygEditor({
             kind: "ink" as const,
             page: d.page,
             points: d.points.slice(),
-            ...s.defaults.ink,
+            ...penStyle(s.defaults, d.marker),
           };
           commitAdd(obj, "Drawing added");
           dispatch({ type: "select", ids: [] });
@@ -2071,10 +2251,21 @@ export function WysiwygEditor({
     <PropertiesPanel
       selection={selection}
       bucket={panelBucket}
+      tool={state.tool}
       defaults={state.defaults}
       onPatch={patchSelection}
       onDelete={deleteSelected}
       onDuplicate={() => pasteObjects(selection, "Duplicate")}
+      repeat={
+        canRepeat(selection) ? (
+          <RepeatOnPages
+            key={selection.map((o) => o.id).join(" ")}
+            pageCount={state.pages.length}
+            from={selection[0]!.page}
+            onRepeat={repeatSelection}
+          />
+        ) : undefined
+      }
       onStack={stack}
       pageIds={pageIds}
     />
@@ -2088,7 +2279,7 @@ export function WysiwygEditor({
   ) : state.lock ? (
     <p className="text-muted text-xs leading-relaxed" data-locked-help="">
       {state.lock.annotate
-        ? "Highlight, Draw, Note and the shapes are saved as comments, which this PDF's author allows, and the form fields on the page can be filled in. Then Apply & download: the author's restrictions stay in the downloaded file; the other tools need the owner password."
+        ? lockedCommentHelp()
         : state.lock.fill
           ? "Fill in the form fields on the page, then Apply & download. The author's restrictions stay in the downloaded file; the other tools need the owner password."
           : "This PDF's author allows no changes. Enter the owner password above to unlock the tools."}
@@ -2403,6 +2594,7 @@ export function WysiwygEditor({
                         ? { ...state.editing.base, text: state.editing.text }
                         : null
                     }
+                    runsRead={runs[slot.index]?.length ?? null}
                     runs={
                       state.tool === "edittext"
                         ? (editableRuns[slot.index]?.filter(
@@ -2629,6 +2821,7 @@ function PageSheet({
   objects,
   pendingNew,
   runs,
+  runsRead,
   findHits,
   onRunActivate,
   previewNew,
@@ -2670,6 +2863,8 @@ function PageSheet({
   pendingNew: TextBoxObject | NoteObject | TextEditObject | null;
   /** Edit text: the runs to outline (null when the tool is not active). */
   runs: TextRun[] | null;
+  /** How many text runs have been read on this page, or null (not read). */
+  runsRead: number | null;
   findHits: { rect: Rect; current: boolean }[];
   onRunActivate: (run: TextRun) => void;
   previewNew: EditorObject[];
@@ -2724,6 +2919,7 @@ function PageSheet({
       data-editor-page={index}
       data-source-page={source ?? "blank"}
       data-page-pt={`${frame.width}x${frame.height}`}
+      data-runs-read={runsRead ?? undefined}
       role="group"
       aria-label={`Page ${index + 1} of ${count}`}
       className={cn(
@@ -3017,7 +3213,11 @@ function PageSheet({
       )}
       {editingObj && editing && editingObj.kind !== "textedit" && (
         <TextEditor
-          obj={editingObj}
+          obj={
+            editingObj.kind === "note" && editingObj.sticky
+              ? { ...editingObj, ...stickyPopupOrigin(editingObj) }
+              : editingObj
+          }
           text={editing.text}
           kit={kit}
           scale={scale}
@@ -3077,12 +3277,15 @@ function FormFillLayer({
         const value = fills[field.name] ?? field.value;
         const set = (next: FieldFill) =>
           onFill(field.name, next === field.value ? null : next);
+        // The field's look, apart from where it sits: a checkbox sits in its
+        // label rather than on the page, so it takes this without `absolute`.
+        const fieldSkin =
+          "pointer-events-auto border border-info/40 bg-info/10 outline-accent focus:outline-2";
         const common = {
           "data-file-field": field.name,
           "aria-label": field.name,
           onPointerDown: (e: ReactPointerEvent) => e.stopPropagation(),
-          className:
-            "pointer-events-auto absolute border border-info/40 bg-info/10 outline-accent focus:outline-2",
+          className: `${fieldSkin} absolute`,
           // Ink on the page's white paper, in either colour scheme.
           style: { ...style, color: "#111827", accentColor: "#1d4ed8" },
         };
@@ -3109,7 +3312,7 @@ function FormFillLayer({
           );
         }
         if (field.type === "checkbox") {
-          const { style: boxStyle, className, ...rest } = common;
+          const { style: boxStyle, className: _placed, ...rest } = common;
           return (
             <label
               key={w.key}
@@ -3122,7 +3325,10 @@ function FormFillLayer({
                 checked={value === true}
                 onChange={(e) => set(e.target.checked)}
                 {...rest}
-                className={cn(className, "relative m-0 size-full")}
+                // Inside its absolutely placed label the box is relative, and
+                // never `absolute` too (cn does not merge; the conflict was
+                // first drawn by a jsdom test on 2026-11-08).
+                className={cn(fieldSkin, "relative m-0 size-full")}
                 style={{
                   color: boxStyle.color,
                   accentColor: boxStyle.accentColor,

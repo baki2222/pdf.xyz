@@ -18,7 +18,12 @@ import {
   HandoffLoading,
   HandoffProblem,
 } from "./handoff-notice";
-import { useSinglePdf, type LoadedPdf, type PdfReader } from "./use-single-pdf";
+import {
+  useSinglePdf,
+  type LoadedPdf,
+  type PdfReader,
+  type SinglePdfError,
+} from "./use-single-pdf";
 import { useToolRun } from "./tool-context";
 import { useToolHandoff, type ToolHandoff } from "./use-tool-handoff";
 
@@ -80,6 +85,8 @@ export function SinglePdfRunner({
   reader = "pdf-lib",
   prepare,
   openProtected = false,
+  errorAside,
+  signedNotice,
 }: {
   hint?: string;
   children: (pdf: LoadedPdf, reset: () => void) => ReactNode;
@@ -107,6 +114,14 @@ export function SinglePdfRunner({
    * those restrictions on `pdf.protection` — see `useSinglePdf`.
    */
   openProtected?: boolean;
+  /** Drawn under a refusal — Grayscale PDF's password field. */
+  errorAside?: (error: SinglePdfError) => ReactNode;
+  /**
+   * A tool that KEEPS existing signatures for some files says so in its own
+   * words (the editor appends to a signed file, `editor/editor-session`);
+   * returning null leaves the warning below in place.
+   */
+  signedNotice?: (pdf: LoadedPdf) => ReactNode;
 }) {
   // A tool with a preflight hint (E.9) probes the file as it opens.
   const slug = useToolRun()?.slug ?? "";
@@ -150,12 +165,14 @@ export function SinglePdfRunner({
             fileName={pdf.file.name}
           />
         )}
-        {writesPdf && pdf.digitalSignatures > 0 && (
-          <SignedInputNotice
-            count={pdf.digitalSignatures}
-            toolName={toolName}
-          />
-        )}
+        {writesPdf &&
+          pdf.digitalSignatures > 0 &&
+          (signedNotice?.(pdf) ?? (
+            <SignedInputNotice
+              count={pdf.digitalSignatures}
+              toolName={toolName}
+            />
+          ))}
         {children(pdf, clear)}
         <Suspense fallback={null}>
           <EditorBox
@@ -192,6 +209,7 @@ export function SinglePdfRunner({
         />
       )}
       {error && <ErrorNote message={error.message} cause={error} />}
+      {error && errorAside?.(error)}
     </div>
   );
 }

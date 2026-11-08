@@ -2,6 +2,7 @@ import type { ToolContent } from "./types";
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
+import { GRANT_PERMISSION_NAME } from "@/lib/pdf/restricted-grant-names";
 
 /*
  * Every behavioral claim below was read from, or probed against, the code:
@@ -54,6 +55,13 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
  *    one is told it has editing restrictions. The FAQ quoted the retired
  *    "Unlock it first" sentence for both until then;
  *    encryption-claims.test.ts now catches a quotation no surface says;
+ *    AMENDED 2026-11-08 (audit rotate-pdf#2): the runner passes
+ *    `openProtected`, so a restricted file (no open password) opens
+ *    decrypted, and rotates when its author grants page assembly (/P bit
+ *    11; bit 4 under revision 2) — saved as an incremental update under the
+ *    author's encryption (ProtectedPdf.saveChanges, restricted-rotate.test.ts,
+ *    rotate-restricted.test.tsx). Withheld, `RestrictedGrantRefusal` names
+ *    the permission in place of the editor;
  *  - the size cap is the rotate runner's own gate, read via toolFileCeilingMb;
  *  - 2026-10-24: Odd pages / Even pages select reader-numbered pages 1, 3, 5…
  *    and 2, 4, 6… (selection.ts oddPages/evenPages), and Rotate all 180° turns
@@ -154,7 +162,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I rotate a password-protected PDF, and is my file uploaded?",
-      a: `Not while it is encrypted: opening one stops with a message that says which lock it has, or, when the check cannot tell, asks for whichever password applies, and sends you to Unlock PDF. A PDF that needs a password to open is refused as password-protected. One that anyone can open but whose author restricted editing is refused too, with a message naming those restrictions, because your browser cannot rewrite it; Unlock PDF removes them with the owner (permissions) password that set them. Unlock PDF only removes a password you know; it cannot recover one. Unlike rotation, Unlock PDF runs on a server: the file is uploaded over TLS to pdf.xyz's secure server, the input is deleted when the job finishes, and the download link expires after ${unlockLinkMinutes} minutes. Rotation itself uploads nothing: your browser turns a PDF of up to ${ceilingMb} MB.`,
+      a: `A PDF that needs a password to open is refused as password-protected; Unlock PDF removes that password if you know it. A PDF that anyone can open but whose author restricted changes opens here when its author allows its pages to be rotated (the ${GRANT_PERMISSION_NAME.assemble} permission), and the rotated copy keeps the author's encryption, permissions and owner password. When the author withholds that permission, the page says so in place of Apply rotation, and only the owner (permissions) password that set the restrictions lifts them, in Unlock PDF. Unlock PDF only removes a password you know; it cannot recover one. Unlike rotation, Unlock PDF runs on a server: the file is uploaded over TLS to pdf.xyz's secure server, the input is deleted when the job finishes, and the download link expires after ${unlockLinkMinutes} minutes. Rotation itself uploads nothing: your browser turns a PDF of up to ${ceilingMb} MB.`,
     },
   ],
 

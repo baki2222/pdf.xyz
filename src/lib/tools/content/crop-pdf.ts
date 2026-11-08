@@ -44,6 +44,16 @@ import { AUTO_CROP_PAD_PT } from "@/lib/pdf/auto-crop";
  * labels: "Auto", "Find white margins", "Each page its own box", "Same box
  * on every page", "Previous page" / "Next page"; "Units" and "Apply
  * auto-crop" are aria-labels only.
+ *
+ * Added 2026-11-08 (audit crop-pdf#1): the page is drawn under the box in
+ * every mode, and the box's edges are sliders ("Top edge" …) that drag on
+ * the page. crop-visual.test.tsx drags them and reads the download's
+ * CropBox, and holds the step above to the runner's EDGE_HINT.
+ *
+ * Same day (audit crop-pdf#2): the preview steps through every page in every
+ * mode, and Odd pages / Even pages join the scopes. crop-pages.test.tsx reads
+ * each page's CropBox off the download. Manual margins are still ONE set per
+ * run; the Pages step says so.
  */
 const ceilingMb = Math.round(RUNNER_FILE_CEILINGS.crop / (1024 * 1024));
 
@@ -97,11 +107,11 @@ const content: ToolContent = {
     },
     {
       title: "Choose the pages",
-      body: 'In the Pages section, keep All pages, or pick Selected pages and type a list in the Pages box using commas and ranges, for example 2-4, 7. An open range such as "8-" runs to the last page.',
+      body: 'In the Pages section, keep All pages; choose Odd pages or Even pages to crop only pages 1, 3, 5 and so on or 2, 4, 6 and so on, the rectos or the versos of a book scan; or pick Selected pages and type a list in the Pages box using commas and ranges, for example 2-4, 7. An open range such as "8-" runs to the last page. One set of margins applies to every page you choose, so pages that need different margins take a run each.',
     },
     {
       title: "Check the preview and crop",
-      body: "In Uniform and Per side, Crop preview is a blank outline in page 1's proportions with a dashed box marking what your margins keep; it does not show the page's content. In Auto it shows the page itself under the proposed box, with Previous page and Next page to check each one. Press Crop PDF, then Download cropped PDF, or Start over to go back to an empty picker.",
+      body: "Crop preview shows one page at a time, as your viewer displays it, under a dashed box marking what your margins keep; Previous page and Next page step through them, and a page outside the pages you chose shows no box and says it stays uncropped. In Uniform and Per side the box's edges are handles: Drag an edge of the dashed box to move it, or focus an edge and use the arrow keys: one point a press, ten with Shift. In Uniform any edge moves all four. In Auto it shows each page's proposed box. Press Crop PDF, then Download cropped PDF, or Start over to go back to an empty picker.",
     },
   ],
 
@@ -120,7 +130,7 @@ const content: ToolContent = {
     },
     {
       q: "Does Crop PDF work on rotated pages?",
-      a: "Yes. Margins are measured on the page as your viewer shows it, after any rotation setting in the file, so Top always trims the edge you see at the top, whether a page is stored upright and turned for display or stored turned. In Per side mode, move the slider named for the edge you can see. Crop preview draws page 1 in the same displayed proportions, so a portrait page turned a quarter-turn shows as a landscape outline, and its dashed box marks what the sliders keep.",
+      a: "Yes. Margins are measured on the page as your viewer shows it, after any rotation setting in the file, so Top always trims the edge you see at the top, whether a page is stored upright and turned for display or stored turned. In Per side mode, move the slider named for the edge you can see. Crop preview draws each page as it is displayed, so a portrait page turned a quarter-turn shows as landscape, and its dashed box marks what the sliders keep.",
     },
     {
       q: "Will the cropped file be smaller?",

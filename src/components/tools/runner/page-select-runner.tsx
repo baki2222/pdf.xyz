@@ -2,7 +2,14 @@
 
 import { RunReason } from "@/components/tools/runner/run-reason";
 import { useMemo, useRef, useState } from "react";
-import { Download, FileOutput, MousePointerClick, Trash2 } from "lucide-react";
+import dynamic from "next/dynamic";
+import {
+  Download,
+  FileOutput,
+  Maximize2,
+  MousePointerClick,
+  Trash2,
+} from "lucide-react";
 import { deletePages, extractPages } from "@/lib/pdf/engine";
 import { parsePageList } from "@/lib/pdf/ranges";
 import { downloadBytes } from "@/lib/pdf/browser";
@@ -31,12 +38,23 @@ import {
   selectRange,
   toggleIndex,
 } from "./selection";
-import { PageTile } from "./page-tile";
+import { PageTile, TileAction } from "./page-tile";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import { usePdfThumbnails } from "./use-pdf-thumbnails";
 import type { LoadedPdf } from "./use-single-pdf";
 
 type Mode = "extract" | "delete";
+
+/**
+ * Each tile's enlarge button (audit remove-pages#3) — the page's copy quotes
+ * its shape. The dialog it opens loads with next/dynamic on the first press.
+ */
+export const zoomLabel = (pageNumber: number) =>
+  `View page ${pageNumber} larger`;
+
+const PageZoomDialog = dynamic(() =>
+  import("./page-zoom-dialog").then(({ PageZoomDialog }) => PageZoomDialog),
+);
 
 interface ModeConfig {
   actionIcon: typeof FileOutput;
@@ -117,6 +135,8 @@ function PageSelectEditor({
   const [rangeInput, setRangeInput] = useState("");
   const [rangeError, setRangeError] = useState<string | null>(null);
   const anchorRef = useRef<number | null>(null);
+  // The page open in the enlarge dialog, if any.
+  const [zoom, setZoom] = useState<number | null>(null);
   const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
   const { thumbs, rendered, status, capped, eagerCount, requestPage } =
     usePdfThumbnails(pdf.bytes, pdf.pageCount);
@@ -272,20 +292,44 @@ function PageSelectEditor({
         className="border-line bg-wash rounded-panel grid max-h-[58vh] grid-cols-2 gap-3 overflow-auto border p-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8"
       >
         {pdf.rotations.map((rotation, i) => (
-          <PageTile
-            key={i}
-            label={`Page ${i + 1}`}
-            ariaLabel={`Page ${i + 1}`}
-            rotation={rotation}
-            thumbnail={thumbs[i]}
-            loading={status === "rendering"}
-            onEnterView={capped ? () => requestPage(i) : undefined}
-            selectable
-            selected={selected.has(i)}
-            onSelect={(shiftKey) => onSelectPage(i, shiftKey)}
-          />
+          // The enlarge button sits beside the tile, not inside it: the tile
+          // is itself a button, and a button may not hold another.
+          <div key={i} className="relative">
+            <PageTile
+              label={`Page ${i + 1}`}
+              ariaLabel={`Page ${i + 1}`}
+              rotation={rotation}
+              thumbnail={thumbs[i]}
+              loading={status === "rendering"}
+              onEnterView={capped ? () => requestPage(i) : undefined}
+              selectable
+              selected={selected.has(i)}
+              onSelect={(shiftKey) => onSelectPage(i, shiftKey)}
+              className="h-full"
+            />
+            <span className="absolute top-2 right-2 z-10">
+              <TileAction onClick={() => setZoom(i)} title={zoomLabel(i + 1)}>
+                <Maximize2 className="size-3.5" aria-hidden />
+              </TileAction>
+            </span>
+          </div>
         ))}
       </div>
+
+      {zoom !== null && (
+        <PageZoomDialog
+          bytes={pdf.bytes}
+          pageCount={pdf.pageCount}
+          index={zoom}
+          onIndex={setZoom}
+          selected={selected.has(zoom)}
+          onToggle={() => {
+            setSelected((prev) => toggleIndex(prev, zoom));
+            anchorRef.current = zoom;
+          }}
+          onClose={() => setZoom(null)}
+        />
+      )}
 
       {error && <ErrorNote message={error} />}
 

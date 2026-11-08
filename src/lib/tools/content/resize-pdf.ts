@@ -29,7 +29,7 @@ const content: ToolContent = {
     },
     {
       title: "Making mixed page sizes match",
-      body: "A file assembled from scans, slides and exported pages has pages of every size. Resize them all to one size so the document prints and reads as a set.",
+      body: "A file assembled from scans, slides and exported pages has pages of every size. Resize them all to one size so the document prints and reads as a set, or choose “Selected pages”: every page is drawn with its size under it, such as A4 or 141.1 × 105.8 mm, so the odd ones out are the ones you press.",
     },
     {
       title: "Adding room for binding or notes",
@@ -52,7 +52,7 @@ const content: ToolContent = {
     },
     {
       title: "Choose how to resize",
-      body: "Under How to resize, pick Scale content to fit or Change canvas only. Under Pages, keep “All pages” or choose “Selected pages” and type a list such as 1-3, 5.",
+      body: "Under How to resize, pick Scale content to fit or Change canvas only. Under Pages, keep “All pages” or choose “Selected pages” and type a list such as 1-3, 5, or press the pages on the thumbnails below the box, each labelled with its size; a press updates the list, and Select all, Clear, Odd pages and Even pages pick in one go.",
     },
     {
       title: "Resize and download",
@@ -79,7 +79,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I resize only some pages?",
-      a: "Yes. Choose “Selected pages” and type the pages, such as 2, 4-6. The pages you leave out keep their size, so the copy can mix sizes.",
+      a: "Yes. Choose “Selected pages” and type the pages, such as 2, 4-6, or press them on the thumbnails. The pages you leave out keep their size, so the copy can mix sizes.",
     },
   ],
 

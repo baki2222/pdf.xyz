@@ -450,6 +450,15 @@ describe("PDF to PNG — Select pages renders exactly those pages", () => {
       fireEvent.change(screen.getByPlaceholderText("e.g. 1-3, 5"), {
         target: { value: range },
       });
+      // Since 2026-11-08 Select pages draws the pages as thumbnails (audit
+      // pdf-to-png#7), through the same stubbed encoder. Let them finish and
+      // forget them, so `encoded` below counts the RUN's canvases only.
+      const grid = await screen.findByRole("group", { name: /^Pages — / });
+      await waitFor(
+        () => expect(grid.querySelectorAll("img")).toHaveLength(4),
+        { timeout: 10_000 },
+      );
+      encoded.length = 0;
     }
     return { name, container };
   }

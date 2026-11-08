@@ -50,6 +50,7 @@ import {
   LOCKED_PDF_COPY,
   RESTRICTED_OPENERS,
 } from "@/lib/pdf/encryption";
+import { RESTRICTED_EDITORS_LEFT_OUT } from "@/tests/restricted-openers-left-out";
 import { runnerModuleOf } from "@/tests/tool-panel-modules";
 
 const RUNNER_DIR = "src/components/tools/runner";
@@ -83,6 +84,15 @@ function restrictedFileMeets(slug: string): Restricted | null {
   const source = runnerSource(slug);
   if (source === null) return null;
   if (/\breader="pdfjs"/.test(source)) return "opens";
+  // A runner that counts pages with pdf.js and never loads the file through
+  // pdf-lib (Compare PDF, since 2026-11-08) reads what pdf.js opens.
+  if (
+    /\b(?:readPagesWithPdfjs|countPagesWithPdfjs)\(/.test(source) &&
+    !/\b(?:getPageCount|getPageRotations|loadPdf|SinglePdfRunner|useSinglePdf)\b/.test(
+      source,
+    )
+  )
+    return "opens";
   if (/\bclassifyLocked\s*:\s*true\b/.test(source)) return "offers-worker";
   // A bare JSX flag on its own line: `openProtected` (see `use-single-pdf`).
   if (/^\s*openProtected\s*$/m.test(source)) return "opens-protected";
@@ -127,9 +137,15 @@ const RESTRICTED_FILE =
 /** Encrypted files in general, not one kind of them. */
 const ANY_ENCRYPTED =
   /\b(?:any|all|every)\b[^.]{0,20}\bencrypt\w*|\bencryption of any kind\b|\bencrypted PDFs?\b(?!,? (?:that|which|needing))/i;
-/** The file is turned away. */
+/**
+ * The file is turned away. "blocks signing" (2026-11-08) is the l09 lane's
+ * dropped opener, "Any encryption blocks signing, whether it guards opening
+ * the file or only printing and copying." — false once Sign PDF opens a
+ * restricted file. Only "blocks" + what the TOOL does: "blocks printing" is
+ * an author's restriction (RESTRICTED_FILE), not a refusal.
+ */
 const REFUSED =
-  /\b(?:refus\w*|reject\w*|stop(?:s|ped)?|turned away|turns? (?:it )?away)\b/i;
+  /\b(?:refus\w*|reject\w*|stop(?:s|ped)?|turned away|turns? (?:it )?away|blocks (?:signing|filling|it|the file))\b/i;
 /** The file is read or converted after all. */
 const GETS_THROUGH =
   /\blike any other\b|\bno obstacle\b|\bconverts?\b|\bis (?:read|converted|opened)\b/i;
@@ -211,7 +227,10 @@ describe("encryption claims on tool pages match the runner's reader", () => {
         .sort();
     // The pdfjs runners (`single-pdf-reader.test.ts` holds that set) mount
     // these four pages; Compress is the one that offers the worker.
+    // 2026-11-08: Compare PDF, whose card count moved to pdf.js (audit
+    // compare-pdf#5).
     expect(by("opens")).toEqual([
+      "compare-pdf",
       "pdf-to-jpg",
       "pdf-to-markdown",
       "pdf-to-png",
@@ -220,14 +239,41 @@ describe("encryption claims on tool pages match the runner's reader", () => {
     expect(by("offers-worker")).toEqual(["compress-pdf"]);
     // 2026-10-29: the two tools that fill a restricted file's form; on
     // 2026-10-30 Annotate PDF, the same editor, began to open one too.
+    // 2026-11-08: Rotate PDF and Extract Images, for one grant each — page
+    // assembly, content copying (`restricted-grant.tsx`; audit rotate-pdf#2,
+    // extract-images#3).
     expect(by("opens-protected")).toEqual([
       "annotate-pdf",
       "edit-pdf",
+      "extract-images",
       "fill-forms",
+      "rotate-pdf",
+      "sign-pdf",
     ]);
-    // …and they are the tools the refusal sends people to — the page's own
-    // runner, not a list, decides who belongs in that sentence.
-    expect(by("opens-protected")).toEqual(
+    // …and the editors among them are the tools the refusal sends people to
+    // — the page's own runner, not a list, decides who belongs in that
+    // sentence. A runner that asks one grant (`./restricted-grant`) is not
+    // an editor, and the sentence does not name it.
+    const grantTools = served
+      .filter(
+        (s) =>
+          s.meets === "opens-protected" &&
+          runnerSource(s.tool.slug)!.includes('from "./restricted-grant"'),
+      )
+      .map((s) => s.tool.slug)
+      .sort();
+    expect(grantTools).toEqual(["extract-images", "rotate-pdf"]);
+    // Sign PDF (2026-11-08, audit sign-pdf#3) opens one in the same editor,
+    // but the sentence leaves it out, for the reason
+    // RESTRICTED_EDITORS_LEFT_OUT records. Every editor left out opens one,
+    // and every tool the sentence names is an opener.
+    const leftOut = RESTRICTED_EDITORS_LEFT_OUT.map((t) => t.slug as string);
+    for (const slug of leftOut) expect(by("opens-protected")).toContain(slug);
+    expect(
+      by("opens-protected").filter(
+        (slug) => !grantTools.includes(slug) && !leftOut.includes(slug),
+      ),
+    ).toEqual(
       RESTRICTED_OPENERS.map((t) => t.href.replace(/^\/tools\//, "")).sort(),
     );
     expect(by("refuses").length).toBeGreaterThan(15);
@@ -296,6 +342,22 @@ describe("encryption claims on tool pages match the runner's reader", () => {
       falseClaims(
         "A PDF that opens without a password but restricts editing is refused with a message naming those restrictions.",
         "refuses",
+      ),
+    ).toEqual([]);
+    // sign-pdf's opener in lane l09, dropped at the w3 integration: Sign PDF
+    // opens a restricted file (`openProtected`), so "any encryption blocks
+    // signing" is false of it.
+    expect(
+      falseClaims(
+        "Any encryption blocks signing, whether it guards opening the file or only printing and copying.",
+        "opens-protected",
+      ),
+    ).toHaveLength(1);
+    // An author's "blocks printing" is the restriction, not a refusal.
+    expect(
+      falseClaims(
+        "A PDF whose author blocks printing opens here with the author's limits in force.",
+        "opens-protected",
       ),
     ).toEqual([]);
     // The retired quotation is not a sentence any surface says.

@@ -9,11 +9,18 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Download, FileDown, Info } from "lucide-react";
+import { Download, FileDown, Info, ShieldCheck } from "lucide-react";
 import { downloadBytes } from "@/lib/pdf/browser";
 import type { EditorExportResult } from "@/lib/pdf/editor-export";
 import type { MarkupMode } from "@/lib/pdf/editor/comments";
 import { isCommentObject } from "@/lib/pdf/editor/model";
+import type { SignatureCheck } from "@/lib/pdf/editor/append-update";
+import {
+  REMOVALS,
+  listRemovals,
+  removalsIn,
+  type Removal,
+} from "@/lib/pdf/editor/signed-edit";
 import { buttonVariants } from "@/components/ui/button";
 import { formatBytes } from "@/lib/utils";
 import {
@@ -28,6 +35,12 @@ import { RunBar } from "../run-bar";
 import { SinglePdfRunner } from "../single-pdf-runner";
 import { useUnsavedGuard } from "../use-unsaved-guard";
 import type { LoadedPdf } from "../use-single-pdf";
+import {
+  COMMENT_AUTHOR_LABEL,
+  STICKY_STAYS_COMMENT,
+  readCommentAuthor,
+  writeCommentAuthor,
+} from "@/lib/pdf/editor/sticky";
 import {
   editorReducer,
   hasEdits,
@@ -92,6 +105,14 @@ export function EditorRunner(config: EditorRunnerConfig) {
       toolName={config.toolName}
       prepare={prepareEditor}
       openProtected={config.openProtected}
+      signedNotice={(pdf) =>
+        appendsToSigned(pdf) ? (
+          <AppendedSignedNotice
+            count={pdf.digitalSignatures}
+            toolName={config.toolName}
+          />
+        ) : null
+      }
     >
       {(pdf, reset) => (
         <EditorSession pdf={pdf} onReset={reset} config={config} />
@@ -99,6 +120,89 @@ export function EditorRunner(config: EditorRunnerConfig) {
     </SinglePdfRunner>
   );
 }
+
+/**
+ * Can this file's edit be APPENDED (audit sign-pdf#5)? An unencrypted file
+ * that carries certificate signatures: an edit that only adds or changes
+ * goes on the end as an incremental update (`@/lib/pdf/editor/append-update`),
+ * so the bytes each signature covers stay as they were. An edit that takes
+ * something out (`@/lib/pdf/editor/signed-edit`) still rewrites the file, or
+ * what it removed would stay readable in the earlier revision. An encrypted
+ * file opened with its author's grant is the protection's own business (its
+ * decrypted copy is not the file that was signed).
+ */
+function appendsToSigned(pdf: LoadedPdf): boolean {
+  return pdf.protection === undefined && pdf.digitalSignatures > 0;
+}
+
+/** Before Apply, in place of the runner's "will no longer verify" warning. */
+function AppendedSignedNotice({
+  count,
+  toolName,
+}: {
+  count: number;
+  toolName: string;
+}) {
+  const one = count === 1;
+  return (
+    <div
+      role="note"
+      data-signed-input-notice="appended"
+      className="border-line bg-wash text-fg rounded-panel flex items-start gap-3 border px-4 py-3 text-sm"
+    >
+      <ShieldCheck className="text-accent mt-0.5 size-4 shrink-0" aria-hidden />
+      <span>
+        This PDF is digitally signed — it carries {count} certificate signature
+        {one ? "" : "s"}. {toolName} adds your changes to the end of the file
+        and leaves the signed bytes exactly as they were, so{" "}
+        {one
+          ? "that signature still verifies"
+          : "those signatures still verify"}{" "}
+        for the version that was signed. Readers such as Acrobat also show that
+        the document changed after signing, and a signature certified to allow
+        no changes reports your change as breaking that. An edit that takes
+        something out of the file — {listRemovals(REMOVALS, "disjunction")} — is
+        the exception: the whole file is rewritten so it is really gone, and
+        then{" "}
+        {one ? "the signature no longer verifies" : "they no longer verify"}.
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Beside Apply, while the edit of a signed file takes something out: it
+ * will be rewritten, not appended, and the signatures will not verify.
+ */
+function SignedRewriteNote({
+  removals,
+  count,
+  toolName,
+}: {
+  removals: readonly Removal[];
+  count: number;
+  toolName: string;
+}) {
+  const one = count === 1;
+  return (
+    <p
+      role="note"
+      data-signed-rewrite=""
+      className="border-line bg-wash text-fg rounded-panel border px-4 py-3 text-sm"
+    >
+      Your edit includes {listRemovals(removals, "conjunction")}, which takes
+      something out of the file. So {toolName} rewrites the whole file instead
+      of adding to its end, and {one ? "its" : `its ${count}`} certificate
+      signature{one ? "" : "s"} will no longer verify. Keep the signed original
+      if {one ? "that signature matters" : "those signatures matter"}.
+    </p>
+  );
+}
+
+/** What Apply produced: the export, and for a signed file what it kept. */
+type SessionResult = EditorExportResult & {
+  signed?: SignatureCheck & { reason?: "removes" | "unreadable" };
+};
 
 function EditorSession({
   pdf,
@@ -130,13 +234,27 @@ function EditorSession({
   // How highlights, drawings, notes, shapes and lines are saved. A
   // restricted PDF has no choice: comments are all its author allows.
   const [markups, setMarkups] = useState<MarkupMode>("flatten");
+  // The name written as comments' author (/T): typed by the person, kept in
+  // this browser only (`sticky.ts`), never sent anywhere.
+  const [author, setAuthor] = useState(readCommentAuthor);
   const { busy, error, result, run, reset, setError } =
-    useAsyncRun<EditorExportResult>();
+    useAsyncRun<SessionResult>();
   const name = config.outputName(pdf.file.name);
   const edited = hasEdits(state, pdf.pageCount);
   // Placed but not yet applied, the edits are lost by leaving; applied,
   // they are in the result.
   useUnsavedGuard(edited && !result, "your edits");
+  // What this edit takes out of a signed file, which decides how it is saved.
+  const removals = appendsToSigned(pdf)
+    ? removalsIn(
+        {
+          objects: state.objects,
+          pages: state.pages,
+          removedLinks: removedLinks(state),
+        },
+        pdf.pageCount,
+      )
+    : [];
 
   const onApply = () => {
     // A box still being typed in counts: finish it, and export what that
@@ -159,21 +277,49 @@ function EditorSession({
             pdf.bytes,
             objects.filter(isCommentObject),
             undefined,
-            { fills: next.fills, markups: "comments" },
+            { fills: next.fills, markups: "comments", author },
           )
         : await exportEditedPdf(pdf.bytes, objects, undefined, {
             pages: next.pages,
             removedLinks: removedLinks(next),
             fills: next.fills,
             markups,
+            author,
           });
-      const out =
-        restricted && protection
-          ? {
-              ...edited,
-              bytes: (await protection.saveChanges(edited.bytes)).bytes,
-            }
-          : edited;
+      // A certificate-signed file: an edit that only adds is appended, so
+      // the bytes the signatures cover survive (audit sign-pdf#5); one that
+      // takes something out is rewritten, decided from what Apply exports
+      // (`next`), and what was kept is read back from the output.
+      let out: SessionResult = edited;
+      if (restricted && protection) {
+        out = {
+          ...edited,
+          bytes: (await protection.saveChanges(edited.bytes)).bytes,
+        };
+      } else if (appendsToSigned(pdf)) {
+        const { saveSignedEdit } =
+          await import("@/lib/pdf/editor/append-update");
+        const saved = await saveSignedEdit(
+          pdf.bytes,
+          edited.bytes,
+          removalsIn(
+            {
+              objects,
+              pages: next.pages,
+              removedLinks: removedLinks(next),
+            },
+            pdf.pageCount,
+          ),
+        );
+        out = {
+          ...edited,
+          bytes: saved.bytes,
+          signed: {
+            ...saved.signatures,
+            ...(saved.reason ? { reason: saved.reason } : {}),
+          },
+        };
+      }
       // Downloaded INSIDE the run, before it settles. `downloadBlob` clicks
       // a hidden anchor, and the runner stage's hold (`../stage-hold`) gives
       // its band back at the first click after the run settles — measured
@@ -204,6 +350,7 @@ function EditorSession({
             : []),
           `${result.pageCount} page${result.pageCount === 1 ? "" : "s"}`,
           ...(restricted ? ["author's protection kept"] : []),
+          ...(result.signed ? signedSummary(result.signed, pdf) : []),
           formatBytes(result.bytes.byteLength),
         ].join(" · ")}
         onReset={onReset}
@@ -227,6 +374,7 @@ function EditorSession({
 
   const empty = !edited && !state.editing?.text.trim();
   const hasMarkups = state.objects.some(isCommentObject);
+  const hasSticky = state.objects.some((o) => o.kind === "note" && o.sticky);
   return (
     <Suspense fallback={null}>
       <WysiwygEditor
@@ -267,6 +415,13 @@ function EditorSession({
         runBar={
           <>
             {error && <ErrorNote message={error} />}
+            {removals.length > 0 && (
+              <SignedRewriteNote
+                removals={removals}
+                count={pdf.digitalSignatures}
+                toolName={config.toolName}
+              />
+            )}
             <RunBar>
               <div
                 className={
@@ -276,11 +431,23 @@ function EditorSession({
                 }
               >
                 {hasMarkups && (
-                  <MarkupChoice
-                    value={restricted ? "comments" : markups}
-                    onChange={setMarkups}
-                    fixed={restricted}
-                  />
+                  <div className="flex min-w-0 flex-col gap-3">
+                    <MarkupChoice
+                      value={restricted ? "comments" : markups}
+                      onChange={setMarkups}
+                      fixed={restricted}
+                      sticky={hasSticky}
+                    />
+                    {(restricted || markups === "comments" || hasSticky) && (
+                      <CommentAuthor
+                        value={author}
+                        onChange={(name) => {
+                          setAuthor(name);
+                          writeCommentAuthor(name);
+                        }}
+                      />
+                    )}
+                  </div>
                 )}
                 <RunReason reason={empty ? config.emptyReason : null}>
                   {(describedBy) => (
@@ -305,6 +472,74 @@ function EditorSession({
   );
 }
 
+/** What the name field is called, and what it promises. */
+const COMMENT_AUTHOR_HINT =
+  "Shown as the author of each comment in other PDF apps. Kept in this browser only.";
+
+/**
+ * The optional author name (/T) for comments, shown once something will be
+ * saved as one. Blank writes no author: nobody is invented.
+ */
+function CommentAuthor({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (name: string) => void;
+}) {
+  const id = useId();
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <label htmlFor={id} className="text-fg text-xs font-semibold">
+        {COMMENT_AUTHOR_LABEL}
+      </label>
+      <input
+        id={id}
+        type="text"
+        value={value}
+        maxLength={80}
+        autoComplete="name"
+        aria-describedby={`${id}-hint`}
+        onChange={(e) => onChange(e.target.value)}
+        className="border-line bg-canvas text-fg rounded-ctl h-11 max-w-xs border px-3 text-sm"
+      />
+      <p id={`${id}-hint`} className="text-muted max-w-md text-[11px]">
+        {COMMENT_AUTHOR_HINT}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The result's line about a signed file's signatures, from what the OUTPUT
+ * carries (`signaturesKept`), not from the input's count: a signature whose
+ * field the edit dropped is not "left intact" because its bytes survive.
+ */
+function signedSummary(
+  signed: NonNullable<SessionResult["signed"]>,
+  pdf: LoadedPdf,
+): string[] {
+  const lost = Math.max(0, pdf.digitalSignatures - signed.kept);
+  const why =
+    signed.reason === "removes"
+      ? " (your edit takes content out, so the file was rewritten)"
+      : signed.reason === "unreadable"
+        ? " (the file's structure could not take an update, so it was rewritten)"
+        : "";
+  return [
+    ...(signed.kept > 0
+      ? [
+          `${signed.kept} existing signature${signed.kept === 1 ? "" : "s"} left intact`,
+        ]
+      : []),
+    ...(lost > 0
+      ? [
+          `${lost} existing signature${lost === 1 ? " no longer verifies" : "s no longer verify"}${why}`,
+        ]
+      : []),
+  ];
+}
+
 /**
  * "Save markups as comments (editable in other PDF apps)" or "Flatten into
  * the page", beside Apply, once there is a markup to save. On a restricted
@@ -314,10 +549,13 @@ function MarkupChoice({
   value,
   onChange,
   fixed,
+  sticky,
 }: {
   value: MarkupMode;
   onChange: (mode: MarkupMode) => void;
   fixed: boolean;
+  /** A Comment is placed: it stays a comment whichever is chosen. */
+  sticky: boolean;
 }) {
   const id = useId();
   if (fixed) {
@@ -367,6 +605,14 @@ function MarkupChoice({
         <p className="text-muted max-w-md text-[11px] leading-relaxed">
           Whiteout, redaction, text, pictures and signatures are still written
           into the page.
+        </p>
+      )}
+      {value === "flatten" && sticky && (
+        <p
+          data-sticky-hint=""
+          className="text-muted max-w-md text-[11px] leading-relaxed"
+        >
+          {STICKY_STAYS_COMMENT}
         </p>
       )}
     </fieldset>

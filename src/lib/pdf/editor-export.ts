@@ -52,6 +52,7 @@ import {
   type MarkupMode,
 } from "./editor/comments";
 import { placeRuns, type PdfjsTextItem, type TextRun } from "./editor/runs";
+import { markupOf, markupStroke } from "./editor/markup";
 import {
   layoutText,
   lineBaseline,
@@ -120,6 +121,11 @@ export interface DocumentEdits {
    * everything else are page content either way.
    */
   markups?: MarkupMode;
+  /**
+   * The name typed for comments' author, written as each comment's /T.
+   * Absent or blank: no /T — nobody is invented as the author.
+   */
+  author?: string;
 }
 
 /**
@@ -403,9 +409,14 @@ export async function exportEditedPdf(
   const removedLinks = edits.removedLinks ?? [];
   const fills = edits.fills ?? {};
   const asComments = edits.markups === "comments";
-  const comments: CommentObject[] = asComments
-    ? list.filter(isCommentObject)
-    : [];
+  // A comment (sticky note) is an annotation either way: its popup cannot
+  // be drawn into a page (`editor/sticky.ts`).
+  const isSticky = (obj: EditorObject) => obj.kind === "note" && !!obj.sticky;
+  const savedAsComment = (obj: EditorObject): boolean =>
+    isCommentObject(obj) && (asComments || isSticky(obj));
+  const comments = list.filter(
+    (obj): obj is CommentObject => isCommentObject(obj) && savedAsComment(obj),
+  );
 
   const doc = await loadPdf(bytes);
   const pageList = edits.pages ?? sourcePages(doc.getPageCount());
@@ -537,7 +548,7 @@ export async function exportEditedPdf(
     const page = pages[obj.page]!;
     const frame = frames[obj.page]!;
     const rotate = degrees(frame.rotation);
-    if (asComments && isCommentObject(obj)) {
+    if (savedAsComment(obj)) {
       // Not drawn: written as an annotation below.
       counts[obj.kind] += 1;
       continue;
@@ -631,17 +642,40 @@ export async function exportEditedPdf(
         break;
       }
       case "highlight": {
-        const at = rectAnchor(obj, frame);
-        page.drawRectangle({
-          x: at.x,
-          y: at.y,
-          width: obj.width,
-          height: obj.height,
-          rotate,
-          color: color(rgb, obj.color),
-          opacity: clampOpacity(obj.opacity),
-          blendMode: BlendMode.Multiply,
-        });
+        const markup = markupOf(obj);
+        // Text selected to mark: each line's quad; a dragged box: the box.
+        for (const quad of obj.quads ?? [obj]) {
+          const stroke = markupStroke(quad, markup);
+          if (!stroke) {
+            const at = rectAnchor(quad, frame);
+            page.drawRectangle({
+              x: at.x,
+              y: at.y,
+              width: quad.width,
+              height: quad.height,
+              rotate,
+              color: color(rgb, obj.color),
+              opacity: clampOpacity(obj.opacity),
+              blendMode: BlendMode.Multiply,
+            });
+            continue;
+          }
+          // Underline, strikethrough, squiggly: the line the overlay drew
+          // (`markupStroke`), each segment mapped like every other point.
+          const pts = stroke.points.map((p) =>
+            viewerToContent(p.x, p.y, frame),
+          );
+          for (let i = 1; i < pts.length; i++) {
+            page.drawLine({
+              start: pts[i - 1]!,
+              end: pts[i]!,
+              thickness: stroke.width,
+              color: color(rgb, obj.color),
+              opacity: clampOpacity(obj.opacity),
+              lineCap: markup === "squiggly" ? LineCapStyle.Round : undefined,
+            });
+          }
+        }
         break;
       }
       case "shape": {
@@ -729,6 +763,9 @@ export async function exportEditedPdf(
           borderWidth: obj.strokeWidth,
           borderOpacity: clampOpacity(obj.opacity),
           borderLineCap: LineCapStyle.Round,
+          // The highlighter pen multiplies, as a highlight does, so the
+          // words under it stay readable.
+          ...(obj.highlighter ? { blendMode: BlendMode.Multiply } : {}),
         });
         break;
       }
@@ -760,6 +797,7 @@ export async function exportEditedPdf(
         pages,
         frames,
         runs,
+        author: edits.author,
         note: (obj) => ({
           font: fontOf.get(obj.id)!,
           measure: measureFor(obj),

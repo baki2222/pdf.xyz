@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
+  Brush,
   CalendarDays,
   CaseUpper,
   ChevronDown,
@@ -19,6 +20,7 @@ import {
   Highlighter,
   ImagePlus,
   Maximize2,
+  MessageSquare,
   Minus,
   MousePointer2,
   MoveUpRight,
@@ -29,7 +31,9 @@ import {
   TextCursorInput,
   SquareSlash,
   StickyNote,
+  Strikethrough,
   Type,
+  Underline,
   Undo2,
   ZoomIn,
   ZoomOut,
@@ -38,7 +42,14 @@ import { cn } from "@/lib/utils";
 import { MAX_ZOOM, MIN_ZOOM } from "@/lib/pdf/editor/geometry";
 import { MARKUP_KINDS, type EditorKind } from "@/lib/pdf/offered-kinds";
 import type { EditorFieldType } from "@/lib/pdf/editor/model";
-import { toolAllowed, type EditorLock, type Tool } from "./editor-state";
+import { HIGHLIGHTER_LABEL, TEXT_MARKUP_LABEL } from "@/lib/pdf/editor/markup";
+import { STICKY_LABEL } from "@/lib/pdf/editor/sticky";
+import {
+  COMMENT_TOOLS,
+  toolAllowed,
+  type EditorLock,
+  type Tool,
+} from "./editor-state";
 
 /**
  * The editor's toolbar: every tool is an icon AND its name — a bar of bare
@@ -74,12 +85,31 @@ const SPEC: Record<Tool, ToolButtonSpec> = {
   redact: { tool: "redact", label: "Redact", key: "B", icon: SquareSlash },
   highlight: {
     tool: "highlight",
-    label: "Highlight",
+    label: TEXT_MARKUP_LABEL.highlight,
     key: "H",
     icon: Highlighter,
   },
+  underline: {
+    tool: "underline",
+    label: TEXT_MARKUP_LABEL.underline,
+    key: "U",
+    icon: Underline,
+  },
+  strikeout: {
+    tool: "strikeout",
+    label: TEXT_MARKUP_LABEL.strikeout,
+    key: "",
+    icon: Strikethrough,
+  },
   ink: { tool: "ink", label: "Draw", key: "D", icon: Pencil },
+  marker: { tool: "marker", label: HIGHLIGHTER_LABEL, key: "M", icon: Brush },
   note: { tool: "note", label: "Note", key: "N", icon: StickyNote },
+  comment: {
+    tool: "comment",
+    label: STICKY_LABEL,
+    key: "C",
+    icon: MessageSquare,
+  },
   date: { tool: "date", label: "Date", key: "", icon: CalendarDays },
   initials: { tool: "initials", label: "Initials", key: "", icon: CaseUpper },
   name: { tool: "name", label: "Name", key: "", icon: UserRound },
@@ -117,14 +147,21 @@ const SPEC: Record<Tool, ToolButtonSpec> = {
   },
 };
 
-/** The Mark-up group is the offered-kinds list Annotate PDF's page counts. */
-const MARKUP_TOOL: Record<(typeof MARKUP_KINDS)[number], Tool> = {
-  whiteout: "whiteout",
-  redact: "redact",
-  highlight: "highlight",
-  ink: "ink",
-  note: "note",
-} satisfies Partial<Record<EditorKind, Tool>>;
+/**
+ * The Mark-up group is the offered-kinds list Annotate PDF's page counts,
+ * each kind followed by the tools that place a variant of it: Underline and
+ * Strikethrough place a highlight object with another `markup` (2026-11-08,
+ * audit annotate-pdf#2); Comment places a sticky note (`sticky.ts`,
+ * audit annotate-pdf#4); Highlighter draws ink that multiplies (audit
+ * annotate-pdf#5).
+ */
+const MARKUP_TOOLS: Record<(typeof MARKUP_KINDS)[number], Tool[]> = {
+  whiteout: ["whiteout"],
+  redact: ["redact"],
+  highlight: ["highlight", "underline", "strikeout"],
+  ink: ["ink", "marker"],
+  note: ["note", "comment"],
+} satisfies Partial<Record<EditorKind, Tool[]>>;
 
 export const TOOL_GROUPS: { name: string; tools: Tool[] }[] = [
   { name: "Select", tools: ["select"] },
@@ -153,7 +190,7 @@ export const TOOL_GROUPS: { name: string; tools: Tool[] }[] = [
     ],
   },
   { name: "Shapes", tools: ["rect", "ellipse", "line", "arrow"] },
-  { name: "Mark up", tools: MARKUP_KINDS.map((k) => MARKUP_TOOL[k]) },
+  { name: "Mark up", tools: MARKUP_KINDS.flatMap((k) => MARKUP_TOOLS[k]) },
 ];
 
 /** The form-field tools, and the field type each places. */
@@ -171,6 +208,28 @@ export const TOOL_BUTTONS: ToolButtonSpec[] = TOOL_GROUPS.flatMap((g) =>
 );
 
 export const ZOOM_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
+
+/**
+ * What a restricted PDF whose author allows comments lets you do (the help
+ * beside the page). The tools are COMMENT_TOOLS by their button labels: the
+ * Mark up group's by name, then the Shapes group as "the shapes". Until
+ * 2026-11-08 it was typed — "Highlight, Draw, Note and the shapes" — and
+ * missed the four mark-up tools the lock had gained that day.
+ */
+export function lockedCommentHelp(): string {
+  const allowed = (name: string) =>
+    (TOOL_GROUPS.find((g) => g.name === name)?.tools ?? []).filter((t) =>
+      COMMENT_TOOLS.has(t),
+    );
+  const named = allowed("Mark up").map((t) => SPEC[t].label);
+  const shapes = allowed("Shapes").length > 0 ? ["the shapes"] : [];
+  const all = [...named, ...shapes];
+  const list =
+    all.length > 1
+      ? `${all.slice(0, -1).join(", ")} and ${all[all.length - 1]}`
+      : (all[0] ?? "");
+  return `${list} are saved as comments, which this PDF's author allows, and the form fields on the page can be filled in. Then Apply & download: the author's restrictions stay in the downloaded file; the other tools need the owner password.`;
+}
 
 /** Why every tool but Select is off on a restricted PDF (its tooltip). */
 export const LOCKED_TOOL_REASON =
@@ -241,7 +300,7 @@ function Group({ name, children }: { name: string; children: ReactNode }) {
     <div
       role="group"
       aria-label={name}
-      className="flex shrink-0 flex-col gap-0.5"
+      className="flex min-w-0 shrink-0 flex-col gap-0.5 sm:shrink"
     >
       <span
         aria-hidden
@@ -249,7 +308,14 @@ function Group({ name, children }: { name: string; children: ReactNode }) {
       >
         {name}
       </span>
-      <div className="flex items-center gap-0.5">{children}</div>
+      {/* From `sm` a group wraps its own tools inside the toolbar's width.
+          Since wave 3 (2026-11-08) the Markup group holds nine tools, 852px
+          of buttons, and at 768px a group that could not wrap ran past the
+          Strip's clip: Note and Comment were cut off and could not be
+          pressed (PR #288's CI, continue-chain at 768 x 1024). On a phone
+          the Strip scrolls sideways and nothing is constrained, so nothing
+          wraps. */}
+      <div className="flex items-center gap-0.5 sm:flex-wrap">{children}</div>
     </div>
   );
 }
@@ -354,7 +420,10 @@ export function EditorToolbar({
   return (
     <Strip>
       {TOOL_GROUPS.map((group, i) => (
-        <div key={group.name} className="flex shrink-0 items-end">
+        <div
+          key={group.name}
+          className="flex min-w-0 shrink-0 items-end sm:max-w-full"
+        >
           {i > 0 && <Divider />}
           <Group name={group.name}>
             {group.tools.map((t) => {

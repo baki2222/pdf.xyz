@@ -79,7 +79,7 @@ const content: ToolContent = {
   useCases: [
     {
       title: "Drop blank sides from a duplex scan",
-      body: "Scanners set to two-sided mode pick up the empty backs of single-sided sheets. Click each blank thumbnail as you pass it, then delete them all in one pass.",
+      body: "Scanners set to two-sided mode pick up the empty backs of single-sided sheets. Click each blank thumbnail as you pass it, then delete them all in one pass. A back with faint show-through can look blank as a thumbnail; the enlarge button in a tile's top corner opens the page large to check.",
     },
     {
       title: "Strip a cover sheet or fax cover page",
@@ -91,7 +91,7 @@ const content: ToolContent = {
     },
     {
       title: "Remove a page that was scanned twice",
-      body: "A sheet that jams and gets fed through again lands in a batch scan twice. The thumbnail board makes the repeat easy to spot.",
+      body: "A sheet that jams and gets fed through again lands in a batch scan twice. The thumbnail board makes the repeat easy to spot, and the enlarge button in a tile's corner opens that page large, with Previous page and Next page to compare it with its neighbours and Select page to mark it for deletion.",
     },
   ],
 

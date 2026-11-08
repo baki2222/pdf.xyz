@@ -71,6 +71,7 @@ export function PageTile({
   dragHandle,
   onEnterView,
   blankSheet,
+  tabIndex,
   className,
 }: {
   label: ReactNode;
@@ -103,6 +104,12 @@ export function PageTile({
   dragHandle?: DragHandle;
   /** Called once when the tile scrolls near the viewport without a preview. */
   onEnterView?: () => void;
+  /**
+   * A selectable tile's tab stop; 0 by default. The page picker passes -1 to
+   * all but one tile (a roving tab stop), so Tab leaves a 300-page grid in
+   * one press and the arrow keys move inside it.
+   */
+  tabIndex?: number;
   className?: string;
 }) {
   const interactive = selectable && Boolean(onSelect);
@@ -141,7 +148,7 @@ export function PageTile({
     <div
       ref={rootRef}
       role={interactive ? "button" : dragHandle ? "listitem" : undefined}
-      tabIndex={interactive ? 0 : undefined}
+      tabIndex={interactive ? (tabIndex ?? 0) : undefined}
       aria-pressed={interactive ? selected : undefined}
       aria-label={ariaLabel}
       onClick={interactive ? (e) => onSelect?.(e.shiftKey) : undefined}

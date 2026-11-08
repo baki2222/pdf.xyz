@@ -10,6 +10,11 @@ import {
   mixedSidecarVerdict,
 } from "@/tests/ocr-proof-fixtures";
 import { OcrEngineRefusal } from "./ocr-engine-errors";
+import {
+  OPEN_PASSWORD_FIXTURE,
+  RESTRICTED_FIXTURES,
+  readRestrictedFixture,
+} from "@/tests/restricted-pdf-fixtures";
 import { skippedSidecarPages } from "./ocr-sidecar";
 import type { ProcessorInputFile } from "./processor/types";
 import type { NativeOcrConfig } from "./ocr-native-config";
@@ -701,6 +706,34 @@ describe("createNativeOcrRunner — document refusals are typed, the run stays r
     expect((failure as Error).message).not.toContain("EncryptedPdfError");
     expect(calls.rm).toHaveLength(1);
   });
+
+  // Audit ocr-pdf#4 (2026-11-08): OCRmyPDF exits 8 for ANY encrypted input,
+  // so a PDF that opens without a password was told it was
+  // "password-protected". The worker now asks the file itself (the empty
+  // password, no decryption of the content) and names its author's
+  // restrictions instead. Nothing is decrypted or lifted either way.
+  it.each([
+    ["restricted", RESTRICTED_FIXTURES[0]!.file],
+    ["encrypted", OPEN_PASSWORD_FIXTURE.file],
+  ] as const)(
+    "exit 8 is told as %s for %s, read from the uploaded bytes",
+    async (kind, fixture) => {
+      const { fs } = fakeFs(pdfOrText);
+      const runner = createNativeOcrRunner(cfg(), {
+        exec: async () => {
+          throw exitError(8, "EncryptedPdfError: Input PDF is encrypted.");
+        },
+        fs,
+        resolveOnPath: onlyEngine("ocrmypdf"),
+      });
+      const input = { ...scan, bytes: readRestrictedFixture(fixture) };
+      const failure = await runner({ options: BOTH, inputs: [input] }).catch(
+        (error: unknown) => error,
+      );
+      expect(failure).toBeInstanceOf(OcrEngineRefusal);
+      expect((failure as OcrEngineRefusal).kind).toBe(kind);
+    },
+  );
 
   it("leaves a timeout as a plain error, so the processor keeps it retryable", async () => {
     const { fs } = fakeFs(pdfOrText);

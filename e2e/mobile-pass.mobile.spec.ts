@@ -362,11 +362,22 @@ for (const tool of POPULAR) {
     await page.goto(`/tools/${tool.slug}`);
     const input = fileInput(page);
     await waitForHydration(input);
-    await input.setInputFiles(await fileFor(tool.accept));
+    const file = await fileFor(tool.accept);
+    await input.setInputFiles(file);
     const trigger = page.locator(
       "[data-tool-panel] [data-run-trigger], [data-tool-panel] [data-run-dock] button",
     );
     await expect(trigger.first()).toBeVisible();
+    // "With a file in" means the panel lists it. The run trigger alone is
+    // not that: since 2026-11-08 (audit png-to-pdf#8) an image is decoded
+    // when it is added, so JPG to PDF's trigger is on screen a moment before
+    // the image's row and the options below it, and this measured that gap.
+    await expect(
+      page
+        .locator("[data-tool-panel]")
+        .getByText(file.name, { exact: true })
+        .first(),
+    ).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
 
     const m = await measure(page);

@@ -224,7 +224,13 @@ describe("text-drawing call sites", () => {
     // (`src/lib/workers/ocr-deskew-proof.ts`, its sentinel line through
     // embedDrawingFont) became the 30th real member — a member the set
     // should hold, not a widened scan. Raised by a margin, not to infinity.
-    expect(drawing.length).toBeLessThan(36);
+    // 36 until 2026-11-08, when wave 3's composed tree reached exactly 36.
+    // Both lanes of #288's client branch added test fixtures that draw text
+    // into the PDFs they make: src/tests/fixtures/restricted-pdf/
+    // make-grant-base.ts and src/tests/signed-pdf.ts. All 36 members were
+    // printed and diffed against main (34): those two are the only new ones,
+    // real members, not a widened scan.
+    expect(drawing.length).toBeLessThan(42);
   });
 
   it("finds the modules that are known to draw text", () => {

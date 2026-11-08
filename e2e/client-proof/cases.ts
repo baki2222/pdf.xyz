@@ -831,7 +831,9 @@ export const CASES: Record<string, ToolCase> = {
     artifact: "pdf",
     run: async (ctx) => {
       await uploadTextPdf(ctx, "trim.pdf", { pages: 3 });
-      await ctx.page.getByRole("button", { name: "Page 2" }).click();
+      await ctx.page
+        .getByRole("button", { name: "Page 2", exact: true })
+        .click();
       return runAndDownload(
         ctx,
         /delete 1 page/i,
@@ -854,8 +856,12 @@ export const CASES: Record<string, ToolCase> = {
     artifact: "pdf",
     run: async (ctx) => {
       await uploadTextPdf(ctx, "pick.pdf", { pages: 3 });
-      await ctx.page.getByRole("button", { name: "Page 1" }).click();
-      await ctx.page.getByRole("button", { name: "Page 3" }).click();
+      await ctx.page
+        .getByRole("button", { name: "Page 1", exact: true })
+        .click();
+      await ctx.page
+        .getByRole("button", { name: "Page 3", exact: true })
+        .click();
       return runAndDownload(
         ctx,
         /extract 2 pages/i,
@@ -2763,7 +2769,10 @@ export const VARIANTS: readonly VariantCase[] = [
         ctx.page.getByText("shot.png", { exact: true }),
       ).toBeVisible();
       await ctx.page.getByRole("button", { name: "Fit to image" }).click();
-      await ctx.page.getByRole("button", { name: "None", exact: true }).click();
+      await ctx.page
+        .getByRole("group", { name: "Margin" })
+        .getByRole("button", { name: "None", exact: true })
+        .click();
       return runAndDownload(
         ctx,
         /create pdf/i,
@@ -2954,6 +2963,7 @@ export const VARIANTS: readonly VariantCase[] = [
         ctx.page.getByText("five.png", { exact: true }),
       ).toBeVisible();
       await ctx.page
+        .getByRole("group", { name: "Max file size" })
         .getByRole("button", { name: "Custom", exact: true })
         .click();
       await ctx.page
@@ -3426,7 +3436,10 @@ export const VARIANTS: readonly VariantCase[] = [
       // The list counts PDF pages, not files: the second TIFF fills 3–4.
       await expect(ctx.page.getByText(/^Pages 3–4/)).toBeVisible();
       await ctx.page.getByRole("button", { name: "Fit to image" }).click();
-      await ctx.page.getByRole("button", { name: "None", exact: true }).click();
+      await ctx.page
+        .getByRole("group", { name: "Margin" })
+        .getByRole("button", { name: "None", exact: true })
+        .click();
       return runAndDownload(
         ctx,
         /create pdf/i,
@@ -3506,7 +3519,10 @@ export const VARIANTS: readonly VariantCase[] = [
       ]);
       await expect(ctx.page.getByText(/^Pages 3–4/)).toBeVisible();
       await ctx.page.getByRole("button", { name: "Fit to image" }).click();
-      await ctx.page.getByRole("button", { name: "None", exact: true }).click();
+      await ctx.page
+        .getByRole("group", { name: "Margin" })
+        .getByRole("button", { name: "None", exact: true })
+        .click();
       await ctx.page
         .getByRole("button", { name: "One PDF per image (ZIP)" })
         .click();
@@ -3580,7 +3596,10 @@ export const VARIANTS: readonly VariantCase[] = [
       ]);
       await expect(ctx.page.getByText(/^Page 1/)).toBeVisible();
       await ctx.page.getByRole("button", { name: "Fit to image" }).click();
-      await ctx.page.getByRole("button", { name: "None", exact: true }).click();
+      await ctx.page
+        .getByRole("group", { name: "Margin" })
+        .getByRole("button", { name: "None", exact: true })
+        .click();
       return runAndDownload(
         ctx,
         /create pdf/i,

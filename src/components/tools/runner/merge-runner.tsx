@@ -844,7 +844,8 @@ function PageSelection({
             e.stopPropagation();
           }}
           className={cn(
-            "bg-canvas/60 text-fg focus:border-accent/40 focus:ring-accent/50 rounded-ctl min-w-0 flex-1 border px-2.5 py-1 text-xs transition outline-none focus:ring-2 sm:max-w-56",
+            // 44 px tall on a phone, where it is a touch target.
+            "bg-canvas/60 text-fg focus:border-accent/40 focus:ring-accent/50 rounded-ctl min-h-11 min-w-0 flex-1 border px-2.5 py-1 text-xs transition outline-none focus:ring-2 sm:min-h-0 sm:max-w-56",
             error ? "border-err/60" : "border-line",
           )}
         />
