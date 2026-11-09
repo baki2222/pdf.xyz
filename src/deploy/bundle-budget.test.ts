@@ -1049,6 +1049,22 @@ const TOOL_PAGES_TO_COME = {
   // or panel still pays its dispatcher arm and `next/dynamic` loader in the
   // page chunk and its chunk-map entry (~30-45 B, the analysts' figure; not
   // re-measured here).
+  // NOT TAKEN from the unallocated 0.01, 2026-11-10, by Remove
+  // Annotations (a client tool REUSING the metadata runner kind) — flagged
+  // for the owner as A RE-ALLOCATION OF G.1 in effect: it rides each row's
+  // own headroom, as P6 did above. Measured gzip -9 over each page's first
+  // load on one machine, main 69c92fe1 -> the branch, both from an empty
+  // .next: ocr 233,621 -> 233,633, rotate 234,861 -> 234,873, merge
+  // 229,093 -> 229,105, summarize 234,433 -> 234,445 (+12 B each).
+  // webpack's runtime +6 (one more async chunk in its map: the engine,
+  // fetched when a file opens), layout +3, not-found +4, error +1,
+  // global-error +1, page -3: module-id churn, raw sizes unchanged (the
+  // layout chunk is 18,761 B both sides; only an id differs). The note
+  // above measured +0 B for a second "rotate" slug, which adds no chunk.
+  // On the metadata kind's own pages the panel is in the first load:
+  // edit-pdf-metadata 242,098 -> 246,105 B (+4,007; the runner chunk
+  // 6,176 -> 10,171 B carries the Remove Annotations panel and its group
+  // table), remove-annotations 246,105 B.
   unallocated:
     UNALLOCATED -
     NEW_TOOLS_2026_10_30 -

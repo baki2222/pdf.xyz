@@ -314,34 +314,6 @@ const OUR_LAZY: LazyLibrary[] = [
     why: "a runner fetches it when two or more files arrive; a visit with one file, or none, never downloads it",
     allowedAtLoad: {},
   },
-  // Sign PDF's handwriting faces (audit sign-pdf#1, 2026-11-09). As first
-  // written, the editor's object model (`editor/model.ts`, first-load on
-  // Sign, Edit, Annotate and Create Forms) built typed signatures itself, so
-  // the name normalisation, the style predicates and each face's ink reach
-  // rode in those pages' first load (+480 B gzip on Sign PDF), and the Sign
-  // runner imported the `signPdf` engine whose `import()` of the face table
-  // was one more async chunk in every page's webpack runtime. Typed
-  // signatures are built in `editor/typed-signature.ts`, which only the
-  // lazily loaded editor imports; the face table rides in the export's
-  // chunk. Each module is found by a string of its own code.
-  {
-    what: "the handwriting face table and coverage",
-    marker: "DancingScript_400Regular.ttf",
-    why: "the editor and its export read it once a file is open; the signature panel, a placed typed signature and the export are its only readers",
-    allowedAtLoad: {},
-  },
-  {
-    what: "the handwriting faces on screen",
-    marker: "pdfxyz-hand-",
-    why: "the signature panel's previews and a placed typed signature register the faces, both inside the editor, which loads once a file is open",
-    allowedAtLoad: {},
-  },
-  {
-    what: "the typed signature's name normalisation",
-    marker: 'normalize("NFC").replace(/\\p{Zs}/gu,',
-    why: "it runs when a typed signature is built, in the signature panel or the editor, never before a file is open",
-    allowedAtLoad: {},
-  },
   // WP-05 review (2026-10-10): the home desk's own island. It IS first-load
   // on the home page, which renders it; the reason it sits behind a
   // `next/dynamic` boundary (`hero-desk-island.tsx`) is that every other

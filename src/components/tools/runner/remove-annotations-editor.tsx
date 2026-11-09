@@ -182,10 +182,10 @@ export function RemoveAnnotationsEditor({
                   >
                     {g.label}
                   </th>
-                  <td className="px-4 py-2 text-right tabular-nums">
+                  <td className="px-4 py-2 text-right tnum">
                     {result.removed[g.id]}
                   </td>
-                  <td className="px-4 py-2 text-right tabular-nums">
+                  <td className="px-4 py-2 text-right tnum">
                     {result.kept[g.id]}
                   </td>
                 </tr>
@@ -279,7 +279,7 @@ export function RemoveAnnotationsEditor({
                     <span className="flex min-w-0 flex-col gap-0.5">
                       <span className="text-fg text-sm">
                         {g.label}{" "}
-                        <span className="text-muted tabular-nums">
+                        <span className="text-muted tnum">
                           ({inventory.groups[g.id]})
                         </span>
                       </span>
