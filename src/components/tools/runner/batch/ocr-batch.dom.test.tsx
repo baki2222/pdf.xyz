@@ -30,6 +30,7 @@ import {
   type OcrLanguage,
   type OcrOptions,
 } from "@/lib/jobs/ocr";
+import { OCR_JOB_POLL } from "@/lib/jobs/client-wait";
 import { getToolBySlug } from "@/lib/tools";
 import type { WorkerStatus } from "@/lib/workers/status";
 import {
@@ -198,7 +199,13 @@ async function drop(files: File[]) {
 }
 
 async function readyRun(n: number): Promise<HTMLElement> {
-  const run = await screen.findByRole("button", { name: runName(n) });
+  // The batch is a lazy chunk of the panel's: a cold load under a busy run
+  // outlasts the default 1 s (see the panel's own drop test).
+  const run = await screen.findByRole(
+    "button",
+    { name: runName(n) },
+    { timeout: 10_000 },
+  );
   await waitFor(() => expect(run).not.toHaveAttribute("aria-disabled"));
   return run;
 }
@@ -302,7 +309,11 @@ describe("OCR PDF's batch, through its page's own panel", () => {
     // Available, but with no pack at all: the single-file Run is held too.
     worker(statusWith([]));
     const view = await drop([pdf("a"), pdf("b")]);
-    const run = await screen.findByRole("button", { name: runName(2) });
+    const run = await screen.findByRole(
+      "button",
+      { name: runName(2) },
+      { timeout: 10_000 },
+    );
     await waitFor(() =>
       expect(view.container.textContent).toContain(
         "This server reports no recognition pack for the selected language",
@@ -432,5 +443,131 @@ describe("OCR PDF's batch freezes its settings on Run", () => {
       ["spa"],
       ["spa"],
     ]);
+  });
+});
+
+/**
+ * The still-running path, OCR's commonest long one: the browser stops
+ * waiting (`OCR_JOB_POLL`) before the worker does, and the batch waits again
+ * on the SAME job (`WORKER_BATCH_MAX_RESUMES`) through the OCR client's own
+ * resume (`resumeWorkerOcr`). Without it the runner falls back to the
+ * security client's resume, which returns one artifact: a "PDF + text" row
+ * would lose its .txt. The budget is shortened here so the first wait ends
+ * still running in a few milliseconds; the constant is restored after.
+ */
+describe("OCR PDF's batch waits again on a job still running", () => {
+  const budget = OCR_JOB_POLL as { intervalMs: number; maxAttempts: number };
+  const saved = { ...OCR_JOB_POLL };
+  beforeEach(() => {
+    budget.intervalMs = 1;
+    budget.maxAttempts = 2;
+  });
+  afterEach(() => {
+    Object.assign(budget, saved);
+  });
+
+  /** Each job answers `processing` to its first `busyReads` status reads. */
+  function slowWorker(busyReads: number) {
+    const creates: Record<string, unknown>[] = [];
+    const reads = new Map<string, number>();
+    const now = new Date(0).toISOString();
+    const json = (value: unknown) =>
+      new Response(JSON.stringify(value), {
+        headers: { "content-type": "application/json" },
+      });
+    let n = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        if (url.includes("/api/worker/status"))
+          return json(statusWith(["eng"]));
+        if (url === "/api/uploads" && method === "POST") {
+          n += 1;
+          return json({
+            sessionId: `s${n}`,
+            slots: [
+              {
+                fileId: `f${n}`,
+                filename: "in",
+                url: `/__put/${n}`,
+                method: "PUT",
+                headers: {},
+              },
+            ],
+            expiresAt: now,
+            retention: {},
+          });
+        }
+        if (url.startsWith("/__put/")) return json({});
+        if (url === "/api/jobs" && method === "POST") {
+          creates.push(
+            JSON.parse(
+              new TextDecoder().decode(init!.body as ArrayBuffer),
+            ) as Record<string, unknown>,
+          );
+          return json({ jobId: `job_${creates.length}`, status: "queued" });
+        }
+        const read = /^\/api\/jobs\/(job_\d+)$/.exec(url);
+        if (read && method === "GET") {
+          const id = read[1]!;
+          const k = (reads.get(id) ?? 0) + 1;
+          reads.set(id, k);
+          if (k <= busyReads) return json({ jobId: id, status: "processing" });
+          const j = id.slice(4);
+          return json({
+            jobId: id,
+            status: "completed",
+            artifacts: [
+              {
+                artifactId: `a${j}_0`,
+                filename: `out-${j}-ocr.pdf`,
+                contentType: "application/pdf",
+                bytes: 8,
+                url: `/__art/${j}/0`,
+                expiresAt: now,
+              },
+              {
+                artifactId: `a${j}_1`,
+                filename: `out-${j}.txt`,
+                contentType: "text/plain",
+                bytes: 8,
+                url: `/__art/${j}/1`,
+                expiresAt: now,
+              },
+            ],
+          });
+        }
+        if (url.startsWith("/__art/")) return new Response("%PDF-out");
+        throw new Error(`unexpected ${method} ${url}`);
+      }),
+    );
+    return { creates, reads };
+  }
+
+  it("a job outlasting the first wait is waited on again, its row keeps both files, and one outcome is told per file", async () => {
+    // Busy through the first wait (2 reads) and into the resume's.
+    const net = slowWorker(OCR_JOB_POLL.maxAttempts + 1);
+    const view = await drop([pdf("a"), pdf("b")]);
+    fireEvent.click(
+      await screen.findByRole("radio", { name: "Searchable PDF + text" }),
+    );
+    fireEvent.click(await readyRun(2));
+    await done(2, 0);
+    // The same job each time: one created per file, never a second.
+    expect(net.creates).toHaveLength(2);
+    // Each job was read past the first wait's budget: the first wait's
+    // reads, then the resume's (one more busy, one completed).
+    for (const id of ["job_1", "job_2"])
+      expect(net.reads.get(id)).toBe(OCR_JOB_POLL.maxAttempts + 2);
+    // Both of each job's files are its row's: the OCR client's resume.
+    for (const name of ["out-1.txt", "out-2.txt", "out-1-ocr.pdf"])
+      expect(view.container.textContent).toContain(name);
+    expect(
+      screen.getByRole("button", { name: "Download a.zip" }),
+    ).toBeInTheDocument();
+    // One outcome per file, though each took two waits.
+    expect(outcomes()).toEqual(["tool_completed", "tool_completed"]);
   });
 });

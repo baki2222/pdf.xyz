@@ -3415,7 +3415,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-11-08",
+    updated: "2026-11-09",
   },
   {
     slug: "how-to-convert-a-webpage-to-pdf",

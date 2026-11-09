@@ -33,6 +33,7 @@ import { LiveRegion, resetAnnouncer } from "@/components/a11y/live-region";
 import { resetUnsavedForTests, unsavedLabels } from "@/lib/intent/unsaved";
 import { WORKER_JOB_STORAGE_PREFIX } from "@/lib/workers/job-resume-key";
 import { WORKER_BATCH_TOOLS, type WorkerBatchSlug } from "@/lib/batch/tools";
+import { BATCH_LIMITS, overCountReason } from "@/lib/batch/limits";
 import {
   WORKER_BATCH_PAUSED,
   workerBatchJobsSentence,
@@ -350,6 +351,37 @@ describe("every registered worker batch, through its page's own panel", () => {
       expect(net.uploads()).toBe(2);
       expect(outcomes()).toEqual(["tool_completed", "tool_completed"]);
       expect(storageWrites.filter((k) => /job/i.test(k))).toEqual([]);
+    });
+  }
+
+  // Batch plan P5 made the runner choose its cap per slug (OCR PDF takes
+  // 5); this pins the intake at every registered page against the limit it
+  // is SUPPOSED to have, named independently of `batchMaxFilesFor`: a
+  // runner capping every worker batch at OCR's 5 (or OCR's at 10) fails.
+  for (const slug of SLUGS) {
+    const cap =
+      slug === "ocr-pdf"
+        ? BATCH_LIMITS.ocrMaxFiles
+        : BATCH_LIMITS.workerMaxFiles;
+    it(`${slug}: ${cap + 1} files take ${cap}, and the one past the cap is listed with the count's sentence`, async () => {
+      network();
+      const tool = getToolBySlug(slug)!;
+      const files = Array.from({ length: cap + 1 }, (_, i) =>
+        fileFor(tool, `in-${i + 1}`),
+      );
+      const { view } = await dropTwo(slug, files);
+      const { verb, noun } = WORKER_BATCH_TOOLS[slug];
+      expect(
+        await screen.findByRole(
+          "button",
+          { name: `${verb} ${cap} ${noun[1]}` },
+          { timeout: 10_000 },
+        ),
+      ).toBeInTheDocument();
+      const text = view.container.textContent ?? "";
+      expect(text).toContain(overCountReason(cap));
+      expect(text).toContain(files[cap]!.name);
+      expect(text).toContain(files[cap - 1]!.name);
     });
   }
 

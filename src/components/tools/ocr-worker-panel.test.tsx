@@ -290,8 +290,16 @@ describe("OcrWorkerPanel — the page says what one job takes", () => {
     fireEvent.drop(fileInput()!.closest("label")!, {
       dataTransfer: { files },
     });
+    // The batch is its own lazy chunk (`next/dynamic`): the wait covers a
+    // cold module load under a busy run, as the not-enabled box's does. At
+    // the default 1 s it failed 3 runs in 3 beside the batch suites
+    // (1048-1142 ms), and passed alone.
     expect(
-      await screen.findByRole("button", { name: "Recognize 3 scans" }),
+      await screen.findByRole(
+        "button",
+        { name: "Recognize 3 scans" },
+        { timeout: 10_000 },
+      ),
     ).toBeInTheDocument();
     for (const name of ["first.pdf", "second.pdf", "third.pdf"])
       expect(screen.getByText(name)).toBeInTheDocument();
