@@ -17,6 +17,7 @@ import { inches } from "@/lib/pdf/page-geometry";
 import { IMAGE_ROTATION_LABELS } from "@/lib/pdf/image-rotation";
 import { A4_SCAN_SETUP_COPY, IGNORED_DPI_COPY } from "@/lib/pdf/image-density";
 import { undecodableImageMessage } from "@/lib/pdf/image-intake";
+import { tooManyPixelsMessage } from "@/lib/pdf/raster-check";
 import {
   CUSTOM_PAGE_COPY,
   CUSTOM_PAGE_LABELS,
@@ -37,6 +38,11 @@ const ROTATE = IMAGE_ROTATION_LABELS.button;
 
 /** The add-time refusal of an undecodable image (audit png-to-pdf#8). */
 const UNDECODABLE_PNG = undecodableImageMessage("chart.png", "png");
+/** The add-time refusal of a PNG or JPG over the pixel ceiling (residual res4). */
+const TOO_MANY_PIXELS_PNG = tooManyPixelsMessage("poster.png", {
+  width: 20_000,
+  height: 9_000,
+});
 
 /** Small images and its two chips (audit png-to-pdf#4), as the runner says. */
 const SMALL = SMALL_IMAGES_LABELS.heading;
@@ -222,7 +228,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your PNG files",
-      body: `Drag PNGs onto the box reading "Drop PNG images here, or browse", or click anywhere in it to open your file picker; JPG photos are accepted too, and so are WebP, GIF, BMP and TIFF images; a multi-page TIFF fills one page per TIFF page. Files added later join the end of the list. A file that is left out gets a note naming it and the reason: "Choose PNG, JPG, WebP, GIF, BMP or TIFF images." for another type, "File is empty." for a zero-byte file, "Max ${MAX_IMAGE_MB} MB per image." for one that is too big, "Could not read this file — pick it again." when the file cannot be read, and a note naming the real format, such as "chart.png" is an AVIF image., when its contents are none of those. A PNG or JPG is also tried the way Create PDF will use it, so a PNG that is cut off, damaged or animated (more than one frame) is turned away with a note naming it, such as ${UNDECODABLE_PNG} A TIFF can also be turned away by page, with a note naming it, such as ${TIFF_TOO_LARGE}`,
+      body: `Drag PNGs onto the box reading "Drop PNG images here, or browse", or click anywhere in it to open your file picker; JPG photos are accepted too, and so are WebP, GIF, BMP and TIFF images; a multi-page TIFF fills one page per TIFF page. Files added later join the end of the list. A file that is left out gets a note naming it and the reason: "Choose PNG, JPG, WebP, GIF, BMP or TIFF images." for another type, "File is empty." for a zero-byte file, "Max ${MAX_IMAGE_MB} MB per image." for one that is too big, "Could not read this file — pick it again." when the file cannot be read, and a note naming the real format, such as "chart.png" is an AVIF image., when its contents are none of those. A PNG or JPG is also tried the way Create PDF will use it, so a PNG that is cut off, damaged or animated (more than one frame) is turned away with a note naming it, such as ${UNDECODABLE_PNG} One with more pixels than an image can have here is turned away by its size, with a note such as ${TOO_MANY_PIXELS_PNG} A TIFF can also be turned away by page, with a note naming it, such as ${TIFF_TOO_LARGE}`,
     },
     {
       title: "Arrange the image order",

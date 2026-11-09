@@ -57,6 +57,8 @@ import {
 } from "@/lib/pdf/engine";
 import { imagesToPdf, unsupportedImageMessage } from "@/lib/pdf/image-to-pdf";
 import { undecodableImageMessage } from "@/lib/pdf/image-intake";
+import { tooManyPixelsMessage } from "@/lib/pdf/raster-check";
+import { MAX_DECODED_PIXELS } from "@/lib/pdf/pixel-ceiling";
 import { MAX_IMAGE_MB } from "@/lib/tools/limits";
 import { parseMarkdownBlocks } from "@/lib/pdf/markdown-to-pdf";
 import { MARKDOWN_BLOCK_KINDS } from "@/lib/pdf/markdown-blocks";
@@ -1358,7 +1360,7 @@ describe("the converters' pages describe the page they produce", () => {
     const source = withoutComments(runnerSource(subjects[0]!.slug));
     const all = [
       ...source.matchAll(
-        /\breason:\s*("[^"\n]*"|`[^`\n]*`|[A-Za-z_][\w.]*\([^)\n]*\))/g,
+        /\breason:\s*("[^"\n]*"|`[^`\n]*`|[A-Za-z_][\w.]*\([^)\n]*\)|[A-Za-z_]\w*(?=\s*[,}\n]))/g,
       ),
     ].map((m) => m[1]!);
     // Every value a `reason:` is given was read — none skipped for its shape
@@ -1374,7 +1376,25 @@ describe("the converters' pages describe the page they produce", () => {
       if (text.includes("${")) throw new Error(`unfilled reason: ${r}`);
       return [text];
     });
-    const computed = all.filter((r) => !/^["`]/.test(r));
+    // A bare name is followed to what it holds. HISTORY (hostile residuals
+    // res4, 2026-11-09): the add-time check became `reason: problem`, the
+    // value of `imageIntakeProblem`, which also says an image is over the
+    // pixel ceiling. The count above went 6 against 7 (a broken link, which
+    // is what it is for), and the pages named the undecodable note but not
+    // that one. So a name is resolved to the one producer its declaration
+    // calls, and that producer to every message it returns.
+    const resolved = all.map((r) => {
+      if (/^["`]/.test(r) || r.includes("(")) return r;
+      const decl = new RegExp(`\\bconst ${r}\\s*=([^;]*);`).exec(source);
+      if (!decl) throw new Error(`reason: ${r} has no const declaration`);
+      const producers = [...decl[1]!.matchAll(/\b([A-Za-z_]\w*)\(/g)].map(
+        (m) => m[1]!,
+      );
+      if (producers.length !== 1)
+        throw new Error(`reason: ${r} is not one call: ${producers.join()}`);
+      return `${r} = ${producers[0]}`;
+    });
+    const computed = resolved.filter((r) => !/^["`]/.test(r));
     // Health: four worded refusals plus the one that names a real format —
     // and, since 2026-11-04, the TIFF reader's pick-time refusal, held below
     // to its own shape.
@@ -1384,8 +1404,43 @@ describe("the converters' pages describe the page they produce", () => {
       "tiffRefusalText(file.name, problem)",
       // Since 2026-11-08 (audit png-to-pdf#8): a JPG or PNG the engine
       // cannot embed, refused as it is added; held below to its shape.
-      "undecodableImageMessage(file.name, format)",
+      // WAS "undecodableImageMessage(file.name, format)" until res4.
+      "problem = imageIntakeProblem",
     ]);
+    // What `imageIntakeProblem` can say, read from its own body: every
+    // message it returns, each held below to a shape the pages must show.
+    const intakeBody =
+      /export async function imageIntakeProblem\([\s\S]*?\n\}\n/.exec(
+        withoutComments(
+          readFileSync(
+            path.join(process.cwd(), "src/lib/pdf/image-intake.ts"),
+            "utf8",
+          ),
+        ),
+      )?.[0];
+    expect(intakeBody, "imageIntakeProblem's body").toBeTruthy();
+    expect(
+      [
+        ...new Set(
+          [...intakeBody!.matchAll(/\b([A-Za-z_]\w*Message)\(/g)].map(
+            (m) => m[1]!,
+          ),
+        ),
+      ].sort(),
+    ).toEqual(["tooManyPixelsMessage", "undecodableImageMessage"]);
+    const pixelsShape = new RegExp(
+      tooManyPixelsMessage("NAME", { width: 1234, height: 5678 })
+        .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+        .replace("NAME", '[^"]+')
+        .replace("1,234", "([\\d,]+)")
+        .replace("5,678", "([\\d,]+)"),
+    );
+    expect(
+      pixelsShape.test(
+        tooManyPixelsMessage("a.png", { width: 20_000, height: 9_000 }),
+      ),
+    ).toBe(true);
+    expect(pixelsShape.test('"a.png" is too big.')).toBe(false);
     const undecodableShape = new RegExp(
       undecodableImageMessage("NAME", "png")
         .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
@@ -1440,6 +1495,16 @@ describe("the converters' pages describe the page they produce", () => {
       expect(served, `${tool.slug}: the TIFF refusal`).toMatch(tiffShape);
       expect(served, `${tool.slug}: the undecodable refusal`).toMatch(
         undecodableShape,
+      );
+      // The pixel-ceiling refusal, by example, and the example really is
+      // over the ceiling: a second bound that a raised ceiling would trip.
+      const pixels = pixelsShape.exec(served);
+      expect(pixels, `${tool.slug}: the pixel-ceiling refusal`).not.toBeNull();
+      const [w, h] = [pixels![1]!, pixels![2]!].map((n) =>
+        Number(n.replace(/,/g, "")),
+      );
+      expect(w! * h!, `${tool.slug}: its example`).toBeGreaterThan(
+        MAX_DECODED_PIXELS,
       );
     }
   });
