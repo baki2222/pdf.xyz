@@ -1,3 +1,4 @@
+// @native-canvas
 /**
  * Hostile-input regressions for image and text inputs to PDF (lane l09 of
  * the conversion-in matrix, branch test/hostile-matrix, 2026-11-08). Each
@@ -20,7 +21,13 @@ import {
   unsupportedImageMessage,
   type ImagePdfInput,
 } from "@/lib/pdf/image-to-pdf";
-import { imageDecodes, undecodableImageMessage } from "@/lib/pdf/image-intake";
+import {
+  imageDecodes,
+  imageIntakeProblem,
+  undecodableImageMessage,
+} from "@/lib/pdf/image-intake";
+import { tooManyPixelsMessage } from "@/lib/pdf/raster-check";
+import { decodePageImages } from "@/tests/pdf-image-decode";
 import type { ImagePageOptions } from "@/lib/pdf/image-page-layout";
 import { MAX_DECODED_PIXELS } from "@/lib/pdf/pixel-ceiling";
 import {
@@ -234,11 +241,57 @@ describe("CI-02 / CI-03: a JPEG's declared size is checked", () => {
     expect(doc.getPageCount()).toBe(1);
   });
 
-  it("CI-02 limit: an arithmetic-coded frame (SOF9) is not held to the one-bit bound", async () => {
-    const { jpegFrameProblem } = await import("@/lib/pdf/raster-check");
+  // INVERTED (hostile residuals res4, l09#126/#131, 2026-11-09). This was
+  // "CI-02 limit: an arithmetic-coded frame (SOF9) is not held to the
+  // one-bit bound", asserting jpegFrameProblem returned null for a 443-byte
+  // SOF9 file claiming 65,535 x 65,535: the one-bit proof does not hold for
+  // arithmetic coding, and NOTHING was put in its place, so imagesToPdf
+  // wrote a 1,388-byte PDF holding a 4.29 GP image XObject (which pdf.js
+  // cannot decode at all: it reads SOF0..SOF2 only). An arithmetic frame is
+  // now held to MAX_DECODED_PIXELS instead, with the size refusal.
+  it("CI-02: an arithmetic-coded frame (SOF9) over the pixel ceiling is refused by size", async () => {
     const bytes = F.jpegClaiming(65_535, 65_535);
     bytes[F.sofOffset(bytes) + 1] = 0xc9;
-    expect(jpegFrameProblem(bytes)).toBeNull();
+    const message = tooManyPixelsMessage("a.jpg", {
+      width: 65_535,
+      height: 65_535,
+    });
+    await expect(imagesToPdf("jpg", [img("a.jpg", bytes)])).rejects.toThrow(
+      message,
+    );
+    expect(await imageIntakeProblem("a.jpg", bytes, "jpg")).toBe(message);
+  });
+
+  it("CI-02: the arithmetic ceiling is MAX_DECODED_PIXELS, at its edge", async () => {
+    const arithmetic = (w: number, h: number) => {
+      const bytes = F.jpegClaiming(w, h);
+      bytes[F.sofOffset(bytes) + 1] = 0xc9;
+      return bytes;
+    };
+    // Health check: the edge frame is far over the one-bit bound, so only
+    // the ceiling can be what lets it through.
+    expect(10_000 * 10_000).toBe(MAX_DECODED_PIXELS);
+    const at = arithmetic(10_000, 10_000);
+    expect(await imageIntakeProblem("a.jpg", at, "jpg")).toBeNull();
+    expect(
+      (
+        await PDFDocument.load(await imagesToPdf("jpg", [img("a.jpg", at)]))
+      ).getPageCount(),
+    ).toBe(1);
+    await expect(
+      imagesToPdf("jpg", [img("a.jpg", arithmetic(10_000, 10_001))]),
+    ).rejects.toThrow(
+      tooManyPixelsMessage("a.jpg", { width: 10_000, height: 10_001 }),
+    );
+    // A small arithmetic frame goes in.
+    expect(
+      await imageIntakeProblem("a.jpg", arithmetic(30, 20), "jpg"),
+    ).toBeNull();
+    // Control: the same 65,535-square header, Huffman-coded, is still
+    // refused by the one-bit bound as damaged, not by size.
+    expect(
+      await imageIntakeProblem("a.jpg", F.jpegClaiming(65_535, 65_535), "jpg"),
+    ).toBe(undecodableImageMessage("a.jpg", "jpg"));
   });
 
   it.each([
@@ -254,6 +307,80 @@ describe("CI-02 / CI-03: a JPEG's declared size is checked", () => {
       expect(await imageDecodes(F.jpegClaiming(w, h), "jpg")).toBe(false);
     },
   );
+});
+
+/**
+ * Hostile residuals res4 (l09#132, 2026-11-09). The segment walk refused any
+ * non-0xFF byte before a marker as "damaged". libjpeg skips such bytes with
+ * a warning ("Corrupt JPEG data: N extraneous bytes before marker"), as
+ * browsers do, and older camera and phone writers produce them, so a real
+ * photo was refused. The bytes are now skipped, and dropped from the copy
+ * that is embedded, so pdf-lib, the EXIF and metadata walkers, and the
+ * viewer see clean segments.
+ */
+describe("CI-12: extraneous bytes between a JPEG's segments are skipped, as libjpeg does", () => {
+  /** `real` with `junk` inserted after its first segment (APP0 or DQT). */
+  const withJunk = (real: Uint8Array, junk: number[]) => {
+    const cut = 4 + ((real[4]! << 8) | real[5]!);
+    const out = new Uint8Array(real.length + junk.length);
+    out.set(real.subarray(0, cut));
+    out.set(junk, cut);
+    out.set(real.subarray(cut), cut + junk.length);
+    return out;
+  };
+
+  it.each(Object.keys(REAL_JPEGS))(
+    "a real %s JPEG with two 0x00 bytes after its first segment embeds and renders as the clean file does",
+    async (key) => {
+      const real = REAL_JPEGS[key]!;
+      const junk = withJunk(real, [0, 0]);
+      expect(await imageIntakeProblem("x.jpg", junk, "jpg")).toBeNull();
+      const [clean] = await decodePageImages(
+        await imagesToPdf("jpg", [img("x.jpg", real)]),
+      );
+      const seen = await decodePageImages(
+        await imagesToPdf("jpg", [img("x.jpg", junk)]),
+      );
+      // Health check: the clean file decodes through pdf.js at all.
+      expect(clean!.width * clean!.height).toBeGreaterThan(0);
+      expect(seen).toHaveLength(1);
+      expect(seen[0]!.width).toBe(clean!.width);
+      expect(seen[0]!.height).toBe(clean!.height);
+      expect(Buffer.from(seen[0]!.gray).equals(Buffer.from(clean!.gray))).toBe(
+        true,
+      );
+    },
+  );
+
+  it("other junk bytes, and an FF 00 pair, are skipped too", async () => {
+    const real = REAL_JPEGS.baseline!;
+    for (const junk of [
+      [0x12, 0x34, 0x56],
+      [0xff, 0x00, 0x07],
+    ]) {
+      const bytes = withJunk(real, junk);
+      expect(await imageIntakeProblem("x.jpg", bytes, "jpg")).toBeNull();
+      const doc = await PDFDocument.load(
+        await imagesToPdf("jpg", [img("x.jpg", bytes)]),
+      );
+      expect(doc.getPageCount()).toBe(1);
+    }
+  });
+
+  it("controls: no SOI, and a file cut inside a segment, are still damaged", async () => {
+    const { jpegFrameProblem } = await import("@/lib/pdf/raster-check");
+    const real = REAL_JPEGS.baseline!;
+    const junk = withJunk(real, [0, 0]);
+    // Health check: the junk file itself passes.
+    expect(jpegFrameProblem(junk)).toBeNull();
+    expect(jpegFrameProblem(junk.subarray(2))).toBe("damaged");
+    // Cut inside the frame header, after the junk.
+    const sof = F.sofOffset(real) + 2;
+    expect(jpegFrameProblem(junk.subarray(0, sof + 6))).toBe("damaged");
+    // Junk that runs to the end with no marker after it.
+    const cut = 4 + ((real[4]! << 8) | real[5]!);
+    expect(jpegFrameProblem(junk.subarray(0, cut + 2))).toBe("damaged");
+  });
 });
 
 describe("CI-04 / CI-05: a PNG's declared size is checked before anything is inflated", () => {
@@ -291,6 +418,32 @@ describe("CI-04 / CI-05: a PNG's declared size is checked before anything is inf
     expect(await imageDecodes(F.pngClaiming(20_000, 20_000, 6), "png")).toBe(
       false,
     );
+  });
+
+  // Hostile residuals res4 (l09#128): the add-time check returned a bare
+  // boolean, so the runner said '"x" could not be decoded as a PNG image.'
+  // of a VALID PNG that is merely over the ceiling, while Create PDF said
+  // the true thing. Add time and run time now say the same sentence.
+  it("CI-04: an over-ceiling PNG gets the size refusal at add time, the same words as at run", async () => {
+    const bytes = F.pngClaiming(20_000, 20_000);
+    const message = tooManyPixelsMessage("big.png", {
+      width: 20_000,
+      height: 20_000,
+    });
+    expect(await imageIntakeProblem("big.png", bytes, "png")).toBe(message);
+    await expect(imagesToPdf("png", [img("big.png", bytes)])).rejects.toThrow(
+      message,
+    );
+    // Controls: a damaged PNG still gets the decode refusal; a whole one none.
+    const whole = F.validGreyPng(8, 8);
+    expect(
+      await imageIntakeProblem(
+        "cut.png",
+        whole.subarray(0, whole.length - 20),
+        "png",
+      ),
+    ).toBe(undecodableImageMessage("cut.png", "png"));
+    expect(await imageIntakeProblem("ok.png", whole, "png")).toBeNull();
   });
 });
 
