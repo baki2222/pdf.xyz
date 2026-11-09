@@ -15,7 +15,7 @@ import {
 import { HANDWRITING_FACES } from "../src/lib/pdf/handwriting";
 import { fontPackUrl } from "../src/lib/pdf/font-packs";
 import { cssLineHeightShowing } from "../src/lib/pdf/handwriting-metrics";
-import { openNotoFont, readNotoTtf } from "../src/lib/pdf/noto-source";
+import * as fontkit from "fontkit";
 
 /**
  * Audit sign-pdf#1 on the SERVED build: Sign PDF → Type → a handwriting
@@ -352,9 +352,10 @@ test("each handwriting family draws with its own face's widths", async ({
   const PROBES = ["W", "m", "g", "A", "y"];
   const want: Record<string, number> = {};
   for (const style of HANDWRITING_STYLES) {
-    const font = (await openNotoFont(
-      readNotoTtf(HANDWRITING_FACES[style]),
-    )) as unknown as {
+    // The TTF the build serves (public/ is what `next start` sends).
+    const font = fontkit.create(
+      readFileSync(`public${fontPackUrl(HANDWRITING_FACES[style])}`),
+    ) as unknown as {
       unitsPerEm: number;
       glyphForCodePoint(cp: number): { advanceWidth: number };
     };
