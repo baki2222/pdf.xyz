@@ -352,6 +352,10 @@ export function copyFiles(): string[] {
     path.join(ROOT, "src", "lib", "pdf", "n-up.ts"),
     // Split PDF Pages in Half (2026-11-01): its option labels, hints and refusals.
     path.join(ROOT, "src", "lib", "pdf", "split-half.ts"),
+    // Remove Annotations (2026-11-10): its group labels, defaults and
+    // consequence lines, and the engine's refusals.
+    path.join(ROOT, "src", "lib", "pdf", "annotation-groups.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "remove-annotations.ts"),
     path.join(ROOT, "src", "lib", "workers", "read-error.ts"),
     // EPUB to PDF (2026-11-06): its refusals, its options' field errors and
     // its processor's readiness sentence.

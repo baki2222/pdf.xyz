@@ -703,7 +703,7 @@ export const tools: Tool[] = [
     accept: ["PDF"],
     outputs: ["PDF"],
     keywords: ["annotate pdf", "highlight pdf", "markup pdf", "draw on pdf"],
-    related: ["edit-pdf", "redact-pdf", "sign-pdf"],
+    related: ["edit-pdf", "remove-annotations", "redact-pdf", "sign-pdf"],
   },
   {
     slug: "page-numbers",
@@ -841,6 +841,27 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["pdf metadata", "pdf properties", "remove pdf metadata"],
     related: ["protect-pdf", "redact-pdf", "flatten-pdf"],
+  },
+  {
+    slug: "remove-annotations",
+    name: "Remove Annotations",
+    tagline: "Delete comments, highlights and markup.",
+    description:
+      "See which comments, highlights, drawings, stamps, attachments, links and form fields a PDF has, and save a copy without the kinds you pick. In your browser.",
+    category: "edit",
+    icon: "removeAnnotations",
+    processing: "client",
+    badge: "new",
+    accept: ["PDF"],
+    outputs: ["PDF"],
+    keywords: [
+      "remove annotations from pdf",
+      "delete comments pdf",
+      "remove highlights pdf",
+      "remove form fields pdf",
+      "remove links from pdf",
+    ],
+    related: ["flatten-pdf", "redact-pdf", "edit-pdf", "annotate-pdf"],
   },
 
   // ─────────────────────────────── Sign & Forms ───────────────────────────
@@ -1005,7 +1026,7 @@ export const tools: Tool[] = [
       "lock form fields",
       "lock content",
     ],
-    related: ["fill-forms", "redact-pdf", "protect-pdf"],
+    related: ["fill-forms", "remove-annotations", "redact-pdf", "protect-pdf"],
   },
   {
     slug: "compare-pdf",

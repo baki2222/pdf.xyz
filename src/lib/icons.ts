@@ -6,6 +6,7 @@ import {
   Contrast,
   Crop,
   Droplets,
+  Eraser,
   EyeOff,
   FileCheck2,
   FileCode,
@@ -105,6 +106,7 @@ export const ICONS = {
   overlay: Layers,
   resize: Scaling,
   metadata: Tags,
+  removeAnnotations: Eraser,
   // sign
   sign: Signature,
   requestSign: Send,

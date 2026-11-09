@@ -181,6 +181,11 @@ export const TOOL_HOW: Readonly<Record<string, readonly string[]>> = {
     "Find a word or detect emails, phone and card numbers, then tick the matches to remove — or add boxes by page and position.",
     "Download a PDF flattened to images with the content erased under each box, or one with only the text under each box removed.",
   ],
+  "remove-annotations": [
+    "Open your PDF — its annotations are listed by kind, each with a count, and the file stays on your device.",
+    "Tick the kinds to remove: comments, highlights, drawings, stamps and attachments start ticked; links, form fields and the rest do not.",
+    "Remove them and download a copy in which the chosen annotations are deleted from the file, not hidden.",
+  ],
   "flatten-pdf": [
     "Open a PDF with fillable form fields.",
     "Select Flatten form fields — each field's current value is drawn into the page.",

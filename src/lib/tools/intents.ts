@@ -109,6 +109,7 @@ export const TASKS: readonly Task[] = [
   { label: "Print in black and white", slug: "grayscale-pdf" },
   { label: "Trim the margins", slug: "crop-pdf" },
   { label: "Highlight a PDF", slug: "annotate-pdf" },
+  { label: "Delete comments from a PDF", slug: "remove-annotations" },
   { label: "Add text to a PDF", slug: "edit-pdf" },
   { label: "Compare versions of a PDF", slug: "compare-pdf" },
   { label: "Keep a PDF for the long term", slug: "pdf-to-pdfa" },

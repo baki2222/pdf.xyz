@@ -30,6 +30,8 @@ import {
 import { RunBar } from "./run-bar";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import { PrivacyLine, SegmentedControl, TextField } from "./stamp-controls";
+import { RemoveAnnotationsRunner } from "./remove-annotations-editor";
+import { useToolRun } from "./tool-context";
 import type { LoadedPdf } from "./use-single-pdf";
 
 /** The two things a run can do — exported so the page's steps quote them. */
@@ -46,7 +48,16 @@ export const METADATA_RUN_LABELS: Record<Action, string> = {
   remove: "Remove metadata",
 };
 
+/**
+ * The `metadata` runner kind's tools: Edit PDF Metadata, and Remove
+ * Annotations (`remove-annotations-editor.tsx`), which shares the kind's
+ * rows — one PDF, `MAX_PDF_BYTES`, read with pdf-lib, no mid-run fetch —
+ * and is told apart here by its page's slug, not by a dispatcher arm.
+ */
 export function MetadataRunner() {
+  if (useToolRun()?.slug === "remove-annotations") {
+    return <RemoveAnnotationsRunner />;
+  }
   return (
     <SinglePdfRunner
       hint="One PDF · metadata read and changed locally in your browser"
