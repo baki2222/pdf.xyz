@@ -124,6 +124,9 @@ describe("the two tools point at each other", () => {
     // WAS "No. … there is no booklet ordering for folding and stapling" —
     // true of n-up alone, false of the site from 2026-11-09.
     expect(answer.answer).not.toMatch(/^No\b/);
+    // Listed, so Booklet's page draws this guide in its Guides band
+    // (guidesForTool reads guide.tools; content.relatedGuides only orders
+    // it). It took Resize PDF's slot: three at most (guides/catalog.test).
     expect(guide.tools).toContain("booklet-pdf");
     const related = guide.sections.find((s) => s.id === "related-jobs")!;
     expect(related.body.join(" ")).toContain(bookletName);

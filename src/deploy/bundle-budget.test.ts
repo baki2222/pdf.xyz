@@ -1049,6 +1049,17 @@ const TOOL_PAGES_TO_COME = {
   // or panel still pays its dispatcher arm and `next/dynamic` loader in the
   // page chunk and its chunk-map entry (~30-45 B, the analysts' figure; not
   // re-measured here).
+  //
+  // NOTHING TAKEN on 2026-11-09 by PDF Booklet Maker, the 57th tool, which
+  // reuses the 'n-up' runner kind (no dispatcher arm, no loader): gzip -9
+  // over each page's first load, main cec860f0 (a detached worktree) -> the
+  // branch, both built on this machine from an empty .next: ocr 233,623 ->
+  // 233,610, rotate 234,863 -> 234,850, merge 229,095 -> 229,082, summarize
+  // 234,435 -> 234,422 (-13 B each: layout, not-found and global-error
+  // re-cut by chunk ids). NOT under G.1, and stated so here: the two pages
+  // on that kind carry both editors, so tools/n-up-pdf went 245,457 ->
+  // 247,722 (+2,265 B; the n-up runner's chunk now holds booklet-editor.tsx
+  // and booklet.ts) and tools/booklet-pdf loads the same 247,722 B.
   unallocated:
     UNALLOCATED -
     NEW_TOOLS_2026_10_30 -
