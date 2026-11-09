@@ -76,6 +76,14 @@ const thrown = (p: Promise<unknown>) =>
     (e: unknown) => e,
   );
 
+/**
+ * A page tree that names object 3 in its inherited resources: pdf.js paints
+ * an image only through a reference, so an image fixture at object 3 is one
+ * pdf.js may paint (see `judgeImages`; an orphan is not counted).
+ */
+const PAGES_PAINT_3 =
+  "<< /Type /Pages /Kids [] /Count 0 /Resources << /XObject << /Im 3 0 R >> >> >>";
+
 const HELVETICA = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
 /** One real page that draws MARKER, under a root /Pages whose /Count lies. */
 const countPdf = (count: string) =>
@@ -364,7 +372,7 @@ describe("the stream preflight: thresholds against real files and a second bound
       scanPdfStreams(
         rawPdf([
           "<< /Type /Catalog /Pages 2 0 R >>",
-          "<< /Type /Pages /Kids [] /Count 0 >>",
+          PAGES_PAINT_3,
           { dict: `/Type /XObject /Subtype /Image ${dict}`, stream: "x" },
         ]),
       );
@@ -590,7 +598,7 @@ describe("second review: q work and multiplicity, top-level image entries, a lin
       scanPdfStreams(
         rawPdf([
           "<< /Type /Catalog /Pages 2 0 R >>",
-          "<< /Type /Pages /Kids [] /Count 0 >>",
+          PAGES_PAINT_3,
           { dict: `/Type /XObject /Subtype /Image ${dict}`, stream: "x" },
           ...extra,
         ]),
@@ -620,7 +628,7 @@ describe("second review: q work and multiplicity, top-level image entries, a lin
     // budget by the preflight.
     const unresolved = rawPdf([
       "<< /Type /Catalog /Pages 2 0 R >>",
-      "<< /Type /Pages /Kids [] /Count 0 >>",
+      PAGES_PAINT_3,
       {
         dict: "/Type /XObject /Subtype /Image /Width 99 0 R /Height 10",
         stream: "x",
@@ -900,7 +908,7 @@ describe("third review: no dictionary label, string or reference hides a stream 
       scanPdfStreams(
         rawPdf([
           "<< /Type /Catalog /Pages 2 0 R >>",
-          "<< /Type /Pages /Kids [] /Count 0 >>",
+          PAGES_PAINT_3,
           { dict, stream: "x" },
           ...extra,
         ]),
@@ -999,5 +1007,207 @@ describe("third review: what the label-blind scan still holds back, and its read
         [...whole.direct].sort(),
       );
     }
+  });
+});
+
+describe("hostile review (2026-11-09): the images pdf.js may paint, at what they cost", () => {
+  /** A one-page file (page content is object 4) drawing `content`, objects 6.. after. */
+  const page = (
+    content: string,
+    extra: (string | { dict: string; stream: string })[] = [],
+    resources = "",
+  ) =>
+    scanPdfStreams(
+      rawPdf([
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Resources << ${resources} >> /Contents 4 0 R >>`,
+        { dict: "", stream: content },
+        HELVETICA,
+        ...extra,
+      ]),
+    );
+  const inlineImage = (dict: string) =>
+    `q 100 0 0 100 50 50 cm BI ${dict} ID xyz\nEI Q\n`;
+
+  it("an inline image is sized from its own dictionary, as pdf.js reads it", async () => {
+    // History: the scan sized only image STREAMS, so this one drew in
+    // 32.6 s in the editor, with no notice.
+    expect(
+      (await page(inlineImage("/W 10000 /H 10000 /CS /RGB /BPC 8 /F /Fl")))
+        .smallestOverBudgetImage,
+    ).toBe(100_000_000);
+    // Full names, a name escape, and a dictionary glued to BI.
+    expect(
+      (await page(inlineImage("/Width 9000 /Height 9000 /BPC 8")))
+        .smallestOverBudgetImage,
+    ).toBe(81_000_000);
+    expect(
+      (await page(inlineImage("/#57 10000 /H 10000 /BPC 8")))
+        .smallestOverBudgetImage,
+    ).toBe(100_000_000);
+    expect(
+      (await page("BI/W 10000/H 10000/BPC 8 ID xyz\nEI"))
+        .smallestOverBudgetImage,
+    ).toBe(100_000_000);
+    // A bilevel inline image keeps the bilevel budget; with a colour-key
+    // /Mask pdf.js expands it to RGBA, so it does not.
+    expect(
+      (await page(inlineImage("/W 12000 /H 12000 /BPC 1 /CS /G")))
+        .smallestOverBudgetImage,
+    ).toBeNull();
+    expect(
+      (await page(inlineImage("/W 12000 /H 12000 /BPC 1 /CS /G /Mask [1 1]")))
+        .smallestOverBudgetImage,
+    ).toBe(144_000_000);
+    // Positive control: a 1,000 x 1,000 inline image is within budget.
+    expect(
+      await page(inlineImage("/W 1000 /H 1000 /CS /RGB /BPC 8")),
+    ).toMatchObject({ smallestOverBudgetImage: null, unknownSizeImages: 0 });
+  });
+
+  it("an inline image after the first EI is charged from the loose reading, which no comment or padding hides", async () => {
+    const small = inlineImage("/W 2 /H 2 /BPC 8");
+    // The second image sits where the reading is loose.
+    expect(
+      (await page(small + inlineImage("/W 10000 /H 10000 /BPC 8")))
+        .smallestOverBudgetImage,
+    ).toBe(100_000_000);
+    // pdf.js skips the comment; a reader that ended the dictionary at its
+    // `ID` would see no /W.
+    expect(
+      (await page(`${small}BI /BPC 8 %ID\n /W 10000 /H 10000 ID xyz\nEI\n`))
+        .smallestOverBudgetImage,
+    ).toBe(100_000_000);
+    expect(
+      (
+        await page(
+          `${small}BI /BPC 8 ${" ".repeat(70_000)}/W 10000 /H 10000 ID xyz\nEI\n`,
+        )
+      ).smallestOverBudgetImage,
+    ).toBe(100_000_000);
+    // An exact dictionary too long to read is of unknown size.
+    expect(
+      (await page(`BI /BPC 8 ${" ".repeat(70_000)}/W 10 /H 10 ID xyz\nEI\n`))
+        .unknownSizeImages,
+    ).toBe(1);
+    // Positive control: two small inline images are within budget.
+    expect(
+      await page(small + inlineImage("/W 300 /H 200 /BPC 8")),
+    ).toMatchObject({ smallestOverBudgetImage: null, unknownSizeImages: 0 });
+  });
+
+  it("an image nothing references is never painted, so it is not counted; a referenced one is, wherever the reference sits", async () => {
+    const big = {
+      dict: "/Type /XObject /Subtype /Image /Width 8000 /Height 8000 /BitsPerComponent 8 /ColorSpace /DeviceRGB",
+      stream: "x",
+    };
+    // History: an orphan 64 MP object set maxImageSize to 63,999,999 and the
+    // page's own 144 MP bilevel scan vanished with it.
+    expect(await page("0 0 m\n", [big])).toMatchObject({
+      smallestOverBudgetImage: null,
+      maxImagePixels: 64_000_000,
+    });
+    // Positive controls: named by the page's resources, or only inside
+    // another stream's data (a reference the scan may misread as data).
+    expect(
+      (await page("0 0 m\n", [big], "/XObject << /Im1 6 0 R >>"))
+        .smallestOverBudgetImage,
+    ).toBe(64_000_000);
+    expect(
+      (await page("0 0 m\n", [big, { dict: "/Length1 9", stream: "6 0 R" }]))
+        .smallestOverBudgetImage,
+    ).toBe(64_000_000);
+  });
+
+  it("an image's soft mask and mask are charged to it, at their own size, and it is recorded by its own size", async () => {
+    const parent = (masks: string) => ({
+      dict: `/Type /XObject /Subtype /Image /Width 10 /Height 10 /BitsPerComponent 8 /ColorSpace /DeviceRGB ${masks}`,
+      stream: "x",
+    });
+    const mask = (dict: string) => ({
+      dict: `/Width 10000 /Height 10000 /BitsPerComponent 8 /ColorSpace /DeviceGray ${dict}`,
+      stream: "x",
+    });
+    const res = "/XObject << /Im1 6 0 R >>";
+    // History: an /SMask with no /Subtype was not seen (a 380 MP one drew
+    // in 7.9 s at ~4.7 GB); one WITH /Subtype /Image set maxImageSize to its
+    // own size, which the 100-pixel image passes, so pdf.js decoded it.
+    // pdf.js compares maxImageSize with the painted image's own size, so the
+    // image is recorded by that: a preview below it skips the image, masks
+    // and all.
+    expect(
+      (await page("0 0 m\n", [parent("/SMask 7 0 R"), mask("")], res))
+        .smallestOverBudgetImage,
+    ).toBe(100);
+    expect(
+      (
+        await page(
+          "0 0 m\n",
+          [parent("/SMask 7 0 R"), mask("/Type /XObject /Subtype /Image")],
+          res,
+        )
+      ).smallestOverBudgetImage,
+    ).toBe(100);
+    expect(
+      (await page("0 0 m\n", [parent("/Mask 7 0 R"), mask("")], res))
+        .smallestOverBudgetImage,
+    ).toBe(100);
+    // A mask whose size cannot be read: the image is held as over budget.
+    expect(
+      (
+        await page(
+          "0 0 m\n",
+          [
+            parent("/SMask 7 0 R"),
+            { dict: "/Width 99 0 R /Height 10", stream: "x" },
+          ],
+          res,
+        )
+      ).smallestOverBudgetImage,
+    ).toBe(100);
+    // Positive controls: a small mask, and a mask that names no stream
+    // (pdf.js ignores it).
+    expect(
+      (
+        await page(
+          "0 0 m\n",
+          [
+            parent("/SMask 7 0 R"),
+            { dict: "/Width 10 /Height 10", stream: "x" },
+          ],
+          res,
+        )
+      ).smallestOverBudgetImage,
+    ).toBeNull();
+    expect(
+      (await page("0 0 m\n", [parent("/SMask 99 0 R")], res))
+        .smallestOverBudgetImage,
+    ).toBeNull();
+  });
+
+  it("a 1-bit gray image with a /Mask or an /SMask is not bilevel: pdf.js expands it to RGBA", async () => {
+    const scan = (masks: string) =>
+      page(
+        "0 0 m\n",
+        [
+          {
+            dict: `/Type /XObject /Subtype /Image /Width 19500 /Height 19500 /BitsPerComponent 1 /ColorSpace /DeviceGray ${masks}`,
+            stream: "x",
+          },
+          { dict: "/Width 1 /Height 1", stream: "x" },
+        ],
+        "/XObject << /Im1 6 0 R >>",
+      );
+    // History: held to the 400 MP bilevel budget; drew in 6.9 s at ~4.7 GB.
+    expect((await scan("/Mask [1 1]")).smallestOverBudgetImage).toBe(
+      19500 * 19500,
+    );
+    expect((await scan("/SMask 7 0 R")).smallestOverBudgetImage).toBe(
+      19500 * 19500,
+    );
+    // Positive control: without a mask it is bilevel, and within budget.
+    expect((await scan("")).smallestOverBudgetImage).toBeNull();
+    expect(19500 * 19500).toBeLessThan(RASTER_MAX_BILEVEL_PIXELS);
   });
 });

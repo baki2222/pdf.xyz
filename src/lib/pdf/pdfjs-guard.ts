@@ -166,9 +166,17 @@ export const GRAPHICS_STATE_WORK_FLOOR = 256;
  * holding one Flate image, measured through `rasterizePdf` on base (Node,
  * `@napi-rs/canvas`): RGB 9 MP 1.2 s, 25 MP 4.6 s, 50 MP 12-22 s, 100 MP
  * 43.5 s (CO-08 saw 42 s and 1.5 GB); 8-bit GRAY 50 MP 12.2 s, 150 MP 86 s;
- * DCT (JPEG) RGB 50 MP 12-18 s. Half the product's pixel ceiling keeps a page
- * inside ~20 s. 50 MP still takes a 600-dpi A4 scan (4,960 x 7,016 = 34.8 MP)
- * and a 300-dpi A2 (34.8 MP).
+ * DCT (JPEG) RGB 50 MP 12-18 s. Half the product's pixel ceiling keeps ONE
+ * image inside ~20 s. 50 MP still takes a 600-dpi A4 scan (4,960 x 7,016 =
+ * 34.8 MP) and a 300-dpi A2 (34.8 MP).
+ *
+ * It is a budget per IMAGE, not per page. OPEN (hostile review, 2026-11-09):
+ * a page painting several distinct images within budget pays for each, and
+ * nothing here sums them: ten 7,000 x 7,000 RGB images on one page drew in
+ * 105.7 s in the editor (one: 24.9 s; four: 57.0 s). The byte scan cannot
+ * tell which page paints which image (resources are inherited, shared and
+ * may sit in object streams), and a sum over the whole file would refuse
+ * every long scanned document.
  */
 export const RASTER_MAX_IMAGE_PIXELS = MAX_DECODED_PIXELS / 2;
 
@@ -273,19 +281,23 @@ export interface PdfStreamScan {
    * {@link MAX_GRAPHICS_STATE_WORK}.
    */
   qWork: number;
-  /** Largest image XObject, in pixels (Width x Height). */
+  /** Largest image XObject, in pixels (Width x Height), painted or not. */
   maxImagePixels: number;
   /**
-   * The fewest pixels of any image over its raster budget
-   * ({@link RASTER_MAX_IMAGE_PIXELS}, or {@link RASTER_MAX_BILEVEL_PIXELS}
-   * for a bilevel one); null when every image is within budget.
+   * The fewest pixels (its own /Width x /Height, what pdf.js's
+   * `maxImageSize` is compared with) of any image pdf.js may paint that is
+   * over its raster budget ({@link RASTER_MAX_IMAGE_PIXELS}, or
+   * {@link RASTER_MAX_BILEVEL_PIXELS} for a bilevel one); null when every
+   * such image is within budget. See {@link judgeImages} for which images
+   * pdf.js may paint and what each one costs.
    */
   smallestOverBudgetImage: number | null;
   /**
-   * Images whose size the scan cannot read: a /Width or /Height that refers
-   * to an object the scan cannot see (one held in an object stream), or is
-   * not a number. pdf.js resolves those; the scan treats the image as over
-   * budget.
+   * Images pdf.js may paint whose size the scan cannot read: a /Width or
+   * /Height that refers to an object the scan cannot see (one held in an
+   * object stream), or is not a number; or an inline image's dictionary the
+   * scan could not finish. pdf.js resolves those; the scan treats the image
+   * as over budget.
    */
   unknownSizeImages: number;
   /** The first bound the scan stopped at, or null. */
@@ -343,6 +355,62 @@ const CHAR = Array.from({ length: 256 }, (_, b) => String.fromCharCode(b));
 
 const isNumberStart = (b: number) =>
   (b >= 0x30 && b <= 0x39) || b === 0x2b || b === 0x2d || b === 0x2e;
+
+/** {@link ContentOps.emit}: an image's `ID` ended, its data follows. */
+const DATA = 1;
+/** {@link ContentOps.emit}: the exact reading's `BI` ended, a dictionary follows. */
+const DICT = 2;
+
+/**
+ * The longest inline image dictionary read: 65,536 bytes. A real one is a
+ * few dozen; one longer is an image of unknown size, held to the colour
+ * budget (see `preflightPdfjsBytes`).
+ */
+const INLINE_DICT_BYTES = 65_536;
+/** Characters of a name the loose reading keeps: `/Height` with escapes. */
+const NAME_CHARS = 24;
+/** Characters of a number the loose reading keeps; longer is "the largest". */
+const NUMBER_CHARS = 32;
+
+/**
+ * Which inline image side a name is, as pdf.js reads names (`#xx` escapes
+ * decoded): 1 for /W or /Width, 2 for /H or /Height, else 0. A name longer
+ * than the loose reading keeps is none of them.
+ */
+function sideKey(raw: string): number {
+  if (raw.length > NAME_CHARS) return 0;
+  const name = raw.includes("#")
+    ? raw.replace(/#([0-9A-Fa-f]{2})/g, (_, h: string) =>
+        String.fromCharCode(parseInt(h, 16)),
+      )
+    : raw;
+  return name === "W" || name === "Width"
+    ? 1
+    : name === "H" || name === "Height"
+      ? 2
+      : 0;
+}
+
+/**
+ * The inline images one content stream paints, as {@link ContentOps} read
+ * them. The exact reading sizes an image from its own dictionary, read as
+ * pdf.js reads it (`sized`; at most the stream's first, since the reading
+ * turns loose after the first `EI`). Past that point, and in a loose
+ * re-reading, where an image's dictionary begins and ends is not known, so
+ * every `BI` is counted (`loose`) and charged as ONE colour image of the
+ * largest /W (or /Width) by the largest /H (or /Height) the loose reading
+ * saw anywhere in the stream: it reads every token pdf.js may (strings,
+ * comments and data included), so no value pdf.js sizes an image by is
+ * missed, and the product bounds each image there from above.
+ */
+export interface InlineImages {
+  sized: { pixels: number; bilevel: boolean }[];
+  /** Dictionaries the exact reading could not finish (cut short, or open at the end). */
+  unknown: number;
+  loose: number;
+  looseW: number;
+  looseH: number;
+}
 
 /**
  * A streaming operator counter for one content stream, fed chunk by chunk:
@@ -404,6 +472,25 @@ export class ContentOps {
   private sawE = false;
   /** Bytes until a forced token end (the loose reading's `EI` rule). */
   private force = 0;
+  /**
+   * Inline images (`BI` ... `ID`), as pdf.js would size them: see
+   * {@link InlineImages}. Their dictionaries name no object, so the byte
+   * scan's image budget never saw them (hostile review, 2026-11-09: a
+   * 10,000 x 10,000 inline image drew in 32.6 s in the editor, unflagged).
+   */
+  readonly inline: InlineImages = {
+    sized: [],
+    unknown: 0,
+    loose: 0,
+    looseW: 0,
+    looseH: 0,
+  };
+  /** The exact reading's bytes since `BI`, while its dictionary is open. */
+  private dict: number[] | null = null;
+  /** The loose reading's current name, number, and the key a number is for. */
+  private name = "";
+  private num = "";
+  private key = 0;
 
   constructor(private exact = true) {}
 
@@ -412,8 +499,12 @@ export class ContentOps {
     // that may be content (up to MAX_DECODED_TOTAL_BYTES), so the state is
     // read into locals and written back once per chunk.
     let { state, command, strDepth, escaped, sawE, force, exact } = this;
+    let { dict, name, num, key } = this;
     for (let i = 0; i < chunk.length; i += 1) {
       const b = chunk[i]!;
+      // An inline image's dictionary, kept whole (and bounded) to be read
+      // at its `ID` as pdf.js reads it.
+      if (dict !== null && dict.length < INLINE_DICT_BYTES) dict.push(b);
       // The common bytes, without the state machine: whitespace between
       // tokens, and the inside of a string.
       if (exact) {
@@ -434,8 +525,10 @@ export class ContentOps {
             const special = SPECIAL[b]!;
             if (special === 1) break lex;
             if (special === 2) {
-              if (b === 0x2f) state = NAME;
-              else if (exact) {
+              if (b === 0x2f) {
+                state = NAME;
+                name = "";
+              } else if (exact) {
                 if (b === 0x28) {
                   state = STRING;
                   strDepth = 1;
@@ -443,8 +536,10 @@ export class ContentOps {
                 } else if (b === 0x25) state = COMMENT;
                 else if (b === 0x3c) state = AFTER_LT;
               }
-            } else if (isNumberStart(b)) state = NUMBER;
-            else if (b < 0x20 || b > 0x7f) state = HIGH;
+            } else if (isNumberStart(b)) {
+              state = NUMBER;
+              if (!exact) num = CHAR[b]!;
+            } else if (b < 0x20 || b > 0x7f) state = HIGH;
             else {
               state = COMMAND;
               command = CHAR[b]!;
@@ -453,11 +548,22 @@ export class ContentOps {
           }
           case NUMBER:
             // pdf.js's getNumber: digits, one `.`, and a stray `-` it warns of.
-            if ((b >= 0x30 && b <= 0x39) || b === 0x2e || b === 0x2d) break lex;
+            if ((b >= 0x30 && b <= 0x39) || b === 0x2e || b === 0x2d) {
+              if (!exact && num.length <= NUMBER_CHARS) num += CHAR[b]!;
+              break lex;
+            }
+            if (!exact && key !== 0) {
+              this.looseSide(key, num);
+              key = 0;
+            }
             state = BETWEEN;
             continue lex;
           case NAME:
-            if (SPECIAL[b] === 0) break lex;
+            if (SPECIAL[b] === 0) {
+              if (!exact && name.length <= NAME_CHARS) name += CHAR[b]!;
+              break lex;
+            }
+            if (!exact) key = sideKey(name);
             state = BETWEEN;
             continue lex;
           case HIGH:
@@ -482,12 +588,17 @@ export class ContentOps {
             const ended = command;
             command = "";
             state = BETWEEN;
-            if (this.emit(ended)) {
+            const emitted = this.emit(ended);
+            if (emitted === DATA) {
               // pdf.js's data starts after the byte that ended `ID`.
+              dict = null;
               state = IMAGE_DATA;
               sawE = false;
               break lex;
             }
+            // A dictionary starts at the byte that ended `BI` (`BI/W` is
+            // `BI`, then `/W`): it is read again below, so keep it.
+            if (emitted === DICT) dict = this.dict = [b];
             continue lex;
           }
           case STRING:
@@ -535,11 +646,20 @@ export class ContentOps {
       }
     }
     Object.assign(this, { state, command, strDepth, escaped, sawE, force });
+    Object.assign(this, { dict, name, num, key });
   }
 
   end(): void {
     const { state, command } = this;
-    const dataStarts = state === COMMAND && this.emit(command);
+    if (!this.exact && state === NUMBER && this.key !== 0) {
+      this.looseSide(this.key, this.num);
+    }
+    const dataStarts = state === COMMAND && this.emit(command) === DATA;
+    // A dictionary still open at the end may be closed by the next stream
+    // of a /Contents array: its size is not known here.
+    if (this.inlineDict) this.inline.unknown += 1;
+    this.dict = null;
+    this.key = 0;
     this.cleanEnd =
       this.exact &&
       !this.inlineDict &&
@@ -553,8 +673,11 @@ export class ContentOps {
     this.command = "";
   }
 
-  /** A command ended. True when it was an image's `ID`: data follows. */
-  private emit(command: string): boolean {
+  /**
+   * A command ended. {@link DATA} when it was an image's `ID` (data follows),
+   * {@link DICT} when it was the exact reading's `BI` (a dictionary follows).
+   */
+  private emit(command: string): number {
     if (command === "q") {
       this.depth += 1;
       this.pushes += 1;
@@ -565,13 +688,64 @@ export class ContentOps {
     } else if (command === "Do") {
       this.dos += 1;
     } else if (this.exact) {
-      if (command === "BI") this.inlineDict = true;
-      else if (command === "ID" && this.inlineDict) {
+      if (command === "BI") {
+        this.inlineDict = true;
+        return DICT;
+      } else if (command === "ID" && this.inlineDict) {
         this.inlineDict = false;
-        return true;
+        this.sizeInline(this.dict ?? []);
+        this.dict = null;
+        return DATA;
       }
+    } else if (command === "BI") {
+      this.inline.loose += 1;
     }
-    return false;
+    return 0;
+  }
+
+  /**
+   * The exact reading's inline image, from its dictionary's bytes (`BI` to
+   * the byte after `ID`): pdf.js reads /W (or /Width) and /H (or /Height)
+   * and paints nothing unless both are numbers, so a dictionary without them
+   * is no image. One past {@link INLINE_DICT_BYTES} was cut short here, and
+   * its size is unknown.
+   */
+  private sizeInline(bytes: number[]): void {
+    if (bytes.length >= INLINE_DICT_BYTES) {
+      this.inline.unknown += 1;
+      return;
+    }
+    const text = latin1.decode(new Uint8Array(bytes));
+    const entries = dictEntries(
+      text.slice(0, Math.max(0, text.lastIndexOf("ID"))),
+    );
+    const side = (...keys: string[]) =>
+      Math.max(
+        0,
+        ...valuesOf(entries, ...keys).map((v) =>
+          v.kind === "number" ? Math.ceil(Math.abs(v.value)) : 0,
+        ),
+      );
+    const pixels = side("W", "Width") * side("H", "Height");
+    if (pixels > 0) {
+      this.inline.sized.push({ pixels, bilevel: isBilevel(entries) });
+    }
+  }
+
+  /**
+   * The loose reading's /W or /H value: the largest of each, anywhere in the
+   * stream (see {@link InlineImages}). A number too long to keep is taken as
+   * the largest there is.
+   */
+  private looseSide(key: number, num: string): void {
+    const n =
+      num.length > NUMBER_CHARS
+        ? Number.MAX_SAFE_INTEGER
+        : Math.ceil(Math.abs(parseFloat(num)));
+    if (!Number.isFinite(n)) return;
+    const v = Math.min(n, Number.MAX_SAFE_INTEGER);
+    if (key === 1) this.inline.looseW = Math.max(this.inline.looseW, v);
+    else this.inline.looseH = Math.max(this.inline.looseH, v);
   }
 }
 
@@ -582,6 +756,7 @@ interface OpCounts {
   pushes: number;
   work: number;
   dos: number;
+  inline: InlineImages;
 }
 
 /** What one content stream contributes to the page-level `q` bounds. */
@@ -613,6 +788,7 @@ const countsOf = (ops: ContentOps): OpCounts => ({
   pushes: ops.pushes,
   work: ops.work,
   dos: ops.dos,
+  inline: ops.inline,
 });
 
 const STREAM = ascii("stream");
@@ -812,7 +988,11 @@ async function decodeCounting(
  * pdf.js reads the abbreviated key first, so `/IM`, `/BPC` and `/CS` count
  * too. An Indexed, ICC, CalGray or colour 1-bit image is expanded to RGBA
  * like any other, so it is not bilevel here; nor is a colour space by
- * reference.
+ * reference. Nor is a gray image with a /Mask or an /SMask: pdf.js takes the
+ * 1-bit path only when `!this.smask && !this.mask`, and expands it to RGBA
+ * otherwise (hostile review, 2026-11-09: a 380 MP 1-bit image with a
+ * colour-key /Mask took the RGBA path, 6.9 s and ~4.7 GB, on a 400 MP
+ * budget).
  */
 function isBilevel(entries: Map<string, DictValue[]>): boolean {
   const masks = valuesOf(entries, "IM", "ImageMask");
@@ -822,6 +1002,7 @@ function isBilevel(entries: Map<string, DictValue[]>): boolean {
   ) {
     return true;
   }
+  if (entries.has("Mask") || entries.has("SMask")) return false;
   const bpc = valuesOf(entries, "BPC", "BitsPerComponent");
   const cs = valuesOf(entries, "CS", "ColorSpace");
   return (
@@ -981,6 +1162,11 @@ export async function scanPdfStreams(
   const streamNums = new Set<number>();
   /** Streams whose /Subtype is only /Image: content only if /Contents names them. */
   const imagesOnly: FoundStream[] = [];
+  /** Streams pdf.js may decode as an image (see {@link judgeImages}). */
+  const images: StreamImage[] = [];
+  /** Each numbered stream's pixels; null when a size cannot be read. */
+  const streamPixels = new Map<number, number | null>();
+  let unnumberedStreams = 0;
   let opaqueObjectStreams = 0;
   const headers = findObjectHeaders(bytes);
   let numeric: Map<number, number> | null = null;
@@ -1179,23 +1365,29 @@ export async function scanPdfStreams(
         !entries.has("PatternType") &&
         labelledNotContent(entries, subtypes),
     };
+    // Every stream's size, for an image whose /SMask or /Mask names it
+    // (a soft mask has no /Subtype to say it is an image).
+    const pixels = imagePixels(entries, numberObject);
+    if (num === null) unnumberedStreams += 1;
+    else if (streamPixels.has(num)) {
+      const was = streamPixels.get(num)!;
+      streamPixels.set(
+        num,
+        was === null || pixels === null ? null : Math.max(was, pixels),
+      );
+    } else streamPixels.set(num, pixels);
     if (maybeImage) {
-      const pixels = imagePixels(entries, numberObject);
-      if (pixels === null) {
-        scan.unknownSizeImages += 1;
-      } else {
+      if (pixels !== null) {
         scan.maxImagePixels = Math.max(scan.maxImagePixels, pixels);
-        const budget = isBilevel(entries)
-          ? RASTER_MAX_BILEVEL_PIXELS
-          : RASTER_MAX_IMAGE_PIXELS;
-        if (
-          pixels > budget &&
-          (scan.smallestOverBudgetImage === null ||
-            pixels < scan.smallestOverBudgetImage)
-        ) {
-          scan.smallestOverBudgetImage = pixels;
-        }
       }
+      images.push({
+        num,
+        pixels,
+        bilevel: isBilevel(entries),
+        masks: valuesOf(entries, "SMask", "Mask").flatMap((v) =>
+          v.kind === "ref" ? [v.num] : [],
+        ),
+      });
     }
     if (maybeOther || objectStream) await readAsContent(stream);
     else imagesOnly.push(stream);
@@ -1314,14 +1506,124 @@ export async function scanPdfStreams(
       (u) => u !== r || u.num === null || (refs.counts.get(u.num) ?? 0) > 1,
     );
   const judged: ContentRecord[] = [];
+  const inline: { num: number | null; images: InlineImages }[] = [];
   for (const r of records) {
     const c = startsUnknown(r) ? await r.loose() : r.exact;
     scan.maxQDepth = Math.max(scan.maxQDepth, c.max);
     if (c.pushes > 0 || c.dos > 0)
       judged.push({ num: r.num, form: r.form, ...c });
+    const i = c.inline;
+    if (i.sized.length > 0 || i.unknown > 0 || i.loose > 0) {
+      inline.push({ num: r.num, images: i });
+    }
   }
   judgeGraphicsState(scan, judged, refs.counts, opaqueObjectStreams);
+  if (scan.exceeded) return scan;
+  // pdf.js paints an image stream only through a reference to it: one that
+  // nothing names (an orphan object, a leftover of an edit) is never drawn.
+  // Counted over the WHOLE file, stream data included, so a reference the
+  // scan read as data is still seen; that can only add references.
+  let everywhere: RefCounter | null = null;
+  const referenced = (num: number | null): boolean => {
+    if (num === null || opaqueObjectStreams > 0 || refs.counts.has(num)) {
+      return true;
+    }
+    if (everywhere === null) {
+      everywhere = new RefCounter();
+      everywhere.countIn(bytes, 0, bytes.length);
+    }
+    return everywhere.counts.has(num);
+  };
+  judgeImages(scan, images, inline, referenced, (num) =>
+    streamPixels.has(num)
+      ? streamPixels.get(num)!
+      : unnumberedStreams > 0
+        ? null
+        : 0,
+  );
   return scan;
+}
+
+/** An image stream as the scan read its dictionary. */
+interface StreamImage {
+  num: number | null;
+  /** Its own /Width x /Height; null when the scan cannot read them. */
+  pixels: number | null;
+  bilevel: boolean;
+  /** The streams its /SMask and /Mask name. */
+  masks: number[];
+}
+
+/**
+ * The image budget, over every image pdf.js may paint: image streams that
+ * something references (`referenced`; an orphan is never drawn), and the
+ * inline images of the content streams that something references.
+ *
+ * What an image COSTS is what pdf.js decodes to paint it: its own samples,
+ * and those of its /SMask and /Mask streams, each at ITS own size. What
+ * pdf.js's `maxImageSize` is compared with is the image's own /Width x
+ * /Height alone (`buildPaintImageXObject`), so an image over budget is
+ * recorded by its OWN size: a preview set just below that skips the image,
+ * masks and all, before decoding any of it.
+ *
+ * History (hostile review, 2026-11-09): masks were not charged, so a
+ * 10 x 10 image with a 10,000 x 10,000 soft mask that has no /Subtype drew
+ * unflagged (a 380 MP one: 7.9 s, ~4.7 GB), and one whose mask has
+ * /Subtype /Image set `maxImageSize` to the MASK's size, which the 100-pixel
+ * image passes, so the mask was decoded and the notice was false. Orphans
+ * were counted, so an unreferenced 64 MP object hid a page's own 144 MP
+ * bilevel scan. Inline images were not seen at all (see {@link InlineImages}).
+ *
+ * `maskPixels(num)` is a mask stream's size: 0 when no stream has that
+ * number (pdf.js ignores a mask that is not a stream), null when unknown.
+ */
+function judgeImages(
+  scan: PdfStreamScan,
+  images: readonly StreamImage[],
+  inline: readonly { num: number | null; images: InlineImages }[],
+  referenced: (num: number | null) => boolean,
+  maskPixels: (num: number) => number | null,
+): void {
+  const judge = (own: number, cost: number | null, bilevel: boolean) => {
+    // pdf.js paints nothing of an image with a zero side.
+    if (own <= 0) return;
+    const budget = bilevel
+      ? RASTER_MAX_BILEVEL_PIXELS
+      : RASTER_MAX_IMAGE_PIXELS;
+    if (
+      (cost === null || cost > budget) &&
+      (scan.smallestOverBudgetImage === null ||
+        own < scan.smallestOverBudgetImage)
+    ) {
+      scan.smallestOverBudgetImage = own;
+    }
+  };
+  for (const image of images) {
+    if (!referenced(image.num)) continue;
+    if (image.pixels === null) {
+      scan.unknownSizeImages += 1;
+      continue;
+    }
+    // A bilevel image is an /ImageMask (a stencil: pdf.js decodes no mask
+    // for it) or has no mask at all (see isBilevel).
+    let cost: number | null = image.pixels;
+    if (!image.bilevel) {
+      for (const m of image.masks) {
+        const px = maskPixels(m);
+        cost = px === null || cost === null ? null : Math.max(cost, px);
+      }
+    }
+    judge(image.pixels, cost, image.bilevel);
+  }
+  for (const { num, images: i } of inline) {
+    if (!referenced(num)) continue;
+    for (const one of i.sized) judge(one.pixels, one.pixels, one.bilevel);
+    scan.unknownSizeImages += i.unknown;
+    if (i.loose > 0) {
+      const px = Math.min(i.looseW * i.looseH, Number.MAX_SAFE_INTEGER);
+      judge(px, px, false);
+    }
+  }
 }
 
 /**

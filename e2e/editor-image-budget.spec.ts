@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { fileInput, waitForHydration } from "./helpers";
 import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
 import { PDF_IMAGE_TOO_LARGE_MESSAGE } from "../src/lib/pdf/pdfjs-guard";
+import { EDITOR_IMAGES_SKIPPED } from "../src/components/tools/runner/editor/image-notice";
 import {
   deflatedZeros,
   imageBombAtCapPdf,
@@ -88,12 +89,43 @@ for (const slug of SLUGS) {
     await expect(notice).toContainText(PDF_IMAGE_TOO_LARGE_MESSAGE, {
       timeout: 20_000,
     });
+    // And what the view did instead, as the reader receives it.
+    await expect(notice).toContainText(EDITOR_IMAGES_SKIPPED);
     // Never a page number: pdf.js does not report which page skipped it.
     await expect(notice).not.toContainText(/page \d/i);
     // Drawn, and the image's place is the white sheet.
     expect(await inkAt(page, 140, 60)).toBe(765);
   });
 }
+
+test("edit-pdf: a 100 MP INLINE image is left out of the page view too, and the editor says so", async ({
+  page,
+}) => {
+  // History (hostile review, 2026-11-09): the byte scan sized image streams
+  // only, so `BI /W 10000 /H 10000 ... ID` drew for 32.6 s, unflagged.
+  test.setTimeout(60_000);
+  const inline = Buffer.from(
+    simplePdf({
+      content: {
+        dict: "",
+        stream: Buffer.concat([
+          Buffer.from(
+            "q 100 0 0 100 50 50 cm BI /W 10000 /H 10000 /CS /RGB /BPC 8 /F /Fl ID ",
+            "latin1",
+          ),
+          await deflatedZeros(10000 * 10000 * 3),
+          Buffer.from("\nEI Q", "latin1"),
+        ]),
+      },
+    }),
+  );
+  await open(page, "edit-pdf", inline);
+  await expect(page.locator("[data-image-notice]")).toContainText(
+    PDF_IMAGE_TOO_LARGE_MESSAGE,
+    { timeout: 20_000 },
+  );
+  expect(await inkAt(page, 140, 60)).toBe(765);
+});
 
 test("edit-pdf positive control: a 9 MP image is drawn, and nothing is said", async ({
   page,

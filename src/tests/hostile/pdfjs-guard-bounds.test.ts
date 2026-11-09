@@ -247,6 +247,79 @@ describe("pdf.js consumers stay bounded on hostile streams", () => {
     }
   }, 90_000);
 
+  test("an inline 100 MP image: the editor draws page 1 in seconds, without it, and says so", async () => {
+    // History (hostile review, 2026-11-09): the scan sized image STREAMS
+    // only, so `BI /W 10000 /H 10000 ... ID` passed with no options and the
+    // editor decoded it: 32,649 ms on page 1, no notice.
+    const v = settled(
+      await runBounded(CHILD, ["inline-editor-render"], 30_000, {
+        maxOldSpaceMb: 2048,
+      }),
+    );
+    expect(v).toMatchObject({ ok: true, drawn: true, size: [300, 200] });
+    expect(v.ink).toEqual([765, 765]);
+    expect(v.notice as string).toContain(PDF_IMAGE_TOO_LARGE_MESSAGE);
+    expect(v.renderMs as number).toBeLessThan(10_000);
+  }, 60_000);
+
+  test("an inline image positive control: 1,000 x 1,000 is drawn, and nothing is said", async () => {
+    const v = settled(
+      await runBounded(CHILD, ["inline-control-editor-render"], 30_000, {
+        maxOldSpaceMb: 2048,
+      }),
+    );
+    expect(v).toMatchObject({ ok: true, drawn: true, notice: null });
+    expect(v.ink).toEqual([0, 0]);
+  }, 60_000);
+
+  test("an orphan over-budget image hides nothing: the page's own 144 MP bilevel scan is drawn, and nothing is said", async () => {
+    // History (hostile review, 2026-11-09): an 8,000 x 8,000 image object
+    // nothing references set maxImageSize to 63,999,999, so the page's own
+    // scan, within its budget, was skipped: blank page 1 in 5 ms, and a
+    // notice about an image that was never on the page.
+    const v = settled(
+      await runBounded(CHILD, ["orphan-bilevel-editor-render"], 60_000, {
+        maxOldSpaceMb: 2048,
+      }),
+    );
+    expect(v).toMatchObject({ ok: true, drawn: true, notice: null });
+    expect(v.ink).toEqual([0, 0]);
+  }, 90_000);
+
+  for (const [name, typed] of [
+    ["softmask-editor-render", "with"],
+    ["softmask-untyped-editor-render", "without"],
+  ] as const) {
+    test(`a 10 x 10 image with a 100 MP soft mask ${typed} /Subtype: skipped before its mask is decoded, and the notice is true`, async () => {
+      // History (hostile review, 2026-11-09): masks were not charged. With
+      // /Subtype the mask set maxImageSize to ITS size, which the 100-pixel
+      // image passes, so pdf.js decoded the mask (2.0 s) under a notice
+      // that said the image was left out; without it nothing was seen.
+      const v = settled(
+        await runBounded(CHILD, [name], 30_000, { maxOldSpaceMb: 2048 }),
+      );
+      expect(v).toMatchObject({ ok: true, drawn: true, size: [300, 200] });
+      expect(v.ink).toEqual([765, 765]);
+      expect(v.notice as string).toContain(PDF_IMAGE_TOO_LARGE_MESSAGE);
+      expect(v.renderMs as number).toBeLessThan(500);
+    }, 60_000);
+  }
+
+  test("the editor draws a page again (zoom, rail, canvas) without decoding its images again", async () => {
+    // History (hostile review, 2026-11-09): every draw ended in
+    // `page.cleanup()`, which drops the page's operator list and decoded
+    // images, so each zoom step asked the worker again and decoded afresh
+    // (asks 1, 2, 3 here; a 25 MP image took ~4 s per draw).
+    const v = settled(
+      await runBounded(CHILD, ["editor-redraw"], 60_000, {
+        maxOldSpaceMb: 2048,
+      }),
+    );
+    // Health: every draw drew, and the instrument saw the first draw ask
+    // (a hook that saw nothing would read [0, 0, 0]).
+    expect(v.asks).toEqual([1, 1, 1]);
+  }, 90_000);
+
   test("CO-08 positive control: a 9 MP image page still rasterizes", async () => {
     const v = settled(
       await runBounded(CHILD, ["co08-control-raster"], 60_000, {
