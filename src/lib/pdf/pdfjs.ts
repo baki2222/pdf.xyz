@@ -86,15 +86,26 @@ export async function awaitPdfjsDocument<T>(task: {
   }
 }
 
-/** Open `bytes` with pdfjs, mapping known open failures to engine errors. */
+/**
+ * Open `bytes` with pdfjs, after `./pdfjs-guard`'s preflight (which refuses,
+ * typed, a file pdf.js cannot open in bounded memory or time), mapping known
+ * open failures to engine errors. The guard's chunk and pdfjs are requested
+ * together: chained, each would be a round trip of its own.
+ */
 async function openDocument(bytes: Uint8Array) {
-  const pdfjs = await loadPdfjs();
+  // Loaded on demand: this module is first-load.
+  const guardModule = import("./pdfjs-guard");
+  const pdfjsModule = loadPdfjs();
+  pdfjsModule.catch(() => {});
+  const guard = await guardModule;
+  await guard.preflightPdfjsOpen(bytes);
+  const pdfjs = await pdfjsModule;
   // pdfjs may detach the buffer it is handed; the caller's bytes stay intact.
   const task = pdfjs.getDocument({
     data: bytes.slice(),
     ...PDFJS_DOCUMENT_DEFAULTS,
   });
-  return { task, doc: await awaitPdfjsDocument(task) };
+  return { task, doc: await awaitPdfjsDocument(task), guard };
 }
 
 /**
@@ -104,15 +115,11 @@ async function openDocument(bytes: Uint8Array) {
 export async function readPagesWithPdfjs(
   bytes: Uint8Array,
 ): Promise<{ pageCount: number; rotations: Rotation[] }> {
-  // ./pdfjs-guard requested with the open, not after it (one round trip).
-  const guardModule = import("./pdfjs-guard");
-  guardModule.catch(() => {});
-  const { task, doc } = await openDocument(bytes);
+  const { task, doc, guard } = await openDocument(bytes);
   try {
     // A /Count of 0 or -1, and a page walk that fails (a /Kids cycle), get
     // the engine's typed refusal, not "-1 pages" or raw pdf.js text
-    // (hostile CO-03, CO-11). Loaded on demand: this module is first-load.
-    const guard = await guardModule;
+    // (hostile CO-03, CO-11).
     const pageCount = guard.pdfjsPageCount(doc.numPages);
     const rotations: Rotation[] = [];
     for (let i = 1; i <= pageCount; i++) {

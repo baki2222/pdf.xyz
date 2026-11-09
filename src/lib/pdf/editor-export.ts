@@ -154,8 +154,19 @@ async function sourceTextItems(
   const out = new Map<number, PdfjsTextItem[]>();
   if (sources.size === 0) return out;
   try {
-    const { loadPdfjs, awaitPdfjsDocument } = await import("./pdfjs");
-    const { PDFJS_DOCUMENT_DEFAULTS } = await import("./wasm-assets");
+    // Requested together: chained, each import is a round trip of its own.
+    const [
+      { loadPdfjs, awaitPdfjsDocument },
+      { PDFJS_DOCUMENT_DEFAULTS },
+      guard,
+    ] = await Promise.all([
+      import("./pdfjs"),
+      import("./wasm-assets"),
+      import("./pdfjs-guard"),
+    ]);
+    // The preflight every pdf.js open runs; a refusal is "no text", as any
+    // other unreadable file is here.
+    await guard.preflightPdfjsOpen(bytes);
     const pdfjs = await loadPdfjs();
     const task = pdfjs.getDocument({
       data: bytes.slice(),

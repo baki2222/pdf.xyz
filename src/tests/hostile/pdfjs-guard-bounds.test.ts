@@ -4,6 +4,7 @@ import {
   PDF_IMAGE_TOO_LARGE_MESSAGE,
   PDF_NESTED_TOO_DEEPLY_MESSAGE,
 } from "@/lib/pdf/pdfjs-guard";
+import { UNREADABLE_PDF_MESSAGE } from "@/lib/pdf/engine-errors";
 import { runBounded, type BoundedOutcome } from "./bounded";
 
 // The hostile matrix's resource findings on pdf.js consumers, each run at the
@@ -256,4 +257,115 @@ describe("third review: labels, strings and references that hid a stream", () =>
     });
     expect(v.maxRssMb as number).toBeLessThan(900);
   }, 60_000);
+});
+
+describe("lane res1: every pdf.js open goes through the preflight", () => {
+  // History: only the text and raster readers ran the stream preflight, and
+  // only the access probe ran the xref pre-scan. These four readers opened
+  // pdf.js with neither: measured on origin/main 2026-11-09 (Windows, Node
+  // 24), the object-stream bomb opened and walked in 10.6-11.7 s, the
+  // zero-width xref ran the child out of memory in 3 s, the q-split page was
+  // read by the page board as if nothing were wrong and drawn by Auto-crop
+  // in 9.3 s.
+  const READERS = ["read-pages", "count-pages", "auto-crop", "editor-render"];
+  const expanded = {
+    name: "PdfEngineError",
+    message: PDF_EXPANDS_TOO_FAR_MESSAGE,
+  };
+  const FILES: Record<string, object> = {
+    "objstm-bomb": expanded,
+    "zero-width-xref": {
+      name: "PdfEngineError",
+      message: UNREADABLE_PDF_MESSAGE,
+      kind: "unreadable",
+    },
+    "q-split": {
+      name: "PdfEngineError",
+      message: PDF_NESTED_TOO_DEEPLY_MESSAGE,
+    },
+  };
+  for (const reader of READERS) {
+    test(`${reader}: each hostile file is refused, typed, and a plain file still opens`, async () => {
+      for (const [file, error] of Object.entries(FILES)) {
+        const v = settled(
+          await runBounded(CHILD, [`open:${file}:${reader}`], 90_000),
+        );
+        expect(v.error, `${file} via ${reader}`).toMatchObject(error);
+        // Second bound: refused in seconds, before pdf.js parsed anything.
+        // Measured 2026-11-09 (Windows, Node 24): the object-stream bomb
+        // 2.5-4 s (the preflight inflates up to its 1.6 GB budget), the
+        // others under 0.5 s.
+        const { ms } = v.growth as { ms: number };
+        expect(ms, `${file} via ${reader}`).toBeLessThan(30_000);
+      }
+      const control = settled(
+        await runBounded(CHILD, [`open:control:${reader}`], 60_000),
+      );
+      expect(control, `control via ${reader}`).toMatchObject({ ok: true });
+    }, 400_000);
+  }
+});
+
+describe("lane res1: pdf.js's numPages is never looped over unchecked", () => {
+  // /Count -1 over three real kids: pdf-lib's repair reads three pages,
+  // pdf.js reports -1. Before: Auto-crop analysed 0 pages against 3 sizes
+  // and planned "nothing to crop"; the editor opened with numPages -1.
+  const unreadable = {
+    name: "PdfEngineError",
+    message: UNREADABLE_PDF_MESSAGE,
+    kind: "unreadable",
+  };
+  test("Auto-crop refuses /Count -1 as unreadable, never a plan from 0 analysed pages", async () => {
+    const v = settled(
+      await runBounded(CHILD, ["open:count-minus-one:auto-crop"], 60_000),
+    );
+    expect(v.error).toMatchObject(unreadable);
+  }, 90_000);
+
+  test("the editor canvas refuses /Count -1 as unreadable", async () => {
+    const v = settled(
+      await runBounded(CHILD, ["open:count-minus-one:editor-render"], 60_000),
+    );
+    expect(v.error).toMatchObject(unreadable);
+  }, 90_000);
+
+  test("the same refusal the page board already gave (the reference behaviour)", async () => {
+    const v = settled(
+      await runBounded(CHILD, ["open:count-minus-one:read-pages"], 60_000),
+    );
+    expect(v.error).toMatchObject(unreadable);
+  }, 90_000);
+});
+
+describe("lane res1: a Flate stage behind ASCIIHex is counted on the raster paths", () => {
+  test("thumbnails refuse a page whose content is AHx over 1 GiB of Flate, without inflating it", async () => {
+    const v = settled(
+      await runBounded(CHILD, ["ahx-bomb-thumbs"], 60_000, {
+        maxOldSpaceMb: 1024,
+      }),
+    );
+    expect(v.error).toMatchObject({
+      name: "PdfEngineError",
+      message: PDF_EXPANDS_TOO_FAR_MESSAGE,
+    });
+    expect(v.maxRssMb as number).toBeLessThan(900);
+  }, 90_000);
+
+  test("PDF to JPG refuses it too", async () => {
+    const v = settled(
+      await runBounded(CHILD, ["ahx-bomb-raster"], 60_000, {
+        maxOldSpaceMb: 1024,
+      }),
+    );
+    expect(v.error).toMatchObject({
+      name: "PdfEngineError",
+      message: PDF_EXPANDS_TOO_FAR_MESSAGE,
+    });
+    expect(v.maxRssMb as number).toBeLessThan(900);
+  }, 90_000);
+
+  test("positive control: a small AHx+Flate content stream still renders", async () => {
+    const v = settled(await runBounded(CHILD, ["ahx-control-raster"], 60_000));
+    expect(v).toMatchObject({ ok: true, pages: 1 });
+  }, 90_000);
 });

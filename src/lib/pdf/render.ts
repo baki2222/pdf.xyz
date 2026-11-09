@@ -85,7 +85,7 @@ export async function createThumbnailRenderer(
   const guard = await import("./pdfjs-guard");
   // A preview: an image over its raster budget is skipped by pdf.js before
   // it decodes it (CO-08), so its page's tile shows the rest of the page.
-  const { previewOptions } = await guard.preflightPdfjsBytes(bytes);
+  const { previewOptions } = await guard.preflightPdfjsOpen(bytes);
   const pdfjs = await loadPdfjs();
   // Hand pdfjs a private copy; it may detach the buffer it receives.
   const data = bytes.slice();
@@ -530,7 +530,7 @@ export async function capturePdfPages<T>(
   const guard = await import("./pdfjs-guard");
   // This path writes pixels: a page without its image would be a wrong
   // document, so an image over its raster budget refuses the file (CO-08).
-  guard.refuseOverBudgetImages(await guard.preflightPdfjsBytes(bytes));
+  guard.refuseOverBudgetImages(await guard.preflightPdfjsOpen(bytes));
   const pdfjs = await loadPdfjs();
   // Hand pdfjs a private copy; it may detach the buffer it receives.
   const data = bytes.slice();
