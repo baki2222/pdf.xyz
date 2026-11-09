@@ -29,6 +29,14 @@ import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
 import { WORKER_ENGINE_FILE_CEILINGS } from "@/lib/workers/engine-file-ceilings";
 import { getAllToolSlugs } from "@/lib/tools";
 
+/**
+ * The most a tool page's own row (`toolRunInfoFor`) may weigh, serialised —
+ * held on the value (`tool-run-info.test.ts`) and on the prerendered
+ * document that carries it (`lazy-chunks.test.ts`). The largest row is
+ * ~520 B (request-signatures); a table of every tool is kilobytes.
+ */
+export const RUN_ROW_MAX_BYTES = 700;
+
 export interface ToolTable {
   readonly what: string;
   /** How many of its rows `text` carries, and how many it has. */
@@ -143,4 +151,82 @@ export function toolTables(): ToolTable[] {
 export function carriesTable(table: ToolTable, text: string): boolean {
   const { found, of } = table.rowsIn(text);
   return table.needs === "all" ? found === of : found * 2 >= of;
+}
+
+/*
+ * THE PROPERTY, NOT THE SHAPES. The six markers above recognise the tables
+ * that exist, by their rows, and give a good diagnostic when one returns.
+ * They cannot see a NEW table in another shape — a `{"merge-pdf":"Merge
+ * PDF",…}` name map (exactly the fallback a version-1 record's name lookup
+ * invites), or a bare array of every slug — and the guard's title promises
+ * "no table of every tool". This is that promise, shape-blind: how many of
+ * the catalogue's slugs one chunk quotes as string literals. Measured
+ * 2026-11-09 over every tool page's first-load chunks: main 89486c09 had a
+ * chunk with all 56 (the [slug] page chunk, which carried the directory);
+ * the branch has at most 11, all in the page chunk, and all of them runner
+ * KIND names that happen to equal a slug ("extract-images", "fill-forms",
+ * …: the dispatcher's arms). A new runner kind named like its slug adds
+ * one; a table of every tool adds every one.
+ */
+
+/** The most catalogue slugs one first-load chunk of a tool page may quote. */
+export const SLUG_LITERALS_MAX = 20;
+
+/** The catalogue slugs `text` quotes as a string literal, distinct. */
+export function slugLiteralsIn(
+  text: string,
+  slugs: readonly string[] = getAllToolSlugs(),
+): string[] {
+  return slugs.filter(
+    (slug) => text.includes(`"${slug}"`) || text.includes(`'${slug}'`),
+  );
+}
+
+/**
+ * The React flight data a prerendered page carries: the text of every
+ * `self.__next_f.push([1, "…"])` in the HTML, in order. This is what the
+ * browser parses to hydrate, and where a server page's props to a client
+ * component travel — bytes no JS chunk budget sees.
+ */
+export function flightText(html: string): string {
+  let out = "";
+  for (const m of html.matchAll(
+    /<script>self\.__next_f\.push\((\[[\s\S]*?\])\)<\/script>/g,
+  )) {
+    const row = JSON.parse(m[1]!) as unknown[];
+    if (row[0] === 1 && typeof row[1] === "string") out += row[1];
+  }
+  return out;
+}
+
+/** The JSON object that starts at `text[start]` (`{`), string-aware. */
+function objectAt(text: string, start: number): string {
+  let depth = 0;
+  let inString = false;
+  for (let i = start; i < text.length; i++) {
+    const c = text[i]!;
+    if (inString) {
+      if (c === "\\") i++;
+      else if (c === '"') inString = false;
+    } else if (c === '"') inString = true;
+    else if (c === "{") depth++;
+    else if (c === "}" && --depth === 0) return text.slice(start, i + 1);
+  }
+  throw new Error(`unterminated object at ${start}`);
+}
+
+/**
+ * Every `"tool":{"slug":"<slug>",…}` prop in a page's flight data that is
+ * the page's own run row (it carries `handoff`, which the catalogue `Tool`
+ * a panel receives does not), as the reader receives it.
+ */
+export function runRowsIn(flight: string, slug: string): string[] {
+  const opener = `"tool":{"slug":${JSON.stringify(slug)},`;
+  const rows: string[] = [];
+  for (let at = flight.indexOf(opener); at >= 0;) {
+    const row = objectAt(flight, at + '"tool":'.length);
+    if (row.includes('"handoff":{')) rows.push(row);
+    at = flight.indexOf(opener, at + 1);
+  }
+  return rows;
 }

@@ -989,16 +989,49 @@ const TOOL_PAGES_TO_COME = {
   // computes its own row on the server (`toolRunInfoFor`) — and on the
   // worker pages the file-ceiling tables did too (`pickFactsFor`).
   // `lazy-chunks.test.ts` ("no tool page loads a table of every tool")
-  // holds all six out of every tool page by their content. FREED, gzip -9
-  // over each page's first load, main 89486c09 (E:/wtaudit/.next) -> the
-  // branch, both built on this machine (Windows) from an empty .next; CI
-  // has read up to ~25 B more than this machine on the same tree:
-  //   rotate 236,727 -> 234,851 (-1,876)   merge 231,130 -> 229,083 (-2,047)
-  //   sign 253,995 -> 251,954 (-2,041)     pdf-to-jpg 236,226 -> 234,342 (-1,884)
-  //   ocr 237,103 -> 233,609 (-3,494)      summarize 237,843 -> 234,370 (-3,473)
-  //   protect -3,489, word-to-pdf -3,408, epub-to-pdf -3,486
-  //   home -4, a guide -5, /workspace +1, /tools +44 (the raster format
-  //   module moved from its page chunk into the catalogue chunk it shares).
+  // holds all six out of every tool page by their content, and by a
+  // shape-blind bound on how many tool slugs one chunk quotes.
+  // FREED, main 89486c09 (E:/wtaudit/.next) -> the branch, both built on
+  // this machine (Windows) from an empty .next; CI has read up to ~25 B
+  // more than this machine on the same tree. TWO figures per page, because
+  // the reader receives both: JS is gzip -9 over the page's first-load
+  // chunks (what this budget counts); HTML is gzip -9 of the prerendered
+  // document, which now carries the page's own row (`toolRunInfoFor`, in
+  // React's flight data) and which NO chunk budget sees. NET = JS + HTML.
+  //                    JS       HTML   NET
+  //   rotate        -1,876     +37   -1,839  (234,851 B first-load JS)
+  //   merge         -2,047     +35   -2,012
+  //   sign          -2,041     +43   -1,998
+  //   pdf-to-jpg    -1,884     +35   -1,849
+  //   ocr           -3,492    +205   -3,287  (233,611 B first-load JS)
+  //   summarize     -3,471    +323   -3,148
+  //   chat-with-pdf -3,106    +529   -2,577
+  //   extract-tables -3,480   +826   -2,654  (the largest HTML growth)
+  //   extract-images -2,041   +417   -1,624  (the smallest net saving)
+  //   all 56 tool pages: JS -142,073, HTML +9,379, net -132,694
+  //   home -4/+0, a guide -5/+1, /workspace +1/-1, /tools +44/+0 (the
+  //   raster format module moved from its page chunk into the catalogue
+  //   chunk it shares).
+  // WHERE THE HTML GROWTH COMES FROM. (a) The row itself: ~75 B raw on a
+  // client tool, ~440 B on a PDF-taking worker tool (its converters, one
+  // entry per converter — the first cut wrote one per FORMAT, 21 rows and
+  // +12,703 B gz of HTML over the 56 pages; `RUN_ROW_MAX_BYTES` now bounds
+  // the row on the value and on the built document). (b) Most of it, and
+  // not a table: React's flight serialiser defers a row once ~3,200 B of it
+  // is written (`3200 < serializedSize` -> `deferTask`), so any byte added
+  // before that point re-cuts and reorders the rows after it, and gzip's
+  // 32 KB window then loses matches between the document's text and its
+  // flight copy. Putting main's row back into the branch's document leaves
+  // extract-tables +616 and extract-images +375. Under brotli (q11, 4 MB
+  // window) the same 56 documents grow +4,264 B, not +9,379, and
+  // extract-images +30.
+  // SCOPE: these are FIRST-LOAD figures, not bytes transferred per visit.
+  // The tables still exist in a shared chunk that the router prefetches
+  // after load on every tool page (a review's served-build trace, 56 of 56
+  // pages: the request comes from the router's prefetch, and /workspace,
+  // linked from the page, holds that chunk in its own first load), so the
+  // bytes leave the hydration-critical path;
+  // the total a visit transfers is not lower by this much.
   // The freed bytes are NOT handed out here: they are headroom every row
   // keeps, so ocr-pdf, which had 0.00 to spare ("needs 0.16, has 0.16" on
   // this machine), now passes with ~3.4 KB of room.

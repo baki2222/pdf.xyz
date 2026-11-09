@@ -38,7 +38,16 @@ import { SEARCH_ENGINE_CHUNK } from "@/lib/tools/search-tools";
 import { STOPPED_WAITING } from "@/lib/workers/job-polling";
 import { NO_UPLOAD_SLOT } from "@/lib/workers/slot-upload";
 import { UTIF_PAKO_UNUSED } from "@/lib/pdf/utif-pako-unused";
-import { carriesTable, toolTables } from "@/tests/tool-tables-markers";
+import { toolRunInfoFor } from "@/lib/tools/tool-run-info";
+import {
+  carriesTable,
+  flightText,
+  RUN_ROW_MAX_BYTES,
+  runRowsIn,
+  SLUG_LITERALS_MAX,
+  slugLiteralsIn,
+  toolTables,
+} from "@/tests/tool-tables-markers";
 import { chunkFiles, prerenderedPages } from "../../scripts/page-weight";
 
 const ROOT = process.cwd();
@@ -489,6 +498,86 @@ describe("no tool page loads a table of every tool", () => {
       leaks,
       `these tool pages load ${table.what} with the page. A first-load module reads another tool by slug — give the page its own row from the server (toolRunInfoFor, @/lib/tools/tool-run-info) or fetch the table where the cross-tool lookup runs.`,
     ).toEqual([]);
+  });
+
+  /*
+   * The six tests above name six shapes. This one is the property in the
+   * title, shape-blind (`SLUG_LITERALS_MAX`, @/tests/tool-tables-markers):
+   * no first-load chunk of a tool page quotes more than a handful of the
+   * catalogue's slugs. Main 89486c09 fails it on all 56 pages (one chunk
+   * quoted 56 of 56); a name map or slug array in any shape fails it too.
+   */
+  it("health check and positive control: the slug count sees a table in any shape", () => {
+    const slugs = tools.map((t) => t.slug);
+    expect(slugs.length).toBeGreaterThanOrEqual(50);
+    // Two shapes none of the six markers recognises (CLAUDE.md rule 1).
+    const nameMap = `{${tools.map((t) => `"${t.slug}":"${t.name}"`).join(",")}}`;
+    const slugArray = `[${slugs.map((s) => `"${s}"`).join(",")}]`;
+    for (const text of [nameMap, slugArray]) {
+      expect(TABLES.some((table) => carriesTable(table, text))).toBe(false);
+      expect(slugLiteralsIn(text).length).toBeGreaterThan(SLUG_LITERALS_MAX);
+    }
+    if (!built) return;
+    // And in the build: the chunks that DO carry the directory are seen.
+    const most = Math.max(
+      ...walkJs(CHUNKS_DIR).map((f) => slugLiteralsIn(read(f)).length),
+    );
+    expect(most).toBeGreaterThanOrEqual(slugs.length - 2);
+  });
+
+  it(`no first-load chunk of a tool page quotes more than ${SLUG_LITERALS_MAX} tool slugs`, () => {
+    if (!built) return;
+    const over: string[] = [];
+    let walked = 0;
+    for (const html of toolPages()) {
+      for (const f of chunkFiles(NEXT_DIR, html)) {
+        walked++;
+        const quoted = slugLiteralsIn(read(f));
+        if (quoted.length > SLUG_LITERALS_MAX)
+          over.push(`${html} ${path.basename(f)}: ${quoted.length}`);
+      }
+    }
+    // Health: every page's chunks were read (~15-20 each).
+    expect(walked).toBeGreaterThanOrEqual(toolPages().length * 8);
+    expect(
+      over,
+      "a tool page's first load quotes most of the catalogue's slugs: a table of every tool, in a shape the six markers above do not know. Give the page its own row from the server (toolRunInfoFor) instead.",
+    ).toEqual([]);
+  });
+
+  /*
+   * The bytes that left the JS went somewhere: the page's own row now
+   * travels in the prerendered DOCUMENT, as the props of ToolRunProvider in
+   * React's flight data. No chunk budget sees that, and the first cut put a
+   * 21-row converter table there (~400 B gz of HTML on every PDF-taking
+   * worker page). So read the document the visitor receives: every tool
+   * page carries its row, the row is the server's answer, and it stays
+   * within RUN_ROW_MAX_BYTES.
+   */
+  it("every tool page's document carries its own run row, at most RUN_ROW_MAX_BYTES", () => {
+    if (!built) return;
+    const pages = toolPages();
+    const problems: string[] = [];
+    for (const html of pages) {
+      const slug = html.slice("tools/".length, -".html".length);
+      const tool = tools.find((t) => t.slug === slug)!;
+      const flight = flightText(
+        read(path.join(NEXT_DIR, "server", "app", html)),
+      );
+      const rows = runRowsIn(flight, slug);
+      if (rows.length === 0) {
+        problems.push(`${slug}: no run row in the document`);
+        continue;
+      }
+      for (const row of rows) {
+        if (row !== JSON.stringify(toolRunInfoFor(tool)))
+          problems.push(`${slug}: the document's row is not toolRunInfoFor's`);
+        if (row.length > RUN_ROW_MAX_BYTES)
+          problems.push(`${slug}: ${row.length} B > ${RUN_ROW_MAX_BYTES}`);
+      }
+    }
+    expect(pages.length).toBe(tools.length);
+    expect(problems).toEqual([]);
   });
 });
 

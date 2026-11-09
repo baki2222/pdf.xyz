@@ -49,14 +49,21 @@ const EVERY_FORMAT: readonly FileFormat[] = [
  * takes PDFs (the one case the refusal names one) and only where the
  * converter is another tool — the same two conditions `wrongTypeMessage`
  * applies, so the page ships no entry it could not say.
+ *
+ * Each converter appears ONCE, by the name the refusal says, with the
+ * formats it takes (`{"Word to PDF": ["DOC", "DOCX", "ODT", "RTF"], …}`).
+ * The first cut wrote one `{slug, name}` per format: 21 rows, ~1,320 B of
+ * every PDF-taking worker page's prerendered document (~400 B gz), for
+ * nine names. The row is held to `RUN_ROW_MAX_BYTES` on the value and on
+ * the built document.
  */
 export function pickFactsFor(tool: Tool): PickFacts {
-  const converters: Record<string, { slug: string; name: string }> = {};
+  const converters: Record<string, string[]> = {};
   if (tool.accept.includes("PDF")) {
     for (const format of EVERY_FORMAT) {
       const converter = converterToPdf(format, TOOL_DIRECTORY);
       if (converter && converter.slug !== tool.slug)
-        converters[format] = { slug: converter.slug, name: converter.name };
+        (converters[converter.name] ??= []).push(format);
     }
   }
   return { ceilingBytes: toolFileCeilingBytes(tool), converters };

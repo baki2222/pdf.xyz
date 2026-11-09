@@ -42,16 +42,14 @@ import { extensionOf } from "./intake/families";
 
 /**
  * What the server page computed for the pick, for one tool: its ceiling in
- * bytes (`toolFileCeilingBytes`; null when it takes no file), and for each
- * file format a converter exists for, the tool that turns it into a PDF
- * (`converterToPdfFor` — only for a tool that takes PDFs, the one case the
- * message names a converter).
+ * bytes (`toolFileCeilingBytes`; null when it takes no file), and the
+ * tools that turn a file into a PDF, each by its display name with the
+ * formats it takes (`converterToPdfFor` — only for a tool that takes PDFs,
+ * the one case the message names a converter, and never the tool itself).
  */
 export interface PickFacts {
   readonly ceilingBytes: number | null;
-  readonly converters: Readonly<
-    Record<string, { readonly slug: string; readonly name: string }>
-  >;
+  readonly converters: Readonly<Record<string, readonly string[]>>;
 }
 
 /** What a panel hands its Dropzone: why a file is refused, or `null`. */
@@ -95,14 +93,16 @@ export function wrongTypeMessage(
     ? `"${filename}" isn't a PDF — ${tool.name} works on PDF files.`
     : `"${filename}" isn't a file ${tool.name} takes — it works on ${formatList(tool.accept)} files.`;
   const format = formatOf({ name: filename }).format;
+  // The server lists only OTHER tools (`pickFactsFor`), so a converter here
+  // is never the tool refusing the file.
   const converter =
-    tool.accept.includes("PDF") &&
-    format !== null &&
-    Object.hasOwn(facts.converters, format)
-      ? facts.converters[format]
+    tool.accept.includes("PDF") && format !== null
+      ? Object.entries(facts.converters).find(([, formats]) =>
+          formats.includes(format),
+        )?.[0]
       : undefined;
-  return converter && converter.slug !== tool.slug
-    ? `${head} Turn it into a PDF with ${converter.name} first.`
+  return converter
+    ? `${head} Turn it into a PDF with ${converter} first.`
     : head;
 }
 
