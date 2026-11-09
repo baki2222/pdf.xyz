@@ -53,6 +53,7 @@ import {
   provesChunkedTranslate,
   provesDeliveryCap,
 } from "@/lib/workers/translate/capability";
+import { provesTranslateOcr } from "@/lib/workers/translate/ocr-capability";
 import { provesAiReadCap } from "@/lib/workers/processor/read-cap-proof";
 import {
   provesDocxPictures,
@@ -163,6 +164,10 @@ async function buildHeartbeatPublisher(
       // text extractor (where a picture lands among poppler's paragraphs is
       // part of the claim), page reader and limits.
       docxPictures: await provesDocxPictures(pdfOfficeExportDeps(process.env)),
+      // Runs a translate-pdf job through the registry this daemon builds and
+      // checks the provider heard what the (stub) OCR recognised, and that a
+      // typed PDF ran no OCR. Whether OCR itself runs here is `ocr` above.
+      translateOcr: await provesTranslateOcr(),
     },
     ...(release !== undefined ? { release } : {}),
     ...(fingerprint !== undefined ? { fingerprint } : {}),

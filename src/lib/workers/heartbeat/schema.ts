@@ -152,6 +152,7 @@ function capabilitiesOf(value: unknown): HeartbeatCapabilities {
     pptxPresentationChain: boolOf(src.pptxPresentationChain),
     pptxPictures: boolOf(src.pptxPictures),
     docxPictures: boolOf(src.docxPictures),
+    translateOcr: boolOf(src.translateOcr),
   };
 }
 
@@ -206,6 +207,7 @@ export function serializeHeartbeat(hb: WorkerHeartbeat): string {
       pptxPresentationChain: hb.capabilities.pptxPresentationChain,
       pptxPictures: hb.capabilities.pptxPictures,
       docxPictures: hb.capabilities.docxPictures,
+      translateOcr: hb.capabilities.translateOcr,
     },
     at: hb.at,
   });
