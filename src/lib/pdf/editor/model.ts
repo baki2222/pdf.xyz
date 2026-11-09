@@ -19,7 +19,7 @@ import {
   type HandwritingStyle,
   type SignatureStyle,
 } from "../offered-kinds";
-import { isHandwritingStyle } from "../signature-style";
+import { isHandwritingStyle, typedSignatureText } from "../signature-style";
 import type { RasterImageFormat } from "../pdf-lib";
 import {
   HIGHLIGHTER_LABEL,
@@ -824,7 +824,9 @@ export function typedSignatureObject(
     x,
     y,
     width,
-    text,
+    // NFC with plain spaces, so a pasted "e + U+0301" or no-break space is
+    // checked, embedded and drawn as the one letter it is.
+    text: typedSignatureText(text),
     font: style === "print" ? "helvetica" : "times",
     italic: style !== "print",
     bold: false,

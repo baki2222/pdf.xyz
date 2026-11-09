@@ -34,6 +34,21 @@ export function isHandwritingStyle(style: string): style is HandwritingStyle {
   return (HANDWRITING_STYLES as readonly string[]).includes(style);
 }
 
+/**
+ * A typed name as every signature path stores, checks and draws it: in NFC,
+ * so a name pasted in decomposed form ("e" + U+0301, as a macOS file name or
+ * some PDFs give it) is the one letter é, and with every space separator
+ * (`\p{Zs}`: the no-break space a web page or Word pastes, thin, ideographic)
+ * a plain space. The coverage check, the embed and the draw must all see
+ * the SAME letters: a face asked about "e + U+0301" said yes and pdf-lib then
+ * drew the accent beside the e, since it applies no mark positioning
+ * (review of sign-pdf#1). Applied at the source — the panel, the editor's
+ * `typedSignatureObject`, `signPdf` — never only at the check.
+ */
+export function typedSignatureText(text: string): string {
+  return text.normalize("NFC").replace(/\p{Zs}/gu, " ");
+}
+
 export function isSignatureStyle(style: unknown): style is SignatureStyle {
   return (
     typeof style === "string" &&

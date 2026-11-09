@@ -32,7 +32,9 @@ import {
   HANDWRITING_FACE_LIST,
   handwritingCanDraw,
   handwritingMissing,
+  handwritingMissingLabels,
 } from "./handwriting";
+import { DEFAULT_SIGNATURE_STYLE } from "./signature-style";
 import { HANDWRITING_COVERAGE } from "./handwriting-coverage.generated";
 import {
   installedPackageVersion,
@@ -346,5 +348,113 @@ describe("the export's second bound: the face is shaped before it is embedded", 
     expect(
       await embedFaceIfDrawable(doc, lacking, [LATIN_NAME]),
     ).not.toBeNull();
+  });
+});
+
+/*
+ * Review of sign-pdf#1: a name pasted in decomposed form (e + U+0301) passed
+ * the coverage check — Dancing Script's cmap has U+0301 — and pdf-lib, which
+ * draws advances only, put the accent BESIDE the e. A no-break space knocked
+ * a whole name out of Mr Dafoe. The text is now NFC with plain spaces at the
+ * source (`typedSignatureText`), and a combining mark that survives NFC is
+ * never drawn by a handwriting face. Held at the pixels a reader sees.
+ */
+describe("a name is drawn as its letters, however it was typed or pasted", () => {
+  const COMPOSED = "José Zoé Muñoz Weiß";
+  const DECOMPOSED = COMPOSED.normalize("NFD");
+
+  it("the decomposed form really is different text (health check)", () => {
+    expect(DECOMPOSED).not.toBe(COMPOSED);
+    expect(DECOMPOSED.length).toBeGreaterThan(COMPOSED.length);
+  });
+
+  for (const style of SIGNATURE_STYLES) {
+    it(`${style}: e + U+0301 is drawn pixel for pixel as é`, async () => {
+      const composed = await typedPdf(style, COMPOSED);
+      const decomposed = await typedPdf(style, DECOMPOSED);
+      expect(
+        (await fontsOf(decomposed)).map((f) => faceName(f.baseFont)),
+      ).toEqual((await fontsOf(composed)).map((f) => faceName(f.baseFont)));
+      const a = await inkOf(composed);
+      const b = await inkOf(decomposed);
+      expect(count(a), style).toBeGreaterThan(400);
+      let differ = 0;
+      for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) differ++;
+      expect(differ, style).toBe(0);
+    }, 60_000);
+  }
+
+  it("signPdf draws a decomposed name exactly as the composed one", async () => {
+    const { signPdf } = await import("./signature");
+    const blank = await PDFDocument.create();
+    blank.addPage([400, 160]);
+    const src = await blank.save();
+    const sign = (text: string) =>
+      signPdf(
+        src,
+        { kind: "typed", text, style: DEFAULT_SIGNATURE_STYLE },
+        { pageIndex: 0, position: "middle-center", width: 300 },
+      );
+    const a = await inkOf(await sign(COMPOSED));
+    const b = await inkOf(await sign(DECOMPOSED));
+    expect(count(a)).toBeGreaterThan(400);
+    let differ = 0;
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) differ++;
+    expect(differ).toBe(0);
+  }, 60_000);
+
+  it("a mark with no precomposed letter is never drawn by a handwriting face", async () => {
+    const name = "Jaq\u0303 Lovelace"; // q + combining tilde: NFC keeps two
+    expect(name.normalize("NFC")).toBe(name);
+    for (const style of HANDWRITING_STYLES) {
+      expect(handwritingMissing(style, name), style).toEqual(["\u0303"]);
+      expect(handwritingFor({ hand: style }, name), style).toBeNull();
+      const fonts = await fontsOf(await typedPdf(style, name));
+      for (const f of fonts)
+        expect(f.baseFont, style).not.toContain(
+          HANDWRITING_FACES[style].postscriptName,
+        );
+    }
+  }, 120_000);
+
+  it("a no-break space is a space: the name stays in its face", async () => {
+    const plain = "Ada Lovelace";
+    const pasted = "Ada\u00a0Lovelace";
+    for (const style of HANDWRITING_STYLES) {
+      const a = await typedPdf(style, plain);
+      const b = await typedPdf(style, pasted);
+      const fonts = await fontsOf(b);
+      expect(fonts, style).toHaveLength(1);
+      expect(fonts[0]!.baseFont, style).toContain(
+        HANDWRITING_FACES[style].postscriptName,
+      );
+      const inkA = await inkOf(a);
+      const inkB = await inkOf(b);
+      let differ = 0;
+      for (let i = 0; i < inkA.length; i++) if (inkA[i] !== inkB[i]) differ++;
+      expect(differ, style).toBe(0);
+    }
+  }, 120_000);
+
+  it("what a face lacks is said readably: a script by name, an invisible or combining character by code point", () => {
+    for (const style of HANDWRITING_STYLES) {
+      expect(handwritingMissingLabels(style, BENGALI_NAME), style).toEqual([
+        "Bengali letters",
+      ]);
+      expect(handwritingMissingLabels(style, "Jaq\u0303"), style).toEqual([
+        "U+0303",
+      ]);
+      expect(handwritingMissingLabels(style, "Ada\u00a0L"), style).toEqual(
+        handwritingMissing(style, "Ada\u00a0L").length ? ["U+00A0"] : [],
+      );
+    }
+    // A Latin letter a face lacks is itself (Mr Dafoe and Homemade Apple
+    // have no ő), and a face that has the letter lists nothing.
+    const lacking = HANDWRITING_STYLES.filter(
+      (s) => handwritingMissing(s, "ő").length,
+    );
+    expect(lacking.length).toBeGreaterThan(0);
+    for (const s of lacking)
+      expect(handwritingMissingLabels(s, "Erdős"), s).toEqual(["ő"]);
   });
 });

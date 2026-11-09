@@ -19,7 +19,7 @@ import {
 } from "./stamp";
 import { embedDrawingFont, embedFaceIfDrawable } from "./unicode-font";
 import { type SignatureStyle } from "./offered-kinds";
-import { isHandwritingStyle } from "./signature-style";
+import { isHandwritingStyle, typedSignatureText } from "./signature-style";
 import { viewToContent, viewerFrame } from "./page-frame";
 
 /**
@@ -244,7 +244,10 @@ export async function signPdf(
       rotate,
     });
   } else {
-    const text = input.text.trim();
+    // NFC, and every space separator a plain space, before the face is
+    // chosen: the check, the embed and the draw then see the same letters
+    // (`typedSignatureText`).
+    const text = typedSignatureText(input.text.trim());
     // A typed signature is a person's name. Refusing to draw it because the
     // name is written in Bengali or Korean was the sharpest edge of the WinAnsi
     // ceiling: a signature tool that cannot spell the signer. Western names

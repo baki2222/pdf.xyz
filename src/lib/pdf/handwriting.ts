@@ -136,9 +136,20 @@ function covers(style: HandwritingStyle, cp: number): boolean {
   return false;
 }
 
+/** A combining mark: drawn only where something positions it. */
+const MARK = /\p{M}/u;
+
 /**
- * The distinct characters of `text` the face has no glyph for, in the order
- * they first appear — empty when the face can draw all of it.
+ * The distinct characters of `text` the face cannot draw, in the order they
+ * first appear — empty when the face can draw all of it.
+ *
+ * A combining mark (`\p{M}`) counts as one the face cannot draw even where
+ * its cmap has it: pdf-lib draws glyph advances only and applies no mark
+ * positioning, so Dancing Script's U+0301 (advance 0, ink to the RIGHT of
+ * the pen) lands beside the letter, not over it (review of sign-pdf#1).
+ * Callers pass `typedSignatureText`, whose NFC composes every mark that has
+ * a precomposed letter; one that has none falls back to Script's rendering
+ * rather than being misdrawn.
  */
 export function handwritingMissing(
   style: HandwritingStyle,
@@ -146,10 +157,94 @@ export function handwritingMissing(
 ): string[] {
   const missing: string[] = [];
   for (const ch of drawnText(text)) {
-    if (!covers(style, ch.codePointAt(0)!) && !missing.includes(ch))
-      missing.push(ch);
+    const drawable = !MARK.test(ch) && covers(style, ch.codePointAt(0)!);
+    if (!drawable && !missing.includes(ch)) missing.push(ch);
   }
   return missing;
+}
+
+/**
+ * Scripts named in words when a face has none of their letters, as
+ * `[Unicode script, what a reader calls it]`. A reader is told "no Bengali
+ * letters", not a row of vowel signs that each render on a dotted circle.
+ */
+const NAMED_SCRIPTS: readonly (readonly [string, string])[] = [
+  ["Arabic", "Arabic"],
+  ["Armenian", "Armenian"],
+  ["Bengali", "Bengali"],
+  ["Cyrillic", "Cyrillic"],
+  ["Devanagari", "Devanagari"],
+  ["Ethiopic", "Ethiopic"],
+  ["Georgian", "Georgian"],
+  ["Greek", "Greek"],
+  ["Gujarati", "Gujarati"],
+  ["Gurmukhi", "Gurmukhi"],
+  ["Han", "Chinese"],
+  ["Hangul", "Korean"],
+  ["Hebrew", "Hebrew"],
+  ["Hiragana", "Japanese"],
+  ["Katakana", "Japanese"],
+  ["Kannada", "Kannada"],
+  ["Khmer", "Khmer"],
+  ["Lao", "Lao"],
+  ["Malayalam", "Malayalam"],
+  ["Myanmar", "Myanmar"],
+  ["Oriya", "Odia"],
+  ["Sinhala", "Sinhala"],
+  ["Tamil", "Tamil"],
+  ["Telugu", "Telugu"],
+  ["Thai", "Thai"],
+  ["Tibetan", "Tibetan"],
+];
+const scriptPattern = new Map<string, RegExp>();
+function inScript(script: string, ch: string): boolean {
+  let re = scriptPattern.get(script);
+  if (!re) {
+    re = new RegExp(`^\\p{Script=${script}}$`, "u");
+    scriptPattern.set(script, re);
+  }
+  return re.test(ch);
+}
+const faceHasScript = new Map<string, boolean>();
+function hasAnyOf(style: HandwritingStyle, script: string): boolean {
+  const key = `${style}:${script}`;
+  let has = faceHasScript.get(key);
+  if (has === undefined) {
+    has = HANDWRITING_COVERAGE[style].some(([a, b]) => {
+      for (let cp = a; cp <= b; cp++)
+        if (inScript(script, String.fromCodePoint(cp))) return true;
+      return false;
+    });
+    faceHasScript.set(key, has);
+  }
+  return has;
+}
+
+const hex = (ch: string) =>
+  `U+${ch.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")}`;
+
+/**
+ * {@link handwritingMissing}, as a reader can read it: a script the face has
+ * none of is named ("Bengali letters", once); a combining mark, a space
+ * separator or another invisible character is written as its code point
+ * ("U+0301", "U+00A0") instead of a blank or a dotted circle; any other
+ * letter is itself. In first-appearance order, without repeats.
+ */
+export function handwritingMissingLabels(
+  style: HandwritingStyle,
+  text: string,
+): string[] {
+  const out: string[] = [];
+  const add = (label: string) => {
+    if (!out.includes(label)) out.push(label);
+  };
+  for (const ch of handwritingMissing(style, text)) {
+    const named = NAMED_SCRIPTS.find(([script]) => inScript(script, ch));
+    if (named && !hasAnyOf(style, named[0])) add(`${named[1]} letters`);
+    else if (/[\p{M}\p{Z}\p{C}]/u.test(ch)) add(hex(ch));
+    else add(ch);
+  }
+  return out;
 }
 
 /** Can this face draw every character of `text`? */

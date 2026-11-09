@@ -15,8 +15,12 @@ import {
 import {
   DEFAULT_SIGNATURE_STYLE,
   isHandwritingStyle,
+  typedSignatureText,
 } from "@/lib/pdf/signature-style";
-import { handwritingMissing } from "@/lib/pdf/handwriting";
+import {
+  handwritingMissing,
+  handwritingMissingLabels,
+} from "@/lib/pdf/handwriting";
 import {
   handwritingFamily,
   loadHandwritingFamily,
@@ -80,13 +84,17 @@ const PRINT_PREVIEW = "Helvetica, Arial, sans-serif";
 /**
  * How a style previews `name`: a handwriting face that has every letter in
  * itself (the face the PDF embeds), and otherwise as Script — which is how
- * the export sets that name (`handwritingFor`).
+ * the export sets that name (`handwritingFor`). Asked of the name as the
+ * export will hold it (`typedSignatureText`), never of the raw keystrokes.
  */
 function previewFont(
   style: SignatureStyle,
   name: string,
 ): { fontFamily: string; fontStyle: "italic" | "normal" } {
-  if (isHandwritingStyle(style) && handwritingMissing(style, name).length === 0)
+  if (
+    isHandwritingStyle(style) &&
+    handwritingMissing(style, typedSignatureText(name)).length === 0
+  )
     return {
       fontFamily: `"${handwritingFamily(style)}", cursive`,
       fontStyle: "normal",
@@ -95,6 +103,8 @@ function previewFont(
     return { fontFamily: PRINT_PREVIEW, fontStyle: "normal" };
   return { fontFamily: SCRIPT_PREVIEW, fontStyle: "italic" };
 }
+
+const MISSING_LIST = new Intl.ListFormat("en", { type: "disjunction" });
 
 /**
  * The sentence under the styles when the chosen handwriting face cannot draw
@@ -105,9 +115,15 @@ export function handwritingFallbackNote(
   name: string,
 ): string | null {
   if (!isHandwritingStyle(style)) return null;
-  const missing = handwritingMissing(style, name.trim());
+  // Readable labels: a script the face has none of by name, an invisible or
+  // combining character as its code point — never a blank or an orphaned
+  // vowel sign (`handwritingMissingLabels`).
+  const missing = handwritingMissingLabels(
+    style,
+    typedSignatureText(name.trim()),
+  );
   if (missing.length === 0) return null;
-  const shown = missing.slice(0, 8).join(" ");
+  const shown = MISSING_LIST.format(missing.slice(0, 8));
   return `${SIGNATURE_STYLE_LABEL[style]} has no ${shown}, so this name will be set as ${SIGNATURE_STYLE_LABEL.signature} sets it.`;
 }
 
@@ -178,7 +194,7 @@ function StylePicker({
   onPick: (style: SignatureStyle) => void;
 }) {
   const note = handwritingFallbackNote(style, name);
-  const sample = name.trim();
+  const sample = typedSignatureText(name.trim());
   return (
     <>
       <div
@@ -363,7 +379,7 @@ export function SignaturePanel({
   const use = async () => {
     setError(null);
     if (source === "type") {
-      const text = name.trim();
+      const text = typedSignatureText(name.trim());
       if (!text) return setError("Type your name first.");
       // A handwriting face that will draw this name must be HERE before the
       // editor sizes the box, or the box would be as wide as the fallback.
@@ -405,7 +421,7 @@ export function SignaturePanel({
     if (s.kind === "typed") {
       if (
         isHandwritingStyle(s.style) &&
-        !handwritingMissing(s.style, s.text).length
+        !handwritingMissing(s.style, typedSignatureText(s.text)).length
       ) {
         try {
           await loadHandwritingMeasure(s.style);

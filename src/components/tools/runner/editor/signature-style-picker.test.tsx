@@ -32,7 +32,11 @@ import {
   DEFAULT_SIGNATURE_STYLE,
   isHandwritingStyle,
 } from "@/lib/pdf/signature-style";
-import { handwritingMissing } from "@/lib/pdf/handwriting";
+import {
+  handwritingMissing,
+  handwritingMissingLabels,
+} from "@/lib/pdf/handwriting";
+import { handwritingFamily } from "./handwriting-faces";
 
 /** A FontFace the test DOM lacks: records what was asked for. */
 const constructed: string[] = [];
@@ -169,8 +173,8 @@ describe("the Style radio group", () => {
     for (const s of lacking) {
       fireEvent.click(radios[SIGNATURE_STYLES.indexOf(s)]!);
       expect(note()).toContain(SIGNATURE_STYLE_LABEL[s]);
-      for (const ch of handwritingMissing(s, name))
-        expect(note()).toContain(ch);
+      for (const label of handwritingMissingLabels(s, name))
+        expect(note()).toContain(label);
       expect(note()).toContain(`as ${SIGNATURE_STYLE_LABEL.signature} sets it`);
     }
     for (const s of having) {
@@ -179,15 +183,44 @@ describe("the Style radio group", () => {
     }
   });
 
-  it("a Bengali name: every handwriting style says it falls back", async () => {
+  it("a Bengali name: every handwriting style says it falls back, naming the script, not a row of vowel signs", async () => {
     const { radios } = await panel();
-    typeName("আডা লভলেস");
+    typeName("বাকী বিল্লাহ");
     for (const s of HANDWRITING_STYLES) {
       fireEvent.click(radios[SIGNATURE_STYLES.indexOf(s)]!);
-      expect(
-        document.querySelector("[data-style-fallback]")!.textContent,
-        s,
-      ).toMatch(/so this name will be set as/);
+      const note =
+        document.querySelector("[data-style-fallback]")!.textContent ?? "";
+      expect(note, s).toMatch(/so this name will be set as/);
+      expect(note, s).toContain(
+        `${SIGNATURE_STYLE_LABEL[s]} has no Bengali letters,`,
+      );
+      // No combining mark (a dependent vowel sign, the virama) on its own.
+      expect(note, s).not.toMatch(/\p{M}/u);
+    }
+  });
+
+  it("a pasted no-break space or a decomposed accent changes nothing: same face, no note", async () => {
+    const { radios } = await panel();
+    const note = () =>
+      document.querySelector("[data-style-fallback]")!.textContent ?? "";
+    for (const s of HANDWRITING_STYLES) {
+      fireEvent.click(radios[SIGNATURE_STYLES.indexOf(s)]!);
+      const preview =
+        radios[SIGNATURE_STYLES.indexOf(s)]!.querySelector("span")!;
+      const big = () =>
+        document.querySelector<HTMLElement>("[data-signature-preview]")!.style
+          .fontFamily;
+      typeName("Ada Lovelace");
+      const plain = [preview.style.fontFamily, big()];
+      // Health check: the face is the one previewed, not a fallback.
+      expect(plain[1], s).toContain(handwritingFamily(s));
+      typeName("Ada\u00a0Lovelace");
+      expect(note(), s).toBe("");
+      expect([preview.style.fontFamily, big()], s).toEqual(plain);
+      typeName("Zoé");
+      const composed = [note(), preview.style.fontFamily, big()];
+      typeName("Zoe\u0301");
+      expect([note(), preview.style.fontFamily, big()], s).toEqual(composed);
     }
   });
 });
