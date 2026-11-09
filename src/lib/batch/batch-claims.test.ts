@@ -312,7 +312,18 @@ describe("batch claims, walked from the catalogue", () => {
     const summaries = buildToolSummaries().filter(
       (s) => s.batchMaxFiles !== undefined,
     );
-    expect(summaries.map((s) => s.slug).sort()).toEqual([...backed].sort());
+    // Since batch plan P6 the workspace launches the worker batches too, and
+    // states their cap: the batches its runners load, and the worker batches
+    // their panels load (WAS the first set alone, when no worker tool could
+    // launch from the workspace).
+    const workerBatches = rows
+      .filter((r) => workerBacked(r.slug))
+      .map((r) => r.slug);
+    // Health: every registered worker batch is backed by its panel.
+    expect(workerBatches.length).toBe(Object.keys(WORKER_BATCH_TOOLS).length);
+    expect(summaries.map((s) => s.slug).sort()).toEqual(
+      [...backed, ...workerBatches].sort(),
+    );
     // Each at its own cap: a raster batch's is the raster one.
     for (const s of summaries)
       expect(s.batchMaxFiles, s.slug).toBe(batchMaxFilesFor(s.slug));
@@ -577,9 +588,20 @@ describe("worker batch claims (batch plan P3)", () => {
     expect(ARCHIVE_NAME.test(servedText(html.tool))).toBe(false);
   });
 
-  it("the hand-off still carries one file to a worker tool until batch plan P6", () => {
-    for (const slug of Object.keys(WORKER_BATCH_TOOLS))
-      expect(handoffCapabilityFor(slug).mode, slug).not.toBe("batch");
+  /*
+   * INVERTED 2026-11-09, by batch plan P6 itself. This held every worker
+   * batch to a hand-off of ONE file ("until batch plan P6"): Continue with,
+   * the desk, the palette and the workspace carried the first file to a
+   * panel that would have opened a batch for all of them. A hand-off now
+   * carries the whole set, uncapped at the hand-off; the batch caps it.
+   */
+  it("the hand-off carries every file to a worker batch (batch plan P6)", () => {
+    for (const slug of Object.keys(WORKER_BATCH_TOOLS)) {
+      expect(handoffCapabilityFor(slug).mode, slug).toBe("batch");
+      expect(handoffCapabilityFor(slug).maxFiles, slug).toBeUndefined();
+    }
+    // Control: a worker tool with no batch still takes one.
+    expect(handoffCapabilityFor("html-to-pdf").mode).toBe("stage");
   });
 });
 

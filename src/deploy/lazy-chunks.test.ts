@@ -538,8 +538,20 @@ describe("the catalogue ships in one chunk, shared by every surface that reads i
  *     "went on to" history module, now merged with 1091/6329).
  * 33.215 + 21/1024 = 33.2355. CI's 7-16 B bracket keeps 34,016 here under
  * 34,033 B there.
+ *
+ * RAISED 33.236 -> 33.298 on 2026-11-09, for batch P6: a hand-off to a
+ * worker batch carries every file (`handoff/capability.ts`), so the module
+ * the ticket loads to decide what a launch carries now holds the thirteen
+ * worker batch slugs. Typed there, not read from `WORKER_BATCH_TOOLS`,
+ * because that registration and the batch limits behind it would ride
+ * every tool page's first load (the capability module does); the type
+ * import is erased. One machine, both from an empty .next (c92c74f8 vs the
+ * branch): 34,016 -> 34,079 B (+63). The slug list alone measures +51 B
+ * gzip -9 in the ticket's chunk that holds it (6873), the rest the new
+ * branch in `stagedMode` and the chunks it re-cut. 33.236 + 63/1024 = 33.2975;
+ * CI's 7-16 B bracket keeps 34,079 here under 34,097 B there.
  */
-const TICKET_FETCH_GZ_KB = 33.236;
+const TICKET_FETCH_GZ_KB = 33.298;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));

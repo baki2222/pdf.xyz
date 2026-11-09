@@ -33,11 +33,26 @@ function carried(): boolean {
 }
 
 /**
+ * What the arrival notice names as Run when the files open in a worker
+ * batch's list: its button reads "Repair 3 PDFs", a count this hook cannot
+ * know (the batch leaves out what it cannot take), so the notice names where
+ * the button is instead.
+ */
+const BATCH_RUN = "the button under the list";
+
+/**
  * A worker panel's side of a hand-off (spec E.6, D.7): the file a result's
- * "Continue with", a remedy, the desk or the palette carried here is STAGED
- * in the panel — `onFiles` gets it, as if it had been dropped — and nothing
- * is uploaded until the reader presses Run. The upload is the panel's Run
- * and nothing else; `e2e/worker-panels.spec.ts` counts the requests.
+ * "Continue with", a remedy, the desk, the palette or the workspace carried
+ * here is STAGED in the panel — `onFiles` gets it, as if it had been dropped
+ * — and nothing is uploaded until the reader presses Run. The upload is the
+ * panel's Run and nothing else; `e2e/worker-panels.spec.ts` counts the
+ * requests.
+ *
+ * A panel with no batch gets the first carried file. A panel with one
+ * (batch plan P6: `handoffCapabilityFor` says `batch`) gets them ALL, as a
+ * drop of several would give them, and opens its batch list for two or
+ * more; the list caps them and names the rest with the reason. WAS the
+ * first file for every panel, the rest dropped without a word.
  *
  * The claim and its notice load ONLY when a hand-off was carried to this
  * page (a sessionStorage peek, or an old `?handoff=` address), so a worker
@@ -49,6 +64,8 @@ export function useStagedHandoff(
   onFiles: (files: File[]) => void,
 ): ReactNode {
   const [state, setState] = useState<ClaimedHandoff | null>(null);
+  // The files went to a batch list, so Run is the button under it.
+  const [many, setMany] = useState(false);
   const arrived = useToolRun()?.arrived;
   const take = useRef(onFiles);
   useEffect(() => {
@@ -69,11 +86,13 @@ export function useStagedHandoff(
     if (started.current || !carried()) return;
     started.current = true;
     void (async () => {
-      const [{ claimArrival, LOADING }, { eligibleFilesFor }] =
-        await Promise.all([
-          import("@/lib/handoff/claim"),
-          import("@/lib/handoff/capability"),
-        ]);
+      const [
+        { claimArrival, LOADING },
+        { eligibleFilesFor, handoffCapabilityFor, takesOneFile },
+      ] = await Promise.all([
+        import("@/lib/handoff/claim"),
+        import("@/lib/handoff/capability"),
+      ]);
       const claim = claimArrival(
         slug,
         (entries) => eligibleFilesFor(slug, entries),
@@ -88,7 +107,9 @@ export function useStagedHandoff(
       if (result.status === "ready") {
         // A remedy's files are owed back to the tool that sent them.
         arrived?.(result.trail, result.pending?.toolSlug ?? null);
-        take.current(result.files.slice(0, 1));
+        const one = takesOneFile(handoffCapabilityFor(slug).mode);
+        take.current(one ? result.files.slice(0, 1) : result.files);
+        setMany(!one && result.files.length > 1);
       }
       setState(result);
     })();
@@ -107,7 +128,7 @@ export function useStagedHandoff(
           dismiss,
         }}
         toolName={tool?.name ?? slug}
-        runLabel={runLabel}
+        runLabel={many ? BATCH_RUN : runLabel}
       />
     </Suspense>
   );

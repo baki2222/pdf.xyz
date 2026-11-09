@@ -86,8 +86,18 @@ describe("what a hand-off carries", () => {
     expect(handoffPayload("merge-pdf", [docx])).toEqual([]);
   });
 
-  it("a worker panel stages exactly one eligible file", () => {
-    expect(handoffPayload("word-to-pdf", [docx, docx])).toEqual([docx]);
+  /*
+   * INVERTED 2026-11-09 (batch plan P6). This said "a worker panel stages
+   * exactly one eligible file", with Word to PDF as the panel: two DOCX files
+   * carried one, and the second was dropped without a word, although Word to
+   * PDF's panel has opened a batch list for two or more since P3. A panel
+   * with a batch takes every eligible file now (its list caps them and names
+   * the rest); a panel with none — Summarize PDF — still stages one.
+   */
+  it("a worker panel with a batch carries every eligible file, one without stages one", () => {
+    expect(handoffPayload("word-to-pdf", [docx, docx])).toEqual([docx, docx]);
+    const pdf = new File(["%PDF"], "a.pdf", { type: "application/pdf" });
+    expect(handoffPayload("summarize-pdf", [pdf, pdf])).toEqual([pdf]);
   });
 
   it("over the hand-off budget, nothing is stashed", async () => {
