@@ -16,8 +16,8 @@ import {
   simplePdf,
 } from "./conversion-out.fixtures";
 import { buildPdf, onePageObjects, TEXT_OPS } from "./stamping.fixtures";
-import { reportResult } from "./report";
 import { startMemoryMeter } from "./memory";
+import { reportResult } from "./report";
 import {
   asciiHex,
   catalogObjStmBombPdf,
@@ -368,12 +368,39 @@ let growth: { mb: number; method: string; ms: number } | null = null;
 const run = CASES[process.argv[2] ?? ""];
 if (!run) throw new Error(`unknown case ${process.argv[2]}`);
 const peak = () => Math.round(process.resourceUsage().maxRSS / 1024);
-run().then(
-  (value) => reportResult({ ...(value as object), maxRssMb: peak(), growth }),
-  (err: { name?: string; message?: string; kind?: string }) =>
+
+/**
+ * pdf.js, its in-thread worker and the native canvas load lazily, on the
+ * first read and the first render. That is several hundred MB on Linux /
+ * Node 22 and not the hostile file's cost (an absolute 900 MB cap went 933
+ * on CI for PR #299). Both paths run once on a clean file first, so the
+ * meter below reads only what THIS file costs (./memory.ts).
+ */
+async function warm(): Promise<void> {
+  await text(CONTROL()).catch(() => {});
+  await raster(CONTROL()).catch(() => {});
+}
+
+void (async () => {
+  await warm();
+  const meter = startMemoryMeter();
+  // An `open:` case runs its own meter after its fixture is built, which
+  // resets the same high-water mark (memory.ts), so this outer reading
+  // would be short for it: it reports `growth` instead, never both.
+  const measure = () => ({
+    maxRssMb: peak(),
+    ...(growth
+      ? { growth }
+      : { growthMb: Math.round(meter.growthMb()), meter: meter.method }),
+  });
+  try {
+    const value = await run();
+    reportResult({ ...(value as object), ...measure() });
+  } catch (e) {
+    const err = e as { name?: string; message?: string; kind?: string };
     reportResult({
       error: { name: err?.name, message: err?.message, kind: err?.kind },
-      maxRssMb: peak(),
-      growth,
-    }),
-);
+      ...measure(),
+    });
+  }
+})();

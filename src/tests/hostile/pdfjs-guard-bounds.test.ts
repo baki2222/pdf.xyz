@@ -11,6 +11,17 @@ import { runBounded, type BoundedOutcome } from "./bounded";
 // entry point a tool calls (extractPdfText, rasterizePdf) in a child process
 // with a hard kill: before the fix STAMP-14 ran for 493 s, and CO-06 inflated
 // 1 GiB, which no in-process timeout can interrupt.
+/**
+ * What one hostile case may ADD to the child's resident memory, MB, read by
+ * ./memory.ts after pdf.js and the canvas are warmed on a clean file (see
+ * `warm` in ./pdfjs-guard.child.ts). The unfixed cases inflated 1.2-3.6 GB;
+ * measured after the fix, on Linux / Node 22: 10-11 MB.
+ *
+ * WAS an absolute `maxRssMb < 900`, which counted pdf.js's own load (about
+ * 500 MB on Linux) against the file. It read 933 on CI for PR #299 with
+ * nothing wrong.
+ */
+const GROWTH_MB = 300;
 const CHILD = "src/tests/hostile/pdfjs-guard.child.ts";
 
 /** The value a settled child reported; fails loudly on a hang or crash. */
@@ -30,7 +41,7 @@ describe("pdf.js consumers stay bounded on hostile streams", () => {
     });
     // Second, independent bound: the process never held the gigabyte. The
     // unfixed run peaked at 1.2-3.6 GB; the refusal streams and keeps nothing.
-    expect(v.maxRssMb as number).toBeLessThan(900);
+    expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
   }, 90_000);
 
   test("CO-06 positive control: the same reader on a plain file reads its text", async () => {
@@ -107,7 +118,7 @@ describe("pdf.js consumers stay bounded on hostile streams", () => {
       name: "PdfEngineError",
       message: PDF_IMAGE_TOO_LARGE_MESSAGE,
     });
-    expect(v.maxRssMb as number).toBeLessThan(900);
+    expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
   }, 60_000);
 
   test("the scan is linear: 4.5 MB of `>>stream` with no `<<` is scanned in seconds, not 18 s", async () => {
@@ -140,7 +151,7 @@ describe("pdf.js consumers stay bounded on hostile streams", () => {
       message: PDF_IMAGE_TOO_LARGE_MESSAGE,
     });
     // Second bound: refused before the decode (42 s and 1.5 GB unfixed).
-    expect(v.maxRssMb as number).toBeLessThan(900);
+    expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
   }, 60_000);
 
   test("CO-08 bilevel: a 600-dpi A3 1-bit scan (69.6 MP, 0.38-0.45 s on base) still rasterizes", async () => {
@@ -177,7 +188,7 @@ describe("pdf.js consumers stay bounded on hostile streams", () => {
       }),
     );
     expect(v).toMatchObject({ ok: true, previews: [true, true] });
-    expect(v.maxRssMb as number).toBeLessThan(900);
+    expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
   }, 60_000);
 
   test("CO-08 positive control: a 9 MP image page still rasterizes", async () => {
@@ -227,7 +238,7 @@ describe("third review: labels, strings and references that hid a stream", () =>
       name: "PdfEngineError",
       message: PDF_EXPANDS_TOO_FAR_MESSAGE,
     });
-    expect(v.maxRssMb as number).toBeLessThan(900);
+    expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
   }, 90_000);
 
   test("STAMP-14: '(>>stream)' in the content dictionary (60 s hang before) does not hide its /Filter", async () => {
@@ -255,7 +266,7 @@ describe("third review: labels, strings and references that hid a stream", () =>
       name: "PdfEngineError",
       message: PDF_IMAGE_TOO_LARGE_MESSAGE,
     });
-    expect(v.maxRssMb as number).toBeLessThan(900);
+    expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
   }, 60_000);
 });
 
@@ -297,12 +308,13 @@ describe("lane res1: every pdf.js open goes through the preflight", () => {
         // Measured 2026-11-09 (Windows, Node 24): the object-stream bomb
         // 2.5-4 s (the preflight inflates up to its 1.6 GB budget), the
         // others under 0.5 s.
-        const { ms } = v.growth as { ms: number };
+        const { ms, mb } = v.growth as { ms: number; mb: number };
         expect(ms, `${file} via ${reader}`).toBeLessThan(30_000);
         // Third bound, memory: the bomb's refusal comes from a preflight that
         // streams up to 1.6 GB through inflate, so what it KEEPS is the bound
         // worth pinning (added after review; the child always reported it).
-        expect(v.maxRssMb as number, `${file} via ${reader}`).toBeLessThan(900);
+        // Read from the fixture's end, after the warm-up (GROWTH_MB above).
+        expect(mb, `${file} via ${reader}`).toBeLessThan(GROWTH_MB);
       }
       const control = settled(
         await runBounded(CHILD, [`open:control:${reader}`], 60_000),
@@ -329,9 +341,9 @@ describe("lane res1: the access probe's open goes through the preflight too", ()
         }),
       );
       expect(v, file).toMatchObject({ ok: true, access: "unreadable" });
-      const { ms } = v.growth as { ms: number };
+      const { ms, mb } = v.growth as { ms: number; mb: number };
       expect(ms, file).toBeLessThan(30_000);
-      expect(v.maxRssMb as number, file).toBeLessThan(900);
+      expect(mb, file).toBeLessThan(GROWTH_MB);
     }, 120_000);
   }
 
@@ -383,7 +395,7 @@ describe("lane res1: a Flate stage behind ASCIIHex is counted on the raster path
       name: "PdfEngineError",
       message: PDF_EXPANDS_TOO_FAR_MESSAGE,
     });
-    expect(v.maxRssMb as number).toBeLessThan(900);
+    expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
   }, 90_000);
 
   test("PDF to JPG refuses it too", async () => {
@@ -396,7 +408,7 @@ describe("lane res1: a Flate stage behind ASCIIHex is counted on the raster path
       name: "PdfEngineError",
       message: PDF_EXPANDS_TOO_FAR_MESSAGE,
     });
-    expect(v.maxRssMb as number).toBeLessThan(900);
+    expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
   }, 90_000);
 
   test("positive control: a small AHx+Flate content stream still renders", async () => {
