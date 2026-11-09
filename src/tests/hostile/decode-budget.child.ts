@@ -51,6 +51,12 @@ async function run(): Promise<unknown> {
       const r = await nUpPdf(bytes, { ...DEFAULT_N_UP_OPTIONS, perSheet: 4 });
       return { bytes: r.bytes.length, sheets: r.sheets };
     }
+    case "booklet": {
+      const { bookletPdf, DEFAULT_BOOKLET_OPTIONS } =
+        await import("../../lib/pdf/booklet");
+      const r = await bookletPdf(bytes, { ...DEFAULT_BOOKLET_OPTIONS });
+      return { bytes: r.bytes.length, sheets: r.sheets };
+    }
     case "overlay": {
       const { overlayPdf } = await import("../../lib/pdf/overlay");
       const r = await overlayPdf(partnerPdf(), bytes);
