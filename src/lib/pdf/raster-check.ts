@@ -25,7 +25,9 @@
  * JPEG to that ceiling and refused real 101.8 MP Fujifilm GFX100 and
  * Hasselblad X2D photos and stitched panoramas, which converted before, with
  * "more than the 100 megapixels" (review, 2026-11-08). The defect was never
- * the size; it was a size the data cannot hold. Inside the scan a 0xFF byte is always followed by 00 (stuffing)
+ * the size; it was a size the data cannot hold. (An arithmetic frame,
+ * SOF9+, has no such bound and IS held to the ceiling: see isArithmetic.)
+ * Bytes before a marker are skipped as libjpeg skips them (walkJpeg). Inside the scan a 0xFF byte is always followed by 00 (stuffing)
  * or a restart marker, so the first FF D9 after SOS is the image's own end;
  * an Exif thumbnail's FF D9 sits in an APP1 segment BEFORE the scan and is
  * skipped with its segment. Bytes after the end marker (a phone's appended
@@ -75,7 +77,15 @@ export function tooManyPixelsMessage(
 const isFrameMarker = (m: number) =>
   m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc;
 
-/** SOF9..SOF15: arithmetic coding, which has no one-bit floor (below). */
+/**
+ * SOF9..SOF15: arithmetic coding, which has no one-bit floor (below), so it
+ * is held to {@link MAX_DECODED_PIXELS} instead. HISTORY (hostile residuals
+ * res4, 2026-11-09): it was exempted from the bound with NOTHING in its
+ * place, so a 443-byte SOF9 file claiming 65,535 × 65,535 became a 4.29 GP
+ * image XObject. The ceiling refuses no real photo that converted before:
+ * pdf.js, the viewer most readers of these PDFs use, decodes SOF0..SOF2
+ * only, so an arithmetic JPEG never rendered here at any size.
+ */
 const isArithmetic = (m: number) => m >= 0xc9;
 
 /**
@@ -95,24 +105,46 @@ const isArithmetic = (m: number) => m >= 0xc9;
  */
 export const MAX_PIXELS_PER_SCAN_BYTE = 2048;
 
+interface JpegWalk {
+  frame: { width: number; height: number; marker: number };
+  /** Where the entropy-coded data of the first scan begins. */
+  scan: number;
+  /** Each segment before the scan, from its marker byte to its end. */
+  segments: [number, number][];
+  /** Whether any byte before a marker was not 0xFF (see {@link walkJpeg}). */
+  extraneous: boolean;
+}
+
 /**
- * What stops a JPEG from embedding whole: `"damaged"` (no SOI, a segment
- * that runs past the end, no frame before the scan, a zero side, no scan, no
- * end marker after it, or a size the scan data cannot hold), or `null` for a
- * JPEG that may be embedded. No pixel ceiling: the JPEG is not decoded.
+ * Walk a JPEG's segments to its first scan, as libjpeg's `next_marker` does:
+ * bytes before a marker that are not 0xFF, and an FF 00 pair (not a marker),
+ * are skipped. libjpeg warns "Corrupt JPEG data: N extraneous bytes before
+ * marker" and decodes the file; browsers show it; older camera and phone
+ * writers produce it. HISTORY (hostile residuals res4, 2026-11-09): the walk
+ * refused such a file as damaged, a real photo libjpeg reads.
  */
-export function jpegFrameProblem(bytes: Uint8Array): "damaged" | null {
+function walkJpeg(bytes: Uint8Array): JpegWalk | "damaged" {
   if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8)
     return "damaged";
   let at = 2;
-  let frame: { width: number; height: number; marker: number } | null = null;
+  let frame: JpegWalk["frame"] | null = null;
+  let extraneous = false;
+  const segments: [number, number][] = [];
   for (;;) {
-    // Markers may be padded with any number of 0xFF fill bytes.
-    if (bytes[at] !== 0xff) return "damaged";
-    while (bytes[at] === 0xff) at++;
-    if (at >= bytes.length) return "damaged";
-    const marker = bytes[at]!;
-    at++;
+    // Skip to the next marker: any bytes before it, then its 0xFF fill.
+    let marker = 0;
+    while (marker === 0) {
+      while (at < bytes.length && bytes[at] !== 0xff) {
+        extraneous = true;
+        at++;
+      }
+      while (bytes[at] === 0xff) at++;
+      if (at >= bytes.length) return "damaged";
+      marker = bytes[at]!;
+      // FF 00 is not a marker: libjpeg discards the pair and looks on.
+      if (marker === 0) extraneous = true;
+      at++;
+    }
     // Standalone markers carry no length: TEM, RST0-7, and a stray SOI.
     if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd8)) continue;
     // An end marker before any scan: there is no image.
@@ -128,19 +160,69 @@ export function jpegFrameProblem(bytes: Uint8Array): "damaged" | null {
         marker,
       };
     }
+    segments.push([at - 1, at + length]);
     at += length;
     if (marker === 0xda) break;
   }
   if (!frame || frame.width === 0 || frame.height === 0) return "damaged";
-  for (let i = bytes.indexOf(0xff, at); i >= 0; i = bytes.indexOf(0xff, i + 1))
+  return { frame, scan: at, segments, extraneous };
+}
+
+/**
+ * What stops a JPEG from embedding whole: `"damaged"` (no SOI, a segment
+ * that runs past the end, no frame before the scan, a zero side, no scan, no
+ * end marker after it, or a size the scan data cannot hold), or `null` for a
+ * JPEG that may be embedded. Bytes before a marker are skipped as libjpeg
+ * skips them ({@link walkJpeg}); embed {@link withoutExtraneousBytes} of it.
+ * No pixel ceiling for a Huffman frame (the JPEG is not decoded); an
+ * arithmetic frame over {@link MAX_DECODED_PIXELS} THROWS
+ * {@link ImageTooLarge}, which both callers word with
+ * {@link tooManyPixelsMessage}.
+ */
+export function jpegFrameProblem(bytes: Uint8Array): "damaged" | null {
+  const walk = walkJpeg(bytes);
+  if (walk === "damaged") return "damaged";
+  const { frame, scan } = walk;
+  if (isArithmetic(frame.marker)) checkPixelCeiling(frame.width, frame.height);
+  for (
+    let i = bytes.indexOf(0xff, scan);
+    i >= 0;
+    i = bytes.indexOf(0xff, i + 1)
+  )
     if (bytes[i + 1] === 0xd9) {
       const pixels = frame.width * frame.height;
       if (
         !isArithmetic(frame.marker) &&
-        pixels > MAX_PIXELS_PER_SCAN_BYTE * (i - at)
+        pixels > MAX_PIXELS_PER_SCAN_BYTE * (i - scan)
       )
         return "damaged";
       return null;
     }
   return "damaged";
+}
+
+/**
+ * `bytes` with any extraneous bytes before its first scan dropped
+ * ({@link walkJpeg}): SOI, each segment behind one 0xFF, then the scan and
+ * everything after it untouched. pdf-lib's reader, the EXIF and metadata
+ * walkers, and pdf.js all expect each marker right after the last segment;
+ * pdf-lib reads "00 00" as a marker and fails. A file with none, or one
+ * {@link jpegFrameProblem} refuses, is returned as it is.
+ * LIMITS: bytes between LATER segments (a progressive file's tables between
+ * scans) are inside the entropy data to this walk and are left alone.
+ */
+export function withoutExtraneousBytes(bytes: Uint8Array): Uint8Array {
+  const walk = walkJpeg(bytes);
+  if (walk === "damaged" || !walk.extraneous) return bytes;
+  const size = walk.segments.reduce((n, [a, b]) => n + 1 + b - a, 2);
+  const out = new Uint8Array(size + bytes.length - walk.scan);
+  out.set([0xff, 0xd8]);
+  let at = 2;
+  for (const [a, b] of walk.segments) {
+    out[at++] = 0xff;
+    out.set(bytes.subarray(a, b), at);
+    at += b - a;
+  }
+  out.set(bytes.subarray(walk.scan), at);
+  return out;
 }

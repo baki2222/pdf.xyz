@@ -24,6 +24,7 @@ import {
   ImageTooLarge,
   jpegFrameProblem,
   tooManyPixelsMessage,
+  withoutExtraneousBytes,
 } from "./raster-check";
 import {
   turnedShape,
@@ -599,8 +600,12 @@ async function addImagePage(
   try {
     // A JPEG is checked to its end marker, and its size against its scan
     // data, first: pdf-lib reads only its frame header (`raster-check.ts`).
-    if (format === "jpg" && jpegFrameProblem(bytes))
-      throw new Error("damaged JPEG");
+    // Bytes before a marker are skipped there, as libjpeg skips them, and
+    // dropped from what is embedded.
+    if (format === "jpg") {
+      if (jpegFrameProblem(bytes)) throw new Error("damaged JPEG");
+      bytes = withoutExtraneousBytes(bytes);
+    }
     // A PNG keeps its own encoding — depth, palette, row filtering, colour
     // profile (`png-embed.ts`); loaded on the first PNG only.
     image =
