@@ -193,6 +193,80 @@ async function thumbs(bytes: Uint8Array) {
   return { ok: true, previews: out };
 }
 
+/**
+ * The editor's page canvas (Edit, Annotate and Sign PDF): open, draw page 1
+ * at 100% and 1 device px per CSS px, and read the pixels where the fixture's
+ * image sits (`q 100 0 0 100 50 50 cm /Im1 Do Q`, clear of the text): an
+ * image of zeros paints black (0), a skipped one leaves the white sheet (765).
+ */
+async function editorProbe(bytes: Uint8Array) {
+  await withCanvas();
+  const { openEditorPdf } = await import("@/lib/pdf/editor/page-render");
+  const doc = await openEditorPdf(bytes);
+  const t0 = Date.now();
+  const canvas = (await doc.render(0, 1, 1)) as unknown as {
+    width: number;
+    height: number;
+    getContext(kind: "2d"): {
+      getImageData(
+        x: number,
+        y: number,
+        w: number,
+        h: number,
+      ): {
+        data: Uint8ClampedArray;
+      };
+    };
+  } | null;
+  const renderMs = Date.now() - t0;
+  const ink = canvas
+    ? [
+        [140, 60],
+        [60, 140],
+      ].map(([x, y]) => {
+        const d = canvas
+          .getContext("2d")
+          .getImageData(x!, canvas.height - y!, 1, 1).data;
+        return d[0]! + d[1]! + d[2]!;
+      })
+    : null;
+  const notice = (doc as { imageNotice?: string | null }).imageNotice ?? null;
+  await doc.destroy();
+  return {
+    ok: true,
+    drawn: canvas !== null,
+    size: canvas ? [canvas.width, canvas.height] : null,
+    renderMs,
+    ink,
+    notice,
+  };
+}
+
+/**
+ * The editor's canvas at its deepest zoom on an A0 page (2,384 x 3,370 pt):
+ * the device pixels it allocates, against MAX_CANVAS_PIXELS.
+ */
+async function editorZoomProbe() {
+  await withCanvas();
+  const { openEditorPdf } = await import("@/lib/pdf/editor/page-render");
+  const { MAX_ZOOM, scaleForZoom } = await import("@/lib/pdf/editor/geometry");
+  const doc = await openEditorPdf(simplePdf({ mediaBox: "[0 0 2384 3370]" }));
+  const out: { ratio: number; pixels: number | null }[] = [];
+  for (const ratio of [1, 2, 3]) {
+    const canvas = (await doc.render(0, scaleForZoom(MAX_ZOOM), ratio)) as {
+      width: number;
+      height: number;
+    } | null;
+    out.push({ ratio, pixels: canvas ? canvas.width * canvas.height : null });
+    if (canvas) {
+      canvas.width = 0;
+      canvas.height = 0;
+    }
+  }
+  await doc.destroy();
+  return { ok: true, renders: out };
+}
+
 /** The preflight alone, as every pdf.js consumer calls it before the open. */
 async function preflight(bytes: Uint8Array) {
   const { preflightPdfjsBytes } = await import("@/lib/pdf/pdfjs-guard");
@@ -213,6 +287,9 @@ const CASES: Record<string, () => Promise<unknown>> = {
   "co08-per-page-raster": async () =>
     rasterPerPage(await twoPagesOneHugeImagePdf()),
   "co08-per-page-thumbs": async () => thumbs(await twoPagesOneHugeImagePdf()),
+  "co08-editor-render": async () => editorProbe(await imageBombAtCapPdf()),
+  "co08-control-editor-render": async () => editorProbe(await imagePdf(3_000)),
+  "editor-zoom-a0": editorZoomProbe,
   "stamp14-split-text": async () => text(splitQPdf(32, 1_020)),
   "stamp14-5k-text": async () => text(splitQPdf(1, 5_000)),
   "stamp14-form-repeat-text": async () => text(formRepeatPdf(30, 16_000)),

@@ -13,11 +13,26 @@ import type { PdfjsTextItem } from "./runs";
  * go to pdf-lib at export.
  */
 
+/**
+ * Where the editor's open finds pdf.js: `loadPdfjs`, behind an object so a
+ * test can see the options `getDocument` is handed without `vi.mock` (under
+ * the suite's `isolate: false`, a module evaluated under a mock stays bound
+ * to the stub for the next file). Nothing else writes it.
+ */
+export const editorPdfjs = { load: loadPdfjs };
+
 /** A rendered canvas larger than this many device pixels is drawn at a lower ratio. */
 export const MAX_CANVAS_PIXELS = 16_000_000;
 
 export interface EditorPdf {
   readonly numPages: number;
+  /**
+   * What to tell a person when the file holds an image over its raster
+   * budget (CO-08), which this view leaves out; null when there is none.
+   * The file's, never a page's: pdf.js 6 does not report which page skipped
+   * it (see `preflightPdfjsBytes`).
+   */
+  readonly imageNotice: string | null;
   /**
    * Draw page `index` (0-based) into a NEW canvas at `scale` CSS px per point
    * and `pixelRatio` device px per CSS px. Resolves null when aborted or the
@@ -40,7 +55,16 @@ export interface EditorPdf {
   destroy(): Promise<void>;
 }
 
-/** The device ratio a page can be drawn at without passing {@link MAX_CANVAS_PIXELS}. */
+/**
+ * The device ratio a page can be drawn at without passing
+ * {@link MAX_CANVAS_PIXELS}: the device's own (1-3) when it fits, else the
+ * ratio at which the canvas IS the cap, however far below 1 that is.
+ *
+ * History (2026-11-09): the cap was floored at 0.5, so a page past 64 MP of
+ * CSS pixels (A1 or larger at the deepest zoom) was allocated past the cap
+ * it is named for: A0 at 400% took 57 MP. A page that large is drawn softer
+ * at that zoom; the canvas no longer grows with it.
+ */
 export function cappedPixelRatio(
   cssWidth: number,
   cssHeight: number,
@@ -49,8 +73,17 @@ export function cappedPixelRatio(
   const ratio = Math.max(1, Math.min(3, pixelRatio || 1));
   const area = cssWidth * cssHeight * ratio * ratio;
   if (area <= MAX_CANVAS_PIXELS || area === 0) return ratio;
-  return Math.max(0.5, Math.sqrt(MAX_CANVAS_PIXELS / (cssWidth * cssHeight)));
+  return Math.sqrt(MAX_CANVAS_PIXELS / (cssWidth * cssHeight));
 }
+
+/**
+ * Said beside the pages when the preflight found an over-budget image: the
+ * output paths' own sentence (they refuse such a file), then what this view
+ * does instead. The editor writes onto the file with pdf-lib and never
+ * rasterizes it, so the image is not removed by the view leaving it out.
+ */
+export const EDITOR_IMAGE_SKIPPED =
+  "The pages here are drawn without it; the editor does not remove it from your file.";
 
 /**
  * Open `bytes` for the editor's canvas. Rejects, typed, when the preflight
@@ -62,14 +95,19 @@ export function cappedPixelRatio(
 export async function openEditorPdf(bytes: Uint8Array): Promise<EditorPdf> {
   // ../pdfjs-guard is its own chunk, requested with pdfjs, not after it.
   const guardModule = import("../pdfjs-guard");
-  const pdfjsModule = loadPdfjs();
+  const pdfjsModule = editorPdfjs.load();
   pdfjsModule.catch(() => {});
   const guard = await guardModule;
-  await guard.preflightPdfjsOpen(bytes);
+  // A preview, as the thumbnails are (`createThumbnailRenderer`): an image
+  // over its raster budget is skipped by pdf.js before it decodes it (CO-08),
+  // so the page is drawn without it instead of stalling ~40 s on it.
+  const { previewOptions, overBudgetImage } =
+    await guard.preflightPdfjsOpen(bytes);
   const pdfjs = await pdfjsModule;
   const task = pdfjs.getDocument({
     data: bytes.slice(),
     ...PDFJS_DOCUMENT_DEFAULTS,
+    ...previewOptions,
   });
   const doc = await awaitPdfjsDocument(task);
   let numPages: number;
@@ -147,6 +185,9 @@ export async function openEditorPdf(bytes: Uint8Array): Promise<EditorPdf> {
 
   return {
     numPages,
+    imageNotice: overBudgetImage
+      ? `${guard.PDF_IMAGE_TOO_LARGE_MESSAGE} ${EDITOR_IMAGE_SKIPPED}`
+      : null,
     render,
     textContent,
     destroy: async () => {

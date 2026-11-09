@@ -191,6 +191,62 @@ describe("pdf.js consumers stay bounded on hostile streams", () => {
     expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
   }, 60_000);
 
+  test("CO-08 editor canvas: Edit/Annotate/Sign PDF draw page 1 in seconds, without the 100 MP image, and say so", async () => {
+    // History (2026-11-09): `openEditorPdf` ran the preflight but dropped its
+    // previewOptions, so the editor decoded the image the thumbnails skip:
+    // killed at this bound, where the thumbnails of the same file took
+    // seconds. A preview, not an output: the page is drawn without the image
+    // and the editor says so in the output paths' own sentence.
+    const v = settled(
+      await runBounded(CHILD, ["co08-editor-render"], 30_000, {
+        maxOldSpaceMb: 2048,
+      }),
+    );
+    expect(v).toMatchObject({ ok: true, drawn: true, size: [300, 200] });
+    // The image's place is the white sheet: skipped, not decoded.
+    expect(v.ink).toEqual([765, 765]);
+    expect(v.notice as string).toContain(PDF_IMAGE_TOO_LARGE_MESSAGE);
+    expect(v.renderMs as number).toBeLessThan(10_000);
+    expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
+  }, 60_000);
+
+  test("CO-08 editor canvas positive control: a 9 MP image is drawn, and nothing is said", async () => {
+    const v = settled(
+      await runBounded(CHILD, ["co08-control-editor-render"], 60_000, {
+        maxOldSpaceMb: 2048,
+      }),
+    );
+    expect(v).toMatchObject({ ok: true, drawn: true, size: [300, 200] });
+    // The image of zeros, painted: black where the skipped one left white.
+    expect(v.ink).toEqual([0, 0]);
+    expect(v.notice).toBeNull();
+  }, 90_000);
+
+  test("the editor canvas at its deepest zoom on an A0 page stays within MAX_CANVAS_PIXELS at every device ratio", async () => {
+    // History (2026-11-09): `cappedPixelRatio` floored the ratio at 0.5, so a
+    // page whose CSS area passed 64 MP (A0 at 400%: 228 MP) was allocated
+    // past the cap it is named for (57 MP here).
+    const { MAX_CANVAS_PIXELS } = await import("@/lib/pdf/editor/page-render");
+    const v = settled(
+      await runBounded(CHILD, ["editor-zoom-a0"], 60_000, {
+        maxOldSpaceMb: 2048,
+      }),
+    );
+    const renders = v.renders as { ratio: number; pixels: number | null }[];
+    // Health: three renders, each drawn (a null would pass any bound).
+    expect(renders.map((r) => r.ratio)).toEqual([1, 2, 3]);
+    for (const r of renders) {
+      expect(r.pixels, `ratio ${r.ratio}`).not.toBeNull();
+      expect(r.pixels!, `ratio ${r.ratio}`).toBeLessThanOrEqual(
+        MAX_CANVAS_PIXELS,
+      );
+      // And not starved: the cap is reached, not undershot by a factor.
+      expect(r.pixels!, `ratio ${r.ratio}`).toBeGreaterThan(
+        MAX_CANVAS_PIXELS * 0.99,
+      );
+    }
+  }, 90_000);
+
   test("CO-08 positive control: a 9 MP image page still rasterizes", async () => {
     const v = settled(
       await runBounded(CHILD, ["co08-control-raster"], 60_000, {

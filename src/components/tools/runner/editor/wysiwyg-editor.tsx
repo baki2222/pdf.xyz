@@ -2520,6 +2520,16 @@ export function WysiwygEditor({
           />
         )}
 
+        {doc?.imageNotice && (
+          <p
+            role="status"
+            data-image-notice=""
+            className="border-line bg-panel rounded-panel text-muted border px-3.5 py-2 text-xs"
+          >
+            {doc.imageNotice}
+          </p>
+        )}
+
         {runNotice && (
           <p
             role="status"

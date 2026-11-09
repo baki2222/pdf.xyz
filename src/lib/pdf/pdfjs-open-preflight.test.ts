@@ -176,6 +176,120 @@ function pdfjsOpens(source: string, fileName = "x.ts"): Open[] {
   return opens;
 }
 
+/**
+ * A pdf.js PAGE render: `<page>.render({ ..., viewport, ... })`, the shape of
+ * pdf.js's `PDFPageProxy.render`. Discovered by shape, so a new renderer is
+ * a subject the moment it is written. (`EditorPdf.render(index, scale, ...)`
+ * in the editor's components is not this shape: it is the editor's wrapper,
+ * and its open is judged where it is, in page-render.ts.)
+ */
+function isPageRender(node: ts.Node): node is ts.CallExpression {
+  if (!ts.isCallExpression(node) || calleeName(node) !== "render") return false;
+  const arg = node.arguments[0];
+  return (
+    !!arg &&
+    ts.isObjectLiteralExpression(arg) &&
+    arg.properties.some(
+      (p) =>
+        (ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p)) &&
+        ts.isIdentifier(p.name) &&
+        p.name.text === "viewport",
+    )
+  );
+}
+
+/** `...previewOptions` or `...x.previewOptions` among `call`'s options. */
+function spreadsPreviewOptions(call: ts.CallExpression): boolean {
+  const arg = call.arguments[0];
+  if (!arg || !ts.isObjectLiteralExpression(arg)) return false;
+  return arg.properties.some((p) => {
+    if (!ts.isSpreadAssignment(p)) return false;
+    const e = p.expression;
+    return (
+      (ts.isIdentifier(e) && e.text === "previewOptions") ||
+      (ts.isPropertyAccessExpression(e) && e.name.text === "previewOptions")
+    );
+  });
+}
+
+interface RenderingOpen {
+  line: number;
+  /** "preview" spreads previewOptions, "refuse" refuses first, else null. */
+  handled: "preview" | "refuse" | null;
+}
+
+/**
+ * In a file that renders pdf.js pages, every `getDocument(` call, and how it
+ * treats an image over its raster budget (CO-08): a PREVIEW spreads the
+ * preflight's `previewOptions` (pdf.js skips the image before decoding it);
+ * a path that WRITES pixels calls `refuseOverBudgetImages` first, on the
+ * straight path of the same function. `renders` is false when the file draws
+ * no page, and then nothing here applies to its opens.
+ */
+function renderingOpens(
+  source: string,
+  fileName = "x.ts",
+): { renders: boolean; opens: RenderingOpen[] } {
+  const file = ts.createSourceFile(
+    fileName,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  let renders = false;
+  const calls: ts.CallExpression[] = [];
+  const visit = (node: ts.Node) => {
+    if (isPageRender(node)) renders = true;
+    if (ts.isCallExpression(node) && calleeName(node) === "getDocument") {
+      calls.push(node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  const opens = calls.map((node): RenderingOpen => {
+    const line = file.getLineAndCharacterOfPosition(node.getStart(file)).line;
+    if (spreadsPreviewOptions(node))
+      return { line: line + 1, handled: "preview" };
+    let fn: ts.Node | undefined = node.parent;
+    while (fn && !isFunction(fn)) fn = fn.parent;
+    const body = fn && isFunction(fn) ? fn.body : undefined;
+    let refused = false;
+    const look = (n: ts.Node) => {
+      if (refused || (n !== body && isFunction(n))) return;
+      if (
+        ts.isCallExpression(n) &&
+        calleeName(n) === "refuseOverBudgetImages" &&
+        n.end <= node.getStart(file) &&
+        onStraightPath(n, body!) &&
+        onStraightPath(node, body!)
+      ) {
+        refused = true;
+        return;
+      }
+      ts.forEachChild(n, look);
+    };
+    if (body) look(body);
+    return { line: line + 1, handled: refused ? "refuse" : null };
+  });
+  return { renders, opens };
+}
+
+/**
+ * Rendering opens that neither preview nor refuse, each with why. A stale
+ * entry (the file no longer renders, or its opens are now handled) fails.
+ */
+const RENDER_EXEMPT: Record<string, string> = {
+  // OPEN (found 2026-11-09, lane editor-opener-budget): Auto-crop draws each
+  // page to find its content box, with neither option, so a CO-08 image is
+  // decoded in full. Neither fix is free: skipping the image would crop a
+  // page to the rest of its content (a wrong crop, said nowhere), and
+  // refusing changes what Crop PDF accepts. Listed so the guard can land
+  // without deciding Crop PDF's behaviour; it is a defect, not a licence.
+  "src/lib/pdf/auto-crop-render.ts":
+    "OPEN: decodes an over-budget image; preview-or-refuse is undecided",
+};
+
 describe("preflightPdfjsOpen runs once per file", () => {
   it("the same bytes get the same answer without a second scan; other bytes get their own", async () => {
     const { preflightPdfjsOpen } = await import("./pdfjs-guard");
@@ -361,6 +475,136 @@ describe("every pdf.js open in the browser awaits preflightPdfjsOpen first", () 
       "src/lib/pdf/text.ts",
     ]) {
       expect(guardedFiles, file).toContain(file);
+    }
+  });
+});
+
+describe("every pdf.js open that renders pages previews or refuses an over-budget image", () => {
+  const handled = (src: string) =>
+    renderingOpens(src).opens.map((o) => o.handled);
+  const RENDER = "  await page.render({ canvas, viewport });\n";
+
+  it("the predicates tell a preview, a refusal and a bare rendering open apart (positive and negative controls)", () => {
+    // Positive: a preview, by name and through the preflight's object.
+    expect(
+      handled(
+        `async function a(bytes) {\n  const { previewOptions } = await guard.preflightPdfjsOpen(bytes);\n  const t = pdfjs.getDocument({ data, ...DEFAULTS, ...previewOptions });\n${RENDER}}`,
+      ),
+    ).toEqual(["preview"]);
+    expect(
+      handled(
+        `async function a(bytes) {\n  const pre = await guard.preflightPdfjsOpen(bytes);\n  const t = pdfjs.getDocument({ data, ...pre.previewOptions });\n${RENDER}}`,
+      ),
+    ).toEqual(["preview"]);
+    // Positive: an output path that refuses first.
+    expect(
+      handled(
+        `async function a(bytes) {\n  guard.refuseOverBudgetImages(await guard.preflightPdfjsOpen(bytes));\n  const t = pdfjs.getDocument({ data });\n${RENDER}}`,
+      ),
+    ).toEqual(["refuse"]);
+    // Negative: the editor's open as it shipped, the preflight awaited and
+    // its options dropped.
+    expect(
+      handled(
+        `async function a(bytes) {\n  await guard.preflightPdfjsOpen(bytes);\n  const t = pdfjs.getDocument({ data, ...DEFAULTS });\n  const r = async () => { ${RENDER} };\n}`,
+      ),
+    ).toEqual([null]);
+    // Negative: some other spread, a refusal after the open, under a branch,
+    // or in another function.
+    expect(
+      handled(
+        `async function a() {\n  const t = pdfjs.getDocument({ data, ...options });\n${RENDER}}`,
+      ),
+    ).toEqual([null]);
+    expect(
+      handled(
+        `async function a(p) {\n  const t = pdfjs.getDocument({ data });\n  guard.refuseOverBudgetImages(p);\n${RENDER}}`,
+      ),
+    ).toEqual([null]);
+    expect(
+      handled(
+        `async function a(p, x) {\n  if (x) guard.refuseOverBudgetImages(p);\n  const t = pdfjs.getDocument({ data });\n${RENDER}}`,
+      ),
+    ).toEqual([null]);
+    expect(
+      handled(
+        `function pre(p) { guard.refuseOverBudgetImages(p); }\nasync function a() {\n  const t = pdfjs.getDocument({ data });\n${RENDER}}`,
+      ),
+    ).toEqual([null]);
+    // What counts as rendering: pdf.js's page.render({ viewport }), not the
+    // editor's wrapper `doc.render(index, scale, ratio)`, and not a comment.
+    expect(renderingOpens(`async function a() {\n${RENDER}}`).renders).toBe(
+      true,
+    );
+    expect(
+      renderingOpens(
+        "async function a() {\n  await page.render({ canvasContext: ctx, viewport: vp });\n}",
+      ).renders,
+    ).toBe(true);
+    expect(
+      renderingOpens("async function a() {\n  await doc.render(0, 1, 2);\n}")
+        .renders,
+    ).toBe(false);
+    expect(
+      renderingOpens(
+        "async function a() {\n  // page.render({ canvas, viewport });\n}",
+      ).renders,
+    ).toBe(false);
+  });
+
+  it("finds every rendering open in src/lib and src/components previewing or refusing", () => {
+    const files = SCOPES.flatMap(walk);
+    // Health: the walk read the codebase.
+    expect(files.length).toBeGreaterThan(300);
+    const read = files.map((path) => ({
+      file: relative(ROOT, path).replace(/\\/g, "/"),
+      ...renderingOpens(readFileSync(path, "utf8"), path),
+    }));
+    const rendering = read.filter((f) => f.renders);
+    // Every file that draws pdf.js pages opens its own document, so the rule
+    // above sees the open beside the draw. A file that draws a document
+    // opened elsewhere is a path this guard cannot follow: it fails here,
+    // for a person to extend the guard, never passes by omission.
+    expect(
+      rendering.filter((f) => f.opens.length === 0).map((f) => f.file),
+    ).toEqual([]);
+    // Health: the thumbnails and the raster output (render.ts), the editor
+    // canvas and Auto-crop. A collapse would mean the shape match broke.
+    expect(rendering.map((f) => f.file)).toEqual(
+      expect.arrayContaining([
+        "src/lib/pdf/render.ts",
+        "src/lib/pdf/editor/page-render.ts",
+        "src/lib/pdf/auto-crop-render.ts",
+      ]),
+    );
+    const bare = rendering.flatMap((f) =>
+      f.opens
+        .filter((o) => o.handled === null)
+        .map((o) => ({ at: `${f.file}:${o.line}`, file: f.file })),
+    );
+    // Every exemption is still a rendering file with a bare open.
+    for (const file of Object.keys(RENDER_EXEMPT)) {
+      expect(
+        bare.some((o) => o.file === file),
+        `${file} is exempt but no longer renders with a bare open`,
+      ).toBe(true);
+    }
+    expect(
+      bare.filter((o) => !(o.file in RENDER_EXEMPT)).map((o) => o.at),
+    ).toEqual([]);
+    // Both kinds are present, so neither predicate is blind in the real tree:
+    // the thumbnails and the editor preview, the raster output refuses.
+    const kinds = new Map(
+      rendering.flatMap((f) =>
+        f.opens.map((o) => [`${f.file}:${o.handled}`, o]),
+      ),
+    );
+    for (const want of [
+      "src/lib/pdf/render.ts:preview",
+      "src/lib/pdf/render.ts:refuse",
+      "src/lib/pdf/editor/page-render.ts:preview",
+    ]) {
+      expect(kinds.has(want), want).toBe(true);
     }
   });
 });
