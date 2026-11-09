@@ -53,7 +53,14 @@ interface CanvasLike {
 export async function renderPdfPages(
   pdf: Uint8Array,
   longSide = 160,
-  options: { standardFonts?: boolean } = {},
+  options: {
+    standardFonts?: boolean;
+    /**
+     * pdf.js's rendering intent. "print" paints what a printer receives: an
+     * annotation shows only with its Print flag, and a NoView one does.
+     */
+    intent?: "display" | "print";
+  } = {},
 ): Promise<RenderedPage[]> {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const task = pdfjs.getDocument({
@@ -102,6 +109,7 @@ export async function renderPdfPages(
         canvasContext: context as unknown as CanvasRenderingContext2D,
         viewport,
         background: "rgb(255,255,255)",
+        ...(options.intent ? { intent: options.intent } : {}),
       }).promise;
       out.push({
         width,
