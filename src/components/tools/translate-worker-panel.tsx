@@ -26,10 +26,38 @@ import {
 } from "@/lib/workers/ai-tool-availability";
 import {
   canRunTranslate,
+  canTranslateScans,
   runWorkerTranslate,
+  translateOcrJobPoll,
   translateTextDeps,
   type TranslateWorkerResult,
 } from "@/lib/workers/translate-client";
+import {
+  MAX_OCR_LANGUAGES,
+  PDF_TO_WORD_OCR_LANGUAGE_CODES,
+  type OcrLanguage,
+} from "@/lib/jobs/ocr";
+import {
+  TRANSLATE_OCR_CHARGE,
+  TRANSLATE_OCR_EXPLAINER,
+  TRANSLATE_OCR_SCOPE,
+  TRANSLATE_SCAN_CHECK,
+  translateOcrSourceNotInstalled,
+  translateOcrSourceNotOffered,
+  translateOcrSourceNotSelected,
+  translateSourceOcrPack,
+} from "@/lib/jobs/translate-ocr";
+// STATIC, NOT LAZY — decided 2026-11-09 on a review finding. The picker's
+// module (it also holds `useOcrLanguageChoice`, which `start` needs for the
+// languages it sends) weighed 2,742 B raw / 1,320 B gzip -9 inside this
+// panel's own lazy chunk, which only /tools/translate-pdf loads; the BCP-47
+// map 770 / 490. Splitting the UI out would save under 1.3 KB on that one
+// page and add a round trip after the scan check (the lazy-chunk waterfall).
+import {
+  OcrLanguagePicker,
+  useOcrLanguageChoice,
+  type OcrLanguageChoice,
+} from "./ocr-language-picker";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { PdfEngineError } from "@/lib/pdf/engine";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
@@ -137,9 +165,10 @@ export function TranslateWorkerPanel({
           configured AI model to translate only that text into your target
           language, then returns a translation package — Markdown, plain text,
           and a manifest recording the model and scope. It produces translated
-          text (not a layout-preserving PDF). With no AI model configured, or a
-          scanned PDF with no selectable text, the job fails instead of
-          guessing. The model is instructed to translate only the
+          text (not a layout-preserving PDF). With no AI model configured the
+          job fails instead of guessing. A scan with no selectable text is
+          recognised on our server first when it can do that, and refused before
+          upload when it cannot. The model is instructed to translate only the
           document&apos;s text, but AI output can still be wrong, so check
           important passages against your PDF.
         </>
@@ -185,6 +214,51 @@ function waitOptions(budget: JobPollBudget) {
 }
 
 const RUN_LABEL = "Translate PDF";
+
+/**
+ * OCR's language choice, preferring the pack of the Source language the
+ * reader set (review finding, 2026-11-09: Source = German still recognised
+ * the scan as English). The preference ranks above the browser's guess and
+ * below the reader's own picks, and applies only while the worker reports
+ * that pack installed. Wrapped HERE rather than inside `useOcrLanguageChoice`
+ * because that hook is first-load on OCR PDF, whose row had 0.12 KB left and
+ * a change there cost it the room (bundle-budget, measured).
+ */
+function useSourcePreferredOcrChoice(
+  base: OcrLanguageChoice,
+  preferred: OcrLanguage | null,
+): OcrLanguageChoice {
+  // The reader's picks made while a preference stood; `base` holds any made
+  // before one did, and then keeps them (`pickedFirst`).
+  const [own, setOwn] = useState<OcrLanguage[] | null>(null);
+  const [pickedFirst, setPickedFirst] = useState(false);
+  const usable = preferred && base.installed.has(preferred) ? preferred : null;
+  if (pickedFirst || (own === null && usable === null)) {
+    return {
+      ...base,
+      toggle: (code) => {
+        setPickedFirst(true);
+        base.toggle(code);
+      },
+    };
+  }
+  const kept = (own ?? [usable!]).filter((code) => base.installed.has(code));
+  const selected = kept.length > 0 ? kept : base.selected;
+  return {
+    ...base,
+    selected,
+    browserChose: false,
+    toggle: (code) => {
+      if (!base.installed.has(code)) return;
+      if (selected.includes(code)) {
+        if (selected.length > 1)
+          setOwn(selected.filter((entry) => entry !== code));
+        return;
+      }
+      if (selected.length < MAX_OCR_LANGUAGES) setOwn([...selected, code]);
+    },
+  };
+}
 
 function TranslateBuilder({
   tool,
@@ -253,6 +327,11 @@ function TranslateBuilder({
   const [scriptLanguage, setScriptLanguage] = useState<{
     file: File;
     language: TranslateLanguage | null;
+    /**
+     * The browser found no selectable text on any page — the preflight's own
+     * no-text verdict, so this and the refusal at Run cannot disagree.
+     */
+    scan: boolean;
   } | null>(null);
   useEffect(() => {
     if (!file) return;
@@ -263,6 +342,9 @@ function TranslateBuilder({
           setScriptLanguage({
             file,
             language: scriptOnlyLanguage(extracted.text),
+            scan:
+              translatePreflight(extracted, TRANSLATE_MAX_INPUT_CHARS)
+                .refusal === TRANSLATE_NO_TEXT_MESSAGE,
           });
       },
       // A PDF that cannot be read is reported when the run starts, in words.
@@ -277,8 +359,90 @@ function TranslateBuilder({
     scriptLanguage?.file === file &&
     scriptLanguage.language === targetLanguage;
 
+  /**
+   * OCR INSIDE TRANSLATE (audit translate-pdf#3). Offered only while the live
+   * status says an observed worker proves it (`translateOcr` and OCR itself):
+   * the worker image is published separately from this page, so merged code
+   * is not evidence. Otherwise a scan is refused at Run with today's sentence.
+   * The languages are PDF to Word's OCR set and picker — the worker validates
+   * them with the same parser.
+   */
+  const ocrOffered = canTranslateScans(status);
+  // THE SOURCE LANGUAGE ANSWERS THE OCR QUESTION TOO (review finding,
+  // 2026-11-09): Source = German used to recognise the scan as English —
+  // fluent nonsense, translated and charged. It preselects the matching
+  // pack until the reader picks for themselves, and a mismatch is said in
+  // place (`sourceOcrWarning`).
+  const sourcePack =
+    sourceLanguage === TRANSLATE_SOURCE_AUTO
+      ? null
+      : translateSourceOcrPack(sourceLanguage);
+  const ocrLanguages = useSourcePreferredOcrChoice(
+    useOcrLanguageChoice(status, PDF_TO_WORD_OCR_LANGUAGE_CODES),
+    sourcePack,
+  );
+  const sourceOcrWarning = (() => {
+    if (sourceLanguage === TRANSLATE_SOURCE_AUTO) return null;
+    const name = LANGUAGE_NAMES[sourceLanguage];
+    if (!sourcePack) return translateOcrSourceNotOffered(name);
+    if (!ocrLanguages.installed.has(sourcePack))
+      return translateOcrSourceNotInstalled(name);
+    if (!ocrLanguages.selected.includes(sourcePack))
+      return translateOcrSourceNotSelected(name);
+    return null;
+  })();
+  const scanDetected = scriptLanguage?.file === file && scriptLanguage.scan;
+  const recogniseScan = ocrOffered && scanDetected;
+
+  // THE SECTION IS BROUGHT TO THE READER when it appears for a file (review
+  // findings, 2026-11-09). It is inserted above Run — at 375 px it pushed the
+  // button about 1,100 px down — so focus moves to its heading, which scrolls
+  // it into view and announces it, unless the reader is typing somewhere.
+  const ocrHeading = useRef<HTMLParagraphElement>(null);
+  const ocrFocusedFor = useRef<File | null>(null);
+  useEffect(() => {
+    if (!recogniseScan || !file || ocrFocusedFor.current === file) return;
+    ocrFocusedFor.current = file;
+    const active = document.activeElement;
+    const typing =
+      active instanceof HTMLTextAreaElement ||
+      active instanceof HTMLSelectElement ||
+      (active instanceof HTMLInputElement && active.type !== "file");
+    if (!typing) ocrHeading.current?.focus();
+  }, [recogniseScan, file]);
+
   const start = useCallback(async () => {
     if (!file || !available) return;
+    // A SCAN IS SENT FOR OCR ONLY ONCE ITS SECTION HAS BEEN SHOWN (review
+    // finding, 2026-11-09). Run is enabled as soon as the file is listed, and
+    // a Run pressed before the scan check drew the section used to send an
+    // OCR job with the default languages — a third of the day — while the
+    // reader had seen neither the choice nor the price. If the check has not
+    // answered yet, this Run answers it; a scan then draws the section (which
+    // takes focus) and nothing is sent: the next Run is a deliberate one,
+    // with the picker and the charge on screen.
+    if (ocrOffered && !recogniseScan && scriptLanguage?.file !== file) {
+      let extracted: ExtractedPdfText | null = null;
+      try {
+        extracted = await extractionFor(file);
+      } catch {
+        // Reported in words by the run below.
+      }
+      if (
+        extracted &&
+        translatePreflight(extracted, TRANSLATE_MAX_INPUT_CHARS).refusal ===
+          TRANSLATE_NO_TEXT_MESSAGE
+      ) {
+        setScriptLanguage({
+          file,
+          language: scriptOnlyLanguage(extracted.text),
+          scan: true,
+        });
+        return;
+      }
+    }
+    // Read at the press: the section was on screen when Run was pressed.
+    const sendOcr = ocrOffered && recogniseScan;
     await run(async (controls) => {
       const trimmed = instructions.trim();
       const bytes = new Uint8Array(await file.arrayBuffer());
@@ -326,6 +490,34 @@ function TranslateBuilder({
         extracted,
         TRANSLATE_MAX_INPUT_CHARS,
       );
+      // A SCAN, AND THE RUNNING WORKER CAN RECOGNISE IT: send it with an OCR
+      // request instead of refusing. It declares no count — the browser found
+      // no text to count — so the route charges an undeclared run, and the
+      // worker caps the RECOGNISED text at that charge before any provider
+      // call. Decided from this run's own extraction AND the section having
+      // been shown at the press (`sendOcr`), so a quick click can send
+      // neither a typed PDF down this path nor a scan nobody was shown.
+      if (refusal === TRANSLATE_NO_TEXT_MESSAGE && sendOcr) {
+        return runWorkerTranslate(
+          {
+            filename: file.name,
+            bytes,
+            targetLanguage,
+            sourceLanguage,
+            ...(trimmed ? { instructions: trimmed } : {}),
+            ocr: { languages: ocrLanguages.selected },
+          },
+          {
+            ...controls,
+            // OCR, then at most the cap's worth of provider calls.
+            ...waitOptions(
+              translateOcrJobPoll(
+                Math.ceil(TRANSLATE_OCR_CHARGE / TRANSLATE_MAX_INPUT_CHARS),
+              ),
+            ),
+          },
+        );
+      }
       if (refusal !== null) return { ok: false, message: refusal };
 
       const result = await runWorkerTranslate(
@@ -364,6 +556,10 @@ function TranslateBuilder({
     extractionFor,
     run,
     available,
+    ocrOffered,
+    recogniseScan,
+    scriptLanguage,
+    ocrLanguages.selected,
   ]);
 
   return (
@@ -473,6 +669,37 @@ function TranslateBuilder({
         </label>
       </div>
 
+      {recogniseScan ? (
+        <section
+          aria-label="Recognise the scan's text first"
+          data-translate-ocr=""
+          className="border-line rounded-panel flex flex-col gap-3 border p-3"
+        >
+          <p
+            ref={ocrHeading}
+            tabIndex={-1}
+            className="text-fg text-sm font-medium outline-none"
+          >
+            Recognise the scan&apos;s text first
+          </p>
+          <p className="text-muted text-xs leading-relaxed">
+            {TRANSLATE_SCAN_CHECK}
+          </p>
+          <p className="text-muted text-xs leading-relaxed">
+            {TRANSLATE_OCR_EXPLAINER}
+          </p>
+          <p className="text-muted text-xs leading-relaxed">
+            {TRANSLATE_OCR_SCOPE}
+          </p>
+          {sourceOcrWarning ? (
+            <p className="text-warn text-xs leading-relaxed">
+              {sourceOcrWarning}
+            </p>
+          ) : null}
+          <OcrLanguagePicker choice={ocrLanguages} />
+        </section>
+      ) : null}
+
       <WorkerGate
         reserve={STATUS_SLOT}
         job={job}
@@ -512,11 +739,23 @@ function TranslateBuilder({
           <div className="flex flex-col gap-2">
             <p className="text-accent flex items-start gap-1.5 text-xs leading-relaxed">
               <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-              Your PDF uploads to a private secure-server job only when you
-              press {RUN_LABEL}. Our server sends only the PDF&apos;s selectable
-              text to a configured AI model — it does not read scanned images
-              (run OCR first) — and the model is told to translate only that
-              text. AI output can still be wrong.
+              {ocrOffered ? (
+                <>
+                  Your PDF uploads to a private secure-server job only when you
+                  press {RUN_LABEL}. Our server sends only the PDF&apos;s text
+                  to a configured AI model — its selectable text, or for a scan
+                  the text our server recognised in it — and the model is told
+                  to translate only that text. AI output can still be wrong.
+                </>
+              ) : (
+                <>
+                  Your PDF uploads to a private secure-server job only when you
+                  press {RUN_LABEL}. Our server sends only the PDF&apos;s
+                  selectable text to a configured AI model — it does not read
+                  scanned images (run OCR first) — and the model is told to
+                  translate only that text. AI output can still be wrong.
+                </>
+              )}
             </p>
             {/* Said only when the panel can run, inside the reserved slot:
                 above it, it pushed the whole slot down as the status

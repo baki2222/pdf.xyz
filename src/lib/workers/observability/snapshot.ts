@@ -303,6 +303,14 @@ const WORKER_CAPABILITY_PROMISES: Record<
       "PDF to Word puts each picture of a page in the document as a picture, between the text above and below it, at the size the page shows it, as its page says, not the text alone it delivered until 2026-10-17",
     proves: provenByFlag,
   },
+  translateOcr: {
+    label: "OCR inside Translate",
+    promise:
+      // Added 2026-11-09 (audit translate-pdf#3). The Translate panel offers
+      // it only while this and `ocr` both read true on a fresh heartbeat.
+      "Translate PDF recognises a scan on the worker in the language the reader picked and translates that text, instead of refusing the scan before upload, and runs no OCR on a PDF that already has text",
+    proves: provenByFlag,
+  },
 };
 
 /** One capability the subsystem asks the running worker about. */

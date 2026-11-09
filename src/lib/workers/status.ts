@@ -101,6 +101,17 @@ export interface WorkerStatus {
    * this, so it can never contradict the facet rows again.
    */
   pipeline: PipelineSummary;
+  /**
+   * Whether Translate PDF may offer to recognise a scan on the worker before
+   * translating it (audit translate-pdf#3). True only when an OBSERVED
+   * heartbeat proves both halves: `translateOcr` (this image's translate
+   * processor chains OCR) and `ocr` (OCR runs here). The worker image is
+   * published separately from this web tier (CLAUDE.md rule 5), so merged
+   * code is not evidence; until both read true the panel refuses a scan
+   * before upload, exactly as it did before. Optional so a status built by
+   * anything older reads as absent, which every reader treats as `false`.
+   */
+  translateOcr?: boolean;
 }
 
 const NO_COMPRESS: CompressCapability = {
@@ -207,6 +218,12 @@ export function buildWorkerStatus(
    * says so, rather than silently narrowing the menu to nothing.
    */
   workerOcrLanguages?: readonly string[],
+  /**
+   * Whether the observed worker's heartbeat proves `translateOcr`. Read only
+   * together with OCR's own availability below: chaining OCR is worth nothing
+   * on a worker that cannot run it.
+   */
+  workerTranslateOcr?: boolean,
 ): WorkerStatus {
   const ocr = buildOcrCapability(
     mode,
@@ -232,6 +249,8 @@ export function buildWorkerStatus(
     workerObserved === true,
     daemon.drainable,
   );
+  const translateOcr =
+    workerObserved === true && workerTranslateOcr === true && ocr.available;
 
   if (mode === "local-dev") {
     const engines = DEEP_COMPRESSION_TOOLS.filter((tool) => tools?.[tool]);
@@ -251,6 +270,7 @@ export function buildWorkerStatus(
       daemon,
       ai,
       pipeline,
+      translateOcr,
     };
   }
 
@@ -270,6 +290,7 @@ export function buildWorkerStatus(
       daemon,
       ai,
       pipeline,
+      translateOcr,
     };
   }
 
@@ -291,5 +312,6 @@ export function buildWorkerStatus(
     daemon,
     ai,
     pipeline,
+    translateOcr,
   };
 }

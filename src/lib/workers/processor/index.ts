@@ -143,7 +143,9 @@ export function createProcessorRegistry(
     registry.register(createSummarizeProcessor(deps.summarize));
   }
   if (deps.translate) {
-    registry.register(createTranslateProcessor(deps.translate));
+    // The same OCR instance again, for a scan whose translate job asks for
+    // OCR first (audit translate-pdf#3).
+    registry.register(createTranslateProcessor(deps.translate, { ocr }));
   }
   if (deps.aiExtract) {
     registry.register(createAiExtractProcessor(deps.aiExtract));

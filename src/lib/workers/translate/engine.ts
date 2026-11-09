@@ -49,8 +49,11 @@ import type { JobDeliveryCap } from "@/lib/jobs/delivery-cap";
  *
  * This is a real, honest AI translation engine — never a fabricated "here is your
  * translation" result. Given a PDF and validated options it:
- *   1. extracts the PDF's SELECTABLE text only (no OCR — a scanned/image-only PDF is
- *      honestly rejected as `no_text` and pointed at the OCR tool), then
+ *   1. extracts the PDF's SELECTABLE text only (this engine runs no OCR: a
+ *      scanned/image-only PDF is rejected as `no_text`. Since 2026-11-09 the
+ *      translate PROCESSOR may run OCR first, through `../processor/ocr-first`,
+ *      when the job asks for it and this extraction finds no text — the engine
+ *      then reads the searchable PDF OCR made, through this same path), then
  *   2. asks a configured {@link AiProvider} to translate ONLY that text into the
  *      requested language, then
  *   3. packages the model's real translation as a ZIP (translation.md +
@@ -241,6 +244,22 @@ const DEFAULT_MAX_INPUT_CHARS = AI_INPUT_LIMITS.maxInputCharacters;
 const UNBOUNDED_DELIVERY: DeliveryLimit = {
   characters: Number.POSITIVE_INFINITY,
 };
+
+/**
+ * Does this extraction hold text the engine will translate?
+ *
+ * ONE definition, read by the engine's `no_text` refusal below AND by the
+ * translate processor's decision to run OCR first (audit translate-pdf#3):
+ * OCR runs on exactly the documents this engine would otherwise refuse as
+ * having no text, and on nothing else. Two copies of the predicate would let
+ * a PDF with a text layer be recognised (and charged for) again, or a scan
+ * slip past OCR into the refusal.
+ */
+export function hasTranslatableText(
+  extracted: Pick<ExtractedPdfText, "hasText" | "text">,
+): boolean {
+  return extracted.hasText && extracted.text.trim().length > 0;
+}
 
 /** The honesty-critical system prompt: translate ONLY the provided text; invent nothing. */
 function buildSystemPrompt(
@@ -518,7 +537,7 @@ export async function runTranslate(
   }
 
   const sourceText = extracted.text.trim();
-  if (!extracted.hasText || sourceText.length === 0) {
+  if (!hasTranslatableText(extracted)) {
     return {
       ok: false,
       kind: "no_text",

@@ -420,8 +420,10 @@ describe("every registered worker batch, through its page's own panel", () => {
     const now = screen.getByRole("button", { name: "Continue now" });
     expect(now).toHaveAttribute("aria-disabled", "true");
     // The batch's own Cancel went away with the pause, and focus with it:
-    // focus is on Continue now, which the pause sentences describe.
-    expect(document.activeElement).toBe(now);
+    // focus is on Continue now, which the pause sentences describe. Awaited:
+    // the focus moves in an effect after the pause renders, and CI under load
+    // read activeElement before it ran (PR #304, 2026-11-09; 3/3 green here).
+    await waitFor(() => expect(document.activeElement).toBe(now));
     const described = (now.getAttribute("aria-describedby") ?? "")
       .split(" ")
       .map((id) => document.getElementById(id)?.textContent ?? "")
@@ -443,8 +445,10 @@ describe("every registered worker batch, through its page's own panel", () => {
     expect(net.jobs()).toBe(2);
     // One outcome per FILE: the refused attempt is not a run of the tool.
     expect(outcomes()).toEqual(["tool_completed", "tool_completed"]);
-    // Control: once the batch has ended, nothing holds the page.
-    expect(unsavedLabels()).toEqual([]);
+    // Control: once the batch has ended, nothing holds the page. Awaited:
+    // the hold is released by an effect after "Batch complete" renders, and
+    // CI under load read the label before it ran (PR #304, 2026-11-09).
+    await waitFor(() => expect(unsavedLabels()).toEqual([]));
     const after = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(after);
     expect(after.defaultPrevented).toBe(false);
@@ -503,7 +507,8 @@ describe("every registered worker batch, through its page's own panel", () => {
     await screen.findByText("Batch complete. 2 done, 0 failed.", undefined, {
       timeout: 5000,
     });
-    expect(unsavedLabels()).toEqual([]);
+    // Awaited, as above: the hold is released by an effect after the end.
+    await waitFor(() => expect(unsavedLabels()).toEqual([]));
   });
 
   // One tool per panel module: the set is the registration, grouped by the
