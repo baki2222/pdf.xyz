@@ -43,6 +43,12 @@ import {
   translateOcrSourceNotOffered,
   translateOcrSourceNotSelected,
 } from "@/lib/jobs/translate-ocr";
+// STATIC, NOT LAZY — decided 2026-11-09 on a review finding. The picker's
+// module (it also holds `useOcrLanguageChoice`, which `start` needs for the
+// languages it sends) weighed 2,742 B raw / 1,320 B gzip -9 inside this
+// panel's own lazy chunk, which only /tools/translate-pdf loads; the BCP-47
+// map 770 / 490. Splitting the UI out would save under 1.3 KB on that one
+// page and add a round trip after the scan check (the lazy-chunk waterfall).
 import { OcrLanguagePicker, useOcrLanguageChoice } from "./ocr-language-picker";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { PdfEngineError } from "@/lib/pdf/engine";
