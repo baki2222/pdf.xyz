@@ -420,8 +420,10 @@ describe("every registered worker batch, through its page's own panel", () => {
     const now = screen.getByRole("button", { name: "Continue now" });
     expect(now).toHaveAttribute("aria-disabled", "true");
     // The batch's own Cancel went away with the pause, and focus with it:
-    // focus is on Continue now, which the pause sentences describe.
-    expect(document.activeElement).toBe(now);
+    // focus is on Continue now, which the pause sentences describe. Awaited:
+    // the focus moves in an effect after the pause renders, and CI under load
+    // read activeElement before it ran (PR #304, 2026-11-09; 3/3 green here).
+    await waitFor(() => expect(document.activeElement).toBe(now));
     const described = (now.getAttribute("aria-describedby") ?? "")
       .split(" ")
       .map((id) => document.getElementById(id)?.textContent ?? "")

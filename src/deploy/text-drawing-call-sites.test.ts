@@ -230,7 +230,15 @@ describe("text-drawing call sites", () => {
     // make-grant-base.ts and src/tests/signed-pdf.ts. All 36 members were
     // printed and diffed against main (34): those two are the only new ones,
     // real members, not a widened scan.
-    expect(drawing.length).toBeLessThan(42);
+    // 42 until 2026-11-09, when PR #304's tree (main at #303 plus
+    // translate-pdf#3) reached exactly 42. All 42 members were printed and
+    // checked against main at 89486c09. The only files new since then are
+    // src/components/tools/runner/editor/handwriting-faces.ts (#303: it
+    // embeds a handwriting face through pdf-lib to measure a typed name as
+    // the export will) and src/lib/probes/translate-ocr-proof.ts (#304: the
+    // capability probe draws its scan's words through embedDrawingFont).
+    // Both are real members, not a widened scan.
+    expect(drawing.length).toBeLessThan(48);
   });
 
   it("finds the modules that are known to draw text", () => {
