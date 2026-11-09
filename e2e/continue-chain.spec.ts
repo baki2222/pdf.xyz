@@ -41,6 +41,7 @@ import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
 import { RESULT_ENDING_CHUNK } from "../src/components/intent/result-ending-chunk";
 import { supportedToolSlugs } from "../src/lib/pdf/registry";
 import { getToolBySlug } from "../src/lib/tools";
+import { writesNothing } from "../src/lib/intent/next-steps";
 import { RECENTS_STORAGE_KEY } from "../src/lib/intent/recents-key";
 import { USER_PASSWORD_PDF_BASE64 } from "../src/tests/fixtures-encrypted";
 import { READY_WORKER_STATUS } from "../src/tests/ready-worker-status";
@@ -1172,12 +1173,17 @@ for (const screen of [
  */
 const ENDING_LATE_MS = 700;
 /**
- * A tool that makes no file (its catalogue row lists no outputs: PDF
- * Viewer, 2026-11-10) has no Run press and no result, so it draws no
- * receipt: it is held to the pick half only (below), never dropped.
+ * A tool that makes no file (PDF Viewer, 2026-11-10) has no Run press and
+ * no result, so it draws no receipt: it is held to the pick half only
+ * (below), never dropped. Which tools those are is `writesNothing`, the
+ * one definition the Continue plan and the hand-off origin also read
+ * (next-steps.test.ts ties it to `outputs` being empty, both ways).
  */
 const VIEW_ONLY = supportedToolSlugs
-  .filter((slug) => getToolBySlug(slug)?.outputs.length === 0)
+  .filter((slug) => {
+    const tool = getToolBySlug(slug);
+    return tool !== undefined && writesNothing(tool);
+  })
   .sort();
 const ENDING_SET = supportedToolSlugs
   .filter((slug) => !VIEW_ONLY.includes(slug))
@@ -1282,7 +1288,7 @@ test("health: the set of tools with an ending is the registry's, every one has a
   expect(ENDING_SET.length).toBeGreaterThanOrEqual(25);
   expect(ENDING_SET.filter((slug) => !(slug in CASES))).toEqual([]);
   // Every registered tool is held to one of the two loops, and the
-  // view-only set is the catalogue's (no outputs), not a typed list.
+  // view-only set is `writesNothing`'s, not a typed list.
   expect([...ENDING_SET, ...VIEW_ONLY].sort()).toEqual(
     [...supportedToolSlugs].sort(),
   );

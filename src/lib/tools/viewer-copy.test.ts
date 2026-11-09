@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import content from "./content/pdf-viewer";
+import { getToolBySlug, tools } from "@/lib/tools";
+import { CONTINUE_SHOWN, continueTargetsFor } from "@/lib/intent/next-steps";
 import { RUNNER_FILE_CEILINGS } from "./file-ceilings";
 import {
   VIEWER_LIVE_PAGES,
@@ -89,5 +91,29 @@ describe("PDF Viewer copy states the numbers it enforces", () => {
     );
     // A short document prints whole, and nothing is said.
     expect(viewerPrintNote(printPlan([letter, letter]), 2)).toBeNull();
+  });
+});
+
+describe("the Do more row the copy promises", () => {
+  it("names exactly the tools the row offers, in its order, read from the catalogue's plan", () => {
+    // History (review, 2026-11-10): the use case typed four tool names,
+    // and reordering `next` in catalog.ts left this file green.
+    const plan = continueTargetsFor(getToolBySlug("pdf-viewer")!, tools);
+    // As the row orders one file: tools that combine several go last.
+    const shown = [
+      ...plan.targets.filter((t) => !t.combines),
+      ...plan.targets.filter((t) => t.combines),
+    ]
+      .slice(0, CONTINUE_SHOWN)
+      .map((t) => t.name);
+    // Health: the row has something to show.
+    expect(shown.length).toBe(CONTINUE_SHOWN);
+    const list = `${shown.slice(0, -1).join(", ")} or ${shown.at(-1)}`;
+    const useCase = content.useCases.find((u) =>
+      u.body.includes(VIEWER_LABELS.doMore),
+    );
+    expect(useCase?.body).toContain(
+      `on to ${list} from the ${VIEWER_LABELS.doMore} list`,
+    );
   });
 });

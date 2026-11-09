@@ -12,6 +12,11 @@ import {
   viewerProofPdf,
 } from "../src/tests/viewer-fixtures";
 import { ownerOnlyEncryptedPdf } from "../src/tests/encrypted-pdf-fixture";
+import {
+  CONTINUE_SHOWN,
+  continueTargetsFor,
+} from "../src/lib/intent/next-steps";
+import { getToolBySlug, tools } from "../src/lib/tools";
 
 /**
  * The PDF Viewer at the point of consumption: the served build, a real
@@ -228,6 +233,55 @@ test.describe("PDF Viewer", () => {
 
     // Nothing was sent anywhere.
     expect(writes).toEqual([]);
+  });
+
+  test("Do more with this PDF: the catalogue's rows, and the next tool is told the file is the one opened, unchanged", async ({
+    page,
+  }) => {
+    // History (review, 2026-11-10): the row launched with origin "result",
+    // so the target page said "Loaded your result from PDF Viewer." of the
+    // visitor's own file and marked the viewer "(done)" in the job's
+    // steps; and no test reached the row at all.
+    test.setTimeout(60_000);
+    await open(page);
+    const viewer = getToolBySlug("pdf-viewer")!;
+    const plan = continueTargetsFor(viewer, tools);
+    const expected = [
+      ...plan.targets.filter((t) => !t.combines),
+      ...plan.targets.filter((t) => t.combines),
+    ]
+      .slice(0, CONTINUE_SHOWN)
+      .map((t) => t.name);
+    // Health: the plan has rows to show.
+    expect(expected.length).toBe(CONTINUE_SHOWN);
+    const doMore = page.getByRole("region", { name: VIEWER_LABELS.doMore });
+    const rows = doMore.locator("[data-continue-with] li a");
+    await expect(rows).toHaveCount(expected.length, { timeout: 20_000 });
+    const names = await rows.evaluateAll((els) =>
+      els.map(
+        (el) =>
+          /^Continue with (.+?) · /.exec(
+            el.getAttribute("aria-label") ?? "",
+          )?.[1] ?? "",
+      ),
+    );
+    expect(names).toEqual(expected);
+
+    await rows.first().click();
+    const target = getToolBySlug(
+      plan.targets.find((t) => t.name === expected[0])!.slug,
+    )!;
+    await page.waitForURL(`**/tools/${target.slug}**`, { timeout: 20_000 });
+    const notice = page.getByText(/^Loaded .* from PDF Viewer/);
+    await expect(notice).toHaveText(
+      "Loaded proof.pdf from PDF Viewer, unchanged.",
+      { timeout: 20_000 },
+    );
+    await expect(page.getByText(/Loaded your result/)).toHaveCount(0);
+    // The viewer is no step of the job: the steps rail does not list it.
+    await expect(
+      page.locator("[data-ticket-rail]").getByText("PDF Viewer"),
+    ).toHaveCount(0);
   });
 
   test("keys work inside the viewer, and Ctrl+P is left to the browser", async ({

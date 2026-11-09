@@ -49,6 +49,11 @@ export type HandoffOrigin =
   | { readonly kind: "drop"; readonly surface: DropSurface }
   /** The output of a tool, carried to the next one. */
   | { readonly kind: "result"; readonly fromSlug: string }
+  /**
+   * The file a tool that writes nothing (the PDF Viewer) had open, carried
+   * on unchanged: never "your result", since that tool made none.
+   */
+  | { readonly kind: "opened"; readonly fromSlug: string }
   /** A tool could not open the file, and sent it to the tool that fixes that. */
   | {
       readonly kind: "remedy";
@@ -67,6 +72,7 @@ export const HANDOFF_ORIGINS = [
   "workspace",
   "drop",
   "result",
+  "opened",
   "remedy",
   "hint",
 ] as const satisfies readonly HandoffOrigin["kind"][];
@@ -127,6 +133,10 @@ export function readOrigin(raw: unknown): HandoffOrigin {
     case "result":
       return isSlug(o.fromSlug)
         ? { kind: "result", fromSlug: o.fromSlug }
+        : fallback;
+    case "opened":
+      return isSlug(o.fromSlug)
+        ? { kind: "opened", fromSlug: o.fromSlug }
         : fallback;
     case "remedy":
       return isSlug(o.fromSlug) &&
@@ -222,6 +232,11 @@ export function originPhrase(
       return count <= 1
         ? `Loaded your result from ${from}.`
         : `Loaded ${files(count)}, with your result from ${from}.`;
+    case "opened":
+      // The file as it was opened: that tool wrote nothing to call a result.
+      return count <= 1
+        ? `Loaded ${fileName ?? "your file"} from ${from}, unchanged.`
+        : `Loaded ${files(count)} from ${from}, unchanged.`;
     case "remedy": {
       const what = fileName ?? "your file";
       const why = origin.problem === "encrypted" ? "unlock" : "repair";

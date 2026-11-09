@@ -146,6 +146,7 @@ export function HandoffLoadedBadge({
   const names = useToolRun()?.names;
   const fromName =
     origin.kind === "result" ||
+    origin.kind === "opened" ||
     origin.kind === "remedy" ||
     origin.kind === "hint"
       ? names && Object.hasOwn(names, origin.fromSlug)

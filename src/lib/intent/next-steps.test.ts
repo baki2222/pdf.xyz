@@ -34,13 +34,15 @@ import { toolFileCeilingBytes } from "@/lib/tools/file-ceilings";
 import { PDF_ENGINE_ERROR_KINDS } from "@/lib/pdf/engine";
 import { remedyFor } from "@/lib/pdf/remedies";
 import type { Tool } from "@/lib/tools/types";
-import { getRunnerKind } from "@/lib/pdf/registry";
+import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
 import {
   CONTINUE_SHOWN,
   FINISHING_STEPS,
   FIX_ONLY,
   NO_CONTINUE,
   WRITES_NOTHING_KINDS,
+  continueHandoff,
+  writesNothing,
   continueTargetsFor,
   handedOnFormats,
   isInverse,
@@ -282,6 +284,41 @@ describe("a tool that writes nothing hands on the file it opened", () => {
     const pretend: Tool = { ...tool("pdf-viewer"), slug: "not-a-runner" };
     expect(handedOnFormats(pretend)).toEqual([]);
     expect(continueTargetsFor(pretend, tools).targets).toEqual([]);
+  });
+
+  it("ONE definition: among registered tools, writing nothing is exactly listing no outputs", () => {
+    // The e2e loops (continue-chain.spec.ts) and the hand-off origin read
+    // `writesNothing`; this ties it to the catalogue both ways, so a tool
+    // with no outputs outside the kinds, or a view tool given outputs, is
+    // a red test here rather than two silently different sets.
+    // The set the e2e loops walk: every registered tool.
+    const registered = supportedToolSlugs.map((slug) => tool(slug));
+    const noOutputs = registered
+      .filter((t) => t.outputs.length === 0)
+      .map((t) => t.slug)
+      .sort();
+    const nothing = registered
+      .filter((t) => writesNothing(t))
+      .map((t) => t.slug)
+      .sort();
+    // Health: both sets are non-empty and the registry is the catalogue's.
+    expect(registered.length).toBeGreaterThan(30);
+    expect(nothing).toContain("pdf-viewer");
+    expect(nothing).toEqual(noOutputs);
+  });
+
+  it("the hand-off from a tool that writes nothing is the file it opened, and no step of the job", () => {
+    const viewer = tool("pdf-viewer");
+    expect(continueHandoff(viewer, ["merge-pdf"])).toEqual({
+      origin: { kind: "opened", fromSlug: "pdf-viewer" },
+      trail: ["merge-pdf"],
+    });
+    // Positive control: a tool that writes a file hands on its result, and
+    // joins the trail.
+    expect(continueHandoff(tool("merge-pdf"), [])).toEqual({
+      origin: { kind: "result", fromSlug: "merge-pdf" },
+      trail: ["merge-pdf"],
+    });
   });
 
   it("POSITIVE CONTROL: with the rule switched off, the viewer is a dead end and its `next` does not resolve", () => {
