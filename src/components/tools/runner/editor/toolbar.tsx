@@ -39,7 +39,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { MAX_ZOOM, MIN_ZOOM } from "@/lib/pdf/editor/geometry";
+import { MAX_ZOOM, MIN_ZOOM, ZOOM_STEPS } from "@/lib/pdf/editor/geometry";
 import { MARKUP_KINDS, type EditorKind } from "@/lib/pdf/offered-kinds";
 import type { EditorFieldType } from "@/lib/pdf/editor/model";
 import { HIGHLIGHTER_LABEL, TEXT_MARKUP_LABEL } from "@/lib/pdf/editor/markup";
@@ -207,7 +207,7 @@ export const TOOL_BUTTONS: ToolButtonSpec[] = TOOL_GROUPS.flatMap((g) =>
   g.tools.map((t) => SPEC[t]),
 );
 
-export const ZOOM_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
+export { ZOOM_STEPS };
 
 /**
  * What a restricted PDF whose author allows comments lets you do (the help

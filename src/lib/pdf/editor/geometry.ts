@@ -25,6 +25,11 @@ export const CSS_PX_PER_PT = 96 / 72;
 export const MIN_ZOOM = 0.5;
 export const MAX_ZOOM = 4;
 /**
+ * The zoom menu's steps, MIN_ZOOM to MAX_ZOOM, shared by the editor's
+ * toolbar and the PDF Viewer (moved here from the toolbar on 2026-11-10).
+ */
+export const ZOOM_STEPS: readonly number[] = [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
+/**
  * Fit width may go below {@link MIN_ZOOM}: a Letter page on a 360 px phone
  * fits at about 34%, and holding it at 50% would put half the page off
  * screen at the zoom that is supposed to show all of its width.
