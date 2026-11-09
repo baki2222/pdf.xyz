@@ -25,6 +25,7 @@ import fillForms from "./fill-forms";
 import flattenPdf from "./flatten-pdf";
 import grayscalePdf from "./grayscale-pdf";
 import headerFooter from "./header-footer";
+import bookletPdf from "./booklet-pdf";
 import epubToPdf from "./epub-to-pdf";
 import htmlToPdf from "./html-to-pdf";
 import jpgToPdf from "./jpg-to-pdf";
@@ -73,6 +74,7 @@ export const toolContent: Readonly<Record<string, ToolContent>> =
     [
       aiExtract,
       annotatePdf,
+      bookletPdf,
       chatWithPdf,
       comparePdf,
       compressPdf,

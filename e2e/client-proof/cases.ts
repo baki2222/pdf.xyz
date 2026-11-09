@@ -73,6 +73,7 @@ import {
   N_UP_SHEETS,
   nUpPdf,
 } from "../../src/lib/pdf/n-up";
+import { BOOKLET_SHEETS } from "../../src/lib/pdf/booklet";
 import {
   JPEG_30X20_EXIF6,
   JPEG_HEIGHT,
@@ -463,6 +464,13 @@ const RESIZE_FAILS = {
 const NUP_FAILS = {
   sheets: "four pages, two to a portrait A4 sheet",
   order: "page 1 above page 2 on sheet 1, page 3 above page 4 on sheet 2",
+} as const;
+/** Why the PDF Booklet Maker proof (2026-11-09) rejects an artifact. */
+const BOOKLET_FAILS = {
+  sides:
+    "six pages become four landscape A4 sides (two sheets, two blanks added)",
+  order:
+    "the sides read blank|1, 2|blank, 6|3, 4|5 — booklet order, padded to 8",
 } as const;
 /** Why the Split PDF Pages in Half proof (2026-11-01) rejects an artifact. */
 const SPLIT_HALF_FAILS = {
@@ -2213,6 +2221,75 @@ export const CASES: Record<string, ToolCase> = {
     rejectsBecause: [NUP_FAILS.sheets, NUP_FAILS.order],
   },
 
+  "booklet-pdf": {
+    kind: "n-up",
+    artifact: "pdf",
+    // Six pages with the defaults (A4, Left edge, Short edge, no margin):
+    // padded to 8, two sheets, four sides. Each side's halves are read by
+    // where each page's marker lands, left or right of the fold.
+    run: async (ctx) => {
+      await uploadTextPdf(ctx, "zine.pdf", { pages: 6 });
+      return runAndDownload(
+        ctx,
+        /^create booklet$/i,
+        /booklet created/i,
+        /^download pdf$/i,
+      );
+    },
+    assert: async (buf) => {
+      const sides = await pdfTextPositions(buf);
+      expect(sides.length, BOOKLET_FAILS.sides).toBe(4);
+      const a4 = BOOKLET_SHEETS.find((s) => s.id === "a4")!.size!;
+      const read = sides.map((side) => {
+        expect(
+          [Math.round(side.width), Math.round(side.height)],
+          BOOKLET_FAILS.sides,
+        ).toEqual([Math.round(a4.height), Math.round(a4.width)]);
+        const half = (left: boolean) =>
+          [1, 2, 3, 4, 5, 6]
+            .filter((n) =>
+              side.runs.some(
+                (r) =>
+                  r.str.includes(marker("zine.pdf", n)) &&
+                  r.x < side.width / 2 === left,
+              ),
+            )
+            .join("+") || "_";
+        return `${half(true)}|${half(false)}`;
+      });
+      expect(read.join(" "), BOOKLET_FAILS.order).toBe("_|1 2|_ 6|3 4|5");
+    },
+    // Both made by Multiple Pages per Sheet's writer, two to a landscape A4
+    // sheet with no margin, so the size matches and only the order differs:
+    // 1. n-up order: the pages in their own order, padded to 8;
+    // 2. booklet order WITHOUT the padding (6 used where 8 belongs):
+    //    6|1, 2|5, 4|3, 4|3.
+    control: async (ctx) => {
+      const source = input(ctx, "zine.pdf");
+      const doc = await PDFDocument.load(source);
+      const laid = async (order: (number | null)[]) => {
+        const out = await PDFDocument.create();
+        for (const n of order) {
+          if (n === null) out.addPage([320, 240]);
+          else out.addPage((await out.copyPages(doc, [n - 1]))[0]!);
+        }
+        const r = await nUpPdf(await out.save(), {
+          ...DEFAULT_N_UP_OPTIONS,
+          perSheet: 2,
+          sheet: "a4",
+          orientation: "landscape",
+          margin: "none",
+        });
+        return Buffer.from(r.bytes);
+      };
+      return [
+        await laid([1, 2, 3, 4, 5, 6, null, null]),
+        await laid([6, 1, 2, 5, 4, 3, 4, 3]),
+      ];
+    },
+    rejectsBecause: [BOOKLET_FAILS.order, BOOKLET_FAILS.order],
+  },
+
   "split-pdf-pages-in-half": {
     kind: "split-half",
     artifact: "pdf",
@@ -3723,6 +3800,8 @@ export const PROOF_LIMITS: Record<string, string> = {
     "Only the defaults: A4, Match each page, Scale content to fit, all pages. Change canvas only, custom sizes and units, selected pages, pages carrying /Rotate or an inset CropBox, and links moved with the content are proven in Node by src/lib/pdf/resize.test.ts, through pdf.js, not in a real browser.",
   "n-up-pdf":
     "Only the defaults: 2 per sheet, A4, Auto (portrait here), Across, then down, Small margin, no borders. Every other count per sheet, Down, then across, US Letter, borders and /Rotate pages are proven in Node by src/lib/pdf/n-up.test.ts, through pdf.js, not in a real browser.",
+  "booklet-pdf":
+    "Only the defaults: A4, Left edge, Short edge, no margin, back cover off, on six unrotated pages. Long edge (backs turned 180°), the right-edge binding, the back cover, Two pages at full size, margins, /Rotate pages, an inset CropBox and the 1-to-17-page orders are proven in Node by src/lib/pdf/booklet.test.ts, which reads every output side back with pdf.js, not in a real browser.",
   "split-pdf-pages-in-half":
     "Only the defaults: Left and right, Left page first, every page, on unrotated pages. Right page first, Top and bottom, Selected pages, the two cover checkboxes, /Rotate pages and an existing CropBox are proven in Node by src/lib/pdf/split-half.test.ts, which renders every output half through pdf.js against the source page's own render, not in a real browser.",
   "sign-pdf":

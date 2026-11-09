@@ -341,18 +341,31 @@ export function CheckboxField({
   checked,
   onChange,
   hint,
+  disabled,
 }: {
   label: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
   hint?: ReactNode;
+  /** Off, with the reason in `hint`. */
+  disabled?: boolean;
 }) {
   return (
-    <label className="text-fg inline-flex cursor-pointer items-start gap-2 text-sm">
+    <label
+      className={cn(
+        "text-fg inline-flex items-start gap-2 text-sm",
+        disabled ? "cursor-not-allowed" : "cursor-pointer",
+      )}
+    >
       <input
         type="checkbox"
         checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
+        // aria-disabled, not disabled: an off box stays in the focus order,
+        // so a keyboard user reaches it and its reason.
+        aria-disabled={disabled || undefined}
+        onChange={(event) => {
+          if (!disabled) onChange(event.target.checked);
+        }}
         className="accent-accent mt-0.5 size-4 shrink-0"
       />
       <span className="flex flex-col gap-0.5">

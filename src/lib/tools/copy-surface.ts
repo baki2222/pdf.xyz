@@ -352,6 +352,10 @@ export function copyFiles(): string[] {
     path.join(ROOT, "src", "lib", "pdf", "n-up.ts"),
     // Split PDF Pages in Half (2026-11-01): its option labels, hints and refusals.
     path.join(ROOT, "src", "lib", "pdf", "split-half.ts"),
+    // PDF Booklet Maker (2026-11-09): its option labels, the back-cover
+    // reasons and its refusals. sheet-embed.ts, the page embedding it shares
+    // with n-up, holds no sentence: each caller passes its own refusal.
+    path.join(ROOT, "src", "lib", "pdf", "booklet.ts"),
     path.join(ROOT, "src", "lib", "workers", "read-error.ts"),
     // EPUB to PDF (2026-11-06): its refusals, its options' field errors and
     // its processor's readiness sentence.
