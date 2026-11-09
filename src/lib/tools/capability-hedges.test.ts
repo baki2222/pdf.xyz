@@ -421,6 +421,17 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
       /\bpictures?\b(?:[^.?!]|\.(?=\w)){0,80}\b(?:Word|DOCX)\b|\b(?:Word|DOCX)\b(?:[^.?!]|\.(?=\w)){0,80}\bpictures?\b/i,
     catalogueCopy: true,
   },
+  translateOcr: {
+    // Added 2026-11-09 with the key (audit translate-pdf#3). The sentences a
+    // hedge about it would sit in: a scan recognised ON OUR SERVER, the way
+    // Translate's copy says it (`TRANSLATE_SCAN_ROUTE`, "recognised on our
+    // server first"). Not bare "recognise": OCR PDF's own page recognises
+    // text everywhere, and is the `ocr` subject's. Measured that day — see
+    // "the translateOcr subject reaches Translate's scan sentences".
+    subject:
+      /recogni[sz]es? the text on our server|recogni[sz]ed on our server first|scan[^.?!]{0,80}recogni[sz]ed on our server/i,
+    catalogueCopy: true,
+  },
 };
 
 /* ------------------------------------------------------------------ *
@@ -1059,5 +1070,45 @@ describe("catalogue copy may not hedge a worker capability", () => {
         ({ where }) => where,
       ),
     ).toEqual([]);
+  });
+});
+
+describe("the translateOcr subject (audit translate-pdf#3, 2026-11-09)", () => {
+  /**
+   * BOTH DIRECTIONS (house rule 1). Measured when the key landed, over the
+   * whole corpus (5,079 entries): exactly these seven — Translate PDF's
+   * step 4, its scan FAQ answer, intro[2] and the scanned-letter use case,
+   * and the translate guide's step 2, scan section and scan FAQ answer. A
+   * member elsewhere is a sentence about this capability nobody paired; a
+   * missing one is the subject going blind to the copy it guards.
+   */
+  it("reaches Translate's scan sentences, and nothing else", () => {
+    const members = COPY.filter((entry) =>
+      SUBJECTS.translateOcr!.subject.test(entry.text),
+    ).map((entry) => `${entry.slug} ${entry.where}`);
+    expect(members.sort()).toEqual(
+      [
+        "translate-pdf how[3]",
+        "translate-pdf faq[1].answer",
+        "translate-pdf intro[2]",
+        "translate-pdf useCases[3].body",
+        "guide:how-to-translate-a-pdf steps[1]",
+        "guide:how-to-translate-a-pdf sections[3].body[0]",
+        "guide:how-to-translate-a-pdf faq[5].answer",
+      ].sort(),
+    );
+  });
+
+  it("positive control: a deferral planted in Translate's scan sentence is caught", () => {
+    const planted: CopyEntry = {
+      slug: "translate-pdf",
+      where: "faq[1].answer",
+      text: "A scan is recognised on our server first (coming soon), then translated.",
+    };
+    expect(
+      hedgeOffenders([planted], []).some((line) =>
+        line.includes('hedges "translateOcr"'),
+      ),
+    ).toBe(true);
   });
 });
