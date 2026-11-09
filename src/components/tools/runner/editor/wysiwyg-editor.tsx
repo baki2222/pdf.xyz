@@ -70,8 +70,6 @@ import {
   rectsIntersect,
   resizeObject,
   setLineEndpoint,
-  typedSignatureObject,
-  withoutHandwritingFor,
   NOTE_PADDING,
   NUDGE_BIG_PT,
   NUDGE_PT,
@@ -84,6 +82,10 @@ import {
   type TextBoxObject,
   type TextEditObject,
 } from "@/lib/pdf/editor/model";
+import {
+  typedSignatureObject,
+  withoutHandwritingFor,
+} from "@/lib/pdf/editor/typed-signature";
 import { openEditorPdf, type EditorPdf } from "@/lib/pdf/editor/page-render";
 import {
   openRunStyles,

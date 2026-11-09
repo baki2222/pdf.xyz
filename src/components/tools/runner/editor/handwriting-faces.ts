@@ -1,13 +1,14 @@
 "use client";
 
-import { HANDWRITING_FACES } from "@/lib/pdf/handwriting";
+import { HANDWRITING_FACES, type HandwritingFace } from "@/lib/pdf/handwriting";
 import {
   HANDWRITING_STYLES,
   type HandwritingStyle,
 } from "@/lib/pdf/offered-kinds";
 import { cssLineHeightShowing } from "@/lib/pdf/handwriting-metrics";
-import { loadFaceBytes } from "@/lib/pdf/unicode-font";
-import { createFaceMeasure, type Measure } from "@/lib/pdf/editor/text";
+import { loadPdfLib } from "@/lib/pdf/pdf-lib";
+import { embedFaceIfDrawable, loadFaceBytes } from "@/lib/pdf/unicode-font";
+import type { Measure } from "@/lib/pdf/editor/text";
 
 /**
  * The handwriting faces on screen: the signature panel's previews and the
@@ -77,6 +78,22 @@ export function loadHandwritingFamily(style: HandwritingStyle): Promise<void> {
     families.set(style, pending);
   }
   return pending;
+}
+
+/**
+ * Widths in a handwriting face, from the face embedded through the same call
+ * the export makes into a scratch document — so the overlay breaks a line
+ * where the file will. The handwriting faces' counterpart of
+ * `createStandardMeasure` (`@/lib/pdf/editor/text`); here, beside its one
+ * caller, rather than there, where the editor's shared layout code would
+ * carry it into every chunk that lays out text.
+ */
+async function createFaceMeasure(face: HandwritingFace): Promise<Measure> {
+  const { PDFDocument } = await loadPdfLib();
+  const scratch = await PDFDocument.create();
+  const font = await embedFaceIfDrawable(scratch, face, ["A"]);
+  if (!font) throw new Error(`${face.label} has no glyph for "A"`);
+  return (text, size) => font.widthOfTextAtSize(text, size);
 }
 
 const measures = new Map<HandwritingStyle, Measure>();

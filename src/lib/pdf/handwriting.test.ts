@@ -31,6 +31,7 @@ import {
   HANDWRITING_FACES,
   HANDWRITING_FACE_LIST,
   handwritingCanDraw,
+  handwritingFor,
   handwritingMissing,
   handwritingMissingLabels,
 } from "./handwriting";
@@ -44,8 +45,11 @@ import {
 } from "./noto-source";
 import { handwritingCoverage } from "../../../scripts/generate-handwriting-coverage";
 import { exportEditedPdf } from "./editor-export";
-import { typedSignatureObject, withoutHandwritingFor } from "./editor/model";
-import { handwritingFor, lineBaseline } from "./editor/text";
+import {
+  typedSignatureObject,
+  withoutHandwritingFor,
+} from "./editor/typed-signature";
+import { lineBaseline } from "./editor/text";
 import {
   HANDWRITING_REACH,
   handwritingLineHeight,

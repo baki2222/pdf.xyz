@@ -40,7 +40,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { PDFDict, PDFDocument, PDFName } from "pdf-lib";
 import { exportEditedPdf } from "@/lib/pdf/editor-export";
-import { typedSignatureObject } from "@/lib/pdf/editor/model";
+import { typedSignatureObject } from "@/lib/pdf/editor/typed-signature";
 import {
   SIGNATURE_STYLES,
   SIGNATURE_STYLE_LABEL,

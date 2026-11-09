@@ -19,11 +19,8 @@ import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
 import { readAsViewer } from "@/tests/pdf-viewer-read";
 import { hashedBytes, signedPdf, signedRanges } from "@/tests/signed-pdf";
 import { spliceStartxrefPastEnd } from "@/tests/damaged-xref";
-import {
-  typedSignatureObject,
-  type EditorObject,
-  type RedactObject,
-} from "./model";
+import { type EditorObject, type RedactObject } from "./model";
+import { typedSignatureObject } from "./typed-signature";
 import { sourcePages } from "./pages";
 import { loadPdfLib } from "../pdf-lib";
 import { readXref } from "../security/document";

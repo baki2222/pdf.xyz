@@ -6,7 +6,6 @@ import {
   type RasterImageFormat,
 } from "./pdf-lib";
 import { PdfEngineError } from "./engine";
-import { outputName } from "./files";
 import {
   clamp,
   INK,
@@ -92,10 +91,7 @@ export const DEFAULT_SIGNATURE_WIDTH = 200;
 export const MIN_SIGNATURE_WIDTH = 48;
 export const MAX_SIGNATURE_WIDTH = 600;
 
-/** A sensible download name for a signed document, derived from the source. */
-export function signatureOutputName(sourceName: string): string {
-  return outputName(sourceName || "document", "signed");
-}
+export { signatureOutputName } from "./signature-name";
 
 /** Reject an empty signature with a typed, user-facing message. */
 export function validateSignature(input: SignatureInput): void {
@@ -255,8 +251,11 @@ export async function signPdf(
     // A handwriting style draws in its own face where it has every letter
     // of the name, and otherwise exactly as Script does — the editor's rule
     // (`handwritingFor`), so no style is offered by one engine and drawn in
-    // Helvetica by the other. The table is imported here, at call time: this
-    // module is in the Sign runner's chunk for `signatureOutputName` alone.
+    // Helvetica by the other. The table is imported here, at call time, so a
+    // page that imports this engine never takes it into its first load. No
+    // page does today: the Sign runner takes its download name from
+    // `./signature-name`, since even an `import()` in code a page never runs
+    // is one more async chunk in every page's webpack runtime.
     let font = null;
     if (isHandwritingStyle(input.style)) {
       const { HANDWRITING_FACES, handwritingCanDraw } =

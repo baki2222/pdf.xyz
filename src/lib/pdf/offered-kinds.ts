@@ -195,7 +195,7 @@ export const SPLIT_MODE_FACT: Record<SplitMode, string> = {
  * letters each one has) and embedded in the PDF. Until then a typed name came
  * only in Times Italic or Helvetica, while every competitor's Type tab looked
  * handwritten. Latin-only faces: a name with a letter a face does not have is
- * set as Script sets it (`handwritingFor` in `editor/text.ts`), and the panel
+ * set as Script sets it (`handwritingFor` in `handwriting.ts`), and the panel
  * says so.
  */
 export const HANDWRITING_STYLES = [

@@ -426,7 +426,7 @@ function refuseMixedScripts(labels: readonly string[]): never {
 }
 
 /** Refusal for a face that had the code point but shapes it to `.notdef`. */
-function refuseNotdef(pack: FontPack, characters: readonly string[]): never {
+function refuseNotdef(pack: ShippedFace, characters: readonly string[]): never {
   throw new PdfEngineError(
     `The ${pack.label} font has no drawable shape for these characters: ` +
       `${showCharacters(characters)}. They would come out blank. ${NEVER_SUBSTITUTE}`,
@@ -482,12 +482,32 @@ function notdefCharacters(
  * Page numbers substitute `{n}` per page and headers substitute `{date}`, so
  * the string that breaks is usually not the template — and a font chosen from
  * a sample is a font chosen from the wrong set.
+ *
+ * `named` is {@link embedFaceIfDrawable}'s path, not a caller's: a face
+ * chosen by name instead of by the text's letters, asked the same shaping
+ * question as a pack and `null` where it fails it. One body for both, so the
+ * two cannot drift on what "can draw" means, and so the font engine, the
+ * shaping check and the per-document memo keep ONE call site each: this
+ * module is in the first load of every page whose runner draws text, and a
+ * second caller of each cost those pages +78 B gzip (measured 2026-11-09).
  */
 export async function embedDrawingFont(
   doc: PDFDocument,
   rawTexts: readonly string[],
+  face?: StandardFace,
+): Promise<PDFFont>;
+export async function embedDrawingFont(
+  doc: PDFDocument,
+  rawTexts: readonly string[],
+  face: StandardFace,
+  named: ShippedFace,
+): Promise<PDFFont | null>;
+export async function embedDrawingFont(
+  doc: PDFDocument,
+  rawTexts: readonly string[],
   face: StandardFace = "sans",
-): Promise<PDFFont> {
+  named?: ShippedFace,
+): Promise<PDFFont | null> {
   // Line breaks and tabs are layout, not glyphs — callers split on them before
   // drawing. Left in, they reach both the coverage check and the shaper: no
   // face has a glyph for U+000A, so a two-line Bengali document would be
@@ -495,41 +515,44 @@ export async function embedDrawingFont(
   // the message. Normalised once, here, rather than at each of the eight call
   // sites that would each have to remember.
   const texts = rawTexts.map((text) => text.replace(/[\r\n\t]+/g, " "));
-  const pdfLib = await loadPdfLib();
-  if (allWinAnsi(texts)) {
-    const name = STANDARD_FACE_NAMES[face];
-    return doc.embedFont(
-      pdfLib.StandardFonts[name as keyof typeof pdfLib.StandardFonts],
+  let candidates: readonly ShippedFace[] = named ? [named] : [];
+  if (!named) {
+    const pdfLib = await loadPdfLib();
+    if (allWinAnsi(texts)) {
+      const name = STANDARD_FACE_NAMES[face];
+      return doc.embedFont(
+        pdfLib.StandardFonts[name as keyof typeof pdfLib.StandardFonts],
+      );
+    }
+
+    const joined = texts.join("");
+    const invalid = invalidCodePoints(joined);
+    if (invalid.length > 0) refuseInvalid(invalid);
+    const coverage = await downloaded(
+      loadCoverage(),
+      "The table of which fonts can draw this text",
     );
-  }
 
-  const joined = texts.join("");
-  const invalid = invalidCodePoints(joined);
-  if (invalid.length > 0) refuseInvalid(invalid);
-  const coverage = await downloaded(
-    loadCoverage(),
-    "The table of which fonts can draw this text",
-  );
+    const uncovered = uncoveredCodePoints(coverage, joined, face);
+    if (uncovered.length > 0) refuseUncovered(uncovered);
 
-  const uncovered = uncoveredCodePoints(coverage, joined, face);
-  if (uncovered.length > 0) refuseUncovered(uncovered);
-
-  const candidates = candidatePacks(coverage, joined, face);
-  if (candidates.length === 0) {
-    refuseMixedScripts(packLabelsInText(coverage, joined));
+    candidates = candidatePacks(coverage, joined, face);
+    if (candidates.length === 0) {
+      refuseMixedScripts(packLabelsInText(coverage, joined));
+    }
   }
 
   const fontkit = await downloaded(loadFontkit(), "The font engine");
   doc.registerFontkit(fontkit.forPdfLib as never);
 
-  let lastBad: { pack: FontPack; characters: string[] } | null = null;
+  let lastBad: { pack: ShippedFace; characters: string[] } | null = null;
   for (const pack of candidates) {
-    const bytes = await downloaded(
-      loadPackBytes(pack),
-      `The ${pack.label} font`,
-    );
+    const bytes = await loadFaceBytes(pack);
     const bad = notdefCharacters(fontkit.open(bytes), texts);
     if (bad.length > 0) {
+      // A face chosen by name declines: its caller has a face that can draw
+      // the text anyway (a typed signature's Script).
+      if (named) return null;
       // Coverage said this face had the code points and shaping disagreed. Try
       // the next candidate — a rare kanji missing from Noto Sans JP is exactly
       // why the list is ordered rather than a single pick — and only refuse
@@ -541,12 +564,13 @@ export async function embedDrawingFont(
     // Unicode path three of them (four, when the monospace pack cannot draw
     // the text) resolve to the same Noto Regular. Without this memo
     // that is four independent subsets of one face in a single file, which for
-    // Chinese means four copies of the same outlines. Keyed by PACK, not by the
+    // Chinese means four copies of the same outlines. Keyed by FACE, not by the
     // fact that some Unicode face was needed: a document whose title is Bengali
     // and whose body is Chinese resolves to two different faces, and handing
     // the second call the first font would draw `.notdef` — silently, which is
     // the one outcome this module exists to prevent. Per document, so nothing
-    // leaks between exports.
+    // leaks between exports; ten signatures in one handwriting style embed one
+    // subset.
     const memo = documentFonts(doc);
     const cached = memo.get(pack.id);
     if (cached) return cached;
@@ -573,8 +597,8 @@ function documentFonts(doc: PDFDocument): Map<string, PDFFont> {
  * typed signature's handwriting style) — if it draws every glyph of `texts`;
  * otherwise `null`, and the caller sets the text the way it would have without
  * the face. Never a `.notdef`: the text is SHAPED with the face before it is
- * embedded, the same question {@link embedDrawingFont} asks of a pack, and one
- * blank glyph is a `null`.
+ * embedded, the same question {@link embedDrawingFont} asks of a pack (in the
+ * same body), and one blank glyph is a `null`.
  *
  * `null` rather than a refusal because every caller has a face that can draw
  * the text anyway (Script's), so declining the style costs a look and never
@@ -585,28 +609,19 @@ function documentFonts(doc: PDFDocument): Map<string, PDFFont> {
  * Memoised per document by face id, so ten signatures in one style embed one
  * subset.
  */
-export async function embedFaceIfDrawable(
+export function embedFaceIfDrawable(
   doc: PDFDocument,
   face: ShippedFace,
   rawTexts: readonly string[],
 ): Promise<PDFFont | null> {
-  const texts = rawTexts.map((text) => text.replace(/[\r\n\t]+/g, " "));
-  const fontkit = await downloaded(loadFontkit(), "The font engine");
-  const bytes = await downloaded(loadPackBytes(face), `The ${face.label} font`);
-  if (notdefCharacters(fontkit.open(bytes), texts).length > 0) return null;
-  const memo = documentFonts(doc);
-  const cached = memo.get(face.id);
-  if (cached) return cached;
-  doc.registerFontkit(fontkit.forPdfLib as never);
-  const embedded = await doc.embedFont(bytes, { subset: true });
-  memo.set(face.id, embedded);
-  return embedded;
+  return embedDrawingFont(doc, rawTexts, "sans", face);
 }
 
 /**
- * A shipped face's bytes from the shared cache — for an on-screen preview or
- * measure that must use the SAME outlines the export embeds. Downloading it
- * here and exporting later fetches it once.
+ * A shipped face's bytes from the shared cache, a failed download reported
+ * in words — for an on-screen preview or measure that must use the SAME
+ * outlines the export embeds, and for every embed here. Downloading it for a
+ * preview and exporting later fetches it once.
  */
 export function loadFaceBytes(face: ShippedFace): Promise<Uint8Array> {
   return downloaded(loadPackBytes(face), `The ${face.label} font`);
@@ -743,6 +758,6 @@ export async function loadPreviewFace(
   if (uncoveredCodePoints(coverage, text, "sans").length > 0) return null;
   const [pack] = candidatePacks(coverage, text, "sans");
   if (!pack) return null;
-  const bytes = await downloaded(loadPackBytes(pack), `The ${pack.label} font`);
+  const bytes = await loadFaceBytes(pack);
   return { pack, bytes };
 }

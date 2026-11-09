@@ -6,7 +6,7 @@ import { viewerFrame } from "./page-frame";
 import { drawRasterImage, embedRasterImage, loadPdfLib } from "./pdf-lib";
 import { loadPdf, stampProducer } from "./stamp";
 import { embedDrawingFont, embedFaceIfDrawable } from "./unicode-font";
-import { HANDWRITING_FACES } from "./handwriting";
+import { HANDWRITING_FACES, handwritingFor } from "./handwriting";
 import {
   EDITOR_OBJECT_KINDS,
   NOTE_PADDING,
@@ -61,7 +61,6 @@ import {
   lineLeft,
   needsUnicodeFace,
   faceFor,
-  handwritingFor,
 } from "./editor/text";
 
 /**

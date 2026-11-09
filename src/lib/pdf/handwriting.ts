@@ -254,3 +254,20 @@ export function handwritingCanDraw(
 ): boolean {
   return handwritingMissing(style, text).length === 0;
 }
+
+/**
+ * The handwriting face a box's words are set in — a typed signature's
+ * (`TextBoxObject.hand`) — or `null` when they are set as its font, weight
+ * and slant say. `null` whenever the face lacks any letter of `text`: a name
+ * the face cannot draw is set exactly as the box's underlying style sets it,
+ * never with a blank box where a letter was. The overlay and the export both
+ * ask this, so the screen and the file agree on which face drew the words.
+ * Here rather than in `editor/text.ts`, the layout code Redact PDF's removal
+ * shares: there it carried this table into that tool's lazy chunk.
+ */
+export function handwritingFor(
+  obj: { readonly hand?: HandwritingStyle },
+  text: string,
+): HandwritingStyle | null {
+  return obj.hand && handwritingCanDraw(obj.hand, text) ? obj.hand : null;
+}

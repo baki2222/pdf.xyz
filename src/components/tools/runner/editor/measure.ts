@@ -11,7 +11,6 @@ import {
 import {
   CSS_FONT_STACK,
   createStandardMeasure,
-  handwritingFor,
   layoutText,
   needsUnicodeFace,
   STANDARD_FACES,
@@ -20,6 +19,7 @@ import {
   type TextLayout,
 } from "@/lib/pdf/editor/text";
 import type { HandwritingStyle } from "@/lib/pdf/offered-kinds";
+import { handwritingFor } from "@/lib/pdf/handwriting";
 import {
   handwritingFamily,
   handwritingMeasureNow,

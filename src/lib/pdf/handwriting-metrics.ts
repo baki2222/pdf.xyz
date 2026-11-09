@@ -2,9 +2,11 @@
  * How far each handwriting face reaches above and below its baseline, in
  * ems (review of sign-pdf#1, 2026-11-09).
  *
- * A leaf on purpose: `editor/model.ts` sizes a typed signature's box from
- * these numbers, and that module is imported by page copy; nothing here
- * pulls in the coverage table or a font.
+ * Read only by the editor, which loads lazily: a typed signature's box
+ * (`editor/typed-signature.ts`) and the panel's previews
+ * (`handwriting-faces.ts`). Not by `editor/model.ts`, which is in the first
+ * load of four tool pages, nor by `editor/text.ts`, whose layout code Redact
+ * PDF's removal shares: either carried this table where nothing reads it.
  *
  * WHY. A typed signature's box was `size × 1.2` tall with its baseline at
  * 0.85 em, the same for every face. Homemade Apple's descenders reach 0.85 em
@@ -26,6 +28,9 @@
  * (house rule 3: a constant needs a second, independent bound).
  */
 import type { HandwritingStyle } from "./offered-kinds";
+// Where a box's baseline sits in its line slot (`lineBaseline`): the one
+// definition, which the line heights below are derived from.
+import { BASELINE_EMS } from "./editor/text";
 
 export interface FaceReach {
   /** Ems above the baseline. */
@@ -61,12 +66,6 @@ export const HANDWRITING_REACH: Record<
     lineBoxes: [{ above: 1.296, below: 0.846 }],
   },
 };
-
-/**
- * Baseline of a text box's line: this many ems below the top of its slot,
- * plus half the leading (`lineBaseline` in `editor/text.ts`).
- */
-export const BASELINE_EMS = 0.85;
 
 /** The line height every other text box, and a typed signature in Script or Print, is set at. */
 export const DEFAULT_LINE_HEIGHT = 1.2;
