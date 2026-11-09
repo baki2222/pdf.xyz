@@ -26,6 +26,7 @@
 import { describe, expect, it } from "vitest";
 import { tools } from "@/lib/tools";
 import * as offered from "@/lib/pdf/offered-kinds";
+import * as annotationKinds from "@/lib/pdf/annotation-kinds";
 import { toolFacts, type ToolFact } from "./tool-facts";
 
 /**
@@ -57,10 +58,18 @@ function countsIn(text: string): number[] {
   return [...text.matchAll(COUNT_WORD)].map((m) => VALUE[m[1]!.toLowerCase()]!);
 }
 
-/** Every exported array in the offered-kinds leaf — the only legal `counts`. */
-const OFFERED_LISTS: readonly unknown[] = Object.values(offered).filter(
-  Array.isArray,
-);
+/**
+ * Every exported array in the offered-kinds leaves — the only legal `counts`.
+ * An ALLOWLIST of sources: a leaf missing from it fails the fact that counts
+ * its list, never passes one. `annotation-kinds` is a leaf of its own since
+ * 2026-11-10: in `offered-kinds`, which seven other pages load first, its
+ * labels shipped on all of them, and a re-export from there kept the module
+ * in that chunk anyway.
+ */
+const OFFERED_LISTS: readonly unknown[] = [
+  ...Object.values(offered),
+  ...Object.values(annotationKinds),
+].filter(Array.isArray);
 
 /** Every (tool, fact) pair on the site whose label or value spells a count. */
 function countedFacts(): { slug: string; fact: ToolFact; counts: number[] }[] {

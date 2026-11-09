@@ -356,6 +356,9 @@ export function copyFiles(): string[] {
     // consequence lines, and the engine's refusals.
     path.join(ROOT, "src", "lib", "pdf", "annotation-groups.ts"),
     path.join(ROOT, "src", "lib", "pdf", "remove-annotations.ts"),
+    // Its kind labels, moved out of offered-kinds.ts (2026-11-10) so they
+    // stop shipping in seven other tool pages' first load.
+    path.join(ROOT, "src", "lib", "pdf", "annotation-kinds.ts"),
     path.join(ROOT, "src", "lib", "workers", "read-error.ts"),
     // EPUB to PDF (2026-11-06): its refusals, its options' field errors and
     // its processor's readiness sentence.

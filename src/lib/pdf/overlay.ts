@@ -1,7 +1,6 @@
 import type { isolatePageContent as IsolatePageContent } from "./content-isolation";
 import type { PDFDict, PDFDocument, PDFEmbeddedPage, PDFPage } from "pdf-lib";
 import type { repairFieldTree } from "./form-tree";
-import { ANNOT_HIDDEN, ANNOT_NO_VIEW } from "./annot-flags";
 import { PdfDecodeBudgetError, asDecodeBudgetRefusal } from "./decode-budget";
 import { PdfEncryptedError, PdfEngineError } from "./engine";
 import { outputName } from "./files";
@@ -663,6 +662,19 @@ function hasNormalAppearance(lib: PdfLibModule, widget: PDFDict): boolean {
   const normal = ap.lookup(PDFName.of("N"));
   return normal instanceof PDFStream || normal instanceof PDFDict;
 }
+
+/**
+ * Annotation flags (PDF 32000 §12.5.3) that stop a viewer painting one.
+ *
+ * A second definition, on purpose: `./annot-flags` holds the shared one
+ * (Flatten, Remove Annotations), but importing it here put that module,
+ * XFA reader included, into overlay-pdf's and n-up-pdf's first load
+ * (+293 B gzip each, 2026-11-10). `annot-flags.test.ts` pins these to the
+ * shared values; exported only for that test, so the production bundle
+ * carries no export for them.
+ */
+export const ANNOT_HIDDEN = 1 << 1;
+export const ANNOT_NO_VIEW = 1 << 5;
 
 /**
  * Paint every visible annotation's normal appearance into the page's own

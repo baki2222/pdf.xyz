@@ -20,7 +20,7 @@ import {
   ANNOTATION_GROUP_IDS,
   ANNOTATION_GROUP_LABEL,
   type AnnotationGroupKind,
-} from "./offered-kinds";
+} from "./annotation-kinds";
 
 export type AnnotationGroupId = AnnotationGroupKind;
 

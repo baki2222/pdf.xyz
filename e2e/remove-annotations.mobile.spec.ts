@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { fileInput, waitForHydration } from "./helpers";
-import { ANNOTATION_GROUP_IDS } from "../src/lib/pdf/offered-kinds";
+import { ANNOTATION_GROUP_IDS } from "../src/lib/pdf/annotation-kinds";
 import { fullFixture } from "../src/tests/annotation-fixtures";
 
 /**

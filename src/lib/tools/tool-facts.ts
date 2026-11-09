@@ -105,10 +105,12 @@ import {
   SIGNATURE_SOURCES,
   SPLIT_MODE_FACT,
   SPLIT_MODES,
+} from "@/lib/pdf/offered-kinds";
+import {
   ANNOTATION_GROUP_IDS,
   ANNOTATION_GROUP_LABEL,
   type AnnotationGroupKind,
-} from "@/lib/pdf/offered-kinds";
+} from "@/lib/pdf/annotation-kinds";
 import { DEEP_COMPRESSION_GRAYSCALE_HINT } from "@/lib/pdf/compress-grayscale";
 import {
   MIN_CROP_DIMENSION,

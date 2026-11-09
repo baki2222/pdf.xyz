@@ -376,33 +376,3 @@ export const DEEP_COMPRESSION_PRESETS = [
  * `nativeArgs` (compression/native.ts) sends `max(targetDpi, this)`.
  */
 export const DEEP_MONO_MIN_DPI = 300;
-
-/**
- * Remove Annotations — the kinds of annotation its panel lists, in panel
- * order, and the label each checkbox shows. `annotation-groups.ts` builds
- * its table (subtypes, defaults, consequences) over these ids, so a kind
- * cannot be offered without a row, and the tool page counts this array.
- */
-export const ANNOTATION_GROUP_IDS = [
-  "comments",
-  "text-markup",
-  "drawings",
-  "stamps",
-  "attachments",
-  "links",
-  "form-fields",
-  "redaction-marks",
-  "other",
-] as const;
-export type AnnotationGroupKind = (typeof ANNOTATION_GROUP_IDS)[number];
-export const ANNOTATION_GROUP_LABEL: Record<AnnotationGroupKind, string> = {
-  comments: "Comments and notes",
-  "text-markup": "Highlights and text markup",
-  drawings: "Drawings and shapes",
-  stamps: "Stamps",
-  attachments: "File attachments",
-  links: "Links",
-  "form-fields": "Form fields",
-  "redaction-marks": "Unapplied redaction marks",
-  other: "Other annotations",
-};
