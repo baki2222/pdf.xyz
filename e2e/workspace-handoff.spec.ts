@@ -1,7 +1,9 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page, type Route } from "@playwright/test";
+import { BATCH_LIMITS, overCountReason } from "../src/lib/batch/limits";
+import { READY_WORKER_STATUS } from "../src/tests/ready-worker-status";
 import {
   attachConsoleGuard,
   uploadFiles,
@@ -432,3 +434,194 @@ for (const width of [360, 390]) {
     });
   });
 }
+
+/**
+ * Batch plan P6: the workspace hands a set of files to a WORKER tool with a
+ * batch. The files open in the tool's batch list, still in this browser,
+ * and NOTHING reaches our server before Run on the tool's page — counted at
+ * the wire, every request to the upload and job APIs and to the storage PUT.
+ * The worker is mocked (`page.route`, as `worker-batch.spec.ts` does), so
+ * pressing Run is the positive control: the same counter must then see the
+ * uploads, or a zero before Run would prove nothing.
+ */
+const WORKER_WIRE = /\/api\/uploads|\/api\/jobs|\/__e2e\/p6-upload\//;
+
+async function mockRepairWorker(page: Page) {
+  const sent: string[] = [];
+  page.on("request", (request) => {
+    if (WORKER_WIRE.test(request.url()))
+      sent.push(`${request.method()} ${new URL(request.url()).pathname}`);
+  });
+  const json = (route: Route, body: unknown) =>
+    route.fulfill({
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  let reservations = 0;
+  let jobs = 0;
+  const job = (id: string, status: string) => {
+    const now = new Date().toISOString();
+    return {
+      jobId: id,
+      tool: "repair-pdf",
+      capability: "secure-worker",
+      status,
+      progress: status === "completed" ? 100 : 0,
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+      retention: { inputTtlMinutes: 0, outputTtlMinutes: 60 },
+      ...(status === "completed"
+        ? {
+            artifacts: [
+              {
+                artifactId: `art_${id}`,
+                filename: `${id}-repaired.pdf`,
+                contentType: "application/pdf",
+                bytes: 15,
+                url: `/__e2e/p6-art/${id}`,
+                expiresAt: now,
+              },
+            ],
+          }
+        : {}),
+    };
+  };
+  await page.route("**/api/worker/status", (route) =>
+    json(route, READY_WORKER_STATUS),
+  );
+  await page.route("**/api/uploads", async (route) => {
+    reservations += 1;
+    await json(route, {
+      sessionId: `ses_p6_${reservations}`,
+      tool: "repair-pdf",
+      slots: [
+        {
+          fileId: `file_p6_${reservations}`,
+          filename: "in",
+          url: `/__e2e/p6-upload/${reservations}`,
+          method: "PUT",
+          headers: {},
+        },
+      ],
+      expiresAt: new Date(Date.now() + 600_000).toISOString(),
+      retention: { inputTtlMinutes: 0, outputTtlMinutes: 60 },
+    });
+  });
+  await page.route("**/__e2e/p6-upload/**", (route) => json(route, {}));
+  await page.route("**/api/jobs", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    jobs += 1;
+    await json(route, job(`job_p6_${jobs}`, "queued"));
+  });
+  await page.route("**/api/jobs/job_p6_*", (route) =>
+    json(route, job(route.request().url().split("/").pop()!, "completed")),
+  );
+  await page.route("**/__e2e/p6-art/**", (route) =>
+    route.fulfill({
+      status: 200,
+      headers: { "content-type": "application/pdf" },
+      body: Buffer.from("%PDF-1.7\n%%EOF\n"),
+    }),
+  );
+  return sent;
+}
+
+async function queueInWorkspace(page: Page, slug: string, names: string[]) {
+  await page.goto("/workspace");
+  await uploadFiles(
+    page,
+    await Promise.all(names.map((name) => writeTempPdf(name, 1))),
+  );
+  const batch = page.getByRole("region", {
+    name: /use one tool on several files/i,
+  });
+  await batch.getByLabel(/choose a tool/i).selectOption(slug);
+  await batch.getByRole("button", { name: /add all chosen files/i }).click();
+  return batch;
+}
+
+test("hands three PDFs from the workspace to Repair PDF's batch, and nothing is sent before Run", async ({
+  page,
+}) => {
+  const guard = attachConsoleGuard(page);
+  const sent = await mockRepairWorker(page);
+  const names = ["jan.pdf", "feb.pdf", "mar.pdf"];
+  const batch = await queueInWorkspace(page, "repair-pdf", names);
+
+  // The launch area says where the files go, and never the client words.
+  const status = batch.getByRole("status");
+  await expect(status).toContainText("Ready — 3 files, for our secure server");
+  await expect(status).toContainText(
+    "each one is uploaded only when you press the button under that list",
+  );
+  await expect(status).not.toContainText(/nothing is uploaded/i);
+  await expect(status).not.toContainText(/in your browser/i);
+
+  await batch
+    .getByRole("button", { name: /open repair pdf with 3 files/i })
+    .click();
+  await expect(page).toHaveURL(/\/tools\/repair-pdf$/);
+
+  // The batch list, one row per file, and the Run button names all three.
+  const list = page.getByRole("list", { name: "Files in this batch" });
+  await expect(list.getByRole("listitem")).toHaveCount(3);
+  for (const name of names)
+    await expect(list.getByText(name, { exact: true })).toBeVisible();
+  const run = page.getByRole("button", { name: "Repair 3 PDFs" });
+  await expect(run).toBeVisible();
+  await expect(run).not.toHaveAttribute("aria-disabled", "true");
+  await expect(
+    page.getByText(
+      /nothing is uploaded until you press the button under the list/,
+    ),
+  ).toBeVisible();
+
+  await page.waitForTimeout(800);
+  expect(sent, "a file went to our server before Run").toEqual([]);
+
+  // Positive control: Run sends them, one reservation and one job per file.
+  await run.click();
+  await expect(
+    page.getByRole("heading", { name: "Batch complete. 3 done, 0 failed." }),
+  ).toBeVisible({ timeout: 30_000 });
+  expect(sent.filter((r) => r === "POST /api/uploads")).toHaveLength(3);
+  expect(sent.filter((r) => r === "POST /api/jobs")).toHaveLength(3);
+
+  expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
+  expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
+});
+
+test("a set past one worker batch: the first files open, the rest are listed with the reason, nothing sent", async ({
+  page,
+}) => {
+  const sent = await mockRepairWorker(page);
+  const cap = BATCH_LIMITS.workerMaxFiles;
+  const names = Array.from({ length: cap + 2 }, (_, i) => `part-${i + 1}.pdf`);
+  const batch = await queueInWorkspace(page, "repair-pdf", names);
+
+  await expect(batch.getByRole("status")).toContainText(
+    `One batch takes up to ${cap} files: the first ${cap} of these open in its list on the tool’s page, and the other 2 are listed there with the reason.`,
+  );
+  await batch
+    .getByRole("button", { name: `Open Repair PDF with ${cap + 2} files` })
+    .click();
+  await expect(page).toHaveURL(/\/tools\/repair-pdf$/);
+
+  const list = page.getByRole("list", { name: "Files in this batch" });
+  await expect(list.getByRole("listitem")).toHaveCount(cap);
+  // The two past the cap are named, with the reason — never dropped.
+  const extras = names.slice(cap);
+  for (const name of extras)
+    await expect(list.getByText(name, { exact: true })).toHaveCount(0);
+  const note = page.getByRole("alert").filter({ hasText: /2 files not added/ });
+  for (const name of extras) await expect(note).toContainText(name);
+  await expect(note).toContainText(overCountReason(cap));
+  await expect(
+    page.getByRole("button", { name: `Repair ${cap} PDFs` }),
+  ).toBeVisible();
+
+  await page.waitForTimeout(800);
+  expect(sent, "a file went to our server before Run").toEqual([]);
+});

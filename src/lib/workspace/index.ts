@@ -26,6 +26,7 @@ export {
   MAX_RECENT_ACTIONS,
   planBatch,
   workspaceReducer,
+  type BatchCarry,
   type BatchPlan,
   type BatchStatus,
   type BatchToolInfo,

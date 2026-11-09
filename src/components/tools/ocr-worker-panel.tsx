@@ -463,11 +463,20 @@ function OcrRunArea({
     resume: (id, controls) => resumeWorkerOcr(id, controls),
   });
   const { busy, outcome, setOutcome, run } = job;
-  const staged = useStagedHandoff(tool.slug, RUN_LABEL, (files) => {
+  // Two or more files open the batch, unless a job is running — dropped
+  // or carried here (batch plan P6): one fork for both.
+  const take = (files: File[]) => {
     setOutcome(null);
-    setDiscarded(0);
+    if (files.length > 1 && !busy) {
+      setDiscarded(0);
+      setFile(null);
+      setBatch(files);
+      return;
+    }
     setFile(files[0] ?? null);
-  });
+    setDiscarded(Math.max(0, files.length - OCR_MAX_INPUT_FILES));
+  };
+  const staged = useStagedHandoff(tool.slug, RUN_LABEL, take);
 
   const start = useCallback(async () => {
     if (!file || !available) return;
@@ -485,19 +494,6 @@ function OcrRunArea({
       return result;
     });
   }, [file, request, run, available]);
-
-  // Two or more files open the batch, unless a job is running.
-  const take = (files: File[]) => {
-    setOutcome(null);
-    if (files.length > 1 && !busy) {
-      setDiscarded(0);
-      setFile(null);
-      setBatch(files);
-      return;
-    }
-    setFile(files[0] ?? null);
-    setDiscarded(Math.max(0, files.length - OCR_MAX_INPUT_FILES));
-  };
 
   if (batch)
     return (

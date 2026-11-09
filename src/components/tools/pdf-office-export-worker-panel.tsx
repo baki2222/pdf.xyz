@@ -208,7 +208,10 @@ function PdfOfficeRunArea({
   const { busy, outcome, setOutcome, run } = job;
   const staged = useStagedHandoff(catalogTool.slug, runLabel, (files) => {
     setOutcome(null);
-    setFile(files[0] ?? null);
+    // Two or more carried files open the batch, as a drop of them does
+    // (batch plan P6) — never while a job runs, as the drop zone says.
+    if (files.length > 1 && !busy) setBatch(files);
+    else setFile(files[0] ?? null);
   });
   // OCR first, in the same job, with OCR PDF's languages: PDF to Word since
   // 2026-10-24, PDF to Excel and PDF to PowerPoint since 2026-11-08

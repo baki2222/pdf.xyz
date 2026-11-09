@@ -18,6 +18,7 @@ import {
   supportedToolSlugs,
   type RunnerKind,
 } from "@/lib/pdf/registry";
+import { WORKER_BATCH_TOOLS } from "@/lib/batch/tools";
 import { getAllToolSlugs, getToolBySlug } from "@/lib/tools";
 import { panelDispatchArms } from "@/tests/worker-panel-dispatch";
 import { eligibleFilesFor, handoffCapabilityFor } from "./capability";
@@ -129,7 +130,16 @@ describe("handoffCapabilityFor", () => {
     }
   });
 
-  it("stages a file for exactly the worker panels that take files (derived both ways)", () => {
+  /*
+   * INVERTED 2026-11-09 (batch plan P6). This held EVERY worker panel that
+   * takes files to `stage` with `maxFiles: 1`, so a hand-off of five PDFs to
+   * Repair PDF carried the first and dropped four, although the panel opens
+   * a batch list for two or more since P3. The panels with a batch
+   * (`WORKER_BATCH_TOOLS`) now take the whole set (the test after this one);
+   * every other panel that takes files — the AI tools, HTML to PDF, Request
+   * Signatures — still stages exactly one.
+   */
+  it("stages one file for exactly the worker panels with no batch (derived both ways)", () => {
     const routed = panelDispatchArms().flatMap((arm) => arm.slugs);
     expect(routed.length).toBeGreaterThanOrEqual(20);
     const takesFiles = routed.filter(
@@ -138,16 +148,61 @@ describe("handoffCapabilityFor", () => {
     );
     // Health: the URL tool is the one exclusion, and it is in the set.
     expect(routed.length - takesFiles.length).toBe(1);
+    const batches = new Set(Object.keys(WORKER_BATCH_TOOLS));
+    const oneFile = takesFiles.filter((slug) => !batches.has(slug));
+    // Health: both halves are populated, so neither assertion is vacuous.
+    expect(oneFile.length).toBeGreaterThanOrEqual(5);
+    expect(takesFiles.length - oneFile.length).toBe(batches.size);
     const staged = getAllToolSlugs().filter(
       (slug) => handoffCapabilityFor(slug).mode === "stage",
     );
-    expect(new Set(staged)).toEqual(new Set(takesFiles));
+    expect(new Set(staged)).toEqual(new Set(oneFile));
     for (const slug of staged)
       expect(handoffCapabilityFor(slug)).toMatchObject({
         supported: true,
         minFiles: 1,
         maxFiles: 1,
       });
+  });
+
+  it("carries the whole set to exactly the worker batches (derived both ways)", () => {
+    const registered = Object.keys(WORKER_BATCH_TOOLS);
+    // Health: P3's ten, P4's two and P5's one.
+    expect(registered.length).toBeGreaterThanOrEqual(13);
+    const routed = new Set(panelDispatchArms().flatMap((arm) => arm.slugs));
+    // The worker batches with no in-browser runner: every one of them.
+    const workerBatches = getAllToolSlugs().filter(
+      (slug) =>
+        getRunnerKind(slug) === undefined &&
+        handoffCapabilityFor(slug).mode === "batch",
+    );
+    expect(new Set(workerBatches)).toEqual(new Set(registered));
+    for (const slug of registered) {
+      // A worker panel's, never a client runner's.
+      expect(routed.has(slug)).toBe(true);
+      const capability = handoffCapabilityFor(slug);
+      expect(capability).toMatchObject({
+        mode: "batch",
+        supported: true,
+        minFiles: 1,
+      });
+      // No one-file cap at the hand-off: the batch caps at
+      // `batchMaxFilesFor` and lists the rest with the reason.
+      expect(capability.maxFiles).toBeUndefined();
+    }
+  });
+
+  it("carries every eligible file to a worker batch, and one to a panel without", () => {
+    const pdfs = [1, 2, 3, 4].map((i) => ({
+      name: `scan-${i}.pdf`,
+      type: "application/pdf",
+    }));
+    // Positive control: a panel with no batch still takes one of them.
+    expect(handoffCapabilityFor("summarize-pdf").maxFiles).toBe(1);
+    for (const slug of ["repair-pdf", "unlock-pdf", "ocr-pdf"]) {
+      expect(handoffCapabilityFor(slug).maxFiles).toBeUndefined();
+      expect(eligibleFilesFor(slug, pdfs)).toEqual(pdfs);
+    }
   });
 });
 

@@ -11,6 +11,7 @@ import {
 import { useRouter } from "next/navigation";
 import {
   clearHandoffs,
+  eligibleFilesFor,
   HANDOFF_TARGET_WORKSPACE,
   handoffPayload,
   purgeExpiredHandoffs,
@@ -28,7 +29,9 @@ import {
   planBatch,
   savePersisted,
   workspaceReducer,
+  type BatchCarry,
   type BatchPlan,
+  type BatchToolInfo,
   type WorkspaceAction,
   type WorkspaceFile,
   type WorkspaceState,
@@ -148,6 +151,65 @@ export interface WorkspaceController {
    * not travel, nothing navigated, and the page must say so. Null otherwise.
    */
   launchFailedSlug: string | null;
+}
+
+/**
+ * What the batch planner is told about a tool: the ONE resolver, read by the
+ * workspace and by the copy guard that walks every tool through the launch
+ * area (`batch-panel-copy.test.tsx`), so the guard plans what a reader gets.
+ */
+export function batchToolInfoOf(summary: WorkspaceToolSummary): BatchToolInfo {
+  return {
+    live: summary.live,
+    // Was `summary.processing !== "client"`: the fifth private copy of "does
+    // this upload", and the one that decides what the batch planner tells a
+    // user before their files move.
+    usesWorker: modeUploadsFiles(summary.processing),
+    handoff: summary.handoffMode,
+  };
+}
+
+/**
+ * What a launch of `files` would carry to a tool, asked of the gate the
+ * launch itself goes through (`handoffPayload`, with `eligibleFilesFor`
+ * under it) over the staged files' own name, type and size — the fields a
+ * `File` gives that gate at launch, so the plan and the launch cannot
+ * disagree about what travels.
+ */
+export function batchCarryOf(
+  files: readonly WorkspaceFile[],
+): (slug: string, ids: readonly string[]) => BatchCarry {
+  const byId = new Map(files.map((f) => [f.id, f]));
+  return (slug, ids) => {
+    const queued = ids
+      .map((id) => byId.get(id))
+      .filter((f): f is WorkspaceFile => f !== undefined)
+      .map((f) => ({ id: f.id, name: f.name, type: f.mime, size: f.size }));
+    return {
+      eligible: eligibleFilesFor(slug, queued).map((f) => f.id),
+      carried: handoffPayload(slug, queued).map((f) => f.id),
+    };
+  };
+}
+
+/**
+ * The batch plan the page draws: the one resolver (`batchToolInfoOf`) and
+ * the launch's gate over the staged files (`batchCarryOf`). Read by the
+ * page and by the tests of its launch area, so they plan what a reader gets.
+ */
+export function planWorkspaceBatch(
+  batch: { toolSlug: string | null; fileIds: string[] },
+  summaryOf: (slug: string) => WorkspaceToolSummary | undefined,
+  files: readonly WorkspaceFile[],
+): BatchPlan {
+  return planBatch(
+    batch,
+    (slug) => {
+      const summary = summaryOf(slug);
+      return summary ? batchToolInfoOf(summary) : undefined;
+    },
+    batchCarryOf(files),
+  );
 }
 
 /**
@@ -465,20 +527,8 @@ export function useWorkspace(
 
   const batchPlan = useMemo(
     () =>
-      planBatch(state.batch, (slug) => {
-        const summary = bySlug.get(slug);
-        return summary
-          ? {
-              live: summary.live,
-              // Was `summary.processing !== "client"`: the fifth private copy
-              // of "does this upload", and the one that decides what the batch
-              // planner tells a user before their files move.
-              usesWorker: modeUploadsFiles(summary.processing),
-              handoff: summary.handoffMode,
-            }
-          : undefined;
-      }),
-    [state.batch, bySlug],
+      planWorkspaceBatch(state.batch, (slug) => bySlug.get(slug), state.files),
+    [state.batch, bySlug, state.files],
   );
 
   const handlesFor = useCallback(

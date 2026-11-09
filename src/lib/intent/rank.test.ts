@@ -92,7 +92,10 @@ const CORPUS: readonly Row[] = [
     // Was sign-pdf third until 2026-11-08 (batch plan P1): Add Page Numbers
     // now takes both PDFs in one batch, so its prior is no longer cut to the
     // one-file share, and it outranks a tool that opens only the first.
-    top: ["merge-pdf", "compress-pdf", "page-numbers"],
+    // Was page-numbers third until 2026-11-09 (batch plan P6): PDF to Word's
+    // panel now takes both PDFs as a batch from a hand-off too, so the same
+    // rule lifts its larger prior off the one-file share.
+    top: ["merge-pdf", "compress-pdf", "pdf-to-word"],
   },
   {
     mix: "a scan",
@@ -365,6 +368,10 @@ describe("the carry property, over every mix", () => {
    * own rule, asserted below rather than assumed). `opens` is the order a
    * carry takes — and WP-10's stage mode will — so the file the pin names
    * goes first now, before a runner makes the order visible.
+   *
+   * Since batch plan P6 both panels take the whole set as a batch, so the
+   * carry holds both files, the pinned one first — the order is the batch
+   * list's order, and the pinned file is its first row.
    */
   it("a pinned tool opens the file its pin names first", () => {
     const all = (r: ReturnType<typeof rankForFiles>) => [...r.top, ...r.more];
@@ -385,9 +392,11 @@ describe("the carry property, over every mix", () => {
     // Health: it opens both, so the order is a real choice.
     expect([...unlock.opens].sort()).toEqual([plain.id, locked.id].sort());
     expect(unlock.opens[0]).toBe(locked.id);
-    expect(unlock.carry.ids).toEqual(
-      unlock.tool.handoffMode === "none" ? [] : [locked.id],
-    );
+    // WAS `[locked.id]` for any mode but none: Unlock's panel staged one
+    // file. Since batch plan P6 it takes both as a batch (the batch leaves
+    // the plain one out on its row, "not locked"), the pinned file first.
+    expect(unlock.tool.handoffMode).toBe("batch");
+    expect(unlock.carry.ids).toEqual([locked.id, plain.id]);
 
     const ok = pdf("ok.pdf");
     const broken = pdf("broken.pdf", {
@@ -402,9 +411,9 @@ describe("the carry property, over every mix", () => {
     expect(repair.pinned).toBe("repair");
     expect([...repair.opens].sort()).toEqual([ok.id, broken.id].sort());
     expect(repair.opens[0]).toBe(broken.id);
-    expect(repair.carry.ids).toEqual(
-      repair.tool.handoffMode === "none" ? [] : [broken.id],
-    );
+    // WAS `[broken.id]`, as Unlock above (batch plan P6).
+    expect(repair.tool.handoffMode).toBe("batch");
+    expect(repair.carry.ids).toEqual([broken.id, ok.id]);
   });
 
   it("a file no tool opens has its own note, and does not count against every tool", () => {

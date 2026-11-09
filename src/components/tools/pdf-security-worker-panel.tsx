@@ -431,7 +431,16 @@ function SecurityRunArea({
   // file or password — leaves this browser until Run.
   const staged = useStagedHandoff(tool.slug, COPY[mode].cta, (files) => {
     setOutcome(null);
-    setFile(files[0] ?? null);
+    // Two or more carried files open the batch, as a drop of them does
+    // (batch plan P6) — never while a job runs, as the drop zone says. The
+    // batch asks for its own password, so any typed here goes.
+    if (files.length > 1 && !busy) {
+      setPassword("");
+      setPasswordAgain("");
+      setOwnerPassword("");
+      setOwnerPasswordAgain("");
+      setBatch(files);
+    } else setFile(files[0] ?? null);
   });
 
   const passwordBytes = passwordByteLength(password);

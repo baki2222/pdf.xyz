@@ -25,8 +25,8 @@ import {
  * removed by the bucket's daily lifecycle rule, not by the app (P3 report),
  * so these words claim only what the panel already claims.
  *
- * Read by the batch's own chunk and by the tool pages' content on the
- * server; never by a first-load module.
+ * Read by the batch's own chunk, and on the server by the tool pages'
+ * content and the workspace's summaries; never by a first-load module.
  */
 
 /** Who shares the hourly count, in the limiter's current keying. */
@@ -44,6 +44,15 @@ export function workerBatchJobsSentence(files: number): string {
   return `This batch uses up to ${files} of the ${RATE_LIMITS.jobsPerHourPerClient} server jobs an hour that ${SHARED_BY}.`;
 }
 
+/**
+ * What each file of a worker batch costs, with no count: said by the tool
+ * page's account of its batch (below) and, before any file has moved, by
+ * the workspace's launch area for a worker batch (`presenter.ts`).
+ */
+export function workerBatchEachFileSentence(): string {
+  return `Each file counts as one of the ${RATE_LIMITS.jobsPerHourPerClient} server jobs an hour that ${SHARED_BY}.`;
+}
+
 /** The pause banner's first sentence, after a rate limit. */
 export const WORKER_BATCH_PAUSED = PER_CLIENT_KEYING_DISCLOSED
   ? "Paused: the hourly limit for your network address was reached."
@@ -52,5 +61,5 @@ export const WORKER_BATCH_PAUSED = PER_CLIENT_KEYING_DISCLOSED
 /** A worker tool page's account of its batch, from the registration. */
 export function workerBatchPageSentence(slug: WorkerBatchSlug): string {
   const { zipName, noun } = WORKER_BATCH_TOOLS[slug];
-  return `Add two or more ${noun[1]} and they open as a batch list; any option you set applies to all of them. The button under the list then names the number of files; each one runs in turn on our secure server, one job at a time; download a file from its row, or press “Download all” for ${zipName}. ${batchLimitsSentence(slug)} ${workerBatchUploadSentence()} Each file counts as one of the ${RATE_LIMITS.jobsPerHourPerClient} server jobs an hour that ${SHARED_BY}; if that limit is reached the batch pauses and carries on by itself when it lifts, as long as the page stays open.`;
+  return `Add two or more ${noun[1]} and they open as a batch list; any option you set applies to all of them. The button under the list then names the number of files; each one runs in turn on our secure server, one job at a time; download a file from its row, or press “Download all” for ${zipName}. ${batchLimitsSentence(slug)} ${workerBatchUploadSentence()} ${workerBatchEachFileSentence().slice(0, -1)}; if that limit is reached the batch pauses and carries on by itself when it lifts, as long as the page stays open.`;
 }

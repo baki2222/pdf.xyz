@@ -602,7 +602,13 @@ describe("each row leads with what the click carries", () => {
   // DOCX files there"): with nothing carried, no file could be named. A
   // staged panel takes ONE, the first, and the row names it — the rule the
   // in-browser one-file runners keep.
-  it("two Word files and a PDF: the one file Word to PDF takes is named", async () => {
+  //
+  // INVERTED 2026-11-09 (batch plan P6). This was "the one file Word to PDF
+  // takes is named" ("takes one file — report.docx"): the click carried
+  // report.docx and left memo.docx behind, although Word to PDF's panel
+  // opens a batch for two or more. It carries both now, and the row counts
+  // them, as a client batch's row does.
+  it("two Word files and a PDF: Word to PDF opens both Word files", async () => {
     const { container } = render(withRouter(<Desk />));
     stage(container, [
       docx("report.docx"),
@@ -611,10 +617,13 @@ describe("each row leads with what the click carries", () => {
     ]);
     const row = await rowFor(await suggestions(), "word-to-pdf");
     expect(row.querySelector("[data-lead]")?.textContent).toBe(
-      "takes one file — report.docx",
+      "opens 2 of your 3 files",
+    );
+    expect(row.querySelector("[data-lead]")?.textContent).not.toMatch(
+      /takes one file/,
     );
     expect(row.getAttribute("aria-label")).toBe(
-      `Open ${getToolBySlug("word-to-pdf")!.name} with report.docx`,
+      `Open ${getToolBySlug("word-to-pdf")!.name} with 2 files`,
     );
   });
 });

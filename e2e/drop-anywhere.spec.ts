@@ -477,6 +477,11 @@ test.describe("a guide's desk at 390", () => {
 // "Open PDF to Word — you'll add report.pdf there". The worker panel STAGES a
 // carried file now (it uploads only on that page's Export), so the desk opens
 // the tool it teaches with the file, as every runner's desk does.
+//
+// INVERTED 2026-11-09 (batch plan P6): the desk said "Drop a PDF to open PDF
+// to Word with it" — one file — while the panel behind it has opened a batch
+// for two or more since P3. It offers the batch now; one file still stages
+// as before (this row), and two open the batch list (the row after it).
 test("a guide whose tool runs on a worker opens it with the dropped file, staged", async ({
   page,
 }) => {
@@ -484,13 +489,53 @@ test("a guide whose tool runs on a worker opens it with the dropped file, staged
   await layerLive(page);
   await deskLive(page);
   const desk = page.locator("[data-guide-desk]");
-  await expect(desk).toContainText("Drop a PDF to open PDF to Word with it");
+  await expect(desk).toContainText(
+    "Drop your PDFs to open PDF to Word with them, or",
+  );
   await dropOn(desk.locator("[data-drop-sheet]"), [await pdf("report.pdf")]);
   await expect(page).toHaveURL(/\/tools\/pdf-to-word$/, { timeout: 20_000 });
   await expect(
     page.getByText(/nothing is uploaded until you press Export DOCX/),
   ).toBeVisible();
   await expect(page.getByText("report.pdf", { exact: true })).toBeVisible();
+});
+
+// Batch plan P6, a carry path that is not the workspace: two PDFs dropped
+// on the guide's desk open PDF to Word's BATCH list with both, and nothing
+// reaches our server before Run — counted at the wire, with a positive
+// control that the counter sees the panel's own status fetch.
+test("a guide whose tool has a worker batch opens it with every dropped file, nothing sent", async ({
+  page,
+}) => {
+  const sent: string[] = [];
+  const seen: string[] = [];
+  page.on("request", (request) => {
+    const url = request.url();
+    if (/\/api\//.test(url)) seen.push(url);
+    if (/\/api\/(uploads|jobs)\b/.test(url))
+      sent.push(`${request.method()} ${url}`);
+  });
+  await page.goto("/guides/how-to-convert-pdf-to-word");
+  await layerLive(page);
+  await deskLive(page);
+  await dropOn(page.locator("[data-guide-desk] [data-drop-sheet]"), [
+    await pdf("q1.pdf"),
+    await pdf("q2.pdf", 2),
+  ]);
+  await expect(page).toHaveURL(/\/tools\/pdf-to-word$/, { timeout: 20_000 });
+  const list = page.getByRole("list", { name: "Files in this batch" });
+  await expect(list.getByRole("listitem")).toHaveCount(2);
+  await expect(list.getByText("q1.pdf", { exact: true })).toBeVisible();
+  await expect(list.getByText("q2.pdf", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText(
+      /nothing is uploaded until you press the button under the list/,
+    ),
+  ).toBeVisible();
+  await page.waitForTimeout(800);
+  // Positive control: the counter sees the page's calls to our API.
+  expect(seen.some((u) => u.includes("/api/worker/status"))).toBe(true);
+  expect(sent, "a file went to our server before Run").toEqual([]);
 });
 
 test("a category page has no target: a drop opens the ticket dialog", async ({
