@@ -268,6 +268,77 @@ describe("failed: the files should have travelled and could not", () => {
   });
 });
 
+/*
+ * Batch plan P6 review (2026-11-09). P6 made the thirteen worker batches
+ * take every eligible file, uncapped — and a set past the hand-off budget
+ * then FAILED, where before P6 (stage mode) the first file travelled: four
+ * 80 MB PDFs for PDF to Word opened nothing. A worker batch now carries the
+ * longest prefix that fits one hand-off; a set whose FIRST file is over the
+ * budget still fails, so "failed" is never turned into a silent "plain".
+ * The sizes are real `size`s, not tiny fixtures: the defect only exists
+ * at hundreds of megabytes.
+ */
+describe("a worker batch past the hand-off budget carries what fits", () => {
+  const MB = 1024 * 1024;
+  const sized = (name: string, size: number): File => {
+    const file = pdf(name);
+    Object.defineProperty(file, "size", { value: size });
+    return file;
+  };
+
+  it.each(["pdf-to-word", "ocr-pdf", "repair-pdf"])(
+    "%s: four 80 MB PDFs carry the first three, in order",
+    async (toolSlug) => {
+      const files = ["a", "b", "c", "d"].map((n) => sized(`${n}.pdf`, 80 * MB));
+      expect(
+        await launch({ toolSlug, files, origin: { kind: "workspace" } }),
+      ).toBe("carried");
+      const record = await claimedFrom(pushed[0]!);
+      expect(record?.files.map((f) => f.name)).toEqual([
+        "a.pdf",
+        "b.pdf",
+        "c.pdf",
+      ]);
+    },
+  );
+
+  it("twelve 30 MB PDFs for Repair carry ten (300 MB exactly fits)", async () => {
+    const files = Array.from({ length: 12 }, (_, i) =>
+      sized(`p${i}.pdf`, 30 * MB),
+    );
+    expect(
+      await launch({
+        toolSlug: "repair-pdf",
+        files,
+        origin: { kind: "workspace" },
+      }),
+    ).toBe("carried");
+    expect((await claimedFrom(pushed[0]!))?.files).toHaveLength(10);
+  });
+
+  it("control: a first file over the budget still fails, never 'plain'", async () => {
+    expect(
+      await launch({
+        toolSlug: "repair-pdf",
+        files: [sized("huge.pdf", HANDOFF_MAX_TOTAL_BYTES + 1)],
+        origin: { kind: "workspace" },
+      }),
+    ).toBe("failed");
+    expect(pushed).toEqual([]);
+  });
+
+  it("control: a combine (Merge PDF) is all or nothing — it never merges a subset", async () => {
+    const files = ["a", "b", "c", "d"].map((n) => sized(`${n}.pdf`, 80 * MB));
+    expect(
+      await launch({
+        toolSlug: "merge-pdf",
+        files,
+        origin: { kind: "workspace" },
+      }),
+    ).toBe("failed");
+  });
+});
+
 describe("cancelled: the unsaved-work check runs first", () => {
   it("a declined leave stashes nothing, navigates nowhere and measures nothing", async () => {
     const backend = new MemoryHandoffBackend();

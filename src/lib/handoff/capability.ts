@@ -104,9 +104,10 @@ export function handoffCapabilityFor(slug: string): HandoffCapability {
 
 /**
  * The worker panels that open a batch list for two or more files (batch plan
- * P3-P5): a hand-off to one carries every eligible file, and the batch caps
- * them and lists the rest with the reason (`capBatchFiles`), as a client
- * batch does.
+ * P3-P5): a hand-off to one carries every eligible file that fits one
+ * hand-off (`handoffPayload` stops at `HANDOFF_MAX_TOTAL_BYTES`, as a staged
+ * panel's one file did), and the batch caps them and lists the rest with the
+ * reason (`capBatchFiles`), as a client batch does.
  *
  * Typed here rather than read from `WORKER_BATCH_TOOLS`, because this module
  * rides every tool page's first load and that registration (with the batch
