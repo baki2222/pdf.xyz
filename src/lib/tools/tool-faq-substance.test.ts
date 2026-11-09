@@ -63,11 +63,8 @@ import {
   summarizeAnalysis,
 } from "@/lib/pdf/analyze";
 import { exportEditedPdf } from "@/lib/pdf/editor-export";
-import {
-  DEFAULT_TEXT_STYLE,
-  typedSignatureObject,
-  type EditorObject,
-} from "@/lib/pdf/editor/model";
+import { DEFAULT_TEXT_STYLE, type EditorObject } from "@/lib/pdf/editor/model";
+import { typedSignatureObject } from "@/lib/pdf/editor/typed-signature";
 import { addWatermark } from "@/lib/pdf/watermark";
 import { addPageNumbers } from "@/lib/pdf/page-numbers";
 import {

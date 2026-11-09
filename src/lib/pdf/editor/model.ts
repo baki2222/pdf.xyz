@@ -16,7 +16,7 @@ import {
   EDITOR_KINDS,
   type CommentKind,
   type EditorKind,
-  type SignatureStyle,
+  type HandwritingStyle,
 } from "../offered-kinds";
 import type { RasterImageFormat } from "../pdf-lib";
 import {
@@ -78,6 +78,16 @@ export interface TextBoxObject extends Base, TextStyle {
    */
   height?: number;
   text: string;
+  /**
+   * A typed signature's handwriting face (audit sign-pdf#1): the words are
+   * set in it wherever it has every letter (`handwritingFor` in
+   * `../handwriting.ts`), and otherwise exactly as `font`/`bold`/`italic`
+   * say — which for a typed signature is Script's Times Italic. Absent on
+   * every other text box, and dropped the moment the reader picks a font or
+   * a weight or slant (`withoutHandwritingFor` in `./typed-signature`), so
+   * the Font menu never shows one face while the page shows another.
+   */
+  hand?: HandwritingStyle;
 }
 
 export interface NoteObject extends Base, TextStyle {
@@ -783,42 +793,6 @@ export function describeObject(obj: EditorObject): string {
 export const TYPED_SIGNATURE_SIZE = 28;
 /** The signature ink colour Sign PDF has always used (slate-900). */
 export const SIGNATURE_INK = "#0f172a";
-
-/**
- * A typed signature as the editor places it: a one-line text box in the
- * style's face — Script is Times Italic, Print is Helvetica, the faces Sign
- * PDF's copy names (`sign-style-copy.test.ts` reads them back out of the
- * export). Text in another script takes the one upright Noto face, as every
- * text box does. `color` is the ink chosen in the signature panel
- * (`./signature-ink`); left out, it is the ink Sign PDF has always used.
- */
-export function typedSignatureObject(
-  id: string,
-  page: number,
-  x: number,
-  y: number,
-  width: number,
-  text: string,
-  style: SignatureStyle,
-  color: string = SIGNATURE_INK,
-): TextBoxObject {
-  return {
-    id,
-    kind: "text",
-    page,
-    x,
-    y,
-    width,
-    text,
-    font: style === "signature" ? "times" : "helvetica",
-    italic: style === "signature",
-    bold: false,
-    size: TYPED_SIGNATURE_SIZE,
-    color,
-    align: "left",
-    lineHeight: 1.2,
-  };
-}
 
 /** Defaults a newly placed object starts from. */
 export const DEFAULT_TEXT_STYLE: TextStyle = {

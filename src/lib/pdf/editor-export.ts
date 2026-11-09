@@ -5,7 +5,8 @@ import { PdfEngineError } from "./engine";
 import { viewerFrame } from "./page-frame";
 import { drawRasterImage, embedRasterImage, loadPdfLib } from "./pdf-lib";
 import { loadPdf, stampProducer } from "./stamp";
-import { embedDrawingFont } from "./unicode-font";
+import { embedDrawingFont, embedFaceIfDrawable } from "./unicode-font";
+import { HANDWRITING_FACES, handwritingFor } from "./handwriting";
 import {
   EDITOR_OBJECT_KINDS,
   NOTE_PADDING,
@@ -492,6 +493,20 @@ export async function exportEditedPdf(
   const fontOf = new Map<string, PDFFont>();
   for (const obj of list) {
     if (!hasWords(obj)) continue;
+    // A typed signature in a handwriting style: its own face, embedded and
+    // subset, when the face has every letter of the name and shapes none of
+    // them to `.notdef`. Otherwise it falls through and is set exactly as its
+    // underlying style (Script's) sets it — never a blank box.
+    const hand = obj.kind === "text" ? handwritingFor(obj, obj.text) : null;
+    if (hand) {
+      const font = await embedFaceIfDrawable(doc, HANDWRITING_FACES[hand], [
+        obj.text,
+      ]);
+      if (font) {
+        fontOf.set(obj.id, font);
+        continue;
+      }
+    }
     const face = faceFor(obj.text, obj);
     if (face === "sans" && needsUnicodeFace(obj.text)) {
       // One call per object, so a Bengali box and a Chinese box on the same

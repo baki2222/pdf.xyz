@@ -16,7 +16,12 @@
 import { createRequire } from "node:module";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
-import { FONT_PACKS, type FontPack, type FontPackId } from "./font-packs";
+import {
+  FONT_PACKS,
+  type FontPack,
+  type FontPackId,
+  type ShippedFace,
+} from "./font-packs";
 
 const require_ = createRequire(import.meta.url);
 
@@ -51,20 +56,20 @@ function packageJsonPath(pkg: string): string {
 }
 
 /** Absolute path to a pack's TTF inside the installed package. */
-export function notoTtfPath(pack: FontPack): string {
+export function notoTtfPath(pack: ShippedFace): string {
   const pkgJson = packageJsonPath(pack.pkg);
   return path.join(path.dirname(pkgJson), pack.dir, pack.file);
 }
 
 /** The version of the npm package a pack is actually installed from. */
-export function installedPackageVersion(pack: FontPack): string {
+export function installedPackageVersion(pack: ShippedFace): string {
   const pkgJson = packageJsonPath(pack.pkg);
   return (JSON.parse(readFileSync(pkgJson, "utf8")) as { version: string })
     .version;
 }
 
 /** A pack's TTF bytes, straight off disk. */
-export function readNotoTtf(pack: FontPack): Uint8Array {
+export function readNotoTtf(pack: ShippedFace): Uint8Array {
   return new Uint8Array(readFileSync(notoTtfPath(pack)));
 }
 
@@ -76,7 +81,9 @@ export function readNotoTtf(pack: FontPack): Uint8Array {
  * true when written. Noto Sans JP carries 61% of CJK Unified and Noto Sans KR
  * 39% — a "covers CJK" row would be true of all three and useful for none.
  */
-export async function notoCharacterSet(pack: FontPack): Promise<Set<number>> {
+export async function notoCharacterSet(
+  pack: ShippedFace,
+): Promise<Set<number>> {
   const font = await openNotoFont(readNotoTtf(pack));
   return new Set(font.characterSet);
 }

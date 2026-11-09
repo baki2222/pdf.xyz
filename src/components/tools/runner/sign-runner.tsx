@@ -1,7 +1,7 @@
 "use client";
 
 import { ShieldAlert } from "lucide-react";
-import { signatureOutputName } from "@/lib/pdf/signature";
+import { signatureOutputName } from "@/lib/pdf/signature-name";
 import { PrivacyLine } from "./stamp-controls";
 import { EditorRunner } from "./editor/editor-session";
 

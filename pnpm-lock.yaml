@@ -58,6 +58,18 @@ importers:
       '@eslint/eslintrc':
         specifier: ^3.3.5
         version: 3.3.5
+      '@expo-google-fonts/alex-brush':
+        specifier: 0.4.1
+        version: 0.4.1
+      '@expo-google-fonts/dancing-script':
+        specifier: 0.4.2
+        version: 0.4.2
+      '@expo-google-fonts/homemade-apple':
+        specifier: 0.4.1
+        version: 0.4.1
+      '@expo-google-fonts/mr-dafoe':
+        specifier: 0.4.1
+        version: 0.4.1
       '@expo-google-fonts/noto-sans':
         specifier: ^0.4.2
         version: 0.4.2
@@ -494,6 +506,18 @@ packages:
     peerDependenciesMeta:
       '@noble/hashes':
         optional: true
+
+  '@expo-google-fonts/alex-brush@0.4.1':
+    resolution: {integrity: sha512-qouZYslwU5vT3DIJ1iIiOWhFw79Z5i2Sd/G9Xv24yTBT+2s3G4juRKBeKGiyUvd5VwMrQYy9SUbfYjezuUPuyg==}
+
+  '@expo-google-fonts/dancing-script@0.4.2':
+    resolution: {integrity: sha512-5ASbxOM81Xm6nR9I0eE//l1PGgHtR4uGyMX3eUIw2Jeh+1LnlkrDPg55qjChGnkFfVwMge31vXEUyOZJiy9rxQ==}
+
+  '@expo-google-fonts/homemade-apple@0.4.1':
+    resolution: {integrity: sha512-Uxjnkgf+iwv1wMUFaQhgndGXvpOAoNBtgQGBp3U78MLkKjgymUh6RoI9pzmkV14OOeBaK7JedPh9raJx3FfDCg==}
+
+  '@expo-google-fonts/mr-dafoe@0.4.1':
+    resolution: {integrity: sha512-0lZDvllxI30lu3/yuOABQFJoM+sPGU0Z0Dc4TeXPy4zkSIO6SCjV8cqFzHAtoufnU2CxPn4kmacOSY5YnJKfJg==}
 
   '@expo-google-fonts/noto-sans-bengali@0.4.4':
     resolution: {integrity: sha512-Ya58tLTEdP4P5EF3ZXTM829/g57mbfW8OrD16MMZr2sC3nIKItl/3J9tZlk1nrtqfFGzIgxb+zt/hLjAaTAQgQ==}
@@ -3415,6 +3439,14 @@ snapshots:
       levn: 0.4.1
 
   '@exodus/bytes@1.15.1': {}
+
+  '@expo-google-fonts/alex-brush@0.4.1': {}
+
+  '@expo-google-fonts/dancing-script@0.4.2': {}
+
+  '@expo-google-fonts/homemade-apple@0.4.1': {}
+
+  '@expo-google-fonts/mr-dafoe@0.4.1': {}
 
   '@expo-google-fonts/noto-sans-bengali@0.4.4': {}
 
