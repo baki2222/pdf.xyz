@@ -352,6 +352,13 @@ export function copyFiles(): string[] {
     path.join(ROOT, "src", "lib", "pdf", "n-up.ts"),
     // Split PDF Pages in Half (2026-11-01): its option labels, hints and refusals.
     path.join(ROOT, "src", "lib", "pdf", "split-half.ts"),
+    // Remove Annotations (2026-11-10): its group labels, defaults and
+    // consequence lines, and the engine's refusals.
+    path.join(ROOT, "src", "lib", "pdf", "annotation-groups.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "remove-annotations.ts"),
+    // Its kind labels, moved out of offered-kinds.ts (2026-11-10) so they
+    // stop shipping in seven other tool pages' first load.
+    path.join(ROOT, "src", "lib", "pdf", "annotation-kinds.ts"),
     // PDF Booklet Maker (2026-11-09): its option labels, the back-cover
     // reasons and its refusals. sheet-embed.ts, the page embedding it shares
     // with n-up, holds no sentence: each caller passes its own refusal.

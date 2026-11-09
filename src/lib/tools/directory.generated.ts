@@ -313,6 +313,13 @@ export const TOOL_DIRECTORY: readonly ToolEntry[] = [
     outputs: ["PDF"],
   },
   {
+    slug: "remove-annotations",
+    name: "Remove Annotations",
+    processing: "client",
+    accept: ["PDF"],
+    outputs: ["PDF"],
+  },
+  {
     slug: "sign-pdf",
     name: "Sign PDF",
     processing: "client",

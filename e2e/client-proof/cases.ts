@@ -7,6 +7,7 @@ import {
   PDFDocument,
   PDFName,
   PDFRawStream,
+  PDFString,
   degrees,
   rgb,
 } from "pdf-lib";
@@ -68,6 +69,8 @@ import { NO_CROP, cropPdf } from "../../src/lib/pdf/crop";
 import { SCAN_PAGE_SIZES, scansToPdf } from "../../src/lib/pdf/scan-to-pdf";
 import { RESIZE_SIZES, resizePdf } from "../../src/lib/pdf/resize";
 import { splitPagesInHalf } from "../../src/lib/pdf/split-half";
+import { addToPage, annot } from "../../src/tests/annotation-fixtures";
+import { markersFound } from "../../src/tests/pdf-decoded-scan";
 import {
   DEFAULT_N_UP_OPTIONS,
   N_UP_SHEETS,
@@ -114,6 +117,7 @@ import {
   pdfCropBoxes,
   pdfFormSnapshot,
   pdfImages,
+  pdfAnnotations,
   pdfInfo,
   pdfTextPositions,
   pdfPageCount,
@@ -697,6 +701,55 @@ async function assertTiffPdf(buf: Buffer, order: "g4-first" | "lzw-first") {
     pages.map((p) => [p.dark > 300 && p.dark < p.total * 0.3, p.red > 300]),
     TIFF_FAILS.red,
   ).toEqual(pages.map((_, i) => [true, i === redPage]));
+}
+
+/** Remove Annotations' proof fixture: its upload name and note author. */
+const ANNOTATED_NAME = "reviewed.pdf";
+const ANNOTATION_AUTHOR = "Ada Review-Proof";
+const ANNOTATION_FAILS = {
+  listed: "a highlight or a note is still listed on the page",
+  link: "the link, which the defaults keep, is not the one annotation left",
+  bytes: "the removed note's author is still in the file's decoded bytes",
+};
+
+/** One page: a highlight, a note by ANNOTATION_AUTHOR with its pop-up, a link. */
+async function annotatedForProof(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([400, 400]);
+  const ctx = doc.context;
+  const highlight = annot(
+    ctx,
+    page.ref,
+    "Highlight",
+    {
+      QuadPoints: [40, 340, 140, 340, 40, 320, 140, 320],
+      C: [1, 1, 0],
+    },
+    [40, 320],
+  );
+  const note = annot(
+    ctx,
+    page.ref,
+    "Text",
+    {
+      T: ANNOTATION_AUTHOR,
+      Contents: "Please reword this paragraph.",
+    },
+    [200, 320],
+  );
+  const popup = annot(ctx, page.ref, "Popup", { Parent: note }, [240, 260]);
+  (ctx.lookup(note) as PDFDict).set(PDFName.of("Popup"), popup);
+  const link = annot(
+    ctx,
+    page.ref,
+    "Link",
+    {
+      A: ctx.obj({ S: "URI", URI: PDFString.of("https://example.com/") }),
+    },
+    [40, 200],
+  );
+  for (const ref of [highlight, note, popup, link]) addToPage(doc, 0, ref);
+  return doc.save();
 }
 
 export const CASES: Record<string, ToolCase> = {
@@ -2110,6 +2163,79 @@ export const CASES: Record<string, ToolCase> = {
       ];
     },
     rejectsBecause: [META_FAILS.title, META_FAILS.author, META_FAILS.pages],
+  },
+
+  "remove-annotations": {
+    kind: "metadata",
+    artifact: "pdf",
+    // A highlight, a sticky note authored ANNOTATION_AUTHOR and a link, run
+    // with the defaults (comments, markup, drawings, stamps and attachments
+    // ticked; links not).
+    run: async (ctx) => {
+      const bytes = Buffer.from(await annotatedForProof());
+      ctx.data[ANNOTATED_NAME] = bytes;
+      await uploadPayloads(ctx.page, [
+        { name: ANNOTATED_NAME, mimeType: "application/pdf", buffer: bytes },
+      ]);
+      await expect(
+        ctx.page.getByRole("checkbox", { name: /^Highlights and text markup/ }),
+      ).toBeChecked();
+      await expect(
+        ctx.page.getByRole("checkbox", { name: /^Links/ }),
+      ).not.toBeChecked();
+      return runAndDownload(
+        ctx,
+        /^remove 2 annotations$/i,
+        /annotations removed/i,
+        /^download pdf$/i,
+      );
+    },
+    assert: async (buf) => {
+      const subtypes = (await pdfAnnotations(buf)).flatMap((p) =>
+        p.annots.map((a) => a.subtype),
+      );
+      expect(
+        subtypes.filter((s) => s === "Highlight" || s === "Text"),
+        ANNOTATION_FAILS.listed,
+      ).toEqual([]);
+      expect(subtypes, ANNOTATION_FAILS.link).toEqual(["Link"]);
+      // Decoded, object streams included: the note's author is not in the
+      // file at all, not merely unlisted.
+      expect(
+        markersFound(new Uint8Array(buf), [ANNOTATION_AUTHOR]),
+        ANNOTATION_FAILS.bytes,
+      ).toEqual([]);
+      expect(await pdfPageCount(buf)).toBe(1);
+    },
+    // 1. the upload itself (every annotation listed);
+    // 2. the highlight and the note UNLISTED from the page but left in the
+    //    file — the "hidden, not removed" copy;
+    // 3. everything removed, the link too.
+    control: async (ctx) => {
+      const source = input(ctx, ANNOTATED_NAME);
+      const unlist = async (keep: (subtype: string) => boolean) => {
+        const doc = await PDFDocument.load(source, { updateMetadata: false });
+        const page = doc.getPage(0).node;
+        const annots = page.lookup(PDFName.of("Annots"), PDFArray);
+        const kept = annots.asArray().filter((entry) => {
+          const dict = doc.context.lookup(entry) as PDFDict;
+          const subtype = dict.get(PDFName.of("Subtype"))!.toString().slice(1);
+          return keep(subtype);
+        });
+        page.set(PDFName.of("Annots"), doc.context.obj(kept));
+        return Buffer.from(await doc.save());
+      };
+      return [
+        source,
+        await unlist((s) => s === "Link"),
+        await unlist(() => false),
+      ];
+    },
+    rejectsBecause: [
+      ANNOTATION_FAILS.listed,
+      ANNOTATION_FAILS.bytes,
+      ANNOTATION_FAILS.link,
+    ],
   },
 
   "resize-pdf": {
@@ -3796,6 +3922,8 @@ export const PROOF_LIMITS: Record<string, string> = {
     "Two photos picked through the page's drop sheet (a JPEG carrying EXIF Orientation 6 and a wide PNG) with Black & white on the default A4 pages. The camera input itself is driven only by e2e/scan-to-pdf.mobile.spec.ts, at 375 px, through setInputFiles: no real camera is opened in any test. Original and Document clean-up, Fit to photo and US Letter, rotating, reordering and removing a page are not exercised in a real browser; the clean-up filters' pixels and the page layout are proven in Node by src/lib/pdf/scan-to-pdf.test.ts.",
   "edit-pdf-metadata":
     "Only Edit values, changing the title and the author of a file with no XMP packet. Remove all metadata, the date fields, and the XMP rewrite are proven in Node only, by src/lib/pdf/metadata.test.ts, which reads every output back with pdf-lib and pdf.js.",
+  "remove-annotations":
+    "Only the defaults, on a highlight, a sticky note with its pop-up and a link. Every other group alone, form fields (/CO, /AcroForm, hybrid XFA), signature fields kept under every choice, attachments and their payloads, shared and hostile objects (cycles, deep field trees, 10,000 references to one annotation), and the byte-level absence of appearance streams and rich text are proven in Node only, by src/lib/pdf/remove-annotations.test.ts and src/lib/pdf/remove-annotations.pdfjs.test.ts, which read every output with pdf-lib, pdf.js and a reader that decodes every stream.",
   "resize-pdf":
     "Only the defaults: A4, Match each page, Scale content to fit, all pages. Change canvas only, custom sizes and units, selected pages, pages carrying /Rotate or an inset CropBox, and links moved with the content are proven in Node by src/lib/pdf/resize.test.ts, through pdf.js, not in a real browser.",
   "n-up-pdf":

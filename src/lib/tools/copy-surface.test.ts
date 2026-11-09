@@ -126,6 +126,12 @@ describe("the copy surface reaches what the guards must read", () => {
       "src/lib/pdf/n-up.ts",
       // Added 2026-11-01: Split PDF Pages in Half's phrase module.
       "src/lib/pdf/split-half.ts",
+      // Added 2026-11-10: Remove Annotations' phrase modules.
+      "src/lib/pdf/annotation-groups.ts",
+      "src/lib/pdf/remove-annotations.ts",
+      // Added 2026-11-10 (review round 1): its kind labels, moved out of
+      // offered-kinds.ts.
+      "src/lib/pdf/annotation-kinds.ts",
       // Added 2026-11-09: PDF Booklet Maker's phrase module.
       "src/lib/pdf/booklet.ts",
       // Added 2026-11-08: the page-tree check's damaged-page refusal.
@@ -232,6 +238,9 @@ describe("the copy surface reaches what the guards must read", () => {
     // second checkout (about 1,100) would still be far past it.
     const n = copyFiles().length;
     expect(n).toBeGreaterThanOrEqual(120);
+    // Remove Annotations (2026-11-10) adds three phrase modules on top
+    // (annotation-groups.ts, remove-annotations.ts, annotation-kinds.ts); its
+    // own branch had raised 550 to 560, superseded by main's 700 at the merge.
     expect(n).toBeLessThanOrEqual(700);
   });
 

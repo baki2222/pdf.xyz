@@ -1074,6 +1074,34 @@ const TOOL_PAGES_TO_COME = {
   // rotate, merge, summarize) none of which loads stamp-controls: the
   // branch then cost 17 tool pages +28 B each through a CheckboxField
   // change, since moved into booklet-editor.tsx (review, 2026-11-10).
+  //
+  // NOT TAKEN from the unallocated 0.01, 2026-11-10, by Remove
+  // Annotations, the 58th tool (a client tool REUSING the metadata runner kind) — flagged
+  // for the owner as A RE-ALLOCATION OF G.1 in effect: it rides each row's
+  // own headroom, as P6 did above. RE-MEASURED after review round 1 over
+  // EVERY prerendered page (scripts/page-weight.ts: gzip per unique chunk,
+  // summed), main 69c92fe1 -> the branch, both built from an empty .next on
+  // one machine. The first note measured the four G.1 pages and missed
+  // thirteen others: the kind labels then sat in offered-kinds.ts (first
+  // load of sign, annotate, edit, create-forms, grayscale, split, compress:
+  // +156 to +170 B) and Overlay imported the module holding the XFA reader
+  // (overlay, n-up: +293 B). Both are fixed and guarded
+  // (own-panel-first-load.test.ts, "a shared leaf rides only with the code
+  // that uses it"). Now:
+  //  - 136 of 141 pages +8 or +9: webpack's runtime +9 (one more async
+  //    chunk in its map: the engine, fetched when a file opens), the page
+  //    chunk -1. The G.1 four: ocr 233,628 -> 233,636, rotate 234,868 ->
+  //    234,876, merge 229,100 -> 229,108, summarize 234,440 -> 234,448.
+  //  - /tools +140: the catalogue row (chunk 5320: the tool's name, tagline
+  //    and keywords), as any new tool adds.
+  //  - workspace +262: that row, the Eraser icon in the icon chunk (+81)
+  //    and the intents row (+21).
+  //  - flatten-pdf +67: Flatten's engine is in its first load, and the
+  //    flags and XFA reader it shares with Remove Annotations' engine are a
+  //    module of their own there now, not inlined (+59, and +8).
+  //  - edit-pdf-metadata 242,105 -> 245,662 (+3,557): the metadata kind's
+  //    runner chunk carries the Remove Annotations panel; remove-annotations
+  //    itself 245,662.
   unallocated:
     UNALLOCATED -
     NEW_TOOLS_2026_10_30 -

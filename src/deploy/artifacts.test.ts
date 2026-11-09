@@ -316,7 +316,11 @@ describe(".dockerignore keeps secrets, prompts, and build output out of the cont
     ).toContain(
       "src/tests/pdfjs-load-order.vitest.config.ts -> vitest.config.ts",
     );
-  });
+    // A timeout of its own: the walk reads every file in the context (648 ms
+    // alone), and under the full suite's load it went past vitest's 5 s
+    // default (2026-11-10, merged tree of two new tools). Its time is not
+    // the property; the import graph is.
+  }, 30_000);
 });
 
 describe("docker-compose.worker.yml — example wiring, names only", () => {

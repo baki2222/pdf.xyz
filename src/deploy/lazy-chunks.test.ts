@@ -791,8 +791,18 @@ describe("no tool page loads a table of every tool", () => {
  * changed chunks are 7384 and 5320, which hold the directory and the
  * registry). NOT measured on CI: 33.77 KB (34,580 B) keeps the same 35 B
  * over this machine's figure as the raise above, for CI's ~25 B gap.
+ *
+ * RAISED 33.77 -> 33.94 on 2026-11-10, for Remove Annotations, the 58th
+ * tool (merged over PDF Booklet Maker): the catalogue the ticket loads
+ * carries its row and keywords, the hand-off tables its mode row, and the
+ * format chunk its slug. On its own branch (main 69c92fe1 vs the branch) the
+ * eight counted chunks went 34,371 -> 34,537 B (+166). On the MERGED tree
+ * (main ad23525e with the booklet, plus this tool), one machine, from an
+ * empty .next: 34,711 B (33.8975 KB). 33.94 KB is 34,755 B, which is 44 B
+ * over that figure for CI's reading (25 B higher on the one tree both
+ * read). Not measured on CI.
  */
-const TICKET_FETCH_GZ_KB = 33.77;
+const TICKET_FETCH_GZ_KB = 33.94;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));

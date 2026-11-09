@@ -663,10 +663,20 @@ function hasNormalAppearance(lib: PdfLibModule, widget: PDFDict): boolean {
   return normal instanceof PDFStream || normal instanceof PDFDict;
 }
 
-/** Annotation flags (PDF 32000 §12.5.3) that decide where one is painted. */
-const ANNOT_HIDDEN = 1 << 1;
-const ANNOT_PRINT = 1 << 2;
-const ANNOT_NO_VIEW = 1 << 5;
+/**
+ * Annotation flags (PDF 32000 §12.5.3) that decide where one is painted
+ * (Print came with PDF Booklet Maker's print-mode baking).
+ *
+ * A second definition, on purpose: `./annot-flags` holds the shared one
+ * (Flatten, Remove Annotations), but importing it here put that module,
+ * XFA reader included, into overlay-pdf's and n-up-pdf's first load
+ * (+293 B gzip each, 2026-11-10). `annot-flags.test.ts` pins these to the
+ * shared values; exported only for that test, so the production bundle
+ * carries no export for them.
+ */
+export const ANNOT_HIDDEN = 1 << 1;
+export const ANNOT_PRINT = 1 << 2;
+export const ANNOT_NO_VIEW = 1 << 5;
 
 /**
  * Whether an annotation with flags `flags` is painted: on screen ("view":

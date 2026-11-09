@@ -49,6 +49,7 @@ import pngToPdf from "./png-to-pdf";
 import powerpointToPdf from "./powerpoint-to-pdf";
 import protectPdf from "./protect-pdf";
 import redactPdf from "./redact-pdf";
+import removeAnnotations from "./remove-annotations";
 import removePages from "./remove-pages";
 import repairPdf from "./repair-pdf";
 import requestSignatures from "./request-signatures";
@@ -113,6 +114,7 @@ export const toolContent: Readonly<Record<string, ToolContent>> =
       powerpointToPdf,
       protectPdf,
       redactPdf,
+      removeAnnotations,
       removePages,
       repairPdf,
       requestSignatures,

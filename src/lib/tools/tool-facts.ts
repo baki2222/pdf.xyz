@@ -106,6 +106,11 @@ import {
   SPLIT_MODE_FACT,
   SPLIT_MODES,
 } from "@/lib/pdf/offered-kinds";
+import {
+  ANNOTATION_GROUP_IDS,
+  ANNOTATION_GROUP_LABEL,
+  type AnnotationGroupKind,
+} from "@/lib/pdf/annotation-kinds";
 import { DEEP_COMPRESSION_GRAYSCALE_HINT } from "@/lib/pdf/compress-grayscale";
 import {
   MIN_CROP_DIMENSION,
@@ -659,6 +664,23 @@ const FACTS: Record<string, readonly ToolFact[]> = {
       label: "Hidden, not deleted",
       value: CROP_KEEPS_CONTENT,
     },
+  ],
+  // The kinds the panel lists and removes, one per row of the table the
+  // engine sorts by (annotation-groups.ts).
+  "remove-annotations": [
+    countedFact(
+      "Annotation kinds",
+      "kinds of annotation",
+      ANNOTATION_GROUP_IDS,
+      Object.fromEntries(
+        ANNOTATION_GROUP_IDS.map((id) => [
+          id,
+          ANNOTATION_GROUP_LABEL[id].charAt(0).toLowerCase() +
+            ANNOTATION_GROUP_LABEL[id].slice(1),
+        ]),
+      ) as Record<AnnotationGroupKind, string>,
+      "and",
+    ),
   ],
   // The halves are crop boxes (split-half.ts), so the page carries Crop's
   // disclosure in its own words; pinned in crop-disclosure.test.tsx.

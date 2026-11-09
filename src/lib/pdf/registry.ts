@@ -73,6 +73,7 @@ const RUNNERS: Record<string, RunnerKind> = {
   "compare-pdf": "compare",
   "scan-to-pdf": "scan",
   "edit-pdf-metadata": "metadata",
+  "remove-annotations": "metadata",
   "resize-pdf": "resize",
   "n-up-pdf": "n-up",
   // Booklet shares Multiple Pages per Sheet's runner and engine drawings:
