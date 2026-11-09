@@ -559,8 +559,18 @@ describe("the catalogue ships in one chunk, shared by every surface that reads i
  * in that chunk (6873). One machine, each from an empty .next: 34,079 B
  * (P6's figure above) -> 34,141 B on the branch with the fix (+62). 33.298 + 62/1024 =
  * 33.3585; CI's 7-16 B bracket keeps 34,141 here under 34,159 B there.
+ *
+ * RAISED 33.359 -> 33.366 on 2026-11-09, because the line above was false.
+ * The "7-16 B bracket" was a guess made from two PRs, and CI went past it on
+ * the first run that tested it. PR #302's merged head 62f1eb69 (P6 + main at
+ * #301) measured 34,141 B on this machine (Windows, from an empty .next) and
+ * 34,166 B on CI (Linux): a 25 B gap on the same tree. CI failed at
+ * 33.365234375 against 33.359. No new code goes into the ticket here: the
+ * bound now covers CI's own reading of this tree, 34,166 B, with 1 B to spare
+ * (33.366 KB is 34,167.8 B). The gap between machines is not a constant, so
+ * the next raise must be measured on CI, not on this machine plus a margin.
  */
-const TICKET_FETCH_GZ_KB = 33.359;
+const TICKET_FETCH_GZ_KB = 33.366;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));
