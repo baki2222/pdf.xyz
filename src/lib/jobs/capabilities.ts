@@ -6,11 +6,11 @@
  * pages, and the docs.
  */
 
-import { getToolEntry } from "@/lib/tools/directory";
 import { HYBRID_SUMMARY, processingMeta } from "@/lib/tools/processing";
 import type { ProcessingMode, Tool } from "@/lib/tools/types";
 import { acceptsDamagedPdf } from "./damaged-input";
-import type { ToolCapability, ToolInputKind } from "./types";
+import { inputKindForAccept } from "./input-kind";
+import type { ToolCapability } from "./types";
 
 /** Catalog processing mode → job-layer capability (1:1). */
 export const CAPABILITY_BY_MODE: Record<ProcessingMode, ToolCapability> = {
@@ -95,35 +95,14 @@ export function describeCapability(
   return CAPABILITY_DESCRIPTORS[capability];
 }
 
-/** Resolve a tool slug to its capability, or `undefined` if the slug is unknown. */
-export function getToolCapability(slug: string): ToolCapability | undefined {
-  const tool = getToolEntry(slug);
-  return tool ? capabilityForMode(tool.processing) : undefined;
-}
-
-/**
- * File input or a single URL, decided from a catalog `accept` list alone. Only a
- * tool whose every accepted format is `URL` (webpage-to-pdf) takes an address
- * instead of uploads. One definition, read by {@link getToolInputKind} and by
- * {@link workerPipelineStages}, so the job API and the page cannot disagree about
- * which tools upload.
+/*
+ * `getToolCapability` and `getToolInputKind` — the two lookups BY SLUG —
+ * live in `./tool-capability` since 2026-11-09 (perf/per-tool-first-load).
+ * They read the tool directory, and this module is in every worker tool
+ * page's first load (the panel shell's pipeline stages), so the directory
+ * was too. `inputKindForAccept`, the rule both readings share, is
+ * `./input-kind`.
  */
-function inputKindForAccept(accept: readonly string[]): ToolInputKind {
-  const formats = accept.map((f) => f.toUpperCase());
-  const onlyUrl = formats.length > 0 && formats.every((f) => f === "URL");
-  return onlyUrl ? "url" : "file";
-}
-
-/**
- * Whether a tool takes uploaded files or a single URL. Only URL-input tools
- * (e.g. webpage-to-pdf) accept a `url` option instead of uploads; everything
- * else takes files. Derived from the catalog's `accept` list.
- */
-export function getToolInputKind(slug: string): ToolInputKind | undefined {
-  const tool = getToolEntry(slug);
-  if (!tool) return undefined;
-  return inputKindForAccept(tool.accept);
-}
 
 /**
  * The stages a secure-worker job moves through, shown as an honest "here's what

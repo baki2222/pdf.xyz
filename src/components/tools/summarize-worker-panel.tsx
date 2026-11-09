@@ -1,5 +1,6 @@
 "use client";
 
+import { usePickRefusal } from "@/components/tools/use-pick";
 import { useCallback, useEffect, useState } from "react";
 import { Download, FileText, ShieldCheck, Sparkles, Timer } from "lucide-react";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
@@ -32,7 +33,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { CopyTextButton } from "./copy-text-button";
 import { TruncationNotice } from "./truncation-notice";
 import type { Tool } from "@/lib/tools/types";
-import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
+import type { PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import {
   DownloadCta,
@@ -94,6 +95,7 @@ const FORMAT_OPTIONS: { value: SummaryFormat; label: string }[] = [
 ];
 
 export function SummarizeWorkerPanel({ tool }: { tool: Tool }) {
+  const pickRefuse = usePickRefusal(tool);
   return (
     <WorkerPanelShell
       tool={tool}
@@ -129,7 +131,7 @@ export function SummarizeWorkerPanel({ tool }: { tool: Tool }) {
         },
       ]}
     >
-      <SummaryBuilder tool={tool} refuse={(file) => pickRefusal(tool, file)} />
+      <SummaryBuilder tool={tool} refuse={pickRefuse} />
     </WorkerPanelShell>
   );
 }

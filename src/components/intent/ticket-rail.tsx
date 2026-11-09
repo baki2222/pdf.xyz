@@ -4,7 +4,6 @@ import { useLayoutEffect, useState } from "react";
 import { Check } from "lucide-react";
 import { useToolRun } from "@/components/tools/runner/tool-context";
 import { peekCarriedHandoff } from "@/lib/handoff/carry-key";
-import { getToolEntry } from "@/lib/tools/directory";
 
 /**
  * The job's steps, on a row of their own under the panel's privacy line once
@@ -95,7 +94,10 @@ export function TicketRail() {
       : [
           ...run.trail.map((slug) => ({
             slug,
-            name: getToolEntry(slug)?.name ?? slug,
+            // The record's own names (`ToolRun.names`): until 2026-11-09
+            // a lookup in the tool directory, which put every tool's name
+            // in every tool page's first load for this row.
+            name: Object.hasOwn(run.names, slug) ? run.names[slug]! : slug,
             current: false,
             done: true,
           })),

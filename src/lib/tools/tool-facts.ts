@@ -37,7 +37,8 @@ import {
   CROP_KEEPS_CONTENT,
   SPLIT_HALF_KEEPS_CONTENT,
 } from "@/lib/pdf/crop-disclosure";
-import { capabilityForMode, getToolInputKind } from "@/lib/jobs/capabilities";
+import { capabilityForMode } from "@/lib/jobs/capabilities";
+import { getToolInputKind } from "@/lib/jobs/tool-capability";
 import { HYBRID_SUMMARY } from "./processing";
 import { OCR_LANGUAGES, MAX_OCR_LANGUAGES } from "@/lib/jobs/ocr";
 import { STAMP_POSITIONS } from "@/lib/pdf/stamp";

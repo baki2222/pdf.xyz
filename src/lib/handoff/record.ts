@@ -18,6 +18,21 @@ export const DEFAULT_HANDOFF_TTL_MS = 30 * 60 * 1000;
  */
 export const HANDOFF_MAX_TOTAL_BYTES = 300 * 1024 * 1024;
 
+/**
+ * The shape version every new record is written with.
+ *
+ *  - 1 (no `v` field): files, target, timing, and from 2026-10 the origin,
+ *    trail and pending step.
+ *  - 2 (2026-11-09): also `names`, the display names of the tools the
+ *    receiving page names — its job row's steps, and the tool a result,
+ *    remedy or hint came from. Until then the receiving page looked every
+ *    name up in the tool directory, which rode every tool page's first load
+ *    for it. A record of version 1 (stashed before the deploy, claimed
+ *    after it) carries no names; the claim fetches the directory on demand
+ *    for it (`./claim`), so it reads exactly as before.
+ */
+export const HANDOFF_RECORD_VERSION = 2;
+
 /** Sum the byte size across a set of handoff entries. */
 export function totalHandoffBytes(files: readonly HandoffFileEntry[]): number {
   return files.reduce((sum, file) => sum + Math.max(0, file.size), 0);
@@ -48,6 +63,7 @@ export function makeHandoffRecord({
   origin,
   trail,
   pending,
+  names,
 }: MakeHandoffInput): HandoffRecord {
   const ttl =
     Number.isFinite(ttlMs) && ttlMs > 0 ? ttlMs : DEFAULT_HANDOFF_TTL_MS;
@@ -61,6 +77,8 @@ export function makeHandoffRecord({
     // Only what was given: an absent trail is not an empty job.
     ...(trail && trail.length > 0 ? { trail: trail.slice(-MAX_TRAIL) } : {}),
     ...(pending ? { pending } : {}),
+    v: HANDOFF_RECORD_VERSION,
+    ...(names && Object.keys(names).length > 0 ? { names: { ...names } } : {}),
   };
 }
 

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { getToolBySlug } from "@/lib/tools";
@@ -103,7 +104,11 @@ afterEach(() => {
 describe("OcrWorkerPanel", () => {
   it("offers OCR settings and stays honest when OCR is unavailable", async () => {
     stubFetch(DISABLED);
-    render(<OcrWorkerPanel tool={ocrTool} />);
+    render(
+      <InToolPage tool={ocrTool}>
+        <OcrWorkerPanel tool={ocrTool} />
+      </InToolPage>,
+    );
 
     // The honest not-enabled reason renders once status resolves — inside
     // the not-enabled box, its own lazy chunk since 2026-10-23, so the wait
@@ -151,7 +156,11 @@ describe("OcrWorkerPanel", () => {
     configureTelemetry((e) => seen.push(e));
     stubFetch(DISABLED);
 
-    render(<OcrWorkerPanel tool={ocrTool} />);
+    render(
+      <InToolPage tool={ocrTool}>
+        <OcrWorkerPanel tool={ocrTool} />
+      </InToolPage>,
+    );
 
     await waitFor(() => expect(seen).toHaveLength(1));
     expect(seen[0]).toEqual({
@@ -163,7 +172,11 @@ describe("OcrWorkerPanel", () => {
 
   it("reflects the chosen languages and output in the request summary", async () => {
     stubFetch(DISABLED);
-    render(<OcrWorkerPanel tool={ocrTool} />);
+    render(
+      <InToolPage tool={ocrTool}>
+        <OcrWorkerPanel tool={ocrTool} />
+      </InToolPage>,
+    );
     await screen.findByText(DISABLED.ocr.detail);
 
     // Default request.
@@ -186,7 +199,11 @@ describe("OcrWorkerPanel", () => {
 
   it("warns that the wrong language yields gibberish rather than an error", async () => {
     stubFetch(DISABLED);
-    render(<OcrWorkerPanel tool={ocrTool} />);
+    render(
+      <InToolPage tool={ocrTool}>
+        <OcrWorkerPanel tool={ocrTool} />
+      </InToolPage>,
+    );
     await screen.findByText(DISABLED.ocr.detail);
     // The single most useful sentence on the page, and it costs no new data: a user
     // who leaves the default alone otherwise gets a successful job and unusable output
@@ -202,7 +219,11 @@ describe("OcrWorkerPanel", () => {
 
   it("mounts the real uploader + run action only when OCR is available", async () => {
     stubFetch(AVAILABLE);
-    render(<OcrWorkerPanel tool={ocrTool} />);
+    render(
+      <InToolPage tool={ocrTool}>
+        <OcrWorkerPanel tool={ocrTool} />
+      </InToolPage>,
+    );
 
     // The run affordance appears, driving the real (documented) job flow.
     expect(
@@ -216,7 +237,11 @@ describe("OcrWorkerPanel", () => {
 
   it("shows an honest fallback when the status endpoint is unreachable", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network")));
-    render(<OcrWorkerPanel tool={ocrTool} />);
+    render(
+      <InToolPage tool={ocrTool}>
+        <OcrWorkerPanel tool={ocrTool} />
+      </InToolPage>,
+    );
 
     // The fallback used to sit in the "unavailable" box beside "Notify me
     // when this ships" — an unreachable status endpoint read as a tool that
@@ -260,7 +285,11 @@ function summary(): string {
 describe("OcrWorkerPanel — the page says what one job takes", () => {
   it("states the per-job file count the runner enforces, not the platform's", async () => {
     stubFetch(AVAILABLE);
-    render(<OcrWorkerPanel tool={ocrTool} />);
+    render(
+      <InToolPage tool={ocrTool}>
+        <OcrWorkerPanel tool={ocrTool} />
+      </InToolPage>,
+    );
     await screen.findByRole("button", { name: /recognize text/i });
     // Read the row a user reads, and derive its number from the constant the
     // runner and processor refuse on — a row that merely HAS a constant behind
@@ -281,7 +310,11 @@ describe("OcrWorkerPanel — the page says what one job takes", () => {
   // in `runner/batch/worker-batches.dom.test.tsx`).
   it("a drop of more than one file opens the batch with every file, and no 'first file' note", async () => {
     stubFetch(AVAILABLE);
-    render(<OcrWorkerPanel tool={ocrTool} />);
+    render(
+      <InToolPage tool={ocrTool}>
+        <OcrWorkerPanel tool={ocrTool} />
+      </InToolPage>,
+    );
     await screen.findByRole("button", { name: /recognize text/i });
     const files = ["first.pdf", "second.pdf", "third.pdf"].map(
       (name) => new File(["%PDF-1.7"], name, { type: "application/pdf" }),
@@ -310,7 +343,11 @@ describe("OcrWorkerPanel — the page says what one job takes", () => {
 
   it("shows no such note for a single file (positive control)", async () => {
     stubFetch(AVAILABLE);
-    render(<OcrWorkerPanel tool={ocrTool} />);
+    render(
+      <InToolPage tool={ocrTool}>
+        <OcrWorkerPanel tool={ocrTool} />
+      </InToolPage>,
+    );
     await screen.findByRole("button", { name: /recognize text/i });
     await dropSheetsLive();
     fireEvent.drop(fileInput()!.closest("label")!, {
@@ -330,7 +367,11 @@ describe("OcrWorkerPanel — the page says what one job takes", () => {
 describe("OcrWorkerPanel — the language menu reads the worker's own report", () => {
   it("marks a language the worker has no pack for as unavailable, and will not select it", async () => {
     stubFetch(availableWith(["eng", "spa"]));
-    render(<OcrWorkerPanel tool={ocrTool} />);
+    render(
+      <InToolPage tool={ocrTool}>
+        <OcrWorkerPanel tool={ocrTool} />
+      </InToolPage>,
+    );
     await screen.findByRole("button", { name: /recognize text/i });
 
     const bengali = chip(describeOcrLanguage("ben"));
@@ -351,7 +392,11 @@ describe("OcrWorkerPanel — the language menu reads the worker's own report", (
 
   it("disables no language when the worker reports every pack (the mirror)", async () => {
     stubFetch(AVAILABLE);
-    render(<OcrWorkerPanel tool={ocrTool} />);
+    render(
+      <InToolPage tool={ocrTool}>
+        <OcrWorkerPanel tool={ocrTool} />
+      </InToolPage>,
+    );
     await screen.findByRole("button", { name: /recognize text/i });
     for (const language of OCR_LANGUAGES) {
       expect(chip(language.label)).not.toHaveAttribute("aria-disabled");
@@ -360,7 +405,11 @@ describe("OcrWorkerPanel — the language menu reads the worker's own report", (
 
   it("drops a default the worker cannot run, falling back to one it can", async () => {
     stubFetch(availableWith(["spa", "fra"]));
-    render(<OcrWorkerPanel tool={ocrTool} />);
+    render(
+      <InToolPage tool={ocrTool}>
+        <OcrWorkerPanel tool={ocrTool} />
+      </InToolPage>,
+    );
     await screen.findByRole("button", { name: /recognize text/i });
     await waitFor(() => expect(summary()).toMatch(/Spanish → /));
     expect(summary()).not.toContain("English");
@@ -370,7 +419,11 @@ describe("OcrWorkerPanel — the language menu reads the worker's own report", (
 describe("OcrWorkerPanel — a page that already has text", () => {
   it("offers only the non-destructive opt-in, off by default, and says so in the request", async () => {
     stubFetch(DISABLED);
-    render(<OcrWorkerPanel tool={ocrTool} />);
+    render(
+      <InToolPage tool={ocrTool}>
+        <OcrWorkerPanel tool={ocrTool} />
+      </InToolPage>,
+    );
     await screen.findByText(DISABLED.ocr.detail);
     // The old switch described its OFF state as "re-recognize"; off actually
     // aborted the job. It is gone.

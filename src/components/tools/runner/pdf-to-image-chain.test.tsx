@@ -267,7 +267,7 @@ async function convertAtPrint(name: string, sizes: Paper[]) {
   };
   const { container } = render(
     <AppRouterContext.Provider value={router}>
-      <PdfToImageRunner format="png" />
+      <PdfToImageRunner slug="pdf-to-png" />
     </AppRouterContext.Provider>,
   );
   const input = container.querySelector<HTMLInputElement>('input[type="file"]');
@@ -434,7 +434,7 @@ describe("PDF to PNG — Select pages renders exactly those pages", () => {
     };
     const { container } = render(
       <AppRouterContext.Provider value={router}>
-        <PdfToImageRunner format="png" />
+        <PdfToImageRunner slug="pdf-to-png" />
       </AppRouterContext.Provider>,
     );
     const input =
@@ -572,7 +572,7 @@ describe("PDF to PNG — one page failing, or Cancel, keeps the finished pages",
     };
     const { container } = render(
       <AppRouterContext.Provider value={router}>
-        <PdfToImageRunner format="png" />
+        <PdfToImageRunner slug="pdf-to-png" />
       </AppRouterContext.Provider>,
     );
     const input =
@@ -804,7 +804,7 @@ describe("PDF to JPG — the Quality choice reaches the encoder", () => {
     };
     const { container } = render(
       <AppRouterContext.Provider value={router}>
-        <PdfToImageRunner format={format} />
+        <PdfToImageRunner slug={`pdf-to-${format}`} />
       </AppRouterContext.Provider>,
     );
     fireEvent.change(container.querySelector('input[type="file"]')!, {
@@ -959,7 +959,7 @@ describe("PDF to PNG — the Background choice reaches pdf.js", () => {
     };
     const { container } = render(
       <AppRouterContext.Provider value={router}>
-        <PdfToImageRunner format={format} />
+        <PdfToImageRunner slug={`pdf-to-${format}`} />
       </AppRouterContext.Provider>,
     );
     fireEvent.change(container.querySelector('input[type="file"]')!, {

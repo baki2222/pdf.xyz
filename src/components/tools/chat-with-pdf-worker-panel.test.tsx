@@ -16,6 +16,7 @@
  * REAL engine — so the answer the panel shows and carries forward is one that was really
  * recovered from a real package, not a string handed to the component by the test.
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { getToolBySlug } from "@/lib/tools";
@@ -52,11 +53,13 @@ const chatTool = getToolBySlug("chat-with-pdf")!;
 /** The panel as the page mounts it, with only the two network-bound seams stubbed. */
 function Panel() {
   return (
-    <ChatWithPdfWorkerPanel
-      tool={chatTool}
-      runChat={runWorkerChatWithPdf}
-      measureChat={measureChatDocument}
-    />
+    <InToolPage tool={chatTool}>
+      <ChatWithPdfWorkerPanel
+        tool={chatTool}
+        runChat={runWorkerChatWithPdf}
+        measureChat={measureChatDocument}
+      />
+    </InToolPage>
   );
 }
 
@@ -667,7 +670,14 @@ describe("ChatWithPdfWorkerPanel — what the job declares", () => {
     runWorkerChatWithPdf.mockResolvedValue({ ok: false, message: "stop" });
     // No `measureChat`: the panel measures the dropped file itself.
     render(
-      <ChatWithPdfWorkerPanel tool={chatTool} runChat={runWorkerChatWithPdf} />,
+      <InToolPage tool={chatTool}>
+        <InToolPage tool={chatTool}>
+          <ChatWithPdfWorkerPanel
+            tool={chatTool}
+            runChat={runWorkerChatWithPdf}
+          />
+        </InToolPage>
+      </InToolPage>,
     );
     await screen.findByRole("textbox");
     fireEvent.change(document.querySelector('input[type="file"]')!, {

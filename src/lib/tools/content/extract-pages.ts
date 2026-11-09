@@ -2,7 +2,7 @@ import type { ToolContent } from "./types";
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeiling } from "@/lib/tools/file-ceilings";
 import { modeUploadsFiles } from "@/lib/tools/processing-split";
-import { getToolCapability } from "@/lib/jobs/capabilities";
+import { getToolCapability } from "@/lib/jobs/tool-capability";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 
 /*

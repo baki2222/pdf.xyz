@@ -40,6 +40,7 @@ import {
   shouldZipPages,
   zipOutputName,
   rasterPageSelection,
+  rasterFormatForSlug,
   type RasterColorId,
   type RasterFormat,
   type RasterPageChoice,
@@ -122,7 +123,13 @@ const batchPng = (props: SinglePdfBatch) => (
   <PdfToImageBatch {...props} format="png" />
 );
 
-export function PdfToImageRunner({ format }: { format: RasterFormat }) {
+/**
+ * PDF to JPG and PDF to PNG. The format is read from the tool's slug HERE
+ * (`rasterFormatForSlug`) since 2026-11-09: the dispatcher used to resolve
+ * it, which put the format module in every tool page's first load.
+ */
+export function PdfToImageRunner({ slug }: { slug: string }) {
+  const format = rasterFormatForSlug(slug);
   const label = format.toUpperCase();
   return (
     <SinglePdfRunner

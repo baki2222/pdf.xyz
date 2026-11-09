@@ -24,6 +24,8 @@
  * A member with no way to drive it is FATAL rather than skipped: a tool that
  * gains a reason gains a driver here, or this fails naming it.
  */
+import { InToolPage } from "@/tests/in-tool-page";
+import { toolRunInfoFor } from "@/lib/tools/tool-run-info";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -228,7 +230,17 @@ describe("a reason for no next step reaches the page that has one", () => {
     }
   });
 
-  it("POSITIVE CONTROL: the same card outside the page's job says nothing about what follows", async () => {
+  /*
+   * CHANGED 2026-11-09 (perf/per-tool-first-load). WAS "the same card
+   * outside the page's job": rendered with no `ToolRunProvider` at all. A
+   * worker panel's pick check now reads its facts from the page's job
+   * (`ToolRun.pick`, computed on the server) and refuses to guess without
+   * them, so the panel cannot take a file outside a job any more. The
+   * control keeps its property — the reason comes from the PLAN the server
+   * computed, not from the card — by mounting the panel in a job whose
+   * plan carries no reason.
+   */
+  it("POSITIVE CONTROL: the same card in a job whose plan gives no reason says nothing about what follows", async () => {
     const tool = reasoned.find((t) => t.slug === "pdf-to-pdfa")!;
     const arm = panelDispatchArms().find((a) => a.slugs.includes(tool.slug))!;
     const Panel = await panelComponent(arm);
@@ -239,7 +251,11 @@ describe("a reason for no next step reaches the page that has one", () => {
         bytes: new TextEncoder().encode("%PDF-1.7"),
       },
     }));
-    render(<Panel tool={tool} />);
+    render(
+      <InToolPage tool={tool}>
+        <Panel tool={tool} />
+      </InToolPage>,
+    );
     const input = await waitFor(() => {
       const el = readyFileInput();
       expect(el).not.toBeNull();
@@ -264,7 +280,7 @@ function renderOnPage(tool: Tool, ui: React.ReactElement) {
   render(
     withAppRouter(
       <ToolRunProvider
-        tool={{ slug: tool.slug, name: tool.name, category: tool.category }}
+        tool={toolRunInfoFor(tool)}
         plan={continueTargetsFor(tool, tools)}
       >
         {ui}

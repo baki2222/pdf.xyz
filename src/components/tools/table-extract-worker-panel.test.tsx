@@ -9,6 +9,7 @@
  * the panel links the tool that fixes it by that code. Each half passing its
  * own test would prove nothing about the path, so this runs both.
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { PDFDocument } from "pdf-lib";
@@ -139,7 +140,11 @@ function stubNetwork(job: Job) {
 }
 
 async function extractOnePdf() {
-  render(<TableExtractWorkerPanel tool={tool} />);
+  render(
+    <InToolPage tool={tool}>
+      <TableExtractWorkerPanel tool={tool} />
+    </InToolPage>,
+  );
   const input = await vi.waitFor(() => {
     const found = readyFileInput();
     if (!found) throw new Error("no file input yet");
@@ -274,7 +279,11 @@ describe("Extract Tables panel — “Combine tables into one sheet” (audit ex
         new Uint8Array([0x25, 0x50, 0x44, 0x46]),
       ),
     );
-    render(<TableExtractWorkerPanel tool={tool} />);
+    render(
+      <InToolPage tool={tool}>
+        <TableExtractWorkerPanel tool={tool} />
+      </InToolPage>,
+    );
     const box = screen.getByRole("checkbox", {
       name: /Combine tables into one sheet/,
     });
@@ -662,7 +671,11 @@ describe("Extract Tables panel — after an OCR-first run, OCR PDF is not offere
   }
 
   async function extract(ocrOn: boolean) {
-    render(<TableExtractWorkerPanel tool={tool} />);
+    render(
+      <InToolPage tool={tool}>
+        <TableExtractWorkerPanel tool={tool} />
+      </InToolPage>,
+    );
     const input = await vi.waitFor(() => {
       const found = readyFileInput();
       if (!found) throw new Error("no file input yet");
@@ -775,7 +788,11 @@ describe("Extract Tables panel — a job resumed after a reload", () => {
       KEY,
       JSON.stringify({ jobId: "job_1", expiresAt: Date.now() + 600_000 }),
     );
-    render(<TableExtractWorkerPanel tool={tool} />);
+    render(
+      <InToolPage tool={tool}>
+        <TableExtractWorkerPanel tool={tool} />
+      </InToolPage>,
+    );
     fireEvent.click(
       await screen.findByRole("button", { name: /Keep waiting/ }),
     );

@@ -5,6 +5,7 @@
  * /P read-back). The one stand-in is the qpdf binary: it records what it was
  * asked and writes an /Encrypt dictionary whose /P the test chooses.
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   cleanup,
@@ -138,7 +139,11 @@ function answerWithLocalWorker(
 const protectTool = tools.find((t) => t.slug === "protect-pdf")!;
 
 async function fillForm({ confirm = true }: { confirm?: boolean } = {}) {
-  const { container } = render(<PdfSecurityWorkerPanel tool={protectTool} />);
+  const { container } = render(
+    <InToolPage tool={protectTool}>
+      <PdfSecurityWorkerPanel tool={protectTool} />
+    </InToolPage>,
+  );
   await runButton();
   await dropSheetsLive();
   const input = container.querySelector('input[type="file"]');

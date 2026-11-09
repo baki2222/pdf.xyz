@@ -1,5 +1,6 @@
 "use client";
 
+import { usePickRefusal } from "@/components/tools/use-pick";
 import { RunReason } from "@/components/tools/runner/run-reason";
 import { useCallback, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
@@ -42,7 +43,7 @@ import {
 } from "@/lib/workers/pdf-security-client";
 import { downloadBytes } from "@/lib/pdf/browser";
 import type { Tool } from "@/lib/tools/types";
-import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
+import type { PickRefusal } from "@/lib/uploads/pick-check";
 import { cn, formatBytes } from "@/lib/utils";
 import {
   DownloadCta,
@@ -217,6 +218,7 @@ const COPY: Record<
  * request body; it is never shown in copy, a URL, or a log.
  */
 export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
+  const pickRefuse = usePickRefusal(tool);
   const mode: Mode = tool.slug === "protect-pdf" ? "protect" : "unlock";
   const copy = COPY[mode];
 
@@ -250,11 +252,7 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
         </p>
       }
     >
-      <SecurityRunArea
-        mode={mode}
-        tool={tool}
-        refuse={(file) => pickRefusal(tool, file)}
-      />
+      <SecurityRunArea mode={mode} tool={tool} refuse={pickRefuse} />
     </WorkerPanelShell>
   );
 }

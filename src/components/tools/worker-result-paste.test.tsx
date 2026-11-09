@@ -20,6 +20,7 @@
  * the card's own Download clicked, and a paste replaces without a word.
  * A discovered panel with no driver here is FATAL, not skipped.
  */
+import { toolRunInfoFor } from "@/lib/tools/tool-run-info";
 import { readFileSync } from "node:fs";
 import {
   act,
@@ -227,11 +228,7 @@ describe.each(SUBJECTS.map((arm) => ({ arm, name: arm.component })))(
             <h1>{tool.name}</h1>
             <div data-tool-panel data-tool-name={tool.name}>
               <ToolRunProvider
-                tool={{
-                  slug: tool.slug,
-                  name: tool.name,
-                  category: tool.category,
-                }}
+                tool={toolRunInfoFor(tool)}
                 plan={continueTargetsFor(tool, tools)}
               >
                 <Panel tool={tool} />

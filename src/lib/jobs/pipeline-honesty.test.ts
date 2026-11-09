@@ -54,11 +54,8 @@ import {
   withoutComments,
 } from "@/lib/tools/copy-surface";
 import { readFileSync } from "node:fs";
-import {
-  capabilityForMode,
-  getToolInputKind,
-  workerPipelineStages,
-} from "./capabilities";
+import { capabilityForMode, workerPipelineStages } from "./capabilities";
+import { getToolInputKind } from "./tool-capability";
 import { acceptsDamagedPdf } from "./damaged-input";
 import { declaredContentTypeFor } from "./mime-by-format";
 import {

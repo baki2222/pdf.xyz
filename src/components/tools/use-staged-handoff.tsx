@@ -9,9 +9,14 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import {
+  filesTheToolOpens,
+  takesOneFile,
+  type HandoffCapability,
+} from "@/lib/handoff/capability-core";
 import { peekCarriedHandoff } from "@/lib/handoff/carry-key";
 import type { ClaimedHandoff } from "@/lib/handoff/claim";
-import { getToolEntry } from "@/lib/tools/directory";
+import type { HandoffFileEntry } from "@/lib/handoff/types";
 import { useToolRun } from "./runner/tool-context";
 
 const Notice = lazy(() =>
@@ -66,7 +71,24 @@ export function useStagedHandoff(
   const [state, setState] = useState<ClaimedHandoff | null>(null);
   // The files went to a batch list, so Run is the button under it.
   const [many, setMany] = useState(false);
-  const arrived = useToolRun()?.arrived;
+  const run = useToolRun();
+  const arrived = run?.arrived;
+  /*
+   * This panel's own row — name, formats, hand-off capability — as the
+   * server page computed it (`toolRunInfoFor`). Until 2026-11-09 the name
+   * and formats came from `@/lib/tools/directory`, a static import that put
+   * every tool's row in every worker page's first load, and the capability
+   * from `@/lib/handoff/capability`, fetched with the claim. Outside a tool
+   * page (a test) the same tables are fetched with the claim instead.
+   */
+  const ownRow: OwnRow | null =
+    run && run.slug === slug && run.accept && run.handoff
+      ? { name: run.name, accept: run.accept, handoff: run.handoff }
+      : null;
+  const ownName = ownRow?.name;
+  const ownAccept = ownRow?.accept;
+  const ownHandoff = ownRow?.handoff;
+  const [fetchedRow, setFetchedRow] = useState<OwnRow | null>(null);
   const take = useRef(onFiles);
   useEffect(() => {
     take.current = onFiles;
@@ -86,16 +108,19 @@ export function useStagedHandoff(
     if (started.current || !carried()) return;
     started.current = true;
     void (async () => {
-      const [
-        { claimArrival, LOADING },
-        { eligibleFilesFor, handoffCapabilityFor, takesOneFile },
-      ] = await Promise.all([
+      const [{ claimArrival, LOADING }, row] = await Promise.all([
         import("@/lib/handoff/claim"),
-        import("@/lib/handoff/capability"),
+        ownName && ownAccept && ownHandoff
+          ? { name: ownName, accept: ownAccept, handoff: ownHandoff }
+          : fetchRow(slug),
       ]);
+      if (row !== null && row.name !== ownName && mounted.current)
+        setFetchedRow(row);
+      const select = (entries: HandoffFileEntry[]) =>
+        row ? filesTheToolOpens(row.accept, row.handoff, entries) : [];
       const claim = claimArrival(
         slug,
-        (entries) => eligibleFilesFor(slug, entries),
+        select,
         // The legacy address strip replaces history itself; the App
         // Router's own `replace` is a nicety this panel does without.
         { replace: () => {} },
@@ -106,18 +131,18 @@ export function useStagedHandoff(
       if (!mounted.current) return;
       if (result.status === "ready") {
         // A remedy's files are owed back to the tool that sent them.
-        arrived?.(result.trail, result.pending?.toolSlug ?? null);
-        const one = takesOneFile(handoffCapabilityFor(slug).mode);
+        arrived?.(result.trail, result.pending?.toolSlug ?? null, result.names);
+        const one = row === null || takesOneFile(row.handoff.mode);
         take.current(one ? result.files.slice(0, 1) : result.files);
         setMany(!one && result.files.length > 1);
       }
       setState(result);
     })();
-  }, [slug, arrived]);
+  }, [slug, arrived, ownName, ownAccept, ownHandoff]);
 
   const dismiss = useCallback(() => setState(null), []);
   if (!state || state.status === "idle") return null;
-  const tool = getToolEntry(slug);
+  const tool = ownRow ?? fetchedRow;
   return (
     <Suspense fallback={null}>
       <Notice
@@ -132,4 +157,32 @@ export function useStagedHandoff(
       />
     </Suspense>
   );
+}
+
+/** What the claim and its notice read about the panel's own tool. */
+interface OwnRow {
+  readonly name: string;
+  readonly accept: readonly string[];
+  readonly handoff: HandoffCapability;
+}
+
+/**
+ * The row the server page would have handed over, looked up by slug in the
+ * tables that answer for every tool — fetched with the claim, for a panel
+ * rendered outside a tool page. Null for a slug the directory does not know
+ * (its claim then keeps no file, as `eligibleFilesFor` kept none).
+ */
+async function fetchRow(slug: string): Promise<OwnRow | null> {
+  const [{ handoffCapabilityFor }, { getToolEntry }] = await Promise.all([
+    import("@/lib/handoff/capability"),
+    import("@/lib/tools/directory"),
+  ]);
+  const entry = getToolEntry(slug);
+  return entry
+    ? {
+        name: entry.name,
+        accept: entry.accept,
+        handoff: handoffCapabilityFor(slug),
+      }
+    : null;
 }

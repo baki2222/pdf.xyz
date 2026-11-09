@@ -79,6 +79,8 @@ import {
   MIME_BY_FORMAT,
 } from "@/lib/jobs/mime-by-format";
 import { toolTakesFile } from "@/lib/uploads/pick-check";
+import { toolRunInfoFor } from "@/lib/tools/tool-run-info";
+import { ToolRunProvider } from "./runner/tool-context";
 
 /**
  * Every worker panel the tool page mounts, and the slugs each serves — read
@@ -234,9 +236,21 @@ function wrongFileFor(tool: Tool): File {
       });
 }
 
+/*
+ * Rendered inside the job the tool page builds (`toolRunInfoFor`), as the
+ * page renders it: since 2026-11-09 the pick check reads its ceiling and
+ * converters from there (`ToolRun.pick`, computed on the server) instead of
+ * computing them in the browser. So every refusal below is the COMPOSED
+ * chain — the server's facts, through the provider, into each panel's
+ * `refuse` — and a page or panel that drops the facts fails here.
+ */
 async function renderReady(Panel: ComponentType<{ tool: Tool }>, tool: Tool) {
   const fetchMock = stubNetwork();
-  const { container } = render(<Panel tool={tool} />);
+  const { container } = render(
+    <ToolRunProvider tool={toolRunInfoFor(tool)} plan={{ targets: [] }}>
+      <Panel tool={tool} />
+    </ToolRunProvider>,
+  );
   const input = await waitFor(() => {
     const found =
       container.querySelector<HTMLInputElement>('input[type="file"]');

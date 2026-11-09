@@ -33,6 +33,7 @@ import {
 } from "@/lib/handoff";
 import { carryHandoff } from "@/lib/handoff/carry";
 import { markDeparture } from "@/lib/handoff/departure";
+import { getToolEntry } from "@/lib/tools/directory";
 import {
   handoffCreatedEvent,
   suggestionOpenedEvent,
@@ -110,13 +111,21 @@ export async function launchWithFiles(
       origin,
       ...(input.trail ? { trail: input.trail } : {}),
       ...(input.pending ? { pending: input.pending } : {}),
+      names: toolNames([
+        ...(input.trail ?? []),
+        ...("fromSlug" in origin ? [origin.fromSlug] : []),
+      ]),
     });
   } catch {
     id = null;
   }
   if (!id || !carryHandoff(target, id)) return "failed";
 
-  markDeparture({ slug: toolSlug, count: payload.length });
+  markDeparture({
+    slug: toolSlug,
+    name: getToolEntry(toolSlug)?.name ?? null,
+    count: payload.length,
+  });
   handoffPush(router, target);
   track(
     handoffCreatedEvent({
@@ -129,6 +138,24 @@ export async function launchWithFiles(
     track(suggestionOpenedEvent({ toolSlug, ...suggestion, carried: true }));
   }
   return "carried";
+}
+
+/**
+ * The display names the receiving page shows for these tools — its job
+ * row's steps and the tool the files came from — written into the record
+ * (version 2, `HANDOFF_RECORD_VERSION`) by the launch, which is fetched on
+ * demand and can read the directory. The receiving page then names them
+ * without the directory in its first load (2026-11-09). A slug the
+ * directory does not know is left out, and the page shows the slug, as it
+ * did when it looked the name up itself.
+ */
+function toolNames(slugs: readonly string[]): Record<string, string> {
+  const names: Record<string, string> = {};
+  for (const slug of slugs) {
+    const name = getToolEntry(slug)?.name;
+    if (name) names[slug] = name;
+  }
+  return names;
 }
 
 /**

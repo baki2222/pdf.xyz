@@ -15,6 +15,7 @@
  * the panel module stay cached bound to the stub for the other file under
  * `isolate: false` — what src/tests/mock-isolation.test.ts fails on.
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   cleanup,
@@ -71,7 +72,11 @@ async function convertAndGetOutcome(error: { code: string; message: string }) {
     expect(body.tool).toBe("pdf-to-pdfa");
     return { status: "failed", error: { ...error, retryable: false } };
   });
-  render(<PdfArchiveWorkerPanel tool={tool} />);
+  render(
+    <InToolPage tool={tool}>
+      <PdfArchiveWorkerPanel tool={tool} />
+    </InToolPage>,
+  );
   const input = await waitFor(() => {
     const el = document.querySelector<HTMLInputElement>('input[type="file"]');
     expect(el).not.toBeNull();
@@ -118,7 +123,11 @@ describe("PdfArchiveWorkerPanel failure outcomes", () => {
 
   it("does not describe the output as certified PDF/A", async () => {
     stubJobNetwork(READY);
-    render(<PdfArchiveWorkerPanel tool={tool} />);
+    render(
+      <InToolPage tool={tool}>
+        <PdfArchiveWorkerPanel tool={tool} />
+      </InToolPage>,
+    );
     expect(await screen.findByText(/not validated/i)).toBeInTheDocument();
   });
 
@@ -129,7 +138,11 @@ describe("PdfArchiveWorkerPanel failure outcomes", () => {
   // only what Ghostscript reports; the panel now says the same.
   it("promises only what Ghostscript reports, not everything it removes", async () => {
     stubJobNetwork(READY);
-    const { container } = render(<PdfArchiveWorkerPanel tool={tool} />);
+    const { container } = render(
+      <InToolPage tool={tool}>
+        <PdfArchiveWorkerPanel tool={tool} />
+      </InToolPage>,
+    );
     await screen.findByText(/not validated/i);
     const text = container.textContent ?? "";
     expect(text).toMatch(/PDF\/A conversion uses Ghostscript/);
@@ -149,7 +162,11 @@ describe("PdfArchiveWorkerPanel failure outcomes", () => {
 describe("PdfArchiveWorkerPanel: a signed PDF is named before any upload", () => {
   async function pick(bytes: Uint8Array) {
     const network = stubJobNetwork(READY);
-    render(<PdfArchiveWorkerPanel tool={tool} />);
+    render(
+      <InToolPage tool={tool}>
+        <PdfArchiveWorkerPanel tool={tool} />
+      </InToolPage>,
+    );
     const input = await waitFor(() => {
       const el = document.querySelector<HTMLInputElement>('input[type="file"]');
       expect(el).not.toBeNull();
@@ -235,7 +252,11 @@ describe("pdf-to-pdfa: the page describes the signature gate the panel runs", ()
 describe("PdfArchiveWorkerPanel: the PDF/A level reaches the job", () => {
   async function convertWith(levelName?: string) {
     const network = stubJobNetwork(READY);
-    render(<PdfArchiveWorkerPanel tool={tool} />);
+    render(
+      <InToolPage tool={tool}>
+        <PdfArchiveWorkerPanel tool={tool} />
+      </InToolPage>,
+    );
     const input = await waitFor(() => {
       const el = document.querySelector<HTMLInputElement>('input[type="file"]');
       expect(el).not.toBeNull();
@@ -293,7 +314,11 @@ describe("PdfArchiveWorkerPanel: a press before the pick-time scan finishes", ()
   it("re-reads the file and holds a signed one, uploading nothing", async () => {
     const signed = await signedPdf({ signatures: 2 });
     const network = stubJobNetwork(READY);
-    render(<PdfArchiveWorkerPanel tool={tool} />);
+    render(
+      <InToolPage tool={tool}>
+        <PdfArchiveWorkerPanel tool={tool} />
+      </InToolPage>,
+    );
     const input = await waitFor(() => {
       const el = document.querySelector<HTMLInputElement>('input[type="file"]');
       expect(el).not.toBeNull();
@@ -331,7 +356,11 @@ describe("PdfArchiveWorkerPanel: a press before the pick-time scan finishes", ()
 describe("PdfArchiveWorkerPanel: the spec row names the levels as every page does", () => {
   it("'You get' uses PDFA_LEVEL_NAMES, not the picker's order", async () => {
     stubJobNetwork(READY);
-    render(<PdfArchiveWorkerPanel tool={tool} />);
+    render(
+      <InToolPage tool={tool}>
+        <PdfArchiveWorkerPanel tool={tool} />
+      </InToolPage>,
+    );
     expect(
       await screen.findByText(
         `${PDFA_LEVEL_NAMES} (best effort, not validated)`,

@@ -19,7 +19,7 @@
  * the fetched-vs-declared byte-count equality — none of which is ever echoed.
  */
 
-import { getToolInputKind } from "@/lib/jobs/capabilities";
+import { getToolInputKind } from "@/lib/jobs/tool-capability";
 import { acceptsDamagedPdf } from "@/lib/jobs/damaged-input";
 import {
   familyForExtension,

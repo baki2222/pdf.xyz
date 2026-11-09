@@ -7,11 +7,10 @@ import {
   CAPABILITY_BY_MODE,
   capabilityForMode,
   describeCapability,
-  getToolCapability,
-  getToolInputKind,
   usesWorkerBackend,
   workerPipelineStages,
 } from "./capabilities";
+import { getToolCapability, getToolInputKind } from "./tool-capability";
 import type { ToolCapability } from "./types";
 
 describe("capability mapping", () => {

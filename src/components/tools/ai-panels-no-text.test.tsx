@@ -28,6 +28,7 @@
  * only `fetch` is stubbed, and every request it sees is recorded, so "nothing
  * was uploaded" is observed rather than assumed.
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { PDFDocument, StandardFonts } from "pdf-lib";
@@ -121,7 +122,11 @@ const PANELS = {
 async function run(slug: keyof typeof PANELS, bytes: Uint8Array) {
   const { Panel, button: name } = PANELS[slug];
   const tool: Tool = getToolBySlug(slug)!;
-  render(<Panel tool={tool} />);
+  render(
+    <InToolPage tool={tool}>
+      <Panel tool={tool} />
+    </InToolPage>,
+  );
   const button = await screen.findByRole("button", { name });
   const input = document.querySelector('input[type="file"]')!;
   const file = new File([bytes.slice()], "doc.pdf", {

@@ -17,6 +17,7 @@
  *    repaired PDF is ready." — to the eye and to a screen reader. The code kept
  *    "clean" and "recovered" apart right up to the one sentence a user reads.
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { RECONSTRUCTION_CLAIM } from "@/tests/reconstruction-claim";
@@ -200,7 +201,9 @@ function stubNetwork(slug: Slug, job: Job, artifact?: Uint8Array) {
 async function runOnePdf(slug: Slug, chosen: Uint8Array = INPUT) {
   render(
     <>
-      <PdfStructureWorkerPanel tool={getToolBySlug(slug)!} />
+      <InToolPage tool={getToolBySlug(slug)!}>
+        <PdfStructureWorkerPanel tool={getToolBySlug(slug)!} />
+      </InToolPage>
       <LiveRegion />
     </>,
   );
@@ -612,7 +615,11 @@ describe("optimize-web: what the picked file already is, before any upload", () 
   async function pick(slug: Slug, bytes: Uint8Array) {
     const { job } = await jobFrom(slug, { code: 0, timedOut: false });
     stubNetwork(slug, job);
-    render(<PdfStructureWorkerPanel tool={getToolBySlug(slug)!} />);
+    render(
+      <InToolPage tool={getToolBySlug(slug)!}>
+        <PdfStructureWorkerPanel tool={getToolBySlug(slug)!} />
+      </InToolPage>,
+    );
     const input = await vi.waitFor(() => {
       const found = readyFileInput();
       if (!found) throw new Error("no file input yet");
@@ -795,7 +802,11 @@ describe("optimize-web: the page describes the signature gate the panel runs", (
   it("quotes the start of the checkbox the panel renders for a signed file", async () => {
     const { job } = await jobFrom("optimize-web", { code: 0, timedOut: false });
     stubNetwork("optimize-web", job);
-    render(<PdfStructureWorkerPanel tool={getToolBySlug("optimize-web")!} />);
+    render(
+      <InToolPage tool={getToolBySlug("optimize-web")!}>
+        <PdfStructureWorkerPanel tool={getToolBySlug("optimize-web")!} />
+      </InToolPage>,
+    );
     const input = await vi.waitFor(() => {
       const found = readyFileInput();
       if (!found) throw new Error("no file input yet");

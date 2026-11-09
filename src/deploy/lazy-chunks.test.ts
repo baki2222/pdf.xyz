@@ -38,6 +38,16 @@ import { SEARCH_ENGINE_CHUNK } from "@/lib/tools/search-tools";
 import { STOPPED_WAITING } from "@/lib/workers/job-polling";
 import { NO_UPLOAD_SLOT } from "@/lib/workers/slot-upload";
 import { UTIF_PAKO_UNUSED } from "@/lib/pdf/utif-pako-unused";
+import { toolRunInfoFor } from "@/lib/tools/tool-run-info";
+import {
+  carriesTable,
+  flightText,
+  RUN_ROW_MAX_BYTES,
+  runRowsIn,
+  SLUG_LITERALS_MAX,
+  slugLiteralsIn,
+  toolTables,
+} from "@/tests/tool-tables-markers";
 import { chunkFiles, prerenderedPages } from "../../scripts/page-weight";
 
 const ROOT = process.cwd();
@@ -445,6 +455,161 @@ describe("the catalogue ships in one chunk, shared by every surface that reads i
 });
 
 /**
+ * No tool page loads a table of every tool (2026-11-09,
+ * perf/per-tool-first-load).
+ *
+ * THE DEFECT, measured on main 89486c09: every one of the 56 tool pages
+ * loaded the tool directory (every tool's name, mode, formats and outputs;
+ * ~1 KB gz, and in FIVE chunks), the runner registry, the runner kind →
+ * hand-off mode table and the worker batch slugs; the 21 worker pages also
+ * the runner kind → file ceiling table and the worker engines' tool lists.
+ * Each page used ONE row of them — its own — which the server page already
+ * had. Now the page computes that row on the server (`toolRunInfoFor`) and
+ * hands it over as data, and the tables load only where a page looks up
+ * OTHER tools (the ticket, the palette, the workspace, a guide's desk, a
+ * result's next steps). A size budget could not say this: it sees "the page
+ * got lighter or heavier", never "the directory is back", and an analyst's
+ * rebuild showed cutting one importer only moved the directory, the
+ * registry and the capability together into a new shared chunk (-7 B).
+ * This reads the CONTENT of every tool page's first-load chunks, so a
+ * table that moves to a new chunk is still found.
+ *
+ * Each table is recognised by its own rows, derived from the module that
+ * defines it (`@/tests/tool-tables-markers`); the pages are every
+ * `tools/<slug>.html` the build prerendered, held to the catalogue.
+ */
+describe("no tool page loads a table of every tool", () => {
+  const built = existsSync(path.join(NEXT_DIR, "server", "app"));
+  const TABLES = toolTables();
+  const toolPages = () =>
+    prerenderedPages(NEXT_DIR).filter((html) =>
+      /^tools\/[^/]+\.html$/.test(html),
+    );
+
+  it("health check: every tool's page is walked, and every table has its rows", () => {
+    expect(TABLES.length).toBe(6);
+    for (const table of TABLES) {
+      // A table whose rows came back empty would be "absent" everywhere.
+      expect(table.rowsIn("").of, table.what).toBeGreaterThanOrEqual(3);
+      expect(carriesTable(table, ""), table.what).toBe(false);
+    }
+    if (!built) return;
+    const pages = toolPages();
+    expect(pages).toEqual(tools.map((t) => `tools/${t.slug}.html`).sort());
+    expect(pages.length).toBeGreaterThanOrEqual(50);
+    expect(pages.length).toBeLessThanOrEqual(120);
+  });
+
+  it.each(TABLES)(
+    "positive control: the build ships $what, and the reader finds it",
+    (table) => {
+      if (!built) return;
+      // Present somewhere — the pages that look up other tools still load
+      // it. Without this, a build that wrote the rows another way would
+      // turn every absence below into a vacuous pass.
+      const carrying = walkJs(CHUNKS_DIR).filter((f) =>
+        carriesTable(table, read(f)),
+      );
+      expect(
+        carrying.map((f) => path.basename(f)),
+        `${table.what} is in no chunk of the build: its rows are no longer written the way @/tests/tool-tables-markers reads them`,
+      ).not.toEqual([]);
+    },
+  );
+
+  it.each(TABLES)("no tool page loads $what up front", (table) => {
+    if (!built) return;
+    const leaks = toolPages().filter((html) =>
+      chunkFiles(NEXT_DIR, html).some((f) => carriesTable(table, read(f))),
+    );
+    expect(
+      leaks,
+      `these tool pages load ${table.what} with the page. A first-load module reads another tool by slug — give the page its own row from the server (toolRunInfoFor, @/lib/tools/tool-run-info) or fetch the table where the cross-tool lookup runs.`,
+    ).toEqual([]);
+  });
+
+  /*
+   * The six tests above name six shapes. This one is the property in the
+   * title, shape-blind (`SLUG_LITERALS_MAX`, @/tests/tool-tables-markers):
+   * no first-load chunk of a tool page quotes more than a handful of the
+   * catalogue's slugs. Main 89486c09 fails it on all 56 pages (one chunk
+   * quoted 56 of 56); a name map or slug array in any shape fails it too.
+   */
+  it("health check and positive control: the slug count sees a table in any shape", () => {
+    const slugs = tools.map((t) => t.slug);
+    expect(slugs.length).toBeGreaterThanOrEqual(50);
+    // Two shapes none of the six markers recognises (CLAUDE.md rule 1).
+    const nameMap = `{${tools.map((t) => `"${t.slug}":"${t.name}"`).join(",")}}`;
+    const slugArray = `[${slugs.map((s) => `"${s}"`).join(",")}]`;
+    for (const text of [nameMap, slugArray]) {
+      expect(TABLES.some((table) => carriesTable(table, text))).toBe(false);
+      expect(slugLiteralsIn(text).length).toBeGreaterThan(SLUG_LITERALS_MAX);
+    }
+    if (!built) return;
+    // And in the build: the chunks that DO carry the directory are seen.
+    const most = Math.max(
+      ...walkJs(CHUNKS_DIR).map((f) => slugLiteralsIn(read(f)).length),
+    );
+    expect(most).toBeGreaterThanOrEqual(slugs.length - 2);
+  });
+
+  it(`no first-load chunk of a tool page quotes more than ${SLUG_LITERALS_MAX} tool slugs`, () => {
+    if (!built) return;
+    const over: string[] = [];
+    let walked = 0;
+    for (const html of toolPages()) {
+      for (const f of chunkFiles(NEXT_DIR, html)) {
+        walked++;
+        const quoted = slugLiteralsIn(read(f));
+        if (quoted.length > SLUG_LITERALS_MAX)
+          over.push(`${html} ${path.basename(f)}: ${quoted.length}`);
+      }
+    }
+    // Health: every page's chunks were read (~15-20 each).
+    expect(walked).toBeGreaterThanOrEqual(toolPages().length * 8);
+    expect(
+      over,
+      "a tool page's first load quotes most of the catalogue's slugs: a table of every tool, in a shape the six markers above do not know. Give the page its own row from the server (toolRunInfoFor) instead.",
+    ).toEqual([]);
+  });
+
+  /*
+   * The bytes that left the JS went somewhere: the page's own row now
+   * travels in the prerendered DOCUMENT, as the props of ToolRunProvider in
+   * React's flight data. No chunk budget sees that, and the first cut put a
+   * 21-row converter table there (~400 B gz of HTML on every PDF-taking
+   * worker page). So read the document the visitor receives: every tool
+   * page carries its row, the row is the server's answer, and it stays
+   * within RUN_ROW_MAX_BYTES.
+   */
+  it("every tool page's document carries its own run row, at most RUN_ROW_MAX_BYTES", () => {
+    if (!built) return;
+    const pages = toolPages();
+    const problems: string[] = [];
+    for (const html of pages) {
+      const slug = html.slice("tools/".length, -".html".length);
+      const tool = tools.find((t) => t.slug === slug)!;
+      const flight = flightText(
+        read(path.join(NEXT_DIR, "server", "app", html)),
+      );
+      const rows = runRowsIn(flight, slug);
+      if (rows.length === 0) {
+        problems.push(`${slug}: no run row in the document`);
+        continue;
+      }
+      for (const row of rows) {
+        if (row !== JSON.stringify(toolRunInfoFor(tool)))
+          problems.push(`${slug}: the document's row is not toolRunInfoFor's`);
+        if (row.length > RUN_ROW_MAX_BYTES)
+          problems.push(`${slug}: ${row.length} B > ${RUN_ROW_MAX_BYTES}`);
+      }
+    }
+    expect(pages.length).toBe(tools.length);
+    expect(problems).toEqual([]);
+  });
+});
+
+/**
  * What the ticket costs the visitor who brings a file: every chunk the desk
  * fetches for it, read from the desk's own chunk (the `Promise.all` of chunk
  * loads in front of the ticket's import), minus what the home page already
@@ -597,8 +762,28 @@ describe("the catalogue ships in one chunk, shared by every surface that reads i
  * bound now covers CI's own reading of this tree, 34,166 B, with 1 B to spare
  * (33.366 KB is 34,167.8 B). The gap between machines is not a constant, so
  * the next raise must be measured on CI, not on this machine plus a margin.
+ *
+ * RAISED 33.366 -> 33.6 on 2026-11-09, for perf/per-tool-first-load, which
+ * took the tool directory, the runner registry, the hand-off mode tables
+ * and the worker batch slugs off every tool page's first load (~1.9 KB gz
+ * on each client tool page, ~3.5 KB on each worker page; "no tool page
+ * loads a table of every tool", above). The ticket still loads all of them
+ * — it looks up OTHER tools — and now also carries what replaced the
+ * lookups on the receiving page: the launch writes each tool's display name
+ * into the hand-off record (`toolNames`, record version 2) and into the
+ * departure, the claim fetches the directory for a version-1 record, and
+ * the shared helpers were split into modules of their own so the tool pages
+ * could leave the tables behind (`capability-core`, `session`,
+ * `input-kind`, `ceiling-message`), which webpack re-cut into different
+ * chunks (6873/8933/955/7638/7673 -> 7384/8268/2422/6011/5878). One
+ * machine (Windows), both from an empty .next, main 89486c09 vs the branch:
+ * the eight counted chunks went 34,141 -> 34,371 B gzip -9 (+230; raw
+ * 97,932 -> 98,910). NOT measured on CI: the one CI reading of a tree this
+ * machine also read was 25 B higher, so 33.6 KB (34,406 B) leaves 35 B over
+ * this machine's figure — if CI reads more than that, measure CI's figure
+ * and set the bound from it, as the note above says.
  */
-const TICKET_FETCH_GZ_KB = 33.366;
+const TICKET_FETCH_GZ_KB = 33.6;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));

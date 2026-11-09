@@ -11,20 +11,28 @@
  * once the shared set passes 20 kB of source. The hook brings pdf-lib's
  * loader (to warm the engine); this brings nothing a tool page does not
  * already load from the hand-off library.
+ *
+ * It reads the store through `./session`, never the public entry
+ * (`./index`): that entry holds `handoffPayload` and with it the capability
+ * tables and the tool directory, and this module is in every tool page's
+ * first load (2026-11-09; `lazy-chunks.test.ts` reads for the tables).
  */
 import {
   claimHandoff,
   handoffEntriesToFiles,
   purgeExpiredHandoffs,
-  readHandoffId,
+} from "./session";
+import {
+  readNames,
   readOrigin,
   readPending,
   readTrail,
-  stripHandoffFromUrl,
-  type HandoffFileEntry,
   type HandoffOrigin,
   type PendingStep,
-} from "./index";
+} from "./origin";
+import { HANDOFF_RECORD_VERSION } from "./record";
+import { readHandoffId, stripHandoffFromUrl } from "./url";
+import type { HandoffFileEntry, HandoffRecord } from "./types";
 import { takeCarriedHandoff } from "./carry";
 
 /** The router call the strip needs — the App Router's `replace`. */
@@ -50,6 +58,12 @@ interface ClaimBase {
   trail: string[];
   /** A step to take after this tool, when the job planned one. */
   pending: PendingStep | null;
+  /**
+   * Display names for the trail's tools and the tool the files came from,
+   * slug → name, as the record carried them (version 2) or as the
+   * directory gave them for an older record.
+   */
+  names: Readonly<Record<string, string>>;
 }
 
 /**
@@ -69,6 +83,7 @@ export const IDLE: ClaimedHandoff = {
   origin: null,
   trail: [],
   pending: null,
+  names: {},
 };
 export const LOADING: ClaimedHandoff = { ...IDLE, status: "loading" };
 const EXPIRED: ClaimedHandoff = { ...IDLE, status: "expired" };
@@ -168,20 +183,48 @@ export function claimArrival(
   // We're already opening the store to claim; sweep any expired records too.
   void purgeExpiredHandoffs();
   return claimHandoff(id)
-    .then((record): ClaimedHandoff => {
+    .then(async (record): Promise<ClaimedHandoff> => {
       if (!record || record.toolSlug !== target) return EXPIRED;
       const claimed = record.files.length;
       const files = handoffEntriesToFiles(select(record.files));
       const skipped = claimed - files.length;
+      const origin = readOrigin(record.origin);
+      const trail = readTrail(record.trail);
       return {
         status: files.length === 0 ? "incompatible" : "ready",
         files,
         skipped,
         claimed,
-        origin: readOrigin(record.origin),
-        trail: readTrail(record.trail),
+        origin,
+        trail,
         pending: readPending(record.pending),
+        names: await namesOf(record, origin, trail),
       };
     })
     .catch(() => EXPIRED);
+}
+
+/**
+ * The names a receiving page shows for this record's tools: carried in the
+ * record from version 2 on. A record of version 1 — stashed before the
+ * deploy that added names, claimed after it — carries none, and the tool
+ * directory is fetched for it, on demand: the answer it gave before, at
+ * the cost of one fetch for a record that can live at most 30 minutes.
+ */
+async function namesOf(
+  record: HandoffRecord,
+  origin: HandoffOrigin,
+  trail: readonly string[],
+): Promise<Readonly<Record<string, string>>> {
+  const wanted = [...trail, ...("fromSlug" in origin ? [origin.fromSlug] : [])];
+  const carried = readNames(record.names);
+  if ((record.v ?? 1) >= HANDOFF_RECORD_VERSION || wanted.length === 0)
+    return carried;
+  const { getToolEntry } = await import("@/lib/tools/directory");
+  const names: Record<string, string> = { ...carried };
+  for (const slug of wanted) {
+    const name = getToolEntry(slug)?.name;
+    if (name && !names[slug]) names[slug] = name;
+  }
+  return names;
 }

@@ -16,7 +16,6 @@ import { downloadBytes } from "@/lib/pdf/browser";
 import { outputName } from "@/lib/pdf/files";
 import { buttonVariants } from "@/components/ui/button";
 import { formatBytes } from "@/lib/utils";
-import { getToolEntry } from "@/lib/tools/directory";
 import {
   ChipButton,
   ErrorNote,
@@ -103,12 +102,22 @@ const CONFIG: Record<Mode, ModeConfig> = {
   },
 };
 
+/**
+ * The two tools' names, as the catalogue spells them — not a second spelling:
+ * this read "Remove Pages" while the catalogue, the H1 and every link said
+ * "Delete Pages". WAS a lookup in the tool directory (`getToolEntry`), which
+ * put every tool's row in these pages' first load for one name; since
+ * 2026-11-09 the names are here and `linked-tool-names.test.ts` holds each
+ * to the catalogue.
+ */
+export const PAGE_SELECT_TOOLS = {
+  extract: { slug: "extract-pages", name: "Extract Pages" },
+  delete: { slug: "remove-pages", name: "Delete Pages" },
+} as const satisfies Record<Mode, { slug: string; name: string }>;
+
 export function PageSelectRunner({ mode }: { mode: Mode }) {
   const config = CONFIG[mode];
-  const handoffSlug = mode === "extract" ? "extract-pages" : "remove-pages";
-  // The catalogue's name, not a second spelling of it: this read "Remove
-  // Pages" while the catalogue, the H1 and every link say "Delete Pages".
-  const toolName = getToolEntry(handoffSlug)?.name ?? handoffSlug;
+  const { slug: handoffSlug, name: toolName } = PAGE_SELECT_TOOLS[mode];
   return (
     <SinglePdfRunner
       hint={config.emptyHint}
