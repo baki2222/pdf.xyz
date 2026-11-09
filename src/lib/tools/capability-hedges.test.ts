@@ -131,6 +131,11 @@ import {
   emptyCapabilities,
   serializeHeartbeat,
 } from "@/lib/workers/heartbeat";
+import {
+  TRANSLATE_OCR_CHARGE_SENTENCE,
+  TRANSLATE_OCR_SCOPE,
+  TRANSLATE_SCAN_ROUTE,
+} from "@/lib/jobs/translate-ocr";
 import { toolFacts } from "./tool-facts";
 import {
   cardSummary,
@@ -1110,5 +1115,131 @@ describe("the translateOcr subject (audit translate-pdf#3, 2026-11-09)", () => {
         line.includes('hedges "translateOcr"'),
       ),
     ).toBe(true);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ *  A translateOcr claim names BOTH states (review finding, 2026-11-09)
+ * ------------------------------------------------------------------ */
+
+/**
+ * The hedge rule above catches "coming soon" next to the capability. It
+ * cannot catch the opposite defect, which shipped on this branch twice: an
+ * UNCONDITIONAL "a scan is recognised" — Translate's step 4 and the guide's
+ * heading "Scanned PDFs are recognised first" — false for as long as the
+ * running worker publishes no `translateOcr`, which is what production does
+ * the day the web tier deploys (CLAUDE.md rule 5). Static copy cannot know
+ * which state it is read in, so every sentence on Translate's surfaces that
+ * says a scan is recognised must name both: what happens when our server can,
+ * and what happens when it cannot.
+ *
+ * THE SURFACES ARE DERIVED: the tool that reads `status.translateOcr`, and
+ * every guide whose PRIMARY tool (`tools[0]`) it is. The claim shape is any
+ * sentence mentioning a scan and recognising, wider than the hedge subject on
+ * purpose — the heading that slipped through says neither "on our server"
+ * nor "the text".
+ *
+ * Two follow-up sentences are exempt only where they FOLLOW the both-branch
+ * route sentence in the same entry, whose condition they inherit:
+ * `TRANSLATE_OCR_SCOPE` and `TRANSLATE_OCR_CHARGE_SENTENCE`.
+ */
+const TRANSLATE_OCR_TOOL = "translate-pdf";
+const SCAN_CLAIM = (sentence: string) =>
+  /\bscan/i.test(sentence) && /\brecogni[sz]/i.test(sentence);
+const CAN_BRANCH = /\bwhen\b[^.?!]*\bcan\b(?!not)/i;
+const CANNOT_BRANCH = /\bwhen\b[^.?!]*\b(?:cannot|can't|can not)\b/i;
+const sentencesOf = (text: string) => text.split(/(?<=[.?!])\s+(?=[A-Z])/);
+
+function translateOcrSurfaces(copy: readonly CopyEntry[]): CopyEntry[] {
+  const guideSlugs = new Set(
+    guides
+      .filter((guide) => guide.tools[0] === TRANSLATE_OCR_TOOL)
+      .map((guide) => `guide:${guide.slug}`),
+  );
+  return copy.filter(
+    (entry) => entry.slug === TRANSLATE_OCR_TOOL || guideSlugs.has(entry.slug),
+  );
+}
+
+/** Each scan claim on Translate's surfaces, and whether it names both states. */
+function translateScanClaims(
+  copy: readonly CopyEntry[],
+): { where: string; sentence: string; ok: boolean }[] {
+  const followUps = [
+    ...sentencesOf(TRANSLATE_OCR_SCOPE),
+    ...sentencesOf(TRANSLATE_OCR_CHARGE_SENTENCE),
+  ];
+  const out: { where: string; sentence: string; ok: boolean }[] = [];
+  for (const entry of translateOcrSurfaces(copy)) {
+    const sentences = sentencesOf(entry.text);
+    sentences.forEach((sentence, i) => {
+      if (!SCAN_CLAIM(sentence)) return;
+      const bothBranches =
+        CAN_BRANCH.test(sentence) && CANNOT_BRANCH.test(sentence);
+      const inherited =
+        followUps.includes(sentence) &&
+        sentences.slice(0, i).join(" ").includes(TRANSLATE_SCAN_ROUTE);
+      out.push({
+        where: `${entry.slug} ${entry.where}`,
+        sentence,
+        ok: bothBranches || inherited,
+      });
+    });
+  }
+  return out;
+}
+
+describe("a sentence saying a scan is recognised names both worker states", () => {
+  it("health check: the surfaces and the claims are found, and the route sentence is among them", () => {
+    const surfaces = translateOcrSurfaces(COPY);
+    expect(new Set(surfaces.map((e) => e.slug)).size).toBeGreaterThanOrEqual(2);
+    const claims = translateScanClaims(COPY);
+    // Measured 2026-11-09 after the fix: 11 claim sentences over 7 entries.
+    // A collapse to a handful is the derivation going blind, not clean copy.
+    expect(claims.length).toBeGreaterThanOrEqual(8);
+    expect(claims.length).toBeLessThanOrEqual(40);
+    const route = sentencesOf(TRANSLATE_SCAN_ROUTE).filter(SCAN_CLAIM);
+    expect(route).toHaveLength(1);
+    expect(claims.some((c) => c.sentence === route[0])).toBe(true);
+  });
+
+  it("every claim on Translate's surfaces carries both branches", () => {
+    expect(
+      translateScanClaims(COPY)
+        .filter((claim) => !claim.ok)
+        .map((claim) => `${claim.where}: ${claim.sentence}`),
+    ).toEqual([]);
+  });
+
+  it.each([
+    [
+      "the unconditional route sentence",
+      "A scan has no selectable text, so Translate PDF asks which languages are printed on the page, recognises the text on our server (OCR) and then translates it.",
+    ],
+    ["the heading that shipped", "Scanned PDFs are recognised first"],
+    [
+      "the step that shipped",
+      "Your browser counts the text first; a scan is recognised on our server before it is translated, which takes longer.",
+    ],
+    [
+      "only the 'can' branch",
+      "When our server can recognise scans, a scan is recognised first.",
+    ],
+  ])("positive control: %s is caught", (_name, text) => {
+    const planted: CopyEntry = {
+      slug: TRANSLATE_OCR_TOOL,
+      where: "how[3]",
+      text,
+    };
+    expect(translateScanClaims([planted]).map((c) => c.ok)).toEqual([false]);
+  });
+
+  it("control: a follow-up sentence with no route sentence before it is not exempt", () => {
+    const planted: CopyEntry = {
+      slug: TRANSLATE_OCR_TOOL,
+      where: "faq[1].answer",
+      text: TRANSLATE_OCR_SCOPE,
+    };
+    expect(translateScanClaims([planted]).map((c) => c.ok)).toEqual([false]);
   });
 });

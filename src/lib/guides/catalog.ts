@@ -2201,9 +2201,13 @@ export const guides: Guide[] = [
         // The id stays (links point at it). CHANGED 2026-11-09 (audit
         // translate-pdf#3): headed "Scanned PDFs need OCR first", and said
         // to run every scan through OCR PDF first. Translate can now
-        // recognise a scan itself when the running worker can.
+        // recognise a scan itself when the running worker can. The heading
+        // was then "Scanned PDFs are recognised first" — false while the
+        // running worker publishes no translateOcr (review finding), so it
+        // names the subject and leaves the claim to the body, which states
+        // both states.
         id: "scanned-pdfs-need-ocr-first",
-        heading: "Scanned PDFs are recognised first",
+        heading: "Scanned PDFs",
         body: [
           `The tool translates a PDF's text — the kind you can highlight and copy. ${TRANSLATE_SCAN_ROUTE} ${TRANSLATE_OCR_SCOPE} ${TRANSLATE_OCR_CHARGE_SENTENCE}`,
           `OCR PDF advertises ${OCR_LANGUAGES.length} recognition languages, with up to ${MAX_OCR_LANGUAGES} selectable per job, and its page's live status shows which language packs are actually installed.`,

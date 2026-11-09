@@ -258,7 +258,7 @@ const content: ToolContent = {
     },
     {
       title: "Press Translate PDF",
-      body: "Your browser counts the text first, while the button reads Translating…; a scan is recognised on our server before it is translated, which takes longer. If it fits, the PDF uploads over TLS (Uploading your file…), waits in the queue (Waiting for our server…), is translated (Translating…), and the ZIP is fetched (Downloading the result…) before the download button appears.",
+      body: "Your browser counts the text first, while the button reads Translating…; a scan is recognised on our server first when it can do that, which takes longer, and is refused before it uploads when it cannot. If it fits, the PDF uploads over TLS (Uploading your file…), waits in the queue (Waiting for our server…), is translated (Translating…), and the ZIP is fetched (Downloading the result…) before the download button appears.",
     },
     {
       title: "Download the ZIP",
