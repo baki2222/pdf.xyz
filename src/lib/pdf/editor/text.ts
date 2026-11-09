@@ -3,6 +3,7 @@ import { loadPdfLib } from "../pdf-lib";
 import { embedDrawingFont, embedFaceIfDrawable } from "../unicode-font";
 import type { ShippedFace, StandardFace } from "../font-packs";
 import { handwritingCanDraw } from "../handwriting";
+import { BASELINE_EMS } from "../handwriting-metrics";
 import type { HandwritingStyle } from "../offered-kinds";
 import { allWinAnsi } from "../winansi";
 import type { EditorFont, TextAlign, TextStyle } from "./model";
@@ -24,8 +25,12 @@ import type { EditorFont, TextAlign, TextStyle } from "./model";
  * a browser's line box, which is how a CSS rendering and a PDF drift apart.
  */
 
-/** Baseline sits this many ems below the top of its line slot, plus half the leading. */
-export const BASELINE_EMS = 0.85;
+/**
+ * Baseline sits this many ems below the top of its line slot, plus half the
+ * leading. Defined in the leaf `handwriting-metrics.ts`, where a typed
+ * signature's per-face line height is derived from it.
+ */
+export { BASELINE_EMS };
 
 export interface LaidOutLine {
   text: string;

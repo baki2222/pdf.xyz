@@ -45,7 +45,11 @@ import {
 import { handwritingCoverage } from "../../../scripts/generate-handwriting-coverage";
 import { exportEditedPdf } from "./editor-export";
 import { typedSignatureObject, withoutHandwritingFor } from "./editor/model";
-import { handwritingFor } from "./editor/text";
+import { handwritingFor, lineBaseline } from "./editor/text";
+import {
+  HANDWRITING_REACH,
+  handwritingLineHeight,
+} from "./handwriting-metrics";
 import { proveGlyphs } from "@/tests/unicode-fonts";
 import { embedFaceIfDrawable } from "./unicode-font";
 import { renderPdfPages, type RenderedPage } from "@/tests/pdf-render";
@@ -457,4 +461,134 @@ describe("a name is drawn as its letters, however it was typed or pasted", () =>
     for (const s of lacking)
       expect(handwritingMissingLabels(s, "Erdős"), s).toEqual(["ő"]);
   });
+});
+
+/*
+ * Review of sign-pdf#1: a typed signature's box was size x 1.2 tall in every
+ * face, and Homemade Apple's descenders hung ~15 pt below it — so a box the
+ * export accepted at the page's bottom edge lost a quarter of its ink.
+ */
+describe("a typed signature's box holds all of its ink", () => {
+  it("HANDWRITING_REACH is each TTF's own head box and line-box metrics", async () => {
+    for (const face of HANDWRITING_FACE_LIST) {
+      const font = (await openNotoFont(readNotoTtf(face))) as unknown as {
+        unitsPerEm: number;
+        ascent: number;
+        descent: number;
+        bbox: { minY: number; maxY: number };
+        "OS/2": { winAscent: number; winDescent: number };
+      };
+      const em = (u: number) => u / font.unitsPerEm;
+      const derived = {
+        ink: { above: em(font.bbox.maxY), below: em(-font.bbox.minY) },
+        lineBox: {
+          above: em(Math.max(font.ascent, font["OS/2"].winAscent)),
+          below: em(Math.max(-font.descent, font["OS/2"].winDescent)),
+        },
+      };
+      const recorded = HANDWRITING_REACH[face.id];
+      for (const k of ["ink", "lineBox"] as const)
+        for (const side of ["above", "below"] as const) {
+          const d = derived[k][side];
+          const r = recorded[k][side];
+          // Recorded to 0.001, rounded UP: never short of the face.
+          expect(r, `${face.id} ${k}.${side}`).toBeGreaterThanOrEqual(d);
+          expect(r - d, `${face.id} ${k}.${side}`).toBeLessThan(0.001);
+        }
+    }
+  });
+
+  it("each handwriting style's line height clears its ink with the baseline where the export puts it", () => {
+    for (const style of HANDWRITING_STYLES) {
+      const L = handwritingLineHeight(style);
+      const { above, below } = HANDWRITING_REACH[style].ink;
+      const baseline = lineBaseline(0, { size: 1, lineHeight: L });
+      expect(baseline, style).toBeGreaterThanOrEqual(above);
+      expect(L - baseline, style).toBeGreaterThanOrEqual(below);
+      expect(
+        typedSignatureObject("t", 0, 0, 0, 100, "Ada", style).lineHeight,
+      ).toBe(L);
+    }
+    // Health check: at least one face needs more than every other box gets.
+    expect(
+      Math.max(...HANDWRITING_STYLES.map(handwritingLineHeight)),
+    ).toBeGreaterThan(1.2);
+  });
+
+  /** Rows (1 px = 1 pt) that hold ink, as [first, last]. */
+  function inkRows(page: RenderedPage): [number, number] | null {
+    const bits = ink(page);
+    let first = -1;
+    let last = -1;
+    for (let y = 0; y < page.height; y++) {
+      for (let x = 0; x < page.width; x++) {
+        if (bits[y * page.width + x]) {
+          if (first < 0) first = y;
+          last = y;
+          break;
+        }
+      }
+    }
+    return first < 0 ? null : [first, last];
+  }
+
+  const DEEP = "Jágy Pöqfly Jeffrey ÅÉ";
+
+  for (const style of SIGNATURE_STYLES) {
+    it(`${style}: every row of ink is inside the box the export accepted`, async () => {
+      const blank = await PDFDocument.create();
+      blank.addPage([600, 300]);
+      const obj = typedSignatureObject("t", 0, 20, 120, 560, DEEP, style);
+      const { bytes } = await exportEditedPdf(await blank.save(), [obj]);
+      const [page] = await renderPdfPages(bytes, 600);
+      expect(page!.width).toBe(600);
+      const rows = inkRows(page!);
+      expect(rows, style).not.toBeNull();
+      const top = obj.y;
+      const bottom = obj.y + obj.size * obj.lineHeight;
+      // One pixel of antialiasing either side.
+      expect(rows![0], `${style} ink top`).toBeGreaterThanOrEqual(
+        Math.floor(top) - 1,
+      );
+      expect(rows![1], `${style} ink bottom`).toBeLessThanOrEqual(
+        Math.ceil(bottom) + 1,
+      );
+    }, 60_000);
+  }
+
+  it("a box touching the page's bottom edge keeps all its ink (the reviewer's case)", async () => {
+    for (const style of HANDWRITING_STYLES) {
+      const at = async (pageHeight: number) => {
+        const probe = typedSignatureObject(
+          "p",
+          0,
+          0,
+          0,
+          560,
+          "Jeffrey Pyg",
+          style,
+        );
+        const h = probe.size * probe.lineHeight;
+        const blank = await PDFDocument.create();
+        blank.addPage([600, pageHeight]);
+        const obj = typedSignatureObject(
+          "c",
+          0,
+          20,
+          100 - h,
+          560,
+          "Jeffrey Pyg",
+          style,
+        );
+        const { bytes } = await exportEditedPdf(await blank.save(), [obj]);
+        const [page] = await renderPdfPages(bytes, Math.max(600, pageHeight));
+        return count(ink(page!));
+      };
+      const short = await at(100);
+      const tall = await at(200);
+      expect(short, style).toBeGreaterThan(200);
+      // The short page cuts nothing the tall page shows (antialiasing aside).
+      expect(short / tall, style).toBeGreaterThan(0.99);
+    }
+  }, 120_000);
 });

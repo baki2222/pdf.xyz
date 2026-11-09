@@ -20,6 +20,10 @@ import {
   type SignatureStyle,
 } from "../offered-kinds";
 import { isHandwritingStyle, typedSignatureText } from "../signature-style";
+import {
+  DEFAULT_LINE_HEIGHT,
+  handwritingLineHeight,
+} from "../handwriting-metrics";
 import type { RasterImageFormat } from "../pdf-lib";
 import {
   HIGHLIGHTER_LABEL,
@@ -833,7 +837,11 @@ export function typedSignatureObject(
     size: TYPED_SIGNATURE_SIZE,
     color,
     align: "left",
-    lineHeight: 1.2,
+    // A handwriting face's box is as tall as its ink, so a signature whose
+    // box sits inside the page has every descender inside it too.
+    lineHeight: isHandwritingStyle(style)
+      ? handwritingLineHeight(style)
+      : DEFAULT_LINE_HEIGHT,
     ...(isHandwritingStyle(style) ? { hand: style } : {}),
   };
 }
