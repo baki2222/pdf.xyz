@@ -4000,7 +4000,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Can it make a folded booklet?",
-        answer: `Not this tool: it fills the sheets in the pages' own order, ${N_UP_ACROSS.toLowerCase()} or ${N_UP_DOWN.toLowerCase()}. ${nameOf("booklet-pdf")} makes the booklet: it puts the pages in folding order on landscape sheets, adds blank pages to reach a multiple of 4, and turns the backs for a printer that flips on the long edge.`,
+        answer: `Not this tool: it fills the sheets in the pages' own order, ${N_UP_ACROSS.toLowerCase()} or ${N_UP_DOWN.toLowerCase()}. ${nameOf("booklet-pdf")} makes the booklet: it puts the pages in folding order, two side by side on each side of a sheet, adds blank pages to reach a multiple of 4, and turns the backs for a printer that flips on the long edge.`,
       },
       {
         question: "Is my PDF sent to a server?",

@@ -161,7 +161,7 @@ export const tools: Tool[] = [
     tagline: "Print a PDF as a folded booklet.",
     cardSummary: "Put pages in order to fold into a booklet.",
     description:
-      "Put a PDF's pages two to a side on landscape sheets in booklet order, so printed on both sides and folded they read in sequence. Runs in your browser.",
+      "Put a PDF's pages in booklet order, two side by side on each side of a sheet, so printed on both sides and folded they read in sequence. Runs in your browser.",
     category: "organize",
     icon: "booklet",
     processing: "client",

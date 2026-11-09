@@ -5,6 +5,7 @@ import {
   BOOKLET_BINDINGS,
   BOOKLET_DOUBLE_LABEL,
   BOOKLET_FLIPS,
+  BOOKLET_PREVIEW_SIDES,
   BOOKLET_RESULT_TITLE,
   BOOKLET_RTL_LABEL,
   BOOKLET_RUN_LABEL,
@@ -42,6 +43,21 @@ const MARGIN_NAMES = list(
   "or",
 );
 const DEFAULT_MARGIN = label(N_UP_MARGINS, DEFAULT_BOOKLET_OPTIONS.margin);
+/** The margin that shrinks nothing (0 pt), by its chip label. */
+const NO_MARGIN = N_UP_MARGINS.find((m) => m.points === 0)!.label;
+
+/** How many sheets the Page order preview lists in full (two sides each). */
+const PREVIEW_SHEETS = BOOKLET_PREVIEW_SIDES / 2;
+
+/**
+ * The use-case figures, computed rather than typed: a programme of
+ * PROGRAMME_PAGES pages needs PROGRAMME_SHEETS sheets, and one page shorter it
+ * gets a blank, which the back-cover option moves inside so the last page is
+ * on the outside (booklet-n-up-copy.test.tsx checks that against the order).
+ */
+export const PROGRAMME_PAGES = 8;
+const PROGRAMME_SHEETS = bookletPageSlots(PROGRAMME_PAGES) / 4;
+export const SHORT_PROGRAMME_PAGES = PROGRAMME_PAGES - 1;
 
 /**
  * The worked example: a 10-page PDF, computed by the same function the tool
@@ -89,9 +105,9 @@ const content: ToolContent = {
   metaDescription: `Put a PDF's pages in booklet order, two to a side on landscape ${list(PAPER.slice(0, 2), "or")} sheets, to print on both sides, fold and staple. Runs in your browser; no upload.`,
 
   intro: [
-    `PDF Booklet Maker reorders a PDF's pages for a folded booklet. Each landscape sheet holds two pages on each side, and the pages are placed so that once the sheets are printed on both sides, stacked in order, folded in half and stapled along the fold, the booklet reads from the first page to the last.`,
+    `PDF Booklet Maker reorders a PDF's pages for a folded booklet. Each sheet holds two pages side by side on each side, and the pages are placed so that once the sheets are printed on both sides, stacked in order, folded in half and stapled along the fold, the booklet reads from the first page to the last.`,
     `A booklet needs a multiple of 4 pages, because every sheet carries four. When yours has another count, blank pages are added at the end to make up the difference, and only as many as that takes. Tick “${BOOKLET_BACK_COVER_LABEL}” to put those blanks before your last page instead, so it stays on the outside. For example, a ${EXAMPLE_PAGES}-page PDF becomes ${EXAMPLE_SLOTS} pages on ${EXAMPLE_SLOTS / 4} sheets: ${EXAMPLE_TEXT}.`,
-    `It runs in your browser with pdf-lib; the PDF is not uploaded. The file gate refuses PDFs over ${MAX_MB} MB. Pages are placed as vector drawings, not pictures, so text stays sharp. Filled form fields and stamps show as they look, but links and form fields are no longer clickable or editable in the booklet.`,
+    `It runs in your browser with pdf-lib; the PDF is not uploaded. The file gate refuses PDFs over ${MAX_MB} MB. Pages are placed as vector drawings, not pictures, so text stays sharp. Filled form fields and stamps are drawn as they print, a layer hidden in the original stays hidden, and links and form fields are no longer clickable or editable in the booklet.`,
   ],
 
   useCases: [
@@ -101,7 +117,7 @@ const content: ToolContent = {
     },
     {
       title: "Programmes and orders of service",
-      body: "An eight-page event programme prints on two sheets. With the back-cover option, a seven-page programme keeps its last page on the back instead of a blank.",
+      body: `A ${PROGRAMME_PAGES}-page event programme prints on ${PROGRAMME_SHEETS} sheets. With the back-cover option, a ${SHORT_PROGRAMME_PAGES}-page programme keeps its last page on the back instead of a blank.`,
     },
     {
       title: "Manuals and handouts",
@@ -116,7 +132,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Open the PDF",
-      body: `Drop the PDF on the box or browse for it; it takes one file up to ${MAX_MB} MB. Under Page order, the tool lists which pages go on each side of each sheet, and how many blanks are added.`,
+      body: `Drop the PDF on the box or browse for it; it takes one file up to ${MAX_MB} MB. Under Page order, the tool lists which pages go on each side of the first ${PREVIEW_SHEETS} sheets, says how many more sides follow, and how many blanks are added.`,
     },
     {
       title: "Choose the sheet and binding",
@@ -147,11 +163,11 @@ const content: ToolContent = {
     },
     {
       q: "Why are my pages smaller in the booklet?",
-      a: `Each page is scaled to fit half the sheet with its proportions kept. On ${DEFAULT_SHEET} with the ${DEFAULT_MARGIN.toLowerCase()} margin, an upright ${DEFAULT_SHEET} page is drawn at ${PORTRAIT_PCT}% of its size; a landscape page has to fit the narrow half, so it shrinks to ${LANDSCAPE_PCT}%. The result says the size your pages were drawn at. ${BOOKLET_DOUBLE_LABEL}, under Sheet size, makes each sheet two of your first page wide, so pages of that size keep their full size.`,
+      a: `Each page is scaled to fit half the sheet with its proportions kept. On ${DEFAULT_SHEET} with Margin set to ${DEFAULT_MARGIN}, an upright ${DEFAULT_SHEET} page is drawn at ${PORTRAIT_PCT}% of its size; a landscape page has to fit the narrow half, so it shrinks to ${LANDSCAPE_PCT}%. The result says the size your pages were drawn at. ${BOOKLET_DOUBLE_LABEL}, under Sheet size, makes each sheet two of your first page wide, so with Margin set to ${NO_MARGIN}, pages of that size keep their full size.`,
     },
     {
       q: "What happens to links, form fields and comments?",
-      a: "Their appearance is drawn onto the booklet, so a filled form or a stamp looks the same, but they stop being interactive: a link does not open and a field cannot be edited. A value that has no drawing of its own and cannot be drawn here is named on the result. Keep the original for anything that has to stay clickable.",
+      a: "Anything set to print is drawn onto the booklet as it prints, so a filled form or a stamp looks the same on paper; a comment or stamp set to show on screen only is left off, as printing the original would leave it. They stop being interactive: a link does not open and a field cannot be edited. A value that has no drawing of its own and cannot be drawn here is named on the result. Keep the original for anything that has to stay clickable.",
     },
   ],
 

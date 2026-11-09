@@ -9,7 +9,6 @@ import {
   MAX_REQUEST_SIGNERS,
   REQUEST_PACKAGE_FILES,
 } from "@/lib/jobs/request-signatures";
-import { BOOKLET_BACK_COVER_LABEL, BOOKLET_RUN_LABEL } from "@/lib/pdf/booklet";
 
 /**
  * The authored "How it works" steps, by tool slug — server-side only.
@@ -49,12 +48,6 @@ export const TOOL_HOW: Readonly<Record<string, readonly string[]>> = {
     "Select the pages to turn, or select none to turn them all; Shift-click selects a run, and “Odd pages” or “Even pages” selects every other page.",
     "Turn them with “Left”, “Right” or “180°”, or with the arrows on a single page; “Rotate all 180°” flips every page at once.",
     "Click “Apply rotation”, then “Download rotated PDF”.",
-  ],
-  "booklet-pdf": [
-    "Pick your PDF — it stays on your device, and the page lists which pages go on each side of each sheet.",
-    `Choose the sheet size, the binding edge, the edge your printer flips on, and a margin; tick “${BOOKLET_BACK_COVER_LABEL}” to keep the last page outside.`,
-    `Click “${BOOKLET_RUN_LABEL}”, then “Download PDF”.`,
-    "Print it on both sides, fold the stack in half and staple along the fold.",
   ],
   "extract-images": [
     "Add your PDF — every page is scanned for embedded images, right in your browser.",

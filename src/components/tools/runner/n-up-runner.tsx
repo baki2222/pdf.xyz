@@ -37,7 +37,7 @@ import { useToolRun } from "./tool-context";
 
 /** The run button's label — exported so the page's steps quote it. */
 export const N_UP_RUN_LABEL = "Create sheets";
-/** The result panel's title (booklet-n-up-copy.test.ts reads it). */
+/** The result panel's title (booklet-n-up-copy.test.tsx reads it). */
 export const N_UP_RESULT_TITLE = "Sheets created";
 
 /**
