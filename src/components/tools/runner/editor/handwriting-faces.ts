@@ -1,7 +1,11 @@
 "use client";
 
 import { HANDWRITING_FACES } from "@/lib/pdf/handwriting";
-import type { HandwritingStyle } from "@/lib/pdf/offered-kinds";
+import {
+  HANDWRITING_STYLES,
+  type HandwritingStyle,
+} from "@/lib/pdf/offered-kinds";
+import { cssLineHeightShowing } from "@/lib/pdf/handwriting-metrics";
 import { loadFaceBytes } from "@/lib/pdf/unicode-font";
 import { createFaceMeasure, type Measure } from "@/lib/pdf/editor/text";
 
@@ -23,6 +27,20 @@ import { createFaceMeasure, type Measure } from "@/lib/pdf/editor/text";
  * the PDF does not. The measure pulls in the font engine, so only placing
  * asks for it.
  */
+
+/**
+ * The line height, in ems, of every preview of a typed signature in the
+ * panel — the Style options, the large preview, a saved one. Those boxes
+ * are a fixed size (a face arriving late moves nothing) and clip, so the
+ * line must hold the tallest face's ink under any line-box metric a browser
+ * picks: DERIVED from each face's reach (`cssLineHeightShowing`), rounded up
+ * to 0.05. Homemade Apple, the tallest, needs 2.15; at a fixed 1.4 its
+ * descenders and its J were sliced flat (review of sign-pdf#1).
+ */
+export const PREVIEW_LINE_EMS =
+  Math.ceil(
+    Math.max(...HANDWRITING_STYLES.map(cssLineHeightShowing)) * 20 - 1e-9,
+  ) / 20;
 
 /** The CSS family a handwriting face is registered under. */
 export function handwritingFamily(style: HandwritingStyle): string {

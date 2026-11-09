@@ -13,13 +13,14 @@
  * validation and lost a quarter of its ink at the edge. Each face's box is
  * now as tall as its ink (`handwritingLineHeight`).
  *
- * TWO REACHES, because two renderers read the face:
+ * TWO KINDS OF REACH, because two renderers read the face:
  *  - `ink`: the font's `head` bounding box — every glyph's outline lies
  *    inside it, which is what a PDF page clips;
- *  - `lineBox`: the furthest of the `hhea` and OS/2 `usWin` ascent and
- *    descent — what a browser may size a CSS line box from (Chrome reads
- *    one or the other by platform), which is what an `overflow: hidden`
- *    preview clips.
+ *  - `lineBoxes`: each ascent/descent pair a browser may size a CSS line
+ *    box from — `hhea`, OS/2 `usWin`, and OS/2 typo when the face sets
+ *    USE_TYPO_METRICS (which one depends on the platform), distinct pairs
+ *    only. The panel's previews are `overflow: hidden`, so their line
+ *    height must hold the ink under every one (`cssLineHeightShowing`).
  * Typed numbers with no relationship to anything, so `handwriting.test.ts`
  * re-derives both from each installed TTF and fails on any difference
  * (house rule 3: a constant needs a second, independent bound).
@@ -35,23 +36,29 @@ export interface FaceReach {
 
 export const HANDWRITING_REACH: Record<
   HandwritingStyle,
-  { readonly ink: FaceReach; readonly lineBox: FaceReach }
+  { readonly ink: FaceReach; readonly lineBoxes: readonly FaceReach[] }
 > = {
   "dancing-script": {
     ink: { above: 1.095, below: 0.284 },
-    lineBox: { above: 1.096, below: 0.306 },
+    lineBoxes: [
+      { above: 0.92, below: 0.28 },
+      { above: 1.096, below: 0.306 },
+    ],
   },
   "alex-brush": {
     ink: { above: 0.962, below: 0.425 },
-    lineBox: { above: 0.962, below: 0.43 },
+    lineBoxes: [
+      { above: 0.825, below: 0.425 },
+      { above: 0.962, below: 0.43 },
+    ],
   },
   "mr-dafoe": {
     ink: { above: 0.981, below: 0.416 },
-    lineBox: { above: 0.981, below: 0.416 },
+    lineBoxes: [{ above: 0.981, below: 0.416 }],
   },
   "homemade-apple": {
     ink: { above: 1.296, below: 0.846 },
-    lineBox: { above: 1.296, below: 0.846 },
+    lineBoxes: [{ above: 1.296, below: 0.846 }],
   },
 };
 
@@ -80,4 +87,20 @@ export function lineHeightHolding(reach: FaceReach): number {
 /** A typed signature's line height in a handwriting face: tall enough for all of its ink. */
 export function handwritingLineHeight(style: HandwritingStyle): number {
   return lineHeightHolding(HANDWRITING_REACH[style].ink);
+}
+
+/**
+ * The least CSS `line-height`, in ems, at which a line box shows all of a
+ * face's ink and none of its content area overflows (`scrollHeight` never
+ * exceeds `clientHeight`), under every line-box metric a browser may pick.
+ * With metrics `(a, d)` the content area is `a + d`, centred by the half
+ * leading, so the baseline is `(L + a - d) / 2` from the top.
+ */
+export function cssLineHeightShowing(style: HandwritingStyle): number {
+  const { ink, lineBoxes } = HANDWRITING_REACH[style];
+  return Math.max(
+    ...lineBoxes.map(({ above: a, below: d }) =>
+      Math.max(a + d, 2 * ink.above - a + d, 2 * ink.below + a - d),
+    ),
+  );
 }

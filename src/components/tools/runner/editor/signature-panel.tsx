@@ -22,6 +22,7 @@ import {
   handwritingMissingLabels,
 } from "@/lib/pdf/handwriting";
 import {
+  PREVIEW_LINE_EMS,
   handwritingFamily,
   loadHandwritingFamily,
   loadHandwritingMeasure,
@@ -80,6 +81,16 @@ const SIGNATURE_NOT_SAVED_MESSAGE: Record<NotSavedReason, string> = {
 /** Script and Print preview in the browser's lookalikes of Times and Helvetica. */
 const SCRIPT_PREVIEW = '"Times New Roman", Times, serif';
 const PRINT_PREVIEW = "Helvetica, Arial, sans-serif";
+
+/**
+ * One previewed line: its height IS its line height, both tall enough for
+ * the tallest handwriting face's ink (`PREVIEW_LINE_EMS`), so a fixed box
+ * neither clips a descender nor moves when a face arrives.
+ */
+const PREVIEW_LINE = {
+  lineHeight: `${PREVIEW_LINE_EMS}em`,
+  height: `${PREVIEW_LINE_EMS}em`,
+} as const;
 
 /**
  * How a style previews `name`: a handwriting face that has every letter in
@@ -161,6 +172,7 @@ function SavedThumb({ saved }: { saved: SavedSignature }) {
         className="text-fg truncate text-lg"
         style={{
           color: saved.color,
+          ...PREVIEW_LINE,
           ...previewFont(saved.style, saved.text),
         }}
       >
@@ -178,8 +190,9 @@ function SavedThumb({ saved }: { saved: SavedSignature }) {
 /**
  * The typed signature's styles as one radio group: every option shows the
  * name (or, before one is typed, the style's own name) in the face the PDF
- * will get, in a box of fixed size — 44 px and more on a phone, two to a row
- * — so a face arriving late moves nothing. One tab stop, the checked option;
+ * will get, in a box of fixed size — 64 px tall, two to a row on a phone,
+ * with a preview line tall enough for Homemade Apple's ink — so a face
+ * arriving late moves nothing and no descender is cut. One tab stop, the checked option;
  * the arrows move the choice and the focus with it, wrapping.
  */
 function StylePicker({
@@ -231,7 +244,7 @@ function StylePicker({
             }}
             onClick={() => onPick(s)}
             className={cn(
-              "rounded-ctl flex h-14 min-w-0 flex-col items-start justify-center overflow-hidden border px-2 text-left",
+              "rounded-ctl flex h-16 min-w-0 flex-col items-start justify-center overflow-hidden border px-2 text-left",
               style === s
                 ? "border-accent ring-accent/40 bg-accent/10 ring-2"
                 : "border-line hover:border-accent/40",
@@ -239,8 +252,8 @@ function StylePicker({
           >
             <span
               aria-hidden
-              className="block h-7 w-full truncate text-xl leading-7"
-              style={{ color: ink, ...previewFont(s, sample) }}
+              className="block w-full truncate text-xl"
+              style={{ color: ink, ...PREVIEW_LINE, ...previewFont(s, sample) }}
             >
               {sample || SIGNATURE_STYLE_LABEL[s]}
             </span>
@@ -607,8 +620,12 @@ export function SignaturePanel({
             <p
               aria-hidden
               data-signature-preview=""
-              className="text-fg h-12 truncate text-3xl leading-[3rem]"
-              style={{ color: ink, ...previewFont(style, name) }}
+              className="text-fg truncate text-3xl"
+              style={{
+                color: ink,
+                ...PREVIEW_LINE,
+                ...previewFont(style, name),
+              }}
             >
               {name}
             </p>

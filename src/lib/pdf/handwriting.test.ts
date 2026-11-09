@@ -49,6 +49,7 @@ import { handwritingFor, lineBaseline } from "./editor/text";
 import {
   HANDWRITING_REACH,
   handwritingLineHeight,
+  type FaceReach,
 } from "./handwriting-metrics";
 import { proveGlyphs } from "@/tests/unicode-fonts";
 import { embedFaceIfDrawable } from "./unicode-font";
@@ -476,25 +477,51 @@ describe("a typed signature's box holds all of its ink", () => {
         ascent: number;
         descent: number;
         bbox: { minY: number; maxY: number };
-        "OS/2": { winAscent: number; winDescent: number };
+        "OS/2": {
+          winAscent: number;
+          winDescent: number;
+          typoAscender: number;
+          typoDescender: number;
+          fsSelection: { useTypoMetrics: boolean };
+        };
       };
       const em = (u: number) => u / font.unitsPerEm;
+      const os2 = font["OS/2"];
+      const pairs = [
+        [font.ascent, -font.descent],
+        [os2.winAscent, os2.winDescent],
+        ...(os2.fsSelection.useTypoMetrics
+          ? [[os2.typoAscender, -os2.typoDescender]]
+          : []),
+      ].map(([a, d]) => ({ above: em(a!), below: em(d!) }));
+      const distinct = pairs.filter(
+        (p, i) =>
+          pairs.findIndex((q) => q.above === p.above && q.below === p.below) ===
+          i,
+      );
       const derived = {
         ink: { above: em(font.bbox.maxY), below: em(-font.bbox.minY) },
-        lineBox: {
-          above: em(Math.max(font.ascent, font["OS/2"].winAscent)),
-          below: em(Math.max(-font.descent, font["OS/2"].winDescent)),
-        },
+        lineBoxes: distinct,
       };
       const recorded = HANDWRITING_REACH[face.id];
-      for (const k of ["ink", "lineBox"] as const)
+      const close = (r: FaceReach, d: FaceReach, what: string) => {
         for (const side of ["above", "below"] as const) {
-          const d = derived[k][side];
-          const r = recorded[k][side];
           // Recorded to 0.001, rounded UP: never short of the face.
-          expect(r, `${face.id} ${k}.${side}`).toBeGreaterThanOrEqual(d);
-          expect(r - d, `${face.id} ${k}.${side}`).toBeLessThan(0.001);
+          expect(r[side], `${face.id} ${what}.${side}`).toBeGreaterThanOrEqual(
+            d[side],
+          );
+          expect(r[side] - d[side], `${face.id} ${what}.${side}`).toBeLessThan(
+            0.001,
+          );
         }
+      };
+      close(recorded.ink, derived.ink, "ink");
+      expect(recorded.lineBoxes, face.id).toHaveLength(
+        derived.lineBoxes.length,
+      );
+      derived.lineBoxes.forEach((d, i) =>
+        close(recorded.lineBoxes[i]!, d, `lineBoxes[${i}]`),
+      );
     }
   });
 

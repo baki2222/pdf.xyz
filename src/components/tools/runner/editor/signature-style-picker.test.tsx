@@ -36,7 +36,8 @@ import {
   handwritingMissing,
   handwritingMissingLabels,
 } from "@/lib/pdf/handwriting";
-import { handwritingFamily } from "./handwriting-faces";
+import { PREVIEW_LINE_EMS, handwritingFamily } from "./handwriting-faces";
+import { cssLineHeightShowing } from "@/lib/pdf/handwriting-metrics";
 
 /** A FontFace the test DOM lacks: records what was asked for. */
 const constructed: string[] = [];
@@ -110,11 +111,33 @@ describe("the Style radio group", () => {
     ]);
   });
 
-  it("every option is a fixed 56 px box (a 44 px target, no shift when a face lands)", async () => {
+  it("every option is a fixed 64 px box whose preview line holds the tallest face's ink (no shift when a face lands, no descender cut)", async () => {
     const { radios } = await panel();
+    // WAS h-14 with an h-7 (1.4 em) preview line, which sliced Homemade
+    // Apple's descenders flat (review of sign-pdf#1). The line height is
+    // now derived from every face's reach, and the box sized to hold it.
+    for (const style of HANDWRITING_STYLES)
+      expect(PREVIEW_LINE_EMS, style).toBeGreaterThanOrEqual(
+        cssLineHeightShowing(style),
+      );
+    // Health check: the tallest face needs more than the old 1.4 em line.
+    expect(
+      Math.max(...HANDWRITING_STYLES.map(cssLineHeightShowing)),
+    ).toBeGreaterThan(1.4);
+    typeName("Jágy Pöqfly");
+    const lines = [
+      ...radios.map((r) => r.querySelector("span")!),
+      document.querySelector<HTMLElement>("[data-signature-preview]")!,
+    ];
     for (const r of radios) {
-      expect(r.className).toMatch(/\bh-14\b/);
+      expect(r.className).toMatch(/\bh-16\b/);
       expect(r.className).toMatch(/\boverflow-hidden\b/);
+    }
+    for (const line of lines) {
+      expect(line.style.lineHeight).toBe(`${PREVIEW_LINE_EMS}em`);
+      expect(line.style.height).toBe(`${PREVIEW_LINE_EMS}em`);
+      // No class may set another height or line height over the style.
+      expect(line.className).not.toMatch(/\b(?:h|leading)-/);
     }
   });
 

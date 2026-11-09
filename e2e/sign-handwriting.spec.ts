@@ -5,11 +5,13 @@ import { fileInput, makePdfBytes, waitForHydration } from "./helpers";
 import { pdfTextPositions } from "./client-proof/artifacts";
 import {
   HANDWRITING_STYLES,
+  SIGNATURE_STYLES,
   SIGNATURE_STYLE_LABEL,
 } from "../src/lib/pdf/offered-kinds";
 import { DEFAULT_SIGNATURE_STYLE } from "../src/lib/pdf/signature-style";
 import { HANDWRITING_FACES } from "../src/lib/pdf/handwriting";
 import { fontPackUrl } from "../src/lib/pdf/font-packs";
+import { cssLineHeightShowing } from "../src/lib/pdf/handwriting-metrics";
 
 /**
  * Audit sign-pdf#1 on the SERVED build: Sign PDF → Type → a handwriting
@@ -186,4 +188,75 @@ test("a name the chosen face cannot draw is said under the styles, and set as Sc
   expect(added[0]!.baseFont).toMatch(/Noto/);
   const runs = (await pdfTextPositions(bytes))[0]!.runs.map((r) => r.str);
   expect(runs).toContain(name);
+});
+
+/*
+ * Review of sign-pdf#1: Homemade Apple's preview was cut flat at the bottom
+ * of a fixed 1.4 em line (scrollHeight 35 over clientHeight 28), in the
+ * Style option and the large preview alike. Every previewed line is now as
+ * tall as the tallest face's ink; measured here with every face LOADED and
+ * a name full of descenders.
+ */
+test("no style's preview clips the name, in its option or the large preview", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await page.goto("/tools/sign-pdf");
+  const input = fileInput(page);
+  await waitForHydration(input);
+  await input.setInputFiles({
+    name: "contract.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from(await makePdfBytes("contract", 1)),
+  });
+  await page.getByRole("tab", { name: "Type" }).click();
+  await page.getByLabel("Your name").fill("Jágy Pöqfly");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        (families) =>
+          families.every((f) => document.fonts.check(`20px "${f}"`)),
+        HANDWRITING_STYLES.map((s) => `pdfxyz-hand-${s}`),
+      ),
+    )
+    .toBe(true);
+
+  const group = page.getByRole("radiogroup", { name: "Style" });
+  const overflow = (selector: string) =>
+    page.evaluate((sel) => {
+      const el = document.querySelector<HTMLElement>(sel)!;
+      return {
+        family: getComputedStyle(el).fontFamily,
+        over: el.scrollHeight - el.clientHeight,
+      };
+    }, selector);
+  for (const s of SIGNATURE_STYLES) {
+    const option = `[role=radiogroup][aria-label=Style] [data-style="${s}"]`;
+    const line = await overflow(`${option} > span`);
+    expect(line.over, `${s} option preview`).toBeLessThanOrEqual(0);
+    expect((await overflow(option)).over, `${s} option`).toBeLessThanOrEqual(0);
+    await group
+      .getByRole("radio", { name: SIGNATURE_STYLE_LABEL[s], exact: true })
+      .click();
+    const big = await overflow("[data-signature-preview]");
+    expect(big.over, `${s} large preview`).toBeLessThanOrEqual(0);
+    // Health check: a handwriting style is measured in its own face.
+    if (HANDWRITING_STYLES.includes(s as (typeof HANDWRITING_STYLES)[number]))
+      expect(big.family, s).toContain(`pdfxyz-hand-${s}`);
+  }
+
+  // Positive control: the instrument sees a clip. The tallest face, given
+  // the old 1.4 em line back, overflows.
+  const tallest = [...HANDWRITING_STYLES].sort(
+    (a, b) => cssLineHeightShowing(b) - cssLineHeightShowing(a),
+  )[0]!;
+  const clipped = await page.evaluate((s) => {
+    const el = document.querySelector<HTMLElement>(
+      `[role=radiogroup][aria-label=Style] [data-style="${s}"] > span`,
+    )!;
+    el.style.lineHeight = "1.4em";
+    el.style.height = "1.4em";
+    return el.scrollHeight - el.clientHeight;
+  }, tallest);
+  expect(clipped, `${tallest} at 1.4 em`).toBeGreaterThan(0);
 });
