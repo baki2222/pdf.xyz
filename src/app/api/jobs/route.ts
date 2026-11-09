@@ -17,7 +17,12 @@ import {
 } from "@/lib/jobs";
 import { getToolBySlug } from "@/lib/tools";
 import { getWorkerAdapter } from "@/lib/workers";
-import { runningWorkerEnforcesAiReadCap } from "@/lib/workers/heartbeat";
+import {
+  runningWorkerEnforcesAiReadCap,
+  runningWorkerTranslatesScans,
+} from "@/lib/workers/heartbeat";
+import { translateAsksForOcr } from "@/lib/jobs/translate-pdf";
+import { TRANSLATE_OCR_NOT_RUNNING_MESSAGE } from "@/lib/jobs/translate-ocr";
 import {
   enforceRateLimit,
   peekAiSpendCeiling,
@@ -80,6 +85,23 @@ export async function POST(request: Request): Promise<Response> {
   // disagree about what is admissible (`@/lib/jobs/ai-tool-options`).
   const aiOptions = parseAiToolOptions(parsed.value.tool, parsed.value.options);
   if (aiOptions && !aiOptions.ok) return respond(aiOptions.error);
+
+  // OCR INSIDE TRANSLATE IS ADMITTED ONLY WHEN THE RUNNING WORKER PROVES IT
+  // (audit translate-pdf#3), and before anything is charged. An image built
+  // before the feature ignores the request and refuses the scan as having no
+  // text — after the allowance was taken. The panel offers OCR only on the
+  // same proof; this is the line for every other caller, and for a worker
+  // that changed between the page's status check and Run.
+  if (
+    aiOptions?.ok &&
+    parsed.value.tool === "translate-pdf" &&
+    translateAsksForOcr(parsed.value.options ?? {}) &&
+    !(await runningWorkerTranslatesScans())
+  ) {
+    return respond(
+      apiError("not_implemented", TRANSLATE_OCR_NOT_RUNNING_MESSAGE),
+    );
+  }
 
   /**
    * What this job is charged, and what it may then deliver.

@@ -266,7 +266,11 @@ async function runSecurityJobSteps(
   //    never gives back (three scans locked a connection out for the day,
   //    audit at 67e8d0f). So the browser asks first, and answers with the
   //    worker's own words (`@/lib/jobs/ai-no-text`).
-  if (readsOnlySelectableText(tool)) {
+  //    EXCEPT a job that asks for OCR first (`options.ocr === true`): its
+  //    worker recognises the text before reading it — Translate PDF's scan
+  //    path since audit translate-pdf#3, which its panel offers only while the
+  //    running worker proves it, and which the route admits on the same proof.
+  if (readsOnlySelectableText(tool) && options.ocr !== true) {
     const hasText = await selectableTextVerdict(bytes);
     if (hasText === false) {
       return {

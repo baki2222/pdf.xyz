@@ -82,6 +82,11 @@ export async function GET(request: Request): Promise<Response> {
       ? capabilities.ocrLanguages
       : undefined;
 
+  // OCR inside Translate (audit translate-pdf#3): offered only on an observed
+  // beat that proves the chain — an older image publishes no such key, and
+  // its absence is `false`. `buildWorkerStatus` also requires OCR itself.
+  const workerTranslateOcr = observed && capabilities?.translateOcr === true;
+
   return respond(
     ok(
       buildWorkerStatus(
@@ -94,6 +99,7 @@ export async function GET(request: Request): Promise<Response> {
         workerOcr,
         workerScan,
         workerOcrLanguages,
+        workerTranslateOcr,
       ),
     ),
   );

@@ -284,3 +284,29 @@ export async function runningWorkerEnforcesAiReadCap(
   const liveness = await readWorkerHeartbeatLiveness(env, deps);
   return liveness.observed && liveness.capabilities?.aiReadCap === true;
 }
+
+/**
+ * Can the worker that will run a job translate a SCAN by running OCR first
+ * (audit translate-pdf#3)?
+ *
+ * `POST /api/jobs` asks this before charging a translate job that carries an
+ * OCR request. The worker image is published separately from the web tier,
+ * and an image built before the feature IGNORES the request — the translate
+ * parser there never heard of it — and refuses the scan as having no text,
+ * after the allowance was charged. So "the code is merged" is the mechanism,
+ * and the property is "the running image proves both halves on a fresh
+ * heartbeat": `translateOcr` (the chain) and `ocr` (OCR runs there). A stale,
+ * absent or unreachable beat answers `false`, which refuses the request
+ * before anything is charged — never a charge for a job that cannot work.
+ */
+export async function runningWorkerTranslatesScans(
+  env: EnvSource = process.env,
+  deps: HeartbeatRedisDeps = {},
+): Promise<boolean> {
+  const liveness = await readWorkerHeartbeatLiveness(env, deps);
+  return (
+    liveness.observed &&
+    liveness.capabilities?.translateOcr === true &&
+    liveness.capabilities?.ocr === true
+  );
+}
