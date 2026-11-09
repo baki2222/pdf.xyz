@@ -33,10 +33,22 @@ import { MAX_PDF_BYTES } from "@/lib/pdf/files";
  *     of the hourly jobs and uploads, so one batch leaves room in the hour
  *     for five more of its size, or for a colleague's work.
  *
+ *   - `ocrMaxFiles` (batch plan P5) is how many files one OCR PDF batch
+ *     sends, again ONE of today's OCR jobs each, one after another. Typed
+ *     for the same reason as `workerMaxFiles` (the owner's ruling,
+ *     2026-11-09: 5). It is lower because an OCR job is the slowest job our
+ *     server runs: it recognises every page, takes minutes rather than
+ *     seconds, and holds the single queue consumer while it does, so every
+ *     other visitor's job waits behind each file. The test holds it to half
+ *     the worker share of the hourly jobs, and holds the longest the browser
+ *     can spend waiting on a whole batch (every file waited for, and waited
+ *     for again, to the OCR wait's last poll) inside the hour those jobs are
+ *     counted in.
+ *
  * `limits.test.ts` binds each to a second, independent bound (CLAUDE.md rule
  * 3: a constant has no relationships to constrain) — the server's own total,
- * the hourly limits, and the 20 / 200 MB / 10 raster / 10 worker files the
- * owner ruled.
+ * the hourly limits, and the 20 / 200 MB / 10 raster / 10 worker / 5 OCR
+ * files the owner ruled.
  *
  * Imported by the batch's own modules, which a runner reaches through
  * `next/dynamic` once two or more files arrive; `lazy-chunks.test.ts` holds
@@ -47,6 +59,7 @@ export const BATCH_LIMITS = {
   clientMaxTotalBytes: 2 * MAX_PDF_BYTES,
   rasterMaxFiles: Math.floor(JOB_LIMITS.maxInputFiles / 2),
   workerMaxFiles: 10,
+  ocrMaxFiles: 5,
 } as const;
 
 /** A file the batch did not take, and the sentence that says why. */

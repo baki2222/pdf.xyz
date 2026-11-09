@@ -17,6 +17,7 @@ import {
 } from "@/lib/batch/limits";
 import {
   WORKER_BATCH_TOOLS,
+  batchMaxFilesFor,
   isWorkerBatchSlug,
   type WorkerBatchSlug,
 } from "@/lib/batch/tools";
@@ -46,6 +47,8 @@ import {
   workerBatchPause,
   workerOutcomeReporter,
   workerProcess,
+  type WorkerBatchSuccess,
+  type WorkerResume,
   type WorkerRun,
 } from "./worker-batch";
 
@@ -54,6 +57,10 @@ export interface WorkerBatchRow {
   name: string;
   blob: Blob;
   inputBytes: number;
+  /** The input's own name: a row's folder when rows are bundled. */
+  input: string;
+  /** Any further outputs of the same job (OCR PDF's "PDF + text"). */
+  more?: { name: string; blob: Blob }[];
 }
 
 export interface WorkerBatchRunnerProps {
@@ -84,6 +91,20 @@ export interface WorkerBatchRunnerProps {
   onEnd?: () => void;
   /** In place of "Retry failed": the panel's own retry form (`BatchView`). */
   retry?: (failed: number, retry: () => void) => ReactNode;
+  /**
+   * Wait again for a job by its id, through the tool's own client (batch
+   * plan P5: OCR PDF's `resumeWorkerOcr`). The security client's resume,
+   * for this tool, when absent.
+   */
+  resume?: WorkerResume;
+  /** A sentence of the tool's own about a finished file, on its row. */
+  rowNote?: (result: WorkerBatchSuccess) => string | undefined;
+  /**
+   * Each job makes several files (OCR PDF's "PDF + text"): every row's
+   * files sit in a folder of "Download all" named after its input, and a
+   * row downloads its own as one ZIP.
+   */
+  bundleRows?: boolean;
 }
 
 /**
@@ -127,7 +148,16 @@ export function signedSkipReason(count: number, verb: string): string {
 
 const rowOutputs = (row: WorkerBatchRow) => [
   { name: row.name, blob: row.blob },
+  ...(row.more ?? []),
 ];
+
+/** An input's name without its extension: a bundled row's folder. */
+const stem = (name: string) => name.replace(/\.[^./]+$/, "") || name;
+
+const rowBundle = (row: WorkerBatchRow) => ({
+  folder: stem(row.input),
+  zipName: `${stem(row.input)}.zip`,
+});
 
 /**
  * The batch for a worker tool (batch plan P3): each file is one of today's
@@ -153,6 +183,9 @@ export function WorkerBatchRunner({
   onRun,
   onEnd,
   retry,
+  resume,
+  rowNote,
+  bundleRows = false,
 }: WorkerBatchRunnerProps) {
   // A page that mounts this for a tool with no registration is a bug in
   // the page, said loudly (below, after every hook).
@@ -172,7 +205,8 @@ export function WorkerBatchRunner({
       else refused.push({ file, reason: why });
     }
     const capped = capBatchFiles(taken, {
-      maxFiles: BATCH_LIMITS.workerMaxFiles,
+      // OCR PDF's batch takes fewer (`BATCH_LIMITS.ocrMaxFiles`).
+      maxFiles: batchMaxFilesFor(tool.slug),
       maxTotalBytes: BATCH_LIMITS.clientMaxTotalBytes,
     });
     return {
@@ -199,8 +233,9 @@ export function WorkerBatchRunner({
   const process = useMemo(() => {
     const one = workerProcess(
       run,
-      (jobId, controls) =>
-        resumeSecurityJob(jobId, { ...controls, tool: slug }),
+      resume ??
+        ((jobId, controls) =>
+          resumeSecurityJob(jobId, { ...controls, tool: slug })),
       {
         onPhase: setJobPhase,
         finished,
@@ -231,11 +266,22 @@ export function WorkerBatchRunner({
           type: result.artifact.contentType,
         }),
         inputBytes: file.size,
+        input: file.name,
+        ...(result.more && result.more.length > 0
+          ? {
+              more: result.more.map(({ artifact, output }) => ({
+                name: artifact.filename,
+                blob: new Blob([output as BlobPart], {
+                  type: artifact.contentType,
+                }),
+              })),
+            }
+          : {}),
       };
-      const note = qpdfRowNote(slug, result);
+      const note = qpdfRowNote(slug, result) ?? rowNote?.(result);
       return note ? withNote(row, note) : row;
     };
-  }, [run, slug, signedVerb, finished, preflight]);
+  }, [run, resume, rowNote, slug, signedVerb, finished, preflight]);
 
   const runner = useBatchRunner<WorkerBatchRow>(units, process, {
     // One outcome per FILE is reported by the adapter (`report` above): a
@@ -320,8 +366,17 @@ export function WorkerBatchRunner({
       progressLabel={`${tool.name} batch progress`}
       footnote="Files go to our server one at a time; keep this page open until the batch ends."
       outputs={rowOutputs}
-      describe={(row) => `${row.name} · ${formatBytes(row.blob.size)}`}
-      downloadLabel={(_item, row) => `Download ${row.name}`}
+      describe={(row) =>
+        rowOutputs(row)
+          .map((out) => `${out.name} · ${formatBytes(out.blob.size)}`)
+          .join(", ")
+      }
+      downloadLabel={(_item, row) =>
+        row.more?.length
+          ? `Download ${rowBundle(row).zipName}`
+          : `Download ${row.name}`
+      }
+      {...(bundleRows ? { bundle: rowBundle } : {})}
       doneSentence={(p) =>
         `Batch complete. ${p.done} done, ${p.error} failed${p.skipped > 0 ? `, ${p.skipped} skipped` : ""}.`
       }

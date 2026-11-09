@@ -283,6 +283,9 @@ export function copyFiles(): string[] {
     // Protect's and Unlock's batch (2026-11-09, batch plan P4): the rows a
     // file left out gets, the retry, and the tool pages' password sentence.
     path.join(ROOT, "src", "lib", "batch", "security-copy.ts"),
+    // OCR PDF's batch (2026-11-09, batch plan P5): the language sentence
+    // before Run, a low-confidence row, and the page's account of the batch.
+    path.join(ROOT, "src", "lib", "batch", "ocr-copy.ts"),
     // JPG / PNG to PDF's Max file size (2026-10-31): labels, hint, outcome
     // lines, and the browser re-encoder's error messages.
     path.join(ROOT, "src", "lib", "pdf", "image-size-limit.ts"),

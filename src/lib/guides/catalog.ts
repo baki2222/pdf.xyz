@@ -3362,7 +3362,7 @@ export const guides: Guide[] = [
       `Open the ${nameOf("ocr-pdf")} tool.`,
       `Under Languages, select every language the document uses, up to ${MAX_OCR_LANGUAGES}. ${OCR_START_SENTENCE}; deselect any the page does not use.`,
       `Under Output, choose ${ocrModeLabel("searchable-pdf")}, ${ocrModeLabel("text")} for a .txt file, or ${ocrModeLabel("both")}.`,
-      "Drop one PDF, JPG or PNG into the Add a scan to OCR area and press Recognize text. The file uploads over an encrypted connection only when you press it.",
+      "Drop a PDF, JPG or PNG into the Add a scan to OCR area and press Recognize text. Add two or more files at once and they open as a batch, every file read in the same languages, one job after another. Each file uploads over an encrypted connection only after you press the button.",
       `Download the result. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
       "Search the PDF or read the text to check it. If it looks like gibberish, change the language selection and run the job again.",
     ],
@@ -3415,7 +3415,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-11-07",
+    updated: "2026-11-09",
   },
   {
     slug: "how-to-convert-a-webpage-to-pdf",

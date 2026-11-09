@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { JOB_LIMITS, RATE_LIMITS } from "@/lib/jobs/types";
 import { MAX_PDF_BYTES } from "@/lib/pdf/files";
+import { OCR_JOB_POLL } from "@/lib/jobs/client-wait";
+import { WORKER_BATCH_MAX_RESUMES } from "@/components/tools/runner/batch/worker-batch";
 import {
   BATCH_LIMITS,
   capBatchFiles,
@@ -70,6 +72,36 @@ describe("BATCH_LIMITS — every value against an independent bound", () => {
     );
     expect(BATCH_LIMITS.workerMaxFiles).toBeGreaterThanOrEqual(2);
     expect(Number.isInteger(BATCH_LIMITS.workerMaxFiles)).toBe(true);
+  });
+
+  // Batch plan P5: OCR PDF's batch, the owner's 5 (2026-11-09). An OCR job
+  // is the slowest our server runs and holds its single queue consumer for
+  // minutes, so its batch takes HALF the worker share of the hourly jobs
+  // and uploads (a twelfth, read from `RATE_LIMITS`). The second bound is
+  // time, independent of the first: the longest the browser can wait on the
+  // whole batch — each file waited for once and then resumed
+  // `WORKER_BATCH_MAX_RESUMES` times, each wait the OCR budget's last poll
+  // (`OCR_JOB_POLL`) — fits inside the hour the jobs are counted in.
+  it("the OCR cap is the owner's 5, half the worker share of the hourly jobs, and a whole batch's longest wait fits in that hour", () => {
+    expect(BATCH_LIMITS.ocrMaxFiles).toBe(5);
+    expect(BATCH_LIMITS.ocrMaxFiles).toBeLessThanOrEqual(
+      Math.floor(
+        Math.min(
+          RATE_LIMITS.jobsPerHourPerClient,
+          RATE_LIMITS.uploadsPerHourPerClient,
+        ) / 12,
+      ),
+    );
+    expect(BATCH_LIMITS.ocrMaxFiles).toBeLessThan(BATCH_LIMITS.workerMaxFiles);
+    const waitPerFileMs =
+      (1 + WORKER_BATCH_MAX_RESUMES) *
+      OCR_JOB_POLL.intervalMs *
+      OCR_JOB_POLL.maxAttempts;
+    expect(BATCH_LIMITS.ocrMaxFiles * waitPerFileMs).toBeLessThanOrEqual(
+      60 * 60 * 1000,
+    );
+    expect(BATCH_LIMITS.ocrMaxFiles).toBeGreaterThanOrEqual(2);
+    expect(Number.isInteger(BATCH_LIMITS.ocrMaxFiles)).toBe(true);
   });
 
   it("the refusal sentences carry the limits themselves, not typed numbers", () => {

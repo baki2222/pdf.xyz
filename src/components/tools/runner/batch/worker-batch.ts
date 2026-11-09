@@ -1,8 +1,9 @@
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
+import type { JobArtifact } from "@/lib/jobs/types";
 import type {
   FetchLike,
+  PdfSecurityWorkerFailure,
   PdfSecurityWorkerOptions,
-  PdfSecurityWorkerResult,
   PdfSecurityWorkerSuccess,
 } from "@/lib/workers/pdf-security-client";
 import type { WorkerJobPhase } from "@/lib/workers/job-polling";
@@ -67,17 +68,34 @@ export const WORKER_BATCH_DOWNLOAD_RETRIES = 2;
  */
 export const WORKER_BATCH_DOWNLOAD_WAIT_CAP_SECONDS = 60;
 
-/** One file's job, as the tool's client runs it. */
+/**
+ * A finished job, as a batch row reads it: today's single-job success, and
+ * any further outputs the same job made (batch plan P5: OCR PDF's "PDF +
+ * text" gives a searchable PDF and a .txt from one job).
+ */
+export interface WorkerBatchSuccess extends PdfSecurityWorkerSuccess {
+  more?: readonly { artifact: JobArtifact; output: Uint8Array }[];
+}
+
+/** One file's job, ended: a success as above, or the client's failure. */
+export type WorkerBatchResult = WorkerBatchSuccess | PdfSecurityWorkerFailure;
+
+/**
+ * One file's job, as the tool's client runs it. `file` is the file itself,
+ * for a client that sends what it is (OCR PDF's content type), never read
+ * for its bytes here: `input.bytes` are.
+ */
 export type WorkerRun = (
   input: { filename: string; bytes: Uint8Array },
   controls: PdfSecurityWorkerOptions,
-) => Promise<PdfSecurityWorkerResult>;
+  file: File,
+) => Promise<WorkerBatchResult>;
 
 /** Wait again for a job by its id (`resumeSecurityJob`, with the tool). */
 export type WorkerResume = (
   jobId: string,
   controls: PdfSecurityWorkerOptions,
-) => Promise<PdfSecurityWorkerResult>;
+) => Promise<WorkerBatchResult>;
 
 /** Which request of one job answered: the stage a failure belongs to. */
 export type WorkerStage = "reserve" | "put" | "create" | "poll" | "download";
@@ -221,7 +239,7 @@ export function workerProcess(
   run: WorkerRun,
   resume: WorkerResume,
   options: WorkerProcessOptions = {},
-): (file: File, signal: AbortSignal) => Promise<PdfSecurityWorkerSuccess> {
+): (file: File, signal: AbortSignal) => Promise<WorkerBatchSuccess> {
   const transport: FetchLike =
     options.fetchImpl ?? ((input, init) => fetch(input, init as RequestInit));
   const finished = options.finished ?? new WeakMap<File, string>();
@@ -285,8 +303,8 @@ export function workerProcess(
     // reports it; anything thrown before the job (the file read) is not.
     let threwInJob = false;
     const attempt = async (
-      call: () => Promise<PdfSecurityWorkerResult>,
-    ): Promise<PdfSecurityWorkerResult> => {
+      call: () => Promise<WorkerBatchResult>,
+    ): Promise<WorkerBatchResult> => {
       try {
         return await call();
       } catch (error) {
@@ -295,7 +313,7 @@ export function workerProcess(
       }
     };
     try {
-      let result: PdfSecurityWorkerResult;
+      let result: WorkerBatchResult;
       const done = finished.get(file);
       if (done) {
         // This file's job already finished: fetch its result, nothing else.
@@ -307,7 +325,7 @@ export function workerProcess(
         await options.preflight?.(file, bytes);
         if (signal.aborted) throw canceled();
         result = await attempt(() =>
-          run({ filename: file.name, bytes }, controls),
+          run({ filename: file.name, bytes }, controls, file),
         );
       }
       let resumes = 0;

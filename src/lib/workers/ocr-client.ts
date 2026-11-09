@@ -109,6 +109,12 @@ export interface OcrWorkerOptions {
   onJobCreated?: (jobId: string) => void;
   /** Called as the run moves between upload, queue, recognition and download. */
   onPhase?: (phase: WorkerJobPhase) => void;
+  /**
+   * `false` when the caller reports the outcome itself: a batch runs one
+   * file as several attempts and reports ONE outcome per file
+   * (`runner/batch/worker-batch.ts`), as the security client's option says.
+   */
+  reportsOutcome?: boolean;
 }
 
 const defaultFetch: FetchLike = (input, init) =>
@@ -143,8 +149,11 @@ export async function runWorkerOcr(
   options: OcrWorkerOptions = {},
 ): Promise<OcrWorkerResult> {
   // The run's outcome is reported here, where every OCR job passes — see
-  // `@/lib/telemetry/tool-outcome`.
-  return withToolOutcome(OCR_TOOL, () => runWorkerOcrSteps(input, options));
+  // `@/lib/telemetry/tool-outcome` — unless the caller reports it (a batch:
+  // one outcome per file). `run-outcome-coverage.test.ts` reads this shape.
+  return options.reportsOutcome === false
+    ? runWorkerOcrSteps(input, options)
+    : withToolOutcome(OCR_TOOL, () => runWorkerOcrSteps(input, options));
 }
 
 async function runWorkerOcrSteps(
@@ -276,7 +285,9 @@ export function resumeWorkerOcr(
   jobId: string,
   options: OcrWorkerOptions = {},
 ): Promise<OcrWorkerResult> {
-  return withToolOutcome(OCR_TOOL, () =>
-    finishOcrJob({ jobId, status: "processing" } as Job, options),
-  );
+  const finish = () =>
+    finishOcrJob({ jobId, status: "processing" } as Job, options);
+  return options.reportsOutcome === false
+    ? finish()
+    : withToolOutcome(OCR_TOOL, finish);
 }
