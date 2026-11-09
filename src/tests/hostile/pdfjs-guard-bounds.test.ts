@@ -139,7 +139,14 @@ describe("pdf.js consumers stay bounded on hostile streams", () => {
       await runBounded(CHILD, ["scan-no-endstream-preflight"], 20_000),
     );
     expect(v).toMatchObject({ ok: true, bytes: 4_000_015 });
-    expect(v.preflightMs as number).toBeLessThan(3_000);
+    // The property is LINEAR, seconds and not minutes: the quadratic scan took
+    // 7.5 s for 400 KB and did not finish 1.6 MB in 2 minutes. WAS 3,000 ms,
+    // which CI went over on PR #306 (3,967 ms) with the scan still linear.
+    // Measured 2026-11-09 on one machine, 4 / 8 / 16 MB: main 658 / 1,193 /
+    // 2,403 ms, the branch 757 / 1,355 / 2,731 ms (it also reads inline image
+    // dictionaries and image references). CI runs about 5x slower than that
+    // machine. 8 s keeps a linear scan inside and a quadratic one far out.
+    expect(v.preflightMs as number).toBeLessThan(8_000);
   }, 60_000);
 
   test("CO-08: a 100 MP image is refused by name before pdf.js decodes it", async () => {
