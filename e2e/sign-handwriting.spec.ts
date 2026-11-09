@@ -30,6 +30,33 @@ import * as fontkit from "fontkit";
 
 const NAME = "Ada Lovelace";
 
+/**
+ * Every family REGISTERED in document.fonts and LOADED. Not
+ * document.fonts.check(): that is also true for a family nothing has
+ * registered (there is nothing to load), so it passed before the Type tab's
+ * faces were added and a canvas then measured the fallback. Under the full
+ * suite's load, 2026-11-09, alex-brush measured 8.2 px off.
+ */
+async function familiesLoaded(page: Page, families: string[]) {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          (fs) =>
+            fs.every((f) =>
+              [...document.fonts].some(
+                (face) =>
+                  face.family.replace(/^["']|["']$/g, "") === f &&
+                  face.status === "loaded",
+              ),
+            ),
+          families,
+        ),
+      { timeout: 30_000 },
+    )
+    .toBe(true);
+}
+
 function handwritingRequests(page: Page): string[] {
   const urls = new Set(
     HANDWRITING_STYLES.map((s) => fontPackUrl(HANDWRITING_FACES[s])),
@@ -121,15 +148,8 @@ test("a typed signature in a chosen handwriting face is the face in the download
   const first = (list: string) =>
     (list.split(",")[0] ?? "").trim().replace(/^["']|["']$/g, "");
   expect(first(await previewFamily())).toBe(`pdfxyz-hand-${style}`);
-  await expect
-    .poll(async () => {
-      const list = await previewFamily();
-      return page.evaluate(
-        (family) => document.fonts.check(`20px ${family}`),
-        list.split(",")[0]!.trim(),
-      );
-    })
-    .toBe(true);
+  // WAS document.fonts.check() on that family: see familiesLoaded.
+  await familiesLoaded(page, [first(await previewFamily())]);
 
   await page.getByRole("button", { name: "Use signature" }).click();
   await expect(page.locator("[data-signature-ready]")).toBeVisible();
@@ -230,15 +250,11 @@ test("no style's preview clips the name, in its option or the large preview", as
   });
   await page.getByRole("tab", { name: "Type" }).click();
   await page.getByLabel("Your name").fill("Jágy Pöqfly");
-  await expect
-    .poll(() =>
-      page.evaluate(
-        (families) =>
-          families.every((f) => document.fonts.check(`20px "${f}"`)),
-        HANDWRITING_STYLES.map((s) => `pdfxyz-hand-${s}`),
-      ),
-    )
-    .toBe(true);
+  // WAS document.fonts.check(): see familiesLoaded.
+  await familiesLoaded(
+    page,
+    HANDWRITING_STYLES.map((s) => `pdfxyz-hand-${s}`),
+  );
 
   const group = page.getByRole("radiogroup", { name: "Style" });
   const overflow = (selector: string) =>
@@ -340,14 +356,8 @@ test("each handwriting family draws with its own face's widths", async ({
   await page.getByRole("tab", { name: "Type" }).click();
   await page.getByLabel("Your name").fill("Ada");
   const families = HANDWRITING_STYLES.map((s) => `pdfxyz-hand-${s}`);
-  await expect
-    .poll(() =>
-      page.evaluate(
-        (fs) => fs.every((f) => document.fonts.check(`20px "${f}"`)),
-        families,
-      ),
-    )
-    .toBe(true);
+  // WAS document.fonts.check(): see familiesLoaded.
+  await familiesLoaded(page, families);
 
   const PROBES = ["W", "m", "g", "A", "y"];
   const want: Record<string, number> = {};
