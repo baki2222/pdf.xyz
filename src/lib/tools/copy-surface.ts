@@ -356,6 +356,13 @@ export function copyFiles(): string[] {
     // reasons and its refusals. sheet-embed.ts, the page embedding it shares
     // with n-up, holds no sentence: each caller passes its own refusal.
     path.join(ROOT, "src", "lib", "pdf", "booklet.ts"),
+    // PDF Viewer (2026-11-10): its labels and notes (viewer-copy.ts), the
+    // search status (viewer-search.ts), the bookmark fallback title
+    // (viewer-links.ts). viewer-geometry.ts and viewer.ts hold numbers and
+    // pdf.js plumbing, no sentence, so they are not walked.
+    path.join(ROOT, "src", "lib", "pdf", "viewer-copy.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "viewer-search.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "viewer-links.ts"),
     path.join(ROOT, "src", "lib", "workers", "read-error.ts"),
     // EPUB to PDF (2026-11-06): its refusals, its options' field errors and
     // its processor's readiness sentence.

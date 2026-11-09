@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { inflateSync } from "node:zlib";
 import JSZip from "jszip";
 import { expect, type Page } from "@playwright/test";
@@ -11,6 +12,10 @@ import {
   rgb,
 } from "pdf-lib";
 import type { RunnerKind } from "../../src/lib/pdf/registry";
+import {
+  VIEWER_PROOF_PAGES,
+  viewerProofPdf,
+} from "../../src/tests/viewer-fixtures";
 import { BATCH_VARIANTS } from "./batch-cases";
 import { IMAGE_TEXT_BATCH_VARIANTS } from "./image-batch-cases";
 import {
@@ -471,6 +476,11 @@ const BOOKLET_FAILS = {
     "six pages become four landscape A4 sides (two sheets, two blanks added)",
   order:
     "the sides read blank|1, 2|blank, 6|3, 4|5 — booklet order, padded to 8",
+} as const;
+/** Why the PDF Viewer proof (2026-11-10) rejects an artifact. */
+const VIEWER_FAILS = {
+  ink: "page 1 of the opened PDF is drawn: its canvas carries the heading's ink",
+  same: "Download saves the file that was opened, byte for byte",
 } as const;
 /** Why the Split PDF Pages in Half proof (2026-11-01) rejects an artifact. */
 const SPLIT_HALF_FAILS = {
@@ -2290,6 +2300,66 @@ export const CASES: Record<string, ToolCase> = {
     rejectsBecause: [BOOKLET_FAILS.order, BOOKLET_FAILS.order],
   },
 
+  "pdf-viewer": {
+    kind: "view",
+    artifact: "pdf",
+    // The viewer writes nothing, so its artifact is what Download saves: the
+    // file it opened, byte for byte. On the way, the page it shows is real:
+    // "of 3", page 1's canvas carries ink, and the page field follows Next.
+    // Search, links, zoom, the highlight's alignment, thumbnails, bookmarks
+    // and Rotate view are proved by e2e/pdf-viewer.spec.ts.
+    run: async (ctx) => {
+      const bytes = Buffer.from(viewerProofPdf());
+      ctx.data["proof.pdf"] = bytes;
+      await uploadPayloads(ctx.page, [
+        { name: "proof.pdf", mimeType: "application/pdf", buffer: bytes },
+      ]);
+      const page = ctx.page;
+      const pageField = page.getByRole("textbox", { name: "Page number" });
+      await expect(pageField).toHaveValue("1", { timeout: 30_000 });
+      await expect(page.getByText(`of ${VIEWER_PROOF_PAGES}`)).toBeVisible();
+      const canvas = page.locator('[data-viewer-page="1"] canvas');
+      await expect(canvas).toBeAttached({ timeout: 20_000 });
+      const dark = await canvas.evaluate((el) => {
+        const c = el as HTMLCanvasElement;
+        const d = c
+          .getContext("2d")!
+          .getImageData(0, 0, c.width, c.height).data;
+        let n = 0;
+        for (let i = 0; i < d.length; i += 4)
+          if (d[i]! + d[i + 1]! + d[i + 2]! < 384) n += 1;
+        return n;
+      });
+      expect(dark, VIEWER_FAILS.ink).toBeGreaterThan(200);
+      await page.getByRole("button", { name: "Next page" }).click();
+      await expect(pageField).toHaveValue("2");
+      return captureDownload(
+        page,
+        page.getByRole("button", { name: "Download PDF" }),
+      );
+    },
+    assert: async (buf, ctx) => {
+      const opened = input(ctx, "proof.pdf");
+      expect(
+        createHash("sha256").update(buf).digest("hex"),
+        VIEWER_FAILS.same,
+      ).toBe(createHash("sha256").update(opened).digest("hex"));
+    },
+    // 1. one byte changed inside a content stream (still a PDF, same size);
+    // 2. the same document re-saved by pdf-lib (same pages, other bytes).
+    control: async (ctx) => {
+      const opened = input(ctx, "proof.pdf");
+      const flipped = Buffer.from(opened);
+      const at = flipped.indexOf("zebra");
+      flipped[at] = "Z".charCodeAt(0);
+      const resaved = Buffer.from(
+        await (await PDFDocument.load(opened)).save(),
+      );
+      return [flipped, resaved];
+    },
+    rejectsBecause: [VIEWER_FAILS.same, VIEWER_FAILS.same],
+  },
+
   "split-pdf-pages-in-half": {
     kind: "split-half",
     artifact: "pdf",
@@ -3802,6 +3872,8 @@ export const PROOF_LIMITS: Record<string, string> = {
     "Only the defaults: 2 per sheet, A4, Auto (portrait here), Across, then down, Small margin, no borders. Every other count per sheet, Down, then across, US Letter, borders and /Rotate pages are proven in Node by src/lib/pdf/n-up.test.ts, through pdf.js, not in a real browser.",
   "booklet-pdf":
     "Only the defaults: A4, Left edge, Short edge, no margin, back cover off, on six unrotated pages. Long edge (backs turned 180°), the right-edge binding, the back cover, Two pages at full size, margins, /Rotate pages, an inset CropBox and the 1-to-17-page orders are proven in Node by src/lib/pdf/booklet.test.ts, which reads every output side back with pdf.js, not in a real browser.",
+  "pdf-viewer":
+    "Opens one three-page PDF, reads page 1's ink and the page count, steps to page 2 and downloads: the download must be the opened file's bytes. Search with its highlight over the word's ink (at 100%, at 150% and after Rotate view), the page and web links, the dropped script link, thumbnails, bookmarks and the keys are proved through the page by e2e/pdf-viewer.spec.ts. Print opens the browser's dialog, which no test drives: its page plan is proved in Node by src/lib/pdf/viewer-geometry.test.ts, and the images it prints are drawn by the same pdf.js render as the pages. Full screen is not exercised.",
   "split-pdf-pages-in-half":
     "Only the defaults: Left and right, Left page first, every page, on unrotated pages. Right page first, Top and bottom, Selected pages, the two cover checkboxes, /Rotate pages and an existing CropBox are proven in Node by src/lib/pdf/split-half.test.ts, which renders every output half through pdf.js against the source page's own render, not in a real browser.",
   "sign-pdf":

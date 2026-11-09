@@ -41,6 +41,7 @@ import {
   type HandoffMode,
 } from "@/lib/handoff/capability";
 import { normalizeFormatLabel } from "@/lib/jobs/mime-by-format";
+import { getRunnerKind, type RunnerKind } from "@/lib/pdf/registry";
 import { toolFileCeilingBytes } from "@/lib/tools/file-ceilings";
 import type { ProcessingMode, Tool } from "@/lib/tools/types";
 import { CONTINUE_SHOWN } from "./continue-shown";
@@ -146,6 +147,33 @@ const UNDONE_BY: ReadonlyArray<readonly [string, string]> = [
 const formatsOf = (labels: readonly string[]): string[] =>
   labels.map((label) => normalizeFormatLabel(label));
 
+/**
+ * Runner kinds that WRITE nothing: the runner opens a file to look at it
+ * (the PDF Viewer's `view`), so its catalogue row lists no outputs, and the
+ * format rule above would offer nothing after it. What such a tool hands
+ * on is the file it opened, unchanged, so "Continue with" offers the tools
+ * that take its INPUT — never an output it did not make.
+ *
+ * Keyed by kind, not slug: a second view tool inherits the rule, and a tool
+ * that lists no outputs for any other reason (a worker that has not
+ * shipped one) does not. `next-steps.test.ts` holds it, with a positive
+ * control that the viewer's `next` does not resolve without it.
+ */
+export const WRITES_NOTHING_KINDS: ReadonlySet<RunnerKind> =
+  new Set<RunnerKind>(["view"]);
+
+/** The formats a finished run of `tool` hands to the next tool. */
+export function handedOnFormats(
+  tool: Tool,
+  writesNothing: ReadonlySet<RunnerKind> = WRITES_NOTHING_KINDS,
+): string[] {
+  const kind = getRunnerKind(tool.slug);
+  if (tool.outputs.length === 0 && kind && writesNothing.has(kind)) {
+    return formatsOf(tool.accept);
+  }
+  return formatsOf(tool.outputs);
+}
+
 const takes = (target: Tool, format: string): boolean =>
   toolAcceptsFormat(target.accept, format as FileFormat);
 
@@ -175,8 +203,13 @@ export function isInverse(tool: Tool, candidate: Tool): boolean {
 /** Rules a test may swap, to prove an assertion sees the defect it is for. */
 export interface ContinueRules {
   readonly inverse: (tool: Tool, candidate: Tool) => boolean;
+  /** The kinds whose tools hand on their input ({@link WRITES_NOTHING_KINDS}). */
+  readonly writesNothing?: ReadonlySet<RunnerKind>;
 }
-const RULES: ContinueRules = { inverse: isInverse };
+const RULES: ContinueRules = {
+  inverse: isInverse,
+  writesNothing: WRITES_NOTHING_KINDS,
+};
 
 /** Where a finished `tool`'s output can go next, from the whole catalogue. */
 export function continueTargetsFor(
@@ -187,7 +220,7 @@ export function continueTargetsFor(
   const none = NO_CONTINUE[tool.slug];
   if (none !== undefined) return { targets: [], none };
 
-  const produced = formatsOf(tool.outputs);
+  const produced = handedOnFormats(tool, rules.writesNothing);
   const only = FINISHING_ONLY[tool.slug];
   const bySlug = new Map(all.map((t) => [t.slug, t]));
   const candidates = all.filter(

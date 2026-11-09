@@ -57,6 +57,15 @@ export const RAW_COLOUR_ALLOWANCE: Record<string, Record<string, string>> = {
   // sign-runner.tsx's signature preview and annotate-runner.tsx's schematic
   // page left with their forms (2026-10-24); both tools draw the real page in
   // the shared editor, allowed below.
+  // PDF Viewer (2026-11-10): each page's sheet, and the thumbnails' sheets.
+  "src/components/tools/runner/viewer/viewer-page.tsx": {
+    "bg-white": PAPER,
+    "ring-black/10": `${PAPER} (its edge)`,
+  },
+  "src/components/tools/runner/viewer/viewer-sidebar.tsx": {
+    "bg-white": PAPER,
+    "ring-black/10": `${PAPER} (its edge)`,
+  },
   "src/components/tools/runner/signature-pad.tsx": {
     "bg-white": `${PAPER} (the pad is signed like the page)`,
     "bg-slate-300": `${ON_PAPER} (the pad's baseline)`,

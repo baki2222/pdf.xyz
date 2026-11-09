@@ -345,6 +345,9 @@ describe("single-PDF runners read with the library they run on", () => {
       "pdf-to-image-runner.tsx",
       "pdf-to-markdown-runner.tsx",
       "pdf-to-text-runner.tsx",
+      // 2026-11-10: PDF Viewer, the fourth (its open, `acquireViewerPdf`,
+      // reaches `openViewerPdf` and pdf.js alone).
+      "viewer-runner.tsx",
     ]);
   });
 });

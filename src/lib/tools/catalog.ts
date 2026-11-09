@@ -713,6 +713,31 @@ export const tools: Tool[] = [
     ],
   },
   {
+    slug: "pdf-viewer",
+    name: "PDF Viewer",
+    seoTitle: "PDF Viewer — View PDF Online, No Upload",
+    tagline: "Open and read a PDF in your browser.",
+    cardSummary: "Open a PDF to read, search and print it.",
+    description:
+      "Open a PDF to read it in your browser: scroll the pages, zoom, search the text, follow its links and bookmarks, print or download it. Nothing is uploaded.",
+    category: "edit",
+    icon: "viewer",
+    processing: "client",
+    badge: "new",
+    accept: ["PDF"],
+    outputs: [],
+    keywords: [
+      "view pdf online",
+      "pdf viewer",
+      "open pdf",
+      "open pdf online",
+      "pdf reader",
+      "read pdf in browser",
+    ],
+    related: ["annotate-pdf", "edit-pdf", "pdf-to-text"],
+    next: ["annotate-pdf", "edit-pdf", "sign-pdf", "compress-pdf"],
+  },
+  {
     slug: "annotate-pdf",
     name: "Annotate PDF",
     tagline: "Highlight, draw, and add notes.",
@@ -979,13 +1004,10 @@ export const tools: Tool[] = [
     processing: "server",
     accept: ["PDF"],
     outputs: ["PDF"],
-    keywords: [
-      "unlock pdf",
-      "remove password from pdf",
-      "decrypt pdf",
-      "open pdf",
-    ],
-    related: ["protect-pdf", "flatten-pdf", "compress-pdf"],
+    keywords: ["unlock pdf", "remove password from pdf", "decrypt pdf"],
+    // The bare "open pdf" moved to PDF Viewer (2026-11-10), which opens a
+    // file to read it; unlocked, a file is often opened there next.
+    related: ["protect-pdf", "pdf-viewer", "flatten-pdf", "compress-pdf"],
   },
   {
     slug: "redact-pdf",

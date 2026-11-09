@@ -257,6 +257,13 @@ export const TOOL_DIRECTORY: readonly ToolEntry[] = [
     outputs: ["PDF"],
   },
   {
+    slug: "pdf-viewer",
+    name: "PDF Viewer",
+    processing: "client",
+    accept: ["PDF"],
+    outputs: [],
+  },
+  {
     slug: "annotate-pdf",
     name: "Annotate PDF",
     processing: "client",

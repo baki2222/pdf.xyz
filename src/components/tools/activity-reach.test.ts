@@ -50,7 +50,13 @@ const HOOKS: Record<string, string> = {
  * Modules a page mounts that start no run of their own, each with its reason.
  * Stale entries fail: an exempt module that does reach the bus must leave.
  */
-const EXEMPT: Record<string, string> = {};
+const EXEMPT: Record<string, string> = {
+  // PDF Viewer (2026-11-10): it opens a file to read it, and starts no run
+  // with an end the masthead could report. Print's preparation is the one
+  // long step, and the viewer says it in its own status line.
+  "src/components/tools/runner/viewer-runner.tsx":
+    "a viewer: opens a file to read it, no run; print's preparation is said in the viewer's own status line",
+};
 
 const abs = (file: string) => path.join(ROOT, file);
 

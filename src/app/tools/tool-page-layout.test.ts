@@ -105,8 +105,12 @@ describe("every tool page: head, facts, panel, then the details", () => {
       );
       const { takes, makes } = formatsLine(tool);
       expect(row, tool.slug).toContain(processingMeta[tool.processing].label);
+      // A tool that makes no file (PDF Viewer, `outputs: []`) says so,
+      // never "makes ." (2026-11-10).
       expect(row, tool.slug).toContain(
-        `Takes ${takes.join(", ")}; makes ${makes.join(", ")}.`,
+        makes.length > 0
+          ? `Takes ${takes.join(", ")}; makes ${makes.join(", ")}.`
+          : `Takes ${takes.join(", ")}; makes no file.`,
       );
     }
   });
