@@ -38,11 +38,20 @@ import {
   handwritingMissingLabels,
 } from "@/lib/pdf/handwriting";
 import { PREVIEW_LINE_EMS, handwritingFamily } from "./handwriting-faces";
+import { HANDWRITING_FACES } from "@/lib/pdf/handwriting";
+import { readNotoTtf } from "@/lib/pdf/noto-source";
+
+/** The first family of a CSS `font-family` list, unquoted. */
+function firstFamily(list: string): string {
+  return (list.split(",")[0] ?? "").trim().replace(/^["']|["']$/g, "");
+}
 import { cssLineHeightShowing } from "@/lib/pdf/handwriting-metrics";
 
 /** A FontFace the test DOM lacks: records what was asked for. */
 const constructed: string[] = [];
 const added: string[] = [];
+/** The bytes each family was registered with, as `document.fonts` got them. */
+const addedBytes = new Map<string, Uint8Array>();
 class FakeFontFace {
   constructor(
     readonly family: string,
@@ -59,7 +68,12 @@ beforeAll(() => {
   vi.stubGlobal("FontFace", FakeFontFace);
   Object.defineProperty(document, "fonts", {
     configurable: true,
-    value: { add: (f: FakeFontFace) => added.push(f.family) },
+    value: {
+      add: (f: FakeFontFace) => {
+        added.push(f.family);
+        addedBytes.set(f.family, new Uint8Array(f.source));
+      },
+    },
   });
 });
 
@@ -182,18 +196,57 @@ describe("the Style radio group", () => {
     expect(checked()).toBe(radios[0]);
   });
 
-  it("each option previews the typed name in the face the PDF will get", async () => {
+  /*
+   * WAS a substring check, toContain("pdfxyz-hand-<style>"): a family of
+   * "pdfxyz-hand-<style>-x", which nothing registers, stayed green while the
+   * browser drew every preview in its generic cursive (review of
+   * sign-pdf#1). Now the FIRST family must be exactly the one registered for
+   * the style, and registered with that face's own bytes.
+   */
+  it("each option previews the typed name in the face the PDF will get: exactly the family registered for it", async () => {
     const { radios } = await panel();
     const name = "Zoé Łukasz Erdős";
     typeName(name);
+    const families = HANDWRITING_STYLES.map(handwritingFamily);
+    await waitFor(() => expect([...added].sort()).toEqual(families.sort()), {
+      timeout: 20_000,
+    });
+    let inFace = 0;
     for (const [i, style] of SIGNATURE_STYLES.entries()) {
       const preview = radios[i]!.querySelector("span")!;
       expect(preview.textContent).toBe(name);
-      const family = preview.style.fontFamily;
-      if (isHandwritingStyle(style) && !handwritingMissing(style, name).length)
-        expect(family, style).toContain(`pdfxyz-hand-${style}`);
-      else expect(family, style).not.toContain("pdfxyz-hand-");
+      const first = firstFamily(preview.style.fontFamily);
+      if (
+        isHandwritingStyle(style) &&
+        !handwritingMissing(style, name).length
+      ) {
+        expect(first, style).toBe(handwritingFamily(style));
+        expect(added, style).toContain(first);
+        inFace++;
+      } else expect(first, style).not.toMatch(/^pdfxyz-hand-/);
     }
+    // Health check: the having-the-letters arm ran.
+    expect(inFace).toBeGreaterThan(0);
+  });
+
+  it("each family is registered with its OWN face's bytes, the bytes the export embeds", async () => {
+    await panel();
+    typeName("Ada");
+    const families = HANDWRITING_STYLES.map(handwritingFamily);
+    await waitFor(
+      () => expect([...addedBytes.keys()].sort()).toEqual(families.sort()),
+      { timeout: 20_000 },
+    );
+    const sizes = new Set<number>();
+    for (const style of HANDWRITING_STYLES) {
+      const got = addedBytes.get(handwritingFamily(style))!;
+      const want = readNotoTtf(HANDWRITING_FACES[style]);
+      expect(got.byteLength, style).toBe(HANDWRITING_FACES[style].bytes);
+      expect(Buffer.from(got).equals(Buffer.from(want)), style).toBe(true);
+      sizes.add(got.byteLength);
+    }
+    // Health check: the faces really are different files.
+    expect(sizes.size).toBe(HANDWRITING_STYLES.length);
   });
 
   it("says which letters a chosen handwriting face lacks, and nothing when it has them all", async () => {

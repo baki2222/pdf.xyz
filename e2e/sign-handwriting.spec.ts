@@ -15,6 +15,7 @@ import {
 import { HANDWRITING_FACES } from "../src/lib/pdf/handwriting";
 import { fontPackUrl } from "../src/lib/pdf/font-packs";
 import { cssLineHeightShowing } from "../src/lib/pdf/handwriting-metrics";
+import { openNotoFont, readNotoTtf } from "../src/lib/pdf/noto-source";
 
 /**
  * Audit sign-pdf#1 on the SERVED build: Sign PDF → Type → a handwriting
@@ -106,13 +107,28 @@ test("a typed signature in a chosen handwriting face is the face in the download
     .toEqual(
       HANDWRITING_STYLES.map((s) => fontPackUrl(HANDWRITING_FACES[s])).sort(),
     );
+  // The family the chosen option's preview ACTUALLY uses — read off the
+  // element, not built here — is the style's own, and loaded. (Was a check
+  // of a family name built separately, which passed while the preview asked
+  // for a family nothing registered: review of sign-pdf#1.)
+  const previewFamily = () =>
+    page.evaluate((s) => {
+      const el = document.querySelector<HTMLElement>(
+        `[role=radiogroup][aria-label=Style] [data-style="${s}"] > span`,
+      )!;
+      return getComputedStyle(el).fontFamily;
+    }, style);
+  const first = (list: string) =>
+    (list.split(",")[0] ?? "").trim().replace(/^["']|["']$/g, "");
+  expect(first(await previewFamily())).toBe(`pdfxyz-hand-${style}`);
   await expect
-    .poll(() =>
-      page.evaluate(
-        (family) => document.fonts.check(`20px "${family}"`),
-        `pdfxyz-hand-${style}`,
-      ),
-    )
+    .poll(async () => {
+      const list = await previewFamily();
+      return page.evaluate(
+        (family) => document.fonts.check(`20px ${family}`),
+        list.split(",")[0]!.trim(),
+      );
+    })
     .toBe(true);
 
   await page.getByRole("button", { name: "Use signature" }).click();
@@ -300,4 +316,74 @@ test("a reader who goes straight to Draw fetches at most the default style's fac
   await expect
     .poll(() => new Set(fetched).size)
     .toBe(HANDWRITING_STYLES.length);
+});
+
+/*
+ * Review of sign-pdf#1: every family could have been registered with
+ * Dancing Script's bytes and each check above would pass, since they only
+ * ask whether SOME face is loaded under the name. Here each family's
+ * glyph advances, measured by the browser, are the advances in that face's
+ * own TTF.
+ */
+test("each handwriting family draws with its own face's widths", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await page.goto("/tools/sign-pdf");
+  const input = fileInput(page);
+  await waitForHydration(input);
+  await input.setInputFiles({
+    name: "contract.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from(await makePdfBytes("contract", 1)),
+  });
+  await page.getByRole("tab", { name: "Type" }).click();
+  await page.getByLabel("Your name").fill("Ada");
+  const families = HANDWRITING_STYLES.map((s) => `pdfxyz-hand-${s}`);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        (fs) => fs.every((f) => document.fonts.check(`20px "${f}"`)),
+        families,
+      ),
+    )
+    .toBe(true);
+
+  const PROBES = ["W", "m", "g", "A", "y"];
+  const want: Record<string, number> = {};
+  for (const style of HANDWRITING_STYLES) {
+    const font = (await openNotoFont(
+      readNotoTtf(HANDWRITING_FACES[style]),
+    )) as unknown as {
+      unitsPerEm: number;
+      glyphForCodePoint(cp: number): { advanceWidth: number };
+    };
+    want[style] = PROBES.reduce(
+      (sum, ch) =>
+        sum +
+        (font.glyphForCodePoint(ch.codePointAt(0)!).advanceWidth * 100) /
+          font.unitsPerEm,
+      0,
+    );
+  }
+  // Health check: the four faces differ by more than the tolerance, so the
+  // comparison can tell one from another.
+  const sorted = Object.values(want).sort((a, b) => a - b);
+  for (let i = 1; i < sorted.length; i++)
+    expect(sorted[i]! - sorted[i - 1]!).toBeGreaterThan(2);
+
+  const got = await page.evaluate(
+    ({ styles, probes }) => {
+      const ctx = document.createElement("canvas").getContext("2d")!;
+      const out: Record<string, number> = {};
+      for (const s of styles) {
+        ctx.font = `100px "pdfxyz-hand-${s}"`;
+        out[s] = probes.reduce((sum, ch) => sum + ctx.measureText(ch).width, 0);
+      }
+      return out;
+    },
+    { styles: [...HANDWRITING_STYLES], probes: PROBES },
+  );
+  for (const style of HANDWRITING_STYLES)
+    expect(Math.abs(got[style]! - want[style]!), style).toBeLessThan(1);
 });
