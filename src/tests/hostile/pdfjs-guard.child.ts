@@ -400,6 +400,87 @@ async function editorRedrawProbe(bytes: Uint8Array) {
   }
 }
 
+/**
+ * The PDF Viewer's open (`openViewerPdf`): open, draw page 1 at 100% and 1
+ * device px per CSS px, read its text, and read the pixels where the
+ * fixture's image sits — the same probe as the editor's, through the
+ * viewer's own open and draw.
+ */
+async function viewerProbe(bytes: Uint8Array) {
+  await withCanvas();
+  const { openViewerPdf } = await import("@/lib/pdf/viewer");
+  const doc = await openViewerPdf(bytes);
+  const t0 = Date.now();
+  const drawn = await doc.render(0, 1, 1, 0);
+  const renderMs = Date.now() - t0;
+  const canvas =
+    drawn.kind === "drawn"
+      ? (drawn.canvas as unknown as {
+          width: number;
+          height: number;
+          getContext(kind: "2d"): {
+            getImageData(
+              x: number,
+              y: number,
+              w: number,
+              h: number,
+            ): { data: Uint8ClampedArray };
+          };
+        })
+      : null;
+  const ink = canvas
+    ? [
+        [140, 60],
+        [60, 140],
+      ].map(([x, y]) => {
+        const d = canvas
+          .getContext("2d")
+          .getImageData(x!, canvas.height - y!, 1, 1).data;
+        return d[0]! + d[1]! + d[2]!;
+      })
+    : null;
+  const text = await doc.text(0);
+  await doc.destroy();
+  return {
+    ok: true,
+    numPages: doc.numPages,
+    drawn: drawn.kind,
+    size: canvas ? [canvas.width, canvas.height] : null,
+    renderMs,
+    ink,
+    imageTooLarge: doc.imageTooLarge,
+    text: text.items.map((i) => i.str).join(""),
+  };
+}
+
+/** The viewer at its deepest zoom on an A0 page: device pixels per draw. */
+async function viewerZoomProbe() {
+  await withCanvas();
+  const { openViewerPdf } = await import("@/lib/pdf/viewer");
+  const { MAX_ZOOM, scaleOf } = await import("@/lib/pdf/viewer-geometry");
+  const doc = await openViewerPdf(simplePdf({ mediaBox: "[0 0 2384 3370]" }));
+  const out: { ratio: number; pixels: number | null; side: number | null }[] =
+    [];
+  for (const ratio of [1, 2, 3]) {
+    const r = await doc.render(0, scaleOf(MAX_ZOOM), ratio, 0);
+    const c =
+      r.kind === "drawn"
+        ? (r.canvas as unknown as { width: number; height: number })
+        : null;
+    out.push({
+      ratio,
+      pixels: c ? c.width * c.height : null,
+      side: c ? Math.max(c.width, c.height) : null,
+    });
+    if (c) {
+      c.width = 0;
+      c.height = 0;
+    }
+  }
+  await doc.destroy();
+  return { ok: true, renders: out };
+}
+
 /** The preflight alone, as every pdf.js consumer calls it before the open. */
 async function preflight(bytes: Uint8Array) {
   const { preflightPdfjsBytes } = await import("@/lib/pdf/pdfjs-guard");
@@ -433,6 +514,22 @@ const CASES: Record<string, () => Promise<unknown>> = {
   "softmask-untyped-editor-render": async () =>
     editorProbe(await softMaskPdf(10_000, false)),
   "editor-redraw": async () => editorRedrawProbe(await imagePdf(3_000)),
+  // The PDF Viewer's open, on each hostile class it can meet first.
+  "co06-viewer": async () => viewerProbe(await chainedFlateBombPdf()),
+  "co06-control-viewer": async () => viewerProbe(CONTROL()),
+  "stamp14-viewer": async () => viewerProbe(unclosedQ(100_000)),
+  "co08-viewer-render": async () => viewerProbe(await imageBombAtCapPdf()),
+  "co08-control-viewer-render": async () => viewerProbe(await imagePdf(3_000)),
+  "count0-viewer": async () => {
+    const { countZeroPdf } = await import("@/tests/viewer-fixtures");
+    return viewerProbe(countZeroPdf());
+  },
+  "password-viewer": async () => {
+    const { userPasswordEncryptedPdf } =
+      await import("@/tests/encrypted-pdf-fixture");
+    return viewerProbe(userPasswordEncryptedPdf());
+  },
+  "viewer-zoom-a0": viewerZoomProbe,
   "stamp14-split-text": async () => text(splitQPdf(32, 1_020)),
   "stamp14-5k-text": async () => text(splitQPdf(1, 5_000)),
   "stamp14-form-repeat-text": async () => text(formRepeatPdf(30, 16_000)),
@@ -528,6 +625,15 @@ const OPEN_READERS: Record<string, (bytes: Uint8Array) => Promise<object>> = {
       (await import("pdfjs-dist/legacy/build/pdf.mjs")) as unknown as import("@/lib/pdf/encryption").PdfjsForAccess;
     const access = await classifyPdfAccess(bytes, pdfjs);
     return { ok: true, access: access.kind };
+  },
+  /** The PDF Viewer: open, then draw page 1. */
+  "viewer-render": async (bytes) => {
+    await withCanvas();
+    const { openViewerPdf } = await import("@/lib/pdf/viewer");
+    const doc = await openViewerPdf(bytes);
+    const drawn = await doc.render(0, 1, 1, 0);
+    await doc.destroy();
+    return { ok: true, numPages: doc.numPages, drawn: drawn.kind };
   },
   /** The editor's page canvas: open, then draw page 1. */
   "editor-render": async (bytes) => {
