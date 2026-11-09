@@ -7,7 +7,6 @@ import {
   PDFNumber,
   PDFRef,
   PDFString,
-  StandardFonts,
   type PDFContext,
   type PDFObject,
 } from "pdf-lib";
@@ -151,11 +150,30 @@ export async function fullFixture(
   options: FullFixtureOptions = {},
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  const font = await doc.embedFont(StandardFonts.Helvetica);
   const p1 = doc.addPage([400, 500]);
   const p2 = doc.addPage([400, 500]);
-  p1.drawText("PAGETEXTONE", { x: 40, y: 450, size: 12, font });
-  p2.drawText("PAGETEXTTWO", { x: 40, y: 450, size: 12, font });
+  // Page text that stays, written as a raw content stream (no font chooser
+  // needed: the fixture never measures or encodes beyond ASCII).
+  const helv = doc.context.obj({
+    Type: "Font",
+    Subtype: "Type1",
+    BaseFont: "Helvetica",
+  });
+  for (const [page, text] of [
+    [p1, "PAGETEXTONE"],
+    [p2, "PAGETEXTTWO"],
+  ] as const) {
+    page.node.set(
+      PDFName.of("Resources"),
+      doc.context.obj({ Font: doc.context.obj({ F1: helv }) }),
+    );
+    page.node.set(
+      PDFName.of("Contents"),
+      doc.context.register(
+        doc.context.flateStream(`BT /F1 12 Tf 40 450 Td (${text}) Tj ET`),
+      ),
+    );
+  }
   const ctx = doc.context;
   const r1 = p1.ref;
   const r2 = p2.ref;

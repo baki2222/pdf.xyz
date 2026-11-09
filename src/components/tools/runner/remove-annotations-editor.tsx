@@ -45,6 +45,11 @@ import type { LoadedPdf } from "./use-single-pdf";
 
 const engine = () => import("@/lib/pdf/remove-annotations");
 
+/** Fetched WITH the file's parse, so the inventory does not wait a round trip. */
+const prepareEngine = async () => {
+  await engine();
+};
+
 /** The result panel's title — exported so the page's steps quote it. */
 export const REMOVE_ANNOTATIONS_RESULT_TITLE = "Annotations removed";
 
@@ -67,6 +72,7 @@ export function RemoveAnnotationsRunner() {
       hint="One PDF · annotations listed and removed locally in your browser"
       handoffSlug="remove-annotations"
       toolName="Remove Annotations"
+      prepare={prepareEngine}
     >
       {(pdf, reset) => <RemoveAnnotationsEditor pdf={pdf} onReset={reset} />}
     </SinglePdfRunner>
