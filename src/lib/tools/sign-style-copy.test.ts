@@ -18,6 +18,24 @@
  * pattern is scoped to sentences about typing, and the shipped sentence is its
  * corpus. No automatic exit: shipping a handwriting face means deciding, here,
  * what the copy may then say.
+ *
+ * DECIDED 2026-11-09 (audit sign-pdf#1): handwriting faces shipped. The
+ * styles are DISCOVERED from `SIGNATURE_STYLES`, and which of them are
+ * handwriting from `isHandwritingStyle` / `HANDWRITING_FACES` — nothing here
+ * names a face. What the copy may now say, each half tied to the file the
+ * export writes:
+ *  - typing MAY be said to look handwritten, but only in a sentence that
+ *    gives that look to the handwriting faces, by name, and only while every
+ *    handwriting style embeds its own face (`/BaseFont` = the face's
+ *    PostScript name, never a standard-14 font);
+ *  - the Script style may still NEVER be said to look handwritten: it is
+ *    still Times Italic. The sentence that shipped saying so stays the
+ *    corpus of that ban, and the ban must not catch the sentence that now
+ *    ships;
+ *  - every handwriting style is NAMED by the page and its guides, by its
+ *    label, so a face added to the panel cannot go unmentioned.
+ * The tests that pinned "only Script and Print" are inverted below, with
+ * their history, not deleted.
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import { PDFDict, PDFDocument, PDFName } from "pdf-lib";
@@ -28,6 +46,9 @@ import {
   SIGNATURE_STYLE_LABEL,
   type SignatureStyle,
 } from "@/lib/pdf/offered-kinds";
+import { isHandwritingStyle } from "@/lib/pdf/signature-style";
+import { HANDWRITING_FACES } from "@/lib/pdf/handwriting";
+import { SUPPORTED_SCRIPTS } from "@/lib/pdf/font-packs";
 import { guides } from "@/lib/guides/catalog";
 import {
   renderToolPages,
@@ -118,29 +139,113 @@ const SHIPPED = [
 const TYPED_LOOKS_HANDWRITTEN =
   /\b(?:typ(?:e|ed|ing)|script)\b[^.]*\bhandwrit/i;
 
+/**
+ * The Script STYLE (not "Dancing Script") given a handwritten look. Its
+ * corpus is the sentence that shipped (`SHIPPED`); it must not catch the
+ * sentence that ships now, which names Script right after the faces that do
+ * look handwritten.
+ */
+const SCRIPT_LOOKS_HANDWRITTEN =
+  /(?<!Dancing )\bscript\b,?\s+which\b[^.;]*\bhandwrit/i;
+
+const handwritingStyles = SIGNATURE_STYLES.filter(isHandwritingStyle);
+const standardStyles = SIGNATURE_STYLES.filter((s) => !isHandwritingStyle(s));
+
 describe("a typed signature is described as the face it is drawn in", () => {
-  it("every offered style embeds a standard face (health check: the faces were read)", () => {
+  /*
+   * INVERTED 2026-11-09. Was "every offered style embeds a standard face":
+   * true while Script and Print were the only styles, and the premise of the
+   * old "no sentence says typing looks handwritten" ban. Now the standard
+   * styles still embed a standard-14 face, and every handwriting style embeds
+   * ITS face, read from the file.
+   */
+  it("each style embeds its own face: standard-14 for Script and Print, the handwriting face for the rest (health check: the faces were read)", () => {
     expect(faces.size).toBe(SIGNATURE_STYLES.length);
-    for (const [style, face] of faces) {
+    expect(handwritingStyles.length).toBeGreaterThanOrEqual(3);
+    expect(standardStyles.length).toBe(2);
+    for (const style of standardStyles) {
+      const face = faces.get(style)!;
       expect(STANDARD_14.has(face), `${style}: ${face}`).toBe(true);
+    }
+    for (const style of handwritingStyles) {
+      const face = faces.get(style)!;
+      expect(STANDARD_14.has(face), `${style}: ${face}`).toBe(false);
+      expect(face, style).toContain(HANDWRITING_FACES[style].postscriptName);
     }
   });
 
-  it("the pattern catches the sentence that shipped, and not the drawn-signature one", () => {
-    for (const s of SHIPPED)
+  it("the patterns catch the sentence that shipped, and not the drawn-signature one", () => {
+    for (const s of SHIPPED) {
       expect(TYPED_LOOKS_HANDWRITTEN.test(s), s).toBe(true);
-    expect(
-      TYPED_LOOKS_HANDWRITTEN.test(
-        "Drawing produces a mark that looks like your handwriting.",
-      ),
-    ).toBe(false);
+      expect(SCRIPT_LOOKS_HANDWRITTEN.test(s), s).toBe(true);
+    }
+    for (const re of [TYPED_LOOKS_HANDWRITTEN, SCRIPT_LOOKS_HANDWRITTEN])
+      expect(
+        re.test("Drawing produces a mark that looks like your handwriting."),
+      ).toBe(false);
   });
 
-  it("no sentence says typing looks handwritten", () => {
+  /*
+   * INVERTED 2026-11-09. Was "no sentence says typing looks handwritten",
+   * whose premise (no style embeds anything but a standard face) the test
+   * above now refutes from the file. A sentence MAY say it, if it gives the
+   * look to the handwriting faces by name, and at least one must, or the
+   * panel's best feature goes unmentioned.
+   */
+  it("a sentence that says typing looks handwritten gives that look to the handwriting faces, by name", () => {
     const all = sentences();
     expect(all.length).toBeGreaterThan(20);
-    expect(all.filter((s) => TYPED_LOOKS_HANDWRITTEN.test(s))).toEqual([]);
+    const claims = all.filter((s) => TYPED_LOOKS_HANDWRITTEN.test(s));
+    expect(
+      claims.length,
+      "no sentence says typing can look handwritten",
+    ).toBeGreaterThan(0);
+    for (const s of claims) {
+      expect(s, "a handwritten claim that is not about the faces").toMatch(
+        /handwriting (?:face|font|style)/i,
+      );
+      for (const style of handwritingStyles)
+        expect(s).toContain(SIGNATURE_STYLE_LABEL[style]);
+    }
   });
+
+  it("the Script style is never said to look handwritten: it is still an italic serif", () => {
+    expect(sentences().filter((s) => SCRIPT_LOOKS_HANDWRITTEN.test(s))).toEqual(
+      [],
+    );
+  });
+
+  it("the page and its guides name every handwriting style the panel offers", () => {
+    const text = sentences().join(" ");
+    for (const style of handwritingStyles)
+      expect(text, style).toContain(SIGNATURE_STYLE_LABEL[style]);
+  });
+
+  it("a name in any other script takes the one upright Noto face in every handwriting style too, for a real name per script", async () => {
+    // A sample per non-Latin script the product draws, keyed by the script
+    // so a script added to SUPPORTED_SCRIPTS with no sample fails here.
+    const SAMPLE: Record<string, string> = {
+      Greek: "Αλέξανδρος Παππάς",
+      Cyrillic: "Анна Павлова",
+      Devanagari: "अनन्या शर्मा",
+      Bengali: BENGALI_NAME,
+      Hiragana: "さくら",
+      Katakana: "サクラ",
+      Kanji: "山田花子",
+      Hangul: "김민준",
+      Han: "王小明",
+    };
+    const others = SUPPORTED_SCRIPTS.filter((s) => s !== "Latin");
+    expect(others.length).toBeGreaterThan(4);
+    for (const script of others) {
+      const name = SAMPLE[script];
+      expect(name, `no sample name for ${script}`).toBeDefined();
+      for (const style of handwritingStyles) {
+        const face = await typedFace(style, name!);
+        expect(face, `${script} in ${style}`).toMatch(/Noto/);
+      }
+    }
+  }, 300_000);
 
   it("where the copy describes the Script style's face, it is the face embedded", () => {
     const script = SIGNATURE_STYLES.find(
