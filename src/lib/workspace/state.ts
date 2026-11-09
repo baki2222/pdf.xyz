@@ -225,6 +225,8 @@ export interface BatchToolInfo {
    * How a live tool receives handed-off files. `single` tools work on one PDF at
    * a time (so a batch opens the first queued file), while `collect`/`batch`
    * tools take the whole set. Omitted/`none` is treated as a whole-set launch.
+   * For a worker tool, `batch` means its panel opens a batch list for the set
+   * (`worker-batch`); anything else means it has no launch from here.
    */
   handoff?: "collect" | "batch" | "single" | "stage" | "none";
 }
@@ -235,14 +237,18 @@ export type BatchStatus =
   | "needs-files" // tool chosen, no files
   | "ready" // live collect/batch tool + files → launch the whole set in-browser
   | "single" // live single-file tool + files → opens with the first queued file
-  | "worker-disabled" // worker tool, backend not enabled here
+  | "worker-batch" // worker tool with a batch + files → opens its batch list; nothing moves until Run there
+  | "worker-disabled" // worker tool with no batch: no launch from here
   | "unavailable"; // tool has no in-browser runner yet (and isn't a server tool)
 
 export interface BatchPlan {
   toolSlug: string | null;
   fileIds: string[];
   status: BatchStatus;
-  /** True only when the batch can actually be launched now (live tool + files). */
+  /**
+   * True only when the batch can actually be launched now: a live tool, or a
+   * worker tool whose panel has a batch, with files.
+   */
   ready: boolean;
 }
 
@@ -272,7 +278,12 @@ export function planBatch(
     const status: BatchStatus = info.handoff === "single" ? "single" : "ready";
     return { ...base, status, ready: true };
   }
+  // A worker panel with a batch takes the whole set as a hand-off (batch
+  // plan P6): the files wait in its list, and each goes to our server only
+  // when Run is pressed there. Every other worker tool has no launch here.
   if (info.usesWorker)
-    return { ...base, status: "worker-disabled", ready: false };
+    return info.handoff === "batch"
+      ? { ...base, status: "worker-batch", ready: true }
+      : { ...base, status: "worker-disabled", ready: false };
   return { ...base, status: "unavailable", ready: false };
 }

@@ -29,6 +29,7 @@ import {
   savePersisted,
   workspaceReducer,
   type BatchPlan,
+  type BatchToolInfo,
   type WorkspaceAction,
   type WorkspaceFile,
   type WorkspaceState,
@@ -148,6 +149,22 @@ export interface WorkspaceController {
    * not travel, nothing navigated, and the page must say so. Null otherwise.
    */
   launchFailedSlug: string | null;
+}
+
+/**
+ * What the batch planner is told about a tool: the ONE resolver, read by the
+ * workspace and by the copy guard that walks every tool through the launch
+ * area (`batch-panel-copy.test.tsx`), so the guard plans what a reader gets.
+ */
+export function batchToolInfoOf(summary: WorkspaceToolSummary): BatchToolInfo {
+  return {
+    live: summary.live,
+    // Was `summary.processing !== "client"`: the fifth private copy of "does
+    // this upload", and the one that decides what the batch planner tells a
+    // user before their files move.
+    usesWorker: modeUploadsFiles(summary.processing),
+    handoff: summary.handoffMode,
+  };
 }
 
 /**
@@ -467,16 +484,7 @@ export function useWorkspace(
     () =>
       planBatch(state.batch, (slug) => {
         const summary = bySlug.get(slug);
-        return summary
-          ? {
-              live: summary.live,
-              // Was `summary.processing !== "client"`: the fifth private copy
-              // of "does this upload", and the one that decides what the batch
-              // planner tells a user before their files move.
-              usesWorker: modeUploadsFiles(summary.processing),
-              handoff: summary.handoffMode,
-            }
-          : undefined;
+        return summary ? batchToolInfoOf(summary) : undefined;
       }),
     [state.batch, bySlug],
   );

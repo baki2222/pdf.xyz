@@ -10,7 +10,8 @@
  * adds what the workspace shows besides.
  */
 
-import { batchMaxFilesFor } from "@/lib/batch/tools";
+import { batchMaxFilesFor, isWorkerBatchSlug } from "@/lib/batch/tools";
+import { workerBatchEachFileSentence } from "@/lib/batch/worker-copy";
 import { buildToolIndex } from "@/lib/intent/tool-index";
 import { capabilityForMode, describeCapability } from "@/lib/jobs";
 import { isToolSupported } from "@/lib/pdf/registry";
@@ -27,16 +28,24 @@ export function buildToolSummaries(): WorkspaceToolSummary[] {
     const badge = tool?.badge;
     // A batch of PDFs, or of text files, caps its files (`capBatchFiles`,
     // at `batchMaxFilesFor`): every batch module the runners load reaches
-    // it, which `batch-claims.test.ts` holds.
+    // it, which `batch-claims.test.ts` holds. So does every worker batch
+    // (batch plan P6), whatever it takes: Word to PDF's takes documents.
+    const workerBatch =
+      entry.handoffMode === "batch" && isWorkerBatchSlug(entry.slug);
     const batchMaxFiles =
       entry.handoffMode === "batch" &&
-      (tool?.accept.includes("PDF") || tool?.accept.includes("TXT"))
+      (workerBatch ||
+        tool?.accept.includes("PDF") ||
+        tool?.accept.includes("TXT"))
         ? batchMaxFilesFor(entry.slug)
         : undefined;
     return {
       ...entry,
       ...(badge ? { badge } : {}),
       ...(batchMaxFiles !== undefined ? { batchMaxFiles } : {}),
+      ...(workerBatch
+        ? { workerBatchCost: workerBatchEachFileSentence() }
+        : {}),
       capabilityLabel: capability.label,
       uploadsFiles: capability.uploadsFiles,
       live: isToolSupported(entry.slug),

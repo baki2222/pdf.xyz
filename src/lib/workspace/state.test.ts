@@ -262,6 +262,16 @@ describe("planBatch", () => {
     handoff: "single",
   };
   const worker: BatchToolInfo = { live: false, usesWorker: true };
+  const workerStage: BatchToolInfo = {
+    live: false,
+    usesWorker: true,
+    handoff: "stage",
+  };
+  const workerBatch: BatchToolInfo = {
+    live: false,
+    usesWorker: true,
+    handoff: "batch",
+  };
   const clientNoRunner: BatchToolInfo = { live: false, usesWorker: false };
   const resolve = (slug: string) =>
     ({
@@ -269,7 +279,9 @@ describe("planBatch", () => {
       "compress-pdf": batchTool,
       "rotate-pdf": single,
       "legacy-live": live,
-      "ocr-pdf": worker,
+      "legacy-worker": worker,
+      "summarize-pdf": workerStage,
+      "ocr-pdf": workerBatch,
       "extract-images": clientNoRunner,
     })[slug];
 
@@ -315,10 +327,29 @@ describe("planBatch", () => {
     ).toBe("ready");
   });
 
-  it("is 'worker-disabled' for a secure-worker tool", () => {
+  /*
+   * INVERTED 2026-11-09 (batch plan P6). This used OCR PDF as THE
+   * secure-worker tool and held it to 'worker-disabled': no launch, although
+   * its panel has run a batch since P5. A worker tool with a batch now
+   * launches ('worker-batch', below); one without — the AI tools, HTML to
+   * PDF — still cannot, which is what this asserts now.
+   */
+  it("is 'worker-disabled' for a secure-worker tool with no batch", () => {
+    for (const slug of ["summarize-pdf", "legacy-worker"])
+      expect(planBatch({ toolSlug: slug, fileIds: ["f0"] }, resolve)).toEqual(
+        expect.objectContaining({ status: "worker-disabled", ready: false }),
+      );
+  });
+
+  it("is 'worker-batch' (launchable) for a secure-worker tool with a batch", () => {
+    for (const fileIds of [["f0"], ["f0", "f1", "f2"]])
+      expect(
+        planBatch({ toolSlug: "ocr-pdf", fileIds }, resolve),
+      ).toMatchObject({ status: "worker-batch", ready: true });
+    // Never a client status: the copy for those says nothing is uploaded.
     expect(
-      planBatch({ toolSlug: "ocr-pdf", fileIds: ["f0"] }, resolve).status,
-    ).toBe("worker-disabled");
+      planBatch({ toolSlug: "ocr-pdf", fileIds: ["f0", "f1"] }, resolve).status,
+    ).not.toBe("ready");
   });
 
   it("is 'unavailable' for a client tool with no runner and for unknown slugs", () => {

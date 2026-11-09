@@ -13,6 +13,8 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { BATCH_LIMITS } from "@/lib/batch/limits";
+import { batchMaxFilesFor } from "@/lib/batch/tools";
+import { workerBatchEachFileSentence } from "@/lib/batch/worker-copy";
 import { planBatch, type WorkspaceFile } from "@/lib/workspace";
 import { BatchPanel } from "./batch-panel";
 import { buildToolSummaries, type WorkspaceToolSummary } from "./presenter";
@@ -116,5 +118,100 @@ describe("the workspace launch area for a PDF batch tool", () => {
   it("control: a single-file tool still opens the first file", () => {
     renderPanel("organize-pages", 2);
     expect(screen.getByText(/works on one PDF at a time/)).toBeInTheDocument();
+  });
+});
+
+/*
+ * Batch plan P6: a worker tool with a batch launches from here into its
+ * batch list. Its words are its own — the files ARE uploaded, one job per
+ * file, when Run is pressed on the tool's page — and every number is the
+ * presenter's: the cap from `batchMaxFilesFor`, the hourly jobs from the
+ * limiter's constants (`workerBatchEachFileSentence`).
+ */
+describe("the workspace launch area for a worker tool with a batch", () => {
+  const cost = workerBatchEachFileSentence();
+
+  it("several files: they open in its batch list and go up one job each, on Run", () => {
+    const { plan, tool } = renderPanel("repair-pdf", 3);
+    expect(plan).toMatchObject({ status: "worker-batch", ready: true });
+    expect(
+      screen.getByText("Ready — 3 files, for our secure server"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        `${tool.name} runs on our secure server, so these files are uploaded. They open in a batch list on the tool’s page first; each one is uploaded only when you press the button under that list, in turn, one job per file. ${cost}`,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: `Open ${tool.name} with 3 files` }),
+    ).toBeInTheDocument();
+    // Launchable, so not the preview link a worker tool without a batch gets.
+    expect(screen.queryByRole("link", { name: /See how it works/ })).toBeNull();
+  });
+
+  it.each(["repair-pdf", "word-to-pdf", "ocr-pdf"])(
+    "%s: a set past one batch names the cap, and the rest are listed there",
+    (slug) => {
+      const cap = batchMaxFilesFor(slug);
+      const { tool } = renderPanel(slug, cap + 2);
+      expect(tool.batchMaxFiles).toBe(cap);
+      expect(
+        screen.getByText(
+          `${tool.name} runs on our secure server, so these files are uploaded. One batch takes up to ${cap} files: the first ${cap} of these open in its list on the tool’s page, and the other 2 are listed there with the reason. Each file in the list is uploaded only when you press the button under it, in turn, one job per file. ${cost}`,
+        ),
+      ).toBeInTheDocument();
+    },
+  );
+
+  it("one file: it opens on the tool's page, and goes up on its button", () => {
+    const { tool } = renderPanel("unlock-pdf", 1);
+    expect(
+      screen.getByText(
+        `${tool.name} runs on our secure server, so this file is uploaded. It opens on the tool’s page first, and is uploaded only when you press the tool’s button there. ${cost}`,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: `Open ${tool.name} with 1 file` }),
+    ).toBeInTheDocument();
+  });
+
+  it("control: a worker tool with no batch still cannot launch from here", () => {
+    const { plan, tool } = renderPanel("summarize-pdf", 3);
+    expect(plan).toMatchObject({ status: "worker-disabled", ready: false });
+    expect(tool.workerBatchCost).toBeUndefined();
+    expect(screen.getByText("Runs on a secure server")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        `${tool.name} runs on a secure server, so your file is uploaded rather than processed on your device. Open the tool to see exactly what happens to your files first.`,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Open / })).toBeNull();
+    expect(
+      screen.getByRole("link", { name: /See how it works/ }),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("the workspace launch area before anything can launch", () => {
+  it("names what is missing, for each empty status", () => {
+    const empty = render(
+      <BatchPanel
+        files={[]}
+        summaries={summaries}
+        batch={{ toolSlug: null, fileIds: [] }}
+        plan={planBatch({ toolSlug: null, fileIds: [] }, () => undefined)}
+        onSetTool={() => {}}
+        onAddAll={() => {}}
+        onRemove={() => {}}
+        onClear={() => {}}
+        onLaunch={() => {}}
+        launchingSlug={null}
+      />,
+    );
+    expect(screen.getByText("Nothing to run yet")).toBeInTheDocument();
+    empty.unmount();
+    const { plan } = renderPanel("does-not-exist", 2);
+    expect(plan.status).toBe("unavailable");
+    expect(screen.getByText("Not batch-ready yet")).toBeInTheDocument();
   });
 });
