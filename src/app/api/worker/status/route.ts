@@ -16,7 +16,10 @@ import {
   resolveWorkerMode,
   type ToolAvailability,
 } from "@/lib/workers";
-import { readWorkerHeartbeatLiveness } from "@/lib/workers/heartbeat";
+import {
+  liveWorkerTranslatesScans,
+  readWorkerHeartbeatLiveness,
+} from "@/lib/workers/heartbeat";
 import { enforceRateLimit } from "@/lib/ratelimit/guard";
 import { respond, respondRateLimited } from "../../_lib/http";
 
@@ -64,7 +67,8 @@ export async function GET(request: Request): Promise<Response> {
   // nothing about whether anyone deployed a daemon — so it is answered from an
   // observed liveness heartbeat. Never throws: a disabled seam reads `disabled`
   // and an unreachable broker reads `unknown`, both of which are not observed.
-  const { observed, capabilities } = await readWorkerHeartbeatLiveness();
+  const liveness = await readWorkerHeartbeatLiveness();
+  const { observed, capabilities } = liveness;
   // Only trust the capability when the heartbeat was genuinely observed — a stale
   // or absent beat must not be read as "OCR is available".
   const workerOcr = observed && capabilities?.ocr === true;
@@ -82,10 +86,12 @@ export async function GET(request: Request): Promise<Response> {
       ? capabilities.ocrLanguages
       : undefined;
 
-  // OCR inside Translate (audit translate-pdf#3): offered only on an observed
+  // OCR inside Translate (audit translate-pdf#3): offered only on a fresh
   // beat that proves the chain — an older image publishes no such key, and
-  // its absence is `false`. `buildWorkerStatus` also requires OCR itself.
-  const workerTranslateOcr = observed && capabilities?.translateOcr === true;
+  // its absence is `false`. The SAME predicate `POST /api/jobs` admits the
+  // job on, so the offer and the gate cannot drift apart
+  // (`translate-ocr.route.test.ts` runs each beat through both routes).
+  const workerTranslateOcr = liveWorkerTranslatesScans(liveness);
 
   return respond(
     ok(
