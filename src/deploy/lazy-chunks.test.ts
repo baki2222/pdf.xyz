@@ -550,8 +550,17 @@ describe("the catalogue ships in one chunk, shared by every surface that reads i
  * gzip -9 in the ticket's chunk that holds it (6873), the rest the new
  * branch in `stagedMode` and the chunks it re-cut. 33.236 + 63/1024 = 33.2975;
  * CI's 7-16 B bracket keeps 34,079 here under 34,097 B there.
+ *
+ * RAISED 33.298 -> 33.359 on 2026-11-09, for the P6 review's fix: a hand-off
+ * to a worker batch carries the longest prefix that fits one hand-off
+ * (`handoffPayload` in `handoff/index.ts`, which the ticket loads to decide
+ * what a launch carries), so a set past 300 MB no longer fails where staging
+ * carried its first file. The byte loop and its runner check are new code
+ * in that chunk (6873). One machine, each from an empty .next: 34,079 B
+ * (P6's figure above) -> 34,141 B on the branch with the fix (+62). 33.298 + 62/1024 =
+ * 33.3585; CI's 7-16 B bracket keeps 34,141 here under 34,159 B there.
  */
-const TICKET_FETCH_GZ_KB = 33.298;
+const TICKET_FETCH_GZ_KB = 33.359;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));
