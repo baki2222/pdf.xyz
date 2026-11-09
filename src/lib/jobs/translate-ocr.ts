@@ -73,6 +73,25 @@ export const TRANSLATE_SCAN_CHECK =
 export const TRANSLATE_OCR_EXPLAINER = `Our server recognises the scan's text first (OCR), then translates it, which takes longer than a typed PDF. Pick every language printed on the page: the wrong one gives wrong text, not an error. A scan's length cannot be counted before it is recognised, so it is charged as one full pass, ${CHARGE} of the ${DAY} characters in the daily AI allowance, and the translation stops at what that pays for; any pages past it are marked in place.`;
 
 /**
+ * Said beside the picker when the reader set a Source language whose pack is
+ * not selected (review finding, 2026-11-09): OCR in the wrong language does
+ * not fail, it returns fluent nonsense that is then translated and charged.
+ */
+export function translateOcrSourceNotSelected(name: string): string {
+  return `The source language is ${name}, but ${name} is not among the recognition languages selected below. Add it if the scan is printed in ${name}: the wrong language gives wrong text, not an error.`;
+}
+
+/** The same, when the running worker has no pack for that language at all. */
+export function translateOcrSourceNotInstalled(name: string): string {
+  return `The source language is ${name}, but our server has no recognition pack for ${name}, so a scan printed in it cannot be read correctly here.`;
+}
+
+/** The same, when the language is one OCR inside Translate does not offer. */
+export function translateOcrSourceNotOffered(name: string): string {
+  return `The source language is ${name}, but ${name} is not offered for recognising a scan here, so a scan printed in it cannot be read correctly.`;
+}
+
+/**
  * How a scan is handled, in ONE static sentence that is true whether or not
  * the running worker can recognise scans today — the page cannot know that
  * when it is rendered, so it says what the panel DOES in each case. Read by

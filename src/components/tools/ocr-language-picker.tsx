@@ -70,14 +70,20 @@ export interface OcrLanguageChoice {
 export function useOcrLanguageChoice(
   status: WorkerStatus | null | undefined,
   offered: readonly OcrLanguage[] = OCR_LANGUAGE_CODES,
+  /**
+   * What the page already knows about the document's language — Translate
+   * PDF's "Source language" (2026-11-09: a German source still recognised
+   * the scan as English). Ranks above the browser's guess and below the
+   * reader's own picks, and is used only while one of its packs is offered
+   * and installed: a preference the worker cannot run must not displace a
+   * default it can.
+   */
+  preferred?: readonly OcrLanguage[] | null,
 ): OcrLanguageChoice {
-  // The reader's own picks, once they make one; until then the browser's.
+  // The reader's own picks, once they make one; until then the page's
+  // preference, then the browser's.
   const [chosen, setChosen] = useState<OcrLanguage[] | null>(null);
   const fromBrowser = useBrowserLanguages();
-  const languages = useMemo(
-    () => chosen ?? fromBrowser ?? [DEFAULT_OCR_LANGUAGE],
-    [chosen, fromBrowser],
-  );
 
   // The packs the worker reports it actually has. Until 2026-09-27 the menu
   // rendered the static catalogue whatever the status said — the heartbeat's
@@ -94,6 +100,15 @@ export function useOcrLanguageChoice(
         ).filter((code) => (offered as readonly string[]).includes(code)),
       ),
     [status, offered],
+  );
+
+  const usablePreference = useMemo(() => {
+    const kept = (preferred ?? []).filter((code) => installed.has(code));
+    return kept.length > 0 ? kept : null;
+  }, [preferred, installed]);
+  const languages = useMemo(
+    () => chosen ?? usablePreference ?? fromBrowser ?? [DEFAULT_OCR_LANGUAGE],
+    [chosen, usablePreference, fromBrowser],
   );
 
   // What is really selected: the user's picks minus any pack the worker lacks.
@@ -127,7 +142,8 @@ export function useOcrLanguageChoice(
   return {
     selected,
     installed,
-    browserChose: chosen === null && fromBrowser !== null,
+    browserChose:
+      chosen === null && usablePreference === null && fromBrowser !== null,
     toggle,
     offered,
   };

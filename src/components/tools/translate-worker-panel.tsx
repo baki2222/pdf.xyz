@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Download,
@@ -33,11 +33,15 @@ import {
   type TranslateWorkerResult,
 } from "@/lib/workers/translate-client";
 import { PDF_TO_WORD_OCR_LANGUAGE_CODES } from "@/lib/jobs/ocr";
+import { ocrLanguageForTag } from "@/lib/jobs/ocr-browser-languages";
 import {
   TRANSLATE_OCR_CHARGE,
   TRANSLATE_OCR_EXPLAINER,
   TRANSLATE_OCR_SCOPE,
   TRANSLATE_SCAN_CHECK,
+  translateOcrSourceNotInstalled,
+  translateOcrSourceNotOffered,
+  translateOcrSourceNotSelected,
 } from "@/lib/jobs/translate-ocr";
 import { OcrLanguagePicker, useOcrLanguageChoice } from "./ocr-language-picker";
 import { downloadBytes } from "@/lib/pdf/browser";
@@ -305,15 +309,89 @@ function TranslateBuilder({
    * them with the same parser.
    */
   const ocrOffered = canTranslateScans(status);
+  // THE SOURCE LANGUAGE ANSWERS THE OCR QUESTION TOO (review finding,
+  // 2026-11-09): Source = German used to recognise the scan as English —
+  // fluent nonsense, translated and charged. It preselects the matching
+  // pack until the reader picks for themselves, and a mismatch is said in
+  // place (`sourceOcrWarning`).
+  const sourcePack =
+    sourceLanguage === TRANSLATE_SOURCE_AUTO
+      ? null
+      : ocrLanguageForTag(sourceLanguage);
+  const sourcePackOffered =
+    sourcePack !== null && PDF_TO_WORD_OCR_LANGUAGE_CODES.includes(sourcePack);
+  const ocrPreferred = useMemo(
+    () => (sourcePack && sourcePackOffered ? [sourcePack] : null),
+    [sourcePack, sourcePackOffered],
+  );
   const ocrLanguages = useOcrLanguageChoice(
     status,
     PDF_TO_WORD_OCR_LANGUAGE_CODES,
+    ocrPreferred,
   );
+  const sourceOcrWarning = (() => {
+    if (sourceLanguage === TRANSLATE_SOURCE_AUTO) return null;
+    const name = LANGUAGE_NAMES[sourceLanguage];
+    if (!sourcePack || !sourcePackOffered)
+      return translateOcrSourceNotOffered(name);
+    if (!ocrLanguages.installed.has(sourcePack))
+      return translateOcrSourceNotInstalled(name);
+    if (!ocrLanguages.selected.includes(sourcePack))
+      return translateOcrSourceNotSelected(name);
+    return null;
+  })();
   const scanDetected = scriptLanguage?.file === file && scriptLanguage.scan;
   const recogniseScan = ocrOffered && scanDetected;
 
+  // THE SECTION IS BROUGHT TO THE READER when it appears for a file (review
+  // findings, 2026-11-09). It is inserted above Run — at 375 px it pushed the
+  // button about 1,100 px down — so focus moves to its heading, which scrolls
+  // it into view and announces it, unless the reader is typing somewhere.
+  const ocrHeading = useRef<HTMLParagraphElement>(null);
+  const ocrFocusedFor = useRef<File | null>(null);
+  useEffect(() => {
+    if (!recogniseScan || !file || ocrFocusedFor.current === file) return;
+    ocrFocusedFor.current = file;
+    const active = document.activeElement;
+    const typing =
+      active instanceof HTMLTextAreaElement ||
+      active instanceof HTMLSelectElement ||
+      (active instanceof HTMLInputElement && active.type !== "file");
+    if (!typing) ocrHeading.current?.focus();
+  }, [recogniseScan, file]);
+
   const start = useCallback(async () => {
     if (!file || !available) return;
+    // A SCAN IS SENT FOR OCR ONLY ONCE ITS SECTION HAS BEEN SHOWN (review
+    // finding, 2026-11-09). Run is enabled as soon as the file is listed, and
+    // a Run pressed before the scan check drew the section used to send an
+    // OCR job with the default languages — a third of the day — while the
+    // reader had seen neither the choice nor the price. If the check has not
+    // answered yet, this Run answers it; a scan then draws the section (which
+    // takes focus) and nothing is sent: the next Run is a deliberate one,
+    // with the picker and the charge on screen.
+    if (ocrOffered && !recogniseScan && scriptLanguage?.file !== file) {
+      let extracted: ExtractedPdfText | null = null;
+      try {
+        extracted = await extractionFor(file);
+      } catch {
+        // Reported in words by the run below.
+      }
+      if (
+        extracted &&
+        translatePreflight(extracted, TRANSLATE_MAX_INPUT_CHARS).refusal ===
+          TRANSLATE_NO_TEXT_MESSAGE
+      ) {
+        setScriptLanguage({
+          file,
+          language: scriptOnlyLanguage(extracted.text),
+          scan: true,
+        });
+        return;
+      }
+    }
+    // Read at the press: the section was on screen when Run was pressed.
+    const sendOcr = ocrOffered && recogniseScan;
     await run(async (controls) => {
       const trimmed = instructions.trim();
       const bytes = new Uint8Array(await file.arrayBuffer());
@@ -365,9 +443,10 @@ function TranslateBuilder({
       // request instead of refusing. It declares no count — the browser found
       // no text to count — so the route charges an undeclared run, and the
       // worker caps the RECOGNISED text at that charge before any provider
-      // call. Decided from this run's own extraction, not the chosen-file
-      // effect, so a quick click cannot send a typed PDF down this path.
-      if (refusal === TRANSLATE_NO_TEXT_MESSAGE && ocrOffered) {
+      // call. Decided from this run's own extraction AND the section having
+      // been shown at the press (`sendOcr`), so a quick click can send
+      // neither a typed PDF down this path nor a scan nobody was shown.
+      if (refusal === TRANSLATE_NO_TEXT_MESSAGE && sendOcr) {
         return runWorkerTranslate(
           {
             filename: file.name,
@@ -427,6 +506,8 @@ function TranslateBuilder({
     run,
     available,
     ocrOffered,
+    recogniseScan,
+    scriptLanguage,
     ocrLanguages.selected,
   ]);
 
@@ -543,7 +624,11 @@ function TranslateBuilder({
           data-translate-ocr=""
           className="border-line rounded-panel flex flex-col gap-3 border p-3"
         >
-          <p className="text-fg text-sm font-medium">
+          <p
+            ref={ocrHeading}
+            tabIndex={-1}
+            className="text-fg text-sm font-medium outline-none"
+          >
             Recognise the scan&apos;s text first
           </p>
           <p className="text-muted text-xs leading-relaxed">
@@ -555,6 +640,11 @@ function TranslateBuilder({
           <p className="text-muted text-xs leading-relaxed">
             {TRANSLATE_OCR_SCOPE}
           </p>
+          {sourceOcrWarning ? (
+            <p className="text-warn text-xs leading-relaxed">
+              {sourceOcrWarning}
+            </p>
+          ) : null}
           <OcrLanguagePicker choice={ocrLanguages} />
         </section>
       ) : null}

@@ -175,3 +175,79 @@ test("translateOcr NOT advertised: today's refusal, no picker, nothing leaves th
   expect(log).toEqual([]);
   expect(bodies).toEqual([]);
 });
+
+/*
+ * REVIEW FINDINGS (2026-11-09), first measured with throwaway specs against
+ * this served build: a Run pressed straight after choosing a scan sent an OCR
+ * job the reader had never been shown; Source = German still sent ["eng"];
+ * and at 375 px the section's arrival pushed Run from y 708 to y 1,823 with
+ * nothing telling the reader why.
+ */
+
+test("a Run pressed straight after choosing a scan sends nothing, brings the section to focus, and the next Run sends", async ({
+  page,
+}) => {
+  const { log, bodies } = await mockWorker(page, true);
+  await page.goto("/tools/translate-pdf");
+  const input = fileInput(page);
+  await waitForHydration(input);
+  await input.setInputFiles({
+    name: "scan.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from(await makeScanPdfBytes(1)),
+  });
+  const section = page.getByRole("region", {
+    name: "Recognise the scan's text first",
+  });
+  const run = page.getByRole("button", { name: "Translate PDF" });
+  await run.click();
+  const drawnAtClick = await section.count();
+  await expect(section).toBeVisible();
+  await expect(
+    section.getByText("Recognise the scan's text first", { exact: true }),
+  ).toBeFocused();
+  await page.waitForTimeout(500);
+  if (drawnAtClick === 0)
+    expect(
+      log,
+      "an OCR job was sent from a Run made before the section",
+    ).toEqual([]);
+  await run.click();
+  await expect.poll(() => bodies.length, { timeout: 15_000 }).toBe(1);
+  expect((bodies[0]!.options as Record<string, unknown>).ocr).toBe(true);
+  // The first click must have met the case under test, or this proved nothing.
+  expect(drawnAtClick, "the section was already drawn at the first click").toBe(
+    0,
+  );
+});
+
+test("Source language = German recognises the scan in German", async ({
+  page,
+}) => {
+  const { bodies } = await mockWorker(page, true);
+  const run = await choose(page, await makeScanPdfBytes(1), "scan.pdf");
+  await expect(
+    page.getByRole("region", { name: "Recognise the scan's text first" }),
+  ).toBeVisible();
+  await page.getByLabel("Source language").selectOption({ label: "German" });
+  await run.click();
+  await expect.poll(() => bodies.length, { timeout: 15_000 }).toBe(1);
+  expect((bodies[0]!.options as Record<string, unknown>).languages).toEqual([
+    "deu",
+  ]);
+});
+
+test.describe("at 375 px", () => {
+  test.use({ viewport: { width: 375, height: 812 } });
+  test("the section's arrival is brought into view and focused, not dropped silently above Run", async ({
+    page,
+  }) => {
+    await mockWorker(page, true);
+    await choose(page, await makeScanPdfBytes(1), "scan.pdf");
+    const heading = page
+      .getByRole("region", { name: "Recognise the scan's text first" })
+      .getByText("Recognise the scan's text first", { exact: true });
+    await expect(heading).toBeFocused();
+    await expect(heading).toBeInViewport();
+  });
+});

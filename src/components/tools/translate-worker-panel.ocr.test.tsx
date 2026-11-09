@@ -225,3 +225,111 @@ describe.each([
     });
   },
 );
+
+/**
+ * REVIEW FINDINGS (2026-11-09), both measured on a served build first.
+ *
+ *  - A Run pressed before the scan check had drawn the section sent an OCR
+ *    job with the default languages — charged a third of the day — while the
+ *    reader had seen neither the language choice nor the price.
+ *  - Source language set to German still recognised the scan as English:
+ *    the panel held the reader's answer about the document's language and
+ *    did not use it.
+ */
+describe("TranslateWorkerPanel — a scan's OCR is sent only after the reader has been shown it", () => {
+  it("a Run pressed before the section appeared uploads nothing, draws the section and moves focus to it; the next Run sends", async () => {
+    const { network, run } = await choose(await imageOnlyPdf(2), true);
+    // The precondition this test is about: the check has not drawn it yet.
+    expect(ocrSection(), "the section was already drawn").toBeNull();
+    fireEvent.click(run);
+    const section = await screen.findByRole(
+      "region",
+      { name: /recognise the scan/i },
+      { timeout: 5_000 },
+    );
+    await waitFor(() =>
+      expect(section.contains(document.activeElement)).toBe(true),
+    );
+    // Give a run that was (wrongly) started time to reach the job route.
+    await new Promise((r) => setTimeout(r, 500));
+    expect(network.uploads()).toBe(0);
+    expect(network.jobBodies).toEqual([]);
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    fireEvent.click(run);
+    await waitFor(() => expect(network.jobBodies).toHaveLength(1), {
+      timeout: 5_000,
+    });
+    expect(
+      (network.jobBodies[0] as { options: Record<string, unknown> }).options
+        .ocr,
+    ).toBe(true);
+  }, 20_000);
+});
+
+describe("TranslateWorkerPanel — the source language the reader set picks the recognition language", () => {
+  async function scanSection() {
+    const chosen = await choose(await imageOnlyPdf(2), true);
+    const section = await screen.findByRole(
+      "region",
+      { name: /recognise the scan/i },
+      { timeout: 5_000 },
+    );
+    return { ...chosen, section };
+  }
+  const setSource = (label: string) =>
+    fireEvent.change(screen.getByLabelText("Source language"), {
+      target: {
+        value: (
+          Array.from(
+            (screen.getByLabelText("Source language") as HTMLSelectElement)
+              .options,
+          ).find((option) => option.textContent === label) as HTMLOptionElement
+        ).value,
+      },
+    });
+  const languagesSent = (network: JobNetwork) =>
+    (network.jobBodies[0] as { options: Record<string, unknown> }).options
+      .languages;
+
+  it("Source = German sends the German pack, not the English default", async () => {
+    const { network, run } = await scanSection();
+    setSource("German");
+    fireEvent.click(run);
+    await waitFor(() => expect(network.jobBodies).toHaveLength(1), {
+      timeout: 5_000,
+    });
+    expect(languagesSent(network)).toEqual(["deu"]);
+  }, 20_000);
+
+  it("control: the reader's own pick wins over the source language", async () => {
+    const { network, run, section } = await scanSection();
+    setSource("German");
+    fireEvent.click(within(section).getByRole("button", { name: "English" }));
+    fireEvent.click(within(section).getByRole("button", { name: "German" }));
+    fireEvent.click(run);
+    await waitFor(() => expect(network.jobBodies).toHaveLength(1), {
+      timeout: 5_000,
+    });
+    expect(languagesSent(network)).toEqual(["eng"]);
+  }, 20_000);
+
+  it("a source language whose pack is not selected is said in place", async () => {
+    const { section } = await scanSection();
+    setSource("German");
+    // The reader takes German out again, leaving English.
+    fireEvent.click(within(section).getByRole("button", { name: "English" }));
+    fireEvent.click(within(section).getByRole("button", { name: "German" }));
+    expect(section.textContent ?? "").toMatch(
+      /source language is German.*German is not among/i,
+    );
+  }, 20_000);
+
+  it("a source language our server has no pack for is said in place", async () => {
+    const { section } = await scanSection();
+    setSource("Japanese");
+    expect(section.textContent ?? "").toMatch(
+      /source language is Japanese.*no recognition pack for Japanese/i,
+    );
+  }, 20_000);
+});
