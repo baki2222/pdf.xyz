@@ -1012,21 +1012,24 @@ describe("third review: what the label-blind scan still holds back, and its read
 
 describe("hostile review (2026-11-09): the images pdf.js may paint, at what they cost", () => {
   /** A one-page file (page content is object 4) drawing `content`, objects 6.. after. */
-  const page = (
+  const file = (
     content: string,
     extra: (string | { dict: string; stream: string })[] = [],
     resources = "",
   ) =>
-    scanPdfStreams(
-      rawPdf([
-        "<< /Type /Catalog /Pages 2 0 R >>",
-        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Resources << ${resources} >> /Contents 4 0 R >>`,
-        { dict: "", stream: content },
-        HELVETICA,
-        ...extra,
-      ]),
-    );
+    rawPdf([
+      "<< /Type /Catalog /Pages 2 0 R >>",
+      "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Resources << ${resources} >> /Contents 4 0 R >>`,
+      { dict: "", stream: content },
+      HELVETICA,
+      ...extra,
+    ]);
+  const page = (...args: Parameters<typeof file>) =>
+    scanPdfStreams(file(...args));
+  /** The size a preview of `content` skips images at (pdf.js skips w x h > it). */
+  const skipsAbove = async (content: string) =>
+    (await preflightPdfjsBytes(file(content))).previewOptions.maxImageSize;
   const inlineImage = (dict: string) =>
     `q 100 0 0 100 50 50 cm BI ${dict} ID xyz\nEI Q\n`;
 
@@ -1066,35 +1069,43 @@ describe("hostile review (2026-11-09): the images pdf.js may paint, at what they
     ).toMatchObject({ smallestOverBudgetImage: null, unknownSizeImages: 0 });
   });
 
-  it("an inline image after the first EI is charged from the loose reading, which no comment or padding hides", async () => {
+  it("an inline image after the first EI is bounded by the loose reading, which no comment or padding hides, and skipped at the budget", async () => {
     const small = inlineImage("/W 2 /H 2 /BPC 8");
-    // The second image sits where the reading is loose.
-    expect(
-      (await page(small + inlineImage("/W 10000 /H 10000 /BPC 8")))
-        .smallestOverBudgetImage,
-    ).toBe(100_000_000);
+    // The second image sits where the reading is loose: its size is bounded,
+    // not known, so a preview skips every image past the colour budget.
+    const loose = async (content: string) => {
+      expect(await page(content)).toMatchObject({ unknownSizeImages: 1 });
+      expect(await skipsAbove(content)).toBe(RASTER_MAX_IMAGE_PIXELS);
+    };
+    await loose(small + inlineImage("/W 10000 /H 10000 /BPC 8"));
     // pdf.js skips the comment; a reader that ended the dictionary at its
     // `ID` would see no /W.
-    expect(
-      (await page(`${small}BI /BPC 8 %ID\n /W 10000 /H 10000 ID xyz\nEI\n`))
-        .smallestOverBudgetImage,
-    ).toBe(100_000_000);
-    expect(
-      (
-        await page(
-          `${small}BI /BPC 8 ${" ".repeat(70_000)}/W 10000 /H 10000 ID xyz\nEI\n`,
-        )
-      ).smallestOverBudgetImage,
-    ).toBe(100_000_000);
+    await loose(`${small}BI /BPC 8 %ID\n /W 10000 /H 10000 ID xyz\nEI\n`);
+    await loose(
+      `${small}BI /BPC 8 ${" ".repeat(70_000)}/W 10000 /H 10000 ID xyz\nEI\n`,
+    );
+    // The bound is not the skip size: a 20,000 x 100 strip beside an
+    // 8,000 x 8,000 image bounds both at 160 MP, and a preview set below
+    // THAT would decode the 64 MP image. It is skipped at the budget.
+    const strip =
+      small +
+      inlineImage("/W 20000 /H 100 /BPC 8") +
+      inlineImage("/W 8000 /H 8000 /BPC 8");
+    await loose(strip);
+    expect(await skipsAbove(strip)).toBeLessThan(8000 * 8000);
     // An exact dictionary too long to read is of unknown size.
     expect(
       (await page(`BI /BPC 8 ${" ".repeat(70_000)}/W 10 /H 10 ID xyz\nEI\n`))
         .unknownSizeImages,
     ).toBe(1);
-    // Positive control: two small inline images are within budget.
-    expect(
-      await page(small + inlineImage("/W 300 /H 200 /BPC 8")),
-    ).toMatchObject({ smallestOverBudgetImage: null, unknownSizeImages: 0 });
+    // Positive control: small inline images, loose ones included, are
+    // within budget and set nothing.
+    const two = small + inlineImage("/W 300 /H 200 /BPC 8");
+    expect(await page(two)).toMatchObject({
+      smallestOverBudgetImage: null,
+      unknownSizeImages: 0,
+    });
+    expect(await skipsAbove(two)).toBeUndefined();
   });
 
   it("an image nothing references is never painted, so it is not counted; a referenced one is, wherever the reference sits", async () => {

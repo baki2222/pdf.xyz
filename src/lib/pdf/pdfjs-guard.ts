@@ -397,11 +397,12 @@ function sideKey(raw: string): number {
  * pdf.js reads it (`sized`; at most the stream's first, since the reading
  * turns loose after the first `EI`). Past that point, and in a loose
  * re-reading, where an image's dictionary begins and ends is not known, so
- * every `BI` is counted (`loose`) and charged as ONE colour image of the
- * largest /W (or /Width) by the largest /H (or /Height) the loose reading
- * saw anywhere in the stream: it reads every token pdf.js may (strings,
- * comments and data included), so no value pdf.js sizes an image by is
- * missed, and the product bounds each image there from above.
+ * every `BI` is counted (`loose`) and bounded by the largest /W (or /Width)
+ * times the largest /H (or /Height) the loose reading saw anywhere in the
+ * stream: it reads every token pdf.js may (strings, comments and data
+ * included), so no value pdf.js sizes an image by is missed. Within the
+ * colour budget, every loose image is; past it, they are images of unknown
+ * size (see `judgeImages`).
  */
 export interface InlineImages {
   sized: { pixels: number; bilevel: boolean }[];
@@ -1619,9 +1620,12 @@ function judgeImages(
     if (!referenced(num)) continue;
     for (const one of i.sized) judge(one.pixels, one.pixels, one.bilevel);
     scan.unknownSizeImages += i.unknown;
-    if (i.loose > 0) {
-      const px = Math.min(i.looseW * i.looseH, Number.MAX_SAFE_INTEGER);
-      judge(px, px, false);
+    // The loose charge bounds every loose image from ABOVE, so it cannot be
+    // the size a preview skips at: an over-budget image smaller than it
+    // would pass under it. Past the colour budget it is an image of unknown
+    // size, which the preview skips at the budget itself.
+    if (i.loose > 0 && i.looseW * i.looseH > RASTER_MAX_IMAGE_PIXELS) {
+      scan.unknownSizeImages += 1;
     }
   }
 }
