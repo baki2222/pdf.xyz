@@ -61,6 +61,7 @@
     "pdfjs:wasm": "tsx scripts/copy-pdfjs-wasm.ts",
     "fonts:copy": "tsx scripts/copy-noto-fonts.ts",
     "fonts:coverage": "tsx scripts/generate-font-coverage.ts",
+    "fonts:handwriting": "tsx scripts/generate-handwriting-coverage.ts",
     "icon:favicon": "tsx scripts/build-favicon.ts"
   },
   "packageManager": "pnpm@11.9.0",
@@ -83,6 +84,10 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.5",
+    "@expo-google-fonts/alex-brush": "0.4.1",
+    "@expo-google-fonts/dancing-script": "0.4.2",
+    "@expo-google-fonts/homemade-apple": "0.4.1",
+    "@expo-google-fonts/mr-dafoe": "0.4.1",
     "@expo-google-fonts/noto-sans": "^0.4.2",
     "@expo-google-fonts/noto-sans-bengali": "^0.4.4",
     "@expo-google-fonts/noto-sans-jp": "^0.4.3",

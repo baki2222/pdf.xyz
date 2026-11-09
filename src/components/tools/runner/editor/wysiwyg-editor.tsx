@@ -70,7 +70,6 @@ import {
   rectsIntersect,
   resizeObject,
   setLineEndpoint,
-  typedSignatureObject,
   NOTE_PADDING,
   NUDGE_BIG_PT,
   NUDGE_PT,
@@ -83,6 +82,10 @@ import {
   type TextBoxObject,
   type TextEditObject,
 } from "@/lib/pdf/editor/model";
+import {
+  typedSignatureObject,
+  withoutHandwritingFor,
+} from "@/lib/pdf/editor/typed-signature";
 import { openEditorPdf, type EditorPdf } from "@/lib/pdf/editor/page-render";
 import {
   openRunStyles,
@@ -492,6 +495,9 @@ function applyPatch(obj: EditorObject, patch: StylePatch): EditorObject {
   for (const [key, value] of Object.entries(patch)) {
     if (key in obj) next[key] = value;
   }
+  // A picked font, weight or slant is the face the box is drawn in from now
+  // on; a typed signature's handwriting face would otherwise keep drawing.
+  if (obj.kind === "text" && withoutHandwritingFor(patch)) delete next.hand;
   return next as unknown as EditorObject;
 }
 
@@ -2896,8 +2902,12 @@ function PageSheet({
         o.kind === "text" || o.kind === "note" || o.kind === "textedit",
     )
     .map((o) => o.text);
+  const handsToLoad = drawn.flatMap((o) =>
+    o.kind === "text" && o.hand ? [o.hand] : [],
+  );
   useEffect(() => {
     for (const t of textsToLoad) kit.request(t);
+    for (const h of handsToLoad) kit.requestFace(h);
   });
 
   const placing = tool !== "select";

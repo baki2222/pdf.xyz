@@ -6,7 +6,6 @@ import {
   type RasterImageFormat,
 } from "./pdf-lib";
 import { PdfEngineError } from "./engine";
-import { outputName } from "./files";
 import {
   clamp,
   INK,
@@ -17,8 +16,9 @@ import {
   type RGB,
   type StampPosition,
 } from "./stamp";
-import { embedDrawingFont } from "./unicode-font";
-import type { SignatureStyle } from "./offered-kinds";
+import { embedDrawingFont, embedFaceIfDrawable } from "./unicode-font";
+import { type SignatureStyle } from "./offered-kinds";
+import { isHandwritingStyle, typedSignatureText } from "./signature-style";
 import { viewToContent, viewerFrame } from "./page-frame";
 
 /**
@@ -91,10 +91,7 @@ export const DEFAULT_SIGNATURE_WIDTH = 200;
 export const MIN_SIGNATURE_WIDTH = 48;
 export const MAX_SIGNATURE_WIDTH = 600;
 
-/** A sensible download name for a signed document, derived from the source. */
-export function signatureOutputName(sourceName: string): string {
-  return outputName(sourceName || "document", "signed");
-}
+export { signatureOutputName } from "./signature-name";
 
 /** Reject an empty signature with a typed, user-facing message. */
 export function validateSignature(input: SignatureInput): void {
@@ -243,15 +240,36 @@ export async function signPdf(
       rotate,
     });
   } else {
-    const text = input.text.trim();
+    // NFC, and every space separator a plain space, before the face is
+    // chosen: the check, the embed and the draw then see the same letters
+    // (`typedSignatureText`).
+    const text = typedSignatureText(input.text.trim());
     // A typed signature is a person's name. Refusing to draw it because the
     // name is written in Bengali or Korean was the sharpest edge of the WinAnsi
     // ceiling: a signature tool that cannot spell the signer. Western names
     // still take Times-Italic or Helvetica and download nothing.
-    const font = await embedDrawingFont(
+    // A handwriting style draws in its own face where it has every letter
+    // of the name, and otherwise exactly as Script does — the editor's rule
+    // (`handwritingFor`), so no style is offered by one engine and drawn in
+    // Helvetica by the other. The table is imported here, at call time, so a
+    // page that imports this engine never takes it into its first load. No
+    // page does today: the Sign runner takes its download name from
+    // `./signature-name`, since even an `import()` in code a page never runs
+    // is one more async chunk in every page's webpack runtime.
+    let font = null;
+    if (isHandwritingStyle(input.style)) {
+      const { HANDWRITING_FACES, handwritingCanDraw } =
+        await import("./handwriting");
+      if (handwritingCanDraw(input.style, text)) {
+        font = await embedFaceIfDrawable(doc, HANDWRITING_FACES[input.style], [
+          text,
+        ]);
+      }
+    }
+    font ??= await embedDrawingFont(
       doc,
       [text],
-      input.style === "signature" ? "serif-italic" : "sans",
+      input.style === "print" ? "sans" : "serif-italic",
     );
     let size = fontSizeForWidth(font.widthOfTextAtSize(text, 1), targetWidth);
     // The glyph box runs from the descender to the ascender; it has to fit

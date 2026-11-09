@@ -3,6 +3,11 @@ import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { SUPPORTED_SCRIPTS, UNSUPPORTED_SCRIPTS } from "@/lib/pdf/font-packs";
+import {
+  HANDWRITING_STYLES,
+  SIGNATURE_STYLE_LABEL,
+} from "@/lib/pdf/offered-kinds";
+import { DEFAULT_SIGNATURE_STYLE } from "@/lib/pdf/signature-style";
 import { MAX_SAVED_SIGNATURES } from "@/lib/pdf/editor/saved-signatures";
 import { SIGNATURE_INKS } from "@/lib/pdf/editor/signature-ink";
 import { REMOVALS, listRemovals } from "@/lib/pdf/editor/signed-edit";
@@ -22,8 +27,8 @@ import {
  * form; every such sentence was rewritten with it.
  *
  *  - panel: editor/signature-panel.tsx — Draw / Type / Upload
- *    (SIGNATURE_SOURCES), opening on Type; Type has "Your name" and Style Script /
- *    Print; Draw and Type show the "Ink colour" swatches (SIGNATURE_INKS,
+ *    (SIGNATURE_SOURCES), opening on Type; Type has "Your name" and the Style
+ *    radio group, SIGNATURE_STYLES (DEFAULT_SIGNATURE_STYLE checked); Draw and Type show the "Ink colour" swatches (SIGNATURE_INKS,
  *    black first) — the pad's strokes are tinted to it (`tintInk`) and a
  *    typed name is filled with it; Upload, which keeps the picture's own
  *    colours, does not show them; Upload shows "Remove paper background", ticked, only for a file
@@ -34,9 +39,15 @@ import {
  *  - uploaded: decodeImageFile -> signatureFromPixels ->
  *    prepareSignatureBitmap crops to the ink and keys out the paper of an
  *    opaque source unless unticked; a keyed result is a PNG with alpha.
- *  - typed: placed as TEXT (`typedSignatureObject`): Script in Times Italic,
- *    Print in Helvetica, for Western European letters; any other script in
- *    one upright Noto face whichever style (`faceFor` asks for "sans");
+ *  - typed: placed as TEXT (`typedSignatureObject`): a handwriting style
+ *    (HANDWRITING_STYLES, audit sign-pdf#1) in its own embedded face
+ *    wherever the face has every letter of the name, else exactly as
+ *    Script (`handwritingFor`), the panel saying which letters are missing;
+ *    Script in Times Italic, Print in Helvetica, for Western European
+ *    letters; any other letter in one upright Noto face (`faceFor` asks for
+ *    "sans"). The handwriting previews are the embedded face itself
+ *    (`editor/handwriting-faces.ts`); Script and Print preview in the
+ *    browser's Times and Helvetica lookalikes;
  *    right-to-left scripts are refused by `embedDrawingFont` at Apply.
  *    `sign-style-copy.test.ts` reads the faces back out of the export.
  *  - placing: a click places it centred on the point; a picture resizes from
@@ -97,6 +108,14 @@ const repeatTargets = new Intl.ListFormat("en", { type: "disjunction" }).format(
   REPEAT_TARGETS.map((t) => REPEAT_TARGET_LABEL[t]),
 );
 
+/** The handwriting styles, as the panel names them. */
+const handwritingStyles = new Intl.ListFormat("en", {
+  type: "disjunction",
+}).format(HANDWRITING_STYLES.map((s) => SIGNATURE_STYLE_LABEL[s]));
+const defaultStyle = SIGNATURE_STYLE_LABEL[DEFAULT_SIGNATURE_STYLE];
+const scriptLabel = SIGNATURE_STYLE_LABEL.signature;
+const printLabel = SIGNATURE_STYLE_LABEL.print;
+
 /** Scripts a typed name can be written in beyond Latin, from the shipped packs. */
 const otherScripts = list(SUPPORTED_SCRIPTS.filter((s) => s !== "Latin"));
 
@@ -116,8 +135,8 @@ const content: ToolContent = {
     "Sign a PDF in your browser: draw or type your signature, or add an image of it, then click on the page to place it. Nothing is uploaded to pdf.xyz.",
 
   intro: [
-    `Sign PDF puts your signature on a document you already have, such as an offer letter, a lease or a consent form. Draw it with a mouse, pen or fingertip, type your name in the Script (serif italic) or Print style, or pick a PNG or JPEG of the signature you already use under Upload; the image is read on your device. Then click on the page where it goes, drag it onto the line and resize it, and click again wherever else it is needed.`,
-    `Everything runs online in this browser tab: the PDF, up to ${ceilingMb} MB, and your signature are processed on your device, and neither is uploaded. The pages (unless you change them in the page list), fillable fields, bookmarks, title and author carry over, while the file's Producer and Creator entries are rewritten. A name with letters beyond the Western European alphabet (a Polish Ł counts) is drawn in a Noto font the browser fetches from pdf.xyz by file name, a request that carries none of your text.`,
+    `Sign PDF puts your signature on a document you already have, such as an offer letter, a lease or a consent form. Draw it with a mouse, pen or fingertip, type your name in a handwriting style (${handwritingStyles}), in ${scriptLabel} (serif italic) or in ${printLabel}, or pick a PNG or JPEG of the signature you already use under Upload; the image is read on your device. Then click on the page where it goes, drag it onto the line and resize it, and click again wherever else it is needed.`,
+    `Everything runs online in this browser tab: the PDF, up to ${ceilingMb} MB, and your signature are processed on your device, and neither is uploaded. The pages (unless you change them in the page list), fillable fields, bookmarks, title and author carry over, while the file's Producer and Creator entries are rewritten. The handwriting faces, and a Noto face for a name with letters beyond the Western European alphabet (a Polish Ł counts) set in a handwriting face that lacks one of them, in ${scriptLabel} or in ${printLabel}, are font files the browser fetches from pdf.xyz by file name, a request that carries none of your text.`,
     "The result is a visual electronic signature: no certificate, no PKI, no tamper evidence. The FAQ below says what that means if someone asks how you signed.",
   ],
 
@@ -140,7 +159,7 @@ const content: ToolContent = {
     },
     {
       title: "A name that is not written in Latin letters",
-      body: `Type mode draws names in ${otherScripts} as well as Latin. Those scripts all use one upright Noto face whichever style you pick, because Script and Print only change Western European lettering. ${rtlScripts} are stopped with an explanation instead of being drawn backwards, since every line is laid out left to right.`,
+      body: `Type mode draws names in ${otherScripts} as well as Latin. Those scripts all use one upright Noto face whichever style you pick: the handwriting faces have none of their letters, so a name written in one is set as ${scriptLabel} sets it, and ${scriptLabel} and ${printLabel} only change Western European lettering. ${rtlScripts} are stopped with an explanation instead of being drawn backwards, since every line is laid out left to right.`,
     },
   ],
 
@@ -151,7 +170,7 @@ const content: ToolContent = {
     },
     {
       title: "Create the signature",
-      body: `The panel opens on Type: write your name under Your name and pick Script or Print; the preview uses your browser's fonts, so it only approximates the final lettering. Draw gives a pad with a Clear chip, and the third tab takes a PNG or JPEG from your device. For a drawn or typed signature, pick the ink: ${inks}, with ${SIGNATURE_INKS[0].label} chosen until you change it; a picture of your signature keeps its own colours. Tick Save for next time to keep it in this browser for later, then press Use signature.`,
+      body: `The panel opens on Type: write your name under Your name and pick a style. ${defaultStyle} is picked until you change it. Each style shows your name: ${handwritingStyles} in the very handwriting face the signed PDF embeds, while ${scriptLabel} and ${printLabel} use your browser's lookalikes of Times and Helvetica, so those two only approximate the final lettering. A handwriting face that lacks a letter of your name says which one, and the name is then set as ${scriptLabel} sets it. Draw gives a pad with a Clear chip, and the third tab takes a PNG or JPEG from your device. For a drawn or typed signature, pick the ink: ${inks}, with ${SIGNATURE_INKS[0].label} chosen until you change it; a picture of your signature keeps its own colours. Tick Save for next time to keep it in this browser for later, then press Use signature.`,
     },
     {
       title: "Place it",
@@ -166,7 +185,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Is the document I sign uploaded to pdf.xyz?",
-      a: "No. Reading the PDF, preparing your signature and writing the signed copy all happen in this browser tab, and neither the document nor the signature is sent to pdf.xyz. The only things signing itself downloads are code and fonts: the tool, its PDF library, and, only for a name that needs one, a Noto font file.",
+      a: "No. Reading the PDF, preparing your signature and writing the signed copy all happen in this browser tab, and neither the document nor the signature is sent to pdf.xyz. The only things signing itself downloads are code and fonts: the tool, its PDF library, the handwriting faces when you open Type, and, only for a name that needs one, a Noto font file.",
     },
     {
       q: "Where does a saved signature go?",
