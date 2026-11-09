@@ -11,6 +11,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from "@testing-library/react";
 import { SAVED_SIGNATURES_KEY } from "@/lib/pdf/editor/saved-signatures";
@@ -23,7 +24,14 @@ afterEach(() => {
   localStorage.clear();
 });
 
-function signTyped(remember: boolean) {
+/*
+ * ASYNC SINCE 2026-11-09 (audit sign-pdf#1): the Type tab now opens on a
+ * handwriting style, and "Use signature" waits for that face's widths before
+ * handing the signature over (so the placed box is as wide as the name will
+ * be in the file). These tests wait for the hand-over instead of reading it
+ * synchronously; what they assert is unchanged.
+ */
+async function signTyped(remember: boolean) {
   const onReady = vi.fn();
   render(<SignaturePanel onReady={onReady} onClose={() => {}} />);
   fireEvent.change(screen.getByLabelText("Your name"), {
@@ -31,12 +39,13 @@ function signTyped(remember: boolean) {
   });
   if (remember) fireEvent.click(screen.getByLabelText("Save for next time"));
   fireEvent.click(screen.getByRole("button", { name: "Use signature" }));
+  await waitFor(() => expect(onReady).toHaveBeenCalled(), { timeout: 20_000 });
   return onReady;
 }
 
 describe("SignaturePanel — Save for next time", () => {
-  it("control: a save that works passes no notice and is stored", () => {
-    const onReady = signTyped(true);
+  it("control: a save that works passes no notice and is stored", async () => {
+    const onReady = await signTyped(true);
     expect(onReady).toHaveBeenCalledTimes(1);
     expect(onReady.mock.calls[0]![1]).toBeUndefined();
     expect(localStorage.getItem(SAVED_SIGNATURES_KEY)).toContain(
@@ -44,11 +53,11 @@ describe("SignaturePanel — Save for next time", () => {
     );
   });
 
-  it("a browser that refuses the save says so, and the signature is still used", () => {
+  it("a browser that refuses the save says so, and the signature is still used", async () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new DOMException("quota exceeded", "QuotaExceededError");
     });
-    const onReady = signTyped(true);
+    const onReady = await signTyped(true);
     expect(onReady).toHaveBeenCalledTimes(1);
     expect(onReady.mock.calls[0]![0]).toMatchObject({
       kind: "typed",
@@ -57,11 +66,11 @@ describe("SignaturePanel — Save for next time", () => {
     expect(onReady.mock.calls[0]![1]).toMatch(/couldn.t be saved/i);
   });
 
-  it("control: nothing is said when saving was not asked for", () => {
+  it("control: nothing is said when saving was not asked for", async () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new DOMException("quota exceeded", "QuotaExceededError");
     });
-    const onReady = signTyped(false);
+    const onReady = await signTyped(false);
     expect(onReady.mock.calls[0]![1]).toBeUndefined();
   });
 });
@@ -72,7 +81,7 @@ describe("SignaturePanel — Save for next time", () => {
  * the chosen ink to the editor, and a saved one keeps it.
  */
 describe("SignaturePanel — ink colour", () => {
-  it("a typed signature carries the chosen ink, and keeps it when saved", () => {
+  it("a typed signature carries the chosen ink, and keeps it when saved", async () => {
     const onReady = vi.fn();
     render(<SignaturePanel onReady={onReady} onClose={() => {}} />);
     const group = screen.getByRole("radiogroup", { name: "Ink colour" });
@@ -86,6 +95,9 @@ describe("SignaturePanel — ink colour", () => {
     });
     fireEvent.click(screen.getByLabelText("Save for next time"));
     fireEvent.click(screen.getByRole("button", { name: "Use signature" }));
+    await waitFor(() => expect(onReady).toHaveBeenCalled(), {
+      timeout: 20_000,
+    });
     expect(onReady.mock.calls[0]![0]).toMatchObject({
       kind: "typed",
       color: blue.hex,
@@ -94,8 +106,8 @@ describe("SignaturePanel — ink colour", () => {
     expect(stored[0]).toMatchObject({ kind: "typed", color: blue.hex });
   });
 
-  it("control: left alone, the ink is the palette's first, black", () => {
-    const onReady = signTyped(false);
+  it("control: left alone, the ink is the palette's first, black", async () => {
+    const onReady = await signTyped(false);
     expect(onReady.mock.calls[0]![0]).toMatchObject({
       color: SIGNATURE_INKS[0]!.hex,
     });
