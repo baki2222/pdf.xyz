@@ -140,13 +140,54 @@ const TYPED_LOOKS_HANDWRITTEN =
   /\b(?:typ(?:e|ed|ing)|script)\b[^.]*\bhandwrit/i;
 
 /**
- * The Script STYLE (not "Dancing Script") given a handwritten look. Its
- * corpus is the sentence that shipped (`SHIPPED`); it must not catch the
- * sentence that ships now, which names Script right after the faces that do
- * look handwritten.
+ * The Script STYLE (not "Dancing Script") given a handwritten look.
+ *
+ * WAS a one-shape regex, `script, which … handwrit`, and a synonym shape
+ * walked past it ("Script looks handwritten too, just like the handwriting
+ * styles …", review of sign-pdf#1). Now it asks who each `handwrit…` word is
+ * about, by the style labels themselves (DERIVED from
+ * `SIGNATURE_STYLE_LABEL`, longest first so "Dancing Script" is never read
+ * as "Script"). A sentence is caught when, for some `handwrit…` word:
+ *  (a) the nearest style label before it is Script's — "Script is a
+ *      handwriting style too"; or
+ *  (b) Script's label is anywhere before it and the word is a bare
+ *      handwritten look, not the faces' own name ("handwriting face / font /
+ *      style") — "Script, like Dancing Script, looks handwritten".
+ * Its corpus, both directions: `SCRIPT_HANDWRITTEN_CAUGHT` must all be caught,
+ * the drawn-signature sentence and every sentence that ships now must not.
  */
-const SCRIPT_LOOKS_HANDWRITTEN =
-  /(?<!Dancing )\bscript\b,?\s+which\b[^.;]*\bhandwrit/i;
+const STYLE_LABEL_RE = new RegExp(
+  `\\b(?:${Object.values(SIGNATURE_STYLE_LABEL)
+    .sort((a, b) => b.length - a.length)
+    .join("|")})\\b`,
+  "gi",
+);
+const FACES_OWN_NAME = /^handwriting (?:face|font|style)s?\b/i;
+function scriptCalledHandwritten(sentence: string): boolean {
+  const script = SIGNATURE_STYLE_LABEL.signature.toLowerCase();
+  const labels = [...sentence.matchAll(STYLE_LABEL_RE)].map((m) => ({
+    at: m.index,
+    isScript: m[0].toLowerCase() === script,
+  }));
+  for (const m of sentence.matchAll(/\bhandwrit\w*/gi)) {
+    const before = labels.filter((l) => l.at < m.index);
+    if (before.at(-1)?.isScript) return true;
+    if (
+      before.some((l) => l.isScript) &&
+      !FACES_OWN_NAME.test(sentence.slice(m.index))
+    )
+      return true;
+  }
+  return false;
+}
+const SCRIPT_LOOKS_HANDWRITTEN = { test: scriptCalledHandwritten };
+
+/** Shapes the Script ban must catch, beyond the sentence that shipped. */
+const SCRIPT_HANDWRITTEN_CAUGHT = [
+  "Script looks handwritten too, just like the handwriting styles Dancing Script, Alex Brush, Mr Dafoe or Homemade Apple.",
+  "Script is a handwriting style too.",
+  "Script, like Dancing Script, looks handwritten.",
+];
 
 const handwritingStyles = SIGNATURE_STYLES.filter(isHandwritingStyle);
 const standardStyles = SIGNATURE_STYLES.filter((s) => !isHandwritingStyle(s));
@@ -183,6 +224,15 @@ describe("a typed signature is described as the face it is drawn in", () => {
       expect(
         re.test("Drawing produces a mark that looks like your handwriting."),
       ).toBe(false);
+    for (const s of SCRIPT_HANDWRITTEN_CAUGHT)
+      expect(SCRIPT_LOOKS_HANDWRITTEN.test(s), s).toBe(true);
+    // Not caught: Script named AFTER the faces' handwriting, or set apart
+    // from it — the shapes the page uses.
+    for (const s of [
+      "Type your name in a handwriting style (Dancing Script or Alex Brush), in Script (serif italic) or in Print.",
+      "A handwriting face that lacks a letter of your name says which one, and the name is then set as Script sets it.",
+    ])
+      expect(SCRIPT_LOOKS_HANDWRITTEN.test(s), s).toBe(false);
   });
 
   /*
