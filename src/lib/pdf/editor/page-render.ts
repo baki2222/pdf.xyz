@@ -13,11 +13,39 @@ import type { PdfjsTextItem } from "./runs";
  * go to pdf-lib at export.
  */
 
+/**
+ * Where the editor's open finds pdf.js: `loadPdfjs`, behind an object so a
+ * test can see the options `getDocument` is handed without `vi.mock` (under
+ * the suite's `isolate: false`, a module evaluated under a mock stays bound
+ * to the stub for the next file). Nothing else writes it.
+ */
+export const editorPdfjs = { load: loadPdfjs };
+
+/**
+ * How many pages keep what pdf.js decoded for them (operator list, images)
+ * after they are drawn: 6. A zoom step, the page's rail thumbnail and the
+ * canvas draw one page several times, and `page.cleanup()` drops its decoded
+ * images, so each draw decoded them again (measured on a 25 MP image at
+ * scales 1, 1.25, 1.5: 3,997, 4,045 and 4,052 ms, a full decode each time).
+ * The page drawn longest ago past this many is cleaned up, as pdf.js's own
+ * viewer keeps a buffer of pages (`DEFAULT_CACHE_SIZE`, 10) instead of
+ * cleaning each one.
+ */
+export const EDITOR_KEPT_PAGES = 6;
+
 /** A rendered canvas larger than this many device pixels is drawn at a lower ratio. */
 export const MAX_CANVAS_PIXELS = 16_000_000;
 
 export interface EditorPdf {
   readonly numPages: number;
+  /**
+   * The output paths' sentence for an image over its raster budget (CO-08,
+   * `PDF_IMAGE_TOO_LARGE_MESSAGE`) when the file holds one, which this view
+   * leaves out; null when there is none. The file's, never a page's: pdf.js
+   * 6 does not report which page skipped it (see `preflightPdfjsBytes`).
+   * What the view does instead is the caller's to say, in its own words.
+   */
+  readonly imageTooLarge: string | null;
   /**
    * Draw page `index` (0-based) into a NEW canvas at `scale` CSS px per point
    * and `pixelRatio` device px per CSS px. Resolves null when aborted or the
@@ -40,7 +68,16 @@ export interface EditorPdf {
   destroy(): Promise<void>;
 }
 
-/** The device ratio a page can be drawn at without passing {@link MAX_CANVAS_PIXELS}. */
+/**
+ * The device ratio a page can be drawn at without passing
+ * {@link MAX_CANVAS_PIXELS}: the device's own (1-3) when it fits, else the
+ * ratio at which the canvas IS the cap, however far below 1 that is.
+ *
+ * History (2026-11-09): the cap was floored at 0.5, so a page past 64 MP of
+ * CSS pixels (A1 or larger at the deepest zoom) was allocated past the cap
+ * it is named for: A0 at 400% took 57 MP. A page that large is drawn softer
+ * at that zoom; the canvas no longer grows with it.
+ */
 export function cappedPixelRatio(
   cssWidth: number,
   cssHeight: number,
@@ -49,7 +86,7 @@ export function cappedPixelRatio(
   const ratio = Math.max(1, Math.min(3, pixelRatio || 1));
   const area = cssWidth * cssHeight * ratio * ratio;
   if (area <= MAX_CANVAS_PIXELS || area === 0) return ratio;
-  return Math.max(0.5, Math.sqrt(MAX_CANVAS_PIXELS / (cssWidth * cssHeight)));
+  return Math.sqrt(MAX_CANVAS_PIXELS / (cssWidth * cssHeight));
 }
 
 /**
@@ -62,14 +99,19 @@ export function cappedPixelRatio(
 export async function openEditorPdf(bytes: Uint8Array): Promise<EditorPdf> {
   // ../pdfjs-guard is its own chunk, requested with pdfjs, not after it.
   const guardModule = import("../pdfjs-guard");
-  const pdfjsModule = loadPdfjs();
+  const pdfjsModule = editorPdfjs.load();
   pdfjsModule.catch(() => {});
   const guard = await guardModule;
-  await guard.preflightPdfjsOpen(bytes);
+  // A preview, as the thumbnails are (`createThumbnailRenderer`): an image
+  // over its raster budget is skipped by pdf.js before it decodes it (CO-08),
+  // so the page is drawn without it instead of stalling ~40 s on it.
+  const { previewOptions, overBudgetImage } =
+    await guard.preflightPdfjsOpen(bytes);
   const pdfjs = await pdfjsModule;
   const task = pdfjs.getDocument({
     data: bytes.slice(),
     ...PDFJS_DOCUMENT_DEFAULTS,
+    ...previewOptions,
   });
   const doc = await awaitPdfjsDocument(task);
   let numPages: number;
@@ -80,6 +122,15 @@ export async function openEditorPdf(bytes: Uint8Array): Promise<EditorPdf> {
     throw err;
   }
   let destroyed = false;
+  // Pages drawn lately, oldest first, each still holding what pdf.js decoded
+  // for it (see EDITOR_KEPT_PAGES).
+  const kept: { index: number; page: { cleanup(): unknown } }[] = [];
+  const keep = (index: number, page: { cleanup(): unknown }) => {
+    const at = kept.findIndex((k) => k.index === index);
+    if (at !== -1) kept.splice(at, 1);
+    kept.push({ index, page });
+    while (kept.length > EDITOR_KEPT_PAGES) kept.shift()!.page.cleanup();
+  };
 
   const render: EditorPdf["render"] = async (
     index,
@@ -121,7 +172,7 @@ export async function openEditorPdf(bytes: Uint8Array): Promise<EditorPdf> {
       return null;
     } finally {
       signal?.removeEventListener("abort", onAbort);
-      page.cleanup();
+      keep(index, page);
     }
   };
 
@@ -147,6 +198,7 @@ export async function openEditorPdf(bytes: Uint8Array): Promise<EditorPdf> {
 
   return {
     numPages,
+    imageTooLarge: overBudgetImage ? guard.PDF_IMAGE_TOO_LARGE_MESSAGE : null,
     render,
     textContent,
     destroy: async () => {
