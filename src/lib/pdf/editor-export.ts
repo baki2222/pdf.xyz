@@ -63,6 +63,22 @@ import {
 } from "./editor/text";
 
 /**
+ * The field-tree repair every form read and write here runs first
+ * (`editor/fields.ts`), requested WITH the parse, not after it: a chained
+ * await is a round trip of its own. Rejections are marked handled, since a
+ * load that fails never awaits it.
+ */
+function requestFormTree(): Promise<typeof import("./form-tree")> {
+  const formTree = import("./form-tree");
+  formTree.catch(() => {});
+  return formTree;
+}
+
+/** The loader's typed refusal, which a field read must not swallow. */
+const isUnreadable = (err: unknown) =>
+  err instanceof PdfEngineError && err.kind === "unreadable";
+
+/**
  * Content isolation (`./content-isolation`) runs only when a page is written,
  * so it is imported at call time: a static import put it in the first load of
  * every page whose runner imports this engine (hostile lane l06, 2026-11-08).
@@ -206,6 +222,7 @@ export interface EditorDocument {
 export async function readEditorDocument(
   bytes: Uint8Array,
 ): Promise<EditorDocument> {
+  const formTree = requestFormTree();
   const lib = await loadPdfLib();
   const doc = await loadPdf(bytes);
   const frames = doc.getPages().map((page) => viewerFrame(page));
@@ -216,9 +233,13 @@ export async function readEditorDocument(
   } catch {
     links = [];
   }
+  const { repairFieldTree } = await formTree;
   try {
-    fields = readFileFields(lib, doc);
-  } catch {
+    fields = readFileFields(lib, doc, repairFieldTree);
+  } catch (err) {
+    // A field tree too deep to repair is the file refused, as every form
+    // tool refuses it; any other quirk opens the file without its fields.
+    if (isUnreadable(err)) throw err;
     fields = [];
   }
   return { frames, links, fields };
@@ -413,6 +434,7 @@ export async function exportEditedPdf(
   options: ContentEditOptions = { decodeJpeg: browserJpegDecoder() },
   edits: DocumentEdits = {},
 ): Promise<EditorExportResult> {
+  const formTree = requestFormTree();
   const lib = await loadPdfLib();
   const { rgb, degrees, BlendMode, LineCapStyle } = lib;
   const list = objects.filter(
@@ -849,8 +871,17 @@ export async function exportEditedPdf(
         ([name]) => !deleted?.removedFields.has(name),
       ),
     );
-    filled = fillFileFields(lib, doc, live, helvetica);
-    writeNewFields(lib, doc, pages, frames, newFields, helvetica);
+    const { repairFieldTree } = await formTree;
+    filled = fillFileFields(lib, doc, live, helvetica, repairFieldTree);
+    writeNewFields(
+      lib,
+      doc,
+      pages,
+      frames,
+      newFields,
+      helvetica,
+      repairFieldTree,
+    );
   }
 
   stampProducer(doc);

@@ -77,6 +77,10 @@ export async function probePdf(
   if (bytes.byteLength === 0) return { read: "unreadable", ...NOTHING };
   // `./page-tree`, requested WITH the parse, not after it: chained awaits made each lazy chunk a round trip of its own (pre-hydration-upload e2e, 2026-11-08).
   const treeModule = import("./page-tree").catch(() => null);
+  // `./form-tree` likewise: the field count reads pdf-lib's form API, which
+  // walks the field tree by recursion, so a 30-level diamond hung the tab
+  // and a 22-level one was counted as 4,194,304 fields.
+  const formTreeModule = import("./form-tree").catch(() => null);
   let lib: PdfLibModule;
   let doc: PDFDocument;
   try {
@@ -104,11 +108,20 @@ export async function probePdf(
     return { read: "unreadable", ...NOTHING };
   }
   const pages = counted.ok ? counted.count : 0;
-  let formFields: number | null;
-  try {
-    formFields = doc.getForm().getFields().length;
-  } catch {
-    formFields = null;
+  let formFields: number | null = null;
+  const formTree = await formTreeModule;
+  if (formTree) {
+    try {
+      formTree.repairFieldTree(lib, doc);
+      formFields = doc.getForm().getFields().length;
+    } catch (err) {
+      // Too deep to repair is what every form tool says about this file;
+      // any other failure only leaves the count unknown.
+      if ((err as { kind?: unknown } | null)?.kind === "unreadable") {
+        return { read: "unreadable", ...NOTHING };
+      }
+      formFields = null;
+    }
   }
 
   const sample: PageContent[] = [];
