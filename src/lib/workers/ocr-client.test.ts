@@ -2,7 +2,9 @@
 import { describe, expect, it } from "vitest";
 import type { Job, UploadSession } from "@/lib/jobs";
 import type { OcrOptions } from "@/lib/jobs/ocr";
-import { runWorkerOcr, type FetchLike } from "./ocr-client";
+import { configureTelemetry, resetTelemetry } from "@/lib/telemetry/track";
+import { enterToolPage } from "@/lib/telemetry/tool-outcome";
+import { resumeWorkerOcr, runWorkerOcr, type FetchLike } from "./ocr-client";
 
 type Resp = Awaited<ReturnType<FetchLike>>;
 
@@ -382,5 +384,58 @@ describe("runWorkerOcr", () => {
     expect(result.message).not.toContain("job_");
     expect(result.jobId).toMatch(/^job_/);
     expect(result.stillRunning).toBe(true);
+  });
+});
+
+/**
+ * A batch (batch plan P5) tells ONE outcome per file and so turns the
+ * client's own reporting off (`reportsOutcome: false`) for every attempt —
+ * the run AND each resume. Both halves are held here, each with a control
+ * that the default still reports, so a resume that ignored the flag (two
+ * outcomes for one resumed file) fails.
+ */
+describe("resumeWorkerOcr and the caller's own outcome", () => {
+  function resumeFetch() {
+    return makeFetch([
+      {
+        match: (url, method) =>
+          method === "GET" && url === "/api/jobs/job_abcdefghij",
+        respond: () => jsonResp(200, completedJob()),
+      },
+      {
+        match: (url) => url.startsWith("/api/artifacts/local/"),
+        respond: () => bytesResp(200, new Uint8Array([1, 2, 3])),
+      },
+    ]).fetchImpl;
+  }
+
+  async function outcomesOf(reportsOutcome: boolean | undefined) {
+    const events: string[] = [];
+    configureTelemetry((e) => events.push(e.name));
+    const leave = enterToolPage({
+      toolSlug: "ocr-pdf",
+      capability: "secure-worker",
+    });
+    try {
+      const result = await resumeWorkerOcr("job_abcdefghij", {
+        fetchImpl: resumeFetch(),
+        sleep: async () => {},
+        ...(reportsOutcome === undefined ? {} : { reportsOutcome }),
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.artifacts).toHaveLength(2);
+    } finally {
+      leave();
+      resetTelemetry();
+    }
+    return events.filter((n) => n === "tool_completed" || n === "tool_failed");
+  }
+
+  it("reports nothing of its own when the caller says it reports", async () => {
+    expect(await outcomesOf(false)).toEqual([]);
+  });
+
+  it("control: by default a resume reports how the job ended, once", async () => {
+    expect(await outcomesOf(undefined)).toEqual(["tool_completed"]);
   });
 });

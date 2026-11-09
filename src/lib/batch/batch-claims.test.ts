@@ -65,6 +65,7 @@ import {
 } from "./tools";
 import { workerBatchPageSentence } from "./worker-copy";
 import { securityBatchPageSentence } from "./security-copy";
+import { ocrBatchPageSentence } from "./ocr-copy";
 
 /** Every registered batch, by the registry that names its words. */
 const REGISTRIES = {
@@ -502,28 +503,41 @@ const workerRows = tools
 const WORKER_BATCH_RUNNER =
   "src/components/tools/runner/batch/worker-batch-runner.tsx";
 const SECURITY_BATCH = "src/components/tools/runner/batch/security-batch.tsx";
+/** Batch plan P5: OCR PDF's batch, the worker batch with its settings. */
+const OCR_BATCH = "src/components/tools/runner/batch/ocr-batch.tsx";
+/** The batch module each registered worker tool's panel loads. */
+const batchModuleFor = (slug: string) =>
+  slug in SECURITY_SLUGS
+    ? SECURITY_BATCH
+    : slug === "ocr-pdf"
+      ? OCR_BATCH
+      : WORKER_BATCH_RUNNER;
 /** Batch plan P4: the two tools whose batch asks for one password. */
 const SECURITY_SLUGS = { "protect-pdf": true, "unlock-pdf": true } as const;
 
 describe("worker batch claims (batch plan P3)", () => {
-  it("health: the walk finds the worker panels, and the twelve registered tools among them", () => {
+  it("health: the walk finds the worker panels, and the thirteen registered tools among them", () => {
     expect(workerRows.length).toBeGreaterThanOrEqual(20);
     const registered = workerRows.filter((r) => r.registered);
     expect(registered.map((r) => r.slug).sort()).toEqual(
       Object.keys(WORKER_BATCH_TOOLS).sort(),
     );
-    // P3's ten, and P4's Protect and Unlock.
-    expect(registered.length).toBe(12);
+    // P3's ten, P4's Protect and Unlock, and P5's OCR PDF.
+    expect(registered.length).toBe(13);
   });
 
   it("every registered worker batch's panel loads the batch, and every panel that loads it serves a registered tool", () => {
     for (const r of workerRows.filter((x) => x.registered))
       expect(r.modules, `${r.slug}: ${r.panel} loads no batch`).toEqual([
-        r.slug in SECURITY_SLUGS ? SECURITY_BATCH : WORKER_BATCH_RUNNER,
+        batchModuleFor(r.slug),
       ]);
     // Batch plan P4: Protect's and Unlock's module is the worker batch with
     // a password form around it, never a batch of its own.
     expect(valueClosure(path.join(ROOT, SECURITY_BATCH)).map(relOf)).toContain(
+      WORKER_BATCH_RUNNER,
+    );
+    // Batch plan P5: OCR PDF's likewise — the worker batch, never its own.
+    expect(valueClosure(path.join(ROOT, OCR_BATCH)).map(relOf)).toContain(
       WORKER_BATCH_RUNNER,
     );
     const loading = new Set(
@@ -534,8 +548,8 @@ describe("worker batch claims (batch plan P3)", () => {
         workerRows.some((r) => r.panel === panel && r.registered),
         `${panel} loads the worker batch for no registered tool`,
       ).toBe(true);
-    // Health: six panels serve the twelve tools.
-    expect(loading.size).toBe(6);
+    // Health: seven panels serve the thirteen tools.
+    expect(loading.size).toBe(7);
   });
 
   it("each registered page names its archive, states its batch, and its limits carry the worker cap", () => {
@@ -548,8 +562,9 @@ describe("worker batch claims (batch plan P3)", () => {
       expect(served, `${slug} does not state its batch`).toContain(
         workerBatchPageSentence(slug),
       );
+      // OCR PDF's batch takes fewer (batch plan P5).
       expect(batchLimitsSentence(slug)).toContain(
-        `${BATCH_LIMITS.workerMaxFiles} ${WORKER_BATCH_TOOLS[slug].noun[1]}`,
+        `${slug === "ocr-pdf" ? BATCH_LIMITS.ocrMaxFiles : BATCH_LIMITS.workerMaxFiles} ${WORKER_BATCH_TOOLS[slug].noun[1]}`,
       );
       const named = served.match(new RegExp(ARCHIVE_NAME.source, "g")) ?? [];
       expect(
@@ -716,6 +731,83 @@ describe("P4 Protect and Unlock: the batch stated, and one-file sentences two wa
     expect(about.length).toBeGreaterThanOrEqual(2);
     const found = [
       ...pages,
+      ...about.map((g) => ({ where: g.slug, text: stringsIn(g).join("\n") })),
+    ].flatMap(({ where, text }) =>
+      ALL.flatMap((ban) =>
+        [
+          ...text.matchAll(
+            new RegExp(ban.pattern.source, ban.pattern.flags + "g"),
+          ),
+        ].map((m) => `${where}: ${ban.name} — ${m[0]}`),
+      ),
+    );
+    expect(found).toEqual([]);
+  });
+});
+
+/**
+ * Batch plan P5: OCR PDF. Its page states the batch's shared settings, and
+ * the one-file sentences it and its guides shipped before the batch
+ * (2026-11-09) are a corpus in both directions (CLAUDE.md rule 1): the
+ * P1–P4 bans catch some ("Drop one PDF", "takes one file"); these are the
+ * shapes they did not know.
+ */
+const OCR_ONE_FILE_SHIPPED = [
+  "One scan goes in per run, at most 100 MB.",
+  "The tool takes one file per run, so work through a folder in turn.",
+  "Drop one PDF, JPG or PNG into the Add a scan to OCR area and press Recognize text. That area takes a file as soon as the page loads; the button stays off until the page confirms the OCR server is available, and your file is sent only when you press it.",
+  "One file per run, up to 100 MB. For the next document, press Remove beside the current file name, add the new scan and run again: your languages and output choice stay as you left them until you reload the page.",
+  "Drop one PDF, JPG or PNG into the Add a scan to OCR area and press Recognize text. The file uploads over an encrypted connection only when you press it.",
+];
+
+const OCR_ONE_FILE_BANS: { name: string; pattern: RegExp }[] = [
+  {
+    name: "one scan or file per run",
+    pattern: /\bone (?:scan|file|document)(?: goes in)? per run\b/i,
+  },
+  {
+    name: "work through a folder in turn",
+    pattern: /\bwork through a folder\b/i,
+  },
+  {
+    name: "press Remove, add the new scan",
+    pattern: /\bpress Remove\b[^.]*\badd the new\b/i,
+  },
+];
+
+describe("P5 OCR PDF: the batch stated, and one-file sentences two ways", () => {
+  const ALL = [
+    ...ONE_FILE_BANS,
+    ...WORKER_ONE_FILE_BANS,
+    ...SECURITY_ONE_FILE_BANS,
+    ...OCR_ONE_FILE_BANS,
+  ];
+  const ocr = tools.find((t) => t.slug === "ocr-pdf")!;
+
+  it("the page states what its batch shares, and what it never combines", () => {
+    expect(servedText(ocr)).toContain(ocrBatchPageSentence());
+    expect(servedText(ocr)).toContain(workerBatchPageSentence("ocr-pdf"));
+  });
+
+  it("every shipped sentence is caught, and every new pattern catches one", () => {
+    for (const sentence of OCR_ONE_FILE_SHIPPED)
+      expect(
+        ALL.some((ban) => ban.pattern.test(sentence)),
+        `nothing catches: ${sentence}`,
+      ).toBe(true);
+    for (const ban of OCR_ONE_FILE_BANS)
+      expect(
+        OCR_ONE_FILE_SHIPPED.some((sentence) => ban.pattern.test(sentence)),
+        `${ban.name} catches no shipped sentence`,
+      ).toBe(true);
+  });
+
+  it("neither the page nor a guide about it says it takes one file", () => {
+    const about = guides.filter((g) => g.tools[0] === "ocr-pdf");
+    // Health: the page, and both OCR guides.
+    expect(about.length).toBeGreaterThanOrEqual(2);
+    const found = [
+      { where: "ocr-pdf", text: servedText(ocr) },
       ...about.map((g) => ({ where: g.slug, text: stringsIn(g).join("\n") })),
     ].flatMap(({ where, text }) =>
       ALL.flatMap((ban) =>
