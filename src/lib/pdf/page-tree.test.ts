@@ -95,17 +95,37 @@ const DAMAGED_PAGE_1 = {
 /**
  * The stampers' refusal of an unusable file. `overlay-top` reads the hostile
  * file as the OVERLAY, and its own loader (overlay.ts loadOverlay) restates
- * any refusal about "the overlay file" — the right file, in its own words.
+ * the refusal about the overlay — the right file, in its own words — and
+ * keeps its kind.
+ *
+ * Inverted 2026-11-09 (l03#49): this used to pin `unreadable: false` and one
+ * sentence for every refusal, because loadOverlay flattened them all; a
+ * page-tree refusal then reached telemetry as unprocessable_entity and a
+ * damaged page lost its number.
  */
-const OVERLAY_UNREADABLE = {
-  kind: "refused",
-  message:
-    "The overlay file couldn't be read as a PDF — it may be corrupted or not a PDF.",
-  unreadable: false,
-} as const;
+const OVERLAY_REFUSAL = new Map<object, object>([
+  [
+    UNREADABLE,
+    {
+      kind: "refused",
+      message:
+        "The overlay file couldn't be read as a PDF — it may be corrupted or not a PDF.",
+      unreadable: true,
+    },
+  ],
+  [
+    DAMAGED_PAGE_1,
+    {
+      kind: "refused",
+      message:
+        "Page 1 of the overlay PDF is damaged and couldn't be read, so this file can't be processed without losing that page.",
+      unreadable: true,
+    },
+  ],
+]);
 const stampersRefuse = (refusal: object) => ({
   ...all(STAMPERS, refusal),
-  "overlay-top": OVERLAY_UNREADABLE,
+  "overlay-top": OVERLAY_REFUSAL.get(refusal)!,
 });
 
 /**
@@ -330,6 +350,45 @@ describe("page tree: page-structure findings", () => {
         unknown: "unparseable",
       });
     }
+  });
+
+  it("l03#48: an empty /Pages (/Kids [] /Count 0) is refused everywhere, never a blank-page success", async () => {
+    // Before: pdf-lib loaded it as a 0-page document, and its save adds a
+    // blank page, so watermark / page numbers / Bates handed back a 1-page
+    // blank "stamped" PDF as a success, the signer said "Choose a page that
+    // exists", crop said "Select at least one page" (blaming the user), and
+    // probePdf read it as `ok` with 0 pages. pdf.js already refused it.
+    const empty = rawPdf({
+      objects: [CAT, "<< /Type /Pages /Kids [] /Count 0 >>"],
+    });
+    for (const run of [loadPdf, getPageCount, getPageRotations]) {
+      expect(await outcome(() => run(empty.slice())), run.name).toEqual(
+        UNREADABLE,
+      );
+    }
+    expect(await each(STAMPERS, empty)).toEqual(stampersRefuse(UNREADABLE));
+    expect(await each(EDITORS, empty)).toEqual(all(EDITORS, UNREADABLE));
+    expect(await each(CONVERTERS, empty)).toEqual(all(CONVERTERS, UNREADABLE));
+    expect(await probePdf(empty, { maxBytes: MAX_BYTES })).toMatchObject({
+      read: "unreadable",
+    });
+    expect(await readPdfFrames(empty)).toBeNull();
+    // Consistent with the pdf.js side, which refuses the same file.
+    await expect(countPagesWithPdfjs(empty, counter)).rejects.toThrow();
+    // The page counter still reports it as the fact it is, not as damage.
+    expect(await countPdfPagesDetailed(empty, MAX_BYTES)).toEqual({
+      ok: false,
+      unknown: "zero-pages",
+    });
+    // Positive control: the same file with its one page is read.
+    const one = rawPdf({
+      objects: [CAT, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>", PAGE3],
+    });
+    expect(await getPageCount(one)).toBe(1);
+    expect(await probePdf(one, { maxBytes: MAX_BYTES })).toMatchObject({
+      read: "ok",
+      pages: 1,
+    });
   });
 
   it("PS-12: rotating a file with a lying /Count writes one pdf.js can open", async () => {

@@ -22,6 +22,11 @@
  *    256 KB deflate of zeros cost the guard alone 256 MiB.
  *  - nested: first headers inside one another's strings, the xref naming them,
  *    so every re-parse ran to the end of the nest (objects x file size).
+ *  - hidden-objstms (residual review, 2026-11-09): `openObjStm` reads only /N
+ *    and /First, so a stream WITHOUT /Type /ObjStm, which pdf-lib's load never
+ *    decodes, was inflated whole by the guard. Each one fed ParseBudget more
+ *    allowance than it cost, so K of them at 256 MiB each cost K x 256 MiB of
+ *    inflate on the main thread, uncharged.
  */
 import { describe, expect, it } from "vitest";
 import { runBounded } from "./bounded";
@@ -51,6 +56,19 @@ async function cost(args: string[]): Promise<Cost> {
 const within = (c: Cost) => c.ms <= 3 * c.baseMs + 500;
 
 describe("the duplicate-object guard costs a constant factor of pdf-lib's load", () => {
+  it("hidden-objstms: object streams pdf-lib never decoded are inflated to one load's total, then refused", async () => {
+    // 12 x 64 MiB = 768 MiB of member data behind type-2 entries, 3x the
+    // 256 MiB pdf-lib allows one load for every object stream it decodes.
+    const c = await cost(["hidden-objstms", "12", "64"]);
+    expect(c.outcome).toMatch(/^error:PdfEngineError:/);
+    expect(c.rssMb).toBeLessThan(400);
+  }, 120_000);
+
+  it("hidden-objstms control: two such streams of 16 MiB are opened and the file loads", async () => {
+    const c = await cost(["hidden-objstms", "2", "16"]);
+    expect(c.outcome).toBe("pages:1");
+  }, 120_000);
+
   it("objstm-twins: members with top-level twins decode their stream once", async () => {
     const c = await cost(["objstm-twins", "8000"]);
     expect(c.outcome).toBe("pages:1");

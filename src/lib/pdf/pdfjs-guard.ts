@@ -11,7 +11,6 @@ import {
   ascii,
   dictEntries,
   indexOfWord,
-  isDelimiter,
   isWhite,
   namesOf,
   numericObjects,
@@ -26,6 +25,7 @@ import {
   parseObjectAt,
 } from "./pdf-scan-objects";
 import { MAX_DECODED_PIXELS } from "./pixel-ceiling";
+import { prescanXref } from "./xref-prescan";
 
 /**
  * What every pdf.js consumer (text, Markdown, Compare, has-text, the
@@ -247,7 +247,7 @@ export function pdfjsPageError(err: unknown): unknown {
 export interface PdfStreamScan {
   /** Streams seen (every `stream` keyword after a dictionary). */
   streams: number;
-  /** Streams read as content whose Flate stages were inflated (counted). */
+  /** Streams read as content whose stages were decoded (counted). */
   inflated: number;
   /** Largest single decoded stream read as content, in bytes. */
   maxStreamBytes: number;
@@ -295,93 +295,325 @@ export interface PdfStreamScan {
 
 const latin1 = new TextDecoder("latin1");
 
-/** A byte after which an operator may start: whitespace or a closing delimiter. */
-function endsToken(b: number): boolean {
-  return isWhite(b) || b === 0x29 || b === 0x5d || b === 0x3e || b === 0x7d;
-}
+/**
+ * The command names pdf.js's content lexer knows: the keys of
+ * `EvaluatorPreprocessor.opMap` in pdfjs-dist 6 (the prefixes of `true`,
+ * `false` and `null` included, as pdf.js keeps them there). Its lexer uses
+ * them to cut a run of regular characters into commands: a command it knows
+ * ends as soon as the next character would make one it does not, so `qqqq`
+ * is four `q` and `cmq` is `cm` then `q`. `pdfjs-guard-lexer.test.ts` reads
+ * the table out of the shipped worker and holds this set equal to it.
+ */
+export const PDFJS_CONTENT_COMMANDS: ReadonlySet<string> = new Set([
+  ...["w", "J", "j", "M", "d", "ri", "i", "gs", "q", "Q", "cm"],
+  ...["m", "l", "c", "v", "y", "h", "re", "S", "s", "f", "F", "f*"],
+  ...["B", "B*", "b", "b*", "n", "W", "W*", "BT", "ET", "Tc", "Tw"],
+  ...["Tz", "TL", "Tf", "Tr", "Ts", "Td", "TD", "Tm", "T*", "Tj", "TJ"],
+  ...["'", '"', "d0", "d1", "CS", "cs", "SC", "SCN", "sc", "scn", "G"],
+  ...["g", "RG", "rg", "K", "k", "sh", "BI", "ID", "EI", "Do", "MP"],
+  ...["DP", "BMC", "BDC", "EMC", "BX", "EX", "BM", "BD", "true", "fa"],
+  ...["fal", "fals", "false", "nu", "nul", "null"],
+]);
 
-/** A byte that may follow an operator: whitespace or any delimiter. */
-function startsToken(b: number): boolean {
-  return isWhite(b) || isDelimiter(b);
-}
+/** The longest name in {@link PDFJS_CONTENT_COMMANDS}. */
+const LONGEST_COMMAND = 5;
 
-const Q_LOWER = 0x71;
-const Q_UPPER = 0x51;
-const D_UPPER = 0x44;
-const O_LOWER = 0x6f;
+/** pdf.js's `specialChars`: 1 whitespace, 2 a delimiter, 0 regular. */
+const SPECIAL = new Uint8Array(256);
+for (const c of [0x00, 0x09, 0x0a, 0x0c, 0x0d, 0x20]) SPECIAL[c] = 1;
+for (const c of "%()/<>[]{}") SPECIAL[c.charCodeAt(0)] = 2;
+
+// Lexer states, named for the token the next byte continues.
+const BETWEEN = 0;
+const NUMBER = 1;
+const NAME = 2;
+const COMMAND = 3;
+/** After a byte outside 0x20-0x7f that starts a command (see `step`). */
+const HIGH = 4;
+const STRING = 5;
+const HEX = 6;
+const COMMENT = 7;
+/** After `<`: a dictionary if the next byte is `<`, else a hex string. */
+const AFTER_LT = 8;
+/** Inside an inline image's data, after its `ID`. */
+const IMAGE_DATA = 9;
+
+/** Each byte as a one-character string, so the lexer allocates none. */
+const CHAR = Array.from({ length: 256 }, (_, b) => String.fromCharCode(b));
+
+const isNumberStart = (b: number) =>
+  (b >= 0x30 && b <= 0x39) || b === 0x2b || b === 0x2d || b === 0x2e;
 
 /**
  * A streaming operator counter for one content stream, fed chunk by chunk:
- * the running nesting of standalone `q` and `Q` tokens, the deepest it
- * reached, how many `q` it executed and the sum of the depths they reached
- * (its work), and how many `Do` it executed. A `Q` with nothing open is
- * ignored, as pdf.js ignores it.
+ * the running nesting of `q` and `Q`, the deepest it reached, how many `q`
+ * it executed and the sum of the depths they reached (its work), and how many
+ * `Do` it executed. A `Q` with nothing open is ignored, as pdf.js ignores it.
+ *
+ * It reads the stream with pdf.js's own lexer rules (`Lexer.getObj` in
+ * pdfjs-dist 6): numbers, names and commands, with commands cut at
+ * {@link PDFJS_CONTENT_COMMANDS}, so a `q` glued to a number or a command is
+ * counted (the counter before this one required whitespace on both sides of
+ * a `q`, and missed `qqqq`, which pdf.js executes four times). Literal strings
+ * (nested parentheses, backslash escapes), hex strings, comments and inline
+ * image data are skipped, as pdf.js skips them, so a document whose sentences
+ * say "q" is not refused for them (lane res1, item 4).
+ *
+ * The property it keeps is an UPPER bound: it may count more `q` than pdf.js
+ * executes, never fewer. Two readings cannot be made exact, and each turns
+ * the counter to a "loose" reading that skips nothing:
+ *
+ *  - pdf.js ends an inline image's data at the first `EI` that its own checks
+ *    accept, which may not be the first `EI` in the data. Skipping from `ID`
+ *    to the FIRST `EI` is safe (pdf.js's end is never earlier), but from
+ *    there on a `(` may be data to pdf.js and a string to us, and a string
+ *    that ran past pdf.js's real end would hide the `q` after it. So the
+ *    rest of that stream is read loose.
+ *  - pdf.js reads a page's /Contents ARRAY as one stream, joined with no
+ *    separator, so a stream that ends inside a string, a comment, an image or
+ *    a `<` hands its state to the next one. Each stream is read here on its
+ *    own, so {@link cleanEnd} says whether it ended where pdf.js would start
+ *    the next stream fresh; the scan reads every stream a /Contents array may
+ *    list loose when any of them does not (`judgeGraphicsState`).
+ *
+ * The loose reading (`new ContentOps(false)`) is the same lexer with every
+ * delimiter a token of its own: no string, comment, hex string or image is
+ * skipped. pdf.js only leaves those at a delimiter, a whitespace byte, or
+ * (an image) right after `EI` and one more byte, which the loose reading
+ * treats as the end of a token too; so wherever pdf.js starts a token, so
+ * does the loose reading, and every `q` pdf.js executes is counted.
  */
-class ContentOps {
+export class ContentOps {
   depth = 0;
   max = 0;
   pushes = 0;
   work = 0;
   dos = 0;
-  private prevEnds = true;
-  private pending = 0;
-  /** 1 after a token-initial `D`, 2 after `Do`. */
-  private doState = 0;
+  /**
+   * Set by {@link end}: the stream ended where pdf.js would read the next
+   * stream of a /Contents array as a fresh start (not inside a string, a
+   * comment, a hex string or an image, not after `<`, nor on a `B` or `I`
+   * that the next stream could make `BI` or `ID`), and was read exactly.
+   */
+  cleanEnd = true;
+  private state = BETWEEN;
+  private command = "";
+  private strDepth = 0;
+  private escaped = false;
+  private inlineDict = false;
+  private sawE = false;
+  /** Bytes until a forced token end (the loose reading's `EI` rule). */
+  private force = 0;
+
+  constructor(private exact = true) {}
+
   feed(chunk: Uint8Array): void {
-    let { depth, max, pushes, work, dos, prevEnds, pending, doState } = this;
+    // One loop over locals: this runs on every decoded byte of every stream
+    // that may be content (up to MAX_DECODED_TOTAL_BYTES), so the state is
+    // read into locals and written back once per chunk.
+    let { state, command, strDepth, escaped, sawE, force, exact } = this;
     for (let i = 0; i < chunk.length; i += 1) {
       const b = chunk[i]!;
-      if (pending !== 0) {
-        if (startsToken(b)) {
-          if (pending === Q_LOWER) {
-            depth += 1;
-            pushes += 1;
-            work += depth;
-            if (depth > max) max = depth;
-          } else if (depth > 0) depth -= 1;
+      // The common bytes, without the state machine: whitespace between
+      // tokens, and the inside of a string.
+      if (exact) {
+        if (state === BETWEEN) {
+          if (SPECIAL[b] === 1) continue;
+        } else if (state === STRING) {
+          if (escaped) {
+            escaped = false;
+            continue;
+          }
+          if (b !== 0x28 && b !== 0x29 && b !== 0x5c) continue;
         }
-        pending = 0;
       }
-      if (doState === 2) {
-        if (startsToken(b)) dos += 1;
-        doState = 0;
-      } else if (doState === 1) {
-        doState = b === O_LOWER ? 2 : 0;
+      // `continue lex` reads `b` again in the state just entered.
+      lex: for (;;) {
+        switch (state) {
+          case BETWEEN: {
+            const special = SPECIAL[b]!;
+            if (special === 1) break lex;
+            if (special === 2) {
+              if (b === 0x2f) state = NAME;
+              else if (exact) {
+                if (b === 0x28) {
+                  state = STRING;
+                  strDepth = 1;
+                  escaped = false;
+                } else if (b === 0x25) state = COMMENT;
+                else if (b === 0x3c) state = AFTER_LT;
+              }
+            } else if (isNumberStart(b)) state = NUMBER;
+            else if (b < 0x20 || b > 0x7f) state = HIGH;
+            else {
+              state = COMMAND;
+              command = CHAR[b]!;
+            }
+            break lex;
+          }
+          case NUMBER:
+            // pdf.js's getNumber: digits, one `.`, and a stray `-` it warns of.
+            if ((b >= 0x30 && b <= 0x39) || b === 0x2e || b === 0x2d) break lex;
+            state = BETWEEN;
+            continue lex;
+          case NAME:
+            if (SPECIAL[b] === 0) break lex;
+            state = BETWEEN;
+            continue lex;
+          case HIGH:
+            // pdf.js: a byte outside 0x20-0x7f followed by a printable one is
+            // a command of its own; otherwise it starts a command that runs on.
+            if (b >= 0x20 && b <= 0x7f) state = BETWEEN;
+            else {
+              state = COMMAND;
+              command = "\u0080"; // a command no table knows
+            }
+            continue lex;
+          case COMMAND: {
+            let ends = SPECIAL[b] !== 0;
+            if (!ends && command.length <= LONGEST_COMMAND) {
+              const longer = command + CHAR[b]!;
+              ends =
+                PDFJS_CONTENT_COMMANDS.has(command) &&
+                !PDFJS_CONTENT_COMMANDS.has(longer);
+              if (!ends) command = longer;
+            }
+            if (!ends) break lex;
+            const ended = command;
+            command = "";
+            state = BETWEEN;
+            if (this.emit(ended)) {
+              // pdf.js's data starts after the byte that ended `ID`.
+              state = IMAGE_DATA;
+              sawE = false;
+              break lex;
+            }
+            continue lex;
+          }
+          case STRING:
+            if (escaped) escaped = false;
+            else if (b === 0x5c) escaped = true;
+            else if (b === 0x28) strDepth += 1;
+            else if (b === 0x29 && --strDepth === 0) state = BETWEEN;
+            break lex;
+          case HEX:
+            if (b === 0x3e) state = BETWEEN;
+            break lex;
+          case COMMENT:
+            if (b === 0x0a || b === 0x0d) state = BETWEEN;
+            break lex;
+          case AFTER_LT:
+            if (b === 0x3c) {
+              state = BETWEEN;
+              break lex;
+            }
+            state = HEX;
+            continue lex;
+          default: // IMAGE_DATA
+            if (sawE && b === 0x49) {
+              // The earliest end pdf.js can choose: read the rest loose, and
+              // end a token after the next byte (below).
+              exact = false;
+              this.exact = false;
+              state = BETWEEN;
+              sawE = false;
+              force = 2;
+            } else sawE = b === 0x45;
+            break lex;
+        }
       }
-      if (prevEnds) {
-        if (b === Q_LOWER || b === Q_UPPER) pending = b;
-        else if (b === D_UPPER) doState = 1;
+      if (!exact) {
+        // pdf.js may resume right after `EI` and ONE more byte (an image it
+        // ended by its marker: it skips to `EI`, then reads one byte more).
+        if (force > 0 && --force === 0) {
+          if (state === COMMAND) this.emit(command);
+          state = BETWEEN;
+          command = "";
+        }
+        if (sawE && b === 0x49) force = 1;
+        sawE = b === 0x45;
       }
-      prevEnds = endsToken(b);
     }
-    Object.assign(this, {
-      depth,
-      max,
-      pushes,
-      work,
-      dos,
-      prevEnds,
-      pending,
-      doState,
-    });
+    Object.assign(this, { state, command, strDepth, escaped, sawE, force });
   }
+
   end(): void {
-    this.feed(Uint8Array.of(0x20));
+    const { state, command } = this;
+    const dataStarts = state === COMMAND && this.emit(command);
+    this.cleanEnd =
+      this.exact &&
+      !this.inlineDict &&
+      !dataStarts &&
+      (state === BETWEEN ||
+        state === NUMBER ||
+        state === NAME ||
+        state === HIGH ||
+        (state === COMMAND && command !== "B" && command !== "I"));
+    this.state = BETWEEN;
+    this.command = "";
+  }
+
+  /** A command ended. True when it was an image's `ID`: data follows. */
+  private emit(command: string): boolean {
+    if (command === "q") {
+      this.depth += 1;
+      this.pushes += 1;
+      this.work += this.depth;
+      if (this.depth > this.max) this.max = this.depth;
+    } else if (command === "Q") {
+      if (this.depth > 0) this.depth -= 1;
+    } else if (command === "Do") {
+      this.dos += 1;
+    } else if (this.exact) {
+      if (command === "BI") this.inlineDict = true;
+      else if (command === "ID" && this.inlineDict) {
+        this.inlineDict = false;
+        return true;
+      }
+    }
+    return false;
   }
 }
 
-/** What one content stream contributes to the page-level `q` bounds. */
-interface ContentRecord {
-  /** Its object number, or null when no `num gen obj` header was found. */
-  num: number | null;
-  /** /Subtype /Form: painted by `Do` (or, if mislabelled, as page content). */
-  form: boolean;
+/** One reading's operator counts for a content stream. */
+interface OpCounts {
   max: number;
   left: number;
   pushes: number;
   work: number;
   dos: number;
 }
+
+/** What one content stream contributes to the page-level `q` bounds. */
+interface ContentRecord extends OpCounts {
+  /** Its object number, or null when no `num gen obj` header was found. */
+  num: number | null;
+  /** /Subtype /Form: painted by `Do` (or, if mislabelled, as page content). */
+  form: boolean;
+}
+
+/** A content stream as read, both ways (see {@link ContentOps}). */
+interface ReadRecord {
+  num: number | null;
+  form: boolean;
+  /** Read with strings, comments and images skipped. */
+  exact: OpCounts;
+  /**
+   * Read with nothing skipped: what it counts if its context is unknown.
+   * Decodes the stream again, so it is asked only when needed.
+   */
+  loose: () => Promise<OpCounts>;
+  /** {@link ContentOps.cleanEnd} of the exact reading. */
+  cleanEnd: boolean;
+}
+
+const countsOf = (ops: ContentOps): OpCounts => ({
+  max: ops.max,
+  left: ops.depth,
+  pushes: ops.pushes,
+  work: ops.work,
+  dos: ops.dos,
+});
 
 const STREAM = ascii("stream");
 const ENDSTREAM = ascii("endstream");
@@ -412,14 +644,126 @@ function lengthOf(entries: Map<string, DictValue[]>): number | null {
 }
 
 /**
- * Inflate `data` through `stages` Flate passes, counting the output and
- * feeding it to `onChunk`, and stop once it passes `limit` bytes. Returns the
- * bytes produced (limit + something when it stopped early). A stream that is
- * not valid zlib (encrypted, damaged) stops where it breaks, as pdf.js would.
+ * What a filter is to the scan. pdf.js's `Parser.makeFilter` decodes
+ * Flate, ASCIIHex and ASCII85 (and their abbreviations), which the scan
+ * decodes too; it passes a stream through UNCHANGED for /Crypt without a key
+ * and for any name it does not know ("identity"); the rest it decodes with
+ * code the scan does not have ("opaque").
  */
-async function inflateCounting(
+type Stage = "flate" | "ahx" | "a85" | "identity" | "opaque";
+
+const FLATE = new Set(["FlateDecode", "Fl"]);
+const AHX = new Set(["ASCIIHexDecode", "AHx"]);
+const A85 = new Set(["ASCII85Decode", "A85"]);
+const OPAQUE = new Set([
+  ...["LZWDecode", "LZW", "DCTDecode", "DCT", "JPXDecode", "JPX"],
+  ...["CCITTFaxDecode", "CCF", "RunLengthDecode", "RL", "JBIG2Decode"],
+  "BrotliDecode",
+  "?", // an indirect filter list, which the scan does not resolve
+]);
+
+function stageOf(name: string): Stage {
+  if (FLATE.has(name)) return "flate";
+  if (AHX.has(name)) return "ahx";
+  if (A85.has(name)) return "a85";
+  return OPAQUE.has(name) ? "opaque" : "identity";
+}
+
+/** pdf.js's AsciiHexStream, streaming: two digits a byte, `>` ends it. */
+function asciiHexDecoder(): TransformStream<Uint8Array, Uint8Array> {
+  let first = -1;
+  let done = false;
+  return new TransformStream({
+    transform(chunk, controller) {
+      if (done) return;
+      const out = new Uint8Array((chunk.length >> 1) + 2);
+      let n = 0;
+      for (const ch of chunk) {
+        let digit: number;
+        if (ch >= 0x30 && ch <= 0x39) digit = ch & 0x0f;
+        else if ((ch >= 0x41 && ch <= 0x46) || (ch >= 0x61 && ch <= 0x66))
+          digit = (ch & 0x0f) + 9;
+        else if (ch === 0x3e) {
+          done = true;
+          break;
+        } else continue;
+        if (first < 0) first = digit;
+        else {
+          out[n++] = (first << 4) | digit;
+          first = -1;
+        }
+      }
+      if (done && first >= 0) out[n++] = first << 4;
+      if (n > 0) controller.enqueue(out.subarray(0, n));
+    },
+  });
+}
+
+/**
+ * pdf.js's Ascii85Stream, streaming: five characters make four bytes, `z`
+ * at a group's start is four zeros, `~` ends it, and a short last group of
+ * k characters makes k - 1 bytes. The arithmetic is pdf.js's, overflow and
+ * all, so the bytes are the ones pdf.js reads.
+ */
+function ascii85Decoder(): TransformStream<Uint8Array, Uint8Array> {
+  const group = new Uint8Array(5);
+  let size = 0;
+  let done = false;
+  const emit = (out: Uint8Array, at: number): number => {
+    group.fill(0x21 + 84, size, 5);
+    let t = 0;
+    for (let i = 0; i < 5; i += 1) t = t * 85 + (group[i]! - 0x21);
+    const bytes = new Uint8Array(4);
+    for (let i = 3; i >= 0; i -= 1) {
+      bytes[i] = t & 0xff;
+      t >>= 8;
+    }
+    out.set(bytes.subarray(0, size - 1), at);
+    const wrote = size - 1;
+    size = 0;
+    return at + wrote;
+  };
+  return new TransformStream({
+    transform(chunk, controller) {
+      if (done) return;
+      // A `z` makes four bytes of one: at most 4 per byte in.
+      const out = new Uint8Array(chunk.length * 4 + 4);
+      let n = 0;
+      for (const ch of chunk) {
+        if (ch === 0x20 || ch === 0x09 || ch === 0x0d || ch === 0x0a) continue;
+        if (ch === 0x7e) {
+          done = true;
+          break;
+        }
+        if (ch === 0x7a && size === 0) {
+          n += 4; // already zero
+          continue;
+        }
+        group[size++] = ch;
+        if (size === 5) n = emit(out, n);
+      }
+      if (done && size > 0) n = emit(out, n);
+      if (n > 0) controller.enqueue(out.subarray(0, n));
+    },
+    flush(controller) {
+      if (done || size === 0) return;
+      const out = new Uint8Array(4);
+      const n = emit(out, 0);
+      if (n > 0) controller.enqueue(out.subarray(0, n));
+    },
+  });
+}
+
+/**
+ * Decode `data` through `stages` (Flate, ASCIIHex, ASCII85; identity stages
+ * already dropped), counting the output and feeding it to `onChunk`, and stop
+ * once it passes `limit` bytes. Nothing is kept. Returns the bytes produced
+ * (limit + something when it stopped early). A stream that is not valid zlib
+ * (encrypted, damaged) stops where it breaks, as pdf.js would.
+ */
+async function decodeCounting(
   data: Uint8Array,
-  stages: number,
+  stages: readonly Stage[],
   limit: number,
   onChunk: ((chunk: Uint8Array) => void) | null,
 ): Promise<number> {
@@ -430,13 +774,17 @@ async function inflateCounting(
       controller.close();
     },
   });
-  for (let s = 0; s < stages; s += 1) {
-    stream = stream.pipeThrough(
-      new DecompressionStream("deflate") as unknown as TransformStream<
-        Uint8Array,
-        Uint8Array
-      >,
-    );
+  for (const stage of stages) {
+    const step =
+      stage === "ahx"
+        ? asciiHexDecoder()
+        : stage === "a85"
+          ? ascii85Decoder()
+          : (new DecompressionStream("deflate") as unknown as TransformStream<
+              Uint8Array,
+              Uint8Array
+            >);
+    stream = stream.pipeThrough(step);
   }
   const reader = stream.getReader();
   let total = 0;
@@ -455,8 +803,6 @@ async function inflateCounting(
   }
   return total;
 }
-
-const FLATE = new Set(["FlateDecode", "Fl"]);
 
 /**
  * An image pdf.js paints through its cheap 1-bit path: an /ImageMask, or 1
@@ -580,13 +926,19 @@ function labelledNotContent(
 /**
  * One pass over every stream in `bytes`, bounded and LINEAR in the file's
  * size (work past that is charged to a budget and refused): every stream
- * pdf.js may read as content has its leading Flate stages inflated (counted,
- * never kept) and its `q` and `Do` operators counted; every stream pdf.js
- * may decode as an image has its size read from its dictionary's top level;
- * every `num gen R` outside stream data and inside decoded object streams is
- * counted. Stops at the first byte bound passed; the `q` bounds are judged
- * once every reference has been counted. Streams behind other filters (LZW,
- * ASCII85) are not decoded; their size is not seen.
+ * pdf.js may read as content has its leading Flate, ASCIIHex and ASCII85
+ * stages decoded (counted, never kept) and its `q` and `Do` operators
+ * counted; every stream pdf.js may decode as an image has its size read from
+ * its dictionary's top level; every `num gen R` outside stream data and
+ * inside decoded object streams is counted. Stops at the first byte bound
+ * passed; the `q` bounds are judged once every reference has been counted.
+ *
+ * Before lane res1 only LEADING Flate stages were inflated, so an ASCIIHex
+ * stage in front of a Flate bomb hid it. A stage pdf.js does not know is
+ * no stage to pdf.js, and is none here. What the scan still cannot decode
+ * (LZW, RunLength, Brotli, the image codecs) is counted at its stored size
+ * when it is the last stage; a Flate stage AFTER one of them is refused,
+ * since its output cannot be seen and pdf.js inflates it.
  *
  * What may be content is decided WITHOUT trusting labels (third review):
  * pdf.js reads a page's /Contents, a pattern, a glyph procedure or an
@@ -622,7 +974,7 @@ export async function scanPdfStreams(
   };
   const refs = new RefCounter();
   const contents = new ContentsRefs();
-  const records: ContentRecord[] = [];
+  const records: ReadRecord[] = [];
   /** Stream data, [start, end) pairs: not object text. */
   const dataRanges: [number, number][] = [];
   /** Object numbers of every stream found. */
@@ -689,28 +1041,44 @@ export async function scanPdfStreams(
     parsed.set(o.streamKw, list);
   }
 
-  /** Inflate and q-count one stream that pdf.js may read as content. */
   /** q counts of streams labelled as not content, until /Contents is known. */
-  const heldBack: ContentRecord[] = [];
-  const keep = (r: ContentRecord, labelled: boolean) => {
-    if (labelled) {
-      heldBack.push(r);
-      return;
-    }
-    scan.maxQDepth = Math.max(scan.maxQDepth, r.max);
-    if (r.pushes > 0 || r.dos > 0) records.push(r);
+  const heldBack: ReadRecord[] = [];
+  const keep = (r: ReadRecord, labelled: boolean) => {
+    if (labelled) heldBack.push(r);
+    else records.push(r);
   };
+  /**
+   * Decode `s` through `decoding` (or hand its stored bytes on, when nothing
+   * needs decoding and pdf.js reads them as they are), feeding `sink`; the
+   * bytes produced, up to `limit` and something.
+   */
+  const decodeInto = async (
+    s: FoundStream,
+    decoding: readonly Stage[],
+    decodable: boolean,
+    limit: number,
+    sink: (chunk: Uint8Array) => void,
+  ): Promise<number> => {
+    const data = bytes.subarray(s.start, s.end);
+    if (decoding.length > 0) {
+      return decodeCounting(data, decoding, limit, sink);
+    }
+    if (decodable) sink(data);
+    return data.length;
+  };
+  /** Decode and q-count one stream that pdf.js may read as content. */
   const readAsContent = async (
     s: FoundStream,
     labelled = s.labelledNotContent,
   ): Promise<void> => {
     const { entries } = s;
-    const filters = filtersOf(entries);
-    let flateStages = 0;
-    while (flateStages < filters.length && FLATE.has(filters[flateStages]!)) {
-      flateStages += 1;
-    }
-    const decodable = flateStages === filters.length;
+    const stages = filtersOf(entries).map(stageOf);
+    let known = 0;
+    while (known < stages.length && stages[known] !== "opaque") known += 1;
+    const decodable = known === stages.length;
+    // pdf.js inflates a Flate stage that follows one the scan cannot decode
+    // (LZW, RunLength, ...), and nothing here can see how far: refuse.
+    const hiddenFlate = stages.slice(known).includes("flate");
     // pdf.js reads an object stream by its /First and /N, not its /Type.
     const objectStream =
       namesOf(entries, "Type").includes("ObjStm") || entries.has("First");
@@ -726,19 +1094,20 @@ export async function scanPdfStreams(
         contents.feed(c);
       }
     };
-    const data = bytes.subarray(s.start, s.end);
-    let decoded: number;
-    if (flateStages > 0) {
-      const limit = Math.min(
+    const decoding = stages
+      .slice(0, known)
+      .filter((stage) => stage !== "identity");
+    const decoded = await decodeInto(
+      s,
+      decoding,
+      decodable,
+      Math.min(
         MAX_DECODED_STREAM_BYTES,
         MAX_DECODED_TOTAL_BYTES - scan.totalBytes,
-      );
-      decoded = await inflateCounting(data, flateStages, limit, sink);
-      scan.inflated += 1;
-    } else {
-      decoded = data.length;
-      if (filters.length === 0) sink(data);
-    }
+      ),
+      sink,
+    );
+    if (decoding.length > 0) scan.inflated += 1;
     scan.maxStreamBytes = Math.max(scan.maxStreamBytes, decoded);
     scan.totalBytes += decoded;
     if (ops) {
@@ -747,16 +1116,21 @@ export async function scanPdfStreams(
         {
           num: s.num,
           form: s.form,
-          max: ops.max,
-          left: ops.depth,
-          pushes: ops.pushes,
-          work: ops.work,
-          dos: ops.dos,
+          exact: countsOf(ops),
+          cleanEnd: ops.cleanEnd,
+          // Read again, loose, only if the judgement needs it.
+          loose: async () => {
+            const again = new ContentOps(false);
+            await decodeInto(s, decoding, true, decoded, (c) => again.feed(c));
+            again.end();
+            return countsOf(again);
+          },
         },
         labelled,
       );
     }
-    if (decoded > MAX_DECODED_STREAM_BYTES) scan.exceeded = "stream-bytes";
+    if (hiddenFlate || decoded > MAX_DECODED_STREAM_BYTES)
+      scan.exceeded = "stream-bytes";
     else if (scan.totalBytes > MAX_DECODED_TOTAL_BYTES)
       scan.exceeded = "total-bytes";
   };
@@ -884,6 +1258,8 @@ export async function scanPdfStreams(
   contents.feed(bytes);
   contents.reset();
   const named = new Set<number>(contents.arrays);
+  /** Streams a /Contents ARRAY lists: pdf.js reads them joined. */
+  const inArrays = new Set<number>(contents.arrays);
   let unseen = opaqueObjectStreams > 0;
   const indirect = new Set(
     [...contents.direct].filter((n) => !streamNums.has(n)),
@@ -895,7 +1271,11 @@ export async function scanPdfStreams(
     // An array object in an object stream, or a name of nothing: the scan
     // cannot see what it lists, so every image may be content.
     if (held === undefined) unseen = true;
-    else for (const m of held) named.add(m);
+    else
+      for (const m of held) {
+        named.add(m);
+        inArrays.add(m);
+      }
   }
   const isNamed = (num: number | null) =>
     unseen || num === null || named.has(num);
@@ -916,7 +1296,31 @@ export async function scanPdfStreams(
     from = Math.max(from, end);
   }
   refs.countIn(bytes, from, bytes.length);
-  judgeGraphicsState(scan, records, refs.counts, opaqueObjectStreams);
+
+  // pdf.js reads the streams of a /Contents array as one, so a stream that
+  // ends inside a string, a comment or an image hands that state to the
+  // stream after it, which this scan read from a fresh start. Every stream an
+  // array may list is then judged by its loose reading, which skips nothing
+  // (see ContentOps), except the unclean stream itself when nothing else is
+  // unclean and the file names it once: then nothing can come before it. A
+  // stream read alone (a single /Contents, a form, a pattern) always starts
+  // fresh in pdf.js.
+  const inArray = (num: number | null) =>
+    unseen || num === null || inArrays.has(num);
+  const unclean = records.filter((r) => !r.cleanEnd && inArray(r.num));
+  const startsUnknown = (r: ReadRecord) =>
+    inArray(r.num) &&
+    unclean.some(
+      (u) => u !== r || u.num === null || (refs.counts.get(u.num) ?? 0) > 1,
+    );
+  const judged: ContentRecord[] = [];
+  for (const r of records) {
+    const c = startsUnknown(r) ? await r.loose() : r.exact;
+    scan.maxQDepth = Math.max(scan.maxQDepth, c.max);
+    if (c.pushes > 0 || c.dos > 0)
+      judged.push({ num: r.num, form: r.form, ...c });
+  }
+  judgeGraphicsState(scan, judged, refs.counts, opaqueObjectStreams);
   return scan;
 }
 
@@ -1006,8 +1410,9 @@ export interface PdfjsPreflight {
 /**
  * Refuse, with a typed error, a file pdf.js would inflate past the memory
  * bounds above, or whose content nests past {@link MAX_GRAPHICS_STATE_DEPTH}
- * or works past {@link MAX_GRAPHICS_STATE_WORK}.
- * Call it before `getDocument`.
+ * or works past {@link MAX_GRAPHICS_STATE_WORK}. Readers call it through
+ * {@link preflightPdfjsOpen}, which runs the xref pre-scan first and keeps
+ * the answer per file.
  *
  * Images are left to the caller, because previews and outputs differ:
  *
@@ -1054,6 +1459,61 @@ export async function preflightPdfjsBytes(
     previewOptions: { maxImageSize: smallest - 1 },
     overBudgetImage: true,
   };
+}
+
+/** Each file's preflight, by the bytes it was asked of (see below). */
+const preflights = new WeakMap<
+  Uint8Array,
+  { length: number; result: Promise<PdfjsPreflight> }
+>();
+
+/**
+ * The checks EVERY pdf.js open in the browser runs first, in this order:
+ *
+ *  1. `prescanXref`: cross-reference rows pdf.js would walk past every bound
+ *     (zero bytes wide over an /Index of two billion entries runs it out of
+ *     memory at the open itself, SIB-03) are refused as unreadable;
+ *  2. {@link preflightPdfjsBytes}: streams that inflate past the memory
+ *     bounds, an object stream among them (pdf.js inflates the one holding
+ *     the catalog during the open), and page content nested or worked past
+ *     the `q` bounds.
+ *
+ * Before lane res1 only the text and raster readers ran (2), and only the
+ * access probe ran (1): the upload board of every pdf.js tool, Compare's
+ * cards, Auto-crop and the editor canvas ran neither.
+ * `pdfjs-open-preflight.test.ts` finds every pdf.js open in the browser
+ * code and requires it to await this first.
+ *
+ * The answer is kept for the same `Uint8Array` object at the same length: a
+ * file is opened by the page board, then its thumbnails, then the run, and
+ * the scan is a pass over the whole file, so it runs once. A typed refusal is kept
+ * too, and is the same refusal. The key is the object, not its contents: a
+ * caller that wrote new bytes into an array it had already opened would get
+ * the first answer. The readers hand pdf.js a copy and never write into the
+ * array they were given; the length check only catches a detached buffer.
+ */
+export function preflightPdfjsOpen(bytes: Uint8Array): Promise<PdfjsPreflight> {
+  const kept = preflights.get(bytes);
+  if (kept && kept.length === bytes.length) return kept.result;
+  const result = (async () => {
+    if (prescanXref(bytes).unbounded) {
+      throw new PdfEngineError(UNREADABLE_PDF_MESSAGE, { kind: "unreadable" });
+    }
+    return preflightPdfjsBytes(bytes);
+  })();
+  preflights.set(bytes, { length: bytes.length, result });
+  // Only answers about the FILE are kept: a result, or a typed refusal. A
+  // failure of the scan itself (an exception from `DecompressionStream`, say)
+  // says nothing about these bytes, so the next open asks again.
+  result.catch((err: unknown) => {
+    if (
+      !(err instanceof PdfEngineError) &&
+      preflights.get(bytes)?.result === result
+    ) {
+      preflights.delete(bytes);
+    }
+  });
+  return result;
 }
 
 /** The output paths' refusal of a file holding an over-budget image. */

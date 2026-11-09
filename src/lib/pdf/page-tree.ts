@@ -99,7 +99,12 @@ export type PageTreeVerdict =
   | {
       readonly ok: false;
       readonly reason:
-        "no-catalog" | "no-page-tree" | "cycle" | "damaged-page" | "internal";
+        | "no-catalog"
+        | "no-page-tree"
+        | "no-pages"
+        | "cycle"
+        | "damaged-page"
+        | "internal";
       /** 1-based: the page pdf-lib could not read (`damaged-page` only). */
       readonly page?: number;
     };
@@ -445,6 +450,13 @@ function walkPageTree(lib: PdfLibModule, doc: PDFDocument): PageTreeVerdict {
     leaves.push({ node, handle: ref ?? node, inherited: frame.inherited });
     frame.leaves += 1;
   }
+
+  // A tree with no page in it (`/Kids [] /Count 0`). pdf-lib "loads" it, and
+  // its save adds a blank page, so a stamper would hand back a one-page blank
+  // "watermarked" file as a success. pdf.js refuses the same file
+  // (`pdfjsPageCount`); this is the same refusal on the pdf-lib side. The page
+  // counter tells it apart from damage (`zero-pages`, `./page-count`).
+  if (leaves.length === 0) return { ok: false, reason: "no-pages" };
 
   if (maxDepth > PAGE_TREE_FLATTEN_DEPTH) {
     // One level: every page a kid of the root, carrying what it inherited.

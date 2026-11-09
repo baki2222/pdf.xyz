@@ -18,6 +18,14 @@ import {
 import { buildPdf, onePageObjects, TEXT_OPS } from "./stamping.fixtures";
 import { startMemoryMeter } from "./memory";
 import { reportResult } from "./report";
+import {
+  asciiHex,
+  catalogObjStmBombPdf,
+  countMinusOnePdf,
+  oneContentPdf,
+  splitQPdf as splitQOpenPdf,
+  zeroWidthXrefPdf,
+} from "./pdfjs-open.fixtures";
 import { deflateSync } from "node:zlib";
 import {
   chainedFlateStream,
@@ -255,6 +263,108 @@ const CASES: Record<string, () => Promise<unknown>> = {
     preflight(noEndstreamSoup(200_000)),
 };
 
+// Lane res1: every pdf.js open goes through the preflight. Each reader that
+// opened pdf.js with no check, on each file that open could not survive.
+//   open:<file>:<reader>
+const OPEN_FILES: Record<string, () => Promise<Uint8Array> | Uint8Array> = {
+  // 20 object streams x 100 MiB behind two Flate stages; the catalog in one.
+  "objstm-bomb": () => catalogObjStmBombPdf(20, 100),
+  "zero-width-xref": zeroWidthXrefPdf,
+  "q-split": () => splitQOpenPdf(32, 1_020),
+  "count-minus-one": countMinusOnePdf,
+  control: CONTROL,
+};
+
+const OPEN_READERS: Record<string, (bytes: Uint8Array) => Promise<object>> = {
+  /** The upload board of every reader:'pdfjs' tool. */
+  "read-pages": async (bytes) => {
+    const { readPagesWithPdfjs } = await import("@/lib/pdf/pdfjs");
+    return { ok: true, pageCount: (await readPagesWithPdfjs(bytes)).pageCount };
+  },
+  /** Compare PDF's file cards. */
+  "count-pages": async (bytes) => {
+    const { countPagesWithPdfjs } = await import("@/lib/pdf/pdfjs-page-count");
+    return { ok: true, pageCount: await countPagesWithPdfjs(bytes) };
+  },
+  /** Crop PDF's Auto-crop. */
+  "auto-crop": async (bytes) => {
+    await withCanvas();
+    const { detectAutoCrop } = await import("@/lib/pdf/auto-crop-render");
+    const plan = await detectAutoCrop(bytes);
+    return {
+      ok: true,
+      analysed: plan.perPage.length,
+      unread: plan.unread.length,
+    };
+  },
+  /**
+   * The access probe (`classifyPdfAccess`): it runs on file arrival, ahead of
+   * every reader, on the batch runners, Compress, Protect/Unlock and Request
+   * Signatures. It never throws; its verdict is the value.
+   */
+  access: async (bytes) => {
+    const { classifyPdfAccess } = await import("@/lib/pdf/encryption");
+    const pdfjs =
+      (await import("pdfjs-dist/legacy/build/pdf.mjs")) as unknown as import("@/lib/pdf/encryption").PdfjsForAccess;
+    const access = await classifyPdfAccess(bytes, pdfjs);
+    return { ok: true, access: access.kind };
+  },
+  /** The editor's page canvas: open, then draw page 1. */
+  "editor-render": async (bytes) => {
+    await withCanvas();
+    const { openEditorPdf } = await import("@/lib/pdf/editor/page-render");
+    const doc = await openEditorPdf(bytes);
+    const canvas = await doc.render(0, 1, 1);
+    await doc.destroy();
+    return { ok: true, numPages: doc.numPages, drawn: canvas !== null };
+  },
+};
+
+/** Item 3: a one-page file whose content is AHx over Flate over `total` zeros. */
+async function ahxContentPdf(total: number): Promise<Uint8Array> {
+  return oneContentPdf(
+    "/Filter [/ASCIIHexDecode /FlateDecode]",
+    asciiHex(await deflatedZeros(total)),
+  );
+}
+CASES["ahx-bomb-thumbs"] = async () => thumbs(await ahxContentPdf(2 ** 30));
+CASES["ahx-bomb-raster"] = async () => raster(await ahxContentPdf(2 ** 30));
+CASES["ahx-control-raster"] = async () =>
+  raster(
+    oneContentPdf(
+      "/Filter [/ASCIIHexDecode /FlateDecode]",
+      asciiHex(
+        deflateSync(
+          Buffer.from("BT /F1 14 Tf 20 100 Td (AHX MARK) Tj ET\n0 0 m q Q\n"),
+        ),
+      ),
+    ),
+  );
+
+const [kind, file, reader] = (process.argv[2] ?? "").split(":");
+if (kind === "open") {
+  const make = OPEN_FILES[file ?? ""];
+  const read = OPEN_READERS[reader ?? ""];
+  if (!make || !read) throw new Error(`unknown case ${process.argv[2]}`);
+  CASES[process.argv[2]!] = async () => {
+    const bytes = await make();
+    // Measured from here: the fixture's own build is not the reader's cost.
+    const meter = startMemoryMeter();
+    const t0 = Date.now();
+    try {
+      return await read(bytes);
+    } finally {
+      // Read on settle: reported beside the value or the error.
+      growth = {
+        mb: Math.round(meter.growthMb()),
+        method: meter.method,
+        ms: Date.now() - t0,
+      };
+    }
+  };
+}
+let growth: { mb: number; method: string; ms: number } | null = null;
+
 const run = CASES[process.argv[2] ?? ""];
 if (!run) throw new Error(`unknown case ${process.argv[2]}`);
 const peak = () => Math.round(process.resourceUsage().maxRSS / 1024);
@@ -274,10 +384,14 @@ async function warm(): Promise<void> {
 void (async () => {
   await warm();
   const meter = startMemoryMeter();
+  // An `open:` case runs its own meter after its fixture is built, which
+  // resets the same high-water mark (memory.ts), so this outer reading
+  // would be short for it: it reports `growth` instead, never both.
   const measure = () => ({
     maxRssMb: peak(),
-    growthMb: Math.round(meter.growthMb()),
-    meter: meter.method,
+    ...(growth
+      ? { growth }
+      : { growthMb: Math.round(meter.growthMb()), meter: meter.method }),
   });
   try {
     const value = await run();

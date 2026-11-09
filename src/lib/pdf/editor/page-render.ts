@@ -52,13 +52,33 @@ export function cappedPixelRatio(
   return Math.max(0.5, Math.sqrt(MAX_CANVAS_PIXELS / (cssWidth * cssHeight)));
 }
 
+/**
+ * Open `bytes` for the editor's canvas. Rejects, typed, when the preflight
+ * every pdf.js open runs refuses the file (a stream that expands past the
+ * memory bounds, content nested too deeply, a cross-reference pdf.js would
+ * walk without end), when pdf.js cannot open it, or when its page count is
+ * not one a person can be shown (/Count 0 or -1: the unreadable copy).
+ */
 export async function openEditorPdf(bytes: Uint8Array): Promise<EditorPdf> {
-  const pdfjs = await loadPdfjs();
+  // ../pdfjs-guard is its own chunk, requested with pdfjs, not after it.
+  const guardModule = import("../pdfjs-guard");
+  const pdfjsModule = loadPdfjs();
+  pdfjsModule.catch(() => {});
+  const guard = await guardModule;
+  await guard.preflightPdfjsOpen(bytes);
+  const pdfjs = await pdfjsModule;
   const task = pdfjs.getDocument({
     data: bytes.slice(),
     ...PDFJS_DOCUMENT_DEFAULTS,
   });
   const doc = await awaitPdfjsDocument(task);
+  let numPages: number;
+  try {
+    numPages = guard.pdfjsPageCount(doc.numPages);
+  } catch (err) {
+    await task.destroy().catch(() => {});
+    throw err;
+  }
   let destroyed = false;
 
   const render: EditorPdf["render"] = async (
@@ -126,7 +146,7 @@ export async function openEditorPdf(bytes: Uint8Array): Promise<EditorPdf> {
   };
 
   return {
-    numPages: doc.numPages,
+    numPages,
     render,
     textContent,
     destroy: async () => {

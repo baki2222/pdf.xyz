@@ -12,12 +12,20 @@ import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
  * through `awaitPdfjsDocument`, as `PdfEncryptedError`.
  *
  * Its own module so only Compare PDF's page loads it (`pdfjs.ts` is shared).
+ * The stream preflight is requested on demand, as every other reader does:
+ * the count is only asked once a file is added.
  */
 export async function countPagesWithPdfjs(
   bytes: Uint8Array,
   load: () => Promise<PdfjsModule> = loadPdfjs,
 ): Promise<number> {
-  const pdfjs = await load();
+  // The preflight every open runs (./pdfjs-guard, its own chunk), requested
+  // with pdfjs, not after it.
+  const guardModule = import("./pdfjs-guard");
+  const pdfjsModule = load();
+  pdfjsModule.catch(() => {});
+  await (await guardModule).preflightPdfjsOpen(bytes);
+  const pdfjs = await pdfjsModule;
   // pdfjs may detach the buffer it is handed; the caller's bytes stay intact.
   const task = pdfjs.getDocument({
     data: bytes.slice(),

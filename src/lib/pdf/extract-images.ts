@@ -128,6 +128,8 @@ const INLINE_SCAN_BYTES = 64 * 1024 * 1024;
  * as not checked, never refused. The legit corpus's largest stream is 1 MB.
  */
 const INLINE_SCAN_TOTAL_BYTES = 4 * INLINE_SCAN_BYTES;
+/** The total as the copy states it: MB of 1e6, never more than is true. */
+const INLINE_SCAN_TOTAL_MB = INLINE_SCAN_TOTAL_BYTES / (1024 * 1024);
 
 /**
  * A decode asked for N bytes stops after the block that crosses N, and that
@@ -261,10 +263,14 @@ export async function extractPdfImages(
       if (!prefix) continue;
       const { data, more } = prefix;
       if (more) {
+        // Say which cap bit: a stream under the per-stream cap that met the
+        // end of the file's total is not "too large" (l01#11).
         skip(
           page,
           normalizeFilters(stream.dict).join(", ") || "(none)",
-          "Page content too large to check for inline images",
+          max < INLINE_SCAN_BYTES
+            ? `Partly checked for inline images: earlier pages used this file's ${INLINE_SCAN_TOTAL_MB} MB check allowance`
+            : "Page content too large to check for inline images",
         );
       }
       for (const inline of findInlineImages(data)) {

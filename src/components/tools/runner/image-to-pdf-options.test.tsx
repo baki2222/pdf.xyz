@@ -21,6 +21,8 @@ import { JPEG_30X20, JPEG_HEIGHT, JPEG_WIDTH } from "@/tests/jpeg-fixtures";
 import { withAppRouter } from "@/tests/app-router";
 import { animatedPng, greyPng } from "@/tests/density-fixtures";
 import { undecodableImageMessage } from "@/lib/pdf/image-intake";
+import { tooManyPixelsMessage } from "@/lib/pdf/raster-check";
+import { pngClaiming } from "@/tests/hostile/conversion-in.fixtures";
 import { IMAGE_ROTATION_LABELS } from "@/lib/pdf/image-rotation";
 import {
   SMALL_IMAGES_CHOICES,
@@ -390,6 +392,33 @@ describe("image to PDF · a file that cannot be decoded is refused when added", 
     // And Create PDF runs on what is left.
     const pdf = await createAndDownload();
     expect((await PDFDocument.load(pdf)).getPageCount()).toBe(1);
+  });
+
+  // Hostile residuals res4 (l09#128): a VALID PNG over the pixel ceiling
+  // was called "could not be decoded" as it was added, and over-size only
+  // at run. The add-time refusal now carries the run-time sentence.
+  it("a valid PNG over the pixel ceiling is refused by size, in the run's words", async () => {
+    const { container } = render(
+      withAppRouter(<ImageToPdfRunner kind="png" />),
+    );
+    fireEvent.change(container.querySelector('input[type="file"]')!, {
+      target: {
+        files: [
+          png("good.png", whole),
+          png("big.png", pngClaiming(20_000, 20_000)),
+        ],
+      },
+    });
+    await screen.findByText("good.png", undefined, { timeout: 4_000 });
+    const message = tooManyPixelsMessage("big.png", {
+      width: 20_000,
+      height: 20_000,
+    });
+    const alert = await screen.findByText(new RegExp(escape(message)));
+    expect(alert.textContent).not.toContain(
+      undecodableImageMessage("big.png", "png"),
+    );
+    expect(screen.queryByText("big.png")).toBeNull();
   });
 });
 

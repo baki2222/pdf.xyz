@@ -10,6 +10,10 @@
 //                   /Index [0 2000000000], plus the bare name /ObjStm
 //   xref-bomb       the newest xref stream claims 4 rows, and inflates to
 //                   256 MiB (a 256 KB deflate of zeros), plus the name /ObjStm
+//   hidden-objstms K M  K streams carrying /N and /First but NO /Type /ObjStm
+//                   (so pdf-lib's load never decodes them), each inflating
+//                   to M MiB, named by type-2 xref entries whose members have
+//                   a top-level "twin" header: the guard opens every one
 //   nested N        N objects whose first headers sit inside one another's
 //                   strings, each defined again later, the xref naming the
 //                   nested (first) one: every re-parse runs to the end
@@ -19,8 +23,9 @@ import { loadPdf } from "@/lib/pdf/engine";
 import { startMemoryMeter } from "./memory";
 import { reportResult } from "./report";
 
-const [mode = "", nArg = "0"] = process.argv.slice(2);
+const [mode = "", nArg = "0", mArg = "0"] = process.argv.slice(2);
 const N = Number(nArg);
+const M = Number(mArg);
 
 const parts: Buffer[] = [];
 let len = 0;
@@ -173,11 +178,80 @@ async function zeros(): Promise<Buffer> {
   return Buffer.concat(out);
 }
 
+/** One member table + body, padded with zeros to `mib` MiB, deflated in chunks. */
+async function hiddenStreamData(
+  num: number,
+  mib: number,
+): Promise<{ z: Buffer; first: number }> {
+  const head = `${num} 0 `;
+  const out: Buffer[] = [];
+  const z = createDeflate({ level: 9 });
+  z.on("data", (d: Buffer) => out.push(d));
+  const done = new Promise((resolve) => z.on("end", resolve));
+  z.write(Buffer.from(`${head}<< >>\n`, "latin1"));
+  const chunk = Buffer.alloc(1024 * 1024);
+  for (let i = 0; i < mib; i += 1)
+    if (!z.write(chunk)) await new Promise((r) => z.once("drain", r));
+  z.end();
+  await done;
+  return { z: Buffer.concat(out), first: head.length };
+}
+
+async function hiddenObjstms(k: number, mib: number): Promise<Uint8Array> {
+  const offs = new Map<number, number>();
+  push("%PDF-1.7\n% /ObjStm\n");
+  offs.set(1, len);
+  push("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+  offs.set(2, len);
+  push("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
+  offs.set(3, len);
+  push(
+    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>\nendobj\n",
+  );
+  for (let i = 0; i < k; i += 1) {
+    const { z, first } = await hiddenStreamData(1000 + i, mib);
+    offs.set(100 + i, len);
+    push(
+      `${100 + i} 0 obj\n<< /N 1 /First ${first} /Filter /FlateDecode /Length ${z.length} >>\nstream\n`,
+    );
+    push(z);
+    push("\nendstream\nendobj\n");
+  }
+  // Each member's top-level "twin", inside a stream pdf-lib never parses as objects.
+  let twins = "";
+  for (let i = 0; i < k; i += 1) twins += `${1000 + i} 0 obj\n`;
+  offs.set(4, len);
+  push(
+    `4 0 obj\n<< /Length ${twins.length} >>\nstream\n${twins}\nendstream\nendobj\n`,
+  );
+  offs.set(5, len);
+  const rows: Buffer[] = [];
+  const xrow = (t: number, a: number, b: number) => {
+    const r = Buffer.alloc(7);
+    r[0] = t;
+    r.writeUInt32BE(a, 1);
+    r.writeUInt16BE(b, 5);
+    rows.push(r);
+  };
+  xrow(0, 0, 65535);
+  for (const n of [1, 2, 3, 4, 5]) xrow(1, offs.get(n)!, 0);
+  for (let i = 0; i < k; i += 1) xrow(1, offs.get(100 + i)!, 0);
+  for (let i = 0; i < k; i += 1) xrow(2, 100 + i, 0);
+  const xd = Buffer.concat(rows);
+  push(
+    `5 0 obj\n<< /Type /XRef /Size ${1000 + k} /W [1 4 2] /Index [0 6 100 ${k} 1000 ${k}] /Root 1 0 R /Length ${xd.length} >>\nstream\n`,
+  );
+  push(xd);
+  push(`\nendstream\nendobj\nstartxref\n${offs.get(5)}\n%%EOF\n`);
+  return new Uint8Array(Buffer.concat(parts));
+}
+
 async function build(): Promise<Uint8Array> {
   if (mode === "objstm-twins") return objstmTwins();
   if (mode === "w000") return w000();
   if (mode === "xref-bomb") return xrefBomb(await zeros());
   if (mode === "nested") return nested();
+  if (mode === "hidden-objstms") return hiddenObjstms(N, M);
   throw new Error(`unknown mode ${mode}`);
 }
 
