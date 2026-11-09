@@ -4,6 +4,7 @@ import { memo, useEffect, useRef, useState, type CSSProperties } from "react";
 import { AlertTriangle } from "lucide-react";
 import type { TextLayerHandle, ViewerLink, ViewerPdf } from "@/lib/pdf/viewer";
 import { VIEWER_LINK_REL } from "@/lib/pdf/viewer-links";
+import { scrollWithin } from "./scroll-within";
 import { turnFractionRect, type QuarterTurn } from "@/lib/pdf/viewer-geometry";
 import type { SearchMatch } from "@/lib/pdf/viewer-search";
 import {
@@ -167,7 +168,9 @@ export const ViewerPage = memo(function ViewerPage({
     const marked = applyHits(layer.divs, hits ?? [], activeHit);
     if (marked && revealed.current !== revealToken) {
       revealed.current = revealToken;
-      marked.scrollIntoView?.({ block: "center", inline: "nearest" });
+      // The page column scrolls to the match, never the web page around it.
+      const scroller = marked.closest<HTMLElement>("[data-viewer-scroller]");
+      if (scroller) scrollWithin(scroller, marked, "center");
     }
     return () => clearHits(layer.divs);
   }, [layer, hits, activeHit, revealToken]);

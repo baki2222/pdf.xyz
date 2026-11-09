@@ -202,6 +202,24 @@ describe("PDF Viewer: page navigation", () => {
     const field = pageField();
     expect(fireEvent.keyDown(field, { key: "Home" })).toBe(true);
   });
+
+  it("the arrow keys are the browser's: they pan a zoomed page, never step one", async () => {
+    // History (review, 2026-11-10): ArrowLeft/ArrowRight stepped pages and
+    // prevented the default, so at 400% the right of every page could not
+    // be reached by keyboard (WCAG 2.1.1).
+    const region = await mount();
+    const scroller = region.querySelector<HTMLElement>(
+      "[data-viewer-scroller]",
+    )!;
+    scroller.focus();
+    for (const key of ["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"]) {
+      expect(fireEvent.keyDown(scroller, { key }), key).toBe(true);
+    }
+    expect(pageField()).toHaveProperty("value", "1");
+    // Positive control: Page Down still steps, prevented.
+    expect(fireEvent.keyDown(scroller, { key: "PageDown" })).toBe(false);
+    await waitFor(() => expect(pageField()).toHaveProperty("value", "2"));
+  });
 });
 
 describe("PDF Viewer: search", () => {
@@ -237,6 +255,45 @@ describe("PDF Viewer: search", () => {
       '[data-viewer-page="3"] mark',
     )!.parentElement!;
     expect(span.textContent).toBe("zeb");
+  });
+
+  it("a search's progress is shown, not announced; its result is announced once", async () => {
+    // History (review, 2026-11-10): the status was a polite live region
+    // republished every 120 ms with "Searching… page N of M".
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    const base = fakeDoc();
+    await mount(
+      fakeDoc({
+        text: async (index) => {
+          if (index === 3) await held;
+          return base.text(index);
+        },
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: VIEWER_LABELS.search }));
+    const search = screen.getByRole("search");
+    const field = screen.getByRole("searchbox", {
+      name: VIEWER_LABELS.searchField,
+    });
+    fireEvent.change(field, { target: { value: "zebra" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    const status = search.querySelector("[data-viewer-search-status]")!;
+    const announce = search.querySelector("[data-viewer-search-announce]")!;
+    // The shown status is not a live region; the announcement is.
+    expect(status.getAttribute("aria-live")).toBeNull();
+    expect(status.getAttribute("role")).toBeNull();
+    expect(announce.getAttribute("role")).toBe("status");
+    expect(announce.getAttribute("aria-live")).toBe("polite");
+    // Mid-search: progress shown, nothing announced.
+    await waitFor(() => expect(status.textContent).toContain("Searching…"));
+    expect(announce.textContent).toBe("");
+    await act(async () => release());
+    // Done: the result, said once.
+    await waitFor(() =>
+      expect(announce.textContent).toContain("1 match on 1 page."),
+    );
+    expect(announce.textContent).not.toContain("Searching");
   });
 
   it("Escape closes search and returns focus to the Search button", async () => {
@@ -282,6 +339,70 @@ describe("PDF Viewer: search", () => {
     expect(search.querySelector('a[href="/tools/ocr-pdf"]')?.textContent).toBe(
       "OCR PDF",
     );
+  });
+});
+
+describe("PDF Viewer: the side panel on a phone is a sheet", () => {
+  const OUTLINE = {
+    entries: [
+      { title: "Second page", depth: 0, page: 1, href: null },
+      { title: "Third page", depth: 0, page: 2, href: null },
+    ],
+    truncated: false,
+  };
+  const phoneScreen = (matches: boolean) =>
+    vi.stubGlobal(
+      "matchMedia",
+      (query: string) =>
+        ({
+          matches,
+          media: query,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+        }) as unknown as MediaQueryList,
+    );
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("focus moves into it, Escape closes it and returns focus, and the pages it covers are inert", async () => {
+    // History (review, 2026-11-10): focus stayed on the toolbar, Escape
+    // left the sheet open, and Tab reached the column hidden under it.
+    phoneScreen(true);
+    const region = await mount(fakeDoc({ outline: async () => OUTLINE }));
+    const scroller = region.querySelector<HTMLElement>(
+      "[data-viewer-scroller]",
+    )!;
+    const toggle = screen.getByRole("button", {
+      name: VIEWER_LABELS.bookmarks,
+    });
+    fireEvent.click(toggle);
+    const sheet = region.querySelector<HTMLElement>(
+      '[data-viewer-sidebar="bookmarks"]',
+    )!;
+    await waitFor(() =>
+      expect(sheet.contains(document.activeElement)).toBe(true),
+    );
+    expect(scroller.hasAttribute("inert")).toBe(true);
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    await waitFor(() =>
+      expect(region.querySelector("[data-viewer-sidebar]")).toBeNull(),
+    );
+    expect(document.activeElement).toBe(toggle);
+    expect(scroller.hasAttribute("inert")).toBe(false);
+  });
+
+  it("control: beside the pages (wider screens), focus stays put and nothing is inert", async () => {
+    phoneScreen(false);
+    const region = await mount(fakeDoc({ outline: async () => OUTLINE }));
+    const toggle = screen.getByRole("button", {
+      name: VIEWER_LABELS.bookmarks,
+    });
+    toggle.focus();
+    fireEvent.click(toggle);
+    await screen.findByRole("button", { name: "Third page" });
+    expect(document.activeElement).toBe(toggle);
+    expect(
+      region.querySelector("[data-viewer-scroller]")!.hasAttribute("inert"),
+    ).toBe(false);
   });
 });
 

@@ -5,9 +5,13 @@ import { viewerProofPdf } from "../src/tests/viewer-fixtures";
 import { fileInput, waitForHydration } from "./helpers";
 
 /**
- * The PDF Viewer on a 375 px phone: every control the viewer draws is at
- * least 44 x 44 px, nothing makes the page scroll sideways, and the side
- * panel opens as a sheet over the pages (and closes on a pick).
+ * The PDF Viewer on a 375 px phone: every control the viewer tool draws is
+ * at least 44 x 44 px — the toolbar, search, both side-panel tabs and
+ * "Open another PDF" (the review of 2026-11-10 found the Bookmarks rows at
+ * 36 px and that link at 16 px, outside the set this spec measured) —
+ * nothing makes the page scroll sideways, the viewer is no taller than the
+ * screen, and the side panel opens as a sheet over the pages that takes
+ * focus, closes on Escape or a pick, and hides the pages it covers.
  */
 
 const SCREEN = 375;
@@ -36,7 +40,9 @@ test.beforeEach(async ({ page }) => {
 async function measure(page: import("@playwright/test").Page) {
   return page.evaluate(
     ({ min, width }) => {
-      const region = document.querySelector("[data-pdf-viewer]")!;
+      // The whole tool, not only the viewer region: "Open another PDF" sits
+      // outside it.
+      const region = document.querySelector("[data-pdf-viewer-tool]")!;
       const shown = (el: Element) => {
         const r = el.getBoundingClientRect();
         return r.width > 0 && r.height > 0;
@@ -83,6 +89,70 @@ test("every viewer control is at least 44 px and the page does not scroll sidewa
   const withSearch = await measure(page);
   expect(withSearch.small).toEqual([]);
   expect(withSearch.pageWidth).toBeLessThanOrEqual(SCREEN);
+});
+
+test("the viewer is no taller than the screen, its toolbar two rows", async ({
+  page,
+}) => {
+  // History (review, 2026-11-10): the toolbar wrapped to four rows (201
+  // px) over a 633 px column, so the viewer was 834 px on an 812 px screen.
+  const m = await page.evaluate(() => {
+    const region = document.querySelector("[data-pdf-viewer]")!;
+    const toolbar = region.querySelector('[role="toolbar"]')!;
+    const scroller = region.querySelector("[data-viewer-scroller]")!;
+    return {
+      region: region.getBoundingClientRect().height,
+      toolbar: toolbar.getBoundingClientRect().height,
+      scroller: scroller.getBoundingClientRect().height,
+      screen: window.innerHeight,
+    };
+  });
+  expect(m.region).toBeLessThanOrEqual(m.screen);
+  // Two rows of 44 px controls, their gap and the bar's padding.
+  expect(m.toolbar).toBeLessThanOrEqual(2 * MIN + 4 + 14);
+  // Positive control: the pages still get most of the screen.
+  expect(m.scroller).toBeGreaterThan(m.screen * 0.6);
+});
+
+test("bookmarks open as a sheet whose rows are 44 px", async ({ page }) => {
+  await page.getByRole("button", { name: VIEWER_LABELS.bookmarks }).click();
+  const sheet = page.locator('[data-viewer-sidebar="bookmarks"]');
+  await expect(sheet.getByRole("button", { name: "Third page" })).toBeVisible();
+  const m = await measure(page);
+  // Health: the bookmark rows were in the measured set.
+  const rows = await sheet.locator("[data-viewer-bookmark]").count();
+  expect(rows).toBe(2);
+  expect(m.small).toEqual([]);
+});
+
+test("the sheet takes focus, Escape closes it and gives focus back, and the pages under it are inert", async ({
+  page,
+}) => {
+  const toggle = page.getByRole("button", { name: VIEWER_LABELS.thumbnails });
+  await toggle.click();
+  const sheet = page.locator('[data-viewer-sidebar="thumbnails"]');
+  await expect(sheet).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          document
+            .querySelector("[data-viewer-sidebar]")
+            ?.contains(document.activeElement) ?? false,
+      ),
+    )
+    .toBe(true);
+  await expect(page.locator("[data-viewer-scroller]")).toHaveAttribute(
+    "inert",
+    "",
+  );
+  await page.keyboard.press("Escape");
+  await expect(sheet).toHaveCount(0);
+  await expect(toggle).toBeFocused();
+  await expect(page.locator("[data-viewer-scroller]")).not.toHaveAttribute(
+    "inert",
+    "",
+  );
 });
 
 test("thumbnails open as a sheet over the pages and close on a pick", async ({

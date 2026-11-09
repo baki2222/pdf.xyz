@@ -99,6 +99,24 @@ const ROTATE_TOOL_HREF = "/tools/rotate-pdf";
 /** Empty sheets mounted either side of the view, ahead of a scroll. */
 const MOUNTED_AROUND = 6;
 
+/** Below this width the side panel is a sheet over the pages. */
+const PHONE_QUERY = "(max-width: 639px)";
+
+/** Whether the screen is a phone's width (the side panel is a sheet). */
+function usePhone(): boolean {
+  const [phone, setPhone] = useState(false);
+  useEffect(() => {
+    const mq =
+      typeof window !== "undefined" ? window.matchMedia?.(PHONE_QUERY) : null;
+    if (!mq) return;
+    const sync = () => setPhone(mq.matches);
+    sync();
+    mq.addEventListener?.("change", sync);
+    return () => mq.removeEventListener?.("change", sync);
+  }, []);
+  return phone;
+}
+
 /** The search's state, page by page as it runs. */
 interface SearchState {
   query: string;
@@ -116,15 +134,16 @@ interface SearchState {
  * WHAT IS BOUNDED. Only the visible pages and one each side hold a canvas
  * (`liveWindow`, at most VIEWER_LIVE_PAGES); every canvas is capped in
  * device pixels (`viewerRenderScale`); a draw that leaves the window is
- * aborted. The text layer reads at most VIEWER_MAX_TEXT_ITEMS items per
+ * aborted. What pdf.js keeps decoded for drawn pages is bounded apart from
+ * the canvases (`VIEWER_KEPT_IMAGE_PIXELS`, viewer-retention.test.ts). The text layer reads at most VIEWER_MAX_TEXT_ITEMS items per
  * page, a search stops at VIEWER_MAX_MATCHES, bookmarks at
  * VIEWER_MAX_OUTLINE_ITEMS, print at its page and pixel caps — and each
  * stop is said where it happens.
  *
  * KEYS work while focus is inside the viewer and never in its fields:
- * Page Up / Page Down and the left and right arrows step a page, Home and
- * End go to the first and last, + and - zoom, Ctrl+F (Cmd+F) opens Search.
- * Ctrl+P is the browser's, never taken.
+ * Page Up / Page Down step a page, Home and End go to the first and last,
+ * + and - zoom, Ctrl+F (Cmd+F) opens Search. Ctrl+P and the arrow keys are
+ * the browser's, never taken (the arrows pan a zoomed page).
  *
  * `opening` is the document being opened, started by the runner beside
  * this chunk's fetch (`acquireViewerPdf`), which also owns its release. A
@@ -161,7 +180,7 @@ export function PdfViewer({
   }, [opening]);
 
   return (
-    <div className="flex flex-col gap-4">
+    <div data-pdf-viewer-tool="" className="flex flex-col gap-4">
       <FileHeader pdf={pdf} />
       {failure ? (
         <ErrorNote
@@ -182,7 +201,7 @@ export function PdfViewer({
       <button
         type="button"
         onClick={onReset}
-        className="text-muted hover:text-fg self-start text-xs font-medium"
+        className="text-muted hover:text-fg inline-flex min-h-11 items-center self-start text-xs font-medium sm:min-h-0"
       >
         Open another PDF
       </button>
@@ -397,6 +416,17 @@ function ViewerShell({ pdf, doc }: { pdf: LoadedPdf; doc: ViewerPdf }) {
   const [sidebar, setSidebar] = useState<SidebarTab | null>(null);
   const toggleSidebar = (tab: SidebarTab) =>
     setSidebar((s) => (s === tab ? null : tab));
+  const phone = usePhone();
+  // On a phone the panel is a sheet over the pages: closing it returns
+  // focus to the button that opened it.
+  const sidebarButtons = useRef<
+    Partial<Record<SidebarTab, HTMLButtonElement | null>>
+  >({});
+  const closeSidebar = (returnFocus: boolean) => {
+    const tab = sidebar;
+    setSidebar(null);
+    if (returnFocus && tab) sidebarButtons.current[tab]?.focus();
+  };
 
   // ── Search ──────────────────────────────────────────────────────────
   const [searchOpen, setSearchOpen] = useState(false);
@@ -523,6 +553,19 @@ function ViewerShell({ pdf, doc }: { pdf: LoadedPdf; doc: ViewerPdf }) {
   }, [searchOpen]);
 
   const active = search && activeMatch >= 0 ? search.order[activeMatch] : null;
+  // What a screen reader hears of a search: its result once it has one,
+  // and each move between matches — never its progress.
+  const searchDone =
+    search !== null &&
+    (search.tally.searched >= search.tally.total || search.tally.stoppedAtCap);
+  const searchAnnouncement =
+    search && searchDone
+      ? `${
+          active && search.order.length > 0
+            ? `Match ${activeMatch + 1} of ${search.order.length.toLocaleString("en-US")}. `
+            : ""
+        }${searchStatus(search.tally)}`
+      : "";
 
   // ── Full screen ─────────────────────────────────────────────────────
   const [canFullScreen, setCanFullScreen] = useState(false);
@@ -563,6 +606,10 @@ function ViewerShell({ pdf, doc }: { pdf: LoadedPdf; doc: ViewerPdf }) {
     printAbort.current?.abort();
     printAbort.current = controller;
     setPrinting({ done: 0 });
+    // Said once; the count that follows is shown, not announced.
+    setAnnouncement(
+      `Preparing ${plan.pages.length} page${plan.pages.length === 1 ? "" : "s"} for printing.`,
+    );
     const result = await printPages(
       doc,
       plan,
@@ -600,13 +647,14 @@ function ViewerShell({ pdf, doc }: { pdf: LoadedPdf; doc: ViewerPdf }) {
     }
     if (inField || mod || e.altKey) return;
     switch (e.key) {
+      // The arrow keys are the browser's: at a zoom wider than the view
+      // they are the only keyboard way to pan the column sideways (WCAG
+      // 2.1.1), so they never step a page (review, 2026-11-10).
       case "PageDown":
-      case "ArrowRight":
         e.preventDefault();
         goTo(current + 1);
         break;
       case "PageUp":
-      case "ArrowLeft":
         e.preventDefault();
         goTo(current - 1);
         break;
@@ -647,12 +695,14 @@ function ViewerShell({ pdf, doc }: { pdf: LoadedPdf; doc: ViewerPdf }) {
       ref={regionRef}
       role="region"
       aria-labelledby={headingId}
-      aria-busy={sizes === null || printing !== null}
+      aria-busy={sizes === null}
       data-pdf-viewer=""
       onKeyDown={onKeyDown}
       className={cn(
         "border-line bg-panel flex flex-col overflow-hidden border",
-        !fullScreen && "rounded-panel",
+        // On a phone the viewer is one screen tall at most: the toolbar
+        // takes what it needs and the pages the rest.
+        !fullScreen && "rounded-panel max-sm:h-svh",
       )}
     >
       <style>{TEXT_LAYER_CSS}</style>
@@ -665,6 +715,9 @@ function ViewerShell({ pdf, doc }: { pdf: LoadedPdf; doc: ViewerPdf }) {
         className="border-line flex flex-wrap items-center gap-x-1 gap-y-1 border-b px-2 py-1.5"
       >
         <button
+          ref={(el) => {
+            sidebarButtons.current.thumbnails = el;
+          }}
           type="button"
           className={iconButton}
           aria-label={VIEWER_LABELS.thumbnails}
@@ -675,6 +728,9 @@ function ViewerShell({ pdf, doc }: { pdf: LoadedPdf; doc: ViewerPdf }) {
           <PanelLeft className="size-4" aria-hidden />
         </button>
         <button
+          ref={(el) => {
+            sidebarButtons.current.bookmarks = el;
+          }}
           type="button"
           className={iconButton}
           aria-label={VIEWER_LABELS.bookmarks}
@@ -696,7 +752,7 @@ function ViewerShell({ pdf, doc }: { pdf: LoadedPdf; doc: ViewerPdf }) {
           <ChevronUp className="size-4" aria-hidden />
         </button>
         <label className="text-muted flex items-center gap-1.5 text-sm">
-          <span>Page</span>
+          <span className="max-sm:sr-only">Page</span>
           <input
             aria-label={VIEWER_LABELS.pageNumber}
             inputMode="numeric"
@@ -732,7 +788,9 @@ function ViewerShell({ pdf, doc }: { pdf: LoadedPdf; doc: ViewerPdf }) {
         <span aria-hidden className="bg-line mx-1 h-6 w-px max-sm:hidden" />
         <button
           type="button"
-          className={iconButton}
+          // On a phone the zoom menu (every step) stands for both buttons,
+          // so the toolbar is two rows, not four.
+          className={cn(iconButton, "max-sm:hidden")}
           aria-label={VIEWER_LABELS.zoomOut}
           title={VIEWER_LABELS.zoomOut}
           aria-disabled={effectiveZoom <= MIN_ZOOM + 0.001}
@@ -770,7 +828,7 @@ function ViewerShell({ pdf, doc }: { pdf: LoadedPdf; doc: ViewerPdf }) {
         </select>
         <button
           type="button"
-          className={iconButton}
+          className={cn(iconButton, "max-sm:hidden")}
           aria-label={VIEWER_LABELS.zoomIn}
           title={VIEWER_LABELS.zoomIn}
           aria-disabled={effectiveZoom >= MAX_ZOOM - 0.001}
@@ -926,12 +984,10 @@ function ViewerShell({ pdf, doc }: { pdf: LoadedPdf; doc: ViewerPdf }) {
               <X className="size-4" aria-hidden />
             </button>
           </div>
-          <p
-            role="status"
-            aria-live="polite"
-            data-viewer-search-status=""
-            className="text-muted text-xs"
-          >
+          {/* Progress is shown, not announced: a live region fed "Searching…
+              page N of M" every 120 ms is a stream of numbers to a screen
+              reader. The result is announced once, below. */}
+          <p data-viewer-search-status="" className="text-muted text-xs">
             {search && (
               <>
                 {active && search.order.length > 0 && (
@@ -956,6 +1012,14 @@ function ViewerShell({ pdf, doc }: { pdf: LoadedPdf; doc: ViewerPdf }) {
                 )}
               </>
             )}
+          </p>
+          <p
+            role="status"
+            aria-live="polite"
+            data-viewer-search-announce=""
+            className="sr-only"
+          >
+            {searchAnnouncement}
           </p>
         </div>
       )}
@@ -989,7 +1053,7 @@ function ViewerShell({ pdf, doc }: { pdf: LoadedPdf; doc: ViewerPdf }) {
             </p>
           )}
           {printing ? (
-            <p role="status" className="text-muted">
+            <p data-viewer-print-progress="" className="text-muted">
               Preparing pages for printing: {printing.done} of{" "}
               {plan?.pages.length ?? 0}…
             </p>
@@ -1011,31 +1075,32 @@ function ViewerShell({ pdf, doc }: { pdf: LoadedPdf; doc: ViewerPdf }) {
       <div
         className={cn(
           "relative flex",
-          fullScreen ? "min-h-0 flex-1" : "h-[min(78vh,56rem)] min-h-[28rem]",
+          fullScreen
+            ? "min-h-0 flex-1"
+            : "h-[min(78vh,56rem)] min-h-[28rem] max-sm:h-auto max-sm:min-h-0 max-sm:flex-1",
         )}
       >
         {sidebar && (
           <ViewerSidebar
             tab={sidebar}
+            sheet={phone}
             bytes={pdf.bytes}
             doc={doc}
             current={current}
             onPage={(i) => {
               goTo(i);
               // On a phone the sheet covers the pages: close it on a pick.
-              if (
-                typeof window !== "undefined" &&
-                window.matchMedia?.("(max-width: 639px)").matches
-              ) {
-                setSidebar(null);
-              }
+              if (phone) setSidebar(null);
             }}
-            onClose={() => setSidebar(null)}
+            onClose={closeSidebar}
           />
         )}
         <div
           ref={scrollerRef}
           tabIndex={0}
+          // Covered by the sheet on a phone: out of the tab order and the
+          // accessibility tree until the sheet closes.
+          inert={sidebar !== null && phone}
           aria-label={`Pages of ${pdf.file.name}`}
           data-viewer-scroller=""
           onScroll={onScroll}

@@ -11,6 +11,7 @@ import {
   VIEWER_MAX_OUTLINE_ITEMS,
 } from "@/lib/pdf/viewer-geometry";
 import { cn } from "@/lib/utils";
+import { scrollWithin } from "./scroll-within";
 
 export type SidebarTab = "thumbnails" | "bookmarks";
 
@@ -20,11 +21,15 @@ const EAGER_THUMBNAILS = 12;
 /**
  * The viewer's side panel: page thumbnails (the same progressive renderer
  * every page-board tool uses, `usePdfThumbnails`), or the bookmark tree.
- * Beside the pages from 640 px up; below that, a sheet over them with its
- * own close button.
+ * Beside the pages from 640 px up; below that (`sheet`), a sheet over them
+ * with its own close button: focus moves into it when it opens, Escape
+ * closes it and returns focus to the button that opened it, and the pages
+ * it covers are made inert by the viewer (review, 2026-11-10: focus stayed
+ * on the toolbar, Escape did nothing, and Tab reached the hidden column).
  */
 export function ViewerSidebar({
   tab,
+  sheet,
   bytes,
   doc,
   current,
@@ -32,18 +37,33 @@ export function ViewerSidebar({
   onClose,
 }: {
   tab: SidebarTab;
+  /** A sheet over the pages (a phone's width), not a column beside them. */
+  sheet: boolean;
   bytes: Uint8Array;
   doc: ViewerPdf;
   current: number;
   onPage: (index: number) => void;
-  onClose: () => void;
+  /** `returnFocus`: put focus back on the button that opened the panel. */
+  onClose: (returnFocus: boolean) => void;
 }) {
   const label =
     tab === "thumbnails" ? VIEWER_LABELS.thumbnails : VIEWER_LABELS.bookmarks;
+  const closeRef = useRef<HTMLButtonElement>(null);
+  // A sheet takes focus as it opens (and when its tab changes).
+  useEffect(() => {
+    if (sheet) closeRef.current?.focus();
+  }, [sheet, tab]);
   return (
     <aside
       aria-label={label}
       data-viewer-sidebar={tab}
+      onKeyDown={(e) => {
+        if (sheet && e.key === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
+          onClose(true);
+        }
+      }}
       className={cn(
         "border-line bg-panel flex min-h-0 flex-col border-r",
         // A sheet over the pages on a phone; a column beside them above.
@@ -53,8 +73,9 @@ export function ViewerSidebar({
       <div className="border-line flex items-center justify-between border-b px-3 py-1.5">
         <h3 className="text-fg text-sm font-semibold">{label}</h3>
         <button
+          ref={closeRef}
           type="button"
-          onClick={onClose}
+          onClick={() => onClose(sheet)}
           aria-label={`Close ${label.toLowerCase()}`}
           className="text-muted hover:text-fg rounded-ctl grid size-11 place-items-center sm:size-8"
         >
@@ -109,11 +130,12 @@ function ThumbnailList({
     return () => io.disconnect();
   }, [requestPage, pageCount]);
 
-  // Keep the current page's tile in view as the reader moves.
+  // Keep the current page's tile in view as the reader moves: the list
+  // scrolls, never the web page around it (`scrollWithin`).
   useEffect(() => {
-    list.current
-      ?.querySelector(`[data-index="${current}"]`)
-      ?.scrollIntoView?.({ block: "nearest" });
+    const root = list.current;
+    const tile = root?.querySelector<HTMLElement>(`[data-index="${current}"]`);
+    if (root && tile) scrollWithin(root, tile, "nearest");
   }, [current]);
 
   return (
@@ -194,7 +216,7 @@ function BookmarkList({
                 type="button"
                 onClick={() => onPage(b.page!)}
                 data-viewer-bookmark=""
-                className="text-fg hover:bg-wash rounded-ctl w-full px-2 py-2 text-left text-sm sm:py-1.5"
+                className="text-fg hover:bg-wash rounded-ctl min-h-11 w-full px-2 py-2 text-left text-sm sm:min-h-0 sm:py-1.5"
               >
                 {b.title}
               </button>
@@ -203,7 +225,7 @@ function BookmarkList({
                 href={b.href}
                 target="_blank"
                 rel={VIEWER_LINK_REL}
-                className="text-accent hover:bg-wash rounded-ctl block px-2 py-2 text-sm underline sm:py-1.5"
+                className="text-accent hover:bg-wash rounded-ctl flex min-h-11 items-center px-2 py-2 text-sm underline sm:block sm:min-h-0 sm:py-1.5"
               >
                 {b.title}
               </a>

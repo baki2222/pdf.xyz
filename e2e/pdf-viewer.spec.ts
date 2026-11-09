@@ -88,26 +88,77 @@ async function expectHighlightOnInk(
   away: "down" | "left" = "down",
 ) {
   await expect(hit).toBeVisible();
-  const box = (await hit.boundingBox())!;
+  await expect(
+    hit.locator("xpath=ancestor::*[@data-viewer-page]//canvas"),
+  ).toBeAttached({
+    timeout: 20_000,
+  });
+  // The box and the pixels are read in ONE task, so nothing can move
+  // between them. History (review, 2026-11-10): read in two calls, the
+  // check failed about 1 run in 4 at 150% — the web page was still
+  // smooth-scrolling (Playwright scrolls the zoom menu into view), so the
+  // box was measured at one scroll position and the canvas at another.
+  const { box, on, off } = await hit.evaluate((mark, dir) => {
+    const canvas = mark
+      .closest("[data-viewer-page]")!
+      .querySelector("canvas") as HTMLCanvasElement;
+    const r = canvas.getBoundingClientRect();
+    const b = mark.getBoundingClientRect();
+    const ink = (x: number, y: number, w: number, h: number) => {
+      const sx = canvas.width / r.width;
+      const sy = canvas.height / r.height;
+      const x0 = Math.max(0, Math.floor((x - r.left) * sx));
+      const y0 = Math.max(0, Math.floor((y - r.top) * sy));
+      const x1 = Math.min(canvas.width, Math.ceil((x + w - r.left) * sx));
+      const y1 = Math.min(canvas.height, Math.ceil((y + h - r.top) * sy));
+      if (x1 <= x0 || y1 <= y0) return { dark: 0, total: 0 };
+      const d = canvas
+        .getContext("2d")!
+        .getImageData(x0, y0, x1 - x0, y1 - y0).data;
+      let dark = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i]! + d[i + 1]! + d[i + 2]! < 384) dark += 1;
+      }
+      return { dark, total: d.length / 4 };
+    };
+    return {
+      box: { width: b.width, height: b.height },
+      on: ink(b.x, b.y, b.width, b.height),
+      // The same box moved off the line (below it on the page, where it is
+      // blank) by three of its own thicknesses.
+      off:
+        dir === "down"
+          ? ink(b.x, b.y + b.height * 3, b.width, b.height)
+          : ink(b.x - b.width * 3, b.y, b.width, b.height),
+    };
+  }, away);
   expect(box.width).toBeGreaterThan(4);
-  const on = await inkIn(page, 3, box);
   expect(on.total, "the highlight's box covers canvas pixels").toBeGreaterThan(
     20,
   );
   // Ink inside the box: the word's glyphs.
   expect(on.dark / on.total, "ink under the highlight").toBeGreaterThan(0.04);
-  // Negative control: the same box, moved off the line (below it on the
-  // page, where it is blank) by three of its own thicknesses, holds no ink.
-  // A box over paper would have passed a check that only asked for a box.
-  const off = await inkIn(
-    page,
-    3,
-    away === "down"
-      ? { ...box, y: box.y + box.height * 3 }
-      : { ...box, x: box.x - box.width * 3 },
-  );
+  // Negative control: a box over paper would have passed a check that only
+  // asked for a box.
   expect(off.total, "the moved box is still on the page").toBeGreaterThan(20);
   expect(off.dark, "no ink where there is no text").toBe(0);
+}
+
+/** A PDF of `pages` Letter pages, each saying its number, and one word on the last. */
+async function longPdf(pages: number, word: string): Promise<typeof BYTES> {
+  const { PDFDocument, StandardFonts } = await import("pdf-lib");
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (let i = 1; i <= pages; i++) {
+    const p = doc.addPage([612, 792]);
+    p.drawText(`Page ${i}${i === pages ? ` ${word}` : ""}`, {
+      x: 72,
+      y: 700,
+      size: 24,
+      font,
+    });
+  }
+  return Buffer.from(await doc.save()) as typeof BYTES;
 }
 
 test.describe("PDF Viewer", () => {
@@ -282,6 +333,102 @@ test.describe("PDF Viewer", () => {
     await expect(
       page.locator("[data-ticket-rail]").getByText("PDF Viewer"),
     ).toHaveCount(0);
+  });
+
+  test("the web page stays put while the pages scroll with Thumbnails open, and when a match is revealed", async ({
+    page,
+  }) => {
+    // History (review, 2026-11-10): the thumbnail list and the search
+    // reveal used scrollIntoView, which scrolls every ancestor: with the
+    // viewer partly below the fold the window jumped ~345 px under a reader
+    // scrolling the pages, and the reveal moved it 56 -> 517.
+    test.setTimeout(90_000);
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await open(page, await longPdf(60, "kingfisher"), "long.pdf");
+    const scroller = page.locator("[data-viewer-scroller]");
+    // The viewer's top 400 px into the view, its lower part below the fold.
+    await page.evaluate(() => {
+      const top = document
+        .querySelector("[data-pdf-viewer]")!
+        .getBoundingClientRect().top;
+      window.scrollBy({ top: top - 400, behavior: "instant" });
+    });
+    const windowY = () => page.evaluate(() => window.scrollY);
+    const before = await windowY();
+    await page.getByRole("button", { name: VIEWER_LABELS.thumbnails }).click();
+    const box = (await scroller.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + 50);
+    for (let i = 0; i < 15; i++) {
+      await page.mouse.wheel(0, 400);
+      await page.waitForTimeout(40);
+    }
+    // Positive control: the pages did scroll, and the list followed.
+    await expect
+      .poll(() => scroller.evaluate((el) => el.scrollTop))
+      .toBeGreaterThan(3_000);
+    const current = page.locator(
+      '[data-viewer-thumbnail][aria-current="page"]',
+    );
+    await expect(current).not.toHaveAttribute("data-viewer-thumbnail", "1");
+    await expect
+      .poll(() =>
+        current.evaluate((tile) => {
+          const list = tile.closest("ol")!.getBoundingClientRect();
+          const r = tile.getBoundingClientRect();
+          return r.top >= list.top - 1 && r.bottom <= list.bottom + 1;
+        }),
+      )
+      .toBe(true);
+    expect(await windowY()).toBe(before);
+
+    // The reveal of a match on the last page: the column moves, the page does not.
+    await page.getByRole("button", { name: VIEWER_LABELS.thumbnails }).click();
+    await page.getByRole("button", { name: VIEWER_LABELS.search }).click();
+    const field = page.getByRole("searchbox", {
+      name: VIEWER_LABELS.searchField,
+    });
+    const atSearch = await windowY();
+    await field.fill("kingfisher");
+    await field.press("Enter");
+    const hit = page.locator(
+      '[data-viewer-page="60"] mark[data-viewer-hit="active"]',
+    );
+    await expect(hit).toBeVisible({ timeout: 20_000 });
+    await expect
+      .poll(() =>
+        hit.evaluate((mark) => {
+          const s = mark
+            .closest("[data-viewer-scroller]")!
+            .getBoundingClientRect();
+          const r = mark.getBoundingClientRect();
+          return r.top >= s.top && r.bottom <= s.bottom;
+        }),
+      )
+      .toBe(true);
+    expect(await windowY()).toBe(atSearch);
+  });
+
+  test("at 400% the arrow keys pan the page sideways; they do not step a page", async ({
+    page,
+  }) => {
+    // History (review, 2026-11-10): ArrowRight jumped to page 3 and the
+    // right two-thirds of a zoomed page could not be reached by keyboard.
+    await open(page);
+    await page
+      .getByRole("combobox", { name: VIEWER_LABELS.zoom })
+      .selectOption("4");
+    const scroller = page.locator("[data-viewer-scroller]");
+    // Health: the zoomed column is wider than the view.
+    await expect
+      .poll(() => scroller.evaluate((el) => el.scrollWidth - el.clientWidth))
+      .toBeGreaterThan(500);
+    await scroller.focus();
+    const field = await pageField(page).inputValue();
+    for (let i = 0; i < 10; i++) await page.keyboard.press("ArrowRight");
+    await expect
+      .poll(() => scroller.evaluate((el) => el.scrollLeft))
+      .toBeGreaterThan(0);
+    expect(await pageField(page).inputValue()).toBe(field);
   });
 
   test("keys work inside the viewer, and Ctrl+P is left to the browser", async ({
