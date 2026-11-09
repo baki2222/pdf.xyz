@@ -10,6 +10,17 @@ import { runBounded, type BoundedOutcome } from "./bounded";
 // entry point a tool calls (extractPdfText, rasterizePdf) in a child process
 // with a hard kill: before the fix STAMP-14 ran for 493 s, and CO-06 inflated
 // 1 GiB, which no in-process timeout can interrupt.
+/**
+ * What one hostile case may ADD to the child's resident memory, MB, read by
+ * ./memory.ts after pdf.js and the canvas are warmed on a clean file (see
+ * `warm` in ./pdfjs-guard.child.ts). The unfixed cases inflated 1.2-3.6 GB;
+ * measured after the fix, on Linux / Node 22: 10-11 MB.
+ *
+ * WAS an absolute `maxRssMb < 900`, which counted pdf.js's own load (about
+ * 500 MB on Linux) against the file. It read 933 on CI for PR #299 with
+ * nothing wrong.
+ */
+const GROWTH_MB = 300;
 const CHILD = "src/tests/hostile/pdfjs-guard.child.ts";
 
 /** The value a settled child reported; fails loudly on a hang or crash. */
@@ -29,7 +40,7 @@ describe("pdf.js consumers stay bounded on hostile streams", () => {
     });
     // Second, independent bound: the process never held the gigabyte. The
     // unfixed run peaked at 1.2-3.6 GB; the refusal streams and keeps nothing.
-    expect(v.maxRssMb as number).toBeLessThan(900);
+    expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
   }, 90_000);
 
   test("CO-06 positive control: the same reader on a plain file reads its text", async () => {
@@ -106,7 +117,7 @@ describe("pdf.js consumers stay bounded on hostile streams", () => {
       name: "PdfEngineError",
       message: PDF_IMAGE_TOO_LARGE_MESSAGE,
     });
-    expect(v.maxRssMb as number).toBeLessThan(900);
+    expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
   }, 60_000);
 
   test("the scan is linear: 4.5 MB of `>>stream` with no `<<` is scanned in seconds, not 18 s", async () => {
@@ -139,7 +150,7 @@ describe("pdf.js consumers stay bounded on hostile streams", () => {
       message: PDF_IMAGE_TOO_LARGE_MESSAGE,
     });
     // Second bound: refused before the decode (42 s and 1.5 GB unfixed).
-    expect(v.maxRssMb as number).toBeLessThan(900);
+    expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
   }, 60_000);
 
   test("CO-08 bilevel: a 600-dpi A3 1-bit scan (69.6 MP, 0.38-0.45 s on base) still rasterizes", async () => {
@@ -176,7 +187,7 @@ describe("pdf.js consumers stay bounded on hostile streams", () => {
       }),
     );
     expect(v).toMatchObject({ ok: true, previews: [true, true] });
-    expect(v.maxRssMb as number).toBeLessThan(900);
+    expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
   }, 60_000);
 
   test("CO-08 positive control: a 9 MP image page still rasterizes", async () => {
@@ -226,7 +237,7 @@ describe("third review: labels, strings and references that hid a stream", () =>
       name: "PdfEngineError",
       message: PDF_EXPANDS_TOO_FAR_MESSAGE,
     });
-    expect(v.maxRssMb as number).toBeLessThan(900);
+    expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
   }, 90_000);
 
   test("STAMP-14: '(>>stream)' in the content dictionary (60 s hang before) does not hide its /Filter", async () => {
@@ -254,6 +265,6 @@ describe("third review: labels, strings and references that hid a stream", () =>
       name: "PdfEngineError",
       message: PDF_IMAGE_TOO_LARGE_MESSAGE,
     });
-    expect(v.maxRssMb as number).toBeLessThan(900);
+    expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
   }, 60_000);
 });
