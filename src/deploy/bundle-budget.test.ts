@@ -1049,6 +1049,31 @@ const TOOL_PAGES_TO_COME = {
   // or panel still pays its dispatcher arm and `next/dynamic` loader in the
   // page chunk and its chunk-map entry (~30-45 B, the analysts' figure; not
   // re-measured here).
+  //
+  // PDF Booklet Maker, the 57th tool, reuses the 'n-up' runner kind (no
+  // dispatcher arm, no loader). Measured on 2026-11-10 over EVERY
+  // prerendered page (141), gzip -9 of each page's first-load chunks, main
+  // cec860f0 -> the branch at be5c2e00, both built on this machine (Windows)
+  // from an empty .next in the same tree:
+  //  - 135 pages +10 B: the webpack runtime (3,624 -> 3,634), whose chunk
+  //    map gains the lazy optional-content chunk (sheet-embed fetches it
+  //    only for a file with layers; page-copy imports it statically);
+  //  - tools/overlay-pdf +46 and tools/split-pdf-pages-in-half +49: the
+  //    runtime's 10 plus overlay.ts's print/view flag rule (chunks 5328
+  //    5,401 -> 5,437 and 4129 5,922 -> 5,961), first-load on those pages;
+  //  - /workspace +301 (the NotebookText icon joins the icons chunk, 1047
+  //    -> 5578 +104; directory chunk 5320 +147; 7384 +26; page +14) and
+  //    /tools +157 (5320 +147): the new tool's catalogue rows, as for every
+  //    tool;
+  //  - tools/n-up-pdf 245,444 -> 248,546 (+3,102; its runner chunk now
+  //    holds booklet-editor.tsx and booklet.ts), and tools/booklet-pdf
+  //    loads the same 248,546.
+  // Taken from G.1: nothing allocated; the +10 B on every tool page is
+  // inside each row's headroom and stated here rather than claimed as zero.
+  // WAS "NOTHING TAKEN ... -13 B each", from four sampled pages (ocr,
+  // rotate, merge, summarize) none of which loads stamp-controls: the
+  // branch then cost 17 tool pages +28 B each through a CheckboxField
+  // change, since moved into booklet-editor.tsx (review, 2026-11-10).
   unallocated:
     UNALLOCATED -
     NEW_TOOLS_2026_10_30 -

@@ -280,6 +280,9 @@ describe("pages whose engine reads the displayed frame do not describe the store
     // (`getUprightPageSizes`), and its page says "as you see it".
     expect(slugs).toEqual([
       "annotate-pdf",
+      // Joined 2026-11-09: the n-up runner's booklet editor fits each page's
+      // visible frame (CropBox, turned by /Rotate) into half a sheet.
+      "booklet-pdf",
       "create-forms",
       "crop-pdf",
       "edit-pdf",

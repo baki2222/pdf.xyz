@@ -3936,7 +3936,7 @@ export const guides: Guide[] = [
     slug: "how-to-print-multiple-pages-per-sheet",
     title: `How to print multiple pages per sheet (${upName(2)}, ${upName(4)})`,
     description: `Put up to ${N_UP_COUNTS.at(-1)} PDF pages on each sheet, ${labelOf(N_UP_SHEETS, "a4")}, ${labelOf(N_UP_SHEETS, "letter")}, ${labelOf(N_UP_SHEETS, "a3")} or another size, in the order you pick, with margins and borders. Runs in your browser.`,
-    tools: ["n-up-pdf", "resize-pdf", "organize-pages"],
+    tools: ["n-up-pdf", "booklet-pdf", "organize-pages"],
     keywords: [
       "how to print multiple pages per sheet",
       "multiple pages per sheet pdf",
@@ -3978,7 +3978,7 @@ export const guides: Guide[] = [
         id: "related-jobs",
         heading: "When another tool is the better fit",
         body: [
-          `Pages go onto the sheets in their own order; the tool does not rearrange them for a folded booklet. To change the order first, such as moving a cover page or dropping blank pages, use ${nameOf("organize-pages")} and then make the sheets.`,
+          `Pages go onto the sheets in their own order. For a booklet you fold and staple, use ${nameOf("booklet-pdf")} instead: it puts the pages two to a side in the order that reads correctly once the sheets are printed on both sides and folded. To change the order first, such as moving a cover page or dropping blank pages, use ${nameOf("organize-pages")} and then make the sheets.`,
           `To print one page per sheet on different paper, such as a ${RESIZE_LETTER} document on ${RESIZE_A4}, use ${nameOf("resize-pdf")} instead.`,
         ],
       },
@@ -4000,7 +4000,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Can it make a folded booklet?",
-        answer: `No. Pages fill the sheets in their own order, ${N_UP_ACROSS.toLowerCase()} or ${N_UP_DOWN.toLowerCase()}; there is no booklet ordering for folding and stapling.`,
+        answer: `Not this tool: it fills the sheets in the pages' own order, ${N_UP_ACROSS.toLowerCase()} or ${N_UP_DOWN.toLowerCase()}. ${nameOf("booklet-pdf")} makes the booklet: it puts the pages in folding order, two side by side on each side of a sheet, adds blank pages to reach a multiple of 4, and turns the backs for a printer that flips on the long edge.`,
       },
       {
         question: "Is my PDF sent to a server?",
@@ -4009,7 +4009,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-30",
-    updated: "2026-11-07",
+    updated: "2026-11-09",
   },
   {
     slug: "how-to-add-bates-numbers-to-a-pdf",

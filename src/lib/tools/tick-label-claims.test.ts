@@ -247,7 +247,11 @@ describe("a page that says tick names a checkbox that exists", () => {
       servedFields(tool).flatMap(tickClaims),
     );
     expect(claims.length).toBeGreaterThanOrEqual(4);
-    expect(claims.length).toBeLessThan(60);
+    // Ceiling raised 60 → 75 on 2026-11-09 for PDF Booklet Maker, whose page
+    // names its back-cover box in the intro, a step and an answer: 61 then,
+    // each claim a real tick of a real box (the offenders test below reads
+    // every one). The bound still catches a reader that multiplies the set.
+    expect(claims.length).toBeLessThan(75);
   });
 
   it("the predicate catches the sentences that shipped, and not the fixed ones", () => {

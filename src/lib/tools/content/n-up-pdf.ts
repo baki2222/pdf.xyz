@@ -25,7 +25,7 @@ const content: ToolContent = {
   intro: [
     `Multiple Pages per Sheet, also called n-up, shrinks several pages of a PDF onto each sheet of a new PDF: ${COUNTS} to a sheet. It is the print dialog's pages-per-sheet setting, saved as a file, so you can send it, check it on screen, or print it on any printer without hunting for that setting.`,
     `The sheet can be ${PAPER_NAMES}, or "${SOURCE_SHEET}" to make each sheet the size of your first page. Auto orientation picks portrait or landscape, whichever draws the pages largest: two portrait pages sit side by side on a landscape sheet, four fill a portrait sheet in a two-by-two grid. Pages fill the sheet across, then down, like reading a page of text, or down, then across, like newspaper columns. Each page is scaled to fit its cell with its proportions kept, and a page shown turned in a reader lands on the sheet the same way up. A margin keeps space at the sheet's edges and between the pages, and a thin border can outline each one.`,
-    `It runs in your browser with pdf-lib; the PDF is not uploaded. The file gate refuses PDFs over ${MAX_MB} MB. Pages are placed as vector drawings, not pictures, so text stays sharp and selectable at any zoom. Filled form fields and stamps show on the sheet as they look, but links and form fields are no longer clickable or editable there.`,
+    `It runs in your browser with pdf-lib; the PDF is not uploaded. The file gate refuses PDFs over ${MAX_MB} MB. Pages are placed as vector drawings, not pictures, so text stays sharp and selectable at any zoom. Filled form fields and stamps are drawn on the sheet as they print, a layer hidden in the original stays hidden, but links and form fields are no longer clickable or editable there.`,
   ],
 
   useCases: [
@@ -77,7 +77,7 @@ const content: ToolContent = {
     },
     {
       q: "What happens to links, form fields and comments?",
-      a: "Their appearance is drawn onto the sheet, so a filled form or a stamp looks the same, including a value filled in by a tool that left the drawing to the viewer (a value that has no drawing of its own and cannot be drawn here, such as Bengali in a form whose font lacks it, is named on the result instead), but they stop being interactive: a link on a sheet does not open and a field cannot be edited. Keep the original for anything that has to stay clickable.",
+      a: "Anything set to print is drawn onto the sheet as it prints (a comment or stamp set to show on screen only is left off, as printing the original would leave it), so a filled form or a stamp looks the same on paper, including a value filled in by a tool that left the drawing to the viewer (a value that has no drawing of its own and cannot be drawn here, such as Bengali in a form whose font lacks it, is named on the result instead), but they stop being interactive: a link on a sheet does not open and a field cannot be edited. Keep the original for anything that has to stay clickable.",
     },
     {
       q: "What order are the pages placed in?",

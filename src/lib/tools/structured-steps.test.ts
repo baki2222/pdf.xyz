@@ -118,3 +118,80 @@ describe("structured steps are mode-true", () => {
     ).toBe(true);
   });
 });
+
+/**
+ * `TOOL_HOW` (catalog-how.ts) reaches a reader only through `howToSteps`,
+ * which `pageSteps` calls only when a tool has NO authored content steps.
+ * An entry for a tool with authored steps ships to nobody, so a wrong label
+ * in it survives every test (review of feat/booklet-pdf, 2026-11-10: the new
+ * booklet-pdf entry quoted its run label and no guard could fail on it).
+ *
+ * A RATCHET over the entries that predate the rule: each still unreached
+ * (else it leaves this list) and no other may join. Reachability is asked
+ * of `pageSteps`, the function the page renders, never typed.
+ */
+const UNREACHED_TOOL_HOW_2026_11_10 = [
+  "merge-pdf",
+  "split-pdf",
+  "organize-pages",
+  "remove-pages",
+  "rotate-pdf",
+  "extract-images",
+  "compress-pdf",
+  "repair-pdf",
+  "jpg-to-pdf",
+  "png-to-pdf",
+  "html-to-pdf",
+  "epub-to-pdf",
+  "webpage-to-pdf",
+  "markdown-to-pdf",
+  "text-to-pdf",
+  "pdf-to-jpg",
+  "pdf-to-png",
+  "pdf-to-pdfa",
+  "pdf-to-markdown",
+  "pdf-to-text",
+  "edit-pdf",
+  "annotate-pdf",
+  "crop-pdf",
+  "header-footer",
+  "sign-pdf",
+  "request-signatures",
+  "unlock-pdf",
+  "redact-pdf",
+  "flatten-pdf",
+  "scan-to-pdf",
+  "compare-pdf",
+  "chat-with-pdf",
+];
+
+describe("no tool gains catalogue steps its page never renders", () => {
+  const reaches = (slug: string, how: readonly string[]) => {
+    const tool = tools.find((t) => t.slug === slug);
+    if (!tool) return false;
+    const shown = pageSteps(tool).map((s) => s.text);
+    return shown.length === how.length && shown.every((t, i) => t === how[i]);
+  };
+  const unreached = (table: Readonly<Record<string, readonly string[]>>) =>
+    Object.entries(table)
+      .filter(([slug, how]) => !reaches(slug, how))
+      .map(([slug]) => slug);
+
+  it("health: the predicate sees authored steps win (the legacy entries are unreached)", () => {
+    expect(unreached(TOOL_HOW).length).toBeGreaterThanOrEqual(20);
+  });
+
+  it("every unreached entry is a legacy one, and every legacy one is still unreached", () => {
+    expect(unreached(TOOL_HOW).sort()).toEqual(
+      [...UNREACHED_TOOL_HOW_2026_11_10].sort(),
+    );
+  });
+
+  it("positive control: the booklet-pdf entry that shipped is caught", () => {
+    const withBooklet = {
+      ...TOOL_HOW,
+      "booklet-pdf": ["Click “Create sheets”, then “Download PDF”."],
+    };
+    expect(unreached(withBooklet)).toContain("booklet-pdf");
+  });
+});

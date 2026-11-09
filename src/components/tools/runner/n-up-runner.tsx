@@ -14,6 +14,7 @@ import {
   type NUpOptions,
   type NUpResult,
 } from "@/lib/pdf/n-up";
+import { BOOKLET_SLUG } from "@/lib/pdf/booklet";
 import { inches } from "@/lib/pdf/page-geometry";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
@@ -31,11 +32,23 @@ import { RunBar } from "./run-bar";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import { CheckboxField, PrivacyLine } from "./stamp-controls";
 import type { LoadedPdf } from "./use-single-pdf";
+import { BookletRunner } from "./booklet-editor";
+import { useToolRun } from "./tool-context";
 
 /** The run button's label — exported so the page's steps quote it. */
 export const N_UP_RUN_LABEL = "Create sheets";
+/** The result panel's title (booklet-n-up-copy.test.tsx reads it). */
+export const N_UP_RESULT_TITLE = "Sheets created";
 
+/**
+ * Multiple Pages per Sheet, or Booklet on Booklet's page: both tools put
+ * pages on new sheets with the same page drawings (`embedSourcePages`), so
+ * they share this runner kind ('n-up') and the page picks the editor by its
+ * own slug. One element in the dispatcher's case; no loader of its own.
+ */
 export function NUpRunner() {
+  const slug = useToolRun()?.slug;
+  if (slug === BOOKLET_SLUG) return <BookletRunner />;
   return (
     <SinglePdfRunner
       hint="One PDF · pages laid out on sheets locally in your browser"
@@ -71,7 +84,7 @@ export function NUpEditor({
     const name = nUpOutputName(pdf.file.name, options.perSheet);
     return (
       <ResultPanel
-        title="Sheets created"
+        title={N_UP_RESULT_TITLE}
         summary={`${result.sourcePages} page${result.sourcePages === 1 ? "" : "s"} on ${result.sheets} sheet${result.sheets === 1 ? "" : "s"} · ${result.grid.cols} × ${result.grid.rows}, ${result.orientation} · ${formatBytes(result.bytes.byteLength)}`}
         onReset={onReset}
         output={outputFile(result.bytes, name)}

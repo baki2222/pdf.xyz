@@ -663,9 +663,22 @@ function hasNormalAppearance(lib: PdfLibModule, widget: PDFDict): boolean {
   return normal instanceof PDFStream || normal instanceof PDFDict;
 }
 
-/** Annotation flags (PDF 32000 §12.5.3) that stop a viewer painting one. */
+/** Annotation flags (PDF 32000 §12.5.3) that decide where one is painted. */
 const ANNOT_HIDDEN = 1 << 1;
+const ANNOT_PRINT = 1 << 2;
 const ANNOT_NO_VIEW = 1 << 5;
+
+/**
+ * Whether an annotation with flags `flags` is painted: on screen ("view":
+ * not Hidden, not NoView) or on paper ("print": Print set, not Hidden — a
+ * NoView annotation still prints, and one without Print never does).
+ */
+function annotationPainted(flags: number, mode: "view" | "print"): boolean {
+  if (flags & ANNOT_HIDDEN) return false;
+  return mode === "print"
+    ? (flags & ANNOT_PRINT) !== 0
+    : (flags & ANNOT_NO_VIEW) === 0;
+}
 
 /**
  * Paint every visible annotation's normal appearance into the page's own
@@ -676,12 +689,20 @@ const ANNOT_NO_VIEW = 1 << 5;
  * form field or an Acrobat stamp annotation — the very things people keep as
  * stamp PDFs — vanished from the overlay, and a page holding nothing else had
  * no content stream at all and failed the whole job. Runs on the in-memory
- * overlay document only; the user's file is untouched. Multiple Pages per
- * Sheet (`./n-up`) bakes its source pages the same way before embedding them.
+ * overlay document only; the user's file is untouched.
+ *
+ * `mode` picks WHICH annotations count as painted (`annotationPainted`).
+ * The overlay bakes what the screen shows ("view"). Multiple Pages per Sheet
+ * and Booklet (`./sheet-embed`) make a file to print, so they bake what a
+ * printer receives ("print"): until 2026-11-10 they baked by screen flags, so
+ * a print-only stamp (F = NoView|Print) never reached the printed booklet and
+ * a screen-only one (F = 0) was baked into the content and printed
+ * (`sheet-embed-output.test.ts`).
  */
 export function bakeAnnotationAppearances(
   lib: PdfLibModule,
   page: PDFPage,
+  mode: "view" | "print" = "view",
 ): void {
   const { PDFArray, PDFDict, PDFName, PDFNumber, PDFRef, PDFStream } = lib;
   const annots = page.node.Annots();
@@ -712,7 +733,7 @@ export function bakeAnnotationAppearances(
     if (!(annot instanceof PDFDict)) continue;
     if (annot.lookup(PDFName.of("Subtype")) === PDFName.of("Popup")) continue;
     const flags = num(annot.lookup(PDFName.of("F"))) ?? 0;
-    if (flags & (ANNOT_HIDDEN | ANNOT_NO_VIEW)) continue;
+    if (!annotationPainted(flags, mode)) continue;
     const ap = annot.lookup(PDFName.of("AP"));
     if (!(ap instanceof PDFDict)) continue;
     let raw: unknown = ap.get(PDFName.of("N"));
