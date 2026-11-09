@@ -42,7 +42,7 @@ import {
   type ImagePageOptions,
 } from "@/lib/pdf/image-page-layout";
 import { imagePageSizeForLocales } from "@/lib/pdf/image-page-defaults";
-import { imageDecodes, undecodableImageMessage } from "@/lib/pdf/image-intake";
+import { imageIntakeProblem } from "@/lib/pdf/image-intake";
 import {
   IMAGE_BOOKMARKS_CHOICES,
   IMAGE_BOOKMARKS_LABELS,
@@ -300,15 +300,15 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
         }
         // A JPEG or PNG is embedded now, into a throwaway document, exactly
         // as Create PDF will: an animated PNG or one cut off halfway is
-        // refused here rather than stopping the run (audit png-to-pdf#8).
-        if (
-          (format === "png" || format === "jpg") &&
-          !(await imageDecodes(bytes, format))
-        ) {
-          unreadable.push({
-            name: file.name,
-            reason: undecodableImageMessage(file.name, format),
-          });
+        // refused here rather than stopping the run (audit png-to-pdf#8),
+        // in the words the run would use — over the pixel ceiling is said
+        // as that, not as "could not be decoded".
+        const problem =
+          format === "png" || format === "jpg"
+            ? await imageIntakeProblem(file.name, bytes, format)
+            : null;
+        if (problem) {
+          unreadable.push({ name: file.name, reason: problem });
           continue;
         }
         loaded.push({

@@ -10,8 +10,9 @@ import * as F from "@/tests/hostile/conversion-in.fixtures";
  * while the PNG embedder inflated a 144 MP bomb without looking. The PNG and
  * TIFF readers are run here with a file ONE ROW over the ceiling, through
  * the engine entry point, so a reader that drifts to its own number (or
- * stops reading it) turns this red. A JPEG is copied, not decoded, and is
- * run past the ceiling to show it still goes in.
+ * stops reading it) turns this red. A Huffman JPEG is copied, not decoded,
+ * and is run past the ceiling to show it still goes in; an arithmetic one
+ * (SOF9+, no one-bit bound on its data) is held to the ceiling.
  */
 
 const W = 10_000;
@@ -72,5 +73,20 @@ describe("MAX_DECODED_PIXELS is read by every JPG / PNG to PDF reader that decod
     expect(jpegFrameProblem(bytes)).toBeNull();
     const pdf = await imagesToPdf("jpg", [file("a.jpg", bytes)]);
     expect(pdf.byteLength).toBeGreaterThan(pad);
+  });
+
+  // Hostile residuals res4 (l09#126/#131, 2026-11-09): an ARITHMETIC-coded
+  // frame has no one-bit bound, and was held to nothing; it is held to the
+  // ceiling. The same header and data as the Huffman case above, SOF9.
+  it("an arithmetic-coded (SOF9) a.jpg one row over the ceiling is refused by its size", async () => {
+    const base = F.jpegClaiming(W, OVER);
+    const pad = Math.ceil((W * OVER) / 170);
+    const bytes = new Uint8Array(base.length + pad);
+    bytes.set(base.subarray(0, base.length - 2));
+    bytes.set(base.subarray(base.length - 2), base.length - 2 + pad);
+    bytes[F.sofOffset(bytes) + 1] = 0xc9;
+    await expect(imagesToPdf("jpg", [file("a.jpg", bytes)])).rejects.toThrow(
+      `"a.jpg" is 10,000 × ${OVER.toLocaleString("en-US")} pixels, more than the ${MAX_DECODED_PIXELS / 1_000_000} megapixels`,
+    );
   });
 });

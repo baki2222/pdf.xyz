@@ -108,6 +108,18 @@ export async function classifyPdfAccess(
   } catch {
     return { kind: "unreadable" };
   }
+  // The checks every pdf.js open runs first (`preflightPdfjsOpen`): the xref
+  // pre-scan, then the stream preflight, which inflates the object stream
+  // holding a catalog before pdf.js does. Kept per file, so the reader that
+  // opens these bytes next does not scan them again. A refusal is
+  // "unreadable": no reader opens this file within bounds. An encrypted
+  // file's streams are ciphertext, which does not inflate, so a lock alone is
+  // never refused here.
+  try {
+    await guard.preflightPdfjsOpen(bytes);
+  } catch (err) {
+    if (guard.isPreflightRefusal(err)) return { kind: "unreadable" };
+  }
   const facts = await guard.readAccessFacts(bytes);
   if (facts.refuse) return { kind: "unreadable" };
   // pdf.js may transfer (detach) the buffer it is handed; the caller still

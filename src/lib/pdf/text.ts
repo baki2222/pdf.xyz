@@ -776,7 +776,7 @@ async function readPageTextItems<T>(
   // Bounds and translations pdf.js lacks (hostile matrix CO-03/06/11,
   // STAMP-14): see ./pdfjs-guard.
   const guard = await import("./pdfjs-guard");
-  await guard.preflightPdfjsBytes(bytes);
+  await guard.preflightPdfjsOpen(bytes);
   const pdfjs = await loadReader();
   const data = bytes.slice();
   const loadingTask = pdfjs.getDocument({ data, ...PDFJS_DOCUMENT_DEFAULTS });
@@ -928,7 +928,7 @@ export async function pdfHasSelectableText(
   bytes: Uint8Array,
 ): Promise<boolean> {
   const guard = await import("./pdfjs-guard");
-  await guard.preflightPdfjsBytes(bytes);
+  await guard.preflightPdfjsOpen(bytes);
   const pdfjs = await loadPdfjs();
   const data = bytes.slice();
   const loadingTask = pdfjs.getDocument({ data, ...PDFJS_DOCUMENT_DEFAULTS });

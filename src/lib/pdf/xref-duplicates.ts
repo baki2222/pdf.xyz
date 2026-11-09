@@ -5,6 +5,7 @@ import type {
   PDFRawStream as PDFRawStreamT,
   PDFRef as PDFRefT,
 } from "pdf-lib";
+import { DEFAULT_DECODE_BUDGET_BYTES } from "./decode-budget";
 import { PdfEngineError, UNREADABLE_PDF_MESSAGE } from "./engine-errors";
 import type { PdfLibModule } from "./pdf-lib";
 
@@ -210,14 +211,37 @@ interface ObjStm {
   table: number[];
 }
 
-function openObjStm(lib: PdfLibModule, stream: PDFObject): ObjStm | null {
+/**
+ * The most object-stream data this guard inflates for one document, in all:
+ * the same total pdf-lib's own load allows every object stream it decodes
+ * (the per-load ledger in the patched pdf-lib). A real file's object streams
+ * fit within that at load, so they fit here.
+ */
+export const OBJSTM_DECODE_TOTAL = DEFAULT_DECODE_BUDGET_BYTES;
+
+/** An object stream bigger than what is left of {@link OBJSTM_DECODE_TOTAL}. */
+const OVER = Symbol("over");
+
+function openObjStm(
+  lib: PdfLibModule,
+  stream: PDFObject,
+  allowance: number,
+): ObjStm | null | typeof OVER {
   if (!(stream instanceof lib.PDFRawStream)) return null;
   const n = stream.dict.get(lib.PDFName.of("N"));
   const first = stream.dict.get(lib.PDFName.of("First"));
   if (!(n instanceof lib.PDFNumber) || !(first instanceof lib.PDFNumber))
     return null;
-  // pdf-lib decoded this same stream at load: it expands every /ObjStm.
-  const data = lib.decodePDFRawStream(stream).decode();
+  // NOT always a stream pdf-lib decoded at load: this reads /N and /First
+  // only, and pdf-lib expands a stream only when it says /Type /ObjStm. So
+  // the decode is bounded here: at most `allowance` bytes, and one more to
+  // tell a stream that would pass it (hidden-objstms, residual review).
+  const raw = lib.decodePDFRawStream(stream).getBytes(allowance + 1);
+  const data =
+    raw instanceof Uint8Array
+      ? raw
+      : new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
+  if (data.length > allowance) return OVER;
   const table = latin1
     .decode(data.subarray(0, Math.max(0, first.asNumber())))
     .trim()
@@ -406,6 +430,8 @@ export async function honourXrefDuplicates(
   const budget = new ParseBudget(bytes.length);
   /** Object streams already opened here, by number: each decoded ONCE. */
   const streams = new Map<number, ObjStm | null>();
+  /** What is left of {@link OBJSTM_DECODE_TOTAL} for this document. */
+  let objStmLeft = OBJSTM_DECODE_TOTAL;
   const openStream = (num: number): ObjStm | null => {
     if (streams.has(num)) return streams.get(num)!;
     const entry = entries.get(num);
@@ -421,7 +447,13 @@ export async function honourXrefDuplicates(
           num,
           entry.gen,
         );
-        stm = body && openObjStm(lib, body);
+        const opened = body && openObjStm(lib, body, objStmLeft);
+        if (opened === OVER)
+          throw new PdfEngineError(UNREADABLE_PDF_MESSAGE, {
+            kind: "unreadable",
+          });
+        stm = opened || null;
+        if (stm) objStmLeft -= stm.data.length;
       } catch (err) {
         if (err instanceof PdfEngineError) throw err;
         stm = null;

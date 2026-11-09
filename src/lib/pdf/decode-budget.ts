@@ -86,21 +86,67 @@ export function decodeBudgetMessage(subject = "This PDF"): string {
   return `${subject} holds compressed data that unpacks to more than ${BUDGET_MB} MB, which is too large to process safely in your browser.`;
 }
 
+/**
+ * The destination document's ledger, `EMBED_TOTAL_BYTES` in embed-budget.ts
+ * (which imports this module, so the number cannot be imported back without
+ * a cycle). `decode-budget.test.ts` pins that an error carrying
+ * `EMBED_TOTAL_BYTES` as its limit gets the total's copy, so the two cannot
+ * drift apart silently.
+ */
+const EMBED_TOTAL = 4 * DEFAULT_DECODE_BUDGET_BYTES;
+
+/**
+ * The copy for the destination total: a sum over every page an n-up or
+ * overlay run embeds, so it names the pages together, not the one page that
+ * happened to cross it, and states the total's figure, not the per-stream one.
+ */
+function embedTotalMessage(subject: string): string {
+  const mb = (EMBED_TOTAL / (1024 * 1024)).toLocaleString("en-US");
+  return `${subject} together unpack to more than ${mb} MB, which is too large to process safely in your browser.`;
+}
+
+/** The `limit` the patched error carries (the ledger that fired), if any. */
+function budgetLimit(err: unknown): number | undefined {
+  for (let e = err, depth = 0; e && depth < 8; depth += 1) {
+    if ((e as { code?: unknown }).code === DECODE_BUDGET_CODE) {
+      const limit = (e as { limit?: unknown }).limit;
+      return typeof limit === "number" ? limit : undefined;
+    }
+    e = (e as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
 /** The typed refusal for a file pdf-lib stopped decoding at the budget. */
 export class PdfDecodeBudgetError extends PdfEngineError {
-  constructor(subject?: string, options?: ErrorOptions) {
-    super(decodeBudgetMessage(subject), options);
+  constructor(
+    subject?: string,
+    options?: ErrorOptions,
+    message = decodeBudgetMessage(subject),
+  ) {
+    super(message, options);
     this.name = "PdfDecodeBudgetError";
   }
 }
 
-/** `err` as the typed refusal when it is a budget error, else `undefined`. */
+/**
+ * `err` as the typed refusal when it is a budget error, else `undefined`.
+ * `subject` names what one stream or page belongs to; `totalSubject` names
+ * the pages together, for the destination total (l01#20: "Overlay page 5
+ * ... more than 256 MB" was said of a page under budget when 1 GiB across
+ * all of them was spent).
+ */
 export function asDecodeBudgetRefusal(
   err: unknown,
   subject?: string,
+  totalSubject = "The pages of this PDF",
 ): PdfDecodeBudgetError | undefined {
   if (err instanceof PdfDecodeBudgetError) return err;
-  return isDecodeBudgetError(err)
-    ? new PdfDecodeBudgetError(subject, { cause: err })
-    : undefined;
+  if (!isDecodeBudgetError(err)) return undefined;
+  const total = budgetLimit(err) === EMBED_TOTAL;
+  return new PdfDecodeBudgetError(
+    subject,
+    { cause: err },
+    total ? embedTotalMessage(totalSubject) : undefined,
+  );
 }

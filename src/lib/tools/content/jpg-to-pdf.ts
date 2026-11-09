@@ -20,6 +20,7 @@ import { inches } from "@/lib/pdf/page-geometry";
 import { IMAGE_ROTATION_LABELS } from "@/lib/pdf/image-rotation";
 import { A4_SCAN_SETUP_COPY, IGNORED_DPI_COPY } from "@/lib/pdf/image-density";
 import { undecodableImageMessage } from "@/lib/pdf/image-intake";
+import { tooManyPixelsMessage } from "@/lib/pdf/raster-check";
 import {
   CUSTOM_PAGE_COPY,
   CUSTOM_PAGE_LABELS,
@@ -40,6 +41,11 @@ const ROTATE = IMAGE_ROTATION_LABELS.button;
 
 /** The add-time refusal of an undecodable image (audit png-to-pdf#8). */
 const UNDECODABLE_JPG = undecodableImageMessage("photo.jpg", "jpg");
+/** The add-time refusal of a JPG or PNG over the pixel ceiling (residual res4). */
+const TOO_MANY_PIXELS_JPG = tooManyPixelsMessage("panorama.jpg", {
+  width: 30_000,
+  height: 6_000,
+});
 
 /** Small images and its two chips (audit jpg-to-pdf#4), as the runner says. */
 const SMALL = SMALL_IMAGES_LABELS.heading;
@@ -278,7 +284,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your JPG images",
-      body: `Drop JPG or JPEG files (PNG works too) onto the box that reads "Drop JPG images here, or browse", or click it to pick them. The box stays on the page, so you can add more in several goes. WebP, GIF, BMP and TIFF files are taken as well. An alert below the box names each file it turns away: "Choose PNG, JPG, WebP, GIF, BMP or TIFF images." for another type, "File is empty." for a zero-byte file, "Max ${MAX_IMAGE_MB} MB per image." for one that is too big, "Could not read this file — pick it again." when the file cannot be read, and a note naming the real format, such as "photo.jpg" is an AVIF image., when a file's contents are none of those. A JPG or PNG is also tried the way Create PDF will use it, so a JPG whose header cannot be read, or a PNG that is cut off, damaged or animated (more than one frame), is turned away with a note naming it, such as ${UNDECODABLE_JPG} A JPG cut off before its end marker is turned away too, but a JPG damaged in the middle of its image data is not caught, because that data is not decoded here. A TIFF can also be turned away by page, with a note naming it, such as ${TIFF_TOO_LARGE}`,
+      body: `Drop JPG or JPEG files (PNG works too) onto the box that reads "Drop JPG images here, or browse", or click it to pick them. The box stays on the page, so you can add more in several goes. WebP, GIF, BMP and TIFF files are taken as well. An alert below the box names each file it turns away: "Choose PNG, JPG, WebP, GIF, BMP or TIFF images." for another type, "File is empty." for a zero-byte file, "Max ${MAX_IMAGE_MB} MB per image." for one that is too big, "Could not read this file — pick it again." when the file cannot be read, and a note naming the real format, such as "photo.jpg" is an AVIF image., when a file's contents are none of those. A JPG or PNG is also tried the way Create PDF will use it, so a JPG whose header cannot be read, or a PNG that is cut off, damaged or animated (more than one frame), is turned away with a note naming it, such as ${UNDECODABLE_JPG} One with more pixels than an image can have here is turned away by its size, with a note such as ${TOO_MANY_PIXELS_JPG} A JPG cut off before its end marker is turned away too, but a JPG damaged in the middle of its image data is not caught, because that data is not decoded here. A TIFF can also be turned away by page, with a note naming it, such as ${TIFF_TOO_LARGE}`,
     },
     {
       title: "Set the page order",

@@ -166,6 +166,63 @@ describe("decode budget: behaviour", () => {
     expect(typed!.message).toMatch(/^Overlay page 3 holds/);
     expect(asDecodeBudgetRefusal(new Error("plain"))).toBeUndefined();
   });
+
+  // l01#20 / l01#13: the destination document's ledger (EMBED_TOTAL_BYTES)
+  // is a total over every page embedded, and the copy used to blame the one
+  // page that happened to cross it, at the per-stream figure ("Overlay page
+  // 5 ... more than 256 MB") although that page alone was under budget.
+  // The patched error carries the limit that fired; the copy follows it.
+  const raw = (limit: number) =>
+    Object.assign(new Error("x"), { code: "PDF_DECODE_BUDGET", limit });
+  /** The figure a message states, in bytes as the site counts MB (1e6). */
+  const statedBytes = (message: string) =>
+    Number(/more than ([\d,]+) MB/.exec(message)![1]!.replaceAll(",", "")) *
+    1e6;
+
+  it("a destination-total trip names the pages together, at the total", () => {
+    const total = asDecodeBudgetRefusal(
+      raw(EMBED_TOTAL_BYTES),
+      "Overlay page 5",
+      "The overlay pages",
+    )!;
+    expect(total).toBeInstanceOf(PdfDecodeBudgetError);
+    expect(total.message).toBe(
+      "The overlay pages together unpack to more than 1,024 MB, which is too large to process safely in your browser.",
+    );
+    // n-up passes no total subject: the default names this PDF's pages.
+    expect(asDecodeBudgetRefusal(raw(EMBED_TOTAL_BYTES))!.message).toBe(
+      "The pages of this PDF together unpack to more than 1,024 MB, which is too large to process safely in your browser.",
+    );
+    // Never more than is true: the stated figure is at most the limit.
+    expect(statedBytes(total.message)).toBeLessThanOrEqual(EMBED_TOTAL_BYTES);
+    // Through a cause chain, as pdf-lib's embed error arrives.
+    const wrapped = new Error("embed failed", {
+      cause: raw(EMBED_TOTAL_BYTES),
+    });
+    expect(
+      asDecodeBudgetRefusal(wrapped, "x", "The overlay pages")!.message,
+    ).toBe(total.message);
+  });
+
+  it("a single-stream or single-page trip keeps the per-page wording", () => {
+    for (const err of [
+      raw(DEFAULT_DECODE_BUDGET_BYTES),
+      Object.assign(new Error("x"), { code: "PDF_DECODE_BUDGET" }),
+    ]) {
+      const one = asDecodeBudgetRefusal(
+        err,
+        "Overlay page 5",
+        "The overlay pages",
+      )!;
+      expect(one.message).toBe(decodeBudgetMessage("Overlay page 5"));
+      expect(one.message).toBe(
+        "Overlay page 5 holds compressed data that unpacks to more than 256 MB, which is too large to process safely in your browser.",
+      );
+      expect(statedBytes(one.message)).toBeLessThanOrEqual(
+        DEFAULT_DECODE_BUDGET_BYTES,
+      );
+    }
+  });
 });
 
 describe("decode budget: one ledger per operation", () => {

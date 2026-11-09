@@ -51,14 +51,28 @@ export async function detectAutoCrop(
   } = {},
 ): Promise<AutoCropPlan> {
   const { signal, onProgress } = options;
+  // The preflight every pdf.js open runs, before pdf-lib or pdf.js parses
+  // anything; its chunk is requested with pdfjs, not after it.
+  const guardModule = import("./pdfjs-guard");
+  const pdfjsModule = loadPdfjs();
+  pdfjsModule.catch(() => {});
+  const guard = await guardModule;
+  await guard.preflightPdfjsOpen(bytes);
   const sizes = await getPageSizes(bytes);
-  const pdfjs = await loadPdfjs();
+  const pdfjs = await pdfjsModule;
   const task = pdfjs.getDocument({
     data: bytes.slice(),
     ...PDFJS_DOCUMENT_DEFAULTS,
   });
   const doc = await awaitPdfjsDocument(task);
   try {
+    // pdf.js reports a root /Count of 0 or -1 as given while pdf-lib repairs
+    // the tree, so a loop to numPages analysed no page against every size
+    // and planned "nothing to crop". That is the unreadable-file refusal;
+    // a page pdf.js cannot fetch is analysed as unread, and every size gets
+    // a verdict (lane res1, CO-03).
+    guard.pdfjsPageCount(doc.numPages);
+    const total = sizes.length;
     const factory = (doc as unknown as { canvasFactory?: CanvasFactory })
       .canvasFactory;
     if (!factory || typeof factory.create !== "function") {
@@ -66,7 +80,7 @@ export async function detectAutoCrop(
       throw new Error("pdf.js canvas factory unavailable");
     }
     const pages: ({ ink: InkBox | null; raster: RasterPage } | null)[] = [];
-    for (let n = 1; n <= doc.numPages; n++) {
+    for (let n = 1; n <= total; n++) {
       if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
       try {
         const page = await doc.getPage(n);
@@ -97,7 +111,7 @@ export async function detectAutoCrop(
         if (signal?.aborted) throw err;
         pages.push(null); // Unreadable page: left uncropped, and named.
       }
-      onProgress?.({ done: n, total: doc.numPages });
+      onProgress?.({ done: n, total });
     }
     return planAutoCrop(pages, sizes);
   } finally {
