@@ -182,10 +182,10 @@ export function RemoveAnnotationsEditor({
                   >
                     {g.label}
                   </th>
-                  <td className="px-4 py-2 text-right tnum">
+                  <td className="tnum px-4 py-2 text-right">
                     {result.removed[g.id]}
                   </td>
-                  <td className="px-4 py-2 text-right tnum">
+                  <td className="tnum px-4 py-2 text-right">
                     {result.kept[g.id]}
                   </td>
                 </tr>
