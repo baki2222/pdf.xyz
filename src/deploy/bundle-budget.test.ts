@@ -1008,7 +1008,9 @@ const TOOL_PAGES_TO_COME = {
   //   chat-with-pdf -3,106    +529   -2,577
   //   extract-tables -3,480   +826   -2,654  (the largest HTML growth)
   //   extract-images -2,041   +417   -1,624  (the smallest net saving)
-  //   all 56 tool pages: JS -142,073, HTML +9,379, net -132,694
+  //   all 56 tool pages: JS -142,073, HTML +9,379, net -132,694 (a second
+  //   clean build of the same tree read HTML +9,458: each document embeds
+  //   the build id, so a page's HTML moves 1-2 B between builds)
   //   home -4/+0, a guide -5/+1, /workspace +1/-1, /tools +44/+0 (the
   //   raster format module moved from its page chunk into the catalogue
   //   chunk it shares).
