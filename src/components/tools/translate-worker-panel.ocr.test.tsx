@@ -314,6 +314,21 @@ describe("TranslateWorkerPanel — the source language the reader set picks the 
     expect(languagesSent(network)).toEqual(["eng"]);
   }, 20_000);
 
+  it("control: picks the reader made BEFORE setting the source language are kept", async () => {
+    const { network, run, section } = await scanSection();
+    fireEvent.click(within(section).getByRole("button", { name: "German" }));
+    // English into English would be refused as the same language.
+    fireEvent.change(screen.getByLabelText("Translate into"), {
+      target: { value: "es" },
+    });
+    setSource("English");
+    fireEvent.click(run);
+    await waitFor(() => expect(network.jobBodies).toHaveLength(1), {
+      timeout: 5_000,
+    });
+    expect(languagesSent(network)).toEqual(["eng", "deu"]);
+  }, 20_000);
+
   it("a source language whose pack is not selected is said in place", async () => {
     const { section } = await scanSection();
     setSource("German");

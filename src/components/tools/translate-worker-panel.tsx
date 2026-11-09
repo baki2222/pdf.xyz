@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Download,
@@ -32,8 +32,11 @@ import {
   translateTextDeps,
   type TranslateWorkerResult,
 } from "@/lib/workers/translate-client";
-import { PDF_TO_WORD_OCR_LANGUAGE_CODES } from "@/lib/jobs/ocr";
-import { ocrLanguageForTag } from "@/lib/jobs/ocr-browser-languages";
+import {
+  MAX_OCR_LANGUAGES,
+  PDF_TO_WORD_OCR_LANGUAGE_CODES,
+  type OcrLanguage,
+} from "@/lib/jobs/ocr";
 import {
   TRANSLATE_OCR_CHARGE,
   TRANSLATE_OCR_EXPLAINER,
@@ -42,6 +45,7 @@ import {
   translateOcrSourceNotInstalled,
   translateOcrSourceNotOffered,
   translateOcrSourceNotSelected,
+  translateSourceOcrPack,
 } from "@/lib/jobs/translate-ocr";
 // STATIC, NOT LAZY — decided 2026-11-09 on a review finding. The picker's
 // module (it also holds `useOcrLanguageChoice`, which `start` needs for the
@@ -49,7 +53,11 @@ import {
 // panel's own lazy chunk, which only /tools/translate-pdf loads; the BCP-47
 // map 770 / 490. Splitting the UI out would save under 1.3 KB on that one
 // page and add a round trip after the scan check (the lazy-chunk waterfall).
-import { OcrLanguagePicker, useOcrLanguageChoice } from "./ocr-language-picker";
+import {
+  OcrLanguagePicker,
+  useOcrLanguageChoice,
+  type OcrLanguageChoice,
+} from "./ocr-language-picker";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { PdfEngineError } from "@/lib/pdf/engine";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
@@ -207,6 +215,51 @@ function waitOptions(budget: JobPollBudget) {
 
 const RUN_LABEL = "Translate PDF";
 
+/**
+ * OCR's language choice, preferring the pack of the Source language the
+ * reader set (review finding, 2026-11-09: Source = German still recognised
+ * the scan as English). The preference ranks above the browser's guess and
+ * below the reader's own picks, and applies only while the worker reports
+ * that pack installed. Wrapped HERE rather than inside `useOcrLanguageChoice`
+ * because that hook is first-load on OCR PDF, whose row had 0.12 KB left and
+ * a change there cost it the room (bundle-budget, measured).
+ */
+function useSourcePreferredOcrChoice(
+  base: OcrLanguageChoice,
+  preferred: OcrLanguage | null,
+): OcrLanguageChoice {
+  // The reader's picks made while a preference stood; `base` holds any made
+  // before one did, and then keeps them (`pickedFirst`).
+  const [own, setOwn] = useState<OcrLanguage[] | null>(null);
+  const [pickedFirst, setPickedFirst] = useState(false);
+  const usable = preferred && base.installed.has(preferred) ? preferred : null;
+  if (pickedFirst || (own === null && usable === null)) {
+    return {
+      ...base,
+      toggle: (code) => {
+        setPickedFirst(true);
+        base.toggle(code);
+      },
+    };
+  }
+  const kept = (own ?? [usable!]).filter((code) => base.installed.has(code));
+  const selected = kept.length > 0 ? kept : base.selected;
+  return {
+    ...base,
+    selected,
+    browserChose: false,
+    toggle: (code) => {
+      if (!base.installed.has(code)) return;
+      if (selected.includes(code)) {
+        if (selected.length > 1)
+          setOwn(selected.filter((entry) => entry !== code));
+        return;
+      }
+      if (selected.length < MAX_OCR_LANGUAGES) setOwn([...selected, code]);
+    },
+  };
+}
+
 function TranslateBuilder({
   tool,
   extractText,
@@ -323,23 +376,15 @@ function TranslateBuilder({
   const sourcePack =
     sourceLanguage === TRANSLATE_SOURCE_AUTO
       ? null
-      : ocrLanguageForTag(sourceLanguage);
-  const sourcePackOffered =
-    sourcePack !== null && PDF_TO_WORD_OCR_LANGUAGE_CODES.includes(sourcePack);
-  const ocrPreferred = useMemo(
-    () => (sourcePack && sourcePackOffered ? [sourcePack] : null),
-    [sourcePack, sourcePackOffered],
-  );
-  const ocrLanguages = useOcrLanguageChoice(
-    status,
-    PDF_TO_WORD_OCR_LANGUAGE_CODES,
-    ocrPreferred,
+      : translateSourceOcrPack(sourceLanguage);
+  const ocrLanguages = useSourcePreferredOcrChoice(
+    useOcrLanguageChoice(status, PDF_TO_WORD_OCR_LANGUAGE_CODES),
+    sourcePack,
   );
   const sourceOcrWarning = (() => {
     if (sourceLanguage === TRANSLATE_SOURCE_AUTO) return null;
     const name = LANGUAGE_NAMES[sourceLanguage];
-    if (!sourcePack || !sourcePackOffered)
-      return translateOcrSourceNotOffered(name);
+    if (!sourcePack) return translateOcrSourceNotOffered(name);
     if (!ocrLanguages.installed.has(sourcePack))
       return translateOcrSourceNotInstalled(name);
     if (!ocrLanguages.selected.includes(sourcePack))

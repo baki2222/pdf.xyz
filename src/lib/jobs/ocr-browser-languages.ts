@@ -68,16 +68,6 @@ export const TRADITIONAL_CHINESE_PACK: OcrLanguage = "chi_tra";
 /** Traditional-script Chinese tags: a script or a region that writes it. */
 const TRADITIONAL_ZH = /^zh-(?:hant|tw|hk|mo)\b/i;
 
-/**
- * The recognition pack for one language tag, or `null` when none reads it.
- * Exported for Translate PDF (2026-11-09), whose "Source language" is a
- * BCP-47 code: a reader who says the document is German has answered the
- * OCR question too.
- */
-export function ocrLanguageForTag(tag: string): OcrLanguage | null {
-  return packFor(tag);
-}
-
 function packFor(tag: string): OcrLanguage | null {
   const primary = tag.split("-")[0]?.toLowerCase() ?? "";
   if (primary === "zh" && TRADITIONAL_ZH.test(tag))

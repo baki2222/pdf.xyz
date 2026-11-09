@@ -5,6 +5,7 @@
  * relationships, so it gets a second, independent bound written as a test).
  */
 import { describe, expect, it } from "vitest";
+import { OCR_LANGUAGE_BY_BCP47 } from "./ocr-browser-languages";
 import {
   AI_CHARACTER_ALLOWANCE,
   AI_CHARACTER_ALLOWANCE_DELIVERED,
@@ -12,13 +13,14 @@ import {
 } from "./ai-allowance";
 import { aiReservationGiven } from "./delivery-cap";
 import { TRANSLATE_MAX_INPUT_CHARS } from "./translate-limits";
-import { parseTranslateOptions } from "./translate-pdf";
-import { PDF_TO_WORD_RTL_REFUSAL } from "./ocr";
+import { parseTranslateOptions, TRANSLATE_LANGUAGES } from "./translate-pdf";
+import { PDF_TO_WORD_OCR_LANGUAGE_CODES, PDF_TO_WORD_RTL_REFUSAL } from "./ocr";
 import {
   TRANSLATE_OCR_CHARGE,
   TRANSLATE_OCR_CHARGE_PUBLISHED,
   TRANSLATE_OCR_CHARGE_SENTENCE,
   TRANSLATE_OCR_EXPLAINER,
+  translateSourceOcrPack,
 } from "./translate-ocr";
 
 describe("what a scan costs", () => {
@@ -106,5 +108,30 @@ describe("the OCR request in a translate options bag", () => {
       ok: true,
       value: { targetLanguage: "en", sourceLanguage: "auto" },
     });
+  });
+});
+
+describe("translateSourceOcrPack — a Translate source language's recognition pack", () => {
+  // Matched by NAME in production (to keep `ocr-browser-languages` off a new
+  // importer); held here to the BCP-47 map, the relationship it stands for.
+  it("agrees with the BCP-47 map for every Translate language, and offers none OCR inside Translate refuses", () => {
+    const disagreements = TRANSLATE_LANGUAGES.filter((code) => {
+      const viaTag = OCR_LANGUAGE_BY_BCP47[code] ?? null;
+      const expected =
+        viaTag && PDF_TO_WORD_OCR_LANGUAGE_CODES.includes(viaTag)
+          ? viaTag
+          : null;
+      return translateSourceOcrPack(code) !== expected;
+    });
+    expect(disagreements).toEqual([]);
+  });
+
+  it("health: most languages have a pack, and Arabic (right-to-left) has none", () => {
+    const withPack = TRANSLATE_LANGUAGES.filter(
+      (code) => translateSourceOcrPack(code) !== null,
+    );
+    expect(withPack.length).toBeGreaterThanOrEqual(15);
+    expect(translateSourceOcrPack("de")).toBe("deu");
+    expect(translateSourceOcrPack("ar")).toBeNull();
   });
 });

@@ -35,6 +35,12 @@ import {
   AI_UNDECLARED_JOB_CHARGE,
 } from "./ai-allowance";
 import { TRANSLATE_EXTRACTOR_HEADROOM } from "./translate-limits";
+import {
+  OCR_LANGUAGES,
+  PDF_TO_WORD_OCR_LANGUAGE_CODES,
+  type OcrLanguage,
+} from "./ocr";
+import { LANGUAGE_NAMES, type TranslateLanguage } from "./translate-pdf";
 
 /**
  * What a scan's job is charged, in the BUCKET's unit (worker-extracted
@@ -71,6 +77,24 @@ export const TRANSLATE_SCAN_CHECK =
 
 /** The honest sentence shown with the language picker, before Run. */
 export const TRANSLATE_OCR_EXPLAINER = `Our server recognises the scan's text first (OCR), then translates it, which takes longer than a typed PDF. Pick every language printed on the page: the wrong one gives wrong text, not an error. A scan's length cannot be counted before it is recognised, so it is charged as one full pass, ${CHARGE} of the ${DAY} characters in the daily AI allowance, and the translation stops at what that pays for; any pages past it are marked in place.`;
+
+/**
+ * The recognition pack for a Translate source language, or `null` when OCR
+ * inside Translate offers none (Arabic: right-to-left, refused as in PDF to
+ * Word). Matched by the language's NAME, which both catalogues spell the
+ * same — not through `ocr-browser-languages`, whose module is first-load on
+ * OCR PDF and would gain an importer (the concatenation cost recorded in
+ * memory). `translate-ocr.test.ts` holds this equal to the BCP-47 map for
+ * every Translate language.
+ */
+export function translateSourceOcrPack(
+  source: TranslateLanguage,
+): OcrLanguage | null {
+  const pack = OCR_LANGUAGES.find(
+    (language) => language.label === LANGUAGE_NAMES[source],
+  )?.code;
+  return pack && PDF_TO_WORD_OCR_LANGUAGE_CODES.includes(pack) ? pack : null;
+}
 
 /**
  * Said beside the picker when the reader set a Source language whose pack is
