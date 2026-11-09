@@ -17,8 +17,9 @@ import {
   type RGB,
   type StampPosition,
 } from "./stamp";
-import { embedDrawingFont } from "./unicode-font";
-import type { SignatureStyle } from "./offered-kinds";
+import { embedDrawingFont, embedFaceIfDrawable } from "./unicode-font";
+import { type SignatureStyle } from "./offered-kinds";
+import { isHandwritingStyle } from "./signature-style";
 import { viewToContent, viewerFrame } from "./page-frame";
 
 /**
@@ -248,10 +249,25 @@ export async function signPdf(
     // name is written in Bengali or Korean was the sharpest edge of the WinAnsi
     // ceiling: a signature tool that cannot spell the signer. Western names
     // still take Times-Italic or Helvetica and download nothing.
-    const font = await embedDrawingFont(
+    // A handwriting style draws in its own face where it has every letter
+    // of the name, and otherwise exactly as Script does — the editor's rule
+    // (`handwritingFor`), so no style is offered by one engine and drawn in
+    // Helvetica by the other. The table is imported here, at call time: this
+    // module is in the Sign runner's chunk for `signatureOutputName` alone.
+    let font = null;
+    if (isHandwritingStyle(input.style)) {
+      const { HANDWRITING_FACES, handwritingCanDraw } =
+        await import("./handwriting");
+      if (handwritingCanDraw(input.style, text)) {
+        font = await embedFaceIfDrawable(doc, HANDWRITING_FACES[input.style], [
+          text,
+        ]);
+      }
+    }
+    font ??= await embedDrawingFont(
       doc,
       [text],
-      input.style === "signature" ? "serif-italic" : "sans",
+      input.style === "print" ? "sans" : "serif-italic",
     );
     let size = fontSizeForWidth(font.widthOfTextAtSize(text, 1), targetWidth);
     // The glyph box runs from the descender to the ascender; it has to fit

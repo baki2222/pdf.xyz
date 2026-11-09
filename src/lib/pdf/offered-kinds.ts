@@ -188,10 +188,40 @@ export const SPLIT_MODE_FACT: Record<SplitMode, string> = {
   oddEven: "the odd pages into one file and the even pages into another",
 };
 
-/** Sign PDF — the typed signature's font styles. */
-export const SIGNATURE_STYLES = ["signature", "print"] as const;
+/**
+ * Sign PDF — the typed signature's HANDWRITING styles (audit sign-pdf#1,
+ * 2026-11-09). Each is a real handwriting face shipped from our own origin
+ * (`handwriting.ts` holds the files, `handwriting-coverage.generated.ts` the
+ * letters each one has) and embedded in the PDF. Until then a typed name came
+ * only in Times Italic or Helvetica, while every competitor's Type tab looked
+ * handwritten. Latin-only faces: a name with a letter a face does not have is
+ * set as Script sets it (`handwritingFor` in `editor/text.ts`), and the panel
+ * says so.
+ */
+export const HANDWRITING_STYLES = [
+  "dancing-script",
+  "alex-brush",
+  "mr-dafoe",
+  "homemade-apple",
+] as const;
+export type HandwritingStyle = (typeof HANDWRITING_STYLES)[number];
+
+/**
+ * Sign PDF — the typed signature's font styles: the handwriting faces, then
+ * the two standard faces every document since 2026-08 was signed in (kept
+ * exactly as they were: saved signatures and placed boxes name them).
+ */
+export const SIGNATURE_STYLES = [
+  ...HANDWRITING_STYLES,
+  "signature",
+  "print",
+] as const;
 export type SignatureStyle = (typeof SIGNATURE_STYLES)[number];
 export const SIGNATURE_STYLE_LABEL: Record<SignatureStyle, string> = {
+  "dancing-script": "Dancing Script",
+  "alex-brush": "Alex Brush",
+  "mr-dafoe": "Mr Dafoe",
+  "homemade-apple": "Homemade Apple",
   signature: "Script",
   print: "Print",
 };
@@ -204,11 +234,24 @@ export const SIGNATURE_SOURCE_LABEL: Record<SignatureSource, string> = {
   type: "Type",
   upload: "Upload",
 };
+/**
+ * "type it (in one of N styles: …)", from the list and the labels. A function
+ * called with a PURE mark, so a page that never reads the fact (every tool
+ * page loads this leaf) does not keep the list-formatting call, and with it
+ * every label, alive in its first-load chunk.
+ */
+function typedStylesFact(): string {
+  const styles = new Intl.ListFormat("en", { type: "disjunction" }).format(
+    SIGNATURE_STYLES.map((s) => SIGNATURE_STYLE_LABEL[s]),
+  );
+  return `type it (in one of ${SIGNATURE_STYLES.length} styles: ${styles})`;
+}
+
 export const SIGNATURE_SOURCE_FACT: Record<SignatureSource, string> = {
   draw: "draw it",
   // The styles are options on ONE source, not sources of their own — counting
   // them separately is how the page reached "five".
-  type: `type it (${SIGNATURE_STYLES.map((s) => SIGNATURE_STYLE_LABEL[s].toLowerCase()).join(" or ")} style)`,
+  type: /* @__PURE__ */ typedStylesFact(),
   // "pick", not "upload": the image never leaves the device (in-browser tool).
   upload: "pick a PNG or JPG image",
 };

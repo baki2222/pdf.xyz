@@ -1,7 +1,9 @@
 import { sanitizeNoteText, wrapText } from "../annotate";
 import { loadPdfLib } from "../pdf-lib";
-import { embedDrawingFont } from "../unicode-font";
-import type { StandardFace } from "../font-packs";
+import { embedDrawingFont, embedFaceIfDrawable } from "../unicode-font";
+import type { ShippedFace, StandardFace } from "../font-packs";
+import { handwritingCanDraw } from "../handwriting";
+import type { HandwritingStyle } from "../offered-kinds";
 import { allWinAnsi } from "../winansi";
 import type { EditorFont, TextAlign, TextStyle } from "./model";
 
@@ -117,6 +119,35 @@ export function faceFor(
   return needsUnicodeFace(text)
     ? "sans"
     : standardFontKey(style.font, style.bold, style.italic);
+}
+
+/**
+ * The handwriting face a box's words are set in — a typed signature's
+ * (`TextBoxObject.hand`) — or `null` when they are set as its font, weight
+ * and slant say. `null` whenever the face lacks any letter of `text`: a name
+ * the face cannot draw is set exactly as the box's underlying style sets it,
+ * never with a blank box where a letter was. The overlay and the export both
+ * ask this, so the screen and the file agree on which face drew the words.
+ */
+export function handwritingFor(
+  obj: { readonly hand?: HandwritingStyle },
+  text: string,
+): HandwritingStyle | null {
+  return obj.hand && handwritingCanDraw(obj.hand, text) ? obj.hand : null;
+}
+
+/**
+ * Widths in a shipped face, from the face embedded through the same call the
+ * export makes into a scratch document — so the overlay breaks a line where
+ * the file will. The handwriting faces' counterpart of
+ * {@link createStandardMeasure}.
+ */
+export async function createFaceMeasure(face: ShippedFace): Promise<Measure> {
+  const { PDFDocument } = await loadPdfLib();
+  const scratch = await PDFDocument.create();
+  const font = await embedFaceIfDrawable(scratch, face, ["A"]);
+  if (!font) throw new Error(`${face.label} has no glyph for "A"`);
+  return (text, size) => font.widthOfTextAtSize(text, size);
 }
 
 /**

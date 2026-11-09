@@ -16,8 +16,10 @@ import {
   EDITOR_KINDS,
   type CommentKind,
   type EditorKind,
+  type HandwritingStyle,
   type SignatureStyle,
 } from "../offered-kinds";
+import { isHandwritingStyle } from "../signature-style";
 import type { RasterImageFormat } from "../pdf-lib";
 import {
   HIGHLIGHTER_LABEL,
@@ -78,6 +80,16 @@ export interface TextBoxObject extends Base, TextStyle {
    */
   height?: number;
   text: string;
+  /**
+   * A typed signature's handwriting face (audit sign-pdf#1): the words are
+   * set in it wherever it has every letter (`handwritingFor` in `text.ts`),
+   * and otherwise exactly as `font`/`bold`/`italic` say — which for a typed
+   * signature is Script's Times Italic. Absent on every other text box, and
+   * dropped the moment the reader picks a font or a weight or slant
+   * ({@link withoutHandwritingFor}), so the Font menu never shows one face
+   * while the page shows another.
+   */
+  hand?: HandwritingStyle;
 }
 
 export interface NoteObject extends Base, TextStyle {
@@ -786,11 +798,14 @@ export const SIGNATURE_INK = "#0f172a";
 
 /**
  * A typed signature as the editor places it: a one-line text box in the
- * style's face — Script is Times Italic, Print is Helvetica, the faces Sign
- * PDF's copy names (`sign-style-copy.test.ts` reads them back out of the
- * export). Text in another script takes the one upright Noto face, as every
- * text box does. `color` is the ink chosen in the signature panel
- * (`./signature-ink`); left out, it is the ink Sign PDF has always used.
+ * style's face — a handwriting style is its own face (`hand`), Script is
+ * Times Italic, Print is Helvetica, the faces Sign PDF's copy names
+ * (`sign-style-copy.test.ts` reads them back out of the export). A
+ * handwriting box carries Script's font and slant underneath, so a name the
+ * face cannot draw is set exactly as Script would set it. Text in another
+ * script takes the one upright Noto face, as every text box does. `color` is
+ * the ink chosen in the signature panel (`./signature-ink`); left out, it is
+ * the ink Sign PDF has always used.
  */
 export function typedSignatureObject(
   id: string,
@@ -810,14 +825,24 @@ export function typedSignatureObject(
     y,
     width,
     text,
-    font: style === "signature" ? "times" : "helvetica",
-    italic: style === "signature",
+    font: style === "print" ? "helvetica" : "times",
+    italic: style !== "print",
     bold: false,
     size: TYPED_SIGNATURE_SIZE,
     color,
     align: "left",
     lineHeight: 1.2,
+    ...(isHandwritingStyle(style) ? { hand: style } : {}),
   };
+}
+
+/**
+ * Whether a style patch takes a text box out of its handwriting face: any
+ * choice of font, weight or slant is a choice of a face the Font menu names,
+ * and the box must then be drawn in it.
+ */
+export function withoutHandwritingFor(patch: object): boolean {
+  return "font" in patch || "bold" in patch || "italic" in patch;
 }
 
 /** Defaults a newly placed object starts from. */

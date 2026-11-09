@@ -31,10 +31,11 @@
  * go green is a guard that gets deleted. Failures THROW; only the CLI arm
  * below turns a throw into `process.exit(1)`.
  */
-import { copyFileSync, mkdirSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { FONT_PACKS } from "../src/lib/pdf/font-packs";
+import { FONT_PACKS, type ShippedFace } from "../src/lib/pdf/font-packs";
+import { HANDWRITING_FACE_LIST } from "../src/lib/pdf/handwriting";
 import {
   installedPackageVersion,
   notoTtfPath,
@@ -58,21 +59,38 @@ export interface CopiedFace {
 }
 
 /**
- * Copy every face in `FONT_PACKS` into `public/fonts/<version>/`.
+ * Every face the tools fetch from our origin: the script packs, and the
+ * handwriting faces of a typed signature (audit sign-pdf#1). One list, so the
+ * copy step, `font-packs.test.ts` and `handwriting.test.ts` cannot disagree
+ * about which files ship.
+ */
+export const SHIPPED_FACES: readonly ShippedFace[] = [
+  ...FONT_PACKS,
+  ...HANDWRITING_FACE_LIST,
+];
+
+/**
+ * Copy every face in {@link SHIPPED_FACES} into `public/fonts/<version>/`.
  *
- * Idempotent, and cheap enough to call from a test: five `copyFileSync`s.
+ * Idempotent, and cheap enough to call from a test: ten `copyFileSync`s.
  * Throws on any drift between the table, the installed package and the file.
+ *
+ * A handwriting face also gets its package's `LICENSE_FONT` beside it, as
+ * `<file>.LICENSE.txt`: the OFL and Apache 2.0 both ask that a redistributed
+ * copy travel with its licence, and serving the TTF is redistributing it.
  */
 export function copyNotoFonts(): CopiedFace[] {
   const written: CopiedFace[] = [];
+  const handwriting = new Set<ShippedFace>(HANDWRITING_FACE_LIST);
 
-  for (const pack of FONT_PACKS) {
+  for (const pack of SHIPPED_FACES) {
     const installed = installedPackageVersion(pack);
     if (installed !== pack.version) {
       throw new Error(
         `${pack.pkg} is installed at ${installed} but FONT_PACKS says ` +
           `${pack.version}. The browser would fetch ${pack.file} from a URL that ` +
           `does not match the installed face. Update src/lib/pdf/font-packs.ts ` +
+          `(or handwriting.ts) ` +
           `and re-run \`pnpm fonts:coverage\`.`,
       );
     }
@@ -104,6 +122,16 @@ export function copyNotoFonts(): CopiedFace[] {
     if (bytes !== size) {
       throw new Error(`${pack.file} copied short: ${bytes} of ${size} bytes`);
     }
+    if (handwriting.has(pack)) {
+      const license = path.join(path.dirname(from), "..", "LICENSE_FONT");
+      if (!existsSync(license)) {
+        throw new Error(
+          `${pack.pkg} ships no LICENSE_FONT beside ${pack.file}; the face ` +
+            `cannot be served without its licence.`,
+        );
+      }
+      copyFileSync(license, `${to}.LICENSE.txt`);
+    }
 
     written.push({
       id: pack.id,
@@ -122,8 +150,10 @@ export function copyNotoFonts(): CopiedFace[] {
     });
   }
 
-  if (written.length !== FONT_PACKS.length) {
-    throw new Error(`copied ${written.length} of ${FONT_PACKS.length} faces`);
+  if (written.length !== SHIPPED_FACES.length) {
+    throw new Error(
+      `copied ${written.length} of ${SHIPPED_FACES.length} faces`,
+    );
   }
   return written;
 }

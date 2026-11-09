@@ -44,7 +44,8 @@ import {
   uncoveredCodePoints,
 } from "./font-coverage";
 import { installedPackageVersion, notoTtfPath } from "./noto-source";
-import { copyNotoFonts } from "../../../scripts/copy-noto-fonts";
+import { SHIPPED_FACES, copyNotoFonts } from "../../../scripts/copy-noto-fonts";
+import { HANDWRITING_FACE_LIST } from "./handwriting";
 import { monospaceClaimMembers } from "@/tests/unicode-fonts";
 
 /**
@@ -452,7 +453,14 @@ describe("the pack table describes the files that actually ship", () => {
     // Health check: bound the corpus's own size before comparing sets, because
     // two empty lists are equal and that would be the strongest possible pass.
     expect(FONT_PACKS.length).toBeGreaterThanOrEqual(5);
-    expect(written.length).toBe(FONT_PACKS.length);
+    // The handwriting faces of a typed signature ship by the same step
+    // (audit sign-pdf#1); the expected set is built from the two TABLES the
+    // browser fetches from, not from the copy step's own list, so a face the
+    // copy step forgets fails here.
+    expect(HANDWRITING_FACE_LIST.length).toBeGreaterThanOrEqual(3);
+    const fetched = [...FONT_PACKS, ...HANDWRITING_FACE_LIST];
+    expect(SHIPPED_FACES.length).toBe(fetched.length);
+    expect(written.length).toBe(fetched.length);
 
     // Direction 1: every URL the fetch path builds was written by the copy step.
     // Direction 2: every path the copy step wrote is one the fetch path builds.
@@ -460,13 +468,13 @@ describe("the pack table describes the files that actually ship", () => {
     expect(
       written.map((face) => face.servedAt).sort(),
       "the copy step's destinations and fontPackUrl() have drifted apart — one of them is now writing or fetching a path the other never mentions",
-    ).toEqual(FONT_PACKS.map(fontPackUrl).sort());
+    ).toEqual(fetched.map(fontPackUrl).sort());
 
     // And walk to the file, at the URL, with the size the table records — the
     // copy step's own return value is its report on itself, so it cannot be the
     // only witness.
     const missing: string[] = [];
-    for (const pack of FONT_PACKS) {
+    for (const pack of fetched) {
       const onDisk = path.join(process.cwd(), "public", fontPackUrl(pack));
       if (!existsSync(onDisk)) {
         missing.push(fontPackUrl(pack));

@@ -67,7 +67,7 @@ import {
   fontPackUrl,
   unsupportedScriptFor,
   type FontPack,
-  type FontPackId,
+  type ShippedFace,
   type StandardFace,
 } from "./font-packs";
 import {
@@ -104,7 +104,7 @@ export type { StandardFace };
  * that the asset is served. `e2e/unicode-fonts.spec.ts` fetches the real URL
  * off the real server for that half.
  */
-export type FontByteSource = (pack: FontPack) => Promise<Uint8Array>;
+export type FontByteSource = (pack: ShippedFace) => Promise<Uint8Array>;
 
 const fetchFromOrigin: FontByteSource = async (pack) => {
   const response = await fetchedOverNetwork(() => fetch(fontPackUrl(pack)));
@@ -197,7 +197,7 @@ export function defaultFontByteSource(): FontByteSource {
 
 const packBytes = new Map<string, Promise<Uint8Array>>();
 
-function loadPackBytes(pack: FontPack): Promise<Uint8Array> {
+function loadPackBytes(pack: ShippedFace): Promise<Uint8Array> {
   const key = `${pack.id}@${pack.version}`;
   let pending = packBytes.get(key);
   if (!pending) {
@@ -557,15 +557,59 @@ export async function embedDrawingFont(
   refuseNotdef(lastBad!.pack, lastBad!.characters);
 }
 
-const documentFontCache = new WeakMap<PDFDocument, Map<FontPackId, PDFFont>>();
+const documentFontCache = new WeakMap<PDFDocument, Map<string, PDFFont>>();
 
-function documentFonts(doc: PDFDocument): Map<FontPackId, PDFFont> {
+function documentFonts(doc: PDFDocument): Map<string, PDFFont> {
   let memo = documentFontCache.get(doc);
   if (!memo) {
     memo = new Map();
     documentFontCache.set(doc, memo);
   }
   return memo;
+}
+
+/**
+ * Embed `face` — a shipped face chosen by name, not by the text's letters (a
+ * typed signature's handwriting style) — if it draws every glyph of `texts`;
+ * otherwise `null`, and the caller sets the text the way it would have without
+ * the face. Never a `.notdef`: the text is SHAPED with the face before it is
+ * embedded, the same question {@link embedDrawingFont} asks of a pack, and one
+ * blank glyph is a `null`.
+ *
+ * `null` rather than a refusal because every caller has a face that can draw
+ * the text anyway (Script's), so declining the style costs a look and never
+ * the document. A download failure is NOT a `null`: it throws, in words, as
+ * every mid-run fetch here does — falling back silently because the network
+ * blinked would hand a signer Times Italic under a Dancing Script preview.
+ *
+ * Memoised per document by face id, so ten signatures in one style embed one
+ * subset.
+ */
+export async function embedFaceIfDrawable(
+  doc: PDFDocument,
+  face: ShippedFace,
+  rawTexts: readonly string[],
+): Promise<PDFFont | null> {
+  const texts = rawTexts.map((text) => text.replace(/[\r\n\t]+/g, " "));
+  const fontkit = await downloaded(loadFontkit(), "The font engine");
+  const bytes = await downloaded(loadPackBytes(face), `The ${face.label} font`);
+  if (notdefCharacters(fontkit.open(bytes), texts).length > 0) return null;
+  const memo = documentFonts(doc);
+  const cached = memo.get(face.id);
+  if (cached) return cached;
+  doc.registerFontkit(fontkit.forPdfLib as never);
+  const embedded = await doc.embedFont(bytes, { subset: true });
+  memo.set(face.id, embedded);
+  return embedded;
+}
+
+/**
+ * A shipped face's bytes from the shared cache — for an on-screen preview or
+ * measure that must use the SAME outlines the export embeds. Downloading it
+ * here and exporting later fetches it once.
+ */
+export function loadFaceBytes(face: ShippedFace): Promise<Uint8Array> {
+  return downloaded(loadPackBytes(face), `The ${face.label} font`);
 }
 
 /**
