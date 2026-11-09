@@ -1,15 +1,10 @@
-import type { PDFEmbeddedPage } from "pdf-lib";
-import { asDecodeBudgetRefusal } from "./decode-budget";
 import { PdfEngineError, loadPdf } from "./engine";
 import { outputName } from "./files";
 import { IMAGE_MARGINS, IMAGE_PAGE_SIZES } from "./image-page-layout";
-import {
-  bakeAnnotationAppearances,
-  drawFieldValues,
-  placeOverlay,
-} from "./overlay";
-import { visibleBox, visiblePageFrame, type Box } from "./page-frame";
+import { placeOverlay } from "./overlay";
+import { visiblePageFrame, type Box } from "./page-frame";
 import { loadPdfLib } from "./pdf-lib";
+import { embedSourcePages } from "./sheet-embed";
 import { stampProducer } from "./stamp";
 
 /**
@@ -105,6 +100,13 @@ export type NUpMarginId = (typeof IMAGE_MARGINS)[number]["id"];
  * ticked the columns are mirrored, so page 2 sits to the LEFT of page 1.
  */
 export const N_UP_RTL_LABEL = "Right to left, for Arabic, Hebrew or manga";
+
+/**
+ * What a PDF whose pages pdf-lib cannot draw is told. Passed to
+ * `embedSourcePages`, so the sentence stays in this walked module.
+ */
+export const N_UP_LAYOUT_REFUSAL =
+  "The pages of this PDF could not be laid out — it may use features we can't process yet.";
 
 /** A border's line width, in points. */
 export const N_UP_BORDER_PT = 0.5;
@@ -289,47 +291,13 @@ export async function nUpPdf(
   );
 
   const out = await lib.PDFDocument.create();
-  // Values a viewer draws from /V alone get an appearance to bake first.
-  const undrawnFields = drawFieldValues(
+  const { byIndex, undrawnFields } = await embedSourcePages(
     lib,
     source,
+    out,
     (await formTree).repairFieldTree,
+    N_UP_LAYOUT_REFUSAL,
   );
-  // A page with no content stream draws nothing; it still takes its cell.
-  const drawable = pages
-    .map((page, index) => {
-      bakeAnnotationAppearances(lib, page);
-      return { page, index };
-    })
-    .filter(({ page }) => page.node.Contents() !== undefined);
-
-  let embedded: PDFEmbeddedPage[];
-  try {
-    embedded = await out.embedPages(
-      drawable.map(({ page }) => page),
-      drawable.map(({ page }) => {
-        const box = visibleBox(page);
-        return {
-          left: box.x,
-          bottom: box.y,
-          right: box.x + box.width,
-          top: box.y + box.height,
-        };
-      }),
-    );
-    // pdf-lib decodes the content streams here, not in embedPages (it would
-    // otherwise do it inside save(), past this catch).
-    for (const page of embedded) await page.embed();
-  } catch (err) {
-    throw (
-      asDecodeBudgetRefusal(err) ??
-      new PdfEngineError(
-        "The pages of this PDF could not be laid out — it may use features we can't process yet.",
-      )
-    );
-  }
-  const byIndex = new Map<number, PDFEmbeddedPage>();
-  drawable.forEach(({ index }, k) => byIndex.set(index, embedded[k]!));
 
   const sheets = Math.ceil(pages.length / options.perSheet);
   for (let s = 0; s < sheets; s += 1) {
