@@ -27,7 +27,7 @@ async function openWith(pages: number) {
     type: "application/pdf",
   });
   const { container } = render(
-    withAppRouter(<PdfToImageRunner format="png" />),
+    withAppRouter(<PdfToImageRunner slug="pdf-to-png" />),
   );
   fireEvent.change(container.querySelector('input[type="file"]')!, {
     target: { files: [file] },

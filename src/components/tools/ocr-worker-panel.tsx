@@ -1,5 +1,6 @@
 "use client";
 
+import { usePickRefusal } from "@/components/tools/use-pick";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useCallback, useId, useMemo, useState, type ReactNode } from "react";
@@ -36,7 +37,7 @@ import {
   type OcrWorkerResult,
 } from "@/lib/workers/ocr-client";
 import type { Tool } from "@/lib/tools/types";
-import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
+import type { PickRefusal } from "@/lib/uploads/pick-check";
 import { cn, formatBytes } from "@/lib/utils";
 import {
   DownloadCta,
@@ -190,6 +191,7 @@ function OcrBody({
   outputMode: OcrOutputMode;
   setOutputMode: (mode: OcrOutputMode) => void;
 }) {
+  const pickRefuse = usePickRefusal(tool);
   const { status } = useWorkerPanel();
   const languageChoice = useOcrLanguageChoice(status);
   const { selected, installed } = languageChoice;
@@ -389,7 +391,7 @@ function OcrBody({
       tool={tool}
       request={request}
       contentTypeOf={contentTypeFor}
-      refuse={(file) => pickRefusal(tool, file)}
+      refuse={pickRefuse}
       runnable={runnable}
       settings={settings}
       file={file}

@@ -5,6 +5,11 @@ import {
   type PdfSecurityWorkerResult,
 } from "./pdf-security-client";
 import { canRunAiTool } from "./ai-tool-availability";
+import {
+  OCR_JOB_POLL,
+  translateJobPoll,
+  type JobPollBudget,
+} from "@/lib/jobs/client-wait";
 import { extractPdfText, type ExtractedPdfText } from "@/lib/pdf/text";
 import type {
   TranslateLanguage,
@@ -24,13 +29,39 @@ import type {
 
 export type TranslateWorkerResult = PdfSecurityWorkerResult;
 
-export interface TranslateWorkerInput {
+/**
+ * What the panel sends: a COUNTED document, or a SCAN with an OCR request.
+ *
+ * A union, not optional fields, because the two are different contracts. A
+ * document with text was counted in the browser, so it declares its size
+ * (required, see below). A scan has no text the browser can count — it is
+ * recognised on the worker (audit translate-pdf#3) — so it declares nothing
+ * and is charged an undeclared run, and the worker caps the RECOGNISED text
+ * at that charge. A scan job that declared a count would be a guess, and a
+ * counted job that dropped its count would silently cost the maximum.
+ */
+export type TranslateWorkerInput = TranslateWorkerCommon &
+  (TranslateCountedInput | TranslateScanInput);
+
+interface TranslateWorkerCommon {
   filename: string;
   bytes: Uint8Array;
   targetLanguage: TranslateLanguage;
   sourceLanguage: TranslateSourceLanguage;
   /** Optional free-text directive steering the translation. */
   instructions?: string;
+}
+
+/** A scan, recognised on the worker before it is translated. */
+export interface TranslateScanInput {
+  /** The OCR languages, validated by the worker as PDF to Word's switch. */
+  ocr: { languages: readonly string[] };
+  declaredCharacters?: never;
+  declaredTextPages?: never;
+}
+
+export interface TranslateCountedInput {
+  ocr?: never;
   /**
    * Characters of selectable text this document holds, as the BROWSER counted
    * them — the figure the route reserves against.
@@ -78,6 +109,11 @@ export function runWorkerTranslate(
   };
   if (input.instructions !== undefined)
     jobOptions.instructions = input.instructions;
+  if (input.ocr !== undefined) {
+    // The worker reads these with PDF to Word's own parser.
+    jobOptions.ocr = true;
+    jobOptions.languages = [...input.ocr.languages];
+  }
   return runSecurityJob(
     "translate-pdf",
     input.filename,
@@ -109,3 +145,39 @@ export function canRunTranslate(
 export const translateTextDeps: {
   extract: (bytes: Uint8Array) => Promise<ExtractedPdfText>;
 } = { extract: extractPdfText };
+
+/**
+ * True when the panel may offer to recognise a scan before translating it
+ * (audit translate-pdf#3): the live status says an OBSERVED worker proves
+ * both the chain (`translateOcr`) and OCR itself. Absent reads as `false`,
+ * and the panel then refuses a scan before upload as it always did.
+ */
+export function canTranslateScans(
+  status: WorkerStatus | null | undefined,
+): boolean {
+  return status?.translateOcr === true;
+}
+
+/**
+ * Translate PDF with OCR first (audit translate-pdf#3): OCR's own wait, then
+ * the translation's, one after the other in the same job. `chunks` is the
+ * most provider calls the recognised text can need under the job's cap — the
+ * panel cannot count a scan's text, so it passes the cap's worth.
+ *
+ * Here, in the feature's client, and not in `@/lib/jobs/client-wait`: that
+ * module is on every worker page's first load, and a function added there
+ * (or a use of its tree-shaken `pollWaitMs`, which is why the arithmetic is
+ * inline) cost OCR PDF's page the room its row had left — measured
+ * 2026-11-09 at +16 B gz, against a row with 0.01 KB to spare.
+ */
+export function translateOcrJobPoll(chunks: number): JobPollBudget {
+  const translate = translateJobPoll(chunks);
+  return {
+    intervalMs: translate.intervalMs,
+    maxAttempts: Math.ceil(
+      (OCR_JOB_POLL.intervalMs * OCR_JOB_POLL.maxAttempts +
+        translate.intervalMs * translate.maxAttempts) /
+        translate.intervalMs,
+    ),
+  };
+}

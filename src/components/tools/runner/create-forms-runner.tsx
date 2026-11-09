@@ -40,7 +40,6 @@ import { downloadBytes } from "@/lib/pdf/browser";
 import Link from "next/link";
 import { EDITOR_FIELD_LABEL } from "@/lib/pdf/editor/model";
 import { EDITOR_FORMS_GROUP } from "@/lib/pdf/offered-kinds";
-import { getToolEntry } from "@/lib/tools/directory";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -473,13 +472,17 @@ function FormBuilder({
 
 /*
  * Edit PDF drags out the same field types plus a signature field (audit
- * create-forms#1); the help box names it, by the catalogue's own entry.
+ * create-forms#1); the help box names it as the catalogue does. WAS read
+ * from the tool directory (`getToolEntry`), which put every tool's row in
+ * this page's first load for one link; since 2026-11-09 it is here, and
+ * `linked-tool-names.test.ts` holds it to the catalogue (a rename or a
+ * removal turns it red, as the lookup threw before).
  */
-const EDIT_PDF = (() => {
-  const tool = getToolEntry("edit-pdf");
-  if (!tool) throw new Error("create-forms links to an Edit PDF that is gone");
-  return tool;
-})();
+export const CREATE_FORMS_EDIT_PDF = {
+  slug: "edit-pdf",
+  name: "Edit PDF",
+} as const;
+const EDIT_PDF = CREATE_FORMS_EDIT_PDF;
 
 /* ------------------------------------------------------------------ *
  *  Coordinate help

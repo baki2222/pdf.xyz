@@ -15,6 +15,7 @@
  * cases (`runner-kit.a11y.test.tsx`) and the source guard
  * (`run-trigger-focus.test.ts`), both of which ran red on the unmodified tree.
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   cleanup,
@@ -111,7 +112,11 @@ describe("Unlock form names every password the engine accepts", () => {
         { status: 200, headers: { "content-type": "application/json" } },
       ),
     );
-    render(<PdfSecurityWorkerPanel tool={unlockTool} />);
+    render(
+      <InToolPage tool={unlockTool}>
+        <PdfSecurityWorkerPanel tool={unlockTool} />
+      </InToolPage>,
+    );
     return waitFor(() => {
       const hint = document.getElementById("pdf-security-password-hint");
       if (!hint) throw new Error("the unlock form has not rendered");

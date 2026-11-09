@@ -20,6 +20,7 @@
  * is a text PDF that MUST reach `/api/jobs`, so a stub that blocked everything
  * could not pass.
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { getToolBySlug } from "@/lib/tools";
@@ -125,7 +126,11 @@ function network() {
 
 async function summarize() {
   summarizePreflightDeps.extract = () => extraction.run();
-  render(<SummarizeWorkerPanel tool={tool} />);
+  render(
+    <InToolPage tool={tool}>
+      <SummarizeWorkerPanel tool={tool} />
+    </InToolPage>,
+  );
   const input = await waitFor(() => {
     const found = document.querySelector('input[type="file"]');
     if (!found) throw new Error("no input");

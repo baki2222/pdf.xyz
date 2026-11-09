@@ -198,6 +198,22 @@ export interface HeartbeatCapabilities {
    * parses as `false`.
    */
   readonly docxPictures: boolean;
+  /**
+   * This image's Translate PDF recognises a SCAN with the OCR processor and
+   * translates what OCR read, when the job asks for it — and runs no OCR on a
+   * PDF that already has text (audit translate-pdf#3, 2026-11-09).
+   *
+   * PROVEN AT START-UP by running a `translate-pdf` job through the registry
+   * the daemon builds, with stub OCR, extractor and provider
+   * (`translate/ocr-capability.ts`, `provesTranslateOcr`): the provider must
+   * receive a marker only OCR's output holds, and a typed PDF must run no
+   * OCR. It says nothing about whether OCR itself runs here — that is
+   * {@link ocr} — so the web offers OCR inside Translate only while BOTH read
+   * `true` on an observed heartbeat. Until then the Translate panel refuses
+   * a scan before upload, as it did before this key. An image built before
+   * the key publishes nothing, and the absence parses as `false`.
+   */
+  readonly translateOcr: boolean;
 }
 
 /**

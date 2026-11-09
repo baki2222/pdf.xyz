@@ -12,6 +12,7 @@
  * `ocr-native.test.ts`, and that says nothing about whether ticking the box
  * gets the flag to the engine.
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { getToolBySlug } from "@/lib/tools";
@@ -195,7 +196,11 @@ function stubNetwork(contentType: string) {
 }
 
 async function addFile(name: string, type: string) {
-  render(<OcrWorkerPanel tool={ocrTool} />);
+  render(
+    <InToolPage tool={ocrTool}>
+      <OcrWorkerPanel tool={ocrTool} />
+    </InToolPage>,
+  );
   const input = await vi.waitFor(() => {
     const found = readyFileInput();
     if (!found) throw new Error("no file input yet");

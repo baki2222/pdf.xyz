@@ -21,7 +21,7 @@ import {
   screen,
 } from "@testing-library/react";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
-import type { ReactNode } from "react";
+import { useLayoutEffect, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   __setHandoffStoreForTests,
@@ -35,6 +35,7 @@ import {
   HandoffLoading,
   HandoffProblem,
 } from "./handoff-notice";
+import { ToolRunProvider, useToolRun } from "./tool-context";
 import {
   claimArrival,
   useToolHandoff,
@@ -99,35 +100,104 @@ describe("the loaded badge names where the files came from", () => {
     expect(status()).not.toMatch(/workspace/i);
   });
 
-  it("a result names the tool that made it, read from the catalogue", () => {
+  /*
+   * CHANGED 2026-11-09 (perf/per-tool-first-load). WAS "a result names the
+   * tool that made it, read from the catalogue": the badge looked the name
+   * up in the tool directory, which put every tool's name in every tool
+   * page's first load. It now names the tool as the hand-off RECORD carried
+   * it — reported to the page's job by the claim (`ToolRun.names`) — so the
+   * badge is rendered here inside a job that arrived with those names, and
+   * the control below holds that the name is the record's, not a lookup.
+   */
+  it("a result names the tool that made it, as the record carried it", () => {
     render(
-      <HandoffLoadedBadge
-        origin={{ kind: "result", fromSlug: "merge-pdf" }}
-        count={1}
-        skipped={0}
-      />,
+      <ArrivedWith names={{ "merge-pdf": "Merge PDF" }}>
+        <HandoffLoadedBadge
+          origin={{ kind: "result", fromSlug: "merge-pdf" }}
+          count={1}
+          skipped={0}
+        />
+      </ArrivedWith>,
     );
     expect(status()).toContain("Loaded your result from Merge PDF.");
   });
 
+  it("positive control: the name is the record's, never looked up", () => {
+    render(
+      <ArrivedWith names={{ "merge-pdf": "Combine Files" }}>
+        <HandoffLoadedBadge
+          origin={{ kind: "result", fromSlug: "merge-pdf" }}
+          count={1}
+          skipped={0}
+        />
+      </ArrivedWith>,
+    );
+    expect(status()).toContain("Loaded your result from Combine Files.");
+    cleanup();
+    // No name carried: the phrase's own fallback, as for an unknown slug.
+    render(
+      <ArrivedWith names={{}}>
+        <HandoffLoadedBadge
+          origin={{ kind: "result", fromSlug: "merge-pdf" }}
+          count={1}
+          skipped={0}
+        />
+      </ArrivedWith>,
+    );
+    expect(status()).toContain("Loaded your result from the previous tool.");
+  });
+
   it("a remedy names the file and why it came", () => {
     render(
-      <HandoffLoadedBadge
-        origin={{
-          kind: "remedy",
-          fromSlug: "rotate-pdf",
-          problem: "encrypted",
-        }}
-        count={1}
-        skipped={0}
-        fileName="report.pdf"
-      />,
+      <ArrivedWith names={{ "rotate-pdf": "Rotate PDF" }}>
+        <HandoffLoadedBadge
+          origin={{
+            kind: "remedy",
+            fromSlug: "rotate-pdf",
+            problem: "encrypted",
+          }}
+          count={1}
+          skipped={0}
+          fileName="report.pdf"
+        />
+      </ArrivedWith>,
     );
     expect(status()).toContain(
       "Loaded report.pdf from Rotate PDF to unlock it first.",
     );
   });
 });
+
+/** A tool page's job that a hand-off carrying `names` arrived in. */
+function ArrivedWith({
+  names,
+  children,
+}: {
+  names: Record<string, string>;
+  children: ReactNode;
+}) {
+  return (
+    <ToolRunProvider
+      tool={{
+        slug: "compress-pdf",
+        name: "Compress PDF",
+        category: "optimize",
+      }}
+      plan={{ targets: [] }}
+    >
+      <Arrive names={names} />
+      {children}
+    </ToolRunProvider>
+  );
+}
+
+function Arrive({ names }: { names: Record<string, string> }) {
+  const arrived = useToolRun()?.arrived;
+  useLayoutEffect(() => {
+    arrived?.([], null, names);
+  }, [arrived, names]);
+  return null;
+}
 
 describe("the problem notes say what happened, in the target tool's own terms", () => {
   const problem = (over: Partial<ToolHandoff>): ToolHandoff =>
@@ -208,6 +278,52 @@ describe("claimArrival: one claim for every page that receives files", () => {
     expect(claimed!.files.map((f) => f.name)).toEqual(["a.pdf", "b.pdf"]);
   });
 
+  /*
+   * Record version 2 (2026-11-09): the names the receiving page shows come
+   * in the record, written by the launch; a version-1 record (stashed
+   * before that deploy, claimed after it) has none, and the claim fetches
+   * the directory for it, so it reads as it did before.
+   */
+  it("returns the names a version-2 record carried, as carried", async () => {
+    const id = await stashHandoff("compress-pdf", [pdf("a.pdf")], {
+      origin: { kind: "result", fromSlug: "merge-pdf" },
+      trail: ["merge-pdf"],
+      // Not the catalogue's spelling, so a lookup would show.
+      names: { "merge-pdf": "Combine Files" },
+    });
+    window.history.replaceState(null, "", `/tools/compress-pdf?handoff=${id}`);
+    const claimed = await claimArrival("compress-pdf", (e) => e, ROUTER);
+    expect(claimed?.names).toEqual({ "merge-pdf": "Combine Files" });
+  });
+
+  it("a version-1 record, with no names, gets the directory's", async () => {
+    const backend = new MemoryHandoffBackend();
+    __setHandoffStoreForTests(new HandoffStore({ backend }));
+    const now = Date.now();
+    await backend.put({
+      id: "h_0123456789abcdefv1",
+      toolSlug: "compress-pdf",
+      createdAt: now,
+      expiresAt: now + 60_000,
+      files: [
+        { name: "a.pdf", size: 4, type: "application/pdf", blob: pdf("a.pdf") },
+      ],
+      origin: { kind: "result", fromSlug: "rotate-pdf" },
+      trail: ["merge-pdf", "rotate-pdf"],
+    });
+    window.history.replaceState(
+      null,
+      "",
+      "/tools/compress-pdf?handoff=h_0123456789abcdefv1",
+    );
+    const claimed = await claimArrival("compress-pdf", (e) => e, ROUTER);
+    expect(claimed?.status).toBe("ready");
+    expect(claimed?.names).toEqual({
+      "merge-pdf": "Merge PDF",
+      "rotate-pdf": "Rotate PDF",
+    });
+  });
+
   it("the workspace claims a record addressed to it, every file kept", async () => {
     const id = await stashHandoff("workspace", [pdf("a.pdf"), docx], {
       origin: { kind: "drop", surface: "home" },
@@ -273,5 +389,59 @@ describe("useToolHandoff exposes the provenance to the runner", () => {
       parkedId: null,
     });
     expect(result.current.accept).toEqual(["PDF"]);
+  });
+
+  /*
+   * Back to a page whose file went on (`@/lib/handoff/departure`). Since
+   * 2026-11-09 the launch writes the next tool's display name into the
+   * departure, so Back names it with no directory in the page's first load.
+   * A history entry written BEFORE that deploy has a slug and no name: the
+   * hook fetches the directory for it, so the note appears one lazy-chunk
+   * round trip later than it used to (on main it drew on the first render
+   * after mount) and with the same words. That delay is the expected cost
+   * for those old entries only, not a regression; a history entry can
+   * outlive the 30-minute hand-off record, so the fallback stays.
+   */
+  const backTo = (departure: Record<string, unknown>) => {
+    window.history.replaceState(
+      { pdfxyzWentOnTo: departure },
+      "",
+      "/tools/rotate-pdf",
+    );
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <AppRouterContext.Provider value={ROUTER}>
+        {children}
+      </AppRouterContext.Provider>
+    );
+    return renderHook(() => useToolHandoff("rotate-pdf"), { wrapper });
+  };
+
+  it("Back to an entry written before departures carried a name: named from the directory", async () => {
+    const { result } = backTo({ slug: "compress-pdf", count: 1 });
+    await vi.waitFor(() =>
+      expect(result.current.departed).toEqual({
+        slug: "compress-pdf",
+        name: "Compress PDF",
+        count: 1,
+      }),
+    );
+  });
+
+  it("Back to an entry that carried its name: named as carried, never looked up", async () => {
+    // Not the catalogue's spelling, so a directory lookup would show.
+    const { result } = backTo({
+      slug: "compress-pdf",
+      name: "Shrink It",
+      count: 2,
+    });
+    await vi.waitFor(() => expect(result.current.departed).not.toBeNull());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(result.current.departed).toEqual({
+      slug: "compress-pdf",
+      name: "Shrink It",
+      count: 2,
+    });
   });
 });

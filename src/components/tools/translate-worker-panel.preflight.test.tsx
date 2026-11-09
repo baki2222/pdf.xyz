@@ -31,6 +31,7 @@
  * pdfjs build reaches the panel through its `extractText` seam instead of a
  * module mock.
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   fireEvent,
@@ -124,7 +125,9 @@ async function translate(
 ): Promise<JobNetwork> {
   const network = stubJobNetwork(READY, workerSays);
   render(
-    <TranslateWorkerPanel tool={translateTool} extractText={realExtract} />,
+    <InToolPage tool={translateTool}>
+      <TranslateWorkerPanel tool={translateTool} extractText={realExtract} />
+    </InToolPage>,
   );
   const run = await screen.findByRole("button", { name: /translate pdf/i });
   const input = document.querySelector('input[type="file"]');
@@ -164,7 +167,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("TranslateWorkerPanel — a scanned PDF", () => {
+// SCOPED 2026-11-09 (audit translate-pdf#3), history kept: this was "a scanned
+// PDF" without condition — every scan was refused before upload and sent to
+// OCR PDF. Since Translate can recognise a scan itself, that refusal is the
+// behaviour ONLY while the running worker does not advertise `translateOcr`
+// (READY here carries no such field). The other state — the language picker
+// and the OCR request — is `translate-worker-panel.ocr.test.tsx`.
+describe("TranslateWorkerPanel — a scanned PDF, when the running worker does not translate scans", () => {
   it("is sent to OCR, not told it has 0 characters and should be split", async () => {
     const network = await translate(await imageOnlyPdf(2));
     const { alert, text } = await alertText();

@@ -19,6 +19,7 @@
  * HTML to PDF is the negative control: it shares EPUB to PDF's panel, has
  * no batch, and stages the first file alone.
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import type { ComponentType } from "react";
@@ -114,7 +115,11 @@ async function carryThree(slug: string) {
   expect(carryHandoff(path, id!)).toBe(true);
   window.history.replaceState(null, "", path);
   const Panel = await panelFor(slug);
-  render(<Panel tool={tool} />);
+  render(
+    <InToolPage tool={tool}>
+      <Panel tool={tool} />
+    </InToolPage>,
+  );
   return files;
 }
 

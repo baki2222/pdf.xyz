@@ -41,10 +41,8 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import {
-  getToolInputKind,
-  workerPipelineStages,
-} from "@/lib/jobs/capabilities";
+import { workerPipelineStages } from "@/lib/jobs/capabilities";
+import { getToolInputKind } from "@/lib/jobs/tool-capability";
 import type { Tool } from "@/lib/tools/types";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { getProviderReadiness } from "@/lib/workers/providers";

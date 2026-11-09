@@ -478,6 +478,7 @@ describe("advertised capabilities — the deploy gap becomes a reported state", 
     pptxPresentationChain: false,
     pptxPictures: false,
     docxPictures: false,
+    translateOcr: false,
     ...extra,
   });
 

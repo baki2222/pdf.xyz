@@ -10,7 +10,8 @@
  *
  * History state, not sessionStorage: it belongs to the one entry, so a NEW
  * visit to the same tool (a link, the address bar) says nothing. It holds
- * the tool's slug and a count — never a file, its name or its size.
+ * the tool's slug, its display name and a count — never a file, its name
+ * or its size.
  * `e2e/handoff-transport.spec.ts` holds Back, a reload, Dismiss, two hops
  * and the plain-visit control.
  */
@@ -20,6 +21,13 @@ const KEY = "pdfxyzWentOnTo";
 export interface Departure {
   /** The tool the files went on to. */
   readonly slug: string;
+  /**
+   * Its display name, written with the departure by the launch (which can
+   * look it up) since 2026-11-09, so Back names it without the tool
+   * directory in the page's first load. Null on an entry written before
+   * then; the runner's hook looks it up on demand for that entry.
+   */
+  readonly name: string | null;
   /** How many files went. */
   readonly count: number;
 }
@@ -38,7 +46,14 @@ function current(): Record<string, unknown> {
 export function markDeparture(departure: Departure): void {
   try {
     window.history.replaceState(
-      { ...current(), [KEY]: { slug: departure.slug, count: departure.count } },
+      {
+        ...current(),
+        [KEY]: {
+          slug: departure.slug,
+          count: departure.count,
+          ...(departure.name ? { name: departure.name } : {}),
+        },
+      },
       "",
     );
   } catch {
@@ -51,12 +66,20 @@ export function readDeparture(): Departure | null {
   try {
     const value = current()[KEY];
     if (!value || typeof value !== "object") return null;
-    const { slug, count } = value as { slug?: unknown; count?: unknown };
+    const { slug, count, name } = value as {
+      slug?: unknown;
+      count?: unknown;
+      name?: unknown;
+    };
     return typeof slug === "string" &&
       typeof count === "number" &&
       Number.isInteger(count) &&
       count > 0
-      ? { slug, count }
+      ? {
+          slug,
+          name: typeof name === "string" && name.trim() !== "" ? name : null,
+          count,
+        }
       : null;
   } catch {
     return null;

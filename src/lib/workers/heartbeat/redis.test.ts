@@ -31,6 +31,7 @@ const CAPS: HeartbeatCapabilities = {
   pptxPresentationChain: true,
   pptxPictures: true,
   docxPictures: true,
+  translateOcr: true,
 };
 
 /** A mutable fake clock. */

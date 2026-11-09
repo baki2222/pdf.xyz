@@ -170,6 +170,13 @@ export function copyFiles(): string[] {
     // What the OCR-first step says when OCR cannot help (2026-11-08), read
     // by the PDF to Office and Extract Tables panels' job errors.
     path.join(ROOT, "src", "lib", "workers", "processor", "ocr-first.ts"),
+    // OCR inside Translate PDF (2026-11-09, audit translate-pdf#3): the scan
+    // check, the explainer and charge the panel shows, the static scan
+    // sentence the page and guide render, and the route's refusal.
+    path.join(ROOT, "src", "lib", "jobs", "translate-ocr.ts"),
+    // The Translate OCR proof's German page and verdict lines (2026-11-09),
+    // walked for the reason options-proof.ts is.
+    path.join(ROOT, "src", "lib", "probes", "translate-ocr-proof.ts"),
     // Protect PDF's permission switch labels and their two "why it cannot
     // be turned off" sentences (2026-10-24), drawn by the panel and the page.
     path.join(ROOT, "src", "lib", "jobs", "pdf-permission-labels.ts"),

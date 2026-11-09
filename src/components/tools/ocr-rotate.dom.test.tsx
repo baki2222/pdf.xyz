@@ -13,6 +13,7 @@
  * gets the flag (and its threshold, without which it turned nothing in the
  * live image) to the engine. Copied in shape from `ocr-deskew.dom.test.tsx`.
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { getToolBySlug } from "@/lib/tools";
@@ -193,7 +194,11 @@ function stubNetwork(contentType: string) {
 }
 
 async function addFile(name: string, type: string) {
-  render(<OcrWorkerPanel tool={ocrTool} />);
+  render(
+    <InToolPage tool={ocrTool}>
+      <OcrWorkerPanel tool={ocrTool} />
+    </InToolPage>,
+  );
   const input = await vi.waitFor(() => {
     const found = readyFileInput();
     if (!found) throw new Error("no file input yet");

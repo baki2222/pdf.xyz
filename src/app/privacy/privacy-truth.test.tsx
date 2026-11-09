@@ -66,7 +66,7 @@ import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { EVENT_NAMES } from "@/lib/telemetry/events";
 import { tools } from "@/lib/tools";
-import { getToolInputKind } from "@/lib/jobs/capabilities";
+import { getToolInputKind } from "@/lib/jobs/tool-capability";
 import { AI_PROVIDER_FAMILIES } from "@/lib/workers/ai/config";
 import { GTAG_SRC } from "@/lib/analytics/ga4";
 import {

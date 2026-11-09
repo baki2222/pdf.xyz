@@ -34,10 +34,6 @@ import { jobPollFor } from "@/lib/jobs/client-wait";
 import { loadJobRun } from "./job-run-lazy";
 import { declaredContentTypeFor } from "@/lib/jobs/mime-by-format";
 import {
-  describeByteCeiling,
-  workerFileCeilingBytes,
-} from "./engine-file-ceilings";
-import {
   NO_SELECTABLE_TEXT_MESSAGE,
   readsOnlySelectableText,
 } from "@/lib/jobs/ai-no-text";
@@ -266,7 +262,11 @@ async function runSecurityJobSteps(
   //    never gives back (three scans locked a connection out for the day,
   //    audit at 67e8d0f). So the browser asks first, and answers with the
   //    worker's own words (`@/lib/jobs/ai-no-text`).
-  if (readsOnlySelectableText(tool)) {
+  //    EXCEPT a job that asks for OCR first (`options.ocr === true`): its
+  //    worker recognises the text before reading it — Translate PDF's scan
+  //    path since audit translate-pdf#3, which its panel offers only while the
+  //    running worker proves it, and which the route admits on the same proof.
+  if (readsOnlySelectableText(tool) && options.ocr !== true) {
     const hasText = await selectableTextVerdict(bytes);
     if (hasText === false) {
       return {
@@ -293,10 +293,19 @@ async function runSecurityJobSteps(
       code: "unsupported_file_type",
     };
   }
+  // The run's own code — the upload, the poll, and the engine ceilings —
+  // fetched on demand (`./job-run-lazy`).
+  const { uploadToWorkerSlot, workerFileCeilingBytes, describeByteCeiling } =
+    await loadJobRun();
   // Refused HERE, before a request is made, when the file is over what this
   // tool's engine accepts — the number its page states. The upload API refuses
   // the same file too; this is the half that can say so in words, without
   // `files[0].bytes`, and without the file ever being offered to the network.
+  // The ceilings come with the run's code since 2026-11-09: imported here,
+  // every worker engine's tool list rode every worker tool page's first load
+  // for a check that runs only once Run is pressed (the page's pick check
+  // already refused the file at the pick, with the number the server
+  // computed for it — `ToolRun.pick`).
   const ceiling = workerFileCeilingBytes(tool);
   if (bytes.byteLength > ceiling) {
     return {
@@ -308,7 +317,6 @@ async function runSecurityJobSteps(
   // Reserve a slot and upload the bytes to it — the one shared upload
   // (`./slot-upload`). The job uses the slot it RETURNS: a 403 may have
   // moved the bytes to a fresh one.
-  const { uploadToWorkerSlot } = await loadJobRun();
   const uploaded = await uploadToWorkerSlot({
     tool,
     filename,

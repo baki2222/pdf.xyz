@@ -38,6 +38,7 @@ const BEAT: WorkerHeartbeat = {
     pptxPresentationChain: true,
     pptxPictures: true,
     docxPictures: true,
+    translateOcr: true,
   },
   at: 1_700_000_000_000,
 };

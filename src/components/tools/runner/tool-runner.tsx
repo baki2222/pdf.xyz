@@ -2,7 +2,6 @@
 
 import dynamic from "next/dynamic";
 import type { RunnerKind } from "@/lib/pdf/registry";
-import { rasterFormatForSlug } from "@/lib/pdf/raster-format";
 
 /*
  * ONE CHUNK PER RUNNER. These were 27 static imports, and App Router puts
@@ -170,7 +169,10 @@ export function ToolRunner({ kind, slug }: { kind: RunnerKind; slug: string }) {
     case "image-to-pdf":
       return <ImageToPdfRunner kind={slug === "png-to-pdf" ? "png" : "jpg"} />;
     case "pdf-to-image":
-      return <PdfToImageRunner format={rasterFormatForSlug(slug)} />;
+      // The runner reads its format from the slug itself (2026-11-09):
+      // resolved here, `@/lib/pdf/raster-format` rode every tool page's
+      // first load for two of them.
+      return <PdfToImageRunner slug={slug} />;
     case "page-numbers":
       return <PageNumbersRunner />;
     case "watermark":

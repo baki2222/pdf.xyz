@@ -12,17 +12,25 @@
  * SUCCESS that already says what to do (`NoSelectableTextNote`, and Compare
  * PDF's own states), not a refusal.
  *
- * A REMEDY CARRIES THE FILE when its target takes a hand-off
- * (`handoffCapabilityFor`, read here, never typed). Both targets run on the
- * secure worker; since WP-10 a worker panel STAGES a carried file — it waits
- * there and uploads only on Run — so the click takes the file along with a
- * `remedy` origin (`ErrorNote`). Until then the remedy was a plain link and
- * said where to add the file; `remedies.test.ts` held that exit by its
- * property, and was inverted when the property arrived.
+ * A REMEDY CARRIES THE FILE when its target takes a hand-off. Both targets
+ * run on the secure worker; since WP-10 a worker panel STAGES a carried file
+ * — it waits there and uploads only on Run — so the click takes the file
+ * along with a `remedy` origin (`ErrorNote`). Until then the remedy was a
+ * plain link and said where to add the file; `remedies.test.ts` held that
+ * exit by its property, and was inverted when the property arrived.
+ *
+ * WHAT EACH TARGET IS — its name, where it runs, whether it takes the file —
+ * is {@link REMEDY_TARGETS}, two rows. Until 2026-11-09 they were read here,
+ * by slug, from the tool directory (`getToolEntry`) and the hand-off
+ * capability (`handoffCapabilityFor`, "read here, never typed"); this module
+ * is in every tool page's first load (the runner kit's error note), so the
+ * whole directory and the capability tables were too, for two rows that
+ * change when a tool is renamed or moved. `remedies.test.ts` now holds each
+ * row to the catalogue and the capability, every field, so a rename, a move
+ * off the worker or a target that stops taking files turns it red — the
+ * relationship is pinned where it used to be computed.
  */
-import { handoffCapabilityFor } from "@/lib/handoff/capability";
 import type { ProcessingMode } from "@/lib/tools/types";
-import { getToolEntry } from "@/lib/tools/directory";
 import {
   PdfEncryptedError,
   PdfEngineError,
@@ -69,10 +77,25 @@ export interface Remedy {
   readonly where: string | null;
 }
 
-/** Whether a remedy's target takes the file a click would carry to it. */
-export function remedyCarries(toolSlug: string): boolean {
-  return handoffCapabilityFor(toolSlug).supported;
+/** What a remedy's target is: its name, where it runs, whether it takes the file. */
+export interface RemedyTarget {
+  readonly name: string;
+  readonly processing: ProcessingMode;
+  /** The target takes a hand-off (`handoffCapabilityFor(slug).supported`). */
+  readonly carries: boolean;
 }
+
+/**
+ * The tools a remedy sends a file to, each as the catalogue and the hand-off
+ * capability describe it — held to both, field by field, by
+ * `remedies.test.ts` (see the module note for why it is not looked up).
+ */
+export const REMEDY_TARGETS = {
+  "unlock-pdf": { name: UNLOCK_TOOL_NAME, processing: "server", carries: true },
+  "repair-pdf": { name: REPAIR_TOOL_NAME, processing: "server", carries: true },
+} as const satisfies Readonly<Record<string, RemedyTarget>>;
+
+type RemedyTargetSlug = keyof typeof REMEDY_TARGETS;
 
 /** Where a worker tool's file goes, and when: the clause both sentences end on. */
 export const UPLOAD_CLAUSE =
@@ -105,17 +128,17 @@ function unlockWhy(verdict: EncryptionVerdict | null | undefined): string {
 }
 
 function remedy(
-  toolSlug: string,
-  fallbackName: string,
+  toolSlug: RemedyTargetSlug,
   href: string,
   problem: PdfEngineErrorKind,
   verb: "Open" | "Try",
   why: string,
 ): Remedy {
-  const tool = getToolEntry(toolSlug);
-  const toolName = tool?.name ?? fallbackName;
-  const processing = tool?.processing ?? "server";
-  const carries = remedyCarries(toolSlug);
+  const {
+    name: toolName,
+    processing,
+    carries,
+  }: RemedyTarget = REMEDY_TARGETS[toolSlug];
   return {
     toolSlug,
     toolName,
@@ -143,7 +166,6 @@ function remedyOf({ kind, verdict }: RemedyInput): Remedy | null {
     case "encrypted":
       return remedy(
         "unlock-pdf",
-        UNLOCK_TOOL_NAME,
         UNLOCK_TOOL_HREF,
         "encrypted",
         "Open",
@@ -152,7 +174,6 @@ function remedyOf({ kind, verdict }: RemedyInput): Remedy | null {
     case "unreadable":
       return remedy(
         "repair-pdf",
-        REPAIR_TOOL_NAME,
         REPAIR_TOOL_HREF,
         "unreadable",
         "Try",

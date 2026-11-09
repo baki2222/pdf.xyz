@@ -1,5 +1,6 @@
 "use client";
 
+import { usePickRefusal } from "@/components/tools/use-pick";
 import { useCallback, useState } from "react";
 import dynamic from "next/dynamic";
 import { Download, FileText, ShieldCheck, Timer } from "lucide-react";
@@ -11,7 +12,7 @@ import {
 } from "@/lib/workers/pdf-office-export-client";
 import { downloadBytes } from "@/lib/pdf/browser";
 import type { Tool } from "@/lib/tools/types";
-import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
+import type { PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import {
   DownloadCta,
@@ -129,6 +130,7 @@ const EXPORT_COPY: Record<
 };
 
 export function PdfOfficeExportWorkerPanel({ tool }: { tool: Tool }) {
+  const pickRefuse = usePickRefusal(tool);
   const officeTool: PdfOfficeTool = isPdfOfficeTool(tool.slug)
     ? tool.slug
     : "pdf-to-word";
@@ -159,7 +161,7 @@ export function PdfOfficeExportWorkerPanel({ tool }: { tool: Tool }) {
         tool={officeTool}
         catalogTool={tool}
         output={extensionFor(officeTool)}
-        refuse={(file) => pickRefusal(tool, file)}
+        refuse={pickRefuse}
       />
     </WorkerPanelShell>
   );

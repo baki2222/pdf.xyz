@@ -511,10 +511,30 @@ describe("Continue with", () => {
 });
 
 /** A runner whose hand-off came from `trail`, and that may finish. */
-function Arrived({ trail, done = false }: { trail: string[]; done?: boolean }) {
+/**
+ * A claim reporting its job: the trail, and — since record version 2
+ * (2026-11-09) — the names the record carried, which the launch writes
+ * from the catalogue (`launchWithFiles`). `names` overrides them.
+ */
+function Arrived({
+  trail,
+  done = false,
+  names,
+}: {
+  trail: string[];
+  done?: boolean;
+  names?: Record<string, string>;
+}) {
   const run = useToolRun();
   useEffect(() => {
-    run?.arrived(trail);
+    run?.arrived(
+      trail,
+      null,
+      names ??
+        Object.fromEntries(
+          trail.map((slug) => [slug, getToolBySlug(slug)?.name ?? slug]),
+        ),
+    );
     if (done) run?.finished(true);
     // Once, as a claim reports it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -720,6 +740,36 @@ describe("the job's steps", () => {
       "Add Page Numbers",
     ]);
     expect(steps[2]!.getAttribute("aria-current")).toBe("step");
+  });
+
+  /*
+   * The rail names each step as the hand-off record carried it — no lookup
+   * (2026-11-09: the lookup put the tool directory in every tool page's
+   * first load). WAS a lookup in the directory, which this control would
+   * have failed: a carried name is shown as carried, and a step the record
+   * names nothing for shows its slug, as an unknown slug did before.
+   */
+  it("positive control: the steps' names are the record's, never looked up", () => {
+    onPage(
+      "page-numbers",
+      <>
+        <TicketRail />
+        <Arrived
+          trail={["merge-pdf", "compress-pdf"]}
+          names={{ "merge-pdf": "Combine Files" }}
+        />
+      </>,
+    );
+    const rail = screen.getByRole("navigation", { name: "Job steps" });
+    expect(
+      within(rail)
+        .getAllByRole("listitem")
+        .map((s) => s.textContent),
+    ).toEqual([
+      "Combine Files (done)",
+      "compress-pdf (done)",
+      "Add Page Numbers",
+    ]);
   });
 
   it("ticks this step too once its result is on screen", () => {

@@ -1,6 +1,6 @@
 import type { ToolContent } from "./types";
 import { modeUploadsFiles } from "@/lib/tools/processing-split";
-import { getToolCapability } from "@/lib/jobs/capabilities";
+import { getToolCapability } from "@/lib/jobs/tool-capability";
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeiling } from "@/lib/tools/file-ceilings";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";

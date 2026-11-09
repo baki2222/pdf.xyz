@@ -8,6 +8,7 @@
 
 export * from "./types";
 export * from "./capabilities";
+export * from "./tool-capability";
 export * from "./config";
 export * from "./responses";
 export * from "./validation";

@@ -26,6 +26,7 @@
  * proofs by their assertion title, in both directions against
  * `READ_BOUND_AI_TOOLS`, so a fourth read-bound tool cannot ship unproved.
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -204,7 +205,11 @@ describe("summarize-pdf panel — a real PDF dropped by a user", () => {
     expect(counted).toBeGreaterThan(100);
 
     const { jobBodies, requested } = stubWire();
-    render(<SummarizeWorkerPanel tool={getToolBySlug("summarize-pdf")!} />);
+    render(
+      <InToolPage tool={getToolBySlug("summarize-pdf")!}>
+        <SummarizeWorkerPanel tool={getToolBySlug("summarize-pdf")!} />
+      </InToolPage>,
+    );
     const input = await waitFor(() => {
       const found = document.querySelector('input[type="file"]');
       expect(found).not.toBeNull();

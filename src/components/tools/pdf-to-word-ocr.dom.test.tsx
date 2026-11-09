@@ -6,6 +6,7 @@
  * the export. Played: the network hops, OCRmyPDF (marked bytes) and poppler's
  * flow (words only in the bytes OCR produced).
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import JSZip from "jszip";
@@ -248,9 +249,13 @@ async function addFile(tool: OcrTool = "pdf-to-word") {
   const catalogTool = getToolBySlug(tool)!;
   render(
     tool === "extract-tables" ? (
-      <TableExtractWorkerPanel tool={catalogTool} />
+      <InToolPage tool={catalogTool}>
+        <TableExtractWorkerPanel tool={catalogTool} />
+      </InToolPage>
     ) : (
-      <PdfOfficeExportWorkerPanel tool={catalogTool} />
+      <InToolPage tool={catalogTool}>
+        <PdfOfficeExportWorkerPanel tool={catalogTool} />
+      </InToolPage>
     ),
   );
   const input = await vi.waitFor(() => {

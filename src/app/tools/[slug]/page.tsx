@@ -33,7 +33,8 @@ import {
   howToSchema,
   toolApplicationSchema,
 } from "@/lib/structured-data";
-import { runnerReadsWithPdfjs, toolFacts } from "@/lib/tools/tool-facts";
+import { toolFacts } from "@/lib/tools/tool-facts";
+import { toolRunInfoFor } from "@/lib/tools/tool-run-info";
 import {
   pageDescription,
   pageFaq,
@@ -147,6 +148,12 @@ export default async function ToolPage({
    * `tool-page-registry.test.ts` names the slug before a build is needed.
    */
   const panel = runnerKind ? undefined : WORKER_PANELS[tool.slug];
+  /*
+   * The tool's own row for its client — name, formats, hand-off mode —
+   * computed here from the tables that answer for every tool, so the
+   * browser gets the row and never the tables (`toolRunInfoFor`).
+   */
+  const runInfo = toolRunInfoFor(tool);
   if (!runnerKind && !panel)
     throw new Error(
       `/tools/${tool.slug} has neither an in-browser runner nor a server panel route`,
@@ -434,12 +441,7 @@ export default async function ToolPage({
                       files came through, which the runner's hand-off fills
                       in. */}
                   <ToolRunProvider
-                    tool={{
-                      slug: tool.slug,
-                      name: tool.name,
-                      category: tool.category,
-                      readsWithPdfjs: runnerReadsWithPdfjs(tool.slug),
-                    }}
+                    tool={runInfo}
                     plan={continueTargetsFor(tool, tools)}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
@@ -531,11 +533,7 @@ export default async function ToolPage({
                 // where its output can go next — or, after Protect PDF and
                 // PDF to PDF/A, why nowhere (`ResultCard`).
                 <ToolRunProvider
-                  tool={{
-                    slug: tool.slug,
-                    name: tool.name,
-                    category: tool.category,
-                  }}
+                  tool={runInfo}
                   plan={continueTargetsFor(tool, tools)}
                 >
                   <ErrorBoundary boundary={panel.boundary}>

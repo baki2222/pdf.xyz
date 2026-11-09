@@ -29,7 +29,7 @@
 import { readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { getToolInputKind } from "@/lib/jobs/capabilities";
+import { getToolInputKind } from "@/lib/jobs/tool-capability";
 import { MIME_BY_FORMAT } from "@/lib/jobs/mime-by-format";
 import { parseCreateUploadSessionRequest } from "@/lib/jobs/validation";
 import { runHtmlToPdf } from "@/lib/workers/html-render/engine";

@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { eligibleFilesFor } from "@/lib/handoff";
+import { filesTheToolOpens } from "@/lib/handoff/capability-core";
+import type { HandoffFileEntry } from "@/lib/handoff/types";
 import {
   forgetDeparture,
   readDeparture,
@@ -15,7 +16,6 @@ import {
   type ClaimedHandoff,
 } from "@/lib/handoff/claim";
 import { warmPdfLib } from "@/lib/pdf/pdf-lib";
-import { getToolEntry } from "@/lib/tools/directory";
 import { useToolRun } from "./tool-context";
 import { warmPdfjs } from "./runner-kit";
 
@@ -64,6 +64,19 @@ export function useToolHandoff(slug: string | undefined): ToolHandoff {
   const run = useToolRun();
   const arrived = run?.arrived;
   const readsWithPdfjs = run?.readsWithPdfjs === true;
+  /*
+   * This tool's own `accept` row and hand-off capability, as the server
+   * page computed them (`toolRunInfoFor`). Until 2026-11-09 both were
+   * looked up here by slug — `eligibleFilesFor` and `getToolEntry` — which
+   * put the tool directory and the capability tables in every tool page's
+   * first load. Without them (a runner rendered outside a tool page: a
+   * test) the same functions are fetched on demand, so the answer is the
+   * one the tables give and only the bytes move.
+   */
+  const ownAccept = run && run.slug === slug ? run.accept : undefined;
+  const ownHandoff = run && run.slug === slug ? run.handoff : undefined;
+  const [fetchedAccept, setFetchedAccept] =
+    useState<readonly string[]>(NO_FORMATS);
   // Claims exactly once, even under React StrictMode's double-invoked effects.
   const startedRef = useRef(false);
   const mountedRef = useRef(true);
@@ -79,50 +92,73 @@ export function useToolHandoff(slug: string | undefined): ToolHandoff {
     if (!slug || startedRef.current) return;
     startedRef.current = true;
 
-    const claim = claimArrival(
-      slug,
-      (entries) => eligibleFilesFor(slug, entries),
-      router,
-    );
-    if (!claim) {
-      const left = readDeparture();
-      if (left) queueMicrotask(() => mountedRef.current && setDeparted(left));
+    const start = (
+      select: (entries: HandoffFileEntry[]) => HandoffFileEntry[],
+    ): void => {
+      const claim = claimArrival(slug, select, router);
+      if (!claim) {
+        const left = readDeparture();
+        if (!left) return;
+        queueMicrotask(() => mountedRef.current && setDeparted(left));
+        // An entry written before departures carried the name (2026-11-09):
+        // looked up on demand, as it was before, for that entry alone.
+        if (left.name === null)
+          void import("@/lib/tools/directory").then(({ getToolEntry }) => {
+            const name = getToolEntry(left.slug)?.name ?? null;
+            if (name && mountedRef.current) setDeparted({ ...left, name });
+          });
+        return;
+      }
+
+      queueMicrotask(() => {
+        if (mountedRef.current) {
+          setState(LOADING);
+        }
+      });
+      void claim.then((result) => {
+        if (!mountedRef.current) return;
+        if (result.status === "ready") {
+          // Files are about to repopulate a runner without touching the
+          // Dropzone, so this is the flow's file-pick moment: start the
+          // engine download now rather than paying it at run-click (the one
+          // gap the pdf-lib deferral left open — TASK-05 §3c).
+          warmPdfLib();
+          if (readsWithPdfjs) warmPdfjs();
+          arrived?.(result.trail, null, result.names);
+          focusArrival();
+        }
+        setState(result);
+      });
+    };
+
+    if (ownAccept && ownHandoff) {
+      start((entries) => filesTheToolOpens(ownAccept, ownHandoff, entries));
       return;
     }
-
-    queueMicrotask(() => {
-      if (mountedRef.current) {
-        setState(LOADING);
+    void Promise.all([
+      import("@/lib/handoff/capability"),
+      import("@/lib/tools/directory"),
+    ]).then(([{ eligibleFilesFor }, { getToolEntry }]) => {
+      if (!mountedRef.current) {
+        startedRef.current = false;
+        return;
       }
+      setFetchedAccept(getToolEntry(slug)?.accept ?? NO_FORMATS);
+      start((entries) => eligibleFilesFor(slug, entries));
     });
-    void claim.then((result) => {
-      if (!mountedRef.current) return;
-      if (result.status === "ready") {
-        // Files are about to repopulate a runner without touching the
-        // Dropzone, so this is the flow's file-pick moment: start the engine
-        // download now rather than paying it at run-click (the one gap the
-        // pdf-lib deferral left open — TASK-05 §3c).
-        warmPdfLib();
-        if (readsWithPdfjs) warmPdfjs();
-        arrived?.(result.trail);
-        focusArrival();
-      }
-      setState(result);
-    });
-  }, [slug, router, arrived, readsWithPdfjs]);
+  }, [slug, router, arrived, readsWithPdfjs, ownAccept, ownHandoff]);
 
   const dismiss = useCallback(() => {
     setState(IDLE);
     setDeparted(null);
     forgetDeparture();
   }, []);
-  const accept = useMemo(
-    () => (slug ? (getToolEntry(slug)?.accept ?? []) : []),
-    [slug],
-  );
+  const accept = !slug ? NO_FORMATS : (ownAccept ?? fetchedAccept);
 
   return { ...state, accept, departed, dismiss };
 }
+
+const NO_FORMATS: readonly string[] = [];
 
 /** Frames to wait for the carried file's header before the page's heading. */
 const ARRIVAL_FRAMES = 90;

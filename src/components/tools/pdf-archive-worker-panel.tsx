@@ -1,5 +1,6 @@
 "use client";
 
+import { usePickRefusal } from "@/components/tools/use-pick";
 import Link from "next/link";
 import { useCallback, useEffect, useId, useState } from "react";
 import dynamic from "next/dynamic";
@@ -15,7 +16,7 @@ import {
 import { PDF_ARCHIVE_PASSWORD_REQUIRED_CODE } from "@/lib/workers/pdf-archive/contract";
 import { downloadBytes } from "@/lib/pdf/browser";
 import type { Tool } from "@/lib/tools/types";
-import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
+import type { PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import {
   DownloadCta,
@@ -76,6 +77,7 @@ const STATUS_SLOT = "min-h-[23.5rem] sm:min-h-[15rem] lg:min-h-[15rem]";
 export const UNLOCK_TOOL_SLUG = "unlock-pdf";
 
 export function PdfArchiveWorkerPanel({ tool }: { tool: Tool }) {
+  const pickRefuse = usePickRefusal(tool);
   return (
     <WorkerPanelShell
       tool={tool}
@@ -105,7 +107,7 @@ export function PdfArchiveWorkerPanel({ tool }: { tool: Tool }) {
         },
       ]}
     >
-      <ArchiveRunArea refuse={(file) => pickRefusal(tool, file)} />
+      <ArchiveRunArea refuse={pickRefuse} />
     </WorkerPanelShell>
   );
 }

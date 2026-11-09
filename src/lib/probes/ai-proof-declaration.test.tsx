@@ -23,6 +23,7 @@
  * page would. And the script is read to hold that `runSpec` puts that
  * declaration on every AI job, before the upload.
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import type * as TS from "typescript";
@@ -374,18 +375,30 @@ async function panelJobBodies(
   const tool = getToolBySlug(spec.tool)!;
   switch (spec.tool) {
     case "summarize-pdf":
-      render(<SummarizeWorkerPanel tool={tool} />);
+      render(
+        <InToolPage tool={tool}>
+          <SummarizeWorkerPanel tool={tool} />
+        </InToolPage>,
+      );
       await drop(bytes, spec.name);
       await press(/summarize pdf/i);
       break;
     case "translate-pdf":
-      render(<TranslateWorkerPanel tool={tool} />);
+      render(
+        <InToolPage tool={tool}>
+          <TranslateWorkerPanel tool={tool} />
+        </InToolPage>,
+      );
       await drop(bytes, spec.name);
       await screen.findByText(spec.name);
       await press(/translate pdf/i);
       break;
     case "ai-extract":
-      render(<AiExtractWorkerPanel tool={tool} />);
+      render(
+        <InToolPage tool={tool}>
+          <AiExtractWorkerPanel tool={tool} />
+        </InToolPage>,
+      );
       await drop(bytes, spec.name);
       fireEvent.change(
         await screen.findByRole("textbox", { name: "Field 1 name" }),
@@ -404,7 +417,11 @@ async function panelJobBodies(
         const sent = await runWorkerChatWithPdf(input, options);
         return calls < turns ? answered(input.question) : sent;
       };
-      render(<ChatWithPdfWorkerPanel tool={tool} runChat={runChat} />);
+      render(
+        <InToolPage tool={tool}>
+          <ChatWithPdfWorkerPanel tool={tool} runChat={runChat} />
+        </InToolPage>,
+      );
       await drop(bytes, spec.name);
       for (let turn = 1; turn <= turns; turn += 1) {
         fireEvent.change(await screen.findByRole("textbox"), {

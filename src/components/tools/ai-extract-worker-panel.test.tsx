@@ -22,6 +22,7 @@
  * the wire: "the driver was not called" is no upload and no `POST /api/jobs`;
  * what the driver received is the job body the route would parse.
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { getToolBySlug } from "@/lib/tools";
@@ -85,7 +86,11 @@ async function openBuilder(
   bytes: Uint8Array = new Uint8Array([1, 2, 3]),
 ): Promise<JobNetwork> {
   const network = stubJobNetwork(READY);
-  render(<AiExtractWorkerPanel tool={tool} />);
+  render(
+    <InToolPage tool={tool}>
+      <AiExtractWorkerPanel tool={tool} />
+    </InToolPage>,
+  );
   const input = await waitFor(() => {
     const found = document.querySelector('input[type="file"]');
     expect(found).not.toBeNull();

@@ -15,11 +15,8 @@ import { isInternalHostname } from "@/lib/net/public-address";
 import { getToolBySlug } from "@/lib/tools";
 import type { Tool } from "@/lib/tools/types";
 import { workerFileCeilingBytes } from "@/lib/workers/engine-file-ceilings";
-import {
-  getToolInputKind,
-  capabilityForMode,
-  usesWorkerBackend,
-} from "./capabilities";
+import { capabilityForMode, usesWorkerBackend } from "./capabilities";
+import { getToolInputKind } from "./tool-capability";
 import { apiError, type ParseResult } from "./responses";
 import { sanitizeDisplayFilename } from "./filenames";
 import { parseHtmlRenderOptions } from "./html-render-options";

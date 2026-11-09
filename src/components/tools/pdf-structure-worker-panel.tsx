@@ -1,5 +1,6 @@
 "use client";
 
+import { usePickRefusal } from "@/components/tools/use-pick";
 import { useCallback, useEffect, useId, useState } from "react";
 import dynamic from "next/dynamic";
 import {
@@ -19,7 +20,7 @@ import {
 } from "@/lib/workers/pdf-structure-client";
 import { downloadBytes } from "@/lib/pdf/browser";
 import type { Tool } from "@/lib/tools/types";
-import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
+import type { PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import {
   DownloadCta,
@@ -126,6 +127,7 @@ const COPY: Record<
 };
 
 export function PdfStructureWorkerPanel({ tool }: { tool: Tool }) {
+  const pickRefuse = usePickRefusal(tool);
   const mode: Mode = tool.slug === "repair-pdf" ? "repair" : "optimize";
   const copy = COPY[mode];
   return (
@@ -149,11 +151,7 @@ export function PdfStructureWorkerPanel({ tool }: { tool: Tool }) {
         },
       ]}
     >
-      <StructureRunArea
-        mode={mode}
-        tool={tool}
-        refuse={(file) => pickRefusal(tool, file)}
-      />
+      <StructureRunArea mode={mode} tool={tool} refuse={pickRefuse} />
     </WorkerPanelShell>
   );
 }

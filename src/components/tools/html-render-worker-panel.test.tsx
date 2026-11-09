@@ -7,6 +7,7 @@
  * missing. These tests drive the panel the way a user does — pick a file —
  * and read what is rendered, not the scan's return value.
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   act,
@@ -99,7 +100,11 @@ async function pick(html: string | File, name = "report.html") {
     "fetch",
     vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
   );
-  render(<HtmlRenderWorkerPanel tool={htmlTool} />);
+  render(
+    <InToolPage tool={htmlTool}>
+      <HtmlRenderWorkerPanel tool={htmlTool} />
+    </InToolPage>,
+  );
   await screen.findByText("Secure server");
   const input = document.querySelector<HTMLInputElement>('input[type="file"]');
   expect(input).not.toBeNull();
@@ -166,7 +171,11 @@ describe("HtmlRenderWorkerPanel — linked files the upload does not carry", () 
       "fetch",
       vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
     );
-    render(<HtmlRenderWorkerPanel tool={htmlTool} />);
+    render(
+      <InToolPage tool={htmlTool}>
+        <HtmlRenderWorkerPanel tool={htmlTool} />
+      </InToolPage>,
+    );
     expect(
       await screen.findByText(/Only the file itself is uploaded/),
     ).toBeInTheDocument();
@@ -196,7 +205,11 @@ describe("HtmlRenderWorkerPanel — the address field is named", () => {
       "fetch",
       vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
     );
-    render(<HtmlRenderWorkerPanel tool={urlTool} />);
+    render(
+      <InToolPage tool={urlTool}>
+        <HtmlRenderWorkerPanel tool={urlTool} />
+      </InToolPage>,
+    );
     await screen.findByText("Secure server");
   }
 
@@ -224,7 +237,11 @@ describe("HtmlRenderWorkerPanel — the address field is named", () => {
       "fetch",
       vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
     );
-    render(<HtmlRenderWorkerPanel tool={htmlTool} />);
+    render(
+      <InToolPage tool={htmlTool}>
+        <HtmlRenderWorkerPanel tool={htmlTool} />
+      </InToolPage>,
+    );
     await screen.findByText("Secure server");
     expect(screen.queryByLabelText("Web address")).toBeNull();
   });
@@ -246,7 +263,11 @@ describe("HtmlRenderWorkerPanel — the address is fixed or explained before any
       .fn()
       .mockResolvedValue({ ok: true, json: async () => READY });
     vi.stubGlobal("fetch", fetchMock);
-    render(<HtmlRenderWorkerPanel tool={urlTool} />);
+    render(
+      <InToolPage tool={urlTool}>
+        <HtmlRenderWorkerPanel tool={urlTool} />
+      </InToolPage>,
+    );
     await screen.findByText("Secure server");
     return screen.getByLabelText<HTMLInputElement>("Web address");
   }
@@ -333,7 +354,11 @@ describe("HtmlRenderWorkerPanel — Webpage to PDF capture options", () => {
       .fn()
       .mockResolvedValue({ ok: true, json: async () => READY });
     vi.stubGlobal("fetch", fetchMock);
-    render(<HtmlRenderWorkerPanel tool={urlTool} />);
+    render(
+      <InToolPage tool={urlTool}>
+        <HtmlRenderWorkerPanel tool={urlTool} />
+      </InToolPage>,
+    );
     await screen.findByText("Secure server");
     const field = screen.getByLabelText<HTMLInputElement>("Web address");
     fireEvent.change(field, { target: { value: "https://example.com/" } });
@@ -428,7 +453,11 @@ describe("HtmlRenderWorkerPanel — Webpage to PDF capture options", () => {
       "fetch",
       vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
     );
-    render(<HtmlRenderWorkerPanel tool={htmlTool} />);
+    render(
+      <InToolPage tool={htmlTool}>
+        <HtmlRenderWorkerPanel tool={htmlTool} />
+      </InToolPage>,
+    );
     await screen.findByText("Secure server");
     expect(
       screen.queryByRole("group", { name: WEBPAGE_CAPTURE_GROUP_LABEL }),

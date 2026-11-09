@@ -13,6 +13,7 @@
  * silently missing. Likewise the next-step link on a failure keys on the job
  * error CODE the processor sets, so the failure cases run the processor too.
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { getToolBySlug } from "@/lib/tools";
@@ -197,7 +198,11 @@ function stubNetwork(served: { job: Job; output?: Uint8Array }) {
 }
 
 async function exportOnePdf() {
-  render(<PdfOfficeExportWorkerPanel tool={wordTool} />);
+  render(
+    <InToolPage tool={wordTool}>
+      <PdfOfficeExportWorkerPanel tool={wordTool} />
+    </InToolPage>,
+  );
   const input = await vi.waitFor(() => {
     const found = readyFileInput();
     if (!found) throw new Error("no file input yet");
@@ -547,7 +552,11 @@ describe("PDF to PowerPoint panel — pages kept only as pictures", () => {
   }
 
   async function exportPptx() {
-    render(<PdfOfficeExportWorkerPanel tool={pptxTool} />);
+    render(
+      <InToolPage tool={pptxTool}>
+        <PdfOfficeExportWorkerPanel tool={pptxTool} />
+      </InToolPage>,
+    );
     const input = await vi.waitFor(() => {
       const found = readyFileInput();
       if (!found) throw new Error("no file input yet");
@@ -654,7 +663,11 @@ describe("PDF to PowerPoint panel — pictures that are not on their slides", ()
   }
 
   async function exportPptx() {
-    render(<PdfOfficeExportWorkerPanel tool={pptxTool} />);
+    render(
+      <InToolPage tool={pptxTool}>
+        <PdfOfficeExportWorkerPanel tool={pptxTool} />
+      </InToolPage>,
+    );
     const input = await vi.waitFor(() => {
       const found = readyFileInput();
       if (!found) throw new Error("no file input yet");
@@ -744,7 +757,11 @@ describe("PDF to Excel panel — “One sheet per page” (audit pdf-to-excel#3)
         updatedAt: "2026-09-27T00:00:00.000Z",
       } as unknown as Job,
     });
-    render(<PdfOfficeExportWorkerPanel tool={excelTool} />);
+    render(
+      <InToolPage tool={excelTool}>
+        <PdfOfficeExportWorkerPanel tool={excelTool} />
+      </InToolPage>,
+    );
     const box = screen.getByRole("checkbox", { name: /One sheet per page/ });
     expect(box).not.toBeChecked();
     if (tick) fireEvent.click(box);
@@ -783,7 +800,11 @@ describe("PDF to Excel panel — “One sheet per page” (audit pdf-to-excel#3)
   });
 
   it("PDF to Word has no such box", () => {
-    render(<PdfOfficeExportWorkerPanel tool={wordTool} />);
+    render(
+      <InToolPage tool={wordTool}>
+        <PdfOfficeExportWorkerPanel tool={wordTool} />
+      </InToolPage>,
+    );
     expect(
       screen.queryByRole("checkbox", { name: /One sheet per page/ }),
     ).toBeNull();

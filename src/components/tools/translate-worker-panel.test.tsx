@@ -40,6 +40,7 @@
  * reads against a job that never finishes, until the panel offers Keep waiting.
  * No `vi.mock` — a mocked module stays cached for later files (mock-isolation).
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   act,
@@ -139,7 +140,9 @@ const pdfFile = (bytes: Uint8Array, name = "statement.pdf") =>
 async function renderReadyPanel() {
   const fetchMock = stubNetwork();
   render(
-    <TranslateWorkerPanel tool={translateTool} extractText={realExtract} />,
+    <InToolPage tool={translateTool}>
+      <TranslateWorkerPanel tool={translateTool} extractText={realExtract} />
+    </InToolPage>,
   );
   // The builder only exists once the stubbed status says the worker is ready.
   const run = await screen.findByRole("button", { name: /translate pdf/i });
@@ -470,7 +473,11 @@ async function pollsBeforeGivingUp(doc: ExtractedPdfText) {
       throw new Error(`unexpected fetch ${url}`);
     }),
   );
-  render(<TranslateWorkerPanel tool={translateTool} />);
+  render(
+    <InToolPage tool={translateTool}>
+      <TranslateWorkerPanel tool={translateTool} />
+    </InToolPage>,
+  );
   const input = await waitFor(() => {
     const found = document.querySelector('input[type="file"]');
     if (!found) throw new Error("no input");
