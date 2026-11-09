@@ -43,6 +43,7 @@ import { extractPdfText } from "@/lib/pdf/text";
 import { resetTelemetry } from "@/lib/telemetry/track";
 import { imageOnlyPdf, textPdf } from "@/tests/pdf-text-fixtures";
 import { stubJobNetwork, type JobNetwork } from "@/tests/stub-job-network";
+import { InToolPage } from "@/tests/in-tool-page";
 import { TranslateWorkerPanel } from "./translate-worker-panel";
 
 const legacy = async () =>
@@ -109,8 +110,13 @@ async function choose(
   translateOcr: boolean | undefined,
 ): Promise<{ network: JobNetwork; run: HTMLElement }> {
   const network = stubJobNetwork(status(translateOcr), failed);
+  // Inside the page's job, as the tool page mounts it: since the per-tool
+  // first-load change a worker panel's pick check reads its ceiling from
+  // the row the server computes (`InToolPage`), and refuses without it.
   render(
-    <TranslateWorkerPanel tool={translateTool} extractText={realExtract} />,
+    <InToolPage tool={translateTool}>
+      <TranslateWorkerPanel tool={translateTool} extractText={realExtract} />
+    </InToolPage>,
   );
   const run = await screen.findByRole("button", { name: /translate pdf/i });
   const input = document.querySelector('input[type="file"]');
