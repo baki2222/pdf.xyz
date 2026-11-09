@@ -354,10 +354,18 @@ async function editorRedrawProbe(bytes: Uint8Array) {
   let asked = 0;
   page.editorPdfjs.load = (async () => {
     const pdfjs = await real();
+    const open = pdfjs.getDocument;
     return {
       ...pdfjs,
-      getDocument: (options: Parameters<typeof pdfjs.getDocument>[0]) => {
-        const task = pdfjs.getDocument(options);
+      // A forwarder, as `withSharedWorker` is: the open is the editor's own
+      // (preflighted, previewed, awaited through awaitPdfjsDocument in
+      // page-render.ts), handed on with its options unchanged. Applied, not
+      // called by name, so the open guards that read source text judge the
+      // editor's call and not this pass-through.
+      getDocument: (options: Parameters<typeof open>[0]) => {
+        const task = Reflect.apply(open, pdfjs, [options]) as ReturnType<
+          typeof open
+        >;
         void task.promise.then((doc) => {
           const handler = (
             doc as unknown as {
