@@ -6,10 +6,13 @@ import {
   BOOKLET_BINDINGS,
   BOOKLET_BUSY_LABEL,
   BOOKLET_FLIPS,
+  BOOKLET_PREVIEW_SIDES,
   BOOKLET_SHEETS,
   DEFAULT_BOOKLET_OPTIONS,
   bookletBackCoverBlocked,
+  bookletDrawnPair,
   bookletOrder,
+  bookletSideTurned,
   bookletOutputName,
   bookletPageSlots,
   bookletPdf,
@@ -22,7 +25,7 @@ import { N_UP_MARGINS } from "@/lib/pdf/n-up";
 import { inches } from "@/lib/pdf/page-geometry";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
-import { formatBytes } from "@/lib/utils";
+import { cn, formatBytes } from "@/lib/utils";
 import {
   ChipButton,
   ErrorNote,
@@ -34,11 +37,8 @@ import {
 } from "./runner-kit";
 import { RunBar } from "./run-bar";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
-import { CheckboxField, PrivacyLine } from "./stamp-controls";
+import { PrivacyLine } from "./stamp-controls";
 import type { LoadedPdf } from "./use-single-pdf";
-
-/** How many sides the preview lists before it summarises the rest. */
-export const BOOKLET_PREVIEW_SIDES = 8;
 
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
@@ -57,6 +57,64 @@ export function bookletScaleLine(scale: BookletResult["scalePercent"]): string {
   return scale.min === scale.max
     ? `Pages are drawn at ${scale.min}% of their size.`
     : `Pages are drawn at ${scale.min}% to ${scale.max}% of their size.`;
+}
+
+/** The back-cover hint: where the blank pages go, said in agreement with the count. */
+export function bookletBlanksLine(blanks: number): string {
+  return blanks === 1
+    ? "The blank page goes before your last page instead of after it."
+    : `The ${blanks} blank pages go before your last page instead of after it.`;
+}
+
+/**
+ * The back-cover checkbox. Its own control, not the shared `CheckboxField`
+ * (stamp-controls.tsx, first-load on 17 tool pages): an off state cost each
+ * of those pages +28 B gz for one box on one tool (review, 2026-11-10).
+ *
+ * Off is SEEN, not only announced: the box and label are muted, because a
+ * phone shows no cursor and a tap on an enabled-looking box that does
+ * nothing reads as broken. `aria-disabled`, not `disabled`, so a keyboard
+ * user still reaches the box and its reason. The label is at least 44 px
+ * tall at every width: the whole row is the thumb target
+ * (`e2e/booklet-pdf.mobile.spec.ts` measures it).
+ */
+function BackCoverField({
+  checked,
+  off,
+  onChange,
+  hint,
+}: {
+  checked: boolean;
+  off: boolean;
+  onChange: (checked: boolean) => void;
+  hint: string;
+}) {
+  return (
+    <label
+      data-booklet-back-cover
+      className={cn(
+        "inline-flex min-h-11 items-start gap-2 py-2 text-sm",
+        off ? "text-muted cursor-not-allowed" : "text-fg cursor-pointer",
+      )}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        aria-disabled={off || undefined}
+        onChange={(event) => {
+          if (!off) onChange(event.target.checked);
+        }}
+        className={cn(
+          "accent-accent mt-0.5 size-4 shrink-0",
+          off && "opacity-50",
+        )}
+      />
+      <span className="flex flex-col gap-0.5">
+        <span>Keep the last page as the back cover</span>
+        <span className="text-muted text-xs">{hint}</span>
+      </span>
+    </label>
+  );
 }
 
 /** The two-sided printing instruction for the flip the booklet was made for. */
@@ -229,15 +287,11 @@ export function BookletEditor({
         </RunnerSection>
       </div>
 
-      <CheckboxField
-        label="Keep the last page as the back cover"
+      <BackCoverField
         checked={options.backCover && blocked === null}
-        disabled={busy || blocked !== null}
+        off={busy || blocked !== null}
         onChange={(backCover) => set({ backCover })}
-        hint={
-          blocked ??
-          `The ${plural(blanks, "blank page")} go before your last page instead of after it.`
-        }
+        hint={blocked ?? bookletBlanksLine(blanks)}
       />
 
       <RunnerSection
@@ -254,18 +308,33 @@ export function BookletEditor({
           aria-label="Page order on each side"
           className="tnum grid gap-1 text-xs sm:grid-cols-2"
         >
-          {shown.map((side) => (
-            <li
-              key={`${side.sheet}-${side.face}`}
-              className="flex justify-between gap-3"
-            >
-              <span className="text-muted">{sideName(side)}</span>
-              <span>
-                {cell(side.left)} | {cell(side.right)}
-              </span>
-            </li>
-          ))}
+          {shown.map((side) => {
+            // As the PDF page draws it: on Long edge a back is turned, so
+            // its halves read the other way round in the file.
+            const [left, right] = bookletDrawnPair(options.flip, side);
+            return (
+              <li
+                key={`${side.sheet}-${side.face}`}
+                className="flex justify-between gap-3"
+              >
+                <span className="text-muted">{sideName(side)}</span>
+                <span>
+                  {cell(left)} | {cell(right)}
+                  {bookletSideTurned(options.flip, side) && (
+                    <span className="text-muted"> (upside down)</span>
+                  )}
+                </span>
+              </li>
+            );
+          })}
         </ol>
+        {options.flip === "long" && (
+          <p className="text-muted text-xs">
+            On {flipLabel("long")}, each back is drawn upside down in the PDF,
+            so its two pages appear swapped there; the printer&apos;s turn puts
+            them the right way up.
+          </p>
+        )}
         {order.length > shown.length && (
           <p className="text-muted text-xs">
             …and {plural(order.length - shown.length, "more side")}.

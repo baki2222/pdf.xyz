@@ -18,7 +18,8 @@ import {
 import { getToolBySlug } from "@/lib/tools";
 import { resetAnnouncer } from "@/components/a11y/live-region";
 import { InToolPage } from "@/tests/in-tool-page";
-import { BookletEditor, BOOKLET_PREVIEW_SIDES } from "./booklet-editor";
+import { BOOKLET_PREVIEW_SIDES } from "@/lib/pdf/booklet";
+import { BookletEditor } from "./booklet-editor";
 import { N_UP_RUN_LABEL, NUpRunner } from "./n-up-runner";
 
 /**
@@ -152,6 +153,71 @@ describe("the booklet editor", () => {
     await editor(7);
     const box = backCoverBox();
     expect(box.getAttribute("aria-disabled")).toBeNull();
+  });
+
+  // WAS "The 1 blank page go before your last page…" (review, 2026-11-10):
+  // the verb did not follow the count.
+  it("says where the blanks go in agreement with their count", async () => {
+    await editor(7);
+    expect(
+      screen.getByText(
+        "The blank page goes before your last page instead of after it.",
+      ),
+    ).toBeTruthy();
+    cleanup();
+    await editor(6);
+    expect(
+      screen.getByText(
+        "The 2 blank pages go before your last page instead of after it.",
+      ),
+    ).toBeTruthy();
+  });
+
+  // WAS identical to an enabled box but for its hint, so on a phone (no
+  // cursor) a tap on it just did nothing (review, 2026-11-10).
+  it("an off back-cover box LOOKS off: muted label, faded box; control: an on-offer one does not", async () => {
+    const look = () => {
+      const box = backCoverBox();
+      const label = box.closest("label")!;
+      return {
+        muted: label.className.includes("text-muted"),
+        faded: box.className.includes("opacity-50"),
+      };
+    };
+    await editor(8);
+    expect(look()).toEqual({ muted: true, faded: true });
+    cleanup();
+    await editor(7);
+    expect(look()).toEqual({ muted: false, faded: false });
+  });
+
+  // WAS the logical pair on both flips: on Long edge the PDF draws each back
+  // turned, so a reader checking the file against the list saw the halves
+  // swapped (review, 2026-11-10). booklet.test.ts holds bookletDrawnPair to
+  // the file pdf.js reads back.
+  it("lists each back as the PDF draws it on Long edge, and as laid out on Short edge", async () => {
+    await editor(8);
+    const items = () =>
+      within(screen.getByRole("list", { name: /page order/i }))
+        .getAllByRole("listitem")
+        .map((li) => li.textContent);
+    expect(items()).toEqual([
+      "Sheet 1 front8 | 1",
+      "Sheet 1 back2 | 7",
+      "Sheet 2 front6 | 3",
+      "Sheet 2 back4 | 5",
+    ]);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: BOOKLET_FLIPS.find((f) => f.id === "long")!.label,
+      }),
+    );
+    expect(items()).toEqual([
+      "Sheet 1 front8 | 1",
+      "Sheet 1 back7 | 2 (upside down)",
+      "Sheet 2 front6 | 3",
+      "Sheet 2 back5 | 4 (upside down)",
+    ]);
   });
 
   it("states the result's numbers, the flip and the size the pages are drawn at", async () => {

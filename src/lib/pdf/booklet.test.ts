@@ -10,6 +10,7 @@ import {
   DEFAULT_BOOKLET_OPTIONS,
   bookletBackCoverBlocked,
   bookletHalves,
+  bookletDrawnPair,
   bookletOrder,
   bookletOutputName,
   bookletPageSlots,
@@ -553,6 +554,28 @@ describe("bookletPdf: the output, read by pdf.js", () => {
         .join(" ");
     expect(readOrder(long)).toBe(turned(readOrder(short)));
     expect(readOrder(short)).toBe("8|1 2|7 6|3 4|5");
+  });
+
+  it("the editor's preview pairs (bookletDrawnPair) are the pages as the PDF draws them, on each flip", async () => {
+    const bytes = await labelledPdf(8);
+    const read: Record<string, string> = {};
+    const preview: Record<string, string> = {};
+    for (const flip of BOOKLET_FLIPS.map((f) => f.id)) {
+      read[flip] = readOrder(
+        await readSides((await bookletPdf(bytes, opts({ flip }))).bytes),
+      );
+      preview[flip] = bookletOrder(8, opts({ flip }))
+        .map((side) =>
+          bookletDrawnPair(flip, side)
+            .map((p) => (p === null ? "_" : `${p}`))
+            .join("|"),
+        )
+        .join(" ");
+    }
+    expect(preview).toEqual(read);
+    // Health: the two flips really differ, so the comparison has teeth.
+    expect(read.long).not.toBe(read.short);
+    expect(read.long).toBe("8|1 7|2 6|3 5|4");
   });
 
   it("a page carrying /Rotate 90 lands upright in its half", async () => {

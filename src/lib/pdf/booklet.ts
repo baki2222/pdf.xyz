@@ -136,6 +136,36 @@ export interface BookletSide {
   right: number | null;
 }
 
+/**
+ * Whether a side is drawn turned 180° on its PDF page: every BACK on Long
+ * edge, so a printer that flips on the long edge prints it the right way up.
+ */
+export function bookletSideTurned(flip: BookletFlip, side: BookletSide) {
+  return flip === "long" && side.face === "back";
+}
+
+/**
+ * A side's pages as they sit on the PDF PAGE, left half then right: a turned
+ * side has its halves swapped (and upside down). What the editor's preview
+ * lists, so it matches the downloaded file; `booklet.test.ts` reads the
+ * file back with pdf.js against it.
+ */
+export function bookletDrawnPair(
+  flip: BookletFlip,
+  side: BookletSide,
+): [number | null, number | null] {
+  return bookletSideTurned(flip, side)
+    ? [side.right, side.left]
+    : [side.left, side.right];
+}
+
+/**
+ * How many sides the editor's Page order preview lists before it summarises
+ * the rest ("…and N more sides"); the page's steps say how many sheets that
+ * is, from this number.
+ */
+export const BOOKLET_PREVIEW_SIDES = 8;
+
 /** Logical pages: the count rounded up to a multiple of 4 (at least 4). */
 export function bookletPageSlots(pageCount: number): number {
   return Math.max(4, Math.ceil(pageCount / 4) * 4);
@@ -311,7 +341,7 @@ export async function bookletPdf(
     const sheet = out.addPage([sheetSize.width, sheetSize.height]);
     // Long edge: the back is drawn turned 180° about the sheet's centre, so
     // a printer that flips on the long edge prints it the right way up.
-    const turn = options.flip === "long" && side.face === "back";
+    const turn = bookletSideTurned(options.flip, side);
     if (turn) {
       sheet.pushOperators(
         lib.pushGraphicsState(),
