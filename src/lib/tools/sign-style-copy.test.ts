@@ -107,12 +107,19 @@ const BENGALI_NAME = "আডা লভলেস";
 let pages: Map<string, RenderedToolPage>;
 const faces = new Map<SignatureStyle, string>();
 const nonLatinFaces = new Map<SignatureStyle, string>();
+/**
+ * A Latin name beyond the Western European alphabet: the letters Script and
+ * Print fetch a Noto face for, and some handwriting faces lack.
+ */
+const LATIN_EXTENDED_NAME = "Łukasz Erdős";
+const latinExtendedFaces = new Map<SignatureStyle, string>();
 
 beforeAll(async () => {
   pages = renderToolPages();
   for (const style of SIGNATURE_STYLES) {
     faces.set(style, await typedFace(style));
     nonLatinFaces.set(style, await typedFace(style, BENGALI_NAME));
+    latinExtendedFaces.set(style, await typedFace(style, LATIN_EXTENDED_NAME));
   }
 }, 180_000);
 
@@ -331,5 +338,31 @@ describe("a typed signature is described as the face it is drawn in", () => {
       sentences().some((s) => /other script[^.]*upright face/i.test(s)),
       "no sentence says what a name in another script looks like",
     ).toBe(true);
+  });
+
+  /*
+   * The sentence that lists which font files the browser fetches named Script
+   * and Print for a name beyond the Western European alphabet, and left out a
+   * handwriting style that lacks a letter of it: that name falls back and is
+   * embedded in Noto too (review of sign-pdf#1). Which styles fetch Noto is
+   * read from the file each one writes, not typed here.
+   */
+  it("the sentence listing the fonts the browser fetches covers every style that embeds Noto for a Latin Extended name", () => {
+    const fetching = SIGNATURE_STYLES.filter((s) =>
+      /Noto/.test(latinExtendedFaces.get(s)!),
+    );
+    // Health check: both kinds of style take the path for this name.
+    expect(fetching.filter(isHandwritingStyle).length).toBeGreaterThan(0);
+    expect(fetching.filter((s) => !isHandwritingStyle(s)).length).toBe(2);
+    const listing = sentences().filter((s) =>
+      /font files the browser fetches/i.test(s),
+    );
+    expect(listing).toHaveLength(1);
+    const [s] = listing as [string];
+    for (const style of fetching) {
+      if (isHandwritingStyle(style))
+        expect(s, style).toMatch(/handwriting face that lacks/i);
+      else expect(s, style).toContain(SIGNATURE_STYLE_LABEL[style]);
+    }
   });
 });
