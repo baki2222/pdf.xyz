@@ -34,6 +34,7 @@ import {
   LockOpen,
   Merge,
   Minimize2,
+  NotebookText,
   PanelTop,
   PenLine,
   Presentation,
@@ -73,6 +74,7 @@ export const ICONS = {
   extractImages: Images,
   nUp: Grid2x2,
   splitHalf: SquareSplitHorizontal,
+  booklet: NotebookText,
   // optimize
   compress: Minimize2,
   ocr: ScanText,

@@ -189,6 +189,30 @@ describe("PS-02: a content-stream bomb embedded by n-up", () => {
   }, 90_000);
 });
 
+describe("PS-02: the same content-stream bomb embedded by Booklet", () => {
+  // Booklet embeds pages through the same function as n-up
+  // (embedSourcePages); this holds the refusal at Booklet's own entry point,
+  // so a second embed path added there later cannot skip the budget.
+  test("PS-02: booklet refuses the ~3 KB chained [/FlateDecode /FlateDecode] -> 1 GiB page", async () => {
+    const r = settled(
+      await run(
+        "booklet",
+        pageWithContent("[/FlateDecode /FlateDecode]", reflate(zeroBomb(1024))),
+      ),
+    );
+    expect(r.error).toBe("PdfDecodeBudgetError");
+    expect(r.growthMb).toBeLessThan(REFUSED_BOMB_MB);
+  }, 90_000);
+
+  test("PS-02: positive control: booklet lays out a 64 MiB content stream, and the RSS instrument sees it", async () => {
+    const r = settled(
+      await run("booklet", pageWithContent("/FlateDecode", zeroBomb(64))),
+    );
+    expect(r.ok).toMatchObject({ sheets: 1 });
+    expect(r.growthMb).toBeGreaterThan(60);
+  }, 90_000);
+});
+
 describe("STAMP-13: a content-stream bomb as the overlay", () => {
   test("STAMP-13: overlay refuses the chained 1 GiB overlay page, naming it", async () => {
     const input = STAMPING_INPUTS.find(

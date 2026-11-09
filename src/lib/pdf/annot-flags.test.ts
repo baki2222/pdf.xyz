@@ -21,6 +21,9 @@ describe("annotation flags", () => {
   it("are ISO 32000's bits: Hidden is bit 2, NoView bit 6 (independent bound)", () => {
     expect(shared.ANNOT_HIDDEN).toBe(2);
     expect(shared.ANNOT_NO_VIEW).toBe(32);
+    // Print (bit 3) exists only in Overlay's engine, for PDF Booklet Maker's
+    // print-mode baking; pinned to ISO here, as the other two are.
+    expect(overlay.ANNOT_PRINT).toBe(4);
   });
 
   it("Overlay's engine does not import the shared module", () => {

@@ -76,6 +76,9 @@ const RUNNERS: Record<string, RunnerKind> = {
   "remove-annotations": "metadata",
   "resize-pdf": "resize",
   "n-up-pdf": "n-up",
+  // Booklet shares Multiple Pages per Sheet's runner and engine drawings:
+  // NUpRunner draws the booklet editor on this slug's page.
+  "booklet-pdf": "n-up",
   "split-pdf-pages-in-half": "split-half",
 };
 

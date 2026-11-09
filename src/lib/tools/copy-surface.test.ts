@@ -132,6 +132,8 @@ describe("the copy surface reaches what the guards must read", () => {
       // Added 2026-11-10 (review round 1): its kind labels, moved out of
       // offered-kinds.ts.
       "src/lib/pdf/annotation-kinds.ts",
+      // Added 2026-11-09: PDF Booklet Maker's phrase module.
+      "src/lib/pdf/booklet.ts",
       // Added 2026-11-08: the page-tree check's damaged-page refusal.
       "src/lib/pdf/page-tree.ts",
       "src/lib/workers/read-error.ts",
@@ -230,11 +232,16 @@ describe("the copy surface reaches what the guards must read", () => {
     // 401 on 2026-10-24 (the editor's Phase 2 added a panel and two listed
     // modules), so the ceiling moved from 400 to 550: a second checkout
     // would still double the walk past it.
+    // 551 on 2026-11-09, with PDF Booklet Maker (booklet.ts, sheet-embed.ts,
+    // optional-content.ts) merged over #306's editor image notice. The ceiling
+    // moved from 550 to 700: the surface grows with real modules, and a
+    // second checkout (about 1,100) would still be far past it.
     const n = copyFiles().length;
     expect(n).toBeGreaterThanOrEqual(120);
-    // Raised 550 → 560 on 2026-11-10: Remove Annotations added two phrase
-    // modules (annotation-groups.ts, remove-annotations.ts), 552 in all.
-    expect(n).toBeLessThanOrEqual(560);
+    // Remove Annotations (2026-11-10) adds three phrase modules on top
+    // (annotation-groups.ts, remove-annotations.ts, annotation-kinds.ts); its
+    // own branch had raised 550 to 560, superseded by main's 700 at the merge.
+    expect(n).toBeLessThanOrEqual(700);
   });
 
   it("a pending root is one that does not exist YET — stale entries fail", () => {

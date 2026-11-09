@@ -35,6 +35,7 @@ import {
 } from "@/lib/pdf/engine";
 import { mergeAlternating } from "@/lib/pdf/merge-alternate";
 import { DEFAULT_N_UP_OPTIONS, nUpPdf } from "@/lib/pdf/n-up";
+import { DEFAULT_BOOKLET_OPTIONS, bookletPdf } from "@/lib/pdf/booklet";
 import { getRedactPageSizes } from "@/lib/pdf/redact";
 import { splitPagesInHalf } from "@/lib/pdf/split-half";
 import {
@@ -145,6 +146,8 @@ describe("PS-08: page tools write the page the preview shows", () => {
     organize: (b) => organizePages(b, [{ sourceIndex: 0, rotation: 0 }]),
     "n-up": async (b) =>
       (await nUpPdf(b, { ...DEFAULT_N_UP_OPTIONS, perSheet: 2 })).bytes,
+    booklet: async (b) =>
+      (await bookletPdf(b, { ...DEFAULT_BOOKLET_OPTIONS })).bytes,
     "split-half": async (b) =>
       (
         await splitPagesInHalf(b, {
@@ -163,7 +166,9 @@ describe("PS-08: page tools write the page the preview shows", () => {
       for (const [name, run] of Object.entries(engines)) {
         const got = await view(await run(input));
         expect({ name, text: got.text }).toEqual({ name, text: want.text });
-        if (name !== "n-up" && name !== "split-half") {
+        // n-up, booklet and split-half write NEW sheets, so the output's
+        // width is the sheet's, not the input page's.
+        if (name !== "n-up" && name !== "booklet" && name !== "split-half") {
           expect({ name, width: got.width }).toEqual({
             name,
             width: want.width,

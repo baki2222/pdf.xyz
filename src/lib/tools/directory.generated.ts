@@ -61,6 +61,13 @@ export const TOOL_DIRECTORY: readonly ToolEntry[] = [
     outputs: ["PDF"],
   },
   {
+    slug: "booklet-pdf",
+    name: "PDF Booklet Maker",
+    processing: "client",
+    accept: ["PDF"],
+    outputs: ["PDF"],
+  },
+  {
     slug: "split-pdf-pages-in-half",
     name: "Split PDF Pages in Half",
     processing: "client",
