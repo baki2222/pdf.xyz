@@ -114,6 +114,9 @@ export function handoffCapabilityFor(slug: string): HandoffCapability {
  * limits behind it) does not: the type import is erased, so each entry is
  * held to a real worker batch at compile time for no bytes, and
  * `capability.test.ts` holds the set to the registration in both directions.
+ * The type is free; the literal is not: ~78 B gz on every tool page's first
+ * load (measured 2026-11-09, recorded beside the tool-page budget in
+ * `bundle-budget.test.ts`).
  */
 const WORKER_BATCHES: ReadonlySet<string> = new Set<WorkerBatchSlug>([
   "optimize-web",
