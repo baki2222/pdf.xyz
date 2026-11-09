@@ -6,7 +6,10 @@ import type { TextLayerHandle, ViewerLink, ViewerPdf } from "@/lib/pdf/viewer";
 import { VIEWER_LINK_REL } from "@/lib/pdf/viewer-links";
 import { turnFractionRect, type QuarterTurn } from "@/lib/pdf/viewer-geometry";
 import type { SearchMatch } from "@/lib/pdf/viewer-search";
-import { VIEWER_PAGE_FAILED } from "@/lib/pdf/viewer-copy";
+import {
+  VIEWER_PAGE_FAILED,
+  VIEWER_TEXT_CAPPED_NOTE,
+} from "@/lib/pdf/viewer-copy";
 
 type Status = "waiting" | "drawn" | "failed";
 
@@ -213,6 +216,15 @@ export const ViewerPage = memo(function ViewerPage({
         </div>
       )}
       <div ref={textHost} className="textLayer" />
+      {live && layer?.capped && (
+        <p
+          role="note"
+          data-viewer-text-capped=""
+          className="bg-wash/95 text-fg absolute inset-x-0 top-0 z-[3] px-2 py-1 text-xs"
+        >
+          {VIEWER_TEXT_CAPPED_NOTE}
+        </p>
+      )}
       {live &&
         links.map((link, i) => {
           const r = turnFractionRect(link.rect, turn);

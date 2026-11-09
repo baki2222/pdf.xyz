@@ -131,6 +131,11 @@ export type DrawResult =
 export interface TextLayerHandle {
   /** One element per text item, in the order of {@link ViewerText.items}. */
   readonly divs: readonly HTMLElement[];
+  /**
+   * The page had more than {@link VIEWER_MAX_TEXT_ITEMS} items: only the
+   * first are selectable, and the page says so (viewer-page.tsx).
+   */
+  readonly capped: boolean;
   cancel(): void;
 }
 
@@ -401,7 +406,7 @@ export async function openViewerPdf(bytes: Uint8Array): Promise<ViewerPdf> {
         rawText(index),
       ]);
       if (!content || signal?.aborted) return null;
-      const { items } = stringItems(content);
+      const { items, capped } = stringItems(content);
       const viewport = page.getViewport({
         scale,
         rotation: (page.rotate + turn) % 360,
@@ -426,7 +431,7 @@ export async function openViewerPdf(bytes: Uint8Array): Promise<ViewerPdf> {
         signal?.removeEventListener("abort", onAbort);
       }
       if (signal?.aborted) return null;
-      return { divs: layer.textDivs, cancel: () => layer.cancel() };
+      return { divs: layer.textDivs, capped, cancel: () => layer.cancel() };
     } catch {
       return null;
     }

@@ -6,6 +6,7 @@ import {
   VIEWER_MAX_TEXT_ITEMS,
   VIEWER_PRINT_DPI,
   VIEWER_PRINT_MAX_PAGES,
+  VIEWER_PRINT_MAX_SIDE,
 } from "@/lib/pdf/viewer-geometry";
 import { VIEWER_LINK_SCHEMES } from "@/lib/pdf/viewer-links";
 import { VIEWER_LABELS, VIEWER_ZOOM_RANGE } from "@/lib/pdf/viewer-copy";
@@ -25,10 +26,14 @@ import { VIEWER_LABELS, VIEWER_ZOOM_RANGE } from "@/lib/pdf/viewer-copy";
  * Every figure is read from the constant it states. Never claimed: a
  * vector or exact print (print draws images), that nothing is ever
  * fetched (the engine arrives in parts: see the derived offline answer),
- * a page count it can open (the size ceiling is the one stated limit).
+ * a page count it can open (the size ceiling is the one stated limit),
+ * that every match is highlighted (search stops at VIEWER_MAX_MATCHES).
+ * viewer-copy.test.ts holds each with a corpus of the sentences it bans.
  */
 const ceilingMb = Math.round(RUNNER_FILE_CEILINGS.view / (1024 * 1024));
 const L = VIEWER_LABELS;
+/** The largest side, in inches, that prints at the full resolution. */
+const printSideInches = (VIEWER_PRINT_MAX_SIDE / VIEWER_PRINT_DPI).toFixed(1);
 const schemes = VIEWER_LINK_SCHEMES.map((s) => s.replace(":", "")).join(", ");
 
 const content: ToolContent = {
@@ -52,7 +57,7 @@ const content: ToolContent = {
     },
     {
       title: "Find a word in a long document",
-      body: `Press ${L.search}, type the word, and every match on every page is highlighted; ${L.nextMatch} and ${L.previousMatch} step through them.`,
+      body: `Press ${L.search}, type the word, and its matches are highlighted, up to the first ${VIEWER_MAX_MATCHES.toLocaleString("en-US")}; ${L.nextMatch} and ${L.previousMatch} step through them.`,
     },
     {
       title: "Check a file before you send or edit it",
@@ -75,7 +80,7 @@ const content: ToolContent = {
     },
     {
       title: "Zoom, turn and search",
-      body: `${L.zoomIn} and ${L.zoomOut} step from ${VIEWER_ZOOM_RANGE}; the zoom menu also has ${L.fitWidth} and ${L.fitPage}, and the page you are reading stays in view as the zoom changes. ${L.rotate} turns the pages on screen. ${L.search} finds text and highlights every match.`,
+      body: `${L.zoomIn} and ${L.zoomOut} step from ${VIEWER_ZOOM_RANGE}; the zoom menu also has ${L.fitWidth} and ${L.fitPage}, and the page you are reading stays in view as the zoom changes. ${L.rotate} turns the pages on screen. ${L.search} finds text and highlights the matches.`,
     },
     {
       title: "Print, download or carry on",
@@ -98,7 +103,7 @@ const content: ToolContent = {
     },
     {
       q: "How does printing work?",
-      a: `${L.print} draws each page as an image at ${VIEWER_PRINT_DPI} dpi and opens your browser's print dialog on them, so text prints a little less crisp than from a desktop PDF reader. One print sends at most ${VIEWER_PRINT_MAX_PAGES} pages, and fewer when the pages are large; the viewer says before printing when a document is longer than that. Print always uses the pages as the file shows them, not a view-only turn.`,
+      a: `${L.print} draws each page as an image at ${VIEWER_PRINT_DPI} dpi (a page wider or taller than ${printSideInches} inches at a lower resolution, so its image stays within ${VIEWER_PRINT_MAX_SIDE.toLocaleString("en-US")} pixels a side) and opens your browser's print dialog on them, so text prints a little less crisp than from a desktop PDF reader. One print sends at most ${VIEWER_PRINT_MAX_PAGES} pages, and fewer when the pages are large; the viewer says before printing when a document is longer than that. Print always uses the pages as the file shows them, not a view-only turn.`,
     },
     {
       q: "Are links in the PDF safe to click?",

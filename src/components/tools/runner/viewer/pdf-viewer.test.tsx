@@ -13,7 +13,9 @@ import {
   VIEWER_IMAGE_NOTE,
   VIEWER_LABELS,
   VIEWER_PRINT_WAITING,
+  VIEWER_TEXT_CAPPED_NOTE,
 } from "@/lib/pdf/viewer-copy";
+import { VIEWER_MAX_TEXT_ITEMS } from "@/lib/pdf/viewer-geometry";
 import { InToolPage } from "@/tests/in-tool-page";
 import type { LoadedPdf } from "../use-single-pdf";
 import { PdfViewer } from "./pdf-viewer";
@@ -55,7 +57,7 @@ function fakeDoc(over: Partial<ViewerPdf> = {}): ViewerPdf {
         container.append(span);
         return span;
       });
-      return { divs, cancel: () => {} };
+      return { divs, capped: false, cancel: () => {} };
     },
     links: async () => [],
     outline: async () => ({ entries: [], truncated: false }),
@@ -342,6 +344,45 @@ describe("PDF Viewer: what it says", () => {
     const out = new Uint8Array(await saved!.arrayBuffer());
     expect([...out]).toEqual([...BYTES]);
     expect(saved!.type).toBe("application/pdf");
+  });
+
+  it("a page whose text passed the cap says so on the page, where text is selected", async () => {
+    // History (review, 2026-11-10): the FAQ said the viewer reports the
+    // cap, but only a search's tally did; selecting text on a capped page
+    // said nothing.
+    const base = fakeDoc();
+    const region = await mount(
+      fakeDoc({
+        textLayer: async (index, container, scale, turn, signal) => {
+          const handle = await base.textLayer(
+            index,
+            container,
+            scale,
+            turn,
+            signal,
+          );
+          return handle && { ...handle, capped: index === 0 };
+        },
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        region.querySelector('[data-viewer-page="1"] [data-viewer-text-capped]')
+          ?.textContent,
+      ).toBe(VIEWER_TEXT_CAPPED_NOTE),
+    );
+    expect(VIEWER_TEXT_CAPPED_NOTE).toContain(
+      VIEWER_MAX_TEXT_ITEMS.toLocaleString("en-US"),
+    );
+    // Control: page 3 drew its text, uncapped, and says nothing.
+    await waitFor(() =>
+      expect(
+        region.querySelector('[data-viewer-page="2"] .textLayer span'),
+      ).not.toBeNull(),
+    );
+    expect(
+      region.querySelector('[data-viewer-page="2"] [data-viewer-text-capped]'),
+    ).toBeNull();
   });
 
   it("Print waits for the page sizes it plans from, and says why", async () => {

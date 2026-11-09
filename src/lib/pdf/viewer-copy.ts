@@ -1,6 +1,7 @@
 import {
   MAX_ZOOM,
   MIN_ZOOM,
+  VIEWER_MAX_TEXT_ITEMS,
   VIEWER_PRINT_DPI,
   VIEWER_PRINT_MAX_PAGES,
   VIEWER_PRINT_MAX_PIXELS,
@@ -55,6 +56,13 @@ export const VIEWER_IMAGE_NOTE =
   "Some large images are not drawn in this view: they are bigger than a browser tab can decode safely. The file itself is unchanged.";
 
 export const VIEWER_PAGE_FAILED = "This page could not be drawn.";
+
+/**
+ * On a page whose text passed the item cap: what can be selected (and
+ * searched) is its first part, said where the selection is made, not only
+ * in a search's tally.
+ */
+export const VIEWER_TEXT_CAPPED_NOTE = `Only the first ${VIEWER_MAX_TEXT_ITEMS.toLocaleString("en-US")} pieces of text on this page can be selected or searched.`;
 
 /** Print's description while the page sizes it plans from are still read. */
 export const VIEWER_PRINT_WAITING =

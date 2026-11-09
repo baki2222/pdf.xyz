@@ -10,6 +10,7 @@ import {
   VIEWER_PRINT_DPI,
   VIEWER_PRINT_MAX_PAGES,
   VIEWER_PRINT_MAX_PIXELS,
+  VIEWER_PRINT_MAX_SIDE,
   printPlan,
 } from "@/lib/pdf/viewer-geometry";
 import {
@@ -34,6 +35,76 @@ const text = [
   ...content.faqs.flatMap((f) => [f.q, f.a]),
 ].join(" ");
 const n = (x: number) => x.toLocaleString("en-US");
+
+/**
+ * Claims the viewer's page must never make, each with the sentences it
+ * must catch (synonyms included: the ban that let "you have used your"
+ * past a ban on "you've used your") and true sentences it must spare.
+ */
+const BANS: {
+  claim: string;
+  pattern: RegExp;
+  catches: string[];
+  spares: string[];
+}[] = [
+  {
+    claim: "works without the network",
+    pattern:
+      /\boffline\b|without (?:an? )?(?:internet|network)(?: connection)?|no (?:internet|network) (?:connection )?(?:needed|required)/i,
+    catches: [
+      "The viewer works offline.",
+      "It works without an internet connection.",
+      "No internet connection needed.",
+    ],
+    spares: ["The file is read on your device and is not uploaded."],
+  },
+  {
+    claim: "never contacts the server",
+    pattern:
+      /\bnever (?:contacts|calls|reaches|talks to|fetches)\b|nothing (?:is )?(?:ever )?(?:fetched|requested|downloaded|loaded) from|no (?:network )?requests?\b/i,
+    catches: [
+      "The viewer never contacts our server.",
+      "Nothing is ever fetched from our server.",
+      "It makes no network requests.",
+    ],
+    spares: ["The file is not sent to pdf.xyz."],
+  },
+  {
+    claim: "an exact or vector print",
+    pattern:
+      /\bvectors?\b|exact(?:ly)? (?:print|as)|prints? exactly|pixel[- ]perfect/i,
+    catches: [
+      "Print is an exact print of the file.",
+      "Pages print exactly as they appear.",
+      "It prints vectors.",
+      "A vector print.",
+      "Pixel-perfect printing.",
+    ],
+    spares: ["Print draws each page as an image."],
+  },
+  {
+    claim: "a page count it can open",
+    pattern:
+      /up to [\d,]+ pages|[\d,]+[- ]page (?:documents?|files?|PDFs?)|unlimited pages|no page limit|any number of pages/i,
+    catches: [
+      "Opens PDFs of up to 5,000 pages.",
+      "It handles 5,000-page documents.",
+      "Unlimited pages.",
+      "There is no page limit.",
+    ],
+    spares: ["One print sends at most 50 pages."],
+  },
+  {
+    claim: "every match highlighted (search stops at its cap)",
+    pattern: /\bevery match\b|\ball (?:the )?matches\b/i,
+    catches: [
+      "Every match on every page is highlighted.",
+      "Search highlights every match.",
+      "All the matches are highlighted.",
+    ],
+    spares: ["Its matches are highlighted, up to the first 500."],
+  },
+];
 
 describe("PDF Viewer copy states the numbers it enforces", () => {
   it("the size ceiling, the live pages, the zoom range, the search and text caps, the print caps", () => {
@@ -67,13 +138,49 @@ describe("PDF Viewer copy states the numbers it enforces", () => {
     }
   });
 
-  it("never claims what it does not do", () => {
-    // A raster print is not an exact or vector one; nothing promises no
-    // contact with the server; no page count is claimed as a limit.
-    expect(text).not.toMatch(/\bvector\b|exact print|never contacts|offline/i);
-    expect(text).not.toMatch(/up to [\d,]+ pages/i);
+  it("never claims what it does not do (each ban against its corpus, both ways)", () => {
+    // History (review, 2026-11-10): the bans were two bare regexes with no
+    // sentence showing what each catches, and "It works without an
+    // internet connection.", "Pages print exactly as they appear.",
+    // "Nothing is ever fetched from our server.", "prints vectors" and
+    // "handles 5,000-page documents" all walked past them.
+    const offenders: string[] = [];
+    for (const ban of BANS) {
+      for (const sentence of ban.catches) {
+        if (!ban.pattern.test(sentence))
+          offenders.push(`HOLE ${ban.claim}: ${sentence}`);
+      }
+      for (const sentence of ban.spares) {
+        if (ban.pattern.test(sentence))
+          offenders.push(`OVERBROAD ${ban.claim}: ${sentence}`);
+      }
+      // Every pattern catches something, and every ban spares something
+      // true: a pattern nothing exercises is decoration.
+      if (ban.catches.length === 0) offenders.push(`EMPTY ${ban.claim}`);
+      if (ban.spares.length === 0) offenders.push(`NO CONTROL ${ban.claim}`);
+      if (ban.pattern.test(text)) {
+        offenders.push(`SHIPPED ${ban.claim}: ${text.match(ban.pattern)![0]}`);
+      }
+    }
+    expect(offenders).toEqual([]);
     // The image note names no page: pdf.js does not say which one.
     expect(VIEWER_IMAGE_NOTE).not.toMatch(/\bpage \d/i);
+  });
+
+  it("print's resolution is stated with the side cap that lowers it, from the plan", () => {
+    // History (review, 2026-11-10): "at 150 dpi" was stated outright, while
+    // printPlan draws an A1 sheet at ~124 dpi to stay within the side cap.
+    const inches = (VIEWER_PRINT_MAX_SIDE / VIEWER_PRINT_DPI).toFixed(1);
+    expect(text).toContain(`wider or taller than ${inches} inches`);
+    expect(text).toContain(`${n(VIEWER_PRINT_MAX_SIDE)} pixels a side`);
+    // The figure is the plan's: a page that size prints at the full
+    // resolution, one inch more prints at less.
+    const at = (sideIn: number) => {
+      const plan = printPlan([{ width: sideIn * 72, height: 72 }]);
+      return (plan.pages[0]!.width / sideIn).toFixed(0);
+    };
+    expect(at(Number(inches) - 0.1)).toBe(String(VIEWER_PRINT_DPI));
+    expect(Number(at(Number(inches) + 1))).toBeLessThan(VIEWER_PRINT_DPI);
   });
 
   it("the print note says how many pages print and why, from the plan", () => {
