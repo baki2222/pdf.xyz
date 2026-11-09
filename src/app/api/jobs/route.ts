@@ -17,7 +17,20 @@ import {
 } from "@/lib/jobs";
 import { getToolBySlug } from "@/lib/tools";
 import { getWorkerAdapter } from "@/lib/workers";
-import { runningWorkerEnforcesAiReadCap } from "@/lib/workers/heartbeat";
+import {
+  runningWorkerEnforcesAiReadCap,
+  runningWorkerTranslatesScans,
+} from "@/lib/workers/heartbeat";
+import { translateAsksForOcr } from "@/lib/jobs/translate-pdf";
+import {
+  TRANSLATE_OCR_NOT_RUNNING_MESSAGE,
+  translateOcrMissingPacksMessage,
+} from "@/lib/jobs/translate-ocr";
+import {
+  describeOcrLanguage,
+  isOcrLanguage,
+  parsePdfToWordOptions,
+} from "@/lib/jobs/ocr";
 import {
   enforceRateLimit,
   peekAiSpendCeiling,
@@ -80,6 +93,43 @@ export async function POST(request: Request): Promise<Response> {
   // disagree about what is admissible (`@/lib/jobs/ai-tool-options`).
   const aiOptions = parseAiToolOptions(parsed.value.tool, parsed.value.options);
   if (aiOptions && !aiOptions.ok) return respond(aiOptions.error);
+
+  // OCR INSIDE TRANSLATE IS ADMITTED ONLY WHEN THE RUNNING WORKER PROVES IT
+  // (audit translate-pdf#3), and before anything is charged. An image built
+  // before the feature ignores the request and refuses the scan as having no
+  // text — after the allowance was taken. The panel offers OCR only on the
+  // same proof (the same predicate, `translateScanAdmission`); this is the
+  // line for every other caller, and for a worker that changed between the
+  // page's status check and Run. The LANGUAGES are held to the same line: a
+  // pack the beat does not report is refused by OCR's own check on the worker
+  // before any work, and that failure gives the reservation back no more than
+  // the older image's does.
+  if (
+    aiOptions?.ok &&
+    parsed.value.tool === "translate-pdf" &&
+    translateAsksForOcr(parsed.value.options ?? {})
+  ) {
+    const ocrRequest = parsePdfToWordOptions(parsed.value.options ?? {});
+    // Already validated by `parseTranslateOptions` above; re-read for the codes.
+    if (!ocrRequest.ok) return respond(ocrRequest.error);
+    const admission = await runningWorkerTranslatesScans(
+      ocrRequest.value.languages,
+    );
+    if (!admission.ok) {
+      return respond(
+        admission.reason === "missing_packs"
+          ? apiError(
+              "unprocessable_entity",
+              translateOcrMissingPacksMessage(
+                admission.missing.map((code) =>
+                  isOcrLanguage(code) ? describeOcrLanguage(code) : code,
+                ),
+              ),
+            )
+          : apiError("not_implemented", TRANSLATE_OCR_NOT_RUNNING_MESSAGE),
+      );
+    }
+  }
 
   /**
    * What this job is charged, and what it may then deliver.

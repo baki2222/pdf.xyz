@@ -32,6 +32,11 @@ import {
 import { HYBRID_WORKER_STEP } from "@/lib/tools/processing";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { OCR_LANGUAGES, MAX_OCR_LANGUAGES } from "@/lib/jobs/ocr";
+import {
+  TRANSLATE_OCR_CHARGE_SENTENCE,
+  TRANSLATE_OCR_SCOPE,
+  TRANSLATE_SCAN_ROUTE,
+} from "@/lib/jobs/translate-ocr";
 import { aiAllowanceFactFor } from "@/lib/jobs/ai-allowance";
 import {
   DEFAULT_SUMMARY_FORMAT,
@@ -2166,7 +2171,7 @@ export const guides: Guide[] = [
     ],
     steps: [
       "Open the Translate PDF tool.",
-      "Pick the PDF you want translated. The tool reads selectable text, so if your document is a scan, run it through OCR PDF first.",
+      `Pick the PDF you want translated. ${TRANSLATE_SCAN_ROUTE}`,
       "Upload your PDF — it travels over an encrypted connection to our secure server that runs the job.",
       `In “Translate into”, pick one of the ${TRANSLATE_LANGUAGES.length} languages offered, and leave “Source language” on “Auto-detect” or set it yourself.`,
       "Start the translation. A long document is not refused: it is split at page boundaries, translated a few pages at a time, and reassembled in order. Our server deletes the input when the job finishes.",
@@ -2198,10 +2203,18 @@ export const guides: Guide[] = [
         ],
       },
       {
+        // The id stays (links point at it). CHANGED 2026-11-09 (audit
+        // translate-pdf#3): headed "Scanned PDFs need OCR first", and said
+        // to run every scan through OCR PDF first. Translate can now
+        // recognise a scan itself when the running worker can. The heading
+        // was then "Scanned PDFs are recognised first" — false while the
+        // running worker publishes no translateOcr (review finding), so it
+        // names the subject and leaves the claim to the body, which states
+        // both states.
         id: "scanned-pdfs-need-ocr-first",
-        heading: "Scanned PDFs need OCR first",
+        heading: "Scanned PDFs",
         body: [
-          "The tool translates a PDF's selectable text — the kind you can highlight and copy. A scanned document is a picture of text, so there is nothing selectable to translate. Run the scan through OCR PDF first to recognize the text, then bring the result to Translate PDF.",
+          `The tool translates a PDF's text — the kind you can highlight and copy. ${TRANSLATE_SCAN_ROUTE} ${TRANSLATE_OCR_SCOPE} ${TRANSLATE_OCR_CHARGE_SENTENCE}`,
           `OCR PDF advertises ${OCR_LANGUAGES.length} recognition languages, with up to ${MAX_OCR_LANGUAGES} selectable per job, and its page's live status shows which language packs are actually installed.`,
         ],
       },
@@ -2231,12 +2244,14 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I translate a scanned PDF?",
-        answer:
-          "Not directly — a scan has no selectable text. Use OCR PDF to recognize the text first, then translate the output.",
+        // CHANGED 2026-11-09 (audit translate-pdf#3): "Not directly — a scan
+        // has no selectable text. Use OCR PDF to recognize the text first,
+        // then translate the output."
+        answer: TRANSLATE_SCAN_ROUTE,
       },
     ],
     published: "2026-09-17",
-    updated: "2026-10-30",
+    updated: "2026-11-09",
   },
   {
     slug: "how-to-delete-pages-from-a-pdf",

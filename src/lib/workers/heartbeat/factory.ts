@@ -284,3 +284,79 @@ export async function runningWorkerEnforcesAiReadCap(
   const liveness = await readWorkerHeartbeatLiveness(env, deps);
   return liveness.observed && liveness.capabilities?.aiReadCap === true;
 }
+
+/**
+ * May a translate job that asks for OCR run on the worker this liveness
+ * describes (audit translate-pdf#3)? ONE pure predicate, read by BOTH the
+ * panel's offer (`GET /api/worker/status`) and the admission gate
+ * (`POST /api/jobs`), so the two cannot drift apart: a status that offers
+ * the picker while the route refuses the job, or the reverse.
+ *
+ * The worker image is published separately from the web tier, and an image
+ * built before the feature IGNORES the request — the translate parser there
+ * never heard of it — and refuses the scan as having no text, after the
+ * allowance was charged. So "the code is merged" is the mechanism, and the
+ * property is "the running image proves both halves on a fresh heartbeat":
+ * `translateOcr` (the chain) and `ocr` (OCR runs there). A stale, absent or
+ * unreachable beat answers `not_running`.
+ *
+ * `languages`, when given, must ALSO be packs that beat reports installed.
+ * OCR's own installed-pack check on the worker refuses any other before work,
+ * and nothing gives the route's reservation back after a worker failure. An
+ * EMPTY `ocrLanguages` admits none: an image new enough to publish
+ * `translateOcr` publishes `probeInstalledOcrLanguages`, which always returns
+ * an array, so empty there means "none installed", not "did not say" (the
+ * older-image reading the status route uses for the plain OCR menu).
+ */
+export type TranslateScanAdmission =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly reason: "not_running" }
+  | {
+      readonly ok: false;
+      readonly reason: "missing_packs";
+      readonly missing: readonly string[];
+    };
+
+export function translateScanAdmission(
+  liveness: HeartbeatLiveness,
+  languages: readonly string[] = [],
+): TranslateScanAdmission {
+  const caps = liveness.capabilities;
+  if (!liveness.observed || caps?.translateOcr !== true || caps.ocr !== true)
+    return { ok: false, reason: "not_running" };
+  const installed = new Set(caps.ocrLanguages);
+  const missing = languages.filter((code) => !installed.has(code));
+  return missing.length > 0
+    ? { ok: false, reason: "missing_packs", missing }
+    : { ok: true };
+}
+
+/**
+ * The panel's question: may it offer OCR at all? No languages are chosen yet,
+ * so it also needs at least ONE installed pack — an offer of a picker every
+ * choice in which the route would refuse is not an offer.
+ */
+export function liveWorkerTranslatesScans(
+  liveness: HeartbeatLiveness,
+): boolean {
+  return (
+    translateScanAdmission(liveness).ok &&
+    (liveness.capabilities?.ocrLanguages.length ?? 0) > 0
+  );
+}
+
+/**
+ * `POST /api/jobs` asks this before charging a translate job that carries an
+ * OCR request, with the job's parsed OCR languages. See
+ * {@link translateScanAdmission}.
+ */
+export async function runningWorkerTranslatesScans(
+  languages: readonly string[],
+  env: EnvSource = process.env,
+  deps: HeartbeatRedisDeps = {},
+): Promise<TranslateScanAdmission> {
+  return translateScanAdmission(
+    await readWorkerHeartbeatLiveness(env, deps),
+    languages,
+  );
+}

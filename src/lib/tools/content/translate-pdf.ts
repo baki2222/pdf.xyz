@@ -13,6 +13,11 @@ import {
   type TranslateLanguage,
 } from "@/lib/jobs/translate-pdf";
 import { OCR_OUTPUT_MODES } from "@/lib/jobs/ocr";
+import {
+  TRANSLATE_OCR_CHARGE_SENTENCE,
+  TRANSLATE_OCR_SCOPE,
+  TRANSLATE_SCAN_ROUTE,
+} from "@/lib/jobs/translate-ocr";
 import { tools } from "@/lib/tools/catalog";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import {
@@ -37,10 +42,18 @@ import {
  *    runs, Downloading the result…; until 2026-10-07 the step said it read
  *    Translating… throughout), the
  *    in-browser text count that refuses a document before anything uploads
- *    when no page fits in one pass (a scan has no page with text, so it is
- *    refused there too), and the "Download <name>" button, which saves bytes
+ *    when no page fits in one pass, and the "Download <name>" button, which saves bytes
  *    the page has ALREADY fetched (pdf-security-client: upload → create job →
  *    poll → download);
+ *  - SINCE 2026-11-09 (audit translate-pdf#3) a scan — no text on any page,
+ *    as the browser reads it — is NOT refused when the live status carries
+ *    `translateOcr` (an observed worker proves the chain and OCR itself): the
+ *    panel shows OCR's language picker and sends an OCR request, and the
+ *    worker recognises the scan (processor/translate.ts → ocr-first.ts)
+ *    before translating under the same caps. Without it the scan is refused
+ *    before upload, as before. Static copy cannot know which, so it says what
+ *    happens in each case (`TRANSLATE_SCAN_ROUTE`); a mixed document is
+ *    translated from its typed pages (`TRANSLATE_OCR_SCOPE`);
  *  - src/lib/workers/translate/engine.ts — selectable text only (`no_text`
  *    points at OCR PDF), the system prompt (keep structure, headings, lists,
  *    names, numbers, code and URLs; add, remove or summarise nothing; the
@@ -204,7 +217,7 @@ const content: ToolContent = {
   intro: [
     `Translate PDF has an AI model rewrite your document's text between any two of ${LANGUAGE_COUNT} languages, from ${list(["es", "bn"])} to ${list(["ja", "ar"])}. The model is told to keep headings and lists, leave names, numbers, code and URLs alone unless they clearly need translating, and add, drop or summarise nothing. You get a ZIP such as ${EXAMPLE_ZIP} holding translation.md, translation.txt, a README and a manifest naming the model and languages: translated text, not a rebuilt PDF, so fonts, columns and images are not recreated.`,
     `The work happens online, on pdf.xyz's secure server. Your PDF, one file up to ${CEILING_MB} MB, is uploaded over TLS; our server extracts its text and sends that text, plus any instruction you typed, but not the PDF file, to a third-party AI provider used under agreements that prohibit training on data sent through the API. The uploaded PDF is deleted when the job finishes, the ZIP's download link expires after ${OUTPUT_TTL} minutes, and a daily storage rule then erases the stored copy.`,
-    `One pass carries up to ${PASS_CHARS} characters; longer documents are split at page boundaries, translated in order and reassembled. Your browser counts the text before anything uploads, so a file with no page that fits a pass, or a scan with no text layer, is stopped without touching the allowance. ${AI_ALLOWANCE_FACT} The allowance is charged when the job is created, just after the upload: a document needing more than is left today is refused whole with nothing charged rather than half translated, and one over ${DAY_CHARS} characters, the whole day's allowance, has to be split into smaller files first.`,
+    `One pass carries up to ${PASS_CHARS} characters; longer documents are split at page boundaries, translated in order and reassembled. Your browser counts the text before anything uploads, so a file with no page that fits a pass is stopped without touching the allowance; a scan with no text layer is recognised on our server first when it can do that, and stopped the same way when it cannot. ${AI_ALLOWANCE_FACT} The allowance is charged when the job is created, just after the upload: a document needing more than is left today is refused whole with nothing charged rather than half translated, and one over ${DAY_CHARS} characters, the whole day's allowance, has to be split into smaller files first.`,
   ],
 
   useCases: [
@@ -222,7 +235,7 @@ const content: ToolContent = {
     },
     {
       title: "Translate a scanned letter",
-      body: `A scan holds pictures of letters, not text. Run it through ${OCR_TOOL} with the ${OCR_MODE_LABEL} output first, then bring that PDF here.`,
+      body: `${TRANSLATE_SCAN_ROUTE} Through ${OCR_TOOL}, pick the ${OCR_MODE_LABEL} output and bring the PDF it returns here.`,
     },
     {
       title: "Share a report with a team in their language",
@@ -245,7 +258,7 @@ const content: ToolContent = {
     },
     {
       title: "Press Translate PDF",
-      body: "Your browser counts the text first, while the button reads Translating…; if it fits, the PDF uploads over TLS (Uploading your file…), waits in the queue (Waiting for our server…), is translated (Translating…), and the ZIP is fetched (Downloading the result…) before the download button appears.",
+      body: "Your browser counts the text first, while the button reads Translating…; a scan is recognised on our server first when it can do that, which takes longer, and is refused before it uploads when it cannot. If it fits, the PDF uploads over TLS (Uploading your file…), waits in the queue (Waiting for our server…), is translated (Translating…), and the ZIP is fetched (Downloading the result…) before the download button appears.",
     },
     {
       title: "Download the ZIP",
@@ -260,7 +273,13 @@ const content: ToolContent = {
     },
     {
       q: "Can I translate a scanned PDF?",
-      a: `Not directly. Only text the PDF already contains as text is read, and your browser stops a file with none before it uploads or draws on the free allowance. Run the scan through ${OCR_TOOL} with the right recognition language and the ${OCR_MODE_LABEL} output, then translate the PDF it returns.`,
+      // CHANGED 2026-11-09 (audit translate-pdf#3): "Not directly. Only text
+      // the PDF already contains as text is read, and your browser stops a
+      // file with none before it uploads or draws on the free allowance. Run
+      // the scan through OCR PDF …" — true until Translate could run OCR
+      // itself. Whether it can is the running worker's to say, so the answer
+      // states both cases rather than either.
+      a: `${TRANSLATE_SCAN_ROUTE} ${TRANSLATE_OCR_SCOPE} ${TRANSLATE_OCR_CHARGE_SENTENCE} Through ${OCR_TOOL}, choose the right recognition language and the ${OCR_MODE_LABEL} output, then translate the PDF it returns.`,
     },
     {
       q: "Does the AI provider train on the document I translate?",

@@ -223,9 +223,13 @@ import {
 } from "@/tests/repair-proof-fixtures";
 import type { JobResults } from "@/lib/jobs/results";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
-import { AI_PROOF_SPECS } from "@/tests/ai-proof-specs";
+import {
+  AI_PROOF_SPECS,
+  TRANSLATE_OCR_PROOF_SPECS,
+} from "@/tests/ai-proof-specs";
 import {
   browserAiDeclaration,
+  browserTranslateOcrDeclaration,
   type AiJobDeclaration,
 } from "@/lib/probes/ai-proof-declaration";
 import { getAllToolSlugs, getToolBySlug } from "@/lib/tools";
@@ -2483,6 +2487,16 @@ const SPECS: ProofSpec[] = [
     type: PDF_MIME,
     expect: isZipContainer,
   })),
+  // OCR inside Translate PDF (audit translate-pdf#3), a group run by name
+  // (`translate-ocr`): the scan goes undeclared, as the panel sends it, so it
+  // reserves a whole run. Its verdict reads the record too (did OCR run?).
+  // Never run against production by the change that added it.
+  ...TRANSLATE_OCR_PROOF_SPECS.map((spec): ProofSpec => ({
+    ...spec,
+    type: PDF_MIME,
+    expect: isZipContainer,
+    verify: (bytes, job) => spec.verify(new Uint8Array(bytes), job.results),
+  })),
 ];
 
 /** Worker-backed tools with no spec above — a new tool must arrive with a proof. */
@@ -2664,7 +2678,12 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
     // panel counts — a fixture the browser would refuse, or could not count,
     // is a defect in this proof, reported before anything is sent or charged.
     if (isAiSpec(spec)) {
-      const verdict = await browserAiDeclaration(spec.tool, bytes);
+      // A Translate job with an OCR request (audit translate-pdf#3) is what
+      // the panel sends for a SCAN, undeclared: there is no text to count.
+      const verdict =
+        spec.tool === "translate-pdf" && spec.options?.ocr === true
+          ? await browserTranslateOcrDeclaration(bytes)
+          : await browserAiDeclaration(spec.tool, bytes);
       if (verdict.kind !== "declared") {
         return {
           label,

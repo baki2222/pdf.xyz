@@ -18,6 +18,7 @@
  */
 
 import { apiError, type ParseResult } from "./responses";
+import { parsePdfToWordOptions } from "./ocr";
 import {
   MAX_DISPLAY_FILENAME_LENGTH,
   sanitizeDisplayFilename,
@@ -131,6 +132,25 @@ export interface TranslateOptions {
   instructions?: string;
 }
 
+/**
+ * The option keys that belong to an OCR request (audit translate-pdf#3,
+ * 2026-11-09), not to the translation: recognise a SCAN's text first. They
+ * are validated here by PDF to Word's own parser (`parsePdfToWordOptions`:
+ * the OCR allowlist, the four-language cap and the right-to-left refusal,
+ * word for word) and are NOT carried on {@link TranslateOptions} — the worker
+ * reads them with that same parser in its OCR-first step
+ * (`workers/processor/ocr-first.ts`), so there is one reading of them, and
+ * nothing about the translation itself changes with them. The worker runs
+ * OCR only when the PDF has no selectable text at all.
+ */
+export const TRANSLATE_OCR_OPTION_KEYS = [
+  "ocr",
+  "languages",
+  "rotatePages",
+  "deskew",
+  "redoOcr",
+] as const;
+
 function invalid(message: string, field: string): ParseResult<never> {
   return {
     ok: false,
@@ -196,6 +216,15 @@ export function parseTranslateOptions(
 
   const result: TranslateOptions = { targetLanguage, sourceLanguage };
 
+  // THE OCR REQUEST, through PDF to Word's own parser so the two cannot
+  // disagree about a language — validated here, before the route charges
+  // anything. Read only when one of its keys is present: a bag with none of
+  // them is today's request, unchanged.
+  if (TRANSLATE_OCR_OPTION_KEYS.some((key) => options[key] !== undefined)) {
+    const ocr = parsePdfToWordOptions(options);
+    if (!ocr.ok) return ocr;
+  }
+
   if (options.instructions !== undefined) {
     if (typeof options.instructions !== "string") {
       return invalid("`instructions` must be a string.", "instructions");
@@ -219,6 +248,14 @@ export function parseTranslateOptions(
   }
 
   return { ok: true, value: result };
+}
+
+/**
+ * Does this (already validated) options bag ask for OCR first? `ocr: true` is
+ * the switch `parsePdfToWordOptions` reads; anything else is no request.
+ */
+export function translateAsksForOcr(options: Record<string, unknown>): boolean {
+  return options.ocr === true;
 }
 
 /** A short, human description of a validated translation request, for the UI copy. */

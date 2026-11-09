@@ -31,6 +31,14 @@ import {
 } from "@/lib/workers/chat-with-pdf-conversation";
 import { proofTablePdf } from "./extraction-proof-fixtures";
 import { chatProofPdf, memoProofPdf } from "./ai-proof-fixtures";
+import type { JobResults } from "@/lib/jobs/results";
+import { a4LongSide } from "@/lib/probes/bengali-ocr-proof";
+import {
+  TRANSLATE_OCR_PROOF_OPTIONS,
+  translateOcrProofPdf,
+  translateOcrProofVerdict,
+} from "@/lib/probes/translate-ocr-proof";
+import { scanOfFirstPage } from "./word-ocr-proof-fixtures";
 
 export interface AiProofVerdict {
   ok: boolean;
@@ -190,5 +198,56 @@ export const AI_PROOF_SPECS: readonly AiProofSpec[] = [
     // (`CHAT_PROOF_FOLLOW_UP`).
     verify: (bytes) =>
       verifyChatProof(bytes, { ...CHAT_PROOF_FOLLOW_UP, contextTurns: 2 }),
+  },
+];
+
+/** A proof whose verdict also reads the completed job record. */
+export interface AiRecordProofSpec extends Omit<AiProofSpec, "verify"> {
+  readonly group: string;
+  readonly verify: (
+    bytes: Uint8Array,
+    results: JobResults | undefined,
+  ) => Promise<AiProofVerdict>;
+}
+
+/**
+ * OCR inside Translate PDF (audit translate-pdf#3), proven on the deployment.
+ *
+ * Kept OUT of {@link AI_PROOF_SPECS}, whose members are each dropped into
+ * their panel with today's ready status (no `translateOcr`) and whose one
+ * run is held to one day (`ai-proof-declaration.test.tsx`): the scan goes
+ * UNDECLARED, as the panel sends it, so it reserves a whole run — a third of
+ * a day's allowance. The harness still runs this group in a full run, so a
+ * full run now spends that much more; run it alone with
+ * `pnpm worker:prove-tools translate-ocr`. `translate-ocr-proof.test.ts`
+ * holds this group's own day, and its declarations to the panel's.
+ *
+ * The scan is a German page typed with pdf-lib and rasterised at 300 dpi
+ * (no text layer), sent with an OCR request in German, into English: the
+ * package must hold the English words AND the record must say OCR ran. The
+ * control sends the same request with the TYPED page: no OCR may run.
+ */
+export const TRANSLATE_OCR_PROOF_SPECS: readonly AiRecordProofSpec[] = [
+  {
+    tool: "translate-pdf",
+    label: "translate-pdf (ocr, scan)",
+    group: "translate-ocr",
+    make: async () =>
+      scanOfFirstPage(await translateOcrProofPdf(), a4LongSide(300)),
+    name: "scan.pdf",
+    options: TRANSLATE_OCR_PROOF_OPTIONS,
+    want: "English words for the scan's German, and OCR on the record",
+    verify: (bytes, results) => translateOcrProofVerdict(bytes, results, "ran"),
+  },
+  {
+    tool: "translate-pdf",
+    label: "translate-pdf (ocr requested, typed page: control)",
+    group: "translate-ocr",
+    make: () => translateOcrProofPdf(),
+    name: "typed.pdf",
+    options: TRANSLATE_OCR_PROOF_OPTIONS,
+    want: "the same English words, and NO OCR on the record",
+    verify: (bytes, results) =>
+      translateOcrProofVerdict(bytes, results, "skipped"),
   },
 ];

@@ -167,7 +167,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("TranslateWorkerPanel — a scanned PDF", () => {
+// SCOPED 2026-11-09 (audit translate-pdf#3), history kept: this was "a scanned
+// PDF" without condition — every scan was refused before upload and sent to
+// OCR PDF. Since Translate can recognise a scan itself, that refusal is the
+// behaviour ONLY while the running worker does not advertise `translateOcr`
+// (READY here carries no such field). The other state — the language picker
+// and the OCR request — is `translate-worker-panel.ocr.test.tsx`.
+describe("TranslateWorkerPanel — a scanned PDF, when the running worker does not translate scans", () => {
   it("is sent to OCR, not told it has 0 characters and should be split", async () => {
     const network = await translate(await imageOnlyPdf(2));
     const { alert, text } = await alertText();
