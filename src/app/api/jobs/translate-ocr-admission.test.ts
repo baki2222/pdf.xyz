@@ -18,7 +18,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { REQUIRED_WORKER_ENV } from "@/lib/jobs";
 import { PDF_TO_WORD_RTL_REFUSAL } from "@/lib/jobs/ocr";
-import { TRANSLATE_OCR_NOT_RUNNING_MESSAGE } from "@/lib/jobs/translate-ocr";
+import {
+  TRANSLATE_OCR_NOT_RUNNING_MESSAGE,
+  translateOcrMissingPacksMessage,
+} from "@/lib/jobs/translate-ocr";
 import { RATE_LIMIT_ENV } from "@/lib/ratelimit";
 import {
   enforceAiCharacterAllowance,
@@ -106,10 +109,54 @@ const OCR = { ocr: true, languages: ["deu"] };
 
 describe("POST /api/jobs admits OCR inside Translate only on the running worker's proof", () => {
   it("a fresh heartbeat proving translateOcr AND ocr: the job is created", async () => {
-    await publishHeartbeat(route, beat({ translateOcr: true, ocr: true }));
+    await publishHeartbeat(
+      route,
+      beat({ translateOcr: true, ocr: true, ocrLanguages: ["eng", "deu"] }),
+    );
     const response = await submit(OCR);
     expect(response.status, await response.clone().text()).toBeLessThan(300);
     expect(route.heartbeatReads()).toBeGreaterThan(0);
+  });
+
+  // A LANGUAGE THE RUNNING WORKER LACKS (review finding, money lens). OCR's
+  // own installed-pack check on the worker refuses it before any work — after
+  // the route had reserved a third of the day, which nothing gives back. The
+  // packs are on the same fresh heartbeat the route already reads.
+  it("a pack the running worker does not report: 422 naming it, BEFORE the allowance is charged", async () => {
+    await publishHeartbeat(
+      route,
+      beat({ translateOcr: true, ocr: true, ocrLanguages: ["eng"] }),
+    );
+    const response = await submit({ ocr: true, languages: ["eng", "deu"] });
+    expect(response.status).toBe(422);
+    const body = (await response.json()) as { error: { message: string } };
+    expect(body.error.message).toBe(
+      translateOcrMissingPacksMessage(["German"]),
+    );
+    expect(body.error.message).toContain("German");
+    expect(body.error.message).not.toContain("English");
+    expect(await wholeDayLeft(), "the refusal charged the allowance").toBe(
+      true,
+    );
+  });
+
+  it("an image whose OCR reports NO packs admits no OCR language", async () => {
+    // `probeInstalledOcrLanguages` always returns an array, so on an image new
+    // enough to publish translateOcr an empty list means "none installed" —
+    // the worker's own check then refuses every language.
+    await publishHeartbeat(route, beat({ translateOcr: true, ocr: true }));
+    const response = await submit(OCR);
+    expect(response.status).toBe(422);
+    expect(await wholeDayLeft()).toBe(true);
+  });
+
+  it("control: the default language is admitted when the worker reports it", async () => {
+    await publishHeartbeat(
+      route,
+      beat({ translateOcr: true, ocr: true, ocrLanguages: ["eng"] }),
+    );
+    const response = await submit({ ocr: true });
+    expect(response.status, await response.clone().text()).toBeLessThan(300);
   });
 
   it.each([
@@ -149,7 +196,10 @@ describe("POST /api/jobs admits OCR inside Translate only on the running worker'
   });
 
   it("a right-to-left OCR language is refused by the option parser, before the heartbeat or the charge", async () => {
-    await publishHeartbeat(route, beat({ translateOcr: true, ocr: true }));
+    await publishHeartbeat(
+      route,
+      beat({ translateOcr: true, ocr: true, ocrLanguages: ["eng", "heb"] }),
+    );
     const response = await submit({ ocr: true, languages: ["heb"] });
     expect(response.status).toBe(422);
     const body = (await response.json()) as { error: { message: string } };

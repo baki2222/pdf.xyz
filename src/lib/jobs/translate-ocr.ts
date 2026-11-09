@@ -91,5 +91,20 @@ export const TRANSLATE_OCR_CHARGE_SENTENCE = `A scan is charged as one full pass
  * claim otherwise: an older worker would ignore the request and refuse the
  * scan as having no text, keeping the charge.
  */
+/**
+ * The route's refusal when a job asks OCR for a language the running worker's
+ * fresh heartbeat does not report installed. Said BEFORE the allowance is
+ * charged: OCR's own installed-pack check on the worker would refuse the job
+ * before any work, and nothing gives the reservation back after a worker
+ * failure. Names only the missing languages, so the reader knows what to drop.
+ * Takes the NAMES (the route maps codes with `describeOcrLanguage`), so this
+ * client-safe module does not import the OCR catalogue.
+ */
+export function translateOcrMissingPacksMessage(
+  missingNames: readonly string[],
+): string {
+  return `Our server can't recognise ${missingNames.join(", ")} in scans right now, so no translation job was created and nothing was charged. Choose only languages listed on the page and try again.`;
+}
+
 export const TRANSLATE_OCR_NOT_RUNNING_MESSAGE =
   "Our server can't recognise scans inside Translate PDF right now, so no translation job was created and nothing was charged. Run the scan through OCR PDF first, then translate the PDF it returns.";
