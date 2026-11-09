@@ -1486,7 +1486,7 @@ const preflights = new WeakMap<
  *
  * The answer is kept for the same `Uint8Array` object at the same length: a
  * file is opened by the page board, then its thumbnails, then the run, and
- * the scan is a pass over the whole file, so it runs once. A refusal is kept
+ * the scan is a pass over the whole file, so it runs once. A typed refusal is kept
  * too, and is the same refusal. The key is the object, not its contents: a
  * caller that wrote new bytes into an array it had already opened would get
  * the first answer. The readers hand pdf.js a copy and never write into the
@@ -1502,6 +1502,17 @@ export function preflightPdfjsOpen(bytes: Uint8Array): Promise<PdfjsPreflight> {
     return preflightPdfjsBytes(bytes);
   })();
   preflights.set(bytes, { length: bytes.length, result });
+  // Only answers about the FILE are kept: a result, or a typed refusal. A
+  // failure of the scan itself (an exception from `DecompressionStream`, say)
+  // says nothing about these bytes, so the next open asks again.
+  result.catch((err: unknown) => {
+    if (
+      !(err instanceof PdfEngineError) &&
+      preflights.get(bytes)?.result === result
+    ) {
+      preflights.delete(bytes);
+    }
+  });
   return result;
 }
 

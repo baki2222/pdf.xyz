@@ -297,6 +297,18 @@ const OPEN_READERS: Record<string, (bytes: Uint8Array) => Promise<object>> = {
       unread: plan.unread.length,
     };
   },
+  /**
+   * The access probe (`classifyPdfAccess`): it runs on file arrival, ahead of
+   * every reader, on the batch runners, Compress, Protect/Unlock and Request
+   * Signatures. It never throws; its verdict is the value.
+   */
+  access: async (bytes) => {
+    const { classifyPdfAccess } = await import("@/lib/pdf/encryption");
+    const pdfjs =
+      (await import("pdfjs-dist/legacy/build/pdf.mjs")) as unknown as import("@/lib/pdf/encryption").PdfjsForAccess;
+    const access = await classifyPdfAccess(bytes, pdfjs);
+    return { ok: true, access: access.kind };
+  },
   /** The editor's page canvas: open, then draw page 1. */
   "editor-render": async (bytes) => {
     await withCanvas();

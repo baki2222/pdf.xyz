@@ -2,7 +2,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import ts from "typescript";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 /**
  * Every pdf.js open in the browser code awaits `preflightPdfjsOpen` first
@@ -32,16 +32,20 @@ const SERVER = join(ROOT, "src", "lib", "workers");
  * Opens that are not the browser readers this guard is about, each with the
  * reason and the check it does run. A stale entry (its file no longer opens
  * pdf.js) fails the guard too.
+ *
+ * History: lane res1 shipped with one entry, the access probe
+ * (`src/lib/pdf/encryption.ts`, "prescanXref + a deadline, not the stream
+ * preflight"), while the opener's docblock said EVERY open was preflighted.
+ * Review measured the probe opening and walking the object-stream bomb in
+ * 11.3 s at 621 MB, on the paths where an upload arrives first. The guard
+ * licensed the defect; the probe now preflights and the entry is gone.
  */
 const EXEMPT: Record<string, string> = {
-  // The access probe: it runs on file arrival for every tool, ahead of any
-  // reader, and has its own checks in front of its open (`readAccessFacts`
-  // runs `prescanXref`; `withDeadline` ends the open). Whether it should also
-  // run the stream preflight is a separate decision (see lane res1's
-  // follow-ups): it is the one open whose answer is a lock verdict, not a
-  // reading.
-  "src/lib/pdf/encryption.ts":
-    "classifyPdfAccess: prescanXref + a deadline, not the stream preflight",
+  // `withSharedWorker` binds `pdfjs.getDocument` and forwards each caller's
+  // options with the shared worker added. It opens nothing of its own: the
+  // callers it forwards for are the opens this guard judges, one by one.
+  "src/lib/pdf/pdfjs-worker.ts":
+    "withSharedWorker: a forwarder bound to getDocument, not an open",
 };
 
 const walk = (dir: string): string[] =>
@@ -69,8 +73,21 @@ const calleeName = (call: ts.CallExpression): string | null => {
   const e = call.expression;
   if (ts.isIdentifier(e)) return e.text;
   if (ts.isPropertyAccessExpression(e)) return e.name.text;
+  if (ts.isElementAccessExpression(e)) return memberName(e);
   return null;
 };
+
+/** `x.getDocument` or `x["getDocument"]`: the member a reference names. */
+function memberName(e: ts.Node): string | null {
+  if (ts.isPropertyAccessExpression(e)) return e.name.text;
+  if (
+    ts.isElementAccessExpression(e) &&
+    ts.isStringLiteralLike(e.argumentExpression)
+  ) {
+    return e.argumentExpression.text;
+  }
+  return null;
+}
 
 /**
  * Is `node` reached every time its function body runs, up to a throw? Its
@@ -115,6 +132,18 @@ function pdfjsOpens(source: string, fileName = "x.ts"): Open[] {
   );
   const opens: Open[] = [];
   const visit = (node: ts.Node) => {
+    // `const open = pdfjs.getDocument` (or `pdfjs["getDocument"]`) and a call
+    // through `open` later: an open this walk cannot follow, so the reference
+    // itself is reported, unguarded, for a person to look at.
+    if (
+      memberName(node) === "getDocument" &&
+      !(ts.isCallExpression(node.parent) && node.parent.expression === node)
+    ) {
+      opens.push({
+        line: file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1,
+        guarded: false,
+      });
+    }
     if (ts.isCallExpression(node) && calleeName(node) === "getDocument") {
       let fn: ts.Node | undefined = node.parent;
       while (fn && !isFunction(fn)) fn = fn.parent;
@@ -167,6 +196,36 @@ describe("preflightPdfjsOpen runs once per file", () => {
     const first = preflightPdfjsOpen(bytes);
     await expect(first).rejects.toMatchObject({ kind: "unreadable" });
     expect(preflightPdfjsOpen(bytes)).toBe(first);
+  });
+
+  it("a failure of the scan itself is not kept: the next open scans again", async () => {
+    const { preflightPdfjsOpen } = await import("./pdfjs-guard");
+    const { oneContentPdf } =
+      await import("@/tests/hostile/pdfjs-open.fixtures");
+    const { deflateSync } = await import("node:zlib");
+    const bytes = oneContentPdf(
+      "/Filter /FlateDecode",
+      new Uint8Array(deflateSync(Buffer.from("0 0 m q Q\n"))),
+    );
+    // Not a fact about the file: the environment could not inflate.
+    vi.stubGlobal(
+      "DecompressionStream",
+      class {
+        constructor() {
+          throw new TypeError("no DecompressionStream here");
+        }
+      },
+    );
+    let first: Promise<unknown>;
+    try {
+      first = preflightPdfjsOpen(bytes);
+      await expect(first).rejects.toBeInstanceOf(TypeError);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    const second = preflightPdfjsOpen(bytes);
+    expect(second).not.toBe(first);
+    await expect(second).resolves.toMatchObject({ overBudgetImage: false });
   });
 });
 
@@ -227,6 +286,32 @@ describe("every pdf.js open in the browser awaits preflightPdfjsOpen first", () 
         `async function pre(bytes) { await guard.preflightPdfjsOpen(bytes); }\nasync function a(bytes) {\n${OPEN}}`,
       ),
     ).toEqual([false]);
+    // An element access is the same open; an alias is one the walk cannot
+    // follow, so it is reported whatever precedes it.
+    expect(
+      guarded(
+        `async function a(bytes) {
+  pdfjs["getDocument"]({ data: bytes });
+}`,
+      ),
+    ).toEqual([false]);
+    expect(
+      guarded(
+        `async function a(bytes) {
+  await guard.preflightPdfjsOpen(bytes);
+  pdfjs["getDocument"]({ data: bytes });
+}`,
+      ),
+    ).toEqual([true]);
+    expect(
+      guarded(
+        `async function a(bytes) {
+  await guard.preflightPdfjsOpen(bytes);
+  const open = pdfjs.getDocument;
+  open({ data: bytes });
+}`,
+      ),
+    ).toEqual([false]);
     // A comment is not a call.
     expect(
       guarded(
@@ -266,6 +351,7 @@ describe("every pdf.js open in the browser awaits preflightPdfjsOpen first", () 
       found.filter((o) => o.guarded).map((o) => o.file),
     );
     for (const file of [
+      "src/lib/pdf/encryption.ts",
       "src/lib/pdf/pdfjs.ts",
       "src/lib/pdf/pdfjs-page-count.ts",
       "src/lib/pdf/auto-crop-render.ts",

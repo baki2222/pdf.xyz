@@ -1,5 +1,7 @@
 import type { PdfAccess } from "./encryption";
+import { PdfEngineError } from "./engine-errors";
 import { awaitPdfjsDocument } from "./pdfjs";
+import { preflightPdfjsOpen } from "./pdfjs-guard";
 import { prescanXref } from "./xref-prescan";
 
 /**
@@ -21,7 +23,19 @@ import { prescanXref } from "./xref-prescan";
  *  - a structural failure pdf.js reports as a password refusal (SIB-15).
  */
 
-export { awaitPdfjsDocument };
+export { awaitPdfjsDocument, preflightPdfjsOpen };
+
+/**
+ * Did the stream preflight refuse the file? Its refusals are typed
+ * (`PdfEngineError`: an xref pdf.js would walk past every bound, a stream that
+ * inflates past the memory bounds, content nested or worked past the `q`
+ * bounds). Anything else it throws is a failure of the scan itself (a
+ * missing `DecompressionStream`, say), not a fact about the file, and the
+ * probe then asks pdf.js as it did before lane res1.
+ */
+export function isPreflightRefusal(err: unknown): boolean {
+  return err instanceof PdfEngineError;
+}
 
 /**
  * How long a viewer-style open may take before the probe says "unreadable".

@@ -125,6 +125,13 @@ describe("item 4: the counter never counts fewer q than pdf.js executes", () => 
     "qqqq: one command per q": ["qqqq\n".repeat(5)],
     "a q glued to a number": ["1q 2q 3q 4q\n"],
     "a q glued to a command": ["1 0 0 1 0 0 cmq 0 0 m q\n"],
+    // An end of line may be a CR alone (ISO 32000-1 7.2.3): pdf.js ends a
+    // comment at either byte, and a backslash before a CR (or CR LF) inside a
+    // string is a line continuation, not the end of the string. Added after
+    // review: a counter that ended comments at LF only passed every case.
+    "a comment ended by a CR alone": [`%x\r${q20}\n`],
+    "a line continuation at a CR alone, inside a string": [`(a\\\r) ${q20}\n`],
+    "a line continuation at CR LF, inside a string": [`(a\\\r\n) ${q20}\n`],
     // Each next stream, read from a fresh start, opens a string or a comment
     // that pdf.js (still inside the last stream's comment, string, hex string
     // or image) never sees, and that would hide the q after it.

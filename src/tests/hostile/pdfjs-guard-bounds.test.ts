@@ -288,7 +288,9 @@ describe("lane res1: every pdf.js open goes through the preflight", () => {
     test(`${reader}: each hostile file is refused, typed, and a plain file still opens`, async () => {
       for (const [file, error] of Object.entries(FILES)) {
         const v = settled(
-          await runBounded(CHILD, [`open:${file}:${reader}`], 90_000),
+          await runBounded(CHILD, [`open:${file}:${reader}`], 90_000, {
+            maxOldSpaceMb: 1024,
+          }),
         );
         expect(v.error, `${file} via ${reader}`).toMatchObject(error);
         // Second bound: refused in seconds, before pdf.js parsed anything.
@@ -297,6 +299,10 @@ describe("lane res1: every pdf.js open goes through the preflight", () => {
         // others under 0.5 s.
         const { ms } = v.growth as { ms: number };
         expect(ms, `${file} via ${reader}`).toBeLessThan(30_000);
+        // Third bound, memory: the bomb's refusal comes from a preflight that
+        // streams up to 1.6 GB through inflate, so what it KEEPS is the bound
+        // worth pinning (added after review; the child always reported it).
+        expect(v.maxRssMb as number, `${file} via ${reader}`).toBeLessThan(900);
       }
       const control = settled(
         await runBounded(CHILD, [`open:control:${reader}`], 60_000),
@@ -304,6 +310,35 @@ describe("lane res1: every pdf.js open goes through the preflight", () => {
       expect(control, `control via ${reader}`).toMatchObject({ ok: true });
     }, 400_000);
   }
+});
+
+describe("lane res1: the access probe's open goes through the preflight too", () => {
+  // History (review of lane res1, 2026-11-09): classifyPdfAccess ran the xref
+  // pre-scan and a 30 s deadline but not the stream preflight, and the
+  // open-preflight guard EXEMPTED it while the opener's docblock said every
+  // open was preflighted. The probe runs on file arrival on the batch
+  // runners, Compress, Protect/Unlock, Request Signatures and the single-file
+  // look, so it is where a hostile file actually lands first: on d44ca719 the
+  // object-stream bomb was opened and walked, verdict "unencrypted", in
+  // 11.3 s at 621 MB peak RSS.
+  for (const file of ["objstm-bomb", "zero-width-xref", "q-split"]) {
+    test(`${file}: "unreadable", in seconds and bounded memory`, async () => {
+      const v = settled(
+        await runBounded(CHILD, [`open:${file}:access`], 90_000, {
+          maxOldSpaceMb: 1024,
+        }),
+      );
+      expect(v, file).toMatchObject({ ok: true, access: "unreadable" });
+      const { ms } = v.growth as { ms: number };
+      expect(ms, file).toBeLessThan(30_000);
+      expect(v.maxRssMb as number, file).toBeLessThan(900);
+    }, 120_000);
+  }
+
+  test("positive control: a plain file is still unencrypted", async () => {
+    const v = settled(await runBounded(CHILD, ["open:control:access"], 60_000));
+    expect(v).toMatchObject({ ok: true, access: "unencrypted" });
+  }, 90_000);
 });
 
 describe("lane res1: pdf.js's numPages is never looped over unchecked", () => {

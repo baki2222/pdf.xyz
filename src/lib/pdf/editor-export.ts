@@ -164,10 +164,13 @@ async function sourceTextItems(
       import("./wasm-assets"),
       import("./pdfjs-guard"),
     ]);
+    // pdf.js's own chunk is requested now, beside the scan, not after it.
+    const pdfjsModule = loadPdfjs();
+    pdfjsModule.catch(() => {});
     // The preflight every pdf.js open runs; a refusal is "no text", as any
     // other unreadable file is here.
     await guard.preflightPdfjsOpen(bytes);
-    const pdfjs = await loadPdfjs();
+    const pdfjs = await pdfjsModule;
     const task = pdfjs.getDocument({
       data: bytes.slice(),
       ...PDFJS_DOCUMENT_DEFAULTS,

@@ -1,7 +1,8 @@
 /**
  * What pdf.js will read as a cross-reference section, found in the bytes
  * before pdf.js is asked (lane l02 of the hostile-input matrix, SIB-03 and
- * SIB-09). Loaded only by `./pdf-access-guard`, which is its own chunk.
+ * SIB-09). Loaded by `./pdf-access-guard` and `./pdfjs-guard` (whose
+ * `preflightPdfjsOpen` runs it before every pdf.js open), both lazy chunks.
  *
  * The questions are pdf.js's, so the answers are read the way pdf.js reads
  * them, not the way a well-formed file writes them:
