@@ -11,6 +11,7 @@ import {
 import { useRouter } from "next/navigation";
 import {
   clearHandoffs,
+  eligibleFilesFor,
   HANDOFF_TARGET_WORKSPACE,
   handoffPayload,
   purgeExpiredHandoffs,
@@ -28,6 +29,7 @@ import {
   planBatch,
   savePersisted,
   workspaceReducer,
+  type BatchCarry,
   type BatchPlan,
   type BatchToolInfo,
   type WorkspaceAction,
@@ -165,6 +167,49 @@ export function batchToolInfoOf(summary: WorkspaceToolSummary): BatchToolInfo {
     usesWorker: modeUploadsFiles(summary.processing),
     handoff: summary.handoffMode,
   };
+}
+
+/**
+ * What a launch of `files` would carry to a tool, asked of the gate the
+ * launch itself goes through (`handoffPayload`, with `eligibleFilesFor`
+ * under it) over the staged files' own name, type and size — the fields a
+ * `File` gives that gate at launch, so the plan and the launch cannot
+ * disagree about what travels.
+ */
+export function batchCarryOf(
+  files: readonly WorkspaceFile[],
+): (slug: string, ids: readonly string[]) => BatchCarry {
+  const byId = new Map(files.map((f) => [f.id, f]));
+  return (slug, ids) => {
+    const queued = ids
+      .map((id) => byId.get(id))
+      .filter((f): f is WorkspaceFile => f !== undefined)
+      .map((f) => ({ id: f.id, name: f.name, type: f.mime, size: f.size }));
+    return {
+      eligible: eligibleFilesFor(slug, queued).map((f) => f.id),
+      carried: handoffPayload(slug, queued).map((f) => f.id),
+    };
+  };
+}
+
+/**
+ * The batch plan the page draws: the one resolver (`batchToolInfoOf`) and
+ * the launch's gate over the staged files (`batchCarryOf`). Read by the
+ * page and by the tests of its launch area, so they plan what a reader gets.
+ */
+export function planWorkspaceBatch(
+  batch: { toolSlug: string | null; fileIds: string[] },
+  summaryOf: (slug: string) => WorkspaceToolSummary | undefined,
+  files: readonly WorkspaceFile[],
+): BatchPlan {
+  return planBatch(
+    batch,
+    (slug) => {
+      const summary = summaryOf(slug);
+      return summary ? batchToolInfoOf(summary) : undefined;
+    },
+    batchCarryOf(files),
+  );
 }
 
 /**
@@ -482,11 +527,8 @@ export function useWorkspace(
 
   const batchPlan = useMemo(
     () =>
-      planBatch(state.batch, (slug) => {
-        const summary = bySlug.get(slug);
-        return summary ? batchToolInfoOf(summary) : undefined;
-      }),
-    [state.batch, bySlug],
+      planWorkspaceBatch(state.batch, (slug) => bySlug.get(slug), state.files),
+    [state.batch, bySlug, state.files],
   );
 
   const handlesFor = useCallback(

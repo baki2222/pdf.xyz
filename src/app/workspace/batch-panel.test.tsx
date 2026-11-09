@@ -18,40 +18,55 @@ import { workerBatchEachFileSentence } from "@/lib/batch/worker-copy";
 import { planBatch, type WorkspaceFile } from "@/lib/workspace";
 import { BatchPanel } from "./batch-panel";
 import { buildToolSummaries, type WorkspaceToolSummary } from "./presenter";
+import { planWorkspaceBatch } from "./use-workspace";
 
 afterEach(cleanup);
 
 const summaries = buildToolSummaries();
 const bySlug = new Map(summaries.map((s) => [s.slug, s]));
 
-function filesOf(n: number): WorkspaceFile[] {
+const KINDS = {
+  pdf: { ext: "pdf", mime: "application/pdf", family: "pdf" },
+  docx: {
+    ext: "docx",
+    mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    family: "word",
+  },
+} as const;
+
+function filesOf(
+  n: number,
+  kind: keyof typeof KINDS = "pdf",
+  size = 1000,
+  from = 0,
+): WorkspaceFile[] {
+  const { ext, mime, family } = KINDS[kind];
   return Array.from(
     { length: n },
     (_, i) =>
       ({
-        id: `f${i}`,
-        name: `scan-${i + 1}.pdf`,
-        size: 1000,
-        mime: "application/pdf",
-        kind: "PDF",
-        family: "pdf",
+        id: `${kind}${from + i}`,
+        name: `scan-${from + i + 1}.${ext}`,
+        size,
+        mime,
+        kind: ext.toUpperCase(),
+        family,
       }) as unknown as WorkspaceFile,
   );
 }
 
-function renderPanel(slug: string, n: number) {
-  const files = filesOf(n);
+/** The plan the page makes: its resolver, and its gate over these files. */
+function planFor(
+  batch: { toolSlug: string | null; fileIds: string[] },
+  files: readonly WorkspaceFile[],
+) {
+  return planWorkspaceBatch(batch, (s) => bySlug.get(s), files);
+}
+
+function renderPanel(slug: string, n: number | WorkspaceFile[]) {
+  const files = typeof n === "number" ? filesOf(n) : n;
   const batch = { toolSlug: slug, fileIds: files.map((f) => f.id) };
-  const plan = planBatch(batch, (s) => {
-    const t = bySlug.get(s);
-    return t
-      ? {
-          live: t.live,
-          usesWorker: t.uploadsFiles,
-          handoff: t.handoffMode,
-        }
-      : undefined;
-  });
+  const plan = planFor(batch, files);
   render(
     <BatchPanel
       files={files}
@@ -149,11 +164,20 @@ describe("the workspace launch area for a worker tool with a batch", () => {
     expect(screen.queryByRole("link", { name: /See how it works/ })).toBeNull();
   });
 
-  it.each(["repair-pdf", "word-to-pdf", "ocr-pdf"])(
+  /*
+   * The Word to PDF row WAS rendered with PDFs (2026-11-09, P6 review): it
+   * certified "the other 2 are listed there" for files Word to PDF cannot
+   * open, none of which travel. Each tool now gets files of its own kind.
+   */
+  it.each([
+    ["repair-pdf", "pdf"],
+    ["word-to-pdf", "docx"],
+    ["ocr-pdf", "pdf"],
+  ] as const)(
     "%s: a set past one batch names the cap, and the rest are listed there",
-    (slug) => {
+    (slug, kind) => {
       const cap = batchMaxFilesFor(slug);
-      const { tool } = renderPanel(slug, cap + 2);
+      const { tool } = renderPanel(slug, filesOf(cap + 2, kind));
       expect(tool.batchMaxFiles).toBe(cap);
       expect(
         screen.getByText(
@@ -162,6 +186,61 @@ describe("the workspace launch area for a worker tool with a batch", () => {
       ).toBeInTheDocument();
     },
   );
+
+  /*
+   * P6 review (2026-11-09): the planner counted QUEUED files, the launch
+   * carries the files the tool opens (`handoffPayload`). Three PDFs for Word
+   * to PDF were "Ready — 3 files … they open in a batch list" with a button
+   * "Open Word to PDF with 3 files", and Word to PDF opened empty.
+   */
+  it("files the tool cannot open: not ready, no button, and says why", () => {
+    const { plan, tool } = renderPanel("word-to-pdf", 3);
+    expect(plan).toMatchObject({ status: "worker-none", ready: false });
+    expect(screen.queryByRole("button", { name: /^Open / })).toBeNull();
+    expect(screen.queryByText(/batch list/)).toBeNull();
+    expect(
+      screen.getByText(
+        `${tool.name} doesn’t open any of these 3 files. Add files it takes, or choose another tool.`,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("a mixed set counts only what the tool opens, and says what is left out", () => {
+    const cap = batchMaxFilesFor("repair-pdf");
+    const files = [...filesOf(cap, "pdf"), ...filesOf(2, "docx", 1000, cap)];
+    const { tool } = renderPanel("repair-pdf", files);
+    expect(
+      screen.getByText(`Ready — ${cap} files, for our secure server`),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        `${tool.name} runs on our secure server, so these files are uploaded. 2 of the files you added are not a kind ${tool.name} opens, so they are left out. They open in a batch list on the tool’s page first; each one is uploaded only when you press the button under that list, in turn, one job per file. ${cost}`,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/listed there with the reason/)).toBeNull();
+    expect(
+      screen.getByRole("button", {
+        name: `Open ${tool.name} with ${cap} files`,
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("past one hand-off's bytes: says how many travel and that the rest stay queued", () => {
+    // Twelve 30 MB PDFs: ten fit the 300 MB a hand-off carries.
+    const files = filesOf(12, "pdf", 30 * 1024 * 1024);
+    const { tool } = renderPanel("repair-pdf", files);
+    expect(
+      screen.getByText("Ready — 10 files, for our secure server"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        `${tool.name} runs on our secure server, so these files are uploaded. Only the first 10 fit in one hand-off (300 MB at most), so the other 2 are left in your workspace for a second batch. They open in a batch list on the tool’s page first; each one is uploaded only when you press the button under that list, in turn, one job per file. ${cost}`,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: `Open ${tool.name} with 10 files` }),
+    ).toBeInTheDocument();
+  });
 
   it("one file: it opens on the tool's page, and goes up on its button", () => {
     const { tool } = renderPanel("unlock-pdf", 1);

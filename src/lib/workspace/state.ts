@@ -237,14 +237,27 @@ export type BatchStatus =
   | "needs-files" // tool chosen, no files
   | "ready" // live collect/batch tool + files → launch the whole set in-browser
   | "single" // live single-file tool + files → opens with the first queued file
-  | "worker-batch" // worker tool with a batch + files → opens its batch list; nothing moves until Run there
+  | "worker-batch" // worker tool with a batch + files it opens → opens its batch list; nothing moves until Run there
+  | "worker-none" // worker tool with a batch, but none of the queued files is one it opens
   | "worker-disabled" // worker tool with no batch: no launch from here
   | "unavailable"; // tool has no in-browser runner yet (and isn't a server tool)
+
+/**
+ * What a launch would carry, asked of the gate the launch itself uses
+ * (`handoffPayload`) before any file moves: the queued files the tool opens,
+ * and of those the ones that travel in one hand-off.
+ */
+export interface BatchCarry {
+  eligible: readonly string[];
+  carried: readonly string[];
+}
 
 export interface BatchPlan {
   toolSlug: string | null;
   fileIds: string[];
   status: BatchStatus;
+  /** For `worker-batch`: what its launch carries, when a gate was given. */
+  carry?: BatchCarry;
   /**
    * True only when the batch can actually be launched now: a live tool, or a
    * worker tool whose panel has a batch, with files.
@@ -255,10 +268,13 @@ export interface BatchPlan {
 /**
  * Resolve the batch queue to an honest, actionable status. `resolve` maps a tool
  * slug to its capability; an unknown slug (undefined) is treated as unavailable.
+ * `carry`, when given, is the launch's own gate over the queued files: a
+ * worker batch is planned on what it would carry, not on the queue's count.
  */
 export function planBatch(
   batch: BatchQueue,
   resolve: (slug: string) => BatchToolInfo | undefined,
+  carry?: (slug: string, fileIds: readonly string[]) => BatchCarry,
 ): BatchPlan {
   const { toolSlug, fileIds } = batch;
   const base = { toolSlug, fileIds };
@@ -278,12 +294,20 @@ export function planBatch(
     const status: BatchStatus = info.handoff === "single" ? "single" : "ready";
     return { ...base, status, ready: true };
   }
-  // A worker panel with a batch takes the whole set as a hand-off (batch
-  // plan P6): the files wait in its list, and each goes to our server only
-  // when Run is pressed there. Every other worker tool has no launch here.
-  if (info.usesWorker)
-    return info.handoff === "batch"
-      ? { ...base, status: "worker-batch", ready: true }
-      : { ...base, status: "worker-disabled", ready: false };
+  // A worker panel with a batch takes the set as a hand-off (batch plan
+  // P6): the files wait in its list, and each goes to our server only when
+  // Run is pressed there. Planned on what the launch CARRIES: WAS the queue's
+  // count, so three PDFs for Word to PDF were "ready" with a button for 3
+  // files, and the tool opened empty (P6 review). Every other worker tool
+  // has no launch here.
+  if (info.usesWorker) {
+    if (info.handoff !== "batch")
+      return { ...base, status: "worker-disabled", ready: false };
+    if (!carry) return { ...base, status: "worker-batch", ready: true };
+    const planned = carry(toolSlug, fileIds);
+    return planned.carried.length === 0
+      ? { ...base, status: "worker-none", ready: false, carry: planned }
+      : { ...base, status: "worker-batch", ready: true, carry: planned };
+  }
   return { ...base, status: "unavailable", ready: false };
 }

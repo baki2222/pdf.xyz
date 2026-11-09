@@ -352,6 +352,27 @@ describe("planBatch", () => {
     ).not.toBe("ready");
   });
 
+  // P6 review (2026-11-09): planned on the queue's count, three PDFs for
+  // Word to PDF were 'worker-batch' (ready) while the launch carried none.
+  it("a worker batch is planned on what its launch carries, given the gate", () => {
+    const none = () => ({ eligible: [], carried: [] });
+    expect(
+      planBatch({ toolSlug: "ocr-pdf", fileIds: ["f0", "f1"] }, resolve, none),
+    ).toMatchObject({ status: "worker-none", ready: false });
+    const some = () => ({ eligible: ["f0", "f1"], carried: ["f0"] });
+    expect(
+      planBatch({ toolSlug: "ocr-pdf", fileIds: ["f0", "f1"] }, resolve, some),
+    ).toMatchObject({
+      status: "worker-batch",
+      ready: true,
+      carry: { eligible: ["f0", "f1"], carried: ["f0"] },
+    });
+    // Control: the gate does not touch a client tool's plan.
+    expect(
+      planBatch({ toolSlug: "compress-pdf", fileIds: ["f0"] }, resolve, none),
+    ).toMatchObject({ status: "ready", ready: true });
+  });
+
   it("is 'unavailable' for a client tool with no runner and for unknown slugs", () => {
     expect(
       planBatch({ toolSlug: "extract-images", fileIds: ["f0"] }, resolve)
