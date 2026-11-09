@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-// @native-canvas
 /**
  * A HAND-OFF opens every worker batch (batch plan P6), through each page's
  * OWN panel: the module the tool page mounts (`ownPanelModules`, read from
