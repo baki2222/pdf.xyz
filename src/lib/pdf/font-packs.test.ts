@@ -25,7 +25,7 @@
  *     may sit in the table drawing nothing).
  */
 import { describe, expect, it } from "vitest";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import { OCR_LANGUAGES } from "@/lib/jobs/ocr";
 import {
@@ -448,6 +448,13 @@ describe("the pack table describes the files that actually ship", () => {
    * right length starting with a TrueType signature.
    */
   it("the copy step writes exactly the URLs the browser is sent to", () => {
+    // A licence file left on disk by an earlier run must not answer for this
+    // one: removed first, so only the copy step below can put it back.
+    const licenceAt = (face: (typeof HANDWRITING_FACE_LIST)[number]) =>
+      path.join(process.cwd(), "public", `${fontPackUrl(face)}.LICENSE.txt`);
+    for (const face of HANDWRITING_FACE_LIST)
+      rmSync(licenceAt(face), { force: true });
+
     const written = copyNotoFonts();
 
     // Health check: bound the corpus's own size before comparing sets, because
@@ -486,6 +493,33 @@ describe("the pack table describes the files that actually ship", () => {
       missing,
       "these faces are not in public/ after the copy step ran. Without them every non-Latin stamp fails with a fetch error",
     ).toEqual([]);
+
+    // A handwriting face is served with its licence beside it, as OFL-1.1 and
+    // Apache-2.0 redistribution requires: `<file>.LICENSE.txt`, byte for byte
+    // the package's own LICENSE_FONT (audit sign-pdf#1 review).
+    const unlicensed: string[] = [];
+    for (const face of HANDWRITING_FACE_LIST) {
+      const served = licenceAt(face);
+      const source = path.join(
+        path.dirname(notoTtfPath(face)),
+        "..",
+        "LICENSE_FONT",
+      );
+      if (!existsSync(served)) {
+        unlicensed.push(`${fontPackUrl(face)}.LICENSE.txt is missing`);
+        continue;
+      }
+      const a = readFileSync(served);
+      const b = readFileSync(source);
+      // Health check: a licence is text of some length, not an empty file
+      // that would equal another empty file.
+      expect(b.length, face.pkg).toBeGreaterThan(1000);
+      if (!a.equals(b))
+        unlicensed.push(
+          `${fontPackUrl(face)}.LICENSE.txt differs from ${face.pkg}'s LICENSE_FONT`,
+        );
+    }
+    expect(unlicensed).toEqual([]);
   });
 
   it("names a reason for every script it refuses", () => {
