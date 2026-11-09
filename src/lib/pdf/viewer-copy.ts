@@ -56,6 +56,10 @@ export const VIEWER_IMAGE_NOTE =
 
 export const VIEWER_PAGE_FAILED = "This page could not be drawn.";
 
+/** Print's description while the page sizes it plans from are still read. */
+export const VIEWER_PRINT_WAITING =
+  "Print is ready once the page sizes are read.";
+
 /**
  * Before a print that stops short of the last page: how many pages it
  * sends and why. Null when it sends them all.

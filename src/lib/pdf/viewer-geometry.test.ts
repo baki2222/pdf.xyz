@@ -20,6 +20,7 @@ import {
   printPlan,
   quarterTurn,
   readingAnchor,
+  readyPrintPlan,
   scaleOf,
   scrollForAnchor,
   scrollForPage,
@@ -246,5 +247,38 @@ describe("printPlan: the pages one print sends, and why it stops", () => {
     const plan = printPlan([{ width: 14_400, height: 14_400 }]);
     expect(plan.pages.length).toBe(1);
     expect(plan.pages[0]!.width).toBeLessThanOrEqual(VIEWER_PRINT_MAX_SIDE);
+  });
+});
+
+describe("readyPrintPlan: no plan over placeholder sizes", () => {
+  // History (review, 2026-11-10): Print planned from `sizes` as soon as it
+  // was set — page 1's size repeated for every page, refined 50 pages at a
+  // time — so an unread landscape page was drawn into page 1's portrait
+  // canvas, shrunk with blank bands.
+  const wide = { width: 1_440, height: 100 };
+
+  it("is null while an unread page could still change the plan", () => {
+    // Page 2 is really wide, but only page 1 has been read: the sizes array
+    // still holds page 1's size for it.
+    const placeholders = [LETTER, LETTER, LETTER];
+    expect(readyPrintPlan(placeholders, 1, 3)).toBeNull();
+    // Positive control: the same sizes, every page read, plan as printPlan.
+    expect(readyPrintPlan(placeholders, 3, 3)).toEqual(printPlan(placeholders));
+  });
+
+  it("once read, the planned page has its own size, not page 1's", () => {
+    const real = [LETTER, wide, LETTER];
+    const plan = readyPrintPlan(real, 3, 3)!;
+    expect(plan.pages[1]!.width).toBeGreaterThan(plan.pages[1]!.height);
+  });
+
+  it("is ready before every page is read when the read pages already reach a cap", () => {
+    const sizes = Array.from({ length: 5_000 }, () => LETTER);
+    const plan = readyPrintPlan(sizes, 51, 5_000)!;
+    expect(plan).toEqual(printPlan(sizes));
+    expect(plan.stoppedBy).toBe("pixels");
+    expect(plan.pages.every((p) => p.index < 51)).toBe(true);
+    // Not one page sooner than the cap is reached within the read pages.
+    expect(readyPrintPlan(sizes, plan.pages.length, 5_000)).toBeNull();
   });
 });

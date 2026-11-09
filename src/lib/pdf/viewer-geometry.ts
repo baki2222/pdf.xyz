@@ -364,3 +364,22 @@ export function printPlan(sizes: readonly PageSize[]): PrintPlan {
   }
   return { pages, stoppedBy: null };
 }
+
+/**
+ * The print plan once the sizes it rests on are REAL: `read` is how many
+ * leading pages' own sizes have been read (the rest still hold page 1's, a
+ * placeholder). The plan is ready when every page is read, or when the plan
+ * over the read pages already stops at a cap — the pages after it cannot
+ * change it. Null until then: a plan over placeholders drew an unread
+ * landscape page into a portrait canvas, shrunk with blank bands, and its
+ * note changed as the reader looked at it (review, 2026-11-10).
+ */
+export function readyPrintPlan(
+  sizes: readonly PageSize[],
+  read: number,
+  total: number,
+): PrintPlan | null {
+  if (read >= total) return printPlan(sizes.slice(0, total));
+  const partial = printPlan(sizes.slice(0, Math.max(0, read)));
+  return partial.stoppedBy !== null ? partial : null;
+}

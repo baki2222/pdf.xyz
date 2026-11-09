@@ -38,9 +38,9 @@ import {
   ZOOM_STEPS,
   fitZoom,
   liveWindow,
-  printPlan,
   quarterTurn,
   readingAnchor,
+  readyPrintPlan,
   scaleOf,
   scrollForAnchor,
   scrollForPage,
@@ -56,6 +56,7 @@ import { COLUMN_PAD, currentPage, layoutPages } from "@/lib/pdf/view-layout";
 import {
   VIEWER_IMAGE_NOTE,
   VIEWER_LABELS,
+  VIEWER_PRINT_WAITING,
   VIEWER_ROTATE_NOTE,
   viewerPrintNote,
 } from "@/lib/pdf/viewer-copy";
@@ -207,10 +208,14 @@ function ViewerShell({ pdf, doc }: { pdf: LoadedPdf; doc: ViewerPdf }) {
   const searchButtonRef = useRef<HTMLButtonElement>(null);
   const searchFieldRef = useRef<HTMLInputElement>(null);
   const headingId = useId();
+  const printWaitId = useId();
 
   // Page sizes: page 1's for every page at first, then each page's own as
   // they are read (the column re-lays out with the reading position kept).
   const [sizes, setSizes] = useState<PageSize[] | null>(null);
+  // How many leading pages' own sizes have been read; the rest of `sizes`
+  // are placeholders (page 1's), which Print must not plan from.
+  const [sizesRead, setSizesRead] = useState(0);
   useEffect(() => {
     let live = true;
     void (async () => {
@@ -223,6 +228,7 @@ function ViewerShell({ pdf, doc }: { pdf: LoadedPdf; doc: ViewerPdf }) {
       if (!live) return;
       const all: PageSize[] = new Array(total).fill(first);
       setSizes(all.slice());
+      setSizesRead(1);
       let changed = false;
       for (let i = 1; i < total && live; i++) {
         try {
@@ -234,9 +240,11 @@ function ViewerShell({ pdf, doc }: { pdf: LoadedPdf; doc: ViewerPdf }) {
         } catch {
           // Kept at page 1's size.
         }
-        if (changed && (i % 50 === 0 || i === total - 1)) {
+        if (!live) return;
+        if (i % 50 === 0 || i === total - 1) {
+          if (changed) setSizes(all.slice());
           changed = false;
-          if (live) setSizes(all.slice());
+          setSizesRead(i + 1);
         }
       }
     })();
@@ -538,7 +546,12 @@ function ViewerShell({ pdf, doc }: { pdf: LoadedPdf; doc: ViewerPdf }) {
   };
 
   // ── Print ───────────────────────────────────────────────────────────
-  const plan = useMemo(() => (sizes ? printPlan(sizes) : null), [sizes]);
+  // Planned only from sizes that are read (`readyPrintPlan`): until then
+  // Print waits, and says why.
+  const plan = useMemo(
+    () => (sizes ? readyPrintPlan(sizes, sizesRead, total) : null),
+    [sizes, sizesRead, total],
+  );
   const [printing, setPrinting] = useState<{ done: number } | null>(null);
   const [printError, setPrintError] = useState<string | null>(null);
   const printAbort = useRef<AbortController | null>(null);
@@ -815,12 +828,18 @@ function ViewerShell({ pdf, doc }: { pdf: LoadedPdf; doc: ViewerPdf }) {
           type="button"
           className={iconButton}
           aria-label={VIEWER_LABELS.print}
-          title={VIEWER_LABELS.print}
+          title={plan ? VIEWER_LABELS.print : VIEWER_PRINT_WAITING}
           aria-disabled={!plan || printing !== null}
+          aria-describedby={plan ? undefined : printWaitId}
           onClick={() => void print()}
         >
           <Printer className="size-4" aria-hidden />
         </button>
+        {!plan && (
+          <span id={printWaitId} className="sr-only">
+            {VIEWER_PRINT_WAITING}
+          </span>
+        )}
         <button
           type="button"
           className={iconButton}

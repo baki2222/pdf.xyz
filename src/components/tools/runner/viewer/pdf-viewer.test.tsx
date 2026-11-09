@@ -9,7 +9,11 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getToolBySlug } from "@/lib/tools";
 import type { ViewerPdf } from "@/lib/pdf/viewer";
-import { VIEWER_IMAGE_NOTE, VIEWER_LABELS } from "@/lib/pdf/viewer-copy";
+import {
+  VIEWER_IMAGE_NOTE,
+  VIEWER_LABELS,
+  VIEWER_PRINT_WAITING,
+} from "@/lib/pdf/viewer-copy";
 import { InToolPage } from "@/tests/in-tool-page";
 import type { LoadedPdf } from "../use-single-pdf";
 import { PdfViewer } from "./pdf-viewer";
@@ -338,6 +342,34 @@ describe("PDF Viewer: what it says", () => {
     const out = new Uint8Array(await saved!.arrayBuffer());
     expect([...out]).toEqual([...BYTES]);
     expect(saved!.type).toBe("application/pdf");
+  });
+
+  it("Print waits for the page sizes it plans from, and says why", async () => {
+    // History (review, 2026-11-10): Print was usable at once, planned from
+    // page 1's size repeated for every page — an unread landscape page was
+    // drawn into a portrait canvas.
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    const doc = fakeDoc({
+      pageSize: async (index) => {
+        if (index === 1) await held;
+        return index === 1
+          ? { width: 1_440, height: 100 }
+          : { width: 612, height: 792 };
+      },
+    });
+    await mount(doc);
+    const printButton = screen.getByRole("button", {
+      name: VIEWER_LABELS.print,
+    });
+    expect(printButton.getAttribute("aria-disabled")).toBe("true");
+    expect(printButton.getAttribute("title")).toBe(VIEWER_PRINT_WAITING);
+    await act(async () => release());
+    // Positive control: once read, Print is offered.
+    await waitFor(() =>
+      expect(printButton.getAttribute("aria-disabled")).toBe("false"),
+    );
+    expect(printButton.getAttribute("title")).toBe(VIEWER_LABELS.print);
   });
 
   it("an open that is refused shows the refusal, not an empty viewer", async () => {
