@@ -982,6 +982,38 @@ const TOOL_PAGES_TO_COME = {
   // attribute those bytes. The same literal is +69 B in 6873 (the
   // workspace's and the ticket's chunk, budgeted in `lazy-chunks.test.ts`)
   // and ~70 B in the lazy chunks 1883 and 906.
+  //
+  // INVERTED THE SAME DAY (perf/per-tool-first-load): the note above is
+  // history. `WORKER_BATCHES`, the runner registry, the kind → mode table
+  // and the tool directory left every tool page's first load — the page
+  // computes its own row on the server (`toolRunInfoFor`) — and on the
+  // worker pages the file-ceiling tables did too (`pickFactsFor`).
+  // `lazy-chunks.test.ts` ("no tool page loads a table of every tool")
+  // holds all six out of every tool page by their content. FREED, gzip -9
+  // over each page's first load, main 89486c09 (E:/wtaudit/.next) -> the
+  // branch, both built on this machine (Windows) from an empty .next; CI
+  // has read up to ~25 B more than this machine on the same tree:
+  //   rotate 236,727 -> 234,851 (-1,876)   merge 231,130 -> 229,083 (-2,047)
+  //   sign 253,995 -> 251,954 (-2,041)     pdf-to-jpg 236,226 -> 234,342 (-1,884)
+  //   ocr 237,103 -> 233,609 (-3,494)      summarize 237,843 -> 234,370 (-3,473)
+  //   protect -3,489, word-to-pdf -3,408, epub-to-pdf -3,486
+  //   home -4, a guide -5, /workspace +1, /tools +44 (the raster format
+  //   module moved from its page chunk into the catalogue chunk it shares).
+  // The freed bytes are NOT handed out here: they are headroom every row
+  // keeps, so ocr-pdf, which had 0.00 to spare ("needs 0.16, has 0.16" on
+  // this machine), now passes with ~3.4 KB of room.
+  // WHAT A TOOL COSTS EVERY TOOL PAGE NOW: no directory row (was ~12-18 B),
+  // no registry or mode row (~12 B), no batch slug (~5 B), no file-ceiling
+  // row on worker pages (~5-6 B). Measured with two throwaway tools built
+  // on this branch, each from an empty .next, gzip -9 over each page's
+  // first load against the branch's own build: a worker tool joining an
+  // existing panel (a third slug on the repair/optimize route) +1 B on
+  // rotate, merge, ocr, summarize and home (webpack's runtime only); a
+  // client tool reusing an existing runner kind (a second "rotate" slug)
+  // +0 B on all five. Was ~10 B and ~25 B. A tool with a NEW runner kind
+  // or panel still pays its dispatcher arm and `next/dynamic` loader in the
+  // page chunk and its chunk-map entry (~30-45 B, the analysts' figure; not
+  // re-measured here).
   unallocated:
     UNALLOCATED -
     NEW_TOOLS_2026_10_30 -
