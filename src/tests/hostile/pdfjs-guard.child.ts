@@ -481,6 +481,68 @@ async function viewerZoomProbe() {
   return { ok: true, renders: out };
 }
 
+/**
+ * `pages` pages, each one `side` x `side` RGB Flate image of its own (a
+ * separate object per page, so pdf.js decodes each one).
+ */
+async function imagePagesPdf(pages: number, side: number): Promise<Uint8Array> {
+  const image = await deflatedZeros(side * side * 3);
+  const objects: (string | { dict: string; stream: Uint8Array | string })[] = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    `<< /Type /Pages /Kids [${Array.from({ length: pages }, (_, k) => `${3 + k * 3} 0 R`).join(" ")}] /Count ${pages} >>`,
+  ];
+  for (let k = 0; k < pages; k++) {
+    const pageNum = 3 + k * 3;
+    objects.push(
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Im1 ${pageNum + 2} 0 R >> >> /Contents ${pageNum + 1} 0 R >>`,
+      { dict: "", stream: "q 200 0 0 200 0 0 cm /Im1 Do Q" },
+      {
+        dict: `/Type /XObject /Subtype /Image /Width ${side} /Height ${side} /BitsPerComponent 8 /ColorSpace /DeviceRGB /Filter /FlateDecode`,
+        stream: image,
+      },
+    );
+  }
+  return rawPdf(objects as Parameters<typeof rawPdf>[0]);
+}
+
+/**
+ * The viewer scrolled through `pages` image pages, one draw each: the
+ * process's array-buffer memory (where pdf.js keeps decoded image data in
+ * Node) after each draw, after a full collection. A measure independent of
+ * the viewer's own count: what the process RETAINS, not what it says it
+ * keeps.
+ */
+async function viewerRetentionProbe(pages: number, side: number) {
+  await withCanvas();
+  const v8 = await import("node:v8");
+  const vm = await import("node:vm");
+  v8.setFlagsFromString("--expose-gc");
+  const gc = vm.runInNewContext("gc") as () => void;
+  const bytes = await imagePagesPdf(pages, side);
+  const { openViewerPdf } = await import("@/lib/pdf/viewer");
+  const doc = await openViewerPdf(bytes);
+  const held = () => {
+    gc();
+    gc();
+    return process.memoryUsage().arrayBuffers;
+  };
+  const base = held();
+  const afterDraw: number[] = [];
+  const drawn: string[] = [];
+  for (let i = 0; i < pages; i++) {
+    const r = await doc.render(i, 1, 1, 0);
+    drawn.push(r.kind);
+    if (r.kind === "drawn") {
+      const c = r.canvas as unknown as { width: number; height: number };
+      c.width = 0;
+      c.height = 0;
+    }
+    afterDraw.push(Math.round((held() - base) / 1e6));
+  }
+  await doc.destroy();
+  return { ok: true, drawn, afterDrawMb: afterDraw };
+}
+
 /** The preflight alone, as every pdf.js consumer calls it before the open. */
 async function preflight(bytes: Uint8Array) {
   const { preflightPdfjsBytes } = await import("@/lib/pdf/pdfjs-guard");
@@ -530,6 +592,7 @@ const CASES: Record<string, () => Promise<unknown>> = {
     return viewerProbe(userPasswordEncryptedPdf());
   },
   "viewer-zoom-a0": viewerZoomProbe,
+  "viewer-retention": async () => viewerRetentionProbe(10, 3_000),
   "stamp14-split-text": async () => text(splitQPdf(32, 1_020)),
   "stamp14-5k-text": async () => text(splitQPdf(1, 5_000)),
   "stamp14-form-repeat-text": async () => text(formRepeatPdf(30, 16_000)),

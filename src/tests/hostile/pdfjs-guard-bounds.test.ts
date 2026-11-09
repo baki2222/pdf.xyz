@@ -534,6 +534,31 @@ describe("the PDF Viewer's open, on every hostile class it meets first", () => {
     expect(v.error).toMatchObject({ kind: "encrypted" });
   }, 60_000);
 
+  test("scrolling ten 9 MP image pages: the process retains at most the kept-pixel budget's decoded images", async () => {
+    // History (review, 2026-11-10): the viewer kept the last ten pages it
+    // drew, whatever their images held; this probe measured +271 MB after
+    // ten pages with that rule (mutation, 2026-11-10) and +135 MB with the
+    // pixel budget. Measured from the PROCESS (array buffers after a full
+    // collection, where pdf.js keeps decoded images in Node), not from the
+    // viewer's own count.
+    const { VIEWER_KEPT_IMAGE_PIXELS } = await import("@/lib/pdf/viewer");
+    const v = settled(
+      await runBounded(CHILD, ["viewer-retention"], 240_000, {
+        maxOldSpaceMb: 2048,
+      }),
+    );
+    expect(v.drawn).toEqual(Array.from({ length: 10 }, () => "drawn"));
+    const mb = v.afterDrawMb as number[];
+    // Positive control: one 3,000 x 3,000 RGB image decoded and kept is
+    // visible to the meter (27 MB at 3 bytes a pixel).
+    expect(mb[0]!).toBeGreaterThanOrEqual(24);
+    // The bound, at 4 bytes a pixel (the most pdf.js keeps per pixel).
+    const bound = (VIEWER_KEPT_IMAGE_PIXELS * 4) / 1e6;
+    for (const [i, held] of mb.entries()) {
+      expect(held, `after page ${i + 1}`).toBeLessThanOrEqual(bound);
+    }
+  }, 300_000);
+
   test("the deepest zoom on an A0 page stays within the canvas caps at every device ratio", async () => {
     const { MAX_CANVAS_PIXELS, MAX_CANVAS_SIDE } =
       await import("@/lib/pdf/viewer-geometry");
