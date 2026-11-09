@@ -390,4 +390,58 @@ describe("useToolHandoff exposes the provenance to the runner", () => {
     });
     expect(result.current.accept).toEqual(["PDF"]);
   });
+
+  /*
+   * Back to a page whose file went on (`@/lib/handoff/departure`). Since
+   * 2026-11-09 the launch writes the next tool's display name into the
+   * departure, so Back names it with no directory in the page's first load.
+   * A history entry written BEFORE that deploy has a slug and no name: the
+   * hook fetches the directory for it, so the note appears one lazy-chunk
+   * round trip later than it used to (on main it drew on the first render
+   * after mount) and with the same words. That delay is the expected cost
+   * for those old entries only, not a regression; a history entry can
+   * outlive the 30-minute hand-off record, so the fallback stays.
+   */
+  const backTo = (departure: Record<string, unknown>) => {
+    window.history.replaceState(
+      { pdfxyzWentOnTo: departure },
+      "",
+      "/tools/rotate-pdf",
+    );
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <AppRouterContext.Provider value={ROUTER}>
+        {children}
+      </AppRouterContext.Provider>
+    );
+    return renderHook(() => useToolHandoff("rotate-pdf"), { wrapper });
+  };
+
+  it("Back to an entry written before departures carried a name: named from the directory", async () => {
+    const { result } = backTo({ slug: "compress-pdf", count: 1 });
+    await vi.waitFor(() =>
+      expect(result.current.departed).toEqual({
+        slug: "compress-pdf",
+        name: "Compress PDF",
+        count: 1,
+      }),
+    );
+  });
+
+  it("Back to an entry that carried its name: named as carried, never looked up", async () => {
+    // Not the catalogue's spelling, so a directory lookup would show.
+    const { result } = backTo({
+      slug: "compress-pdf",
+      name: "Shrink It",
+      count: 2,
+    });
+    await vi.waitFor(() => expect(result.current.departed).not.toBeNull());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(result.current.departed).toEqual({
+      slug: "compress-pdf",
+      name: "Shrink It",
+      count: 2,
+    });
+  });
 });
