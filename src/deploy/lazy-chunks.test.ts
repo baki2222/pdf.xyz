@@ -314,6 +314,34 @@ const OUR_LAZY: LazyLibrary[] = [
     why: "a runner fetches it when two or more files arrive; a visit with one file, or none, never downloads it",
     allowedAtLoad: {},
   },
+  // Sign PDF's handwriting faces (audit sign-pdf#1, 2026-11-09). As first
+  // written, the editor's object model (`editor/model.ts`, first-load on
+  // Sign, Edit, Annotate and Create Forms) built typed signatures itself, so
+  // the name normalisation, the style predicates and each face's ink reach
+  // rode in those pages' first load (+480 B gzip on Sign PDF), and the Sign
+  // runner imported the `signPdf` engine whose `import()` of the face table
+  // was one more async chunk in every page's webpack runtime. Typed
+  // signatures are built in `editor/typed-signature.ts`, which only the
+  // lazily loaded editor imports; the face table rides in the export's
+  // chunk. Each module is found by a string of its own code.
+  {
+    what: "the handwriting face table and coverage",
+    marker: "DancingScript_400Regular.ttf",
+    why: "the editor and its export read it once a file is open; the signature panel, a placed typed signature and the export are its only readers",
+    allowedAtLoad: {},
+  },
+  {
+    what: "the handwriting faces on screen",
+    marker: "pdfxyz-hand-",
+    why: "the signature panel's previews and a placed typed signature register the faces, both inside the editor, which loads once a file is open",
+    allowedAtLoad: {},
+  },
+  {
+    what: "the typed signature's name normalisation",
+    marker: 'normalize("NFC").replace(/\\p{Zs}/gu,',
+    why: "it runs when a typed signature is built, in the signature panel or the editor, never before a file is open",
+    allowedAtLoad: {},
+  },
   // WP-05 review (2026-10-10): the home desk's own island. It IS first-load
   // on the home page, which renders it; the reason it sits behind a
   // `next/dynamic` boundary (`hero-desk-island.tsx`) is that every other
@@ -754,8 +782,17 @@ describe("no tool page loads a table of every tool", () => {
  * machine also read was 25 B higher, so 33.6 KB (34,406 B) leaves 35 B over
  * this machine's figure — if CI reads more than that, measure CI's figure
  * and set the bound from it, as the note above says.
+ *
+ * RAISED 33.6 -> 33.77 on 2026-11-10, for Remove Annotations, the 57th
+ * tool: the catalogue the ticket loads carries its row and keywords, the
+ * hand-off tables its mode row, and the format chunk its slug. One machine
+ * (Windows), both from an empty .next, main 69c92fe1 vs the branch: the
+ * eight counted chunks went 34,371 -> 34,537 B gzip -9 (+166: 5320 +131,
+ * 7384 +21, 3552 +14, the other five byte-identical). 33.77 KB is 34,580
+ * B: 43 B over this machine's figure, for CI's reading (25 B higher on the
+ * one tree both read). Not measured on CI.
  */
-const TICKET_FETCH_GZ_KB = 33.6;
+const TICKET_FETCH_GZ_KB = 33.77;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));
