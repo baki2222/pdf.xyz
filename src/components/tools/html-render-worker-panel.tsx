@@ -265,7 +265,11 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
   // stays idle there (its capability is `none`).
   const staged = useStagedHandoff(tool.slug, RUN_LABEL, (files) => {
     setOutcome(null);
-    setFile(files[0] ?? null);
+    // Two or more carried books open the batch, as a drop of them does
+    // (batch plan P6). Only EPUB to PDF has one, so only it is carried
+    // more than one file (`handoffCapabilityFor`); never while a job runs.
+    if (mode === "epub" && files.length > 1 && !busy) setBatch(files);
+    else setFile(files[0] ?? null);
   });
 
   const [layout, setLayout] = useState<HtmlRenderOptions>(

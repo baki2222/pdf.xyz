@@ -969,6 +969,19 @@ const TOOL_PAGES_TO_COME = {
   // 16.4.5) -> the branch, both built from an empty .next: ocr 235,958 ->
   // 235,990 B and summarize 236,867 -> 236,899 B (+32 each), rotate +11.
   // 0.01 of the 0.4 is left.
+  //
+  // NOT TAKEN from it, but spent on every tool page, 2026-11-09, by batch
+  // P6: the thirteen worker batch slugs (`WORKER_BATCHES`, a Set literal in
+  // `handoff/capability.ts`, which every tool page's first load carries)
+  // cost ~78 B gz each. Measured on the P6 branch's own build from an empty
+  // .next: chunk 6864 (preloaded by all 56 tool pages' HTML) gzips -9 to
+  // 12,316 B as built and 12,238 B with the literal emptied (perl
+  // s/new Set\(\["optimize-web".*?\]\)/new Set([])/), +78 B. It rode the
+  // rows' own headroom (every row still passes "what each row has left");
+  // it is written here so the next raise of a tool-page budget can
+  // attribute those bytes. The same literal is +69 B in 6873 (the
+  // workspace's and the ticket's chunk, budgeted in `lazy-chunks.test.ts`)
+  // and ~70 B in the lazy chunks 1883 and 906.
   unallocated:
     UNALLOCATED -
     NEW_TOOLS_2026_10_30 -

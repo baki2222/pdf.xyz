@@ -173,7 +173,11 @@ test("batch queue is honest about secure-worker tools", async ({ page }) => {
   const batch = page.getByRole("region", {
     name: /use one tool on several files/i,
   });
-  await batch.getByLabel(/choose a tool/i).selectOption("ocr-pdf");
+  // INVERTED 2026-11-09 (batch plan P6). This used OCR PDF, which could not
+  // launch from here then; it launches into its batch list now (below, and
+  // workspace-handoff.spec.ts), so the honest preview is held on a worker
+  // tool with no batch: Summarize PDF.
+  await batch.getByLabel(/choose a tool/i).selectOption("summarize-pdf");
   await batch.getByRole("button", { name: /add all chosen files/i }).click();
 
   // Secure-worker tools do not fake a local handoff; they route to the honest
@@ -193,12 +197,24 @@ test("batch queue is honest about secure-worker tools", async ({ page }) => {
   ).toBeVisible();
   await expect(
     batch.getByText(
-      /^OCR PDF runs on a secure server, so your file is uploaded rather than processed on your device\./,
+      /^Summarize PDF runs on a secure server, so your file is uploaded rather than processed on your device\./,
     ),
   ).toBeVisible();
   await expect(
     batch.getByRole("link", { name: /see how it works/i }),
-  ).toHaveAttribute("href", "/tools/ocr-pdf");
+  ).toHaveAttribute("href", "/tools/summarize-pdf");
+
+  // OCR PDF, with a batch, launches — in its own words, never the client's.
+  await batch.getByLabel(/choose a tool/i).selectOption("ocr-pdf");
+  const status = batch.getByRole("status");
+  await expect(status).toContainText("Ready — 1 file, for our secure server");
+  await expect(status).toContainText(
+    "OCR PDF runs on our secure server, so this file is uploaded.",
+  );
+  await expect(status).not.toContainText(/nothing is uploaded/i);
+  await expect(
+    batch.getByRole("button", { name: "Open OCR PDF with 1 file" }),
+  ).toBeVisible();
 
   expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
   expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);

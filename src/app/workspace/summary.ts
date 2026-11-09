@@ -29,9 +29,17 @@ export interface WorkspaceToolSummary extends ToolIndexEntry {
    * files one batch takes (`batchMaxFilesFor`: the raster cap for the tools
    * that draw pages as images, the client cap for the rest); the rest of a
    * larger set are listed in the batch with their reason. Absent for every
-   * other tool.
+   * other tool. Present for every worker batch too (batch plan P6), at the
+   * worker cap.
    */
   batchMaxFiles?: number;
+  /**
+   * For a worker tool with a batch (batch plan P6): what each file costs
+   * against the hourly server jobs, from the limiter's own constants
+   * (`workerBatchEachFileSentence`), built on the server so the workspace
+   * ships none of them. Absent for every other tool.
+   */
+  workerBatchCost?: string;
 }
 
 /** Index summaries by slug for quick client-side lookup. */

@@ -211,7 +211,10 @@ function StructureRunArea({
   const staged = useStagedHandoff(tool.slug, copy.cta, (files) => {
     setOutcome(null);
     setRanBytes(undefined);
-    setFile(files[0] ?? null);
+    // Two or more carried files open the batch, as a drop of them does
+    // (batch plan P6) — never while a job runs, as the drop zone says.
+    if (files.length > 1 && !busy) setBatch(files);
+    else setFile(files[0] ?? null);
   });
 
   const start = useCallback(async () => {

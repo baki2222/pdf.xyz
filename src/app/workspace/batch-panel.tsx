@@ -12,7 +12,8 @@ import {
   X,
 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { HANDOFF_MAX_TOTAL_BYTES } from "@/lib/handoff/record";
+import { cn, formatBytes } from "@/lib/utils";
 import type { BatchPlan, WorkspaceFile } from "@/lib/workspace";
 import { indexSummaries, type WorkspaceToolSummary } from "./summary";
 
@@ -72,6 +73,14 @@ function statusContent(
         title: "Ready — opens your first file",
         body: `${name} works on one PDF at a time. It opens with your first queued file already loaded — nothing is uploaded.`,
       };
+    case "worker-batch":
+      return workerBatchContent(plan, name, tool);
+    case "worker-none":
+      return {
+        tone: "worker",
+        title: `None of these opens in ${name}`,
+        body: `${name} doesn’t open any of ${n === 1 ? "this file" : `these ${files}`}. Add files it takes, or choose another tool.`,
+      };
     case "worker-disabled":
       return {
         tone: "worker",
@@ -91,10 +100,69 @@ function statusContent(
 }
 
 /**
+ * A worker tool with a batch (batch plan P6): the files open in its batch
+ * list, and each is uploaded, one job at a time, only when Run is pressed on
+ * the tool's page. Never the client copy's words: these files ARE uploaded,
+ * so nothing here says otherwise (`batch-panel-copy.test.tsx` walks every
+ * worker tool). It says nothing of whether our server is up, which this
+ * component cannot see; the tool's page checks and says so before Run.
+ * Every number is the presenter's, read from the batch limits and the
+ * limiter's constants, never typed here.
+ *
+ * Every count is of what the launch CARRIES (`plan.carry`, the launch's own
+ * gate): WAS the queue's count, so PDFs queued for Word to PDF were "these
+ * files are uploaded … listed there with the reason", and none travelled.
+ * What is left out is said, with why: not a kind the tool opens, or past
+ * what one hand-off carries (those stay queued here).
+ */
+function workerBatchContent(
+  plan: BatchPlan,
+  name: string,
+  tool: WorkspaceToolSummary | undefined,
+): { tone: "worker"; title: string; body: string } {
+  const queued = plan.fileIds.length;
+  const eligible = plan.carry?.eligible.length ?? queued;
+  const n = plan.carry?.carried.length ?? queued;
+  const files = `${n} file${n === 1 ? "" : "s"}`;
+  const notTaken = queued - eligible;
+  const tooMany = eligible - n;
+  const leftOut =
+    notTaken > 0
+      ? `${notTaken} of the files you added ${notTaken === 1 ? "is" : "are"} not a kind ${name} opens, so ${notTaken === 1 ? "it is" : "they are"} left out.`
+      : "";
+  const overBudget =
+    tooMany > 0
+      ? `Only the first ${n} fit in one hand-off (${formatBytes(HANDOFF_MAX_TOTAL_BYTES, 0)} at most), so the other ${tooMany} ${tooMany === 1 ? "is" : "are"} left in your workspace for a second batch.`
+      : "";
+  const cap = tool?.batchMaxFiles;
+  const opens =
+    n === 1
+      ? "It opens on the tool’s page first, and is uploaded only when you press the tool’s button there."
+      : cap !== undefined && n > cap
+        ? `One batch takes up to ${cap} files: the first ${cap} of these open in its list on the tool’s page, and the other ${n - cap} are listed there with the reason. Each file in the list is uploaded only when you press the button under it, in turn, one job per file.`
+        : "They open in a batch list on the tool’s page first; each one is uploaded only when you press the button under that list, in turn, one job per file.";
+  return {
+    tone: "worker",
+    title: `Ready — ${files}, for our secure server`,
+    body: [
+      `${name} runs on our secure server, so ${n === 1 ? "this file is" : "these files are"} uploaded.`,
+      leftOut,
+      overBudget,
+      opens,
+      tool?.workerBatchCost,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  };
+}
+
+/**
  * Batch workflow foundation: choose a tool, queue staged files, and launch. For a
  * live tool this performs a **real, browser-local hand-off** — the files are
  * stashed in this browser's own storage and pre-loaded into the tool, never
- * uploaded. Worker tools land on their honest secure-worker preview instead.
+ * uploaded. A worker tool with a batch gets the same hand-off into its batch
+ * list, where nothing is sent until Run (batch plan P6); any other worker
+ * tool lands on its honest secure-worker preview instead.
  */
 export function BatchPanel({
   files,
@@ -144,11 +212,18 @@ export function BatchPanel({
   const content = statusContent(plan, tool);
 
   const canHandoff =
-    !!tool && (plan.status === "ready" || plan.status === "single");
+    !!tool &&
+    (plan.status === "ready" ||
+      plan.status === "single" ||
+      plan.status === "worker-batch");
   const isWorkerish =
     !!tool &&
-    (plan.status === "worker-disabled" || plan.status === "unavailable");
+    (plan.status === "worker-disabled" ||
+      plan.status === "worker-none" ||
+      plan.status === "unavailable");
   const launching = !!tool && launchingSlug === tool.slug;
+  // What the button opens: for a worker batch, what its launch carries.
+  const opening = plan.carry?.carried.length ?? plan.fileIds.length;
 
   return (
     <section
@@ -342,7 +417,7 @@ export function BatchPanel({
               <>
                 {plan.status === "single"
                   ? `Open ${tool.name}`
-                  : `Open ${tool.name} with ${plan.fileIds.length} file${plan.fileIds.length === 1 ? "" : "s"}`}
+                  : `Open ${tool.name} with ${opening} file${opening === 1 ? "" : "s"}`}
                 <ArrowRight className="size-4" aria-hidden />
               </>
             )}
