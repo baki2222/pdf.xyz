@@ -51,15 +51,15 @@ const content: ToolContent = {
     },
     {
       title: "Taking reviewers' names out of a file",
-      body: "Every comment carries its author's name, and the text of each note stays in the file even where a reader hides it. Removing the comments deletes both, along with the replies under them.",
+      body: "Comments usually carry their author's name, and highlights, drawings and stamps can carry one too; the text of each note stays in the file even where a reader hides it. Removing the comments and the markup deletes both, along with the replies under them.",
     },
     {
       title: "Dropping attached files before sharing",
-      body: "A PDF can carry other files pinned to its pages. Remove the attachments and the copy no longer contains those files, unless the PDF also lists one as an attachment of its own, which the result tells you.",
+      body: "A PDF can carry other files pinned to its pages. Remove the attachments and the copy no longer contains those files, unless another part of the PDF also holds one, such as its own attachment list, which the result tells you.",
     },
     {
       title: "A blank form from a filled one",
-      body: `Remove only Form fields to get a copy with no fillable fields and none of the values typed into them. ${FORM_FIELDS.consequence}`,
+      body: `Remove only Form fields to get a copy with no fillable fields other than signature fields, and none of the values typed into them. ${FORM_FIELDS.consequence}`,
     },
   ],
 
@@ -70,7 +70,7 @@ const content: ToolContent = {
     },
     {
       title: "Choose the kinds to remove",
-      body: `Tick or untick each kind. ${list(ON).charAt(0).toUpperCase()}${list(ON).slice(1)} start ticked; ${list(OFF)} start unticked. Under “By page”, each page lists how many annotations go from it.`,
+      body: `Tick or untick each kind. ${list(ON).charAt(0).toUpperCase()}${list(ON).slice(1)} start ticked; ${list(OFF)} start unticked. Under “By page”, each page something goes from lists how many annotations go, by kind. A reply goes with the annotation it answers, whatever its kind, and is counted.`,
     },
     {
       title: "Remove and download",
@@ -85,7 +85,7 @@ const content: ToolContent = {
     },
     {
       q: "Are the annotations really gone, or just hidden?",
-      a: "Gone from the saved file. Each removed annotation is deleted with its text, its author's name, the appearance a reader draws for it, its pop-up window and any replies, and a file attached only through a removed pin is deleted too. A file the PDF also lists as an attachment of its own is not, and the result says how many such files are still in the copy. Something a kept part of the file still uses, such as a picture a kept page also draws, stays so that page still shows.",
+      a: "Gone from the saved file. Each removed annotation is deleted with its text, its author's name, the appearance a reader draws for it, its pop-up window and any replies, and a file attached only through a removed pin is deleted too. A file another part of the PDF also holds, such as its own attachment list, is not, and the result says how many such files are still in the copy. Something a kept part of the file still uses, such as a picture a kept page also draws, stays so that page still shows; if that is a removed annotation itself, it is taken off its page and the result says it is still in the file.",
     },
     {
       q: "How is this different from Flatten PDF?",
@@ -93,7 +93,7 @@ const content: ToolContent = {
     },
     {
       q: "What does it not remove?",
-      a: `Signature fields, ever. Marks that are part of the page itself rather than annotations, such as a scanned handwritten note or a highlight an app drew into the page, are page content and stay; use Redact PDF or Edit PDF for those. ${REDACTION.consequence} In a tagged PDF, the structure entry that pointed at a removed annotation is left pointing at nothing, which readers treat as empty.`,
+      a: `Signature fields, ever. Marks that are part of the page itself rather than annotations, such as a scanned handwritten note or a highlight an app drew into the page, are page content and stay; use Redact PDF or Edit PDF for those. ${REDACTION.consequence} In a tagged PDF, the structure tree's pointer to a removed annotation is taken out, and a structure entry left empty loses its alternate text; one that still holds page content keeps its text, which describes that content.`,
     },
     {
       q: "Can I remove one comment or one link instead of a whole kind?",

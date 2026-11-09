@@ -15,10 +15,17 @@ import {
 } from "@/lib/pdf/annotation-groups";
 import { removeAnnotations } from "@/lib/pdf/remove-annotations";
 import { getToolBySlug } from "@/lib/tools";
-import { FULL_FIXTURE_GROUPS, fullFixture } from "@/tests/annotation-fixtures";
+import { PDFDocument } from "pdf-lib";
+import {
+  FULL_FIXTURE_GROUPS,
+  addToPage,
+  annot,
+  fullFixture,
+} from "@/tests/annotation-fixtures";
 import { InToolPage } from "@/tests/in-tool-page";
 import { MetadataRunner } from "./metadata-runner";
 import {
+  PAGE_LIST_FOLD,
   REMOVE_ANNOTATIONS_NONE_TICKED,
   RemoveAnnotationsEditor,
 } from "./remove-annotations-editor";
@@ -119,6 +126,132 @@ describe("Remove Annotations' panel", () => {
     expect(panel.textContent).toContain(
       `${expected.removedTotal} annotations removed`,
     );
+  });
+});
+
+/*
+ * Review round 1 (2026-11-10): the button and "By page" summed the ticked
+ * kinds' inventory counts, while the run also removes every reply to what
+ * it removes — ticking only markup said "Remove 1 annotation" and removed
+ * 2. The label above was only ever checked with DEFAULT_GROUPS, where
+ * comments are ticked anyway, so it never met the case.
+ */
+describe("the button and By page count the run's own closure", () => {
+  const pageRows = () =>
+    [...document.querySelectorAll("[data-annotations-pages] li")].map(
+      (li) => li.textContent,
+    );
+
+  for (const group of ANNOTATION_GROUPS) {
+    it(`only ${group.id} ticked: the button's number is what the run removes`, async () => {
+      const bytes = await fullFixture();
+      const expected = await removeAnnotations(bytes, new Set([group.id]));
+      await mount(bytes);
+      for (const g of ANNOTATION_GROUPS) {
+        if (box(g.label).checked !== (g.id === group.id))
+          fireEvent.click(box(g.label));
+      }
+      expect(
+        screen.getByRole("button", {
+          name: removeRunLabel(expected.removedTotal),
+        }),
+      ).toBeTruthy();
+    });
+  }
+
+  it("only markup ticked: the reply on page 2 is listed, and said to go too", async () => {
+    await mount(await fullFixture());
+    for (const g of ANNOTATION_GROUPS) {
+      if (box(g.label).checked !== (g.id === "text-markup"))
+        fireEvent.click(box(g.label));
+    }
+    expect(
+      screen.getByRole("button", { name: removeRunLabel(2) }),
+    ).toBeTruthy();
+    expect(pageRows()).toEqual([
+      "Page 1: 1 to remove (Highlights and text markup 1)",
+      "Page 2: 1 to remove (Comments and notes 1)",
+    ]);
+    expect(document.querySelector("[data-replies-along]")!.textContent).toMatch(
+      /^1 reply goes too/,
+    );
+  });
+
+  it("lists only pages something goes from, and counts the rest in one line", async () => {
+    await mount(await fullFixture());
+    for (const g of ANNOTATION_GROUPS) {
+      if (box(g.label).checked !== (g.id === "links"))
+        fireEvent.click(box(g.label));
+    }
+    expect(pageRows()).toEqual(["Page 2: 1 to remove (Links 1)"]);
+    expect(document.querySelector("[data-pages-untouched]")!.textContent).toBe(
+      "1 other page has annotations, none of a ticked kind.",
+    );
+  });
+});
+
+describe("a long document's page list", () => {
+  async function linkOnEveryPage(pages: number) {
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < pages; i += 1) {
+      const page = doc.addPage([200, 200]);
+      addToPage(doc, i, annot(doc.context, page.ref, "Link", {}));
+    }
+    addToPage(doc, 0, annot(doc.context, doc.getPage(0).ref, "Highlight", {}));
+    return doc.save();
+  }
+
+  it("with links unticked, a link on each of 30 pages is one line, not 29 rows", async () => {
+    await mount(await linkOnEveryPage(30));
+    expect(
+      [...document.querySelectorAll("[data-annotations-pages] li")].map(
+        (li) => li.textContent,
+      ),
+    ).toEqual(["Page 1: 1 to remove (Highlights and text markup 1)"]);
+    expect(document.querySelector("[data-pages-untouched]")!.textContent).toBe(
+      "29 other pages have annotations, none of a ticked kind.",
+    );
+  });
+
+  it(`more than ${PAGE_LIST_FOLD} pages to list start folded under a count`, async () => {
+    await mount(await linkOnEveryPage(30));
+    fireEvent.click(box("Links"));
+    const details = document
+      .querySelector("[data-annotations-pages]")!
+      .closest("details")!;
+    expect(details.open).toBe(false);
+    expect(details.querySelector("summary")!.textContent).toBe(
+      "30 pages have annotations to remove",
+    );
+    expect(details.querySelectorAll("li")).toHaveLength(30);
+  });
+});
+
+describe("the result's notes", () => {
+  it("a pinned file the PDF also holds is reported as still in the copy, in words true of any holder", async () => {
+    await mount(await fullFixture({ alsoEmbedded: true }));
+    fireEvent.click(screen.getByRole("button", { name: /^Remove \d+/ }));
+    const panel = await screen.findByRole("group", {
+      name: /annotations removed/i,
+    });
+    expect(panel.textContent).toContain(
+      "A file attached through a removed pin is still in the copy: another part of the PDF also holds it",
+    );
+  });
+});
+
+describe("each kind's checkbox is named by its label and described by its consequence", () => {
+  it("the spoken name is label and count; the consequence is the description", async () => {
+    await mount(await fullFixture());
+    for (const group of ANNOTATION_GROUPS) {
+      const input = screen.getByRole("checkbox", {
+        name: `${group.label} (${FULL_FIXTURE_GROUPS[group.id]})`,
+      });
+      const why = document.getElementById(
+        input.getAttribute("aria-describedby") ?? "",
+      );
+      expect(why?.textContent, group.id).toBe(group.consequence);
+    }
   });
 });
 

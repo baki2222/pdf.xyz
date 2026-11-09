@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { Download, Eraser } from "lucide-react";
 import {
   ANNOTATION_GROUPS,
@@ -14,7 +14,9 @@ import {
 } from "@/lib/pdf/annotation-groups";
 import type {
   AnnotationInventory,
+  PlannedPage,
   RemoveAnnotationsResult,
+  planRemoval as PlanRemoval,
 } from "@/lib/pdf/remove-annotations";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
@@ -38,9 +40,11 @@ import type { LoadedPdf } from "./use-single-pdf";
 /**
  * Remove Annotations' panel, mounted by the `metadata` runner for its slug
  * (`metadata-runner.tsx`). Every group name, default and consequence line
- * is read from `ANNOTATION_GROUPS`; every number on the result is the
- * engine's count of the SAVED copy (`removeAnnotations`), never this
- * panel's plan. The engine is fetched when a file opens, not with the page.
+ * is read from `ANNOTATION_GROUPS`. The button and the per-page list count
+ * the run's own closure (`planRemoval`, which the engine also runs: a
+ * reply goes with what it answers, whatever its kind); every number on the
+ * result is the engine's count of the SAVED copy (`removeAnnotations`).
+ * The engine is fetched when a file opens, not with the page.
  */
 
 const engine = () => import("@/lib/pdf/remove-annotations");
@@ -50,7 +54,15 @@ const prepareEngine = async () => {
   await engine();
 };
 
-/** The result panel's title — exported so the page's steps quote it. */
+/*
+ * The labels below are quoted BY HAND in the page's steps
+ * (`content/remove-annotations.ts`), not imported. What holds the two
+ * together is `tool-page-substance.test.ts`, which fails when a quoted
+ * label is not a string the panel draws (checked 2026-11-10 by renaming
+ * two of these: both went red).
+ */
+
+/** The result panel's title. */
 export const REMOVE_ANNOTATIONS_RESULT_TITLE = "Annotations removed";
 
 /** The heading over the kind checkboxes. */
@@ -58,6 +70,9 @@ export const REMOVE_ANNOTATIONS_CHOOSE_TITLE = "Annotations to remove";
 
 /** The heading over the per-page list. */
 export const REMOVE_ANNOTATIONS_PAGES_TITLE = "By page";
+
+/** Above this many pages to list, the list starts folded. */
+export const PAGE_LIST_FOLD = 12;
 
 /** The download button's label. */
 export const REMOVE_ANNOTATIONS_DOWNLOAD_LABEL = "Download PDF";
@@ -86,7 +101,12 @@ export function RemoveAnnotationsEditor({
   pdf: LoadedPdf;
   onReset: () => void;
 }) {
-  const [inventory, setInventory] = useState<AnnotationInventory | null>(null);
+  const [read, setRead] = useState<{
+    inventory: AnnotationInventory;
+    plan: typeof PlanRemoval;
+  } | null>(null);
+  const inventory = read?.inventory ?? null;
+  const ids = useId();
   const [readError, setReadError] = useState<string | null>(null);
   const [chosen, setChosen] = useState<ReadonlySet<AnnotationGroupId>>(
     () => new Set(DEFAULT_GROUPS),
@@ -97,9 +117,12 @@ export function RemoveAnnotationsEditor({
   useEffect(() => {
     let alive = true;
     engine()
-      .then(({ inventoryAnnotations }) => inventoryAnnotations(pdf.bytes))
+      .then(async ({ inventoryAnnotations, planRemoval }) => ({
+        inventory: await inventoryAnnotations(pdf.bytes),
+        plan: planRemoval,
+      }))
       .then((found) => {
-        if (alive) setInventory(found);
+        if (alive) setRead(found);
       })
       .catch((err) => {
         if (alive) setReadError(errorMessage(err));
@@ -118,10 +141,30 @@ export function RemoveAnnotationsEditor({
   const ticked = present.filter(
     (g) => chosen.has(g.id) && !(g.id === "form-fields" && blockedFields),
   );
-  const toRemove = ticked.reduce(
+  // The run's own closure: the button and the per-page list count what the
+  // engine will remove, replies to a ticked kind included.
+  const plan = useMemo(
+    () =>
+      read
+        ? read.plan(
+            read.inventory,
+            new Set(
+              ANNOTATION_GROUPS.filter(
+                (g) =>
+                  chosen.has(g.id) &&
+                  !(g.id === "form-fields" && blockedFields),
+              ).map((g) => g.id),
+            ),
+          )
+        : null,
+    [read, chosen, blockedFields],
+  );
+  const toRemove = plan?.total ?? 0;
+  const tickedCount = ticked.reduce(
     (sum, g) => sum + (inventory?.groups[g.id] ?? 0),
     0,
   );
+  const repliesAlong = toRemove - tickedCount;
 
   const toggle = (id: AnnotationGroupId, on: boolean) =>
     setChosen((prev) => {
@@ -202,15 +245,22 @@ export function RemoveAnnotationsEditor({
           {result.repliesKept > 0 && (
             <p role="status" className="text-muted max-w-2xl text-sm">
               {result.repliesKept === 1
-                ? "1 reply was kept because the comment it answers could not be traced (a loop, or a very long reply chain)."
-                : `${result.repliesKept} replies were kept because the comment each answers could not be traced (a loop, or a very long reply chain).`}
+                ? "1 reply was kept: the annotation it answers is further up a reply chain than this tool follows."
+                : `${result.repliesKept} replies were kept: the annotation each answers is further up a reply chain than this tool follows.`}
+            </p>
+          )}
+          {result.stillInFile > 0 && (
+            <p role="status" className="text-muted max-w-2xl text-sm">
+              {result.stillInFile === 1
+                ? "1 annotation was taken off its page but is still in the file, because a kept part of the PDF refers to it. It is counted in neither column."
+                : `${result.stillInFile} annotations were taken off their pages but are still in the file, because kept parts of the PDF refer to them. They are counted in neither column.`}
             </p>
           )}
           {result.attachmentsStillEmbedded > 0 && (
             <p role="status" className="text-muted max-w-2xl text-sm">
               {result.attachmentsStillEmbedded === 1
-                ? "1 attached file is still in the copy: the PDF also lists it as an attachment of its own, which this tool does not remove."
-                : `${result.attachmentsStillEmbedded} attached files are still in the copy: the PDF also lists them as attachments of its own, which this tool does not remove.`}
+                ? "A file attached through a removed pin is still in the copy: another part of the PDF also holds it, such as its own attachment list, and this tool deletes only what the removed pins alone held."
+                : `${result.attachmentsStillEmbedded} files attached through removed pins are still in the copy: other parts of the PDF also hold them, such as its own attachment list, and this tool deletes only what the removed pins alone held.`}
             </p>
           )}
           {result.droppedXfa && (
@@ -261,6 +311,12 @@ export function RemoveAnnotationsEditor({
               {ANNOTATION_GROUPS.map((g) => {
                 if (!inventory.groups[g.id]) return null;
                 const disabled = g.id === "form-fields" && blockedFields;
+                // The checkbox is NAMED by its label and count and DESCRIBED
+                // by the consequence: a screen reader moving through the
+                // group hears "Links (1)", not the paragraph. The whole row
+                // stays the click target.
+                const nameId = `${ids}-${g.id}-name`;
+                const whyId = `${ids}-${g.id}-why`;
                 return (
                   <label
                     key={g.id}
@@ -271,19 +327,21 @@ export function RemoveAnnotationsEditor({
                       type="checkbox"
                       checked={chosen.has(g.id) && !disabled}
                       aria-disabled={disabled || undefined}
+                      aria-labelledby={nameId}
+                      aria-describedby={whyId}
                       onChange={(event) => {
                         if (!disabled) toggle(g.id, event.target.checked);
                       }}
                       className="accent-accent mt-0.5 size-5 shrink-0"
                     />
                     <span className="flex min-w-0 flex-col gap-0.5">
-                      <span className="text-fg text-sm">
+                      <span id={nameId} className="text-fg text-sm">
                         {g.label}{" "}
                         <span className="text-muted tnum">
                           ({inventory.groups[g.id]})
                         </span>
                       </span>
-                      <span className="text-muted text-xs">
+                      <span id={whyId} className="text-muted text-xs">
                         {disabled
                           ? inventory.dynamicXfa
                             ? "This is a dynamic XFA form: its fields exist only in a format browsers can't edit, so they can't be removed here."
@@ -316,33 +374,20 @@ export function RemoveAnnotationsEditor({
                   : `${inventory.signatureFields} signature fields are kept whatever you tick.`}
               </p>
             )}
+            {repliesAlong > 0 && (
+              <p data-replies-along="" className="text-muted max-w-2xl text-xs">
+                {repliesAlong === 1
+                  ? "1 reply goes too: it answers an annotation you ticked, and a reply goes with what it answers, whatever its kind. The button counts it."
+                  : `${repliesAlong} replies go too: each answers an annotation you ticked, and a reply goes with what it answers, whatever its kind. The button counts them.`}
+              </p>
+            )}
           </RunnerSection>
 
           <RunnerSection title={REMOVE_ANNOTATIONS_PAGES_TITLE}>
-            <ul
-              data-annotations-pages=""
-              className="text-muted flex max-w-2xl flex-col gap-1 text-sm"
-            >
-              {inventory.pages.map((p) => {
-                const parts = ticked
-                  .filter((g) => (p.groups[g.id] ?? 0) > 0)
-                  .map(
-                    (g) => `${annotationGroup(g.id).label} ${p.groups[g.id]}`,
-                  );
-                const n = ticked.reduce(
-                  (sum, g) => sum + (p.groups[g.id] ?? 0),
-                  0,
-                );
-                return (
-                  <li key={p.page}>
-                    <span className="text-fg">Page {p.page}:</span>{" "}
-                    {n === 0
-                      ? "nothing to remove"
-                      : `${n} to remove (${parts.join(", ")})`}
-                  </li>
-                );
-              })}
-            </ul>
+            <PageList
+              pages={plan?.pages ?? []}
+              annotatedPages={inventory.pages.length}
+            />
           </RunnerSection>
         </>
       )}
@@ -377,6 +422,63 @@ export function RemoveAnnotationsEditor({
           </RunReason>
         </div>
       </RunBar>
+    </div>
+  );
+}
+
+/**
+ * The pages something goes from, each with its count by kind — only those:
+ * a book with a link on every page and links unticked lists one row, not
+ * three hundred "nothing to remove" rows. A long list starts folded.
+ */
+function PageList({
+  pages,
+  annotatedPages,
+}: {
+  pages: readonly PlannedPage[];
+  annotatedPages: number;
+}) {
+  const others = annotatedPages - pages.length;
+  const list = (
+    <ul
+      data-annotations-pages=""
+      className="text-muted flex max-w-2xl flex-col gap-1 text-sm"
+    >
+      {pages.map((p) => (
+        <li key={p.page}>
+          <span className="text-fg">Page {p.page}:</span>{" "}
+          {`${p.total} to remove (${ANNOTATION_GROUPS.filter(
+            (g) => (p.groups[g.id] ?? 0) > 0,
+          )
+            .map((g) => `${annotationGroup(g.id).label} ${p.groups[g.id]}`)
+            .join(", ")})`}
+        </li>
+      ))}
+    </ul>
+  );
+  return (
+    <div className="flex flex-col gap-2">
+      {pages.length === 0 ? (
+        <p className="text-muted max-w-2xl text-sm">
+          Nothing to remove on any page with what is ticked.
+        </p>
+      ) : pages.length > PAGE_LIST_FOLD ? (
+        <details>
+          <summary className="text-fg flex min-h-11 cursor-pointer items-center text-sm">
+            {`${pages.length.toLocaleString("en-US")} pages have annotations to remove`}
+          </summary>
+          {list}
+        </details>
+      ) : (
+        list
+      )}
+      {others > 0 && pages.length > 0 && (
+        <p data-pages-untouched="" className="text-muted max-w-2xl text-xs">
+          {others === 1
+            ? "1 other page has annotations, none of a ticked kind."
+            : `${others.toLocaleString("en-US")} other pages have annotations, none of a ticked kind.`}
+        </p>
+      )}
     </div>
   );
 }
