@@ -122,8 +122,17 @@ const count = (bits: Uint8Array) => bits.reduce((n, b) => n + b, 0);
 const faceName = (baseFont: string) =>
   baseFont.replace(/^[A-Z]{6}[+]/, "").replace(/-[0-9]+$/, "");
 
+/**
+ * pdf.js draws Script (Times Italic) and Print (Helvetica) from its own
+ * standard-font data, which a Node render must be pointed at. WAS rendered
+ * without it: on Windows the outlines still came from the system, on Linux
+ * CI nothing was drawn and the controls read 0 ink (PR #303, 2026-11-09),
+ * which the "something under Script" control was there to catch.
+ */
+const RENDER = { standardFonts: true } as const;
+
 async function inkOf(bytes: Uint8Array): Promise<Uint8Array> {
-  const [page] = await renderPdfPages(bytes, 800);
+  const [page] = await renderPdfPages(bytes, 800, RENDER);
   return ink(page!);
 }
 
@@ -571,7 +580,7 @@ describe("a typed signature's box holds all of its ink", () => {
       blank.addPage([600, 300]);
       const obj = typedSignatureObject("t", 0, 20, 120, 560, DEEP, style);
       const { bytes } = await exportEditedPdf(await blank.save(), [obj]);
-      const [page] = await renderPdfPages(bytes, 600);
+      const [page] = await renderPdfPages(bytes, 600, RENDER);
       expect(page!.width).toBe(600);
       const rows = inkRows(page!);
       expect(rows, style).not.toBeNull();
@@ -612,7 +621,11 @@ describe("a typed signature's box holds all of its ink", () => {
           style,
         );
         const { bytes } = await exportEditedPdf(await blank.save(), [obj]);
-        const [page] = await renderPdfPages(bytes, Math.max(600, pageHeight));
+        const [page] = await renderPdfPages(
+          bytes,
+          Math.max(600, pageHeight),
+          RENDER,
+        );
         return count(ink(page!));
       };
       const short = await at(100);
