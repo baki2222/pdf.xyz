@@ -177,25 +177,56 @@ function pdfjsOpens(source: string, fileName = "x.ts"): Open[] {
 }
 
 /**
- * A pdf.js PAGE render: `<page>.render({ ..., viewport, ... })`, the shape of
- * pdf.js's `PDFPageProxy.render`. Discovered by shape, so a new renderer is
- * a subject the moment it is written. (`EditorPdf.render(index, scale, ...)`
- * in the editor's components is not this shape: it is the editor's wrapper,
- * and its open is judged where it is, in page-render.ts.)
+ * A pdf.js PAGE render, or a call that may be one: `<x>.render(<one
+ * argument>)`, the shape of pdf.js's `PDFPageProxy.render(params)`, where
+ * the argument is an object literal naming `viewport`, or anything that is
+ * not a literal at all (`page.render(renderContext)`, the form pdf.js's own
+ * docs use: what it holds cannot be read here, so it is taken to be a
+ * render). Discovered by shape, so a new renderer is a subject the moment
+ * it is written. (`EditorPdf.render(index, scale, ...)` in the editor's
+ * components is not this shape: it is the editor's wrapper, and its open is
+ * judged where it is, in page-render.ts.)
+ *
+ * History (review, 2026-11-09): only the object-literal form was matched, so
+ * a new file drawing with `const params = { canvas, viewport };
+ * page.render(params)` after a bare open passed.
  */
 function isPageRender(node: ts.Node): node is ts.CallExpression {
   if (!ts.isCallExpression(node) || calleeName(node) !== "render") return false;
-  const arg = node.arguments[0];
-  return (
-    !!arg &&
-    ts.isObjectLiteralExpression(arg) &&
-    arg.properties.some(
+  if (node.arguments.length !== 1) return false;
+  const arg = node.arguments[0]!;
+  if (ts.isObjectLiteralExpression(arg)) {
+    return arg.properties.some(
       (p) =>
         (ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p)) &&
         ts.isIdentifier(p.name) &&
         p.name.text === "viewport",
-    )
+    );
+  }
+  return !(
+    ts.isLiteralExpression(arg) ||
+    ts.isJsxElement(arg) ||
+    ts.isJsxSelfClosingElement(arg) ||
+    ts.isJsxFragment(arg) ||
+    isFunction(arg) ||
+    arg.kind === ts.SyntaxKind.TrueKeyword ||
+    arg.kind === ts.SyntaxKind.FalseKeyword ||
+    arg.kind === ts.SyntaxKind.NullKeyword
   );
+}
+
+/** The `getDocument(` calls in `fn`'s own body, not in a function inside it. */
+function ownOpens(fn: ts.FunctionLikeDeclaration): ts.CallExpression[] {
+  const found: ts.CallExpression[] = [];
+  const look = (n: ts.Node) => {
+    if (n !== fn.body && isFunction(n)) return;
+    if (ts.isCallExpression(n) && calleeName(n) === "getDocument") {
+      found.push(n);
+    }
+    ts.forEachChild(n, look);
+  };
+  if (fn.body) look(fn.body);
+  return found;
 }
 
 /** `...previewOptions` or `...x.previewOptions` among `call`'s options. */
@@ -218,6 +249,18 @@ interface RenderingOpen {
   handled: "preview" | "refuse" | null;
 }
 
+/** A page render, and the line of the open that made its document. */
+interface PageRenderSite {
+  line: number;
+  /**
+   * The lines of the `getDocument(` calls in the nearest function around the
+   * render that opens one itself (the render may sit in a closure inside
+   * it, as the editor's does); empty when no function around it opens a
+   * document, so the document it draws came from somewhere else.
+   */
+  openedBy: number[];
+}
+
 /**
  * In a file that renders pdf.js pages, every `getDocument(` call, and how it
  * treats an image over its raster budget (CO-08): a PREVIEW spreads the
@@ -229,7 +272,7 @@ interface RenderingOpen {
 function renderingOpens(
   source: string,
   fileName = "x.ts",
-): { renders: boolean; opens: RenderingOpen[] } {
+): { renders: boolean; opens: RenderingOpen[]; sites: PageRenderSite[] } {
   const file = ts.createSourceFile(
     fileName,
     source,
@@ -239,8 +282,18 @@ function renderingOpens(
   );
   let renders = false;
   const calls: ts.CallExpression[] = [];
+  const sites: PageRenderSite[] = [];
+  const lineOf = (n: ts.Node) =>
+    file.getLineAndCharacterOfPosition(n.getStart(file)).line + 1;
   const visit = (node: ts.Node) => {
-    if (isPageRender(node)) renders = true;
+    if (isPageRender(node)) {
+      renders = true;
+      let openedBy: number[] = [];
+      for (let fn = node.parent; fn && openedBy.length === 0; fn = fn.parent) {
+        if (isFunction(fn)) openedBy = ownOpens(fn).map(lineOf);
+      }
+      sites.push({ line: lineOf(node), openedBy });
+    }
     if (ts.isCallExpression(node) && calleeName(node) === "getDocument") {
       calls.push(node);
     }
@@ -272,7 +325,7 @@ function renderingOpens(
     if (body) look(body);
     return { line: line + 1, handled: refused ? "refuse" : null };
   });
-  return { renders, opens };
+  return { renders, opens, sites };
 }
 
 /**
@@ -550,6 +603,51 @@ describe("every pdf.js open that renders pages previews or refuses an over-budge
         "async function a() {\n  // page.render({ canvas, viewport });\n}",
       ).renders,
     ).toBe(false);
+    // History (review, 2026-11-09): a render through a variable, pdf.js's
+    // own documented form, was not seen as one, so a bare open beside it
+    // passed. Positive: it is a render, and the bare open is judged.
+    const viaVariable = `async function a(bytes) {\n  await guard.preflightPdfjsOpen(bytes);\n  const doc = await pdfjs.getDocument({ data: bytes }).promise;\n  const page = await doc.getPage(1);\n  const params = { canvas, viewport };\n  await page.render(params).promise;\n}`;
+    expect(renderingOpens(viaVariable).renders).toBe(true);
+    expect(handled(viaVariable)).toEqual([null]);
+    // Negative: a literal, JSX, or a callback is no page render.
+    for (const call of [
+      'x.render("a")',
+      "x.render(1)",
+      "root.render(<App />)",
+      "x.render(() => 1)",
+      "x.render(null)",
+    ]) {
+      expect(
+        renderingOpens(`function a() {\n  ${call};\n}`, "x.tsx").renders,
+        call,
+      ).toBe(false);
+    }
+  });
+
+  it("the predicate finds the open behind each render, in the function around it, and none for a document from elsewhere (positive and negative controls)", () => {
+    const sites = (src: string) =>
+      renderingOpens(src).sites.map((s) => s.openedBy);
+    // Positive: the open in the same function, and in the function around
+    // the closure that renders (the editor's shape).
+    expect(
+      sites(
+        `async function a(bytes) {\n  const t = pdfjs.getDocument({ data, ...previewOptions });\n${RENDER}}`,
+      ),
+    ).toEqual([[2]]);
+    expect(
+      sites(
+        `async function a(bytes) {\n  const t = pdfjs.getDocument({ data, ...previewOptions });\n  const r = async () => {\n${RENDER}  };\n}`,
+      ),
+    ).toEqual([[2]]);
+    // Negative (review, 2026-11-09): a file whose one open is a preview also
+    // drew a document passed in from another file, and passed, because the
+    // guard judged the file's opens, never what each render draws.
+    expect(
+      sites(
+        `async function count(bytes) {\n  const t = pdfjs.getDocument({ data, ...previewOptions });\n}\nasync function draw(page) {\n${RENDER}}`,
+      ),
+    ).toEqual([[]]);
+    expect(sites(`async function draw(page) {\n${RENDER}}`)).toEqual([[]]);
   });
 
   it("finds every rendering open in src/lib and src/components previewing or refusing", () => {
@@ -561,12 +659,39 @@ describe("every pdf.js open that renders pages previews or refuses an over-budge
       ...renderingOpens(readFileSync(path, "utf8"), path),
     }));
     const rendering = read.filter((f) => f.renders);
-    // Every file that draws pdf.js pages opens its own document, so the rule
-    // above sees the open beside the draw. A file that draws a document
-    // opened elsewhere is a path this guard cannot follow: it fails here,
-    // for a person to extend the guard, never passes by omission.
+    // Every pdf.js page render sits in (or in a closure inside) a function
+    // that opens the document itself, so the rule below sees the open behind
+    // each draw. A render of a document opened anywhere else, even in a file
+    // whose own opens are all handled, is a path this guard cannot follow:
+    // it fails here, for a person to extend the guard, never passes by
+    // omission.
+    //
+    // History (review, 2026-11-09): this asked only that a rendering file
+    // have SOME open, so `draw(doc)` beside a handled page count passed.
     expect(
-      rendering.filter((f) => f.opens.length === 0).map((f) => f.file),
+      rendering.flatMap((f) =>
+        f.sites
+          .filter((s) => s.openedBy.length === 0)
+          .map((s) => `${f.file}:${s.line}`),
+      ),
+    ).toEqual([]);
+    // Every open behind a render is one the rule below judges as handled.
+    const judgedAt = new Map<string, RenderingOpen["handled"]>(
+      rendering.flatMap((f) =>
+        f.opens.map((o) => [`${f.file}:${o.line}`, o.handled] as const),
+      ),
+    );
+    const behind = rendering.flatMap((f) =>
+      f.sites.flatMap((s) => s.openedBy.map((line) => `${f.file}:${line}`)),
+    );
+    // Health: the thumbnails, the raster output, the editor and Auto-crop.
+    expect(new Set(behind).size).toBeGreaterThanOrEqual(4);
+    expect(
+      behind.filter(
+        (at) =>
+          judgedAt.get(at) === null &&
+          !(at.slice(0, at.lastIndexOf(":")) in RENDER_EXEMPT),
+      ),
     ).toEqual([]);
     // Health: the thumbnails and the raster output (render.ts), the editor
     // canvas and Auto-crop. A collapse would mean the shape match broke.
