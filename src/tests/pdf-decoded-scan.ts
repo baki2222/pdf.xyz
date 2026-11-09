@@ -111,6 +111,73 @@ function strings(text: string): string[] {
   return out;
 }
 
+const isSpace = (c: string | undefined) =>
+  c === " " ||
+  c === "\n" ||
+  c === "\r" ||
+  c === "\t" ||
+  c === "\f" ||
+  c === "\0";
+
+/**
+ * Walk an object body from `start` as TOKENS — skipping literal strings
+ * (escapes and nesting), hex strings and comments — to the first `endobj`
+ * keyword, or to a `stream` keyword that follows a dictionary's `>>`.
+ * Matching either word as a substring read `(see the upstream fix)` as a
+ * stream and `(endobj …)` as the object's end (pdf-decoded-scan.test.ts).
+ */
+function objectExtent(
+  text: string,
+  start: number,
+): { stream: number; endobj: number } {
+  let lastToken = "";
+  for (let i = start; i < text.length;) {
+    const c = text[i]!;
+    if (isSpace(c)) {
+      i += 1;
+    } else if (c === "%") {
+      while (i < text.length && text[i] !== "\n" && text[i] !== "\r") i += 1;
+    } else if (c === "(") {
+      let depth = 1;
+      i += 1;
+      while (i < text.length && depth > 0) {
+        const ch = text[i]!;
+        if (ch === "\\") i += 2;
+        else {
+          if (ch === "(") depth += 1;
+          else if (ch === ")") depth -= 1;
+          i += 1;
+        }
+      }
+      lastToken = ")";
+    } else if (c === "<" && text[i + 1] === "<") {
+      i += 2;
+      lastToken = "<<";
+    } else if (c === ">" && text[i + 1] === ">") {
+      i += 2;
+      lastToken = ">>";
+    } else if (c === "<") {
+      const end = text.indexOf(">", i);
+      i = end < 0 ? text.length : end + 1;
+      lastToken = ">";
+    } else if (text.startsWith("endobj", i)) {
+      return { stream: -1, endobj: i };
+    } else if (
+      text.startsWith("stream", i) &&
+      lastToken === ">>" &&
+      (isSpace(text[i + 6]) || i + 6 >= text.length)
+    ) {
+      return { stream: i, endobj: -1 };
+    } else {
+      // A name, number, keyword or delimiter: one character at a time is
+      // enough, since only the two keywords above end the walk.
+      lastToken = c;
+      i += 1;
+    }
+  }
+  return { stream: -1, endobj: -1 };
+}
+
 export function decodedScan(bytes: Uint8Array): DecodedScan {
   const stats = {
     objects: 0,
@@ -129,16 +196,13 @@ export function decodedScan(bytes: Uint8Array): DecodedScan {
     while ((m = header.exec(text))) {
       stats.objects += 1;
       const start = m.index + m[0].length;
-      const endobj = text.indexOf("endobj", start);
-      const streamAt = text.indexOf("stream", start);
-      const isStream =
-        streamAt >= 0 &&
-        (endobj < 0 || streamAt < endobj) &&
-        text.slice(streamAt - 3, streamAt) !== "end"; // not `endstream`
-      if (!isStream || !data) {
-        const body = text.slice(start, endobj < 0 ? text.length : endobj);
-        parts.push(body);
-        header.lastIndex = endobj < 0 ? text.length : endobj;
+      const extent = objectExtent(text, start);
+      const streamAt = extent.stream;
+      if (streamAt < 0 || !data) {
+        const end = extent.endobj < 0 ? text.length : extent.endobj;
+        parts.push(text.slice(start, end));
+        // Forward only: a cursor moved backwards loops forever.
+        header.lastIndex = Math.max(end, start);
         continue;
       }
       const dict = text.slice(start, streamAt);
@@ -154,6 +218,8 @@ export function decodedScan(bytes: Uint8Array): DecodedScan {
       if (dataEnd < dataStart || dataEnd > text.length) {
         dataEnd = text.indexOf("endstream", dataStart);
       }
+      // No end at all: the rest of the file is this stream's data.
+      if (dataEnd < dataStart) dataEnd = text.length;
       stats.streams += 1;
       const body = data.subarray(dataStart, dataEnd);
       let decoded: Uint8Array = body;
@@ -183,7 +249,7 @@ export function decodedScan(bytes: Uint8Array): DecodedScan {
         // read from the decoded text below, as the rest is.
       }
       const after = text.indexOf("endobj", dataEnd);
-      header.lastIndex = after < 0 ? text.length : after;
+      header.lastIndex = Math.max(after < 0 ? text.length : after, dataEnd);
     }
   };
   scanObjects(latin1(bytes), bytes);
