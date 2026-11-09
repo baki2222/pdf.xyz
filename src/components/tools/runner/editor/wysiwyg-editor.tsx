@@ -87,6 +87,7 @@ import {
   withoutHandwritingFor,
 } from "@/lib/pdf/editor/typed-signature";
 import { openEditorPdf, type EditorPdf } from "@/lib/pdf/editor/page-render";
+import { EDITOR_IMAGES_SKIPPED } from "./image-notice";
 import {
   openRunStyles,
   type RunStyleReader,
@@ -2520,13 +2521,13 @@ export function WysiwygEditor({
           />
         )}
 
-        {doc?.imageNotice && (
+        {doc?.imageTooLarge && (
           <p
             role="status"
             data-image-notice=""
             className="border-line bg-panel rounded-panel text-muted border px-3.5 py-2 text-xs"
           >
-            {doc.imageNotice}
+            {`${doc.imageTooLarge} ${EDITOR_IMAGES_SKIPPED}`}
           </p>
         )}
 

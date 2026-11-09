@@ -7,6 +7,7 @@ import {
   scaleForZoom,
 } from "./geometry";
 import {
+  EDITOR_KEPT_PAGES,
   MAX_CANVAS_PIXELS,
   cappedPixelRatio,
   editorPdfjs,
@@ -57,9 +58,11 @@ describe("openEditorPdf hands pdf.js the preflight's preview options", () => {
     expect(opts.maxImageSize).toBe(100_000 * 100_000 - 1);
     expect(opts).toMatchObject(PDFJS_DOCUMENT_DEFAULTS);
     expect(opts.data).toBeInstanceOf(Uint8Array);
-    expect(doc.imageNotice).toContain(PDF_IMAGE_TOO_LARGE_MESSAGE);
+    // The output paths' own sentence; what the view does instead is said by
+    // the component that shows it (image-notice.ts), in a walked copy root.
+    expect(doc.imageTooLarge).toBe(PDF_IMAGE_TOO_LARGE_MESSAGE);
     // Never a page number: pdf.js 6 does not report which page skipped it.
-    expect(doc.imageNotice).not.toMatch(/\bpage \d/i);
+    expect(doc.imageTooLarge).not.toMatch(/\bpage \d/i);
   });
 
   it("negative control: a file within budget opens exactly as before, no maxImageSize and no sentence", async () => {
@@ -67,7 +70,58 @@ describe("openEditorPdf hands pdf.js the preflight's preview options", () => {
     expect(options).toHaveLength(1);
     const [opts] = options[0] as unknown as [Record<string, unknown>];
     expect("maxImageSize" in opts).toBe(false);
-    expect(doc.imageNotice).toBeNull();
+    expect(doc.imageTooLarge).toBeNull();
+  });
+
+  it(`a drawn page keeps what pdf.js decoded for it until ${EDITOR_KEPT_PAGES} other pages are drawn after it`, async () => {
+    // History (hostile review, 2026-11-09): every draw ended in
+    // `page.cleanup()`, so a zoom step or a rail thumbnail decoded the
+    // page's images again (the real-pdf.js proof counts the worker's
+    // operator-list requests: pdfjs-guard-bounds.test.ts).
+    const cleaned: number[] = [];
+    const pages = new Map<number, object>();
+    const getPage = (n: number) => {
+      if (!pages.has(n)) {
+        pages.set(n, {
+          rotate: 0,
+          getViewport: () => ({ width: 10, height: 10 }),
+          render: () => ({ promise: Promise.resolve(), cancel: () => {} }),
+          cleanup: () => cleaned.push(n - 1),
+        });
+      }
+      return Promise.resolve(pages.get(n));
+    };
+    const getDocument = () => ({
+      promise: Promise.resolve({ numPages: 20, getPage }),
+      destroy: () => Promise.resolve(),
+    });
+    const real = editorPdfjs.load;
+    editorPdfjs.load = (() =>
+      Promise.resolve({ getDocument })) as unknown as typeof real;
+    vi.stubGlobal("document", {
+      createElement: () => ({ width: 0, height: 0 }),
+    });
+    try {
+      const doc = await openEditorPdf(CONTROL());
+      // One page drawn again and again (zoom steps): nothing is dropped.
+      for (const scale of [1, 1.25, 1.5, 2]) {
+        expect(await doc.render(0, scale, 1)).not.toBeNull();
+      }
+      expect(cleaned).toEqual([]);
+      // Positive control: the page drawn longest ago goes first, once the
+      // others fill the buffer; a page drawn again moves to the newest end.
+      for (let i = 1; i < EDITOR_KEPT_PAGES; i += 1) await doc.render(i, 1, 1);
+      expect(cleaned).toEqual([]);
+      await doc.render(0, 1, 1);
+      await doc.render(EDITOR_KEPT_PAGES, 1, 1);
+      expect(cleaned).toEqual([1]);
+      await doc.render(EDITOR_KEPT_PAGES + 1, 1, 1);
+      expect(cleaned).toEqual([1, 2]);
+      await doc.destroy();
+    } finally {
+      editorPdfjs.load = real;
+      vi.unstubAllGlobals();
+    }
   });
 
   it("the seam is restored: the next open loads the real pdf.js", async () => {
