@@ -40,7 +40,10 @@ import { extractPdfText, type ExtractedPdfText } from "@/lib/pdf/text";
 import { countDeclaredCharacters } from "@/lib/workers/ai-declared-characters";
 import { measureChatDocument } from "@/lib/workers/chat-with-pdf-client";
 import { translatePreflight } from "@/lib/workers/translate/preflight";
-import { TRANSLATE_MAX_INPUT_CHARS } from "@/lib/jobs/translate-limits";
+import {
+  TRANSLATE_MAX_INPUT_CHARS,
+  TRANSLATE_NO_TEXT_MESSAGE,
+} from "@/lib/jobs/translate-limits";
 
 /** The declaration fields of a `POST /api/jobs` body, as a panel sends them. */
 export interface AiJobDeclaration {
@@ -141,4 +144,24 @@ export async function browserAiDeclaration(
   // "could not count" (ai-proof-declaration-as-run.test.ts). So count a
   // copy of the kind the browser has.
   return counter(Uint8Array.from(bytes), extract);
+}
+
+/**
+ * What the Translate panel sends for `bytes` when the running worker can
+ * recognise scans (audit translate-pdf#3): a scan — the preflight's no-text
+ * refusal — goes with NO declaration (there is no text to count; the route
+ * charges an undeclared run and the worker caps the recognised text at it);
+ * anything else is declared exactly as {@link browserAiDeclaration} says.
+ */
+export async function browserTranslateOcrDeclaration(
+  bytes: Uint8Array,
+  extract: Extract = (b) => extractPdfText(b),
+): Promise<BrowserDeclaration> {
+  const counted = await browserAiDeclaration("translate-pdf", bytes, extract);
+  if (
+    counted.kind === "refused" &&
+    counted.reason === TRANSLATE_NO_TEXT_MESSAGE
+  )
+    return { kind: "declared", declaration: {} };
+  return counted;
 }
