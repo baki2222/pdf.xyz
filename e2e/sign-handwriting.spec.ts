@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { test, expect, type Page } from "@playwright/test";
 import { PDFArray, PDFDict, PDFDocument, PDFName } from "pdf-lib";
 import { fileInput, makePdfBytes, waitForHydration } from "./helpers";
-import { pdfPageTexts } from "./client-proof/artifacts";
+import { pdfTextPositions } from "./client-proof/artifacts";
 import {
   HANDWRITING_STYLES,
   SIGNATURE_STYLE_LABEL,
@@ -36,7 +36,11 @@ function handwritingRequests(page: Page): string[] {
   return seen;
 }
 
-/** Each page-1 font: its `/BaseFont`, and whether its program is embedded. */
+/**
+ * Each page-1 font: its `/BaseFont`, and whether its program is embedded.
+ * The fixture's own words are in the standard Helvetica, which embeds
+ * nothing, so the EMBEDDED fonts are exactly what the signature added.
+ */
 async function fontsOf(
   bytes: Buffer,
 ): Promise<{ baseFont: string; embedded: boolean }[]> {
@@ -122,13 +126,17 @@ test("a typed signature in a chosen handwriting face is the face in the download
   const bytes = readFileSync((await file.path())!);
 
   const fonts = await fontsOf(bytes);
-  expect(fonts).toHaveLength(1);
-  expect(fonts[0]!.baseFont).toContain(face.postscriptName);
-  expect(fonts[0]!.embedded).toBe(true);
-  // pdf.js reads the name back, on ONE line: the box the editor placed is as
+  // Health check: the fixture's standard font is read, and embeds nothing.
+  expect(fonts.filter((f) => !f.embedded).map((f) => f.baseFont)).toEqual([
+    "/Helvetica",
+  ]);
+  const added = fonts.filter((f) => f.embedded);
+  expect(added).toHaveLength(1);
+  expect(added[0]!.baseFont).toContain(face.postscriptName);
+  // pdf.js reads the name back as ONE run: the box the editor placed is as
   // wide as the name is in the file, so the export did not wrap it.
-  const text = (await pdfPageTexts(bytes))[0]!;
-  expect(text.trim()).toBe(NAME);
+  const runs = (await pdfTextPositions(bytes))[0]!.runs.map((r) => r.str);
+  expect(runs).toContain(NAME);
 });
 
 test("a name the chosen face cannot draw is said under the styles, and set as Script sets it", async ({
@@ -170,12 +178,12 @@ test("a name the chosen face cannot draw is said under the styles, and set as Sc
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: /apply & download/i }).click();
   const bytes = readFileSync((await (await download).path())!);
-  const fonts = await fontsOf(bytes);
-  expect(fonts).toHaveLength(1);
-  expect(fonts[0]!.baseFont).not.toContain(
+  const added = (await fontsOf(bytes)).filter((f) => f.embedded);
+  expect(added).toHaveLength(1);
+  expect(added[0]!.baseFont).not.toContain(
     HANDWRITING_FACES[style].postscriptName,
   );
-  expect(fonts[0]!.baseFont).toMatch(/Noto/);
-  expect(fonts[0]!.embedded).toBe(true);
-  expect((await pdfPageTexts(bytes))[0]!.trim()).toBe(name);
+  expect(added[0]!.baseFont).toMatch(/Noto/);
+  const runs = (await pdfTextPositions(bytes))[0]!.runs.map((r) => r.str);
+  expect(runs).toContain(name);
 });
