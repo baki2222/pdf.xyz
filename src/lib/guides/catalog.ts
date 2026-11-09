@@ -98,6 +98,7 @@ import {
   EDITOR_FORMS_GROUP,
   DEEP_MONO_MIN_DPI,
   SIGNATURE_SOURCES,
+  HANDWRITING_STYLES,
   SIGNATURE_STYLE_LABEL,
   SIGNATURE_STYLES,
 } from "@/lib/pdf/offered-kinds";
@@ -406,9 +407,13 @@ const TARGET_EXAMPLE_SENTENCE = targetOutcome({
 
 /** The raster preset selected when PDF to JPG / PNG opens, by its label. */
 const DEFAULT_RESOLUTION_LABEL = resolutionById(DEFAULT_RESOLUTION_ID).label;
-const signatureStyles = SIGNATURE_STYLES.map((s) =>
-  SIGNATURE_STYLE_LABEL[s].toLowerCase(),
-);
+/** The typed signature's styles, as the panel names them. */
+const signatureStyles = new Intl.ListFormat("en", {
+  type: "disjunction",
+}).format(SIGNATURE_STYLES.map((s) => SIGNATURE_STYLE_LABEL[s]));
+const handwritingStyles = new Intl.ListFormat("en", {
+  type: "conjunction",
+}).format(HANDWRITING_STYLES.map((s) => SIGNATURE_STYLE_LABEL[s]));
 
 /**
  * The per-file cap a guide states, read from the SAME source the tool's own
@@ -1888,13 +1893,13 @@ export const guides: Guide[] = [
     intro: [
       "To add a signature to a PDF, open the Sign PDF tool, create your signature by drawing it, typing it, or picking a signature image, and place it exactly where the document needs it. Export the result and you have a signed PDF ready to send.",
       "What sets this approach apart is where the work happens. Sign PDF runs entirely in your browser, so the PDF and the signature you create stay on your device from start to finish. No account is needed — open the page, make your mark, and export.",
-      `You also get more range than a single scribble box. There are ${signatureWays} ways to make a signature — draw it, type it in a ${signatureStyles.join(" or ")} style, or pick an image of the signature you already use — so the result can be as personal or as formal as the document calls for.`,
+      `You also get more range than a single scribble box. There are ${signatureWays} ways to make a signature — draw it, type it in one of ${countWord(SIGNATURE_STYLES.length)} styles, or pick an image of the signature you already use — so the result can be as personal or as formal as the document calls for.`,
     ],
     steps: [
       "Open the Sign PDF tool.",
       "Pick the PDF you need to sign — the file stays on your device the entire time.",
       "Create your signature: draw it, type it, or pick a signature image you already have.",
-      `If you type it, pick the look: ${signatureStyles.join(" or ")} style.`,
+      `If you type it, pick the look: ${signatureStyles}.`,
       `If you draw or type it, pick the ink: ${signatureInks}. Blue ink makes the original easy to tell from a copy.`,
       "Place the signature exactly where the document needs it — the tool is built for precise placement.",
       `Need it on more than one page, such as initials on every page of a contract? Select what you placed and use Repeat on: ${new Intl.ListFormat("en", { type: "disjunction" }).format(REPEAT_TARGETS.map((t) => REPEAT_TARGET_LABEL[t]))}. Each copy lands at the same spot.`,
@@ -1905,7 +1910,7 @@ export const guides: Guide[] = [
         id: "ways-to-make-a-signature",
         heading: `${signatureWays[0]!.toUpperCase()}${signatureWays.slice(1)} ways to make a signature`,
         body: [
-          `Sign PDF offers ${signatureWays} ways to make a signature: draw it, type it, or pick an image. Drawing produces a mark that looks like your handwriting and suits documents where a personal touch matters. Typing is the fastest option, and it comes in ${countWord(SIGNATURE_STYLES.length)} styles — script, which sets a name written in the Western European alphabet in an italic serif face, and print, a plain printed name. A name in any other script is set in the same upright face whichever style you pick. If you already keep a scanned signature as a PNG or JPG image, pick that image and reuse the mark you have always used.`,
+          `Sign PDF offers ${signatureWays} ways to make a signature: draw it, type it, or pick an image. Drawing produces a mark that looks like your handwriting and suits documents where a personal touch matters. Typing is the fastest option, and it comes in ${countWord(SIGNATURE_STYLES.length)} styles — ${countWord(HANDWRITING_STYLES.length)} handwriting faces (${handwritingStyles}), which give a typed name a handwritten look in a real handwriting font embedded in the PDF; ${SIGNATURE_STYLE_LABEL.signature}, which sets a name written in the Western European alphabet in an italic serif face; and ${SIGNATURE_STYLE_LABEL.print}, a plain printed name. A name with a letter a handwriting face lacks is set as ${SIGNATURE_STYLE_LABEL.signature} sets it, and a name in any other script is set in the same upright face whichever style you pick. If you already keep a scanned signature as a PNG or JPG image, pick that image and reuse the mark you have always used.`,
           "Whichever you choose, the rest works the same way: position the signature precisely on the page, then export.",
         ],
       },
@@ -1959,7 +1964,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-11-08",
+    updated: "2026-11-09",
   },
   {
     slug: "how-to-make-a-scanned-pdf-searchable",

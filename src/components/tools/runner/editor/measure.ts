@@ -18,6 +18,13 @@ import {
   type Measure,
   type TextLayout,
 } from "@/lib/pdf/editor/text";
+import type { HandwritingStyle } from "@/lib/pdf/offered-kinds";
+import { handwritingFor } from "@/lib/pdf/handwriting";
+import {
+  handwritingFamily,
+  handwritingMeasureNow,
+  loadHandwritingMeasure,
+} from "./handwriting-faces";
 
 /**
  * How the overlay measures and draws text so it matches the export.
@@ -28,6 +35,12 @@ import {
  * cached bytes) and registered as a `FontFace`, measured with a canvas in
  * that face. Until a face has arrived its text is measured in the fallback
  * stack, and `version` bumps when it lands so boxes re-lay out.
+ *
+ * A typed signature in a handwriting style (`TextBoxObject.hand`) is drawn in
+ * that face and measured with the widths the export embeds
+ * (`./handwriting-faces`) — wherever the face has every letter; otherwise it
+ * is laid out exactly as its underlying style, as the export does
+ * (`handwritingFor`). Never bold or slanted: the face is the style.
  */
 
 export interface TextKit {
@@ -39,6 +52,8 @@ export interface TextKit {
   styled(obj: TextBoxObject | NoteObject, text?: string): boolean;
   /** Ask for the face `text` needs; resolves when it can be drawn. */
   request(text: string): void;
+  /** Ask for a handwriting face (a typed signature's style). */
+  requestFace(style: HandwritingStyle): void;
   /** Text height for `objectBounds`. */
   height(obj: TextBoxObject | NoteObject): number;
   /**
@@ -101,6 +116,16 @@ export function useTextKit(): TextKit | null {
       });
   }, []);
 
+  const requestFace = useCallback((style: HandwritingStyle) => {
+    if (handwritingMeasureNow(style)) return;
+    void loadHandwritingMeasure(style)
+      .catch(() => {
+        // The face stays in its fallback until a later ask succeeds; the
+        // export, which needs the same bytes, reports the failure in words.
+      })
+      .finally(() => setVersion((v) => v + 1));
+  }, []);
+
   return useMemo(() => {
     if (!standard) return null;
 
@@ -122,10 +147,20 @@ export function useTextKit(): TextKit | null {
       };
     };
 
+    const handOf = (obj: TextBoxObject | NoteObject, text: string) =>
+      obj.kind === "text" ? handwritingFor(obj, text) : null;
+
     const measureFor = (
       obj: TextBoxObject | NoteObject,
       text: string,
     ): Measure => {
+      const hand = handOf(obj, text);
+      if (hand) {
+        return (
+          handwritingMeasureNow(hand) ??
+          measureCanvas(`"${handwritingFamily(hand)}", cursive`)
+        );
+      }
       if (!needsUnicodeFace(text)) {
         return standard(standardFontKey(obj.font, obj.bold, obj.italic));
       }
@@ -144,15 +179,19 @@ export function useTextKit(): TextKit | null {
     return {
       version,
       request,
+      requestFace,
       metrics: STANDARD_FACES.map((face) => standard(face)),
       layout,
       height: (obj) => layout(obj).height,
-      styled: (obj, text = obj.text) => !needsUnicodeFace(text),
+      styled: (obj, text = obj.text) =>
+        !handOf(obj, text) && !needsUnicodeFace(text),
       family: (obj, text = obj.text) => {
+        const hand = handOf(obj, text);
+        if (hand) return `"${handwritingFamily(hand)}", cursive`;
         if (!needsUnicodeFace(text)) return CSS_FONT_STACK[obj.font];
         const family = unicodeFamily(text);
         return family ? `"${family}", sans-serif` : CSS_FONT_STACK.helvetica;
       },
     };
-  }, [standard, version, request]);
+  }, [standard, version, request, requestFace]);
 }

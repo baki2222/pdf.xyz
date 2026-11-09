@@ -83,7 +83,10 @@ describe("the monospace promise holds beyond WinAnsi", () => {
   ): Promise<{ result: T; requested: FontPack[] }> {
     const requested: FontPack[] = [];
     const previous = setFontByteSource(async (pack) => {
-      requested.push(pack);
+      // Only packs reach Text to PDF; anything else is a face it never asks for.
+      const known = FONT_PACKS.find((p) => p === pack);
+      if (!known) throw new Error(`not a font pack: ${pack.id}`);
+      requested.push(known);
       return readNotoTtf(pack);
     });
     resetFontCache();

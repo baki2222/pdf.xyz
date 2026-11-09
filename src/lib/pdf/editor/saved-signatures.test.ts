@@ -71,3 +71,29 @@ describe("saveSignature reports what it kept", () => {
     expect(readSavedSignatures(storage)).toEqual([]);
   });
 });
+
+/*
+ * Audit sign-pdf#1 (2026-11-09): the reader of a stored entry checked its
+ * style against "signature" or "print", typed out. A signature saved in a
+ * handwriting style would have been dropped as unreadable on the next visit.
+ * Every offered style must survive the round trip — discovered from the
+ * model, not listed here — and a style the product never offered must not.
+ */
+describe("every offered style survives a save and a reload", () => {
+  it("each style round-trips; an unknown one is dropped", async () => {
+    const { SIGNATURE_STYLES } = await import("@/lib/pdf/offered-kinds");
+    expect(SIGNATURE_STYLES.length).toBeGreaterThanOrEqual(5);
+    for (const style of SIGNATURE_STYLES) {
+      const storage = memoryStorage();
+      saveSignature({ ...typed, style }, storage);
+      expect(readSavedSignatures(storage), style).toMatchObject([
+        { kind: "typed", style },
+      ]);
+    }
+    const storage = memoryStorage();
+    saveSignature(typed, storage);
+    const raw = storage.getItem(storage.key(0)!)!;
+    storage.setItem(storage.key(0)!, raw.replace('"signature"', '"comic"'));
+    expect(readSavedSignatures(storage)).toEqual([]);
+  });
+});

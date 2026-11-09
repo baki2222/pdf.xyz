@@ -46,6 +46,7 @@ import {
   type FontPack,
   type FontPackId,
   type MonospaceClaim,
+  type ShippedFace,
 } from "@/lib/pdf/font-packs";
 import { openNotoFont, readNotoTtf } from "@/lib/pdf/noto-source";
 import { setFontByteSource, resetFontCache } from "@/lib/pdf/unicode-font";
@@ -59,7 +60,7 @@ import { setFontByteSource, resetFontCache } from "@/lib/pdf/unicode-font";
  * the real URL off the real server for that.
  */
 export function useNodeFontSource(): () => void {
-  const previous = setFontByteSource(async (pack: FontPack) =>
+  const previous = setFontByteSource(async (pack: ShippedFace) =>
     readNotoTtf(pack),
   );
   resetFontCache();

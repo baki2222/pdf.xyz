@@ -1,5 +1,6 @@
 import type { ImageSignature } from "@/lib/pdf/signature";
-import type { SignatureStyle } from "@/lib/pdf/offered-kinds";
+import { type SignatureStyle } from "@/lib/pdf/offered-kinds";
+import { isSignatureStyle } from "@/lib/pdf/signature-style";
 
 /**
  * Signatures a person chose to keep, in THIS browser's localStorage only.
@@ -54,7 +55,9 @@ function isSaved(value: unknown): value is SavedSignature {
   if (v.kind === "typed")
     return (
       typeof v.text === "string" &&
-      (v.style === "signature" || v.style === "print") &&
+      // Every offered style, handwriting ones included: a list typed here
+      // would drop a saved Dancing Script signature as "unreadable".
+      isSignatureStyle(v.style) &&
       (v.color === undefined ||
         (typeof v.color === "string" && /^#[0-9a-f]{6}$/i.test(v.color)))
     );

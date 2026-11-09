@@ -86,7 +86,30 @@ export type CodePointRange = readonly [number, number];
  */
 export type FontPackRole = "script" | "monospace";
 
-export interface FontPack {
+/**
+ * A TTF we copy out of an npm package into `public/fonts/<version>/` and
+ * fetch from our own origin: the script packs below, and the handwriting
+ * faces of a typed signature (`handwriting.ts`), which are deliberately NOT
+ * packs — no text is ever routed to them by its letters, only by the style a
+ * signer picked.
+ */
+export interface ShippedFace {
+  readonly id: string;
+  /** Shown to a user in a message: "Bengali", "Chinese", "Dancing Script". */
+  readonly label: string;
+  /** npm package the TTF is copied out of. */
+  readonly pkg: string;
+  /** Directory inside the package that holds the TTF. */
+  readonly dir: string;
+  /** The TTF's basename, inside `<pkg>/<dir>/`. */
+  readonly file: string;
+  /** npm package version, stamped into the served URL. */
+  readonly version: string;
+  /** Measured bytes of the TTF, checked against the file by the copy step. */
+  readonly bytes: number;
+}
+
+export interface FontPack extends ShippedFace {
   readonly id: FontPackId;
   readonly role: FontPackRole;
   /** Shown to a user in a message: "Bengali", "Chinese", "monospace". */
@@ -444,6 +467,6 @@ export function unsupportedScriptFor(
 }
 
 /** Where the browser fetches a pack from. Version-stamped, immutably cacheable. */
-export function fontPackUrl(pack: FontPack): string {
+export function fontPackUrl(pack: ShippedFace): string {
   return `/fonts/${pack.version}/${pack.file}`;
 }

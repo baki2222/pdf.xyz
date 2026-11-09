@@ -196,7 +196,7 @@ const content: ToolContent = {
 
     {
       q: "Does my PDF leave my computer while I edit it?",
-      a: "No. The pages are drawn and the PDF is written inside your browser tab, with any picture or signature you add. Only when a text box uses characters outside the basic Western set does the page download a Noto font from pdf.xyz's own /fonts/ path, plus the code that embeds it; those requests ask for files by name and carry nothing from your document.",
+      a: "No. The pages are drawn and the PDF is written inside your browser tab, with any picture or signature you add. The page downloads fonts from pdf.xyz's own /fonts/ path in two cases only: a Noto font when a text box uses characters outside the basic Western set, and the handwriting faces of a typed signature when the signature panel's Type tab is open, each with the code that embeds it; those requests ask for files by name and carry nothing from your document.",
     },
     {
       q: "Which languages can I type onto a page?",

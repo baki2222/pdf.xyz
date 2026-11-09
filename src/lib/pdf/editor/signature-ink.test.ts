@@ -18,7 +18,8 @@ import {
   decodePDFRawStream,
 } from "pdf-lib";
 import { exportEditedPdf } from "@/lib/pdf/editor-export";
-import { SIGNATURE_INK, typedSignatureObject } from "./model";
+import { SIGNATURE_INK } from "./model";
+import { typedSignatureObject } from "./typed-signature";
 import { prepareSignatureBitmap, type RgbaImage } from "../signature-image";
 import { SIGNATURE_INKS, inkRgb, tintInk } from "./signature-ink";
 

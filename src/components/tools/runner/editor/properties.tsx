@@ -47,6 +47,10 @@ import {
 } from "@/lib/pdf/editor/quick-fields";
 import { ownFontCovers, substituteLabel } from "@/lib/pdf/editor/runs";
 import { needsUnicodeFace } from "@/lib/pdf/editor/text";
+import {
+  SIGNATURE_STYLE_LABEL,
+  type HandwritingStyle,
+} from "@/lib/pdf/offered-kinds";
 import { STICKY_LABEL } from "@/lib/pdf/editor/sticky";
 import {
   HIGHLIGHTER_LABEL,
@@ -225,7 +229,12 @@ const input =
   "border-line bg-canvas text-fg rounded-ctl h-8 border px-2 text-xs tnum";
 
 /** The values the panel shows: the first selected object's, or the defaults. */
-type Shown = StylePatch & { kind: StyleBucket; text?: string };
+type Shown = StylePatch & {
+  kind: StyleBucket;
+  text?: string;
+  /** A typed signature's handwriting face, shown as the box's font. */
+  hand?: HandwritingStyle;
+};
 
 export function PropertiesPanel({
   selection,
@@ -319,12 +328,20 @@ export function PropertiesPanel({
           <Field label="Font">
             <select
               aria-label="Font"
-              value={shown.font}
-              onChange={(e) =>
-                set({ font: e.target.value as StylePatch["font"] }, "font")
-              }
+              // A typed signature in a handwriting style shows that face as
+              // its font; picking any other leaves it (`applyPatch`).
+              value={shown.hand ?? shown.font}
+              onChange={(e) => {
+                if (shown.hand && e.target.value === shown.hand) return;
+                set({ font: e.target.value as StylePatch["font"] }, "font");
+              }}
               className={input}
             >
+              {shown.hand && (
+                <option value={shown.hand}>
+                  {SIGNATURE_STYLE_LABEL[shown.hand]}
+                </option>
+              )}
               {EDITOR_FONTS.map((f) => (
                 <option key={f} value={f}>
                   {EDITOR_FONT_LABEL[f]}
@@ -359,15 +376,19 @@ export function PropertiesPanel({
           <div className="flex items-center gap-1.5">
             <Toggle
               label="Bold"
-              pressed={!!shown.bold}
-              onClick={() => set({ bold: !shown.bold }, "bold")}
+              pressed={!shown.hand && !!shown.bold}
+              onClick={() =>
+                set({ bold: shown.hand ? true : !shown.bold }, "bold")
+              }
             >
               <Bold className="size-3.5" aria-hidden />
             </Toggle>
             <Toggle
               label="Italic"
-              pressed={!!shown.italic}
-              onClick={() => set({ italic: !shown.italic }, "italic")}
+              pressed={!shown.hand && !!shown.italic}
+              onClick={() =>
+                set({ italic: shown.hand ? true : !shown.italic }, "italic")
+              }
             >
               <Italic className="size-3.5" aria-hidden />
             </Toggle>
