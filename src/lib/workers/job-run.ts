@@ -15,3 +15,10 @@
 export { uploadToWorkerSlot } from "./slot-upload";
 export { pollJobToTerminal } from "./job-polling";
 export { readWorkerError } from "./read-error";
+// The engine ceilings the security client checks a file against before its
+// upload (2026-11-09): a check that runs only once Run is pressed, so its
+// tables (every worker engine's tool list) arrive with the run.
+export {
+  describeByteCeiling,
+  workerFileCeilingBytes,
+} from "./engine-file-ceilings";

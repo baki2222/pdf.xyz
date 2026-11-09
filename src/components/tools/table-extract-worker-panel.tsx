@@ -1,5 +1,6 @@
 "use client";
 
+import { usePickRefusal } from "@/components/tools/use-pick";
 import { useCallback, useState } from "react";
 import { TABLE_OCR_HINT } from "@/lib/jobs/office-export-ocr";
 import { OcrFirstSwitch, useOcrFirstChoice } from "./ocr-first-switch";
@@ -12,7 +13,7 @@ import {
 } from "@/lib/workers/table-extract-client";
 import { downloadBytes } from "@/lib/pdf/browser";
 import type { Tool } from "@/lib/tools/types";
-import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
+import type { PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import {
   DownloadCta,
@@ -68,6 +69,7 @@ import {
 const STATUS_SLOT = "min-h-[23.5rem] sm:min-h-[15rem] lg:min-h-[15rem]";
 
 export function TableExtractWorkerPanel({ tool }: { tool: Tool }) {
+  const pickRefuse = usePickRefusal(tool);
   return (
     <WorkerPanelShell
       tool={tool}
@@ -90,10 +92,7 @@ export function TableExtractWorkerPanel({ tool }: { tool: Tool }) {
         },
       ]}
     >
-      <TableExtractRunArea
-        tool={tool}
-        refuse={(file) => pickRefusal(tool, file)}
-      />
+      <TableExtractRunArea tool={tool} refuse={pickRefuse} />
     </WorkerPanelShell>
   );
 }

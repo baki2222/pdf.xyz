@@ -120,6 +120,7 @@ import {
   panelComponent,
   panelDispatchArms,
 } from "@/tests/worker-panel-dispatch";
+import { InToolPage } from "@/tests/in-tool-page";
 import { READY_WORKER_STATUS } from "@/tests/ready-worker-status";
 import { stubJobNetwork } from "@/tests/stub-job-network";
 
@@ -796,7 +797,11 @@ async function renderedPanel(
     ...(results ? { results } : {}),
   }));
   const { container } = render(
-    createElement(Panel, { tool: catalogTool("ai-extract") }),
+    createElement(
+      InToolPage,
+      { tool: catalogTool("ai-extract") },
+      createElement(Panel, { tool: catalogTool("ai-extract") }),
+    ),
   );
   await screen.findByRole("textbox", { name: "Field 1 name" });
   const schemaMode = panelText(container);

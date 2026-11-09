@@ -94,6 +94,14 @@ export interface HandoffMeta {
   readonly origin: HandoffOrigin;
   readonly trail?: readonly string[];
   readonly pending?: PendingStep;
+  /**
+   * Display names for the tools the receiving page will name: each trail
+   * step and the tool a result, remedy or hint came from. Written by the
+   * creator, which can look them up (`launchWithFiles`), so the receiving
+   * page names them without a table of every tool's name in its first load
+   * (2026-11-09; see `HANDOFF_RECORD_VERSION` in `./record`).
+   */
+  readonly names?: Readonly<Record<string, string>>;
 }
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -147,6 +155,29 @@ export function readOrigin(raw: unknown): HandoffOrigin {
 export function readTrail(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter(isSlug).slice(-MAX_TRAIL);
+}
+
+/** The longest display name a record may carry for one tool. */
+const MAX_NAME = 80;
+
+/**
+ * The display names of a stored record: slug → name, for well-formed
+ * slugs and short non-empty names only. A record written before names were
+ * carried has none, and reads as `{}`; so does a malformed value.
+ */
+export function readNames(raw: unknown): Record<string, string> {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {};
+  const out: Record<string, string> = {};
+  for (const [slug, name] of Object.entries(raw as Record<string, unknown>)) {
+    if (
+      isSlug(slug) &&
+      typeof name === "string" &&
+      name.trim() !== "" &&
+      name.length <= MAX_NAME
+    )
+      out[slug] = name;
+  }
+  return out;
 }
 
 /** A stored pending step, or null when there is none or it is malformed. */

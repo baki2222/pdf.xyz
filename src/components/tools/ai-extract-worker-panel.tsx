@@ -1,5 +1,6 @@
 "use client";
 
+import { usePickRefusal } from "@/components/tools/use-pick";
 import { useCallback, useEffect, useId, useState } from "react";
 import {
   Download,
@@ -50,7 +51,7 @@ import {
 import { buttonVariants } from "@/components/ui/button";
 import { TruncationNotice } from "./truncation-notice";
 import type { Tool } from "@/lib/tools/types";
-import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
+import type { PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import {
   DownloadCta,
@@ -99,6 +100,7 @@ import {
 const STATUS_SLOT = "min-h-[25rem] sm:min-h-[17.5rem] lg:min-h-[20rem]";
 
 export function AiExtractWorkerPanel({ tool }: { tool: Tool }) {
+  const pickRefuse = usePickRefusal(tool);
   return (
     <WorkerPanelShell
       tool={tool}
@@ -136,10 +138,7 @@ export function AiExtractWorkerPanel({ tool }: { tool: Tool }) {
         },
       ]}
     >
-      <AiExtractBuilder
-        tool={tool}
-        refuse={(file) => pickRefusal(tool, file)}
-      />
+      <AiExtractBuilder tool={tool} refuse={pickRefuse} />
     </WorkerPanelShell>
   );
 }

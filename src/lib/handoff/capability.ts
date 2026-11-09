@@ -30,27 +30,28 @@
  *               takes no file at all (webpage-to-pdf takes a URL).
  */
 
-import { formatOf, toolAcceptsFormat } from "@/lib/intent/formats";
 import { getRunnerKind, type RunnerKind } from "@/lib/pdf/registry";
 import { getToolEntry } from "@/lib/tools/directory";
 import type { WorkerBatchSlug } from "@/lib/batch/tools";
+import {
+  capabilityOfMode,
+  filesTheToolOpens,
+  type FileMetaLike,
+  type HandoffCapability,
+  type HandoffMode,
+} from "./capability-core";
 
-export type HandoffMode = "collect" | "batch" | "single" | "stage" | "none";
-
-/** A mode that takes exactly one file: a single runner, or a staged panel. */
-export function takesOneFile(mode: HandoffMode): boolean {
-  return mode === "single" || mode === "stage";
-}
-
-export interface HandoffCapability {
-  mode: HandoffMode;
-  /** True when the tool can receive a handoff at all (`mode !== "none"`). */
-  supported: boolean;
-  /** Minimum files that make the handoff useful (informational). */
-  minFiles: number;
-  /** Max files the runner will consume from a handoff, when bounded. */
-  maxFiles?: number;
-}
+/*
+ * The shape and the per-tool rules live in `./capability-core`, which a tool
+ * page's first load uses with its OWN row, computed on the server; this
+ * module adds the tables that answer for any slug. Re-exported so every
+ * cross-tool caller keeps one import.
+ */
+export {
+  takesOneFile,
+  type HandoffCapability,
+  type HandoffMode,
+} from "./capability-core";
 
 /** Runner kind → handoff mode. Every live runner maps to exactly one mode. */
 const MODE_BY_KIND: Record<RunnerKind, HandoffMode> = {
@@ -92,14 +93,7 @@ const MODE_BY_KIND: Record<RunnerKind, HandoffMode> = {
 /** Resolve a tool slug to its handoff capability. */
 export function handoffCapabilityFor(slug: string): HandoffCapability {
   const kind = getRunnerKind(slug);
-  const mode = kind ? MODE_BY_KIND[kind] : stagedMode(slug);
-  if (takesOneFile(mode)) {
-    return { mode, supported: true, minFiles: 1, maxFiles: 1 };
-  }
-  if (mode === "collect" || mode === "batch") {
-    return { mode, supported: true, minFiles: mode === "collect" ? 2 : 1 };
-  }
-  return { mode: "none", supported: false, minFiles: 0, maxFiles: 0 };
+  return capabilityOfMode(kind ? MODE_BY_KIND[kind] : stagedMode(slug));
 }
 
 /**
@@ -116,7 +110,11 @@ export function handoffCapabilityFor(slug: string): HandoffCapability {
  * `capability.test.ts` holds the set to the registration in both directions.
  * The type is free; the literal is not: ~78 B gz on every tool page's first
  * load (measured 2026-11-09, recorded beside the tool-page budget in
- * `bundle-budget.test.ts`).
+ * `bundle-budget.test.ts`) — UNTIL the same day, when this module left the
+ * tool pages' first load (`./capability-core`; `lazy-chunks.test.ts` reads
+ * every tool page for this list), so the literal now costs only the
+ * surfaces that look up OTHER tools: the ticket, the workspace, a guide's
+ * desk and a result's next steps.
  */
 const WORKER_BATCHES: ReadonlySet<string> = new Set<WorkerBatchSlug>([
   "optimize-web",
@@ -146,12 +144,6 @@ function stagedMode(slug: string): HandoffMode {
   return WORKER_BATCHES.has(slug) ? "batch" : "stage";
 }
 
-/** The minimal file shape the eligibility filter needs. */
-interface FileMetaLike {
-  name: string;
-  type: string;
-}
-
 /**
  * Filter a list of files to those a tool's runner can actually open: the
  * files whose format — read by `formatOf`, the one recogniser — is in the
@@ -169,10 +161,7 @@ export function eligibleFilesFor<T extends FileMetaLike>(
   slug: string,
   files: T[],
 ): T[] {
-  if (!handoffCapabilityFor(slug).supported) return [];
   const accept = getToolEntry(slug)?.accept;
   if (!accept) return [];
-  return files.filter((file) =>
-    toolAcceptsFormat(accept, formatOf(file).format),
-  );
+  return filesTheToolOpens(accept, handoffCapabilityFor(slug), files);
 }

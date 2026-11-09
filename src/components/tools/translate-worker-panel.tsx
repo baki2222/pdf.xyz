@@ -1,5 +1,6 @@
 "use client";
 
+import { usePickRefusal } from "@/components/tools/use-pick";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
@@ -45,7 +46,7 @@ import {
 import { TruncationNotice } from "./truncation-notice";
 import { DeliveryNotice, deliverySummary } from "./delivery-notice";
 import type { Tool } from "@/lib/tools/types";
-import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
+import type { PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import {
   DownloadCta,
@@ -126,6 +127,7 @@ export function TranslateWorkerPanel({
   tool: Tool;
   extractText?: ExtractText;
 }) {
+  const pickRefuse = usePickRefusal(tool);
   return (
     <WorkerPanelShell
       tool={tool}
@@ -170,7 +172,7 @@ export function TranslateWorkerPanel({
       <TranslateBuilder
         tool={tool}
         extractText={extractText}
-        refuse={(file) => pickRefusal(tool, file)}
+        refuse={pickRefuse}
       />
     </WorkerPanelShell>
   );

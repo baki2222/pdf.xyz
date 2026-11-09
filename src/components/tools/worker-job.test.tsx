@@ -20,6 +20,7 @@
  * back rather than reported as an error, with a Cancel button while it runs
  * and a label that says it is waiting, not working.
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import {
@@ -158,7 +159,13 @@ describe.each(SUBJECTS.map((s) => [s.slug, s] as const))("%s", (slug, arm) => {
       JSON.stringify({ jobId: JOB_ID, expiresAt: Date.now() + 60_000 }),
     );
     const Panel = await panelComponent(arm);
-    render(createElement(Panel, { tool: catalogTool(slug) }));
+    render(
+      createElement(
+        InToolPage,
+        { tool: catalogTool(slug) },
+        createElement(Panel, { tool: catalogTool(slug) }),
+      ),
+    );
 
     const keep = await screen.findByRole("button", { name: /keep waiting/i });
     await act(async () => {
@@ -186,7 +193,13 @@ describe.each(SUBJECTS.map((s) => [s.slug, s] as const))("%s", (slug, arm) => {
       JSON.stringify({ jobId: JOB_ID, expiresAt: Date.now() + 60_000 }),
     );
     const Panel = await panelComponent(arm);
-    render(createElement(Panel, { tool: catalogTool(slug) }));
+    render(
+      createElement(
+        InToolPage,
+        { tool: catalogTool(slug) },
+        createElement(Panel, { tool: catalogTool(slug) }),
+      ),
+    );
     fireEvent.click(
       await screen.findByRole("button", { name: /cancel the job/i }),
     );
@@ -204,7 +217,13 @@ describe.each(SUBJECTS.map((s) => [s.slug, s] as const))("%s", (slug, arm) => {
   it("POSITIVE CONTROL: with nothing saved, nothing is offered", async () => {
     stub(slug);
     const Panel = await panelComponent(arm);
-    render(createElement(Panel, { tool: catalogTool(slug) }));
+    render(
+      createElement(
+        InToolPage,
+        { tool: catalogTool(slug) },
+        createElement(Panel, { tool: catalogTool(slug) }),
+      ),
+    );
     // The run area is up (its status line has resolved)…
     await waitFor(() =>
       expect(document.body.textContent ?? "").not.toMatch(
@@ -222,7 +241,13 @@ describe.each(SUBJECTS.map((s) => [s.slug, s] as const))("%s", (slug, arm) => {
       JSON.stringify({ jobId: JOB_ID, expiresAt: Date.now() - 1 }),
     );
     const Panel = await panelComponent(arm);
-    render(createElement(Panel, { tool: catalogTool(slug) }));
+    render(
+      createElement(
+        InToolPage,
+        { tool: catalogTool(slug) },
+        createElement(Panel, { tool: catalogTool(slug) }),
+      ),
+    );
     await waitFor(() =>
       expect(document.body.textContent ?? "").not.toMatch(
         /Checking our secure server/,
@@ -273,7 +298,13 @@ describe("a fresh run, end to end (Extract Tables)", () => {
     );
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const Panel = await panelComponent(arm);
-    render(createElement(Panel, { tool: catalogTool("extract-tables") }));
+    render(
+      createElement(
+        InToolPage,
+        { tool: catalogTool("extract-tables") },
+        createElement(Panel, { tool: catalogTool("extract-tables") }),
+      ),
+    );
     const advance = async (ms: number) => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(ms);
@@ -364,7 +395,13 @@ describe("a fresh run, end to end (Extract Tables)", () => {
       ),
     );
     const Panel = await panelComponent(arm);
-    render(createElement(Panel, { tool: catalogTool("extract-tables") }));
+    render(
+      createElement(
+        InToolPage,
+        { tool: catalogTool("extract-tables") },
+        createElement(Panel, { tool: catalogTool("extract-tables") }),
+      ),
+    );
     const input = await waitFor(() => {
       const found = readyFileInput();
       if (!found) throw new Error("no input");

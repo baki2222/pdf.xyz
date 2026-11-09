@@ -1,5 +1,6 @@
 "use client";
 
+import { usePickRefusal } from "@/components/tools/use-pick";
 import {
   useEffect,
   useId,
@@ -28,7 +29,6 @@ import {
 } from "@/lib/batch/worker-copy";
 import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
 import type { Tool } from "@/lib/tools/types";
-import { pickRefusal } from "@/lib/uploads/pick-check";
 import {
   resumeSecurityJob,
   type PdfSecurityWorkerSuccess,
@@ -187,6 +187,7 @@ export function WorkerBatchRunner({
   rowNote,
   bundleRows = false,
 }: WorkerBatchRunnerProps) {
+  const pickRefuse = usePickRefusal(tool);
   // A page that mounts this for a tool with no registration is a bug in
   // the page, said loudly (below, after every hook).
   const slug = tool.slug as WorkerBatchSlug;
@@ -200,7 +201,7 @@ export function WorkerBatchRunner({
     const taken: File[] = [];
     const refused: BatchRejection<File>[] = [];
     for (const file of files) {
-      const why = pickRefusal(tool, file);
+      const why = pickRefuse(file);
       if (why === null) taken.push(file);
       else refused.push({ file, reason: why });
     }
@@ -213,7 +214,7 @@ export function WorkerBatchRunner({
       accepted: capped.accepted,
       rejected: [...refused, ...capped.rejected],
     };
-  }, [files, tool]);
+  }, [files, tool, pickRefuse]);
   const units = useMemo<BatchUnit[]>(
     () =>
       accepted.map((file, i) => ({

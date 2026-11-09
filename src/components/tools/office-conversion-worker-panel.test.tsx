@@ -14,6 +14,7 @@
  * rule 1): every sentence the panel shipped is caught by some pattern, and
  * every pattern catches some shipped sentence.
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   cleanup,
@@ -87,7 +88,11 @@ async function renderWith(status: WorkerStatus, slug: string) {
     "fetch",
     vi.fn(async () => ({ ok: true, status: 200, json: async () => status })),
   );
-  const view = render(<OfficeConversionWorkerPanel tool={tool(slug)} />);
+  const view = render(
+    <InToolPage tool={tool(slug)}>
+      <OfficeConversionWorkerPanel tool={tool(slug)} />
+    </InToolPage>,
+  );
   const slot = view.container.querySelector('[data-slot="worker-status"]')!;
   const state = status === OFF ? "off" : "run";
   await waitFor(() => expect(slot.getAttribute("data-state")).toBe(state));
@@ -204,7 +209,11 @@ describe("Excel to PDF: the layout controls reach the job", () => {
   async function pick(slug: string, filename: string) {
     resetWorkerStatusForTests({ sleep: () => Promise.resolve() });
     const network = stubJobNetwork(READY);
-    render(<OfficeConversionWorkerPanel tool={tool(slug)} />);
+    render(
+      <InToolPage tool={tool(slug)}>
+        <OfficeConversionWorkerPanel tool={tool(slug)} />
+      </InToolPage>,
+    );
     const input = await waitFor(() => {
       const el = document.querySelector<HTMLInputElement>('input[type="file"]');
       expect(el).not.toBeNull();

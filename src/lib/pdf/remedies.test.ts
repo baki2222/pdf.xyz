@@ -26,12 +26,13 @@ import { getToolBySlug } from "@/lib/tools";
 import { PDF_ENGINE_ERROR_KINDS } from "./engine";
 import { UNLOCK_TOOL_HREF, UNLOCK_TOOL_NAME } from "./encryption";
 import {
+  REMEDY_TARGETS,
   REPAIR_TOOL_NAME,
   UPLOAD_CLAUSE,
   causeOf,
-  remedyCarries,
   remedyFor,
   type RemedyInput,
+  type RemedyTarget,
 } from "./remedies";
 
 const VERDICTS = ["needs-password", "opens-without-password", null] as const;
@@ -113,13 +114,55 @@ describe("every refusal the engine can name has a decision", () => {
     },
   );
 
-  it("positive control: a remedy whose target took no hand-off would not carry", () => {
-    // `carries` is read from the capability, never typed: a target with no
-    // way to receive the file keeps the old link and its old sentence.
+  /*
+   * INVERTED 2026-11-09 (perf/per-tool-first-load). WAS "positive control: a
+   * remedy whose target took no hand-off would not carry", over
+   * `remedyCarries(slug)` — `carries` was READ from the capability, never
+   * typed, so `remedyCarries("webpage-to-pdf")` was false. Reading it put
+   * the capability tables and the tool directory in every tool page's first
+   * load, so each target is now a typed row (`REMEDY_TARGETS`), and the
+   * relationship that used to be computed is pinned here instead: every
+   * field of every row equals what the catalogue and the capability say.
+   * The control is kept: the same comparison must reject a row that claims
+   * a URL tool takes the file.
+   */
+  const disagreements = (slug: string, row: RemedyTarget): string[] => {
+    const tool = getToolBySlug(slug);
+    const out: string[] = [];
+    if (tool?.name !== row.name) out.push(`name ${row.name} vs ${tool?.name}`);
+    if (tool?.processing !== row.processing)
+      out.push(`processing ${row.processing} vs ${tool?.processing}`);
+    if (handoffCapabilityFor(slug).supported !== row.carries)
+      out.push(`carries ${row.carries}`);
+    return out;
+  };
+
+  it("every remedy target's row is what the catalogue and the capability say", () => {
+    const rows = Object.entries(REMEDY_TARGETS);
+    // Health: the two targets the switch below names, no fewer.
+    expect(rows.map(([slug]) => slug).sort()).toEqual([
+      "repair-pdf",
+      "unlock-pdf",
+    ]);
+    for (const [slug, row] of rows)
+      expect(disagreements(slug, row), slug).toEqual([]);
+  });
+
+  it("positive control: a row whose target took no hand-off is caught", () => {
     expect(
-      remedyCarries("webpage-to-pdf"),
+      disagreements("webpage-to-pdf", {
+        name: "Webpage to PDF",
+        processing: "server",
+        carries: true,
+      }),
       "webpage-to-pdf takes a URL, not a file",
-    ).toBe(false);
+    ).toContain("carries true");
+    expect(
+      disagreements("unlock-pdf", {
+        ...REMEDY_TARGETS["unlock-pdf"],
+        name: "Unlock",
+      }),
+    ).toHaveLength(1);
   });
 
   it("the names the copy uses are the catalogue's", () => {

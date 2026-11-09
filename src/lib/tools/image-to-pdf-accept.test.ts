@@ -29,7 +29,7 @@ import {
   type ImagePdfKind,
 } from "@/lib/pdf/image-to-pdf";
 import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
-import { converterToPdfFor } from "@/lib/uploads/pick-check";
+import { converterToPdfFor } from "@/lib/uploads/pick-facts";
 
 /** Every kind, exhaustively: adding one to the type breaks this line. */
 const KINDS = Object.keys({ jpg: true, png: true } satisfies Record<

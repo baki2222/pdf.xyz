@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { Info, Layers, Lock, ShieldCheck } from "lucide-react";
-import { getToolEntry } from "@/lib/tools/directory";
 import { editedOutputName } from "@/lib/pdf/edit";
 import { PrivacyLine } from "./stamp-controls";
 import { EditorRunner } from "./editor/editor-session";
@@ -70,16 +69,25 @@ function EditorFooter() {
 }
 
 /**
+ * The tools this runner's copy links to, named as the catalogue names them.
+ * WAS a lookup in the tool directory (`getToolEntry`), which put every
+ * tool's row in Edit PDF's first load for one link; since 2026-11-09 the
+ * names are here and `linked-tool-names.test.ts` holds each to the
+ * catalogue (a rename turns it red, as an unknown slug threw here before).
+ */
+export const EDIT_RUNNER_LINKED_TOOLS = {
+  "pdf-to-word": "PDF to Word",
+} as const;
+
+/**
  * A link to the tool that does what this one cannot, named as the catalogue
  * names it — a typed "Redact" stayed plain text on the page for months, and a
  * reader told to go elsewhere was given no way to get there.
  */
-function ToolLink({ slug }: { slug: string }) {
-  const tool = getToolEntry(slug);
-  if (!tool) throw new Error(`edit-runner links unknown tool "${slug}"`);
+function ToolLink({ slug }: { slug: keyof typeof EDIT_RUNNER_LINKED_TOOLS }) {
   return (
-    <Link href={`/tools/${tool.slug}`} className="font-semibold underline">
-      {tool.name}
+    <Link href={`/tools/${slug}`} className="font-semibold underline">
+      {EDIT_RUNNER_LINKED_TOOLS[slug]}
     </Link>
   );
 }

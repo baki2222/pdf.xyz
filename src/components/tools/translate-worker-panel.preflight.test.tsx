@@ -31,6 +31,7 @@
  * pdfjs build reaches the panel through its `extractText` seam instead of a
  * module mock.
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   fireEvent,
@@ -124,7 +125,9 @@ async function translate(
 ): Promise<JobNetwork> {
   const network = stubJobNetwork(READY, workerSays);
   render(
-    <TranslateWorkerPanel tool={translateTool} extractText={realExtract} />,
+    <InToolPage tool={translateTool}>
+      <TranslateWorkerPanel tool={translateTool} extractText={realExtract} />
+    </InToolPage>,
   );
   const run = await screen.findByRole("button", { name: /translate pdf/i });
   const input = document.querySelector('input[type="file"]');

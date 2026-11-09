@@ -144,7 +144,7 @@ async function mount(count: number) {
     type: "application/pdf",
   });
   const { container } = render(
-    withAppRouter(<PdfToImageRunner format="png" />),
+    withAppRouter(<PdfToImageRunner slug="pdf-to-png" />),
   );
   const input = container.querySelector<HTMLInputElement>('input[type="file"]');
   fireEvent.change(input!, { target: { files: [file] } });

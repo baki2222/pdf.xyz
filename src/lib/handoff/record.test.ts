@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_HANDOFF_TTL_MS,
+  HANDOFF_RECORD_VERSION,
   isHandoffExpired,
   makeHandoffRecord,
   summarizeHandoff,
   totalHandoffBytes,
 } from "./record";
-import { MAX_TRAIL } from "./origin";
+import { MAX_TRAIL, readNames } from "./origin";
 import type { HandoffFileEntry } from "./types";
 
 const WORKSPACE = { kind: "workspace" } as const;
@@ -142,5 +143,62 @@ describe("makeHandoffRecord — provenance (hand-off v2)", () => {
     });
     expect("trail" in bare).toBe(false);
     expect("pending" in bare).toBe(false);
+  });
+});
+
+/*
+ * Version 2 (2026-11-09, perf/per-tool-first-load): a record carries the
+ * display names of the tools the receiving page names, so that page needs
+ * no table of every tool's name in its first load. A record of version 1
+ * has none, and the claim fetches the directory for it (`claim.test.ts`).
+ */
+describe("makeHandoffRecord — names (record version 2)", () => {
+  it("stamps the version and carries the names it was given", () => {
+    const record = makeHandoffRecord({
+      id: "h_6",
+      toolSlug: "compress-pdf",
+      files: [],
+      now: 0,
+      origin: { kind: "result", fromSlug: "merge-pdf" },
+      trail: ["merge-pdf"],
+      names: { "merge-pdf": "Merge PDF" },
+    });
+    expect(record.v).toBe(HANDOFF_RECORD_VERSION);
+    expect(HANDOFF_RECORD_VERSION).toBe(2);
+    expect(record.names).toEqual({ "merge-pdf": "Merge PDF" });
+  });
+
+  it("omits an empty names map, but still stamps the version", () => {
+    const bare = makeHandoffRecord({
+      id: "h_7",
+      toolSlug: "compress-pdf",
+      files: [],
+      now: 0,
+      origin: WORKSPACE,
+      names: {},
+    });
+    expect("names" in bare).toBe(false);
+    expect(bare.v).toBe(HANDOFF_RECORD_VERSION);
+  });
+});
+
+describe("readNames", () => {
+  it("keeps well-formed slug → name pairs and nothing else", () => {
+    expect(
+      readNames({
+        "merge-pdf": "Merge PDF",
+        "Not A Slug": "x",
+        "rotate-pdf": "",
+        "split-pdf": 7,
+        "crop-pdf": "y".repeat(81),
+      }),
+    ).toEqual({ "merge-pdf": "Merge PDF" });
+  });
+
+  it("reads a record with no names, or a malformed value, as none", () => {
+    expect(readNames(undefined)).toEqual({});
+    expect(readNames(null)).toEqual({});
+    expect(readNames(["merge-pdf"])).toEqual({});
+    expect(readNames("Merge PDF")).toEqual({});
   });
 });

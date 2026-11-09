@@ -6,11 +6,10 @@ import {
   FolderInput,
   ShieldCheck,
 } from "lucide-react";
-import { originPhrase, type HandoffOrigin } from "@/lib/handoff";
+import { originPhrase, type HandoffOrigin } from "@/lib/handoff/origin";
 import { acceptNoun } from "@/lib/intent/accept-noun";
-import { getToolEntry } from "@/lib/tools/directory";
 import { Spinner } from "./runner-kit";
-import { useBringingFiles } from "./tool-context";
+import { useBringingFiles, useToolRun } from "./tool-context";
 import type { ToolHandoff } from "./use-tool-handoff";
 
 /**
@@ -56,7 +55,10 @@ export function HandoffProblem({
 }) {
   const noun = acceptNoun(handoff.accept);
   if (handoff.departed && handoff.status === "idle") {
-    const to = getToolEntry(handoff.departed.slug)?.name;
+    // Written with the departure by the launch (`@/lib/handoff/departure`);
+    // until 2026-11-09 looked up here in the tool directory, which rode
+    // every tool page's first load for it.
+    const to = handoff.departed.name;
     if (!to) return null;
     return (
       <div
@@ -118,7 +120,9 @@ export interface Arrival {
 /**
  * Emerald confirmation shown once files are preloaded from another page. The
  * first sentence is the record's origin (`originPhrase`); a result or remedy
- * names the tool it came from, read from the catalogue.
+ * names the tool it came from — the name the hand-off record carried, which
+ * the claim reported to the page's job (`ToolRun.names`). Until 2026-11-09
+ * it was read from the tool directory, in every tool page's first load.
  */
 export function HandoffLoadedBadge({
   origin,
@@ -139,11 +143,14 @@ export function HandoffLoadedBadge({
    */
   staged?: string | null;
 }) {
+  const names = useToolRun()?.names;
   const fromName =
     origin.kind === "result" ||
     origin.kind === "remedy" ||
     origin.kind === "hint"
-      ? (getToolEntry(origin.fromSlug)?.name ?? null)
+      ? names && Object.hasOwn(names, origin.fromSlug)
+        ? names[origin.fromSlug]!
+        : null
       : null;
   return (
     <p

@@ -13,6 +13,7 @@
  *   - a JPG or PNG is sent without straighten and turn, as on its own;
  *   - telemetry: one outcome per file.
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cleanup,
@@ -188,7 +189,11 @@ const outcomes = () =>
     .filter((n) => n === "tool_completed" || n === "tool_failed");
 
 async function drop(files: File[]) {
-  const view = render(<OcrWorkerPanel tool={tool} />);
+  const view = render(
+    <InToolPage tool={tool}>
+      <OcrWorkerPanel tool={tool} />
+    </InToolPage>,
+  );
   const input = await waitFor(() => {
     const el = document.querySelector<HTMLInputElement>('input[type="file"]');
     expect(el).not.toBeNull();
@@ -414,7 +419,11 @@ function Harness({ files }: { files: File[] }) {
 describe("OCR PDF's batch freezes its settings on Run", () => {
   it("a language changed while file 1 uploads reaches no later job body", async () => {
     const net = worker(statusWith(["eng", "spa", "fra"]), { holdPut: 1 });
-    render(<Harness files={[pdf("a"), pdf("b"), pdf("c")]} />);
+    render(
+      <InToolPage tool={tool}>
+        <Harness files={[pdf("a"), pdf("b"), pdf("c")]} />
+      </InToolPage>,
+    );
     fireEvent.click(await readyRun(3));
     await waitFor(() => expect(net.log).toContain("put 1"));
     // Mid-batch: the request the panel holds moves to Spanish.
@@ -432,7 +441,11 @@ describe("OCR PDF's batch freezes its settings on Run", () => {
 
   it("control: a change BEFORE Run is what every file is sent with", async () => {
     const net = worker(statusWith(["eng", "spa", "fra"]));
-    render(<Harness files={[pdf("a"), pdf("b")]} />);
+    render(
+      <InToolPage tool={tool}>
+        <Harness files={[pdf("a"), pdf("b")]} />
+      </InToolPage>,
+    );
     const run = await readyRun(2);
     fireEvent.change(screen.getByLabelText("Harness language"), {
       target: { value: "spa" },

@@ -1,4 +1,4 @@
-import { getToolInputKind } from "@/lib/jobs/capabilities";
+import { getToolInputKind } from "@/lib/jobs/tool-capability";
 import { JOB_LIMITS } from "@/lib/jobs/types";
 import { MAX_PDF_BYTES } from "@/lib/pdf/files";
 import { getRunnerKind, type RunnerKind } from "@/lib/pdf/registry";
@@ -6,6 +6,7 @@ import {
   WORKER_ENGINE_FILE_CEILINGS,
   workerFileCeilingBytes,
 } from "@/lib/workers/engine-file-ceilings";
+import { ceilingMegabytes, ceilingRefusal } from "./ceiling-message";
 import { MAX_IMAGE_BYTES, MAX_SOURCE_BYTES } from "./limits";
 import type { Tool } from "./types";
 
@@ -222,7 +223,7 @@ export function toolFileCeilingBytes(tool: Tool): number | null {
  */
 export function toolFileCeilingMb(tool: Tool): number | null {
   const bytes = toolFileCeilingBytes(tool);
-  return bytes === null ? null : Math.round(bytes / (1024 * 1024));
+  return bytes === null ? null : ceilingMegabytes(bytes);
 }
 
 /**
@@ -230,6 +231,12 @@ export function toolFileCeilingMb(tool: Tool): number | null {
  * uploads anything — the same figure the page states, so the refusal can
  * never disagree with the promise. `null` when the file fits (or the tool
  * takes no file).
+ *
+ * The panels themselves no longer call this (2026-11-09): the page hands
+ * them the ceiling as a number (`pickFactsFor`, `@/lib/uploads/pick-facts`)
+ * and `pickRefusal` says it in the same words (`ceilingRefusal`), so this
+ * module and its tables stay out of the worker pages' first load.
+ * `pick-facts.test.ts` holds the two to one answer for every worker tool.
  */
 export function fileOverCeilingMessage(
   tool: Tool,
@@ -237,7 +244,7 @@ export function fileOverCeilingMessage(
 ): string | null {
   const bytes = toolFileCeilingBytes(tool);
   if (bytes === null || size <= bytes) return null;
-  return `This file is larger than ${toolFileCeilingMb(tool)} MB, the most ${tool.name} accepts.`;
+  return ceilingRefusal(tool.name, bytes);
 }
 
 /**

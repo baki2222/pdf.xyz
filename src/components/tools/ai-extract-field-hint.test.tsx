@@ -15,6 +15,7 @@
  * reason it documents); what is asserted is the `POST /api/jobs` body — the
  * composed chain from the input to the wire, not the component's state.
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   cleanup,
@@ -43,7 +44,11 @@ async function runWith(name: string, hint: string | null) {
   // Health: the stubbed status really is one the panel runs on.
   expect(canRunAiExtract(READY_WORKER_STATUS)).toBe(true);
   const network = stubJobNetwork(READY_WORKER_STATUS);
-  const { container } = render(<AiExtractWorkerPanel tool={tool} />);
+  const { container } = render(
+    <InToolPage tool={tool}>
+      <AiExtractWorkerPanel tool={tool} />
+    </InToolPage>,
+  );
   fireEvent.change(
     await screen.findByRole("textbox", { name: "Field 1 name" }),
     { target: { value: name } },
@@ -100,7 +105,11 @@ describe("AI Data Extraction: a hint per field reaches the job", () => {
   }, 30_000);
 
   it("the hint stops at the contract's limit, so the worker never refuses it", async () => {
-    render(<AiExtractWorkerPanel tool={tool} />);
+    render(
+      <InToolPage tool={tool}>
+        <AiExtractWorkerPanel tool={tool} />
+      </InToolPage>,
+    );
     stubJobNetwork(READY_WORKER_STATUS);
     const hint = (await screen.findByRole("textbox", {
       name: "Field 1 hint",

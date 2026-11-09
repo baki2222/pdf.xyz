@@ -58,6 +58,16 @@ export interface HandoffRecord {
   trail?: string[];
   /** A step to take after the target tool, with any files set aside for it. */
   pending?: PendingStep;
+  /**
+   * The record's shape version (`HANDOFF_RECORD_VERSION` in `./record`).
+   * Absent on a record written before versions existed — version 1.
+   */
+  v?: number;
+  /**
+   * Version 2: display names for the trail's tools and the tool the files
+   * came from, slug → name, read through `readNames` (`./origin`).
+   */
+  names?: Record<string, string>;
 }
 
 /**

@@ -21,6 +21,7 @@
  * zone that is one branch of a condition leaves a target behind it, with
  * the zone's own `accept` and `refuse`) is `page-target-sites.test.ts`.
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import {
   act,
   fireEvent,
@@ -135,7 +136,9 @@ describe.each(SUBJECTS)("$name", { timeout: 30_000 }, ({ arm, tool }) => {
         <>
           <h1>{tool.name}</h1>
           <div data-tool-panel data-tool-name={tool.name}>
-            <Panel tool={tool} />
+            <InToolPage tool={tool}>
+              <Panel tool={tool} />
+            </InToolPage>
           </div>
           <DropLayer />
           <LiveRegion />

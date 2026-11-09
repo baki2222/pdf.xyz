@@ -2,10 +2,8 @@ import {
   declaredContentTypeFor,
   MIME_BY_FORMAT,
 } from "@/lib/jobs/mime-by-format";
-import { converterToPdf, formatOf } from "@/lib/intent/formats";
-import { TOOL_DIRECTORY } from "@/lib/tools/directory.generated";
-import type { ToolEntry } from "@/lib/tools/directory";
-import { fileOverCeilingMessage } from "@/lib/tools/file-ceilings";
+import { formatOf } from "@/lib/intent/formats";
+import { ceilingRefusal } from "@/lib/tools/ceiling-message";
 import type { Tool } from "@/lib/tools/types";
 import { extensionOf } from "./intake/families";
 
@@ -25,10 +23,36 @@ import { extensionOf } from "./intake/families";
  * content type the browser client declares for this filename
  * (`declaredContentTypeFor`) must be one of the MIME types the tool's
  * catalogue formats allow (`MIME_BY_FORMAT`), which is exactly what the
- * per-tool validator checks. The size test is `fileOverCeilingMessage`, the
- * figure the page states. So the pick cannot refuse a file the server would
- * take, or pass one it will refuse, without the other changing too.
+ * per-tool validator checks. The size test is the figure the page states
+ * (`toolFileCeilingBytes`), in `fileOverCeilingMessage`'s words
+ * (`ceilingRefusal`, one definition for both). So the pick cannot refuse a
+ * file the server would take, or pass one it will refuse, without the other
+ * changing too.
+ *
+ * WHAT THE PAGE HANDS IT, since 2026-11-09 (perf/per-tool-first-load): the
+ * tool's ceiling as a number and the converters a wrong file is pointed at,
+ * both computed on the server (`pickFactsFor`, `./pick-facts`) and read from
+ * the page's job (`ToolRun.pick`). This module used to compute them in the
+ * browser: the ceiling from every runner kind's table and every worker
+ * engine's tool list (`@/lib/tools/file-ceilings`), the converter from the
+ * whole tool directory — on every worker tool page's first load, for one
+ * number and one name. `pick-facts.test.ts` holds the server's facts to the
+ * old computation for every worker tool, and the message to the same words.
  */
+
+/**
+ * What the server page computed for the pick, for one tool: its ceiling in
+ * bytes (`toolFileCeilingBytes`; null when it takes no file), and for each
+ * file format a converter exists for, the tool that turns it into a PDF
+ * (`converterToPdfFor` — only for a tool that takes PDFs, the one case the
+ * message names a converter).
+ */
+export interface PickFacts {
+  readonly ceilingBytes: number | null;
+  readonly converters: Readonly<
+    Record<string, { readonly slug: string; readonly name: string }>
+  >;
+}
 
 /** What a panel hands its Dropzone: why a file is refused, or `null`. */
 export type PickRefusal = (file: File) => string | null;
@@ -42,22 +66,6 @@ function acceptedMimes(tool: Tool): Set<string> {
 function formatList(formats: readonly string[]): string {
   if (formats.length <= 1) return formats[0] ?? "";
   return `${formats.slice(0, -1).join(", ")} or ${formats[formats.length - 1]}`;
-}
-
-/**
- * The catalogue tool that turns a file of this name into a PDF, if any: one
- * that outputs PDF, does not itself take PDF, and accepts the file's format —
- * the tool whose OWN format it is first, so a .png is sent to PNG to PDF.
- *
- * The rule is `converterToPdf` in `@/lib/intent/formats`, the same one the
- * search's "No tool here opens HEIC photos" answer uses to name where a file
- * can go instead; this reads the format from the name the way every other
- * surface does.
- */
-export function converterToPdfFor(filename: string): ToolEntry | undefined {
-  // The directory, not the catalogue: this runs in the browser on every
-  // worker tool's pick, and the catalogue is ~9 KB gz of copy it never reads.
-  return converterToPdf(formatOf({ name: filename }).format, TOOL_DIRECTORY);
 }
 
 /** Is this the kind of file `tool` takes, by the rule the server applies? */
@@ -77,14 +85,22 @@ export function toolTakesFile(
 }
 
 /** The sentence for a file of the wrong kind, naming the converter when one exists. */
-export function wrongTypeMessage(tool: Tool, filename: string): string {
+export function wrongTypeMessage(
+  tool: Tool,
+  filename: string,
+  facts: PickFacts,
+): string {
   const pdfOnly = tool.accept.length === 1 && tool.accept[0] === "PDF";
   const head = pdfOnly
     ? `"${filename}" isn't a PDF — ${tool.name} works on PDF files.`
     : `"${filename}" isn't a file ${tool.name} takes — it works on ${formatList(tool.accept)} files.`;
-  const converter = tool.accept.includes("PDF")
-    ? converterToPdfFor(filename)
-    : undefined;
+  const format = formatOf({ name: filename }).format;
+  const converter =
+    tool.accept.includes("PDF") &&
+    format !== null &&
+    Object.hasOwn(facts.converters, format)
+      ? facts.converters[format]
+      : undefined;
   return converter && converter.slug !== tool.slug
     ? `${head} Turn it into a PDF with ${converter.name} first.`
     : head;
@@ -97,7 +113,11 @@ export function wrongTypeMessage(tool: Tool, filename: string): string {
 export function pickRefusal(
   tool: Tool,
   file: { name: string; type: string; size: number },
+  facts: PickFacts,
 ): string | null {
-  if (!toolTakesFile(tool, file)) return wrongTypeMessage(tool, file.name);
-  return fileOverCeilingMessage(tool, file.size);
+  if (!toolTakesFile(tool, file))
+    return wrongTypeMessage(tool, file.name, facts);
+  const bytes = facts.ceilingBytes;
+  if (bytes === null || file.size <= bytes) return null;
+  return ceilingRefusal(tool.name, bytes);
 }

@@ -12,7 +12,7 @@ import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { STAMP_PRODUCER } from "@/lib/pdf/stamp";
 import { modeUploadsFiles } from "@/lib/tools/processing-split";
-import { getToolCapability } from "@/lib/jobs/capabilities";
+import { getToolCapability } from "@/lib/jobs/tool-capability";
 
 /**
  * The size both file pickers refuse above, read through the same registry

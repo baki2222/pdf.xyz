@@ -1,5 +1,6 @@
 "use client";
 
+import { usePickFacts, usePickRefusal } from "@/components/tools/use-pick";
 import { Fragment, useCallback, useId, useState } from "react";
 import dynamic from "next/dynamic";
 import { Download, FileText, ShieldCheck, Timer } from "lucide-react";
@@ -14,9 +15,7 @@ import {
   type OfficeConversionWorkerResult,
 } from "@/lib/workers/office-conversion-client";
 import { downloadBytes } from "@/lib/pdf/browser";
-import { toolFileCeilingBytes } from "@/lib/tools/file-ceilings";
 import type { Tool } from "@/lib/tools/types";
-import { pickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import { OFFICE_CONVERSION_RUN_LABEL } from "@/lib/tools/office-run-label";
 import {
@@ -118,7 +117,11 @@ function formatsHint(tool: Tool): string {
 }
 
 export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
-  const ceilingBytes = toolFileCeilingBytes(tool);
+  // The ceiling the page computed on the server (`ToolRun.pick`): read
+  // here until 2026-11-09 through `toolFileCeilingBytes`, which brought every
+  // runner kind's ceiling and every worker engine's tool list into this
+  // page's first load for one number.
+  const ceilingBytes = usePickFacts(tool)?.ceilingBytes ?? null;
   const officeTool: OfficeTool = isOfficeTool(tool.slug)
     ? tool.slug
     : "word-to-pdf";
@@ -191,6 +194,7 @@ function OfficeRunArea({
   catalogTool: Tool;
   accept: string;
 }) {
+  const pickRefuse = usePickRefusal(catalogTool);
   const { available } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
   const [batch, setBatch] = useState<File[] | null>(null);
@@ -352,7 +356,7 @@ function OfficeRunArea({
           file={file}
           accept={accept}
           busy={busy}
-          refuse={(file) => pickRefusal(catalogTool, file)}
+          refuse={pickRefuse}
           onReplace={(files) => {
             setOutcome(null);
             setFile(files[0] ?? null);
@@ -376,7 +380,7 @@ function OfficeRunArea({
         <Dropzone
           pageTarget
           busy={busy}
-          refuse={(file) => pickRefusal(catalogTool, file)}
+          refuse={pickRefuse}
           onFiles={(files) => {
             // An over-ceiling or wrong-format file never gets here: `refuse`
             // turned it away at the pick, before it was read or uploaded.

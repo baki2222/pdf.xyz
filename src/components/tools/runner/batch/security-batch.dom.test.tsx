@@ -15,6 +15,7 @@
  *     text, or React state — and once the batch ends, not even a ref
  *     (`secretsHeldByReact` walks the fiber tree for them).
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cleanup,
@@ -193,7 +194,11 @@ async function drop(slug: "protect-pdf" | "unlock-pdf", files: File[]) {
   expect(canRunPdfSecurity(READY_WORKER_STATUS)).toBe(true);
   const tool = getToolBySlug(slug)!;
   leave = enterToolPage({ toolSlug: slug, capability: "secure-worker" });
-  const view = render(<PdfSecurityWorkerPanel tool={tool} />);
+  const view = render(
+    <InToolPage tool={tool}>
+      <PdfSecurityWorkerPanel tool={tool} />
+    </InToolPage>,
+  );
   const input = await waitFor(() => {
     const el = document.querySelector<HTMLInputElement>('input[type="file"]');
     expect(el).not.toBeNull();
@@ -621,7 +626,11 @@ describe("Unlock PDF's batch (batch plan P4)", () => {
       toolSlug: "unlock-pdf",
       capability: "secure-worker",
     });
-    const view = render(<PdfSecurityWorkerPanel tool={tool} />);
+    const view = render(
+      <InToolPage tool={tool}>
+        <PdfSecurityWorkerPanel tool={tool} />
+      </InToolPage>,
+    );
     type("Current password", FIRST);
     const input =
       document.querySelector<HTMLInputElement>('input[type="file"]')!;

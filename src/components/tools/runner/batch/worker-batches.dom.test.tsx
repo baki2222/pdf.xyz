@@ -19,6 +19,7 @@
  *     job client's own reporting is off for a batch's attempts;
  *   - nothing written to `useWorkerJob`'s sessionStorage resume key.
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   act,
@@ -259,7 +260,11 @@ async function dropTwo(slug: string, files?: File[]) {
   const tool = getToolBySlug(slug)!;
   leave = enterToolPage({ toolSlug: slug, capability: "secure-worker" });
   const Panel = await panelFor(slug);
-  const view = render(<Panel tool={tool} />);
+  const view = render(
+    <InToolPage tool={tool}>
+      <Panel tool={tool} />
+    </InToolPage>,
+  );
   const input = await waitFor(() => {
     const el = document.querySelector<HTMLInputElement>('input[type="file"]');
     expect(el).not.toBeNull();
@@ -553,7 +558,11 @@ describe("every registered worker batch, through its page's own panel", () => {
       const tool = getToolBySlug(slug)!;
       leave = enterToolPage({ toolSlug: slug, capability: "secure-worker" });
       const Panel = await panelFor(slug);
-      const view = render(<Panel tool={tool} />);
+      const view = render(
+        <InToolPage tool={tool}>
+          <Panel tool={tool} />
+        </InToolPage>,
+      );
       fireEvent.click(
         await screen.findByRole("button", { name: "Keep waiting" }),
       );

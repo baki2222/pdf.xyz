@@ -6,8 +6,8 @@
  * its own literal `accept`, which the guards that hold guides and page drops
  * to what a panel takes read from the source.
  */
+import { usePickRefusal } from "@/components/tools/use-pick";
 import type { Tool } from "@/lib/tools/types";
-import { pickRefusal } from "@/lib/uploads/pick-check";
 import { Dropzone } from "./runner/runner-kit";
 import { ChosenFileTarget } from "./chosen-file-target";
 
@@ -25,12 +25,13 @@ export function EpubFilePicker({
   /** Two or more books dropped at once: the batch (batch plan P3). */
   onMany: (files: File[]) => void;
 }) {
+  const pickRefuse = usePickRefusal(tool);
   return file ? (
     <ChosenFileTarget
       file={file}
       accept="application/epub+zip,.epub"
       busy={busy}
-      refuse={(file) => pickRefusal(tool, file)}
+      refuse={pickRefuse}
       onReplace={(files) => onFile(files[0] ?? null)}
     >
       <div className="border-line bg-wash text-fg rounded-ctl flex flex-wrap items-center justify-between gap-2 border px-3 py-2 text-sm">
@@ -48,7 +49,7 @@ export function EpubFilePicker({
     <Dropzone
       pageTarget
       busy={busy}
-      refuse={(file) => pickRefusal(tool, file)}
+      refuse={pickRefuse}
       onFiles={(files) =>
         // Never to the batch while a job runs (one resumed after a reload
         // has no file in hand, so this zone shows): a second job would

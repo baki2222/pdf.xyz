@@ -449,8 +449,41 @@ describe("the token travels in this tab, not in the address", () => {
       files: [pdf("a.pdf"), pdf("b.pdf")],
       origin: { kind: "result", fromSlug: "split-pdf" },
     });
-    expect(readDeparture()).toEqual({ slug: "merge-pdf", count: 2 });
+    // With its name since 2026-11-09, so Back names the tool without the
+    // tool directory in the page's first load.
+    expect(readDeparture()).toEqual({
+      slug: "merge-pdf",
+      name: "Merge PDF",
+      count: 2,
+    });
     expect((window.history.state as { __NA?: unknown }).__NA).toBe(true);
+  });
+
+  it("an entry noted before departures carried a name reads with name null", () => {
+    window.history.replaceState(
+      { pdfxyzWentOnTo: { slug: "merge-pdf", count: 1 } },
+      "",
+    );
+    expect(readDeparture()).toEqual({
+      slug: "merge-pdf",
+      name: null,
+      count: 1,
+    });
+  });
+
+  it("the record carries the names the receiving page shows (record version 2)", async () => {
+    await launch({
+      toolSlug: "compress-pdf",
+      files: [pdf("a.pdf")],
+      origin: { kind: "result", fromSlug: "rotate-pdf" },
+      trail: ["merge-pdf", "rotate-pdf"],
+    });
+    const record = await claimedFrom(pushed.at(-1)!);
+    expect(record?.v).toBe(2);
+    expect(record?.names).toEqual({
+      "merge-pdf": "Merge PDF",
+      "rotate-pdf": "Rotate PDF",
+    });
   });
 
   it("CONTROL: a plain launch (nothing travels) carries nothing and notes nothing", async () => {

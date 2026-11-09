@@ -1,5 +1,6 @@
 "use client";
 
+import { usePickFacts, usePickRefusal } from "@/components/tools/use-pick";
 import { RunReason } from "@/components/tools/runner/run-reason";
 import { useCallback, useEffect, useId, useState } from "react";
 import dynamic from "next/dynamic";
@@ -31,9 +32,7 @@ import {
   unbundledAssetsNote,
 } from "@/lib/workers/html-render/unbundled-assets";
 import { downloadBytes } from "@/lib/pdf/browser";
-import { toolFileCeilingBytes } from "@/lib/tools/file-ceilings";
 import type { Tool } from "@/lib/tools/types";
-import { pickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import {
   DownloadCta,
@@ -109,7 +108,11 @@ const modeOf = (slug: string): Mode =>
 export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
   const mode = modeOf(tool.slug);
   const Icon = mode === "url" ? Globe : mode === "epub" ? BookOpen : FileCode;
-  const ceilingBytes = toolFileCeilingBytes(tool);
+  // The ceiling the page computed on the server (`ToolRun.pick`): read
+  // here until 2026-11-09 through `toolFileCeilingBytes`, which brought every
+  // runner kind's ceiling and every worker engine's tool list into this
+  // page's first load for one number.
+  const ceilingBytes = usePickFacts(tool)?.ceilingBytes ?? null;
 
   return (
     <WorkerPanelShell
@@ -245,6 +248,7 @@ const BUSY: Record<Mode, { running: string }> = {
 };
 
 function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
+  const pickRefuse = usePickRefusal(tool);
   const RUN_LABEL = mode === "epub" ? CONVERT_LABEL : RENDER_LABEL;
   const { available, status } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
@@ -412,7 +416,7 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
             file={file}
             accept="text/html,.html,.htm"
             busy={busy}
-            refuse={(file) => pickRefusal(tool, file)}
+            refuse={pickRefuse}
             onReplace={(files) => {
               setOutcome(null);
               setFile(files[0] ?? null);
@@ -447,7 +451,7 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
       ) : (
         <Dropzone
           pageTarget
-          refuse={(file) => pickRefusal(tool, file)}
+          refuse={pickRefuse}
           onFiles={(files) => {
             // An over-ceiling or non-HTML file never gets here: `refuse`
             // turned it away at the pick, before it was read or uploaded.

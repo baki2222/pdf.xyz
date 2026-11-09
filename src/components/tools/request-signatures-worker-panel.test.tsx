@@ -10,6 +10,7 @@
  * LAST page, the input is clamped to the document, and the preview draws the
  * exact layout the request will carry.
  */
+import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cleanup,
@@ -72,7 +73,11 @@ afterEach(() => {
  * zone renders before the status answers, so the panel is all a test needs.
  */
 const TOOL = getToolBySlug("request-signatures")!;
-const Builder = () => <RequestSignaturesWorkerPanel tool={TOOL} />;
+const Builder = () => (
+  <InToolPage tool={TOOL}>
+    <RequestSignaturesWorkerPanel tool={TOOL} />
+  </InToolPage>
+);
 
 async function pdfFile(
   pages: number,

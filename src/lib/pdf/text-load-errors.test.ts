@@ -8,6 +8,7 @@ import {
 import { translateFailureMessage } from "@/components/tools/translate-worker-panel";
 import { getToolBySlug } from "@/lib/tools";
 import { pickRefusal } from "@/lib/uploads/pick-check";
+import { pickFactsFor } from "@/lib/uploads/pick-facts";
 import { PDF_NEEDS_PASSWORD_MESSAGE } from "./encryption";
 import {
   PdfEncryptedError,
@@ -115,22 +116,28 @@ describe("Translate says what actually happened (the composed chain)", () => {
   // cases it pinned are kept, against the function the panel now uses.
   it("a dropped non-PDF is refused at the pick, before any parse", () => {
     const translate = getToolBySlug("translate-pdf")!;
+    // The facts the page hands the panel (`toolRunInfoFor`, 2026-11-09).
+    const facts = pickFactsFor(translate);
     expect(
-      pickRefusal(translate, {
-        name: "letter.docx",
-        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        size: 10,
-      }),
+      pickRefusal(
+        translate,
+        {
+          name: "letter.docx",
+          type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          size: 10,
+        },
+        facts,
+      ),
     ).toMatch(/isn't a PDF/);
     expect(
-      pickRefusal(translate, {
-        name: "a.pdf",
-        type: "application/pdf",
-        size: 10,
-      }),
+      pickRefusal(
+        translate,
+        { name: "a.pdf", type: "application/pdf", size: 10 },
+        facts,
+      ),
     ).toBeNull();
     expect(
-      pickRefusal(translate, { name: "scan.PDF", type: "", size: 10 }),
+      pickRefusal(translate, { name: "scan.PDF", type: "", size: 10 }, facts),
     ).toBeNull();
   });
 });
