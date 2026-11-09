@@ -1,6 +1,7 @@
 import type { isolatePageContent as IsolatePageContent } from "./content-isolation";
 import type { PDFDict, PDFDocument, PDFEmbeddedPage, PDFPage } from "pdf-lib";
 import type { repairFieldTree } from "./form-tree";
+import { ANNOT_HIDDEN, ANNOT_NO_VIEW } from "./annot-flags";
 import { PdfDecodeBudgetError, asDecodeBudgetRefusal } from "./decode-budget";
 import { PdfEncryptedError, PdfEngineError } from "./engine";
 import { outputName } from "./files";
@@ -662,10 +663,6 @@ function hasNormalAppearance(lib: PdfLibModule, widget: PDFDict): boolean {
   const normal = ap.lookup(PDFName.of("N"));
   return normal instanceof PDFStream || normal instanceof PDFDict;
 }
-
-/** Annotation flags (PDF 32000 §12.5.3) that stop a viewer painting one. */
-const ANNOT_HIDDEN = 1 << 1;
-const ANNOT_NO_VIEW = 1 << 5;
 
 /**
  * Paint every visible annotation's normal appearance into the page's own

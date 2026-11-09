@@ -7,6 +7,12 @@ import type {
   PDFRef,
   PDFWidgetAnnotation,
 } from "pdf-lib";
+import {
+  ANNOT_HIDDEN,
+  ANNOT_NO_VIEW,
+  isDynamicXfa,
+  readXfa,
+} from "./annot-flags";
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import { repairFieldTree } from "./form-tree";
@@ -107,28 +113,6 @@ export function flattenDownloadName(
     : outputName(sourceName || "document", "resaved");
 }
 
-interface XfaState {
-  xfa: boolean;
-  needsRendering: boolean;
-}
-
-/**
- * Read the XFA state from the RAW catalog. This must run before
- * `doc.getForm()`, which deletes the XFA entry as a side effect — asking the
- * form API would always answer "no XFA".
- */
-function readXfa(doc: PDFDocument, lib: PdfLibModule): XfaState {
-  const { PDFBool, PDFDict, PDFName } = lib;
-  const acroForm = doc.catalog.lookup(PDFName.of("AcroForm"));
-  const xfa = acroForm instanceof PDFDict && acroForm.has(PDFName.of("XFA"));
-  const flag = doc.catalog.lookup(PDFName.of("NeedsRendering"));
-  return { xfa, needsRendering: flag instanceof PDFBool && flag.asBoolean() };
-}
-
-function isDynamicXfa(state: XfaState, fields: number): boolean {
-  return state.xfa && (state.needsRendering || fields === 0);
-}
-
 function signatureState(
   fields: readonly PDFField[],
   lib: PdfLibModule,
@@ -164,10 +148,6 @@ interface PlacedWidget {
   appearance: PDFRef | undefined;
   widget: PDFWidgetAnnotation;
 }
-
-/** Annotation flags (ISO 32000, 12.5.3): Hidden is bit 2, NoView bit 6. */
-const ANNOT_HIDDEN = 1 << 1;
-const ANNOT_NO_VIEW = 1 << 5;
 
 /**
  * Whether a reader shows this widget at all. A Hidden or NoView widget (a
