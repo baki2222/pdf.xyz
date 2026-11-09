@@ -61,8 +61,10 @@ export async function countPdfPagesDetailed(
     });
     // A page tree no engine could walk (no catalog, a cycle, a page pdf-lib
     // could not parse) is unparseable here too, not a count (`./page-tree`).
+    // A tree with no page in it is not damage: it is counted, as zero-pages.
     const { settlePageTree } = await tree;
-    if (!settlePageTree(lib, doc).ok) {
+    const verdict = settlePageTree(lib, doc);
+    if (!verdict.ok && verdict.reason !== "no-pages") {
       return { ok: false, unknown: "unparseable" };
     }
     return pageCountFromDoc(doc);
