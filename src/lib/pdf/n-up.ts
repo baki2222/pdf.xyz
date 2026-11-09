@@ -260,6 +260,11 @@ export async function nUpPdf(
       `Choose ${N_UP_COUNTS.slice(0, -1).join(", ")} or ${N_UP_COUNTS.at(-1)} pages per sheet.`,
     );
   }
+  // The field-tree repair `drawFieldValues` runs, requested WITH the parse:
+  // a chained await is a round trip of its own. A failed load never awaits
+  // it, so its rejection is marked handled here.
+  const formTree = import("./form-tree");
+  formTree.catch(() => {});
   const lib = await loadPdfLib();
   const source = await loadPdf(bytes);
   const pages = source.getPages();
@@ -285,7 +290,11 @@ export async function nUpPdf(
 
   const out = await lib.PDFDocument.create();
   // Values a viewer draws from /V alone get an appearance to bake first.
-  const undrawnFields = drawFieldValues(lib, source);
+  const undrawnFields = drawFieldValues(
+    lib,
+    source,
+    (await formTree).repairFieldTree,
+  );
   // A page with no content stream draws nothing; it still takes its cell.
   const drawable = pages
     .map((page, index) => {

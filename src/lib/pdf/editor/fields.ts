@@ -1,4 +1,5 @@
 import type { PDFDocument, PDFFont, PDFPage } from "pdf-lib";
+import type { repairFieldTree } from "../form-tree";
 import type { PdfLibModule } from "../pdf-lib";
 import { PdfEngineError } from "../engine";
 import { assertFormFieldTextDrawable } from "../unicode-font";
@@ -62,11 +63,24 @@ export interface FileField {
   widgets: FileFieldWidget[];
 }
 
+/**
+ * The field-tree repair (`../form-tree`), handed in by the caller, which
+ * loads it WITH the parse (`editor-export.ts`). Every function here that
+ * reaches pdf-lib's form API takes it and runs it first: pdf-lib walks the
+ * field tree by plain recursion, so a field whose /Kids names itself threw
+ * "Maximum call stack size exceeded" and a 30-level diamond hung the tab
+ * (res2-field-trees.test.ts). A tree too deep to repair throws the typed
+ * unreadable refusal from here, before any getForm().
+ */
+export type FieldTreeRepair = typeof repairFieldTree;
+
 /** Every field in the file's AcroForm, with where each of its widgets sits. */
 export function readFileFields(
   lib: PdfLibModule,
   doc: PDFDocument,
+  repair: FieldTreeRepair,
 ): FileField[] {
+  repair(lib, doc);
   let fields;
   try {
     fields = doc.getForm().getFields();
@@ -174,12 +188,14 @@ export function fillFileFields(
   doc: PDFDocument,
   values: Readonly<Record<string, FieldFill>>,
   font: PDFFont,
+  repair: FieldTreeRepair,
 ): number {
   const names = Object.keys(values);
   if (names.length === 0) return 0;
   assertFormFieldTextDrawable(
     Object.values(values).map((v) => (typeof v === "string" ? v : "")),
   );
+  repair(lib, doc);
   const form = doc.getForm();
   let filled = 0;
   for (const name of names) {
@@ -295,8 +311,10 @@ export function writeNewFields(
   frames: readonly ExportFrame[],
   fields: readonly FieldObject[],
   font: PDFFont,
+  repair: FieldTreeRepair,
 ): number {
   if (fields.length === 0) return 0;
+  repair(lib, doc);
   const form = doc.getForm();
   const existing = form.getFields().map((f) => f.getName());
   const issues = validateNewFields(fields, existing);

@@ -287,11 +287,20 @@ describe("PS-02 / STAMP-13: many pages sharing one content stream under the budg
   // for overlay); refused at EMBED_TOTAL_BYTES after, about 5 pages in.
   const shared = () =>
     sharedContentPdf("[/FlateDecode /FlateDecode]", reflate(zeroBomb(200)), 24);
+  // l01#20 / l01#13: the destination total fired, so the copy names the
+  // pages together at 1,024 MB. It used to blame "Overlay page 5" (or "This
+  // PDF") at 256 MB, a limit no single page here reached.
+  const TOTAL_COPY: Record<string, string> = {
+    nup: "The pages of this PDF together unpack to more than 1,024 MB, which is too large to process safely in your browser.",
+    "overlay-cycle":
+      "The overlay pages together unpack to more than 1,024 MB, which is too large to process safely in your browser.",
+  };
   for (const entry of ["nup", "overlay-cycle"]) {
     test(`PS-02 / STAMP-13: ${entry} refuses 24 pages that all name one 200 MiB stream`, async () => {
       const started = Date.now();
       const r = settled(await run(entry, shared(), 120_000));
       expect(r.error).toBe("PdfDecodeBudgetError");
+      expect(r.message).toBe(TOTAL_COPY[entry]);
       expect(r.growthMb).toBeLessThan(REFUSED_BOMB_MB);
       // Refused once EMBED_TOTAL_BYTES is spent (about 5 pages; measured
       // 8-9 s), not after 24 (43-50 s).
@@ -350,6 +359,17 @@ describe("STAMP-12: many object streams, each under the budget", () => {
     }, 90_000);
   }
 
+  // l03#49: the overlay's loader rethrew every refusal but encryption as
+  // "The overlay file couldn't be read as a PDF", so a bomb read as damage.
+  test("STAMP-12: as the overlay, the refusal is the budget's, naming the overlay PDF", async () => {
+    const r = settled(await run("overlay", hostile()));
+    expect(r.error).toBe("PdfDecodeBudgetError");
+    expect(r.message).toBe(
+      `The overlay PDF holds compressed data that unpacks to more than ${BUDGET_MB} MB, which is too large to process safely in your browser.`,
+    );
+    expect(r.growthMb).toBeLessThan(REFUSED_BOMB_MB);
+  }, 90_000);
+
   test("STAMP-12: positive control: 2 object streams of 100 MiB (200 MiB in all) still load", async () => {
     const r = settled(await run("load", manyObjStmPdf(2, 100)));
     expect(r.ok).toEqual({ pages: 1 });
@@ -399,6 +419,42 @@ describe("CO-07: extract-images bounds decoded bytes", () => {
     // 256 MiB / 60 MiB: pages 1-4 scanned (the 5th gets the last 16 MiB).
     expect(unchecked.map((s) => s.page)).toEqual([6, 7, 8, 9, 10]);
     expect(Date.now() - started).toBeLessThan(30_000);
+  }, 90_000);
+
+  // l01#11 / l01#17: page 5 below gets only the last 16 MiB of the 256 MiB
+  // total, and its note said "Page content too large to check for inline
+  // images", although its 60 MiB stream is under the 64 MiB per-stream cap.
+  // The cap that bit was the file's total; the note now says so.
+  test("CO-07: a page cut short by the file's total says so, not that it is too large", async () => {
+    const pages = 5;
+    const kids = Array.from({ length: pages }, (_, i) => `${3 + i} 0 R`);
+    const objects = [
+      "<< /Type /Catalog /Pages 2 0 R >>",
+      `<< /Type /Pages /Kids [${kids.join(" ")}] /Count ${pages} >>`,
+      ...Array.from(
+        { length: pages },
+        (_, i) =>
+          `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents ${3 + pages + i} 0 R >>`,
+      ),
+      // Distinct streams (each its own object), 60 MiB decoded each.
+      ...Array.from({ length: pages }, () => ({
+        dict: "/Filter [/FlateDecode /FlateDecode]",
+        stream: reflate(zeroBomb(60)),
+      })),
+    ];
+    const r = settled(await run("extract", rawPdf({ objects })));
+    const skipped = (r.ok as { skipped: { page: number; reason: string }[] })
+      .skipped;
+    expect(skipped).toEqual([
+      {
+        page: 5,
+        filter: "FlateDecode, FlateDecode",
+        reason:
+          "Partly checked for inline images: earlier pages used this file's 256 MB check allowance",
+      },
+    ]);
+    // Never more than is true: 256 MB (1e6) is within the real total.
+    expect(256e6).toBeLessThanOrEqual(4 * 64 * MiB);
   }, 90_000);
 
   test("CO-07: a 100-megapixel image is written as a compressed PNG, not 300 MB stored", async () => {

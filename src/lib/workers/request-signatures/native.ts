@@ -1,4 +1,5 @@
 import { PdfEngineError, UNREADABLE_PDF_MESSAGE } from "@/lib/pdf/engine";
+import { repairFieldTree } from "@/lib/pdf/form-tree";
 import { placeVisibleRect, visiblePageFrame } from "@/lib/pdf/page-frame";
 import { INK, loadPdf, stampProducer, toRgb } from "@/lib/pdf/stamp";
 import { loadPdfLib } from "@/lib/pdf/pdf-lib";
@@ -47,6 +48,10 @@ const inspect: PdfInspector = async (bytes) => {
     const { width, height } = visiblePageFrame(page);
     return { width, height };
   });
+  // pdf-lib's form API walks the field tree by recursion: a self-naming
+  // /Kids overflowed the stack and a diamond hung the job. Repaired first,
+  // outside the catch, so a tree too deep to repair is refused in words.
+  repairFieldTree(await loadPdfLib(), doc);
   let fieldNames: string[] = [];
   try {
     fieldNames = doc
@@ -83,6 +88,7 @@ const place: PdfFieldPlacer = async (bytes, fields) => {
     loadPdfLib(),
   ]);
   const pages = doc.getPages();
+  repairFieldTree(await loadPdfLib(), doc);
   const form = doc.getForm();
   const outline = toRgb(rgb, INK);
   for (const field of fields) {

@@ -1,6 +1,7 @@
 import type { isolatePageContent as IsolatePageContent } from "./content-isolation";
 import type { PDFDict, PDFDocument, PDFEmbeddedPage, PDFPage } from "pdf-lib";
-import { asDecodeBudgetRefusal } from "./decode-budget";
+import type { repairFieldTree } from "./form-tree";
+import { PdfDecodeBudgetError, asDecodeBudgetRefusal } from "./decode-budget";
 import { PdfEncryptedError, PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
@@ -499,7 +500,11 @@ async function embedOverlayPages(
     try {
       await page.embed();
     } catch (err) {
-      const tooLarge = asDecodeBudgetRefusal(err, `Overlay page ${index + 1}`);
+      const tooLarge = asDecodeBudgetRefusal(
+        err,
+        `Overlay page ${index + 1}`,
+        "The overlay pages",
+      );
       if (tooLarge) throw tooLarge;
       throw new PdfEngineError(
         `Overlay page ${index + 1} couldn't be applied — it may use features we can't process yet.` +
@@ -577,11 +582,23 @@ function sendNewestStreamToBack(lib: PdfLibModule, page: PDFPage): void {
  * stored appearance, if every widget has one, is still baked; only a field
  * left with a widget that has nothing to bake is named, for the caller to say
  * so.
+ *
+ * `repair` is the field-tree repair (`./form-tree`), which the caller loads
+ * WITH its parse and this runs before `getForm()`: pdf-lib walks the field
+ * tree by recursion, so a field whose /Kids named itself threw a bare
+ * "Maximum call stack size exceeded" out of n-up, and a diamond hung it
+ * (`res2-field-trees.test.ts`). A tree too deep to repair throws the typed
+ * unreadable refusal.
  */
-export function drawFieldValues(lib: PdfLibModule, doc: PDFDocument): string[] {
+export function drawFieldValues(
+  lib: PdfLibModule,
+  doc: PDFDocument,
+  repair: typeof repairFieldTree,
+): string[] {
   const { PDFBool, PDFDict, PDFName, PDFSignature } = lib;
   const { PDFDropdown, PDFOptionList, PDFTextField } = lib;
   if (!doc.catalog.lookupMaybe(PDFName.of("AcroForm"), PDFDict)) return [];
+  repair(lib, doc);
   const form = doc.getForm();
   const fields = form.getFields();
   const flag = form.acroForm.dict.lookup(PDFName.of("NeedAppearances"));
@@ -751,20 +768,39 @@ export function bakeAnnotationAppearances(
   }
 }
 
-/** Load the overlay document, mapping pdf-lib failures to overlay-specific copy. */
+/**
+ * Load the overlay document. Every refusal is the one the base file would
+ * get — the same class, the same `kind` (which telemetry's `failureCode`
+ * reads), the same cause — said about the right file. Flattening them all
+ * into "couldn't be read as a PDF" called a decode bomb damage and sent a
+ * page-tree refusal to telemetry as unprocessable_entity (l03#49).
+ */
 async function loadOverlay(bytes: Uint8Array) {
   try {
     return await loadPdf(bytes);
   } catch (err) {
-    // Same verdict as the base file would get, said about the right file.
     if (err instanceof PdfEncryptedError) {
-      throw new PdfEncryptedError(
-        err.verdict,
-        err.message.replace(/^This PDF/, "The overlay PDF"),
-      );
+      throw new PdfEncryptedError(err.verdict, aboutOverlay(err.message));
+    }
+    if (err instanceof PdfDecodeBudgetError) {
+      throw new PdfDecodeBudgetError("The overlay PDF", { cause: err });
+    }
+    if (err instanceof PdfEngineError) {
+      throw new PdfEngineError(aboutOverlay(err.message), {
+        kind: err.kind,
+        cause: err,
+      });
     }
     throw new PdfEngineError(
       "The overlay file couldn't be read as a PDF — it may be corrupted or not a PDF.",
     );
   }
+}
+
+/** A loader message about "this PDF" / "this file", said about the overlay. */
+function aboutOverlay(message: string): string {
+  return message
+    .replace(/^This PDF/, "The overlay PDF")
+    .replace(/^This file/, "The overlay file")
+    .replace(/ of this PDF /, " of the overlay PDF ");
 }
