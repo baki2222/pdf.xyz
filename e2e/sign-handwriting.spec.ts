@@ -8,7 +8,10 @@ import {
   SIGNATURE_STYLES,
   SIGNATURE_STYLE_LABEL,
 } from "../src/lib/pdf/offered-kinds";
-import { DEFAULT_SIGNATURE_STYLE } from "../src/lib/pdf/signature-style";
+import {
+  DEFAULT_SIGNATURE_STYLE,
+  isHandwritingStyle,
+} from "../src/lib/pdf/signature-style";
 import { HANDWRITING_FACES } from "../src/lib/pdf/handwriting";
 import { fontPackUrl } from "../src/lib/pdf/font-packs";
 import { cssLineHeightShowing } from "../src/lib/pdf/handwriting-metrics";
@@ -259,4 +262,42 @@ test("no style's preview clips the name, in its option or the large preview", as
     return el.scrollHeight - el.clientHeight;
   }, tallest);
   expect(clipped, `${tallest} at 1.4 em`).toBeGreaterThan(0);
+});
+
+/*
+ * Review of sign-pdf#1: the panel opens on Type, and showing Type fetched
+ * all four faces (~197 KB gzipped) the moment a file was opened — for a
+ * reader who then only draws too. Now only the picked style's face loads
+ * until a name is typed or the options are reached.
+ */
+test("a reader who goes straight to Draw fetches at most the default style's face", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  const fetched = handwritingRequests(page);
+  await page.goto("/tools/sign-pdf");
+  const input = fileInput(page);
+  await waitForHydration(input);
+  await input.setInputFiles({
+    name: "contract.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from(await makePdfBytes("contract", 1)),
+  });
+  await page.getByRole("tab", { name: "Draw" }).click();
+  await expect(page.getByRole("tab", { name: "Draw" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  // Give any eager fetch time to start.
+  await page.waitForTimeout(1500);
+  const allowed = isHandwritingStyle(DEFAULT_SIGNATURE_STYLE)
+    ? [fontPackUrl(HANDWRITING_FACES[DEFAULT_SIGNATURE_STYLE])]
+    : [];
+  expect([...new Set(fetched)].filter((u) => !allowed.includes(u))).toEqual([]);
+  // Positive control: the recorder sees the faces once a name is typed.
+  await page.getByRole("tab", { name: "Type" }).click();
+  await page.getByLabel("Your name").fill("Ada");
+  await expect
+    .poll(() => new Set(fetched).size)
+    .toBe(HANDWRITING_STYLES.length);
 });

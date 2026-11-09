@@ -7,10 +7,11 @@
  *  - one radio per style, named by its label, in the model's order, with
  *    `DEFAULT_SIGNATURE_STYLE` checked;
  *  - one tab stop, the arrows move the choice and the focus, wrapping;
- *  - a box of fixed size (`h-14`, 56 px: a 44 px target with room), so a face
- *    arriving late moves nothing;
- *  - the handwriting faces are registered as `FontFace`s when the Type tab
- *    is shown, and not when the module is merely loaded;
+ *  - a box of fixed size (`h-16`, 64 px: a 44 px target with room for the
+ *    tallest face's ink), so a face arriving late moves nothing;
+ *  - the picked style's face is registered as a `FontFace` when the Type tab
+ *    is shown, the rest once a name is typed, none when the module is merely
+ *    loaded;
  *  - each option previews in the face the PDF will get, and a face that
  *    lacks a letter of the name says which, under the group.
  */
@@ -86,11 +87,27 @@ function typeName(name: string) {
 }
 
 describe("the Style radio group", () => {
-  it("registers no face when the panel's module loads, and every handwriting face once the Type tab shows", async () => {
+  /*
+   * INVERTED (review of sign-pdf#1). Was "every handwriting face once the
+   * Type tab shows" — and the panel opens on Type, so all four faces were
+   * fetched the moment a file was opened, even for a reader who only draws,
+   * while a comment said the opposite. Now: the picked style's face when
+   * Type shows, every face once a name is typed or the options are reached.
+   */
+  it("registers no face when the panel's module loads, only the picked style's when Type shows, and every face once a name is typed", async () => {
     await import("./signature-panel");
     expect(constructed).toEqual([]);
     await panel(); // opens on Type
-    const families = HANDWRITING_STYLES.map((s) => `pdfxyz-hand-${s}`);
+    expect(isHandwritingStyle(DEFAULT_SIGNATURE_STYLE)).toBe(true);
+    const first = [handwritingFamily(DEFAULT_SIGNATURE_STYLE as never)];
+    await waitFor(() => expect(added).toEqual(first), { timeout: 20_000 });
+    // Draw and back: still only the one face.
+    fireEvent.click(screen.getByRole("tab", { name: "Draw" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Type" }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(added).toEqual(first);
+    typeName("Ada");
+    const families = HANDWRITING_STYLES.map(handwritingFamily);
     await waitFor(() => expect([...added].sort()).toEqual(families.sort()), {
       timeout: 20_000,
     });

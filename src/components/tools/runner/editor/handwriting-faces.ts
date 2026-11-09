@@ -13,8 +13,10 @@ import { createFaceMeasure, type Measure } from "@/lib/pdf/editor/text";
  * The handwriting faces on screen: the signature panel's previews and the
  * overlay's typed signatures, drawn with the very bytes the export embeds.
  *
- * Nothing here runs on page load. The panel asks for the faces when its Type
- * tab is shown, the overlay when a box in a handwriting style is on a page;
+ * Nothing here runs on page load. The panel asks for the picked style's face
+ * when its Type tab is shown and for the rest once a name is typed or the
+ * Style options are reached; the overlay when a box in a handwriting style
+ * is on a page;
  * both go through `loadFaceBytes`, the export's own byte cache, so a face
  * previewed and then exported is fetched once — from `fontPackUrl`, our own
  * origin, which the CSP's `connect-src 'self'` and `font-src 'self'` allow.

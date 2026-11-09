@@ -10,6 +10,7 @@ import {
   SIGNATURE_SOURCE_LABEL,
   SIGNATURE_STYLES,
   SIGNATURE_STYLE_LABEL,
+  type HandwritingStyle,
   type SignatureStyle,
 } from "@/lib/pdf/offered-kinds";
 import {
@@ -200,11 +201,14 @@ function StylePicker({
   name,
   ink,
   onPick,
+  onReach,
 }: {
   style: SignatureStyle;
   name: string;
   ink: string;
   onPick: (style: SignatureStyle) => void;
+  /** The reader is reaching for the options: fetch every face. */
+  onReach: () => void;
 }) {
   const note = handwritingFallbackNote(style, name);
   const sample = typedSignatureText(name.trim());
@@ -214,6 +218,8 @@ function StylePicker({
         role="radiogroup"
         aria-label="Style"
         className="grid grid-cols-2 gap-1.5 sm:grid-cols-3"
+        onPointerEnter={onReach}
+        onFocus={onReach}
       >
         {SIGNATURE_STYLES.map((s, at) => (
           <button
@@ -293,6 +299,10 @@ export function SignaturePanel({
   const [drawn, setDrawn] = useState<ImageSignature | null>(null);
   const [name, setName] = useState("");
   const [style, setStyle] = useState<SignatureStyle>(DEFAULT_SIGNATURE_STYLE);
+  // Set once the reader types a name or reaches for the Style options: from
+  // then on every handwriting face is fetched, so every option previews in
+  // its own face.
+  const [reachedStyles, setReachedStyles] = useState(false);
   // Bumped as each handwriting face arrives, so the previews redraw in it.
   const [, setFacesLoaded] = useState(0);
   const [ink, setInk] = useState<SignatureInk["hex"]>(SIGNATURE_INKS[0].hex);
@@ -324,13 +334,29 @@ export function SignaturePanel({
     [uploadedUrl],
   );
 
-  // The handwriting faces load when the Type tab is SHOWN — never with the
-  // page, and not for a reader who only draws. Each preview box has a fixed
+  // Which handwriting faces to fetch, and when — never with the page. The
+  // panel opens on Type, so showing it fetches only the face of the style
+  // that is picked (the default, Dancing Script, ~46 KB gzipped); the other faces
+  // wait until the reader types a name or reaches for the Style options
+  // (`reachedStyles`), so a reader who goes straight to Draw or Upload pays
+  // for one face, not four (review of sign-pdf#1). A saved typed signature's
+  // face loads with it, for its thumbnail. Each preview box has a fixed
   // size, so a face swapping in moves nothing.
+  const wantedFaces = useMemo(() => {
+    const wanted = new Set<HandwritingStyle>();
+    if (source === "type") {
+      if (isHandwritingStyle(style)) wanted.add(style);
+      if (reachedStyles) for (const s of HANDWRITING_STYLES) wanted.add(s);
+    }
+    for (const s of saved)
+      if (s.kind === "typed" && isHandwritingStyle(s.style))
+        wanted.add(s.style);
+    return [...wanted].sort().join(" ");
+  }, [source, style, reachedStyles, saved]);
   useEffect(() => {
-    if (source !== "type") return;
+    if (!wantedFaces) return;
     let alive = true;
-    for (const s of HANDWRITING_STYLES) {
+    for (const s of wantedFaces.split(" ") as HandwritingStyle[]) {
       void loadHandwritingFamily(s)
         .then(() => {
           if (alive) setFacesLoaded((n) => n + 1);
@@ -343,7 +369,7 @@ export function SignaturePanel({
     return () => {
       alive = false;
     };
-  }, [source]);
+  }, [wantedFaces]);
 
   // Re-prepare the upload when the paper toggle moves; only the latest lands.
   useEffect(() => {
@@ -611,10 +637,19 @@ export function SignaturePanel({
           <input
             id="editor-sign-name"
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => {
+              setName(e.target.value);
+              if (e.target.value.trim()) setReachedStyles(true);
+            }}
             className="border-line bg-canvas text-fg rounded-ctl h-11 border px-3 py-2 text-sm"
           />
-          <StylePicker style={style} name={name} ink={ink} onPick={setStyle} />
+          <StylePicker
+            style={style}
+            name={name}
+            ink={ink}
+            onPick={setStyle}
+            onReach={() => setReachedStyles(true)}
+          />
           {name.trim() && (
             // A reserved line: the face swapping in changes no height.
             <p

@@ -23,10 +23,12 @@ import {
  * stays one click away, and every saved signature keeps the style it was
  * saved with.
  *
- * The four faces were chosen for look AND weight: the panel previews every
- * style in its real face when the Type tab opens, so the set is one download
- * (352 KB, once, immutably cached). Great Vibes (445 KB) and Caveat (257 KB)
- * were the first picks and would have made it 892 KB.
+ * The four faces were chosen for look AND weight: once a name is typed (or
+ * the options are reached) the panel previews every style in its real face,
+ * so the set is one download (352 KB, ~197 KB gzipped, once, immutably
+ * cached); before that only the picked style's face is fetched. Great Vibes
+ * (445 KB) and Caveat (257 KB) were the first picks and would have made it
+ * 892 KB.
  */
 export const DEFAULT_SIGNATURE_STYLE: SignatureStyle = "dancing-script";
 
