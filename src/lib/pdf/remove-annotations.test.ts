@@ -436,7 +436,13 @@ describe("pop-ups and replies", () => {
     ).toBe(2);
   });
 
-  it("an /IRT cycle, and a chain longer than the hop limit, are kept and counted", async () => {
+  // INVERTED 2026-11-10 (review round 1). This was "an /IRT cycle, and a
+  // chain longer than the hop limit, are kept and counted", expecting
+  // repliesKept 4 with the cycle's two notes among them — and the panel then
+  // said they "could not be traced". A cycle IS traced completely: every
+  // member has been checked against what goes, none does, so it stays
+  // whatever is ticked. Only the chain past the hop limit is untraced.
+  it("an /IRT cycle is traced and kept uncounted; only a chain longer than the hop limit is counted", async () => {
     const doc = await PDFDocument.create();
     const page = doc.addPage([300, 300]);
     const ctx = doc.context;
@@ -472,8 +478,8 @@ describe("pop-ups and replies", () => {
       [],
     );
     expect(markersFound(result.bytes, ["CYCLEAq", "CYCLEBq"])).toHaveLength(2);
-    // The two cycle notes, and the two chain notes beyond the hop limit.
-    expect(result.repliesKept).toBe(4);
+    // Only the two chain notes beyond the hop limit (was 4, with the cycle).
+    expect(result.repliesKept).toBe(2);
     expect(result.kept.comments).toBe(4);
     expect(result.removed.comments).toBe(1 + MAX_REPLY_HOPS);
   });
