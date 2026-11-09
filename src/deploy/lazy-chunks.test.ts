@@ -791,8 +791,18 @@ describe("no tool page loads a table of every tool", () => {
  * changed chunks are 7384 and 5320, which hold the directory and the
  * registry). NOT measured on CI: 33.77 KB (34,580 B) keeps the same 35 B
  * over this machine's figure as the raise above, for CI's ~25 B gap.
+ *
+ * RAISED 33.77 -> 33.84 on 2026-11-10, for PDF Viewer, the 58th tool and
+ * the first new runner kind ('view') since the per-tool first load: the
+ * ticket carries its directory row, its registry row and its name, as for
+ * Booklet above. One machine (Windows), both from an empty .next, main
+ * ad23525e (a detached worktree, E:/wviewer-base) vs the branch: the eight
+ * counted chunks went 34,544 -> 34,614 B gzip -9 (+70; 7384 +28, 5320 -30,
+ * and the editor's page-layout and zoom steps moving to a shared module
+ * re-cut 6011/5878 into 6011/7047). NOT measured on CI: 33.84 KB (34,652 B)
+ * keeps 38 B over this machine's figure, for CI's ~25 B gap.
  */
-const TICKET_FETCH_GZ_KB = 33.77;
+const TICKET_FETCH_GZ_KB = 33.84;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));
