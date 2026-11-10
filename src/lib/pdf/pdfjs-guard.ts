@@ -29,6 +29,7 @@ import {
 import { KidsCounter } from "./pdf-scan-kids";
 import { MAX_DECODED_PIXELS } from "./pixel-ceiling";
 import { pdfjsPageCount } from "./pdfjs-num-pages";
+import { PDFJS_BOARD_MAX_PAGES } from "./pdfjs-board-limit";
 import { prescanXref } from "./xref-prescan";
 
 /**
@@ -233,13 +234,16 @@ export { pdfjsPageCount };
  * base (Windows, Node 24, `readPagesWithPdfjs`) 1,000 pages 0.67 s, 10,000
  * 2.9-5.4 s, 40,000 63.7 s.
  *
+ * The figure lives in `./pdfjs-board-limit`, so the tool pages state it
+ * without loading this module.
+ *
  * NOT bounded here: the runs that walk the whole document (text, images,
  * the batch runners, Compare, Auto-crop) fetch pages the same way, but one
  * at a time beside each page's own work and with progress shown, so on such
  * a file they are slow rather than silent. The batch runners never read this
  * board, so a file past the bound can reach them.
  */
-export const PDFJS_BOARD_MAX_PAGES = 10_000;
+export { PDFJS_BOARD_MAX_PAGES };
 
 /**
  * What one page-tree node costs pdf.js to expand, in pushed /Kids elements:

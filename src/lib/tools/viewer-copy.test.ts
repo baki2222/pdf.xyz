@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import content from "./content/pdf-viewer";
+import { PDFJS_BOARD_MAX_PAGES } from "@/lib/pdf/pdfjs-guard";
+import { BOARD_PAGE_LIMIT_SENTENCE } from "@/lib/pdf/pdfjs-board-limit";
 import { getToolBySlug, tools } from "@/lib/tools";
 import { CONTINUE_SHOWN, continueTargetsFor } from "@/lib/intent/next-steps";
 import { RUNNER_FILE_CEILINGS } from "./file-ceilings";
@@ -83,16 +85,25 @@ const BANS: {
     spares: ["Print draws each page as an image."],
   },
   {
-    claim: "a page count it can open",
-    pattern:
-      /up to [\d,]+ pages|[\d,]+[- ]page (?:documents?|files?|PDFs?)|unlimited pages|no page limit|any number of pages/i,
+    // INVERTED 2026-11-10, not deleted: this banned every page count while
+    // nothing enforced one. The board now refuses a file past
+    // PDFJS_BOARD_MAX_PAGES (pdfjs-guard), so that one figure — read from
+    // the constant — is a true claim the page must make
+    // (board-page-limit-claims.test.ts); any other figure, or "no limit",
+    // is still banned.
+    claim: "a page count it can open, other than the one the board enforces",
+    pattern: new RegExp(
+      String.raw`up to (?!${n(PDFJS_BOARD_MAX_PAGES)} pages)[\d,]+ pages|[\d,]+[- ]page (?:documents?|files?|PDFs?)|unlimited pages|no page limit|any number of pages`,
+      "i",
+    ),
     catches: [
       "Opens PDFs of up to 5,000 pages.",
+      `Opens PDFs of up to ${n(PDFJS_BOARD_MAX_PAGES * 10)} pages.`,
       "It handles 5,000-page documents.",
       "Unlimited pages.",
       "There is no page limit.",
     ],
-    spares: ["One print sends at most 50 pages."],
+    spares: ["One print sends at most 50 pages.", BOARD_PAGE_LIMIT_SENTENCE],
   },
   {
     claim: "every match highlighted (search stops at its cap)",

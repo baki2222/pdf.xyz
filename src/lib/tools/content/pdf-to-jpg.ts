@@ -1,4 +1,5 @@
 import type { ToolContent } from "./types";
+import { BOARD_PAGE_LIMIT_SENTENCE } from "@/lib/pdf/pdfjs-board-limit";
 import {
   DEFAULT_JPEG_QUALITY,
   DEFAULT_JPEG_QUALITY_ID,
@@ -158,7 +159,7 @@ const content: ToolContent = {
   intro: [
     `PDF to JPG paints the pages of your PDF — all of them, or only the ones you pick — onto a canvas with pdf.js and saves each one as a JPEG picture, in colour or in grayscale, with the page's built-in rotation applied. The renderer and its decoders for JPEG 2000 and JBIG2 images load from pdf.xyz itself, and all of the drawing and encoding is done by your own browser: the PDF is not uploaded.`,
     `There are ${RASTER_RESOLUTIONS.length} resolutions to choose from: ${presetList}. ${startSentence} Under ${JPEG_QUALITY_LABEL}, choose ${qualityChoices} out of 100; ${qualityDefault.label} is selected at the start, and this browser remembers the one you convert with. ${qualitySmallest.label} gives the lightest JPEGs for an upload limit, at the cost of some sharpness around text. Every JPEG has a white background, since JPEG cannot store transparency. A one-page PDF downloads as a single file (flyer.pdf becomes ${exampleSingle}). When more than one page is rendered they arrive as a ZIP: all pages of a ${EXAMPLE_PAGES}-page report.pdf become ${exampleZip}, holding ${exampleFirst} through ${exampleLast}, with page numbers zero-padded to the width of the page count so the images sort in reading order. Grayscale saves single-channel JPEGs, which are smaller than colour ones.`,
-    `It takes PDFs of up to ${maxMb} MB each, and two or more at once open as a batch. One that needs a password to open stops at the loading step, with a message saying it is password-protected. A PDF that opens without a password converts even if its author restricted printing or copying. When pdf.js fails to decode an embedded image, the result panel states how many images could not be decoded rather than leaving you to spot the gap yourself.`,
+    `It takes PDFs of up to ${maxMb} MB each, and two or more at once open as a batch. ${BOARD_PAGE_LIMIT_SENTENCE} One that needs a password to open stops at the loading step, with a message saying it is password-protected. A PDF that opens without a password converts even if its author restricted printing or copying. When pdf.js fails to decode an embedded image, the result panel states how many images could not be decoded rather than leaving you to spot the gap yourself.`,
   ],
 
   useCases: [
