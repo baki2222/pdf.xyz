@@ -1182,6 +1182,49 @@ const TOOL_PAGES_TO_COME = {
   //    when a file opens, in parallel with the engine and the parse
   //    (`prepare`): one more request on that page, no added round trip in
   //    series, and nothing at run time on the other two pages.
+  //
+  // RECOVERED, 2026-11-10: each page on a SHARED runner kind loads only its
+  // own editor (perf/lazy-variant-panels; `runner/lazy-panel.tsx`, guarded
+  // by src/deploy/variant-panels.test.ts). The n-up and metadata kinds'
+  // runner chunks held every variant's editor and engine; now each editor
+  // is its own chunk, fetched when a file opens beside the parse. Measured
+  // gzip -9 over each page's first-load chunks, main 7d5f43dc -> the
+  // branch, BOTH built in one detached worktree (E:/wlazyp-base) from an
+  // empty .next, so module ids agree (a first comparison across two trees
+  // read +127 on home where the truth is +53: the junctioned node_modules
+  // gave every module a different id), all 144 prerendered pages:
+  //  - tools/n-up-pdf and tools/booklet-pdf 248,700 -> 227,629 (-21,071):
+  //    the two editors, n-up.ts, booklet.ts and the overlay placement they
+  //    pulled in (base chunks 8061, 9794, 4909, 5429, 6772) leave; the kind
+  //    chunk keeps the two drop boxes (+2,040).
+  //  - tools/edit-pdf-metadata, remove-annotations and edit-pdf-bookmarks
+  //    245,932 -> 227,783 (-18,149): the metadata editor and engine, the
+  //    Remove Annotations panel and its group table (base chunk 2665), and
+  //    the stamp-controls font tables only the metadata editor's fields
+  //    reached (6772), leave.
+  //  - EVERY page +53: webpack's runtime 3,717 -> 3,770, whose chunk map
+  //    gains the new async chunks (four editors and the shared modules
+  //    re-cut around them). The G.1 four: ocr 233,648 -> 233,701, rotate
+  //    234,738 -> 234,791, merge 229,202 -> 229,255, summarize 234,445 ->
+  //    234,498. 121 pages are exactly +53.
+  //  - 18 other tool pages re-cut by splitChunks once those modules left the
+  //    shared groups: 13 smaller (redact -771, fill-forms -741, resize
+  //    -600, grayscale -540, watermark -504, flatten -453, scan -417,
+  //    overlay -380, annotate/create-forms/edit/sign -263, header-footer
+  //    -7) and 5 larger beyond the +53 (split-pdf-pages-in-half +123,
+  //    crop +92, jpg-to-pdf and png-to-pdf +42, page-numbers +9: chunk
+  //    boundaries moved, e.g. crop 9470 8,181 -> 6494 6,639 + 7152 4,779).
+  //  - WHY EVERY VARIANT, NOT ONLY THE SIBLINGS: leaving the default
+  //    editors (Multiple Pages per Sheet's, Edit PDF Metadata's) static
+  //    saves two chunk-map entries (~9 B each on every page) and keeps
+  //    them, with n-up.ts, the overlay placement, metadata.ts and the font
+  //    tables, in Booklet's, Remove Annotations' and Edit PDF Bookmarks'
+  //    first loads — the larger half of each saving above, on three pages,
+  //    for 18 B on 144.
+  // Nothing allocated: the +53 rides each row's headroom (the rows above
+  // are fixed figures), as every runtime entry since P6 has, and is stated
+  // here rather than netted against the recovered bytes, which are on
+  // pages that are not G.1 rows.
   unallocated:
     UNALLOCATED -
     NEW_TOOLS_2026_10_30 -
