@@ -32,11 +32,11 @@
  *    default). On a kind with two or more variants, a variant with no lazy
  *    editor is FATAL: its editor is static in a module every sibling loads.
  *  - a variant's modules: its editors, plus every module their value
- *    closure reaches that no sibling's closure reaches and that is not
- *    statically reachable from the route or the runner anyway (the engines
- *    — booklet.ts, metadata.ts — that rode along with the editors). The
- *    editors themselves are NEVER subtracted: a static import of one is the
- *    defect, and subtracting it would let the defect certify itself.
+ *    closure reaches that no sibling's closure reaches and that the
+ *    variant's OWN page does not load up front, read from its bytes (the
+ *    engines — booklet.ts, metadata.ts — that rode along with the editors).
+ *    The editors themselves are NEVER subtracted: a static import of one is
+ *    the defect, and subtracting it would let the defect certify itself.
  *
  * Which module a chunk carries is decided by markers (`src/tests/chunk-
  * markers.ts`, the per-page guard's instrument): all of a module's markers
@@ -54,7 +54,6 @@ import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
 import {
   ROOT,
   SRC,
-  TOOL_PAGE,
   ownPanelModules,
   parsedSource,
   rel,
@@ -118,45 +117,6 @@ function lazyEditors(file: string): string[] {
   };
   visit(parsedSource(file));
   return [...new Set(out)];
-}
-
-/** Modules `entry` reaches by STATIC value imports (no `import()`). */
-function staticClosure(entry: string): Set<string> {
-  const seen = new Set([entry]);
-  const queue = [entry];
-  while (queue.length) {
-    const file = queue.pop()!;
-    for (const stmt of parsedSource(file).statements) {
-      let spec: string | null = null;
-      if (
-        ts.isImportDeclaration(stmt) &&
-        ts.isStringLiteral(stmt.moduleSpecifier)
-      ) {
-        const c = stmt.importClause;
-        const typeOnly =
-          !!c &&
-          (c.isTypeOnly ||
-            (!c.name &&
-              !!c.namedBindings &&
-              ts.isNamedImports(c.namedBindings) &&
-              c.namedBindings.elements.length > 0 &&
-              c.namedBindings.elements.every((e) => e.isTypeOnly)));
-        if (!typeOnly) spec = stmt.moduleSpecifier.text;
-      } else if (
-        ts.isExportDeclaration(stmt) &&
-        !stmt.isTypeOnly &&
-        stmt.moduleSpecifier &&
-        ts.isStringLiteral(stmt.moduleSpecifier)
-      )
-        spec = stmt.moduleSpecifier.text;
-      const next = spec ? resolveSpecifier(file, spec) : null;
-      if (next && !seen.has(next)) {
-        seen.add(next);
-        queue.push(next);
-      }
-    }
-  }
-  return seen;
 }
 
 /** The variants of one shared kind, read off its runner module. */
@@ -257,11 +217,13 @@ function variantsOf(kind: string, slugs: string[], runner: string): Variant[] {
       throw new Error(
         `${rel(v.host)} draws ${v.slugs.join(", ")} with no lazily loaded editor — on a kind its siblings share, a static editor is in every sibling's first load`,
       );
-  // A variant's modules: its editors, and what only its editors reach.
-  const preloaded = new Set([
-    ...staticClosure(TOOL_PAGE),
-    ...staticClosure(runner),
-  ]);
+  // A variant's modules: its editors, and what only its editors reach. What
+  // the page loads up front anyway is dropped later, by BYTES (getCorpus):
+  // as first written this subtracted the route's static import closure, and
+  // that closure is mostly SERVER modules — the page's copy imports
+  // booklet.ts and metadata.ts for their labels — so both engines left the
+  // corpus while neither ships to the browser except with its editor
+  // (measured 2026-11-10: booklet-pdf's modules were its editor alone).
   const closures = variants.map(
     (v) => new Set(v.editors.flatMap((e) => valueClosure(e))),
   );
@@ -273,7 +235,7 @@ function variantsOf(kind: string, slugs: string[], runner: string): Variant[] {
       ...new Set([
         ...v.editors,
         ...[...closures[i]!].filter(
-          (m) => !others.has(m) && !preloaded.has(m) && !isTestFile(m),
+          (m) => !others.has(m) && !isTestFile(m) && m !== runner,
         ),
       ]),
     ];
@@ -309,6 +271,38 @@ function getCorpus(): Corpus {
     for (const m of v.modules)
       if (!markers.has(m))
         markers.set(m, markersOf(m, allSources, allChunks, MARKERS_PER_MODULE));
+  // A module some tool page OUTSIDE the kind loads up front is shared code
+  // (the shell, the site), so a sibling page loading it says nothing about
+  // this variant: dropped. Never an editor. NOT "a module the variant's own
+  // page loads", as first written: the kind's runner is in every one of its
+  // pages, so a variant's engine imported statically by the runner — the
+  // defect itself — is in the own page too, and that rule dropped it (a
+  // namespace import of booklet.ts in n-up-runner.tsx stayed green under
+  // it, 2026-11-10).
+  const runnerPages = prerenderedPages(NEXT_DIR).flatMap((html) => {
+    const slug = /^tools\/([^/]+)\.html$/.exec(html)?.[1];
+    const kind = slug === undefined ? undefined : getRunnerKind(slug);
+    return kind === undefined
+      ? []
+      : [{ kind, text: chunkFiles(NEXT_DIR, html).map(chunkText).join("\n") }];
+  });
+  for (const v of variants) {
+    const loads = runnerPages
+      .filter((p) => p.kind !== v.kind)
+      .map((p) => p.text);
+    if (loads.length < 20)
+      throw new Error(
+        `only ${loads.length} runner pages outside "${v.kind}" to tell shared code by — implausibly few`,
+      );
+    v.modules = v.modules.filter((m) => {
+      if (v.editors.includes(m)) return true;
+      const found = markers.get(m)!;
+      return !(
+        found.length >= 2 &&
+        loads.some((text) => found.every((t) => text.includes(t)))
+      );
+    });
+  }
   corpus = { shared, variants, markers };
   return corpus;
 }
