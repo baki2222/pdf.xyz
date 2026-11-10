@@ -228,9 +228,11 @@ export { pdfjsPageCount };
  * apart before the walk, so the bound is on pages: past it no tree shape can
  * cost more than this many pages squared, which is seconds.
  *
- * Tools that run on the whole document after the board (text, images) walk
- * the same way, but per page beside their own work and with progress shown;
- * a file past this bound never reaches them on a reader:'pdfjs' page.
+ * NOT bounded here: the runs that walk the whole document (text, images,
+ * the batch runners, Compare, Auto-crop) fetch pages the same way, but one
+ * at a time beside each page's own work and with progress shown, so on such
+ * a file they are slow rather than silent. The batch runners never read this
+ * board, so a file past the bound can reach them.
  */
 export const PDFJS_BOARD_MAX_PAGES = 10_000;
 
