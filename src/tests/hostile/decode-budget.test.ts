@@ -155,7 +155,8 @@ describe("STAMP-12: a decompression bomb in an object stream", () => {
   // Its objects cannot be read without inflating it, and a document written
   // without them would be missing whatever they held: refuse, typed.
   const bomb = objStmBomb(1 << 30);
-  for (const entry of ["load", "watermark"]) {
+  // "bookmarks" (2026-11-10): Edit PDF Bookmarks reads through loadPdf.
+  for (const entry of ["load", "watermark", "bookmarks"]) {
     test(`STAMP-12: ${entry} refuses a 1 GiB /ObjStm with the decode-budget error`, async () => {
       const r = settled(await run(entry, bomb));
       expect(r.error).toBe("PdfDecodeBudgetError");
@@ -371,7 +372,8 @@ describe("STAMP-12: many object streams, each under the budget", () => {
   // each stream passed its own check and load() inflated 2 GB (1 s per
   // 250 MiB, so a 1 MB file of these froze the tab for ~20 minutes).
   const hostile = () => manyObjStmPdf(20, 100);
-  for (const entry of ["load", "watermark"]) {
+  // "bookmarks" (2026-11-10): Edit PDF Bookmarks reads through loadPdf.
+  for (const entry of ["load", "watermark", "bookmarks"]) {
     test(`STAMP-12: ${entry} refuses 20 object streams of 100 MiB each (2 GB in all)`, async () => {
       const started = Date.now();
       const r = settled(await run(entry, hostile()));

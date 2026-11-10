@@ -31,6 +31,7 @@ import { RunBar } from "./run-bar";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import { PrivacyLine, SegmentedControl, TextField } from "./stamp-controls";
 import { RemoveAnnotationsRunner } from "./remove-annotations-editor";
+import { BookmarksRunner } from "./bookmarks-host";
 import { useToolRun } from "./tool-context";
 import type { LoadedPdf } from "./use-single-pdf";
 
@@ -49,14 +50,20 @@ export const METADATA_RUN_LABELS: Record<Action, string> = {
 };
 
 /**
- * The `metadata` runner kind's tools: Edit PDF Metadata, and Remove
- * Annotations (`remove-annotations-editor.tsx`), which shares the kind's
- * rows — one PDF, `MAX_PDF_BYTES`, read with pdf-lib, no mid-run fetch —
- * and is told apart here by its page's slug, not by a dispatcher arm.
+ * The `metadata` runner kind's tools: Edit PDF Metadata, Remove Annotations
+ * (`remove-annotations-editor.tsx`) and Edit PDF Bookmarks
+ * (`bookmarks-host.tsx`, whose editor loads with a file), which share the
+ * kind's rows — one PDF, `MAX_PDF_BYTES`, read with pdf-lib, no mid-run
+ * fetch — and are told apart here by their page's slug, not by a dispatcher
+ * arm.
  */
 export function MetadataRunner() {
-  if (useToolRun()?.slug === "remove-annotations") {
+  const slug = useToolRun()?.slug;
+  if (slug === "remove-annotations") {
     return <RemoveAnnotationsRunner />;
+  }
+  if (slug === "edit-pdf-bookmarks") {
+    return <BookmarksRunner />;
   }
   return (
     <SinglePdfRunner

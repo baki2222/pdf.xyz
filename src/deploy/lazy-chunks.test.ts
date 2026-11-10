@@ -827,8 +827,23 @@ describe("no tool page loads a table of every tool", () => {
  * eight counted chunks read 34,825 B (34.0088 KB). 34.06 KB is 34,877 B,
  * which is 52 B over that figure for CI's reading (25 B higher on the one
  * tree both read). Not measured on CI.
+ *
+ * On Edit PDF Bookmarks' own branch (merged later over PDF Viewer, which
+ * made it the 60th tool): RAISED 33.94 -> 34.11 for the bookmarks tool: the catalogue the ticket loads carries its row and keywords, as any
+ * new tool's does. On its branch (main f9c8f1d9, whose figure above is
+ * 34,711 B), one machine, from an empty .next: 34,879 B (34.0615 KB),
+ * +168 B, against Remove Annotations' +166. 34.11 KB is 34,928 B, 49 B over
+ * that figure for CI's reading (25 B higher on the one tree both read). Not
+ * measured on CI.
+ *
+ * RAISED 34.06 -> 34.23 on 2026-11-10, for Edit PDF Bookmarks, the 60th
+ * tool, on the MERGED tree (main b328fc8c with Booklet, Remove Annotations
+ * and PDF Viewer, plus bookmarks and its review fixes). One machine, from an
+ * empty .next: the eight counted chunks read 34,995 B (34.1748 KB). 34.23 KB
+ * is 35,052 B, which is 57 B over that figure for CI's reading (25 B higher
+ * on the one tree both read). Not measured on CI.
  */
-const TICKET_FETCH_GZ_KB = 34.06;
+const TICKET_FETCH_GZ_KB = 34.23;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));

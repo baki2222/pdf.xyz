@@ -16,6 +16,7 @@ import compressPdf from "./compress-pdf";
 import createForms from "./create-forms";
 import cropPdf from "./crop-pdf";
 import editPdf from "./edit-pdf";
+import editPdfBookmarks from "./edit-pdf-bookmarks";
 import editPdfMetadata from "./edit-pdf-metadata";
 import excelToPdf from "./excel-to-pdf";
 import extractImages from "./extract-images";
@@ -83,6 +84,7 @@ export const toolContent: Readonly<Record<string, ToolContent>> =
       createForms,
       cropPdf,
       editPdf,
+      editPdfBookmarks,
       editPdfMetadata,
       excelToPdf,
       extractImages,

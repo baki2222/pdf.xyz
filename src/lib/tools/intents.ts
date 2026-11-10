@@ -110,6 +110,7 @@ export const TASKS: readonly Task[] = [
   { label: "Trim the margins", slug: "crop-pdf" },
   { label: "Highlight a PDF", slug: "annotate-pdf" },
   { label: "Delete comments from a PDF", slug: "remove-annotations" },
+  { label: "Add bookmarks to a PDF", slug: "edit-pdf-bookmarks" },
   { label: "Add text to a PDF", slug: "edit-pdf" },
   { label: "Compare versions of a PDF", slug: "compare-pdf" },
   { label: "Keep a PDF for the long term", slug: "pdf-to-pdfa" },

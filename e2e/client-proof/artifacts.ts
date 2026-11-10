@@ -556,6 +556,65 @@ export async function pdfAnnotations(
   }
 }
 
+/** One bookmark as a viewer lists it: 1-based target page, or null. */
+export interface PdfOutlineItem {
+  title: string;
+  page: number | null;
+  kids?: PdfOutlineItem[];
+}
+
+/**
+ * The outline a viewer shows, read by pdfjs (`getOutline`), each
+ * destination resolved the way a click resolves it: a name through
+ * `getDestination`, a page reference through `getPageIndex`.
+ */
+export async function pdfOutline(buf: Buffer): Promise<PdfOutlineItem[]> {
+  expectMagic(buf, "pdf");
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const task = pdfjs.getDocument({
+    data: new Uint8Array(buf),
+    useWorkerFetch: false,
+    disableFontFace: true,
+    ...PDFJS_DOCUMENT_DEFAULTS,
+    ...pdfjsAssetOptions(),
+  });
+  try {
+    const doc = await task.promise;
+    const pageOf = async (dest: unknown): Promise<number | null> => {
+      const explicit =
+        typeof dest === "string" ? await doc.getDestination(dest) : dest;
+      if (!Array.isArray(explicit)) return null;
+      const target: unknown = explicit[0];
+      if (typeof target === "number") return target + 1;
+      if (!target || typeof target !== "object") return null;
+      try {
+        return (await doc.getPageIndex(target as never)) + 1;
+      } catch {
+        return null;
+      }
+    };
+    interface Item {
+      title: string;
+      dest: unknown;
+      items?: Item[];
+    }
+    const walk = async (items: Item[]): Promise<PdfOutlineItem[]> =>
+      Promise.all(
+        items.map(async (item) => ({
+          title: item.title,
+          page: item.dest ? await pageOf(item.dest) : null,
+          ...(item.items?.length ? { kids: await walk(item.items) } : {}),
+        })),
+      );
+    // AWAITED before `finally` destroys the task: a bare `return walk(…)`
+    // let destroy() run while getPageIndex calls were still pending, and
+    // they never settled (a 2-minute hang on the first served run).
+    return await walk(((await doc.getOutline()) ?? []) as Item[]);
+  } finally {
+    await task.destroy();
+  }
+}
+
 /* ------------------------------------------------------------------ *
  *  ZIP
  * ------------------------------------------------------------------ */
