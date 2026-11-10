@@ -158,15 +158,41 @@ export function movesFor(items: Tree, id: string) {
   const parent = at.slice(0, -1);
   let siblings = items;
   for (const i of parent) siblings = siblings[i]!.children;
-  const node = siblings[index]!;
-  // Indenting puts `id` (and what is below it) one level deeper.
-  const deepest = at.length + 1 + depthOf(node.children);
+  return movesAt(siblings[index]!, at.length, index, siblings.length);
+}
+
+/**
+ * What `node` can do from where it is: level `depth` (1 at the top), the
+ * `index`th of `siblings`. Everything a move depends on is local, so a row
+ * can ask without the whole tree.
+ */
+export function movesAt(
+  node: BookmarkNode,
+  depth: number,
+  index: number,
+  siblings: number,
+) {
+  // Indenting puts `node` (and what is below it) one level deeper.
+  const deepest = depth + 1 + depthOf(node.children);
   return {
     up: index > 0,
-    down: index < siblings.length - 1,
+    down: index < siblings - 1,
     indent: index > 0 && deepest <= BOOKMARK_DEPTH_MAX,
-    outdent: parent.length > 0,
+    outdent: depth > 1,
   };
+}
+
+/** The ids a reader sees, in order: nothing inside a closed bookmark. */
+export function visibleIds(items: Tree): string[] {
+  const out: string[] = [];
+  const walk = (list: Tree) => {
+    for (const n of list) {
+      out.push(n.id);
+      if (n.open) walk(n.children);
+    }
+  };
+  walk(items);
+  return out;
 }
 
 /** Swap `id` with the sibling before (`-1`) or after (`+1`) it. */

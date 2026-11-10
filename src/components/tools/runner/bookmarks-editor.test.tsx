@@ -8,6 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import { PDFName } from "pdf-lib";
+import { Profiler } from "react";
 import { resetAnnouncer } from "@/components/a11y/live-region";
 import type { BookmarkNode } from "@/lib/pdf/bookmark-tree";
 import { readOutlineTree } from "@/lib/pdf/bookmarks";
@@ -29,6 +30,9 @@ import { MetadataRunner } from "./metadata-runner";
  * read back from the saved copy — checked here against an independent
  * reading of the downloaded bytes, never against what was asked for.
  */
+
+/** The real engine reads and saves: under a loaded machine, more than 1 s. */
+const READ_WAIT = 15_000;
 
 let downloads: Blob[] = [];
 
@@ -101,7 +105,11 @@ async function mount(bytes: Uint8Array) {
       onReset={() => {}}
     />,
   );
-  await screen.findByRole("button", { name: BOOKMARK_ADD_LABEL });
+  await screen.findByRole(
+    "button",
+    { name: BOOKMARK_ADD_LABEL },
+    { timeout: READ_WAIT },
+  );
   return screen.queryByRole("list", { name: "Bookmarks" });
 }
 
@@ -122,9 +130,11 @@ const live = () =>
 
 async function save() {
   fireEvent.click(screen.getByRole("button", { name: BOOKMARK_RUN_LABEL }));
-  const panel = await screen.findByRole("group", {
-    name: new RegExp(BOOKMARK_RESULT_TITLE, "i"),
-  });
+  const panel = await screen.findByRole(
+    "group",
+    { name: new RegExp(BOOKMARK_RESULT_TITLE, "i") },
+    { timeout: READ_WAIT },
+  );
   return panel;
 }
 
@@ -246,11 +256,18 @@ describe("Edit PDF Bookmarks' panel", () => {
     fireEvent.change(page, { target: { value: "9" } });
     expect(page.getAttribute("aria-invalid")).toBe("true");
     fireEvent.blur(page);
-    expect(page.value).toBe("5");
+    // INVERTED (review round 1). This test once expected "5" here: leaving
+    // the field dropped the out-of-range draft and showed the old page with
+    // no error, so a reader who typed 30 in a 20-page file, digit by digit,
+    // was left on page 3 without a word. The typed value now stays, flagged.
+    expect(page.value).toBe("9");
+    expect(page.getAttribute("aria-invalid")).toBe("true");
     fireEvent.change(page, { target: { value: "" } });
+    fireEvent.blur(page);
     expect(page.value).toBe("");
     expect(page.placeholder).toBe("No page");
     fireEvent.change(page, { target: { value: "2" } });
+    fireEvent.blur(page);
     expect(page.value).toBe("2");
   });
 
@@ -276,6 +293,10 @@ describe("Edit PDF Bookmarks' panel", () => {
       {
         target: { value: "4" },
       },
+    );
+    // A typed page is committed when the field is left.
+    fireEvent.blur(
+      screen.getByRole("textbox", { name: "Page for “Index — 索引”" }),
     );
     fireEvent.click(
       within(more("Part C")).getByRole("button", { name: /^Indent/ }),
@@ -316,6 +337,183 @@ describe("Edit PDF Bookmarks' panel", () => {
     );
     expect(items).toContain("Bell Title");
     expect(items).not.toContain("Bell\u0007Title");
+  });
+
+  it("Indent and Outdent keep keyboard focus on the moved row's button", async () => {
+    await mount(await fixture());
+    const indentB = within(more("Part B")).getByRole("button", {
+      name: /^Indent/,
+    });
+    indentB.focus();
+    fireEvent.click(indentB);
+    expect(
+      screen.getByRole("textbox", { name: "Title, level 2, 3 of 3" }),
+    ).toHaveProperty("value", "Part B");
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement?.getAttribute("aria-label")).toBe(
+      "Indent: “Part B”",
+    );
+    const outdentB = screen.getByRole("button", { name: "Outdent: “Part B”" });
+    outdentB.focus();
+    fireEvent.click(outdentB);
+    expect(
+      screen.getByRole("textbox", { name: "Title, level 1, 2 of 3" }),
+    ).toHaveProperty("value", "Part B");
+    expect(document.activeElement?.getAttribute("aria-label")).toBe(
+      "Outdent: “Part B”",
+    );
+  });
+
+  it("deleting the last row after a collapsed one focuses that row's title, not a hidden child", async () => {
+    const doc = await blankPages(3);
+    addOutline(doc, [
+      {
+        title: "Alpha",
+        dest: fitDest(doc, 0),
+        open: false,
+        kids: [{ title: "Hidden kid", dest: fitDest(doc, 1) }],
+      },
+      { title: "Omega", dest: fitDest(doc, 2) },
+    ]);
+    await mount(await doc.save());
+    expect(titleInputs()).toEqual(["Alpha", "Omega"]);
+    fireEvent.click(
+      within(more("Omega")).getByRole("button", { name: "Delete: “Omega”" }),
+    );
+    expect(titleInputs()).toEqual(["Alpha"]);
+    expect(document.activeElement).toBe(
+      screen.getByRole("textbox", { name: "Title, level 1, 1 of 1" }),
+    );
+  });
+
+  it("a page typed digit by digit is not committed through a valid prefix; out of range stays flagged and blocks saving", async () => {
+    const doc = await blankPages(20);
+    addOutline(doc, [{ title: "Five", dest: fitDest(doc, 4) }]);
+    const bytes = await doc.save();
+    const file = new File([new Uint8Array(bytes)], "long.pdf", {
+      type: "application/pdf",
+    });
+    render(
+      <BookmarksEditor
+        pdf={{
+          file,
+          bytes,
+          pageCount: 20,
+          rotations: Array(20).fill(0),
+          digitalSignatures: 0,
+        }}
+        onReset={() => {}}
+      />,
+    );
+    await screen.findByRole(
+      "button",
+      { name: BOOKMARK_ADD_LABEL },
+      { timeout: READ_WAIT },
+    );
+    const page = screen.getByRole("textbox", {
+      name: "Page for “Five”",
+    }) as HTMLInputElement;
+    for (const v of ["", "3", "30"]) {
+      fireEvent.change(page, { target: { value: v } });
+    }
+    expect(page.getAttribute("aria-invalid")).toBe("true");
+    fireEvent.blur(page);
+    // Not silently page 3: the typed 30 stays on screen, flagged.
+    expect(page.value).toBe("30");
+    expect(page.getAttribute("aria-invalid")).toBe("true");
+    const run = screen.getByRole("button", { name: BOOKMARK_RUN_LABEL });
+    expect(run.getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByText(/A page number is outside 1 to 20/)).toBeTruthy();
+    // A valid page, typed and left, is one undo step back to the original.
+    fireEvent.change(page, { target: { value: "1" } });
+    fireEvent.change(page, { target: { value: "12" } });
+    fireEvent.blur(page);
+    expect(page.value).toBe("12");
+    expect(page.getAttribute("aria-invalid")).toBeNull();
+    expect(run.getAttribute("aria-disabled")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(page.value).toBe("5");
+    const panel = await save();
+    expect(panel).toBeTruthy();
+    expect(shape((await downloaded()).items)).toEqual([["Five", 5]]);
+  });
+
+  it("a keystroke in one title re-renders that row, not the whole list", async () => {
+    const doc = await blankPages(2);
+    addOutline(
+      doc,
+      Array.from({ length: 400 }, (_, i) => ({
+        title: `Item ${i + 1}`,
+        dest: fitDest(doc, i % 2),
+      })),
+    );
+    const bytes = await doc.save();
+    const file = new File([new Uint8Array(bytes)], "big.pdf", {
+      type: "application/pdf",
+    });
+    const commits: { actual: number; base: number }[] = [];
+    render(
+      <Profiler
+        id="editor"
+        onRender={(_id, _phase, actual, base) => commits.push({ actual, base })}
+      >
+        <BookmarksEditor
+          pdf={{
+            file,
+            bytes,
+            pageCount: 2,
+            rotations: [0, 0],
+            digitalSignatures: 0,
+          }}
+          onReset={() => {}}
+        />
+      </Profiler>,
+    );
+    await screen.findByRole(
+      "textbox",
+      { name: "Title, level 1, 1 of 400" },
+      { timeout: READ_WAIT },
+    );
+    // A closed row draws no hidden action buttons.
+    expect(screen.getAllByRole("button", { hidden: true }).length).toBeLessThan(
+      400 * 3,
+    );
+    const first = screen.getByRole("textbox", {
+      name: "Title, level 1, 1 of 400",
+    });
+    commits.length = 0;
+    fireEvent.change(first, { target: { value: "Item 1x" } });
+    expect(commits.length).toBeGreaterThan(0);
+    const last = commits.at(-1)!;
+    // Health check: the profiler measured the whole list's cost.
+    expect(last.base).toBeGreaterThan(0);
+    expect(last.actual).toBeLessThan(last.base / 4);
+  });
+
+  it("the panel box starts ticked for a file with no /PageMode, unticked for one opening to another panel — as the FAQ says", async () => {
+    const box = () =>
+      screen.getByRole("checkbox", {
+        name: "Open with the bookmarks panel showing",
+      }) as HTMLInputElement;
+    const none = await blankPages(2);
+    addOutline(none, [{ title: "One", dest: fitDest(none, 0) }]);
+    await mount(await none.save());
+    expect(box().checked).toBe(true);
+    cleanup();
+    const thumbs = await blankPages(2);
+    addOutline(thumbs, [{ title: "One", dest: fitDest(thumbs, 0) }]);
+    thumbs.catalog.set(PDFName.of("PageMode"), PDFName.of("UseThumbs"));
+    await mount(await thumbs.save());
+    expect(box().checked).toBe(false);
+    const faq = getToolBySlug("edit-pdf-bookmarks")!;
+    const { pageFaq } = await import("@/lib/tools/page-copy");
+    const answer = pageFaq(faq).find((f) =>
+      f.question.startsWith("Does it change anything else"),
+    )!.answer;
+    expect(answer).not.toMatch(/if you ask/);
+    expect(answer).toMatch(
+      /starts ticked unless the file already opens to another panel/,
+    );
   });
 
   it("page bookmarks are added from the page count, every N pages", async () => {

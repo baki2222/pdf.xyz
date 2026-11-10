@@ -1,12 +1,17 @@
 "use client";
 
 import {
+  createContext,
+  memo,
   useCallback,
+  useContext,
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import {
@@ -40,6 +45,7 @@ import {
   insertAfter,
   insertChild,
   move,
+  movesAt,
   movesFor,
   outdent,
   pageBookmarks,
@@ -47,6 +53,7 @@ import {
   rename,
   retarget,
   setOpen,
+  visibleIds,
   type BookmarkNode,
   type BookmarkTarget,
   type Tree,
@@ -66,6 +73,7 @@ import {
   useAsyncRun,
 } from "./runner-kit";
 import { RunBar } from "./run-bar";
+import { RunReason } from "./run-reason";
 import { FileHeader } from "./single-pdf-runner";
 import { PrivacyLine } from "./stamp-controls";
 import { useUnsavedGuard } from "./use-unsaved-guard";
@@ -146,10 +154,27 @@ export function BookmarksEditor({
   const [readError, setReadError] = useState<string | null>(null);
   const [history, setHistory] = useState<History | null>(null);
   const [showPanel, setShowPanel] = useState(true);
-  const [menu, setMenu] = useState<string | null>(null);
+  const [menu] = useState(createMenuStore);
+  const setMenu = menu.set;
   const [said, setSaid] = useState({ text: "", n: 0 });
   const [every, setEvery] = useState("1");
-  const focusNext = useRef<string | null>(null);
+  /** Rows whose page field holds a page out of range: saving waits. */
+  const [badPages, setBadPages] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const markBad = useCallback((id: string, bad: boolean) => {
+    setBadPages((s) => {
+      if (s.has(id) === bad) return s;
+      const next = new Set(s);
+      if (bad) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+  /** A row's title, a row's action button (by row), or the add button. */
+  const focusNext = useRef<string | { id: string; action: RowAction } | null>(
+    null,
+  );
   const titles = useRef(new Map<string, HTMLInputElement>());
   const addButton = useRef<HTMLButtonElement>(null);
   const counter = useRef(0);
@@ -194,7 +219,7 @@ export function BookmarksEditor({
 
   /** A title edit: one undo step per field visit, not per keystroke. */
   const typing = useRef<string | null>(null);
-  const editTitle = (id: string, title: string) => {
+  const editTitle = useCallback((id: string, title: string) => {
     setHistory((h) => {
       if (!h) return h;
       const next = rename(h.present, id, title);
@@ -206,15 +231,29 @@ export function BookmarksEditor({
         future: [],
       };
     });
-  };
+  }, []);
+  const endTyping = useCallback(() => {
+    typing.current = null;
+  }, []);
 
-  // Focus a row's title after an add or a delete changed which rows exist.
+  // Focus a row's title after an add or a delete changed which rows exist,
+  // or the button that moved a row to a new parent (React re-mounts it).
   useLayoutEffect(() => {
     const id = focusNext.current;
     if (!id) return;
     focusNext.current = null;
     if (id === "add") {
       addButton.current?.focus();
+      return;
+    }
+    if (typeof id === "object") {
+      titles.current
+        .get(id.id)
+        ?.closest("li")
+        ?.querySelector<HTMLButtonElement>(
+          `:scope > div [data-row-action="${id.action}"]`,
+        )
+        ?.focus();
       return;
     }
     const input = titles.current.get(id);
@@ -280,6 +319,7 @@ export function BookmarksEditor({
       const next = indent(items, id);
       const parentPath = allNodes(next).find((f) => f.node.id === id);
       commit(next);
+      focusNext.current = { id, action: "indent" };
       say(
         `${quoted(at.title)} is now inside the bookmark above it, at level ${parentPath?.depth ?? 2}.`,
       );
@@ -290,12 +330,14 @@ export function BookmarksEditor({
       const next = outdent(items, id);
       const level = allNodes(next).find((f) => f.node.id === id)?.depth ?? 1;
       commit(next);
+      focusNext.current = { id, action: "outdent" };
       say(`${quoted(at.title)} moved out one level, to level ${level}.`);
     },
     remove: (id: string) => {
       const at = find(items, id);
       if (!at) return;
-      const order = allNodes(items).map((f) => f.node.id);
+      // Only rows on screen: a closed row's children have no field to focus.
+      const order = visibleIds(items);
       const gone = new Set(allNodes([at]).map((f) => f.node.id));
       const index = order.indexOf(id);
       const after = order.slice(index + 1).find((x) => !gone.has(x));
@@ -341,6 +383,48 @@ export function BookmarksEditor({
       say("Redone.");
     },
   };
+  // The rows get stable functions that call the latest `act`, so a memoised
+  // row is not re-rendered by every edit to some other row.
+  const latest = useRef(act);
+  useLayoutEffect(() => {
+    latest.current = act;
+  });
+  const rowAct = useMemo<Actions>(
+    () => ({
+      addBelow: (id) => latest.current.addBelow(id),
+      addInside: (id) => latest.current.addInside(id),
+      move: (id, by) => latest.current.move(id, by),
+      indent: (id) => latest.current.indent(id),
+      outdent: (id) => latest.current.outdent(id),
+      remove: (id) => latest.current.remove(id),
+      toggle: (id, open) => latest.current.toggle(id, open),
+      target: (id, target) => latest.current.target(id, target),
+    }),
+    [],
+  );
+  const pageCount = reading?.pageCount ?? 0;
+  const shared = useMemo<RowShared>(
+    () => ({
+      pageCount,
+      full,
+      menu,
+      registerTitle,
+      act: rowAct,
+      editTitle,
+      endTyping,
+      markBad,
+    }),
+    [
+      pageCount,
+      full,
+      menu,
+      registerTitle,
+      rowAct,
+      editTitle,
+      endTyping,
+      markBad,
+    ],
+  );
 
   const generate = () => {
     const step = Number(every);
@@ -414,8 +498,8 @@ export function BookmarksEditor({
           {result.droppedActions > 0 && (
             <p role="status" className="text-muted max-w-2xl text-sm">
               {result.droppedActions === 1
-                ? "1 bookmark action from the original — a script, a launched file or a jump into another file — is not in the copy."
-                : `${result.droppedActions.toLocaleString("en-US")} bookmark actions from the original — scripts, launched files or jumps into other files — are not in the copy.`}
+                ? "1 bookmark action from the original — a script, a launched file, a jump into another file or a second action beside a page — is not in the copy."
+                : `${result.droppedActions.toLocaleString("en-US")} bookmark actions from the original — scripts, launched files, jumps into other files or second actions beside a page — are not in the copy.`}
             </p>
           )}
           {pdf.digitalSignatures > 0 && (
@@ -517,20 +601,9 @@ export function BookmarksEditor({
                   A bookmark shown expanded here opens expanded in the saved
                   PDF. Leave the page empty for a heading that opens no page.
                 </p>
-                <BookmarkList
-                  items={items}
-                  depth={1}
-                  pageCount={reading.pageCount}
-                  menu={menu}
-                  setMenu={setMenu}
-                  registerTitle={registerTitle}
-                  act={act}
-                  editTitle={editTitle}
-                  endTyping={() => {
-                    typing.current = null;
-                  }}
-                  full={full}
-                />
+                <RowContext.Provider value={shared}>
+                  <BookmarkList items={items} depth={1} />
+                </RowContext.Provider>
               </>
             )}
           </RunnerSection>
@@ -583,15 +656,26 @@ export function BookmarksEditor({
 
       <RunBar>
         <div className="flex justify-end">
-          <RunButton
-            onClick={onRun}
-            busy={busy}
-            disabled={!history}
-            busyLabel="Saving…"
+          <RunReason
+            reason={
+              badPages.size > 0
+                ? `A page number is outside 1 to ${pageCount.toLocaleString("en-US")}. Correct it, or clear it for a heading, to save.`
+                : null
+            }
           >
-            <Bookmark className="size-4" aria-hidden />
-            {BOOKMARK_RUN_LABEL}
-          </RunButton>
+            {(describedBy) => (
+              <RunButton
+                onClick={onRun}
+                busy={busy}
+                disabled={!history || badPages.size > 0}
+                busyLabel="Saving…"
+                describedBy={describedBy}
+              >
+                <Bookmark className="size-4" aria-hidden />
+                {BOOKMARK_RUN_LABEL}
+              </RunButton>
+            )}
+          </RunReason>
         </div>
       </RunBar>
     </div>
@@ -609,8 +693,8 @@ function ReadingNotes({ reading }: { reading: OutlineReading }) {
   if (reading.droppedActions > 0) {
     notes.push(
       reading.droppedActions === 1
-        ? "1 bookmark runs a script, launches a file or jumps into another file. That action will not be in the copy; the bookmark stays."
-        : `${reading.droppedActions.toLocaleString("en-US")} bookmark actions run scripts, launch files or jump into other files. Those actions will not be in the copy; the bookmarks stay.`,
+        ? "1 bookmark action will not be in the copy: a script, a launched file, a jump into another file, or a second action beside a bookmark's page. The bookmark stays."
+        : `${reading.droppedActions.toLocaleString("en-US")} bookmark actions will not be in the copy: scripts, launched files, jumps into other files, or second actions beside a bookmark's page. The bookmarks stay.`,
     );
   }
   if (reading.brokenTargets > 0) {
@@ -622,7 +706,7 @@ function ReadingNotes({ reading }: { reading: OutlineReading }) {
   }
   if (reading.cutLinks > 0) {
     notes.push(
-      "This PDF's bookmark list was damaged: it looped back on itself or pointed outside itself. The bad links were cut; every bookmark in it is listed once.",
+      "This PDF's bookmark list was damaged: it looped back on itself or pointed at other parts of the file. Those links were cut, and what they pointed at is left as it is; each bookmark is listed once.",
     );
   }
   if (notes.length === 0) return null;
@@ -673,23 +757,72 @@ type Actions = {
   target: (id: string, target: BookmarkTarget) => void;
 };
 
-interface ListProps {
-  items: Tree;
-  depth: number;
+/** The row buttons focus can be sent back to after their row re-mounts. */
+type RowAction =
+  "up" | "down" | "indent" | "outdent" | "add-below" | "add-inside" | "delete";
+
+/** Which row's "More actions" is open: one row at a time. */
+interface MenuStore {
+  get: () => string | null;
+  set: (id: string | null) => void;
+  subscribe: (listener: () => void) => () => void;
+}
+
+/**
+ * A store, not state: opening a row's actions re-renders the row that
+ * closes and the row that opens, not every row of a 5,000-bookmark list.
+ */
+function createMenuStore(): MenuStore {
+  let open: string | null = null;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => open,
+    set: (id) => {
+      if (open === id) return;
+      open = id;
+      for (const listener of listeners) listener();
+    },
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+}
+
+/**
+ * What every row shares. Each member is stable across edits (or changes
+ * only with the page count or the list filling up), so a memoised row
+ * re-renders only when its own node, position or level changes.
+ */
+interface RowShared {
   pageCount: number;
-  menu: string | null;
-  setMenu: (id: string | null) => void;
+  full: boolean;
+  menu: MenuStore;
   registerTitle: (id: string, el: HTMLInputElement | null) => void;
   act: Actions;
   editTitle: (id: string, title: string) => void;
   endTyping: () => void;
-  full: boolean;
+  markBad: (id: string, bad: boolean) => void;
+}
+
+const RowContext = createContext<RowShared | null>(null);
+
+function useRowShared(): RowShared {
+  const shared = useContext(RowContext);
+  if (!shared) throw new Error("BookmarkRow outside its list");
+  return shared;
 }
 
 /** One level of the outline. Past six levels the indent stops growing. */
-function BookmarkList(props: ListProps & { root?: Tree }) {
-  const { items, depth } = props;
-  const root = props.root ?? items;
+const BookmarkList = memo(function BookmarkList({
+  items,
+  depth,
+}: {
+  items: Tree;
+  depth: number;
+}) {
   return (
     <ul
       role="list"
@@ -705,46 +838,48 @@ function BookmarkList(props: ListProps & { root?: Tree }) {
       {items.map((node, index) => (
         <BookmarkRow
           key={node.id}
-          {...props}
-          root={root}
           node={node}
+          depth={depth}
           index={index}
           siblings={items.length}
         />
       ))}
     </ul>
   );
-}
+});
 
 const ACTION_BUTTON =
   "border-line text-fg hover:bg-wash rounded-ctl inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 border px-3 text-sm aria-disabled:cursor-not-allowed aria-disabled:opacity-50";
 
-function BookmarkRow({
+const BookmarkRow = memo(function BookmarkRow({
   node,
+  depth,
   index,
   siblings,
-  root,
-  ...props
-}: ListProps & {
+}: {
   node: BookmarkNode;
+  depth: number;
   index: number;
   siblings: number;
-  root: Tree;
 }) {
   const {
-    depth,
     pageCount,
+    full,
     menu,
-    setMenu,
     registerTitle,
     act,
     editTitle,
     endTyping,
-  } = props;
+    markBad,
+  } = useRowShared();
   const ids = useId();
   const name = quoted(node.title);
-  const moves = movesFor(root, node.id);
-  const open = menu === node.id;
+  const moves = movesAt(node, depth, index, siblings);
+  const open = useSyncExternalStore(
+    menu.subscribe,
+    () => menu.get() === node.id,
+    () => false,
+  );
   const inside = countAll(node.children);
   const hasKids = node.children.length > 0;
   const actions = `${ids}-actions`;
@@ -787,23 +922,27 @@ function BookmarkRow({
         <div className="flex min-w-0 flex-wrap items-center gap-2 pl-12">
           <PageField
             id={pageId}
+            rowId={node.id}
             name={name}
             target={node.target}
             pageCount={pageCount}
-            onChange={(target) => act.target(node.id, target)}
+            act={act}
+            markBad={markBad}
           />
           <button
             type="button"
             aria-expanded={open}
             aria-controls={actions}
             aria-label={`${BOOKMARK_MORE_LABEL} for ${name}`}
-            onClick={() => setMenu(open ? null : node.id)}
+            onClick={() => menu.set(open ? null : node.id)}
             className={cn(ACTION_BUTTON, "ml-auto")}
           >
             <Ellipsis className="size-4" aria-hidden />
             {BOOKMARK_MORE_LABEL}
           </button>
         </div>
+        {/* The buttons are drawn only while open: seven hidden buttons on
+            every row of a long list cost more than they are worth. */}
         <div
           id={actions}
           role="group"
@@ -811,76 +950,84 @@ function BookmarkRow({
           hidden={!open}
           className="flex flex-wrap gap-2 pl-12"
         >
-          <ActionButton
-            label="Move up"
-            name={name}
-            disabled={!moves.up}
-            onClick={() => act.move(node.id, -1)}
-          >
-            <ArrowUp className="size-4" aria-hidden />
-          </ActionButton>
-          <ActionButton
-            label="Move down"
-            name={name}
-            disabled={!moves.down}
-            onClick={() => act.move(node.id, 1)}
-          >
-            <ArrowDown className="size-4" aria-hidden />
-          </ActionButton>
-          <ActionButton
-            label="Indent"
-            name={name}
-            disabled={!moves.indent}
-            onClick={() => act.indent(node.id)}
-          >
-            <IndentIncrease className="size-4" aria-hidden />
-          </ActionButton>
-          <ActionButton
-            label="Outdent"
-            name={name}
-            disabled={!moves.outdent}
-            onClick={() => act.outdent(node.id)}
-          >
-            <IndentDecrease className="size-4" aria-hidden />
-          </ActionButton>
-          <ActionButton
-            label="Add below"
-            name={name}
-            disabled={props.full}
-            onClick={() => act.addBelow(node.id)}
-          >
-            <Plus className="size-4" aria-hidden />
-          </ActionButton>
-          <ActionButton
-            label="Add inside"
-            name={name}
-            disabled={props.full || depth >= BOOKMARK_DEPTH_MAX}
-            onClick={() => act.addInside(node.id)}
-          >
-            <CornerDownRight className="size-4" aria-hidden />
-          </ActionButton>
-          <ActionButton
-            label={inside ? `Delete with ${inside} inside` : "Delete"}
-            name={
-              inside ? `${name} and ${bookmarkCount(inside)} inside it` : name
-            }
-            onClick={() => act.remove(node.id)}
-          >
-            <Trash2 className="size-4" aria-hidden />
-          </ActionButton>
+          {open && (
+            <>
+              <ActionButton
+                label="Move up"
+                action="up"
+                name={name}
+                disabled={!moves.up}
+                onClick={() => act.move(node.id, -1)}
+              >
+                <ArrowUp className="size-4" aria-hidden />
+              </ActionButton>
+              <ActionButton
+                label="Move down"
+                action="down"
+                name={name}
+                disabled={!moves.down}
+                onClick={() => act.move(node.id, 1)}
+              >
+                <ArrowDown className="size-4" aria-hidden />
+              </ActionButton>
+              <ActionButton
+                label="Indent"
+                action="indent"
+                name={name}
+                disabled={!moves.indent}
+                onClick={() => act.indent(node.id)}
+              >
+                <IndentIncrease className="size-4" aria-hidden />
+              </ActionButton>
+              <ActionButton
+                label="Outdent"
+                action="outdent"
+                name={name}
+                disabled={!moves.outdent}
+                onClick={() => act.outdent(node.id)}
+              >
+                <IndentDecrease className="size-4" aria-hidden />
+              </ActionButton>
+              <ActionButton
+                label="Add below"
+                action="add-below"
+                name={name}
+                disabled={full}
+                onClick={() => act.addBelow(node.id)}
+              >
+                <Plus className="size-4" aria-hidden />
+              </ActionButton>
+              <ActionButton
+                label="Add inside"
+                action="add-inside"
+                name={name}
+                disabled={full || depth >= BOOKMARK_DEPTH_MAX}
+                onClick={() => act.addInside(node.id)}
+              >
+                <CornerDownRight className="size-4" aria-hidden />
+              </ActionButton>
+              <ActionButton
+                label={inside ? `Delete with ${inside} inside` : "Delete"}
+                action="delete"
+                name={
+                  inside
+                    ? `${name} and ${bookmarkCount(inside)} inside it`
+                    : name
+                }
+                onClick={() => act.remove(node.id)}
+              >
+                <Trash2 className="size-4" aria-hidden />
+              </ActionButton>
+            </>
+          )}
         </div>
       </div>
       {hasKids && node.open && (
-        <BookmarkList
-          {...props}
-          root={root}
-          items={node.children}
-          depth={depth + 1}
-        />
+        <BookmarkList items={node.children} depth={depth + 1} />
       )}
     </li>
   );
-}
+});
 
 /**
  * A button that stays focusable when it cannot act (`aria-disabled`): a
@@ -888,12 +1035,15 @@ function BookmarkRow({
  */
 function ActionButton({
   label,
+  action,
   name,
   disabled,
   onClick,
   children,
 }: {
   label: string;
+  /** What focus looks for when the row it sits on is re-mounted. */
+  action: RowAction;
   name: string;
   disabled?: boolean;
   onClick: () => void;
@@ -902,6 +1052,7 @@ function ActionButton({
   return (
     <button
       type="button"
+      data-row-action={action}
       aria-label={`${label}: ${name}`}
       aria-disabled={disabled || undefined}
       onClick={() => {
@@ -918,26 +1069,56 @@ function ActionButton({
 /**
  * The page a bookmark opens. Empty means none: a heading. A link or a viewer
  * action shows what it does until a page is typed over it.
+ *
+ * What is typed is a DRAFT until the field is left (or Enter is pressed):
+ * typing "30" in a 20-page file never passes through page 3, and a page is
+ * one undo step, not one per digit. A page out of range stays on screen,
+ * flagged, and saving waits until it is corrected or cleared.
  */
 function PageField({
   id,
+  rowId,
   name,
   target,
   pageCount,
-  onChange,
+  act,
+  markBad,
 }: {
   id: string;
+  rowId: string;
   name: string;
   target: BookmarkTarget;
   pageCount: number;
-  onChange: (target: BookmarkTarget) => void;
+  act: Actions;
+  markBad: (id: string, bad: boolean) => void;
 }) {
   const shown = target.kind === "page" ? String(target.page) : "";
-  const [draft, setDraft] = useState<string | null>(null);
-  const value = draft ?? shown;
+  // A draft typed over a value that has since changed (an undo) is stale.
+  const [draft, setDraft] = useState<{ text: string; over: string } | null>(
+    null,
+  );
+  const typed = draft && draft.over === shown ? draft.text : null;
+  const value = typed ?? shown;
   const n = Number(value);
   const invalid =
     value !== "" && !(Number.isInteger(n) && n >= 1 && n <= pageCount);
+  useEffect(() => {
+    markBad(rowId, invalid);
+    return () => markBad(rowId, false);
+  }, [rowId, invalid, markBad]);
+  const commit = () => {
+    if (typed === null) return;
+    if (typed === "") {
+      setDraft(null);
+      if (target.kind === "page") act.target(rowId, { kind: "none" });
+      return;
+    }
+    const page = Number(typed);
+    if (Number.isInteger(page) && page >= 1 && page <= pageCount) {
+      setDraft(null);
+      if (typed !== shown) act.target(rowId, { kind: "page", page });
+    }
+  };
   const placeholder =
     target.kind === "uri"
       ? "Link"
@@ -960,18 +1141,13 @@ function PageField({
         aria-describedby={
           invalid || target.kind !== "page" ? `${id}-what` : undefined
         }
-        onChange={(event) => {
-          const text = event.target.value.replace(/\D/g, "");
-          const page = Number(text);
-          if (text === "") {
-            setDraft(null);
-            if (target.kind === "page") onChange({ kind: "none" });
-          } else if (Number.isInteger(page) && page >= 1 && page <= pageCount) {
-            setDraft(null);
-            onChange({ kind: "page", page });
-          } else setDraft(text);
+        onChange={(event) =>
+          setDraft({ text: event.target.value.replace(/\D/g, ""), over: shown })
+        }
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") commit();
         }}
-        onBlur={() => setDraft(null)}
         className="border-line text-fg placeholder:text-muted focus:border-accent/40 focus:ring-accent/50 bg-canvas rounded-ctl aria-invalid:border-danger min-h-11 w-20 border px-3 py-2 text-sm transition outline-none focus:ring-2"
       />
       {(invalid || target.kind !== "page") && (
