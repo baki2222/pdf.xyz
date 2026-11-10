@@ -164,6 +164,9 @@ export function copyFiles(): string[] {
     // to the picker's hook.
     path.join(ROOT, "src", "lib", "jobs", "ocr-start-copy.ts"),
     path.join(ROOT, "src", "lib", "jobs", "pdf-security.ts"),
+    // The pdf.js board's page limit as the reader:'pdfjs' tool pages state it
+    // (2026-11-10), beside the constant the guard enforces.
+    path.join(ROOT, "src", "lib", "pdf", "pdfjs-board-limit.ts"),
     // The PDF to Office exports' OCR switch hints, per tool (2026-11-08,
     // audit pdf-to-excel#2), drawn by the export panel.
     path.join(ROOT, "src", "lib", "jobs", "office-export-ocr.ts"),

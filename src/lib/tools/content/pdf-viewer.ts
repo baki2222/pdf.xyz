@@ -1,4 +1,5 @@
 import type { ToolContent } from "./types";
+import { BOARD_PAGE_LIMIT_SENTENCE } from "@/lib/pdf/pdfjs-board-limit";
 import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
 import {
   VIEWER_LIVE_PAGES,
@@ -46,7 +47,7 @@ const content: ToolContent = {
 
   intro: [
     "PDF Viewer opens a PDF in this browser tab so you can read it: every page in one scrolling column, with zoom, page thumbnails, the document's bookmarks, search with the matches highlighted, and its links. Text you can select in the PDF can be selected and copied here too.",
-    `The file is read on your device with pdf.js and is not uploaded to pdf.xyz. It takes PDFs of up to ${ceilingMb} MB. A file whose author restricted printing or editing, but that opens without a password, opens here as it does in any viewer. Only a file that needs a password to open is refused, with a link to Unlock PDF if you know the password.`,
+    `The file is read on your device with pdf.js and is not uploaded to pdf.xyz. It takes PDFs of up to ${ceilingMb} MB. ${BOARD_PAGE_LIMIT_SENTENCE} A file whose author restricted printing or editing, but that opens without a password, opens here as it does in any viewer. Only a file that needs a password to open is refused, with a link to Unlock PDF if you know the password.`,
     `Only the pages near the one you are reading are drawn, at most ${VIEWER_LIVE_PAGES} at a time, so a long document stays quick to scroll. The viewer never changes your file: ${L.rotate} turns the pages on screen only, and ${L.download} saves the same file you opened, byte for byte.`,
   ],
 

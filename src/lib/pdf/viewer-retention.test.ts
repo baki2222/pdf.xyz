@@ -34,11 +34,20 @@ interface FakeImage {
   height: number;
 }
 
-/** A pdf.js page's shape as the viewer uses it, holding `images` once drawn. */
-function fakePage(images: readonly FakeImage[]) {
+/**
+ * A pdf.js page's shape as the viewer uses it, holding `images` once drawn,
+ * and `inline` images in its operator list as pdf.js keeps small inline ones
+ * (decoded RGBA inside the operator's arguments, never in `objs`).
+ */
+function fakePage(
+  images: readonly FakeImage[],
+  inline: readonly FakeImage[] = [],
+) {
   const objs = new Map<string, FakeImage>();
+  const intents = new Map<string, { operatorList: { argsArray: unknown[] } }>();
   const page = {
     rotate: 0,
+    _intentStates: intents,
     objs: {
       *[Symbol.iterator]() {
         yield* objs.entries();
@@ -51,15 +60,31 @@ function fakePage(images: readonly FakeImage[]) {
     }),
     render: () => {
       images.forEach((img, i) => objs.set(`img_${i}`, img));
+      intents.set("display", {
+        operatorList: {
+          argsArray: inline.map((img) => [
+            {
+              width: img.width,
+              height: img.height,
+              data: new Uint8ClampedArray(img.width * img.height * 4),
+            },
+          ]),
+        },
+      });
       return { promise: Promise.resolve(), cancel: () => {} };
     },
     cleanup: () => {
       page.cleaned += 1;
       objs.clear();
+      intents.clear();
       return true;
     },
     /** What this page holds now, counted by the model, not by the viewer. */
-    held: () => [...objs.values()].reduce((s, i) => s + i.width * i.height, 0),
+    held: () =>
+      [...objs.values()].reduce((s, i) => s + i.width * i.height, 0) +
+      (intents.size > 0
+        ? inline.reduce((s, i) => s + i.width * i.height, 0)
+        : 0),
   };
   return page;
 }
@@ -108,8 +133,60 @@ describe("the viewer bounds what it retains, not only what it shows", () => {
     expect(decodedImagePixels(page)).toBe(page.held());
     expect(page.held()).toBe(25_000_200);
     // A store that is not iterable is unknown: Infinity, so it is released.
-    expect(decodedImagePixels({ objs: 42 })).toBe(Number.POSITIVE_INFINITY);
+    const lists = new Map();
+    expect(decodedImagePixels({ objs: 42, _intentStates: lists })).toBe(
+      Number.POSITIVE_INFINITY,
+    );
     expect(decodedImagePixels({})).toBe(Number.POSITIVE_INFINITY);
+    // So are operator lists that are not where pdf.js 6 keeps them.
+    expect(decodedImagePixels({ objs: [] })).toBe(Number.POSITIVE_INFINITY);
+    expect(
+      decodedImagePixels({
+        objs: [],
+        _intentStates: new Map([
+          ["display", { operatorList: { argsArray: 7 } }],
+        ]),
+      }),
+    ).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it("inline images in the operator list are counted beside page.objs, grouped ones too (hostile review, 2026-11-10)", () => {
+    // pdf.js keeps an inline image under 200 px wide-plus-high decoded in
+    // the operator list, never in page.objs: 1,700 of 99 x 99 a page read as
+    // 0 px, and the editor kept six such pages (439 MB).
+    const page = fakePage(
+      [{ width: 10, height: 10 }],
+      Array.from({ length: 1_700 }, () => ({ width: 99, height: 99 })),
+    );
+    expect(decodedImagePixels(page)).toBe(0);
+    page.render();
+    expect(page.held()).toBe(100 + 1_700 * 99 * 99);
+    expect(decodedImagePixels(page)).toBe(page.held());
+    // A grouped run (paintInlineImageXObjectGroup's [imgData, map], or a
+    // mask group's [images]) is read inside its argument array.
+    const rgba = (w: number, h: number) => ({
+      width: w,
+      height: h,
+      data: new Uint8ClampedArray(w * h * 4),
+    });
+    const grouped = new Map([
+      [
+        "display",
+        {
+          operatorList: {
+            argsArray: [
+              [rgba(300, 10), { 0: 1 }],
+              [[rgba(5, 5), rgba(5, 5)]],
+              ["img_p0_1", 4000, 4000], // an XObject: counted from page.objs
+              null,
+            ],
+          },
+        },
+      ],
+    ]);
+    expect(decodedImagePixels({ objs: [], _intentStates: grouped })).toBe(
+      3_000 + 50,
+    );
   });
 
   it("scrolling a 20-page scan of 25 MP pages: what is retained never passes the budget", async () => {
