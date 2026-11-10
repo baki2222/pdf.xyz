@@ -98,6 +98,8 @@ export interface XrefStreamOptions {
   pack?: number[];
   objStmN?: string;
   objStmFirst?: string;
+  /** Flate-compress the object stream, so its text is not in the file's bytes. */
+  objStmFlate?: boolean;
 }
 
 export function xrefStreamPdf(opts: XrefStreamOptions): Uint8Array {
@@ -130,9 +132,10 @@ export function xrefStreamPdf(opts: XrefStreamOptions): Uint8Array {
       data += `${m.body}\n`;
     }
     const head = `${within.join(" ")}\n`;
+    const plain = latin1(head + data);
     const bytes = objectBytes(objStmNum, {
-      dict: `/Type /ObjStm /N ${opts.objStmN ?? inStream.length} /First ${opts.objStmFirst ?? head.length}`,
-      stream: latin1(head + data),
+      dict: `/Type /ObjStm /N ${opts.objStmN ?? inStream.length} /First ${opts.objStmFirst ?? head.length}${opts.objStmFlate ? " /Filter /FlateDecode" : ""}`,
+      stream: opts.objStmFlate ? new Uint8Array(deflateSync(plain)) : plain,
     });
     rows.push([1, length, 0]);
     parts.push(bytes);
