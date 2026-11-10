@@ -801,8 +801,16 @@ describe("no tool page loads a table of every tool", () => {
  * and the editor's page-layout and zoom steps moving to a shared module
  * re-cut 6011/5878 into 6011/7047). NOT measured on CI: 33.84 KB (34,652 B)
  * keeps 38 B over this machine's figure, for CI's ~25 B gap.
+ *
+ * RAISED 33.84 -> 33.89 on 2026-11-10, for the PDF Viewer review fixes on
+ * the same branch: the hand-off a tool that writes nothing makes (origin
+ * "opened", its sentence and reader, and `writesNothing` /
+ * `continueHandoff` in next-steps, which the ticket's chunks carry). Same
+ * machine, empty .next: the eight counted chunks went 34,614 -> 34,661 B
+ * gzip -9 (+47). NOT measured on CI: 33.89 KB (34,703 B) keeps 42 B over
+ * this machine's figure, for CI's ~25 B gap.
  */
-const TICKET_FETCH_GZ_KB = 33.84;
+const TICKET_FETCH_GZ_KB = 33.89;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));

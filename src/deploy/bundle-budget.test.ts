@@ -1110,6 +1110,25 @@ const TOOL_PAGES_TO_COME = {
   // (above). Nothing is left unallocated after this entry: the next tool
   // with a new runner kind needs the owner to re-open G.1, or to recover
   // bytes first. The pdf-viewer page itself is not a G.1 row.
+  //
+  // THE WHOLE SITE, not only the rows above (review, 2026-11-10: the table
+  // left out the two pages that grew most). Re-measured after the review
+  // fixes with a second weigher — gzip -9 over the script chunks each
+  // prerendered page's HTML names (it does not count a tool's lazily
+  // requested runner chunk, so a tool page reads +80 here against the +89
+  // above), main ad23525e -> the branch, every one of 142 pages:
+  //   57 tool pages +80, 66 pages +51, 8 +54, 5 +53, one each +47/+48/+56,
+  //   home +53, a guide (/guides) +56,
+  //   /workspace        234,118 -> 234,435  +317  (+274 before the review
+  //                       fixes, measured by the reviewer as its page chunk
+  //                       +189, webpack +48 and a chunk re-cut; the fixes
+  //                       added +43 — the workspace reads `originPhrase`,
+  //                       which gained the "opened" kind)
+  //   /tools            212,713 -> 212,906  +193  (+197 before the fixes,
+  //                       +176 of it on the page chunk; not attributed
+  //                       further)
+  // Neither /workspace nor /tools is a G.1 row; both are named here so the
+  // owner approving the re-allocation sees every page that pays.
   unallocated:
     UNALLOCATED -
     NEW_TOOLS_2026_10_30 -
