@@ -183,7 +183,8 @@ function runnerSource(slug: string): string {
  */
 function runnerLabelSource(slug: string): string {
   const { main, nested } = runnerModules(slug);
-  const intent = [main, ...nested].flatMap((source) =>
+  const panels = lazyPanels([main, ...nested]);
+  const intent = [main, ...nested, ...panels].flatMap((source) =>
     intentModules(source).flatMap((file) => {
       const text = read(file);
       const reexported = [
@@ -201,10 +202,35 @@ function runnerLabelSource(slug: string): string {
       return [text, ...reexported];
     }),
   );
-  return [runnerSource(slug), ...intent]
+  return [runnerSource(slug), ...panels, ...intent]
     .join("\n")
     .replace(/&amp;/g, "&")
     .replace(/&apos;/g, "'");
+}
+
+/**
+ * The runner-directory modules `sources` load with `import("./…")`: a panel
+ * fetched when a file opens draws its labels on the same page. Added
+ * 2026-11-10 for Edit PDF Bookmarks, whose editor `bookmarks-host.tsx`
+ * loads lazily so the metadata kind's other two pages do not carry it; the
+ * one-level static walk above never reached it, and every label its steps
+ * quote read as missing. Labels only: {@link runnerSource}, which the
+ * absence checks read, does not widen.
+ */
+function lazyPanels(sources: readonly string[]): string[] {
+  const specifiers = sources.flatMap((source) =>
+    [...source.matchAll(/\bimport\(\s*"\.\/([^"]+)"\s*\)/g)].map((m) => m[1]!),
+  );
+  return [...new Set(specifiers)].flatMap((name) => {
+    for (const ext of [".tsx", ".ts"]) {
+      try {
+        return [read(`${RUNNER_DIR}/${name}${ext}`)];
+      } catch {
+        /* try the next extension */
+      }
+    }
+    return [];
+  });
 }
 
 const INTENT_DIR = "src/components/intent";
@@ -344,6 +370,11 @@ describe("How it works says what the runner does", () => {
     expect(read("src/components/tools/runner/runner-kit.tsx")).not.toMatch(
       />\s*Continue with\s*</,
     );
+    // …and reaches a panel the runner loads with import(): Edit PDF
+    // Bookmarks' run label is written only in its lazily loaded editor, and
+    // only the label source reads it.
+    expect(runnerLabelSource("edit-pdf-bookmarks")).toContain("Save bookmarks");
+    expect(runnerSource("edit-pdf-bookmarks")).not.toContain("Save bookmarks");
   });
 });
 

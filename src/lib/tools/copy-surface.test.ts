@@ -132,6 +132,10 @@ describe("the copy surface reaches what the guards must read", () => {
       // Added 2026-11-10 (review round 1): its kind labels, moved out of
       // offered-kinds.ts.
       "src/lib/pdf/annotation-kinds.ts",
+      // Added 2026-11-10: Edit PDF Bookmarks' phrase modules.
+      "src/lib/pdf/bookmark-labels.ts",
+      "src/lib/pdf/bookmarks.ts",
+      "src/lib/pdf/bookmark-tree.ts",
       // Added 2026-11-09: PDF Booklet Maker's phrase module.
       "src/lib/pdf/booklet.ts",
       // Added 2026-11-08: the page-tree check's damaged-page refusal.

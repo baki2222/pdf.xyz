@@ -18,8 +18,9 @@ import {
 import { toolFacts } from "./tool-facts";
 
 /**
- * Two tools share the `metadata` runner kind: Edit PDF Metadata, and Remove
- * Annotations, which `metadata-runner.tsx` mounts for its slug. So the
+ * Three tools share the `metadata` runner kind: Edit PDF Metadata, Remove
+ * Annotations and (2026-11-10) Edit PDF Bookmarks, the last two mounted by
+ * `metadata-runner.tsx` for their slugs. So the
  * prose-to-UI label guard (`tool-page-ui-labels.test.ts`), which reads every
  * string reachable from a kind's panel module, reads BOTH tools' controls
  * for either page: Edit PDF Metadata's page could tell a reader to press
@@ -44,6 +45,14 @@ import { toolFacts } from "./tool-facts";
  * corpus is now every accessor the page renders through (`page-copy.ts`,
  * `toolFacts`, the catalogue row); a one-word label counts only when QUOTED,
  * the way steps quote a control, since "Kept" is also a plain word.
+ *
+ * Widened 2026-11-10 for Edit PDF Bookmarks, whose editor is LAZY: the
+ * runner (`bookmarks-host.tsx`) reaches `bookmarks-editor.tsx` only through
+ * `import()`, so a walk of static imports saw none of its controls and
+ * found 0 exclusive labels for it (measured on the first run). An
+ * `import()` of a module under `src/components` is followed now: a lazily
+ * loaded PANEL draws controls. A lazily loaded engine under `src/lib`
+ * still is not.
  */
 
 const ROOT = process.cwd();
@@ -77,8 +86,9 @@ const TOOL_NAMES = new Set(tools.map((t) => t.name));
 /**
  * The project modules a source reaches by VALUE imports and re-exports,
  * transitively (`import type` and `export type` are erased at runtime and
- * not followed), never entering `stop`. Static imports only: a lazily
- * imported engine draws no control.
+ * not followed), never entering `stop`. `import()` is followed only into
+ * `src/components`: a lazily imported panel draws controls, a lazily
+ * imported engine does not.
  */
 function reachable(rel: string, stop: ReadonlySet<string>): string[] {
   const seen = new Set<string>([rel]);
@@ -87,10 +97,18 @@ function reachable(rel: string, stop: ReadonlySet<string>): string[] {
     const file = queue.pop()!;
     const source = readFileSync(path.join(ROOT, file), "utf8");
     const dir = path.posix.dirname(file);
-    for (const m of source.matchAll(
-      /^(?:import|export)\s+(?!type\b)[^;]*?from\s+"([^"]+)";/gms,
-    )) {
-      const spec = m[1]!;
+    const specs = [
+      ...[
+        ...source.matchAll(
+          /^(?:import|export)\s+(?!type\b)[^;]*?from\s+"([^"]+)";/gms,
+        ),
+      ].map((m) => ({ spec: m[1]!, lazy: false })),
+      ...[...source.matchAll(/\bimport\(\s*"([^"]+)"\s*\)/g)].map((m) => ({
+        spec: m[1]!,
+        lazy: true,
+      })),
+    ];
+    for (const { spec, lazy } of specs) {
       const base = spec.startsWith("@/")
         ? `src/${spec.slice(2)}`
         : spec.startsWith(".")
@@ -104,6 +122,7 @@ function reachable(rel: string, stop: ReadonlySet<string>): string[] {
         `${base}/index.tsx`,
       ].find((f) => existsSync(path.join(ROOT, f)));
       if (!found || seen.has(found) || stop.has(found)) continue;
+      if (lazy && !found.startsWith("src/components/")) continue;
       seen.add(found);
       queue.push(found);
     }
@@ -182,10 +201,28 @@ function exclusive(): Map<string, Set<string>> {
   return out;
 }
 
+/**
+ * The labels foreign to `slug`'s page, by the sibling that draws each: every
+ * label some sibling reaches that `slug`'s own variant does not. NOT the
+ * union of the siblings' `exclusive()` sets — with three variants a label two
+ * siblings share is in neither, yet the third page must not quote it.
+ */
+function foreignTo(slug: string): Map<string, Set<string>> {
+  const own = variantLabels(slug);
+  const out = new Map<string, Set<string>>();
+  for (const other of METADATA_SLUGS) {
+    if (other === slug) continue;
+    out.set(
+      other,
+      new Set([...variantLabels(other)].filter((l) => !own.has(l))),
+    );
+  }
+  return out;
+}
+
 function crossQuotes(slug: string, texts: readonly string[]): string[] {
   const hits: string[] = [];
-  for (const [other, labels] of exclusive()) {
-    if (other === slug) continue;
+  for (const [other, labels] of foreignTo(slug)) {
     for (const label of labels) {
       const one = !label.includes(" ");
       const said = (t: string) =>
@@ -201,8 +238,13 @@ function crossQuotes(slug: string, texts: readonly string[]): string[] {
 describe("tools sharing the metadata runner quote only their own labels", () => {
   it("discovers both tools and a plausible label set for each (health check)", () => {
     expect(METADATA_SLUGS).toEqual(
-      expect.arrayContaining(["edit-pdf-metadata", "remove-annotations"]),
+      expect.arrayContaining([
+        "edit-pdf-metadata",
+        "remove-annotations",
+        "edit-pdf-bookmarks",
+      ]),
     );
+    expect(METADATA_SLUGS.length).toBe(3);
     const modules = new Set(METADATA_SLUGS.map(moduleFor));
     expect(modules.size).toBe(METADATA_SLUGS.length);
     for (const [slug, labels] of exclusive()) {
@@ -216,6 +258,12 @@ describe("tools sharing the metadata runner quote only their own labels", () => 
     );
     expect(exclusive().get("remove-annotations")).toContain(
       "Annotations to remove",
+    );
+    // The lazily loaded editor's controls, reached through import().
+    expect(exclusive().get("edit-pdf-bookmarks")).toContain("Save bookmarks");
+    expect(exclusive().get("edit-pdf-bookmarks")).toContain("More actions");
+    expect(moduleFor("edit-pdf-bookmarks")).toBe(
+      `${RUNNER_DIR}/bookmarks-host.tsx`,
     );
     // The import walk is neither collapsed nor runaway, and never enters a
     // sibling's panel.
@@ -279,6 +327,59 @@ describe("tools sharing the metadata runner quote only their own labels", () => 
         "Kept files stay on your device.",
       ]),
     ).toEqual([]);
+  });
+
+  it("positive control: Edit PDF Bookmarks' labels on a sibling page, and a sibling's on its page, are caught", () => {
+    expect(
+      crossQuotes("edit-pdf-metadata", [
+        ...servedCopy("edit-pdf-metadata"),
+        "Press Add page bookmarks first.",
+      ]),
+    ).toEqual(["edit-pdf-bookmarks: Add page bookmarks"]);
+    expect(
+      crossQuotes("remove-annotations", [
+        ...servedCopy("remove-annotations"),
+        "Then press Save bookmarks.",
+      ]),
+    ).toEqual(["edit-pdf-bookmarks: Save bookmarks"]);
+    expect(
+      crossQuotes("edit-pdf-bookmarks", [
+        ...servedCopy("edit-pdf-bookmarks"),
+        "Choose Annotations to remove.",
+        "Choose Remove all metadata.",
+      ]).sort(),
+    ).toEqual([
+      "edit-pdf-metadata: Remove all metadata",
+      "remove-annotations: Annotations to remove",
+    ]);
+  });
+
+  it("positive control: a label two siblings share is still foreign to the third page", () => {
+    // Review round 1: "Link" is a kind on Remove Annotations and the page
+    // field's placeholder on Edit PDF Bookmarks. A two-variant definition of
+    // "exclusive" (no OTHER variant reaches it) dropped it from both sets,
+    // so Edit PDF Metadata's page could quote it unseen.
+    const shared = "Link";
+    expect(variantLabels("remove-annotations")).toContain(shared);
+    expect(variantLabels("edit-pdf-bookmarks")).toContain(shared);
+    expect(variantLabels("edit-pdf-metadata")).not.toContain(shared);
+    expect(
+      crossQuotes("edit-pdf-metadata", [
+        ...servedCopy("edit-pdf-metadata"),
+        "Then choose “Link”.",
+      ]).sort(),
+    ).toEqual(["edit-pdf-bookmarks: Link", "remove-annotations: Link"]);
+    // And a page's own label is never foreign to it, however many siblings
+    // also draw it.
+    for (const slug of METADATA_SLUGS) {
+      const foreign = new Set(
+        [...foreignTo(slug).values()].flatMap((l) => [...l]),
+      );
+      expect(foreign.size, slug).toBeGreaterThanOrEqual(10);
+      expect([...variantLabels(slug)].filter((l) => foreign.has(l))).toEqual(
+        [],
+      );
+    }
   });
 
   it("positive control: one injected cross label, either way, is caught", () => {

@@ -347,9 +347,19 @@ export function carryOutlines(
 // Bookmarks
 // --------------------------------------------------------------------------
 
-interface Bookmark {
+/**
+ * One outline item as `writeOutline` writes it. Exported (2026-11-10) for
+ * Edit PDF Bookmarks (`./bookmarks.ts`), which writes through the same
+ * function rather than a second writer. `namedDest` is its only addition: a
+ * destination NAME written as `/Dest` (a fresh copy of the source's key), so
+ * an item that went through the name tree keeps going through it.
+ * `readOutline` never sets it, so Merge, Split and Extract write what they
+ * wrote before.
+ */
+export interface Bookmark {
   title: PDFObject;
   dest?: PDFArrayT;
+  namedDest?: PDFObject;
   action?: PDFDictT;
   color?: PDFArrayT;
   flags?: PDFObject;
@@ -466,7 +476,7 @@ function readOutline(
 }
 
 /** Write `top` as the output's outline; false when there is nothing to write. */
-function writeOutline(
+export function writeOutline(
   lib: PdfLibModule,
   out: PDFDocument,
   top: Bookmark[],
@@ -496,6 +506,7 @@ function writeOutline(
         dict.set(PDFName.of("Count"), ctx.obj(item.open ? shown : -shown));
       }
       if (item.dest) dict.set(PDFName.of("Dest"), item.dest);
+      else if (item.namedDest) dict.set(PDFName.of("Dest"), item.namedDest);
       else if (item.action) dict.set(PDFName.of("A"), item.action);
       if (item.color) dict.set(PDFName.of("C"), item.color);
       if (item.flags) dict.set(PDFName.of("F"), item.flags);

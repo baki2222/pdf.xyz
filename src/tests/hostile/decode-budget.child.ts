@@ -26,6 +26,10 @@ async function run(): Promise<unknown> {
       const { loadPdf } = await import("../../lib/pdf/engine");
       return { pages: (await loadPdf(bytes)).getPageCount() };
     }
+    case "bookmarks": {
+      const { readOutlineTree } = await import("../../lib/pdf/bookmarks");
+      return { total: (await readOutlineTree(bytes)).total };
+    }
     case "rotations": {
       const { getPageRotations } = await import("../../lib/pdf/engine");
       return { pages: (await getPageRotations(bytes)).length };

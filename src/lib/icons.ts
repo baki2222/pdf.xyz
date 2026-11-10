@@ -1,6 +1,7 @@
 import {
   AlignLeft,
   BookOpen,
+  Bookmark,
   Bot,
   Camera,
   Contrast,
@@ -111,6 +112,7 @@ export const ICONS = {
   resize: Scaling,
   metadata: Tags,
   removeAnnotations: Eraser,
+  bookmarks: Bookmark,
   // sign
   sign: Signature,
   requestSign: Send,
