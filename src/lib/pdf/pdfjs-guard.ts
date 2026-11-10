@@ -25,6 +25,7 @@ import {
   parseObjectAt,
 } from "./pdf-scan-objects";
 import { MAX_DECODED_PIXELS } from "./pixel-ceiling";
+import { pdfjsPageCount } from "./pdfjs-num-pages";
 import { prescanXref } from "./xref-prescan";
 
 /**
@@ -210,7 +211,50 @@ export const PDF_NESTED_TOO_DEEPLY_MESSAGE =
 export const PDF_IMAGE_TOO_LARGE_MESSAGE =
   "This PDF contains an image too large to render in your browser (over 50 megapixels).";
 
-export { pdfjsPageCount } from "./pdfjs-num-pages";
+export { pdfjsPageCount };
+
+/**
+ * The most pages the upload board of a reader:'pdfjs' tool reads: 10,000.
+ *
+ * The board reads every page's rotation with one `getPage` each, and pdf.js
+ * finds page i by walking the page tree from its root, pushing every /Kids
+ * entry of each node on the way (`Catalog.getPageDict`). On a FLAT tree — one
+ * /Pages node holding every page, which is what pdf-lib writes — that is
+ * O(pages) per page and O(pages²) per board. Measured on base (Windows, Node
+ * 24, `readPagesWithPdfjs`, a flat tree): 1,000 pages 0.67 s, 10,000 3.6-5.4
+ * s, 20,000 13.1 s, 40,000 63.7 s; a 100,000-page file (28.9 MB, under the
+ * file ceiling) sat on "Reading your PDF…" for minutes. A balanced tree reads
+ * 100,000 pages in 2.3 s, but nothing pdf.js exposes tells the two shapes
+ * apart before the walk, so the bound is on pages: past it no tree shape can
+ * cost more than this many pages squared, which is seconds.
+ *
+ * Tools that run on the whole document after the board (text, images) walk
+ * the same way, but per page beside their own work and with progress shown;
+ * a file past this bound never reaches them on a reader:'pdfjs' page.
+ */
+export const PDFJS_BOARD_MAX_PAGES = 10_000;
+
+/**
+ * Copy for a file with more pages than {@link PDFJS_BOARD_MAX_PAGES}: how many
+ * it has, the limit, and what to do. Every figure is read from its source.
+ */
+export function boardPageLimitMessage(pages: number): string {
+  const limit = PDFJS_BOARD_MAX_PAGES.toLocaleString("en-US");
+  return `This PDF has ${pages.toLocaleString("en-US")} pages, more than the ${limit} this tool reads in your browser. Split it into parts of ${limit} pages or fewer, then open one part at a time.`;
+}
+
+/**
+ * The page count a reader:'pdfjs' board may walk: `pdfjsPageCount`'s (a /Count
+ * of 0 or -1 is the unreadable refusal), refused, typed, past
+ * {@link PDFJS_BOARD_MAX_PAGES} — before any page is fetched.
+ */
+export function pdfjsBoardPageCount(numPages: unknown): number {
+  const pages = pdfjsPageCount(numPages);
+  if (pages > PDFJS_BOARD_MAX_PAGES) {
+    throw new PdfEngineError(boardPageLimitMessage(pages));
+  }
+  return pages;
+}
 
 /** pdf.js's names for a failure that is about the document's structure. */
 const PDFJS_PAGE_WALK_FAILURES = new Set([
