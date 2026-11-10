@@ -506,25 +506,74 @@ async function imagePagesPdf(pages: number, side: number): Promise<Uint8Array> {
 }
 
 /**
+ * `pages` pages, each painting `perPage` distinct 99 x 99 RGB INLINE images
+ * (`BI ... ID ... EI`), the content Flate-compressed. pdf.js decodes an
+ * inline image under 200 pixels wide-plus-high into the page's operator
+ * list (`paintInlineImageXObject`), never into `page.objs` (hostile review,
+ * 2026-11-10: a 593 KB file of this shape held 439 MB in the editor). Each
+ * image's first three bytes differ, so no two are the same image; all bytes
+ * are below 0x45, so no `EI` appears in the data.
+ */
+function inlineImagePagesPdf(pages: number, perPage: number): Uint8Array {
+  const side = 99;
+  const data = new Uint8Array(side * side * 3);
+  const head = (tag: string) => Buffer.from(tag, "latin1");
+  let n = 0;
+  const objects: (string | { dict: string; stream: Uint8Array })[] = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    `<< /Type /Pages /Kids [${Array.from({ length: pages }, (_, k) => `${3 + k * 2} 0 R`).join(" ")}] /Count ${pages} >>`,
+  ];
+  for (let k = 0; k < pages; k++) {
+    const parts: Uint8Array[] = [];
+    for (let i = 0; i < perPage; i++, n++) {
+      data[0] = 1 + (n % 60);
+      data[1] = 1 + (Math.floor(n / 60) % 60);
+      data[2] = 1 + (Math.floor(n / 3600) % 60);
+      parts.push(
+        head(`q 1 0 0 1 0 0 cm BI /W ${side} /H ${side} /BPC 8 /CS /RGB ID `),
+        data.slice(),
+        head(" EI Q "),
+      );
+    }
+    const pageNum = 3 + k * 2;
+    objects.push(
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents ${pageNum + 1} 0 R >>`,
+      {
+        dict: "/Filter /FlateDecode",
+        stream: new Uint8Array(deflateSync(Buffer.concat(parts))),
+      },
+    );
+  }
+  return rawPdf(objects as Parameters<typeof rawPdf>[0]);
+}
+
+/**
  * The viewer scrolled through `pages` image pages, one draw each: the
  * process's array-buffer memory (where pdf.js keeps decoded image data in
  * Node) after each draw, after a full collection. A measure independent of
  * the viewer's own count: what the process RETAINS, not what it says it
  * keeps.
  */
-async function viewerRetentionProbe(pages: number, side: number) {
+async function viewerRetentionProbe(
+  pages: number,
+  side: number,
+  file?: Uint8Array,
+) {
   await withCanvas();
   const v8 = await import("node:v8");
   const vm = await import("node:vm");
   v8.setFlagsFromString("--expose-gc");
   const gc = vm.runInNewContext("gc") as () => void;
-  const bytes = await imagePagesPdf(pages, side);
+  const bytes = file ?? (await imagePagesPdf(pages, side));
   const { openViewerPdf } = await import("@/lib/pdf/viewer");
   const doc = await openViewerPdf(bytes);
+  // The heap too: an inline image's samples are a typed array inside the
+  // operator list, and the list's own objects are heap.
   const held = () => {
     gc();
     gc();
-    return process.memoryUsage().arrayBuffers;
+    const m = process.memoryUsage();
+    return m.arrayBuffers + (file ? m.heapUsed : 0);
   };
   const base = held();
   const afterDraw: number[] = [];
@@ -548,19 +597,24 @@ async function viewerRetentionProbe(pages: number, side: number) {
  * pages in turn, one draw each, measured as {@link viewerRetentionProbe}
  * measures the viewer: array-buffer memory after a full collection.
  */
-async function editorRetentionProbe(pages: number, side: number) {
+async function editorRetentionProbe(
+  pages: number,
+  side: number,
+  file?: Uint8Array,
+) {
   await withCanvas();
   const v8 = await import("node:v8");
   const vm = await import("node:vm");
   v8.setFlagsFromString("--expose-gc");
   const gc = vm.runInNewContext("gc") as () => void;
-  const bytes = await imagePagesPdf(pages, side);
+  const bytes = file ?? (await imagePagesPdf(pages, side));
   const { openEditorPdf } = await import("@/lib/pdf/editor/page-render");
   const doc = await openEditorPdf(bytes);
   const held = () => {
     gc();
     gc();
-    return process.memoryUsage().arrayBuffers;
+    const m = process.memoryUsage();
+    return m.arrayBuffers + (file ? m.heapUsed : 0);
   };
   const base = held();
   const afterDraw: number[] = [];
@@ -630,6 +684,11 @@ const CASES: Record<string, () => Promise<unknown>> = {
   "viewer-zoom-a0": viewerZoomProbe,
   "viewer-retention": async () => viewerRetentionProbe(10, 3_000),
   "editor-retention": async () => editorRetentionProbe(10, 4_000),
+  // 1,700 inline images of 99 x 99 a page: 16.7 MP, in the operator list.
+  "editor-retention-inline": async () =>
+    editorRetentionProbe(10, 0, inlineImagePagesPdf(10, 1_700)),
+  "viewer-retention-inline": async () =>
+    viewerRetentionProbe(10, 0, inlineImagePagesPdf(10, 1_700)),
   "stamp14-split-text": async () => text(splitQPdf(32, 1_020)),
   "stamp14-5k-text": async () => text(splitQPdf(1, 5_000)),
   "stamp14-form-repeat-text": async () => text(formRepeatPdf(30, 16_000)),

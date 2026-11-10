@@ -33,11 +33,20 @@ interface FakeImage {
   height: number;
 }
 
-/** A pdf.js page as the editor uses it, holding `images` once drawn. */
-function fakePage(images: readonly FakeImage[]) {
+/**
+ * A pdf.js page as the editor uses it, holding `images` once drawn,
+ * and `inline` images in its operator list as pdf.js keeps small inline ones
+ * (decoded RGBA inside the operator's arguments, never in `objs`).
+ */
+function fakePage(
+  images: readonly FakeImage[],
+  inline: readonly FakeImage[] = [],
+) {
   const objs = new Map<string, FakeImage>();
+  const intents = new Map<string, { operatorList: { argsArray: unknown[] } }>();
   const page = {
     rotate: 0,
+    _intentStates: intents,
     objs: {
       *[Symbol.iterator]() {
         yield* objs.entries();
@@ -50,15 +59,31 @@ function fakePage(images: readonly FakeImage[]) {
     }),
     render: () => {
       images.forEach((img, i) => objs.set(`img_${i}`, img));
+      intents.set("display", {
+        operatorList: {
+          argsArray: inline.map((img) => [
+            {
+              width: img.width,
+              height: img.height,
+              data: new Uint8ClampedArray(img.width * img.height * 4),
+            },
+          ]),
+        },
+      });
       return { promise: Promise.resolve(), cancel: () => {} };
     },
     cleanup: () => {
       page.cleaned += 1;
       objs.clear();
+      intents.clear();
       return true;
     },
     /** What this page holds now, counted by the model, not by the editor. */
-    held: () => [...objs.values()].reduce((s, i) => s + i.width * i.height, 0),
+    held: () =>
+      [...objs.values()].reduce((s, i) => s + i.width * i.height, 0) +
+      (intents.size > 0
+        ? inline.reduce((s, i) => s + i.width * i.height, 0)
+        : 0),
   };
   return page;
 }
