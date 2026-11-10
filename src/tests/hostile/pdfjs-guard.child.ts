@@ -543,6 +543,42 @@ async function viewerRetentionProbe(pages: number, side: number) {
   return { ok: true, drawn, afterDrawMb: afterDraw };
 }
 
+/**
+ * The editor's page canvas (Edit, Annotate, Sign PDF) drawing `pages` image
+ * pages in turn, one draw each, measured as {@link viewerRetentionProbe}
+ * measures the viewer: array-buffer memory after a full collection.
+ */
+async function editorRetentionProbe(pages: number, side: number) {
+  await withCanvas();
+  const v8 = await import("node:v8");
+  const vm = await import("node:vm");
+  v8.setFlagsFromString("--expose-gc");
+  const gc = vm.runInNewContext("gc") as () => void;
+  const bytes = await imagePagesPdf(pages, side);
+  const { openEditorPdf } = await import("@/lib/pdf/editor/page-render");
+  const doc = await openEditorPdf(bytes);
+  const held = () => {
+    gc();
+    gc();
+    return process.memoryUsage().arrayBuffers;
+  };
+  const base = held();
+  const afterDraw: number[] = [];
+  const drawn: boolean[] = [];
+  for (let i = 0; i < pages; i++) {
+    const canvas = await doc.render(i, 1, 1);
+    drawn.push(canvas !== null);
+    if (canvas) {
+      const c = canvas as unknown as { width: number; height: number };
+      c.width = 0;
+      c.height = 0;
+    }
+    afterDraw.push(Math.round((held() - base) / 1e6));
+  }
+  await doc.destroy();
+  return { ok: true, drawn, afterDrawMb: afterDraw };
+}
+
 /** The preflight alone, as every pdf.js consumer calls it before the open. */
 async function preflight(bytes: Uint8Array) {
   const { preflightPdfjsBytes } = await import("@/lib/pdf/pdfjs-guard");
@@ -593,6 +629,7 @@ const CASES: Record<string, () => Promise<unknown>> = {
   },
   "viewer-zoom-a0": viewerZoomProbe,
   "viewer-retention": async () => viewerRetentionProbe(10, 3_000),
+  "editor-retention": async () => editorRetentionProbe(10, 4_000),
   "stamp14-split-text": async () => text(splitQPdf(32, 1_020)),
   "stamp14-5k-text": async () => text(splitQPdf(1, 5_000)),
   "stamp14-form-repeat-text": async () => text(formRepeatPdf(30, 16_000)),

@@ -10,6 +10,7 @@ import {
   type QuarterTurn,
 } from "./viewer-geometry";
 import { safeExternalHref, walkOutline } from "./viewer-links";
+import { KEPT_IMAGE_PIXELS, pageKeeper } from "./kept-pages";
 import type { SearchItem } from "./viewer-search";
 
 /**
@@ -46,58 +47,29 @@ export const viewerPdfjs = { loadPdfjs };
  * What a drawn page keeps of what pdf.js decoded for it, so a zoom step
  * redraws it without decoding its images again: at most
  * {@link VIEWER_KEPT_PAGES} pages, and at most
- * {@link VIEWER_KEPT_IMAGE_PIXELS} decoded image pixels summed over them.
- * The page drawn longest ago is released first (`page.cleanup()`), and a
- * page whose own images pass the pixel budget is released as soon as it is
- * drawn.
+ * {@link VIEWER_KEPT_IMAGE_PIXELS} decoded image pixels summed over them —
+ * `./kept-pages`, the rule the editor's page canvas shares. The page drawn
+ * longest ago is released first (`page.cleanup()`), and a page whose own
+ * images pass the pixel budget is released as soon as it is drawn.
  *
  * The pixel budget is the bound: a page count alone kept the decoded
  * images of the last ten pages drawn, which no cap limits (the raster
  * budget is per image), and a 20-page scan of 25 MP images grew a tab past
- * 1.3 GB while its canvases never passed 5 MP (review, 2026-11-10). What a
- * page holds is read from pdf.js's own record of what it decoded for it
- * (`page.objs`), so the sum is of what is retained, not of what is shown.
+ * 1.3 GB while its canvases never passed 5 MP (review, 2026-11-10).
  */
 export const VIEWER_KEPT_PAGES = 6;
 
 /**
  * The decoded image pixels kept across drawn pages: as many as ONE image
  * may have on the raster path (`RASTER_MAX_IMAGE_PIXELS`, held equal by
- * viewer-retention.test.ts — typed here so this module does not load the
- * guard's chunk with the viewer's).
+ * viewer-retention.test.ts).
  */
-export const VIEWER_KEPT_IMAGE_PIXELS = 50_000_000;
+export const VIEWER_KEPT_IMAGE_PIXELS = KEPT_IMAGE_PIXELS;
 
 /** Pages' text kept for search and the text layer (search walks them all). */
 const VIEWER_KEPT_TEXTS = 20;
 
-/**
- * The image pixels pdf.js holds decoded for `page`, from its object store
- * (`page.objs`: one entry per image it decoded for this page, with its
- * width and height). Infinity when the store cannot be read, so a page
- * whose holdings are unknown is never kept.
- */
-export function decodedImagePixels(page: { objs?: unknown }): number {
-  try {
-    let pixels = 0;
-    for (const entry of page.objs as Iterable<[unknown, unknown]>) {
-      const data = entry[1];
-      if (typeof data !== "object" || data === null) continue;
-      const { width, height } = data as { width?: unknown; height?: unknown };
-      if (
-        typeof width === "number" &&
-        typeof height === "number" &&
-        width > 0 &&
-        height > 0
-      ) {
-        pixels += width * height;
-      }
-    }
-    return pixels;
-  } catch {
-    return Number.POSITIVE_INFINITY;
-  }
-}
+export { decodedImagePixels } from "./kept-pages";
 
 /** A page's text, as searched and as its selectable layer draws it. */
 export interface ViewerText {
@@ -244,21 +216,8 @@ export async function openViewerPdf(bytes: Uint8Array): Promise<ViewerPdf> {
   let destroyed = false;
 
   type Page = Awaited<ReturnType<typeof doc.getPage>>;
-  // Pages drawn lately, oldest first, each still holding what pdf.js
-  // decoded for it, and how many image pixels that is.
-  const kept: { index: number; page: Page; pixels: number }[] = [];
-  const keep = (index: number, page: Page) => {
-    const at = kept.findIndex((k) => k.index === index);
-    if (at !== -1) kept.splice(at, 1);
-    kept.push({ index, page, pixels: decodedImagePixels(page) });
-    const held = () => kept.reduce((sum, k) => sum + k.pixels, 0);
-    while (
-      kept.length > 0 &&
-      (kept.length > VIEWER_KEPT_PAGES || held() > VIEWER_KEPT_IMAGE_PIXELS)
-    ) {
-      kept.shift()!.page.cleanup();
-    }
-  };
+  // Pages drawn lately, each still holding what pdf.js decoded for it.
+  const keep = pageKeeper(VIEWER_KEPT_PAGES, VIEWER_KEPT_IMAGE_PIXELS);
   const getPage = (index: number) => doc.getPage(index + 1);
 
   const sizes = new Map<number, Promise<PageSize>>();

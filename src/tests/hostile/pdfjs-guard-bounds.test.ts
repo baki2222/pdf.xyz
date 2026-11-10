@@ -559,6 +559,33 @@ describe("the PDF Viewer's open, on every hostile class it meets first", () => {
     }
   }, 300_000);
 
+  test("the editor drawing ten 16 MP image pages: the process retains at most the kept-pixel budget's decoded images", async () => {
+    // History (PDF Viewer review, PR #310): the editor kept the last six
+    // pages it drew, whatever their images held — the rule the viewer had
+    // just been fixed for. Measured the viewer's way: array buffers after a
+    // full collection, from the PROCESS, not the editor's own count. 16 MP,
+    // not the viewer probe's 9: six 9 MP pages (162 MB) fit under this
+    // bound at 4 bytes a pixel, so they could not see the old rule. Measured
+    // 2026-11-10 (Windows, Node 24): the six-page rule +288 MB, the budget
+    // +144 MB (three pages).
+    const { EDITOR_KEPT_IMAGE_PIXELS } =
+      await import("@/lib/pdf/editor/page-render");
+    const v = settled(
+      await runBounded(CHILD, ["editor-retention"], 240_000, {
+        maxOldSpaceMb: 2048,
+      }),
+    );
+    expect(v.drawn).toEqual(Array.from({ length: 10 }, () => true));
+    const mb = v.afterDrawMb as number[];
+    // Positive control: one 4,000 x 4,000 RGB image decoded and kept is
+    // visible to the meter (48 MB at 3 bytes a pixel).
+    expect(mb[0]!).toBeGreaterThanOrEqual(43);
+    const bound = (EDITOR_KEPT_IMAGE_PIXELS * 4) / 1e6;
+    for (const [i, held] of mb.entries()) {
+      expect(held, `after page ${i + 1}`).toBeLessThanOrEqual(bound);
+    }
+  }, 300_000);
+
   test("the deepest zoom on an A0 page stays within the canvas caps at every device ratio", async () => {
     const { MAX_CANVAS_PIXELS, MAX_CANVAS_SIDE } =
       await import("@/lib/pdf/viewer-geometry");
