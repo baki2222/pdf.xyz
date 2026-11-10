@@ -1,16 +1,11 @@
-import type {
-  PDFArray,
-  PDFDict,
-  PDFDocument,
-  PDFObject,
-  PDFRef,
-} from "pdf-lib";
+import type { PDFDict, PDFDocument, PDFObject, PDFRef } from "pdf-lib";
 import {
   carryOutlines,
   destinationMapper,
   namedDestinations,
   type PageMap,
 } from "../document-structure";
+import { pruneFields } from "../field-prune";
 import type { PdfLibModule } from "../pdf-lib";
 
 /**
@@ -194,43 +189,8 @@ export function prepareDeletedPages(
         (owner instanceof lib.PDFRef && cut.has(owner))
       );
     };
-    const removed = new Set<PDFObject>();
-    const partial = (dict: PDFDict) => {
-      const t = ctx.lookup(dict.get(name("T")));
-      return t instanceof lib.PDFString || t instanceof lib.PDFHexString
-        ? t.decodeText()
-        : undefined;
-    };
-    /** Drop the deleted widgets from `entries`, and the fields left empty. */
-    const prune = (entries: PDFArray, parent: string, depth: number) => {
-      if (depth > MAX_DEPTH) return;
-      for (let i = entries.size() - 1; i >= 0; i -= 1) {
-        const entry = entries.get(i);
-        const dict = ctx.lookup(entry);
-        if (!(dict instanceof PDFDict) || seen.has(dict)) continue;
-        seen.add(dict);
-        const own = partial(dict);
-        const full =
-          own === undefined ? parent : parent ? `${parent}.${own}` : own;
-        const kids = dict.lookupMaybe(name("Kids"), PDFArray);
-        let goes: boolean;
-        if (kids && kids.size() > 0) {
-          prune(kids, full, depth + 1);
-          goes = kids.size() === 0;
-        } else goes = isOnDeleted(entry, dict);
-        if (!goes) continue;
-        entries.remove(i);
-        removed.add(entry);
-        if (own !== undefined) removedFields.add(full);
-      }
-    };
-    const acroForm = doc.catalog.lookupMaybe(name("AcroForm"), PDFDict);
-    const fields = acroForm?.lookupMaybe(name("Fields"), PDFArray);
-    if (fields) prune(fields, "", 0);
-    const order = acroForm?.lookupMaybe(name("CO"), PDFArray);
-    for (let i = (order?.size() ?? 0) - 1; order && i >= 0; i -= 1) {
-      if (removed.has(order.get(i))) order.remove(i);
-    }
+    const { removed, removedFields: gone } = pruneFields(lib, doc, isOnDeleted);
+    for (const field of gone) removedFields.add(field);
 
     // The structure tree's own text for what was on a deleted page.
     wipeStructText(lib, doc, cut);

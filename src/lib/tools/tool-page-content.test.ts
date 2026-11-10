@@ -467,6 +467,9 @@ const NAMES_WITHOUT_HEAD_TERM = [
   "n-up-pdf",
   "organize-pages",
   "page-numbers",
+  // Added 2026-11-10: "Remove Annotations" is the name the task goes by;
+  // its seoTitle leads with "Remove PDF Annotations".
+  "remove-annotations",
   "remove-pages",
   "request-signatures",
   "watermark-pdf",

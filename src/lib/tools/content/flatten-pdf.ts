@@ -73,7 +73,7 @@ const content: ToolContent = {
     },
     {
       q: "Does it flatten comments, annotations and layers too?",
-      a: "No. Only fillable AcroForm fields are flattened: their widgets are removed from each page and their appearances drawn in. Sticky notes, highlights, ink markup and optional-content layers stay in the file as annotations and layers.",
+      a: "No. Only fillable AcroForm fields are flattened: their widgets are removed from each page and their appearances drawn in. Sticky notes, highlights, ink markup and optional-content layers stay in the file as annotations and layers. To delete comments, highlights and other annotations instead, without drawing anything, use Remove Annotations.",
     },
     {
       q: 'Why does it say "No fillable AcroForm fields were detected"?',

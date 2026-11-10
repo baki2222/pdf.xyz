@@ -792,8 +792,19 @@ describe("no tool page loads a table of every tool", () => {
  * registry). NOT measured on CI: 33.77 KB (34,580 B) keeps the same 35 B
  * over this machine's figure as the raise above, for CI's ~25 B gap.
  *
- * RAISED 33.77 -> 33.84 on 2026-11-10, for PDF Viewer, the 58th tool and
- * the first new runner kind ('view') since the per-tool first load: the
+ * RAISED 33.77 -> 33.94 on 2026-11-10, for Remove Annotations, the 58th
+ * tool (merged over PDF Booklet Maker): the catalogue the ticket loads
+ * carries its row and keywords, the hand-off tables its mode row, and the
+ * format chunk its slug. On its own branch (main 69c92fe1 vs the branch) the
+ * eight counted chunks went 34,371 -> 34,537 B (+166). On the MERGED tree
+ * (main ad23525e with the booklet, plus this tool), one machine, from an
+ * empty .next: 34,711 B (33.8975 KB). 33.94 KB is 34,755 B, which is 44 B
+ * over that figure for CI's reading (25 B higher on the one tree both
+ * read). Not measured on CI.
+ *
+ * On PDF Viewer's own branch (merged later over Remove Annotations, which
+ * made it the 59th tool): RAISED 33.77 -> 33.84 for the viewer, the first
+ * new runner kind ('view') since the per-tool first load: the
  * ticket carries its directory row, its registry row and its name, as for
  * Booklet above. One machine (Windows), both from an empty .next, main
  * ad23525e (a detached worktree, E:/wviewer-base) vs the branch: the eight
@@ -809,8 +820,15 @@ describe("no tool page loads a table of every tool", () => {
  * machine, empty .next: the eight counted chunks went 34,614 -> 34,661 B
  * gzip -9 (+47). NOT measured on CI: 33.89 KB (34,703 B) keeps 42 B over
  * this machine's figure, for CI's ~25 B gap.
+ *
+ * RAISED 33.94 -> 34.06 on 2026-11-10, for PDF Viewer, the 59th tool, on
+ * the MERGED tree (main f9c8f1d9 with Booklet and Remove Annotations, plus
+ * the viewer and its review fixes). One machine, from an empty .next: the
+ * eight counted chunks read 34,825 B (34.0088 KB). 34.06 KB is 34,877 B,
+ * which is 52 B over that figure for CI's reading (25 B higher on the one
+ * tree both read). Not measured on CI.
  */
-const TICKET_FETCH_GZ_KB = 33.89;
+const TICKET_FETCH_GZ_KB = 34.06;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));

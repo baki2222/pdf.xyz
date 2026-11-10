@@ -916,7 +916,7 @@ const NEW_TOOLS_2026_10_30 = 0.32;
 const TIFF_INPUT_2026_11_04 = 0.03;
 /** What EPUB to PDF, the 56th tool, took of it on 2026-11-06 (see below). */
 const EPUB_TO_PDF_2026_11_06 = 0.04;
-/** What PDF Viewer, the 58th tool, took of it on 2026-11-10: the last of it (see below). */
+/** What PDF Viewer, the 59th tool, took of it on 2026-11-10: the last of it (see below). */
 const PDF_VIEWER_2026_11_10 = 0.01;
 const TOOL_PAGES_TO_COME = {
   // WP-08 landed 2026-10-10 (its 4.5 deleted here, as the rule says).
@@ -1077,7 +1077,35 @@ const TOOL_PAGES_TO_COME = {
   // branch then cost 17 tool pages +28 B each through a CheckboxField
   // change, since moved into booklet-editor.tsx (review, 2026-11-10).
   //
-  // PDF VIEWER, the 58th tool, 2026-11-10: A RE-ALLOCATION OF G.1, FLAGGED
+  // NOT TAKEN from the unallocated 0.01, 2026-11-10, by Remove
+  // Annotations, the 58th tool (a client tool REUSING the metadata runner kind) — flagged
+  // for the owner as A RE-ALLOCATION OF G.1 in effect: it rides each row's
+  // own headroom, as P6 did above. RE-MEASURED after review round 1 over
+  // EVERY prerendered page (scripts/page-weight.ts: gzip per unique chunk,
+  // summed), main 69c92fe1 -> the branch, both built from an empty .next on
+  // one machine. The first note measured the four G.1 pages and missed
+  // thirteen others: the kind labels then sat in offered-kinds.ts (first
+  // load of sign, annotate, edit, create-forms, grayscale, split, compress:
+  // +156 to +170 B) and Overlay imported the module holding the XFA reader
+  // (overlay, n-up: +293 B). Both are fixed and guarded
+  // (own-panel-first-load.test.ts, "a shared leaf rides only with the code
+  // that uses it"). Now:
+  //  - 136 of 141 pages +8 or +9: webpack's runtime +9 (one more async
+  //    chunk in its map: the engine, fetched when a file opens), the page
+  //    chunk -1. The G.1 four: ocr 233,628 -> 233,636, rotate 234,868 ->
+  //    234,876, merge 229,100 -> 229,108, summarize 234,440 -> 234,448.
+  //  - /tools +140: the catalogue row (chunk 5320: the tool's name, tagline
+  //    and keywords), as any new tool adds.
+  //  - workspace +262: that row, the Eraser icon in the icon chunk (+81)
+  //    and the intents row (+21).
+  //  - flatten-pdf +67: Flatten's engine is in its first load, and the
+  //    flags and XFA reader it shares with Remove Annotations' engine are a
+  //    module of their own there now, not inlined (+59, and +8).
+  //  - edit-pdf-metadata 242,105 -> 245,662 (+3,557): the metadata kind's
+  //    runner chunk carries the Remove Annotations panel; remove-annotations
+  //    itself 245,662.
+  //
+  // PDF VIEWER, the 59th tool (merged over Remove Annotations), 2026-11-10: A RE-ALLOCATION OF G.1, FLAGGED
   // FOR THE OWNER. It is the one NEW runner kind ('view') in its batch, so
   // every tool page pays its `next/dynamic` loader and dispatcher arm, and
   // every page on the site its chunk-map entries. Measured gzip -9 over

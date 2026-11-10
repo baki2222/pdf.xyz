@@ -55,6 +55,10 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { tools } from "@/lib/tools";
+import { ANNOTATION_GROUP_LABEL } from "@/lib/pdf/annotation-kinds";
+import { annotationGroup } from "@/lib/pdf/annotation-groups";
+import { DYNAMIC_XFA_MESSAGE } from "@/lib/pdf/flatten";
+import { DYNAMIC_XFA_REMOVE_MESSAGE } from "@/lib/pdf/remove-annotations";
 import { chunkFiles, prerenderedPages } from "../../scripts/page-weight";
 import {
   ROOT,
@@ -431,5 +435,71 @@ describe("a tool page's first load carries its own panel, and no other tool's", 
     expect(without, "runner pages with no server-rendered file input").toEqual(
       [],
     );
+  });
+});
+
+/*
+ * A shared LEAF rides only with the code that uses it (review round 1,
+ * 2026-11-10). webpack keeps a module's exports per MODULE, not per page:
+ * a constant table added to a leaf that other pages load first ships on all
+ * of them. Two did. Remove Annotations' kind labels went into
+ * offered-kinds.ts (in the first load of sign, annotate, edit, create-forms,
+ * grayscale, split and compress, +156 to +170 B gzip each), and Overlay
+ * imported its two flags from the module holding the XFA reader
+ * (overlay-pdf and n-up-pdf, +293 B each). The panel-marker test above
+ * could not see either: neither leaf is a panel. The rule below is a
+ * relationship, not a page list: a leaf's marker may appear only in a first
+ * load that also carries code which USES the leaf.
+ */
+describe("a shared leaf rides only with the code that uses it", () => {
+  const built = existsSync(APP_DIR);
+  const RIDES = [
+    {
+      leaf: "annotation-kinds.ts (Remove Annotations' kind labels)",
+      marker: ANNOTATION_GROUP_LABEL["redaction-marks"],
+      // annotation-groups.ts's own sentence: the table that uses the labels.
+      users: [annotationGroup("redaction-marks").consequence],
+    },
+    {
+      leaf: "annot-flags.ts (the XFA reader)",
+      marker: "NeedsRendering",
+      users: [DYNAMIC_XFA_MESSAGE, DYNAMIC_XFA_REMOVE_MESSAGE],
+    },
+  ];
+  const loads = () =>
+    prerenderedPages(NEXT_DIR).map((html) => ({
+      html,
+      text: chunkFiles(NEXT_DIR, html).map(read).join("\n"),
+    }));
+
+  it("positive control: each leaf's marker and a user's marker are in some first load", () => {
+    if (!built) return;
+    const all = loads();
+    expect(all.length).toBeGreaterThan(50);
+    for (const ride of RIDES) {
+      expect(
+        all.some((p) => p.text.includes(ride.marker)),
+        ride.leaf,
+      ).toBe(true);
+      expect(
+        all.some((p) => ride.users.some((u) => p.text.includes(u))),
+        ride.leaf,
+      ).toBe(true);
+    }
+  });
+
+  it("no first load carries a leaf without code that uses it", () => {
+    if (!built) return;
+    const all = loads();
+    const stray = RIDES.flatMap((ride) =>
+      all
+        .filter(
+          (p) =>
+            p.text.includes(ride.marker) &&
+            !ride.users.some((u) => p.text.includes(u)),
+        )
+        .map((p) => `${p.html}: ${ride.leaf}`),
+    );
+    expect(stray).toEqual([]);
   });
 });
