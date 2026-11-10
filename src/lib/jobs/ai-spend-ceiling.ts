@@ -41,11 +41,18 @@ export const AI_SPEND_CEILING = {
    */
   measuredOn: "provisional",
   /**
-   * When the figure became provisional (bcce473). Bounded in age by
-   * `provisional-age.test.ts`: past the limit it is re-measured or renewed
+   * When the figure became provisional (bcce473, 2026-08-11). Bounded in age
+   * by `provisional-age.test.ts`: past the limit it is re-measured or renewed
    * on purpose, never left to drift.
+   *
+   * RENEWED 2026-11-10, NOT re-measured. The age limit expired on day 91.
+   * The figure is unchanged. Revising it needs a corpus of real
+   * `results.ai.usage` rows large enough to replace the 250-run guess, and
+   * no such corpus was assembled for this renewal. The ceiling itself
+   * enforces: `/api/worker/operations` reported `aiSpend.enforced: true`
+   * that day. The next decision is due when this date expires again.
    */
-  provisionalSince: "2026-08-11",
+  provisionalSince: "2026-11-10",
   /**
    * ENFORCED, not estimated: the output budget translate actually sends, so it
    * is the most output tokens a single run can produce. Imported rather than
