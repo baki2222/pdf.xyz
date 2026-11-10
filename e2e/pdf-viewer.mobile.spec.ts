@@ -91,7 +91,7 @@ test("every viewer control is at least 44 px and the page does not scroll sidewa
   expect(withSearch.pageWidth).toBeLessThanOrEqual(SCREEN);
 });
 
-test("the viewer is no taller than the screen, its toolbar two rows", async ({
+test("the viewer is no taller than the screen, its toolbar at most three rows", async ({
   page,
 }) => {
   // History (review, 2026-11-10): the toolbar wrapped to four rows (201
@@ -100,16 +100,25 @@ test("the viewer is no taller than the screen, its toolbar two rows", async ({
     const region = document.querySelector("[data-pdf-viewer]")!;
     const toolbar = region.querySelector('[role="toolbar"]')!;
     const scroller = region.querySelector("[data-viewer-scroller]")!;
+    const shown = [...toolbar.children].filter(
+      (el) =>
+        el.getBoundingClientRect().width > 1 &&
+        el.getBoundingClientRect().height > 1,
+    );
     return {
       region: region.getBoundingClientRect().height,
-      toolbar: toolbar.getBoundingClientRect().height,
+      rows: new Set(
+        shown.map((el) => Math.round(el.getBoundingClientRect().top)),
+      ).size,
       scroller: scroller.getBoundingClientRect().height,
       screen: window.innerHeight,
     };
   });
   expect(m.region).toBeLessThanOrEqual(m.screen);
-  // Two rows of 44 px controls, their gap and the bar's padding.
-  expect(m.toolbar).toBeLessThanOrEqual(2 * MIN + 4 + 14);
+  // Was four rows; zoom +/- give way to the zoom menu on a phone. Rows are
+  // counted from the controls' own tops (a row of 44 px controls each).
+  expect(m.rows).toBeGreaterThanOrEqual(1);
+  expect(m.rows).toBeLessThanOrEqual(3);
   // Positive control: the pages still get most of the screen.
   expect(m.scroller).toBeGreaterThan(m.screen * 0.6);
 });

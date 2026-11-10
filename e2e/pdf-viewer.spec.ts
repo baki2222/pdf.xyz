@@ -355,7 +355,9 @@ test.describe("PDF Viewer", () => {
     });
     const windowY = () => page.evaluate(() => window.scrollY);
     const before = await windowY();
-    await page.getByRole("button", { name: VIEWER_LABELS.thumbnails }).click();
+    await page
+      .getByRole("button", { name: VIEWER_LABELS.thumbnails, exact: true })
+      .click();
     const box = (await scroller.boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + 50);
     for (let i = 0; i < 15; i++) {
@@ -382,14 +384,36 @@ test.describe("PDF Viewer", () => {
     expect(await windowY()).toBe(before);
 
     // The reveal of a match on the last page: the column moves, the page does not.
-    await page.getByRole("button", { name: VIEWER_LABELS.thumbnails }).click();
+    await page
+      .getByRole("button", { name: VIEWER_LABELS.thumbnails, exact: true })
+      .click();
     await page.getByRole("button", { name: VIEWER_LABELS.search }).click();
     const field = page.getByRole("searchbox", {
       name: VIEWER_LABELS.searchField,
     });
+    // Typed into the field the viewer focused, so no locator action
+    // scrolls the page on Playwright's side. A first search that finds
+    // nothing comes first: the first key a visitor presses gives back the
+    // runner's held band (stage-hold.ts) and the page settles; the reveal
+    // is measured after that, on its own.
+    await expect(field).toBeFocused();
+    await page.keyboard.type("zzzz");
+    await expect(page.locator("[data-viewer-search-status]")).toContainText(
+      "No matches.",
+    );
+    let settled = await windowY();
+    await expect
+      .poll(async () => {
+        const y = await windowY();
+        const same = y === settled;
+        settled = y;
+        return same;
+      })
+      .toBe(true);
     const atSearch = await windowY();
-    await field.fill("kingfisher");
-    await field.press("Enter");
+    await page.keyboard.press("ControlOrMeta+a");
+    await page.keyboard.type("kingfisher");
+    await page.keyboard.press("Enter");
     const hit = page.locator(
       '[data-viewer-page="60"] mark[data-viewer-hit="active"]',
     );
