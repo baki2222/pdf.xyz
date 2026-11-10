@@ -414,7 +414,13 @@ describe("lane res1: every pdf.js open goes through the preflight", () => {
   // zero-width xref ran the child out of memory in 3 s, the q-split page was
   // read by the page board as if nothing were wrong and drawn by Auto-crop
   // in 9.3 s.
-  const READERS = ["read-pages", "count-pages", "auto-crop", "editor-render"];
+  const READERS = [
+    "read-pages",
+    "count-pages",
+    "auto-crop",
+    "editor-render",
+    "viewer-render",
+  ];
   const expanded = {
     name: "PdfEngineError",
     message: PDF_EXPANDS_TOO_FAR_MESSAGE,
@@ -458,6 +464,128 @@ describe("lane res1: every pdf.js open goes through the preflight", () => {
       expect(control, `control via ${reader}`).toMatchObject({ ok: true });
     }, 400_000);
   }
+});
+
+describe("the PDF Viewer's open, on every hostile class it meets first", () => {
+  // The viewer opens a file the page board already read, so most of these
+  // were refused there first; the viewer's own open must refuse them as
+  // well, typed and bounded, since a hand-off or a re-open reaches it too.
+  test("CO-06: the chained-Flate bomb is refused, typed, without inflating 1 GiB", async () => {
+    const v = settled(
+      await runBounded(CHILD, ["co06-viewer"], 60_000, { maxOldSpaceMb: 1024 }),
+    );
+    expect(v.error).toMatchObject({
+      name: "PdfEngineError",
+      message: PDF_EXPANDS_TOO_FAR_MESSAGE,
+    });
+    expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
+  }, 90_000);
+
+  test("CO-06 positive control: the viewer draws a plain file and reads its text", async () => {
+    const v = settled(await runBounded(CHILD, ["co06-control-viewer"], 60_000));
+    expect(v).toMatchObject({ ok: true, numPages: 1, drawn: "drawn" });
+    expect(v.text).toContain("HOSTILE MARKER");
+  }, 90_000);
+
+  test("STAMP-14: 100,000 unclosed q is refused in seconds", async () => {
+    const v = settled(await runBounded(CHILD, ["stamp14-viewer"], 30_000));
+    expect(v.error).toMatchObject({
+      name: "PdfEngineError",
+      message: PDF_NESTED_TOO_DEEPLY_MESSAGE,
+    });
+  }, 60_000);
+
+  test("CO-08: a 100 MP image, page 1 drawn in seconds without it, and the viewer knows to say so", async () => {
+    const v = settled(
+      await runBounded(CHILD, ["co08-viewer-render"], 30_000, {
+        maxOldSpaceMb: 2048,
+      }),
+    );
+    expect(v).toMatchObject({ ok: true, drawn: "drawn" });
+    // The image's place is the white sheet: skipped, not decoded.
+    expect(v.ink).toEqual([765, 765]);
+    expect(v.imageTooLarge).toBe(true);
+    expect(v.renderMs as number).toBeLessThan(10_000);
+    expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
+  }, 60_000);
+
+  test("CO-08 positive control: a 9 MP image is drawn, and nothing is said", async () => {
+    const v = settled(
+      await runBounded(CHILD, ["co08-control-viewer-render"], 60_000, {
+        maxOldSpaceMb: 2048,
+      }),
+    );
+    expect(v).toMatchObject({ ok: true, drawn: "drawn" });
+    expect(v.ink).toEqual([0, 0]);
+    expect(v.imageTooLarge).toBe(false);
+  }, 90_000);
+
+  test("/Count 0 is the unreadable refusal", async () => {
+    const v = settled(await runBounded(CHILD, ["count0-viewer"], 30_000));
+    expect(v.error).toMatchObject({
+      name: "PdfEngineError",
+      message: UNREADABLE_PDF_MESSAGE,
+      kind: "unreadable",
+    });
+  }, 60_000);
+
+  test("a file that needs a password is the typed needs-password refusal (its remedy is Unlock PDF)", async () => {
+    const v = settled(await runBounded(CHILD, ["password-viewer"], 30_000));
+    expect(v.error).toMatchObject({ kind: "encrypted" });
+  }, 60_000);
+
+  test("scrolling ten 9 MP image pages: the process retains at most the kept-pixel budget's decoded images", async () => {
+    // History (review, 2026-11-10): the viewer kept the last ten pages it
+    // drew, whatever their images held; this probe measured +271 MB after
+    // ten pages with that rule (mutation, 2026-11-10) and +135 MB with the
+    // pixel budget. Measured from the PROCESS (array buffers after a full
+    // collection, where pdf.js keeps decoded images in Node), not from the
+    // viewer's own count.
+    const { VIEWER_KEPT_IMAGE_PIXELS } = await import("@/lib/pdf/viewer");
+    const v = settled(
+      await runBounded(CHILD, ["viewer-retention"], 240_000, {
+        maxOldSpaceMb: 2048,
+      }),
+    );
+    expect(v.drawn).toEqual(Array.from({ length: 10 }, () => "drawn"));
+    const mb = v.afterDrawMb as number[];
+    // Positive control: one 3,000 x 3,000 RGB image decoded and kept is
+    // visible to the meter (27 MB at 3 bytes a pixel).
+    expect(mb[0]!).toBeGreaterThanOrEqual(24);
+    // The bound, at 4 bytes a pixel (the most pdf.js keeps per pixel).
+    const bound = (VIEWER_KEPT_IMAGE_PIXELS * 4) / 1e6;
+    for (const [i, held] of mb.entries()) {
+      expect(held, `after page ${i + 1}`).toBeLessThanOrEqual(bound);
+    }
+  }, 300_000);
+
+  test("the deepest zoom on an A0 page stays within the canvas caps at every device ratio", async () => {
+    const { MAX_CANVAS_PIXELS, MAX_CANVAS_SIDE } =
+      await import("@/lib/pdf/viewer-geometry");
+    const v = settled(
+      await runBounded(CHILD, ["viewer-zoom-a0"], 60_000, {
+        maxOldSpaceMb: 2048,
+      }),
+    );
+    const renders = v.renders as {
+      ratio: number;
+      pixels: number | null;
+      side: number | null;
+    }[];
+    // Health: three renders, each drawn (a null would pass any bound).
+    expect(renders.map((r) => r.ratio)).toEqual([1, 2, 3]);
+    for (const r of renders) {
+      expect(r.pixels, `ratio ${r.ratio}`).not.toBeNull();
+      expect(r.pixels!, `ratio ${r.ratio}`).toBeLessThanOrEqual(
+        MAX_CANVAS_PIXELS,
+      );
+      expect(r.side!, `ratio ${r.ratio}`).toBeLessThanOrEqual(MAX_CANVAS_SIDE);
+      // Reaches the cap, not starved by a factor.
+      expect(r.pixels!, `ratio ${r.ratio}`).toBeGreaterThan(
+        MAX_CANVAS_PIXELS * 0.99,
+      );
+    }
+  }, 90_000);
 });
 
 describe("lane res1: the access probe's open goes through the preflight too", () => {

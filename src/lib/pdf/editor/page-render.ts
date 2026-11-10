@@ -1,6 +1,7 @@
 import { awaitPdfjsDocument, loadPdfjs } from "../pdfjs";
 import { PDFJS_DOCUMENT_DEFAULTS } from "../wasm-assets";
 import type { PdfjsTextItem } from "./runs";
+import { MAX_CANVAS_PIXELS } from "../viewer-geometry";
 
 /**
  * pdf.js, held open for the editor's page view: one parse, then any page
@@ -33,8 +34,12 @@ export const editorPdfjs = { load: loadPdfjs };
  */
 export const EDITOR_KEPT_PAGES = 6;
 
-/** A rendered canvas larger than this many device pixels is drawn at a lower ratio. */
-export const MAX_CANVAS_PIXELS = 16_000_000;
+/**
+ * A rendered canvas larger than this many device pixels is drawn at a lower
+ * ratio. One figure for the editor and the PDF Viewer, defined beside the
+ * viewer's own cap (`../viewer-geometry`).
+ */
+export { MAX_CANVAS_PIXELS };
 
 export interface EditorPdf {
   readonly numPages: number;

@@ -50,6 +50,8 @@ function examples(): HandoffOrigin[] {
         return DROP_SURFACES.map((surface) => ({ kind, surface }));
       case "result":
         return [{ kind, fromSlug: "merge-pdf" }];
+      case "opened":
+        return [{ kind, fromSlug: "pdf-viewer" }];
       case "remedy":
         return [
           { kind, fromSlug: "rotate-pdf", problem: "encrypted" },
@@ -91,6 +93,21 @@ describe("originPhrase", () => {
     expect(originPhrase({ kind: "result", fromSlug: "merge-pdf" }, one)).toBe(
       "Loaded your result from Merge PDF.",
     );
+    // From a tool that writes nothing: the file as it was opened, never
+    // "your result" (review, 2026-11-10: the target page said "Loaded your
+    // result from PDF Viewer." of the visitor's own file).
+    expect(
+      originPhrase(
+        { kind: "opened", fromSlug: "pdf-viewer" },
+        { ...one, fromName: "PDF Viewer" },
+      ),
+    ).toBe("Loaded report.pdf from PDF Viewer, unchanged.");
+    expect(
+      originPhrase(
+        { kind: "opened", fromSlug: "pdf-viewer" },
+        { ...one, fromName: "PDF Viewer" },
+      ),
+    ).not.toMatch(/result/i);
     expect(
       originPhrase(
         { kind: "remedy", fromSlug: "rotate-pdf", problem: "encrypted" },

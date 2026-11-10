@@ -916,6 +916,8 @@ const NEW_TOOLS_2026_10_30 = 0.32;
 const TIFF_INPUT_2026_11_04 = 0.03;
 /** What EPUB to PDF, the 56th tool, took of it on 2026-11-06 (see below). */
 const EPUB_TO_PDF_2026_11_06 = 0.04;
+/** What PDF Viewer, the 59th tool, took of it on 2026-11-10: the last of it (see below). */
+const PDF_VIEWER_2026_11_10 = 0.01;
 const TOOL_PAGES_TO_COME = {
   // WP-08 landed 2026-10-10 (its 4.5 deleted here, as the rule says).
   //
@@ -1103,8 +1105,62 @@ const TOOL_PAGES_TO_COME = {
   //    runner chunk carries the Remove Annotations panel; remove-annotations
   //    itself 245,662.
   //
-  // NOT TAKEN from the unallocated 0.01, 2026-11-10, by Edit PDF Bookmarks,
-  // the 59th tool (a client tool REUSING the metadata runner kind) — flagged
+  // PDF VIEWER, the 59th tool (merged over Remove Annotations), 2026-11-10: A RE-ALLOCATION OF G.1, FLAGGED
+  // FOR THE OWNER. It is the one NEW runner kind ('view') in its batch, so
+  // every tool page pays its `next/dynamic` loader and dispatcher arm, and
+  // every page on the site its chunk-map entries. Measured gzip -9 over
+  // each page's first load, main ad23525e (a detached worktree,
+  // E:/wviewer-base, `pnpm install --frozen-lockfile`) -> the branch, both
+  // built on this machine (Windows) from an empty .next:
+  //                      main      branch    delta
+  //   tools/ocr-pdf    233,629 -> 233,718    +89
+  //   tools/merge-pdf  229,101 -> 229,190    +89
+  //   tools/summarize  234,441 -> 234,530    +89
+  //   tools/rotate-pdf 234,869 -> 234,726   -143  (its runner's shared chunks
+  //                                                 re-cut: 7880 + 8315 ->
+  //                                                 6341 + 8627, -232)
+  //   home             202,686 -> 202,737    +51
+  //   a guide (/guides) 196,397 -> 196,452   +55
+  //   tools/pdf-viewer        -> 227,683  (its own first load: the runner
+  //                                         alone; the viewer is a chunk
+  //                                         fetched with the first file)
+  // Where the +89 is: the page chunk +33 (the loader and the `case "view"`
+  // arm, the analysts' ~30-45), webpack's runtime +47 on EVERY page (the
+  // chunk map's new entries: the viewer, its pdf.js open, the runner, and
+  // the shared editor modules re-cut by the move of page-layout and the
+  // zoom steps into `@/lib/pdf/view-layout` and `editor/geometry`; the
+  // print module was folded into the viewer's chunk to save one, measured
+  // +53 -> +47), the layout +5, chunk 3285 +3 (the "view only" formats
+  // line), error/global-error/not-found ±1. Of G.1's 0.4 unallocated, 0.01
+  // (10 B) was left: it is TAKEN here, and the other ~79 B on each tool
+  // page are PAID FROM EACH ROW'S MEASURED HEADROOM — the tightest being
+  // tools/ocr-pdf, which had ~3.4 KB of room after the per-tool first load
+  // (above). Nothing is left unallocated after this entry: the next tool
+  // with a new runner kind needs the owner to re-open G.1, or to recover
+  // bytes first. The pdf-viewer page itself is not a G.1 row.
+  //
+  // THE WHOLE SITE, not only the rows above (review, 2026-11-10: the table
+  // left out the two pages that grew most). Re-measured after the review
+  // fixes with a second weigher — gzip -9 over the script chunks each
+  // prerendered page's HTML names (it does not count a tool's lazily
+  // requested runner chunk, so a tool page reads +80 here against the +89
+  // above), main ad23525e -> the branch, every one of 142 pages:
+  //   57 tool pages +80, 66 pages +51, 8 +54, 5 +53, one each +47/+48/+56,
+  //   home +53, a guide (/guides) +56,
+  //   /workspace        234,118 -> 234,435  +317  (+274 before the review
+  //                       fixes, measured by the reviewer as its page chunk
+  //                       +189, webpack +48 and a chunk re-cut; the fixes
+  //                       added +43 — the workspace reads `originPhrase`,
+  //                       which gained the "opened" kind)
+  //   /tools            212,713 -> 212,906  +193  (+197 before the fixes,
+  //                       +176 of it on the page chunk; not attributed
+  //                       further)
+  // Neither /workspace nor /tools is a G.1 row; both are named here so the
+  // owner approving the re-allocation sees every page that pays.
+  //
+  // NOT TAKEN from the unallocated pool (PDF Viewer took its last 0.01 just
+  // above), 2026-11-10, by Edit PDF Bookmarks, the 60th tool (merged over
+  // PDF Viewer; a client tool REUSING the metadata runner kind) — flagged
   // for the owner as A RE-ALLOCATION OF G.1 in effect: it rides each row's
   // own headroom, as Remove Annotations did above. Measured with gzip -9 per
   // first-load chunk, main f9c8f1d9 -> the branch, both built from an empty
@@ -1130,7 +1186,8 @@ const TOOL_PAGES_TO_COME = {
     UNALLOCATED -
     NEW_TOOLS_2026_10_30 -
     TIFF_INPUT_2026_11_04 -
-    EPUB_TO_PDF_2026_11_06,
+    EPUB_TO_PDF_2026_11_06 -
+    PDF_VIEWER_2026_11_10,
 };
 /**
  * The table as it stood before WP-08 landed — the positive control below

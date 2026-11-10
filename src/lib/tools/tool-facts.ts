@@ -966,6 +966,10 @@ export const RUNNER_MID_RUN_FETCHES: Readonly<
   resize: ["image-decoder", "character-map"],
   "n-up": [],
   "split-half": [],
+  // Every page is drawn and its text read for search and selection
+  // (2026-11-10): pdf.js fetches an image decoder or a character map when
+  // a page needs one.
+  view: ["image-decoder", "character-map"],
 };
 
 /** The document-dependent fetches the tool behind `slug` can make mid-run. */

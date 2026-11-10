@@ -802,15 +802,48 @@ describe("no tool page loads a table of every tool", () => {
  * over that figure for CI's reading (25 B higher on the one tree both
  * read). Not measured on CI.
  *
- * RAISED 33.94 -> 34.11 on 2026-11-10, for Edit PDF Bookmarks, the 59th
- * tool: the catalogue the ticket loads carries its row and keywords, as any
+ * On PDF Viewer's own branch (merged later over Remove Annotations, which
+ * made it the 59th tool): RAISED 33.77 -> 33.84 for the viewer, the first
+ * new runner kind ('view') since the per-tool first load: the
+ * ticket carries its directory row, its registry row and its name, as for
+ * Booklet above. One machine (Windows), both from an empty .next, main
+ * ad23525e (a detached worktree, E:/wviewer-base) vs the branch: the eight
+ * counted chunks went 34,544 -> 34,614 B gzip -9 (+70; 7384 +28, 5320 -30,
+ * and the editor's page-layout and zoom steps moving to a shared module
+ * re-cut 6011/5878 into 6011/7047). NOT measured on CI: 33.84 KB (34,652 B)
+ * keeps 38 B over this machine's figure, for CI's ~25 B gap.
+ *
+ * RAISED 33.84 -> 33.89 on 2026-11-10, for the PDF Viewer review fixes on
+ * the same branch: the hand-off a tool that writes nothing makes (origin
+ * "opened", its sentence and reader, and `writesNothing` /
+ * `continueHandoff` in next-steps, which the ticket's chunks carry). Same
+ * machine, empty .next: the eight counted chunks went 34,614 -> 34,661 B
+ * gzip -9 (+47). NOT measured on CI: 33.89 KB (34,703 B) keeps 42 B over
+ * this machine's figure, for CI's ~25 B gap.
+ *
+ * RAISED 33.94 -> 34.06 on 2026-11-10, for PDF Viewer, the 59th tool, on
+ * the MERGED tree (main f9c8f1d9 with Booklet and Remove Annotations, plus
+ * the viewer and its review fixes). One machine, from an empty .next: the
+ * eight counted chunks read 34,825 B (34.0088 KB). 34.06 KB is 34,877 B,
+ * which is 52 B over that figure for CI's reading (25 B higher on the one
+ * tree both read). Not measured on CI.
+ *
+ * On Edit PDF Bookmarks' own branch (merged later over PDF Viewer, which
+ * made it the 60th tool): RAISED 33.94 -> 34.11 for the bookmarks tool: the catalogue the ticket loads carries its row and keywords, as any
  * new tool's does. On its branch (main f9c8f1d9, whose figure above is
  * 34,711 B), one machine, from an empty .next: 34,879 B (34.0615 KB),
  * +168 B, against Remove Annotations' +166. 34.11 KB is 34,928 B, 49 B over
  * that figure for CI's reading (25 B higher on the one tree both read). Not
  * measured on CI.
+ *
+ * RAISED 34.06 -> 34.23 on 2026-11-10, for Edit PDF Bookmarks, the 60th
+ * tool, on the MERGED tree (main b328fc8c with Booklet, Remove Annotations
+ * and PDF Viewer, plus bookmarks and its review fixes). One machine, from an
+ * empty .next: the eight counted chunks read 34,995 B (34.1748 KB). 34.23 KB
+ * is 35,052 B, which is 57 B over that figure for CI's reading (25 B higher
+ * on the one tree both read). Not measured on CI.
  */
-const TICKET_FETCH_GZ_KB = 34.11;
+const TICKET_FETCH_GZ_KB = 34.23;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));

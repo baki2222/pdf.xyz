@@ -40,6 +40,8 @@ import { CASES } from "./client-proof/cases";
 import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
 import { RESULT_ENDING_CHUNK } from "../src/components/intent/result-ending-chunk";
 import { supportedToolSlugs } from "../src/lib/pdf/registry";
+import { getToolBySlug } from "../src/lib/tools";
+import { writesNothing } from "../src/lib/intent/next-steps";
 import { RECENTS_STORAGE_KEY } from "../src/lib/intent/recents-key";
 import { USER_PASSWORD_PDF_BASE64 } from "../src/tests/fixtures-encrypted";
 import { READY_WORKER_STATUS } from "../src/tests/ready-worker-status";
@@ -1170,7 +1172,22 @@ for (const screen of [
  * on the pick's part.
  */
 const ENDING_LATE_MS = 700;
-const ENDING_SET = [...supportedToolSlugs].sort();
+/**
+ * A tool that makes no file (PDF Viewer, 2026-11-10) has no Run press and
+ * no result, so it draws no receipt: it is held to the pick half only
+ * (below), never dropped. Which tools those are is `writesNothing`, the
+ * one definition the Continue plan and the hand-off origin also read
+ * (next-steps.test.ts ties it to `outputs` being empty, both ways).
+ */
+const VIEW_ONLY = supportedToolSlugs
+  .filter((slug) => {
+    const tool = getToolBySlug(slug);
+    return tool !== undefined && writesNothing(tool);
+  })
+  .sort();
+const ENDING_SET = supportedToolSlugs
+  .filter((slug) => !VIEW_ONLY.includes(slug))
+  .sort();
 
 async function lateEnding(page: Page) {
   const late: string[] = [];
@@ -1270,7 +1287,39 @@ async function runToEnding(page: Page, slug: string, screen: Screen) {
 test("health: the set of tools with an ending is the registry's, every one has a case, and it is not implausibly small", () => {
   expect(ENDING_SET.length).toBeGreaterThanOrEqual(25);
   expect(ENDING_SET.filter((slug) => !(slug in CASES))).toEqual([]);
+  // Every registered tool is held to one of the two loops, and the
+  // view-only set is `writesNothing`'s, not a typed list.
+  expect([...ENDING_SET, ...VIEW_ONLY].sort()).toEqual(
+    [...supportedToolSlugs].sort(),
+  );
+  expect(VIEW_ONLY).toEqual(["pdf-viewer"]);
+  expect(VIEW_ONLY.filter((slug) => !(slug in CASES))).toEqual([]);
 });
+
+for (const slug of VIEW_ONLY) {
+  for (const screen of SCREENS) {
+    test(`${slug} at ${screen.width} x ${screen.height}: opening a file moves nothing after the runner (a view: no Run, no ending)`, async ({
+      page,
+    }, testInfo) => {
+      test.setTimeout(120_000);
+      const m = await runToEnding(page, slug, screen);
+      testInfo.annotations.push({
+        type: "inside the viewer as it opened",
+        description: `${m.pickInside.toFixed(4)}: ${m.pickListed}`,
+      });
+      expect(
+        m.own.length,
+        "the instrument saw no shift of its own making",
+      ).toBeGreaterThan(0);
+      // It draws no receipt, as a tool with no output must not.
+      expect(m.frames.some((f) => f.present.receipt)).toBe(false);
+      expect(
+        m.pickAbout,
+        `CLS from the pick that moved what follows ${slug}'s runner at ${screen.width} x ${screen.height}: ${m.pickAboutListed} (About at ${m.before.top} on a ${m.before.fold} px screen)`,
+      ).toBeLessThanOrEqual(PAGE_CLS_CEILING);
+    });
+  }
+}
 
 for (const slug of ENDING_SET) {
   for (const screen of SCREENS) {

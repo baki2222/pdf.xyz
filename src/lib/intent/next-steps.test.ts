@@ -34,12 +34,17 @@ import { toolFileCeilingBytes } from "@/lib/tools/file-ceilings";
 import { PDF_ENGINE_ERROR_KINDS } from "@/lib/pdf/engine";
 import { remedyFor } from "@/lib/pdf/remedies";
 import type { Tool } from "@/lib/tools/types";
+import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
 import {
   CONTINUE_SHOWN,
   FINISHING_STEPS,
   FIX_ONLY,
   NO_CONTINUE,
+  WRITES_NOTHING_KINDS,
+  continueHandoff,
+  writesNothing,
   continueTargetsFor,
+  handedOnFormats,
   isInverse,
   type ContinuePlan,
 } from "./next-steps";
@@ -102,12 +107,12 @@ describe("the plan is computed from the whole catalogue", () => {
 });
 
 describe("every target is a promise the catalogue keeps", () => {
-  it("takes one of the tool's outputs", () => {
+  it("takes one of the tool's outputs (or, for a tool that writes nothing, the file it opened)", () => {
     const wrong = tools.flatMap((source) =>
       plan(source.slug)
         .targets.filter(
           (t) =>
-            !formats(source.outputs).some((f) =>
+            !handedOnFormats(source).some((f) =>
               toolAcceptsFormat(tool(t.slug).accept, f as never),
             ),
         )
@@ -236,6 +241,92 @@ describe("the policy rows", () => {
           );
         expect(t.combines, t.slug).toBe(combines);
       }
+  });
+});
+
+describe("a tool that writes nothing hands on the file it opened", () => {
+  // The subjects are DERIVED: every catalogue tool whose runner kind is in
+  // WRITES_NOTHING_KINDS. The PDF Viewer (outputs []) is the one today.
+  const viewers = tools.filter((t) => {
+    const kind = getRunnerKind(t.slug);
+    return kind !== undefined && WRITES_NOTHING_KINDS.has(kind);
+  });
+
+  it("health: the subjects are found, list no outputs, and take a format", () => {
+    expect(viewers.map((t) => t.slug)).toContain("pdf-viewer");
+    for (const t of viewers) {
+      expect(t.outputs, t.slug).toEqual([]);
+      expect(t.accept.length, t.slug).toBeGreaterThan(0);
+    }
+  });
+
+  it("forwards its INPUT formats, so its curated `next` resolves, and invents no output", () => {
+    for (const t of viewers) {
+      expect(handedOnFormats(t), t.slug).toEqual(formats(t.accept));
+      const offered = slugsOf(plan(t.slug));
+      expect(offered.length, t.slug).toBeGreaterThan(0);
+      expect(offered.slice(0, t.next?.length ?? 0), t.slug).toEqual(
+        t.next ?? [],
+      );
+      // Every row takes the file as it was opened.
+      for (const target of offered) {
+        expect(
+          formats(t.accept).some((f) =>
+            toolAcceptsFormat(tool(target).accept, f as never),
+          ),
+          `${t.slug} -> ${target}`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("a tool that lists no outputs for another reason forwards nothing", () => {
+    const pretend: Tool = { ...tool("pdf-viewer"), slug: "not-a-runner" };
+    expect(handedOnFormats(pretend)).toEqual([]);
+    expect(continueTargetsFor(pretend, tools).targets).toEqual([]);
+  });
+
+  it("ONE definition: among registered tools, writing nothing is exactly listing no outputs", () => {
+    // The e2e loops (continue-chain.spec.ts) and the hand-off origin read
+    // `writesNothing`; this ties it to the catalogue both ways, so a tool
+    // with no outputs outside the kinds, or a view tool given outputs, is
+    // a red test here rather than two silently different sets.
+    // The set the e2e loops walk: every registered tool.
+    const registered = supportedToolSlugs.map((slug) => tool(slug));
+    const noOutputs = registered
+      .filter((t) => t.outputs.length === 0)
+      .map((t) => t.slug)
+      .sort();
+    const nothing = registered
+      .filter((t) => writesNothing(t))
+      .map((t) => t.slug)
+      .sort();
+    // Health: both sets are non-empty and the registry is the catalogue's.
+    expect(registered.length).toBeGreaterThan(30);
+    expect(nothing).toContain("pdf-viewer");
+    expect(nothing).toEqual(noOutputs);
+  });
+
+  it("the hand-off from a tool that writes nothing is the file it opened, and no step of the job", () => {
+    const viewer = tool("pdf-viewer");
+    expect(continueHandoff(viewer, ["merge-pdf"])).toEqual({
+      origin: { kind: "opened", fromSlug: "pdf-viewer" },
+      trail: ["merge-pdf"],
+    });
+    // Positive control: a tool that writes a file hands on its result, and
+    // joins the trail.
+    expect(continueHandoff(tool("merge-pdf"), [])).toEqual({
+      origin: { kind: "result", fromSlug: "merge-pdf" },
+      trail: ["merge-pdf"],
+    });
+  });
+
+  it("POSITIVE CONTROL: with the rule switched off, the viewer is a dead end and its `next` does not resolve", () => {
+    const off = continueTargetsFor(tool("pdf-viewer"), tools, {
+      inverse: isInverse,
+      writesNothing: new Set(),
+    });
+    expect(off.targets).toEqual([]);
   });
 });
 

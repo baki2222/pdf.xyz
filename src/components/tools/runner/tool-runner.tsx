@@ -134,6 +134,9 @@ const NUpRunner = dynamic(() =>
 const SplitHalfRunner = dynamic(() =>
   import("./split-half-runner").then(({ SplitHalfRunner }) => SplitHalfRunner),
 );
+const ViewerRunner = dynamic(() =>
+  import("./viewer-runner").then(({ ViewerRunner }) => ViewerRunner),
+);
 
 /**
  * Client-side dispatcher: renders the interactive runner for a supported tool.
@@ -213,6 +216,8 @@ export function ToolRunner({ kind, slug }: { kind: RunnerKind; slug: string }) {
       return <NUpRunner />;
     case "split-half":
       return <SplitHalfRunner />;
+    case "view":
+      return <ViewerRunner />;
     default:
       return null;
   }
