@@ -30,9 +30,14 @@ import { pruneUnreachable } from "./prune-unreachable";
  *
  * READ, bounded. The walk keeps a seen-set and stops a sibling or child link
  * that leads back to an item already read (a /Next or /First cycle, a /First
- * naming an ancestor) or out of the outline (to a page, an annotation, the
- * catalog): such a link is CUT and counted (`cutLinks`), and nothing is lost
- * by it, since everything past a loop was read already. Nesting deeper than
+ * naming an ancestor) or out of the outline: such a link is CUT and counted
+ * (`cutLinks`). Out of the outline is a PROPERTY, not a type: an object is
+ * an item when its /Parent is the node that lists it, or when nothing but the
+ * old outline reaches it (`reachedOutside`). Anything else the file uses — a
+ * page, its /Resources, the AcroForm, an annotation, the catalog — fails
+ * both, so the link to it is cut, the object is not read as a bookmark, and
+ * it is never cut at save. A /Type on an item does not stop the walk (pdf.js
+ * lists such items too). Nesting deeper than
  * {@link BOOKMARK_DEPTH_MAX} is refused as damaged, and more than
  * {@link BOOKMARK_EDIT_MAX} items is refused with the count: never a
  * truncated list that would then be saved as if it were the whole one. The
@@ -63,7 +68,10 @@ import { pruneUnreachable } from "./prune-unreachable";
  * (`pruneUnreachable`): dropped even when something else — a link, a name
  * tree, a vendor key — still names it. `bookmarks.test.ts` proves it with a
  * reader that parses objects and decodes every stream, object streams
- * included.
+ * included. What is NOT cut: a named destination a deleted item opened
+ * through (/Dests, the /Names tree). Links may use it too, and its key is
+ * often the heading's own words; the page says so, and `bookmarks.test.ts`
+ * holds that sentence to this behaviour.
  *
  * The result is READ BACK from the saved bytes, never the request.
  */
@@ -162,7 +170,13 @@ function decode(lib: PdfLibModule, value: PDFObject | undefined): string {
   if (!(value instanceof PDFString || value instanceof PDFHexString)) return "";
   let text: string;
   try {
-    text = value.decodeText();
+    const bytes = value.asBytes();
+    // PDF 2.0 allows UTF-8 text strings, marked by a BOM, and pdf.js reads
+    // them; pdf-lib's decodeText knows only the UTF-16 marks.
+    text =
+      bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf
+        ? new TextDecoder("utf-8").decode(bytes.subarray(3))
+        : value.decodeText();
   } catch {
     try {
       text = String.fromCharCode(...value.asBytes());
@@ -249,7 +263,46 @@ function walkOutline(lib: PdfLibModule, doc: PDFDocument): Walk {
   if (pagesLink instanceof PDFRef) protectedRefs.add(pagesLink);
   const infoRef = ctx.trailerInfo.Info;
   if (infoRef instanceof PDFRef) protectedRefs.add(infoRef);
-  if (rootLink instanceof PDFRef && !protectedRefs.has(rootLink)) {
+
+  /**
+   * Every object the trailer reaches WITHOUT the catalog's /Outlines: what
+   * the rest of the file uses. Built once, and only when a link's target is
+   * not plainly an item (a well-formed outline never needs it).
+   */
+  let outside: Set<PDFRef> | undefined;
+  const reachedOutside = (ref: PDFRef): boolean => {
+    if (!outside) {
+      outside = new Set<PDFRef>();
+      const queue: PDFObject[] = [];
+      const t = ctx.trailerInfo;
+      for (const o of [t.Root, t.Info, t.Encrypt]) if (o) queue.push(o);
+      while (queue.length) {
+        const o = queue.pop()!;
+        if (o instanceof PDFRef) {
+          if (outside.has(o)) continue;
+          outside.add(o);
+          const v = ctx.lookup(o);
+          if (v) queue.push(v);
+        } else if (o instanceof PDFDict) {
+          for (const [k, v] of o.entries()) {
+            if (o === doc.catalog && k === name("Outlines")) continue;
+            queue.push(v);
+          }
+        } else if (o instanceof PDFArray) {
+          queue.push(...o.asArray());
+        } else if (o instanceof lib.PDFStream) {
+          queue.push(o.dict);
+        }
+      }
+    }
+    return outside.has(ref);
+  };
+
+  if (
+    rootLink instanceof PDFRef &&
+    !protectedRefs.has(rootLink) &&
+    !reachedOutside(rootLink)
+  ) {
     cut.add(rootLink);
   }
 
@@ -257,12 +310,17 @@ function walkOutline(lib: PdfLibModule, doc: PDFDocument): Walk {
   let counted = 0;
   let tooMany = false;
 
-  /** An outline item: a dictionary that is not some other kind of object. */
-  const isItem = (dict: PDFDict) =>
-    !dict.has(name("Type")) &&
-    !dict.has(name("Subtype")) &&
-    !dict.has(name("Kids")) &&
-    !dict.has(name("MediaBox"));
+  /**
+   * `dict`, reached through `link` from `parent`, is an outline item: its
+   * /Parent says so, or nothing but the old outline reaches it, so cutting it
+   * at save cannot take anything the rest of the file uses.
+   */
+  const isItem = (dict: PDFDict, link: PDFObject, parent: PDFDict) => {
+    if (!(link instanceof PDFRef)) return true;
+    if (protectedRefs.has(link)) return false;
+    if (lookup(dict.get(name("Parent"))) === parent) return true;
+    return !reachedOutside(link);
+  };
 
   const pageOfArray = (dest: PDFArray | undefined): number | undefined => {
     if (!dest || dest.size() === 0) return undefined;
@@ -295,8 +353,14 @@ function walkOutline(lib: PdfLibModule, doc: PDFDocument): Walk {
       kind = action.get(name("S"));
       if (action.has(name("Next"))) reading.droppedActions += 1;
     }
-    if (item.has(name("Dest"))) target = item.get(name("Dest"));
-    else if (action instanceof PDFDict && kind === name("GoTo")) {
+    if (item.has(name("Dest"))) {
+      target = item.get(name("Dest"));
+      // Only the /Dest is written back: an /A beside it (a script, a launch,
+      // even a GoTo) is not, so it is counted with the rest.
+      if (action instanceof PDFDict && !action.has(name("Next"))) {
+        reading.droppedActions += 1;
+      }
+    } else if (action instanceof PDFDict && kind === name("GoTo")) {
       target = action.get(name("D"));
     }
     if (target !== undefined) {
@@ -358,7 +422,7 @@ function walkOutline(lib: PdfLibModule, doc: PDFDocument): Walk {
     if (flags instanceof PDFNumber) original.flags = flags.asNumber();
     if (!tooMany) originals.set(id, original);
     const count = lookup(item.get(name("Count")));
-    const children = readSiblings(item.get(name("First")), depth + 1);
+    const children = readSiblings(item.get(name("First")), depth + 1, item);
     return {
       id,
       title: original.text,
@@ -374,6 +438,7 @@ function walkOutline(lib: PdfLibModule, doc: PDFDocument): Walk {
   const readSiblings = (
     first: PDFObject | undefined,
     depth: number,
+    parent: PDFDict,
   ): BookmarkNode[] => {
     const items: BookmarkNode[] = [];
     let link = first;
@@ -383,8 +448,7 @@ function walkOutline(lib: PdfLibModule, doc: PDFDocument): Walk {
       if (
         !(current instanceof PDFDict) ||
         seen.has(current) ||
-        !isItem(current) ||
-        (link instanceof PDFRef && protectedRefs.has(link))
+        !isItem(current, link, parent)
       ) {
         reading.cutLinks += 1;
         break;
@@ -406,7 +470,7 @@ function walkOutline(lib: PdfLibModule, doc: PDFDocument): Walk {
     return items;
   };
 
-  const items = readSiblings(root.get(name("First")), 1);
+  const items = readSiblings(root.get(name("First")), 1, root);
   if (tooMany) throw new TooManyBookmarksError(counted, false);
   reading.items = items;
   reading.total = countAll(items);

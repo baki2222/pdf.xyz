@@ -8,6 +8,7 @@ import {
   PDFNumber,
   PDFRef,
   PDFString,
+  StandardFonts,
 } from "pdf-lib";
 import {
   BOOKMARK_DEPTH_MAX,
@@ -901,6 +902,214 @@ describe("hostile outlines", () => {
     });
     expect(out.saved.brokenTargets).toBe(0);
     expect(shape(out.saved.items)).toEqual(shape(r.items));
+  });
+});
+
+describe("a damaged link never cuts what the rest of the file uses", () => {
+  /**
+   * Review round 1: the walk took any typeless dictionary a damaged /Next or
+   * /First reached for an outline item, and CUT it at save, whatever else
+   * named it. An AcroForm and a page's /Resources have no /Type.
+   */
+  async function formFixture() {
+    const doc = await blankPages(2);
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    doc.getPage(0).drawText("Drawn text", { x: 20, y: 300, font, size: 12 });
+    doc.getForm().createTextField("kept.field").addToPage(doc.getPage(1));
+    const ctx = doc.context;
+    // Both as indirect objects, so a link can name them.
+    const page0 = doc.getPage(0).node;
+    const resources = ctx.register(page0.lookup(N("Resources"), PDFDict));
+    page0.set(N("Resources"), resources);
+    let acro = doc.catalog.get(N("AcroForm"))!;
+    if (!(acro instanceof PDFRef)) {
+      acro = ctx.register(ctx.lookup(acro, PDFDict));
+      doc.catalog.set(N("AcroForm"), acro);
+    }
+    const built = addOutline(doc, [
+      { title: "A", dest: fitDest(doc, 0) },
+      { title: "B", dest: fitDest(doc, 1) },
+    ]);
+    ctx.lookup(built.refs.get("B")!, PDFDict).set(N("Next"), acro);
+    ctx.lookup(built.refs.get("A")!, PDFDict).set(N("First"), resources);
+    return doc.save({ useObjectStreams: false });
+  }
+
+  it("a /Next to the AcroForm and a /First to a page's /Resources are cut and counted, and both survive the save", async () => {
+    const bytes = await formFixture();
+    // Health check: the input has the form, the field and the resources.
+    const src = await PDFDocument.load(bytes);
+    expect(src.getForm().getFields().length).toBe(1);
+    expect(src.getPage(0).node.get(N("Resources"))).toBeInstanceOf(PDFRef);
+    const r = await readOutlineTree(bytes);
+    expect(shape(r.items)).toEqual([
+      { title: "A", target: "page 1" },
+      { title: "B", target: "page 2" },
+    ]);
+    expect(r.cutLinks).toBe(2);
+    const out = await writePdfBookmarks(bytes, {
+      items: r.items,
+      showPanel: false,
+    });
+    const doc = await PDFDocument.load(out.bytes);
+    expect(doc.catalog.lookup(N("AcroForm"))).toBeInstanceOf(PDFDict);
+    expect(
+      doc
+        .getForm()
+        .getFields()
+        .map((f) => f.getName()),
+    ).toEqual(["kept.field"]);
+    const res = doc.getPage(0).node.lookup(N("Resources"));
+    expect(res).toBeInstanceOf(PDFDict);
+    expect((res as PDFDict).lookup(N("Font"))).toBeInstanceOf(PDFDict);
+    await checkStructure(out.bytes);
+  });
+
+  it("an item carrying /Type is read with its children and the siblings after it, and kept", async () => {
+    const doc = await blankPages(3);
+    const built = addOutline(doc, [
+      { title: "First", dest: fitDest(doc, 0) },
+      {
+        title: "Typed",
+        dest: fitDest(doc, 1),
+        extra: { Type: N("Outlines") },
+        kids: [{ title: "Typed kid", dest: fitDest(doc, 1) }],
+      },
+      { title: "After", dest: fitDest(doc, 2) },
+    ]);
+    expect(built.order.length).toBe(4);
+    const bytes = await doc.save();
+    const r = await readOutlineTree(bytes);
+    expect(shape(r.items)).toEqual([
+      { title: "First", target: "page 1" },
+      {
+        title: "Typed",
+        target: "page 2",
+        kids: [{ title: "Typed kid", target: "page 2" }],
+      },
+      { title: "After", target: "page 3" },
+    ]);
+    expect(r.cutLinks).toBe(0);
+    const out = await writePdfBookmarks(bytes, {
+      items: r.items,
+      showPanel: false,
+    });
+    expect(shape(out.saved.items)).toEqual(shape(r.items));
+  });
+
+  it("positive control: an item with no /Parent that nothing else names is still read as an item", async () => {
+    const doc = await blankPages(2);
+    const built = addOutline(doc, [
+      { title: "One", dest: fitDest(doc, 0) },
+      { title: "Orphan", dest: fitDest(doc, 1), extra: { Type: N("Page") } },
+    ]);
+    doc.context.lookup(built.refs.get("Orphan")!, PDFDict).delete(N("Parent"));
+    const r = await readOutlineTree(await doc.save());
+    expect(r.items.map((n) => n.title)).toEqual(["One", "Orphan"]);
+    expect(r.cutLinks).toBe(0);
+  });
+});
+
+describe("what a deleted bookmark leaves, and what the page says it leaves", () => {
+  it("a named destination a deleted bookmark used stays; the page discloses exactly that", async () => {
+    const doc = await blankPages(2);
+    const ctx = doc.context;
+    const NAME = "Project Falcon";
+    doc.catalog.set(
+      N("Names"),
+      ctx.obj({
+        Dests: ctx.register(
+          ctx.obj({ Names: ctx.obj([lit(NAME), fitDest(doc, 1)]) }),
+        ),
+      }),
+    );
+    addOutline(doc, [
+      { title: "Intro", dest: fitDest(doc, 0) },
+      { title: NAME, dest: lit(NAME) },
+    ]);
+    const bytes = await doc.save({ useObjectStreams: false });
+    const r = await readOutlineTree(bytes);
+    expect(shape(r.items)).toEqual([
+      { title: "Intro", target: "page 1" },
+      { title: NAME, target: "page 2" },
+    ]);
+    const out = await writePdfBookmarks(bytes, {
+      items: r.items.slice(0, 1),
+      showPanel: false,
+    });
+    expect(out.saved.items.map((n) => n.title)).toEqual(["Intro"]);
+    // The title string is gone from the outline; the destination's key, the
+    // same words, is not.
+    const survives = markersFound(out.bytes, [NAME]).length > 0;
+    expect(survives).toBe(true);
+    // The relationship, not a string: while the name survives, every place
+    // the page promises a deleted title is gone also says a named
+    // destination stays. Drop the name tree entry, and this must change.
+    const page = await import("@/lib/tools/content/edit-pdf-bookmarks");
+    const promises = [
+      ...page.default.intro,
+      ...page.default.useCases.map((u) => u.body),
+      ...page.default.faqs.map((f) => f.a),
+    ].filter((t) => /title is (gone|not in)|with its title/.test(t));
+    expect(promises.length).toBeGreaterThanOrEqual(3);
+    for (const t of promises)
+      expect(/named destination/.test(t), t).toBe(survives);
+    expect(page.default.metaDescription).not.toMatch(/no title behind/);
+  });
+});
+
+describe("what the reading counts and decodes", () => {
+  it("a JavaScript /A beside a /Dest is counted as dropped, and is not in the copy", async () => {
+    const doc = await blankPages(2);
+    addOutline(doc, [
+      {
+        title: "Both",
+        dest: fitDest(doc, 1),
+        action: action(doc, { S: N("JavaScript"), JS: lit("app.alert(1)") }),
+      },
+    ]);
+    const bytes = await doc.save({ useObjectStreams: false });
+    expect(markersFound(bytes, ["app.alert"])).toEqual(["app.alert"]);
+    const r = await readOutlineTree(bytes);
+    expect(shape(r.items)).toEqual([{ title: "Both", target: "page 2" }]);
+    expect(r.droppedActions).toBe(1);
+    const out = await writePdfBookmarks(bytes, {
+      items: r.items,
+      showPanel: false,
+    });
+    expect(out.droppedActions).toBe(1);
+    expect(decodedScan(out.bytes).corpus.includes("app.alert")).toBe(false);
+  });
+
+  it("titles stored as UTF-8 with a BOM, or UTF-16LE with a BOM, read as text and survive unedited byte for byte", async () => {
+    const text = "Café ক";
+    const hex = (bytes: Iterable<number>) =>
+      [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+    const utf8 = "efbbbf" + hex(new TextEncoder().encode(text));
+    const le: number[] = [0xff, 0xfe];
+    for (let i = 0; i < text.length; i += 1) {
+      const c = text.charCodeAt(i);
+      le.push(c & 0xff, c >> 8);
+    }
+    const doc = await blankPages(1);
+    addOutline(doc, [
+      { title: PDFHexString.of(utf8), dest: fitDest(doc, 0) },
+      { title: PDFHexString.of(hex(le)), dest: fitDest(doc, 0) },
+      { title: "Plain", dest: fitDest(doc, 0) },
+    ]);
+    const bytes = await doc.save();
+    const r = await readOutlineTree(bytes);
+    expect(r.items.map((n) => n.title)).toEqual([text, text, "Plain"]);
+    const out = await writePdfBookmarks(bytes, {
+      items: r.items,
+      showPanel: false,
+    });
+    const saved = await PDFDocument.load(out.bytes);
+    const first = saved.catalog
+      .lookup(N("Outlines"), PDFDict)
+      .lookup(N("First"), PDFDict);
+    expect((first.lookup(N("Title")) as PDFHexString).asString()).toBe(utf8);
+    expect(out.saved.items.map((n) => n.title)).toEqual([text, text, "Plain"]);
   });
 });
 

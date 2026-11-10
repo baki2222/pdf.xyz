@@ -1,6 +1,6 @@
 // @native-canvas
 import { describe, expect, it } from "vitest";
-import { PDFName, PDFNumber } from "pdf-lib";
+import { PDFHexString, PDFName, PDFNumber } from "pdf-lib";
 import {
   indent,
   insertAfter,
@@ -159,6 +159,50 @@ describe("the saved outline as pdf.js reads it", () => {
         kids: [{ title: "Site", page: null, url: "https://example.org/" }],
       },
     ]);
+  });
+
+  it("an item carrying /Type, and a UTF-8 title, read as pdf.js reads them, and an unedited save keeps what pdf.js lists", async () => {
+    const doc = await blankPages(3);
+    const utf8 =
+      "efbbbf" +
+      [...new TextEncoder().encode("Café ক")]
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+    addOutline(doc, [
+      { title: "First", dest: fitDest(doc, 0) },
+      {
+        title: "Typed",
+        dest: fitDest(doc, 1),
+        extra: { Type: N("Outlines") },
+        kids: [{ title: PDFHexString.of(utf8), dest: fitDest(doc, 2) }],
+      },
+      { title: "After", dest: fitDest(doc, 2) },
+    ]);
+    const bytes = await doc.save();
+    const before = await viewerOutline(bytes);
+    type Titled = {
+      title: string;
+      kids?: readonly Titled[];
+      children?: readonly Titled[];
+    };
+    const titles = (items: readonly Titled[]): unknown[] =>
+      items.map((i) => {
+        const below = i.kids ?? i.children ?? [];
+        return below.length ? [i.title, titles(below)] : i.title;
+      });
+    // Health check: pdf.js lists all four, the UTF-8 title decoded.
+    expect(titles(before.outline)).toEqual([
+      "First",
+      ["Typed", ["Café ক"]],
+      "After",
+    ]);
+    const r = await readOutlineTree(bytes);
+    expect(titles(r.items)).toEqual(titles(before.outline));
+    const out = await writePdfBookmarks(bytes, {
+      items: r.items,
+      showPanel: false,
+    });
+    expect((await viewerOutline(out.bytes)).outline).toEqual(before.outline);
   });
 
   it("an encrypted PDF is refused with PdfEncryptedError", async () => {
