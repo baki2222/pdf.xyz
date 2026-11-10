@@ -10538,7 +10538,7 @@
     },
     "tools/edit-pdf-bookmarks.html": {
       "title": "Edit PDF Bookmarks — Add, Nest, Reorder, No Upload — pdf.xyz",
-      "description": "Add, rename, delete, reorder and nest a PDF's bookmarks, point each at a page, or add one every few pages. Deleted ones leave no title behind. No upload.",
+      "description": "Add, rename, delete, reorder and nest a PDF's bookmarks, point each at a page, or add one every few pages. Deleted ones are removed, not hidden. No upload.",
       "canonical": "https://pdf.xyz/tools/edit-pdf-bookmarks",
       "robots": "index, follow",
       "h1": ["Edit PDF Bookmarks"],
