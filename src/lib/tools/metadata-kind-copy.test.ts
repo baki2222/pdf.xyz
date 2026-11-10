@@ -201,10 +201,28 @@ function exclusive(): Map<string, Set<string>> {
   return out;
 }
 
+/**
+ * The labels foreign to `slug`'s page, by the sibling that draws each: every
+ * label some sibling reaches that `slug`'s own variant does not. NOT the
+ * union of the siblings' `exclusive()` sets — with three variants a label two
+ * siblings share is in neither, yet the third page must not quote it.
+ */
+function foreignTo(slug: string): Map<string, Set<string>> {
+  const own = variantLabels(slug);
+  const out = new Map<string, Set<string>>();
+  for (const other of METADATA_SLUGS) {
+    if (other === slug) continue;
+    out.set(
+      other,
+      new Set([...variantLabels(other)].filter((l) => !own.has(l))),
+    );
+  }
+  return out;
+}
+
 function crossQuotes(slug: string, texts: readonly string[]): string[] {
   const hits: string[] = [];
-  for (const [other, labels] of exclusive()) {
-    if (other === slug) continue;
+  for (const [other, labels] of foreignTo(slug)) {
     for (const label of labels) {
       const one = !label.includes(" ");
       const said = (t: string) =>
@@ -334,6 +352,34 @@ describe("tools sharing the metadata runner quote only their own labels", () => 
       "edit-pdf-metadata: Remove all metadata",
       "remove-annotations: Annotations to remove",
     ]);
+  });
+
+  it("positive control: a label two siblings share is still foreign to the third page", () => {
+    // Review round 1: "Link" is a kind on Remove Annotations and the page
+    // field's placeholder on Edit PDF Bookmarks. A two-variant definition of
+    // "exclusive" (no OTHER variant reaches it) dropped it from both sets,
+    // so Edit PDF Metadata's page could quote it unseen.
+    const shared = "Link";
+    expect(variantLabels("remove-annotations")).toContain(shared);
+    expect(variantLabels("edit-pdf-bookmarks")).toContain(shared);
+    expect(variantLabels("edit-pdf-metadata")).not.toContain(shared);
+    expect(
+      crossQuotes("edit-pdf-metadata", [
+        ...servedCopy("edit-pdf-metadata"),
+        "Then choose “Link”.",
+      ]).sort(),
+    ).toEqual(["edit-pdf-bookmarks: Link", "remove-annotations: Link"]);
+    // And a page's own label is never foreign to it, however many siblings
+    // also draw it.
+    for (const slug of METADATA_SLUGS) {
+      const foreign = new Set(
+        [...foreignTo(slug).values()].flatMap((l) => [...l]),
+      );
+      expect(foreign.size, slug).toBeGreaterThanOrEqual(10);
+      expect([...variantLabels(slug)].filter((l) => foreign.has(l))).toEqual(
+        [],
+      );
+    }
   });
 
   it("positive control: one injected cross label, either way, is caught", () => {
