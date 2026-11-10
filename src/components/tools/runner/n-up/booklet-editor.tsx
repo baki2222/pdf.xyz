@@ -34,11 +34,11 @@ import {
   RunnerSection,
   outputFile,
   useAsyncRun,
-} from "./runner-kit";
-import { RunBar } from "./run-bar";
-import { FileHeader } from "./single-pdf-runner";
-import { PrivacyLine } from "./stamp-controls";
-import type { LoadedPdf } from "./use-single-pdf";
+} from "../runner-kit";
+import { RunBar } from "../run-bar";
+import { FileHeader } from "../single-pdf-runner";
+import { PrivacyLine } from "../stamp-controls";
+import type { LoadedPdf } from "../use-single-pdf";
 
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 

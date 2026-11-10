@@ -1,7 +1,7 @@
 "use client";
 
-import { SinglePdfRunner } from "./single-pdf-runner";
-import { lazyPanel } from "./lazy-panel";
+import { SinglePdfRunner } from "../single-pdf-runner";
+import { lazyPanel } from "../lazy-panel";
 
 /**
  * PDF Booklet Maker's runner, mounted by `n-up-runner.tsx` for its slug.

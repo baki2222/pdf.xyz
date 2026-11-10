@@ -13,7 +13,7 @@ import {
 } from "pdf-lib";
 import { N_UP_RTL_LABEL } from "@/lib/pdf/n-up";
 import { resetAnnouncer } from "@/components/a11y/live-region";
-import { NUpEditor } from "./n-up-editor";
+import { NUpEditor } from "./n-up/n-up-editor";
 
 /**
  * What a person using Multiple Pages per Sheet is TOLD about a form value

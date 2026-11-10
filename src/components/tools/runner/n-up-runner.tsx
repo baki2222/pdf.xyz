@@ -1,7 +1,7 @@
 "use client";
 
 import { SinglePdfRunner } from "./single-pdf-runner";
-import { BookletRunner } from "./booklet-host";
+import { BookletRunner } from "./n-up/booklet-host";
 import { lazyPanel } from "./lazy-panel";
 import { useToolRun } from "./tool-context";
 
@@ -11,7 +11,7 @@ import { useToolRun } from "./tool-context";
  * it (`src/deploy/variant-panels.test.ts`).
  */
 const nUp = lazyPanel(
-  () => import("./n-up-editor").then(({ NUpEditor }) => NUpEditor),
+  () => import("./n-up/n-up-editor").then(({ NUpEditor }) => NUpEditor),
   "Opening the sheet editor…",
 );
 
@@ -21,8 +21,11 @@ const nUp = lazyPanel(
  * they share this runner kind ('n-up') and the page picks the editor by its
  * own slug. One element in the dispatcher's case; no loader of its own.
  * Only the drop boxes are in the kind's chunk: each tool's editor
- * (`n-up-editor.tsx`, `booklet-editor.tsx`) loads with a file, on its own
- * page alone.
+ * (`n-up/n-up-editor.tsx`, `n-up/booklet-editor.tsx`) loads with a file, on
+ * its own page alone. They live in `n-up/` because a runner's own
+ * components do: the guards that read "a runner's files"
+ * (displayed-frame-claims) follow a runner into its subdirectory, not into
+ * the shared siblings beside it.
  */
 export function NUpRunner() {
   const slug = useToolRun()?.slug;

@@ -21,7 +21,7 @@ import { InToolPage } from "@/tests/in-tool-page";
 import { BOOKLET_PREVIEW_SIDES } from "@/lib/pdf/booklet";
 import { BookletEditor } from "./booklet-editor";
 import { N_UP_RUN_LABEL } from "./n-up-editor";
-import { NUpRunner } from "./n-up-runner";
+import { NUpRunner } from "../n-up-runner";
 
 /**
  * What a person using PDF Booklet Maker sees: the n-up runner switching to

@@ -26,11 +26,11 @@ import {
   RunnerSection,
   outputFile,
   useAsyncRun,
-} from "./runner-kit";
-import { RunBar } from "./run-bar";
-import { FileHeader } from "./single-pdf-runner";
-import { CheckboxField, PrivacyLine } from "./stamp-controls";
-import type { LoadedPdf } from "./use-single-pdf";
+} from "../runner-kit";
+import { RunBar } from "../run-bar";
+import { FileHeader } from "../single-pdf-runner";
+import { CheckboxField, PrivacyLine } from "../stamp-controls";
+import type { LoadedPdf } from "../use-single-pdf";
 
 /*
  * Multiple Pages per Sheet's editor, mounted by `n-up-runner.tsx` on its
