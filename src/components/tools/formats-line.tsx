@@ -1,4 +1,4 @@
-import { formatsLine } from "@/lib/tools/formats-line";
+import { formatsLine, formatsText } from "@/lib/tools/formats-line";
 import type { Tool } from "@/lib/tools/types";
 import { cn } from "@/lib/utils";
 
@@ -16,6 +16,7 @@ export function FormatsLine({
   className?: string;
 }) {
   const { takes, makes } = formatsLine(tool);
+  const { shown, spoken } = formatsText(takes, makes);
   return (
     <span
       className={cn(
@@ -23,8 +24,8 @@ export function FormatsLine({
         className,
       )}
     >
-      <span aria-hidden>{`${takes.join(", ")} → ${makes.join(", ")}`}</span>
-      <span className="sr-only">{`Takes ${takes.join(", ")}; makes ${makes.join(", ")}.`}</span>
+      <span aria-hidden>{shown}</span>
+      <span className="sr-only">{spoken}</span>
     </span>
   );
 }

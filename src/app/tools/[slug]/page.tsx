@@ -45,7 +45,7 @@ import {
   pageUseCases,
 } from "@/lib/tools/page-copy";
 import { categoryHref } from "@/lib/tools/category-href";
-import { formatsLine } from "@/lib/tools/formats-line";
+import { formatsLine, formatsText } from "@/lib/tools/formats-line";
 import { ViewTransition } from "@/components/motion/vt";
 
 export function generateStaticParams() {
@@ -315,8 +315,13 @@ export default async function ToolPage({
         className="shrink-0"
       />
       <span className="text-muted text-sm whitespace-nowrap">
-        <span aria-hidden>{`${plain(takes)} → ${plain(makes)}`}</span>
-        <span className="sr-only">{`Takes ${takes.join(", ")}; makes ${makes.join(", ")}.`}</span>
+        <span aria-hidden>
+          {
+            formatsText([plain(takes)], makes.length ? [plain(makes)] : [])
+              .shown
+          }
+        </span>
+        <span className="sr-only">{formatsText(takes, makes).spoken}</span>
       </span>
     </div>
   );

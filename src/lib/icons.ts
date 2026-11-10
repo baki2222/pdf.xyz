@@ -7,6 +7,7 @@ import {
   Crop,
   Droplets,
   Eraser,
+  Eye,
   EyeOff,
   FileCheck2,
   FileCode,
@@ -75,6 +76,7 @@ export const ICONS = {
   nUp: Grid2x2,
   splitHalf: SquareSplitHorizontal,
   booklet: NotebookText,
+  viewer: Eye,
   // optimize
   compress: Minimize2,
   ocr: ScanText,

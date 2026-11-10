@@ -38,7 +38,8 @@ export type RunnerKind =
   | "metadata"
   | "resize"
   | "n-up"
-  | "split-half";
+  | "split-half"
+  | "view";
 
 const RUNNERS: Record<string, RunnerKind> = {
   "merge-pdf": "merge",
@@ -80,6 +81,9 @@ const RUNNERS: Record<string, RunnerKind> = {
   // NUpRunner draws the booklet editor on this slug's page.
   "booklet-pdf": "n-up",
   "split-pdf-pages-in-half": "split-half",
+  // The one runner that writes nothing: it opens a PDF to read it (the only
+  // pdf.js kind that draws every page continuously), so it is its own kind.
+  "pdf-viewer": "view",
 };
 
 export function getRunnerKind(slug: string): RunnerKind | undefined {
@@ -107,6 +111,7 @@ export const PDFJS_READER_KINDS: ReadonlySet<RunnerKind> = new Set<RunnerKind>([
   "pdf-to-text",
   "pdf-to-markdown",
   "pdf-to-image",
+  "view",
 ]);
 
 /** Does this tool's in-browser runner open a restricted PDF? */

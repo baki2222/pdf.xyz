@@ -32,7 +32,7 @@ import { getToolBySlug, tools } from "@/lib/tools";
 import { familyOf } from "@/lib/tools/families";
 import { cardSummary } from "@/lib/tools/page-copy";
 import { processingMeta } from "@/lib/tools/processing";
-import { formatsLine } from "@/lib/tools/formats-line";
+import { formatsLine, formatsText } from "@/lib/tools/formats-line";
 import { normalizeFormatLabel } from "@/lib/jobs/mime-by-format";
 import ToolsPage from "@/app/tools/page";
 
@@ -141,7 +141,17 @@ describe("formatsLine", () => {
     for (const tool of tools) {
       const { takes, makes } = formatsLine(tool);
       expect(takes.length, tool.slug).toBeGreaterThan(0);
-      expect(makes.length, tool.slug).toBeGreaterThan(0);
+      // A tool that makes no file (PDF Viewer, `outputs: []`) names none,
+      // and says so; every other tool names at least one.
+      if (tool.outputs.length === 0) {
+        expect(makes, tool.slug).toEqual([]);
+        expect(formatsText(takes, makes).spoken, tool.slug).toContain(
+          "makes no file",
+        );
+        expect(formatsText(takes, makes).shown, tool.slug).not.toContain("→");
+      } else {
+        expect(makes.length, tool.slug).toBeGreaterThan(0);
+      }
       expect(new Set(takes).size, tool.slug).toBe(takes.length);
       expect(new Set(makes).size, tool.slug).toBe(makes.length);
       for (const alias of ["JPEG", "HTM", "MARKDOWN"])

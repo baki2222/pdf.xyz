@@ -85,6 +85,12 @@ const NO_OUTCOME_OF_ITS_OWN: Record<string, string> = {
   // batch view, whose end is a heading that takes focus through
   // useOutcomeFocus — held by "the batch runners report through the batch
   // view" below.
+  // PDF Viewer (2026-11-10) runs nothing: it opens a file to read it, so
+  // there is no finished run to announce. What it does say — the page it
+  // moved to, the search's count — goes through its own polite status
+  // lines (viewer/pdf-viewer.tsx), held by viewer/pdf-viewer.test.tsx.
+  "viewer-runner.tsx":
+    "a viewer: no run, no result; navigation and search speak through their own role=status lines",
   "settings-batch-runner.tsx":
     "renders <BatchView>; its outcome is batch/batch-view.tsx's summary heading (useOutcomeFocus)",
   // Batch plan P2: the images batch (PDF to JPG and PNG, Extract Images)

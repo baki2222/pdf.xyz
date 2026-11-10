@@ -17,7 +17,11 @@ import { HANDOFF_MAX_TOTAL_BYTES } from "@/lib/handoff/record";
 import { CONTINUE_SHOWN } from "@/lib/intent/continue-shown";
 import { launchWithFiles } from "@/lib/intent/launch";
 import { isPlainClick, toolHref } from "@/lib/intent/links";
-import { continueTarget, type ContinueTarget } from "@/lib/intent/next-steps";
+import {
+  continueHandoff,
+  continueTarget,
+  type ContinueTarget,
+} from "@/lib/intent/next-steps";
 import { outputFiles, type RunOutput } from "@/lib/intent/run-output";
 import { confirmLeave } from "@/lib/intent/unsaved";
 import { getProcessingMeta } from "@/lib/tools/processing";
@@ -38,7 +42,8 @@ import { cn, formatBytes } from "@/lib/utils";
  * Each row is a real link to its tool: without JavaScript, or with a
  * modifier held, it opens the plain tool page. A plain click carries the
  * output there as a hand-off (`launchWithFiles`, origin "result", the trail
- * plus this step), after the unsaved-work question. If the browser's
+ * plus this step — or, from a tool that writes nothing, origin "opened" and
+ * the trail as it was: `continueHandoff`), after the unsaved-work question. If the browser's
  * storage refuses the file, nothing navigates and the row says so, with
  * the plain link beside it — never an empty tool page with no word why.
  *
@@ -146,11 +151,20 @@ function ContinueRows({ run, output }: { run: ToolRun; output: RunOutput }) {
     if (launching) return;
     setFailed(null);
     setLaunching(target.slug);
+    // A tool's output, or — from a tool that writes nothing — the file it
+    // had open, said as such on the next page (`continueHandoff`).
+    const self = getToolBySlug(run.slug);
+    const { origin, trail } = self
+      ? continueHandoff(self, run.trail)
+      : {
+          origin: { kind: "result" as const, fromSlug: run.slug },
+          trail: [...run.trail, run.slug],
+        };
     const result = await launchWithFiles({
       toolSlug: target.slug,
       files: carried(target).map((f) => f.file()),
-      origin: { kind: "result", fromSlug: run.slug },
-      trail: [...run.trail, run.slug],
+      origin,
+      trail,
       suggestion: { source: "continue", rank },
       router,
       confirmLeave,

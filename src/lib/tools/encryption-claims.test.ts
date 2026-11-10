@@ -229,12 +229,14 @@ describe("encryption claims on tool pages match the runner's reader", () => {
     // these four pages; Compress is the one that offers the worker.
     // 2026-11-08: Compare PDF, whose card count moved to pdf.js (audit
     // compare-pdf#5).
+    // 2026-11-10: PDF Viewer, a new pdf.js runner ('view').
     expect(by("opens")).toEqual([
       "compare-pdf",
       "pdf-to-jpg",
       "pdf-to-markdown",
       "pdf-to-png",
       "pdf-to-text",
+      "pdf-viewer",
     ]);
     expect(by("offers-worker")).toEqual(["compress-pdf"]);
     // 2026-10-29: the two tools that fill a restricted file's form; on

@@ -35,3 +35,25 @@ export function formatsLine(tool: Pick<Tool, "accept" | "outputs">): {
     makes: formatFamily(tool.outputs),
   };
 }
+
+/**
+ * The formats as the eye reads them ("JPG, PNG → PDF") and as assistive
+ * tech hears them ("Takes JPG, PNG; makes PDF."). A tool that makes no file
+ * (PDF Viewer: `outputs: []`) is said to: "PDF · view only", "Takes PDF;
+ * makes no file." — never an arrow pointing at nothing.
+ */
+export function formatsText(
+  takes: readonly string[],
+  makes: readonly string[],
+): { shown: string; spoken: string } {
+  if (makes.length === 0) {
+    return {
+      shown: `${takes.join(", ")} · view only`,
+      spoken: `Takes ${takes.join(", ")}; makes no file.`,
+    };
+  }
+  return {
+    shown: `${takes.join(", ")} → ${makes.join(", ")}`,
+    spoken: `Takes ${takes.join(", ")}; makes ${makes.join(", ")}.`,
+  };
+}

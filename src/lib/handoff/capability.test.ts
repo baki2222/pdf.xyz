@@ -439,6 +439,7 @@ const RUNNER_OPENS: Record<
   resize: isLikelyPdf,
   "n-up": isLikelyPdf,
   "split-half": isLikelyPdf,
+  view: isLikelyPdf,
 };
 
 const carried = (slug: string, file: { name: string; type: string }) =>
