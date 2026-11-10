@@ -861,7 +861,7 @@ export const tools: Tool[] = [
     accept: ["PDF"],
     outputs: ["PDF"],
     keywords: ["pdf metadata", "pdf properties", "remove pdf metadata"],
-    related: ["protect-pdf", "redact-pdf", "flatten-pdf"],
+    related: ["protect-pdf", "edit-pdf-bookmarks", "redact-pdf", "flatten-pdf"],
   },
   {
     slug: "remove-annotations",
@@ -883,6 +883,26 @@ export const tools: Tool[] = [
       "remove links from pdf",
     ],
     related: ["flatten-pdf", "redact-pdf", "edit-pdf", "annotate-pdf"],
+  },
+  {
+    slug: "edit-pdf-bookmarks",
+    name: "Edit PDF Bookmarks",
+    tagline: "Add, rename, nest and reorder bookmarks.",
+    description:
+      "See a PDF's bookmarks as a list you can edit: rename, delete, reorder and nest them, point each at a page, or add one every few pages. In your browser.",
+    category: "edit",
+    icon: "bookmarks",
+    processing: "client",
+    badge: "new",
+    accept: ["PDF"],
+    outputs: ["PDF"],
+    keywords: [
+      "edit pdf bookmarks",
+      "add bookmarks to pdf",
+      "pdf bookmark editor",
+      "create pdf outline",
+    ],
+    related: ["split-pdf", "merge-pdf", "edit-pdf-metadata", "organize-pages"],
   },
 
   // ─────────────────────────────── Sign & Forms ───────────────────────────

@@ -74,6 +74,11 @@ const RUNNERS: Record<string, RunnerKind> = {
   "scan-to-pdf": "scan",
   "edit-pdf-metadata": "metadata",
   "remove-annotations": "metadata",
+  // Edit PDF Bookmarks shares the metadata kind's rows (one PDF,
+  // MAX_PDF_BYTES, pdf-lib only, no mid-run fetch); MetadataRunner picks its
+  // panel by slug. Each inherited row is pinned, with why it is true of
+  // this tool, in edit-pdf-bookmarks-kind.test.ts.
+  "edit-pdf-bookmarks": "metadata",
   "resize-pdf": "resize",
   "n-up-pdf": "n-up",
   // Booklet shares Multiple Pages per Sheet's runner and engine drawings:

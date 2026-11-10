@@ -359,6 +359,11 @@ export function copyFiles(): string[] {
     // Its kind labels, moved out of offered-kinds.ts (2026-11-10) so they
     // stop shipping in seven other tool pages' first load.
     path.join(ROOT, "src", "lib", "pdf", "annotation-kinds.ts"),
+    // Edit PDF Bookmarks (2026-11-10): its labels and limits, the engine's
+    // refusals, and the page-number generator's titles.
+    path.join(ROOT, "src", "lib", "pdf", "bookmark-labels.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "bookmarks.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "bookmark-tree.ts"),
     // PDF Booklet Maker (2026-11-09): its option labels, the back-cover
     // reasons and its refusals. sheet-embed.ts, the page embedding it shares
     // with n-up, holds no sentence: each caller passes its own refusal.

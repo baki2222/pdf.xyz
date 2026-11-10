@@ -801,8 +801,16 @@ describe("no tool page loads a table of every tool", () => {
  * empty .next: 34,711 B (33.8975 KB). 33.94 KB is 34,755 B, which is 44 B
  * over that figure for CI's reading (25 B higher on the one tree both
  * read). Not measured on CI.
+ *
+ * RAISED 33.94 -> 34.11 on 2026-11-10, for Edit PDF Bookmarks, the 59th
+ * tool: the catalogue the ticket loads carries its row and keywords, as any
+ * new tool's does. On its branch (main f9c8f1d9, whose figure above is
+ * 34,711 B), one machine, from an empty .next: 34,879 B (34.0615 KB),
+ * +168 B, against Remove Annotations' +166. 34.11 KB is 34,928 B, 49 B over
+ * that figure for CI's reading (25 B higher on the one tree both read). Not
+ * measured on CI.
  */
-const TICKET_FETCH_GZ_KB = 33.94;
+const TICKET_FETCH_GZ_KB = 34.11;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));

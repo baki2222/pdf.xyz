@@ -1102,6 +1102,30 @@ const TOOL_PAGES_TO_COME = {
   //  - edit-pdf-metadata 242,105 -> 245,662 (+3,557): the metadata kind's
   //    runner chunk carries the Remove Annotations panel; remove-annotations
   //    itself 245,662.
+  //
+  // NOT TAKEN from the unallocated 0.01, 2026-11-10, by Edit PDF Bookmarks,
+  // the 59th tool (a client tool REUSING the metadata runner kind) — flagged
+  // for the owner as A RE-ALLOCATION OF G.1 in effect: it rides each row's
+  // own headroom, as Remove Annotations did above. Measured with gzip -9 per
+  // first-load chunk, main f9c8f1d9 -> the branch, both built from an empty
+  // .next on one machine:
+  //  - the G.1 four, +31 B each: ocr 233,635 -> 233,666, rotate 234,875 ->
+  //    234,906, merge 229,107 -> 229,138, summarize 234,447 -> 234,478.
+  //    webpack's runtime +22 (two more async chunks in its map: the
+  //    bookmarks editor and engine), the [slug] page chunk +5, not-found
+  //    +5, layout -4, error, global-error and main-app +1 each (those
+  //    small ones not attributed chunk by chunk).
+  //  - edit-pdf-metadata and remove-annotations 245,661 -> 245,861 (+200):
+  //    the metadata kind's runner chunk +169 for the bookmarks shell
+  //    (bookmarks-host.tsx: the drop box and a lazy loader), and the +31.
+  //    edit-pdf-bookmarks itself 245,861.
+  //  - WHY LAZY: the same branch with the editor imported statically
+  //    (measured, then reverted) put edit-pdf-metadata, remove-annotations
+  //    and edit-pdf-bookmarks at 251,127 (+5,266 over lazy). Lazily, the
+  //    editor (7,737 B gz) is fetched only on /tools/edit-pdf-bookmarks,
+  //    when a file opens, in parallel with the engine and the parse
+  //    (`prepare`): one more request on that page, no added round trip in
+  //    series, and nothing at run time on the other two pages.
   unallocated:
     UNALLOCATED -
     NEW_TOOLS_2026_10_30 -

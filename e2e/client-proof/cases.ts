@@ -72,6 +72,11 @@ import { splitPagesInHalf } from "../../src/lib/pdf/split-half";
 import { addToPage, annot } from "../../src/tests/annotation-fixtures";
 import { markersFound } from "../../src/tests/pdf-decoded-scan";
 import {
+  addOutline,
+  blankPages,
+  fitDest,
+} from "../../src/tests/bookmark-fixtures";
+import {
   DEFAULT_N_UP_OPTIONS,
   N_UP_SHEETS,
   nUpPdf,
@@ -118,6 +123,7 @@ import {
   pdfFormSnapshot,
   pdfImages,
   pdfAnnotations,
+  pdfOutline,
   pdfInfo,
   pdfTextPositions,
   pdfPageCount,
@@ -702,6 +708,42 @@ async function assertTiffPdf(buf: Buffer, order: "g4-first" | "lzw-first") {
     TIFF_FAILS.red,
   ).toEqual(pages.map((_, i) => [true, i === redPage]));
 }
+
+/** Edit PDF Bookmarks' proof fixture: its upload name and its titles. */
+const BOOKMARKED_NAME = "handbook.pdf";
+const BOOKMARK_TITLES = {
+  renamedFrom: "Chapter One",
+  renamedTo: "Introduction",
+  deleted: "Draft-Notes-Delete-Me",
+  kept: "Chapter Two",
+  added: "Appendix",
+};
+const BOOKMARK_FAILS = {
+  outline: "the outline pdf.js reads is not the edited one",
+  bytes: "the deleted bookmark's title is still in the file's decoded bytes",
+  api: "the page sent a request to /api/ while editing bookmarks",
+};
+
+/** Four pages: "Chapter One" p1, the to-be-deleted title p2, "Chapter Two" p3. */
+async function bookmarkedForProof(): Promise<Uint8Array> {
+  const doc = await blankPages(4);
+  addOutline(doc, [
+    { title: BOOKMARK_TITLES.renamedFrom, dest: fitDest(doc, 0) },
+    { title: BOOKMARK_TITLES.deleted, dest: fitDest(doc, 1) },
+    { title: BOOKMARK_TITLES.kept, dest: fitDest(doc, 2) },
+  ]);
+  return doc.save();
+}
+
+/** The outline the proof's edit must produce, as pdf.js lists it. */
+const EDITED_OUTLINE = [
+  { title: BOOKMARK_TITLES.renamedTo, page: 1 },
+  {
+    title: BOOKMARK_TITLES.kept,
+    page: 3,
+    kids: [{ title: BOOKMARK_TITLES.added, page: 4 }],
+  },
+];
 
 /** Remove Annotations' proof fixture: its upload name and note author. */
 const ANNOTATED_NAME = "reviewed.pdf";
@@ -2235,6 +2277,110 @@ export const CASES: Record<string, ToolCase> = {
       ANNOTATION_FAILS.listed,
       ANNOTATION_FAILS.bytes,
       ANNOTATION_FAILS.link,
+    ],
+  },
+
+  "edit-pdf-bookmarks": {
+    kind: "metadata",
+    artifact: "pdf",
+    // Rename one bookmark, delete one, add one on page 4 and nest it under
+    // the last, through the row buttons; read back by pdf.js.
+    run: async (ctx) => {
+      const api: string[] = [];
+      ctx.page.on("request", (r) => {
+        if (new URL(r.url()).pathname.startsWith("/api/")) api.push(r.url());
+      });
+      const bytes = Buffer.from(await bookmarkedForProof());
+      ctx.data[BOOKMARKED_NAME] = bytes;
+      await uploadPayloads(ctx.page, [
+        { name: BOOKMARKED_NAME, mimeType: "application/pdf", buffer: bytes },
+      ]);
+      const page = ctx.page;
+      const first = page.getByRole("textbox", {
+        name: "Title, level 1, 1 of 3",
+      });
+      await expect(first).toHaveValue(BOOKMARK_TITLES.renamedFrom);
+      await first.fill(BOOKMARK_TITLES.renamedTo);
+      await page
+        .getByRole("button", {
+          name: `More actions for “${BOOKMARK_TITLES.deleted}”`,
+        })
+        .click();
+      await page
+        .getByRole("button", { name: `Delete: “${BOOKMARK_TITLES.deleted}”` })
+        .click();
+      await page.getByRole("button", { name: "Add bookmark" }).click();
+      const added = page.getByRole("textbox", {
+        name: "Title, level 1, 3 of 3",
+      });
+      await expect(added).toBeFocused();
+      await added.fill(BOOKMARK_TITLES.added);
+      await page
+        .getByRole("textbox", { name: `Page for “${BOOKMARK_TITLES.added}”` })
+        .fill("4");
+      await page
+        .getByRole("button", {
+          name: `More actions for “${BOOKMARK_TITLES.added}”`,
+        })
+        .click();
+      await page
+        .getByRole("button", { name: `Indent: “${BOOKMARK_TITLES.added}”` })
+        .click();
+      await expect(
+        page.getByRole("textbox", { name: "Title, level 2, 1 of 1" }),
+      ).toHaveValue(BOOKMARK_TITLES.added);
+      const out = await runAndDownload(
+        ctx,
+        /^save bookmarks$/i,
+        /bookmarks saved/i,
+        /^download pdf$/i,
+      );
+      ctx.data.apiRequests = api.length;
+      return out;
+    },
+    assert: async (buf, ctx) => {
+      expect(await pdfOutline(buf), BOOKMARK_FAILS.outline).toEqual(
+        EDITED_OUTLINE,
+      );
+      expect(
+        markersFound(new Uint8Array(buf), [
+          BOOKMARK_TITLES.deleted,
+          BOOKMARK_TITLES.renamedFrom,
+        ]),
+        BOOKMARK_FAILS.bytes,
+      ).toEqual([]);
+      expect(ctx.data.apiRequests ?? 0, BOOKMARK_FAILS.api).toBe(0);
+      expect(await pdfPageCount(buf)).toBe(4);
+    },
+    // 1. the upload unchanged;
+    // 2. the edited outline written over the old one, which is left in the
+    //    file unlinked — the "hidden, not removed" copy;
+    // 3. the edit without the nesting (Appendix at the top level).
+    control: async (ctx) => {
+      const source = input(ctx, BOOKMARKED_NAME);
+      const rewrite = async (nested: boolean) => {
+        const doc = await PDFDocument.load(source, { updateMetadata: false });
+        addOutline(doc, [
+          { title: BOOKMARK_TITLES.renamedTo, dest: fitDest(doc, 0) },
+          {
+            title: BOOKMARK_TITLES.kept,
+            dest: fitDest(doc, 2),
+            kids: nested
+              ? [{ title: BOOKMARK_TITLES.added, dest: fitDest(doc, 3) }]
+              : [],
+          },
+          ...(nested
+            ? []
+            : [{ title: BOOKMARK_TITLES.added, dest: fitDest(doc, 3) }]),
+        ]);
+        return Buffer.from(await doc.save());
+      };
+      return [source, await rewrite(true), await rewrite(false)];
+    },
+    rejectsBecause: [
+      BOOKMARK_FAILS.outline,
+      BOOKMARK_FAILS.bytes,
+      BOOKMARK_FAILS.outline,
     ],
   },
 
@@ -3922,6 +4068,8 @@ export const PROOF_LIMITS: Record<string, string> = {
     "Two photos picked through the page's drop sheet (a JPEG carrying EXIF Orientation 6 and a wide PNG) with Black & white on the default A4 pages. The camera input itself is driven only by e2e/scan-to-pdf.mobile.spec.ts, at 375 px, through setInputFiles: no real camera is opened in any test. Original and Document clean-up, Fit to photo and US Letter, rotating, reordering and removing a page are not exercised in a real browser; the clean-up filters' pixels and the page layout are proven in Node by src/lib/pdf/scan-to-pdf.test.ts.",
   "edit-pdf-metadata":
     "Only Edit values, changing the title and the author of a file with no XMP packet. Remove all metadata, the date fields, and the XMP rewrite are proven in Node only, by src/lib/pdf/metadata.test.ts, which reads every output back with pdf-lib and pdf.js.",
+  "edit-pdf-bookmarks":
+    "Only rename, delete, add and indent through the row buttons, on a flat three-bookmark outline of explicit page destinations. Move up and down, outdent, the open and closed state, undo and redo, page bookmarks from page numbers, named destinations, URL and viewer-action bookmarks, the bookmarks-panel checkbox and every hostile outline (cycles, a lying /Count, 100,000 items, broken destinations, bad title encodings) are proven in Node only, by src/lib/pdf/bookmarks.test.ts, src/lib/pdf/bookmarks.pdfjs.test.ts and src/components/tools/runner/bookmarks-editor.test.tsx (jsdom).",
   "remove-annotations":
     "Only the defaults, on a highlight, a sticky note with its pop-up and a link. Every other group alone, form fields (/CO, /AcroForm, hybrid XFA), signature fields kept under every choice, attachments and their payloads, shared and hostile objects (cycles, deep field trees, 10,000 references to one annotation), and the byte-level absence of appearance streams and rich text are proven in Node only, by src/lib/pdf/remove-annotations.test.ts and src/lib/pdf/remove-annotations.pdfjs.test.ts, which read every output with pdf-lib, pdf.js and a reader that decodes every stream.",
   "resize-pdf":

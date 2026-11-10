@@ -320,6 +320,13 @@ export const TOOL_DIRECTORY: readonly ToolEntry[] = [
     outputs: ["PDF"],
   },
   {
+    slug: "edit-pdf-bookmarks",
+    name: "Edit PDF Bookmarks",
+    processing: "client",
+    accept: ["PDF"],
+    outputs: ["PDF"],
+  },
+  {
     slug: "sign-pdf",
     name: "Sign PDF",
     processing: "client",
