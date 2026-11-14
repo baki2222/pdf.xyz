@@ -54,6 +54,15 @@
  *      deleted those archives are still refused, as unreadable (their
  *      declared sizes overlap), which a finality check would call a pass.
  *
+ * EVERY step's job first passes the FILE-SOUNDNESS GATE the executor runs
+ * before any processor, resolved from this process's environment exactly as
+ * the daemon's runtime resolves it (`resolveWorkerSoundness`). Added after
+ * the production proof of PR #314 (2026-11-14): steps 1-7 called the
+ * processor directly, the gate derived HTML to PDF's accepted families from
+ * the catalogue alone, and it refused every real ZIP job as an unsupported
+ * family while this probe published `htmlZip: true`. The executor's order is
+ * gate, then processor; so is the probe's.
+ *
  * ── WHAT A PASS DOES AND DOES NOT MEAN ──────────────────────────────────────
  * Chromium is a stub: a start-up probe launches no browser. A pass means
  * **this image's HTML to PDF opens a ZIP, chooses its page, serves its
@@ -67,6 +76,7 @@
  */
 import JSZip from "jszip";
 import { createProcessorRegistry } from "../processor";
+import { resolveWorkerSoundness, type SoundnessGate } from "../soundness";
 import { HTML_DOCUMENT_URL } from "./document-url";
 import type { ChromiumPdfRunner, HtmlSite } from "./engine";
 import { DEFAULT_RENDER_NETWORK_LIMITS, createRenderNetwork } from "./network";
@@ -128,6 +138,8 @@ export async function provesHtmlZip(
   build: ProbeRegistryBuilder = createProcessorRegistry,
   /** How an archive request is answered: the renderer's own, unless a test swaps it. */
   answer: typeof answerArchiveRequest = answerArchiveRequest,
+  /** The executor's file-soundness gate, resolved as the daemon's runtime resolves it. */
+  soundness: SoundnessGate = resolveWorkerSoundness(),
 ): Promise<boolean> {
   try {
     const sites: HtmlSite[] = [];
@@ -149,25 +161,30 @@ export async function provesHtmlZip(
     const registry = build({ htmlRender: { chromium } });
     const processor = registry.resolve("html-to-pdf");
     if (!processor) return false;
-    const job = (
+    const job = async (
       bytes: Uint8Array,
       filename: string,
       options: Record<string, unknown>,
-    ) =>
-      processor.process({
-        tool: "html-to-pdf",
-        options,
-        inputs: [
-          {
-            fileId: "probe",
-            filename,
-            contentType: filename.endsWith(".zip")
-              ? "application/zip"
-              : "text/html",
-            bytes,
-          },
-        ],
-      });
+    ) => {
+      const inputs = [
+        {
+          fileId: "probe",
+          filename,
+          contentType: filename.endsWith(".zip")
+            ? "application/zip"
+            : "text/html",
+          bytes,
+          declaredBytes: bytes.byteLength,
+        },
+      ];
+      // The executor's order: the soundness gate, then the processor. A gate
+      // that refuses the input would fail the real job before it got here.
+      if (
+        soundness.check({ tool: "html-to-pdf", inputs }).verdict === "unsound"
+      )
+        throw new Error("the soundness gate refused a probe input");
+      return processor.process({ tool: "html-to-pdf", options, inputs });
+    };
 
     // 1. A ZIP naming its page renders as a site of that page.
     const site = await probeZip({

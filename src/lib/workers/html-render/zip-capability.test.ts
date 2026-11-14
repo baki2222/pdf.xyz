@@ -19,6 +19,7 @@ import { answerArchiveRequest } from "./zip-site";
 import { htmlZipRefusalMessage } from "./zip-config";
 import { processorOk } from "../processor/types";
 import { ProcessorRegistry } from "../processor/registry";
+import { resolveWorkerSoundness, type SoundnessGate } from "../soundness";
 
 const chromiumOf = (deps: Parameters<ProbeRegistryBuilder>[0]) =>
   deps!.htmlRender!.chromium!;
@@ -73,6 +74,41 @@ function onlyHtml(
 describe("provesHtmlZip", () => {
   it("says YES for the registry the daemon builds", async () => {
     await expect(provesHtmlZip()).resolves.toBe(true);
+  });
+
+  // Production, 2026-11-14 (PR #314's proof): the executor's soundness gate
+  // refused every ZIP as an unsupported family, BEFORE the processor, while
+  // this probe — which called the processor directly — said YES. The probe
+  // now runs the gate first, resolved as the daemon's runtime resolves it.
+  it("says NO when the executor's soundness gate would refuse the ZIP", async () => {
+    const real = resolveWorkerSoundness({});
+    const refusingZips: SoundnessGate = {
+      capability: () => real.capability(),
+      check: (input) =>
+        input.inputs.some((f) => f.contentType === "application/zip")
+          ? {
+              ...real.check(input),
+              verdict: "unsound",
+              checked: true,
+              reason: "unsupported_family",
+            }
+          : real.check(input),
+    };
+    await expect(
+      provesHtmlZip(
+        createProcessorRegistry,
+        answerArchiveRequest,
+        refusingZips,
+      ),
+    ).resolves.toBe(false);
+    // Control: the same wrapper passing everything through says YES.
+    const passThrough: SoundnessGate = {
+      capability: real.capability,
+      check: real.check,
+    };
+    await expect(
+      provesHtmlZip(createProcessorRegistry, answerArchiveRequest, passThrough),
+    ).resolves.toBe(true);
   });
 
   it("says NO when the image has no html-render processor", async () => {
