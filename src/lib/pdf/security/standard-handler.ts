@@ -327,6 +327,26 @@ export class StandardSecurityHandler {
     return md5(concat(...parts)).slice(0, Math.min(n + 5, 16));
   }
 
+  /**
+   * The cipher and key {@link decrypt} uses for one string or stream of
+   * object `num gen`: for a caller that decrypts many small streams itself
+   * (the page map), where a WebCrypto call per stream is the whole cost.
+   */
+  keyFor(
+    kind: "string" | "stream",
+    num: number,
+    gen: number,
+  ): { method: CryptMethod; key: Uint8Array } {
+    const method = this.method(kind);
+    return {
+      method,
+      key:
+        method === "identity"
+          ? new Uint8Array(0)
+          : this.objectKey(num, gen, method),
+    };
+  }
+
   /** Decrypt one string or stream body of object `num gen`. */
   async decrypt(
     kind: "string" | "stream",
