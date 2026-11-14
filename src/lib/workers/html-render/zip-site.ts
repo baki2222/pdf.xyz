@@ -32,10 +32,7 @@
  */
 import { openBoundedZip, ZipEntryError, type BoundedZip } from "../epub/zip";
 import {
-  HTML_ZIP_MAX_ENTRIES,
-  HTML_ZIP_MAX_ENTRY_RATIO,
-  HTML_ZIP_MAX_UNPACKED_BYTES,
-  HTML_ZIP_RATIO_FLOOR_BYTES,
+  HTML_ZIP_LIMITS,
   chooseHtmlEntry,
   isServableEntryName,
   zipEntryOfUrl,
@@ -46,18 +43,12 @@ import {
 // The refusals' words and the URL ↔ entry mapping live in the leaf
 // `./zip-config`, so the browser says and resolves exactly what this does.
 export {
+  HTML_ZIP_LIMITS,
   htmlZipRefusalMessage,
   zipEntryOfUrl,
   zipEntryUrl,
   type HtmlZipRefusal,
 } from "./zip-config";
-
-export const HTML_ZIP_LIMITS = {
-  maxEntries: HTML_ZIP_MAX_ENTRIES,
-  maxUnpackedBytes: HTML_ZIP_MAX_UNPACKED_BYTES,
-  maxEntryRatio: HTML_ZIP_MAX_ENTRY_RATIO,
-  ratioFloorBytes: HTML_ZIP_RATIO_FLOOR_BYTES,
-} as const;
 
 /** True when `bytes` begin as a ZIP does (a local file header, or an empty archive). */
 export function looksLikeZip(bytes: Uint8Array): boolean {

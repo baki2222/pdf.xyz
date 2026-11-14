@@ -31,8 +31,8 @@ import { ChosenFileTarget } from "./chosen-file-target";
  * Webpage and EPUB to PDF) and loads this module for HTML to PDF alone, so
  * the other two pages carry none of it — not the missing-files scan, not
  * the paste box's loader, not the ZIP picker. The paste box and the ZIP
- * reader (with JSZip) load later still: when the box is opened, and when a
- * ZIP is picked.
+ * reader (the worker's own bounded directory reader, not JSZip) load later
+ * still: when the box is opened, and when a ZIP is picked.
  *
  * What the panel needs back ({@link HtmlSourceState}): whether Run may start
  * and, if not, why in words; and for a ZIP, how to run it (the page to

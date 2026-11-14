@@ -64,6 +64,19 @@ export const HTML_ZIP_MAX_ENTRY_RATIO = 100;
 export const HTML_ZIP_RATIO_FLOOR_BYTES = 1 * MIB;
 
 /**
+ * The four bounds together, in the shape the bounded directory reader takes
+ * (`../epub/zip-directory`'s `ZipLimits`): the worker opens an archive with
+ * them (`./zip-site`) and the browser judges a picked one with them
+ * (`./zip-inspect`), through the same reader.
+ */
+export const HTML_ZIP_LIMITS = {
+  maxEntries: HTML_ZIP_MAX_ENTRIES,
+  maxUnpackedBytes: HTML_ZIP_MAX_UNPACKED_BYTES,
+  maxEntryRatio: HTML_ZIP_MAX_ENTRY_RATIO,
+  ratioFloorBytes: HTML_ZIP_RATIO_FLOOR_BYTES,
+} as const;
+
+/**
  * The job option naming the page of the archive to print: its path inside
  * the ZIP, exactly as the archive spells it. The browser always sends it
  * for a ZIP, so the job API can tell a ZIP job from an HTML one without

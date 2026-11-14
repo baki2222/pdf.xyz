@@ -517,6 +517,33 @@ export function findUnbundledAssetsInCss(
   return { references };
 }
 
+const CSS_IMPORT_URL =
+  /@import\s+url\(\s*(?:"([^"]*)"|'([^']*)'|([^)"'\s]*))\s*\)/gi;
+
+/**
+ * The stylesheets a stylesheet `@import`s — `@import "b.css"` and
+ * `@import url(b.css)` — as absolute URLs resolved against `cssUrl`, the
+ * address Chromium resolves them against. An imported sheet's own url()s
+ * load or go missing exactly as a linked one's do, so a check of what a ZIP
+ * lacks must read it too.
+ */
+export function cssImportUrls(css: string, cssUrl: string): string[] {
+  const text = cssUnescape(css.replace(CSS_COMMENT, ""));
+  const out: string[] = [];
+  for (const re of [CSS_IMPORT, CSS_IMPORT_URL])
+    for (const m of text.matchAll(re)) {
+      const raw = (m[1] ?? m[2] ?? m[3] ?? "").trim();
+      if (!raw) continue;
+      try {
+        const href = new URL(raw, cssUrl).href;
+        if (!out.includes(href)) out.push(href);
+      } catch {
+        /* unparseable: Chromium loads nothing for it either */
+      }
+    }
+  return out;
+}
+
 /** Parse an uploaded file's text and scan it. Browser-only (DOMParser). */
 export function findUnbundledAssetsInHtml(html: string): UnbundledAssets {
   return findUnbundledAssets(
