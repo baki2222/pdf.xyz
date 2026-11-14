@@ -208,7 +208,13 @@ function facts(file: string): ModuleFacts {
       if (named && ts.isNamedImports(named))
         for (const el of named.elements) {
           if (el.isTypeOnly) continue;
-          bind(el.name.text, spec, (el.propertyName ?? el.name).text, "static");
+          const imported = (el.propertyName ?? el.name).text;
+          // `lazyPanel(loader, …)` (runner/lazy-panel.tsx, 2026-11-10) takes
+          // a loader of the same shape as `dynamic()`'s and binds the editor
+          // it loads: a shared-kind runner reaches its editors only through
+          // it, so a reader that stopped at the call lost them.
+          if (imported === "lazyPanel") dynamicNames.add(el.name.text);
+          bind(el.name.text, spec, imported, "static");
         }
     } else if (
       ts.isExportDeclaration(stmt) &&

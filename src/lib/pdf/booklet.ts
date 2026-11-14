@@ -37,9 +37,6 @@ import { stampProducer } from "./stamp";
  * sheet ({@link bookletHalves}).
  */
 
-/** The tool's slug: the n-up runner draws the booklet editor on this page. */
-export const BOOKLET_SLUG = "booklet-pdf";
-
 /** The run button's label and its busy label; the page's steps quote them. */
 export const BOOKLET_RUN_LABEL = "Create booklet";
 export const BOOKLET_BUSY_LABEL = "Creating…";

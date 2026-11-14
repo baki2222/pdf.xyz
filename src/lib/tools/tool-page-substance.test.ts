@@ -125,7 +125,12 @@ const RUNNER_DIR = "src/components/tools/runner";
  * Resolved through the registry and the dispatcher's own `case` arms, so a
  * renamed runner moves the check with it; an unresolvable slug is FATAL.
  */
-function runnerModules(slug: string): { main: string; nested: string[] } {
+function runnerModules(slug: string): {
+  main: string;
+  nested: string[];
+  /** The repo-relative files `main` and `nested` were read from. */
+  files: string[];
+} {
   const kind = getRunnerKind(slug);
   if (!kind) throw new Error(`${slug} mounts no runner`);
   const dispatch = read(`${RUNNER_DIR}/tool-runner.tsx`);
@@ -137,20 +142,27 @@ function runnerModules(slug: string): { main: string; nested: string[] } {
   // Through the dispatcher's own bindings — a static import, or the
   // `next/dynamic` loader every runner has been since 2026-10-09 — to the
   // module that defines it. Throws when it cannot.
-  const main = read(runnerModuleOf(component));
-  const nested = [
+  const mainFile = runnerModuleOf(component);
+  const main = read(mainFile);
+  const nestedFiles = [
     ...main.matchAll(/import\s+\{[^}]*\}\s+from\s+"\.\/([^"]+)"/g),
   ].flatMap((m) => {
     for (const ext of [".tsx", ".ts"]) {
+      const file = `${RUNNER_DIR}/${m[1]}${ext}`;
       try {
-        return [read(`${RUNNER_DIR}/${m[1]}${ext}`)];
+        read(file);
+        return [file];
       } catch {
         /* try the next extension */
       }
     }
     return [];
   });
-  return { main, nested };
+  return {
+    main,
+    nested: nestedFiles.map(read),
+    files: [mainFile, ...nestedFiles],
+  };
 }
 
 /**
@@ -182,8 +194,8 @@ function runnerSource(slug: string): string {
  * one (2026-10-10). A wider set answers an easier question.
  */
 function runnerLabelSource(slug: string): string {
-  const { main, nested } = runnerModules(slug);
-  const panels = lazyPanels([main, ...nested]);
+  const { main, nested, files } = runnerModules(slug);
+  const panels = lazyPanels(files);
   const intent = [main, ...nested, ...panels].flatMap((source) =>
     intentModules(source).flatMap((file) => {
       const text = read(file);
@@ -217,20 +229,28 @@ function runnerLabelSource(slug: string): string {
  * quote read as missing. Labels only: {@link runnerSource}, which the
  * absence checks read, does not widen.
  */
-function lazyPanels(sources: readonly string[]): string[] {
-  const specifiers = sources.flatMap((source) =>
-    [...source.matchAll(/\bimport\(\s*"\.\/([^"]+)"\s*\)/g)].map((m) => m[1]!),
-  );
-  return [...new Set(specifiers)].flatMap((name) => {
-    for (const ext of [".tsx", ".ts"]) {
-      try {
-        return [read(`${RUNNER_DIR}/${name}${ext}`)];
-      } catch {
-        /* try the next extension */
+function lazyPanels(files: readonly string[]): string[] {
+  // Resolved against the IMPORTING file, and a miss is FATAL. Until
+  // 2026-11-10 every specifier was read against the runner directory and a
+  // miss returned nothing: when Booklet's host moved into `runner/n-up/`,
+  // its `import("./booklet-editor")` resolved to no file, and every label
+  // Booklet's steps quote read as missing — red for a reason that named the
+  // copy, not the reader.
+  const targets = files.flatMap((file) =>
+    [...read(file).matchAll(/\bimport\(\s*"(\.\.?\/[^"]+)"\s*\)/g)].map((m) => {
+      const base = path.posix.join(path.posix.dirname(file), m[1]!);
+      for (const ext of [".tsx", ".ts"]) {
+        try {
+          read(`${base}${ext}`);
+          return `${base}${ext}`;
+        } catch {
+          /* try the next extension */
+        }
       }
-    }
-    return [];
-  });
+      throw new Error(`${file}: import("${m[1]}") resolves to no file`);
+    }),
+  );
+  return [...new Set(targets)].map(read);
 }
 
 const INTENT_DIR = "src/components/intent";
