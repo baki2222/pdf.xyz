@@ -803,6 +803,41 @@ describe("every paint is charged: pdf.js decodes once a page, but paints per `Do
     const three = await preflightPdfjsBytes(repeated(3));
     expect(pageImageVerdict(three, { num: 3 })).toBeNull();
   });
+
+  it("a SMALL image is charged per paint too: a map sheet of 120,000 paints of a 32 x 32 icon is past the budget", async () => {
+    // Round 4's proof (2026-11-15) listed the legit-corpus file
+    // map20-120k-symbol-forms.pdf as newly noted and refused, and the
+    // obvious repair is to charge a small or repeated image once. Measured
+    // against that: main draws the sheet's page 1 in 39.4 s (pdf.js +
+    // @napi-rs/canvas, Node 24, Windows), a 96 MP page of large images in
+    // 20.3 s and a 108 MP one in 23.9 s. Per paint, an icon costs MORE per
+    // pixel than a photo, so the 123 MP the map reports understates the
+    // sheet, and a once-per-image charge would draw a 39 s page with no
+    // note. The sheet stays noted; this pins the reason.
+    const sheet = (paints: number) => {
+      let ops = "";
+      for (let k = 0; k < paints; k += 1) {
+        ops += `q 4 0 0 4 ${(k * 7) % 550} ${(k * 13) % 550} cm /S Do Q\n`;
+      }
+      return rawPdf([
+        CATALOG,
+        ONE_PAGE,
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources << /XObject << /S 5 0 R >> >> /Contents 4 0 R >>",
+        { dict: "", stream: ops },
+        {
+          dict: "/Type /XObject /Subtype /Form /BBox [0 0 1 1] /Resources << /XObject << /I 6 0 R >> >>",
+          stream: "q 1 0 0 1 0 0 cm /I Do Q",
+        },
+        image(32, 32),
+      ]);
+    };
+    const map = await preflightPdfjsBytes(sheet(120_000));
+    expect(weights(map)).toEqual([120_000 * 32 * 32]);
+    expect(pageImageVerdict(map, { num: 3 })).toBe(PAGE_IMAGES_NOTE);
+    // Positive control: 90,000 paints (92 MP) are within the budget.
+    const fewer = await preflightPdfjsBytes(sheet(90_000));
+    expect(pageImageVerdict(fewer, { num: 3 })).toBeNull();
+  });
 });
 
 describe("the map's work is bounded on the main thread", () => {
