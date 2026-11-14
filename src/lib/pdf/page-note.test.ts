@@ -58,22 +58,25 @@ describe("the page note", () => {
     drawPageNote(upright, PAGE_IMAGES_NOTE, 0);
     const seen = pixels(turned(tile));
     const want = pixels(upright);
-    // Health: the note's sentence put ink on the sheet (a sheet with no text
-    // would match a sheet with no text). Measured against the same sheet drawn
-    // with no sentence, not as a count of dark pixels: CI's Linux canvas draws
-    // sans-serif thinner than Windows does (221 pixels under 120 there against
-    // a fixed 500 here), and a typed pixel count is a constant nothing else
-    // constrains (CLAUDE.md rule 3).
+    // Every bound below is a fraction of THE SENTENCE'S OWN INK — what it
+    // adds to the same sheet drawn with no sentence — never of the canvas or
+    // a typed pixel count. CI's Linux canvas draws sans-serif far thinner
+    // than Windows: a fixed 500 dark pixels failed there at 221, and a
+    // canvas-relative 1% failed the sideways control at 2,058 differing
+    // values (Windows: ink 20,955, turned 0, sideways 30,948). A constant
+    // nothing else constrains is the rule-3 defect.
     const bare = napi.createCanvas(600, 400);
     drawPageNote(bare, "", 0);
-    expect(differing(want, pixels(bare))).toBeGreaterThan(200);
-    expect(differing(seen, want)).toBeLessThan(want.length / 1000);
-    // Positive control: the same tile drawn without the turn is sideways.
+    const ink = differing(want, pixels(bare));
+    // Health: the sentence put ink on the sheet (blank would match blank).
+    expect(ink).toBeGreaterThan(200);
+    // Turned back, the tile matches the upright note to well under its ink.
+    expect(differing(seen, want)).toBeLessThan(ink / 4);
+    // Positive control: the same tile drawn without the turn is sideways,
+    // and misses the upright note by more than half its ink.
     const sideways = napi.createCanvas(400, 600);
     drawPageNote(sideways, PAGE_IMAGES_NOTE, 0);
-    expect(differing(pixels(turned(sideways)), want)).toBeGreaterThan(
-      want.length / 100,
-    );
+    expect(differing(pixels(turned(sideways)), want)).toBeGreaterThan(ink / 2);
   });
 
   it("names a DOM canvas with its sentence", () => {
