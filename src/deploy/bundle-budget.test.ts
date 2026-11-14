@@ -1207,6 +1207,15 @@ const TOOL_PAGES_TO_COME = {
   //    `@/lib/uploads/pick-check` split it out of the module every worker
   //    page concatenates it into, +36 B on each (measured on the first cut,
   //    then removed: html-source-area asks the page's own `refuse`).
+  //  - REVIEW FIXES, same day, re-measured over the branch before them
+  //    (24b4d5e2, E:/whtmlz-r2's build) -> after, same weigher: html-to-pdf
+  //    240,228 -> 240,351 (+123: the paste toggle kept in one tree, the box
+  //    focused on open, the hedged intro and spec row); webpage-to-pdf and
+  //    epub-to-pdf 234,262 -> 234,302 (+40: the shared panel's hedged
+  //    words); every other page -5..+4 (module ids). Picking a ZIP now
+  //    fetches ONE chunk of 3,473 B gz (the worker's own bounded directory
+  //    reader, DecompressionStream) instead of three of 36,993 (JSZip's
+  //    27,682 among them).
   unallocated:
     UNALLOCATED -
     NEW_TOOLS_2026_10_30 -
