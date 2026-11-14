@@ -18,11 +18,16 @@
  * the package PowerPoint refused.
  */
 import JSZip from "jszip";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 import { decodePng } from "@/lib/png-probe";
 import { readDocxBody } from "./docx-read";
+import {
+  docxStructureProblems,
+  readDocxStructure,
+  type DocxReadRun,
+} from "./docx-structure";
 import { inventoryPages } from "./page-inventory";
 import { encodePngImage } from "./png-encode";
 import { pptxProofVerdict } from "./validate-ooxml";
@@ -187,6 +192,18 @@ export async function pptxDeploymentVerdict(
 export const DOCX_PROOF_BELOW = "The line under the proof picture";
 
 /**
+ * The Word proof's styled line (since 2026-11-15): four words on one
+ * baseline, each drawn its own way — regular, bold, red and 18 points — in
+ * standard fonts, under the line under the picture.
+ */
+export const DOCX_PROOF_STYLED = {
+  plain: "Styled",
+  bold: "Boldproof",
+  red: "Redproof",
+  big: "Bigproof",
+} as const;
+
+/**
  * The Word proof's PDF: the proof's words, its picture under them at the
  * PowerPoint proof's box ({@link PPTX_PROOF_PICTURE}), and a line under the
  * picture. A4, whose text area (451 points wide) fits the picture as shown.
@@ -204,7 +221,86 @@ export async function docxProofPdf(): Promise<Uint8Array> {
     size: 14,
     font,
   });
+  const regular = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const w = DOCX_PROOF_STYLED;
+  let x = 60;
+  for (const [text, face, size, color] of [
+    [w.plain, regular, 12, rgb(0, 0, 0)],
+    [w.bold, bold, 12, rgb(0, 0, 0)],
+    [w.red, regular, 12, rgb(1, 0, 0)],
+    [w.big, regular, 18, rgb(0, 0, 0)],
+  ] as const) {
+    page.drawText(text, {
+      x,
+      y: PAGE.height - (box.y + box.height + 80),
+      size,
+      font: face,
+      color,
+    });
+    x += face.widthOfTextAtSize(`${text} `, size);
+  }
   return doc.save();
+}
+
+/**
+ * The styled line's words, read back by `./docx-structure`: each in exactly
+ * one run, carrying exactly its own properties — the regular word 12 points
+ * (`w:sz` 24) and nothing else, the bold word `w:b` and `w:bCs`, the red word
+ * colour FF0000, the big word 36 half-points in both sizes — and the line's
+ * text in its order. Null when it holds; otherwise what is wrong.
+ */
+async function styledLineProblem(bytes: Uint8Array): Promise<string | null> {
+  const problems = await docxStructureProblems(bytes);
+  if (problems.length > 0)
+    return `the DOCX has structure problems: ${problems.slice(0, 3).join("; ")}`;
+  const body = await readDocxStructure(bytes);
+  const w = DOCX_PROOF_STYLED;
+  const line = `${w.plain} ${w.bold} ${w.red} ${w.big}`;
+  const paragraphs = body.blocks.flatMap((b) => (b.kind === "p" ? [b] : []));
+  const held = paragraphs.filter((p) =>
+    p.runs
+      .map((r) => r.text)
+      .join("")
+      .includes(line),
+  );
+  if (held.length !== 1)
+    return `the styled line "${line}" is in ${held.length} paragraph(s), not one, in order`;
+  const runOf = (word: string): DocxReadRun | null => {
+    const runs = held[0]!.runs.filter((r) =>
+      r.text.split(/\s+/).includes(word),
+    );
+    return runs.length === 1 ? runs[0]! : null;
+  };
+  const describe = (r: DocxReadRun | null) =>
+    r
+      ? `{${[r.b ? "b" : "", r.i ? "i" : "", r.color ? `color ${r.color}` : "", r.sz !== undefined ? `sz ${r.sz}/${r.szCs}` : ""].filter(Boolean).join(" ")}}`
+      : "not in one run";
+  const plain = runOf(w.plain);
+  const bold = runOf(w.bold);
+  const red = runOf(w.red);
+  const big = runOf(w.big);
+  const ok =
+    plain !== null &&
+    !plain.b &&
+    !plain.i &&
+    plain.color === undefined &&
+    plain.sz === 24 &&
+    bold !== null &&
+    bold.b === true &&
+    bold.bCs === true &&
+    bold.color === undefined &&
+    red !== null &&
+    red.color === "FF0000" &&
+    !red.b &&
+    big !== null &&
+    big.sz === 36 &&
+    big.szCs === 36 &&
+    !big.b &&
+    big.color === undefined;
+  return ok
+    ? null
+    : `the styled line's runs are not each word's own: ${w.plain} ${describe(plain)}, ${w.bold} ${describe(bold)}, ${w.red} ${describe(red)}, ${w.big} ${describe(big)}`;
 }
 
 /**
@@ -276,9 +372,12 @@ export async function docxDeploymentVerdict(
       ok: false,
       detail: `the picture's image is not the proof's ${box.pixelWidth} × ${box.pixelHeight} px with its three colours`,
     };
+  // Since 2026-11-15: each word keeps its formatting (`docxRunStyles`).
+  const styled = await styledLineProblem(bytes);
+  if (styled) return { ok: false, detail: styled };
   return {
     ok: true,
-    detail: `${body.paragraphs.length} paragraph(s), fixture text found; the page's picture is between its words and the line under it, at ${box.width} × ${box.height} pt, its ${box.pixelWidth} × ${box.pixelHeight} px and colours decoded`,
+    detail: `${body.paragraphs.length} paragraph(s), fixture text found; the page's picture is between its words and the line under it, at ${box.width} × ${box.height} pt, its ${box.pixelWidth} × ${box.pixelHeight} px and colours decoded; the styled line's bold, red and 18 pt words each carry exactly their own run properties`,
   };
 }
 

@@ -45,6 +45,7 @@ import {
 import { blankPages, noPictures } from "@/tests/page-scan-stubs";
 import { noisePagesPdf, notePagesPdf } from "@/tests/docx-picture-fixtures";
 import { flowStandIn } from "@/tests/poppler-flow-standin";
+import { docxRunStylesProbePdf } from "@/lib/workers/pdf-office-export/capability";
 import { PdfOfficeExportWorkerPanel } from "./pdf-office-export-worker-panel";
 import { readyFileInput } from "@/tests/worker-ready";
 
@@ -431,6 +432,78 @@ describe("PDF to Word panel — pages kept only as pictures", () => {
     expect(notice.closest('[role="status"]')).toHaveTextContent(
       /No selectable text on pages 2–3, so nothing from them is in this file/,
     );
+  }, 60_000);
+});
+
+/**
+ * 2026-11-15: each word keeps its bold, italics, size and colour, and a page
+ * whose words came through with none of it is named beside the download —
+ * through the whole chain: the engine counts it, the sanitizer carries it,
+ * the panel says it.
+ */
+describe("PDF to Word panel — pages without their formatting", () => {
+  it("names a page the reader ran out of time for, and says the text is all there", async () => {
+    stubNetwork(
+      await jobFrom(
+        flowStandIn,
+        await docxRunStylesProbePdf(),
+        true,
+        scanPdfPages,
+        { scanTimeoutMs: -1 },
+      ),
+    );
+    await exportOnePdf();
+    const line = await screen.findByText(
+      /came through in Word.s default style/,
+    );
+    expect(line.closest('[role="status"]')).toHaveTextContent(
+      /Page 1 came through in Word's default style, without its bold, italics, sizes and colours: our server could not read how that page draws its words within what one conversion allows, or the words are text recognised by OCR, which has no formatting to keep\. All of the text is there\./,
+    );
+  }, 60_000);
+
+  it("POSITIVE CONTROL: a page read in time says nothing about formatting", async () => {
+    stubNetwork(
+      await jobFrom(
+        flowStandIn,
+        await docxRunStylesProbePdf(),
+        true,
+        scanPdfPages,
+      ),
+    );
+    await exportOnePdf();
+    await screen.findByText(/Your DOCX file is ready/);
+    expect(
+      screen.queryByText(/came through in Word.s default style/),
+    ).not.toBeInTheDocument();
+  }, 60_000);
+
+  it("says nothing of formatting for an OLDER worker's result, which has no such field", async () => {
+    const served = await jobFrom(
+      flowStandIn,
+      await docxRunStylesProbePdf(),
+      true,
+      scanPdfPages,
+      { scanTimeoutMs: -1 },
+    );
+    const block = (
+      served.job as unknown as {
+        results: { officeExport: Record<string, unknown> };
+      }
+    ).results.officeExport;
+    // Health: the field was there to delete.
+    expect(block.formattingMissingPageCount).toBe(1);
+    for (const key of [
+      "formattingMissingPageCount",
+      "pagesWithoutFormatting",
+      "unmatchedWords",
+    ])
+      delete block[key];
+    stubNetwork(served);
+    await exportOnePdf();
+    await screen.findByText(/Your DOCX file is ready/);
+    expect(
+      screen.queryByText(/came through in Word.s default style/),
+    ).not.toBeInTheDocument();
   }, 60_000);
 });
 

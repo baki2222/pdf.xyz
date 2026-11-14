@@ -426,6 +426,21 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
       /\bpictures?\b(?:[^.?!]|\.(?=\w)){0,80}\b(?:Word|DOCX)\b|\b(?:Word|DOCX)\b(?:[^.?!]|\.(?=\w)){0,80}\bpictures?\b/i,
     catalogueCopy: true,
   },
+  docxRunStyles: {
+    // Added 2026-11-15 with the key (backlog #28, slice 1). The sentences a
+    // hedge about it would sit in: a word's formatting — bold, italics,
+    // size, colour — and Word (or DOCX) in one sentence, either order.
+    // CASE-SENSITIVE: with the i flag "word" matched Split PDF's "a word on
+    // the page" beside "file size" (four members, about nothing here). The
+    // third branch is the page's own sentence shape ("Each word keeps its
+    // bold…"), which names no Word: without it the intro walked past.
+    // Measured that day over the whole corpus: see "the docxRunStyles
+    // subject reaches the Word formatting sentences". catalogueCopy is true
+    // because those exist.
+    subject:
+      /\b(?:[Bb]old|[Ii]talics?|[Ss]izes?|[Cc]olou?rs?)\b(?:[^.?!]|\.(?=\w)){0,120}\b(?:Word|DOCX)\b|\b(?:Word|DOCX)\b(?:[^.?!]|\.(?=\w)){0,120}\b(?:[Bb]old|[Ii]talics?|text sizes?|[Cc]olou?rs?)\b|\b(?:[Ee]ach word|[Ww]ords) keep\w*\s+(?:its|their)\s+bold\b/,
+    catalogueCopy: true,
+  },
   translateOcr: {
     // Added 2026-11-09 with the key (audit translate-pdf#3). The sentences a
     // hedge about it would sit in: a scan recognised ON OUR SERVER, the way
@@ -1252,5 +1267,46 @@ describe("a sentence saying a scan is recognised names both worker states", () =
       text: TRANSLATE_OCR_SCOPE,
     };
     expect(translateScanClaims([planted]).map((c) => c.ok)).toEqual([false]);
+  });
+});
+
+describe("the docxRunStyles subject (backlog #28 slice 1, 2026-11-15)", () => {
+  /**
+   * BOTH DIRECTIONS (house rule 1). Measured when the key landed, over the
+   * whole corpus (5,239 entries): exactly these eight — PDF to Word's
+   * intro[0], its look FAQ answer and its keep FAQ answer (PDF_TO_WORD_KEEPS),
+   * and the convert guide's intro, two section paragraphs, step 6 and the
+   * look FAQ answer. A member elsewhere is a formatting sentence nobody
+   * paired; a missing one is the subject going blind to the copy it guards.
+   */
+  it("reaches the Word formatting sentences, and nothing else", () => {
+    const members = COPY.filter((entry) =>
+      SUBJECTS.docxRunStyles!.subject.test(entry.text),
+    ).map((entry) => `${entry.slug} ${entry.where}`);
+    expect(members.sort()).toEqual(
+      [
+        "pdf-to-word intro[0]",
+        "pdf-to-word faq[0].answer",
+        "pdf-to-word faq[7].answer",
+        "guide:how-to-convert-pdf-to-word intro[0]",
+        "guide:how-to-convert-pdf-to-word sections[0].body[0]",
+        "guide:how-to-convert-pdf-to-word sections[0].body[1]",
+        "guide:how-to-convert-pdf-to-word steps[5]",
+        "guide:how-to-convert-pdf-to-word faq[4].answer",
+      ].sort(),
+    );
+  });
+
+  it("positive control: a deferral planted in the intro's formatting sentence is caught", () => {
+    const planted: CopyEntry = {
+      slug: "pdf-to-word",
+      where: "intro[0]",
+      text: "Each word keeps its bold, italics, text size and colour (coming soon).",
+    };
+    expect(
+      hedgeOffenders([planted], []).some((line) =>
+        line.includes('hedges "docxRunStyles"'),
+      ),
+    ).toBe(true);
   });
 });

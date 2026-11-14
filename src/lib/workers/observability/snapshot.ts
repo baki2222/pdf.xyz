@@ -303,6 +303,13 @@ const WORKER_CAPABILITY_PROMISES: Record<
       "PDF to Word puts each picture of a page in the document as a picture, between the text above and below it, at the size the page shows it, as its page says, not the text alone it delivered until 2026-10-17",
     proves: provenByFlag,
   },
+  docxRunStyles: {
+    label: "Word formatting on each word",
+    promise:
+      // Added 2026-11-15 (backlog #28, slice 1).
+      "PDF to Word keeps each word's bold, italics, text size and colour on that word, as its page says, not the bold or italics of whole paragraphs only that it delivered until 2026-11-15",
+    proves: provenByFlag,
+  },
   translateOcr: {
     label: "OCR inside Translate",
     promise:

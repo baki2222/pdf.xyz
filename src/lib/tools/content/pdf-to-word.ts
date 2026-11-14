@@ -46,7 +46,7 @@ import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
  *    read a column at a time, a run of aligned short-cell rows becomes
  *    tab-separated cells (a table whose cells wrap is read column by column),
  *    and `docxBody` writes a Word page break between pages that have text. No
- *    styles, images, tables or hyperlinks. No selectable text in the WHOLE
+ *    styles part, tables or hyperlinks. No selectable text in the WHOLE
  *    file → `no_text`; a locked PDF → `password_protected`, whose message
  *    names Unlock PDF;
  *  - src/lib/workers/processor/pdf-office-export.ts — exactly one PDF per job,
@@ -66,16 +66,13 @@ import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
  *    (PNG, or JPEG for a photograph), the long side capped at that
  *    (MAX_BILEVEL_PICTURE_SIDE for a bilevel scan); an upright rectangular
  *    clip is a crop Word can undo. NOT carried: vector drawing (lines, boxes,
- *    charts), stencil masks, repeated or grouped tiles, fonts, sizes,
- *    colours, tables as tables, positions. A picture too large or
+ *    charts), stencil masks, repeated or grouped tiles, typefaces, tables as
+ *    tables, positions. A picture too large or
  *    undecodable is left out and named in the note, except on a page the
  *    reader cannot read ahead (`picturesUnverified`). A PDF with NO text is
  *    still refused (`no_text`); a scanned page in a PDF that has text comes
  *    through as its picture, and the note names it. A PDF the reader cannot
  *    read ahead is rebuilt first (Repair PDF's engine) or refused. Until
- *    A paragraph EVERY visible run of which is bold (italic) in the page
- *    reader's fonts is written bold (italic), docx-layout.ts
- *    `paragraphStyle`; a bold word inside a sentence is not. Until
  *    this date the page said "Fonts, bold and italics, colours and images
  *    are not carried across", "fonts, sizes, colours, images and link
  *    targets stay behind", and that image-only pages "add nothing to the
@@ -88,6 +85,22 @@ import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
  *    is the heartbeat's `docxPictures` (scripts/worker-daemon.ts), which runs
  *    the probe PDF's picture through the running image's own extractor and
  *    reader, and `worker:prove-tools`'s pdf-to-word verdict.
+ *  - CHANGED 2026-11-15 (backlog #28, slice 1): each of poppler's words is
+ *    labelled with the bold, italics, size and colour of the pdf.js run the
+ *    page draws it in (docx-run-style.ts; the text stays poppler's, every
+ *    character), and docx-package.ts writes one run per stretch of one
+ *    style. A word no run covers is written plain; a page the reader did not
+ *    read (deadline, budget, picture count), a page over
+ *    MAX_STYLED_PIECES_PER_PAGE words, and a page with no word matched (an
+ *    OCR layer is invisible) are named in the note (`pagesWithoutFormatting`).
+ *    NOT carried: the typeface (no `w:rFonts`), paragraph properties, tables
+ *    as tables. The engine refuses a .docx whose text read back differs from
+ *    poppler's on any page (`undeliverableDocx`). Until this date a
+ *    paragraph EVERY visible run of which was bold (italic) was written bold
+ *    (italic), and nothing else: the page said "bold or italics only where a
+ *    whole paragraph is set in them" and "fonts, sizes, colours … stay
+ *    behind", both true then. The live answer is the heartbeat's
+ *    `docxRunStyles`.
  *  - CHANGED 2026-10-24: the panel draws a “Recognise text in scans (OCR)”
  *    checkbox (WORD_OCR_LABEL) and, when on, OCR PDF's language picker
  *    (ocr-language-picker.tsx). The job then carries `{ ocr: true,
@@ -148,7 +161,7 @@ const content: ToolContent = {
   metaDescription: `Convert a PDF to editable Word DOCX: text as paragraphs in reading order, each picture between them at its size. OCR for scans. Up to ${CEILING_MB} MB, no account.`,
 
   intro: [
-    `PDF to Word lifts the text you could highlight in a PDF, and the photos, screenshots and scans on its pages, into a .docx file that opens and edits in Word. It is not a page replica: lines the PDF wrapped are joined back into paragraphs in Word's default Normal style, each picture sits on a line of its own between the paragraphs printed above and below it, and each PDF page with text or a picture starts on a new Word page. The Word page is the size of the PDF's first page, or A4 upright when that page is landscape, such as a slide (scaled to fit, its shape kept, when it is larger than Word allows), and a picture wider or taller than the page's text area is scaled down to fit. Fonts, colours, tables, and drawings made of lines and shapes are not carried across, and bold or italics only where a whole paragraph is set in them, such as a heading.`,
+    `PDF to Word lifts the text you could highlight in a PDF, and the photos, screenshots and scans on its pages, into a .docx file that opens and edits in Word. It is not a page replica: lines the PDF wrapped are joined back into paragraphs, each picture sits on a line of its own between the paragraphs printed above and below it, and each PDF page with text or a picture starts on a new Word page. The Word page is the size of the PDF's first page, or A4 upright when that page is landscape, such as a slide (scaled to fit, its shape kept, when it is larger than Word allows), and a picture wider or taller than the page's text area is scaled down to fit. Each word keeps its bold, italics, text size and colour wherever our reader matches it to the PDF's text, so a bold word inside a sentence stays bold. The typeface, tables as tables and drawings made of lines and shapes are not carried across, and text recognised by OCR comes through in Word's default style.`,
     `The extractor follows the page's reading order: a page set in two columns is read one column at a time, and a table whose cells each fit on one line comes through one row per paragraph, with its cells separated by tabs rather than placed in Word table cells. If no page has selectable text, as with a scan that was never OCR'd, the job stops rather than hand you a document of page pictures with nothing in it to edit. Tick “${WORD_OCR_LABEL}” before exporting and our server runs OCR on the file first, in the languages you pick, and converts the result in the same job.`,
     `Conversion happens on a server, not in your browser. Your PDF travels over TLS to pdf.xyz's secure server, where poppler's pdftotext reads the text layer and pdf.js finds each picture and where the page shows it. Our server deletes the uploaded PDF when the job finishes; the DOCX link expires after ${OUTPUT_TTL} minutes, and a daily storage rule then erases the stored copy. Each PDF is a job of its own, and uploads above ${CEILING_MB} MB are refused.`,
   ],
@@ -168,7 +181,7 @@ const content: ToolContent = {
     },
     {
       title: "Correct a letter or contract you only have as a PDF",
-      body: "Fix a name, a date or a clause in the DOCX, then turn the finished file back into a PDF with Word to PDF. Check the result against the original, since the converted text starts out without the original's styling.",
+      body: "Fix a name, a date or a clause in the DOCX, then turn the finished file back into a PDF with Word to PDF. Check the result against the original, since the converted text starts out without the original's typeface and layout.",
     },
     {
       title: "Put text under Track Changes",
@@ -200,7 +213,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Will the Word file look like my PDF?",
-      a: "Not closely. The DOCX carries the words as plain paragraphs, with the pictures on lines of their own between them; fonts, sizes, colours, tables as tables, link targets and drawings made of lines and shapes stay behind. A paragraph set wholly in bold or italics keeps it; a bold word inside a sentence does not. The original's indentation and spacing are not kept, and a picture painted over another, or over text, comes through on its own line instead of on top. What the page paints over a picture, such as a box over a name, is drawn into that picture, so what it covers stays covered. Each PDF page with text or a picture begins on a new Word page, and running headers and page numbers come through as ordinary paragraphs.",
+      a: "Closer than plain text, but not a copy of the page. Words keep their bold, italics, size and colour where our reader matches them; the typeface, tables as tables, link targets and drawings made of lines and shapes stay behind, and the page's positions, indentation and spacing are not kept. Pages our server could not read within what one conversion allows, and text recognised by OCR, come through unformatted, and the note beside the download names those pages. The pictures sit on lines of their own between the paragraphs, and a picture painted over another, or over text, comes through on its own line instead of on top. What the page paints over a picture, such as a box over a name, is drawn into that picture, so what it covers stays covered. Each PDF page with text or a picture begins on a new Word page, and running headers and page numbers come through as ordinary paragraphs.",
     },
     {
       q: "Are the pictures kept at their full quality?",

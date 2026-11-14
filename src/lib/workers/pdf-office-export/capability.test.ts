@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   docxProbePdf,
   provesDocxPictures,
+  provesDocxRunStyles,
   provesPptxPictures,
   provesPptxPresentationChain,
 } from "./capability";
@@ -17,6 +18,8 @@ import { docxTextOnly20261017 } from "@/tests/docx-text-only-2026-10-17";
 import { noPictures } from "@/tests/page-scan-stubs";
 import { flowStandIn } from "@/tests/poppler-flow-standin";
 import type { runPdfOfficeExport } from "./engine";
+import type { DocxDocument } from "./docx-layout";
+import { docxPackage } from "./docx-package";
 import { scanPdfPages, type PdfPageScanner } from "./page-scan";
 import { encodePngImage } from "./png-encode";
 import { pptxBefore20260927 } from "@/tests/pptx-before-2026-09-27";
@@ -372,6 +375,107 @@ describe("provesDocxPictures", () => {
     );
     await expect(
       provesDocxPictures({ extractFlow: flowStandIn, scanPages: noPictures }),
+    ).resolves.toBe(false);
+  });
+});
+
+/**
+ * 2026-11-15: `provesDocxRunStyles`, the heartbeat's `docxRunStyles`. The
+ * probe PDF through the real engine, in the executor's order, read back by
+ * `./docx-structure`; one negative per way the formatting can be lost.
+ */
+describe("provesDocxRunStyles", () => {
+  const PROBE_DEPS = { extractFlow: flowStandIn, scanPages: scanPdfPages };
+  /** The real engine, its .docx rewritten by `edit`. */
+  const wordThen =
+    (edit: (docx: Uint8Array) => Promise<Uint8Array>): Run =>
+    async (tool, input, deps) => {
+      const { runPdfOfficeExport: real } = await import("./engine");
+      const run = await real(tool, input, deps);
+      if (!run.ok) return run;
+      return { ...run, output: await edit(run.output) };
+    };
+  /** The real engine with its writer handed `doc` changed by `change`. */
+  const writing =
+    (change: (doc: DocxDocument) => DocxDocument): Run =>
+    async (tool, input, deps) => {
+      const { runPdfOfficeExport: real } = await import("./engine");
+      return real(tool, input, {
+        ...deps,
+        writeDocx: (doc) => docxPackage(change(doc)),
+      });
+    };
+  const eachText = (
+    doc: DocxDocument,
+    f: (
+      b: Extract<DocxDocument["pages"][number][number], { kind: "text" }>,
+    ) => object,
+  ): DocxDocument => ({
+    ...doc,
+    pages: doc.pages.map((blocks) =>
+      blocks.map((b) => (b.kind === "text" ? { ...b, ...f(b) } : b)),
+    ),
+  });
+
+  it("is true for the engine in this tree", async () => {
+    await expect(provesDocxRunStyles(PROBE_DEPS)).resolves.toBe(true);
+  });
+
+  it("NEGATIVE CONTROL: the writer before 2026-11-15 (one run per paragraph, no size) is false", async () => {
+    const before = writing((doc) => eachText(doc, () => ({ runs: undefined })));
+    await expect(provesDocxRunStyles(PROBE_DEPS, before)).resolves.toBe(false);
+  });
+
+  it("NEGATIVE CONTROL: every style dropped is false; so is bold put on the whole paragraph", async () => {
+    const dropped = writing((doc) =>
+      eachText(doc, (b) => ({
+        runs: b.runs?.map((cell) => cell.map((r) => ({ ...r, style: null }))),
+      })),
+    );
+    await expect(provesDocxRunStyles(PROBE_DEPS, dropped)).resolves.toBe(false);
+    const smeared = writing((doc) =>
+      eachText(doc, (b) => ({
+        runs: b.runs?.map((cell) =>
+          cell.map((r) => ({
+            ...r,
+            style: { ...r.style, bold: true as const },
+          })),
+        ),
+      })),
+    );
+    await expect(provesDocxRunStyles(PROBE_DEPS, smeared)).resolves.toBe(false);
+  });
+
+  it("NEGATIVE CONTROL: a word written twice after the engine's own check is false (the probe reads the text itself)", async () => {
+    const doubled = wordThen(async (docx) => {
+      const zip = await JSZip.loadAsync(docx);
+      const xml = await zip.file("word/document.xml")!.async("string");
+      zip.file("word/document.xml", xml.replace(">Plain<", ">Plain Plain<"));
+      return new Uint8Array(await zip.generateAsync({ type: "uint8array" }));
+    });
+    await expect(provesDocxRunStyles(PROBE_DEPS, doubled)).resolves.toBe(false);
+  });
+
+  it("is false without the extractor or the page reader, or when a gate refuses", async () => {
+    await expect(
+      provesDocxRunStyles({ scanPages: scanPdfPages }),
+    ).resolves.toBe(false);
+    await expect(
+      provesDocxRunStyles({ extractFlow: flowStandIn }),
+    ).resolves.toBe(false);
+    const real = resolveWorkerSoundness({});
+    await expect(
+      provesDocxRunStyles(PROBE_DEPS, undefined, {
+        soundness: {
+          capability: real.capability,
+          check: (input) => ({
+            ...real.check(input),
+            verdict: "unsound",
+            checked: true,
+            reason: "unsupported_family",
+          }),
+        },
+      }),
     ).resolves.toBe(false);
   });
 });

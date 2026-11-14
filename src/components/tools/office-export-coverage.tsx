@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ImageOff, ScanText, Wrench } from "lucide-react";
+import { ImageOff, ScanText, Type, Wrench } from "lucide-react";
 import type { Job } from "@/lib/jobs/types";
 import { LITTLE_TEXT_CHARS } from "@/lib/jobs/office-export-results";
 import { MAX_DOCX_PICTURES } from "@/lib/workers/pdf-office-export/picture-limits";
@@ -96,7 +96,17 @@ export function OfficeExportCoverageNotice({
   const lostPages = report.pagesMissingPictures ?? [];
   const flattened = powerpoint ? (report.flattenedPageCount ?? 0) : 0;
   const rebuilt = keepsPictures && report.repairedBeforeConversion === true;
-  if (missing <= 0 && little <= 0 && lost <= 0 && flattened <= 0 && !rebuilt)
+  // Word, since 2026-11-15: pages whose words came through with none of
+  // their formatting. Counted by the worker; absent from older results.
+  const unformatted = word ? (report.formattingMissingPageCount ?? 0) : 0;
+  if (
+    missing <= 0 &&
+    little <= 0 &&
+    lost <= 0 &&
+    flattened <= 0 &&
+    !rebuilt &&
+    unformatted <= 0
+  )
     return null;
   const pictures =
     keepsPictures && report.picturePageCount !== undefined
@@ -148,6 +158,26 @@ export function OfficeExportCoverageNotice({
         </p>
       )}
       {lost > 0 && <PicturesNotCarried report={report} word={word} />}
+      {unformatted > 0 && (
+        <p className="flex items-start gap-2">
+          <Type className="mt-0.5 size-4 shrink-0" aria-hidden />
+          <span>
+            {pageSpan(report.pagesWithoutFormatting ?? [], unformatted).replace(
+              /^p/,
+              "P",
+            )}{" "}
+            came through in Word&apos;s default style, without{" "}
+            {unformatted === 1 ? "its" : "their"} bold, italics, sizes and
+            colours: our server could not read how{" "}
+            {unformatted === 1
+              ? "that page draws its"
+              : "those pages draw their"}{" "}
+            words within what one conversion allows, or the words are text
+            recognised by OCR, which has no formatting to keep. All of the text
+            is there.
+          </span>
+        </p>
+      )}
       {missing > 0 && !pictures && (
         <p className="ml-6">
           No selectable text on {pageSpan(report.pagesWithoutText, missing)}, so

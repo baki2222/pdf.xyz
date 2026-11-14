@@ -627,14 +627,31 @@ export async function readDocxStructure(
 export async function docxStructureProblems(
   bytes: Uint8Array,
 ): Promise<string[]> {
+  return (await inspectDocxStructure(bytes)).problems;
+}
+
+/**
+ * {@link readDocxStructure} and {@link docxStructureProblems} from ONE parse
+ * of the package — the engine's check before delivery reads both, and a
+ * 500-page document's body parsed twice took 340 ms (measured 2026-11-15,
+ * `docx-run-style-measure.ts engine 500`). `structure` is null when the file
+ * is not a readable package.
+ */
+export async function inspectDocxStructure(bytes: Uint8Array): Promise<{
+  structure: DocxStructure | null;
+  problems: string[];
+}> {
   const problems: string[] = [];
   let pkg: Package;
   try {
     pkg = await openPackage(bytes);
   } catch (error) {
-    return [`not a readable DOCX: ${(error as Error).message}`];
+    return {
+      structure: null,
+      problems: [`not a readable DOCX: ${(error as Error).message}`],
+    };
   }
-  bodyOf(pkg.document, problems);
+  const blocks = bodyOf(pkg.document, problems);
   const types = await contentTypesOf(pkg.zip, problems);
   const present = new Set(pkg.parts);
   for (const rels of pkg.parts.filter((p) => p.endsWith(".rels"))) {
@@ -649,7 +666,10 @@ export async function docxStructureProblems(
         problems.push(`${target} has no content type`);
     }
   }
-  return [...new Set(problems)];
+  return {
+    structure: { blocks, parts: pkg.parts, contentTypes: types },
+    problems: [...new Set(problems)],
+  };
 }
 
 /**

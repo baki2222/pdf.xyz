@@ -65,6 +65,7 @@ export function emptyCapabilities(): HeartbeatCapabilities {
     pptxPresentationChain: false,
     pptxPictures: false,
     docxPictures: false,
+    docxRunStyles: false,
     translateOcr: false,
     htmlZip: false,
   };

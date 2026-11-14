@@ -67,6 +67,11 @@ import { readJpegOrientation } from "@/lib/pdf/jpeg-orientation";
 import { loadNodeCanvas } from "./pdfjs-node";
 import { readDocxBody } from "./docx-read";
 import {
+  docxPageTexts,
+  docxStructureProblems,
+  readDocxStructure,
+} from "./docx-structure";
+import {
   PDF_TO_WORD_TOOL,
   runPdfOfficeExport,
   type PdfOfficeExportDeps,
@@ -221,25 +226,55 @@ describe("PDF to Word keeps the pictures", () => {
     );
   });
 
-  it("a paragraph set wholly in bold or italics keeps it; a bold word inside a sentence does not make the sentence bold", async () => {
+  /**
+   * INVERTED 2026-11-15, when each word began to keep its own formatting
+   * (`./docx-run-style`). Until then PDF to Word kept bold or italics only
+   * where a WHOLE paragraph was set in them, and this test pinned that: on
+   * this fixture the mixed paragraph had to carry no formatting at all —
+   *
+   *   expect(of(paragraph.bold)).toContain("<w:rPr><w:b/></w:rPr>");
+   *   expect(of(paragraph.italic)).toContain("<w:rPr><w:i/></w:rPr>");
+   *   expect(of(paragraph.mixed)).not.toContain("<w:rPr>");
+   *   expect(of(paragraph.regular)).not.toContain("<w:rPr>");
+   *
+   * Now the bold words of the mixed sentence are bold and the regular words
+   * beside them are not — read back by `./docx-structure`, never by matching
+   * the writer's own strings.
+   */
+  it("each word keeps its own bold or italics: the bold ending of a sentence is bold, the words before it are not", async () => {
     const { pdf, paragraph } = await boldItalicPdf();
-    const xml = await (
-      await JSZip.loadAsync((await word(pdf)).output)
-    )
-      .file("word/document.xml")!
-      .async("string");
+    const output = (await word(pdf)).output;
+    const body = await readDocxStructure(output);
+    const paragraphs = body.blocks.filter(
+      (b): b is Extract<typeof b, { kind: "p" }> => b.kind === "p",
+    );
     const of = (text: string) => {
-      const p = (xml.match(/<w:p>[\s\S]*?<\/w:p>/g) ?? []).filter((q) =>
-        q.includes(text),
+      const p = paragraphs.filter(
+        (q) => q.runs.map((r) => r.text).join("") === text,
       );
-      // Health: each paragraph is found once, so "no <w:b/>" is about it.
+      // Health: each paragraph is found once, whole, so what follows is about it.
       expect(p, text).toHaveLength(1);
-      return p[0]!;
+      return p[0]!.runs.filter((r) => r.text.length > 0);
     };
-    expect(of(paragraph.bold)).toContain("<w:rPr><w:b/></w:rPr>");
-    expect(of(paragraph.italic)).toContain("<w:rPr><w:i/></w:rPr>");
-    expect(of(paragraph.mixed)).not.toContain("<w:rPr>");
-    expect(of(paragraph.regular)).not.toContain("<w:rPr>");
+    const bold = of(paragraph.bold);
+    expect(bold.every((r) => r.b && r.bCs && !r.i)).toBe(true);
+    expect(bold.every((r) => r.sz === 40 && r.szCs === 40)).toBe(true);
+    const italic = of(paragraph.italic);
+    expect(italic.every((r) => r.i && r.iCs && !r.b)).toBe(true);
+    const mixed = of(paragraph.mixed);
+    expect(mixed.map((r) => [r.text, r.b === true])).toEqual([
+      ["Regular words with", false],
+      [" a bold ending", true],
+    ]);
+    expect(mixed.every((r) => r.sz === 24)).toBe(true);
+    const regular = of(paragraph.regular);
+    expect(regular.some((r) => r.b || r.i)).toBe(false);
+    expect(regular.every((r) => r.sz === 24 && r.color === undefined)).toBe(
+      true,
+    );
+    // And the text is poppler's, exactly.
+    expect(docxPageTexts(body)).toEqual([Object.values(paragraph).join("\n")]);
+    expect(await docxStructureProblems(output)).toEqual([]);
   }, 60_000);
 
   it("after OCR, a scan comes through as its picture followed by its words — as the page tells the reader", async () => {

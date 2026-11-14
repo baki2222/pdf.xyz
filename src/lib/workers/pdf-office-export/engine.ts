@@ -26,8 +26,7 @@ import { readDocxBody } from "./docx-read";
 import {
   asXmlCarries,
   docxPageTexts,
-  docxStructureProblems,
-  readDocxStructure,
+  inspectDocxStructure,
 } from "./docx-structure";
 import { classifyPdfTextFailure } from "./encryption";
 import { rethrowIfAttemptAbort, type RunControl } from "../attempt-abort";
@@ -433,12 +432,11 @@ async function undeliverableDocx(
     else if (breaks !== plan.pageBreaks)
       problem = `${breaks} of ${plan.pageBreaks} page breaks`;
     else {
-      const structure = await docxStructureProblems(output);
-      if (structure.length > 0) problem = structure.slice(0, 3).join("; ");
+      const { structure, problems } = await inspectDocxStructure(output);
+      if (problems.length > 0 || !structure)
+        problem = problems.slice(0, 3).join("; ") || "unreadable package";
       else {
-        const read = docxPageTexts(await readDocxStructure(output)).map(
-          asXmlCarries,
-        );
+        const read = docxPageTexts(structure).map(asXmlCarries);
         const want = expected.map(asXmlCarries);
         if (read.length !== want.length)
           problem = `${read.length} of ${want.length} pages of text`;
@@ -596,6 +594,22 @@ async function renderWord(
     .filter((p) => !withText.has(p.pageNumber) && scannedPictures(p).length > 0)
     .map((p) => p.pageNumber);
   const lost = losses(scan);
+  // Pages whose text came through with none of its formatting
+  // (`./docx-run-style`): the page reader did not read their text, they
+  // were over the per-page word cap, or no word matched a run. A scan that
+  // THREW is a failure of the job, above, never counted here.
+  const formatting = doc.formatting?.pages ?? [];
+  const unformatted = formatting
+    .filter(
+      (p) =>
+        withText.has(p.pageNumber) &&
+        (p.textUnread || p.capped || p.matched === 0),
+    )
+    .map((p) => p.pageNumber);
+  const unmatchedWords = formatting.reduce(
+    (n, p) => n + (p.total - p.matched),
+    0,
+  );
   // Seen to be empty, as PowerPoint's `emptySlideCount` is: no text, no
   // picture carried, none lost, none left out, none the reader may have
   // missed. Until the review of 2026-10-17 the notice SUBTRACTED (pages
@@ -630,6 +644,13 @@ async function renderWord(
       pagesMissingPictures: lost.pagesMissingPictures,
       emptyPageCount: empty.length,
       pagesEmpty: empty,
+      ...(doc.formatting
+        ? {
+            formattingMissingPageCount: unformatted.length,
+            pagesWithoutFormatting: unformatted,
+            unmatchedWords,
+          }
+        : {}),
       ...(rebuilt ? { repairedBeforeConversion: true as const } : {}),
     }),
   };
