@@ -156,7 +156,8 @@ export async function detectAutoCrop(
         pages.push({ ink, raster: { width, height, data: [] } });
       } catch (err) {
         if (signal?.aborted) throw err;
-        pages.push(null); // Unreadable page: left uncropped, and named.
+        // Unreadable page: left uncropped, and named.
+        pages.push(null);
       }
       onProgress?.({ done: n, total });
     }
@@ -211,7 +212,8 @@ async function openWithoutImages(
     ...guard.NO_IMAGES.previewOptions,
   });
   const doc = awaitPdfjsDocument(task);
-  doc.catch(() => {}); // awaited by the caller; never an unhandled rejection
+  // Awaited by the caller; never an unhandled rejection.
+  doc.catch(() => {});
   return { task, doc };
 }
 
@@ -235,7 +237,8 @@ export function withPlacements(
     const right = Math.min(width, Math.ceil(Math.max(...xs)));
     const top = Math.max(0, Math.floor(Math.min(...ys)));
     const bottom = Math.min(height, Math.ceil(Math.max(...ys)));
-    if (!(left < right && top < bottom)) continue; // off the page
+    // Off the page.
+    if (!(left < right && top < bottom)) continue;
     box = box
       ? {
           left: Math.min(box.left, left),
