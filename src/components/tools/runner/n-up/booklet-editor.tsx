@@ -34,11 +34,11 @@ import {
   RunnerSection,
   outputFile,
   useAsyncRun,
-} from "./runner-kit";
-import { RunBar } from "./run-bar";
-import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
-import { PrivacyLine } from "./stamp-controls";
-import type { LoadedPdf } from "./use-single-pdf";
+} from "../runner-kit";
+import { RunBar } from "../run-bar";
+import { FileHeader } from "../single-pdf-runner";
+import { PrivacyLine } from "../stamp-controls";
+import type { LoadedPdf } from "../use-single-pdf";
 
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
@@ -121,19 +121,6 @@ function BackCoverField({
 export function bookletFlipLine(flip: BookletFlip): string {
   const other = BOOKLET_FLIPS.find((f) => f.id !== flip)!.label;
   return `Print it on both sides of the paper, flipping on the ${flipLabel(flip).toLowerCase()}. If the backs come out upside down, choose ${other} and create it again.`;
-}
-
-/** PDF Booklet Maker's runner: one PDF, then the booklet editor. */
-export function BookletRunner() {
-  return (
-    <SinglePdfRunner
-      hint="One PDF · pages put in booklet order locally in your browser"
-      handoffSlug="booklet-pdf"
-      toolName="PDF Booklet Maker"
-    >
-      {(pdf, reset) => <BookletEditor pdf={pdf} onReset={reset} />}
-    </SinglePdfRunner>
-  );
 }
 
 export function BookletEditor({

@@ -123,6 +123,22 @@ function toolSourceFiles(): string[] {
   return walk(TOOLS_DIR);
 }
 
+/**
+ * The component modules `file` loads with `import("./…")`: a runner's
+ * editors when they are lazy chunks. A specifier that resolves to no file is
+ * FATAL, not a shorter list.
+ */
+function lazyEditorsOf(file: string, source: string): string[] {
+  return [...source.matchAll(/\bimport\(\s*"(\.\.?\/[^"]+)"\s*\)/g)].map(
+    (m) => {
+      const base = path.resolve(path.dirname(file), m[1]!);
+      const found = [`${base}.tsx`, `${base}.ts`].find((f) => existsSync(f));
+      if (!found) throw new Error(`${file}: import("${m[1]}") is no file`);
+      return found;
+    },
+  );
+}
+
 /** Components that run a tool and therefore have an outcome to report. */
 function completionSurfaceFiles(): { name: string; file: string }[] {
   return toolSourceFiles()
@@ -153,12 +169,32 @@ describe("completion surfaces", () => {
     ({ name, file }) => {
       if (name in EXEMPT) return;
       const source = readFileSync(file, "utf8");
-      expect(
-        USES_PRIMITIVE.test(source),
-        `${name} runs a tool but never uses ResultPanel, ResultCard, or useOutcomeFocus — a finished run there is silent. Use one, or add an entry to EXEMPT with the reason.`,
-      ).toBe(true);
+      // A runner whose editor is a lazy chunk (`lazyPanel`, 2026-11-10: the
+      // n-up and metadata kinds) holds no run of its own; the editors it
+      // loads with `import("./…")` do, and each of them is held instead.
+      // Every one, not any one: a second editor that stayed silent would
+      // otherwise pass on the first one's ResultPanel.
+      const editors = lazyEditorsOf(file, source);
+      const sources =
+        !USES_PRIMITIVE.test(source) && editors.length > 0
+          ? editors.map((e) => ({ at: e, text: readFileSync(e, "utf8") }))
+          : [{ at: file, text: source }];
+      for (const { at, text } of sources)
+        expect(
+          USES_PRIMITIVE.test(text),
+          `${path.relative(TOOLS_DIR, at)} runs a tool but never uses ResultPanel, ResultCard, or useOutcomeFocus — a finished run there is silent. Use one, or add an entry to EXEMPT with the reason.`,
+        ).toBe(true);
     },
   );
+
+  it("positive control: a lazily loading runner is held by its editors", () => {
+    const runner = path.join(TOOLS_DIR, "runner", "metadata-runner.tsx");
+    const source = readFileSync(runner, "utf8");
+    expect(USES_PRIMITIVE.test(source)).toBe(false);
+    expect(
+      lazyEditorsOf(runner, source).map((e) => path.relative(TOOLS_DIR, e)),
+    ).toEqual([path.join("runner", "metadata-editor.tsx")]);
+  });
 
   it("the shared editor's runners report through it", () => {
     const session = toolSourceFiles().find((f) => f.endsWith(EDITOR_SESSION));

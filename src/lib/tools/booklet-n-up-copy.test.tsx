@@ -8,8 +8,8 @@ import { getRunnerKind } from "@/lib/pdf/registry";
 import {
   N_UP_RUN_LABEL,
   NUpEditor,
-} from "@/components/tools/runner/n-up-runner";
-import { BookletEditor } from "@/components/tools/runner/booklet-editor";
+} from "@/components/tools/runner/n-up/n-up-editor";
+import { BookletEditor } from "@/components/tools/runner/n-up/booklet-editor";
 import type { LoadedPdf } from "@/components/tools/runner/use-single-pdf";
 import { resetAnnouncer } from "@/components/a11y/live-region";
 import { getToolContent } from "@/lib/tools/content";

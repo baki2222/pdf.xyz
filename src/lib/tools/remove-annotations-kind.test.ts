@@ -22,6 +22,15 @@ import { midRunFetches, runnerReadsWithPdfjs } from "./tool-facts";
 
 const SLUG = "remove-annotations";
 const RUNNER_DIR = "src/components/tools/runner";
+/*
+ * The drop box and the editor, in two files since 2026-11-10: the editor
+ * loads with a file (`lazyPanel`), so the shell — and `<SinglePdfRunner>`
+ * with it — moved to the host. The rows below read BOTH; until then they
+ * read `remove-annotations-editor.tsx` alone, which no longer holds the
+ * shell.
+ */
+const HOST = `${RUNNER_DIR}/remove-annotations-host.tsx`;
+const PANEL = [HOST, `${RUNNER_DIR}/remove-annotations-editor.tsx`];
 const read = (rel: string) =>
   readFileSync(path.join(process.cwd(), rel), "utf8");
 
@@ -32,9 +41,9 @@ describe("Remove Annotations' inherited kind rows", () => {
 
   it("MODE_BY_KIND: one file — SinglePdfRunner with no batch", () => {
     expect(handoffCapabilityFor(SLUG).mode).toBe("single");
-    const editor = read(`${RUNNER_DIR}/remove-annotations-editor.tsx`);
-    expect(editor).toMatch(/<SinglePdfRunner\b/);
-    expect(editor).not.toMatch(/\bbatch=/);
+    const host = read(HOST);
+    expect(host).toMatch(/<SinglePdfRunner\b/);
+    for (const file of PANEL) expect(read(file), file).not.toMatch(/\bbatch=/);
   });
 
   it("RUNNER_FILE_CEILINGS: MAX_PDF_BYTES — SinglePdfRunner's own gate", () => {
@@ -46,7 +55,7 @@ describe("Remove Annotations' inherited kind rows", () => {
     expect(midRunFetches(SLUG)).toEqual([]);
     expect(runnerReadsWithPdfjs(SLUG)).toBe(false);
     for (const file of [
-      `${RUNNER_DIR}/remove-annotations-editor.tsx`,
+      ...PANEL,
       "src/lib/pdf/remove-annotations.ts",
       "src/lib/pdf/annotation-groups.ts",
     ]) {
@@ -58,9 +67,8 @@ describe("Remove Annotations' inherited kind rows", () => {
   it("PDFJS_READER_KINDS: not a pdf.js reader — restricted PDFs are refused, as pdf-lib refuses /Encrypt", () => {
     expect(PDFJS_READER_KINDS.has("metadata")).toBe(false);
     expect(opensRestrictedPdfs(SLUG)).toBe(false);
-    expect(read(`${RUNNER_DIR}/remove-annotations-editor.tsx`)).not.toMatch(
-      /reader="pdfjs"/,
-    );
+    for (const file of PANEL)
+      expect(read(file), file).not.toMatch(/reader="pdfjs"/);
   });
 
   it("runnerFaq: no case for the kind, so no FAQ written for Edit PDF Metadata reaches this page", () => {
