@@ -16,7 +16,15 @@ import {
 } from "@/lib/jobs";
 import { getToolBySlug } from "@/lib/tools";
 import { getWorkerAdapter } from "@/lib/workers";
-import { runningWorkerEnforcesAiReadCap } from "@/lib/workers/heartbeat";
+import {
+  runningWorkerEnforcesAiReadCap,
+  runningWorkerRendersHtmlZip,
+} from "@/lib/workers/heartbeat";
+import {
+  HTML_ZIP_MIMES,
+  HTML_ZIP_NOT_RUNNING_MESSAGE,
+  isZipName,
+} from "@/lib/workers/html-render/zip-config";
 import {
   enforceRateLimit,
   peekAiCharacterAllowance,
@@ -99,6 +107,24 @@ export async function POST(request: Request): Promise<Response> {
     );
     if (!allowance.allowed) return respondRateLimited(allowance);
   }
+
+  /**
+   * A ZIP FOR HTML TO PDF IS ADMITTED ONLY WHEN THE RUNNING WORKER PRINTS ONE
+   * (competitor audit #26), before a slot is minted or a byte moves. An image
+   * built before the feature does not refuse a ZIP: it renders the archive's
+   * bytes as HTML and reports success. The page offers ZIP only on the same
+   * proof (`liveWorkerRendersHtmlZip`); this is the line for every other
+   * caller, and for a worker that changed after the page looked. Judged by
+   * the declared type OR the name, so neither alone slips a ZIP through.
+   */
+  if (
+    parsed.value.tool === "html-to-pdf" &&
+    parsed.value.files.some(
+      (f) => HTML_ZIP_MIMES.includes(f.contentType) || isZipName(f.filename),
+    ) &&
+    !(await runningWorkerRendersHtmlZip())
+  )
+    return respond(apiError("not_implemented", HTML_ZIP_NOT_RUNNING_MESSAGE));
 
   const adapter = await getWorkerAdapter();
   const outcome = await adapter.createUploadSession(parsed.value);

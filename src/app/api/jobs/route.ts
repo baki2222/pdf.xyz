@@ -18,10 +18,16 @@ import {
 import { getToolBySlug } from "@/lib/tools";
 import { getWorkerAdapter } from "@/lib/workers";
 import {
+  runningWorkerRendersHtmlZip,
   runningWorkerEnforcesAiReadCap,
   runningWorkerTranslatesScans,
 } from "@/lib/workers/heartbeat";
 import { translateAsksForOcr } from "@/lib/jobs/translate-pdf";
+import {
+  HTML_ZIP_ENTRY_OPTION,
+  HTML_ZIP_NOT_RUNNING_MESSAGE,
+  isZipName,
+} from "@/lib/workers/html-render/zip-config";
 import {
   TRANSLATE_OCR_NOT_RUNNING_MESSAGE,
   translateOcrMissingPacksMessage,
@@ -130,6 +136,21 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
   }
+
+  // A ZIP JOB FOR HTML TO PDF IS ADMITTED ONLY WHEN THE RUNNING WORKER PRINTS
+  // ONE (competitor audit #26) — the same predicate the page's offer and the
+  // upload gate use (`liveWorkerRendersHtmlZip`). An image built before the
+  // feature ignores `entry` and renders the archive's bytes as HTML. A ZIP
+  // job is told by its `entry` option (the browser always sends one for a
+  // ZIP) or by an input named .zip; the upload route refused a ZIP already
+  // on the same proof, and this holds the line if the worker changed since.
+  if (
+    parsed.value.tool === "html-to-pdf" &&
+    (parsed.value.options?.[HTML_ZIP_ENTRY_OPTION] !== undefined ||
+      (parsed.value.inputNames ?? []).some(isZipName)) &&
+    !(await runningWorkerRendersHtmlZip())
+  )
+    return respond(apiError("not_implemented", HTML_ZIP_NOT_RUNNING_MESSAGE));
 
   /**
    * What this job is charged, and what it may then deliver.
