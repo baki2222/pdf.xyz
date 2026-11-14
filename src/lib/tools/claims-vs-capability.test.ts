@@ -202,6 +202,8 @@ import { resetUploadedThisSessionForTests } from "@/lib/uploads/session-uploads"
 import { ADVERTISED_WORKER_CAPABILITIES } from "@/lib/workers/observability";
 import { panelDispatchArms, panelFile } from "@/tests/worker-panel-dispatch";
 import { runnerModuleOf } from "@/tests/tool-panel-modules";
+import { compareExtractedPdfText } from "@/components/tools/runner/compare/compare-result";
+import { comparablePdf, pageHeaderPair } from "@/tests/compare-fixtures";
 
 const ROOT = process.cwd();
 const read = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
@@ -2764,5 +2766,180 @@ describe("PDF to Word: what the page says of stencils, repeats, covers and budge
     expect(PDF_TO_WORD_KEEPS).toMatch(WHOLE);
     const texts = (await toolContainer(getToolBySlug(PDF_TO_WORD_TOOL)!)).texts;
     expect(texts.some((t) => BUDGET.test(t) && WHOLE.test(t))).toBe(true);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ *  Compare PDF names the page — a capability that EXISTS, pinned.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Compare PDF names the page (audit compare-pdf#4, 2026-11-14). Until then
+ * the result was one dump of every line, and the page said so: "It does not
+ * name the page a change sits on" and "Why is a whole line flagged when only
+ * one word changed?". The comparison now heads each change with its page in
+ * both files and marks the differing words inside a changed line, and the
+ * copy says that.
+ *
+ * Shaped like the inverted image-to-PDF rule above, in both directions:
+ *
+ * - the CLAIMS (the new copy) are allowed only while the probe — the
+ *   composed `compareExtractedPdfText` run on two real PDFs where a page was
+ *   inserted — finds a page header AND a word mark. If the capability goes,
+ *   every served claim becomes an offender;
+ * - the DENIALS (the old copy) are false while it holds: if one comes back,
+ *   it is flagged.
+ *
+ * Both corpora are caught by their shapes and every shape catches a corpus
+ * sentence (CLAUDE.md, guards rule 1).
+ */
+const COMPARE_PAGE_RULE = {
+  id: "Compare PDF names the page and marks the changed words",
+  subjects: () => slugsOfKind("compare"),
+  claims: {
+    "names the page":
+      /(?<!\bnot )\bnames? (?:its|the) page\b|\bthe page (?:it|each change) (?:sits|is) on\b/i,
+    "page to page": /\bpage \d+ (?:->|→) page \d+\b/i,
+    "words marked":
+      /\b(?:changed words|words that differ) (?:are )?marked\b|\bword[- ]level\b/i,
+  },
+  shipped: [
+    "Compare PDF reads the selectable text of two versions of a document and lists only what changed, grouped by page: each change is headed with the page it sits on in both files and shown with two unchanged lines around it.",
+    "Each change names its page in both files, and inside a changed line the words that differ are marked.",
+    "Each change is headed with the page it sits on in each file, for example Page 2 → page 3 when a page was inserted before it, and the downloaded report heads it the same way: @@ Page 2 -> page 3 @@.",
+    "The old line is listed as removed and the new one as added, and the changed words are marked within the line: crossed out in the old one, underlined in the new one, and in the report as [-old-] and {+new+} on a line starting with ~.",
+    "Review the lines marked removed (-) and added (+), each headed with its page in both files, with the changed words marked.",
+  ],
+  synonyms: ["It shows word-level changes."],
+  denials: {
+    "does not name the page": /\bdoes(?: not|n't) name the page\b/i,
+    "a whole line at a time":
+      /\ba whole line at a time\b|\bwhole line (?:is )?flagged\b/i,
+  },
+  denialCorpus: [
+    "It does not name the page a change sits on, so search the PDF for that line's text.",
+    "Changes are reported a whole line at a time; runs of spaces and tabs count as one space, and indentation, blank lines and page breaks are ignored.",
+    "A whole line is flagged when only one word changed.",
+  ],
+} as const;
+
+/** THE PROPERTY, on two real PDFs: a page header and a word mark. */
+async function comparePageProbe(): Promise<Probe> {
+  const { left, right } = pageHeaderPair();
+  const result = compareExtractedPdfText(
+    await comparablePdf("v1.pdf", left),
+    await comparablePdf("v2.pdf", right),
+  );
+  const header = /^@@ Page 2 -> page 3 @@$/m.test(result.report);
+  const marked = result.hunks.some((h) =>
+    h.pairs.some(
+      (p) =>
+        p.tokens?.some((t) => t.k === "removed" && t.text === "100") &&
+        p.tokens.some((t) => t.k === "added" && t.text === "120"),
+    ),
+  );
+  return {
+    present: header && marked,
+    evidence: `page header ${header}, word mark ${marked}; hunks: ${result.hunks
+      .map((h) => `${h.leftPages.join("-")}>${h.rightPages.join("-")}`)
+      .join(", ")}`,
+  };
+}
+
+describe("Compare PDF: the page and word claims hold of the comparison", () => {
+  const asRule = (shapes: Readonly<Record<string, RegExp>>) =>
+    ({ shapes }) as unknown as ClaimRule;
+  const claimShapes = Object.entries(COMPARE_PAGE_RULE.claims);
+  const denialShapes = Object.entries(COMPARE_PAGE_RULE.denials);
+  const claims = [...COMPARE_PAGE_RULE.shipped, ...COMPARE_PAGE_RULE.synonyms];
+
+  it("the shapes and both corpora cover each other", () => {
+    expect(
+      claimShapes
+        .filter(([, re]) => !claims.some((c) => re.test(c)))
+        .map(([n]) => n),
+      "claim shapes nothing exercises",
+    ).toEqual([]);
+    expect(
+      claims.filter((c) => !claimShapes.some(([, re]) => re.test(c))),
+      "claims no shape catches",
+    ).toEqual([]);
+    expect(
+      denialShapes
+        .filter(
+          ([, re]) => !COMPARE_PAGE_RULE.denialCorpus.some((c) => re.test(c)),
+        )
+        .map(([n]) => n),
+      "denial shapes nothing exercises",
+    ).toEqual([]);
+    expect(
+      COMPARE_PAGE_RULE.denialCorpus.filter(
+        (c) => !denialShapes.some(([, re]) => re.test(c)),
+      ),
+      "denials no shape catches",
+    ).toEqual([]);
+    // The new copy is not read as a denial, nor the old copy as a claim.
+    expect(
+      claims.filter((c) => denialShapes.some(([, re]) => re.test(c))),
+    ).toEqual([]);
+    expect(
+      COMPARE_PAGE_RULE.denialCorpus.filter((c) =>
+        claimShapes.some(([, re]) => re.test(c)),
+      ),
+    ).toEqual([]);
+  });
+
+  it("both corpora are caught THROUGH the attribution, on the subject's own page", () => {
+    const subject = COMPARE_PAGE_RULE.subjects()[0]!;
+    const synthetic: Container = {
+      where: "control",
+      home: subject,
+      texts: [...COMPARE_PAGE_RULE.shipped, ...COMPARE_PAGE_RULE.denialCorpus],
+    };
+    const attributed = attributedTo(synthetic, subject);
+    const caught = (shapes: Readonly<Record<string, RegExp>>) =>
+      attributed.filter(({ masked }) =>
+        Object.values(shapes).some((re) => re.test(masked)),
+      ).length;
+    expect(caught(COMPARE_PAGE_RULE.claims)).toBe(
+      COMPARE_PAGE_RULE.shipped.length,
+    );
+    expect(caught(COMPARE_PAGE_RULE.denials)).toBe(
+      COMPARE_PAGE_RULE.denialCorpus.length,
+    );
+  });
+
+  it("the capability is there: a page header and a word mark, from real PDFs", async () => {
+    const probe = await comparePageProbe();
+    expect(probe.present, probe.evidence).toBe(true);
+  });
+
+  it("served copy claims the page only while it is true, and never denies it while it is", async () => {
+    const probe = await comparePageProbe();
+    const subjects = COMPARE_PAGE_RULE.subjects();
+    expect(subjects.length).toBeGreaterThan(0);
+    for (const subject of subjects) {
+      const made = await offendersOf(asRule(COMPARE_PAGE_RULE.claims), subject);
+      const denied = await offendersOf(
+        asRule(COMPARE_PAGE_RULE.denials),
+        subject,
+      );
+      expect(made.seen, `${subject}: corpus collapsed`).toBeGreaterThanOrEqual(
+        15,
+      );
+      if (!probe.present) {
+        expect(
+          made.offenders,
+          `${subject} claims what the comparison no longer does (${probe.evidence})`,
+        ).toEqual([]);
+        continue;
+      }
+      // Health: the page does make the claim, so this check is not blind.
+      expect(made.offenders.length, subject).toBeGreaterThanOrEqual(1);
+      expect(
+        denied.offenders,
+        `${subject} denies what the comparison does`,
+      ).toEqual([]);
+    }
   });
 });

@@ -1569,7 +1569,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         {
           question: `What counts as a change in ${tool.name}?`,
           answer:
-            "A line of selectable text that is in one PDF and not the other. Lines only in the first PDF are listed as removed (-), and lines only in the second as added (+). Extra spaces inside a line and blank lines are ignored.",
+            "A line of selectable text that is in one PDF and not the other. Lines only in the first PDF are listed as removed (-), and lines only in the second as added (+), each under the page it sits on in both files, and the words that differ are marked inside the line. Extra spaces inside a line and blank lines are ignored.",
         },
         {
           question: `Can ${tool.name} compare scanned PDFs?`,

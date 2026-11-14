@@ -14,6 +14,10 @@ const CEILING_MB = Math.round(RUNNER_FILE_CEILINGS.compare / (1024 * 1024));
 const OCR_LINK_MINUTES = DEFAULT_RETENTION.outputTtlMinutes;
 
 /*
+ * HISTORY, kept: the list just below is what was checked on 2026-09-27,
+ * when the comparison listed every line a whole line at a time. AMENDED
+ * 2026-11-14 (audit compare-pdf#4) under it.
+ *
  * Behaviour claims below were checked against the code on 2026-09-27
  * (src/lib/pdf/compare-pdf.ts, src/lib/pdf/text.ts, src/lib/pdf/engine.ts,
  * compare-pdf-runner.tsx), and the diff rules by running `diffLines` directly:
@@ -37,10 +41,21 @@ const OCR_LINK_MINUTES = DEFAULT_RETENTION.outputTtlMinutes;
  * password-protected". AMENDED 2026-11-08 (audit compare-pdf#5): the card's
  * count is pdf.js's (`countPagesWithPdfjs`) now, so such a file is compared; one that
  * needs a password is still refused (compare-restricted.test.tsx).
- * The Size delta TILE prints `formatBytes(Math.abs(sizeDelta))` with a "+"
- * only when non-negative, so a smaller second file shows no sign there; only
- * the report's `Bytes:` line carries the signed difference. The copy below
- * points at that line and makes no claim about the tile's sign.
+ * AMENDED 2026-11-14 (audit compare-pdf#4): the result lists only the
+ * changes, each hunk headed with its page in both files ("Page 2 → page 3";
+ * `@@ Page 2 -> page 3 @@` in the .txt) with two lines of context, and the
+ * differing words inside a changed line are marked (`<del>`/`<ins>`, and a
+ * `~ ` line in the report); a line too long for the word bounds is marked
+ * whole and counted. Two options, both off by default, set aside letter
+ * case and page headers and numbers. Checked by running the composed
+ * `compareExtractedPdfText` on real PDFs (runner/compare/engine.test.ts,
+ * report.test.ts) and the page's claims against it
+ * (claims-vs-capability.test.ts, "Compare PDF names the page").
+ * (A note on the Size delta tile stood here until 2026-11-14, saying it
+ * printed no minus sign. It was false since the tile moved to
+ * `formatSignedBytes`, and is deleted rather than rewritten because a test
+ * pins the behaviour: compare-pdf-runner.test.tsx, "Compare PDF runner —
+ * size delta", and utils.test.ts, "formatSignedBytes".)
  */
 const content: ToolContent = {
   slug: "compare-pdf",
@@ -51,15 +66,15 @@ const content: ToolContent = {
     "Compare two PDFs line by line: see added and removed text, page count and size changes, and save a plain-text diff report. Both files stay in your browser.",
 
   intro: [
-    `Compare PDF reads the selectable text of two versions of a document and writes one report of what changed. Lines only in the second file are marked with a plus, lines only in the first with a minus, and above that line-by-line diff the report lists both page counts, both sizes in bytes and the number of changed lines. When every line agrees, the result is headed Selectable text matches.`,
+    `Compare PDF reads the selectable text of two versions of a document and lists only what changed, grouped by page: each change is headed with the page it sits on in both files and shown with two unchanged lines around it. Lines only in the second file are marked with a plus, lines only in the first with a minus, and above the changes the report gives both page counts, both sizes in bytes and the number of changed lines. When every line agrees, the result is headed Selectable text matches.`,
     `The comparison runs inside your browser tab, where pdf.js reads the text of both files, and neither PDF is uploaded. Whichever PDF you add first is the baseline, so add the older version first: the page and byte differences are counted from it to the second one. It compares exactly two files, and a file over ${CEILING_MB} MB is turned away before it is opened.`,
-    `This is a text comparison, not a visual one: a moved image or a changed colour will not appear, and a new font or margin shows up only where it makes the text wrap differently. Changes are reported a whole line at a time; runs of spaces and tabs count as one space, and indentation, blank lines and page breaks are ignored. A scan with no text layer has nothing to compare until it has been through OCR.`,
+    `This is a text comparison, not a visual one: a moved image or a changed colour will not appear, and a new font or margin shows up only where it makes the text wrap differently. Each change names its page in both files, and inside a changed line the words that differ are marked. Runs of spaces and tabs count as one space, indentation and blank lines are ignored, and a line that only moved to another page is not a change. A scan with no text layer has nothing to compare until it has been through OCR.`,
   ],
 
   useCases: [
     {
       title: "Check what the other side edited in a contract",
-      body: "When a revised agreement comes back with no tracked changes, compare it against the version you sent. Each altered line appears twice, once removed and once added; a clause that gained words may re-wrap, so later lines in that paragraph can show as changed too.",
+      body: "When a revised agreement comes back with no tracked changes, compare it against the version you sent. Each altered line appears twice, once removed and once added, with the words that differ marked; a clause that gained words may re-wrap, so later lines in that paragraph can show as changed too.",
     },
     {
       title: "Confirm a re-export kept the wording",
@@ -86,22 +101,26 @@ const content: ToolContent = {
     },
     {
       title: "Press Compare PDFs",
-      body: "It stays disabled until both slots are filled. Tiles for Pages, Size delta and Changed lines sit above the full report, whose Bytes line gives both exact sizes and a signed difference.",
+      body: "It stays disabled until both slots are filled. Tiles for Pages, Size delta and Changed lines sit above the list of changes, each headed with its page in both files. Two buttons step from one change to the next, and two boxes set letter case or page headers and numbers aside.",
     },
     {
       title: "Download the report",
-      body: "Download comparison report saves the whole report as a text file named after both PDFs, for example draft-vs-final-comparison.txt. Start over clears the result and both slots for a new pair, without leaving the page.",
+      body: "Download comparison report saves a text file listing only the changes, with their page numbers, named after both PDFs, for example draft-vs-final-comparison.txt. Its Bytes line gives both exact sizes and a signed difference. Start over clears the result and both slots for a new pair, without leaving the page.",
     },
   ],
 
   faqs: [
     {
-      q: "Does Compare PDF highlight changes on the pages themselves?",
-      a: "No. The result is a text report, not marked-up pages: unchanged lines are indented two spaces, lines only in the second PDF start with +, and lines only in the first start with -. It does not name the page a change sits on, so search the PDF for that line's text.",
+      q: "Does Compare PDF show which page a change is on?",
+      a: "Yes. Each change is headed with the page it sits on in each file, for example Page 2 → page 3 when a page was inserted before it, and the downloaded report heads it the same way: @@ Page 2 -> page 3 @@. Unchanged lines around a change are indented two spaces, lines only in the second PDF start with +, and lines only in the first start with -. It does not draw highlights on the pages themselves yet: the result is a list of changed lines, not marked-up pages.",
     },
     {
-      q: "Why is a whole line flagged when only one word changed?",
-      a: "The comparison works line by line: if any character on a line differs, the old line is listed as removed and the new one as added. The same happens when the wording is identical but the text wraps differently, for example after a font or margin change, because the lines no longer match.",
+      q: "What happens when only one word on a line changed?",
+      a: "The old line is listed as removed and the new one as added, and the changed words are marked within the line: crossed out in the old one, underlined in the new one, and in the report as [-old-] and {+new+} on a line starting with ~. A very long line is marked whole, and the report says how many were. When the wording is identical but the text wraps differently, for example after a font or margin change, the lines no longer match and are listed too.",
+    },
+    {
+      q: "What do Ignore case and Ignore page headers and numbers do?",
+      a: "Both are off unless you tick them, and either can be changed after a comparison without reading the files again. Ignore case compares Total and TOTAL as the same line. Ignore page headers and numbers leaves page numbers such as Page 3 of 40, and lines repeated at the top or bottom of most pages such as a company name, out of both files. Either can turn Differences found into Selectable text matches; the result then says what it ignored, and so does the report.",
     },
     {
       q: "What if one of the two PDFs is a scan?",
