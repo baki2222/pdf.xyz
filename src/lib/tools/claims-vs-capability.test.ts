@@ -2800,17 +2800,50 @@ const COMPARE_PAGE_RULE = {
     "names the page":
       /(?<!\bnot )\bnames? (?:its|the) page\b|\bthe page (?:it|each change) (?:sits|is) on\b/i,
     "page to page": /\bpage \d+ (?:->|→) page \d+\b/i,
+    "with its page":
+      /\bheaded with (?:its|the) page\b|\bwith (?:its|their) page numbers?\b/i,
     "words marked":
       /\b(?:changed words|words that differ) (?:are )?marked\b|\bword[- ]level\b/i,
   },
+  /*
+   * WIDENED 2026-11-14 (review of audit compare-pdf#4), history kept: this
+   * list was typed, and four served sentences that claim the page matched no
+   * shape — step 3 ("each headed with its page in both files"), step 4 and
+   * the guide's last step ("with their page numbers"). With the capability
+   * neutered (hunkHeader returning "Changes") the guard stayed blind to
+   * them. They are below now, and "every served sentence that mentions a
+   * page is classified" DISCOVERS such sentences instead of trusting this
+   * list to name them.
+   */
   shipped: [
+    "Tiles for Pages, Size delta and Changed lines sit above the list of changes, each headed with its page in both files.",
+    "Download comparison report saves a text file listing only the changes, with their page numbers, named after both PDFs, for example draft-vs-final-comparison.txt.",
+    "Download the comparison report: a .txt file listing only the changes, with their page numbers.",
+    "You get their page counts, the size difference and every line of text that was added or removed, each under the page it sits on in both files, plus a report you can download.",
     "Compare PDF reads the selectable text of two versions of a document and lists only what changed, grouped by page: each change is headed with the page it sits on in both files and shown with two unchanged lines around it.",
     "Each change names its page in both files, and inside a changed line the words that differ are marked.",
     "Each change is headed with the page it sits on in each file, for example Page 2 → page 3 when a page was inserted before it, and the downloaded report heads it the same way: @@ Page 2 -> page 3 @@.",
     "The old line is listed as removed and the new one as added, and the changed words are marked within the line: crossed out in the old one, underlined in the new one, and in the report as [-old-] and {+new+} on a line starting with ~.",
     "Review the lines marked removed (-) and added (+), each headed with its page in both files, with the changed words marked.",
   ],
-  synonyms: ["It shows word-level changes."],
+  synonyms: [
+    "It shows word-level changes.",
+    // catalog-how.ts's compare-pdf steps: not served while the page has
+    // authored steps (page-copy.ts, pageSteps), and caught if they return.
+    "Review the lines marked removed (-) and added (+), then download a .txt report listing each change with its page numbers.",
+  ],
+  /**
+   * What a served sentence may say of a page WITHOUT claiming the change's
+   * page: the page count, the option's name, a scanned page, the web page.
+   * Each shape must catch a served sentence (no decoration).
+   */
+  notClaims: {
+    "a page count": /\bpage counts?\b|\bone page added\b/i,
+    "the furniture option": /\bpage headers\b|\bfrom page to page\b/i,
+    "a scanned page": /\bscanned page\b/i,
+    "the web page": /\bleaving the page\b|\bthe page and its\b/i,
+    "page differences": /\bthe page and byte\b|\bto another page\b/i,
+  },
   denials: {
     "does not name the page": /\bdoes(?: not|n't) name the page\b/i,
     "a whole line at a time":
@@ -2907,6 +2940,36 @@ describe("Compare PDF: the page and word claims hold of the comparison", () => {
     expect(caught(COMPARE_PAGE_RULE.denials)).toBe(
       COMPARE_PAGE_RULE.denialCorpus.length,
     );
+  });
+
+  it("every served sentence that mentions a page is classified: a claim, a denial, or a named non-claim", async () => {
+    const page = { page: /\bpage\b/i };
+    const notClaims = Object.entries(COMPARE_PAGE_RULE.notClaims);
+    const unclassified: string[] = [];
+    const used = new Set<string>();
+    let discovered = 0;
+    for (const subject of COMPARE_PAGE_RULE.subjects()) {
+      for (const container of await containersFor(subject)) {
+        for (const { sentence, masked } of attributedTo(container, subject)) {
+          if (!page.page.test(masked)) continue;
+          discovered += 1;
+          const claim = [...claimShapes, ...denialShapes].some(([, re]) =>
+            re.test(masked),
+          );
+          const named = notClaims.filter(([, re]) => re.test(masked));
+          named.forEach(([n]) => used.add(n));
+          if (!claim && named.length === 0)
+            unclassified.push(`${container.where}: "${sentence}"`);
+        }
+      }
+    }
+    // Health: the discovery reads the page's copy, not an empty corpus.
+    expect(discovered).toBeGreaterThanOrEqual(15);
+    expect(unclassified, "page sentences no shape classifies").toEqual([]);
+    expect(
+      notClaims.map(([n]) => n).filter((n) => !used.has(n)),
+      "non-claim shapes no served sentence needs",
+    ).toEqual([]);
   });
 
   it("the capability is there: a page header and a word mark, from real PDFs", async () => {
