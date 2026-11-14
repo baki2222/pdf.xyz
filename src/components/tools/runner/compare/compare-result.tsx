@@ -343,7 +343,7 @@ const RowBlock = memo(function RowBlock({
     if (op.k === "same") {
       rows.push(
         <tr key={i} data-row={mark} className="text-muted">
-          <td aria-hidden className="w-6 px-2 align-top select-none" />
+          <td aria-hidden className="w-6 px-2 select-none" />
           <td className="py-0.5 pr-2 wrap-anywhere whitespace-pre-wrap">
             {leftText.get(op.a)}
           </td>
@@ -364,7 +364,7 @@ const RowBlock = memo(function RowBlock({
         <td
           aria-hidden
           className={cn(
-            "w-6 px-2 align-top font-semibold select-none",
+            "w-6 px-2 font-semibold select-none",
             removed ? "text-err" : "text-ok",
           )}
         >
@@ -389,10 +389,11 @@ const RowBlock = memo(function RowBlock({
       }}
     >
       <table
-        className="w-full border-collapse font-mono text-xs leading-5"
-        style={{ tableLayout: "fixed" }}
+        className="w-full font-mono text-xs leading-5"
+        style={{ tableLayout: "fixed", borderCollapse: "collapse" }}
       >
-        <tbody>{rows}</tbody>
+        {/* Cells inherit the row group's vertical-align (UA sheet). */}
+        <tbody style={{ verticalAlign: "top" }}>{rows}</tbody>
       </table>
     </div>
   );
@@ -671,10 +672,14 @@ export function CompareChanges({
       {/* Pinned BELOW the site header, which is itself sticky at top-0 and
           z-50: at top-0 this bar slid under it and hid the steps and the
           live line. On a phone it is not pinned at all (two rows of boxes
-          would hold a fifth of the screen), and the region fits the screen. */}
+          would hold a fifth of the screen), and the region fits the screen.
+          `top` and `z-index` are inline (both inert while the bar is static,
+          below sm): the shipped stylesheet is paid on every page and sat at
+          15.03 KB of its 15.0 KB ceiling with them as utilities. */}
       <div
         ref={bar}
-        className="border-line bg-panel rounded-t-panel flex flex-col gap-2 border-b p-3 sm:sticky sm:top-[calc(var(--sf-header-h)+1px)] sm:z-10"
+        className="border-line bg-panel rounded-t-panel flex flex-col gap-2 border-b p-3 sm:sticky"
+        style={{ top: "calc(var(--sf-header-h) + 1px)", zIndex: 10 }}
       >
         <div className="flex flex-wrap items-center gap-2">
           <h2 id={`${id}-title`} className="sr-only">
@@ -750,7 +755,8 @@ export function CompareChanges({
         role="group"
         aria-label="List of changes"
         tabIndex={0}
-        className="max-h-[32rem] overflow-y-auto p-3"
+        className="overflow-y-auto p-3"
+        style={{ maxHeight: "32rem" }}
       >
         {hunks.length === 0 ? (
           <p className="text-muted text-sm">{noDifferencesSentence(result)}</p>
