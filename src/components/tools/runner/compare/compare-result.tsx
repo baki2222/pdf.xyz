@@ -242,6 +242,7 @@ export function* compareSteps(
     summary: summarize(ops),
     diff,
     hunks,
+    lines: { left: a.lines, right: b.lines },
     options: { ...options },
     dropped,
     pagesWithoutText: {
