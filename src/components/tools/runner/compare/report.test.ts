@@ -18,6 +18,27 @@ function doc(name: string, lines: string[]): ComparablePdfText {
   };
 }
 
+/** A document of several pages, one array of lines per page. */
+function pagedDoc(name: string, pages: string[][]): ComparablePdfText {
+  const texts = pages.map((p) => p.join("\n"));
+  const text = texts.join("\n\n");
+  return {
+    name,
+    size: text.length,
+    extracted: {
+      pageCount: pages.length,
+      pages: texts.map((t, i) => ({
+        pageNumber: i + 1,
+        text: t,
+        characterCount: t.length,
+      })),
+      text,
+      characterCount: text.length,
+      hasText: true,
+    },
+  };
+}
+
 /** The lines under "Changes:", hunk by hunk. */
 function hunksOf(report: string): string[][] {
   const body = report.slice(report.indexOf("\nChanges:\n") + 10);
@@ -129,5 +150,61 @@ describe("the report lists only changes, with bounded context", () => {
     expect(cased.report).toMatch(
       /^Selectable text identical: yes \(with ignore case\)$/m,
     );
+  });
+
+  /*
+   * Until 2026-11-14 the Changes section said the bare "No selectable-text
+   * differences found." under an option too, while its own header said the
+   * text was identical only "with ignore case" (second review).
+   */
+  it("under an option, 'no differences' is qualified by it, with the lines set aside", () => {
+    const cased = compareExtractedPdfText(
+      doc("a.pdf", ["Total due"]),
+      doc("b.pdf", ["TOTAL DUE"]),
+      { ignoreCase: true },
+    );
+    expect(cased.report).toMatch(
+      /^No selectable-text differences found \(ignoring case\)\.$/m,
+    );
+    expect(cased.report).not.toMatch(
+      /^No selectable-text differences found\.$/m,
+    );
+    const paged = (total: number) =>
+      pagedDoc(
+        "x.pdf",
+        [1, 2, 3].map((p) => [
+          "Acme",
+          `body ${p} one`,
+          `body ${p} two`,
+          `Page ${p} of ${total}`,
+        ]),
+      );
+    const furniture = compareExtractedPdfText(paged(3), paged(4), {
+      ignoreFurniture: true,
+    });
+    expect(furniture.report).toMatch(
+      /^Options: ignore page headers and numbers \(3 lines set aside from the first PDF, 3 lines from the second\)$/m,
+    );
+    expect(furniture.report).toMatch(
+      /^No selectable-text differences found \(ignoring page headers and numbers \(3 lines set aside from the first PDF, 3 lines from the second\)\)\.$/m,
+    );
+  });
+
+  /*
+   * Until 2026-11-14 every skipped pair was a "long line", though a pair is
+   * also skipped once the comparison's shared marking budget is spent: 2,500
+   * lines of 189 characters at most were reported as long (second review).
+   */
+  it("lines left unmarked are not all called long", () => {
+    const long = Array.from({ length: 1_100 }, (_, i) => `w${i}`).join(" ");
+    const result = compareExtractedPdfText(
+      doc("a.pdf", ["Intro", long, "End"]),
+      doc("b.pdf", ["Intro", `${long} tail`, "End"]),
+    );
+    expect(result.wordFallbacks).toBe(1);
+    expect(result.report).toMatch(
+      /^Word marks skipped for 1 line: too long to mark, or past the marking budget of a very large comparison\. They are listed without word marks\.$/m,
+    );
+    expect(result.report).not.toMatch(/long lines?$/m);
   });
 });

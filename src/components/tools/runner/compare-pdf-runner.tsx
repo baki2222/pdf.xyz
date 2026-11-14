@@ -343,27 +343,33 @@ export function ComparePdfEditor({
         mod,
         left: a,
         right: b,
-        result: mod.compareExtractedPdfText(a, b, options),
+        result: await mod.compareInSteps(a, b, options),
       };
     });
+  // A toggle re-compares in steps, off the click's own task; a second
+  // toggle before the first lands wins, and the first is dropped.
+  const latest = useRef(0);
   const onOptions = (next: CompareOptions) => {
     setOptions(next);
     if (!done) return;
-    try {
-      setAdjusted({
-        run: done,
-        result: done.mod.compareExtractedPdfText(done.left, done.right, next),
-      });
-      setOptionsError(null);
-    } catch (err) {
-      setOptionsError(errorMessage(err));
-    }
+    const asked = ++latest.current;
+    done.mod.compareInSteps(done.left, done.right, next).then(
+      (result) => {
+        if (asked !== latest.current) return;
+        setAdjusted({ run: done, result });
+        setOptionsError(null);
+      },
+      (err: unknown) => {
+        if (asked === latest.current) setOptionsError(errorMessage(err));
+      },
+    );
   };
 
   if (result) {
     const { title, tone } = verdictPresentation(result);
     const compared = result.hasComparableText;
     const scanned = fileWithoutText(result);
+    const ignoring = done?.mod.ignoringSummary(result);
     const ocrLink = (
       <Link href={OCR_TOOL_HREF} className="text-fg underline">
         OCR PDF
@@ -382,7 +388,7 @@ export function ComparePdfEditor({
         }
         summary={
           compared ? (
-            `${result.summary.changedLines} changed lines · pages ${result.leftPageCount} vs ${result.rightPageCount}${ignoringNote(result.options)}`
+            `${result.summary.changedLines} changed lines · pages ${result.leftPageCount} vs ${result.rightPageCount}${ignoring ? ` · ${ignoring}` : ""}`
           ) : scanned ? (
             <>
               {scanned} looks scanned or image-only, so its text cannot be
@@ -431,7 +437,7 @@ export function ComparePdfEditor({
           {compared && done ? (
             <done.mod.CompareChanges
               result={result}
-              options={result.options}
+              options={options}
               onOptions={onOptions}
             />
           ) : (
@@ -601,15 +607,6 @@ export function ComparePdfEditor({
       </RunBar>
     </div>
   );
-}
-
-/** " · ignoring case" and the like, for a result compared under options. */
-function ignoringNote(options: CompareOptions): string {
-  const parts = [
-    options.ignoreCase ? "ignoring case" : null,
-    options.ignoreFurniture ? "ignoring page headers and numbers" : null,
-  ].filter(Boolean);
-  return parts.length > 0 ? ` · ${parts.join(", ")}` : "";
 }
 
 function Metric({ label, value }: { label: string; value: string }) {

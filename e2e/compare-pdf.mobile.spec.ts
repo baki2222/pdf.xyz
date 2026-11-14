@@ -311,3 +311,73 @@ for (const width of [SCREEN, 1280]) {
     expect(await bar.count()).toBe(1);
   });
 }
+
+/**
+ * Next change shows the change, not only its heading (second review of
+ * audit compare-pdf#4, 2026-11-14). The list scrolled to "nearest", so
+ * from the 4th change on the heading sat on the list's bottom edge with its
+ * rows hidden below it (0 of 2 visible at 1280 px), and at 375 px the list
+ * itself was below the screen: Next changed the live line and nothing a
+ * reader could see. After every press the focused heading and at least one
+ * of its changed rows are on screen, inside the list.
+ */
+for (const width of [SCREEN, 1280]) {
+  test(`Next change brings the change itself into view (${width} px)`, async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    await page.setViewportSize({ width, height: 812 });
+    const lines = (p: number) =>
+      Array.from(
+        { length: 40 },
+        (_, i) => `page ${p} line ${i + 1} stands as agreed`,
+      );
+    const left = [1, 2, 3, 4, 5, 6].map(lines);
+    const right = left.map((page) =>
+      page.map((line, i) =>
+        i === 25 ? line.replace("agreed", "amended") : line,
+      ),
+    );
+    const changes = await comparedPair(page, left, right);
+    const status = changes.getByRole("status");
+    await expect(status).toHaveText(/^Change 1 of 6/);
+    const next = changes.getByRole("button", { name: "Next change" });
+    for (let n = 2; n <= 6; n += 1) {
+      await next.click();
+      await expect(status).toHaveText(new RegExp(`^Change ${n} of 6`));
+      const seen = await page.evaluate(() => {
+        const heading = document.activeElement as HTMLElement;
+        const list = heading.closest('[role="group"]')!;
+        const header = document
+          .querySelector("header[data-masthead]")!
+          .getBoundingClientRect().bottom;
+        const bar = list.previousElementSibling!.getBoundingClientRect();
+        const pinned =
+          getComputedStyle(list.previousElementSibling!).position === "sticky";
+        const top = Math.max(header, pinned ? bar.bottom : header);
+        const box = list.getBoundingClientRect();
+        const inView = (r: DOMRect) =>
+          r.top >= Math.max(top, box.top) - 1 &&
+          r.bottom <= Math.min(window.innerHeight, box.bottom) + 1;
+        const rows = [
+          ...heading.closest("section")!.querySelectorAll("tr[data-kind]"),
+        ];
+        return {
+          tag: heading.tagName,
+          text: heading.textContent,
+          heading: inView(heading.getBoundingClientRect()),
+          rows: rows.filter((r) => inView(r.getBoundingClientRect())).length,
+          of: rows.length,
+        };
+      });
+      expect(seen.tag).toBe("H3");
+      expect(seen.text).toBe(`Page ${n} → page ${n}`);
+      expect(seen.heading, `change ${n}: heading in view`).toBe(true);
+      expect(seen.of).toBe(2);
+      expect(
+        seen.rows,
+        `change ${n}: changed rows in view`,
+      ).toBeGreaterThanOrEqual(1);
+    }
+  });
+}

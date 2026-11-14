@@ -1,3 +1,4 @@
+import { drain, type Steps } from "./steps";
 import {
   pageTextChunks,
   pagesWithoutText,
@@ -68,14 +69,7 @@ export function normalizeComparableText(text: string): string[] {
 export function linesOf(
   extracted: Pick<ExtractedPdfText, "pages">,
 ): ComparableLine[] {
-  return pageTextChunks(extracted.pages).flatMap((chunk) => {
-    const seen = new Map<string, number>();
-    return normalizeComparableText(chunk.text).map((text) => {
-      const occurrence = seen.get(text) ?? 0;
-      seen.set(text, occurrence + 1);
-      return { text, key: text, page: chunk.pageNumber, occurrence };
-    });
-  });
+  return drain(linesSteps(extracted, false));
 }
 
 /**
@@ -89,8 +83,41 @@ export function comparableLines(
   extracted: Pick<ExtractedPdfText, "pages">,
   options: CompareOptions,
 ): { lines: ComparableLine[]; pagesWithoutText: number[] } {
-  const lines = linesOf(extracted).map((line) =>
-    options.ignoreCase ? { ...line, key: foldCase(line.text) } : line,
-  );
+  return drain(comparableLinesSteps(extracted, options));
+}
+
+/** {@link comparableLines}, pausing every few pages (`steps.ts`). */
+export function* comparableLinesSteps(
+  extracted: Pick<ExtractedPdfText, "pages">,
+  options: CompareOptions,
+): Steps<{ lines: ComparableLine[]; pagesWithoutText: number[] }> {
+  const lines = yield* linesSteps(extracted, Boolean(options.ignoreCase));
   return { lines, pagesWithoutText: pagesWithoutText(extracted.pages) };
+}
+
+function* linesSteps(
+  extracted: Pick<ExtractedPdfText, "pages">,
+  ignoreCase: boolean,
+): Steps<ComparableLine[]> {
+  const out: ComparableLine[] = [];
+  let since = 0;
+  for (const chunk of pageTextChunks(extracted.pages)) {
+    const seen = new Map<string, number>();
+    for (const text of normalizeComparableText(chunk.text)) {
+      const occurrence = seen.get(text) ?? 0;
+      seen.set(text, occurrence + 1);
+      out.push({
+        text,
+        key: ignoreCase ? foldCase(text) : text,
+        page: chunk.pageNumber,
+        occurrence,
+      });
+    }
+    since += 1;
+    if (since >= 25) {
+      since = 0;
+      yield;
+    }
+  }
+  return out;
 }

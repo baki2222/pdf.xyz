@@ -1,4 +1,5 @@
 import { diffIds, intern, MAX_DIFF_CELLS, type Op } from "./diff";
+import { drain, type Steps } from "./steps";
 
 /**
  * Word marks: inside a changed line, which words differ. A run of removed
@@ -122,6 +123,16 @@ export function pairChangedLines(
   right: readonly string[],
   key: (token: string) => string = (token) => token,
 ): [number, number][] {
+  return drain(pairChangedLinesSteps(ops, left, right, key));
+}
+
+/** {@link pairChangedLines}, pausing as it goes (`steps.ts`). */
+export function* pairChangedLinesSteps(
+  ops: readonly Op[],
+  left: readonly string[],
+  right: readonly string[],
+  key: (token: string) => string = (token) => token,
+): Steps<[number, number][]> {
   const pairs: [number, number][] = [];
   let i = 0;
   while (i < ops.length) {
@@ -136,20 +147,20 @@ export function pairChangedLines(
       i += 1;
     }
     if (removed.length > 0 && added.length > 0)
-      pairRuns(removed, added, left, right, key, pairs);
+      yield* pairRuns(removed, added, left, right, key, pairs);
     if (removed.length === 0 && added.length === 0) i += 1;
   }
   return pairs;
 }
 
-function pairRuns(
+function* pairRuns(
   removed: readonly number[],
   added: readonly number[],
   left: readonly string[],
   right: readonly string[],
   key: (token: string) => string,
   out: [number, number][],
-): void {
+): Steps<void> {
   const leftWords = new Map<number, string[]>();
   const rightWords = new Map<number, string[]>();
   const lw = (r: number) => {
@@ -183,7 +194,9 @@ function pairRuns(
     // Lines already passed are never looked at again.
     leftWords.delete(r - 1);
     rightWords.delete(s - 1);
+    if ((r + s) % 256 < 2) yield;
   }
+  yield;
 }
 
 /**
@@ -198,9 +211,22 @@ export function markWords(
   key: (token: string) => string = (token) => token,
   onCells?: (cells: number) => void,
 ): { pairs: WordPair[]; fallbacks: number } {
+  return drain(markWordsSteps(pairs, left, right, key, onCells));
+}
+
+/** {@link markWords}, pausing every few pairs (`steps.ts`). */
+export function* markWordsSteps(
+  pairs: readonly [number, number][],
+  left: readonly string[],
+  right: readonly string[],
+  key: (token: string) => string = (token) => token,
+  onCells?: (cells: number) => void,
+): Steps<{ pairs: WordPair[]; fallbacks: number }> {
   let remaining = MAX_WORD_WORK;
   let fallbacks = 0;
-  const out = pairs.map(([l, r]): WordPair => {
+  const out: WordPair[] = [];
+  for (const [l, r] of pairs) {
+    if (out.length % 32 === 31) yield;
     const a = tokenize(left[l]!);
     const b = tokenize(right[r]!);
     const bound = (a.length + 1) * (b.length + 1);
@@ -210,7 +236,8 @@ export function markWords(
       bound > remaining
     ) {
       fallbacks += 1;
-      return { left: l, right: r, tokens: null };
+      out.push({ left: l, right: r, tokens: null });
+      continue;
     }
     const ids = new Map<string, number>();
     const ops = diffIds(
@@ -222,8 +249,8 @@ export function markWords(
         onCells?.(cells);
       },
     );
-    return { left: l, right: r, tokens: tokensOf(ops, a, b) };
-  });
+    out.push({ left: l, right: r, tokens: tokensOf(ops, a, b) });
+  }
   return { pairs: out, fallbacks };
 }
 

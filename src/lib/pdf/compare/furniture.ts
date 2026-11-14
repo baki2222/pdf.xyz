@@ -1,5 +1,6 @@
 import { diffIds, intern, type Op } from "./diff";
 import { runningLines } from "./running-lines";
+import { drain, type Steps } from "./steps";
 
 /**
  * "Ignore page headers and numbers": what the comparison sets aside, decided
@@ -156,6 +157,15 @@ export function diffWithFurniture(
   right: readonly KeyedLine[],
   ignoreFurniture: boolean,
 ): FurnitureDiff {
+  return drain(diffWithFurnitureSteps(left, right, ignoreFurniture));
+}
+
+/** {@link diffWithFurniture}, pausing between its diffs (`steps.ts`). */
+export function* diffWithFurnitureSteps(
+  left: readonly KeyedLine[],
+  right: readonly KeyedLine[],
+  ignoreFurniture: boolean,
+): Steps<FurnitureDiff> {
   const ids = new Map<string, number>();
   const every = (n: number) => Array.from({ length: n }, (_, i) => i);
   if (!ignoreFurniture)
@@ -179,10 +189,17 @@ export function diffWithFurniture(
     lines.map((l) => ({ text: l.key, page: l.page }));
   const leftRunning = runningLines(asText(left));
   const rightRunning = runningLines(asText(right));
+  yield;
   const pages = (lines: readonly KeyedLine[]) =>
     new Set(lines.map((l) => l.page)).size;
   const extra = pages(left) - pages(right);
-  const all = alignAroundFurniture(left, right, leftRunning, rightRunning, ids);
+  const all = yield* alignAroundFurnitureSteps(
+    left,
+    right,
+    leftRunning,
+    rightRunning,
+    ids,
+  );
   const aside = furnitureToSetAside(all, leftRunning, rightRunning, {
     left: Math.max(0, extra),
     right: Math.max(0, -extra),
@@ -217,26 +234,38 @@ export function diffWithFurniture(
 
 /**
  * The diff of every line, aligned on the lines that are NOT running first.
- * The body is diffed alone, and only then are the gaps between its matched
- * lines diffed whole, furniture and all. Without that, a running head was an
- * equal candidate for the LCS: after a re-pagination it was matched in place
- * of the body line beside it, and that unmoved body line was listed as
- * removed and added (furniture.test.ts, "a re-paginated report").
+ * The body is diffed alone, and only then is each gap between its matched
+ * lines that holds a running line diffed again whole, furniture and all (a
+ * gap with none is the body diff's own). Without that, a running head was
+ * an equal candidate for the LCS: after a re-pagination it was matched in
+ * place of the body line beside it, and that unmoved body line was listed
+ * as removed and added (furniture.test.ts, "a re-paginated report").
  */
 export function alignAroundFurniture(
   left: readonly KeyedLine[],
   right: readonly KeyedLine[],
   leftRunning: ReadonlyMap<number, string>,
   rightRunning: ReadonlyMap<number, string>,
-  ids: Map<string, number> = new Map(),
 ): Op[] {
+  return drain(
+    alignAroundFurnitureSteps(left, right, leftRunning, rightRunning),
+  );
+}
+
+function* alignAroundFurnitureSteps(
+  left: readonly KeyedLine[],
+  right: readonly KeyedLine[],
+  leftRunning: ReadonlyMap<number, string>,
+  rightRunning: ReadonlyMap<number, string>,
+  ids: Map<string, number> = new Map(),
+): Steps<Op[]> {
   const bodyOf = (
     lines: readonly KeyedLine[],
     running: ReadonlyMap<number, string>,
   ) => lines.flatMap((_, i) => (running.has(i) ? [] : [i]));
   const bodyLeft = bodyOf(left, leftRunning);
   const bodyRight = bodyOf(right, rightRunning);
-  const anchors = diffIds(
+  const body = diffIds(
     intern(
       ids,
       bodyLeft.map((i) => left[i]!.key),
@@ -246,11 +275,21 @@ export function alignAroundFurniture(
       bodyRight.map((j) => right[j]!.key),
     ),
   );
+  yield;
   const out: Op[] = [];
   let pi = 0;
   let pj = 0;
-  const fill = (iEnd: number, jEnd: number) => {
-    if (pi < iEnd || pj < jEnd) {
+  // The body diff's changes since the last match, in original indices.
+  let pending: Op[] = [];
+  function* fill(iEnd: number, jEnd: number): Steps<void> {
+    // A gap holds only body lines exactly when it is as long as the body
+    // changes in it: then the body diff already is its diff.
+    if (
+      iEnd - pi === countSide(pending, "a") &&
+      jEnd - pj === countSide(pending, "b")
+    ) {
+      for (const op of pending) out.push(op);
+    } else {
       const gap = diffIds(
         intern(
           ids,
@@ -269,19 +308,32 @@ export function alignAroundFurniture(
               ? { k: "removed", a: op.a + pi }
               : { k: "added", b: op.b + pj },
         );
+      yield;
     }
+    pending = [];
     pi = iEnd;
     pj = jEnd;
-  };
-  for (const op of anchors) {
-    if (op.k !== "same") continue;
-    const i = bodyLeft[op.a]!;
-    const j = bodyRight[op.b]!;
-    fill(i, j);
-    out.push({ k: "same", a: i, b: j });
-    pi = i + 1;
-    pj = j + 1;
   }
-  fill(left.length, right.length);
+  for (const op of body) {
+    if (op.k === "removed") pending.push({ k: "removed", a: bodyLeft[op.a]! });
+    else if (op.k === "added")
+      pending.push({ k: "added", b: bodyRight[op.b]! });
+    else {
+      const i = bodyLeft[op.a]!;
+      const j = bodyRight[op.b]!;
+      yield* fill(i, j);
+      out.push({ k: "same", a: i, b: j });
+      pi = i + 1;
+      pj = j + 1;
+    }
+  }
+  yield* fill(left.length, right.length);
   return out;
+}
+
+/** How many of `ops` hold a line of side `a` (removed) or `b` (added). */
+function countSide(ops: readonly Op[], side: "a" | "b"): number {
+  let n = 0;
+  for (const op of ops) if (side === "a" ? op.k === "removed" : op.k === "added") n += 1;
+  return n;
 }

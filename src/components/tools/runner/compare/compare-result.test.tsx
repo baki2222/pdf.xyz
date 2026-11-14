@@ -167,13 +167,55 @@ describe("the changes view draws a bounded number of rows", () => {
     const rows = () => document.querySelectorAll("tr").length;
     expect(rows()).toBe(ROWS_SHOWN);
     const total = result.hunks[0]!.ops.length;
-    fireEvent.click(screen.getByRole("button", { name: /show more changes/i }));
+    // One hunk: its own button draws more of it.
+    const more = () =>
+      screen.getByRole("button", { name: /show more of this change/i });
+    fireEvent.click(more());
     expect(rows()).toBe(Math.min(total, 2 * ROWS_SHOWN));
-    expect(
-      screen.getByRole("button", { name: /show more changes/i }).textContent,
-    ).toContain(
+    expect(more().textContent).toContain(
       `${(total - 2 * ROWS_SHOWN).toLocaleString("en-US")} more lines`,
     );
+    // Pressed to the end, the button goes, and focus goes to the first row
+    // it revealed, not to <body> (second review of audit compare-pdf#4).
+    while (screen.queryByRole("button", { name: /show more of this change/i }))
+      fireEvent.click(more());
+    expect(rows()).toBe(total);
+    expect(document.activeElement?.tagName).toBe("TR");
+    expect(document.activeElement?.getAttribute("data-row")).toBe(
+      `0:${Math.floor((total - 1) / ROWS_SHOWN) * ROWS_SHOWN}`,
+    );
+  });
+
+  it("the last Show more changes moves focus to the first change it drew", () => {
+    const pages = Array.from({ length: 12 }, (_, p) => body(`p${p}`));
+    const right = pages.map((page) =>
+      page.map((line, i) => (i === 5 ? `${line} x` : line)),
+    );
+    const result = compareExtractedPdfText(
+      doc("a.pdf", pages),
+      doc("b.pdf", right),
+    );
+    const perHunk = result.hunks[0]!.ops.length;
+    render(
+      <CompareChanges
+        result={result}
+        options={{}}
+        onOptions={() => {}}
+        rowsShown={perHunk * 5}
+      />,
+    );
+    const headings = () => screen.getAllByRole("heading", { level: 3 });
+    expect(headings()).toHaveLength(5);
+    const more = () =>
+      screen.getByRole("button", { name: /show more changes/i });
+    fireEvent.click(more());
+    // Still more to come: focus stays on the button.
+    expect(headings()).toHaveLength(10);
+    expect(document.activeElement).toBe(document.body);
+    more().focus();
+    fireEvent.click(more());
+    expect(headings()).toHaveLength(12);
+    expect(document.activeElement).toBe(headings()[10]);
   });
 
   it("Next change past the drawn rows draws the change it moves to", () => {
@@ -316,5 +358,94 @@ describe("the word marks are spoken, not only seen", () => {
     // The marks themselves hold only the words, so the visible text is unchanged.
     expect(document.querySelector("ins")!.textContent).toBe("amended");
     expect(document.querySelector("del")!.textContent).toBe("agreed");
+  });
+});
+
+/**
+ * What an option set aside, and which lines went unmarked, are on the PAGE
+ * (second review of audit compare-pdf#4, 2026-11-14). Until then only the
+ * downloaded report counted the lines "ignore page headers and numbers"
+ * dropped, the page said "No selectable-text differences found." with no
+ * qualifier under an option, and a line whose word marks a bound skipped
+ * was drawn in one whole mark, its unchanged words marked too.
+ */
+describe("the changes view says what it set aside and what it did not mark", () => {
+  const paged = (total: number) =>
+    [1, 2, 3].map((p) => [
+      "Acme Corp",
+      ...body(`p${p}`),
+      `Page ${p} of ${total}`,
+    ]);
+
+  it("ignoring page headers and numbers: the count per file, in the bar, the live line and the list", () => {
+    const result = compareExtractedPdfText(
+      doc("a.pdf", paged(3)),
+      doc("b.pdf", paged(4)),
+      { ignoreFurniture: true },
+    );
+    // Health: the three footers differ, and went from both files.
+    expect(
+      compareExtractedPdfText(doc("a.pdf", paged(3)), doc("b.pdf", paged(4)))
+        .verdict,
+    ).toBe("different");
+    expect(result.dropped).toEqual({ left: 3, right: 3 });
+    render(
+      <CompareChanges
+        result={result}
+        options={{ ignoreFurniture: true }}
+        onOptions={() => {}}
+      />,
+    );
+    const region = screen.getByRole("region", { name: "Changes" });
+    expect(region.textContent).toContain(
+      "Set aside as page headers and numbers: 3 lines from the first PDF, 3 lines from the second.",
+    );
+    expect(status()).toBe(
+      "No changes: identical (ignoring page headers and numbers (3 lines set aside from the first PDF, 3 lines from the second))",
+    );
+    expect(region.textContent).toContain(
+      "No selectable-text differences found (ignoring page headers and numbers (3 lines set aside from the first PDF, 3 lines from the second)).",
+    );
+    expect(region.textContent).not.toContain(
+      "No selectable-text differences found.",
+    );
+  });
+
+  it("a paired line past the word-mark bound is drawn without marks, and counted", () => {
+    const long = Array.from({ length: 1_100 }, (_, i) => `w${i}`).join(" ");
+    const result = compareExtractedPdfText(
+      doc("a.pdf", [["Intro", long, "End"]]),
+      doc("b.pdf", [["Intro", `${long} tail`, "End"]]),
+    );
+    // Health: one pair, skipped by the bound.
+    expect(result.hunks[0]!.pairs).toHaveLength(1);
+    expect(result.hunks[0]!.pairs[0]!.tokens).toBeNull();
+    expect(result.wordFallbacks).toBe(1);
+    render(
+      <CompareChanges result={result} options={{}} onOptions={() => {}} />,
+    );
+    expect(document.querySelectorAll("del, ins")).toHaveLength(0);
+    expect(
+      screen.getByRole("region", { name: "Changes" }).textContent,
+    ).toContain(
+      "Word marks skipped for 1 line: too long to mark, or past the marking budget of a very large comparison. They are listed without word marks.",
+    );
+  });
+
+  it("control: an unpaired line is still the whole change, in one mark", () => {
+    const result = compareExtractedPdfText(
+      doc("a.pdf", [["Intro", "The fee is 100 USD per month.", "End"]]),
+      doc("b.pdf", [["Intro", "Signed by both parties today", "End"]]),
+    );
+    expect(result.hunks[0]!.pairs).toEqual([]);
+    render(
+      <CompareChanges result={result} options={{}} onOptions={() => {}} />,
+    );
+    expect(document.querySelector("del")!.textContent).toBe(
+      "The fee is 100 USD per month.",
+    );
+    expect(document.querySelector("ins")!.textContent).toBe(
+      "Signed by both parties today",
+    );
   });
 });
