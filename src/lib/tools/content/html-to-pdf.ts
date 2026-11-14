@@ -11,6 +11,7 @@ import {
   HTML_ZIP_MAX_ENTRIES,
   HTML_ZIP_MAX_ENTRY_RATIO,
   HTML_ZIP_MAX_UNPACKED_BYTES,
+  HTML_ZIP_PAGE_CHOICE_SENTENCES,
 } from "@/lib/workers/html-render/zip-config";
 import { PASTED_HTML_FILENAME } from "@/lib/workers/html-render/pasted-html";
 
@@ -146,8 +147,8 @@ const CEILING_TEXT = formatBytes(CEILING.bytes ?? 0);
 /** Who refuses above the ceiling, computed rather than assumed. */
 const SIZE_SENTENCE =
   CEILING.tier === "worker" && CEILING.engine
-    ? `One HTML file, pasted page or ZIP of up to ${CEILING_TEXT} per run, the most ${CEILING.engine} is handed: a larger file is refused as soon as you pick it, before anything is uploaded, and pasted code over it is marked in the box and not sent.`
-    : `One HTML file, pasted page or ZIP of up to ${CEILING_TEXT} is accepted per run.`;
+    ? `One HTML file or pasted page of up to ${CEILING_TEXT} per run — or, when our server can open ZIP files, one ZIP of up to ${CEILING_TEXT} — the most ${CEILING.engine} is handed: a larger file is refused as soon as you pick it, before anything is uploaded, and pasted code over it is marked in the box and not sent.`
+    : `One HTML file or pasted page of up to ${CEILING_TEXT} is accepted per run, and, when our server can open ZIP files, one ZIP of up to ${CEILING_TEXT}.`;
 
 const MIB = 1024 * 1024;
 /** What a ZIP may hold, from the worker's own bounds. */
@@ -193,16 +194,16 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your HTML file or code",
-      body: `Drag one .html or .htm file onto the dashed drop zone, or click it to pick one; the name then appears with a Remove button. Or press “Or paste HTML code” and paste the markup into the box, up to ${CEILING_TEXT} counted as uploaded; a byte count appears as you near it. When our server can open ZIP files the drop zone also takes a .zip of a page and its files, and when the ZIP holds more than one candidate page a “Page to print” list asks which. The drop zone works before the page has heard from our server; the file is sent only when you press Render PDF, and that button stays off until a secure server is ready. When none is, the panel says why and offers a “Notify me when this ships” button.`,
+      body: `Drag one .html or .htm file onto the dashed drop zone, or click it to pick one; the name then appears with a Remove button. Or press “Or paste HTML code” and paste the markup into the box, up to ${CEILING_TEXT} counted as uploaded; a byte count appears as you near it. When our server can open ZIP files the drop zone also takes a .zip of a page and its files, and when the ZIP holds more than one page a “Page to print” list shows them, the page it would print already selected. The drop zone works before the page has heard from our server; the file is sent only when you press Render PDF, and that button stays off until a secure server is ready. When none is, the panel says why and offers a “Notify me when this ships” button.`,
     },
     HTML_LAYOUT_STEP,
     {
       title: "Click Render PDF",
-      body: "It stays disabled until a file is added or code pasted, and for a ZIP until its page is chosen. Once clicked, its label follows the job: “Uploading your file…”, then “Waiting for our server…” if the queue is busy, “Rendering PDF…” while Chromium prints, and “Downloading the result…”. A Cancel button below it stops the job at any point.",
+      body: "It stays disabled until a file is added or code pasted, and, when our server can open ZIP files, for a ZIP whose page is not decided, until you choose one. Once clicked, its label follows the job: “Uploading your file…”, then “Waiting for our server…” if the queue is busy, “Rendering PDF…” while Chromium prints, and “Downloading the result…”. A Cancel button below it stops the job at any point.",
     },
     {
       title: "Download the PDF",
-      body: "When “Your PDF is ready.” appears, click the button reading Download plus the file name. The PDF is named after your file, ending in .pdf instead of .html, .htm or .zip; pasted code becomes pasted.pdf. A failure shows an error note instead.",
+      body: "When “Your PDF is ready.” appears, click the button reading Download plus the file name. The PDF is named after your file, ending in .pdf instead of .html or .htm (or .zip, when our server can open ZIP files); pasted code becomes pasted.pdf. A failure shows an error note instead.",
     },
   ],
 
@@ -217,11 +218,11 @@ const content: ToolContent = {
     },
     {
       q: "Can I upload a ZIP of a page and its files?",
-      a: `When our server can open ZIP files, yes: the drop zone then says it takes a ZIP, and otherwise takes HTML only. One ZIP of up to ${CEILING_TEXT}, with ${ZIP_LIMITS}. The page printed is index.html at the top of the ZIP or of its one folder, otherwise the only page at that level, otherwise the one you pick from the “Page to print” list. A ZIP over those limits, one with a file that would grow more than ${HTML_ZIP_MAX_ENTRY_RATIO} times its packed size, one with no .html or .htm page, or one that cannot be read is refused before anything is printed, with the reason. Folders and symbolic links inside it are never served, and every other address the page links to is fetched as for an HTML file: public http(s) addresses only.`,
+      a: `When our server can open ZIP files, yes: the drop zone then says it takes a ZIP, and otherwise takes HTML only. One ZIP of up to ${CEILING_TEXT}, with ${ZIP_LIMITS}. ${HTML_ZIP_PAGE_CHOICE_SENTENCES} A ZIP over those limits, one with a file that would grow more than ${HTML_ZIP_MAX_ENTRY_RATIO} times its packed size, one with no .html or .htm page, or one that cannot be read is refused before anything is printed, with the reason. Folders and symbolic links inside it are never served, and every other address the page links to is fetched as for an HTML file: public http(s) addresses only.`,
     },
     {
       q: "Does JavaScript run before the page is printed?",
-      a: "Yes, within a fixed budget of rendering time, so a chart or table built by script can appear, in pasted code and in a ZIP's page too. Content that waits on a long timer, or on files the upload does not carry, may be missing.",
+      a: "Yes, within a fixed budget of rendering time, so a chart or table built by script can appear, in pasted code too and, when our server can open ZIP files, in a ZIP's page. Content that waits on a long timer, or on files the upload does not carry, may be missing.",
     },
     {
       q: "Can I choose the page size, margins or orientation?",

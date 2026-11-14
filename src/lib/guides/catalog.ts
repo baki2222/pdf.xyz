@@ -157,6 +157,7 @@ import { WEBPAGE_CAPTURE_LABELS } from "@/lib/jobs/webpage-capture-options";
 import { PASTED_HTML_FILENAME } from "@/lib/workers/html-render/pasted-html";
 import {
   HTML_ZIP_MAX_ENTRIES,
+  HTML_ZIP_PAGE_CHOICE_SENTENCES,
   HTML_ZIP_MAX_UNPACKED_BYTES,
 } from "@/lib/workers/html-render/zip-config";
 import { MAX_SCAN_SIDE_PX, SCAN_PAGE_SIZES } from "@/lib/pdf/scan-to-pdf";
@@ -6244,7 +6245,7 @@ export const guides: Guide[] = [
         heading: "Images, stylesheets and fonts",
         body: [
           "Our server hands an HTML file, or pasted code, to Chromium at an address of its own, and nothing else is served from there. So every reference that resolves beside the file, a relative path such as images/logo.png or a root path such as /img/logo.png, has nothing to load, and comes out as a broken image or an unstyled page. A file: address cannot load at all. The job still succeeds, which is why your browser checks the page first and says what will be missing.",
-          `When our server can open ZIP files, the drop zone says so, and a ZIP of the page with its files fixes this: each file in it is served at the path the page names, matched exactly, capital letters included. A ZIP may hold at most ${HTML_ZIP_MAX_ENTRIES.toLocaleString("en-US")} files that unpack to at most ${HTML_ZIP_MAX_UNPACKED_BYTES / (1024 * 1024)} MB. The page printed is index.html at the top of the ZIP or of its one folder; when that does not decide it, a list asks which page. A path that climbs out of the ZIP, or a file it lacks, is still missing, and the note names those.`,
+          `When our server can open ZIP files, the drop zone says so, and a ZIP of the page with its files fixes this: each file in it is served at the path the page names, matched exactly, capital letters included. A ZIP may hold at most ${HTML_ZIP_MAX_ENTRIES.toLocaleString("en-US")} files that unpack to at most ${HTML_ZIP_MAX_UNPACKED_BYTES / (1024 * 1024)} MB. ${HTML_ZIP_PAGE_CHOICE_SENTENCES} A path that climbs out of the ZIP, or a file it lacks, is still missing, and the note names those.`,
           "A reference by a full http:// or https:// address to a public site is fetched by our server, so a stylesheet, script or image on a CDN or on your own website can load. A web font linked that way loads when the site serving it allows other sites to use it, as public font services do. Addresses on a private network are not fetched.",
           "Chromium draws text in the fonts the file names. A font embedded in the file as a data: URI is always there. One that is only installed on your computer is not on our server, and Chromium uses a font the server has instead, so lines can wrap differently from what you see on your screen.",
         ],
@@ -6291,7 +6292,7 @@ export const guides: Guide[] = [
       },
       {
         question: "How large can the HTML file be?",
-        answer: `Up to ${ceilingMb("html-to-pdf")} MB, one file, pasted page or ZIP per run; a larger file is refused when you pick it, before anything is sent, and pasted code over it is marked in the box and not sent. Images embedded as data: URIs count toward that, and base64 makes each about a third larger than the image file itself.`,
+        answer: `Up to ${ceilingMb("html-to-pdf")} MB, one file or pasted page per run, or, when our server can open ZIP files, one ZIP; a larger file is refused when you pick it, before anything is sent, and pasted code over it is marked in the box and not sent. Images embedded as data: URIs count toward that, and base64 makes each about a third larger than the image file itself.`,
       },
     ],
     published: "2026-10-31",

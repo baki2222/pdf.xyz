@@ -121,9 +121,12 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
         ) : (
           <>
             Chromium renders{" "}
-            {mode === "url" ? "the public URL" : "your uploaded HTML file"} to a
-            real print PDF on our isolated server. It produces a PDF artifact or
-            fails honestly — no screenshot placeholder and no browser-side fake.
+            {mode === "url"
+              ? "the public URL"
+              : "your HTML file or pasted code (or, when our server can open ZIP files, the page in your ZIP)"}{" "}
+            to a real print PDF on our isolated server. It produces a PDF
+            artifact or fails honestly — no screenshot placeholder and no
+            browser-side fake.
           </>
         )
       }
@@ -137,7 +140,9 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
               ? "One public URL"
               : mode === "epub"
                 ? "One or more DRM-free EPUB files"
-                : "One HTML file",
+                : // Static, so hedged: whether ZIP is offered is the live
+                  // status's to say, and the drop box below says it.
+                  "One HTML file or pasted code; a ZIP when our server can open ZIP files",
         },
         { icon: Download, label: "You get", value: "PDF" },
         {

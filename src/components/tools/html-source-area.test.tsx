@@ -34,6 +34,8 @@ import { toolRunInfoFor } from "@/lib/tools/tool-run-info";
 import { formatBytes } from "@/lib/utils";
 import { HtmlRenderWorkerPanel } from "./html-render-worker-panel";
 import { COUNT_FROM } from "./html-paste-box";
+import { getToolContent } from "@/lib/tools/content";
+import { HTML_ZIP_PAGE_CHOICE_SENTENCES } from "@/lib/workers/html-render/zip-config";
 
 const tool = getToolBySlug("html-to-pdf")!;
 const CEILING = toolRunInfoFor(tool).pick!.ceilingBytes!;
@@ -209,11 +211,66 @@ describe("a ZIP of a page", () => {
       "b.html",
     ]);
     expect(isDisabled(renderButton())).toBe(true);
+    // Found, not got: the words arrive through the panel's state after the
+    // picker renders, a chain a loaded runner can stretch (it failed once
+    // beside a build, 2026-11-14).
     expect(
-      screen.getByText("Choose which page of the ZIP to print."),
+      await screen.findByText(
+        "Choose which page of the ZIP to print.",
+        {},
+        { timeout: 5000 },
+      ),
     ).toBeTruthy();
     fireEvent.change(picker, { target: { value: "b.html" } });
     await waitFor(() => expect(isDisabled(renderButton())).toBe(false));
+  });
+
+  it("does what the copy says: several pages, one decided, list shown with it selected and Run free", async () => {
+    // The copy (one definition, read by the FAQ and the guide).
+    expect(HTML_ZIP_PAGE_CHOICE_SENTENCES).toContain(
+      "list shows them all with that page already selected",
+    );
+    expect(
+      getToolContent("html-to-pdf")!
+        .faqs.map((f) => f.a)
+        .join(" "),
+    ).toContain(HTML_ZIP_PAGE_CHOICE_SENTENCES);
+    const { input } = await mount({ ...READY, htmlZip: true });
+    fireEvent.change(input, {
+      target: {
+        files: [
+          await zipFile({ "index.html": "<p>i</p>", "about.html": "<p>a</p>" }),
+        ],
+      },
+    });
+    const picker = await screen.findByLabelText<HTMLSelectElement>(
+      "Page to print",
+      {},
+      { timeout: 5000 },
+    );
+    expect(picker.value).toBe("index.html");
+    await waitFor(() => expect(isDisabled(renderButton())).toBe(false));
+  });
+
+  it("names a picture missing from a stylesheet the linked one @imports", async () => {
+    const { input } = await mount({ ...READY, htmlZip: true });
+    fireEvent.change(input, {
+      target: {
+        files: [
+          await zipFile({
+            "index.html": '<link rel="stylesheet" href="css/a.css"><p>i</p>',
+            "css/a.css": "@import url(b.css); p{color:red}",
+            "css/b.css": ".x{background:url(../img/missing.png)}",
+          }),
+        ],
+      },
+    });
+    const note = await screen.findByText(
+      /not in this ZIP/,
+      {},
+      { timeout: 5000 },
+    );
+    expect(note.textContent).toContain("1 linked file (../img/missing.png)");
   });
 
   it("refuses an archive with no page before anything is uploaded, in the worker's words", async () => {
@@ -311,6 +368,25 @@ describe("the paste box", () => {
     );
     expect(isDisabled(renderButton())).toBe(true);
   }, 30_000);
+
+  it("keeps keyboard focus: opening moves it into the box, closing leaves it on the same button (WCAG 2.4.3)", async () => {
+    await mount(READY);
+    const open = screen.getByRole("button", { name: "Or paste HTML code" });
+    open.focus();
+    // Health: focus really is on the button before it is pressed.
+    expect(document.activeElement).toBe(open);
+    fireEvent.click(open);
+    const box = await screen.findByLabelText<HTMLTextAreaElement>("HTML code");
+    await waitFor(() => expect(document.activeElement).toBe(box));
+    const close = screen.getByRole("button", { name: "Choose a file instead" });
+    // The same element, relabelled: never unmounted and mounted again.
+    expect(close).toBe(open);
+    close.focus();
+    fireEvent.click(close);
+    await screen.findByRole("button", { name: "Or paste HTML code" });
+    expect(document.activeElement).toBe(close);
+    expect(close.isConnected).toBe(true);
+  });
 
   it("closing the box drops what it handed on", async () => {
     const { box } = await openPaste();
