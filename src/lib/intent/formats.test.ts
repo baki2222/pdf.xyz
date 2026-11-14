@@ -17,7 +17,11 @@
  * in which case no tool may accept it, because the site says so in writing
  * ("No tool here opens HEIC photos").
  */
+import { readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { UNSUPPORTED_ANSWERS } from "@/lib/tools/intents";
+import { unsupportedAnswer, unsupportedWords } from "./unsupported";
 import {
   EXTENSIONS_BY_FORMAT,
   MIME_BY_FORMAT,
@@ -38,6 +42,7 @@ import {
   formatOf,
   toolAcceptsFormat,
   type FileFormat,
+  type UnsupportedFormat,
 } from "./formats";
 import { formatFromBytes, sniffFormat } from "./sniff";
 
@@ -472,5 +477,112 @@ describe("the tool that turns a format into a PDF", () => {
     // A PDF needs no converter, and nothing here opens HEIC.
     expect(slug("PDF")).toBeNull();
     expect(slug("HEIC")).toBeNull();
+  });
+});
+
+/**
+ * EVERY picker's `accept`, not only the catalogue's. Surface review round 2
+ * (2026-11-14): HTML to PDF's picker takes `.zip` when the worker proves it
+ * can (`ZIP_ACCEPT` in html-source-area.tsx), while ZIP stayed in
+ * UNSUPPORTED_FORMATS and the desk said "Unzip it first" — and the test
+ * above, reading `tools.flatMap(t => t.accept)`, could not see a picker
+ * whose accept is written in a component. So the set is DISCOVERED: every
+ * string literal in the app's source that is an `accept` list (a comma list
+ * of MIME types and .extensions), read with the site's own recogniser.
+ */
+describe("every picker's accept, discovered, agrees with what the site says no tool opens", () => {
+  const TOKEN = String.raw`(?:[a-z]+\/[a-z0-9.+-]+|\.[a-z0-9]+)`;
+  const ACCEPT_LITERAL = new RegExp(
+    String.raw`["'\x60](${TOKEN}(?:\s*,\s*${TOKEN})+)["'\x60]`,
+    "gi",
+  );
+
+  /** The unsupported formats one accept list takes. */
+  const unsupportedIn = (accept: string): UnsupportedFormat[] => {
+    const out = new Set<UnsupportedFormat>();
+    for (const raw of accept.split(",")) {
+      const token = raw.trim();
+      const verdict = token.startsWith(".")
+        ? formatOf({ name: `x${token}` })
+        : formatOf({ name: "", type: token });
+      const f = verdict.format;
+      if (f && (UNSUPPORTED_FORMATS as readonly string[]).includes(f))
+        out.add(f as UnsupportedFormat);
+    }
+    return [...out];
+  };
+
+  function sources(dir: string, out: string[] = []): string[] {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) sources(full, out);
+      else if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name))
+        out.push(full);
+    }
+    return out;
+  }
+
+  const found = sources(path.join(process.cwd(), "src")).flatMap((file) => {
+    const text = readFileSync(file, "utf8");
+    return [...text.matchAll(ACCEPT_LITERAL)].map((m) => ({
+      file: path.relative(process.cwd(), file).replaceAll("\\", "/"),
+      accept: m[1]!,
+    }));
+  });
+  const takenBy = new Map<UnsupportedFormat, string[]>();
+  for (const { file, accept } of found)
+    for (const f of unsupportedIn(accept))
+      takenBy.set(f, [...(takenBy.get(f) ?? []), file]);
+  for (const t of tools)
+    for (const f of UNSUPPORTED_FORMATS)
+      if (toolAcceptsFormat(t.accept, f))
+        takenBy.set(f, [...(takenBy.get(f) ?? []), `catalogue ${t.slug}`]);
+
+  it("health: the scan finds the hand-written accept lists, HTML to PDF's among them", () => {
+    expect(found.length).toBeGreaterThanOrEqual(3);
+    expect(found.length).toBeLessThan(200);
+    expect(
+      found.some((f) => f.file.endsWith("html-source-area.tsx")),
+      found.map((f) => `${f.file}: ${f.accept}`).join("\n"),
+    ).toBe(true);
+  });
+
+  it("POSITIVE CONTROL: the reader sees an unsupported format by extension and by type, and a supported one not at all", () => {
+    expect(unsupportedIn("image/heic,.heic")).toEqual(["HEIC"]);
+    expect(unsupportedIn("application/zip,.pdf")).toEqual(["ZIP"]);
+    expect(unsupportedIn("text/html,.html,.htm")).toEqual([]);
+    const sample = `const A = "text/html,.html,application/zip,.zip";`;
+    expect([...sample.matchAll(ACCEPT_LITERAL)].map((m) => m[1])).toEqual([
+      "text/html,.html,application/zip,.zip",
+    ]);
+  });
+
+  it("a format some picker takes is answered with the tool that takes it; one no picker takes, never", () => {
+    const wrong: string[] = [];
+    for (const f of UNSUPPORTED_FORMATS) {
+      const takers = takenBy.get(f) ?? [];
+      const onlyIn = UNSUPPORTED_ANSWERS[f].onlyIn;
+      if (takers.length > 0 && !onlyIn)
+        wrong.push(
+          `${f} is taken by ${takers.join(", ")} but answered "No tool here opens"`,
+        );
+      if (takers.length === 0 && onlyIn)
+        wrong.push(`${f} names ${onlyIn.slug}, but no picker takes it`);
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it("an onlyIn answer names a real tool, by its name, and never says no tool opens the format", () => {
+    for (const f of UNSUPPORTED_FORMATS) {
+      const onlyIn = UNSUPPORTED_ANSWERS[f].onlyIn;
+      if (!onlyIn) continue;
+      const tool = tools.find((t) => t.slug === onlyIn.slug);
+      expect(tool, onlyIn.slug).toBeDefined();
+      const { headline } = unsupportedWords(f);
+      expect(headline).toBe(onlyIn.headline);
+      expect(headline).toContain(tool!.name);
+      expect(headline).not.toMatch(/^No tool here opens/);
+      expect(unsupportedAnswer(f, tools).onlyIn?.slug).toBe(onlyIn.slug);
+    }
   });
 });
