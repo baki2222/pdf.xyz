@@ -160,13 +160,37 @@ export async function detectAutoCrop(
       }
       onProgress?.({ done: n, total });
     }
-    return planAutoCrop(pages, sizes);
+    const plan = planAutoCrop(pages, sizes);
+    if (plan.whole.length > 0) plan.wholeNote = wholeNote(plan.whole);
+    return plan;
   } finally {
     await task.destroy().catch(() => {});
     await (bare as { destroy(): Promise<void> } | null)
       ?.destroy()
       .catch(() => {});
   }
+}
+
+/**
+ * The words for pages kept whole: "Page 3 has a large image ...", "Pages 2
+ * and 5 have large images ...", at most eight numbers then "and N more".
+ */
+export function wholeNote(whole: readonly number[]): {
+  page: string;
+  summary: string;
+} {
+  const shown = whole.slice(0, 8).map((i) => String(i + 1));
+  const more = whole.length - shown.length;
+  const one = whole.length === 1;
+  const list = one
+    ? `Page ${shown[0]}`
+    : more > 0
+      ? `Pages ${shown.join(", ")} and ${more} more`
+      : `Pages ${shown.slice(0, -1).join(", ")} and ${shown.at(-1)}`;
+  return {
+    page: "This page has a large image whose position could not be worked out, so it is left uncropped. Crop it by hand to trim it.",
+    summary: `${list} ${one ? "has a large image whose position" : "have large images whose positions"} could not be worked out, so ${one ? "it is" : "they are"} left uncropped; crop by hand to trim ${one ? "it" : "them"}.`,
+  };
 }
 
 /**

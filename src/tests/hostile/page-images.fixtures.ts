@@ -93,7 +93,9 @@ export async function imagePagesPdf(
  * object streams behind a cross-reference stream, where a byte scan of the
  * file's text cannot see them.
  */
-export async function withObjectStreams(bytes: Uint8Array): Promise<Uint8Array> {
+export async function withObjectStreams(
+  bytes: Uint8Array,
+): Promise<Uint8Array> {
   const { PDFDocument } = await import("pdf-lib");
   const doc = await PDFDocument.load(bytes, { updateMetadata: false });
   return doc.save({ useObjectStreams: true, addDefaultPage: false });

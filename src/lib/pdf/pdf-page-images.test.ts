@@ -220,11 +220,13 @@ describe("what the map cannot tell fails safe", () => {
   });
 
   it("an encrypted file's content is ciphertext: each page counts what its resources hold, and object streams leave the map incomplete", async () => {
-    const plain = await imagePagesPdf(
-      [Array<number>(2).fill(6000), [3000]],
-      { real: false },
-    );
-    const enc = await encryptPdf(plain, { userPassword: "", ownerPassword: "o" });
+    const plain = await imagePagesPdf([Array<number>(2).fill(6000), [3000]], {
+      real: false,
+    });
+    const enc = await encryptPdf(plain, {
+      userPassword: "",
+      ownerPassword: "o",
+    });
     const pre = await preflightPdfjsBytes(enc);
     // Per-page resources: page 1 holds two 36 MP images, page 2 one 9 MP.
     expect(weights(pre)).toEqual([72_000_000, 9_000_000]);
@@ -253,30 +255,37 @@ describe("what the map cannot tell fails safe", () => {
 
 describe("the real-producer corpus: the map finds exactly the pages pdf.js reports", () => {
   const DIR = path.join(process.cwd(), "src/tests/fixtures/legit-corpus");
-  const FILES = readdirSync(DIR).filter((f) => f.endsWith(".pdf")).sort();
+  const FILES = readdirSync(DIR)
+    .filter((f) => f.endsWith(".pdf"))
+    .sort();
 
   it("health: the corpus is the corpus", () => {
     expect(FILES.length).toBe(14);
   });
 
-  it.each(FILES)("%s: every page mapped, weights as its images, the map complete", async (name) => {
-    const bytes = new Uint8Array(readFileSync(path.join(DIR, name)));
-    // The map read directly: the preflight's fast path skips it on files
-    // this light, so this is the map's own parity with pdf.js.
-    const { PageImages } = await import("./pdf-page-images");
-    const guard = await import("./pdfjs-guard");
-    const reader = await PageImages.open(bytes, guard.pageScanTools(false));
-    expect(reader).toBeInstanceOf(PageImages);
-    const map = await (reader as InstanceType<typeof PageImages>).map(Infinity);
-    expect(map.incomplete).toBeNull();
-    const refs = await pdfjsPageRefs(bytes);
-    // Every page pdf.js draws is mapped (a missing one would be noted).
-    expect(refs.filter((r) => !map.pages.has(r))).toEqual([]);
-    // And no page weighs past the budget: real files draw as before.
-    expect(
-      [...map.pages.values()].filter((w) => w > RASTER_MAX_PAGE_IMAGE_PIXELS),
-    ).toEqual([]);
-    // The preflight itself takes the fast path: nothing changes for them.
-    expect((await preflightPdfjsBytes(bytes)).pages).toBeNull();
-  }, 30_000);
+  it.each(FILES)(
+    "%s: every page mapped, weights as its images, the map complete",
+    async (name) => {
+      const bytes = new Uint8Array(readFileSync(path.join(DIR, name)));
+      // The map read directly: the preflight's fast path skips it on files
+      // this light, so this is the map's own parity with pdf.js.
+      const { PageImages } = await import("./pdf-page-images");
+      const guard = await import("./pdfjs-guard");
+      const reader = await PageImages.open(bytes, guard.pageScanTools(false));
+      expect(reader).toBeInstanceOf(PageImages);
+      if (!(reader instanceof PageImages)) throw new Error("no reader");
+      const map = await reader.map(Infinity);
+      expect(map.incomplete).toBeNull();
+      const refs = await pdfjsPageRefs(bytes);
+      // Every page pdf.js draws is mapped (a missing one would be noted).
+      expect(refs.filter((r) => !map.pages.has(r))).toEqual([]);
+      // And no page weighs past the budget: real files draw as before.
+      expect(
+        [...map.pages.values()].filter((w) => w > RASTER_MAX_PAGE_IMAGE_PIXELS),
+      ).toEqual([]);
+      // The preflight itself takes the fast path: nothing changes for them.
+      expect((await preflightPdfjsBytes(bytes)).pages).toBeNull();
+    },
+    30_000,
+  );
 });

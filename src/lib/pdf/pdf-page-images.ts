@@ -78,13 +78,7 @@ class PdfDict {
   }
 }
 const OTHER = Symbol("other");
-type PdfValue =
-  | number
-  | PdfName
-  | PdfRef
-  | PdfDict
-  | PdfValue[]
-  | typeof OTHER;
+type PdfValue = number | PdfName | PdfRef | PdfDict | PdfValue[] | typeof OTHER;
 
 /** Thrown when a work bound passes: the mapping is incomplete. */
 class Incomplete extends Error {}
@@ -279,7 +273,11 @@ export interface PageScanTools {
    * The decoded data of a stream whose dictionary text is `dict`, or null
    * when a filter is one the scan does not decode, or it passes `limit`.
    */
-  decode(dict: string, data: Uint8Array, limit: number): Promise<Uint8Array | null>;
+  decode(
+    dict: string,
+    data: Uint8Array,
+    limit: number,
+  ): Promise<Uint8Array | null>;
   /** A pdf.js-faithful content lexer reporting each operator (see `ContentOps`). */
   ops(hook: OpHook): { feed(chunk: Uint8Array): void; end(): void };
   /**
@@ -503,7 +501,9 @@ class ObjectIndex {
   }
 
   /** The streams `v` names: each definition that is a dictionary with data. */
-  streams(v: PdfValue | undefined): { def: Def; dict: PdfDict; data: [number, number] }[] {
+  streams(
+    v: PdfValue | undefined,
+  ): { def: Def; dict: PdfDict; data: [number, number] }[] {
     if (!(v instanceof PdfRef)) return [];
     const out: { def: Def; dict: PdfDict; data: [number, number] }[] = [];
     const defs = this.defs.get(v.num);
@@ -1039,7 +1039,14 @@ export class PageImages {
             const sub = this.index.nameOf(x.dict.get("Subtype"));
             if (sub === "Image") {
               const box = trusted ? unitBox(ctm) : null;
-              this.paintImage(out, x.def.id, this.size(x), skipAbove, box, place);
+              this.paintImage(
+                out,
+                x.def.id,
+                this.size(x),
+                skipAbove,
+                box,
+                place,
+              );
             } else if (sub === "Form") {
               if (path.has(x.def.num)) continue; // pdf.js refuses a circular form
               const own = this.index.dicts(x.dict.get("Resources"));
@@ -1120,7 +1127,14 @@ export class PageImages {
               seen.add(x.def.id);
               const sub = this.index.nameOf(x.dict.get("Subtype"));
               if (sub === "Image") {
-                this.paintImage(out, x.def.id, this.size(x), skipAbove, null, false);
+                this.paintImage(
+                  out,
+                  x.def.id,
+                  this.size(x),
+                  skipAbove,
+                  null,
+                  false,
+                );
               } else if (sub === "Form") {
                 if (depth >= MAX_FORM_DEPTH) throw new Incomplete("form depth");
                 const own = this.index.dicts(x.dict.get("Resources"));

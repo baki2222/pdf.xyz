@@ -185,6 +185,12 @@ describe("Auto-crop never decodes an image past its budget, and never crops it a
   test("CO-08 inside a tiling pattern: its placement is not followed, so the page is kept whole and named", async () => {
     const v = await run("autocrop-co08-pattern", 60_000);
     expect(v.plan).toMatchObject({ perPage: [null], whole: [0] });
+    // Named, in the words the runner shows.
+    expect(
+      (v.plan as { wholeNote: { summary: string } }).wholeNote.summary,
+    ).toMatch(
+      /^Page 1 has a large image whose position could not be worked out/,
+    );
     expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
   }, 90_000);
 });

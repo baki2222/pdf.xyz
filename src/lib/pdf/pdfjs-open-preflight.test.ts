@@ -743,9 +743,9 @@ describe("every pdf.js open that renders pages previews or refuses an over-budge
         `async function a(bytes) {\n${OPENED}  const px = ctx.getImageData(0, 0, w, h);\n${RENDER}}`,
       ).analysis,
     ).toBe(false);
-    expect(site(`async function a(bytes) {\n${OPENED}${RENDER}}`).analysis).toBe(
-      false,
-    );
+    expect(
+      site(`async function a(bytes) {\n${OPENED}${RENDER}}`).analysis,
+    ).toBe(false);
   });
 
   it("finds every page render in src/lib and src/components asking the page budget's verdict, and every analysis placing what it skips", () => {
@@ -773,9 +773,7 @@ describe("every pdf.js open that renders pages previews or refuses an over-budge
     expect(analyses.map((s) => s.file)).toEqual([
       "src/lib/pdf/auto-crop-render.ts",
     ]);
-    expect(analyses.filter((s) => !s.placements).map((s) => s.at)).toEqual(
-      [],
-    );
+    expect(analyses.filter((s) => !s.placements).map((s) => s.at)).toEqual([]);
   });
 
   it("finds every rendering open in src/lib and src/components previewing or refusing", () => {

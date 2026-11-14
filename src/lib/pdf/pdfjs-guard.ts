@@ -2332,7 +2332,10 @@ export function imageWeight(size: ImageSize, skipAbove: number): number {
  * times. At or under the page budget, no page can pass it and the map is
  * never built: a document's cost is then the scan's, as before.
  */
-export function fileImageWeight(scan: PdfStreamScan, skipAbove: number): number {
+export function fileImageWeight(
+  scan: PdfStreamScan,
+  skipAbove: number,
+): number {
   let total = 0;
   for (const p of scan.paints) {
     const size = p.loose

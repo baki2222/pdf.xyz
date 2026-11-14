@@ -152,13 +152,18 @@ export interface AutoCropPlan {
    * it is not cropped; the manual crop still applies.
    */
   whole: number[];
+  /**
+   * What to tell a person about {@link whole}, set by the render
+   * (`auto-crop-render.ts`, a lazy chunk, so the words cost the tool page's
+   * first load nothing) when it is not empty: the line under one such
+   * page's preview, and the summary naming them all.
+   */
+  wholeNote?: { page: string; summary: string };
 }
 
 /** One page's analysis: its ink, kept whole ({@link AutoCropPlan.whole}), or unread (null). */
 export type PageAnalysis =
-  | { ink: InkBox | null; raster: RasterPage }
-  | "whole"
-  | null;
+  { ink: InkBox | null; raster: RasterPage } | "whole" | null;
 
 /** Turn one analysis per page into a plan. */
 export function planAutoCrop(

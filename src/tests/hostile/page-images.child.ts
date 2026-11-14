@@ -62,10 +62,7 @@ function sheet(c: Pixels | null): { kind: string; inked: boolean } | null {
   };
   const corner = at(Math.round(c.width * 0.03), Math.round(c.height * 0.03));
   // The fixtures paint their images from x = y = 50 of a 600-point page.
-  const cellSum = at(
-    Math.round(c.width * 0.2),
-    Math.round(c.height * 0.8),
-  );
+  const cellSum = at(Math.round(c.width * 0.2), Math.round(c.height * 0.8));
   return {
     kind: corner === 720 ? "note" : corner === 765 ? "page" : `?${corner}`,
     inked: cellSum < 100,
@@ -147,7 +144,8 @@ async function preflight(bytes: Uint8Array) {
     preflightMs: Date.now() - t0,
     mapped: weights?.length ?? null,
     heaviest: weights ? Math.max(...weights) : null,
-    weights: weights && weights.length <= 8 ? weights.sort((a, b) => a - b) : null,
+    weights:
+      weights && weights.length <= 8 ? weights.sort((a, b) => a - b) : null,
     incomplete: r.pages?.incomplete ?? null,
   };
 }
@@ -219,8 +217,10 @@ const CASES: Record<string, () => Promise<unknown>> = {
   // A 16 MP image painted four times through forms (64 MP if each paint
   // counted, 16 MP decoded once), beside a 36 MP page that makes the file
   // weigh past the page budget, so the map is built. Page 1 drawn.
-  "editor-forms-twice": async () => editor(await formsBesideHeavyPagePdf(), [0]),
-  "preflight-forms-twice": async () => preflight(await formsBesideHeavyPagePdf()),
+  "editor-forms-twice": async () =>
+    editor(await formsBesideHeavyPagePdf(), [0]),
+  "preflight-forms-twice": async () =>
+    preflight(await formsBesideHeavyPagePdf()),
   "autocrop-co08": async () => autoCrop(await CO08_PAGE()),
   "autocrop-co08-pattern": async () => autoCrop(await co08PatternPdf()),
 };
@@ -231,7 +231,9 @@ const grid = /^editor-grid:(\d+):(\d+)$/.exec(process.argv[2] ?? "");
 if (grid) {
   CASES[process.argv[2]!] = async () =>
     editor(
-      await imagePagesPdf([Array<number>(Number(grid[1])).fill(Number(grid[2]))]),
+      await imagePagesPdf([
+        Array<number>(Number(grid[1])).fill(Number(grid[2])),
+      ]),
     );
 }
 

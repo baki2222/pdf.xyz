@@ -155,8 +155,7 @@ export async function createThumbnailRenderer(
       if (note !== null) {
         guard.drawPageNote(canvas, note);
       } else {
-        const background =
-          options.background ?? base.background ?? "#ffffff";
+        const background = options.background ?? base.background ?? "#ffffff";
         task = page.render({ canvas, viewport, background });
         await task.promise;
       }
