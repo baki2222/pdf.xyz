@@ -2091,7 +2091,7 @@
     },
     "guides/how-to-convert-an-html-file-to-pdf.html": {
       "title": "How to convert an HTML file to PDF — pdf.xyz",
-      "description": "Turn one .html file into a PDF with selectable text: Chromium prints it on our secure server, running its scripts and print CSS. Embed images and styles.",
+      "description": "Turn an .html file or pasted HTML code into a PDF with selectable text: Chromium prints it on our server, running its scripts and print CSS.",
       "canonical": "https://pdf.xyz/guides/how-to-convert-an-html-file-to-pdf",
       "robots": "index, follow",
       "h1": ["How to convert an HTML file to PDF"],
@@ -12011,7 +12011,7 @@
     },
     "tools/html-to-pdf.html": {
       "title": "HTML to PDF: Print an HTML File with Chromium — pdf.xyz",
-      "description": "Upload one .html or .htm file and headless Chromium prints it to PDF, running its scripts and applying print CSS and @page size. Input deleted after the job.",
+      "description": "Upload an .html file or paste HTML code, and headless Chromium prints it to PDF, running its scripts and applying print CSS and @page size. Input deleted after.",
       "canonical": "https://pdf.xyz/tools/html-to-pdf",
       "robots": "index, follow",
       "h1": ["HTML to PDF"],

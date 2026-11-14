@@ -842,6 +842,13 @@ describe("no tool page loads a table of every tool", () => {
  * empty .next: the eight counted chunks read 34,995 B (34.1748 KB). 34.23 KB
  * is 35,052 B, which is 57 B over that figure for CI's reading (25 B higher
  * on the one tree both read). Not measured on CI.
+ *
+ * NOT RAISED on 2026-11-14 (HTML to PDF paste and ZIP input): main d28519ad
+ * -> the branch, one machine, both from an empty .next, the eight counted
+ * chunks read 34,995 -> 35,000 B (+5, chunk 3552: the intent layer's ZIP
+ * answer, narrowed to "ZIP archives of documents" because HTML to PDF now
+ * opens a ZIP of a web page). 35,052 B is 52 B over it, above the 45 B kept
+ * for CI's reading.
  */
 const TICKET_FETCH_GZ_KB = 34.23;
 

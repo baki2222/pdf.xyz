@@ -1182,6 +1182,31 @@ const TOOL_PAGES_TO_COME = {
   //    when a file opens, in parallel with the engine and the parse
   //    (`prepare`): one more request on that page, no added round trip in
   //    series, and nothing at run time on the other two pages.
+  //
+  // NOT TAKEN from the (empty) unallocated pool, 2026-11-14, by HTML to
+  // PDF's paste box and ZIP input (competitor audit #26) — it rides each
+  // row's own headroom, as Edit PDF Bookmarks did above, flagged for the
+  // owner as A RE-ALLOCATION OF G.1 in effect. Measured gzip -9 over each
+  // page's first-load chunks, main d28519ad (a detached worktree,
+  // E:/whtmlz-base, its own install) -> the branch, both built on this
+  // machine (Windows) from an empty .next:
+  //  - every page +23 to +26 B: webpack's runtime 3,717 -> 3,739 (three more
+  //    async chunks in its map: HTML to PDF's input, the paste box, and the
+  //    ZIP reader with the ZIP run), the rest +-2 (module ids). The G.1
+  //    pages: ocr 233,808 -> 233,831, rotate 234,883 -> 234,906, summarize
+  //    234,620 -> 234,643, merge 229,329 -> 229,352; home 202,774 ->
+  //    202,798, /tools +26, /workspace +24.
+  //  - tools/html-to-pdf 237,390 -> 240,227 (+2,837): its input moved out of
+  //    the shared panel into its own chunk (html-source-area: the drop zone,
+  //    the missing-files scan, the paste toggle, the ZIP page picker); the
+  //    paste box and JSZip load only on press / pick. Not a G.1 row.
+  //  - tools/webpage-to-pdf and tools/epub-to-pdf 237,390 -> 234,258
+  //    (-3,129 each): the panel they share with HTML to PDF no longer
+  //    carries HTML to PDF's input or its scan.
+  //  - WHY the ZIP check stays out of the pick check: a second importer of
+  //    `@/lib/uploads/pick-check` split it out of the module every worker
+  //    page concatenates it into, +36 B on each (measured on the first cut,
+  //    then removed: html-source-area asks the page's own `refuse`).
   unallocated:
     UNALLOCATED -
     NEW_TOOLS_2026_10_30 -
