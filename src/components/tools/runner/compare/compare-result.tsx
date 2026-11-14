@@ -214,14 +214,14 @@ function HunkTable({
   const byLeft = new Map(hunk.pairs.map((p) => [p.left, p.tokens]));
   const byRight = new Map(hunk.pairs.map((p) => [p.right, p.tokens]));
   return (
-    <table className="w-full table-fixed border-collapse font-mono text-xs leading-5">
+    <table className="w-full border-collapse font-mono text-xs leading-5">
       <tbody>
         {hunk.ops.slice(0, rows).map((op, i) => {
           if (op.k === "same")
             return (
               <tr key={i} className="text-muted">
                 <td aria-hidden className="w-6 px-2 align-top select-none" />
-                <td className="py-0.5 pr-2 [overflow-wrap:anywhere] whitespace-pre-wrap">
+                <td className="py-0.5 pr-2 wrap-anywhere whitespace-pre-wrap">
                   {leftText.get(op.a)}
                 </td>
               </tr>
@@ -244,7 +244,7 @@ function HunkTable({
               >
                 {removed ? "−" : "+"}
               </td>
-              <td className="py-0.5 pr-2 [overflow-wrap:anywhere] whitespace-pre-wrap">
+              <td className="py-0.5 pr-2 wrap-anywhere whitespace-pre-wrap">
                 <span className="sr-only">
                   {removed ? "Removed: " : "Added: "}
                 </span>
@@ -277,20 +277,28 @@ export function CompareChanges({
   rowsShown?: number;
 }) {
   const hunks = result.hunks;
-  const [current, setCurrent] = useState(0);
-  const [shown, setShown] = useState(rowsShown);
+  const [currentState, setCurrent] = useState(0);
+  const [shownState, setShown] = useState(rowsShown);
   const headings = useRef<(HTMLHeadingElement | null)[]>([]);
   const scroller = useRef<HTMLDivElement>(null);
   const focusPending = useRef(false);
   const id = useId();
 
-  // A new result (an option toggled) starts from its first change.
+  // A new result (an option toggled) starts from its first change. The
+  // reset is a state update during render, and the rest of THIS render runs
+  // before it lands: until 2026-11-14 it read the old index, past the end of
+  // a result with fewer changes, and the view crashed into the error
+  // boundary (compare-result.test.tsx, "survives a re-compare with fewer
+  // changes"). So this render reads the reset values directly.
   const [forResult, setForResult] = useState(result);
-  if (forResult !== result) {
+  const resetting = forResult !== result;
+  if (resetting) {
     setForResult(result);
     setCurrent(0);
     setShown(rowsShown);
   }
+  const current = resetting ? 0 : currentState;
+  const shown = resetting ? rowsShown : shownState;
 
   // rowsBefore[n]: the rows of every hunk before hunk n; the last entry is
   // all of them. Hunk n's heading is drawn while rowsBefore[n] < shown.

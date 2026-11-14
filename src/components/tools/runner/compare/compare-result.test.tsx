@@ -244,6 +244,48 @@ describe("the changes view keeps focus where the user put it", () => {
   });
 });
 
+/**
+ * Found by the served e2e on 2026-11-14 (review of audit compare-pdf#4):
+ * at the last change, ticking a box that leaves FEWER changes crashed the
+ * view into the error boundary. The reset of `current` is a state update
+ * during render, so the rest of that render still read the old index —
+ * past the end of the new hunks — and `hunkHeader(undefined)` threw.
+ */
+describe("the changes view survives a re-compare with fewer changes", () => {
+  function FewerHost() {
+    const left = [body("alpha"), body("bravo"), body("charlie")];
+    const right = left.map((page, p) =>
+      page.map((line, i) =>
+        i !== 5 ? line : p === 0 ? line.toUpperCase() : `${line} amended`,
+      ),
+    );
+    const [options, setOptions] = useState<CompareOptions>({});
+    const result = compareExtractedPdfText(
+      doc("a.pdf", left),
+      doc("b.pdf", right),
+      options,
+    );
+    return (
+      <CompareChanges
+        result={result}
+        options={options}
+        onOptions={setOptions}
+        rowsShown={8}
+      />
+    );
+  }
+
+  it("at the last of 3 changes, Ignore case leaves 2, and the view says so", () => {
+    render(<FewerHost />);
+    const next = screen.getByRole("button", { name: "Next change" });
+    fireEvent.click(next);
+    fireEvent.click(next);
+    expect(status()).toBe("Change 3 of 3 · page 3 → page 3");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Ignore case" }));
+    expect(status()).toBe("Change 1 of 2 · page 2 → page 2");
+  });
+});
+
 describe("the word marks are spoken, not only seen", () => {
   it("each marked run is wrapped in words a screen reader says", () => {
     const left = [["Alpha clause 5 stands as agreed now"]];
