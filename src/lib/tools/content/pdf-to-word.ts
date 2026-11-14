@@ -93,6 +93,13 @@ import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
  *    read (deadline, budget, picture count), a page over
  *    MAX_STYLED_PIECES_PER_PAGE words, and a page with no word matched (an
  *    OCR layer is invisible) are named in the note (`pagesWithoutFormatting`).
+ *    CHANGED the same day (review round 1): a word takes a style only when
+ *    a run of that ONE style holds its whole text (a word whose colour
+ *    changes partway through, one drawn over another line, and OCR words
+ *    under a turned watermark had been labelled by position alone), and
+ *    the note names EVERY page with a word left plain — until then a page
+ *    was named only when none of its words matched, so an OCR'd page with
+ *    a visible Bates stamp went unnamed while the FAQ said OCR pages are.
  *    NOT carried: the typeface (no `w:rFonts`), paragraph properties, tables
  *    as tables. The engine refuses a .docx whose text read back differs from
  *    poppler's on any page (`undeliverableDocx`). Until this date a
@@ -213,7 +220,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Will the Word file look like my PDF?",
-      a: "Closer than plain text, but not a copy of the page. Words keep their bold, italics, size and colour where our reader matches them; the typeface, tables as tables, link targets and drawings made of lines and shapes stay behind, and the page's positions, indentation and spacing are not kept. Pages our server could not read within what one conversion allows, and text recognised by OCR, come through unformatted, and the note beside the download names those pages. The pictures sit on lines of their own between the paragraphs, and a picture painted over another, or over text, comes through on its own line instead of on top. What the page paints over a picture, such as a box over a name, is drawn into that picture, so what it covers stays covered. Each PDF page with text or a picture begins on a new Word page, and running headers and page numbers come through as ordinary paragraphs.",
+      a: "Closer than plain text, but not a copy of the page. Words keep their bold, italics, size and colour where our reader matches them; the typeface, tables as tables, link targets and drawings made of lines and shapes stay behind, and the page's positions, indentation and spacing are not kept. Text recognised by OCR, pages our server could not read within what one conversion allows, and any word whose formatting it cannot tell for certain, such as one whose colour changes partway through or text drawn turned or over other text, come through unformatted rather than guessed, and the note beside the download names every page where that happened. The pictures sit on lines of their own between the paragraphs, and a picture painted over another, or over text, comes through on its own line instead of on top. What the page paints over a picture, such as a box over a name, is drawn into that picture, so what it covers stays covered. Each PDF page with text or a picture begins on a new Word page, and running headers and page numbers come through as ordinary paragraphs.",
     },
     {
       q: "Are the pictures kept at their full quality?",

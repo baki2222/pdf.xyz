@@ -31,7 +31,7 @@ import type {
 } from "@/lib/workers/pdf-office-export/engine";
 import { PdfTextExecError } from "@/lib/workers/pdf-text/errors";
 import { rc4EncryptedPdf } from "@/tests/pdf-office-fixtures";
-import { PDFDocument } from "pdf-lib";
+import { degrees, PDFDocument, StandardFonts } from "pdf-lib";
 import { scanPdfPages } from "@/lib/workers/pdf-office-export/page-scan";
 import { MAX_DOCX_PICTURES } from "@/lib/workers/pdf-office-export/picture-limits";
 import {
@@ -456,8 +456,43 @@ describe("PDF to Word panel — pages without their formatting", () => {
     const line = await screen.findByText(
       /came through in Word.s default style/,
     );
+    // CHANGED 2026-11-15 (review round 1): this said "Page 1 came through
+    // in Word's default style, without its bold, italics, sizes and
+    // colours: our server could not read how that page draws its words
+    // within what one conversion allows, or the words are text recognised
+    // by OCR, which has no formatting to keep." — two reasons, false for a
+    // page whose turned or right-to-left lines the matcher declined, and a
+    // page was named only when NONE of its words matched.
     expect(line.closest('[role="status"]')).toHaveTextContent(
-      /Page 1 came through in Word's default style, without its bold, italics, sizes and colours: our server could not read how that page draws its words within what one conversion allows, or the words are text recognised by OCR, which has no formatting to keep\. All of the text is there\./,
+      /Some or all of the words on page 1 came through in Word's default style, without their bold, italics, sizes and colours\. Either our server could not read how that page draws its words within what one conversion allows, or the words are text recognised by OCR, which has no formatting to keep, or we could not tell for certain which formatting a word is drawn in \(one whose colour changes partway through, say, or text drawn turned, right to left, or over other text\) and left it plain rather than guess\. All of the text is there\./,
+    );
+  }, 60_000);
+
+  it("names a page read in full whose turned words the matcher declined, with the reason that is true of it", async () => {
+    // An upright page whose only text is one turned line in three faces:
+    // read in time, no OCR, and every word plain by design.
+    const doc = await PDFDocument.create();
+    const regular = await doc.embedFont(StandardFonts.Helvetica);
+    const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+    const page = doc.addPage([612, 792]);
+    let y = 100;
+    for (const [t, font] of [
+      ["before", regular],
+      ["middle", bold],
+      ["after", regular],
+    ] as const) {
+      page.drawText(t, { x: 300, y, size: 12, font, rotate: degrees(90) });
+      y += font.widthOfTextAtSize(`${t} `, 12);
+    }
+    stubNetwork(
+      await jobFrom(flowStandIn, await doc.save(), true, scanPdfPages),
+    );
+    await exportOnePdf();
+    const line = await screen.findByText(
+      /came through in Word.s default style/,
+    );
+    expect(line.closest('[role="status"]')).toHaveTextContent(
+      /words on page 1 came through[^]*or we could not tell for certain which formatting a word is drawn in \(one whose colour changes partway through, say, or text drawn turned/,
     );
   }, 60_000);
 

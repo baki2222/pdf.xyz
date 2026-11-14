@@ -406,9 +406,20 @@ async function containersFor(subject: string): Promise<Container[]> {
   const tool = getToolBySlug(subject);
   if (!tool) throw new Error(`subject "${subject}" is not in the catalogue`);
   const out = [await toolContainer(tool)];
+  // Every guide that lists the tool, AND every guide that NAMES it. Until
+  // 2026-11-15 only the first: the Edit PDF guide's "it exports the PDF's
+  // selectable text ... as plain paragraphs" about PDF to Word was served
+  // for a day after the PDF to Word guides had been corrected, because no
+  // guide set this function built held it (CLAUDE.md rule 4: a named set
+  // cannot see what it does not name). A guide that only names the tool is
+  // not its home, so only the sentences that name it are attributed.
   for (const guide of guides) {
-    if (guide.tools.includes(subject))
-      out.push(await guideContainer(guide, subject));
+    const container = await guideContainer(guide, subject);
+    if (
+      guide.tools.includes(subject) ||
+      container.texts.some((t) => t.includes(tool.name))
+    )
+      out.push(container);
   }
   return out;
 }
@@ -1063,7 +1074,7 @@ const RULES: readonly ClaimRule[] = [
     honest: [
       "The typeface, tables as tables and drawings made of lines and shapes are not carried across, and text recognised by OCR comes through in Word's default style.",
       "Each word keeps its bold, italics, size and color where they can be matched; tables, the typeface, drawings made of lines and shapes elsewhere on the page, and the page layout are not carried over, so the result is a document ready to edit — not a copy of the page.",
-      "Fonts and layout are not recreated; for a scan, tick “Recognise text in scans (OCR)”.",
+      "Typefaces and layout are not recreated; for a scan, tick “Recognise text in scans (OCR)”.",
       "Open the downloaded DOCX in Word and finish the formatting — the words arrive as paragraphs in reading order, with their bold, italics, sizes and colours where they could be matched, in Word's default typeface.",
     ],
     probe: async () => {
@@ -2654,6 +2665,18 @@ describe("PDF to Word: the picture sentences hold of the engine", () => {
       "only whole paragraphs":
         /\bbold or italics only where a whole paragraph\b/i,
       "a bold word does not": /\ba bold word inside a sentence does not\b/i,
+      // Added 2026-11-15 (review round 1): sentences the product DID ship,
+      // each walking past the four patterns above — one of them still
+      // served by the Edit PDF guide after the how-to guide's copy of it
+      // was rewritten.
+      "selectable text as plain paragraphs":
+        /\b(?:selectable text|the words)\b[^.;]{0,100}?\bas plain paragraphs\b/i,
+      "default Normal style": /\bin Word[’']s default Normal style\b/i,
+      "arrives in the default style":
+        /\b(?:text|words) arrives? in Word[’']s default style\b/i,
+      "formatting is not rebuilt": /\bformatting is not rebuilt\b/i,
+      "sizes and colours stay behind":
+        /\bsizes, colou?rs\b[^.;]{0,80}?\bstay behind\b/i,
     };
     const CLAIMS_STYLE: Record<string, RegExp> = {
       "a bold word stays bold": /\ba bold word inside a sentence stays bold\b/i,
@@ -2668,6 +2691,14 @@ describe("PDF to Word: the picture sentences hold of the engine", () => {
       // Honest from 2026-10-17 to 2026-11-15; denials since.
       "Fonts, colours, tables, and drawings made of lines and shapes are not carried across, and bold or italics only where a whole paragraph is set in them, such as a heading.",
       "A paragraph set wholly in bold or italics keeps it; a bold word inside a sentence does not.",
+      // Shipped until 2026-11-15, each caught by none of the four patterns
+      // that stood then (review round 1). The first was still served by
+      // the Edit PDF guide ("Changing the text that is already there").
+      "To rework the wording itself, convert the file with PDF to Word: it exports the PDF's selectable text as an editable Word document, as plain paragraphs in reading order, with each picture between them.",
+      "The conversion carries the PDF's selectable text into Word as plain paragraphs in reading order, so you edit the words instead of retyping them — the formatting is not rebuilt.",
+      "It is not a page replica: lines the PDF wrapped are joined back into paragraphs in Word's default Normal style, each picture sits on a line of its own between the paragraphs printed above and below it, and each PDF page with text or a picture starts on a new Word page.",
+      "Tables, fonts, colors, drawings made of lines and shapes elsewhere on the page, and the page layout are not carried over, and bold or italics only where a whole paragraph is set in them, so the text arrives in Word's default style, ready to format — not as a copy of the page.",
+      "The DOCX carries the words as plain paragraphs, with the pictures on lines of their own between them; fonts, sizes, colours, tables as tables, link targets and drawings made of lines and shapes stay behind.",
     ];
     /** What the page says since 2026-11-15. */
     const HONEST_STYLE = [
@@ -2675,6 +2706,7 @@ describe("PDF to Word: the picture sentences hold of the engine", () => {
       "Words keep their bold, italics, size and colour where our reader matches them; the typeface, tables as tables, link targets and drawings made of lines and shapes stay behind, and the page's positions, indentation and spacing are not kept.",
       "Each word keeps its bold, italics, size and color where they can be matched; tables, the typeface, drawings made of lines and shapes elsewhere on the page, and the page layout are not carried over, so the result is a document ready to edit — not a copy of the page.",
       "Open the downloaded DOCX in Word and finish the formatting — the words arrive as paragraphs in reading order, with their bold, italics, sizes and colours where they could be matched, in Word's default typeface.",
+      "To rework the wording itself, convert the file with PDF to Word: it exports the PDF's selectable text as an editable Word document, in reading order, each word keeping its bold, italics, size and colour where our reader matches it, with each picture between the paragraphs.",
     ];
     const denies = (t: string) =>
       Object.values(DENIES_STYLE).some((re) => re.test(t));
@@ -2721,7 +2753,18 @@ describe("PDF to Word: the picture sentences hold of the engine", () => {
       plainRuns[0]!.b !== true;
     const denying: string[] = [];
     const claiming: string[] = [];
-    for (const container of await containersFor(PDF_TO_WORD_TOOL))
+    const containers = await containersFor(PDF_TO_WORD_TOOL);
+    // Health (2026-11-15): the set holds guides that only NAME the tool —
+    // the Edit PDF guide among them — not just the ones that list it.
+    const naming = containers.filter((c) =>
+      guides.some(
+        (g) =>
+          c.where === `/guides/${g.slug}` &&
+          !g.tools.includes(PDF_TO_WORD_TOOL),
+      ),
+    );
+    expect(naming.length).toBeGreaterThan(0);
+    for (const container of containers)
       for (const { sentence, masked } of attributedTo(
         container,
         PDF_TO_WORD_TOOL,

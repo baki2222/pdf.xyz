@@ -96,8 +96,12 @@ export function OfficeExportCoverageNotice({
   const lostPages = report.pagesMissingPictures ?? [];
   const flattened = powerpoint ? (report.flattenedPageCount ?? 0) : 0;
   const rebuilt = keepsPictures && report.repairedBeforeConversion === true;
-  // Word, since 2026-11-15: pages whose words came through with none of
-  // their formatting. Counted by the worker; absent from older results.
+  // Word, since 2026-11-15: pages with words written in Word's default
+  // style — some of them or all. Counted by the worker; absent from older
+  // results. CHANGED 2026-11-15 (review round 1): the worker named a page
+  // only when NONE of its words matched, and this note gave two reasons
+  // (out of time, or OCR) — false for a page whose turned or right-to-left
+  // lines the matcher declined, which it now names with the third reason.
   const unformatted = word ? (report.formattingMissingPageCount ?? 0) : 0;
   if (
     missing <= 0 &&
@@ -162,19 +166,19 @@ export function OfficeExportCoverageNotice({
         <p className="flex items-start gap-2">
           <Type className="mt-0.5 size-4 shrink-0" aria-hidden />
           <span>
-            {pageSpan(report.pagesWithoutFormatting ?? [], unformatted).replace(
-              /^p/,
-              "P",
-            )}{" "}
-            came through in Word&apos;s default style, without{" "}
-            {unformatted === 1 ? "its" : "their"} bold, italics, sizes and
-            colours: our server could not read how{" "}
+            Some or all of the words on{" "}
+            {pageSpan(report.pagesWithoutFormatting ?? [], unformatted)} came
+            through in Word&apos;s default style, without their bold, italics,
+            sizes and colours. Either our server could not read how{" "}
             {unformatted === 1
               ? "that page draws its"
               : "those pages draw their"}{" "}
             words within what one conversion allows, or the words are text
-            recognised by OCR, which has no formatting to keep. All of the text
-            is there.
+            recognised by OCR, which has no formatting to keep, or we could not
+            tell for certain which formatting a word is drawn in (one whose
+            colour changes partway through, say, or text drawn turned, right to
+            left, or over other text) and left it plain rather than guess. All
+            of the text is there.
           </span>
         </p>
       )}

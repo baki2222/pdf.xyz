@@ -1663,7 +1663,7 @@ export const guides: Guide[] = [
         id: "changing-existing-text",
         heading: "Changing the text that is already there",
         body: [
-          `To rework the wording itself, convert the file with ${nameOf("pdf-to-word")}: it exports the PDF's selectable text as an editable Word document, as plain paragraphs in reading order, with each picture between them. Fonts, tables and page layout are not recreated, so it suits documents where the words matter more than the look.`,
+          `To rework the wording itself, convert the file with ${nameOf("pdf-to-word")}: it exports the PDF's selectable text as an editable Word document, in reading order, each word keeping its bold, italics, size and colour where our reader matches it, with each picture between the paragraphs. The typeface, tables and page layout are not recreated, so it suits documents where the words matter more than the look.`,
         ],
       },
       {
@@ -1710,7 +1710,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-10-30",
+    updated: "2026-11-14",
   },
   {
     slug: "how-to-create-a-fillable-pdf-form",

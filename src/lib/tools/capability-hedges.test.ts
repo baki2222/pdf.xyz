@@ -1278,6 +1278,10 @@ describe("the docxRunStyles subject (backlog #28 slice 1, 2026-11-15)", () => {
    * and the convert guide's intro, two section paragraphs, step 6 and the
    * look FAQ answer. A member elsewhere is a formatting sentence nobody
    * paired; a missing one is the subject going blind to the copy it guards.
+   * NINE since review round 1 the same day: the add-text guide's "Changing
+   * the text that is already there", which had said PDF to Word exports
+   * "plain paragraphs" and now says each word keeps its formatting — so a
+   * heartbeat that denies docxRunStyles hedges it too.
    */
   it("reaches the Word formatting sentences, and nothing else", () => {
     const members = COPY.filter((entry) =>
@@ -1293,6 +1297,7 @@ describe("the docxRunStyles subject (backlog #28 slice 1, 2026-11-15)", () => {
         "guide:how-to-convert-pdf-to-word sections[0].body[1]",
         "guide:how-to-convert-pdf-to-word steps[5]",
         "guide:how-to-convert-pdf-to-word faq[4].answer",
+        "guide:how-to-add-text-to-a-pdf sections[2].body[0]",
       ].sort(),
     );
   });
