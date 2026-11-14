@@ -1274,6 +1274,54 @@ const TOOL_PAGES_TO_COME = {
   //    page concatenates it into, +36 B on each (measured on the first cut,
   //    then removed: html-source-area asks the page's own `refuse`).
   //
+  // NOT TAKEN from the allocation, 2026-11-14, by Compare PDF's changes by
+  // page (audit compare-pdf#4) — flagged for the owner as A RE-ALLOCATION OF
+  // G.1 in effect: it rides each row's own headroom, as every runtime entry
+  // since P6 has. The comparison (lines, diff, hunks, word marks), its
+  // report and its view left the compare runner's chunk for ONE async chunk
+  // (`runner/compare/compare-result.tsx`, fetched with the two extractions
+  // or as the second file lands; held off every first load by
+  // lazy-chunks.test.ts). Measured gzip -9 over each page's first-load
+  // chunks (scripts/page-weight.ts's method), main adb519ab (a detached
+  // worktree, E:/wcmp1-base, its own `pnpm install --frozen-lockfile`) ->
+  // the branch, both built on this machine (Windows) from an empty .next,
+  // all 144 prerendered pages:
+  //                       main      branch    delta
+  //   tools/compare-pdf 230,131 -> 228,787  -1,344  (runner chunk 3090,
+  //                                                  7,944 -> 1104, 6,588)
+  //   tools/ocr-pdf     233,876 -> 233,888     +12
+  //   tools/rotate-pdf  234,951 -> 234,963     +12
+  //   tools/merge-pdf   229,397 -> 229,409     +12
+  //   tools/summarize   234,688 -> 234,700     +12
+  //   tools/pdf-viewer  227,901 -> 227,912     +11
+  //   home              202,832 -> 202,842     +10
+  //   /tools 213,260 -> 213,271 (+11), /workspace 235,001 -> 235,012 (+11)
+  //  - the other 143 pages: +7 (1), +8 (67), +9 (8), +10 (4), +11 (5),
+  //    +12 (58); none outside +7..+12. Where it is, on a tool page:
+  //    webpack's runtime 3,777 -> 3,788 (+11, the chunk map's one new
+  //    entry), the [slug] page chunk +3, main-app and not-found -1 each.
+  //  - the ticket's on-demand fetch is byte-identical (34,995 B over the
+  //    same eight chunk files, hashes unchanged).
+  // Nothing allocated: the +12 on each G.1 row is inside its headroom.
+  // RE-MEASURED the same way after the review fixes (running lines, case
+  // folding, tokenizer, row budget, view), all inside the async chunk:
+  // compare-pdf 230,131 -> 228,788 (-1,343); every other page +8..+13
+  // (+8 (1), +9 (67), +10 (8), +11 (4), +12 (5), +13 (58)). The extra 1 B
+  // everywhere is webpack's runtime, 3,777 -> 3,789 (+12, was +11): the
+  // compare chunk's new content hash gzips a byte worse. Still inside
+  // every G.1 row's headroom.
+  // RE-MEASURED after the second review's fixes (furniture decided against
+  // both files, word pairing, the stepped comparison, the memoised rows),
+  // against a fresh main build (E:/wcmp1-base2, adb519ab, its own install;
+  // its figures differ from the first base by a few bytes of chunk hashes):
+  // compare-pdf 230,139 -> 228,749 (-1,390: the runner's "ignoring ..."
+  // note moved into the async chunk); every other page +3..+12 (+3 (1),
+  // +4 (58), +5 (1), +6 (66), +7 (10), +8 (2), +9 (4), +12 (1:
+  // _global-error)); home 202,834 -> 202,842, /tools 213,264 -> 213,271,
+  // /workspace 235,003 -> 235,012, merge/ocr/rotate/summarize +4, pdf-viewer
+  // +3. Webpack's runtime 3,776 -> 3,788 (+12). The ticket's on-demand fetch
+  // is still 34,995 B. Inside every G.1 row's headroom.
+  //
   // NOT TAKEN, 2026-11-15, by the per-page image budget
   // (fix/image-budget-residuals, four review rounds; re-measured after
   // round 4 removed the map's decryption path): gzip -9 over each page's

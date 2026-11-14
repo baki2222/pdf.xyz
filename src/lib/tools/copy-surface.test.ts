@@ -577,7 +577,6 @@ describe("copy reach: every file that holds words for a reader is walked, or rec
           "src/lib/jobs/translate-pdf.ts",
           "src/lib/jobs/validation.ts",
           "src/lib/pdf/annotate.ts",
-          "src/lib/pdf/compare-pdf.ts",
           "src/lib/pdf/create-forms.ts",
           "src/lib/pdf/crop.ts",
           "src/lib/pdf/edit.ts",
@@ -813,8 +812,13 @@ describe("copy reach: every file that holds words for a reader is walked, or rec
      * (it mirrors the browser's preflight) read as an unattributed ceiling
      * sentence. The module the same branch added for READERS, the null
      * meaning, is walked.
+     *
+     * Lowered to 164 on 2026-11-14: `src/lib/pdf/compare-pdf.ts` left the
+     * record. Its report moved to the walked runner root
+     * (`runner/compare/report.ts`) and its refusal to the walked
+     * `src/lib/pdf/compare/` root (audit compare-pdf#4).
      */
-    const OUTSIDE_THE_WALK_CEILING = 165;
+    const OUTSIDE_THE_WALK_CEILING = 164;
 
     /**
      * Identity language a recorded module may hold, each with the reason, as

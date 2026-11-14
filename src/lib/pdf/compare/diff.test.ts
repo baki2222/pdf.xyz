@@ -1,14 +1,51 @@
 import { describe, expect, it } from "vitest";
 import {
   COMPARE_VERDICTS,
-  CompareTooLargeError,
-  MAX_DIFF_CELLS,
-  compareExtractedPdfText,
   compareOutputName,
-  diffLines,
   type ComparablePdfText,
   type CompareVerdict,
-} from "./compare-pdf";
+  type DiffLine,
+} from "../compare-pdf";
+import { compareExtractedPdfText } from "@/components/tools/runner/compare/compare-result";
+import {
+  CompareTooLargeError,
+  DISJOINT_CHECK_CELLS,
+  MAX_DIFF_CELLS,
+  diffIds,
+  intern,
+} from "./diff";
+import { normalizeComparableText } from "./lines";
+
+/*
+ * MOVED 2026-11-14 from the compare-pdf test beside compare-pdf.ts (audit
+ * compare-pdf#4), every test kept. The line diff left `compare-pdf.ts` for
+ * `./diff.ts` and became generic over ids (`diffIds`); `diffLines` below is
+ * the old function rebuilt from the shipped parts — the same normalisation
+ * (`normalizeComparableText`), one id map for both sides (`intern`) and the
+ * script mapped back to text — so the size tests still run the diff the
+ * comparison runs, and their expectations are unchanged.
+ */
+function diffLines(
+  leftText: string,
+  rightText: string,
+  onCells?: (n: number) => void,
+): DiffLine[] {
+  const left = normalizeComparableText(leftText);
+  const right = normalizeComparableText(rightText);
+  const ids = new Map<string, number>();
+  return diffIds(
+    intern(ids, left),
+    intern(ids, right),
+    MAX_DIFF_CELLS,
+    onCells,
+  ).map((op) =>
+    op.k === "same"
+      ? { kind: "same", text: left[op.a]! }
+      : op.k === "removed"
+        ? { kind: "removed", text: left[op.a]! }
+        : { kind: "added", text: right[op.b]! },
+  );
+}
 
 function doc(name: string, text: string, pageCount = 1): ComparablePdfText {
   return {
@@ -292,8 +329,12 @@ describe("compare-pdf — size", () => {
 
   it("no LCS table larger than MAX_DIFF_CELLS is ever allocated", () => {
     // diffLines' docblock claims this; a comment is not a guard. The table is
-    // the only Uint16Array/Uint32Array it builds, so record every one.
+    // the only Uint16Array/Uint32Array it builds, so record every one — and,
+    // since 2026-11-14, what `diffIds` itself reports through `onCells`, the
+    // figure the word marks charge their budget with: the two must agree.
     const sizes: number[] = [];
+    const reported: number[] = [];
+    const heard = (n: number) => reported.push(n);
     const real = { u16: globalThis.Uint16Array, u32: globalThis.Uint32Array };
     class U16 extends real.u16 {
       constructor(length: number) {
@@ -312,18 +353,21 @@ describe("compare-pdf — size", () => {
     try {
       const side = Math.floor(Math.sqrt(MAX_DIFF_CELLS));
       // Positive control: one stretch just under the bound builds one table.
-      diffLines(
-        lines("left", side - 1).join("\n"),
-        lines("right", side - 1).join("\n"),
-      );
+      // One line in common, mid-way: since 2026-11-14 a stretch with NO
+      // line in common is written without its all-zero table.
+      const left = lines("left", side - 1);
+      const right = lines("right", side - 1);
+      right[Math.floor(side / 2)] = left[Math.floor(side / 3)]!;
+      diffLines(left.join("\n"), right.join("\n"), heard);
       // A document far over the bound, with edits spread through it.
       const base = lines("doc", 30_000);
       const next = base.map((l, i) => (i % 997 === 0 ? `${l} edited` : l));
-      diffLines(base.join("\n"), next.join("\n"));
+      diffLines(base.join("\n"), next.join("\n"), heard);
       expect(() =>
         diffLines(
           lines("left", side + 1).join("\n"),
           lines("right", side + 1).join("\n"),
+          heard,
         ),
       ).toThrow(CompareTooLargeError);
     } finally {
@@ -334,6 +378,8 @@ describe("compare-pdf — size", () => {
     expect(sizes.length).toBeGreaterThan(1);
     expect(Math.max(...sizes)).toBeGreaterThan(MAX_DIFF_CELLS * 0.99);
     expect(Math.max(...sizes)).toBeLessThanOrEqual(MAX_DIFF_CELLS);
+    // onCells hears exactly the tables that were allocated.
+    expect(reported).toEqual(sizes);
   });
 
   it("an appended 200,000-line tail is reported line by line, not refused", () => {
@@ -354,5 +400,71 @@ describe("compare-pdf — size", () => {
     expect(kinds(diff)).toEqual({ same: 100_000, added: 1, removed: 1 });
     expect(diff[50_000]).toEqual({ kind: "removed", text: "L" });
     expect(diff[50_001]).toEqual({ kind: "added", text: "R" });
+  });
+});
+
+/**
+ * A stretch with nothing in common is written without its table (second
+ * review of audit compare-pdf#4, 2026-11-14): the table is all zeros, and
+ * its walk is every removed step, then every added one. The shortcut must
+ * give that script exactly, and must not fire when one id is shared.
+ */
+describe("diffIds — a stretch with nothing in common", () => {
+  /** The script an all-zero table walks to. */
+  const expected = (n: number, m: number) => [
+    ...Array.from({ length: n }, (_, a) => ({ k: "removed", a })),
+    ...Array.from({ length: m }, (_, b) => ({ k: "added", b })),
+  ];
+
+  it("no shared id: removed then added, and no table is built", () => {
+    const ids = new Map<string, number>();
+    const a = intern(
+      ids,
+      Array.from({ length: 1_500 }, (_, i) => `left ${i}`),
+    );
+    const b = intern(
+      ids,
+      Array.from({ length: 1_200 }, (_, i) => `right ${i}`),
+    );
+    const tables: number[] = [];
+    const ops = diffIds(a, b, MAX_DIFF_CELLS, (cells) => tables.push(cells));
+    // Health: the stretch is over the check's threshold.
+    expect(1_501 * 1_201).toBeGreaterThanOrEqual(DISJOINT_CHECK_CELLS);
+    expect(tables).toEqual([]);
+    expect(ops).toEqual(expected(1_500, 1_200));
+  });
+
+  it("the same script the table gives, under the threshold where the table is built", () => {
+    const ids = new Map<string, number>();
+    const a = intern(
+      ids,
+      Array.from({ length: 300 }, (_, i) => `left ${i}`),
+    );
+    const b = intern(
+      ids,
+      Array.from({ length: 200 }, (_, i) => `right ${i}`),
+    );
+    const tables: number[] = [];
+    const ops = diffIds(a, b, MAX_DIFF_CELLS, (cells) => tables.push(cells));
+    expect(tables).toEqual([301 * 201]);
+    expect(ops).toEqual(expected(300, 200));
+  });
+
+  it("control: one shared id in the middle, and the table is built and finds it", () => {
+    const ids = new Map<string, number>();
+    const left = Array.from({ length: 1_500 }, (_, i) => `left ${i}`);
+    const right = Array.from({ length: 1_200 }, (_, i) => `right ${i}`);
+    right[600] = left[700]!;
+    const tables: number[] = [];
+    const ops = diffIds(
+      intern(ids, left),
+      intern(ids, right),
+      MAX_DIFF_CELLS,
+      (cells) => tables.push(cells),
+    );
+    expect(tables).toHaveLength(1);
+    expect(ops.filter((op) => op.k === "same")).toEqual([
+      { k: "same", a: 700, b: 600 },
+    ]);
   });
 });
