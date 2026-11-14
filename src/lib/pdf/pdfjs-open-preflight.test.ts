@@ -253,12 +253,173 @@ interface RenderingOpen {
 interface PageRenderSite {
   line: number;
   /**
+   * The innermost function around the render asks for the page budget's
+   * verdict before it: a call named `pageImageVerdict` (a preview: draw a
+   * note instead) or `refuseOverBudgetPages` (an output: refuse by page)
+   * earlier in that function's text.
+   */
+  verdict: boolean;
+  /**
+   * The innermost function around the render reads the drawn pixels back
+   * (`getImageData` after the render): an ANALYSIS, whose answer is wrong if
+   * a skipped image left white where it sits.
+   */
+  analysis: boolean;
+  /** An analysis that asks `imagePlacements` before the render. */
+  placements: boolean;
+  /**
    * The lines of the `getDocument(` calls in the nearest function around the
    * render that opens one itself (the render may sit in a closure inside
    * it, as the editor's does); empty when no function around it opens a
    * document, so the document it draws came from somewhere else.
    */
   openedBy: number[];
+}
+
+/** The `if` or `?:` whose condition `n` is (inside), or null. */
+function conditionOf(
+  n: ts.Node,
+): ts.IfStatement | ts.ConditionalExpression | null {
+  for (let at: ts.Node = n; at.parent; at = at.parent) {
+    const p = at.parent;
+    if (ts.isIfStatement(p) && p.expression === at) return p;
+    if (ts.isConditionalExpression(p) && p.condition === at) return p;
+    if (ts.isStatement(p) || isFunction(p)) return null;
+  }
+  return null;
+}
+
+/** `s` cannot complete normally: every path through it returns or throws. */
+function terminates(s: ts.Statement): boolean {
+  if (ts.isReturnStatement(s) || ts.isThrowStatement(s)) return true;
+  if (ts.isBlock(s)) return s.statements.some(terminates);
+  if (ts.isIfStatement(s)) {
+    return (
+      !!s.elseStatement &&
+      terminates(s.thenStatement) &&
+      terminates(s.elseStatement)
+    );
+  }
+  return false;
+}
+
+const within = (outer: ts.Node, inner: ts.Node) =>
+  inner.pos >= outer.pos && inner.end <= outer.end;
+
+/**
+ * The verdict's test `owner` STOPS the render on one of its branches: the
+ * render sits in one branch only; or it follows the `if` (in the same block,
+ * or inside a later statement of it) and a branch of the `if` cannot fall
+ * through to it (it returns or throws); or the `?:` picks what is rendered
+ * (it initialises the variable whose `.render` is called: Auto-crop's
+ * page-without-images). It does not read WHICH branch is the note's (a
+ * `note === null` typo passes): the child tests in
+ * src/tests/hostile/page-images.test.ts render each path for that.
+ *
+ * History (review r3, 2026-11-14): the rule asked only that the verdict be
+ * read in a condition. Deleting `return canvas;` after the editor's note
+ * drew the note AND decoded the page, and the rule stayed green.
+ */
+function stopsRender(
+  owner: ts.IfStatement | ts.ConditionalExpression,
+  render: ts.CallExpression,
+): boolean {
+  if (ts.isIfStatement(owner)) {
+    if (within(owner.thenStatement, render)) return true;
+    if (owner.elseStatement && within(owner.elseStatement, render)) return true;
+    const block = owner.parent;
+    if (!ts.isBlock(block) && !ts.isSourceFile(block)) return false;
+    const after = block.statements.some(
+      (s) => s.pos >= owner.end && within(s, render),
+    );
+    return (
+      after &&
+      (terminates(owner.thenStatement) ||
+        (!!owner.elseStatement && terminates(owner.elseStatement)))
+    );
+  }
+  if (within(owner.whenTrue, render) || within(owner.whenFalse, render)) {
+    return true;
+  }
+  let at: ts.Node = owner;
+  while (
+    at.parent &&
+    (ts.isParenthesizedExpression(at.parent) || ts.isAwaitExpression(at.parent))
+  ) {
+    at = at.parent;
+  }
+  const decl = at.parent;
+  const callee = render.expression;
+  return (
+    !!decl &&
+    ts.isVariableDeclaration(decl) &&
+    decl.initializer === at &&
+    ts.isIdentifier(decl.name) &&
+    ts.isPropertyAccessExpression(callee) &&
+    ts.isIdentifier(callee.expression) &&
+    callee.expression.text === decl.name.text
+  );
+}
+
+/**
+ * A `pageImageVerdict(...)` call whose answer DECIDES whether the page is
+ * drawn: it sits in an `if`/`?:` condition itself, or it initialises a
+ * variable (alone, or compared) that such a condition reads before the
+ * render. A call whose result is thrown away (`void verdict(...)`) or kept
+ * and never tested names the mechanism and certifies nothing.
+ *
+ * History (hostile review r2, 2026-11-14): the rule asked only that a call
+ * with the name came earlier; a viewer that computed the verdict and
+ * discarded it passed and drew the over-budget page.
+ */
+function verdictDecides(
+  call: ts.CallExpression,
+  fn: ts.Node | undefined,
+  render: ts.CallExpression,
+  file: ts.SourceFile,
+): boolean {
+  const own = conditionOf(call);
+  if (own) return stopsRender(own, render);
+  let at: ts.Node = call;
+  while (
+    at.parent &&
+    (ts.isBinaryExpression(at.parent) ||
+      ts.isParenthesizedExpression(at.parent) ||
+      ts.isAwaitExpression(at.parent))
+  ) {
+    at = at.parent;
+  }
+  const decl = at.parent;
+  if (
+    !decl ||
+    !ts.isVariableDeclaration(decl) ||
+    decl.initializer !== at ||
+    !ts.isIdentifier(decl.name) ||
+    !fn
+  ) {
+    return false;
+  }
+  const name = decl.name.text;
+  let read = false;
+  const look = (n: ts.Node) => {
+    if (read) return;
+    if (
+      ts.isIdentifier(n) &&
+      n.text === name &&
+      n !== decl.name &&
+      n.getStart(file) > decl.end &&
+      n.end <= render.getStart(file)
+    ) {
+      const owner = conditionOf(n);
+      if (owner && stopsRender(owner, render)) {
+        read = true;
+        return;
+      }
+    }
+    ts.forEachChild(n, look);
+  };
+  look(fn);
+  return read;
 }
 
 /**
@@ -292,7 +453,47 @@ function renderingOpens(
       for (let fn = node.parent; fn && openedBy.length === 0; fn = fn.parent) {
         if (isFunction(fn)) openedBy = ownOpens(fn).map(lineOf);
       }
-      sites.push({ line: lineOf(node), openedBy });
+      let inner: ts.Node | undefined = node.parent;
+      while (inner && !isFunction(inner)) inner = inner.parent;
+      const calls = (
+        name: string,
+        before: boolean,
+        used: (call: ts.CallExpression) => boolean = () => true,
+      ) => {
+        let found = false;
+        const look = (n: ts.Node) => {
+          if (found || (n !== inner && isFunction(n))) return;
+          if (
+            ts.isCallExpression(n) &&
+            calleeName(n) === name &&
+            (before
+              ? n.end <= node.getStart(file)
+              : n.getStart(file) >= node.end) &&
+            used(n)
+          ) {
+            found = true;
+            return;
+          }
+          ts.forEachChild(n, look);
+        };
+        if (inner && isFunction(inner) && inner.body) look(inner.body);
+        return found;
+      };
+      sites.push({
+        line: lineOf(node),
+        openedBy,
+        verdict:
+          calls("pageImageVerdict", true, (c) =>
+            verdictDecides(c, inner, node, file),
+          ) ||
+          calls(
+            "refuseOverBudgetPages",
+            true,
+            (c) => !!c.parent && ts.isAwaitExpression(c.parent),
+          ),
+        analysis: calls("getImageData", false),
+        placements: calls("imagePlacements", true),
+      });
     }
     if (ts.isCallExpression(node) && calleeName(node) === "getDocument") {
       calls.push(node);
@@ -333,14 +534,13 @@ function renderingOpens(
  * entry (the file no longer renders, or its opens are now handled) fails.
  */
 const RENDER_EXEMPT: Record<string, string> = {
-  // OPEN (found 2026-11-09, lane editor-opener-budget): Auto-crop draws each
-  // page to find its content box, with neither option, so a CO-08 image is
-  // decoded in full. Neither fix is free: skipping the image would crop a
-  // page to the rest of its content (a wrong crop, said nowhere), and
-  // refusing changes what Crop PDF accepts. Listed so the guard can land
-  // without deciding Crop PDF's behaviour; it is a defect, not a licence.
-  "src/lib/pdf/auto-crop-render.ts":
-    "OPEN: decodes an over-budget image; preview-or-refuse is undecided",
+  // History: from 2026-11-09 (lane editor-opener-budget) to 2026-11-14 this
+  // held "src/lib/pdf/auto-crop-render.ts": Auto-crop drew each page with
+  // neither option, so a CO-08 image was decoded in full, because skipping
+  // it would crop the page to the rest of its ink, said nowhere. It now
+  // previews, and counts each skipped image's PLACEMENT as ink (an ANALYSIS
+  // that must ask `imagePlacements`, the third rule below), keeping a page
+  // whole where the placement cannot be worked out. Empty: no exemption.
 };
 
 describe("preflightPdfjsOpen runs once per file", () => {
@@ -648,6 +848,154 @@ describe("every pdf.js open that renders pages previews or refuses an over-budge
       ),
     ).toEqual([[]]);
     expect(sites(`async function draw(page) {\n${RENDER}}`)).toEqual([[]]);
+  });
+
+  it("the page-budget verdict and the analysis rule tell a handled render from a bare one (positive and negative controls)", () => {
+    const site = (src: string) => renderingOpens(src).sites[0]!;
+    const OPENED =
+      "  const t = pdfjs.getDocument({ data, ...previewOptions });\n";
+    // Positive: a preview asks for the page verdict before drawing, in the
+    // closure that draws (the editor's and the thumbnails' shape)...
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  const r = async (page) => {\n    const note = guard.pageImageVerdict(pre, page.ref);\n    if (note) return draw(note);\n${RENDER}  };\n}`,
+      ).verdict,
+    ).toBe(true);
+    // ...and an output refuses by page before its loop.
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  await guard.refuseOverBudgetPages(pre, order, get);\n  for (const i of order) {\n${RENDER}  }\n}`,
+      ).verdict,
+    ).toBe(true);
+    // ...and an analysis picks the document to draw by it (Auto-crop's shape).
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  const over = guard.pageImageVerdict(pre, page.ref) !== null;\n  const page = over ? bare : shown;\n${RENDER}}`,
+      ).verdict,
+    ).toBe(true);
+    // Negative (hostile review r2): the verdict computed and thrown away,
+    // kept and never tested, tested only after the render, and a refusal
+    // not awaited (a promise nobody waits for refuses nothing).
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  void guard.pageImageVerdict(pre, page.ref);\n  const note = null;\n  if (note) return draw(note);\n${RENDER}}`,
+      ).verdict,
+    ).toBe(false);
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  const note = guard.pageImageVerdict(pre, page.ref);\n  log(note);\n${RENDER}}`,
+      ).verdict,
+    ).toBe(false);
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  const note = guard.pageImageVerdict(pre, page.ref);\n${RENDER}  if (note) draw(note);\n}`,
+      ).verdict,
+    ).toBe(false);
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  guard.refuseOverBudgetPages(pre, order, get);\n${RENDER}}`,
+      ).verdict,
+    ).toBe(false);
+    // Negative (review r3): the verdict tested, but its branch falls
+    // through to the render (the editor with `return canvas;` deleted), in
+    // the same block and in a later `try`; a `?:` whose answer is not what
+    // is rendered.
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  const note = guard.pageImageVerdict(pre, page.ref);\n  if (note !== null) {\n    guard.drawPageNote(canvas, note);\n  }\n${RENDER}}`,
+      ).verdict,
+    ).toBe(false);
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  const note = guard.pageImageVerdict(pre, page.ref);\n  if (note !== null) draw(note);\n  try {\n  ${RENDER}  } finally {}\n}`,
+      ).verdict,
+    ).toBe(false);
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  const over = guard.pageImageVerdict(pre, page.ref) !== null;\n  const scale = over ? 1 : 2;\n${RENDER}}`,
+      ).verdict,
+    ).toBe(false);
+    // Positive: the same shapes stopped: a return in the branch, the render
+    // in the other branch, the render after a branch that throws, in a try.
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  const note = guard.pageImageVerdict(pre, page.ref);\n  if (note !== null) {\n    guard.drawPageNote(canvas, note);\n    return canvas;\n  }\n${RENDER}}`,
+      ).verdict,
+    ).toBe(true);
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  const note = guard.pageImageVerdict(pre, page.ref);\n  if (note !== null) draw(note);\n  else {\n  ${RENDER}  }\n}`,
+      ).verdict,
+    ).toBe(true);
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  const note = guard.pageImageVerdict(pre, page.ref);\n  if (note !== null) throw new Error(note);\n  try {\n  ${RENDER}  } finally {}\n}`,
+      ).verdict,
+    ).toBe(true);
+    // Negative: no verdict; a verdict AFTER the render; a verdict in another
+    // function than the one that draws.
+    expect(site(`async function a(bytes) {\n${OPENED}${RENDER}}`).verdict).toBe(
+      false,
+    );
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}${RENDER}  guard.pageImageVerdict(pre, page.ref);\n}`,
+      ).verdict,
+    ).toBe(false);
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  guard.pageImageVerdict(pre, page.ref);\n  const r = async () => {\n${RENDER}  };\n}`,
+      ).verdict,
+    ).toBe(false);
+    // An analysis reads the pixels back after drawing; it must place the
+    // images the preview skipped, before drawing.
+    const analysed = site(
+      `async function a(bytes) {\n${OPENED}  guard.pageImageVerdict(pre, page.ref);\n${RENDER}  const px = ctx.getImageData(0, 0, w, h);\n}`,
+    );
+    expect(analysed).toMatchObject({ analysis: true, placements: false });
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  guard.pageImageVerdict(pre, page.ref);\n  const boxes = await guard.imagePlacements(bytes, page.ref, bound);\n${RENDER}  const px = ctx.getImageData(0, 0, w, h);\n}`,
+      ),
+    ).toMatchObject({ analysis: true, placements: true });
+    // Negative: pixels read BEFORE the draw are no analysis of it; a preview
+    // that never reads its pixels is none either.
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  const px = ctx.getImageData(0, 0, w, h);\n${RENDER}}`,
+      ).analysis,
+    ).toBe(false);
+    expect(
+      site(`async function a(bytes) {\n${OPENED}${RENDER}}`).analysis,
+    ).toBe(false);
+  });
+
+  it("finds every page render in src/lib and src/components asking the page budget's verdict, and every analysis placing what it skips", () => {
+    const files = SCOPES.flatMap(walk);
+    expect(files.length).toBeGreaterThan(300);
+    const sites = files.flatMap((path) => {
+      const file = relative(ROOT, path).replace(/\\/g, "/");
+      return renderingOpens(readFileSync(path, "utf8"), path).sites.map(
+        (s) => ({ ...s, at: `${file}:${s.line}`, file }),
+      );
+    });
+    // Health: the thumbnails, the raster output, the editor, the viewer
+    // and Auto-crop each draw at least once.
+    expect(new Set(sites.map((s) => s.file))).toEqual(
+      new Set([
+        "src/lib/pdf/render.ts",
+        "src/lib/pdf/editor/page-render.ts",
+        "src/lib/pdf/viewer.ts",
+        "src/lib/pdf/auto-crop-render.ts",
+      ]),
+    );
+    expect(sites.filter((s) => !s.verdict).map((s) => s.at)).toEqual([]);
+    const analyses = sites.filter((s) => s.analysis);
+    // Health: Auto-crop is an analysis; nothing else reads its own render.
+    expect(analyses.map((s) => s.file)).toEqual([
+      "src/lib/pdf/auto-crop-render.ts",
+    ]);
+    expect(analyses.filter((s) => !s.placements).map((s) => s.at)).toEqual([]);
   });
 
   it("finds every rendering open in src/lib and src/components previewing or refusing", () => {

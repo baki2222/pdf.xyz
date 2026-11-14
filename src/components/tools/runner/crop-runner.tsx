@@ -486,8 +486,8 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
             >
               {pageImage && (
                 <img
-                  src={pageImage}
-                  alt=""
+                  src={pageImage.url}
+                  alt={pageImage.note ?? ""}
                   className="absolute inset-0 size-full object-fill"
                 />
               )}
@@ -541,7 +541,9 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
                 ? "This page looks blank, so it is left uncropped."
                 : plan.unread.includes(shownPage)
                   ? "This page could not be read, so it is left uncropped."
-                  : "The dashed box is what this page keeps."}
+                  : plan.wholeNote && plan.whole.includes(shownPage)
+                    ? plan.wholeNote.page
+                    : "The dashed box is what this page keeps."}
             </p>
           )}
           {pdf.pageCount > 1 && (
@@ -763,7 +765,9 @@ function AutoPanel({
               ? "No marks found on any page, so there is nothing to crop."
               : `Found the content on ${inked} of ${pageCount} page${pageCount === 1 ? "" : "s"}.`}
           </p>
-          {(plan.blank.length > 0 || plan.unread.length > 0) && (
+          {(plan.blank.length > 0 ||
+            plan.unread.length > 0 ||
+            plan.wholeNote) && (
             <div
               role="alert"
               className="border-warn/40 bg-warn/10 text-warn rounded-panel flex items-start gap-3 border px-4 py-3 text-xs"
@@ -773,7 +777,8 @@ function AutoPanel({
                 {plan.blank.length > 0 &&
                   `${pageList(plan.blank).replace(/^p/, "P")} ${plan.blank.length === 1 ? "looks" : "look"} blank and ${plan.blank.length === 1 ? "is" : "are"} left uncropped. `}
                 {plan.unread.length > 0 &&
-                  `${pageList(plan.unread).replace(/^p/, "P")} could not be read and ${plan.unread.length === 1 ? "is" : "are"} left uncropped.`}
+                  `${pageList(plan.unread).replace(/^p/, "P")} could not be read and ${plan.unread.length === 1 ? "is" : "are"} left uncropped. `}
+                {plan.wholeNote?.summary}
               </p>
             </div>
           )}
