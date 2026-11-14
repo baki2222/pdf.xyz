@@ -8,10 +8,24 @@
  * Only a page's EDGE lines are candidates (its first two and last two), so a
  * body sentence that quotes "Page 3 of 40" is never dropped. Two ways in:
  *
- * - its shape is a page number ({@link RUNNING_PATTERNS}), on any edge; or
- * - its shape recurs at an edge on at least `max(3, ceil(0.4 × pages))` of
- *   the pages that have text, where the shape turns every run of digits (and
- *   a roman numeral after "page") into `#`.
+ * - it is a page number by form ({@link RUNNING_PATTERNS}). A form with the
+ *   word "page" in it, or the "- 3 -" form, counts on any edge. A bare
+ *   number, or "3 / 40" and "3 of 40", counts only when its number TRACKS
+ *   the page: it equals the page's own number, or it is off from it by the
+ *   same amount on another page too (a book whose numbering starts after the
+ *   cover). An amount in a table's last cell does neither.
+ * - it repeats WORD FOR WORD at an edge — case aside, and apart from one
+ *   number at its start or end set apart by a delimiter ("Annual report ·
+ *   3"), or after "page", that tracks the page the same way — on at least {@link RECURRENCE_FLOOR} text pages and either
+ *   {@link RECURRENCE_SHARE} of them or {@link RECURRENCE_RUN} consecutive
+ *   ones. The run is what finds a chapter's running head in a 500-page book,
+ *   where no one head is on 40% of the pages.
+ *
+ * Until 2026-11-14 the recurrence test folded EVERY run of digits into `#`
+ * (history kept): "Balance carried forward: 3000.00" then matched page 4's
+ * "4000.00", every one of them was dropped, and a changed balance compared
+ * as identical. A line that differs from page to page by anything but its
+ * page number is not running, and is always compared.
  *
  * `running-lines.test.ts` holds both directions with a corpus: every line
  * that must go is dropped, every line that must stay is kept, and every
@@ -21,22 +35,90 @@
 /** How many lines at the top and at the bottom of a page are candidates. */
 export const EDGE_LINES = 2;
 
-/** The share of text pages a shape must recur on, and the floor. */
+/** The share of text pages a line must repeat on, or ... */
 export const RECURRENCE_SHARE = 0.4;
-export const RECURRENCE_FLOOR = 3;
+/** ... the run of consecutive text pages it must repeat on instead. */
+export const RECURRENCE_RUN = 3;
+/** And in either case at least this many pages: one page repeats nothing. */
+export const RECURRENCE_FLOOR = 2;
 
-/** Page-number shapes, matched against a line's SHAPE (digits → `#`). */
-export const RUNNING_PATTERNS: readonly RegExp[] = [
-  /^(?:page\s*)?#(?:\s*(?:of|\/)\s*#)?$/i,
-  /^[-–]\s*#\s*[-–]$/,
+/**
+ * Page-number forms, matched against a line's SHAPE (digits → `#`).
+ * `tracks: false` forms are page numbers by their words alone; `tracks:
+ * true` forms only when their number tracks the page.
+ */
+export const RUNNING_PATTERNS: readonly { re: RegExp; tracks: boolean }[] = [
+  { re: /^page\s*#(?:\s*(?:of|\/)\s*#)?$/i, tracks: false },
+  { re: /^[-–]\s*#\s*[-–]$/, tracks: false },
+  { re: /^#(?:\s*(?:of|\/)\s*#)?$/i, tracks: true },
 ];
+
+const ROMAN: Record<string, number> = {
+  i: 1,
+  v: 5,
+  x: 10,
+  l: 50,
+  c: 100,
+  d: 500,
+  m: 1000,
+};
+
+function romanValue(text: string): number {
+  let total = 0;
+  const s = text.toLowerCase();
+  for (let i = 0; i < s.length; i += 1) {
+    const v = ROMAN[s[i]!]!;
+    const next = ROMAN[s[i + 1] ?? ""] ?? 0;
+    total += v < next ? -v : v;
+  }
+  return total;
+}
+
+/** A roman numeral after "page" as its arabic value: "Page iv" → "Page 4". */
+function arabic(text: string): string {
+  return text.replace(
+    /\b(page\s*)([ivxlcdm]+)\b/gi,
+    (_, page: string, roman: string) => `${page}${romanValue(roman)}`,
+  );
+}
 
 /** A line's shape: digit runs, and a roman numeral after "page", as `#`. */
 export function runningShape(text: string): string {
-  return text
-    .replace(/\d+/g, "#")
-    .replace(/\b(page\s*)[ivxlcdm]+\b/gi, (_, page: string) => `${page}#`)
-    .toLowerCase();
+  return arabic(text).replace(/\d+/g, "#").toLowerCase();
+}
+
+const EDGE_PUNCT = /^[\s\p{P}\p{S}]*$/u;
+/**
+ * What sets a page number apart from a running head's words: "Annual
+ * report · 3", "3 | Acme Corp". A number joined to the words by a space
+ * alone ("Transactions for week 3") or by a decimal point is not folded.
+ */
+const DELIMITER_BEFORE = /[|·•—–\-/:]\s*$/u;
+const DELIMITER_AFTER = /^\s*[|·•—–\-/:]/u;
+
+/**
+ * The keys a line repeats under: its text (lowercased), and for each number
+ * that could be a page number — at the line's start or end and set apart by
+ * a delimiter, or after "page" — the text with that number folded, tagged with how far the number
+ * is from the page's own. Two lines share a folded key only when that
+ * number moves with the page.
+ */
+function repeatKeys(text: string, page: number): string[] {
+  const line = arabic(text).toLowerCase();
+  const keys = [line];
+  for (const m of line.matchAll(/\d+/g)) {
+    const before = line.slice(0, m.index);
+    const after = line.slice(m.index + m[0].length);
+    if (
+      (EDGE_PUNCT.test(after) && DELIMITER_BEFORE.test(before)) ||
+      (EDGE_PUNCT.test(before) && DELIMITER_AFTER.test(after)) ||
+      /\b(?:page|p\.|pg\.?)\s*$/.test(before)
+    ) {
+      const offset = Number(m[0]) - page;
+      keys.push(`${before}#${after}\u0000${offset}`);
+    }
+  }
+  return keys;
 }
 
 /**
@@ -52,6 +134,8 @@ export function detectRunningLines(
     if (on) on.push(i);
     else byPage.set(line.page, [i]);
   });
+  // Each text page's place in reading order, for the consecutive-run test.
+  const rank = new Map([...byPage.keys()].map((page, r) => [page, r]));
 
   const edges: number[] = [];
   for (const indices of byPage.values()) {
@@ -62,27 +146,61 @@ export function detectRunningLines(
     edges.push(...picked);
   }
 
-  const pagesOfShape = new Map<string, Set<number>>();
+  const keysOf = new Map<number, string[]>();
+  const ranksOfKey = new Map<string, Set<number>>();
   for (const i of edges) {
-    const shape = runningShape(lines[i]!.text);
-    const pages = pagesOfShape.get(shape) ?? new Set<number>();
-    pages.add(lines[i]!.page);
-    pagesOfShape.set(shape, pages);
+    const { text, page } = lines[i]!;
+    const keys = repeatKeys(text, page);
+    keysOf.set(i, keys);
+    for (const key of keys) {
+      const ranks = ranksOfKey.get(key) ?? new Set<number>();
+      ranks.add(rank.get(page)!);
+      ranksOfKey.set(key, ranks);
+    }
   }
-  const needed = Math.max(
-    RECURRENCE_FLOOR,
-    Math.ceil(RECURRENCE_SHARE * byPage.size),
-  );
+  const share = Math.ceil(RECURRENCE_SHARE * byPage.size);
+  const repeats = (ranks: Set<number>): boolean => {
+    if (ranks.size < RECURRENCE_FLOOR) return false;
+    if (ranks.size >= share) return true;
+    const sorted = [...ranks].sort((x, y) => x - y);
+    let run = 1;
+    for (let k = 1; k < sorted.length; k += 1) {
+      run = sorted[k] === sorted[k - 1]! + 1 ? run + 1 : 1;
+      if (run >= RECURRENCE_RUN) return true;
+    }
+    return false;
+  };
+
+  // A tracking form's number is off from its page by the same amount on two
+  // pages, or by none on one.
+  const offsetsSeen = new Map<string, Set<number>>();
+  const formOf = (i: number) => {
+    const shape = runningShape(lines[i]!.text);
+    const at = RUNNING_PATTERNS.findIndex(({ re }) => re.test(shape));
+    if (at < 0) return undefined;
+    const first = /\d+/.exec(arabic(lines[i]!.text));
+    const offset = first ? Number(first[0]) - lines[i]!.page : NaN;
+    return { at, offset };
+  };
+  for (const i of edges) {
+    const form = formOf(i);
+    if (!form || !RUNNING_PATTERNS[form.at]!.tracks) continue;
+    const key = `${form.at}\u0000${form.offset}`;
+    const pages = offsetsSeen.get(key) ?? new Set<number>();
+    pages.add(lines[i]!.page);
+    offsetsSeen.set(key, pages);
+  }
 
   const running = new Set<number>();
   for (const i of edges) {
-    const shape = runningShape(lines[i]!.text);
-    if (
-      RUNNING_PATTERNS.some((pattern) => pattern.test(shape)) ||
-      pagesOfShape.get(shape)!.size >= needed
-    ) {
+    const form = formOf(i);
+    const isPageNumber =
+      form !== undefined &&
+      (!RUNNING_PATTERNS[form.at]!.tracks ||
+        form.offset === 0 ||
+        offsetsSeen.get(`${form.at}\u0000${form.offset}`)!.size >= 2);
+    if (isPageNumber || keysOf.get(i)!.some((k) => repeats(ranksOfKey.get(k)!)))
       running.add(i);
-    }
   }
   return running;
 }

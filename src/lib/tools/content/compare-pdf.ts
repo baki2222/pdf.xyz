@@ -51,6 +51,15 @@ const OCR_LINK_MINUTES = DEFAULT_RETENTION.outputTtlMinutes;
  * `compareExtractedPdfText` on real PDFs (runner/compare/engine.test.ts,
  * report.test.ts) and the page's claims against it
  * (claims-vs-capability.test.ts, "Compare PDF names the page").
+ * AMENDED again 2026-11-14 (review of audit compare-pdf#4): the options FAQ
+ * said "lines repeated at the top or bottom of most pages", which was false
+ * both ways (a line on 40% of the pages went; a company name on both pages
+ * of a two-page file stayed), while the detector also dropped body lines
+ * that differed only in their numbers. It now names what goes by example —
+ * a company name on every page, a chapter title on each page of its chapter
+ * (running-lines.test.ts, "a book's chapter heads go at any length") — and
+ * says a line whose figures change page to page is compared (engine.test.ts,
+ * "ignoring page furniture never hides a changed body line").
  * (A note on the Size delta tile stood here until 2026-11-14, saying it
  * printed no minus sign. It was false since the tile moved to
  * `formatSignedBytes`, and is deleted rather than rewritten because a test
@@ -120,7 +129,7 @@ const content: ToolContent = {
     },
     {
       q: "What do Ignore case and Ignore page headers and numbers do?",
-      a: "Both are off unless you tick them, and either can be changed after a comparison without reading the files again. Ignore case compares Total and TOTAL as the same line. Ignore page headers and numbers leaves page numbers such as Page 3 of 40, and lines repeated at the top or bottom of most pages such as a company name, out of both files. Either can turn Differences found into Selectable text matches; the result then says what it ignored, and so does the report.",
+      a: "Both are off unless you tick them, and either can be changed after a comparison without reading the files again. Ignore case compares Total and TOTAL as the same line. Ignore page headers and numbers leaves out of both files page numbers such as Page 3 of 40, and lines repeated word for word at the top or bottom of the pages, such as a company name on every page or a chapter title on each page of its chapter. A line whose words or figures change from page to page, such as a running balance, is always compared. Either can turn Differences found into Selectable text matches; the result then says what it ignored, and so does the report.",
     },
     {
       q: "What if one of the two PDFs is a scan?",
