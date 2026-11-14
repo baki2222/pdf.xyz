@@ -22,22 +22,23 @@
  *  - the slugs: every registry slug whose runner kind another slug shares;
  *  - the runner module: the one the page's dispatcher mounts for the kind
  *    (`ownPanelModules`, the same reader the per-page guard uses);
- *  - the variants: read off that module — the variable it binds to
- *    `useToolRun()?.slug`, each `if (<it> === "<slug>")` arm and the
- *    component the arm returns (followed to its module), plus the default
- *    for the slugs no arm names. A comparison this cannot read, an arm for
- *    a slug not on the kind, or two arms for one slug is FATAL;
- *  - a variant's editor: the `import()` targets under `src/components` of
- *    its host module (the arm's module, or the runner itself for the
- *    default). On a kind with two or more variants, a variant with no lazy
- *    editor is FATAL: its editor is static in a module every sibling loads.
- *  - a variant's modules: its editors, plus every module their value
- *    closure reaches that no sibling's closure reaches and that the
- *    variant's OWN page does not load up front, read from its bytes (the
- *    engines — booklet.ts, metadata.ts — that rode along with the editors).
- *    The editors themselves are NEVER subtracted: a static import of one is
- *    the defect, and subtracting it would let the defect certify itself.
- *
+ *  - the variants, their HOSTS, EDITORS and own modules: read off that
+ *    module by `src/tests/shared-kind-variants.ts` (its docblock has the
+ *    rules and what is FATAL). In short: each `if (<slug> === "<slug>")`
+ *    arm and the default after them, each read from the code of its OWN
+ *    branch — never from the module its first JSX tag resolves to (as first
+ *    written: an inline arm then resolved to `single-pdf-runner.tsx`, whose
+ *    unrelated `import()` passed for Booklet's editor while the real one,
+ *    imported statically, rode in Multiple Pages per Sheet's first load and
+ *    this file's main assertion stayed green — review of 6376d6da). A
+ *    variant's own modules are what its branch reaches and no sibling's
+ *    does; its host (the drop box an arm returns as one element) is the one
+ *    of them allowed in a sibling's first load;
+ *  - then, from the build: an own module that some tool page OUTSIDE the
+ *    kind loads up front is shared code and dropped — never an editor. The
+ *    editors are NEVER subtracted: a static import of one is the defect,
+ *    and subtracting it would let the defect certify itself.
+
  * Which module a chunk carries is decided by markers (`src/tests/chunk-
  * markers.ts`, the per-page guard's instrument): all of a module's markers
  * or none, a partial hit FATAL. An editor with fewer than two markers is
@@ -46,23 +47,13 @@
  *
  * Runs under `pnpm test:bundle` (it needs `.next`), never `pnpm test`.
  */
-import ts from "typescript";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
+import { ROOT, ownPanelModules, rel } from "@/tests/tool-panel-modules";
+import { readVariants } from "@/tests/shared-kind-variants";
 import {
-  ROOT,
-  SRC,
-  ownPanelModules,
-  parsedSource,
-  rel,
-  resolveComponent,
-  resolveSpecifier,
-  valueClosure,
-} from "@/tests/tool-panel-modules";
-import {
-  isTestFile,
   markersOf,
   chunkText,
   sourceFiles,
@@ -73,22 +64,18 @@ import { chunkFiles, prerenderedPages } from "../../scripts/page-weight";
 const NEXT_DIR = path.join(ROOT, ".next");
 const APP_DIR = path.join(NEXT_DIR, "server", "app");
 const CHUNKS_DIR = path.join(NEXT_DIR, "static", "chunks");
-const COMPONENTS = path.join(SRC, "components") + path.sep;
 const MARKERS_PER_MODULE = 6;
 
 interface Variant {
   kind: string;
-  /** The module that draws this variant's drop box. */
-  host: string;
+  /** The drop box its arm returns, allowed in a sibling's first load. */
+  host: string | null;
   slugs: string[];
   /** The editors it loads with `import()`. */
   editors: string[];
-  /** Editors plus the modules only this variant reaches (see the docblock). */
+  /** The modules only this variant reaches, editors included, host not. */
   modules: string[];
 }
-
-const where = (sf: ts.SourceFile, node: ts.Node): string =>
-  `${rel(sf.fileName)}:${sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1}`;
 
 /** The slugs of every kind that two or more registry slugs share. */
 function sharedKinds(): Map<string, string[]> {
@@ -98,149 +85,6 @@ function sharedKinds(): Map<string, string[]> {
     byKind.set(kind, [...(byKind.get(kind) ?? []), slug]);
   }
   return new Map([...byKind].filter(([, slugs]) => slugs.length > 1));
-}
-
-/** `import("…")` targets of `file` that are components (not engines). */
-function lazyEditors(file: string): string[] {
-  const out: string[] = [];
-  const visit = (n: ts.Node): void => {
-    if (
-      ts.isCallExpression(n) &&
-      n.expression.kind === ts.SyntaxKind.ImportKeyword &&
-      n.arguments[0] &&
-      ts.isStringLiteral(n.arguments[0])
-    ) {
-      const target = resolveSpecifier(file, n.arguments[0].text);
-      if (target?.startsWith(COMPONENTS)) out.push(target);
-    }
-    ts.forEachChild(n, visit);
-  };
-  visit(parsedSource(file));
-  return [...new Set(out)];
-}
-
-/** The variants of one shared kind, read off its runner module. */
-function variantsOf(kind: string, slugs: string[], runner: string): Variant[] {
-  const sf = parsedSource(runner);
-  const slugVars = new Set<string>();
-  const findVar = (n: ts.Node): void => {
-    if (
-      ts.isVariableDeclaration(n) &&
-      ts.isIdentifier(n.name) &&
-      n.initializer &&
-      ts.isPropertyAccessExpression(n.initializer) &&
-      n.initializer.name.text === "slug" &&
-      ts.isCallExpression(n.initializer.expression) &&
-      n.initializer.expression.expression.getText(sf) === "useToolRun"
-    )
-      slugVars.add(n.name.text);
-    ts.forEachChild(n, findVar);
-  };
-  findVar(sf);
-  if (slugVars.size > 1)
-    throw new Error(
-      `${rel(runner)} reads the page's slug ${slugVars.size} times`,
-    );
-  const arms = new Map<string, string>();
-  if (slugVars.size === 1) {
-    const [slugVar] = slugVars;
-    const visit = (n: ts.Node): void => {
-      if (
-        ts.isBinaryExpression(n) &&
-        [n.left, n.right].some(
-          (s) => ts.isIdentifier(s) && s.text === slugVar,
-        ) &&
-        n.operatorToken.kind !== ts.SyntaxKind.EqualsToken
-      ) {
-        const other =
-          ts.isIdentifier(n.left) && n.left.text === slugVar ? n.right : n.left;
-        const ifStmt = n.parent;
-        if (
-          n.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken ||
-          !ts.isStringLiteral(other) ||
-          !ts.isIfStatement(ifStmt) ||
-          ifStmt.expression !== n
-        )
-          throw new Error(
-            `${where(sf, n)}: a comparison with the page's slug this reader cannot follow — write it \`if (${slugVar} === "<slug>") return <Runner />\``,
-          );
-        const slug = other.text;
-        if (!slugs.includes(slug))
-          throw new Error(
-            `${where(sf, n)}: an arm for "${slug}", which is not on the "${kind}" kind`,
-          );
-        if (arms.has(slug))
-          throw new Error(`${where(sf, n)}: a second arm for "${slug}"`);
-        let tag: string | null = null;
-        const findTag = (m: ts.Node): void => {
-          if (tag) return;
-          if (
-            (ts.isJsxSelfClosingElement(m) || ts.isJsxOpeningElement(m)) &&
-            /^[A-Z]/.test(m.tagName.getText(sf))
-          ) {
-            tag = m.tagName.getText(sf);
-            return;
-          }
-          ts.forEachChild(m, findTag);
-        };
-        findTag(ifStmt.thenStatement);
-        if (!tag)
-          throw new Error(
-            `${where(sf, n)}: the arm for "${slug}" returns no component`,
-          );
-        arms.set(slug, resolveComponent(runner, tag).file);
-        return;
-      }
-      ts.forEachChild(n, visit);
-    };
-    visit(sf);
-  }
-  const variants: Variant[] = [...arms].map(([slug, host]) => ({
-    kind,
-    host,
-    slugs: [slug],
-    editors: lazyEditors(host),
-    modules: [],
-  }));
-  const rest = slugs.filter((s) => !arms.has(s));
-  if (rest.length > 0)
-    variants.push({
-      kind,
-      host: runner,
-      slugs: rest,
-      editors: lazyEditors(runner),
-      modules: [],
-    });
-  if (variants.length < 2) return variants;
-  for (const v of variants)
-    if (v.editors.length === 0)
-      throw new Error(
-        `${rel(v.host)} draws ${v.slugs.join(", ")} with no lazily loaded editor — on a kind its siblings share, a static editor is in every sibling's first load`,
-      );
-  // A variant's modules: its editors, and what only its editors reach. What
-  // the page loads up front anyway is dropped later, by BYTES (getCorpus):
-  // as first written this subtracted the route's static import closure, and
-  // that closure is mostly SERVER modules — the page's copy imports
-  // booklet.ts and metadata.ts for their labels — so both engines left the
-  // corpus while neither ships to the browser except with its editor
-  // (measured 2026-11-10: booklet-pdf's modules were its editor alone).
-  const closures = variants.map(
-    (v) => new Set(v.editors.flatMap((e) => valueClosure(e))),
-  );
-  variants.forEach((v, i) => {
-    const others = new Set(
-      closures.filter((_, j) => j !== i).flatMap((c) => [...c]),
-    );
-    v.modules = [
-      ...new Set([
-        ...v.editors,
-        ...[...closures[i]!].filter(
-          (m) => !others.has(m) && !isTestFile(m) && m !== runner,
-        ),
-      ]),
-    ];
-  });
-  return variants;
 }
 
 interface Corpus {
@@ -262,7 +106,17 @@ function getCorpus(): Corpus {
       throw new Error(
         `the "${kind}" kind's slugs mount ${runners.length} runner modules; expected one`,
       );
-    variants.push(...variantsOf(kind, slugs, runner));
+    variants.push(
+      ...readVariants(kind, slugs, runner).map(
+        ({ slugs: own, host, editors, modules }) => ({
+          kind,
+          host,
+          slugs: own,
+          editors,
+          modules,
+        }),
+      ),
+    );
   }
   const allSources = sourceFiles();
   const allChunks = walkFiles(CHUNKS_DIR, (n) => n.endsWith(".js"));
