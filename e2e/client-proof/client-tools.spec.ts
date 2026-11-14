@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { getRunnerKind, supportedToolSlugs } from "../../src/lib/pdf/registry";
 import { processingSplit } from "../../src/lib/tools/processing-split";
@@ -270,6 +272,41 @@ test.describe("client tool proof — the derived set", () => {
       .filter(([, reason]) => reason.trim().length < 40)
       .map(([slug]) => slug);
     expect(vague, "limitations too short to tell anyone anything").toEqual([]);
+
+    // A limitation that says a path IS exercised in another spec is a claim
+    // about that spec: the spec must exist, and every quoted label in the
+    // same sentence must appear in it. (Review of audit compare-pdf#4,
+    // 2026-11-14: compare-pdf's limitation said its options were exercised
+    // in e2e/compare-pdf.mobile.spec.ts, which never ticked either box.)
+    const claims: string[] = [];
+    const false_: string[] = [];
+    for (const [slug, reason] of Object.entries(PROOF_LIMITS)) {
+      for (const sentence of reason.split(/(?<=\.)\s+(?=[A-Z])/)) {
+        for (const [spec] of sentence.matchAll(
+          /\be2e\/[\w./-]+\.spec\.ts\b/g,
+        )) {
+          const file = path.join(process.cwd(), spec);
+          if (!existsSync(file)) {
+            false_.push(`${slug}: ${spec} does not exist`);
+            continue;
+          }
+          const source = readFileSync(file, "utf8");
+          for (const [, label] of sentence.matchAll(/"([^"]+)"/g)) {
+            claims.push(`${slug}: ${label}`);
+            if (!label || !source.includes(label))
+              false_.push(`${slug}: ${spec} never mentions "${label}"`);
+          }
+        }
+      }
+    }
+    expect(false_, "limitations that name what another spec exercises").toEqual(
+      [],
+    );
+    // Positive control: compare-pdf's limitation names its labels, so the
+    // check above reads at least one claim.
+    expect(
+      claims.filter((c) => c.startsWith("compare-pdf:")).length,
+    ).toBeGreaterThanOrEqual(3);
 
     // Health check: an emptied table would report the strongest possible pass.
     expect(

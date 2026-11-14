@@ -10,11 +10,8 @@ import {
 } from "@testing-library/react";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { resetAnnouncer } from "@/components/a11y/live-region";
-import {
-  COMPARE_VERDICTS,
-  MAX_DIFF_CELLS,
-  type CompareVerdict,
-} from "@/lib/pdf/compare-pdf";
+import { COMPARE_VERDICTS, type CompareVerdict } from "@/lib/pdf/compare-pdf";
+import { MAX_DIFF_CELLS } from "@/lib/pdf/compare/diff";
 import { extractPdfText, type ExtractedPdfText } from "@/lib/pdf/text";
 import { getToolBySlug } from "@/lib/tools";
 import { withAppRouter } from "@/tests/app-router";
@@ -128,6 +125,36 @@ const PAIRS: Record<CompareVerdict, () => Promise<[CompareItem, CompareItem]>> =
 
 const COMPARED = new Set<CompareVerdict>(["identical", "different"]);
 
+/**
+ * The report a reader downloads, read from the Blob the download button
+ * hands the browser. Since 2026-11-14 the full report is no longer printed on
+ * screen (the changes view is), so a test about the report reads the file.
+ */
+async function downloadedReport(panel: HTMLElement): Promise<string> {
+  const urls = URL as unknown as {
+    createObjectURL?: (blob: Blob) => string;
+    revokeObjectURL?: (url: string) => void;
+  };
+  const original = urls.createObjectURL;
+  urls.revokeObjectURL ??= () => {};
+  let blob: Blob | undefined;
+  urls.createObjectURL = (b: Blob) => {
+    blob = b;
+    return "blob:compare-report";
+  };
+  try {
+    fireEvent.click(
+      within(panel).getByRole("button", {
+        name: /download comparison report/i,
+      }),
+    );
+  } finally {
+    urls.createObjectURL = original;
+  }
+  expect(blob, "the download button handed over no file").toBeDefined();
+  return blob!.text();
+}
+
 function metric(label: string): string {
   const tile = screen.getByText(label).parentElement!;
   return tile.querySelectorAll("p")[1]!.textContent ?? "";
@@ -200,17 +227,30 @@ describe("Compare PDF runner — what the user is told", () => {
       expect(panel).toHaveAttribute("data-tone", "ok");
       expect(metric("Changed lines")).toBe(verdict === "identical" ? "0" : "1");
       if (verdict === "different") {
-        expect(panel.textContent).toContain("+ Clause 3 added later");
+        // INVERTED 2026-11-14 (audit compare-pdf#4), history kept: this read
+        // `panel.textContent` for "+ Clause 3 added later", the report as it
+        // was printed on screen. The screen shows the changes view now — the
+        // added line in a row marked for screen readers as "Added:" — and
+        // the "+ " line lives in the downloaded report, so both are read.
+        const added = panel.querySelector('tr[data-kind="added"]');
+        expect(added?.textContent).toBe("+Added: Clause 3 added later");
+        expect(await downloadedReport(panel)).toMatch(
+          /^\+ Clause 3 added later$/m,
+        );
       }
     },
   );
 });
 
 describe("Compare PDF runner — size delta", () => {
-  /** The signed byte count the report prints on its `Bytes:` line. */
-  function reportDelta(panel: HTMLElement): number {
+  /**
+   * The signed byte count the report prints on its `Bytes:` line. Read from
+   * `panel.textContent` until 2026-11-14, when the report left the screen;
+   * from the downloaded report since.
+   */
+  async function reportDelta(panel: HTMLElement): Promise<number> {
     const match = /Bytes: \d+ vs \d+ \(([+-]?\d+)\)/.exec(
-      panel.textContent ?? "",
+      await downloadedReport(panel),
     );
     expect(match).not.toBeNull();
     return Number(match![1]);
@@ -227,7 +267,7 @@ describe("Compare PDF runner — size delta", () => {
       { name: /differences found/i },
       { timeout: 5_000 },
     );
-    expect(reportDelta(panel)).toBeLessThan(0);
+    expect(await reportDelta(panel)).toBeLessThan(0);
     expect(metric("Size delta")).toMatch(/^\u2212\d/);
   });
 
@@ -241,7 +281,7 @@ describe("Compare PDF runner — size delta", () => {
       { name: /differences found/i },
       { timeout: 5_000 },
     );
-    expect(reportDelta(panel)).toBeGreaterThan(0);
+    expect(await reportDelta(panel)).toBeGreaterThan(0);
     expect(metric("Size delta")).toMatch(/^\+\d/);
   });
 });
@@ -377,5 +417,85 @@ describe("Compare PDF runner — a third file added while two are loading", () =
       screen.getByRole("button", { name: /swap pdf 1 and pdf 2/i }),
     );
     expect(order()).toEqual(["Remove draft.pdf", "Remove final.pdf"]);
+  });
+});
+
+/**
+ * The comparison and its changes view are ONE lazy chunk (audit
+ * compare-pdf#4, 2026-11-14). The press must ask for it in the same
+ * Promise.all as the two extractions: an `await import()` after them adds a
+ * round trip to every run, and the chained form is what a quick edit
+ * produces (`lazy-chunk-waterfalls`, 2026-11-08).
+ */
+describe("Compare PDF runner — the comparison chunk", () => {
+  it("is requested by the press before either extraction resolves", async () => {
+    const left = await textPdf(CLAUSES);
+    const right = await textPdf([...CLAUSES, "Clause 3 added later"]);
+    const log: string[] = [];
+    const held: (() => void)[] = [];
+    const reader = (bytes: Uint8Array) => {
+      log.push("extract");
+      return new Promise<ExtractedPdfText>((resolve) =>
+        held.push(() => resolve(extract(bytes))),
+      );
+    };
+    const loader = () => {
+      log.push("load");
+      return import("./compare/compare-result");
+    };
+    render(
+      <ComparePdfEditor
+        items={[item("v1.pdf", left), item("v2.pdf", right)]}
+        loading={0}
+        rejections={[]}
+        onFiles={() => {}}
+        onRemove={() => {}}
+        onClearRejections={() => {}}
+        onClear={() => {}}
+        extract={reader}
+        loadResult={loader}
+      />,
+    );
+    // Two files are in, so the chunk was already asked for on arrival.
+    expect(log).toEqual(["load"]);
+    log.length = 0;
+
+    fireEvent.click(screen.getByRole("button", { name: /compare pdfs/i }));
+    await Promise.resolve();
+    // Both extractions are still held, and the press has asked for the chunk.
+    expect(held).toHaveLength(2);
+    expect([...log].sort()).toEqual(["extract", "extract", "load"]);
+
+    for (const release of held) release();
+    await screen.findByRole(
+      "group",
+      { name: /differences found/i },
+      { timeout: 5_000 },
+    );
+  });
+
+  it("an option re-compares the texts already read, with no second extraction", async () => {
+    const left = await textPdf(CLAUSES);
+    const right = await textPdf(CLAUSES.map((c) => c.toUpperCase()));
+    let reads = 0;
+    const counting = (bytes: Uint8Array) => {
+      reads += 1;
+      return extract(bytes);
+    };
+    mount(item("v1.pdf", left), item("v2.pdf", right), counting);
+    await screen.findByRole(
+      "group",
+      { name: /differences found/i },
+      { timeout: 5_000 },
+    );
+    expect(reads).toBe(2);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Ignore case" }));
+    const panel = await screen.findByRole("group", {
+      name: /selectable text matches/i,
+    });
+    expect(reads).toBe(2);
+    expect(panel.textContent).toContain("ignoring case");
+    expect(await downloadedReport(panel)).toMatch(/^Options: ignore case$/m);
   });
 });

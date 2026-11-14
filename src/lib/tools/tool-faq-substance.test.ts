@@ -99,7 +99,7 @@ import { applyFormValues, inspectFormFields } from "@/lib/pdf/forms";
 import { createFormFields } from "@/lib/pdf/create-forms";
 import { extractPdfImages } from "@/lib/pdf/extract-images";
 import { embedRasterImage } from "@/lib/pdf/pdf-lib";
-import { compareExtractedPdfText } from "@/lib/pdf/compare-pdf";
+import { compareExtractedPdfText } from "@/components/tools/runner/compare/compare-result";
 import { joinPageTexts, type ExtractedPdfText } from "@/lib/pdf/text";
 import {
   extractedTextToMarkdown,
@@ -2094,9 +2094,11 @@ describe("the remaining in-browser tools answer what their engines do", () => {
   });
 
   it("compare looks at selectable text, page count and size — nothing visual", () => {
+    // `pages` was `[]` until 2026-11-14; the comparison reads the pages
+    // now and refuses an extraction whose pages disagree with its text.
     const text = (t: string, pageCount: number): ExtractedPdfText => ({
       pageCount,
-      pages: [],
+      pages: [{ pageNumber: 1, text: t, characterCount: t.length }],
       text: t,
       characterCount: t.length,
       hasText: t.trim().length > 0,
