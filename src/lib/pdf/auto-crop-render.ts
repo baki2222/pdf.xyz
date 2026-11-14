@@ -4,7 +4,7 @@ import {
   planAutoCrop,
   type AutoCropPlan,
   type InkBox,
-  type RasterPage,
+  type PageAnalysis,
 } from "./auto-crop";
 import { getPageSizes } from "./crop";
 import { awaitPdfjsDocument, loadPdfjs } from "./pdfjs";
@@ -21,6 +21,19 @@ import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
  * this very function. A missing factory is an error, never a white page: a
  * blank render would call every page blank, and "nothing to crop" is the
  * convenient answer.
+ *
+ * IMAGES IT DOES NOT DECODE (lane image-budget-residuals, 2026-11-14). An
+ * image past its raster budget (CO-08) is skipped by pdf.js before it is
+ * decoded (the preflight's `previewOptions`), and a page whose images
+ * together pass the page budget is drawn with NO image (a second document
+ * opened with `NO_IMAGES`). A skipped image leaves white where it sits, so
+ * cropping to the remaining ink would cut it off: each skipped image's
+ * PLACEMENT (its unit square through the matrix at its `Do`, read from the
+ * page's content by `imagePlacements`) counts as ink instead. Where that
+ * cannot be worked out, the page is kept whole (`plan.whole`) and said so.
+ *
+ * Until then this render opened pdf.js with neither option and decoded a
+ * CO-08 image in full (the open guard's RENDER_EXEMPT entry).
  */
 
 interface CanvasLike {
@@ -57,14 +70,20 @@ export async function detectAutoCrop(
   const pdfjsModule = loadPdfjs();
   pdfjsModule.catch(() => {});
   const guard = await guardModule;
-  await guard.preflightPdfjsOpen(bytes);
+  const preflight = await guard.preflightPdfjsOpen(bytes);
   const sizes = await getPageSizes(bytes);
   const pdfjs = await pdfjsModule;
   const task = pdfjs.getDocument({
     data: bytes.slice(),
     ...PDFJS_DOCUMENT_DEFAULTS,
+    ...preflight.previewOptions,
   });
   const doc = await awaitPdfjsDocument(task);
+  /** The same file with every image skipped, for pages past the page budget. */
+  let bare: ReturnType<typeof pdfjs.getDocument> | null = null;
+  const bareDoc = async () =>
+    awaitPdfjsDocument((bare ??= await openWithoutImages(bytes, guard, pdfjs)));
+  const skipAbove = preflight.previewOptions.maxImageSize ?? Infinity;
   try {
     // pdf.js reports a root /Count of 0 or -1 as given while pdf-lib repairs
     // the tree, so a loop to numPages analysed no page against every size
@@ -79,11 +98,25 @@ export async function detectAutoCrop(
       // Not a sentence for a reader: the runner says what this means.
       throw new Error("pdf.js canvas factory unavailable");
     }
-    const pages: ({ ink: InkBox | null; raster: RasterPage } | null)[] = [];
+    const pages: PageAnalysis[] = [];
     for (let n = 1; n <= total; n++) {
       if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
       try {
-        const page = await doc.getPage(n);
+        const shown = await doc.getPage(n);
+        // Past the page budget, every image is skipped; else those past
+        // their own budget are. Each skipped image's placement is ink.
+        const over = guard.pageImageVerdict(preflight, shown.ref) !== null;
+        const bound = over ? 0 : skipAbove;
+        const placed =
+          over || preflight.overBudgetImage
+            ? await guard.imagePlacements(bytes, shown.ref, bound)
+            : [];
+        if (placed === null) {
+          pages.push("whole");
+          onProgress?.({ done: n, total });
+          continue;
+        }
+        const page = over ? await (await bareDoc()).getPage(n) : shown;
         const unit = page.getViewport({ scale: 1 });
         const scale =
           AUTO_CROP_LONG_SIDE_PX / Math.max(unit.width, unit.height, 1);
@@ -102,7 +135,21 @@ export async function detectAutoCrop(
           height,
           data: entry.context.getImageData(0, 0, width, height).data,
         };
-        const ink = findInkBox(raster);
+        const ink = withPlacements(
+          findInkBox(raster),
+          placed.map(([x0, y0, x1, y1]) =>
+            [
+              [x0, y0],
+              [x1, y0],
+              [x0, y1],
+              [x1, y1],
+            ].flatMap(
+              ([x, y]) => viewport.convertToViewportPoint(x!, y!) as number[],
+            ),
+          ),
+          width,
+          height,
+        );
         factory.destroy?.(entry);
         page.cleanup();
         // Keep only the size of the raster, never its pixels.
@@ -116,5 +163,60 @@ export async function detectAutoCrop(
     return planAutoCrop(pages, sizes);
   } finally {
     await task.destroy().catch(() => {});
+    await (bare as { destroy(): Promise<void> } | null)
+      ?.destroy()
+      .catch(() => {});
   }
+}
+
+/**
+ * `bytes` opened with every image skipped before it is decoded
+ * (`NO_IMAGES`): a page past the page budget is analysed without its images,
+ * which count by their placements instead. The preflight is the same call
+ * every open makes first; for these bytes it is already answered.
+ */
+async function openWithoutImages(
+  bytes: Uint8Array,
+  guard: typeof import("./pdfjs-guard"),
+  pdfjs: Awaited<ReturnType<typeof loadPdfjs>>,
+) {
+  await guard.preflightPdfjsOpen(bytes);
+  return pdfjs.getDocument({
+    data: bytes.slice(),
+    ...PDFJS_DOCUMENT_DEFAULTS,
+    ...guard.NO_IMAGES.previewOptions,
+  });
+}
+
+/**
+ * The ink box grown to hold every placement (each the viewport pixels of a
+ * box's corners, x and y in turn, as `convertToViewportPoint` gives them),
+ * clipped to the raster: a skipped image is ink wherever it sits on the page.
+ */
+export function withPlacements(
+  ink: InkBox | null,
+  rects: readonly number[][],
+  width: number,
+  height: number,
+): InkBox | null {
+  let box = ink;
+  for (const r of rects) {
+    const xs = r.filter((_, i) => i % 2 === 0);
+    const ys = r.filter((_, i) => i % 2 === 1);
+    if (![...xs, ...ys].every(Number.isFinite) || xs.length === 0) continue;
+    const left = Math.max(0, Math.floor(Math.min(...xs)));
+    const right = Math.min(width, Math.ceil(Math.max(...xs)));
+    const top = Math.max(0, Math.floor(Math.min(...ys)));
+    const bottom = Math.min(height, Math.ceil(Math.max(...ys)));
+    if (!(left < right && top < bottom)) continue; // off the page
+    box = box
+      ? {
+          left: Math.min(box.left, left),
+          top: Math.min(box.top, top),
+          right: Math.max(box.right, right),
+          bottom: Math.max(box.bottom, bottom),
+        }
+      : { left, top, right, bottom };
+  }
+  return box;
 }

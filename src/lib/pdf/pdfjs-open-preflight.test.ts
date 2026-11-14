@@ -253,6 +253,21 @@ interface RenderingOpen {
 interface PageRenderSite {
   line: number;
   /**
+   * The innermost function around the render asks for the page budget's
+   * verdict before it: a call named `pageImageVerdict` (a preview: draw a
+   * note instead) or `refuseOverBudgetPages` (an output: refuse by page)
+   * earlier in that function's text.
+   */
+  verdict: boolean;
+  /**
+   * The innermost function around the render reads the drawn pixels back
+   * (`getImageData` after the render): an ANALYSIS, whose answer is wrong if
+   * a skipped image left white where it sits.
+   */
+  analysis: boolean;
+  /** An analysis that asks `imagePlacements` before the render. */
+  placements: boolean;
+  /**
    * The lines of the `getDocument(` calls in the nearest function around the
    * render that opens one itself (the render may sit in a closure inside
    * it, as the editor's does); empty when no function around it opens a
@@ -292,7 +307,36 @@ function renderingOpens(
       for (let fn = node.parent; fn && openedBy.length === 0; fn = fn.parent) {
         if (isFunction(fn)) openedBy = ownOpens(fn).map(lineOf);
       }
-      sites.push({ line: lineOf(node), openedBy });
+      let inner: ts.Node | undefined = node.parent;
+      while (inner && !isFunction(inner)) inner = inner.parent;
+      const calls = (name: string, before: boolean) => {
+        let found = false;
+        const look = (n: ts.Node) => {
+          if (found || (n !== inner && isFunction(n))) return;
+          if (
+            ts.isCallExpression(n) &&
+            calleeName(n) === name &&
+            (before
+              ? n.end <= node.getStart(file)
+              : n.getStart(file) >= node.end)
+          ) {
+            found = true;
+            return;
+          }
+          ts.forEachChild(n, look);
+        };
+        if (inner && isFunction(inner) && inner.body) look(inner.body);
+        return found;
+      };
+      sites.push({
+        line: lineOf(node),
+        openedBy,
+        verdict:
+          calls("pageImageVerdict", true) ||
+          calls("refuseOverBudgetPages", true),
+        analysis: calls("getImageData", false),
+        placements: calls("imagePlacements", true),
+      });
     }
     if (ts.isCallExpression(node) && calleeName(node) === "getDocument") {
       calls.push(node);
@@ -333,14 +377,13 @@ function renderingOpens(
  * entry (the file no longer renders, or its opens are now handled) fails.
  */
 const RENDER_EXEMPT: Record<string, string> = {
-  // OPEN (found 2026-11-09, lane editor-opener-budget): Auto-crop draws each
-  // page to find its content box, with neither option, so a CO-08 image is
-  // decoded in full. Neither fix is free: skipping the image would crop a
-  // page to the rest of its content (a wrong crop, said nowhere), and
-  // refusing changes what Crop PDF accepts. Listed so the guard can land
-  // without deciding Crop PDF's behaviour; it is a defect, not a licence.
-  "src/lib/pdf/auto-crop-render.ts":
-    "OPEN: decodes an over-budget image; preview-or-refuse is undecided",
+  // History: from 2026-11-09 (lane editor-opener-budget) to 2026-11-14 this
+  // held "src/lib/pdf/auto-crop-render.ts": Auto-crop drew each page with
+  // neither option, so a CO-08 image was decoded in full, because skipping
+  // it would crop the page to the rest of its ink, said nowhere. It now
+  // previews, and counts each skipped image's PLACEMENT as ink (an ANALYSIS
+  // that must ask `imagePlacements`, the third rule below), keeping a page
+  // whole where the placement cannot be worked out. Empty: no exemption.
 };
 
 describe("preflightPdfjsOpen runs once per file", () => {
@@ -648,6 +691,91 @@ describe("every pdf.js open that renders pages previews or refuses an over-budge
       ),
     ).toEqual([[]]);
     expect(sites(`async function draw(page) {\n${RENDER}}`)).toEqual([[]]);
+  });
+
+  it("the page-budget verdict and the analysis rule tell a handled render from a bare one (positive and negative controls)", () => {
+    const site = (src: string) => renderingOpens(src).sites[0]!;
+    const OPENED =
+      "  const t = pdfjs.getDocument({ data, ...previewOptions });\n";
+    // Positive: a preview asks for the page verdict before drawing, in the
+    // closure that draws (the editor's and the thumbnails' shape)...
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  const r = async (page) => {\n    const note = guard.pageImageVerdict(pre, page.ref);\n    if (note) return draw(note);\n${RENDER}  };\n}`,
+      ).verdict,
+    ).toBe(true);
+    // ...and an output refuses by page before its loop.
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  await guard.refuseOverBudgetPages(pre, order, get);\n  for (const i of order) {\n${RENDER}  }\n}`,
+      ).verdict,
+    ).toBe(true);
+    // Negative: no verdict; a verdict AFTER the render; a verdict in another
+    // function than the one that draws.
+    expect(site(`async function a(bytes) {\n${OPENED}${RENDER}}`).verdict).toBe(
+      false,
+    );
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}${RENDER}  guard.pageImageVerdict(pre, page.ref);\n}`,
+      ).verdict,
+    ).toBe(false);
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  guard.pageImageVerdict(pre, page.ref);\n  const r = async () => {\n${RENDER}  };\n}`,
+      ).verdict,
+    ).toBe(false);
+    // An analysis reads the pixels back after drawing; it must place the
+    // images the preview skipped, before drawing.
+    const analysed = site(
+      `async function a(bytes) {\n${OPENED}  guard.pageImageVerdict(pre, page.ref);\n${RENDER}  const px = ctx.getImageData(0, 0, w, h);\n}`,
+    );
+    expect(analysed).toMatchObject({ analysis: true, placements: false });
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  guard.pageImageVerdict(pre, page.ref);\n  const boxes = await guard.imagePlacements(bytes, page.ref, bound);\n${RENDER}  const px = ctx.getImageData(0, 0, w, h);\n}`,
+      ),
+    ).toMatchObject({ analysis: true, placements: true });
+    // Negative: pixels read BEFORE the draw are no analysis of it; a preview
+    // that never reads its pixels is none either.
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  const px = ctx.getImageData(0, 0, w, h);\n${RENDER}}`,
+      ).analysis,
+    ).toBe(false);
+    expect(site(`async function a(bytes) {\n${OPENED}${RENDER}}`).analysis).toBe(
+      false,
+    );
+  });
+
+  it("finds every page render in src/lib and src/components asking the page budget's verdict, and every analysis placing what it skips", () => {
+    const files = SCOPES.flatMap(walk);
+    expect(files.length).toBeGreaterThan(300);
+    const sites = files.flatMap((path) => {
+      const file = relative(ROOT, path).replace(/\\/g, "/");
+      return renderingOpens(readFileSync(path, "utf8"), path).sites.map(
+        (s) => ({ ...s, at: `${file}:${s.line}`, file }),
+      );
+    });
+    // Health: the thumbnails, the raster output, the editor, the viewer
+    // and Auto-crop each draw at least once.
+    expect(new Set(sites.map((s) => s.file))).toEqual(
+      new Set([
+        "src/lib/pdf/render.ts",
+        "src/lib/pdf/editor/page-render.ts",
+        "src/lib/pdf/viewer.ts",
+        "src/lib/pdf/auto-crop-render.ts",
+      ]),
+    );
+    expect(sites.filter((s) => !s.verdict).map((s) => s.at)).toEqual([]);
+    const analyses = sites.filter((s) => s.analysis);
+    // Health: Auto-crop is an analysis; nothing else reads its own render.
+    expect(analyses.map((s) => s.file)).toEqual([
+      "src/lib/pdf/auto-crop-render.ts",
+    ]);
+    expect(analyses.filter((s) => !s.placements).map((s) => s.at)).toEqual(
+      [],
+    );
   });
 
   it("finds every rendering open in src/lib and src/components previewing or refusing", () => {

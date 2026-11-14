@@ -84,8 +84,10 @@ export async function createThumbnailRenderer(
   // Bounds pdf.js lacks (hostile matrix CO-03/06/08, STAMP-14): ./pdfjs-guard.
   const guard = await import("./pdfjs-guard");
   // A preview: an image over its raster budget is skipped by pdf.js before
-  // it decodes it (CO-08), so its page's tile shows the rest of the page.
-  const { previewOptions } = await guard.preflightPdfjsOpen(bytes);
+  // it decodes it (CO-08), so its page's tile shows the rest of the page;
+  // a page whose images together pass the page budget is drawn as a note.
+  const preflight = await guard.preflightPdfjsOpen(bytes);
+  const { previewOptions } = preflight;
   const pdfjs = await loadPdfjs();
   // Hand pdfjs a private copy; it may detach the buffer it receives.
   const data = bytes.slice();
@@ -147,9 +149,17 @@ export async function createThumbnailRenderer(
       canvas.width = width;
       canvas.height = height;
 
-      const background = options.background ?? base.background ?? "#ffffff";
-      task = page.render({ canvas, viewport, background });
-      await task.promise;
+      // A page whose images together pass the page budget is not decoded:
+      // its tile says why, in the page's own shape (never a blank tile).
+      const note = guard.pageImageVerdict(preflight, page.ref);
+      if (note !== null) {
+        guard.drawPageNote(canvas, note);
+      } else {
+        const background =
+          options.background ?? base.background ?? "#ffffff";
+        task = page.render({ canvas, viewport, background });
+        await task.promise;
+      }
 
       if (signal?.aborted) {
         canvas.width = 0;
@@ -166,7 +176,9 @@ export async function createThumbnailRenderer(
         URL.revokeObjectURL(url);
         return null;
       }
-      return { index, url, width, height };
+      return note === null
+        ? { index, url, width, height }
+        : { index, url, width, height, note };
     } catch (err) {
       if (signal?.aborted || isRenderingCancelled(pdfjs, err)) return null;
       return null; // Any other per-page failure: fall back to the placeholder.
@@ -529,8 +541,11 @@ export async function capturePdfPages<T>(
   if (typeof document === "undefined") return [];
   const guard = await import("./pdfjs-guard");
   // This path writes pixels: a page without its image would be a wrong
-  // document, so an image over its raster budget refuses the file (CO-08).
-  guard.refuseOverBudgetImages(await guard.preflightPdfjsOpen(bytes));
+  // document, so an image over its raster budget refuses the file (CO-08),
+  // and a page whose images together pass the page budget refuses it by
+  // that page's number, before any page is drawn.
+  const preflight = await guard.preflightPdfjsOpen(bytes);
+  guard.refuseOverBudgetImages(preflight);
   const pdfjs = await loadPdfjs();
   // Hand pdfjs a private copy; it may detach the buffer it receives.
   const data = bytes.slice();
@@ -547,6 +562,9 @@ export async function capturePdfPages<T>(
     const order = only
       ? only.filter((i) => Number.isInteger(i) && i >= 0 && i < numPages)
       : Array.from({ length: numPages }, (_, i) => i);
+    await guard.refuseOverBudgetPages(preflight, order, (i) =>
+      doc.getPage(i + 1),
+    );
     const total = order.length;
     // Pages finished either way — rendered, or failed and reported — so a
     // skipped page still moves the bar.

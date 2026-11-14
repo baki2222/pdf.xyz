@@ -120,8 +120,8 @@ export async function openEditorPdf(bytes: Uint8Array): Promise<EditorPdf> {
   // A preview, as the thumbnails are (`createThumbnailRenderer`): an image
   // over its raster budget is skipped by pdf.js before it decodes it (CO-08),
   // so the page is drawn without it instead of stalling ~40 s on it.
-  const { previewOptions, overBudgetImage } =
-    await guard.preflightPdfjsOpen(bytes);
+  const preflight = await guard.preflightPdfjsOpen(bytes);
+  const { previewOptions, overBudgetImage } = preflight;
   const pdfjs = await pdfjsModule;
   const task = pdfjs.getDocument({
     data: bytes.slice(),
@@ -169,6 +169,13 @@ export async function openEditorPdf(bytes: Uint8Array): Promise<EditorPdf> {
       const canvas = document.createElement("canvas");
       canvas.width = Math.max(1, Math.floor(viewport.width));
       canvas.height = Math.max(1, Math.floor(viewport.height));
+      // A page whose images together pass the page budget is not decoded:
+      // its sheet says why (RASTER_MAX_PAGE_IMAGE_PIXELS), never blank.
+      const note = guard.pageImageVerdict(preflight, page.ref);
+      if (note !== null) {
+        guard.drawPageNote(canvas, note);
+        return canvas;
+      }
       running = page.render({ canvas, viewport, background: "#ffffff" });
       await running.promise;
       if (signal?.aborted) {

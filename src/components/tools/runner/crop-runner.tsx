@@ -66,6 +66,10 @@ type CropMode = "uniform" | "per-side" | "auto";
 type Edge = keyof CropMargins;
 type CropScope = "all" | "odd" | "even" | "range";
 
+/** Said under the preview for a page auto-detect left whole (`plan.whole`). */
+const WHOLE_PAGE_NOTE =
+  "This page has a large image whose position could not be worked out, so it is left uncropped. Crop it by hand to trim it.";
+
 /** Said under the preview for a page the chosen pages leave out. */
 export const OUT_OF_SCOPE_NOTE =
   "This page is not one of the pages you chose, so it stays uncropped.";
@@ -541,7 +545,9 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
                 ? "This page looks blank, so it is left uncropped."
                 : plan.unread.includes(shownPage)
                   ? "This page could not be read, so it is left uncropped."
-                  : "The dashed box is what this page keeps."}
+                  : plan.whole.includes(shownPage)
+                    ? WHOLE_PAGE_NOTE
+                    : "The dashed box is what this page keeps."}
             </p>
           )}
           {pdf.pageCount > 1 && (
@@ -763,7 +769,9 @@ function AutoPanel({
               ? "No marks found on any page, so there is nothing to crop."
               : `Found the content on ${inked} of ${pageCount} page${pageCount === 1 ? "" : "s"}.`}
           </p>
-          {(plan.blank.length > 0 || plan.unread.length > 0) && (
+          {(plan.blank.length > 0 ||
+            plan.unread.length > 0 ||
+            plan.whole.length > 0) && (
             <div
               role="alert"
               className="border-warn/40 bg-warn/10 text-warn rounded-panel flex items-start gap-3 border px-4 py-3 text-xs"
@@ -773,7 +781,9 @@ function AutoPanel({
                 {plan.blank.length > 0 &&
                   `${pageList(plan.blank).replace(/^p/, "P")} ${plan.blank.length === 1 ? "looks" : "look"} blank and ${plan.blank.length === 1 ? "is" : "are"} left uncropped. `}
                 {plan.unread.length > 0 &&
-                  `${pageList(plan.unread).replace(/^p/, "P")} could not be read and ${plan.unread.length === 1 ? "is" : "are"} left uncropped.`}
+                  `${pageList(plan.unread).replace(/^p/, "P")} could not be read and ${plan.unread.length === 1 ? "is" : "are"} left uncropped. `}
+                {plan.whole.length > 0 &&
+                  `${pageList(plan.whole).replace(/^p/, "P")} ${plan.whole.length === 1 ? "has a large image whose position" : "have large images whose positions"} could not be worked out, so ${plan.whole.length === 1 ? "it is" : "they are"} left uncropped; crop by hand to trim ${plan.whole.length === 1 ? "it" : "them"}.`}
               </p>
             </div>
           )}

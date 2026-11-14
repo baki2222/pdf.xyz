@@ -143,19 +143,39 @@ export interface AutoCropPlan {
   blank: number[];
   /** 0-based indices the render could not read; also left uncropped. */
   unread: number[];
+  /**
+   * 0-based indices left WHOLE: the page paints an image the analysis does
+   * not decode (one past its raster budget, or a page whose images together
+   * pass the page budget), and where that image sits could not be worked
+   * out (a pattern, an annotation, a Type3 glyph, content the scan cannot
+   * read). Cropping it to the rest of its ink could cut the image off, so
+   * it is not cropped; the manual crop still applies.
+   */
+  whole: number[];
 }
+
+/** One page's analysis: its ink, kept whole ({@link AutoCropPlan.whole}), or unread (null). */
+export type PageAnalysis =
+  | { ink: InkBox | null; raster: RasterPage }
+  | "whole"
+  | null;
 
 /** Turn one analysis per page into a plan. */
 export function planAutoCrop(
-  pages: readonly ({ ink: InkBox | null; raster: RasterPage } | null)[],
+  pages: readonly PageAnalysis[],
   sizes: readonly PageSizePt[],
   pad = AUTO_CROP_PAD_PT,
 ): AutoCropPlan {
   const blank: number[] = [];
   const unread: number[] = [];
+  const whole: number[] = [];
   const perPage = pages.map((page, i) => {
     const size = sizes[i];
-    if (!page || !size) {
+    if (page === "whole" && size) {
+      whole.push(i);
+      return null;
+    }
+    if (!page || page === "whole" || !size) {
       unread.push(i);
       return null;
     }
@@ -175,13 +195,13 @@ export function planAutoCrop(
           bottom: Math.min(...inked.map((m) => m.bottom)),
           left: Math.min(...inked.map((m) => m.left)),
         };
-  return { perPage, uniform, blank, unread };
+  return { perPage, uniform, blank, unread, whole };
 }
 
 /**
  * The margins to crop with, per page, for the chosen way of applying a plan:
- * each page its own box, or the uniform box on every inked page. Blank and
- * unread pages stay null — uncropped.
+ * each page its own box, or the uniform box on every inked page. Blank,
+ * unread and whole pages stay null — uncropped.
  */
 export function appliedMargins(
   plan: AutoCropPlan,

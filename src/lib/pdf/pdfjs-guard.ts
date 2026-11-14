@@ -27,6 +27,13 @@ import {
   skipForward,
 } from "./pdf-scan-objects";
 import { KidsCounter } from "./pdf-scan-kids";
+import {
+  PageImages,
+  type Box,
+  type ImageSize,
+  type OpHook,
+  type PageScanTools,
+} from "./pdf-page-images";
 import { MAX_DECODED_PIXELS } from "./pixel-ceiling";
 import { pdfjsPageCount } from "./pdfjs-num-pages";
 import { PDFJS_BOARD_MAX_PAGES } from "./pdfjs-board-limit";
@@ -175,13 +182,10 @@ export const GRAPHICS_STATE_WORK_FLOOR = 256;
  * image inside ~20 s. 50 MP still takes a 600-dpi A4 scan (4,960 x 7,016 =
  * 34.8 MP) and a 300-dpi A2 (34.8 MP).
  *
- * It is a budget per IMAGE, not per page. OPEN (hostile review, 2026-11-09):
- * a page painting several distinct images within budget pays for each, and
- * nothing here sums them: ten 7,000 x 7,000 RGB images on one page drew in
- * 105.7 s in the editor (one: 24.9 s; four: 57.0 s). The byte scan cannot
- * tell which page paints which image (resources are inherited, shared and
- * may sit in object streams), and a sum over the whole file would refuse
- * every long scanned document.
+ * It is a budget per IMAGE. A page painting several distinct images within
+ * it pays for each (hostile review, 2026-11-09: ten 7,000 x 7,000 RGB images
+ * on one page drew in 105.7 s in the editor; one, 24.9 s; four, 57.0 s), so
+ * a page's images are held to {@link RASTER_MAX_PAGE_IMAGE_PIXELS} together.
  */
 export const RASTER_MAX_IMAGE_PIXELS = MAX_DECODED_PIXELS / 2;
 
@@ -198,6 +202,71 @@ export const RASTER_MAX_IMAGE_PIXELS = MAX_DECODED_PIXELS / 2;
  * decoder) whose cost was not measured; they are held to the same figure.
  */
 export const RASTER_MAX_BILEVEL_PIXELS = MAX_DECODED_PIXELS * 4;
+
+/**
+ * The most image pixels one PAGE may paint on the raster path, its distinct
+ * images summed: 50,000,000, as many as ONE image may have
+ * ({@link RASTER_MAX_IMAGE_PIXELS}), so a page never costs more than the
+ * worst single image the budget already admits.
+ *
+ * What is summed is what the page's content PAINTS (`./pdf-page-images`):
+ * each image it draws once (pdf.js decodes an image once per page, by its
+ * reference, however often the page paints it), every inline image each
+ * time it is read, through forms, patterns, Type3 glyphs, soft masks and
+ * annotation appearances. A bilevel image counts at
+ * RASTER_MAX_IMAGE_PIXELS / RASTER_MAX_BILEVEL_PIXELS (one eighth) of its
+ * pixels, so one bilevel image at ITS budget fills a page exactly as one
+ * colour image at its own does; an image pdf.js skips in a preview counts
+ * nothing; an image whose size cannot be read counts as one past the colour
+ * budget.
+ *
+ * Measured 2026-11-14 (Windows, Node 24, the editor's page canvas, one page
+ * drawn at 100%, `editor-grid:<n>:<side>` in
+ * src/tests/hostile/page-images.child.ts; time to draw, memory added):
+ *
+ *   one 49 MP image (the per-image budget's worst)   10.2 s,   +490 MB
+ *   two 25 MP (50 MP, at this budget)                 7.4 s,   +470 MB
+ *   four 12.5 MP (50 MP, at this budget)              6.0 s,   +324 MB
+ *   two 36 MP (72 MP)                                13.9 s,   +571 MB
+ *   four 25 MP (100 MP)                              14.8 s,   +752 MB
+ *   ten 49 MP (490 MP, PR #306's page)              104.1 s, +2,839 MB
+ *
+ * At the budget a page costs no more than the worst single image already
+ * admitted; past it, time and memory grow with the sum. The ten-image page
+ * is now a note in 0.2 s (+8 MB).
+ *
+ * Not a sum over the FILE: a 300-page scan of one 9 MP image a page weighs
+ * 9 MP a page, and draws as it did. A page past the sum is drawn on a
+ * preview as a note saying so, and refused by name on a path that writes
+ * pixels ({@link pageImageVerdict}, {@link refuseOverBudgetPages}).
+ */
+export const RASTER_MAX_PAGE_IMAGE_PIXELS = RASTER_MAX_IMAGE_PIXELS;
+
+/** A pixel count as copy states it: 50,000,000 is "50". */
+const megapixels = (px: number): string => (px / 1e6).toLocaleString("en-US");
+
+/**
+ * The output paths' refusal of a page past {@link RASTER_MAX_PAGE_IMAGE_PIXELS}
+ * (`page` is 1-based), every figure read from its constant.
+ */
+export function pageImagesTooLargeMessage(page: number): string {
+  return `Page ${page.toLocaleString("en-US")} of this PDF has more image data than one page can draw in your browser (the limit is ${megapixels(RASTER_MAX_PAGE_IMAGE_PIXELS)} megapixels of images on a page).`;
+}
+
+/**
+ * The output paths' refusal of a page whose images could not be told apart
+ * from the rest of the file's, in a file whose images together are past the
+ * page budget: what was found, not a claim about the page.
+ */
+export function pageImagesUnknownMessage(page: number): string {
+  return `The images on page ${page.toLocaleString("en-US")} of this PDF could not be matched to the page, and together the file's images are over the ${megapixels(RASTER_MAX_PAGE_IMAGE_PIXELS)} megapixels one page can draw in your browser.`;
+}
+
+/** A preview's note for a page past the page budget: drawn where the page would be. */
+export const PAGE_IMAGES_NOTE = `This page is not drawn here: its images together are over the ${megapixels(RASTER_MAX_PAGE_IMAGE_PIXELS)} megapixels a page can draw in your browser.`;
+
+/** A preview's note for a page whose images could not be matched to it. */
+export const PAGE_IMAGES_UNKNOWN_NOTE = `This page is not drawn here: its images could not be matched to it, and the file's images together are over the ${megapixels(RASTER_MAX_PAGE_IMAGE_PIXELS)} megapixels a page can draw in your browser.`;
 
 /** Copy for a file whose streams expand past the bounds above. */
 export const PDF_EXPANDS_TOO_FAR_MESSAGE =
@@ -430,6 +499,20 @@ export interface PdfStreamScan {
   pageTreeEntries: number;
   /** The /Kids keys: the most page-tree nodes one lookup can expand. */
   pageTreeNodes: number;
+  /**
+   * Every image pdf.js may paint, as the per-page budget's fast path weighs
+   * it (see {@link fileImageWeight}): image streams something references,
+   * once each; inline images, times the most times their content stream can
+   * be read as page content, `inForm` when that stream may be a form (which
+   * a page may paint any number of times).
+   */
+  paints: {
+    size: ImageSize;
+    times: number;
+    inForm: boolean;
+    /** An inline image only the loose reading saw: `size` is its bound. */
+    loose: boolean;
+  }[];
   /** The first bound the scan stopped at, or null. */
   exceeded:
     "stream-bytes" | "total-bytes" | "scan-work" | "q-depth" | "q-work" | null;
@@ -501,6 +584,14 @@ const INLINE_DICT_BYTES = 65_536;
 const NAME_CHARS = 24;
 /** Characters of a number the loose reading keeps; longer is "the largest". */
 const NUMBER_CHARS = 32;
+/**
+ * Characters of a name kept for the per-page image map's `Do` (a resource
+ * name: `/Im12`, `/R7`); a longer one is an operand it cannot resolve, and
+ * that `Do` counts every image the resources hold.
+ */
+const TRACKED_NAME_CHARS = 256;
+/** Operands kept for the hook: `cm` takes six. */
+const TRACKED_OPERANDS = 6;
 
 /**
  * Which inline image side a name is, as pdf.js reads names (`#xx` escapes
@@ -622,8 +713,23 @@ export class ContentOps {
   private name = "";
   private num = "";
   private key = 0;
+  /**
+   * With a hook (the per-page image map, `./pdf-page-images`): the operands
+   * read since the last operator, the last {@link TRACKED_OPERANDS} of them,
+   * as numbers, names (`/Im1`), or null for anything else (a string, a name
+   * too long to keep).
+   */
+  private operands: (number | string | null)[] = [];
+  private readonly track: boolean;
+  /** Loose `BI` seen since the last {@link end}, for the hook. */
+  private looseInlines = 0;
 
-  constructor(private exact = true) {}
+  constructor(
+    private exact = true,
+    private readonly hook: OpHook | null = null,
+  ) {
+    this.track = hook !== null;
+  }
 
   feed(chunk: Uint8Array): void {
     // One loop over locals: this runs on every decoded byte of every stream
@@ -631,6 +737,7 @@ export class ContentOps {
     // read into locals and written back once per chunk.
     let { state, command, strDepth, escaped, sawE, force, exact } = this;
     let { dict, name, num, key } = this;
+    const { track } = this;
     for (let i = 0; i < chunk.length; i += 1) {
       const b = chunk[i]!;
       // An inline image's dictionary, kept whole (and bounded) to be read
@@ -669,7 +776,7 @@ export class ContentOps {
               }
             } else if (isNumberStart(b)) {
               state = NUMBER;
-              if (!exact) num = CHAR[b]!;
+              if (!exact || track) num = CHAR[b]!;
             } else if (b < 0x20 || b > 0x7f) state = HIGH;
             else {
               state = COMMAND;
@@ -680,9 +787,12 @@ export class ContentOps {
           case NUMBER:
             // pdf.js's getNumber: digits, one `.`, and a stray `-` it warns of.
             if ((b >= 0x30 && b <= 0x39) || b === 0x2e || b === 0x2d) {
-              if (!exact && num.length <= NUMBER_CHARS) num += CHAR[b]!;
+              if ((!exact || track) && num.length <= NUMBER_CHARS) {
+                num += CHAR[b]!;
+              }
               break lex;
             }
+            if (track) this.operand(num.length > NUMBER_CHARS ? null : +num);
             if (!exact && key !== 0) {
               this.looseSide(key, num);
               key = 0;
@@ -691,8 +801,18 @@ export class ContentOps {
             continue lex;
           case NAME:
             if (SPECIAL[b] === 0) {
-              if (!exact && name.length <= NAME_CHARS) name += CHAR[b]!;
+              if (
+                (!exact || track) &&
+                name.length <= (track ? TRACKED_NAME_CHARS : NAME_CHARS)
+              ) {
+                name += CHAR[b]!;
+              }
               break lex;
+            }
+            if (track) {
+              this.operand(
+                name.length > TRACKED_NAME_CHARS ? null : `/${name}`,
+              );
             }
             if (!exact) key = sideKey(name);
             state = BETWEEN;
@@ -736,10 +856,16 @@ export class ContentOps {
             if (escaped) escaped = false;
             else if (b === 0x5c) escaped = true;
             else if (b === 0x28) strDepth += 1;
-            else if (b === 0x29 && --strDepth === 0) state = BETWEEN;
+            else if (b === 0x29 && --strDepth === 0) {
+              state = BETWEEN;
+              if (track) this.operand(null);
+            }
             break lex;
           case HEX:
-            if (b === 0x3e) state = BETWEEN;
+            if (b === 0x3e) {
+              state = BETWEEN;
+              if (track) this.operand(null);
+            }
             break lex;
           case COMMENT:
             if (b === 0x0a || b === 0x0d) state = BETWEEN;
@@ -782,13 +908,28 @@ export class ContentOps {
 
   end(): void {
     const { state, command } = this;
+    // An operand still being read: the next stream of a /Contents array may
+    // continue it, so it is unknown.
+    if (this.track && (state === NUMBER || state === NAME)) this.operand(null);
     if (!this.exact && state === NUMBER && this.key !== 0) {
       this.looseSide(this.key, this.num);
     }
     const dataStarts = state === COMMAND && this.emit(command) === DATA;
     // A dictionary still open at the end may be closed by the next stream
     // of a /Contents array: its size is not known here.
-    if (this.inlineDict) this.inline.unknown += 1;
+    if (this.inlineDict) {
+      this.inline.unknown += 1;
+      this.hook?.({ op: "inline", pixels: 0, bilevel: false, unknown: true });
+    }
+    // The loose reading's images, each bounded by the stream's largest
+    // /W and /H (see InlineImages), to the hook once they are known.
+    for (; this.looseInlines > 0; this.looseInlines -= 1) {
+      this.hook?.({
+        op: "looseInline",
+        w: this.inline.looseW,
+        h: this.inline.looseH,
+      });
+    }
     this.dict = null;
     this.key = 0;
     this.cleanEnd =
@@ -809,6 +950,7 @@ export class ContentOps {
    * {@link DICT} when it was the exact reading's `BI` (a dictionary follows).
    */
   private emit(command: string): number {
+    if (this.hook !== null) this.report(command);
     if (command === "q") {
       this.depth += 1;
       this.pushes += 1;
@@ -844,6 +986,7 @@ export class ContentOps {
   private sizeInline(bytes: number[]): void {
     if (bytes.length >= INLINE_DICT_BYTES) {
       this.inline.unknown += 1;
+      this.hook?.({ op: "inline", pixels: 0, bilevel: false, unknown: true });
       return;
     }
     const text = latin1.decode(new Uint8Array(bytes));
@@ -859,8 +1002,56 @@ export class ContentOps {
       );
     const pixels = side("W", "Width") * side("H", "Height");
     if (pixels > 0) {
-      this.inline.sized.push({ pixels, bilevel: isBilevel(entries) });
+      const bilevel = isBilevel(entries);
+      this.inline.sized.push({ pixels, bilevel });
+      this.hook?.({ op: "inline", pixels, bilevel, unknown: false });
     }
+  }
+
+  /** One operand read, for the hook: the last {@link TRACKED_OPERANDS} are kept. */
+  private operand(v: number | string | null): void {
+    const ops = this.operands;
+    ops.push(typeof v === "number" && !Number.isFinite(v) ? null : v);
+    if (ops.length > TRACKED_OPERANDS) ops.shift();
+  }
+
+  /**
+   * An operator, to the hook, with the operands pdf.js would hand it (it
+   * keeps the LAST ones when there are too many). `true`, `false` and
+   * `null` are operands to pdf.js, not operators. A loose `BI` is reported
+   * with the largest /W and /H the loose reading has seen so far; the map
+   * reads it again at the end with the stream's largest (see `end`).
+   */
+  private report(command: string): void {
+    const hook = this.hook!;
+    const ops = this.operands;
+    const exact = this.exact;
+    if (command === "true" || command === "false" || command === "null") {
+      this.operand(null);
+      return;
+    }
+    if (command === "q" || command === "Q") hook({ op: command, exact });
+    else if (command === "cm") {
+      const six = ops.slice(-6);
+      hook({
+        op: "cm",
+        m:
+          six.length === 6 && six.every((v) => typeof v === "number")
+            ? (six as number[])
+            : null,
+        exact,
+      });
+    } else if (command === "Do") {
+      const last = ops[ops.length - 1];
+      hook({
+        op: "Do",
+        name: typeof last === "string" ? last.slice(1) : null,
+        exact,
+      });
+    } else if (command === "BI" && !exact) {
+      this.looseInlines += 1;
+    }
+    ops.length = 0;
   }
 
   /**
@@ -1284,6 +1475,7 @@ export async function scanPdfStreams(
     unknownSizeImages: 0,
     pageTreeEntries: 0,
     pageTreeNodes: 0,
+    paints: [],
     exceeded: null,
   };
   const refs = new RefCounter();
@@ -1691,7 +1883,11 @@ export async function scanPdfStreams(
       (u) => u !== r || u.num === null || (refs.counts.get(u.num) ?? 0) > 1,
     );
   const judged: ContentRecord[] = [];
-  const inline: { num: number | null; images: InlineImages }[] = [];
+  const inline: {
+    num: number | null;
+    form: boolean;
+    images: InlineImages;
+  }[] = [];
   for (const r of records) {
     const c = startsUnknown(r) ? await r.loose() : r.exact;
     scan.maxQDepth = Math.max(scan.maxQDepth, c.max);
@@ -1699,7 +1895,7 @@ export async function scanPdfStreams(
       judged.push({ num: r.num, form: r.form, ...c });
     const i = c.inline;
     if (i.sized.length > 0 || i.unknown > 0 || i.loose > 0) {
-      inline.push({ num: r.num, images: i });
+      inline.push({ num: r.num, form: r.form, images: i });
     }
   }
   judgeGraphicsState(scan, judged, refs.counts, opaqueObjectStreams);
@@ -1709,8 +1905,15 @@ export async function scanPdfStreams(
   // Counted over the WHOLE file, stream data included, so a reference the
   // scan read as data is still seen; that can only add references.
   let everywhere: RefCounter | null = null;
+  // An encrypted file's object streams are ciphertext: they inflate to
+  // nothing here, so the references they hold are not seen, and every image
+  // would read as an orphan nothing paints (lane image-budget-residuals,
+  // 2026-11-14: an encrypted object-stream file's images went unjudged).
+  const hiddenRefs =
+    opaqueObjectStreams > 0 ||
+    (objectStreams.length > 0 && indexOfWord(bytes, ENCRYPT, 0) !== -1);
   const referenced = (num: number | null): boolean => {
-    if (num === null || opaqueObjectStreams > 0 || refs.counts.has(num)) {
+    if (num === null || hiddenRefs || refs.counts.has(num)) {
       return true;
     }
     if (everywhere === null) {
@@ -1719,12 +1922,22 @@ export async function scanPdfStreams(
     }
     return everywhere.counts.has(num);
   };
-  judgeImages(scan, images, inline, referenced, (num) =>
-    streamPixels.has(num)
-      ? streamPixels.get(num)!
-      : unnumberedStreams > 0
-        ? null
-        : 0,
+  judgeImages(
+    scan,
+    images,
+    inline,
+    referenced,
+    (num) =>
+      streamPixels.has(num)
+        ? streamPixels.get(num)!
+        : unnumberedStreams > 0
+          ? null
+          : 0,
+    (num) => {
+      let most = 1;
+      for (const c of refs.counts.values()) most = Math.max(most, c);
+      return num === null ? most : Math.max(1, refs.counts.get(num) ?? 0);
+    },
   );
   return scan;
 }
@@ -1765,9 +1978,14 @@ interface StreamImage {
 function judgeImages(
   scan: PdfStreamScan,
   images: readonly StreamImage[],
-  inline: readonly { num: number | null; images: InlineImages }[],
+  inline: readonly {
+    num: number | null;
+    form: boolean;
+    images: InlineImages;
+  }[],
   referenced: (num: number | null) => boolean,
   maskPixels: (num: number) => number | null,
+  timesNamed: (num: number | null) => number,
 ): void {
   const judge = (own: number, cost: number | null, bilevel: boolean) => {
     // pdf.js paints nothing of an image with a zero side.
@@ -1799,10 +2017,44 @@ function judgeImages(
       }
     }
     judge(image.pixels, cost, image.bilevel);
+    scan.paints.push({
+      size: { own: image.pixels, cost, bilevel: image.bilevel },
+      times: 1,
+      inForm: false,
+      loose: false,
+    });
   }
-  for (const { num, images: i } of inline) {
+  for (const { num, form, images: i } of inline) {
     if (!referenced(num)) continue;
-    for (const one of i.sized) judge(one.pixels, one.pixels, one.bilevel);
+    const times = timesNamed(num);
+    for (const one of i.sized) {
+      judge(one.pixels, one.pixels, one.bilevel);
+      scan.paints.push({
+        size: { own: one.pixels, cost: one.pixels, bilevel: one.bilevel },
+        times,
+        inForm: form,
+        loose: false,
+      });
+    }
+    for (let k = 0; k < i.unknown; k += 1) {
+      scan.paints.push({
+        size: { own: null, cost: null, bilevel: false },
+        times,
+        inForm: form,
+        loose: false,
+      });
+    }
+    if (i.loose > 0) {
+      const bound = Math.min(i.looseW * i.looseH, Number.MAX_SAFE_INTEGER);
+      for (let k = 0; k < i.loose; k += 1) {
+        scan.paints.push({
+          size: { own: bound, cost: bound, bilevel: false },
+          times,
+          inForm: form,
+          loose: true,
+        });
+      }
+    }
     scan.unknownSizeImages += i.unknown;
     // The loose charge bounds every loose image from ABOVE, so it cannot be
     // the size a preview skips at: an over-budget image smaller than it
@@ -1953,11 +2205,31 @@ export interface PdfjsPreflight {
   /** Whether any image is over its raster budget. */
   overBudgetImage: boolean;
   /**
+   * Each page's painted image pixels (see {@link RASTER_MAX_PAGE_IMAGE_PIXELS}),
+   * or null when no page can pass the page budget: every image pdf.js may
+   * paint, each counted as often as any page can, weighs no more than it
+   * (the fast path, {@link fileImageWeight}). Read through
+   * {@link pageImageVerdict} and {@link refuseOverBudgetPages}.
+   */
+  pages: PageImageVerdicts | null;
+  /**
    * What one pdf.js page lookup can cost on this file's page tree: the
    * elements it can push and the nodes it can expand (see
    * {@link PDFJS_BOARD_MAX_WALK}).
    */
   pageTree: PageTreeCost;
+}
+
+/** What each page paints, by page object number (`PDFPageProxy.ref.num`). */
+export interface PageImageVerdicts {
+  /** Every page the map found, with the most image pixels it can paint. */
+  readonly weights: ReadonlyMap<number, number>;
+  /**
+   * Why the map could not be completed, or null. A page it did not reach
+   * (this, or a page with no object number) counts as over the budget:
+   * fail safe, never open.
+   */
+  readonly incomplete: string | null;
 }
 
 /** {@link PdfStreamScan.pageTreeEntries} and {@link PdfStreamScan.pageTreeNodes}. */
@@ -1988,9 +2260,14 @@ export interface PageTreeCost {
  * image; under `stopAtErrors: true` its error reaches `_pumpOperatorList`
  * after the render has started, which ends the operator list early and lets
  * the render RESOLVE on a truncated page (measured: `getOperatorList` on
- * CO-08's file with both options resolves with 0 operators, no error). The
- * byte scan cannot tell which page paints which image (resources are
- * inherited and may sit in object streams), so the refusal is the file's.
+ * CO-08's file with both options resolves with 0 operators, no error). So
+ * an over-budget image refuses the FILE. (Since 2026-11-14 the page map,
+ * `./pdf-page-images`, can say which pages paint what, and the page budget
+ * refuses by page; the per-image refusal was left the file's, unchanged.)
+ *
+ * The page budget ({@link RASTER_MAX_PAGE_IMAGE_PIXELS}) is decided here
+ * too: when the scan's fast path ({@link fileImageWeight}) cannot rule out
+ * a page past it, every page is weighed ({@link PdfjsPreflight.pages}).
  *
  * The refusals carry no `kind`: the file is not unreadable, it is more than
  * this tier will process.
@@ -2012,14 +2289,295 @@ export async function preflightPdfjsBytes(
     unknown ?? Infinity,
   );
   const pageTree = { entries: scan.pageTreeEntries, nodes: scan.pageTreeNodes };
+  const skipAbove = smallest === Infinity ? Infinity : smallest - 1;
+  const pages =
+    fileImageWeight(scan, skipAbove) > RASTER_MAX_PAGE_IMAGE_PIXELS
+      ? await mapPages(bytes, skipAbove)
+      : null;
   if (smallest === Infinity) {
-    return { previewOptions: {}, overBudgetImage: false, pageTree };
+    return { previewOptions: {}, overBudgetImage: false, pageTree, pages };
   }
   return {
-    previewOptions: { maxImageSize: smallest - 1 },
+    previewOptions: { maxImageSize: skipAbove },
     overBudgetImage: true,
     pageTree,
+    pages,
   };
+}
+
+/**
+ * What one image costs a page, in colour pixels (see
+ * {@link RASTER_MAX_PAGE_IMAGE_PIXELS}): nothing when pdf.js paints nothing
+ * of it (a zero side) or skips it (its own size past `skipAbove`, the
+ * preview's `maxImageSize`); one past the colour budget when a size cannot
+ * be read; else its cost, a bilevel image's at one eighth.
+ */
+export function imageWeight(size: ImageSize, skipAbove: number): number {
+  if (size.own !== null && size.own <= 0) return 0;
+  if (size.own !== null && size.own > skipAbove) return 0;
+  if (size.own === null || size.cost === null) {
+    return RASTER_MAX_IMAGE_PIXELS + 1;
+  }
+  return size.bilevel
+    ? size.cost * (RASTER_MAX_IMAGE_PIXELS / RASTER_MAX_BILEVEL_PIXELS)
+    : size.cost;
+}
+
+/**
+ * The per-page budget's FAST PATH: an upper bound on what any one page can
+ * paint, from the scan alone. Every referenced image stream once (a page
+ * decodes each image once), every inline image as many times as its
+ * content stream can be read as page content; Infinity when an inline image
+ * sits in a stream that may be a form, which a page may paint any number of
+ * times. At or under the page budget, no page can pass it and the map is
+ * never built: a document's cost is then the scan's, as before.
+ */
+export function fileImageWeight(scan: PdfStreamScan, skipAbove: number): number {
+  let total = 0;
+  for (const p of scan.paints) {
+    const size = p.loose
+      ? {
+          ...p.size,
+          own: Math.min(p.size.own ?? 0, skipAbove),
+          cost: Math.min(p.size.cost ?? 0, skipAbove),
+        }
+      : p.size;
+    const w = imageWeight(size, skipAbove);
+    if (w === 0) continue;
+    if (p.inForm) return Number.POSITIVE_INFINITY;
+    total += w * p.times;
+  }
+  return total;
+}
+
+/** The scanner's own pieces, handed to `./pdf-page-images`; exported for its tests. */
+export function pageScanTools(encrypted: boolean): PageScanTools {
+  return {
+    decodeBudget: MAX_DECODED_TOTAL_BYTES,
+    // Encrypted streams read as noise: none is decoded, so a page whose
+    // content is encrypted counts everything its resources hold.
+    decode: async (dict, data, limit) =>
+      encrypted ? null : decodeWhole(dictEntries(dict), data, limit),
+    ops: (hook: OpHook) => new ContentOps(true, hook),
+    image: (dict, numberOf, maskDict) => {
+      const entries = dictEntries(dict);
+      const own = imagePixels(entries, numberOf);
+      const bilevel = isBilevel(entries);
+      let cost: number | null = own;
+      if (!bilevel) {
+        for (const v of valuesOf(entries, "SMask", "Mask")) {
+          if (v.kind !== "ref") continue;
+          const text = maskDict(v.num);
+          if (text === null) continue; // not a stream: pdf.js ignores it
+          const px = imagePixels(dictEntries(text), numberOf);
+          cost = px === null || cost === null ? null : Math.max(cost, px);
+        }
+      }
+      return { own, cost, bilevel };
+    },
+    weigh: imageWeight,
+  };
+}
+
+/**
+ * A stream's data decoded whole through its filters, or null when a filter
+ * is one the scan does not decode, the data is not valid for its filter, or
+ * the output passes `limit` bytes.
+ */
+async function decodeWhole(
+  entries: Map<string, DictValue[]>,
+  data: Uint8Array,
+  limit: number,
+): Promise<Uint8Array | null> {
+  const stages = filtersOf(entries).map(stageOf);
+  if (stages.includes("opaque")) return null;
+  const decoding = stages.filter((stage) => stage !== "identity");
+  if (decoding.length === 0) return data.length > limit ? null : data;
+  let stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(data);
+      controller.close();
+    },
+  });
+  for (const stage of decoding) {
+    stream = stream.pipeThrough(
+      stage === "ahx"
+        ? asciiHexDecoder()
+        : stage === "a85"
+          ? ascii85Decoder()
+          : (new DecompressionStream("deflate") as unknown as TransformStream<
+              Uint8Array,
+              Uint8Array
+            >),
+    );
+  }
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > limit) return null;
+      chunks.push(value.slice());
+    }
+  } catch {
+    // Not zlib, truncated, a bad checksum: what pdf.js reads of it is not
+    // known here.
+    return null;
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.length;
+  }
+  return out;
+}
+
+/** Each file's page-image reader, by the bytes it was built from. */
+const pageImageReaders = new WeakMap<
+  Uint8Array,
+  { length: number; reader: Promise<PageImages | { incomplete: string }> }
+>();
+
+/** The `/Encrypt` key, anywhere in the file's text: its streams are ciphertext. */
+const ENCRYPT = ascii("/Encrypt");
+
+function pageImageReader(
+  bytes: Uint8Array,
+): Promise<PageImages | { incomplete: string }> {
+  const kept = pageImageReaders.get(bytes);
+  if (kept && kept.length === bytes.length) return kept.reader;
+  const encrypted = indexOfWord(bytes, ENCRYPT, 0) !== -1;
+  const reader = PageImages.open(bytes, pageScanTools(encrypted));
+  pageImageReaders.set(bytes, { length: bytes.length, reader });
+  return reader;
+}
+
+async function mapPages(
+  bytes: Uint8Array,
+  skipAbove: number,
+): Promise<PageImageVerdicts> {
+  const reader = await pageImageReader(bytes);
+  if (!(reader instanceof PageImages)) {
+    return { weights: new Map(), incomplete: reader.incomplete };
+  }
+  const map = await reader.map(skipAbove);
+  return { weights: map.pages, incomplete: map.incomplete };
+}
+
+/** A pdf.js page as the verdicts read it: `PDFPageProxy.ref`. */
+type PageRef = { num: number } | null | undefined;
+
+/**
+ * A preview's verdict on one page: null to draw it, or the note to draw in
+ * its place ({@link PAGE_IMAGES_NOTE}, {@link PAGE_IMAGES_UNKNOWN_NOTE}).
+ * Called with the page's `ref` before every page render.
+ */
+export function pageImageVerdict(
+  preflight: PdfjsPreflight,
+  ref: PageRef,
+): string | null {
+  const { pages } = preflight;
+  if (pages === null) return null;
+  const weight =
+    ref && pages.incomplete === null ? pages.weights.get(ref.num) : undefined;
+  if (weight === undefined) return PAGE_IMAGES_UNKNOWN_NOTE;
+  return weight > RASTER_MAX_PAGE_IMAGE_PIXELS ? PAGE_IMAGES_NOTE : null;
+}
+
+/**
+ * The output paths' refusal of a page past the page budget: every page in
+ * `indices` (0-based) is looked up (`getPage`, no image is decoded) before
+ * any is drawn, and the first one past it is refused, typed, by its number.
+ */
+export async function refuseOverBudgetPages(
+  preflight: PdfjsPreflight,
+  indices: readonly number[],
+  getPage: (index: number) => Promise<{ ref?: PageRef }>,
+): Promise<void> {
+  if (preflight.pages === null) return;
+  for (const i of indices) {
+    const page = await getPage(i);
+    const note = pageImageVerdict(preflight, page.ref);
+    if (note === PAGE_IMAGES_NOTE) {
+      throw new PdfEngineError(pageImagesTooLargeMessage(i + 1));
+    }
+    if (note !== null) {
+      throw new PdfEngineError(pageImagesUnknownMessage(i + 1));
+    }
+  }
+}
+
+/**
+ * pdf.js options for a document whose pages are drawn with NO image: every
+ * image is skipped before it is decoded (`w * h > 0`). Auto-crop opens one
+ * for a page past the page budget, and counts each image's placement as
+ * content instead ({@link imagePlacements}).
+ */
+export const NO_IMAGES = { previewOptions: { maxImageSize: 0 } } as const;
+
+/**
+ * Where page `ref` paints the images pdf.js skips past `skipAbove` own
+ * pixels, in its default user space. Null when that cannot be told: the
+ * page is not one the map found, a bound passed, or a skipped image is
+ * (or may be) painted where its placement is not followed (a pattern, a
+ * Type3 glyph, a soft mask, an annotation, content the scan cannot read).
+ */
+export async function imagePlacements(
+  bytes: Uint8Array,
+  ref: PageRef,
+  skipAbove: number,
+): Promise<Box[] | null> {
+  if (!ref) return null;
+  const reader = await pageImageReader(bytes);
+  if (!(reader instanceof PageImages)) return null;
+  const found = await reader.placements(ref.num, skipAbove);
+  return found && found.certain ? found.boxes : null;
+}
+
+/**
+ * Draw a preview's note in place of a page: the page's own size, a pale
+ * sheet, the sentence wrapped to fit. Works on a DOM canvas and on
+ * `@napi-rs/canvas` alike.
+ */
+export function drawPageNote(
+  canvas: { width: number; height: number; getContext(kind: "2d"): unknown },
+  note: string,
+): void {
+  const ctx = canvas.getContext("2d") as CanvasRenderingContext2D | null;
+  if (!ctx) return;
+  const { width, height } = canvas;
+  ctx.fillStyle = "#f3f1ec";
+  ctx.fillRect(0, 0, width, height);
+  ctx.strokeStyle = "#8a8578";
+  ctx.lineWidth = Math.max(1, Math.round(width / 200));
+  ctx.strokeRect(0, 0, width, height);
+  const size = Math.max(9, Math.round(width / 22));
+  ctx.fillStyle = "#2b2925";
+  ctx.font = `${size}px sans-serif`;
+  ctx.textBaseline = "top";
+  const pad = size;
+  const lines: string[] = [];
+  let line = "";
+  for (const word of note.split(" ")) {
+    const next = line ? `${line} ${word}` : word;
+    if (line && ctx.measureText(next).width > width - 2 * pad) {
+      lines.push(line);
+      line = word;
+    } else line = next;
+  }
+  if (line) lines.push(line);
+  const lead = Math.round(size * 1.3);
+  let y = Math.max(pad, Math.round((height - lines.length * lead) / 2));
+  for (const l of lines) {
+    ctx.fillText(l, pad, y);
+    y += lead;
+  }
 }
 
 /** Each file's preflight, by the bytes it was asked of (see below). */

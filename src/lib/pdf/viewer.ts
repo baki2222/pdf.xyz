@@ -197,8 +197,8 @@ export async function openViewerPdf(bytes: Uint8Array): Promise<ViewerPdf> {
   const pdfjsModule = viewerPdfjs.loadPdfjs();
   pdfjsModule.catch(() => {});
   const guard = await guardModule;
-  const { previewOptions, overBudgetImage } =
-    await guard.preflightPdfjsOpen(bytes);
+  const preflight = await guard.preflightPdfjsOpen(bytes);
+  const { previewOptions, overBudgetImage } = preflight;
   const pdfjs = await pdfjsModule;
   const task = pdfjs.getDocument({
     data: bytes.slice(),
@@ -252,6 +252,13 @@ export async function openViewerPdf(bytes: Uint8Array): Promise<ViewerPdf> {
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
+    // A page whose images together pass the page budget is not decoded: it
+    // is drawn as a note saying why (RASTER_MAX_PAGE_IMAGE_PIXELS).
+    const note = guard.pageImageVerdict(preflight, page.ref);
+    if (note !== null) {
+      guard.drawPageNote(canvas, note);
+      return { kind: "drawn", canvas };
+    }
     try {
       running = page.render({ canvas, viewport, background: "#ffffff" });
       await running.promise;
