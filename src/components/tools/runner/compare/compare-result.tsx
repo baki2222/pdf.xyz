@@ -17,7 +17,8 @@ import type {
   DiffLine,
   PdfCompareResult,
 } from "@/lib/pdf/compare-pdf";
-import { diffIds, intern, type Op } from "@/lib/pdf/compare/diff";
+import type { Op } from "@/lib/pdf/compare/diff";
+import { diffWithFurniture } from "@/lib/pdf/compare/furniture";
 import { buildHunks, hunkHeader, type Hunk } from "@/lib/pdf/compare/hunks";
 import {
   comparableLines,
@@ -84,11 +85,11 @@ function summarize(ops: readonly Op[]): CompareSummary {
 
 /**
  * Compare the selectable text of two PDFs. The verdict and the hunks are
- * read from the SAME key arrays — identical exactly when both sides have the
- * same number of lines and every key agrees — so "identical" and "no
- * changes listed" cannot disagree under any option (`compare-result.test.tsx`
- * enumerates them). With no option set, that is the old verdict (the two
- * normalised texts joined and compared), because a line never holds "\n".
+ * read from the SAME edit script — identical exactly when it lists no
+ * change — so "identical" and "no changes listed" cannot disagree under any
+ * option (`engine.test.ts` enumerates them). With no option set, that is the
+ * old verdict (the two normalised texts joined and compared), because a line
+ * never holds "\n".
  */
 export function compareExtractedPdfText(
   left: ComparablePdfText,
@@ -100,29 +101,51 @@ export function compareExtractedPdfText(
   // BOTH, not either: diffing a scan against the file it was printed from
   // reports every line of the other file as changed.
   const hasComparableText = leftHasText && rightHasText;
-  const a = comparableLines(left.extracted, options);
-  const b = comparableLines(right.extracted, options);
+  const allA = comparableLines(left.extracted, options);
+  const allB = comparableLines(right.extracted, options);
   for (const [side, doc] of [
-    [left, a],
-    [right, b],
+    [left, allA],
+    [right, allB],
   ] as const) {
     // `hasText` and the pages come from one extraction; text with no lines
     // means a caller built them separately, and every verdict would lie.
-    if (side.extracted.hasText && doc.lines.length === 0 && doc.dropped === 0)
+    if (side.extracted.hasText && doc.lines.length === 0)
       throw new Error(
         `${side.name}: its text and its pages disagree; compare cannot read it.`,
       );
   }
 
-  const ids = new Map<string, number>();
-  const aKeys = a.lines.map((l) => l.key);
-  const bKeys = b.lines.map((l) => l.key);
-  const ops = hasComparableText
-    ? diffIds(intern(ids, aKeys), intern(ids, bKeys))
-    : [];
-  const sameKeys =
-    aKeys.length === bKeys.length && aKeys.every((k, i) => k === bKeys[i]);
-  const verdict = verdictOf(leftHasText, rightHasText, sameKeys);
+  // The furniture a comparison sets aside is decided against both files
+  // (furniture.ts), so the lines below are what was KEPT, renumbered.
+  const furniture = hasComparableText
+    ? diffWithFurniture(
+        allA.lines,
+        allB.lines,
+        Boolean(options.ignoreFurniture),
+      )
+    : null;
+  const ops = furniture?.ops ?? [];
+  const a = {
+    lines: furniture
+      ? furniture.keptLeft.map((i) => allA.lines[i]!)
+      : allA.lines,
+    pagesWithoutText: allA.pagesWithoutText,
+  };
+  const b = {
+    lines: furniture
+      ? furniture.keptRight.map((j) => allB.lines[j]!)
+      : allB.lines,
+    pagesWithoutText: allB.pagesWithoutText,
+  };
+  const dropped = furniture?.dropped ?? { left: 0, right: 0 };
+  // Identical exactly when the script lists no change. With no option set
+  // that is the old verdict (the two normalised texts joined and compared):
+  // an LCS with no change is the same sequence on both sides.
+  const verdict = verdictOf(
+    leftHasText,
+    rightHasText,
+    ops.every((op) => op.k === "same"),
+  );
 
   const diff: DiffLine[] = ops.map((op) =>
     op.k === "same"
@@ -131,11 +154,14 @@ export function compareExtractedPdfText(
         ? { kind: "removed", text: a.lines[op.a]!.text, left: op.a }
         : { kind: "added", text: b.lines[op.b]!.text, right: op.b },
   );
+  const leftTexts = a.lines.map((l) => l.text);
+  const rightTexts = b.lines.map((l) => l.text);
+  const tokenKey = options.ignoreCase ? foldCase : undefined;
   const words = markWords(
-    pairChangedLines(ops),
-    a.lines.map((l) => l.text),
-    b.lines.map((l) => l.text),
-    options.ignoreCase ? foldCase : undefined,
+    pairChangedLines(ops, leftTexts, rightTexts, tokenKey),
+    leftTexts,
+    rightTexts,
+    tokenKey,
   );
   const hunks = buildHunks(
     ops,
@@ -162,7 +188,7 @@ export function compareExtractedPdfText(
     diff,
     hunks,
     options: { ...options },
-    dropped: { left: a.dropped, right: b.dropped },
+    dropped,
     pagesWithoutText: {
       left: a.pagesWithoutText,
       right: b.pagesWithoutText,

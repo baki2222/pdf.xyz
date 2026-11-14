@@ -96,12 +96,22 @@ const MUST_DROP = [
   "Page 1 of 40",
   "3 / 40",
   "- 4 -",
-  "Page 12",
   "7",
   "Acme Corp",
   PARTIAL_HEADER,
 ] as const;
+/**
+ * Page 5's footer, "Page 12", is 7 off its page where every other footer is
+ * 0 off: a page REFERENCE (a table of contents' line), not this page's
+ * number. INVERTED 2026-11-14 (second review of audit compare-pdf#4),
+ * history kept: it was a must-DROP line, because a form with the word
+ * "page" in it counted on any edge on its form alone, and a TOC's
+ * "Page 12" changed to "Page 14" compared as identical. A page number is a
+ * candidate now only where its distance from the page repeats.
+ */
+const PAGE_REFERENCE = "Page 12";
 const MUST_KEEP = [
+  PAGE_REFERENCE,
   BODY_WITH_DIGITS,
   SCATTERED,
   QUOTE,
@@ -234,7 +244,15 @@ describe("running lines: the corpus, both directions", () => {
     ]);
   });
 
-  it("a one-page document: only a page number goes, never a bare amount", () => {
+  /*
+   * INVERTED 2026-11-14 (second review of audit compare-pdf#4), history
+   * kept: this was "only a page number goes, never a bare amount", and
+   * pinned a one-page file's closing "1" as a page number by its form. One
+   * page repeats nothing, and the same rule let "2 / 3" closing a vote tally
+   * on page 2 of 3 go as a page number. A one-page document has no
+   * candidates at all.
+   */
+  it("a one-page document: nothing is a candidate, not even a page-number shape", () => {
     const invoice = ["Invoice 42", "Widget", "Qty 3", "Amount due", "4250"].map(
       (text) => ({ text, page: 1 }),
     );
@@ -242,7 +260,24 @@ describe("running lines: the corpus, both directions", () => {
     const numbered = ["Invoice 42", "Widget", "Amount due 4250", "1"].map(
       (text) => ({ text, page: 1 }),
     );
-    expect(droppedFrom(numbered).map((l) => l.text)).toEqual(["1"]);
+    expect(droppedFrom(numbered)).toEqual([]);
+  });
+
+  it("a page number goes only where its distance from the page repeats", () => {
+    const tally = [
+      ["Minutes", "body a", "Motion carried"],
+      ["Votes", "body b", "Votes in favour", "2 / 3"],
+      ["Close", "body c", "End"],
+    ].flatMap((lines, p) => lines.map((text) => ({ text, page: p + 1 })));
+    expect(droppedFrom(tally)).toEqual([]);
+    const numbered = [1, 2, 3].flatMap((p) =>
+      [`head ${p}`, `body ${p}`, `${p} / 3`].map((text) => ({ text, page: p })),
+    );
+    expect(droppedFrom(numbered).map((l) => l.text)).toEqual([
+      "1 / 3",
+      "2 / 3",
+      "3 / 3",
+    ]);
   });
 });
 

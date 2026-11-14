@@ -3,13 +3,15 @@ import {
   pagesWithoutText,
   type ExtractedPdfText,
 } from "../text";
-import { detectRunningLines } from "./running-lines";
 
 /** What a comparison may set aside before diffing. Both default to off. */
 export interface CompareOptions {
   /** "Total" and "TOTAL" compare as the same line. */
   ignoreCase?: boolean;
-  /** Page numbers and running headers or footers are left out of both sides. */
+  /**
+   * Page numbers and running headers or footers are set aside where both
+   * files have them (`furniture.ts`).
+   */
   ignoreFurniture?: boolean;
 }
 
@@ -76,23 +78,19 @@ export function linesOf(
   });
 }
 
-/** The lines a comparison diffs under `options`, and what it set aside. */
+/**
+ * The lines a comparison diffs under `options`, keyed. Every line is here:
+ * what "ignore page headers and numbers" sets aside is decided against the
+ * other document too, in `furniture.ts`. (Until 2026-11-14 the running
+ * lines were dropped here, one document at a time, and a header that
+ * differed between the files was dropped from both.)
+ */
 export function comparableLines(
   extracted: Pick<ExtractedPdfText, "pages">,
   options: CompareOptions,
-): { lines: ComparableLine[]; dropped: number; pagesWithoutText: number[] } {
-  const all = linesOf(extracted);
-  const running = options.ignoreFurniture
-    ? detectRunningLines(all)
-    : new Set<number>();
-  const lines = all
-    .filter((_, i) => !running.has(i))
-    .map((line) =>
-      options.ignoreCase ? { ...line, key: foldCase(line.text) } : line,
-    );
-  return {
-    lines,
-    dropped: running.size,
-    pagesWithoutText: pagesWithoutText(extracted.pages),
-  };
+): { lines: ComparableLine[]; pagesWithoutText: number[] } {
+  const lines = linesOf(extracted).map((line) =>
+    options.ignoreCase ? { ...line, key: foldCase(line.text) } : line,
+  );
+  return { lines, pagesWithoutText: pagesWithoutText(extracted.pages) };
 }
