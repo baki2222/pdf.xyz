@@ -39,8 +39,27 @@ export interface WordPair {
   tokens: WordToken[] | null;
 }
 
-/** Spaces, a run of letters or digits, or one other character. */
-const TOKEN = /\s+|[\p{L}\p{N}]+|[^\s\p{L}\p{N}]/gu;
+/**
+ * The tokens of a line, in order, each one of:
+ *
+ * - a run of spaces;
+ * - a flag (two regional indicators);
+ * - one character of a script written without spaces between words —
+ *   Chinese, Japanese, Thai, Lao, Khmer, Myanmar — with its marks, so a
+ *   one-character edit marks one character, not the sentence;
+ * - a word: a letter or digit, then letters, digits, combining marks and
+ *   the two joiners (`\p{Join_C}`, which Bengali and Devanagari words carry
+ *   inside them), so a vowel sign or a virama stays in its word;
+ * - any other character with the marks, skin tones and joined symbols that
+ *   follow it, so an emoji family is one token.
+ *
+ * Until 2026-11-14 a token was a run of letters and digits only: every
+ * Indic vowel sign, every virama and every decomposed accent stood alone,
+ * and a word mark could start on one (a lone vowel sign after "{+"), while a Japanese sentence
+ * was one token (words.test.ts, "a word is a word in every script").
+ */
+const TOKEN =
+  /\s+|\p{RI}{2}|[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Thai}\p{sc=Lao}\p{sc=Khmer}\p{sc=Myanmar}]\p{M}*|(?:(?![\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Thai}\p{sc=Lao}\p{sc=Khmer}\p{sc=Myanmar}])[\p{L}\p{N}])(?:(?![\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Thai}\p{sc=Lao}\p{sc=Khmer}\p{sc=Myanmar}])[\p{L}\p{M}\p{N}\p{Join_C}])*|[^\s\p{L}\p{N}][\p{M}\p{Emoji_Modifier}]*(?:\p{Join_C}[^\s\p{L}\p{N}][\p{M}\p{Emoji_Modifier}]*)*/gu;
 
 export function tokenize(text: string): string[] {
   return text.match(TOKEN) ?? [];

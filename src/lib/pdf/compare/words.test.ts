@@ -97,3 +97,78 @@ describe("word marks: the bounds", () => {
     ]);
   });
 });
+
+/**
+ * The tokenizer keeps a letter and its marks together (review of audit
+ * compare-pdf#4, 2026-11-14). Until then a token was a run of letters and
+ * digits only, so every Bengali or Devanagari vowel sign and virama, and
+ * every decomposed accent, was a token of its own; the marks cut through
+ * syllables and the report printed a lone vowel sign after "{+". Scripts
+ * written without spaces were the other way round: a whole Japanese
+ * sentence was one token, and a one-character edit marked all of it.
+ *
+ * Each entry: a text and the tokens a reader would call its words.
+ */
+const SCRIPTS: Record<string, [string, string[]]> = {
+  bengali: ["কলকাতা শহর", ["কলকাতা", " ", "শহর"]],
+  devanagari: ["नमस्ते दुनिया", ["नमस्ते", " ", "दुनिया"]],
+  "a decomposed accent": [
+    `cafe${String.fromCharCode(0x301)} au lait`,
+    [`cafe${String.fromCharCode(0x301)}`, " ", "au", " ", "lait"],
+  ],
+  "a joined emoji": [
+    `family ${String.fromCodePoint(0x1f468, 0x200d, 0x1f469, 0x200d, 0x1f467)} ok`,
+    [
+      "family",
+      " ",
+      String.fromCodePoint(0x1f468, 0x200d, 0x1f469, 0x200d, 0x1f467),
+      " ",
+      "ok",
+    ],
+  ],
+  "a flag": [
+    `BD ${String.fromCodePoint(0x1f1e7, 0x1f1e9)}`,
+    ["BD", " ", String.fromCodePoint(0x1f1e7, 0x1f1e9)],
+  ],
+  japanese: ["今日は良い天気", ["今", "日", "は", "良", "い", "天", "気"]],
+  thai: ["สวัสดี", ["ส", "วั", "ส", "ดี"]],
+  latin: ["Total due: 100", ["Total", " ", "due", ":", " ", "100"]],
+};
+
+describe("word marks: a word is a word in every script", () => {
+  it("health: every text is the concatenation of its tokens", () => {
+    for (const [name, [text, want]] of Object.entries(SCRIPTS))
+      expect(want.join(""), name).toBe(text);
+  });
+
+  it("each text tokenizes into its words, never a lone mark", () => {
+    const wrong: string[] = [];
+    for (const [name, [text, want]] of Object.entries(SCRIPTS)) {
+      const got = tokenize(text);
+      if (JSON.stringify(got) !== JSON.stringify(want))
+        wrong.push(`${name}: ${JSON.stringify(got)}`);
+      // No token starts with a combining mark or a joiner, wherever the
+      // corpus's expectations might be wrong.
+      const lone = got.filter((t) => /^[\p{M}\u200c\u200d]/u.test(t));
+      if (lone.length) wrong.push(`${name}: lone ${JSON.stringify(lone)}`);
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it("a changed vowel sign marks the whole word, and a changed character only itself", () => {
+    const one = (l: string, r: string) =>
+      markWords([[0, 0]], [l], [r]).pairs[0]!.tokens;
+    expect(one("আমি ভাত খাই", "আমি ভাতে খাই")).toEqual([
+      { k: "same", text: "আমি ", right: "আমি " },
+      { k: "removed", text: "ভাত" },
+      { k: "added", text: "ভাতে" },
+      { k: "same", text: " খাই", right: " খাই" },
+    ]);
+    expect(one("今日は良い天気です", "今日は悪い天気です")).toEqual([
+      { k: "same", text: "今日は", right: "今日は" },
+      { k: "removed", text: "良" },
+      { k: "added", text: "悪" },
+      { k: "same", text: "い天気です", right: "い天気です" },
+    ]);
+  });
+});
