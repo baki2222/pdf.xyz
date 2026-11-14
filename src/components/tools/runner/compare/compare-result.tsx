@@ -18,7 +18,11 @@ import type {
 } from "@/lib/pdf/compare-pdf";
 import { diffIds, intern, type Op } from "@/lib/pdf/compare/diff";
 import { buildHunks, hunkHeader, type Hunk } from "@/lib/pdf/compare/hunks";
-import { comparableLines, type CompareOptions } from "@/lib/pdf/compare/lines";
+import {
+  comparableLines,
+  foldCase,
+  type CompareOptions,
+} from "@/lib/pdf/compare/lines";
 import {
   markWords,
   pairChangedLines,
@@ -123,7 +127,7 @@ export function compareExtractedPdfText(
     pairChangedLines(ops),
     a.lines.map((l) => l.text),
     b.lines.map((l) => l.text),
-    options.ignoreCase ? (t) => t.toLowerCase() : undefined,
+    options.ignoreCase ? foldCase : undefined,
   );
   const hunks = buildHunks(
     ops,

@@ -14,8 +14,24 @@ export interface CompareOptions {
 }
 
 /**
+ * The key "Ignore case" matches on: case FOLDED, not lowercased. Upper then
+ * lower takes "ß" and "ﬃ" to "ss" and "ffi" on both sides and "ı" to "i";
+ * the combining dot that "İ" lowercases with is then dropped. Until
+ * 2026-11-14 this was `toLowerCase()`, and "İSTANBUL"/"istanbul" and
+ * "STRASSE"/"straße" compared as changes under the option
+ * (engine.test.ts, "ignore case folds case the way Unicode does"). The word
+ * marks match on the same key.
+ */
+/** "i" and U+0307, built from its code: an invisible mark in source is a trap. */
+const DOTTED_I = new RegExp(`i${String.fromCharCode(0x307)}`, "g");
+
+export function foldCase(text: string): string {
+  return text.toUpperCase().toLowerCase().replace(DOTTED_I, "i");
+}
+
+/**
  * One line the diff compares, with where it came from. `key` is what the
- * diff matches on (the text, lowercased under `ignoreCase`); `text` is what a
+ * diff matches on (the text, case-folded under `ignoreCase`); `text` is what a
  * reader is shown, always verbatim. `occurrence` is its rank among the lines
  * with the same text on the same page, so a later slice can find THIS one.
  */
@@ -72,7 +88,7 @@ export function comparableLines(
   const lines = all
     .filter((_, i) => !running.has(i))
     .map((line) =>
-      options.ignoreCase ? { ...line, key: line.text.toLowerCase() } : line,
+      options.ignoreCase ? { ...line, key: foldCase(line.text) } : line,
     );
   return {
     lines,

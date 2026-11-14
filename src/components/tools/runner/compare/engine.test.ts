@@ -157,6 +157,155 @@ describe("compare: the verdict and the listed changes agree under every option",
   });
 });
 
+/**
+ * "Ignore page headers and numbers" sets aside page FURNITURE, and nothing
+ * a reader wrote. Each pair below changes one number in a body line that
+ * sits at a page's edge — where the detector looks — and must stay
+ * "different" with the option on, the changed number listed. Until
+ * 2026-11-14 every one compared as identical (review of audit
+ * compare-pdf#4): the detector folded every number into `#`, so lines that
+ * differed page to page looked like one repeated line, and were dropped.
+ */
+const NUMBER_EDITS: Record<string, [string[], string[], string]> = (() => {
+  const statement = (p: number, bal: string) =>
+    [
+      `Transactions for week ${p}`,
+      `Coffee ${p} 3.50`,
+      `Lunch ${p} 12.00`,
+      `Taxi ${p} 25.00`,
+      `Hotel ${p} 140.00`,
+      `Balance carried forward: ${bal}`,
+    ].join("\n");
+  const pages5 = [1, 2, 3, 4, 5];
+  const deck = (rev: string) =>
+    [1, 2, 3, 4].map((q) =>
+      [
+        `Q${q} results`,
+        `Revenue grew ${q === 2 ? rev : "10"}%`,
+        `Headcount ${q}0`,
+      ].join("\n"),
+    );
+  const contract = (amt: string) =>
+    [1, 2, 3].map((p) =>
+      [
+        `The Tenant shall pay ${p === 2 ? amt : "1200"} dollars per month.`,
+        `Clause ${p} body text that is unique ${p}`,
+        `more unique body ${p}`,
+        `and more ${p}`,
+        `end of clause ${p}`,
+      ].join("\n"),
+    );
+  const ledger = (swap: (p: number, i: number) => string | undefined) =>
+    [0, 1, 2, 3].map((p) =>
+      Array.from(
+        { length: 12 },
+        (_, i) =>
+          `2026-0${p + 1}-${i + 10} Payment received ${swap(p, i) ?? `${100 + p * 12 + i}.00`}`,
+      ).join("\n"),
+    );
+  return {
+    "a running balance on page 3": [
+      pages5.map((p) => statement(p, `${p}000.00`)),
+      pages5.map((p) => statement(p, p === 3 ? "9000.00" : `${p}000.00`)),
+      "9000.00",
+    ],
+    "a one-page invoice's last cell": [
+      ["Invoice 42\nWidget\nQty 3\nAmount due\n4250"],
+      ["Invoice 42\nWidget\nQty 3\nAmount due\n9250"],
+      "9250",
+    ],
+    "a figure on a short slide": [deck("10"), deck("40"), "40%"],
+    "a clause at a page's top": [contract("1200"), contract("1500"), "1500"],
+    "ledger rows at a page's edges": [
+      ledger(() => undefined),
+      ledger((p, i) =>
+        (p === 1 && i === 0) || (p === 2 && i === 11) ? "999.00" : undefined,
+      ),
+      "999.00",
+    ],
+  };
+})();
+
+describe("compare: ignoring page furniture never hides a changed body line", () => {
+  it("health: each pair differs with no option, in the number it names", () => {
+    for (const [name, [l, r, changed]] of Object.entries(NUMBER_EDITS)) {
+      const result = compareExtractedPdfText(doc("a", l), doc("b", r));
+      expect(result.verdict, name).toBe("different");
+      expect(result.report, name).toContain(changed);
+    }
+  });
+
+  it("with the option on, each pair is still different and the changed number is listed", () => {
+    const hidden: string[] = [];
+    for (const [name, [l, r, changed]] of Object.entries(NUMBER_EDITS)) {
+      for (const opts of [{ ignoreFurniture: true }, FULL]) {
+        const result = compareExtractedPdfText(doc("a", l), doc("b", r), opts);
+        const listed = result.hunks.some((h) =>
+          h.ops.some(
+            (op) =>
+              op.k === "added" &&
+              result.diff.some(
+                (d) =>
+                  d.kind === "added" &&
+                  d.right === op.b &&
+                  d.text.includes(changed),
+              ),
+          ),
+        );
+        if (result.verdict !== "different" || !listed)
+          hidden.push(
+            `${name} ${JSON.stringify(opts)}: ${result.verdict}, dropped ${JSON.stringify(result.dropped)}`,
+          );
+      }
+    }
+    expect(hidden).toEqual([]);
+  });
+});
+
+/**
+ * "Ignore case" is case FOLDING, not lowercasing (review of audit
+ * compare-pdf#4, 2026-11-14): "İ" lowercases to "i" plus a combining dot,
+ * and "ß" has no one-letter capital, so both compared as changes under the
+ * option until then. Each pair differs only by case.
+ */
+const CASE_ONLY: [string, string][] = [
+  ["İSTANBUL", "istanbul"],
+  ["STRASSE", "straße"],
+  ["ΣΊΣΥΦΟΣ", "σίσυφος"],
+  ["OFFICE", "oﬃce"],
+  ["Total due", "TOTAL DUE"],
+];
+
+describe("compare: ignore case folds case the way Unicode does", () => {
+  it("each pair differs with no option, and is identical with ignore case, in the lines and the words", () => {
+    const wrong: string[] = [];
+    for (const [l, r] of CASE_ONLY) {
+      const pair = (opts: CompareOptions) =>
+        compareExtractedPdfText(doc("a", [l]), doc("b", [r]), opts);
+      if (pair({}).verdict !== "different") wrong.push(`${l}/${r}: no option`);
+      if (pair({ ignoreCase: true }).verdict !== "identical")
+        wrong.push(`${l}/${r}: ignore case`);
+      // Inside a changed line, the case-only word is not marked.
+      const words = compareExtractedPdfText(
+        doc("a", [`${l} 1`]),
+        doc("b", [`${r} 2`]),
+        { ignoreCase: true },
+      ).hunks.flatMap((h) => h.pairs.flatMap((p) => p.tokens ?? []));
+      if (!words.some((t) => t.k === "same" && t.text.startsWith(l)))
+        wrong.push(`${l}/${r}: word marks ${JSON.stringify(words)}`);
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it("control: different letters are still different under ignore case", () => {
+    expect(
+      compareExtractedPdfText(doc("a", ["STRASSE"]), doc("b", ["strasze"]), {
+        ignoreCase: true,
+      }).verdict,
+    ).toBe("different");
+  });
+});
+
 describe("compare: each change names its page in both files, from real PDFs", () => {
   it("a page inserted before page 2 moves the edit on it to page 3", async () => {
     const { left, right } = pageHeaderPair();
