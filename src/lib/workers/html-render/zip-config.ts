@@ -273,7 +273,9 @@ export type HtmlZipRefusal =
   /** More than one page, and the job named none. */
   | { kind: "choose_entry"; count: number }
   /** The job named a page of a ZIP, and the file is not a ZIP. */
-  | { kind: "not_zip" };
+  | { kind: "not_zip" }
+  /** The file is a ZIP, uploaded under an HTML name and type with no page named. */
+  | { kind: "zip_as_html" };
 
 /** The sentence a reader gets for each refusal. The one place it is written. */
 export function htmlZipRefusalMessage(refusal: HtmlZipRefusal): string {
@@ -296,6 +298,8 @@ export function htmlZipRefusalMessage(refusal: HtmlZipRefusal): string {
       return `This ZIP holds ${refusal.count} pages and none was chosen, so nothing was converted. Choose the ZIP again on the HTML to PDF page and pick the page to print.`;
     case "not_zip":
       return "A page inside a ZIP was named, but the file is not a ZIP archive, so nothing was converted.";
+    case "zip_as_html":
+      return "This file is a ZIP archive, though its name says HTML, so nothing was converted. Rename it to end in .zip and choose it again.";
   }
 }
 

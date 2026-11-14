@@ -517,6 +517,7 @@ describe("refusals, typed and worded", () => {
     { kind: "entry_not_found" },
     { kind: "choose_entry", count: 3 },
     { kind: "not_zip" },
+    { kind: "zip_as_html" },
   ];
   it("says nothing was converted, every time, with each bound from its constant", () => {
     for (const r of ALL)
@@ -681,6 +682,69 @@ describe("the engine and the processor, through a fake Chromium", () => {
       ],
     });
     expect(result).toMatchObject({ ok: false, error: { retryable: false } });
+  });
+
+  // Hostile review round 2 (2026-11-14): both gates read metadata, the
+  // engine reads bytes, so a ZIP uploaded as page.html/text/html with no
+  // page named passed the gates as HTML and was served as a site.
+  it("a ZIP the job did not declare (HTML name and type, no page named) is refused, finally, and never rendered", async () => {
+    const zip = await zipOf(SITE);
+    const job = (
+      filename: string,
+      contentType: string,
+      options: Record<string, unknown> = {},
+    ) => {
+      const chromium = runner();
+      const processor = createHtmlRenderProcessor({ chromium });
+      return processor
+        .process({
+          tool: "html-to-pdf",
+          options,
+          inputs: [{ fileId: "f", filename, contentType, bytes: zip }],
+        })
+        .then((result) => ({ result, chromium }));
+    };
+    const renamed = await job("page.html", "text/html");
+    expect(renamed.result).toMatchObject({
+      ok: false,
+      error: {
+        code: "unprocessable_entity",
+        retryable: false,
+        message: htmlZipRefusalMessage({ kind: "zip_as_html" }),
+      },
+    });
+    expect(renamed.chromium.renderSite).not.toHaveBeenCalled();
+    expect(renamed.chromium.renderHtml).not.toHaveBeenCalled();
+    // POSITIVE CONTROLS, one per clause that declares a ZIP: each alone
+    // reaches the archive path.
+    for (const [name, type, options] of [
+      ["site.zip", "text/html", {}],
+      ["page.html", "application/zip", {}],
+      ["page.html", "application/x-zip-compressed", {}],
+      ["page.html", "text/html", { entry: "index.html" }],
+    ] as const) {
+      const run = await job(name, type, options);
+      expect(run.result.ok, `${name} ${type} ${JSON.stringify(options)}`).toBe(
+        true,
+      );
+      expect(run.chromium.renderSite).toHaveBeenCalledTimes(1);
+    }
+    // And an HTML file under an HTML name still renders as a file.
+    const chromium = runner();
+    const html = await createHtmlRenderProcessor({ chromium }).process({
+      tool: "html-to-pdf",
+      options: {},
+      inputs: [
+        {
+          fileId: "f",
+          filename: "page.html",
+          contentType: "text/html",
+          bytes: enc("<p>x</p>"),
+        },
+      ],
+    });
+    expect(html.ok).toBe(true);
+    expect(chromium.renderHtml).toHaveBeenCalledTimes(1);
   });
 
   it("a renderer with no site support is unsupported, not a mis-render", async () => {

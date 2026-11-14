@@ -163,6 +163,11 @@ describe("ZIP for HTML to PDF: the offer and both gates agree, beat by beat", ()
     expect(unnamed.status < 300).toBe(expected);
   });
 
+  // The routes see a name and a type, never bytes: a ZIP uploaded as
+  // page.html/text/html is admitted here too. The worker refuses it,
+  // finally, before Chromium (`zip_as_html`, processor/html-render.ts;
+  // zip-site.test.ts and the start-up proof hold that), so no ZIP reaches
+  // the archive path without passing a gate that reads the heartbeat.
   it.each(CASES)(
     "an HTML file is admitted whatever the beat: %s",
     async (_n, _e, shape) => {

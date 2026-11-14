@@ -225,7 +225,10 @@ function validateOutput(
  * Render an uploaded HTML file — or a ZIP holding a page and its files,
  * recognised by its BYTES (`looksLikeZip`), never by its name. `entry` is
  * the job's `entry` option: the page of the ZIP to print. Every ZIP refusal
- * is decided here, before Chromium starts.
+ * is decided before Chromium starts — here, or for a ZIP the job did not
+ * declare as one (an HTML name and type, no page named), by the processor
+ * (`../processor/html-render.ts`), so the upload and job gates, which read
+ * only that metadata, see every ZIP that reaches this path.
  */
 export async function runHtmlToPdf(
   input: Uint8Array,

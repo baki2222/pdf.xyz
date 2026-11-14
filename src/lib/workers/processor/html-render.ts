@@ -7,7 +7,12 @@ import {
 import { isSafePublicHttpUrl } from "@/lib/jobs/validation";
 import { parseHtmlRenderOptions } from "@/lib/jobs/html-render-options";
 import { parseWebpageCaptureOptions } from "@/lib/jobs/webpage-capture-options";
-import { parseHtmlZipEntryOption } from "../html-render/zip-config";
+import {
+  htmlZipRefusalMessage,
+  parseHtmlZipEntryOption,
+  uploadIsHtmlZip,
+} from "../html-render/zip-config";
+import { looksLikeZip } from "../html-render/zip-site";
 import {
   HTML_TO_PDF_TOOL,
   WEBPAGE_TO_PDF_TOOL,
@@ -214,6 +219,26 @@ export function createHtmlRenderProcessor(deps: HtmlRenderDeps): Processor {
             retryable: false,
           });
         const file = input.inputs[0]!;
+        // The archive path is taken ONLY for an input the gates saw as a
+        // ZIP: declared one, or named .zip (the upload gate), or sent with
+        // a page to print (the job gate). Both gates read metadata and admit
+        // a ZIP only while the running worker proves `htmlZip`; the engine
+        // recognises a ZIP by its bytes. Before hostile review round 2
+        // (2026-11-14) a ZIP uploaded as page.html/text/html passed both
+        // gates as HTML and was then served as a site, whatever the
+        // heartbeat said. Now it is refused, finally, before Chromium.
+        const declaredZip =
+          entry.entry !== undefined ||
+          uploadIsHtmlZip({
+            filename: file.filename,
+            contentType: file.contentType,
+          });
+        if (!declaredZip && looksLikeZip(file.bytes))
+          return processorFail({
+            code: "unprocessable_entity",
+            message: htmlZipRefusalMessage({ kind: "zip_as_html" }),
+            retryable: false,
+          });
         const run = await runHtmlToPdf(
           file.bytes,
           deps,

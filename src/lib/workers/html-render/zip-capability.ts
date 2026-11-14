@@ -26,7 +26,9 @@
  *   2. an HTML file still renders as a file (`renderHtml`), not as a site;
  *   3. a ZIP of two pages naming neither is refused before the renderer
  *      starts;
- *   4. serving that site is BOUNDED by the render network's limits, through
+ *   4. a ZIP uploaded under an HTML name and type, naming no page, is
+ *      refused, finally, and never rendered (the gates read metadata);
+ *   5. serving that site is BOUNDED by the render network's limits, through
  *      the very function the renderer answers every archive request with
  *      (`answerArchiveRequest`): with the default limits the request past
  *      `maxRequests` is refused, and with a byte budget of two stylesheets
@@ -34,7 +36,7 @@
  *      hostile review round 2 (2026-11-14): an image whose renderer served
  *      entries uncharged — any image built before the first review's fix,
  *      open to a 656 KB upload that took the worker's heap — would still
- *      have passed 1-3, so `htmlZip: true` said ZIPs were opened, not that
+ *      have passed 1-4, so `htmlZip: true` said ZIPs were opened, not that
  *      serving them was bounded.
  *
  * ── WHAT A PASS DOES AND DOES NOT MEAN ──────────────────────────────────────
@@ -145,7 +147,15 @@ export async function provesHtmlZip(
     if (refused.ok || refused.error.retryable) return false;
     if (sites.length !== 1 || htmlRenders() !== 1) return false;
 
-    // 4. Serving is bounded, through the renderer's own answer.
+    // 4. A ZIP named as HTML: refused, never rendered as either. One page,
+    // so nothing ELSE would refuse it (the ZIP of step 1 has two pages and
+    // would be refused for naming none — a pass for the wrong reason).
+    const onePage = await probeZip({ "index.html": "<p>probe</p>" });
+    const renamed = await job(onePage, "probe.html", {});
+    if (renamed.ok || renamed.error.retryable) return false;
+    if (sites.length !== 1 || htmlRenders() !== 1) return false;
+
+    // 5. Serving is bounded, through the renderer's own answer.
     const get = { method: "GET", url: `${HTML_DOCUMENT_URL}site/s.css` };
     const size = css.body.byteLength;
     const fulfilled = (network: ReturnType<typeof createRenderNetwork>) =>
