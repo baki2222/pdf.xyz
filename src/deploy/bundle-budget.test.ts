@@ -1262,6 +1262,13 @@ const TOOL_PAGES_TO_COME = {
   //  - the ticket's on-demand fetch is byte-identical (34,995 B over the
   //    same eight chunk files, hashes unchanged).
   // Nothing allocated: the +12 on each G.1 row is inside its headroom.
+  // RE-MEASURED the same way after the review fixes (running lines, case
+  // folding, tokenizer, row budget, view), all inside the async chunk:
+  // compare-pdf 230,131 -> 228,788 (-1,343); every other page +8..+13
+  // (+8 (1), +9 (67), +10 (8), +11 (4), +12 (5), +13 (58)). The extra 1 B
+  // everywhere is webpack's runtime, 3,777 -> 3,789 (+12, was +11): the
+  // compare chunk's new content hash gzips a byte worse. Still inside
+  // every G.1 row's headroom.
   unallocated:
     UNALLOCATED -
     NEW_TOOLS_2026_10_30 -
