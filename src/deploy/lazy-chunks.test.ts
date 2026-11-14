@@ -1012,12 +1012,14 @@ function onDemandFetch(marker: string, page: string) {
 }
 
 /**
- * Compare PDF's page view's fetch: measured 2026-11-15 on its first build
- * plus 10% (`compareViewerFetch` below prints the figure). It is fetched on
- * demand, beside the viewer's open, so it is paid only by a run that asks
- * for the pages.
+ * Compare PDF's page view's fetch from the compare page: measured
+ * 2026-11-15 at 13,465 B gz (13.15 KB: its own chunk 6,016 B, the chunk of
+ * viewer modules it shares with PDF Viewer 5,323 B, and 2,126 B more shared
+ * code), plus 10%. Fetched on demand, beside the viewer's open, so it is
+ * paid only by a run that asks for the pages; the failure message prints
+ * the figure and the files.
  */
-const COMPARE_VIEWER_FETCH_GZ_KB = 14;
+const COMPARE_VIEWER_FETCH_GZ_KB = 14.5;
 
 describe("Compare PDF's page view is a chunk of its own", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));
