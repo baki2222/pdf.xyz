@@ -116,7 +116,7 @@ const STRICT_UTF8 = new TextDecoder("utf-8", { fatal: true });
 
 /**
  * Code page 437's bytes 0x80-0xFF, as code points (generated from Python's
- * `cp437` codec; `zip-directory.test.ts` holds 0x82 as e-acute and the
+ * `cp437` codec; `@/lib/workers/html-render/zip-inspect.test` holds 0x82 as e-acute and the
  * table's length). Bytes below 0x80 are ASCII.
  */
 const CP437_HIGH: readonly string[] = [
