@@ -1,8 +1,7 @@
 "use client";
 
-import { lazy, Suspense } from "react";
-import { Spinner } from "./runner-kit";
 import { SinglePdfRunner } from "./single-pdf-runner";
+import { lazyPanel } from "./lazy-panel";
 
 /**
  * Edit PDF Bookmarks' runner, mounted by `metadata-runner.tsx` for its slug.
@@ -11,18 +10,16 @@ import { SinglePdfRunner } from "./single-pdf-runner";
  * Annotations' first load carry a few hundred bytes for it, not the
  * editor. The editor (`bookmarks-editor.tsx`) and the engine are fetched
  * when a file opens, together and alongside its parse (`prepare`): no
- * request waits on another.
+ * request waits on another. Through `lazyPanel`, like its siblings, so a
+ * chunk that fails to arrive is an inline message with a retry rather than
+ * the error boundary (it was its own `React.lazy` until 2026-11-14).
  */
-
-const editorModule = () => import("./bookmarks-editor");
-
-const BookmarksEditor = lazy(() =>
-  editorModule().then(({ BookmarksEditor }) => ({ default: BookmarksEditor })),
+const bookmarks = lazyPanel(
+  () =>
+    import("./bookmarks-editor").then(({ BookmarksEditor }) => BookmarksEditor),
+  "Opening the bookmark editor…",
+  () => import("@/lib/pdf/bookmarks"),
 );
-
-const prepare = async () => {
-  await Promise.all([editorModule(), import("@/lib/pdf/bookmarks")]);
-};
 
 export function BookmarksRunner() {
   return (
@@ -30,19 +27,9 @@ export function BookmarksRunner() {
       hint="One PDF · bookmarks read and changed locally in your browser"
       handoffSlug="edit-pdf-bookmarks"
       toolName="Edit PDF Bookmarks"
-      prepare={prepare}
+      prepare={bookmarks.prepare}
     >
-      {(pdf, reset) => (
-        <Suspense
-          fallback={
-            <p className="text-muted inline-flex items-center gap-2 text-sm">
-              <Spinner /> Opening the bookmark editor…
-            </p>
-          }
-        >
-          <BookmarksEditor pdf={pdf} onReset={reset} />
-        </Suspense>
-      )}
+      {(pdf, reset) => <bookmarks.Panel pdf={pdf} onReset={reset} />}
     </SinglePdfRunner>
   );
 }
