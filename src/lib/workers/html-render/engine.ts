@@ -14,6 +14,16 @@ import {
   DEFAULT_WEBPAGE_CAPTURE_OPTIONS,
   type WebpageCaptureOptions,
 } from "@/lib/jobs/webpage-capture-options";
+import {
+  htmlZipRefusalMessage,
+  looksLikeZip,
+  openHtmlZip,
+  type HtmlSite,
+  type HtmlZipRefusal,
+} from "./zip-site";
+import { htmlDocumentContentType } from "./charset";
+
+export type { HtmlSite, HtmlZipRefusal };
 
 export {
   HTML_RENDER_TOOLS,
@@ -114,6 +124,19 @@ export interface ChromiumPdfRunner {
     run?: RunControl,
     capture?: WebpageCaptureOptions,
   ): Promise<Uint8Array>;
+  /**
+   * A ZIP page (`./zip-site`): the entry printed exactly as an uploaded HTML
+   * file is, with the archive's other files answered at the document origin.
+   * Optional so a runner without it reads as UNSUPPORTED for a ZIP — never
+   * as a render of the archive's bytes as if they were HTML, which is what
+   * `renderHtml` would do with them (and what an image built before this
+   * method did: a "successful" PDF of binary noise).
+   */
+  renderSite?(
+    site: HtmlSite,
+    options?: HtmlRenderOptions,
+    run?: RunControl,
+  ): Promise<Uint8Array>;
 }
 
 /** One document of a {@link DocumentPackage}, printed on its own. */
@@ -150,7 +173,7 @@ export interface HtmlRenderDeps {
 
 export interface HtmlRenderResultMeta {
   engine: typeof HTML_RENDER_ENGINE;
-  source: "html" | "url";
+  source: "html" | "zip" | "url";
   inputBytes?: number;
   outputBytes: number;
 }
@@ -160,6 +183,13 @@ export type HtmlRenderRun =
   | { ok: false; kind: "unsupported"; message: string }
   | { ok: false; kind: "invalid_url"; message: string }
   | { ok: false; kind: "too_large"; limitBytes: number; message: string }
+  /** A ZIP that cannot be printed (`./zip-site`): final, never retried. */
+  | {
+      ok: false;
+      kind: "refused";
+      refusal: HtmlZipRefusal;
+      message: string;
+    }
   | { ok: false; kind: "failed"; message: string }
   | {
       ok: false;
@@ -191,36 +221,57 @@ function validateOutput(
   return undefined;
 }
 
+/**
+ * Render an uploaded HTML file — or a ZIP holding a page and its files,
+ * recognised by its BYTES (`looksLikeZip`), never by its name. `entry` is
+ * the job's `entry` option: the page of the ZIP to print. Every ZIP refusal
+ * is decided here, before Chromium starts.
+ */
 export async function runHtmlToPdf(
   input: Uint8Array,
   deps: HtmlRenderDeps,
   options: HtmlRenderOptions = DEFAULT_HTML_RENDER_OPTIONS,
   /** The attempt's abort signal, passed to Chromium. */
   signal?: AbortSignal,
+  entry?: string,
 ): Promise<HtmlRenderRun> {
   if (!deps.chromium) return unsupported();
   const limit = deps.limits?.maxInputBytes;
+  const zip = looksLikeZip(input);
   if (limit !== undefined && input.byteLength > limit) {
     return {
       ok: false,
       kind: "too_large",
       limitBytes: limit,
-      message: `This HTML file is larger than ${describeByteCeiling(limit)}, the most HTML to PDF renders per file.`,
+      message: `This ${zip ? "ZIP" : "HTML file"} is larger than ${describeByteCeiling(limit)}, the most HTML to PDF renders per file.`,
     };
+  }
+  const refused = (refusal: HtmlZipRefusal): HtmlRenderRun => ({
+    ok: false,
+    kind: "refused",
+    refusal,
+    message: htmlZipRefusalMessage(refusal),
+  });
+  if (entry !== undefined && !zip) return refused({ kind: "not_zip" });
+  let site: HtmlSite | undefined;
+  if (zip) {
+    if (!deps.chromium.renderSite) return unsupported();
+    const opened = openHtmlZip(input, entry, htmlDocumentContentType);
+    if (!opened.ok) return refused(opened.refusal);
+    site = opened.site;
   }
   let output: Uint8Array;
   try {
-    output = await deps.chromium.renderHtml(
-      input,
-      options,
-      signalOption(signal),
-    );
+    output =
+      site && deps.chromium.renderSite
+        ? await deps.chromium.renderSite(site, options, signalOption(signal))
+        : await deps.chromium.renderHtml(input, options, signalOption(signal));
   } catch (error) {
     rethrowIfAttemptAbort(error);
     return {
       ok: false,
       kind: "failed",
-      message: "Chromium could not render this HTML file.",
+      message: `Chromium could not render this ${site ? "ZIP's page" : "HTML file"}.`,
     };
   }
   const outputError = validateOutput(output, deps);
@@ -238,7 +289,7 @@ export async function runHtmlToPdf(
     output,
     meta: {
       engine: HTML_RENDER_ENGINE,
-      source: "html",
+      source: site ? "zip" : "html",
       inputBytes: input.byteLength,
       outputBytes: output.byteLength,
     },

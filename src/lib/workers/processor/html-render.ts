@@ -7,6 +7,7 @@ import {
 import { isSafePublicHttpUrl } from "@/lib/jobs/validation";
 import { parseHtmlRenderOptions } from "@/lib/jobs/html-render-options";
 import { parseWebpageCaptureOptions } from "@/lib/jobs/webpage-capture-options";
+import { parseHtmlZipEntryOption } from "../html-render/zip-config";
 import {
   HTML_TO_PDF_TOOL,
   WEBPAGE_TO_PDF_TOOL,
@@ -108,6 +109,14 @@ function jobError(run: HtmlRenderFailure): JobError {
         message: run.message,
         retryable: false,
       };
+    case "refused":
+      // A ZIP that cannot be printed: the same archive fails alike on every
+      // attempt, so it is final (`../html-render/zip-site`).
+      return {
+        code: "unprocessable_entity",
+        message: run.message,
+        retryable: false,
+      };
     case "page_unavailable":
       // The site's doing, not the worker's: never `internal_error`. Retried
       // only when the same request could answer differently (5xx, 429, a
@@ -139,7 +148,8 @@ function requireSingleHtmlInput(
   if (input.inputs.length !== 1 || !file) {
     return processorFail({
       code: "unprocessable_entity",
-      message: "HTML to PDF accepts exactly one HTML input file.",
+      message:
+        "HTML to PDF accepts exactly one input file: an HTML file, or a ZIP of a page and its files.",
       retryable: false,
     });
   }
@@ -194,12 +204,22 @@ export function createHtmlRenderProcessor(deps: HtmlRenderDeps): Processor {
       if (input.tool === HTML_TO_PDF_TOOL) {
         const inputError = requireSingleHtmlInput(input);
         if (inputError) return inputError;
+        // The page of a ZIP to print: the API's parser again, for the same
+        // reason as the layout's.
+        const entry = parseHtmlZipEntryOption(input.options);
+        if (!entry.ok)
+          return processorFail({
+            code: "unprocessable_entity",
+            message: entry.message,
+            retryable: false,
+          });
         const file = input.inputs[0]!;
         const run = await runHtmlToPdf(
           file.bytes,
           deps,
           layout.value,
           input.signal,
+          entry.entry,
         );
         if (!run.ok) return processorFail(jobError(run));
         return processorOk(

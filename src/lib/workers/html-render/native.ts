@@ -7,6 +7,7 @@ import type { Readable, Writable } from "node:stream";
 import { looksLikePdf } from "../compression/engine";
 import { CdpConnection, type CdpEvent, type CdpPipe } from "./cdp";
 import { HTML_DOCUMENT_URL } from "./document-url";
+import { htmlDocumentContentType } from "./charset";
 import {
   WebpageFetchError,
   type ChromiumPackageRunner,
@@ -14,6 +15,7 @@ import {
   type DocumentPackage,
   type PackageDocument,
   type HtmlRenderDeps,
+  type HtmlSite,
   type WebpageFetchFailure,
 } from "./engine";
 import {
@@ -79,6 +81,9 @@ import {
 export const VIRTUAL_TIME_BUDGET_MS = 10_000;
 
 export { HTML_DOCUMENT_URL };
+// Moved to `./charset` (2026-11-14) so the engine can decide a ZIP page's
+// charset without importing the renderer; re-exported for its callers.
+export { htmlDocumentContentType };
 
 export interface ChromiumProcess {
   pipe: CdpPipe;
@@ -306,6 +311,8 @@ export function probeChromiumFromConfig(
 
 type RenderTarget =
   | { kind: "html"; bytes: Uint8Array }
+  /** A ZIP page (`./zip-site`): its entry, and its files at the origin. */
+  | { kind: "site"; site: HtmlSite }
   | { kind: "url"; url: string; capture: WebpageCaptureOptions };
 
 /**
@@ -354,67 +361,6 @@ export function mainDocumentVerdict(
   return null;
 }
 
-/** A byte-order mark: UTF-8, UTF-16 BE or UTF-16 LE. */
-function startsWithBom(bytes: Uint8Array): boolean {
-  return (
-    (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) ||
-    (bytes[0] === 0xfe && bytes[1] === 0xff) ||
-    (bytes[0] === 0xff && bytes[1] === 0xfe)
-  );
-}
-
-/** How far Chromium's prescan looks for a `<meta>` declaration, in bytes. */
-const CHARSET_PRESCAN_BYTES = 1024;
-
-/** One `<meta ...>` tag's attributes, as written. */
-const META_TAG =
-  /<meta\b((?:\s+[^\s>"'/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+))?|\s*\/)*)\s*>/gi;
-const ATTRIBUTE =
-  /([^\s>"'/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
-
-/** True when `label` names an encoding a browser knows. */
-function isEncodingLabel(label: string): boolean {
-  try {
-    new TextDecoder(label.trim());
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * True when the file declares its own encoding where Chromium looks for one:
- * in the first {@link CHARSET_PRESCAN_BYTES} bytes, outside comments, a
- * `<meta>` whose OWN `charset` attribute names a real encoding, or a
- * `<meta http-equiv="content-type" content="...; charset=...">`. Read as
- * latin1 so any byte sequence is searchable; the markup is ASCII in every
- * encoding Chromium sniffs. "charset=" in prose, in another meta's
- * `content`, or in a comment is not a declaration (review of 9b169477).
- */
-function declaresCharset(bytes: Uint8Array): boolean {
-  const head = Buffer.from(bytes.subarray(0, CHARSET_PRESCAN_BYTES))
-    .toString("latin1")
-    .replace(/<!--[\s\S]*?(?:-->|$)/g, "");
-  for (const [, attrs = ""] of head.matchAll(META_TAG)) {
-    const named = new Map<string, string>();
-    for (const [, name, dq, sq, bare] of attrs.matchAll(ATTRIBUTE))
-      if (!named.has(name!.toLowerCase()))
-        named.set(name!.toLowerCase(), dq ?? sq ?? bare ?? "");
-    const charset = named.get("charset");
-    if (charset !== undefined && isEncodingLabel(charset)) return true;
-    const content = /charset\s*=\s*["']?([^"';\s]+)/i.exec(
-      named.get("content") ?? "",
-    );
-    if (
-      named.get("http-equiv")?.trim().toLowerCase() === "content-type" &&
-      content &&
-      isEncodingLabel(content[1]!)
-    )
-      return true;
-  }
-  return false;
-}
-
 /** HTML's void elements: the only ones whose `<x/>` the HTML parser closes. */
 const VOID_ELEMENTS = new Set([
   "area",
@@ -454,28 +400,6 @@ export function xhtmlEmptyElementsForHtml(bytes: Uint8Array): Uint8Array {
         : `<${name}${attrs}></${name}>`,
   );
   return out === text ? bytes : new Uint8Array(Buffer.from(out, "latin1"));
-}
-
-/**
- * The Content-Type an uploaded HTML document is served with.
- *
- * A BOM or a declared charset is left to Chromium (an HTTP charset would
- * OVERRIDE the `<meta>` — the header outranks it), so a legacy-encoded upload
- * that says what it is reads exactly as it says. A file that declares nothing
- * falls to Chromium's default, windows-1252 — which turned every UTF-8
- * "café" into "cafÃ©" while the job succeeded (audit #5, 2026-11-06). Such a
- * file is served as UTF-8 when its bytes ARE valid UTF-8, which is the only
- * reading in which they are text at all; otherwise it keeps the old default.
- */
-export function htmlDocumentContentType(bytes: Uint8Array): string {
-  if (startsWithBom(bytes)) return "text/html";
-  if (declaresCharset(bytes)) return "text/html";
-  try {
-    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    return "text/html; charset=utf-8";
-  } catch {
-    return "text/html";
-  }
 }
 
 /**
@@ -626,6 +550,41 @@ export function createNativeChromiumPdfRunner(
         return;
       }
       seams.onRequest?.({ url: p.request.url, resourceType: p.resourceType });
+      // A ZIP page: every request at the document origin is answered from
+      // the archive (404 when it names no servable entry, and for anything
+      // but GET) and never reaches the network. Everything else is decided
+      // by `./network` below, exactly as for an uploaded HTML file.
+      if (
+        target.kind === "site" &&
+        p.request.url.startsWith(HTML_DOCUMENT_URL)
+      ) {
+        const hit =
+          p.request.method === "GET" ? target.site.serve(p.request.url) : null;
+        if (
+          hit &&
+          p.request.url === target.site.entryUrl &&
+          p.resourceType === "Document" &&
+          p.frameId === mainFrameId
+        )
+          documentServed = true;
+        await cdp.send(
+          "Fetch.fulfillRequest",
+          {
+            requestId: p.requestId,
+            responseCode: hit ? 200 : 404,
+            responseHeaders: [
+              {
+                name: "Content-Type",
+                value: hit ? hit.contentType : "text/plain",
+              },
+              { name: "X-Content-Type-Options", value: "nosniff" },
+            ],
+            body: hit ? Buffer.from(hit.body).toString("base64") : "",
+          },
+          sessionId,
+        );
+        return;
+      }
       const decision = await network.handle(p.request);
       // Recorded BEFORE Chromium is answered: Page.navigate settles on that
       // answer, and the verdict must already be here when it does.
@@ -720,7 +679,12 @@ export function createNativeChromiumPdfRunner(
         pageSession,
       );
 
-    const url = target.kind === "html" ? HTML_DOCUMENT_URL : target.url;
+    const url =
+      target.kind === "html"
+        ? HTML_DOCUMENT_URL
+        : target.kind === "site"
+          ? target.site.entryUrl
+          : target.url;
     const nav = await cdp.send<{ errorText?: string }>(
       "Page.navigate",
       { url },
@@ -737,7 +701,7 @@ export function createNativeChromiumPdfRunner(
         });
     }
     if (nav.errorText) throw new Error(`navigation failed: ${nav.errorText}`);
-    if (target.kind === "html" && !documentServed)
+    if (target.kind !== "url" && !documentServed)
       throw new Error("the uploaded document was never served");
 
     await spendVirtualTime(VIRTUAL_TIME_BUDGET_MS);
@@ -821,7 +785,7 @@ export function createNativeChromiumPdfRunner(
     // Chromium would print them as clickable links to it (audit #48). They
     // are unlinked — their text stays — in an isolated world, so a page
     // script that redefined the DOM cannot skip it. In-page jumps stay.
-    if (target.kind === "html")
+    if (target.kind !== "url")
       await isolated("pdfxyz-unlink", UNLINK_SYNTHETIC_ORIGIN);
 
     // "Hide cookie notices and pop-ups" (audit webpage-to-pdf#1): after the
@@ -1178,6 +1142,9 @@ export function createNativeChromiumPdfRunner(
       capture = DEFAULT_WEBPAGE_CAPTURE_OPTIONS,
     ) {
       return render({ kind: "url", url, capture }, options, run.signal);
+    },
+    renderSite(site, options = DEFAULT_HTML_RENDER_OPTIONS, run = {}) {
+      return render({ kind: "site", site }, options, run.signal);
     },
   };
 }

@@ -16,6 +16,14 @@
  *     inflate;
  *   - a file that inflates past its declared size, or short of it: thrown as
  *     {@link ZipEntryError} when that file is read — the directory lied.
+ *
+ * SHARED, NOT COPIED. The limits are a parameter ({@link ZipLimits}), EPUB's
+ * by default: HTML to PDF opens a ZIP of a web page through this same reader
+ * with its own measured bounds (`../html-render/zip-config.ts`), and
+ * `../office-conversion/xlsx-page-setup.ts` reads an .xlsx with EPUB's. The
+ * directory also says which entries are folders and which are symbolic
+ * links ({@link BoundedZip.isDirectory}, {@link BoundedZip.isSymlink}), so
+ * a reader that serves entries can refuse both.
  */
 import { inflateRawSync } from "node:zlib";
 import {
@@ -24,6 +32,22 @@ import {
   EPUB_MAX_UNPACKED_BYTES,
   EPUB_RATIO_FLOOR_BYTES,
 } from "./native-config";
+
+/** The four bounds a ZIP is judged by before anything is inflated. */
+export interface ZipLimits {
+  maxEntries: number;
+  maxUnpackedBytes: number;
+  maxEntryRatio: number;
+  /** A file unpacking to no more than this is not judged by the ratio. */
+  ratioFloorBytes: number;
+}
+
+export const EPUB_ZIP_LIMITS: ZipLimits = {
+  maxEntries: EPUB_MAX_ENTRIES,
+  maxUnpackedBytes: EPUB_MAX_UNPACKED_BYTES,
+  maxEntryRatio: EPUB_MAX_ENTRY_RATIO,
+  ratioFloorBytes: EPUB_RATIO_FLOOR_BYTES,
+};
 
 export type ZipRefusal =
   | { kind: "unreadable"; why: string }
@@ -50,6 +74,8 @@ interface CentralEntry {
   packed: number;
   unpacked: number;
   localOffset: number;
+  directory: boolean;
+  symlink: boolean;
 }
 
 export interface BoundedZip {
@@ -59,6 +85,17 @@ export interface BoundedZip {
   has(name: string): boolean;
   /** True when the entry is encrypted at the ZIP level. */
   isEncrypted(name: string): boolean;
+  /**
+   * True when the entry is a folder: its name ends in `/`, or its external
+   * attributes say so (MS-DOS's directory bit, or a Unix `S_IFDIR` mode).
+   */
+  isDirectory(name: string): boolean;
+  /**
+   * True when the entry is a symbolic link: made on Unix (the high byte of
+   * "version made by" is 3) with an `S_IFLNK` mode. Its bytes are the link's
+   * target path, never the file it names.
+   */
+  isSymlink(name: string): boolean;
   /** The entry's declared unpacked size, or null when there is none. */
   sizeOf(name: string): number | null;
   /** The entry's bytes, inflated within its declared size; null if absent. */
@@ -77,12 +114,21 @@ const EOCD = 0x06054b50;
 const CENTRAL = 0x02014b50;
 const LOCAL = 0x04034b50;
 
+/** Unix file-type bits of a mode, and the two types read here. */
+const S_IFMT = 0o170000;
+const S_IFDIR = 0o040000;
+const S_IFLNK = 0o120000;
+/** "Version made by" host system 3: the external attributes hold a Unix mode. */
+const HOST_UNIX = 3;
+const DOS_DIRECTORY = 0x10;
+
 /**
- * Open `bytes` as a ZIP within the EPUB limits, or say why not. Nothing is
- * inflated here: only the central directory is read.
+ * Open `bytes` as a ZIP within `limits` (EPUB's unless given), or say why
+ * not. Nothing is inflated here: only the central directory is read.
  */
 export function openBoundedZip(
   bytes: Uint8Array,
+  limits: ZipLimits = EPUB_ZIP_LIMITS,
 ): { ok: true; zip: BoundedZip } | { ok: false; refusal: ZipRefusal } {
   const floor = Math.max(0, bytes.length - 22 - 0xffff);
   let eocd = -1;
@@ -100,7 +146,7 @@ export function openBoundedZip(
   const dirOffset = u32(bytes, eocd + 16);
   if (count === 0xffff || dirOffset === 0xffffffff)
     return { ok: false, refusal: { kind: "unreadable", why: "ZIP64" } };
-  if (count > EPUB_MAX_ENTRIES)
+  if (count > limits.maxEntries)
     return {
       ok: false,
       refusal: {
@@ -120,12 +166,14 @@ export function openBoundedZip(
         ok: false,
         refusal: { kind: "unreadable", why: "broken ZIP directory" },
       };
+    const madeBy = u16(bytes, at + 4);
     const flags = u16(bytes, at + 8);
     const method = u16(bytes, at + 10);
     const packed = u32(bytes, at + 20);
     const unpacked = u32(bytes, at + 24);
     const nameLength = u16(bytes, at + 28);
     const skip = nameLength + u16(bytes, at + 30) + u16(bytes, at + 32);
+    const external = u32(bytes, at + 38);
     const localOffset = u32(bytes, at + 42);
     const name = decoder.decode(bytes.subarray(at + 46, at + 46 + nameLength));
     at += 46 + skip;
@@ -136,18 +184,18 @@ export function openBoundedZip(
     )
       return { ok: false, refusal: { kind: "unreadable", why: "ZIP64" } };
     total += unpacked;
-    if (total > EPUB_MAX_UNPACKED_BYTES)
+    if (total > limits.maxUnpackedBytes)
       return {
         ok: false,
         refusal: {
           kind: "bomb",
           limit: "unpacked",
-          why: `more than ${EPUB_MAX_UNPACKED_BYTES} bytes unpacked`,
+          why: `more than ${limits.maxUnpackedBytes} bytes unpacked`,
         },
       };
     if (
-      unpacked > EPUB_RATIO_FLOOR_BYTES &&
-      unpacked > packed * EPUB_MAX_ENTRY_RATIO
+      unpacked > limits.ratioFloorBytes &&
+      unpacked > packed * limits.maxEntryRatio
     )
       return {
         ok: false,
@@ -160,6 +208,8 @@ export function openBoundedZip(
     // The first of two entries with one name wins, as in most readers.
     if (entries.has(name)) continue;
     names.push(name);
+    const unixMode =
+      madeBy >>> 8 === HOST_UNIX ? (external >>> 16) & S_IFMT : 0;
     entries.set(name, {
       name,
       method,
@@ -167,6 +217,11 @@ export function openBoundedZip(
       packed,
       unpacked,
       localOffset,
+      directory:
+        name.endsWith("/") ||
+        (external & DOS_DIRECTORY) !== 0 ||
+        unixMode === S_IFDIR,
+      symlink: unixMode === S_IFLNK,
     });
   }
 
@@ -174,6 +229,8 @@ export function openBoundedZip(
     names,
     has: (name) => entries.has(name),
     isEncrypted: (name) => entries.get(name)?.encrypted === true,
+    isDirectory: (name) => entries.get(name)?.directory === true,
+    isSymlink: (name) => entries.get(name)?.symlink === true,
     sizeOf: (name) => entries.get(name)?.unpacked ?? null,
     read(name) {
       const entry = entries.get(name);
