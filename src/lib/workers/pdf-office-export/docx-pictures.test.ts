@@ -426,6 +426,36 @@ describe("PDF to Word does not deliver a .docx that lost what it planned", () =>
         xml.replace('<w:p><w:r><w:br w:type="page"/></w:r></w:p>', ""),
       /0 of 1 page breaks/,
     ],
+    // 2026-11-15: the text-conservation and structure checks. Before them a
+    // writer that put a word in twice, or a table Word cannot open, was
+    // delivered: both checks above count pictures and breaks, not words.
+    [
+      "a word written twice",
+      async (_: JSZip, xml: string) =>
+        xml.replace(
+          /(<w:t xml:space="preserve">)([^<\s]+)/,
+          (_m, open: string, word: string) => `${open}${word} ${word}`,
+        ),
+      /text differs from the PDF's on page 1/,
+    ],
+    [
+      "a word dropped",
+      async (_: JSZip, xml: string) =>
+        xml.replace(
+          /(<w:t xml:space="preserve">)[^<\s]+ /,
+          (_m, open: string) => open,
+        ),
+      /text differs from the PDF's on page 1/,
+    ],
+    [
+      "a table cell with no paragraph",
+      async (_: JSZip, xml: string) =>
+        xml.replace(
+          "<w:body>",
+          `<w:body><w:tbl><w:tblGrid><w:gridCol w:w="100"/></w:tblGrid><w:tr><w:tc></w:tc></w:tr></w:tbl><w:p/>`,
+        ),
+      /a table cell with no paragraph/,
+    ],
   ] as const)(
     "%s is refused as incomplete",
     async (_, edit, why) => {

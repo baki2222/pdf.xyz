@@ -16,9 +16,19 @@ import {
   xmlEscape,
 } from "../ooxml/sheet-cells";
 import { deckFromScan } from "./deck-from-scan";
-import { docxDocumentOf, scannedPictures } from "./docx-layout";
+import {
+  docxDocumentOf,
+  scannedPictures,
+  type DocxDocument,
+} from "./docx-layout";
 import { DOCX_PICTURE_OVERHEAD_BYTES, docxPackage } from "./docx-package";
 import { readDocxBody } from "./docx-read";
+import {
+  asXmlCarries,
+  docxPageTexts,
+  docxStructureProblems,
+  readDocxStructure,
+} from "./docx-structure";
 import { classifyPdfTextFailure } from "./encryption";
 import { rethrowIfAttemptAbort, type RunControl } from "../attempt-abort";
 import { layoutGrid } from "./layout-grid";
@@ -388,10 +398,25 @@ function scanOptions(deps: PdfOfficeExportDeps) {
  * PowerPoint's deck gets the same treatment (`undeliverablePptx`). A pass is
  * necessary, not sufficient: Word itself is the instrument for "it opens"
  * (`scripts/prove-docx-opens.ts`).
+ *
+ * Since 2026-11-15, when the writer began putting formatting on each word,
+ * two more, read by `./docx-structure` (which also shares nothing with the
+ * writer):
+ *   - STRUCTURE: nothing in it Word could refuse or misread
+ *     (`docxStructureProblems`: well-formed parts, run properties in schema
+ *     order and range, tables Word can lay out, every part typed);
+ *   - TEXT CONSERVATION: page by page, the text read back
+ *     (`docxPageTexts`) is EXACTLY poppler's (`flowPageText`) for every page
+ *     the document holds — `expected`, built from the flow, never from the
+ *     writer. Splitting a paragraph into one run per formatting is the step
+ *     that can lose, double or reorder a word, and no other check here reads
+ *     words. Both sides pass through `asXmlCarries` (the characters XML
+ *     cannot hold, and its line ends): the one difference XML itself forces.
  */
 async function undeliverableDocx(
   output: Uint8Array,
   plan: { pictures: number; pageBreaks: number },
+  expected: readonly string[],
 ): Promise<Failure | null> {
   let problem: string | null = null;
   try {
@@ -407,6 +432,23 @@ async function undeliverableDocx(
       problem = "a picture without its image";
     else if (breaks !== plan.pageBreaks)
       problem = `${breaks} of ${plan.pageBreaks} page breaks`;
+    else {
+      const structure = await docxStructureProblems(output);
+      if (structure.length > 0) problem = structure.slice(0, 3).join("; ");
+      else {
+        const read = docxPageTexts(await readDocxStructure(output)).map(
+          asXmlCarries,
+        );
+        const want = expected.map(asXmlCarries);
+        if (read.length !== want.length)
+          problem = `${read.length} of ${want.length} pages of text`;
+        else {
+          const page = want.findIndex((text, k) => read[k] !== text);
+          if (page >= 0)
+            problem = `the text differs from the PDF's on page ${page + 1} of the document`;
+        }
+      }
+    }
   } catch {
     problem = "unreadable package";
   }
@@ -417,6 +459,24 @@ async function undeliverableDocx(
         message: `The Word file came out incomplete, so it was not delivered. This is a fault in pdf.xyz, not in your PDF. (${problem})`,
       }
     : null;
+}
+
+/**
+ * The text each page of `doc` must read back as, from poppler's flow alone:
+ * one entry per PDF page the document holds (a page with nothing on it adds
+ * no page to the .docx, so none here), its `flowPageText` — "" for a page of
+ * pictures only. The writer is not asked: the expectation and the file must
+ * not share an author.
+ */
+function writtenPageTexts(doc: DocxDocument, flow: PdfFlowText): string[] {
+  const textOf = new Map(
+    flow.pages.map((page) => [page.pageNumber, flowPageText(page)]),
+  );
+  const out: string[] = [];
+  doc.pages.forEach((blocks, k) => {
+    if (blocks.length > 0) out.push(textOf.get(k + 1) ?? "");
+  });
+  return out;
 }
 
 /** A scan of no page: the text-only document, for its size. */
@@ -516,7 +576,11 @@ async function renderWord(
     doc = docxDocumentOf(flow, scan);
     ({ bytes: output, plan } = await write(doc));
   }
-  const refused = await undeliverableDocx(output, plan);
+  const refused = await undeliverableDocx(
+    output,
+    plan,
+    writtenPageTexts(doc, flow),
+  );
   if (refused) return refused;
   const pageCount = doc.pages.length;
   // The same per-page text the DOCX is written from — measured, not

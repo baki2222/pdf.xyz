@@ -68,6 +68,13 @@ import { PDFDocument } from "pdf-lib";
 import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { decodePng } from "@/lib/png-probe";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
+import {
+  proveThroughExecutorOrder,
+  type ExecutorOrderJob,
+} from "../capability-chain";
+import { createProcessorRegistry } from "../processor";
+import { createPdfOfficeExportProcessor } from "../processor/pdf-office-export";
+import { ProcessorRegistry } from "../processor/registry";
 import { readDocxBody } from "./docx-read";
 import { runPdfOfficeExport, type PdfOfficeExportDeps } from "./engine";
 import { scanPdfPages, type PdfPageScanner } from "./page-scan";
@@ -334,6 +341,55 @@ export async function docxProbePdf(): Promise<Uint8Array> {
   return doc.save();
 }
 
+/** The executor's gates and registry a probe meets; each defaults to the daemon's. */
+export type ProbeGates = Partial<
+  Pick<ExecutorOrderJob, "soundness" | "manifest" | "registry">
+>;
+
+/**
+ * The registry a PDF to Word probe's job is routed through: the one the
+ * daemon builds (`createProcessorRegistry`) on the job's deps — or, for a
+ * negative control that hands in an engine that regressed, the same
+ * processor around that engine.
+ */
+function wordRegistry(
+  deps: PdfOfficeExportDeps,
+  run: typeof runPdfOfficeExport | undefined,
+): ProcessorRegistry {
+  if (!run) return createProcessorRegistry({ pdfOfficeExport: deps });
+  return new ProcessorRegistry().register(
+    createPdfOfficeExportProcessor(deps, { run }),
+  );
+}
+
+/**
+ * The .docx a real PDF to Word job on `pdf` would deliver, run in the
+ * executor's order (`../capability-chain`: soundness gate, processor,
+ * artifact-manifest gate on the processor's own content type and name) — or
+ * null wherever the executor would have failed the job. Added 2026-11-15:
+ * until then the Word probe called the engine directly, the shape the
+ * 2026-11-14 HTML to PDF probe was caught in.
+ */
+async function wordThroughExecutor(
+  pdf: Uint8Array,
+  deps: PdfOfficeExportDeps,
+  run: typeof runPdfOfficeExport | undefined,
+  gates: ProbeGates,
+): Promise<Uint8Array | null> {
+  const artifact = await proveThroughExecutorOrder({
+    tool: "pdf-to-word",
+    input: {
+      bytes: pdf,
+      filename: "probe.pdf",
+      contentType: "application/pdf",
+    },
+    registry: gates.registry ?? wordRegistry(deps, run),
+    ...(gates.soundness ? { soundness: gates.soundness } : {}),
+    ...(gates.manifest ? { manifest: gates.manifest } : {}),
+  });
+  return artifact?.bytes ?? null;
+}
+
 /**
  * Does THIS worker image's PDF to Word put a page's picture in the .docx AS
  * that picture, between the line above it and the line below it, at the
@@ -361,16 +417,29 @@ export async function docxProbePdf(): Promise<Uint8Array> {
  *
  * An image built before this key publishes nothing, and the reader parses the
  * absence as `false`.
+ *
+ * Since 2026-11-15 the job runs in the EXECUTOR's order
+ * ({@link wordThroughExecutor}): the soundness gate, the processor the
+ * daemon's registry resolves, and the artifact-manifest gate on the
+ * processor's own content type and name — so an image whose real jobs a gate
+ * refuses answers `false` here too. `run` still stands in for the engine
+ * (behind that processor), for the negative controls.
  */
 export async function provesDocxPictures(
   deps: PdfOfficeExportDeps,
-  run: typeof runPdfOfficeExport = runPdfOfficeExport,
+  run?: typeof runPdfOfficeExport,
+  gates: ProbeGates = {},
 ): Promise<boolean> {
   try {
     if (!deps.extractFlow || !deps.scanPages) return false;
-    const result = await run("pdf-to-word", await docxProbePdf(), deps);
-    if (!result.ok) return false;
-    const body = await readDocxBody(result.output);
+    const docx = await wordThroughExecutor(
+      await docxProbePdf(),
+      deps,
+      run,
+      gates,
+    );
+    if (!docx) return false;
+    const body = await readDocxBody(docx);
     const at = (text: string) =>
       body.paragraphs.findIndex((p) => p.text.includes(text));
     const above = at(DOCX_PROBE_TEXT.above);

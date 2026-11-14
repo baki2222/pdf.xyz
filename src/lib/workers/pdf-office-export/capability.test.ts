@@ -22,6 +22,11 @@ import { encodePngImage } from "./png-encode";
 import { pptxBefore20260927 } from "@/tests/pptx-before-2026-09-27";
 import { pptxTextOnly20261010 } from "@/tests/pptx-text-only-2026-10-10";
 
+import { resolveWorkerArtifactManifest } from "../artifacts";
+import { ProcessorRegistry } from "../processor/registry";
+import type { Processor } from "../processor/types";
+import { resolveWorkerSoundness, type SoundnessGate } from "../soundness";
+
 type Run = typeof runPdfOfficeExport;
 
 /** A stand-in engine that returns whatever package it is given. */
@@ -295,6 +300,70 @@ describe("provesDocxPictures", () => {
     await expect(
       provesDocxPictures({ extractFlow: flowStandIn }),
     ).resolves.toBe(false);
+  });
+
+  /**
+   * 2026-11-15: the probe runs its job in the EXECUTOR's order
+   * (`../capability-chain`), one negative per hop it crosses. Until then it
+   * called the engine directly — the shape the 2026-11-14 HTML to PDF probe
+   * published `htmlZip: true` through while the soundness gate refused
+   * every real job.
+   */
+  describe("through the executor's order", () => {
+    const real = resolveWorkerSoundness({});
+    it("POSITIVE CONTROL: a pass-through soundness gate and the daemon's manifest gate say YES", async () => {
+      await expect(
+        provesDocxPictures(PROBE_DEPS, undefined, {
+          soundness: { capability: real.capability, check: real.check },
+          manifest: resolveWorkerArtifactManifest({}),
+        }),
+      ).resolves.toBe(true);
+    });
+    it("is false when the soundness gate refuses the input", async () => {
+      const refusing: SoundnessGate = {
+        capability: real.capability,
+        check: (input) => ({
+          ...real.check(input),
+          verdict: "unsound",
+          checked: true,
+          reason: "unsupported_family",
+        }),
+      };
+      await expect(
+        provesDocxPictures(PROBE_DEPS, undefined, { soundness: refusing }),
+      ).resolves.toBe(false);
+    });
+    it("is false when the processor's artifact is one the manifest gate refuses (text/plain named .docx), though its bytes are a good .docx", async () => {
+      const { createPdfOfficeExportProcessor } =
+        await import("../processor/pdf-office-export");
+      const inner = createPdfOfficeExportProcessor(PROBE_DEPS);
+      const mistyped: Processor = {
+        ...inner,
+        async process(input) {
+          const result = await inner.process(input);
+          if (!result.ok) return result;
+          return {
+            ...result,
+            artifacts: result.artifacts.map((a) => ({
+              ...a,
+              contentType: "text/plain",
+            })),
+          };
+        },
+      };
+      const registry = new ProcessorRegistry().register(mistyped);
+      await expect(
+        provesDocxPictures(PROBE_DEPS, undefined, { registry }),
+      ).resolves.toBe(false);
+      // Control: the same wrapper, types untouched, says YES.
+      const untouched = new ProcessorRegistry().register({
+        ...inner,
+        process: (input) => inner.process(input),
+      });
+      await expect(
+        provesDocxPictures(PROBE_DEPS, undefined, { registry: untouched }),
+      ).resolves.toBe(true);
+    });
   });
 
   it("is false without the text extractor, or with a page reader that finds no picture", async () => {
