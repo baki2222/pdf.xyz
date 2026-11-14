@@ -26,10 +26,7 @@ import { HTML_RENDER_TOOLS } from "@/lib/workers/html-render/tools";
 // converts, so creation and the worker cannot disagree.
 import { parseSheetLayout } from "@/lib/workers/office-conversion/sheet-layout";
 import { parsePdfALevel } from "@/lib/workers/pdf-archive/levels";
-import {
-  HTML_ZIP_MIMES,
-  parseHtmlZipEntryOption,
-} from "@/lib/workers/html-render/zip-config";
+import { parseHtmlZipEntryOption } from "@/lib/workers/html-render/zip-config";
 
 const HTML_RENDER_OPTION_TOOLS: ReadonlySet<string> = new Set(
   HTML_RENDER_TOOLS,
@@ -74,23 +71,14 @@ export function isValidFileId(id: string): boolean {
 // can DECLARE exactly what this validator accepts without importing it (and the
 // tool catalogue with it). Re-exported under the same name for existing callers.
 export { MIME_BY_FORMAT } from "./mime-by-format";
-import { MIME_BY_FORMAT } from "./mime-by-format";
+import { acceptedMimesForTool } from "./tool-mimes";
 import { formatByteLimit } from "@/lib/uploads/byte-limit";
 
+// The catalogue's formats plus HTML to PDF's ZIP — the ONE definition the
+// worker's soundness gate reads too (`./tool-mimes`: until 2026-11-14 the
+// ZIP rule lived here alone, and the worker refused every ZIP job).
 function allowedMimeTypesForTool(tool: Tool): Set<string> {
-  const set = new Set<string>();
-  for (const format of tool.accept) {
-    const mimes = MIME_BY_FORMAT[format.toUpperCase()];
-    if (mimes) for (const mime of mimes) set.add(mime);
-  }
-  // HTML to PDF also takes a ZIP of a page and its files (competitor audit
-  // #26) — NOT a catalogue format: the catalogue's `accept` is what the
-  // site-wide file router offers a dropped file to, and a ZIP dropped on the
-  // home page is almost never a web page. Whether the running worker can
-  // print one is decided by `POST /api/uploads` itself, from the heartbeat.
-  if (tool.slug === "html-to-pdf")
-    for (const mime of HTML_ZIP_MIMES) set.add(mime);
-  return set;
+  return acceptedMimesForTool(tool);
 }
 
 // ─────────────────────────────── Primitives ──────────────────────────────────
