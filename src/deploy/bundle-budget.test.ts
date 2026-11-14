@@ -1379,7 +1379,7 @@ const TOOL_PAGES_TO_COME = {
   //  - annotate, edit and sign +35, redact +26: the viewer's open
   //    (`@/lib/pdf/viewer`) gained a second importer (compare-docs), and
   //    its chunk was re-cut (2568 -> 5035 + 7416), +8 on the editor pages.
-  //  - on demand: the page view's fetch is 13,465 B (its own 6,016 plus the
+  //  - on demand: the page view's fetch is 13,505 B (its own 6,056 plus the
   //    shared 1632 and 2111), bounded in lazy-chunks.test.ts; the
   //    comparison's chunk 9,514 -> 10,841 (the view switch, the host, the
   //    refcount).

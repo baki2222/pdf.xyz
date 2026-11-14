@@ -1013,7 +1013,7 @@ function onDemandFetch(marker: string, page: string) {
 
 /**
  * Compare PDF's page view's fetch from the compare page: measured
- * 2026-11-15 at 13,465 B gz (13.15 KB: its own chunk 6,016 B, the chunk of
+ * 2026-11-15 at 13,505 B gz (13.19 KB: its own chunk 6,056 B, the chunk of
  * viewer modules it shares with PDF Viewer 5,323 B, and 2,126 B more shared
  * code), plus 10%. Fetched on demand, beside the viewer's open, so it is
  * paid only by a run that asks for the pages; the failure message prints
