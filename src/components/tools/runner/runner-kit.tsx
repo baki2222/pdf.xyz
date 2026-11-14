@@ -503,6 +503,16 @@ export function errorNoteLinksUnlock(
 }
 
 /**
+ * The tool a message that names it is linked to: the pdf.js board's page
+ * refusals (`boardPageLimitMessage`, `PDF_PAGE_TREE_TOO_COSTLY_MESSAGE` in
+ * `@/lib/pdf/pdfjs-guard`) send the file to Split PDF by name. Typed here,
+ * not imported: the guard is a lazy chunk and this file is first-load.
+ * endings.test.tsx holds the name to the guard's and both to the catalogue.
+ */
+export const SPLIT_TOOL_NAME = "Split PDF";
+export const SPLIT_TOOL_HREF = "/tools/split-pdf";
+
+/**
  * A failure, announced. `action` is the next step when there is one — a link
  * to the tool that can do what this one could not — and it renders INSIDE the
  * alert, so it is announced with the error and reached by keyboard right after
@@ -529,6 +539,12 @@ export function ErrorNote({
   // does) carries the way there, rather than a tool name to go and find —
   // as the remedy's link when there is one, else as its own.
   const offersUnlock = !remedy && errorNoteLinksUnlock(message);
+  // A message that sends the file to Split PDF carries the way there too —
+  // unless this IS Split PDF.
+  const offersSplit =
+    !remedy &&
+    message.includes(SPLIT_TOOL_NAME) &&
+    run?.slug !== SPLIT_TOOL_HREF.slice("/tools/".length);
   return (
     <p
       role="alert"
@@ -546,6 +562,17 @@ export function ErrorNote({
               className="font-medium underline underline-offset-2"
             >
               Open {UNLOCK_TOOL_NAME}
+            </Link>
+          </>
+        )}
+        {offersSplit && (
+          <>
+            {" "}
+            <Link
+              href={SPLIT_TOOL_HREF}
+              className="font-medium underline underline-offset-2"
+            >
+              Open {SPLIT_TOOL_NAME}
             </Link>
           </>
         )}

@@ -638,7 +638,9 @@ describe("second review: q work and multiplicity, top-level image entries, a lin
       unknownSizeImages: 1,
       smallestOverBudgetImage: null,
     });
-    expect(await preflightPdfjsBytes(unresolved)).toEqual({
+    // (Matched, not equalled: the preflight also carries the page tree's
+    // counts, which the board's walk bound reads.)
+    expect(await preflightPdfjsBytes(unresolved)).toMatchObject({
       previewOptions: { maxImageSize: RASTER_MAX_IMAGE_PIXELS },
       overBudgetImage: true,
     });

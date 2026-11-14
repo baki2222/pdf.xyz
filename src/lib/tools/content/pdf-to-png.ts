@@ -1,4 +1,5 @@
 import type { ToolContent } from "./types";
+import { BOARD_PAGE_LIMIT_SENTENCE } from "@/lib/pdf/pdfjs-board-limit";
 import {
   DEFAULT_RASTER_BACKGROUND,
   DEFAULT_RESOLUTION_ID,
@@ -139,7 +140,7 @@ const content: ToolContent = {
 
   intro: [
     "PDF to PNG, a page-to-image converter, draws each page of a PDF (or only the pages you pick) onto a canvas and saves the result as a PNG: a picture of the whole page, with text, vector graphics and photos flattened into one image. PNG is lossless, so small type and hairline rules keep their edges instead of gaining the ringing JPEG leaves around sharp contrast. As with any page image, the words inside can no longer be selected or searched.",
-    `The conversion runs on your own device: a copy of pdf.js bundled with pdf.xyz draws the pages inside your browser tab, and the PDF is not uploaded. When a page holds JBIG2 or JPEG 2000 images, the code that decodes them is fetched from pdf.xyz's own site, never a third-party CDN. It takes PDFs of at most ${ceilingMb} MB each, and two or more at once open as a batch. A PDF that needs a password to open stops as it loads, with a message that it is password-protected and must be unlocked first. One that opens without a password and merely restricts printing or copying converts like any other.`,
+    `The conversion runs on your own device: a copy of pdf.js bundled with pdf.xyz draws the pages inside your browser tab, and the PDF is not uploaded. When a page holds JBIG2 or JPEG 2000 images, the code that decodes them is fetched from pdf.xyz's own site, never a third-party CDN. It takes PDFs of at most ${ceilingMb} MB each, and two or more at once open as a batch. ${BOARD_PAGE_LIMIT_SENTENCE} A PDF that needs a password to open stops as it loads, with a message that it is password-protected and must be unlocked first. One that opens without a password and merely restricts printing or copying converts like any other.`,
     `Pick ${presetSentence}; pages render at that density and keep the rotation stored in the PDF, though an oversized page such as a poster is scaled down to a fixed pixel ceiling. Under ${RASTER_BACKGROUND_LABEL}, ${BG_WHITE} is selected at the start and paints each page onto white; ${BG_CLEAR} leaves every part of the page that the PDF does not paint see-through, so a logo, signature or diagram can sit on a coloured slide. A one-page PDF saves as a single image (logo.pdf gives ${exampleSingle}). When more than one page is rendered they are bundled into a ZIP, with leading zeros on the page numbers so they have as many digits as the page count: all pages of a ${EXAMPLE_PAGES}-page manual.pdf give ${exampleZip}, which contains ${exampleFirst} up to ${exampleLast}. Grayscale renders the pages in shades of grey.`,
   ],
 

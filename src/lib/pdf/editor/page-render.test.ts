@@ -84,6 +84,13 @@ describe("openEditorPdf hands pdf.js the preflight's preview options", () => {
       if (!pages.has(n)) {
         pages.set(n, {
           rotate: 0,
+          // pdf.js's per-page store, empty: no decoded images, so only the
+          // page count releases these (editor-retention.test.ts holds the
+          // pixel budget). A page with no readable store is never kept —
+          // and the operator lists are a store too (inline images, since
+          // 2026-11-10), so the fake carries them, empty.
+          objs: new Map(),
+          _intentStates: new Map(),
           getViewport: () => ({ width: 10, height: 10 }),
           render: () => ({ promise: Promise.resolve(), cancel: () => {} }),
           cleanup: () => cleaned.push(n - 1),

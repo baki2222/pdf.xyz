@@ -2,6 +2,7 @@ import { awaitPdfjsDocument, loadPdfjs } from "../pdfjs";
 import { PDFJS_DOCUMENT_DEFAULTS } from "../wasm-assets";
 import type { PdfjsTextItem } from "./runs";
 import { MAX_CANVAS_PIXELS } from "../viewer-geometry";
+import { KEPT_IMAGE_PIXELS, pageKeeper } from "../kept-pages";
 
 /**
  * pdf.js, held open for the editor's page view: one parse, then any page
@@ -24,15 +25,24 @@ export const editorPdfjs = { load: loadPdfjs };
 
 /**
  * How many pages keep what pdf.js decoded for them (operator list, images)
- * after they are drawn: 6. A zoom step, the page's rail thumbnail and the
- * canvas draw one page several times, and `page.cleanup()` drops its decoded
- * images, so each draw decoded them again (measured on a 25 MP image at
- * scales 1, 1.25, 1.5: 3,997, 4,045 and 4,052 ms, a full decode each time).
- * The page drawn longest ago past this many is cleaned up, as pdf.js's own
- * viewer keeps a buffer of pages (`DEFAULT_CACHE_SIZE`, 10) instead of
- * cleaning each one.
+ * after they are drawn: at most 6. A zoom step, the page's rail thumbnail and
+ * the canvas draw one page several times, and `page.cleanup()` drops its
+ * decoded images, so each draw decoded them again (measured on a 25 MP image
+ * at scales 1, 1.25, 1.5: 3,997, 4,045 and 4,052 ms, a full decode each
+ * time). The page drawn longest ago past this many is cleaned up, as pdf.js's
+ * own viewer keeps a buffer of pages (`DEFAULT_CACHE_SIZE`, 10) instead of
+ * cleaning each one — and sooner when the pages kept hold more decoded image
+ * pixels than {@link EDITOR_KEPT_IMAGE_PIXELS} (`../kept-pages`, the PDF
+ * Viewer's rule).
  */
 export const EDITOR_KEPT_PAGES = 6;
+
+/**
+ * The decoded image pixels kept across drawn pages: the viewer's budget, one
+ * raster image's (`RASTER_MAX_IMAGE_PIXELS`, held equal by
+ * editor-retention.test.ts). Six pages alone held 150 MP of a 25 MP scan.
+ */
+export const EDITOR_KEPT_IMAGE_PIXELS = KEPT_IMAGE_PIXELS;
 
 /**
  * A rendered canvas larger than this many device pixels is drawn at a lower
@@ -127,15 +137,9 @@ export async function openEditorPdf(bytes: Uint8Array): Promise<EditorPdf> {
     throw err;
   }
   let destroyed = false;
-  // Pages drawn lately, oldest first, each still holding what pdf.js decoded
-  // for it (see EDITOR_KEPT_PAGES).
-  const kept: { index: number; page: { cleanup(): unknown } }[] = [];
-  const keep = (index: number, page: { cleanup(): unknown }) => {
-    const at = kept.findIndex((k) => k.index === index);
-    if (at !== -1) kept.splice(at, 1);
-    kept.push({ index, page });
-    while (kept.length > EDITOR_KEPT_PAGES) kept.shift()!.page.cleanup();
-  };
+  // Pages drawn lately, each still holding what pdf.js decoded for it (see
+  // EDITOR_KEPT_PAGES and EDITOR_KEPT_IMAGE_PIXELS).
+  const keep = pageKeeper(EDITOR_KEPT_PAGES, EDITOR_KEPT_IMAGE_PIXELS);
 
   const render: EditorPdf["render"] = async (
     index,

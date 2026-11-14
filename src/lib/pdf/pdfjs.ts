@@ -98,14 +98,14 @@ async function openDocument(bytes: Uint8Array) {
   const pdfjsModule = loadPdfjs();
   pdfjsModule.catch(() => {});
   const guard = await guardModule;
-  await guard.preflightPdfjsOpen(bytes);
+  const preflight = await guard.preflightPdfjsOpen(bytes);
   const pdfjs = await pdfjsModule;
   // pdfjs may detach the buffer it is handed; the caller's bytes stay intact.
   const task = pdfjs.getDocument({
     data: bytes.slice(),
     ...PDFJS_DOCUMENT_DEFAULTS,
   });
-  return { task, doc: await awaitPdfjsDocument(task), guard };
+  return { task, doc: await awaitPdfjsDocument(task), guard, preflight };
 }
 
 /**
@@ -115,12 +115,17 @@ async function openDocument(bytes: Uint8Array) {
 export async function readPagesWithPdfjs(
   bytes: Uint8Array,
 ): Promise<{ pageCount: number; rotations: Rotation[] }> {
-  const { task, doc, guard } = await openDocument(bytes);
+  const { task, doc, guard, preflight } = await openDocument(bytes);
   try {
     // A /Count of 0 or -1, and a page walk that fails (a /Kids cycle), get
     // the engine's typed refusal, not "-1 pages" or raw pdf.js text
-    // (hostile CO-03, CO-11).
-    const pageCount = guard.pdfjsPageCount(doc.numPages);
+    // (hostile CO-03, CO-11). A file past the board's page limit, or whose
+    // page tree would cost the walk below past its bound (the preflight
+    // counted the tree's /Kids), is refused before any page is fetched.
+    const pageCount = guard.pdfjsBoardPageCount(
+      doc.numPages,
+      preflight.pageTree,
+    );
     const rotations: Rotation[] = [];
     for (let i = 1; i <= pageCount; i++) {
       const page = await doc

@@ -19,12 +19,17 @@ import {
 } from "./pdf-scan-bytes";
 import {
   ContentsRefs,
+  type ObjectHeader,
   arrayObjectRefs,
   findObjectHeaders,
   nameObjects,
   parseObjectAt,
+  skipForward,
 } from "./pdf-scan-objects";
+import { KidsCounter } from "./pdf-scan-kids";
 import { MAX_DECODED_PIXELS } from "./pixel-ceiling";
+import { pdfjsPageCount } from "./pdfjs-num-pages";
+import { PDFJS_BOARD_MAX_PAGES } from "./pdfjs-board-limit";
 import { prescanXref } from "./xref-prescan";
 
 /**
@@ -210,7 +215,123 @@ export const PDF_NESTED_TOO_DEEPLY_MESSAGE =
 export const PDF_IMAGE_TOO_LARGE_MESSAGE =
   "This PDF contains an image too large to render in your browser (over 50 megapixels).";
 
-export { pdfjsPageCount } from "./pdfjs-num-pages";
+export { pdfjsPageCount };
+
+/**
+ * The most pages the upload board of a reader:'pdfjs' tool reads: 10,000.
+ *
+ * A limit the user can be told and act on (split the file), not the bound on
+ * the board's cost: that is {@link PDFJS_BOARD_MAX_WALK}, because the page
+ * count pdf.js reports is a number the FILE states (the root /Count, or the
+ * linearization dictionary's /N), and the walk's cost depends on the arrays
+ * the file actually contains. Hostile review, 2026-11-10: with this bound
+ * alone, a /Count of 10,000 over a root /Kids of 1,000,000 copies of one
+ * reference (6 MB) read for 130 s, and a chain of 10,000 nodes with every
+ * /Count true for 29-50 s.
+ *
+ * The board fetches every page with one `getPage` each, so even an honest
+ * flat tree (one /Pages node, what pdf-lib writes) costs pages²: measured on
+ * base (Windows, Node 24, `readPagesWithPdfjs`) 1,000 pages 0.67 s, 10,000
+ * 2.9-5.4 s, 40,000 63.7 s.
+ *
+ * The figure lives in `./pdfjs-board-limit`, so the tool pages state it
+ * without loading this module.
+ *
+ * NOT bounded here: the runs that walk the whole document (text, images,
+ * the batch runners, Compare, Auto-crop) fetch pages the same way, but one
+ * at a time beside each page's own work and with progress shown, so on such
+ * a file they are slow rather than silent. The batch runners never read this
+ * board, so a file past the bound can reach them.
+ */
+export { PDFJS_BOARD_MAX_PAGES };
+
+/**
+ * What one page-tree node costs pdf.js to expand, in pushed /Kids elements:
+ * 20. Expanding a node is an awaited fetch and dictionary reads; pushing an
+ * element is an array push. Measured on base (Windows, Node 24, the board):
+ * a chain of 10,000 nodes, 50 million node expansions, 28.7 s (574 ns each);
+ * a flat tree of 10,000 pages, 100 million pushes, 2.9 s (29 ns each).
+ */
+export const PDFJS_PAGE_NODE_WEIGHT = 20;
+
+/**
+ * The most page-tree work the board lets pdf.js do: 200,000,000, counted as
+ * pages × (/Kids elements + {@link PDFJS_PAGE_NODE_WEIGHT} × /Kids nodes).
+ *
+ * WHY THAT PRODUCT. pdf.js finds page i (`Catalog.getPageDict`) by walking
+ * from the root, and every node it expands pushes every element of its
+ * /Kids. Within one lookup a node is expanded at most once (a second visit
+ * is its "circular reference" refusal), so one lookup costs at most every
+ * /Kids array's length plus every node's expansion, and the board makes one
+ * lookup per page pdf.js reports. Both counts come from the arrays the file
+ * CONTAINS (`KidsCounter`, in the preflight's one pass over the file and its
+ * object streams); nothing on the file's word — not /Count, which pdf.js uses
+ * to skip a subtree, nor /N — enters either. A file whose /Count is honest
+ * costs less than this (pdf.js skips the subtrees before the page), never
+ * more.
+ *
+ * WHY THAT FIGURE. It admits the two shapes real writers produce at the page
+ * limit: flat (pdf-lib) at 10,000 pages counts 100 million and read in 2.9 s;
+ * balanced, 32 kids per node, 168 million, 0.3 s. The worst shapes found,
+ * sized to just under the bound (Windows, Node 24, the board): a root of
+ * 10,000 pages and 9,970 repeats 5.0 s; /Count 10,000 over 19,950 real pages
+ * 5.3 s; an uncounted inner node 2.0 s; a chain of 3,015 nodes 2.3 s. The
+ * same shapes past it are refused in under half a second (a million repeats:
+ * 0.4 s, where the walk took 127 s). pdfjs-board-pages.test.ts holds each, on
+ * both sides, with its charge read back from the preflight. A
+ * balanced tree of 4 kids per node is charged about 8 × pages², so such a
+ * file is refused from about 5,000 pages: its honest /Counts would let pdf.js
+ * read it fast, but nothing before the walk can tell an honest /Count from a
+ * lying one.
+ */
+export const PDFJS_BOARD_MAX_WALK = 200_000_000;
+
+/** The tool the board's refusals send a file to. */
+export const SPLIT_TOOL_NAME = "Split PDF";
+
+/**
+ * Copy for a file with more pages than {@link PDFJS_BOARD_MAX_PAGES}: how many
+ * it has, the limit, and what to do. Every figure is read from its source.
+ * Split PDF reads pages with pdf-lib, which reads the tree once: measured, a
+ * flat 10,001-page file's board in 1.4 s and a 5,000-page part in 2.3 s.
+ */
+export function boardPageLimitMessage(pages: number): string {
+  const limit = PDFJS_BOARD_MAX_PAGES.toLocaleString("en-US");
+  return `This PDF has ${pages.toLocaleString("en-US")} pages, more than the ${limit} this tool reads in your browser. Use ${SPLIT_TOOL_NAME} to save it in parts of ${limit} pages or fewer, then open one part at a time.`;
+}
+
+/**
+ * Copy for a page tree past {@link PDFJS_BOARD_MAX_WALK}. "Try": Split PDF
+ * read and split a 10,000-node chain (3.2 s, 3.5 s) and a /Count-of-10,000
+ * file of 60,000 pages, but not a /Kids padded with one page a million times.
+ */
+export const PDF_PAGE_TREE_TOO_COSTLY_MESSAGE = `This PDF's pages are arranged in a way that takes too long to read in your browser. Try ${SPLIT_TOOL_NAME} to save it in smaller parts, then open one part at a time.`;
+
+/**
+ * The page count a reader:'pdfjs' board may walk: `pdfjsPageCount`'s (a /Count
+ * of 0 or -1 is the unreadable refusal), refused, typed, past
+ * {@link PDFJS_BOARD_MAX_PAGES}, or when walking that many pages through
+ * `tree` (the preflight's {@link PdfjsPreflight.pageTree}) would cost past
+ * {@link PDFJS_BOARD_MAX_WALK} — before any page is fetched.
+ */
+export function pdfjsBoardPageCount(
+  numPages: unknown,
+  tree: PageTreeCost,
+): number {
+  const pages = pdfjsPageCount(numPages);
+  if (pages > PDFJS_BOARD_MAX_PAGES) {
+    throw new PdfEngineError(boardPageLimitMessage(pages));
+  }
+  if (pageTreeWalk(pages, tree) > PDFJS_BOARD_MAX_WALK) {
+    throw new PdfEngineError(PDF_PAGE_TREE_TOO_COSTLY_MESSAGE);
+  }
+  return pages;
+}
+
+/** The board's cost on `tree` for `pages` lookups (see {@link PDFJS_BOARD_MAX_WALK}). */
+export function pageTreeWalk(pages: number, tree: PageTreeCost): number {
+  return pages * (tree.entries + PDFJS_PAGE_NODE_WEIGHT * tree.nodes);
+}
 
 /** pdf.js's names for a failure that is about the document's structure. */
 const PDFJS_PAGE_WALK_FAILURES = new Set([
@@ -300,6 +421,15 @@ export interface PdfStreamScan {
    * as over budget.
    */
   unknownSizeImages: number;
+  /**
+   * The most elements one pdf.js page lookup can push: every /Kids array's
+   * length, summed (an array held in another object counted once per key
+   * naming it). Infinity when an object stream the scan cannot decode may
+   * hold more. See {@link PDFJS_BOARD_MAX_WALK}.
+   */
+  pageTreeEntries: number;
+  /** The /Kids keys: the most page-tree nodes one lookup can expand. */
+  pageTreeNodes: number;
   /** The first bound the scan stopped at, or null. */
   exceeded:
     "stream-bytes" | "total-bytes" | "scan-work" | "q-depth" | "q-work" | null;
@@ -1152,10 +1282,21 @@ export async function scanPdfStreams(
     maxImagePixels: 0,
     smallestOverBudgetImage: null,
     unknownSizeImages: 0,
+    pageTreeEntries: 0,
+    pageTreeNodes: 0,
     exceeded: null,
   };
   const refs = new RefCounter();
   const contents = new ContentsRefs();
+  const kids = new KidsCounter();
+  /** The largest decoded object stream: what any array held in one can hold. */
+  let largestObjectStream = 0;
+  /** Every object stream decoded, to find an array object held in one. */
+  const objectStreams: {
+    s: FoundStream;
+    decoding: readonly Stage[];
+    bytes: number;
+  }[] = [];
   const records: ReadRecord[] = [];
   /** Stream data, [start, end) pairs: not object text. */
   const dataRanges: [number, number][] = [];
@@ -1274,11 +1415,13 @@ export async function scanPdfStreams(
     const objects = objectStream && decodable;
     refs.reset();
     contents.reset();
+    kids.reset();
     const sink = (c: Uint8Array) => {
       ops?.feed(c);
       if (objects) {
         refs.feed(c);
         contents.feed(c);
+        kids.feed(c);
       }
     };
     const decoding = stages
@@ -1297,6 +1440,10 @@ export async function scanPdfStreams(
     if (decoding.length > 0) scan.inflated += 1;
     scan.maxStreamBytes = Math.max(scan.maxStreamBytes, decoded);
     scan.totalBytes += decoded;
+    if (objects) {
+      largestObjectStream = Math.max(largestObjectStream, decoded);
+      objectStreams.push({ s, decoding, bytes: decoded });
+    }
     if (ops) {
       ops.end();
       keep(
@@ -1445,6 +1592,43 @@ export async function scanPdfStreams(
       if (scan.exceeded) return scan;
     }
   }
+
+  // The page tree: what one pdf.js page lookup can push and expand.
+  kids.reset();
+  kids.feed(bytes);
+  kids.reset();
+  scan.pageTreeNodes = kids.nodes;
+  scan.pageTreeEntries =
+    kids.unbounded || opaqueObjectStreams > 0
+      ? Number.POSITIVE_INFINITY
+      : kids.entries +
+        (await indirectKidsEntries(bytes, headers, kids.indirect, {
+          largest: largestObjectStream,
+          count: objectStreams.length,
+          each: async function* () {
+            for (const o of objectStreams) {
+              const chunks: Uint8Array[] = [];
+              await decodeInto(o.s, o.decoding, true, o.bytes, (c) => {
+                chunks.push(c.slice());
+              });
+              const data = new Uint8Array(o.bytes);
+              let at = 0;
+              for (const c of chunks) {
+                data.set(c.subarray(0, data.length - at), at);
+                at += c.length;
+                if (at >= data.length) break;
+              }
+              const first = valuesOf(o.s.entries, "First").at(-1);
+              yield {
+                data,
+                first:
+                  first?.kind === "number" && Number.isInteger(first.value)
+                    ? first.value
+                    : null,
+              };
+            }
+          },
+        }));
 
   // Images that a page's /Contents names are page content.
   contents.reset();
@@ -1700,6 +1884,63 @@ function judgeGraphicsState(
   if (scan.qWork > MAX_GRAPHICS_STATE_WORK) scan.exceeded = "q-work";
 }
 
+/** The decoded object streams, for {@link indirectKidsEntries}. */
+interface ObjectStreamSource {
+  /** The largest one's decoded size. */
+  largest: number;
+  count: number;
+  /** Each one's decoded text and its /First, decoded again one at a time. */
+  each: () => AsyncIterable<{ data: Uint8Array; first: number | null }>;
+}
+
+/**
+ * The elements the `/Kids n g R` keys name, each counted once per key. An
+ * array object is counted where pdf.js finds it: in the file's text, or in
+ * an object stream (by the stream's own `num offset` table and /First). One
+ * found in neither (an object stream the table does not lead to, a name of
+ * nothing) is bounded by the largest decoded object stream, or by the file's
+ * size when there is none: an element takes at least one byte. A number
+ * defined twice is counted at its larger array.
+ */
+async function indirectKidsEntries(
+  bytes: Uint8Array,
+  headers: readonly ObjectHeader[],
+  indirect: ReadonlyMap<number, number>,
+  streams: ObjectStreamSource,
+): Promise<number> {
+  if (indirect.size === 0) return 0;
+  const held = new Map<number, number>();
+  const hold = (num: number, n: number) =>
+    held.set(num, Math.max(held.get(num) ?? 0, n));
+  for (const h of headers) {
+    if (!indirect.has(h.num)) continue;
+    const k = skipForward(bytes, h.objAt + 3);
+    if (bytes[k] !== 0x5b) continue;
+    hold(h.num, KidsCounter.arrayElementsAt(bytes, k, bytes.length - k));
+  }
+  if (streams.count > 0 && [...indirect.keys()].some((n) => !held.has(n))) {
+    for await (const { data, first } of streams.each()) {
+      if (first === null || first < 0 || first > data.length) continue;
+      const table = latin1.decode(data.subarray(0, first)).trim().split(/\s+/);
+      for (let t = 0; t + 1 < table.length; t += 2) {
+        const num = Number(table[t]);
+        const offset = Number(table[t + 1]);
+        if (!indirect.has(num) || !Number.isInteger(offset)) continue;
+        const k = skipForward(data, first + offset);
+        if (data[k] !== 0x5b) continue;
+        hold(num, KidsCounter.arrayElementsAt(data, k, data.length - k));
+      }
+    }
+  }
+  let total = 0;
+  for (const [num, keys] of indirect) {
+    const n =
+      held.get(num) ?? (streams.largest > 0 ? streams.largest : bytes.length);
+    total += keys * n;
+  }
+  return total;
+}
+
 /** What {@link preflightPdfjsBytes} found that a raster path acts on. */
 export interface PdfjsPreflight {
   /**
@@ -1711,6 +1952,18 @@ export interface PdfjsPreflight {
   previewOptions: { maxImageSize?: number };
   /** Whether any image is over its raster budget. */
   overBudgetImage: boolean;
+  /**
+   * What one pdf.js page lookup can cost on this file's page tree: the
+   * elements it can push and the nodes it can expand (see
+   * {@link PDFJS_BOARD_MAX_WALK}).
+   */
+  pageTree: PageTreeCost;
+}
+
+/** {@link PdfStreamScan.pageTreeEntries} and {@link PdfStreamScan.pageTreeNodes}. */
+export interface PageTreeCost {
+  readonly entries: number;
+  readonly nodes: number;
 }
 
 /**
@@ -1758,12 +2011,14 @@ export async function preflightPdfjsBytes(
     scan.smallestOverBudgetImage ?? Infinity,
     unknown ?? Infinity,
   );
+  const pageTree = { entries: scan.pageTreeEntries, nodes: scan.pageTreeNodes };
   if (smallest === Infinity) {
-    return { previewOptions: {}, overBudgetImage: false };
+    return { previewOptions: {}, overBudgetImage: false, pageTree };
   }
   return {
     previewOptions: { maxImageSize: smallest - 1 },
     overBudgetImage: true,
+    pageTree,
   };
 }
 

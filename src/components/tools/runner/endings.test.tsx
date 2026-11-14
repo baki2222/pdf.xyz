@@ -35,9 +35,16 @@ import {
   NO_ADJUST,
   ResultPanel,
   RunButton,
+  SPLIT_TOOL_HREF,
+  SPLIT_TOOL_NAME,
   errorNoteLinksUnlock,
   outputFile,
 } from "./runner-kit";
+import {
+  PDF_PAGE_TREE_TOO_COSTLY_MESSAGE,
+  SPLIT_TOOL_NAME as GUARD_SPLIT_TOOL_NAME,
+  boardPageLimitMessage,
+} from "@/lib/pdf/pdfjs-guard";
 import { withAppRouter } from "@/tests/app-router";
 import { ToolRunProvider } from "./tool-context";
 import { useUnsavedGuard } from "./use-unsaved-guard";
@@ -163,6 +170,39 @@ describe("an error's remedy", () => {
     onToolPage("rotate-pdf", <ErrorNote message={err.message} />);
     const links = within(screen.getByRole("alert")).getAllByRole("link");
     expect(links.map((l) => l.textContent)).toEqual(["Open Unlock PDF"]);
+  });
+
+  it.each([
+    ["the page limit", boardPageLimitMessage(10_001)],
+    ["the page tree's cost", PDF_PAGE_TREE_TOO_COSTLY_MESSAGE],
+  ])(
+    "the pdf.js board's refusal for %s links Split PDF, once",
+    (_, message) => {
+      // Review, 2026-11-10: the alert said "Split it" and gave no way there.
+      const err = new PdfEngineError(message);
+      onToolPage(
+        "pdf-to-text",
+        <ErrorNote message={err.message} cause={causeOf(err)} />,
+      );
+      const links = within(screen.getByRole("alert")).getAllByRole("link");
+      expect(links.map((l) => l.getAttribute("href"))).toEqual([
+        SPLIT_TOOL_HREF,
+      ]);
+      expect(links[0]!.textContent).toBe(`Open ${SPLIT_TOOL_NAME}`);
+    },
+  );
+
+  it("Split PDF is never offered from Split PDF, and the name it looks for is the guard's and the catalogue's", () => {
+    onToolPage(
+      "split-pdf",
+      <ErrorNote message={boardPageLimitMessage(10_001)} />,
+    );
+    expect(within(screen.getByRole("alert")).queryAllByRole("link")).toEqual(
+      [],
+    );
+    const split = tools.find((t) => `/tools/${t.slug}` === SPLIT_TOOL_HREF);
+    expect(split?.name).toBe(SPLIT_TOOL_NAME);
+    expect(GUARD_SPLIT_TOOL_NAME).toBe(SPLIT_TOOL_NAME);
   });
 
   it("an unreadable file: Repair PDF", () => {
