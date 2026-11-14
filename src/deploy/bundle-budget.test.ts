@@ -1236,36 +1236,43 @@ const TOOL_PAGES_TO_COME = {
   // NOT TAKEN from the (empty) unallocated pool, 2026-11-14, by HTML to
   // PDF's paste box and ZIP input (competitor audit #26) — it rides each
   // row's own headroom, as Edit PDF Bookmarks did above, flagged for the
-  // owner as A RE-ALLOCATION OF G.1 in effect. Measured gzip -9 over each
-  // page's first-load chunks, main d28519ad (a detached worktree,
-  // E:/whtmlz-base, its own install) -> the branch, both built on this
-  // machine (Windows) from an empty .next:
-  //  - every page +23 to +26 B: webpack's runtime 3,717 -> 3,739 (three more
-  //    async chunks in its map: HTML to PDF's input, the paste box, and the
-  //    ZIP reader with the ZIP run), the rest +-2 (module ids). The G.1
-  //    pages: ocr 233,808 -> 233,831, rotate 234,883 -> 234,906, summarize
-  //    234,620 -> 234,643, merge 229,329 -> 229,352; home 202,774 ->
-  //    202,798, /tools +26, /workspace +24.
-  //  - tools/html-to-pdf 237,390 -> 240,227 (+2,837): its input moved out of
+  // owner as A RE-ALLOCATION OF G.1 in effect. RE-MEASURED against main
+  // adb519ab (the first figures here were taken against d28519ad, before
+  // main gained the lazy variant panels, and were wrong against it):
+  // gzip -9 over each page's first-load chunks (`weighPage`), every one of
+  // the 144 prerendered pages (the same set in both builds), main in a
+  // detached worktree (E:/whtmlz-base2, its own install) -> the branch at
+  // its final review fixes, both built on this machine (Windows) from an
+  // empty .next:
+  //  - 141 pages +18 to +23 B (18:1, 19:1, 20:64, 21:4, 22:68, 23:2):
+  //    webpack's runtime 3,777 -> 3,800 (the async chunks HTML to PDF adds
+  //    to its map: its input, the paste box, the ZIP reader with the ZIP
+  //    run), the rest +-2 (module ids). The G.1 pages: home 202,838 ->
+  //    202,859; ocr 233,886 -> 233,906; rotate 234,961 -> 234,981;
+  //    summarize 234,698 -> 234,718; merge 229,407 -> 229,427; /workspace
+  //    235,007 -> 235,025.
+  //  - /tools 213,273 -> 213,304 (+31): its page chunk 8,085 -> 8,096, the
+  //    desk's ZIP answer showing HTML to PDF's card (review round 2).
+  //  - tools/html-to-pdf 237,468 -> 240,424 (+2,956): its input moved out of
   //    the shared panel into its own chunk (html-source-area: the drop zone,
-  //    the missing-files scan, the paste toggle, the ZIP page picker); the
-  //    paste box and JSZip load only on press / pick. Not a G.1 row.
-  //  - tools/webpage-to-pdf and tools/epub-to-pdf 237,390 -> 234,258
-  //    (-3,129 each): the panel they share with HTML to PDF no longer
+  //    the missing-files scan, the paste toggle, the ZIP page picker). Not
+  //    a G.1 row.
+  //  - tools/webpage-to-pdf and tools/epub-to-pdf 237,468 -> 234,375
+  //    (-3,093 each): the panel they share with HTML to PDF no longer
   //    carries HTML to PDF's input or its scan.
+  //  - ON DEMAND, not first load: opening the paste box fetches 1,477 B;
+  //    picking a ZIP fetches ONE chunk of 4,143 B (the worker's own bounded
+  //    directory reader with DecompressionStream, and the ZIP run; 3,473
+  //    after review round 1, +670 in round 2 for the per-file bound, the
+  //    backslash and code-page-437 name readings). JSZip is not loaded at
+  //    all (round 1 replaced it: 36,993 B over three chunks). The desk
+  //    ticket's on-demand fetch 34,995 -> 35,070 (+75, chunk 3552: the ZIP
+  //    answer now names HTML to PDF) — over that guard's bound, which is
+  //    RAISED in lazy-chunks.test.ts with its own note, for the owner.
   //  - WHY the ZIP check stays out of the pick check: a second importer of
   //    `@/lib/uploads/pick-check` split it out of the module every worker
   //    page concatenates it into, +36 B on each (measured on the first cut,
   //    then removed: html-source-area asks the page's own `refuse`).
-  //  - REVIEW FIXES, same day, re-measured over the branch before them
-  //    (24b4d5e2, E:/whtmlz-r2's build) -> after, same weigher: html-to-pdf
-  //    240,228 -> 240,351 (+123: the paste toggle kept in one tree, the box
-  //    focused on open, the hedged intro and spec row); webpage-to-pdf and
-  //    epub-to-pdf 234,262 -> 234,302 (+40: the shared panel's hedged
-  //    words); every other page -5..+4 (module ids). Picking a ZIP now
-  //    fetches ONE chunk of 3,473 B gz (the worker's own bounded directory
-  //    reader, DecompressionStream) instead of three of 36,993 (JSZip's
-  //    27,682 among them).
   unallocated:
     UNALLOCATED -
     NEW_TOOLS_2026_10_30 -
