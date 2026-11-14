@@ -563,6 +563,25 @@ async function renderWord(
   if (
     maxOutput !== undefined &&
     output.byteLength > maxOutput &&
+    (doc.formatting?.pages ?? []).some((p) => p.matched > 0)
+  ) {
+    // Formatting costs bytes the pictures' budget never saw: it was measured
+    // on the PLAIN text, before the page reader ran. Over the limit, the
+    // formatting goes first — plain text and these pictures fit by
+    // construction, as they did before words kept their formatting — and
+    // every page is named as unformatted. Added 2026-11-15 (review round 1
+    // follow-up): without it, a PDF whose pictures fit on main lost them all
+    // here to its own formatting.
+    scan = {
+      ...scan,
+      pages: scan.pages.map((p) => ({ ...p, textUnread: true as const })),
+    };
+    doc = docxDocumentOf(flow, scan);
+    ({ bytes: output, plan } = await write(doc));
+  }
+  if (
+    maxOutput !== undefined &&
+    output.byteLength > maxOutput &&
     plan.pictures > 0
   ) {
     // The budget is a bound, so this should not happen; if the file comes

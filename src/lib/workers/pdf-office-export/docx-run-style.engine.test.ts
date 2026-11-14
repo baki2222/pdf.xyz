@@ -8,6 +8,7 @@
 import { degrees, PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
+import { captionedPicturesPdf } from "@/tests/docx-picture-fixtures";
 import { corpusDeps } from "@/tests/docx-word-corpus";
 import { flowStandIn } from "@/tests/poppler-flow-standin";
 import { flowPageText } from "../pdf-text/flow";
@@ -147,6 +148,54 @@ describe("each word keeps its formatting, through the engine", () => {
     const { runs } = await runsOf(styled.output);
     expect(runs.some((r) => r.b || r.sz !== undefined)).toBe(false);
   }, 60_000);
+
+  it("over the output limit, the formatting goes before any picture: the plain text and pictures that fit on main still go out", async () => {
+    // The pictures fixture, and a page of words alternating regular and
+    // bold: formatting that costs more than the pictures' budget slack.
+    const doc = await PDFDocument.load((await captionedPicturesPdf()).pdf);
+    const regular = await doc.embedFont(StandardFonts.Helvetica);
+    const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+    const extra = doc.addPage([612, 792]);
+    for (let l = 0; l < 40; l++) {
+      let x = 72;
+      for (let w = 0; w < 10; w++) {
+        const font = w % 2 ? bold : regular;
+        extra.drawText(`word${w}`, { x, y: 740 - l * 16, size: 10, font });
+        x += font.widthOfTextAtSize(`word${w} `, 10);
+      }
+    }
+    const pdf = await doc.save();
+    const plain = await word(pdf, { writeDocx: unstyled });
+    const styled = await word(pdf);
+    const pictures = (await readDocxStructure(plain.output)).blocks.filter(
+      (b) => b.kind === "p" && b.drawing,
+    ).length;
+    // Health: the formatting costs bytes, and the PDF has pictures to lose.
+    expect(pictures).toBeGreaterThan(0);
+    expect(styled.output.byteLength).toBeGreaterThan(plain.output.byteLength);
+    expect(plain.coverage.picturesNotCarried ?? 0).toBe(0);
+    // One byte under the formatted file: the formatted file cannot go
+    // out whole, while the plain writer (main's file) carries every picture
+    // at this limit — checked, not assumed.
+    const limit = styled.output.byteLength - 1;
+    const onMain = await word(pdf, {
+      writeDocx: unstyled,
+      limits: { maxOutputBytes: limit },
+    });
+    expect(onMain.coverage.picturesNotCarried ?? 0).toBe(0);
+    const run = await word(pdf, { limits: { maxOutputBytes: limit } });
+    expect(run.output.byteLength).toBeLessThanOrEqual(limit);
+    expect(run.coverage.picturesNotCarried ?? 0).toBe(0);
+    expect(
+      (await readDocxStructure(run.output)).blocks.filter(
+        (b) => b.kind === "p" && b.drawing,
+      ).length,
+    ).toBe(pictures);
+    const { body, runs } = await runsOf(run.output);
+    expect(runs.some((r) => r.b || r.sz !== undefined)).toBe(false);
+    expect(docxPageTexts(body)).toEqual(await popplerText(pdf));
+    expect(run.coverage.formattingMissingPageCount).toBeGreaterThan(0);
+  }, 120_000);
 
   it(`a page of ${MAX_STYLED_PIECES_PER_PAGE + 1} words is written whole and plain, and named`, async () => {
     const doc = await PDFDocument.create();
