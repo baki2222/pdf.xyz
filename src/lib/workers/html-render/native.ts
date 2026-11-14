@@ -43,6 +43,7 @@ import {
   type WebpageCaptureOptions,
 } from "@/lib/jobs/webpage-capture-options";
 import { HIDE_OVERLAYS_SCRIPT } from "./overlays";
+import { answerArchiveRequest } from "./zip-site";
 import { stampFooterTemplate } from "./stamp";
 import {
   LAZY_SCROLL_FRAME_WAIT_MS,
@@ -561,12 +562,11 @@ export function createNativeChromiumPdfRunner(
         target.kind === "site" &&
         p.request.url.startsWith(HTML_DOCUMENT_URL)
       ) {
-        const hit =
-          p.request.method === "GET" ? target.site.serve(p.request.url) : null;
-        // The render network's own request and byte budgets, spent by the
-        // archive too: a page may not ask for its own files past them.
-        const refused = network.chargeServed(hit ? hit.body.byteLength : 0);
-        if (refused !== null) {
+        // The render network's own limits, spent by the archive too: a
+        // page may not ask for its own files past them. The same function
+        // the start-up proof runs (`answerArchiveRequest`).
+        const reply = answerArchiveRequest(target.site, network, p.request);
+        if (reply.action === "fail") {
           await cdp.send(
             "Fetch.failRequest",
             { requestId: p.requestId, errorReason: "BlockedByClient" },
@@ -575,7 +575,7 @@ export function createNativeChromiumPdfRunner(
           return;
         }
         if (
-          hit &&
+          reply.body !== null &&
           p.request.url === target.site.entryUrl &&
           p.resourceType === "Document" &&
           p.frameId === mainFrameId
@@ -585,15 +585,9 @@ export function createNativeChromiumPdfRunner(
           "Fetch.fulfillRequest",
           {
             requestId: p.requestId,
-            responseCode: hit ? 200 : 404,
-            responseHeaders: [
-              {
-                name: "Content-Type",
-                value: hit ? hit.contentType : "text/plain",
-              },
-              { name: "X-Content-Type-Options", value: "nosniff" },
-            ],
-            body: hit ? Buffer.from(hit.body).toString("base64") : "",
+            responseCode: reply.status,
+            responseHeaders: reply.headers,
+            body: reply.body ? Buffer.from(reply.body).toString("base64") : "",
           },
           sessionId,
         );

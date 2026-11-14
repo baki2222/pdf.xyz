@@ -31,6 +31,7 @@
  * `zip-site.chromium.test.ts` holds both budgets through a real Chromium.
  */
 import { openBoundedZip, ZipEntryError, type BoundedZip } from "../epub/zip";
+import type { RenderNetwork } from "./network";
 import {
   HTML_ZIP_LIMITS,
   chooseHtmlEntry,
@@ -219,4 +220,48 @@ function readEntry(zip: BoundedZip, name: string): Uint8Array | null {
     if (error instanceof ZipEntryError) return null;
     throw error;
   }
+}
+
+/** What Chromium is told for one request at the document origin. */
+export type ArchiveAnswer =
+  /** Past a budget of the render network: fail the request. */
+  | { action: "fail"; why: string }
+  | {
+      action: "fulfill";
+      status: 200 | 404;
+      headers: { name: string; value: string }[];
+      /** The entry's bytes; null for a 404. */
+      body: Uint8Array | null;
+    };
+
+/**
+ * The answer to ONE request Chromium makes at the document origin of a ZIP
+ * page: the entry it names (GET only; 404 for anything else), CHARGED to
+ * the render's network before it is answered — one request, and the body's
+ * bytes against `maxResponseBytes` and the byte budget — so a page cannot
+ * ask for its own files past the limits a fetched page has.
+ *
+ * ONE function, called by the renderer for every such request
+ * (`./native.ts`) AND by the start-up proof (`./zip-capability.ts`), so the
+ * heartbeat's `htmlZip` says the serving is bounded in THIS image, not only
+ * that ZIPs are opened (hostile review round 2, 2026-11-14: an image whose
+ * renderer served entries uncharged would have published `htmlZip: true`).
+ */
+export function answerArchiveRequest(
+  site: Pick<HtmlSite, "serve">,
+  network: Pick<RenderNetwork, "chargeServed">,
+  request: { method: string; url: string },
+): ArchiveAnswer {
+  const hit = request.method === "GET" ? site.serve(request.url) : null;
+  const refused = network.chargeServed(hit ? hit.body.byteLength : 0);
+  if (refused !== null) return { action: "fail", why: refused };
+  return {
+    action: "fulfill",
+    status: hit ? 200 : 404,
+    headers: [
+      { name: "Content-Type", value: hit ? hit.contentType : "text/plain" },
+      { name: "X-Content-Type-Options", value: "nosniff" },
+    ],
+    body: hit ? hit.body : null,
+  };
 }

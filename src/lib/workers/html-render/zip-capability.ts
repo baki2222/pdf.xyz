@@ -25,12 +25,25 @@
  *      refuses a path that climbs out of the archive (`%2e%2e`);
  *   2. an HTML file still renders as a file (`renderHtml`), not as a site;
  *   3. a ZIP of two pages naming neither is refused before the renderer
- *      starts.
+ *      starts;
+ *   4. serving that site is BOUNDED by the render network's limits, through
+ *      the very function the renderer answers every archive request with
+ *      (`answerArchiveRequest`): with the default limits the request past
+ *      `maxRequests` is refused, and with a byte budget of two stylesheets
+ *      the third is, as is one answer past `maxResponseBytes`. Added after
+ *      hostile review round 2 (2026-11-14): an image whose renderer served
+ *      entries uncharged — any image built before the first review's fix,
+ *      open to a 656 KB upload that took the worker's heap — would still
+ *      have passed 1-3, so `htmlZip: true` said ZIPs were opened, not that
+ *      serving them was bounded.
  *
  * ── WHAT A PASS DOES AND DOES NOT MEAN ──────────────────────────────────────
  * Chromium is a stub: a start-up probe launches no browser. A pass means
- * **this image's HTML to PDF opens a ZIP, chooses its page and serves its
- * files, and refuses what it cannot print**. Whether Chromium itself runs
+ * **this image's HTML to PDF opens a ZIP, chooses its page, serves its
+ * files within the render network's limits, and refuses what it cannot
+ * print**. That `./native.ts` answers through `answerArchiveRequest` rather
+ * than around it is held by `zip-site.chromium.test.ts` (a real Chromium
+ * past each limit) — at test time, not here. Whether Chromium itself runs
  * here is the html-render processor's own readiness; whether a real job
  * prints the pictures is `zip-site.chromium.test.ts`, and on a deployment,
  * a real job (see the PR's production proof).
@@ -39,6 +52,8 @@ import JSZip from "jszip";
 import { createProcessorRegistry } from "../processor";
 import { HTML_DOCUMENT_URL } from "./document-url";
 import type { ChromiumPdfRunner, HtmlSite } from "./engine";
+import { DEFAULT_RENDER_NETWORK_LIMITS, createRenderNetwork } from "./network";
+import { answerArchiveRequest } from "./zip-site";
 
 const enc = (s: string) => new TextEncoder().encode(s);
 const PDF = enc("%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n");
@@ -59,6 +74,8 @@ async function probeZip(files: Record<string, string>): Promise<Uint8Array> {
  */
 export async function provesHtmlZip(
   build: ProbeRegistryBuilder = createProcessorRegistry,
+  /** How an archive request is answered: the renderer's own, unless a test swaps it. */
+  answer: typeof answerArchiveRequest = answerArchiveRequest,
 ): Promise<boolean> {
   try {
     const sites: HtmlSite[] = [];
@@ -126,7 +143,29 @@ export async function provesHtmlZip(
     const two = await probeZip({ "a.html": "a", "b.html": "b" });
     const refused = await job(two, "two.zip", {});
     if (refused.ok || refused.error.retryable) return false;
-    return sites.length === 1 && htmlRenders() === 1;
+    if (sites.length !== 1 || htmlRenders() !== 1) return false;
+
+    // 4. Serving is bounded, through the renderer's own answer.
+    const get = { method: "GET", url: `${HTML_DOCUMENT_URL}site/s.css` };
+    const size = css.body.byteLength;
+    const fulfilled = (network: ReturnType<typeof createRenderNetwork>) =>
+      answer(rendered, network, get).action === "fulfill";
+    const limits = DEFAULT_RENDER_NETWORK_LIMITS;
+    const requests = createRenderNetwork();
+    for (let i = 0; i < limits.maxRequests; i += 1)
+      if (!fulfilled(requests)) return false;
+    if (fulfilled(requests)) return false;
+    const bytes = createRenderNetwork(
+      {},
+      { ...limits, maxTotalBytes: 2 * size },
+    );
+    if (!fulfilled(bytes) || !fulfilled(bytes) || fulfilled(bytes))
+      return false;
+    const oneBody = createRenderNetwork(
+      {},
+      { ...limits, maxResponseBytes: size - 1 },
+    );
+    return !fulfilled(oneBody);
   } catch {
     return false;
   }

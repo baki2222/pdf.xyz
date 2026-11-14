@@ -15,6 +15,7 @@ import { createProcessorRegistry } from "../processor";
 import type { SecureWorkerProcessorDeps } from "../processor";
 import { runHtmlToPdf, type ChromiumPdfRunner } from "./engine";
 import { provesHtmlZip, type ProbeRegistryBuilder } from "./zip-capability";
+import { answerArchiveRequest } from "./zip-site";
 import { processorOk } from "../processor/types";
 
 const chromiumOf = (deps: Parameters<ProbeRegistryBuilder>[0]) =>
@@ -143,5 +144,41 @@ describe("provesHtmlZip", () => {
         return run.ok || run.kind === "refused";
       })(deps);
     await expect(provesHtmlZip(build)).resolves.toBe(false);
+  });
+
+  // Hostile review round 2 (2026-11-14): the probe ran a stub renderer, so
+  // the branch that charges archive answers never ran, and an image serving
+  // them uncharged (open to the 656 KB upload that took the heap) passed.
+  describe("serving must be bounded by the render network", () => {
+    const uncharged: typeof answerArchiveRequest = (site, _network, req) => {
+      const hit = site.serve(req.url);
+      return {
+        action: "fulfill",
+        status: hit ? 200 : 404,
+        headers: [],
+        body: hit ? hit.body : null,
+      };
+    };
+    const requestsOnly: typeof answerArchiveRequest = (site, network, req) =>
+      network.chargeServed(0) === null
+        ? uncharged(site, network, req)
+        : { action: "fail", why: "spent" };
+    it("says NO when archive answers are not charged at all", async () => {
+      await expect(
+        provesHtmlZip(createProcessorRegistry, uncharged),
+      ).resolves.toBe(false);
+    });
+
+    it("says NO when only requests are charged, never bytes", async () => {
+      await expect(
+        provesHtmlZip(createProcessorRegistry, requestsOnly),
+      ).resolves.toBe(false);
+    });
+
+    it("POSITIVE CONTROL: the renderer's own answer passes, and is what the default argument is", async () => {
+      await expect(
+        provesHtmlZip(createProcessorRegistry, answerArchiveRequest),
+      ).resolves.toBe(true);
+    });
   });
 });
