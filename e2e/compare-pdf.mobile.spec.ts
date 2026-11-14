@@ -97,6 +97,11 @@ for (const scheme of ["light", "dark"] as const) {
     test.setTimeout(90_000);
     await page.emulateMedia({ colorScheme: scheme });
     await compared(page);
+    // Contrast is read off the page as painted: wait for the result's
+    // entrance to finish, or a mid-fade colour reads as a violation.
+    await page.waitForFunction(() =>
+      document.getAnimations().every((a) => a.playState !== "running"),
+    );
     const fromRoot = createRequire(join(process.cwd(), "package.json"));
     await page.addScriptTag({ path: fromRoot.resolve("axe-core/axe.min.js") });
     const found = await page.evaluate(async () => {
@@ -106,7 +111,9 @@ for (const scheme of ["light", "dark"] as const) {
             run: (
               ctx: Element,
               opts: object,
-            ) => Promise<{ violations: { id: string; nodes: unknown[] }[] }>;
+            ) => Promise<{
+              violations: { id: string; nodes: { target: string[] }[] }[];
+            }>;
           };
         }
       ).axe;
@@ -117,7 +124,9 @@ for (const scheme of ["light", "dark"] as const) {
           values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"],
         },
       });
-      return r.violations.map((v) => `${v.id} x${v.nodes.length}`);
+      return r.violations.map(
+        (v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`,
+      );
     });
     // Health: the scan ran over the result, not over an empty panel.
     await expect(

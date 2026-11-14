@@ -397,7 +397,15 @@ export function CompareChanges({
           </label>
         </div>
       </div>
-      <div ref={scroller} className="max-h-[32rem] overflow-y-auto p-3">
+      {/* Focusable, so a keyboard can scroll it (axe: scrollable-region-
+          focusable, seen on the result in e2e/compare-pdf.mobile.spec.ts). */}
+      <div
+        ref={scroller}
+        role="group"
+        aria-label="List of changes"
+        tabIndex={0}
+        className="max-h-[32rem] overflow-y-auto p-3"
+      >
         {hunks.length === 0 ? (
           <p className="text-muted text-sm">
             No selectable-text differences found.
