@@ -50,6 +50,21 @@ describe("scrollWithin", () => {
     expect(windowScroll).not.toHaveBeenCalled();
   });
 
+  // Compare PDF's Next change (2026-11-14): "nearest" left the change's
+  // heading on the list's bottom edge with every row of it below the edge.
+  it("start: puts an element at the top of the view, from below or above it", () => {
+    const below = setup(310);
+    scrollWithin(below.container, below.el, "start");
+    // Element top 310, view top 100: 210 down, where nearest moves 30.
+    expect(below.container.scrollTop).toBe(1_210);
+    const above = setup(40);
+    scrollWithin(above.container, above.el, "start");
+    expect(above.container.scrollTop).toBe(940);
+    const inside = setup(150);
+    scrollWithin(inside.container, inside.el, "start");
+    expect(inside.container.scrollTop).toBe(1_050);
+  });
+
   it("nearest: brings an element above the view to its top, below it to its bottom", () => {
     const above = setup(40);
     scrollWithin(above.container, above.el, "nearest");

@@ -2038,21 +2038,31 @@ export const CASES: Record<string, ToolCase> = {
       // The differing line must be flagged AS AN ADDITION. Without the "+" the
       // assertion is satisfied by a report that merely echoes both documents'
       // text, which is what a diff that found nothing would also produce.
+      //
+      // INVERTED 2026-11-14 (audit compare-pdf#4), history kept: the report
+      // used to print every line of both files under "Diff:", and this case
+      // asserted only the "+" line in it. The report lists only changes now,
+      // each under a page header, so the header is asserted too — and the
+      // control below became the OLD full dump, which must fail on it.
+      expect(report).toMatch(/^@@ Pages? \d+(-\d+)? -> pages? \d+(-\d+)? @@$/m);
       expect(report).toMatch(/^\+ .*only-in-right-line/m);
       expect(report).toContain("Selectable text identical: no");
       expect(report).not.toContain("No selectable-text differences found.");
     },
-    // A report-shaped control that names both files and finds nothing. The
-    // input PDF would be rejected by the container check alone, proving only
-    // that the download was text.
+    // The report as it was until 2026-11-14: every line under "Diff:", the
+    // "+" line among them, and no page header. It names both files and
+    // flags the addition, so only the header assertion can fail it. (Until
+    // then the control was a report that found nothing.)
     control: async () =>
       Buffer.from(
         [
           "PDF comparison: left.pdf vs right.pdf",
-          "Selectable text identical: yes",
-          "Changed lines: 0 (0 added, 0 removed)",
+          "Selectable text identical: no",
+          "Changed lines: 1 (1 added, 0 removed)",
+          "",
           "Diff:",
-          "No selectable-text differences found.",
+          "  shared line",
+          "+ only-in-right-line",
         ].join("\n"),
         "utf8",
       ),
@@ -4172,8 +4182,7 @@ export const PROOF_LIMITS: Record<string, string> = {
     "Every page turned Right (the default case), and the option variant (VARIANTS: Odd pages, Right, then Rotate all 180°). Even pages, Invert, Clear, shift-click ranges and the per-tile arrows are not exercised in a real browser; Even pages with Left is downloaded through the runner in src/components/tools/runner/rotate-runner.test.tsx, in jsdom.",
   "crop-pdf":
     "The default uniform margins applied to every page of an unrotated PDF, and the option variant (VARIANTS: Auto, each page its own box, on a two-page file whose second page is blank). Auto's Same box on every page, millimetre and inch units, per-side margins, pages carrying /Rotate, page selection and the schematic preview are not exercised end to end; Same box and units are proved through the runner in src/components/tools/runner/crop-runner.test.tsx and src/lib/pdf/auto-crop.test.ts, in jsdom and Node with pdfjs's legacy build. Per-side margins on every /Rotate are proved by pdfjs reading the saved file in src/lib/pdf/crop.test.ts, and the Uniform/Per side switch and the rotated preview by src/components/tools/runner/crop-runner.test.tsx; neither runs in a real browser.",
-  "compare-pdf":
-    "Both documents are uploaded through the same multi-file picker, which is the flow the runner offers. The no-text verdicts — neither PDF, or only ONE of them, has selectable text — are not exercised here; src/components/tools/runner/compare-pdf-runner.test.tsx renders them from real PDF bytes in jsdom, but reads them with pdfjs's legacy build, not the browser build a user runs. The too-large-to-diff error is likewise covered only there, with synthetic text.",
+  "compare-pdf": `Both documents are uploaded through the same multi-file picker, which is the flow the runner offers. Only the default options are run here (neither ignore box ticked). The "Ignore case" and "Ignore page headers and numbers" boxes, "Next change" and the word marks are exercised at 375 px in e2e/compare-pdf.mobile.spec.ts, and so is the changes bar at 1280 px; the row budget and the spoken word marks are exercised only in jsdom (src/components/tools/runner/compare/compare-result.test.tsx). The no-text verdicts — neither PDF, or only ONE of them, has selectable text — are not exercised here; src/components/tools/runner/compare-pdf-runner.test.tsx renders them from real PDF bytes in jsdom, but reads them with pdfjs's legacy build, not the browser build a user runs. The too-large-to-diff error is likewise covered only there, with synthetic text.`,
   "compress-pdf":
     "Only the in-browser lossless repack, on a fixture built to be repackable. The hybrid secure-server step this tool offers is a server path and is covered by worker:prove-tools, not here.",
   "split-pdf":

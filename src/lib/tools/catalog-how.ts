@@ -193,12 +193,12 @@ export const TOOL_HOW: Readonly<Record<string, readonly string[]>> = {
     "Put the pages in order, rotate any that came out sideways, and pick Original, Document or Black & white.",
     "Choose A4, US Letter or Fit to photo, then create and download one PDF.",
   ],
-  // Two files, in an order that matters: compare-pdf.ts reports lines only
+  // Two files, in an order that matters: the comparison reports lines only
   // in the FIRST as removed and lines only in the SECOND as added.
   "compare-pdf": [
     "Pick two PDFs — the first is treated as the original, the second as the revised version. Both stay on your device.",
     "Select Compare PDFs to compare their page count, file size and selectable text.",
-    "Review the lines marked removed (-) and added (+), then download the comparison report as a .txt file.",
+    "Review the lines marked removed (-) and added (+), then download a .txt report listing each change with its page numbers.",
   ],
   "chat-with-pdf": [
     "Upload your PDF.",

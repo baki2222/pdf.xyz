@@ -56,8 +56,42 @@ import {
 } from "./copy-surface";
 import { createProcessorRegistry } from "@/lib/workers/processor";
 import { signatureRequestDeps } from "@/lib/workers/request-signatures/native";
-import { compareExtractedPdfText } from "@/lib/pdf/compare-pdf";
+import { compareExtractedPdfText } from "@/components/tools/runner/compare/compare-result";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
+import { getRunnerKind } from "@/lib/pdf/registry";
+import { resolveSpecifier, runnerArms } from "@/tests/tool-panel-modules";
+
+/**
+ * The module the probes below import `compareExtractedPdfText` from. The
+ * runner reaches the comparison through ONE `import()` (2026-11-14), so the
+ * probe is only a probe of the shipped comparison while that specifier
+ * resolves to this file: checked below, from the runner's own source.
+ */
+const PROBED_COMPARE_MODULE = path.join(
+  process.cwd(),
+  "src/components/tools/runner/compare/compare-result.tsx",
+);
+
+/**
+ * The files a source's `import("…")` CALLS resolve to, from `file`. Not a
+ * `typeof import("…")`: that is a type, erased at runtime, and counting it
+ * would widen the set with a module nothing loads (CLAUDE.md rule 4).
+ */
+function lazyImportsOf(source: string, file: string): string[] {
+  return [
+    ...withoutComments(source).matchAll(
+      /(?<!\btypeof\s+)\bimport\(\s*"([^"]+)"\s*\)/g,
+    ),
+  ].map((m) => resolveSpecifier(file, m[1]!) ?? `unresolved: ${m[1]}`);
+}
+
+/** The module the tool page mounts for Compare PDF, from the dispatcher. */
+function compareRunnerFile(): string {
+  const kind = getRunnerKind("compare-pdf");
+  const arm = runnerArms().find((a) => a.keys.includes(kind!));
+  if (!arm) throw new Error(`no dispatcher arm for runner kind ${kind}`);
+  return arm.resolved.file;
+}
 
 const ROOT = process.cwd();
 const rel = (file: string) =>
@@ -277,6 +311,17 @@ describe("scope claims: the properties hold today", () => {
     expect(outcome).toEqual({ delivered: true });
   });
 
+  it("the probe imports the module the compare runner loads", () => {
+    const runner = compareRunnerFile();
+    expect(lazyImportsOf(readFileSync(runner, "utf8"), runner)).toEqual([
+      PROBED_COMPARE_MODULE,
+    ]);
+    // Positive control: a runner whose import names another module fails
+    // the same comparison, so the check above is not reading nothing.
+    const fake = 'const load = () => import("./compare/other-result");';
+    expect(lazyImportsOf(fake, runner)).not.toEqual([PROBED_COMPARE_MODULE]);
+  });
+
   it("positive control: two different texts compare as different", () => {
     const result = compareExtractedPdfText(
       { name: "a.pdf", size: 100, extracted: extracted("Total due: 100") },
@@ -317,6 +362,15 @@ describe("scope claims: no copy surface overclaims", () => {
         ({ file, found }) => `${file}: ${found.length} × ${found.join(" | ")}`,
       );
     expect(offenders).toEqual([]);
+  });
+
+  it("the compare report is read, and a planted overclaim in it would be caught", () => {
+    const report = "src/components/tools/runner/compare/report.ts";
+    const surface = surfaces.find((s) => s.file === report);
+    expect(surface, `${report} is not on the copy surface`).toBeDefined();
+    expect(hits(surface!.text, EXHAUSTIVE_DIFF_CLAIMS)).toEqual([]);
+    const planted = `${surface!.text}\nconst x = "Compare two versions to see exactly what changed.";`;
+    expect(hits(planted, EXHAUSTIVE_DIFF_CLAIMS)).not.toEqual([]);
   });
 
   it("no surface claims compare sees every change", () => {

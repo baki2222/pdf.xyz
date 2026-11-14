@@ -11,7 +11,7 @@
 export function scrollWithin(
   container: HTMLElement,
   el: HTMLElement,
-  block: "nearest" | "center",
+  block: "nearest" | "center" | "start",
 ): void {
   const box = container.getBoundingClientRect();
   const r = el.getBoundingClientRect();
@@ -23,6 +23,8 @@ export function scrollWithin(
   let dy = 0;
   if (block === "center") {
     dy = r.top + r.height / 2 - (top + height / 2);
+  } else if (block === "start") {
+    dy = r.top - top;
   } else if (r.top < top) {
     dy = r.top - top;
   } else if (r.bottom > top + height) {

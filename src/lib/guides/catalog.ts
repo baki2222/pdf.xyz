@@ -2756,7 +2756,7 @@ export const guides: Guide[] = [
       "compare pdf versions",
     ],
     intro: [
-      `To compare two PDF files, open ${nameOf("compare-pdf")}, pick the two versions, and select Compare PDFs. You get their page counts, the size difference and every line of text that was added or removed, plus a report you can download. It runs in your browser, so both files stay on your device.`,
+      `To compare two PDF files, open ${nameOf("compare-pdf")}, pick the two versions, and select Compare PDFs. You get their page counts, the size difference and every line of text that was added or removed, each under the page it sits on in both files, plus a report you can download. It runs in your browser, so both files stay on your device.`,
       "The comparison reads the text in each PDF, line by line. That makes it good at the question most people are asking — what changed in the wording — and blind to changes that are only visual.",
     ],
     steps: [
@@ -2764,8 +2764,8 @@ export const guides: Guide[] = [
       "Pick two PDFs — the first is treated as the original, the second as the revised version. Both stay on your device.",
       "Select Compare PDFs.",
       "Read the summary: the page counts, the size difference and the number of changed lines.",
-      "Review the lines marked removed (-) and added (+).",
-      "Download the comparison report as a .txt file.",
+      "Review the lines marked removed (-) and added (+), each headed with its page in both files, with the changed words marked.",
+      "Download the comparison report: a .txt file listing only the changes, with their page numbers.",
     ],
     sections: [
       {
@@ -2811,7 +2811,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-10-30",
+    updated: "2026-11-14",
   },
   {
     slug: "how-to-remove-a-password-from-a-pdf",

@@ -31,6 +31,7 @@ import { TICKET_DIALOG_CHUNK_MARKER } from "@/components/intent/ticket-dialog-ch
 import { PALETTE_CHUNK_MARKER } from "@/components/intent/palette-chunk";
 import { REPLACE_BOXES_CHUNK } from "@/components/tools/replace-boxes";
 import { BATCH_VIEW_LOADED } from "@/components/tools/runner/batch/batch-view";
+import { COMPARE_RESULT_CHUNK } from "@/components/tools/runner/compare/compare-result";
 import { RESULT_ENDING_CHUNK } from "@/components/intent/result-ending-chunk";
 import { DROP_ENGINE_MARK } from "@/lib/intent/drop-engine";
 import { tools } from "@/lib/tools";
@@ -312,6 +313,18 @@ const OUR_LAZY: LazyLibrary[] = [
     what: "the batch view",
     marker: BATCH_VIEW_LOADED,
     why: "a runner fetches it when two or more files arrive; a visit with one file, or none, never downloads it",
+    allowedAtLoad: {},
+  },
+  // Compare PDF's comparison and changes view (audit compare-pdf#4,
+  // 2026-11-14): lines, diff, hunks, word marks, the report and the view, in
+  // ONE chunk behind one `import()` in the runner. Until then the runner
+  // imported the engine statically and every visit to the compare page loaded
+  // it. The marker is the view's `data-chunk`, so it survives minification
+  // only where the view is drawn.
+  {
+    what: "Compare PDF's result engine and changes view",
+    marker: COMPARE_RESULT_CHUNK,
+    why: "the compare runner fetches it with the two extractions, or when a second file lands; a visit that never brings two files never downloads it",
     allowedAtLoad: {},
   },
   // Sign PDF's handwriting faces (audit sign-pdf#1, 2026-11-09). As first

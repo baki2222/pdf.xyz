@@ -135,6 +135,12 @@ export function copyFiles(): string[] {
     // save refuses, and why a file could not be decrypted. New phrase code,
     // walked from its first file. Same rule: no trailing unit comments.
     path.join(ROOT, "src", "lib", "pdf", "security"),
+    // Compare PDF's engine (2026-11-14, audit compare-pdf#4): lines, diff,
+    // hunks and word marks, and the one refusal a reader sees when two
+    // documents differ in too many places. It left `compare-pdf.ts`, which
+    // sat outside the walk; walked from its first file. Same rule: no
+    // trailing unit comments in its files.
+    path.join(ROOT, "src", "lib", "pdf", "compare"),
     ...Object.keys(PENDING_COPY_ROOTS).map((root) => path.join(ROOT, root)),
   ];
   const out: string[] = [
