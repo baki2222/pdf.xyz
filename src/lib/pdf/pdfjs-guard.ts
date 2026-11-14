@@ -11,7 +11,9 @@ import {
   ascii,
   dictEntries,
   indexOfWord,
+  isDelimiter,
   isWhite,
+  matchesAt,
   namesOf,
   numericObjects,
   streamObjectNumber,
@@ -21,6 +23,7 @@ import {
   ContentsRefs,
   type ObjectHeader,
   arrayObjectRefs,
+  dictEnd,
   findObjectHeaders,
   nameObjects,
   parseObjectAt,
@@ -29,7 +32,9 @@ import {
 import { KidsCounter } from "./pdf-scan-kids";
 import {
   PageImages,
+  Unpredictor,
   type Box,
+  type ContentCount,
   type ImageSize,
   type OpHook,
   type PageScanTools,
@@ -537,6 +542,18 @@ export interface PdfStreamScan {
    * object number, codestream pixels.
    */
   jpx: Map<number, number>;
+  /** The file's trailer names /Encrypt (see {@link encryptedTrailer}). */
+  encrypted: boolean;
+  /**
+   * Every numbered stream the scan read as content, by object number: its
+   * `Do` count and inline images as its own exact reading found them, or
+   * null where that reading is not what pdf.js reads (a filter or predictor
+   * the scan does not apply, ciphertext, data that broke off, or a number
+   * defined twice). The page map weighs a page from these when the figure
+   * is within the page budget anyway, instead of reading its content again
+   * (see `ContentCount`).
+   */
+  contentCounts: Map<number, ContentCount | null>;
   /** The first bound the scan stopped at, or null. */
   exceeded:
     "stream-bytes" | "total-bytes" | "scan-work" | "q-depth" | "q-work" | null;
@@ -745,6 +762,24 @@ export class ContentOps {
    */
   private operands: (number | string | null)[] = [];
   private readonly track: boolean;
+
+  /**
+   * With a hook, after {@link end}: operands were read since the last
+   * operator (the next stream of a /Contents array may hold their
+   * operator, so a `Do` there names what this stream ended with).
+   */
+  get operandsPending(): boolean {
+    return this.geometry ? this.operands.length > 0 : this.pending;
+  }
+  /**
+   * Without geometry only a `Do`'s operand is ever reported, and pdf.js
+   * hands `Do` its LAST operand: just that one is kept (and whether any is
+   * pending), no list. The scan reads every content stream this way, so
+   * this is the cost every document pays (review r3: the list made the
+   * scan 57% slower on drawings).
+   */
+  private last: number | string | null = null;
+  private pending = false;
   /** Loose `BI` seen since the last {@link end}, for the hook. */
   private looseInlines = 0;
 
@@ -1044,6 +1079,11 @@ export class ContentOps {
 
   /** One operand read, for the hook: the last {@link TRACKED_OPERANDS} are kept. */
   private operand(v: number | string | null): void {
+    if (!this.geometry) {
+      this.last = v;
+      this.pending = true;
+      return;
+    }
     const ops = this.operands;
     ops.push(typeof v === "number" && !Number.isFinite(v) ? null : v);
     if (ops.length > TRACKED_OPERANDS) ops.shift();
@@ -1058,8 +1098,30 @@ export class ContentOps {
    */
   private report(command: string): void {
     const hook = this.hook!;
-    const ops = this.operands;
     const exact = this.exact;
+    if (!this.geometry) {
+      if (command === "Do") {
+        const last = this.pending ? this.last : null;
+        hook({
+          op: "Do",
+          name: typeof last === "string" ? last.slice(1) : null,
+          exact,
+        });
+      } else if (
+        command === "true" ||
+        command === "false" ||
+        command === "null"
+      ) {
+        this.operand(null);
+        return;
+      } else if (command === "BI" && !exact) {
+        this.looseInlines += 1;
+      }
+      this.pending = false;
+      this.last = null;
+      return;
+    }
+    const ops = this.operands;
     if (command === "true" || command === "false" || command === "null") {
       this.operand(null);
       return;
@@ -1154,6 +1216,70 @@ const countsOf = (ops: ContentOps): OpCounts => ({
 
 const STREAM = ascii("stream");
 const ENDSTREAM = ascii("endstream");
+
+/**
+ * The /Predictor a content stream is read through, as the page map reads
+ * it, when the scan can tell simply: null for none (no /DecodeParms, or
+ * one with no /Predictor above 1, or a /Predictor on data no Flate stage
+ * makes), the parameters for ONE Flate stage whose /DecodeParms is one
+ * direct dictionary of plain numbers, and undefined for anything else (the
+ * map then reads the stream itself). The map checks these against its own
+ * reading before it takes the scan's counts (`ContentCount.predictor`).
+ */
+function simplePredictor(
+  s: FoundStream,
+  stages: readonly Stage[],
+):
+  | { predictor: number; colors: number; bpc: number; columns: number }
+  | null
+  | undefined {
+  const keys = ["DecodeParms", "DP"].filter((k) => s.entries.has(k));
+  if (keys.length === 0) return null;
+  if (keys.length > 1 || valuesOf(s.entries, keys[0]!).length !== 1) {
+    return undefined;
+  }
+  // The key's one occurrence as a whole name (a longer name is another key).
+  const key = `/${keys[0]!}`;
+  const text = ascii(s.dictText);
+  const found: number[] = [];
+  for (let i = s.dictText.indexOf(key); i !== -1;) {
+    const after = text[i + key.length];
+    if (after === undefined || isWhite(after) || isDelimiter(after)) {
+      found.push(i);
+    }
+    i = s.dictText.indexOf(key, i + 1);
+  }
+  if (found.length !== 1) return undefined;
+  const open = skipForward(text, found[0]! + key.length);
+  if (!(text[open] === 0x3c && text[open + 1] === 0x3c)) return undefined;
+  const close = dictEnd(text, open, text.length);
+  if (close === -1) return undefined;
+  const parms = dictEntries(s.dictText.slice(open, close));
+  const num = (k: string, fallback: number): number | undefined => {
+    const v = valuesOf(parms, k);
+    if (v.length === 0) return fallback;
+    const last = v[v.length - 1]!;
+    return last.kind === "number" ? last.value : undefined;
+  };
+  const predictor = num("Predictor", 1);
+  const colors = num("Colors", 1);
+  const bpc = num("BitsPerComponent", 8);
+  const columns = num("Columns", 1);
+  if (
+    predictor === undefined ||
+    colors === undefined ||
+    bpc === undefined ||
+    columns === undefined
+  ) {
+    return undefined;
+  }
+  if (predictor <= 1) return null;
+  if (stages.length !== 1 || stages[0] !== "flate") {
+    // A predictor only follows Flate (or LZW, which the scan does not read).
+    return stages.includes("flate") ? undefined : null;
+  }
+  return { predictor, colors, bpc, columns };
+}
 
 /** The filter names of a stream dictionary, in decode order. */
 function filtersOf(entries: Map<string, DictValue[]>): string[] {
@@ -1303,6 +1429,7 @@ async function decodeCounting(
   stages: readonly Stage[],
   limit: number,
   onChunk: ((chunk: Uint8Array) => void) | null,
+  report?: { broken: boolean },
 ): Promise<number> {
   // A plain ReadableStream, not `Blob.stream()`: jsdom's Blob has no stream.
   let stream = new ReadableStream<Uint8Array>({
@@ -1335,6 +1462,7 @@ async function decodeCounting(
     }
   } catch {
     // Not zlib, truncated, or a bad checksum: count what came out.
+    if (report) report.broken = true;
   } finally {
     reader.cancel().catch(() => {});
   }
@@ -1446,6 +1574,8 @@ function subtypesOf(
 /** A stream the scan has found: its dictionary and its data. */
 interface FoundStream {
   entries: Map<string, DictValue[]>;
+  /** Its dictionary's text. */
+  dictText: string;
   start: number;
   end: number;
   /** Its object number, or null when no header was read. */
@@ -1536,9 +1666,10 @@ export async function scanPdfStreams(
     paints: [],
     doExecutions: 0,
     jpx: new Map(),
+    encrypted: false,
+    contentCounts: new Map(),
     exceeded: null,
   };
-  const encryptedFile = indexOfWord(bytes, ENCRYPT, 0) !== -1;
   /** Streams that may be content whose operators the scan could not read. */
   let hiddenContent = 0;
   const refs = new RefCounter();
@@ -1623,6 +1754,8 @@ export async function scanPdfStreams(
     });
     parsed.set(o.streamKw, list);
   }
+  const encryptedFile = encryptedTrailer(bytes, parsed);
+  scan.encrypted = encryptedFile;
 
   /** q counts of streams labelled as not content, until /Contents is known. */
   const heldBack: ReadRecord[] = [];
@@ -1641,10 +1774,11 @@ export async function scanPdfStreams(
     decodable: boolean,
     limit: number,
     sink: (chunk: Uint8Array) => void,
+    report?: { broken: boolean },
   ): Promise<number> => {
     const data = bytes.subarray(s.start, s.end);
     if (decoding.length > 0) {
-      return decodeCounting(data, decoding, limit, sink);
+      return decodeCounting(data, decoding, limit, sink, report);
     }
     if (decodable) sink(data);
     return data.length;
@@ -1677,13 +1811,49 @@ export async function scanPdfStreams(
     const objectStream =
       namesOf(entries, "Type").includes("ObjStm") || entries.has("First");
     if (objectStream && !decodable) opaqueObjectStreams += 1;
-    const ops = decodable ? new ContentOps() : null;
+    // Where the page map may take this reading for its own (see
+    // PdfStreamScan.contentCounts), the `Do` operands are kept too: one
+    // reading serves both, and the map never lexes the stream again.
+    const predictor = simplePredictor(s, stages);
+    // pdf.js reads /F before /Filter (`dict.get("F", "Filter")`); the scan
+    // reads /Filter: a stream with /F is left to the map.
+    const countable =
+      s.num !== null &&
+      decodable &&
+      !encryptedFile &&
+      predictor !== undefined &&
+      !entries.has("F");
+    let names: Map<string | null, number> | null = countable ? new Map() : null;
+    const countNames: OpHook = (op) => {
+      if (op.op !== "Do" || names === null) return;
+      const n = names.get(op.name);
+      if (n === undefined && names.size >= MAX_COUNTED_NAMES) {
+        names = null; // too many to keep: the map reads it itself
+      } else names.set(op.name, (n ?? 0) + 1);
+    };
+    // Content behind a predictor is read twice here, from one decode: raw
+    // for the q counts (as before), and through the predictor, as pdf.js
+    // reads it, for the map (which then never decodes it again).
+    const counter =
+      countable && predictor !== null
+        ? new ContentOps(true, countNames, false)
+        : null;
+    const unpredicted =
+      counter !== null && predictor
+        ? Unpredictor.of(predictor, (c) => counter.feed(c))
+        : null;
+    const ops = decodable
+      ? countable && predictor === null
+        ? new ContentOps(true, countNames, false)
+        : new ContentOps()
+      : null;
     const objects = objectStream && decodable;
     refs.reset();
     contents.reset();
     kids.reset();
     const sink = (c: Uint8Array) => {
       ops?.feed(c);
+      unpredicted?.feed(c);
       if (objects) {
         refs.feed(c);
         contents.feed(c);
@@ -1693,6 +1863,7 @@ export async function scanPdfStreams(
     const decoding = stages
       .slice(0, known)
       .filter((stage) => stage !== "identity");
+    const report = { broken: false };
     const decoded = await decodeInto(
       s,
       decoding,
@@ -1702,6 +1873,7 @@ export async function scanPdfStreams(
         MAX_DECODED_TOTAL_BYTES - scan.totalBytes,
       ),
       sink,
+      report,
     );
     if (decoding.length > 0) scan.inflated += 1;
     scan.maxStreamBytes = Math.max(scan.maxStreamBytes, decoded);
@@ -1712,6 +1884,36 @@ export async function scanPdfStreams(
     }
     if (ops) {
       ops.end();
+      // What the page map needs of it, read once here (see
+      // PdfStreamScan.contentCounts): only where the scan read what pdf.js
+      // reads, whole.
+      if (s.num !== null) {
+        const seen = scan.contentCounts.has(s.num);
+        // `ops` has ended above; the predictor's reading ends here (once:
+        // `end` settles `cleanEnd`, and a second call would unsettle it).
+        const read = predictor === null ? ops : counter;
+        counter?.end();
+        const whole =
+          predictor === null || (unpredicted !== null && unpredicted.end());
+        scan.contentCounts.set(
+          s.num,
+          !seen &&
+            countable &&
+            read !== null &&
+            whole &&
+            names !== null &&
+            !report.broken
+            ? {
+                start: s.start,
+                end: s.end,
+                predictor: predictor ?? null,
+                dos: names,
+                inline: read.inline,
+                cleanEnd: read.cleanEnd && !read.operandsPending,
+              }
+            : null,
+        );
+      }
       keep(
         {
           num: s.num,
@@ -1742,9 +1944,8 @@ export async function scanPdfStreams(
     kw: number,
     num: number | null,
   ): Promise<number> => {
-    const entries = dictEntries(
-      latin1.decode(bytes.subarray(dictStart, dictEnd)),
-    );
+    const dictText = latin1.decode(bytes.subarray(dictStart, dictEnd));
+    const entries = dictEntries(dictText);
     scan.streams += 1;
     if (num !== null) streamNums.add(num);
     let start = kw + STREAM.length;
@@ -1768,6 +1969,7 @@ export async function scanPdfStreams(
     const form = subtypes.some((t) => t === "Form" || t === "?");
     const stream: FoundStream = {
       entries,
+      dictText,
       start,
       end,
       num,
@@ -1999,8 +2201,7 @@ export async function scanPdfStreams(
   // would read as an orphan nothing paints (lane image-budget-residuals,
   // 2026-11-14: an encrypted object-stream file's images went unjudged).
   const hiddenRefs =
-    opaqueObjectStreams > 0 ||
-    (objectStreams.length > 0 && indexOfWord(bytes, ENCRYPT, 0) !== -1);
+    opaqueObjectStreams > 0 || (objectStreams.length > 0 && encryptedFile);
   const referenced = (num: number | null): boolean => {
     if (num === null || hiddenRefs || refs.counts.has(num)) {
       return true;
@@ -2393,6 +2594,8 @@ export async function preflightPdfjsBytes(
 ): Promise<PdfjsPreflight> {
   const scan = await scanPdfStreams(bytes);
   jpxSizes.set(bytes, scan.jpx);
+  encryptedFiles.set(bytes, scan.encrypted);
+  contentCounts.set(bytes, scan.contentCounts);
   if (scan.exceeded === "q-depth" || scan.exceeded === "q-work") {
     throw new PdfEngineError(PDF_NESTED_TOO_DEEPLY_MESSAGE);
   }
@@ -2489,15 +2692,18 @@ export function fileImageWeight(
 export function pageScanTools(
   encrypted: boolean,
   jpx: ReadonlyMap<number, number> = new Map(),
+  counts: ReadonlyMap<number, ContentCount | null> = new Map(),
 ): PageScanTools {
   return {
     decodeBudget: MAX_DECODED_TOTAL_BYTES,
+    counts,
     // An encrypted file's streams reach `decode` decrypted, when the map
     // could open its security handler with no password (and not at all
     // when it could not).
     encrypted,
-    decode: async (dict, data, limit) =>
-      decodeWhole(dictEntries(dict), data, limit),
+    decodeTo: decodeStreamTo,
+    unchanged: (names) =>
+      names.every((n) => !LZW.has(n) && stageOf(n) === "identity"),
     ops: (hook: OpHook, geometry = true) =>
       new ContentOps(true, hook, geometry),
     jpx: jpxPixels,
@@ -2523,27 +2729,35 @@ export function pageScanTools(
 }
 
 /**
- * A stream's data decoded whole through its filters, or null when a filter
- * is one the scan does not decode, the data is not valid for its filter, or
- * the output passes `limit` bytes.
+ * A stream's data decoded through its filters, streamed into `sink`: the
+ * bytes made, or null when a filter is one the map does not decode, the
+ * data is not valid for its filter, or the output passes `limit` bytes.
+ * The map decodes LZW too (the scan does not: see {@link stageOf}), at
+ * each stage's /EarlyChange (`earlyChange`, by position; 1 when unset).
+ *
+ * History (legit-corpus review r3, 2026-11-14): LZW content (Acrobat 2 and 3
+ * era) was content the map could not read, so every page that could reach
+ * an image was noted "could not be fully read" and refused, where main
+ * draws and converts it.
  */
-async function decodeWhole(
-  entries: Map<string, DictValue[]>,
+async function decodeStreamTo(
+  names: readonly string[],
   data: Uint8Array,
   limit: number,
-): Promise<Uint8Array | null> {
-  const stages = filtersOf(entries).map(stageOf);
-  if (stages.includes("opaque")) return null;
-  const decoding = stages.filter((stage) => stage !== "identity");
-  if (decoding.length === 0) return data.length > limit ? null : data;
-  let stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      controller.enqueue(data);
-      controller.close();
-    },
-  });
-  for (const stage of decoding) {
-    stream = stream.pipeThrough(
+  sink: (chunk: Uint8Array) => void,
+  earlyChange: readonly (number | null)[],
+): Promise<number | null> {
+  const steps: TransformStream<Uint8Array, Uint8Array>[] = [];
+  for (let i = 0; i < names.length; i += 1) {
+    const name = names[i]!;
+    if (LZW.has(name)) {
+      steps.push(lzwDecoder(earlyChange[i] ?? 1));
+      continue;
+    }
+    const stage = stageOf(name);
+    if (stage === "opaque") return null;
+    if (stage === "identity") continue;
+    steps.push(
       stage === "ahx"
         ? asciiHexDecoder()
         : stage === "a85"
@@ -2554,8 +2768,19 @@ async function decodeWhole(
             >),
     );
   }
+  if (steps.length === 0) {
+    if (data.length > limit) return null;
+    sink(data);
+    return data.length;
+  }
+  let stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(data);
+      controller.close();
+    },
+  });
+  for (const step of steps) stream = stream.pipeThrough(step);
   const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
   let total = 0;
   try {
     for (;;) {
@@ -2563,7 +2788,7 @@ async function decodeWhole(
       if (done) break;
       total += value.length;
       if (total > limit) return null;
-      chunks.push(value.slice());
+      sink(value);
     }
   } catch {
     // Not zlib, truncated, a bad checksum: what pdf.js reads of it is not
@@ -2572,17 +2797,107 @@ async function decodeWhole(
   } finally {
     reader.cancel().catch(() => {});
   }
-  const out = new Uint8Array(total);
-  let at = 0;
-  for (const c of chunks) {
-    out.set(c, at);
-    at += c.length;
+  return total;
+}
+
+const LZW = new Set(["LZWDecode", "LZW"]);
+
+/**
+ * pdf.js's LZWStream, streaming: 9- to 12-bit codes, 256 clears the table,
+ * 257 ends the data, and the code width grows `earlyChange` codes early
+ * (pdf.js's arithmetic, so the same bytes come out). A code past the table
+ * repeats the last sequence plus its first byte, as pdf.js does.
+ */
+function lzwDecoder(
+  earlyChange: number,
+): TransformStream<Uint8Array, Uint8Array> {
+  const size = 4096;
+  const values = new Uint8Array(size);
+  const lengths = new Uint16Array(size);
+  const prevCodes = new Uint16Array(size);
+  const current = new Uint8Array(size);
+  for (let i = 0; i < 256; i += 1) {
+    values[i] = i;
+    lengths[i] = 1;
   }
-  return out;
+  let currentLength = 0;
+  let codeLength = 9;
+  let nextCode = 258;
+  let prevCode = 0;
+  let cached = 0;
+  let bits = 0;
+  let done = false;
+  return new TransformStream({
+    transform(chunk, controller) {
+      if (done) return;
+      let out = new Uint8Array(Math.max(1024, chunk.length * 4));
+      let n = 0;
+      for (let k = 0; k < chunk.length && !done; k += 1) {
+        cached = ((cached << 8) | chunk[k]!) & 0xffffff;
+        bits += 8;
+        while (bits >= codeLength && !done) {
+          bits -= codeLength;
+          const code = (cached >>> bits) & ((1 << codeLength) - 1);
+          const hasPrev = currentLength > 0;
+          if (code < 256) {
+            current[0] = code;
+            currentLength = 1;
+          } else if (code >= 258) {
+            if (code < nextCode) {
+              currentLength = lengths[code]!;
+              for (let j = currentLength - 1, q = code; j >= 0; j -= 1) {
+                current[j] = values[q]!;
+                q = prevCodes[q]!;
+              }
+            } else {
+              current[currentLength++] = current[0]!;
+            }
+          } else if (code === 256) {
+            codeLength = 9;
+            nextCode = 258;
+            currentLength = 0;
+            continue;
+          } else {
+            done = true;
+            break;
+          }
+          if (hasPrev) {
+            prevCodes[nextCode] = prevCode;
+            lengths[nextCode] = lengths[prevCode]! + 1;
+            values[nextCode] = current[0]!;
+            nextCode += 1;
+            const c = nextCode + earlyChange;
+            codeLength =
+              c & (c - 1)
+                ? codeLength
+                : Math.min(Math.log(c) / 0.6931471805599453 + 1, 12) | 0;
+          }
+          prevCode = code;
+          if (n + currentLength > out.length) {
+            const grown = new Uint8Array(out.length * 2 + currentLength);
+            grown.set(out.subarray(0, n));
+            out = grown;
+          }
+          out.set(current.subarray(0, currentLength), n);
+          n += currentLength;
+        }
+      }
+      if (n > 0) controller.enqueue(out.subarray(0, n));
+    },
+  });
 }
 
 /** Each file's {@link PdfStreamScan.jpx}, by the bytes it was scanned from. */
 const jpxSizes = new WeakMap<Uint8Array, ReadonlyMap<number, number>>();
+
+/** Each file's {@link PdfStreamScan.encrypted}, by the bytes it was scanned from. */
+const encryptedFiles = new WeakMap<Uint8Array, boolean>();
+
+/** Each file's {@link PdfStreamScan.contentCounts}, by the bytes it was scanned from. */
+const contentCounts = new WeakMap<
+  Uint8Array,
+  ReadonlyMap<number, ContentCount | null>
+>();
 
 /** Each file's page-image reader, by the bytes it was built from. */
 const pageImageReaders = new WeakMap<
@@ -2590,18 +2905,185 @@ const pageImageReaders = new WeakMap<
   { length: number; reader: Promise<PageImages | { incomplete: string }> }
 >();
 
-/** The `/Encrypt` key, anywhere in the file's text: its streams are ciphertext. */
 const ENCRYPT = ascii("/Encrypt");
+const TRAILER = ascii("trailer");
+const XREF = ascii("/XRef");
+
+/** Distinct `Do` operands the scan keeps for one stream; past it, the map reads the stream itself. */
+const MAX_COUNTED_NAMES = 4096;
+
+/**
+ * Whether the file is encrypted as pdf.js reads it: a trailer names
+ * /Encrypt, a trailer being a `trailer` dictionary or a cross-reference
+ * stream's (/Type /XRef) that lies OUTSIDE every stream's data. pdf.js
+ * takes the trailer from the cross-reference (or, recovering, from the
+ * `trailer` keywords and cross-reference streams between objects), never
+ * from inside another object's stream. A stream's data counts only where
+ * its /Length says it runs and `endstream` follows: a damaged /Length hides
+ * nothing. When no trailer at all is found outside stream data, the word
+ * /Encrypt anywhere still says yes: fail safe.
+ *
+ * `streams` is the scan's `stream` keywords with their dictionaries; null
+ * finds them here.
+ *
+ * History (hostile review r3, 2026-11-14): the word /Encrypt ANYWHERE made
+ * the file encrypted, so an unencrypted scan whose page text read "the
+ * trailer names /Encrypt", or that carried a protected PDF as an
+ * attachment, had every stream read as ciphertext and every image page
+ * noted and refused, where main draws them.
+ */
+function encryptedTrailer(
+  bytes: Uint8Array,
+  streams: ReadonlyMap<
+    number,
+    readonly { dictStart: number; dictEnd: number }[]
+  > | null,
+): boolean {
+  if (indexOfWord(bytes, ENCRYPT, 0) === -1) return false;
+  let found = streams;
+  if (found === null) {
+    const map = new Map<number, { dictStart: number; dictEnd: number }[]>();
+    let budget = 2 * bytes.length + DICT_SEARCH_WINDOW;
+    for (const h of findObjectHeaders(bytes)) {
+      const o = parseObjectAt(bytes, h.objAt, budget);
+      budget -= o.cost;
+      // Past the scan's own bound the scan refuses the file: say yes.
+      if (budget < 0) return true;
+      if (o.dictStart === -1) continue;
+      const list = map.get(o.streamKw) ?? [];
+      list.push({ dictStart: o.dictStart, dictEnd: o.dictEnd });
+      map.set(o.streamKw, list);
+    }
+    found = map;
+  }
+  /** A trailer: a `trailer` dictionary, or a stream's /Type /XRef one. */
+  type Candidate = { at: number; xref: boolean; encrypt: boolean };
+  const candidates: Candidate[] = [];
+  for (let t = indexOfWord(bytes, TRAILER, 0); t !== -1;) {
+    const open = skipForward(bytes, t + TRAILER.length);
+    if (bytes[open] === 0x3c && bytes[open + 1] === 0x3c) {
+      const end = dictEnd(bytes, open, open + DICT_SEARCH_WINDOW);
+      if (end !== -1) {
+        const entries = dictEntries(latin1.decode(bytes.subarray(open, end)));
+        candidates.push({
+          at: t,
+          xref: false,
+          encrypt: entries.has("Encrypt"),
+        });
+      }
+    }
+    t = indexOfWord(bytes, TRAILER, t + TRAILER.length);
+  }
+  // Cross-reference stream dictionaries: only those whose text names /XRef
+  // are parsed (one search of the file, not every stream's dictionary).
+  const spans: { dictStart: number; dictEnd: number; kw: number }[] = [];
+  for (const [kw, list] of found) {
+    for (const d of list) spans.push({ ...d, kw });
+  }
+  spans.sort((a, b) => a.dictStart - b.dictStart);
+  for (let x = indexOfWord(bytes, XREF, 0); x !== -1;) {
+    let lo = 0;
+    let hi = spans.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (spans[mid]!.dictStart <= x) lo = mid + 1;
+      else hi = mid;
+    }
+    const d = spans[lo - 1];
+    if (d && x < d.dictEnd && d.kw !== -1) {
+      const entries = dictEntries(
+        latin1.decode(bytes.subarray(d.dictStart, d.dictEnd)),
+      );
+      if (namesOf(entries, "Type").includes("XRef")) {
+        candidates.push({
+          at: d.dictStart,
+          xref: true,
+          encrypt: entries.has("Encrypt"),
+        });
+      }
+    }
+    x = indexOfWord(bytes, XREF, x + XREF.length);
+  }
+  // Settled from `endstream` alone, the usual shapes: stream data ends right
+  // before an `endstream`, so a `trailer` with none after it, or an /XRef
+  // dictionary with only its own after it, is in no stream's data.
+  const ends: number[] = [];
+  for (let e = indexOfWord(bytes, ENDSTREAM, 0); e !== -1;) {
+    ends.push(e);
+    e = indexOfWord(bytes, ENDSTREAM, e + ENDSTREAM.length);
+  }
+  const endsAfter = (at: number) => {
+    let lo = 0;
+    let hi = ends.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (ends[mid]! < at) lo = mid + 1;
+      else hi = mid;
+    }
+    return ends.length - lo;
+  };
+  let outside = 0;
+  const unsettled: Candidate[] = [];
+  for (const c of candidates) {
+    if (endsAfter(c.at) === (c.xref ? 1 : 0)) {
+      outside += 1;
+      if (c.encrypt) return true;
+    } else unsettled.push(c);
+  }
+  if (unsettled.length > 0) {
+    // The rest by every stream's measured data.
+    const ranges: [number, number][] = [];
+    for (const d of spans) {
+      if (d.kw === -1) continue;
+      const entries = dictEntries(
+        latin1.decode(bytes.subarray(d.dictStart, d.dictEnd)),
+      );
+      let start = d.kw + STREAM.length;
+      if (bytes[start] === 0x0d) start += 1;
+      if (bytes[start] === 0x0a) start += 1;
+      const length = lengthOf(entries);
+      if (length === null || start + length > bytes.length) continue;
+      if (matchesAt(bytes, skipForward(bytes, start + length), ENDSTREAM)) {
+        ranges.push([start, start + length]);
+      }
+    }
+    // Merged, so a stream inside another's data (an attached file's) is
+    // held by the outer range.
+    ranges.sort((a, b) => a[0] - b[0]);
+    const merged: [number, number][] = [];
+    for (const [a, b] of ranges) {
+      const last = merged[merged.length - 1];
+      if (last && a <= last[1]) last[1] = Math.max(last[1], b);
+      else merged.push([a, b]);
+    }
+    const inData = (at: number): boolean => {
+      let lo = 0;
+      let hi = merged.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (merged[mid]![0] <= at) lo = mid + 1;
+        else hi = mid;
+      }
+      return lo > 0 && at < merged[lo - 1]![1];
+    };
+    for (const c of unsettled) {
+      if (inData(c.at)) continue;
+      outside += 1;
+      if (c.encrypt) return true;
+    }
+  }
+  return outside === 0;
+}
 
 function pageImageReader(
   bytes: Uint8Array,
 ): Promise<PageImages | { incomplete: string }> {
   const kept = pageImageReaders.get(bytes);
   if (kept && kept.length === bytes.length) return kept.reader;
-  const encrypted = indexOfWord(bytes, ENCRYPT, 0) !== -1;
+  const encrypted = encryptedFiles.get(bytes) ?? encryptedTrailer(bytes, null);
   const reader = PageImages.open(
     bytes,
-    pageScanTools(encrypted, jpxSizes.get(bytes)),
+    pageScanTools(encrypted, jpxSizes.get(bytes), contentCounts.get(bytes)),
   );
   pageImageReaders.set(bytes, { length: bytes.length, reader });
   return reader;

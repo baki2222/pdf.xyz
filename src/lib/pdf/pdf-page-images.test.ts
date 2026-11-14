@@ -207,15 +207,16 @@ describe("what the map cannot tell fails safe", () => {
         "<< /Type /Catalog /Pages 2 0 R >>",
         "<< /Type /Pages /Resources << /XObject << /A 5 0 R /B 6 0 R >> >> /Kids [3 0 R 7 0 R] /Count 2 >>",
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Contents 4 0 R >>",
-        { dict: "/Filter /LZWDecode", stream: "\u0080\u000b`P" },
+        { dict: "/Filter /RunLengthDecode", stream: "\u0080\u000b`P" },
         image(6000, 6000),
         image(5000, 5000),
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Contents 8 0 R >>",
         { dict: "", stream: "q 10 0 0 10 0 0 cm /A Do Q" },
       ]),
     );
-    // Page 1 (LZW content): both images, as often as it likes; page 2
-    // (readable): /A once.
+    // Page 1 (RunLength content): both images, as often as it likes; page
+    // 2 (readable): /A once. (Until review r3 the filter here was LZW,
+    // which the map now decodes, as pdf.js does: see "LZW content".)
     // History (review r3, 2026-11-14): this pinned [61 MP, 36 MP], each
     // image counted ONCE, the rule from before every paint was charged;
     // content nobody read may paint an image any number of times (see
@@ -477,6 +478,138 @@ describe("content behind a /DecodeParms predictor is read through it", () => {
       unpredict(new Uint8Array(4), { ...params, predictor: 2, bpc: 4 }),
     ).toBeNull();
   });
+
+  it("the streamed predictor gives the bytes the row-at-a-time one gave, fed in any chunks, one-byte rows included", async () => {
+    // History (hostile review r3, 2026-11-14): the predictor allocated two
+    // arrays a row; /Columns 1 content held the main thread 8 s for 64 MB.
+    // It now runs streamed, row runs at a time, with a path of its own for
+    // one-byte rows. The reference is the old implementation, kept here.
+    const { unpredict, Unpredictor } = await import("./pdf-page-images");
+    function reference(
+      data: Uint8Array,
+      p: { predictor: number; colors: number; bpc: number; columns: number },
+    ): Uint8Array | null {
+      const { predictor, colors, bpc, columns } = p;
+      if (predictor <= 1) return data;
+      if (![1, 2, 4, 8, 16].includes(bpc) || !(colors >= 1) || !(columns >= 1))
+        return null;
+      const rowBytes = Math.ceil((colors * bpc * columns) / 8);
+      const bpp = Math.ceil((colors * bpc) / 8);
+      const kept = Math.min(rowBytes, data.length);
+      if (predictor === 2) {
+        if (bpc !== 8) return null;
+        const out = data.slice();
+        for (let r = 0; r < out.length; r += rowBytes) {
+          const end = Math.min(out.length, r + rowBytes);
+          for (let i = r + colors; i < end; i += 1) {
+            out[i] = (out[i]! + out[i - colors]!) & 0xff;
+          }
+        }
+        return out;
+      }
+      if (predictor < 10) return null;
+      const out: number[] = [];
+      let prior = new Uint8Array(kept);
+      for (let r = 0; r < data.length; r += rowBytes + 1) {
+        const type = data[r]!;
+        const row = data.subarray(
+          r + 1,
+          Math.min(data.length, r + 1 + rowBytes),
+        );
+        const cur = new Uint8Array(kept);
+        for (let i = 0; i < row.length; i += 1) {
+          const left = i >= bpp ? cur[i - bpp]! : 0;
+          const up = prior[i]!;
+          const upLeft = i >= bpp ? prior[i - bpp]! : 0;
+          let v: number;
+          if (type === 0) v = row[i]!;
+          else if (type === 1) v = row[i]! + left;
+          else if (type === 2) v = row[i]! + up;
+          else if (type === 3) v = row[i]! + ((left + up) >> 1);
+          else if (type === 4) {
+            const base = left + up - upLeft;
+            const pa = Math.abs(base - left);
+            const pb = Math.abs(base - up);
+            const pc = Math.abs(base - upLeft);
+            v =
+              row[i]! + (pa <= pb && pa <= pc ? left : pb <= pc ? up : upLeft);
+          } else return null;
+          cur[i] = v & 0xff;
+          out.push(v & 0xff);
+        }
+        prior = cur;
+      }
+      return Uint8Array.from(out);
+    }
+    let seed = 12345;
+    const rand = (n: number) => {
+      // xorshift32 (an LCG product passes 2^53 in a double and loses the
+      // low bits this takes the remainder of).
+      seed ^= seed << 13;
+      seed ^= seed >>> 17;
+      seed ^= seed << 5;
+      return (seed >>> 0) % n;
+    };
+    let cases = 0;
+    let oneByteRows = 0;
+    for (const predictor of [2, 10, 11, 12, 13, 14, 15]) {
+      for (const bpc of [1, 2, 4, 8, 16]) {
+        for (const colors of [1, 2, 3]) {
+          for (const columns of [1, 2, 3, 5, 9]) {
+            const p = { predictor, colors, bpc, columns };
+            const rowBytes = Math.ceil((colors * bpc * columns) / 8);
+            const data = Uint8Array.from({ length: 1 + rand(200) }, () =>
+              rand(256),
+            );
+            // PNG rows: valid filter bytes, one in eight cases with one
+            // refused row (a refusal per row would refuse nearly every case
+            // of short rows, and compare nothing but two nulls).
+            if (predictor >= 10) {
+              const rows: number[] = [];
+              for (let r = 0; r < data.length; r += rowBytes + 1) {
+                data[r] = rand(5);
+                rows.push(r);
+              }
+              if (rand(8) === 0) data[rows[rand(rows.length)]!] = 5 + rand(3);
+            }
+            const want = reference(data, p);
+            if (
+              rowBytes === 1 &&
+              predictor >= 10 &&
+              want !== null &&
+              want.length > 4
+            ) {
+              oneByteRows += 1;
+            }
+            expect(unpredict(data, p), JSON.stringify(p)).toEqual(want);
+            // Streamed in random chunks: the same bytes, or the same refusal.
+            const parts: number[] = [];
+            const un = Unpredictor.of(p, (c) => parts.push(...c));
+            if (un === null) {
+              expect(want, JSON.stringify(p)).toBeNull();
+            } else {
+              for (let at = 0; at < data.length;) {
+                const n = 1 + rand(17);
+                un.feed(data.subarray(at, at + n));
+                at += n;
+              }
+              const ok = un.end();
+              expect(
+                ok ? Uint8Array.from(parts) : null,
+                JSON.stringify(p),
+              ).toEqual(want);
+            }
+            cases += 1;
+          }
+        }
+      }
+    }
+    // Health: the grid ran, and one-byte rows were compared as bytes, not
+    // as two refusals (review r3: a mutant of that path passed when they
+    // were).
+    expect(cases).toBe(7 * 5 * 3 * 5);
+    expect(oneByteRows).toBeGreaterThan(10);
+  });
 });
 
 describe("every paint is charged: pdf.js decodes once a page, but paints per `Do`", () => {
@@ -522,6 +655,7 @@ describe("the map's work is bounded on the main thread", () => {
     pages: number,
     distinctResources: boolean,
     text = `/A Do\n${"Q\n".repeat(3_900_000)}`,
+    xobjectsOnFirstOnly = false,
   ) {
     const { deflateSync } = await import("node:zlib");
     const ops = new Uint8Array(deflateSync(Buffer.from(text)));
@@ -529,12 +663,17 @@ describe("the map's work is bounded on the main thread", () => {
     return rawPdf([
       CATALOG,
       `<< /Type /Pages /Kids [${kids.map((k) => `${k} 0 R`).join(" ")}] /Count ${pages} >>`,
-      { dict: "/Filter /FlateDecode", stream: ops },
+      {
+        // A predictor of 1 changes nothing, but the scan does not count
+        // content with /DecodeParms: the map reads it itself.
+        dict: `/Filter /FlateDecode${xobjectsOnFirstOnly ? " /DecodeParms << /Predictor 1 >>" : ""}`,
+        stream: ops,
+      },
       image(5500, 5500),
       image(5500, 5500),
       ...kids.map(
         (_, i) =>
-          `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources << /XObject << /A 4 0 R /B 5 0 R >>${distinctResources ? ` /Properties << /P${i} 1 >>` : ""} >> /Contents 3 0 R >>`,
+          `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources << ${!xobjectsOnFirstOnly || i === 0 ? "/XObject << /A 4 0 R /B 5 0 R >>" : ""}${distinctResources ? ` /Properties << /P${i} 1 >>` : ""} >> /Contents 3 0 R >>`,
       ),
     ]);
   }
@@ -565,16 +704,53 @@ describe("the map's work is bounded on the main thread", () => {
     expect(ms).toBeLessThan(5_000);
   }, 30_000);
 
+  it("...and one name run 400,000 times, or one inline image read 200,000 times, is weighed once a page: every page complete and measured", async () => {
+    // History (hostile review r3, 2026-11-14): these two files were this
+    // describe's bound controls. Every `Do` was a step and every inline
+    // image a visit, so both ended the map ("paint steps", "content work")
+    // and every page failed safe; so did 400 pages of 6,000 icon paints.
+    // A weight is a sum: a name is looked up once and its paint counted as
+    // often as it runs. Inverted; the controls below reach the bounds by
+    // what still costs work, distinct names and distinct inline images.
+    for (const [text, each, verdict] of [
+      ["/A Do\n".repeat(400_000), 400_000 * 5500 * 5500, PAGE_IMAGES_NOTE],
+      [
+        `/A Do\n${"BI /W 1 /H 1 /BPC 8 /CS /G ID x EI\n".repeat(200_000)}`,
+        5500 * 5500 + 200_000,
+        null,
+      ],
+    ] as const) {
+      const bytes = await sharedOps(200, true, text);
+      const t0 = Date.now();
+      const pre = await preflightPdfjsBytes(bytes);
+      const ms = Date.now() - t0;
+      expect(pre.pages!.incomplete).toBeNull();
+      expect(weights(pre)).toHaveLength(200);
+      expect(new Set(weights(pre))).toEqual(new Set([each]));
+      expect(pageImageVerdict(pre, { num: 6 })).toBe(verdict);
+      expect(ms).toBeLessThan(5_000);
+    }
+  }, 60_000);
+
   it.each([
-    ["paint steps", "/A Do\n".repeat(400_000)],
+    // 12,000 distinct names a page, each a lookup: 2.4 million steps.
+    [
+      "paint steps",
+      Array.from({ length: 12_000 }, (_, i) => `/N${i} Do`).join("\n"),
+      false,
+    ],
+    // 120,000 distinct names a page, looked up only where there is an
+    // /XObject (the first page): 24 million entries walked. (The scan
+    // cannot count this content, so no page is weighed from its counts.)
     [
       "content work",
-      `/A Do\n${"BI /W 1 /H 1 /BPC 8 /CS /G ID x EI\n".repeat(200_000)}`,
+      `/A Do\n${Array.from({ length: 120_000 }, (_, i) => `/N${i} Do`).join("\n")}`,
+      true,
     ],
-  ])(
+  ] as const)(
     "...but what does paint is walked per page, and the walk stops at its bound (%s) with every page failing safe",
-    async (bound, text) => {
-      const bytes = await sharedOps(200, true, text);
+    async (bound, text, firstOnly) => {
+      const bytes = await sharedOps(200, true, text, firstOnly);
       const t0 = Date.now();
       const pre = await preflightPdfjsBytes(bytes);
       const ms = Date.now() - t0;
@@ -689,7 +865,7 @@ describe("an image whose size the scan cannot read reaches the page budget", () 
 
 describe("a page counted by a bound is never called past the budget as a fact", () => {
   /** 12 pages, one shared /Resources of twelve 9 MP images, each page painting one. */
-  const sharedScan = (lzw: boolean) => {
+  const sharedScan = (unread: boolean) => {
     const kids = Array.from({ length: 12 }, (_, i) => 15 + 2 * i);
     const xobjects = Array.from(
       { length: 12 },
@@ -701,8 +877,8 @@ describe("a page counted by a bound is never called past the budget as a fact", 
       ...Array.from({ length: 12 }, () => image(3000, 3000)),
       ...kids.flatMap((k, i) => [
         `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Contents ${k + 1} 0 R >>`,
-        lzw
-          ? { dict: "/Filter /LZWDecode", stream: "\u0080\u000b`P" }
+        unread
+          ? { dict: "/Filter /RunLengthDecode", stream: "\u0080\u000b`P" }
           : { dict: "", stream: `q 500 0 0 500 50 50 cm /S${i} Do Q` },
       ]),
     ]);
@@ -1040,4 +1216,506 @@ describe("a heavy document of drawings is read whole: no bound summed over the d
     }
     expect(new Set(placed)).toEqual(new Set(["[[50,50,250,250]]"]));
   }, 120_000);
+});
+
+describe("review r3 (2026-11-14): never worse than main", () => {
+  type Obj = string | { dict: string; stream: string | Uint8Array } | null;
+
+  /** A lattice of `levels` levels of two forms each, each painting both of the next level's; the last paints a 1 MP image. */
+  function lattice(levels: number, where: "content" | "normal" | "down") {
+    const objects: Obj[] = [
+      CATALOG,
+      "PAGES",
+      "PAGE",
+      "CONTENT",
+      image(1000, 1000),
+    ];
+    // Level k (1-based): A at 6 + 2(k-1), B at 7 + 2(k-1).
+    for (let k = 1; k <= levels; k += 1) {
+      const next =
+        k < levels
+          ? `/Resources << /XObject << /A ${6 + 2 * k} 0 R /B ${7 + 2 * k} 0 R >> >>`
+          : "/Resources << /XObject << /Im 5 0 R >> >>";
+      const body = k < levels ? "/A Do /B Do" : "/Im Do";
+      for (let f = 0; f < 2; f += 1) {
+        objects.push({
+          dict: `/Type /XObject /Subtype /Form /BBox [0 0 1 1] ${next}`,
+          stream: body,
+        });
+      }
+    }
+    const small = objects.length + 1;
+    objects.push({
+      dict: "/Type /XObject /Subtype /Form /BBox [0 0 1 1]",
+      stream: "",
+    });
+    const annot = objects.length + 1;
+    const ap =
+      where === "normal"
+        ? "/N 6 0 R"
+        : where === "down"
+          ? `/N ${small} 0 R /D 6 0 R /R 6 0 R`
+          : "";
+    objects.push(
+      `<< /Type /Annot /Subtype /Widget /Rect [0 0 100 100] /AP << ${ap} >> >>`,
+    );
+    objects[2] =
+      where === "content"
+        ? "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources << /XObject << /A 6 0 R >> >> /Contents 4 0 R >>"
+        : `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Annots [${annot} 0 R] /Contents 4 0 R >>`;
+    objects[3] = {
+      dict: "",
+      stream: where === "content" ? "/A Do" : "BT (Hello) Tj ET",
+    };
+    // A second page past the per-image budget, so every file needs a map.
+    const second = objects.length + 1;
+    objects.push(
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources << /XObject << /H ${second + 2} 0 R >> >> /Contents ${second + 1} 0 R >>`,
+    );
+    objects.push({ dict: "", stream: "/H Do" });
+    objects.push(image(7000, 7000));
+    objects[1] = `<< /Type /Pages /Kids [3 0 R ${second} 0 R] /Count 2 >>`;
+    return rawPdf(objects);
+  }
+
+  it("a diamond lattice of forms is walked once a form: 22 levels weigh 2^21 paints, complete, in well under a second", async () => {
+    // History (hostile review r3): the memo key held every form on the
+    // path, so the k-th level was reached by 2^(k-1) distinct keys: 5.2 s
+    // and 690 MB of main thread, then "paint steps" ended the map and every
+    // page was noted. Acyclic paths now share one remembered paint.
+    const t0 = Date.now();
+    const pre = await preflightPdfjsBytes(lattice(22, "content"));
+    const ms = Date.now() - t0;
+    expect(pre.pages!.incomplete).toBeNull();
+    expect(pre.pages!.weights.get(3)).toBe(2 ** 21 * 1_000_000);
+    expect(pre.pages!.exact.get(3)).toBe(2 ** 21 * 1_000_000);
+    expect(ms).toBeLessThan(2_000);
+  }, 30_000);
+
+  it("an annotation's /D and /R appearances are never drawn by pdf.js, so they weigh nothing; its /N is weighed", async () => {
+    const down = lattice(22, "down");
+    // The oracle: pdf.js paints no image on the page.
+    expect(await pdfjsPaints(down)).toBe(0);
+    const pre = await preflightPdfjsBytes(down);
+    expect(pre.pages!.incomplete).toBeNull();
+    expect(pre.pages!.weights.get(3)).toBe(0);
+    expect(pageImageVerdict(pre, { num: 3 })).toBeNull();
+    // Positive control: the same lattice as the normal appearance counts.
+    const normal = await preflightPdfjsBytes(lattice(22, "normal"));
+    expect(normal.pages!.incomplete).toBeNull();
+    expect(normal.pages!.weights.get(3)).toBe(2 ** 21 * 1_000_000);
+  }, 30_000);
+
+  it("a cyclic lattice (every bottom form painting the top again) stays small: paths past the few remembered take the bound read with none", async () => {
+    const levels = 18;
+    const objects: Obj[] = [
+      CATALOG,
+      ONE_PAGE,
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources << /XObject << /A 6 0 R >> >> /Contents 4 0 R >>",
+      { dict: "", stream: "/A Do" },
+      image(1000, 1000),
+    ];
+    for (let k = 1; k <= levels; k += 1) {
+      const next =
+        k < levels
+          ? `/Resources << /XObject << /A ${6 + 2 * k} 0 R /B ${7 + 2 * k} 0 R >> >>`
+          : "/Resources << /XObject << /Im 5 0 R /T 6 0 R >> >>";
+      for (let f = 0; f < 2; f += 1) {
+        objects.push({
+          dict: `/Type /XObject /Subtype /Form /BBox [0 0 1 1] ${next}`,
+          stream: k < levels ? "/A Do /B Do" : "/Im Do /T Do",
+        });
+      }
+    }
+    const t0 = Date.now();
+    const pre = await preflightPdfjsBytes(rawPdf(objects));
+    expect(Date.now() - t0).toBeLessThan(3_000);
+    expect(pre.pages!.incomplete).toBeNull();
+    // At least what pdf.js paints: 2^17 bottom forms, each its image once
+    // (each one's /T is the top form, its own ancestor: refused).
+    expect(pre.pages!.weights.get(3)).toBeGreaterThanOrEqual(
+      2 ** 17 * 1_000_000,
+    );
+    expect(pageImageVerdict(pre, { num: 3 })).not.toBeNull();
+  }, 30_000);
+
+  it("a Type3 bitmap font with no /Resources is counted once a glyph, not doubled a glyph", async () => {
+    // History (legit-corpus review r3): a glyph procedure with no
+    // /Resources paints with its page's, whose indirect paint was being
+    // summed: the sum so far was returned into itself and the page doubled
+    // a glyph (24 glyphs, 1,735 MP; a dvips paper 2.0e80 MP), noted and
+    // refused where main draws it.
+    const glyphs = 24;
+    const mask = "ÿ".repeat(20);
+    const pageDict =
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources << /Font << /T3 6 0 R >> /XObject << /Ph 5 0 R >> >> /Contents 4 0 R >>";
+    const objects: Obj[] = [
+      CATALOG,
+      // A second page past the per-image budget, so the file needs a map.
+      `<< /Type /Pages /Kids [3 0 R ${7 + glyphs} 0 R] /Count 2 >>`,
+      pageDict,
+      { dict: "", stream: "BT /T3 12 Tf (ab) Tj ET /Ph Do" },
+      image(3000, 3000),
+      `<< /Type /Font /Subtype /Type3 /FontBBox [0 0 10 10] /FontMatrix [0.1 0 0 0.1 0 0] /CharProcs << ${Array.from({ length: glyphs }, (_, i) => `/g${i} ${7 + i} 0 R`).join(" ")} >> /Encoding << /Type /Encoding /Differences [97 /g0 /g1] >> /FirstChar 97 /LastChar 98 /Widths [10 10] >>`,
+      ...Array.from({ length: glyphs }, (_, i) => ({
+        dict: "",
+        stream: `10 0 0 0 10 10 d1 BI /W 10 /H 16 /BPC 1 /IM true ID ${mask} EI % ${i}`,
+      })),
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources << /XObject << /H ${9 + glyphs} 0 R >> >> /Contents ${8 + glyphs} 0 R >>`,
+      { dict: "", stream: "/H Do" },
+      image(7000, 7000),
+    ];
+    const pre = await preflightPdfjsBytes(rawPdf(objects));
+    expect(pre.pages, "the map is built").not.toBeNull();
+    expect(pre.pages!.incomplete).toBeNull();
+    // The photo, and each glyph's small mask once: linear in the glyphs.
+    const w = pre.pages!.weights.get(3)!;
+    expect(w).toBeGreaterThan(9_000_000);
+    expect(w).toBeLessThan(9_000_000 + glyphs * 1_000);
+    expect(pageImageVerdict(pre, { num: 3 })).toBeNull();
+  }, 30_000);
+
+  it("thirty tiling patterns whose /Resources is the page's own dictionary count once each", async () => {
+    const patterns = 30;
+    const objects: Obj[] = [
+      CATALOG,
+      ONE_PAGE,
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources 6 0 R /Contents 4 0 R >>",
+      { dict: "", stream: "/Ph Do /Ph Do /Ph Do /Ph Do /Ph Do /Ph Do" },
+      image(3000, 3000),
+      `<< /XObject << /Ph 5 0 R /T 7 0 R >> /Pattern << ${Array.from({ length: patterns }, (_, i) => `/P${i} ${8 + i} 0 R`).join(" ")} >> >>`,
+      image(100, 100),
+      ...Array.from({ length: patterns }, () => ({
+        dict: "/PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 10 10] /XStep 10 /YStep 10 /Resources 6 0 R",
+        stream: "/T Do",
+      })),
+    ];
+    const pre = await preflightPdfjsBytes(rawPdf(objects));
+    expect(pre.pages!.incomplete).toBeNull();
+    // Six photo paints, and each pattern's tile once: linear, not doubled.
+    expect(pre.pages!.weights.get(3)).toBe(6 * 9_000_000 + patterns * 10_000);
+  }, 30_000);
+
+  it("an unencrypted file whose text says /Encrypt, or that carries a protected PDF as an attachment, is read as the plain file it is", async () => {
+    // History (hostile review r3): the WORD /Encrypt anywhere made the file
+    // encrypted; every stream read as ciphertext and every image page was
+    // noted "could not be fully read" and refused, where main draws them.
+    const page = (k: number) =>
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources << /XObject << /Im ${k + 1} 0 R >> >> /Contents ${k} 0 R >>`;
+    const said = rawPdf([
+      CATALOG,
+      "<< /Type /Pages /Kids [3 0 R 6 0 R 9 0 R] /Count 3 >>",
+      page(4),
+      {
+        dict: "",
+        stream:
+          "BT (The trailer names /Encrypt when a file is protected) Tj ET /Im Do",
+      },
+      image(7000, 7000),
+      page(7),
+      { dict: "", stream: "/Im Do" },
+      image(7000, 7000),
+      page(10),
+      { dict: "", stream: "/Im Do" },
+      image(7000, 7000),
+    ]);
+    const inner = await encryptPdf(
+      rawPdf([
+        CATALOG,
+        ONE_PAGE,
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources << /XObject << /X 5 0 R >> >> /Contents 4 0 R >>",
+        { dict: "", stream: "/X Do /X Do /X Do /X Do /X Do /X Do" },
+        image(6000, 6000),
+      ]),
+      { userPassword: "", ownerPassword: "o", cipher: "aes-128" },
+    );
+    const attached = rawPdf([
+      "<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles << /Names [(locked.pdf) 13 0 R] >> >> >>",
+      "<< /Type /Pages /Kids [3 0 R 6 0 R 9 0 R] /Count 3 >>",
+      page(4),
+      { dict: "", stream: "/Im Do" },
+      image(7000, 7000),
+      page(7),
+      { dict: "", stream: "/Im Do" },
+      image(7000, 7000),
+      page(10),
+      { dict: "", stream: "/Im Do" },
+      image(7000, 7000),
+      { dict: "/Type /EmbeddedFile", stream: inner },
+      "<< /Type /Filespec /F (locked.pdf) /EF << /F 12 0 R >> >>",
+    ]);
+    for (const [label, bytes] of [
+      ["text", said],
+      ["attachment", attached],
+    ] as const) {
+      const pre = await preflightPdfjsBytes(bytes);
+      expect(pre.pages, label).not.toBeNull();
+      expect(pre.pages!.incomplete, label).toBeNull();
+      // Exactly the file's three pages (an attached file's page is data).
+      expect(
+        [...pre.pages!.weights.keys()].sort((a, b) => a - b),
+        label,
+      ).toEqual([3, 6, 9]);
+      for (const num of [3, 6, 9]) {
+        expect(pre.pages!.weights.get(num), label).toBe(49_000_000);
+        expect(pageImageVerdict(pre, { num }), label).toBeNull();
+      }
+    }
+    // Positive control: the attachment opened on its own IS encrypted, and
+    // read decrypted (six paints of 36 MP).
+    const own = await preflightPdfjsBytes(inner);
+    expect(own.pages!.incomplete).toBeNull();
+    expect([...own.pages!.weights.values()]).toEqual([6 * 36_000_000]);
+  }, 60_000);
+
+  it("LZW content (Acrobat 2 and 3 era) is read as pdf.js reads it, at either /EarlyChange", async () => {
+    /** PDF LZW, tracking the decoder's code width as pdf.js computes it. */
+    function lzw(data: Uint8Array, earlyChange: number): Uint8Array {
+      const out: number[] = [];
+      let acc = 0;
+      let bits = 0;
+      let width = 9;
+      let decNext = 258;
+      let first = true;
+      const emit = (code: number) => {
+        acc = (acc << width) | code;
+        bits += width;
+        while (bits >= 8) {
+          out.push((acc >>> (bits - 8)) & 0xff);
+          bits -= 8;
+        }
+        acc &= (1 << bits) - 1;
+        if (code === 256) {
+          width = 9;
+          decNext = 258;
+          first = true;
+          return;
+        }
+        if (!first) {
+          decNext += 1;
+          const c = decNext + earlyChange;
+          if ((c & (c - 1)) === 0) width = Math.min(Math.log2(c) + 1, 12);
+        }
+        first = false;
+      };
+      const table = new Map<string, number>();
+      let next = 258;
+      emit(256);
+      let w = "";
+      for (const b of data) {
+        const wc = w + String.fromCharCode(b);
+        if (w === "" || table.has(wc)) {
+          w = wc;
+          continue;
+        }
+        emit(w.length === 1 ? w.charCodeAt(0) : table.get(w)!);
+        table.set(wc, next++);
+        w = String.fromCharCode(b);
+      }
+      if (w !== "") emit(w.length === 1 ? w.charCodeAt(0) : table.get(w)!);
+      emit(257);
+      if (bits > 0) out.push((acc << (8 - bits)) & 0xff);
+      return Uint8Array.from(out);
+    }
+    const lines: string[] = [];
+    for (let i = 0; i < 400; i += 1) {
+      lines.push(`${i % 97} ${(i * 7) % 113} m ${(i * 13) % 89} ${i % 61} l S`);
+    }
+    for (let i = 0; i < 4; i += 1) {
+      lines.push(`q 100 0 0 100 ${i * 120} 0 cm /Im Do Q`);
+    }
+    const text = new TextEncoder().encode(lines.join("\n"));
+    for (const earlyChange of [1, 0]) {
+      const coded = lzw(text, earlyChange);
+      // Health: past 511 codes, so the 10-bit (and later) widths were used.
+      expect(coded.length * 8).toBeGreaterThan(9 * 600);
+      const bytes = rawPdf([
+        CATALOG,
+        ONE_PAGE,
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources << /XObject << /Im 5 0 R >> >> /Contents 4 0 R >>",
+        {
+          dict: `/Filter /LZWDecode${earlyChange === 0 ? " /DecodeParms << /EarlyChange 0 >>" : ""}`,
+          stream: coded,
+        },
+        await real16mp(),
+      ]);
+      // The oracle: pdf.js decodes it and paints four times.
+      expect(await pdfjsPaints(bytes), `EarlyChange ${earlyChange}`).toBe(4);
+      const pre = await preflightPdfjsBytes(bytes);
+      expect(pre.pages!.incomplete).toBeNull();
+      expect(pre.pages!.weights.get(3), `EarlyChange ${earlyChange}`).toBe(
+        4 * MP16,
+      );
+      expect(pre.pages!.exact.get(3)).toBe(4 * MP16);
+      expect(pageImageVerdict(pre, { num: 3 })).toBe(PAGE_IMAGES_NOTE);
+    }
+  }, 60_000);
+
+  it("content behind /Predictor 12 /Columns 1 is read in a fraction of the 8 s that 64 MB took", async () => {
+    const { deflateSync } = await import("node:zlib");
+    // Filter byte 0 and value 0, every row.
+    const zeros = new Uint8Array(64 << 20);
+    const bytes = rawPdf([
+      CATALOG,
+      "<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>",
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Contents 4 0 R >>",
+      {
+        dict: "/Filter /FlateDecode /DecodeParms << /Predictor 12 /Columns 1 >>",
+        stream: new Uint8Array(deflateSync(zeros)),
+      },
+      image(7000, 7000),
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources << /XObject << /H 5 0 R >> >> /Contents 7 0 R >>",
+      { dict: "", stream: "/H Do" },
+    ]);
+    const t0 = Date.now();
+    const pre = await preflightPdfjsBytes(bytes);
+    const ms = Date.now() - t0;
+    expect(pre.pages!.incomplete).toBeNull();
+    expect(pre.pages!.weights.get(3)).toBe(0);
+    expect(ms).toBeLessThan(4_000);
+  }, 60_000);
+
+  it("a form painted 120,000 times a page is looked up once a page: a 20-page map completes, every page measured", async () => {
+    // History (legit-corpus review r3): every `Do` was a step of the map's
+    // document-wide bound: 2.4 million symbol paints over 20 pages ended it
+    // ("paint steps"), every page was noted MAY, preflight 6x main.
+    const { deflateSync } = await import("node:zlib");
+    const pages = 20;
+    const content = (p: number) =>
+      new Uint8Array(
+        deflateSync(
+          Buffer.from(
+            `% sheet ${p}\n${Array.from(
+              { length: 120_000 },
+              (_, i) => `q 1 0 0 1 ${i % 600} ${(i * 7) % 800} cm /S Do Q`,
+            ).join("\n")}`,
+          ),
+        ),
+      );
+    // 1 catalog, 2 pages, 3 form, 4 icon, 5 photo, 6 photo content; then
+    // per sheet: its content, its page.
+    const objects: Obj[] = [
+      CATALOG,
+      "PAGES",
+      {
+        dict: "/Type /XObject /Subtype /Form /BBox [0 0 1 1] /Resources << /XObject << /I 4 0 R >> >>",
+        stream: "/I Do",
+      },
+      image(32, 32),
+      image(1500, 2000),
+      { dict: "", stream: "/Ph Do" },
+    ];
+    const kids: number[] = [];
+    for (let p = 0; p < pages; p += 1) {
+      objects.push({ dict: "/Filter /FlateDecode", stream: content(p) });
+      const c = objects.length;
+      objects.push(
+        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 800] /Resources << /XObject << /S 3 0 R /Ph 5 0 R >> >> /Contents [${c} 0 R 6 0 R] >>`,
+      );
+      kids.push(objects.length);
+    }
+    objects[1] = `<< /Type /Pages /Kids [${kids.map((k) => `${k} 0 R`).join(" ")}] /Count ${pages} >>`;
+    const pre = await preflightPdfjsBytes(rawPdf(objects));
+    expect(pre.pages!.incomplete).toBeNull();
+    expect(pre.pages!.weights.size).toBe(pages);
+    for (const num of kids) {
+      expect(pre.pages!.weights.get(num)).toBe(120_000 * 1024 + 3_000_000);
+      expect(pre.pages!.exact.get(num)).toBe(120_000 * 1024 + 3_000_000);
+    }
+  }, 120_000);
+});
+
+describe("the map takes the scan's own reading of a stream instead of reading it again", () => {
+  /** The map read directly, with the scan's counts or without, counting what it decodes. */
+  async function mapWith(bytes: Uint8Array, counted: boolean) {
+    const { PageImages } = await import("./pdf-page-images");
+    const guard = await import("./pdfjs-guard");
+    const scan = await guard.scanPdfStreams(bytes);
+    const tools = guard.pageScanTools(
+      scan.encrypted,
+      scan.jpx,
+      counted ? scan.contentCounts : new Map(),
+    );
+    let decodes = 0;
+    const decodeTo = tools.decodeTo;
+    tools.decodeTo = (...args) => {
+      decodes += 1;
+      return decodeTo(...args);
+    };
+    const reader = await PageImages.open(bytes, tools);
+    if (!(reader instanceof PageImages)) throw new Error("no reader");
+    const map = await reader.map(Infinity);
+    return { map, decodes };
+  }
+
+  it("the same weights either way, over the legit corpus and the shapes above, and the counted map decodes no content the scan read", async () => {
+    // History (legit-corpus review r3, 2026-11-14): the map decoded and
+    // lexed every content stream again after the scan had: 3x main's
+    // preflight on drawings. Its reading is now the scan's where the scan
+    // read what pdf.js reads; this holds the two equal.
+    const dir = path.join(process.cwd(), "src/tests/fixtures/legit-corpus");
+    const corpus = readdirSync(dir)
+      .filter((f) => f.endsWith(".pdf"))
+      .map((f) => new Uint8Array(readFileSync(path.join(dir, f))));
+    const shapes = [
+      await formsBesideHeavyPagePdf(4000, 6708, { real: false }),
+      await imagePagesPdf(
+        Array.from({ length: 12 }, () => [3000]),
+        { real: false, shared: true },
+      ),
+      rawPdf([
+        CATALOG,
+        ONE_PAGE,
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources << /XObject << /A 6 0 R /B 7 0 R >> >> /Contents [4 0 R 5 0 R] >>",
+        { dict: "", stream: "q 100 0 0 100 0 0 cm /A Do /B" },
+        { dict: "", stream: " Do Q /A Do" },
+        image(6000, 6000),
+        image(5000, 5000),
+      ]),
+    ];
+    // Health: a corpus, not an empty set.
+    expect(corpus.length).toBeGreaterThan(5);
+    let read = 0;
+    for (const bytes of [...corpus, ...shapes]) {
+      const plain = await mapWith(bytes, false);
+      const counted = await mapWith(bytes, true);
+      expect(counted.map.incomplete).toBe(plain.map.incomplete);
+      expect([...counted.map.pages]).toEqual([...plain.map.pages]);
+      expect([...counted.map.exact]).toEqual([...plain.map.exact]);
+      expect(counted.decodes).toBeLessThanOrEqual(plain.decodes);
+      read += plain.decodes;
+    }
+    // Health: the uncounted maps really read content.
+    expect(read).toBeGreaterThan(20);
+  }, 120_000);
+
+  it("a page of drawings and one photo: its content is decoded by the scan alone", async () => {
+    const { deflateSync } = await import("node:zlib");
+    const lines: string[] = ["q 300 0 0 300 50 50 cm /Ph Do Q"];
+    for (let i = 0; i < 20_000; i += 1) {
+      lines.push(
+        `${i % 500} ${(i * 3) % 700} m ${(i * 7) % 500} ${i % 700} l S`,
+      );
+    }
+    const bytes = rawPdf([
+      CATALOG,
+      "<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>",
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 800] /Resources << /XObject << /Ph 5 0 R >> >> /Contents 4 0 R >>",
+      {
+        dict: "/Filter /FlateDecode",
+        stream: new Uint8Array(deflateSync(Buffer.from(lines.join("\n")))),
+      },
+      image(3000, 2000),
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 800] /Resources << /XObject << /Ph 5 0 R >> >> /Contents 7 0 R >>",
+      { dict: "", stream: "/Ph Do" },
+    ]);
+    const counted = await mapWith(bytes, true);
+    expect(counted.decodes).toBe(0);
+    expect(counted.map.pages.get(3)).toBe(6_000_000);
+    // Positive control: without the scan's counts, the map decodes the
+    // drawing again (the unfiltered stream it hands on as it is).
+    const plain = await mapWith(bytes, false);
+    expect(plain.decodes).toBe(1);
+    expect(plain.map.pages.get(3)).toBe(6_000_000);
+  }, 30_000);
 });
