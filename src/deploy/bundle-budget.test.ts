@@ -1233,29 +1233,35 @@ const TOOL_PAGES_TO_COME = {
   // stated here rather than netted against the recovered bytes, which are
   // on pages that are not G.1 rows.
   //
-  // NOT TAKEN, 2026-11-14, by the per-page image budget
-  // (fix/image-budget-residuals, three review rounds): gzip -9 over each
-  // page's first-load chunks (scripts/page-weight.ts's method), main
-  // adb519ab and the branch at its final head, each built from an empty
-  // .next in its own real install (E:/wimgb-base, E:/wimgb), all 144 pages.
-  //  - webpack's runtime 3,753 -> 3,772 (+19): 204 -> 206 client chunks in
-  //    its map; one of the two is the pdf.js loader, split out of a lazy
-  //    chunk once Request Signatures stopped importing the renderer
-  //    statically (+7 of the 19). Most pages +24/+25 (home 202,835 -> 202,861
-  //    +26); the G.1 four: ocr 233,884 -> 233,909 (+25), rotate 234,959 ->
-  //    235,012 (+53), merge 229,405 -> 229,444 (+39), summarize 234,696 ->
-  //    234,721 (+25).
-  //  - rotate, organize, extract and remove pages +53: the board tile's
+  // NOT TAKEN, 2026-11-15, by the per-page image budget
+  // (fix/image-budget-residuals, four review rounds; re-measured after
+  // round 4 removed the map's decryption path): gzip -9 over each page's
+  // first-load chunks (scripts/page-weight.ts's method), main adb519ab and
+  // the branch at ab3ed393, each built from an empty .next in its own real
+  // install (E:/wimgb-base, E:/wimgb), all 144 pages.
+  //  - webpack's runtime 3,753 -> 3,764 (+11): 204 -> 205 client chunks;
+  //    the new one is the pdf.js loader, split out of a lazy chunk once
+  //    Request Signatures stopped importing the renderer statically. Most
+  //    pages +16/+17 (66 and 44 pages; home 202,835 -> 202,853 +18); the
+  //    G.1 four: ocr 233,884 -> 233,901 (+17), rotate 234,959 -> 235,004
+  //    (+45), merge 229,405 -> 229,436 (+31), summarize 234,696 -> 234,713
+  //    (+17).
+  //  - rotate, organize, extract and remove pages +45: the board tile's
   //    name carries the note when a tile is a button (a button's contents
-  //    are presentational), +30 over the runtime's share.
-  //  - crop-pdf 244,428 -> 244,544 (+116): Auto-crop's kept-whole notice
+  //    are presentational), about +28 over the runtime's share.
+  //  - crop-pdf 244,428 -> 244,536 (+108): Auto-crop's kept-whole notice
   //    and the note as the preview's alt (its words ride the lazy chunk).
-  //  - request-signatures 238,128 -> 235,421 (-2,707): the renderer is now
+  //  - request-signatures 238,128 -> 235,413 (-2,715): the renderer is now
   //    imported with the preview. Imported statically it was +688 here
   //    (review r3): the budget's additions split render.ts out of the
   //    chunk it shared with this page, a re-cut no row's budget caught.
-  // Nothing allocated: every row above has the headroom (test:bundle green
-  // on the branch), as every runtime entry since P6.
+  //  - every other page +13..+31 (workspace +13, redact +15, the eight
+  //    category pages +19, pdf-to-jpg/png, grayscale, chat, tools +21,
+  //    status +26, merge +31).
+  // The ticket's on-demand fetch (lazy-chunks.test.ts) is 34,995 B against
+  // its 34.23 KB (35,051 B) bound: 56 B of margin. Nothing allocated: every
+  // row above has the headroom (test:bundle green on the branch), as every
+  // runtime entry since P6.
   unallocated:
     UNALLOCATED -
     NEW_TOOLS_2026_10_30 -
