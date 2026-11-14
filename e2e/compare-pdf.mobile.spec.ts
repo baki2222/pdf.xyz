@@ -345,31 +345,43 @@ for (const width of [SCREEN, 1280]) {
     for (let n = 2; n <= 6; n += 1) {
       await next.click();
       await expect(status).toHaveText(new RegExp(`^Change ${n} of 6`));
-      const seen = await page.evaluate(() => {
-        const heading = document.activeElement as HTMLElement;
-        const list = heading.closest('[role="group"]')!;
-        const header = document
-          .querySelector("header[data-masthead]")!
-          .getBoundingClientRect().bottom;
-        const bar = list.previousElementSibling!.getBoundingClientRect();
-        const pinned =
-          getComputedStyle(list.previousElementSibling!).position === "sticky";
-        const top = Math.max(header, pinned ? bar.bottom : header);
-        const box = list.getBoundingClientRect();
-        const inView = (r: DOMRect) =>
-          r.top >= Math.max(top, box.top) - 1 &&
-          r.bottom <= Math.min(window.innerHeight, box.bottom) + 1;
-        const rows = [
-          ...heading.closest("section")!.querySelectorAll("tr[data-kind]"),
-        ];
-        return {
-          tag: heading.tagName,
-          text: heading.textContent,
-          heading: inView(heading.getBoundingClientRect()),
-          rows: rows.filter((r) => inView(r.getBoundingClientRect())).length,
-          of: rows.length,
-        };
-      });
+      // The window scrolls smoothly (globals.css), so the change is in view
+      // once the scroll settles: poll, and read the settled state.
+      const look = () =>
+        page.evaluate(() => {
+          const heading = document.activeElement as HTMLElement;
+          const list = heading.closest('[role="group"]')!;
+          const header = document
+            .querySelector("header[data-masthead]")!
+            .getBoundingClientRect().bottom;
+          const bar = list.previousElementSibling!.getBoundingClientRect();
+          const pinned =
+            getComputedStyle(list.previousElementSibling!).position ===
+            "sticky";
+          const top = Math.max(header, pinned ? bar.bottom : header);
+          const box = list.getBoundingClientRect();
+          const inView = (r: DOMRect) =>
+            r.top >= Math.max(top, box.top) - 1 &&
+            r.bottom <= Math.min(window.innerHeight, box.bottom) + 1;
+          const rows = [
+            ...heading.closest("section")!.querySelectorAll("tr[data-kind]"),
+          ];
+          return {
+            tag: heading.tagName,
+            text: heading.textContent,
+            heading: inView(heading.getBoundingClientRect()),
+            rows: rows.filter((r) => inView(r.getBoundingClientRect())).length,
+            of: rows.length,
+          };
+        });
+      await expect
+        .poll(async () => {
+          const now = await look();
+          return now.heading && now.rows >= 1;
+        })
+        .toBe(true)
+        .catch(() => {});
+      const seen = await look();
       expect(seen.tag).toBe("H3");
       expect(seen.text).toBe(`Page ${n} → page ${n}`);
       expect(seen.heading, `change ${n}: heading in view`).toBe(true);
