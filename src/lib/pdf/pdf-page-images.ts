@@ -40,6 +40,20 @@
  * object stream the scan cannot decode), it says so (`incomplete`) and the
  * caller treats every page as over budget: fail safe, never open.
  *
+ * ENCRYPTED FILES ARE NOT MAPPED — FAIL-OPEN, BY DECISION (owner ruling D1,
+ * round 4, 2026-11-14). A file whose trailer (one outside every stream's
+ * data, `encryptedTrailer` in ./pdfjs-guard; never the word /Encrypt
+ * anywhere) names /Encrypt never reaches this module: no page verdict, no
+ * note, no refusal from the page budget, no decryption, no main-thread time,
+ * exactly as before the budget existed. The per-image budget still applies.
+ * The trade-off, stated: a crafted encrypted file can still paint many
+ * images on one page and stall the user's own tab while it draws, which is
+ * main's exposure, unchanged. What it bought: three review rounds found the
+ * map's decryption path (a Standard handler per file, a JavaScript AES for
+ * short streams, /Crypt stages, encrypted JPEG 2000 sizing) slower than main
+ * or noting pages main draws, each round's fix making the next round's
+ * regression; none of that code exists any more.
+ *
  * pdf.js internals this mirrors (pdfjs-dist 6.2.108): a page's /Resources are
  * inherited through /Parent (`getInheritableProperty`), a page is any /Kids
  * entry with /Type /Page or no /Kids (`Catalog.getPageDict`), a form without
@@ -71,9 +85,6 @@ class PdfName {
 class PdfRef {
   constructor(readonly num: number) {}
 }
-class PdfString {
-  constructor(readonly bytes: Uint8Array) {}
-}
 class PdfDict {
   readonly map = new Map<string, PdfValue>();
   /** Where `<<` starts and `>>` ends (exclusive), in its source. */
@@ -87,8 +98,7 @@ class PdfDict {
   }
 }
 const OTHER = Symbol("other");
-type PdfValue =
-  number | PdfName | PdfRef | PdfDict | PdfString | PdfValue[] | typeof OTHER;
+type PdfValue = number | PdfName | PdfRef | PdfDict | PdfValue[] | typeof OTHER;
 
 /** Thrown when a work bound passes: the mapping is incomplete. */
 class Incomplete extends Error {}
@@ -164,65 +174,6 @@ export function decodeName(raw: string): string {
   return out;
 }
 
-/** Strings longer than this (in source bytes) are not kept as values. */
-const MAX_KEPT_STRING = 1024;
-
-/** A literal string's bytes (between its parentheses), escapes read as pdf.js reads them. */
-function literalBytes(raw: Uint8Array): Uint8Array {
-  const out: number[] = [];
-  for (let i = 0; i < raw.length; i += 1) {
-    const c = raw[i]!;
-    if (c !== 0x5c) {
-      out.push(c);
-      continue;
-    }
-    i += 1;
-    const e = raw[i];
-    if (e === undefined) break;
-    if (e >= 0x30 && e <= 0x37) {
-      let v = e - 0x30;
-      for (
-        let k = 0;
-        k < 2 && raw[i + 1]! >= 0x30 && raw[i + 1]! <= 0x37;
-        k++
-      ) {
-        i += 1;
-        v = (v << 3) + (raw[i]! - 0x30);
-      }
-      out.push(v & 0xff);
-    } else if (e === 0x0d) {
-      if (raw[i + 1] === 0x0a) i += 1; // a line continuation
-    } else if (e !== 0x0a) {
-      const map: Record<number, number> = {
-        0x6e: 0x0a,
-        0x72: 0x0d,
-        0x74: 0x09,
-        0x62: 0x08,
-        0x66: 0x0c,
-      };
-      out.push(map[e] ?? e);
-    }
-  }
-  return Uint8Array.from(out);
-}
-
-/** A hex string's bytes (between `<` and `>`): whitespace skipped, an odd last digit padded. */
-function hexBytes(raw: Uint8Array): Uint8Array {
-  const out: number[] = [];
-  let first = -1;
-  for (const b of raw) {
-    const d = hexDigit(String.fromCharCode(b));
-    if (d === -1) continue;
-    if (first === -1) first = d;
-    else {
-      out.push((first << 4) | d);
-      first = -1;
-    }
-  }
-  if (first !== -1) out.push(first << 4);
-  return Uint8Array.from(out);
-}
-
 /** Work charged by the parser, in bytes read; past `max`, Incomplete. */
 interface Budget {
   used: number;
@@ -235,7 +186,6 @@ type Token =
   | { t: "kw"; v: string }
   | { t: "open"; v: "<<" | "[" }
   | { t: "close"; v: ">>" | "]" }
-  | { t: "str"; v: Uint8Array }
   | { t: "other" }
   | { t: "eof" };
 
@@ -278,9 +228,7 @@ class Parser {
       i += 1;
       tok = { t: "close", v: "]" };
     } else if (b === 0x28) {
-      // A literal string: nested parentheses, backslash escapes. Its bytes
-      // are kept only while short (the /Encrypt dictionary's /O, /U, /ID).
-      const from = i;
+      // A literal string: nested parentheses, backslash escapes.
       let depth = 0;
       for (; i < src.length; i += 1) {
         const c = src[i]!;
@@ -291,18 +239,11 @@ class Parser {
           break;
         }
       }
-      tok =
-        i - from <= MAX_KEPT_STRING
-          ? { t: "str", v: literalBytes(src.subarray(from + 1, i - 1)) }
-          : { t: "other" };
+      tok = { t: "other" };
     } else if (b === 0x3c) {
       const close = src.indexOf(0x3e, i + 1);
-      const end = close === -1 ? src.length : close;
-      tok =
-        end - i <= MAX_KEPT_STRING
-          ? { t: "str", v: hexBytes(src.subarray(i + 1, end)) }
-          : { t: "other" };
       i = close === -1 ? src.length : close + 1;
+      tok = { t: "other" };
     } else if (b === 0x2f) {
       let j = i + 1;
       while (j < src.length && !isWhite(src[j]!) && !isDelimiter(src[j]!)) {
@@ -347,7 +288,6 @@ class Parser {
       return tok.v;
     }
     if (tok.t === "name") return new PdfName(tok.v);
-    if (tok.t === "str") return new PdfString(tok.v);
     if (tok.t === "open" && tok.v === "[") {
       const out: PdfValue[] = [];
       for (;;) {
@@ -392,8 +332,6 @@ class Parser {
 interface Def {
   readonly id: number;
   readonly num: number;
-  /** Its generation (0 inside an object stream): an encrypted file's key needs it. */
-  readonly gen: number;
   readonly src: Uint8Array;
   readonly at: number;
   /** In the file's text: a stream may follow its dictionary. */
@@ -451,14 +389,7 @@ export interface PageScanTools {
     numberOf: (num: number) => number | undefined,
     maskDict: (num: number) => string | null,
     num: number,
-    codestream?: number | null,
   ): ImageSize;
-  /**
-   * A JPEG 2000 codestream's own size (its SIZ marker, as pdf.js reads it),
-   * or null; for an encrypted file's images, whose codestreams only the
-   * map can read (decrypted), and hands to `image` as `codestream`.
-   */
-  jpx(data: Uint8Array): number | null;
   /**
    * What an image costs one page, in colour pixels; 0 when pdf.js skips it
    * (its own size past `skipAbove`) or paints nothing (a zero side).
@@ -468,13 +399,6 @@ export interface PageScanTools {
   decodeBudget: number;
   /** The scan's own reading of each content stream (see {@link ContentCount}). */
   counts: ReadonlyMap<number, ContentCount | null>;
-  /**
-   * The file's trailer names /Encrypt: its streams are decrypted before
-   * `decode` (see `ObjectIndex.openEncryption`), or not read at all. A
-   * trailer is one outside every stream's data (see `encryptedTrailer` in
-   * ./pdfjs-guard), never the word /Encrypt anywhere in the bytes.
-   */
-  encrypted: boolean;
 }
 
 /**
@@ -556,11 +480,10 @@ class ObjectIndex {
     });
     for (const h of findObjectHeaders(bytes)) {
       if (Number.isInteger(h.num)) {
-        index.add(h.num, genBefore(bytes, h.objAt), bytes, h.objAt + 3, true);
+        index.add(h.num, bytes, h.objAt + 3, true);
       }
     }
     index.dropNested();
-    if (tools.encrypted) await index.openEncryption();
     // Object streams: decode each, and index its table (pdf.js reads /N
     // pairs of `num offset` before /First).
     const plain = [...index.defs.values()].flat();
@@ -601,7 +524,7 @@ class ObjectIndex {
           continue;
         }
         if (first + off < data.length) {
-          index.add(num, 0, data, first + off, false);
+          index.add(num, data, first + off, false);
         }
       }
     }
@@ -688,14 +611,8 @@ class ObjectIndex {
     }
   }
 
-  private add(
-    num: number,
-    gen: number,
-    src: Uint8Array,
-    at: number,
-    plain: boolean,
-  ): void {
-    const def: Def = { id: this.nextId++, num, gen, src, at, plain };
+  private add(num: number, src: Uint8Array, at: number, plain: boolean): void {
+    const def: Def = { id: this.nextId++, num, src, at, plain };
     const list = this.defs.get(num);
     if (list) list.push(def);
     else this.defs.set(num, [def]);
@@ -798,217 +715,6 @@ class ObjectIndex {
     return latin1.decode(src.subarray(dict.start, dict.end));
   }
 
-  /** The file has an /Encrypt: its streams are ciphertext until decrypted. */
-  private encrypted = false;
-  /** Decrypts one stream of object `num gen`; null when the file needs a password. */
-  private decryptor:
-    | ((num: number, gen: number, data: Uint8Array) => Promise<Uint8Array>)
-    | null = null;
-  /**
-   * Decrypts one stream of object `num gen` with the crypt filter a /Crypt
-   * stage names (pdf.js's `CipherTransform.createStream(.., name)`); null
-   * when that filter is one this cannot read. Set with {@link decryptor}.
-   */
-  private cryptDecryptor:
-    | ((
-        name: string,
-        num: number,
-        gen: number,
-        data: Uint8Array,
-      ) => Promise<Uint8Array | null>)
-    | null = null;
-  private encryptMetadata = true;
-  /** {@link decryptor}, synchronous, for a short stream; undefined for a long one. */
-  private decryptorNow:
-    | ((num: number, gen: number, data: Uint8Array) => Uint8Array | undefined)
-    | null = null;
-
-  /**
-   * Open the file's Standard security handler with the empty user password,
-   * as pdf.js opens a PDF that has no open password (its author restricted
-   * printing or copying, say): its streams, object streams among them, are
-   * then read decrypted. When the handler cannot be opened that way (a
-   * password is needed, a handler this cannot read), streams stay unread
-   * and every page counts what its resources hold (or the map is
-   * incomplete): fail safe.
-   */
-  async openEncryption(): Promise<void> {
-    this.encrypted = true;
-    // Every trailer (classic `trailer << >>`, or a cross-reference stream's
-    // dictionary) that names /Encrypt; the last in the file is the newest.
-    let trailer: PdfDict | null = null;
-    let at = -1;
-    const TRAILER = ascii("trailer");
-    for (let t = indexOfWord(this.bytes, TRAILER, 0); t !== -1;) {
-      if (this.inData(t)) {
-        t = indexOfWord(this.bytes, TRAILER, t + TRAILER.length);
-        continue;
-      }
-      const p = new Parser(this.bytes, t + TRAILER.length, this.budget);
-      const v = p.value(p.next(), 0);
-      if (v instanceof PdfDict && v.get("Encrypt") !== undefined && t > at) {
-        trailer = v;
-        at = t;
-      }
-      t = indexOfWord(this.bytes, TRAILER, t + TRAILER.length);
-    }
-    for (const defs of this.defs.values()) {
-      for (const def of defs) {
-        if (!def.plain) continue;
-        const v = this.parse(def).value;
-        if (
-          v instanceof PdfDict &&
-          this.nameOf(v.get("Type")) === "XRef" &&
-          v.get("Encrypt") !== undefined &&
-          def.at > at
-        ) {
-          trailer = v;
-          at = def.at;
-        }
-      }
-    }
-    if (trailer === null) return;
-    const encrypt = this.dicts(trailer.get("Encrypt"))[0];
-    if (!encrypt) return;
-    const get = (d: PdfDict, k: string) => this.all(d.get(k))[0];
-    const bytesOf = (v: PdfValue | undefined) =>
-      v instanceof PdfString ? v.bytes : undefined;
-    const numOf = (v: PdfValue | undefined) =>
-      typeof v === "number" ? v : undefined;
-    if (this.nameOf(encrypt.get("Filter")) !== "Standard") return;
-    const v = numOf(get(encrypt, "V")) ?? 0;
-    const method = (filter: PdfValue | undefined) => {
-      if (v < 4) return "rc4" as const;
-      const name = filter instanceof PdfName ? filter.name : "Identity";
-      if (name === "Identity") return "identity" as const;
-      const cf = this.dicts(encrypt.get("CF"))[0];
-      const f = cf ? this.dicts(cf.get(name))[0] : undefined;
-      if (!f) return null;
-      const cfm = this.nameOf(f.get("CFM")) ?? "None";
-      return cfm === "V2"
-        ? ("rc4" as const)
-        : cfm === "AESV2"
-          ? ("aesv2" as const)
-          : cfm === "AESV3"
-            ? ("aesv3" as const)
-            : cfm === "None"
-              ? ("identity" as const)
-              : null;
-    };
-    const stream = method(get(encrypt, "StmF"));
-    const string = method(get(encrypt, "StrF"));
-    if (stream === null || string === null) return;
-    const ids = this.all(trailer.get("ID"))[0];
-    const em = get(encrypt, "EncryptMetadata");
-    // pdf.js reads `false` as a keyword; this parser keeps it as OTHER.
-    this.encryptMetadata = !(
-      em === OTHER &&
-      /\/EncryptMetadata\s+false/.test(this.dictText(encrypt, this.bytes))
-    );
-    const params = {
-      v,
-      r: numOf(get(encrypt, "R")) ?? 0,
-      lengthBits: numOf(get(encrypt, "Length")) ?? (v === 1 ? 40 : 128),
-      o: bytesOf(get(encrypt, "O")) ?? new Uint8Array(0),
-      u: bytesOf(get(encrypt, "U")) ?? new Uint8Array(0),
-      oe: bytesOf(get(encrypt, "OE")),
-      ue: bytesOf(get(encrypt, "UE")),
-      perms: bytesOf(get(encrypt, "Perms")),
-      p: (numOf(get(encrypt, "P")) ?? 0) | 0,
-      encryptMetadata: this.encryptMetadata,
-      stream,
-      string,
-      id0:
-        (Array.isArray(ids) ? bytesOf(ids[0]) : undefined) ?? new Uint8Array(0),
-    };
-    try {
-      const [{ StandardSecurityHandler }, { aesCbcDecryptJs }, { rc4 }] =
-        await Promise.all([
-          import("./security/standard-handler"),
-          import("./security/aes-js"),
-          import("./security/rc4"),
-        ]);
-      type Handler = NonNullable<
-        Awaited<ReturnType<typeof StandardSecurityHandler.open>>
-      >;
-      // A short stream is decrypted here, synchronously, exactly as the
-      // handler would (`aes-js.test.ts`); a long one by the handler, whose
-      // WebCrypto is faster per byte but costs a call each.
-      // History (hostile review r3, 2026-11-14): one WebCrypto call per
-      // stream, a 100,000-stream AES file held the preflight 4.3 s (main
-      // 0.86 s), all of it WebCrypto's own per-call work.
-      const shortDecrypt = (
-        h: Handler,
-        num: number,
-        gen: number,
-        data: Uint8Array,
-      ): Uint8Array | undefined => {
-        if (data.length > SHORT_CIPHER_TEXT) return undefined;
-        const { method, key } = h.keyFor("stream", num, gen);
-        if (method === "identity") return data;
-        if (method === "rc4") return rc4(key, data);
-        if (data.length < 32) return new Uint8Array(0);
-        const body = data.subarray(
-          16,
-          16 + Math.floor((data.length - 16) / 16) * 16,
-        );
-        return aesCbcDecryptJs(key, data.subarray(0, 16), body);
-      };
-      const decryptWith = async (
-        h: Handler,
-        num: number,
-        gen: number,
-        data: Uint8Array,
-      ): Promise<Uint8Array> =>
-        shortDecrypt(h, num, gen, data) ?? h.decrypt("stream", num, gen, data);
-      const handler = await StandardSecurityHandler.open(params, "");
-      if (handler) {
-        this.decryptor = (num, gen, data) =>
-          decryptWith(handler, num, gen, data);
-        this.decryptorNow = (num, gen, data) =>
-          shortDecrypt(handler, num, gen, data);
-        // A /Crypt stage's filter, resolved as pdf.js's `resolveCipher`
-        // resolves it: below V4 every filter is RC4; from V4 the /CF entry
-        // it names (none, or /CFM /None, reads the data as it is), and V5
-        // decrypts with AES-256 whatever /CFM says.
-        const cryptOf = (name: string) => {
-          if (v < 4) return "rc4" as const;
-          const cf = this.dicts(encrypt.get("CF"))[0];
-          const f = cf ? this.dicts(cf.get(name))[0] : undefined;
-          const cfm = f ? this.nameOf(f.get("CFM")) : null;
-          if (cfm === null || cfm === "None") return "identity" as const;
-          if (v === 5 || cfm === "AESV3") return "aesv3" as const;
-          return cfm === "V2"
-            ? ("rc4" as const)
-            : cfm === "AESV2"
-              ? ("aesv2" as const)
-              : null;
-        };
-        const opened = new Map<
-          string,
-          ReturnType<typeof StandardSecurityHandler.open>
-        >();
-        this.cryptDecryptor = async (name, num, gen, data) => {
-          const m = cryptOf(name);
-          if (m === null) return null;
-          if (m === "identity") return data;
-          let h = opened.get(m);
-          if (!h) {
-            h = StandardSecurityHandler.open(
-              { ...params, stream: m },
-              "",
-            ).catch(() => null);
-            opened.set(m, h);
-          }
-          const with_ = await h;
-          return with_ ? decryptWith(with_, num, gen, data) : null;
-        };
-      }
-    } catch {
-      // A handler this cannot read: streams stay unread (fail safe).
-    }
-  }
-
   /** A stream's filter names and their /DecodeParms, position by position. */
   filtersOf(s: StreamDef): { filters: string[]; parms: (PdfDict | null)[] } {
     const filterValue = s.dict.get("F") ?? s.dict.get("Filter");
@@ -1030,78 +736,15 @@ class ObjectIndex {
     return { filters, parms };
   }
 
-  /**
-   * A stream's data before its filters, as pdf.js's `Parser.makeStream`
-   * hands it to them: in an encrypted file, decrypted with the file's
-   * stream filter, unless the stream has a /Crypt filter ANYWHERE in its
-   * list (`#hasCryptFilter`), when the /Crypt stage decrypts instead, with
-   * the crypt filter its /DecodeParms /Name names (/Identity when none).
-   * Null when it cannot be read here: a password is needed, a crypt filter
-   * this cannot read, or a /Crypt stage after another filter, or a second
-   * one (pdf.js decrypts mid-chain; this reads such data whole only).
-   *
-   * History (hostile review r3, 2026-11-14): a stream whose first filter was
-   * /Crypt was taken as plain text, its ciphertext lexed as content, no
-   * `Do` found, and a page painting 64 MP weighed 0 and was drawn.
-   */
-  async decrypted(
-    s: StreamDef,
-    filters: readonly string[],
-    parms: readonly (PdfDict | null)[],
-  ): Promise<Uint8Array | null> {
-    const data = s.def.src.subarray(s.data[0], s.data[1]);
-    if (!this.encrypted) return data;
-    const crypts = filters.filter((f) => f === "Crypt").length;
-    if (crypts > 0) {
-      if (filters[0] !== "Crypt" || crypts > 1) return null;
-      if (this.cryptDecryptor === null) return null;
-      // pdf.js reads the /Name of the stage's own parameters: the dictionary
-      // itself after a lone filter name, the first entry after an array.
-      const single = this.all(s.dict.get("F") ?? s.dict.get("Filter"))[0];
-      const p =
-        single instanceof PdfName
-          ? this.dicts(s.dict.get("DP") ?? s.dict.get("DecodeParms"))[0]
-          : (parms[0] ?? undefined);
-      const name = p ? this.all(p.get("Name"))[0] : undefined;
-      return this.cryptDecryptor(
-        name instanceof PdfName ? name.name : "Identity",
-        s.def.num,
-        s.def.gen,
-        data,
-      );
-    }
-    const type = this.nameOf(s.dict.get("Type"));
-    if (type === "XRef" || (type === "Metadata" && !this.encryptMetadata)) {
-      return data;
-    }
-    if (this.decryptor === null) return null;
-    return this.decryptor(s.def.num, s.def.gen, data);
+  /** A stream's data before its filters: its bytes as they are stored. */
+  data(s: StreamDef): Uint8Array {
+    return s.def.src.subarray(s.data[0], s.data[1]);
   }
 
   /**
-   * {@link decrypted} when it needs no await: the data, null where
-   * `decrypted` gives null, undefined when only `decrypted` can say (a long
-   * stream, a /Crypt stage).
-   */
-  decryptedNow(
-    s: StreamDef,
-    filters: readonly string[],
-  ): Uint8Array | null | undefined {
-    const data = s.def.src.subarray(s.data[0], s.data[1]);
-    if (!this.encrypted) return data;
-    if (filters.includes("Crypt")) return undefined;
-    const type = this.nameOf(s.dict.get("Type"));
-    if (type === "XRef" || (type === "Metadata" && !this.encryptMetadata)) {
-      return data;
-    }
-    if (this.decryptor === null) return null;
-    return this.decryptorNow?.(s.def.num, s.def.gen, data);
-  }
-
-  /**
-   * {@link decodeDecrypted} when it needs no await (no filter changes the
+   * {@link decodeData} when it needs no await (no filter changes the
    * data, no predictor): the bytes handed to `sink`, null past `limit`,
-   * undefined when only `decodeDecrypted` can say.
+   * undefined when only `decodeData` can say.
    */
   decodeNow(
     filters: readonly string[],
@@ -1151,9 +794,10 @@ class ObjectIndex {
   }
 
   /**
-   * A stream's data as pdf.js reads it: decrypted (an encrypted file),
-   * through its filters (`tools.decodeTo`), and through a Flate stage's PNG
-   * or TIFF predictor. Null when any step cannot be done here.
+   * A stream's data as pdf.js reads it: through its filters
+   * (`tools.decodeTo`), and through a Flate stage's PNG or TIFF predictor.
+   * Null when any step cannot be done here. Never asked of an encrypted
+   * file (the guard does not map one): its data would be ciphertext.
    */
   async decode(
     s: StreamDef,
@@ -1188,14 +832,11 @@ class ObjectIndex {
     sink: (chunk: Uint8Array) => void,
   ): Promise<number | null> {
     const { filters, parms } = this.filtersOf(s);
-    const data = await this.decrypted(s, filters, parms);
-    if (data === null) return null;
-    return this.decodeDecrypted(s, filters, parms, data, tools, limit, sink);
+    return this.decodeData(filters, parms, this.data(s), tools, limit, sink);
   }
 
-  /** {@link decodeTo} past decryption: `data` is what the filters read. */
-  async decodeDecrypted(
-    s: StreamDef,
+  /** {@link decodeTo} of `data`, what the filters read. */
+  async decodeData(
     filters: readonly string[],
     parms: readonly (PdfDict | null)[],
     data: Uint8Array,
@@ -1464,21 +1105,6 @@ export class Unpredictor {
 }
 
 /** The generation number written before `obj` (`num gen obj`); 0 when unreadable. */
-function genBefore(bytes: Uint8Array, objAt: number): number {
-  let i = objAt - 1;
-  while (i >= 0 && isWhite(bytes[i]!)) i -= 1;
-  const end = i + 1;
-  while (i >= 0 && bytes[i]! >= 0x30 && bytes[i]! <= 0x39) i -= 1;
-  if (end === i + 1) return 0;
-  const gen = Number(latin1.decode(bytes.subarray(i + 1, end)));
-  return Number.isInteger(gen) ? gen : 0;
-}
-
-/* ------------------------------------------------------------------ *
- *  Painting
- * ------------------------------------------------------------------ */
-
-/** A 2D affine matrix [a b c d e f], PDF order. */
 type Matrix = readonly number[];
 const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
 const mul = (m: Matrix, n: Matrix): Matrix => [
@@ -1520,8 +1146,6 @@ export const MAX_PAINT_STEPS = 2_000_000;
  * read is let go past it and read again when asked (see `contentOps`).
  */
 const MAX_KEPT_OPS = 4_000_000;
-/** A stream ciphertext at most this long is decrypted in JavaScript, not by a WebCrypto call. */
-const SHORT_CIPHER_TEXT = 16_384;
 /** A stream at most this long (stored, or decoded) is held for its repeats. */
 const KEEP_DECODED = 1 << 20;
 /**
@@ -2095,9 +1719,8 @@ export class PageImages {
    *
    * A stream named at many positions is decoded once while small, and
    * every position is charged (every position's bytes are lexed). A short
-   * stream that needs no filter is read with no `await` at all (an
-   * encrypted one decrypted in JavaScript, see `ObjectIndex.decryptedNow`):
-   * one await per stream was most of a 100,000-stream file's cost.
+   * stream that needs no filter is read with no `await` at all: one await
+   * per stream was most of a 100,000-stream file's cost.
    */
   private async readContent(
     streams: readonly StreamDef[],
@@ -2123,12 +1746,7 @@ export class PageImages {
         continue;
       }
       const { filters, parms } = index.filtersOf(s);
-      let data = index.decryptedNow(s, filters);
-      // A cipher call that throws reads as a stream not read here.
-      if (data === undefined) {
-        data = await index.decrypted(s, filters, parms).catch(() => null);
-      }
-      if (data === null) return false;
+      const data = index.data(s);
       const chunks: Uint8Array[] | null = left > 0 ? [] : null;
       let held = 0;
       const sink = (c: Uint8Array) => {
@@ -2141,15 +1759,7 @@ export class PageImages {
       const limit = tools.decodeBudget - this.decoded;
       let made = index.decodeNow(filters, parms, data, tools, limit, sink);
       if (made === undefined) {
-        made = await index.decodeDecrypted(
-          s,
-          filters,
-          parms,
-          data,
-          tools,
-          limit,
-          sink,
-        );
+        made = await index.decodeData(filters, parms, data, tools, limit, sink);
       }
       if (made === null || this.decoded + made > tools.decodeBudget) {
         return false;
@@ -2296,30 +1906,11 @@ export class PageImages {
     const kept = this.imageCache.get(s.def.id);
     if (kept) return kept;
     const { index } = this;
-    // pdf.js sizes a JPEG 2000 image (JPX its first filter) by its
-    // codestream, which in an encrypted file only decryption shows: the scan
-    // reads ciphertext. Unreadable here, its cost is not known.
-    // History (hostile review r3, 2026-11-14): read by the dictionary alone,
-    // four JPX images declared 100 x 100 with 6000 x 6000 codestreams
-    // weighed 40,000 pixels in an RC4 or AES file, and the page was drawn.
-    let codestream: number | null = null;
-    let unread = false;
-    const { filters, parms } = index.filtersOf(s);
-    if (
-      this.tools.encrypted &&
-      (filters[0] === "JPXDecode" || filters[0] === "JPX")
-    ) {
-      const data = await index.decrypted(s, filters, parms);
-      if (
-        data === null ||
-        this.decoded + data.length > this.tools.decodeBudget
-      ) {
-        unread = true;
-      } else {
-        this.decoded += data.length;
-        codestream = this.tools.jpx(data);
-      }
-    }
+    // A JPEG 2000 image costs its codestream's size where the scan read it
+    // (`tools.image`, from the scan's `jpx`).
+    // History (hostile review r3, 2026-11-14): an encrypted file's JPX
+    // images were decrypted here to read their codestreams; encrypted files
+    // are no longer mapped at all (owner ruling D1, round 4).
     const size = this.tools.image(
       index.dictText(s.dict, s.def.src),
       (num) => index.numberIn(new PdfRef(num)) ?? undefined,
@@ -2328,11 +1919,9 @@ export class PageImages {
         return m ? index.dictText(m.dict, m.def.src) : null;
       },
       s.def.num,
-      codestream,
     );
-    const out = unread ? { ...size, cost: null } : size;
-    this.imageCache.set(s.def.id, out);
-    return out;
+    this.imageCache.set(s.def.id, size);
+    return size;
   }
 
   /** The XObject streams `name` resolves to through `resources`. */

@@ -14,7 +14,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
-import { describe, expect, it } from "vitest";
+import ts from "typescript";
+import { describe, expect, it, vi } from "vitest";
 import {
   PAGE_IMAGES_NOTE,
   PAGE_IMAGES_UNKNOWN_NOTE,
@@ -28,6 +29,7 @@ import {
   refuseOverBudgetPages,
   type PdfjsPreflight,
 } from "./pdfjs-guard";
+import { MAX_DECODED_PIXELS } from "./pixel-ceiling";
 import { rawPdf } from "@/tests/hostile/conversion-out.fixtures";
 import {
   formsBesideHeavyPagePdf,
@@ -73,6 +75,111 @@ async function pdfjsPageRefs(bytes: Uint8Array): Promise<number[]> {
   return out;
 }
 
+describe("the page budget is the product's pixel ceiling, read from it", () => {
+  const GUARD = path.join(process.cwd(), "src/lib/pdf/pdfjs-guard.ts");
+
+  /** The initializer of `export const <name> = ...` in the guard's source. */
+  function initializer(source: string, name: string): ts.Expression | null {
+    const file = ts.createSourceFile(GUARD, source, ts.ScriptTarget.Latest);
+    let found: ts.Expression | null = null;
+    file.forEachChild((node) => {
+      if (!ts.isVariableStatement(node)) return;
+      for (const d of node.declarationList.declarations) {
+        if (ts.isIdentifier(d.name) && d.name.text === name) {
+          found = d.initializer ?? null;
+        }
+      }
+    });
+    return found;
+  }
+
+  /** The budget's definition is the identifier MAX_DECODED_PIXELS, imported from ./pixel-ceiling. */
+  function derived(source: string): boolean {
+    const init = initializer(source, "RASTER_MAX_PAGE_IMAGE_PIXELS");
+    return (
+      init !== null &&
+      ts.isIdentifier(init) &&
+      init.text === "MAX_DECODED_PIXELS" &&
+      /import\s*\{[^}]*\bMAX_DECODED_PIXELS\b[^}]*\}\s*from\s*"\.\/pixel-ceiling"/.test(
+        source,
+      )
+    );
+  }
+
+  it("RASTER_MAX_PAGE_IMAGE_PIXELS = MAX_DECODED_PIXELS: twice the per-image budget, 100 MP, defined by the constant and never a literal", () => {
+    // History: until round 4 (2026-11-14) the page budget was the per-image
+    // one, 50 MP (RASTER_MAX_IMAGE_PIXELS). Real pages past it were newly
+    // noted and refused where main draws them (a 60 MP catalogue page in
+    // 3.5 s, 72 MP photo-book pages in 11.7 s), while a 100 MP page costs
+    // ~15 s in the editor, the class of the single 49 MP image main already
+    // allows (10 s). The owner set it to the pixel ceiling (D2).
+    expect(RASTER_MAX_PAGE_IMAGE_PIXELS).toBe(MAX_DECODED_PIXELS);
+    expect(RASTER_MAX_PAGE_IMAGE_PIXELS).toBe(2 * RASTER_MAX_IMAGE_PIXELS);
+    // A second, independent bound: the figure the editor measurement above
+    // was taken at. A ceiling moved elsewhere moves this budget with it,
+    // and this line says so.
+    expect(RASTER_MAX_PAGE_IMAGE_PIXELS).toBe(100_000_000);
+    const source = readFileSync(GUARD, "utf8");
+    expect(derived(source)).toBe(true);
+    // Positive controls: the same value written as a literal, or as the
+    // per-image budget doubled by hand, is not the definition asked for.
+    const def = /export const RASTER_MAX_PAGE_IMAGE_PIXELS = [^;]+;/;
+    expect(def.test(source)).toBe(true);
+    for (const wrong of ["100_000_000", "2 * RASTER_MAX_IMAGE_PIXELS"]) {
+      expect(
+        derived(
+          source.replace(
+            def,
+            `export const RASTER_MAX_PAGE_IMAGE_PIXELS = ${wrong};`,
+          ),
+        ),
+        wrong,
+      ).toBe(false);
+    }
+  });
+
+  it("every sentence that names the page figure states it from the constant", async () => {
+    const guard = await import("./pdfjs-guard");
+    // DISCOVERED: every exported string, or sentence of a one-argument
+    // function whose source speaks of megapixels, that names megapixels
+    // and a page.
+    const sentences: [string, string][] = [];
+    for (const [name, v] of Object.entries(guard)) {
+      const text =
+        typeof v === "string"
+          ? v
+          : typeof v === "function" &&
+              v.length === 1 &&
+              /megapixels/.test(String(v))
+            ? (() => {
+                try {
+                  const out = (v as (n: number) => unknown)(3);
+                  return typeof out === "string" ? out : null;
+                } catch {
+                  return null;
+                }
+              })()
+            : null;
+      if (text && /megapixels/.test(text) && /\bpage\b/i.test(text)) {
+        sentences.push([name, text]);
+      }
+    }
+    // Health: the two notes and the two refusals, no fewer, no more.
+    expect(sentences.map(([n]) => n).sort()).toEqual([
+      "PAGE_IMAGES_NOTE",
+      "PAGE_IMAGES_UNKNOWN_NOTE",
+      "pageImagesTooLargeMessage",
+      "pageImagesUnknownMessage",
+    ]);
+    for (const [name, text] of sentences) {
+      expect(text, name).toContain(
+        `${(RASTER_MAX_PAGE_IMAGE_PIXELS / 1e6).toLocaleString("en-US")} megapixels`,
+      );
+      expect(text, name).toContain("100 megapixels");
+    }
+  });
+});
+
 describe("the map reads what each page PAINTS", () => {
   it("ten 49 MP images on one page weigh 490 MP; one weighs 49 MP and needs no map", async () => {
     const ten = await preflightPdfjsBytes(
@@ -108,14 +215,15 @@ describe("the map reads what each page PAINTS", () => {
     // decodes it once per page". It does, but every `Do` paints the decoded
     // pixels again at O(their count) on the main thread: one 16 MP image
     // painted 60 times drew for 180 s in the editor. Inverted, not deleted.
-    // Plus a 45 MP page so the file weighs past the budget and the map runs.
+    // Plus a 45 MP page. (Until round 4 the image was 16 MP, 64 MP painted:
+    // past the 50 MP budget of the time, within the 100 MP one, D2.)
     const pre = await preflightPdfjsBytes(
-      await formsBesideHeavyPagePdf(4000, 6708, { real: false }),
+      await formsBesideHeavyPagePdf(6000, 6708, { real: false }),
     );
-    expect(weights(pre)).toEqual([64_000_000, 6708 * 6708]);
-    // An inline 4,000 x 4,000 image in a content stream the page lists
-    // four times: pdf.js reads it four times, 64 MP.
-    const inline = `BI /W 4000 /H 4000 /CS /RGB /BPC 8 ID ${"\u0001".repeat(3)} EI\n`;
+    expect(weights(pre)).toEqual([144_000_000, 6708 * 6708]);
+    // An inline 6,000 x 6,000 image in a content stream the page lists
+    // four times: pdf.js reads it four times, 144 MP.
+    const inline = `BI /W 6000 /H 6000 /CS /RGB /BPC 8 ID ${"\u0001".repeat(3)} EI\n`;
     const listed = await preflightPdfjsBytes(
       rawPdf([
         "<< /Type /Catalog /Pages 2 0 R >>",
@@ -124,7 +232,7 @@ describe("the map reads what each page PAINTS", () => {
         { dict: "", stream: inline },
       ]),
     );
-    expect(weights(listed)).toEqual([64_000_000]);
+    expect(weights(listed)).toEqual([144_000_000]);
   });
 
   it("a /Contents array is read joined: a name ending one stream and `Do` opening the next paint the image", async () => {
@@ -134,12 +242,14 @@ describe("the map reads what each page PAINTS", () => {
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources << /XObject << /A 6 0 R /B 7 0 R >> >> /Contents [4 0 R 5 0 R] >>",
         { dict: "", stream: "q 100 0 0 100 0 0 cm /A Do /B" },
-        { dict: "", stream: " Do Q" },
-        image(6000, 6000),
+        { dict: "", stream: " Do Q /A Do" },
+        image(7000, 7000),
         image(5000, 5000),
       ]),
     );
-    expect(weights(pre)).toEqual([61_000_000]);
+    // /A twice and the joined /B: 49 + 25 + 49 MP. (Until round 4: /A once
+    // at 36 MP, 61 MP, which a 100 MP budget no longer maps, D2.)
+    expect(weights(pre)).toEqual([123_000_000]);
   });
 
   it("bilevel images weigh one eighth; images pdf.js skips in a preview weigh nothing", async () => {
@@ -153,34 +263,37 @@ describe("the map reads what each page PAINTS", () => {
       rawPdf([
         "<< /Type /Catalog /Pages 2 0 R >>",
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        // Two 20,000 x 20,000 bilevel scans (400 MP each, AT the bilevel
-        // budget): 2 x 50 MP weighted.
-        page(["S1", "S2"], 4),
+        // Three 20,000 x 20,000 bilevel scans (400 MP each, AT the bilevel
+        // budget): 3 x 50 MP weighted. (Two until round 4: 100 MP is AT
+        // the 100 MP page budget, D2, and maps nothing.)
+        page(["S1", "S2", "S3"], 4),
         bilevel(20_000),
         bilevel(20_000),
-        { dict: "", stream: "/S1 Do /S2 Do" },
+        bilevel(20_000),
+        { dict: "", stream: "/S1 Do /S2 Do /S3 Do" },
       ]),
     );
     expect(pre.overBudgetImage).toBe(false);
     expect(weights(pre)).toEqual([
-      2 * 400_000_000 * (RASTER_MAX_IMAGE_PIXELS / RASTER_MAX_BILEVEL_PIXELS),
+      3 * 400_000_000 * (RASTER_MAX_IMAGE_PIXELS / RASTER_MAX_BILEVEL_PIXELS),
     ]);
     // An image past its own budget (CO-08) is skipped in a preview before
-    // it is decoded: beside two 30 MP images it weighs nothing (and the
+    // it is decoded: beside three 36 MP images it weighs nothing (and the
     // output paths refuse the file for it, by the per-image rule).
     const skipped = await preflightPdfjsBytes(
       rawPdf([
         "<< /Type /Catalog /Pages 2 0 R >>",
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        page(["Big", "A", "B"], 4),
+        page(["Big", "A", "B", "C"], 4),
         image(10_000, 10_000),
-        image(6000, 5000),
-        image(5000, 6000),
-        { dict: "", stream: "/Big Do /A Do /B Do" },
+        image(6000, 6000),
+        image(6000, 6000),
+        image(6000, 6000),
+        { dict: "", stream: "/Big Do /A Do /B Do /C Do" },
       ]),
     );
     expect(skipped.overBudgetImage).toBe(true);
-    expect(weights(skipped)).toEqual([60_000_000]);
+    expect(weights(skipped)).toEqual([108_000_000]);
   });
 });
 
@@ -225,49 +338,92 @@ describe("what the map cannot tell fails safe", () => {
     expect(pageImageVerdict(pre, { num: 3 })).toBe(PAGE_IMAGES_UNKNOWN_NOTE);
   });
 
-  it("an encrypted file that opens with no password is read decrypted, as pdf.js reads it: its object streams and content map exactly", async () => {
-    // History (hostile review r2, 2026-11-14): this asserted that object
+  it("an encrypted file is never mapped: no page verdict, no note, no refusal from the map, its reader never opened (main's behaviour, a deliberate fail-open)", async () => {
+    // History: until hostile review r2 (2026-11-14) this asserted that object
     // streams left the map incomplete and every page noted, "the cost of
-    // failing safe". A restricted (no open password) scan of 9 MP pages,
-    // the shape Acrobat and Word write, then had every Viewer page noted
-    // and was refused by PDF to JPG, which main converted. Inverted.
-    const plain = await imagePagesPdf(
-      [Array<number>(2).fill(6000), [3000], [3000], [3000], [3000], [3000]],
-      { real: false },
-    );
-    for (const cipher of ["rc4-128", "aes-128", "aes-256"] as const) {
-      for (const objectStreams of [false, true]) {
-        const enc = await encryptPdf(plain, {
-          userPassword: "",
-          ownerPassword: "o",
-          objectStreams,
-          cipher,
-        });
-        const pre = await preflightPdfjsBytes(enc);
-        const label = `${cipher} objectStreams=${objectStreams}`;
-        expect(pre.pages!.incomplete, label).toBeNull();
-        // Page 1 paints two 36 MP images; the rest one 9 MP each.
-        expect(weights(pre), label).toEqual([
-          72_000_000,
-          ...Array<number>(5).fill(9_000_000),
-        ]);
-        const refs = await pdfjsPageRefs(enc);
-        expect(
-          refs.map((r) => pageImageVerdict(pre, { num: r })),
-          label,
-        ).toEqual([PAGE_IMAGES_NOTE, null, null, null, null, null]);
+    // failing safe"; a restricted (no open password) scan of 9 MP pages then
+    // had every Viewer page noted and was refused by PDF to JPG, which main
+    // converted. Inverted then to "read decrypted, as pdf.js reads it": the
+    // map opened the Standard handler, decrypted every stream (a JavaScript
+    // AES for short ones, aes-js.ts), and mapped exactly. Each round's fixes
+    // to that path made the next round's regressions vs main (100,000-stream
+    // AES files, /Crypt stages, encrypted JPX sizing), so the owner ruled
+    // (round 4, D1): an encrypted file skips the page map ENTIRELY and is
+    // drawn and converted exactly as main does. Inverted again, kept here.
+    // The trade-off is stated in ./pdf-page-images's docblock.
+    const { PageImages } = await import("./pdf-page-images");
+    const opened = vi.spyOn(PageImages, "open");
+    try {
+      // Page 1 paints three 36 MP images (108 MP, past the page budget);
+      // the rest one 9 MP each.
+      const plain = await imagePagesPdf(
+        [Array<number>(3).fill(6000), [3000], [3000], [3000], [3000], [3000]],
+        { real: false },
+      );
+      // Positive control: the same pages unencrypted are mapped, and page 1
+      // is noted and refused.
+      const control = await preflightPdfjsBytes(plain);
+      expect(opened).toHaveBeenCalledTimes(1);
+      const controlRefs = await pdfjsPageRefs(plain);
+      expect(
+        controlRefs.map((r) => pageImageVerdict(control, { num: r })),
+      ).toEqual([PAGE_IMAGES_NOTE, null, null, null, null, null]);
+      await expect(
+        refuseOverBudgetPages(control, [0], async () => ({
+          ref: { num: controlRefs[0]! },
+        })),
+      ).rejects.toThrow(pageImagesTooLargeMessage(1));
+      opened.mockClear();
+      const encrypted: [string, Uint8Array][] = [];
+      for (const cipher of ["rc4-128", "aes-128", "aes-256"] as const) {
+        for (const objectStreams of [false, true]) {
+          encrypted.push([
+            `${cipher} objectStreams=${objectStreams}`,
+            await encryptPdf(plain, {
+              userPassword: "",
+              ownerPassword: "o",
+              objectStreams,
+              cipher,
+            }),
+          ]);
+        }
       }
+      // A file that needs a password to open: not mapped either.
+      encrypted.push([
+        "password",
+        await encryptPdf(plain, {
+          userPassword: "u",
+          ownerPassword: "o",
+          objectStreams: true,
+        }),
+      ]);
+      for (const [label, enc] of encrypted) {
+        const pre = await preflightPdfjsBytes(enc);
+        expect(pre.pages, label).toBeNull();
+        for (const num of [3, 4, 5, 6, 7, 8, 9999]) {
+          expect(pageImageVerdict(pre, { num }), label).toBeNull();
+        }
+        expect(pageImageVerdict(pre, null), label).toBeNull();
+        // The output paths' page refusal looks nothing up and refuses nothing.
+        let lookups = 0;
+        await refuseOverBudgetPages(pre, [0, 1, 2, 3, 4, 5], async () => {
+          lookups += 1;
+          return { ref: { num: 3 } };
+        });
+        expect(lookups, label).toBe(0);
+      }
+      // Nor is one built when a placement is asked of them.
+      const { imagePlacements } = await import("./pdfjs-guard");
+      for (const [label, enc] of encrypted) {
+        expect(await imagePlacements(enc, { num: 3 }, 0), label).toBeNull();
+      }
+      // No map was built for any of them (no decryption, no reading).
+      expect(opened).not.toHaveBeenCalled();
+      // Health: the restricted ones are real encrypted files pdf.js opens.
+      expect(await pdfjsPageRefs(encrypted[0]![1])).toHaveLength(6);
+    } finally {
+      opened.mockRestore();
     }
-    // A file that needs a password to open: nothing is decrypted, and the
-    // map fails safe (object streams it cannot read: incomplete).
-    const locked = await encryptPdf(plain, {
-      userPassword: "u",
-      ownerPassword: "o",
-      objectStreams: true,
-    });
-    const p2 = await preflightPdfjsBytes(locked);
-    expect(p2.pages!.incomplete).not.toBeNull();
-    expect(pageImageVerdict(p2, { num: 3 })).toBe(PAGE_IMAGES_UNKNOWN_NOTE);
     // History (found here, 2026-11-14): the scan read an encrypted object
     // stream as empty, so no reference to any image was seen and every
     // image counted as an orphan nothing paints: a 100 MP image in such a
@@ -301,7 +457,7 @@ describe("the real-producer corpus: the map finds exactly the pages pdf.js repor
       // this light, so this is the map's own parity with pdf.js.
       const { PageImages } = await import("./pdf-page-images");
       const guard = await import("./pdfjs-guard");
-      const reader = await PageImages.open(bytes, guard.pageScanTools(false));
+      const reader = await PageImages.open(bytes, guard.pageScanTools());
       expect(reader).toBeInstanceOf(PageImages);
       if (!(reader instanceof PageImages)) throw new Error("no reader");
       const map = await reader.map(Infinity);
@@ -946,7 +1102,7 @@ async function real16mp() {
 }
 const MP16 = 16_000_000;
 
-describe("a /Crypt filter decrypts where pdf.js decrypts it", () => {
+describe("an encrypted file with /Crypt content is not mapped: drawn as main draws it", () => {
   /** One page painting /Im (16 MP) four times, its content's dictionary `dict`. */
   async function cryptFixture(
     dict: string,
@@ -965,10 +1121,12 @@ describe("a /Crypt filter decrypts where pdf.js decrypts it", () => {
     return encryptPdf(plain, { userPassword: "", ownerPassword: "o", cipher });
   }
 
-  it("content whose first filter is /Crypt /Name /StdCF is read decrypted: 4 paints, 64 MP, noted (RC4, AES-128, AES-256)", async () => {
+  it("content whose first filter is /Crypt /Name /StdCF: pdf.js paints it, and the page has no verdict (RC4, AES-128, AES-256)", async () => {
     // History (hostile review r3): the map took such a stream for plain
-    // text, lexed its ciphertext, found no `Do`, and weighed the page 0:
-    // drawn in previews and written by the output paths.
+    // text, lexed its ciphertext, found no `Do`, and weighed the page 0;
+    // it then decrypted /Crypt stages itself and asserted 64 MP, noted.
+    // Owner ruling D1 (round 4): encrypted files are not mapped at all.
+    // Inverted, kept here.
     for (const cipher of ["rc4-128", "aes-128", "aes-256"] as const) {
       for (const dict of [
         "",
@@ -976,21 +1134,25 @@ describe("a /Crypt filter decrypts where pdf.js decrypts it", () => {
       ]) {
         const bytes = await cryptFixture(dict, cipher);
         const label = `${cipher} ${dict || "(control: no /Crypt)"}`;
+        // Health: a real encrypted file pdf.js decrypts and paints.
         expect(await pdfjsPaints(bytes), label).toBe(4);
         const pre = await preflightPdfjsBytes(bytes);
-        expect(pre.pages!.weights.get(3), label).toBe(4 * MP16);
-        expect(pageImageVerdict(pre, { num: 3 }), label).toBe(PAGE_IMAGES_NOTE);
+        expect(pre.pages, label).toBeNull();
+        expect(pageImageVerdict(pre, { num: 3 }), label).toBeNull();
       }
     }
   }, 60_000);
 
-  it("a /Crypt stage after another filter is not read here: the page fails safe, as MAY", async () => {
+  it("a /Crypt stage after another filter: no verdict either", async () => {
+    // History: until round 4 this was "not read here: the page fails safe,
+    // as MAY" (PAGE_IMAGES_UNKNOWN_NOTE). Inverted with D1.
     const bytes = await cryptFixture(
       "/Filter [/ASCIIHexDecode /Crypt] /DecodeParms [null << /Name /StdCF >>]",
       "aes-128",
     );
     const pre = await preflightPdfjsBytes(bytes);
-    expect(pageImageVerdict(pre, { num: 3 })).toBe(PAGE_IMAGES_UNKNOWN_NOTE);
+    expect(pre.pages).toBeNull();
+    expect(pageImageVerdict(pre, { num: 3 })).toBeNull();
   }, 30_000);
 });
 
@@ -1027,16 +1189,22 @@ describe("a form's paint is remembered with the forms on its path", () => {
       expect(await pdfjsPaints(bytes)).toBe(4);
       const pre = await preflightPdfjsBytes(bytes);
       expect(pre.pages!.weights.get(3)).toBe(4 * MP16);
-      expect(pageImageVerdict(pre, { num: 3 })).toBe(PAGE_IMAGES_NOTE);
+      // 64 MP: within the 100 MP page budget (D2, round 4; until then past
+      // the 50 MP one, and this asserted PAGE_IMAGES_NOTE).
+      expect(pageImageVerdict(pre, { num: 3 })).toBeNull();
     },
     30_000,
   );
 });
 
-describe("an encrypted file's JPEG 2000 images cost their decrypted codestream's size", () => {
-  it("four declared 100 x 100 with 6000 x 6000 codestreams weigh 144 MP whatever the cipher", async () => {
+describe("JPEG 2000 images cost their codestream's size; an encrypted file's are not read", () => {
+  it("four declared 100 x 100 with 6000 x 6000 codestreams weigh 144 MP plain; encrypted, the file is not mapped", async () => {
     // History (hostile review r3): the scan reads only ciphertext, and the
     // map took the scan's sizes: 40,000 pixels in an RC4 or AES file, drawn.
+    // The map then decrypted each codestream and asserted 144 MP, noted,
+    // whatever the cipher. Owner ruling D1 (round 4): encrypted files are
+    // not mapped, as on main (whose JPX sizing is the dictionary's alone).
+    // Inverted for the ciphers; the plain file is the positive control.
     const jpx = {
       dict: "/Type /XObject /Subtype /Image /Width 100 /Height 100 /BitsPerComponent 8 /ColorSpace /DeviceRGB /Filter /JPXDecode",
       stream: jpxHeader(6000, 6000),
@@ -1061,8 +1229,15 @@ describe("an encrypted file's JPEG 2000 images cost their decrypted codestream's
               cipher,
             });
       const pre = await preflightPdfjsBytes(bytes);
-      expect(pre.pages!.weights.get(3), cipher).toBe(144_000_000);
-      expect(pageImageVerdict(pre, { num: 3 }), cipher).toBe(PAGE_IMAGES_NOTE);
+      if (cipher === "none") {
+        expect(pre.pages!.weights.get(3), cipher).toBe(144_000_000);
+        expect(pageImageVerdict(pre, { num: 3 }), cipher).toBe(
+          PAGE_IMAGES_NOTE,
+        );
+      } else {
+        expect(pre.pages, cipher).toBeNull();
+        expect(pageImageVerdict(pre, { num: 3 }), cipher).toBeNull();
+      }
     }
   }, 30_000);
 });
@@ -1362,7 +1537,9 @@ describe("review r3 (2026-11-14): never worse than main", () => {
         stream: `10 0 0 0 10 10 d1 BI /W 10 /H 16 /BPC 1 /IM true ID ${mask} EI % ${i}`,
       })),
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources << /XObject << /H ${9 + glyphs} 0 R >> >> /Contents ${8 + glyphs} 0 R >>`,
-      { dict: "", stream: "/H Do" },
+      // Painted twice: the file then weighs past the 100 MP page budget
+      // (D2, round 4; once was past the 50 MP one).
+      { dict: "", stream: "/H Do /H Do" },
       image(7000, 7000),
     ];
     const pre = await preflightPdfjsBytes(rawPdf(objects));
@@ -1461,11 +1638,12 @@ describe("review r3 (2026-11-14): never worse than main", () => {
         expect(pageImageVerdict(pre, { num }), label).toBeNull();
       }
     }
-    // Positive control: the attachment opened on its own IS encrypted, and
-    // read decrypted (six paints of 36 MP).
+    // Positive control: the attachment opened on its own IS encrypted, so
+    // it is not mapped (D1, round 4; until then it was read decrypted, six
+    // paints of 36 MP): the files above were mapped because they are
+    // plain, not because nothing is ever taken as encrypted.
     const own = await preflightPdfjsBytes(inner);
-    expect(own.pages!.incomplete).toBeNull();
-    expect([...own.pages!.weights.values()]).toEqual([6 * 36_000_000]);
+    expect(own.pages).toBeNull();
   }, 60_000);
 
   it("LZW content (Acrobat 2 and 3 era) is read as pdf.js reads it, at either /EarlyChange", async () => {
@@ -1521,8 +1699,10 @@ describe("review r3 (2026-11-14): never worse than main", () => {
     for (let i = 0; i < 400; i += 1) {
       lines.push(`${i % 97} ${(i * 7) % 113} m ${(i * 13) % 89} ${i % 61} l S`);
     }
-    for (let i = 0; i < 4; i += 1) {
-      lines.push(`q 100 0 0 100 ${i * 120} 0 cm /Im Do Q`);
+    // Eight paints, 128 MP: past the 100 MP page budget (D2, round 4; four,
+    // 64 MP, were past the 50 MP one).
+    for (let i = 0; i < 8; i += 1) {
+      lines.push(`q 50 0 0 50 ${i * 60} 0 cm /Im Do Q`);
     }
     const text = new TextEncoder().encode(lines.join("\n"));
     for (const earlyChange of [1, 0]) {
@@ -1539,14 +1719,14 @@ describe("review r3 (2026-11-14): never worse than main", () => {
         },
         await real16mp(),
       ]);
-      // The oracle: pdf.js decodes it and paints four times.
-      expect(await pdfjsPaints(bytes), `EarlyChange ${earlyChange}`).toBe(4);
+      // The oracle: pdf.js decodes it and paints eight times.
+      expect(await pdfjsPaints(bytes), `EarlyChange ${earlyChange}`).toBe(8);
       const pre = await preflightPdfjsBytes(bytes);
       expect(pre.pages!.incomplete).toBeNull();
       expect(pre.pages!.weights.get(3), `EarlyChange ${earlyChange}`).toBe(
-        4 * MP16,
+        8 * MP16,
       );
-      expect(pre.pages!.exact.get(3)).toBe(4 * MP16);
+      expect(pre.pages!.exact.get(3)).toBe(8 * MP16);
       expect(pageImageVerdict(pre, { num: 3 })).toBe(PAGE_IMAGES_NOTE);
     }
   }, 60_000);
@@ -1632,7 +1812,6 @@ describe("the map takes the scan's own reading of a stream instead of reading it
     const guard = await import("./pdfjs-guard");
     const scan = await guard.scanPdfStreams(bytes);
     const tools = guard.pageScanTools(
-      scan.encrypted,
       scan.jpx,
       counted ? scan.contentCounts : new Map(),
     );

@@ -155,11 +155,15 @@ async function preflight(bytes: Uint8Array) {
 
 const TEN_BY_49 = () => imagePagesPdf([Array<number>(10).fill(7000)]);
 const MIXED = () => imagePagesPdf([[], Array<number>(10).fill(7000), [3000]]);
-/** 120 pages, one 700 x 700 image each (59 MP in all), shared resources, object streams. */
+/**
+ * 120 pages, one 1,000 x 1,000 image each (120 MP in all, past the 100 MP
+ * page budget, so the map is built), shared resources, object streams.
+ * (700 x 700, 59 MP in all, until the budget was 100 MP: D2, round 4.)
+ */
 const LONG_SCAN = async () =>
   withObjectStreams(
     await imagePagesPdf(
-      Array.from({ length: 120 }, () => [700]),
+      Array.from({ length: 120 }, () => [1000]),
       { shared: true },
     ),
   );
@@ -208,13 +212,13 @@ const CASES: Record<string, () => Promise<unknown>> = {
   "thumbs-long-scan": async () => thumbs(await LONG_SCAN()),
   "raster-long-scan": async () => raster(await LONG_SCAN(), [0, 59, 119]),
   "preflight-long-scan": async () => preflight(await LONG_SCAN()),
-  // A 16 MP image painted four times through forms (64 MP: every paint
-  // counts), beside a 36 MP page that makes the file weigh past the page
-  // budget, so the map is built. Page 1 is a note.
+  // A 36 MP image painted four times through forms (144 MP: every paint
+  // counts), beside a 36 MP page. Page 1 is a note. (A 16 MP image, 64 MP,
+  // until the page budget was 100 MP: D2, round 4.)
   "editor-forms-twice": async () =>
-    editor(await formsBesideHeavyPagePdf(4000, 6000), [0]),
+    editor(await formsBesideHeavyPagePdf(6000, 6000), [0]),
   "preflight-forms-twice": async () =>
-    preflight(await formsBesideHeavyPagePdf(4000, 6000)),
+    preflight(await formsBesideHeavyPagePdf(6000, 6000)),
   "autocrop-co08": async () => autoCrop(await CO08_PAGE()),
   "autocrop-co08-pattern": async () => autoCrop(await co08PatternPdf()),
   // Hostile review r1/r2 (2026-11-14), at the point of consumption.
@@ -223,22 +227,41 @@ const CASES: Record<string, () => Promise<unknown>> = {
   "editor-escaped": async () => editor(await escapedNamesPdf(6000)),
   "raster-restricted": async () => raster(await RESTRICTED()),
   "viewer-restricted": async () => viewer(await RESTRICTED()),
+  // Owner ruling D1 (round 4): an encrypted file is never mapped. One 9 MP
+  // image painted 12 times (108 MP, past the page budget): plain, refused
+  // and noted; restricted (no open password), written and drawn, as main.
+  "raster-paint12": async () => raster(await repeatedPaintPdf(3000, 12)),
+  "viewer-paint12": async () => viewer(await repeatedPaintPdf(3000, 12)),
+  "raster-paint12-restricted": async () =>
+    raster(await restricted(await repeatedPaintPdf(3000, 12))),
+  "viewer-paint12-restricted": async () =>
+    viewer(await restricted(await repeatedPaintPdf(3000, 12))),
+  // A 7,100 x 7,100 image (50.4 MP, just past its raster budget),
+  // restricted: Auto-crop's pdf-lib load refuses an encrypted file before
+  // any render, so no placement is ever asked of one.
+  "autocrop-over-restricted": async () =>
+    autoCrop(await restricted(await imagePagesPdf([[7100]]))),
 };
+
+/** `bytes` restricted: opens with no password, AES-256, object streams. */
+function restricted(bytes: Uint8Array): Promise<Uint8Array> {
+  return encryptPdf(bytes, {
+    userPassword: "",
+    ownerPassword: "o",
+    objectStreams: true,
+    cipher: "aes-256",
+  });
+}
 
 /**
  * A restricted scan: opens with no password, AES-256, object streams (the
- * shape Acrobat and Word write), six pages of one 9 MP image (54 MP in all,
- * so the page map is built).
+ * shape Acrobat and Word write), six pages of one 9 MP image. (Written when
+ * the map decrypted such files and 54 MP in all built it; an encrypted file
+ * is now never mapped, D1.)
  */
 async function RESTRICTED(): Promise<Uint8Array> {
-  return encryptPdf(
+  return restricted(
     await imagePagesPdf(Array.from({ length: 6 }, () => [3000])),
-    {
-      userPassword: "",
-      ownerPassword: "o",
-      objectStreams: true,
-      cipher: "aes-256",
-    },
   );
 }
 

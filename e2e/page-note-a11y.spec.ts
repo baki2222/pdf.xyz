@@ -8,8 +8,9 @@ import { rawPdf } from "../src/tests/hostile/conversion-out.fixtures";
  * The note drawn in place of a page past the page budget, as a SCREEN
  * READER gets it: Playwright's role queries compute accessible names as the
  * browser exposes them, so `aria-hidden` and buttons (whose contents are
- * presentational) are honoured. Page 1 paints three 25 MP images (75 MP,
- * past the 50 MP a page may draw); page 2 paints nothing.
+ * presentational) are honoured. Page 1 paints three 36 MP images (108 MP,
+ * past the 100 MP a page may draw; three 25 MP images until the page
+ * budget was 100 MP, round 4); page 2 paints nothing.
  *
  * History (review r3, 2026-11-14): drawPageNote named its canvas, then the
  * Viewer and the editor set `aria-hidden` on it, and the rail's and the
@@ -20,7 +21,7 @@ import { rawPdf } from "../src/tests/hostile/conversion-out.fixtures";
 
 function overBudgetPdf(): Buffer {
   const stub = {
-    dict: "/Type /XObject /Subtype /Image /Width 5000 /Height 5000 /BitsPerComponent 8 /ColorSpace /DeviceRGB /Filter /FlateDecode",
+    dict: "/Type /XObject /Subtype /Image /Width 6000 /Height 6000 /BitsPerComponent 8 /ColorSpace /DeviceRGB /Filter /FlateDecode",
     stream: new Uint8Array([0x78, 0x9c]),
   };
   return Buffer.from(

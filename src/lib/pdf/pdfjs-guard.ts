@@ -209,15 +209,23 @@ export const RASTER_MAX_IMAGE_PIXELS = MAX_DECODED_PIXELS / 2;
 export const RASTER_MAX_BILEVEL_PIXELS = MAX_DECODED_PIXELS * 4;
 
 /**
- * The most image pixels one PAGE may paint on the raster path, its distinct
- * images summed: 50,000,000, as many as ONE image may have
- * ({@link RASTER_MAX_IMAGE_PIXELS}), so a page never costs more than the
- * worst single image the budget already admits.
+ * The most image pixels one PAGE may paint on the raster path, every paint
+ * summed: the product's pixel ceiling ({@link MAX_DECODED_PIXELS},
+ * 100,000,000), twice what ONE image may have
+ * ({@link RASTER_MAX_IMAGE_PIXELS}). Defined BY the ceiling, never as a
+ * literal (`pdf-page-images.test.ts` reads the definition).
+ *
+ * Why the ceiling and not the per-image budget (owner ruling, round 4,
+ * 2026-11-14): at 50 MP, real pages main draws were newly noted and refused
+ * (a 60 MP catalogue page main draws in 3.5 s; 72 MP photo-book pages, 11.7
+ * s). A page at 100 MP costs ~15 s in the editor (below), the same class as
+ * the single 49 MP image main already admits (10 s). History: until then
+ * this was RASTER_MAX_IMAGE_PIXELS, "so a page never costs more than the
+ * worst single image the budget already admits".
  *
  * What is summed is what the page's content PAINTS (`./pdf-page-images`):
- * each image it draws once (pdf.js decodes an image once per page, by its
- * reference, however often the page paints it), every inline image each
- * time it is read, through forms, patterns, Type3 glyphs, soft masks and
+ * every paint of an image (pdf.js decodes an image once per page but paints
+ * it again at every `Do`), every inline image each time it is read, through forms, patterns, Type3 glyphs, soft masks and
  * annotation appearances. A bilevel image counts at
  * RASTER_MAX_IMAGE_PIXELS / RASTER_MAX_BILEVEL_PIXELS (one eighth) of its
  * pixels, so one bilevel image at ITS budget fills a page exactly as one
@@ -230,24 +238,27 @@ export const RASTER_MAX_BILEVEL_PIXELS = MAX_DECODED_PIXELS * 4;
  * src/tests/hostile/page-images.child.ts; time to draw, memory added):
  *
  *   one 49 MP image (the per-image budget's worst)   10.2 s,   +490 MB
- *   two 25 MP (50 MP, at this budget)                 7.4 s,   +470 MB
- *   four 12.5 MP (50 MP, at this budget)              6.0 s,   +324 MB
+ *   two 25 MP (50 MP)                                 7.4 s,   +470 MB
+ *   four 12.5 MP (50 MP)                              6.0 s,   +324 MB
  *   two 36 MP (72 MP)                                13.9 s,   +571 MB
- *   four 25 MP (100 MP)                              14.8 s,   +752 MB
+ *   four 25 MP (100 MP, at this budget)              14.8 s,   +752 MB
  *   ten 49 MP (490 MP, PR #306's page)              104.1 s, +2,839 MB
  *
- * At the budget a page costs no more than the worst single image already
- * admitted; past it, time and memory grow with the sum. The ten-image page
- * is now a note in 0.2 s (+8 MB).
+ * At the budget a page costs about what the worst single image already
+ * admitted does; past it, time and memory grow with the sum. The ten-image
+ * page is now a note in 0.2 s (+8 MB).
+ *
+ * An ENCRYPTED file is not weighed at all (see `preflightPdfjsBytes`): its
+ * pages are drawn and converted exactly as before this budget existed.
  *
  * Not a sum over the FILE: a 300-page scan of one 9 MP image a page weighs
  * 9 MP a page, and draws as it did. A page past the sum is drawn on a
  * preview as a note saying so, and refused by name on a path that writes
  * pixels ({@link pageImageVerdict}, {@link refuseOverBudgetPages}).
  */
-export const RASTER_MAX_PAGE_IMAGE_PIXELS = RASTER_MAX_IMAGE_PIXELS;
+export const RASTER_MAX_PAGE_IMAGE_PIXELS = MAX_DECODED_PIXELS;
 
-/** A pixel count as copy states it: 50,000,000 is "50". */
+/** A pixel count as copy states it: 100,000,000 is "100". */
 const megapixels = (px: number): string => (px / 1e6).toLocaleString("en-US");
 
 /**
@@ -1985,8 +1996,9 @@ export async function scanPdfStreams(
     // (a soft mask has no /Subtype to say it is an image).
     const pixels = imagePixels(entries, numberObject);
     // pdf.js sizes a JPEG 2000 image from its codestream when JPX is the
-    // first filter; an encrypted file's data is ciphertext here, and the
-    // page map sizes its images from the decrypted codestream instead.
+    // first filter; an encrypted file's data is ciphertext here, so its JPX
+    // images are sized by their dictionaries alone, as main sizes every one
+    // (nothing here decrypts: owner ruling D1, round 4).
     const firstFilter = filtersOf(entries)[0];
     const jpx =
       maybeImage &&
@@ -2585,6 +2597,9 @@ export interface PageTreeCost {
  * The page budget ({@link RASTER_MAX_PAGE_IMAGE_PIXELS}) is decided here
  * too: when the scan's fast path ({@link fileImageWeight}) cannot rule out
  * a page past it, every page is weighed ({@link PdfjsPreflight.pages}).
+ * Never in an encrypted file (a trailer names /Encrypt, see
+ * {@link encryptedTrailer}): the map does not decrypt, so such a file is
+ * drawn and converted as before the budget (owner ruling D1).
  *
  * The refusals carry no `kind`: the file is not unreadable, it is more than
  * this tier will process.
@@ -2610,7 +2625,12 @@ export async function preflightPdfjsBytes(
   );
   const pageTree = { entries: scan.pageTreeEntries, nodes: scan.pageTreeNodes };
   const skipAbove = smallest === Infinity ? Infinity : smallest - 1;
+  // An encrypted file is never mapped (owner ruling D1, round 4): no page
+  // verdict, no note, no refusal from the page budget, and no main-thread
+  // time spent on it, exactly as before the budget existed. Fail-open, by
+  // decision: see ./pdf-page-images's docblock.
   const pages =
+    !scan.encrypted &&
     fileImageWeight(scan, skipAbove) > RASTER_MAX_PAGE_IMAGE_PIXELS
       ? await mapPages(bytes, skipAbove)
       : null;
@@ -2687,32 +2707,27 @@ export function fileImageWeight(
 /**
  * The scanner's own pieces, handed to `./pdf-page-images`; exported for its
  * tests. `jpx` is the scan's {@link PdfStreamScan.jpx}: JPEG 2000 images
- * cost their codestream's size there as here.
+ * cost their codestream's size there as here. Never for an encrypted file
+ * (see `pageImageReader`): the map reads stream data as it is stored.
  */
 export function pageScanTools(
-  encrypted: boolean,
   jpx: ReadonlyMap<number, number> = new Map(),
   counts: ReadonlyMap<number, ContentCount | null> = new Map(),
 ): PageScanTools {
   return {
     decodeBudget: MAX_DECODED_TOTAL_BYTES,
     counts,
-    // An encrypted file's streams reach `decode` decrypted, when the map
-    // could open its security handler with no password (and not at all
-    // when it could not).
-    encrypted,
     decodeTo: decodeStreamTo,
     unchanged: (names) =>
       names.every((n) => !LZW.has(n) && stageOf(n) === "identity"),
     ops: (hook: OpHook, geometry = true) =>
       new ContentOps(true, hook, geometry),
-    jpx: jpxPixels,
-    image: (dict, numberOf, maskDict, num, codestream = null) => {
+    image: (dict, numberOf, maskDict, num) => {
       const entries = dictEntries(dict);
       const own = imagePixels(entries, numberOf);
       const bilevel = isBilevel(entries);
       let cost: number | null =
-        own === null ? null : Math.max(own, jpx.get(num) ?? 0, codestream ?? 0);
+        own === null ? null : Math.max(own, jpx.get(num) ?? 0);
       if (!bilevel) {
         for (const v of valuesOf(entries, "SMask", "Mask")) {
           if (v.kind !== "ref") continue;
@@ -3075,16 +3090,23 @@ function encryptedTrailer(
   return outside === 0;
 }
 
+/**
+ * The page map's reader for `bytes`, built once; never for an encrypted file
+ * (owner ruling D1): its streams are ciphertext and the map does not
+ * decrypt, so nothing is read and the answer is that it was not mapped.
+ */
 function pageImageReader(
   bytes: Uint8Array,
 ): Promise<PageImages | { incomplete: string }> {
   const kept = pageImageReaders.get(bytes);
   if (kept && kept.length === bytes.length) return kept.reader;
-  const encrypted = encryptedFiles.get(bytes) ?? encryptedTrailer(bytes, null);
-  const reader = PageImages.open(
-    bytes,
-    pageScanTools(encrypted, jpxSizes.get(bytes), contentCounts.get(bytes)),
-  );
+  const reader =
+    (encryptedFiles.get(bytes) ?? encryptedTrailer(bytes, null))
+      ? Promise.resolve({ incomplete: "encrypted: not mapped" })
+      : PageImages.open(
+          bytes,
+          pageScanTools(jpxSizes.get(bytes), contentCounts.get(bytes)),
+        );
   pageImageReaders.set(bytes, { length: bytes.length, reader });
   return reader;
 }
@@ -3177,6 +3199,9 @@ export async function imagePlacements(
   skipAbove: number,
 ): Promise<Box[] | null> {
   if (!ref) return null;
+  // An encrypted file is not read (see `pageImageReader`): no answer. (No
+  // consumer asks: Auto-crop, the one caller, refuses encrypted files at
+  // its pdf-lib load, before any render.)
   const reader = await pageImageReader(bytes);
   if (!(reader instanceof PageImages)) return null;
   const found = await reader.placements(ref.num, skipAbove);

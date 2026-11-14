@@ -33,8 +33,11 @@ const run = (c: string, ms: number) =>
   runBounded(CHILD, [c], ms, { maxOldSpaceMb: 2048 }).then(settled);
 
 describe("a page whose images together pass the page budget reaches an outcome in bounded time and memory", () => {
-  test("the budget is the per-image one: a page never costs more than the worst single image already admitted", () => {
-    expect(RASTER_MAX_PAGE_IMAGE_PIXELS).toBe(50_000_000);
+  test("the budget is the pixel ceiling, 100 MP: a page costs about what the worst single image already admitted does", () => {
+    // History: until round 4 (2026-11-14) this was "the budget is the
+    // per-image one" and pinned 50,000,000; real 60 MP and 72 MP pages main
+    // draws were then noted and refused. Owner ruling D2. Inverted.
+    expect(RASTER_MAX_PAGE_IMAGE_PIXELS).toBe(100_000_000);
     // The copy states the figure from the constant.
     expect(pageImagesTooLargeMessage(3)).toContain("Page 3 ");
     expect(pageImagesTooLargeMessage(3)).toContain(
@@ -131,13 +134,13 @@ describe("a page whose images together pass the page budget reaches an outcome i
 describe("long scans and shared structures stay unaffected", () => {
   test("120 pages of one image each, one shared /Resources, object streams: every page mapped under the budget", async () => {
     const v = await run("preflight-long-scan", 60_000);
-    // Health: the map was built (59 MP in all is past the page budget) and
-    // found every page through the object streams.
+    // Health: the map was built (120 MP in all is past the page budget)
+    // and found every page through the object streams.
     expect(v).toMatchObject({
       ok: true,
       mapped: 120,
       incomplete: null,
-      heaviest: 700 * 700,
+      heaviest: 1000 * 1000,
     });
   }, 90_000);
 
@@ -153,13 +156,17 @@ describe("long scans and shared structures stay unaffected", () => {
     expect(v).toMatchObject({ ok: true, rendered: [0, 59, 119] });
   }, 180_000);
 
-  test("forms painting one image four times: every paint counts (64 MP), and the page is a note", async () => {
+  test("forms painting one image four times: every paint counts (144 MP), and the page is a note", async () => {
     // History (hostile review r1, 2026-11-14): this asserted 16 MP and a
     // drawn page, "pdf.js decodes it once per page". It decodes once and
     // PAINTS four times, each paint O(the image's pixels) on the main
     // thread (one 16 MP image painted 60 times drew for 180 s). Inverted.
+    // (A 16 MP image, 64 MP, until the page budget was 100 MP: D2.)
     const p = await run("preflight-forms-twice", 60_000);
-    expect(p).toMatchObject({ mapped: 2, weights: [36_000_000, 64_000_000] });
+    expect(p).toMatchObject({
+      mapped: 2,
+      weights: [36_000_000, 144_000_000],
+    });
     const v = await run("editor-forms-twice", 120_000);
     expect(v.pages).toEqual([{ kind: "note", inked: false }]);
   }, 200_000);
@@ -183,6 +190,15 @@ describe("Auto-crop never decodes an image past its budget, and never crops it a
     expect(plan.perPage[0]!.bottom).toBeLessThan(20);
     // 100 MP decoded is 400 MB of RGBA at least.
     expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
+  }, 90_000);
+
+  test("owner ruling D1: Auto-crop refuses a restricted file at its load, as main does, so no placement is ever asked of an unmapped file", async () => {
+    // The map does not read an encrypted file, so it has no placements:
+    // this is the consumer that would ask for them. It never reaches the
+    // render (pdf-lib's load refuses any /Encrypt), here as on main.
+    const v = await run("autocrop-over-restricted", 60_000);
+    expect(v.error).toMatchObject({ name: "PdfEncryptedError" });
+    expect(v.plan).toBeUndefined();
   }, 90_000);
 
   test("CO-08 inside a tiling pattern: its placement is not followed, so the page is kept whole and named", async () => {
@@ -215,6 +231,24 @@ describe("hostile review r1/r2 (2026-11-14): the consumers, not the map", () => 
     expect(v.pages).toEqual([{ kind: "note", inked: false }]);
     expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
   }, 90_000);
+
+  test("owner ruling D1: an encrypted page past the page budget is written and drawn exactly as main does (fail-open, by decision); the same page plain is refused and noted", async () => {
+    // One 9 MP image painted 12 times (108 MP). Positive control first:
+    // unencrypted, the page budget refuses and notes it.
+    const plain = await run("raster-paint12", 60_000);
+    expect(plain.error).toEqual({
+      name: "PdfEngineError",
+      message: pageImagesTooLargeMessage(1),
+    });
+    const plainView = await run("viewer-paint12", 60_000);
+    expect(plainView.pages).toEqual([{ kind: "note", inked: false }]);
+    // Restricted (no open password): no page verdict, so PDF to JPG writes
+    // it and the Viewer draws it, ink and all, as main does.
+    const raster = await run("raster-paint12-restricted", 150_000);
+    expect(raster).toMatchObject({ ok: true, rendered: [0] });
+    const viewer = await run("viewer-paint12-restricted", 150_000);
+    expect(viewer.pages).toEqual([{ kind: "page", inked: true }]);
+  }, 420_000);
 
   test("a restricted (no open password) object-stream scan of 9 MP pages: PDF to JPG writes every page, the Viewer draws every page", async () => {
     // Before: every Viewer page a note, PDF to JPG refused the file; main
