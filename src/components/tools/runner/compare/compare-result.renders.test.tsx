@@ -1,34 +1,45 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ComparablePdfText } from "@/lib/pdf/compare-pdf";
+import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type {
+  ComparablePdfText,
+  PdfCompareResult,
+} from "@/lib/pdf/compare-pdf";
+import {
+  CompareChanges,
+  ROWS_SHOWN,
+  compareExtractedPdfText,
+} from "./compare-result";
 
 /*
- * Every drawn row of a change calls `cn` twice (its row and its sign), so
- * counting `cn` counts the rows a render touched. The stub delegates to the
- * real one, so a module that caches it still renders correctly.
+ * A row is drawn by reading its step, `hunk.ops[i]`, so counting the index
+ * reads of every hunk's steps counts the rows a render touched. No module
+ * is mocked: the suite shares one module cache, and src/tests/mock-isolation
+ * .test.ts forbids a stub the view could stay bound to. (The first version
+ * of this file counted calls to a mocked `cn`, on 2026-11-14, and that guard
+ * flagged it.) A hunk's heading is drawn by reading its `leftPages`, so
+ * those reads count the sections a render touched (plus one for the live
+ * line, which names the current hunk).
  */
-const calls = vi.hoisted(() => ({ n: 0 }));
-vi.mock("@/lib/utils", async (importOriginal) => {
-  const real = await importOriginal<typeof import("@/lib/utils")>();
-  return {
-    ...real,
-    cn: (...args: Parameters<typeof real.cn>) => {
-      calls.n += 1;
-      return real.cn(...args);
-    },
-  };
-});
-
-// The suite shares one module cache (isolate: false): another file may have
-// evaluated the view already, bound to the real `cn` (seen in the full run
-// on 2026-11-14: the health check below read 0 calls). Evaluate it afresh,
-// under the stub, with React and the testing library from the same fresh
-// registry so there is one React.
-vi.resetModules();
-const { cleanup, fireEvent, render, screen } =
-  await import("@testing-library/react");
-const { CompareChanges, ROWS_SHOWN, compareExtractedPdfText } =
-  await import("./compare-result");
+const reads = { n: 0 };
+const heads = { n: 0 };
+function counted(result: PdfCompareResult): PdfCompareResult {
+  const hunks = result.hunks.map((hunk) => {
+    hunk.ops = new Proxy(hunk.ops, {
+      get(target, key, receiver) {
+        if (typeof key === "string" && /^\d+$/.test(key)) reads.n += 1;
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    return new Proxy(hunk, {
+      get(target, key, receiver) {
+        if (key === "leftPages") heads.n += 1;
+        return Reflect.get(target, key, receiver);
+      },
+    });
+  });
+  return { ...result, hunks };
+}
 
 afterEach(cleanup);
 
@@ -79,48 +90,55 @@ function manyHunks(pages: number) {
  */
 describe("the changes view: a press draws only new rows", () => {
   it("health: the first draw touches every drawn row", () => {
-    const result = oneLongHunk(3_000);
-    calls.n = 0;
+    const result = counted(oneLongHunk(3_000));
+    reads.n = 0;
     render(
       <CompareChanges result={result} options={{}} onOptions={() => {}} />,
     );
     const changed = document.querySelectorAll("tr[data-kind]").length;
     expect(document.querySelectorAll("tr")).toHaveLength(ROWS_SHOWN);
-    expect(calls.n).toBeGreaterThanOrEqual(2 * changed);
+    expect(changed).toBeGreaterThan(200);
+    expect(reads.n).toBeGreaterThanOrEqual(ROWS_SHOWN);
   });
 
   it("each Show more of this change touches its new rows, not the ones before", () => {
-    const result = oneLongHunk(3_000);
+    const result = counted(oneLongHunk(3_000));
     render(
       <CompareChanges result={result} options={{}} onOptions={() => {}} />,
     );
     const more = () =>
       screen.getByRole("button", { name: /show more of this change/i });
     for (let press = 1; press <= 4; press += 1) {
-      const before = document.querySelectorAll("tr[data-kind]").length;
-      calls.n = 0;
+      const before = document.querySelectorAll("tr").length;
+      reads.n = 0;
       fireEvent.click(more());
-      const added = document.querySelectorAll("tr[data-kind]").length - before;
+      const added = document.querySelectorAll("tr").length - before;
       expect(added).toBeGreaterThan(0);
-      // The new rows, at two calls each, plus the last block before them
-      // (it grew) and a handful for the region: never the whole drawn list.
-      // Health: re-rendering every drawn row would pass that bound.
-      expect(2 * (before + added)).toBeGreaterThan(2 * added + 220);
-      expect(calls.n, `press ${press}`).toBeLessThanOrEqual(2 * added + 220);
+      // The new rows, plus at most one block before them (it grew): never
+      // the whole drawn list. Health: re-reading every drawn row would pass
+      // that bound.
+      expect(before + added).toBeGreaterThan(added + 100);
+      expect(reads.n, `press ${press}`).toBeLessThanOrEqual(added + 100);
     }
   });
 
   it("Next change re-renders two headings, not the rows", () => {
-    const result = manyHunks(60);
+    const result = counted(manyHunks(60));
     render(
       <CompareChanges result={result} options={{}} onOptions={() => {}} />,
     );
     const drawnRows = document.querySelectorAll("tr[data-kind]").length;
     expect(drawnRows).toBeGreaterThan(50);
+    const sections = screen.getAllByRole("heading", { level: 3 }).length;
+    expect(sections).toBeGreaterThan(20);
     for (let press = 0; press < 5; press += 1) {
-      calls.n = 0;
+      reads.n = 0;
+      heads.n = 0;
       fireEvent.click(screen.getByRole("button", { name: "Next change" }));
-      expect(calls.n, `press ${press}`).toBeLessThan(20);
+      expect(reads.n, `press ${press}: rows`).toBe(0);
+      // The heading it left, the heading it reached, and the live line
+      // (which may read it twice): never every drawn section.
+      expect(heads.n, `press ${press}: sections`).toBeLessThanOrEqual(6);
     }
   });
 });
