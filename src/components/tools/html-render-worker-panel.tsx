@@ -480,7 +480,13 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
               ? `Pressing ${RUN_LABEL} starts a private secure-server job. Only public http(s) URLs are accepted; private/localhost targets are rejected.`
               : mode === "epub"
                 ? `Your EPUB uploads to a private secure-server job only when you press ${RUN_LABEL}. It is stored only for the short server lifecycle and wiped after processing. While it prints, nothing outside the book is fetched.`
-                : `Your HTML uploads to a private secure-server job only when you press ${RUN_LABEL}. It is stored only for the short server lifecycle and wiped after processing. Only the file itself is uploaded, so embed its images and stylesheets or link them with full https:// addresses.`}
+                : status?.htmlZip === true
+                  ? // A ZIP is offered: its own files ARE uploaded and served,
+                    // so the one-file advice is for an HTML file only (hostile
+                    // review round 3, 2026-11-14: it was shown for a picked
+                    // ZIP, under the ZIP's own note to add files to it).
+                    `Your HTML file or ZIP uploads to a private secure-server job only when you press ${RUN_LABEL}. It is stored only for the short server lifecycle and wiped after processing. An HTML file or pasted code is uploaded on its own, so embed its images and stylesheets or link them with full https:// addresses; a ZIP's files go with it and are served at their paths.`
+                  : `Your HTML uploads to a private secure-server job only when you press ${RUN_LABEL}. It is stored only for the short server lifecycle and wiped after processing. Only the file itself is uploaded, so embed its images and stylesheets or link them with full https:// addresses.`}
           </p>
         }
         off={
