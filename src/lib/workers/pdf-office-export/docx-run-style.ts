@@ -59,7 +59,7 @@
  * the PDF's fonts only when the reader's machine does, and embedding them is
  * a separate piece of work.
  */
-import type { FlowBox, FlowPiece, PdfFlowTextPage } from "../pdf-text/flow";
+import type { FlowPiece, PdfFlowTextPage } from "../pdf-text/flow";
 import { mapBox } from "./media-frame";
 import { HALF_POINTS_RANGE } from "./docx-structure";
 import type { ScannedPage, ScannedRun, ScannedTextLine } from "./page-scan";
