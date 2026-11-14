@@ -150,7 +150,13 @@ export function PageTile({
       role={interactive ? "button" : dragHandle ? "listitem" : undefined}
       tabIndex={interactive ? (tabIndex ?? 0) : undefined}
       aria-pressed={interactive ? selected : undefined}
-      aria-label={ariaLabel}
+      // As a button its contents are presentational: the note drawn in the
+      // page's place is heard only as part of its name.
+      aria-label={
+        interactive && ariaLabel && thumbnail?.note
+          ? `${ariaLabel}. ${thumbnail.note}`
+          : ariaLabel
+      }
       onClick={interactive ? (e) => onSelect?.(e.shiftKey) : undefined}
       onKeyDown={
         interactive
@@ -232,7 +238,7 @@ export function PageTile({
         ) : thumbnail ? (
           <img
             src={thumbnail.url}
-            alt=""
+            alt={thumbnail.note ?? ""}
             draggable={false}
             className="rounded-sheet max-h-[80%] max-w-[80%] bg-white object-contain shadow-md ring-1 shadow-black/40 ring-black/5 transition-transform duration-300"
             style={{ transform: `rotate(${drawn}deg)` }}

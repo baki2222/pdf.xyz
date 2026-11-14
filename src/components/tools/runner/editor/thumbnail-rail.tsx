@@ -70,6 +70,9 @@ function Thumb({
     () => typeof IntersectionObserver === "undefined",
   );
   const [over, setOver] = useState(false);
+  // The note drawn in place of a page past the page budget: a button's
+  // contents are presentational, so its name must carry the note itself.
+  const [note, setNote] = useState<string | null>(null);
   const scale = THUMB_WIDTH / page.width;
 
   useEffect(() => {
@@ -107,6 +110,7 @@ function Thumb({
         canvas.style.height = "100%";
         canvas.style.display = "block";
         node.replaceChildren(canvas);
+        setNote(canvas.getAttribute("aria-label"));
       });
     return () => controller.abort();
   }, [seen, doc, page.source, page.turn, scale]);
@@ -164,7 +168,7 @@ function Thumb({
             ops.onMove(index, index + 1);
           }
         }}
-        aria-label={`Go to page ${n} of ${count}`}
+        aria-label={`Go to page ${n} of ${count}${note ? `. ${note}` : ""}`}
         aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
         aria-current={current ? "page" : undefined}
         className={cn(

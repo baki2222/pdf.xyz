@@ -27,10 +27,7 @@ import {
   type PdfFrames,
   type VisiblePageFrame,
 } from "@/lib/pdf/page-frame";
-import {
-  createThumbnailRenderer,
-  type ThumbnailRenderer,
-} from "@/lib/pdf/render";
+import type { ThumbnailRenderer } from "@/lib/pdf/render";
 import { clampPixelRatio } from "@/lib/pdf/render-utils";
 import {
   classifyPdfAccess,
@@ -138,9 +135,11 @@ function SignaturePagePreview({
   page: number;
   fields: RequestSignatureField[];
 }) {
-  const [thumb, setThumb] = useState<{ page: number; url: string } | null>(
-    null,
-  );
+  const [thumb, setThumb] = useState<{
+    page: number;
+    url: string;
+    note?: string;
+  } | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -148,6 +147,11 @@ function SignaturePagePreview({
     let renderer: ThumbnailRenderer | null = null;
     (async () => {
       try {
+        // Loaded with the preview, not with the page: statically imported,
+        // the renderer rode this page's first load, and the page budget's
+        // additions split it out of the chunk it shared there: +688 B gz on
+        // this page against main (review r3, 2026-11-14).
+        const { createThumbnailRenderer } = await import("@/lib/pdf/render");
         renderer = await createThumbnailRenderer(bytes, {
           orientation: "displayed",
           pixelRatio: clampPixelRatio(window.devicePixelRatio || 1),
@@ -160,7 +164,7 @@ function SignaturePagePreview({
           return;
         }
         url = rendered.url;
-        setThumb({ page, url: rendered.url });
+        setThumb({ page, url: rendered.url, note: rendered.note });
       } catch {
         // No preview image; the blank sheet and the overlay still render.
       } finally {
@@ -173,7 +177,8 @@ function SignaturePagePreview({
     };
   }, [bytes, page]);
 
-  const image = thumb?.page === page ? thumb.url : null;
+  const shown = thumb?.page === page ? thumb : null;
+  const image = shown?.url ?? null;
   return (
     <figure className="flex flex-col items-center gap-2">
       <div
@@ -185,7 +190,7 @@ function SignaturePagePreview({
           // eslint-disable-next-line @next/next/no-img-element -- a blob: URL of a local render
           <img
             src={image}
-            alt=""
+            alt={shown?.note ?? ""}
             draggable={false}
             className="absolute inset-0 size-full"
           />

@@ -16,6 +16,12 @@ export interface Thumbnail {
   width: number;
   /** Rendered bitmap height, in device pixels. */
   height: number;
+  /**
+   * Set when the tile is a NOTE drawn in place of the page (its images
+   * together pass the page budget, `RASTER_MAX_PAGE_IMAGE_PIXELS`): the
+   * sentence drawn on it, for an accessible name.
+   */
+  note?: string;
 }
 
 /** CSS width (px) we aim for when rasterizing a page thumbnail. */
