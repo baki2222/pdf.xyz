@@ -102,7 +102,7 @@ export function HtmlPasteBox({
         aria-invalid={over || undefined}
         aria-describedby={describedBy}
         placeholder="<!doctype html>…"
-        className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 focus:ring-accent/50 rounded-ctl aria-invalid:border-err min-h-40 w-full border px-3 py-2 font-mono text-xs outline-none focus:ring-2"
+        className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 focus:ring-accent/50 rounded-ctl aria-invalid:border-err w-full border px-3 py-2 font-mono text-xs outline-none focus:ring-2"
       />
       <p id={hintId} className="text-muted text-xs leading-relaxed">
         Pasted code is not run in your browser: it is uploaded to our server as
@@ -113,7 +113,7 @@ export function HtmlPasteBox({
           ` Up to ${formatBytes(ceilingBytes)}, counted as uploaded.`}
       </p>
       {showCount && ceilingBytes !== null && (
-        <p id={countId} className="text-muted text-xs tabular-nums">
+        <p id={countId} className="text-muted tnum text-xs">
           {formatBytes(bytes)} of {formatBytes(ceilingBytes)}
         </p>
       )}

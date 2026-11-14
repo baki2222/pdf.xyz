@@ -238,6 +238,7 @@ export function copyFiles(): string[] {
     // refusals a reader meets (from the worker, and before upload in the
     // browser, in the same words) and the ZIP run's own failure lines.
     path.join(ROOT, "src", "lib", "workers", "html-render", "zip-config.ts"),
+    path.join(ROOT, "src", "lib", "workers", "html-render", "zip-names.ts"),
     path.join(ROOT, "src", "lib", "workers", "html-zip-client.ts"),
     // Excel to PDF's layout labels and hints (one page per sheet,
     // orientation, fit columns to width; the .xlsx-only note)

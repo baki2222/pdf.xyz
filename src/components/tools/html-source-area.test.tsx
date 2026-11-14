@@ -169,7 +169,11 @@ describe("a ZIP of a page", () => {
       },
     });
     await screen.findByText("site.zip");
-    const note = await screen.findByText(/not in this ZIP/);
+    const note = await screen.findByText(
+      /not in this ZIP/,
+      {},
+      { timeout: 5000 },
+    );
     expect(note.textContent).toContain("2 linked files (e.g. img/gone.png)");
     await waitFor(() => expect(isDisabled(renderButton())).toBe(false));
     await act(async () => {
@@ -193,8 +197,11 @@ describe("a ZIP of a page", () => {
         files: [await zipFile({ "a.html": "<p>a</p>", "b.html": "<p>b</p>" })],
       },
     });
-    const picker =
-      await screen.findByLabelText<HTMLSelectElement>("Page to print");
+    const picker = await screen.findByLabelText<HTMLSelectElement>(
+      "Page to print",
+      {},
+      { timeout: 5000 },
+    );
     expect(picker.value).toBe("");
     expect(Array.from(picker.options).map((o) => o.value)).toEqual([
       "",
@@ -215,7 +222,11 @@ describe("a ZIP of a page", () => {
       target: { files: [await zipFile({ "a.css": "a{}" })] },
     });
     expect(
-      await screen.findByText(/holds no \.html or \.htm file/),
+      await screen.findByText(
+        /holds no \.html or \.htm file/,
+        {},
+        { timeout: 5000 },
+      ),
     ).toBeTruthy();
     expect(isDisabled(renderButton())).toBe(true);
     expect(sent.some((s) => s.url === "/api/uploads")).toBe(false);

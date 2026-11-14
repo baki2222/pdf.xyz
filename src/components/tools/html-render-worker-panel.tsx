@@ -193,18 +193,15 @@ const WorkerBatch = dynamic(
  * HTML to PDF's input — a file, pasted code, or a ZIP of a page — in its own
  * chunk (`./html-source-area`): this panel also serves Webpage and EPUB to
  * PDF, whose pages load none of it. Server-rendered, so the drop box is in
- * the page's HTML as it was.
+ * the page's HTML as it was — and with NO `loading` option, deliberately:
+ * with one, the prerendered page carried the placeholder in its shell and
+ * the drop box in a deferred segment at the end of the document
+ * (`<div hidden id="S:0">`, measured 2026-11-14), and the first-visit e2e
+ * found no drop area on the first screen. Without it the box is inline, as
+ * the outer panel loaders' content is.
  */
-const HtmlSourceArea = dynamic(
-  () => import("./html-source-area").then((m) => m.HtmlSourceArea),
-  {
-    loading: () => (
-      <div
-        aria-hidden
-        className="border-line bg-wash rounded-panel h-24 border"
-      />
-    ),
-  },
+const HtmlSourceArea = dynamic(() =>
+  import("./html-source-area").then(({ HtmlSourceArea }) => HtmlSourceArea),
 );
 
 /** An HTML file or pasted code: nothing to wait for, run as a file. */

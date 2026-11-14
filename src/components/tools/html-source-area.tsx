@@ -11,10 +11,8 @@ import {
 import {
   HTML_ZIP_NOT_RUNNING_MESSAGE,
   isZipName,
-} from "@/lib/workers/html-render/zip-config";
+} from "@/lib/workers/html-render/zip-names";
 import type { ZipInspection } from "@/lib/workers/html-render/zip-inspect";
-import { toolTakesFile } from "@/lib/uploads/pick-check";
-import { ceilingRefusal } from "@/lib/tools/ceiling-message";
 import type { HtmlRenderWorkerInput } from "@/lib/workers/html-render-client";
 import type {
   PdfSecurityWorkerOptions,
@@ -58,7 +56,7 @@ const HtmlPasteBox = dynamic(
     loading: () => (
       <div
         aria-hidden
-        className="border-line bg-wash rounded-ctl h-48 border"
+        className="border-line bg-wash rounded-ctl h-40 border"
       />
     ),
   },
@@ -222,7 +220,7 @@ export function HtmlSourceArea({
     onState({
       blocked: null,
       run: (input, controls) =>
-        import("@/lib/workers/html-zip-client").then(
+        import("@/lib/workers/html-render/zip-inspect").then(
           ({ runWorkerHtmlZipToPdf }) =>
             runWorkerHtmlZipToPdf({ ...input, entry: page }, controls),
         ),
@@ -230,18 +228,21 @@ export function HtmlSourceArea({
   }, [zip, zipOffered, inspection, entry, onState]);
 
   // A ZIP is judged by its name and the ceiling here; whether its insides
-  // can be printed is the reader's question (above) and the worker's.
+  // can be printed is the reader's question (above) and the worker's. Both
+  // through the page's own check (`refuse`), asked about an HTML file of the
+  // same size: a second importer of the pick check would split it out of the
+  // module every worker page concatenates it into (+36 B on each, measured).
   const pickRefuse = useCallback(
     (picked: File): string | null => {
-      if (zipOffered && isZipName(picked.name))
-        return ceilingBytes !== null && picked.size > ceilingBytes
-          ? ceilingRefusal(tool.name, ceilingBytes)
-          : null;
-      if (zipOffered && !toolTakesFile(tool, picked))
+      const sized = { name: "page.html", type: "text/html", size: picked.size };
+      const tooBig = refuse(sized as File);
+      if (zipOffered && isZipName(picked.name)) return tooBig;
+      const verdict = refuse(picked);
+      if (zipOffered && verdict !== null && tooBig === null)
         return `"${picked.name}" isn't a file ${tool.name} takes — it works on HTML or HTM files, or a ZIP of a page and its files.`;
-      return refuse(picked);
+      return verdict;
     },
-    [zipOffered, ceilingBytes, refuse, tool],
+    [zipOffered, refuse, tool],
   );
   const accept = zipOffered ? ZIP_ACCEPT : HTML_ACCEPT;
   const pickerId = useId();

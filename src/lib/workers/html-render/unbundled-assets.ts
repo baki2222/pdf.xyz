@@ -1,5 +1,5 @@
 import { HTML_DOCUMENT_URL } from "./document-url";
-import { zipEntryOfUrl } from "./zip-config";
+import { zipEntryOfUrl } from "./zip-names";
 
 /**
  * Which of an uploaded HTML file's references will NOT be in the PDF, told to

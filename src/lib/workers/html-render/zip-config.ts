@@ -1,6 +1,6 @@
 /**
  * HTML to PDF's ZIP input — a page and the files it links, in one archive —
- * as a LEAF with no imports, so the three places that must agree read ONE
+ * as a LEAF (its one import is the leaf `./zip-names`), so the three places that must agree read ONE
  * definition:
  *
  *   - the worker, which opens the archive within these bounds and serves its
@@ -44,13 +44,6 @@
 
 const MIB = 1024 * 1024;
 
-/**
- * Where a document is served from, for Chromium's eyes only. The SAME value
- * as `HTML_DOCUMENT_URL` in `./document-url` (`zip-site.test.ts` holds the
- * two equal), written out because this module stays import-free.
- */
-const DOCUMENT_URL = "https://document.invalid/";
-
 /** The most files (ZIP entries, folders included) one archive may hold. */
 export const HTML_ZIP_MAX_ENTRIES = 4_000;
 
@@ -91,11 +84,6 @@ export const HTML_ZIP_MIMES: readonly string[] = [
 
 /** The type the browser client declares for a ZIP upload. */
 export const HTML_ZIP_DECLARED_MIME = "application/zip";
-
-/** True for a file name a ZIP upload is recognised by. */
-export function isZipName(name: string): boolean {
-  return /\.zip$/i.test(name.trim());
-}
 
 /**
  * True when `name` is an entry path the worker can serve: no backslash, no
@@ -202,17 +190,6 @@ export function parseHtmlZipEntryOption(
   return { ok: true, entry: raw };
 }
 
-/**
- * The refusal when a ZIP reaches an API while the running worker cannot
- * print one (`htmlZip` absent or false on the live heartbeat). The page
- * stops offering ZIP on the same signal, so a reader meets this only when
- * the worker changed between the page's check and the upload, or from a
- * direct API call.
- */
-export const HTML_ZIP_NOT_RUNNING_MESSAGE =
-  "Our server can't open ZIP files for HTML to PDF right now, so this ZIP was not converted. Upload the page's .html file on its own, with its pictures and styles embedded or linked by full https:// addresses.";
-
-/** Why a ZIP cannot be printed. Each is final: the same archive fails alike. */
 export type HtmlZipRefusal =
   | { kind: "unreadable" }
   | { kind: "bomb"; limit: "entries" | "unpacked" | "ratio" }
@@ -246,40 +223,12 @@ export function htmlZipRefusalMessage(refusal: HtmlZipRefusal): string {
   }
 }
 
-/**
- * The archive entry a URL at the document origin names, or null: for any
- * other URL, for a path that ends in `/`, and for any segment that is empty
- * or decodes to `.`, `..`, or something holding `/`, `\` or NUL. Never
- * clamped and never reinterpreted: a request that does not name an entry
- * exactly is answered 404.
- */
-export function zipEntryOfUrl(url: string): string | null {
-  if (!url.startsWith(DOCUMENT_URL)) return null;
-  const rest = url.slice(DOCUMENT_URL.length).replace(/[?#].*$/s, "");
-  if (rest === "" || rest.endsWith("/")) return null;
-  const out: string[] = [];
-  for (const raw of rest.split("/")) {
-    let segment: string;
-    try {
-      segment = decodeURIComponent(raw);
-    } catch {
-      return null;
-    }
-    if (
-      segment === "" ||
-      segment === "." ||
-      segment === ".." ||
-      segment.includes("/") ||
-      segment.includes("\\") ||
-      segment.includes("\0")
-    )
-      return null;
-    out.push(segment);
-  }
-  return out.join("/");
-}
-
-/** The URL Chromium is sent to for the entry at archive path `name`. */
-export function zipEntryUrl(name: string): string {
-  return DOCUMENT_URL + name.split("/").map(encodeURIComponent).join("/");
-}
+// What the HTML to PDF page needs on its FIRST load lives in `./zip-names`,
+// apart from this module's bounds, entry rules and refusal words (which load
+// with the ZIP picker): re-exported, so there is still one definition.
+export {
+  HTML_ZIP_NOT_RUNNING_MESSAGE,
+  isZipName,
+  zipEntryOfUrl,
+  zipEntryUrl,
+} from "./zip-names";

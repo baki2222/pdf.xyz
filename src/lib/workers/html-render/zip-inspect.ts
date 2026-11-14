@@ -32,6 +32,10 @@ import {
   type ArchiveContents,
 } from "./unbundled-assets";
 
+// The ZIP run comes with the reader, in the chunk the pick already fetched:
+// one async chunk fewer in every page's chunk map.
+export { runWorkerHtmlZipToPdf } from "../html-zip-client";
+
 const S_IFMT = 0o170000;
 const S_IFLNK = 0o120000;
 
