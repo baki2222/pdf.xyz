@@ -29,6 +29,23 @@ import {
 /** The share of the ceiling past which the byte count is shown. */
 export const COUNT_FROM = 0.8;
 
+/**
+ * Two sizes in words that tell them apart: `formatBytes` rounds to one
+ * decimal, so just past the ceiling both read "20.0 MB" and the alert said
+ * "This HTML is 20.0 MB, over the 20.0 MB" (surface review round 2,
+ * 2026-11-14). When the rounded figures agree, both are given in bytes.
+ */
+export function distinctSizes(
+  bytes: number,
+  ceiling: number,
+): [string, string] {
+  const a = formatBytes(bytes);
+  const b = formatBytes(ceiling);
+  if (a !== b || bytes === ceiling) return [a, b];
+  const exact = (n: number) => `${n.toLocaleString("en-US")} bytes`;
+  return [exact(bytes), exact(ceiling)];
+}
+
 /** How long typing must pause before the text becomes the file. */
 const SETTLE_MS = 250;
 
@@ -63,6 +80,8 @@ export function HtmlPasteBox({
   const bytes = text === "" ? 0 : pastedHtmlByteLength(text);
   const over = ceilingBytes !== null && bytes > ceilingBytes;
   const showCount = ceilingBytes !== null && bytes >= ceilingBytes * COUNT_FROM;
+  const [sizeText, ceilingText] =
+    ceilingBytes !== null ? distinctSizes(bytes, ceilingBytes) : ["", ""];
 
   // The text becomes the file once typing settles. The file handed on
   // before is withdrawn AT ONCE on any change — not only when the text is
@@ -127,15 +146,14 @@ export function HtmlPasteBox({
       </p>
       {showCount && ceilingBytes !== null && (
         <p id={countId} className="text-muted tnum text-xs">
-          {formatBytes(bytes)} of {formatBytes(ceilingBytes)}
+          {sizeText} of {ceilingText}
         </p>
       )}
       {over && ceilingBytes !== null && (
         <p id={errorId} role="alert" className="text-err text-xs">
-          This HTML is {formatBytes(bytes)}, over the{" "}
-          {formatBytes(ceilingBytes)} HTML to PDF takes in one run. Remove some
-          of it, or move large images into files linked by full https://
-          addresses.
+          This HTML is {sizeText}, over the {ceilingText} HTML to PDF takes in
+          one run. Remove some of it, or move large images into files linked by
+          full https:// addresses.
         </p>
       )}
     </div>

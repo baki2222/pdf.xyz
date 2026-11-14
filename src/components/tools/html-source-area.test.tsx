@@ -33,7 +33,7 @@ import { resolveAiReadiness } from "@/lib/workers/ai/readiness";
 import { toolRunInfoFor } from "@/lib/tools/tool-run-info";
 import { formatBytes } from "@/lib/utils";
 import { HtmlRenderWorkerPanel } from "./html-render-worker-panel";
-import { COUNT_FROM } from "./html-paste-box";
+import { COUNT_FROM, distinctSizes } from "./html-paste-box";
 import { getToolContent } from "@/lib/tools/content";
 import { HTML_ZIP_PAGE_CHOICE_SENTENCES } from "@/lib/workers/html-render/zip-config";
 
@@ -367,6 +367,30 @@ describe("the paste box", () => {
       error.id,
     );
     expect(isDisabled(renderButton())).toBe(true);
+  }, 30_000);
+
+  // Surface review round 2 (2026-11-14): one byte over, both figures read
+  // "20.0 MB" and the alert contradicted itself.
+  it("just over the ceiling, the two sizes read differently", async () => {
+    const { box } = await openPaste();
+    // The upload is the text plus a 3-byte mark: ONE byte over.
+    fireEvent.change(box, { target: { value: "a".repeat(CEILING - 2) } });
+    expect(box.getAttribute("aria-invalid")).toBe("true");
+    const alert = screen.getByRole("alert").textContent ?? "";
+    const exact = (n: number) => `${n.toLocaleString("en-US")} bytes`;
+    expect(alert).toContain(
+      `This HTML is ${exact(CEILING + 1)}, over the ${exact(CEILING)}`,
+    );
+    expect(
+      screen.getByText(`${exact(CEILING + 1)} of ${exact(CEILING)}`),
+    ).toBeTruthy();
+    // POSITIVE CONTROL: well over, the short figures differ and are kept.
+    expect(distinctSizes(CEILING * 2, CEILING)).toEqual([
+      formatBytes(CEILING * 2),
+      formatBytes(CEILING),
+    ]);
+    // Health: the defect's own shape — the rounded figures DO agree here.
+    expect(formatBytes(CEILING + 1)).toBe(formatBytes(CEILING));
   }, 30_000);
 
   it("keeps keyboard focus: opening moves it into the box, closing leaves it on the same button (WCAG 2.4.3)", async () => {
