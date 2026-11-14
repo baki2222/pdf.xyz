@@ -388,6 +388,37 @@ describe("the paste box", () => {
     expect(close.isConnected).toBe(true);
   });
 
+  // Surface review round 2 (2026-11-14): after the text had been handed on,
+  // an edit left the OLD file in place for 250 ms, Render PDF enabled, and a
+  // press in that window uploaded the old text: the PDF silently showed
+  // content the box no longer held.
+  it("an edit withdraws the file it replaces at once: Render waits, and uploads the NEW text", async () => {
+    const { box, sent } = await openPaste();
+    const first = "<p>FIRST</p>";
+    const second = "<p>SECOND EDIT</p>";
+    fireEvent.change(box, { target: { value: first } });
+    await waitFor(() => expect(isDisabled(renderButton())).toBe(false));
+    fireEvent.change(box, { target: { value: second } });
+    // At once, before the text settles: nothing stale can be run.
+    expect(isDisabled(renderButton())).toBe(true);
+    await act(async () => {
+      fireEvent.click(renderButton());
+    });
+    expect(sent.some((s) => s.url === "/api/uploads")).toBe(false);
+    await waitFor(() => expect(isDisabled(renderButton())).toBe(false));
+    await act(async () => {
+      fireEvent.click(renderButton());
+    });
+    const upload = await waitFor(() => {
+      const found = sent.find((s) => s.url === "/api/uploads");
+      expect(found).toBeTruthy();
+      return found!;
+    });
+    expect(upload.body).toMatchObject({
+      files: [{ bytes: 3 + new TextEncoder().encode(second).byteLength }],
+    });
+  });
+
   it("closing the box drops what it handed on", async () => {
     const { box } = await openPaste();
     fireEvent.change(box, { target: { value: "<p>x</p>" } });

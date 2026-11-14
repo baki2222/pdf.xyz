@@ -64,17 +64,19 @@ export function HtmlPasteBox({
   const over = ceilingBytes !== null && bytes > ceilingBytes;
   const showCount = ceilingBytes !== null && bytes >= ceilingBytes * COUNT_FROM;
 
-  // The text becomes the file once typing settles — or at once when it is
-  // emptied or goes over the bound, so Run never starts on a stale file.
+  // The text becomes the file once typing settles. The file handed on
+  // before is withdrawn AT ONCE on any change — not only when the text is
+  // emptied or goes over the bound — so Run is held while the new text
+  // settles and never starts on a file the box no longer holds. (Until
+  // surface review round 2, 2026-11-14, an ordinary edit left the old file
+  // in place for those 250 ms, and Render PDF uploaded it.)
   const handed = useRef<string | null>(null);
   useEffect(() => {
-    if (text.trim() === "" || over) {
-      if (handed.current !== null) {
-        handed.current = null;
-        onFile(null);
-      }
-      return;
+    if (handed.current !== null && handed.current !== text) {
+      handed.current = null;
+      onFile(null);
     }
+    if (text.trim() === "" || over) return;
     const timer = setTimeout(() => {
       handed.current = text;
       onFile(
