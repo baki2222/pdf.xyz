@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ComparablePdfText } from "@/lib/pdf/compare-pdf";
 
 /*
@@ -20,6 +19,14 @@ vi.mock("@/lib/utils", async (importOriginal) => {
   };
 });
 
+// The suite shares one module cache (isolate: false): another file may have
+// evaluated the view already, bound to the real `cn` (seen in the full run
+// on 2026-11-14: the health check below read 0 calls). Evaluate it afresh,
+// under the stub, with React and the testing library from the same fresh
+// registry so there is one React.
+vi.resetModules();
+const { cleanup, fireEvent, render, screen } =
+  await import("@testing-library/react");
 const { CompareChanges, ROWS_SHOWN, compareExtractedPdfText } =
   await import("./compare-result");
 
