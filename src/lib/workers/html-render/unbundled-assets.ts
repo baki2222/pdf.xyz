@@ -236,7 +236,10 @@ export interface ArchiveContents {
 }
 
 export interface UnbundledAssets {
-  /** Distinct missing references, in document order, as written in the file. */
+  /**
+   * Distinct missing references, in document order: as written in the file,
+   * or for a ZIP, the archive path each one that resolves into it lacks.
+   */
   references: string[];
 }
 
@@ -404,29 +407,40 @@ function documentBase(root: ParentNode, fallback: URL): URL {
 /** How deep `<iframe srcdoc>` documents are followed. */
 const MAX_SRCDOC_DEPTH = 4;
 
-function isMissing(
+/**
+ * How a missing reference is NAMED to the user, or null when it is not
+ * missing. As written in the file — except inside a ZIP, where one that
+ * resolves to the archive is named by the ARCHIVE PATH it resolves to, the
+ * path the note tells the user to add it at. Written relative to a
+ * stylesheet in a folder (`url(missing.png)` in `My Page_files/more.css`)
+ * or to a page in a subfolder, the reference as written is not that path:
+ * the note said "Add it to the ZIP at that path" and named one at the root
+ * (surface review round 2, 2026-11-14).
+ */
+function missingAs(
   raw: string,
   base: URL,
   servedHost: string,
   sameOriginOnly: boolean,
   archive?: ArchiveContents,
-): boolean {
+): string | null {
   const value = raw.trim();
-  if (!value || value.startsWith("#")) return false;
+  if (!value || value.startsWith("#")) return null;
   let resolved: URL;
   try {
     resolved = new URL(value, base);
   } catch {
-    return false;
+    return null;
   }
-  if (NOT_A_FILE.has(resolved.protocol)) return false;
+  if (NOT_A_FILE.has(resolved.protocol)) return null;
   if (resolved.protocol === "http:" || resolved.protocol === "https:") {
-    if (resolved.host !== servedHost) return sameOriginOnly;
-    if (!archive) return true;
+    if (resolved.host !== servedHost) return sameOriginOnly ? value : null;
+    if (!archive) return value;
     const entry = zipEntryOfUrl(resolved.href);
-    return entry === null || !archive.has(entry);
+    if (entry === null) return value;
+    return archive.has(entry) ? null : entry;
   }
-  return true;
+  return value;
 }
 
 const ALL_SELECTORS = [
@@ -462,12 +476,14 @@ export function findUnbundledAssets(
                 .filter((v): v is string => v !== null);
         for (const value of values)
           for (const found of urlsIn(value, source)) {
-            const ref = found.url.trim();
-            if (
-              seen.has(ref) ||
-              !isMissing(ref, base, servedHost, found.sameOriginOnly, archive)
-            )
-              continue;
+            const ref = missingAs(
+              found.url,
+              base,
+              servedHost,
+              found.sameOriginOnly,
+              archive,
+            );
+            if (ref === null || seen.has(ref)) continue;
             seen.add(ref);
             references.push(ref);
           }
@@ -495,7 +511,8 @@ export function findUnbundledAssets(
 /**
  * The references of a stylesheet INSIDE a ZIP that the archive does not hold
  * (`url()`, `@import`, `image-set()`), resolved against the stylesheet's own
- * address, as Chromium resolves them.
+ * address, as Chromium resolves them, and named by the archive path each
+ * resolves to.
  */
 export function findUnbundledAssetsInCss(
   css: string,
@@ -506,12 +523,14 @@ export function findUnbundledAssetsInCss(
   const base = new URL(cssUrl);
   const references: string[] = [];
   for (const found of cssUrls(css)) {
-    const ref = found.url.trim();
-    if (
-      references.includes(ref) ||
-      !isMissing(ref, base, servedHost, found.sameOriginOnly, archive)
-    )
-      continue;
+    const ref = missingAs(
+      found.url,
+      base,
+      servedHost,
+      found.sameOriginOnly,
+      archive,
+    );
+    if (ref === null || references.includes(ref)) continue;
     references.push(ref);
   }
   return { references };

@@ -149,7 +149,13 @@ describe("the missing-files note follows @import, as Chromium does", () => {
       "css/a.css": "@import url(b.css); p{color:red}",
       "css/b.css": ".x{background:url(../img/missing.png)}",
     });
-    expect(await noteOf(bytes)).toContain("../img/missing.png");
+    // INVERTED 2026-11-14 (surface review round 2): this test asserted
+    // "../img/missing.png", the reference as written in css/b.css — and
+    // the note tells the user to add the file "at that path". The path is
+    // where it resolves in the archive.
+    const note = await noteOf(bytes);
+    expect(note).toContain("(img/missing.png)");
+    expect(note).not.toContain("../img/missing.png");
   });
 
   it("follows a quoted @import from an inline <style>, two levels deep, and a cycle ends", async () => {
@@ -158,7 +164,30 @@ describe("the missing-files note follows @import, as Chromium does", () => {
       "css/a.css": '@import "b.css";',
       "css/b.css": '@import "a.css"; .y{background:url(deep-gone.png)}',
     });
-    expect(await noteOf(bytes)).toContain("deep-gone.png");
+    expect(await noteOf(bytes)).toContain("(css/deep-gone.png)");
+  });
+
+  it("names the ARCHIVE path for a 'Save page as' ZIP: a sheet in the files folder, and a page in a subfolder", async () => {
+    const saved = await zipOf({
+      "My Page.html":
+        '<link rel="stylesheet" href="./My Page_files/style.css"><p>m</p>',
+      "My Page_files/style.css": '@import "more.css";',
+      "My Page_files/more.css": ".z{background:url(missing-from-import.png)}",
+    });
+    const note = await noteOf(saved, "My Page.html");
+    expect(note).toContain("(My Page_files/missing-from-import.png)");
+    expect(note).toMatch(/Add it to the ZIP at that path/);
+    const sub = await zipOf({
+      "docs/page.html": '<img src="img/a.png"><p>s</p>',
+    });
+    expect(await noteOf(sub, "docs/page.html")).toContain("(docs/img/a.png)");
+  });
+
+  it("a reference no archive path can answer (an encoded slash) is still named as written", async () => {
+    const bytes = await zipOf({
+      "docs/index.html": '<img src="a%2Fb.png"><p>i</p>',
+    });
+    expect(await noteOf(bytes, "docs/index.html")).toContain("(a%2Fb.png)");
   });
 
   it("POSITIVE CONTROL: the same chain with the picture present says nothing", async () => {
