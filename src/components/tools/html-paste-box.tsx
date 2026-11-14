@@ -1,0 +1,161 @@
+"use client";
+
+import { useEffect, useId, useRef, useState } from "react";
+import { DEFAULT_RETENTION } from "@/lib/jobs/types";
+import { formatBytes } from "@/lib/utils";
+import {
+  PASTED_HTML_FILENAME,
+  pastedHtmlByteLength,
+  pastedHtmlBytes,
+} from "@/lib/workers/html-render/pasted-html";
+
+/**
+ * "Paste HTML code": the alternative to the drop box on HTML to PDF. What is
+ * pasted becomes a file — `pasted.html`, its bytes made by the ONE function
+ * the Chromium test renders (`pastedHtmlBytes`: a UTF-8 byte-order mark,
+ * then the text as UTF-8) — and goes up EXACTLY as a chosen file does: the
+ * same missing-files note, layout, job, retention, cancel and download. It
+ * is not rendered in the browser, and the description says so.
+ *
+ * Loaded only when the user opens it (`html-source-area.tsx`).
+ *
+ * THE BOUND is the HTML ceiling the page states (`ceilingBytes`, from the
+ * server's pick facts), counted in the bytes that will be uploaded — the
+ * mark included — by `pastedHtmlByteLength`. The count is shown once the
+ * text passes {@link COUNT_FROM} of it; past the ceiling the box is marked
+ * invalid, the error is tied to it, and nothing is handed on to upload.
+ */
+
+/** The share of the ceiling past which the byte count is shown. */
+export const COUNT_FROM = 0.8;
+
+/**
+ * Two sizes in words that tell them apart: `formatBytes` rounds to one
+ * decimal, so just past the ceiling both read "20.0 MB" and the alert said
+ * "This HTML is 20.0 MB, over the 20.0 MB" (surface review round 2,
+ * 2026-11-14). When the rounded figures agree, both are given in bytes.
+ */
+export function distinctSizes(
+  bytes: number,
+  ceiling: number,
+): [string, string] {
+  const a = formatBytes(bytes);
+  const b = formatBytes(ceiling);
+  if (a !== b || bytes === ceiling) return [a, b];
+  const exact = (n: number) => `${n.toLocaleString("en-US")} bytes`;
+  return [exact(bytes), exact(ceiling)];
+}
+
+/** How long typing must pause before the text becomes the file. */
+const SETTLE_MS = 250;
+
+const INPUT_MINUTES = DEFAULT_RETENTION.inputTtlMinutes;
+
+export function HtmlPasteBox({
+  autoFocus,
+  ceilingBytes,
+  disabled,
+  onFile,
+}: {
+  /** Take keyboard focus once mounted: the user just asked for the box. */
+  autoFocus?: boolean;
+  /** The most bytes one HTML upload may be; null outside a tool page. */
+  ceilingBytes: number | null;
+  disabled?: boolean;
+  /** The pasted page as a file to upload, or null (empty, or over the bound). */
+  onFile: (file: File | null) => void;
+}) {
+  const id = useId();
+  const hintId = `${id}-hint`;
+  const countId = `${id}-count`;
+  const errorId = `${id}-error`;
+  const [text, setText] = useState("");
+  const box = useRef<HTMLTextAreaElement>(null);
+  // On mount only: the box arrives (loaded on demand) after the button that
+  // opened it was pressed, and focus belongs where the user is going.
+  useEffect(() => {
+    if (autoFocus) box.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const bytes = text === "" ? 0 : pastedHtmlByteLength(text);
+  const over = ceilingBytes !== null && bytes > ceilingBytes;
+  const showCount = ceilingBytes !== null && bytes >= ceilingBytes * COUNT_FROM;
+  const [sizeText, ceilingText] =
+    ceilingBytes !== null ? distinctSizes(bytes, ceilingBytes) : ["", ""];
+
+  // The text becomes the file once typing settles. The file handed on
+  // before is withdrawn AT ONCE on any change — not only when the text is
+  // emptied or goes over the bound — so Run is held while the new text
+  // settles and never starts on a file the box no longer holds. (Until
+  // surface review round 2, 2026-11-14, an ordinary edit left the old file
+  // in place for those 250 ms, and Render PDF uploaded it.)
+  const handed = useRef<string | null>(null);
+  useEffect(() => {
+    if (handed.current !== null && handed.current !== text) {
+      handed.current = null;
+      onFile(null);
+    }
+    if (text.trim() === "" || over) return;
+    const timer = setTimeout(() => {
+      handed.current = text;
+      onFile(
+        new File([pastedHtmlBytes(text) as BlobPart], PASTED_HTML_FILENAME, {
+          type: "text/html",
+        }),
+      );
+    }, SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [text, over, onFile]);
+
+  const describedBy = [
+    hintId,
+    showCount ? countId : null,
+    over ? errorId : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label htmlFor={id} className="text-fg text-xs font-medium">
+        HTML code
+      </label>
+      <textarea
+        ref={box}
+        id={id}
+        value={text}
+        readOnly={disabled}
+        aria-readonly={disabled || undefined}
+        onChange={(event) => setText(event.target.value)}
+        rows={8}
+        spellCheck={false}
+        autoCapitalize="none"
+        autoComplete="off"
+        aria-invalid={over || undefined}
+        aria-describedby={describedBy}
+        placeholder="<!doctype html>…"
+        className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 focus:ring-accent/50 rounded-ctl aria-invalid:border-err w-full border px-3 py-2 font-mono text-xs outline-none focus:ring-2"
+      />
+      <p id={hintId} className="text-muted text-xs leading-relaxed">
+        Pasted code is not run in your browser: it is uploaded to our server as
+        a file named {PASTED_HTML_FILENAME}, exactly like a chosen file, and
+        deleted when the job finishes (within {INPUT_MINUTES} minutes in any
+        case).
+        {ceilingBytes !== null &&
+          ` Up to ${formatBytes(ceilingBytes)}, counted as uploaded.`}
+      </p>
+      {showCount && ceilingBytes !== null && (
+        <p id={countId} className="text-muted tnum text-xs">
+          {sizeText} of {ceilingText}
+        </p>
+      )}
+      {over && ceilingBytes !== null && (
+        <p id={errorId} role="alert" className="text-err text-xs">
+          This HTML is {sizeText}, over the {ceilingText} HTML to PDF takes in
+          one run. Remove some of it, or move large images into files linked by
+          full https:// addresses.
+        </p>
+      )}
+    </div>
+  );
+}

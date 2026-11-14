@@ -154,6 +154,13 @@ import {
   WEBPAGE_STAMP_SENTENCE,
 } from "@/lib/tools/webpage-capture-copy";
 import { WEBPAGE_CAPTURE_LABELS } from "@/lib/jobs/webpage-capture-options";
+import { PASTED_HTML_FILENAME } from "@/lib/workers/html-render/pasted-html";
+import {
+  HTML_ZIP_MAX_ENTRIES,
+  HTML_ZIP_MAX_ENTRY_BYTES,
+  HTML_ZIP_PAGE_CHOICE_SENTENCES,
+  HTML_ZIP_MAX_UNPACKED_BYTES,
+} from "@/lib/workers/html-render/zip-config";
 import { MAX_SCAN_SIDE_PX, SCAN_PAGE_SIZES } from "@/lib/pdf/scan-to-pdf";
 import { SCAN_ENHANCEMENTS } from "@/lib/pdf/scan-enhance";
 import { METADATA_DATE_FIELDS, METADATA_TEXT_FIELDS } from "@/lib/pdf/metadata";
@@ -3484,7 +3491,7 @@ export const guides: Guide[] = [
         id: "html-files",
         heading: "Converting an HTML file instead",
         body: [
-          `${nameOf("html-to-pdf")} takes one .html or .htm file instead of an address. Drag it onto the drop zone, set the same Page layout options, and press Render PDF; the PDF is named after your file. Leave Page size on its default and a CSS @page rule in your file decides the paper.`,
+          `${nameOf("html-to-pdf")} takes an .html or .htm file, or pasted HTML code, instead of an address. Drag the file onto the drop zone or paste the code, set the same Page layout options, and press Render PDF; the PDF is named after your file. Leave Page size on its default and a CSS @page rule in your file decides the paper.`,
         ],
       },
     ],
@@ -3513,11 +3520,11 @@ export const guides: Guide[] = [
       },
       {
         question: "How do I convert an HTML file on my computer?",
-        answer: `Use ${nameOf("html-to-pdf")}: drop one .html or .htm file, choose the layout, and press Render PDF. It runs on the same secure server, which deletes your file when the job finishes.`,
+        answer: `Use ${nameOf("html-to-pdf")}: drop one .html or .htm file or paste the code, choose the layout, and press Render PDF. It runs on the same secure server, which deletes your file when the job finishes.`,
       },
     ],
     published: "2026-10-29",
-    updated: "2026-11-08",
+    updated: "2026-11-14",
   },
   {
     slug: "how-to-extract-images-from-a-pdf",
@@ -6199,13 +6206,19 @@ export const guides: Guide[] = [
   // print adds no header or footer (print-params.ts PRINT_TO_PDF_OPTIONS).
   // The font sentence is the Dockerfile's own: a font the image lacks is
   // replaced by what fontconfig has. No font list is named, as the tool page
-  // names none. "Paste the code" is a banned shape (claims-vs-capability:
-  // the panel has no text area), so code is saved to a file first.
+  // names none.
+  // CHANGED 2026-11-14 (competitor audit #26): this guide said code must be
+  // saved to a file first, because "paste the code" was a banned shape while
+  // the panel had no text area; it has one now (html-paste-box.tsx, pinned
+  // by claims-vs-capability's positive check). It also said the served
+  // Content-Type has no charset, which wave 2 made false (charset.ts serves
+  // an undeclared, valid-UTF-8 file as UTF-8). A ZIP of the page is offered
+  // only when the live worker proves `htmlZip`, so its sentences say so.
   {
     slug: "how-to-convert-an-html-file-to-pdf",
     title: "How to convert an HTML file to PDF",
     description:
-      "Turn one .html file into a PDF with selectable text: Chromium prints it on our secure server, running its scripts and print CSS. Embed images and styles.",
+      "Turn an .html file or pasted HTML code into a PDF with selectable text: Chromium prints it on our server, running its scripts and print CSS.",
     tools: ["html-to-pdf", "webpage-to-pdf", "header-footer"],
     keywords: [
       "convert html file to pdf",
@@ -6216,13 +6229,13 @@ export const guides: Guide[] = [
       "html report to pdf",
     ],
     intro: [
-      `To convert an HTML file to PDF, open ${nameOf("html-to-pdf")}, drop your .html or .htm file on the page, choose a page layout if you want one, and press Render PDF. Chromium, the engine behind Chrome and Edge, opens the file on our secure server, runs its scripts and prints it to a PDF whose text you can select and search.`,
-      "Only the one file goes to our server, and that is the thing to plan for. An image, stylesheet or font the page reaches by a path on your computer, such as css/site.css or images/logo.png, is not there to load. Put the CSS in a <style> block, embed images and fonts as data: URIs, or link them by a full https:// address, which our server does fetch.",
-      `If you have HTML code rather than a file, such as an email template or the markup a page builder gave you, save it in a plain-text editor as a file whose name ends in .html, then add that file. To capture a page that is already on the web, give its address to ${nameOf("webpage-to-pdf")} instead.`,
+      `To convert an HTML file to PDF, open ${nameOf("html-to-pdf")}, drop your .html or .htm file on the page (or paste its code), choose a page layout if you want one, and press Render PDF. Chromium, the engine behind Chrome and Edge, opens the file on our secure server, runs its scripts and prints it to a PDF whose text you can select and search.`,
+      "An HTML file goes to our server on its own, and that is the thing to plan for. An image, stylesheet or font the page reaches by a path on your computer, such as css/site.css or images/logo.png, is not there to load. Put the CSS in a <style> block, embed images and fonts as data: URIs, or link them by a full https:// address, which our server does fetch. When our server can open ZIP files, the drop zone says so and also takes a ZIP of the page with its files, which are then served at the paths the page uses.",
+      `If you have HTML code rather than a file, such as an email template or the markup a page builder gave you, press “Or paste HTML code” and paste it into the box: it is uploaded as a file named ${PASTED_HTML_FILENAME}, exactly as a chosen file is. To capture a page that is already on the web, give its address to ${nameOf("webpage-to-pdf")} instead.`,
     ],
     steps: [
-      `Open the ${nameOf("html-to-pdf")} tool and drop one .html or .htm file on the box that says “Add an HTML file, or”, or click browse to choose it.`,
-      "Read the note under the file name, if one appears. Your browser checks the file for linked files the job will not carry, before anything is sent, and names the first of them.",
+      `Open the ${nameOf("html-to-pdf")} tool and drop one .html or .htm file on the box that says “Add an HTML file, or”, or click browse to choose it. To use code instead, press “Or paste HTML code” and paste it into the box.`,
+      "Read the note under the file name or the box, if one appears. Your browser checks the page for linked files the job will not carry, before anything is sent, and names the first of them.",
       HTML_LAYOUT_STEP.body,
       "Press Render PDF, which uploads the file over an encrypted connection. The button reads “Uploading your file…”, then “Waiting for our server…” if there is a queue, “Rendering PDF…” while Chromium prints, and “Downloading the result…”.",
       `When “Your PDF is ready.” appears, press the button reading Download and the file name; the PDF is named after your file, ending in .pdf. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
@@ -6232,7 +6245,8 @@ export const guides: Guide[] = [
         id: "linked-files",
         heading: "Images, stylesheets and fonts",
         body: [
-          "Our server hands your file to Chromium at an address of its own, and nothing else is served from there. So every reference that resolves beside the file, a relative path such as images/logo.png or a root path such as /img/logo.png, has nothing to load, and comes out as a broken image or an unstyled page. A file: address cannot load at all. The job still succeeds, which is why your browser checks the file first and says what will be missing.",
+          "Our server hands an HTML file, or pasted code, to Chromium at an address of its own, and nothing else is served from there. So every reference that resolves beside the file, a relative path such as images/logo.png or a root path such as /img/logo.png, has nothing to load, and comes out as a broken image or an unstyled page. A file: address cannot load at all. The job still succeeds, which is why your browser checks the page first and says what will be missing.",
+          `When our server can open ZIP files, the drop zone says so, and a ZIP of the page with its files fixes this: each file in it is served at the path the page names, matched exactly, capital letters included. Such a ZIP may hold at most ${HTML_ZIP_MAX_ENTRIES.toLocaleString("en-US")} files that unpack to at most ${HTML_ZIP_MAX_UNPACKED_BYTES / (1024 * 1024)} MB, none of them over ${HTML_ZIP_MAX_ENTRY_BYTES / (1024 * 1024)} MB. ${HTML_ZIP_PAGE_CHOICE_SENTENCES} A path that climbs out of such a ZIP, or a file it lacks, is still missing, and the note names those.`,
           "A reference by a full http:// or https:// address to a public site is fetched by our server, so a stylesheet, script or image on a CDN or on your own website can load. A web font linked that way loads when the site serving it allows other sites to use it, as public font services do. Addresses on a private network are not fetched.",
           "Chromium draws text in the fonts the file names. A font embedded in the file as a data: URI is always there. One that is only installed on your computer is not on our server, and Chromium uses a font the server has instead, so lines can wrap differently from what you see on your screen.",
         ],
@@ -6253,7 +6267,7 @@ export const guides: Guide[] = [
           // this section does not ask.
           htmlLayoutAnswer("file").replace(/^Yes, under/, "Under"),
           `With every option left as it is, each edge gets the ${HTML_DEFAULT_MARGIN.label} margin of ${HTML_DEFAULT_MARGIN.inches} in, and the file's @media print rules apply, because the page is printed rather than photographed. Our server adds no date, title, file path or page number to the pages; to number them, run the PDF through ${nameOf("header-footer")} afterwards.`,
-          'Save the file as UTF-8 and keep a <meta charset="utf-8"> line in its head. Our server sends the file to Chromium without naming an encoding, so Chromium goes by what the file itself declares.',
+          `Save the file as UTF-8 and keep a <meta charset="utf-8"> line in its head. A file that declares its encoding is read as it declares; one that declares none is read as UTF-8 when its bytes are UTF-8. Pasted code is always read as UTF-8, whatever its <meta charset> line says.`,
         ],
       },
     ],
@@ -6261,12 +6275,12 @@ export const guides: Guide[] = [
       {
         question: "Why are the images or styles missing from my PDF?",
         answer:
-          'Almost always a relative path. Our server receives your one HTML file and nothing else, so src="images/logo.png" or href="style.css" points at a file it never had. Put the CSS in a <style> element, embed images as data: URIs, or link them by a full https:// address, and render again.',
+          'Almost always a relative path. An HTML file or pasted code travels alone, so src="images/logo.png" or href="style.css" points at a file our server never had. Put the CSS in a <style> element, embed images as data: URIs, link them by a full https:// address, or, when the drop zone takes a ZIP, zip the page together with its files, and render again.',
       },
       {
         question: "Can I convert HTML code without saving it as a file?",
-        answer:
-          "No. The tool takes a file, not typed text. Copy the code into a plain-text editor, save it with a name ending in .html, and add that file.",
+        // Was "No. The tool takes a file, not typed text." until 2026-11-14.
+        answer: `Yes. Press “Or paste HTML code” and paste it into the box. It is uploaded to our server as a file named ${PASTED_HTML_FILENAME}, exactly like a chosen file, and deleted when the job finishes.`,
       },
       {
         question: "Does JavaScript run before the page is printed?",
@@ -6279,11 +6293,11 @@ export const guides: Guide[] = [
       },
       {
         question: "How large can the HTML file be?",
-        answer: `Up to ${ceilingMb("html-to-pdf")} MB, one file per run; a larger one is refused when you pick it, before anything is sent. Images embedded as data: URIs count toward that, and base64 makes each about a third larger than the image file itself.`,
+        answer: `Up to ${ceilingMb("html-to-pdf")} MB, one file or pasted page per run, or, when our server can open ZIP files, one ZIP; a larger file is refused when you pick it, before anything is sent, and pasted code over it is marked in the box and not sent. Images embedded as data: URIs count toward that, and base64 makes each about a third larger than the image file itself.`,
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-07",
+    updated: "2026-11-14",
   },
   // Overlay PDF, titled for the task it truly does: lay one PDF on every
   // page of another. Read off overlay.ts and overlay-runner.tsx: the overlay

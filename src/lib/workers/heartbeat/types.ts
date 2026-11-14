@@ -214,6 +214,25 @@ export interface HeartbeatCapabilities {
    * the key publishes nothing, and the absence parses as `false`.
    */
   readonly translateOcr: boolean;
+  /**
+   * This image's HTML to PDF prints a ZIP holding a page and its files: the
+   * page chosen (or found), its stylesheets, pictures and fonts served from
+   * the archive at the document origin, every refusal typed (2026-11-14,
+   * competitor audit #26).
+   *
+   * PROVEN AT START-UP by running `html-to-pdf` jobs through the registry the
+   * daemon builds, with a stub Chromium (`html-render/zip-capability.ts`,
+   * `provesHtmlZip`): a ZIP job must reach the renderer as a site whose page
+   * is the one asked for and whose stylesheet is served with its type, a
+   * path outside the archive must be refused, an HTML file must still render
+   * as a file, and a ZIP of several pages naming none must be refused before
+   * the renderer starts. An image built before the key cannot open a ZIP —
+   * it renders the archive's bytes as if they were HTML and calls the noise
+   * a PDF — so the web offers ZIP, and `POST /api/uploads` and
+   * `POST /api/jobs` accept one, only while this reads `true` on an observed
+   * heartbeat. The absence parses as `false`.
+   */
+  readonly htmlZip: boolean;
 }
 
 /**

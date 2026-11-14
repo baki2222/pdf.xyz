@@ -19,7 +19,7 @@
  * and touches no filesystem.
  */
 
-import { MIME_BY_FORMAT } from "@/lib/jobs";
+import { acceptedMimesForTool } from "@/lib/jobs/tool-mimes";
 import { getToolBySlug } from "@/lib/tools";
 import {
   DEFAULT_INTAKE_POLICY,
@@ -224,11 +224,16 @@ export function resolveSoundnessPolicy(
 }
 
 /**
- * The coarse input families a tool accepts, derived from the SAME tool/job contracts
- * the intake and validation layers use: the catalog tool's `accept` formats →
- * {@link MIME_BY_FORMAT} → the intake {@link familyForMime} table. An unknown tool
- * (not in the catalog) yields an empty set, so the gate applies only universal
- * checks and never guesses an expected format. Pure; no I/O.
+ * The coarse input families a tool accepts, derived from the SAME function the job
+ * API's validator admits MIME types with ({@link acceptedMimesForTool}: the catalog
+ * tool's `accept` formats, plus HTML to PDF's ZIP) → the intake {@link familyForMime}
+ * table. An unknown tool (not in the catalog) yields an empty set, so the gate
+ * applies only universal checks and never guesses an expected format. Pure; no I/O.
+ *
+ * Until 2026-11-14 this read the catalogue's formats itself, and the ZIP rule lived
+ * in the validator alone: every HTML to PDF ZIP job the APIs admitted was refused
+ * here as `unsupported_family`, in production, while the worker's start-up proof
+ * (which called the processor directly) published `htmlZip: true`.
  */
 export function acceptedFamiliesForTool(
   tool: string,
@@ -236,11 +241,9 @@ export function acceptedFamiliesForTool(
   const families = new Set<UploadFamily>();
   const spec = getToolBySlug(tool);
   if (!spec) return families;
-  for (const format of spec.accept) {
-    for (const mime of MIME_BY_FORMAT[format.toUpperCase()] ?? []) {
-      const family = familyForMime(mime);
-      if (family) families.add(family);
-    }
+  for (const mime of acceptedMimesForTool(spec)) {
+    const family = familyForMime(mime);
+    if (family) families.add(family);
   }
   return families;
 }

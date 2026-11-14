@@ -2,14 +2,13 @@
 
 import { usePickFacts, usePickRefusal } from "@/components/tools/use-pick";
 import { RunReason } from "@/components/tools/runner/run-reason";
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useId, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   BookOpen,
   Download,
   FileCode,
   Globe,
-  Info,
   ShieldCheck,
   Timer,
 } from "lucide-react";
@@ -27,23 +26,13 @@ import {
   runWorkerWebpageToPdf,
   type HtmlRenderWorkerResult,
 } from "@/lib/workers/html-render-client";
-import {
-  findUnbundledAssetsInHtml,
-  unbundledAssetsNote,
-} from "@/lib/workers/html-render/unbundled-assets";
 import { downloadBytes } from "@/lib/pdf/browser";
 import type { Tool } from "@/lib/tools/types";
 import { formatBytes } from "@/lib/utils";
-import {
-  DownloadCta,
-  Dropzone,
-  ResultCard,
-  WorkerRunButton,
-} from "./runner/runner-kit";
-import { ChosenFileTarget } from "./chosen-file-target";
+import { DownloadCta, ResultCard, WorkerRunButton } from "./runner/runner-kit";
 import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
 import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
-import { decodeTextFile } from "@/lib/text/decode-text-file";
+import type { HtmlSourceState } from "./html-source-area";
 import { useStagedHandoff } from "./use-staged-handoff";
 import { HtmlRenderLayoutOptions } from "./html-render-layout-options";
 import { WebpageCaptureGroup } from "./webpage-capture-options";
@@ -132,9 +121,12 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
         ) : (
           <>
             Chromium renders{" "}
-            {mode === "url" ? "the public URL" : "your uploaded HTML file"} to a
-            real print PDF on our isolated server. It produces a PDF artifact or
-            fails honestly — no screenshot placeholder and no browser-side fake.
+            {mode === "url"
+              ? "the public URL"
+              : "your HTML file or pasted code (or, when our server can open ZIP files, the page in your ZIP)"}{" "}
+            to a real print PDF on our isolated server. It produces a PDF
+            artifact or fails honestly — no screenshot placeholder and no
+            browser-side fake.
           </>
         )
       }
@@ -148,7 +140,9 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
               ? "One public URL"
               : mode === "epub"
                 ? "One or more DRM-free EPUB files"
-                : "One HTML file",
+                : // Static, so hedged: whether ZIP is offered is the live
+                  // status's to say, and the drop box below says it.
+                  "One HTML file or pasted code; a ZIP when our server can open ZIP files",
         },
         { icon: Download, label: "You get", value: "PDF" },
         {
@@ -181,42 +175,6 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
 }
 
 /**
- * The note for linked files this one-file upload will not carry, read from the
- * chosen file on this machine — nothing is uploaded to work it out. The worker
- * renders only the file itself, so a sibling `logo.png` or `style.css` comes
- * out as a broken image or an unstyled page while the job still succeeds.
- */
-function useUnbundledAssetsNote(file: File | null): string | null {
-  const [note, setNote] = useState<{ file: File; text: string | null } | null>(
-    null,
-  );
-  useEffect(() => {
-    if (!file) return;
-    let active = true;
-    // Decoded in the file's own encoding, as every read of a user's text file
-    // is (`decodeTextFile`): Blob.text() would turn a Windows-1252 page's
-    // accented link names into U+FFFD before they were looked for.
-    decodeTextFile(file)
-      .then(({ text: html }) => {
-        if (active)
-          setNote({
-            file,
-            text: unbundledAssetsNote(findUnbundledAssetsInHtml(html)),
-          });
-      })
-      .catch(() => {
-        // Unreadable here means unreadable for the upload too; the run
-        // reports that. A note we cannot compute is simply not shown.
-      });
-    return () => {
-      active = false;
-    };
-  }, [file]);
-  // A note belongs to the file it was computed for, never to the next one.
-  return note && note.file === file ? note.text : null;
-}
-
-/**
  * Two or more books on EPUB to PDF: the worker batch (batch plan P3), its
  * own chunk, fetched only when they arrive. HTML to PDF and Webpage to PDF
  * stay one file or address at a time.
@@ -235,6 +193,24 @@ const WorkerBatch = dynamic(
     ),
   },
 );
+
+/**
+ * HTML to PDF's input — a file, pasted code, or a ZIP of a page — in its own
+ * chunk (`./html-source-area`): this panel also serves Webpage and EPUB to
+ * PDF, whose pages load none of it. Server-rendered, so the drop box is in
+ * the page's HTML as it was — and with NO `loading` option, deliberately:
+ * with one, the prerendered page carried the placeholder in its shell and
+ * the drop box in a deferred segment at the end of the document
+ * (`<div hidden id="S:0">`, measured 2026-11-14), and the first-visit e2e
+ * found no drop area on the first screen. Without it the box is inline, as
+ * the outer panel loaders' content is.
+ */
+const HtmlSourceArea = dynamic(() =>
+  import("./html-source-area").then(({ HtmlSourceArea }) => HtmlSourceArea),
+);
+
+/** An HTML file or pasted code: nothing to wait for, run as a file. */
+const FILE_SOURCE: HtmlSourceState = { blocked: null };
 
 const RENDER_LABEL = "Render PDF";
 /** EPUB to PDF's button: a book is converted, not a page rendered. */
@@ -264,7 +240,15 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
       }),
   });
   const { busy, outcome, setOutcome, run } = job;
-  const assetsNote = useUnbundledAssetsNote(mode === "html" ? file : null);
+  const [source, setSource] = useState<HtmlSourceState>(FILE_SOURCE);
+  const ceilingBytes = usePickFacts(tool)?.ceilingBytes ?? null;
+  const onHtmlFile = useCallback(
+    (next: File | null) => {
+      setOutcome(null);
+      setFile(next);
+    },
+    [setOutcome],
+  );
   // A URL tool takes no file, so nothing can be carried to it: the hook
   // stays idle there (its capability is `none`).
   const staged = useStagedHandoff(tool.slug, RUN_LABEL, (files) => {
@@ -314,17 +298,38 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
         bytes: new Uint8Array(await file.arrayBuffer()),
         layout: bag,
       };
-      return mode === "epub"
-        ? runWorkerEpubToPdf(input, controls)
+      if (mode === "epub") return runWorkerEpubToPdf(input, controls);
+      // A ZIP runs its own way (the page to print travels with the job).
+      return source.run
+        ? source.run(input, controls)
         : runWorkerHtmlToPdf(input, controls);
     });
-  }, [file, mode, address, run, available, layout, bookLayout, capture]);
+  }, [
+    file,
+    mode,
+    address,
+    run,
+    available,
+    layout,
+    bookLayout,
+    capture,
+    source,
+  ]);
 
   // The address is checked HERE, in words, before any job exists: a length
   // check used to let `https://https://…` and bare `example.com` through to
   // the API's developer message (audit #33, 2026-11-06).
   const addressProblem = mode === "url" ? webpageAddressProblem(address) : null;
-  const missing = mode === "url" ? addressProblem !== null : !file;
+  // Why Run waits, in words: the address, or (HTML to PDF) the source — a
+  // ZIP still being read, or one whose page is not chosen yet.
+  const runReason =
+    mode === "url"
+      ? addressProblem
+      : mode === "html" && file
+        ? source.blocked
+        : null;
+  const missing =
+    mode === "url" ? addressProblem !== null : !file || runReason !== null;
   const detail =
     status?.daemon.detail ?? "Our secure server is not drainable here.";
 
@@ -410,59 +415,16 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
           }}
           onMany={setBatch}
         />
-      ) : file ? (
-        <div className="flex flex-col gap-2">
-          <ChosenFileTarget
-            file={file}
-            accept="text/html,.html,.htm"
-            busy={busy}
-            refuse={pickRefuse}
-            onReplace={(files) => {
-              setOutcome(null);
-              setFile(files[0] ?? null);
-            }}
-          >
-            <div className="border-line bg-wash text-fg rounded-ctl flex flex-wrap items-center justify-between gap-2 border px-3 py-2 text-sm">
-              <span className="truncate">{file.name}</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setFile(null);
-                  setOutcome(null);
-                }}
-                className="text-muted hover:text-fg tap-y shrink-0 text-sm font-medium transition"
-              >
-                Remove
-              </button>
-            </div>
-          </ChosenFileTarget>
-          {/* Present, empty, from the moment a file is chosen: a live region
-              created together with its text is not announced by several
-              screen readers. The note arrives in it once the file is read. */}
-          <div role="status">
-            {assetsNote && (
-              <p className="text-muted flex items-start gap-1.5 text-xs leading-relaxed">
-                <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-                <span>{assetsNote}</span>
-              </p>
-            )}
-          </div>
-        </div>
       ) : (
-        <Dropzone
-          pageTarget
+        <HtmlSourceArea
+          tool={tool}
+          file={file}
+          busy={busy}
+          zipOffered={status?.htmlZip === true}
+          ceilingBytes={ceilingBytes}
           refuse={pickRefuse}
-          onFiles={(files) => {
-            // An over-ceiling or non-HTML file never gets here: `refuse`
-            // turned it away at the pick, before it was read or uploaded.
-            setOutcome(null);
-            setFile(files[0] ?? null);
-          }}
-          accept="text/html,.html,.htm"
-          multiple={false}
-          compact
-          title="Add an HTML file, or"
-          hint="HTML"
+          onFile={onHtmlFile}
+          onState={setSource}
         />
       )}
 
@@ -495,7 +457,7 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
         job={job}
         bytes={mode === "url" ? undefined : file?.size}
         run={(ready) => (
-          <RunReason after reason={ready ? addressProblem : null}>
+          <RunReason after reason={ready ? runReason : null}>
             {(describedBy) => (
               <WorkerRunButton
                 onClick={start}
@@ -518,7 +480,13 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
               ? `Pressing ${RUN_LABEL} starts a private secure-server job. Only public http(s) URLs are accepted; private/localhost targets are rejected.`
               : mode === "epub"
                 ? `Your EPUB uploads to a private secure-server job only when you press ${RUN_LABEL}. It is stored only for the short server lifecycle and wiped after processing. While it prints, nothing outside the book is fetched.`
-                : `Your HTML uploads to a private secure-server job only when you press ${RUN_LABEL}. It is stored only for the short server lifecycle and wiped after processing. Only the file itself is uploaded, so embed its images and stylesheets or link them with full https:// addresses.`}
+                : status?.htmlZip === true
+                  ? // A ZIP is offered: its own files ARE uploaded and served,
+                    // so the one-file advice is for an HTML file only (hostile
+                    // review round 3, 2026-11-14: it was shown for a picked
+                    // ZIP, under the ZIP's own note to add files to it).
+                    `Your HTML file or ZIP uploads to a private secure-server job only when you press ${RUN_LABEL}. It is stored only for the short server lifecycle and wiped after processing. An HTML file or pasted code is uploaded on its own, so embed its images and stylesheets or link them with full https:// addresses; a ZIP's files go with it and are served at their paths.`
+                  : `Your HTML uploads to a private secure-server job only when you press ${RUN_LABEL}. It is stored only for the short server lifecycle and wiped after processing. Only the file itself is uploaded, so embed its images and stylesheets or link them with full https:// addresses.`}
           </p>
         }
         off={

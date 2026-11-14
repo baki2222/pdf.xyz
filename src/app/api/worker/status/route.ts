@@ -17,6 +17,7 @@ import {
   type ToolAvailability,
 } from "@/lib/workers";
 import {
+  liveWorkerRendersHtmlZip,
   liveWorkerTranslatesScans,
   readWorkerHeartbeatLiveness,
 } from "@/lib/workers/heartbeat";
@@ -92,6 +93,10 @@ export async function GET(request: Request): Promise<Response> {
   // job on, so the offer and the gate cannot drift apart
   // (`translate-ocr.route.test.ts` runs each beat through both routes).
   const workerTranslateOcr = liveWorkerTranslatesScans(liveness);
+  // ZIP pages in HTML to PDF (competitor audit #26): the same rule, and the
+  // same predicate both admission gates use (`POST /api/uploads` and
+  // `POST /api/jobs`). An older image publishes no `htmlZip`; absent is false.
+  const workerHtmlZip = liveWorkerRendersHtmlZip(liveness);
 
   return respond(
     ok(
@@ -106,6 +111,7 @@ export async function GET(request: Request): Promise<Response> {
         workerScan,
         workerOcrLanguages,
         workerTranslateOcr,
+        workerHtmlZip,
       ),
     ),
   );

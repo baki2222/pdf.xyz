@@ -82,7 +82,7 @@ export const TOOL_HOW: Readonly<Record<string, readonly string[]>> = {
     "Download the PDF — or, with One PDF per image and more than one image, the ZIP of PDFs.",
   ],
   "html-to-pdf": [
-    "Upload one .html or .htm file over an encrypted connection.",
+    "Upload one .html or .htm file, or paste HTML code, over an encrypted connection.",
     "Select Render PDF — Chromium renders it on a secure server that deletes the input when the job finishes.",
     `Download the PDF — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
   ],

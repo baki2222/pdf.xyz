@@ -228,18 +228,59 @@ function pickersOf(slug: string): Input[] {
   for (const file of valueClosure(panel.file)) {
     if (!file.endsWith(".tsx")) continue;
     const sf = parsedSource(file);
+    // `const NAME = <initializer>` in this file, by name.
+    const consts = new Map<string, ts.Expression>();
+    const collect = (n: ts.Node): void => {
+      if (
+        ts.isVariableDeclaration(n) &&
+        ts.isIdentifier(n.name) &&
+        n.initializer
+      )
+        consts.set(n.name.text, n.initializer);
+      ts.forEachChild(n, collect);
+    };
+    collect(sf);
+    /**
+     * The string literals an `accept` value can be. ADDED 2026-11-14: HTML
+     * to PDF's picker takes `accept={accept}`, a condition between two
+     * constants (a ZIP only when the running worker opens one), because the
+     * page's drop-target guard (`page-target-sites.test.ts`) needs the chip
+     * and the zone to name the SAME value. Read through identifiers and
+     * conditions, never through a call: an `accept` this cannot reduce to
+     * literals is not read at all, as before.
+     */
+    const literals = (e: ts.Expression, depth = 0): string[] => {
+      if (depth > 4) return [];
+      if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e))
+        return [e.text];
+      if (ts.isParenthesizedExpression(e))
+        return literals(e.expression, depth + 1);
+      if (ts.isConditionalExpression(e))
+        return [
+          ...literals(e.whenTrue, depth + 1),
+          ...literals(e.whenFalse, depth + 1),
+        ];
+      if (ts.isIdentifier(e)) {
+        const init = consts.get(e.text);
+        return init ? literals(init, depth + 1) : [];
+      }
+      return [];
+    };
     const visit = (n: ts.Node): void => {
       if (
         ts.isJsxAttribute(n) &&
         n.name.getText(sf) === "accept" &&
-        n.initializer &&
-        ts.isStringLiteral(n.initializer)
+        n.initializer
       ) {
-        const formats = pickerFormats(n.initializer.text);
-        if (formats) {
-          const line =
-            sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
-          out.push({ from: `${rel(file)}:${line}`, formats });
+        const values = ts.isStringLiteral(n.initializer)
+          ? [n.initializer.text]
+          : ts.isJsxExpression(n.initializer) && n.initializer.expression
+            ? literals(n.initializer.expression)
+            : [];
+        const line = sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
+        for (const value of values) {
+          const formats = pickerFormats(value);
+          if (formats) out.push({ from: `${rel(file)}:${line}`, formats });
         }
       }
       ts.forEachChild(n, visit);
@@ -268,10 +309,16 @@ const realInputsOf: InputsOf = (slug) => {
     const siblings = (bySlug.get(slug)?.slugs ?? [])
       .filter((s) => s !== slug)
       .map((s) => canon(tools.find((t) => t.slug === s)!.accept));
+    // WIDENED 2026-11-14 from `sameSet` to `subset`: HTML to PDF's picker
+    // takes a ZIP too when the running worker can open one
+    // (html-source-area.tsx, its own chunk, loaded for HTML to PDF alone).
+    // {HTML, ZIP} is no longer EXACTLY HTML to PDF's `accept`, so the old
+    // test counted it as a second input of Webpage to PDF. A picker that
+    // holds a sibling's whole document set is that sibling's picker.
     for (const p of pickersOf(slug))
       if (
         !hit.some((i) => sameSet(i.formats, p.formats)) &&
-        !siblings.some((a) => sameSet(a, p.formats))
+        !siblings.some((a) => subset(a, p.formats))
       )
         hit.push(p);
     inputsCache.set(slug, hit);

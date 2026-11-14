@@ -109,6 +109,7 @@ import { nativeOfficeConversionDeps } from "@/lib/workers/office-conversion/nati
 import { nativeHtmlRenderDeps } from "@/lib/workers/html-render/native";
 import { nativeEpubRenderDeps } from "@/lib/workers/epub/native";
 import { EPUB_MAX_UNPACKED_BYTES } from "@/lib/workers/epub/native-config";
+import { HTML_ZIP_MAX_UNPACKED_BYTES } from "@/lib/workers/html-render/zip-config";
 import { epubOfSize } from "@/tests/epub-fixtures";
 import { PDFDocument } from "pdf-lib";
 import type { Processor } from "@/lib/workers/processor/types";
@@ -403,6 +404,16 @@ const OTHER_SIZES: readonly {
     near: /\bunpack(?:s|ed)?\b/i,
     window: 60,
     shipped: "10,000 files in all and 300 MB once unpacked",
+  },
+  // Added 2026-11-14 (competitor audit #26): the same kind of bound for HTML
+  // to PDF's ZIP of a page — what its files may unpack to, never a size the
+  // picked ZIP is refused above (the per-file ceiling, stated beside it).
+  {
+    what: "what a ZIP of a web page may unpack to",
+    valuesMb: [MB_OF(HTML_ZIP_MAX_UNPACKED_BYTES)],
+    near: /\bunpack(?:s|ed)?\b/i,
+    window: 60,
+    shipped: "at most 4,000 files that unpack to at most 100 MB",
   },
   // Added 2026-11-08 (batch plan P1): a batch's TOTAL, the most all of its
   // files may add up to in the browser — never a size one file is refused

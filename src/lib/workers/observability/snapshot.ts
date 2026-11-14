@@ -311,6 +311,15 @@ const WORKER_CAPABILITY_PROMISES: Record<
       "Translate PDF recognises a scan on the worker in the language the reader picked and translates that text, instead of refusing the scan before upload, and runs no OCR on a PDF that already has text",
     proves: provenByFlag,
   },
+  htmlZip: {
+    label: "ZIP pages in HTML to PDF",
+    promise:
+      // Added 2026-11-14 (competitor audit #26). The HTML to PDF page offers
+      // a ZIP, and the upload and job APIs accept one, only while this reads
+      // true on a fresh heartbeat.
+      "HTML to PDF prints a ZIP of a page and its files with its own stylesheets and pictures, instead of offering one file only, and refuses a ZIP it cannot print before it renders anything",
+    proves: provenByFlag,
+  },
 };
 
 /** One capability the subsystem asks the running worker about. */

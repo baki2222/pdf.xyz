@@ -153,6 +153,7 @@ function capabilitiesOf(value: unknown): HeartbeatCapabilities {
     pptxPictures: boolOf(src.pptxPictures),
     docxPictures: boolOf(src.docxPictures),
     translateOcr: boolOf(src.translateOcr),
+    htmlZip: boolOf(src.htmlZip),
   };
 }
 
@@ -208,6 +209,7 @@ export function serializeHeartbeat(hb: WorkerHeartbeat): string {
       pptxPictures: hb.capabilities.pptxPictures,
       docxPictures: hb.capabilities.docxPictures,
       translateOcr: hb.capabilities.translateOcr,
+      htmlZip: hb.capabilities.htmlZip,
     },
     at: hb.at,
   });

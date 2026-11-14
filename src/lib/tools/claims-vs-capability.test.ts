@@ -101,7 +101,7 @@
  * claims — a FAQ question is answered by its answer, which IS scanned — and
  * that exemption has its own control below.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import JSZip from "jszip";
 import { createRequire } from "node:module";
@@ -249,6 +249,40 @@ function panelMounts(): Map<string, string[]> {
 function panelModule(component: string): string | undefined {
   const arm = panelDispatchArms().find((a) => a.component === component);
   return arm ? panelFile(arm) : undefined;
+}
+
+/**
+ * Every component module a panel's page can load, walked from the panel
+ * module through its static AND dynamic (`import("./x")`, `next/dynamic`)
+ * imports of other modules under `src/components/` — so a capability that
+ * lives in a lazily loaded child is seen. A specifier under
+ * `src/components/` that resolves to no file is FATAL (a walk that silently
+ * dropped an edge would report a smaller panel than ships).
+ */
+function panelGraph(entry: string): string[] {
+  const seen = new Set<string>();
+  const visit = (file: string) => {
+    if (seen.has(file)) return;
+    seen.add(file);
+    const source = read(file);
+    const dir = path.posix.dirname(file);
+    for (const m of source.matchAll(
+      /(?:from\s+|import\s*\(\s*)["']((?:\.{1,2}\/|@\/components\/)[^"']+)["']/g,
+    )) {
+      const spec = m[1]!;
+      const base = spec.startsWith("@/")
+        ? `src/${spec.slice(2)}`
+        : path.posix.normalize(`${dir}/${spec}`);
+      if (!base.startsWith("src/components/")) continue;
+      const hit = [".tsx", ".ts", "/index.tsx", "/index.ts"]
+        .map((ext) => base + ext)
+        .find((f) => existsSync(path.join(ROOT, f)));
+      if (!hit) throw new Error(`${file}: ${spec} resolves to no module`);
+      visit(hit);
+    }
+  };
+  visit(entry);
+  return [...seen];
 }
 
 /* ------------------------------------------------------------------ *
@@ -865,40 +899,38 @@ const RULES: readonly ClaimRule[] = [
   // the copy may now claim both, and what it may claim is pinned on a real
   // output instead — "Add Watermark: the page says image and tiling exactly
   // when the engine draws them", in the positive section below.
+  // CHANGED 2026-11-14 (competitor audit #26), history kept: this rule was
+  // "HTML to PDF takes pasted markup or rendering options", with two more
+  // shapes — `snippets` and `paste markup` — and a probe that also asked
+  // whether the panel had a <textarea>. It read ONE file, the panel module,
+  // and so would have certified the new paste box absent forever: the box
+  // lives in the panel's lazily loaded children (`html-source-area.tsx` →
+  // `html-paste-box.tsx`), a file it did not read (rule 4: the right command
+  // over the wrong set). The probe now walks the panel's module graph
+  // (`panelGraph`), finds the box, and the paste half went red, as built to.
+  // What the copy may claim instead is pinned in the positive section
+  // ("HTML to PDF says paste exactly when its panel has a paste box"); the
+  // vague "choose your options" stays banned here on its own probe.
   {
-    id: "HTML to PDF takes pasted markup or rendering options",
+    id: "HTML to PDF takes rendering options",
     subjects: () => panelMounts().get("HtmlRenderWorkerPanel") ?? [],
     shapes: {
-      snippets: /\bsnippets?\b/i,
-      "paste markup":
-        /\bpaste\w*\s+(?:your\s+|the\s+|some\s+)?(?:html|markup|code)\b/i,
       "choose options":
         /\b(?:choose|set|pick|adjust)\s+(?:your\s+|the\s+)?options\b/i,
     },
-    shipped: [
-      "Convert HTML files or snippets into PDF with a real Chromium rendering engine on a secure worker that deletes the input when the job finishes.",
-      "Choose your options.",
-    ],
-    synonyms: ["Paste your HTML markup and render it."],
+    shipped: ["Choose your options."],
+    synonyms: ["Set the options and render it."],
     honest: [
       "Paste a public http(s) URL.",
       "Upload one .html or .htm file over an encrypted connection.",
+      "Paste your HTML markup and render it.",
     ],
     probe: async () => {
-      // On the wire: the options the real client sends with the job. And the
-      // panel: the only way markup could be pasted is a text area.
+      // On the wire: the options the real client sends with a plain job.
       const options = await htmlJobOptionsOnTheWire();
-      const mounts = panelMounts();
-      const panelName = [...mounts.entries()].find(([, slugs]) =>
-        slugs.includes("html-to-pdf"),
-      )?.[0];
-      const panelFile = panelName ? panelModule(panelName) : undefined;
-      if (!panelFile) throw new Error("no panel mounted for html-to-pdf");
-      const panel = withoutComments(read(panelFile));
-      const hasTextarea = /<textarea\b/.test(panel);
       return {
-        present: Object.keys(options).length > 0 || hasTextarea,
-        evidence: `job options on the wire: ${JSON.stringify(options)}; ${panelFile} has a <textarea>: ${hasTextarea}`,
+        present: Object.keys(options).length > 0,
+        evidence: `job options on the wire: ${JSON.stringify(options)}`,
       };
     },
   },
@@ -1411,6 +1443,37 @@ describe("tool pages do not promise capabilities the tool does not have", () => 
  * ------------------------------------------------------------------ */
 
 describe("the replacement copy states what the output actually is", () => {
+  it("HTML to PDF says paste exactly when its panel has a paste box", async () => {
+    // The CAPABILITY, from the panel's whole module graph (its lazy children
+    // included): a <textarea> somewhere a reader of /tools/html-to-pdf can
+    // open it. `html-source-area.test.tsx` opens it through the panel.
+    const subject = "html-to-pdf";
+    const panelName = [...panelMounts().entries()].find(([, slugs]) =>
+      slugs.includes(subject),
+    )?.[0];
+    const entry = panelName ? panelModule(panelName) : undefined;
+    if (!entry) throw new Error(`no panel mounted for ${subject}`);
+    const graph = panelGraph(entry);
+    // Health: the walk reached past the panel module itself.
+    expect(graph.length, graph.join(", ")).toBeGreaterThanOrEqual(5);
+    const boxes = graph.filter((f) =>
+      /<textarea\b/.test(withoutComments(read(f))),
+    );
+    // THE CLAIM, read through the same attribution the bans use.
+    const paste =
+      /\bpaste\w*\s+(?:your\s+|the\s+|some\s+)?(?:html|markup|code)\b/i;
+    const claims: string[] = [];
+    for (const container of await containersFor(subject))
+      for (const { sentence, masked } of attributedTo(container, subject))
+        if (paste.test(masked)) claims.push(sentence);
+    // Both ways: copy that says paste needs a box, and a box needs copy
+    // that says so (or the feature is invisible to everyone who reads first).
+    expect({ box: boxes.length > 0, claim: claims.length > 0 }).toEqual({
+      box: true,
+      claim: true,
+    });
+  });
+
   /**
    * Published paper sizes in points — an outside table, NOT the runner's
    * (`IMAGE_PAGE_SIZES`), so a wrong constant there cannot agree with itself.
