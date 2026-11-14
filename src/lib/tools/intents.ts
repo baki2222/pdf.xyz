@@ -144,8 +144,11 @@ export const UNSUPPORTED_ANSWERS: Readonly<
     how: "Export a PNG copy first.",
   },
   AVIF: { noun: "AVIF images", becomes: "JPG", how: "Save a JPG copy first." },
+  // "ZIP archives" until 2026-11-14: HTML to PDF now opens a ZIP of a web
+  // page when the running worker can (competitor audit #26), so the claim is
+  // narrowed to the ZIPs this answer is about — documents to unpack.
   ZIP: {
-    noun: "ZIP archives",
+    noun: "ZIP archives of documents",
     becomes: "PDF",
     how: "Unzip it first and add the files inside.",
   },

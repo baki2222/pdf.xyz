@@ -7,9 +7,40 @@ import {
   HTML_LAYOUT_STEP,
   htmlLayoutAnswer,
 } from "@/lib/tools/html-layout-copy";
+import {
+  HTML_ZIP_MAX_ENTRIES,
+  HTML_ZIP_MAX_ENTRY_RATIO,
+  HTML_ZIP_MAX_UNPACKED_BYTES,
+} from "@/lib/workers/html-render/zip-config";
+import { PASTED_HTML_FILENAME } from "@/lib/workers/html-render/pasted-html";
 
 /**
- * Every claim below was read off the implementation, not the marketing:
+ * Every claim below was read off the implementation, not the marketing.
+ *
+ * SINCE 2026-11-14 (competitor audit #26) the page takes three inputs, and
+ * the bullets below that say "one file" describe the first:
+ *  - a chosen .html/.htm file, as before;
+ *  - PASTED CODE: "Or paste HTML code" opens a labelled box
+ *    (src/components/tools/html-paste-box.tsx) whose text is uploaded as a
+ *    file named PASTED_HTML_FILENAME, its bytes a UTF-8 byte-order mark and
+ *    the text as UTF-8 (src/lib/workers/html-render/pasted-html.ts), so it
+ *    reads as UTF-8 whatever its <meta charset> says
+ *    (zip-site.chromium.test.ts renders Bengali, accents and emoji under a
+ *    contrary meta). Bounded by the same ceiling, counted in uploaded bytes;
+ *    past it the box is marked invalid and nothing is sent. It goes through
+ *    the same job, retention and download as a file;
+ *  - A ZIP of a page and its files, OFFERED ONLY while the live worker
+ *    proves `htmlZip` (status.htmlZip; the upload and job APIs refuse a ZIP
+ *    otherwise, HTML_ZIP_NOT_RUNNING_MESSAGE). The browser lists its pages
+ *    and asks for one when several are equal candidates (chooseHtmlEntry);
+ *    the worker opens it within the bounds in zip-config.ts and serves each
+ *    entry at HTML_DOCUMENT_URL by its exact path (zip-site.ts). Static copy
+ *    cannot know whether the running worker offers it, so every ZIP sentence
+ *    says "when our server can open ZIP files" and that the page says which.
+ * The "Our server receives your one HTML file and nothing else" FAQ answer
+ * was true of the first input only and went with this change.
+ *
+ * Earlier notes, as written:
  *  - controls and labels: src/components/tools/html-render-worker-panel.tsx
  *    (Dropzone title "Add an HTML file, or" + its "browse" link, accept
  *    .html/.htm, one file, "Remove", "Render PDF", disabled until a file is
@@ -115,8 +146,12 @@ const CEILING_TEXT = formatBytes(CEILING.bytes ?? 0);
 /** Who refuses above the ceiling, computed rather than assumed. */
 const SIZE_SENTENCE =
   CEILING.tier === "worker" && CEILING.engine
-    ? `One HTML file of up to ${CEILING_TEXT} per run, the most ${CEILING.engine} is handed: a larger one is refused as soon as you pick it, before anything is uploaded.`
-    : `One HTML file of up to ${CEILING_TEXT} is accepted per run.`;
+    ? `One HTML file, pasted page or ZIP of up to ${CEILING_TEXT} per run, the most ${CEILING.engine} is handed: a larger file is refused as soon as you pick it, before anything is uploaded, and pasted code over it is marked in the box and not sent.`
+    : `One HTML file, pasted page or ZIP of up to ${CEILING_TEXT} is accepted per run.`;
+
+const MIB = 1024 * 1024;
+/** What a ZIP may hold, from the worker's own bounds. */
+const ZIP_LIMITS = `at most ${HTML_ZIP_MAX_ENTRIES.toLocaleString("en-US")} files that unpack to at most ${HTML_ZIP_MAX_UNPACKED_BYTES / MIB} MB`;
 
 const content: ToolContent = {
   slug: "html-to-pdf",
@@ -124,12 +159,12 @@ const content: ToolContent = {
   seoTitle: "HTML to PDF: Print an HTML File with Chromium",
 
   metaDescription:
-    "Upload one .html or .htm file and headless Chromium prints it to PDF, running its scripts and applying print CSS and @page size. Input deleted after the job.",
+    "Upload an .html file or paste HTML code, and headless Chromium prints it to PDF, running its scripts and applying print CSS and @page size. Input deleted after.",
 
   intro: [
-    "HTML to PDF takes one .html or .htm file and prints it the way a browser would. Headless Chromium, the open-source engine behind Chrome, lays out the markup with the CSS inside the file, runs its JavaScript within a bounded rendering window, and prints the result. Because it is a print rather than a screenshot, text stays selectable, @media print rules take effect, and a CSS @page rule decides the paper size.",
-    `Chromium does not run in your browser, so this is an upload: the file goes over TLS to pdf.xyz's secure server, which deletes it when the job finishes (and within ${INPUT_MINUTES} minutes in any case). The PDF's download link lasts ${LINK_MINUTES} minutes, and a daily storage rule erases the stored copy after that.`,
-    "Only the single file you choose is uploaded. A stylesheet, image or font referenced by a path such as css/site.css sits on your computer, not beside the upload, so it has nothing to load. Self-contained HTML works best: CSS in a <style> block, images and fonts embedded as data: URIs. To capture a page that is already online, give its address to Webpage to PDF instead.",
+    "HTML to PDF takes one .html or .htm file, or HTML code you paste into the page, and prints it the way a browser would. Headless Chromium, the open-source engine behind Chrome, lays out the markup with the CSS inside the file, runs its JavaScript within a bounded rendering window, and prints the result. Because it is a print rather than a screenshot, text stays selectable, @media print rules take effect, and a CSS @page rule decides the paper size.",
+    `Chromium does not run in your browser, so this is an upload: the file, or the code you paste, sent as a file named ${PASTED_HTML_FILENAME}, goes over TLS to pdf.xyz's secure server, which deletes it when the job finishes (and within ${INPUT_MINUTES} minutes in any case). The PDF's download link lasts ${LINK_MINUTES} minutes, and a daily storage rule erases the stored copy after that.`,
+    "An HTML file is uploaded on its own. A stylesheet, image or font it references by a path such as css/site.css sits on your computer, not beside the upload, so it has nothing to load, and the page names those files before you upload. When our server can open ZIP files, the page also takes a ZIP of the page with its files, such as a zipped folder with its index.html or a browser's “Webpage, Complete” save, and serves each file in it to Chromium at the path the page uses; the drop zone says whether it takes a ZIP. Otherwise self-contained HTML works best: CSS in a <style> block, images and fonts embedded as data: URIs. To capture a page that is already online, give its address to Webpage to PDF instead.",
   ],
 
   useCases: [
@@ -139,7 +174,7 @@ const content: ToolContent = {
     },
     {
       title: "Turn a static report into something you can send",
-      body: "When a test, coverage or analytics tool offers a single-file HTML report, pick it: its styles and data travel inside the upload. The multi-file kind, a page plus a folder of scripts and images, prints without whatever lives in that folder.",
+      body: "When a test, coverage or analytics tool offers a single-file HTML report, pick it: its styles and data travel inside the upload. The multi-file kind, a page plus a folder of scripts and images, prints without that folder as an HTML file; zipped together with it, it prints whole when the page offers ZIP.",
     },
     {
       title: "Proof a print stylesheet before it ships",
@@ -147,49 +182,56 @@ const content: ToolContent = {
     },
     {
       title: "Rescue the text of a saved web page",
-      body: "Saving a page as “Webpage, Complete” writes an .html file plus a folder of assets. Only the .html travels here, so text written into the markup survives, while the styling and pictures in that folder do not.",
+      body: "Saving a page as “Webpage, Complete” writes an .html file plus a folder of assets. Uploaded alone, the .html keeps the text written into its markup and loses the styling and pictures in that folder. Zip the file and the folder together and, when the page offers ZIP, both travel: the page printed is the one .html at the top of the ZIP, not the frames saved inside the folder.",
+    },
+    {
+      title: "Print HTML you only have as code",
+      body: `Copy the markup out of an email builder, a CMS's source view or your editor, press “Or paste HTML code” and paste it into the box. It is uploaded as ${PASTED_HTML_FILENAME} and read as UTF-8 whatever its <meta charset> line says, so accented letters, Bengali and emoji print as typed.`,
     },
   ],
 
   steps: [
     {
-      title: "Add your HTML file",
-      body: "Drag one .html or .htm file onto the dashed drop zone, or click it to pick one. The name then appears with a Remove button. The drop zone works before the page has heard from our server; the file is sent only when you press Render PDF, and that button stays off until a secure server is ready. When none is, the panel says why and offers a “Notify me when this ships” button.",
+      title: "Add your HTML file or code",
+      body: `Drag one .html or .htm file onto the dashed drop zone, or click it to pick one; the name then appears with a Remove button. Or press “Or paste HTML code” and paste the markup into the box, up to ${CEILING_TEXT} counted as uploaded; a byte count appears as you near it. When our server can open ZIP files the drop zone also takes a .zip of a page and its files, and when the ZIP holds more than one candidate page a “Page to print” list asks which. The drop zone works before the page has heard from our server; the file is sent only when you press Render PDF, and that button stays off until a secure server is ready. When none is, the panel says why and offers a “Notify me when this ships” button.`,
     },
     HTML_LAYOUT_STEP,
     {
       title: "Click Render PDF",
-      body: "It stays disabled until a file is added. Once clicked, its label follows the job: “Uploading your file…”, then “Waiting for our server…” if the queue is busy, “Rendering PDF…” while Chromium prints, and “Downloading the result…”. A Cancel button below it stops the job at any point.",
+      body: "It stays disabled until a file is added or code pasted, and for a ZIP until its page is chosen. Once clicked, its label follows the job: “Uploading your file…”, then “Waiting for our server…” if the queue is busy, “Rendering PDF…” while Chromium prints, and “Downloading the result…”. A Cancel button below it stops the job at any point.",
     },
     {
       title: "Download the PDF",
-      body: "When “Your PDF is ready.” appears, click the button reading Download plus the file name. The PDF is named after your file, ending in .pdf instead of .html or .htm. A failure shows an error note instead.",
+      body: "When “Your PDF is ready.” appears, click the button reading Download plus the file name. The PDF is named after your file, ending in .pdf instead of .html, .htm or .zip; pasted code becomes pasted.pdf. A failure shows an error note instead.",
     },
   ],
 
   faqs: [
     {
       q: "Is my HTML file uploaded, and how long is it kept?",
-      a: `Yes, over TLS, because Chromium runs on our secure server. The upload is removed when the job ends, success or failure, and within ${INPUT_MINUTES} minutes regardless. The download link works for ${LINK_MINUTES} minutes; a daily storage rule then erases the stored PDF, typically a few hours later.`,
+      a: `Yes, over TLS, because Chromium runs on our secure server, and so is pasted code, as a file named ${PASTED_HTML_FILENAME}: nothing is rendered in your browser. The upload is removed when the job ends, success or failure, and within ${INPUT_MINUTES} minutes regardless. The download link works for ${LINK_MINUTES} minutes; a daily storage rule then erases the stored PDF, typically a few hours later.`,
     },
     {
       q: "Why are my images, fonts or stylesheet missing from the PDF?",
-      a: 'Usually a relative path. Our server receives your one HTML file and nothing else, so src="images/logo.png", href="style.css" or /img/logo.png point at files it never had. Paste the CSS into a <style> element, embed images and fonts as data: URIs, and render again.',
+      a: 'Usually a relative path. An HTML file or pasted code travels alone, so src="images/logo.png", href="style.css" or /img/logo.png point at files our server never had, and the page names them before you upload. Put the CSS in a <style> element, embed images and fonts as data: URIs or link them by full https:// addresses, or, when the page offers ZIP, zip the page together with its files: each file in the ZIP is served at the path the page names, matched exactly, capital letters included. A path that climbs out of the ZIP, or a file the ZIP lacks, still has nothing to load, and the page names those too.',
+    },
+    {
+      q: "Can I upload a ZIP of a page and its files?",
+      a: `When our server can open ZIP files, yes: the drop zone then says it takes a ZIP, and otherwise takes HTML only. One ZIP of up to ${CEILING_TEXT}, with ${ZIP_LIMITS}. The page printed is index.html at the top of the ZIP or of its one folder, otherwise the only page at that level, otherwise the one you pick from the “Page to print” list. A ZIP over those limits, one with a file that would grow more than ${HTML_ZIP_MAX_ENTRY_RATIO} times its packed size, one with no .html or .htm page, or one that cannot be read is refused before anything is printed, with the reason. Folders and symbolic links inside it are never served, and every other address the page links to is fetched as for an HTML file: public http(s) addresses only.`,
     },
     {
       q: "Does JavaScript run before the page is printed?",
-      a: "Yes, within a fixed budget of rendering time, so a chart or table built by script can appear. Content that waits on a long timer, or on other files the page links to, which our server never receives, may be missing.",
+      a: "Yes, within a fixed budget of rendering time, so a chart or table built by script can appear, in pasted code and in a ZIP's page too. Content that waits on a long timer, or on files the upload does not carry, may be missing.",
     },
     {
       q: "Can I choose the page size, margins or orientation?",
       // Until 2026-10-25: "There are no layout settings on this page, but
       // the HTML itself can set them …" — true until the Page layout group
       // shipped; see src/lib/tools/html-layout-copy.ts for what the answer is read from.
-      a: htmlLayoutAnswer("file"),
-    },
-    {
-      q: "Does the PDF get a date, a title or a file path on every page?",
-      a: "No. Our server asks Chromium for the page alone, so no print date, <title>, file location or page count is added at the top or bottom of any page. For page numbers or a running header, add them afterwards with Add Page Numbers or PDF Header & Footer.",
+      // Since 2026-11-14 it also carries what was its own question, "Does
+      // the PDF get a date, a title or a file path on every page?", folded in
+      // when the ZIP question made seven (the budget is six).
+      a: `${htmlLayoutAnswer("file")} Our server asks Chromium for the page alone, so no print date, <title>, file location or page count is added at the top or bottom of any page; for page numbers or a running header, add them afterwards with Add Page Numbers or PDF Header & Footer.`,
     },
     {
       q: "What happens if the file is too big or will not render?",
