@@ -199,10 +199,12 @@ export type HtmlEntryChoice =
  * whenever the ZIP holds more than one page (`@/components/tools/html-source-area`,
  * `candidates.length > 1`), with the page these rules chose already
  * selected; only when they choose none is nothing selected and Run held.
- * `@/components/tools/html-source-area.test` drives both cases.
+ * `@/components/tools/html-source-area.test` drives both cases. It follows
+ * a sentence that says when a ZIP is taken, so it says "such a ZIP"
+ * (`@/lib/tools/html-zip-hedge.test` holds every ZIP sentence to that).
  */
 export const HTML_ZIP_PAGE_CHOICE_SENTENCES =
-  "The page printed is index.html at the top of the ZIP or of its one folder, otherwise the only page at that level, otherwise the only page anywhere. When the ZIP holds more than one page, a “Page to print” list shows them all with that page already selected, so you can print another; when those rules leave more than one, nothing is selected and Render PDF waits until you choose.";
+  "The page printed from such a ZIP is index.html at its top or at the top of its one folder, otherwise the only page at that level, otherwise the only page anywhere. When such a ZIP holds more than one page, a “Page to print” list shows them all with that page already selected, so you can print another; when those rules leave more than one, nothing is selected and Render PDF waits until you choose.";
 
 export function chooseHtmlEntry(names: readonly string[]): HtmlEntryChoice {
   const candidates = names.filter(isHtmlEntryName);

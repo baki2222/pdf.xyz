@@ -215,11 +215,11 @@ const content: ToolContent = {
     },
     {
       q: "Why are my images, fonts or stylesheet missing from the PDF?",
-      a: 'Usually a relative path. An HTML file or pasted code travels alone, so src="images/logo.png", href="style.css" or /img/logo.png point at files our server never had, and the page names them before you upload. Put the CSS in a <style> element, embed images and fonts as data: URIs or link them by full https:// addresses, or, when the page offers ZIP, zip the page together with its files: each file in the ZIP is served at the path the page names, matched exactly, capital letters included. A path that climbs out of the ZIP, or a file the ZIP lacks, still has nothing to load, and the page names those too.',
+      a: 'Usually a relative path. An HTML file or pasted code travels alone, so src="images/logo.png", href="style.css" or /img/logo.png point at files our server never had, and the page names them before you upload. Put the CSS in a <style> element, embed images and fonts as data: URIs or link them by full https:// addresses, or, when the page offers ZIP, zip the page together with its files: each file in the ZIP is served at the path the page names, matched exactly, capital letters included. A path that climbs out of such a ZIP, or a file it lacks, still has nothing to load, and the page names those too.',
     },
     {
       q: "Can I upload a ZIP of a page and its files?",
-      a: `When our server can open ZIP files, yes: the drop zone then says it takes a ZIP, and otherwise takes HTML only. One ZIP of up to ${CEILING_TEXT}, with ${ZIP_LIMITS}. ${HTML_ZIP_PAGE_CHOICE_SENTENCES} A ZIP over those limits, one with a file that would grow more than ${HTML_ZIP_MAX_ENTRY_RATIO} times its packed size, one with no .html or .htm page, or one that cannot be read is refused before anything is printed, with the reason. Folders and symbolic links inside it are never served, and every other address the page links to is fetched as for an HTML file: public http(s) addresses only.`,
+      a: `When our server can open ZIP files, yes: the drop zone then says it takes a ZIP, and otherwise takes HTML only. Such a ZIP may be up to ${CEILING_TEXT}, with ${ZIP_LIMITS}. ${HTML_ZIP_PAGE_CHOICE_SENTENCES} Such a ZIP is refused before anything is printed, with the reason, when it is over those limits, holds a file that would grow more than ${HTML_ZIP_MAX_ENTRY_RATIO} times its packed size, holds no .html or .htm page, or cannot be read. Folders and symbolic links inside it are never served, and every other address the page links to is fetched as for an HTML file: public http(s) addresses only.`,
     },
     {
       q: "Does JavaScript run before the page is printed?",
