@@ -27,10 +27,7 @@ import {
   type PdfFrames,
   type VisiblePageFrame,
 } from "@/lib/pdf/page-frame";
-import {
-  createThumbnailRenderer,
-  type ThumbnailRenderer,
-} from "@/lib/pdf/render";
+import type { ThumbnailRenderer } from "@/lib/pdf/render";
 import { clampPixelRatio } from "@/lib/pdf/render-utils";
 import {
   classifyPdfAccess,
@@ -150,6 +147,11 @@ function SignaturePagePreview({
     let renderer: ThumbnailRenderer | null = null;
     (async () => {
       try {
+        // Loaded with the preview, not with the page: statically imported,
+        // the renderer rode this page's first load, and the page budget's
+        // additions split it out of the chunk it shared there: +688 B gz on
+        // this page against main (review r3, 2026-11-14).
+        const { createThumbnailRenderer } = await import("@/lib/pdf/render");
         renderer = await createThumbnailRenderer(bytes, {
           orientation: "displayed",
           pixelRatio: clampPixelRatio(window.devicePixelRatio || 1),
