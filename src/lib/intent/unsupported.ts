@@ -45,6 +45,8 @@ export interface UnsupportedAnswer<T extends AnswerTool> {
   /** "Save a JPG copy first." — an instruction, or null when there is none. */
   readonly how: string | null;
   readonly alternative: UnsupportedAlternative<T> | null;
+  /** The one tool that does open the format in one case (`onlyIn`), or null. */
+  readonly onlyIn: T | null;
 }
 
 /** "PDF", "DOCX and DOC", "XLSX, XLS and CSV". */
@@ -64,7 +66,10 @@ export function unsupportedWords(format: UnsupportedFormat): {
   readonly how: string | null;
 } {
   const data = UNSUPPORTED_ANSWERS[format];
-  return { headline: `No tool here opens ${data.noun}.`, how: data.how };
+  return {
+    headline: data.headline ?? `No tool here opens ${data.noun}.`,
+    how: data.how,
+  };
 }
 
 /** The answer for `format`, with its alternative read from `tools`. */
@@ -87,5 +92,6 @@ export function unsupportedAnswer<T extends AnswerTool>(
       alternative = { kind: "tool", tool, takes: formatList(takes) };
     }
   }
-  return { format, headline, how: data.how, alternative };
+  const onlyIn = tools.find((t) => t.slug === data.onlyIn) ?? null;
+  return { format, headline, how: data.how, alternative, onlyIn };
 }

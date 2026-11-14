@@ -842,8 +842,21 @@ describe("no tool page loads a table of every tool", () => {
  * empty .next: the eight counted chunks read 34,995 B (34.1748 KB). 34.23 KB
  * is 35,052 B, which is 57 B over that figure for CI's reading (25 B higher
  * on the one tree both read). Not measured on CI.
+ *
+ * RAISED on 2026-11-14, 34.23 -> 34.31 KB (35,052 -> 35,133 B), FOR THE
+ * OWNER TO CONFIRM, by HTML to PDF's ZIP input (competitor audit #26).
+ * Review round 2 found the desk answering a dropped ZIP with "No tool here
+ * opens ZIP archives of documents. Unzip it first" — the opposite of the
+ * advice for the web-page ZIP the tool asks for — so the answer now names
+ * HTML to PDF, hedged like every ZIP sentence ("when our server can open
+ * ZIP files"). Main adb519ab -> the branch, one machine, both from an
+ * empty .next: the eight counted chunks read 34,995 -> 35,070 B (+75, all
+ * in chunk 3552, the intent layer's answers; 35,093 as first written, cut
+ * to 35,070 by flat data and shorter words). That is 18 B OVER 35,052. The
+ * new bound leaves 63 B over this machine's reading, as the old one left
+ * 57 B over main's (CI reads ~25 B higher). Not measured on CI.
  */
-const TICKET_FETCH_GZ_KB = 34.23;
+const TICKET_FETCH_GZ_KB = 34.31;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));

@@ -360,3 +360,29 @@ export async function runningWorkerTranslatesScans(
     languages,
   );
 }
+
+/**
+ * May HTML to PDF take a ZIP on the worker this liveness describes
+ * (competitor audit #26)? ONE pure predicate, read by the page's offer
+ * (`GET /api/worker/status`) and by both admission gates (`POST
+ * /api/uploads` for a ZIP file, `POST /api/jobs` for a job naming a page of
+ * one), so the three cannot drift apart.
+ *
+ * The property is "the running image prints a ZIP", not "the code is
+ * merged": an image built before the feature renders a ZIP's bytes as if
+ * they were HTML and reports success. Only a fresh, observed heartbeat
+ * carrying `htmlZip: true` (proven at the daemon's start-up,
+ * `html-render/zip-capability.ts`) says so; a stale, absent or unreachable
+ * beat, or one from an older image (no key, parsed as false), says no.
+ */
+export function liveWorkerRendersHtmlZip(liveness: HeartbeatLiveness): boolean {
+  return liveness.observed && liveness.capabilities?.htmlZip === true;
+}
+
+/** The admission gates' question, read from the broker. See {@link liveWorkerRendersHtmlZip}. */
+export async function runningWorkerRendersHtmlZip(
+  env: EnvSource = process.env,
+  deps: HeartbeatRedisDeps = {},
+): Promise<boolean> {
+  return liveWorkerRendersHtmlZip(await readWorkerHeartbeatLiveness(env, deps));
+}

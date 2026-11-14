@@ -66,5 +66,6 @@ export function emptyCapabilities(): HeartbeatCapabilities {
     pptxPictures: false,
     docxPictures: false,
     translateOcr: false,
+    htmlZip: false,
   };
 }

@@ -15,7 +15,14 @@ import {
 } from "./native";
 import type { NativeHtmlRenderConfig } from "./native-config";
 import type { RenderNetworkSeams } from "./network";
-import { WebpageFetchError, type WebpageFetchFailure } from "./engine";
+import {
+  RenderOutputTooLargeError,
+  RenderTimeoutError,
+  WebpageFetchError,
+  runHtmlToPdf,
+  type WebpageFetchFailure,
+} from "./engine";
+import { createHtmlRenderProcessor } from "../processor/html-render";
 import { DEFAULT_HTML_RENDER_OPTIONS } from "@/lib/jobs/html-render-options";
 import { DEFAULT_WEBPAGE_CAPTURE_OPTIONS } from "@/lib/jobs/webpage-capture-options";
 import { HIDE_OVERLAYS_SCRIPT } from "./overlays";
@@ -1064,5 +1071,102 @@ describe("a webpage render is the page the site answered with, or a named failur
         network: site({ "/missing": { status: 404 } }),
       }).renderHtml(HTML),
     ).resolves.toBeInstanceOf(Uint8Array);
+  });
+});
+
+/**
+ * Hostile review round 3 (2026-11-14): a page that never finishes — a
+ * `for(;;){}`, a script writing 100,000 pages — failed as `internal_error`,
+ * `retryable: true`, so one job held the worker for three full timeouts
+ * (about 370 s at 120 s each, measured 30.07 s per attempt at 30 s). The
+ * deadline now travels as a {@link RenderTimeoutError}, and for an UPLOADED
+ * page the job is final. A crash or an unusable PDF is still retried: it is
+ * not known to be the input's doing.
+ */
+describe("a render past its deadline", () => {
+  /** A browser that answers nothing: every render runs into the deadline. */
+  const silent: ChromiumLaunch = () => {
+    let exit: () => void = () => {};
+    const exited = new Promise<void>((resolve) => (exit = resolve));
+    return {
+      pipe: { write: () => {}, onData: () => {}, onClose: () => {} },
+      kill: () => exit(),
+      exited,
+    };
+  };
+  const quick = (launch: ChromiumLaunch) =>
+    createNativeChromiumPdfRunner(
+      { ...config, timeoutMs: 50, maxInputBytes: 1_000_000 },
+      { launch, fs: fsStub(), resolveOnPath: () => true, network: publicNet },
+    );
+
+  it("rejects with the typed timeout, carrying the budget", async () => {
+    const error = await quick(silent)
+      .renderHtml(HTML)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(RenderTimeoutError);
+    expect((error as RenderTimeoutError).timeoutMs).toBe(50);
+  });
+
+  it("an uploaded page past it is final, with its own words; a crash is still retried", async () => {
+    const processor = createHtmlRenderProcessor({ chromium: quick(silent) });
+    const result = await processor.process({
+      tool: "html-to-pdf",
+      options: {},
+      inputs: [
+        {
+          fileId: "f",
+          filename: "spin.html",
+          contentType: "text/html",
+          bytes: HTML,
+        },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatchObject({
+      code: "unprocessable_entity",
+      retryable: false,
+    });
+    expect(result.error.message).toMatch(/after 0 seconds.*not tried again/);
+    // POSITIVE CONTROL: a browser that dies is not the input's doing.
+    const dies: ChromiumLaunch = () => ({
+      pipe: { write: () => {}, onData: () => {}, onClose: () => {} },
+      kill: () => {},
+      exited: Promise.resolve(),
+    });
+    const crash = await runHtmlToPdf(HTML, { chromium: quick(dies) });
+    expect(crash).toMatchObject({ ok: false, kind: "failed" });
+  });
+
+  it("a PDF past the output limit is final too, with its own words (a 20 MiB SVG printed past 100 MiB, and was tried three times)", async () => {
+    const big = new Uint8Array(config.maxOutputBytes + 1);
+    big.set(PDF);
+    const processor = createHtmlRenderProcessor({
+      chromium: runner(fakeChromium({ pdf: big })),
+    });
+    const result = await processor.process({
+      tool: "html-to-pdf",
+      options: {},
+      inputs: [
+        {
+          fileId: "f",
+          filename: "svg.html",
+          contentType: "text/html",
+          bytes: HTML,
+        },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatchObject({
+      code: "unprocessable_entity",
+      retryable: false,
+    });
+    expect(result.error.message).toMatch(/larger than .*not tried again/);
+    // The typed error, at the runner.
+    await expect(
+      runner(fakeChromium({ pdf: big })).renderHtml(HTML),
+    ).rejects.toBeInstanceOf(RenderOutputTooLargeError);
   });
 });

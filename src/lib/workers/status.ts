@@ -112,6 +112,15 @@ export interface WorkerStatus {
    * anything older reads as absent, which every reader treats as `false`.
    */
   translateOcr?: boolean;
+  /**
+   * Whether HTML to PDF may offer a ZIP of a page and its files (competitor
+   * audit #26). True only when an OBSERVED heartbeat proves `htmlZip`: an
+   * image built before the feature renders a ZIP's bytes as HTML and calls
+   * it a success, and the image ships separately from this web tier, so
+   * merged code is not evidence. Until it reads true the page offers one
+   * HTML file, exactly as before. Optional: absent reads as `false`.
+   */
+  htmlZip?: boolean;
 }
 
 const NO_COMPRESS: CompressCapability = {
@@ -224,6 +233,11 @@ export function buildWorkerStatus(
    * on a worker that cannot run it.
    */
   workerTranslateOcr?: boolean,
+  /**
+   * Whether the observed worker's heartbeat proves `htmlZip`
+   * (`liveWorkerRendersHtmlZip`, the predicate both admission gates use).
+   */
+  workerHtmlZip?: boolean,
 ): WorkerStatus {
   const ocr = buildOcrCapability(
     mode,
@@ -251,6 +265,7 @@ export function buildWorkerStatus(
   );
   const translateOcr =
     workerObserved === true && workerTranslateOcr === true && ocr.available;
+  const htmlZip = workerObserved === true && workerHtmlZip === true;
 
   if (mode === "local-dev") {
     const engines = DEEP_COMPRESSION_TOOLS.filter((tool) => tools?.[tool]);
@@ -271,6 +286,7 @@ export function buildWorkerStatus(
       ai,
       pipeline,
       translateOcr,
+      htmlZip,
     };
   }
 
@@ -291,6 +307,7 @@ export function buildWorkerStatus(
       ai,
       pipeline,
       translateOcr,
+      htmlZip,
     };
   }
 
@@ -313,5 +330,6 @@ export function buildWorkerStatus(
     ai,
     pipeline,
     translateOcr,
+    htmlZip,
   };
 }

@@ -368,7 +368,39 @@ export function createRenderNetwork(
     return { action: "fulfill", status: res.status, headers: out, body };
   }
 
-  return { admit, handle };
+  /**
+   * Count a request answered WITHOUT the network — a ZIP page's own files,
+   * served from the archive at the document origin — against the SAME
+   * limits `handle` applies: one request, no body past `maxResponseBytes`,
+   * and `bodyBytes` of the render's byte budget. Null when it may be
+   * answered; otherwise why not, and it must be failed.
+   *
+   * `maxResponseBytes` was missing until hostile review round 2
+   * (2026-11-14): `handle` caps every fetched body at it, and an archive
+   * answer could be 100 MiB, which Chromium never acknowledged — the render
+   * hung to its timeout and was retried. The archive's own per-file bound
+   * (`HTML_ZIP_MAX_ENTRY_BYTES`) refuses such a ZIP before Chromium starts;
+   * this is the same limit at the place every answer passes.
+   *
+   * Synchronous on purpose: Chromium's paused requests are answered
+   * concurrently, and each must see what the ones before it took, so a page
+   * that asks for one large entry a thousand times at once is refused past
+   * the budget instead of encoding a thousand copies of it (a 656 KB upload
+   * once took the worker's heap that way).
+   */
+  function chargeServed(bodyBytes: number): string | null {
+    requests += 1;
+    if (requests > limits.maxRequests)
+      return "request budget for this render is spent";
+    if (bodyBytes > limits.maxResponseBytes)
+      return `response larger than ${limits.maxResponseBytes} bytes`;
+    if (bodyBytes > limits.maxTotalBytes - totalBytes)
+      return "byte budget for this render is spent";
+    totalBytes += bodyBytes;
+    return null;
+  }
+
+  return { admit, handle, chargeServed };
 }
 
 export type RenderNetwork = ReturnType<typeof createRenderNetwork>;

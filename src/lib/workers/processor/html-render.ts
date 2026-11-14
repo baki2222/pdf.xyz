@@ -8,6 +8,12 @@ import { isSafePublicHttpUrl } from "@/lib/jobs/validation";
 import { parseHtmlRenderOptions } from "@/lib/jobs/html-render-options";
 import { parseWebpageCaptureOptions } from "@/lib/jobs/webpage-capture-options";
 import {
+  htmlZipRefusalMessage,
+  parseHtmlZipEntryOption,
+  uploadIsHtmlZip,
+} from "../html-render/zip-config";
+import { looksLikeZip } from "../html-render/zip-site";
+import {
   HTML_TO_PDF_TOOL,
   WEBPAGE_TO_PDF_TOOL,
   runHtmlToPdf,
@@ -108,6 +114,24 @@ function jobError(run: HtmlRenderFailure): JobError {
         message: run.message,
         retryable: false,
       };
+    case "refused":
+      // A ZIP that cannot be printed: the same archive fails alike on every
+      // attempt, so it is final (`../html-render/zip-site`).
+      return {
+        code: "unprocessable_entity",
+        message: run.message,
+        retryable: false,
+      };
+    case "over_budget":
+      // An uploaded page past the time budget or the output limit does it
+      // again on every attempt (`RenderTimeoutError`,
+      // `RenderOutputTooLargeError`): final, so one job holds the worker for
+      // one attempt, not three.
+      return {
+        code: "unprocessable_entity",
+        message: run.message,
+        retryable: false,
+      };
     case "page_unavailable":
       // The site's doing, not the worker's: never `internal_error`. Retried
       // only when the same request could answer differently (5xx, 429, a
@@ -139,7 +163,8 @@ function requireSingleHtmlInput(
   if (input.inputs.length !== 1 || !file) {
     return processorFail({
       code: "unprocessable_entity",
-      message: "HTML to PDF accepts exactly one HTML input file.",
+      message:
+        "HTML to PDF accepts exactly one input file: an HTML file, or a ZIP of a page and its files.",
       retryable: false,
     });
   }
@@ -194,12 +219,42 @@ export function createHtmlRenderProcessor(deps: HtmlRenderDeps): Processor {
       if (input.tool === HTML_TO_PDF_TOOL) {
         const inputError = requireSingleHtmlInput(input);
         if (inputError) return inputError;
+        // The page of a ZIP to print: the API's parser again, for the same
+        // reason as the layout's.
+        const entry = parseHtmlZipEntryOption(input.options);
+        if (!entry.ok)
+          return processorFail({
+            code: "unprocessable_entity",
+            message: entry.message,
+            retryable: false,
+          });
         const file = input.inputs[0]!;
+        // The archive path is taken ONLY for an input the gates saw as a
+        // ZIP: declared one, or named .zip (the upload gate), or sent with
+        // a page to print (the job gate). Both gates read metadata and admit
+        // a ZIP only while the running worker proves `htmlZip`; the engine
+        // recognises a ZIP by its bytes. Before hostile review round 2
+        // (2026-11-14) a ZIP uploaded as page.html/text/html passed both
+        // gates as HTML and was then served as a site, whatever the
+        // heartbeat said. Now it is refused, finally, before Chromium.
+        const declaredZip =
+          entry.entry !== undefined ||
+          uploadIsHtmlZip({
+            filename: file.filename,
+            contentType: file.contentType,
+          });
+        if (!declaredZip && looksLikeZip(file.bytes))
+          return processorFail({
+            code: "unprocessable_entity",
+            message: htmlZipRefusalMessage({ kind: "zip_as_html" }),
+            retryable: false,
+          });
         const run = await runHtmlToPdf(
           file.bytes,
           deps,
           layout.value,
           input.signal,
+          entry.entry,
         );
         if (!run.ok) return processorFail(jobError(run));
         return processorOk(

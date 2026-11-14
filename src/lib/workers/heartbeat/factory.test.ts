@@ -119,6 +119,7 @@ describe("createHeartbeatPublisher", () => {
         pptxPictures: true,
         docxPictures: true,
         translateOcr: true,
+        htmlZip: true,
       },
       deps: { client: fake, now: () => 1_000 },
     });
@@ -161,6 +162,7 @@ describe("createHeartbeatReader / readWorkerHeartbeatLiveness", () => {
             pptxPictures: true,
             docxPictures: true,
             translateOcr: true,
+            htmlZip: true,
           },
           at: now,
         }),

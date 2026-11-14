@@ -39,6 +39,7 @@ const BEAT: WorkerHeartbeat = {
     pptxPictures: true,
     docxPictures: true,
     translateOcr: true,
+    htmlZip: true,
   },
   at: 1_700_000_000_000,
 };
