@@ -27,6 +27,7 @@ const MINUTE_MS = 60_000;
 // store in. Imported for internal use and re-exported for the many existing
 // call sites that import them from the store.
 import { newFileId, newJobId, newArtifactId, newSessionId } from "./ids";
+import { uploadIsHtmlZip } from "./html-render/zip-config";
 
 export { newFileId, newJobId, newArtifactId, newSessionId };
 
@@ -148,7 +149,8 @@ export class DevWorkerStore {
     declaredBytes: number;
   }): StoredSlot {
     const slot: StoredSlot = {
-      fileId: newFileId(),
+      // A ZIP's id says so, as the production store's does (`./ids`).
+      fileId: newFileId(uploadIsHtmlZip(input)),
       sessionId: input.sessionId,
       filename: input.filename,
       contentType: input.contentType,

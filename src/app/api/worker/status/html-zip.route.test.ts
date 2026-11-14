@@ -29,6 +29,7 @@ import {
   type HeartbeatCapabilities,
 } from "@/lib/workers/heartbeat";
 import { HTML_ZIP_NOT_RUNNING_MESSAGE } from "@/lib/workers/html-render/zip-config";
+import { heartbeatKey } from "@/lib/workers/heartbeat";
 import {
   publishHeartbeat,
   unwireJobRoute,
@@ -202,6 +203,56 @@ describe("ZIP for HTML to PDF: the offer and both gates agree, beat by beat", ()
       );
       // ... and the .zip name ALONE, no page named.
       gate(await job({}, "site.zip"), "a .zip input, no entry");
+    },
+  );
+
+  // Hostile review round 3 (2026-11-14): `entry` and `inputNames` are both
+  // optional, so a direct caller who uploaded x.zip while the worker proved
+  // ZIP, and sent the job with neither after the image was rolled back, was
+  // admitted — and the old image prints the archive's bytes. The chain
+  // through BOTH real routes: the id the upload minted is what the job gate
+  // reads, so nothing the caller leaves out reopens it.
+  it.each(CASES)(
+    "a ZIP uploaded while ZIP was proven, sent later with no page and no names, is judged by its id: %s",
+    async (_n, expected, shape) => {
+      await publish("fresh");
+      const slot = async (filename: string, contentType: string) => {
+        const response = await createUpload(
+          post("/api/uploads", {
+            tool: "html-to-pdf",
+            files: [{ filename, contentType, bytes: 2048 }],
+          }),
+        );
+        expect(response.status).toBeLessThan(300);
+        const body = (await response.json()) as {
+          slots: { fileId: string }[];
+        };
+        return body.slots[0]!.fileId;
+      };
+      const zipId = await slot("site.zip", "application/zip");
+      const htmlId = await slot("page.html", "text/html");
+      // The rollback: the fresh beat is gone before the new one (or none).
+      await route.redis.command(["DEL", heartbeatKey("pdfxyz")]);
+      await publish(shape);
+      const bare = async (fileId: string) => {
+        const response = await createJob(
+          post("/api/jobs", { tool: "html-to-pdf", inputs: [fileId] }),
+        );
+        const body = (await response.json()) as {
+          error?: { message?: string };
+        };
+        return { status: response.status, message: body.error?.message };
+      };
+      const zipJob = await bare(zipId);
+      if (expected) expect(zipJob.status).toBeLessThan(300);
+      else
+        expect(zipJob).toEqual({
+          status: 501,
+          message: HTML_ZIP_NOT_RUNNING_MESSAGE,
+        });
+      // POSITIVE CONTROL: an HTML upload's id, sent the same bare way, is
+      // admitted whatever the beat — the id, not the bareness, closes it.
+      expect((await bare(htmlId)).status).toBeLessThan(300);
     },
   );
 

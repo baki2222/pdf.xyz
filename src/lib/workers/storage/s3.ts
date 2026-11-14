@@ -19,6 +19,7 @@
 import { JOB_LIMITS } from "@/lib/jobs";
 import { sanitizeDisplayFilename } from "@/lib/jobs/filenames";
 import { newFileId } from "../ids";
+import { uploadIsHtmlZip } from "../html-render/zip-config";
 import type { S3StorageConfig } from "./s3-config";
 import { presignS3Url } from "./s3-signer";
 import {
@@ -127,7 +128,8 @@ export function createS3Storage(
         );
       }
 
-      const fileId = newFileId();
+      // A ZIP's id says so, for the job route's `htmlZip` gate (`../ids`).
+      const fileId = newFileId(uploadIsHtmlZip(request));
       const key = buildKey("input", fileId);
       // Normalize the client filename to a safe display name and carry it as S3
       // object metadata (never in the key). Signing `x-amz-meta-filename` locks

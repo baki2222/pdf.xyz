@@ -17,6 +17,7 @@ import {
 } from "@/lib/jobs";
 import { getToolBySlug } from "@/lib/tools";
 import { getWorkerAdapter } from "@/lib/workers";
+import { isZipFileId } from "@/lib/workers/ids";
 import {
   runningWorkerRendersHtmlZip,
   runningWorkerEnforcesAiReadCap,
@@ -142,12 +143,18 @@ export async function POST(request: Request): Promise<Response> {
   // upload gate use (`liveWorkerRendersHtmlZip`). An image built before the
   // feature ignores `entry` and renders the archive's bytes as HTML. A ZIP
   // job is told by its `entry` option (the browser always sends one for a
-  // ZIP) or by an input named .zip; the upload route refused a ZIP already
-  // on the same proof, and this holds the line if the worker changed since.
+  // ZIP), by an input named .zip, or — what no caller can leave out — by an
+  // input whose id says it was uploaded as a ZIP (`isZipFileId`: the upload
+  // route mints it from the type and name it signed). Until hostile review
+  // round 3 (2026-11-14) only the first two counted, both optional, so a ZIP
+  // uploaded while the worker proved `htmlZip` and sent with neither after a
+  // rollback was admitted. The upload route refused a ZIP already on the
+  // same proof, and this holds the line if the worker changed since.
   if (
     parsed.value.tool === "html-to-pdf" &&
     (parsed.value.options?.[HTML_ZIP_ENTRY_OPTION] !== undefined ||
-      (parsed.value.inputNames ?? []).some(isZipName)) &&
+      (parsed.value.inputNames ?? []).some(isZipName) ||
+      parsed.value.inputs.some(isZipFileId)) &&
     !(await runningWorkerRendersHtmlZip())
   )
     return respond(apiError("not_implemented", HTML_ZIP_NOT_RUNNING_MESSAGE));
