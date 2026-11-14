@@ -5,9 +5,11 @@ import type { WordPair } from "./words";
 export const CONTEXT = 2;
 
 /**
- * One group of nearby changes with its context. Changes closer than
- * `2 × CONTEXT` unchanged lines share a hunk, so no context line is printed
- * twice. Line ranges are half-open indices into each side's comparable
+ * One group of nearby changes with its context. Changes at most
+ * `2 × CONTEXT` unchanged lines apart share a hunk: at that gap every line
+ * between them is context anyway, and one line more is where two hunks can
+ * stand apart without printing a context line twice (hunks.test.ts holds
+ * both sides of the boundary). Line ranges are half-open indices into each side's comparable
  * lines; page ranges are the pages (first, last) the hunk's CHANGED lines sit
  * on — or, for a side with no changed line (a pure insertion or deletion),
  * the page of the nearest unchanged line before it (else after it), so a
