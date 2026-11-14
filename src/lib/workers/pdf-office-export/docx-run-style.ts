@@ -18,18 +18,35 @@
  * Built once per page:
  *  - every visible line that is upright (within half a degree), whose runs
  *    all carry their position along the baseline (`offset`, `extent`) and
- *    none of whose runs is in a right-to-left script, puts each visible run's
- *    box in a bucket by its vertical centre ({@link BUCKET_PT} points);
+ *    none of whose runs is in a right-to-left script, puts its visible runs
+ *    in a bucket by their vertical centre ({@link BUCKET_PT} points) — runs
+ *    side by side in ONE style joined into one, with their text;
  *  - every other line — turned, right-to-left (a run's offsets run against
  *    the reading direction there), or without offsets — is kept whole, with
- *    the one style ALL its visible runs share, if they share one.
+ *    the one style ALL its visible runs share, if they share one: its turned
+ *    outline (four corners, not the upright box around them) and its text.
  *
- * Per word: the run, in the word's bucket or the two beside it, whose box
- * holds the word's vertical centre and overlaps the word most across — if it
- * covers at least half the word's width; otherwise the whole line whose box
- * holds the word's centre, if that line has one style; otherwise NOTHING —
- * the word is written in Word's default style. An unmatched word is never
- * guessed: plain is the default, never a neighbour's bold.
+ * Per word, a candidate is a run, in the word's bucket or the two beside
+ * it, whose box holds the word's vertical centre, overlaps at least half the
+ * word's width ({@link MIN_COVER}), AND whose text holds the word's whole
+ * text ({@link textHolds}). The word takes the candidates' style if they all
+ * have ONE; with none, the whole line whose turned outline holds the word's
+ * centre and whose text holds the word's, if every such line has one style;
+ * otherwise NOTHING — the word is written in Word's default style, and
+ * counted. An unmatched word is never guessed: plain is the default, never
+ * a neighbour's bold.
+ *
+ * The TEXT test is what keeps a style on the characters drawn in it
+ * (review of 2026-11-15, round 1, which found each of these labelled wrong
+ * by position alone):
+ *  - a word whose style changes partway through (`print` blue + `(x)`
+ *    black, which poppler keeps as ONE word, a word having one font but no
+ *    one colour) is in no single run's text: plain, not the bigger part's;
+ *  - a word drawn OVER another line (a stamp, a filled-in value) lies
+ *    inside the wide run beneath it too, but only its own run's text holds
+ *    it — and where both texts do, two styles is no style;
+ *  - words under a turned watermark (the invisible words of an OCR layer,
+ *    say) lie inside its outline but not in its text.
  *
  * Invisible runs (an OCR layer) are not drawn in any style, so they label
  * nothing: an OCR'd scan comes through in Word's default style.
@@ -72,6 +89,11 @@ export interface DocxRunStyle {
  * page cheap; it bounds the one shape the search is still linear in per
  * word — a single run as wide as the line among thousands of narrow ones in
  * one bucket — which took 640 ms and +3 MB at this count (`match-wide`).
+ *
+ * RE-MEASURED 2026-11-15 with the text test (review round 1): 25 / 22 / 727
+ * ms and +8 / +12 / +9 MB for the three shapes above, and 15 ms and +3 MB
+ * for every word on one line in ONE style (`match-one`: the runs join into
+ * one of 100,000 characters, searched within {@link TEXT_WINDOW}).
  */
 export const MAX_STYLED_PIECES_PER_PAGE = 20_000;
 
@@ -87,16 +109,83 @@ const MIN_ALPHA = 0.5;
 const RTL_SCRIPT = /[\p{Script=Arabic}\p{Script=Hebrew}]/u;
 
 type Box = readonly [number, number, number, number];
+type Point = readonly [number, number];
 
 interface RunBox {
   box: Box;
   style: DocxRunStyle;
+  /** Its characters, {@link normalText}. */
+  text: string;
 }
 
 interface LineBox {
+  /** The upright box around {@link quad}: which buckets the line is in. */
   box: Box;
+  /** The line's turned outline, its corners in order around it. */
+  quad: readonly Point[];
   /** The style every visible run shares (a line of several is not kept). */
   style: DocxRunStyle;
+  /** Its characters, {@link normalText}. */
+  text: string;
+}
+
+/**
+ * A text as both readers can agree on it: compatibility forms unfolded (a
+ * ligature is its letters), and no white space or soft hyphen, which the
+ * two place differently.
+ */
+export function normalText(text: string): string {
+  return text.normalize("NFKC").replace(/[\s­]+/gu, "");
+}
+
+/**
+ * Up to this many characters of a run's text are searched whole for a word;
+ * a longer run (a page-wide line in one style) is searched only near where
+ * the word sits along it, by its share of the run's width, so a page of
+ * thousands of words on one run is not thousands of searches of all of it.
+ */
+export const TEXT_WINDOW = 4096;
+
+/**
+ * Whether `text` — a run or line spanning `from`..`to` across — holds the
+ * word `key` centred at `at`. Missing a word only writes it plain (and
+ * counts it); it can never give a word a style it is not drawn in.
+ */
+export function textHolds(
+  text: string,
+  key: string,
+  at: number,
+  from: number,
+  to: number,
+): boolean {
+  if (text.length <= TEXT_WINDOW) return text.includes(key);
+  const share = to > from ? (at - from) / (to - from) : 0.5;
+  const mid = Math.round(Math.min(1, Math.max(0, share)) * text.length);
+  const half = TEXT_WINDOW / 2 + key.length;
+  return text
+    .slice(Math.max(0, mid - half), Math.min(text.length, mid + half))
+    .includes(key);
+}
+
+/** Whether `p` lies inside the convex outline `quad` (or on its edge). */
+function inside(quad: readonly Point[], p: Point): boolean {
+  let sign = 0;
+  for (let k = 0; k < quad.length; k++) {
+    const [ax, ay] = quad[k]!;
+    const [bx, by] = quad[(k + 1) % quad.length]!;
+    const cross = (bx - ax) * (p[1] - ay) - (by - ay) * (p[0] - ax);
+    if (Math.abs(cross) < 1e-9) continue;
+    const s = Math.sign(cross);
+    if (sign === 0) sign = s;
+    else if (s !== sign) return false;
+  }
+  return true;
+}
+
+/** A point through the page's `mediaFrame` (as `mapBox` maps a box). */
+function mapPoint(m: readonly number[] | undefined, [x, y]: Point): Point {
+  if (!m) return [x, y];
+  return [m[0]! * x + m[2]! * y + m[4]!, m[1]! * x + m[3]! * y + m[5]!];
 }
 
 /** The style a run is drawn in, as Word writes it. */
@@ -126,25 +215,40 @@ export function styleKey(style: DocxRunStyle | null): string {
   return `${style.bold ? "b" : ""}${style.italic ? "i" : ""}|${style.halfPoints ?? ""}|${style.color ?? ""}`;
 }
 
-/** `[x, y, w, h]` turned `rotation` degrees clockwise about its centre, as a box. */
-function turnedBox(line: ScannedTextLine): Box {
+/**
+ * `[x, y, w, h]` turned `rotation` degrees clockwise about its centre: its
+ * four corners in order around it, mapped through the page's `mediaFrame`.
+ */
+function turnedQuad(
+  line: ScannedTextLine,
+  frame: readonly number[] | undefined,
+): Point[] {
   const cx = line.x + line.width / 2;
   const cy = line.y + line.height / 2;
   const a = (line.rotation * Math.PI) / 180;
   const cos = Math.cos(a);
   const sin = Math.sin(a);
+  const w = line.width / 2;
+  const h = line.height / 2;
+  return (
+    [
+      [-w, -h],
+      [w, -h],
+      [w, h],
+      [-w, h],
+    ] as const
+  ).map(([dx, dy]) =>
+    mapPoint(frame, [cx + dx * cos - dy * sin, cy + dx * sin + dy * cos]),
+  );
+}
+
+/** The upright box around some points. */
+function boxAround(points: readonly Point[]): Box {
   let x0 = Infinity;
   let y0 = Infinity;
   let x1 = -Infinity;
   let y1 = -Infinity;
-  for (const [dx, dy] of [
-    [-line.width / 2, -line.height / 2],
-    [line.width / 2, -line.height / 2],
-    [-line.width / 2, line.height / 2],
-    [line.width / 2, line.height / 2],
-  ] as const) {
-    const x = cx + dx * cos - dy * sin;
-    const y = cy + dx * sin + dy * cos;
+  for (const [x, y] of points) {
     if (x < x0) x0 = x;
     if (y < y0) y0 = y;
     if (x > x1) x1 = x;
@@ -197,16 +301,50 @@ function indexOf(scanned: ScannedPage): PageIndex {
     );
     const rtl = item.runs.some((r) => RTL_SCRIPT.test(r.text));
     if (upright && located && !rtl) {
-      for (const run of visible) {
+      // Runs side by side in one style, joined: the page reader splits a
+      // run where the FONT changes, which a word's style does not see.
+      const joined: {
+        from: number;
+        to: number;
+        style: DocxRunStyle;
+        key: string;
+        text: string;
+      }[] = [];
+      let previous: ScannedRun | null = null;
+      for (const run of item.runs) {
+        const shown = !run.invisible && run.text.trim() !== "";
+        if (!shown) {
+          // An invisible run between two breaks them; a blank one does not.
+          if (run.invisible) previous = null;
+          continue;
+        }
+        const style = styleOfRun(run);
+        const key = styleKey(style);
+        const last = joined.at(-1);
+        if (previous && last && last.key === key) {
+          last.to = run.offset! + run.extent!;
+          last.text += run.text;
+        } else {
+          joined.push({
+            from: run.offset!,
+            to: run.offset! + run.extent!,
+            style,
+            key,
+            text: run.text,
+          });
+        }
+        previous = run;
+      }
+      for (const run of joined) {
         const box = mapBox(frame, [
-          item.x + run.offset!,
+          item.x + run.from,
           item.y,
-          item.x + run.offset! + run.extent!,
+          item.x + run.to,
           item.y + item.height,
         ]);
         const bucket = Math.floor((box[1] + box[3]) / 2 / BUCKET_PT);
         const list = byBucket.get(bucket);
-        const entry = { box, style: styleOfRun(run) };
+        const entry = { box, style: run.style, text: normalText(run.text) };
         if (list) list.push(entry);
         else byBucket.set(bucket, [entry]);
       }
@@ -216,8 +354,14 @@ function indexOf(scanned: ScannedPage): PageIndex {
     const key = styleKey(first);
     // A line of several styles labels nothing as a whole: not indexed.
     if (!visible.every((r) => styleKey(styleOfRun(r)) === key)) continue;
-    const box = mapBox(frame, turnedBox(item));
-    const entry: LineBox = { box, style: first };
+    const quad = turnedQuad(item, frame);
+    const box = boxAround(quad);
+    const entry: LineBox = {
+      box,
+      quad,
+      style: first,
+      text: normalText(visible.map((r) => r.text).join("")),
+    };
     const top = Math.floor(box[1] / BUCKET_PT);
     const bottom = Math.floor(box[3] / BUCKET_PT);
     for (let b = top; b <= bottom; b++) {
@@ -236,17 +380,26 @@ function indexOf(scanned: ScannedPage): PageIndex {
   return { buckets, lines };
 }
 
-function matchPiece(box: FlowBox, index: PageIndex): DocxRunStyle | null {
+/** The one style of `found`, or null when it is empty or holds two. */
+function oneStyle(found: readonly DocxRunStyle[]): DocxRunStyle | null {
+  if (found.length === 0) return null;
+  const key = styleKey(found[0]!);
+  return found.every((s) => styleKey(s) === key) ? found[0]! : null;
+}
+
+function matchPiece(piece: FlowPiece, index: PageIndex): DocxRunStyle | null {
+  const key = normalText(piece.text);
+  if (!key) return null;
+  const { box } = piece;
   const cx = (box[0] + box[2]) / 2;
   const cy = (box[1] + box[3]) / 2;
   const width = Math.max(box[2] - box[0], 1e-6);
   const bucket = Math.floor(cy / BUCKET_PT);
-  let best: RunBox | null = null;
-  let bestOverlap = 0;
+  const found: DocxRunStyle[] = [];
   for (let b = bucket - 1; b <= bucket + 1; b++) {
-    const found = index.buckets.get(b);
-    if (!found) continue;
-    const { runs, widest } = found;
+    const inBucket = index.buckets.get(b);
+    if (!inBucket) continue;
+    const { runs, widest } = inBucket;
     for (
       let k = firstFrom(runs, box[0] - widest);
       k < runs.length && runs[k]!.box[0] < box[2];
@@ -256,24 +409,22 @@ function matchPiece(box: FlowBox, index: PageIndex): DocxRunStyle | null {
       if (cy < run.box[1] || cy > run.box[3]) continue;
       const overlap =
         Math.min(box[2], run.box[2]) - Math.max(box[0], run.box[0]);
-      if (overlap > bestOverlap) {
-        bestOverlap = overlap;
-        best = run;
-      }
+      if (
+        overlap >= MIN_COVER * width &&
+        textHolds(run.text, key, cx, run.box[0], run.box[2])
+      )
+        found.push(run.style);
     }
   }
-  if (best && bestOverlap >= MIN_COVER * width) return best.style;
+  if (found.length > 0) return oneStyle(found);
   for (const line of index.lines.get(bucket) ?? []) {
     if (
-      line.style &&
-      cx >= line.box[0] &&
-      cx <= line.box[2] &&
-      cy >= line.box[1] &&
-      cy <= line.box[3]
+      inside(line.quad, [cx, cy]) &&
+      textHolds(line.text, key, cx, line.box[0], line.box[2])
     )
-      return line.style;
+      found.push(line.style);
   }
-  return null;
+  return oneStyle(found);
 }
 
 export interface PageRunStyles {
@@ -311,7 +462,7 @@ export function runStylesOf(
   const styles = pieces.map((paragraph) =>
     paragraph.map((cell) =>
       cell.map((piece) => {
-        const style = matchPiece(piece.box, index);
+        const style = matchPiece(piece, index);
         if (style) matched += 1;
         return style;
       }),

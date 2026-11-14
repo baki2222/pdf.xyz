@@ -14,7 +14,13 @@
  *  - `match-line <n>`: the same `n` words on ONE line, so every run shares
  *    a bucket;
  *  - `match-wide <n>`: as `match-line`, its first run as wide as the line —
- *    the one shape the bucket search is still linear in per word;
+ *    the one shape the bucket search is still linear in per word. Since
+ *    2026-11-15 a word inside two runs of different styles whose texts both
+ *    hold it is plain (a word drawn over another line), so here the bold
+ *    half of the words, each inside the wide regular run, are not matched;
+ *  - `match-one <n>`: as `match-line`, every word in ONE style, so the page
+ *    reader's runs join into one run of the whole line — the shape whose
+ *    TEXT search is bounded by `TEXT_WINDOW`;
  *  - `engine <pages>`: a generated PDF of `pages` pages, each a heading in
  *    bold and four lines mixing regular, bold and italic words, through the
  *    whole PDF to Word engine (real page reader, poppler stood in for) — and
@@ -46,11 +52,12 @@ function matchPage(
   n: number,
   perLine = 20,
   wideFirst = false,
+  oneStyle = false,
 ): { page: PdfFlowTextPage; scanned: ScannedPage } {
   const pieces: FlowPiece[] = [];
   const items: ScannedTextLine[] = [];
   const run: ScannedRun = {
-    text: "w",
+    text: "word ",
     family: "Helvetica",
     fontClass: "sans",
     bold: false,
@@ -72,7 +79,10 @@ function matchPage(
       });
       runs.push({
         ...run,
-        bold: j % 2 === 1,
+        // A run's text is what it draws: the word, or (`match-wide`) the
+        // whole line for the run as wide as it.
+        text: wideFirst && j === 0 ? "word ".repeat(perLine) : "word ",
+        bold: !oneStyle && j % 2 === 1,
         offset: j * 25,
         // `match-wide`: the first run spans the whole line.
         extent: wideFirst && j === 0 ? perLine * 25 : 25,
@@ -146,7 +156,12 @@ async function enginePdf(pages: number): Promise<Uint8Array> {
 async function main() {
   const [mode, arg] = process.argv.slice(2);
   const n = Number(arg ?? "0");
-  if (mode === "match" || mode === "match-line" || mode === "match-wide") {
+  if (
+    mode === "match" ||
+    mode === "match-line" ||
+    mode === "match-wide" ||
+    mode === "match-one"
+  ) {
     const warm = matchPage(200);
     runStylesOf(warm.page, warm.scanned);
     // `match-line`: every word on ONE line — every run in one bucket, the
@@ -155,6 +170,7 @@ async function main() {
       n,
       mode === "match" ? 20 : n,
       mode === "match-wide",
+      mode === "match-one",
     );
     const before = peakMb();
     const t0 = performance.now();

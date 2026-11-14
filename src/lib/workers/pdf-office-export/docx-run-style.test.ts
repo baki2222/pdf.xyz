@@ -32,8 +32,11 @@ import type { DocxDocument } from "./docx-layout";
 import { docxPackage } from "./docx-package";
 import {
   MAX_STYLED_PIECES_PER_PAGE,
+  normalText,
   runStylesOf,
   styleOfRun,
+  TEXT_WINDOW,
+  textHolds,
   type DocxRunStyle,
 } from "./docx-run-style";
 import { docxPageTexts, readDocxStructure } from "./docx-structure";
@@ -275,6 +278,98 @@ describe("runStylesOf — the controls", () => {
     expect(got.styles[0]![0]!.every((x) => x === null)).toBe(true);
   });
 
+  // Review of 2026-11-15, round 1: each of the next four was labelled by
+  // position alone, wrongly, and counted as matched.
+  it("a word whose style changes partway through is plain, not the bigger part's style", () => {
+    // `print` blue then `(x)` black: one poppler word (one font).
+    const p = page([
+      ["print(x)", 72, 112],
+      ["return", 117, 147],
+    ]);
+    const s = scanned([
+      line(72, 100, [
+        ["print", 25, { color: "0000FF" }],
+        ["(x)", 15],
+        [" return", 35, { color: "AA00AA" }],
+      ]),
+    ]);
+    const got = runStylesOf(p, s);
+    expect(flat(got.styles)).toEqual([
+      null,
+      { halfPoints: 24, color: "AA00AA" },
+    ]);
+    expect(got).toMatchObject({ matched: 1, total: 2 });
+  });
+
+  it("a word drawn over another line takes its own run's style, never the wider one beneath", () => {
+    const p = page([
+      ["under", 72, 100],
+      ["OVER", 80, 108],
+    ]);
+    const under = line(72, 100, [["under words here", 90]]);
+    const over = line(80, 100, [["OVER", 28, { bold: true, color: "00AA00" }]]);
+    expect(flat(runStylesOf(p, scanned([under, over])).styles)).toEqual([
+      { halfPoints: 24 },
+      { bold: true, halfPoints: 24, color: "00AA00" },
+    ]);
+    // Where BOTH texts hold the word, two styles is no style.
+    const twin = line(72, 100, [["OVER under", 60]]);
+    expect(flat(runStylesOf(p, scanned([twin, over])).styles)[1]).toBeNull();
+  });
+
+  it("a turned one-style line labels only words inside its TURNED outline whose text it holds", () => {
+    // A 400 × 60 line turned 45° about its centre (272, 330).
+    const stamp = line(72, 300, [["CONFIDENTIAL", 400, { bold: true }]], {
+      rotation: 45,
+      height: 60,
+    });
+    const s = scanned([stamp]);
+    // Inside the upright box around it (x 109-435, y 167-493), in its top
+    // right corner, far outside the turned outline.
+    expect(
+      flat(runStylesOf(page([["CONFIDENTIAL", 410, 430]], 175, 10), s).styles),
+    ).toEqual([null]);
+    // Inside the turned outline, but not its text (an OCR word beneath).
+    expect(
+      flat(runStylesOf(page([["hiddenone", 262, 282]], 325, 10), s).styles),
+    ).toEqual([null]);
+    // Positive control: its own text, inside its outline.
+    expect(
+      flat(runStylesOf(page([["CONFIDENTIAL", 262, 282]], 325, 10), s).styles),
+    ).toEqual([{ bold: true, halfPoints: 24 }]);
+  });
+
+  it("runs side by side in one style join, so a word the reader split by font is matched", () => {
+    const p = page([["Hello", 72, 100]]);
+    const s = scanned([
+      line(72, 100, [
+        ["Hel", 16, { family: "Arial" }],
+        ["lo", 12, { family: "Helvetica" }],
+      ]),
+    ]);
+    expect(flat(runStylesOf(p, s).styles)).toEqual([{ halfPoints: 24 }]);
+    // Control: an invisible run between them breaks the join.
+    const broken = scanned([
+      line(72, 100, [
+        ["Hel", 16],
+        ["x", 0.001, { invisible: true }],
+        ["lo", 12],
+      ]),
+    ]);
+    expect(flat(runStylesOf(p, broken).styles)).toEqual([null]);
+  });
+
+  it("a run's text is searched whole up to TEXT_WINDOW, and near the word beyond it", () => {
+    expect(textHolds("alpha beta", "beta", 0, 0, 100)).toBe(true);
+    const long = `${"x".repeat(TEXT_WINDOW * 4)}needle${"x".repeat(TEXT_WINDOW * 4)}`;
+    const span = long.length;
+    // Centred where the word is along the run: found.
+    expect(textHolds(long, "needle", span / 2, 0, span)).toBe(true);
+    // A quarter of the run away: not searched there (plain, never wrong).
+    expect(textHolds(long, "needle", span / 4, 0, span)).toBe(false);
+    expect(normalText(" ﬁne­ tuned ")).toBe("finetuned");
+  });
+
   it("the page's mediaFrame maps the reader's runs into poppler's frame", () => {
     // poppler's frame sits 20 pt lower than the reader's (a crop box inset).
     const p = page([["moved", 72, 110]], 120);
@@ -446,6 +541,9 @@ describe("formatting over every generated Word fixture", () => {
  * The share of corpus words the matcher labels. Measured 2026-11-15: 660 of
  * 666 words over the 26 fixtures (fallback rate 0.9%); all six unmatched
  * words are `ocrdScanPdf`'s, whose text is an INVISIBLE OCR layer — written
- * in Word's default style by design, and named in the note.
+ * in Word's default style by design, and named in the note. RE-MEASURED
+ * 2026-11-15 after a word began needing a run's TEXT to hold it, not just
+ * its position (review round 1): 660 of 666 again, the same six words; and
+ * the real-poppler pairs above still 677 of 677.
  */
 const CORPUS_MATCHED_RATE = 0.99;

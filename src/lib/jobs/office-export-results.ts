@@ -103,11 +103,14 @@ export interface OfficeExportResultMeta {
   pagesFlattened?: number[];
   /**
    * PDF to Word only, since 2026-11-15, when each word began to keep its
-   * bold, italics, size and colour: how many pages with text came through
-   * with NONE of it — the page reader ran out of time or budget before
-   * reading their text (its words are poppler's regardless), the page had
-   * more words than one page's formatting is matched for, or no word on it
-   * could be matched (an OCR layer is invisible, so it matches nothing).
+   * bold, italics, size and colour: how many pages with text have ANY word
+   * written in Word's default style — the page reader ran out of time or
+   * budget before reading their text (its words are poppler's regardless),
+   * the page had more words than one page's formatting is matched for, the
+   * words are an OCR layer (invisible, so it matches nothing), or the
+   * matcher could not tell a word's style for certain (`docx-run-style`).
+   * CHANGED 2026-11-15 (review round 1): until then only pages with NONE
+   * of it were counted, so an OCR'd page with a visible stamp went unnamed.
    * Absent from older results: that engine kept only a paragraph's bold.
    */
   formattingMissingPageCount?: number;
@@ -116,7 +119,8 @@ export interface OfficeExportResultMeta {
   /**
    * PDF to Word only, since 2026-11-15: words, over the whole document,
    * written in Word's default style because the page reader's runs did not
-   * say how they were drawn. A measurement, not shown to the reader.
+   * say for certain how they were drawn. A measurement, not shown to the
+   * reader; the pages they are on are `pagesWithoutFormatting`.
    */
   unmatchedWords?: number;
   /**

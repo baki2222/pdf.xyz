@@ -32,13 +32,24 @@ function measure(mode: string, n: number): Record<string, number | boolean> {
 }
 
 describe("the formatting matcher is bounded per page", () => {
-  it.each(["match", "match-line", "match-wide"])(
-    "%s: a page AT the cap is matched whole, in bounded time and memory",
-    (mode) => {
+  it.each([
+    ["match", MAX_STYLED_PIECES_PER_PAGE],
+    ["match-line", MAX_STYLED_PIECES_PER_PAGE],
+    // The bold half of the words lie inside the wide REGULAR run too, and
+    // both texts hold them: two styles is no style (since 2026-11-15).
+    ["match-wide", MAX_STYLED_PIECES_PER_PAGE / 2],
+    ["match-one", MAX_STYLED_PIECES_PER_PAGE],
+  ] as const)(
+    "%s: a page AT the cap is matched, in bounded time and memory",
+    (mode, matched) => {
       const got = measure(mode, MAX_STYLED_PIECES_PER_PAGE);
-      expect(got.matched, JSON.stringify(got)).toBe(MAX_STYLED_PIECES_PER_PAGE);
+      expect(got.matched, JSON.stringify(got)).toBe(matched);
+      expect(got.total).toBe(MAX_STYLED_PIECES_PER_PAGE);
       expect(got.capped).toBe(false);
-      // Measured 12 / 9 / 640 ms and +2 / +2 / +3 MB on the dev host.
+      // Measured 12 / 9 / 640 ms and +2 / +2 / +3 MB on the dev host
+      // (match / match-line / match-wide); 2026-11-15 with the text test:
+      // 25 / 22 / 727 / 15 ms and +8 / +12 / +9 / +3 MB (match-one: one
+      // run of 100,000 characters, searched within `TEXT_WINDOW`).
       expect(got.ms, JSON.stringify(got)).toBeLessThan(10_000);
       expect(got.rssDeltaMb, JSON.stringify(got)).toBeLessThan(200);
     },

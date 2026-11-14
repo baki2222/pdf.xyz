@@ -594,16 +594,22 @@ async function renderWord(
     .filter((p) => !withText.has(p.pageNumber) && scannedPictures(p).length > 0)
     .map((p) => p.pageNumber);
   const lost = losses(scan);
-  // Pages whose text came through with none of its formatting
+  // Pages with ANY word written in Word's default style
   // (`./docx-run-style`): the page reader did not read their text, they
-  // were over the per-page word cap, or no word matched a run. A scan that
-  // THREW is a failure of the job, above, never counted here.
+  // were over the per-page word cap, the words are an OCR layer, or the
+  // matcher could not tell a word's style for certain. A scan that THREW is
+  // a failure of the job, above, never counted here.
+  //
+  // CHANGED 2026-11-15 (review round 1): until then a page was named only
+  // when NO word on it matched, so an OCR'd page with one visible Bates
+  // stamp came through with its recognised words plain and unnamed, while
+  // the FAQ said the note names the pages with OCR text.
   const formatting = doc.formatting?.pages ?? [];
   const unformatted = formatting
     .filter(
       (p) =>
         withText.has(p.pageNumber) &&
-        (p.textUnread || p.capped || p.matched === 0),
+        (p.textUnread || p.capped || p.matched < p.total),
     )
     .map((p) => p.pageNumber);
   const unmatchedWords = formatting.reduce(
