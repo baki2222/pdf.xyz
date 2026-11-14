@@ -1232,6 +1232,36 @@ const TOOL_PAGES_TO_COME = {
   // above are fixed figures), as every runtime entry since P6 has, and is
   // stated here rather than netted against the recovered bytes, which are
   // on pages that are not G.1 rows.
+  //
+  // NOT TAKEN from the allocation, 2026-11-14, by Compare PDF's changes by
+  // page (audit compare-pdf#4) — flagged for the owner as A RE-ALLOCATION OF
+  // G.1 in effect: it rides each row's own headroom, as every runtime entry
+  // since P6 has. The comparison (lines, diff, hunks, word marks), its
+  // report and its view left the compare runner's chunk for ONE async chunk
+  // (`runner/compare/compare-result.tsx`, fetched with the two extractions
+  // or as the second file lands; held off every first load by
+  // lazy-chunks.test.ts). Measured gzip -9 over each page's first-load
+  // chunks (scripts/page-weight.ts's method), main adb519ab (a detached
+  // worktree, E:/wcmp1-base, its own `pnpm install --frozen-lockfile`) ->
+  // the branch, both built on this machine (Windows) from an empty .next,
+  // all 144 prerendered pages:
+  //                       main      branch    delta
+  //   tools/compare-pdf 230,131 -> 228,787  -1,344  (runner chunk 3090,
+  //                                                  7,944 -> 1104, 6,588)
+  //   tools/ocr-pdf     233,876 -> 233,888     +12
+  //   tools/rotate-pdf  234,951 -> 234,963     +12
+  //   tools/merge-pdf   229,397 -> 229,409     +12
+  //   tools/summarize   234,688 -> 234,700     +12
+  //   tools/pdf-viewer  227,901 -> 227,912     +11
+  //   home              202,832 -> 202,842     +10
+  //   /tools 213,260 -> 213,271 (+11), /workspace 235,001 -> 235,012 (+11)
+  //  - the other 143 pages: +7 (1), +8 (67), +9 (8), +10 (4), +11 (5),
+  //    +12 (58); none outside +7..+12. Where it is, on a tool page:
+  //    webpack's runtime 3,777 -> 3,788 (+11, the chunk map's one new
+  //    entry), the [slug] page chunk +3, main-app and not-found -1 each.
+  //  - the ticket's on-demand fetch is byte-identical (34,995 B over the
+  //    same eight chunk files, hashes unchanged).
+  // Nothing allocated: the +12 on each G.1 row is inside its headroom.
   unallocated:
     UNALLOCATED -
     NEW_TOOLS_2026_10_30 -
