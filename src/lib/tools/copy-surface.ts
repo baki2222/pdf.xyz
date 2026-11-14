@@ -449,6 +449,10 @@ export function copyFiles(): string[] {
     // pdf.js's missing bounds (2026-11-08, hostile lane l07): what a file
     // that expands too far, or nests its page content too deeply, is told.
     path.join(ROOT, "src", "lib", "pdf", "pdfjs-guard.ts"),
+    // Auto-crop's words for pages it keeps whole (2026-11-14): moved here
+    // from crop-runner.tsx so they ride Auto-crop's lazy chunk. Walked, as
+    // the ratchet asks; no trailing comments in it.
+    path.join(ROOT, "src", "lib", "pdf", "auto-crop-render.ts"),
   ];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {

@@ -563,7 +563,7 @@ export function MergeRunner() {
                 {item.cover ? (
                   <img
                     src={item.cover.url}
-                    alt=""
+                    alt={item.cover.note ?? ""}
                     draggable={false}
                     className="max-h-full max-w-full object-contain"
                   />
