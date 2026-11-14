@@ -21,6 +21,7 @@ const removeAnnotations = lazyPanel(
 );
 
 export function RemoveAnnotationsRunner() {
+  removeAnnotations.useIntent();
   return (
     <SinglePdfRunner
       hint="One PDF · annotations listed and removed locally in your browser"

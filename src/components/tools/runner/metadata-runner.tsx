@@ -35,6 +35,12 @@ export function MetadataRunner() {
   if (slug === "edit-pdf-bookmarks") {
     return <BookmarksRunner />;
   }
+  return <MetadataEditRunner />;
+}
+
+/** Edit PDF Metadata's drop box; its editor comes with a file. */
+function MetadataEditRunner() {
+  metadata.useIntent();
   return (
     <SinglePdfRunner
       hint="One PDF · metadata read and changed locally in your browser"

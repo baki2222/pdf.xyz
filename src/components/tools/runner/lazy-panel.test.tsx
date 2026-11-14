@@ -8,6 +8,10 @@ import {
   render,
   screen,
 } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { SRC, rel } from "@/tests/tool-panel-modules";
+import { isTestFile, walkFiles } from "@/tests/chunk-markers";
 import { lazyPanel, type PanelProps } from "./lazy-panel";
 import type { LoadedPdf } from "./use-single-pdf";
 
@@ -90,5 +94,85 @@ describe("lazyPanel", () => {
     expect(screen.getByText("Opening the editor…")).toBeTruthy();
     await act(async () => {});
     expect(screen.getByText("editor for a.pdf")).toBeTruthy();
+  });
+});
+
+/**
+ * As first shipped, the editor's chunks were requested only at the pick,
+ * beside the parse's own: nine requests at once, and over HTTP/1.1 the last
+ * three queued behind the six-connection limit — about +100 ms from pick to
+ * a usable editor at 200 ms latency (review of 6376d6da). `useIntent` starts
+ * the fetch at the first sign a file is coming.
+ */
+describe("lazyPanel's useIntent", () => {
+  function Stage({ intent }: { intent: () => void }) {
+    intent();
+    return (
+      <>
+        <div data-runner-stage="">
+          <button type="button">browse</button>
+        </div>
+        <a href="#elsewhere">elsewhere</a>
+      </>
+    );
+  }
+
+  it("a press in the runner's stage fetches the editor once; a press elsewhere does not", async () => {
+    const { load, calls } = flaky(0);
+    const { useIntent } = lazyPanel(load, "Opening…");
+    render(<Stage intent={useIntent} />);
+    fireEvent.pointerDown(screen.getByText("elsewhere"));
+    expect(calls()).toBe(0);
+    fireEvent.pointerDown(screen.getByText("browse"));
+    fireEvent.focusIn(screen.getByText("browse"));
+    expect(calls()).toBe(1);
+    await act(async () => {});
+  });
+
+  it("a file dragged or pasted anywhere on the page fetches it", () => {
+    for (const type of ["dragEnter", "paste"] as const) {
+      const { load, calls } = flaky(0);
+      const { useIntent } = lazyPanel(load, "Opening…");
+      render(<Stage intent={useIntent} />);
+      fireEvent[type](screen.getByText("elsewhere"));
+      expect(calls(), type).toBe(1);
+      cleanup();
+    }
+  });
+
+  it("a failed early fetch is forgotten: the parse's prepare asks again, and the panel draws", async () => {
+    const { load, calls } = flaky(1);
+    const { useIntent, prepare, Panel } = lazyPanel(load, "Opening…");
+    render(<Stage intent={useIntent} />);
+    fireEvent.pointerDown(screen.getByText("browse"));
+    await act(async () => {});
+    expect(calls()).toBe(1);
+    await prepare();
+    expect(calls()).toBe(2);
+    cleanup();
+    render(<Panel pdf={pdf} onReset={() => {}} />);
+    expect(screen.getByText("editor for a.pdf")).toBeTruthy();
+  });
+});
+
+describe("every lazyPanel's drop box calls its useIntent", () => {
+  it("each `const X = lazyPanel(…)` under src/components has an `X.useIntent()` in its file", () => {
+    const sites: string[] = [];
+    const missing: string[] = [];
+    for (const file of walkFiles(
+      path.join(SRC, "components"),
+      (n) => /\.tsx?$/.test(n) && !isTestFile(n),
+    )) {
+      const text = readFileSync(file, "utf8");
+      for (const m of text.matchAll(/const (\w+) = lazyPanel\(/g)) {
+        sites.push(`${rel(file)}:${m[1]}`);
+        if (!text.includes(`${m[1]}.useIntent()`))
+          missing.push(`${rel(file)}:${m[1]}`);
+      }
+    }
+    // 5 on 2026-11-14 (n-up, booklet, metadata, remove-annotations,
+    // bookmarks): a floor, so a reader that finds nothing cannot pass.
+    expect(sites.length).toBeGreaterThanOrEqual(5);
+    expect(missing).toEqual([]);
   });
 });

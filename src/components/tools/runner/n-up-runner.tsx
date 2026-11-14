@@ -30,6 +30,12 @@ const nUp = lazyPanel(
 export function NUpRunner() {
   const slug = useToolRun()?.slug;
   if (slug === "booklet-pdf") return <BookletRunner />;
+  return <NUpSheetsRunner />;
+}
+
+/** Multiple Pages per Sheet's drop box; its editor comes with a file. */
+function NUpSheetsRunner() {
+  nUp.useIntent();
   return (
     <SinglePdfRunner
       hint="One PDF · pages laid out on sheets locally in your browser"

@@ -16,6 +16,7 @@ const booklet = lazyPanel(
 );
 
 export function BookletRunner() {
+  booklet.useIntent();
   return (
     <SinglePdfRunner
       hint="One PDF · pages put in booklet order locally in your browser"

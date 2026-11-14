@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ComponentType } from "react";
 import { ErrorNote, Spinner } from "./runner-kit";
+import { RUNNER_STAGE } from "./stage-hold";
 import type { LoadedPdf } from "./use-single-pdf";
 
 /** The editor's chunk did not arrive (shown inline, with a retry). */
@@ -28,6 +29,17 @@ export interface PanelProps {
  * file through it) does `Panel` fetch the chunk itself, showing `opening`
  * until it lands.
  *
+ * `useIntent`, called by the component that draws the drop box, starts
+ * that fetch EARLIER, at the first sign a file is coming: a press or focus
+ * in the runner's stage (the file chooser opens from the drop box, and a
+ * person takes far longer to choose a file than the chunk takes to come),
+ * or a file dragged or pasted onto the page. As first shipped the editor's
+ * chunks were requested only at the pick, beside the parse's four: nine at
+ * once, and over HTTP/1.1 the last three queued behind the six-connection
+ * limit for a second round trip — about +100 ms from pick to a usable
+ * editor at 200 ms latency (review of 6376d6da). A visitor who never picks
+ * a file still downloads none of it.
+ *
  * A chunk that fails to arrive is an inline `ErrorNote` with "Try again",
  * which fetches it anew (webpack forgets a failed chunk, so a second
  * `import()` requests it again). As first written this fell back to
@@ -46,6 +58,7 @@ export function lazyPanel(
 ): {
   Panel: (props: PanelProps) => React.JSX.Element;
   prepare: () => Promise<void>;
+  useIntent: () => void;
 } {
   let loaded: ComponentType<PanelProps> | null = null;
   const fetchPanel = () =>
@@ -53,9 +66,40 @@ export function lazyPanel(
       loaded = component;
       return component;
     });
-  const prepare = async () => {
-    await Promise.all([fetchPanel(), also?.()]);
-  };
+  // One fetch in flight at a time, shared by the intent and the parse; a
+  // failure is forgotten, so the next attempt asks the network again.
+  let pending: Promise<void> | null = null;
+  const prepare = () =>
+    (pending ??= Promise.all([fetchPanel(), also?.()]).then(
+      () => {},
+      (err: unknown) => {
+        pending = null;
+        throw err;
+      },
+    ));
+  const warm = () => void prepare().catch(() => {});
+  // A press or focus in the runner's stage (the drop box: the file chooser
+  // opens from it), or a file dragged or pasted anywhere on the page.
+  function useIntent() {
+    useEffect(() => {
+      const inStage = (e: Event) => {
+        if (e.target instanceof Element && e.target.closest(RUNNER_STAGE))
+          warm();
+      };
+      const opts = { capture: true, passive: true } as const;
+      const on = [
+        ["pointerdown", inStage],
+        ["focusin", inStage],
+        ["dragenter", warm],
+        ["paste", warm],
+      ] as const;
+      for (const [type, fn] of on) document.addEventListener(type, fn, opts);
+      return () => {
+        for (const [type, fn] of on)
+          document.removeEventListener(type, fn, opts);
+      };
+    }, []);
+  }
   function Panel(props: PanelProps) {
     // The editor's element type changes once, from nothing to the editor:
     // never after it has drawn, which would remount it and drop every
@@ -100,5 +144,5 @@ export function lazyPanel(
       </p>
     );
   }
-  return { Panel, prepare };
+  return { Panel, prepare, useIntent };
 }

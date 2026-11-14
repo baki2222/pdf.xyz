@@ -22,6 +22,7 @@ const bookmarks = lazyPanel(
 );
 
 export function BookmarksRunner() {
+  bookmarks.useIntent();
   return (
     <SinglePdfRunner
       hint="One PDF · bookmarks read and changed locally in your browser"
