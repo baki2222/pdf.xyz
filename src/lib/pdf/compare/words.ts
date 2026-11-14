@@ -2,9 +2,11 @@ import { diffIds, intern, MAX_DIFF_CELLS, type Op } from "./diff";
 
 /**
  * Word marks: inside a changed line, which words differ. A run of removed
- * lines followed by a run of added lines is paired line by line, in order,
- * and each pair is diffed again over its tokens (words, numbers, single
- * punctuation marks and the spaces between them).
+ * lines followed by a run of added lines is paired, in order, line with the
+ * line it is a version of ({@link pairChangedLines}), and each pair is
+ * diffed again over its tokens (words, numbers, single punctuation marks and
+ * the spaces between them). A line with no such partner is not paired, and
+ * is shown whole.
  *
  * Two bounds, because one is not enough: a pair longer than
  * {@link MAX_WORD_PAIR_TOKENS} on either side is shown whole, and all the
@@ -66,12 +68,60 @@ export function tokenize(text: string): string[] {
 }
 
 /**
- * The removed/added pairs of an edit script: within each run of removed
- * steps followed directly by a run of added steps, the first removed line
- * goes with the first added one, and so on. Extra lines on either side stay
- * unpaired (marked whole).
+ * How alike two lines must be to be paired: the share of their words they
+ * have in common (Dice: twice the shared words over both counts). At 0.5,
+ * "Fee 10" → "Fee 12" pairs and two clauses that share only "The", "is" and
+ * the clause word do not.
  */
-export function pairChangedLines(ops: readonly Op[]): [number, number][] {
+export const PAIR_SIMILARITY = 0.5;
+
+const WORDY = /[\p{L}\p{N}]/u;
+
+/** A line's words (tokens with a letter or digit), else its non-space tokens. */
+function wordsOf(text: string, key: (token: string) => string): string[] {
+  const tokens = tokenize(text).filter((t) => !/^\s+$/.test(t));
+  const words = tokens.filter((t) => WORDY.test(t));
+  return (words.length > 0 ? words : tokens).map(key);
+}
+
+/** Dice similarity of two word lists, as multisets: 0 to 1. */
+export function lineSimilarity(a: readonly string[], b: readonly string[]) {
+  if (a.length === 0 && b.length === 0) return 1;
+  const count = new Map<string, number>();
+  for (const w of a) count.set(w, (count.get(w) ?? 0) + 1);
+  let shared = 0;
+  for (const w of b) {
+    const n = count.get(w) ?? 0;
+    if (n > 0) {
+      shared += 1;
+      count.set(w, n - 1);
+    }
+  }
+  return (2 * shared) / (a.length + b.length);
+}
+
+/**
+ * The removed/added pairs of an edit script: within each run of removed
+ * steps followed directly by a run of added steps, a removed line goes with
+ * the added line it is a version of. The two runs are walked in order: the
+ * lines in front are paired when they are at least {@link PAIR_SIMILARITY}
+ * alike and neither is more like the other's next line; otherwise the one
+ * whose next line is the better match is passed over, unpaired, or both
+ * are when neither is like anything near it. An unpaired line is marked
+ * whole.
+ *
+ * Until 2026-11-14 the k-th removed line went with the k-th added line,
+ * related or not (history kept): with clause 4 deleted and clause 5 edited,
+ * clause 4's fee was marked as becoming clause 5's term, and clause 5's
+ * real edit, 12 months to 24, was never marked (words.test.ts, "pairs a
+ * line with its own version, never with a neighbour").
+ */
+export function pairChangedLines(
+  ops: readonly Op[],
+  left: readonly string[],
+  right: readonly string[],
+  key: (token: string) => string = (token) => token,
+): [number, number][] {
   const pairs: [number, number][] = [];
   let i = 0;
   while (i < ops.length) {
@@ -85,11 +135,55 @@ export function pairChangedLines(ops: readonly Op[]): [number, number][] {
       added.push((ops[i] as { b: number }).b);
       i += 1;
     }
-    for (let p = 0; p < Math.min(removed.length, added.length); p += 1)
-      pairs.push([removed[p]!, added[p]!]);
+    if (removed.length > 0 && added.length > 0)
+      pairRuns(removed, added, left, right, key, pairs);
     if (removed.length === 0 && added.length === 0) i += 1;
   }
   return pairs;
+}
+
+function pairRuns(
+  removed: readonly number[],
+  added: readonly number[],
+  left: readonly string[],
+  right: readonly string[],
+  key: (token: string) => string,
+  out: [number, number][],
+): void {
+  const leftWords = new Map<number, string[]>();
+  const rightWords = new Map<number, string[]>();
+  const lw = (r: number) => {
+    let w = leftWords.get(r);
+    if (!w) leftWords.set(r, (w = wordsOf(left[removed[r]!]!, key)));
+    return w;
+  };
+  const rw = (s: number) => {
+    let w = rightWords.get(s);
+    if (!w) rightWords.set(s, (w = wordsOf(right[added[s]!]!, key)));
+    return w;
+  };
+  const sim = (r: number, s: number) =>
+    r < removed.length && s < added.length ? lineSimilarity(lw(r), rw(s)) : 0;
+  let r = 0;
+  let s = 0;
+  while (r < removed.length && s < added.length) {
+    const here = sim(r, s);
+    const skipLeft = sim(r + 1, s);
+    const skipRight = sim(r, s + 1);
+    if (here >= PAIR_SIMILARITY && here >= skipLeft && here >= skipRight) {
+      out.push([removed[r]!, added[s]!]);
+      r += 1;
+      s += 1;
+    } else if (skipLeft >= PAIR_SIMILARITY && skipLeft >= skipRight) r += 1;
+    else if (skipRight >= PAIR_SIMILARITY) s += 1;
+    else {
+      r += 1;
+      s += 1;
+    }
+    // Lines already passed are never looked at again.
+    leftWords.delete(r - 1);
+    rightWords.delete(s - 1);
+  }
 }
 
 /**

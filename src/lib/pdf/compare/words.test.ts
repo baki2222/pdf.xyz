@@ -3,6 +3,8 @@ import { MAX_DIFF_CELLS } from "./diff";
 import {
   MAX_WORD_PAIR_TOKENS,
   MAX_WORD_WORK,
+  PAIR_SIMILARITY,
+  lineSimilarity,
   markWords,
   pairChangedLines,
   tokenize,
@@ -80,21 +82,82 @@ describe("word marks: the bounds", () => {
   });
 
   it("pairs a removed run with the added run after it, line by line", () => {
+    const left = ["Intro", "Fee 10", "Term 3 years", "Middle", "Total 100"];
+    const right = ["Intro", "Fee 12", "Middle", "Extra line", "Total 120"];
     expect(
-      pairChangedLines([
-        { k: "same", a: 0, b: 0 },
-        { k: "removed", a: 1 },
-        { k: "removed", a: 2 },
-        { k: "added", b: 1 },
-        { k: "same", a: 3, b: 2 },
-        { k: "added", b: 3 },
-        { k: "removed", a: 4 },
-        { k: "added", b: 4 },
-      ]),
+      pairChangedLines(
+        [
+          { k: "same", a: 0, b: 0 },
+          { k: "removed", a: 1 },
+          { k: "removed", a: 2 },
+          { k: "added", b: 1 },
+          { k: "same", a: 3, b: 2 },
+          { k: "added", b: 3 },
+          { k: "removed", a: 4 },
+          { k: "added", b: 4 },
+        ],
+        left,
+        right,
+      ),
     ).toEqual([
       [1, 1],
       [4, 4],
     ]);
+  });
+
+  /*
+   * Until 2026-11-14 the k-th removed line of a run was paired with its k-th
+   * added line, related or not (second review of audit compare-pdf#4).
+   * Clause 4 deleted and clause 5 edited printed "~ Clause [-4-]{+5+}: The
+   * [-fee-]{+term+} is ...": every span a true token difference for the pair
+   * it was handed, and the pair a false statement of what changed.
+   */
+  it("pairs a line with its own version, never with a neighbour", () => {
+    const left = [
+      "Clause 4: The fee is 100 USD per month.",
+      "Clause 5: The term is 12 months.",
+    ];
+    const right = ["Clause 5: The term is 24 months."];
+    const ops = [
+      { k: "removed", a: 0 },
+      { k: "removed", a: 1 },
+      { k: "added", b: 0 },
+    ] as const;
+    expect(pairChangedLines(ops, left, right)).toEqual([[1, 0]]);
+    // The other way round: clause 4 added before an edited clause 5.
+    expect(
+      pairChangedLines(
+        [
+          { k: "removed", a: 0 },
+          { k: "added", b: 0 },
+          { k: "added", b: 1 },
+        ],
+        ["Clause 5: The term is 12 months."],
+        [
+          "Clause 4: The fee is 100 USD per month.",
+          "Clause 5: The term is 24 months.",
+        ],
+      ),
+    ).toEqual([[0, 1]]);
+    // Two unrelated lines in one place are not paired at all.
+    expect(
+      pairChangedLines(
+        [
+          { k: "removed", a: 0 },
+          { k: "added", b: 0 },
+        ],
+        ["The fee is 100 USD per month."],
+        ["Signed by both parties today"],
+      ),
+    ).toEqual([]);
+    // Health: the real edit is alike enough, and the wrong pair is not.
+    const words = (t: string) => t.match(/[\p{L}\p{N}]+/gu) ?? [];
+    expect(lineSimilarity(words(left[1]!), words(right[0]!))).toBeGreaterThan(
+      PAIR_SIMILARITY,
+    );
+    expect(lineSimilarity(words(left[0]!), words(right[0]!))).toBeLessThan(
+      PAIR_SIMILARITY,
+    );
   });
 });
 
