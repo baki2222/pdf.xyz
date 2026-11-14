@@ -344,3 +344,52 @@ describe("compare: each change names its page in both files, from real PDFs", ()
     expect(result.report).toMatch(/^@@ Page 2 -> page 2 @@$/m);
   });
 });
+
+/**
+ * What the overview says of page breaks (second review of audit
+ * compare-pdf#4, 2026-11-14). It said "a line that only moved to another
+ * page is not a change", and a line taken off page 1 and put at the end of
+ * page 3 is listed as removed and added. What is ignored is re-flow: the
+ * same lines in the same order, broken into pages differently.
+ */
+describe("compare: a moved line is a change; re-flowed text is not", () => {
+  const pages = [0, 1, 2].map((p) =>
+    Array.from({ length: 10 }, (_, i) => `page ${p + 1} unique body ${i + 1}`),
+  );
+
+  it("re-flowed: the same lines in the same order on other pages are identical", () => {
+    const flat = pages.flat();
+    const reflowed = [flat.slice(0, 7), flat.slice(7, 19), flat.slice(19)];
+    const result = compareExtractedPdfText(
+      doc(
+        "a",
+        pages.map((p) => p.join("\n")),
+      ),
+      doc(
+        "b",
+        reflowed.map((p) => p.join("\n")),
+      ),
+    );
+    expect(result.verdict).toBe("identical");
+  });
+
+  it("moved: a line taken off page 1 and put on page 3 is removed and added", () => {
+    const moved = pages.map((p) => [...p]);
+    const [line] = moved[0]!.splice(4, 1);
+    moved[2]!.push(line!);
+    const result = compareExtractedPdfText(
+      doc(
+        "a",
+        pages.map((p) => p.join("\n")),
+      ),
+      doc(
+        "b",
+        moved.map((p) => p.join("\n")),
+      ),
+    );
+    expect(result.verdict).toBe("different");
+    expect(result.summary).toMatchObject({ addedLines: 1, removedLines: 1 });
+    expect(result.report).toMatch(/^- page 1 unique body 5$/m);
+    expect(result.report).toMatch(/^\+ page 1 unique body 5$/m);
+  });
+});

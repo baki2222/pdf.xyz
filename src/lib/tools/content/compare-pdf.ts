@@ -60,6 +60,18 @@ const OCR_LINK_MINUTES = DEFAULT_RETENTION.outputTtlMinutes;
  * (running-lines.test.ts, "a book's chapter heads go at any length") — and
  * says a line whose figures change page to page is compared (engine.test.ts,
  * "ignoring page furniture never hides a changed body line").
+ * AMENDED a third time 2026-11-14 (second review of audit compare-pdf#4):
+ * the options FAQ promised a chapter title on each page of its chapter goes
+ * (a 2-page chapter's did not) and that a line whose figures change is
+ * always compared (a batch of invoice numbers went); worse, a header that
+ * differed between the files went from both. Furniture is now set aside
+ * only where both files carry it (furniture.ts; furniture.test.ts holds 17
+ * real-PDF pairs), and the FAQ states the recurrence rule and the count the
+ * page now shows. The overview said "a line that only moved to another page
+ * is not a change"; a moved line is listed as removed and added, and only
+ * re-flowed text in the same order is not (engine.test.ts, "a moved line is
+ * a change; re-flowed text is not"). The word FAQ said every skipped line
+ * was long; a line past the marking budget is skipped too.
  * (A note on the Size delta tile stood here until 2026-11-14, saying it
  * printed no minus sign. It was false since the tile moved to
  * `formatSignedBytes`, and is deleted rather than rewritten because a test
@@ -77,7 +89,7 @@ const content: ToolContent = {
   intro: [
     `Compare PDF reads the selectable text of two versions of a document and lists only what changed, grouped by page: each change is headed with the page it sits on in both files and shown with two unchanged lines around it. Lines only in the second file are marked with a plus, lines only in the first with a minus, and above the changes the report gives both page counts, both sizes in bytes and the number of changed lines. When every line agrees, the result is headed Selectable text matches.`,
     `The comparison runs inside your browser tab, where pdf.js reads the text of both files, and neither PDF is uploaded. Whichever PDF you add first is the baseline, so add the older version first: the page and byte differences are counted from it to the second one. It compares exactly two files, and a file over ${CEILING_MB} MB is turned away before it is opened.`,
-    `This is a text comparison, not a visual one: a moved image or a changed colour will not appear, and a new font or margin shows up only where it makes the text wrap differently. Each change names its page in both files, and inside a changed line the words that differ are marked. Runs of spaces and tabs count as one space, indentation and blank lines are ignored, and a line that only moved to another page is not a change. A scan with no text layer has nothing to compare until it has been through OCR.`,
+    `This is a text comparison, not a visual one: a moved image or a changed colour will not appear, and a new font or margin shows up only where it makes the text wrap differently. Each change names its page in both files, and inside a changed line the words that differ are marked. Runs of spaces and tabs count as one space, indentation, blank lines and page breaks are ignored, so text that only flows on to another page in the same order is not a change; a line moved to a different place in the document is listed as removed and added. A scan with no text layer has nothing to compare until it has been through OCR.`,
   ],
 
   useCases: [
@@ -125,11 +137,11 @@ const content: ToolContent = {
     },
     {
       q: "What happens when only one word on a line changed?",
-      a: "The old line is listed as removed and the new one as added, and the changed words are marked within the line: crossed out in the old one, underlined in the new one, and in the report as [-old-] and {+new+} on a line starting with ~. A very long line is marked whole, and the report says how many were. When the wording is identical but the text wraps differently, for example after a font or margin change, the lines no longer match and are listed too.",
+      a: "The old line is listed as removed and the new one as added, and the changed words are marked within the line: crossed out in the old one, underlined in the new one, and in the report as [-old-] and {+new+} on a line starting with ~. A changed line with no close match among the new lines is marked whole, as removed or added; a very long line, or any line past a set amount of marking work in a very large comparison, is listed without word marks, and the result and the report say how many were. When the wording is identical but the text wraps differently, for example after a font or margin change, the lines no longer match and are listed too.",
     },
     {
       q: "What do Ignore case and Ignore page headers and numbers do?",
-      a: "Both are off unless you tick them, and either can be changed after a comparison without reading the files again. Ignore case compares Total and TOTAL as the same line. Ignore page headers and numbers leaves out of both files page numbers such as Page 3 of 40, and lines repeated word for word at the top or bottom of the pages, such as a company name on every page or a chapter title on each page of its chapter. A line whose words or figures change from page to page, such as a running balance, is always compared. Either can turn Differences found into Selectable text matches; the result then says what it ignored, and so does the report.",
+      a: "Both are off unless you tick them, and either can be changed after a comparison without reading the files again. Ignore case compares Total and TOTAL as the same line. Ignore page headers and numbers sets aside the page furniture the two files share: page numbers that count with the pages, such as Page 3 of 40 against Page 3 of 41, and lines repeated word for word at the top or bottom of at least two pages and of 40% of them or three pages in a row, such as a company name on every page. Apart from how a page number counts, a header or footer that reads differently in the two files is listed as a change, not set aside, and a line whose figures change from page to page, such as a running balance, is compared like any other. Either option can turn Differences found into Selectable text matches; the result then says what it ignored and how many lines it set aside from each file, and so does the report.",
     },
     {
       q: "What if one of the two PDFs is a scan?",
