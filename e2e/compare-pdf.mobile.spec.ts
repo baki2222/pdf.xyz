@@ -135,3 +135,179 @@ for (const scheme of ["light", "dark"] as const) {
     expect(found).toEqual([]);
   });
 }
+
+/** Two PDFs from page lists, through the page, compared. */
+async function comparedPair(page: Page, left: string[][], right: string[][]) {
+  await page.goto("/tools/compare-pdf");
+  const input = fileInput(page);
+  await waitForHydration(input);
+  await input.setInputFiles([
+    { name: "v1.pdf", mimeType: "application/pdf", buffer: await pdf(left) },
+    { name: "v2.pdf", mimeType: "application/pdf", buffer: await pdf(right) },
+  ]);
+  await expect(
+    page.locator("[data-tool-panel]").getByText("2/2 selected"),
+  ).toBeVisible();
+  await page.getByRole("button", { name: /compare pdfs/i }).click();
+  await expect(
+    page.getByRole("heading", { name: /differences found/i }),
+  ).toBeVisible({ timeout: 30_000 });
+  return page.getByRole("region", { name: "Changes" });
+}
+
+/**
+ * The two ignore boxes, in a real browser (review of audit compare-pdf#4,
+ * 2026-11-14): PROOF_LIMITS said this spec exercised them, and it never
+ * ticked either. Each box re-compares without reading the files again, and
+ * the box keeps focus — even after Next change was pressed at the last
+ * change, which used to move focus to a heading on the next re-compare.
+ */
+test("the ignore boxes re-compare, and focus stays on the box", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  const left = [1, 2, 3].map((p) => [
+    "Acme Corp",
+    ...body(["Alpha", "Bravo", "Charlie"][p - 1]!),
+    `Page ${p} of 3`,
+  ]);
+  const right = left.map((lines, p) =>
+    lines.map((line, i) =>
+      i === lines.length - 1
+        ? line.replace("of 3", "of 4")
+        : p === 0 && i === 4
+          ? line.toUpperCase()
+          : p === 2 && i === 4
+            ? line.replace("as agreed", "as amended")
+            : line,
+    ),
+  );
+  const changes = await comparedPair(page, left, right);
+  const status = changes.getByRole("status");
+  const count = async () =>
+    Number(/of (\d+)/.exec((await status.textContent()) ?? "")?.[1]);
+  const before = await count();
+  // Health: the furniture, the case and the wording all differ.
+  expect(before).toBeGreaterThanOrEqual(3);
+
+  const next = changes.getByRole("button", { name: "Next change" });
+  for (let i = 0; i <= before; i += 1) await next.click({ force: true });
+  await expect(status).toHaveText(new RegExp(`^Change ${before} of ${before}`));
+
+  const ignoreCase = changes.getByRole("checkbox", { name: "Ignore case" });
+  await ignoreCase.focus();
+  await page.keyboard.press("Space");
+  await expect(ignoreCase).toBeChecked();
+  await expect(status).toHaveText(new RegExp(`^Change 1 of ${before - 1}`));
+  await expect(ignoreCase).toBeFocused();
+
+  const furniture = changes.getByRole("checkbox", {
+    name: "Ignore page headers and numbers",
+  });
+  await furniture.focus();
+  await page.keyboard.press("Space");
+  await expect(furniture).toBeChecked();
+  await expect(status).toHaveText("Change 1 of 1 · page 3 → page 3");
+  await expect(furniture).toBeFocused();
+});
+
+/** Every line of three pages changed: a list taller than its scroller. */
+function manyChanges(extra = "") {
+  const left = [body("Alpha"), body("Bravo"), body("Charlie")];
+  const right = left.map((lines) =>
+    lines.map((line, i) => (i % 2 === 0 ? `${line} revised${extra}` : line)),
+  );
+  return { left, right };
+}
+
+/**
+ * A long unbroken token — a URL — wraps inside the list instead of widening
+ * it (review of audit compare-pdf#4, 2026-11-14). The cells broke words with
+ * `overflow-wrap: break-word`, which does not lower a table's min-content
+ * width, so one 40-character URL made the list scroll sideways and clipped
+ * every line in it, while the PAGE did not scroll — the check above passed.
+ */
+test("a long URL in a changed line wraps inside the list", async ({ page }) => {
+  test.setTimeout(90_000);
+  const url = `https://example.com/contracts/2026/${"msa-v3-".repeat(30)}final`;
+  const { left, right } = manyChanges();
+  right[0]![4] = `${right[0]![4]} ${url}`;
+  const changes = await comparedPair(page, left, right);
+  const list = changes.getByRole("group", { name: "List of changes" });
+  await expect(
+    list.getByText(url.slice(0, 30), { exact: false }),
+  ).toBeAttached();
+  const { scrollW, clientW } = await list.evaluate((el) => ({
+    scrollW: el.scrollWidth,
+    clientW: el.clientWidth,
+  }));
+  // Health: the list is narrower than the URL would be on one line.
+  expect(clientW).toBeLessThan(url.length * 5);
+  expect(scrollW).toBeLessThanOrEqual(clientW);
+});
+
+/**
+ * The steps and the live line are never pinned under the site header
+ * (review of audit compare-pdf#4, 2026-11-14). The bar was `sticky top-0`
+ * under a header that is itself `sticky top-0 z-50`: once the page scrolled
+ * past the list's top, the bar pinned at y=0, behind the header.
+ */
+for (const width of [SCREEN, 1280]) {
+  test(`the changes bar is not pinned under the site header (${width} px)`, async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    await page.setViewportSize({ width, height: 812 });
+    const { left, right } = manyChanges();
+    const changes = await comparedPair(page, left, right);
+    const bar = changes.locator(":scope > div").first();
+    const next = changes.getByRole("button", { name: "Next change" });
+    await expect(next).toBeVisible();
+    const header = page.locator("header[data-masthead]");
+    // Scroll the window so the region's top sits 150 px above the header's
+    // bottom: a bar pinned at top-0 is then behind the header.
+    const probe = await page.evaluate(
+      async ({ regionSel }) => {
+        const region = document.querySelector(regionSel)!;
+        const headerBottom = document
+          .querySelector("header[data-masthead]")!
+          .getBoundingClientRect().bottom;
+        const top = region.getBoundingClientRect().top + window.scrollY;
+        window.scrollTo({ top: top - headerBottom + 150, behavior: "instant" });
+        await new Promise((r) => requestAnimationFrame(() => r(null)));
+        const barEl = region.firstElementChild as HTMLElement;
+        const bar = barEl.getBoundingClientRect();
+        return {
+          headerBottom,
+          sticky: getComputedStyle(barEl).position === "sticky",
+          barTop: bar.top,
+          regionTop: region.getBoundingClientRect().top,
+        };
+      },
+      { regionSel: '[role="region"][data-chunk]' },
+    );
+    expect(await header.count()).toBe(1);
+    if (width >= 640) {
+      // Positive control: from sm the bar IS pinned, so this is not vacuous.
+      expect(probe.sticky).toBe(true);
+      expect(probe.barTop).toBeGreaterThanOrEqual(probe.headerBottom - 0.5);
+      const box = (await next.boundingBox())!;
+      const hit = await page.evaluate(
+        ([x, y]) => {
+          const el = document.elementFromPoint(x!, y!);
+          return (
+            el?.closest("button")?.getAttribute("aria-label") ?? el?.tagName
+          );
+        },
+        [box.x + box.width / 2, box.y + box.height / 2],
+      );
+      expect(hit).toBe("Next change");
+    } else {
+      // On a phone the bar scrolls with its region, never pinned.
+      expect(probe.sticky).toBe(false);
+      // (Inside the region's 1 px border.)
+      expect(Math.abs(probe.barTop - probe.regionTop)).toBeLessThanOrEqual(2);
+    }
+    expect(await bar.count()).toBe(1);
+  });
+}
