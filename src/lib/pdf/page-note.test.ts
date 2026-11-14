@@ -58,10 +58,15 @@ describe("the page note", () => {
     drawPageNote(upright, PAGE_IMAGES_NOTE, 0);
     const seen = pixels(turned(tile));
     const want = pixels(upright);
-    // Health: the note has ink (a blank canvas would match a blank one).
-    let ink = 0;
-    for (let i = 0; i < want.length; i += 4) if (want[i]! < 120) ink += 1;
-    expect(ink).toBeGreaterThan(500);
+    // Health: the note's sentence put ink on the sheet (a sheet with no text
+    // would match a sheet with no text). Measured against the same sheet drawn
+    // with no sentence, not as a count of dark pixels: CI's Linux canvas draws
+    // sans-serif thinner than Windows does (221 pixels under 120 there against
+    // a fixed 500 here), and a typed pixel count is a constant nothing else
+    // constrains (CLAUDE.md rule 3).
+    const bare = napi.createCanvas(600, 400);
+    drawPageNote(bare, "", 0);
+    expect(differing(want, pixels(bare))).toBeGreaterThan(200);
     expect(differing(seen, want)).toBeLessThan(want.length / 1000);
     // Positive control: the same tile drawn without the turn is sideways.
     const sideways = napi.createCanvas(400, 600);
