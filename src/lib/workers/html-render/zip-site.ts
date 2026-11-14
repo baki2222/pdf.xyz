@@ -24,7 +24,11 @@
  *   - each with the Content-Type of its extension ({@link contentTypeOfEntry})
  *     and `X-Content-Type-Options: nosniff`, so Chromium never guesses.
  * Every request anywhere else goes through `./network.ts` exactly as an
- * uploaded HTML file's do: public http(s) only.
+ * uploaded HTML file's do: public http(s) only. And every request AT the
+ * origin spends that render network's own request and byte budgets
+ * (`chargeServed`, called by the renderer before it answers), so a page
+ * asking for its own files a thousand times is refused past them —
+ * `zip-site.chromium.test.ts` holds both budgets through a real Chromium.
  */
 import { openBoundedZip, ZipEntryError, type BoundedZip } from "../epub/zip";
 import {

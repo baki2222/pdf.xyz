@@ -231,3 +231,92 @@ describe.skipIf(!BIN)("pasted HTML through the real renderer", () => {
     expect(hex).toContain("c3-a9");
   }, 120_000);
 });
+
+/**
+ * A page that asks for ONE of its own files `n` times at once, each with a
+ * query string (stripped when the entry is looked up), and prints how many
+ * answers it got. Hostile review 2026-11-14: archive requests skipped the
+ * render network's budgets entirely, so a 656 KB upload fetching one large
+ * entry a few hundred times built that many copies of it in the worker's
+ * heap and took the daemon down.
+ */
+const hammer = (n: number) => `<!doctype html><html><body><p id="out">WAIT</p>
+<script>
+Promise.allSettled(Array.from({ length: ${n} }, (_, i) =>
+  fetch("data/blob.txt?" + i).then((r) => { if (!r.ok) throw new Error(); return r.text(); })))
+  .then((all) => {
+    const ok = all.filter((a) => a.status === "fulfilled").length;
+    document.getElementById("out").textContent = "GOT" + ok + "OF${n}END";
+  });
+</script></body></html>`;
+
+async function hammerZip(n: number, blobBytes: number): Promise<Uint8Array> {
+  const zip = new JSZip();
+  zip.file("index.html", hammer(n));
+  zip.file("data/blob.txt", "x".repeat(blobBytes));
+  return zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
+}
+
+/** Render `zip` with `limits`; what the page got, and what the origin was asked. */
+async function hammered(
+  zip: Uint8Array,
+  limits?: import("./network").RenderNetworkLimits,
+) {
+  let originRequests = 0;
+  const hammerRunner = createNativeChromiumPdfRunner(
+    {
+      enabled: true,
+      candidates: [BIN ?? "chromium"],
+      overridden: true,
+      timeoutMs: 90_000,
+      maxInputBytes: 20 * 1024 * 1024,
+      maxOutputBytes: 50 * 1024 * 1024,
+      tmpDir: work,
+    },
+    {
+      fileExists: () => true,
+      network: { resolve, fetch },
+      ...(limits ? { networkLimits: limits } : {}),
+      onRequest: ({ url }) => {
+        if (url.startsWith(HTML_DOCUMENT_URL)) originRequests += 1;
+      },
+    },
+  );
+  const opened = openHtmlZip(zip, undefined, htmlDocumentContentType);
+  if (!opened.ok) throw new Error(opened.refusal.kind);
+  const reading = await readEpubPdf(
+    await hammerRunner.renderSite!(opened.site),
+  );
+  const text = reading.pages.join("").replace(/\s+/g, "");
+  const m = /GOT(\d+)OF(\d+)END/.exec(text);
+  return { got: m ? Number(m[1]) : null, originRequests };
+}
+
+describe.skipIf(!BIN)(
+  "a ZIP page's own files spend the render's budgets",
+  () => {
+    it("POSITIVE CONTROL: inside the budgets, every one of 40 answers arrives", async () => {
+      const run = await hammered(await hammerZip(40, 1024));
+      expect(run.got).toBe(40);
+    }, 120_000);
+
+    it("past the REAL request budget (500 per render, the page itself included), the rest are refused", async () => {
+      const run = await hammered(await hammerZip(600, 64));
+      // Health: the page really asked for all of them at the origin.
+      expect(run.originRequests).toBeGreaterThanOrEqual(600);
+      expect(run.got).toBe(499);
+    }, 180_000);
+
+    it("past the byte budget, the rest are refused: no more bytes reach the page than one render may spend", async () => {
+      const run = await hammered(await hammerZip(30, 256 * 1024), {
+        maxResponseBytes: 20 * 1024 * 1024,
+        maxTotalBytes: 1024 * 1024,
+        maxRequests: 500,
+        requestTimeoutMs: 20_000,
+      });
+      expect(run.originRequests).toBeGreaterThanOrEqual(30);
+      // 1 MiB, less the page itself, holds three 256 KiB answers and no fourth.
+      expect(run.got).toBe(3);
+    }, 120_000);
+  },
+);

@@ -189,6 +189,32 @@ describe("renderer network policy", () => {
     expect((await net.handle(get("https://a.example/"))).action).toBe("fail");
   });
 
+  it("a ZIP page's served files spend the SAME request and byte budgets as fetches", async () => {
+    const limits = {
+      maxRequests: 3,
+      maxResponseBytes: 100,
+      maxTotalBytes: 12,
+      requestTimeoutMs: 1000,
+    };
+    const resolve: Resolve = async () => [{ address: "1.1.1.1", family: 4 }];
+    // Bytes: 5 fetched ("hello") + 7 served fill the 12; one more byte is refused.
+    const bytes = createRenderNetwork({ resolve, fetch: ok }, limits);
+    expect((await bytes.handle(get("https://a.example/"))).action).toBe(
+      "fulfill",
+    );
+    expect(bytes.chargeServed(7)).toBeNull();
+    expect(bytes.chargeServed(1)).toMatch(/byte budget/);
+    // Requests: served answers count, 404s included, and starve the fetches.
+    const count = createRenderNetwork({ resolve, fetch: ok }, limits);
+    expect(count.chargeServed(0)).toBeNull();
+    expect(count.chargeServed(1)).toBeNull();
+    expect((await count.handle(get("https://a.example/"))).action).toBe(
+      "fulfill",
+    );
+    expect(count.chargeServed(0)).toMatch(/request budget/);
+    expect((await count.handle(get("https://a.example/"))).action).toBe("fail");
+  });
+
   /*
    * The pin is what defeats DNS rebinding, so it is tested on the REAL
    * fetcher, not the seam. `rebind.invalid` cannot resolve; if the socket

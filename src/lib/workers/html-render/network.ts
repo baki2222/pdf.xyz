@@ -368,7 +368,30 @@ export function createRenderNetwork(
     return { action: "fulfill", status: res.status, headers: out, body };
   }
 
-  return { admit, handle };
+  /**
+   * Count a request answered WITHOUT the network — a ZIP page's own files,
+   * served from the archive at the document origin — against the SAME
+   * budgets `handle` spends: one request, and `bodyBytes` of the render's
+   * byte budget. Null when it may be answered; otherwise why not, and it
+   * must be failed.
+   *
+   * Synchronous on purpose: Chromium's paused requests are answered
+   * concurrently, and each must see what the ones before it took, so a page
+   * that asks for one large entry a thousand times at once is refused past
+   * the budget instead of encoding a thousand copies of it (a 656 KB upload
+   * once took the worker's heap that way).
+   */
+  function chargeServed(bodyBytes: number): string | null {
+    requests += 1;
+    if (requests > limits.maxRequests)
+      return "request budget for this render is spent";
+    if (bodyBytes > limits.maxTotalBytes - totalBytes)
+      return "byte budget for this render is spent";
+    totalBytes += bodyBytes;
+    return null;
+  }
+
+  return { admit, handle, chargeServed };
 }
 
 export type RenderNetwork = ReturnType<typeof createRenderNetwork>;

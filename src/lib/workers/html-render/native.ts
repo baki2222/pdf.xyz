@@ -21,6 +21,7 @@ import {
 import {
   createRenderNetwork,
   type PausedRequest,
+  type RenderNetworkLimits,
   type RenderNetworkSeams,
   type RequestDecision,
 } from "./network";
@@ -117,6 +118,8 @@ export interface ChromiumSeams {
   launch?: ChromiumLaunch;
   fs?: ChromiumFs;
   network?: RenderNetworkSeams;
+  /** One render's request and byte budgets. Default `DEFAULT_RENDER_NETWORK_LIMITS`. */
+  networkLimits?: RenderNetworkLimits;
   /**
    * Told of every request Chromium makes while rendering, BEFORE the policy
    * decides it — refused ones included — except the served upload itself.
@@ -510,7 +513,7 @@ export function createNativeChromiumPdfRunner(
     target: RenderTarget,
     plan: PrintPlan,
   ): Promise<Uint8Array> {
-    const network = createRenderNetwork(seams.network);
+    const network = createRenderNetwork(seams.network, seams.networkLimits);
     let documentServed = false;
     let mainFrameId = "";
     /** The latest main-frame document's verdict (url renders only). */
@@ -560,6 +563,17 @@ export function createNativeChromiumPdfRunner(
       ) {
         const hit =
           p.request.method === "GET" ? target.site.serve(p.request.url) : null;
+        // The render network's own request and byte budgets, spent by the
+        // archive too: a page may not ask for its own files past them.
+        const refused = network.chargeServed(hit ? hit.body.byteLength : 0);
+        if (refused !== null) {
+          await cdp.send(
+            "Fetch.failRequest",
+            { requestId: p.requestId, errorReason: "BlockedByClient" },
+            sessionId,
+          );
+          return;
+        }
         if (
           hit &&
           p.request.url === target.site.entryUrl &&
