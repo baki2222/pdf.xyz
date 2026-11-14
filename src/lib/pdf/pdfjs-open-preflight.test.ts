@@ -276,15 +276,89 @@ interface PageRenderSite {
   openedBy: number[];
 }
 
-/** `n` is (inside) the condition of an `if` or a `?:`. */
-function inCondition(n: ts.Node): boolean {
+/** The `if` or `?:` whose condition `n` is (inside), or null. */
+function conditionOf(
+  n: ts.Node,
+): ts.IfStatement | ts.ConditionalExpression | null {
   for (let at: ts.Node = n; at.parent; at = at.parent) {
     const p = at.parent;
-    if (ts.isIfStatement(p) && p.expression === at) return true;
-    if (ts.isConditionalExpression(p) && p.condition === at) return true;
-    if (ts.isStatement(p) || isFunction(p)) return false;
+    if (ts.isIfStatement(p) && p.expression === at) return p;
+    if (ts.isConditionalExpression(p) && p.condition === at) return p;
+    if (ts.isStatement(p) || isFunction(p)) return null;
+  }
+  return null;
+}
+
+/** `s` cannot complete normally: every path through it returns or throws. */
+function terminates(s: ts.Statement): boolean {
+  if (ts.isReturnStatement(s) || ts.isThrowStatement(s)) return true;
+  if (ts.isBlock(s)) return s.statements.some(terminates);
+  if (ts.isIfStatement(s)) {
+    return (
+      !!s.elseStatement &&
+      terminates(s.thenStatement) &&
+      terminates(s.elseStatement)
+    );
   }
   return false;
+}
+
+const within = (outer: ts.Node, inner: ts.Node) =>
+  inner.pos >= outer.pos && inner.end <= outer.end;
+
+/**
+ * The verdict's test `owner` STOPS the render on one of its branches: the
+ * render sits in one branch only; or it follows the `if` (in the same block,
+ * or inside a later statement of it) and a branch of the `if` cannot fall
+ * through to it (it returns or throws); or the `?:` picks what is rendered
+ * (it initialises the variable whose `.render` is called: Auto-crop's
+ * page-without-images). It does not read WHICH branch is the note's (a
+ * `note === null` typo passes): the child tests in
+ * src/tests/hostile/page-images.test.ts render each path for that.
+ *
+ * History (review r3, 2026-11-14): the rule asked only that the verdict be
+ * read in a condition. Deleting `return canvas;` after the editor's note
+ * drew the note AND decoded the page, and the rule stayed green.
+ */
+function stopsRender(
+  owner: ts.IfStatement | ts.ConditionalExpression,
+  render: ts.CallExpression,
+): boolean {
+  if (ts.isIfStatement(owner)) {
+    if (within(owner.thenStatement, render)) return true;
+    if (owner.elseStatement && within(owner.elseStatement, render)) return true;
+    const block = owner.parent;
+    if (!ts.isBlock(block) && !ts.isSourceFile(block)) return false;
+    const after = block.statements.some(
+      (s) => s.pos >= owner.end && within(s, render),
+    );
+    return (
+      after &&
+      (terminates(owner.thenStatement) ||
+        (!!owner.elseStatement && terminates(owner.elseStatement)))
+    );
+  }
+  if (within(owner.whenTrue, render) || within(owner.whenFalse, render)) {
+    return true;
+  }
+  let at: ts.Node = owner;
+  while (
+    at.parent &&
+    (ts.isParenthesizedExpression(at.parent) || ts.isAwaitExpression(at.parent))
+  ) {
+    at = at.parent;
+  }
+  const decl = at.parent;
+  const callee = render.expression;
+  return (
+    !!decl &&
+    ts.isVariableDeclaration(decl) &&
+    decl.initializer === at &&
+    ts.isIdentifier(decl.name) &&
+    ts.isPropertyAccessExpression(callee) &&
+    ts.isIdentifier(callee.expression) &&
+    callee.expression.text === decl.name.text
+  );
 }
 
 /**
@@ -301,10 +375,11 @@ function inCondition(n: ts.Node): boolean {
 function verdictDecides(
   call: ts.CallExpression,
   fn: ts.Node | undefined,
-  render: ts.Node,
+  render: ts.CallExpression,
   file: ts.SourceFile,
 ): boolean {
-  if (inCondition(call)) return true;
+  const own = conditionOf(call);
+  if (own) return stopsRender(own, render);
   let at: ts.Node = call;
   while (
     at.parent &&
@@ -333,11 +408,13 @@ function verdictDecides(
       n.text === name &&
       n !== decl.name &&
       n.getStart(file) > decl.end &&
-      n.end <= render.getStart(file) &&
-      inCondition(n)
+      n.end <= render.getStart(file)
     ) {
-      read = true;
-      return;
+      const owner = conditionOf(n);
+      if (owner && stopsRender(owner, render)) {
+        read = true;
+        return;
+      }
     }
     ts.forEachChild(n, look);
   };
@@ -819,6 +896,42 @@ describe("every pdf.js open that renders pages previews or refuses an over-budge
         `async function a(bytes) {\n${OPENED}  guard.refuseOverBudgetPages(pre, order, get);\n${RENDER}}`,
       ).verdict,
     ).toBe(false);
+    // Negative (review r3): the verdict tested, but its branch falls
+    // through to the render (the editor with `return canvas;` deleted), in
+    // the same block and in a later `try`; a `?:` whose answer is not what
+    // is rendered.
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  const note = guard.pageImageVerdict(pre, page.ref);\n  if (note !== null) {\n    guard.drawPageNote(canvas, note);\n  }\n${RENDER}}`,
+      ).verdict,
+    ).toBe(false);
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  const note = guard.pageImageVerdict(pre, page.ref);\n  if (note !== null) draw(note);\n  try {\n  ${RENDER}  } finally {}\n}`,
+      ).verdict,
+    ).toBe(false);
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  const over = guard.pageImageVerdict(pre, page.ref) !== null;\n  const scale = over ? 1 : 2;\n${RENDER}}`,
+      ).verdict,
+    ).toBe(false);
+    // Positive: the same shapes stopped: a return in the branch, the render
+    // in the other branch, the render after a branch that throws, in a try.
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  const note = guard.pageImageVerdict(pre, page.ref);\n  if (note !== null) {\n    guard.drawPageNote(canvas, note);\n    return canvas;\n  }\n${RENDER}}`,
+      ).verdict,
+    ).toBe(true);
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  const note = guard.pageImageVerdict(pre, page.ref);\n  if (note !== null) draw(note);\n  else {\n  ${RENDER}  }\n}`,
+      ).verdict,
+    ).toBe(true);
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  const note = guard.pageImageVerdict(pre, page.ref);\n  if (note !== null) throw new Error(note);\n  try {\n  ${RENDER}  } finally {}\n}`,
+      ).verdict,
+    ).toBe(true);
     // Negative: no verdict; a verdict AFTER the render; a verdict in another
     // function than the one that draws.
     expect(site(`async function a(bytes) {\n${OPENED}${RENDER}}`).verdict).toBe(
