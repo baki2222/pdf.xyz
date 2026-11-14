@@ -43,6 +43,19 @@
  *     (`../epub/zip-directory.ts`), or one stored region declared as eleven
  *     files would grow 1,090-fold while each passed (hostile review
  *     2026-11-14).
+ *   - {@link HTML_ZIP_MAX_ENTRY_BYTES}: 20 MiB for any ONE file, five times
+ *     the largest real file (4.0 MiB). Not borrowed from EPUB, which has no
+ *     such bound: every file of this archive is handed to Chromium whole,
+ *     base64 in one CDP message, and the render network hands a FETCHED
+ *     response over only up to `maxResponseBytes` (20 MiB). Without it an
+ *     archive answer could be 100 MiB: hostile review round 2 (2026-11-14)
+ *     measured a 76 MiB entry from a 1.2 MB upload hang the render to its
+ *     timeout (Chromium never acknowledged a ~101 MiB message; 74 MiB still
+ *     printed), +480-630 MiB of worker memory, retried three times — and a
+ *     98 MiB page past the 20 MiB an uploaded HTML file may be. It equals
+ *     both `DEFAULT_RENDER_NETWORK_LIMITS.maxResponseBytes` and
+ *     `HTML_RENDER_DEFAULT_MAX_INPUT_BYTES`; `zip-site.test.ts` compares it
+ *     with each, since a constant has no relationships of its own.
  * `zip-site.test.ts` holds each bound with a ZIP one past it.
  */
 
@@ -65,17 +78,28 @@ export const HTML_ZIP_MAX_UNPACKED_BYTES = 100 * MIB;
 export const HTML_ZIP_MAX_ENTRY_RATIO = 100;
 export const HTML_ZIP_RATIO_FLOOR_BYTES = 1 * MIB;
 
+/** The most bytes ONE file of the archive may unpack to, the page included. */
+export const HTML_ZIP_MAX_ENTRY_BYTES = 20 * MIB;
+
 /**
- * The four bounds together, in the shape the bounded directory reader takes
- * (`../epub/zip-directory`'s `ZipLimits`): the worker opens an archive with
- * them (`./zip-site`) and the browser judges a picked one with them
- * (`./zip-inspect`), through the same reader.
+ * The five bounds together, and how a name is read, in the shape the
+ * bounded directory reader takes (`../epub/zip-directory`'s `ZipLimits`):
+ * the worker opens an archive with them (`./zip-site`) and the browser
+ * judges a picked one with them (`./zip-inspect`), through the same reader.
+ *
+ * `backslashSeparators`: Windows PowerShell 5.1's `Compress-Archive`, the
+ * built-in way to zip a folder from a script on Windows, stores
+ * `Page_files\s.css`. Read exactly, no such name is servable, so the page
+ * printed bare while the browser note said the files were "not in this
+ * ZIP" (surface review 2026-11-14). Read as `/`, they are served.
  */
 export const HTML_ZIP_LIMITS = {
   maxEntries: HTML_ZIP_MAX_ENTRIES,
   maxUnpackedBytes: HTML_ZIP_MAX_UNPACKED_BYTES,
   maxEntryRatio: HTML_ZIP_MAX_ENTRY_RATIO,
   ratioFloorBytes: HTML_ZIP_RATIO_FLOOR_BYTES,
+  maxEntryBytes: HTML_ZIP_MAX_ENTRY_BYTES,
+  backslashSeparators: true,
 } as const;
 
 /**
@@ -242,7 +266,7 @@ export function parseHtmlZipEntryOption(
 
 export type HtmlZipRefusal =
   | { kind: "unreadable" }
-  | { kind: "bomb"; limit: "entries" | "unpacked" | "ratio" }
+  | { kind: "bomb"; limit: "entries" | "unpacked" | "ratio" | "file" }
   | { kind: "no_html" }
   /** The job named a page the archive does not hold (or cannot serve). */
   | { kind: "entry_not_found" }
@@ -261,6 +285,8 @@ export function htmlZipRefusalMessage(refusal: HtmlZipRefusal): string {
         return `This ZIP holds more than ${HTML_ZIP_MAX_ENTRIES.toLocaleString("en-US")} files, the most HTML to PDF opens, so nothing was converted. Keep only the page and the files it uses, and try again.`;
       if (refusal.limit === "unpacked")
         return `This ZIP unpacks to more than ${HTML_ZIP_MAX_UNPACKED_BYTES / MIB} MB, the most HTML to PDF unpacks, so nothing was converted. Keep only the page and the files it uses, and try again.`;
+      if (refusal.limit === "file")
+        return `A file inside this ZIP unpacks to more than ${HTML_ZIP_MAX_ENTRY_BYTES / MIB} MB, the most HTML to PDF takes for one file, so nothing was converted. Make that file smaller, or leave it out, and try again.`;
       return `A file inside this ZIP unpacks to more than ${HTML_ZIP_MAX_ENTRY_RATIO} times its packed size, the shape of a ZIP bomb, so nothing was converted. Make the ZIP again from the page's own files and try again.`;
     case "no_html":
       return "This ZIP holds no .html or .htm file, so there was no page to convert. Put the page in the ZIP with its files and try again.";

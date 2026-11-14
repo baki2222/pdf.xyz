@@ -9,6 +9,7 @@ import {
 } from "@/lib/tools/html-layout-copy";
 import {
   HTML_ZIP_MAX_ENTRIES,
+  HTML_ZIP_MAX_ENTRY_BYTES,
   HTML_ZIP_MAX_ENTRY_RATIO,
   HTML_ZIP_MAX_UNPACKED_BYTES,
   HTML_ZIP_PAGE_CHOICE_SENTENCES,
@@ -152,7 +153,7 @@ const SIZE_SENTENCE =
 
 const MIB = 1024 * 1024;
 /** What a ZIP may hold, from the worker's own bounds. */
-const ZIP_LIMITS = `at most ${HTML_ZIP_MAX_ENTRIES.toLocaleString("en-US")} files that unpack to at most ${HTML_ZIP_MAX_UNPACKED_BYTES / MIB} MB`;
+const ZIP_LIMITS = `at most ${HTML_ZIP_MAX_ENTRIES.toLocaleString("en-US")} files that unpack to at most ${HTML_ZIP_MAX_UNPACKED_BYTES / MIB} MB, none of them over ${HTML_ZIP_MAX_ENTRY_BYTES / MIB} MB`;
 
 const content: ToolContent = {
   slug: "html-to-pdf",

@@ -259,6 +259,16 @@ export async function runHtmlToPdf(
     const opened = openHtmlZip(input, entry, htmlDocumentContentType);
     if (!opened.ok) return refused(opened.refusal);
     site = opened.site;
+    // The page of a ZIP is an HTML file like an uploaded one, and may weigh
+    // no more: the archive's per-file bound equals the DEFAULT ceiling, and
+    // this holds whatever the deployment set it to.
+    if (limit !== undefined && site.entryBytes > limit)
+      return {
+        ok: false,
+        kind: "too_large",
+        limitBytes: limit,
+        message: `The page in this ZIP is larger than ${describeByteCeiling(limit)}, the most HTML to PDF renders per file.`,
+      };
   }
   let output: Uint8Array;
   try {

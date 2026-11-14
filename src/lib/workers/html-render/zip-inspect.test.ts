@@ -21,7 +21,7 @@ import {
 } from "./zip-config";
 import { inspectHtmlZip, readEntryWithin } from "./zip-inspect";
 import { openHtmlZip, zipEntryUrl } from "./zip-site";
-import { readZipDirectory } from "../epub/zip-directory";
+import { decodeEntryName, readZipDirectory } from "../epub/zip-directory";
 import { HTML_ZIP_LIMITS } from "./zip-config";
 
 const enc = (s: string) => new TextEncoder().encode(s);
@@ -169,5 +169,115 @@ describe("the missing-files note follows @import, as Chromium does", () => {
       "img/here.png": "png",
     });
     expect(await noteOf(bytes)).toBeNull();
+  });
+});
+
+/** Stored files, for hand-made archives whose NAMES are the point. */
+const stored = (
+  name: string,
+  body: string,
+  extra: { rawName?: Uint8Array; flags?: number } = {},
+) => {
+  const data = enc(body);
+  return { name, data, unpacked: data.length, method: 0 as const, ...extra };
+};
+const BACKSLASH = String.fromCharCode(0x5c);
+
+// Surface review 2026-11-14: Windows PowerShell 5.1's Compress-Archive
+// writes `Page_files\s.css`. No such name was servable, so the page printed
+// bare, and the browser told the user the files were "not in this ZIP".
+describe("a ZIP whose names use backslashes (PowerShell's Compress-Archive)", () => {
+  const page =
+    '<link rel="stylesheet" href="Page_files/s.css"><img src="Page_files/a.png"><p>p</p>';
+  const ps = () =>
+    handZip([
+      stored(`Page_files${BACKSLASH}a.png`, "png"),
+      stored(`Page_files${BACKSLASH}s.css`, "p{color:red}"),
+      stored("Page.html", page),
+    ]);
+
+  it("the worker serves each file at its slash path", () => {
+    const opened = openHtmlZip(ps(), undefined, htmlDocumentContentType);
+    if (!opened.ok) throw new Error(opened.refusal.kind);
+    expect(opened.site.entry).toBe("Page.html");
+    const css = opened.site.serve(zipEntryUrl("Page_files/s.css"));
+    expect(new TextDecoder().decode(css?.body)).toBe("p{color:red}");
+    expect(opened.site.serve(zipEntryUrl("Page_files/a.png"))).not.toBeNull();
+  });
+
+  it("the browser's note finds them: nothing is missing", async () => {
+    expect(await noteOf(ps(), "Page.html")).toBeNull();
+  });
+
+  it("NEGATIVE CONTROL: the same names read exactly (EPUB's reading) are not servable paths", () => {
+    const { backslashSeparators: _drop, ...exact } = HTML_ZIP_LIMITS;
+    const read = readZipDirectory(ps(), exact);
+    if (!read.ok) throw new Error(read.refusal.kind);
+    expect(read.directory.names).toContain(`Page_files${BACKSLASH}s.css`);
+    expect(read.directory.names).not.toContain("Page_files/s.css");
+  });
+
+  it("when the archive ALSO has the slash spelling, that entry is served, whichever comes first", () => {
+    for (const order of [0, 1]) {
+      const files = [
+        stored(`d${BACKSLASH}s.css`, "back"),
+        stored("d/s.css", "slash"),
+      ];
+      if (order) files.reverse();
+      const bytes = handZip([...files, stored("index.html", "<p>i</p>")]);
+      const opened = openHtmlZip(bytes, undefined, htmlDocumentContentType);
+      if (!opened.ok) throw new Error(opened.refusal.kind);
+      const css = opened.site.serve(zipEntryUrl("d/s.css"));
+      expect(new TextDecoder().decode(css?.body), `order ${order}`).toBe(
+        "slash",
+      );
+    }
+  });
+});
+
+// Surface review 2026-11-14: names were always read as UTF-8, so a name
+// Windows Explorer stored in code page 437 (flag bit 11 clear) became
+// `caf\uFFFD.html`, and its page's links to `café_files/` matched nothing.
+describe("entry names in code page 437 (language flag clear) and in UTF-8", () => {
+  // "café" with é as code page 437 stores it: byte 0x82.
+  const cp437 = (rest: string) =>
+    new Uint8Array([0x63, 0x61, 0x66, 0x82, ...enc(rest)]);
+  const page = '<link rel="stylesheet" href="café_files/s.css"><p>c</p>';
+
+  it("the worker serves a code-page-437 name at its real spelling, and the note finds it", async () => {
+    const bytes = handZip([
+      stored("x", page, { rawName: cp437(".html") }),
+      stored("x", "p{}", { rawName: cp437("_files/s.css") }),
+    ]);
+    const opened = openHtmlZip(bytes, undefined, htmlDocumentContentType);
+    if (!opened.ok) throw new Error(opened.refusal.kind);
+    expect(opened.site.entry).toBe("café.html");
+    expect(
+      opened.site.serve(`${zipEntryUrl("café_files/s.css")}`),
+    ).not.toBeNull();
+    expect(await noteOf(bytes, "café.html")).toBeNull();
+  });
+
+  it("a UTF-8 name is UTF-8 whether or not the flag says so; flag set reads UTF-8 even when it is not", () => {
+    expect(decodeEntryName(enc("café.html"), 0x0800)).toBe("café.html");
+    expect(decodeEntryName(enc("café.html"), 0)).toBe("café.html");
+    expect(decodeEntryName(cp437(".html"), 0)).toBe("café.html");
+    // Flag set but the bytes are not UTF-8: replacement, never guessed.
+    expect(decodeEntryName(cp437(".html"), 0x0800)).toBe("caf\uFFFD.html");
+    expect(decodeEntryName(enc("plain/a.css"), 0)).toBe("plain/a.css");
+  });
+
+  it("the code page 437 table: 128 entries, spot-checked against the code page", () => {
+    // 0x80 Ç, 0x82 é, 0x9C £, 0xE1 ß, 0xFF no-break space.
+    const one = (b: number) => decodeEntryName(new Uint8Array([0xff, b]), 0);
+    expect(one(0x80)).toBe("\u00a0Ç");
+    expect(one(0x82)).toBe("\u00a0é");
+    expect(one(0x9c)).toBe("\u00a0£");
+    expect(one(0xe1)).toBe("\u00a0ß");
+    const all = decodeEntryName(
+      new Uint8Array(Array.from({ length: 128 }, (_, i) => 0x80 + i)),
+      0,
+    );
+    expect([...all]).toHaveLength(128);
   });
 });

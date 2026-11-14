@@ -16,6 +16,10 @@ export function handZip(
     unpacked: number;
     method: 0 | 8;
     at?: string;
+    /** The name's stored bytes, when they are not `name` in UTF-8 (a code-page-437 name). */
+    rawName?: Uint8Array;
+    /** General-purpose flags (bit 11: the name is UTF-8). Default 0. */
+    flags?: number;
   }[],
 ): Uint8Array {
   const parts: Uint8Array[] = [];
@@ -34,9 +38,10 @@ export function handZip(
   };
   for (const [i, f] of files.entries()) {
     if (f.at) continue;
-    const name = new TextEncoder().encode(f.name);
+    const name = f.rawName ?? new TextEncoder().encode(f.name);
     const h = header(0x04034b50, 30);
     const v = new DataView(h.buffer);
+    v.setUint16(6, f.flags ?? 0, true);
     v.setUint16(8, f.method, true);
     v.setUint32(18, f.data.length, true);
     v.setUint32(22, f.unpacked, true);
@@ -49,9 +54,10 @@ export function handZip(
   }
   const dirStart = size;
   for (const [i, f] of files.entries()) {
-    const name = new TextEncoder().encode(f.name);
+    const name = f.rawName ?? new TextEncoder().encode(f.name);
     const h = header(0x02014b50, 46);
     const v = new DataView(h.buffer);
+    v.setUint16(8, f.flags ?? 0, true);
     v.setUint16(10, f.method, true);
     v.setUint32(20, f.data.length, true);
     v.setUint32(24, f.unpacked, true);

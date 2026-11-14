@@ -223,8 +223,11 @@ export function openEpub(bytes: Uint8Array): OpenEpubResult {
     const r = opened.refusal;
     return {
       ok: false,
+      // EPUB's limits set no per-file cap (`maxEntryBytes`), so `file`
+      // cannot arrive; were it ever set, it would read as unreadable rather
+      // than borrow the ratio's words.
       refusal:
-        r.kind === "bomb"
+        r.kind === "bomb" && r.limit !== "file"
           ? { kind: "bomb", limit: r.limit }
           : { kind: "unreadable" },
     };

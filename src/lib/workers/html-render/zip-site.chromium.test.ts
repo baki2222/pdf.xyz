@@ -318,5 +318,24 @@ describe.skipIf(!BIN)(
       // 1 MiB, less the page itself, holds three 256 KiB answers and no fourth.
       expect(run.got).toBe(3);
     }, 120_000);
+
+    // Hostile review round 2 (2026-11-14): archive answers skipped the
+    // largest single response the network hands over, and a 76 MiB entry
+    // hung the render to its timeout. One file ONE byte past
+    // `maxResponseBytes` never reaches the page; one at it does.
+    it("one archive answer past maxResponseBytes is refused, one at it arrives", async () => {
+      const limits = {
+        maxResponseBytes: 256 * 1024,
+        maxTotalBytes: 100 * 1024 * 1024,
+        maxRequests: 500,
+        requestTimeoutMs: 20_000,
+      };
+      const at = await hammered(await hammerZip(1, 256 * 1024), limits);
+      expect(at.got).toBe(1);
+      const past = await hammered(await hammerZip(1, 256 * 1024 + 1), limits);
+      // Health: it was asked for, and refused rather than never requested.
+      expect(past.originRequests).toBeGreaterThanOrEqual(2);
+      expect(past.got).toBe(0);
+    }, 120_000);
   },
 );

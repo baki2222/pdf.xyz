@@ -125,6 +125,8 @@ export interface HtmlSite {
   entryUrl: string;
   /** Its archive path. */
   entry: string;
+  /** The page's own size, unpacked: judged against the HTML file ceiling. */
+  entryBytes: number;
   /** The entry for a URL Chromium asked for (GET); null = 404. */
   serve(url: string): ServedEntry | null;
 }
@@ -177,14 +179,15 @@ export function openHtmlZip(
   }
   // The page itself must inflate: a page that cannot be read would print an
   // empty 404, which is not the page.
-  if (readEntry(zip, entry) === null)
-    return { ok: false, refusal: { kind: "unreadable" } };
+  const page = readEntry(zip, entry);
+  if (page === null) return { ok: false, refusal: { kind: "unreadable" } };
 
   const cache = new Map<string, ServedEntry | null>();
   return {
     ok: true,
     site: {
       entry,
+      entryBytes: page.byteLength,
       entryUrl: zipEntryUrl(entry),
       serve(url) {
         const name = zipEntryOfUrl(url);
