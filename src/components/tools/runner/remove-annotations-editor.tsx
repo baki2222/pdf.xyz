@@ -33,26 +33,21 @@ import {
 } from "./runner-kit";
 import { RunBar } from "./run-bar";
 import { RunReason } from "./run-reason";
-import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
+import { FileHeader } from "./single-pdf-runner";
 import { PrivacyLine } from "./stamp-controls";
 import type { LoadedPdf } from "./use-single-pdf";
 
 /**
- * Remove Annotations' panel, mounted by the `metadata` runner for its slug
- * (`metadata-runner.tsx`). Every group name, default and consequence line
+ * Remove Annotations' panel, mounted by `remove-annotations-host.tsx` (the
+ * `metadata` runner's arm for its slug) and fetched when a file opens, with
+ * the engine. Every group name, default and consequence line
  * is read from `ANNOTATION_GROUPS`. The button and the per-page list count
  * the run's own closure (`planRemoval`, which the engine also runs: a
  * reply goes with what it answers, whatever its kind); every number on the
  * result is the engine's count of the SAVED copy (`removeAnnotations`).
- * The engine is fetched when a file opens, not with the page.
  */
 
 const engine = () => import("@/lib/pdf/remove-annotations");
-
-/** Fetched WITH the file's parse, so the inventory does not wait a round trip. */
-const prepareEngine = async () => {
-  await engine();
-};
 
 /*
  * The labels below are quoted BY HAND in the page's steps
@@ -80,19 +75,6 @@ export const REMOVE_ANNOTATIONS_DOWNLOAD_LABEL = "Download PDF";
 /** Why the run button is greyed out with nothing ticked. */
 export const REMOVE_ANNOTATIONS_NONE_TICKED =
   "Tick at least one kind to remove.";
-
-export function RemoveAnnotationsRunner() {
-  return (
-    <SinglePdfRunner
-      hint="One PDF · annotations listed and removed locally in your browser"
-      handoffSlug="remove-annotations"
-      toolName="Remove Annotations"
-      prepare={prepareEngine}
-    >
-      {(pdf, reset) => <RemoveAnnotationsEditor pdf={pdf} onReset={reset} />}
-    </SinglePdfRunner>
-  );
-}
 
 export function RemoveAnnotationsEditor({
   pdf,

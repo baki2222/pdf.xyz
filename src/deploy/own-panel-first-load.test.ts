@@ -49,9 +49,7 @@
  *
  * Runs under `pnpm test:bundle` (it needs `.next`), never `pnpm test`.
  */
-import type * as TS from "typescript";
-import { createRequire } from "node:module";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { tools } from "@/lib/tools";
@@ -70,109 +68,20 @@ import {
   valueClosure,
   type PanelModule,
 } from "@/tests/tool-panel-modules";
-
-const ts = createRequire(import.meta.url)("typescript") as typeof TS;
+import {
+  chunkText,
+  isTestFile as isTest,
+  markersOf,
+  readCached as read,
+  sourceFiles as sources,
+  walkFiles as walk,
+} from "@/tests/chunk-markers";
 
 const NEXT_DIR = path.join(ROOT, ".next");
 const APP_DIR = path.join(NEXT_DIR, "server", "app");
 const CHUNKS_DIR = path.join(NEXT_DIR, "static", "chunks");
 
-const textCache = new Map<string, string>();
-function read(file: string): string {
-  let text = textCache.get(file);
-  if (text === undefined) {
-    text = readFileSync(file, "utf8");
-    textCache.set(file, text);
-  }
-  return text;
-}
-
-function walk(dir: string, keep: (name: string) => boolean): string[] {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) return walk(full, keep);
-    return keep(entry.name) ? [full] : [];
-  });
-}
-
-const isTest = (name: string) => /\.(test|spec)\.tsx?$/.test(name);
-
-/** Every non-test source file under src/ — the uniqueness corpus for markers. */
-const sources = () => walk(SRC, (n) => /\.tsx?$/.test(n) && !isTest(n));
-
-/**
- * A source file with every whitespace run collapsed to one space — the form
- * its JSX text compiles to. Uniqueness is checked against THIS, not the raw
- * file: on the first split build a marker from the Office panel ("isolated
- * worker. It produces a PDF artifact or fails honestly — no") turned up in
- * the HTML-render panel's chunk, because that panel breaks the same sentence
- * at a different word and a raw substring search cannot see across a line
- * wrap. The all-or-nothing check below caught it; this closes it.
- */
-const flatCache = new Map<string, string>();
-function flat(file: string): string {
-  let text = flatCache.get(file);
-  if (text === undefined) {
-    text = read(file).replace(/\s+/g, " ");
-    flatCache.set(file, text);
-  }
-  return text;
-}
-
-const MARKER_MIN = 9;
 const MARKERS_PER_MODULE = 6;
-/**
- * No quote, backtick or backslash (a minifier may re-escape or re-quote them)
- * and no control character. Written as char codes, not a regex class.
- */
-const plain = (text: string): boolean =>
-  [...text].every((ch) => {
-    const code = ch.codePointAt(0)!;
-    return (
-      code >= 0x20 && code !== 0x7f && !"\"'`".includes(ch) && code !== 0x5c
-    );
-  });
-
-/**
- * Strings in `file`'s own code that reach the compiled output: string
- * literals that are not types, specifiers, directives or property names, and
- * each trimmed line of JSX text (React joins the lines with one space, so a
- * single line is a substring of the compiled literal).
- */
-function ownStrings(file: string): string[] {
-  const sf = ts.createSourceFile(
-    file,
-    read(file),
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TSX,
-  );
-  const out: string[] = [];
-  const visit = (n: TS.Node): void => {
-    if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) {
-      const p = n.parent;
-      const erased =
-        ts.isLiteralTypeNode(p) ||
-        ts.isImportDeclaration(p) ||
-        ts.isExportDeclaration(p) ||
-        ts.isExternalModuleReference(p) ||
-        (ts.isCallExpression(p) &&
-          p.expression.kind === ts.SyntaxKind.ImportKeyword) ||
-        ts.isExpressionStatement(p) || // a directive: "use client"
-        (ts.isPropertyAssignment(p) && p.name === n) ||
-        (ts.isPropertySignature(p) && p.name === n);
-      if (!erased) out.push(n.text);
-    } else if (ts.isJsxText(n)) {
-      for (const line of n.text.split(/\r?\n/)) {
-        const trimmed = line.trim();
-        if (trimmed) out.push(trimmed);
-      }
-    }
-    ts.forEachChild(n, visit);
-  };
-  visit(sf);
-  return out;
-}
 
 interface Corpus {
   pages: { html: string; slug: string; own: PanelModule | null }[];
@@ -198,18 +107,15 @@ function getCorpus(): Corpus {
   const allSources = sources();
   const allChunks = walk(CHUNKS_DIR, (n) => n.endsWith(".js"));
   const markers = new Map<string, string[]>();
-  for (const mod of modules) {
-    const others = allSources.filter((f) => f !== mod.file);
-    const found = [...new Set(ownStrings(mod.file))]
-      .filter((t) => t.length >= MARKER_MIN && plain(t))
-      // in no other source file — other panel modules and shared bases included
-      .filter((t) => others.every((f) => !flat(f).includes(t)))
-      // and the client build still carries it
-      .filter((t) => allChunks.some((c) => read(c).includes(t)))
-      .sort((a, b) => b.length - a.length || a.localeCompare(b))
-      .slice(0, MARKERS_PER_MODULE);
-    markers.set(mod.file, found);
-  }
+  // In no other source file — other panel modules and shared bases
+  // included — and still carried by the client build (`markersOf`, moved to
+  // `src/tests/chunk-markers.ts` on 2026-11-10 so variant-panels.test.ts
+  // reads chunks with the same instrument).
+  for (const mod of modules)
+    markers.set(
+      mod.file,
+      markersOf(mod.file, allSources, allChunks, MARKERS_PER_MODULE),
+    );
   corpus = { pages, modules, markers };
   return corpus;
 }
@@ -226,7 +132,7 @@ function carriedBy(chunk: string): string[] {
   const hit = chunkCarries.get(chunk);
   if (hit) return hit;
   const { modules, markers } = getCorpus();
-  const text = read(chunk);
+  const text = chunkText(chunk);
   const carried: string[] = [];
   for (const mod of modules) {
     const own = markers.get(mod.file)!;
@@ -472,17 +378,25 @@ describe("a shared leaf rides only with the code that uses it", () => {
       text: chunkFiles(NEXT_DIR, html).map(read).join("\n"),
     }));
 
-  it("positive control: each leaf's marker and a user's marker are in some first load", () => {
+  /*
+   * WAS "in some first load" until 2026-11-10. Then Remove Annotations'
+   * editor became a lazy chunk (`runner/lazy-panel.tsx`) and its kind labels
+   * left every first load, which is the point; the control was asking where
+   * the leaf ships, when what it must prove is that this reader SEES the
+   * marker in shipped bytes at all. It now looks in every built chunk, first
+   * load or lazy, so a marker the minifier rewrote still turns it red.
+   */
+  it("positive control: each leaf's marker and a user's marker are in the built chunks", () => {
     if (!built) return;
-    const all = loads();
-    expect(all.length).toBeGreaterThan(50);
+    expect(loads().length).toBeGreaterThan(50);
+    const chunks = walk(CHUNKS_DIR, (n) => n.endsWith(".js")).map(chunkText);
     for (const ride of RIDES) {
       expect(
-        all.some((p) => p.text.includes(ride.marker)),
+        chunks.some((c) => c.includes(ride.marker)),
         ride.leaf,
       ).toBe(true);
       expect(
-        all.some((p) => ride.users.some((u) => p.text.includes(u))),
+        chunks.some((c) => ride.users.some((u) => c.includes(u))),
         ride.leaf,
       ).toBe(true);
     }

@@ -117,6 +117,20 @@ function localLoaders(file: string): Set<string> {
       !stmt.importClause.isTypeOnly
     )
       dynamicNames.add(stmt.importClause.name.text);
+    // `lazyPanel(loader, …)` (2026-11-10): the shared-kind runners' editors
+    // (n-up, metadata) are reached only through it, and this walk, which
+    // knew `dynamic()` alone, lost both runners' one path to the bus.
+    // `resolveComponent` follows its loader as it follows `dynamic()`'s.
+    if (
+      ts.isImportDeclaration(stmt) &&
+      stmt.importClause &&
+      !stmt.importClause.isTypeOnly &&
+      stmt.importClause.namedBindings &&
+      ts.isNamedImports(stmt.importClause.namedBindings)
+    )
+      for (const el of stmt.importClause.namedBindings.elements)
+        if (!el.isTypeOnly && (el.propertyName ?? el.name).text === "lazyPanel")
+          dynamicNames.add(el.name.text);
     if (!ts.isVariableStatement(stmt)) continue;
     for (const d of stmt.declarationList.declarations)
       if (
@@ -140,6 +154,13 @@ function usedNames(node: ts.Node): Set<string> {
       ts.isIdentifier(n.tagName)
     )
       out.add(n.tagName.text);
+    // `<nUp.Panel …/>`: the binding is the object (`nUp`, a `lazyPanel`).
+    if (
+      (ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n)) &&
+      ts.isPropertyAccessExpression(n.tagName) &&
+      ts.isIdentifier(n.tagName.expression)
+    )
+      out.add(n.tagName.expression.text);
     if (ts.isCallExpression(n) && ts.isIdentifier(n.expression))
       out.add(n.expression.text);
     ts.forEachChild(n, visit);
@@ -215,6 +236,11 @@ describe("every run a tool page can start reaches the activity bus", () => {
     expect(
       reachThrough(abs("src/components/tools/runner/compress-runner.tsx")),
     ).toBe("useBatchRunner");
+    // Through a `lazyPanel` loader and a `<metadata.Panel>` tag: Edit PDF
+    // Metadata's editor, the runner's only path to a run since 2026-11-10.
+    expect(
+      reachThrough(abs("src/components/tools/runner/metadata-runner.tsx")),
+    ).toBe("useAsyncRun");
     // `worker-panels.tsx` imports only types from the job hook's world; the
     // registry starts no run.
     expect(reachThrough(abs("src/components/tools/worker-panels.tsx"))).toBe(
