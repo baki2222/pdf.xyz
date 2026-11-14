@@ -2765,6 +2765,7 @@ export const guides: Guide[] = [
       "Select Compare PDFs.",
       "Read the summary: the page counts, the size difference and the number of changed lines.",
       "Review the lines marked removed (-) and added (+), each headed with its page in both files, with the changed words marked.",
+      "Select Show changes on the pages to see both files side by side with the changes marked on the pages.",
       "Download the comparison report: a .txt file listing only the changes, with their page numbers.",
     ],
     sections: [
@@ -2811,7 +2812,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-11-14",
+    updated: "2026-11-15",
   },
   {
     slug: "how-to-remove-a-password-from-a-pdf",

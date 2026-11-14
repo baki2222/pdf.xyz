@@ -77,6 +77,18 @@ const OCR_LINK_MINUTES = DEFAULT_RETENTION.outputTtlMinutes;
  * `formatSignedBytes`, and is deleted rather than rewritten because a test
  * pins the behaviour: compare-pdf-runner.test.tsx, "Compare PDF runner —
  * size delta", and utils.test.ts, "formatSignedBytes".)
+ * AMENDED 2026-11-15 (audit compare-pdf#2, S2): the result also draws both
+ * PDFs side by side with the changes marked on their pages (Show changes on
+ * the pages): removed text crossed out on the first file's pages, added text
+ * underlined on the second's. A changed line is marked only where it can be
+ * found on its page without a guess, and its page says so otherwise, as does
+ * a page with no selectable text. The FAQ said "It does not draw highlights
+ * on the pages themselves yet", true until then. Checked through the chain
+ * the page view runs on real PDFs (src/lib/pdf/compare/view-marks.test.ts)
+ * and the page's claims against it (claims-vs-capability.test.ts, "the
+ * page-view claims hold of the page view"); delivered to a reader in
+ * e2e/compare-viewer.spec.ts on a served build. Images, colours and layout
+ * are still not compared (intro[2]).
  */
 const content: ToolContent = {
   slug: "compare-pdf",
@@ -125,6 +137,10 @@ const content: ToolContent = {
       body: "It stays disabled until both slots are filled. Tiles for Pages, Size delta and Changed lines sit above the list of changes, each headed with its page in both files. Two buttons step from one change to the next, and two boxes set letter case or page headers and numbers aside.",
     },
     {
+      title: "See the changes on the pages",
+      body: "Press Show changes on the pages to open both files side by side, removed words crossed out in the first and added words underlined in the second. Press Previous change or Next change to move both files to a change; they scroll together until you untick Scroll both files together. On a phone, press Original or Revised to switch between the files. Press Show the list to return to the list of changes.",
+    },
+    {
       title: "Download the report",
       body: "Download comparison report saves a text file listing only the changes, with their page numbers, named after both PDFs, for example draft-vs-final-comparison.txt. Its Bytes line gives both exact sizes and a signed difference. Start over clears the result and both slots for a new pair, without leaving the page.",
     },
@@ -133,7 +149,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Does Compare PDF show which page a change is on?",
-      a: "Yes. Each change is headed with the page it sits on in each file, for example Page 2 → page 3 when a page was inserted before it, and the downloaded report heads it the same way: @@ Page 2 -> page 3 @@. Unchanged lines around a change are indented two spaces, lines only in the second PDF start with +, and lines only in the first start with -. It does not draw highlights on the pages themselves yet: the result is a list of changed lines, not marked-up pages.",
+      a: "Yes. Each change is headed with the page it sits on in each file, for example Page 2 → page 3 when a page was inserted before it, and the downloaded report heads it the same way: @@ Page 2 -> page 3 @@. Unchanged lines around a change are indented two spaces, lines only in the second PDF start with +, and lines only in the first start with -. Press Show changes on the pages to see both PDFs side by side, with removed text crossed out on the first file's pages and added text underlined on the second's; a changed line it cannot place on its page, or on a page with no selectable text, is flagged on that page and stays in the list of changes.",
     },
     {
       q: "What happens when only one word on a line changed?",
