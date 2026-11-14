@@ -276,13 +276,13 @@ describe("the bounded open, with HTML to PDF's own bounds", () => {
     const names = ["f0.bin", "f1.bin", "f2.bin", "f3.bin"];
     const shared = handZip([
       { name: "index.html", data: page, unpacked: page.length, method: 0 },
-      { name: "f0.bin", data: packed, unpacked, method: 8 },
+      { name: "f0.bin", data: packed, unpacked, method: 8 as const },
       ...names.slice(1).map((name) => ({
         name,
         at: "f0.bin",
         data: packed,
         unpacked,
-        method: 8,
+        method: 8 as const,
       })),
     ]);
     // Health: each entry alone is within every bound, so only sharing is refused.
@@ -297,7 +297,12 @@ describe("the bounded open, with HTML to PDF's own bounds", () => {
     // open — and every one of them serves its 2 MiB.
     const own = handZip([
       { name: "index.html", data: page, unpacked: page.length, method: 0 },
-      ...names.map((name) => ({ name, data: packed, unpacked, method: 8 })),
+      ...names.map((name) => ({
+        name,
+        data: packed,
+        unpacked,
+        method: 8 as const,
+      })),
     ]);
     const opened = openHtmlZip(own, undefined, htmlDocumentContentType);
     expect(opened.ok).toBe(true);
