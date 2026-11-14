@@ -8,6 +8,7 @@
  * archives through a real Chromium.
  */
 import JSZip from "jszip";
+import { deflateRawSync } from "node:zlib";
 import { describe, expect, it, vi } from "vitest";
 import { HTML_DOCUMENT_URL } from "./document-url";
 import { openBoundedZip } from "../epub/zip";
@@ -57,6 +58,75 @@ async function zipOf(
     compression: "DEFLATE",
     platform: opts.platform ?? "DOS",
   });
+}
+
+/**
+ * A ZIP written by hand, as no archiver would: an entry with `at` has NO
+ * data of its own, and its directory record points at the named entry's
+ * local header instead. CRCs are zero; the reader does not check them.
+ */
+function handZip(
+  files: {
+    name: string;
+    data: Uint8Array;
+    unpacked: number;
+    method: 0 | 8;
+    at?: string;
+  }[],
+): Uint8Array {
+  const parts: Uint8Array[] = [];
+  const offsets = new Map<string, number>();
+  let size = 0;
+  const push = (b: Uint8Array) => {
+    parts.push(b);
+    size += b.length;
+  };
+  const header = (sig: number, length: number) => {
+    const b = new Uint8Array(length);
+    new DataView(b.buffer).setUint32(0, sig, true);
+    return b;
+  };
+  for (const f of files) {
+    if (f.at) continue;
+    const name = enc(f.name);
+    const h = header(0x04034b50, 30);
+    const v = new DataView(h.buffer);
+    v.setUint16(8, f.method, true);
+    v.setUint32(18, f.data.length, true);
+    v.setUint32(22, f.unpacked, true);
+    v.setUint16(26, name.length, true);
+    offsets.set(f.name, size);
+    push(h);
+    push(name);
+    push(f.data);
+  }
+  const dirStart = size;
+  for (const f of files) {
+    const name = enc(f.name);
+    const h = header(0x02014b50, 46);
+    const v = new DataView(h.buffer);
+    v.setUint16(10, f.method, true);
+    v.setUint32(20, f.data.length, true);
+    v.setUint32(24, f.unpacked, true);
+    v.setUint16(28, name.length, true);
+    v.setUint32(42, offsets.get(f.at ?? f.name)!, true);
+    push(h);
+    push(name);
+  }
+  const end = header(0x06054b50, 22);
+  const ev = new DataView(end.buffer);
+  ev.setUint16(8, files.length, true);
+  ev.setUint16(10, files.length, true);
+  ev.setUint32(12, size - dirStart, true);
+  ev.setUint32(16, dirStart, true);
+  push(end);
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.length;
+  }
+  return out;
 }
 
 const u32 = (b: Uint8Array, i: number) =>
@@ -191,6 +261,51 @@ describe("the bounded open, with HTML to PDF's own bounds", () => {
       ok: false,
       refusal: { kind: "unreadable" },
     });
+  });
+
+  it("refuses entries that share one data region; the same files each with their own data open (hostile review 2026-11-14)", () => {
+    // 2 MiB of zeros, deflated (about 2 KB) and padded with bytes after the
+    // stream until its declared packed size sits exactly AT the ratio bound.
+    const unpacked = 2 * MIB;
+    const stream = deflateRawSync(new Uint8Array(unpacked));
+    const packed = new Uint8Array(
+      Math.ceil(unpacked / HTML_ZIP_MAX_ENTRY_RATIO),
+    );
+    packed.set(stream);
+    const page = enc("<p>x</p>");
+    const names = ["f0.bin", "f1.bin", "f2.bin", "f3.bin"];
+    const shared = handZip([
+      { name: "index.html", data: page, unpacked: page.length, method: 0 },
+      { name: "f0.bin", data: packed, unpacked, method: 8 },
+      ...names.slice(1).map((name) => ({
+        name,
+        at: "f0.bin",
+        data: packed,
+        unpacked,
+        method: 8,
+      })),
+    ]);
+    // Health: each entry alone is within every bound, so only sharing is refused.
+    expect(shared.length).toBeLessThan(
+      ((names.length * unpacked) / HTML_ZIP_MAX_ENTRY_RATIO) * 0.5,
+    );
+    expect(open(shared)).toEqual({
+      ok: false,
+      refusal: { kind: "unreadable" },
+    });
+    // POSITIVE CONTROL: the same four files, each with its own stored region,
+    // open — and every one of them serves its 2 MiB.
+    const own = handZip([
+      { name: "index.html", data: page, unpacked: page.length, method: 0 },
+      ...names.map((name) => ({ name, data: packed, unpacked, method: 8 })),
+    ]);
+    const opened = openHtmlZip(own, undefined, htmlDocumentContentType);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    for (const name of names)
+      expect(opened.site.serve(zipEntryUrl(name))?.body.byteLength).toBe(
+        unpacked,
+      );
   });
 
   it("reads folders and symbolic links from the directory", async () => {

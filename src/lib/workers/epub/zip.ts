@@ -10,6 +10,9 @@
  *
  * What is refused, and where (each a {@link ZipRefusal} the engine words):
  *   - not a ZIP at all, or ZIP64 (no real EPUB needs it): `unreadable`;
+ *   - two entries whose data overlaps — one stored region declared as many
+ *     files, each judged by the ratio below as if its bytes were its own:
+ *     `unreadable` (`./zip-directory`, where the directory is read);
  *   - more than {@link EPUB_MAX_ENTRIES} files, more than
  *     {@link EPUB_MAX_UNPACKED_BYTES} declared in total, or one file declared
  *     to grow more than {@link EPUB_MAX_ENTRY_RATIO}-fold: `bomb`, before any
@@ -32,15 +35,21 @@ import {
   EPUB_MAX_UNPACKED_BYTES,
   EPUB_RATIO_FLOOR_BYTES,
 } from "./native-config";
+import {
+  ZipEntryError,
+  packedBytesOf,
+  readZipDirectory,
+  type ZipLimits,
+  type ZipRefusal,
+} from "./zip-directory";
 
-/** The four bounds a ZIP is judged by before anything is inflated. */
-export interface ZipLimits {
-  maxEntries: number;
-  maxUnpackedBytes: number;
-  maxEntryRatio: number;
-  /** A file unpacking to no more than this is not judged by the ratio. */
-  ratioFloorBytes: number;
-}
+// The directory half (no `node:zlib`) is its own module, so the browser
+// judges a picked archive by the same code: re-exported, one definition.
+export {
+  ZipEntryError,
+  type ZipLimits,
+  type ZipRefusal,
+} from "./zip-directory";
 
 export const EPUB_ZIP_LIMITS: ZipLimits = {
   maxEntries: EPUB_MAX_ENTRIES,
@@ -48,35 +57,6 @@ export const EPUB_ZIP_LIMITS: ZipLimits = {
   maxEntryRatio: EPUB_MAX_ENTRY_RATIO,
   ratioFloorBytes: EPUB_RATIO_FLOOR_BYTES,
 };
-
-export type ZipRefusal =
-  | { kind: "unreadable"; why: string }
-  | {
-      kind: "bomb";
-      limit: "entries" | "unpacked" | "ratio";
-      why: string;
-    };
-
-export class ZipEntryError extends Error {
-  constructor(
-    readonly entry: string,
-    why: string,
-  ) {
-    super(`${entry}: ${why}`);
-    this.name = "ZipEntryError";
-  }
-}
-
-interface CentralEntry {
-  name: string;
-  method: number;
-  encrypted: boolean;
-  packed: number;
-  unpacked: number;
-  localOffset: number;
-  directory: boolean;
-  symlink: boolean;
-}
 
 export interface BoundedZip {
   /** Every entry name, in central-directory order. */
@@ -102,128 +82,18 @@ export interface BoundedZip {
   read(name: string): Uint8Array | null;
 }
 
-const u16 = (b: Uint8Array, i: number) => (b[i] ?? 0) | ((b[i + 1] ?? 0) << 8);
-const u32 = (b: Uint8Array, i: number) =>
-  ((b[i] ?? 0) |
-    ((b[i + 1] ?? 0) << 8) |
-    ((b[i + 2] ?? 0) << 16) |
-    ((b[i + 3] ?? 0) << 24)) >>>
-  0;
-
-const EOCD = 0x06054b50;
-const CENTRAL = 0x02014b50;
-const LOCAL = 0x04034b50;
-
-/** Unix file-type bits of a mode, and the two types read here. */
-const S_IFMT = 0o170000;
-const S_IFDIR = 0o040000;
-const S_IFLNK = 0o120000;
-/** "Version made by" host system 3: the external attributes hold a Unix mode. */
-const HOST_UNIX = 3;
-const DOS_DIRECTORY = 0x10;
-
 /**
  * Open `bytes` as a ZIP within `limits` (EPUB's unless given), or say why
- * not. Nothing is inflated here: only the central directory is read.
+ * not. Nothing is inflated here: only the central directory is read
+ * (`./zip-directory`, which also refuses entries that share their data).
  */
 export function openBoundedZip(
   bytes: Uint8Array,
   limits: ZipLimits = EPUB_ZIP_LIMITS,
 ): { ok: true; zip: BoundedZip } | { ok: false; refusal: ZipRefusal } {
-  const floor = Math.max(0, bytes.length - 22 - 0xffff);
-  let eocd = -1;
-  for (let i = bytes.length - 22; i >= floor; i -= 1)
-    if (u32(bytes, i) === EOCD) {
-      eocd = i;
-      break;
-    }
-  if (eocd < 0)
-    return {
-      ok: false,
-      refusal: { kind: "unreadable", why: "no ZIP directory" },
-    };
-  const count = u16(bytes, eocd + 10);
-  const dirOffset = u32(bytes, eocd + 16);
-  if (count === 0xffff || dirOffset === 0xffffffff)
-    return { ok: false, refusal: { kind: "unreadable", why: "ZIP64" } };
-  if (count > limits.maxEntries)
-    return {
-      ok: false,
-      refusal: {
-        kind: "bomb",
-        limit: "entries",
-        why: `${count} files`,
-      },
-    };
-  const entries = new Map<string, CentralEntry>();
-  const names: string[] = [];
-  const decoder = new TextDecoder("utf-8", { fatal: false });
-  let total = 0;
-  let at = dirOffset;
-  for (let n = 0; n < count; n += 1) {
-    if (at + 46 > bytes.length || u32(bytes, at) !== CENTRAL)
-      return {
-        ok: false,
-        refusal: { kind: "unreadable", why: "broken ZIP directory" },
-      };
-    const madeBy = u16(bytes, at + 4);
-    const flags = u16(bytes, at + 8);
-    const method = u16(bytes, at + 10);
-    const packed = u32(bytes, at + 20);
-    const unpacked = u32(bytes, at + 24);
-    const nameLength = u16(bytes, at + 28);
-    const skip = nameLength + u16(bytes, at + 30) + u16(bytes, at + 32);
-    const external = u32(bytes, at + 38);
-    const localOffset = u32(bytes, at + 42);
-    const name = decoder.decode(bytes.subarray(at + 46, at + 46 + nameLength));
-    at += 46 + skip;
-    if (
-      packed === 0xffffffff ||
-      unpacked === 0xffffffff ||
-      localOffset === 0xffffffff
-    )
-      return { ok: false, refusal: { kind: "unreadable", why: "ZIP64" } };
-    total += unpacked;
-    if (total > limits.maxUnpackedBytes)
-      return {
-        ok: false,
-        refusal: {
-          kind: "bomb",
-          limit: "unpacked",
-          why: `more than ${limits.maxUnpackedBytes} bytes unpacked`,
-        },
-      };
-    if (
-      unpacked > limits.ratioFloorBytes &&
-      unpacked > packed * limits.maxEntryRatio
-    )
-      return {
-        ok: false,
-        refusal: {
-          kind: "bomb",
-          limit: "ratio",
-          why: `${name} grows ${packed === 0 ? "without bound" : `${Math.round(unpacked / packed)}-fold`}`,
-        },
-      };
-    // The first of two entries with one name wins, as in most readers.
-    if (entries.has(name)) continue;
-    names.push(name);
-    const unixMode =
-      madeBy >>> 8 === HOST_UNIX ? (external >>> 16) & S_IFMT : 0;
-    entries.set(name, {
-      name,
-      method,
-      encrypted: (flags & 0x01) !== 0,
-      packed,
-      unpacked,
-      localOffset,
-      directory:
-        name.endsWith("/") ||
-        (external & DOS_DIRECTORY) !== 0 ||
-        unixMode === S_IFDIR,
-      symlink: unixMode === S_IFLNK,
-    });
-  }
+  const read = readZipDirectory(bytes, limits);
+  if (!read.ok) return read;
+  const { names, entries } = read.directory;
 
   const zip: BoundedZip = {
     names,
@@ -236,14 +106,7 @@ export function openBoundedZip(
       const entry = entries.get(name);
       if (!entry) return null;
       if (entry.encrypted) throw new ZipEntryError(name, "encrypted");
-      const local = entry.localOffset;
-      if (local + 30 > bytes.length || u32(bytes, local) !== LOCAL)
-        throw new ZipEntryError(name, "no local header");
-      const start =
-        local + 30 + u16(bytes, local + 26) + u16(bytes, local + 28);
-      if (start + entry.packed > bytes.length)
-        throw new ZipEntryError(name, "truncated");
-      const data = bytes.subarray(start, start + entry.packed);
+      const data = packedBytesOf(bytes, entry);
       let out: Uint8Array;
       if (entry.method === 0) out = data;
       else if (entry.method === 8) {

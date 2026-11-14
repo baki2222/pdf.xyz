@@ -38,7 +38,11 @@
  *   - {@link HTML_ZIP_MAX_ENTRY_RATIO}: 100-fold above 1 MiB, EPUB's figure,
  *     ten times the worst real file (1.4 MiB, 9.7-fold). Files
  *     under 1 MiB are not judged by the ratio (one real file under it deflated
- *     22.5-fold), as in EPUB.
+ *     22.5-fold), as in EPUB. The packed sizes it is judged against are
+ *     disjoint bytes of the upload: entries whose data overlaps are refused
+ *     (`../epub/zip-directory.ts`), or one stored region declared as eleven
+ *     files would grow 1,090-fold while each passed (hostile review
+ *     2026-11-14).
  * `zip-site.test.ts` holds each bound with a ZIP one past it.
  */
 
