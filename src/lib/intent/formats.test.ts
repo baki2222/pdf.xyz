@@ -562,27 +562,33 @@ describe("every picker's accept, discovered, agrees with what the site says no t
     for (const f of UNSUPPORTED_FORMATS) {
       const takers = takenBy.get(f) ?? [];
       const onlyIn = UNSUPPORTED_ANSWERS[f].onlyIn;
+      // Given together, or not at all.
+      if (
+        (onlyIn === undefined) !==
+        (UNSUPPORTED_ANSWERS[f].headline === undefined)
+      )
+        wrong.push(`${f} has only one of onlyIn and headline`);
       if (takers.length > 0 && !onlyIn)
         wrong.push(
           `${f} is taken by ${takers.join(", ")} but answered "No tool here opens"`,
         );
       if (takers.length === 0 && onlyIn)
-        wrong.push(`${f} names ${onlyIn.slug}, but no picker takes it`);
+        wrong.push(`${f} names ${onlyIn}, but no picker takes it`);
     }
     expect(wrong).toEqual([]);
   });
 
   it("an onlyIn answer names a real tool, by its name, and never says no tool opens the format", () => {
     for (const f of UNSUPPORTED_FORMATS) {
-      const onlyIn = UNSUPPORTED_ANSWERS[f].onlyIn;
+      const { onlyIn, headline: written } = UNSUPPORTED_ANSWERS[f];
       if (!onlyIn) continue;
-      const tool = tools.find((t) => t.slug === onlyIn.slug);
-      expect(tool, onlyIn.slug).toBeDefined();
+      const tool = tools.find((t) => t.slug === onlyIn);
+      expect(tool, onlyIn).toBeDefined();
       const { headline } = unsupportedWords(f);
-      expect(headline).toBe(onlyIn.headline);
+      expect(headline).toBe(written);
       expect(headline).toContain(tool!.name);
       expect(headline).not.toMatch(/^No tool here opens/);
-      expect(unsupportedAnswer(f, tools).onlyIn?.slug).toBe(onlyIn.slug);
+      expect(unsupportedAnswer(f, tools).onlyIn?.slug).toBe(onlyIn);
     }
   });
 });

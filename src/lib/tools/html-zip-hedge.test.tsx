@@ -66,7 +66,7 @@ const HEDGES: Record<string, RegExp> = {
  * why. Every entry must be found in the corpus (a stale one is decoration).
  */
 const NOT_A_CLAIM: Record<string, string> = {
-  "For any other ZIP, unzip it first and add the files inside.":
+  "Unzip any other ZIP first and add the files inside.":
     "the desk's advice for a ZIP that is not a web page: true whatever the worker proves",
 };
 

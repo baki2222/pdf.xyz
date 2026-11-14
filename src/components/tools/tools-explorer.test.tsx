@@ -487,11 +487,12 @@ describe("ToolsExplorer: the unsupported-format answer, as rendered", () => {
     await settle();
     // A format one tool opens in one case leads with that tool (`onlyIn`,
     // ZIP since 2026-11-14); every other answer with "No tool here opens".
-    const onlyIn = (
-      UNSUPPORTED_ANSWERS as Record<string, UnsupportedAnswerData>
-    )[format]?.onlyIn;
+    const data = (UNSUPPORTED_ANSWERS as Record<string, UnsupportedAnswerData>)[
+      format
+    ];
+    const onlyIn = data?.onlyIn ? data : undefined;
     const region = screen.queryByRole("region", {
-      name: onlyIn ? onlyIn.headline : /^No tool here opens/,
+      name: onlyIn ? onlyIn.headline! : /^No tool here opens/,
     });
     const copy = region?.cloneNode(true) as HTMLElement | undefined;
     view.unmount();
@@ -513,13 +514,13 @@ describe("ToolsExplorer: the unsupported-format answer, as rendered", () => {
     // format EPUB to PDF takes.
     expect(texts.length).toBeGreaterThanOrEqual(5);
     UNSUPPORTED_FORMATS.forEach((format, i) => {
-      const onlyIn = UNSUPPORTED_ANSWERS[format].onlyIn;
-      if (!onlyIn) expect(texts[i]).toMatch(/^No tool here opens /);
+      const onlyIn = UNSUPPORTED_ANSWERS[format];
+      if (!onlyIn.onlyIn) expect(texts[i]).toMatch(/^No tool here opens /);
       else {
         // It says where the file DOES go, and shows that tool's card.
-        expect(texts[i]!.startsWith(onlyIn.headline), texts[i]).toBe(true);
+        expect(texts[i]!.startsWith(onlyIn.headline!), texts[i]).toBe(true);
         expect(texts[i]).not.toMatch(/No tool here opens/);
-        const tool = tools.find((t) => t.slug === onlyIn.slug)!;
+        const tool = tools.find((t) => t.slug === onlyIn.onlyIn)!;
         expect(texts[i]).toContain(tool.name);
       }
     });

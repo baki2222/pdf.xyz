@@ -67,7 +67,7 @@ export function unsupportedWords(format: UnsupportedFormat): {
 } {
   const data = UNSUPPORTED_ANSWERS[format];
   return {
-    headline: data.onlyIn?.headline ?? `No tool here opens ${data.noun}.`,
+    headline: data.headline ?? `No tool here opens ${data.noun}.`,
     how: data.how,
   };
 }
@@ -92,8 +92,6 @@ export function unsupportedAnswer<T extends AnswerTool>(
       alternative = { kind: "tool", tool, takes: formatList(takes) };
     }
   }
-  const onlyIn = data.onlyIn
-    ? (tools.find((t) => t.slug === data.onlyIn!.slug) ?? null)
-    : null;
+  const onlyIn = tools.find((t) => t.slug === data.onlyIn) ?? null;
   return { format, headline, how: data.how, alternative, onlyIn };
 }

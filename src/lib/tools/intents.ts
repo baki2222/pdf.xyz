@@ -132,13 +132,16 @@ export interface UnsupportedAnswerData {
   readonly becomes: Format | null;
   readonly how: string | null;
   /**
-   * The ONE tool that does open this format, in one case — then the answer
-   * leads with that, never with "No tool here opens …". `formats.test.ts`
-   * holds it both ways against every `accept` the site's pickers are given:
-   * a format some picker takes must have one, and a format with one must be
-   * taken by some picker.
+   * The slug of the ONE tool that does open this format, in one case, and
+   * the headline that says so — given together, and then the answer leads
+   * with that, never with "No tool here opens …". `formats.test.ts` holds
+   * it both ways against every `accept` the site's pickers are given: a
+   * format some picker takes must have one, and a format with one must be
+   * taken by some picker. (Flat, not an object: these words ride in the
+   * desk ticket's on-demand fetch, which is bounded to the byte.)
    */
-  readonly onlyIn?: { readonly slug: string; readonly headline: string };
+  readonly onlyIn?: string;
+  readonly headline?: string;
 }
 
 export const UNSUPPORTED_ANSWERS: Readonly<
@@ -162,11 +165,9 @@ export const UNSUPPORTED_ANSWERS: Readonly<
   ZIP: {
     noun: "ZIP archives",
     becomes: "PDF",
-    how: "For any other ZIP, unzip it first and add the files inside.",
-    onlyIn: {
-      slug: "html-to-pdf",
-      headline:
-        "HTML to PDF opens a ZIP of a web page and its files, when our server can open ZIP files.",
-    },
+    how: "Unzip any other ZIP first and add the files inside.",
+    onlyIn: "html-to-pdf",
+    headline:
+      "HTML to PDF opens a ZIP of a web page, when our server can open ZIP files.",
   },
 };
