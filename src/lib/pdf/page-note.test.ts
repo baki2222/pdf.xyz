@@ -140,3 +140,67 @@ describe("every rendered-page <img> carries the note as its name", () => {
     ]);
   });
 });
+
+/**
+ * A page canvas is inserted by hand (the Viewer, the editor's page and its
+ * rail), so the `<img>` rule above cannot see it. Wherever such a canvas is
+ * hidden from screen readers, it is hidden only when it carries no name:
+ * the note drawn in a page's place names itself, and must stay heard.
+ *
+ * History (review r3, 2026-11-14): both consumers set `aria-hidden` on
+ * every canvas `render` returned, note canvases included, and the Viewer's
+ * page read as "Page 1" and nothing more. The consumer's view of it (the
+ * name a screen reader gets, through buttons that make their contents
+ * presentational) is proved in e2e/page-note-a11y.spec.ts.
+ */
+describe("a page canvas is hidden from screen readers only when it is not a note", () => {
+  const ROOT = path.join(process.cwd(), "src/components");
+  const walk = (dir: string): string[] =>
+    readdirSync(dir).flatMap((f) => {
+      const p = path.join(dir, f);
+      if (statSync(p).isDirectory()) return walk(p);
+      return /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f) ? [p] : [];
+    });
+  /** Each `X.setAttribute("aria-hidden"` in `src`, and whether a test of X's name guards it. */
+  const hides = (src: string) =>
+    [...src.matchAll(/(\w+)\.setAttribute\(\s*"aria-hidden"/g)].map((m) => {
+      const before = src.slice(Math.max(0, m.index - 120), m.index);
+      const guard = new RegExp(
+        `if \\(!${m[1]}\\.hasAttribute\\("aria-label"\\)\\) \\{\\s*$`,
+      );
+      return { what: m[0], guarded: guard.test(before) };
+    });
+  // A file that draws pages: it calls a document's `.render(`.
+  const drawing = walk(ROOT).filter((f) =>
+    /\.render\(/.test(readFileSync(f, "utf8")),
+  );
+
+  it("health: the walk finds the Viewer's page and the editor's page canvas, each hiding a canvas", () => {
+    const names = drawing
+      .filter((f) => hides(readFileSync(f, "utf8")).length > 0)
+      .map((f) => path.basename(f));
+    expect(names).toEqual(
+      expect.arrayContaining(["viewer-page.tsx", "page-canvas.tsx"]),
+    );
+  });
+
+  it("every canvas hidden there is hidden only when it has no name", () => {
+    const bare = drawing.flatMap((f) =>
+      hides(readFileSync(f, "utf8"))
+        .filter((h) => !h.guarded)
+        .map((h) => `${path.relative(ROOT, f)}: ${h.what}`),
+    );
+    expect(bare).toEqual([]);
+  });
+
+  it("positive control: an unguarded hide is caught, a guarded one passes", () => {
+    expect(hides('canvas.setAttribute("aria-hidden", "true");')).toEqual([
+      { what: 'canvas.setAttribute("aria-hidden"', guarded: false },
+    ]);
+    expect(
+      hides(
+        'if (!canvas.hasAttribute("aria-label")) {\n  canvas.setAttribute("aria-hidden", "true");',
+      ),
+    ).toEqual([{ what: 'canvas.setAttribute("aria-hidden"', guarded: true }]);
+  });
+});

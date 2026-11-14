@@ -150,7 +150,13 @@ export function PageTile({
       role={interactive ? "button" : dragHandle ? "listitem" : undefined}
       tabIndex={interactive ? (tabIndex ?? 0) : undefined}
       aria-pressed={interactive ? selected : undefined}
-      aria-label={ariaLabel}
+      // As a button its contents are presentational: the note drawn in the
+      // page's place is heard only as part of its name.
+      aria-label={
+        interactive && ariaLabel && thumbnail?.note
+          ? `${ariaLabel}. ${thumbnail.note}`
+          : ariaLabel
+      }
       onClick={interactive ? (e) => onSelect?.(e.shiftKey) : undefined}
       onKeyDown={
         interactive

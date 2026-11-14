@@ -55,7 +55,11 @@ export function PageCanvas({
           canvas.style.width = "100%";
           canvas.style.height = "100%";
           canvas.style.display = "block";
-          canvas.setAttribute("aria-hidden", "true");
+          // A note drawn in the page's place names itself (`drawPageNote`):
+          // hidden, a screen reader would hear "Page 1 of 2" and nothing.
+          if (!canvas.hasAttribute("aria-label")) {
+            canvas.setAttribute("aria-hidden", "true");
+          }
           const old = node.firstChild as HTMLCanvasElement | null;
           node.replaceChildren(canvas);
           if (old) {

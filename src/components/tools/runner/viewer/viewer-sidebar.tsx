@@ -151,7 +151,9 @@ function ThumbnailList({
               type="button"
               onClick={() => onPage(i)}
               aria-current={i === current ? "page" : undefined}
-              aria-label={`Page ${i + 1}`}
+              // A button's contents are presentational: the note drawn in
+              // the page's place is read only as part of its name.
+              aria-label={`Page ${i + 1}${thumb?.note ? `. ${thumb.note}` : ""}`}
               data-viewer-thumbnail={i + 1}
               className={cn(
                 "rounded-ctl flex w-full flex-col items-center gap-1 p-1.5 text-xs",
