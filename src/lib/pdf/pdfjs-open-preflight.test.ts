@@ -276,6 +276,75 @@ interface PageRenderSite {
   openedBy: number[];
 }
 
+/** `n` is (inside) the condition of an `if` or a `?:`. */
+function inCondition(n: ts.Node): boolean {
+  for (let at: ts.Node = n; at.parent; at = at.parent) {
+    const p = at.parent;
+    if (ts.isIfStatement(p) && p.expression === at) return true;
+    if (ts.isConditionalExpression(p) && p.condition === at) return true;
+    if (ts.isStatement(p) || isFunction(p)) return false;
+  }
+  return false;
+}
+
+/**
+ * A `pageImageVerdict(...)` call whose answer DECIDES whether the page is
+ * drawn: it sits in an `if`/`?:` condition itself, or it initialises a
+ * variable (alone, or compared) that such a condition reads before the
+ * render. A call whose result is thrown away (`void verdict(...)`) or kept
+ * and never tested names the mechanism and certifies nothing.
+ *
+ * History (hostile review r2, 2026-11-14): the rule asked only that a call
+ * with the name came earlier; a viewer that computed the verdict and
+ * discarded it passed and drew the over-budget page.
+ */
+function verdictDecides(
+  call: ts.CallExpression,
+  fn: ts.Node | undefined,
+  render: ts.Node,
+  file: ts.SourceFile,
+): boolean {
+  if (inCondition(call)) return true;
+  let at: ts.Node = call;
+  while (
+    at.parent &&
+    (ts.isBinaryExpression(at.parent) ||
+      ts.isParenthesizedExpression(at.parent) ||
+      ts.isAwaitExpression(at.parent))
+  ) {
+    at = at.parent;
+  }
+  const decl = at.parent;
+  if (
+    !decl ||
+    !ts.isVariableDeclaration(decl) ||
+    decl.initializer !== at ||
+    !ts.isIdentifier(decl.name) ||
+    !fn
+  ) {
+    return false;
+  }
+  const name = decl.name.text;
+  let read = false;
+  const look = (n: ts.Node) => {
+    if (read) return;
+    if (
+      ts.isIdentifier(n) &&
+      n.text === name &&
+      n !== decl.name &&
+      n.getStart(file) > decl.end &&
+      n.end <= render.getStart(file) &&
+      inCondition(n)
+    ) {
+      read = true;
+      return;
+    }
+    ts.forEachChild(n, look);
+  };
+  look(fn);
+  return read;
+}
+
 /**
  * In a file that renders pdf.js pages, every `getDocument(` call, and how it
  * treats an image over its raster budget (CO-08): a PREVIEW spreads the
@@ -309,7 +378,11 @@ function renderingOpens(
       }
       let inner: ts.Node | undefined = node.parent;
       while (inner && !isFunction(inner)) inner = inner.parent;
-      const calls = (name: string, before: boolean) => {
+      const calls = (
+        name: string,
+        before: boolean,
+        used: (call: ts.CallExpression) => boolean = () => true,
+      ) => {
         let found = false;
         const look = (n: ts.Node) => {
           if (found || (n !== inner && isFunction(n))) return;
@@ -318,7 +391,8 @@ function renderingOpens(
             calleeName(n) === name &&
             (before
               ? n.end <= node.getStart(file)
-              : n.getStart(file) >= node.end)
+              : n.getStart(file) >= node.end) &&
+            used(n)
           ) {
             found = true;
             return;
@@ -332,8 +406,14 @@ function renderingOpens(
         line: lineOf(node),
         openedBy,
         verdict:
-          calls("pageImageVerdict", true) ||
-          calls("refuseOverBudgetPages", true),
+          calls("pageImageVerdict", true, (c) =>
+            verdictDecides(c, inner, node, file),
+          ) ||
+          calls(
+            "refuseOverBudgetPages",
+            true,
+            (c) => !!c.parent && ts.isAwaitExpression(c.parent),
+          ),
         analysis: calls("getImageData", false),
         placements: calls("imagePlacements", true),
       });
@@ -710,6 +790,35 @@ describe("every pdf.js open that renders pages previews or refuses an over-budge
         `async function a(bytes) {\n${OPENED}  await guard.refuseOverBudgetPages(pre, order, get);\n  for (const i of order) {\n${RENDER}  }\n}`,
       ).verdict,
     ).toBe(true);
+    // ...and an analysis picks the document to draw by it (Auto-crop's shape).
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  const over = guard.pageImageVerdict(pre, page.ref) !== null;\n  const page = over ? bare : shown;\n${RENDER}}`,
+      ).verdict,
+    ).toBe(true);
+    // Negative (hostile review r2): the verdict computed and thrown away,
+    // kept and never tested, tested only after the render, and a refusal
+    // not awaited (a promise nobody waits for refuses nothing).
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  void guard.pageImageVerdict(pre, page.ref);\n  const note = null;\n  if (note) return draw(note);\n${RENDER}}`,
+      ).verdict,
+    ).toBe(false);
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  const note = guard.pageImageVerdict(pre, page.ref);\n  log(note);\n${RENDER}}`,
+      ).verdict,
+    ).toBe(false);
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  const note = guard.pageImageVerdict(pre, page.ref);\n${RENDER}  if (note) draw(note);\n}`,
+      ).verdict,
+    ).toBe(false);
+    expect(
+      site(
+        `async function a(bytes) {\n${OPENED}  guard.refuseOverBudgetPages(pre, order, get);\n${RENDER}}`,
+      ).verdict,
+    ).toBe(false);
     // Negative: no verdict; a verdict AFTER the render; a verdict in another
     // function than the one that draws.
     expect(site(`async function a(bytes) {\n${OPENED}${RENDER}}`).verdict).toBe(

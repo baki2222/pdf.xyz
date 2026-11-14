@@ -80,9 +80,9 @@ export async function detectAutoCrop(
   });
   const doc = await awaitPdfjsDocument(task);
   /** The same file with every image skipped, for pages past the page budget. */
-  let bare: ReturnType<typeof pdfjs.getDocument> | null = null;
+  let bare: Awaited<ReturnType<typeof openWithoutImages>> | null = null;
   const bareDoc = async () =>
-    awaitPdfjsDocument((bare ??= await openWithoutImages(bytes, guard, pdfjs)));
+    (bare ??= await openWithoutImages(bytes, guard, pdfjs)).doc;
   const skipAbove = preflight.previewOptions.maxImageSize ?? Infinity;
   try {
     // pdf.js reports a root /Count of 0 or -1 as given while pdf-lib repairs
@@ -165,8 +165,8 @@ export async function detectAutoCrop(
     return plan;
   } finally {
     await task.destroy().catch(() => {});
-    await (bare as { destroy(): Promise<void> } | null)
-      ?.destroy()
+    await (bare as { task: { destroy(): Promise<void> } } | null)?.task
+      .destroy()
       .catch(() => {});
   }
 }
@@ -205,11 +205,14 @@ async function openWithoutImages(
   pdfjs: Awaited<ReturnType<typeof loadPdfjs>>,
 ) {
   await guard.preflightPdfjsOpen(bytes);
-  return pdfjs.getDocument({
+  const task = pdfjs.getDocument({
     data: bytes.slice(),
     ...PDFJS_DOCUMENT_DEFAULTS,
     ...guard.NO_IMAGES.previewOptions,
   });
+  const doc = awaitPdfjsDocument(task);
+  doc.catch(() => {}); // awaited by the caller; never an unhandled rejection
+  return { task, doc };
 }
 
 /**
