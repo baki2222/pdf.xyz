@@ -77,7 +77,7 @@ import {
 import { addPageNumbers } from "@/lib/pdf/page-numbers";
 import { OVERLAY_FITS, overlayPdf } from "@/lib/pdf/overlay";
 import { flattenPdf } from "@/lib/pdf/flatten";
-import { compareExtractedPdfText } from "@/lib/pdf/compare-pdf";
+import { compareExtractedPdfText } from "@/components/tools/runner/compare/compare-result";
 import { exportEditedPdf } from "@/lib/pdf/editor-export";
 import { DEFAULT_TEXT_STYLE } from "@/lib/pdf/editor/model";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
@@ -1055,9 +1055,13 @@ describe("flatten-pdf: the FAQ is what flattening does", () => {
 });
 
 describe("compare-pdf: order, and what counts as a change", () => {
+  // `pages` was `[]` until 2026-11-14: the comparison read `text` alone.
+  // It reads the pages now (each change names its page), and an extraction
+  // whose pages disagree with its text is refused, so the fixture carries
+  // its one page the way `extractPdfText` would.
   const ex = (text: string): ExtractedPdfText => ({
     pageCount: 1,
-    pages: [],
+    pages: [{ pageNumber: 1, text, characterCount: text.length }],
     text,
     characterCount: text.length,
     hasText: text.trim().length > 0,

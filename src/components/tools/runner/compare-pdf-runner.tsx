@@ -16,12 +16,13 @@ import { partitionPdfFiles } from "@/lib/pdf/files";
 import { countPagesWithPdfjs } from "@/lib/pdf/pdfjs-page-count";
 import { extractPdfText, type ExtractedPdfText } from "@/lib/pdf/text";
 import {
-  compareExtractedPdfText,
   compareOutputName,
   fileWithoutText,
+  type ComparablePdfText,
   type CompareVerdict,
   type PdfCompareResult,
 } from "@/lib/pdf/compare-pdf";
+import type { CompareOptions } from "@/lib/pdf/compare/lines";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes, formatSignedBytes } from "@/lib/utils";
 import { NAME_WRAP } from "@/components/ui/name-wrap";
@@ -204,6 +205,38 @@ export function ComparePdfRunner({
   );
 }
 
+/** The comparison and its changes view: the runner's one lazy chunk. */
+type CompareResultModule = typeof import("./compare/compare-result");
+
+let compareResult: Promise<CompareResultModule> | null = null;
+
+/**
+ * Fetch the comparison chunk once, whoever asks first: the Compare press
+ * (beside the two extractions, never after them), a pointer or focus
+ * reaching it, or the second file landing. A failed fetch is forgotten, so
+ * the next press tries again and `useAsyncRun` shows that one's error.
+ */
+function loadCompareResult(): Promise<CompareResultModule> {
+  compareResult ??= import("./compare/compare-result").catch((err) => {
+    compareResult = null;
+    throw err;
+  });
+  return compareResult;
+}
+
+/** Fetch it ahead of the press; a failure here is the press's to report. */
+function warmCompareResult(load: () => Promise<CompareResultModule>): void {
+  void load().catch(() => {});
+}
+
+/** One finished run: what it compared, the module it used, what it found. */
+interface CompareRun {
+  mod: CompareResultModule;
+  left: ComparablePdfText;
+  right: ComparablePdfText;
+  result: PdfCompareResult;
+}
+
 /**
  * Where a PDF with no selectable text should go next — the one constant the
  * other no-text panels link to, re-exported rather than typed a second time.
@@ -248,6 +281,7 @@ export function ComparePdfEditor({
   onClearRejections,
   onClear,
   extract = extractPdfText,
+  loadResult = loadCompareResult,
 }: {
   items: CompareItem[];
   loading: number;
@@ -268,9 +302,26 @@ export function ComparePdfEditor({
   onClear: () => void;
   /** Reads each PDF's text. Only a test passes this; see `extractPdfText`. */
   extract?: (bytes: Uint8Array) => Promise<ExtractedPdfText>;
+  /** Fetches the comparison chunk. Only a test passes this. */
+  loadResult?: () => Promise<CompareResultModule>;
 }) {
-  const { busy, error, result, run, reset } = useAsyncRun<PdfCompareResult>();
+  const { busy, error, result: done, run, reset } = useAsyncRun<CompareRun>();
   const canCompare = items.length === 2;
+  // The two ignore options. A toggle re-compares the texts the run already
+  // read — no second extraction — and the next run starts from them.
+  const [options, setOptions] = useState<CompareOptions>({});
+  const [adjusted, setAdjusted] = useState<{
+    run: CompareRun;
+    result: PdfCompareResult;
+  } | null>(null);
+  const [optionsError, setOptionsError] = useState<string | null>(null);
+  const result =
+    done && adjusted?.run === done ? adjusted.result : (done?.result ?? null);
+  // The second file is in: the chunk is fetched now, not when Compare is
+  // pressed (each lazy chunk is one request the press would otherwise wait on).
+  useEffect(() => {
+    if (canCompare) warmCompareResult(loadResult);
+  }, [canCompare, loadResult]);
   // Fetched with each file's probe (`readPreflight`), before its card is drawn.
   // A stable component from a module held once, not one made during render.
   const hint = loadedPreflightHint();
@@ -278,15 +329,36 @@ export function ComparePdfEditor({
     run(async () => {
       const [left, right] = items;
       if (!left || !right) throw new Error("Add two PDFs to compare.");
-      const [leftText, rightText] = await Promise.all([
+      // The chunk is fetched WITH the extractions, in one Promise.all: an
+      // `await import()` after them would add a round trip to every run.
+      const [leftText, rightText, mod] = await Promise.all([
         extract(left.bytes),
         extract(right.bytes),
+        loadResult(),
       ]);
-      return compareExtractedPdfText(
-        { name: left.name, size: left.size, extracted: leftText },
-        { name: right.name, size: right.size, extracted: rightText },
-      );
+      const a = { name: left.name, size: left.size, extracted: leftText };
+      const b = { name: right.name, size: right.size, extracted: rightText };
+      setOptionsError(null);
+      return {
+        mod,
+        left: a,
+        right: b,
+        result: mod.compareExtractedPdfText(a, b, options),
+      };
     });
+  const onOptions = (next: CompareOptions) => {
+    setOptions(next);
+    if (!done) return;
+    try {
+      setAdjusted({
+        run: done,
+        result: done.mod.compareExtractedPdfText(done.left, done.right, next),
+      });
+      setOptionsError(null);
+    } catch (err) {
+      setOptionsError(errorMessage(err));
+    }
+  };
 
   if (result) {
     const { title, tone } = verdictPresentation(result);
@@ -310,7 +382,7 @@ export function ComparePdfEditor({
         }
         summary={
           compared ? (
-            `${result.summary.changedLines} changed lines · pages ${result.leftPageCount} vs ${result.rightPageCount}`
+            `${result.summary.changedLines} changed lines · pages ${result.leftPageCount} vs ${result.rightPageCount}${ignoringNote(result.options)}`
           ) : scanned ? (
             <>
               {scanned} looks scanned or image-only, so its text cannot be
@@ -326,6 +398,7 @@ export function ComparePdfEditor({
         }
         onReset={() => {
           reset();
+          setAdjusted(null);
           onClear();
         }}
         output={textOutputFile(
@@ -355,9 +428,19 @@ export function ComparePdfEditor({
               }
             />
           </div>
-          <div className="border-line text-fg bg-canvas rounded-panel max-h-80 overflow-auto border p-4 font-mono text-xs leading-5 whitespace-pre-wrap">
-            {result.report}
-          </div>
+          {compared && done ? (
+            <done.mod.CompareChanges
+              result={result}
+              options={result.options}
+              onOptions={onOptions}
+            />
+          ) : (
+            // Nothing was compared: the report is a few lines saying why.
+            <div className="border-line text-fg bg-canvas rounded-panel max-h-80 overflow-auto border p-4 font-mono text-xs leading-5 whitespace-pre-wrap">
+              {result.report}
+            </div>
+          )}
+          {optionsError && <ErrorNote message={optionsError} />}
           <button
             type="button"
             onClick={() =>
@@ -499,7 +582,12 @@ export function ComparePdfEditor({
       {error && <ErrorNote message={error} />}
 
       <RunBar>
-        <div className="flex justify-end">
+        <div
+          className="flex justify-end"
+          // A pointer or focus reaching Compare fetches the chunk it needs.
+          onPointerDownCapture={() => warmCompareResult(loadResult)}
+          onFocusCapture={() => warmCompareResult(loadResult)}
+        >
           <RunButton
             onClick={onRun}
             disabled={!canCompare}
@@ -513,6 +601,15 @@ export function ComparePdfEditor({
       </RunBar>
     </div>
   );
+}
+
+/** " · ignoring case" and the like, for a result compared under options. */
+function ignoringNote(options: CompareOptions): string {
+  const parts = [
+    options.ignoreCase ? "ignoring case" : null,
+    options.ignoreFurniture ? "ignoring page headers and numbers" : null,
+  ].filter(Boolean);
+  return parts.length > 0 ? ` · ${parts.join(", ")}` : "";
 }
 
 function Metric({ label, value }: { label: string; value: string }) {

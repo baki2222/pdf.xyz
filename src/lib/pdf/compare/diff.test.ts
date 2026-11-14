@@ -1,14 +1,45 @@
 import { describe, expect, it } from "vitest";
 import {
   COMPARE_VERDICTS,
-  CompareTooLargeError,
-  MAX_DIFF_CELLS,
-  compareExtractedPdfText,
   compareOutputName,
-  diffLines,
   type ComparablePdfText,
   type CompareVerdict,
-} from "./compare-pdf";
+  type DiffLine,
+} from "../compare-pdf";
+import { compareExtractedPdfText } from "@/components/tools/runner/compare/compare-result";
+import { CompareTooLargeError, MAX_DIFF_CELLS, diffIds, intern } from "./diff";
+import { normalizeComparableText } from "./lines";
+
+/*
+ * MOVED 2026-11-14 from src/lib/pdf/compare-pdf.test.ts (audit
+ * compare-pdf#4), every test kept. The line diff left `compare-pdf.ts` for
+ * `./diff.ts` and became generic over ids (`diffIds`); `diffLines` below is
+ * the old function rebuilt from the shipped parts — the same normalisation
+ * (`normalizeComparableText`), one id map for both sides (`intern`) and the
+ * script mapped back to text — so the size tests still run the diff the
+ * comparison runs, and their expectations are unchanged.
+ */
+function diffLines(
+  leftText: string,
+  rightText: string,
+  onCells?: (n: number) => void,
+): DiffLine[] {
+  const left = normalizeComparableText(leftText);
+  const right = normalizeComparableText(rightText);
+  const ids = new Map<string, number>();
+  return diffIds(
+    intern(ids, left),
+    intern(ids, right),
+    MAX_DIFF_CELLS,
+    onCells,
+  ).map((op) =>
+    op.k === "same"
+      ? { kind: "same", text: left[op.a]! }
+      : op.k === "removed"
+        ? { kind: "removed", text: left[op.a]! }
+        : { kind: "added", text: right[op.b]! },
+  );
+}
 
 function doc(name: string, text: string, pageCount = 1): ComparablePdfText {
   return {
@@ -292,8 +323,12 @@ describe("compare-pdf — size", () => {
 
   it("no LCS table larger than MAX_DIFF_CELLS is ever allocated", () => {
     // diffLines' docblock claims this; a comment is not a guard. The table is
-    // the only Uint16Array/Uint32Array it builds, so record every one.
+    // the only Uint16Array/Uint32Array it builds, so record every one — and,
+    // since 2026-11-14, what `diffIds` itself reports through `onCells`, the
+    // figure the word marks charge their budget with: the two must agree.
     const sizes: number[] = [];
+    const reported: number[] = [];
+    const heard = (n: number) => reported.push(n);
     const real = { u16: globalThis.Uint16Array, u32: globalThis.Uint32Array };
     class U16 extends real.u16 {
       constructor(length: number) {
@@ -315,15 +350,17 @@ describe("compare-pdf — size", () => {
       diffLines(
         lines("left", side - 1).join("\n"),
         lines("right", side - 1).join("\n"),
+        heard,
       );
       // A document far over the bound, with edits spread through it.
       const base = lines("doc", 30_000);
       const next = base.map((l, i) => (i % 997 === 0 ? `${l} edited` : l));
-      diffLines(base.join("\n"), next.join("\n"));
+      diffLines(base.join("\n"), next.join("\n"), heard);
       expect(() =>
         diffLines(
           lines("left", side + 1).join("\n"),
           lines("right", side + 1).join("\n"),
+          heard,
         ),
       ).toThrow(CompareTooLargeError);
     } finally {
@@ -334,6 +371,8 @@ describe("compare-pdf — size", () => {
     expect(sizes.length).toBeGreaterThan(1);
     expect(Math.max(...sizes)).toBeGreaterThan(MAX_DIFF_CELLS * 0.99);
     expect(Math.max(...sizes)).toBeLessThanOrEqual(MAX_DIFF_CELLS);
+    // onCells hears exactly the tables that were allocated.
+    expect(reported).toEqual(sizes);
   });
 
   it("an appended 200,000-line tail is reported line by line, not refused", () => {
