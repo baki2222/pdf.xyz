@@ -21,7 +21,7 @@ import type {
 } from "@/lib/pdf/compare-pdf";
 import type { Op } from "@/lib/pdf/compare/diff";
 import { diffWithFurnitureSteps } from "@/lib/pdf/compare/furniture";
-import { drain, type Steps } from "@/lib/pdf/compare/steps";
+import { drain, PAUSE, type Steps } from "@/lib/pdf/compare/steps";
 import { buildHunks, hunkHeader, type Hunk } from "@/lib/pdf/compare/hunks";
 import {
   comparableLinesSteps,
@@ -135,7 +135,7 @@ export async function compareInSteps(
   for (;;) {
     const next = steps.next();
     if (next.done) return next.value;
-    if (performance.now() - start >= STEP_SLICE_MS) {
+    if (next.value === PAUSE || performance.now() - start >= STEP_SLICE_MS) {
       await new Promise((resolve) => setTimeout(resolve, 0));
       start = performance.now();
     }
@@ -168,7 +168,7 @@ export function* compareSteps(
 
   // The furniture a comparison sets aside is decided against both files
   // (furniture.ts), so the lines below are what was KEPT, renumbered.
-  yield;
+  yield PAUSE;
   const furniture = hasComparableText
     ? yield* diffWithFurnitureSteps(
         allA.lines,
@@ -377,7 +377,25 @@ const RowBlock = memo(function RowBlock({
       </tr>,
     );
   }
-  return <>{rows}</>;
+  // Each block is its own fixed-layout table, laid out only when it nears
+  // the screen: one table of every row re-laid itself out on each Show
+  // more, which grew with the rows drawn (295 ms at 15,200 rows, past
+  // main's whole view of the same files). Inline styles: no new CSS.
+  return (
+    <div
+      style={{
+        contentVisibility: "auto",
+        containIntrinsicSize: `auto ${(to - from) * 24}px`,
+      }}
+    >
+      <table
+        className="w-full border-collapse font-mono text-xs leading-5"
+        style={{ tableLayout: "fixed" }}
+      >
+        <tbody>{rows}</tbody>
+      </table>
+    </div>
+  );
 });
 
 /** One hunk: its heading, its drawn rows, and its own Show more. */
@@ -430,9 +448,7 @@ const HunkSection = memo(function HunkSection({
       >
         {hunkHeader(hunk, "→")}
       </h3>
-      <table className="w-full border-collapse font-mono text-xs leading-5">
-        <tbody>{blocks}</tbody>
-      </table>
+      {blocks}
       {rest > 0 && (
         <button
           type="button"
@@ -778,12 +794,13 @@ export function CompareChanges({
  * compare-pdf#4).
  */
 function revealInWindow(el: HTMLElement, bar: HTMLElement | null): void {
+  // The site header's height, `--sf-header-h`, is in rem (3.5rem): read as
+  // a bare number it was 3.5 px, and the heading landed under the header.
+  const root = getComputedStyle(document.documentElement);
+  const raw = root.getPropertyValue("--sf-header-h").trim();
   const header =
-    Number.parseFloat(
-      getComputedStyle(document.documentElement).getPropertyValue(
-        "--sf-header-h",
-      ),
-    ) || 0;
+    (Number.parseFloat(raw) || 0) *
+    (raw.endsWith("rem") ? Number.parseFloat(root.fontSize) || 16 : 1);
   const pinned = bar && getComputedStyle(bar).position === "sticky";
   const top = Math.max(
     header,

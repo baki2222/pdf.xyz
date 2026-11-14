@@ -1,6 +1,6 @@
 import { diffIds, intern, type Op } from "./diff";
 import { runningLines } from "./running-lines";
-import { drain, type Steps } from "./steps";
+import { drain, PAUSE, type Steps } from "./steps";
 
 /**
  * "Ignore page headers and numbers": what the comparison sets aside, decided
@@ -265,6 +265,7 @@ function* alignAroundFurnitureSteps(
   ) => lines.flatMap((_, i) => (running.has(i) ? [] : [i]));
   const bodyLeft = bodyOf(left, leftRunning);
   const bodyRight = bodyOf(right, rightRunning);
+  yield PAUSE;
   const body = diffIds(
     intern(
       ids,
@@ -290,6 +291,7 @@ function* alignAroundFurnitureSteps(
     ) {
       for (const op of pending) out.push(op);
     } else {
+      if ((iEnd - pi) * (jEnd - pj) > 1_000_000) yield PAUSE;
       const gap = diffIds(
         intern(
           ids,
@@ -334,6 +336,7 @@ function* alignAroundFurnitureSteps(
 /** How many of `ops` hold a line of side `a` (removed) or `b` (added). */
 function countSide(ops: readonly Op[], side: "a" | "b"): number {
   let n = 0;
-  for (const op of ops) if (side === "a" ? op.k === "removed" : op.k === "added") n += 1;
+  for (const op of ops)
+    if (side === "a" ? op.k === "removed" : op.k === "added") n += 1;
   return n;
 }

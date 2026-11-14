@@ -19,6 +19,18 @@
 export const MAX_DIFF_CELLS = 25_000_000;
 
 /**
+ * From this many cells a stretch is first checked for an id the two sides
+ * share; with none, the edit script is written without building the table,
+ * which would be all zeros (second review of audit compare-pdf#4,
+ * 2026-11-14: two 99-page files whose every line changed spent ~60 ms of
+ * one task on a 24.5-million-cell table of zeros). The script is the one
+ * the table gives — every removed step, then every added one — so no
+ * comparison's result changes (diff.test.ts, "a stretch with nothing in
+ * common").
+ */
+export const DISJOINT_CHECK_CELLS = 1_000_000;
+
+/**
  * Thrown instead of building a table the tab cannot hold. Before this bound
  * existed the table was built anyway: 801 MB for 10k × 10k lines, and past that
  * the tab died with no message. `useAsyncRun` shows this one in the runner.
@@ -105,7 +117,15 @@ export function diffIds(
       for (let i = aLo; i < aHi; i += 1) removed(i);
       for (let j = bLo; j < bHi; j += 1) added(j);
     } else if ((n + 1) * (m + 1) <= maxCells) {
-      lcs(aLo, aHi, bLo, bHi);
+      if (
+        (n + 1) * (m + 1) >= DISJOINT_CHECK_CELLS &&
+        disjoint(aLo, aHi, bLo, bHi)
+      ) {
+        // No id in common: the table would be all zeros, and its walk is
+        // every removed step, then every added one. That, without the table.
+        for (let i = aLo; i < aHi; i += 1) removed(i);
+        for (let j = bLo; j < bHi; j += 1) added(j);
+      } else lcs(aLo, aHi, bLo, bHi);
     } else {
       const anchors = uniqueAnchors(a, aLo, aHi, b, bLo, bHi);
       if (anchors.length === 0) throw new CompareTooLargeError(n, m);
@@ -120,6 +140,18 @@ export function diffIds(
       walk(pa, aHi, pb, bHi);
     }
     for (let s = 0; s < suffix; s += 1) same(aHi + s, bHi + s);
+  };
+
+  const disjoint = (
+    aLo: number,
+    aHi: number,
+    bLo: number,
+    bHi: number,
+  ): boolean => {
+    const seen = new Set<number>();
+    for (let i = aLo; i < aHi; i += 1) seen.add(a[i]!);
+    for (let j = bLo; j < bHi; j += 1) if (seen.has(b[j]!)) return false;
+    return true;
   };
 
   const lcs = (aLo: number, aHi: number, bLo: number, bHi: number): void => {

@@ -46,10 +46,19 @@ describe("word marks: the bounds", () => {
   });
 
   it(`the pairs of one comparison build at most ${MAX_WORD_WORK.toLocaleString("en-US")} cells together, and the rest fall back`, () => {
-    // Lines that share no token build a full table: (n+1)² cells each.
+    // Lines that share ONE token, mid-line, build a full table: (n+1)²
+    // cells each. (Lines that share none were the fixture until 2026-11-14,
+    // when such a pair stopped building its all-zero table: diff.ts,
+    // DISJOINT_CHECK_CELLS.)
     const n = MAX_WORD_PAIR_TOKENS;
     const left = Array.from({ length: 10 }, () => tokens(n, "a", ","));
-    const right = Array.from({ length: 10 }, () => tokens(n, "b", ";"));
+    const oneShared = (line: string) => {
+      const at = 2 * Math.floor(n / 4);
+      return `${line.slice(0, at)}a${line.slice(at + 1)}`;
+    };
+    const right = Array.from({ length: 10 }, () =>
+      oneShared(tokens(n, "b", ";")),
+    );
     const pairs = left.map((_, i) => [i, i] as [number, number]);
     let charged = 0;
     const tables: number[] = [];

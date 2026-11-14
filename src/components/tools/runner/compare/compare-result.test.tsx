@@ -9,6 +9,8 @@ import {
   CompareChanges,
   ROWS_SHOWN,
   compareExtractedPdfText,
+  compareInSteps,
+  compareSteps,
 } from "./compare-result";
 
 afterEach(cleanup);
@@ -447,5 +449,45 @@ describe("the changes view says what it set aside and what it did not mark", () 
     expect(document.querySelector("ins")!.textContent).toBe(
       "Signed by both parties today",
     );
+  });
+});
+
+/**
+ * The comparison pauses between its pieces (second review of audit
+ * compare-pdf#4, 2026-11-14). It ran as one task — diff, pairing, word
+ * marks, hunks and report — and on two 99-page files whose every line
+ * changed that task blocked the page about twice as long as main's whole
+ * comparison. The page runs it through `compareInSteps`.
+ */
+describe("the comparison runs in steps the page can pause between", () => {
+  /** `n` lines, every one changed by one word: n pairs to mark. */
+  function everyLine(n: number) {
+    const left = Array.from(
+      { length: n },
+      (_, i) => `Line ${i} clause with the quick brown fox`,
+    );
+    const right = left.map((l) => l.replace("quick", "slow"));
+    return [doc("a.pdf", [left]), doc("b.pdf", [right])] as const;
+  }
+
+  it("the word marks of 2,000 pairs are spread over many steps", () => {
+    const [a, b] = everyLine(2_000);
+    let steps = 0;
+    const it = compareSteps(a, b, {});
+    for (let next = it.next(); !next.done; next = it.next()) steps += 1;
+    // At least one pause per 32 pairs marked, and per 256 pairs paired.
+    expect(steps).toBeGreaterThanOrEqual(2_000 / 32);
+  });
+
+  it("compareInSteps yields to the event loop and returns what the straight run returns", async () => {
+    const [a, b] = everyLine(2_000);
+    const timers = vi.spyOn(globalThis, "setTimeout");
+    const stepped = await compareInSteps(a, b, { ignoreCase: true });
+    const paused = timers.mock.calls.filter(([, ms]) => ms === 0).length;
+    timers.mockRestore();
+    expect(paused).toBeGreaterThan(0);
+    const straight = compareExtractedPdfText(a, b, { ignoreCase: true });
+    expect(stepped.report).toBe(straight.report);
+    expect(stepped.hunks).toEqual(straight.hunks);
   });
 });

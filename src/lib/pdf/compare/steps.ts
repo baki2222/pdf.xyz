@@ -10,7 +10,15 @@
  * whose every line changed by one word that task blocked the page about
  * twice as long as main's whole comparison did.
  */
-export type Steps<T> = Generator<void, T, void>;
+export type Steps<T> = Generator<Pause | void, T, void>;
+
+/**
+ * Yielded right before a piece that cannot be split — a diff — so the page
+ * pauses there whatever is left of its slice: the piece then runs in a task
+ * of its own instead of on the end of the click that started it.
+ */
+export const PAUSE = true;
+export type Pause = typeof PAUSE;
 
 /** Run `steps` to the end, with no pause, and return what it returns. */
 export function drain<T>(steps: Steps<T>): T {

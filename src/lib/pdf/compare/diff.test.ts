@@ -7,7 +7,13 @@ import {
   type DiffLine,
 } from "../compare-pdf";
 import { compareExtractedPdfText } from "@/components/tools/runner/compare/compare-result";
-import { CompareTooLargeError, MAX_DIFF_CELLS, diffIds, intern } from "./diff";
+import {
+  CompareTooLargeError,
+  DISJOINT_CHECK_CELLS,
+  MAX_DIFF_CELLS,
+  diffIds,
+  intern,
+} from "./diff";
 import { normalizeComparableText } from "./lines";
 
 /*
@@ -347,11 +353,12 @@ describe("compare-pdf — size", () => {
     try {
       const side = Math.floor(Math.sqrt(MAX_DIFF_CELLS));
       // Positive control: one stretch just under the bound builds one table.
-      diffLines(
-        lines("left", side - 1).join("\n"),
-        lines("right", side - 1).join("\n"),
-        heard,
-      );
+      // One line in common, mid-way: since 2026-11-14 a stretch with NO
+      // line in common is written without its all-zero table.
+      const left = lines("left", side - 1);
+      const right = lines("right", side - 1);
+      right[Math.floor(side / 2)] = left[Math.floor(side / 3)]!;
+      diffLines(left.join("\n"), right.join("\n"), heard);
       // A document far over the bound, with edits spread through it.
       const base = lines("doc", 30_000);
       const next = base.map((l, i) => (i % 997 === 0 ? `${l} edited` : l));
@@ -393,5 +400,71 @@ describe("compare-pdf — size", () => {
     expect(kinds(diff)).toEqual({ same: 100_000, added: 1, removed: 1 });
     expect(diff[50_000]).toEqual({ kind: "removed", text: "L" });
     expect(diff[50_001]).toEqual({ kind: "added", text: "R" });
+  });
+});
+
+/**
+ * A stretch with nothing in common is written without its table (second
+ * review of audit compare-pdf#4, 2026-11-14): the table is all zeros, and
+ * its walk is every removed step, then every added one. The shortcut must
+ * give that script exactly, and must not fire when one id is shared.
+ */
+describe("diffIds — a stretch with nothing in common", () => {
+  /** The script an all-zero table walks to. */
+  const expected = (n: number, m: number) => [
+    ...Array.from({ length: n }, (_, a) => ({ k: "removed", a })),
+    ...Array.from({ length: m }, (_, b) => ({ k: "added", b })),
+  ];
+
+  it("no shared id: removed then added, and no table is built", () => {
+    const ids = new Map<string, number>();
+    const a = intern(
+      ids,
+      Array.from({ length: 1_500 }, (_, i) => `left ${i}`),
+    );
+    const b = intern(
+      ids,
+      Array.from({ length: 1_200 }, (_, i) => `right ${i}`),
+    );
+    const tables: number[] = [];
+    const ops = diffIds(a, b, MAX_DIFF_CELLS, (cells) => tables.push(cells));
+    // Health: the stretch is over the check's threshold.
+    expect(1_501 * 1_201).toBeGreaterThanOrEqual(DISJOINT_CHECK_CELLS);
+    expect(tables).toEqual([]);
+    expect(ops).toEqual(expected(1_500, 1_200));
+  });
+
+  it("the same script the table gives, under the threshold where the table is built", () => {
+    const ids = new Map<string, number>();
+    const a = intern(
+      ids,
+      Array.from({ length: 300 }, (_, i) => `left ${i}`),
+    );
+    const b = intern(
+      ids,
+      Array.from({ length: 200 }, (_, i) => `right ${i}`),
+    );
+    const tables: number[] = [];
+    const ops = diffIds(a, b, MAX_DIFF_CELLS, (cells) => tables.push(cells));
+    expect(tables).toEqual([301 * 201]);
+    expect(ops).toEqual(expected(300, 200));
+  });
+
+  it("control: one shared id in the middle, and the table is built and finds it", () => {
+    const ids = new Map<string, number>();
+    const left = Array.from({ length: 1_500 }, (_, i) => `left ${i}`);
+    const right = Array.from({ length: 1_200 }, (_, i) => `right ${i}`);
+    right[600] = left[700]!;
+    const tables: number[] = [];
+    const ops = diffIds(
+      intern(ids, left),
+      intern(ids, right),
+      MAX_DIFF_CELLS,
+      (cells) => tables.push(cells),
+    );
+    expect(tables).toHaveLength(1);
+    expect(ops.filter((op) => op.k === "same")).toEqual([
+      { k: "same", a: 700, b: 600 },
+    ]);
   });
 });
