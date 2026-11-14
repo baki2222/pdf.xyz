@@ -751,6 +751,12 @@ export class ContentOps {
   constructor(
     private exact = true,
     private readonly hook: OpHook | null = null,
+    /**
+     * Report `q`, `Q` and `cm` too: only where images are PLACED needs
+     * them. A weight never does, and a page of drawings is mostly them
+     * (review r3: 150 pages of 60,000 operators each).
+     */
+    private readonly geometry = true,
   ) {
     this.track = hook !== null;
   }
@@ -762,6 +768,8 @@ export class ContentOps {
     let { state, command, strDepth, escaped, sawE, force, exact } = this;
     let { dict, name, num, key } = this;
     const { track } = this;
+    // A number's value matters only to `cm` (see `geometry`).
+    const nums = track && this.geometry;
     for (let i = 0; i < chunk.length; i += 1) {
       const b = chunk[i]!;
       // An inline image's dictionary, kept whole (and bounded) to be read
@@ -800,7 +808,7 @@ export class ContentOps {
               }
             } else if (isNumberStart(b)) {
               state = NUMBER;
-              if (!exact || track) num = CHAR[b]!;
+              if (!exact || nums) num = CHAR[b]!;
             } else if (b < 0x20 || b > 0x7f) state = HIGH;
             else {
               state = COMMAND;
@@ -811,12 +819,14 @@ export class ContentOps {
           case NUMBER:
             // pdf.js's getNumber: digits, one `.`, and a stray `-` it warns of.
             if ((b >= 0x30 && b <= 0x39) || b === 0x2e || b === 0x2d) {
-              if ((!exact || track) && num.length <= NUMBER_CHARS) {
+              if ((!exact || nums) && num.length <= NUMBER_CHARS) {
                 num += CHAR[b]!;
               }
               break lex;
             }
-            if (track) this.operand(num.length > NUMBER_CHARS ? null : +num);
+            if (track) {
+              this.operand(nums && num.length <= NUMBER_CHARS ? +num : null);
+            }
             if (!exact && key !== 0) {
               this.looseSide(key, num);
               key = 0;
@@ -1054,7 +1064,12 @@ export class ContentOps {
       this.operand(null);
       return;
     }
-    if (command === "q" || command === "Q") hook({ op: command, exact });
+    if (
+      !this.geometry &&
+      (command === "q" || command === "Q" || command === "cm")
+    ) {
+      // Not asked for (see `geometry`).
+    } else if (command === "q" || command === "Q") hook({ op: command, exact });
     else if (command === "cm") {
       const six = ops.slice(-6);
       hook({
@@ -1768,7 +1783,8 @@ export async function scanPdfStreams(
     // (a soft mask has no /Subtype to say it is an image).
     const pixels = imagePixels(entries, numberObject);
     // pdf.js sizes a JPEG 2000 image from its codestream when JPX is the
-    // first filter; an encrypted file's data is ciphertext here.
+    // first filter; an encrypted file's data is ciphertext here, and the
+    // page map sizes its images from the decrypted codestream instead.
     const firstFilter = filtersOf(entries)[0];
     const jpx =
       maybeImage &&
@@ -2482,13 +2498,15 @@ export function pageScanTools(
     encrypted,
     decode: async (dict, data, limit) =>
       decodeWhole(dictEntries(dict), data, limit),
-    ops: (hook: OpHook) => new ContentOps(true, hook),
-    image: (dict, numberOf, maskDict, num) => {
+    ops: (hook: OpHook, geometry = true) =>
+      new ContentOps(true, hook, geometry),
+    jpx: jpxPixels,
+    image: (dict, numberOf, maskDict, num, codestream = null) => {
       const entries = dictEntries(dict);
       const own = imagePixels(entries, numberOf);
       const bilevel = isBilevel(entries);
       let cost: number | null =
-        own === null ? null : Math.max(own, jpx.get(num) ?? 0);
+        own === null ? null : Math.max(own, jpx.get(num) ?? 0, codestream ?? 0);
       if (!bilevel) {
         for (const v of valuesOf(entries, "SMask", "Mask")) {
           if (v.kind !== "ref") continue;

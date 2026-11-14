@@ -15,21 +15,25 @@
  * /Contents (one stream, or an array pdf.js reads joined), objects held in
  * object streams, and content shared between pages.
  *
- * Everything here is an UPPER bound on what pdf.js decodes for one page:
+ * Everything here is an UPPER bound on what pdf.js paints for one page:
  *
  *  - an object defined more than once (incremental updates; a cross-reference
  *    may point at any of the definitions) is read in EVERY definition, and a
  *    page counts the largest result;
- *  - an image painted twice on one page counts once: pdf.js keeps each image
- *    it decoded for the page by its reference (`_regionalImageCache`) and
- *    paints it again from there (measured: see pdfjs-guard's budget);
- *    an inline image counts every time its content is read;
+ *  - every paint counts: pdf.js decodes an image once a page, but each `Do`
+ *    paints it again at its own size (see `Paint`), and an inline image
+ *    counts every time its content is read;
  *  - images a page MAY paint without a `Do` in its content — tiling patterns,
  *    Type3 glyphs, soft-mask groups, annotation appearances — count whether
- *    or not the page uses them (their placement is then not known);
+ *    or not the page uses them (their placement is then not known), but
+ *    ONCE: pdf.js paints a pattern's, glyph's or mask's content at every
+ *    fill, glyph or use, which this does not count (an open bound, review
+ *    r3, 2026-11-14);
  *  - a content stream that cannot be read (a filter the scan does not decode,
  *    alternatives past {@link MAX_CONTENT_ALTERNATIVES}, forms nested past
- *    {@link MAX_FORM_DEPTH}) counts EVERY image its resources can reach.
+ *    {@link MAX_FORM_DEPTH}) may paint EVERY image its resources can reach,
+ *    any number of times: when any weighs at all, the page's bound has no
+ *    limit, and it is noted MAY, never IS.
  *
  * When the mapping itself cannot be completed (a work bound passed, an
  * object stream the scan cannot decode), it says so (`incomplete`) and the
@@ -400,8 +404,14 @@ export interface PageScanTools {
     data: Uint8Array,
     limit: number,
   ): Promise<Uint8Array | null>;
-  /** A pdf.js-faithful content lexer reporting each operator (see `ContentOps`). */
-  ops(hook: OpHook): { feed(chunk: Uint8Array): void; end(): void };
+  /**
+   * A pdf.js-faithful content lexer reporting each operator (see
+   * `ContentOps`); `q`, `Q` and `cm` only when `geometry` (placements).
+   */
+  ops(
+    hook: OpHook,
+    geometry?: boolean,
+  ): { feed(chunk: Uint8Array): void; end(): void };
   /**
    * An image's own pixels (its /Width x /Height, what pdf.js's
    * `maxImageSize` compares), its cost (the most pixels pdf.js decodes to
@@ -413,7 +423,14 @@ export interface PageScanTools {
     numberOf: (num: number) => number | undefined,
     maskDict: (num: number) => string | null,
     num: number,
+    codestream?: number | null,
   ): ImageSize;
+  /**
+   * A JPEG 2000 codestream's own size (its SIZ marker, as pdf.js reads it),
+   * or null; for an encrypted file's images, whose codestreams only the
+   * map can read (decrypted), and hands to `image` as `codestream`.
+   */
+  jpx(data: Uint8Array): number | null;
   /**
    * What an image costs one page, in colour pixels; 0 when pdf.js skips it
    * (its own size past `skipAbove`) or paints nothing (a zero side).
@@ -669,6 +686,19 @@ class ObjectIndex {
   private decryptor:
     | ((num: number, gen: number, data: Uint8Array) => Promise<Uint8Array>)
     | null = null;
+  /**
+   * Decrypts one stream of object `num gen` with the crypt filter a /Crypt
+   * stage names (pdf.js's `CipherTransform.createStream(.., name)`); null
+   * when that filter is one this cannot read. Set with {@link decryptor}.
+   */
+  private cryptDecryptor:
+    | ((
+        name: string,
+        num: number,
+        gen: number,
+        data: Uint8Array,
+      ) => Promise<Uint8Array | null>)
+    | null = null;
   private encryptMetadata = true;
 
   /**
@@ -772,10 +802,115 @@ class ObjectIndex {
       if (handler) {
         this.decryptor = (num, gen, data) =>
           handler.decrypt("stream", num, gen, data);
+        // A /Crypt stage's filter, resolved as pdf.js's `resolveCipher`
+        // resolves it: below V4 every filter is RC4; from V4 the /CF entry
+        // it names (none, or /CFM /None, reads the data as it is), and V5
+        // decrypts with AES-256 whatever /CFM says.
+        const cryptOf = (name: string) => {
+          if (v < 4) return "rc4" as const;
+          const cf = this.dicts(encrypt.get("CF"))[0];
+          const f = cf ? this.dicts(cf.get(name))[0] : undefined;
+          const cfm = f ? this.nameOf(f.get("CFM")) : null;
+          if (cfm === null || cfm === "None") return "identity" as const;
+          if (v === 5 || cfm === "AESV3") return "aesv3" as const;
+          return cfm === "V2"
+            ? ("rc4" as const)
+            : cfm === "AESV2"
+              ? ("aesv2" as const)
+              : null;
+        };
+        const opened = new Map<
+          string,
+          ReturnType<typeof StandardSecurityHandler.open>
+        >();
+        this.cryptDecryptor = async (name, num, gen, data) => {
+          const m = cryptOf(name);
+          if (m === null) return null;
+          if (m === "identity") return data;
+          let h = opened.get(m);
+          if (!h) {
+            h = StandardSecurityHandler.open(
+              { ...params, stream: m },
+              "",
+            ).catch(() => null);
+            opened.set(m, h);
+          }
+          const with_ = await h;
+          return with_ ? with_.decrypt("stream", num, gen, data) : null;
+        };
       }
     } catch {
       // A handler this cannot read: streams stay unread (fail safe).
     }
+  }
+
+  /** A stream's filter names and their /DecodeParms, position by position. */
+  filtersOf(s: StreamDef): { filters: string[]; parms: (PdfDict | null)[] } {
+    const filterValue = s.dict.get("F") ?? s.dict.get("Filter");
+    const filters: string[] = [];
+    for (const f of this.all(filterValue)) {
+      if (f instanceof PdfName) filters.push(f.name);
+      else if (Array.isArray(f)) {
+        for (const x of f) filters.push(this.nameOf(x) ?? "?");
+      }
+    }
+    const parmsValue = s.dict.get("DP") ?? s.dict.get("DecodeParms");
+    const parms: (PdfDict | null)[] = [];
+    for (const p of this.all(parmsValue)) {
+      if (p instanceof PdfDict) parms.push(p);
+      else if (Array.isArray(p)) {
+        for (const x of p) parms.push(this.dicts(x)[0] ?? null);
+      }
+    }
+    return { filters, parms };
+  }
+
+  /**
+   * A stream's data before its filters, as pdf.js's `Parser.makeStream`
+   * hands it to them: in an encrypted file, decrypted with the file's
+   * stream filter, unless the stream has a /Crypt filter ANYWHERE in its
+   * list (`#hasCryptFilter`), when the /Crypt stage decrypts instead, with
+   * the crypt filter its /DecodeParms /Name names (/Identity when none).
+   * Null when it cannot be read here: a password is needed, a crypt filter
+   * this cannot read, or a /Crypt stage after another filter, or a second
+   * one (pdf.js decrypts mid-chain; this reads such data whole only).
+   *
+   * History (hostile review r3, 2026-11-14): a stream whose first filter was
+   * /Crypt was taken as plain text, its ciphertext lexed as content, no
+   * `Do` found, and a page painting 64 MP weighed 0 and was drawn.
+   */
+  async decrypted(
+    s: StreamDef,
+    filters: readonly string[],
+    parms: readonly (PdfDict | null)[],
+  ): Promise<Uint8Array | null> {
+    const data = s.def.src.subarray(s.data[0], s.data[1]);
+    if (!this.encrypted) return data;
+    const crypts = filters.filter((f) => f === "Crypt").length;
+    if (crypts > 0) {
+      if (filters[0] !== "Crypt" || crypts > 1) return null;
+      if (this.cryptDecryptor === null) return null;
+      // pdf.js reads the /Name of the stage's own parameters: the dictionary
+      // itself after a lone filter name, the first entry after an array.
+      const single = this.all(s.dict.get("F") ?? s.dict.get("Filter"))[0];
+      const p =
+        single instanceof PdfName
+          ? this.dicts(s.dict.get("DP") ?? s.dict.get("DecodeParms"))[0]
+          : (parms[0] ?? undefined);
+      const name = p ? this.all(p.get("Name"))[0] : undefined;
+      return this.cryptDecryptor(
+        name instanceof PdfName ? name.name : "Identity",
+        s.def.num,
+        s.def.gen,
+        data,
+      );
+    }
+    const type = this.nameOf(s.dict.get("Type"));
+    if (type === "XRef" || (type === "Metadata" && !this.encryptMetadata)) {
+      return data;
+    }
+    if (this.decryptor === null) return null;
+    return this.decryptor(s.def.num, s.def.gen, data);
   }
 
   /**
@@ -788,36 +923,11 @@ class ObjectIndex {
     tools: PageScanTools,
     limit: number,
   ): Promise<Uint8Array | null> {
-    let data = s.def.src.subarray(s.data[0], s.data[1]);
+    const { filters, parms } = this.filtersOf(s);
+    const data = await this.decrypted(s, filters, parms);
+    if (data === null) return null;
     const text = this.dictText(s.dict, s.def.src);
-    const filterValue = s.dict.get("F") ?? s.dict.get("Filter");
-    const filters: string[] = [];
-    for (const f of this.all(filterValue)) {
-      if (f instanceof PdfName) filters.push(f.name);
-      else if (Array.isArray(f)) {
-        for (const x of f) filters.push(this.nameOf(x) ?? "?");
-      }
-    }
-    if (this.encrypted) {
-      const type = this.nameOf(s.dict.get("Type"));
-      const plain =
-        type === "XRef" ||
-        (type === "Metadata" && !this.encryptMetadata) ||
-        filters[0] === "Crypt";
-      if (!plain) {
-        if (this.decryptor === null) return null;
-        data = await this.decryptor(s.def.num, s.def.gen, data);
-      }
-    }
     // pdf.js applies /DecodeParms /Predictor after a Flate (or LZW) stage.
-    const parmsValue = s.dict.get("DP") ?? s.dict.get("DecodeParms");
-    const parms: (PdfDict | null)[] = [];
-    for (const p of this.all(parmsValue)) {
-      if (p instanceof PdfDict) parms.push(p);
-      else if (Array.isArray(p)) {
-        for (const x of p) parms.push(this.dicts(x)[0] ?? null);
-      }
-    }
     const single = parms.length === 1 && filters.length === 1;
     let predicted = -1;
     for (let i = 0; i < filters.length; i += 1) {
@@ -857,6 +967,14 @@ export function unpredict(
   }
   const rowBytes = Math.ceil((colors * bpc * columns) / 8);
   const bpp = Math.ceil((colors * bpc) / 8);
+  // A row longer than the data is one short row: nothing past the data is
+  // ever read, so no buffer needs to be longer than it. (Hostile review r3:
+  // /Columns 1e12 allocated a terabyte here and threw an untyped
+  // RangeError out of the preflight.)
+  if (!Number.isSafeInteger(rowBytes) || !Number.isSafeInteger(bpp)) {
+    return null;
+  }
+  const kept = Math.min(rowBytes, data.length);
   if (predictor === 2) {
     if (bpc !== 8) return null;
     const out = data.slice();
@@ -873,12 +991,12 @@ export function unpredict(
     Math.floor(data.length / (rowBytes + 1)) * rowBytes +
       Math.max(0, (data.length % (rowBytes + 1)) - 1),
   );
-  let prior = new Uint8Array(rowBytes);
+  let prior = new Uint8Array(kept);
   let at = 0;
   for (let r = 0; r < data.length; r += rowBytes + 1) {
     const type = data[r]!;
     const row = data.subarray(r + 1, Math.min(data.length, r + 1 + rowBytes));
-    const cur = new Uint8Array(rowBytes);
+    const cur = new Uint8Array(kept);
     for (let i = 0; i < row.length; i += 1) {
       const left = i >= bpp ? cur[i - bpp]! : 0;
       const up = prior[i]!;
@@ -948,7 +1066,11 @@ export const MAX_FORM_DEPTH = 32;
 export const MAX_CONTENT_ALTERNATIVES = 8;
 /** `Do` and resource resolutions, all pages together; past it, incomplete. */
 export const MAX_PAINT_STEPS = 2_000_000;
-/** Content operators kept, all streams together; past it, incomplete. */
+/**
+ * Content operators HELD: one joined sequence past it is content this does
+ * not read (that page alone counts as such); the cache of every sequence
+ * read is let go past it and read again when asked (see `contentOps`).
+ */
 const MAX_KEPT_OPS = 4_000_000;
 /**
  * Content operators WALKED, all pages, forms and alternatives together;
@@ -1079,6 +1201,11 @@ export class PageImages {
   private decoded = 0;
   private pages: Map<number, PdfDict[]> | null = null;
   private readonly opsCache = new Map<string, ContentOp[] | null>();
+  /** {@link contentChoices}, by the /Contents object pages name. */
+  private readonly choicesCache = new Map<
+    number,
+    { chosen: StreamDef[]; ids: string }[] | null
+  >();
   private readonly imageCache = new Map<number, ImageSize>();
   /** Unplaced paints, by stream definition and resources (see `resKey`). */
   private readonly paintCache = new Map<string, Paint>();
@@ -1246,33 +1373,12 @@ export class PageImages {
       (r): r is PdfDict => r instanceof PdfDict,
     );
     const out = emptyPaint();
-    // The /Contents: one stream, or an array (direct or not) pdf.js reads
-    // joined; each position may have several definitions.
-    const contents = dict.get("Contents");
-    const positions: StreamDef[][] = [];
-    if (contents instanceof PdfRef) {
-      const alts = index.streams(contents);
-      if (alts.length > 0) positions.push(alts);
-    }
-    for (const c of index.all(contents)) {
-      if (!Array.isArray(c)) continue;
-      for (const r of c) {
-        const alts = index.streams(r);
-        if (alts.length > 0) positions.push(alts);
-      }
-    }
-    let combos = 1;
-    for (const p of positions) combos *= p.length;
-    if (combos > MAX_CONTENT_ALTERNATIVES) {
+    const all = this.contentChoices(dict.get("Contents"));
+    if (all === null) {
       absorb(out, await this.reachAll(resources, skipAbove));
-    } else if (positions.length > 0) {
-      let all: StreamDef[][] = [[]];
-      for (const alts of positions) {
-        all = all.flatMap((chosen) => alts.map((a) => [...chosen, a]));
-      }
+    } else if (all.length > 0) {
       const read: Paint[] = [];
-      for (const chosen of all) {
-        const ids = chosen.map((c) => c.def.id).join(",");
+      for (const { chosen, ids } of all) {
         const key = `${ids}|${this.resKey(resources)}|${skipAbove}`;
         let p = place ? undefined : this.pageCache.get(key);
         if (!p) {
@@ -1327,26 +1433,96 @@ export class PageImages {
     return out;
   }
 
+  /**
+   * The joined stream sequences a page's /Contents may be (one stream, or
+   * an array, direct or not, pdf.js reads joined; each position may have
+   * several definitions), each with its key; [] for none, null for more
+   * than {@link MAX_CONTENT_ALTERNATIVES}. Built in time linear in the
+   * positions, and once per /Contents object however many pages name it.
+   *
+   * History (hostile review r3, 2026-11-14): each position copied every
+   * sequence built so far, quadratic in the positions, for every page: one
+   * array of 20,000 references shared by 40 pages (a 127 KB file) held the
+   * main thread for 33 s before pdf.js saw the file.
+   */
+  private contentChoices(
+    contents: PdfValue | undefined,
+  ): { chosen: StreamDef[]; ids: string }[] | null {
+    const shared = contents instanceof PdfRef ? contents.num : null;
+    if (shared !== null && this.choicesCache.has(shared)) {
+      return this.choicesCache.get(shared)!;
+    }
+    const { index } = this;
+    const positions: StreamDef[][] = [];
+    if (contents instanceof PdfRef) {
+      const alts = index.streams(contents);
+      if (alts.length > 0) positions.push(alts);
+    }
+    for (const c of index.all(contents)) {
+      if (!Array.isArray(c)) continue;
+      for (const r of c) {
+        const alts = index.streams(r);
+        if (alts.length > 0) positions.push(alts);
+      }
+    }
+    let combos = 1;
+    for (const p of positions) {
+      combos *= p.length;
+      if (combos > MAX_CONTENT_ALTERNATIVES) break;
+    }
+    let result: { chosen: StreamDef[]; ids: string }[] | null = null;
+    if (combos <= MAX_CONTENT_ALTERNATIVES) {
+      result = [];
+      if (positions.length > 0) {
+        // Combination k picks, at each position, digit k of a mixed radix.
+        for (let k = 0; k < combos; k += 1) {
+          const chosen: StreamDef[] = new Array<StreamDef>(positions.length);
+          let rest = k;
+          for (let i = positions.length - 1; i >= 0; i -= 1) {
+            const alts = positions[i]!;
+            chosen[i] = alts[rest % alts.length]!;
+            rest = Math.floor(rest / alts.length);
+          }
+          result.push({ chosen, ids: chosen.map((c) => c.def.id).join(",") });
+        }
+      }
+    }
+    if (shared !== null) this.choicesCache.set(shared, result);
+    return result;
+  }
+
   /** The content operators of a joined stream sequence, read once. */
   private async contentOps(
     streams: readonly StreamDef[],
+    geometry: boolean,
   ): Promise<ContentOp[] | null> {
-    const key = streams.map((s) => s.def.id).join(",");
+    const key = `${geometry ? "g" : "w"}|${streams.map((s) => s.def.id).join(",")}`;
     if (this.opsCache.has(key)) return this.opsCache.get(key)!;
     const ops: ContentOp[] = [];
     let overflow = false;
     const lexer = this.tools.ops((op) => {
-      if (++this.keptOps > MAX_KEPT_OPS) overflow = true;
+      if (ops.length >= MAX_KEPT_OPS) overflow = true;
       else ops.push(op);
-    });
+    }, geometry);
     let readable = true;
+    // A stream named at many positions of one /Contents is decoded once.
+    const decoded = new Map<number, Uint8Array | null>();
     for (const s of streams) {
-      const data = await this.index.decode(
-        s,
-        this.tools,
-        this.tools.decodeBudget - this.decoded,
-      );
-      if (data === null) {
+      let data = decoded.get(s.def.id);
+      if (data === undefined) {
+        data = await this.index.decode(
+          s,
+          this.tools,
+          this.tools.decodeBudget - this.decoded,
+        );
+        decoded.set(s.def.id, data);
+      }
+      // Every position's bytes are lexed, so every position is charged.
+      if (
+        data === null ||
+        overflow ||
+        this.decoded + data.length > this.tools.decodeBudget
+      ) {
         readable = false;
         break;
       }
@@ -1354,16 +1530,54 @@ export class PageImages {
       lexer.feed(data);
     }
     lexer.end();
-    if (overflow) throw new Incomplete("content operators");
-    const result = readable ? ops : null;
+    // One sequence past the bound is not held: it is content this cannot
+    // read, and counts as such (`paintContent`), for its page alone.
+    const result = readable && !overflow ? ops : null;
+    // The bound on what is HELD across sequences is a cache's: past it,
+    // what was held is let go and read again if asked. It ends nothing.
+    // History (hostile review r3, 2026-11-14): it counted every sequence of
+    // the document together and, past 4 million, ended the whole map, so
+    // 150 pages of drawings with one 9 MP photo each were every one noted
+    // "could not be fully read", and the output paths refused the file.
+    if (result !== null) {
+      if (this.keptOps + result.length > MAX_KEPT_OPS) {
+        this.opsCache.clear();
+        this.keptOps = 0;
+      }
+      this.keptOps += result.length;
+    }
     this.opsCache.set(key, result);
     return result;
   }
 
-  private size(s: StreamDef): ImageSize {
+  private async size(s: StreamDef): Promise<ImageSize> {
     const kept = this.imageCache.get(s.def.id);
     if (kept) return kept;
     const { index } = this;
+    // pdf.js sizes a JPEG 2000 image (JPX its first filter) by its
+    // codestream, which in an encrypted file only decryption shows: the scan
+    // reads ciphertext. Unreadable here, its cost is not known.
+    // History (hostile review r3, 2026-11-14): read by the dictionary alone,
+    // four JPX images declared 100 x 100 with 6000 x 6000 codestreams
+    // weighed 40,000 pixels in an RC4 or AES file, and the page was drawn.
+    let codestream: number | null = null;
+    let unread = false;
+    const { filters, parms } = index.filtersOf(s);
+    if (
+      this.tools.encrypted &&
+      (filters[0] === "JPXDecode" || filters[0] === "JPX")
+    ) {
+      const data = await index.decrypted(s, filters, parms);
+      if (
+        data === null ||
+        this.decoded + data.length > this.tools.decodeBudget
+      ) {
+        unread = true;
+      } else {
+        this.decoded += data.length;
+        codestream = this.tools.jpx(data);
+      }
+    }
     const size = this.tools.image(
       index.dictText(s.dict, s.def.src),
       (num) => index.numberIn(new PdfRef(num)) ?? undefined,
@@ -1372,9 +1586,11 @@ export class PageImages {
         return m ? index.dictText(m.dict, m.def.src) : null;
       },
       s.def.num,
+      codestream,
     );
-    this.imageCache.set(s.def.id, size);
-    return size;
+    const out = unread ? { ...size, cost: null } : size;
+    this.imageCache.set(s.def.id, out);
+    return out;
   }
 
   /** The XObject streams `name` resolves to through `resources`. */
@@ -1418,7 +1634,15 @@ export class PageImages {
     depth = 0,
     path: ReadonlySet<number> = new Set(),
   ): Promise<Paint> {
-    const key = `${s.def.id}|${this.resKey(resources)}|${skipAbove}|${depth}`;
+    // The forms already on the painting path are part of the key: what a
+    // form paints depends on them (pdf.js refuses only a form that is its
+    // own ancestor), so a result read under one path is not another's.
+    // History (hostile review r3, 2026-11-14): without it, a cycle through a
+    // shared form was cached with an ancestor cut out and reused where that
+    // form was no ancestor: a page painting 64 MP weighed 32 MP or 96 MP by
+    // the order of its `Do`s.
+    const ancestors = [...path].sort((a, b) => a - b).join(",");
+    const key = `${s.def.id}|${this.resKey(resources)}|${skipAbove}|${depth}|${ancestors}`;
     const kept = this.paintCache.get(key);
     if (kept) return kept;
     const p = await this.paintContent(
@@ -1444,7 +1668,9 @@ export class PageImages {
     place: boolean,
   ): Promise<Paint> {
     const out = emptyPaint();
-    const ops = await this.contentOps(streams);
+    // Where images sit is read only when asked (`place`): a weight needs
+    // no `q`, `Q` or `cm`.
+    const ops = await this.contentOps(streams, place);
     if (ops === null) {
       // Content the scan cannot read may paint anything its resources hold.
       absorb(out, await this.reachAll(resources, skipAbove));
@@ -1507,7 +1733,7 @@ export class PageImages {
             const sub = this.index.nameOf(x.dict.get("Subtype"));
             if (sub === "Image") {
               const box = trusted ? unitBox(ctm) : null;
-              this.paintImage(out, this.size(x), skipAbove, box, place);
+              this.paintImage(out, await this.size(x), skipAbove, box, place);
             } else if (sub === "Form") {
               if (path.has(x.def.num)) continue; // pdf.js refuses a circular form
               const own = this.index.dicts(x.dict.get("Resources"));
@@ -1588,7 +1814,13 @@ export class PageImages {
               seen.add(x.def.id);
               const sub = this.index.nameOf(x.dict.get("Subtype"));
               if (sub === "Image") {
-                this.paintImage(out, this.size(x), skipAbove, null, false);
+                this.paintImage(
+                  out,
+                  await this.size(x),
+                  skipAbove,
+                  null,
+                  false,
+                );
               } else if (sub === "Form") {
                 if (depth >= MAX_FORM_DEPTH) throw new Incomplete("form depth");
                 const own = this.index.dicts(x.dict.get("Resources"));
@@ -1601,7 +1833,15 @@ export class PageImages {
       }
     };
     await visit(resources, 0);
-    return bounded(out);
+    // How many times content nobody read paints what it can reach is not
+    // known, and every paint costs (see `Paint`): anything it can reach
+    // that weighs at all may weigh without limit.
+    // History (found in review r3, 2026-11-14): this counted each image
+    // once, the rule from before every paint was charged; RunLength content
+    // painting one 16 MP image four times weighed 16 MP and was drawn.
+    const b = bounded(out);
+    if (weightOf(b) > 0) b.bound = Number.POSITIVE_INFINITY;
+    return b;
   }
 
   /**
