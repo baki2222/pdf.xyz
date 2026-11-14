@@ -11,7 +11,7 @@ import { CompareTooLargeError, MAX_DIFF_CELLS, diffIds, intern } from "./diff";
 import { normalizeComparableText } from "./lines";
 
 /*
- * MOVED 2026-11-14 from src/lib/pdf/compare-pdf.test.ts (audit
+ * MOVED 2026-11-14 from the compare-pdf test beside compare-pdf.ts (audit
  * compare-pdf#4), every test kept. The line diff left `compare-pdf.ts` for
  * `./diff.ts` and became generic over ids (`diffIds`); `diffLines` below is
  * the old function rebuilt from the shipped parts — the same normalisation
