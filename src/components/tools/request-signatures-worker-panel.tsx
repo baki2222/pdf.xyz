@@ -138,9 +138,11 @@ function SignaturePagePreview({
   page: number;
   fields: RequestSignatureField[];
 }) {
-  const [thumb, setThumb] = useState<{ page: number; url: string } | null>(
-    null,
-  );
+  const [thumb, setThumb] = useState<{
+    page: number;
+    url: string;
+    note?: string;
+  } | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -160,7 +162,7 @@ function SignaturePagePreview({
           return;
         }
         url = rendered.url;
-        setThumb({ page, url: rendered.url });
+        setThumb({ page, url: rendered.url, note: rendered.note });
       } catch {
         // No preview image; the blank sheet and the overlay still render.
       } finally {
@@ -173,7 +175,8 @@ function SignaturePagePreview({
     };
   }, [bytes, page]);
 
-  const image = thumb?.page === page ? thumb.url : null;
+  const shown = thumb?.page === page ? thumb : null;
+  const image = shown?.url ?? null;
   return (
     <figure className="flex flex-col items-center gap-2">
       <div
@@ -185,7 +188,7 @@ function SignaturePagePreview({
           // eslint-disable-next-line @next/next/no-img-element -- a blob: URL of a local render
           <img
             src={image}
-            alt=""
+            alt={shown?.note ?? ""}
             draggable={false}
             className="absolute inset-0 size-full"
           />

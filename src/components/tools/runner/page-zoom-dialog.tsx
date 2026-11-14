@@ -119,8 +119,12 @@ export function PageZoomDialog({
         <div className="bg-wash rounded-panel grid min-h-0 flex-1 place-items-center overflow-auto p-3">
           {image ? (
             <img
-              src={image}
-              alt={`Page ${index + 1}`}
+              src={image.url}
+              alt={
+                image.note
+                  ? `Page ${index + 1}. ${image.note}`
+                  : `Page ${index + 1}`
+              }
               className="rounded-sheet max-h-[70vh] w-auto max-w-full bg-white shadow-md ring-1 ring-black/5"
             />
           ) : (

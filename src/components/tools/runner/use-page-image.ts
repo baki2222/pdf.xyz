@@ -2,6 +2,13 @@
 
 import { useEffect, useState } from "react";
 
+/** A rendered page: its object URL, and the note drawn in its place, if one was. */
+export interface PageImage {
+  url: string;
+  /** The sentence drawn instead of the page (see `Thumbnail.note`): its accessible name. */
+  note?: string;
+}
+
 /**
  * A displayed-orientation render of page `index` for a preview, as an object
  * URL; null while it renders, when it fails, or when `index` is null. Revoked
@@ -12,8 +19,8 @@ export function usePageImage(
   bytes: Uint8Array,
   index: number | null,
   targetWidth = 200,
-): string | null {
-  const [url, setUrl] = useState<string | null>(null);
+): PageImage | null {
+  const [url, setUrl] = useState<PageImage | null>(null);
   useEffect(() => {
     if (index === null) return;
     let alive = true;
@@ -30,7 +37,11 @@ export function usePageImage(
           const thumb = await renderer.renderPage(index);
           if (thumb && alive) {
             made = thumb.url;
-            setUrl(thumb.url);
+            setUrl(
+              thumb.note
+                ? { url: thumb.url, note: thumb.note }
+                : { url: thumb.url },
+            );
           } else if (thumb) URL.revokeObjectURL(thumb.url);
         } finally {
           await renderer.destroy();

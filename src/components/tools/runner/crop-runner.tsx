@@ -486,8 +486,8 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
             >
               {pageImage && (
                 <img
-                  src={pageImage}
-                  alt=""
+                  src={pageImage.url}
+                  alt={pageImage.note ?? ""}
                   className="absolute inset-0 size-full object-fill"
                 />
               )}

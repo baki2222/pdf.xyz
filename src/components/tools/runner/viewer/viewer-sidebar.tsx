@@ -164,7 +164,7 @@ function ThumbnailList({
                 // eslint-disable-next-line @next/next/no-img-element -- an object URL of a page this browser drew
                 <img
                   src={thumb.url}
-                  alt=""
+                  alt={thumb.note ?? ""}
                   className="max-h-40 w-auto max-w-full bg-white shadow-sm ring-1 ring-black/10"
                 />
               ) : (
