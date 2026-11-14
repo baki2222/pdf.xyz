@@ -15,6 +15,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from "@testing-library/react";
 import { getToolBySlug } from "@/lib/tools";
 import type { WorkerStatus } from "@/lib/workers/status";
@@ -106,9 +107,15 @@ async function pick(html: string | File, name = "report.html") {
     </InToolPage>,
   );
   await screen.findByText("Secure server");
-  const input = document.querySelector<HTMLInputElement>('input[type="file"]');
-  expect(input).not.toBeNull();
-  fireEvent.change(input!, {
+  // HTML to PDF's input is its own chunk (`html-source-area`), loaded with
+  // the panel: waited for, not assumed present on the first render.
+  const input = await waitFor(() => {
+    const found =
+      document.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(found).not.toBeNull();
+    return found!;
+  });
+  fireEvent.change(input, {
     target: {
       files: [
         typeof html === "string"

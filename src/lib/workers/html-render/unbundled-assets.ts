@@ -1,4 +1,5 @@
 import { HTML_DOCUMENT_URL } from "./document-url";
+import { zipEntryOfUrl } from "./zip-config";
 
 /**
  * Which of an uploaded HTML file's references will NOT be in the PDF, told to
@@ -32,6 +33,16 @@ import { HTML_DOCUMENT_URL } from "./document-url";
  * That second corpus is the only thing that can say an element kind is
  * missing here. It is hand-written, so a kind nobody thought to put in it is
  * still unseen: grow it when you learn of one.
+ *
+ * A ZIP OF THE PAGE (2026-11-14). When the user picks a ZIP, the worker
+ * serves the archive's files at the document origin (`./zip-site`), so a
+ * reference that resolves there is missing only when the archive has no
+ * entry of exactly that path ({@link ArchiveContents}) — resolved by the
+ * worker's own mapping (`zipEntryOfUrl`), so the note and the render cannot
+ * disagree about a path. The page is then served from its own path in the
+ * archive, and its origin IS the served address: a same-origin-only kind
+ * that resolves into the archive loads; one pointing at a public address is
+ * still missing. `zip-site.chromium.test.ts` renders a ZIP and holds this.
  */
 export interface AssetSource {
   /** Elements that carry the reference. */
@@ -216,6 +227,14 @@ export const ASSET_SOURCES: readonly AssetSource[] = [
   },
 ];
 
+/** What a ZIP holds, for the scan: its page's address and its entries. */
+export interface ArchiveContents {
+  /** Where the worker serves the page (`zipEntryUrl(entry)`). */
+  documentUrl: string;
+  /** True when the archive serves an entry of exactly this path. */
+  has(entry: string): boolean;
+}
+
 export interface UnbundledAssets {
   /** Distinct missing references, in document order, as written in the file. */
   references: string[];
@@ -390,6 +409,7 @@ function isMissing(
   base: URL,
   servedHost: string,
   sameOriginOnly: boolean,
+  archive?: ArchiveContents,
 ): boolean {
   const value = raw.trim();
   if (!value || value.startsWith("#")) return false;
@@ -400,8 +420,12 @@ function isMissing(
     return false;
   }
   if (NOT_A_FILE.has(resolved.protocol)) return false;
-  if (resolved.protocol === "http:" || resolved.protocol === "https:")
-    return sameOriginOnly || resolved.host === servedHost;
+  if (resolved.protocol === "http:" || resolved.protocol === "https:") {
+    if (resolved.host !== servedHost) return sameOriginOnly;
+    if (!archive) return true;
+    const entry = zipEntryOfUrl(resolved.href);
+    return entry === null || !archive.has(entry);
+  }
   return true;
 }
 
@@ -410,7 +434,10 @@ const ALL_SELECTORS = [
   "iframe[srcdoc]",
 ].join(", ");
 
-export function findUnbundledAssets(doc: Document): UnbundledAssets {
+export function findUnbundledAssets(
+  doc: Document,
+  archive?: ArchiveContents,
+): UnbundledAssets {
   const servedHost = new URL(HTML_DOCUMENT_URL).host;
   const seen = new Set<string>();
   const references: string[] = [];
@@ -438,7 +465,7 @@ export function findUnbundledAssets(doc: Document): UnbundledAssets {
             const ref = found.url.trim();
             if (
               seen.has(ref) ||
-              !isMissing(ref, base, servedHost, found.sameOriginOnly)
+              !isMissing(ref, base, servedHost, found.sameOriginOnly, archive)
             )
               continue;
             seen.add(ref);
@@ -461,7 +488,32 @@ export function findUnbundledAssets(doc: Document): UnbundledAssets {
     }
   };
 
-  scan(doc, new URL(HTML_DOCUMENT_URL), 0);
+  scan(doc, new URL(archive?.documentUrl ?? HTML_DOCUMENT_URL), 0);
+  return { references };
+}
+
+/**
+ * The references of a stylesheet INSIDE a ZIP that the archive does not hold
+ * (`url()`, `@import`, `image-set()`), resolved against the stylesheet's own
+ * address, as Chromium resolves them.
+ */
+export function findUnbundledAssetsInCss(
+  css: string,
+  cssUrl: string,
+  archive: ArchiveContents,
+): UnbundledAssets {
+  const servedHost = new URL(HTML_DOCUMENT_URL).host;
+  const base = new URL(cssUrl);
+  const references: string[] = [];
+  for (const found of cssUrls(css)) {
+    const ref = found.url.trim();
+    if (
+      references.includes(ref) ||
+      !isMissing(ref, base, servedHost, found.sameOriginOnly, archive)
+    )
+      continue;
+    references.push(ref);
+  }
   return { references };
 }
 
@@ -472,12 +524,22 @@ export function findUnbundledAssetsInHtml(html: string): UnbundledAssets {
   );
 }
 
-/** The note shown under the chosen file; `null` when nothing is missing. */
-export function unbundledAssetsNote(found: UnbundledAssets): string | null {
+/**
+ * The note shown under the chosen file; `null` when nothing is missing.
+ * `zip`: the file is a ZIP, so what is missing is missing from the ZIP.
+ */
+export function unbundledAssetsNote(
+  found: UnbundledAssets,
+  zip = false,
+): string | null {
   const n = found.references.length;
   if (n === 0) return null;
   const first = found.references[0]!;
   const example = first.length > 60 ? `${first.slice(0, 57)}…` : first;
+  if (zip)
+    return n === 1
+      ? `1 linked file (${example}) is not in this ZIP and will be missing from the PDF. Add it to the ZIP at that path, or link it with a full https:// address.`
+      : `${n} linked files (e.g. ${example}) are not in this ZIP and will be missing from the PDF. Add them to the ZIP at those paths, or link them with full https:// addresses.`;
   return n === 1
     ? `1 linked file (${example}) is not part of this upload and will be missing from the PDF. Embed it in the HTML, or link it with a full https:// address.`
     : `${n} linked files (e.g. ${example}) are not part of this upload and will be missing from the PDF. Embed them in the HTML, or link them with full https:// addresses.`;

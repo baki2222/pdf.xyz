@@ -111,6 +111,30 @@ async function markupThroughLoader(Panel: unknown, tool: Tool) {
   );
 }
 
+/**
+ * A panel's markup once every loader INSIDE it has resolved too. Since
+ * 2026-11-14 HTML to PDF's input is a `next/dynamic` child of its panel
+ * (`html-source-area.tsx`, loaded for that tool alone), so the first render
+ * of the panel module shows that child's placeholder and a later one the
+ * child: comparing a first render with a later one compared two moments,
+ * not two modules. Rendered until two renders in a row agree.
+ */
+async function settledMarkup(Panel: unknown, tool: Tool) {
+  // Stable across three renders 100 ms apart: a loader started by the first
+  // render resolves on a later tick, so two renders in the same tick agree
+  // while still showing its placeholder.
+  let last = markup(Panel, tool);
+  let stable = 0;
+  for (let i = 0; i < 50 && stable < 3; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const html = markup(Panel, tool);
+    stable = html === last ? stable + 1 : 0;
+    last = html;
+  }
+  if (stable < 3) throw new Error("the panel's markup never settled");
+  return last;
+}
+
 const toolOf = (slug: string): Tool => {
   const tool = getToolBySlug(slug);
   if (!tool) throw new Error(`${slug} is not in the catalogue`);
@@ -222,12 +246,11 @@ describe("the registry is the panels on disk, and the page renders it", () => {
     const arms = panelDispatchArms();
     for (const arm of arms) {
       const tool = toolOf(arm.slugs[0]!);
-      const direct = markup(await panelComponent(arm), tool);
+      const direct = await settledMarkup(await panelComponent(arm), tool);
       expect(direct, `${arm.specifier} renders nothing`).not.toBe("");
-      const loaded = await markupThroughLoader(
-        WORKER_PANELS[tool.slug]!.Panel,
-        tool,
-      );
+      const Panel = WORKER_PANELS[tool.slug]!.Panel;
+      await markupThroughLoader(Panel, tool);
+      const loaded = await settledMarkup(Panel, tool);
       expect(loaded, `${tool.slug}: the loader vs ${arm.specifier}`).toBe(
         direct,
       );
