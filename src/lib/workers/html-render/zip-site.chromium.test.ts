@@ -156,12 +156,15 @@ describe.skipIf(!BIN)("a ZIP page through the real renderer", () => {
     );
     if (!opened.ok) throw new Error(opened.refusal.kind);
     const answers: { url: string; served: boolean }[] = [];
+    // Tapped at `lookup`, which every request at the origin asks first: an
+    // entry is read (`serve`) only once it is found and charged (hostile
+    // review round 3), so a 404 never reaches `serve` at all.
     const tapped: HtmlSite = {
       ...opened.site,
-      serve(url) {
-        const hit = opened.site.serve(url);
-        answers.push({ url, served: hit !== null });
-        return hit;
+      lookup(url) {
+        const found = opened.site.lookup(url);
+        answers.push({ url, served: found !== null });
+        return found;
       },
     };
     fetched.length = 0;

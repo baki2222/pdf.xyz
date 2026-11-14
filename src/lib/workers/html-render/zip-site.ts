@@ -34,6 +34,7 @@ import { openBoundedZip, ZipEntryError, type BoundedZip } from "../epub/zip";
 import type { RenderNetwork } from "./network";
 import {
   HTML_ZIP_LIMITS,
+  HTML_ZIP_MAX_DOCUMENT_BYTES,
   chooseHtmlEntry,
   isServableEntryName,
   zipEntryOfUrl,
@@ -128,8 +129,37 @@ export interface HtmlSite {
   entry: string;
   /** The page's own size, unpacked: judged against the HTML file ceiling. */
   entryBytes: number;
+  /**
+   * The servable entry a URL names, WITHOUT reading it: the size the
+   * directory declared (which every inflate is capped at, and must equal),
+   * and whether Chromium lays it out as a document ({@link isDocumentType}).
+   * Null = 404. What {@link answerArchiveRequest} charges before anything is
+   * inflated.
+   */
+  lookup(url: string): { bytes: number; document: boolean } | null;
   /** The entry for a URL Chromium asked for (GET); null = 404. */
   serve(url: string): ServedEntry | null;
+  /**
+   * Bytes of documents (HTML, XHTML, SVG) this render may still be answered
+   * from the archive, the page included: starts at
+   * `HTML_ZIP_MAX_DOCUMENT_BYTES`, spent by {@link answerArchiveRequest}.
+   */
+  documentBytesLeft: number;
+}
+
+/**
+ * The types Chromium lays out as a DOCUMENT of its own — a page, a frame, an
+ * SVG drawn as an image — whose memory grows with its markup: a 20 MiB HTML
+ * file of text peaks near 4 GiB of Chromium, a 20 MiB SVG near 2.7 GiB
+ * (hostile review round 3, 2026-11-14). A stylesheet, script, picture or
+ * font is not one.
+ */
+export function isDocumentType(contentType: string): boolean {
+  return (
+    contentType === "text/html" ||
+    contentType === "application/xhtml+xml" ||
+    contentType === "image/svg+xml"
+  );
 }
 
 /**
@@ -190,6 +220,15 @@ export function openHtmlZip(
       entry,
       entryBytes: page.byteLength,
       entryUrl: zipEntryUrl(entry),
+      documentBytesLeft: HTML_ZIP_MAX_DOCUMENT_BYTES,
+      lookup(url) {
+        const name = zipEntryOfUrl(url);
+        if (name === null || !servable(name)) return null;
+        return {
+          bytes: zip.sizeOf(name) ?? 0,
+          document: isDocumentType(contentTypeOfEntry(name)),
+        };
+      },
       serve(url) {
         const name = zipEntryOfUrl(url);
         if (name === null || !servable(name)) return null;
@@ -239,7 +278,17 @@ export type ArchiveAnswer =
  * page: the entry it names (GET only; 404 for anything else), CHARGED to
  * the render's network before it is answered — one request, and the body's
  * bytes against `maxResponseBytes` and the byte budget — so a page cannot
- * ask for its own files past the limits a fetched page has.
+ * ask for its own files past the limits a fetched page has. A document
+ * (`isDocumentType`) is charged to the site's document budget too.
+ *
+ * CHARGED BEFORE IT IS READ (hostile review round 3, 2026-11-14). The
+ * charge is the size the directory declared (`site.lookup`), and the entry
+ * is inflated only once every budget admitted it. Until then the entry was
+ * inflated, and cached, first: the budgets refused the ANSWER, but the
+ * bytes were already in the worker's heap, so with the directory's bounds
+ * removed 80 entries of 20 MiB took Node from 206 to 2,323 MiB while every
+ * answer past 100 MiB was refused. The inflate is capped at the declared
+ * size and must equal it (`../epub/zip.ts`), so the charge is the body.
  *
  * ONE function, called by the renderer for every such request
  * (`./native.ts`) AND by the start-up proof (`./zip-capability.ts`), so the
@@ -248,13 +297,20 @@ export type ArchiveAnswer =
  * renderer served entries uncharged would have published `htmlZip: true`).
  */
 export function answerArchiveRequest(
-  site: Pick<HtmlSite, "serve">,
+  site: Pick<HtmlSite, "lookup" | "serve" | "documentBytesLeft">,
   network: Pick<RenderNetwork, "chargeServed">,
   request: { method: string; url: string },
 ): ArchiveAnswer {
-  const hit = request.method === "GET" ? site.serve(request.url) : null;
-  const refused = network.chargeServed(hit ? hit.body.byteLength : 0);
+  const found = request.method === "GET" ? site.lookup(request.url) : null;
+  if (found?.document && found.bytes > site.documentBytesLeft)
+    return {
+      action: "fail",
+      why: "document budget of this ZIP's render is spent",
+    };
+  const refused = network.chargeServed(found ? found.bytes : 0);
   if (refused !== null) return { action: "fail", why: refused };
+  if (found?.document) site.documentBytesLeft -= found.bytes;
+  const hit = found ? site.serve(request.url) : null;
   return {
     action: "fulfill",
     status: hit ? 200 : 404,

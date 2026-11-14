@@ -15,6 +15,7 @@ import { HTML_DOCUMENT_URL } from "./document-url";
 import { openBoundedZip } from "../epub/zip";
 import { handZip } from "@/tests/hand-zip";
 import {
+  HTML_ZIP_MAX_DOCUMENT_BYTES,
   HTML_ZIP_MAX_ENTRIES,
   HTML_ZIP_MAX_ENTRY_BYTES,
   HTML_ZIP_MAX_ENTRY_RATIO,
@@ -28,6 +29,7 @@ import {
 } from "./zip-config";
 import {
   HTML_ZIP_LIMITS,
+  answerArchiveRequest,
   contentTypeOfEntry,
   htmlZipRefusalMessage,
   looksLikeZip,
@@ -410,6 +412,112 @@ describe("which page is printed", () => {
       refusal: { kind: "no_html" },
     });
   });
+});
+
+/**
+ * Hostile review round 3 (2026-11-14). The answer read (inflated, and
+ * cached) an entry BEFORE charging it, so with the directory's bounds gone
+ * the budgets refused 80 answers of 20 MiB while the heap held every one of
+ * them (Node 206 -> 2,323 MiB); and nothing bounded the MARKUP Chromium was
+ * handed: five 20 MiB pages in frames peaked at 13.5-14.0 GiB of Chromium.
+ */
+describe("an archive answer is charged before it is read, and documents have their own budget", () => {
+  const shaped = (size: number) => {
+    const b = new Uint8Array(size);
+    // Some of it random: inside the ratio bound, as a real file would be.
+    randomFillSync(b, 0, Math.ceil(size / 40));
+    return b;
+  };
+
+  it("the document budget is the size of one uploaded HTML file: a second, independent figure", () => {
+    expect(HTML_ZIP_MAX_DOCUMENT_BYTES).toBe(
+      HTML_RENDER_DEFAULT_MAX_INPUT_BYTES,
+    );
+  });
+
+  it("looks an entry up by its declared size and kind, without reading it", async () => {
+    const s = site(open(await zipOf({ ...SITE, "i.svg": "<svg/>" })));
+    expect(s.documentBytesLeft).toBe(HTML_ZIP_MAX_DOCUMENT_BYTES);
+    expect(s.lookup(`${HTML_DOCUMENT_URL}css/site.css`)).toEqual({
+      bytes: SITE["css/site.css"].length,
+      document: false,
+    });
+    expect(s.lookup(`${HTML_DOCUMENT_URL}index.html`)).toEqual({
+      bytes: SITE["index.html"].length,
+      document: true,
+    });
+    expect(s.lookup(`${HTML_DOCUMENT_URL}i.svg`)?.document).toBe(true);
+    expect(s.lookup(`${HTML_DOCUMENT_URL}images/`)).toBeNull();
+    expect(s.lookup(`${HTML_DOCUMENT_URL}%2e%2e/x`)).toBeNull();
+    expect(s.lookup(`${HTML_DOCUMENT_URL}nothing.css`)).toBeNull();
+  });
+
+  it("an answer a budget refuses never reads the entry; one it admits reads it once", async () => {
+    const s = site(open(await zipOf({ ...SITE, "big.bin": shaped(MIB) })));
+    let reads = 0;
+    const tapped = {
+      lookup: (u: string) => s.lookup(u),
+      serve: (u: string) => {
+        reads += 1;
+        return s.serve(u);
+      },
+      documentBytesLeft: s.documentBytesLeft,
+    };
+    const get = { method: "GET", url: `${HTML_DOCUMENT_URL}big.bin` };
+    const small = createRenderNetwork(
+      {},
+      { ...DEFAULT_RENDER_NETWORK_LIMITS, maxResponseBytes: MIB - 1 },
+    );
+    expect(answerArchiveRequest(tapped, small, get).action).toBe("fail");
+    const spent = createRenderNetwork(
+      {},
+      { ...DEFAULT_RENDER_NETWORK_LIMITS, maxTotalBytes: MIB - 1 },
+    );
+    expect(answerArchiveRequest(tapped, spent, get).action).toBe("fail");
+    expect(reads).toBe(0);
+    const reply = answerArchiveRequest(tapped, createRenderNetwork(), get);
+    expect(reply).toMatchObject({ action: "fulfill", status: 200 });
+    expect(reply.action === "fulfill" && reply.body?.byteLength).toBe(MIB);
+    expect(reads).toBe(1);
+    // A 404 is charged as a request, and reads nothing.
+    const none = { method: "GET", url: `${HTML_DOCUMENT_URL}nope.css` };
+    expect(
+      answerArchiveRequest(tapped, createRenderNetwork(), none),
+    ).toMatchObject({ action: "fulfill", status: 404 });
+    expect(reads).toBe(1);
+  });
+
+  it("serves documents up to the budget, page included, per answer, and nothing else counts against it (the reviewer's shape: pages in frames)", async () => {
+    const third = Math.floor(HTML_ZIP_MAX_DOCUMENT_BYTES / 3);
+    const s = site(
+      open(
+        await zipOf({
+          "index.html":
+            '<iframe src="a.html"></iframe><iframe src="b.html"></iframe><iframe src="c.html"></iframe>',
+          "a.html": shaped(third),
+          "b.html": shaped(third),
+          "c.html": shaped(third),
+          "s.css": shaped(third),
+        }),
+      ),
+    );
+    const net = createRenderNetwork();
+    const ask = (name: string) =>
+      answerArchiveRequest(s, net, {
+        method: "GET",
+        url: `${HTML_DOCUMENT_URL}${name}`,
+      }).action;
+    expect(ask("index.html")).toBe("fulfill");
+    expect(ask("a.html")).toBe("fulfill");
+    expect(ask("s.css")).toBe("fulfill");
+    expect(ask("b.html")).toBe("fulfill");
+    // index.html + three thirds is past the budget: the third frame fails.
+    expect(ask("c.html")).toBe("fail");
+    // A stylesheet still loads: only documents are bounded here.
+    expect(ask("s.css")).toBe("fulfill");
+    // Asked again, a frame is charged again.
+    expect(ask("a.html")).toBe("fail");
+  }, 60_000);
 });
 
 describe("a URL becomes an archive entry, exactly or not at all", () => {

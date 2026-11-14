@@ -37,7 +37,22 @@
  *      entries uncharged — any image built before the first review's fix,
  *      open to a 656 KB upload that took the worker's heap — would still
  *      have passed 1-4, so `htmlZip: true` said ZIPs were opened, not that
- *      serving them was bounded.
+ *      serving them was bounded;
+ *   6. that answer is CHARGED BEFORE THE ENTRY IS READ: refused by a budget,
+ *      the site is never asked for its bytes; and a document (the HTML
+ *      page) is charged to the site's document budget, which starts at
+ *      `HTML_ZIP_MAX_DOCUMENT_BYTES`, while a stylesheet is not;
+ *   7. the archive's own bounds hold where every serve depends on them: a
+ *      ZIP declaring ONE file a byte past `HTML_ZIP_MAX_ENTRY_BYTES`, and
+ *      one declaring files a byte past `HTML_ZIP_MAX_UNPACKED_BYTES` in all
+ *      (each file inside every other bound), are each refused, finally,
+ *      before the renderer, WITH THAT BOUND'S OWN refusal. Steps 6 and 7
+ *      were added after hostile review round 3 (2026-11-14): with either
+ *      directory bound deleted the probe still passed, while 80 entries of
+ *      20 MiB took the worker from 206 to 2,323 MiB serving one render. The
+ *      refusal's words are compared, not only its finality: with a bound
+ *      deleted those archives are still refused, as unreadable (their
+ *      declared sizes overlap), which a finality check would call a pass.
  *
  * ── WHAT A PASS DOES AND DOES NOT MEAN ──────────────────────────────────────
  * Chromium is a stub: a start-up probe launches no browser. A pass means
@@ -55,6 +70,12 @@ import { createProcessorRegistry } from "../processor";
 import { HTML_DOCUMENT_URL } from "./document-url";
 import type { ChromiumPdfRunner, HtmlSite } from "./engine";
 import { DEFAULT_RENDER_NETWORK_LIMITS, createRenderNetwork } from "./network";
+import {
+  HTML_ZIP_MAX_DOCUMENT_BYTES,
+  HTML_ZIP_MAX_ENTRY_BYTES,
+  HTML_ZIP_MAX_UNPACKED_BYTES,
+  htmlZipRefusalMessage,
+} from "./zip-config";
 import { answerArchiveRequest } from "./zip-site";
 
 const enc = (s: string) => new TextEncoder().encode(s);
@@ -67,6 +88,35 @@ async function probeZip(files: Record<string, string>): Promise<Uint8Array> {
   const zip = new JSZip();
   for (const [name, body] of Object.entries(files)) zip.file(name, body);
   return zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
+}
+
+/**
+ * `zip` with its central directory rewritten to DECLARE `unpacked[i]` bytes
+ * for entry i (the last figure repeats), each packed at half of that — so
+ * inside every ratio bound, and only a size bound can refuse it. Nothing is
+ * inflated to judge a directory, so the archive stays a few hundred bytes.
+ */
+function declaringSizes(zip: Uint8Array, unpacked: readonly number[]) {
+  const out = new Uint8Array(zip);
+  const view = new DataView(out.buffer, out.byteOffset, out.byteLength);
+  let eocd = out.length - 22;
+  while (eocd >= 0 && view.getUint32(eocd, true) !== 0x06054b50) eocd -= 1;
+  if (eocd < 0) throw new Error("probe ZIP has no directory");
+  const count = view.getUint16(eocd + 10, true);
+  let at = view.getUint32(eocd + 16, true);
+  for (let n = 0; n < count; n += 1) {
+    if (view.getUint32(at, true) !== 0x02014b50)
+      throw new Error("probe ZIP directory is broken");
+    const size = unpacked[Math.min(n, unpacked.length - 1)]!;
+    view.setUint32(at + 20, Math.ceil(size / 2), true);
+    view.setUint32(at + 24, size, true);
+    at +=
+      46 +
+      view.getUint16(at + 28, true) +
+      view.getUint16(at + 30, true) +
+      view.getUint16(at + 32, true);
+  }
+  return out;
 }
 
 /**
@@ -135,6 +185,8 @@ export async function provesHtmlZip(
     if (css?.contentType !== "text/css") return false;
     if (rendered.serve(`${HTML_DOCUMENT_URL}site/%2e%2e/secret.txt`) !== null)
       return false;
+    if (rendered.lookup(`${HTML_DOCUMENT_URL}site/%2e%2e/secret.txt`) !== null)
+      return false;
     if (htmlRenders() !== 0) return false;
 
     // 2. An HTML file is still a file.
@@ -175,7 +227,68 @@ export async function provesHtmlZip(
       {},
       { ...limits, maxResponseBytes: size - 1 },
     );
-    return !fulfilled(oneBody);
+    if (fulfilled(oneBody)) return false;
+
+    // 6. Charged before it is read; documents against their own budget.
+    if (rendered.documentBytesLeft !== HTML_ZIP_MAX_DOCUMENT_BYTES)
+      return false;
+    let reads = 0;
+    const tapped = (documentBytesLeft: number) => ({
+      lookup: (url: string) => rendered.lookup(url),
+      serve: (url: string) => {
+        reads += 1;
+        return rendered.serve(url);
+      },
+      documentBytesLeft,
+    });
+    const refusedBody = createRenderNetwork(
+      {},
+      { ...limits, maxResponseBytes: size - 1 },
+    );
+    if (answer(tapped(Infinity), refusedBody, get).action !== "fail")
+      return false;
+    if (reads !== 0) return false;
+    const page = {
+      method: "GET",
+      url: `${HTML_DOCUMENT_URL}site/about.html`,
+    };
+    const pageBytes = rendered.lookup(page.url)?.bytes ?? 0;
+    if (pageBytes === 0) return false;
+    const docs = tapped(pageBytes);
+    const free = () => createRenderNetwork();
+    if (answer(docs, free(), page).action !== "fulfill") return false;
+    if (answer(docs, free(), get).action !== "fulfill") return false;
+    if (answer(docs, free(), page).action !== "fail") return false;
+
+    // 7. The archive's own bounds, each refused with its own words.
+    const sizes = await probeZip({
+      "index.html": "<p>probe</p>",
+      "a.css": "a",
+      "b.css": "b",
+      "c.css": "c",
+      "d.css": "d",
+      "e.css": "e",
+      "f.css": "f",
+    });
+    const bound = async (
+      unpacked: readonly number[],
+      limit: "file" | "unpacked",
+    ) => {
+      const run = await job(declaringSizes(sizes, unpacked), "bound.zip", {});
+      return (
+        !run.ok &&
+        !run.error.retryable &&
+        run.error.message === htmlZipRefusalMessage({ kind: "bomb", limit }) &&
+        sites.length === 1 &&
+        htmlRenders() === 1
+      );
+    };
+    if (!(await bound([1, HTML_ZIP_MAX_ENTRY_BYTES + 1, 1], "file")))
+      return false;
+    // Six files inside the per-file bound, a byte past the total together.
+    const each = Math.ceil((HTML_ZIP_MAX_UNPACKED_BYTES + 1) / 6);
+    if (each > HTML_ZIP_MAX_ENTRY_BYTES) return false;
+    return bound([1, each], "unpacked");
   } catch {
     return false;
   }

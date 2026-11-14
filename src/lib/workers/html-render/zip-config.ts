@@ -82,6 +82,23 @@ export const HTML_ZIP_RATIO_FLOOR_BYTES = 1 * MIB;
 export const HTML_ZIP_MAX_ENTRY_BYTES = 20 * MIB;
 
 /**
+ * The most bytes of DOCUMENTS — HTML, XHTML and SVG, which Chromium lays out
+ * each as a document of its own — one render is answered from the archive,
+ * the page included, counted per answer (a frame asked for twice counts
+ * twice); past it the request is failed and the page prints without it.
+ *
+ * Hostile review round 3 (2026-11-14) measured Chromium's memory, not the
+ * worker's: one 20 MiB HTML file of text peaks near 4.1 GiB, and a ZIP of
+ * five 20 MiB pages in frames — 100 MiB of markup inside every other bound
+ * — at 13.5-14.0 GiB, past anything one upload reached before. At 20 MiB,
+ * the size of one uploaded HTML file (`HTML_RENDER_DEFAULT_MAX_INPUT_BYTES`,
+ * which `zip-site.test.ts` compares it with), a ZIP hands Chromium no more
+ * markup than an HTML file may BE. Real saved pages are far inside it: the
+ * largest of the nine above is 3.1 MiB in its largest file of any kind.
+ */
+export const HTML_ZIP_MAX_DOCUMENT_BYTES = 20 * MIB;
+
+/**
  * The five bounds together, and how a name is read, in the shape the
  * bounded directory reader takes (`../epub/zip-directory`'s `ZipLimits`):
  * the worker opens an archive with them (`./zip-site`) and the browser

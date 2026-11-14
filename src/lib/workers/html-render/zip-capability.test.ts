@@ -16,7 +16,9 @@ import type { SecureWorkerProcessorDeps } from "../processor";
 import { runHtmlToPdf, type ChromiumPdfRunner } from "./engine";
 import { provesHtmlZip, type ProbeRegistryBuilder } from "./zip-capability";
 import { answerArchiveRequest } from "./zip-site";
+import { htmlZipRefusalMessage } from "./zip-config";
 import { processorOk } from "../processor/types";
+import { ProcessorRegistry } from "../processor/registry";
 
 const chromiumOf = (deps: Parameters<ProbeRegistryBuilder>[0]) =>
   deps!.htmlRender!.chromium!;
@@ -175,10 +177,125 @@ describe("provesHtmlZip", () => {
       ).resolves.toBe(false);
     });
 
+    // Hostile review round 3 (2026-11-14): the answer inflated (and cached)
+    // the entry, THEN charged it, so a refused answer still cost the heap.
+    const readThenCharge: typeof answerArchiveRequest = (
+      site,
+      network,
+      req,
+    ) => {
+      const hit = req.method === "GET" ? site.serve(req.url) : null;
+      const refused = network.chargeServed(hit ? hit.body.byteLength : 0);
+      if (refused !== null) return { action: "fail", why: refused };
+      return {
+        action: "fulfill",
+        status: hit ? 200 : 404,
+        headers: [],
+        body: hit ? hit.body : null,
+      };
+    };
+    it("says NO when an entry is read before it is charged (the round-2 answer)", async () => {
+      await expect(
+        provesHtmlZip(createProcessorRegistry, readThenCharge),
+      ).resolves.toBe(false);
+    });
+
+    it("says NO when documents are not charged to the document budget", async () => {
+      const noDocumentBudget: typeof answerArchiveRequest = (site, n, req) =>
+        answerArchiveRequest(
+          {
+            lookup: (url) => {
+              const found = site.lookup(url);
+              return found && { ...found, document: false };
+            },
+            serve: (url) => site.serve(url),
+            documentBytesLeft: site.documentBytesLeft,
+          },
+          n,
+          req,
+        );
+      await expect(
+        provesHtmlZip(createProcessorRegistry, noDocumentBudget),
+      ).resolves.toBe(false);
+    });
+
     it("POSITIVE CONTROL: the renderer's own answer passes, and is what the default argument is", async () => {
       await expect(
         provesHtmlZip(createProcessorRegistry, answerArchiveRequest),
       ).resolves.toBe(true);
+    });
+  });
+  // Hostile review round 3 (2026-11-14): deleting either directory bound of
+  // the reader (`../epub/zip-directory.ts`) left the probe green, though
+  // serving then held up to 2.3 GiB of the worker's heap. Each image below
+  // is the real registry, except that the bound's own refusal does not
+  // happen: the archive renders, or is refused for another reason.
+  describe("the archive's own bounds must hold", () => {
+    const FILE = htmlZipRefusalMessage({ kind: "bomb", limit: "file" });
+    const UNPACKED = htmlZipRefusalMessage({ kind: "bomb", limit: "unpacked" });
+    const without =
+      (
+        message: string,
+        instead: "render" | "unreadable",
+      ): ProbeRegistryBuilder =>
+      (deps) => {
+        const real = createProcessorRegistry(deps).resolve("html-to-pdf")!;
+        const chromium = chromiumOf(deps);
+        const registry = new ProcessorRegistry();
+        registry.register({
+          ...real,
+          async process(input) {
+            const run = await real.process(input);
+            if (run.ok || run.error.message !== message) return run;
+            if (instead === "unreadable")
+              return {
+                ok: false,
+                error: {
+                  code: "unprocessable_entity",
+                  message: htmlZipRefusalMessage({ kind: "unreadable" }),
+                  retryable: false,
+                },
+              };
+            await chromium.renderSite!({
+              entry: "index.html",
+              entryUrl: "x",
+              entryBytes: 1,
+              lookup: () => null,
+              serve: () => null,
+              documentBytesLeft: 0,
+            });
+            return processorOk(
+              [
+                {
+                  filename: "x.pdf",
+                  contentType: "application/pdf",
+                  bytes: new Uint8Array([0x25]),
+                },
+              ],
+              {},
+            );
+          },
+        });
+        return registry;
+      };
+    it("POSITIVE CONTROL: the wrapper passes every other job through, so a NO below is the bound's", async () => {
+      await expect(
+        provesHtmlZip(without("no refusal has these words", "render")),
+      ).resolves.toBe(true);
+    });
+    it.each([
+      ["the per-file bound, archive rendered", FILE, "render"],
+      ["the per-file bound, refused as unreadable instead", FILE, "unreadable"],
+      ["the total bound, archive rendered", UNPACKED, "render"],
+      [
+        "the total bound, refused as unreadable instead",
+        UNPACKED,
+        "unreadable",
+      ],
+    ] as const)("says NO without %s", async (_, message, instead) => {
+      await expect(provesHtmlZip(without(message, instead))).resolves.toBe(
+        false,
+      );
     });
   });
 });
