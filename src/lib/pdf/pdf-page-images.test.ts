@@ -22,12 +22,15 @@ import {
   RASTER_MAX_IMAGE_PIXELS,
   RASTER_MAX_PAGE_IMAGE_PIXELS,
   pageImageVerdict,
+  pageImagesTooLargeMessage,
+  pageImagesUnknownMessage,
   preflightPdfjsBytes,
+  refuseOverBudgetPages,
   type PdfjsPreflight,
 } from "./pdfjs-guard";
 import { rawPdf } from "@/tests/hostile/conversion-out.fixtures";
 import {
-  formsPaintOneImagePdf,
+  formsBesideHeavyPagePdf,
   imagePagesPdf,
   withObjectStreams,
 } from "@/tests/hostile/page-images.fixtures";
@@ -100,20 +103,16 @@ describe("the map reads what each page PAINTS", () => {
     }
   }, 60_000);
 
-  it("an image painted four times through forms counts once; an inline image counts every time read", async () => {
+  it("an image painted four times through forms counts four times, as an inline image counts every time read", async () => {
+    // History (hostile review r1, 2026-11-14): this asserted 16 MP, "pdf.js
+    // decodes it once per page". It does, but every `Do` paints the decoded
+    // pixels again at O(their count) on the main thread: one 16 MP image
+    // painted 60 times drew for 180 s in the editor. Inverted, not deleted.
     // Plus a 45 MP page so the file weighs past the budget and the map runs.
-    const { PDFDocument } = await import("pdf-lib");
-    const doc = await PDFDocument.load(
-      await formsPaintOneImagePdf(4000, { real: false }),
-    );
-    const extra = await PDFDocument.load(
-      await imagePagesPdf([[6708]], { real: false }),
-    );
-    doc.addPage((await doc.copyPages(extra, [0]))[0]!);
     const pre = await preflightPdfjsBytes(
-      await doc.save({ useObjectStreams: false }),
+      await formsBesideHeavyPagePdf(4000, 6708, { real: false }),
     );
-    expect(weights(pre)).toEqual([16_000_000, 6708 * 6708]);
+    expect(weights(pre)).toEqual([64_000_000, 6708 * 6708]);
     // An inline 4,000 x 4,000 image in a content stream the page lists
     // four times: pdf.js reads it four times, 64 MP.
     const inline = `BI /W 4000 /H 4000 /CS /RGB /BPC 8 ID ${"\u0001".repeat(3)} EI\n`;
@@ -219,23 +218,47 @@ describe("what the map cannot tell fails safe", () => {
     expect(weights(pre)).toEqual([61_000_000, 36_000_000]);
   });
 
-  it("an encrypted file's content is ciphertext: each page counts what its resources hold, and object streams leave the map incomplete", async () => {
-    const plain = await imagePagesPdf([Array<number>(2).fill(6000), [3000]], {
-      real: false,
-    });
-    const enc = await encryptPdf(plain, {
-      userPassword: "",
-      ownerPassword: "o",
-    });
-    const pre = await preflightPdfjsBytes(enc);
-    // Per-page resources: page 1 holds two 36 MP images, page 2 one 9 MP.
-    expect(weights(pre)).toEqual([72_000_000, 9_000_000]);
-    const packed = await encryptPdf(plain, {
-      userPassword: "",
+  it("an encrypted file that opens with no password is read decrypted, as pdf.js reads it: its object streams and content map exactly", async () => {
+    // History (hostile review r2, 2026-11-14): this asserted that object
+    // streams left the map incomplete and every page noted, "the cost of
+    // failing safe". A restricted (no open password) scan of 9 MP pages,
+    // the shape Acrobat and Word write, then had every Viewer page noted
+    // and was refused by PDF to JPG, which main converted. Inverted.
+    const plain = await imagePagesPdf(
+      [Array<number>(2).fill(6000), [3000], [3000], [3000], [3000], [3000]],
+      { real: false },
+    );
+    for (const cipher of ["rc4-128", "aes-128", "aes-256"] as const) {
+      for (const objectStreams of [false, true]) {
+        const enc = await encryptPdf(plain, {
+          userPassword: "",
+          ownerPassword: "o",
+          objectStreams,
+          cipher,
+        });
+        const pre = await preflightPdfjsBytes(enc);
+        const label = `${cipher} objectStreams=${objectStreams}`;
+        expect(pre.pages!.incomplete, label).toBeNull();
+        // Page 1 paints two 36 MP images; the rest one 9 MP each.
+        expect(weights(pre), label).toEqual([
+          72_000_000,
+          ...Array<number>(5).fill(9_000_000),
+        ]);
+        const refs = await pdfjsPageRefs(enc);
+        expect(
+          refs.map((r) => pageImageVerdict(pre, { num: r })),
+          label,
+        ).toEqual([PAGE_IMAGES_NOTE, null, null, null, null, null]);
+      }
+    }
+    // A file that needs a password to open: nothing is decrypted, and the
+    // map fails safe (object streams it cannot read: incomplete).
+    const locked = await encryptPdf(plain, {
+      userPassword: "u",
       ownerPassword: "o",
       objectStreams: true,
     });
-    const p2 = await preflightPdfjsBytes(packed);
+    const p2 = await preflightPdfjsBytes(locked);
     expect(p2.pages!.incomplete).not.toBeNull();
     expect(pageImageVerdict(p2, { num: 3 })).toBe(PAGE_IMAGES_UNKNOWN_NOTE);
     // History (found here, 2026-11-14): the scan read an encrypted object
@@ -288,4 +311,401 @@ describe("the real-producer corpus: the map finds exactly the pages pdf.js repor
     },
     30_000,
   );
+});
+
+/* ------------------------------------------------------------------ *
+ *  Hostile review r1/r2 (2026-11-14): what the map got wrong
+ * ------------------------------------------------------------------ */
+
+const CATALOG = "<< /Type /Catalog /Pages 2 0 R >>";
+const ONE_PAGE = "<< /Type /Pages /Kids [3 0 R] /Count 1 >>";
+
+/** One page, four 6000 x 6000 images (144 MP) as /I0../I3, painted by `content`. */
+function fourImages(
+  content: string | Uint8Array,
+  contentDict = "",
+  keys = ["I0", "I1", "I2", "I3"],
+) {
+  return rawPdf([
+    CATALOG,
+    ONE_PAGE,
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources << /XObject << ${keys.map((k, i) => `/${k} ${5 + i} 0 R`).join(" ")} >> >> /Contents 4 0 R >>`,
+    { dict: contentDict, stream: content },
+    image(6000, 6000),
+    image(6000, 6000),
+    image(6000, 6000),
+    image(6000, 6000),
+  ]);
+}
+
+const grid = (names: string[]) =>
+  names
+    .map(
+      (n, k) =>
+        `q 250 0 0 250 ${50 + (k % 2) * 250} ${50 + (k >> 1) * 250} cm /${n} Do Q`,
+    )
+    .join("\n");
+
+describe("a `Do` operand is looked up as pdf.js decodes it", () => {
+  it("#xx-escaped names paint the images they name: each escape shape", async () => {
+    // Positive control: plain names.
+    const plain = await preflightPdfjsBytes(
+      fourImages(grid(["I0", "I1", "I2", "I3"])),
+    );
+    expect(weights(plain)).toEqual([144_000_000]);
+    // Every character escaped, the digit escaped, upper- and lower-case hex.
+    const escaped = await preflightPdfjsBytes(
+      fourImages(grid(["#49#30", "I#31", "I#32", "#49#33"])),
+    );
+    expect(weights(escaped)).toEqual([144_000_000]);
+    expect(pageImageVerdict(escaped, { num: 3 })).toBe(PAGE_IMAGES_NOTE);
+    // Escaped keys, plain operands: the same images.
+    const keys = await preflightPdfjsBytes(
+      fourImages(grid(["I0", "I1", "I2", "I3"]), "", [
+        "#49#30",
+        "I#31",
+        "#49#32",
+        "I#33",
+      ]),
+    );
+    expect(weights(keys)).toEqual([144_000_000]);
+  });
+
+  it("decodes exactly as pdf.js's Lexer.getName, not as a regex: `#4#30` stays `#4#30`", async () => {
+    // pdf.js reads the key `/I#234#2330` as `I#4#30` (two escapes) and the
+    // operand `/I#4#30` as `I#4#30` (a `#` before one hex digit keeps it
+    // and the next character), so the page paints that image. A regex
+    // reads the operand as `I#40` and misses it.
+    const { decodeName } = await import("./pdf-page-images");
+    expect(decodeName("I#4#30")).toBe("I#4#30");
+    expect(decodeName("I#234#2330")).toBe("I#4#30");
+    expect(decodeName("#49#30")).toBe("I0");
+    expect(decodeName("A#2a")).toBe("A*");
+    expect(decodeName("A#G1")).toBe("A#G1");
+    expect(decodeName("A#")).toBe("A#");
+    const pre = await preflightPdfjsBytes(
+      fourImages(grid(["I#4#30", "I1", "I2", "I3"]), "", [
+        "I#234#2330",
+        "I1",
+        "I2",
+        "I3",
+      ]),
+    );
+    expect(weights(pre)).toEqual([144_000_000]);
+  });
+});
+
+/** PNG `Up` rows of `columns` bytes (filter byte 2), as a writer predicts content. */
+function pngUp(data: Uint8Array, columns: number): Uint8Array {
+  const out: number[] = [];
+  let prior = new Uint8Array(columns);
+  for (let r = 0; r < data.length; r += columns) {
+    const row = new Uint8Array(columns);
+    row.set(data.subarray(r, r + columns));
+    out.push(2, ...row.map((b, i) => (b - prior[i]! + 256) & 0xff));
+    prior = row;
+  }
+  return Uint8Array.from(out);
+}
+
+describe("content behind a /DecodeParms predictor is read through it", () => {
+  it("PNG Up content (Predictor 12, Columns 4) paints its four 36 MP images", async () => {
+    const { deflateSync } = await import("node:zlib");
+    const text = new TextEncoder().encode(grid(["I0", "I1", "I2", "I3"]));
+    const pre = await preflightPdfjsBytes(
+      fourImages(
+        new Uint8Array(deflateSync(pngUp(text, 4))),
+        "/Filter /FlateDecode /DecodeParms << /Predictor 12 /Columns 4 >>",
+      ),
+    );
+    expect(pre.pages!.incomplete).toBeNull();
+    expect(weights(pre)).toEqual([144_000_000]);
+    expect(pageImageVerdict(pre, { num: 3 })).toBe(PAGE_IMAGES_NOTE);
+  });
+
+  it("unpredict: PNG rows of every filter type, TIFF 2, and what pdf.js refuses", async () => {
+    const { unpredict } = await import("./pdf-page-images");
+    const raw = Uint8Array.from({ length: 48 }, (_, i) => (i * 37 + 11) & 0xff);
+    // Each row its own PNG filter, encoded by hand (PNG spec, 9.2).
+    const cols = 6;
+    const bpp = 3;
+    const enc: number[] = [];
+    let prior = new Uint8Array(cols);
+    for (let r = 0; r * cols < raw.length; r += 1) {
+      const row = raw.subarray(r * cols, r * cols + cols);
+      const type = r % 5;
+      enc.push(type);
+      for (let i = 0; i < cols; i += 1) {
+        const left = i >= bpp ? row[i - bpp]! : 0;
+        const up = prior[i]!;
+        const ul = i >= bpp ? prior[i - bpp]! : 0;
+        const p = left + up - ul;
+        const paeth =
+          Math.abs(p - left) <= Math.abs(p - up) &&
+          Math.abs(p - left) <= Math.abs(p - ul)
+            ? left
+            : Math.abs(p - up) <= Math.abs(p - ul)
+              ? up
+              : ul;
+        const pred = [0, left, up, (left + up) >> 1, paeth][type]!;
+        enc.push((row[i]! - pred + 256) & 0xff);
+      }
+      prior = Uint8Array.from(row);
+    }
+    const params = { predictor: 15, colors: 3, bpc: 8, columns: 2 };
+    expect([...unpredict(Uint8Array.from(enc), params)!]).toEqual([...raw]);
+    // TIFF 2, 8 bits: each sample adds the one `colors` before it.
+    expect([
+      ...unpredict(Uint8Array.from([1, 2, 3, 1, 1, 1]), {
+        predictor: 2,
+        colors: 3,
+        bpc: 8,
+        columns: 2,
+      })!,
+    ]).toEqual([1, 2, 3, 2, 3, 4]);
+    // A row filter pdf.js refuses, and a TIFF depth not applied: unreadable.
+    expect(
+      unpredict(Uint8Array.from([7, 0, 0, 0, 0, 0, 0]), params),
+    ).toBeNull();
+    expect(
+      unpredict(new Uint8Array(4), { ...params, predictor: 2, bpc: 4 }),
+    ).toBeNull();
+  });
+});
+
+describe("every paint is charged: pdf.js decodes once a page, but paints per `Do`", () => {
+  const repeated = (paints: number, viaForm = false) =>
+    rawPdf([
+      CATALOG,
+      ONE_PAGE,
+      viaForm
+        ? "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources << /XObject << /Fm 5 0 R >> >> /Contents 4 0 R >>"
+        : "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources << /XObject << /Im0 6 0 R >> >> /Contents 4 0 R >>",
+      {
+        dict: "",
+        stream: `q 500 0 0 500 50 50 cm\n${`${viaForm ? "/Fm" : "/Im0"} Do\n`.repeat(paints)}Q`,
+      },
+      // The form exists only where the page paints it.
+      viaForm
+        ? {
+            dict: "/Type /XObject /Subtype /Form /BBox [0 0 1 1] /Resources << /XObject << /Im0 6 0 R >> >>",
+            stream: "/Im0 Do",
+          }
+        : null,
+      image(4000, 4000),
+    ]);
+
+  it("one 16 MP image painted 20 times weighs 320 MP, through `Do` and through a form; the fast path sees it", async () => {
+    // Positive control: painted once, the fast path rules every page out.
+    expect((await preflightPdfjsBytes(repeated(1))).pages).toBeNull();
+    for (const viaForm of [false, true]) {
+      const pre = await preflightPdfjsBytes(repeated(20, viaForm));
+      expect(pre.pages, `viaForm=${viaForm}: mapped`).not.toBeNull();
+      expect(weights(pre)).toEqual([320_000_000]);
+      expect(pageImageVerdict(pre, { num: 3 })).toBe(PAGE_IMAGES_NOTE);
+    }
+    // Three paints (48 MP) are within the budget: drawn.
+    const three = await preflightPdfjsBytes(repeated(3));
+    expect(pageImageVerdict(three, { num: 3 })).toBeNull();
+  });
+});
+
+describe("the map's work is bounded on the main thread", () => {
+  /** P pages naming one content stream of 3.9 million `Q`, after one `Do`. */
+  async function sharedOps(pages: number, distinctResources: boolean) {
+    const { deflateSync } = await import("node:zlib");
+    const ops = new Uint8Array(
+      deflateSync(Buffer.from(`/A Do\n${"Q\n".repeat(3_900_000)}`)),
+    );
+    const kids = Array.from({ length: pages }, (_, i) => 6 + i);
+    return rawPdf([
+      CATALOG,
+      `<< /Type /Pages /Kids [${kids.map((k) => `${k} 0 R`).join(" ")}] /Count ${pages} >>`,
+      { dict: "/Filter /FlateDecode", stream: ops },
+      image(5500, 5500),
+      image(5500, 5500),
+      ...kids.map(
+        (_, i) =>
+          `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources << /XObject << /A 4 0 R /B 5 0 R >>${distinctResources ? ` /Properties << /P${i} 1 >>` : ""} >> /Contents 3 0 R >>`,
+      ),
+    ]);
+  }
+
+  it("200 pages sharing one stream and one /Resources text: walked once, every page weighed, in seconds", async () => {
+    const bytes = await sharedOps(200, false);
+    const t0 = Date.now();
+    const pre = await preflightPdfjsBytes(bytes);
+    const ms = Date.now() - t0;
+    expect(pre.pages!.incomplete).toBeNull();
+    expect(weights(pre)).toHaveLength(200);
+    expect(new Set(weights(pre))).toEqual(new Set([5500 * 5500]));
+    // Before: 6.4 s for 200 pages, 87.5 s for 2,000 (hostile review r1).
+    expect(ms).toBeLessThan(5_000);
+  }, 30_000);
+
+  it("...and with a distinct /Resources on every page, the walk stops at its bound and every page fails safe", async () => {
+    const bytes = await sharedOps(200, true);
+    const t0 = Date.now();
+    const pre = await preflightPdfjsBytes(bytes);
+    const ms = Date.now() - t0;
+    expect(pre.pages!.incomplete).toBe("content work");
+    expect(pageImageVerdict(pre, { num: 6 })).toBe(PAGE_IMAGES_UNKNOWN_NOTE);
+    expect(ms).toBeLessThan(5_000);
+  }, 30_000);
+});
+
+/** A JPEG 2000 codestream's first bytes: SOC, then SIZ for `w` x `h`, 3 components. */
+function jpxHeader(w: number, h: number): Uint8Array {
+  const b = new Uint8Array(4 + 38 + 9);
+  const v = new DataView(b.buffer);
+  v.setUint16(0, 0xff4f);
+  v.setUint16(2, 0xff51);
+  v.setUint16(4, 38 + 9); // Lsiz
+  v.setUint16(6, 0); // Rsiz
+  v.setUint32(8, w);
+  v.setUint32(12, h);
+  v.setUint32(16, 0);
+  v.setUint32(20, 0);
+  v.setUint32(24, w);
+  v.setUint32(28, h);
+  v.setUint32(32, 0);
+  v.setUint32(36, 0);
+  v.setUint16(40, 3);
+  return b;
+}
+
+describe("a JPEG 2000 image costs its codestream's size, which pdf.js prefers to the dictionary", () => {
+  const jpx = (w: number, h: number) => ({
+    dict: "/Type /XObject /Subtype /Image /Width 100 /Height 100 /BitsPerComponent 8 /ColorSpace /DeviceRGB /Filter /JPXDecode",
+    stream: jpxHeader(w, h),
+  });
+  const page = (n: number) =>
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources << /XObject << ${Array.from({ length: n }, (_, i) => `/I${i} ${5 + i} 0 R`).join(" ")} >> >> /Contents 4 0 R >>`;
+
+  it("four images declared 100 x 100 whose codestreams are 6000 x 6000 weigh 144 MP", async () => {
+    const pre = await preflightPdfjsBytes(
+      rawPdf([
+        CATALOG,
+        ONE_PAGE,
+        page(4),
+        { dict: "", stream: grid(["I0", "I1", "I2", "I3"]) },
+        jpx(6000, 6000),
+        jpx(6000, 6000),
+        jpx(6000, 6000),
+        jpx(6000, 6000),
+      ]),
+    );
+    expect(weights(pre)).toEqual([144_000_000]);
+    // Control: codestreams that agree with the dictionary need no map.
+    const agree = await preflightPdfjsBytes(
+      rawPdf([
+        CATALOG,
+        ONE_PAGE,
+        page(1),
+        { dict: "", stream: grid(["I0"]) },
+        jpx(100, 100),
+      ]),
+    );
+    expect(agree.pages).toBeNull();
+    expect(agree.overBudgetImage).toBe(false);
+  });
+
+  it("one declared 100 x 100 with a 10,000 x 10,000 codestream is over the per-image budget; a preview skips it by its dictionary size", async () => {
+    const pre = await preflightPdfjsBytes(
+      rawPdf([
+        CATALOG,
+        ONE_PAGE,
+        page(1),
+        { dict: "", stream: grid(["I0"]) },
+        jpx(10_000, 10_000),
+      ]),
+    );
+    expect(pre.overBudgetImage).toBe(true);
+    // pdf.js compares `maxImageSize` with the DICTIONARY's 100 x 100.
+    expect(pre.previewOptions.maxImageSize).toBe(100 * 100 - 1);
+  });
+});
+
+describe("an image whose size the scan cannot read reaches the page budget", () => {
+  it("ten 49 MP images whose /Width sits in an object stream: the map is built and the page weighs 490 MP", async () => {
+    const { PDFDocument, PDFName, PDFNumber, PDFRawStream } =
+      await import("pdf-lib");
+    const doc = await PDFDocument.load(
+      await imagePagesPdf([Array<number>(10).fill(7000)], { real: false }),
+    );
+    let changed = 0;
+    for (const [, obj] of doc.context.enumerateIndirectObjects()) {
+      if (!(obj instanceof PDFRawStream)) continue;
+      if (obj.dict.get(PDFName.of("Subtype")) !== PDFName.of("Image")) continue;
+      obj.dict.set(
+        PDFName.of("Width"),
+        doc.context.register(PDFNumber.of(7000)),
+      );
+      changed += 1;
+    }
+    expect(changed).toBe(10);
+    const pre = await preflightPdfjsBytes(
+      await doc.save({ useObjectStreams: true }),
+    );
+    // The scan cannot read the width: the image is over budget by rule.
+    expect(pre.overBudgetImage).toBe(true);
+    expect(weights(pre)).toEqual([490_000_000]);
+    const [num] = [...pre.pages!.weights.keys()];
+    expect(pageImageVerdict(pre, { num: num! })).toBe(PAGE_IMAGES_NOTE);
+  });
+});
+
+describe("a page counted by a bound is never called past the budget as a fact", () => {
+  /** 12 pages, one shared /Resources of twelve 9 MP images, each page painting one. */
+  const sharedScan = (lzw: boolean) => {
+    const kids = Array.from({ length: 12 }, (_, i) => 15 + 2 * i);
+    const xobjects = Array.from(
+      { length: 12 },
+      (_, i) => `/S${i} ${3 + i} 0 R`,
+    ).join(" ");
+    return rawPdf([
+      CATALOG,
+      `<< /Type /Pages /Resources << /XObject << ${xobjects} >> >> /Kids [${kids.map((k) => `${k} 0 R`).join(" ")}] /Count 12 >>`,
+      ...Array.from({ length: 12 }, () => image(3000, 3000)),
+      ...kids.flatMap((k, i) => [
+        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Contents ${k + 1} 0 R >>`,
+        lzw
+          ? { dict: "/Filter /LZWDecode", stream: "\u0080\u000b`P" }
+          : { dict: "", stream: `q 500 0 0 500 50 50 cm /S${i} Do Q` },
+      ]),
+    ]);
+  };
+
+  it("content the map cannot read: each page may paint all twelve (108 MP), so the note says MAY, not IS", async () => {
+    const pre = await preflightPdfjsBytes(sharedScan(true));
+    expect(new Set(weights(pre))).toEqual(new Set([108_000_000]));
+    expect(pageImageVerdict(pre, { num: 15 })).toBe(PAGE_IMAGES_UNKNOWN_NOTE);
+    // Positive control: readable, each page paints its own 9 MP: drawn.
+    const plain = await preflightPdfjsBytes(sharedScan(false));
+    expect(new Set(weights(plain))).toEqual(new Set([9_000_000]));
+    expect(pageImageVerdict(plain, { num: 15 })).toBeNull();
+  });
+
+  it("the output paths refuse a bounded or unmatched page with the could-not-be-read copy, a measured one with the too-large copy", async () => {
+    const bounded = await preflightPdfjsBytes(sharedScan(true));
+    await expect(
+      refuseOverBudgetPages(bounded, [0], async () => ({ ref: { num: 15 } })),
+    ).rejects.toThrow(pageImagesUnknownMessage(1));
+    // An unmatched page (no ref) is refused the same way, never as too large.
+    await expect(
+      refuseOverBudgetPages(bounded, [4], async () => ({ ref: null })),
+    ).rejects.toThrow(pageImagesUnknownMessage(5));
+    const measured = await preflightPdfjsBytes(
+      await imagePagesPdf([Array<number>(10).fill(7000)], { real: false }),
+    );
+    const [num] = [...measured.pages!.weights.keys()];
+    await expect(
+      refuseOverBudgetPages(measured, [0], async () => ({
+        ref: { num: num! },
+      })),
+    ).rejects.toThrow(pageImagesTooLargeMessage(1));
+    // The two copies say different things.
+    expect(pageImagesUnknownMessage(1)).not.toBe(pageImagesTooLargeMessage(1));
+    expect(pageImagesUnknownMessage(1)).toMatch(/may add up to more than/);
+  });
 });

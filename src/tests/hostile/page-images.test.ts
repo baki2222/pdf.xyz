@@ -153,12 +153,15 @@ describe("long scans and shared structures stay unaffected", () => {
     expect(v).toMatchObject({ ok: true, rendered: [0, 59, 119] });
   }, 180_000);
 
-  test("forms painting one image four times: it counts once (pdf.js decodes it once per page), and the page is drawn", async () => {
+  test("forms painting one image four times: every paint counts (64 MP), and the page is a note", async () => {
+    // History (hostile review r1, 2026-11-14): this asserted 16 MP and a
+    // drawn page, "pdf.js decodes it once per page". It decodes once and
+    // PAINTS four times, each paint O(the image's pixels) on the main
+    // thread (one 16 MP image painted 60 times drew for 180 s). Inverted.
     const p = await run("preflight-forms-twice", 60_000);
-    // 16 MP once, not 64 MP; the other page is 36 MP.
-    expect(p).toMatchObject({ mapped: 2, weights: [16_000_000, 36_000_000] });
+    expect(p).toMatchObject({ mapped: 2, weights: [36_000_000, 64_000_000] });
     const v = await run("editor-forms-twice", 120_000);
-    expect(v.pages).toEqual([{ kind: "page", inked: true }]);
+    expect(v.pages).toEqual([{ kind: "note", inked: false }]);
   }, 200_000);
 });
 
@@ -193,4 +196,34 @@ describe("Auto-crop never decodes an image past its budget, and never crops it a
     );
     expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
   }, 90_000);
+});
+
+describe("hostile review r1/r2 (2026-11-14): the consumers, not the map", () => {
+  test("editor: one 16 MP image painted 20 times is a note in seconds; painted 3 times (48 MP) it is drawn", async () => {
+    // Before: drawn, 45.6 s, +248 MB (60 paints: 180 s).
+    const v = await run("editor-paint20", 60_000);
+    expect(v.pages).toEqual([{ kind: "note", inked: false }]);
+    expect(Math.max(...(v.pageMs as number[]))).toBeLessThan(10_000);
+    expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
+    const three = await run("editor-paint3", 120_000);
+    expect(three.pages).toEqual([{ kind: "page", inked: true }]);
+  }, 200_000);
+
+  test("editor: four 36 MP images painted by #xx-escaped names are a note, never decoded", async () => {
+    // Before: the map read the names raw, the page weighed 0 and was drawn.
+    const v = await run("editor-escaped", 60_000);
+    expect(v.pages).toEqual([{ kind: "note", inked: false }]);
+    expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
+  }, 90_000);
+
+  test("a restricted (no open password) object-stream scan of 9 MP pages: PDF to JPG writes every page, the Viewer draws every page", async () => {
+    // Before: every Viewer page a note, PDF to JPG refused the file; main
+    // drew and converted it (hostile review r2's blocker).
+    const raster = await run("raster-restricted", 150_000);
+    expect(raster).toMatchObject({ ok: true, rendered: [0, 1, 2, 3, 4, 5] });
+    const viewer = await run("viewer-restricted", 150_000);
+    expect(viewer.pages).toEqual(
+      Array.from({ length: 6 }, () => ({ kind: "page", inked: true })),
+    );
+  }, 320_000);
 });

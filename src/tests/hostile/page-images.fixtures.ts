@@ -129,3 +129,83 @@ export async function formsPaintOneImagePdf(
     { dict: imageDict(side), stream: await imageData(side, real) },
   ]);
 }
+
+/**
+ * One page painting ONE `side` x `side` image `paints` times by plain
+ * repeated `Do` (hostile review r1: a 16 MP image painted 60 times drew for
+ * 180 s in the editor; pdf.js decodes it once, but paints it every time).
+ */
+export async function repeatedPaintPdf(
+  side: number,
+  paints: number,
+  { real = true }: { real?: boolean } = {},
+): Promise<Uint8Array> {
+  return rawPdf([
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>",
+    {
+      dict: "",
+      stream: `q 500 0 0 500 50 50 cm\n${"/Im0 Do\n".repeat(paints)}Q`,
+    },
+    { dict: imageDict(side), stream: await imageData(side, real) },
+  ]);
+}
+
+/**
+ * One page of four `side` x `side` images whose `Do` operands are
+ * #xx-escaped (`/#49#30` is `/I0`): pdf.js decodes the name and paints them.
+ */
+export async function escapedNamesPdf(
+  side: number,
+  { real = true }: { real?: boolean } = {},
+): Promise<Uint8Array> {
+  const data = await imageData(side, real);
+  const names = ["#49#30", "I#31", "I#32", "#49#33"];
+  return rawPdf([
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources << /XObject << /I0 5 0 R /I1 6 0 R /I2 7 0 R /I3 8 0 R >> >> /Contents 4 0 R >>",
+    {
+      dict: "",
+      stream: names
+        .map((n, k) => cell(k, 4).replace(`/Im${k} Do`, `/${n} Do`))
+        .join("\n"),
+    },
+    ...names.map(() => ({ dict: imageDict(side), stream: data })),
+  ]);
+}
+
+/**
+ * Two pages: page 1 is {@link formsPaintOneImagePdf}'s (a `formSide` image
+ * painted four times through forms), page 2 one `heavySide` image, so the
+ * file weighs past the page budget and the map is built. Written raw (no
+ * pdf-lib `copyPages`, which src/lib/pdf/page-copy.test.ts bans).
+ */
+export async function formsBesideHeavyPagePdf(
+  formSide: number,
+  heavySide: number,
+  { real = true }: { real?: boolean } = {},
+): Promise<Uint8Array> {
+  return rawPdf([
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R 8 0 R] /Count 2 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources << /XObject << /Fa 5 0 R >> >> /Contents 4 0 R >>",
+    {
+      dict: "",
+      stream: "q 1 0 0 1 0 0 cm /Fa Do Q q 1 0 0 1 300 0 cm /Fa Do Q",
+    },
+    {
+      dict: "/Type /XObject /Subtype /Form /BBox [0 0 300 600] /Resources << /XObject << /Im 7 0 R /Fb 6 0 R >> >>",
+      stream: "q 250 0 0 250 25 25 cm /Im Do Q /Fb Do",
+    },
+    {
+      dict: "/Type /XObject /Subtype /Form /BBox [0 0 300 600] /Resources << /XObject << /Im 7 0 R >> >>",
+      stream: "q 250 0 0 250 25 325 cm /Im Do Q",
+    },
+    { dict: imageDict(formSide), stream: await imageData(formSide, real) },
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources << /XObject << /Im0 10 0 R >> >> /Contents 9 0 R >>",
+    { dict: "", stream: cell(0, 1) },
+    { dict: imageDict(heavySide), stream: await imageData(heavySide, real) },
+  ]);
+}

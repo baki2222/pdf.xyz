@@ -12,10 +12,13 @@ import { CONTROL, rawPdf } from "./conversion-out.fixtures";
 import { startMemoryMeter } from "./memory";
 import { reportResult } from "./report";
 import {
-  formsPaintOneImagePdf,
+  escapedNamesPdf,
+  formsBesideHeavyPagePdf,
   imagePagesPdf,
+  repeatedPaintPdf,
   withObjectStreams,
 } from "./page-images.fixtures";
+import { encryptPdf } from "@/tests/encrypted-pdf";
 import { deflatedZeros } from "./conversion-out.fixtures";
 
 /** pdf.js's Node canvas behind `document.createElement`, as the render tests do. */
@@ -191,15 +194,6 @@ async function co08PatternPdf(): Promise<Uint8Array> {
   ]);
 }
 
-async function formsBesideHeavyPagePdf(): Promise<Uint8Array> {
-  const { PDFDocument } = await import("pdf-lib");
-  const doc = await PDFDocument.load(await formsPaintOneImagePdf(4000));
-  const extra = await PDFDocument.load(await imagePagesPdf([[6000]]));
-  const [page] = await doc.copyPages(extra, [0]);
-  doc.addPage(page);
-  return doc.save({ useObjectStreams: false });
-}
-
 const CASES: Record<string, () => Promise<unknown>> = {
   "editor-10x49": async () => editor(await TEN_BY_49()),
   "editor-1x49": async () => editor(await imagePagesPdf([[7000]])),
@@ -214,16 +208,39 @@ const CASES: Record<string, () => Promise<unknown>> = {
   "thumbs-long-scan": async () => thumbs(await LONG_SCAN()),
   "raster-long-scan": async () => raster(await LONG_SCAN(), [0, 59, 119]),
   "preflight-long-scan": async () => preflight(await LONG_SCAN()),
-  // A 16 MP image painted four times through forms (64 MP if each paint
-  // counted, 16 MP decoded once), beside a 36 MP page that makes the file
-  // weigh past the page budget, so the map is built. Page 1 drawn.
+  // A 16 MP image painted four times through forms (64 MP: every paint
+  // counts), beside a 36 MP page that makes the file weigh past the page
+  // budget, so the map is built. Page 1 is a note.
   "editor-forms-twice": async () =>
-    editor(await formsBesideHeavyPagePdf(), [0]),
+    editor(await formsBesideHeavyPagePdf(4000, 6000), [0]),
   "preflight-forms-twice": async () =>
-    preflight(await formsBesideHeavyPagePdf()),
+    preflight(await formsBesideHeavyPagePdf(4000, 6000)),
   "autocrop-co08": async () => autoCrop(await CO08_PAGE()),
   "autocrop-co08-pattern": async () => autoCrop(await co08PatternPdf()),
+  // Hostile review r1/r2 (2026-11-14), at the point of consumption.
+  "editor-paint20": async () => editor(await repeatedPaintPdf(4000, 20)),
+  "editor-paint3": async () => editor(await repeatedPaintPdf(4000, 3)),
+  "editor-escaped": async () => editor(await escapedNamesPdf(6000)),
+  "raster-restricted": async () => raster(await RESTRICTED()),
+  "viewer-restricted": async () => viewer(await RESTRICTED()),
 };
+
+/**
+ * A restricted scan: opens with no password, AES-256, object streams (the
+ * shape Acrobat and Word write), six pages of one 9 MP image (54 MP in all,
+ * so the page map is built).
+ */
+async function RESTRICTED(): Promise<Uint8Array> {
+  return encryptPdf(
+    await imagePagesPdf(Array.from({ length: 6 }, () => [3000])),
+    {
+      userPassword: "",
+      ownerPassword: "o",
+      objectStreams: true,
+      cipher: "aes-256",
+    },
+  );
+}
 
 // `editor-grid:<n>:<side>`: one page of n distinct side x side images, the
 // editor drawing it. The measurements behind RASTER_MAX_PAGE_IMAGE_PIXELS.

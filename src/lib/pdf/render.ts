@@ -153,7 +153,9 @@ export async function createThumbnailRenderer(
       // its tile says why, in the page's own shape (never a blank tile).
       const note = guard.pageImageVerdict(preflight, page.ref);
       if (note !== null) {
-        guard.drawPageNote(canvas, note);
+        // A base-orientation tile is turned by the page's /Rotate where it
+        // is shown: the note is drawn turned back, to read upright there.
+        guard.drawPageNote(canvas, note, rotation === 0 ? page.rotate : 0);
       } else {
         const background = options.background ?? base.background ?? "#ffffff";
         task = page.render({ canvas, viewport, background });
