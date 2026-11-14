@@ -61,10 +61,8 @@ function setup() {
   const b = doc("b.pdf", rightPages);
   const result = compareExtractedPdfText(a, b);
   const pages: ComparePages = {
-    left: new Uint8Array([1]),
-    right: new Uint8Array([2]),
-    leftPages: a.extracted.pages,
-    rightPages: b.extracted.pages,
+    left: { bytes: new Uint8Array([1]), extracted: a.extracted },
+    right: { bytes: new Uint8Array([2]), extracted: b.extracted },
   };
   return { result, pages };
 }

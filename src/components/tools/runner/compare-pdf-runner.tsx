@@ -232,12 +232,10 @@ function warmCompareResult(load: () => Promise<CompareResultModule>): void {
 /** One finished run: what it compared, the module it used, what it found. */
 interface CompareRun {
   mod: CompareResultModule;
-  left: ComparablePdfText;
-  right: ComparablePdfText;
+  /** Each with its bytes, for the page view (opened only when asked for). */
+  left: ComparablePdfText & { bytes: Uint8Array };
+  right: ComparablePdfText & { bytes: Uint8Array };
   result: PdfCompareResult;
-  /** The bytes compared, for the page view (opened only when asked for). */
-  leftBytes: Uint8Array;
-  rightBytes: Uint8Array;
 }
 
 /**
@@ -339,16 +337,14 @@ export function ComparePdfEditor({
         extract(right.bytes),
         loadResult(),
       ]);
-      const a = { name: left.name, size: left.size, extracted: leftText };
-      const b = { name: right.name, size: right.size, extracted: rightText };
+      const a = { ...left, extracted: leftText };
+      const b = { ...right, extracted: rightText };
       setOptionsError(null);
       return {
         mod,
         left: a,
         right: b,
         result: await mod.compareInSteps(a, b, options),
-        leftBytes: left.bytes,
-        rightBytes: right.bytes,
       };
     });
   // A toggle re-compares in steps, off the click's own task; a second
@@ -444,12 +440,7 @@ export function ComparePdfEditor({
               result={result}
               options={options}
               onOptions={onOptions}
-              pages={{
-                left: done.leftBytes,
-                right: done.rightBytes,
-                leftPages: done.left.extracted.pages,
-                rightPages: done.right.extracted.pages,
-              }}
+              pages={done}
             />
           ) : (
             // Nothing was compared: the report is a few lines saying why.

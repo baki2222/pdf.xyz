@@ -100,12 +100,16 @@ export function loadCompareViewer(): Promise<CompareViewerModule> {
  */
 export const compareViewerChunk = { load: loadCompareViewer };
 
-/** What the page view needs from the run: both files' bytes and pages. */
+/** What the page view needs from the run: each file's bytes and pages. */
+interface CompareFile {
+  bytes: Uint8Array;
+  extracted: {
+    pages: readonly Pick<ExtractedTextPage, "text" | "pageNumber">[];
+  };
+}
 export interface ComparePages {
-  left: Uint8Array;
-  right: Uint8Array;
-  leftPages: readonly Pick<ExtractedTextPage, "text" | "pageNumber">[];
-  rightPages: readonly Pick<ExtractedTextPage, "text" | "pageNumber">[];
+  left: CompareFile;
+  right: CompareFile;
 }
 
 function verdictOf(
@@ -935,7 +939,8 @@ function ComparePagesHost({
   navToken: number;
 }) {
   const [opened, setOpened] = useState<Opened | null>(null);
-  const { left, right } = pages;
+  const left = pages.left.bytes;
+  const right = pages.right.bytes;
   useEffect(() => {
     let live = true;
     Promise.all([
@@ -981,8 +986,8 @@ function ComparePagesHost({
       left={opened.left}
       right={opened.right}
       result={result}
-      leftPages={pages.leftPages}
-      rightPages={pages.rightPages}
+      leftPages={pages.left.extracted.pages}
+      rightPages={pages.right.extracted.pages}
       current={current}
       navToken={navToken}
     />
