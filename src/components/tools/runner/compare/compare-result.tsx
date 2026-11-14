@@ -33,8 +33,12 @@ import {
   pairChangedLinesSteps,
   type WordToken,
 } from "@/lib/pdf/compare/words";
+import type { ExtractedTextPage } from "@/lib/pdf/text";
+import type { ViewerPdf } from "@/lib/pdf/viewer";
 import { cn } from "@/lib/utils";
+import { ErrorNote, Spinner, errorMessage } from "../runner-kit";
 import { scrollWithin } from "../viewer/scroll-within";
+import { acquireComparePdf, releaseComparePdf } from "./compare-docs";
 import {
   buildReport,
   fallbackSentence,
@@ -70,6 +74,39 @@ export const COMPARE_RESULT_CHUNK = "pdfxyz:lazy:compare-result";
  * past main's whole view on the same files.
  */
 export const ROWS_SHOWN = 400;
+
+/** Compare PDF's page view: its own lazy chunk, fetched only when asked for. */
+type CompareViewerModule = typeof import("./compare-viewer");
+
+let viewerChunk: Promise<CompareViewerModule> | null = null;
+
+/**
+ * Fetch the page view's chunk once, whoever asks first: a pointer or focus
+ * reaching Show changes on the pages, or its press. A failed fetch is
+ * forgotten, so the next press tries again and shows that one's error.
+ */
+export function loadCompareViewer(): Promise<CompareViewerModule> {
+  viewerChunk ??= import("./compare-viewer").catch((err: unknown) => {
+    viewerChunk = null;
+    throw err;
+  });
+  return viewerChunk;
+}
+
+/**
+ * Where the page view finds its chunk: an object, so a test can hold the
+ * fetch and see that both documents' opens start beside it, not after it
+ * (no `vi.mock`). Nothing else writes it.
+ */
+export const compareViewerChunk = { load: loadCompareViewer };
+
+/** What the page view needs from the run: both files' bytes and pages. */
+export interface ComparePages {
+  left: Uint8Array;
+  right: Uint8Array;
+  leftPages: readonly Pick<ExtractedTextPage, "text" | "pageNumber">[];
+  rightPages: readonly Pick<ExtractedTextPage, "text" | "pageNumber">[];
+}
 
 function verdictOf(
   leftHasText: boolean,
@@ -511,12 +548,15 @@ export function CompareChanges({
   options,
   onOptions,
   rowsShown = ROWS_SHOWN,
+  pages,
 }: {
   result: PdfCompareResult;
   options: CompareOptions;
   onOptions: (options: CompareOptions) => void;
   /** The row budget; a test sets it to make a few hunks overflow it. */
   rowsShown?: number;
+  /** Both files, for the page view; without them only the list is offered. */
+  pages?: ComparePages;
 }) {
   const hunks = result.hunks;
   const fresh = () => withMoreHunks({ hunks: 0, rows: {} }, hunks, rowsShown);
@@ -527,9 +567,19 @@ export function CompareChanges({
   const bar = useRef<HTMLDivElement>(null);
   /** What to focus after the next render: a heading, a row, or nothing. */
   const focusNext = useRef<
-    { heading: number } | { row: string } | { list: true } | null
+    | { heading: number }
+    | { row: string }
+    | { list: true }
+    | { pages: true }
+    | null
   >(null);
   const id = useId();
+  /** The list, or both PDFs' pages with the changes marked on them. */
+  const [view, setView] = useState<"list" | "pages">("list");
+  /** Bumped by each move while the pages are shown: both files go to it. */
+  const [navToken, setNavToken] = useState(1);
+  const pagesSlot = useRef<HTMLDivElement>(null);
+  const showPages = view === "pages" && pages !== undefined && hunks.length > 0;
 
   // A new result (an option toggled) starts from its first change. The
   // reset is a state update during render, and the rest of THIS render runs
@@ -545,6 +595,8 @@ export function CompareChanges({
     setForResult(result);
     setCurrent(0);
     setDrawn(drawn);
+    // The page view, if open, goes to the new first change too.
+    setNavToken((t) => t + 1);
   }
   const current = resetting ? 0 : currentState;
 
@@ -582,6 +634,11 @@ export function CompareChanges({
       box?.focus({ preventScroll: true });
       return;
     }
+    if ("pages" in want) {
+      const slot = pagesSlot.current;
+      if (slot) revealInWindow(slot, bar.current);
+      return;
+    }
     const heading = headings.current[want.heading];
     if (!heading) return;
     // The heading goes to the TOP of the list, so the change's rows are
@@ -590,7 +647,11 @@ export function CompareChanges({
     if (box) scrollWithin(box, heading, "start");
     heading.focus({ preventScroll: true });
     revealInWindow(heading, bar.current);
-  }, [current, drawn]);
+    // `view` and `navToken`: Show the list hands focus back to the list, and
+    // a move in the page view brings the pages into the window. Until
+    // 2026-11-15 the `{ list: true }` target was declared and never set, and
+    // a view switch alone would not have run this effect.
+  }, [current, drawn, view, navToken]);
 
   const go = (to: number) => {
     if (hunks.length === 0) return;
@@ -601,8 +662,23 @@ export function CompareChanges({
     if (next === current) return;
     if (next >= drawn.hunks)
       setDrawn(withMoreHunks(drawn, hunks, rowsShown, next + 1));
-    focusNext.current = { heading: next };
+    if (showPages) {
+      // The pages move instead of the list: no hidden heading takes focus,
+      // and on a phone (the bar is not pinned) the pages come into view.
+      focusNext.current = { pages: true };
+      setNavToken((t) => t + 1);
+    } else {
+      focusNext.current = { heading: next };
+    }
     setCurrent(next);
+  };
+
+  const showList = () => {
+    focusNext.current = { list: true };
+    setView("list");
+  };
+  const warmPages = () => {
+    void compareViewerChunk.load().catch(() => {});
   };
 
   const showMoreChanges = () => {
@@ -659,6 +735,8 @@ export function CompareChanges({
     .reduce((sum, h) => sum + h.ops.length, 0);
   const navButton =
     "border-line text-fg hover:bg-wash rounded-ctl inline-flex size-11 shrink-0 items-center justify-center gap-1.5 border text-sm aria-disabled:opacity-40 sm:size-auto sm:h-9 sm:px-3";
+  const viewButton =
+    "border-line text-fg hover:bg-wash rounded-ctl inline-flex min-h-11 items-center border px-4 text-sm aria-pressed:bg-accent/15 aria-pressed:text-accent";
   const toggle =
     "text-fg inline-flex min-h-11 cursor-pointer items-center gap-2 text-sm sm:min-h-9";
 
@@ -713,6 +791,31 @@ export function CompareChanges({
           >
             {status}
           </p>
+          {pages && hunks.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                aria-pressed={view === "pages"}
+                onPointerEnter={warmPages}
+                onFocus={warmPages}
+                onClick={() => {
+                  setView("pages");
+                  setNavToken((t) => t + 1);
+                }}
+                className={viewButton}
+              >
+                Show changes on the pages
+              </button>
+              <button
+                type="button"
+                aria-pressed={view === "list"}
+                onClick={showList}
+                className={viewButton}
+              >
+                Show the list
+              </button>
+            </div>
+          )}
         </div>
         <div className="flex flex-wrap gap-x-5">
           <label className={toggle}>
@@ -749,47 +852,140 @@ export function CompareChanges({
           </ul>
         )}
       </div>
+      {showPages && (
+        <div ref={pagesSlot}>
+          <ComparePagesHost
+            pages={pages}
+            result={result}
+            current={current}
+            navToken={navToken}
+          />
+        </div>
+      )}
       {/* Focusable, so a keyboard can scroll it (axe: scrollable-region-
-          focusable, seen on the result in e2e/compare-pdf.mobile.spec.ts). */}
-      <div
-        ref={scroller}
-        role="group"
-        aria-label="List of changes"
-        tabIndex={0}
-        className="overflow-y-auto p-3"
-        style={{ maxHeight: "32rem" }}
-      >
-        {hunks.length === 0 ? (
-          <p className="text-muted text-sm">{noDifferencesSentence(result)}</p>
-        ) : (
-          <div className="flex flex-col gap-4">
-            {hunks.slice(0, drawn.hunks).map((hunk, n) => (
-              <HunkSection
-                key={n}
-                hunk={hunk}
-                n={n}
-                rows={rowsOf(drawn, hunks, n)}
-                isCurrent={n === current}
-                idBase={id}
-                onHeading={onHeading}
-                onMore={onMore}
-                leftText={leftText}
-                rightText={rightText}
-              />
-            ))}
-            {drawn.hunks < hunks.length && (
-              <button
-                type="button"
-                onClick={showMoreChanges}
-                className="border-line text-fg hover:bg-wash rounded-ctl min-h-11 self-start border px-4 text-sm"
-              >
-                {`Show more changes (${(hunks.length - drawn.hunks).toLocaleString("en-US")} more, ${rest.toLocaleString("en-US")} lines)`}
-              </button>
-            )}
-          </div>
-        )}
-      </div>
+          focusable, seen on the result in e2e/compare-pdf.mobile.spec.ts).
+          Not rendered while the pages are shown; its drawn rows are state
+          here, and survive. */}
+      {!showPages && (
+        <div
+          ref={scroller}
+          role="group"
+          aria-label="List of changes"
+          tabIndex={0}
+          className="overflow-y-auto p-3"
+          style={{ maxHeight: "32rem" }}
+        >
+          {hunks.length === 0 ? (
+            <p className="text-muted text-sm">
+              {noDifferencesSentence(result)}
+            </p>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {hunks.slice(0, drawn.hunks).map((hunk, n) => (
+                <HunkSection
+                  key={n}
+                  hunk={hunk}
+                  n={n}
+                  rows={rowsOf(drawn, hunks, n)}
+                  isCurrent={n === current}
+                  idBase={id}
+                  onHeading={onHeading}
+                  onMore={onMore}
+                  leftText={leftText}
+                  rightText={rightText}
+                />
+              ))}
+              {drawn.hunks < hunks.length && (
+                <button
+                  type="button"
+                  onClick={showMoreChanges}
+                  className="border-line text-fg hover:bg-wash rounded-ctl min-h-11 self-start border px-4 text-sm"
+                >
+                  {`Show more changes (${(hunks.length - drawn.hunks).toLocaleString("en-US")} more, ${rest.toLocaleString("en-US")} lines)`}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
+  );
+}
+
+type Opened =
+  | { mod: CompareViewerModule; left: ViewerPdf; right: ViewerPdf }
+  | { error: unknown };
+
+/**
+ * The page view's host: fetches its chunk and opens both documents in ONE
+ * go (three requests side by side, never one after another), and lets both
+ * documents go when it unmounts — Show the list, Start over, a change of
+ * files and a new run all unmount it (`compare-docs.ts` destroys each after
+ * its last holder).
+ */
+function ComparePagesHost({
+  pages,
+  result,
+  current,
+  navToken,
+}: {
+  pages: ComparePages;
+  result: PdfCompareResult;
+  current: number;
+  navToken: number;
+}) {
+  const [opened, setOpened] = useState<Opened | null>(null);
+  const { left, right } = pages;
+  useEffect(() => {
+    let live = true;
+    Promise.all([
+      compareViewerChunk.load(),
+      acquireComparePdf(left),
+      acquireComparePdf(right),
+    ]).then(
+      ([mod, a, b]) => {
+        if (live) setOpened({ mod, left: a, right: b });
+      },
+      (err: unknown) => {
+        if (live)
+          setOpened({
+            error: err ?? new Error("The PDFs could not be opened."),
+          });
+      },
+    );
+    return () => {
+      live = false;
+      releaseComparePdf(left);
+      releaseComparePdf(right);
+    };
+  }, [left, right]);
+  if (!opened)
+    return (
+      <div
+        aria-busy="true"
+        className="text-muted flex min-h-44 items-center justify-center gap-2 text-sm"
+      >
+        <Spinner />
+        Opening both files…
+      </div>
+    );
+  if ("error" in opened)
+    return (
+      <div className="p-3">
+        <ErrorNote message={errorMessage(opened.error)} />
+      </div>
+    );
+  const { CompareViewer } = opened.mod;
+  return (
+    <CompareViewer
+      left={opened.left}
+      right={opened.right}
+      result={result}
+      leftPages={pages.leftPages}
+      rightPages={pages.rightPages}
+      current={current}
+      navToken={navToken}
+    />
   );
 }
 

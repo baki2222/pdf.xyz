@@ -235,6 +235,9 @@ interface CompareRun {
   left: ComparablePdfText;
   right: ComparablePdfText;
   result: PdfCompareResult;
+  /** The bytes compared, for the page view (opened only when asked for). */
+  leftBytes: Uint8Array;
+  rightBytes: Uint8Array;
 }
 
 /**
@@ -344,6 +347,8 @@ export function ComparePdfEditor({
         left: a,
         right: b,
         result: await mod.compareInSteps(a, b, options),
+        leftBytes: left.bytes,
+        rightBytes: right.bytes,
       };
     });
   // A toggle re-compares in steps, off the click's own task; a second
@@ -439,6 +444,12 @@ export function ComparePdfEditor({
               result={result}
               options={options}
               onOptions={onOptions}
+              pages={{
+                left: done.leftBytes,
+                right: done.rightBytes,
+                leftPages: done.left.extracted.pages,
+                rightPages: done.right.extracted.pages,
+              }}
             />
           ) : (
             // Nothing was compared: the report is a few lines saying why.
