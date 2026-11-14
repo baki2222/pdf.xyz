@@ -15,6 +15,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from "@testing-library/react";
 import { getToolBySlug } from "@/lib/tools";
 import type { WorkerStatus } from "@/lib/workers/status";
@@ -106,9 +107,15 @@ async function pick(html: string | File, name = "report.html") {
     </InToolPage>,
   );
   await screen.findByText("Secure server");
-  const input = document.querySelector<HTMLInputElement>('input[type="file"]');
-  expect(input).not.toBeNull();
-  fireEvent.change(input!, {
+  // HTML to PDF's input is its own chunk (`html-source-area`), loaded with
+  // the panel: waited for, not assumed present on the first render.
+  const input = await waitFor(() => {
+    const found =
+      document.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(found).not.toBeNull();
+    return found!;
+  });
+  fireEvent.change(input, {
     target: {
       files: [
         typeof html === "string"
@@ -166,7 +173,7 @@ describe("HtmlRenderWorkerPanel — linked files the upload does not carry", () 
     expect(region.textContent).toMatch(MISSING);
   });
 
-  it("states the one-file limit before any file is chosen", async () => {
+  it("states the one-file limit before any file is chosen, while no ZIP is offered", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
@@ -180,6 +187,36 @@ describe("HtmlRenderWorkerPanel — linked files the upload does not carry", () 
       await screen.findByText(/Only the file itself is uploaded/),
     ).toBeInTheDocument();
     expect(document.querySelector('input[type="file"]')).not.toBeNull();
+  });
+
+  /*
+   * INVERTED for the ZIP state, hostile review round 3 (2026-11-14). The
+   * test above was the only one, and it pinned the one-file sentence in
+   * EVERY state — so with ZIPs offered, and with a ZIP picked, the note
+   * said "Only the file itself is uploaded, so embed its images and
+   * stylesheets", under the ZIP's own note to add a missing file to the
+   * ZIP. For a ZIP that is false: its files are uploaded and served.
+   */
+  it("while a ZIP is offered, the note keeps the one-file advice to an HTML file and says a ZIP's files are served", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ ...READY, htmlZip: true }),
+      }),
+    );
+    render(
+      <InToolPage tool={htmlTool}>
+        <HtmlRenderWorkerPanel tool={htmlTool} />
+      </InToolPage>,
+    );
+    expect(
+      await screen.findByText(/a ZIP's files go with it and are served/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Only the file itself is uploaded/)).toBeNull();
+    expect(
+      screen.getByText(/An HTML file or pasted code is uploaded on its own/),
+    ).toBeInTheDocument();
   });
 
   it("drops the note when the file is removed", async () => {

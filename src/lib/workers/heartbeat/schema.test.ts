@@ -30,6 +30,7 @@ const CAPS: HeartbeatCapabilities = {
   pptxPictures: true,
   docxPictures: true,
   translateOcr: true,
+  htmlZip: true,
 };
 
 describe("coarseRelease", () => {
@@ -94,6 +95,7 @@ describe("buildHeartbeat / serialize / parse", () => {
       pptxPictures: false,
       docxPictures: false,
       translateOcr: false,
+      htmlZip: false,
     });
     expect(JSON.stringify(hb)).not.toContain("evil.example.com");
     expect(JSON.stringify(hb)).not.toContain("secretEndpoint");
@@ -232,6 +234,7 @@ describe("buildHeartbeat / serialize / parse", () => {
         pptxPictures: false,
         docxPictures: false,
         translateOcr: false,
+        htmlZip: false,
       },
       at: 1234,
     });

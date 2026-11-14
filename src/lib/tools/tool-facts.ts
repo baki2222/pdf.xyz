@@ -1851,7 +1851,7 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
         {
           question: "Will the images and styles my HTML links to appear?",
           answer:
-            "Only those it can reach without other files from your computer: the .html file is uploaded on its own, so an image, stylesheet or script it links by a relative path (such as images/logo.png) is missing from the PDF. Styles written into the file itself, and files linked by a full web address, are loaded.",
+            "Only those it can reach without other files from your computer: an .html file or pasted code is uploaded on its own, so an image, stylesheet or script it links by a relative path (such as images/logo.png) is missing from the PDF, unless, when our server can open ZIP files, you upload a ZIP of the page with those files. Styles written into the file itself, and files linked by a full web address, are loaded.",
         },
       ];
     case "protect-pdf":

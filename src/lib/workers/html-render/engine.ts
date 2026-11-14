@@ -14,6 +14,16 @@ import {
   DEFAULT_WEBPAGE_CAPTURE_OPTIONS,
   type WebpageCaptureOptions,
 } from "@/lib/jobs/webpage-capture-options";
+import {
+  htmlZipRefusalMessage,
+  looksLikeZip,
+  openHtmlZip,
+  type HtmlSite,
+  type HtmlZipRefusal,
+} from "./zip-site";
+import { htmlDocumentContentType } from "./charset";
+
+export type { HtmlSite, HtmlZipRefusal };
 
 export {
   HTML_RENDER_TOOLS,
@@ -56,6 +66,50 @@ export class WebpageFetchError extends Error {
     super(webpageFetchMessage(failure));
     this.name = "WebpageFetchError";
   }
+}
+
+/**
+ * Thrown by a {@link ChromiumPdfRunner} when the render ran out of its TIME
+ * budget (`timeoutMs`): the page was still loading, laying out or running
+ * script when the deadline came. For an UPLOADED file that is the input's
+ * doing and the same bytes do it again on every attempt — a `for(;;){}`, a
+ * script writing 100,000 pages — so {@link runHtmlToPdf} makes it final
+ * (`over_time`) instead of the retried `failed`. Until hostile review round
+ * 3 (2026-11-14) it was retried: three attempts of the full timeout, about
+ * 370 s of the worker for one job that could never finish.
+ */
+export class RenderTimeoutError extends Error {
+  constructor(readonly timeoutMs: number) {
+    super("Chromium HTML rendering timed out.");
+    this.name = "RenderTimeoutError";
+  }
+}
+
+/**
+ * Thrown by a {@link ChromiumPdfRunner} when the PDF it printed is larger
+ * than the worker's output limit (`maxOutputBytes`). For an uploaded file
+ * the same bytes print the same PDF every time — a 20 MiB SVG of circles
+ * printed past 100 MiB in about 25 s, and was then tried twice more (hostile
+ * review round 3, 2026-11-14) — so {@link runHtmlToPdf} makes it final.
+ */
+export class RenderOutputTooLargeError extends Error {
+  constructor(readonly maxBytes: number) {
+    super("Chromium output exceeds the size limit.");
+    this.name = "RenderOutputTooLargeError";
+  }
+}
+
+/** What the user reads when an uploaded page prints past the output limit. */
+export function renderOutputTooLargeMessage(
+  maxBytes: number,
+  zip: boolean,
+): string {
+  return `The PDF of this ${zip ? "ZIP's page" : "HTML file"} came out larger than ${describeByteCeiling(maxBytes)}, the most HTML to PDF returns, so nothing was converted and it is not tried again. Print fewer pages, or smaller pictures, and try again.`;
+}
+
+/** What the user reads when an uploaded page runs past the time budget. */
+export function renderTimeoutMessage(timeoutMs: number, zip: boolean): string {
+  return `This ${zip ? "ZIP's page" : "HTML file"} was still loading or running script after ${Math.round(timeoutMs / 1000)} seconds, the most HTML to PDF gives one page, so nothing was converted and it is not tried again. Remove scripts or content that never finish, and try again.`;
 }
 
 /** The sentence the user reads for each failure. The one place it is written. */
@@ -114,6 +168,19 @@ export interface ChromiumPdfRunner {
     run?: RunControl,
     capture?: WebpageCaptureOptions,
   ): Promise<Uint8Array>;
+  /**
+   * A ZIP page (`./zip-site`): the entry printed exactly as an uploaded HTML
+   * file is, with the archive's other files answered at the document origin.
+   * Optional so a runner without it reads as UNSUPPORTED for a ZIP — never
+   * as a render of the archive's bytes as if they were HTML, which is what
+   * `renderHtml` would do with them (and what an image built before this
+   * method did: a "successful" PDF of binary noise).
+   */
+  renderSite?(
+    site: HtmlSite,
+    options?: HtmlRenderOptions,
+    run?: RunControl,
+  ): Promise<Uint8Array>;
 }
 
 /** One document of a {@link DocumentPackage}, printed on its own. */
@@ -150,7 +217,7 @@ export interface HtmlRenderDeps {
 
 export interface HtmlRenderResultMeta {
   engine: typeof HTML_RENDER_ENGINE;
-  source: "html" | "url";
+  source: "html" | "zip" | "url";
   inputBytes?: number;
   outputBytes: number;
 }
@@ -160,7 +227,16 @@ export type HtmlRenderRun =
   | { ok: false; kind: "unsupported"; message: string }
   | { ok: false; kind: "invalid_url"; message: string }
   | { ok: false; kind: "too_large"; limitBytes: number; message: string }
+  /** A ZIP that cannot be printed (`./zip-site`): final, never retried. */
+  | {
+      ok: false;
+      kind: "refused";
+      refusal: HtmlZipRefusal;
+      message: string;
+    }
   | { ok: false; kind: "failed"; message: string }
+  /** An uploaded page past the time budget or the output limit: final, never retried. */
+  | { ok: false; kind: "over_budget"; message: string }
   | {
       ok: false;
       kind: "page_unavailable";
@@ -191,40 +267,94 @@ function validateOutput(
   return undefined;
 }
 
+/**
+ * Render an uploaded HTML file — or a ZIP holding a page and its files,
+ * recognised by its BYTES (`looksLikeZip`), never by its name. `entry` is
+ * the job's `entry` option: the page of the ZIP to print. Every ZIP refusal
+ * is decided before Chromium starts — here, or for a ZIP the job did not
+ * declare as one (an HTML name and type, no page named), by the processor
+ * (`../processor/html-render.ts`), so the upload and job gates, which read
+ * only that metadata, see every ZIP that reaches this path.
+ */
 export async function runHtmlToPdf(
   input: Uint8Array,
   deps: HtmlRenderDeps,
   options: HtmlRenderOptions = DEFAULT_HTML_RENDER_OPTIONS,
   /** The attempt's abort signal, passed to Chromium. */
   signal?: AbortSignal,
+  entry?: string,
 ): Promise<HtmlRenderRun> {
   if (!deps.chromium) return unsupported();
   const limit = deps.limits?.maxInputBytes;
+  const zip = looksLikeZip(input);
   if (limit !== undefined && input.byteLength > limit) {
     return {
       ok: false,
       kind: "too_large",
       limitBytes: limit,
-      message: `This HTML file is larger than ${describeByteCeiling(limit)}, the most HTML to PDF renders per file.`,
+      message: `This ${zip ? "ZIP" : "HTML file"} is larger than ${describeByteCeiling(limit)}, the most HTML to PDF renders per file.`,
     };
+  }
+  const refused = (refusal: HtmlZipRefusal): HtmlRenderRun => ({
+    ok: false,
+    kind: "refused",
+    refusal,
+    message: htmlZipRefusalMessage(refusal),
+  });
+  if (entry !== undefined && !zip) return refused({ kind: "not_zip" });
+  let site: HtmlSite | undefined;
+  if (zip) {
+    if (!deps.chromium.renderSite) return unsupported();
+    const opened = openHtmlZip(input, entry, htmlDocumentContentType);
+    if (!opened.ok) return refused(opened.refusal);
+    site = opened.site;
+    // The page of a ZIP is an HTML file like an uploaded one, and may weigh
+    // no more: the archive's per-file bound equals the DEFAULT ceiling, and
+    // this holds whatever the deployment set it to.
+    if (limit !== undefined && site.entryBytes > limit)
+      return {
+        ok: false,
+        kind: "too_large",
+        limitBytes: limit,
+        message: `The page in this ZIP is larger than ${describeByteCeiling(limit)}, the most HTML to PDF renders per file.`,
+      };
   }
   let output: Uint8Array;
   try {
-    output = await deps.chromium.renderHtml(
-      input,
-      options,
-      signalOption(signal),
-    );
+    output =
+      site && deps.chromium.renderSite
+        ? await deps.chromium.renderSite(site, options, signalOption(signal))
+        : await deps.chromium.renderHtml(input, options, signalOption(signal));
   } catch (error) {
     rethrowIfAttemptAbort(error);
+    if (error instanceof RenderTimeoutError)
+      return {
+        ok: false,
+        kind: "over_budget",
+        message: renderTimeoutMessage(error.timeoutMs, site !== undefined),
+      };
+    if (error instanceof RenderOutputTooLargeError)
+      return {
+        ok: false,
+        kind: "over_budget",
+        message: renderOutputTooLargeMessage(
+          error.maxBytes,
+          site !== undefined,
+        ),
+      };
     return {
       ok: false,
       kind: "failed",
-      message: "Chromium could not render this HTML file.",
+      message: `Chromium could not render this ${site ? "ZIP's page" : "HTML file"}.`,
     };
   }
-  const outputError = validateOutput(output, deps);
-  if (outputError) return outputError;
+  const maxOutput = deps.limits?.maxOutputBytes;
+  if (maxOutput !== undefined && output.byteLength > maxOutput)
+    return {
+      ok: false,
+      kind: "over_budget",
+      message: renderOutputTooLargeMessage(maxOutput, site !== undefined),
+    };
   const validate = deps.validate ?? looksLikePdf;
   if (!(await validate(output))) {
     return {
@@ -238,7 +368,7 @@ export async function runHtmlToPdf(
     output,
     meta: {
       engine: HTML_RENDER_ENGINE,
-      source: "html",
+      source: site ? "zip" : "html",
       inputBytes: input.byteLength,
       outputBytes: output.byteLength,
     },

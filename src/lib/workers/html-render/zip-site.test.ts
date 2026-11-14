@@ -1,0 +1,905 @@
+// @vitest-environment node
+/**
+ * HTML to PDF's ZIP input, worker side, without a browser: the bounded open
+ * (the bounds in `./zip-config.ts`, each held with an archive one past it),
+ * which page is printed, how a URL Chromium asks for becomes an archive
+ * entry (and every way it must NOT), the Content-Type each entry is served
+ * with, and the typed refusals. `zip-site.chromium.test.ts` puts the same
+ * archives through a real Chromium.
+ */
+import JSZip from "jszip";
+import { randomFillSync } from "node:crypto";
+import { deflateRawSync } from "node:zlib";
+import { describe, expect, it, vi } from "vitest";
+import { HTML_DOCUMENT_URL } from "./document-url";
+import { openBoundedZip } from "../epub/zip";
+import { handZip } from "@/tests/hand-zip";
+import {
+  HTML_ZIP_MAX_DOCUMENT_BYTES,
+  HTML_ZIP_MAX_ENTRIES,
+  HTML_ZIP_MAX_ENTRY_BYTES,
+  HTML_ZIP_MAX_ENTRY_RATIO,
+  HTML_ZIP_MAX_UNPACKED_BYTES,
+  HTML_ZIP_RATIO_FLOOR_BYTES,
+  chooseHtmlEntry,
+  isHtmlEntryName,
+  parseHtmlZipEntryOption,
+  uploadIsHtmlZip,
+  HTML_ZIP_MIMES,
+} from "./zip-config";
+import {
+  HTML_ZIP_LIMITS,
+  answerArchiveRequest,
+  contentTypeOfEntry,
+  htmlZipRefusalMessage,
+  looksLikeZip,
+  openHtmlZip,
+  zipEntryOfUrl,
+  zipEntryUrl,
+  type HtmlZipRefusal,
+} from "./zip-site";
+import { htmlDocumentContentType } from "./native";
+import { HTML_RENDER_DEFAULT_MAX_INPUT_BYTES } from "./native-config";
+import { DEFAULT_RENDER_NETWORK_LIMITS, createRenderNetwork } from "./network";
+import { runHtmlToPdf, type ChromiumPdfRunner, type HtmlSite } from "./engine";
+import { createHtmlRenderProcessor } from "../processor/html-render";
+
+const enc = (s: string) => new TextEncoder().encode(s);
+const MIB = 1024 * 1024;
+const PDF = enc("%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n");
+
+async function zipOf(
+  files: Record<string, string | Uint8Array>,
+  opts: { platform?: "UNIX" | "DOS"; modes?: Record<string, number> } = {},
+): Promise<Uint8Array> {
+  const zip = new JSZip();
+  for (const [name, body] of Object.entries(files)) {
+    if (name.endsWith("/")) zip.folder(name.slice(0, -1));
+    else
+      zip.file(name, body, {
+        ...(opts.modes?.[name] !== undefined
+          ? { unixPermissions: opts.modes[name] }
+          : {}),
+      });
+  }
+  return zip.generateAsync({
+    type: "uint8array",
+    compression: "DEFLATE",
+    platform: opts.platform ?? "DOS",
+  });
+}
+
+const u32 = (b: Uint8Array, i: number) =>
+  (b[i]! | (b[i + 1]! << 8) | (b[i + 2]! << 16) | (b[i + 3]! << 24)) >>> 0;
+const setU32 = (b: Uint8Array, i: number, v: number) => {
+  b[i] = v & 0xff;
+  b[i + 1] = (v >>> 8) & 0xff;
+  b[i + 2] = (v >>> 16) & 0xff;
+  b[i + 3] = (v >>> 24) & 0xff;
+};
+
+/**
+ * Rewrite the central directory's declared sizes: a directory that lies.
+ * `unpacked` may name one figure per entry, in directory order (the last
+ * repeats); `packed` is half of each, inside every ratio bound.
+ */
+function declare(
+  bytes: Uint8Array,
+  packed: number | null,
+  unpacked: number | number[],
+) {
+  const out = new Uint8Array(bytes);
+  const sizes = Array.isArray(unpacked) ? unpacked : [unpacked];
+  let n = 0;
+  for (let i = 0; i + 46 <= out.length; i++)
+    if (u32(out, i) === 0x02014b50) {
+      const size = sizes[Math.min(n, sizes.length - 1)]!;
+      setU32(out, i + 20, packed ?? Math.ceil(size / 2));
+      setU32(out, i + 24, size);
+      n += 1;
+    }
+  return out;
+}
+
+const SITE = {
+  "index.html":
+    '<!doctype html><link rel="stylesheet" href="css/site.css"><img src="images/Logo.png"><p>Hello</p>',
+  "css/site.css": "p { color: rgb(1, 2, 3) }",
+  "images/Logo.png": new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]),
+  "images/": "",
+};
+
+const open = (bytes: Uint8Array, entry?: string) =>
+  openHtmlZip(bytes, entry, htmlDocumentContentType);
+
+function site(result: ReturnType<typeof open>): HtmlSite {
+  if (!result.ok) throw new Error(`refused: ${result.refusal.kind}`);
+  return result.site;
+}
+
+describe("the bounded open, with HTML to PDF's own bounds", () => {
+  it("passes the bounds the config declares, not EPUB's", () => {
+    expect(HTML_ZIP_LIMITS).toEqual({
+      maxEntries: HTML_ZIP_MAX_ENTRIES,
+      maxUnpackedBytes: HTML_ZIP_MAX_UNPACKED_BYTES,
+      maxEntryRatio: HTML_ZIP_MAX_ENTRY_RATIO,
+      ratioFloorBytes: HTML_ZIP_RATIO_FLOOR_BYTES,
+      maxEntryBytes: HTML_ZIP_MAX_ENTRY_BYTES,
+      backslashSeparators: true,
+    });
+  });
+
+  it("refuses one entry past the entry bound, and opens at it", async () => {
+    const files: Record<string, string> = { "index.html": "<p>x</p>" };
+    for (let i = 1; i < HTML_ZIP_MAX_ENTRIES; i++) files[`f${i}.txt`] = "";
+    const at = await zipOf(files);
+    expect(open(at).ok).toBe(true);
+    files.extra = "";
+    const past = open(await zipOf(files));
+    expect(past).toEqual({
+      ok: false,
+      refusal: { kind: "bomb", limit: "entries" },
+    });
+  });
+
+  it("refuses a directory that declares more than the unpacked bound, before inflating", async () => {
+    // Six files, none past the per-file bound: only the total can refuse
+    // them — ONE byte past the bound, and exactly at it. Packed is declared
+    // at half each, inside the ratio.
+    const per = HTML_ZIP_MAX_ENTRY_BYTES;
+    const count = Math.ceil(HTML_ZIP_MAX_UNPACKED_BYTES / per);
+    const files: Record<string, string> = { "index.html": "a" };
+    for (let i = 1; i < count + 1; i++) files[`f${i}.css`] = "b";
+    const zip = await zipOf(files);
+    const sizes = (last: number) => [
+      ...Array.from({ length: count }, () => per),
+      last,
+    ];
+    // Health: the arithmetic puts the total exactly at the bound with 0.
+    expect(sizes(0).reduce((a, b) => a + b, 0)).toBe(
+      HTML_ZIP_MAX_UNPACKED_BYTES,
+    );
+    expect(open(declare(zip, null, sizes(1)))).toEqual({
+      ok: false,
+      refusal: { kind: "bomb", limit: "unpacked" },
+    });
+    // Within the bound, the lie is caught when the page is read instead.
+    expect(open(declare(zip, null, sizes(0)))).toEqual({
+      ok: false,
+      refusal: { kind: "unreadable" },
+    });
+  });
+
+  it("refuses a file that grows more than the ratio bound, and passes one at it", async () => {
+    const floor = HTML_ZIP_RATIO_FLOOR_BYTES + 1;
+    const one = await zipOf({ "index.html": "a" });
+    expect(
+      open(
+        declare(one, Math.floor(floor / HTML_ZIP_MAX_ENTRY_RATIO) - 1, floor),
+      ),
+    ).toEqual({ ok: false, refusal: { kind: "bomb", limit: "ratio" } });
+    // A real bomb, not a lie: 2 MiB of zeros deflates past 1,000-fold.
+    const zeros = await zipOf({
+      "index.html": "<p>x</p>",
+      "zeros.bin": new Uint8Array(2 * MIB),
+    });
+    expect(open(zeros)).toEqual({
+      ok: false,
+      refusal: { kind: "bomb", limit: "ratio" },
+    });
+    // Under the floor, the ratio is not judged: a small repetitive file.
+    const small = await zipOf({
+      "index.html": "<p>x</p>",
+      "rep.css": "a{}".repeat(100_000),
+    });
+    expect(open(small).ok).toBe(true);
+  });
+
+  // Hostile review round 2 (2026-11-14): archive answers skipped the 20 MiB
+  // a fetched response may be, and one 76-99 MiB entry from a ~1.2 MB
+  // upload hung the render to its timeout, three attempts running.
+  it("ONE file's bound is the render network's largest response AND the HTML file ceiling: a second, independent figure for each", () => {
+    expect(HTML_ZIP_MAX_ENTRY_BYTES).toBe(
+      DEFAULT_RENDER_NETWORK_LIMITS.maxResponseBytes,
+    );
+    expect(HTML_ZIP_MAX_ENTRY_BYTES).toBe(HTML_RENDER_DEFAULT_MAX_INPUT_BYTES);
+  });
+
+  it("refuses one file declared past the per-file bound, before inflating, and opens the directory at it", async () => {
+    const two = await zipOf({ "index.html": "a", "b.css": "b" });
+    // Packed declared at half: within the ratio, so only the per-file bound
+    // can refuse it, ONE byte past it.
+    expect(open(declare(two, null, [1, HTML_ZIP_MAX_ENTRY_BYTES + 1]))).toEqual(
+      { ok: false, refusal: { kind: "bomb", limit: "file" } },
+    );
+    // At it, the directory passes and the lie is caught reading the page.
+    expect(open(declare(two, null, [1, HTML_ZIP_MAX_ENTRY_BYTES]))).toEqual({
+      ok: false,
+      refusal: { kind: "unreadable" },
+    });
+  });
+
+  it("a REAL file one byte past the bound is refused, one at it is served (the reviewer's shape: random bytes, then zeros, inside the ratio)", async () => {
+    const shaped = (size: number) => {
+      const b = new Uint8Array(size);
+      // 1/40 of it random: deflates to more than size / 100.
+      randomFillSync(b, 0, Math.ceil(size / 40));
+      return b;
+    };
+    const past = await zipOf({
+      "index.html": '<img src="big.bin">',
+      "big.bin": shaped(HTML_ZIP_MAX_ENTRY_BYTES + 1),
+    });
+    expect(open(past)).toEqual({
+      ok: false,
+      refusal: { kind: "bomb", limit: "file" },
+    });
+    const at = await zipOf({
+      "index.html": '<img src="big.bin">',
+      "big.bin": shaped(HTML_ZIP_MAX_ENTRY_BYTES),
+    });
+    const served = site(open(at)).serve(`${HTML_DOCUMENT_URL}big.bin`);
+    expect(served?.body.byteLength).toBe(HTML_ZIP_MAX_ENTRY_BYTES);
+  }, 60_000);
+
+  it("the render network refuses an archive answer past maxResponseBytes, as it caps a fetched one, and admits one at it", () => {
+    const limits = {
+      ...DEFAULT_RENDER_NETWORK_LIMITS,
+      maxResponseBytes: 1000,
+      maxTotalBytes: 10_000,
+    };
+    const network = createRenderNetwork({}, limits);
+    expect(network.chargeServed(1001)).toMatch(/larger than 1000 bytes/);
+    expect(network.chargeServed(1000)).toBeNull();
+  });
+
+  it("refuses what is not a ZIP, and ZIP64", async () => {
+    expect(open(enc("<html>not a zip</html>"))).toEqual({
+      ok: false,
+      refusal: { kind: "unreadable" },
+    });
+    const zip64 = new Uint8Array(await zipOf({ "index.html": "a" }));
+    // The end-of-directory record's entry count set to the ZIP64 marker.
+    for (let i = zip64.length - 22; i >= 0; i--)
+      if (u32(zip64, i) === 0x06054b50) {
+        zip64[i + 10] = 0xff;
+        zip64[i + 11] = 0xff;
+        break;
+      }
+    expect(open(zip64)).toEqual({
+      ok: false,
+      refusal: { kind: "unreadable" },
+    });
+  });
+
+  it("refuses entries that share one data region; the same files each with their own data open (hostile review 2026-11-14)", () => {
+    // 2 MiB of zeros, deflated (about 2 KB) and padded with bytes after the
+    // stream until its declared packed size sits exactly AT the ratio bound.
+    const unpacked = 2 * MIB;
+    const stream = deflateRawSync(new Uint8Array(unpacked));
+    const packed = new Uint8Array(
+      Math.ceil(unpacked / HTML_ZIP_MAX_ENTRY_RATIO),
+    );
+    packed.set(stream);
+    const page = enc("<p>x</p>");
+    const names = ["f0.bin", "f1.bin", "f2.bin", "f3.bin"];
+    const shared = handZip([
+      { name: "index.html", data: page, unpacked: page.length, method: 0 },
+      { name: "f0.bin", data: packed, unpacked, method: 8 as const },
+      ...names.slice(1).map((name) => ({
+        name,
+        at: "f0.bin",
+        data: packed,
+        unpacked,
+        method: 8 as const,
+      })),
+    ]);
+    // Health: each entry alone is within every bound, so only sharing is refused.
+    expect(shared.length).toBeLessThan(
+      ((names.length * unpacked) / HTML_ZIP_MAX_ENTRY_RATIO) * 0.5,
+    );
+    expect(open(shared)).toEqual({
+      ok: false,
+      refusal: { kind: "unreadable" },
+    });
+    // POSITIVE CONTROL: the same four files, each with its own stored region,
+    // open — and every one of them serves its 2 MiB.
+    const own = handZip([
+      { name: "index.html", data: page, unpacked: page.length, method: 0 },
+      ...names.map((name) => ({
+        name,
+        data: packed,
+        unpacked,
+        method: 8 as const,
+      })),
+    ]);
+    const opened = openHtmlZip(own, undefined, htmlDocumentContentType);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    for (const name of names)
+      expect(opened.site.serve(zipEntryUrl(name))?.body.byteLength).toBe(
+        unpacked,
+      );
+  });
+
+  it("reads folders and symbolic links from the directory", async () => {
+    const bytes = await zipOf(
+      { "index.html": "<p>x</p>", "link.css": "/etc/passwd", "dir/": "" },
+      { platform: "UNIX", modes: { "link.css": 0o120777 } },
+    );
+    const zip = openBoundedZip(bytes, HTML_ZIP_LIMITS);
+    expect(zip.ok).toBe(true);
+    if (!zip.ok) return;
+    expect(zip.zip.isSymlink("link.css")).toBe(true);
+    expect(zip.zip.isSymlink("index.html")).toBe(false);
+    expect(zip.zip.isDirectory("dir/")).toBe(true);
+    expect(zip.zip.isDirectory("index.html")).toBe(false);
+  });
+});
+
+describe("which page is printed", () => {
+  it("index.html at the root", () => {
+    expect(
+      chooseHtmlEntry(["a.html", "index.html", "sub/index.html"]),
+    ).toMatchObject({ kind: "one", entry: "index.html" });
+  });
+
+  it("index.html inside the one top-level folder of a zipped folder", () => {
+    expect(
+      chooseHtmlEntry([
+        "site/",
+        "site/about.html",
+        "site/index.html",
+        "site/css/a.css",
+      ]),
+    ).toMatchObject({ kind: "one", entry: "site/index.html" });
+  });
+
+  it("a 'Save page as' export: the page, not the frames saved beside it", () => {
+    expect(
+      chooseHtmlEntry([
+        "Report.html",
+        "Report_files/saved_resource.html",
+        "Report_files/style.css",
+      ]),
+    ).toMatchObject({ kind: "one", entry: "Report.html" });
+  });
+
+  it("the only page anywhere", () => {
+    expect(chooseHtmlEntry(["a/b/page.htm", "x.css"])).toMatchObject({
+      kind: "one",
+      entry: "a/b/page.htm",
+    });
+  });
+
+  it("asks when several pages are equal candidates, and lists them in archive order", () => {
+    expect(chooseHtmlEntry(["b.html", "a.HTM", "c.css"])).toEqual({
+      kind: "choose",
+      candidates: ["b.html", "a.HTM"],
+    });
+  });
+
+  it("none in an archive with no page, and never a page it could not serve", () => {
+    expect(chooseHtmlEntry(["a.css", "__MACOSX/._index.html"])).toEqual({
+      kind: "none",
+    });
+    for (const bad of ["../index.html", "/index.html", "a\\index.html", "x/"])
+      expect(isHtmlEntryName(bad), bad).toBe(false);
+  });
+
+  it("the worker prints the chosen page, and refuses one the archive lacks", async () => {
+    const bytes = await zipOf({ ...SITE, "about.html": "<p>About</p>" });
+    expect(site(open(bytes, "about.html")).entryUrl).toBe(
+      `${HTML_DOCUMENT_URL}about.html`,
+    );
+    expect(open(bytes, "About.html")).toEqual({
+      ok: false,
+      refusal: { kind: "entry_not_found" },
+    });
+    expect(open(bytes, "css/")).toEqual({
+      ok: false,
+      refusal: { kind: "entry_not_found" },
+    });
+  });
+
+  it("refuses an archive of several pages that names none, and one with no page", async () => {
+    expect(open(await zipOf({ "a.html": "a", "b.html": "b" }))).toEqual({
+      ok: false,
+      refusal: { kind: "choose_entry", count: 2 },
+    });
+    expect(open(await zipOf({ "a.css": "a" }))).toEqual({
+      ok: false,
+      refusal: { kind: "no_html" },
+    });
+  });
+});
+
+/**
+ * Hostile review round 3 (2026-11-14). The answer read (inflated, and
+ * cached) an entry BEFORE charging it, so with the directory's bounds gone
+ * the budgets refused 80 answers of 20 MiB while the heap held every one of
+ * them (Node 206 -> 2,323 MiB); and nothing bounded the MARKUP Chromium was
+ * handed: five 20 MiB pages in frames peaked at 13.5-14.0 GiB of Chromium.
+ */
+describe("an archive answer is charged before it is read, and documents have their own budget", () => {
+  const shaped = (size: number) => {
+    const b = new Uint8Array(size);
+    // Some of it random: inside the ratio bound, as a real file would be.
+    randomFillSync(b, 0, Math.ceil(size / 40));
+    return b;
+  };
+
+  it("the document budget is the size of one uploaded HTML file: a second, independent figure", () => {
+    expect(HTML_ZIP_MAX_DOCUMENT_BYTES).toBe(
+      HTML_RENDER_DEFAULT_MAX_INPUT_BYTES,
+    );
+  });
+
+  it("looks an entry up by its declared size and kind, without reading it", async () => {
+    const s = site(open(await zipOf({ ...SITE, "i.svg": "<svg/>" })));
+    expect(s.documentBytesLeft).toBe(HTML_ZIP_MAX_DOCUMENT_BYTES);
+    expect(s.lookup(`${HTML_DOCUMENT_URL}css/site.css`)).toEqual({
+      bytes: SITE["css/site.css"].length,
+      document: false,
+    });
+    expect(s.lookup(`${HTML_DOCUMENT_URL}index.html`)).toEqual({
+      bytes: SITE["index.html"].length,
+      document: true,
+    });
+    expect(s.lookup(`${HTML_DOCUMENT_URL}i.svg`)?.document).toBe(true);
+    expect(s.lookup(`${HTML_DOCUMENT_URL}images/`)).toBeNull();
+    expect(s.lookup(`${HTML_DOCUMENT_URL}%2e%2e/x`)).toBeNull();
+    expect(s.lookup(`${HTML_DOCUMENT_URL}nothing.css`)).toBeNull();
+  });
+
+  it("an answer a budget refuses never reads the entry; one it admits reads it once", async () => {
+    const s = site(open(await zipOf({ ...SITE, "big.bin": shaped(MIB) })));
+    let reads = 0;
+    const tapped = {
+      lookup: (u: string) => s.lookup(u),
+      serve: (u: string) => {
+        reads += 1;
+        return s.serve(u);
+      },
+      documentBytesLeft: s.documentBytesLeft,
+    };
+    const get = { method: "GET", url: `${HTML_DOCUMENT_URL}big.bin` };
+    const small = createRenderNetwork(
+      {},
+      { ...DEFAULT_RENDER_NETWORK_LIMITS, maxResponseBytes: MIB - 1 },
+    );
+    expect(answerArchiveRequest(tapped, small, get).action).toBe("fail");
+    const spent = createRenderNetwork(
+      {},
+      { ...DEFAULT_RENDER_NETWORK_LIMITS, maxTotalBytes: MIB - 1 },
+    );
+    expect(answerArchiveRequest(tapped, spent, get).action).toBe("fail");
+    expect(reads).toBe(0);
+    const reply = answerArchiveRequest(tapped, createRenderNetwork(), get);
+    expect(reply).toMatchObject({ action: "fulfill", status: 200 });
+    expect(reply.action === "fulfill" && reply.body?.byteLength).toBe(MIB);
+    expect(reads).toBe(1);
+    // A 404 is charged as a request, and reads nothing.
+    const none = { method: "GET", url: `${HTML_DOCUMENT_URL}nope.css` };
+    expect(
+      answerArchiveRequest(tapped, createRenderNetwork(), none),
+    ).toMatchObject({ action: "fulfill", status: 404 });
+    expect(reads).toBe(1);
+  });
+
+  it("serves documents up to the budget, page included, per answer, and nothing else counts against it (the reviewer's shape: pages in frames)", async () => {
+    const third = Math.floor(HTML_ZIP_MAX_DOCUMENT_BYTES / 3);
+    const s = site(
+      open(
+        await zipOf({
+          "index.html":
+            '<iframe src="a.html"></iframe><iframe src="b.html"></iframe><iframe src="c.html"></iframe>',
+          "a.html": shaped(third),
+          "b.html": shaped(third),
+          "c.html": shaped(third),
+          "s.css": shaped(third),
+        }),
+      ),
+    );
+    const net = createRenderNetwork();
+    const ask = (name: string) =>
+      answerArchiveRequest(s, net, {
+        method: "GET",
+        url: `${HTML_DOCUMENT_URL}${name}`,
+      }).action;
+    expect(ask("index.html")).toBe("fulfill");
+    expect(ask("a.html")).toBe("fulfill");
+    expect(ask("s.css")).toBe("fulfill");
+    expect(ask("b.html")).toBe("fulfill");
+    // index.html + three thirds is past the budget: the third frame fails.
+    expect(ask("c.html")).toBe("fail");
+    // A stylesheet still loads: only documents are bounded here.
+    expect(ask("s.css")).toBe("fulfill");
+    // Asked again, a frame is charged again.
+    expect(ask("a.html")).toBe("fail");
+  }, 60_000);
+});
+
+describe("a URL becomes an archive entry, exactly or not at all", () => {
+  const D = HTML_DOCUMENT_URL;
+  it.each([
+    [`${D}index.html`, "index.html"],
+    [`${D}css/site.css?v=3#x`, "css/site.css"],
+    [`${D}images/My%20Logo.png`, "images/My Logo.png"],
+    [`${D}%E0%A6%95.css`, "ক.css"],
+  ])("%s → %s", (url, entry) => {
+    expect(zipEntryOfUrl(url)).toBe(entry);
+  });
+
+  it.each([
+    ["a parent segment", `${D}../secret.txt`],
+    ["an encoded parent segment", `${D}%2e%2e/secret.txt`],
+    ["an encoded dot segment", `${D}a/%2E/b.css`],
+    ["an encoded slash", `${D}a%2fb.css`],
+    ["a backslash", `${D}a\\b.css`],
+    ["an encoded backslash", `${D}..%5csecret.txt`],
+    ["a NUL", `${D}a%00.css`],
+    ["an absolute path", `${D}/etc/passwd`],
+    ["a folder", `${D}images/`],
+    ["the root", D],
+    ["a malformed escape", `${D}%zz.css`],
+    ["another origin", "https://evil.example/index.html"],
+    ["another scheme", "file:///etc/passwd"],
+  ])("refuses %s", (_, url) => {
+    expect(zipEntryOfUrl(url)).toBeNull();
+  });
+
+  it("round-trips an entry's own URL", () => {
+    for (const name of ["a b/c#d.css", "ক/খ.png", "x%y.js"])
+      expect(zipEntryOfUrl(zipEntryUrl(name))).toBe(name);
+  });
+
+  it("serves case-sensitively, never a folder, never a link, never outside", async () => {
+    const bytes = await zipOf(
+      {
+        ...SITE,
+        "../outside.txt": "secret",
+        "/abs.txt": "secret",
+        "link.css": "index.html",
+      },
+      { platform: "UNIX", modes: { "link.css": 0o120777 } },
+    );
+    const s = site(open(bytes));
+    expect(s.serve(`${HTML_DOCUMENT_URL}images/Logo.png`)).not.toBeNull();
+    expect(s.serve(`${HTML_DOCUMENT_URL}images/logo.png`)).toBeNull();
+    expect(s.serve(`${HTML_DOCUMENT_URL}images/`)).toBeNull();
+    expect(s.serve(`${HTML_DOCUMENT_URL}link.css`)).toBeNull();
+    expect(s.serve(`${HTML_DOCUMENT_URL}../outside.txt`)).toBeNull();
+    expect(s.serve(`${HTML_DOCUMENT_URL}%2e%2e/outside.txt`)).toBeNull();
+    expect(s.serve(`${HTML_DOCUMENT_URL}outside.txt`)).toBeNull();
+    expect(s.serve(`${HTML_DOCUMENT_URL}/abs.txt`)).toBeNull();
+    expect(s.serve(`${HTML_DOCUMENT_URL}abs.txt`)).toBeNull();
+  });
+});
+
+describe("the Content-Type of each entry", () => {
+  it.each([
+    ["index.html", "text/html"],
+    ["A/B.HTM", "text/html"],
+    ["s.css", "text/css"],
+    ["app.js", "text/javascript"],
+    ["m.mjs", "text/javascript"],
+    ["p.PNG", "image/png"],
+    ["p.jpeg", "image/jpeg"],
+    ["i.svg", "image/svg+xml"],
+    ["f.woff2", "font/woff2"],
+    ["v.mp4", "video/mp4"],
+    ["noext", "application/octet-stream"],
+    [".htaccess", "application/octet-stream"],
+    ["evil.exe", "application/octet-stream"],
+  ])("%s is %s", (name, type) => {
+    expect(contentTypeOfEntry(name)).toBe(type);
+  });
+
+  it("decides an HTML entry's charset as an uploaded file's is decided", async () => {
+    const bytes = await zipOf({
+      "index.html": "<p>কখ \u{1F600}</p>",
+      "legacy.html": '<meta charset="windows-1252"><p>café</p>',
+    });
+    const s = site(open(bytes));
+    expect(s.serve(`${HTML_DOCUMENT_URL}index.html`)?.contentType).toBe(
+      "text/html; charset=utf-8",
+    );
+    expect(s.serve(`${HTML_DOCUMENT_URL}legacy.html`)?.contentType).toBe(
+      "text/html",
+    );
+    expect(s.serve(`${HTML_DOCUMENT_URL}index.html`)?.body).toEqual(
+      enc("<p>কখ \u{1F600}</p>"),
+    );
+  });
+});
+
+describe("refusals, typed and worded", () => {
+  const ALL: HtmlZipRefusal[] = [
+    { kind: "unreadable" },
+    { kind: "bomb", limit: "entries" },
+    { kind: "bomb", limit: "unpacked" },
+    { kind: "bomb", limit: "ratio" },
+    { kind: "bomb", limit: "file" },
+    { kind: "no_html" },
+    { kind: "entry_not_found" },
+    { kind: "choose_entry", count: 3 },
+    { kind: "not_zip" },
+    { kind: "zip_as_html" },
+  ];
+  it("says nothing was converted, every time, with each bound from its constant", () => {
+    for (const r of ALL)
+      expect(htmlZipRefusalMessage(r), r.kind).toMatch(
+        /nothing was converted|no page to convert/,
+      );
+    expect(htmlZipRefusalMessage({ kind: "bomb", limit: "entries" })).toContain(
+      HTML_ZIP_MAX_ENTRIES.toLocaleString("en-US"),
+    );
+    expect(
+      htmlZipRefusalMessage({ kind: "bomb", limit: "unpacked" }),
+    ).toContain(`${HTML_ZIP_MAX_UNPACKED_BYTES / MIB} MB`);
+    expect(htmlZipRefusalMessage({ kind: "bomb", limit: "ratio" })).toContain(
+      `${HTML_ZIP_MAX_ENTRY_RATIO} times`,
+    );
+    expect(htmlZipRefusalMessage({ kind: "bomb", limit: "file" })).toContain(
+      `${HTML_ZIP_MAX_ENTRY_BYTES / MIB} MB`,
+    );
+    expect(new Set(ALL.map(htmlZipRefusalMessage)).size).toBe(ALL.length);
+  });
+
+  it("recognises a ZIP by its bytes", async () => {
+    expect(looksLikeZip(await zipOf(SITE))).toBe(true);
+    expect(looksLikeZip(enc("<!doctype html>"))).toBe(false);
+    expect(looksLikeZip(enc("PK"))).toBe(false);
+  });
+});
+
+describe("the upload gate's predicate", () => {
+  it("either signal alone is a ZIP: the declared type, or the .zip name; neither is not", () => {
+    // The name alone (a type intake would refuse beside it, so only here).
+    expect(
+      uploadIsHtmlZip({ filename: "site.zip", contentType: "text/html" }),
+    ).toBe(true);
+    expect(
+      uploadIsHtmlZip({ filename: "SITE.ZIP", contentType: "text/html" }),
+    ).toBe(true);
+    // The type alone, each of the declared ZIP types.
+    for (const contentType of HTML_ZIP_MIMES)
+      expect(uploadIsHtmlZip({ filename: "site.html", contentType })).toBe(
+        true,
+      );
+    // Neither: an HTML file.
+    expect(
+      uploadIsHtmlZip({ filename: "page.html", contentType: "text/html" }),
+    ).toBe(false);
+  });
+});
+
+describe("the job option naming the page", () => {
+  it("accepts a servable page path, and refuses anything else", () => {
+    expect(parseHtmlZipEntryOption({})).toEqual({ ok: true, entry: undefined });
+    expect(parseHtmlZipEntryOption({ entry: "site/index.html" })).toEqual({
+      ok: true,
+      entry: "site/index.html",
+    });
+    for (const bad of [
+      3,
+      "",
+      "a.css",
+      "../index.html",
+      "/index.html",
+      "a\\b.html",
+      "a\nb.html",
+      `${"a".repeat(1100)}.html`,
+    ])
+      expect(parseHtmlZipEntryOption({ entry: bad }).ok, String(bad)).toBe(
+        false,
+      );
+  });
+});
+
+describe("the engine and the processor, through a fake Chromium", () => {
+  function runner(): ChromiumPdfRunner & {
+    sites: HtmlSite[];
+  } {
+    const sites: HtmlSite[] = [];
+    return {
+      sites,
+      renderHtml: vi.fn(async () => PDF),
+      renderUrl: vi.fn(async () => PDF),
+      renderSite: vi.fn(async (s: HtmlSite) => {
+        sites.push(s);
+        return PDF;
+      }),
+    };
+  }
+
+  it("renders a ZIP as a site, and an HTML file as before", async () => {
+    const chromium = runner();
+    const zip = await zipOf(SITE);
+    const run = await runHtmlToPdf(zip, { chromium });
+    expect(run).toMatchObject({ ok: true, meta: { source: "zip" } });
+    expect(chromium.renderHtml).not.toHaveBeenCalled();
+    expect(chromium.sites[0]?.entryUrl).toBe(`${HTML_DOCUMENT_URL}index.html`);
+    expect(
+      chromium.sites[0]?.serve(`${HTML_DOCUMENT_URL}css/site.css`)?.contentType,
+    ).toBe("text/css");
+
+    const html = enc("<p>plain</p>");
+    await runHtmlToPdf(html, { chromium });
+    expect(chromium.renderHtml).toHaveBeenCalledTimes(1);
+    expect(chromium.renderSite).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses before Chromium starts: bombs, no page, a page not named, a name for a non-ZIP", async () => {
+    const chromium = runner();
+    const many = await zipOf({ "a.html": "a", "b.html": "b" });
+    await expect(runHtmlToPdf(many, { chromium })).resolves.toMatchObject({
+      ok: false,
+      kind: "refused",
+      refusal: { kind: "choose_entry", count: 2 },
+    });
+    await expect(
+      runHtmlToPdf(
+        enc("<p>x</p>"),
+        { chromium },
+        undefined,
+        undefined,
+        "a.html",
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      kind: "refused",
+      refusal: { kind: "not_zip" },
+    });
+    expect(chromium.renderSite).not.toHaveBeenCalled();
+  });
+
+  it("a ZIP's page past the HTML file ceiling is too large, before Chromium starts, and never retried", async () => {
+    const chromium = runner();
+    const page = `<p>${"x".repeat(2000)}</p>`;
+    const zip = await zipOf({ "index.html": page });
+    const limits = { maxInputBytes: 1000 };
+    // Health: the ZIP itself is under the ceiling; only its page is over.
+    expect(zip.byteLength).toBeLessThan(1000);
+    await expect(
+      runHtmlToPdf(zip, { chromium, limits }),
+    ).resolves.toMatchObject({
+      ok: false,
+      kind: "too_large",
+      limitBytes: 1000,
+      message: expect.stringMatching(/^The page in this ZIP is larger than/),
+    });
+    // At the ceiling it renders.
+    const fits = await zipOf({ "index.html": "x".repeat(1000) });
+    await expect(
+      runHtmlToPdf(fits, { chromium, limits }),
+    ).resolves.toMatchObject({ ok: true });
+    expect(chromium.renderSite).toHaveBeenCalledTimes(1);
+    const processor = createHtmlRenderProcessor({ chromium, limits });
+    const result = await processor.process({
+      tool: "html-to-pdf",
+      options: {},
+      inputs: [
+        {
+          fileId: "f",
+          filename: "site.zip",
+          contentType: "application/zip",
+          bytes: zip,
+        },
+      ],
+    });
+    expect(result).toMatchObject({ ok: false, error: { retryable: false } });
+  });
+
+  // Hostile review round 2 (2026-11-14): both gates read metadata, the
+  // engine reads bytes, so a ZIP uploaded as page.html/text/html with no
+  // page named passed the gates as HTML and was served as a site.
+  it("a ZIP the job did not declare (HTML name and type, no page named) is refused, finally, and never rendered", async () => {
+    const zip = await zipOf(SITE);
+    const job = (
+      filename: string,
+      contentType: string,
+      options: Record<string, unknown> = {},
+    ) => {
+      const chromium = runner();
+      const processor = createHtmlRenderProcessor({ chromium });
+      return processor
+        .process({
+          tool: "html-to-pdf",
+          options,
+          inputs: [{ fileId: "f", filename, contentType, bytes: zip }],
+        })
+        .then((result) => ({ result, chromium }));
+    };
+    const renamed = await job("page.html", "text/html");
+    expect(renamed.result).toMatchObject({
+      ok: false,
+      error: {
+        code: "unprocessable_entity",
+        retryable: false,
+        message: htmlZipRefusalMessage({ kind: "zip_as_html" }),
+      },
+    });
+    expect(renamed.chromium.renderSite).not.toHaveBeenCalled();
+    expect(renamed.chromium.renderHtml).not.toHaveBeenCalled();
+    // POSITIVE CONTROLS, one per clause that declares a ZIP: each alone
+    // reaches the archive path.
+    for (const [name, type, options] of [
+      ["site.zip", "text/html", {}],
+      ["page.html", "application/zip", {}],
+      ["page.html", "application/x-zip-compressed", {}],
+      ["page.html", "text/html", { entry: "index.html" }],
+    ] as const) {
+      const run = await job(name, type, options);
+      expect(run.result.ok, `${name} ${type} ${JSON.stringify(options)}`).toBe(
+        true,
+      );
+      expect(run.chromium.renderSite).toHaveBeenCalledTimes(1);
+    }
+    // And an HTML file under an HTML name still renders as a file.
+    const chromium = runner();
+    const html = await createHtmlRenderProcessor({ chromium }).process({
+      tool: "html-to-pdf",
+      options: {},
+      inputs: [
+        {
+          fileId: "f",
+          filename: "page.html",
+          contentType: "text/html",
+          bytes: enc("<p>x</p>"),
+        },
+      ],
+    });
+    expect(html.ok).toBe(true);
+    expect(chromium.renderHtml).toHaveBeenCalledTimes(1);
+  });
+
+  it("a renderer with no site support is unsupported, not a mis-render", async () => {
+    const old: ChromiumPdfRunner = {
+      renderHtml: vi.fn(async () => PDF),
+      renderUrl: vi.fn(async () => PDF),
+    };
+    await expect(
+      runHtmlToPdf(await zipOf(SITE), { chromium: old }),
+    ).resolves.toMatchObject({ ok: false, kind: "unsupported" });
+    expect(old.renderHtml).not.toHaveBeenCalled();
+  });
+
+  it("the processor passes the job's page on, refuses a bad one, and never retries a refusal", async () => {
+    const chromium = runner();
+    const processor = createHtmlRenderProcessor({ chromium });
+    const zip = await zipOf({ ...SITE, "about.html": "<p>About</p>" });
+    const input = (options: Record<string, unknown>) => ({
+      tool: "html-to-pdf",
+      options,
+      inputs: [
+        {
+          fileId: "f",
+          filename: "site.zip",
+          contentType: "application/zip",
+          bytes: zip,
+        },
+      ],
+    });
+    const ok = await processor.process(input({ entry: "about.html" }));
+    expect(ok.ok).toBe(true);
+    if (ok.ok) expect(ok.artifacts[0]?.filename).toBe("site.pdf");
+    expect(chromium.sites[0]?.entry).toBe("about.html");
+
+    const bad = await processor.process(input({ entry: "../x.html" }));
+    expect(bad).toMatchObject({
+      ok: false,
+      error: { code: "unprocessable_entity", retryable: false },
+    });
+    const missing = await processor.process(input({ entry: "nope.html" }));
+    expect(missing).toMatchObject({
+      ok: false,
+      error: {
+        code: "unprocessable_entity",
+        retryable: false,
+        message: htmlZipRefusalMessage({ kind: "entry_not_found" }),
+      },
+    });
+  });
+});

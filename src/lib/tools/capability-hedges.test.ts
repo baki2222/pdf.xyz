@@ -437,6 +437,17 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
       /recogni[sz]es? the text on our server|recogni[sz]ed on our server first|scan[^.?!]{0,80}recogni[sz]ed on our server/i,
     catalogueCopy: true,
   },
+  htmlZip: {
+    // Added 2026-11-14 with the key (competitor audit #26). The sentences a
+    // hedge about it would sit in: HTML to PDF taking a ZIP of a page, the
+    // way its copy says it ("when our server can open ZIP files", "a ZIP of
+    // the page with its files", "the drop zone says whether it takes a ZIP").
+    // Not bare "ZIP": half the catalogue DELIVERS a ZIP ("arrive as a ZIP"),
+    // which is no claim about this capability.
+    subject:
+      /\bopen ZIP files\b|\bZIP of (?:a|the) page\b|\btakes? a ZIP\b|\bzip the page\b/i,
+    catalogueCopy: true,
+  },
 };
 
 /* ------------------------------------------------------------------ *

@@ -77,6 +77,13 @@ export type Format = (typeof FORMATS)[number];
  * followed on 2026-11-06, when EPUB to PDF began printing books on the
  * worker (`workers/epub`, which checks the bytes first), and "No tool here
  * opens EPUB e-books." went with it.
+ *
+ * ZIP stays here, recognised, with a different answer: since 2026-11-14 HTML
+ * to PDF's picker takes a ZIP of a web page whenever the running worker
+ * proves it can, so ZIP's answer names that tool (`onlyIn` in
+ * `UNSUPPORTED_ANSWERS`) instead of saying no tool opens it. `formats.test.ts`
+ * reads every picker's accept — the catalogue's AND the lists written in
+ * components — and holds that pairing both ways.
  */
 export const UNSUPPORTED_FORMATS = [
   "HEIC",

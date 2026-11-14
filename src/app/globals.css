@@ -993,8 +993,9 @@ html[data-dragging] .reg-mark {
   /* Touch targets on a touch screen: 44px (WCAG 2.5.5), the icon still
      drawn at its own size. `tap`, an icon button; `tap-row`, a text link's
      row; `tap-line`, a row of icon buttons on a line of its own (Merge's
-     file rows, which have no room beside the name); `tap-y`, a text button
-     grown to 44px without moving what is around it.
+     file rows, which have no room beside the name); `tap-y`, a one-line
+     text button of any size grown to 44px without moving what is around
+     it.
      `e2e/mobile-pass.mobile.spec.ts` measures them. */
   @media (pointer: coarse) {
     .tap {
@@ -1010,9 +1011,16 @@ html[data-dragging] .reg-mark {
       width: 100%;
       justify-content: flex-end;
     }
+    /* `tap-y` grows the box to 44px from its OWN line height (`1lh`), so a
+       text-xs button (16px line) reaches 44 as a text-sm one (20px) does;
+       the fixed 0.75rem it used to add made a text-xs button 40px (surface
+       review round 2, 2026-11-14: HTML to PDF's paste toggle). No 0.75rem
+       fallback: the minifier dropped it from the built stylesheet (round 3),
+       and every supported browser has `lh` (the site already ships
+       `min-h-[2lh]`). */
     .tap-y {
-      margin-block: -0.75rem;
-      padding-block: 0.75rem;
+      margin-block: calc((1lh - 2.75rem) / 2);
+      padding-block: calc((2.75rem - 1lh) / 2);
     }
   }
 

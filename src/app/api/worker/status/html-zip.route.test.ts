@@ -1,0 +1,265 @@
+// @vitest-environment node
+/**
+ * HEARTBEAT → the three routes that decide a ZIP for HTML to PDF, through
+ * the REAL routes (competitor audit #26):
+ *
+ *   - `GET /api/worker/status` → `htmlZip`, which the page offers ZIP on;
+ *   - `POST /api/uploads` with a .zip for html-to-pdf;
+ *   - `POST /api/jobs` for html-to-pdf naming a page of a ZIP (`entry`).
+ *
+ * The worker image ships separately from the web tier (CLAUDE.md rule 5),
+ * and an image built before ZIP input renders a ZIP's bytes as HTML and
+ * reports success. So for every beat the three must agree: an OLD worker
+ * (no `htmlZip` key — today's production image), a stale beat or none at
+ * all is not offered ZIP and both APIs refuse it with the typed message; a
+ * NEW worker on a fresh beat is offered it and both APIs admit it. And an
+ * HTML file is admitted either way: the gate is for ZIPs only.
+ *
+ * The heartbeat is published into the in-memory Redis the routes read over
+ * the real Upstash REST wire (`@/tests/wired-job-route`).
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { REQUIRED_WORKER_ENV } from "@/lib/jobs";
+import { RATE_LIMIT_ENV } from "@/lib/ratelimit";
+import { resetRateLimitGuardForTests } from "@/lib/ratelimit/guard";
+import {
+  buildHeartbeat,
+  emptyCapabilities,
+  serializeHeartbeat,
+  type HeartbeatCapabilities,
+} from "@/lib/workers/heartbeat";
+import { HTML_ZIP_NOT_RUNNING_MESSAGE } from "@/lib/workers/html-render/zip-config";
+import { heartbeatKey } from "@/lib/workers/heartbeat";
+import {
+  publishHeartbeat,
+  unwireJobRoute,
+  wireJobRoute,
+  type WiredJobRoute,
+} from "@/tests/wired-job-route";
+import { POST as createJob } from "../../jobs/route";
+import { POST as createUpload } from "../../uploads/route";
+import { GET } from "./route";
+
+let route: WiredJobRoute;
+const HOUR = 3_600_000;
+
+function beat(
+  caps: Partial<HeartbeatCapabilities>,
+  at: number,
+  drop?: keyof HeartbeatCapabilities,
+): string {
+  const record = JSON.parse(
+    serializeHeartbeat(
+      buildHeartbeat({
+        mode: "loop",
+        capabilities: { ...emptyCapabilities(), ...caps },
+        at,
+      }),
+    ),
+  ) as { capabilities: Record<string, unknown> };
+  if (drop) delete record.capabilities[drop];
+  return JSON.stringify(record);
+}
+
+const post = (url: string, body: unknown) =>
+  new Request(`http://localhost${url}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-forwarded-for": "203.0.113.48",
+    },
+    body: JSON.stringify(body),
+  });
+
+async function offered(): Promise<unknown> {
+  const response = await GET(new Request("http://localhost/api/worker/status"));
+  expect(response.status).toBe(200);
+  return ((await response.json()) as { htmlZip?: unknown }).htmlZip;
+}
+
+async function upload(filename: string, contentType: string) {
+  const response = await createUpload(
+    post("/api/uploads", {
+      tool: "html-to-pdf",
+      files: [{ filename, contentType, bytes: 2048 }],
+    }),
+  );
+  const body = (await response.json()) as { error?: { message?: string } };
+  return { status: response.status, message: body.error?.message };
+}
+
+async function job(options: Record<string, unknown>, inputName: string) {
+  const response = await createJob(
+    post("/api/jobs", {
+      tool: "html-to-pdf",
+      inputs: ["f_htmlzip00000001"],
+      inputNames: [inputName],
+      options,
+    }),
+  );
+  const body = (await response.json()) as { error?: { message?: string } };
+  return { status: response.status, message: body.error?.message };
+}
+
+const CASES = [
+  ["an OLD worker: no htmlZip key (today's production image)", false, "drop"],
+  ["a NEW worker on a fresh beat", true, "fresh"],
+  ["a NEW worker on a STALE beat", false, "stale"],
+  ["a worker that says false", false, "false"],
+  ["no heartbeat at all", false, "none"],
+] as const;
+
+async function publish(shape: (typeof CASES)[number][2]): Promise<void> {
+  if (shape === "none") return publishHeartbeat(route, null);
+  return publishHeartbeat(
+    route,
+    beat(
+      { htmlZip: shape !== "false" },
+      shape === "stale" ? Date.now() - 24 * HOUR : Date.now(),
+      shape === "drop" ? "htmlZip" : undefined,
+    ),
+  );
+}
+
+beforeEach(() => {
+  resetRateLimitGuardForTests();
+  for (const name of REQUIRED_WORKER_ENV) delete process.env[name];
+  process.env[RATE_LIMIT_ENV.provider] = "local-memory";
+  route = wireJobRoute();
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  resetRateLimitGuardForTests();
+  delete process.env[RATE_LIMIT_ENV.provider];
+  unwireJobRoute();
+});
+
+describe("ZIP for HTML to PDF: the offer and both gates agree, beat by beat", () => {
+  it.each(CASES)("%s → %s", async (_name, expected, shape) => {
+    await publish(shape);
+    expect(await offered()).toBe(expected);
+
+    for (const [name, type] of [
+      ["site.zip", "application/zip"],
+      ["site.zip", "application/x-zip-compressed"],
+    ] as const) {
+      const up = await upload(name, type);
+      if (expected) expect(up.status, `${type} upload`).toBeLessThan(300);
+      else
+        expect(up, `${type} upload`).toEqual({
+          status: 501,
+          message: HTML_ZIP_NOT_RUNNING_MESSAGE,
+        });
+    }
+
+    const zipJob = await job({ entry: "site/index.html" }, "site.zip");
+    if (expected) expect(zipJob.status).toBeLessThan(300);
+    else
+      expect(zipJob).toEqual({
+        status: 501,
+        message: HTML_ZIP_NOT_RUNNING_MESSAGE,
+      });
+    // A .zip input with no page named is still a ZIP job.
+    const unnamed = await job({}, "site.zip");
+    expect(unnamed.status < 300).toBe(expected);
+  });
+
+  // The routes see a name and a type, never bytes: a ZIP uploaded as
+  // page.html/text/html is admitted here too. The worker refuses it,
+  // finally, before Chromium (`zip_as_html`, processor/html-render.ts;
+  // zip-site.test.ts and the start-up proof hold that), so no ZIP reaches
+  // the archive path without passing a gate that reads the heartbeat.
+  it.each(CASES)(
+    "an HTML file is admitted whatever the beat: %s",
+    async (_n, _e, shape) => {
+      await publish(shape);
+      expect((await upload("page.html", "text/html")).status).toBeLessThan(300);
+      expect((await job({}, "page.html")).status).toBeLessThan(300);
+    },
+  );
+
+  // Every case above sends BOTH signals of each gate at once (a .zip name
+  // declared as a ZIP; a page named on a .zip input), so either clause of
+  // each gate could be deleted with them still green (behaviour review
+  // 2026-11-14: both mutations survived). The job gate's signals ALONE, here.
+  it.each(CASES)(
+    "each job signal alone closes the gate when ZIP is not proven, and passes when it is: %s",
+    async (_n, expected, shape) => {
+      await publish(shape);
+      const closed = { status: 501, message: HTML_ZIP_NOT_RUNNING_MESSAGE };
+      const gate = (got: { status: number; message?: string }, what: string) =>
+        expected
+          ? expect(got.status, what).toBeLessThan(300)
+          : expect(got, what).toEqual(closed);
+      // Upload: name and type cannot disagree past intake (a mismatch is a
+      // 415) and the parser normalises the type, so the route cannot tell
+      // the upload gate's two clauses apart; each one's positive control is
+      // the unit test of `uploadIsHtmlZip` (zip-site.test.ts).
+      // Job: the page option ALONE, on an input not named .zip — the only
+      // line between an old image and a renamed ZIP that names a page.
+      gate(
+        await job({ entry: "index.html" }, "site.html"),
+        "entry on a .html input",
+      );
+      // ... and the .zip name ALONE, no page named.
+      gate(await job({}, "site.zip"), "a .zip input, no entry");
+    },
+  );
+
+  // Hostile review round 3 (2026-11-14): `entry` and `inputNames` are both
+  // optional, so a direct caller who uploaded x.zip while the worker proved
+  // ZIP, and sent the job with neither after the image was rolled back, was
+  // admitted — and the old image prints the archive's bytes. The chain
+  // through BOTH real routes: the id the upload minted is what the job gate
+  // reads, so nothing the caller leaves out reopens it.
+  it.each(CASES)(
+    "a ZIP uploaded while ZIP was proven, sent later with no page and no names, is judged by its id: %s",
+    async (_n, expected, shape) => {
+      await publish("fresh");
+      const slot = async (filename: string, contentType: string) => {
+        const response = await createUpload(
+          post("/api/uploads", {
+            tool: "html-to-pdf",
+            files: [{ filename, contentType, bytes: 2048 }],
+          }),
+        );
+        expect(response.status).toBeLessThan(300);
+        const body = (await response.json()) as {
+          slots: { fileId: string }[];
+        };
+        return body.slots[0]!.fileId;
+      };
+      const zipId = await slot("site.zip", "application/zip");
+      const htmlId = await slot("page.html", "text/html");
+      // The rollback: the fresh beat is gone before the new one (or none).
+      await route.redis.command(["DEL", heartbeatKey("pdfxyz")]);
+      await publish(shape);
+      const bare = async (fileId: string) => {
+        const response = await createJob(
+          post("/api/jobs", { tool: "html-to-pdf", inputs: [fileId] }),
+        );
+        const body = (await response.json()) as {
+          error?: { message?: string };
+        };
+        return { status: response.status, message: body.error?.message };
+      };
+      const zipJob = await bare(zipId);
+      if (expected) expect(zipJob.status).toBeLessThan(300);
+      else
+        expect(zipJob).toEqual({
+          status: 501,
+          message: HTML_ZIP_NOT_RUNNING_MESSAGE,
+        });
+      // POSITIVE CONTROL: an HTML upload's id, sent the same bare way, is
+      // admitted whatever the beat — the id, not the bareness, closes it.
+      expect((await bare(htmlId)).status).toBeLessThan(300);
+    },
+  );
+
+  it("a page name that is not a servable .html path is refused with its field named", async () => {
+    await publish("fresh");
+    const bad = await job({ entry: "../index.html" }, "site.zip");
+    expect(bad.status).toBe(422);
+    expect(bad.message).toMatch(/options\.entry/);
+  });
+});

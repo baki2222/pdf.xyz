@@ -24,6 +24,7 @@ export type UploadFamily =
   | "presentation"
   | "web"
   | "ebook"
+  | "archive"
   | "text";
 
 /** A family's recognized MIME types and filename extensions (both lower-case). */
@@ -97,6 +98,15 @@ export const UPLOAD_FAMILIES: Record<UploadFamily, FamilySpec> = {
   ebook: {
     mimes: ["application/epub+zip"],
     extensions: ["epub"],
+  },
+  // 2026-11-14, with ZIP pages for HTML to PDF: the only upload a ZIP may
+  // be (the per-tool validator admits it for that tool alone). Mirrors
+  // `HTML_ZIP_MIMES` in `@/lib/workers/html-render/zip-config`, written out
+  // because this module stays import-free; `families.test.ts` holds the two
+  // equal.
+  archive: {
+    mimes: ["application/zip", "application/x-zip-compressed"],
+    extensions: ["zip"],
   },
   text: {
     mimes: ["text/plain", "text/markdown"],

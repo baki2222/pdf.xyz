@@ -20,6 +20,10 @@ import {
   resultAnnouncement,
 } from "./tools-explorer";
 import { UNSUPPORTED_FORMATS, toolAcceptsFormat } from "@/lib/intent/formats";
+import {
+  UNSUPPORTED_ANSWERS,
+  type UnsupportedAnswerData,
+} from "@/lib/tools/intents";
 import { categories, getToolsByCategory, tools } from "@/lib/tools";
 import { categoryHref } from "@/lib/tools/category-href";
 import { toolFamilies } from "@/lib/tools/families";
@@ -481,8 +485,14 @@ describe("ToolsExplorer: the unsupported-format answer, as rendered", () => {
     );
     const view = render(<ToolsExplorer loadEngine={engineNow} />);
     await settle();
+    // A format one tool opens in one case leads with that tool (`onlyIn`,
+    // ZIP since 2026-11-14); every other answer with "No tool here opens".
+    const data = (UNSUPPORTED_ANSWERS as Record<string, UnsupportedAnswerData>)[
+      format
+    ];
+    const onlyIn = data?.onlyIn ? data : undefined;
     const region = screen.queryByRole("region", {
-      name: /^No tool here opens/,
+      name: onlyIn ? onlyIn.headline! : /^No tool here opens/,
     });
     const copy = region?.cloneNode(true) as HTMLElement | undefined;
     view.unmount();
@@ -503,7 +513,17 @@ describe("ToolsExplorer: the unsupported-format answer, as rendered", () => {
     // format JPG / PNG to PDF take; ≥ 6 until 2026-11-06, when EPUB became a
     // format EPUB to PDF takes.
     expect(texts.length).toBeGreaterThanOrEqual(5);
-    for (const text of texts) expect(text).toMatch(/^No tool here opens /);
+    UNSUPPORTED_FORMATS.forEach((format, i) => {
+      const onlyIn = UNSUPPORTED_ANSWERS[format];
+      if (!onlyIn.onlyIn) expect(texts[i]).toMatch(/^No tool here opens /);
+      else {
+        // It says where the file DOES go, and shows that tool's card.
+        expect(texts[i]!.startsWith(onlyIn.headline!), texts[i]).toBe(true);
+        expect(texts[i]).not.toMatch(/No tool here opens/);
+        const tool = tools.find((t) => t.slug === onlyIn.onlyIn)!;
+        expect(texts[i]).toContain(tool.name);
+      }
+    });
     expect(texts.filter((text) => DEFERRAL.test(text))).toEqual([]);
     // Positive control: the spec's own wording would have been caught.
     expect(DEFERRAL.test("No tool here takes HEIC files yet.")).toBe(true);

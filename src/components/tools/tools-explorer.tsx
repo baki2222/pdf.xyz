@@ -874,6 +874,11 @@ function AnswerBlock({
           )}
         </div>
       </div>
+      {answer.onlyIn && (
+        <div className={GRID}>
+          <ToolCardView tool={answer.onlyIn} icon={icons[answer.onlyIn.slug]} />
+        </div>
+      )}
       {alt?.kind === "tool" && (
         <div className={GRID}>
           <ToolCardView tool={alt.tool} icon={icons[alt.tool.slug]} />

@@ -755,6 +755,40 @@ test(`OCR PDF at 360 with a file in: Remove and "What happens to your file" are 
   }
 });
 
+// Surface review round 2 (2026-11-14): `tap-y` added a fixed 0.75rem a
+// side, which grows a text-sm button (20px line) to 44 and a text-xs one
+// (16px line) to 40 — HTML to PDF's paste toggle. It now grows from 1lh.
+test(`HTML to PDF at 360: the paste toggle is ${MIN}px tall, open and closed, and moves nothing`, async ({
+  page,
+}) => {
+  await page.route("**/api/worker/status", (route) =>
+    json(route, READY_WORKER_STATUS),
+  );
+  await page.goto("/tools/html-to-pdf");
+  await waitForHydration(fileInput(page));
+  const panel = page.locator("[data-tool-panel]");
+  const open = panel.getByRole("button", { name: "Or paste HTML code" });
+  await expect(open).toBeVisible();
+  const before = (await open.boundingBox())!;
+  expect(before.height, "closed").toBeGreaterThanOrEqual(MIN - 0.5);
+  // Health: it IS the small-text button the class has to grow.
+  expect(await open.evaluate((el) => getComputedStyle(el).lineHeight)).toBe(
+    "16px",
+  );
+  // It moves nothing: the margin gives back exactly what the padding took.
+  const margins = await open.evaluate((el) => {
+    const s = getComputedStyle(el);
+    return parseFloat(s.marginTop) + parseFloat(s.marginBottom);
+  });
+  expect(before.height + margins).toBeCloseTo(16, 0);
+  await open.tap();
+  const close = panel.getByRole("button", { name: "Choose a file instead" });
+  await expect(close).toBeVisible();
+  expect((await close.boundingBox())!.height, "open").toBeGreaterThanOrEqual(
+    MIN - 0.5,
+  );
+});
+
 test("negative control: the icon and footer predicates reject a 28px button and a 20px link", async ({
   page,
 }) => {

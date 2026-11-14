@@ -2518,7 +2518,13 @@ describe("the secure-worker tools answer what their engines do", () => {
     expect(fetched).toEqual(["https://example.com/images/logo.png"]);
     expect(resolved).toEqual(["example.com"]);
     const served = answer("html-to-pdf", /images and styles/);
-    expect(served).toContain("the .html file is uploaded on its own");
+    // CHANGED 2026-11-14 (competitor audit #26): was "the .html file is
+    // uploaded on its own". Pasted code travels alone too; a ZIP of the page
+    // carries its files, offered only while the running worker proves it.
+    expect(served).toContain(
+      "an .html file or pasted code is uploaded on its own",
+    );
+    expect(served).toContain("when our server can open ZIP files");
     expect(served).toContain("files linked by a full web address, are loaded");
   });
 });

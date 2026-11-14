@@ -131,6 +131,17 @@ export interface UnsupportedAnswerData {
   readonly noun: string;
   readonly becomes: Format | null;
   readonly how: string | null;
+  /**
+   * The slug of the ONE tool that does open this format, in one case, and
+   * the headline that says so — given together, and then the answer leads
+   * with that, never with "No tool here opens …". `formats.test.ts` holds
+   * it both ways against every `accept` the site's pickers are given: a
+   * format some picker takes must have one, and a format with one must be
+   * taken by some picker. (Flat, not an object: these words ride in the
+   * desk ticket's on-demand fetch, which is bounded to the byte.)
+   */
+  readonly onlyIn?: string;
+  readonly headline?: string;
 }
 
 export const UNSUPPORTED_ANSWERS: Readonly<
@@ -144,9 +155,19 @@ export const UNSUPPORTED_ANSWERS: Readonly<
     how: "Export a PNG copy first.",
   },
   AVIF: { noun: "AVIF images", becomes: "JPG", how: "Save a JPG copy first." },
+  // "No tool here opens ZIP archives." until 2026-11-14, when HTML to PDF
+  // began taking a ZIP of a web page (competitor audit #26) whenever the
+  // running worker proves it can. The first rewrite narrowed the noun to
+  // "ZIP archives of documents" and kept "Unzip it first" — the opposite
+  // of the advice for the web-page ZIP the tool asks for, since unzipping
+  // and adding the .html loses every file it links (surface review round
+  // 2). Now the answer says where a ZIP DOES go, and when.
   ZIP: {
     noun: "ZIP archives",
     becomes: "PDF",
-    how: "Unzip it first and add the files inside.",
+    how: "Unzip any other ZIP first and add the files inside.",
+    onlyIn: "html-to-pdf",
+    headline:
+      "HTML to PDF opens a ZIP of a web page, when our server can open ZIP files.",
   },
 };

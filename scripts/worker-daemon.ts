@@ -54,6 +54,7 @@ import {
   provesDeliveryCap,
 } from "@/lib/workers/translate/capability";
 import { provesTranslateOcr } from "@/lib/workers/translate/ocr-capability";
+import { provesHtmlZip } from "@/lib/workers/html-render/zip-capability";
 import { provesAiReadCap } from "@/lib/workers/processor/read-cap-proof";
 import {
   provesDocxPictures,
@@ -168,6 +169,10 @@ async function buildHeartbeatPublisher(
       // checks the provider heard what the (stub) OCR recognised, and that a
       // typed PDF ran no OCR. Whether OCR itself runs here is `ocr` above.
       translateOcr: await provesTranslateOcr(),
+      // Runs html-to-pdf jobs through the registry this daemon builds, with
+      // a stub Chromium: a ZIP must reach it as a site of the page asked
+      // for, serving the archive's files and nothing outside it.
+      htmlZip: await provesHtmlZip(),
     },
     ...(release !== undefined ? { release } : {}),
     ...(fingerprint !== undefined ? { fingerprint } : {}),
