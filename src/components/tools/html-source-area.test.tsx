@@ -176,7 +176,12 @@ describe("a ZIP of a page", () => {
       {},
       { timeout: 5000 },
     );
-    expect(note.textContent).toContain("2 linked files (e.g. img/gone.png)");
+    // INVERTED 2026-11-14 (surface review round 2): "e.g. img/gone.png",
+    // the reference as written in site/index.html; the note says to add it
+    // "at those paths", and its path in the ZIP is site/img/gone.png.
+    expect(note.textContent).toContain(
+      "2 linked files (e.g. site/img/gone.png)",
+    );
     await waitFor(() => expect(isDisabled(renderButton())).toBe(false));
     await act(async () => {
       fireEvent.click(renderButton());
@@ -270,7 +275,9 @@ describe("a ZIP of a page", () => {
       {},
       { timeout: 5000 },
     );
-    expect(note.textContent).toContain("1 linked file (../img/missing.png)");
+    // INVERTED 2026-11-14 (surface review round 2): "../img/missing.png",
+    // as written in css/b.css; the path to add it at is img/missing.png.
+    expect(note.textContent).toContain("1 linked file (img/missing.png)");
   });
 
   it("refuses an archive with no page before anything is uploaded, in the worker's words", async () => {
