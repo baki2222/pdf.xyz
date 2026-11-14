@@ -3,6 +3,7 @@
 import {
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -43,8 +44,15 @@ import { buildReport, optionsPhrase } from "./report";
  */
 export const COMPARE_RESULT_CHUNK = "pdfxyz:lazy:compare-result";
 
-/** Hunks drawn at first; the rest wait behind "Show more changes". */
-export const HUNKS_SHOWN = 200;
+/**
+ * Rows drawn at first; the rest wait behind "Show more changes", which draws
+ * this many more. A budget of ROWS, not hunks: changes four or fewer lines
+ * apart merge into one hunk, so a hunk has no size of its own. Until
+ * 2026-11-14 the budget was 200 hunks, and 10,000 small edits made one hunk
+ * of 30,000 rows, every one drawn (about a second of main thread on a
+ * desktop; compare-result.test.tsx, "draws a bounded number of rows").
+ */
+export const ROWS_SHOWN = 1_500;
 
 function verdictOf(
   leftHasText: boolean,
@@ -176,37 +184,44 @@ function sideText(
 ): ReactNode {
   const Mark = side === "removed" ? "del" : "ins";
   if (!tokens) return <Mark className="decoration-2">{text}</Mark>;
+  // Most screen readers say nothing for <del> and <ins>: the words around
+  // each mark say where it starts and ends.
   return tokens.map((t, i) =>
     t.k === "same" ? (
       <span key={i}>{side === "added" ? (t.right ?? t.text) : t.text}</span>
     ) : t.k === side ? (
-      <Mark key={i} className="decoration-2">
-        {t.text}
-      </Mark>
+      <span key={i}>
+        <span className="sr-only">{`[${side}: `}</span>
+        <Mark className="decoration-2">{t.text}</Mark>
+        <span className="sr-only">]</span>
+      </span>
     ) : null,
   );
 }
 
 function HunkTable({
   hunk,
+  rows,
   leftText,
   rightText,
 }: {
   hunk: Hunk;
+  /** How many of the hunk's rows to draw. */
+  rows: number;
   leftText: Map<number, string>;
   rightText: Map<number, string>;
 }) {
   const byLeft = new Map(hunk.pairs.map((p) => [p.left, p.tokens]));
   const byRight = new Map(hunk.pairs.map((p) => [p.right, p.tokens]));
   return (
-    <table className="w-full border-collapse font-mono text-xs leading-5">
+    <table className="w-full table-fixed border-collapse font-mono text-xs leading-5">
       <tbody>
-        {hunk.ops.map((op, i) => {
+        {hunk.ops.slice(0, rows).map((op, i) => {
           if (op.k === "same")
             return (
               <tr key={i} className="text-muted">
                 <td aria-hidden className="w-6 px-2 align-top select-none" />
-                <td className="py-0.5 pr-2 break-words whitespace-pre-wrap">
+                <td className="py-0.5 pr-2 [overflow-wrap:anywhere] whitespace-pre-wrap">
                   {leftText.get(op.a)}
                 </td>
               </tr>
@@ -229,7 +244,7 @@ function HunkTable({
               >
                 {removed ? "−" : "+"}
               </td>
-              <td className="py-0.5 pr-2 break-words whitespace-pre-wrap">
+              <td className="py-0.5 pr-2 [overflow-wrap:anywhere] whitespace-pre-wrap">
                 <span className="sr-only">
                   {removed ? "Removed: " : "Added: "}
                 </span>
@@ -253,14 +268,17 @@ export function CompareChanges({
   result,
   options,
   onOptions,
+  rowsShown = ROWS_SHOWN,
 }: {
   result: PdfCompareResult;
   options: CompareOptions;
   onOptions: (options: CompareOptions) => void;
+  /** The row budget; a test sets it to make a few hunks overflow it. */
+  rowsShown?: number;
 }) {
   const hunks = result.hunks;
   const [current, setCurrent] = useState(0);
-  const [shown, setShown] = useState(HUNKS_SHOWN);
+  const [shown, setShown] = useState(rowsShown);
   const headings = useRef<(HTMLHeadingElement | null)[]>([]);
   const scroller = useRef<HTMLDivElement>(null);
   const focusPending = useRef(false);
@@ -271,8 +289,20 @@ export function CompareChanges({
   if (forResult !== result) {
     setForResult(result);
     setCurrent(0);
-    setShown(HUNKS_SHOWN);
+    setShown(rowsShown);
   }
+
+  // rowsBefore[n]: the rows of every hunk before hunk n; the last entry is
+  // all of them. Hunk n's heading is drawn while rowsBefore[n] < shown.
+  const rowsBefore = useMemo(() => {
+    const out = [0];
+    for (const h of hunks) out.push(out.at(-1)! + h.ops.length);
+    return out;
+  }, [hunks]);
+  const totalRows = rowsBefore.at(-1)!;
+  let drawnHunks = 0;
+  while (drawnHunks < hunks.length && rowsBefore[drawnHunks]! < shown)
+    drawnHunks += 1;
 
   useEffect(() => {
     if (!focusPending.current) return;
@@ -286,8 +316,13 @@ export function CompareChanges({
   const go = (to: number) => {
     if (hunks.length === 0) return;
     const next = Math.min(hunks.length - 1, Math.max(0, to));
-    if (next >= shown)
-      setShown(Math.ceil((next + 1) / HUNKS_SHOWN) * HUNKS_SHOWN);
+    // At either end there is nowhere to go. Leaving focusPending set here
+    // moved focus to a heading on the NEXT change of `current` — the reset a
+    // ticked box causes — taking it off the box (WCAG 3.2.2).
+    if (next === current) return;
+    const before = rowsBefore[next]!;
+    if (before >= shown)
+      setShown(Math.ceil((before + 1) / rowsShown) * rowsShown);
     focusPending.current = true;
     setCurrent(next);
   };
@@ -313,12 +348,15 @@ export function CompareChanges({
     }
   };
 
-  const leftText = new Map<number, string>();
-  const rightText = new Map<number, string>();
-  for (const line of result.diff) {
-    if (line.left !== undefined) leftText.set(line.left, line.text);
-    if (line.right !== undefined) rightText.set(line.right, line.text);
-  }
+  const [leftText, rightText] = useMemo(() => {
+    const l = new Map<number, string>();
+    const r = new Map<number, string>();
+    for (const line of result.diff) {
+      if (line.left !== undefined) l.set(line.left, line.text);
+      if (line.right !== undefined) r.set(line.right, line.text);
+    }
+    return [l, r];
+  }, [result.diff]);
 
   const ignoring = optionsPhrase(result.options);
   const status =
@@ -343,7 +381,11 @@ export function CompareChanges({
       onKeyDown={onKeyDown}
       className="border-line bg-canvas rounded-panel flex flex-col border"
     >
-      <div className="border-line bg-panel rounded-t-panel sticky top-0 z-10 flex flex-col gap-2 border-b p-3">
+      {/* Pinned BELOW the site header, which is itself sticky at top-0 and
+          z-50: at top-0 this bar slid under it and hid the steps and the
+          live line. On a phone it is not pinned at all (two rows of boxes
+          would hold a fifth of the screen), and the region fits the screen. */}
+      <div className="border-line bg-panel rounded-t-panel flex flex-col gap-2 border-b p-3 sm:sticky sm:top-[calc(var(--sf-header-h)+1px)] sm:z-10">
         <div className="flex flex-wrap items-center gap-2">
           <h2 id={`${id}-title`} className="sr-only">
             Changes
@@ -416,7 +458,7 @@ export function CompareChanges({
           </p>
         ) : (
           <div className="flex flex-col gap-4">
-            {hunks.slice(0, shown).map((hunk, n) => (
+            {hunks.slice(0, drawnHunks).map((hunk, n) => (
               <section key={n} aria-labelledby={`${id}-h${n}`}>
                 <h3
                   id={`${id}-h${n}`}
@@ -433,18 +475,19 @@ export function CompareChanges({
                 </h3>
                 <HunkTable
                   hunk={hunk}
+                  rows={shown - rowsBefore[n]!}
                   leftText={leftText}
                   rightText={rightText}
                 />
               </section>
             ))}
-            {shown < hunks.length && (
+            {shown < totalRows && (
               <button
                 type="button"
-                onClick={() => setShown((s) => s + HUNKS_SHOWN)}
+                onClick={() => setShown((s) => s + rowsShown)}
                 className="border-line text-fg hover:bg-wash rounded-ctl min-h-11 self-start border px-4 text-sm"
               >
-                Show more changes ({hunks.length - shown} more)
+                {`Show more changes (${(totalRows - shown).toLocaleString("en-US")} more lines)`}
               </button>
             )}
           </div>
