@@ -1269,6 +1269,17 @@ const TOOL_PAGES_TO_COME = {
   // everywhere is webpack's runtime, 3,777 -> 3,789 (+12, was +11): the
   // compare chunk's new content hash gzips a byte worse. Still inside
   // every G.1 row's headroom.
+  // RE-MEASURED after the second review's fixes (furniture decided against
+  // both files, word pairing, the stepped comparison, the memoised rows),
+  // against a fresh main build (E:/wcmp1-base2, adb519ab, its own install;
+  // its figures differ from the first base by a few bytes of chunk hashes):
+  // compare-pdf 230,139 -> 228,749 (-1,390: the runner's "ignoring ..."
+  // note moved into the async chunk); every other page +3..+12 (+3 (1),
+  // +4 (58), +5 (1), +6 (66), +7 (10), +8 (2), +9 (4), +12 (1:
+  // _global-error)); home 202,834 -> 202,842, /tools 213,264 -> 213,271,
+  // /workspace 235,003 -> 235,012, merge/ocr/rotate/summarize +4, pdf-viewer
+  // +3. Webpack's runtime 3,776 -> 3,788 (+12). The ticket's on-demand fetch
+  // is still 34,995 B. Inside every G.1 row's headroom.
   unallocated:
     UNALLOCATED -
     NEW_TOOLS_2026_10_30 -
