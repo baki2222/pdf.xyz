@@ -170,7 +170,11 @@ export function streamLines(items: readonly SearchItem[]): StreamLine[] {
     const m = breaks.exec(text);
     const end = m ? m.index : text.length;
     const raw = text.slice(start, end);
-    const { norm, map } = mapLine(raw);
+    const mapped = mapLine(raw);
+    // The comparison's own rule decides the text; a map that disagrees
+    // with it is dropped, and a line on it is flagged, never misplaced.
+    const norm = normalizeComparableLine(raw);
+    const map = mapped.norm === norm ? mapped.map : new Int32Array(0);
     if (norm !== "") out.push({ norm, rawFrom: start, map });
     if (!m) break;
     start = m.index + m[0].length;
@@ -298,6 +302,7 @@ export function placePage(
     if (
       !line ||
       line.norm !== text ||
+      line.map.length !== text.length + 1 ||
       segments.map((g) => g.text).join("") !== text
     ) {
       out.flagged.push(change);
