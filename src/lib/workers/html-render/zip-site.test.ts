@@ -21,6 +21,8 @@ import {
   chooseHtmlEntry,
   isHtmlEntryName,
   parseHtmlZipEntryOption,
+  uploadIsHtmlZip,
+  HTML_ZIP_MIMES,
 } from "./zip-config";
 import {
   HTML_ZIP_LIMITS,
@@ -463,6 +465,27 @@ describe("refusals, typed and worded", () => {
     expect(looksLikeZip(await zipOf(SITE))).toBe(true);
     expect(looksLikeZip(enc("<!doctype html>"))).toBe(false);
     expect(looksLikeZip(enc("PK"))).toBe(false);
+  });
+});
+
+describe("the upload gate's predicate", () => {
+  it("either signal alone is a ZIP: the declared type, or the .zip name; neither is not", () => {
+    // The name alone (a type intake would refuse beside it, so only here).
+    expect(
+      uploadIsHtmlZip({ filename: "site.zip", contentType: "text/html" }),
+    ).toBe(true);
+    expect(
+      uploadIsHtmlZip({ filename: "SITE.ZIP", contentType: "text/html" }),
+    ).toBe(true);
+    // The type alone, each of the declared ZIP types.
+    for (const contentType of HTML_ZIP_MIMES)
+      expect(uploadIsHtmlZip({ filename: "site.html", contentType })).toBe(
+        true,
+      );
+    // Neither: an HTML file.
+    expect(
+      uploadIsHtmlZip({ filename: "page.html", contentType: "text/html" }),
+    ).toBe(false);
   });
 });
 

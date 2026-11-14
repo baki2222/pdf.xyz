@@ -21,9 +21,8 @@ import {
   runningWorkerRendersHtmlZip,
 } from "@/lib/workers/heartbeat";
 import {
-  HTML_ZIP_MIMES,
   HTML_ZIP_NOT_RUNNING_MESSAGE,
-  isZipName,
+  uploadIsHtmlZip,
 } from "@/lib/workers/html-render/zip-config";
 import {
   enforceRateLimit,
@@ -119,9 +118,7 @@ export async function POST(request: Request): Promise<Response> {
    */
   if (
     parsed.value.tool === "html-to-pdf" &&
-    parsed.value.files.some(
-      (f) => HTML_ZIP_MIMES.includes(f.contentType) || isZipName(f.filename),
-    ) &&
+    parsed.value.files.some(uploadIsHtmlZip) &&
     !(await runningWorkerRendersHtmlZip())
   )
     return respond(apiError("not_implemented", HTML_ZIP_NOT_RUNNING_MESSAGE));

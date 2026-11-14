@@ -46,6 +46,8 @@
  * `zip-site.test.ts` holds each bound with a ZIP one past it.
  */
 
+import { isZipName } from "./zip-names";
+
 const MIB = 1024 * 1024;
 
 /** The most files (ZIP entries, folders included) one archive may hold. */
@@ -98,6 +100,25 @@ export const HTML_ZIP_MIMES: readonly string[] = [
   "application/zip",
   "application/x-zip-compressed",
 ];
+
+/**
+ * True when an upload descriptor is a ZIP: declared as one of
+ * {@link HTML_ZIP_MIMES}, OR named `.zip`. Either alone is enough, so
+ * neither alone slips a ZIP past the upload gate (`POST /api/uploads`).
+ *
+ * Through the route the two cannot disagree — upload intake refuses a name
+ * and type that disagree (415) and the parser normalises the type — so a
+ * route test cannot tell the clauses apart, and each one's positive control
+ * is the unit test of THIS function (`zip-site.test.ts`), where a mutation
+ * of either goes red. Behaviour review 2026-11-14 deleted the name clause
+ * inline with every test green.
+ */
+export function uploadIsHtmlZip(file: {
+  filename: string;
+  contentType: string;
+}): boolean {
+  return HTML_ZIP_MIMES.includes(file.contentType) || isZipName(file.filename);
+}
 
 /** The type the browser client declares for a ZIP upload. */
 export const HTML_ZIP_DECLARED_MIME = "application/zip";

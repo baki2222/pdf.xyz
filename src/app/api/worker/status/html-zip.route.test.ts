@@ -172,6 +172,34 @@ describe("ZIP for HTML to PDF: the offer and both gates agree, beat by beat", ()
     },
   );
 
+  // Every case above sends BOTH signals of each gate at once (a .zip name
+  // declared as a ZIP; a page named on a .zip input), so either clause of
+  // each gate could be deleted with them still green (behaviour review
+  // 2026-11-14: both mutations survived). The job gate's signals ALONE, here.
+  it.each(CASES)(
+    "each job signal alone closes the gate when ZIP is not proven, and passes when it is: %s",
+    async (_n, expected, shape) => {
+      await publish(shape);
+      const closed = { status: 501, message: HTML_ZIP_NOT_RUNNING_MESSAGE };
+      const gate = (got: { status: number; message?: string }, what: string) =>
+        expected
+          ? expect(got.status, what).toBeLessThan(300)
+          : expect(got, what).toEqual(closed);
+      // Upload: name and type cannot disagree past intake (a mismatch is a
+      // 415) and the parser normalises the type, so the route cannot tell
+      // the upload gate's two clauses apart; each one's positive control is
+      // the unit test of `uploadIsHtmlZip` (zip-site.test.ts).
+      // Job: the page option ALONE, on an input not named .zip — the only
+      // line between an old image and a renamed ZIP that names a page.
+      gate(
+        await job({ entry: "index.html" }, "site.html"),
+        "entry on a .html input",
+      );
+      // ... and the .zip name ALONE, no page named.
+      gate(await job({}, "site.zip"), "a .zip input, no entry");
+    },
+  );
+
   it("a page name that is not a servable .html path is refused with its field named", async () => {
     await publish("fresh");
     const bad = await job({ entry: "../index.html" }, "site.zip");
