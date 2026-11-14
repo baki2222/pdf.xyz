@@ -1301,7 +1301,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-11-07",
+    updated: "2026-11-14",
   },
   {
     slug: "how-to-convert-jpg-to-pdf",

@@ -18,7 +18,7 @@
  * the package PowerPoint refused.
  */
 import JSZip from "jszip";
-import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import { PDFDocument, rgb } from "pdf-lib";
 import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 import { decodePng } from "@/lib/png-probe";
@@ -221,8 +221,16 @@ export async function docxProofPdf(): Promise<Uint8Array> {
     size: 14,
     font,
   });
-  const regular = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const regular = await embedDrawingFont(
+    doc,
+    Object.values(DOCX_PROOF_STYLED),
+    "sans",
+  );
+  const bold = await embedDrawingFont(
+    doc,
+    Object.values(DOCX_PROOF_STYLED),
+    "sans-bold",
+  );
   const w = DOCX_PROOF_STYLED;
   let x = 60;
   for (const [text, face, size, color] of [

@@ -20,7 +20,8 @@
  *    whole PDF to Word engine (real page reader, poppler stood in for) — and
  *    the structural read-back of its .docx, timed on its own.
  */
-import { PDFDocument, StandardFonts } from "pdf-lib";
+import { embedDrawingFont } from "@/lib/pdf/unicode-font";
+import { PDFDocument } from "pdf-lib";
 import type { FlowPiece, PdfFlowTextPage } from "@/lib/workers/pdf-text/flow";
 import { runStylesOf } from "@/lib/workers/pdf-office-export/docx-run-style";
 import {
@@ -111,9 +112,21 @@ function matchPage(
 
 async function enginePdf(pages: number): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  const regular = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  const italic = await doc.embedFont(StandardFonts.HelveticaOblique);
+  const regular = await embedDrawingFont(
+    doc,
+    ["Heading 0123456789 word"],
+    "sans",
+  );
+  const bold = await embedDrawingFont(
+    doc,
+    ["Heading 0123456789 word"],
+    "sans-bold",
+  );
+  const italic = await embedDrawingFont(
+    doc,
+    ["Heading 0123456789 word"],
+    "sans-oblique",
+  );
   for (let p = 0; p < pages; p++) {
     const page = doc.addPage([612, 792]);
     page.drawText(`Heading ${p + 1}`, { x: 72, y: 720, size: 18, font: bold });

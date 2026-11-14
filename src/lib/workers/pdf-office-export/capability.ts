@@ -64,7 +64,7 @@
  * `docxPictures`)?
  */
 
-import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import { PDFDocument, rgb } from "pdf-lib";
 import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { decodePng } from "@/lib/png-probe";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
@@ -501,9 +501,21 @@ export const DOCX_RUN_STYLES_PROBE = {
  */
 export async function docxRunStylesProbePdf(): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  const regular = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  const italic = await doc.embedFont(StandardFonts.HelveticaOblique);
+  const regular = await embedDrawingFont(
+    doc,
+    Object.values(DOCX_RUN_STYLES_PROBE),
+    "sans",
+  );
+  const bold = await embedDrawingFont(
+    doc,
+    Object.values(DOCX_RUN_STYLES_PROBE),
+    "sans-bold",
+  );
+  const italic = await embedDrawingFont(
+    doc,
+    Object.values(DOCX_RUN_STYLES_PROBE),
+    "sans-oblique",
+  );
   const page = doc.addPage([612, 792]);
   const words = DOCX_RUN_STYLES_PROBE;
   const line: [string, typeof regular, number, ReturnType<typeof rgb>][] = [

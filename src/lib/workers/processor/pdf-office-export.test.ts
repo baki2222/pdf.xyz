@@ -334,6 +334,11 @@ describe("pdf-office-export processor", () => {
       pagesMissingPictures: [],
       emptyPageCount: 0,
       pagesEmpty: [],
+      // Since 2026-11-15: pages whose words lost their formatting (none:
+      // every word on the two text pages matched a run) cross it too.
+      formattingMissingPageCount: 0,
+      pagesWithoutFormatting: [],
+      unmatchedWords: 0,
     });
   });
   it("carries the picture-only pages of a deck onto the job record (processor → sanitizeJobResults)", async () => {
