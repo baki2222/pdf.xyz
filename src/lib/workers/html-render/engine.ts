@@ -68,6 +68,50 @@ export class WebpageFetchError extends Error {
   }
 }
 
+/**
+ * Thrown by a {@link ChromiumPdfRunner} when the render ran out of its TIME
+ * budget (`timeoutMs`): the page was still loading, laying out or running
+ * script when the deadline came. For an UPLOADED file that is the input's
+ * doing and the same bytes do it again on every attempt — a `for(;;){}`, a
+ * script writing 100,000 pages — so {@link runHtmlToPdf} makes it final
+ * (`over_time`) instead of the retried `failed`. Until hostile review round
+ * 3 (2026-11-14) it was retried: three attempts of the full timeout, about
+ * 370 s of the worker for one job that could never finish.
+ */
+export class RenderTimeoutError extends Error {
+  constructor(readonly timeoutMs: number) {
+    super("Chromium HTML rendering timed out.");
+    this.name = "RenderTimeoutError";
+  }
+}
+
+/**
+ * Thrown by a {@link ChromiumPdfRunner} when the PDF it printed is larger
+ * than the worker's output limit (`maxOutputBytes`). For an uploaded file
+ * the same bytes print the same PDF every time — a 20 MiB SVG of circles
+ * printed past 100 MiB in about 25 s, and was then tried twice more (hostile
+ * review round 3, 2026-11-14) — so {@link runHtmlToPdf} makes it final.
+ */
+export class RenderOutputTooLargeError extends Error {
+  constructor(readonly maxBytes: number) {
+    super("Chromium output exceeds the size limit.");
+    this.name = "RenderOutputTooLargeError";
+  }
+}
+
+/** What the user reads when an uploaded page prints past the output limit. */
+export function renderOutputTooLargeMessage(
+  maxBytes: number,
+  zip: boolean,
+): string {
+  return `The PDF of this ${zip ? "ZIP's page" : "HTML file"} came out larger than ${describeByteCeiling(maxBytes)}, the most HTML to PDF returns, so nothing was converted and it is not tried again. Print fewer pages, or smaller pictures, and try again.`;
+}
+
+/** What the user reads when an uploaded page runs past the time budget. */
+export function renderTimeoutMessage(timeoutMs: number, zip: boolean): string {
+  return `This ${zip ? "ZIP's page" : "HTML file"} was still loading or running script after ${Math.round(timeoutMs / 1000)} seconds, the most HTML to PDF gives one page, so nothing was converted and it is not tried again. Remove scripts or content that never finish, and try again.`;
+}
+
 /** The sentence the user reads for each failure. The one place it is written. */
 export function webpageFetchMessage(failure: WebpageFetchFailure): string {
   switch (failure.reason) {
@@ -191,6 +235,8 @@ export type HtmlRenderRun =
       message: string;
     }
   | { ok: false; kind: "failed"; message: string }
+  /** An uploaded page past the time budget or the output limit: final, never retried. */
+  | { ok: false; kind: "over_budget"; message: string }
   | {
       ok: false;
       kind: "page_unavailable";
@@ -281,14 +327,34 @@ export async function runHtmlToPdf(
         : await deps.chromium.renderHtml(input, options, signalOption(signal));
   } catch (error) {
     rethrowIfAttemptAbort(error);
+    if (error instanceof RenderTimeoutError)
+      return {
+        ok: false,
+        kind: "over_budget",
+        message: renderTimeoutMessage(error.timeoutMs, site !== undefined),
+      };
+    if (error instanceof RenderOutputTooLargeError)
+      return {
+        ok: false,
+        kind: "over_budget",
+        message: renderOutputTooLargeMessage(
+          error.maxBytes,
+          site !== undefined,
+        ),
+      };
     return {
       ok: false,
       kind: "failed",
       message: `Chromium could not render this ${site ? "ZIP's page" : "HTML file"}.`,
     };
   }
-  const outputError = validateOutput(output, deps);
-  if (outputError) return outputError;
+  const maxOutput = deps.limits?.maxOutputBytes;
+  if (maxOutput !== undefined && output.byteLength > maxOutput)
+    return {
+      ok: false,
+      kind: "over_budget",
+      message: renderOutputTooLargeMessage(maxOutput, site !== undefined),
+    };
   const validate = deps.validate ?? looksLikePdf;
   if (!(await validate(output))) {
     return {

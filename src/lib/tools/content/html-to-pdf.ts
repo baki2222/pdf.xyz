@@ -9,6 +9,7 @@ import {
 } from "@/lib/tools/html-layout-copy";
 import {
   HTML_ZIP_MAX_ENTRIES,
+  HTML_ZIP_MAX_DOCUMENT_BYTES,
   HTML_ZIP_MAX_ENTRY_BYTES,
   HTML_ZIP_MAX_ENTRY_RATIO,
   HTML_ZIP_MAX_UNPACKED_BYTES,
@@ -74,9 +75,11 @@ import { PASTED_HTML_FILENAME } from "@/lib/workers/html-render/pasted-html";
  *    input-size check before Chromium starts (non-retryable), separate from
  *    the upload ceiling — and since wave1 the panel refuses a file over the
  *    stated ceiling when it is picked, before any upload (pickRefusal);
- *    "Chromium could not render this HTML file." for a crash, timeout or bad
- *    output, which is `retryable: true`, so executor/executor.ts requeues it
- *    while attempts remain before the job fails;
+ *    "Chromium could not render this HTML file." for a crash or bad output,
+ *    which is `retryable: true`, so executor/executor.ts requeues it while
+ *    attempts remain before the job fails; a render past the timeout is
+ *    final since hostile review round 3 (2026-11-14: `RenderTimeoutError`,
+ *    `renderTimeoutMessage`), as the same bytes time out on every attempt;
  *  - what the VISITOR sees of a slow render: runSecurityJob polls for
  *    DEFAULT_MAX_POLL_ATTEMPTS x DEFAULT_POLL_INTERVAL_MS (~2 min, neither
  *    exported) and then returns {stillRunning, jobId}. This bullet said the
@@ -219,7 +222,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I upload a ZIP of a page and its files?",
-      a: `When our server can open ZIP files, yes: the drop zone then says it takes a ZIP, and otherwise takes HTML only. Such a ZIP may be up to ${CEILING_TEXT}, with ${ZIP_LIMITS}. ${HTML_ZIP_PAGE_CHOICE_SENTENCES} Such a ZIP is refused before anything is printed, with the reason, when it is over those limits, holds a file that would grow more than ${HTML_ZIP_MAX_ENTRY_RATIO} times its packed size, holds no .html or .htm page, or cannot be read. Folders and symbolic links inside it are never served, and every other address the page links to is fetched as for an HTML file: public http(s) addresses only.`,
+      a: `When our server can open ZIP files, yes: the drop zone then says it takes a ZIP, and otherwise takes HTML only. Such a ZIP may be up to ${CEILING_TEXT}, with ${ZIP_LIMITS}. Such a ZIP's pages and SVG images are loaded up to ${HTML_ZIP_MAX_DOCUMENT_BYTES / MIB} MB in all, the page itself included, and any past that are left out of the PDF. ${HTML_ZIP_PAGE_CHOICE_SENTENCES} Such a ZIP is refused before anything is printed, with the reason, when it is over those limits, holds a file that would grow more than ${HTML_ZIP_MAX_ENTRY_RATIO} times its packed size, holds no .html or .htm page, or cannot be read. Folders and symbolic links inside it are never served, and every other address the page links to is fetched as for an HTML file: public http(s) addresses only.`,
     },
     {
       q: "Does JavaScript run before the page is printed?",
@@ -237,7 +240,7 @@ const content: ToolContent = {
     },
     {
       q: "What happens if the file is too big or will not render?",
-      a: `${SIZE_SENTENCE} Images embedded as data: URIs count toward it, and base64 makes each one about a third larger than the image file itself. If Chromium crashes or produces no usable PDF, our server tries again, and when every attempt fails the note reports that Chromium could not render the file. If the page stops waiting while the render is still going, a note says our server is still on the job and offers Keep waiting, which picks up the same job rather than uploading the file again or starting a new one, or Cancel the job; a finished PDF stays available for ${LINK_MINUTES} minutes.`,
+      a: `${SIZE_SENTENCE} Images embedded as data: URIs count toward it, and base64 makes each one about a third larger than the image file itself. If Chromium crashes or produces no usable PDF, our server tries again, and when every attempt fails the note reports that Chromium could not render the file. A page still loading or running script at our server's time limit, or whose PDF comes out larger than our server returns, is not retried, since it would do the same again: the note says so and nothing is converted. If the page stops waiting while the render is still going, a note says our server is still on the job and offers Keep waiting, which picks up the same job rather than uploading the file again or starting a new one, or Cancel the job; a finished PDF stays available for ${LINK_MINUTES} minutes.`,
     },
   ],
 

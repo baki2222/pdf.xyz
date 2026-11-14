@@ -9,6 +9,8 @@ import { CdpConnection, type CdpEvent, type CdpPipe } from "./cdp";
 import { HTML_DOCUMENT_URL } from "./document-url";
 import { htmlDocumentContentType } from "./charset";
 import {
+  RenderOutputTooLargeError,
+  RenderTimeoutError,
   WebpageFetchError,
   type ChromiumPackageRunner,
   type ChromiumPdfRunner,
@@ -488,8 +490,7 @@ async function printToPdf(
       chunk.base64Encoded ? "base64" : "utf8",
     );
     size += bytes.byteLength;
-    if (size > maxBytes)
-      throw new Error("Chromium output exceeds the size limit.");
+    if (size > maxBytes) throw new RenderOutputTooLargeError(maxBytes);
     chunks.push(bytes);
     if (chunk.eof) break;
   }
@@ -1089,7 +1090,7 @@ export function createNativeChromiumPdfRunner(
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<never>((_, reject) => {
       timer = setTimeout(
-        () => reject(new Error("Chromium HTML rendering timed out.")),
+        () => reject(new RenderTimeoutError(config.timeoutMs)),
         config.timeoutMs,
       );
     });
@@ -1115,8 +1116,11 @@ export function createNativeChromiumPdfRunner(
         // Before any other reading: a browser killed by the abort reports
         // "exited before the render finished", which is not what happened.
         if (signal?.aborted) throw new AttemptAbortedError();
-        // What the site did travels to the user intact.
+        // What the site did travels to the user intact, and so does the
+        // deadline: for an uploaded page it is final (`runHtmlToPdf`).
         if (error instanceof WebpageFetchError) throw error;
+        if (error instanceof RenderTimeoutError) throw error;
+        if (error instanceof RenderOutputTooLargeError) throw error;
         throw new Error(
           `Chromium HTML rendering failed: ${error instanceof Error ? error.message : String(error)}`,
         );

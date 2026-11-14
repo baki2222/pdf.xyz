@@ -122,6 +122,16 @@ function jobError(run: HtmlRenderFailure): JobError {
         message: run.message,
         retryable: false,
       };
+    case "over_budget":
+      // An uploaded page past the time budget or the output limit does it
+      // again on every attempt (`RenderTimeoutError`,
+      // `RenderOutputTooLargeError`): final, so one job holds the worker for
+      // one attempt, not three.
+      return {
+        code: "unprocessable_entity",
+        message: run.message,
+        retryable: false,
+      };
     case "page_unavailable":
       // The site's doing, not the worker's: never `internal_error`. Retried
       // only when the same request could answer differently (5xx, 429, a
