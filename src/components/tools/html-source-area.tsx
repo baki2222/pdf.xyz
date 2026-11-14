@@ -266,32 +266,36 @@ export function HtmlSourceArea({
     </button>
   );
 
-  if (pasting)
+  // ONE tree for both states, the toggle at the same place in it: React
+  // keeps the very button, so keyboard focus stays on it when the box is
+  // closed (relabelled "Or paste HTML code"), and opening moves focus into
+  // the box (`autoFocus`). Two trees with the toggle at different child
+  // positions remounted it, and dropped focus to <body> (WCAG 2.4.3).
+  if (pasting || !file)
     return (
       <div className="flex flex-col gap-2">
-        <HtmlPasteBox
-          ceilingBytes={ceilingBytes}
-          disabled={busy}
-          onFile={onFile}
-        />
-        <MissingNote text={file ? missingNote : null} />
-        {pasteToggle}
-      </div>
-    );
-
-  if (!file)
-    return (
-      <div className="flex flex-col gap-2">
-        <Dropzone
-          pageTarget
-          refuse={pickRefuse}
-          onFiles={(files) => onFile(files[0] ?? null)}
-          accept={accept}
-          multiple={false}
-          compact
-          title="Add an HTML file, or"
-          hint={zipOffered ? "HTML, or a ZIP of a page and its files" : "HTML"}
-        />
+        {pasting ? (
+          <HtmlPasteBox
+            autoFocus
+            ceilingBytes={ceilingBytes}
+            disabled={busy}
+            onFile={onFile}
+          />
+        ) : (
+          <Dropzone
+            pageTarget
+            refuse={pickRefuse}
+            onFiles={(files) => onFile(files[0] ?? null)}
+            accept={accept}
+            multiple={false}
+            compact
+            title="Add an HTML file, or"
+            hint={
+              zipOffered ? "HTML, or a ZIP of a page and its files" : "HTML"
+            }
+          />
+        )}
+        {pasting ? <MissingNote text={file ? missingNote : null} /> : null}
         {pasteToggle}
       </div>
     );

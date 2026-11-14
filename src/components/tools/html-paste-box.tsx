@@ -35,10 +35,13 @@ const SETTLE_MS = 250;
 const INPUT_MINUTES = DEFAULT_RETENTION.inputTtlMinutes;
 
 export function HtmlPasteBox({
+  autoFocus,
   ceilingBytes,
   disabled,
   onFile,
 }: {
+  /** Take keyboard focus once mounted: the user just asked for the box. */
+  autoFocus?: boolean;
   /** The most bytes one HTML upload may be; null outside a tool page. */
   ceilingBytes: number | null;
   disabled?: boolean;
@@ -50,6 +53,13 @@ export function HtmlPasteBox({
   const countId = `${id}-count`;
   const errorId = `${id}-error`;
   const [text, setText] = useState("");
+  const box = useRef<HTMLTextAreaElement>(null);
+  // On mount only: the box arrives (loaded on demand) after the button that
+  // opened it was pressed, and focus belongs where the user is going.
+  useEffect(() => {
+    if (autoFocus) box.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const bytes = text === "" ? 0 : pastedHtmlByteLength(text);
   const over = ceilingBytes !== null && bytes > ceilingBytes;
   const showCount = ceilingBytes !== null && bytes >= ceilingBytes * COUNT_FROM;
@@ -90,6 +100,7 @@ export function HtmlPasteBox({
         HTML code
       </label>
       <textarea
+        ref={box}
         id={id}
         value={text}
         readOnly={disabled}
