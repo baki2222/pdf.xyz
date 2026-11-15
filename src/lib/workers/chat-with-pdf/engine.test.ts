@@ -586,6 +586,13 @@ describe("a question whose page lies past the prefix gets that page", () => {
     expect(system).not.toMatch(/pages 1-\d+ of/);
     expect(system).toMatch(/of 40/);
     expect(system).toMatch(/do NOT say the document does not contain it/);
+    // The relevance revocation, not main's: "may appear later" is false of a
+    // page set with gaps. And the anchor arm, since pages 1.. were sent.
+    expect(system).toContain("the answer may be on a page you were not given.");
+    expect(system).not.toContain("may appear later in the document");
+    expect(system).toMatch(
+      /of 40: the opening pages and pages chosen by the words they share with the question; other pages were not sent/,
+    );
     // The read bound: the document block plus the notice's page list is
     // within what the route charged.
     const list = /covers pages ([\d–, ]+) of 40/.exec(system)?.[1] ?? "";
