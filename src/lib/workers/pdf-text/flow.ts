@@ -121,6 +121,7 @@ import {
   MAX_TABLE_SLOTS_PER_PAGE,
   SEGMENT_GAP_PITCHES,
   tableGrid,
+  wordTableDoubt,
 } from "./table-grid";
 
 /** Gap between words, in line heights, beyond which a line splits into cells. */
@@ -690,17 +691,21 @@ function placedPage(page: FlowPage): {
         built,
         table.map((band) => band[0]!.yCenter),
       )) {
+        if (segment.length < MIN_TABLE_ROWS) continue;
+        // A one-row segment is not a table (rule 6), so not counted as one
+        // kept as tabs: it is the line it was. Every other refusal — the
+        // grid's (caps, columns) and, since review round 2, a doubtful
+        // table's (`wordTableDoubt`: too few rows, no column of figures, a
+        // column of sentences, a heading over no value) — stays the tabbed
+        // rows main wrote, and is counted.
+        const cells = segment.map((r) => r.cells);
+        const geometry = tableGrid(cells, budget);
         const grid =
-          segment.length < MIN_TABLE_ROWS
-            ? "rows"
-            : tableGrid(
-                segment.map((r) => r.cells),
-                budget,
-              );
+          typeof geometry === "string"
+            ? geometry
+            : (wordTableDoubt(cells, geometry) ?? geometry);
         if (typeof grid === "string") {
-          // A one-row segment is not a table (rule 6), so not counted as
-          // one kept as tabs: it is the line it was.
-          if (grid !== "rows") tablesAsTabs += 1;
+          tablesAsTabs += 1;
           continue;
         }
         let count = 0;

@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import { MAX_GRID_COLUMNS } from "@/lib/workers/pdf-office-export/docx-structure";
 import {
   chainColumns,
+  isNumberCell,
   MAX_TABLE_CELLS,
   MAX_TABLE_CELLS_PER_PAGE,
   MAX_TABLE_COLUMNS,
   MAX_TABLE_SLOTS_PER_PAGE,
+  MIN_WORD_TABLE_ROWS,
   tableGrid,
+  wordTableDoubt,
   type GridCellInput,
 } from "./table-grid";
 
@@ -135,5 +138,201 @@ describe("tableGrid", () => {
 
   it("holds Word's limit equal to the reader's", () => {
     expect(MAX_TABLE_COLUMNS).toBe(MAX_GRID_COLUMNS);
+  });
+});
+
+/**
+ * Review round 2 (2026-11-15): a grid whose geometry is sound is still kept
+ * as tabbed rows when the table is doubtful (`wordTableDoubt`). Each case is
+ * one the review built as a FALSE Word table on the branch; each reason is
+ * shown firing on its own, and a real table passing all of them.
+ */
+describe("wordTableDoubt", () => {
+  /** Rows of [x, text] cells, gridded by the real tableGrid. */
+  const doubt = (rows: [number, string][][]) => {
+    const cells = rows.map((row) =>
+      row.map(([x, text]) => ({ xMin: x, xMax: x + 6 * text.length, text })),
+    );
+    const grid = tableGrid(cells, PAGE);
+    if (typeof grid === "string") throw new Error(grid);
+    return wordTableDoubt(cells, grid);
+  };
+
+  it("POSITIVE CONTROL: an invoice table with a figure column is a Word table", () => {
+    expect(
+      doubt([
+        [
+          [72, "Item"],
+          [300, "Qty"],
+          [420, "Price"],
+        ],
+        [
+          [72, "Widget"],
+          [300, "2"],
+          [420, "9.50"],
+        ],
+        [
+          [72, "Gadget"],
+          [420, "12.00"],
+        ],
+        [
+          [72, "Gizmo"],
+          [300, "5"],
+          [420, "3.25"],
+        ],
+      ]),
+    ).toBeNull();
+  });
+
+  it('"rows": a two-line running header is not a Word table', () => {
+    expect(MIN_WORD_TABLE_ROWS).toBe(3);
+    expect(
+      doubt([
+        [
+          [50, "Annual Report 2026"],
+          [470, "2026"],
+        ],
+        [
+          [50, "Section 3 Results"],
+          [470, "4"],
+        ],
+      ]),
+    ).toBe("rows");
+  });
+
+  it('"numbers": a letterhead has no column of figures', () => {
+    expect(
+      doubt([
+        [
+          [50, "ACME Corporation"],
+          [430, "Invoice 1042"],
+        ],
+        [
+          [50, "12 Harbour Road"],
+          [430, "Date 2026-11-15"],
+        ],
+        [
+          [50, "Dhaka 1207"],
+          [430, "Due 2026-12-15"],
+        ],
+      ]),
+    ).toBe("numbers");
+  });
+
+  it('"numbers": a sidebar of names beside prose of a caseless script', () => {
+    expect(
+      doubt([
+        [
+          [50, "Rahim"],
+          [200, "আমাদের প্রতিষ্ঠান গত বছর অনেক নতুন"],
+        ],
+        [
+          [50, "Karim"],
+          [200, "গ্রাহকের কাছে পৌঁছেছে এবং সেবার মান"],
+        ],
+        [
+          [50, "Salma"],
+          [200, "আরও উন্নত করেছে যা সবার কাছে"],
+        ],
+      ]),
+    ).toBe("numbers");
+  });
+
+  it('"numbers": a list numbered "1." "2." "3." is not a figure column', () => {
+    expect(
+      doubt([
+        [
+          [50, "1."],
+          [120, "Open the file"],
+        ],
+        [
+          [50, "2."],
+          [120, "Choose a page"],
+        ],
+        [
+          [50, "3."],
+          [120, "Press Save"],
+        ],
+      ]),
+    ).toBe("numbers");
+  });
+
+  it('"prose": sentences set beside a table are not its third column', () => {
+    expect(
+      doubt([
+        [
+          [50, "Item"],
+          [150, "Qty"],
+          [330, "Sales rose sharply."],
+        ],
+        [
+          [50, "Widget"],
+          [150, "2"],
+          [330, "Margins held firm."],
+        ],
+        [
+          [50, "Gadget"],
+          [150, "7"],
+          [330, "Outlook remains good."],
+        ],
+      ]),
+    ).toBe("prose");
+  });
+
+  it('"header": a heading that does not overlap its values heads no column alone', () => {
+    // REPORT_TABLES_BBOX's second table, its words' x-ranges as captured.
+    const cells = [
+      [
+        { xMin: 60, xMax: 90, text: "Office" },
+        { xMin: 160, xMax: 184, text: "Staff" },
+        { xMin: 240, xMax: 285, text: "Manager" },
+      ],
+      [
+        { xMin: 60, xMax: 92, text: "London" },
+        { xMin: 203, xMax: 215, text: "12" },
+        { xMin: 240, xMax: 300, text: "Ada Lovelace" },
+      ],
+      [
+        { xMin: 60, xMax: 100, text: "New York" },
+        { xMin: 203, xMax: 215, text: "30" },
+        { xMin: 240, xMax: 300, text: "Grace Hopper" },
+      ],
+    ];
+    const grid = tableGrid(cells, PAGE);
+    if (typeof grid === "string") throw new Error(grid);
+    // The geometry alone puts "Staff" over an empty column of its own.
+    expect(grid.spans).toHaveLength(4);
+    expect(grid.col[0]).toEqual([0, 1, 3]);
+    expect(grid.col[1]).toEqual([0, 2, 3]);
+    expect(wordTableDoubt(cells, grid)).toBe("header");
+  });
+
+  it("isNumberCell: figures, dates, codes and amounts; not words, list numbers or labels", () => {
+    const yes = [
+      "12",
+      "1,250.00",
+      "$3,400.50",
+      "41%",
+      "2026-01-05",
+      "A-100",
+      "Q1",
+      "(300)",
+      "$ 4.50",
+      "1 200",
+      "১২৩",
+    ];
+    const no = [
+      "Total",
+      "Page 4",
+      "Invoice 1042",
+      "12 Harbour Road",
+      "1.",
+      "a)",
+      "iv.",
+      "Due 2026-12-15",
+      "收入增长了20%左右",
+    ];
+    expect(yes.filter((t) => !isNumberCell(t))).toEqual([]);
+    expect(no.filter((t) => isNumberCell(t))).toEqual([]);
   });
 });

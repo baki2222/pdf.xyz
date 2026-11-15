@@ -61,7 +61,13 @@ import {
   flowText,
   LONG_CELL_WORDS,
   type FlowParagraph,
+  type FlowPiece,
 } from "./flow";
+import {
+  MAX_TABLE_CELLS_PER_PAGE,
+  MAX_TABLE_SLOTS_PER_PAGE,
+  tableGrid,
+} from "./table-grid";
 
 const LEFT = LEFT_COLUMN.join(" ");
 const RIGHT = RIGHT_COLUMN.join(" ");
@@ -856,13 +862,116 @@ describe("flowText — each recognised table carries its grid (#28 slice 2)", ()
 
   it("the note under a table, 1.5 pitches below its last row, is not one of its rows", () => {
     const page = pagesOf(popplerSamples.REPORT_TABLES_BBOX)[0]!;
-    expect(tablesOn(page)).toHaveLength(2);
     const note = page.paragraphs.findIndex(
       (p) => p[0] === "Staff counts as of 30 June",
     );
     expect(note).toBeGreaterThan(0);
     expect(page.tables![note]).toBeUndefined();
-    expect(page.tablesAsTabs).toBeUndefined();
+  });
+
+  /*
+   * INVERTED 2026-11-15 (review round 2). Until then this sample asserted
+   * TWO Word tables and no table kept as tabs — and the second one put
+   * "Staff" (x 160-184) over an EMPTY column and its right-aligned values
+   * 12 / 30 / 18 (x 203-215) in a column of their own with no heading:
+   * Office | Staff | (empty) | Manager over London | (empty) | 12 | Ada
+   * Lovelace. Every value MOVED out from under its header, and the
+   * placement predicate above passed it, since each cell lay inside its
+   * own span by construction. Now that table is kept as the tabbed rows main
+   * wrote (`wordTableDoubt` "header"), and counted.
+   */
+  it("REPORT_TABLES: the table whose heading does not overlap its values stays tabbed rows, counted", () => {
+    const page = pagesOf(popplerSamples.REPORT_TABLES_BBOX)[0]!;
+    const tables = tablesOn(page);
+    expect(
+      tables.map((rows) => rows.map((i) => page.paragraphs[i]![0])),
+    ).toEqual([["Region", "North America", "South East", "West"]]);
+    const office = page.paragraphs.findIndex((p) => p[0] === "Office");
+    expect(page.paragraphs[office]).toEqual(["Office", "Staff", "Manager"]);
+    for (let i = office; i < office + 4; i++)
+      expect(page.tables![i], `row ${i}`).toBeUndefined();
+    expect(page.tablesAsTabs).toBe(1);
+  });
+
+  /**
+   * An oracle that does not share the grid's construction (review round 2):
+   * in a table's first row, every heading has at least one value under it
+   * in its column, and a value whose column has no cell above it is not
+   * nearest (by x-centre) a first-row heading whose column holds no value
+   * — the value that heading was over, moved out from under it.
+   */
+  const headingProblems = (
+    rows: readonly { cells: readonly FlowPiece[][]; col: readonly number[] }[],
+  ): string[] => {
+    const problems: string[] = [];
+    const centre = (pieces: readonly FlowPiece[]) => {
+      let x1 = -Infinity;
+      for (const p of pieces) if (p.box[2] > x1) x1 = p.box[2];
+      return (pieces[0]!.box[0] + x1) / 2;
+    };
+    const head = rows[0]!;
+    head.col.forEach((k, c) => {
+      if (!rows.slice(1).some((r) => r.col.includes(k)))
+        problems.push(`heading ${c} (column ${k}) heads no value`);
+    });
+    rows.slice(1).forEach((row, r) =>
+      row.col.forEach((k, c) => {
+        if (rows.slice(0, r + 1).some((above) => above.col.includes(k))) return;
+        const x = centre(row.cells[c]!);
+        let best = 0;
+        head.cells.forEach((h, j) => {
+          if (Math.abs(centre(h) - x) < Math.abs(centre(head.cells[best]!) - x))
+            best = j;
+        });
+        // A sub-heading beside a spanning one (SPANNING_TABLE's "Q3") is
+        // nearest a heading that HAS values: it is beside it, not moved
+        // out from under it. Moved out is nearest a heading left empty.
+        const left = head.col[best]!;
+        if (left !== k && !rows.slice(1).some((x) => x.col.includes(left)))
+          problems.push(`row ${r + 1} cell ${c} not under its heading`);
+      }),
+    );
+    return problems;
+  };
+
+  /** Each Word table of a page as rows of pieces and columns. */
+  const gridRowsOf = (page: Page) =>
+    tablesOn(page).map((rows) =>
+      rows.map((i) => ({ cells: page.pieces![i]!, col: page.tables![i]!.col })),
+    );
+
+  it("every Word table of every captured sample: each heading over a value, each value under its heading", () => {
+    let tables = 0;
+    for (const [name, xhtml] of captured)
+      for (const page of pagesOf(xhtml))
+        for (const rows of gridRowsOf(page)) {
+          tables += 1;
+          expect(headingProblems(rows), name).toEqual([]);
+        }
+    expect(tables).toBeGreaterThanOrEqual(10);
+  });
+
+  it("POSITIVE CONTROL: the heading oracle fails REPORT_TABLES's geometry-only grid", () => {
+    const page = pagesOf(popplerSamples.REPORT_TABLES_BBOX)[0]!;
+    const office = page.paragraphs.findIndex((p) => p[0] === "Office");
+    const rows = [0, 1, 2, 3].map((k) => page.pieces![office + k]!);
+    const cells = rows.map((row) =>
+      row.map((pieces) => {
+        let x1 = -Infinity;
+        for (const p of pieces) if (p.box[2] > x1) x1 = p.box[2];
+        return { xMin: pieces[0]!.box[0], xMax: x1 };
+      }),
+    );
+    const grid = tableGrid(cells, {
+      cells: MAX_TABLE_CELLS_PER_PAGE,
+      slots: MAX_TABLE_SLOTS_PER_PAGE,
+    });
+    if (typeof grid === "string") throw new Error(grid);
+    const problems = headingProblems(
+      rows.map((r, k) => ({ cells: r, col: grid.col[k]! })),
+    );
+    expect(problems).toContain("heading 1 (column 1) heads no value");
+    expect(problems).toContain("row 1 cell 1 not under its heading");
   });
 
   it("prose pages carry no tables at all", () => {
@@ -897,7 +1006,8 @@ describe("flowText — each recognised table carries its grid (#28 slice 2)", ()
         (_, k) =>
           `<word xMin="${k * 40}" yMin="${y}" xMax="${k * 40 + 10}" yMax="${y + 10}">${k}</word>`,
       ).join("")}</line>`;
-    return `<doc><page width="3000" height="792"><flow><block>${line(100)}${line(116)}</block></flow></page></doc>`;
+    // Three rows: a Word table needs MIN_WORD_TABLE_ROWS (review round 2).
+    return `<doc><page width="3000" height="792"><flow><block>${line(100)}${line(116)}${line(132)}</block></flow></page></doc>`;
   };
 
   it("a 63-column table is a Word table; a 64-column one stays tabbed rows and is counted", () => {
@@ -905,7 +1015,7 @@ describe("flowText — each recognised table carries its grid (#28 slice 2)", ()
     expect(at.tables?.[0]?.spans).toHaveLength(63);
     expect(at.tablesAsTabs).toBeUndefined();
     const over = pagesOf(wideRun(64))[0]!;
-    expect(over.paragraphs).toHaveLength(2);
+    expect(over.paragraphs).toHaveLength(3);
     expect(over.paragraphs[0]).toHaveLength(64);
     expect(over.tables).toBeUndefined();
     expect(over.tablesAsTabs).toBe(1);

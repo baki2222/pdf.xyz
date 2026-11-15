@@ -13,7 +13,7 @@ import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
-import { PDFDocument, rgb } from "pdf-lib";
+import { PDFDocument, rgb, type PDFPage } from "pdf-lib";
 // Through the product's font chooser, like every other text-drawing module:
 // for this Latin text it picks the same Helvetica faces, so the captured
 // poppler samples match these fixtures byte for byte in their geometry.
@@ -991,5 +991,76 @@ export async function wrappedCellTablePdf(
       y -= 13;
     }
   });
+  return doc.save();
+}
+
+/**
+ * Review round 2 (2026-11-15): a four-row table of words — Name / City /
+ * Role — at x = 72, 220 and 380. `figures` adds a fourth column of
+ * quantities at 500, which makes it a Word table; without it the table has
+ * no column of figures and stays tabbed rows (`wordTableDoubt` "numbers").
+ */
+export async function wordsOnlyTablePdf(figures: boolean): Promise<Uint8Array> {
+  const rows = [
+    ["Name", "City", "Role", "Staff"],
+    ["Ada", "London", "Engineer", "12"],
+    ["Grace", "Arlington", "Admiral", "30"],
+    ["Jamal", "Dhaka", "Physicist", "18"],
+  ].map((r) => (figures ? r : r.slice(0, 3)));
+  const doc = await PDFDocument.create();
+  const font = await embedDrawingFont(doc, rows.flat());
+  const page = doc.addPage([612, 792]);
+  rows.forEach((row, r) =>
+    row.forEach((cell, c) =>
+      page.drawText(cell, {
+        x: [72, 220, 380, 500][c]!,
+        y: 700 - r * 16,
+        size: 11,
+        font,
+      }),
+    ),
+  );
+  return doc.save();
+}
+
+/**
+ * Review round 2 (2026-11-15): an invoice table — Item / Qty / Price and
+ * three rows at x = 72, 300 and 420 — continued on page 2 by `more` rows
+ * at the same columns, then a sentence.
+ */
+export async function continuedTablePdf(more: number): Promise<Uint8Array> {
+  const first = [
+    ["Item", "Qty", "Price"],
+    ["Widget", "2", "9.50"],
+    ["Gadget", "4", "12.00"],
+    ["Gizmo", "5", "3.25"],
+  ];
+  const rest = Array.from({ length: more }, (_, k) => [
+    `Sprocket ${k + 1}`,
+    `${k + 7}`,
+    `1.${k}0`,
+  ]);
+  const closing = "Thank you for your order today.";
+  const doc = await PDFDocument.create();
+  const font = await embedDrawingFont(doc, [
+    ...first.flat(),
+    ...rest.flat(),
+    closing,
+  ]);
+  const draw = (page: PDFPage, rows: string[][], top: number) =>
+    rows.forEach((row, r) =>
+      row.forEach((cell, c) =>
+        page.drawText(cell, {
+          x: [72, 300, 420][c]!,
+          y: top - r * 16,
+          size: 11,
+          font,
+        }),
+      ),
+    );
+  draw(doc.addPage([612, 792]), first, 700);
+  const second = doc.addPage([612, 792]);
+  draw(second, rest, 740);
+  second.drawText(closing, { x: 72, y: 740 - more * 16 - 40, size: 11, font });
   return doc.save();
 }

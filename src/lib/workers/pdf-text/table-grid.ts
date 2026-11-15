@@ -103,6 +103,96 @@ export function chainColumns<T extends GridCellInput>(
 }
 
 /**
+ * The fewest rows a table is written with as a Word table — one more than
+ * `flow.ts`'s `MIN_TABLE_ROWS`, which still decides what is read as a
+ * table's rows. Added 2026-11-15 (#28 slice 2, review round 2): a two-line
+ * running header ("Annual Report 2026 | Confidential" over "Section 3
+ * Results | Page 4") passes flow.ts's rules on every page of a report, and
+ * came out as a bordered 2x2 Word table on each. Two rows is a header and
+ * one row at most; such a table stays the tabbed rows it was, counted.
+ */
+export const MIN_WORD_TABLE_ROWS = 3;
+
+/**
+ * Why a grid is NOT written as a Word table although its geometry is sound
+ * (#28 slice 2, review round 2, 2026-11-15) — scope cut, not a heuristic to
+ * place more: a doubtful table stays the tabbed rows main delivered and is
+ * counted. Each reason is a false table the review built:
+ *  - "rows": fewer than {@link MIN_WORD_TABLE_ROWS} rows (a running header);
+ *  - "numbers": no column whose every cell below the first row is a NUMBER
+ *    ({@link isNumberCell}) — a letterhead ("12 Harbour Road | Date
+ *    2026-11-15"), Bengali prose beside a sidebar of names, two columns of
+ *    Chinese prose (flow.ts's rule 4 cannot see wrapping in a script
+ *    without letter case, so these passed as tables of one line per row);
+ *  - "prose": a column with two or more cells that end a sentence — the
+ *    right-hand column of a two-column page set beside a table, which the
+ *    page-wide bands made the table's third column ("Item | Qty | Sales
+ *    rose sharply.");
+ *  - "header": a column whose only cell is in the first row — a heading
+ *    that does not overlap its right-aligned values in x (REPORT_TABLES's
+ *    "Staff" over 12 / 30 / 18), so the values got a column of their own
+ *    with no heading and the heading headed an empty column: each value
+ *    MOVED out from under its header.
+ * A table of names and words with no figures in it is therefore tabbed, and
+ * the copy says a Word table needs a column of figures.
+ */
+export type WordTableDoubt = "rows" | "numbers" | "prose" | "header";
+
+/**
+ * A NUMBER, as a table's figure column holds: an amount, a quantity, a date,
+ * a percentage, a code — either one token (no space) with a digit and at
+ * most three letters ("1,250.00", "41%", "2026-01-05", "A-100", "Q1",
+ * "USD12"), or digits with only separators, signs and currency between them
+ * ("$ 4.50", "1 200", "(300)"). Not a list's numbering ("1.", "a)", "iv.").
+ */
+export function isNumberCell(text: string): boolean {
+  const t = text.trim();
+  if (!/\p{N}/u.test(t)) return false;
+  if (/^(?:\p{N}{1,3}[.)]|\(?(?:[a-z]|[ivxlc]{1,5})[.)])$/iu.test(t))
+    return false;
+  if (/^[\p{N}\p{Sc}\s.,:;%‰()[\]+\-–—−/'’#*]+$/u.test(t)) return true;
+  if (/\s/u.test(t)) return false;
+  return (t.match(/\p{L}/gu) ?? []).length <= 3;
+}
+
+/** Ends a sentence: a letter, then `.` `!` `?` or a CJK/Indic full stop. */
+const ENDS_SENTENCE = /\p{L}[.!?。！？।]+["'”’»)\]]*$/u;
+
+/**
+ * Why the grid of `rows` (each row's cells' text, in the order `grid.col`
+ * places them) should stay tabbed rows, or null when it is written as a Word
+ * table. See {@link WordTableDoubt}.
+ */
+export function wordTableDoubt(
+  rows: readonly (readonly { text: string }[])[],
+  grid: TableGrid,
+): WordTableDoubt | null {
+  if (rows.length < MIN_WORD_TABLE_ROWS) return "rows";
+  const columns = grid.spans.length;
+  const filled = Array.from({ length: columns }, () => 0);
+  const numbers = Array.from({ length: columns }, () => 0);
+  const notNumbers = Array.from({ length: columns }, () => 0);
+  const sentences = Array.from({ length: columns }, () => 0);
+  const inFirstRow = new Set(grid.col[0] ?? []);
+  rows.forEach((row, r) =>
+    row.forEach((cell, c) => {
+      const k = grid.col[r]![c]!;
+      if (ENDS_SENTENCE.test(cell.text.trim())) sentences[k]! += 1;
+      if (r === 0) return;
+      filled[k]! += 1;
+      if (isNumberCell(cell.text)) numbers[k]! += 1;
+      else notNumbers[k]! += 1;
+    }),
+  );
+  for (let k = 0; k < columns; k++)
+    if (inFirstRow.has(k) && filled[k] === 0) return "header";
+  if (sentences.some((n) => n >= 2)) return "prose";
+  for (let k = 0; k < columns; k++)
+    if (numbers[k]! >= 2 && notNumbers[k] === 0) return null;
+  return "numbers";
+}
+
+/**
  * The grid for one table's rows (each row's cells in xMin order), or why it
  * is not written as a Word table. In this order: the cell count against the
  * cap and the page's budget (before any sort); the chain; fewer than two or
