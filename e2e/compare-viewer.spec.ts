@@ -266,6 +266,37 @@ test.describe("at 1280 px", () => {
     ).toHaveText("15");
   });
 
+  // ADDED 2026-11-15 (review r1): a footer "Confidential" drawn first and a
+  // header "Confidential" drawn last read in the same text order as the
+  // stream; the removed footer was struck through on the header (y=569 in a
+  // text layer spanning 554..1071, the top of the page). Now flagged.
+  test("an identical header and footer, the footer removed: flagged, nothing struck on the header", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    const footer: Line = { text: "Confidential", x: 72, y: 40, size: 9 };
+    const header: Line = { text: "Confidential", x: 72, y: 760, size: 9 };
+    const bodyLines: Line[] = [
+      { text: "Body paragraph one starts here.", x: 72, y: 700 },
+      { text: "Body paragraph one continues.", x: 72, y: 686 },
+    ];
+    const changes = await compared(
+      page,
+      await pdf([[footer, ...bodyLines, header]]),
+      await pdf([[...bodyLines, header]]),
+    );
+    await openPages(page, changes);
+    const L = side(page, "left");
+    await expect(L.locator("[data-compare-page-note]")).toHaveText(
+      "1 changed line on this page could not be placed on the page. It is in the list of changes.",
+      { timeout: 20_000 },
+    );
+    await expect(L.locator("mark[data-mark-kind]")).toHaveCount(0);
+    // Control: the page itself was drawn with its text, so the absence of a
+    // mark is not a page that never drew.
+    await expect(L.locator(".textLayer").first()).toContainText("Confidential");
+  });
+
   test("a page with no selectable text says it was not compared", async ({
     page,
   }) => {
