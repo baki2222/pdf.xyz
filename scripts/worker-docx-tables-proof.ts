@@ -12,10 +12,15 @@
  *     one-cell paragraphs) is printed: it decides whether flow.ts's lone-line
  *     branch is reachable from real poppler for that geometry;
  *  3. each wrapped-cell table through the real engine must come out as
- *     {@link EXPECTED.wrapped} Word tables — measured on the stand-in
- *     extractor on 2026-11-15, NOT yet in this image. If the image differs,
- *     this goes red: re-read the page's wrapped-table sentence against what
- *     it printed before changing the number.
+ *     {@link EXPECTED.wrapped} Word tables. First pinned at 2 each from the
+ *     stand-in extractor; the image's own poppler (CI run 43672470541,
+ *     2026-11-15, PR #321) printed long 0 and short 1. The page's sentence
+ *     was re-read against that before the numbers changed: "the rows around
+ *     a wrapped cell MAY come through as a smaller table, and the rest as
+ *     lines of text" holds of 0 and of 1, and every job conserved its text
+ *     (runPdfOfficeExport refuses otherwise). If the image changes again,
+ *     this goes red: re-read that sentence against what it printed before
+ *     changing a number.
  *
  * Exit codes: 0 = proven; 1 = a check failed; 2 = an engine is not
  * available in this image. Run by `.github/workflows/container.yml`; no
@@ -36,7 +41,7 @@ import { pdfOfficeExportDeps } from "@/lib/workers/pdf-office-export/native";
 import { wrappedCellTablePdf } from "@/tests/pdf-office-fixtures";
 
 /** Word tables each fixture must come out as (see the docblock, item 3). */
-const EXPECTED = { gapped: 1, wrapped: 2 } as const;
+const EXPECTED = { gapped: 1, wrapped: { long: 0, short: 1 } } as const;
 
 async function tables(deps: PdfOfficeExportDeps, pdf: Uint8Array) {
   const run = await runPdfOfficeExport(PDF_TO_WORD_TOOL, pdf, deps);
@@ -83,9 +88,9 @@ async function main(): Promise<number> {
   for (const kind of ["long", "short"] as const) {
     const wrapped = await tables(deps, await wrappedCellTablePdf(kind));
     console.log(
-      `wrapped (${kind}): ${wrapped.count} Word table(s), expected ${EXPECTED.wrapped}`,
+      `wrapped (${kind}): ${wrapped.count} Word table(s), expected ${EXPECTED.wrapped[kind]}`,
     );
-    ok &&= wrapped.count === EXPECTED.wrapped;
+    ok &&= wrapped.count === EXPECTED.wrapped[kind];
   }
   console.log(ok ? "PROVEN" : "FAIL");
   return ok ? 0 : 1;
