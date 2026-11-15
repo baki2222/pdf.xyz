@@ -60,6 +60,9 @@ describe("the proved set is derived, and is the right set", () => {
     // less of the world and still pass every assertion below.
     expect(KEYS).toContain("translatePdfLanguages");
     expect(KEYS).toContain("docxTables");
+    // #28 slice 3 (2026-11-16): a deliberate addition, not a mirror of a
+    // docxTypefaces line (this file names none).
+    expect(KEYS).toContain("docxTableWraps");
     expect(KEYS.length).toBeGreaterThanOrEqual(12);
     expect(KEYS.length).toBeLessThan(published.length);
   });

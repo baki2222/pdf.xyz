@@ -41,6 +41,7 @@ const BEAT: WorkerHeartbeat = {
     docxRunStyles: true,
     docxTables: true,
     docxTypefaces: true,
+    docxTableWraps: true,
     translateOcr: true,
     htmlZip: true,
     translatePdfLanguages: [],

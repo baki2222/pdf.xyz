@@ -80,6 +80,7 @@ const SPEC = {
     docxRunStyles: true,
     docxTables: true,
     docxTypefaces: true,
+    docxTableWraps: true,
     translateOcr: true,
     htmlZip: true,
   },
