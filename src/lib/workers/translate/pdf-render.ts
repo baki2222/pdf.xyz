@@ -25,11 +25,31 @@
  * characters (`\p{Cf}`: zero-width joiners, soft hyphens, bidi marks), which
  * steer shaping and line breaking and are never drawn as glyphs.
  *
- * pdf-lib is used ONLY for metadata and the page count — title, language,
- * producer. No text is drawn with it (`src/deploy/text-drawing-call-sites.test.ts`
- * scans for the text APIs; this file uses none).
+ * pdf-lib is used for metadata and the page count — title, language,
+ * producer — and, since 2026-11-15, to rewrite Kangxi-radical destinations in
+ * the fonts' ToUnicode maps ({@link normaliseToUnicodeStreams}). No text is
+ * drawn with it (`src/deploy/text-drawing-call-sites.test.ts` scans for the
+ * text APIs; this file uses none).
+ *
+ * ── THE TOUNICODE REWRITE RUNS BEFORE `doc.save()` ──────────────────────────
+ *
+ * So the size cap, the read-back and both conservation checks judge the bytes
+ * that are delivered (order matters: a rewrite applied after the save would
+ * change a discarded copy). The read-back is NOT a guard on the rewrite:
+ * pdftotext honours the ActualText Skia writes on exactly the glyphs it
+ * rewrites, so a broken rewrite still conserves. Its guards are
+ * `radical-equivalents.test.ts`, the composed-chain test in
+ * `pdf-render.cjk.test.ts` (real fixture → this pass → real pdf.js), and the
+ * start-up probe's (e) `viewer_text`.
  */
-import { PDFDocument } from "pdf-lib";
+import {
+  decodePDFRawStream,
+  PDFDict,
+  PDFDocument,
+  PDFName,
+  PDFRawStream,
+  PDFRef,
+} from "pdf-lib";
 import {
   anySignal,
   rethrowIfAttemptAbort,
@@ -42,6 +62,7 @@ import {
   TRANSLATE_PDF_RENDER_TIMEOUT_MS,
   type TranslatePdfReason,
 } from "@/lib/jobs/translate-pdf-render";
+import { normaliseRadicalToUnicode } from "./radical-equivalents";
 import {
   translationDocument,
   typesetFurnitureText,
@@ -91,6 +112,41 @@ export function sameCodePoints(expected: string, actual: string): boolean {
   if (a.size !== b.size) return false;
   for (const [ch, n] of a) if (b.get(ch) !== n) return false;
   return true;
+}
+
+const latin1Text = (bytes: Uint8Array) => {
+  let s = "";
+  for (let k = 0; k < bytes.length; k += 0x8000)
+    s += String.fromCharCode(...bytes.subarray(k, k + 0x8000));
+  return s;
+};
+
+/**
+ * Every font's /ToUnicode stream, whatever the target (Han can appear in any
+ * target's text), with Kangxi-radical destinations replaced by their unified
+ * ideographs (`radical-equivalents.ts`). A stream is replaced ONLY when the
+ * rewrite changed its text; every other stream object is left byte-identical,
+ * and a font with no ToUnicode is left alone. Returns how many were replaced.
+ */
+export function normaliseToUnicodeStreams(doc: PDFDocument): number {
+  const ctx = doc.context;
+  const seen = new Set<string>();
+  let replaced = 0;
+  for (const [, obj] of ctx.enumerateIndirectObjects()) {
+    if (!(obj instanceof PDFDict)) continue;
+    if (obj.get(PDFName.of("Type")) !== PDFName.of("Font")) continue;
+    const ref = obj.get(PDFName.of("ToUnicode"));
+    if (!(ref instanceof PDFRef) || seen.has(ref.toString())) continue;
+    seen.add(ref.toString());
+    const stream = ctx.lookup(ref);
+    if (!(stream instanceof PDFRawStream)) continue;
+    const text = latin1Text(decodePDFRawStream(stream).decode());
+    const next = normaliseRadicalToUnicode(text);
+    if (next === text) continue;
+    ctx.assign(ref, ctx.flateStream(next));
+    replaced += 1;
+  }
+  return replaced;
 }
 
 class RenderDeadline extends Error {}
@@ -245,6 +301,7 @@ async function printAndCheck(
     doc.setProducer(TRANSLATE_PDF_PRODUCER);
     doc.setCreator(TRANSLATE_PDF_PRODUCER);
     pages = doc.getPageCount();
+    normaliseToUnicodeStreams(doc);
     bytes = await doc.save();
   } catch (error) {
     const known = classify(error);
