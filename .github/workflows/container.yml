@@ -171,6 +171,16 @@ jobs:
       - name: Worker image PDF to Word pictures proof (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:docx-pictures-proof
 
+      # PDF to Word's tables (#28 slice 2): the only place the image's OWN
+      # poppler groups a table's words before the Word table writer sees
+      # them (CI's unit job stands poppler in, and the stand-in joins every
+      # baseline). provesDocxTables (the heartbeat's docxTables) must be
+      # true, the gapped table must come out as one Word table, and each
+      # wrapped-cell table as the measured count; how poppler grouped the
+      # wide-gapped line is printed. No user document, secret, queue or store.
+      - name: Worker image PDF to Word tables proof (inside the built worker image)
+        run: docker run --rm pdfxyz-worker:ci pnpm worker:docx-tables-proof
+
       # OpenDocument and RTF input (2026-11-04): an .odt and an .rtf through
       # Word to PDF, an .ods through Excel to PDF and an .odp through
       # PowerPoint to PDF, each through the REAL engine (its content check
