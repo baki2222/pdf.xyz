@@ -42,6 +42,8 @@ interface FakeSide {
   rejectAt?: { page: number; error: Error };
   /** Resolve [] at once, as with no document. */
   empty?: boolean;
+  /** Linger this long after the last page before resolving. */
+  tailMs?: number;
 }
 
 const sides = new Map<Uint8Array, FakeSide>();
@@ -145,6 +147,7 @@ async function fakeCapture<T>(
     o.onPage?.(page);
     o.onProgress?.(++done, order.length);
   }
+  if (cfg.tailMs) await new Promise((r) => setTimeout(r, cfg.tailMs));
   return out;
 }
 
@@ -287,8 +290,19 @@ describe("capturePairs", () => {
       "checked",
       "failed",
     ]);
+    // The partner is ALREADY WAITING at page 3 when the short side's call
+    // resolves (it lingers after its last page): only the call's
+    // resolution can release it. Without that release this hangs.
+    const late = setup({ numPages: 3 }, { numPages: 2, tailMs: 200 });
+    const waited = await capturePairs(late.l, late.r, [0, 1, 2]);
+    expect(waited.outcomes.map((o) => o.status)).toEqual([
+      "checked",
+      "checked",
+      "failed",
+    ]);
     // And the mirror.
     const m = setup({ numPages: 2 }, { numPages: 3 });
+
     const mirror = await capturePairs(m.l, m.r, [0, 1, 2]);
     expect(mirror.outcomes.map((o) => o.status)).toEqual([
       "checked",
