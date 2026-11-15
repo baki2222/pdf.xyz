@@ -2171,7 +2171,7 @@ export const guides: Guide[] = [
     // CI makes the worker image prove, never typed here. Was: "Translate a PDF
     // into another language with AI. Get Markdown and plain text back; our
     // secure server wipes inputs at job end. No account needed."
-    description: `Translate a PDF with AI into ${TRANSLATE_LANGUAGES.length} languages. Markdown and text come in a ZIP, plus a reflowed PDF for ${translatePdfCoverage().scopeOfThem}. Inputs wiped at job end; no account.`,
+    description: `Translate a PDF with AI into ${TRANSLATE_LANGUAGES.length} languages. Markdown and text come in a ZIP, plus a reflowed PDF for ${translatePdfCoverage().scopeOfThem}, not the original layout. Inputs wiped; no account.`,
     tools: ["translate-pdf", "ocr-pdf", "summarize-pdf"],
     keywords: [
       "translate pdf",

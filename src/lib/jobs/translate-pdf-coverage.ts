@@ -86,7 +86,11 @@ export function translatePdfCoverageSentence(
     : "a reflowed PDF of the same text";
   const which =
     coverage.without.length === 0
-      ? `For ${coverage.scope}, ${pdf} comes with it`
-      : `For ${coverage.scope}, every one but ${coverage.withoutNames}, ${pdf} comes with it`;
-  return `${which}; the tool's "You get" line shows whether your target gets one before you start.`;
+      ? `For ${coverage.scope}, ${pdf} is made too`
+      : `For ${coverage.scope}, every one but ${coverage.withoutNames}, ${pdf} is made too`;
+  // True in every state (review, 2026-11-15): a proven target whose PDF fails
+  // to draw was told "comes with it" and got the ZIP alone, with the panel's
+  // "could not be drawn" notice. The row says what is offered; the result
+  // says what arrived.
+  return `${which}; the tool's "You get" line shows whether your target is offered one before you start, and the result says so if it could not be drawn.`;
 }

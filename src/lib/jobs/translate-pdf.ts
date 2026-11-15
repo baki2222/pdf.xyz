@@ -90,7 +90,9 @@ export const LANGUAGE_NAMES: Record<TranslateLanguage, string> = {
  *
  * Added 2026-11-15 (competitor audit #29, slice 2). It replaced the script's
  * local `REQUIRED` (en, es, bn) and was widened to the 17 languages production
- * proved that day (heartbeat + CI run 43730819643). The static copy that says
+ * proved that day (heartbeat + CI run 43730819643). Arabic joined the same
+ * day, carried over from main's `REQUIRED` when PR #331 fixed the direction
+ * check (live heartbeat: 18 languages, ar among them). The static copy that says
  * which languages get a PDF (`translatePdfCoverage`) reads THIS list, so a
  * language joins the copy only by joining the gate that keeps it true — the
  * Arabic and CJK slices add theirs here, and the "no PDF" list shrinks with
@@ -110,6 +112,7 @@ export const TRANSLATE_PDF_CI_REQUIRED: readonly TranslateLanguage[] = [
   "pl",
   "sv",
   "tr",
+  "ar",
   "hi",
   "vi",
   "id",
