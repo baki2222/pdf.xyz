@@ -55,7 +55,8 @@ import {
   pageHeaderPair,
   type PageLines,
 } from "@/tests/compare-fixtures";
-import { getToolBySlug, tools } from "./index";
+import { getToolBySlug } from "./index";
+import { processingSplit } from "./processing-split";
 
 afterEach(() => {
   cleanup();
@@ -200,12 +201,14 @@ const DRIVERS: Readonly<Record<string, Driver>> = {
 
 /** Discovered: in-browser catalogue tools whose registry kind is driven. */
 function subjects(): { slug: string; kind: string }[] {
+  // In-browser means "never uploads", asked of the one definition
+  // (processing-split.test.ts bans restating a mode's meaning here).
+  const neverUploads = new Set(
+    processingSplit().neverUploads.map((t) => t.slug),
+  );
   return supportedToolSlugs
     .map((slug) => ({ slug, kind: getRunnerKind(slug) ?? "" }))
-    .filter(
-      ({ slug, kind }) =>
-        getToolBySlug(slug)?.processing === "client" && kind in DRIVERS,
-    );
+    .filter(({ slug, kind }) => neverUploads.has(slug) && kind in DRIVERS);
 }
 
 describe("in-browser tools download exactly the formats their page promises", () => {
@@ -225,7 +228,7 @@ describe("in-browser tools download exactly the formats their page promises", ()
     // pinned to the number: every new in-browser tool would turn this red
     // for a reason that is not a defect. The driven KINDS are pinned
     // instead, so a driver added later is a decision.
-    const client = tools.filter((t) => t.processing === "client");
+    const client = processingSplit().neverUploads;
     expect(client.length - found.length).toBeGreaterThan(0);
     expect(Object.keys(DRIVERS)).toEqual(["compare"]);
   });
