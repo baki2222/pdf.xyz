@@ -23,13 +23,18 @@ const ROOT = process.cwd();
 const TSX_CLI = path.join(ROOT, "node_modules", "tsx", "dist", "cli.mjs");
 const SCRIPT = path.join(ROOT, "src", "tests", "docx-table-measure.ts");
 
-function measure(mode: string, n: number): Record<string, number> {
+type Measured = { ms: number; rssDeltaMb: number } & Record<
+  string,
+  number | undefined
+>;
+
+function measure(mode: string, n: number): Measured {
   const out = execFileSync(process.execPath, [TSX_CLI, SCRIPT, mode, `${n}`], {
     cwd: ROOT,
     encoding: "utf8",
     maxBuffer: 1024 * 1024,
   });
-  return JSON.parse(out.trim().split("\n").at(-1)!) as Record<string, number>;
+  return JSON.parse(out.trim().split("\n").at(-1)!) as Measured;
 }
 
 describe("Word tables are bounded", () => {
