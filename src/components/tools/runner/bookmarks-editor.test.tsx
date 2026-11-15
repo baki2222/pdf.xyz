@@ -34,6 +34,9 @@ import { MetadataRunner } from "./metadata-runner";
 /** The real engine reads and saves: under a loaded machine, more than 1 s. */
 const READ_WAIT = 15_000;
 
+/** A menu opening on rows already drawn: a scheduler task, even under load. */
+const OPEN_WAIT = 2_000;
+
 let downloads: Blob[] = [];
 
 beforeEach(() => {
@@ -118,11 +121,27 @@ const titleInputs = () =>
     .getAllByRole("textbox", { name: /^Title, level/ })
     .map((el) => (el as HTMLInputElement).value);
 
-function more(title: string) {
+/**
+ * Opens a row's "More actions" and waits for the group the app shows.
+ *
+ * WAITS, and this is why (CI runs 43663278641 and 43691346655). It once read
+ * the group synchronously after the click, and failed under load: a row reads
+ * the open menu through `useSyncExternalStore`, which subscribes in a PASSIVE
+ * effect, and the outline arrives from a promise, so its rows commit in one
+ * scheduler task and subscribe in a later one. `findByRole` in `mount()`
+ * resolves on the commit; when the loop was slow, RTL's `setTimeout(0)` drain
+ * beat React's passive-effect task and the click landed on rows that had not
+ * subscribed yet. Nothing is lost: React re-checks the store when it
+ * subscribes and opens the menu a task later — the test "a click that lands
+ * before the rows subscribe still opens that row's menu" below pins that, at
+ * the exact moment. So this waits for the app's own signal, the group being
+ * exposed, not for a fixed time.
+ */
+async function more(title: string) {
   fireEvent.click(
     screen.getByRole("button", { name: `More actions for “${title}”` }),
   );
-  return screen.getByRole("group", { name: `Actions for “${title}”` });
+  return screen.findByRole("group", { name: `Actions for “${title}”` });
 }
 
 const live = () =>
@@ -181,7 +200,7 @@ describe("Edit PDF Bookmarks' panel", () => {
       name: "More actions for “Part B”",
     });
     expect(opener.getAttribute("aria-expanded")).toBe("false");
-    const group = more("Part B");
+    const group = await more("Part B");
     expect(opener.getAttribute("aria-expanded")).toBe("true");
     expect(opener.getAttribute("aria-controls")).toBe(group.id);
     const names = within(group)
@@ -210,10 +229,81 @@ describe("Edit PDF Bookmarks' panel", () => {
     expect(titleInputs()).toEqual(["Part A", "A.1", "A.2", "Part C", "Part B"]);
   });
 
+  it(
+    "a click that lands before the rows subscribe still opens that row's menu, and it stays open",
+    async () => {
+      // The window CI hit (runs 43663278641, 43691346655): the outline's rows
+      // have COMMITTED but their passive effects — where `useSyncExternalStore`
+      // subscribes to the open-menu store — have not run. A reader can click in
+      // that window too. This lands the click there on purpose: a
+      // MutationObserver fires in the microtask after the commit, before any
+      // scheduler task, and a native click() is not wrapped in act(), which
+      // would flush the effects first.
+      const bytes = await fixture();
+      const file = new File([new Uint8Array(bytes)], "handbook.pdf", {
+        type: "application/pdf",
+      });
+      const g = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+      const actEnvironment = g.IS_REACT_ACT_ENVIRONMENT;
+      g.IS_REACT_ACT_ENVIRONMENT = false;
+      try {
+        const name = "More actions for “Part B”";
+        const atClick = new Promise<string | null>((resolve) => {
+          const observer = new MutationObserver(() => {
+            const opener = screen.queryByRole("button", { name });
+            if (!opener) return;
+            observer.disconnect();
+            opener.click();
+            // Read after React's own microtask: a SUBSCRIBED row has opened
+            // by then (a click is a sync-lane update, flushed in a
+            // microtask); a row whose passive effects have not run has not.
+            queueMicrotask(() => resolve(opener.getAttribute("aria-expanded")));
+          });
+          observer.observe(document.body, { childList: true, subtree: true });
+        });
+        render(
+          <BookmarksEditor
+            pdf={{
+              file,
+              bytes,
+              pageCount: 5,
+              rotations: [0, 0, 0, 0, 0],
+              digitalSignatures: 0,
+            }}
+            onReset={() => {}}
+          />,
+        );
+        // Health check: the click really landed before the row could answer
+        // it. Were the effects already run, this test would prove nothing.
+        expect(await atClick).toBe("false");
+        const group = await screen.findByRole(
+          "group",
+          { name: "Actions for “Part B”" },
+          // The rows are already drawn: React answers the store within a task
+          // or two of subscribing, so a lost click fails here, by name, rather
+          // than as a timeout.
+          { timeout: OPEN_WAIT },
+        );
+        const opener = screen.getByRole("button", { name });
+        expect(opener.getAttribute("aria-expanded")).toBe("true");
+        expect(within(group).getAllByRole("button")).toHaveLength(7);
+        // Nothing later in the panel's start-up closes it on its own.
+        await new Promise((r) => setTimeout(r, 50));
+        expect(opener.getAttribute("aria-expanded")).toBe("true");
+        expect(
+          screen.getByRole("group", { name: "Actions for “Part B”" }),
+        ).toBe(group);
+      } finally {
+        g.IS_REACT_ACT_ENVIRONMENT = actEnvironment;
+      }
+    },
+    READ_WAIT + OPEN_WAIT,
+  );
+
   it("indent and outdent nest a row and bring it back; undo and redo walk the history", async () => {
     await mount(await fixture());
     fireEvent.click(
-      within(more("Part B")).getByRole("button", { name: /^Indent/ }),
+      within(await more("Part B")).getByRole("button", { name: /^Indent/ }),
     );
     expect(
       screen.getByRole("textbox", { name: "Title, level 2, 3 of 3" }),
@@ -235,7 +325,7 @@ describe("Edit PDF Bookmarks' panel", () => {
 
   it("delete names what goes with it, moves focus to the next row, and undo brings it back", async () => {
     await mount(await fixture());
-    const del = within(more("Part A")).getByRole("button", {
+    const del = within(await more("Part A")).getByRole("button", {
       name: "Delete with 2 inside: “Part A” and 2 bookmarks inside it",
     });
     fireEvent.click(del);
@@ -281,7 +371,7 @@ describe("Edit PDF Bookmarks' panel", () => {
       },
     );
     fireEvent.click(
-      within(more("A.1")).getByRole("button", { name: /^Delete: “A.1”/ }),
+      within(await more("A.1")).getByRole("button", { name: /^Delete: “A.1”/ }),
     );
     fireEvent.click(screen.getByRole("button", { name: BOOKMARK_ADD_LABEL }));
     // The new row's title has focus and is selected for typing over.
@@ -299,7 +389,7 @@ describe("Edit PDF Bookmarks' panel", () => {
       screen.getByRole("textbox", { name: "Page for “Index — 索引”" }),
     );
     fireEvent.click(
-      within(more("Part C")).getByRole("button", { name: /^Indent/ }),
+      within(await more("Part C")).getByRole("button", { name: /^Indent/ }),
     );
     const panel = await save();
     const saved = panel.querySelector("[data-bookmarks-saved]")!;
@@ -341,7 +431,7 @@ describe("Edit PDF Bookmarks' panel", () => {
 
   it("Indent and Outdent keep keyboard focus on the moved row's button", async () => {
     await mount(await fixture());
-    const indentB = within(more("Part B")).getByRole("button", {
+    const indentB = within(await more("Part B")).getByRole("button", {
       name: /^Indent/,
     });
     indentB.focus();
@@ -378,7 +468,9 @@ describe("Edit PDF Bookmarks' panel", () => {
     await mount(await doc.save());
     expect(titleInputs()).toEqual(["Alpha", "Omega"]);
     fireEvent.click(
-      within(more("Omega")).getByRole("button", { name: "Delete: “Omega”" }),
+      within(await more("Omega")).getByRole("button", {
+        name: "Delete: “Omega”",
+      }),
     );
     expect(titleInputs()).toEqual(["Alpha"]);
     expect(document.activeElement).toBe(
