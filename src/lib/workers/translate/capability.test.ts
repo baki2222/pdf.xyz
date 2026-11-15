@@ -28,7 +28,8 @@
  */
 import type * as TS from "typescript";
 import { createRequire } from "node:module";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { provesChunkedTranslate, provesDeliveryCap } from "./capability";
 import { runTranslate } from "./engine";
@@ -338,6 +339,101 @@ function isComputedOnTheWorker(node: TS.Node): boolean {
   return found;
 }
 
+/**
+ * Every capability the daemon publishes, with the expression that computes it.
+ *
+ * These guards used to walk `scripts/worker-daemon.ts` alone. Since
+ * 2026-11-15 the heartbeat is composed from objects in more than one module —
+ * the runtime facts in the script, the proofs in the table
+ * `daemon/proved-capabilities.ts` owns (so the HEALTHCHECK can read them from
+ * a cache instead of re-running them) — and a guard that names one file
+ * cannot see a file it does not name. So the files are DISCOVERED: the
+ * script plus the closure of its VALUE imports inside
+ * `src/lib/workers/daemon/` (`import type` edges are erased at runtime and
+ * are not followed). A "capability object" is an object literal holding three
+ * or more advertised keys; an entry shaped `{ prove, parse }` is judged by
+ * its `prove`.
+ */
+function publishedCapabilities(): {
+  files: string[];
+  entries: { key: string; value: TS.Node; file: string }[];
+} {
+  const keys = new Set<string>(
+    ADVERTISED_WORKER_CAPABILITIES.map((c) => c.key),
+  );
+  const DAEMON_DIR = "src/lib/workers/daemon/";
+  const resolve = (from: string, spec: string): string | null => {
+    let base: string;
+    if (spec.startsWith("@/")) base = `src/${spec.slice(2)}`;
+    else if (spec.startsWith("."))
+      base = path.posix.join(path.posix.dirname(from), spec);
+    else return null;
+    for (const candidate of [`${base}.ts`, `${base}/index.ts`]) {
+      if (candidate.startsWith(DAEMON_DIR) && existsSync(candidate))
+        return candidate;
+    }
+    return null;
+  };
+  const files: string[] = [];
+  const entries: { key: string; value: TS.Node; file: string }[] = [];
+  const queue = ["scripts/worker-daemon.ts"];
+  while (queue.length > 0) {
+    const file = queue.shift()!;
+    if (files.includes(file)) continue;
+    files.push(file);
+    const sf = ts.createSourceFile(
+      file,
+      readFileSync(file, "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    const visit = (node: TS.Node): void => {
+      if (
+        ts.isImportDeclaration(node) &&
+        ts.isStringLiteral(node.moduleSpecifier)
+      ) {
+        const clause = node.importClause;
+        const named = clause?.namedBindings;
+        const typeOnly =
+          clause?.isTypeOnly === true ||
+          (clause !== undefined &&
+            clause.name === undefined &&
+            named !== undefined &&
+            ts.isNamedImports(named) &&
+            named.elements.every((e) => e.isTypeOnly));
+        const target = resolve(file, node.moduleSpecifier.text);
+        if (!typeOnly && target) queue.push(target);
+      }
+      if (ts.isObjectLiteralExpression(node)) {
+        const own = node.properties.filter(
+          (p): p is TS.PropertyAssignment =>
+            ts.isPropertyAssignment(p) &&
+            ts.isIdentifier(p.name) &&
+            keys.has(p.name.text),
+        );
+        if (own.length >= 3) {
+          for (const p of own) {
+            let value: TS.Node = p.initializer;
+            if (ts.isObjectLiteralExpression(value)) {
+              const prove = value.properties.find(
+                (q): q is TS.PropertyAssignment =>
+                  ts.isPropertyAssignment(q) &&
+                  ts.isIdentifier(q.name) &&
+                  q.name.text === "prove",
+              );
+              if (prove) value = prove.initializer;
+            }
+            entries.push({ key: (p.name as TS.Identifier).text, value, file });
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
+  }
+  return { files, entries };
+}
+
 /** Parse a fragment and hand back the initializer of `probe: <expr>`. */
 function initializerOf(expression: string): TS.Node {
   const sf = ts.createSourceFile(
@@ -396,28 +492,18 @@ describe("the daemon PROVES the capabilities, it does not declare them", () => {
      * but it can tell a probe from a claim, over the WHOLE published set rather
      * than the two capabilities that happened to be listed.
      */
-    const file = "scripts/worker-daemon.ts";
-    const sf = ts.createSourceFile(
-      file,
-      readFileSync(file, "utf8"),
-      ts.ScriptTarget.Latest,
-      true,
-    );
-
+    const { files, entries } = publishedCapabilities();
+    const file = files.join(" + ");
     const values = new Map<string, TS.Node>();
-    const walk = (node: TS.Node): void => {
-      if (
-        ts.isPropertyAssignment(node) &&
-        ts.isIdentifier(node.name) &&
-        ADVERTISED_WORKER_CAPABILITIES.some(
-          (c) => c.key === node.name.getText(),
-        )
-      ) {
-        values.set(node.name.text, node.initializer);
-      }
-      ts.forEachChild(node, walk);
-    };
-    walk(sf);
+    for (const e of entries) {
+      // A key published from two capability objects is a fork in the source
+      // of truth: which one reaches the wire depends on spread order.
+      expect(values.has(e.key), `${e.key} is published twice`).toBe(false);
+      values.set(e.key, e.value);
+    }
+    // The discovery reached the proof table, not only the script.
+    expect(files).toContain("scripts/worker-daemon.ts");
+    expect(files.length).toBeGreaterThanOrEqual(2);
 
     // HEALTH CHECK on the walk, not on the daemon: a parse that found nothing
     // (a moved file, a renamed field, a `createSourceFile` that silently
@@ -478,25 +564,9 @@ describe("the daemon PROVES the capabilities, it does not declare them", () => {
       own("docxTables"),
     ]);
 
-    const file = "scripts/worker-daemon.ts";
-    const sf = ts.createSourceFile(
-      file,
-      readFileSync(file, "utf8"),
-      ts.ScriptTarget.Latest,
-      true,
-    );
-    const published: [string, string[]][] = [];
-    const walk = (node: TS.Node): void => {
-      if (ts.isPropertyAssignment(node) && ts.isIdentifier(node.name)) {
-        const key = node.name.text;
-        if (ADVERTISED_WORKER_CAPABILITIES.some((c) => c.key === key)) {
-          const provers = proversIn(node.initializer);
-          if (provers.length > 0) published.push([key, provers]);
-        }
-      }
-      ts.forEachChild(node, walk);
-    };
-    walk(sf);
+    const published: [string, string[]][] = publishedCapabilities()
+      .entries.map((e): [string, string[]] => [e.key, proversIn(e.value)])
+      .filter(([, provers]) => provers.length > 0);
     // HEALTH: printed, not counted — the keys a prover publishes today.
     expect(published.map(([key]) => key)).toEqual(
       expect.arrayContaining([

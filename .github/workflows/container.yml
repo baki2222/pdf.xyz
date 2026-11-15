@@ -319,6 +319,19 @@ jobs:
           fi
           echo "worker readiness honestly reported not-configured (exit 2)"
 
+      # The HEALTHCHECK's own cost, timed in the built image (2026-11-15). The
+      # probe used to await every start-up proof — 21 Chromium print jobs since
+      # translatePdfLanguages — and a probe that outruns its timeout restarts
+      # the worker in a loop. It now reads the daemon's cached proofs instead.
+      # The script derives everything from the Dockerfile (and compose): the
+      # bound is two thirds of the worker HEALTHCHECK's own timeout, the probe
+      # timed is that HEALTHCHECK's CMD, and the cache writer is the worker
+      # CMD. It times the probe cold (no cache: must report source "none") and
+      # warm (after the writer: must report "cache"), prints both, and fails
+      # either over the bound. Nothing configured, no secret, no document.
+      - name: Worker HEALTHCHECK runs well inside its timeout, cold and warm (inside the built worker image)
+        run: node scripts/healthcheck-budget.mjs --image pdfxyz-worker:ci
+
       # Separation, proven at the image level (not just in the Dockerfile text): the
       # worker image DOES ship the native deep-compression AND OCR engines, plus the
       # proof-only `pdftotext` (poppler-utils) the searchable-PDF proof needs.

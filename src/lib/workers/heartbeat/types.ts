@@ -426,7 +426,11 @@ export type HeartbeatPublishReason =
   | "published" // a fresh heartbeat was written
   | "throttled" // within the interval since the last write; skipped (a no-op)
   | "disabled" // the feature is not enabled / no backend configured
-  | "unavailable"; // the backend errored or was unreachable (swallowed, never thrown)
+  | "unavailable" // the backend errored or was unreachable (swallowed, never thrown)
+  // a readiness probe found no proof THIS container's daemon wrote, so it
+  // published nothing rather than overwrite the daemon's record with values
+  // nobody proved (`daemon/proved-capabilities.ts`)
+  | "unproven";
 
 /** The outcome of a publish attempt. Never throws; failures are typed. */
 export interface HeartbeatPublishResult {
