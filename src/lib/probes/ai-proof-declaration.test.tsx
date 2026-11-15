@@ -431,8 +431,15 @@ async function panelJobBodies(
         await waitFor(() => expect(network.jobBodies).toHaveLength(turn), {
           timeout: 15_000,
         });
+        // The whole paragraph's text: since 2026-11-15 (audit #30) "[p.1]"
+        // is a citation button inside it, so its own text nodes no longer
+        // spell the answer and a plain findByText(answer) finds nothing.
         if (turn < turns)
-          await screen.findByText("They are platform notes [p.1].");
+          await screen.findByText(
+            (_, el) =>
+              el?.tagName === "P" &&
+              el.textContent === "They are platform notes [p.1].",
+          );
       }
       break;
     }
