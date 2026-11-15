@@ -152,7 +152,7 @@ const content: ToolContent = {
 
   intro: [
     `Chat with PDF answers questions about one document at a time. Ask "What is the notice period?" and the model receives your PDF's text with every page that has text marked by its number, plus an instruction to answer from that text alone and to cite what it used as [p.4]. If the answer is not there, the instruction is to say so plainly instead of reaching for outside knowledge.`,
-    `Only the PDF's selectable text is read; no character recognition runs here. A scan or photographed document has no such text, so the page stops it before upload (our server refuses any the browser cannot check) and points you to ${OCR_TOOL}; run that first and ask the searchable copy. Uploads of up to ${CEILING_MB} MB are accepted, and the model is sent at most ${READ_CHARS} characters of the page-labelled text. For a longer file, a notice above the answer says how far into the document the reading got, by page when the text allows.`,
+    `Only the PDF's selectable text is read; no character recognition runs here. A scan or photographed document has no such text, so the page stops it before upload (our server refuses any the browser cannot check) and points you to ${OCR_TOOL}; run that first and ask the searchable copy. Uploads of up to ${CEILING_MB} MB are accepted, and the model is sent at most ${READ_CHARS} characters of the page-labelled text. For a longer file, a notice above the answer names the pages that were read, by number when the text allows.`,
     `There is no in-browser mode. Every question is its own job: the PDF goes over TLS to pdf.xyz's secure server, which pulls out the text and forwards it, with your question and the recent exchanges, to a third-party AI provider, while the PDF file itself is not passed on. That job's upload is removed as soon as it ends, our server's link to its answer ZIP lapses ${OUTPUT_TTL} minutes after the answer is ready, and a storage rule that runs once a day clears the leftover copy. Our server does not link one question to the next; this page holds the conversation and re-sends it each time.`,
   ],
 
@@ -205,7 +205,7 @@ const content: ToolContent = {
     },
     {
       q: "What if the answer is in a part of the document it did not read?",
-      a: `Each question reads at most ${READ_CHARS} characters, the question and the conversation sent with it included; the document gets what is left. Past that point, the model is told not to claim the document lacks something but to say how far it can see, and the notice above the answer says where the reading ended. For a very long file, pull the section you need into its own PDF with ${EXTRACT_TOOL} and ask that; its citations then count the pages of the extracted copy, not the original.`,
+      a: `Each question reads at most ${READ_CHARS} characters, the question and the conversation sent with it included; the document gets what is left. Past that point, the model is told not to claim the document lacks something but to say which pages it can see, and the notice above the answer names the pages that were read. For a very long file, pull the section you need into its own PDF with ${EXTRACT_TOOL} and ask that; its citations then count the pages of the extracted copy, not the original.`,
     },
     {
       q: "What happens to the conversation if I reload the page?",
@@ -217,7 +217,7 @@ const content: ToolContent = {
     },
     {
       q: "Does the AI provider train on my PDF or keep a copy?",
-      a: "The provider is sent the extracted text, your question and the recent exchanges; the PDF file is not sent to it. Training on what arrives through the API is ruled out by the agreements pdf.xyz uses its providers under, and beyond those terms a provider's handling is not something pdf.xyz can control. Because the same text returns with each follow-up, the provider keeps it in a short-lived cache, measured in minutes rather than days, which lowers the cost of reprocessing it. If that is too much exposure for a document, keep it out of the AI tools.",
+      a: "The provider is sent the extracted text, your question and the recent exchanges; the PDF file is not sent to it. Training on what arrives through the API is ruled out by the agreements pdf.xyz uses its providers under, and beyond those terms a provider's handling is not something pdf.xyz can control. When the same text returns with a follow-up, the provider may keep it in a short-lived cache, measured in minutes rather than days, which lowers the cost of reprocessing it. If that is too much exposure for a document, keep it out of the AI tools.",
     },
   ],
 

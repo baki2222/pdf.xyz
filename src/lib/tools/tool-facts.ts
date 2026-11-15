@@ -2266,7 +2266,7 @@ export function factFaq(tool: Tool): readonly ToolFaqEntry[] {
       const sparse = aiReadPagesAtSparsest(tool.slug);
       entries.push({
         question: `How much of my PDF does ${tool.name} read?`,
-        answer: `Up to ${read.toLocaleString("en-US")} characters for each question, the question and the conversation sent with it included — roughly ${dense} ${pluralPages(dense)} of dense text, or about ${sparse} of sparsely-set pages. The document gets what the conversation leaves; a longer one is read up to that point only, and the answer tells you which page it reached rather than treating the rest as absent.`,
+        answer: `Up to ${read.toLocaleString("en-US")} characters for each question, the question and the conversation sent with it included — roughly ${dense} ${pluralPages(dense)} of dense text, or about ${sparse} of sparsely-set pages. The document gets what the conversation leaves; for a longer one, a notice above the answer names the pages that were read, by number when the text allows, rather than treating the rest as absent.`,
       });
     } else {
       // One run's read, derived from the route's pricing and the processor's
