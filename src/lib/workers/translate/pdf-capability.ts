@@ -188,20 +188,38 @@ export function rasterHasInk(raster: {
   return false;
 }
 
-/** (d) The sample's first logical word sits right of its last one. */
+/**
+ * (d) The sample's first logical word sits right of its last one.
+ *
+ * A word is found ONLY by its logical text's code-point reversal: real
+ * `pdftotext -bbox` (poppler) returns each Arabic word's code points in
+ * VISUAL order, the order the shaped glyphs are drawn — measured 2026-11-15 in
+ * the live worker image, "النص" came back as "صنلا". Matching the logical text
+ * found neither word and proved Arabic false on every run.
+ *
+ * Logical order is deliberately NOT accepted (review, 2026-11-15): a word read
+ * back in logical order means its letters were drawn left to right — no bidi
+ * inside the word, so the reader sees each word's letters reversed — and the
+ * xMin test alone cannot see that. Accepting only the visual form pins letter
+ * order inside the word as well as word order on the line, and a future
+ * renderer that changes what poppler reads back fails CLOSED (the ZIP alone),
+ * never open. Code-point reversal is exact for the probe's sample
+ * (`office-conversion/fonts` Arabic, "النص العربي"): it has no combining
+ * marks, so visual order is a clean reversal.
+ */
 export function laidOutRightToLeft(
   words: readonly { text: string; xMin: number }[],
   sample: string,
 ): boolean {
   const logical = sample.split(/\s+/).filter(Boolean);
   if (logical.length < 2) return false;
-  const first = words.find(
-    (w) => w.text.normalize("NFC") === logical[0]!.normalize("NFC"),
-  );
-  const last = words.find(
-    (w) =>
-      w.text.normalize("NFC") === logical[logical.length - 1]!.normalize("NFC"),
-  );
+  const find = (word: string) => {
+    const nfc = word.normalize("NFC");
+    const reversed = [...nfc].reverse().join("");
+    return words.find((w) => w.text.normalize("NFC") === reversed);
+  };
+  const first = find(logical[0]!);
+  const last = find(logical[logical.length - 1]!);
   return !!first && !!last && first.xMin > last.xMin;
 }
 

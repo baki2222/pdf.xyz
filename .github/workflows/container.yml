@@ -224,7 +224,9 @@ jobs:
       # sample read back, ink on the page, Arabic right to left) — and the
       # render time, size and per-job conservation false-drop count at
       # delivery size (three chunks at the per-call ceiling) in en, bn, ja, ar
-      # and th. Fails unless en, es and bn are proven and nothing is dropped.
+      # and th. Fails unless en, es, bn and ar are proven and nothing is
+      # dropped (ar since 2026-11-15, when the direction check stopped
+      # refusing poppler's visual-order words).
       # Stub model, synthetic text; no user document, secret, queue or store.
       - name: Worker image Translate PDF reflowed-PDF proof (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:translate-pdf-proof
