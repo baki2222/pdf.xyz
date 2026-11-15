@@ -1,13 +1,21 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import JSZip from "jszip";
 import { describe, expect, it, vi } from "vitest";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
-import type { SummarizeOptions } from "@/lib/jobs/summarize-pdf";
+import {
+  SUMMARY_LENGTHS,
+  type SummarizeOptions,
+  type SummaryLength,
+} from "@/lib/jobs/summarize-pdf";
+import { AI_SPEND_CEILING } from "@/lib/jobs/ai-spend-ceiling";
 import type {
   AiCompletionRequest,
   AiCompletionResult,
   AiProvider,
 } from "../ai/provider";
 import {
+  LENGTH_PLAN,
   runSummarize,
   SUMMARIZE_ENGINE,
   type PdfTextExtractor,
@@ -340,5 +348,145 @@ describe("a short window is disclosed — to the model and to the job record", (
     expect(run.meta.truncationNotice).toBeNull();
     // A notice on an untruncated document would be its own false claim.
     expect(provider.calls[0]?.system ?? "").not.toMatch(/ONLY PART/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The Detailed budget is the per-run output figure (audit summarize-pdf#2)
+// ---------------------------------------------------------------------------
+
+/** The `maxOutputTokens` a request of `length` actually SENDS, with no override. */
+async function sentBudget(length: SummaryLength): Promise<number> {
+  const provider = providerReturning(SUCCESS("s"));
+  await runSummarize(
+    INPUT,
+    { length, format: "paragraphs" },
+    { extract: extractorFor("real text"), provider },
+  );
+  expect(provider.calls).toHaveLength(1);
+  return provider.calls[0]!.maxOutputTokens;
+}
+
+describe("the Detailed output budget is the per-run figure the daily ceiling is derived from", () => {
+  it("SENDS AI_SPEND_CEILING.outputTokensPerFullRun for Detailed with no limits override", async () => {
+    // Through behaviour, not the table: the value on the request is the one
+    // the provider bills against, so that is the one pinned.
+    const sent = await sentBudget("detailed");
+    expect(sent).toBe(AI_SPEND_CEILING.outputTokensPerFullRun);
+    // Positive control: the same assertion against a deliberately wrong
+    // figure must fail, or the line above could not tell 8,000 from anything.
+    expect(() => expect(sent).toBe(9_000)).toThrow();
+  });
+
+  it("orders the lengths Brief < Standard < Detailed <= outputTokensPerFullRun", async () => {
+    // A second bound, independent of the equality above: a Detailed budget
+    // that equals the ceiling but undercuts Standard is still wrong.
+    const brief = await sentBudget("brief");
+    const standard = await sentBudget("standard");
+    const detailed = await sentBudget("detailed");
+    expect(brief).toBeLessThan(standard);
+    expect(standard).toBeLessThan(detailed);
+    expect(detailed).toBeLessThanOrEqual(
+      AI_SPEND_CEILING.outputTokensPerFullRun,
+    );
+    // The table and the wire agree for every length the options accept.
+    expect(SUMMARY_LENGTHS.length).toBe(3);
+    for (const length of SUMMARY_LENGTHS) {
+      expect(await sentBudget(length)).toBe(LENGTH_PLAN[length].tokens);
+    }
+  });
+
+  it("names the ceiling in the source, never a numeric literal (catches a literal 8000)", () => {
+    // The behavioural test above cannot see `tokens: 8000`: the number is the
+    // same today. This scan DISCOVERS LENGTH_PLAN's detailed entry in the
+    // source and asserts it references the imported figure, so a literal
+    // that would silently stop following the ceiling goes red now.
+    const source = readFileSync(
+      fileURLToPath(new URL("./engine.ts", import.meta.url)),
+      "utf8",
+    );
+    const start = source.indexOf("export const LENGTH_PLAN");
+    expect(start, "LENGTH_PLAN definition not found").toBeGreaterThan(-1);
+    const end = source.indexOf("\n};", start);
+    expect(end, "LENGTH_PLAN has no closing brace").toBeGreaterThan(start);
+    const plan = source.slice(start, end);
+    const tokensOf = (length: string): string => {
+      const entry = plan.indexOf(`${length}: {`);
+      expect(entry, `no ${length} entry in LENGTH_PLAN`).toBeGreaterThan(-1);
+      const m = /tokens:\s*([^,\n]+),/.exec(plan.slice(entry));
+      expect(m, `no tokens field on ${length}`).not.toBeNull();
+      return m![1]!.trim();
+    };
+    // Health check: the scan reads real values. Brief IS a literal today, so
+    // a scanner that returned nothing (or the wrong entry) fails here.
+    expect(tokensOf("brief")).toMatch(/^[\d_]+$/);
+    expect(tokensOf("detailed")).toBe(
+      "AI_SPEND_CEILING.outputTokensPerFullRun",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// incomplete_output: honest words, and the spend travels (CLAUDE.md rule 3)
+// ---------------------------------------------------------------------------
+
+const DETAILED: SummarizeOptions = { length: "detailed", format: "paragraphs" };
+
+/** What the provider returns when the model ran into `max_tokens`. */
+const hitLimit = (limit: number): AiCompletionResult => ({
+  ok: false,
+  kind: "incomplete_output",
+  retryable: false,
+  message:
+    "The AI model reached its output limit before finishing, so the answer would have been cut off. Try a shorter document or a briefer output.",
+  usage: { inputTokens: 120_000, outputTokens: limit },
+});
+
+describe("incomplete_output names the limit it hit and carries what it spent", () => {
+  it("is non-retryable, carries usage + window, delivers nothing, and does not advise a briefer output", async () => {
+    const limit = AI_SPEND_CEILING.outputTokensPerFullRun;
+    const provider = providerReturning(hitLimit(limit));
+    const run = await runSummarize(INPUT, DETAILED, {
+      extract: extractorFor("A very long report."),
+      provider,
+    });
+
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.retryable).toBe(false);
+    // The failure that burned the most budget must carry its token counts.
+    expect(run.usage?.outputTokens).toBe(limit);
+    expect(run.usage?.calls).toBe(1);
+    expect(run.usage?.model).toBe("claude-sonnet-5");
+    expect(run.window).toBeDefined();
+    // No artifact: a cut-off summary is a wrong answer, not a short one.
+    expect(run).not.toHaveProperty("output");
+
+    expect(run.message).toContain(limit.toLocaleString("en-US"));
+    expect(run.message).toContain("Standard");
+    expect(run.message).not.toMatch(/briefer output/i);
+    expect(run.message).not.toMatch(/shorter document/i);
+  });
+
+  it("names the limit actually SENT when an operator limit is lower than the plan", async () => {
+    // `plan.tokens` and the sent limit differ here; the model ran into the
+    // lower one, so naming the plan's figure would be a false number.
+    const lower = 3_000;
+    expect(lower).toBeLessThan(LENGTH_PLAN.detailed.tokens);
+    const provider = providerReturning(hitLimit(lower));
+    const run = await runSummarize(INPUT, DETAILED, {
+      extract: extractorFor("A very long report."),
+      provider,
+      limits: { maxOutputTokens: lower },
+    });
+
+    expect(provider.calls[0]!.maxOutputTokens).toBe(lower);
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.message).toContain("3,000-token");
+    expect(run.message).not.toContain(
+      LENGTH_PLAN.detailed.tokens.toLocaleString("en-US"),
+    );
+    expect(run.usage?.outputTokens).toBe(lower);
   });
 });
