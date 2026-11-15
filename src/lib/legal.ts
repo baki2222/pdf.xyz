@@ -25,7 +25,11 @@ export const LEGAL_CONTACT = "legal@pdf.xyz";
  * changes — not for a typo fix, and never without changing the text, because a
  * date that moves without the content moving teaches people to ignore it.
  */
-export const LEGAL_UPDATED = "2026-10-10";
+// 2026-11-15: the terms' example of a known AI limit said translation
+// "produces text rather than a re-typeset PDF"; since PR #328 it also returns a
+// reflowed PDF for most target languages, so the example now names the limit
+// that remains (reflowed, not the original's layout).
+export const LEGAL_UPDATED = "2026-11-15";
 
 /**
  * The date shown on /security, ISO, by the same rule. Its own date because
