@@ -909,20 +909,14 @@ describe("the ticket's on-demand fetch is bounded", () => {
     // `root-shared`) keeps a numeric id but is written `<name>-<hash>.js`, and
     // a merged chunk declares several ids under the first one's name.
     const declares = (f: string, id: string) =>
-      (/\.push\(\[\[([\d,]+)\]/.exec(read(f).slice(0, 200))?.[1] ?? "")
-        .split(",")
-        .includes(id);
+      declaredIds(read(f)).includes(id);
     const ticket = all.filter((f) => read(f).includes(TICKET_CHUNK_MARKER));
     expect(ticket).toHaveLength(1);
     const ticketId = idOf(ticket[0]!);
     expect(ticketId, "the ticket's chunk has no numeric id").toBeTruthy();
     // The load in front of the ticket's import, in the chunk that imports it.
     const loads = all
-      .flatMap((f) =>
-        [
-          ...read(f).matchAll(/Promise\.all\(\[((?:\w+\.e\(\d+\),?)+)\]\)/g),
-        ].map((m) => [...m[1]!.matchAll(/\.e\((\d+)\)/g)].map((x) => x[1]!)),
-      )
+      .flatMap((f) => manyLoads(read(f)))
       .filter((ids) => ids.includes(ticketId!));
     // Health: found, and more than the ticket alone.
     expect(loads.length, "no chunk loads the ticket").toBeGreaterThanOrEqual(1);
@@ -968,32 +962,67 @@ describe("the ticket's on-demand fetch is bounded", () => {
 const PALETTE_FETCH_GZ_KB = 12;
 
 /**
+ * A chunk id as the minifier writes it: a multiple of 1,000 is written in
+ * exponent form (`8e3` for chunk 8000). Read as the number, so `8e3` and
+ * the file `8000.<hash>.js` are the same chunk. ADDED 2026-11-15 (S3):
+ * Compare PDF's Overlay drew chunk id 8000, and every reader below, which
+ * took `\d+`, saw no load of it at all ("no chunk loads it", for the
+ * wrong reason) and no file declaring it. Rule 4: the set the readers
+ * searched silently excluded every id written in exponent form.
+ */
+const CHUNK_ID = String.raw`\d+(?:e\d+)?`;
+const chunkId = (written: string) => String(Number(written));
+
+/** The ids a chunk file's JSONP header declares, as numbers in text. */
+function declaredIds(text: string): string[] {
+  // A character class, not `(?:${CHUNK_ID},?)+`: that nests two
+  // quantifiers over digits, and backtracks exponentially on a header it
+  // does not match (it hung the whole file, 2026-11-15).
+  const m = /\.push\(\[\[([\de,]+)\]/.exec(text.slice(0, 200));
+  return (m?.[1] ?? "").split(",").filter(Boolean).map(chunkId);
+}
+
+/** `Promise.all([n.e(1),n.e(2)])`: the ids an `import()` fetches together. */
+function manyLoads(text: string): string[][] {
+  return [
+    ...text.matchAll(
+      new RegExp(
+        String.raw`Promise\.all\(\[((?:\w+\.e\(${CHUNK_ID}\),?)+)\]\)`,
+        "g",
+      ),
+    ),
+  ].map((m) =>
+    [...m[1]!.matchAll(new RegExp(String.raw`\.e\((${CHUNK_ID})\)`, "g"))].map(
+      (x) => chunkId(x[1]!),
+    ),
+  );
+}
+
+/**
  * Every chunk load the build's code makes, as the chunk ids it fetches
  * together: `Promise.all([n.e(1),n.e(2)])` for an `import()` that needs two
  * or more chunks, and `n.e(1).then(` for one that needs one. EXTENDED
  * 2026-11-15 (S2): only the first form was read, so a one-chunk import
  * (Compare PDF's page view) failed "no chunk loads it" for the wrong reason.
+ * EXTENDED again 2026-11-15 (S3): ids in exponent form (`n.e(8e3)`).
  */
+function loadsIn(text: string): string[][] {
+  const one = [
+    ...text.matchAll(
+      new RegExp(String.raw`(?<![\w,[])\w+\.e\((${CHUNK_ID})\)\.then\(`, "g"),
+    ),
+  ].map((m) => [chunkId(m[1]!)]);
+  return [...manyLoads(text), ...one];
+}
+
 function loadersOf(files: readonly string[]): string[][] {
-  return files.flatMap((f) => {
-    const text = read(f);
-    const many = [
-      ...text.matchAll(/Promise\.all\(\[((?:\w+\.e\(\d+\),?)+)\]\)/g),
-    ].map((m) => [...m[1]!.matchAll(/\.e\((\d+)\)/g)].map((x) => x[1]!));
-    const one = [...text.matchAll(/(?<![\w,[])\w+\.e\((\d+)\)\.then\(/g)].map(
-      (m) => [m[1]!],
-    );
-    return [...many, ...one];
-  });
+  return files.flatMap((f) => loadsIn(read(f)));
 }
 
 function onDemandFetch(marker: string, page: string) {
   const all = walkJs(CHUNKS_DIR);
   const idOf = (f: string) => /^(\d+)[-.]/.exec(path.basename(f))?.[1];
-  const declares = (f: string, id: string) =>
-    (/\.push\(\[\[([\d,]+)\]/.exec(read(f).slice(0, 200))?.[1] ?? "")
-      .split(",")
-      .includes(id);
+  const declares = (f: string, id: string) => declaredIds(read(f)).includes(id);
   const own = all.filter((f) => read(f).includes(marker));
   expect(own, `exactly one chunk carries ${marker}`).toHaveLength(1);
   const ownId = idOf(own[0]!);
@@ -1040,6 +1069,21 @@ const COMPARE_VIEWER_FETCH_GZ_KB = 13.4;
 
 describe("Compare PDF's page view is a chunk of its own", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));
+
+  it("positive control: an id in exponent form is read as its number", () => {
+    // Minified as the build writes them (chunk 8000 is `8e3`).
+    expect(loadsIn("a=n.e(8e3).then(n.bind(n,1))")).toEqual([["8000"]]);
+    expect(loadsIn("Promise.all([n.e(1e3),n.e(12)]).then(f)")).toEqual([
+      ["1000", "12"],
+    ]);
+    expect(
+      declaredIds("(self.x=self.x||[]).push([[414,1490,8e3,9109],{1:"),
+    ).toEqual(["414", "1490", "8000", "9109"]);
+    // The old reader missed both forms: the control pins the "before".
+    expect([..."a=n.e(8e3).then(".matchAll(/\.e\((\d+)\)\.then\(/g)]).toEqual(
+      [],
+    );
+  });
 
   it("positive control: a one-chunk import is read as a load", () => {
     if (!built) return;
@@ -1162,10 +1206,14 @@ describe("Compare PDF's page view is a chunk of its own", () => {
  * (render.ts, render-utils, pdf-to-image and their static imports; the
  * chunk is never split, `next.config.mjs` `compareBorn`), plus whatever
  * else its load names. pdf.js and the guard are fetched when it draws,
- * by render.ts's own `import()`s, which every output path shares.
- * MEASURED: see the bound's note in the describe below.
+ * by render.ts's own `import()`s, which every output path shares, so they
+ * are not in this load and not in this figure.
+ * MEASURED 2026-11-15 on the branch built from an empty .next: 12,416 B gz
+ * (12.13 KB), one chunk (8000, declared with 414, 1490 and 9109: its copy
+ * of render.ts's chunk and two icon chunks it holds whole), loaded by the
+ * comparison's chunk alone. Bound 12.13 KB plus 10%.
  */
-const COMPARE_OVERLAY_FETCH_GZ_KB = 99;
+const COMPARE_OVERLAY_FETCH_GZ_KB = 13.4;
 
 describe("Compare PDF's Overlay is a chunk of its own", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));

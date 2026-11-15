@@ -10165,8 +10165,8 @@
       ]
     },
     "tools/compare-pdf.html": {
-      "title": "Compare PDF Files — Text Diff in Your Browser — pdf.xyz",
-      "description": "Compare two PDFs line by line: see added and removed text, page count and size changes, and save a plain-text diff report. Both files stay in your browser.",
+      "title": "Compare PDF Files — Text and Visual Diff — pdf.xyz",
+      "description": "Compare two PDFs line by line or overlay the pages: see added and removed text, page and size changes, and save a diff report. Both files stay in your browser.",
       "canonical": "https://pdf.xyz/tools/compare-pdf",
       "robots": "index, follow",
       "h1": ["Compare PDF"],
