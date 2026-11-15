@@ -241,6 +241,19 @@ function ChatBuilder({
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   /** The question the job in flight (or left running) is answering. */
   const asking = useRef<string | null>(null);
+  // The conversation belongs to one document; swapping the file must not let turns
+  // about the old PDF be sent as context for the new one.
+  /**
+   * Identifies which document the in-flight request belongs to.
+   *
+   * A job takes seconds to minutes, and nothing stops the user swapping the PDF while
+   * one is running — the uploader and the Remove button both stay live. Without this,
+   * a result that lands after a swap appends the OLD document's exchange to the
+   * just-cleared transcript, and the next follow-up sends it as context for the NEW
+   * PDF: the model is asked about one document while being shown another, and the
+   * panel displays it as if it belonged to the file on screen.
+   */
+  const fileToken = useRef(0);
   /**
    * The document the answers on screen are about, as this browser holds it:
    * what a citation opens. Set only when the file was COUNTED (its physical
@@ -334,19 +347,6 @@ function ChatBuilder({
     [carryable, question],
   );
 
-  // The conversation belongs to one document; swapping the file must not let turns
-  // about the old PDF be sent as context for the new one.
-  /**
-   * Identifies which document the in-flight request belongs to.
-   *
-   * A job takes seconds to minutes, and nothing stops the user swapping the PDF while
-   * one is running — the uploader and the Remove button both stay live. Without this,
-   * a result that lands after a swap appends the OLD document's exchange to the
-   * just-cleared transcript, and the next follow-up sends it as context for the NEW
-   * PDF: the model is asked about one document while being shown another, and the
-   * panel displays it as if it belonged to the file on screen.
-   */
-  const fileToken = useRef(0);
   /**
    * The document's measurement, ONCE per file — keyed by the same token, so a
    * swapped PDF is measured afresh and a follow-up does not re-parse it. A
