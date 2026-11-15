@@ -173,6 +173,21 @@ export function copyFiles(): string[] {
     // The pdf.js board's page limit as the reader:'pdfjs' tool pages state it
     // (2026-11-10), beside the constant the guard enforces.
     path.join(ROOT, "src", "lib", "pdf", "pdfjs-board-limit.ts"),
+    // Chat with PDF's line on how a longer file's pages are chosen
+    // (2026-11-16, audit #30 slice 3), drawn by the panel only when the
+    // observed worker proves `chatRetrieval`; chat-retrieval-copy.test.ts
+    // holds the static copy away from it.
+    path.join(ROOT, "src", "lib", "pdf", "chat-retrieval-anchor.ts"),
+    // The chat page-selection proof's questions and fake answer
+    // (2026-11-16), walked for the reason translate-ocr-proof.ts is.
+    path.join(
+      ROOT,
+      "src",
+      "lib",
+      "workers",
+      "chat-with-pdf",
+      "retrieval-proof-questions.ts",
+    ),
     // The PDF to Office exports' OCR switch hints, per tool (2026-11-08,
     // audit pdf-to-excel#2), drawn by the export panel.
     path.join(ROOT, "src", "lib", "jobs", "office-export-ocr.ts"),

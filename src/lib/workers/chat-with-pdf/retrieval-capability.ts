@@ -85,6 +85,11 @@ import { chatWithPdfOutputName } from "../processor/chat-with-pdf";
 import { chargedCharacters } from "../processor/read-cap-proof";
 import { resolveWorkerSoundness, type SoundnessGate } from "../soundness";
 import { chatWithPdfDeps } from "./native";
+import {
+  CHAT_RETRIEVAL_NEGATIVE_QUESTION,
+  CHAT_RETRIEVAL_PLANTED_QUESTION,
+  CHAT_RETRIEVAL_PROOF_ANSWER,
+} from "./retrieval-proof-questions";
 
 type EnvSource = Record<string, string | undefined>;
 
@@ -93,10 +98,9 @@ export const CHAT_RETRIEVAL_PROOF_CAP = 8_000;
 export const CHAT_RETRIEVAL_PROOF_PAGES = 70;
 export const CHAT_RETRIEVAL_PLANT_PAGE = 60;
 export const CHAT_RETRIEVAL_PLANT = "Zephyrine";
-export const CHAT_RETRIEVAL_PLANTED_QUESTION =
-  "What does the Zephyrine clause say?";
-export const CHAT_RETRIEVAL_NEGATIVE_QUESTION =
-  "What is the governing currency?";
+// The questions and the fake answer live in a walked phrase module (copy-surface), apart
+// from this file's use of the read ceiling; re-exported for the callers.
+export { CHAT_RETRIEVAL_NEGATIVE_QUESTION, CHAT_RETRIEVAL_PLANTED_QUESTION };
 const FIT_PAGES = 3;
 const FILLER_CHARACTERS_PER_PAGE = 1_200;
 const LINE_CHARACTERS = 90;
@@ -192,7 +196,7 @@ function recordingProvider(seen: AiCompletionRequest[]): AiProvider {
       seen.push(request);
       return {
         ok: true,
-        text: "The pages provided were read. [p.1]",
+        text: CHAT_RETRIEVAL_PROOF_ANSWER,
         model: "capability-probe",
         usage: { inputTokens: 1, outputTokens: 1 },
       };
