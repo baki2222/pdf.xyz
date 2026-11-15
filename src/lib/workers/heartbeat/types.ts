@@ -199,6 +199,25 @@ export interface HeartbeatCapabilities {
    */
   readonly docxPictures: boolean;
   /**
+   * This image's PDF to Word keeps each word's bold, italics, size and
+   * colour, on that word and not the words beside it (2026-11-15, backlog
+   * #28 slice 1: formatting on each run).
+   *
+   * PROVEN AT START-UP by running a generated PDF — five words on one
+   * baseline in five styles, a plain line under them — as a real job would,
+   * in the executor's order (soundness gate, the registry's processor on
+   * `pdfOfficeExportDeps(env)`, artifact-manifest gate), and reading the
+   * .docx back with a structural reader that shares nothing with the writer
+   * (`pdf-office-export/capability.ts`, `provesDocxRunStyles`): each word
+   * must carry exactly its own run properties, and the text read back must be
+   * the image's poppler text, exactly. Until that date the .docx kept bold
+   * or italics only where a WHOLE paragraph was set in them, and no size or
+   * colour at all; copy that says each word keeps its formatting is true of
+   * a download only while this reads `true`. An image built before this key
+   * publishes nothing, and the absence parses as `false`.
+   */
+  readonly docxRunStyles: boolean;
+  /**
    * This image's Translate PDF recognises a SCAN with the OCR processor and
    * translates what OCR read, when the job asks for it — and runs no OCR on a
    * PDF that already has text (audit translate-pdf#3, 2026-11-09).

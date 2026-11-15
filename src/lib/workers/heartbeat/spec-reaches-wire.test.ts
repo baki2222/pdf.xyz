@@ -75,6 +75,7 @@ const SPEC = {
     pptxPresentationChain: true,
     pptxPictures: true,
     docxPictures: true,
+    docxRunStyles: true,
     translateOcr: true,
     htmlZip: true,
   },

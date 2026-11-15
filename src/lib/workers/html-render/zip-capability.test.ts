@@ -20,6 +20,10 @@ import { htmlZipRefusalMessage } from "./zip-config";
 import { processorOk } from "../processor/types";
 import { ProcessorRegistry } from "../processor/registry";
 import { resolveWorkerSoundness, type SoundnessGate } from "../soundness";
+import {
+  resolveWorkerArtifactManifest,
+  type ArtifactManifestGate,
+} from "../artifacts";
 
 const chromiumOf = (deps: Parameters<ProbeRegistryBuilder>[0]) =>
   deps!.htmlRender!.chromium!;
@@ -108,6 +112,45 @@ describe("provesHtmlZip", () => {
     };
     await expect(
       provesHtmlZip(createProcessorRegistry, answerArchiveRequest, passThrough),
+    ).resolves.toBe(true);
+  });
+
+  // 2026-11-15: the probe's jobs run through the shared executor-order
+  // helper (`../capability-chain`), which adds the hop after the processor.
+  it("says NO when the executor's artifact-manifest gate would refuse the render", async () => {
+    const real = resolveWorkerArtifactManifest({});
+    const refusingPdfs: ArtifactManifestGate = {
+      capability: () => real.capability(),
+      validate: (input) =>
+        input.artifacts.some((a) => a.contentType === "application/pdf")
+          ? {
+              ...real.validate(input),
+              verdict: "invalid",
+              reason: "unsupported_content_type",
+              checks: [],
+            }
+          : real.validate(input),
+    };
+    await expect(
+      provesHtmlZip(
+        createProcessorRegistry,
+        answerArchiveRequest,
+        resolveWorkerSoundness(),
+        refusingPdfs,
+      ),
+    ).resolves.toBe(false);
+    // Control: the same wrapper passing everything through says YES.
+    const passThrough: ArtifactManifestGate = {
+      capability: real.capability,
+      validate: real.validate,
+    };
+    await expect(
+      provesHtmlZip(
+        createProcessorRegistry,
+        answerArchiveRequest,
+        resolveWorkerSoundness(),
+        passThrough,
+      ),
     ).resolves.toBe(true);
   });
 

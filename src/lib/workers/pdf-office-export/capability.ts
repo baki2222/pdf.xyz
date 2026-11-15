@@ -64,11 +64,26 @@
  * `docxPictures`)?
  */
 
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, rgb } from "pdf-lib";
 import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { decodePng } from "@/lib/png-probe";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
+import {
+  proveThroughExecutorOrder,
+  type ExecutorOrderJob,
+} from "../capability-chain";
+import { createProcessorRegistry } from "../processor";
+import { createPdfOfficeExportProcessor } from "../processor/pdf-office-export";
+import { ProcessorRegistry } from "../processor/registry";
 import { readDocxBody } from "./docx-read";
+import {
+  asXmlCarries,
+  docxPageTexts,
+  docxStructureProblems,
+  readDocxStructure,
+  type DocxReadRun,
+} from "./docx-structure";
+import { flowPageText } from "../pdf-text/flow";
 import { runPdfOfficeExport, type PdfOfficeExportDeps } from "./engine";
 import { scanPdfPages, type PdfPageScanner } from "./page-scan";
 import { inspectPptxPackage } from "./pptx-inspect";
@@ -334,6 +349,55 @@ export async function docxProbePdf(): Promise<Uint8Array> {
   return doc.save();
 }
 
+/** The executor's gates and registry a probe meets; each defaults to the daemon's. */
+export type ProbeGates = Partial<
+  Pick<ExecutorOrderJob, "soundness" | "manifest" | "registry">
+>;
+
+/**
+ * The registry a PDF to Word probe's job is routed through: the one the
+ * daemon builds (`createProcessorRegistry`) on the job's deps — or, for a
+ * negative control that hands in an engine that regressed, the same
+ * processor around that engine.
+ */
+function wordRegistry(
+  deps: PdfOfficeExportDeps,
+  run: typeof runPdfOfficeExport | undefined,
+): ProcessorRegistry {
+  if (!run) return createProcessorRegistry({ pdfOfficeExport: deps });
+  return new ProcessorRegistry().register(
+    createPdfOfficeExportProcessor(deps, { run }),
+  );
+}
+
+/**
+ * The .docx a real PDF to Word job on `pdf` would deliver, run in the
+ * executor's order (`../capability-chain`: soundness gate, processor,
+ * artifact-manifest gate on the processor's own content type and name) — or
+ * null wherever the executor would have failed the job. Added 2026-11-15:
+ * until then the Word probe called the engine directly, the shape the
+ * 2026-11-14 HTML to PDF probe was caught in.
+ */
+async function wordThroughExecutor(
+  pdf: Uint8Array,
+  deps: PdfOfficeExportDeps,
+  run: typeof runPdfOfficeExport | undefined,
+  gates: ProbeGates,
+): Promise<Uint8Array | null> {
+  const artifact = await proveThroughExecutorOrder({
+    tool: "pdf-to-word",
+    input: {
+      bytes: pdf,
+      filename: "probe.pdf",
+      contentType: "application/pdf",
+    },
+    registry: gates.registry ?? wordRegistry(deps, run),
+    ...(gates.soundness ? { soundness: gates.soundness } : {}),
+    ...(gates.manifest ? { manifest: gates.manifest } : {}),
+  });
+  return artifact?.bytes ?? null;
+}
+
 /**
  * Does THIS worker image's PDF to Word put a page's picture in the .docx AS
  * that picture, between the line above it and the line below it, at the
@@ -361,16 +425,29 @@ export async function docxProbePdf(): Promise<Uint8Array> {
  *
  * An image built before this key publishes nothing, and the reader parses the
  * absence as `false`.
+ *
+ * Since 2026-11-15 the job runs in the EXECUTOR's order
+ * ({@link wordThroughExecutor}): the soundness gate, the processor the
+ * daemon's registry resolves, and the artifact-manifest gate on the
+ * processor's own content type and name — so an image whose real jobs a gate
+ * refuses answers `false` here too. `run` still stands in for the engine
+ * (behind that processor), for the negative controls.
  */
 export async function provesDocxPictures(
   deps: PdfOfficeExportDeps,
-  run: typeof runPdfOfficeExport = runPdfOfficeExport,
+  run?: typeof runPdfOfficeExport,
+  gates: ProbeGates = {},
 ): Promise<boolean> {
   try {
     if (!deps.extractFlow || !deps.scanPages) return false;
-    const result = await run("pdf-to-word", await docxProbePdf(), deps);
-    if (!result.ok) return false;
-    const body = await readDocxBody(result.output);
+    const docx = await wordThroughExecutor(
+      await docxProbePdf(),
+      deps,
+      run,
+      gates,
+    );
+    if (!docx) return false;
+    const body = await readDocxBody(docx);
     const at = (text: string) =>
       body.paragraphs.findIndex((p) => p.text.includes(text));
     const above = at(DOCX_PROBE_TEXT.above);
@@ -391,6 +468,171 @@ export async function provesDocxPictures(
       Math.abs(pic!.height - DOCX_PROBE_BOX.height) <= tolerance &&
       pic!.bytes !== null &&
       showsProofPicture(pic!.bytes)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Word: does THIS image's PDF to Word keep each word's formatting?
+ * ------------------------------------------------------------------ */
+
+/**
+ * The run-styles probe's words, each drawn in its own way on ONE baseline,
+ * then a plain line under them. Standard fonts, none embedded: the probe
+ * asks whether the image labels poppler's words with pdf.js's runs, not
+ * whether a font embeds.
+ */
+export const DOCX_RUN_STYLES_PROBE = {
+  plain: "Plain",
+  bold: "bold",
+  italic: "italic",
+  red: "RED",
+  big: "BIG",
+  second: "Second plain line",
+} as const;
+
+/**
+ * The run-styles probe's PDF: on a US Letter page, "Plain" (Helvetica 12),
+ * "bold" (Helvetica-Bold 12), "italic" (Helvetica-Oblique 12), "RED"
+ * (Helvetica 12 in pure red) and "BIG" (Helvetica 18) on one baseline, and a
+ * plain 12-point line under them.
+ */
+export async function docxRunStylesProbePdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const regular = await embedDrawingFont(
+    doc,
+    Object.values(DOCX_RUN_STYLES_PROBE),
+    "sans",
+  );
+  const bold = await embedDrawingFont(
+    doc,
+    Object.values(DOCX_RUN_STYLES_PROBE),
+    "sans-bold",
+  );
+  const italic = await embedDrawingFont(
+    doc,
+    Object.values(DOCX_RUN_STYLES_PROBE),
+    "sans-oblique",
+  );
+  const page = doc.addPage([612, 792]);
+  const words = DOCX_RUN_STYLES_PROBE;
+  const line: [string, typeof regular, number, ReturnType<typeof rgb>][] = [
+    [words.plain, regular, 12, rgb(0, 0, 0)],
+    [words.bold, bold, 12, rgb(0, 0, 0)],
+    [words.italic, italic, 12, rgb(0, 0, 0)],
+    [words.red, regular, 12, rgb(1, 0, 0)],
+    [words.big, regular, 18, rgb(0, 0, 0)],
+  ];
+  let x = 72;
+  for (const [text, font, size, color] of line) {
+    page.drawText(text, { x, y: 792 - 120, size, font, color });
+    x += font.widthOfTextAtSize(`${text} `, size);
+  }
+  page.drawText(words.second, {
+    x: 72,
+    y: 792 - 160,
+    size: 12,
+    font: regular,
+  });
+  return doc.save();
+}
+
+/** Each word of the body's paragraphs, with the run it is in. */
+function wordRuns(runs: readonly DocxReadRun[]): Map<string, DocxReadRun[]> {
+  const out = new Map<string, DocxReadRun[]>();
+  for (const run of runs)
+    for (const word of run.text.split(/\s+/).filter(Boolean))
+      out.set(word, [...(out.get(word) ?? []), run]);
+  return out;
+}
+
+/**
+ * Does THIS worker image's PDF to Word keep each word's bold, italics, size
+ * and colour — on that word, and not on the words beside it?
+ *
+ * The probe PDF ({@link docxRunStylesProbePdf}) runs as a real job would, in
+ * the executor's order (`../capability-chain`), on the deps the image's jobs
+ * run on (`pdfOfficeExportDeps(env)`: poppler for the words, the page reader
+ * for their formatting). The .docx is read back by `./docx-structure`, which
+ * shares nothing with the writer, and a pass needs every one of:
+ *   - "Plain" and the line under it: 12 points (`w:sz` 24), not bold, not
+ *     italic, no colour;
+ *   - "bold": `w:b` and `w:bCs`, not italic; "italic": `w:i` and `w:iCs`,
+ *     not bold; "RED": colour FF0000; "BIG": 18 points (`w:sz` and `w:szCs`
+ *     36);
+ *   - the text read back, page by page, is EXACTLY the image's poppler text
+ *     for the PDF (`flowPageText`), so no word was lost or doubled by the
+ *     split into runs;
+ *   - nothing in the file Word could refuse (`docxStructureProblems`).
+ * A writer that drops the formatting, puts it on the whole paragraph, or
+ * doubles a word answers `false`; so does an image without the extractor or
+ * the page reader. An image built before this key publishes nothing, and the
+ * reader parses the absence as `false`.
+ */
+export async function provesDocxRunStyles(
+  deps: PdfOfficeExportDeps,
+  run?: typeof runPdfOfficeExport,
+  gates: ProbeGates = {},
+): Promise<boolean> {
+  try {
+    if (!deps.extractFlow || !deps.scanPages) return false;
+    const pdf = await docxRunStylesProbePdf();
+    const docx = await wordThroughExecutor(pdf, deps, run, gates);
+    if (!docx) return false;
+    if ((await docxStructureProblems(docx)).length > 0) return false;
+    const body = await readDocxStructure(docx);
+    const flow = await deps.extractFlow(pdf);
+    const want = flow.pages.map((p) => asXmlCarries(flowPageText(p)));
+    const read = docxPageTexts(body).map(asXmlCarries);
+    if (read.length !== want.length || read.some((t, k) => t !== want[k]))
+      return false;
+    const runs = body.blocks.flatMap((b) => (b.kind === "p" ? b.runs : []));
+    const byWord = wordRuns(runs);
+    const one = (word: string) => {
+      const found = byWord.get(word) ?? [];
+      return found.length === 1 ? found[0]! : null;
+    };
+    const w = DOCX_RUN_STYLES_PROBE;
+    const plainAt = (r: DocxReadRun | null, sz: number) =>
+      r !== null &&
+      r.sz === sz &&
+      r.szCs === sz &&
+      !r.b &&
+      !r.bCs &&
+      !r.i &&
+      !r.iCs &&
+      r.color === undefined;
+    const plain = one(w.plain);
+    const bold = one(w.bold);
+    const italic = one(w.italic);
+    const red = one(w.red);
+    const big = one(w.big);
+    const second = w.second.split(" ").map(one);
+    return (
+      plainAt(plain, 24) &&
+      second.every((r) => plainAt(r, 24)) &&
+      bold !== null &&
+      bold.b === true &&
+      bold.bCs === true &&
+      !bold.i &&
+      bold.sz === 24 &&
+      italic !== null &&
+      italic.i === true &&
+      italic.iCs === true &&
+      !italic.b &&
+      italic.sz === 24 &&
+      red !== null &&
+      red.color === "FF0000" &&
+      !red.b &&
+      !red.i &&
+      big !== null &&
+      big.sz === 36 &&
+      big.szCs === 36 &&
+      !big.b &&
+      !big.i &&
+      big.color === undefined
     );
   } catch {
     return false;

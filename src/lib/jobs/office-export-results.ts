@@ -102,6 +102,28 @@ export interface OfficeExportResultMeta {
   /** 1-based page numbers of those pages, ascending, capped. */
   pagesFlattened?: number[];
   /**
+   * PDF to Word only, since 2026-11-15, when each word began to keep its
+   * bold, italics, size and colour: how many pages with text have ANY word
+   * written in Word's default style — the page reader ran out of time or
+   * budget before reading their text (its words are poppler's regardless),
+   * the page had more words than one page's formatting is matched for, the
+   * words are an OCR layer (invisible, so it matches nothing), or the
+   * matcher could not tell a word's style for certain (`docx-run-style`).
+   * CHANGED 2026-11-15 (review round 1): until then only pages with NONE
+   * of it were counted, so an OCR'd page with a visible stamp went unnamed.
+   * Absent from older results: that engine kept only a paragraph's bold.
+   */
+  formattingMissingPageCount?: number;
+  /** 1-based page numbers of those pages, ascending, capped. */
+  pagesWithoutFormatting?: number[];
+  /**
+   * PDF to Word only, since 2026-11-15: words, over the whole document,
+   * written in Word's default style because the page reader's runs did not
+   * say for certain how they were drawn. A measurement, not shown to the
+   * reader; the pages they are on are `pagesWithoutFormatting`.
+   */
+  unmatchedWords?: number;
+  /**
    * PDF to PowerPoint since 2026-10-11, and PDF to Word since 2026-10-17:
    * the page reader could not read
    * the PDF ahead (it looked damaged), so the worker rebuilt it the way
@@ -192,6 +214,21 @@ export function buildOfficeExportResultMeta(
           flattenedPageCount: count(raw.flattenedPageCount, pageCount),
           pagesFlattened: pageList(raw.pagesFlattened, pageCount),
         }
+      : {}),
+    ...(raw.formattingMissingPageCount !== undefined
+      ? {
+          formattingMissingPageCount: count(
+            raw.formattingMissingPageCount,
+            textPageCount,
+          ),
+          pagesWithoutFormatting: pageList(
+            raw.pagesWithoutFormatting,
+            pageCount,
+          ),
+        }
+      : {}),
+    ...(raw.unmatchedWords !== undefined
+      ? { unmatchedWords: count(raw.unmatchedWords, 100_000_000) }
       : {}),
     // Only `true` is a claim; anything else is dropped, not coerced.
     ...(raw.repairedBeforeConversion === true

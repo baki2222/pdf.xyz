@@ -16,9 +16,18 @@ import {
   xmlEscape,
 } from "../ooxml/sheet-cells";
 import { deckFromScan } from "./deck-from-scan";
-import { docxDocumentOf, scannedPictures } from "./docx-layout";
+import {
+  docxDocumentOf,
+  scannedPictures,
+  type DocxDocument,
+} from "./docx-layout";
 import { DOCX_PICTURE_OVERHEAD_BYTES, docxPackage } from "./docx-package";
 import { readDocxBody } from "./docx-read";
+import {
+  asXmlCarries,
+  docxPageTexts,
+  inspectDocxStructure,
+} from "./docx-structure";
 import { classifyPdfTextFailure } from "./encryption";
 import { rethrowIfAttemptAbort, type RunControl } from "../attempt-abort";
 import { layoutGrid } from "./layout-grid";
@@ -388,10 +397,25 @@ function scanOptions(deps: PdfOfficeExportDeps) {
  * PowerPoint's deck gets the same treatment (`undeliverablePptx`). A pass is
  * necessary, not sufficient: Word itself is the instrument for "it opens"
  * (`scripts/prove-docx-opens.ts`).
+ *
+ * Since 2026-11-15, when the writer began putting formatting on each word,
+ * two more, read by `./docx-structure` (which also shares nothing with the
+ * writer):
+ *   - STRUCTURE: nothing in it Word could refuse or misread
+ *     (`docxStructureProblems`: well-formed parts, run properties in schema
+ *     order and range, tables Word can lay out, every part typed);
+ *   - TEXT CONSERVATION: page by page, the text read back
+ *     (`docxPageTexts`) is EXACTLY poppler's (`flowPageText`) for every page
+ *     the document holds — `expected`, built from the flow, never from the
+ *     writer. Splitting a paragraph into one run per formatting is the step
+ *     that can lose, double or reorder a word, and no other check here reads
+ *     words. Both sides pass through `asXmlCarries` (the characters XML
+ *     cannot hold, and its line ends): the one difference XML itself forces.
  */
 async function undeliverableDocx(
   output: Uint8Array,
   plan: { pictures: number; pageBreaks: number },
+  expected: readonly string[],
 ): Promise<Failure | null> {
   let problem: string | null = null;
   try {
@@ -407,6 +431,22 @@ async function undeliverableDocx(
       problem = "a picture without its image";
     else if (breaks !== plan.pageBreaks)
       problem = `${breaks} of ${plan.pageBreaks} page breaks`;
+    else {
+      const { structure, problems } = await inspectDocxStructure(output);
+      if (problems.length > 0 || !structure)
+        problem = problems.slice(0, 3).join("; ") || "unreadable package";
+      else {
+        const read = docxPageTexts(structure).map(asXmlCarries);
+        const want = expected.map(asXmlCarries);
+        if (read.length !== want.length)
+          problem = `${read.length} of ${want.length} pages of text`;
+        else {
+          const page = want.findIndex((text, k) => read[k] !== text);
+          if (page >= 0)
+            problem = `the text differs from the PDF's on page ${page + 1} of the document`;
+        }
+      }
+    }
   } catch {
     problem = "unreadable package";
   }
@@ -417,6 +457,24 @@ async function undeliverableDocx(
         message: `The Word file came out incomplete, so it was not delivered. This is a fault in pdf.xyz, not in your PDF. (${problem})`,
       }
     : null;
+}
+
+/**
+ * The text each page of `doc` must read back as, from poppler's flow alone:
+ * one entry per PDF page the document holds (a page with nothing on it adds
+ * no page to the .docx, so none here), its `flowPageText` — "" for a page of
+ * pictures only. The writer is not asked: the expectation and the file must
+ * not share an author.
+ */
+function writtenPageTexts(doc: DocxDocument, flow: PdfFlowText): string[] {
+  const textOf = new Map(
+    flow.pages.map((page) => [page.pageNumber, flowPageText(page)]),
+  );
+  const out: string[] = [];
+  doc.pages.forEach((blocks, k) => {
+    if (blocks.length > 0) out.push(textOf.get(k + 1) ?? "");
+  });
+  return out;
 }
 
 /** A scan of no page: the text-only document, for its size. */
@@ -505,6 +563,25 @@ async function renderWord(
   if (
     maxOutput !== undefined &&
     output.byteLength > maxOutput &&
+    (doc.formatting?.pages ?? []).some((p) => p.matched > 0)
+  ) {
+    // Formatting costs bytes the pictures' budget never saw: it was measured
+    // on the PLAIN text, before the page reader ran. Over the limit, the
+    // formatting goes first — plain text and these pictures fit by
+    // construction, as they did before words kept their formatting — and
+    // every page is named as unformatted. Added 2026-11-15 (review round 1
+    // follow-up): without it, a PDF whose pictures fit on main lost them all
+    // here to its own formatting.
+    scan = {
+      ...scan,
+      pages: scan.pages.map((p) => ({ ...p, textUnread: true as const })),
+    };
+    doc = docxDocumentOf(flow, scan);
+    ({ bytes: output, plan } = await write(doc));
+  }
+  if (
+    maxOutput !== undefined &&
+    output.byteLength > maxOutput &&
     plan.pictures > 0
   ) {
     // The budget is a bound, so this should not happen; if the file comes
@@ -516,7 +593,11 @@ async function renderWord(
     doc = docxDocumentOf(flow, scan);
     ({ bytes: output, plan } = await write(doc));
   }
-  const refused = await undeliverableDocx(output, plan);
+  const refused = await undeliverableDocx(
+    output,
+    plan,
+    writtenPageTexts(doc, flow),
+  );
   if (refused) return refused;
   const pageCount = doc.pages.length;
   // The same per-page text the DOCX is written from — measured, not
@@ -532,6 +613,28 @@ async function renderWord(
     .filter((p) => !withText.has(p.pageNumber) && scannedPictures(p).length > 0)
     .map((p) => p.pageNumber);
   const lost = losses(scan);
+  // Pages with ANY word written in Word's default style
+  // (`./docx-run-style`): the page reader did not read their text, they
+  // were over the per-page word cap, the words are an OCR layer, or the
+  // matcher could not tell a word's style for certain. A scan that THREW is
+  // a failure of the job, above, never counted here.
+  //
+  // CHANGED 2026-11-15 (review round 1): until then a page was named only
+  // when NO word on it matched, so an OCR'd page with one visible Bates
+  // stamp came through with its recognised words plain and unnamed, while
+  // the FAQ said the note names the pages with OCR text.
+  const formatting = doc.formatting?.pages ?? [];
+  const unformatted = formatting
+    .filter(
+      (p) =>
+        withText.has(p.pageNumber) &&
+        (p.textUnread || p.capped || p.matched < p.total),
+    )
+    .map((p) => p.pageNumber);
+  const unmatchedWords = formatting.reduce(
+    (n, p) => n + (p.total - p.matched),
+    0,
+  );
   // Seen to be empty, as PowerPoint's `emptySlideCount` is: no text, no
   // picture carried, none lost, none left out, none the reader may have
   // missed. Until the review of 2026-10-17 the notice SUBTRACTED (pages
@@ -566,6 +669,13 @@ async function renderWord(
       pagesMissingPictures: lost.pagesMissingPictures,
       emptyPageCount: empty.length,
       pagesEmpty: empty,
+      ...(doc.formatting
+        ? {
+            formattingMissingPageCount: unformatted.length,
+            pagesWithoutFormatting: unformatted,
+            unmatchedWords,
+          }
+        : {}),
       ...(rebuilt ? { repairedBeforeConversion: true as const } : {}),
     }),
   };

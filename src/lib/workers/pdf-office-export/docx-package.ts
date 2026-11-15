@@ -15,17 +15,28 @@
  * pages are not the PDF's. A plain JPEG the page reader copied byte for byte
  * goes in as that JPEG; anything else is the PNG it wrote.
  *
- * It writes no styles part: the paragraphs are in Word's default Normal
- * style, as they were before pictures (Word supplies its built-in defaults
- * for a package without one).
+ * ── WHAT A WORD IS IN THE FILE (since 2026-11-15) ───────────────────────────
+ *
+ * Each paragraph is written as runs (`w:r`), one per stretch of words in one
+ * formatting (`./docx-run-style`, coalesced by `./docx-layout`), each run's
+ * `w:rPr` in the schema's order: `w:b` and `w:bCs` when bold, `w:i` and
+ * `w:iCs` when italic, `w:color`, then `w:sz` and `w:szCs`. The
+ * complex-script twins are ALWAYS written beside the plain ones, so Bengali
+ * and Arabic text gets the weight and the size too (Word reads the `Cs`
+ * property for those scripts). A word with no style has no `w:rPr` at all:
+ * Word's default. A table row's cells are separated by a tab in a run of its
+ * own. No typeface (`w:rFonts`), no paragraph properties (`w:pPr`), and no
+ * styles part: Word supplies its built-in defaults for a package without one.
  */
 import JSZip from "jszip";
 import { xmlEscape } from "../ooxml/sheet-cells";
 import type {
   DocxDocument,
   DocxPictureBlock,
+  DocxStyledRun,
   DocxTextBlock,
 } from "./docx-layout";
+import type { DocxRunStyle } from "./docx-run-style";
 
 const W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 const R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
@@ -41,19 +52,40 @@ export const WORD_PAGE_BREAK = `<w:p><w:r><w:br w:type="page"/></w:r></w:p>`;
 const EMU_PER_POINT = 12_700;
 const TWIPS_PER_POINT = 20;
 
+/** `w:rPr` for a style, children in `CT_RPr` order; "" for Word's default. */
+function runProperties(style: DocxRunStyle | null): string {
+  if (!style) return "";
+  const props =
+    (style.bold ? "<w:b/><w:bCs/>" : "") +
+    (style.italic ? "<w:i/><w:iCs/>" : "") +
+    (style.color ? `<w:color w:val="${style.color}"/>` : "") +
+    (style.halfPoints !== undefined
+      ? `<w:sz w:val="${style.halfPoints}"/><w:szCs w:val="${style.halfPoints}"/>`
+      : "");
+  return props ? `<w:rPr>${props}</w:rPr>` : "";
+}
+
+/** One run. The shared escape also drops what XML 1.0 cannot carry. */
+const runXml = (run: DocxStyledRun) =>
+  `<w:r>${runProperties(run.style)}<w:t xml:space="preserve">${xmlEscape(run.text)}</w:t></w:r>`;
+
 /** One paragraph: a prose cell, or a table row whose cells are tab-separated. */
 function textParagraph(block: DocxTextBlock): string {
-  // The shared escape, which also drops what XML 1.0 cannot carry: one stray
-  // control character from pdftotext once made the whole part malformed.
-  const runs = block.cells
-    .map((cell) => `<w:t xml:space="preserve">${xmlEscape(cell)}</w:t>`)
-    .join("<w:tab/>");
-  // A paragraph set wholly in bold or italics keeps it (`paragraphStyle`).
-  const style =
+  // Without poppler's words (a page built by hand) a cell is one run, in
+  // the paragraph's own bold or italics (`paragraphStyle`), if any.
+  const whole: DocxRunStyle | null =
     block.bold || block.italic
-      ? `<w:rPr>${block.bold ? "<w:b/>" : ""}${block.italic ? "<w:i/>" : ""}</w:rPr>`
-      : "";
-  return `<w:p><w:r>${style}${runs}</w:r></w:p>`;
+      ? {
+          ...(block.bold ? { bold: true as const } : {}),
+          ...(block.italic ? { italic: true as const } : {}),
+        }
+      : null;
+  const cells = block.cells.map(
+    (cell, c) => block.runs?.[c] ?? [{ text: cell, style: whole }],
+  );
+  return `<w:p>${cells
+    .map((runs) => runs.map(runXml).join(""))
+    .join("<w:r><w:tab/></w:r>")}</w:p>`;
 }
 
 const emu = (pt: number) => Math.max(1, Math.round(pt * EMU_PER_POINT));

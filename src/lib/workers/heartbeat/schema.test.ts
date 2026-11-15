@@ -29,6 +29,7 @@ const CAPS: HeartbeatCapabilities = {
   pptxPresentationChain: true,
   pptxPictures: true,
   docxPictures: true,
+  docxRunStyles: true,
   translateOcr: true,
   htmlZip: true,
 };
@@ -94,6 +95,7 @@ describe("buildHeartbeat / serialize / parse", () => {
       pptxPresentationChain: false,
       pptxPictures: false,
       docxPictures: false,
+      docxRunStyles: false,
       translateOcr: false,
       htmlZip: false,
     });
@@ -233,6 +235,7 @@ describe("buildHeartbeat / serialize / parse", () => {
         pptxPresentationChain: false,
         pptxPictures: false,
         docxPictures: false,
+        docxRunStyles: false,
         translateOcr: false,
         htmlZip: false,
       },

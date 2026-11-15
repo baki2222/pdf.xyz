@@ -23,6 +23,12 @@
  *     title) before the first paragraph that starts at or below its top;
  *  4. else at the end of the page.
  *
+ * Each paragraph's words carry their own formatting (since 2026-11-15):
+ * `./docx-run-style` labels poppler's words with the page reader's runs, and
+ * adjacent words of one style are written as one run. The TEXT of every run
+ * is poppler's, and a cell whose runs would not concatenate to its text is
+ * written as one plain run instead.
+ *
  * Pictures that land at the same place keep the page's order: top to
  * bottom, then left to right. A page with no paragraphs (a scan) holds its
  * pictures in that order. Where the paragraphs carry no bounds (a reading
@@ -51,6 +57,8 @@
  * page (60 with half-inch margins), 33 on a portrait page.
  */
 import type { FlowBox, PdfFlowText } from "../pdf-text/flow";
+import { runStylesOf, styleKey, type DocxRunStyle } from "./docx-run-style";
+import { mapBox } from "./media-frame";
 import type {
   PdfPageScan,
   ScannedMedia,
@@ -63,10 +71,37 @@ export interface DocxTextBlock {
   kind: "text";
   /** One cell is a paragraph; two or more a tab-separated table row. */
   cells: readonly string[];
+  /**
+   * Each cell as runs of one formatting (`./docx-run-style`), adjacent words
+   * of one style coalesced: `runs[c]`'s texts concatenate to `cells[c]`,
+   * EXACTLY — a cell where they would not is written as one plain run, and
+   * counted ({@link DocxFormatting.runsDropped}). Absent for a page built by
+   * hand (no poppler words), which falls back to {@link paragraphStyle}.
+   */
+  runs?: readonly (readonly DocxStyledRun[])[];
   /** Every line of it is drawn in a bold face ({@link paragraphStyle}). */
   bold?: true;
   /** Every line of it is drawn in an italic face. */
   italic?: true;
+}
+
+/** A run of text in one formatting; null is Word's default style. */
+export interface DocxStyledRun {
+  text: string;
+  style: DocxRunStyle | null;
+}
+
+/** How each page's words were formatted, for the result's note. */
+export interface DocxFormatting {
+  pages: {
+    pageNumber: number;
+    matched: number;
+    total: number;
+    capped: boolean;
+    textUnread: boolean;
+  }[];
+  /** Cells whose runs did not concatenate to their text (never expected). */
+  runsDropped: number;
 }
 
 export interface DocxPictureBlock {
@@ -96,6 +131,8 @@ export interface DocxDocument {
   page: DocxPage;
   /** One entry per PDF page, in order; an empty one adds nothing. */
   pages: DocxBlock[][];
+  /** Present when any page carried poppler's words (`pieces`). */
+  formatting?: DocxFormatting;
 }
 
 /** Word's own page-size limits: 0.1 to 22 inches a side. */
@@ -153,23 +190,6 @@ export function fitToText(
 
 type Box = readonly [number, number, number, number];
 
-/** `box` through the affine map `m`, as an axis-aligned box. */
-function mapBox(m: readonly number[] | undefined, box: Box): Box {
-  if (!m) return box;
-  const pts = [
-    [box[0], box[1]],
-    [box[2], box[1]],
-    [box[0], box[3]],
-    [box[2], box[3]],
-  ].map(([x, y]) => [
-    m[0]! * x! + m[2]! * y! + m[4]!,
-    m[1]! * x! + m[3]! * y! + m[5]!,
-  ]);
-  const xs = pts.map((p) => p[0]!);
-  const ys = pts.map((p) => p[1]!);
-  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
-}
-
 /**
  * Where each picture box goes: the index of the paragraph it is placed
  * BEFORE (`paragraphs.length` for the end), by the rule in the docblock.
@@ -217,6 +237,10 @@ function pictureBlock(page: DocxPage, pic: ScannedPicture): DocxPictureBlock {
  * matched one to one. A title, a heading, a caption set in bold — what a
  * slide-like PDF is mostly made of — is. Lines are matched by their centre,
  * mapped into poppler's frame (`mediaFrame`).
+ *
+ * Since 2026-11-15 the FALLBACK only: a page that carries poppler's words
+ * (`pieces`, every page read from a layout) gets each word's own style from
+ * `./docx-run-style` instead; this serves a page built by hand.
  */
 export function paragraphStyle(
   box: FlowBox | undefined,
@@ -273,10 +297,27 @@ export function docxDocumentOf(
   const page = docxPageOf(first?.width ?? 612, first?.height ?? 792);
   const count = Math.max(flow.pageCount, scan.pageCount);
   const pages: DocxBlock[][] = [];
+  // One lookup each, not a search per page: a 2,000-page document searched
+  // its pages 2,000 times over.
+  const flowPages = new Map(flow.pages.map((p) => [p.pageNumber, p]));
+  const scanPages = new Map(scan.pages.map((p) => [p.pageNumber, p]));
+  const formatting: DocxFormatting = { pages: [], runsDropped: 0 };
+  let worded = false;
   for (let n = 1; n <= count; n++) {
-    const text = flow.pages.find((p) => p.pageNumber === n);
-    const scanned = scan.pages.find((p) => p.pageNumber === n);
+    const text = flowPages.get(n);
+    const scanned = scanPages.get(n);
     const paragraphs = text?.paragraphs ?? [];
+    const styled = text?.pieces ? runStylesOf(text, scanned) : null;
+    if (styled) {
+      worded = true;
+      formatting.pages.push({
+        pageNumber: n,
+        matched: styled.matched,
+        total: styled.total,
+        capped: styled.capped,
+        textUnread: scanned?.textUnread === true,
+      });
+    }
     const boxes = paragraphs.map((_, i) => text?.boxes?.[i]);
     const pictures = scannedPictures(scanned)
       .map((pic) => ({
@@ -298,14 +339,45 @@ export function docxDocumentOf(
       pictures.forEach((p, k) => {
         if (at[k] === i) blocks.push(pictureBlock(page, p.pic));
       });
-      if (i < paragraphs.length)
-        blocks.push({
-          kind: "text",
-          cells: paragraphs[i]!,
-          ...paragraphStyle(boxes[i], scanned),
-        });
+      if (i < paragraphs.length) {
+        const cells = paragraphs[i]!;
+        const pieces = text?.pieces?.[i];
+        if (styled && pieces) {
+          const runs = cells.map((cell, c) => {
+            const out = coalesce(
+              (pieces[c] ?? []).map((piece, k) => ({
+                text: piece.text,
+                style: styled.styles[i]?.[c]?.[k] ?? null,
+              })),
+            );
+            if (out.map((r) => r.text).join("") === cell) return out;
+            // Never write different text: the cell goes out as one plain
+            // run, and the engine's conservation check reads it back.
+            formatting.runsDropped += 1;
+            return [{ text: cell, style: null }];
+          });
+          blocks.push({ kind: "text", cells, runs });
+        } else
+          blocks.push({
+            kind: "text",
+            cells,
+            ...paragraphStyle(boxes[i], scanned),
+          });
+      }
     }
     pages.push(blocks);
   }
-  return { page, pages };
+  return { page, pages, ...(worded ? { formatting } : {}) };
+}
+
+/** Adjacent runs of one style, as one run. */
+function coalesce(runs: readonly DocxStyledRun[]): DocxStyledRun[] {
+  const out: DocxStyledRun[] = [];
+  for (const run of runs) {
+    const last = out[out.length - 1];
+    if (last && styleKey(last.style) === styleKey(run.style))
+      out[out.length - 1] = { text: last.text + run.text, style: last.style };
+    else out.push({ ...run });
+  }
+  return out;
 }
