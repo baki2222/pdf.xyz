@@ -692,6 +692,78 @@ export async function docxTablesProbePdf(): Promise<Uint8Array> {
   return doc.save();
 }
 
+/**
+ * #28 slice 3 (wraps): the wrapped-cells probe's table — Item / Description
+ * / Amount, a bold header and four rows, two of whose descriptions continue
+ * onto the lines below them, then a total alone under Amount one row pitch
+ * below the last row. Row 2's continuation starts in lower case after a
+ * four-word line (flow.ts rule 4 reads that as wrapped TEXT unless the line
+ * is absorbed); row 3's two continuations are capitalised (no rule sees
+ * them). No cell ends a sentence, so `wordTableDoubt` does not call the
+ * table prose; Item and Amount are columns of figures.
+ *
+ * Geometry (size 10, Helvetica): a continuation sits one LINE pitch (12)
+ * under the line above it; a row's first line sits one ROW pitch (18) under
+ * the last line of the row above. Top-to-top gaps are then 18, 18, 30, 42
+ * (median 18), so a segment rule measured from each row's first line splits
+ * the table before C-300 (30 > 1.3 x 18). Confirmed against the worker
+ * image's poppler by the capture `IMAGE_DOCX_TABLE_WRAPS_PROBE_BBOX`
+ * (`src/tests/poppler-samples-image.ts`).
+ */
+export const DOCX_TABLE_WRAPS_PROBE = {
+  rows: [
+    ["Item", "Description", "Amount"],
+    ["A-100", "Filter cartridge", "12.50"],
+    ["B-200", "Replacement pump and housing", "48.00"],
+    ["C-300", "Service visit", "95.00"],
+    ["D-400", "Gasket", "3.25"],
+  ],
+  wraps: {
+    2: ["assembly for model X"],
+    3: ["Labour and parts", "Callout fee included"],
+  },
+  total: "158.75",
+  columns: [72, 160, 460],
+  size: 10,
+  linePitch: 12,
+  rowPitch: 18,
+  top: 660,
+} as const;
+
+/**
+ * The wrapped-cells probe's PDF: {@link DOCX_TABLE_WRAPS_PROBE} on a US
+ * Letter page, every cell flush left at its column, the header in
+ * Helvetica-Bold and everything else in Helvetica, each row's continuations
+ * under its Description.
+ */
+export async function docxTableWrapsProbePdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const p = DOCX_TABLE_WRAPS_PROBE;
+  const wraps: Readonly<Record<number, readonly string[]>> = p.wraps;
+  const texts = [...p.rows.flat(), ...Object.values(wraps).flat(), p.total];
+  const regular = await embedDrawingFont(doc, texts, "sans");
+  const bold = await embedDrawingFont(doc, texts, "sans-bold");
+  const page = doc.addPage([612, 792]);
+  let y: number = p.top;
+  p.rows.forEach((row, r) => {
+    const font = r === 0 ? bold : regular;
+    row.forEach((cell, c) =>
+      page.drawText(cell, { x: p.columns[c]!, y, size: p.size, font }),
+    );
+    (wraps[r] ?? []).forEach((line, k) =>
+      page.drawText(line, {
+        x: p.columns[1],
+        y: y - (k + 1) * p.linePitch,
+        size: p.size,
+        font,
+      }),
+    );
+    y -= (wraps[r]?.length ?? 0) * p.linePitch + p.rowPitch;
+  });
+  page.drawText(p.total, { x: p.columns[2], y, size: p.size, font: regular });
+  return doc.save();
+}
+
 type ReadTable = Extract<
   Awaited<ReturnType<typeof readDocxStructure>>["blocks"][number],
   { kind: "tbl" }
