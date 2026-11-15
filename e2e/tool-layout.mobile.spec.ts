@@ -8,6 +8,11 @@ import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
 import { encodePng } from "./client-proof/fixtures";
 import { panelDispatchArms } from "../src/tests/worker-panel-dispatch";
 import { READY_WORKER_STATUS } from "../src/tests/ready-worker-status";
+import { CHAT_TOOL_SLUG } from "../src/lib/jobs/chat-with-pdf";
+import {
+  CHAT_RETRIEVAL_ANCHOR_SHARE,
+  chatRetrievalPanelLine,
+} from "../src/lib/pdf/chat-retrieval-anchor";
 
 /**
  * The working surface above the fold on a phone (390×844, the `mobile`
@@ -312,7 +317,11 @@ declare global {
 type StatusStep = "hold-then-fail" | "fail" | "local" | "ready";
 
 /** Answer `/api/worker/status` by plan, in the page (no `page.route`). */
-async function planStatus(page: Page, plan: StatusStep[]): Promise<void> {
+async function planStatus(
+  page: Page,
+  plan: StatusStep[],
+  readyStatus: object = READY_WORKER_STATUS,
+): Promise<void> {
   await page.addInitScript(
     ({ plan, ready }) => {
       let release = () => {};
@@ -346,7 +355,7 @@ async function planStatus(page: Page, plan: StatusStep[]): Promise<void> {
         return real(input, init);
       };
     },
-    { plan, ready: JSON.stringify(READY_WORKER_STATUS) },
+    { plan, ready: JSON.stringify(readyStatus) },
   );
 }
 
@@ -485,6 +494,60 @@ for (const width of SLOT_WIDTHS) {
         ).toBeLessThanOrEqual(loading);
       });
     }
+  });
+}
+
+/**
+ * Chat with PDF's ready slot with its one optional line on (audit #30,
+ * slice 3): "For a longer file, each question is sent …", rendered only when
+ * the observed worker proves `chatRetrieval`. `READY_WORKER_STATUS` carries
+ * no optional capability key, so the cases above never draw it; this one
+ * does, at each reserve's narrowest width (360 for the base, 640 for `sm:`,
+ * 1024 for `lg:`), and holds the run area to the same reserve and the same
+ * SLOT_HEADROOM rule. The reserve is read from the slot's computed
+ * min-height, not its box: content that overflows grows the box, and the
+ * box would then read as a reserve exactly as tall as the content.
+ */
+for (const width of [360, 640, 1024] as const) {
+  test.describe(`${width}px, chatRetrieval observed`, () => {
+    test.use({ viewport: { width, height: 844 } });
+
+    test(`/tools/${CHAT_TOOL_SLUG} at ${width}px: the ready slot holds the page-selection line inside its reserve`, async ({
+      page,
+    }) => {
+      await planStatus(page, ["ready"], {
+        ...READY_WORKER_STATUS,
+        chatRetrieval: true,
+      });
+      await page.addInitScript((key) => {
+        window.localStorage.setItem(key, "denied");
+      }, CONSENT_STORAGE_KEY);
+      await page.goto(`/tools/${CHAT_TOOL_SLUG}`);
+      const slot = page.locator('[data-slot="worker-status"]');
+      await expect(slot).toHaveAttribute("data-state", "run");
+      // Health: the line is drawn, or the reading is the ordinary ready slot.
+      await expect(
+        slot.getByText(chatRetrievalPanelLine(CHAT_RETRIEVAL_ANCHOR_SHARE)),
+      ).toBeVisible();
+      const m = await slotHeight(page);
+      const reserve = await slot.evaluate(
+        (el) => parseFloat(getComputedStyle(el).minHeight) || 0,
+      );
+      expect(reserve, "no reserve on the slot").toBeGreaterThan(100);
+      console.log(
+        `SLOT_NATURAL ${CHAT_TOOL_SLUG}+chatRetrieval ${width} ${JSON.stringify(
+          {
+            run: m.natural,
+            reserve,
+          },
+        )}`,
+      );
+      expect(m.natural, "no content height read").toBeGreaterThan(100);
+      expect(
+        m.natural * SLOT_HEADROOM,
+        `${CHAT_TOOL_SLUG} at ${width}px with chatRetrieval: content ${m.natural}px leaves less than ${Math.round((SLOT_HEADROOM - 1) * 100)}% under the ${reserve}px reserve; refit its STATUS_SLOT`,
+      ).toBeLessThanOrEqual(reserve);
+    });
   });
 }
 

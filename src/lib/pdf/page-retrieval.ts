@@ -18,34 +18,19 @@
  * window already touches. Retrieval runs only when it adds a page main would
  * not have sent. `page-retrieval.eval.test.ts` holds that per case.
  */
+import { CHAT_RETRIEVAL_ANCHOR_SHARE } from "./chat-retrieval-anchor";
 import { formatPageSpans } from "./page-spans";
 
 /**
- * The share of the document budget reserved for the opening pages before any
- * page is chosen by relevance. NOT a taste: `page-retrieval.eval.test.ts`
- * runs the selector over its corpus at every share in
- * {@link CHAT_RETRIEVAL_ANCHOR_SHARES}, and fails unless this equals the
- * share with the highest overall recall (ties to the LARGER share, which is
- * closer to main for early facts and keeps a longer stable prefix for the
- * provider's automatic prefix cache). Change the corpus or the selector and
- * that test says what this must become.
- *
- * Measured 2026-11-16 (overall recall, 56 cases): 0 → 0.75, 1/8 → 0.75,
- * 1/4 → 0.79, 1/3 → 0.80, 1/2 → 0.82. The anchor buys early paraphrased
- * facts (class C: 0.00 at 0, 0.71 at 1/2) and costs late lexical facts
- * whose defined term recurs on other pages (class B: 1.00 at 0, 0.88 at
- * 1/2). The margin is one case; the test, not this paragraph, is the bound.
+ * The anchor share and the shares its sweep measures live in the leaf
+ * `./chat-retrieval-anchor`, because the chat panel's gated line needs the
+ * same number and this file must not reach the browser. Re-exported here so
+ * the selector and its tests read it from one place.
  */
-export const CHAT_RETRIEVAL_ANCHOR_SHARE = 1 / 2;
-
-/** The shares the anchor sweep measures (brief D1). */
-export const CHAT_RETRIEVAL_ANCHOR_SHARES: readonly number[] = [
-  0,
-  1 / 8,
-  1 / 4,
-  1 / 3,
-  1 / 2,
-];
+export {
+  CHAT_RETRIEVAL_ANCHOR_SHARE,
+  CHAT_RETRIEVAL_ANCHOR_SHARES,
+} from "./chat-retrieval-anchor";
 
 /**
  * The selector never starts a 65th span (brief D6): a page that would start

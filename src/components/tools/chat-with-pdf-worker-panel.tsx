@@ -15,6 +15,10 @@ import { MAX_QUESTION_CHARS } from "@/lib/jobs/chat-with-pdf";
 import { citedPageIndex } from "@/lib/jobs/chat-citations";
 import { aiReadLimitFor } from "@/lib/jobs/ai-read-limit";
 import {
+  CHAT_RETRIEVAL_ANCHOR_SHARE,
+  chatRetrievalPanelLine,
+} from "@/lib/pdf/chat-retrieval-anchor";
+import {
   aiDailyAllowanceNote,
   aiToolUnavailableDetail,
 } from "@/lib/workers/ai-tool-availability";
@@ -87,8 +91,17 @@ const PageZoomDialog = dynamic(() =>
  * tallest state, Windows / Linux (CI's SLOT_NATURAL lines on
  * 28af68e1), is 439.5/439.5px at 360-390, 303/303px at 640,
  * 342/342px at 1024; the larger x1.035, to the half rem.
+ *
+ * Refitted 2026-11-16 (audit #30, slice 3), when the ready state gained
+ * its one optional line, how a longer file's pages are chosen, drawn only
+ * when the observed worker proves `chatRetrieval`: the ready state with the
+ * line is now the tallest, 506px at 360, 350px at 640, 369.5px at 1024
+ * (Windows; the run state matched Linux exactly on 28af68e1, and CI's
+ * SLOT_NATURAL "chat-with-pdf+chatRetrieval" lines are the Linux column to
+ * re-read); x1.035, to the half rem. The check is the chatRetrieval case in
+ * `e2e/tool-layout.mobile.spec.ts`.
  */
-const STATUS_SLOT = "min-h-[28.5rem] sm:min-h-[20rem] lg:min-h-[22.5rem]";
+const STATUS_SLOT = "min-h-[33rem] sm:min-h-[23rem] lg:min-h-[24rem]";
 
 /**
  * Shown under every answer. The only safeguard against a wrong answer is an
@@ -578,6 +591,18 @@ function ChatBuilder({
             <p className="text-muted text-xs leading-relaxed">
               {aiDailyAllowanceNote(tool.slug)}
             </p>
+            {/* How a longer file's pages are chosen is a claim about ONE
+                image's algorithm, so it is said only when the observed
+                worker proves it (`chatRetrieval`, brief step 6): absent,
+                false or unobserved says nothing. Inside the reserved slot
+                for the same reason as the note above: the status answers
+                after first paint, and a line above the slot would push it
+                down when it did. */}
+            {status?.chatRetrieval === true && (
+              <p className="text-muted text-xs leading-relaxed">
+                {chatRetrievalPanelLine(CHAT_RETRIEVAL_ANCHOR_SHARE)}
+              </p>
+            )}
           </div>
         }
         off={
