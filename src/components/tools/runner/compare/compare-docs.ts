@@ -33,9 +33,12 @@ export const COMPARE_DOC_OPTIONS = {
   keptImagePixels: KEPT_IMAGE_PIXELS / 2,
 } as const satisfies ViewerOpenOptions;
 
-/** pdf.js's open for the page view, in the viewer's own chunk. */
+/**
+ * pdf.js's open for the page view, in a chunk of its own that starts at
+ * `compare-open.ts` (why there, and not at `@/lib/pdf/viewer`: that file).
+ */
 async function open(bytes: Uint8Array): Promise<ViewerPdf> {
-  const { openViewerPdf } = await import("@/lib/pdf/viewer");
+  const { openViewerPdf } = await import("./compare-open");
   return openViewerPdf(bytes, COMPARE_DOC_OPTIONS);
 }
 
