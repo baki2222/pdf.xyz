@@ -13,8 +13,8 @@
  *     per-job conservation check. Prints p50 and max milliseconds, bytes and
  *     pages, and the false-drop count (which must be 0).
  *
- * Exit codes: 0 = proven; 1 = English, Spanish or Bengali not proven, or any
- * false drop; 2 = Chromium or poppler is not available in this image. Run by
+ * Exit codes: 0 = proven; 1 = a language in `TRANSLATE_PDF_CI_REQUIRED` not
+ * proven, or any false drop; 2 = Chromium or poppler is not available in this image. Run by
  * `.github/workflows/container.yml`; no secret, queue, store, network, model
  * or user document is touched — the model is a stub and the text synthetic.
  */
@@ -22,9 +22,14 @@ import { nativeTranslatePdfRender } from "@/lib/workers/translate/native";
 import { nativePdfProbeReaders } from "@/lib/workers/translate/pdf-readers";
 import { probeTranslatePdfLanguages } from "@/lib/workers/translate/pdf-capability";
 import { measureDeliverySizeRenders } from "@/lib/workers/translate/pdf-measure";
-import type { TranslateLanguage } from "@/lib/jobs/translate-pdf";
+import {
+  TRANSLATE_PDF_CI_REQUIRED,
+  type TranslateLanguage,
+} from "@/lib/jobs/translate-pdf";
 
-const REQUIRED: readonly TranslateLanguage[] = ["en", "es", "bn"];
+// The required set is NOT typed here (2026-11-15, audit #29 slice 2): the
+// static copy names the languages that get a PDF from the same constant, so
+// this gate is what keeps that copy true. See TRANSLATE_PDF_CI_REQUIRED.
 const MEASURED: readonly TranslateLanguage[] = ["en", "bn", "ja", "ar", "th"];
 
 async function main(): Promise<number> {
@@ -58,7 +63,9 @@ async function main(): Promise<number> {
       `  ${r.language}: ${r.ok ? "ok" : `DROPPED (${r.reason})`} ${r.ms} ms ${r.characters} chars${r.ok ? ` ${r.bytes} B ${r.pages} pages` : ""}`,
     );
 
-  const missing = REQUIRED.filter((l) => !probe.passing.includes(l));
+  const missing = TRANSLATE_PDF_CI_REQUIRED.filter(
+    (l) => !probe.passing.includes(l),
+  );
   if (missing.length > 0) {
     console.log(`FAIL — not proven: ${missing.join(", ")}`);
     return 1;
