@@ -237,3 +237,54 @@ describe("Translate PDF's two artifacts through the executor's order (2026-11-15
     expect(artifact?.contentType).toBe("application/zip");
   });
 });
+
+describe("the delivery cap reaches the processor, as the executor threads it", () => {
+  /**
+   * `executor.ts` hands `processor.process` the job's `delivery` cap. Before
+   * 2026-11-16 this chain did not, so a probe of behaviour UNDER a cap (the
+   * chat retrieval proof, `chat-with-pdf/retrieval-capability.ts`) would have
+   * run uncapped while claiming the capped path.
+   */
+  function capturing(seen: unknown[]): Processor {
+    return {
+      ...processorReturning([], good),
+      async process(job) {
+        seen.push(job.delivery);
+        return good;
+      },
+    };
+  }
+
+  it("a job carrying `delivery` gives the processor that very cap", async () => {
+    const seen: unknown[] = [];
+    const delivery = { characters: 8_000 };
+    const outcome = await runThroughExecutorOrder({
+      tool: "pdf-to-word",
+      input,
+      delivery,
+      registry: new ProcessorRegistry().register(capturing(seen)),
+      env: {},
+    });
+    expect(outcome.stage).toBe("delivered");
+    expect(seen).toEqual([delivery]);
+  });
+
+  it("a job without one gives the processor no `delivery` key at all (existing callers unchanged)", async () => {
+    const seen: unknown[] = [];
+    const keys: string[][] = [];
+    const registry = new ProcessorRegistry().register({
+      ...capturing(seen),
+      async process(job) {
+        keys.push(Object.keys(job));
+        return good;
+      },
+    });
+    await runThroughExecutorOrder({
+      tool: "pdf-to-word",
+      input,
+      registry,
+      env: {},
+    });
+    expect(keys).toEqual([["tool", "options", "inputs"]]);
+  });
+});
