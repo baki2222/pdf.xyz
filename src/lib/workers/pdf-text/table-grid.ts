@@ -26,9 +26,11 @@ export const MAX_TABLE_COLUMNS = 63;
  * The most cells one table is written with as a Word table.
  *
  * Measured 2026-11-15 by `src/tests/docx-table-measure.ts` on the dev host
- * (Windows 11, Node 24; one fresh process per run, medians of 3): see the
- * figures beside {@link MAX_TABLE_SLOTS_PER_PAGE}, which bounds the same
- * work from the page's side.
+ * (Windows 11, Node 24; one fresh process per run): `grid 10000` 3 ms and
+ * +4 MB, `grid-wide 9954` (63 columns) 4 ms and +4 MB, `flow 10000` 37 ms
+ * and +18 MB; one table of 10,010 cells (`over`) comes out tabbed in 137 ms.
+ * NOT yet measured inside the worker image (no Docker on the dev host; the
+ * container step is where it can be). Held by `docx-table.cap.test.ts`.
  */
 export const MAX_TABLE_CELLS = 10_000;
 /** The most cells of ONE page written as Word tables, all its tables together. */
@@ -37,6 +39,14 @@ export const MAX_TABLE_CELLS_PER_PAGE = 20_000;
  * Grid SLOTS (rows x columns, the empty ones included) one page may write.
  * An empty slot still costs its `w:tc` (about 70 bytes, stored), so a sparse
  * grid is bounded by slots, not by cells.
+ *
+ * Measured 2026-11-15 on the dev host, medians of 3 alternating with the
+ * control (`docx-table-measure.ts engine 20000` against `engine-tabbed`,
+ * the same page written as main's tabbed rows), the whole job including
+ * the check before delivery: 350 ms and +156 MB against 238 ms and +133 MB
+ * — 1.47x the time, far inside #318's exit bound (2x AND +5 s, or 2x AND
+ * +300 MB). The file: 2,387,573 bytes against 1,284,055 (document.xml is
+ * STORED, #318 Open 5), about 55 bytes more per cell.
  */
 export const MAX_TABLE_SLOTS_PER_PAGE = 20_000;
 /**

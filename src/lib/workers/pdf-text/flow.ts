@@ -562,7 +562,7 @@ function joinPieces(lines: readonly (readonly FlowPiece[])[]): FlowPiece[] {
   for (const line of lines) {
     const text = line.map((p) => p.text).join("");
     if (out.length === 0 && joined.length === 0) {
-      out.push(...line);
+      for (const piece of line) out.push(piece);
       joined = text;
       continue;
     }
@@ -572,10 +572,10 @@ function joinPieces(lines: readonly (readonly FlowPiece[])[]): FlowPiece[] {
       if (cut.length > 0) out[out.length - 1] = { ...last, text: cut };
       else out.pop();
       joined = joined.slice(0, -1);
-      out.push(...line);
+      for (const piece of line) out.push(piece);
       joined += text;
     } else if (/\p{L}-$/u.test(joined) && STARTS_LOWER.test(text)) {
-      out.push(...line);
+      for (const piece of line) out.push(piece);
       joined += text;
     } else {
       const [first, ...rest] = line;
@@ -745,7 +745,9 @@ function placedPage(page: FlowPage): {
         flush();
         if (!emitted.has(table)) {
           emitted.add(table);
-          paragraphs.push(...table);
+          // A loop, not push(...table): a table of 10^5 rows overflowed the
+          // argument list (#28 slice 2, `docx-table-measure.ts spread`).
+          for (const row of table) paragraphs.push(row);
         }
         return;
       }
