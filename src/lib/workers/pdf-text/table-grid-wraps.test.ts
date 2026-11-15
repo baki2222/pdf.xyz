@@ -218,3 +218,23 @@ describe("the table detector reads the shared fitsAsCell (its verdicts unchanged
     ]);
   });
 });
+
+describe("overlapping exactly one span implies lying inside its slot", () => {
+  it("over 20,000 random x-ranges against disjoint spans (the reason flow.ts tests one, INV-4 the other)", () => {
+    let seed = 7;
+    const rand = () =>
+      ((seed = (seed * 48271) % 2147483647) / 2147483647) * 600;
+    let one = 0;
+    for (let n = 0; n < 20_000; n++) {
+      const a = rand();
+      const b = rand();
+      const [x0, x1] = a < b ? [a, b] : [b, a];
+      const k = overlappedSpan(SPANS, x0, x1);
+      if (k < 0) continue;
+      one += 1;
+      expect(insideSlot(SPANS, k, x0, x1), `[${x0}, ${x1}] in ${k}`).toBe(true);
+    }
+    // Health: the property was exercised, not vacuously true.
+    expect(one).toBeGreaterThan(1000);
+  });
+});

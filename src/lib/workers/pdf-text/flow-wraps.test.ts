@@ -811,3 +811,69 @@ describe("flow rule 7 — the relax and the joins are only for absorbed lines", 
     expect(outside(out)).toContain("incl. VAT");
   });
 });
+
+describe("flow rule 7 — the per-cell cap (MAX_WRAP_LINES_PER_CELL)", () => {
+  /**
+   * 60 rows; row 55's description wraps onto `tails` lines — late enough
+   * that the part above a cut still has more rows than continuations (the
+   * share cap would otherwise refuse it whole).
+   */
+  const page = (tails: number) => {
+    const word = (t: string, x: number, y: number) =>
+      `<word xMin="${x}" yMin="${y}" xMax="${x + 6 * t.length}" yMax="${y + 10}">${t}</word>`;
+    const line = (ws: string[]) => `<line>${ws.join("")}</line>`;
+    const out: string[] = [];
+    let y = 50;
+    for (let r = 0; r < 60; r++) {
+      // Row 55's continuations share its block, as a wrap does: after a cut
+      // that row is the part above's last, where rule 7 asks for the block.
+      const block = [
+        line([
+          word(r === 0 ? "Item" : `A-${r}`, 50, y),
+          word(r === 0 ? "Description" : "item", 150, y),
+          word(r === 0 ? "Amount" : "1.00", 400, y),
+        ]),
+      ];
+      if (r === 55)
+        for (let k = 0; k < tails; k++) {
+          y += 12;
+          block.push(line([word("Part", 150, y), word("more", 180, y)]));
+        }
+      out.push(`<block>${block.join("")}</block>`);
+      y += 18;
+    }
+    return parseBboxFlow(
+      `<doc><page width="612" height="${y + 50}"><flow>${out.join("")}</flow></page></doc>`,
+    ).pages[0]!;
+  };
+
+  it("50 continuations in one cell are absorbed; the 51st cuts the run there and stays a line of its own", async () => {
+    const { MAX_WRAP_LINES_PER_CELL } = await import("./table-grid");
+    expect(MAX_WRAP_LINES_PER_CELL).toBe(50);
+    expect(pageOn(page(50)).wrapLines).toBe(50);
+    const over = pageOn(page(51));
+    expect(over.wrapLines).toBe(50);
+    expect(outside(over)).toContain("Part more");
+  });
+});
+
+describe("flow rule 7 — an indented first-column wrap (fitsAsCell's first clause)", () => {
+  /** S6 with "time (ms)" indented 12 pt: held under the row, then refused. */
+  const indented = () => {
+    const page = parseBboxFlow(image.IMAGE_ACADEMIC_LABEL_WRAP_BBOX).pages[0]!;
+    const line = page.blocks
+      .flatMap((b) => b.lines)
+      .find((l) => l.words.map((w) => w.text).join(" ") === "time (ms)")!;
+    for (const w of line.words) {
+      w.xMin += 12;
+      w.xMax += 12;
+    }
+    line.xMin += 12;
+    line.xMax += 12;
+    return page;
+  };
+  it("is not absorbed into column 0: as slice 2", () => {
+    expect(pageOn(indented())).toEqual(pageOff(indented()));
+    expect(outside(pageOn(indented()))).toContain("time (ms)");
+  });
+});

@@ -79,9 +79,16 @@
  *     the run is judged, and joined to the cell above it (as a paragraph's
  *     lines are joined) only when ALL of these hold, each for a reason:
  *      - it fits ONE column past the first (`fitsAsCell`, shared with the
- *        table detector), overlaps exactly that column's span and lies inside
- *        its SLOT (`insideSlot`) — over flow's gapped spans a line in a gap,
- *        or a centred note wider than its column, would otherwise pass;
+ *        table detector) and overlaps EXACTLY that column's span
+ *        (`overlappedSpan`) — over flow's gapped spans a line in a gap, or a
+ *        centred note wider than its column, would otherwise pass. Spans are
+ *        disjoint, so overlapping exactly span k already puts the line
+ *        inside k's SLOT (`insideSlot`, the bound INV-4 checks; the
+ *        implication is a tested property, not a second condition here —
+ *        measured 2026-11-16: an explicit slot test never fired). Of
+ *        `fitsAsCell`'s three clauses only "starts at or after the first
+ *        column's end" can refuse what `overlappedSpan` admits: an INDENTED
+ *        first-column wrap;
  *      - it is not a NUMBER (`isNumberCell`): a figure alone under a table is
  *        a total or a value, not a wrapped word;
  *      - its column is not a FIGURE column (`figureColumns`) unless the row
@@ -166,7 +173,6 @@ import {
   chainColumns,
   figureColumns,
   fitsAsCell,
-  insideSlot,
   isNumberCell,
   MAX_TABLE_CELLS_PER_PAGE,
   MAX_TABLE_SLOTS_PER_PAGE,
@@ -1012,10 +1018,10 @@ function placedPage(
       const line = item.band[0]!;
       const cell = line.cells[0]!;
       const spans = grid.spans;
-      // One column past the first, exactly one span, inside its slot.
+      // One column past the first, and exactly one span (hence its slot).
       if (!fitsAsCell(spans, cell.xMin, cell.xMax)) return i;
       const k = overlappedSpan(spans, cell.xMin, cell.xMax);
-      if (k < 0 || !insideSlot(spans, k, cell.xMin, cell.xMax)) return i;
+      if (k < 0) return i;
       // Not a figure, and not under a figure column below the header.
       if (isNumberCell(cell.text)) return i;
       if (at.figures.has(k) && at.r !== 0) return i;
