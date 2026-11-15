@@ -26,7 +26,8 @@
  * steer shaping and line breaking and are never drawn as glyphs.
  *
  * pdf-lib is used for metadata and the page count — title, language,
- * producer — and, since 2026-11-15, to rewrite Kangxi-radical destinations in
+ * producer — and, since 2026-11-15, to rewrite radical destinations (Kangxi;
+ * since 2026-11-16 also the CJK Radicals Supplement and Extension A) in
  * the fonts' ToUnicode maps ({@link normaliseToUnicodeStreams}). No text is
  * drawn with it (`src/deploy/text-drawing-call-sites.test.ts` scans for the
  * text APIs; this file uses none).
@@ -45,7 +46,8 @@
  * Two things keep it from changing what ANY reader gets for a character
  * that was really drawn (review 2026-11-16, both measured in the image):
  *
- *   - Radicals the job's typeset text literally contains are excluded. Skia
+ *   - Radicals the job's typeset text literally contains are excluded
+ *     (Kangxi, Supplement and Extension A alike: `rewriteSourcesIn`). Skia
  *     writes no ActualText for a literal radical (it matches the entry), so
  *     rewriting that entry made poppler read 文 for a drawn ⽂ and the job
  *     fail `not_conserved` — en, zh and ja jobs main delivered. Such a job
@@ -76,7 +78,7 @@ import {
   type TranslatePdfReason,
 } from "@/lib/jobs/translate-pdf-render";
 import {
-  kangxiRadicalsIn,
+  rewriteSourcesIn,
   normaliseRadicalToUnicode,
   radicalRewritesFor,
 } from "./radical-equivalents";
@@ -156,8 +158,26 @@ function fontFace(font: PDFDict): string | null {
 }
 
 /**
+ * The faces (descriptor /FontName, subset tag stripped) of every font in a
+ * PDF, sorted and distinct. Read by the image proof's corpus judge
+ * (`cjk-corpus-read.ts`) to ask the measured facts about the face that drew
+ * a glyph.
+ */
+export async function pdfFontFaces(bytes: Uint8Array): Promise<string[]> {
+  const doc = await PDFDocument.load(bytes, { updateMetadata: false });
+  const out = new Set<string>();
+  for (const [, obj] of doc.context.enumerateIndirectObjects()) {
+    if (!(obj instanceof PDFDict)) continue;
+    if (obj.get(PDFName.of("Type")) !== PDFName.of("Font")) continue;
+    const face = fontFace(obj);
+    if (face) out.add(face);
+  }
+  return [...out].sort();
+}
+
+/**
  * Every font's /ToUnicode stream, whatever the target (Han can appear in any
- * target's text), with Kangxi-radical destinations replaced by the unified
+ * target's text), with radical (and Extension A) destinations replaced by the unified
  * ideograph that shares the radical's glyph IN THAT FONT'S FACE
  * (`radicalRewritesFor`, from measured cmap facts — a face the facts do not
  * name is left alone). Radicals in `keep` — the ones the job's own text
@@ -346,7 +366,7 @@ async function printAndCheck(
     doc.setProducer(TRANSLATE_PDF_PRODUCER);
     doc.setCreator(TRANSLATE_PDF_PRODUCER);
     pages = doc.getPageCount();
-    normaliseToUnicodeStreams(doc, kangxiRadicalsIn(typesetText(args.input)));
+    normaliseToUnicodeStreams(doc, rewriteSourcesIn(typesetText(args.input)));
     bytes = await doc.save();
   } catch (error) {
     const known = classify(error);

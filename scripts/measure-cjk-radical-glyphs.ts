@@ -1,6 +1,6 @@
 /**
- * Measure, in the worker image, which code points share each Kangxi
- * radical's glyph in every CJK face fontconfig offers — the facts the
+ * Measure, in the worker image, which code points share each radical's
+ * (Kangxi and Supplement) and Extension A glyph in every CJK face fontconfig offers — the facts the
  * ToUnicode rewrite (`src/lib/workers/translate/radical-equivalents.ts`)
  * is derived from:
  *
