@@ -172,6 +172,10 @@ describe("a Detailed run that hits its output limit (incomplete_output)", () => 
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.retryable).toBe(false);
+    // The same code chat, extract and translate give incomplete_output (their
+    // `failed` arm). A kind of `too_large` here would report 413 for a
+    // document that fit, and nothing else on this path would notice.
+    expect(result.error.code).toBe("internal_error");
     expect(result.error.message).toContain(
       `${limit.toLocaleString("en-US")}-token output limit`,
     );
