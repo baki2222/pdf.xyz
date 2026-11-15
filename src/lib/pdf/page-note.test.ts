@@ -109,8 +109,11 @@ describe("every rendered-page <img> carries the note as its name", () => {
       if (statSync(p).isDirectory()) return walk(p);
       return /\.tsx$/.test(f) && !/\.test\.tsx$/.test(f) ? [p] : [];
     });
+  // usePageImageState joined 2026-11-15 (audit #30): the zoom dialog moved
+  // to it, "usePageImage" as a whole word does not match it, and the dialog
+  // fell out of this walk; the health check below went red and named it.
   const SHOWS_A_PAGE =
-    /\b(createThumbnailRenderer|usePdfThumbnails|usePageImage|Thumbnail)\b/;
+    /\b(createThumbnailRenderer|usePdfThumbnails|usePageImage|usePageImageState|Thumbnail)\b/;
   const files = walk(ROOT).filter((f) =>
     SHOWS_A_PAGE.test(readFileSync(f, "utf8")),
   );

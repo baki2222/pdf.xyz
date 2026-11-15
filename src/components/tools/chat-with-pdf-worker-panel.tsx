@@ -1,6 +1,7 @@
 "use client";
 
 import { usePickRefusal } from "@/components/tools/use-pick";
+import dynamic from "next/dynamic";
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
   Download,
@@ -11,6 +12,7 @@ import {
 } from "lucide-react";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import { MAX_QUESTION_CHARS } from "@/lib/jobs/chat-with-pdf";
+import { citedPageIndex } from "@/lib/jobs/chat-citations";
 import { aiReadLimitFor } from "@/lib/jobs/ai-read-limit";
 import {
   aiDailyAllowanceNote,
@@ -46,6 +48,18 @@ import {
   WorkerGate,
   WorkerPanelShell,
 } from "./worker-panel-shell";
+import { ChatAnswer } from "./chat-answer";
+
+/**
+ * The page a citation opens (audit #30, 2026-11-15): Delete Pages' own zoom
+ * dialog, without its selection toggle. Loaded on the first press, as it is
+ * there (runner/page-select-runner.tsx).
+ */
+const PageZoomDialog = dynamic(() =>
+  import("./runner/page-zoom-dialog").then(
+    ({ PageZoomDialog }) => PageZoomDialog,
+  ),
+);
 
 /**
  * The status slot's reserved height (see `WorkerStatusSlot` and
@@ -99,14 +113,22 @@ type MeasureChat = (bytes: Uint8Array) => Promise<ChatDocumentMeasurement>;
 const measureWithPdfText: MeasureChat = (bytes) =>
   measureChatDocument(bytes, extractPdfText);
 
+/** Picks up a job the tab stopped waiting for; a prop for the same reason as
+ * `runChat`, for tests only. The page never passes it, and with none the
+ * panel calls `resumeSecurityJob` BY NAME — not through a defaulted prop, so
+ * run-outcome-coverage's call walk still sees the reporter it reaches. */
+type ResumeChat = typeof resumeSecurityJob;
+
 export function ChatWithPdfWorkerPanel({
   tool,
   runChat = runThroughDeps,
   measureChat = measureWithPdfText,
+  resumeChat,
 }: {
   tool: Tool;
   runChat?: RunChat;
   measureChat?: MeasureChat;
+  resumeChat?: ResumeChat;
 }) {
   const pickRefuse = usePickRefusal(tool);
   return (
@@ -151,6 +173,7 @@ export function ChatWithPdfWorkerPanel({
         refuse={pickRefuse}
         runChat={runChat}
         measureChat={measureChat}
+        resumeChat={resumeChat}
       />
     </WorkerPanelShell>
   );
@@ -188,6 +211,17 @@ interface TranscriptEntry {
    * a fact about that answer.
    */
   job: Job;
+  /**
+   * The file token (`fileToken`) of the document this answer was asked about,
+   * or null for an answer picked up with Keep waiting. A citation opens a
+   * page only when this equals the held document's token: the panel holds ONE
+   * document, and an entry that cannot prove it is about that document keeps
+   * its markers as text (review finding, 2026-11-15: a resumed answer about
+   * file A, landing after a swap to B, opened B's page 2). Null rather than
+   * the token at resume time: after a reload the question was asked of a file
+   * this tab never held, and "same token" cannot tell the two cases apart.
+   */
+  docToken: number | null;
 }
 
 function ChatBuilder({
@@ -195,11 +229,13 @@ function ChatBuilder({
   refuse,
   runChat,
   measureChat,
+  resumeChat,
 }: {
   tool: Tool;
   refuse: PickRefusal;
   runChat: RunChat;
   measureChat: MeasureChat;
+  resumeChat: ResumeChat | undefined;
 }) {
   const { available, status } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
@@ -207,12 +243,52 @@ function ChatBuilder({
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   /** The question the job in flight (or left running) is answering. */
   const asking = useRef<string | null>(null);
+  // The conversation belongs to one document; swapping the file must not let turns
+  // about the old PDF be sent as context for the new one.
+  /**
+   * Identifies which document the in-flight request belongs to.
+   *
+   * A job takes seconds to minutes, and nothing stops the user swapping the PDF while
+   * one is running — the uploader and the Remove button both stay live. Without this,
+   * a result that lands after a swap appends the OLD document's exchange to the
+   * just-cleared transcript, and the next follow-up sends it as context for the NEW
+   * PDF: the model is asked about one document while being shown another, and the
+   * panel displays it as if it belonged to the file on screen.
+   */
+  const fileToken = useRef(0);
+  /**
+   * The document the answers on screen are about, as this browser holds it:
+   * what a citation opens. Set only when the file was COUNTED (its physical
+   * page count is what `[p.N]` numbers) and still on screen; cleared with the
+   * file. ONE array per file token, kept from its first question — the page
+   * preview re-renders whenever its bytes change identity, so a fresh array
+   * per question (or per render) would redraw, or never settle. Never set by
+   * a resumed job: the file does not survive a reload, so a resumed answer's
+   * citations stay text.
+   */
+  const [doc, setDoc] = useState<{
+    token: number;
+    bytes: Uint8Array;
+    pageCount: number;
+  } | null>(null);
+  /** The 0-based page the citation dialog shows, or null when it is shut. */
+  const [zoom, setZoom] = useState<number | null>(null);
 
-  /** Add an answered job to the transcript. */
+  /**
+   * Add a resumed job's answer to the transcript — unless the file was
+   * swapped since the resume began (`startedFor`), exactly as `start` drops a
+   * live answer: it would join, and travel as context for, another file's
+   * conversation.
+   */
   const record = useCallback(
-    async (result: ChatWithPdfWorkerResult, asked: string) => {
-      if (!result.ok) return;
+    async (
+      result: ChatWithPdfWorkerResult,
+      asked: string,
+      startedFor: number,
+    ) => {
+      if (!result.ok || fileToken.current !== startedFor) return;
       const answer = await readAnswerFromPackage(result.output, asked);
+      if (fileToken.current !== startedFor) return;
       setTranscript((prev) => [
         ...prev,
         {
@@ -222,6 +298,7 @@ function ChatBuilder({
           filename: result.artifact.filename,
           output: result.output,
           job: result.job,
+          docToken: null,
         },
       ]);
     },
@@ -234,12 +311,17 @@ function ChatBuilder({
     // the question is no longer on screen, and the transcript says so rather
     // than inventing it.
     resume: async (id, controls) => {
-      const result = await resumeSecurityJob(id, {
-        ...controls,
-        tool: "chat-with-pdf",
-      });
-      await record(result, asking.current ?? "Your earlier question");
-      if (result.ok) setQuestion("");
+      const startedFor = fileToken.current;
+      const options = { ...controls, tool: "chat-with-pdf" as const };
+      const result = resumeChat
+        ? await resumeChat(id, options)
+        : await resumeSecurityJob(id, options);
+      await record(
+        result,
+        asking.current ?? "Your earlier question",
+        startedFor,
+      );
+      if (result.ok && fileToken.current === startedFor) setQuestion("");
       return result;
     },
   });
@@ -267,19 +349,6 @@ function ChatBuilder({
     [carryable, question],
   );
 
-  // The conversation belongs to one document; swapping the file must not let turns
-  // about the old PDF be sent as context for the new one.
-  /**
-   * Identifies which document the in-flight request belongs to.
-   *
-   * A job takes seconds to minutes, and nothing stops the user swapping the PDF while
-   * one is running — the uploader and the Remove button both stay live. Without this,
-   * a result that lands after a swap appends the OLD document's exchange to the
-   * just-cleared transcript, and the next follow-up sends it as context for the NEW
-   * PDF: the model is asked about one document while being shown another, and the
-   * panel displays it as if it belonged to the file on screen.
-   */
-  const fileToken = useRef(0);
   /**
    * The document's measurement, ONCE per file — keyed by the same token, so a
    * swapped PDF is measured afresh and a follow-up does not re-parse it. A
@@ -295,10 +364,22 @@ function ChatBuilder({
       fileToken.current += 1;
       setFile(next);
       setTranscript([]);
+      setDoc(null);
+      setZoom(null);
       setOutcome(null);
     },
     [setOutcome],
   );
+  /**
+   * Show a cited page. The dialog's chunk starts loading when it renders, and
+   * the renderer starts HERE, beside it, rather than after the dialog has
+   * loaded and asked for it — two round trips in parallel, not in a row.
+   */
+  const openCitation = useCallback((page: number) => {
+    void import("@/lib/pdf/render").catch(() => {});
+    setZoom(citedPageIndex(page));
+  }, []);
+
   const staged = useStagedHandoff(tool.slug, "Ask the PDF", (files) =>
     chooseFile(files[0] ?? null),
   );
@@ -326,6 +407,14 @@ function ChatBuilder({
       if (fileToken.current !== startedFor) return NOT_SENT;
       if (measured.kind === "no-text")
         return { ok: false as const, message: NO_TEXT_MESSAGE };
+      if (measured.kind === "counted") {
+        const { pageCount } = measured.count;
+        setDoc((prev) =>
+          prev?.token === startedFor
+            ? prev
+            : { token: startedFor, bytes, pageCount },
+        );
+      }
       const result = await runChat(
         {
           filename: file.name,
@@ -356,6 +445,7 @@ function ChatBuilder({
               filename: result.artifact.filename,
               output: result.output,
               job: result.job,
+              docToken: startedFor,
             },
           ]);
           setQuestion("");
@@ -419,7 +509,16 @@ function ChatBuilder({
           region and its first answer in the same commit to the DOM, and a region
           that arrives already containing its text is not a change — nothing is
           spoken. The empty list costs nothing and is what makes the log work. */}
-      <Transcript entries={transcript} />
+      <Transcript entries={transcript} doc={doc} onOpen={openCitation} />
+      {zoom !== null && doc && (
+        <PageZoomDialog
+          bytes={doc.bytes}
+          pageCount={doc.pageCount}
+          index={zoom}
+          onIndex={setZoom}
+          onClose={() => setZoom(null)}
+        />
+      )}
 
       <label className="text-muted flex flex-col gap-1 text-xs">
         {transcript.length > 0 ? "Ask a follow-up" : "Your question"}
@@ -498,55 +597,73 @@ function ChatBuilder({
 }
 
 /** The conversation so far: each question, the model's real answer, and its package. */
-function Transcript({ entries }: { entries: TranscriptEntry[] }) {
+function Transcript({
+  entries,
+  doc,
+  onOpen,
+}: {
+  entries: TranscriptEntry[];
+  /** The document held, if any: only its own answers' citations open it. */
+  doc: { token: number; pageCount: number } | null;
+  onOpen: (page: number) => void;
+}) {
   return (
     /* `log` rather than `status`: answers arrive in sequence and the order is
        meaningful, and unlike a focus move it never interrupts someone midway
        through typing their follow-up. */
-    <ol role="log" aria-live="polite" className="flex flex-col gap-3">
-      {entries.map((entry) => (
-        <li
-          key={entry.id}
-          className="border-line bg-wash rounded-panel flex flex-col gap-2 border p-4"
-        >
-          <p className="text-fg text-sm font-medium">{entry.question}</p>
-          {/* Before the answer, not after: a reader who stops at the answer is
-              exactly the reader the notice is for. */}
-          <TruncationNotice
-            job={entry.job}
-            consequence="An answer that says the document does not mention something may only mean it is not in the pages that were read."
-          />
-          {entry.answer !== null ? (
-            // The model's answer verbatim, exactly as shipped in the package — never a
-            // paraphrase, and never anything the panel composed itself.
-            <>
-              <p className="text-muted text-sm leading-relaxed whitespace-pre-wrap">
-                {entry.answer}
-              </p>
-              {/* Under EVERY answer, and not conditional on citations: an
-                  ungrounded answer has none to point at. */}
-              <p className="text-muted text-xs leading-relaxed">
-                {AI_ANSWER_CAVEAT}
-              </p>
-            </>
-          ) : (
-            <p className="text-warn text-sm leading-relaxed">
-              The answer package came back, but its answer could not be read
-              here — so nothing is shown rather than guessed, and this exchange
-              is left out of follow-up context. Download it to read the answer.
-            </p>
-          )}
-          <button
-            type="button"
-            onClick={() => downloadBytes(entry.output, entry.filename)}
-            className="border-line text-muted hover:border-line-strong hover:text-fg rounded-tag inline-flex items-center gap-2 self-start border px-3 py-1.5 text-xs font-medium transition"
+    // The log is a wrapper, not the list: `role` on the <ol> erased its list
+    // semantics, leaving every <li> an orphan listitem (axe, 2026-11-15).
+    <div role="log" aria-live="polite">
+      <ol className="flex flex-col gap-3">
+        {entries.map((entry) => (
+          <li
+            key={entry.id}
+            className="border-line bg-wash rounded-panel flex flex-col gap-2 border p-4"
           >
-            <Download className="size-3.5" aria-hidden />
-            {entry.filename}
-          </button>
-        </li>
-      ))}
-    </ol>
+            <p className="text-fg text-sm font-medium">{entry.question}</p>
+            {/* Before the answer, not after: a reader who stops at the answer is
+              exactly the reader the notice is for. */}
+            <TruncationNotice
+              job={entry.job}
+              consequence="An answer that says the document does not mention something may only mean it is not in the pages that were read."
+            />
+            {entry.answer !== null ? (
+              // The model's answer verbatim, exactly as shipped in the package — never a
+              // paraphrase, and never anything the panel composed itself.
+              <>
+                <ChatAnswer
+                  answer={entry.answer}
+                  pageCount={doc?.pageCount ?? null}
+                  onOpen={
+                    doc !== null && entry.docToken === doc.token ? onOpen : null
+                  }
+                />
+                {/* Under EVERY answer, and not conditional on citations: an
+                  ungrounded answer has none to point at. */}
+                <p className="text-muted text-xs leading-relaxed">
+                  {AI_ANSWER_CAVEAT}
+                </p>
+              </>
+            ) : (
+              <p className="text-warn text-sm leading-relaxed">
+                The answer package came back, but its answer could not be read
+                here — so nothing is shown rather than guessed, and this
+                exchange is left out of follow-up context. Download it to read
+                the answer.
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => downloadBytes(entry.output, entry.filename)}
+              className="border-line text-muted hover:border-line-strong hover:text-fg rounded-tag inline-flex items-center gap-2 self-start border px-3 py-1.5 text-xs font-medium transition"
+            >
+              <Download className="size-3.5" aria-hidden />
+              {entry.filename}
+            </button>
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }
 

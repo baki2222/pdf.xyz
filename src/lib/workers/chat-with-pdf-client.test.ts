@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canRunChatWithPdf,
+  measureChatDocument,
   runWorkerChatWithPdf,
 } from "./chat-with-pdf-client";
 import type { WorkerStatus } from "./status";
@@ -324,5 +325,30 @@ describe("chat-with-pdf-client", () => {
     expect(result.ok).toBe(false);
     if (!result.ok)
       expect(result.message).toContain("No AI provider is configured");
+  });
+});
+
+// Audit #30 (2026-11-15): the panel opens a cited `[p.N]` page, and `[p.N]`
+// counts PHYSICAL pages — the worker marks each page with its real position.
+// A count of pages with text would put every citation after a blank page one
+// page early.
+describe("measureChatDocument — the page count citations are numbered by", () => {
+  it("counts every page of the file, blank ones included", async () => {
+    const texts = ["Cover text", "", "Body text", "More body"];
+    const measured = await measureChatDocument(new Uint8Array(1), async () => ({
+      pageCount: texts.length,
+      pages: texts.map((text, i) => ({
+        pageNumber: i + 1,
+        text,
+        characterCount: text.length,
+      })),
+      text: texts.filter(Boolean).join(" "),
+      characterCount: 29,
+      hasText: true,
+    }));
+    expect(measured).toEqual({
+      kind: "counted",
+      count: { characters: 29, textPages: 3, pageCount: 4 },
+    });
   });
 });
