@@ -100,6 +100,28 @@ export function loadCompareViewer(): Promise<CompareViewerModule> {
  */
 export const compareViewerChunk = { load: loadCompareViewer };
 
+/** Compare PDF's Overlay: its own lazy chunk, fetched only when asked for. */
+type CompareOverlayModule = typeof import("./compare-overlay");
+
+let overlayChunk: Promise<CompareOverlayModule> | null = null;
+
+/**
+ * Fetch the Overlay's chunk once, whoever asks first: a pointer or focus
+ * reaching Overlay pages or Compare pages visually, or its press. A failed
+ * fetch is forgotten, so the next press tries again and shows that one's
+ * error.
+ */
+export function loadCompareOverlay(): Promise<CompareOverlayModule> {
+  overlayChunk ??= import("./compare-overlay").catch((err: unknown) => {
+    overlayChunk = null;
+    throw err;
+  });
+  return overlayChunk;
+}
+
+/** Where the Overlay finds its chunk: an object, so a test can hold the fetch. */
+export const compareOverlayChunk = { load: loadCompareOverlay };
+
 /** What the page view needs from the run: each file's bytes and pages. */
 interface CompareFile {
   bytes: Uint8Array;
@@ -579,11 +601,15 @@ export function CompareChanges({
   >(null);
   const id = useId();
   /** The list, or both PDFs' pages with the changes marked on them. */
-  const [view, setView] = useState<"list" | "pages">("list");
+  const [view, setView] = useState<"list" | "pages" | "overlay">("list");
+  /** The page pair the Overlay opens at (0-based). */
+  const [overlayAt, setOverlayAt] = useState(0);
   /** Bumped by each move while the pages are shown: both files go to it. */
   const [navToken, setNavToken] = useState(1);
   const pagesSlot = useRef<HTMLDivElement>(null);
   const showPages = view === "pages" && pages !== undefined && hunks.length > 0;
+  // The Overlay needs no change in the text: it is offered in every verdict.
+  const showOverlay = view === "overlay" && pages !== undefined;
 
   // A new result (an option toggled) starts from its first change. The
   // reset is a state update during render, and the rest of THIS render runs
@@ -684,6 +710,14 @@ export function CompareChanges({
   const warmPages = () => {
     void compareViewerChunk.load().catch(() => {});
   };
+  const warmOverlay = () => {
+    void compareOverlayChunk.load().catch(() => {});
+  };
+  const showOverlayAt = (at: number) => {
+    setOverlayAt(at);
+    setView("overlay");
+  };
+  const partly = pages ? partlyScanned(result, pages) : null;
 
   const showMoreChanges = () => {
     const next = withMoreHunks(drawn, hunks, rowsShown);
@@ -694,6 +728,8 @@ export function CompareChanges({
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    // The Overlay has keys of its own (its differences), inside this region.
+    if (view === "overlay") return;
     const target = e.target as HTMLElement;
     if (
       target.tagName === "INPUT" ||
@@ -768,26 +804,30 @@ export function CompareChanges({
           <h2 id={`${id}-title`} className="sr-only">
             Changes
           </h2>
-          <button
-            type="button"
-            aria-label="Previous change"
-            aria-disabled={current <= 0 || hunks.length === 0 || undefined}
-            onClick={() => go(current - 1)}
-            className={navButton}
-          >
-            <ChevronUp className="size-4" aria-hidden />
-            <span className="max-sm:hidden">Previous change</span>
-          </button>
-          <button
-            type="button"
-            aria-label="Next change"
-            aria-disabled={current >= hunks.length - 1 || undefined}
-            onClick={() => go(current + 1)}
-            className={navButton}
-          >
-            <ChevronDown className="size-4" aria-hidden />
-            <span className="max-sm:hidden">Next change</span>
-          </button>
+          {!showOverlay && (
+            <>
+              <button
+                type="button"
+                aria-label="Previous change"
+                aria-disabled={current <= 0 || hunks.length === 0 || undefined}
+                onClick={() => go(current - 1)}
+                className={navButton}
+              >
+                <ChevronUp className="size-4" aria-hidden />
+                <span className="max-sm:hidden">Previous change</span>
+              </button>
+              <button
+                type="button"
+                aria-label="Next change"
+                aria-disabled={current >= hunks.length - 1 || undefined}
+                onClick={() => go(current + 1)}
+                className={navButton}
+              >
+                <ChevronDown className="size-4" aria-hidden />
+                <span className="max-sm:hidden">Next change</span>
+              </button>
+            </>
+          )}
           <p
             role="status"
             aria-live="polite"
@@ -795,20 +835,32 @@ export function CompareChanges({
           >
             {status}
           </p>
-          {pages && hunks.length > 0 && (
+          {pages && (
             <div className="flex flex-wrap gap-2">
+              {hunks.length > 0 && (
+                <button
+                  type="button"
+                  aria-pressed={view === "pages"}
+                  onPointerEnter={warmPages}
+                  onFocus={warmPages}
+                  onClick={() => {
+                    setView("pages");
+                    setNavToken((t) => t + 1);
+                  }}
+                  className={viewButton}
+                >
+                  Show changes on the pages
+                </button>
+              )}
               <button
                 type="button"
-                aria-pressed={view === "pages"}
-                onPointerEnter={warmPages}
-                onFocus={warmPages}
-                onClick={() => {
-                  setView("pages");
-                  setNavToken((t) => t + 1);
-                }}
+                aria-pressed={view === "overlay"}
+                onPointerEnter={warmOverlay}
+                onFocus={warmOverlay}
+                onClick={() => showOverlayAt(0)}
                 className={viewButton}
               >
-                Show changes on the pages
+                Overlay pages
               </button>
               <button
                 type="button"
@@ -845,6 +897,22 @@ export function CompareChanges({
             Ignore page headers and numbers
           </label>
         </div>
+        {partly && (
+          <p className="text-muted flex flex-wrap items-center gap-2 text-xs">
+            <span>{partly.sentence}</span>
+            {partly.first !== null && (
+              <button
+                type="button"
+                onPointerEnter={warmOverlay}
+                onFocus={warmOverlay}
+                onClick={() => showOverlayAt(partly.first!)}
+                className={viewButton}
+              >
+                Compare pages visually
+              </button>
+            )}
+          </p>
+        )}
         {(result.options.ignoreFurniture || result.wordFallbacks > 0) && (
           <ul className="text-muted flex flex-col gap-0.5 text-xs">
             {result.options.ignoreFurniture && (
@@ -866,11 +934,14 @@ export function CompareChanges({
           />
         </div>
       )}
+      {showOverlay && (
+        <CompareOverlayHost key={overlayAt} pages={pages} startAt={overlayAt} />
+      )}
       {/* Focusable, so a keyboard can scroll it (axe: scrollable-region-
           focusable, seen on the result in e2e/compare-pdf.mobile.spec.ts).
-          Not rendered while the pages are shown; its drawn rows are state
-          here, and survive. */}
-      {!showPages && (
+          Not rendered while the pages or the Overlay are shown; its drawn
+          rows are state here, and survive. */}
+      {!showPages && !showOverlay && (
         <div
           ref={scroller}
           role="group"
@@ -912,6 +983,133 @@ export function CompareChanges({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The bar's line for pages with no selectable text in a comparison that
+ * did have text, and the first such page both files have, for Compare
+ * pages visually. Blank pages count too, so the line does not call them
+ * scans.
+ */
+function partlyScanned(
+  result: PdfCompareResult,
+  pages: ComparePages,
+): { sentence: string; first: number | null } | null {
+  const { left, right } = result.pagesWithoutText;
+  if (left.length === 0 && right.length === 0) return null;
+  return {
+    sentence: partlyScannedSentence(left.length, right.length),
+    first: firstPairWithoutText(left, right, pages),
+  };
+}
+
+function partlyScannedSentence(left: number, right: number): string {
+  const part = (n: number, file: string) =>
+    `${n.toLocaleString("en-US")} ${n === 1 ? "page" : "pages"} of ${file}`;
+  const who =
+    left > 0 && right > 0
+      ? `${part(left, "PDF 1")} and ${part(right, "PDF 2")}`
+      : left > 0
+        ? part(left, "PDF 1")
+        : part(right, "PDF 2");
+  const one = left + right === 1;
+  return `${who} ${one ? "has" : "have"} no selectable text, so ${one ? "its" : "their"} text was not compared.`;
+}
+
+/** The first page (0-based) without text that both files have, or null. */
+function firstPairWithoutText(
+  left: readonly number[],
+  right: readonly number[],
+  pages: ComparePages,
+): number | null {
+  const paired = Math.min(
+    pages.left.extracted.pages.length,
+    pages.right.extracted.pages.length,
+  );
+  const inRange = [...left, ...right].filter((p) => p >= 1 && p <= paired);
+  return inRange.length > 0 ? Math.min(...inRange) - 1 : null;
+}
+
+type OverlayLoaded = { mod: CompareOverlayModule } | { error: unknown };
+
+/** The Overlay's host: fetches its chunk, then draws it. */
+function CompareOverlayHost({
+  pages,
+  startAt = 0,
+}: {
+  pages: ComparePages;
+  startAt?: number;
+}) {
+  const [loaded, setLoaded] = useState<OverlayLoaded | null>(null);
+  useEffect(() => {
+    let live = true;
+    compareOverlayChunk.load().then(
+      (mod) => {
+        if (live) setLoaded({ mod });
+      },
+      (err: unknown) => {
+        if (live)
+          setLoaded({ error: err ?? new Error("The overlay could not load.") });
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
+  if (!loaded)
+    return (
+      <div
+        aria-busy="true"
+        className="text-muted flex items-center justify-center gap-2 text-sm"
+        style={{ minHeight: "11rem" }}
+      >
+        <Spinner />
+        Loading the overlay…
+      </div>
+    );
+  if ("error" in loaded)
+    return (
+      <div className="p-3">
+        <ErrorNote message={errorMessage(loaded.error)} />
+      </div>
+    );
+  const { CompareOverlay } = loaded.mod;
+  return <CompareOverlay pages={pages} startAt={startAt} />;
+}
+
+/**
+ * Compare pages visually, for a run whose TEXT could not be compared (one
+ * file or both have none): a button, then the Overlay. Lives here, in the
+ * comparison's chunk, because the runner reaches only this module.
+ */
+export function CompareVisualRoute({ pages }: { pages: ComparePages }) {
+  const [open, setOpen] = useState(false);
+  const warm = () => {
+    void compareOverlayChunk.load().catch(() => {});
+  };
+  if (open)
+    return (
+      <div className="border-line bg-canvas rounded-panel border">
+        <CompareOverlayHost pages={pages} />
+      </div>
+    );
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-muted text-sm">
+        Their pages can still be laid over each other, to see where the ink
+        differs.
+      </p>
+      <button
+        type="button"
+        onPointerEnter={warm}
+        onFocus={warm}
+        onClick={() => setOpen(true)}
+        className="border-line text-fg hover:bg-wash rounded-ctl inline-flex min-h-11 items-center self-start border px-4 text-sm"
+      >
+        Compare pages visually
+      </button>
     </div>
   );
 }
