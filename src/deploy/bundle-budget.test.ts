@@ -1384,6 +1384,31 @@ const TOOL_PAGES_TO_COME = {
   //    comparison's chunk 9,514 -> 10,841 (the view switch, the host, the
   //    refcount).
   // Nothing allocated: every row has the headroom (test:bundle green).
+  //
+  // RE-MEASURED 2026-11-15 after review r1 (the figures above kept as the
+  // record of the reviewed build). The page view's chunks are no longer
+  // split (`next.config.mjs`, `compareBorn`) and its documents' open starts
+  // at `compare-open.ts`. Main bcb7d39a and the branch, each built from an
+  // empty .next in ONE tree (E:/wcmp2-base, its own install: a build's
+  // entry module ids hash the tree's absolute path, so two trees differ on
+  // every page by a few bytes that are not the change), gzip -9 over each
+  // page's first-load chunks, all 144 pages:
+  //  - 143 pages +12, the webpack runtime alone (3,833 -> 3,845): two
+  //    chunk-map entries, the page view and its open.
+  //  - tools/compare-pdf 228,803 -> 228,810 (+7): the runtime, and the
+  //    runner's chunk 6,554 -> 6,549.
+  //  - tools/pdf-viewer 227,961 -> 227,973 (+12): the runtime only. Its
+  //    runner chunk 5381 is 2,152 B as on main and names the same four
+  //    chunks, but one id differs (8074 -> 6991): ViewerPage, the text-layer
+  //    CSS, viewer-copy and viewer-search have an importer outside PDF
+  //    Viewer's chunk, so webpack no longer inlines them into it, and that
+  //    chunk's id follows its modules. On demand, opening a file in PDF
+  //    Viewer fetches 12,100 B for that chunk against 11,639 (+461, the
+  //    branch's own ViewerPage/search edits included) and 2,455 for the open
+  //    against 2,427 (+28, its options argument); four chunks, as on main.
+  //  - the stylesheet is main's file (3906e9b6), byte for byte.
+  //  - on demand from the compare page: the page view 12,460 B in one chunk,
+  //    its open 5,034 B (bounded in lazy-chunks.test.ts).
   unallocated:
     UNALLOCATED -
     NEW_TOOLS_2026_10_30 -
