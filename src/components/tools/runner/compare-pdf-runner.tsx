@@ -373,6 +373,9 @@ export function ComparePdfEditor({
     const compared = result.hasComparableText;
     const scanned = fileWithoutText(result);
     const ignoring = done?.mod.ignoringSummary(result);
+    const warmRedline = () => {
+      void done?.mod.loadCompareRedline().catch(() => {});
+    };
     const ocrLink = (
       <Link href={OCR_TOOL_HREF} className="text-fg underline">
         OCR PDF
@@ -484,34 +487,31 @@ export function ComparePdfEditor({
                 // Fetch the redline's chunk as the pointer or focus arrives,
                 // so the press rarely waits on it (the download must start
                 // within the click's activation window).
-                onPointerEnter={() =>
-                  void done.mod.loadCompareRedline().catch(() => {})
-                }
-                onFocus={() =>
-                  void done.mod.loadCompareRedline().catch(() => {})
-                }
-                onClick={async () => {
+                onPointerEnter={warmRedline}
+                onFocus={warmRedline}
+                onClick={() => {
                   // The result ON SCREEN: after an option toggle, the
                   // adjusted one, exactly as the report above follows it.
                   const shown = result;
-                  try {
-                    const m = await done.mod.loadCompareRedline();
-                    setRedlineError(null);
-                    downloadBlob(
-                      new Blob([m.buildRedlineHtml(shown)], {
-                        type: "text/html;charset=utf-8",
-                      }),
-                      compareOutputName(
-                        shown.leftName,
-                        shown.rightName,
-                        "html",
+                  done.mod.loadCompareRedline().then(
+                    (m) => {
+                      setRedlineError(null);
+                      downloadBlob(
+                        new Blob([m.buildRedlineHtml(shown)], {
+                          type: "text/html;charset=utf-8",
+                        }),
+                        compareOutputName(
+                          shown.leftName,
+                          shown.rightName,
+                          "html",
+                        ),
+                      );
+                    },
+                    (err: unknown) =>
+                      setRedlineError(
+                        `${errorMessage(err)} Press Download redline (HTML) to try again.`,
                       ),
-                    );
-                  } catch (err) {
-                    setRedlineError(
-                      `The redline could not be loaded (${errorMessage(err)}). Press Download redline (HTML) to try again.`,
-                    );
-                  }
+                  );
                 }}
                 className={buttonVariants({ variant: "secondary", size: "lg" })}
               >
