@@ -23,9 +23,10 @@ export function citationLabel(pages: number[]): string {
  * so a button exists for exactly the pages manifest.answer.citedPages lists.
  *
  * With no counted page count, or nothing to open the page from — an answer
- * resumed after a reload (the file did not survive it), a PDF the browser
+ * picked up with Keep waiting (the panel cannot prove which file it is
+ * about), an answer about a file other than the one held, a PDF the browser
  * could not count — every marker stays plain text: a button that cannot show
- * its page would be a promise the panel cannot keep.
+ * its page, or would show another file's, is a promise the panel cannot keep.
  */
 export function ChatAnswer({
   answer,

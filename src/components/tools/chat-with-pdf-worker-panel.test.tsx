@@ -47,6 +47,7 @@ import { pageImageDeps } from "./runner/use-page-image";
 // would measure nothing, so the measurement is stubbed too — as a prop.
 const runWorkerChatWithPdf = vi.fn();
 const measureChatDocument = vi.fn();
+const resumeChatJob = vi.fn();
 const MEASURED = { characters: 2_140, textPages: 3, pageCount: 3 };
 
 const chatTool = getToolBySlug("chat-with-pdf")!;
@@ -59,6 +60,7 @@ function Panel() {
         tool={chatTool}
         runChat={runWorkerChatWithPdf}
         measureChat={measureChatDocument}
+        resumeChat={resumeChatJob}
       />
     </InToolPage>
   );
@@ -207,6 +209,7 @@ afterEach(() => {
   resetTelemetry();
   runWorkerChatWithPdf.mockReset();
   measureChatDocument.mockReset();
+  resumeChatJob.mockReset();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -978,5 +981,117 @@ describe("ChatWithPdfWorkerPanel — a citation shows its page", () => {
     await answered("Rent is due [p.2].");
     expect(screen.queryByRole("button", { name: /show page/i })).toBeNull();
     expect(created).toHaveLength(0);
+  });
+
+  /**
+   * A question left running ("Keep waiting") about file A. The job hook
+   * starts the resume on the press; the panel's job is to know which file
+   * the answer is about when it lands (review finding, 2026-11-15: the
+   * resume path never checked the file token, so A's answer joined B's
+   * transcript, travelled to B as context, and its [p.2] became a button
+   * that drew page 2 of B).
+   */
+  async function leftRunning(question: string) {
+    runWorkerChatWithPdf.mockImplementationOnce(
+      async (
+        _input: unknown,
+        controls: { onJobCreated: (id: string) => void },
+      ) => {
+        controls.onJobCreated("job_left");
+        return {
+          ok: false as const,
+          message: "Still working.",
+          jobId: "job_left",
+          stillRunning: true,
+        };
+      },
+    );
+    render(<Panel />);
+    await screen.findByRole("textbox");
+    await ask(question);
+    return screen.findByRole("button", { name: /keep waiting/i });
+  }
+
+  it("a Keep-waiting answer that lands after a file swap joins nothing and opens nothing", async () => {
+    stubStatus();
+    const keep = await leftRunning("Question about A");
+    const stale = await threePageAnswer(
+      "Question about A",
+      "On file A this is on [p.2].",
+    );
+    let land!: (value: unknown) => void;
+    resumeChatJob.mockImplementation(
+      () => new Promise((resolve) => (land = resolve)),
+    );
+    fireEvent.click(keep);
+    await waitFor(() => expect(resumeChatJob).toHaveBeenCalledTimes(1));
+
+    // While the resume is pending: Remove A, pick B.
+    fireEvent.click(screen.getByRole("button", { name: /remove/i }));
+    const input = await waitFor(() => {
+      const found = document.querySelector('input[type="file"]');
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File([new Uint8Array([9, 9, 9])], "b.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
+    });
+    land(stale);
+
+    // B is asked and counted, which is what made A's markers buttons.
+    runWorkerChatWithPdf.mockImplementation(() =>
+      threePageAnswer("Q about B", "B answer, no cites."),
+    );
+    fireEvent.change(await screen.findByRole("textbox"), {
+      target: { value: "Q about B" },
+    });
+    const submit = await screen.findByRole("button", {
+      name: /ask the pdf|send follow-up/i,
+    });
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    fireEvent.click(submit);
+    await screen.findByText(shownAnswer("B answer, no cites."));
+
+    // A's answer is about no file on screen: not shown, not sent, no button.
+    expect(
+      screen.queryByText(shownAnswer("On file A this is on [p.2].")),
+    ).toBeNull();
+    expect(runWorkerChatWithPdf.mock.calls.at(-1)![0].context).toBeUndefined();
+    expect(screen.queryByRole("button", { name: /show page/i })).toBeNull();
+    expect(created).toHaveLength(0);
+  });
+
+  it("a resumed answer keeps its citations as text, even about the file on screen", async () => {
+    stubStatus();
+    const keep = await leftRunning("Q");
+    resumeChatJob.mockImplementation(() =>
+      threePageAnswer("Q", "Rent is due [p.2]."),
+    );
+    fireEvent.click(keep);
+    await screen.findByText(shownAnswer("Rent is due [p.2]."));
+    // The file is still here and was counted before the question was sent,
+    // so the document IS held: the marker is text because the answer was
+    // resumed, not because there is nothing to open.
+    runWorkerChatWithPdf.mockImplementation(() =>
+      threePageAnswer("Q2", "And the deposit [p.3]."),
+    );
+    await ask("Q2");
+    await screen.findByText(shownAnswer("And the deposit [p.3]."));
+    // Positive control: the live answer's marker IS a button.
+    expect(
+      screen.getByRole("button", { name: "Show page 3 of your PDF" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /show page 2/i })).toBeNull();
+    // The resumed exchange, about this same file, still travels as context.
+    expect(runWorkerChatWithPdf.mock.calls.at(-1)![0].context).toEqual([
+      { role: "user", content: "Q" },
+      { role: "assistant", content: "Rent is due [p.2]." },
+    ]);
   });
 });

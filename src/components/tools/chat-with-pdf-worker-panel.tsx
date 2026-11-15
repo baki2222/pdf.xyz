@@ -113,14 +113,20 @@ type MeasureChat = (bytes: Uint8Array) => Promise<ChatDocumentMeasurement>;
 const measureWithPdfText: MeasureChat = (bytes) =>
   measureChatDocument(bytes, extractPdfText);
 
+/** Picks up a job the tab stopped waiting for; a prop for the same reason as
+ * `runChat`. The page never passes it. */
+type ResumeChat = typeof resumeSecurityJob;
+
 export function ChatWithPdfWorkerPanel({
   tool,
   runChat = runThroughDeps,
   measureChat = measureWithPdfText,
+  resumeChat = resumeSecurityJob,
 }: {
   tool: Tool;
   runChat?: RunChat;
   measureChat?: MeasureChat;
+  resumeChat?: ResumeChat;
 }) {
   const pickRefuse = usePickRefusal(tool);
   return (
@@ -165,6 +171,7 @@ export function ChatWithPdfWorkerPanel({
         refuse={pickRefuse}
         runChat={runChat}
         measureChat={measureChat}
+        resumeChat={resumeChat}
       />
     </WorkerPanelShell>
   );
@@ -202,6 +209,17 @@ interface TranscriptEntry {
    * a fact about that answer.
    */
   job: Job;
+  /**
+   * The file token (`fileToken`) of the document this answer was asked about,
+   * or null for an answer picked up with Keep waiting. A citation opens a
+   * page only when this equals the held document's token: the panel holds ONE
+   * document, and an entry that cannot prove it is about that document keeps
+   * its markers as text (review finding, 2026-11-15: a resumed answer about
+   * file A, landing after a swap to B, opened B's page 2). Null rather than
+   * the token at resume time: after a reload the question was asked of a file
+   * this tab never held, and "same token" cannot tell the two cases apart.
+   */
+  docToken: number | null;
 }
 
 function ChatBuilder({
@@ -209,11 +227,13 @@ function ChatBuilder({
   refuse,
   runChat,
   measureChat,
+  resumeChat,
 }: {
   tool: Tool;
   refuse: PickRefusal;
   runChat: RunChat;
   measureChat: MeasureChat;
+  resumeChat: ResumeChat;
 }) {
   const { available, status } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
@@ -239,11 +259,21 @@ function ChatBuilder({
   /** The 0-based page the citation dialog shows, or null when it is shut. */
   const [zoom, setZoom] = useState<number | null>(null);
 
-  /** Add an answered job to the transcript. */
+  /**
+   * Add a resumed job's answer to the transcript — unless the file was
+   * swapped since the resume began (`startedFor`), exactly as `start` drops a
+   * live answer: it would join, and travel as context for, another file's
+   * conversation.
+   */
   const record = useCallback(
-    async (result: ChatWithPdfWorkerResult, asked: string) => {
-      if (!result.ok) return;
+    async (
+      result: ChatWithPdfWorkerResult,
+      asked: string,
+      startedFor: number,
+    ) => {
+      if (!result.ok || fileToken.current !== startedFor) return;
       const answer = await readAnswerFromPackage(result.output, asked);
+      if (fileToken.current !== startedFor) return;
       setTranscript((prev) => [
         ...prev,
         {
@@ -253,6 +283,7 @@ function ChatBuilder({
           filename: result.artifact.filename,
           output: result.output,
           job: result.job,
+          docToken: null,
         },
       ]);
     },
@@ -265,12 +296,17 @@ function ChatBuilder({
     // the question is no longer on screen, and the transcript says so rather
     // than inventing it.
     resume: async (id, controls) => {
-      const result = await resumeSecurityJob(id, {
+      const startedFor = fileToken.current;
+      const result = await resumeChat(id, {
         ...controls,
         tool: "chat-with-pdf",
       });
-      await record(result, asking.current ?? "Your earlier question");
-      if (result.ok) setQuestion("");
+      await record(
+        result,
+        asking.current ?? "Your earlier question",
+        startedFor,
+      );
+      if (result.ok && fileToken.current === startedFor) setQuestion("");
       return result;
     },
   });
@@ -407,6 +443,7 @@ function ChatBuilder({
               filename: result.artifact.filename,
               output: result.output,
               job: result.job,
+              docToken: startedFor,
             },
           ]);
           setQuestion("");
@@ -470,11 +507,7 @@ function ChatBuilder({
           region and its first answer in the same commit to the DOM, and a region
           that arrives already containing its text is not a change — nothing is
           spoken. The empty list costs nothing and is what makes the log work. */}
-      <Transcript
-        entries={transcript}
-        pageCount={doc?.pageCount ?? null}
-        onOpen={doc ? openCitation : null}
-      />
+      <Transcript entries={transcript} doc={doc} onOpen={openCitation} />
       {zoom !== null && doc && (
         <PageZoomDialog
           bytes={doc.bytes}
@@ -564,12 +597,13 @@ function ChatBuilder({
 /** The conversation so far: each question, the model's real answer, and its package. */
 function Transcript({
   entries,
-  pageCount,
+  doc,
   onOpen,
 }: {
   entries: TranscriptEntry[];
-  pageCount: number | null;
-  onOpen: ((page: number) => void) | null;
+  /** The document held, if any: only its own answers' citations open it. */
+  doc: { token: number; pageCount: number } | null;
+  onOpen: (page: number) => void;
 }) {
   return (
     /* `log` rather than `status`: answers arrive in sequence and the order is
@@ -594,8 +628,10 @@ function Transcript({
             <>
               <ChatAnswer
                 answer={entry.answer}
-                pageCount={pageCount}
-                onOpen={onOpen}
+                pageCount={doc?.pageCount ?? null}
+                onOpen={
+                  doc !== null && entry.docToken === doc.token ? onOpen : null
+                }
               />
               {/* Under EVERY answer, and not conditional on citations: an
                   ungrounded answer has none to point at. */}
