@@ -318,12 +318,18 @@ describe("the independent checks", () => {
 
   /**
    * HISTORY (2026-11-15): this was the only (d) case, and it handed the
-   * predicate LOGICAL-order words. Real poppler never returns those (see the
-   * real fixture above), so this test pinned the defect: it stayed green
-   * while production proved Arabic false on every run. Kept as history; the
-   * predicate still accepts logical order, and still decides by xMin.
+   * predicate LOGICAL-order words, expecting `true` for the right-to-left
+   * placement. Real poppler never returns those (see the real fixture above),
+   * so this test pinned the defect: it stayed green while production proved
+   * Arabic false on every run.
+   *
+   * INVERTED, not deleted (review, same day): logical order inside a word
+   * means its letters were drawn left to right, which a reader sees reversed,
+   * so the same placement with logical-order text is now `false`. It is the
+   * one case that sees intra-word letter order: without it, a predicate that
+   * accepted logical order again would stay green on every real fixture.
    */
-  it("(d) compares the first and last logical words' left edges", () => {
+  it("(d) words read back in logical order fail, whatever their placement", () => {
     const sample = "النص العربي";
     expect(
       laidOutRightToLeft(
@@ -333,7 +339,7 @@ describe("the independent checks", () => {
         ],
         sample,
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       laidOutRightToLeft(
         [
