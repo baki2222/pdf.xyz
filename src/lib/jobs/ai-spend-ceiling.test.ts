@@ -26,6 +26,8 @@ import {
   AI_CEILING_REACHED_MESSAGE,
   aiCeilingBindsFirst,
 } from "./ai-spend-ceiling";
+import { SUMMARY_LENGTHS } from "./summarize-pdf";
+import { LENGTH_PLAN } from "@/lib/workers/summarize/engine";
 import {
   ACCOUNT_CLAIMS,
   PERSONAL_CONDUCT_CLAIMS,
@@ -159,6 +161,38 @@ describe("the ceiling message makes no identity claim", () => {
     expect(AI_CEILING_REACHED_MESSAGE).toContain("try again tomorrow");
     expect(AI_CEILING_REACHED_MESSAGE).toContain(
       "not a problem with your file",
+    );
+  });
+});
+
+/**
+ * `outputTokensPerFullRun` is described as "the most output tokens a single
+ * run can produce", and the daily ceiling is derived from it. That sentence
+ * is only true while no engine asks for more. Summarize's Detailed length
+ * sends this figure since 2026-11-15 (audit summarize-pdf#2), so every
+ * summarize length is bounded here, beside the definition it must not exceed.
+ *
+ * Chat (2,000) and extract (4,000) have their own fixed defaults and are not
+ * covered by this test; they are below the figure today.
+ */
+describe("no summarize length asks for more than the per-run output figure", () => {
+  it("bounds every summarize length's output budget by outputTokensPerFullRun", () => {
+    // Health check: the set is DERIVED from the options the route accepts, and
+    // must be the three lengths, so `[] <= X` cannot pass vacuously.
+    expect([...SUMMARY_LENGTHS].sort()).toEqual(
+      Object.keys(LENGTH_PLAN).sort(),
+    );
+    expect(SUMMARY_LENGTHS.length).toBe(3);
+    for (const length of SUMMARY_LENGTHS) {
+      expect(
+        LENGTH_PLAN[length].tokens,
+        `summarize ${length} asks for more output tokens than one run is allowed`,
+      ).toBeLessThanOrEqual(AI_SPEND_CEILING.outputTokensPerFullRun);
+    }
+    // Positive control: the bound is tight, not merely satisfied by small
+    // numbers. Detailed sits exactly on it, so a lower figure fails here.
+    expect(LENGTH_PLAN.detailed.tokens).toBe(
+      AI_SPEND_CEILING.outputTokensPerFullRun,
     );
   });
 });
