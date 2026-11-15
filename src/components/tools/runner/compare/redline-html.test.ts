@@ -314,6 +314,7 @@ const ELEMENTS = new Set([
   "h1",
   "h2",
   "h3",
+  "bdi",
   "span",
   "p",
   "dl",
@@ -462,6 +463,30 @@ describe("everything the PDFs and the file names carry is text", () => {
 /* ------------------------------------------------------------------ *
  *  Self-contained, and the CSP's hash is the stylesheet's
  * ------------------------------------------------------------------ */
+
+describe("a file name cannot reorder the heading around it", () => {
+  // 2026-11-15 review: a first file named "contract \u202Evdr.pdf" turned the
+  // h1 into "contract fdp.lanif sv fdp.rdv". A <span> does not isolate bidi,
+  // so the override ran on past the name into " vs " and the second name.
+  // <bdi> scopes each name's direction to the name. (The <title> cannot hold
+  // markup and is still open; see the PR.)
+  it("each name in the h1 is its own bidi isolate", () => {
+    const base = hostileResult();
+    const page = html({
+      ...base,
+      leftName: `contract ${String.fromCharCode(0x202e)}vdr.pdf`,
+      rightName: "final.pdf",
+    });
+    const names = [...page.querySelectorAll("h1 .f")];
+    expect(names.map((n) => n.textContent)).toEqual([
+      `contract ${String.fromCharCode(0x202e)}vdr.pdf`,
+      "final.pdf",
+    ]);
+    expect(names.map((n) => n.localName)).toEqual(["bdi", "bdi"]);
+    // " vs " sits outside both isolates, as the h1's own text.
+    expect(page.querySelector("h1")!.textContent).toContain("vdr.pdf vs final");
+  });
+});
 
 describe("the page loads nothing and runs nothing", () => {
   async function realHtml() {

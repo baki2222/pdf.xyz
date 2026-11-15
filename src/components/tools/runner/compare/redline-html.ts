@@ -184,7 +184,7 @@ export function buildRedlineHtml(result: PdfCompareResult): string {
     "</head>",
     "<body>",
     "<header>",
-    `<h1>PDF comparison: <span class="f">${left}</span> vs <span class="f">${right}</span></h1>`,
+    `<h1>PDF comparison: <bdi class="f">${left}</bdi> vs <bdi class="f">${right}</bdi></h1>`,
     `<p>${esc(SCOPE_SENTENCE)}</p>`,
     "<dl>",
     ...reportFields(result).map(
