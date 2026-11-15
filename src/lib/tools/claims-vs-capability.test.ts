@@ -3633,11 +3633,39 @@ describe("PDF to Word: the table sentences hold of the engine", () => {
     // 2): ONE each — the header and the rows down to the wrapped one; the
     // two rows below it are a two-row table, under MIN_WORD_TABLE_ROWS, and
     // stay tabbed. Never one whole five-row table.
+    // INVERTED 2026-11-16 (#28 slice 3, wraps — flow.ts rule 7): ONE whole
+    // five-row table each on the stand-in (a labelled stand-in pin; the
+    // image's poppler gives the same, flow-wraps.test.ts S2). Until then:
+    // `expect(wrapped[0]!.rows.length, kind).toBe(3)`.
     for (const kind of ["long", "short"] as const) {
       const wrapped = await tablesOf(await wrappedCellTablePdf(kind));
       expect(wrapped.length, kind).toBe(1);
-      expect(wrapped[0]!.rows.length, kind).toBe(3);
-      const whole = wrapped.length === 1 && wrapped[0]!.rows.length === 5;
+      expect(wrapped[0]!.rows.length, kind).toBe(5);
+    }
+    // The "every table" overclaim keeps a LIVE counterexample: a wrap in the
+    // first column (S6, the image's capture) is not one whole table. It was
+    // keyed on the wrapped exports above, which are whole since 2026-11-16,
+    // so it would have stopped running.
+    {
+      const { IMAGE_ACADEMIC_LABEL_WRAP_BBOX } =
+        await import("@/tests/poppler-samples-image");
+      const run = await runPdfOfficeExport(
+        PDF_TO_WORD_TOOL,
+        new Uint8Array([0x25, 0x50, 0x44, 0x46]),
+        {
+          extractFlow: async () =>
+            flowText(parseBboxFlow(IMAGE_ACADEMIC_LABEL_WRAP_BBOX)),
+          scanPages: noPictures,
+        },
+      );
+      if (!run.ok) throw new Error(`${run.kind}: ${run.message}`);
+      const s6 = (await readDocxStructure(run.output)).blocks.filter(
+        (b): b is Tbl => b.kind === "tbl",
+      );
+      // Health: measured, one table of the 3 rows above the wrap.
+      expect(s6.map((t) => t.rows.length)).toEqual([3]);
+      const whole = s6.length === 1 && s6[0]!.rows.length === 6;
+      expect(whole).toBe(false);
       if (!whole) expect(await offenders(overclaims)).toEqual([]);
     }
 
