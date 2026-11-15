@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  MAX_DECODED_TOTAL_BYTES,
   PDF_EXPANDS_TOO_FAR_MESSAGE,
   PDF_IMAGE_TOO_LARGE_MESSAGE,
   PDF_NESTED_TOO_DEEPLY_MESSAGE,
@@ -23,6 +24,59 @@ import { runBounded, type BoundedOutcome } from "./bounded";
  */
 const GROWTH_MB = 300;
 const CHILD = "src/tests/hostile/pdfjs-guard.child.ts";
+
+/**
+ * The time bound on an `open:<file>:<reader>` refusal (lane res1), against a
+ * yardstick measured in the same child just before the read
+ * (./yardstick.ts): inflate Flate and look at every byte once, scaled to
+ * MAX_DECODED_TOTAL_BYTES. That is the irreducible work of a preflight that
+ * stops at its budget, so the bound reads "the refusal costs at most
+ * BUDGET_READS_ALLOWED budget-reads on this machine, now".
+ *
+ * History (2026-11-15). The bound WAS `growth.ms < 30_000`. The object-stream
+ * bomb's preflight (JS scanners over 1.6 GB of inflate, plus zlib) took
+ * 7.8-8.1 s on a quiet Windows box and up to 3.7x that on CI: main at
+ * 1e73d632 (run 43629904891) failed it at 30,179 ms through viewer-render,
+ * with nothing wrong, and the access probe's identical region was estimated
+ * at 0.90 of the bound on the slowest run seen. The comment's "2.5-4 s
+ * (measured 2026-11-09)" was already stale. The constant could not tell a
+ * loaded runner from a slow preflight; the yardstick, on the same runner at
+ * the same moment, can.
+ *
+ * Measured 2026-11-15 (Windows, Node 24, a busy box): the bomb's refusal
+ * 1.69-2.16 budget-reads through every reader and the access probe, the
+ * other files under 0.02. Mutations, run through these tests: the object
+ * scanners fed every chunk 8 times read 4.49-4.89 and failed all six; 4
+ * times read 2.86-3.14 and passed, which is this bound's resolution (the
+ * old 30 s constant passed both, at 13 s and 21 s). A reader that stopped
+ * refusing (the defect lane res1 fixed) is caught by the typed-error
+ * assertion beside this one.
+ */
+const BUDGET_READS_ALLOWED = 3.5;
+/**
+ * And an absolute ceiling beside it, under runBounded's 90 s kill, so a
+ * preflight that crawls is reported with its number rather than as a hang,
+ * even if the yardstick were slow for the same reason.
+ */
+const REFUSAL_CEILING_MS = 60_000;
+function expectRefusedInBudgetTime(v: Record<string, unknown>, said: string) {
+  const { ms, yardstick } = v.growth as {
+    ms: number;
+    yardstick: { msPerMiB: number; sampleMiB: number; reps: number[] };
+  };
+  // Health check: a yardstick that measured nothing would pass every bound.
+  expect(yardstick.reps, said).toHaveLength(3);
+  expect(yardstick.msPerMiB, said).toBeGreaterThan(0);
+  const budgetReadMs =
+    yardstick.msPerMiB * (MAX_DECODED_TOTAL_BYTES / (1024 * 1024));
+  const reads = ms / budgetReadMs;
+  const detail = `${said}: ${ms} ms = ${reads.toFixed(2)} budget-reads of ${Math.round(budgetReadMs)} ms`;
+  // Printed on a pass too: CI logs showed this region only on a failure,
+  // so the spread the bound was set from could not be read back.
+  console.log(`[time-bound] ${detail}`);
+  expect(reads, detail).toBeLessThan(BUDGET_READS_ALLOWED);
+  expect(ms, detail).toBeLessThan(REFUSAL_CEILING_MS);
+}
 
 /** The value a settled child reported; fails loudly on a hang or crash. */
 function settled(r: BoundedOutcome): Record<string, unknown> {
@@ -446,12 +500,11 @@ describe("lane res1: every pdf.js open goes through the preflight", () => {
           }),
         );
         expect(v.error, `${file} via ${reader}`).toMatchObject(error);
-        // Second bound: refused in seconds, before pdf.js parsed anything.
-        // Measured 2026-11-09 (Windows, Node 24): the object-stream bomb
-        // 2.5-4 s (the preflight inflates up to its 1.6 GB budget), the
-        // others under 0.5 s.
-        const { ms, mb } = v.growth as { ms: number; mb: number };
-        expect(ms, `${file} via ${reader}`).toBeLessThan(30_000);
+        // Second bound: refused in about the time it takes to read the
+        // preflight's budget, before pdf.js parsed anything. See
+        // `expectRefusedInBudgetTime` for the shape and its history.
+        expectRefusedInBudgetTime(v, `${file} via ${reader}`);
+        const { mb } = v.growth as { mb: number };
         // Third bound, memory: the bomb's refusal comes from a preflight that
         // streams up to 1.6 GB through inflate, so what it KEEPS is the bound
         // worth pinning (added after review; the child always reported it).
@@ -665,8 +718,8 @@ describe("lane res1: the access probe's open goes through the preflight too", ()
         }),
       );
       expect(v, file).toMatchObject({ ok: true, access: "unreadable" });
-      const { ms, mb } = v.growth as { ms: number; mb: number };
-      expect(ms, file).toBeLessThan(30_000);
+      expectRefusedInBudgetTime(v, `${file} via access`);
+      const { mb } = v.growth as { mb: number };
       expect(mb, file).toBeLessThan(GROWTH_MB);
     }, 120_000);
   }

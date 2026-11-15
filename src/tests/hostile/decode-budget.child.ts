@@ -108,16 +108,23 @@ async function run(): Promise<unknown> {
   }
 }
 
+// 2026-11-15: the entry's own time, from here to settle. The parent used to
+// time the whole test from outside (fixture build, spawn, tsx boot and all),
+// and its 30,000 ms bound read 30,273 ms on a loaded CI runner as a defect.
+const t0 = performance.now();
+const ms = () => Math.round(performance.now() - t0);
 run().then(
   (value) =>
     reportResult({
       ok: value,
+      ms: ms(),
       growthMb: meter.growthMb(),
       meter: meter.method,
     }),
   (err) =>
     reportResult({
       ...describe(err),
+      ms: ms(),
       growthMb: meter.growthMb(),
       meter: meter.method,
     }),
