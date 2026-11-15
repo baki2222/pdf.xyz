@@ -3879,10 +3879,14 @@ const COMPARE_REDLINE_RULE = {
     "runs no scripts": /\bruns no (?:scripts|code)\b/i,
   },
   shipped: [
-    "Compare two PDFs line by line or overlay the pages: see added and removed text, page and size changes, and save the changes as a text or HTML redline.",
+    "Compare two PDFs: see added and removed lines, page and size changes, or overlay the pages, and save a text or HTML redline.",
     "Download redline (HTML) saves the same changes as a web page, removed words struck through and added ones underlined, for example draft-vs-final-comparison.html.",
     "It opens in any browser, offline, and runs no scripts.",
-    "Is the redline safe to send?",
+    // The plan's own FAQ, folded into the upload FAQ (six-FAQ budget); its
+    // question is not a served sentence (questions are not attributed).
+    "No, nothing is uploaded: both files are opened and compared by your browser on your own device, and the report and the redline are made there too.",
+    "The redline holds the changed lines of both files, with up to two unchanged lines around each change, and both file names, so anyone you send it to can read those.",
+    "Compare two PDF versions in your browser: page count, file size and every changed line, as text or an HTML redline, or overlay the pages to see where ink differs.",
     "It loads nothing from the internet and runs no code.",
     "Each change is headed with the page it sits on in each file, for example Page 2 → page 3 when a page was inserted before it, the downloaded report heads it the same way, @@ Page 2 -> page 3 @@, and the HTML redline heads it Page 2 → page 3.",
     "Download the comparison report, a .txt file listing only the changes with their page numbers, or Download redline (HTML) for the same changes as a web page.",
@@ -3899,7 +3903,7 @@ async function compareRedlineProbe(): Promise<Probe> {
     await comparablePdf("v2.pdf", right),
   );
   const html = buildRedlineHtml(result);
-  const page = new JSDOM(html).window.document;
+  const page = (new JSDOM(html).window as unknown as Window).document;
   const del = page.querySelectorAll("del").length;
   const ins = page.querySelectorAll("ins").length;
   const header = [...page.querySelectorAll("h3")].some(
@@ -3928,7 +3932,9 @@ describe("Compare PDF: the redline claims hold of the redline", () => {
   it("the shapes and the corpus cover each other", () => {
     expect(
       claimShapes
-        .filter(([, re]) => !COMPARE_REDLINE_RULE.shipped.some((c) => re.test(c)))
+        .filter(
+          ([, re]) => !COMPARE_REDLINE_RULE.shipped.some((c) => re.test(c)),
+        )
         .map(([n]) => n),
       "claim shapes no shipped sentence exercises",
     ).toEqual([]);

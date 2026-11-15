@@ -20,8 +20,8 @@
  * other in-browser runners are NOT driven yet: each needs its own inputs and
  * its own way to finish a run, and the harnesses that do that live in their
  * runners' own tests. The plan's target (ten or more tools) is therefore
- * not met by this file; the count of undriven tools is pinned below, so a
- * driver added later moves it on purpose, not silently.
+ * not met by this file (1 of 38 in-browser tools on 2026-11-15); the
+ * driven kinds are pinned below, so a driver added later is a decision.
  *
  * Downloads are discovered by `[data-download]` in the result panel (the
  * attribute `runner-kit.tsx` already reads to keep a result once it is
@@ -49,7 +49,12 @@ import {
   normalizeFormatLabel,
 } from "@/lib/jobs/mime-by-format";
 import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
-import { extractLegacy, linesPdf, pageHeaderPair } from "@/tests/compare-fixtures";
+import {
+  extractLegacy,
+  linesPdf,
+  pageHeaderPair,
+  type PageLines,
+} from "@/tests/compare-fixtures";
 import { getToolBySlug, tools } from "./index";
 
 afterEach(() => {
@@ -160,7 +165,7 @@ let nextId = 0;
 const DRIVERS: Readonly<Record<string, Driver>> = {
   compare: async (_slug, strip) => {
     const { left, right } = pageHeaderPair();
-    const item = async (name: string, pages: string[][]) => {
+    const item = async (name: string, pages: readonly PageLines[]) => {
       const bytes = await linesPdf(pages);
       return {
         id: `co-${nextId++}`,
@@ -216,9 +221,13 @@ describe("in-browser tools download exactly the formats their page promises", ()
     );
     // The undriven in-browser tools, pinned so a new driver moves it on
     // purpose. Not a target: an honest count of what this file cannot see.
+    // 2026-11-15: 38 in-browser tools, 1 driven (Compare PDF), 37 not. Not
+    // pinned to the number: every new in-browser tool would turn this red
+    // for a reason that is not a defect. The driven KINDS are pinned
+    // instead, so a driver added later is a decision.
     const client = tools.filter((t) => t.processing === "client");
-    const undriven = client.length - found.length;
-    expect(undriven).toBeGreaterThan(0);
+    expect(client.length - found.length).toBeGreaterThan(0);
+    expect(Object.keys(DRIVERS)).toEqual(["compare"]);
   });
 
   it("health: the extension table reads both of Compare PDF's formats", () => {
@@ -273,7 +282,9 @@ describe("in-browser tools download exactly the formats their page promises", ()
         downloads,
       ),
     ).toEqual([
-      expect.stringContaining("the catalogue says HTML, the runner downloads none"),
+      expect.stringContaining(
+        "the catalogue says HTML, the runner downloads none",
+      ),
     ]);
   }, 30_000);
 

@@ -2746,7 +2746,7 @@ export const guides: Guide[] = [
     slug: "how-to-compare-two-pdf-files",
     title: "How to compare two PDF files",
     description:
-      "Compare two versions of a PDF in your browser: page count, file size and every changed line of text, with a report, or overlay the pages to see where ink differs.",
+      "Compare two PDF versions in your browser: page count, file size and every changed line, as text or an HTML redline, or overlay the pages to see where ink differs.",
     tools: ["compare-pdf", "ocr-pdf", "pdf-to-text"],
     keywords: [
       "how to compare two pdf files",
@@ -2756,7 +2756,7 @@ export const guides: Guide[] = [
       "compare pdf versions",
     ],
     intro: [
-      `To compare two PDF files, open ${nameOf("compare-pdf")}, pick the two versions, and select Compare PDFs. You get their page counts, the size difference and every line of text that was added or removed, each under the page it sits on in both files, plus a report you can download. It runs in your browser, so both files stay on your device.`,
+      `To compare two PDF files, open ${nameOf("compare-pdf")}, pick the two versions, and select Compare PDFs. You get their page counts, the size difference and every line of text that was added or removed, each under the page it sits on in both files, plus a text report and an HTML redline to download. It runs in your browser, so both files stay on your device.`,
       "The comparison reads the text in each PDF, line by line. That makes it good at the question most people are asking — what changed in the wording. For changes that are only visual, Overlay pages lays each page of one file over the same page of the other and marks where the ink differs.",
     ],
     steps: [
@@ -2767,7 +2767,7 @@ export const guides: Guide[] = [
       "Review the lines marked removed (-) and added (+), each headed with its page in both files, with the changed words marked.",
       "Select Show changes on the pages to see both files side by side with the changes marked on the pages.",
       "Select Overlay pages to lay each page of the second file over the same page of the first, with the differences in the ink outlined and numbered.",
-      "Download the comparison report: a .txt file listing only the changes, with their page numbers.",
+      "Download the comparison report, a .txt file listing only the changes with their page numbers, or Download redline (HTML) for the same changes as a web page.",
     ],
     sections: [
       {

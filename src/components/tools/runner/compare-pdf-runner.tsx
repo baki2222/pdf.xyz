@@ -316,6 +316,7 @@ export function ComparePdfEditor({
     result: PdfCompareResult;
   } | null>(null);
   const [optionsError, setOptionsError] = useState<string | null>(null);
+  const [redlineError, setRedlineError] = useState<string | null>(null);
   const result =
     done && adjusted?.run === done ? adjusted.result : (done?.result ?? null);
   // The second file is in: the chunk is fetched now, not when Compare is
@@ -340,6 +341,7 @@ export function ComparePdfEditor({
       const a = { ...left, extracted: leftText };
       const b = { ...right, extracted: rightText };
       setOptionsError(null);
+      setRedlineError(null);
       return {
         mod,
         left: a,
@@ -406,6 +408,7 @@ export function ComparePdfEditor({
         onReset={() => {
           reset();
           setAdjusted(null);
+          setRedlineError(null);
           onClear();
         }}
         output={textOutputFile(
@@ -453,19 +456,70 @@ export function ComparePdfEditor({
             </>
           )}
           {optionsError && <ErrorNote message={optionsError} />}
-          <button
-            type="button"
-            onClick={() =>
-              downloadBlob(
-                new Blob([result.report], { type: "text/plain;charset=utf-8" }),
-                compareOutputName(result.leftName, result.rightName),
-              )
-            }
-            className={buttonVariants({ variant: "primary", size: "lg" })}
-          >
-            <Download className="size-4" aria-hidden />
-            Download comparison report
-          </button>
+          {redlineError && <ErrorNote message={redlineError} />}
+          {/* `data-download` on each: the result is kept once downloaded
+              (runner-kit.tsx), and client-outputs.test.tsx discovers every
+              download by it and holds the set to the catalogue's outputs. */}
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              data-download=""
+              onClick={() =>
+                downloadBlob(
+                  new Blob([result.report], {
+                    type: "text/plain;charset=utf-8",
+                  }),
+                  compareOutputName(result.leftName, result.rightName),
+                )
+              }
+              className={buttonVariants({ variant: "primary", size: "lg" })}
+            >
+              <Download className="size-4" aria-hidden />
+              Download comparison report
+            </button>
+            {done && (
+              <button
+                type="button"
+                data-download=""
+                // Fetch the redline's chunk as the pointer or focus arrives,
+                // so the press rarely waits on it (the download must start
+                // within the click's activation window).
+                onPointerEnter={() =>
+                  void done.mod.loadCompareRedline().catch(() => {})
+                }
+                onFocus={() =>
+                  void done.mod.loadCompareRedline().catch(() => {})
+                }
+                onClick={async () => {
+                  // The result ON SCREEN: after an option toggle, the
+                  // adjusted one, exactly as the report above follows it.
+                  const shown = result;
+                  try {
+                    const m = await done.mod.loadCompareRedline();
+                    setRedlineError(null);
+                    downloadBlob(
+                      new Blob([m.buildRedlineHtml(shown)], {
+                        type: "text/html;charset=utf-8",
+                      }),
+                      compareOutputName(
+                        shown.leftName,
+                        shown.rightName,
+                        "html",
+                      ),
+                    );
+                  } catch (err) {
+                    setRedlineError(
+                      `The redline could not be loaded (${errorMessage(err)}). Press Download redline (HTML) to try again.`,
+                    );
+                  }
+                }}
+                className={buttonVariants({ variant: "secondary", size: "lg" })}
+              >
+                <Download className="size-4" aria-hidden />
+                Download redline (HTML)
+              </button>
+            )}
+          </div>
         </div>
       </ResultPanel>
     );

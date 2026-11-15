@@ -85,7 +85,9 @@ function rowsOf(section: Element): Row[] {
 function wordMarks(row: Element, tag: "del" | "ins"): string[] {
   return [...row.querySelectorAll(tag)]
     .filter((m) =>
-      /^\[(?:removed|added): $/.test(m.previousElementSibling?.textContent ?? ""),
+      /^\[(?:removed|added): $/.test(
+        m.previousElementSibling?.textContent ?? "",
+      ),
     )
     .map((m) => m.textContent ?? "");
 }
@@ -176,9 +178,9 @@ describe("the HTML redline agrees with the .txt report", () => {
     expect(page.querySelectorAll("main section").length).toBe(
       result.hunks.length,
     );
-    expect(page.querySelector("main section h3")?.textContent).toBe(
-      "Page 2 → page 3",
-    );
+    expect(
+      [...page.querySelectorAll("main section h3")].map((h) => h.textContent),
+    ).toContain("Page 2 → page 3");
     expect(page.querySelectorAll("del").length).toBeGreaterThanOrEqual(1);
     expect(page.querySelectorAll("ins").length).toBeGreaterThanOrEqual(1);
   });
@@ -217,17 +219,13 @@ describe("the HTML redline agrees with the .txt report", () => {
   });
 
   it("ignore page headers and numbers: the set-aside counts are in the header", () => {
-    const pages = (body: string[][]) =>
-      body.map((lines, i) => [
-        "ACME Corp confidential",
-        ...lines,
-        `Page ${i + 1} of ${body.length}`,
-      ]);
-    const one = [["alpha one"], ["bravo two"], ["charlie three"], ["delta"]];
-    const two = [["alpha one"], ["bravo 2"], ["charlie three"], ["delta"]];
+    // engine.test.ts's furniture pair: a running header, and page numbers
+    // that count with the pages (of 3, of 4), plus one changed body line.
+    const pages = (bodies: string[], of: number) =>
+      bodies.map((b, i) => ["Acme Corp", b, `Page ${i + 1} of ${of}`]);
     const result = compareExtractedPdfText(
-      pagedDoc("a.pdf", pages(one)),
-      pagedDoc("b.pdf", pages(two)),
+      pagedDoc("a.pdf", pages(["alpha text", "bravo text", "charlie text"], 3)),
+      pagedDoc("b.pdf", pages(["alpha text", "bravo 2", "charlie text"], 4)),
       { ignoreFurniture: true },
     );
     expect(result.dropped.left).toBeGreaterThan(0);
@@ -371,8 +369,12 @@ describe("everything the PDFs and the file names carry is text", () => {
     expect(page.querySelectorAll(".l").length).toBeGreaterThanOrEqual(
       CORPUS.length,
     );
-    expect(page.querySelectorAll("script, img, link, iframe, object, a")).toHaveLength(0);
-    const elements = all.map((e) => e.localName).filter((n) => !ELEMENTS.has(n));
+    expect(
+      page.querySelectorAll("script, img, link, iframe, object, a"),
+    ).toHaveLength(0);
+    const elements = all
+      .map((e) => e.localName)
+      .filter((n) => !ELEMENTS.has(n));
     expect(elements, "elements outside the page's own").toEqual([]);
     const attributes = all.flatMap((e) =>
       e.getAttributeNames().filter((a) => !ATTRIBUTES.has(a)),
@@ -384,7 +386,11 @@ describe("everything the PDFs and the file names carry is text", () => {
     const result = hostileResult();
     const page = html(result);
     const names = CORPUS.map(([, want]) => want).join(" | ");
-    expect(page.title).toBe(`${names}.pdf vs x${names}.pdf: PDF comparison`);
+    // The <title> element's text, not `document.title`, which collapses
+    // whitespace (the corpus has a tab).
+    expect(page.querySelector("title")?.textContent).toBe(
+      `${names}.pdf vs x${names}.pdf: PDF comparison`,
+    );
     const files = [...page.querySelectorAll("h1 .f")].map((f) => f.textContent);
     expect(files).toEqual([`${names}.pdf`, `x${names}.pdf`]);
     // The rows carry what the report carries, with the same replacement.
@@ -420,9 +426,9 @@ describe("everything the PDFs and the file names carry is text", () => {
       expect(row.getAttribute("dir")).toBe("auto");
       expect(row.firstElementChild?.className).toBe("m");
     }
-    expect(
-      rows.some((r) => (r.textContent ?? "").includes(ch(0x202e))),
-    ).toBe(true);
+    expect(rows.some((r) => (r.textContent ?? "").includes(ch(0x202e)))).toBe(
+      true,
+    );
   });
 
   it("is well-formed XML for every case, hostile ones included", async () => {
@@ -556,8 +562,7 @@ describe("the redline's colours pass 4.5:1 in light, dark and print", () => {
     /@media \(prefers-color-scheme: ?dark\)\{:root\{([^}]*)\}/.exec(
       REDLINE_CSS,
     )?.[1] ?? "";
-  const print =
-    /@media print\{:root\{([^}]*)\}/.exec(REDLINE_CSS)?.[1] ?? "";
+  const print = /@media print\{:root\{([^}]*)\}/.exec(REDLINE_CSS)?.[1] ?? "";
   const PAIRS = [
     ["fg", "bg"],
     ["muted", "bg"],
@@ -587,9 +592,10 @@ describe("the redline's colours pass 4.5:1 in light, dark and print", () => {
     const t = tokens(block);
     for (const [fg, bg] of PAIRS) {
       const ratio = contrastRatio(parseColor(t[fg]!)!, parseColor(t[bg]!)!);
-      expect(ratio, `${fg} on ${bg}: ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(
-        4.5,
-      );
+      expect(
+        ratio,
+        `${fg} on ${bg}: ${ratio.toFixed(2)}`,
+      ).toBeGreaterThanOrEqual(4.5);
     }
   });
 

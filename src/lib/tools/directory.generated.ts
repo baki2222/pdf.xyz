@@ -394,7 +394,7 @@ export const TOOL_DIRECTORY: readonly ToolEntry[] = [
     name: "Compare PDF",
     processing: "client",
     accept: ["PDF"],
-    outputs: ["TXT"],
+    outputs: ["TXT", "HTML"],
   },
   {
     slug: "chat-with-pdf",

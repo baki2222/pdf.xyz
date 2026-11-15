@@ -30,6 +30,10 @@
  * DERIVES the client-side set by walking slug → registry → runner → imports, and the
  * file now holds both kinds of corpus on purpose: typed where a human judgement about
  * "is this really a deliverable" is load-bearing, walked where it is not.
+ *
+ * The other direction, at the point of consumption: `client-outputs.test.tsx`
+ * (2026-11-15) drives in-browser runners, clicks every `[data-download]` and
+ * holds the set of downloaded formats to `Tool.outputs`, both ways.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
