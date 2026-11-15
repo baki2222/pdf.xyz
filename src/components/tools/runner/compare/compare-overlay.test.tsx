@@ -356,6 +356,39 @@ describe("Check all pages", () => {
     expect(text()).not.toMatch(PHRASE);
   });
 
+  it("an encrypted file asks before Check all draws it, and Cancel draws nothing", async () => {
+    const pages = setup({ numPages: 3 }, { numPages: 3 });
+    // The same fake document, its bytes now naming /Encrypt.
+    const encrypted = new TextEncoder().encode("trailer << /Encrypt 9 0 R >>");
+    sides.set(encrypted, sides.get(pages.right.bytes)!);
+    const withEncrypted = {
+      ...pages,
+      right: { ...pages.right, bytes: encrypted },
+    };
+    render(<CompareOverlay pages={withEncrypted} />);
+    await drawn();
+    const before = signals.length;
+    fireEvent.click(screen.getByRole("button", { name: "Check all pages" }));
+    expect(text()).toContain(
+      "This file is encrypted, so very large pages are not caught before they are drawn",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(signals.length).toBe(before);
+    fireEvent.click(screen.getByRole("button", { name: "Check all pages" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Check all pages anyway" }),
+    );
+    await waitFor(() => expect(text()).toMatch(/on any of the 3 pages/), {
+      timeout: 3000,
+    });
+    // Control: an unencrypted pair starts at once, with no question.
+    cleanup();
+    render(<CompareOverlay pages={setup({ numPages: 2 }, { numPages: 2 })} />);
+    await drawn();
+    fireEvent.click(screen.getByRole("button", { name: "Check all pages" }));
+    expect(text()).not.toContain("This file is encrypted");
+  });
+
   it("unmounting stops a running scan", async () => {
     const pages = setup(
       { numPages: 30, delayMs: 5 },
