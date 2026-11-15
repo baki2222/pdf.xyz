@@ -108,6 +108,12 @@ const ALLOWED = new Set(
     // keys for the hand-written encrypted fixtures. Pulled in only by the PDF
     // to Office `*.test.ts(x)` files, never by a route, component or barrel.
     "src/tests/pdf-office-fixtures.ts",
+    // 2026-11-15: PDF to Word's discovered fixture corpus runs the engine on
+    // production's deps (`pdf-office-export/native`), and the formatting
+    // cost probe runs it in a fresh process (spawned by
+    // `docx-run-style.cap.test.ts`). Test-side only, like the line above.
+    "src/tests/docx-word-corpus.ts",
+    "src/tests/docx-run-style-measure.ts",
     // Builds the Extract tables proof PDFs from `pdf-office-fixtures`, so it
     // inherits that module's PATH probe. Imported by the table-extract
     // `*.test.ts` files and the proof script, never by a route, component or

@@ -238,6 +238,7 @@ function heartbeat(malwareScan: boolean): WorkerHeartbeat {
       pptxPresentationChain: true,
       pptxPictures: true,
       docxPictures: true,
+      docxRunStyles: true,
       translateOcr: true,
       htmlZip: true,
     },

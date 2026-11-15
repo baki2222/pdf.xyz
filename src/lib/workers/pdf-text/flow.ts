@@ -162,6 +162,19 @@ export type FlowParagraph = readonly string[];
 /** A paragraph's bounds on its page: x0, y0, x1, y1 in poppler's frame. */
 export type FlowBox = readonly [number, number, number, number];
 
+/**
+ * One of poppler's words as it stands in a cell's text: the text it adds —
+ * the word, with the separator that joins it to the word before at its HEAD
+ * (`" word"`), or a soft hyphen cut from its tail where the next line
+ * continues it — and the word's own box. A cell's pieces concatenate to the
+ * cell's text EXACTLY; PDF to Word gives each piece its formatting
+ * (`../pdf-office-export/docx-run-style`), so the text never changes.
+ */
+export interface FlowPiece {
+  text: string;
+  box: FlowBox;
+}
+
 export interface PdfFlowTextPage {
   pageNumber: number;
   paragraphs: FlowParagraph[];
@@ -173,6 +186,12 @@ export interface PdfFlowTextPage {
    * by hand rather than from a layout.
    */
   boxes?: FlowBox[];
+  /**
+   * Each paragraph's cells as poppler's words, parallel to `paragraphs`:
+   * `pieces[i][c]` concatenates to `paragraphs[i][c]`, exactly. Absent from
+   * a page built by hand; PDF to Word then writes each cell as one run.
+   */
+  pieces?: FlowPiece[][][];
 }
 
 /** What PDF to Word writes: every page, in order, as paragraphs. */
@@ -186,6 +205,8 @@ interface Cell {
   words: number;
   xMin: number;
   xMax: number;
+  /** Its words, each with the separator before it: they concatenate to `text`. */
+  pieces: FlowPiece[];
 }
 
 interface PlacedLine {
@@ -221,11 +242,19 @@ function lineCells(line: FlowLine): Cell[] {
 }
 
 function cellOf(words: readonly FlowLine["words"][number][]): Cell {
+  // A loop, not Math.max(...spread): a line of tens of thousands of words
+  // would overflow the argument list.
+  let xMax = -Infinity;
+  for (const w of words) if (w.xMax > xMax) xMax = w.xMax;
   return {
     text: joinWords(words),
     words: words.length,
     xMin: words[0]!.xMin,
-    xMax: Math.max(...words.map((w) => w.xMax)),
+    xMax,
+    pieces: words.map((w, k) => ({
+      text: k === 0 ? w.text : ` ${w.text}`,
+      box: [w.xMin, w.yMin, w.xMax, w.yMax] as const,
+    })),
   };
 }
 
@@ -477,20 +506,64 @@ function joinLines(texts: readonly string[]): string {
   return out;
 }
 
-/** The union of `lines`' boxes. */
+/**
+ * {@link joinLines} over pieces: the SAME three branches, so the pieces
+ * concatenate to exactly the text `joinLines` makes — the separator goes at
+ * the head of the next line's first piece (`" word"`); a soft hyphen is cut
+ * from the tail of the line before; a letter-hyphen line joins a lowercase
+ * continuation with nothing between.
+ */
+function joinPieces(lines: readonly (readonly FlowPiece[])[]): FlowPiece[] {
+  const out: FlowPiece[] = [];
+  let joined = "";
+  for (const line of lines) {
+    const text = line.map((p) => p.text).join("");
+    if (out.length === 0 && joined.length === 0) {
+      out.push(...line);
+      joined = text;
+      continue;
+    }
+    if (joined.endsWith(SOFT_HYPHEN)) {
+      const last = out[out.length - 1]!;
+      const cut = last.text.slice(0, -1);
+      if (cut.length > 0) out[out.length - 1] = { ...last, text: cut };
+      else out.pop();
+      joined = joined.slice(0, -1);
+      out.push(...line);
+      joined += text;
+    } else if (/\p{L}-$/u.test(joined) && STARTS_LOWER.test(text)) {
+      out.push(...line);
+      joined += text;
+    } else {
+      const [first, ...rest] = line;
+      if (first) out.push({ ...first, text: ` ${first.text}` }, ...rest);
+      joined += ` ${text}`;
+    }
+  }
+  return out;
+}
+
+/** The union of `lines`' boxes — loops, not spreads, for very long lists. */
 function boxOfLines(lines: readonly FlowLine[]): FlowBox {
-  return [
-    Math.min(...lines.map((l) => l.xMin)),
-    Math.min(...lines.map((l) => l.yMin)),
-    Math.max(...lines.map((l) => l.xMax)),
-    Math.max(...lines.map((l) => l.yMax)),
-  ];
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const l of lines) {
+    if (l.xMin < x0) x0 = l.xMin;
+    if (l.yMin < y0) y0 = l.yMin;
+    if (l.xMax > x1) x1 = l.xMax;
+    if (l.yMax > y1) y1 = l.yMax;
+  }
+  return [x0, y0, x1, y1];
 }
 
 /** One paragraph and the lines it was built from, as their bounds. */
 export interface PlacedParagraph {
   cells: FlowParagraph;
   box: FlowBox;
+  /** Each cell as poppler's words: `pieces[c]` concatenates to `cells[c]`. */
+  pieces: FlowPiece[][];
 }
 
 /**
@@ -518,13 +591,16 @@ export function placedParagraphs(page: FlowPage): PlacedParagraph[] {
   const closeRun = () => {
     const table = trimParagraphEdges(run);
     if (isTable(table)) {
-      const rows = table.map((band) => ({
-        cells: band
+      const rows = table.map((band) => {
+        const cells = band
           .flatMap((l) => l.cells)
-          .sort((a, b) => a.xMin - b.xMin)
-          .map((c) => c.text),
-        box: boxOfLines(band.map((l) => l.line)),
-      }));
+          .sort((a, b) => a.xMin - b.xMin);
+        return {
+          cells: cells.map((c) => c.text),
+          box: boxOfLines(band.map((l) => l.line)),
+          pieces: cells.map((c) => c.pieces),
+        };
+      });
       for (const band of table) for (const l of band) tableOf.set(l.line, rows);
     }
     run = [];
@@ -545,6 +621,9 @@ export function placedParagraphs(page: FlowPage): PlacedParagraph[] {
         paragraphs.push({
           cells: [joinLines(prose.map((l) => placed.get(l)!.cells[0]!.text))],
           box: boxOfLines(prose),
+          pieces: [
+            joinPieces(prose.map((l) => placed.get(l)!.cells[0]!.pieces)),
+          ],
         });
       prose = [];
     };
@@ -566,6 +645,7 @@ export function placedParagraphs(page: FlowPage): PlacedParagraph[] {
         paragraphs.push({
           cells: cells.map((c) => c.text),
           box: boxOfLines([line]),
+          pieces: cells.map((c) => c.pieces),
         });
         return;
       }
@@ -592,6 +672,7 @@ export function flowText(layout: PdfFlowLayout): PdfFlowText {
         pageNumber: page.pageNumber,
         paragraphs: placed.map((p) => p.cells),
         boxes: placed.map((p) => p.box),
+        pieces: placed.map((p) => p.pieces),
       };
     }),
   };

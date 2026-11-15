@@ -61,7 +61,11 @@
  * processor directly, the gate derived HTML to PDF's accepted families from
  * the catalogue alone, and it refused every real ZIP job as an unsupported
  * family while this probe published `htmlZip: true`. The executor's order is
- * gate, then processor; so is the probe's.
+ * gate, then processor; so is the probe's. Since 2026-11-15 every job runs
+ * through the shared executor-order helper (`../capability-chain`), which
+ * adds the hop after the processor: the ARTIFACT-MANIFEST gate, on the
+ * processor's own content type and filename. A step whose render the gate
+ * would refuse now fails the probe, as it would fail the job.
  *
  * ── WHAT A PASS DOES AND DOES NOT MEAN ──────────────────────────────────────
  * Chromium is a stub: a start-up probe launches no browser. A pass means
@@ -75,7 +79,13 @@
  * a real job (see the PR's production proof).
  */
 import JSZip from "jszip";
+import {
+  resolveWorkerArtifactManifest,
+  type ArtifactManifestGate,
+} from "../artifacts";
+import { runThroughExecutorOrder } from "../capability-chain";
 import { createProcessorRegistry } from "../processor";
+import type { ProcessorResult } from "../processor/types";
 import { resolveWorkerSoundness, type SoundnessGate } from "../soundness";
 import { HTML_DOCUMENT_URL } from "./document-url";
 import type { ChromiumPdfRunner, HtmlSite } from "./engine";
@@ -140,6 +150,8 @@ export async function provesHtmlZip(
   answer: typeof answerArchiveRequest = answerArchiveRequest,
   /** The executor's file-soundness gate, resolved as the daemon's runtime resolves it. */
   soundness: SoundnessGate = resolveWorkerSoundness(),
+  /** The executor's artifact-manifest gate, resolved as the daemon's runtime resolves it. */
+  manifest: ArtifactManifestGate = resolveWorkerArtifactManifest(),
 ): Promise<boolean> {
   try {
     const sites: HtmlSite[] = [];
@@ -165,25 +177,33 @@ export async function provesHtmlZip(
       bytes: Uint8Array,
       filename: string,
       options: Record<string, unknown>,
-    ) => {
-      const inputs = [
-        {
-          fileId: "probe",
+    ): Promise<ProcessorResult> => {
+      // The executor's order (`../capability-chain`): the soundness gate,
+      // the processor, then the artifact-manifest gate on what it returned.
+      // A gate that refuses would fail the real job, so it fails the probe;
+      // a step that EXPECTS a refusal expects the processor's own, which
+      // comes back as the processor's result.
+      const outcome = await runThroughExecutorOrder({
+        tool: "html-to-pdf",
+        input: {
+          bytes,
           filename,
           contentType: filename.endsWith(".zip")
             ? "application/zip"
             : "text/html",
-          bytes,
-          declaredBytes: bytes.byteLength,
         },
-      ];
-      // The executor's order: the soundness gate, then the processor. A gate
-      // that refuses the input would fail the real job before it got here.
-      if (
-        soundness.check({ tool: "html-to-pdf", inputs }).verdict === "unsound"
-      )
+        options,
+        registry,
+        soundness,
+        manifest,
+      });
+      if (outcome.stage === "unsound")
         throw new Error("the soundness gate refused a probe input");
-      return processor.process({ tool: "html-to-pdf", options, inputs });
+      if (outcome.stage === "rejected")
+        throw new Error("the artifact-manifest gate refused a probe output");
+      if (outcome.stage === "unroutable")
+        throw new Error("no processor for html-to-pdf");
+      return outcome.result;
     };
 
     // 1. A ZIP naming its page renders as a site of that page.

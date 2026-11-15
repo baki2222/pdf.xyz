@@ -377,8 +377,10 @@ export const DOCX_PICTURE_FIXTURES = [
 /**
  * One US Letter page of four paragraphs: a heading in a bold face, an aside
  * in an italic one, a sentence in a regular face that ENDS in bold words
- * (two runs on one line), and a regular sentence. No picture. PDF to Word
- * keeps bold or italics only where a whole paragraph is set in them.
+ * (two runs on one line), and a regular sentence. No picture. Until
+ * 2026-11-15 PDF to Word kept bold or italics only where a whole paragraph
+ * was set in them; since then each word keeps its own, so the bold ending of
+ * the mixed sentence is bold and the words before it are not.
  */
 export async function boldItalicPdf(): Promise<{
   pdf: Uint8Array;

@@ -10,6 +10,7 @@
  * one paragraph, before the right column's" — is run over the OLD shape too,
  * as the positive control: it must be able to go red on exactly that defect.
  */
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   columnsReadInOrder,
@@ -47,6 +48,7 @@ import {
   TWO_COLUMN_BBOX,
   TWO_COLUMN_LAYOUT,
 } from "@/tests/poppler-samples";
+import * as popplerSamples from "@/tests/poppler-samples";
 import {
   parseLayoutText,
   parseBboxFlow,
@@ -54,6 +56,7 @@ import {
   type FlowPage,
 } from "./parse";
 import {
+  flowPageText,
   flowParagraphs,
   flowText,
   LONG_CELL_WORDS,
@@ -580,5 +583,98 @@ describe("flowText", () => {
     const text = flowText(parseBboxFlow(TWO_COLUMN_BBOX));
     expect(text.pageCount).toBe(1);
     expect(text.pages[0]!.pageNumber).toBe(1);
+  });
+});
+
+/**
+ * 2026-11-15: each cell's PIECES (poppler's words, for PDF to Word's
+ * formatting) concatenate to the cell's text EXACTLY — over every captured
+ * poppler 25.07 page (`popplerSamples`, discovered by the `_BBOX` suffix)
+ * and two hand-built blocks that exercise the hyphenation branches the
+ * captured pages do not (no sample has a soft hyphen or a letter-hyphen line
+ * end). Health checks: a corpus of at least 10 samples, and each joining
+ * branch OBSERVED at least once, so "every cell agrees" is not about cells
+ * that never took the branch.
+ */
+describe("pieces concatenate to the paragraph text, exactly", () => {
+  const block = (...lines: string[]) =>
+    `<doc><page width="612" height="792"><flow><block>${lines
+      .map(
+        (text, i) =>
+          `<line>${text
+            .split(" ")
+            .map(
+              (w, j) =>
+                `<word xMin="${50 + j * 40}" yMin="${100 + i * 14}" xMax="${50 + j * 40 + 30}" yMax="${110 + i * 14}">${w}</word>`,
+            )
+            .join("")}</line>`,
+      )
+      .join("")}</block></flow></page></doc>`;
+  const captured = (
+    Object.entries(popplerSamples) as [string, unknown][]
+  ).filter(
+    (e): e is [string, string] =>
+      /_BBOX$/.test(e[0]) && typeof e[1] === "string",
+  );
+  const corpus: [string, string][] = [
+    ...captured,
+    ["soft hyphen", block("an opera\u00AD", "ting theatre")],
+    ["letter hyphen", block("a well-", "known result")],
+  ];
+
+  it("every cell of every page, and the page text is unchanged", () => {
+    expect(captured.length).toBeGreaterThanOrEqual(10);
+    let cells = 0;
+    let softJoins = 0;
+    let letterJoins = 0;
+    for (const [name, xhtml] of corpus) {
+      const text = flowText(parseBboxFlow(xhtml));
+      for (const page of text.pages) {
+        expect(page.pieces, name).toHaveLength(page.paragraphs.length);
+        page.paragraphs.forEach((cellsOf, i) => {
+          expect(page.pieces![i], name).toHaveLength(cellsOf.length);
+          cellsOf.forEach((cell, c) => {
+            const pieces = page.pieces![i]![c]!;
+            expect(pieces.map((p) => p.text).join(""), name).toBe(cell);
+            cells += 1;
+            pieces.forEach((piece, k) => {
+              if (k === 0 || piece.text.startsWith(" ")) return;
+              if (pieces[k - 1]!.text.endsWith("-")) letterJoins += 1;
+              else softJoins += 1;
+            });
+          });
+        });
+      }
+    }
+    expect(cells).toBeGreaterThanOrEqual(100);
+    expect(softJoins).toBeGreaterThanOrEqual(1);
+    expect(letterJoins).toBeGreaterThanOrEqual(1);
+  });
+
+  /**
+   * Adding pieces changed nothing else: the captured corpus's page text,
+   * paragraphs and boxes hash to the value origin/main's `flow.ts` produced
+   * (computed 2026-11-15 by running both modules over the same 17 samples:
+   * equal). If a later change to the paragraph rules moves this, re-record it
+   * WITH that change's reason — it guards this commit, not those rules.
+   */
+  it("the page text, paragraphs and boxes are what they were before pieces", () => {
+    const digest = createHash("sha256")
+      .update(
+        captured
+          .map(([, xhtml]) =>
+            flowText(parseBboxFlow(xhtml))
+              .pages.map(
+                (p) =>
+                  `${flowPageText(p)}|${JSON.stringify(p.paragraphs)}|${JSON.stringify(p.boxes)}`,
+              )
+              .join("\f"),
+          )
+          .join("\v"),
+      )
+      .digest("hex");
+    expect(digest).toBe(
+      "cc2e01a1da4b93fde2940c5db4b6cf405ccd1ec4803be9031ba09f18df03b3d8",
+    );
   });
 });

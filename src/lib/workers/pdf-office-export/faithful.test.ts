@@ -79,6 +79,7 @@ import {
   type DeckSlide,
   type DeckText,
 } from "@/tests/pptx-deck-read";
+import { deckFromScan } from "./deck-from-scan";
 import { runPdfOfficeExport, type PdfOfficeExportRun } from "./engine";
 import { pdfOfficeExportDeps } from "./native";
 import { decodedBytes, inventoryPages } from "./page-inventory";
@@ -151,6 +152,50 @@ describe("every fixture: a deck PowerPoint's readers accept, one slide per page"
     // 5-second default. The work is the same; the runner is not.
     // `src/tests/timeout-headroom.ts` names the next test past half its budget
     // on every CI run.
+    30_000,
+  );
+});
+
+/**
+ * 2026-11-15: the page reader's runs gained `offset` and `extent` (PDF to
+ * Word labels poppler's words with them, `./docx-run-style`). ADDITIVE: the
+ * deck built from every fixture's scan must be the same, character for
+ * character, with those fields stripped — and the fields must be there to
+ * strip (a health check, so "unchanged" is not about nothing).
+ */
+describe("run offsets leave PowerPoint's deck unchanged", () => {
+  it.each(PPTX_FIDELITY_FIXTURES.map((build) => [build.name, build]))(
+    "%s",
+    async (_, build) => {
+      const fixture = await build();
+      const scan = await scanPdfPages(fixture.pdf);
+      let located = 0;
+      const stripped = {
+        ...scan,
+        pages: scan.pages.map((page) => ({
+          ...page,
+          items: page.items.map((item) =>
+            item.kind !== "text"
+              ? item
+              : {
+                  ...item,
+                  runs: item.runs.map(({ offset, extent, ...run }) => {
+                    if (offset !== undefined && extent !== undefined)
+                      located += 1;
+                    return run;
+                  }),
+                },
+          ),
+        })),
+      };
+      const textRuns = scan.pages
+        .flatMap((p) => p.items)
+        .flatMap((i) => (i.kind === "text" ? i.runs : []));
+      expect(located).toBe(textRuns.length);
+      expect(JSON.stringify(deckFromScan(scan))).toBe(
+        JSON.stringify(deckFromScan(stripped)),
+      );
+    },
     30_000,
   );
 });

@@ -188,3 +188,56 @@ describe("sanitizeJobResults — pictures left out over budget", () => {
     ).not.toHaveProperty("picturesOverBudget");
   });
 });
+
+describe("sanitizeJobResults — pages without their formatting (2026-11-15)", () => {
+  const base = measureOfficeExportPages(3, [
+    { pageNumber: 1, text: "a sentence that is comfortably long enough" },
+    { pageNumber: 2, text: "another sentence that is long enough too" },
+  ]);
+
+  it("carries the count bounded by the pages with text, the pages that exist, and the word count", () => {
+    expect(
+      sanitizeJobResults({
+        officeExport: {
+          ...base,
+          formattingMissingPageCount: 9,
+          pagesWithoutFormatting: [2, 2, 7, 1.5, -1, 1],
+          unmatchedWords: 12.7,
+        },
+      })?.officeExport,
+    ).toMatchObject({
+      formattingMissingPageCount: 2,
+      pagesWithoutFormatting: [1, 2],
+      unmatchedWords: 12,
+    });
+  });
+
+  it("caps the list and keeps the count exact", () => {
+    const many = measureOfficeExportPages(
+      MAX_LISTED_PAGES + 10,
+      Array.from({ length: MAX_LISTED_PAGES + 10 }, (_, i) => ({
+        pageNumber: i + 1,
+        text: "a sentence that is comfortably long enough",
+      })),
+    );
+    const out = sanitizeJobResults({
+      officeExport: {
+        ...many,
+        formattingMissingPageCount: MAX_LISTED_PAGES + 10,
+        pagesWithoutFormatting: Array.from(
+          { length: MAX_LISTED_PAGES + 10 },
+          (_, i) => i + 1,
+        ),
+      },
+    })?.officeExport;
+    expect(out?.formattingMissingPageCount).toBe(MAX_LISTED_PAGES + 10);
+    expect(out?.pagesWithoutFormatting).toHaveLength(MAX_LISTED_PAGES);
+  });
+
+  it("adds nothing where the worker said nothing", () => {
+    const out = sanitizeJobResults({ officeExport: base })?.officeExport;
+    expect(out).not.toHaveProperty("formattingMissingPageCount");
+    expect(out).not.toHaveProperty("pagesWithoutFormatting");
+    expect(out).not.toHaveProperty("unmatchedWords");
+  });
+});
