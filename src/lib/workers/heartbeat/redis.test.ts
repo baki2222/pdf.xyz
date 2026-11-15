@@ -32,6 +32,7 @@ const CAPS: HeartbeatCapabilities = {
   pptxPictures: true,
   docxPictures: true,
   docxRunStyles: true,
+  docxTables: true,
   translateOcr: true,
   htmlZip: true,
 };

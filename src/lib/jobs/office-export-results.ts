@@ -117,6 +117,14 @@ export interface OfficeExportResultMeta {
   /** 1-based page numbers of those pages, ascending, capped. */
   pagesWithoutFormatting?: number[];
   /**
+   * PDF to Word only, since 2026-11-15 (#28 slice 2, review round 2): Word
+   * tables written as tab-separated rows instead, because the document with
+   * them was over the size one conversion delivers — the first thing to go,
+   * before formatting and pictures. Absent from older results: that engine
+   * wrote no Word tables.
+   */
+  tablesAsTextForSize?: number;
+  /**
    * PDF to Word only, since 2026-11-15: words, over the whole document,
    * written in Word's default style because the page reader's runs did not
    * say for certain how they were drawn. A measurement, not shown to the
@@ -229,6 +237,9 @@ export function buildOfficeExportResultMeta(
       : {}),
     ...(raw.unmatchedWords !== undefined
       ? { unmatchedWords: count(raw.unmatchedWords, 100_000_000) }
+      : {}),
+    ...(raw.tablesAsTextForSize !== undefined
+      ? { tablesAsTextForSize: count(raw.tablesAsTextForSize, 10_000_000) }
       : {}),
     // Only `true` is a claim; anything else is dropped, not coerced.
     ...(raw.repairedBeforeConversion === true

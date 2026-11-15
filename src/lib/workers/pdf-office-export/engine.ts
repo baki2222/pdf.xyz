@@ -537,10 +537,17 @@ async function renderWord(
   // The pictures get what the text leaves of the output limit — the text
   // alone, written, is the measure — and every picture is charged its XML
   // and zip entries besides its media, so the budget bounds the FILE.
+  //
+  // Measured on the text as main wrote it, its tables as tabbed rows
+  // (review round 2, 2026-11-15): with the Word tables in it, a table's
+  // bytes came out of the pictures' budget, and a picture main delivered
+  // was left out while the tables stayed. Tables that then do not fit go
+  // first, below.
   const textOnly =
     maxOutput === undefined
       ? 0
-      : (await write(docxDocumentOf(flow, NO_PAGES))).bytes.byteLength;
+      : (await write(docxDocumentOf(flow, NO_PAGES, { tables: false }))).bytes
+          .byteLength;
   const scanned = await scanOrRebuild(input, scanPages, deps, {
     ...scanOptions(deps),
     picturesOnly: true,
@@ -560,6 +567,26 @@ async function renderWord(
   if (rebuilt) flow = await extractFlow(rebuilt);
   let doc = docxDocumentOf(flow, scan);
   let { bytes: output, plan } = await write(doc);
+  // Word tables the size fallback below wrote as tabbed rows: reported, and
+  // named in the note beside the download (`tablesAsTextForSize`).
+  let tablesForSize = 0;
+  if (
+    maxOutput !== undefined &&
+    output.byteLength > maxOutput &&
+    (doc.tables?.written ?? 0) > 0
+  ) {
+    // #28 slice 2 (tables): a Word table costs more bytes than its tabbed
+    // rows (each cell's `w:tc` and width, every empty slot). Over the limit
+    // the tables go FIRST — before the formatting and the pictures main
+    // delivered, since they are what this slice added — back to the tabbed
+    // rows main wrote. Reordered 2026-11-15 (review round 2): they went
+    // last, so a file whose formatting fitted on main lost its formatting,
+    // and then its tables too. Counted, and the note says so: until then
+    // the count (`tables.asTabs`) was written and nothing read it.
+    tablesForSize = doc.tables!.written;
+    doc = docxDocumentOf(flow, scan, { tables: false });
+    ({ bytes: output, plan } = await write(doc));
+  }
   if (
     maxOutput !== undefined &&
     output.byteLength > maxOutput &&
@@ -576,7 +603,11 @@ async function renderWord(
       ...scan,
       pages: scan.pages.map((p) => ({ ...p, textUnread: true as const })),
     };
-    doc = docxDocumentOf(flow, scan);
+    doc = docxDocumentOf(
+      flow,
+      scan,
+      tablesForSize > 0 ? { tables: false } : {},
+    );
     ({ bytes: output, plan } = await write(doc));
   }
   if (
@@ -590,7 +621,11 @@ async function renderWord(
     // what this engine delivered before it carried pictures, never a
     // refusal of the text.
     scan = withoutPictures(scan);
-    doc = docxDocumentOf(flow, scan);
+    doc = docxDocumentOf(
+      flow,
+      scan,
+      tablesForSize > 0 ? { tables: false } : {},
+    );
     ({ bytes: output, plan } = await write(doc));
   }
   const refused = await undeliverableDocx(
@@ -676,6 +711,7 @@ async function renderWord(
             unmatchedWords,
           }
         : {}),
+      tablesAsTextForSize: tablesForSize,
       ...(rebuilt ? { repairedBeforeConversion: true as const } : {}),
     }),
   };

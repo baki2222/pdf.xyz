@@ -305,6 +305,10 @@ describe("pdf-office-export processor", () => {
       pagesMissingPictures: [],
       emptyPageCount: 2,
       pagesEmpty: [2, 3],
+      // Since 2026-11-15 (#28 slice 2, review round 2): Word tables written
+      // as tabbed rows to fit the size limit (none here) cross it too — the
+      // count the note beside the download reads.
+      tablesAsTextForSize: 0,
     });
   });
 
@@ -339,6 +343,7 @@ describe("pdf-office-export processor", () => {
       formattingMissingPageCount: 0,
       pagesWithoutFormatting: [],
       unmatchedWords: 0,
+      tablesAsTextForSize: 0,
     });
   });
   it("carries the picture-only pages of a deck onto the job record (processor → sanitizeJobResults)", async () => {

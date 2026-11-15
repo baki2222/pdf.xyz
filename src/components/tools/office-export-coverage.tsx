@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ImageOff, ScanText, Type, Wrench } from "lucide-react";
+import { ImageOff, ScanText, Table2, Type, Wrench } from "lucide-react";
 import type { Job } from "@/lib/jobs/types";
 import { LITTLE_TEXT_CHARS } from "@/lib/jobs/office-export-results";
 import { MAX_DOCX_PICTURES } from "@/lib/workers/pdf-office-export/picture-limits";
@@ -103,13 +103,18 @@ export function OfficeExportCoverageNotice({
   // (out of time, or OCR) — false for a page whose turned or right-to-left
   // lines the matcher declined, which it now names with the third reason.
   const unformatted = word ? (report.formattingMissingPageCount ?? 0) : 0;
+  // Word, since 2026-11-15 (review round 2): tables written as tabbed rows
+  // to keep the file inside the size one conversion delivers. Until then
+  // the worker counted them and nothing read the count.
+  const tabbed = word ? (report.tablesAsTextForSize ?? 0) : 0;
   if (
     missing <= 0 &&
     little <= 0 &&
     lost <= 0 &&
     flattened <= 0 &&
     !rebuilt &&
-    unformatted <= 0
+    unformatted <= 0 &&
+    tabbed <= 0
   )
     return null;
   const pictures =
@@ -179,6 +184,20 @@ export function OfficeExportCoverageNotice({
             colour changes partway through, say, or text drawn turned, right to
             left, or over other text) and left it plain rather than guess. All
             of the text is there.
+          </span>
+        </p>
+      )}
+      {tabbed > 0 && (
+        <p className="flex items-start gap-2">
+          <Table2 className="mt-0.5 size-4 shrink-0" aria-hidden />
+          <span>
+            {tabbed === 1
+              ? "One table came through as lines of text, its cells"
+              : `${tabbed} tables came through as lines of text, their cells`}{" "}
+            separated by tabs, rather than as{" "}
+            {tabbed === 1 ? "a Word table" : "Word tables"}: with{" "}
+            {tabbed === 1 ? "it" : "them"} the file would have been larger than
+            one conversion can deliver. All of the text is there.
           </span>
         </p>
       )}

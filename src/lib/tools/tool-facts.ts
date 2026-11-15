@@ -1664,8 +1664,23 @@ function isCommentKind(kind: string): boolean {
  * and left behind elsewhere), and "each picture" has its exception — the
  * pictures past MAX_DOCX_PICTURES, one file's size or one conversion's time
  * are left out and counted. `claims-vs-capability.test.ts` holds both.
+ *
+ * CHANGED 2026-11-15 (backlog #28 slice 2, tables): it said a table "comes
+ * through one row per line, its cells separated by tabs" and that "tables
+ * … are not carried over", true until then. A table whose cells each fit on
+ * one line is now a Word table, each value in its own column
+ * (`pdf-office-export/docx-layout.ts`); a wrapped-cell table is not laid out
+ * as one (measured on flow.ts's rules: the run holding a wrapped row is
+ * refused, aligned rows around it can still form a smaller table). The live
+ * answer is the heartbeat's `docxTables`.
+ *
+ * CHANGED 2026-11-15 (review round 2): "each value in its own column" became
+ * "in the column it sits under" (a spanning heading's values share a cell),
+ * a Word table now needs a column of figures (`wordTableDoubt` in
+ * `pdf-text/table-grid.ts`), and the last sentence, two clauses spliced by a
+ * comma around a colon, was split.
  */
-export const PDF_TO_WORD_KEEPS = `The text arrives as paragraphs in reading order: lines that wrap in the PDF are joined into one paragraph, a page set in two columns is read one column at a time, and a table whose cells each fit on one line comes through one row per line, its cells separated by tabs. Each picture on a page, such as a photo, a screenshot or a scan, comes through on a line of its own between the paragraphs above and below it, at the size the page shows it, scaled down if it is wider or taller than the Word page, with anything the page draws over it, such as a box or an arrow, drawn into it. Past ${MAX_DOCX_PICTURES.toLocaleString("en-US")} pictures, or past the size of one file or the time one conversion may take, a document's remaining pictures are left out and counted in the note beside the download; the text still comes through whole. Each word keeps its bold, italics, size and color where they can be matched; tables, the typeface, drawings made of lines and shapes elsewhere on the page, and the page layout are not carried over, so the result is a document ready to edit — not a copy of the page.`;
+export const PDF_TO_WORD_KEEPS = `The text arrives as paragraphs in reading order: lines that wrap in the PDF are joined into one paragraph, a page set in two columns is read one column at a time, and a table whose cells each fit on one line, with a column of figures such as amounts or dates, comes through as a Word table, each value in the column it sits under. Each picture on a page, such as a photo, a screenshot or a scan, comes through on a line of its own between the paragraphs above and below it, at the size the page shows it, scaled down if it is wider or taller than the Word page, with anything the page draws over it, such as a box or an arrow, drawn into it. Past ${MAX_DOCX_PICTURES.toLocaleString("en-US")} pictures, or past the size of one file or the time one conversion may take, a document's remaining pictures are left out and counted in the note beside the download; the text still comes through whole. Each word keeps its bold, italics, size and color where they can be matched; the typeface, drawings made of lines and shapes elsewhere on the page, and the page layout are not carried over. Other tables come through as lines of text, their cells separated by tabs, and a table whose cells wrap onto a second line may come through partly as a smaller table. The result is a document ready to edit — not a copy of the page.`;
 
 /** Every language Translate PDF offers, named, from the list its panel renders. */
 export const TRANSLATE_LANGUAGES_ANSWER = `${TRANSLATE_LANGUAGES.length} languages: ${listed(

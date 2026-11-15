@@ -13,7 +13,7 @@ import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
-import { PDFDocument, rgb } from "pdf-lib";
+import { PDFDocument, rgb, type PDFPage } from "pdf-lib";
 // Through the product's font chooser, like every other text-drawing module:
 // for this Latin text it picks the same Helvetica faces, so the captured
 // poppler samples match these fixtures byte for byte in their geometry.
@@ -927,4 +927,140 @@ export function readColumnByColumn(
     paragraphs.length === expected.length &&
     paragraphs.every((p, i) => p === expected[i])
   );
+}
+
+/**
+ * #28 slice 2 (tables): the table PDF to Word's start-up probe draws
+ * (`docxTablesProbePdf` in `pdf-office-export/capability.ts`) — a
+ * wide-gapped line, a short separator, then Item / Qty / Price with no
+ * quantity on the middle row. One geometry, so the probe and the claims'
+ * evidence cannot disagree about what they draw.
+ */
+export async function gappedTablePdf(): Promise<Uint8Array> {
+  const { docxTablesProbePdf } =
+    await import("@/lib/workers/pdf-office-export/capability");
+  return docxTablesProbePdf();
+}
+
+/**
+ * #28 slice 2 (tables): a five-row table one of whose cells wraps onto a
+ * second line. `long`: the wrapped cell has four words and its continuation
+ * starts in lower case (flow.ts rule 4 refuses the run holding it). `short`:
+ * a two-word cell wraps a capitalised word ("New York" / "City"), which no
+ * rule sees.
+ */
+export const WRAPPED_TABLE = {
+  long: {
+    rows: [
+      ["Item", "Note", "Qty"],
+      ["A-1", "short", "1"],
+      ["B-2", "this note is long", "2"],
+      ["C-3", "ok", "3"],
+      ["D-4", "fine", "4"],
+    ],
+    continuation: "and continues here",
+  },
+  short: {
+    rows: [
+      ["Office", "City", "Staff"],
+      ["North", "Leeds", "1"],
+      ["East", "New York", "2"],
+      ["South", "Hull", "3"],
+      ["West", "Bath", "4"],
+    ],
+    continuation: "City",
+  },
+} as const;
+
+/** {@link WRAPPED_TABLE}: columns at 72, 200 and 420, rows 16 points apart. */
+export async function wrappedCellTablePdf(
+  kind: keyof typeof WRAPPED_TABLE,
+): Promise<Uint8Array> {
+  const t = WRAPPED_TABLE[kind];
+  const doc = await PDFDocument.create();
+  const font = await embedDrawingFont(doc, [...t.rows.flat(), t.continuation]);
+  const page = doc.addPage([612, 792]);
+  let y = 700;
+  t.rows.forEach((row, r) => {
+    row.forEach((cell, c) =>
+      page.drawText(cell, { x: [72, 200, 420][c]!, y, size: 11, font }),
+    );
+    y -= 16;
+    if (r === 2) {
+      page.drawText(t.continuation, { x: 200, y: y + 3, size: 11, font });
+      y -= 13;
+    }
+  });
+  return doc.save();
+}
+
+/**
+ * Review round 2 (2026-11-15): a four-row table of words — Name / City /
+ * Role — at x = 72, 220 and 380. `figures` adds a fourth column of
+ * quantities at 500, which makes it a Word table; without it the table has
+ * no column of figures and stays tabbed rows (`wordTableDoubt` "numbers").
+ */
+export async function wordsOnlyTablePdf(figures: boolean): Promise<Uint8Array> {
+  const rows = [
+    ["Name", "City", "Role", "Staff"],
+    ["Ada", "London", "Engineer", "12"],
+    ["Grace", "Arlington", "Admiral", "30"],
+    ["Jamal", "Dhaka", "Physicist", "18"],
+  ].map((r) => (figures ? r : r.slice(0, 3)));
+  const doc = await PDFDocument.create();
+  const font = await embedDrawingFont(doc, rows.flat());
+  const page = doc.addPage([612, 792]);
+  rows.forEach((row, r) =>
+    row.forEach((cell, c) =>
+      page.drawText(cell, {
+        x: [72, 220, 380, 500][c]!,
+        y: 700 - r * 16,
+        size: 11,
+        font,
+      }),
+    ),
+  );
+  return doc.save();
+}
+
+/**
+ * Review round 2 (2026-11-15): an invoice table — Item / Qty / Price and
+ * three rows at x = 72, 300 and 420 — continued on page 2 by `more` rows
+ * at the same columns, then a sentence.
+ */
+export async function continuedTablePdf(more: number): Promise<Uint8Array> {
+  const first = [
+    ["Item", "Qty", "Price"],
+    ["Widget", "2", "9.50"],
+    ["Gadget", "4", "12.00"],
+    ["Gizmo", "5", "3.25"],
+  ];
+  const rest = Array.from({ length: more }, (_, k) => [
+    `Sprocket ${k + 1}`,
+    `${k + 7}`,
+    `1.${k}0`,
+  ]);
+  const closing = "Thank you for your order today.";
+  const doc = await PDFDocument.create();
+  const font = await embedDrawingFont(doc, [
+    ...first.flat(),
+    ...rest.flat(),
+    closing,
+  ]);
+  const draw = (page: PDFPage, rows: string[][], top: number) =>
+    rows.forEach((row, r) =>
+      row.forEach((cell, c) =>
+        page.drawText(cell, {
+          x: [72, 300, 420][c]!,
+          y: top - r * 16,
+          size: 11,
+          font,
+        }),
+      ),
+    );
+  draw(doc.addPage([612, 792]), first, 700);
+  const second = doc.addPage([612, 792]);
+  draw(second, rest, 740);
+  second.drawText(closing, { x: 72, y: 740 - more * 16 - 40, size: 11, font });
+  return doc.save();
 }

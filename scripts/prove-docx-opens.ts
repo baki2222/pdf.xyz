@@ -87,6 +87,8 @@ interface Opened {
   pages?: number;
   paragraphs?: { start: number; end: number; text: string }[];
   shapes?: { start: number; width: number; height: number }[];
+  /** Word's own Tables collection (#28 slice 2): Rows/Columns.Count, Cell(r,c). */
+  tables?: { rows: number; columns: number; cells: string[][] }[];
 }
 
 /** How long one file may take in Word before its Word is closed. */
@@ -108,7 +110,21 @@ function Read-Doc($d) {
   foreach ($p in $d.Paragraphs) { $paras += , @{ start = $p.Range.Start; end = $p.Range.End; text = [string]$p.Range.Text } }
   $shapes = @()
   foreach ($s in $d.InlineShapes) { $shapes += , @{ start = $s.Range.Start; width = [double]$s.Width; height = [double]$s.Height } }
-  return @{ pages = $d.ComputeStatistics(2); paragraphs = @($paras); shapes = @($shapes) }
+  # #28 slice 2: each table as Word reads it — rows, columns, each cell's
+  # text (Word ends a cell's range with CR and BEL; both are trimmed).
+  $tables = @()
+  foreach ($t in $d.Tables) {
+    $cells = @()
+    for ($r = 1; $r -le $t.Rows.Count; $r++) {
+      $row = @()
+      for ($c = 1; $c -le $t.Columns.Count; $c++) {
+        $row += , ([string]$t.Cell($r, $c).Range.Text).TrimEnd([char]7, [char]13)
+      }
+      $cells += , @($row)
+    }
+    $tables += , @{ rows = $t.Rows.Count; columns = $t.Columns.Count; cells = @($cells) }
+  }
+  return @{ pages = $d.ComputeStatistics(2); paragraphs = @($paras); shapes = @($shapes); tables = @($tables) }
 }
 $result = @{ version = $app.Version; build = $app.Build }
 if ($PicturePath) {
@@ -390,8 +406,12 @@ async function main(): Promise<void> {
     const ok = other.ok;
     failed ||= !ok;
     console.log(
-      `  FILE     ${path.basename(other.path)}: ${ok ? `opened, ${other.pages} page(s), ${other.paragraphs?.length ?? 0} paragraph(s), ${other.shapes?.length ?? 0} picture(s)` : `${other.timedOut ? "NOT OPENED" : "REFUSED"}: ${other.error ?? ""} ${other.hresult ?? ""}`}`,
+      `  FILE     ${path.basename(other.path)}: ${ok ? `opened, ${other.pages} page(s), ${other.paragraphs?.length ?? 0} paragraph(s), ${other.shapes?.length ?? 0} picture(s), ${other.tables?.length ?? 0} table(s)` : `${other.timedOut ? "NOT OPENED" : "REFUSED"}: ${other.error ?? ""} ${other.hresult ?? ""}`}`,
     );
+    for (const [k, t] of (other.tables ?? []).entries())
+      console.log(
+        `           table ${k + 1}: ${t.rows} x ${t.columns}, cells ${JSON.stringify(t.cells)}`,
+      );
   }
   const restored = alerts.every((a) => a.before === a.after);
   console.log(

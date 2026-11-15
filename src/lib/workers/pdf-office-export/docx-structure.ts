@@ -67,8 +67,26 @@ export type DocxBodyBlock =
   | {
       kind: "tbl";
       gridCols: number[];
-      rows: { cells: { span: number; blocks: DocxBodyBlock[] }[] }[];
+      rows: {
+        cells: {
+          span: number;
+          blocks: DocxBodyBlock[];
+          /** `w:tcW` in twips, when it is a dxa width (#28 slice 2). */
+          width?: number;
+        }[];
+      }[];
+      /** `w:tblW` in twips, when it is a dxa width. */
+      width?: number;
+      /** `w:tblBorders`, by side ("top", "insideV", …). */
+      borders?: Record<string, DocxTableBorder>;
     };
+
+/** One side of `w:tblBorders`: its style, width in eighths of a point, colour. */
+export interface DocxTableBorder {
+  val: string;
+  sz: number;
+  color: string;
+}
 
 /** A .docx's body, its package's parts and their declared content types. */
 export interface DocxStructure {
@@ -482,34 +500,208 @@ function readBlocks(
   return out;
 }
 
+/** Children of `el` known to `rank` and in its order; problems otherwise. */
+function inOrder(
+  el: XmlElement,
+  rank: ReadonlyMap<string, number>,
+  problems: string[],
+): void {
+  let at = -1;
+  for (const p of elements(el)) {
+    const k = rank.get(p.name);
+    if (k === undefined) problems.push(`<${p.name}> inside <${el.name}>`);
+    else if (k <= at)
+      problems.push(`<${el.name}> children out of schema order at <${p.name}>`);
+    else at = k;
+  }
+}
+
+const rankOf = (names: readonly string[]) =>
+  new Map<string, number>(names.map((n, k) => [n, k]));
+
+/** `CT_TblPr`'s children, in the schema's sequence (ECMA-376 §17.4.60). */
+export const TBLPR_ORDER = [
+  "w:tblStyle",
+  "w:tblpPr",
+  "w:tblOverlap",
+  "w:bidiVisual",
+  "w:tblStyleRowBandSize",
+  "w:tblStyleColBandSize",
+  "w:tblW",
+  "w:jc",
+  "w:tblCellSpacing",
+  "w:tblInd",
+  "w:tblBorders",
+  "w:shd",
+  "w:tblLayout",
+  "w:tblCellMar",
+  "w:tblLook",
+  "w:tblCaption",
+  "w:tblDescription",
+  "w:tblPrChange",
+] as const;
+/** `CT_TcPr`'s children, in the schema's sequence (ECMA-376 §17.4.70). */
+export const TCPR_ORDER = [
+  "w:cnfStyle",
+  "w:tcW",
+  "w:gridSpan",
+  "w:hMerge",
+  "w:vMerge",
+  "w:tcBorders",
+  "w:shd",
+  "w:noWrap",
+  "w:tcMar",
+  "w:textDirection",
+  "w:tcFitText",
+  "w:vAlign",
+  "w:hideMark",
+  "w:tcPrChange",
+] as const;
+/** `CT_TblBorders`'s children (start/end are left/right's later names). */
+const BORDER_RANK = new Map<string, number>([
+  ["w:top", 0],
+  ["w:left", 1],
+  ["w:start", 1],
+  ["w:bottom", 2],
+  ["w:right", 3],
+  ["w:end", 3],
+  ["w:insideH", 4],
+  ["w:insideV", 5],
+]);
+const TBLPR_RANK = rankOf(TBLPR_ORDER);
+const TCPR_RANK = rankOf(TCPR_ORDER);
+/** `w:sz` of a border: eighths of a point, 2 to 96 (Word's ¼ to 12 points). */
+export const BORDER_EIGHTHS_RANGE = [2, 96] as const;
+
+/** A whole number of at least 1, or a problem naming `what`. */
+function wholeAtLeastOne(
+  raw: string | undefined,
+  what: string,
+  problems: string[],
+): number | null {
+  if (raw === undefined || !/^\d+$/.test(raw) || Number(raw) < 1) {
+    problems.push(`${what} "${raw ?? ""}" is not a whole number of at least 1`);
+    return null;
+  }
+  return Number(raw);
+}
+
+/** A `w:tblW` / `w:tcW` (`CT_TblWidth`): its type and, for dxa, twips. */
+function readWidth(
+  el: XmlElement | undefined,
+  what: string,
+  problems: string[],
+): number | undefined {
+  if (!el) return undefined;
+  const type = el.attrs["w:type"] ?? "dxa";
+  const raw = el.attrs["w:w"] ?? "0";
+  if (!/^(?:dxa|auto|pct|nil)$/.test(type))
+    problems.push(`${what} type "${type}" is not one Word reads`);
+  if (!/^-?\d+$/.test(raw)) {
+    problems.push(`${what} w "${raw}" is not a whole number`);
+    return undefined;
+  }
+  return type === "dxa" ? Number(raw) : undefined;
+}
+
+function readBorders(
+  el: XmlElement | undefined,
+  problems: string[],
+): Record<string, DocxTableBorder> | undefined {
+  if (!el) return undefined;
+  inOrder(el, BORDER_RANK, problems);
+  const out: Record<string, DocxTableBorder> = {};
+  for (const b of elements(el)) {
+    const side = b.name.replace(/^w:/, "");
+    const val = b.attrs["w:val"] ?? "";
+    const sz = b.attrs["w:sz"] ?? "";
+    const color = b.attrs["w:color"] ?? "";
+    if (!/^(?:single|nil|none)$/.test(val))
+      problems.push(`border ${side} val "${val}" is not single, nil or none`);
+    if (
+      val === "single" &&
+      (!/^\d+$/.test(sz) ||
+        Number(sz) < BORDER_EIGHTHS_RANGE[0] ||
+        Number(sz) > BORDER_EIGHTHS_RANGE[1])
+    )
+      problems.push(`border ${side} sz "${sz}" is not a width Word accepts`);
+    if (color !== "" && !/^(?:[0-9A-F]{6}|auto)$/.test(color))
+      problems.push(`border ${side} color "${color}" is not RRGGBB`);
+    out[side] = { val, sz: Number(sz), color };
+  }
+  return out;
+}
+
 function readTable(tbl: XmlElement, problems: string[]): DocxBodyBlock {
   const grid = childNamed(tbl, "w:tblGrid");
   const gridCols = grid
     ? elements(grid)
         .filter((g) => g.name === "w:gridCol")
-        .map((g) => Number(g.attrs["w:w"] ?? 0))
+        .map((g) => {
+          // A grid column must be a whole number of twips, at least 1
+          // (#28 slice 2): until then Number() of garbage read as NaN.
+          const raw = g.attrs["w:w"];
+          if (raw === undefined || !/^\d+$/.test(raw) || Number(raw) < 1)
+            problems.push(
+              `w:gridCol w:w "${raw ?? ""}" is not a whole number of at least 1`,
+            );
+          return Number(raw ?? 0);
+        })
     : [];
   if (gridCols.length === 0) problems.push("a table with no grid columns");
   if (gridCols.length > MAX_GRID_COLUMNS)
     problems.push(
       `a table of ${gridCols.length} grid columns (Word's limit is ${MAX_GRID_COLUMNS})`,
     );
+  const gridSum = gridCols.reduce((s, w) => s + w, 0);
+  const tblPr = childNamed(tbl, "w:tblPr");
+  let width: number | undefined;
+  let borders: Record<string, DocxTableBorder> | undefined;
+  if (tblPr) {
+    inOrder(tblPr, TBLPR_RANK, problems);
+    width = readWidth(childNamed(tblPr, "w:tblW"), "w:tblW", problems);
+    if (width !== undefined && width !== gridSum)
+      problems.push(`w:tblW ${width} is not its grid's ${gridSum}`);
+    borders = readBorders(childNamed(tblPr, "w:tblBorders"), problems);
+  }
   const rows = elements(tbl)
     .filter((r) => r.name === "w:tr")
     .map((tr, rowIndex) => {
+      let at = 0;
       const cells = elements(tr)
         .filter((c) => c.name === "w:tc")
         .map((tc) => {
-          const span = Number(
-            childNamed(childNamed(tc, "w:tcPr") ?? tc, "w:gridSpan")?.attrs[
-              "w:val"
-            ] ?? 1,
+          const tcPr = childNamed(tc, "w:tcPr");
+          if (tcPr) inOrder(tcPr, TCPR_RANK, problems);
+          const spanEl = tcPr ? childNamed(tcPr, "w:gridSpan") : undefined;
+          const span = spanEl
+            ? (wholeAtLeastOne(spanEl.attrs["w:val"], "w:gridSpan", problems) ??
+              1)
+            : 1;
+          const cellWidth = readWidth(
+            tcPr ? childNamed(tcPr, "w:tcW") : undefined,
+            "w:tcW",
+            problems,
           );
+          if (cellWidth !== undefined) {
+            let spanned = 0;
+            for (let k = at; k < at + span && k < gridCols.length; k++)
+              spanned += gridCols[k]!;
+            if (cellWidth !== spanned)
+              problems.push(
+                `w:tcW ${cellWidth} is not its grid columns' ${spanned} (row ${rowIndex + 1})`,
+              );
+          }
+          at += span;
           if (!elements(tc).some((c) => c.name === "w:p"))
             problems.push(
               `a table cell with no paragraph (row ${rowIndex + 1})`,
             );
-          return { span, blocks: readBlocks(tc, problems, "a table cell") };
+          return {
+            span,
+            blocks: readBlocks(tc, problems, "a table cell"),
+            ...(cellWidth !== undefined ? { width: cellWidth } : {}),
+          };
         });
       const spanned = cells.reduce((s, c) => s + c.span, 0);
       if (spanned !== gridCols.length)
@@ -518,7 +710,13 @@ function readTable(tbl: XmlElement, problems: string[]): DocxBodyBlock {
         );
       return { cells };
     });
-  return { kind: "tbl", gridCols, rows };
+  return {
+    kind: "tbl",
+    gridCols,
+    rows,
+    ...(width !== undefined ? { width } : {}),
+    ...(borders ? { borders } : {}),
+  };
 }
 
 /** The relationship parts in a package, and their (resolved) internal targets. */
@@ -619,6 +817,12 @@ export async function readDocxStructure(
  *   - every table cell holds a paragraph; every row spans the grid; the grid
  *     has at most {@link MAX_GRID_COLUMNS} columns; no table is followed
  *     directly by the section or by another table;
+ *   - (since #28 slice 2) every `w:gridCol` width and `w:gridSpan` is a
+ *     whole number of at least 1; `w:tblPr` and `w:tcPr` children are known
+ *     and in schema order ({@link TBLPR_ORDER}, {@link TCPR_ORDER}); a
+ *     `w:tcW`/`w:tblW` has a type Word reads and a whole width, and a dxa
+ *     one equals the grid columns it covers; `w:tblBorders` sides are in
+ *     order, each single/nil/none, {@link BORDER_EIGHTHS_RANGE} wide, RRGGBB;
  *   - every `w:sz`/`w:szCs` is a whole number in {@link HALF_POINTS_RANGE},
  *     every `w:color` six upper-case hex digits;
  *   - each `w:rPr`'s children are known and in `CT_RPr`'s order;
@@ -680,31 +884,53 @@ export async function inspectDocxStructure(bytes: Uint8Array): Promise<{
  * tabs. A body with nothing in it has no pages. This is the read-back side
  * of the engine's text-conservation check: it must equal poppler's
  * `flowPageText` for every page the document holds.
+ *
+ * Since #28 slice 2 (2026-11-15), when PDF to Word began writing real Word
+ * tables, two rules more — each STRUCTURAL, never by text:
+ *   - an EMPTY SLOT, a cell whose paragraphs hold no run at all, adds no
+ *     cell to its row's line: a row reads as its other cells, in column
+ *     order, joined by tabs — poppler's row, which never had a value there.
+ *     A cell whose run has EMPTY text (made only of characters XML cannot
+ *     carry, which the writer drops) is not an empty slot and keeps its tab;
+ *   - a body paragraph with no run at all (the separator after a table)
+ *     adds no line. A real paragraph emptied of its runs' text still does,
+ *     so a lost word is still a difference.
+ * What this cannot see: a writer that drops the empty slots and shifts the
+ * values left reads back as the same text. The start-up probe
+ * (`provesDocxTables`) and the flow's placement guard see placement.
  */
 export function docxPageTexts(body: Pick<DocxStructure, "blocks">): string[] {
   if (body.blocks.length === 0) return [];
   const pages: string[][] = [[]];
   const paragraphText = (p: Extract<DocxBodyBlock, { kind: "p" }>) =>
     p.runs.map((r) => r.text).join("");
+  const emptySlot = (blocks: DocxBodyBlock[]) =>
+    blocks.every((b) => b.kind === "p" && b.runs.length === 0);
+  const rowText = (
+    row: Extract<DocxBodyBlock, { kind: "tbl" }>["rows"][number],
+  ) =>
+    row.cells
+      .filter((c) => !emptySlot(c.blocks))
+      .map((c) => cellText(c.blocks))
+      .join("\t");
   const cellText = (blocks: DocxBodyBlock[]): string =>
     blocks
       .map((b) =>
-        b.kind === "p"
-          ? paragraphText(b)
-          : b.rows
-              .map((r) => r.cells.map((c) => cellText(c.blocks)).join("\t"))
-              .join("\n"),
+        b.kind === "p" ? paragraphText(b) : b.rows.map(rowText).join("\n"),
       )
       .join("\n");
   for (const block of body.blocks) {
     const page = pages[pages.length - 1]!;
     if (block.kind === "tbl") {
-      for (const row of block.rows)
-        page.push(row.cells.map((c) => cellText(c.blocks)).join("\t"));
+      for (const row of block.rows) page.push(rowText(row));
       continue;
     }
     const text = paragraphText(block);
-    if (!(text === "" && (block.drawing || block.pageBreak))) page.push(text);
+    if (!(
+      text === "" &&
+      (block.drawing || block.pageBreak || block.runs.length === 0)
+    ))
+      page.push(text);
     if (block.pageBreak) pages.push([]);
   }
   return pages.map((lines) => lines.join("\n"));

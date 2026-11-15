@@ -1,0 +1,227 @@
+/**
+ * The grid a recognised table is written on in Word (#28 slice 2, tables).
+ *
+ * `./flow` decides WHAT is a table (its rules 1-6) and keeps every row as a
+ * paragraph of cells; this module decides WHERE each cell goes: the table's
+ * columns are its cells' x-ranges, chained wherever they overlap — exactly
+ * `flow.ts`'s `columns()`, which calls {@link chainColumns} so there is one
+ * rule, not two — and each cell sits in the column its own range fell in.
+ * A row missing a value therefore has an empty column there, and the values
+ * after it stay under their own headings.
+ *
+ * No cell can straddle two columns: a cell that overlaps two ranges chains
+ * them into one. So the grid never needs a merged cell (`w:gridSpan`).
+ *
+ * Kept free of imports beyond types: `./flow` is in the web bundle
+ * (`LONG_CELL_WORDS` is read by the tool catalogue and a guide).
+ *
+ * A table this module refuses is not lost: its rows stay the tab-separated
+ * paragraphs they were before this slice, and the page counts them
+ * (`tablesAsTabs`).
+ */
+
+/** Word's grid limit; held equal to docx-structure's `MAX_GRID_COLUMNS` by a test. */
+export const MAX_TABLE_COLUMNS = 63;
+/**
+ * The most cells one table is written with as a Word table.
+ *
+ * Measured 2026-11-15 by `src/tests/docx-table-measure.ts` on the dev host
+ * (Windows 11, Node 24; one fresh process per run): `grid 10000` 3 ms and
+ * +4 MB, `grid-wide 9954` (63 columns) 4 ms and +4 MB, `flow 10000` 37 ms
+ * and +18 MB; one table of 10,010 cells (`over`) comes out tabbed in 137 ms.
+ * NOT yet measured inside the worker image (no Docker on the dev host; the
+ * container step is where it can be). Held by `docx-table.cap.test.ts`.
+ */
+export const MAX_TABLE_CELLS = 10_000;
+/** The most cells of ONE page written as Word tables, all its tables together. */
+export const MAX_TABLE_CELLS_PER_PAGE = 20_000;
+/**
+ * Grid SLOTS (rows x columns, the empty ones included) one page may write.
+ * An empty slot still costs its `w:tc` (about 70 bytes, stored), so a sparse
+ * grid is bounded by slots, not by cells.
+ *
+ * Measured 2026-11-15 on the dev host, medians of 3 alternating with the
+ * control (`docx-table-measure.ts engine 20000` against `engine-tabbed`,
+ * the same page written as main's tabbed rows), the whole job including
+ * the check before delivery: 350 ms and +156 MB against 238 ms and +133 MB
+ * — 1.47x the time, far inside #318's exit bound (2x AND +5 s, or 2x AND
+ * +300 MB). The file: 2,387,573 bytes against 1,284,055 (document.xml is
+ * STORED, #318 Open 5), about 55 bytes more per cell.
+ */
+export const MAX_TABLE_SLOTS_PER_PAGE = 20_000;
+/**
+ * A vertical gap between two bands of one run larger than this many of the
+ * run's median band pitches starts a new table (a grid SEGMENT).
+ *
+ * Measured on the captured corpus (poppler 25.07, `src/tests/poppler-samples`)
+ * as centre-to-centre pitch over the run's median: the largest gap INSIDE a
+ * table is SPANNING_TABLE's header, 19/16 = 1.19; the smallest gap that is
+ * NOT inside one is 1.5 — REPORT_TABLES's note under its second table
+ * (24/16) and SURROUNDED_INVOICE's address line above its header (36/24) —
+ * and STACKED_TABLES's two tables are 3.0 apart. 1.3 sits between them.
+ */
+export const SEGMENT_GAP_PITCHES = 1.3;
+
+export interface GridCellInput {
+  xMin: number;
+  xMax: number;
+}
+
+export interface TableGrid {
+  /** Each column's x-range, left to right, disjoint. */
+  spans: readonly (readonly [number, number])[];
+  /** `col[r][c]`: the column cell c of row r sits in; non-decreasing per row. */
+  col: readonly (readonly number[])[];
+}
+
+export type GridRefusal = "cells" | "columns" | "one-column" | "order";
+
+/**
+ * Cells grouped into columns: sorted by xMin (a stable sort), each joining
+ * the column before it when it starts at or before that column's right
+ * edge. Loops, no spreads: a block of 10^5 cells overflows an argument list.
+ */
+export function chainColumns<T extends GridCellInput>(
+  cells: readonly T[],
+): { spans: [number, number][]; groups: T[][]; spanOf: Map<T, number> } {
+  const sorted = [...cells].sort((a, b) => a.xMin - b.xMin);
+  const spans: [number, number][] = [];
+  const groups: T[][] = [];
+  const spanOf = new Map<T, number>();
+  for (const cell of sorted) {
+    const last = spans[spans.length - 1];
+    if (last && cell.xMin <= last[1]) {
+      if (cell.xMax > last[1]) last[1] = cell.xMax;
+      groups[groups.length - 1]!.push(cell);
+    } else {
+      spans.push([cell.xMin, cell.xMax]);
+      groups.push([cell]);
+    }
+    spanOf.set(cell, spans.length - 1);
+  }
+  return { spans, groups, spanOf };
+}
+
+/**
+ * The fewest rows a table is written with as a Word table — one more than
+ * `flow.ts`'s `MIN_TABLE_ROWS`, which still decides what is read as a
+ * table's rows. Added 2026-11-15 (#28 slice 2, review round 2): a two-line
+ * running header ("Annual Report 2026 | Confidential" over "Section 3
+ * Results | Page 4") passes flow.ts's rules on every page of a report, and
+ * came out as a bordered 2x2 Word table on each. Two rows is a header and
+ * one row at most; such a table stays the tabbed rows it was, counted.
+ */
+export const MIN_WORD_TABLE_ROWS = 3;
+
+/**
+ * Why a grid is NOT written as a Word table although its geometry is sound
+ * (#28 slice 2, review round 2, 2026-11-15) — scope cut, not a heuristic to
+ * place more: a doubtful table stays the tabbed rows main delivered and is
+ * counted. Each reason is a false table the review built:
+ *  - "rows": fewer than {@link MIN_WORD_TABLE_ROWS} rows (a running header);
+ *  - "numbers": no column whose every cell below the first row is a NUMBER
+ *    ({@link isNumberCell}) — a letterhead ("12 Harbour Road | Date
+ *    2026-11-15"), Bengali prose beside a sidebar of names, two columns of
+ *    Chinese prose (flow.ts's rule 4 cannot see wrapping in a script
+ *    without letter case, so these passed as tables of one line per row);
+ *  - "prose": a column with two or more cells that end a sentence — the
+ *    right-hand column of a two-column page set beside a table, which the
+ *    page-wide bands made the table's third column ("Item | Qty | Sales
+ *    rose sharply.");
+ *  - "header": a column whose only cell is in the first row — a heading
+ *    that does not overlap its right-aligned values in x (REPORT_TABLES's
+ *    "Staff" over 12 / 30 / 18), so the values got a column of their own
+ *    with no heading and the heading headed an empty column: each value
+ *    MOVED out from under its header.
+ * A table of names and words with no figures in it is therefore tabbed, and
+ * the copy says a Word table needs a column of figures.
+ */
+export type WordTableDoubt = "rows" | "numbers" | "prose" | "header";
+
+/**
+ * A NUMBER, as a table's figure column holds: an amount, a quantity, a date,
+ * a percentage, a code — either one token (no space) with a digit and at
+ * most three letters ("1,250.00", "41%", "2026-01-05", "A-100", "Q1",
+ * "USD12"), or digits with only separators, signs and currency between them
+ * ("$ 4.50", "1 200", "(300)"). Not a list's numbering ("1.", "a)", "iv.").
+ */
+export function isNumberCell(text: string): boolean {
+  const t = text.trim();
+  if (!/\p{N}/u.test(t)) return false;
+  if (/^(?:\p{N}{1,3}[.)]|\(?(?:[a-z]|[ivxlc]{1,5})[.)])$/iu.test(t))
+    return false;
+  if (/^[\p{N}\p{Sc}\s.,:;%‰()[\]+\-–—−/'’#*]+$/u.test(t)) return true;
+  if (/\s/u.test(t)) return false;
+  return (t.match(/\p{L}/gu) ?? []).length <= 3;
+}
+
+/** Ends a sentence: a letter, then `.` `!` `?` or a CJK/Indic full stop. */
+const ENDS_SENTENCE = /\p{L}[.!?。！？।]+["'”’»)\]]*$/u;
+
+/**
+ * Why the grid of `rows` (each row's cells' text, in the order `grid.col`
+ * places them) should stay tabbed rows, or null when it is written as a Word
+ * table. See {@link WordTableDoubt}.
+ */
+export function wordTableDoubt(
+  rows: readonly (readonly { text: string }[])[],
+  grid: TableGrid,
+): WordTableDoubt | null {
+  if (rows.length < MIN_WORD_TABLE_ROWS) return "rows";
+  const columns = grid.spans.length;
+  const filled = Array.from({ length: columns }, () => 0);
+  const numbers = Array.from({ length: columns }, () => 0);
+  const notNumbers = Array.from({ length: columns }, () => 0);
+  const sentences = Array.from({ length: columns }, () => 0);
+  const inFirstRow = new Set(grid.col[0] ?? []);
+  rows.forEach((row, r) =>
+    row.forEach((cell, c) => {
+      const k = grid.col[r]![c]!;
+      if (ENDS_SENTENCE.test(cell.text.trim())) sentences[k]! += 1;
+      if (r === 0) return;
+      filled[k]! += 1;
+      if (isNumberCell(cell.text)) numbers[k]! += 1;
+      else notNumbers[k]! += 1;
+    }),
+  );
+  for (let k = 0; k < columns; k++)
+    if (inFirstRow.has(k) && filled[k] === 0) return "header";
+  if (sentences.some((n) => n >= 2)) return "prose";
+  for (let k = 0; k < columns; k++)
+    if (numbers[k]! >= 2 && notNumbers[k] === 0) return null;
+  return "numbers";
+}
+
+/**
+ * The grid for one table's rows (each row's cells in xMin order), or why it
+ * is not written as a Word table. In this order: the cell count against the
+ * cap and the page's budget (before any sort); the chain; fewer than two or
+ * more than {@link MAX_TABLE_COLUMNS} columns; the slots against the page's
+ * budget; and a row whose columns go backwards ("order" — never expected,
+ * and a refusal, not a throw, since a throw here would fail the user's job).
+ */
+export function tableGrid<T extends GridCellInput>(
+  rows: readonly (readonly T[])[],
+  pageBudget: { cells: number; slots: number },
+): TableGrid | GridRefusal {
+  let count = 0;
+  for (const row of rows) count += row.length;
+  if (count > MAX_TABLE_CELLS || count > pageBudget.cells) return "cells";
+  const all: T[] = [];
+  for (const row of rows) for (const c of row) all.push(c);
+  const { spans, spanOf } = chainColumns(all);
+  if (spans.length < 2) return "one-column";
+  if (spans.length > MAX_TABLE_COLUMNS) return "columns";
+  if (rows.length * spans.length > pageBudget.slots) return "cells";
+  const col: number[][] = [];
+  for (const row of rows) {
+    const out: number[] = [];
+    for (const c of row) {
+      const k = spanOf.get(c)!;
+      if (out.length && k < out[out.length - 1]!) return "order";
+      out.push(k);
+    }
+    col.push(out);
+  }
+  return { spans, col };
+}
