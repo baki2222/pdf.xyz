@@ -184,6 +184,17 @@ function stringItems(content: PdfjsTextContent): {
 }
 
 /**
+ * How much of what pdf.js decoded one open keeps (see
+ * {@link VIEWER_KEPT_PAGES}). Compare PDF holds two documents open at once,
+ * so it halves both, and the two together keep what one PDF Viewer keeps
+ * (`compare-docs.ts`, held by viewer-retention.test.ts).
+ */
+export interface ViewerOpenOptions {
+  keptPages?: number;
+  keptImagePixels?: number;
+}
+
+/**
  * Open `bytes` for the viewer. Rejects, typed, when the preflight refuses
  * the file (a stream that expands past the memory bounds, content nested
  * too deeply, a cross-reference pdf.js would walk without end), when pdf.js
@@ -191,7 +202,10 @@ function stringItems(content: PdfjsTextContent): {
  * whose remedy is Unlock PDF), or when its page count is not one a person
  * can be shown (/Count 0 or -1: the unreadable copy).
  */
-export async function openViewerPdf(bytes: Uint8Array): Promise<ViewerPdf> {
+export async function openViewerPdf(
+  bytes: Uint8Array,
+  options: ViewerOpenOptions = {},
+): Promise<ViewerPdf> {
   // ./pdfjs-guard is its own chunk, requested with pdfjs, not after it.
   const guardModule = import("./pdfjs-guard");
   const pdfjsModule = viewerPdfjs.loadPdfjs();
@@ -217,7 +231,10 @@ export async function openViewerPdf(bytes: Uint8Array): Promise<ViewerPdf> {
 
   type Page = Awaited<ReturnType<typeof doc.getPage>>;
   // Pages drawn lately, each still holding what pdf.js decoded for it.
-  const keep = pageKeeper(VIEWER_KEPT_PAGES, VIEWER_KEPT_IMAGE_PIXELS);
+  const keep = pageKeeper(
+    options.keptPages ?? VIEWER_KEPT_PAGES,
+    options.keptImagePixels ?? VIEWER_KEPT_IMAGE_PIXELS,
+  );
   const getPage = (index: number) => doc.getPage(index + 1);
 
   const sizes = new Map<number, Promise<PageSize>>();

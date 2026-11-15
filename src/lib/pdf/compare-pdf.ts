@@ -1,7 +1,7 @@
 import { baseName } from "./files";
 import type { ExtractedPdfText } from "./text";
 import type { Hunk } from "./compare/hunks";
-import type { CompareOptions } from "./compare/lines";
+import type { ComparableLine, CompareOptions } from "./compare/lines";
 
 /**
  * Compare PDF's result types and the two helpers its runner needs on first
@@ -72,6 +72,15 @@ export interface PdfCompareResult {
   diff: DiffLine[];
   /** The changes, grouped with their context and the pages they sit on. */
   hunks: Hunk[];
+  /**
+   * The lines each side KEPT (after anything set aside), in the order the
+   * diff read them: `DiffLine.left`/`right` and a hunk's line ranges index
+   * these. Each carries its page and its rank among equal lines there.
+   */
+  lines: {
+    left: readonly ComparableLine[];
+    right: readonly ComparableLine[];
+  };
   /** What the comparison set aside; identical means identical UNDER these. */
   options: CompareOptions;
   /** Lines left out by "ignore page headers and numbers", per side. */

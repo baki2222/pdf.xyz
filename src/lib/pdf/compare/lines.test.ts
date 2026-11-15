@@ -8,7 +8,12 @@ import {
   pageHeaderPair,
   type PageLines,
 } from "@/tests/compare-fixtures";
-import { comparableLines, linesOf } from "./lines";
+import {
+  comparableLines,
+  linesOf,
+  normalizeComparableLine,
+  normalizeComparableText,
+} from "./lines";
 
 /**
  * Provenance identity: the lines the comparison diffs, built page by page so
@@ -145,5 +150,25 @@ describe("compare lines: the page-aware lines are the lines the diff always read
     expect(lines).toEqual([
       { text: "Total DUE", key: "total due", page: 1, occurrence: 0 },
     ]);
+  });
+});
+
+describe("normalizeComparableLine: one line as the comparison reads it (S2, 2026-11-15)", () => {
+  it("collapses runs of spaces and tabs and trims, and nothing else", () => {
+    expect(normalizeComparableLine("  Total\t\t due:  100 ")).toBe(
+      "Total due: 100",
+    );
+    expect(normalizeComparableLine("\t \t")).toBe("");
+    // Other white space is the page's own text: kept as it is.
+    expect(normalizeComparableLine("a b")).toBe("a b");
+  });
+
+  it("is the per-line rule normalizeComparableText applies, on every line", async () => {
+    for (const [name, x] of await corpus()) {
+      const raw = x.text.replace(/\r\n?/g, "\n").split("\n");
+      expect(raw.map(normalizeComparableLine).filter(Boolean), name).toEqual(
+        normalizeComparableText(x.text),
+      );
+    }
   });
 });

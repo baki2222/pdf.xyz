@@ -18,6 +18,7 @@ import {
 import { buildPdf, onePageObjects, TEXT_OPS } from "./stamping.fixtures";
 import { startMemoryMeter } from "./memory";
 import { reportResult } from "./report";
+import { inflateScanYardstick, type Yardstick } from "./yardstick";
 import {
   asciiHex,
   catalogObjStmBombPdf,
@@ -833,9 +834,14 @@ if (kind === "open") {
   if (!make || !read) throw new Error(`unknown case ${process.argv[2]}`);
   CASES[process.argv[2]!] = async () => {
     const bytes = await make();
+    // 2026-11-15: this machine's speed, measured now and in this process, so
+    // the parent can bound `ms` against it instead of against a lone
+    // constant (see ./yardstick.ts). Before the meter: it is not the
+    // reader's cost, in time or memory.
+    const stick = await inflateScanYardstick();
     // Measured from here: the fixture's own build is not the reader's cost.
     const meter = startMemoryMeter();
-    const t0 = Date.now();
+    const t0 = performance.now();
     try {
       return await read(bytes);
     } finally {
@@ -843,12 +849,18 @@ if (kind === "open") {
       growth = {
         mb: Math.round(meter.growthMb()),
         method: meter.method,
-        ms: Date.now() - t0,
+        ms: Math.round(performance.now() - t0),
+        yardstick: stick,
       };
     }
   };
 }
-let growth: { mb: number; method: string; ms: number } | null = null;
+let growth: {
+  mb: number;
+  method: string;
+  ms: number;
+  yardstick: Yardstick;
+} | null = null;
 
 const run = CASES[process.argv[2] ?? ""];
 if (!run) throw new Error(`unknown case ${process.argv[2]}`);
