@@ -62,6 +62,106 @@ export const MAX_TABLE_SLOTS_PER_PAGE = 20_000;
  */
 export const SEGMENT_GAP_PITCHES = 1.3;
 
+/**
+ * #28 slice 3 (wraps): a continuation line's centre may sit at most this many
+ * of the run's median ROW pitches (top line of a row to the last line of the
+ * row above, `flow.ts`'s `segments`) below the line above it. The design's
+ * value; on the image captures (poppler 22.12, `src/tests/poppler-samples-
+ * image.ts`) every continuation sits 12/18 = 0.67 row pitches below its line
+ * and every note 1.0 or more. Held at or under {@link SEGMENT_GAP_PITCHES}
+ * by a test: a line the gap admits must never be a gap that splits the table.
+ *
+ * What it cannot do: a line ONE row pitch below the last row (a note, a
+ * caption) passes it. It separates a wrap from white space, not from the
+ * next thing; `flow.ts`'s rule 7 has the conditions that do.
+ */
+export const WRAP_GAP_PITCHES = 1.25;
+/** The most continuation lines one cell absorbs; past it the run is cut. */
+export const MAX_WRAP_LINES_PER_CELL = 50;
+/**
+ * The most continuation lines one page absorbs, all tables together. The
+ * brief's starting value, NOT yet measured (the `wrap` modes of
+ * `docx-table-measure.ts` are a later part of #28 slice 3).
+ */
+export const MAX_WRAP_LINES_PER_PAGE = 20_000;
+
+/** The spans an x-range overlaps, by index (`x1 > start && x0 < end`). */
+function overlapped(
+  spans: readonly (readonly [number, number])[],
+  x0: number,
+  x1: number,
+): number[] {
+  const out: number[] = [];
+  spans.forEach(([start, end], i) => {
+    if (x1 > start && x0 < end) out.push(i);
+  });
+  return out;
+}
+
+/**
+ * A one-phrase line belongs to the table around or directly above it only
+ * when it sits in ONE column past the first: it starts at or after the first
+ * column's end and before the last column's end, and overlaps at most one
+ * column. A title, caption, paragraph line or footer starts in the first
+ * column or spans several.
+ *
+ * ONE definition, two consumers (#28 slice 3, 2026-11-16): the table
+ * detector (`../table-extract/detect.ts`, where it was born) and `./flow`'s
+ * wrapped cells. They feed it different spans — detect.ts a contiguous
+ * PARTITION of the table's width, flow.ts its cells' own x-extents with white
+ * gaps between — so over flow's spans a line wholly in a gap, or one far
+ * wider than its column, still passes; flow.ts adds {@link insideSlot}.
+ */
+export function fitsAsCell(
+  spans: readonly (readonly [number, number])[],
+  x0: number,
+  x1: number,
+): boolean {
+  const first = spans[0];
+  const last = spans[spans.length - 1];
+  if (!first || !last) return false;
+  return (
+    x0 >= first[1] && x0 < last[1] && overlapped(spans, x0, x1).length <= 1
+  );
+}
+
+/**
+ * The one span an x-range overlaps, or -1 when it overlaps none or several.
+ * flow.ts's wrapped cells need exactly one: over its gapped spans a line in
+ * a gap overlaps none and passes {@link fitsAsCell}.
+ */
+export function overlappedSpan(
+  spans: readonly (readonly [number, number])[],
+  x0: number,
+  x1: number,
+): number {
+  const hit = overlapped(spans, x0, x1);
+  return hit.length === 1 ? hit[0]! : -1;
+}
+
+/**
+ * Column k's SLOT: from the end of the column before it to the start of the
+ * column after it (the page edge for the first and last). A wrapped line may
+ * be wider than every one-line cell of its column, so it is held inside the
+ * slot, not the span. flow.ts's absorption and its placement invariant
+ * (INV-4) both call this: one bound, so they cannot disagree.
+ */
+export function insideSlot(
+  spans: readonly (readonly [number, number])[],
+  k: number,
+  x0: number,
+  x1: number,
+): boolean {
+  const before = spans[k - 1];
+  const after = spans[k + 1];
+  return (
+    k >= 0 &&
+    k < spans.length &&
+    (before === undefined || x0 >= before[1]) &&
+    (after === undefined || x1 <= after[0])
+  );
+}
+
 export interface GridCellInput {
   xMin: number;
   xMax: number;
@@ -159,6 +259,34 @@ export function isNumberCell(text: string): boolean {
 const ENDS_SENTENCE = /\p{L}[.!?。！？।]+["'”’»)\]]*$/u;
 
 /**
+ * The grid's FIGURE columns: each with two or more cells below the first row,
+ * every one of them a NUMBER ({@link isNumberCell}). The "numbers" leg of
+ * {@link wordTableDoubt}, which calls it — one definition: a table needs one
+ * such column, and `./flow` never absorbs a wrapped line under one below the
+ * header (#28 slice 3).
+ */
+export function figureColumns(
+  rows: readonly (readonly { text: string }[])[],
+  grid: TableGrid,
+): ReadonlySet<number> {
+  const columns = grid.spans.length;
+  const numbers = Array.from({ length: columns }, () => 0);
+  const notNumbers = Array.from({ length: columns }, () => 0);
+  rows.forEach((row, r) => {
+    if (r === 0) return;
+    row.forEach((cell, c) => {
+      const k = grid.col[r]![c]!;
+      if (isNumberCell(cell.text)) numbers[k]! += 1;
+      else notNumbers[k]! += 1;
+    });
+  });
+  const out = new Set<number>();
+  for (let k = 0; k < columns; k++)
+    if (numbers[k]! >= 2 && notNumbers[k] === 0) out.add(k);
+  return out;
+}
+
+/**
  * Why the grid of `rows` (each row's cells' text, in the order `grid.col`
  * places them) should stay tabbed rows, or null when it is written as a Word
  * table. See {@link WordTableDoubt}.
@@ -170,8 +298,6 @@ export function wordTableDoubt(
   if (rows.length < MIN_WORD_TABLE_ROWS) return "rows";
   const columns = grid.spans.length;
   const filled = Array.from({ length: columns }, () => 0);
-  const numbers = Array.from({ length: columns }, () => 0);
-  const notNumbers = Array.from({ length: columns }, () => 0);
   const sentences = Array.from({ length: columns }, () => 0);
   const inFirstRow = new Set(grid.col[0] ?? []);
   rows.forEach((row, r) =>
@@ -180,16 +306,12 @@ export function wordTableDoubt(
       if (ENDS_SENTENCE.test(cell.text.trim())) sentences[k]! += 1;
       if (r === 0) return;
       filled[k]! += 1;
-      if (isNumberCell(cell.text)) numbers[k]! += 1;
-      else notNumbers[k]! += 1;
     }),
   );
   for (let k = 0; k < columns; k++)
     if (inFirstRow.has(k) && filled[k] === 0) return "header";
   if (sentences.some((n) => n >= 2)) return "prose";
-  for (let k = 0; k < columns; k++)
-    if (numbers[k]! >= 2 && notNumbers[k] === 0) return null;
-  return "numbers";
+  return figureColumns(rows, grid).size > 0 ? null : "numbers";
 }
 
 /**
