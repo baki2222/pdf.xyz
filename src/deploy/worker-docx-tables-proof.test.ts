@@ -110,4 +110,65 @@ describe("the in-image PDF to Word tables proof runs, from the workflow to the c
     expect(file.getFullText()).toMatch(/ok &&= proven;/);
     expect(file.getFullText()).toMatch(/return ok \? 0 : 1;/);
   });
+
+  /**
+   * #28 slice 4 (2026-11-15): the same step proves the typefaces — the
+   * heartbeat's `docxTypefaces` on the image's own deps, and the inline-code
+   * line through real poppler — rather than a new step. Same chain, same
+   * shape as `provesDocxTables` above: imported from the capability module,
+   * called on `deps`, its verdict folded into the exit code.
+   */
+  it("the same file calls provesDocxTypefaces on the worker's own deps, and fails when it is false", () => {
+    const pkg = JSON.parse(read("package.json")) as {
+      scripts: Record<string, string>;
+    };
+    const target = /^tsx (\S+\.ts)$/.exec(pkg.scripts[SCRIPT] ?? "")![1]!;
+    const file = ts.createSourceFile(
+      target,
+      read(target),
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    let imported = "";
+    for (const stmt of file.statements)
+      if (
+        ts.isImportDeclaration(stmt) &&
+        !stmt.importClause?.isTypeOnly &&
+        stmt.importClause?.namedBindings &&
+        ts.isNamedImports(stmt.importClause.namedBindings) &&
+        stmt.importClause.namedBindings.elements.some(
+          (el) => !el.isTypeOnly && el.name.text === "provesDocxTypefaces",
+        )
+      )
+        imported = (stmt.moduleSpecifier as TS.StringLiteral).text;
+    expect(imported).toBe("@/lib/workers/pdf-office-export/capability");
+    // const <verdict> = await provesDocxTypefaces(deps); … ok &&= <verdict>;
+    const verdicts: string[] = [];
+    const args: string[] = [];
+    walk(file, (n) => {
+      if (
+        ts.isCallExpression(n) &&
+        ts.isIdentifier(n.expression) &&
+        n.expression.text === "provesDocxTypefaces"
+      ) {
+        args.push(n.arguments.map((a) => a.getText(file)).join(","));
+        let up: TS.Node = n.parent;
+        while (up && !ts.isVariableDeclaration(up)) up = up.parent;
+        if (up && ts.isVariableDeclaration(up))
+          verdicts.push(up.name.getText(file));
+      }
+    });
+    expect(args).toEqual(["deps"]);
+    expect(verdicts).toHaveLength(1);
+    const folded: string[] = [];
+    walk(file, (n) => {
+      if (
+        ts.isBinaryExpression(n) &&
+        n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandEqualsToken &&
+        n.left.getText(file) === "ok"
+      )
+        folded.push(n.right.getText(file));
+    });
+    expect(folded).toContain(verdicts[0]);
+  });
 });
