@@ -26,6 +26,18 @@ docker run --rm --network none -v <tree>:/app-x:ro -v <out>:/out -w /app-x \
 | `bn-probe.pdf`             | the probe's bn PDF (PASS): CID TrueType only, for the same test                                                                                                                                                           |
 | `zh-probe.pre-rewrite.pdf` | the same zh probe from a copy of the tree with the one line `normaliseToUnicodeStreams(doc);` removed (mutation m5), so its ToUnicode maps 文's glyph to U+2F42. A NEGATIVE fixture only (probe verdict `FAIL (glyphs)`). |
 | `zh-probe.pdffonts.txt`    | `pdffonts` (poppler 22.12.0) in the same image over `zh-probe.pdf`, unedited                                                                                                                                              |
+| `zh-radicals.printed.pdf`  | Chromium's own bytes, BEFORE the render pass's pdf-lib post-process, for the zh text `⽂ 文 一 人 用户 户口` (U+2F42 literal; 户 shares U+2F3E's glyph in SC). Real job verdict: ok                                       |
+| `ja-radicals.printed.pdf`  | the same for the ja text `⼈ 人 日本 戸籍 江戸` (U+2F08 literal; 戸 shares U+2F3E's glyph in JP). Real job verdict: ok                                                                                                    |
+| `en-radical.printed.pdf`   | the same for the en text `Radical only: ⽂ here.` (U+2F42 literal). Real job verdict: ok                                                                                                                                  |
+
+`zh-probe.pdf`, `ja-probe.pdf`, `ko-probe.pdf` and the three `*.printed.pdf`
+files were (re)captured 2026-11-16 from the same image digest after review
+r2 (the per-face, text-aware rewrite); the radical texts are built from code
+points in the capture script (`PRINTED_CASES`).
+
+The glyph-sharing facts the rewrite is derived from are vendored beside the
+module, in `../radical-glyph-facts.json`, written in the same image by
+`scripts/measure-cjk-radical-glyphs.ts` (its header has the command).
 
 Excerpts become fixtures: none of these files is edited. Negative controls
 mutate a COPY of their bytes in the test (`pdf-glyphs.test.ts`).
