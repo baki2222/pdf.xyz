@@ -269,7 +269,16 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Will the translated PDF keep the original layout?",
-      a: `No PDF comes back: you get Markdown and plain text, without the original's fonts, columns, images or page positions. To typeset it, paste it into your own document or run translation.md through ${MARKDOWN_TOOL}.${markdownCaveats.length > 0 ? ` ${markdownCaveats.join(" ")}` : ""}`,
+      // CHANGED 2026-11-15 (competitor audit #29, slice 1). The answer was
+      // "No PDF comes back: you get Markdown and plain text, without the
+      // original's fonts, columns, images or page positions. To typeset it,
+      // paste it into your own document or run translation.md through
+      // Markdown to PDF." — true of images before translatePdfLanguages
+      // (2026-11). Whether this server draws a language is the running
+      // worker's to say (the heartbeat's `translatePdfLanguages`, which the
+      // panel reads), so the answer states both cases rather than either.
+      // The Markdown to PDF caveats stay scoped to re-typesetting the .md.
+      a: `No. You always get the translation as Markdown and plain text in a ZIP; where this server can draw your target language, a reflowed PDF of the same text comes with it — the panel shows which before you start. Fonts, columns, images and positions of the original are not reproduced. To typeset the Markdown yourself, paste it into your own document or run translation.md through ${MARKDOWN_TOOL}.${markdownCaveats.length > 0 ? ` ${markdownCaveats.join(" ")}` : ""}`,
     },
     {
       q: "Can I translate a scanned PDF?",

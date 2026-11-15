@@ -483,6 +483,7 @@ describe("advertised capabilities — the deploy gap becomes a reported state", 
     docxTypefaces: false,
     translateOcr: false,
     htmlZip: false,
+    translatePdfLanguages: [],
     ...extra,
   });
 
@@ -504,7 +505,11 @@ describe("advertised capabilities — the deploy gap becomes a reported state", 
     Object.fromEntries(
       ADVERTISED_WORKER_CAPABILITIES.map((capability) => [
         capability.key,
-        capability.key === "ocrLanguages" ? ["eng"] : true,
+        capability.key === "ocrLanguages"
+          ? ["eng"]
+          : capability.key === "translatePdfLanguages"
+            ? ["es"]
+            : true,
       ]),
     );
 

@@ -268,13 +268,25 @@ export function describeTranslateRequest(options: TranslateOptions): string {
   return `Translate to ${target} (${from})`;
 }
 
-/** A sensible download name for the translation package, derived from the source PDF. */
-export function translationOutputName(originalName: unknown): string {
-  const tail = "-translation.zip";
+/** The source's stem, shortened so `stem + tail` fits a display filename. */
+function stemWithTail(originalName: unknown, tail: string): string {
   const budget = Math.max(1, MAX_DISPLAY_FILENAME_LENGTH - tail.length);
   const stem =
     sanitizeDisplayFilename(originalName)
       .replace(/\.[^.]+$/, "")
       .trim() || FALLBACK_STEM;
   return `${stem.length > budget ? stem.slice(0, budget).trim() : stem}${tail}`;
+}
+
+/** A sensible download name for the translation package, derived from the source PDF. */
+export function translationOutputName(originalName: unknown): string {
+  return stemWithTail(originalName, "-translation.zip");
+}
+
+/**
+ * The download name for the reflowed PDF of the same translation: the same
+ * stem and the same length budget as {@link translationOutputName}.
+ */
+export function translatedPdfOutputName(originalName: unknown): string {
+  return stemWithTail(originalName, "-translated.pdf");
 }

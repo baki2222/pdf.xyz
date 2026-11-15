@@ -164,9 +164,16 @@ export function probePdfTextFromConfig(
  * output file is read.
  */
 export function pdfTextArgs(
-  mode: "layout" | "bbox",
+  mode: "layout" | "bbox" | "read",
   inputPath: string,
 ): string[] {
+  // `read` (2026-11-15, Translate PDF's per-job conservation check): the
+  // page's text in reading order with NO layout padding, and the encoding
+  // NAMED rather than inherited. Poppler defaults to UTF-8, but a pdftotext
+  // that defaults to Latin-1 (xpdf 4.00, as shipped with some Windows tool
+  // chains) turns every non-Latin-1 character into U+FFFD — measured, on a
+  // conservation probe that then refused all nine scripts it printed.
+  if (mode === "read") return ["-enc", "UTF-8", "-q", "--", inputPath, "-"];
   return [
     mode === "bbox" ? "-bbox-layout" : "-layout",
     "-q",
@@ -181,7 +188,7 @@ async function runPdfText(
   binary: string,
   config: NativePdfTextConfig,
   seams: PdfTextSeams,
-  mode: "layout" | "bbox",
+  mode: "layout" | "bbox" | "read",
   input: Uint8Array,
   run: RunControl = {},
 ): Promise<string> {
@@ -288,6 +295,23 @@ export function createNativePdfLayoutExtractor(
     parseBboxLayout(
       await runPdfText(binary, config, seams, "bbox", bytes, run),
     );
+}
+
+/**
+ * A PDF's text as `pdftotext` reads it — reading order, UTF-8, unparsed — or
+ * `undefined` when this host has no `pdftotext`. Translate PDF reads its own
+ * printed PDF back with it (`../translate/pdf-render`); only the code points
+ * matter there, so no layout is asked for and none is parsed.
+ */
+export function resolveNativePdfTextReader(
+  env: Record<string, string | undefined> = process.env,
+  seams: PdfTextSeams = {},
+): ((bytes: Uint8Array, run?: RunControl) => Promise<string>) | undefined {
+  const config = resolveNativePdfTextConfig(env);
+  const binary = probePdfTextFromConfig(config, seams);
+  return binary
+    ? (bytes, run) => runPdfText(binary, config, seams, "read", bytes, run)
+    : undefined;
 }
 
 /**

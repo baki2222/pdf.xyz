@@ -23,6 +23,7 @@
 
 import { FINGERPRINT_PATTERN } from "../build-fingerprint";
 import { OCR_LANGUAGE_CODES } from "@/lib/jobs/ocr";
+import { TRANSLATE_LANGUAGES } from "@/lib/jobs/translate-pdf";
 import {
   WORKER_HEARTBEAT_SCHEMA_VERSION,
   HEARTBEAT_ROLE,
@@ -129,6 +130,22 @@ function ocrLanguagesOf(value: unknown): readonly string[] {
   return OCR_LANGUAGE_CODES.filter((code) => present.has(code));
 }
 
+/**
+ * The Translate PDF languages a worker proved it prints, bounded the way
+ * {@link ocrLanguagesOf} bounds OCR packs: only codes from
+ * `TRANSLATE_LANGUAGES` survive, deduplicated and in that list's order, so
+ * the value is at most 21 known strings whatever was published. Absent (an
+ * older image) or malformed reads as `[]`.
+ */
+function translatePdfLanguagesOf(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) return [];
+  const present = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry === "string") present.add(entry);
+  }
+  return TRANSLATE_LANGUAGES.filter((code) => present.has(code));
+}
+
 /** Normalize an arbitrary capabilities shape to the bounded capability summary. */
 function capabilitiesOf(value: unknown): HeartbeatCapabilities {
   const src =
@@ -157,6 +174,7 @@ function capabilitiesOf(value: unknown): HeartbeatCapabilities {
     docxTypefaces: boolOf(src.docxTypefaces),
     translateOcr: boolOf(src.translateOcr),
     htmlZip: boolOf(src.htmlZip),
+    translatePdfLanguages: translatePdfLanguagesOf(src.translatePdfLanguages),
   };
 }
 
@@ -216,6 +234,7 @@ export function serializeHeartbeat(hb: WorkerHeartbeat): string {
       docxTypefaces: hb.capabilities.docxTypefaces,
       translateOcr: hb.capabilities.translateOcr,
       htmlZip: hb.capabilities.htmlZip,
+      translatePdfLanguages: [...hb.capabilities.translatePdfLanguages],
     },
     at: hb.at,
   });

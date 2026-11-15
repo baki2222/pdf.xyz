@@ -70,5 +70,6 @@ export function emptyCapabilities(): HeartbeatCapabilities {
     docxTypefaces: false,
     translateOcr: false,
     htmlZip: false,
+    translatePdfLanguages: [],
   };
 }

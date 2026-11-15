@@ -216,6 +216,19 @@ jobs:
       - name: Worker image EPUB to PDF proof (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:epub-proof
 
+      # Translate PDF's reflowed PDF (2026-11-15, competitor audit #29 slice
+      # 1): the start-up language proof the heartbeat publishes as
+      # `translatePdfLanguages` — one translate-pdf job per target language
+      # through the executor's order on the image's REAL Chromium and
+      # pdftotext, each PDF judged by poppler (Noto faces embedded, the
+      # sample read back, ink on the page, Arabic right to left) — and the
+      # render time, size and per-job conservation false-drop count at
+      # delivery size (three chunks at the per-call ceiling) in en, bn, ja, ar
+      # and th. Fails unless en, es and bn are proven and nothing is dropped.
+      # Stub model, synthetic text; no user document, secret, queue or store.
+      - name: Worker image Translate PDF reflowed-PDF proof (inside the built worker image)
+        run: docker run --rm pdfxyz-worker:ci pnpm worker:translate-pdf-proof
+
       # Worker options (2026-10-24): compress-pdf's Grayscale through the
       # image's REAL Ghostscript, read back as 1-component images (with a
       # colour run as the control), and protect-pdf's permission restrictions
@@ -305,6 +318,19 @@ jobs:
             exit 1
           fi
           echo "worker readiness honestly reported not-configured (exit 2)"
+
+      # The HEALTHCHECK's own cost, timed in the built image (2026-11-15). The
+      # probe used to await every start-up proof — 21 Chromium print jobs since
+      # translatePdfLanguages — and a probe that outruns its timeout restarts
+      # the worker in a loop. It now reads the daemon's cached proofs instead.
+      # The script derives everything from the Dockerfile (and compose): the
+      # bound is two thirds of the worker HEALTHCHECK's own timeout, the probe
+      # timed is that HEALTHCHECK's CMD, and the cache writer is the worker
+      # CMD. It times the probe cold (no cache: must report source "none") and
+      # warm (after the writer: must report "cache"), prints both, and fails
+      # either over the bound. Nothing configured, no secret, no document.
+      - name: Worker HEALTHCHECK runs well inside its timeout, cold and warm (inside the built worker image)
+        run: node scripts/healthcheck-budget.mjs --image pdfxyz-worker:ci
 
       # Separation, proven at the image level (not just in the Dockerfile text): the
       # worker image DOES ship the native deep-compression AND OCR engines, plus the

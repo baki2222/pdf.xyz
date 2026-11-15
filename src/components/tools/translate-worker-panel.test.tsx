@@ -521,8 +521,15 @@ describe("Translate panel — the wait follows the plan", () => {
     expect(polls).toBe(expected.maxAttempts);
   });
 
-  it("POSITIVE CONTROL: a one-chunk document gets the ordinary AI wait", async () => {
+  // INVERTED 2026-11-15 (review r1 of the translated PDF). This test asserted
+  // the one-chunk wait WAS the ordinary AI wait (303 s). Since the worker
+  // prints a PDF after the provider calls, that wait is short by the render
+  // after a retried call (362 s needed), and the panel would abandon a job
+  // whose calls were paid for. It still controls the many-chunk test above:
+  // one chunk gets the translate FLOOR, which is the AI wait plus the render.
+  it("POSITIVE CONTROL: a one-chunk document gets the translate floor, the AI wait plus the render", async () => {
     const { polls } = await pollsBeforeGivingUp(documentOf(1));
-    expect(polls).toBe(AI_JOB_POLL.maxAttempts);
+    expect(polls).toBe(translateJobPoll(1).maxAttempts);
+    expect(polls).toBeGreaterThan(AI_JOB_POLL.maxAttempts);
   });
 });

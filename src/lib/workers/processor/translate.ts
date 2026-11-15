@@ -14,6 +14,7 @@
 import { readDeliveryCap, type JobError } from "@/lib/jobs";
 import {
   translateAsksForOcr,
+  translatedPdfOutputName,
   translationOutputName,
 } from "@/lib/jobs/translate-pdf";
 import type { JobResults } from "@/lib/jobs/results";
@@ -181,8 +182,12 @@ export function createTranslateProcessor(
         id: "translate",
         tools: [TRANSLATE_TOOL],
         ready,
+        // Names the PDF only when this worker HAS the renderer: the detail is
+        // read alone, and a worker without Chromium returns the ZIP alone.
         detail: ready
-          ? "Translate PDF ready: the PDF's selectable text is translated by a configured AI provider and packaged as a translation ZIP (translation.md + translation.txt + manifest) on an auto-deleting secure worker."
+          ? deps.pdf
+            ? "Translate PDF ready: the PDF's selectable text is translated by a configured AI provider and packaged as a translation ZIP (translation.md + translation.txt + manifest), with a reflowed PDF of the same text for every target language this worker has proven it can draw, on an auto-deleting secure worker."
+            : "Translate PDF ready: the PDF's selectable text is translated by a configured AI provider and packaged as a translation ZIP (translation.md + translation.txt + manifest) on an auto-deleting secure worker."
           : deps.extract == null
             ? "Translate PDF needs the PDF text extractor, which isn't available on this worker."
             : "Translate PDF needs a configured AI provider (PDFXYZ_AI_PROVIDER + API key). None is configured, so it fails honestly as not-implemented.",
@@ -284,6 +289,8 @@ export function createTranslateProcessor(
         {
           ...deps,
           ...(extract ? { extract } : {}),
+          // Per job: the name the reflowed PDF is titled with.
+          document: { name: file.filename },
           limits: {
             ...deps.limits,
             ...(cap.cap ? { delivery: cap.cap } : {}),
@@ -308,12 +315,24 @@ export function createTranslateProcessor(
         );
       }
       return processorOk(
+        // THE ZIP STAYS FIRST. Every reader that predates the PDF reads
+        // `artifacts[0]` — the browser client, the capability chain's proofs
+        // and the production AI proof — and must keep getting the package.
         [
           {
             filename: translateOutputName(file.filename),
             contentType: run.contentType,
             bytes: run.output,
           },
+          ...(run.pdf
+            ? [
+                {
+                  filename: translatedPdfOutputName(file.filename),
+                  contentType: "application/pdf",
+                  bytes: run.pdf,
+                },
+              ]
+            : []),
         ],
         { ...meta(run.meta), ocrFirst: ocrResults !== undefined },
         // The window travels to the browser on the job record, so the panel
@@ -329,6 +348,9 @@ export function createTranslateProcessor(
             // is read by someone who opens it; the completion state is read by
             // everyone.
             ...(run.meta.delivery ? { delivery: run.meta.delivery } : {}),
+            // Always present on a success (an explicit field on the engine's
+            // meta): the panel says "the PDF could not be drawn" from this.
+            pdf: run.meta.pdf,
           },
         },
       );
