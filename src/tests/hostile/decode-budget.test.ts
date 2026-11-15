@@ -54,6 +54,8 @@ interface Settled {
   error?: string;
   message?: string;
   growthMb: number;
+  /** The entry's own time, measured in the child (2026-11-15). */
+  ms?: number;
 }
 function settled(r: BoundedOutcome): Settled {
   // A hang, a crash or an OOM is the defect itself; say which.
@@ -320,30 +322,100 @@ describe("PS-02 / STAMP-13: many pages sharing one content stream under the budg
     "overlay-cycle":
       "The overlay pages together unpack to more than 1,024 MB, which is too large to process safely in your browser.",
   };
+
+  /**
+   * The positive control, run once per entry and shared: 6 pages naming one
+   * 64 MiB stream, 384 MiB of legal inflate and re-deflate through the SAME
+   * entry. It is the yardstick the refusal's time is held to (below).
+   */
+  const CONTROL_PAGES = 6;
+  const CONTROL_MIB = 64;
+  const controls = new Map<string, Promise<BoundedOutcome>>();
+  const control = (entry: string) => {
+    let c = controls.get(entry);
+    if (!c) {
+      c = run(
+        entry,
+        sharedContentPdf("/FlateDecode", zeroBomb(CONTROL_MIB), CONTROL_PAGES),
+        120_000,
+      );
+      controls.set(entry, c);
+    }
+    return c;
+  };
+  /**
+   * The refusal's time, as a multiple of the control's, both measured inside
+   * their child around the entry alone (decode-budget.child.ts `ms`).
+   *
+   * History (2026-11-15). This bound WAS `Date.now() - started < 30_000`,
+   * taken in the parent around the whole test: fixture build, spawn, tsx
+   * boot and the entry. The entry is single-threaded JS (pako's deflate is
+   * about 62% of it, pdf-lib's inflate about 30%), and CI runs it 3.3x
+   * slower than a quiet local box, by however loaded the runner is: across
+   * 15 CI runs n-up took 14.4-30.3 s, 9 of them at 28 s or more, and PR
+   * #318's run 43650957051 failed at 30,273 ms (n-up) and 30,348 ms
+   * (overlay-cycle) with nothing wrong. A constant cannot tell a slow
+   * machine from a slow refusal; the same entry on a legal file, in the
+   * same run, can.
+   *
+   * The work ratio is the claim. By bytes, refused at EMBED_TOTAL_BYTES
+   * (1 GiB) is 1024 / 384 = 2.7 controls, and the defect this test was
+   * written for (no destination total: all 24 pages, 4.7 GiB) is 12.5.
+   * Measured 2026-11-15 (Windows, Node 24, a busy box): the refusal 1.76-1.88
+   * controls (the control carries the layout and save of 2 sheets); with the
+   * total made to fire four times late (a mutation of the patched
+   * DecodeStream.js, same error and copy) 10.9, red. Removing the total
+   * outright settles "ok" after all 24 pages: red on the typed error first.
+   */
+  const RATIO_TO_CONTROL = 6;
+  /**
+   * Beside the ratio, an absolute ceiling on the entry alone, for the case
+   * where the control is itself slow for a reason that would hide a defect.
+   * The unfixed entry took 43-50 s on the quiet box (and would be 140 s+ on
+   * CI); the fixed one is at most about 27.5 s of entry on the slowest CI
+   * run seen (30.3 s whole test less boot and fixture).
+   */
+  const ENTRY_CEILING_MS = 40_000;
+
   for (const entry of ["nup", "overlay-cycle"]) {
     test(`PS-02 / STAMP-13: ${entry} refuses 24 pages that all name one 200 MiB stream`, async () => {
-      const started = Date.now();
+      // Control first, then the hostile file, so both see the same machine.
+      const c = settled(await control(entry));
+      expect(c.ok, `${entry} control`).toBeDefined();
       const r = settled(await run(entry, shared(), 120_000));
       expect(r.error).toBe("PdfDecodeBudgetError");
       expect(r.message).toBe(TOTAL_COPY[entry]);
       expect(r.growthMb).toBeLessThan(REFUSED_BOMB_MB);
-      // Refused once EMBED_TOTAL_BYTES is spent (about 5 pages; measured
-      // 8-9 s), not after 24 (43-50 s).
-      expect(Date.now() - started).toBeLessThan(30_000);
-    }, 150_000);
+      // Health check: a control that did no work would make any ratio pass
+      // vacuously, and the instrument must see its 64 MiB decoded.
+      expect(c.growthMb, `${entry} control growth`).toBeGreaterThan(60);
+      const said = `${entry}: refusal ${r.ms} ms, control ${c.ms} ms`;
+      // Printed on a pass too: CI logs showed this region only on a failure,
+      // so the spread the bound was set from could not be read back.
+      console.log(`[time-bound] ${said}`);
+      expect(c.ms, said).toBeGreaterThan(0);
+      expect(r.ms!, said).toBeLessThan(RATIO_TO_CONTROL * c.ms!);
+      expect(r.ms!, said).toBeLessThan(ENTRY_CEILING_MS);
+    }, 300_000);
   }
 
   test("PS-02: positive control: 6 pages sharing one 64 MiB stream (384 MiB in all) still lay out", async () => {
     // Past the per-stream budget in total, so this pins that the operation
     // total is larger than it; under EMBED_TOTAL, so it must pass.
-    expect(6 * 64 * MiB).toBeGreaterThan(DEFAULT_DECODE_BUDGET_BYTES);
-    expect(6 * 64 * MiB).toBeLessThan(EMBED_TOTAL_BYTES);
-    const r = settled(
-      await run("nup", sharedContentPdf("/FlateDecode", zeroBomb(64), 6)),
+    expect(CONTROL_PAGES * CONTROL_MIB * MiB).toBeGreaterThan(
+      DEFAULT_DECODE_BUDGET_BYTES,
     );
+    expect(CONTROL_PAGES * CONTROL_MIB * MiB).toBeLessThan(EMBED_TOTAL_BYTES);
+    const r = settled(await control("nup"));
     expect(r.ok).toMatchObject({ sheets: 2 });
     expect(r.growthMb).toBeGreaterThan(60);
-  }, 90_000);
+  }, 150_000);
+
+  test("PS-02 / STAMP-13: positive control: overlay-cycle lays out the same 6 pages", async () => {
+    const r = settled(await control("overlay-cycle"));
+    expect(r.ok).toMatchObject({ pages: CONTROL_PAGES });
+    expect(r.growthMb).toBeGreaterThan(60);
+  }, 150_000);
 });
 
 /**
