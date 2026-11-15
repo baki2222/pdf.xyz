@@ -27,13 +27,11 @@
  *     own per-job conservation check. Prints p50 and max milliseconds, bytes
  *     and pages, and the false-drop count (which must be 0).
  *
- * Exit codes: 0 = proven; 1 = English, Spanish, Bengali, Arabic, Chinese,
- * Japanese or Korean not proven, a 1b case failed, the facts differ (the
- * last two since 2026-11-16; Arabic since 2026-11-15, when the direction
- * check stopped refusing poppler's visual-order words; Chinese, Japanese and
- * Korean since the same day, when Type 3 CJK glyphs began to be judged by
- * their property), or any false drop; 2 = Chromium or poppler is not
- * available in this image. Run by
+ * Exit codes: 0 = proven; 1 = a language in `TRANSLATE_PDF_CI_REQUIRED` not
+ * proven, a 1b ToUnicode rewrite case failed, the image's faces no longer
+ * give the vendored radical-glyph facts (the last two since 2026-11-16, when
+ * CJK Type 3 glyphs began to be judged by their property), or any false
+ * drop; 2 = Chromium or poppler is not available in this image. Run by
  * `.github/workflows/container.yml`; no secret, queue, store, network, model
  * or user document is touched — the model is a stub and the text synthetic.
  */
@@ -45,6 +43,7 @@ import {
   probeTranslatePdfLanguages,
 } from "@/lib/workers/translate/pdf-capability";
 import { measureDeliverySizeRenders } from "@/lib/workers/translate/pdf-measure";
+import { translatePdfProofVerdict } from "@/lib/workers/translate/pdf-proof-verdict";
 import type { TranslateLanguage } from "@/lib/jobs/translate-pdf";
 import { RADICAL_GLYPH_FACTS } from "@/lib/workers/translate/radical-equivalents";
 import {
@@ -53,6 +52,9 @@ import {
 } from "@/lib/workers/translate/radical-glyph-measure";
 import { cjkFontFiles } from "./cjk-font-files";
 
+// The required set is NOT typed here (2026-11-15, audit #29 slice 2): the
+// static copy names the languages that get a PDF from TRANSLATE_PDF_CI_REQUIRED,
+// and translatePdfProofVerdict checks the probe against that constant itself.
 /**
  * 1b's cases, built from code points so no editor or tool layer can fold a
  * radical into its ideograph (NFKC would): 0x2f42 is KANGXI RADICAL SCRIPT,
@@ -130,15 +132,6 @@ const REWRITE_CASES: readonly {
   },
 ];
 
-const REQUIRED: readonly TranslateLanguage[] = [
-  "en",
-  "es",
-  "bn",
-  "ar",
-  "zh",
-  "ja",
-  "ko",
-];
 const MEASURED: readonly TranslateLanguage[] = [
   "en",
   "bn",
@@ -251,25 +244,22 @@ async function main(): Promise<number> {
       `  ${r.language}: ${r.ok ? "ok" : `DROPPED (${r.reason})`} ${r.ms} ms ${r.characters} chars${r.ok ? ` ${r.bytes} B ${r.pages} pages` : ""}`,
     );
 
-  const missing = REQUIRED.filter((l) => !probe.passing.includes(l));
-  if (missing.length > 0) {
-    console.log(`FAIL — not proven: ${missing.join(", ")}`);
-    return 1;
-  }
-  if (rewriteFailures > 0) {
-    console.log(`FAIL — ${rewriteFailures} ToUnicode rewrite case(s)`);
-    return 1;
-  }
-  if (factsDiff.length > 0) {
-    console.log("FAIL — the image's faces no longer give the vendored facts");
-    return 1;
-  }
-  if (summary.falseDrops > 0) {
-    console.log(`FAIL — ${summary.falseDrops} false drop(s) at delivery size`);
-    return 1;
-  }
-  console.log("PASS");
-  return 0;
+  // The verdict is a pure function the guard RUNS (review r1, 2026-11-16):
+  // it reads TRANSLATE_PDF_CI_REQUIRED itself, so nothing here can narrow it.
+  // The CJK slice's own checks reach it as named failures, never as a
+  // separate return, so the script still has one way to pass.
+  const otherFailures: string[] = [];
+  if (rewriteFailures > 0)
+    otherFailures.push(`${rewriteFailures} ToUnicode rewrite case(s)`);
+  if (factsDiff.length > 0)
+    otherFailures.push("the image's faces no longer give the vendored facts");
+  const verdict = translatePdfProofVerdict(
+    probe.passing,
+    summary.falseDrops,
+    otherFailures,
+  );
+  for (const line of verdict.lines) console.log(line);
+  return verdict.exitCode;
 }
 
 main().then(

@@ -153,10 +153,10 @@ export default function TermsPage() {
           </strong>{" "}
           Check it against the original before relying on it, and do not treat
           it as legal, medical, financial, or other professional advice. Where a
-          tool has known limits — a translation that produces text rather than a
-          re-typeset PDF, or OCR whose confidence is low — we say so on the tool
-          itself, and those statements are part of what you are agreeing to
-          here.
+          tool has known limits — a translated PDF that is the text reflowed
+          rather than the original&apos;s layout, or OCR whose confidence is low
+          — we say so on the tool itself, and those statements are part of what
+          you are agreeing to here.
         </p>
       </LegalSection>
 

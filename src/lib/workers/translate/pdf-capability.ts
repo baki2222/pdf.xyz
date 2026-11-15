@@ -247,7 +247,7 @@ const isType3 = (r: { type: string }) => /type\s*3/i.test(r.type);
  * identity is left to (glyphs), which reads the descriptor; otherwise some
  * non-Type 3 Noto face for the script.
  *
- * `unicode` is required for EVERY script since 2026-11-15. Before requiring
+ * `unicode` is required for EVERY script since 2026-11-16. Before requiring
  * it, the pdffonts rows of all 21 probe PDFs were printed from the live
  * image: every row of every language said `uni yes`.
  */

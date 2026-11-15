@@ -544,9 +544,17 @@ describe("translate refuses more text than the model may write back", () => {
     expect(provider.calls).toHaveLength(1);
   });
 
-  it("scales the ceiling with the output budget it is given", async () => {
-    // A deployment that raises the budget really can translate more; the refusal
-    // must follow the budget rather than a frozen number.
+  /*
+   * INVERTED, NOT DELETED (2026-11-16). This case was "scales the ceiling with
+   * the output budget it is given": an override of 4x the default was SENT, the
+   * per-call input ceiling grew with it, and the whole document went in ONE
+   * call. It pinned the defect — `outputTokensPerFullRun` is "the most output
+   * tokens a single run can produce", the daily ceiling is derived from it, and
+   * the engine's own docblock said the override "can only lower, never raise".
+   * Now the raise is ignored: the default is sent and the document is chunked
+   * exactly as it is with no override at all.
+   */
+  it("does NOT raise the per-call ceiling for a raised output budget", async () => {
     const provider = providerReturning(SUCCESS("Une traduction."));
     const run = await runTranslate(INPUT, OPTIONS, {
       extract: await oversizedExtractor(),
@@ -554,7 +562,12 @@ describe("translate refuses more text than the model may write back", () => {
       limits: { maxOutputTokens: TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS * 4 },
     });
     expect(run.ok).toBe(true);
-    expect(provider.calls).toHaveLength(1);
+    expect(provider.calls.length).toBeGreaterThan(1);
+    for (const call of provider.calls) {
+      expect(call.maxOutputTokens).toBe(TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS);
+      const sent = call.messages.map((m) => m.content).join("\n").length;
+      expect(sent).toBeLessThanOrEqual(TRANSLATE_MAX_INPUT_CHARS);
+    }
   });
 });
 

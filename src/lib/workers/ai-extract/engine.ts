@@ -21,6 +21,7 @@ import {
 } from "../ai/truncation";
 import type { ExtractOptions, ExtractionField } from "@/lib/jobs/ai-extract";
 import type { AiProvider, AiCompletionResult } from "../ai/provider";
+import { clampOutputTokens } from "../ai/output-budget";
 import { AI_INPUT_LIMITS } from "@/lib/jobs/types";
 import type { AiUsageMeta } from "@/lib/jobs/ai-results";
 import {
@@ -193,9 +194,11 @@ export type AiExtractRun =
 /**
  * A generous default generation budget. Structured extraction output is bounded by
  * the requested fields, so a fixed default the operator's `maxOutputTokens` limit can
- * only lower (never raise) is sufficient.
+ * only lower (never raise) is sufficient. The lowering is `clampOutputTokens`
+ * (`../ai/output-budget`); "every AI engine sends at most the per-run output figure"
+ * in `src/lib/jobs/ai-spend-ceiling.test.ts` runs this engine with a raised override.
  */
-const DEFAULT_MAX_OUTPUT_TOKENS = 4000;
+export const DEFAULT_MAX_OUTPUT_TOKENS = 4000;
 const DEFAULT_MAX_INPUT_CHARS = AI_INPUT_LIMITS.maxInputCharacters;
 
 /** Human-readable one-line description of a field, for the system prompt. */
@@ -420,8 +423,10 @@ export async function runAiExtract(
   const truncated = window.truncated;
   const promptText = truncated ? sourceText.slice(0, maxChars) : sourceText;
 
-  const maxOutputTokens =
-    deps.limits?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
+  const maxOutputTokens = clampOutputTokens(
+    DEFAULT_MAX_OUTPUT_TOKENS,
+    deps.limits?.maxOutputTokens,
+  );
 
   const completion = await provider.complete({
     system: buildSystemPrompt(options, window),

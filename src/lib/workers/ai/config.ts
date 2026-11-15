@@ -21,8 +21,13 @@
  *    model token; an `https:` URL). A parse failure names the offending **variable**
  *    (never its value) and falls back to a safe *disabled* config, so a
  *    half-configured provider is honestly off rather than half-on.
- *  - Every bound (timeout, max output tokens) is clamped to a hard ceiling so a
- *    misconfigured deployment can never ask for unbounded generation.
+ *  - The request timeout is bounded here: a value outside `AI_TIMEOUT_MS_BOUNDS`
+ *    is refused (the config falls back to disabled), never used. Max output tokens are
+ *    NOT read or bounded by this module: each engine sends a fixed default that an
+ *    operator limit can only lower, via `clampOutputTokens` (`./output-budget`), and
+ *    every default is at most `AI_SPEND_CEILING.outputTokensPerFullRun`. The test
+ *    that enforces both is "every AI engine sends at most the per-run output
+ *    figure" in `src/lib/jobs/ai-spend-ceiling.test.ts`.
  */
 
 import type { FieldError } from "@/lib/jobs";

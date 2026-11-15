@@ -1184,15 +1184,33 @@ describe("the translatePdfLanguages subject (competitor audit #29, 2026-11-15)",
   /**
    * BOTH DIRECTIONS (house rule 1). Measured when the key landed: exactly one
    * member, Translate PDF's layout FAQ answer — the one both-states sentence
-   * slice 1 allows. The intro, metaDescription and guide still describe the
-   * ZIP alone (slice 2 flips them); a member elsewhere is a sentence about
-   * this capability nobody paired.
+   * slice 1 allowed, while the intro, metaDescription and guide still
+   * described the ZIP alone.
+   *
+   * 2026-11-15, slice 2: those surfaces now say which languages get the
+   * reflowed PDF (`translatePdfCoverage`, derived from the set CI makes the
+   * worker image prove), so the members are the tool page's three and the
+   * guide's six, measured that day; review r1 (2026-11-16) added the
+   * catalogue description, which had named the text alone. A member elsewhere is still a sentence
+   * about this capability nobody paired.
    */
-  it("reaches Translate's PDF sentence, and nothing else", () => {
+  it("reaches Translate's PDF sentences, and nothing else", () => {
     const members = COPY.filter((entry) =>
       SUBJECTS.translatePdfLanguages!.subject.test(entry.text),
     ).map((entry) => `${entry.slug} ${entry.where}`);
-    expect(members.sort()).toEqual(["translate-pdf faq[0].answer"]);
+    expect(members.sort()).toEqual([
+      "guide:how-to-translate-a-pdf description",
+      "guide:how-to-translate-a-pdf faq[3].answer",
+      "guide:how-to-translate-a-pdf intro[0]",
+      "guide:how-to-translate-a-pdf intro[2]",
+      "guide:how-to-translate-a-pdf sections[0].body[1]",
+      "guide:how-to-translate-a-pdf steps[5]",
+      // Review r1, 2026-11-16: the catalogue description names the PDF now.
+      "translate-pdf description",
+      "translate-pdf faq[0].answer",
+      "translate-pdf intro[0]",
+      "translate-pdf metaDescription",
+    ]);
   });
 
   it("positive control: a deferral planted in that sentence is caught", () => {
