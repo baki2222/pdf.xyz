@@ -906,8 +906,19 @@ describe("no tool page loads a table of every tool", () => {
  * to 35,070 by flat data and shorter words). That is 18 B OVER 35,052. The
  * new bound leaves 63 B over this machine's reading, as the old one left
  * 57 B over main's (CI reads ~25 B higher). Not measured on CI.
+ *
+ * RAISED on 2026-11-15, 34.31 -> 34.33 KB (35,133 -> 35,153 B), FOR THE
+ * OWNER TO CONFIRM, by Compare PDF's HTML redline (S4): the catalogue row's
+ * outputs read ["TXT", "HTML"]. Main 1c1e5f37 -> the branch, one tree
+ * (E:/wcmp4, its own install), both from an empty .next: the eight counted
+ * chunks read 35,082 -> 35,091 B (+9: 5320 8,269 -> 8,275, 7384 2,138 ->
+ * 2,141). Main's own reading had already left only 51 B under 35,133 (S3's
+ * +7 and the drift since the last recorded 35,070); the branch leaves 42 B,
+ * under the 45 B this bound keeps for CI's ~25 B higher reading. The new
+ * bound leaves 62 B over this machine's reading, the HTML-zip precedent's
+ * 63. Not measured on CI.
  */
-const TICKET_FETCH_GZ_KB = 34.31;
+const TICKET_FETCH_GZ_KB = 34.33;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));
@@ -1276,9 +1287,12 @@ describe("Compare PDF's Overlay is a chunk of its own", () => {
  * 2026-11-15). The plan's rule: at 1,000 B gz or more standalone, its own
  * chunk; under, folded into the comparison's. MEASURED standalone
  * (esbuild --minify, gzip -9): 4,684 B, 2,266 B gz, so its own chunk.
- * MEASURED in the build, from an empty .next: REDLINE_MEASURED.
+ * MEASURED in the build, one tree (E:/wcmp4), from an empty .next: 2,259 B
+ * gz (2.21 KB), one chunk (3648) that only the comparison's chunk loads,
+ * and nothing else in its load (report.ts and the hunk helpers are already
+ * in the comparison's chunk). Bound 2.21 KB plus 10%.
  */
-const COMPARE_REDLINE_FETCH_GZ_KB = 0;
+const COMPARE_REDLINE_FETCH_GZ_KB = 2.43;
 
 describe("Compare PDF's redline is a chunk of its own", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));
