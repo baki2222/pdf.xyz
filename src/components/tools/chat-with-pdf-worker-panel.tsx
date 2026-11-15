@@ -114,14 +114,16 @@ const measureWithPdfText: MeasureChat = (bytes) =>
   measureChatDocument(bytes, extractPdfText);
 
 /** Picks up a job the tab stopped waiting for; a prop for the same reason as
- * `runChat`. The page never passes it. */
+ * `runChat`, for tests only. The page never passes it, and with none the
+ * panel calls `resumeSecurityJob` BY NAME — not through a defaulted prop, so
+ * run-outcome-coverage's call walk still sees the reporter it reaches. */
 type ResumeChat = typeof resumeSecurityJob;
 
 export function ChatWithPdfWorkerPanel({
   tool,
   runChat = runThroughDeps,
   measureChat = measureWithPdfText,
-  resumeChat = resumeSecurityJob,
+  resumeChat,
 }: {
   tool: Tool;
   runChat?: RunChat;
@@ -233,7 +235,7 @@ function ChatBuilder({
   refuse: PickRefusal;
   runChat: RunChat;
   measureChat: MeasureChat;
-  resumeChat: ResumeChat;
+  resumeChat: ResumeChat | undefined;
 }) {
   const { available, status } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
@@ -310,10 +312,10 @@ function ChatBuilder({
     // than inventing it.
     resume: async (id, controls) => {
       const startedFor = fileToken.current;
-      const result = await resumeChat(id, {
-        ...controls,
-        tool: "chat-with-pdf",
-      });
+      const options = { ...controls, tool: "chat-with-pdf" as const };
+      const result = resumeChat
+        ? await resumeChat(id, options)
+        : await resumeSecurityJob(id, options);
       await record(
         result,
         asking.current ?? "Your earlier question",
