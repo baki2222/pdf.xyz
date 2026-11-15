@@ -638,3 +638,181 @@ export async function provesDocxRunStyles(
     return false;
   }
 }
+
+/* ------------------------------------------------------------------ *
+ *  Word: does THIS image's PDF to Word write a table as a Word table?
+ * ------------------------------------------------------------------ */
+
+/**
+ * The tables probe's page (#28 slice 2): a wide-gapped line, a short
+ * separator line, then a four-row table — a bold header and three rows, the
+ * middle row with NO quantity — its columns left-aligned at 72, 300 and 420
+ * points. The separator has under four words: a longer line in the header's
+ * block would trim the header out of the table (flow.ts rule 5).
+ */
+export const DOCX_TABLES_PROBE = {
+  lone: ["Invoice 1042", "Due in 30 days"],
+  separator: "Order details",
+  rows: [
+    ["Item", "Qty", "Price"],
+    ["Widget", "2", "9.50"],
+    ["Gadget", "", "12.00"],
+    ["Gizmo", "5", "3.25"],
+  ],
+  columns: [72, 300, 420],
+} as const;
+
+/**
+ * The tables probe's PDF: on a US Letter page, the wide-gapped line at
+ * y = 720 ("Invoice 1042" at 72, "Due in 30 days" at 300), the separator at
+ * 690, the header (Helvetica-Bold 11) at 660, and the rows (Helvetica 11)
+ * 16 points apart below it.
+ */
+export async function docxTablesProbePdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const p = DOCX_TABLES_PROBE;
+  const texts = [...p.lone, p.separator, ...p.rows.flat()].filter(Boolean);
+  const regular = await embedDrawingFont(doc, texts, "sans");
+  const bold = await embedDrawingFont(doc, texts, "sans-bold");
+  const page = doc.addPage([612, 792]);
+  page.drawText(p.lone[0], { x: 72, y: 720, size: 11, font: regular });
+  page.drawText(p.lone[1], { x: 300, y: 720, size: 11, font: regular });
+  page.drawText(p.separator, { x: 72, y: 690, size: 11, font: regular });
+  p.rows.forEach((row, r) =>
+    row.forEach((cell, c) => {
+      if (cell)
+        page.drawText(cell, {
+          x: p.columns[c]!,
+          y: 660 - r * 16,
+          size: 11,
+          font: r === 0 ? bold : regular,
+        });
+    }),
+  );
+  return doc.save();
+}
+
+type ReadTable = Extract<
+  Awaited<ReturnType<typeof readDocxStructure>>["blocks"][number],
+  { kind: "tbl" }
+>;
+
+/**
+ * Why `docx` is NOT what the tables probe expects, or null when it is — the
+ * checks {@link provesDocxTables} makes after the job, one reason each, so
+ * every negative control can be shown failing on its OWN check:
+ *   2. "structure": something Word could refuse (`docxStructureProblems`);
+ *   3. "text": the text read back is not poppler's, page by page;
+ *   4. "shape": not exactly one top-level table of 3 grid columns and 4
+ *      rows, each of 3 cells spanning 1. Its "exactly one" cannot fail ON
+ *      ITS OWN (review round 2, 2026-11-15: `!== 1` mutated to `< 1` left
+ *      every negative green): a second table either changes the text read
+ *      back, even an empty one (an empty row reads as an empty line, and
+ *      the engine refused that job), or stands before the probe's and
+ *      fails the grid. Kept as the plain statement of what is expected;
+ *      not counted as a check of its own;
+ *   5. "cells": a cell's text is not the page's, or the middle row's
+ *      quantity is not an EMPTY cell (no run at all);
+ *   7. "bold": a header run without `w:b` and `w:bCs`, or a body-row run
+ *      with `w:b`.
+ * There is no check 6 on the wide-gapped line's FORM. Whether poppler keeps
+ * its two halves on one `<line>` (one tabbed paragraph) or splits them into
+ * two flows (two paragraphs) is poppler's to decide, the stand-in always
+ * joins them, and no capture from the worker image's poppler exists yet; a
+ * check on either form could certify a grouping the image never makes. That
+ * the line stays OUT of the table is not a separate check either: with the
+ * text conserved (3) and the one table exactly the probe's twelve cells
+ * (4, 5), every other word is outside it — a check that cannot fail alone
+ * would be decoration.
+ */
+export async function docxTablesProblem(
+  docx: Uint8Array,
+  flowText: string[],
+): Promise<string | null> {
+  if ((await docxStructureProblems(docx)).length > 0) return "structure";
+  const body = await readDocxStructure(docx);
+  const want = flowText.map(asXmlCarries);
+  const read = docxPageTexts(body).map(asXmlCarries);
+  if (read.length !== want.length || read.some((t, k) => t !== want[k]))
+    return "text";
+  const tables = body.blocks.filter((b): b is ReadTable => b.kind === "tbl");
+  const p = DOCX_TABLES_PROBE;
+  const [tbl] = tables;
+  if (
+    tables.length !== 1 ||
+    tbl!.gridCols.length !== 3 ||
+    tbl!.rows.length !== p.rows.length ||
+    tbl!.rows.some(
+      (r) => r.cells.length !== 3 || r.cells.some((c) => c.span !== 1),
+    )
+  )
+    return "shape";
+  const runsOf = (
+    blocks: ReadTable["rows"][number]["cells"][number]["blocks"],
+  ) => blocks.flatMap((b) => (b.kind === "p" ? b.runs : []));
+  const textOf = (
+    blocks: ReadTable["rows"][number]["cells"][number]["blocks"],
+  ) =>
+    runsOf(blocks)
+      .map((r) => r.text)
+      .join("");
+  const cellsOk = p.rows.every((row, r) =>
+    row.every((cell, c) => {
+      const blocks = tbl!.rows[r]!.cells[c]!.blocks;
+      return cell === ""
+        ? runsOf(blocks).length === 0
+        : textOf(blocks) === cell;
+    }),
+  );
+  if (!cellsOk) return "cells";
+  const header = tbl!.rows[0]!.cells.flatMap((c) => runsOf(c.blocks));
+  const rest = tbl!.rows
+    .slice(1)
+    .flatMap((r) => r.cells.flatMap((c) => runsOf(c.blocks)));
+  if (
+    header.length === 0 ||
+    !header.every((r) => r.b && r.bCs) ||
+    rest.some((r) => r.b)
+  )
+    return "bold";
+  return null;
+}
+
+/**
+ * Does THIS worker image's PDF to Word write a table whose cells each fit on
+ * one line as a Word table — each value in its column, an empty cell left
+ * empty, the words keeping their run styles (#28 slice 2, key `docxTables`)?
+ *
+ * The probe PDF ({@link docxTablesProbePdf}) runs as a real job would, in
+ * the executor's order (`../capability-chain`: soundness gate, the
+ * processor the daemon's registry resolves, the artifact-manifest gate), on
+ * the deps the image's jobs run on (`pdfOfficeExportDeps(env)`). The .docx
+ * is read back by `./docx-structure`, which shares nothing with the writer,
+ * and a pass needs every check of {@link docxTablesProblem}. A writer that
+ * writes tabbed paragraphs, drops the empty cell and shifts the price left,
+ * places cells by index, strips the header's bold, collapses the grid to one
+ * column, or puts the wide-gapped line in the table as a row answers
+ * `false`; so
+ * does an image without the extractor or the page reader, and one whose
+ * real jobs a gate refuses. Wrapped-cell tables are NOT covered (a future
+ * `docxTableWraps`). An image built before this key publishes nothing, and
+ * the reader parses the absence as `false`.
+ */
+export async function provesDocxTables(
+  deps: PdfOfficeExportDeps,
+  run?: typeof runPdfOfficeExport,
+  gates: ProbeGates = {},
+): Promise<boolean> {
+  try {
+    if (!deps.extractFlow || !deps.scanPages) return false;
+    const pdf = await docxTablesProbePdf();
+    const docx = await wordThroughExecutor(pdf, deps, run, gates);
+    if (!docx) return false;
+    const flow = await deps.extractFlow(pdf);
+    return (
+      (await docxTablesProblem(docx, flow.pages.map(flowPageText))) === null
+    );
+  } catch {
+    return false;
+  }
+}

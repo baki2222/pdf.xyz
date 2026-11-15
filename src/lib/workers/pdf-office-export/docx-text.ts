@@ -35,9 +35,13 @@ export async function readDocxParagraphs(bytes: Uint8Array): Promise<string[]> {
   if (!part) throw new Error("the DOCX has no word/document.xml");
   const xml = await part.async("string");
   const paragraphs: string[] = [];
-  for (const p of xml.matchAll(/<w:p\b[^>]*>([\s\S]*?)<\/w:p>/g)) {
+  // A self-closing <w:p/> is an empty paragraph of its own; until #28
+  // slice 2 (2026-11-15) it was swallowed up to the next paragraph's </w:p>.
+  for (const p of xml.matchAll(
+    /<w:p\b(?:[^>]*[^/>])?>([\s\S]*?)<\/w:p>|<w:p\b[^>]*\/>/g,
+  )) {
     let text = "";
-    for (const piece of p[1]!.matchAll(
+    for (const piece of (p[1] ?? "").matchAll(
       /<w:t\b[^>]*>([\s\S]*?)<\/w:t>|<w:tab\/>|<w:br w:type="page"\/>/g,
     )) {
       if (piece[0].startsWith("<w:tab")) text += "\t";

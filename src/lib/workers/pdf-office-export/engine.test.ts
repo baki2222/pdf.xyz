@@ -28,6 +28,7 @@ import { PdfTextExecError } from "../pdf-text/errors";
 import { flowText, type PdfFlowText } from "../pdf-text/flow";
 import { parseBboxFlow, parseLayoutText } from "../pdf-text/parse";
 import { DOCX_PAGE_BREAK, readDocxParagraphs } from "./docx-text";
+import { readDocxStructure } from "./docx-structure";
 import { readPptx, xmlProblems } from "./validate-ooxml";
 import {
   PDF_OFFICE_EXPORT_TOOLS,
@@ -281,13 +282,36 @@ describe("pdf-to-word reads poppler's reading order, not the page's layout", () 
     ]);
   });
 
-  it("keeps a table's rows as rows, cells separated by tabs", async () => {
-    const paragraphs = await wordParagraphs({
+  /**
+   * INVERTED 2026-11-15 (#28 slice 2, tables). HISTORY: until then this was
+   * "keeps a table's rows as rows, cells separated by tabs" and read the
+   * flat paragraphs as `TABLE_ROWS.map((row) => row.join("\t"))`. The same
+   * table is now ONE Word table; its rows, read back structurally, are the
+   * same cells.
+   */
+  it("writes a table whose cells fit on one line as one Word table, row by row, cell by cell", async () => {
+    const run = await runPdfOfficeExport("pdf-to-word", PDF, {
       scanPages: noPictures,
       extract: layoutExtract,
       extractFlow: flowOf(TABLE_BBOX),
     });
-    expect(paragraphs).toEqual(TABLE_ROWS.map((row) => row.join("\t")));
+    if (!run.ok) throw new Error(`pdf-to-word failed: ${run.kind}`);
+    const body = await readDocxStructure(run.output);
+    const tables = body.blocks.filter((b) => b.kind === "tbl");
+    expect(tables).toHaveLength(1);
+    const [tbl] = tables;
+    expect(
+      tbl!.kind === "tbl" &&
+        tbl!.rows.map((r) =>
+          r.cells.map((c) =>
+            c.blocks
+              .map((b) =>
+                b.kind === "p" ? b.runs.map((x) => x.text).join("") : "",
+              )
+              .join(""),
+          ),
+        ),
+    ).toEqual(TABLE_ROWS.map((row) => [...row]));
   });
 
   it("never falls back to the layout extractor when the flow one is missing", async () => {

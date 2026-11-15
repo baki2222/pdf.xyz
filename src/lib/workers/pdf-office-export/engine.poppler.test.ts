@@ -47,7 +47,6 @@ import {
   partlyScannedPdf,
   quarterlyTablePdf,
   rc4EncryptedPdf,
-  rowsHeldTogether,
   sidebarPdf,
   SIDEBAR_LIST,
   SIDEBAR_MAIN,
@@ -63,6 +62,7 @@ import * as officeFixtures from "@/tests/pdf-office-fixtures";
 import { readXlsxSheet, sheetGridProblems } from "../ooxml/sheet-read";
 import { pdfOfficeExportDeps } from "./native";
 import { readDocxParagraphs } from "./docx-text";
+import { readDocxStructure } from "./docx-structure";
 import { readPptx } from "./validate-ooxml";
 import {
   runPdfOfficeExport,
@@ -102,6 +102,26 @@ async function docxParagraphs(
   return readDocxParagraphs(run.output);
 }
 
+/** Each Word table's rows as cell texts (#28 slice 2), read structurally. */
+async function docxTableRows(input: Uint8Array): Promise<string[][][]> {
+  const run = await runPdfOfficeExport("pdf-to-word", input, deps());
+  if (!run.ok) throw new Error(`pdf-to-word failed: ${run.kind}`);
+  return (await readDocxStructure(run.output)).blocks.flatMap((b) =>
+    b.kind === "tbl"
+      ? [
+          b.rows.map((r) =>
+            r.cells.map((c) =>
+              c.blocks
+                .flatMap((x) => (x.kind === "p" ? x.runs : []))
+                .map((x) => x.text)
+                .join(""),
+            ),
+          ),
+        ]
+      : [],
+  );
+}
+
 suite(label, () => {
   it("writes a two-column report column by column", async () => {
     const paragraphs = await docxParagraphs(await twoColumnReportPdf());
@@ -132,21 +152,29 @@ suite(label, () => {
     expect(columnsReadInOrder(paragraphs)).toBe(false);
   });
 
-  it("keeps a table's rows as rows", async () => {
-    const paragraphs = await docxParagraphs(await quarterlyTablePdf());
-    expect(paragraphs).toEqual(TABLE_ROWS.map((row) => row.join("\t")));
+  /*
+   * INVERTED 2026-11-15 (#28 slice 2, tables). HISTORY: these three read the
+   * flat paragraphs and expected each row as its cells joined by a tab
+   * (`row.join(TAB)`, TAB a tab), the statement and SKU tables also through
+   * rowsHeldTogether. Each table is now ONE Word table on real poppler;
+   * read structurally, its rows are the same cells.
+   */
+  it("writes a table's rows as one Word table", async () => {
+    expect(await docxTableRows(await quarterlyTablePdf())).toEqual([
+      TABLE_ROWS.map((row) => [...row]),
+    ]);
   });
 
-  it("keeps a label / amount statement's rows as rows, long labels included", async () => {
-    const paragraphs = await docxParagraphs(await incomeStatementPdf());
-    expect(rowsHeldTogether(paragraphs, STATEMENT_ROWS)).toBe(true);
-    expect(paragraphs).toEqual(STATEMENT_ROWS.map((row) => row.join("	")));
+  it("writes a label / amount statement as one Word table, long labels included", async () => {
+    expect(await docxTableRows(await incomeStatementPdf())).toEqual([
+      STATEMENT_ROWS.map((row) => [...row]),
+    ]);
   });
 
-  it("keeps a table with a text column as rows", async () => {
-    const paragraphs = await docxParagraphs(await skuTablePdf());
-    expect(rowsHeldTogether(paragraphs, SKU_ROWS)).toBe(true);
-    expect(paragraphs).toEqual(SKU_ROWS.map((row) => row.join("	")));
+  it("writes a table with a text column as one Word table", async () => {
+    expect(await docxTableRows(await skuTablePdf())).toEqual([
+      SKU_ROWS.map((row) => [...row]),
+    ]);
   });
 
   it("writes aligned prose one whole paragraph at a time", async () => {

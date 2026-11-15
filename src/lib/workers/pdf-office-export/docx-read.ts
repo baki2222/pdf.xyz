@@ -112,8 +112,10 @@ export async function readDocxBody(bytes: Uint8Array): Promise<DocxBody> {
   let segment = 0;
   const TOKEN =
     /<w:t\b[^>]*>([\s\S]*?)<\/w:t>|<w:tab\/>|<w:br\b[^>]*w:type="page"[^>]*\/>|<w:drawing>([\s\S]*?)<\/w:drawing>/g;
+  // The opening tag may not end in "/": a self-closing <w:p/> is its own
+  // (empty) paragraph, not the start of the next one (#28 slice 2).
   for (const p of xml.matchAll(
-    /<w:p\b[^>]*>([\s\S]*?)<\/w:p>|<w:p\b[^>]*\/>/g,
+    /<w:p\b(?:[^>]*[^/>])?>([\s\S]*?)<\/w:p>|<w:p\b[^>]*\/>/g,
   )) {
     const body = p[1] ?? "";
     const index = paragraphs.length;

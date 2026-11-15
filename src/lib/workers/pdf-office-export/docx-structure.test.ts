@@ -131,8 +131,14 @@ describe("readDocxStructure", () => {
         pageBreak: false,
       },
     ]);
+    // INVERTED 2026-11-15 (#28 slice 2). HISTORY: until then this read
+    // "Before\nWide\t\nBig & red\tplain" — the empty cell `<w:p/>` (no run)
+    // added an empty cell and its tab. An empty SLOT now adds nothing: PDF
+    // to Word writes one where poppler's row has no value, and poppler's
+    // line has no tab for it. A cell with an empty-text RUN still keeps its
+    // tab (the "an EMPTY SLOT (no run) skipped" test below).
     expect(docxPageTexts(body)).toEqual([
-      "Before\nWide\t\nBig & red\tplain",
+      "Before\nWide\nBig & red\tplain",
       "Second page",
     ]);
     expect(body.contentTypes.overrides["word/document.xml"]).toMatch(
@@ -304,3 +310,215 @@ describe("the corpus the engine writes is clean", () => {
 /** Counted 2026-11-15 on this tree (`wordCorpus`). */
 const GENERATORS = 26;
 const DELIVERED = 26;
+
+/**
+ * #28 slice 2 (tables), added 2026-11-15: PDF to Word now writes real Word
+ * tables, so the table properties it writes — `w:tblPr` (width, borders,
+ * fixed layout), each cell's `w:tcW` — are checked as Word reads them, each
+ * with a negative control; and the read-back rule the engine's conservation
+ * check stands on learns two things: an EMPTY SLOT (a cell whose paragraphs
+ * have no run at all) adds no cell to its row's line, and a body paragraph
+ * with no run at all (the separator after a table) adds no line.
+ */
+describe("tables as PDF to Word writes them (#28 slice 2)", () => {
+  const BORDER = (
+    side: string,
+    attrs = 'w:val="single" w:sz="4" w:color="BFBFBF"',
+  ) => `<w:${side} ${attrs}/>`;
+  const BORDERS = ["top", "left", "bottom", "right", "insideH", "insideV"]
+    .map((s) => BORDER(s))
+    .join("");
+  const TC = (w: number, inner: string, extra = "") =>
+    `<w:tc><w:tcPr><w:tcW w:w="${w}" w:type="dxa"/>${extra}</w:tcPr>${inner}</w:tc>`;
+  const WRITTEN = (
+    opts: {
+      tblPr?: string;
+      grid?: string;
+      cells?: string;
+    } = {},
+  ) =>
+    `<w:tbl><w:tblPr>${
+      opts.tblPr ??
+      `<w:tblW w:w="3000" w:type="dxa"/><w:tblBorders>${BORDERS}</w:tblBorders><w:tblLayout w:type="fixed"/>`
+    }</w:tblPr><w:tblGrid>${
+      opts.grid ?? '<w:gridCol w:w="1000"/><w:gridCol w:w="2000"/>'
+    }</w:tblGrid><w:tr>${
+      opts.cells ?? TC(1000, P("a")) + TC(2000, "<w:p></w:p>")
+    }</w:tr></w:tbl><w:p></w:p>`;
+
+  it("POSITIVE: the shape the writer emits has no problem, and its widths and borders are read", async () => {
+    const bytes = await docx(WRITTEN());
+    expect(await docxStructureProblems(bytes)).toEqual([]);
+    const [tbl] = (await readDocxStructure(bytes)).blocks;
+    expect(tbl).toMatchObject({
+      kind: "tbl",
+      gridCols: [1000, 2000],
+      width: 3000,
+      borders: {
+        top: { val: "single", sz: 4, color: "BFBFBF" },
+        insideV: { val: "single", sz: 4, color: "BFBFBF" },
+      },
+    });
+    expect(
+      tbl!.kind === "tbl" && tbl!.rows[0]!.cells.map((c) => c.width),
+    ).toEqual([1000, 2000]);
+  });
+
+  it.each([
+    [
+      "a grid column of no width",
+      WRITTEN({
+        grid: '<w:gridCol w:w="0"/><w:gridCol w:w="3000"/>',
+        tblPr: "",
+      }),
+      /w:gridCol w:w "0"/,
+    ],
+    [
+      "a fractional grid column",
+      WRITTEN({
+        grid: '<w:gridCol w:w="1.5"/><w:gridCol w:w="3000"/>',
+        tblPr: "",
+      }),
+      /w:gridCol w:w "1.5"/,
+    ],
+    [
+      "a gridSpan that is not a number",
+      TABLE(
+        `<w:tc><w:tcPr><w:gridSpan w:val="x"/></w:tcPr>${P("a")}</w:tc>`,
+        1,
+      ) + P("y"),
+      /w:gridSpan "x"/,
+    ],
+    [
+      "a gridSpan of 0",
+      TABLE(
+        `<w:tc><w:tcPr><w:gridSpan w:val="0"/></w:tcPr>${P("a")}</w:tc>`,
+        1,
+      ) + P("y"),
+      /w:gridSpan "0"/,
+    ],
+    [
+      "tblPr children out of order",
+      WRITTEN({
+        tblPr: '<w:tblLayout w:type="fixed"/><w:tblW w:w="3000" w:type="dxa"/>',
+      }),
+      /<w:tblPr> children out of schema order at <w:tblW>/,
+    ],
+    [
+      "an element tblPr cannot hold",
+      WRITTEN({ tblPr: "<w:b/>" }),
+      /<w:b> inside <w:tblPr>/,
+    ],
+    [
+      "tcPr children out of order",
+      WRITTEN({
+        cells:
+          TC(1000, P("a"), '<w:gridSpan w:val="1"/>').replace(
+            '<w:tcPr><w:tcW w:w="1000" w:type="dxa"/><w:gridSpan w:val="1"/>',
+            '<w:tcPr><w:gridSpan w:val="1"/><w:tcW w:w="1000" w:type="dxa"/>',
+          ) + TC(2000, P("b")),
+      }),
+      /<w:tcPr> children out of schema order at <w:tcW>/,
+    ],
+    [
+      "an element tcPr cannot hold",
+      WRITTEN({ cells: TC(1000, P("a"), "<w:jc/>") + TC(2000, P("b")) }),
+      /<w:jc> inside <w:tcPr>/,
+    ],
+    [
+      "a cell width of an unknown type",
+      WRITTEN({
+        cells:
+          TC(1000, P("a")).replace('w:type="dxa"', 'w:type="cm"') +
+          TC(2000, P("b")),
+      }),
+      /w:tcW type "cm"/,
+    ],
+    [
+      "a fractional cell width",
+      WRITTEN({
+        cells:
+          TC(1000, P("a")).replace('w:w="1000"', 'w:w="999.5"') +
+          TC(2000, P("b")),
+      }),
+      /w:tcW w "999.5"/,
+    ],
+    [
+      "a dxa cell width that is not its columns'",
+      WRITTEN({ cells: TC(1500, P("a")) + TC(2000, P("b")) }),
+      /w:tcW 1500 is not its grid columns' 1000/,
+    ],
+    [
+      "a table width that is not its grid's",
+      WRITTEN({ tblPr: '<w:tblW w:w="2999" w:type="dxa"/>' }),
+      /w:tblW 2999 is not its grid's 3000/,
+    ],
+    [
+      "borders out of order",
+      WRITTEN({
+        tblPr: `<w:tblBorders>${BORDER("left")}${BORDER("top")}</w:tblBorders>`,
+      }),
+      /<w:tblBorders> children out of schema order at <w:top>/,
+    ],
+    [
+      "a border style Word may not draw as written",
+      WRITTEN({
+        tblPr: `<w:tblBorders>${BORDER("top", 'w:val="wave" w:sz="4" w:color="BFBFBF"')}</w:tblBorders>`,
+      }),
+      /border top val "wave"/,
+    ],
+    [
+      "a border too thick",
+      WRITTEN({
+        tblPr: `<w:tblBorders>${BORDER("top", 'w:val="single" w:sz="97" w:color="BFBFBF"')}</w:tblBorders>`,
+      }),
+      /border top sz "97"/,
+    ],
+    [
+      "a border colour by name",
+      WRITTEN({
+        tblPr: `<w:tblBorders>${BORDER("top", 'w:val="single" w:sz="4" w:color="grey"')}</w:tblBorders>`,
+      }),
+      /border top color "grey"/,
+    ],
+  ] as const)("NEGATIVE: %s is a problem", async (_, body, why) => {
+    const problems = await docxStructureProblems(await docx(body));
+    expect(problems.join("\n")).toMatch(why);
+  });
+
+  it("a row reads as its cells in column order, an EMPTY SLOT (no run) skipped, a cell with an empty-text run kept", async () => {
+    const body = await readDocxStructure(
+      await docx(
+        WRITTEN({
+          grid: '<w:gridCol w:w="1000"/><w:gridCol w:w="1000"/><w:gridCol w:w="1000"/><w:gridCol w:w="1000"/>',
+          tblPr: "",
+          cells:
+            TC(1000, P("a")) +
+            TC(1000, "<w:p></w:p>") +
+            // A cell made only of characters XML cannot carry: its run is
+            // written, with no text. It keeps its tab.
+            TC(1000, '<w:p><w:r><w:t xml:space="preserve"></w:t></w:r></w:p>') +
+            TC(1000, P("b")),
+        }),
+      ),
+    );
+    expect(docxPageTexts(body)).toEqual(["a\t\tb"]);
+  });
+
+  it("a body paragraph with no run adds no line; one emptied of its runs' text still adds one", async () => {
+    const zeroRuns = await readDocxStructure(
+      await docx(P("x") + "<w:p></w:p>" + P("y")),
+    );
+    expect(docxPageTexts(zeroRuns)).toEqual(["x\ny"]);
+    // The control: a REAL paragraph whose run lost its text is a line, so
+    // the comparison against poppler's text still fails on it.
+    const emptied = await readDocxStructure(
+      await docx(
+        P("x") +
+          '<w:p><w:r><w:t xml:space="preserve"></w:t></w:r></w:p>' +
+          P("y"),
+      ),
+    );
+    expect(docxPageTexts(emptied)).toEqual(["x\n\ny"]);
+  });
+});

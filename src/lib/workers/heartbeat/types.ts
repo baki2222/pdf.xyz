@@ -218,6 +218,29 @@ export interface HeartbeatCapabilities {
    */
   readonly docxRunStyles: boolean;
   /**
+   * This image's PDF to Word writes a table whose cells each fit on one line
+   * as a Word table, each value in its column, an empty cell left empty,
+   * words keeping their run styles (2026-11-15, backlog #28 slice 2:
+   * tables).
+   *
+   * PROVEN AT START-UP by running a generated PDF — a wide-gapped line, a
+   * short separator, and a four-row table with a bold header and an empty
+   * middle cell — as a real job would, in the executor's order (soundness
+   * gate, the registry's processor on `pdfOfficeExportDeps(env)`,
+   * artifact-manifest gate), and reading the .docx back with a structural
+   * reader that shares nothing with the writer
+   * (`pdf-office-export/capability.ts`, `provesDocxTables`): exactly one
+   * table of 3 columns and 4 rows, every value in its own column, the empty
+   * cell with no run, the header bold and the body rows not, and the text
+   * read back the image's poppler text, exactly. Until that date a table
+   * came through as paragraphs with its cells separated by tabs; copy that
+   * says a table comes through as a Word table is true of a download only
+   * while this reads `true`. It does NOT cover tables whose cells wrap onto
+   * a second line (a future `docxTableWraps`). An image built before this
+   * key publishes nothing, and the absence parses as `false`.
+   */
+  readonly docxTables: boolean;
+  /**
    * This image's Translate PDF recognises a SCAN with the OCR processor and
    * translates what OCR read, when the job asks for it — and runs no OCR on a
    * PDF that already has text (audit translate-pdf#3, 2026-11-09).

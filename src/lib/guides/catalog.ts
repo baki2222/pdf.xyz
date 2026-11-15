@@ -1244,7 +1244,7 @@ export const guides: Guide[] = [
         heading: "What to expect from the converted document",
         body: [
           `The output is a DOCX file, the standard editable Word format. ${PDF_TO_WORD_KEEPS}`,
-          "Headings keep their bold and size but not a Word heading style, and lists and tables arrive as lines of text, a table's cells separated by tabs, so expect to restyle the document: the conversion saves you the retyping, not all of the formatting.",
+          "Headings keep their bold and size but not a Word heading style, lists arrive as lines of text, and a table comes through as a Word table only when each of its cells fits on one line and one of its columns holds figures, so expect to restyle the document: the conversion saves you the retyping, not all of the formatting.",
           "That makes PDF to Word the right tool when you need the words back to rework them — rewrite a paragraph, fix a date, reuse a section — and the wrong one when the look of the page is what matters. For that, keep the PDF itself.",
         ],
       },
@@ -1301,7 +1301,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-11-14",
+    updated: "2026-11-15",
   },
   {
     slug: "how-to-convert-jpg-to-pdf",
@@ -1663,7 +1663,7 @@ export const guides: Guide[] = [
         id: "changing-existing-text",
         heading: "Changing the text that is already there",
         body: [
-          `To rework the wording itself, convert the file with ${nameOf("pdf-to-word")}: it exports the PDF's selectable text as an editable Word document, in reading order, each word keeping its bold, italics, size and colour where our reader matches it, with each picture between the paragraphs. The typeface, tables and page layout are not recreated, so it suits documents where the words matter more than the look.`,
+          `To rework the wording itself, convert the file with ${nameOf("pdf-to-word")}: it exports the PDF's selectable text as an editable Word document, in reading order, each word keeping its bold, italics, size and colour where our reader matches it, with each picture between the paragraphs. The typeface and page layout are not recreated, and only a table whose cells each fit on one line, with a column of figures, comes through as a Word table, so it suits documents where the words matter more than the look.`,
         ],
       },
       {
@@ -1710,7 +1710,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-11-14",
+    updated: "2026-11-15",
   },
   {
     slug: "how-to-create-a-fillable-pdf-form",
@@ -4562,8 +4562,8 @@ export const guides: Guide[] = [
         id: "what-you-get",
         heading: "What the Word file holds",
         body: [
-          "Each scanned page comes through as its picture, followed by the text read from it, as plain paragraphs you can edit, search and copy. Keep the picture while you check the text against it, and delete it when you no longer need it.",
-          "The look of the page is not rebuilt: fonts, columns, tables and spacing are not carried over, and a line of the scan can arrive as a paragraph of its own, so expect to join some lines and style the headings yourself.",
+          "Each scanned page comes through as its picture, followed by the text read from it, as plain paragraphs you can edit, search and copy; a table read from a scan may come through as a Word table or as lines of text. Keep the picture while you check the text against it, and delete it when you no longer need it.",
+          "The look of the page is not rebuilt: fonts, columns and spacing are not carried over, and a line of the scan can arrive as a paragraph of its own, so expect to join some lines and style the headings yourself.",
           "A PDF that mixes typed pages and scanned ones can go through with the switch on: pages that already have text are kept as they are, and only the scanned ones are read.",
         ],
       },
@@ -4616,7 +4616,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-11-07",
-    updated: "2026-11-07",
+    updated: "2026-11-15",
   },
   // Added 2026-10-31 for the "Bangla PDF to Word" search family. Written
   // only after production read a Bengali page back, measured: the proof is
@@ -4659,8 +4659,8 @@ export const guides: Guide[] = [
         id: "what-the-word-file-holds",
         heading: "What the Word file holds",
         body: [
-          `Each scanned page comes through as its picture, followed by the ${BN} text read from it, as plain paragraphs you can edit. The words are real ${BN} text in Unicode, so you can search them, copy them into another document, or change them.`,
-          "The look of the page is not rebuilt. Fonts, columns, tables and spacing are not carried over, and a line of the scan can come through as a paragraph of its own, so expect to join some lines and to style the headings yourself. Delete the picture once you no longer need it to compare against.",
+          `Each scanned page comes through as its picture, followed by the ${BN} text read from it, as plain paragraphs you can edit; a table read from a scan may come through as a Word table or as lines of text. The words are real ${BN} text in Unicode, so you can search them, copy them into another document, or change them.`,
+          "The look of the page is not rebuilt. Fonts, columns and spacing are not carried over, and a line of the scan can come through as a paragraph of its own, so expect to join some lines and to style the headings yourself. Delete the picture once you no longer need it to compare against.",
           "Word picks its own Bengali font to display the text, such as Nirmala UI or Vrinda on Windows. If the letters show as empty boxes, the computer has no Bengali font installed; the text in the file is still correct, and it shows once a Bengali font is installed.",
         ],
       },
@@ -4712,7 +4712,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-07",
+    updated: "2026-11-15",
   },
   {
     slug: "how-to-convert-excel-to-pdf",
