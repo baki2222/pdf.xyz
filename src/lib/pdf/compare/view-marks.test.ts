@@ -41,8 +41,16 @@ import { streamLines } from "./view-marks";
  *    one pdf.js item in every builder here — the health check holds that).
  *
  * A changed line that cannot be placed must be flagged, never guessed: a
- * duplicated line on a page whose stream order is not its reading order,
- * and every change on a page past VIEWER_MAX_TEXT_ITEMS.
+ * line whose text occurs more than once on its page, and every change on a
+ * page past VIEWER_MAX_TEXT_ITEMS.
+ *
+ * CHANGED 2026-11-15 (review r1, history kept): a duplicated line was placed
+ * by position wherever the page's stream lines and reading lines agreed as
+ * TEXT, and "a duplicated line, the second copy edited" pinned that. Text
+ * cannot tell a page in order from one whose reorder swapped identical
+ * lines (a header and a footer both "Confidential"): the removed footer was
+ * struck through on the header. That case is inverted (flagged), and the
+ * two header/footer cases below are the reproduction.
  */
 
 interface Line {
@@ -132,6 +140,8 @@ interface Case {
   /** Changed lines that must be flagged, by side and page. */
   flagged?: { side: "left" | "right"; page: number; text: string }[];
   capped?: boolean;
+  /** Its changed pair must be one a word bound skipped (tokens null). */
+  skipped?: boolean;
 }
 
 const lines = (pages: readonly PageLines[]) => () => linesPdf(pages);
@@ -144,6 +154,22 @@ const DUP_BEFORE = [
   "Signed by the buyer",
 ];
 const DUP_AFTER = DUP_BEFORE.map((l, i) => (i === 3 ? "Total: 12" : l));
+
+/** A footer drawn first and an identical header drawn last (review r1). */
+const FOOTER: Line = { text: "Confidential", x: 72, y: 40, size: 9 };
+const HEADER: Line = { text: "Confidential", x: 72, y: 760, size: 9 };
+const RUNNING_BODY: Line[] = [
+  { text: "Body paragraph one starts here.", x: 72, y: 700 },
+  { text: "Body paragraph one continues.", x: 72, y: 686 },
+];
+
+/** One line of 1,100 words: over the word-pair bound, so its pair is skipped. */
+const LONG_WORDS = Array.from({ length: 1100 }, (_, i) => `w${i}`);
+const LONG_EDITED = LONG_WORDS.map((w, i) => (i === 500 ? "CHANGED" : w));
+const longLine = (words: readonly string[]): Line[] => [
+  { text: "Heading of the long page", x: 20, y: 760 },
+  { text: words.join(" "), x: 20, y: 700, size: 0.1 },
+];
 
 const CORPUS: Record<string, Case> = {
   "the page-header pair (edit on v1 page 2, v2 page 3)": {
@@ -163,12 +189,42 @@ const CORPUS: Record<string, Case> = {
       { side: "right", page: 4, text: "120", kind: "added", item: 6 },
     ],
   },
-  "a duplicated line, the second copy edited": {
+  // Inverted 2026-11-15: the left copy was marked by position (item 3).
+  "a duplicated line, the second copy edited: flagged where duplicated": {
     left: lines([DUP_BEFORE]),
     right: lines([DUP_AFTER]),
+    flagged: [{ side: "left", page: 1, text: "Total: 10" }],
+    expect: [{ side: "right", page: 1, text: "12", kind: "added", item: 3 }],
+  },
+  "identical header and footer, the footer removed: flagged, not guessed": {
+    left: drawn([{ draw: [FOOTER, ...RUNNING_BODY, HEADER] }]),
+    right: drawn([{ draw: [...RUNNING_BODY, HEADER] }]),
+    flagged: [{ side: "left", page: 1, text: "Confidential" }],
+  },
+  "identical header and footer, the header removed: flagged, not guessed": {
+    left: drawn([{ draw: [FOOTER, ...RUNNING_BODY, HEADER] }]),
+    right: drawn([{ draw: [FOOTER, ...RUNNING_BODY] }]),
+    flagged: [{ side: "left", page: 1, text: "Confidential" }],
+  },
+  "a pair the word bound skipped: the whole line removed and added": {
+    left: drawn([{ draw: longLine(LONG_WORDS) }]),
+    right: drawn([{ draw: longLine(LONG_EDITED) }]),
+    skipped: true,
     expect: [
-      { side: "left", page: 1, text: "10", kind: "removed", item: 3 },
-      { side: "right", page: 1, text: "12", kind: "added", item: 3 },
+      {
+        side: "left",
+        page: 1,
+        text: LONG_WORDS.join(" "),
+        kind: "removed",
+        item: 1,
+      },
+      {
+        side: "right",
+        page: 1,
+        text: LONG_EDITED.join(" "),
+        kind: "added",
+        item: 1,
+      },
     ],
   },
   "a line removed and an unrelated line added (unpaired, filled whole)": {
@@ -365,6 +421,11 @@ describe("Compare PDF's page marks, judged on real PDFs through the composed cha
             run.pages.some((p) => p.text.capped),
             name,
           ).toBe(true);
+        if (c.skipped)
+          expect(
+            run.result.hunks.flatMap((h) => h.pairs.map((p) => p.tokens)),
+            `${name}: the pair was skipped`,
+          ).toContain(null);
       }
     },
     PER_CASE_TIMEOUT,
@@ -375,6 +436,7 @@ describe("Compare PDF's page marks, judged on real PDFs through the composed cha
     async () => {
       let placed = 0;
       let checkedItems = 0;
+      let skippedPlaced = 0;
       for (const [name, run] of await all()) {
         for (const p of run.pages) {
           for (const line of p.placement.lines) {
@@ -415,20 +477,24 @@ describe("Compare PDF's page marks, judged on real PDFs through the composed cha
               expect(candidates, `${name}: lands on its own line`).toContain(i);
               checkedItems += 1;
             }
-            // Unpaired: filled whole. Skipped by a bound: outline only.
-            if (line.change.tokens === undefined)
+            // Unpaired, or skipped by a word bound: filled whole as the
+            // change. CHANGED 2026-11-15 (review r1, history kept): a
+            // skipped pair was pinned to "outline only" here, which drew a
+            // removed line as an unchanged part, neither crossed out nor
+            // flagged.
+            if (!line.change.tokens) {
               expect(new Set(line.segments.map((s) => s.kind))).toEqual(
                 new Set([line.change.kind]),
               );
-            if (line.change.tokens === null)
-              expect(new Set(line.segments.map((s) => s.kind))).toEqual(
-                new Set(["line"]),
-              );
+              if (line.change.tokens === null) skippedPlaced += 1;
+            }
           }
         }
       }
       expect(placed).toBeGreaterThanOrEqual(20);
       expect(checkedItems).toBeGreaterThanOrEqual(placed);
+      // Positive control: the skipped-pair branch ran, on both sides.
+      expect(skippedPlaced).toBeGreaterThanOrEqual(2);
     },
     PER_CASE_TIMEOUT,
   );
@@ -463,7 +529,7 @@ describe("Compare PDF's page marks, judged on real PDFs through the composed cha
             );
           expect(
             hit.length,
-            `${name}: ${e.kind} "${e.text}" on ${e.side} page ${e.page}${e.item === undefined ? "" : ` item ${e.item}`}`,
+            `${name}: ${e.kind} "${e.text.slice(0, 60)}" on ${e.side} page ${e.page}${e.item === undefined ? "" : ` item ${e.item}`}`,
           ).toBeGreaterThan(0);
           checked += 1;
         }

@@ -207,8 +207,12 @@ export interface PagePlacement {
 /** The runs of a changed line, as text and kind, in order. */
 function segmentsOf(change: Change): { text: string; kind: MarkKind }[] {
   const { tokens, kind, line } = change;
-  if (tokens === undefined) return [{ text: line.text, kind }];
-  if (tokens === null) return [{ text: line.text, kind: "line" }];
+  // Unpaired, or a pair a word bound skipped: the whole line is the change,
+  // as S1's list shows it whole as removed or added.
+  // CHANGED 2026-11-15 (review r1, history kept): a skipped pair (null)
+  // was drawn as "line", the dashed outline of an unchanged part, so a
+  // removed line on a long page was neither crossed out nor flagged.
+  if (!tokens) return [{ text: line.text, kind }];
   const out: { text: string; kind: MarkKind }[] = [];
   for (const t of tokens) {
     if (t.k === "same") {
@@ -245,9 +249,15 @@ function sameMultiset(a: readonly string[], b: readonly string[]): boolean {
  *    every change is flagged.
  * 3. A changed line is the `occurrence`-th reading line with its VERBATIM
  *    text (never its case-folded key).
- * 4. Reading line to stream line: by position when the two orders agree;
- *    otherwise only a line whose text occurs once on the page — a
- *    duplicate on a reordered page is flagged, not guessed.
+ * 4. Reading line to stream line: only a line whose text occurs ONCE on
+ *    the page. A duplicated line is flagged, not guessed, on every page.
+ *    CHANGED 2026-11-15 (review r1, history kept): a page whose two orders
+ *    agreed as TEXT was taken to be in order, and a duplicate placed by
+ *    position. Text cannot see a reorder that swaps identical lines: a
+ *    footer "Confidential" drawn first and a header "Confidential" drawn
+ *    last read in the same text sequence as the stream, so a removed footer
+ *    was struck through on the unchanged header. Which copy is which is
+ *    the extractor's geometry, which the viewer's items do not carry.
  * 5. The line's runs (word marks) must spell its text exactly, else it is
  *    flagged; each run becomes item ranges of its kind.
  */
@@ -275,10 +285,8 @@ export function placePage(
     return out;
   }
   const { starts } = pageSearchText(items);
-  const inOrder = norms.every((n, i) => n === readingLines[i]);
   const once = counts(readingLines);
   const streamOf = (r: number): number => {
-    if (inOrder) return r;
     const text = readingLines[r]!;
     return once.get(text) === 1 ? norms.indexOf(text) : -1;
   };
