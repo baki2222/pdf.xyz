@@ -38,6 +38,7 @@ import {
   type TranslateSourceLanguage,
 } from "@/lib/jobs/translate-pdf";
 import type { AiProvider, AiCompletionResult, AiUsage } from "../ai/provider";
+import { clampOutputTokens } from "../ai/output-budget";
 import {
   TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS,
   TRANSLATE_NO_TEXT_MESSAGE,
@@ -284,6 +285,9 @@ export type TranslateRun =
  * A generous default generation budget. Translation output is roughly proportional to
  * the input, so unlike summarization there is no per-length plan — the budget is a
  * fixed default the operator's `maxOutputTokens` limit can only lower, never raise.
+ * The lowering is `clampOutputTokens` (`../ai/output-budget`); "every AI engine
+ * sends at most the per-run output figure" in `src/lib/jobs/ai-spend-ceiling.test.ts`
+ * runs this engine with a raised override.
  */
 const DEFAULT_MAX_OUTPUT_TOKENS = TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS;
 const DEFAULT_MAX_INPUT_CHARS = AI_INPUT_LIMITS.maxInputCharacters;
@@ -556,8 +560,12 @@ export async function runTranslate(
   const truncated = window.truncated;
   const promptText = truncated ? sourceText.slice(0, maxChars) : sourceText;
 
-  const maxOutputTokens =
-    deps.limits?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
+  // Lowered, never raised, by the operator's limit — and the per-call INPUT
+  // ceiling below is derived from this, so a raise would widen both.
+  const maxOutputTokens = clampOutputTokens(
+    DEFAULT_MAX_OUTPUT_TOKENS,
+    deps.limits?.maxOutputTokens,
+  );
 
   // THE CEILING IS A PROPERTY OF ONE CALL, NOT OF THE JOB. Translate's binding
   // constraint is the OUTPUT budget — its output is as long as its input — so
