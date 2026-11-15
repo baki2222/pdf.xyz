@@ -89,9 +89,24 @@ export const AI_JOB_POLL: JobPollBudget = budgetFor(
  * Plus the reflowed-PDF render (2026-11-15), which runs AFTER every paid call:
  * `PIPELINE_MARGIN_MS` (60 s) is smaller than Chromium's own 120 s budget, so
  * a wait without this term would abandon a job whose calls were already paid
- * for. The worker hands Chromium at most this bound
- * (`translatePdfRenderConfig`); `client-wait.test.ts` holds the two together.
+ * for. The worker bounds the WHOLE PDF stage — Chromium, the metadata pass
+ * and the `pdftotext` read-back — by at most this figure
+ * (`translatePdfRenderConfig` → `renderTranslationPdf`'s one deadline);
+ * `client-wait.test.ts` holds the two together.
+ *
+ * The floor is the AI floor PLUS the render (review r1, 2026-11-15): a
+ * one-chunk job whose call timed out is retried, and the retried call is
+ * followed by the render too — 2 × 120 s + 2 s + 60 s + 60 s = 362 s, where
+ * the bare AI floor (303 s) would abandon a job whose calls were paid for.
  */
+const TRANSLATE_JOB_FLOOR: JobPollBudget = budgetFor(
+  2 * AI_CALL_TIMEOUT_MS +
+    FIRST_REQUEUE_DELAY_MS +
+    TRANSLATE_PDF_RENDER_TIMEOUT_MS +
+    PIPELINE_MARGIN_MS,
+  AI_JOB_POLL.intervalMs,
+);
+
 export function translateJobPoll(chunks: number): JobPollBudget {
   const calls = Math.max(1, Math.floor(chunks));
   const perChunk = budgetFor(
@@ -100,9 +115,9 @@ export function translateJobPoll(chunks: number): JobPollBudget {
       PIPELINE_MARGIN_MS,
     AI_JOB_POLL.intervalMs,
   );
-  return perChunk.maxAttempts > AI_JOB_POLL.maxAttempts
+  return perChunk.maxAttempts > TRANSLATE_JOB_FLOOR.maxAttempts
     ? perChunk
-    : AI_JOB_POLL;
+    : TRANSLATE_JOB_FLOOR;
 }
 
 /**

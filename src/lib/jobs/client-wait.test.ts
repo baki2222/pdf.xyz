@@ -95,6 +95,22 @@ describe("each budget outlasts the worker's own work", () => {
     }
   });
 
+  // 2026-11-15, review r1: for one chunk the AI floor won (303,000 ms) — sized
+  // for a timed-out call plus its retry, and exact on main — but the render
+  // now runs after the RETRIED call too. Worst case: 120 s timeout, 2 s
+  // requeue, 120 s retried call, 60 s render, 60 s margin = 362,000 ms. Red on
+  // that code with "expected 303000 to be greater than or equal to 362000".
+  it("translate: the retried call's render is waited for too (the one-chunk floor)", () => {
+    for (const chunks of [1, 2, 5, 12]) {
+      expect(pollWaitMs(translateJobPoll(chunks))).toBeGreaterThanOrEqual(
+        2 * AI_TIMEOUT_MS_BOUNDS.default +
+          retryRequeueDelayMs(1) +
+          TRANSLATE_PDF_RENDER_TIMEOUT_MS +
+          PIPELINE_MARGIN_MS,
+      );
+    }
+  });
+
   it("translate: the render bound the worker hands Chromium is the one the wait adds", () => {
     // The second, independent number: the worker's own Chromium deadline for
     // this render, read from its config resolver. It may be SHORTER than the
