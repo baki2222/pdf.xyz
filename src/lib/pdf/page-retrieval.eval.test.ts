@@ -321,8 +321,12 @@ function buildCorpus(): EvalCase[] {
         factPage: between(1, 3),
         fact: `The ${code} clause caps liability at ${between(2, 9)} million.`,
         ...(i % 3 === 0 ? { blank: [2] } : {}),
-        // "clause" is common in a real contract: on about 30% of the pages.
-        distractors: [{ word: "clause", count: 0.3 }],
+        // "clause" is common in a real contract: on about 30% of the pages
+        // in half the cases. The other half match ONLY inside the prefix,
+        // which is what the byte-identity check below needs to exercise.
+        ...(i % 2 === 0
+          ? { distractors: [{ word: "clause", count: 0.3 }] }
+          : {}),
       },
       `What does the ${code} clause say?`,
     );
@@ -553,6 +557,7 @@ describe("retrieval eval corpus", () => {
 
   it("is never worse than main on class A, and byte-identical when every matching page is in the prefix", () => {
     const worse: string[] = [];
+    const identical: string[] = [];
     for (const c of CORPUS.filter((x) => x.klass === "A")) {
       const result = run(c);
       if (recalled(c, mainGrounding(c)) && !recalled(c, result.grounding))
@@ -567,11 +572,14 @@ describe("retrieval eval corpus", () => {
         matching.every((p) => prefixPages.has(p)) &&
         c.seedPages.every((p) => prefixPages.has(p))
       ) {
+        identical.push(c.name);
         expect(result.strategy, c.name).toBe("prefix");
         expect(result.grounding, c.name).toBe(mainGrounding(c));
       }
     }
     expect(worse).toEqual([]);
+    // HEALTH: the identity branch ran, or it certified nothing.
+    expect(identical.length, identical.join(", ")).toBeGreaterThanOrEqual(3);
   });
 
   it("recalls at least as much as main on A, E, F, G and overall, and strictly more on B and F", () => {
