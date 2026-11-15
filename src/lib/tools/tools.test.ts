@@ -293,6 +293,40 @@ function miss(
     : `${query}: want empty, got ${got}`;
 }
 
+/**
+ * ADDED 2026-11-15 (Compare PDF S4): Compare PDF's outputs are TXT and HTML
+ * now (its redline), and the search reads a tool's formats as accept ∪
+ * outputs, so "html" and "pdf to html" list it too, after HTML to PDF —
+ * true, since it writes HTML from PDFs, and accepted (as "pdf to txt" already
+ * listed it). Pinned so it never leads a conversion query.
+ */
+describe("Compare PDF's HTML redline in the search", () => {
+  const index = toolSearchIndex();
+  const slugs = (q: string) => search(index, q).results.map((d) => d.id);
+
+  it.each(["html", "pdf to html", "html to pdf"])(
+    "%s: HTML to PDF first, Compare PDF listed after it",
+    (q) => {
+      const got = slugs(q);
+      expect(got[0], q).toBe("html-to-pdf");
+      expect(got.slice(1), q).toContain("compare-pdf");
+    },
+  );
+
+  it("Compare PDF never leads a conversion query", () => {
+    for (const q of [
+      "pdf to html",
+      "html to pdf",
+      "convert pdf to html",
+      "pdf to txt",
+      "pdf to text",
+      "convert pdf to txt",
+      "txt",
+    ])
+      expect(slugs(q)[0], q).not.toBe("compare-pdf");
+  });
+});
+
 describe("the search corpus", () => {
   const index = toolSearchIndex();
 

@@ -1458,6 +1458,33 @@ const TOOL_PAGES_TO_COME = {
   //  - on demand from the compare page: the Overlay 12,994 B in one chunk
   //    (+578 on the first round: the area test, the scan's live result);
   //    the comparison's chunk 10,827 -> 11,515 (+688).
+  //
+  // NOT TAKEN from the allocation, 2026-11-15, by Compare PDF's HTML
+  // redline (S4: Download redline (HTML), its builder a lazy chunk of its
+  // own) — flagged for the owner, like every runtime entry since P6, as a
+  // RE-ALLOCATION OF G.1 in effect. The branch rule was decided by bytes:
+  // redline-html.ts minified standalone (esbuild) is 4,684 B, 2,266 B gzip
+  // -9, at or over 1,000 B, so its own chunk (as S2 and S3), not folded into
+  // the comparison's. Main 1c1e5f37 and the branch, each built from an empty
+  // .next in ONE tree (E:/wcmp4, its own install), gzip -9 over each page's
+  // first-load chunks, all 144 pages:
+  //  - 141 pages +11, the webpack runtime alone (3,853 -> 3,864): one
+  //    chunk-map entry, the redline's chunk (the plan expected +6 to +9).
+  //  - tools +17 and workspace +20: the runtime, and the catalogue chunk
+  //    5320 8,269 -> 8,275 (+6, "HTML" in Compare PDF's outputs); workspace
+  //    also 7384 2,138 -> 2,141 (+3). The ticket's on-demand fetch reads
+  //    both: 35,082 -> 35,091 (+9), its bound RAISED in lazy-chunks.test.ts.
+  //  - tools/compare-pdf 228,884 -> 229,059 (+175): the runtime, and the
+  //    runner's chunk 1104 6,620 -> 6,784 (+164: the second button, its
+  //    prefetch, its retry note, the `ext` argument). 27,862 B under
+  //    EVERY_TOOL_PAGE.
+  //  - the stylesheet is main's file (3906e9b6), byte for byte: the
+  //    redline's CSS lives in the downloaded file, and its words were
+  //    chosen so the scanner adds no utility.
+  //  - on demand from the compare page: the redline 2,259 B in one chunk
+  //    (bounded in lazy-chunks.test.ts); the comparison's chunk 11,515 ->
+  //    11,736 (+221: the loader, and report.ts's header fields, changes
+  //    sentence, line maps and marks lifted out for both writers).
   unallocated:
     UNALLOCATED -
     NEW_TOOLS_2026_10_30 -

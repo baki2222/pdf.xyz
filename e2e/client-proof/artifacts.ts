@@ -47,11 +47,30 @@ export async function captureDownload(
   return downloadBytesOf(download);
 }
 
+/**
+ * {@link captureDownload}, with the file name the browser was handed
+ * (`download.suggestedFilename()`). A sibling, so the cases that read only
+ * bytes are not churned (Compare PDF's redline, S4, 2026-11-15).
+ */
+export async function captureNamedDownload(
+  page: Page,
+  cta: Locator,
+): Promise<{ bytes: Buffer; name: string }> {
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    cta.click(),
+  ]);
+  return {
+    bytes: await downloadBytesOf(download),
+    name: download.suggestedFilename(),
+  };
+}
+
 /* ------------------------------------------------------------------ *
  *  Magic bytes
  * ------------------------------------------------------------------ */
 
-export type ArtifactKind = "pdf" | "png" | "jpg" | "zip" | "text";
+export type ArtifactKind = "pdf" | "png" | "jpg" | "zip" | "text" | "html";
 
 const PDF_MAGIC = Buffer.from("%PDF-", "latin1");
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -64,6 +83,17 @@ const ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
 
 const startsWith = (buf: Buffer, magic: Buffer): boolean =>
   buf.subarray(0, magic.length).equals(magic);
+
+const UTF8_BOM = Buffer.from([0xef, 0xbb, 0xbf]);
+
+/** Message of the HTML magic check, shared with the cases that reuse it. */
+export const HTML_MAGIC_FAILS = "html magic: no <!DOCTYPE html> at the start";
+
+/** An optional BOM, then `<!DOCTYPE html>` in any case. */
+export function isHtmlArtifact(buf: Buffer): boolean {
+  const body = startsWith(buf, UTF8_BOM) ? buf.subarray(3) : buf;
+  return /^<!DOCTYPE html>/i.test(body.subarray(0, 15).toString("latin1"));
+}
 
 /** Assert the artifact's container type from its leading bytes. */
 export function expectMagic(buf: Buffer, kind: ArtifactKind): void {
@@ -79,6 +109,12 @@ export function expectMagic(buf: Buffer, kind: ArtifactKind): void {
       break;
     case "zip":
       expect(startsWith(buf, ZIP_MAGIC), "ZIP local file header").toBe(true);
+      break;
+    case "html":
+      expect(isHtmlArtifact(buf), HTML_MAGIC_FAILS).toBe(true);
+      expect(startsWith(buf, PDF_MAGIC), "html artifact is a PDF").toBe(false);
+      expect(startsWith(buf, ZIP_MAGIC), "html artifact is a ZIP").toBe(false);
+      expect(startsWith(buf, PNG_MAGIC), "html artifact is a PNG").toBe(false);
       break;
     case "text":
       // A text artifact must NOT be a binary container that leaked through —

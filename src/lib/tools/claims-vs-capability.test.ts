@@ -221,6 +221,11 @@ import {
 } from "@/tests/compare-fixtures";
 import { rangeText, runCompareViewChain } from "@/tests/compare-view-chain";
 import { overlayFirstPage } from "@/tests/compare-overlay-chain";
+import {
+  REDLINE_CSP,
+  buildRedlineHtml,
+} from "@/components/tools/runner/compare/redline-html";
+import { JSDOM } from "jsdom";
 
 const ROOT = process.cwd();
 const read = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
@@ -3225,11 +3230,14 @@ const COMPARE_PAGE_RULE = {
   shipped: [
     "Tiles for Pages, Size delta and Changed lines sit above the list of changes, each headed with its page in both files.",
     "Download comparison report saves a text file listing only the changes, with their page numbers, named after both PDFs, for example draft-vs-final-comparison.txt.",
-    "Download the comparison report: a .txt file listing only the changes, with their page numbers.",
-    "You get their page counts, the size difference and every line of text that was added or removed, each under the page it sits on in both files, plus a report you can download.",
+    // EDITED 2026-11-15 (S4): the guide's last step and intro name the
+    // HTML redline too; both are in COMPARE_REDLINE_RULE.shipped as well.
+    "Download the comparison report, a .txt file listing only the changes with their page numbers, or Download redline (HTML) for the same changes as a web page.",
+    "You get their page counts, the size difference and every line of text that was added or removed, each under the page it sits on in both files, plus a text report and an HTML redline to download.",
     "Compare PDF reads the selectable text of two versions of a document and lists only what changed, grouped by page: each change is headed with the page it sits on in both files and shown with two unchanged lines around it.",
     "Each change names its page in both files, and inside a changed line the words that differ are marked.",
-    "Each change is headed with the page it sits on in each file, for example Page 2 → page 3 when a page was inserted before it, and the downloaded report heads it the same way: @@ Page 2 -> page 3 @@.",
+    // EDITED 2026-11-15 (S4): names the HTML redline's header too.
+    "Each change is headed with the page it sits on in each file, for example Page 2 → page 3 when a page was inserted before it, the downloaded report heads it the same way, @@ Page 2 -> page 3 @@, and the HTML redline heads it Page 2 → page 3.",
     "The old line is listed as removed and the new one as added, and the changed words are marked within the line: crossed out in the old one, underlined in the new one, and in the report as [-old-] and {+new+} on a line starting with ~.",
     "Review the lines marked removed (-) and added (+), each headed with its page in both files, with the changed words marked.",
   ],
@@ -3376,6 +3384,9 @@ describe("Compare PDF: the page and word claims hold of the comparison", () => {
             // EXTENDED 2026-11-15 (S3): and the overlay rule's.
             ...Object.entries(COMPARE_OVERLAY_RULE.claims),
             ...Object.entries(COMPARE_OVERLAY_RULE.denials),
+            // EXTENDED 2026-11-15 (S4): and the redline rule's ("as a web
+            // page" is the redline, not the change's page).
+            ...Object.entries(COMPARE_REDLINE_RULE.claims),
           ].some(([, re]) => re.test(masked));
           const named = notClaims.filter(([, re]) => re.test(masked));
           named.forEach(([n]) => used.add(n));
@@ -4268,6 +4279,140 @@ describe("Compare PDF: the overlay claims hold of the overlay", () => {
       ).toEqual([]);
     }
   }, 60_000);
+});
+
+/* ------------------------------------------------------------------ *
+ *  Compare PDF's HTML redline — a capability that EXISTS, pinned.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Compare PDF writes an HTML redline (S4, 2026-11-15): the changes as a
+ * self-contained web page, beside the .txt. The page says so, and says the
+ * file runs no scripts. Part 4 of the compare claims.
+ *
+ * Shaped like COMPARE_OVERLAY_RULE, claims only: the CLAIMS are allowed only
+ * while the probe — `compareExtractedPdfText` on two real PDFs where a page
+ * was inserted, then `buildRedlineHtml`, then a parse of the HTML the way a
+ * browser reads it — finds a <del>, an <ins>, a page-headed <h3>, the CSP
+ * meta, and no <script>. If the redline goes (or comes back empty), every
+ * served claim becomes an offender. That the file a reader downloads is
+ * this one is e2e/compare-redline.spec.ts, on a served build.
+ */
+const COMPARE_REDLINE_RULE = {
+  id: "Compare PDF writes an HTML redline that runs no scripts",
+  subjects: () => slugsOfKind("compare"),
+  claims: {
+    "HTML redline": /\bHTML redline\b/i,
+    redline: /\bredline\b/i,
+    "the .html name": /-comparison\.html\b/i,
+    "runs no scripts": /\bruns no (?:scripts|code)\b/i,
+  },
+  shipped: [
+    "Compare two PDFs: see added and removed lines, page and size changes, or overlay the pages, and save a text or HTML redline.",
+    "Download redline (HTML) saves the same changes as a web page, removed words struck through and added ones underlined, for example draft-vs-final-comparison.html.",
+    "It opens in any browser, offline, and runs no scripts.",
+    // The plan's own FAQ, folded into the upload FAQ (six-FAQ budget); its
+    // question is not a served sentence (questions are not attributed).
+    "No, nothing is uploaded: both files are opened and compared by your browser on your own device, and the report and the redline are made there too.",
+    "The redline holds the changed lines of both files, with up to two unchanged lines around each change, and both file names, so anyone you send it to can read those.",
+    "Compare two PDF versions in your browser: page count, file size and every changed line, as text or an HTML redline, or overlay the pages to see where ink differs.",
+    "It loads nothing from the internet and runs no code.",
+    "Each change is headed with the page it sits on in each file, for example Page 2 → page 3 when a page was inserted before it, the downloaded report heads it the same way, @@ Page 2 -> page 3 @@, and the HTML redline heads it Page 2 → page 3.",
+    "Download the comparison report, a .txt file listing only the changes with their page numbers, or Download redline (HTML) for the same changes as a web page.",
+    "You get their page counts, the size difference and every line of text that was added or removed, each under the page it sits on in both files, plus a text report and an HTML redline to download.",
+  ],
+  synonyms: ["Save a redline of the changes as an HTML page."],
+} as const;
+
+/** THE PROPERTY, on two real PDFs, read as a browser reads the file. */
+async function compareRedlineProbe(): Promise<Probe> {
+  const { left, right } = pageHeaderPair();
+  const result = compareExtractedPdfText(
+    await comparablePdf("v1.pdf", left),
+    await comparablePdf("v2.pdf", right),
+  );
+  const html = buildRedlineHtml(result);
+  const page = (new JSDOM(html).window as unknown as Window).document;
+  const del = page.querySelectorAll("del").length;
+  const ins = page.querySelectorAll("ins").length;
+  const header = [...page.querySelectorAll("h3")].some(
+    (h) => h.textContent === "Page 2 → page 3",
+  );
+  const csp =
+    page
+      .querySelector('meta[http-equiv="Content-Security-Policy"]')
+      ?.getAttribute("content") === REDLINE_CSP;
+  const scripts = page.querySelectorAll("script").length;
+  return {
+    present: del > 0 && ins > 0 && header && csp && scripts === 0,
+    evidence: `${html.length} chars; del ${del}, ins ${ins}, page header ${header}, CSP ${csp}, scripts ${scripts}`,
+  };
+}
+
+describe("Compare PDF: the redline claims hold of the redline", () => {
+  const asRule = (shapes: Readonly<Record<string, RegExp>>) =>
+    ({ shapes }) as unknown as ClaimRule;
+  const claimShapes = Object.entries(COMPARE_REDLINE_RULE.claims);
+  const claims = [
+    ...COMPARE_REDLINE_RULE.shipped,
+    ...COMPARE_REDLINE_RULE.synonyms,
+  ];
+
+  it("the shapes and the corpus cover each other", () => {
+    expect(
+      claimShapes
+        .filter(
+          ([, re]) => !COMPARE_REDLINE_RULE.shipped.some((c) => re.test(c)),
+        )
+        .map(([n]) => n),
+      "claim shapes no shipped sentence exercises",
+    ).toEqual([]);
+    expect(
+      claims.filter((c) => !claimShapes.some(([, re]) => re.test(c))),
+      "claims no shape catches",
+    ).toEqual([]);
+  });
+
+  it("the shipped corpus is served", async () => {
+    const subject = COMPARE_REDLINE_RULE.subjects()[0]!;
+    const served = (await containersFor(subject)).flatMap((c) =>
+      attributedTo(c, subject).map(({ sentence }) => sentence),
+    );
+    for (const n of COMPARE_REDLINE_RULE.shipped)
+      expect(
+        served.some((s) => s.includes(n.slice(0, 40))),
+        n,
+      ).toBe(true);
+  });
+
+  it("the capability is there: del, ins, a page header, the CSP and no script, from real PDFs", async () => {
+    const probe = await compareRedlineProbe();
+    expect(probe.present, probe.evidence).toBe(true);
+  });
+
+  it("served copy claims the redline only while it is true", async () => {
+    const probe = await compareRedlineProbe();
+    const subjects = COMPARE_REDLINE_RULE.subjects();
+    expect(subjects.length).toBeGreaterThan(0);
+    for (const subject of subjects) {
+      const made = await offendersOf(
+        asRule(COMPARE_REDLINE_RULE.claims),
+        subject,
+      );
+      expect(made.seen, `${subject}: corpus collapsed`).toBeGreaterThanOrEqual(
+        15,
+      );
+      if (!probe.present) {
+        expect(
+          made.offenders,
+          `${subject} claims a redline the comparison no longer writes (${probe.evidence})`,
+        ).toEqual([]);
+        continue;
+      }
+      // Health: the page does make the claim, so this check is not blind.
+      expect(made.offenders.length, subject).toBeGreaterThanOrEqual(1);
+    }
+  });
 });
 
 describe("Compare PDF: the page-view claims hold of the page view", () => {

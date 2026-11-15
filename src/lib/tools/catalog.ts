@@ -1109,7 +1109,9 @@ export const tools: Tool[] = [
     processing: "client",
     badge: "new",
     accept: ["PDF"],
-    outputs: ["TXT"],
+    // HTML since 2026-11-15 (S4): the redline beside the .txt report.
+    // client-outputs.test.tsx holds this list to the runner's downloads.
+    outputs: ["TXT", "HTML"],
     keywords: ["compare pdf", "pdf diff", "text difference", "version compare"],
     related: ["ocr-pdf", "pdf-to-text", "redact-pdf", "annotate-pdf"],
   },

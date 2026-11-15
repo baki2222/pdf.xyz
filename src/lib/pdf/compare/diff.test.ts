@@ -198,6 +198,10 @@ describe("compare-pdf", () => {
     expect(compareOutputName("draft.pdf", "final.pdf")).toBe(
       "draft-vs-final-comparison.txt",
     );
+    // S4 (2026-11-15): the HTML redline takes the same name, its own extension.
+    expect(compareOutputName("draft.pdf", "final.pdf", "html")).toBe(
+      "draft-vs-final-comparison.html",
+    );
   });
 });
 

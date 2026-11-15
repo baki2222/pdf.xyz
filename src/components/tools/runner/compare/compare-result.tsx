@@ -122,6 +122,25 @@ export function loadCompareOverlay(): Promise<CompareOverlayModule> {
 /** Where the Overlay finds its chunk: an object, so a test can hold the fetch. */
 export const compareOverlayChunk = { load: loadCompareOverlay };
 
+/** Compare PDF's HTML redline (S4): its own lazy chunk, fetched only when asked for. */
+type CompareRedlineModule = typeof import("./redline-html");
+
+let redlineChunk: Promise<CompareRedlineModule> | null = null;
+
+/**
+ * Fetch the redline's chunk once, whoever asks first: a pointer or focus
+ * reaching Download redline (HTML), or its press. The runner reaches it only
+ * through the comparison's module (`done.mod`), so it has no import edge of
+ * its own. A failed fetch is forgotten, so the next press tries again.
+ */
+export function loadCompareRedline(): Promise<CompareRedlineModule> {
+  redlineChunk ??= import("./redline-html").catch((err: unknown) => {
+    redlineChunk = null;
+    throw err;
+  });
+  return redlineChunk;
+}
+
 /** What the page view needs from the run: each file's bytes and pages. */
 interface CompareFile {
   bytes: Uint8Array;

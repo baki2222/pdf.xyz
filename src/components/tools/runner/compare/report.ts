@@ -1,5 +1,5 @@
 import { fileWithoutText, type PdfCompareResult } from "@/lib/pdf/compare-pdf";
-import { CONTEXT, hunkHeader } from "@/lib/pdf/compare/hunks";
+import { CONTEXT, hunkHeader, type Hunk } from "@/lib/pdf/compare/hunks";
 import type { CompareOptions } from "@/lib/pdf/compare/lines";
 import type { WordToken } from "@/lib/pdf/compare/words";
 
@@ -98,87 +98,162 @@ function pageList(pages: readonly number[]): string {
   return pages.length > 0 ? pages.join(", ") : "none";
 }
 
-export function buildReport(result: Omit<PdfCompareResult, "report">): string {
+/**
+ * The report's scope sentence. The HTML redline (`redline-html.ts`) prints
+ * the same words, so it is one constant.
+ */
+export const SCOPE_SENTENCE = `Scope: selectable text, page count, and file size only. This is not OCR and not a pixel-perfect visual diff. Only changes are listed, with ${CONTEXT} lines of context and the page they sit on in each file.`;
+
+/** One header line of the report: `Label: value`. */
+export interface ReportField {
+  label: string;
+  value: string;
+}
+
+/**
+ * The header fields, in order: Pages, Bytes, Comparable text, Selectable
+ * text identical, Changed lines, Options, and Pages without selectable text
+ * when there are any. The .txt prints each as `Label: value`, the HTML
+ * redline as a `<dt>`/`<dd>` pair: one definition, so they cannot disagree.
+ */
+export function reportFields(
+  result: Omit<PdfCompareResult, "report">,
+): ReportField[] {
   const scanned = fileWithoutText(result);
   const compared = result.hasComparableText;
   const options = optionsPhrase(result.options);
-  const lines = [
-    `PDF comparison: ${result.leftName} vs ${result.rightName}`,
-    "",
-    `Scope: selectable text, page count, and file size only. This is not OCR and not a pixel-perfect visual diff. Only changes are listed, with ${CONTEXT} lines of context and the page they sit on in each file.`,
-    "",
-    `Pages: ${result.leftPageCount} vs ${result.rightPageCount} (${result.pageDelta >= 0 ? "+" : ""}${result.pageDelta})`,
-    `Bytes: ${result.leftSize} vs ${result.rightSize} (${result.sizeDelta >= 0 ? "+" : ""}${result.sizeDelta})`,
-    `Comparable text: ${
-      compared
+  const fields: ReportField[] = [
+    {
+      label: "Pages",
+      value: `${result.leftPageCount} vs ${result.rightPageCount} (${result.pageDelta >= 0 ? "+" : ""}${result.pageDelta})`,
+    },
+    {
+      label: "Bytes",
+      value: `${result.leftSize} vs ${result.rightSize} (${result.sizeDelta >= 0 ? "+" : ""}${result.sizeDelta})`,
+    },
+    {
+      label: "Comparable text",
+      value: compared
         ? "yes"
         : scanned
           ? `no (${scanned} has no selectable text)`
-          : "no (neither PDF has selectable text)"
-    }`,
+          : "no (neither PDF has selectable text)",
+    },
     // Without text on both sides there is no evidence either way, so neither
     // "yes" nor "no" is a claim this report can make. Under an option, "yes"
     // is only true of what was compared, so it says so.
-    `Selectable text identical: ${
-      compared
+    {
+      label: "Selectable text identical",
+      value: compared
         ? result.identicalText
           ? options
             ? `yes (with ${options})`
             : "yes"
           : "no"
-        : "not compared"
-    }`,
-    compared
-      ? `Changed lines: ${result.summary.changedLines} (${result.summary.addedLines} added, ${result.summary.removedLines} removed)`
-      : "Changed lines: not compared",
-    !options
-      ? "Options: none"
-      : result.options.ignoreFurniture
-        ? `Options: ${options} (${lineCount(result.dropped.left)} set aside from the first PDF, ${lineCount(result.dropped.right)} from the second)`
-        : `Options: ${options}`,
+        : "not compared",
+    },
+    {
+      label: "Changed lines",
+      value: compared
+        ? `${result.summary.changedLines} (${result.summary.addedLines} added, ${result.summary.removedLines} removed)`
+        : "not compared",
+    },
+    {
+      label: "Options",
+      value: !options
+        ? "none"
+        : result.options.ignoreFurniture
+          ? `${options} (${lineCount(result.dropped.left)} set aside from the first PDF, ${lineCount(result.dropped.right)} from the second)`
+          : options,
+    },
   ];
   const { left, right } = result.pagesWithoutText;
   if (compared && (left.length > 0 || right.length > 0)) {
-    lines.push(
-      `Pages without selectable text: first PDF ${pageList(left)}; second PDF ${pageList(right)}`,
-    );
+    fields.push({
+      label: "Pages without selectable text",
+      value: `first PDF ${pageList(left)}; second PDF ${pageList(right)}`,
+    });
   }
+  return fields;
+}
+
+/**
+ * What the report says under "Changes:" when it lists no hunk — a file with
+ * no text, neither with text, or no differences — or null when it lists the
+ * hunks.
+ */
+export function changesSentence(
+  result: Omit<PdfCompareResult, "report">,
+): string | null {
+  const scanned = fileWithoutText(result);
+  if (scanned)
+    return `${scanned} has no selectable text, so there is nothing to compare the other file's text against. It is probably a scanned or image-only PDF: run OCR PDF on it first, then compare again.`;
+  if (!result.hasComparableText)
+    return "No selectable text was found in either PDF. Use OCR first for scanned/image-only PDFs.";
+  if (result.hunks.length === 0 || result.identicalText)
+    return noDifferencesSentence(result);
+  return null;
+}
+
+/**
+ * Each side's kept lines by index, read from the diff: what a hunk's ops
+ * point at. Shared by the report and the HTML redline.
+ */
+export function lineTexts(result: Pick<PdfCompareResult, "diff">): {
+  left: Map<number, string>;
+  right: Map<number, string>;
+} {
+  const left = new Map<number, string>();
+  const right = new Map<number, string>();
+  for (const line of result.diff) {
+    if (line.left !== undefined) left.set(line.left, line.text);
+    if (line.right !== undefined) right.set(line.right, line.text);
+  }
+  return { left, right };
+}
+
+/**
+ * A hunk's word marks by line: a paired line's tokens, or null when a bound
+ * skipped the pair (absent: the line has no partner). The report writes a
+ * `~ ` line from `byRight`; the HTML redline marks both sides.
+ */
+export function hunkMarks(hunk: Pick<Hunk, "pairs">): {
+  byLeft: Map<number, WordToken[] | null>;
+  byRight: Map<number, WordToken[] | null>;
+} {
+  return {
+    byLeft: new Map(hunk.pairs.map((p) => [p.left, p.tokens])),
+    byRight: new Map(hunk.pairs.map((p) => [p.right, p.tokens])),
+  };
+}
+
+export function buildReport(result: Omit<PdfCompareResult, "report">): string {
+  const lines = [
+    `PDF comparison: ${result.leftName} vs ${result.rightName}`,
+    "",
+    SCOPE_SENTENCE,
+    "",
+    ...reportFields(result).map((f) => `${f.label}: ${f.value}`),
+  ];
   if (result.wordFallbacks > 0)
     lines.push(fallbackSentence(result.wordFallbacks));
   lines.push("", "Changes:");
 
-  if (scanned) {
-    lines.push(
-      `${scanned} has no selectable text, so there is nothing to compare the other file's text against. It is probably a scanned or image-only PDF: run OCR PDF on it first, then compare again.`,
-    );
-  } else if (!compared) {
-    lines.push(
-      "No selectable text was found in either PDF. Use OCR first for scanned/image-only PDFs.",
-    );
-  } else if (result.hunks.length === 0 || result.identicalText) {
-    lines.push(noDifferencesSentence(result));
+  const said = changesSentence(result);
+  if (said !== null) {
+    lines.push(said);
   } else {
-    const leftText = new Map<number, string>();
-    const rightText = new Map<number, string>();
-    for (const line of result.diff) {
-      if (line.left !== undefined) leftText.set(line.left, line.text);
-      if (line.right !== undefined) rightText.set(line.right, line.text);
-    }
+    const text = lineTexts(result);
     result.hunks.forEach((hunk, n) => {
       if (n > 0) lines.push("");
       lines.push(`@@ ${hunkHeader(hunk, "->")} @@`);
-      const marks = new Map(
-        hunk.pairs.flatMap((p) => (p.tokens ? [[p.right, p.tokens]] : [])) as [
-          number,
-          WordToken[],
-        ][],
-      );
+      const { byRight } = hunkMarks(hunk);
       for (const op of hunk.ops) {
-        if (op.k === "same") lines.push(`  ${leftText.get(op.a)}`);
-        else if (op.k === "removed") lines.push(`- ${leftText.get(op.a)}`);
+        if (op.k === "same") lines.push(`  ${text.left.get(op.a)}`);
+        else if (op.k === "removed") lines.push(`- ${text.left.get(op.a)}`);
         else {
-          lines.push(`+ ${rightText.get(op.b)}`);
-          const tokens = marks.get(op.b);
+          lines.push(`+ ${text.right.get(op.b)}`);
+          const tokens = byRight.get(op.b);
           if (tokens) lines.push(`~ ${markedLine(tokens)}`);
         }
       }

@@ -92,8 +92,13 @@ export interface PdfCompareResult {
   report: string;
 }
 
-export function compareOutputName(leftName: string, rightName: string): string {
-  return `${baseName(leftName)}-vs-${baseName(rightName)}-comparison.txt`;
+/** `draft-vs-final-comparison.txt`, or `.html` for the redline (S4). */
+export function compareOutputName(
+  leftName: string,
+  rightName: string,
+  ext = "txt",
+): string {
+  return `${baseName(leftName)}-vs-${baseName(rightName)}-comparison.${ext}`;
 }
 
 /** The name of the file with no selectable text, for one-sided verdicts. */
