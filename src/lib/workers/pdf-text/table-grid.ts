@@ -76,12 +76,29 @@ export const SEGMENT_GAP_PITCHES = 1.3;
  * next thing; `flow.ts`'s rule 7 has the conditions that do.
  */
 export const WRAP_GAP_PITCHES = 1.25;
-/** The most continuation lines one cell absorbs; past it the run is cut. */
+/**
+ * The most continuation lines one cell absorbs; past it the run is cut.
+ * `docx-table-measure.ts wrap-cell` (a 60-row table whose last cell carries
+ * 51 lines) keeps exactly 50, in 29 ms / +3 MB on the dev host and 79 ms /
+ * +4 MB in the worker image (medians of 3, 2026-11-16).
+ */
 export const MAX_WRAP_LINES_PER_CELL = 50;
 /**
- * The most continuation lines one page absorbs, all tables together. The
- * brief's starting value, NOT yet measured (the `wrap` modes of
- * `docx-table-measure.ts` are a later part of #28 slice 3).
+ * The most continuation lines one page absorbs, all tables together.
+ * Measured 2026-11-16 (`docx-table-measure.ts`, medians of 3, alternating
+ * with the same page read with absorption off, whole PDF to Word job): a
+ * table at {@link MAX_TABLE_CELLS} (3,333 rows x 3), every body row wrapped,
+ * absorbs 3,332 lines in 259 ms / +141 MB against 189 ms / +125 MB off on
+ * the dev host (Windows 11, Node 24), and 802 ms / +55 MB against 582 ms /
+ * +43 MB in the worker image (`ghcr.io/baki2222/pdfxyz-worker@sha256:7400…`,
+ * node 22): inside #318's exit bound by far.
+ *
+ * NOT the binding bound today: the share cap (continuations <= rows) and
+ * {@link MAX_TABLE_CELLS_PER_PAGE} (rows of at least two cells) already hold
+ * a page under 10,000 absorbed lines by arithmetic (not measured on a
+ * page of several tables); measured: a 10,000-row table (30,000 cells)
+ * absorbs nothing (over the cell cap, it is kept as tabbed rows). Kept as
+ * the brief's value so that a later loosening of either still meets a cap.
  */
 export const MAX_WRAP_LINES_PER_PAGE = 20_000;
 /**
@@ -93,7 +110,11 @@ export const MAX_WRAP_LINES_PER_PAGE = 20_000;
  * 24, under load) without this budget, a 3-column run of 3,000 rows whose
  * every other continuation is a number took 4,496 ms against 14 ms with
  * absorption off (2,000 rows: 1,968 ms; 1,000: 500 ms). With it: 104 ms at
- * 3,000 rows, 103 at 1,000. NOT yet measured in the worker image.
+ * 3,000 rows, 103 at 1,000. The whole PDF to Word job on a 3,333-row run cut
+ * at every other continuation (`docx-table-measure.ts wrap-cut`, medians of
+ * 3, 2026-11-16): 327 ms / +150 MB on the dev host against 189 ms / +125 MB
+ * with absorption off; in the worker image 1,266 ms / +54 MB against
+ * 582 ms / +43 MB.
  */
 export const MAX_WRAP_JUDGE_ITEMS_PER_PAGE = 100_000;
 
