@@ -1273,14 +1273,14 @@
     },
     "guides/how-to-compare-two-pdf-files.html": {
       "title": "How to compare two PDF files — pdf.xyz",
-      "description": "Compare two versions of a PDF in your browser: page count, file size and every added or removed line of text, with a downloadable report. Scans need OCR first.",
+      "description": "Compare two versions of a PDF in your browser: page count, file size and every changed line of text, with a report, or overlay the pages to see where ink differs.",
       "canonical": "https://pdf.xyz/guides/how-to-compare-two-pdf-files",
       "robots": "index, follow",
       "h1": ["How to compare two PDF files"],
       "h2": [
         "Common questions",
+        "Comparing scanned PDFs",
         "Related guides",
-        "Scanned PDFs need OCR first",
         "Step by step",
         "Tools used in this guide",
         "What counts as a change",

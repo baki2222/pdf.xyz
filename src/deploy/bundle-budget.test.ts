@@ -1438,6 +1438,26 @@ const TOOL_PAGES_TO_COME = {
   //    11,478 (+651: the view switch, the bar line, the Overlay's host and
   //    Compare pages visually). The ticket's fetch reads the same chunk
   //    files as main (the catalogue is unchanged).
+  //  RE-MEASURED 2026-11-15 after review r1 (the area test, the scan's live
+  //  region and focus, the catalogue line rewritten) and the merge of main
+  //  ffe94c44 (#321). Main ffe94c44 and the branch built from an empty
+  //  .next in ONE tree (E:/wcmp3-base, its own install), gzip -9 over each
+  //  page's first-load chunks, all 144 pages. (Built in two trees, every
+  //  page read +3..+6 more: the layout's, the 404's and global-error's
+  //  entry module ids hash the absolute path, so they differ by tree.)
+  //  - 141 pages +6, the webpack runtime alone (3,846 -> 3,852).
+  //  - tools and workspace +13: the runtime, and the catalogue chunk 5320
+  //    8,262 -> 8,269 (+7, the compare-pdf line no longer says scans need
+  //    OCR first). The ticket's on-demand fetch reads that chunk: +7.
+  //  - tools/compare-pdf 228,814 -> 228,891 (+77): the runtime, and the
+  //    runner's chunk 1104 6,549 -> 6,620 (+71: the Honest tile, and the
+  //    no-text verdicts' Compare pages visually now moves focus).
+  //  - the stylesheet is main's file (3906e9b6), byte for byte (read from
+  //    E:/wcmp3's build: a build in E:/wcmp3-base scanned a saved .next
+  //    copy there and is not a stylesheet figure).
+  //  - on demand from the compare page: the Overlay 12,994 B in one chunk
+  //    (+578 on the first round: the area test, the scan's live result);
+  //    the comparison's chunk 10,827 -> 11,515 (+688).
   unallocated:
     UNALLOCATED -
     NEW_TOOLS_2026_10_30 -
