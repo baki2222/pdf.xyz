@@ -9,6 +9,7 @@
  * was green on production while the pictures were missing.
  */
 import { docxPackage } from "./docx-package";
+import type { DocxDocument, DocxTableBlock } from "./docx-layout";
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 import { pptxBefore20260927 } from "@/tests/pptx-before-2026-09-27";
@@ -22,6 +23,7 @@ import {
   PPTX_PROOF_TEXT,
   pptxDeploymentVerdict,
   pptxProofPdf,
+  tableProblem,
 } from "./deployment-proof";
 import {
   movePictureDown,
@@ -185,7 +187,91 @@ describe("docxDeploymentVerdict", () => {
     expect(verdict.detail).toMatch(
       /each carry exactly their own run properties/,
     );
+    expect(verdict.detail).toMatch(/one 3 × 4 Word table/);
     expect(verdict.ok).toBe(true);
+  });
+
+  // 2026-11-15 (#28 slice 2): the verdict also reads the table.
+  describe("the table (docxTables)", () => {
+    const writing = async (
+      change: (t: DocxTableBlock) => DocxDocument["pages"][number][number][],
+    ) => {
+      const run = await runPdfOfficeExport(
+        "pdf-to-word",
+        await docxProofPdf(),
+        {
+          extractFlow: flowStandIn,
+          scanPages: scanPdfPages,
+          writeDocx: (doc) =>
+            docxPackage({
+              ...doc,
+              pages: doc.pages.map((blocks) =>
+                blocks.flatMap((b) => (b.kind === "table" ? change(b) : [b])),
+              ),
+            }),
+        },
+      );
+      if (!run.ok) throw new Error(run.message);
+      return run.output;
+    };
+    const text = (runs: readonly { text: string }[]) =>
+      runs.map((r) => r.text).join("");
+
+    it("health: the engine's .docx passes tableProblem on its own", async () => {
+      expect(await tableProblem(await engineDocx())).toBeNull();
+    });
+
+    it("NEGATIVE CONTROL: fails the table written as tabbed paragraphs", async () => {
+      const tabbed = await writing((t) =>
+        t.rows.map((r) => {
+          const cells = r.slots.flatMap((s) => s ?? []);
+          return { kind: "text" as const, cells: cells.map(text), runs: cells };
+        }),
+      );
+      const verdict = await docxDeploymentVerdict(tabbed);
+      expect(verdict.ok).toBe(false);
+      expect(verdict.detail).toMatch(/0 Word table\(s\)/);
+    });
+
+    it("NEGATIVE CONTROL: fails the empty cell dropped and the cost shifted left", async () => {
+      const shifted = await writing((t) => [
+        {
+          ...t,
+          rows: t.rows.map((r) => ({
+            slots: [
+              ...r.slots.filter((s) => s !== null),
+              ...r.slots.map(() => null),
+            ].slice(0, r.slots.length),
+          })),
+        },
+      ]);
+      const verdict = await docxDeploymentVerdict(shifted);
+      expect(verdict.ok).toBe(false);
+      expect(verdict.detail).toMatch(/the table's cells are/);
+    });
+
+    it("NEGATIVE CONTROL: fails a header written without its bold", async () => {
+      const plain = await writing((t) => [
+        {
+          ...t,
+          rows: t.rows.map((r, k) =>
+            k === 0
+              ? {
+                  slots: r.slots.map(
+                    (s) =>
+                      s?.map((runs) =>
+                        runs.map((x) => ({ ...x, style: null })),
+                      ) ?? null,
+                  ),
+                }
+              : r,
+          ),
+        },
+      ]);
+      const verdict = await docxDeploymentVerdict(plain);
+      expect(verdict.ok).toBe(false);
+      expect(verdict.detail).toMatch(/header is not bold/);
+    });
   });
 
   it("NEGATIVE CONTROL: fails the text-only .docx — the words, no picture", async () => {

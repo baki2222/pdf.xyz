@@ -248,7 +248,102 @@ export async function docxProofPdf(): Promise<Uint8Array> {
     });
     x += face.widthOfTextAtSize(`${text} `, size);
   }
+  // Since 2026-11-15 (#28 slice 2): a short separator, then a table BELOW
+  // everything above, so the picture checks keep their paragraph indices and
+  // the styled line stays outside the table. The separator has under four
+  // words (a longer line above the header would trim it out, flow.ts
+  // rule 5).
+  const t = DOCX_PROOF_TABLE;
+  const tableTop = PAGE.height - (box.y + box.height + 130);
+  const texts = [t.separator, ...t.rows.flat()].filter(Boolean);
+  const tRegular = await embedDrawingFont(doc, texts, "sans");
+  const tBold = await embedDrawingFont(doc, texts, "sans-bold");
+  page.drawText(t.separator, {
+    x: 60,
+    y: tableTop + 30,
+    size: 11,
+    font: tRegular,
+  });
+  t.rows.forEach((row, r) =>
+    row.forEach((cell, c) => {
+      if (cell)
+        page.drawText(cell, {
+          x: t.columns[c]!,
+          y: tableTop - r * 16,
+          size: 11,
+          font: r === 0 ? tBold : tRegular,
+        });
+    }),
+  );
   return doc.save();
+}
+
+/**
+ * The Word proof's table (since 2026-11-15, #28 slice 2): a bold header and
+ * three rows, the middle row with NO quantity, columns left-aligned at 60,
+ * 250 and 400 points, under a two-word separator.
+ */
+export const DOCX_PROOF_TABLE = {
+  separator: "Proof table",
+  rows: [
+    ["Part", "Units", "Cost"],
+    ["Bolt", "4", "0.75"],
+    ["Hinge", "", "6.20"],
+    ["Latch", "2", "3.10"],
+  ],
+  columns: [60, 250, 400],
+} as const;
+
+/**
+ * The proof's table, read back by `./docx-structure`: exactly one table of
+ * 3 grid columns and 4 rows of 3 cells spanning 1; each cell the page's
+ * text, the middle row's quantity an EMPTY cell (no run at all); every
+ * header run bold (`w:b`, `w:bCs`) and no body run bold. Null when it holds;
+ * otherwise what is wrong. (The same checks as `provesDocxTables`' 4, 5
+ * and 7, asked of the deployed worker's file.)
+ */
+export async function tableProblem(bytes: Uint8Array): Promise<string | null> {
+  const body = await readDocxStructure(bytes);
+  type Tbl = Extract<(typeof body.blocks)[number], { kind: "tbl" }>;
+  const tables = body.blocks.filter((b): b is Tbl => b.kind === "tbl");
+  const t = DOCX_PROOF_TABLE;
+  if (tables.length !== 1)
+    return `the DOCX holds ${tables.length} Word table(s), not the page's one`;
+  const [tbl] = tables;
+  if (
+    tbl!.gridCols.length !== 3 ||
+    tbl!.rows.length !== t.rows.length ||
+    tbl!.rows.some(
+      (r) => r.cells.length !== 3 || r.cells.some((c) => c.span !== 1),
+    )
+  )
+    return `the table is ${tbl!.gridCols.length} column(s) by ${tbl!.rows.length} row(s), not 3 by ${t.rows.length} of single cells`;
+  const runs = (r: number, c: number) =>
+    tbl!.rows[r]!.cells[c]!.blocks.flatMap((b) =>
+      b.kind === "p" ? b.runs : [],
+    );
+  const read = t.rows.map((row, r) =>
+    row.map((_, c) =>
+      runs(r, c)
+        .map((x) => x.text)
+        .join(""),
+    ),
+  );
+  const cellsOk = t.rows.every((row, r) =>
+    row.every((cell, c) =>
+      cell === "" ? runs(r, c).length === 0 : read[r]![c] === cell,
+    ),
+  );
+  if (!cellsOk)
+    return `the table's cells are ${JSON.stringify(read)}, not ${JSON.stringify(t.rows)} with the empty cell empty`;
+  const header = [0, 1, 2].flatMap((c) => runs(0, c));
+  const rest = t.rows
+    .slice(1)
+    .flatMap((_, r) => [0, 1, 2].flatMap((c) => runs(r + 1, c)));
+  if (header.length === 0 || !header.every((x) => x.b && x.bCs))
+    return "the table's header is not bold";
+  if (rest.some((x) => x.b)) return "a body row of the table is bold";
+  return null;
 }
 
 /**
@@ -383,9 +478,12 @@ export async function docxDeploymentVerdict(
   // Since 2026-11-15: each word keeps its formatting (`docxRunStyles`).
   const styled = await styledLineProblem(bytes);
   if (styled) return { ok: false, detail: styled };
+  // Since 2026-11-15 (#28 slice 2): the table is a Word table (`docxTables`).
+  const table = await tableProblem(bytes);
+  if (table) return { ok: false, detail: table };
   return {
     ok: true,
-    detail: `${body.paragraphs.length} paragraph(s), fixture text found; the page's picture is between its words and the line under it, at ${box.width} × ${box.height} pt, its ${box.pixelWidth} × ${box.pixelHeight} px and colours decoded; the styled line's bold, red and 18 pt words each carry exactly their own run properties`,
+    detail: `${body.paragraphs.length} paragraph(s), fixture text found; the page's picture is between its words and the line under it, at ${box.width} × ${box.height} pt, its ${box.pixelWidth} × ${box.pixelHeight} px and colours decoded; the styled line's bold, red and 18 pt words each carry exactly their own run properties; the table is one 3 × 4 Word table, each value in its column, the empty cell empty, the header bold`,
   };
 }
 
