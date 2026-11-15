@@ -53,6 +53,12 @@ export interface DocxReadRun {
   rtl?: true;
   /** `w:rFonts`'s `w:ascii`, when the run names a typeface. */
   fonts?: string;
+  /** `w:rFonts`'s `w:hAnsi`, `w:cs` and `w:eastAsia`, each when written. */
+  fontsHAnsi?: string;
+  fontsCs?: string;
+  fontsEastAsia?: string;
+  /** Every other attribute `w:rFonts` carries (`w:asciiTheme`, `w:hint`…). */
+  fontsOther?: string[];
 }
 
 export type DocxBodyBlock =
@@ -435,7 +441,18 @@ function readRun(r: XmlElement, problems: string[], into: ParaState): void {
           else run.color = raw;
         }
         const fonts = get("w:rFonts");
-        if (fonts) run.fonts = fonts.attrs["w:ascii"] ?? "";
+        if (fonts) {
+          run.fonts = fonts.attrs["w:ascii"] ?? "";
+          const a = fonts.attrs;
+          if (a["w:hAnsi"] !== undefined) run.fontsHAnsi = a["w:hAnsi"];
+          if (a["w:cs"] !== undefined) run.fontsCs = a["w:cs"];
+          if (a["w:eastAsia"] !== undefined)
+            run.fontsEastAsia = a["w:eastAsia"];
+          const other = Object.keys(a).filter(
+            (k) => !["w:ascii", "w:hAnsi", "w:cs", "w:eastAsia"].includes(k),
+          );
+          if (other.length > 0) run.fontsOther = other;
+        }
         break;
       }
       case "w:t":

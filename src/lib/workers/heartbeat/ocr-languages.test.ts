@@ -40,6 +40,7 @@ const BEAT: WorkerHeartbeat = {
     docxPictures: true,
     docxRunStyles: true,
     docxTables: true,
+    docxTypefaces: true,
     translateOcr: true,
     htmlZip: true,
   },

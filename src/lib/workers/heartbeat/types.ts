@@ -241,6 +241,37 @@ export interface HeartbeatCapabilities {
    */
   readonly docxTables: boolean;
   /**
+   * This image's PDF to Word sets each word in a font that comes with
+   * Windows or Office — a substitute of the same kind as the PDF's font,
+   * serif, sans-serif or monospaced, where that kind can be told from the
+   * font's name or marks, and none where it cannot — named in `w:rFonts`
+   * (`w:ascii`, `w:hAnsi` and `w:cs`, never `w:eastAsia`) (2026-11-15,
+   * backlog #28 slice 4: typeface by kind).
+   *
+   * PROVEN AT START-UP by running a generated PDF — a Times line, a Courier
+   * line and a Helvetica line — as a real job would, in the executor's
+   * order (soundness gate, the registry's processor on
+   * `pdfOfficeExportDeps(env)`, artifact-manifest gate), and reading the
+   * .docx back with a structural reader that shares nothing with the writer
+   * (`pdf-office-export/capability.ts`, `provesDocxTypefaces`): every word
+   * of the three lines in Times New Roman, Courier New and Arial
+   * respectively, in all three attributes; no `w:eastAsia` anywhere; the
+   * text the image's poppler text, exactly; nothing Word could refuse.
+   * Until that date every word opened in Word's default font; copy that
+   * says words are set in Office fonts of their kind is true of a download
+   * only while this reads `true`. It does NOT prove: that any font is
+   * embedded (none is), that the PDF's OWN font reaches the file (only an
+   * Office family's name is written — the PDF's own when it is one of
+   * those), or anything about words outside Latin (Bengali, Arabic, CJK…
+   * carry no typeface by design). Nor does it prove the kind of a face Word
+   * does not know (`docxKindOf`, review round 2): the probe's three fonts
+   * are standard-14, whose kind the alias table fixes; that derivation is
+   * pinned by real-PDF tests (`docx-typefaces.engine.test.ts`) and the
+   * claims test's CMR10 / CMTT10 controls, not by this key. An image built
+   * before this key publishes nothing, and the absence parses as `false`.
+   */
+  readonly docxTypefaces: boolean;
+  /**
    * This image's Translate PDF recognises a SCAN with the OCR processor and
    * translates what OCR read, when the job asks for it — and runs no OCR on a
    * PDF that already has text (audit translate-pdf#3, 2026-11-09).

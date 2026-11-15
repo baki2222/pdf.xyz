@@ -453,6 +453,20 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
       /\b[Tt]ables?\b(?:[^.?!]|\.(?=\w)){0,120}\b(?:Word|DOCX)\b|\b(?:Word|DOCX)\b(?:[^.?!]|\.(?=\w)){0,120}\b[Tt]ables?\b|\bcomes? through as a Word table\b/,
     catalogueCopy: true,
   },
+  docxTypefaces: {
+    // Added 2026-11-15 with the key (backlog #28, slice 4: typeface by
+    // kind). The sentences a hedge about it would sit in: a typeface or font
+    // and Word, DOCX or Office in one sentence, either order — the page's
+    // own shapes ("set in a font that comes with Windows or Office", "in
+    // standard Office fonts", "in reading order and Office fonts").
+    // CASE-SENSITIVE, like docxTables: "word" in lower case is any word.
+    // Measured that day over the whole corpus: see "the docxTypefaces
+    // subject reaches the Word typeface sentences". catalogueCopy is true
+    // because those exist.
+    subject:
+      /\b(?:[Tt]ypefaces?|[Ff]onts?)\b(?:[^.?!]|\.(?=\w)){0,120}\b(?:Word|DOCX)\b|\b(?:Word|DOCX)\b(?:[^.?!]|\.(?=\w)){0,120}\b(?:[Tt]ypefaces?|fonts?)\b|\bstandard Office fonts?\b|\band Office fonts\b|\bset in (?:a font that comes|fonts that come) with Windows or Office\b/,
+    catalogueCopy: true,
+  },
   translateOcr: {
     // Added 2026-11-09 with the key (audit translate-pdf#3). The sentences a
     // hedge about it would sit in: a scan recognised ON OUR SERVER, the way
@@ -1381,6 +1395,62 @@ describe("the docxTables subject (backlog #28 slice 2, 2026-11-15)", () => {
     expect(
       hedgeOffenders([planted], []).some((line) =>
         line.includes('hedges "docxTables"'),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("the docxTypefaces subject (backlog #28 slice 4, 2026-11-15)", () => {
+  /**
+   * BOTH DIRECTIONS (house rule 1). Measured when the key landed, over the
+   * whole corpus: exactly these thirteen — PDF to Word's intro[0] (the font
+   * sentence), its Track Changes use case ("starts out in standard Office
+   * fonts"), its look FAQ answer, its keep FAQ answer (PDF_TO_WORD_KEEPS)
+   * and its catalogue description ("in reading order and Office fonts");
+   * the convert guide's intro, its first section paragraph, its "open it in
+   * Word" step and its look FAQ answer; the add-text guide's pointer to PDF
+   * to Word; the Bangla-PDF guide's paragraph on the Bengali font Word
+   * picks (true: Bengali words carry no font name); and TWO Word to PDF
+   * sentences about the fonts of a Word file going the other way, through
+   * LibreOffice. Decided, not found: those two stay members — a hedge there
+   * would not be about this key, but no shape tells them from PDF to Word's
+   * own "Word … font" sentences without missing some of those. NO PDF to
+   * PowerPoint sentence is a member: "A font that comes with Windows or
+   * Office keeps its name" is the deck's, and the either-order branches
+   * name Word and DOCX, not Office, for that reason.
+   */
+  it("reaches the Word typeface sentences, and nothing else", () => {
+    const members = COPY.filter((entry) =>
+      SUBJECTS.docxTypefaces!.subject.test(entry.text),
+    ).map((entry) => `${entry.slug} ${entry.where}`);
+    expect(members.sort()).toEqual(
+      [
+        "pdf-to-word intro[0]",
+        "pdf-to-word useCases[3].body",
+        "pdf-to-word faq[0].answer",
+        "pdf-to-word faq[7].answer",
+        "pdf-to-word description",
+        "guide:how-to-convert-pdf-to-word intro[0]",
+        "guide:how-to-convert-pdf-to-word sections[0].body[0]",
+        "guide:how-to-convert-pdf-to-word steps[5]",
+        "guide:how-to-convert-pdf-to-word faq[4].answer",
+        "guide:how-to-add-text-to-a-pdf sections[2].body[0]",
+        "guide:how-to-convert-bangla-pdf-to-word sections[0].body[2]",
+        "guide:how-to-convert-word-to-pdf sections[0].body[0]",
+        "word-to-pdf intro[1]",
+      ].sort(),
+    );
+  });
+
+  it("positive control: a deferral planted in the font sentence is caught", () => {
+    const planted: CopyEntry = {
+      slug: "pdf-to-word",
+      where: "intro[0]",
+      text: "Each word it matches is also set in a font that comes with Windows or Office (coming soon).",
+    };
+    expect(
+      hedgeOffenders([planted], []).some((line) =>
+        line.includes('hedges "docxTypefaces"'),
       ),
     ).toBe(true);
   });

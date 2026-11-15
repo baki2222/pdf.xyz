@@ -67,6 +67,7 @@ export function emptyCapabilities(): HeartbeatCapabilities {
     docxPictures: false,
     docxRunStyles: false,
     docxTables: false,
+    docxTypefaces: false,
     translateOcr: false,
     htmlZip: false,
   };

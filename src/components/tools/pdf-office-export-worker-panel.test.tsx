@@ -25,9 +25,11 @@ import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
 import { resolveAiReadiness } from "@/lib/workers/ai/readiness";
 import { resetTelemetry } from "@/lib/telemetry/track";
 import { createPdfOfficeExportProcessor } from "@/lib/workers/processor/pdf-office-export";
-import type {
-  PdfFlowExtractor,
-  PdfOfficeExportDeps,
+import {
+  PDF_TO_WORD_TOOL,
+  runPdfOfficeExport,
+  type PdfFlowExtractor,
+  type PdfOfficeExportDeps,
 } from "@/lib/workers/pdf-office-export/engine";
 import { PdfTextExecError } from "@/lib/workers/pdf-text/errors";
 import { rc4EncryptedPdf } from "@/tests/pdf-office-fixtures";
@@ -45,7 +47,11 @@ import {
 import { blankPages, noPictures } from "@/tests/page-scan-stubs";
 import { noisePagesPdf, notePagesPdf } from "@/tests/docx-picture-fixtures";
 import { flowStandIn } from "@/tests/poppler-flow-standin";
-import { docxRunStylesProbePdf } from "@/lib/workers/pdf-office-export/capability";
+import { writeWithoutTypefaces } from "@/tests/docx-without-typefaces";
+import {
+  docxRunStylesProbePdf,
+  docxTypefacesProbePdf,
+} from "@/lib/workers/pdf-office-export/capability";
 import { PdfOfficeExportWorkerPanel } from "./pdf-office-export-worker-panel";
 import * as popplerSamples from "@/tests/poppler-samples";
 import { flowText } from "@/lib/workers/pdf-text/flow";
@@ -601,6 +607,60 @@ describe("PDF to Word panel — tables written as text to fit the size limit", (
     await screen.findByText(/Your DOCX file is ready/);
     expect(
       screen.queryByText(/came through as lines of text/),
+    ).not.toBeInTheDocument();
+  }, 60_000);
+});
+
+/**
+ * #28 slice 4 (2026-11-15): over the output limit each word's font name is
+ * the first thing to go, and the note beside the download says the
+ * document opens in Word's default font — otherwise the page's "set in a
+ * font that comes with Windows or Office" would be false of that download.
+ * Through the whole chain: the engine drops and reports, the sanitizer
+ * carries, the panel says. The limit is measured, never typed.
+ */
+describe("PDF to Word panel — fonts left out to fit the size limit", () => {
+  const sizes = async () => {
+    const pdf = await docxTypefacesProbePdf();
+    const deps = { extractFlow: flowStandIn, scanPages: scanPdfPages };
+    const full = await runPdfOfficeExport(PDF_TO_WORD_TOOL, pdf, deps);
+    // The same job, its writer handed every word without its typeface.
+    const bare = await runPdfOfficeExport(PDF_TO_WORD_TOOL, pdf, {
+      ...deps,
+      writeDocx: writeWithoutTypefaces,
+    });
+    if (!full.ok) throw new Error(full.message);
+    if (!bare.ok) throw new Error(bare.message);
+    return { pdf, full: full.output.byteLength, bare: bare.output.byteLength };
+  };
+
+  it("says the document opens in Word's default font, and that the text is all there", async () => {
+    const { pdf, full, bare } = await sizes();
+    // Health: the font names cost bytes.
+    expect(full).toBeGreaterThan(bare);
+    stubNetwork(
+      await jobFrom(flowStandIn, pdf, true, scanPdfPages, {
+        maxOutputBytes: bare + Math.floor((full - bare) / 2),
+      }),
+    );
+    await exportOnePdf();
+    const line = await screen.findByText(/too large to name each word/);
+    expect(line.closest('[role="status"]')).toHaveTextContent(
+      /This document was too large to name each word's font; it opens in Word's default font\. All of the text is there\./,
+    );
+  }, 60_000);
+
+  it("POSITIVE CONTROL: with room for the fonts, the note says nothing of them", async () => {
+    const { pdf, full } = await sizes();
+    stubNetwork(
+      await jobFrom(flowStandIn, pdf, true, scanPdfPages, {
+        maxOutputBytes: full,
+      }),
+    );
+    await exportOnePdf();
+    await screen.findByText(/Your DOCX file is ready/);
+    expect(
+      screen.queryByText(/too large to name each word/),
     ).not.toBeInTheDocument();
   }, 60_000);
 });

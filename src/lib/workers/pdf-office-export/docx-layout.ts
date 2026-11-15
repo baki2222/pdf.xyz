@@ -57,7 +57,7 @@
  * page (60 with half-inch margins), 33 on a portrait page.
  */
 import type { FlowBox, PdfFlowText } from "../pdf-text/flow";
-import { runStylesOf, styleKey, type DocxRunStyle } from "./docx-run-style";
+import { runKey, runStylesOf, type DocxRunStyle } from "./docx-run-style";
 import { mapBox } from "./media-frame";
 import type {
   PdfPageScan,
@@ -344,11 +344,13 @@ export function tableColumns(
  * falls between two rows of one table goes after the table's last row: a
  * paragraph cannot stand inside a row. With `tables: false` (the engine's
  * size fallback) every table is written as its tabbed rows and counted.
+ * With `typefaces: false` (the size fallback's FIRST step, since #28 slice
+ * 4) no word names a font (`./docx-run-style`, `runStylesOf`).
  */
 export function docxDocumentOf(
   flow: PdfFlowText,
   scan: PdfPageScan,
-  options: { tables?: boolean } = {},
+  options: { tables?: boolean; typefaces?: boolean } = {},
 ): DocxDocument {
   const first = scan.pages[0];
   const page = docxPageOf(first?.width ?? 612, first?.height ?? 792);
@@ -365,7 +367,13 @@ export function docxDocumentOf(
     const text = flowPages.get(n);
     const scanned = scanPages.get(n);
     const paragraphs = text?.paragraphs ?? [];
-    const styled = text?.pieces ? runStylesOf(text, scanned) : null;
+    const styled = text?.pieces
+      ? runStylesOf(
+          text,
+          scanned,
+          options.typefaces === false ? { typefaces: false } : {},
+        )
+      : null;
     if (styled) {
       worded = true;
       formatting.pages.push({
@@ -506,7 +514,7 @@ function coalesce(runs: readonly DocxStyledRun[]): DocxStyledRun[] {
   const out: DocxStyledRun[] = [];
   for (const run of runs) {
     const last = out[out.length - 1];
-    if (last && styleKey(last.style) === styleKey(run.style))
+    if (last && runKey(last.style) === runKey(run.style))
       out[out.length - 1] = { text: last.text + run.text, style: last.style };
     else out.push({ ...run });
   }

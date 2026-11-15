@@ -522,3 +522,41 @@ describe("tables as PDF to Word writes them (#28 slice 2)", () => {
     expect(docxPageTexts(emptied)).toEqual(["x\n\ny"]);
   });
 });
+
+describe("w:rFonts as the reader reads it (#28 slice 4, 2026-11-15)", () => {
+  it("reads ascii, hAnsi, cs and eastAsia each as written, and names every other attribute", async () => {
+    const body = await readDocxStructure(
+      await docx(
+        P(
+          "x",
+          '<w:rFonts w:hint="eastAsia" w:ascii="Arial" w:hAnsi="Georgia" w:eastAsia="SimSun" w:cs="Mangal" w:asciiTheme="minorHAnsi"/>',
+        ) + P("y", '<w:rFonts w:ascii="Arial"/>'),
+      ),
+    );
+    const runs = body.blocks.flatMap((b) => (b.kind === "p" ? b.runs : []));
+    expect(runs[0]).toEqual({
+      text: "x",
+      fonts: "Arial",
+      fontsHAnsi: "Georgia",
+      fontsCs: "Mangal",
+      fontsEastAsia: "SimSun",
+      fontsOther: ["w:hint", "w:asciiTheme"],
+    });
+    expect(runs[1]).toEqual({ text: "y", fonts: "Arial" });
+  });
+
+  it("w:rFonts after w:b is a problem (CT_RPr order); first is not", async () => {
+    await expect(
+      docxStructureProblems(
+        await docx(P("x", '<w:b/><w:rFonts w:ascii="Arial"/>')),
+      ),
+    ).resolves.toEqual([
+      expect.stringMatching(/out of schema order at <w:rFonts>/),
+    ]);
+    await expect(
+      docxStructureProblems(
+        await docx(P("x", '<w:rFonts w:ascii="Arial"/><w:b/>')),
+      ),
+    ).resolves.toEqual([]);
+  });
+});

@@ -12,6 +12,7 @@ import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import * as popplerSamples from "@/tests/poppler-samples";
 import { noPictures } from "@/tests/page-scan-stubs";
 import { flowStandIn } from "@/tests/poppler-flow-standin";
+import { writeWithoutTypefaces } from "@/tests/docx-without-typefaces";
 import { invoicePdf, TABLE_ROWS } from "@/tests/pdf-office-fixtures";
 import { flowPageText, flowText, type PdfFlowText } from "../pdf-text/flow";
 import { parseBboxFlow } from "../pdf-text/parse";
@@ -303,6 +304,15 @@ describe("PDF to Word writes recognised tables as Word tables (#28 slice 2)", ()
     ).bytes.byteLength;
     const deps = { extractFlow: flowStandIn, scanPages: scanPdfPages };
     const free = await word(deps, pdf);
+    // INVERTED 2026-11-15 (#28 slice 4). HISTORY: the limit was half the
+    // tables' cost short of the FREE file. Since words name their fonts,
+    // the typefaces go first over the limit, and their bytes alone covered
+    // that half, so the tables stayed. The free file is now measured
+    // without its typefaces, the first step's result.
+    const faceless = await word(
+      { ...deps, writeDocx: writeWithoutTypefaces },
+      pdf,
+    );
     const drawings = (o: Awaited<ReturnType<typeof word>>) =>
       o.structure.blocks.filter((b) => b.kind === "p" && b.drawing).length;
     // Health: unlimited, both are there, and the tables cost bytes.
@@ -310,13 +320,16 @@ describe("PDF to Word writes recognised tables as Word tables (#28 slice 2)", ()
     expect(drawings(free)).toBe(1);
     expect(tables).toBeGreaterThan(tabbed);
     // Main's file is this one less the tables' cost; half that cost short
-    // of the free file, the tables cannot stay, the picture can.
-    const limit = free.run.output.byteLength - Math.ceil((tables - tabbed) / 2);
+    // of the free file (its typefaces already gone), the tables cannot
+    // stay, the picture can.
+    const limit =
+      faceless.run.output.byteLength - Math.ceil((tables - tabbed) / 2);
     const out = await word({ ...deps, limits: { maxOutputBytes: limit } }, pdf);
     expect(out.run.output.byteLength).toBeLessThanOrEqual(limit);
     expect(out.tables).toEqual([]);
     expect(drawings(out)).toBe(1);
     expect(out.run.coverage?.tablesAsTextForSize).toBe(1);
+    expect(out.run.coverage?.typefacesDroppedForSize).toBe(true);
   });
 
   it("over the limit the tables go before the formatting: the invoice keeps its bold, tabbed", async () => {
@@ -340,8 +353,20 @@ describe("PDF to Word writes recognised tables as Word tables (#28 slice 2)", ()
         .filter((r) => r.b).length;
     // Health: the free export is formatted.
     expect(bolds(free)).toBeGreaterThan(0);
+    // INVERTED 2026-11-15 (#28 slice 4). HISTORY: the limit was one byte
+    // under the FREE file; since the typefaces go first, dropping them
+    // alone fitted there and the tables stayed. One byte under the file
+    // without its typefaces, the tables must go too.
+    const faceless = await word(
+      { ...deps, writeDocx: writeWithoutTypefaces },
+      pdf,
+    );
+    expect(faceless.tables).toHaveLength(1);
     const limited = await word(
-      { ...deps, limits: { maxOutputBytes: free.run.output.byteLength - 1 } },
+      {
+        ...deps,
+        limits: { maxOutputBytes: faceless.run.output.byteLength - 1 },
+      },
       pdf,
     );
     expect(limited.tables).toEqual([]);

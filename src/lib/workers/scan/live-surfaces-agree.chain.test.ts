@@ -240,6 +240,7 @@ function heartbeat(malwareScan: boolean): WorkerHeartbeat {
       docxPictures: true,
       docxRunStyles: true,
       docxTables: true,
+      docxTypefaces: true,
       translateOcr: true,
       htmlZip: true,
     },

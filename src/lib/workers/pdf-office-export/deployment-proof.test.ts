@@ -24,6 +24,7 @@ import {
   pptxDeploymentVerdict,
   pptxProofPdf,
   tableProblem,
+  typefaceProblem,
 } from "./deployment-proof";
 import {
   movePictureDown,
@@ -189,6 +190,65 @@ describe("docxDeploymentVerdict", () => {
     );
     expect(verdict.detail).toMatch(/one 3 × 4 Word table/);
     expect(verdict.ok).toBe(true);
+  });
+
+  // 2026-11-15 (#28 slice 4): the verdict also reads each word's typeface.
+  describe("the typefaces (docxTypefaces)", () => {
+    /** The real engine's .docx, its document.xml edited after writing. */
+    const edited = async (edit: (xml: string) => string) => {
+      const zip = await JSZip.loadAsync(await engineDocx());
+      const xml = await zip.file("word/document.xml")!.async("string");
+      const changed = edit(xml);
+      if (changed === xml) throw new Error("the edit did not land");
+      zip.file("word/document.xml", changed);
+      return new Uint8Array(await zip.generateAsync({ type: "uint8array" }));
+    };
+
+    it("health: the engine's .docx passes typefaceProblem on its own", async () => {
+      expect(await typefaceProblem(await engineDocx())).toBeNull();
+    });
+
+    it("POSITIVE CONTROL: the verdict names the three faces", async () => {
+      const verdict = await docxDeploymentVerdict(await engineDocx());
+      expect(verdict.ok).toBe(true);
+      expect(verdict.detail).toMatch(
+        /Arial, the Times line in Times New Roman and the Courier line in Courier New/,
+      );
+    });
+
+    it("NEGATIVE CONTROL: fails every w:rFonts stripped", async () => {
+      const verdict = await docxDeploymentVerdict(
+        await edited((xml) => xml.replace(/<w:rFonts [^>]*\/>/g, "")),
+      );
+      expect(verdict.ok).toBe(false);
+      expect(verdict.detail).toMatch(/typeface/);
+    });
+
+    it("NEGATIVE CONTROL: fails Times New Roman and Courier New swapped", async () => {
+      const verdict = await docxDeploymentVerdict(
+        await edited((xml) =>
+          xml
+            .replaceAll("Times New Roman", "\u0000")
+            .replaceAll("Courier New", "Times New Roman")
+            .replaceAll("\u0000", "Courier New"),
+        ),
+      );
+      expect(verdict.ok).toBe(false);
+      expect(verdict.detail).toMatch(/not Times New Roman/);
+    });
+
+    it("NEGATIVE CONTROL: fails a w:eastAsia added", async () => {
+      const verdict = await docxDeploymentVerdict(
+        await edited((xml) =>
+          xml.replace(
+            / w:cs="Arial"\/>/,
+            ' w:eastAsia="SimSun" w:cs="Arial"/>',
+          ),
+        ),
+      );
+      expect(verdict.ok).toBe(false);
+      expect(verdict.detail).toMatch(/eastAsia/);
+    });
   });
 
   // 2026-11-15 (#28 slice 2): the verdict also reads the table.
