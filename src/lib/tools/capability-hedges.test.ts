@@ -489,6 +489,18 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
       /\bopen ZIP files\b|\bZIP of (?:a|the) page\b|\btakes? a ZIP\b|\bzip the page\b/i,
     catalogueCopy: true,
   },
+  chatRetrieval: {
+    // Added 2026-11-16 with the key (competitor audit wave 2 #30, slice 3).
+    // The sentences a hedge about it would sit in: which pages of a longer
+    // file Chat with PDF reads for a question — "how far into the document
+    // the reading got", "read up to that point only", "names the pages that
+    // were read", "How much of my PDF does Chat with PDF read?". Measured
+    // that day over the whole corpus: see "the chatRetrieval subject reaches
+    // the chat reading sentences". catalogueCopy is true because those exist.
+    subject:
+      /\bhow far into the document\b|\bread up to that point\b|\bpages? that (?:were|was) read\b|\bwhich page it reached\b|\bHow much of my PDF does Chat with PDF read\b|\bpages? (?:are|is) chosen\b/i,
+    catalogueCopy: true,
+  },
   translatePdfLanguages: {
     // Added 2026-11-15 with the key (competitor audit #29, slice 1). The
     // sentences a hedge about it would sit in: Translate's reflowed PDF of
@@ -832,6 +844,35 @@ describe("catalogue copy may not hedge a worker capability", () => {
       orphaned,
       `these subject matchers name capabilities the heartbeat no longer publishes:\n  ${orphaned.join("\n  ")}`,
     ).toEqual([]);
+  });
+
+  it("the chatRetrieval subject reaches the chat reading sentences", () => {
+    // Measured 2026-11-16, before slice 4 rewords any of them. The FAQ
+    // QUESTION is the stable member (its answer and the intro are reworded
+    // by this slice's static copy); the guide's "how far into the document"
+    // and the answer's "read up to that point" were the subject's first
+    // members. A subject that reaches only the chat page's own question is
+    // still a subject: the page is not NAMED for retrieval, so nothing else
+    // would read it.
+    const subject = SUBJECTS.chatRetrieval!.subject;
+    const members = COPY.filter((entry) => subject.test(entry.text));
+    const chat = members.filter(
+      (entry) =>
+        entry.slug === "chat-with-pdf" ||
+        entry.slug === "guide:how-to-chat-with-a-pdf",
+    );
+    expect(
+      chat.some(
+        (entry) =>
+          entry.where.endsWith(".question") &&
+          /Chat with PDF read\?$/.test(entry.text),
+      ),
+      chat.map((e) => `${e.slug} ${e.where}`).join("\n"),
+    ).toBe(true);
+    expect(
+      chat.length,
+      "the subject reaches one chat sentence at most: it is a name, not a subject",
+    ).toBeGreaterThanOrEqual(2);
   });
 
   it("each subject matcher's declared catalogue coverage is the truth", () => {

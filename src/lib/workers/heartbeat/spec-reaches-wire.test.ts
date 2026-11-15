@@ -82,6 +82,7 @@ const SPEC = {
     docxTypefaces: true,
     translateOcr: true,
     htmlZip: true,
+    chatRetrieval: true,
   },
   release: "7.9.3",
   fingerprint: "9a5db1338ee3",
