@@ -1273,7 +1273,7 @@
     },
     "guides/how-to-compare-two-pdf-files.html": {
       "title": "How to compare two PDF files — pdf.xyz",
-      "description": "Compare two versions of a PDF in your browser: page count, file size and every changed line of text, with a report, or overlay the pages to see where ink differs.",
+      "description": "Compare two PDF versions in your browser: page count, file size and every changed line, as text or an HTML redline, or overlay the pages to see where ink differs.",
       "canonical": "https://pdf.xyz/guides/how-to-compare-two-pdf-files",
       "robots": "index, follow",
       "h1": ["How to compare two PDF files"],
@@ -10166,7 +10166,7 @@
     },
     "tools/compare-pdf.html": {
       "title": "Compare PDF Files — Text and Visual Diff — pdf.xyz",
-      "description": "Compare two PDFs line by line or overlay the pages: see added and removed text, page and size changes, and save a diff report. Both files stay in your browser.",
+      "description": "Compare two PDFs: see added and removed lines, page and size changes, or overlay the pages, and save a text or HTML redline. Both files stay in your browser.",
       "canonical": "https://pdf.xyz/tools/compare-pdf",
       "robots": "index, follow",
       "h1": ["Compare PDF"],

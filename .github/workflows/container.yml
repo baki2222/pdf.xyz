@@ -177,8 +177,14 @@ jobs:
       # baseline). provesDocxTables (the heartbeat's docxTables) must be
       # true, the gapped table must come out as one Word table, and each
       # wrapped-cell table as the measured count; how poppler grouped the
-      # wide-gapped line is printed. No user document, secret, queue or store.
-      - name: Worker image PDF to Word tables proof (inside the built worker image)
+      # wide-gapped line is printed. Since 2026-11-15 (#28 slice 4) the same
+      # step proves the typefaces: provesDocxTypefaces (the heartbeat's
+      # docxTypefaces) must be true, and on the inline-code line ("Call
+      # printf now") the image's poppler word boxes must meet the matcher's
+      # member parts so that printf alone reads Courier New, Call and now
+      # Times New Roman, with no eastAsia. No user document, secret, queue
+      # or store.
+      - name: Worker image PDF to Word tables and typefaces proof (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:docx-tables-proof
 
       # OpenDocument and RTF input (2026-11-04): an .odt and an .rtf through

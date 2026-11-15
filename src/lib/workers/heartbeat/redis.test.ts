@@ -33,6 +33,7 @@ const CAPS: HeartbeatCapabilities = {
   docxPictures: true,
   docxRunStyles: true,
   docxTables: true,
+  docxTypefaces: true,
   translateOcr: true,
   htmlZip: true,
   translatePdfLanguages: [],

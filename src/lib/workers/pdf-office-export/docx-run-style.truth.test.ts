@@ -22,6 +22,14 @@
  * its characters is drawn in it; a word that cannot be placed so is written
  * plain, COUNTED (`unmatchedWords`), and its page NAMED
  * (`pagesWithoutFormatting`).
+ *
+ * Since 2026-11-15 (#28 slice 4) the truth also records each character's
+ * FACE, as the Office family it must be written in (Helvetica → Arial,
+ * Times → Times New Roman, Courier → Courier New): a word whose run names a
+ * typeface must be drawn, every character, in the face that maps to it —
+ * "no word claims a typeface it is not drawn in". And the typeface never
+ * changes a word's STYLE: the matcher's styles, read through `styleKey`,
+ * are the same with every run's family made one.
  */
 import {
   beginText,
@@ -49,15 +57,28 @@ import {
   docxStructureProblems,
   readDocxStructure,
 } from "./docx-structure";
+import { runStylesOf, styleKey } from "./docx-run-style";
 import { PDF_TO_WORD_TOOL, runPdfOfficeExport } from "./engine";
+import { scanPdfPages, type PdfPageScan } from "./page-scan";
 
 interface Truth {
   b: boolean;
   i: boolean;
   sz: number;
   color: string;
+  /** The Office family the character's face is written in. */
+  face: string;
 }
-type Seg = [text: string, font: "R" | "B" | "I", size: number, color?: string];
+type Face = "R" | "B" | "I" | "T" | "C";
+type Seg = [text: string, font: Face, size: number, color?: string];
+/** Each drawn face's Office family (`./typeface`: the standard-14 aliases). */
+const OFFICE_FACE: Record<Face, string> = {
+  R: "Arial",
+  B: "Arial",
+  I: "Arial",
+  T: "Times New Roman",
+  C: "Courier New",
+};
 interface Line {
   y: number;
   x?: number;
@@ -74,7 +95,7 @@ const hex = (c: string) =>
 /** Draws the lines; returns each drawn word's per-character truth. */
 function draw(
   page: PDFPage,
-  fonts: Record<"R" | "B" | "I", PDFFont>,
+  fonts: Record<Face, PDFFont>,
   lines: Line[],
   truth: Map<string, Truth[]>,
 ) {
@@ -91,7 +112,13 @@ function draw(
         color: hex(color),
       });
       x += fonts[f].widthOfTextAtSize(text, size);
-      const s = { b: f === "B", i: f === "I", sz: Math.round(size * 2), color };
+      const s = {
+        b: f === "B",
+        i: f === "I",
+        sz: Math.round(size * 2),
+        color,
+        face: OFFICE_FACE[f],
+      };
       for (const ch of text) chars.push({ ch, s });
       // poppler starts a new word where the font changes, so a word drawn in
       // two fonts ("Note" + "s") reaches the .docx as two: each part's truth
@@ -125,6 +152,8 @@ async function fontsOf(doc: PDFDocument) {
     R: await doc.embedFont(StandardFonts.Helvetica),
     B: await doc.embedFont(StandardFonts.HelveticaBold),
     I: await doc.embedFont(StandardFonts.HelveticaOblique),
+    T: await doc.embedFont(StandardFonts.TimesRoman),
+    C: await doc.embedFont(StandardFonts.Courier),
   };
 }
 
@@ -160,6 +189,8 @@ interface Verdict {
   plain: string[];
   /** Words written with formatting. */
   styled: string[];
+  /** Words whose run names a typeface. */
+  faced: string[];
   unmatched: number;
   named: number[];
 }
@@ -184,6 +215,7 @@ async function judge(
   const wrong: string[] = [];
   const plain: string[] = [];
   const styled: string[] = [];
+  const faced: string[] = [];
   for (const b of body.blocks) {
     if (b.kind !== "p") continue;
     const chars: { ch: string; r: (typeof b.runs)[number] }[] = [];
@@ -197,11 +229,17 @@ async function judge(
         !r.b && !r.i && r.sz === undefined && !r.color;
       if (w.every((c) => bare(c.r))) plain.push(text);
       else styled.push(text);
+      if (w.some((c) => c.r.fonts !== undefined)) faced.push(text);
       if (!t) wrong.push(`unknown word ${text}`);
       else
         w.forEach((c, k) => {
-          if (bare(c.r)) return;
           const s = t[k];
+          // No word claims a typeface it is not drawn in.
+          if (c.r.fonts !== undefined && c.r.fonts !== s?.face)
+            wrong.push(
+              `${text}[${k}] '${c.ch}' claims the typeface ${c.r.fonts}, drawn ${s ? `in ${s.face}` : "invisibly"}`,
+            );
+          if (bare(c.r)) return;
           const claim = {
             b: c.r.b === true,
             i: c.r.i === true,
@@ -231,6 +269,7 @@ async function judge(
     wrong,
     plain,
     styled,
+    faced,
     unmatched: run.coverage.unmatchedWords ?? -1,
     named: run.coverage.pagesWithoutFormatting ?? [],
   };
@@ -317,6 +356,33 @@ const CASES: Record<string, { lines: Line[]; styled: string[] }> = {
     ],
     styled: ["wone", "wtwo", "wthree", "wfour"],
   },
+  // #28 slice 4: one style (12 pt, black) in two faces, so the runs join
+  // for the style and only the typeface tells the words apart.
+  inlineCode: {
+    lines: [
+      {
+        y: 700,
+        segs: [
+          ["Call ", "T", 12],
+          ["printf", "C", 12],
+          [" now", "T", 12],
+        ],
+      },
+    ],
+    styled: ["Call", "printf", "now"],
+  },
+  faceChangeMidWord: {
+    lines: [
+      {
+        y: 700,
+        segs: [
+          ["alpha Spl", "T", 12],
+          ["it omega", "C", 12],
+        ],
+      },
+    ],
+    styled: ["alpha", "omega"],
+  },
   bigHeadingSameBaseline: {
     lines: [
       {
@@ -339,8 +405,10 @@ describe("no word claims a style it is not drawn in, through the engine", () => 
         const { pdf, truth } = await onePage(lines);
         const v = await judge(pdf, truth);
         expect(v.wrong, name).toEqual([]);
-        // Positive control: the words that can be placed ARE placed.
+        // Positive control: the words that can be placed ARE placed, and
+        // carry a typeface (every case's faces are standard fonts).
         for (const w of styled) expect(v.styled, `${name}: ${w}`).toContain(w);
+        for (const w of styled) expect(v.faced, `${name}: ${w}`).toContain(w);
         // Every word written plain is counted, and its page named.
         expect(v.unmatched, name).toBe(v.plain.length);
         expect(v.named, name).toEqual(v.plain.length > 0 ? [1] : []);
@@ -374,6 +442,7 @@ describe("no word claims a style it is not drawn in, through the engine", () => 
         i: false,
         sz: 120,
         color: "FF0000",
+        face: "Arial",
       })),
     );
     invisible(
@@ -411,4 +480,68 @@ describe("no word claims a style it is not drawn in, through the engine", () => 
     expect(v.unmatched).toBe(3);
     expect(v.named).toEqual([2]);
   }, 60_000);
+});
+
+/**
+ * G3 (#28 slice 4, 2026-11-15): the typeface never changes a word's style.
+ * For every case above, the matcher's styles on the reader's real scan,
+ * read through `styleKey` (which does not see the typeface), are the same
+ * as on the same scan with every run's family made ONE — so whether two
+ * faces join, split or straddle a word, the style decision is the one made
+ * before typefaces existed. A join keyed on the typeface (`runKey`) splits
+ * a one-style run at a face change and fails this.
+ */
+describe("the typeface never changes a word's style", () => {
+  const oneFamily = (scan: PdfPageScan): PdfPageScan => ({
+    ...scan,
+    pages: scan.pages.map((p) => ({
+      ...p,
+      items: p.items.map((item) =>
+        item.kind === "text"
+          ? {
+              ...item,
+              runs: item.runs.map((r) => ({ ...r, family: "Helvetica" })),
+            }
+          : item,
+      ),
+    })),
+  });
+  for (const [name, { lines }] of Object.entries(CASES))
+    it(name, async () => {
+      const { pdf } = await onePage(lines);
+      const flow = await flowStandIn(pdf);
+      const scan = await scanPdfPages(pdf);
+      const same = oneFamily(scan);
+      const keys = (s: PdfPageScan) =>
+        flow.pages.flatMap((page) =>
+          runStylesOf(
+            page,
+            s.pages.find((p) => p.pageNumber === page.pageNumber),
+          )
+            .styles.flat(2)
+            .map(styleKey),
+        );
+      const mixed = keys(scan);
+      // Health: the case has words, and some are styled.
+      expect(mixed.length, name).toBeGreaterThan(0);
+      expect(
+        mixed.some((k) => k !== "-"),
+        name,
+      ).toBe(true);
+      expect(mixed, name).toEqual(keys(same));
+    });
+
+  it("health: two cases hold runs in two families on one line", async () => {
+    for (const name of ["inlineCode", "faceChangeMidWord"]) {
+      const scan = await scanPdfPages((await onePage(CASES[name]!.lines)).pdf);
+      const families = new Set(
+        scan.pages.flatMap((p) =>
+          p.items.flatMap((i) =>
+            i.kind === "text" ? i.runs.map((r) => r.family) : [],
+          ),
+        ),
+      );
+      expect(families.size, name).toBeGreaterThanOrEqual(2);
+    }
+  });
 });

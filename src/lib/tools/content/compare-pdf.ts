@@ -107,6 +107,18 @@ const OCR_LINK_MINUTES = DEFAULT_RETENTION.outputTtlMinutes;
  * reassuring sentence (visual-claim.test.ts), and the page's claims
  * against the drawing (claims-vs-capability.test.ts, "the overlay claims
  * hold of the overlay"); delivered in e2e/compare-overlay.spec.ts.
+ * AMENDED 2026-11-15 (S4): Download redline (HTML) saves the same changes
+ * as a self-contained web page (runner/compare/redline-html.ts): no script,
+ * no link, no image, a Content-Security-Policy that allows only its own
+ * stylesheet by hash, and every string escaped. The step, the meta
+ * description, the page FAQ and the upload FAQ say so; the upload FAQ also
+ * says what the file holds (both files' changed lines with up to two lines
+ * of context, and both names), because a reader may send it on. The new
+ * FAQ the plan asked for is folded into the upload one: the page is at the
+ * six-FAQ budget (content.test.ts). Checked by redline-html.test.ts against
+ * the .txt from the same result, the page's claims by claims-vs-capability
+ * ("the redline claims hold of the redline"); delivered to a reader in
+ * e2e/compare-redline.spec.ts.
  */
 const content: ToolContent = {
   slug: "compare-pdf",
@@ -114,7 +126,7 @@ const content: ToolContent = {
   seoTitle: "Compare PDF Files — Text and Visual Diff",
 
   metaDescription:
-    "Compare two PDFs line by line or overlay the pages: see added and removed text, page and size changes, and save a diff report. Both files stay in your browser.",
+    "Compare two PDFs: see added and removed lines, page and size changes, or overlay the pages, and save a text or HTML redline. Both files stay in your browser.",
 
   intro: [
     `Compare PDF reads the selectable text of two versions of a document and lists only what changed, grouped by page: each change is headed with the page it sits on in both files and shown with two unchanged lines around it. Lines only in the second file are marked with a plus, lines only in the first with a minus, and above the changes the report gives both page counts, both sizes in bytes and the number of changed lines. When every line agrees, the result is headed Selectable text matches.`,
@@ -162,14 +174,14 @@ const content: ToolContent = {
     },
     {
       title: "Download the report",
-      body: "Download comparison report saves a text file listing only the changes, with their page numbers, named after both PDFs, for example draft-vs-final-comparison.txt. Its Bytes line gives both exact sizes and a signed difference. Start over clears the result and both slots for a new pair, without leaving the page.",
+      body: "Download comparison report saves a text file listing only the changes, with their page numbers, named after both PDFs, for example draft-vs-final-comparison.txt. Its Bytes line gives both exact sizes and a signed difference. Download redline (HTML) saves the same changes as a web page, removed words struck through and added ones underlined, for example draft-vs-final-comparison.html. It opens in any browser, offline, and runs no scripts. Start over clears the result and both slots for a new pair, without leaving the page.",
     },
   ],
 
   faqs: [
     {
       q: "Does Compare PDF show which page a change is on?",
-      a: "Yes. Each change is headed with the page it sits on in each file, for example Page 2 → page 3 when a page was inserted before it, and the downloaded report heads it the same way: @@ Page 2 -> page 3 @@. Unchanged lines around a change are indented two spaces, lines only in the second PDF start with +, and lines only in the first start with -. Press Show changes on the pages to see both PDFs side by side, with removed text crossed out on the first file's pages and added text underlined on the second's; a changed line it cannot place on its page, or on a page with no selectable text, is flagged on that page and stays in the list of changes.",
+      a: "Yes. Each change is headed with the page it sits on in each file, for example Page 2 → page 3 when a page was inserted before it, the downloaded report heads it the same way, @@ Page 2 -> page 3 @@, and the HTML redline heads it Page 2 → page 3. Unchanged lines around a change are indented two spaces, lines only in the second PDF start with +, and lines only in the first start with -. Press Show changes on the pages to see both PDFs side by side, with removed text crossed out on the first file's pages and added text underlined on the second's; a changed line it cannot place on its page, or on a page with no selectable text, is flagged on that page and stays in the list of changes.",
     },
     {
       q: "What happens when only one word on a line changed?",
@@ -184,8 +196,8 @@ const content: ToolContent = {
       a: `The list of changes compares selectable text, so when one file is a scan with no text layer, it does not list the other file's text as changed: the result is headed with that file's name and "has no selectable text", Changed lines reads Not compared, and the report tells you to run OCR PDF on that file first. Two scans produce a report saying no selectable text was found in either PDF. OCR PDF can add a text layer, but unlike this tool it uploads the scan over TLS to pdf.xyz's secure server, which deletes it when the job finishes; the OCR'd copy's link expires after ${OCR_LINK_MINUTES} minutes and a daily storage rule erases the stored copy after that. Any OCR misreading will then show up here as a difference. Without OCR, Compare pages visually lays the two files' pages over each other and marks where the ink differs; two separate scans of the same paper rarely line up exactly, so expect it to mark much of the page.`,
     },
     {
-      q: "Are my PDFs uploaded to compare them?",
-      a: `No. Both files are opened and compared by your browser on your own device. Each PDF can be at most ${CEILING_MB} MB; the size is checked before the file is read, and a larger file is listed under Some files were skipped with the reason.`,
+      q: "Are my PDFs uploaded, and is the redline safe to send?",
+      a: `No, nothing is uploaded: both files are opened and compared by your browser on your own device, and the report and the redline are made there too. Each PDF can be at most ${CEILING_MB} MB; the size is checked before the file is read, and a larger file is listed under Some files were skipped with the reason. The redline holds the changed lines of both files, with up to two unchanged lines around each change, and both file names, so anyone you send it to can read those. It loads nothing from the internet and runs no code.`,
     },
     {
       q: "What if a PDF has a password, or I add a third one?",

@@ -107,6 +107,11 @@ export function OfficeExportCoverageNotice({
   // to keep the file inside the size one conversion delivers. Until then
   // the worker counted them and nothing read the count.
   const tabbed = word ? (report.tablesAsTextForSize ?? 0) : 0;
+  // Word, since 2026-11-15 (#28 slice 4): every word's font name left out
+  // to keep the file inside the size one conversion delivers — the first
+  // thing the worker drops. Without this line the page's "set in a font
+  // that comes with Windows or Office" would be false of that download.
+  const typefaceless = word && report.typefacesDroppedForSize === true;
   if (
     missing <= 0 &&
     little <= 0 &&
@@ -114,7 +119,8 @@ export function OfficeExportCoverageNotice({
     flattened <= 0 &&
     !rebuilt &&
     unformatted <= 0 &&
-    tabbed <= 0
+    tabbed <= 0 &&
+    !typefaceless
   )
     return null;
   const pictures =
@@ -184,6 +190,15 @@ export function OfficeExportCoverageNotice({
             colour changes partway through, say, or text drawn turned, right to
             left, or over other text) and left it plain rather than guess. All
             of the text is there.
+          </span>
+        </p>
+      )}
+      {typefaceless && (
+        <p className="flex items-start gap-2">
+          <Type className="mt-0.5 size-4 shrink-0" aria-hidden />
+          <span>
+            This document was too large to name each word&apos;s font; it opens
+            in Word&apos;s default font. All of the text is there.
           </span>
         </p>
       )}

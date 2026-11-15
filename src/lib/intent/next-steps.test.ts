@@ -422,3 +422,33 @@ describe("every PDF made in the browser has somewhere to go", () => {
     expect(browserPdfDeadEnds(without)).toContain("sign-pdf");
   });
 });
+
+/**
+ * ADDED 2026-11-15 (Compare PDF S4): the catalogue says Compare PDF writes
+ * HTML as well as TXT (the redline). A new output format can open new
+ * Continue rows, and none is wanted: the result hands on the .txt only
+ * (`textOutputFile` in the runner), and the one tool that takes HTML, HTML
+ * to PDF, is the way back. So the list must be the same as with TXT alone —
+ * and for that reason, which the test shows: HTML IS handed on now, and the
+ * inverse rule is what keeps HTML to PDF out.
+ */
+describe("Compare PDF's HTML output opens no Continue row", () => {
+  it("handedOnFormats now includes HTML, and HTML to PDF is its inverse", () => {
+    const compare = tool("compare-pdf");
+    expect(handedOnFormats(compare)).toContain("HTML");
+    expect(isInverse(compare, tool("html-to-pdf"))).toBe(true);
+  });
+
+  it("the plan is byte-identical to the plan of the same tool writing TXT alone", () => {
+    const compare = tool("compare-pdf");
+    const before = continueTargetsFor({ ...compare, outputs: ["TXT"] }, tools);
+    expect(JSON.stringify(continueTargetsFor(compare, tools))).toBe(
+      JSON.stringify(before),
+    );
+    // Positive control: without the inverse rule HTML to PDF would join it.
+    const unruled = continueTargetsFor(compare, tools, {
+      inverse: () => false,
+    });
+    expect(slugsOf(unruled)).toContain("html-to-pdf");
+  });
+});

@@ -51,7 +51,7 @@ import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
  *        and its page was called empty;
  *      · each line of selectable text is its own text box at its place, its
  *        size, bold/italic and colour from the PDF, its font MAPPED
- *        (deck-from-scan.ts, OFFICE_FAMILIES: a family Office or Windows
+ *        (typeface.ts since 2026-11-15, OFFICE_FAMILIES: a family Office or Windows
  *        ships keeps its name; a free metric clone of one — Liberation,
  *        Carlito, Caladea — becomes the family it clones; any other becomes
  *        Arial, Times New Roman or Courier New by class; until 2026-10-11

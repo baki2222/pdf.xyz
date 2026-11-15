@@ -5,6 +5,7 @@ import {
   cleanup,
   fireEvent,
   render,
+  waitFor,
   screen,
   within,
 } from "@testing-library/react";
@@ -497,5 +498,149 @@ describe("Compare PDF runner — the comparison chunk", () => {
     expect(reads).toBe(2);
     expect(panel.textContent).toContain("ignoring case");
     expect(await downloadedReport(panel)).toMatch(/^Options: ignore case$/m);
+  });
+});
+
+/**
+ * The HTML redline (S4, 2026-11-15): a second download beside the .txt,
+ * built in its own chunk from the result ON SCREEN. Read from the Blob the
+ * button hands the browser, never from the function that builds it, so a
+ * button that downloads the wrong result (the run's, not the adjusted one)
+ * is caught here.
+ */
+async function downloadedRedline(
+  panel: HTMLElement,
+): Promise<{ name: string; type: string; text: string }> {
+  const urls = URL as unknown as {
+    createObjectURL?: (blob: Blob) => string;
+    revokeObjectURL?: (url: string) => void;
+  };
+  const original = urls.createObjectURL;
+  const click = HTMLAnchorElement.prototype.click;
+  urls.revokeObjectURL ??= () => {};
+  let blob: Blob | undefined;
+  let name = "";
+  urls.createObjectURL = (b: Blob) => {
+    blob = b;
+    return "blob:compare-redline";
+  };
+  HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
+    name = this.download;
+  };
+  try {
+    fireEvent.click(
+      within(panel).getByRole("button", { name: "Download redline (HTML)" }),
+    );
+    await waitFor(() => expect(blob).toBeDefined(), { timeout: 5_000 });
+  } finally {
+    urls.createObjectURL = original;
+    HTMLAnchorElement.prototype.click = click;
+  }
+  return { name, type: blob!.type, text: await blob!.text() };
+}
+
+describe("Compare PDF runner — the HTML redline", () => {
+  it.each(COMPARE_VERDICTS)(
+    "%s: the redline is offered, and its download is an HTML file named after both PDFs",
+    async (verdict) => {
+      const [left, right] = await PAIRS[verdict]();
+      mount(left, right);
+      const panel = await screen.findByRole(
+        "group",
+        {
+          name: /differences found|selectable text matches|no text to compare|has no selectable text/i,
+        },
+        { timeout: 5_000 },
+      );
+      const got = await downloadedRedline(panel);
+      const base = (n: string) => n.replace(/\.pdf$/, "");
+      expect(got.name).toBe(
+        `${base(left.name)}-vs-${base(right.name)}-comparison.html`,
+      );
+      expect(got.type).toBe("text/html;charset=utf-8");
+      expect(got.text.startsWith("<!DOCTYPE html>")).toBe(true);
+      // The .txt is still the report, and still its own button.
+      expect(await downloadedReport(panel)).toMatch(/^PDF comparison: /);
+    },
+  );
+
+  it("follows an option toggle exactly as the report does", async () => {
+    const left = await textPdf(CLAUSES);
+    const right = await textPdf(CLAUSES.map((c) => c.toUpperCase()));
+    mount(item("v1.pdf", left), item("v2.pdf", right));
+    const before = await screen.findByRole(
+      "group",
+      { name: /differences found/i },
+      { timeout: 5_000 },
+    );
+    const first = new DOMParser().parseFromString(
+      (await downloadedRedline(before)).text,
+      "text/html",
+    );
+    expect(first.querySelectorAll("main section").length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Ignore case" }));
+    const panel = await screen.findByRole("group", {
+      name: /selectable text matches/i,
+    });
+    const after = new DOMParser().parseFromString(
+      (await downloadedRedline(panel)).text,
+      "text/html",
+    );
+    expect(after.querySelectorAll("main section")).toHaveLength(0);
+    const options = [...after.querySelectorAll("dt")].find(
+      (dt) => dt.textContent === "Options",
+    )?.nextElementSibling?.textContent;
+    expect(options).toBe("ignore case");
+    expect(after.querySelector("main > p")?.textContent).toBe(
+      "No selectable-text differences found (ignoring case).",
+    );
+  });
+
+  it("a failed chunk fetch says so, and the next press tries again", async () => {
+    const left = await textPdf(CLAUSES);
+    const right = await textPdf([...CLAUSES, "Clause 3 added later"]);
+    const real = await import("./compare/compare-result");
+    let fails = 1;
+    let asked = 0;
+    const loader = async () => ({
+      ...real,
+      loadCompareRedline: () => {
+        asked += 1;
+        if (fails > 0) {
+          fails -= 1;
+          return Promise.reject(new Error("Loading chunk 9999 failed."));
+        }
+        return real.loadCompareRedline();
+      },
+    });
+    render(
+      <ComparePdfEditor
+        items={[item("v1.pdf", left), item("v2.pdf", right)]}
+        loading={0}
+        rejections={[]}
+        onFiles={() => {}}
+        onRemove={() => {}}
+        onClearRejections={() => {}}
+        onClear={() => {}}
+        extract={extract}
+        loadResult={loader}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /compare pdfs/i }));
+    const panel = await screen.findByRole(
+      "group",
+      { name: /differences found/i },
+      { timeout: 5_000 },
+    );
+    fireEvent.click(
+      within(panel).getByRole("button", { name: "Download redline (HTML)" }),
+    );
+    const alert = await within(panel).findByRole("alert");
+    expect(alert.textContent).toMatch(/redline/i);
+    const got = await downloadedRedline(panel);
+    expect(got.text.startsWith("<!DOCTYPE html>")).toBe(true);
+    expect(asked).toBeGreaterThanOrEqual(2);
+    expect(within(panel).queryByRole("alert")).toBeNull();
   });
 });

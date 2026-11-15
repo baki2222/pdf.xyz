@@ -125,6 +125,15 @@ export interface OfficeExportResultMeta {
    */
   tablesAsTextForSize?: number;
   /**
+   * PDF to Word only, since 2026-11-15 (#28 slice 4, typeface by kind): the
+   * document with each word's font named was over the size one conversion
+   * delivers, so no word names a font and the whole document opens in
+   * Word's default font — the first thing to go, before tables, formatting
+   * and pictures. Present only as `true`; absent from older results (that
+   * engine named no fonts) and whenever the fonts were kept.
+   */
+  typefacesDroppedForSize?: true;
+  /**
    * PDF to Word only, since 2026-11-15: words, over the whole document,
    * written in Word's default style because the page reader's runs did not
    * say for certain how they were drawn. A measurement, not shown to the
@@ -240,6 +249,10 @@ export function buildOfficeExportResultMeta(
       : {}),
     ...(raw.tablesAsTextForSize !== undefined
       ? { tablesAsTextForSize: count(raw.tablesAsTextForSize, 10_000_000) }
+      : {}),
+    // Only `true` is a claim; anything else is dropped, not coerced.
+    ...(raw.typefacesDroppedForSize === true
+      ? { typefacesDroppedForSize: true as const }
       : {}),
     // Only `true` is a claim; anything else is dropped, not coerced.
     ...(raw.repairedBeforeConversion === true

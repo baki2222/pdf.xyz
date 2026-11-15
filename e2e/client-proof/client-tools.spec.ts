@@ -236,6 +236,8 @@ test.describe("client tool proof — the derived set", () => {
         "grayscale-pdf",
         "extract-images",
         "text-to-pdf",
+        // Compare PDF's HTML redline (S4, 2026-11-15): the second download.
+        "compare-pdf",
       ]),
     );
     for (const v of VARIANTS)

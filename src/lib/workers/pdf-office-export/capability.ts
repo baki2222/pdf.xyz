@@ -816,3 +816,142 @@ export async function provesDocxTables(
     return false;
   }
 }
+
+/* ------------------------------------------------------------------ *
+ *  Word: does THIS image's PDF to Word set each word in its typeface?
+ * ------------------------------------------------------------------ */
+
+/**
+ * The typefaces probe's lines (#28 slice 4, 2026-11-15), one per kind of
+ * font, each in a PDF standard font: none of those names is an Office
+ * family, so each must be written as the Office face cut to its widths.
+ * No word is in two lines: each word is read back on its own, and a word
+ * shared by two lines (the plan's "Serif line set in Times" and "Mono line
+ * set in Courier" share three) would hold two faces and prove nothing.
+ */
+export const DOCX_TYPEFACES_PROBE = {
+  serif: "Serif sample drawn with Times",
+  mono: "Mono specimen typed in Courier",
+  sans: "Sans example lettered by Helvetica",
+} as const;
+
+/** What each line's words must read back as: deterministic aliases. */
+const DOCX_TYPEFACES_EXPECTED = {
+  serif: "Times New Roman",
+  mono: "Courier New",
+  sans: "Arial",
+} as const;
+
+/**
+ * The typefaces probe's PDF: on a US Letter page at x = 72, the serif line
+ * (Times-Roman 12) at y = 720, the mono line (Courier 12) at 690 and the
+ * sans line (Helvetica 12) at 660. All WinAnsi, so all three are the
+ * standard 14 fonts and none is embedded.
+ */
+export async function docxTypefacesProbePdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const p = DOCX_TYPEFACES_PROBE;
+  const texts = Object.values(p);
+  const page = doc.addPage([612, 792]);
+  const lines = [
+    [p.serif, "serif", 720],
+    [p.mono, "mono", 690],
+    [p.sans, "sans", 660],
+  ] as const;
+  for (const [text, face, y] of lines)
+    page.drawText(text, {
+      x: 72,
+      y,
+      size: 12,
+      font: await embedDrawingFont(doc, texts, face),
+    });
+  return doc.save();
+}
+
+/**
+ * Why `docx` is NOT what the typefaces probe expects, or null when it is —
+ * the checks {@link provesDocxTypefaces} makes after the job, one reason
+ * each, so every negative control is seen failing on its OWN check:
+ *   1. "structure": something Word could refuse (`docxStructureProblems`;
+ *      `w:rFonts` anywhere but first in `w:rPr` is one);
+ *   2. "text": the text read back is not poppler's, page by page;
+ *   3. "serif": a run holding a word of the serif line does not read
+ *      Times New Roman in ALL of `w:ascii`, `w:hAnsi` and `w:cs`;
+ *   4. "mono": the same, Courier New;
+ *   5. "sans": the same, Arial;
+ *   6. "eastAsia": any run anywhere carries `w:eastAsia`.
+ * The three names are pinned exactly: the standard-14 aliases
+ * (`./typeface`) are deterministic, and these three are also the faces cut
+ * to Times', Courier's and Helvetica's widths, an independent second bound.
+ */
+export async function docxTypefacesProblem(
+  docx: Uint8Array,
+  flowText: string[],
+): Promise<string | null> {
+  if ((await docxStructureProblems(docx)).length > 0) return "structure";
+  const body = await readDocxStructure(docx);
+  const want = flowText.map(asXmlCarries);
+  const read = docxPageTexts(body).map(asXmlCarries);
+  if (read.length !== want.length || read.some((t, k) => t !== want[k]))
+    return "text";
+  const runs = body.blocks.flatMap((b) => (b.kind === "p" ? b.runs : []));
+  const byWord = wordRuns(runs);
+  for (const kind of ["serif", "mono", "sans"] as const) {
+    const family = DOCX_TYPEFACES_EXPECTED[kind];
+    for (const word of DOCX_TYPEFACES_PROBE[kind].split(" ")) {
+      const found = byWord.get(word) ?? [];
+      if (
+        found.length === 0 ||
+        !found.every(
+          (r) =>
+            r.fonts === family &&
+            r.fontsHAnsi === family &&
+            r.fontsCs === family,
+        )
+      )
+        return kind;
+    }
+  }
+  if (runs.some((r) => r.fontsEastAsia !== undefined)) return "eastAsia";
+  return null;
+}
+
+/**
+ * Does THIS worker image's PDF to Word set each word in an Office family of
+ * the kind the PDF's font is — Times New Roman for Times, Courier New for
+ * Courier, Arial for Helvetica — in `w:ascii`, `w:hAnsi` and `w:cs`, never
+ * `w:eastAsia` (#28 slice 4, key `docxTypefaces`)?
+ *
+ * The probe PDF ({@link docxTypefacesProbePdf}) runs as a real job would,
+ * in the executor's order (`../capability-chain`: soundness gate, the
+ * processor the daemon's registry resolves, the artifact-manifest gate), on
+ * the deps the image's jobs run on (`pdfOfficeExportDeps(env)`). The .docx
+ * is read back by `./docx-structure`, which shares nothing with the writer,
+ * and a pass needs every check of {@link docxTypefacesProblem}. A writer
+ * that drops the typefaces, swaps them, writes one attribute differently,
+ * adds `w:eastAsia`, or puts `w:rFonts` out of order answers `false`; so
+ * does an image without the extractor or the page reader, one whose page
+ * reader reads no text, and one whose real jobs a gate refuses. It does NOT
+ * prove anything about embedding (nothing is embedded), the PDF's own font
+ * (only a substitute name is written), or words outside Latin (they carry
+ * no typeface by design). An image built before this key publishes nothing,
+ * and the reader parses the absence as `false`.
+ */
+export async function provesDocxTypefaces(
+  deps: PdfOfficeExportDeps,
+  run?: typeof runPdfOfficeExport,
+  gates: ProbeGates = {},
+): Promise<boolean> {
+  try {
+    if (!deps.extractFlow || !deps.scanPages) return false;
+    const pdf = await docxTypefacesProbePdf();
+    const docx = await wordThroughExecutor(pdf, deps, run, gates);
+    if (!docx) return false;
+    const flow = await deps.extractFlow(pdf);
+    return (
+      (await docxTypefacesProblem(docx, flow.pages.map(flowPageText))) === null
+    );
+  } catch {
+    return false;
+  }
+}

@@ -59,6 +59,10 @@ import {
   resolutionById,
 } from "../../src/lib/pdf/pdf-to-image";
 import { DEFAULT_REDACTION_DRAFT } from "../../src/lib/pdf/redact-defaults";
+import {
+  REDLINE_CSP,
+  escapeHtml,
+} from "../../src/components/tools/runner/compare/redline-html";
 import { addWatermark } from "../../src/lib/pdf/watermark";
 import { addPageNumbers, batesFormat } from "../../src/lib/pdf/page-numbers";
 import { mergePdfs } from "../../src/lib/pdf/engine";
@@ -118,6 +122,9 @@ import {
   type PointRect,
 } from "./fixtures";
 import {
+  HTML_MAGIC_FAILS,
+  captureNamedDownload,
+  isHtmlArtifact,
   captureDownload,
   decodeEmbeddedPageImages,
   decodeImageInPage,
@@ -2933,6 +2940,21 @@ const blankJpeg = (w: number, h: number) => ({
   bytes: new Uint8Array(grayJpegOf(w, h, true)),
 });
 
+/** Lines no redline may let through as markup: ASCII, so WinAnsi draws them. */
+const REDLINE_HOSTILE = [
+  '<script>alert(1)</script> & "q"',
+  "</del><img src=x onerror=alert(1)>",
+];
+
+/** One message per check of the redline variant, read by its controls too. */
+const REDLINE_FAILS = {
+  csp: "CSP meta missing or not the policy",
+  escaped: "a hostile line became markup: a script element, or not escaped",
+  wellFormed: "the redline is not well-formed XML",
+  header: "no page header (h3) on a change",
+  added: "the added line is not in an <ins>",
+} as const;
+
 export const VARIANTS: readonly VariantCase[] = [
   // The settings batches (batch plan P1): a ZIP of two same-named PDFs.
   ...BATCH_VARIANTS,
@@ -4124,6 +4146,144 @@ export const VARIANTS: readonly VariantCase[] = [
       ),
     rejectsBecause: [TIFF_FAILS.refused],
   },
+  // Compare PDF's HTML redline (S4, 2026-11-15): the second download beside
+  // the .txt, with a hostile line in the second file. Parsed IN THE BROWSER
+  // (`DOMParser`, as HTML and as XML) from the bytes it downloaded.
+  {
+    slug: "compare-pdf",
+    name: "the HTML redline, a hostile line in the second file",
+    kind: "compare",
+    artifact: "html",
+    run: async (ctx) => {
+      const left = Buffer.from(
+        await makeTextPdf("left.pdf", { pages: 1, bodyLines: ["shared line"] }),
+      );
+      const right = Buffer.from(
+        await makeTextPdf("right.pdf", {
+          pages: 1,
+          bodyLines: ["shared line", "only-in-right-line", ...REDLINE_HOSTILE],
+        }),
+      );
+      await uploadPayloads(ctx.page, [
+        { name: "left.pdf", mimeType: "application/pdf", buffer: left },
+        { name: "right.pdf", mimeType: "application/pdf", buffer: right },
+      ]);
+      await expect(
+        ctx.page.locator("[data-tool-panel]").getByText("2/2 selected"),
+      ).toBeVisible();
+      const txt = await runAndDownload(
+        ctx,
+        /compare pdfs/i,
+        /differences found/i,
+        /download comparison report/i,
+      );
+      ctx.data.txt = txt;
+      const { bytes, name } = await captureNamedDownload(
+        ctx.page,
+        ctx.page.getByRole("button", { name: "Download redline (HTML)" }),
+      );
+      ctx.data.name = name;
+      ctx.data.trueHtml = bytes.toString("utf8");
+      return bytes;
+    },
+    assert: async (buf, ctx) => {
+      expect(isHtmlArtifact(buf), HTML_MAGIC_FAILS).toBe(true);
+      expect(String(ctx.data.name ?? "left-vs-right-comparison.html")).toBe(
+        "left-vs-right-comparison.html",
+      );
+      const html = buf.toString("utf8");
+      const seen = await ctx.page.evaluate((source) => {
+        const page = new DOMParser().parseFromString(source, "text/html");
+        const xml = new DOMParser().parseFromString(source, "application/xml");
+        const all = [...page.querySelectorAll("*")];
+        const lineText = (row: Element) => {
+          const copy = row.cloneNode(true) as Element;
+          copy.querySelectorAll(".m, .sr").forEach((n) => n.remove());
+          return copy.textContent ?? "";
+        };
+        return {
+          doctype: page.doctype?.name ?? null,
+          csp:
+            page
+              .querySelector('meta[http-equiv="Content-Security-Policy"]')
+              ?.getAttribute("content") ?? null,
+          forbidden: page.querySelectorAll(
+            "script, img, link, iframe, object, a[href], [style]",
+          ).length,
+          scripts: page.querySelectorAll("script").length,
+          handlers: all.flatMap((e) =>
+            e
+              .getAttributeNames()
+              .filter(
+                (a) =>
+                  /^on/i.test(a) ||
+                  /javascript:/i.test(e.getAttribute(a) ?? ""),
+              )
+              .map((a) => `${e.localName}[${a}]`),
+          ),
+          headers: [...page.querySelectorAll("main section h3")].map(
+            (h) => h.textContent ?? "",
+          ),
+          insLines: [...page.querySelectorAll(".l.a")]
+            .filter((r) => r.querySelector("ins"))
+            .map(lineText),
+          lines: [...page.querySelectorAll(".l")].map(lineText),
+          xmlErrors: xml.getElementsByTagName("parsererror").length,
+        };
+      }, html);
+      expect(seen.doctype, HTML_MAGIC_FAILS).toBe("html");
+      expect(seen.csp, REDLINE_FAILS.csp).toBe(REDLINE_CSP);
+      expect(seen.scripts, REDLINE_FAILS.escaped).toBe(0);
+      expect(seen.forbidden, REDLINE_FAILS.escaped).toBe(0);
+      expect(seen.handlers, REDLINE_FAILS.escaped).toEqual([]);
+      expect(seen.xmlErrors, REDLINE_FAILS.wellFormed).toBe(0);
+      expect(
+        seen.headers.some((h) =>
+          /^Pages? \d+(-\d+)? → pages? \d+(-\d+)?$/.test(h),
+        ),
+        REDLINE_FAILS.header,
+      ).toBe(true);
+      expect(
+        seen.insLines.some((l) => l.includes("only-in-right-line")),
+        REDLINE_FAILS.added,
+      ).toBe(true);
+      for (const hostile of REDLINE_HOSTILE)
+        expect(seen.lines, REDLINE_FAILS.escaped).toContain(hostile);
+    },
+    // Each control differs from the true page in ONE property.
+    control: async (ctx) => {
+      const html = String(ctx.data.trueHtml ?? "");
+      return [
+        // 1. No CSP meta.
+        Buffer.from(
+          html.replace(
+            /<meta http-equiv="Content-Security-Policy"[^>]*\/>\n/,
+            "",
+          ),
+          "utf8",
+        ),
+        // 2. The escape as identity: the hostile lines go in raw.
+        Buffer.from(
+          REDLINE_HOSTILE.reduce(
+            (h, line) => h.split(escapeHtml(line)).join(line),
+            html,
+          ),
+          "utf8",
+        ),
+        // 3. Every page header gone.
+        Buffer.from(html.replace(/<h3 [^>]*>[^<]*<\/h3>/g, ""), "utf8"),
+        // 4. The .txt from the same run. WEAK: a different container type,
+        //    rejected by the magic check alone.
+        Buffer.from(ctx.data.txt as Buffer),
+      ];
+    },
+    rejectsBecause: [
+      REDLINE_FAILS.csp,
+      REDLINE_FAILS.escaped,
+      REDLINE_FAILS.header,
+      HTML_MAGIC_FAILS,
+    ],
+  },
 ];
 
 export const UNPROVEN: Record<string, string> = {
@@ -4182,7 +4342,7 @@ export const PROOF_LIMITS: Record<string, string> = {
     "Every page turned Right (the default case), and the option variant (VARIANTS: Odd pages, Right, then Rotate all 180°). Even pages, Invert, Clear, shift-click ranges and the per-tile arrows are not exercised in a real browser; Even pages with Left is downloaded through the runner in src/components/tools/runner/rotate-runner.test.tsx, in jsdom.",
   "crop-pdf":
     "The default uniform margins applied to every page of an unrotated PDF, and the option variant (VARIANTS: Auto, each page its own box, on a two-page file whose second page is blank). Auto's Same box on every page, millimetre and inch units, per-side margins, pages carrying /Rotate, page selection and the schematic preview are not exercised end to end; Same box and units are proved through the runner in src/components/tools/runner/crop-runner.test.tsx and src/lib/pdf/auto-crop.test.ts, in jsdom and Node with pdfjs's legacy build. Per-side margins on every /Rotate are proved by pdfjs reading the saved file in src/lib/pdf/crop.test.ts, and the Uniform/Per side switch and the rotated preview by src/components/tools/runner/crop-runner.test.tsx; neither runs in a real browser.",
-  "compare-pdf": `Both documents are uploaded through the same multi-file picker, which is the flow the runner offers. Only the default options are run here (neither ignore box ticked). The "Ignore case" and "Ignore page headers and numbers" boxes, "Next change" and the word marks are exercised at 375 px in e2e/compare-pdf.mobile.spec.ts, and so is the changes bar at 1280 px; the row budget and the spoken word marks are exercised only in jsdom (src/components/tools/runner/compare/compare-result.test.tsx). The no-text verdicts — neither PDF, or only ONE of them, has selectable text — are not exercised here; src/components/tools/runner/compare-pdf-runner.test.tsx renders them from real PDF bytes in jsdom, but reads them with pdfjs's legacy build, not the browser build a user runs. The too-large-to-diff error is likewise covered only there, with synthetic text. The page view is exercised in e2e/compare-viewer.spec.ts: "Show changes on the pages", "Original", "Revised" and "Scroll both files together".`,
+  "compare-pdf": `Both documents are uploaded through the same multi-file picker, which is the flow the runner offers. Only the default options are run here (neither ignore box ticked). The "Ignore case" and "Ignore page headers and numbers" boxes, "Next change" and the word marks are exercised at 375 px in e2e/compare-pdf.mobile.spec.ts, and so is the changes bar at 1280 px; the row budget and the spoken word marks are exercised only in jsdom (src/components/tools/runner/compare/compare-result.test.tsx). The no-text verdicts — neither PDF, or only ONE of them, has selectable text — are not exercised here; src/components/tools/runner/compare-pdf-runner.test.tsx renders them from real PDF bytes in jsdom, but reads them with pdfjs's legacy build, not the browser build a user runs. The too-large-to-diff error is likewise covered only there, with synthetic text. The page view is exercised in e2e/compare-viewer.spec.ts: "Show changes on the pages", "Original", "Revised" and "Scroll both files together". The HTML redline variant (2026-11-15) proves the downloaded page's doctype, its CSP meta byte for byte, no script, image, link, frame, object, link with an address or style attribute, no event-handler attribute, well-formed XML, a page-headed change, the added line in an <ins> and two hostile lines recovered as text, on default options only; the redline under the ignore options, its agreement with the .txt row by row, and the no-text verdicts' redline are proven only in jsdom (redline-html.test.ts, compare-pdf-runner.test.tsx), and that it loads nothing and is styled when opened from disk is e2e/compare-redline.spec.ts.`,
   "compress-pdf":
     "Only the in-browser lossless repack, on a fixture built to be repackable. The hybrid secure-server step this tool offers is a server path and is covered by worker:prove-tools, not here.",
   "split-pdf":

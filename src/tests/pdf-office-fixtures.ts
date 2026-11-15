@@ -13,7 +13,14 @@ import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
-import { PDFDocument, rgb, type PDFPage } from "pdf-lib";
+import {
+  PDFDict,
+  PDFDocument,
+  PDFName,
+  PDFNumber,
+  rgb,
+  type PDFPage,
+} from "pdf-lib";
 // Through the product's font chooser, like every other text-drawing module:
 // for this Latin text it picks the same Helvetica faces, so the captured
 // poppler samples match these fixtures byte for byte in their geometry.
@@ -1063,4 +1070,134 @@ export async function continuedTablePdf(more: number): Promise<Uint8Array> {
   draw(second, rest, 740);
   second.drawText(closing, { x: 72, y: 740 - more * 16 - 40, size: 11, font });
   return doc.save();
+}
+
+/**
+ * #28 slice 4 (typefaces, 2026-11-15): "Call printf now" on one baseline,
+ * 12 points, `printf` in Courier and the rest in Times-Roman — one style
+ * (size, colour, weight) in two faces, so the page reader's runs JOIN for
+ * the style and only the typeface tells the words apart. A second line,
+ * all Times, under it. Standard fonts: nothing is embedded.
+ */
+export const INLINE_CODE = {
+  before: "Call ",
+  code: "printf",
+  after: " now",
+  second: "Plain Times line under it",
+} as const;
+
+export async function inlineCodePdf(): Promise<Uint8Array> {
+  const t = INLINE_CODE;
+  const doc = await PDFDocument.create();
+  const all = Object.values(t);
+  const times = await embedDrawingFont(doc, all, "serif");
+  const courier = await embedDrawingFont(doc, all, "mono");
+  const page = doc.addPage([612, 792]);
+  let x = 72;
+  for (const [text, font] of [
+    [t.before, times],
+    [t.code, courier],
+    [t.after, times],
+  ] as const) {
+    page.drawText(text, { x, y: 700, size: 12, font });
+    x += font.widthOfTextAtSize(text, 12);
+  }
+  page.drawText(t.second, { x: 72, y: 670, size: 12, font: times });
+  return doc.save();
+}
+
+/**
+ * #28 slice 4, review round 2 (2026-11-15): `text` in one of pdf.xyz's own
+ * embedded faces (the `kind` pack, which a non-WinAnsi letter such as `ş`
+ * forces), optionally RENAMED the way pdfTeX names Computer Modern: every
+ * font's /BaseFont and every descriptor's /FontName set to `rename`, and
+ * every descriptor's /Flags set to 4 (Symbolic only: neither Serif nor
+ * FixedPitch). pdf.js then calls the face "sans-serif" whatever it is.
+ */
+export async function embeddedFacePdf(
+  text: string,
+  kind: "serif" | "mono" | "sans",
+  rename?: string,
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await embedDrawingFont(doc, [text], kind);
+  doc.addPage([612, 792]).drawText(text, { x: 72, y: 700, size: 12, font });
+  const saved = await doc.save();
+  if (!rename) return saved;
+  const again = await PDFDocument.load(saved);
+  let fonts = 0;
+  let descriptors = 0;
+  for (const [, obj] of again.context.enumerateIndirectObjects()) {
+    if (!(obj instanceof PDFDict)) continue;
+    const type = obj.get(PDFName.of("Type"));
+    if (type === PDFName.of("FontDescriptor")) {
+      obj.set(PDFName.of("Flags"), PDFNumber.of(4));
+      obj.set(PDFName.of("FontName"), PDFName.of(rename));
+      descriptors++;
+    } else if (type === PDFName.of("Font")) {
+      obj.set(PDFName.of("BaseFont"), PDFName.of(rename));
+      fonts++;
+    }
+  }
+  // Health: the rename landed on a font and its descriptor, not on nothing.
+  if (fonts === 0 || descriptors === 0)
+    throw new Error(`the rename to ${rename} found no font to rename`);
+  return again.save();
+}
+
+/**
+ * #28 slice 4, review round 2 (2026-11-15): "Hello Hel" in Times-Roman and
+ * "lo" in Courier, 12 points on one baseline, so the second "Hello" is drawn
+ * in two faces in one style. Poppler may keep it as one word (then it must
+ * take NO typeface: the Times part's text holds "Hello" only because of the
+ * FIRST word) or split it at the font change. Standard fonts.
+ */
+export const STRADDLE = { times: "Hello Hel", courier: "lo" } as const;
+
+export async function straddlePdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const all = Object.values(STRADDLE);
+  const times = await embedDrawingFont(doc, all, "serif");
+  const courier = await embedDrawingFont(doc, all, "mono");
+  const page = doc.addPage([612, 792]);
+  page.drawText(STRADDLE.times, { x: 72, y: 700, size: 12, font: times });
+  page.drawText(STRADDLE.courier, {
+    x: 72 + times.widthOfTextAtSize(STRADDLE.times, 12),
+    y: 700,
+    size: 12,
+    font: courier,
+  });
+  return doc.save();
+}
+
+/**
+ * Whether the straddle line's words read back honestly: each entry is a
+ * word in reading order with its `w:rFonts` ascii/hAnsi/cs ("-" for none).
+ * Null when it holds, else why. The first "Hello" is Times New Roman (or
+ * none); then either one "Hello" with NO typeface (poppler joined it), or
+ * "Hel" in Times New Roman or none and "lo" in Courier New or none.
+ */
+export function straddleProblem(
+  words: readonly (readonly [string, string])[],
+): string | null {
+  const tnr = "Times New Roman/Times New Roman/Times New Roman";
+  const cn = "Courier New/Courier New/Courier New";
+  const none = "-/-/-";
+  const shown = JSON.stringify(words);
+  const [first, ...rest] = words;
+  if (!first || first[0] !== "Hello" || ![tnr, none].includes(first[1]))
+    return `the first word is not Hello in Times New Roman: ${shown}`;
+  if (rest.length === 1 && rest[0]![0] === "Hello")
+    return rest[0]![1] === none
+      ? null
+      : `the straddling Hello names a typeface: ${shown}`;
+  if (
+    rest.length === 2 &&
+    rest[0]![0] === "Hel" &&
+    [tnr, none].includes(rest[0]![1]) &&
+    rest[1]![0] === "lo" &&
+    [cn, none].includes(rest[1]![1])
+  )
+    return null;
+  return `unexpected words: ${shown}`;
 }

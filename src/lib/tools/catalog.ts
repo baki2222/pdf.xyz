@@ -506,9 +506,13 @@ export const tools: Tool[] = [
     // text to WORD_OCR_LABEL, so a renamed checkbox fails it. CHANGED
     // 2026-11-15 (review round 1 of per-word formatting): "Fonts and layout
     // are not recreated" read as covering text sizes, which are kept since
-    // that day; the typefaces are what is not.
+    // that day; the typefaces are what is not. CHANGED 2026-11-15 again
+    // (#28 slice 4, key `docxTypefaces`): each word is now set in an Office
+    // font of its kind, so "Typefaces and layout are not recreated" became
+    // false; the sentence now says "Office fonts" (a substitute family,
+    // never the PDF's own font files) and that the layout is not kept.
     description:
-      "Turn a PDF's text and pictures into editable Word (DOCX) in reading order. Typefaces and layout are not recreated; for a scan, tick “Recognise text in scans (OCR)”.",
+      "Turn PDF text and pictures into editable Word (DOCX) in reading order and Office fonts. Layout is not kept; for a scan, tick “Recognise text in scans (OCR)”.",
     category: "convert-from",
     icon: "word",
     processing: "server",
@@ -1105,7 +1109,9 @@ export const tools: Tool[] = [
     processing: "client",
     badge: "new",
     accept: ["PDF"],
-    outputs: ["TXT"],
+    // HTML since 2026-11-15 (S4): the redline beside the .txt report.
+    // client-outputs.test.tsx holds this list to the runner's downloads.
+    outputs: ["TXT", "HTML"],
     keywords: ["compare pdf", "pdf diff", "text difference", "version compare"],
     related: ["ocr-pdf", "pdf-to-text", "redact-pdf", "annotate-pdf"],
   },

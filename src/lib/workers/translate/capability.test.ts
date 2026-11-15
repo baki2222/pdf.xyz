@@ -168,8 +168,9 @@ describe("the advertised set and the wire contract agree", () => {
 
     // BOUND THE CORPUS: two empty lists are equal, and `[] ⊆ []` is the
     // strongest possible pass. The wire has had sixteen capabilities since
-    // `translatePdfLanguages` landed on 2026-11-15 (fifteen since
-    // `docxTables`, the same day; fourteen since `docxRunStyles`,
+    // `translatePdfLanguages` and `docxTypefaces` landed on 2026-11-15
+    // (sixteen and fifteen since `docxTables`, the same day; fourteen since
+    // `docxRunStyles`,
     // the same day; thirteen since `htmlZip`,
     // twelve since `translateOcr`, eleven since
     // `docxPictures`, ten since
@@ -179,7 +180,7 @@ describe("the advertised set and the wire contract agree", () => {
       wire.length,
       "the heartbeat's capability set is implausibly small — the corpus, not " +
         "the code, is what failed",
-    ).toBeGreaterThanOrEqual(16);
+    ).toBeGreaterThanOrEqual(17);
 
     expect(
       [...advertised].sort(),
@@ -257,6 +258,7 @@ describe("the advertised set and the wire contract agree", () => {
       docxPictures: true,
       docxRunStyles: true,
       docxTables: true,
+      docxTypefaces: true,
       translateOcr: true,
       htmlZip: true,
       translatePdfLanguages: true,
@@ -497,7 +499,12 @@ describe("the daemon PROVES the capabilities, it does not declare them", () => {
     walk(sf);
     // HEALTH: printed, not counted — the keys a prover publishes today.
     expect(published.map(([key]) => key)).toEqual(
-      expect.arrayContaining(["docxTables", "docxRunStyles", "docxPictures"]),
+      expect.arrayContaining([
+        "docxTypefaces",
+        "docxTables",
+        "docxRunStyles",
+        "docxPictures",
+      ]),
     );
     expect(published.length).toBeGreaterThanOrEqual(8);
     expect(
