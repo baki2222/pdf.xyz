@@ -928,3 +928,68 @@ export function readColumnByColumn(
     paragraphs.every((p, i) => p === expected[i])
   );
 }
+
+/**
+ * #28 slice 2 (tables): the table PDF to Word's start-up probe draws
+ * (`docxTablesProbePdf` in `pdf-office-export/capability.ts`) — a
+ * wide-gapped line, a short separator, then Item / Qty / Price with no
+ * quantity on the middle row. One geometry, so the probe and the claims'
+ * evidence cannot disagree about what they draw.
+ */
+export async function gappedTablePdf(): Promise<Uint8Array> {
+  const { docxTablesProbePdf } =
+    await import("@/lib/workers/pdf-office-export/capability");
+  return docxTablesProbePdf();
+}
+
+/**
+ * #28 slice 2 (tables): a five-row table one of whose cells wraps onto a
+ * second line. `long`: the wrapped cell has four words and its continuation
+ * starts in lower case (flow.ts rule 4 refuses the run holding it). `short`:
+ * a two-word cell wraps a capitalised word ("New York" / "City"), which no
+ * rule sees.
+ */
+export const WRAPPED_TABLE = {
+  long: {
+    rows: [
+      ["Item", "Note", "Qty"],
+      ["A-1", "short", "1"],
+      ["B-2", "this note is long", "2"],
+      ["C-3", "ok", "3"],
+      ["D-4", "fine", "4"],
+    ],
+    continuation: "and continues here",
+  },
+  short: {
+    rows: [
+      ["Office", "City", "Staff"],
+      ["North", "Leeds", "1"],
+      ["East", "New York", "2"],
+      ["South", "Hull", "3"],
+      ["West", "Bath", "4"],
+    ],
+    continuation: "City",
+  },
+} as const;
+
+/** {@link WRAPPED_TABLE}: columns at 72, 200 and 420, rows 16 points apart. */
+export async function wrappedCellTablePdf(
+  kind: keyof typeof WRAPPED_TABLE,
+): Promise<Uint8Array> {
+  const t = WRAPPED_TABLE[kind];
+  const doc = await PDFDocument.create();
+  const font = await embedDrawingFont(doc, [...t.rows.flat(), t.continuation]);
+  const page = doc.addPage([612, 792]);
+  let y = 700;
+  t.rows.forEach((row, r) => {
+    row.forEach((cell, c) =>
+      page.drawText(cell, { x: [72, 200, 420][c]!, y, size: 11, font }),
+    );
+    y -= 16;
+    if (r === 2) {
+      page.drawText(t.continuation, { x: 200, y: y + 3, size: 11, font });
+      y -= 13;
+    }
+  });
+  return doc.save();
+}

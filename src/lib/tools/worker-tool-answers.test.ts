@@ -64,6 +64,7 @@ import {
   type PdfOfficeExportTool,
 } from "@/lib/workers/pdf-office-export/engine";
 import { readDocxParagraphs } from "@/lib/workers/pdf-office-export/docx-text";
+import { readDocxStructure } from "@/lib/workers/pdf-office-export/docx-structure";
 import { scanPdfPages } from "@/lib/workers/pdf-office-export/page-scan";
 import { linesPdf, scannedPdf } from "@/tests/pptx-fidelity-fixtures";
 import { noPictures } from "@/tests/page-scan-stubs";
@@ -323,7 +324,7 @@ describe("PDF to Word: the DOCX is the page's sentence", () => {
    * paragraph formatting, styles or theme, which the sentence says stay
    * behind.
    */
-  it("reading order, wrapped lines joined, one column at a time, table rows tabbed, each picture between its paragraphs — and nothing else rich", async () => {
+  it("reading order, wrapped lines joined, one column at a time, a table as a Word table, each picture between its paragraphs — and nothing else rich", async () => {
     const twoColumns = await exportRun(
       "pdf-to-word",
       [""],
@@ -353,17 +354,39 @@ describe("PDF to Word: the DOCX is the page's sentence", () => {
     );
     if (!tableRun.ok) throw new Error(tableRun.message);
     const table = tableRun.output;
-    expect(PDF_TO_WORD_KEEPS).toContain("its cells separated by tabs");
-    expect(await readDocxParagraphs(table)).toEqual(
-      TABLE_ROWS.map((row) => row.join("\t")),
+    // INVERTED 2026-11-15 (#28 slice 2, tables). HISTORY: the sentence said
+    // "its cells separated by tabs" and this read the flat paragraphs as
+    // `TABLE_ROWS.map((row) => row.join("\t"))`, with `<w:tbl` forbidden
+    // below. The table is now a Word table: read structurally, its rows are
+    // the same cells.
+    expect(PDF_TO_WORD_KEEPS).toContain(
+      "a table whose cells each fit on one line comes through as a Word table, each value in its own column",
     );
+    const tables = (await readDocxStructure(table)).blocks.filter(
+      (b) => b.kind === "tbl",
+    );
+    expect(tables).toHaveLength(1);
+    expect(
+      tables[0]!.kind === "tbl" &&
+        tables[0]!.rows.map((r) =>
+          r.cells.map((c) =>
+            c.blocks
+              .map((b) =>
+                b.kind === "p" ? b.runs.map((x) => x.text).join("") : "",
+              )
+              .join(""),
+          ),
+        ),
+    ).toEqual(TABLE_ROWS.map((row) => [...row]));
 
-    // Tables, layout, styles: none of their markup, none of the parts that
-    // would carry them. Character formatting is now REQUIRED on the table's
-    // words (each keeps its size, at least), and still absent from the
-    // two-column export, whose stub reader reads no runs.
+    // Layout and styles: none of their markup, none of the parts that would
+    // carry them. Character formatting is REQUIRED on the table's words
+    // (each keeps its size, at least), and the table's own markup since
+    // 2026-11-15; both still absent from the two-column export, whose stub
+    // reader reads no runs and which has no table.
     expect(await richContentIn(await JSZip.loadAsync(twoColumns))).toEqual([]);
     expect(await richContentIn(await JSZip.loadAsync(table))).toEqual([
+      "<w:tbl",
       "<w:rPr",
     ]);
     expect(PDF_TO_WORD_KEEPS).toContain(

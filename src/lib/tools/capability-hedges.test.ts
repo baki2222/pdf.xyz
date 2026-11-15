@@ -441,6 +441,18 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
       /\b(?:[Bb]old|[Ii]talics?|[Ss]izes?|[Cc]olou?rs?)\b(?:[^.?!]|\.(?=\w)){0,120}\b(?:Word|DOCX)\b|\b(?:Word|DOCX)\b(?:[^.?!]|\.(?=\w)){0,120}\b(?:[Bb]old|[Ii]talics?|text sizes?|[Cc]olou?rs?)\b|\b(?:[Ee]ach word|[Ww]ords) keep\w*\s+(?:its|their)\s+bold\b/,
     catalogueCopy: true,
   },
+  docxTables: {
+    // Added 2026-11-15 with the key (backlog #28, slice 2: tables). The
+    // sentences a hedge about it would sit in: a table and Word (or DOCX) in
+    // one sentence, either order, and the page's own shape "comes through
+    // as a Word table". CASE-SENSITIVE, like docxRunStyles: "word" in lower
+    // case is any word. Measured that day over the whole corpus: see "the
+    // docxTables subject reaches the Word table sentences". catalogueCopy is
+    // true because those exist.
+    subject:
+      /\b[Tt]ables?\b(?:[^.?!]|\.(?=\w)){0,120}\b(?:Word|DOCX)\b|\b(?:Word|DOCX)\b(?:[^.?!]|\.(?=\w)){0,120}\b[Tt]ables?\b|\bcomes? through as a Word table\b/,
+    catalogueCopy: true,
+  },
   translateOcr: {
     // Added 2026-11-09 with the key (audit translate-pdf#3). The sentences a
     // hedge about it would sit in: a scan recognised ON OUR SERVER, the way
@@ -1311,6 +1323,61 @@ describe("the docxRunStyles subject (backlog #28 slice 1, 2026-11-15)", () => {
     expect(
       hedgeOffenders([planted], []).some((line) =>
         line.includes('hedges "docxRunStyles"'),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("the docxTables subject (backlog #28 slice 2, 2026-11-15)", () => {
+  /**
+   * BOTH DIRECTIONS (house rule 1). Measured when the key landed, over the
+   * whole corpus: exactly these thirteen — PDF to Word's intro[1], its look
+   * FAQ answer, its tables FAQ answer and its keep FAQ answer
+   * (PDF_TO_WORD_KEEPS); the convert guide's two section paragraphs and its
+   * look FAQ answer (PDF_TO_WORD_KEEPS again); the add-text guide's pointer
+   * to PDF to Word; the scanned-PDF and Bangla-PDF guides' "comes through"
+   * paragraphs and their "not carried over" paragraphs (which said "fonts,
+   * columns, tables and spacing are not carried over" — no "Word" in the
+   * sentence, so this subject never saw them; the table rule in
+   * claims-vs-capability.test.ts caught them); and OCR PDF's answer pointing
+   * to PDF to Word. Decided, not
+   * found: NO Word to PDF, Extract Tables or PDF to Excel sentence is a
+   * member — their table sentences are about a Word file going the other
+   * way or about spreadsheets, never about what PDF to Word writes, so a
+   * heartbeat that denies docxTables has nothing to hedge there.
+   */
+  it("reaches the Word table sentences, and nothing else", () => {
+    const members = COPY.filter((entry) =>
+      SUBJECTS.docxTables!.subject.test(entry.text),
+    ).map((entry) => `${entry.slug} ${entry.where}`);
+    expect(members.sort()).toEqual(
+      [
+        "pdf-to-word intro[1]",
+        "pdf-to-word faq[0].answer",
+        "pdf-to-word faq[3].answer",
+        "pdf-to-word faq[7].answer",
+        "ocr-pdf faq[1].answer",
+        "guide:how-to-convert-pdf-to-word sections[0].body[0]",
+        "guide:how-to-convert-pdf-to-word sections[0].body[1]",
+        "guide:how-to-convert-pdf-to-word faq[4].answer",
+        "guide:how-to-add-text-to-a-pdf sections[2].body[0]",
+        "guide:how-to-convert-a-scanned-pdf-to-word sections[0].body[0]",
+        "guide:how-to-convert-a-scanned-pdf-to-word sections[0].body[1]",
+        "guide:how-to-convert-bangla-pdf-to-word sections[0].body[0]",
+        "guide:how-to-convert-bangla-pdf-to-word sections[0].body[1]",
+      ].sort(),
+    );
+  });
+
+  it("positive control: a deferral planted in the tables answer is caught", () => {
+    const planted: CopyEntry = {
+      slug: "pdf-to-word",
+      where: "faq[3].answer",
+      text: "A table whose cells each fit on one line comes through as a Word table (coming soon).",
+    };
+    expect(
+      hedgeOffenders([planted], []).some((line) =>
+        line.includes('hedges "docxTables"'),
       ),
     ).toBe(true);
   });

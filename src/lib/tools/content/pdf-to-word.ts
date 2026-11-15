@@ -43,10 +43,10 @@ import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
  *  - src/lib/workers/pdf-office-export/engine.ts — Word reads `extractFlow`
  *    (poppler `pdftotext -bbox-layout`, through ../pdf-text/flow.ts) and never
  *    `-layout`: wrapped lines are joined into paragraphs, a two-column page is
- *    read a column at a time, a run of aligned short-cell rows becomes
- *    tab-separated cells (a table whose cells wrap is read column by column),
- *    and `docxBody` writes a Word page break between pages that have text. No
- *    styles part, tables or hyperlinks. No selectable text in the WHOLE
+ *    read a column at a time, a run of aligned short-cell rows becomes a
+ *    table (since 2026-11-15 a Word table; see the CHANGED entry below), and
+ *    the writer puts a Word page break between pages that have text. No
+ *    styles part or hyperlinks. No selectable text in the WHOLE
  *    file → `no_text`; a locked PDF → `password_protected`, whose message
  *    names Unlock PDF;
  *  - src/lib/workers/processor/pdf-office-export.ts — exactly one PDF per job,
@@ -108,6 +108,25 @@ import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
  *    whole paragraph is set in them" and "fonts, sizes, colours … stay
  *    behind", both true then. The live answer is the heartbeat's
  *    `docxRunStyles`.
+ *  - CHANGED 2026-11-15 (backlog #28 slice 2, tables): every table
+ *    flow.ts recognises is written as a real Word table (`w:tbl`), one per
+ *    grid segment (table-grid.ts; a run split by white space is two
+ *    tables), each value in the column its position falls in and an empty
+ *    column left as an empty cell, run styles kept, thin grey borders added
+ *    (the PDF's rules are not read). STILL NOT: tables of more than 63
+ *    columns, over the per-table/per-page caps, of one column, or past the
+ *    size fallback (tabbed rows, counted); a lone wide-gapped line (a
+ *    tabbed paragraph); wrapped-cell tables as ONE table (fragments of 2+
+ *    aligned rows can become small tables); the typeface. Until this date
+ *    the page said a table "comes through one row per paragraph, with its
+ *    cells separated by tabs rather than placed in Word table cells",
+ *    "tables as tables … are not carried across", and that a wrapped-cell
+ *    table "is read column by column instead" — the first two true then,
+ *    the third never wholly true (only the run holding the wrapped row is
+ *    refused). The live answer is the heartbeat's `docxTables`
+ *    (provesDocxTables), and the claims are held to the engine in
+ *    claims-vs-capability.test.ts ("PDF to Word: the table sentences hold
+ *    of the engine").
  *  - CHANGED 2026-10-24: the panel draws a “Recognise text in scans (OCR)”
  *    checkbox (WORD_OCR_LABEL) and, when on, OCR PDF's language picker
  *    (ocr-language-picker.tsx). The job then carries `{ ocr: true,
@@ -168,8 +187,8 @@ const content: ToolContent = {
   metaDescription: `Convert a PDF to editable Word DOCX: text as paragraphs in reading order, each picture between them at its size. OCR for scans. Up to ${CEILING_MB} MB, no account.`,
 
   intro: [
-    `PDF to Word lifts the text you could highlight in a PDF, and the photos, screenshots and scans on its pages, into a .docx file that opens and edits in Word. It is not a page replica: lines the PDF wrapped are joined back into paragraphs, each picture sits on a line of its own between the paragraphs printed above and below it, and each PDF page with text or a picture starts on a new Word page. The Word page is the size of the PDF's first page, or A4 upright when that page is landscape, such as a slide (scaled to fit, its shape kept, when it is larger than Word allows), and a picture wider or taller than the page's text area is scaled down to fit. Each word keeps its bold, italics, text size and colour wherever our reader matches it to the PDF's text, so a bold word inside a sentence stays bold. The typeface, tables as tables and drawings made of lines and shapes are not carried across, and text recognised by OCR comes through in Word's default style.`,
-    `The extractor follows the page's reading order: a page set in two columns is read one column at a time, and a table whose cells each fit on one line comes through one row per paragraph, with its cells separated by tabs rather than placed in Word table cells. If no page has selectable text, as with a scan that was never OCR'd, the job stops rather than hand you a document of page pictures with nothing in it to edit. Tick “${WORD_OCR_LABEL}” before exporting and our server runs OCR on the file first, in the languages you pick, and converts the result in the same job.`,
+    `PDF to Word lifts the text you could highlight in a PDF, and the photos, screenshots and scans on its pages, into a .docx file that opens and edits in Word. It is not a page replica: lines the PDF wrapped are joined back into paragraphs, each picture sits on a line of its own between the paragraphs printed above and below it, and each PDF page with text or a picture starts on a new Word page. The Word page is the size of the PDF's first page, or A4 upright when that page is landscape, such as a slide (scaled to fit, its shape kept, when it is larger than Word allows), and a picture wider or taller than the page's text area is scaled down to fit. Each word keeps its bold, italics, text size and colour wherever our reader matches it to the PDF's text, so a bold word inside a sentence stays bold. The typeface and drawings made of lines and shapes are not carried across, and text recognised by OCR comes through in Word's default style.`,
+    `The extractor follows the page's reading order: a page set in two columns is read one column at a time. A table whose cells each fit on one line comes through as a Word table, each value in its own column and an empty cell left empty; a table whose cells wrap onto a second line is not laid out as one Word table: the rows around a wrapped cell may come through as a smaller table, and the rest as lines of text. If no page has selectable text, as with a scan that was never OCR'd, the job stops rather than hand you a document of page pictures with nothing in it to edit. Tick “${WORD_OCR_LABEL}” before exporting and our server runs OCR on the file first, in the languages you pick, and converts the result in the same job.`,
     `Conversion happens on a server, not in your browser. Your PDF travels over TLS to pdf.xyz's secure server, where poppler's pdftotext reads the text layer and pdf.js finds each picture and where the page shows it. Our server deletes the uploaded PDF when the job finishes; the DOCX link expires after ${OUTPUT_TTL} minutes, and a daily storage rule then erases the stored copy. Each PDF is a job of its own, and uploads above ${CEILING_MB} MB are refused.`,
   ],
 
@@ -220,7 +239,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Will the Word file look like my PDF?",
-      a: "Closer than plain text, but not a copy of the page. Words keep their bold, italics, size and colour where our reader matches them; the typeface, tables as tables, link targets and drawings made of lines and shapes stay behind, and the page's positions, indentation and spacing are not kept. Text recognised by OCR, pages our server could not read within what one conversion allows, and any word whose formatting it cannot tell for certain, such as one whose colour changes partway through or text drawn turned or over other text, come through unformatted rather than guessed, and the note beside the download names every page where that happened. The pictures sit on lines of their own between the paragraphs, and a picture painted over another, or over text, comes through on its own line instead of on top. What the page paints over a picture, such as a box over a name, is drawn into that picture, so what it covers stays covered. Each PDF page with text or a picture begins on a new Word page, and running headers and page numbers come through as ordinary paragraphs.",
+      a: "Closer than plain text, but not a copy of the page. Words keep their bold, italics, size and colour where our reader matches them, and a table whose cells each fit on one line comes through as a Word table; the typeface, link targets and drawings made of lines and shapes stay behind, and the page's positions, indentation and spacing are not kept. Text recognised by OCR, pages our server could not read within what one conversion allows, and any word whose formatting it cannot tell for certain, such as one whose colour changes partway through or text drawn turned or over other text, come through unformatted rather than guessed, and the note beside the download names every page where that happened. The pictures sit on lines of their own between the paragraphs, and a picture painted over another, or over text, comes through on its own line instead of on top. What the page paints over a picture, such as a box over a name, is drawn into that picture, so what it covers stays covered. Each PDF page with text or a picture begins on a new Word page, and running headers and page numbers come through as ordinary paragraphs.",
     },
     {
       q: "Are the pictures kept at their full quality?",
@@ -232,7 +251,7 @@ const content: ToolContent = {
     },
     {
       q: "How are tables and multi-column pages handled?",
-      a: "In reading order. A page set in two columns is read one column at a time. A table whose cells each fit on one line comes through as one paragraph per row, with its cells separated by tabs rather than placed in Word table cells; a table whose cells wrap onto a second line is read column by column instead. For real cells, use PDF to Excel or Extract Tables; for plain words with no upload at all, PDF to Text runs in your browser.",
+      a: "In reading order. A page set in two columns is read one column at a time. A table whose cells each fit on one line comes through as a Word table: each value sits in its own column, an empty cell stays empty, and the words keep their formatting. Thin grey borders are added, since the PDF's own lines and shading are not read. A table that continues onto the next page comes through as a second table. A table of more than 63 columns (Word's limit), one with more cells than one page's limit, or one whose columns cannot be told apart comes through one row per paragraph with its cells separated by tabs instead. A table whose cells wrap onto a second line is not laid out as one Word table: the rows around a wrapped cell may come through as a smaller table, and the rest as lines of text. For a spreadsheet, use PDF to Excel or Extract Tables; for plain words with no upload at all, PDF to Text runs in your browser.",
     },
     {
       q: "Can I turn a PDF that has an open password into Word?",

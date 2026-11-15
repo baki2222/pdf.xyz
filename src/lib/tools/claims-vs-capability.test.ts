@@ -1013,8 +1013,40 @@ const RULES: readonly ClaimRule[] = [
       // columns, tables as tables, the typeface (`rFonts`), anchors, and a
       // styles or font table part. The banned shapes and the shipped corpus
       // are unchanged.
+      // RE-EVALUATED 2026-11-15 again, when tables began to be written as
+      // Word tables (backlog #28 slice 2, `w:tbl`): a Word table is a
+      // structure that flows with the text wherever Word breaks the page,
+      // like an inline picture; its column widths are proportional, not
+      // positions on the page, so its presence cannot license "preserves
+      // layout", and `tbl` leaves the detector. A third real export (the
+      // quarterly table, through the real page reader) is read so the new
+      // markup is in what the detector sees.
       const LAYOUT =
-        /<w:(?:tbl|cols|framePr|tabs|ind|jc|spacing|rFonts)\b|<wp:anchor\b/g;
+        /<w:(?:cols|framePr|tabs|ind|jc|spacing|rFonts)\b|<wp:anchor\b/g;
+      const { quarterlyTablePdf } = await import("@/tests/pdf-office-fixtures");
+      const { TABLE_BBOX } = await import("@/tests/poppler-samples");
+      const tableRun = await runPdfOfficeExport(
+        PDF_TO_WORD_TOOL,
+        await quarterlyTablePdf(),
+        {
+          extractFlow: async () => flowText(parseBboxFlow(TABLE_BBOX)),
+          scanPages: scanPdfPages,
+        },
+      );
+      if (!tableRun.ok) throw new Error(tableRun.message);
+      const tabled = {
+        "word/document.xml": await (
+          await JSZip.loadAsync(tableRun.output)
+        )
+          .file("word/document.xml")!
+          .async("string"),
+      };
+      if (!/<w:tbl>/.test(tabled["word/document.xml"]))
+        throw new Error("the table probe's .docx carries no Word table");
+      // The table's own markup is not layout, and none of it may match.
+      for (const tag of ["<w:tblW", "<w:tblGrid", "<w:tblLayout", "<w:tab/>"])
+        if ([...tag.matchAll(LAYOUT)].length > 0)
+          throw new Error(`the layout detector counts ${tag} as layout`);
       const STYLED = /styles|fontTable/;
       const detect = (parts: Record<string, string>) => [
         ...[...(parts["word/document.xml"] ?? "").matchAll(LAYOUT)].map(
@@ -1028,7 +1060,7 @@ const RULES: readonly ClaimRule[] = [
       if (!/<w:drawing>/.test(pictured["word/document.xml"] ?? ""))
         throw new Error("the picture probe's .docx carries no picture");
       for (const tag of [
-        "<w:tbl><w:tr/></w:tbl>",
+        // "<w:tbl><w:tr/></w:tbl>" until 2026-11-15 (see LAYOUT above).
         '<w:p><w:pPr><w:ind w:left="720"/></w:pPr></w:p>',
         // Was a `<w:sz>` run until 2026-11-15 (see LAYOUT above).
         '<w:p><w:pPr><w:spacing w:after="240"/></w:pPr></w:p>',
@@ -1037,10 +1069,14 @@ const RULES: readonly ClaimRule[] = [
       ])
         if (detect({ "word/document.xml": tag }).length === 0)
           throw new Error(`the layout detector misses ${tag}`);
-      const found = [...detect(columns), ...detect(pictured)];
+      const found = [
+        ...detect(columns),
+        ...detect(pictured),
+        ...detect(tabled),
+      ];
       return {
         present: found.length > 0,
-        evidence: `layout elements and parts in two real exports: [${found.join(", ")}]`,
+        evidence: `layout elements and parts in three real exports: [${found.join(", ")}]`,
       };
     },
   },
@@ -1074,8 +1110,14 @@ const RULES: readonly ClaimRule[] = [
       "Fonts carry over along with sizes and colours.",
     ],
     honest: [
-      "The typeface, tables as tables and drawings made of lines and shapes are not carried across, and text recognised by OCR comes through in Word's default style.",
-      "Each word keeps its bold, italics, size and color where they can be matched; tables, the typeface, drawings made of lines and shapes elsewhere on the page, and the page layout are not carried over, so the result is a document ready to edit — not a copy of the page.",
+      // Until 2026-11-15 (#28 slice 2) also the sentence before this one with
+      // "tables as tables" / "tables," in its list — no longer the page's:
+      // a table whose cells fit on one line is a Word table now.
+      "The typeface and drawings made of lines and shapes are not carried across, and text recognised by OCR comes through in Word's default style.",
+      // Until 2026-11-15 (#28 slice 2) also the sentence before this one with
+      // "tables as tables" / "tables," in its list — no longer the page's:
+      // a table whose cells fit on one line is a Word table now.
+      "Each word keeps its bold, italics, size and color where they can be matched; the typeface, drawings made of lines and shapes elsewhere on the page, and the page layout are not carried over, a table whose cells wrap onto a second line is not laid out as one Word table: the rows around a wrapped cell may come through as a smaller table, and the rest as lines of text, so the result is a document ready to edit — not a copy of the page.",
       "Typefaces and layout are not recreated; for a scan, tick “Recognise text in scans (OCR)”.",
       "Open the downloaded DOCX in Word and finish the formatting — the words arrive as paragraphs in reading order, with their bold, italics, sizes and colours where they could be matched, in Word's default typeface.",
     ],
@@ -2514,9 +2556,15 @@ describe("PDF to Word: the picture sentences hold of the engine", () => {
     // colours, tables as tables, link targets and drawings made of lines and
     // shapes stay behind." — no longer the page's: sizes and colours are
     // kept on each word now. What replaced it:
-    "Words keep their bold, italics, size and colour where our reader matches them; the typeface, tables as tables, link targets and drawings made of lines and shapes stay behind, and the page's positions, indentation and spacing are not kept.",
+    // Until 2026-11-15 (#28 slice 2) also the sentence before this one with
+    // "tables as tables" / "tables," in its list — no longer the page's:
+    // a table whose cells fit on one line is a Word table now.
+    "Words keep their bold, italics, size and colour where our reader matches them, and a table whose cells each fit on one line comes through as a Word table; the typeface, link targets and drawings made of lines and shapes stay behind, and the page's positions, indentation and spacing are not kept.",
     "The pictures sit on lines of their own between the paragraphs, and a picture painted over another, or over text, comes through on its own line instead of on top.",
-    "The typeface, tables as tables and drawings made of lines and shapes are not carried across, and text recognised by OCR comes through in Word's default style.",
+    // Until 2026-11-15 (#28 slice 2) also the sentence before this one with
+    // "tables as tables" / "tables," in its list — no longer the page's:
+    // a table whose cells fit on one line is a Word table now.
+    "The typeface and drawings made of lines and shapes are not carried across, and text recognised by OCR comes through in Word's default style.",
   ];
   const denies = (text: string) =>
     Object.values(DENIES).some((re) => re.test(text));
@@ -2705,8 +2753,14 @@ describe("PDF to Word: the picture sentences hold of the engine", () => {
     /** What the page says since 2026-11-15. */
     const HONEST_STYLE = [
       "Each word keeps its bold, italics, text size and colour wherever our reader matches it to the PDF's text, so a bold word inside a sentence stays bold.",
-      "Words keep their bold, italics, size and colour where our reader matches them; the typeface, tables as tables, link targets and drawings made of lines and shapes stay behind, and the page's positions, indentation and spacing are not kept.",
-      "Each word keeps its bold, italics, size and color where they can be matched; tables, the typeface, drawings made of lines and shapes elsewhere on the page, and the page layout are not carried over, so the result is a document ready to edit — not a copy of the page.",
+      // Until 2026-11-15 (#28 slice 2) also the sentence before this one with
+      // "tables as tables" / "tables," in its list — no longer the page's:
+      // a table whose cells fit on one line is a Word table now.
+      "Words keep their bold, italics, size and colour where our reader matches them, and a table whose cells each fit on one line comes through as a Word table; the typeface, link targets and drawings made of lines and shapes stay behind, and the page's positions, indentation and spacing are not kept.",
+      // Until 2026-11-15 (#28 slice 2) also the sentence before this one with
+      // "tables as tables" / "tables," in its list — no longer the page's:
+      // a table whose cells fit on one line is a Word table now.
+      "Each word keeps its bold, italics, size and color where they can be matched; the typeface, drawings made of lines and shapes elsewhere on the page, and the page layout are not carried over, a table whose cells wrap onto a second line is not laid out as one Word table: the rows around a wrapped cell may come through as a smaller table, and the rest as lines of text, so the result is a document ready to edit — not a copy of the page.",
       "Open the downloaded DOCX in Word and finish the formatting — the words arrive as paragraphs in reading order, with their bold, italics, sizes and colours where they could be matched, in Word's default typeface.",
       "To rework the wording itself, convert the file with PDF to Word: it exports the PDF's selectable text as an editable Word document, in reading order, each word keeping its bold, italics, size and colour where our reader matches it, with each picture between the paragraphs.",
     ];
@@ -3255,4 +3309,178 @@ describe("Compare PDF: the page and word claims hold of the comparison", () => {
       ).toEqual([]);
     }
   });
+});
+
+/**
+ * #28 slice 2 (tables), added 2026-11-15, modelled on the picture rule above.
+ * Until that date every PDF to Word surface said a table came through as
+ * tab-separated rows, or that tables as tables stay behind — true of every
+ * download then. A table whose cells each fit on one line is now a Word
+ * table, so those sentences are DENIALS of what the engine does; and the
+ * sentence a rewrite reaches for next — "every table comes through as a Word
+ * table" — is an OVERCLAIM, since a wrapped-cell table does not. Both
+ * corpora run both ways (house rule 1), and the probe is the consumer's
+ * artifact: real exports, read back structurally.
+ */
+describe("PDF to Word: the table sentences hold of the engine", () => {
+  const DENIES_TABLES: Record<string, RegExp> = {
+    "tables as tables stay behind":
+      /\btables as tables\b[^.;]{0,120}?\b(?:stay behind|are not carried)\b/i,
+    "rather than Word table cells":
+      /\brather than placed in Word table cells\b/i,
+    "tables arrive as lines of text": /\btables arrive as lines of text\b/i,
+    "a table's cells separated by tabs":
+      /\ba table's cells separated by tabs\b/i,
+    "a one-line table as tabbed rows":
+      /\btable whose cells each fit on one line comes through (?:as )?one (?:row|paragraph) per (?:line|paragraph|row)\b/i,
+    "tables are not recreated":
+      /\btables\b[^.;]{0,120}?\b(?:are|is) not (?:recreated|carried (?:over|across))\b/i,
+  };
+  /** Each one shipped on the PDF to Word surfaces at bcb7d39a. */
+  const SHIPPED = [
+    "The typeface, tables as tables and drawings made of lines and shapes are not carried across, and text recognised by OCR comes through in Word's default style.",
+    "The extractor follows the page's reading order: a page set in two columns is read one column at a time, and a table whose cells each fit on one line comes through one row per paragraph, with its cells separated by tabs rather than placed in Word table cells.",
+    "Words keep their bold, italics, size and colour where our reader matches them; the typeface, tables as tables, link targets and drawings made of lines and shapes stay behind, and the page's positions, indentation and spacing are not kept.",
+    "A table whose cells each fit on one line comes through as one paragraph per row, with its cells separated by tabs rather than placed in Word table cells; a table whose cells wrap onto a second line is read column by column instead.",
+    "The text arrives as paragraphs in reading order: lines that wrap in the PDF are joined into one paragraph, a page set in two columns is read one column at a time, and a table whose cells each fit on one line comes through one row per line, its cells separated by tabs.",
+    "Each word keeps its bold, italics, size and color where they can be matched; tables, the typeface, drawings made of lines and shapes elsewhere on the page, and the page layout are not carried over, so the result is a document ready to edit — not a copy of the page.",
+    "Headings keep their bold and size but not a Word heading style, and lists and tables arrive as lines of text, a table's cells separated by tabs, so expect to restyle the document: the conversion saves you the retyping, not all of the formatting.",
+    "The typeface, tables and page layout are not recreated, so it suits documents where the words matter more than the look.",
+  ];
+  /** One per shape, each walking past the shipped wording. */
+  const SYNONYMS = [
+    "Tables as tables are not carried over.",
+    "Each row is written out rather than placed in Word table cells.",
+    "Lists and tables arrive as lines of text.",
+    "You get a table's cells separated by tabs.",
+    "A table whose cells each fit on one line comes through one paragraph per row.",
+    "Charts and tables are not recreated.",
+  ];
+  /** What the surfaces say since 2026-11-15, which no denial may catch. */
+  const HONEST = [
+    "The typeface and drawings made of lines and shapes are not carried across, and text recognised by OCR comes through in Word's default style.",
+    "The extractor follows the page's reading order: a page set in two columns is read one column at a time.",
+    "A table whose cells each fit on one line comes through as a Word table, each value in its own column and an empty cell left empty; a table whose cells wrap onto a second line is not laid out as one Word table: the rows around a wrapped cell may come through as a smaller table, and the rest as lines of text.",
+    "Words keep their bold, italics, size and colour where our reader matches them, and a table whose cells each fit on one line comes through as a Word table; the typeface, link targets and drawings made of lines and shapes stay behind, and the page's positions, indentation and spacing are not kept.",
+    "A table whose cells each fit on one line comes through as a Word table: each value sits in its own column, an empty cell stays empty, and the words keep their formatting.",
+    "Thin grey borders are added, since the PDF's own lines and shading are not read.",
+    "A table that continues onto the next page comes through as a second table.",
+    "A table of more than 63 columns (Word's limit), one with more cells than one page's limit, or one whose columns cannot be told apart comes through one row per paragraph with its cells separated by tabs instead.",
+    "Headings keep their bold and size but not a Word heading style, lists arrive as lines of text, and a table comes through as a Word table only when each of its cells fits on one line, so expect to restyle the document: the conversion saves you the retyping, not all of the formatting.",
+    "The typeface and page layout are not recreated, and only a table whose cells each fit on one line comes through as a Word table, so it suits documents where the words matter more than the look.",
+  ];
+  const OVERCLAIMS: Record<string, RegExp> = {
+    "every table is a Word table":
+      /\b(?:every|all|each) (?:of (?:the|its|your) )?tables?\b[^.;]{0,60}?\bcomes? through as (?:a )?Word tables?\b/i,
+    "tables kept exactly": /\btables? (?:are|is) kept exactly\b/i,
+    "borders match": /\bborders?\b[^.;]{0,40}?\b(?:match|are kept|is kept)\b/i,
+    "the same tables as Extract Tables":
+      /\bthe same tables? (?:as )?Extract Tables\b/i,
+  };
+  /** The sentence a rewrite would ship, and one synonym per shape. */
+  const OVERCLAIM_SHIPPED = [
+    "Every table in your PDF comes through as a Word table, with its borders kept.",
+  ];
+  const OVERCLAIM_SYNONYMS = [
+    "All tables come through as Word tables.",
+    "Tables are kept exactly as the PDF draws them.",
+    "The borders match the PDF's.",
+    "Word gets the same tables Extract Tables finds.",
+  ];
+  const denies = (t: string) =>
+    Object.values(DENIES_TABLES).some((re) => re.test(t));
+  const overclaims = (t: string) =>
+    Object.values(OVERCLAIMS).some((re) => re.test(t));
+
+  it("both corpora, both ways: every shape catches a sentence, every sentence is caught, and the honest ones pass", () => {
+    for (const [name, re] of Object.entries(DENIES_TABLES))
+      expect(
+        [...SHIPPED, ...SYNONYMS].some((c) => re.test(c)),
+        `${name} catches nothing shipped`,
+      ).toBe(true);
+    expect([...SHIPPED, ...SYNONYMS].filter((c) => !denies(c))).toEqual([]);
+    expect(HONEST.filter(denies)).toEqual([]);
+    for (const [name, re] of Object.entries(OVERCLAIMS))
+      expect(
+        [...OVERCLAIM_SHIPPED, ...OVERCLAIM_SYNONYMS].some((c) => re.test(c)),
+        `${name} catches nothing`,
+      ).toBe(true);
+    expect(
+      [...OVERCLAIM_SHIPPED, ...OVERCLAIM_SYNONYMS].filter(
+        (c) => !overclaims(c),
+      ),
+    ).toEqual([]);
+    expect(HONEST.filter(overclaims)).toEqual([]);
+  });
+
+  async function offenders(test: (t: string) => boolean): Promise<string[]> {
+    const out: string[] = [];
+    for (const container of await containersFor(PDF_TO_WORD_TOOL))
+      for (const { sentence, masked } of attributedTo(
+        container,
+        PDF_TO_WORD_TOOL,
+      ))
+        if (test(masked)) out.push(`${container.where}: ${sentence}`);
+    return out;
+  }
+
+  type Tbl = Extract<
+    Awaited<ReturnType<typeof readDocxStructure>>["blocks"][number],
+    { kind: "tbl" }
+  >;
+  async function tablesOf(pdf: Uint8Array): Promise<Tbl[]> {
+    const run = await runPdfOfficeExport(PDF_TO_WORD_TOOL, pdf, {
+      extractFlow: flowStandIn,
+      scanPages: scanPdfPages,
+    });
+    if (!run.ok) throw new Error(`${run.kind}: ${run.message}`);
+    return (await readDocxStructure(run.output)).blocks.filter(
+      (b): b is Tbl => b.kind === "tbl",
+    );
+  }
+  const cell = (t: Tbl, r: number, c: number) =>
+    (t.rows[r]?.cells[c]?.blocks ?? [])
+      .flatMap((b) => (b.kind === "p" ? b.runs : []))
+      .map((x) => x.text)
+      .join("");
+
+  it("the page denies tables exactly when the gapped export holds none, and never claims every table while a wrapped one is not whole", async () => {
+    const { gappedTablePdf, wrappedCellTablePdf } =
+      await import("@/tests/pdf-office-fixtures");
+    const gapped = await tablesOf(await gappedTablePdf());
+    // Health: the gapped export holds a table (measured: one, 3 x 4).
+    expect(gapped.length).toBeGreaterThan(0);
+    const priced = gapped.some(
+      (t) => t.gridCols.length === 3 && cell(t, 2, 2) === "12.00",
+    );
+    const deniers = await offenders(denies);
+    expect(
+      deniers,
+      priced
+        ? "the .docx holds a Word table with 12.00 in its third column — no sentence may deny tables"
+        : "the .docx holds no such table — the page must say so",
+    ).toEqual(priced ? [] : deniers.length ? deniers : ["(none)"]);
+
+    // The wrapped exports, measured 2026-11-15 on the stand-in extractor:
+    // TWO tables each (the rows above the wrapped cell, the rows below),
+    // the continuation a line of text — never one whole five-row table.
+    for (const kind of ["long", "short"] as const) {
+      const wrapped = await tablesOf(await wrappedCellTablePdf(kind));
+      expect(wrapped.length, kind).toBe(2);
+      const whole = wrapped.length === 1 && wrapped[0]!.rows.length === 5;
+      if (!whole) expect(await offenders(overclaims)).toEqual([]);
+    }
+
+    // Positive controls, through the same attribution the live check uses.
+    const caught = attributedTo(
+      { where: "control", home: PDF_TO_WORD_TOOL, texts: SHIPPED },
+      PDF_TO_WORD_TOOL,
+    ).filter(({ masked }) => denies(masked));
+    expect(caught).toHaveLength(SHIPPED.length);
+    const over = attributedTo(
+      { where: "control", home: PDF_TO_WORD_TOOL, texts: OVERCLAIM_SHIPPED },
+      PDF_TO_WORD_TOOL,
+    ).filter(({ masked }) => overclaims(masked));
+    expect(over).toHaveLength(OVERCLAIM_SHIPPED.length);
+  }, 120_000);
 });
