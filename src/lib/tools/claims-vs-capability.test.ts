@@ -4534,8 +4534,14 @@ const TRANSLATE_ZIP_ONLY_RULE = {
       /\brather than a (?:rebuilt|re-?laid-?out|reflowed) PDF\b/i,
     "does not produce a PDF":
       /\b(?:does not|doesn['’]t|never|will not|won['’]t) (?:produce|return|make|give you)\b[^.;]{0,24}\bPDF\b/i,
+    // The NOUN shape, not a verb list (review r1, 2026-11-16). The verb list
+    // `get|returns? it as|download the result —` passed the catalogue's
+    // "packaged as translated Markdown and plain text." on the tool page's
+    // "About this tool" and its JSON-LD while this rule reported it covered.
+    // A sentence naming the text formats with no PDF after them is the
+    // retired claim, whatever verb carries it.
     "the text alone as the whole output":
-      /(?:\b(?:get|returns? it as|download the result\s*[—–-]+)\s*(?:translated\s+)?Markdown and plain text\b|\boutputs a Markdown file and a plain-text file\b)(?![^.]*\bPDF\b)/i,
+      /(?:\bMarkdown and plain[- ]text\b|\ba Markdown file and a plain-text file\b)(?![^.]*\bPDF\b)/i,
   },
   // Shipped until 2026-11-15, verbatim, each from the surface named.
   shipped: [
@@ -4558,6 +4564,20 @@ const TRANSLATE_ZIP_ONLY_RULE = {
     "What it does not produce is a re-laid-out PDF.",
     // guide FAQ "Will the translation look like the original PDF?"
     "No. The output is translated Markdown and plain text, not a re-laid-out PDF.",
+    // catalogue description: "About this tool" and the WebApplication JSON-LD
+    // (until 2026-11-16; served uncaught through slice 2's first review)
+    "Translate a PDF's selectable text into another language with AI, packaged as translated Markdown and plain text.",
+    // guide FAQ, slice 2's first rewrite (until 2026-11-16): true, but read
+    // alone it names the text as the whole output; the PDF came a sentence later
+    "No. You always get a ZIP of translated Markdown and plain text.",
+  ],
+  // Whole-output synonyms nothing shipped, each a verb the old verb list let
+  // through (review r1, 2026-11-16: all three false against it in node). The
+  // noun shape must catch every one.
+  synonyms: [
+    "Translate PDF returns translated Markdown and plain text.",
+    "You receive translated Markdown and plain text.",
+    "The translation is delivered as Markdown and plain text in a ZIP.",
   ],
   // Still true, and must stay uncaught: the panel's description (the PDF it
   // denies is a LAYOUT-PRESERVING one) and the both-states FAQ of slice 1.
@@ -4565,6 +4585,11 @@ const TRANSLATE_ZIP_ONLY_RULE = {
     "It produces translated text (not a layout-preserving PDF).",
     "You always get the translation as Markdown and plain text in a ZIP; where this server can draw your target language, a reflowed PDF of the same text comes with it — the panel shows which before you start.",
     "AI translates the PDF's selectable text and returns it as translated Markdown and plain text in a ZIP, with a reflowed PDF of the same text for 17 of the 21 languages, ready to download.",
+    // Review r1's rewrites (2026-11-16): the catalogue description and the
+    // guide's two sentences the noun shape caught.
+    "Translate a PDF's selectable text into another language with AI: Markdown and plain text in a ZIP, plus a reflowed PDF of the same text for most target languages.",
+    "Every translation arrives as a Markdown file and a plain-text file in a single ZIP, the one download every job gets whether or not a PDF comes with it.",
+    "No. You always get a ZIP of translated Markdown and plain text, and a reflowed PDF of the same text where your target language has one.",
   ],
 } as const;
 
@@ -4589,6 +4614,12 @@ describe("Translate PDF: the retired ZIP-only sentences stay retired", () => {
     expect(
       honest.filter((c) => shapes.some(([, re]) => re.test(c))),
       "an honest sentence read as a retired one",
+    ).toEqual([]);
+    expect(
+      TRANSLATE_ZIP_ONLY_RULE.synonyms.filter(
+        (c) => !shapes.some(([, re]) => re.test(c)),
+      ),
+      "a synonym of the whole-output claim walks past",
     ).toEqual([]);
   });
 

@@ -1190,7 +1190,8 @@ describe("the translatePdfLanguages subject (competitor audit #29, 2026-11-15)",
    * 2026-11-15, slice 2: those surfaces now say which languages get the
    * reflowed PDF (`translatePdfCoverage`, derived from the set CI makes the
    * worker image prove), so the members are the tool page's three and the
-   * guide's six, measured that day. A member elsewhere is still a sentence
+   * guide's six, measured that day; review r1 (2026-11-16) added the
+   * catalogue description, which had named the text alone. A member elsewhere is still a sentence
    * about this capability nobody paired.
    */
   it("reaches Translate's PDF sentences, and nothing else", () => {
@@ -1204,6 +1205,8 @@ describe("the translatePdfLanguages subject (competitor audit #29, 2026-11-15)",
       "guide:how-to-translate-a-pdf intro[2]",
       "guide:how-to-translate-a-pdf sections[0].body[1]",
       "guide:how-to-translate-a-pdf steps[5]",
+      // Review r1, 2026-11-16: the catalogue description names the PDF now.
+      "translate-pdf description",
       "translate-pdf faq[0].answer",
       "translate-pdf intro[0]",
       "translate-pdf metaDescription",

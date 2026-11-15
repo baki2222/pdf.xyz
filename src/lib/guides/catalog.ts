@@ -2199,7 +2199,9 @@ export const guides: Guide[] = [
         id: "what-you-get-back",
         heading: "What you get back",
         body: [
-          "Every translation arrives as a Markdown file and a plain-text file, delivered together as a single ZIP. Markdown keeps the translation usable as a document — read it as-is, convert it, or paste it wherever the text needs to go. Plain text is the same words with nothing else attached.",
+          // Was "…, delivered together as a single ZIP." (until 2026-11-16):
+          // the text alone as the whole output, read sentence by sentence.
+          "Every translation arrives as a Markdown file and a plain-text file in a single ZIP, the one download every job gets whether or not a PDF comes with it. Markdown keeps the translation usable as a document — read it as-is, convert it, or paste it wherever the text needs to go. Plain text is the same words with nothing else attached.",
           `${translatePdfCoverageSentence()} That PDF is the translated text reflowed onto new pages, not the original redesigned: fonts, columns, and positioning from the original are not reconstructed in the new language. If the goal is the same PDF in a different language, plan on taking the translated text into your own layout — this tool's job is getting the words right. If what you need from a long document is the gist rather than a full translation, Summarize PDF works from the same selectable text.`,
         ],
       },
@@ -2252,8 +2254,10 @@ export const guides: Guide[] = [
       {
         question: "Will the translation look like the original PDF?",
         // Was: "No. The output is translated Markdown and plain text, not a
-        // re-laid-out PDF. …" (2026-11-15, audit #29 slice 2).
-        answer: `No. You always get a ZIP of translated Markdown and plain text. ${translatePdfCoverageSentence()} Neither redraws the original's design around the words; take the text into your own document if you need it typeset like the original.`,
+        // re-laid-out PDF. …" (2026-11-15, audit #29 slice 2), then "No. You
+        // always get a ZIP of translated Markdown and plain text. …" (until
+        // 2026-11-16), which read alone named the text as the whole output.
+        answer: `No. You always get a ZIP of translated Markdown and plain text, and a reflowed PDF of the same text where your target language has one. ${translatePdfCoverageSentence()} Neither redraws the original's design around the words; take the text into your own document if you need it typeset like the original.`,
       },
       {
         question: "How much of a PDF can be translated in one run?",
