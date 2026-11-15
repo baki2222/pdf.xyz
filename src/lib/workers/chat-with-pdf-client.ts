@@ -49,8 +49,10 @@ export interface ChatWithPdfWorkerInput {
    * `options`, and the route measures and charges those itself
    * (`optionCharacters` in `jobs/delivery-cap.ts`). A client that added them
    * to the count would have them charged twice. No page count is declared
-   * either: a per-call run is bounded in characters, and nothing enforces a
-   * page bound on one (`aiReservationFor`).
+   * either — not even the one the panel measures ({@link ChatDocumentCount}
+   * `pageCount`, which it keeps only to open cited pages): a per-call run is
+   * bounded in characters, and nothing enforces a page bound on one
+   * (`aiReservationFor`).
    */
   documentCharacters: number | null;
 }
@@ -67,6 +69,15 @@ export interface ChatDocumentCount {
    * tells a scan with a stray space apart from a document with text.
    */
   textPages: number;
+  /**
+   * PHYSICAL pages in the file, blank and image-only ones included, from the
+   * same extraction (no second parse). It is the numbering `[p.N]` uses: the
+   * worker marks each page with its real position in the file (`[Page N]`,
+   * engine `buildGrounding`), so `[p.3]` is the third page of the file, not
+   * the third page with text. The panel uses it to open a cited page
+   * (audit #30, 2026-11-15). Not declared (see `documentCharacters`).
+   */
+  pageCount: number;
 }
 
 export type ChatDocumentMeasurement =
@@ -110,7 +121,11 @@ export async function measureChatDocument(
   }
   return {
     kind: "counted",
-    count: { characters: extracted.characterCount, textPages },
+    count: {
+      characters: extracted.characterCount,
+      textPages,
+      pageCount: extracted.pageCount,
+    },
   };
 }
 

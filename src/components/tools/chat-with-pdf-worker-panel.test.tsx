@@ -17,7 +17,7 @@
  * recovered from a real package, not a string handed to the component by the test.
  */
 import { InToolPage } from "@/tests/in-tool-page";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { getToolBySlug } from "@/lib/tools";
 import { PDFDocument, StandardFonts } from "pdf-lib";
@@ -37,6 +37,7 @@ import type { AiProvider } from "@/lib/workers/ai/provider";
 import { runChatWithPdf } from "@/lib/workers/chat-with-pdf/engine";
 import { resetTelemetry } from "@/lib/telemetry/track";
 import { ChatWithPdfWorkerPanel } from "./chat-with-pdf-worker-panel";
+import { pageImageDeps } from "./runner/use-page-image";
 
 // The job driver and the document measurement are handed to the panel as
 // props. They used to be swapped in with `vi.mock` on the client module, which
@@ -46,7 +47,7 @@ import { ChatWithPdfWorkerPanel } from "./chat-with-pdf-worker-panel";
 // would measure nothing, so the measurement is stubbed too — as a prop.
 const runWorkerChatWithPdf = vi.fn();
 const measureChatDocument = vi.fn();
-const MEASURED = { characters: 2_140, textPages: 3 };
+const MEASURED = { characters: 2_140, textPages: 3, pageCount: 3 };
 
 const chatTool = getToolBySlug("chat-with-pdf")!;
 
@@ -167,6 +168,17 @@ function requestAt(index: number): {
   return call![0];
 }
 
+/**
+ * The answer as a reader sees it: ONE paragraph whose whole text is `answer`.
+ * Since 2026-11-15 (audit #30) a `[p.N]` marker is a button inside that
+ * paragraph, so its own text nodes no longer spell the answer and a plain
+ * `findByText(answer)` finds nothing; the visible text is still verbatim.
+ */
+function shownAnswer(answer: string) {
+  return (_: string, element: Element | null) =>
+    element?.tagName === "P" && element.textContent === answer;
+}
+
 /** Attach a PDF and submit `question`, waiting for the panel to settle. */
 async function ask(question: string) {
   const input = document.querySelector('input[type="file"]');
@@ -217,7 +229,7 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
 
     await ask(first);
     // The answer really came out of the package — nothing here supplied it as a string.
-    expect(await screen.findByText(answer)).toBeInTheDocument();
+    expect(await screen.findByText(shownAnswer(answer))).toBeInTheDocument();
 
     // A first question is a fresh conversation: sending an empty `context` would be a
     // different request than the one the contract expects for a standalone question.
@@ -451,7 +463,7 @@ describe("ChatWithPdfWorkerPanel — what each question declares", () => {
     render(<Panel />);
     await screen.findByRole("textbox");
     await ask("Q one");
-    await screen.findByText("A one [p.1].");
+    await screen.findByText(shownAnswer("A one [p.1]."));
     fireEvent.change(await screen.findByRole("textbox"), {
       target: { value: "Q two" },
     });
@@ -484,12 +496,14 @@ describe("ChatWithPdfWorkerPanel — what each question declares", () => {
     render(<Panel />);
     await screen.findByRole("textbox");
     await ask("Q one");
-    expect(await screen.findByText("A one [p.1].")).toBeInTheDocument();
+    expect(
+      await screen.findByText(shownAnswer("A one [p.1].")),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /remove/i }));
     measureChatDocument.mockResolvedValueOnce({
       kind: "counted",
-      count: { characters: 99, textPages: 1 },
+      count: { characters: 99, textPages: 1, pageCount: 1 },
     });
     await ask("Q one");
     await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(2));
@@ -630,11 +644,15 @@ describe("ChatWithPdfWorkerPanel — every answer carries its caveat", () => {
     render(<Panel />);
     await screen.findByRole("textbox");
     await ask("Q1?");
-    expect(await screen.findByText("First [p.1].")).toBeInTheDocument();
+    expect(
+      await screen.findByText(shownAnswer("First [p.1].")),
+    ).toBeInTheDocument();
     expect(screen.getAllByText(AI_ANSWER_CAVEAT)).toHaveLength(1);
 
     await ask("Q2?");
-    expect(await screen.findByText("Second [p.1].")).toBeInTheDocument();
+    expect(
+      await screen.findByText(shownAnswer("Second [p.1].")),
+    ).toBeInTheDocument();
     expect(screen.getAllByText(AI_ANSWER_CAVEAT)).toHaveLength(2);
     expect(AI_ANSWER_CAVEAT).toMatch(/AI-generated/);
   });
@@ -806,4 +824,159 @@ describe("ChatWithPdfWorkerPanel — a long follow-up still fits the job request
       );
     },
   );
+});
+
+// --- clickable citations (audit #30, chat-with-pdf#3, 2026-11-15) ----------
+
+describe("ChatWithPdfWorkerPanel — a citation shows its page", () => {
+  /**
+   * The renderer is swapped through `pageImageDeps`, the hook's own seam (a
+   * `vi.mock` of `@/lib/pdf/render` would leave the hook, the dialog and this
+   * panel cached against the stub for the next file). It records the bytes it
+   * was handed and the 0-based index each page was asked for.
+   */
+  const created: Uint8Array[] = [];
+  const asked: number[] = [];
+  let drawable = true;
+  const realRenderer = pageImageDeps.renderer;
+
+  beforeEach(() => {
+    created.length = 0;
+    asked.length = 0;
+    drawable = true;
+    pageImageDeps.renderer = async () =>
+      ({
+        createThumbnailRenderer: async (bytes: Uint8Array) => {
+          created.push(bytes);
+          return {
+            numPages: 3,
+            renderPage: async (index: number) => {
+              asked.push(index);
+              return drawable
+                ? {
+                    index,
+                    url: `blob:page-${index}`,
+                    width: 1440,
+                    height: 2036,
+                  }
+                : null;
+            },
+            destroy: async () => {},
+          };
+        },
+      }) as unknown as typeof import("@/lib/pdf/render");
+  });
+  afterEach(() => {
+    pageImageDeps.renderer = realRenderer;
+  });
+
+  /** A real engine package for a 3-page document, answering `answer`. */
+  async function threePageAnswer(question: string, answer: string) {
+    const texts = ["Page one text.", "Page two text.", "Page three text."];
+    const run = await runChatWithPdf(
+      new Uint8Array([1, 2, 3]),
+      { question },
+      {
+        extract: async () => ({
+          pageCount: 3,
+          pages: texts.map((text, i) => ({
+            pageNumber: i + 1,
+            text,
+            characterCount: text.length,
+          })),
+          text: texts.join("\n\n"),
+          characterCount: 46,
+          hasText: true,
+        }),
+        provider: provider(answer),
+      },
+    );
+    if (!run.ok) throw new Error(`engine failed: ${run.message}`);
+    return {
+      ok: true as const,
+      job: { id: "job_cite" },
+      artifact: { filename: "answer.zip", url: "blob:answer" },
+      output: run.output,
+    };
+  }
+
+  async function answered(answer: string) {
+    runWorkerChatWithPdf.mockImplementation(() => threePageAnswer("Q", answer));
+    render(<Panel />);
+    await screen.findByRole("textbox");
+    await ask("Q");
+    await screen.findByText(shownAnswer(answer));
+  }
+
+  it("pressing [p.2] opens page 2 of 3, drawn from the bytes the question was sent with", async () => {
+    stubStatus();
+    await answered("Rent is due [p.2]; see also [p.9].");
+
+    // Out of range for this 3-page file: text, not a button.
+    expect(screen.queryByRole("button", { name: /page 9/ })).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show page 2 of your PDF" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Page 2 of 3" }),
+    ).toBeInTheDocument();
+    const image = await screen.findByRole("img", { name: "Page 2" });
+    expect(image.getAttribute("src")).toBe("blob:page-1");
+    // The 1-based citation reached the renderer as its 0-based index.
+    expect(asked).toEqual([1]);
+    // THE SAME array the question was sent with: nothing re-read, nothing new.
+    expect(created).toHaveLength(1);
+    expect(created[0]).toBe(runWorkerChatWithPdf.mock.calls[0]![0].bytes);
+    // A citation only shows the page; selecting is Delete Pages' business.
+    expect(screen.queryByRole("button", { name: /select page/i })).toBeNull();
+
+    // The panel re-renders as the visitor types; the page must not be redrawn
+    // for it (a fresh array per render would re-run the preview every time).
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "And the deposit?" },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(created).toHaveLength(1);
+
+    // Positive control: a different page IS drawn afresh.
+    fireEvent.click(screen.getByRole("button", { name: /next page/i }));
+    expect(
+      await screen.findByRole("heading", { name: "Page 3 of 3" }),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(asked).toEqual([1, 2]));
+  });
+
+  it("says so when the page cannot be drawn, rather than a blank box", async () => {
+    stubStatus();
+    drawable = false;
+    await answered("Rent is due [p.2].");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show page 2 of your PDF" }),
+    );
+    expect(
+      await screen.findByText("This page could not be drawn here."),
+    ).toBeInTheDocument();
+  });
+
+  it("swapping the file takes the buttons and the open page with it", async () => {
+    stubStatus();
+    await answered("Rent is due [p.2].");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show page 2 of your PDF" }),
+    );
+    await screen.findByRole("heading", { name: "Page 2 of 3" });
+    fireEvent.click(screen.getByRole("button", { name: /remove/i }));
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: /of 3$/ })).toBeNull(),
+    );
+    expect(screen.queryByRole("button", { name: /show page/i })).toBeNull();
+  });
+
+  it("a document the browser could not count keeps its citations as text", async () => {
+    stubStatus();
+    measureChatDocument.mockResolvedValue({ kind: "uncounted" });
+    await answered("Rent is due [p.2].");
+    expect(screen.queryByRole("button", { name: /show page/i })).toBeNull();
+    expect(created).toHaveLength(0);
+  });
 });

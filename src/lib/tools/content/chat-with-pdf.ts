@@ -186,7 +186,7 @@ const content: ToolContent = {
     },
     {
       title: "Read the answer and its citations",
-      body: `Each exchange is added to the conversation above the question box: your question, then the model's answer with any [p.N] markers it wrote. Beneath it, a button named after the ZIP (lease.pdf gives ${EXAMPLE_ZIP}) saves the package the page already holds: answer.md, answer.txt, manifest.json and README.txt.`,
+      body: `Each exchange is added to the conversation above the question box: your question, then the model's answer with any [p.N] markers it wrote. Beneath it, a button named after the ZIP (lease.pdf gives ${EXAMPLE_ZIP}) saves the package the page already holds: answer.md, answer.txt, manifest.json and README.txt. Select a [p.N] marker to see that page.`,
     },
     {
       title: "Ask a follow-up",
@@ -197,7 +197,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Where do the page citations come from, and can I trust them?",
-      a: "Before the model sees the text, each page that has any is marked with its position in the file, and the model is told to cite the pages it uses as [p.N]. That position counts from the first page of the file, blank pages included, so it can differ from the printed number when a document opens with a cover or roman-numbered front matter. answer.md lists the cited pages that exist in your file, but a citation is still the model's claim: open the page and check it.",
+      a: "Before the model sees the text, each page that has any is marked with its position in the file, and the model is told to cite the pages it uses as [p.N]. That position counts from the first page of the file, blank pages included, so it can differ from the printed number when a document opens with a cover or roman-numbered front matter. While your PDF is still on the page, select a [p.N] marker to see that page of the file you chose. answer.md lists the cited pages that exist in your file, but a citation is still the model's claim: read the page before relying on it.",
     },
     {
       q: "Why does it say my PDF has no text to answer from?",

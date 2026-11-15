@@ -1,6 +1,7 @@
 "use client";
 
 import { usePickRefusal } from "@/components/tools/use-pick";
+import dynamic from "next/dynamic";
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
   Download,
@@ -11,6 +12,7 @@ import {
 } from "lucide-react";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import { MAX_QUESTION_CHARS } from "@/lib/jobs/chat-with-pdf";
+import { citedPageIndex } from "@/lib/jobs/chat-citations";
 import { aiReadLimitFor } from "@/lib/jobs/ai-read-limit";
 import {
   aiDailyAllowanceNote,
@@ -46,6 +48,18 @@ import {
   WorkerGate,
   WorkerPanelShell,
 } from "./worker-panel-shell";
+import { ChatAnswer } from "./chat-answer";
+
+/**
+ * The page a citation opens (audit #30, 2026-11-15): Delete Pages' own zoom
+ * dialog, without its selection toggle. Loaded on the first press, as it is
+ * there (runner/page-select-runner.tsx).
+ */
+const PageZoomDialog = dynamic(() =>
+  import("./runner/page-zoom-dialog").then(
+    ({ PageZoomDialog }) => PageZoomDialog,
+  ),
+);
 
 /**
  * The status slot's reserved height (see `WorkerStatusSlot` and
@@ -207,6 +221,23 @@ function ChatBuilder({
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   /** The question the job in flight (or left running) is answering. */
   const asking = useRef<string | null>(null);
+  /**
+   * The document the answers on screen are about, as this browser holds it:
+   * what a citation opens. Set only when the file was COUNTED (its physical
+   * page count is what `[p.N]` numbers) and still on screen; cleared with the
+   * file. ONE array per file token, kept from its first question — the page
+   * preview re-renders whenever its bytes change identity, so a fresh array
+   * per question (or per render) would redraw, or never settle. Never set by
+   * a resumed job: the file does not survive a reload, so a resumed answer's
+   * citations stay text.
+   */
+  const [doc, setDoc] = useState<{
+    token: number;
+    bytes: Uint8Array;
+    pageCount: number;
+  } | null>(null);
+  /** The 0-based page the citation dialog shows, or null when it is shut. */
+  const [zoom, setZoom] = useState<number | null>(null);
 
   /** Add an answered job to the transcript. */
   const record = useCallback(
@@ -295,10 +326,22 @@ function ChatBuilder({
       fileToken.current += 1;
       setFile(next);
       setTranscript([]);
+      setDoc(null);
+      setZoom(null);
       setOutcome(null);
     },
     [setOutcome],
   );
+  /**
+   * Show a cited page. The dialog's chunk starts loading when it renders, and
+   * the renderer starts HERE, beside it, rather than after the dialog has
+   * loaded and asked for it — two round trips in parallel, not in a row.
+   */
+  const openCitation = useCallback((page: number) => {
+    void import("@/lib/pdf/render").catch(() => {});
+    setZoom(citedPageIndex(page));
+  }, []);
+
   const staged = useStagedHandoff(tool.slug, "Ask the PDF", (files) =>
     chooseFile(files[0] ?? null),
   );
@@ -326,6 +369,14 @@ function ChatBuilder({
       if (fileToken.current !== startedFor) return NOT_SENT;
       if (measured.kind === "no-text")
         return { ok: false as const, message: NO_TEXT_MESSAGE };
+      if (measured.kind === "counted") {
+        const { pageCount } = measured.count;
+        setDoc((prev) =>
+          prev?.token === startedFor
+            ? prev
+            : { token: startedFor, bytes, pageCount },
+        );
+      }
       const result = await runChat(
         {
           filename: file.name,
@@ -419,7 +470,20 @@ function ChatBuilder({
           region and its first answer in the same commit to the DOM, and a region
           that arrives already containing its text is not a change — nothing is
           spoken. The empty list costs nothing and is what makes the log work. */}
-      <Transcript entries={transcript} />
+      <Transcript
+        entries={transcript}
+        pageCount={doc?.pageCount ?? null}
+        onOpen={doc ? openCitation : null}
+      />
+      {zoom !== null && doc && (
+        <PageZoomDialog
+          bytes={doc.bytes}
+          pageCount={doc.pageCount}
+          index={zoom}
+          onIndex={setZoom}
+          onClose={() => setZoom(null)}
+        />
+      )}
 
       <label className="text-muted flex flex-col gap-1 text-xs">
         {transcript.length > 0 ? "Ask a follow-up" : "Your question"}
@@ -498,7 +562,15 @@ function ChatBuilder({
 }
 
 /** The conversation so far: each question, the model's real answer, and its package. */
-function Transcript({ entries }: { entries: TranscriptEntry[] }) {
+function Transcript({
+  entries,
+  pageCount,
+  onOpen,
+}: {
+  entries: TranscriptEntry[];
+  pageCount: number | null;
+  onOpen: ((page: number) => void) | null;
+}) {
   return (
     /* `log` rather than `status`: answers arrive in sequence and the order is
        meaningful, and unlike a focus move it never interrupts someone midway
@@ -520,9 +592,11 @@ function Transcript({ entries }: { entries: TranscriptEntry[] }) {
             // The model's answer verbatim, exactly as shipped in the package — never a
             // paraphrase, and never anything the panel composed itself.
             <>
-              <p className="text-muted text-sm leading-relaxed whitespace-pre-wrap">
-                {entry.answer}
-              </p>
+              <ChatAnswer
+                answer={entry.answer}
+                pageCount={pageCount}
+                onOpen={onOpen}
+              />
               {/* Under EVERY answer, and not conditional on citations: an
                   ungrounded answer has none to point at. */}
               <p className="text-muted text-xs leading-relaxed">
