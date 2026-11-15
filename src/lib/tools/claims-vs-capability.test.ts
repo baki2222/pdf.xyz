@@ -168,7 +168,15 @@ import {
   MAX_PICTURE_SIDE,
   scanPdfPages,
 } from "@/lib/workers/pdf-office-export/page-scan";
-import { typefaceFor } from "@/lib/workers/pdf-office-export/typeface";
+import {
+  docxTypefaceOf,
+  OFFICE_FAMILIES,
+  typefaceFor,
+} from "@/lib/workers/pdf-office-export/typeface";
+import {
+  DOCX_TYPEFACES_PROBE,
+  docxTypefacesProbePdf,
+} from "@/lib/workers/pdf-office-export/capability";
 import {
   MAX_DECODED_IMAGE_PIXELS,
   MAX_DOCX_PICTURES,
@@ -1026,8 +1034,15 @@ const RULES: readonly ClaimRule[] = [
       // layout", and `tbl` leaves the detector. A third real export (the
       // quarterly table, through the real page reader) is read so the new
       // markup is in what the detector sees.
-      const LAYOUT =
-        /<w:(?:cols|framePr|tabs|ind|jc|spacing|rFonts)\b|<wp:anchor\b/g;
+      // RE-EVALUATED 2026-11-15 a third time, when each word began to be set
+      // in an Office family of its kind (backlog #28 slice 4, `w:rFonts` on
+      // its run): in the style of the `sz` and `tbl` notes above, a run's
+      // typeface is a property of a WORD, not a position on the page — it
+      // flows wherever Word breaks the line — so its presence cannot license
+      // "preserves layout", and `rFonts` leaves the detector. Whether the
+      // PDF's OWN font reaches the file is the "PDF to Word keeps the fonts"
+      // rule's question, below.
+      const LAYOUT = /<w:(?:cols|framePr|tabs|ind|jc|spacing)\b|<wp:anchor\b/g;
       const { quarterlyTablePdf } = await import("@/tests/pdf-office-fixtures");
       const { TABLE_BBOX } = await import("@/tests/poppler-samples");
       const tableRun = await runPdfOfficeExport(
@@ -1049,7 +1064,14 @@ const RULES: readonly ClaimRule[] = [
       if (!/<w:tbl>/.test(tabled["word/document.xml"]))
         throw new Error("the table probe's .docx carries no Word table");
       // The table's own markup is not layout, and none of it may match.
-      for (const tag of ["<w:tblW", "<w:tblGrid", "<w:tblLayout", "<w:tab/>"])
+      for (const tag of [
+        "<w:tblW",
+        "<w:tblGrid",
+        "<w:tblLayout",
+        "<w:tab/>",
+        // Since 2026-11-15 (see LAYOUT above): a word's typeface.
+        '<w:rFonts w:ascii="Arial"/>',
+      ])
         if ([...tag.matchAll(LAYOUT)].length > 0)
           throw new Error(`the layout detector counts ${tag} as layout`);
       const STYLED = /styles|fontTable/;
@@ -1094,6 +1116,23 @@ const RULES: readonly ClaimRule[] = [
   // attribution control has a claim to run through, and the synonyms the
   // rest. The probe is the consumer's artifact: a real export of a PDF drawn
   // in three faces, decoded.
+  //
+  // RE-EVALUATED 2026-11-15 (#28 slice 4, key `docxTypefaces`). Until then
+  // the probe's exit condition was the MECHANISM — a run naming a typeface
+  // (`<w:rFonts>` present) — and slice 4 makes that true of every download:
+  // each matched word now names an Office family. Read as permission, it
+  // would have licensed "uses the same fonts as your PDF", which is false
+  // for every PDF set in a face Windows and Office do not ship (Helvetica,
+  // Minion, a corporate face: each is written as a SUBSTITUTE of its kind).
+  // House rule 2: the exit condition names the PROPERTY. The property this
+  // rule guards is that the PDF's OWN font reaches the .docx — by name (a
+  // `w:rFonts` value that is not an Office family) or by embedding (a
+  // `word/fonts/` part, `w:embedRegular`/`w:embedBold`/…, or a font table
+  // part). The probe is the typefaces probe's PDF (Helvetica, Times and
+  // Courier — none of them an Office family) through the real engine, read
+  // back. A writer that passed the PDF's family through (`typeface:
+  // run.family`) turns it present, and this rule red. The shapes and
+  // `shipped` stay: they are the rewrite this rule exists for.
   {
     id: "PDF to Word keeps the fonts",
     subjects: () =>
@@ -1114,48 +1153,88 @@ const RULES: readonly ClaimRule[] = [
       "Words keep their typeface.",
       "Fonts carry over along with sizes and colours.",
     ],
+    // Until 2026-11-15 (#28 slice 4) these were the page's, each a DENIAL
+    // of the typeface and false since that day (every matched word names an
+    // Office family): "The typeface and drawings made of lines and shapes
+    // are not carried across, and text recognised by OCR comes through in
+    // Word's default style."; "Each word keeps its bold, italics, size and
+    // color where they can be matched; the typeface, drawings made of lines
+    // and shapes elsewhere on the page, and the page layout are not carried
+    // over."; "Typefaces and layout are not recreated; for a scan, tick
+    // “Recognise text in scans (OCR)”."; "Open the downloaded DOCX in Word
+    // and finish the formatting — the words arrive as paragraphs in reading
+    // order, with their bold, italics, sizes and colours where they could be
+    // matched, in Word's default typeface." What replaced them, each of
+    // which the shapes must let through:
     honest: [
-      // Until 2026-11-15 (#28 slice 2) also the sentence before this one with
-      // "tables as tables" / "tables," in its list — no longer the page's:
-      // a table whose cells fit on one line is a Word table now.
-      "The typeface and drawings made of lines and shapes are not carried across, and text recognised by OCR comes through in Word's default style.",
-      // Until 2026-11-15 (#28 slice 2) also the sentence before this one with
-      // "tables as tables" / "tables," in its list — no longer the page's:
-      // a table whose cells fit on one line is a Word table now.
-      "Each word keeps its bold, italics, size and color where they can be matched; the typeface, drawings made of lines and shapes elsewhere on the page, and the page layout are not carried over.",
-      "Typefaces and layout are not recreated; for a scan, tick “Recognise text in scans (OCR)”.",
-      "Open the downloaded DOCX in Word and finish the formatting — the words arrive as paragraphs in reading order, with their bold, italics, sizes and colours where they could be matched, in Word's default typeface.",
+      "Each word it matches is also set in a font that comes with Windows or Office: the PDF's own font when it is one of those, such as Arial or Georgia, the one a free look-alike such as Liberation Sans or Carlito was drawn to match, and otherwise Arial, Times New Roman or Courier New, by whether the PDF's font is marked sans-serif, serif or monospaced.",
+      "The PDF's font files are not copied into the document.",
+      "Words in other alphabets, such as Greek, Bengali or Chinese, and symbols carry no font name, so Word picks one, and text recognised by OCR comes through in Word's default style.",
+      "Words are set in fonts that come with Windows or Office, of the same kind as the PDF's (serif, sans-serif or monospaced), and the PDF's font files are not copied into the document.",
+      "Each word keeps its bold, italics, size and color where they can be matched, and such a word in the Latin alphabet is set in a font that comes with Windows or Office, of the same kind as the PDF's; drawings made of lines and shapes elsewhere on the page, and the page layout, are not carried over.",
+      "Turn PDF text and pictures into editable Word (DOCX) in reading order and Office fonts.",
+      "Open the downloaded DOCX in Word and finish the formatting — the words arrive as paragraphs in reading order, with their bold, italics, sizes and colours where they could be matched, each in a standard Office font of the same kind as the PDF's.",
     ],
     probe: async () => {
-      const { pdf } = await boldItalicPdf();
-      const run = await runPdfOfficeExport(PDF_TO_WORD_TOOL, pdf, {
-        extractFlow: flowStandIn,
-        scanPages: scanPdfPages,
-      });
-      if (!run.ok) throw new Error(`${run.kind}: ${run.message}`);
-      const body = await readDocxStructure(run.output);
-      const runs = body.blocks.flatMap((b) => (b.kind === "p" ? b.runs : []));
-      // Health: the export carries formatted runs (so "no typeface" is about
-      // runs that have properties), and the reader sees `w:rFonts` in a body
-      // that has one.
-      if (!runs.some((r) => r.b || r.sz !== undefined))
-        throw new Error("the fonts probe's .docx carries no formatted run");
-      const control = new JSZip();
-      control.file(
-        "word/document.xml",
-        `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial"/></w:rPr><w:t>x</w:t></w:r></w:p></w:body></w:document>`,
+      const OFFICE = new Set<string>(OFFICE_FAMILIES);
+      /** The PDF's own font in a .docx: a non-Office name, or an embedding. */
+      const ownFonts = async (bytes: Uint8Array) => {
+        const zip = await JSZip.loadAsync(bytes);
+        const parts = Object.keys(zip.files).filter((n) => !zip.files[n]!.dir);
+        const embedded = parts.filter((n) =>
+          /^word\/fonts\/|fontTable/i.test(n),
+        );
+        for (const n of parts.filter((x) => /\.(?:xml|rels)$/i.test(x)))
+          if (
+            /<w:embed(?:Regular|Bold|Italic|BoldItalic)\b/.test(
+              await zip.file(n)!.async("string"),
+            )
+          )
+            embedded.push(`${n} (w:embed*)`);
+        const runs = zip.file("word/document.xml")
+          ? (await readDocxStructure(bytes)).blocks.flatMap((b) =>
+              b.kind === "p" ? b.runs : [],
+            )
+          : [];
+        const foreign = runs
+          .flatMap((r) =>
+            [r.fonts, r.fontsHAnsi, r.fontsCs, r.fontsEastAsia].filter(
+              (f): f is string => f !== undefined,
+            ),
+          )
+          .filter((f) => !OFFICE.has(f));
+        return { runs, embedded, foreign };
+      };
+      const run = await runPdfOfficeExport(
+        PDF_TO_WORD_TOOL,
+        await docxTypefacesProbePdf(),
+        { extractFlow: flowStandIn, scanPages: scanPdfPages },
       );
-      const controlRuns = (
-        await readDocxStructure(
-          new Uint8Array(await control.generateAsync({ type: "uint8array" })),
-        )
-      ).blocks.flatMap((b) => (b.kind === "p" ? b.runs : []));
-      if (!controlRuns.some((r) => r.fonts !== undefined))
-        throw new Error("the fonts detector misses <w:rFonts>");
-      const named = runs.filter((r) => r.fonts !== undefined);
+      if (!run.ok) throw new Error(`${run.kind}: ${run.message}`);
+      const real = await ownFonts(run.output);
+      // Health: the export DOES name typefaces, so the probe reads the
+      // markup slice 4 added (a probe over a body with no w:rFonts would
+      // report "absent" for the wrong reason).
+      if (!real.runs.some((r) => r.fonts !== undefined))
+        throw new Error("the fonts probe's .docx names no typeface");
+      // Controls, through the same function: a non-Office name, and an
+      // embedded font part, each read as present.
+      const doc = (rPr: string) =>
+        `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:rPr>${rPr}</w:rPr><w:t>x</w:t></w:r></w:p></w:body></w:document>`;
+      const named = new JSZip();
+      named.file("word/document.xml", doc('<w:rFonts w:ascii="Helvetica"/>'));
+      const embeddedZip = new JSZip();
+      embeddedZip.file("word/document.xml", doc('<w:rFonts w:ascii="Arial"/>'));
+      embeddedZip.file("word/fonts/font1.odttf", "x");
+      const asBytes = async (z: JSZip) =>
+        new Uint8Array(await z.generateAsync({ type: "uint8array" }));
+      if ((await ownFonts(await asBytes(named))).foreign.length === 0)
+        throw new Error("the fonts detector misses a non-Office w:rFonts");
+      if ((await ownFonts(await asBytes(embeddedZip))).embedded.length === 0)
+        throw new Error("the fonts detector misses an embedded font part");
       return {
-        present: named.length > 0,
-        evidence: `runs naming a typeface in a real export: ${named.length} of ${runs.length}`,
+        present: real.foreign.length > 0 || real.embedded.length > 0,
+        evidence: `in a real export of Helvetica, Times and Courier: non-Office names [${real.foreign.join(", ")}], embedded [${real.embedded.join(", ")}]`,
       };
     },
   },
@@ -2022,6 +2101,52 @@ describe("the replacement copy states what the output actually is", () => {
 });
 
 /**
+ * The faces Windows 10/11 and Microsoft 365 install: a fact about the
+ * outside world, written down here, not derived from the code it judges.
+ * Module scope since 2026-11-15: PDF to Word's typeface sentences are held
+ * to the same fact (#28 slice 4).
+ */
+const WINDOWS_OR_OFFICE = new Set([
+  "Aptos",
+  "Arial",
+  "Arial Black",
+  "Arial Narrow",
+  "Bahnschrift",
+  "Book Antiqua",
+  "Bookman Old Style",
+  "Calibri",
+  "Calibri Light",
+  "Cambria",
+  "Candara",
+  "Century",
+  "Century Gothic",
+  "Comic Sans MS",
+  "Consolas",
+  "Constantia",
+  "Corbel",
+  "Courier New",
+  "Franklin Gothic Medium",
+  "Garamond",
+  "Georgia",
+  "Gill Sans MT",
+  "Impact",
+  "Lucida Console",
+  "Lucida Sans Unicode",
+  "Palatino Linotype",
+  "Segoe UI",
+  "Segoe UI Symbol",
+  "Symbol",
+  "Tahoma",
+  "Times New Roman",
+  "Trebuchet MS",
+  "Verdana",
+  "Webdings",
+  "Wingdings",
+  "Wingdings 2",
+  "Wingdings 3",
+]);
+
+/**
  * PDF to PowerPoint's picture and font sentences, held to the engine (added
  * 2026-10-11, from the review of the faithful export). Each sentence was
  * true of the common case and false of an input the review built:
@@ -2071,50 +2196,6 @@ describe("PDF to PowerPoint: the picture and font sentences hold of the engine",
     );
     for (const f of derived) expect(texts).toContain(f.answer);
   });
-
-  /**
-   * The faces Windows 10/11 and Microsoft 365 install: a fact about the
-   * outside world, written down here, not derived from the code it judges.
-   */
-  const WINDOWS_OR_OFFICE = new Set([
-    "Aptos",
-    "Arial",
-    "Arial Black",
-    "Arial Narrow",
-    "Bahnschrift",
-    "Book Antiqua",
-    "Bookman Old Style",
-    "Calibri",
-    "Calibri Light",
-    "Cambria",
-    "Candara",
-    "Century",
-    "Century Gothic",
-    "Comic Sans MS",
-    "Consolas",
-    "Constantia",
-    "Corbel",
-    "Courier New",
-    "Franklin Gothic Medium",
-    "Garamond",
-    "Georgia",
-    "Gill Sans MT",
-    "Impact",
-    "Lucida Console",
-    "Lucida Sans Unicode",
-    "Palatino Linotype",
-    "Segoe UI",
-    "Segoe UI Symbol",
-    "Symbol",
-    "Tahoma",
-    "Times New Roman",
-    "Trebuchet MS",
-    "Verdana",
-    "Webdings",
-    "Wingdings",
-    "Wingdings 2",
-    "Wingdings 3",
-  ]);
 
   it("every font the deck names is one Windows or Office ships; a free clone becomes the face it copies", async () => {
     const families = [
@@ -2564,12 +2645,18 @@ describe("PDF to Word: the picture sentences hold of the engine", () => {
     // Until 2026-11-15 (#28 slice 2) also the sentence before this one with
     // "tables as tables" / "tables," in its list — no longer the page's:
     // a table whose cells fit on one line is a Word table now.
-    "Words keep their bold, italics, size and colour where our reader matches them, and a table whose cells each fit on one line, with a column of figures, comes through as a Word table; the typeface, link targets and drawings made of lines and shapes stay behind, and the page's positions, indentation and spacing are not kept.",
+    // Until 2026-11-15 (#28 slice 4) this said "the typeface, link targets
+    // and drawings …" — no longer the page's: each word is set in an Office
+    // font of its kind now.
+    "Words keep their bold, italics, size and colour where our reader matches them, and a table whose cells each fit on one line, with a column of figures, comes through as a Word table; link targets and drawings made of lines and shapes stay behind, and the page's positions, indentation and spacing are not kept.",
     "The pictures sit on lines of their own between the paragraphs, and a picture painted over another, or over text, comes through on its own line instead of on top.",
     // Until 2026-11-15 (#28 slice 2) also the sentence before this one with
     // "tables as tables" / "tables," in its list — no longer the page's:
     // a table whose cells fit on one line is a Word table now.
-    "The typeface and drawings made of lines and shapes are not carried across, and text recognised by OCR comes through in Word's default style.",
+    // Until 2026-11-15 (#28 slice 4) also "The typeface and drawings made
+    // of lines and shapes are not carried across, and text recognised by OCR
+    // comes through in Word's default style." — no longer the page's.
+    "Drawings made of lines and shapes are not carried across.",
   ];
   const denies = (text: string) =>
     Object.values(DENIES).some((re) => re.test(text));
@@ -2761,12 +2848,19 @@ describe("PDF to Word: the picture sentences hold of the engine", () => {
       // Until 2026-11-15 (#28 slice 2) also the sentence before this one with
       // "tables as tables" / "tables," in its list — no longer the page's:
       // a table whose cells fit on one line is a Word table now.
-      "Words keep their bold, italics, size and colour where our reader matches them, and a table whose cells each fit on one line, with a column of figures, comes through as a Word table; the typeface, link targets and drawings made of lines and shapes stay behind, and the page's positions, indentation and spacing are not kept.",
+      // Until 2026-11-15 (#28 slice 4) this said "the typeface, link targets
+      // and drawings …" — no longer the page's: each word is set in an Office
+      // font of its kind now.
+      "Words keep their bold, italics, size and colour where our reader matches them, and a table whose cells each fit on one line, with a column of figures, comes through as a Word table; link targets and drawings made of lines and shapes stay behind, and the page's positions, indentation and spacing are not kept.",
       // Until 2026-11-15 (#28 slice 2) also the sentence before this one with
       // "tables as tables" / "tables," in its list — no longer the page's:
       // a table whose cells fit on one line is a Word table now.
-      "Each word keeps its bold, italics, size and color where they can be matched; the typeface, drawings made of lines and shapes elsewhere on the page, and the page layout are not carried over.",
-      "Open the downloaded DOCX in Word and finish the formatting — the words arrive as paragraphs in reading order, with their bold, italics, sizes and colours where they could be matched, in Word's default typeface.",
+      // Until 2026-11-15 (#28 slice 4) this said "…where they can be matched;
+      // the typeface, drawings made of lines and shapes …" — no longer the page's.
+      "Each word keeps its bold, italics, size and color where they can be matched, and such a word in the Latin alphabet is set in a font that comes with Windows or Office, of the same kind as the PDF's; drawings made of lines and shapes elsewhere on the page, and the page layout, are not carried over.",
+      // Until 2026-11-15 (#28 slice 4) this ended "…, in Word's default
+      // typeface." — no longer the guide's.
+      "Open the downloaded DOCX in Word and finish the formatting — the words arrive as paragraphs in reading order, with their bold, italics, sizes and colours where they could be matched, each in a standard Office font of the same kind as the PDF's.",
       "To rework the wording itself, convert the file with PDF to Word: it exports the PDF's selectable text as an editable Word document, in reading order, each word keeping its bold, italics, size and colour where our reader matches it, with each picture between the paragraphs.",
     ];
     const denies = (t: string) =>
@@ -3379,10 +3473,16 @@ describe("PDF to Word: the table sentences hold of the engine", () => {
    * engine, now in OVERCLAIM_SHIPPED below.
    */
   const HONEST = [
-    "The typeface and drawings made of lines and shapes are not carried across, and text recognised by OCR comes through in Word's default style.",
+    // Until 2026-11-15 (#28 slice 4) also "The typeface and drawings made
+    // of lines and shapes are not carried across, and text recognised by OCR
+    // comes through in Word's default style." — no longer the page's.
+    "Drawings made of lines and shapes are not carried across.",
     "The extractor follows the page's reading order: a page set in two columns is read one column at a time.",
     "A table whose cells each fit on one line, with at least three rows and a column of figures such as amounts, quantities or dates, comes through as a Word table, each value in the column it sits under and an empty cell left empty; other tables come through one row per paragraph, their cells separated by tabs, and a table whose cells wrap onto a second line is not laid out as one Word table: the rows around a wrapped cell may come through as a smaller table, and the rest as lines of text.",
-    "Words keep their bold, italics, size and colour where our reader matches them, and a table whose cells each fit on one line, with a column of figures, comes through as a Word table; the typeface, link targets and drawings made of lines and shapes stay behind, and the page's positions, indentation and spacing are not kept.",
+    // Until 2026-11-15 (#28 slice 4) this said "the typeface, link targets
+    // and drawings …" — no longer the page's: each word is set in an Office
+    // font of its kind now.
+    "Words keep their bold, italics, size and colour where our reader matches them, and a table whose cells each fit on one line, with a column of figures, comes through as a Word table; link targets and drawings made of lines and shapes stay behind, and the page's positions, indentation and spacing are not kept.",
     "A table comes through as a Word table when each of its cells fits on one line, it has at least three rows, and one of its columns holds figures such as amounts, quantities or dates: each value stays in the column it sits under, an empty cell stays empty, and the words keep their formatting.",
     "Where one heading spans two columns, the values under it can share a cell, separated by a tab.",
     "Thin grey borders are added, since the PDF's own lines and shading are not read.",
@@ -3391,7 +3491,9 @@ describe("PDF to Word: the table sentences hold of the engine", () => {
     "The text arrives as paragraphs in reading order: lines that wrap in the PDF are joined into one paragraph, a page set in two columns is read one column at a time, and a table whose cells each fit on one line, with a column of figures such as amounts or dates, comes through as a Word table, each value in the column it sits under.",
     "Other tables come through as lines of text, their cells separated by tabs, and a table whose cells wrap onto a second line may come through partly as a smaller table.",
     "Headings keep their bold and size but not a Word heading style, lists arrive as lines of text, and a table comes through as a Word table only when each of its cells fits on one line and one of its columns holds figures, so expect to restyle the document: the conversion saves you the retyping, not all of the formatting.",
-    "The typeface and page layout are not recreated, and only a table whose cells each fit on one line, with a column of figures, comes through as a Word table, so it suits documents where the words matter more than the look.",
+    // Until 2026-11-15 (#28 slice 4) this began "The typeface and page
+    // layout are not recreated" — no longer the guide's.
+    "The page layout is not recreated, words are set in standard Office fonts, and only a table whose cells each fit on one line, with a column of figures, comes through as a Word table, so it suits documents where the words matter more than the look.",
     "Each scanned page comes through as its picture, followed by the text read from it, as plain paragraphs you can edit, search and copy; a table read from a scan may come through as a Word table or as lines of text.",
   ];
   const OVERCLAIMS: Record<string, RegExp> = {
@@ -3639,6 +3741,247 @@ async function compareOnPageProbe(): Promise<Probe> {
     evidence: `"100" removed on v1 page 2: ${removed}; "120" added on v2 page 3: ${added}`,
   };
 }
+
+/**
+ * PDF to Word's TYPEFACE sentences, held to the engine (added 2026-11-15,
+ * backlog #28 slice 4, heartbeat key `docxTypefaces`).
+ *
+ * Until that day every word opened in Word's default font and the page said
+ * so ("The typeface … not carried across", "Typefaces and layout are not
+ * recreated", "in Word's default typeface"). Since then a matched word in
+ * the Latin alphabet is set in a font that comes with Windows or Office, of
+ * the same kind as the PDF's (`../workers/pdf-office-export/typeface`), and
+ * each of those sentences is a denial. Asked both ways, modelled on the
+ * bold test above: the typefaces probe's PDF (Times, Courier, Helvetica) is
+ * run through the engine and read back by `docx-structure.ts`; when its
+ * words read back Times New Roman, Courier New and Arial, no sentence
+ * attributed to PDF to Word may deny the typeface and one must claim it;
+ * otherwise none may claim it and one must deny it. Both corpora run both
+ * ways: every pattern catches a sentence, every sentence is caught by its
+ * own side and by no other.
+ */
+describe("PDF to Word: the typeface sentences hold of the engine", () => {
+  const DENIES_TYPEFACE: Record<string, RegExp> = {
+    "the typeface is not carried":
+      /\btypefaces?\b[^.;]{0,80}?\b(?:are|is) not (?:carried|recreated|rebuilt)\b/i,
+    "the typeface stays behind": /\btypefaces?\b[^.;]{0,80}?\bstays? behind\b/i,
+    "Word's default typeface": /\bin Word[’']s default typeface\b/i,
+    "not its typeface": /\b(?:not its|without the original[’']s) typeface\b/i,
+    // The 2026-10-17 to 2026-11-14 sentences of SHIPPED_STYLE that name
+    // fonts: a list of fonts with colours, bold or sizes.
+    "fonts listed with colours":
+      /\bfonts, (?:bold|colou?rs|sizes)\b|\btables, fonts, colou?rs\b/i,
+  };
+  const CLAIMS_TYPEFACE: Record<string, RegExp> = {
+    "set in a font that comes with Windows or Office":
+      /\bset in (?:a font that comes|fonts that come) with Windows or Office\b/i,
+    "in standard Office fonts": /\bin (?:a )?standard Office fonts?\b/i,
+    "and Office fonts": /\band Office fonts\b/i,
+  };
+  /** Each one served as PDF to Word's until 2026-11-15. */
+  const SHIPPED_TYPEFACE = [
+    // The page's intro.
+    "The typeface and drawings made of lines and shapes are not carried across, and text recognised by OCR comes through in Word's default style.",
+    // The page's Track Changes use case.
+    "Check the result against the original, since the converted text starts out without the original's typeface and layout.",
+    // The page's look FAQ.
+    "Words keep their bold, italics, size and colour where our reader matches them, and a table whose cells each fit on one line, with a column of figures, comes through as a Word table; the typeface, link targets and drawings made of lines and shapes stay behind, and the page's positions, indentation and spacing are not kept.",
+    // PDF_TO_WORD_KEEPS.
+    "Each word keeps its bold, italics, size and color where they can be matched; the typeface, drawings made of lines and shapes elsewhere on the page, and the page layout are not carried over.",
+    // The convert guide.
+    "The conversion carries the PDF's selectable text into Word as paragraphs in reading order, each word keeping its bold, italics, size and colour where they can be matched, so you edit the words instead of retyping them — the typeface and page layout are not rebuilt.",
+    "Open the downloaded DOCX in Word and finish the formatting — the words arrive as paragraphs in reading order, with their bold, italics, sizes and colours where they could be matched, in Word's default typeface.",
+    "Partly. It holds the PDF's words and pictures and each word's bold, italics, size and colour where they can be matched, not its typeface or layout.",
+    // The Edit PDF guide's pointer.
+    "The typeface and page layout are not recreated, and only a table whose cells each fit on one line, with a column of figures, comes through as a Word table, so it suits documents where the words matter more than the look.",
+    // The catalogue description.
+    "Typefaces and layout are not recreated; for a scan, tick “Recognise text in scans (OCR)”.",
+    // From SHIPPED_STYLE above: the 2026-10-17 to 2026-11-14 sentences
+    // that name fonts.
+    "Fonts, bold and italics, colours and images are not carried across.",
+    "Images, tables, fonts, colors and the page layout are not carried over, so the text arrives unstyled, ready to format in Word — not as a copy of the page.",
+    "Fonts, bold and italics, colours, tables, and drawings made of lines and shapes are not carried across.",
+    "Fonts, colours, tables, and drawings made of lines and shapes are not carried across, and bold or italics only where a whole paragraph is set in them, such as a heading.",
+    "Tables, fonts, colors, drawings made of lines and shapes elsewhere on the page, and the page layout are not carried over, and bold or italics only where a whole paragraph is set in them, so the text arrives in Word's default style, ready to format — not as a copy of the page.",
+    "The DOCX carries the words as plain paragraphs, with the pictures on lines of their own between them; fonts, sizes, colours, tables as tables, link targets and drawings made of lines and shapes stay behind.",
+  ];
+  /** What the PDF to Word surfaces say since 2026-11-15. */
+  const HONEST_TYPEFACE = [
+    "Each word it matches is also set in a font that comes with Windows or Office: the PDF's own font when it is one of those, such as Arial or Georgia, the one a free look-alike such as Liberation Sans or Carlito was drawn to match, and otherwise Arial, Times New Roman or Courier New, by whether the PDF's font is marked sans-serif, serif or monospaced.",
+    "Check the result against the original, since the converted text starts out in standard Office fonts and without the original's layout.",
+    "Words are set in fonts that come with Windows or Office, of the same kind as the PDF's (serif, sans-serif or monospaced), and the PDF's font files are not copied into the document.",
+    "Each word keeps its bold, italics, size and color where they can be matched, and such a word in the Latin alphabet is set in a font that comes with Windows or Office, of the same kind as the PDF's; drawings made of lines and shapes elsewhere on the page, and the page layout, are not carried over.",
+    "The conversion carries the PDF's selectable text into Word as paragraphs in reading order, each word keeping its bold, italics, size and colour where they can be matched and set in a standard Office font of the same kind as the PDF's, so you edit the words instead of retyping them — the page layout is not rebuilt.",
+    "Open the downloaded DOCX in Word and finish the formatting — the words arrive as paragraphs in reading order, with their bold, italics, sizes and colours where they could be matched, each in a standard Office font of the same kind as the PDF's.",
+    "Partly. It holds the PDF's words and pictures and each word's bold, italics, size and colour where they can be matched, in standard Office fonts, not its layout.",
+    "The page layout is not recreated, words are set in standard Office fonts, and only a table whose cells each fit on one line, with a column of figures, comes through as a Word table, so it suits documents where the words matter more than the look.",
+    "Turn PDF text and pictures into editable Word (DOCX) in reading order and Office fonts.",
+  ];
+  /**
+   * TRUE, and deliberately caught by neither side: the scanned-PDF guide's
+   * sentence about OCR text, which carries no font name (invisible words
+   * label nothing, `docx-run-style.ts`). A pattern that caught it would
+   * call a true sentence about scans a denial of typed text's typeface.
+   */
+  const ABOUT_SCANS = [
+    "The look of the page is not rebuilt: fonts, columns and spacing are not carried over, and a line of the scan can arrive as a paragraph of its own, so expect to join some lines and style the headings yourself.",
+  ];
+  const denies = (t: string) =>
+    Object.values(DENIES_TYPEFACE).some((re) => re.test(t));
+  const claims = (t: string) =>
+    Object.values(CLAIMS_TYPEFACE).some((re) => re.test(t));
+
+  it("the shapes and the sentences cover each other, both ways", () => {
+    for (const [name, re] of Object.entries(DENIES_TYPEFACE))
+      expect(
+        SHIPPED_TYPEFACE.some((s) => re.test(s)),
+        `${name} catches nothing shipped`,
+      ).toBe(true);
+    for (const [name, re] of Object.entries(CLAIMS_TYPEFACE))
+      expect(
+        HONEST_TYPEFACE.some((s) => re.test(s)),
+        `${name} catches nothing the page says`,
+      ).toBe(true);
+    expect(SHIPPED_TYPEFACE.filter((s) => !denies(s))).toEqual([]);
+    expect(SHIPPED_TYPEFACE.filter(claims)).toEqual([]);
+    expect(HONEST_TYPEFACE.filter((s) => !claims(s))).toEqual([]);
+    expect(HONEST_TYPEFACE.filter(denies)).toEqual([]);
+    expect(ABOUT_SCANS.filter((s) => denies(s) || claims(s))).toEqual([]);
+  });
+
+  it("every honest sentence is served, whole, on a PDF to Word surface", async () => {
+    const all = (await containersFor(PDF_TO_WORD_TOOL))
+      .flatMap((c) => c.texts)
+      .join("\n");
+    // Health: the corpus is the tool's surfaces, not nothing.
+    expect(all.length).toBeGreaterThan(10_000);
+    expect(HONEST_TYPEFACE.filter((s) => !all.includes(s))).toEqual([]);
+  });
+
+  it("the page claims the typeface exactly when the probe's words read back in Office faces of their kind", async () => {
+    const pdf = await docxTypefacesProbePdf();
+    const run = await runPdfOfficeExport(PDF_TO_WORD_TOOL, pdf, {
+      extractFlow: flowStandIn,
+      scanPages: scanPdfPages,
+    });
+    if (!run.ok) throw new Error(run.message);
+    const runs = (await readDocxStructure(run.output)).blocks.flatMap((b) =>
+      b.kind === "p" ? b.runs : [],
+    );
+    // Health: the probe's text is in the document.
+    expect(runs.map((r) => r.text).join(" ")).toContain("Courier");
+    const want = [
+      [DOCX_TYPEFACES_PROBE.serif, "Times New Roman"],
+      [DOCX_TYPEFACES_PROBE.mono, "Courier New"],
+      [DOCX_TYPEFACES_PROBE.sans, "Arial"],
+    ] as const;
+    const set = want.every(([line, family]) =>
+      line
+        .split(" ")
+        .every((w) =>
+          runs.some(
+            (r) =>
+              r.text.split(/\s+/).includes(w) &&
+              r.fonts === family &&
+              r.fontsHAnsi === family &&
+              r.fontsCs === family,
+          ),
+        ),
+    );
+    const denying: string[] = [];
+    const claiming: string[] = [];
+    for (const container of await containersFor(PDF_TO_WORD_TOOL))
+      for (const { sentence, masked } of attributedTo(
+        container,
+        PDF_TO_WORD_TOOL,
+      )) {
+        if (denies(masked)) denying.push(`${container.where}: ${sentence}`);
+        if (claims(masked)) claiming.push(`${container.where}: ${sentence}`);
+      }
+    if (set) {
+      expect(
+        denying,
+        "the words read back in Office faces of their kind — the page may not deny the typeface",
+      ).toEqual([]);
+      expect(claiming.length, "and the page says so").toBeGreaterThan(0);
+    } else {
+      expect(
+        claiming,
+        "the words do not read back in Office faces of their kind — the page may not claim it",
+      ).toEqual([]);
+      expect(denying.length, "and the page must say so").toBeGreaterThan(0);
+    }
+    // Positive controls, through the attribution the live check uses.
+    expect(
+      attributedTo(
+        { where: "control", home: PDF_TO_WORD_TOOL, texts: SHIPPED_TYPEFACE },
+        PDF_TO_WORD_TOOL,
+      ).filter(({ masked }) => denies(masked)),
+    ).toHaveLength(SHIPPED_TYPEFACE.length);
+    expect(
+      attributedTo(
+        { where: "control", home: PDF_TO_WORD_TOOL, texts: HONEST_TYPEFACE },
+        PDF_TO_WORD_TOOL,
+      ).filter(({ masked }) => claims(masked)),
+    ).toHaveLength(HONEST_TYPEFACE.length);
+  }, 60_000);
+
+  it("“a font that comes with Windows or Office” is exactly the set Word is given: every family named is one, never a symbol face", async () => {
+    const families = [
+      ...OFFICE_METRIC_CLONES.flatMap((c) => [c.office, c.clone]),
+      "DejaVu Sans",
+      "DejaVu Serif",
+      "DejaVu Sans Mono",
+      "Noto Sans",
+      "Noto Serif",
+      "Noto Sans Mono",
+      "Georgia",
+      "Helvetica",
+      "Times",
+      "Courier",
+      "Some Unknown Grotesk",
+      "Symbol",
+      "ZapfDingbats",
+      "Wingdings",
+    ];
+    const named = families.flatMap((family) =>
+      (["sans", "serif", "mono"] as const).map((fontClass) =>
+        docxTypefaceOf({ family, fontClass, text: "Abc", invisible: false }),
+      ),
+    );
+    const SYMBOL_FACES = new Set([
+      "Symbol",
+      "Wingdings",
+      "Wingdings 2",
+      "Wingdings 3",
+      "Webdings",
+    ]);
+    // Health: both answers occur.
+    expect(named.filter((n) => n === null).length).toBeGreaterThan(0);
+    expect(named.filter((n) => n !== null).length).toBeGreaterThan(30);
+    expect(
+      named.filter(
+        (n) => n !== null && (!WINDOWS_OR_OFFICE.has(n) || SYMBOL_FACES.has(n)),
+      ),
+      "Word is asked for a font Windows or Office does not ship, or a symbol face",
+    ).toEqual([]);
+    for (const family of ["Symbol", "ZapfDingbats", "Wingdings"])
+      expect(
+        docxTypefaceOf({
+          family,
+          fontClass: "sans",
+          text: "a",
+          invisible: false,
+        }),
+        family,
+      ).toBeNull();
+    const text = (await containersFor(PDF_TO_WORD_TOOL))
+      .flatMap((c) => c.texts)
+      .join("\n");
+    expect(text).toMatch(/comes with Windows or Office/);
+    expect(text).toMatch(/Arial, Times New Roman or Courier New/);
+  });
+});
 
 describe("Compare PDF: the page-view claims hold of the page view", () => {
   const asRule = (shapes: Readonly<Record<string, RegExp>>) =>
