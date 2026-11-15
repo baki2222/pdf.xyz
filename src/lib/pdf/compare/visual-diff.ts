@@ -6,16 +6,29 @@
  * come from `capturePdfPages` (`runner/compare/visual-pairs.ts`), and the
  * composite is written into a caller's RGBA buffer.
  *
- * WHAT IT CAN SEE. Ink that, averaged over a 3 × 3 box, is darker on one
- * side than anywhere within one pixel of the same place on the other, by
- * more than {@link TOLERANCE} of 255, in a patch of at least {@link
- * CELL_MIN_PX} such pixels inside one {@link CELL_PX}-pixel cell. Both sides are drawn by the same pdf.js on
- * the same machine, so identical content is pixel-identical; the tolerance
- * absorbs one pixel of jitter and anti-aliasing from fractional origins.
+ * WHAT IT CAN SEE. Two tests, either of which marks a place:
+ * - per pixel: ink that, averaged over a 3 × 3 box, is darker on one side
+ *   than anywhere within one pixel of the same place on the other, by more
+ *   than {@link TOLERANCE} of 255, in a patch of at least {@link
+ *   CELL_MIN_PX} such pixels inside one {@link CELL_PX}-pixel cell;
+ * - per cell (the area test, review r1, 2026-11-15): a cell whose mean
+ *   darkness on one side lies more than {@link AREA_TOLERANCE} of 255
+ *   outside every mean the other side has over the same cell moved by up
+ *   to a pixel each way. It sees a pale stamp or watermark, a highlight, a
+ *   logo recoloured red to blue: changes under TOLERANCE over an area,
+ *   which the per-pixel test alone missed however large they were.
+ * Both sides are drawn by the same pdf.js on the same machine, so identical
+ * content is pixel-identical; the neighbourhood and the windows absorb one
+ * pixel of jitter and the anti-aliasing of fractional origins.
  *
  * WHAT IT CANNOT SEE, each pinned by a test in `visual-diff.test.ts`:
  * - a hue change at equal lightness (it compares luminance, Rec. 601, the
  *   plane `luminancePlane` makes; "hue-only change at equal luma");
+ * - a change of lightness under {@link TOLERANCE} in thin lines or small
+ *   text, where every cell holds an edge the windows absorb ("thin strokes
+ *   recoloured"); real text turned red to blue is marked in some cells and
+ *   not in others, so the copy says such a change "may be missed";
+ * - a change of lightness under {@link AREA_TOLERANCE} anywhere;
  * - anything smaller than a few pixels at the drawing's resolution (about
  *   {@link VISUAL_DPI} dpi, less on pages larger than {@link
  *   VISUAL_MAX_SIDE_PX} px at that dpi; "a 1 px speck");
@@ -25,8 +38,9 @@
  * BOUND. Work per pair is O(n), n ≤ 4 M (2,000 × 2,000 px). Memory owned
  * here while a pair is compared: two box-averaged darkness arrays and two
  * filter buffers of n bytes each (≤ 16 MB, the filter buffers reused for
- * both directions), and two bitsets of n/8 bytes (≤ 1 MB) that the result
- * keeps; the planes themselves are the caller's.
+ * both directions), the area test's window sums (≤ 1.5 n bytes, one plane
+ * at a time, plus 0.6 n bytes per side), and two bitsets of n/8 bytes
+ * (≤ 1 MB) that the result keeps; the planes themselves are the caller's.
  */
 
 /** The drawing's resolution, in dots per inch. */
@@ -41,6 +55,15 @@ export const NEIGHBOUR_RADIUS = 1;
 export const CELL_PX = 8;
 /** A cell is marked when it holds at least this many differing pixels. */
 export const CELL_MIN_PX = 3;
+/**
+ * The area test's threshold: a cell is marked when its MEAN darkness (of
+ * 255) on one side lies more than this outside every mean the other side
+ * has over the same cell moved by up to a pixel each way. Review r1
+ * (2026-11-15) found the per-pixel test alone blind to any change under
+ * {@link TOLERANCE}, however large: a pale stamp, a yellow highlight, a red
+ * logo turned blue. 10 is about 4% of the luma range.
+ */
+export const AREA_TOLERANCE = 10;
 /** Regions kept per page: the largest, so a page of noise stays readable. */
 export const MAX_REGIONS = 100;
 /** The furthest a page is moved to line up with its partner, in pixels. */
@@ -85,7 +108,11 @@ export interface VisualDiff {
   /** The two drawings differ in size by more than a pixel on an axis. */
   sizeDiffers: boolean;
   shift: Shift;
-  /** Bitsets over w × h: ink only in PDF 1, ink only in PDF 2. */
+  /**
+   * Bitsets over w × h: ink only in PDF 1, ink only in PDF 2. Empty on a
+   * Check all outcome (`capturePairs` without `keep`), which keeps only the
+   * summary below.
+   */
   onlyL: Uint8Array;
   onlyR: Uint8Array;
   /** At most {@link MAX_REGIONS}, the largest, in reading order. */
@@ -171,6 +198,98 @@ function maxFilter(
       out[y * w + x] = m;
     }
   }
+}
+
+/** An area-marked cell where one side is (nearly) white. */
+const AREA_ONE = 1;
+/** An area-marked cell where both sides hold ink: a change of tone. */
+const AREA_BOTH = 2;
+
+/**
+ * Per cell, the sum of `src` (w × h) over the cell moved by (ex, ey) for
+ * ex, ey ∈ {−1, 0, 1}, nine sums per cell, index `c * 9 + (ey + 1) * 3 +
+ * (ex + 1)`, zero outside the frame. O(n): row sums of each window first
+ * (three per cell per row), then column sums of those.
+ */
+function cellWindowSums(
+  src: Uint8Array,
+  w: number,
+  h: number,
+  cw: number,
+  ch: number,
+): Int32Array {
+  const C = CELL_PX;
+  const at = (row: number, x: number) =>
+    x >= 0 && x < w ? src[row * w + x]! : 0;
+  const rows = new Int32Array(h * cw * 3);
+  for (let y = 0; y < h; y++)
+    for (let cx = 0; cx < cw; cx++) {
+      const x0 = cx * C;
+      let base = 0;
+      for (let x = x0; x < Math.min(w, x0 + C); x++) base += src[y * w + x]!;
+      const o = (y * cw + cx) * 3;
+      rows[o] = base - at(y, x0 + C - 1) + at(y, x0 - 1);
+      rows[o + 1] = base;
+      rows[o + 2] = base - at(y, x0) + at(y, x0 + C);
+    }
+  const row = (y: number, cx: number, e: number) =>
+    y >= 0 && y < h ? rows[(y * cw + cx) * 3 + e]! : 0;
+  const out = new Int32Array(cw * ch * 9);
+  for (let cy = 0; cy < ch; cy++)
+    for (let cx = 0; cx < cw; cx++)
+      for (let e = 0; e < 3; e++) {
+        const y0 = cy * C;
+        let base = 0;
+        for (let y = y0; y < Math.min(h, y0 + C); y++) base += row(y, cx, e);
+        const o = (cy * cw + cx) * 9 + e;
+        out[o] = base - row(y0 + C - 1, cx, e) + row(y0 - 1, cx, e);
+        out[o + 3] = base;
+        out[o + 6] = base - row(y0, cx, e) + row(y0 + C, cx, e);
+      }
+  return out;
+}
+
+/**
+ * The area test: per cell, 0, or marked ({@link AREA_ONE}; {@link
+ * AREA_BOTH} when both sides hold ink there) when one side's mean darkness over the
+ * cell lies more than {@link AREA_TOLERANCE} outside the range of the other
+ * side's means over the same cell moved by up to one pixel each way. A
+ * drawing moved by a fraction of a pixel is, to the anti-aliasing, a blend
+ * of the drawings at the whole-pixel offsets round it, so its mean lies
+ * inside that range: sub-pixel jitter cannot mark a cell, whatever its
+ * contrast, while a uniform change of lightness marks every cell it covers.
+ */
+function areaCells(
+  boxL: Uint8Array,
+  boxR: Uint8Array,
+  w: number,
+  h: number,
+): Uint8Array {
+  const cw = Math.ceil(w / CELL_PX);
+  const ch = Math.ceil(h / CELL_PX);
+  const sl = cellWindowSums(boxL, w, h, cw, ch);
+  const sr = cellWindowSums(boxR, w, h, cw, ch);
+  const t = AREA_TOLERANCE * CELL_PX * CELL_PX;
+  const out = new Uint8Array(cw * ch);
+  for (let c = 0; c < cw * ch; c++) {
+    let minL = Infinity;
+    let maxL = -Infinity;
+    let minR = Infinity;
+    let maxR = -Infinity;
+    for (let j = c * 9; j < c * 9 + 9; j++) {
+      const a = sl[j]!;
+      const b = sr[j]!;
+      if (a < minL) minL = a;
+      if (a > maxL) maxL = a;
+      if (b < minR) minR = b;
+      if (b > maxR) maxR = b;
+    }
+    const l0 = sl[c * 9 + 4]!;
+    const r0 = sr[c * 9 + 4]!;
+    if (l0 > maxR + t || l0 < minR - t || r0 > maxL + t || r0 < minL - t)
+      out[c] = l0 > t && r0 > t ? AREA_BOTH : AREA_ONE;
+  }
+  return out;
 }
 
 /** 4× box-downsampled darkness of a plane read at an offset, over w × h. */
@@ -289,8 +408,41 @@ export function diffPlanes(
   maxFilter(boxL, w, h, r, tmp, out);
   for (let i = 0; i < n; i++)
     if (boxR[i]! - out[i]! > TOLERANCE) onlyR[i >> 3]! |= 1 << (i & 7);
-  const found = regionsOf(onlyL, onlyR, w, h, (x, y) =>
-    Math.max(darkAt(L, x, y), darkAt(R, x + shift.dx, y + shift.dy)),
+  // The area test (review r1, 2026-11-15): a change of tone too small for
+  // any pixel to pass TOLERANCE, over a cell, marks the cell. Its pixels
+  // are added to the bitsets at AREA_TOLERANCE, so the overlay paints them
+  // and the region's kind is counted from them.
+  const area = areaCells(boxL, boxR, w, h);
+  const cw = Math.ceil(w / CELL_PX);
+  for (let c = 0; c < area.length; c++) {
+    if (!area[c]) continue;
+    const x0 = (c % cw) * CELL_PX;
+    const y0 = ((c / cw) | 0) * CELL_PX;
+    const x1 = Math.min(w, x0 + CELL_PX);
+    const y1 = Math.min(h, y0 + CELL_PX);
+    let strong = 0;
+    for (let y = y0; y < y1; y++)
+      for (let x = x0; x < x1; x++) {
+        const i = y * w + x;
+        strong += bit(onlyL, i) + bit(onlyR, i);
+      }
+    // A cell the per-pixel test already marked keeps its own kind.
+    if (strong >= CELL_MIN_PX) area[c] = AREA_ONE;
+    for (let y = y0; y < y1; y++)
+      for (let x = x0; x < x1; x++) {
+        const i = y * w + x;
+        const d = boxL[i]! - boxR[i]!;
+        if (d > AREA_TOLERANCE) onlyL[i >> 3]! |= 1 << (i & 7);
+        else if (-d > AREA_TOLERANCE) onlyR[i >> 3]! |= 1 << (i & 7);
+      }
+  }
+  const found = regionsOf(
+    onlyL,
+    onlyR,
+    w,
+    h,
+    (x, y) => Math.max(darkAt(L, x, y), darkAt(R, x + shift.dx, y + shift.dy)),
+    area,
   );
   return { w, h, sizeDiffers, shift, onlyL, onlyR, ...found };
 }
@@ -300,7 +452,9 @@ export function diffPlanes(
  * least {@link CELL_MIN_PX} differing pixels is marked; marked cells are
  * grown by one cell and labelled 8-connected (iteratively); each region's
  * box is the box of the differing pixels in its marked cells. A region is `removed` (≥ 80% ink only in
- * PDF 1), `added` (≥ 80% only in PDF 2) or `changed`.
+ * PDF 1), `added` (≥ 80% only in PDF 2) or `changed`. `area` (from the
+ * area test) marks a cell whatever its count; the pixels of a cell marked
+ * only by it where both sides hold ink count towards `changed`.
  */
 export function regionsOf(
   onlyL: Uint8Array,
@@ -308,6 +462,7 @@ export function regionsOf(
   w: number,
   h: number,
   darkness: (x: number, y: number) => number,
+  area?: Uint8Array,
 ): Pick<VisualDiff, "regions" | "capped" | "everywhere" | "blank"> {
   const cw = Math.ceil(w / CELL_PX);
   const ch = Math.ceil(h / CELL_PX);
@@ -343,7 +498,7 @@ export function regionsOf(
   let diffCells = 0;
   let inkCells = 0;
   for (let c = 0; c < cw * ch; c++) {
-    if (countL[c]! + countR[c]! >= CELL_MIN_PX) {
+    if (countL[c]! + countR[c]! >= CELL_MIN_PX || area?.[c]) {
       marked[c] = 1;
       diffCells++;
     }
@@ -375,6 +530,7 @@ export function regionsOf(
     let y1 = -1;
     let l = 0;
     let rr = 0;
+    let both = 0;
     while (stack.length > 0) {
       const c = stack.pop()!;
       const cx = c % cw;
@@ -384,8 +540,11 @@ export function regionsOf(
         if (by0[c]! < y0) y0 = by0[c]!;
         if (bx1[c]! > x1) x1 = bx1[c]!;
         if (by1[c]! > y1) y1 = by1[c]!;
-        l += countL[c]!;
-        rr += countR[c]!;
+        if (area?.[c] === AREA_BOTH) both += countL[c]! + countR[c]!;
+        else {
+          l += countL[c]!;
+          rr += countR[c]!;
+        }
       }
       for (let dy = -1; dy <= 1; dy++)
         for (let dx = -1; dx <= 1; dx++) {
@@ -399,7 +558,7 @@ export function regionsOf(
           }
         }
     }
-    const pixels = l + rr;
+    const pixels = l + rr + both;
     const kind: RegionKind =
       l >= 0.8 * pixels ? "removed" : rr >= 0.8 * pixels ? "added" : "changed";
     all.push({ x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1, kind, pixels });

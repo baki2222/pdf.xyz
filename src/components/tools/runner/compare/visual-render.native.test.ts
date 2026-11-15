@@ -219,6 +219,141 @@ describe("the Overlay on real PDFs", () => {
     ).toBe(true);
   });
 
+  // Review r1, 2026-11-15, finding 1: each of these drew "No differences
+  // visible" before the area test, because no pixel changed by more than
+  // TOLERANCE. The corpus before used only dark stamps (darkness ~154).
+  describe("changes under the per-pixel tolerance are seen", () => {
+    const gateOf = (r: Awaited<ReturnType<typeof capturePairs>>, text = true) =>
+      canClaimNoVisualDiff(
+        claimStateOf(r, { pairsTotal: 1, unpaired: 0, hasText: () => text }),
+      );
+    /** A region's centre lies inside the box (PDF points, page 792 high). */
+    const near = (
+      c: Extract<PairOutcome, { status: "checked" }>,
+      box: { x: number; y: number; w: number; h: number },
+    ) => {
+      const s = c.left.dpi / 72;
+      const x0 = box.x * s;
+      const x1 = (box.x + box.w) * s;
+      const y0 = (792 - box.y - box.h) * s;
+      const y1 = (792 - box.y) * s;
+      return c.diff.regions.some((r) => {
+        const cx = r.x + r.w / 2;
+        const cy = r.y + r.h / 2;
+        return cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1;
+      });
+    };
+
+    it("a block recoloured red to blue (luma 76 to 29)", async () => {
+      const box = { x: 380, y: 300, w: 160, h: 80 };
+      const mk = (c: ReturnType<typeof rgb>) =>
+        onePage(async (doc) => {
+          const p = await textPage(doc);
+          p.drawRectangle({
+            x: box.x,
+            y: box.y,
+            width: box.w,
+            height: box.h,
+            color: c,
+          });
+        });
+      const { result, o } = await pair(
+        await mk(rgb(1, 0, 0)),
+        await mk(rgb(0, 0, 1)),
+      );
+      const c = checked(o);
+      expect(c.diff.regions.length).toBeGreaterThanOrEqual(1);
+      expect(near(c, box)).toBe(true);
+      expect(gateOf(result)).toBe(false);
+    });
+
+    it("a pale DRAFT watermark (0.85 grey)", async () => {
+      const a = await onePage(async (doc) => {
+        await textPage(doc);
+      });
+      const b = await onePage(async (doc) => {
+        const p = await textPage(doc);
+        const font = await embedDrawingFont(doc, ["DRAFT"]);
+        p.drawText("DRAFT", {
+          x: 120,
+          y: 300,
+          size: 140,
+          font,
+          color: rgb(0.85, 0.85, 0.85),
+        });
+      });
+      const { result, o } = await pair(a, b);
+      const c = checked(o);
+      expect(c.diff.regions.length).toBeGreaterThanOrEqual(1);
+      expect(c.diff.regions.some((r) => r.kind === "added")).toBe(true);
+      expect(near(c, { x: 120, y: 290, w: 480, h: 120 })).toBe(true);
+      expect(gateOf(result)).toBe(false);
+    });
+
+    it("a yellow highlight bar", async () => {
+      const a = await onePage(async (doc) => {
+        await textPage(doc);
+      });
+      const box = { x: 55, y: 450, w: 330, h: 16 };
+      const b = await onePage(async (doc) => {
+        const p = await textPage(doc);
+        p.drawRectangle({
+          x: box.x,
+          y: box.y,
+          width: box.w,
+          height: box.h,
+          color: rgb(1, 1, 0),
+        });
+      });
+      const { result, o } = await pair(a, b);
+      const c = checked(o);
+      expect(c.diff.regions.length).toBeGreaterThanOrEqual(1);
+      expect(near(c, box)).toBe(true);
+      expect(gateOf(result)).toBe(false);
+    });
+
+    it("two pages of pale colour only, with no text", async () => {
+      const mk = (c: ReturnType<typeof rgb>) =>
+        onePage(async (doc) => {
+          const p = doc.addPage([612, 792]);
+          p.drawRectangle({ x: 50, y: 50, width: 500, height: 600, color: c });
+        });
+      const { result, o } = await pair(
+        await mk(rgb(1, 1, 0.6)),
+        await mk(rgb(0.8, 0.9, 1)),
+      );
+      expect(checked(o).diff.regions.length).toBeGreaterThanOrEqual(1);
+      expect(gateOf(result, false)).toBe(false);
+    });
+
+    it("control: the same pale page twice, and a pale block moved 0.3 pt, are no region", async () => {
+      const mk = (dx: number) =>
+        onePage(async (doc) => {
+          const p = await textPage(doc);
+          p.drawRectangle({
+            x: 380.4 + dx,
+            y: 300.7,
+            width: 160,
+            height: 80,
+            color: rgb(1, 1, 0),
+          });
+          const font = await embedDrawingFont(doc, ["DRAFT"]);
+          p.drawText("DRAFT", {
+            x: 120 + dx,
+            y: 300,
+            size: 140,
+            font,
+            color: rgb(0.85, 0.85, 0.85),
+          });
+        });
+      const same = await pair(await mk(0), await mk(0));
+      expect(checked(same.o).diff.regions).toHaveLength(0);
+      expect(gateOf(same.result)).toBe(true);
+      const moved = await pair(await mk(0), await mk(0.3));
+      expect(checked(moved.o).diff.regions).toHaveLength(0);
+    });
+  });
+
   it("text moved 0.3 pt is no region", async () => {
     const a = await onePage(async (doc) => {
       await textPage(doc);

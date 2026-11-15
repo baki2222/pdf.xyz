@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { luminancePlane } from "@/lib/pdf/render";
 import {
   ADDED_RGB,
+  AREA_TOLERANCE,
   MAX_REGIONS,
   MAX_SHIFT_PX,
   NO_SHIFT,
@@ -183,12 +184,104 @@ describe("diffPlanes", () => {
     expect(iou(mirror.regions, STAMP)).toBeGreaterThanOrEqual(0.8);
   });
 
-  it("the tolerance is a strict threshold: one step above it is seen, at it is not", () => {
+  // INVERTED 2026-11-15 (review r1, finding 1). This test used to read
+  // "one step above it is seen, at it is not": a 30 × 30 block at darkness
+  // TOLERANCE (48 of 255) on white was pinned as NO region. That pinned the
+  // defect: a pale stamp, a yellow highlight and a red logo turned blue are
+  // all changes under 48 in luma over a large area, and each drew the
+  // "No differences visible" sentence. The per-pixel test still stops at
+  // TOLERANCE; the area test (AREA_TOLERANCE, mean darkness per cell) now
+  // sees the same block, and its own threshold is the strict one.
+  it("a block at the per-pixel tolerance is seen by the area test; the area threshold is strict", () => {
     const base = blank(160, 120);
-    const above = rect(blank(160, 120), 40, 40, 30, 30, 255 - (TOLERANCE + 1));
-    const at = rect(blank(160, 120), 40, 40, 30, 30, 255 - TOLERANCE);
+    const atPixel = rect(blank(160, 120), 40, 40, 30, 30, 255 - TOLERANCE);
+    expect(diffPlanes(base, atPixel).regions.length).toBeGreaterThanOrEqual(1);
+    const above = rect(
+      blank(160, 120),
+      40,
+      40,
+      30,
+      30,
+      255 - (AREA_TOLERANCE + 1),
+    );
+    const at = rect(blank(160, 120), 40, 40, 30, 30, 255 - AREA_TOLERANCE);
     expect(diffPlanes(base, above).regions.length).toBeGreaterThanOrEqual(1);
+    expect(
+      diffPlanes(base, above).regions.every((r) => r.kind === "added"),
+    ).toBe(true);
     expect(diffPlanes(base, at).regions).toHaveLength(0);
+  });
+
+  it("a recolour that keeps the shape is one changed region (red to blue: luma 76 to 29)", () => {
+    // Both sides are inked, and no pixel differs by more than TOLERANCE.
+    const red = rect(textPage(320, 240, 2), 120, 60, 80, 40, 76);
+    const blue = rect(textPage(320, 240, 2), 120, 60, 80, 40, 29);
+    expect(76 - 29).toBeLessThan(TOLERANCE);
+    const d = diffPlanes(red, blue);
+    expect(d.regions).toHaveLength(1);
+    expect(d.regions[0]!.kind, JSON.stringify(d.regions)).toBe("changed");
+    // Measured: 80 × 32 of the 80 × 40 block. A cell the block only partly
+    // covers holds its edge, and the windows a pixel either way absorb an
+    // edge's move: a tone change is marked where it covers whole cells.
+    expect(
+      iou(d.regions, { x: 120, y: 60, w: 80, h: 40 }),
+    ).toBeGreaterThanOrEqual(0.75);
+    // The bitsets carry it too, so the overlay paints it.
+    expect(d.onlyR.some((b) => b !== 0)).toBe(true);
+  });
+
+  it("a pale stamp over text and a highlight bar are added regions", () => {
+    const base = textPage(320, 240, 2);
+    // A pale stamp, darkness 38 (a 0.85 grey): under TOLERANCE.
+    const stamp = copy(base);
+    for (let y = 40; y < 120; y++)
+      for (let x = 60; x < 260; x++)
+        if ((x - 60) % 40 < 24)
+          stamp.data[y * 320 + x] = Math.min(stamp.data[y * 320 + x]!, 217);
+    const ds = diffPlanes(base, stamp);
+    expect(ds.regions.length).toBeGreaterThanOrEqual(1);
+    expect(ds.regions.some((r) => r.kind !== "removed")).toBe(true);
+    // A highlight, darkness 29 (pure yellow's luma is 226), over one line.
+    const lit = copy(base);
+    for (let y = 26; y < 50; y++)
+      for (let x = 20; x < 300; x++)
+        lit.data[y * 320 + x] = Math.min(lit.data[y * 320 + x]!, 226);
+    expect(diffPlanes(base, lit).regions.length).toBeGreaterThanOrEqual(1);
+    // Two pages of pale colour only, darkness 12 against 30: not "blank".
+    const paleY = rect(blank(200, 160), 20, 20, 160, 120, 243);
+    const paleB = rect(blank(200, 160), 20, 20, 160, 120, 225);
+    const dp = diffPlanes(paleY, paleB);
+    expect(dp.regions.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("scope probe: thin strokes recoloured within TOLERANCE are not seen (the stated limit)", () => {
+    // 1 px rules turned from red to blue, each on a cell's edge: a pixel
+    // either way takes the rule out of its cell, so the windows' range
+    // holds both means, and no pixel moves by more than TOLERANCE. Real
+    // text turned red to blue is marked in some cells and not others
+    // (measured through pdf.js, 2026-11-15), so the copy says "may be missed".
+    const rules = (lum: number) => {
+      const p = blank(160, 120);
+      for (let x = 7; x < 160; x += 16) rect(p, x, 20, 1, 80, lum);
+      return p;
+    };
+    expect(diffPlanes(rules(76), rules(29)).regions).toHaveLength(0);
+    // Control: the same rules removed are seen.
+    expect(
+      diffPlanes(rules(76), blank(160, 120)).regions.length,
+    ).toBeGreaterThanOrEqual(1);
+  });
+
+  it("half a pixel of jitter on a pale block's edges is no region (the area test's windows)", () => {
+    for (const dark of [20, 40, 47]) {
+      const L = rect(blank(200, 120), 40, 30, 80, 50, 255 - dark);
+      const R = rect(blank(200, 120), 41, 30, 79, 50, 255 - dark);
+      // Anti-aliased edges: half coverage on the columns the edge crosses.
+      rect(R, 40, 30, 1, 50, 255 - Math.round(dark / 2));
+      rect(R, 120, 30, 1, 50, 255 - Math.round(dark / 2));
+      expect(R.data).not.toEqual(L.data);
+      expect(diffPlanes(L, R).regions, `darkness ${dark}`).toHaveLength(0);
+    }
   });
 
   it(`500 specks keep the ${MAX_REGIONS} largest and say so`, () => {
@@ -270,6 +363,11 @@ describe("diffPlanes", () => {
     // Positive control: a change of lightness at the same place is seen.
     expect(
       diffPlanes(red, rgba(0, 0, 0)).regions.length,
+    ).toBeGreaterThanOrEqual(1);
+    // And a SMALL change of lightness (red to blue, 76 to 29 in luma, under
+    // TOLERANCE): unseen before 2026-11-15 (review r1), seen by the area test.
+    expect(
+      diffPlanes(red, rgba(0, 0, 255)).regions.length,
     ).toBeGreaterThanOrEqual(1);
   });
 
