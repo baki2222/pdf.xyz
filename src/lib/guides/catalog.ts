@@ -73,6 +73,10 @@ import {
 } from "@/lib/tools/tool-facts";
 import { TRANSLATE_LANGUAGES } from "@/lib/jobs/translate-pdf";
 import {
+  translatePdfCoverage,
+  translatePdfCoverageSentence,
+} from "@/lib/jobs/translate-pdf-coverage";
+import {
   DEFAULT_JPEG_QUALITY,
   DEFAULT_JPEG_QUALITY_ID,
   JPEG_QUALITY_LABEL,
@@ -2160,8 +2164,14 @@ export const guides: Guide[] = [
   {
     slug: "how-to-translate-a-pdf",
     title: "How to translate a PDF into another language",
-    description:
-      "Translate a PDF into another language with AI. Get Markdown and plain text back; our secure server wipes inputs at job end. No account needed.",
+    // CHANGED 2026-11-15 (audit #29 slice 2), and the four sentences below
+    // marked so: the guide said the output was Markdown and plain text "rather
+    // than a re-laid-out PDF" — true until the worker printed a reflowed PDF.
+    // Which languages get one is DERIVED (`translatePdfCoverage`) from the set
+    // CI makes the worker image prove, never typed here. Was: "Translate a PDF
+    // into another language with AI. Get Markdown and plain text back; our
+    // secure server wipes inputs at job end. No account needed."
+    description: `Translate a PDF with AI into ${TRANSLATE_LANGUAGES.length} languages. Markdown and text come in a ZIP, plus a reflowed PDF for ${translatePdfCoverage().scopeOfThem}. Inputs wiped at job end; no account.`,
     tools: ["translate-pdf", "ocr-pdf", "summarize-pdf"],
     keywords: [
       "translate pdf",
@@ -2172,9 +2182,9 @@ export const guides: Guide[] = [
       "translate a pdf document",
     ],
     intro: [
-      "To translate a PDF into another language, open the Translate PDF tool on pdf.xyz, pick your file, and choose the language you want. AI translates the PDF's selectable text and returns it as translated Markdown and plain text, ready to download.",
+      `To translate a PDF into another language, open the Translate PDF tool on pdf.xyz, pick your file, and choose the language you want. AI translates the PDF's selectable text and returns it as translated Markdown and plain text in a ZIP, with a reflowed PDF of the same text for ${translatePdfCoverage().scope}, ready to download.`,
       `Translate PDF is one of the AI tools, so the work does not happen in your browser: your PDF uploads over an encrypted connection to our processing server, which extracts its selectable text and sends that text — not the file — to a third-party AI provider to translate. Inputs are wiped when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule. No account is needed at any point.`,
-      "Know what you are getting before you start: a text translation, not a page-by-page rebuild. The output is the document's words in the new language, packaged as Markdown and plain text rather than a re-laid-out PDF. That focus on the text is also what lets long documents be handled sensibly — split at page boundaries, translated in ordered passes, and reassembled rather than refused.",
+      "Know what you are getting before you start: a text translation, not a page-by-page rebuild. The output is the document's words in the new language: Markdown and plain text always, and a reflowed PDF where the target language allows it, with none of the original's design redrawn. That focus on the text is also what lets long documents be handled sensibly — split at page boundaries, translated in ordered passes, and reassembled rather than refused.",
     ],
     steps: [
       "Open the Translate PDF tool.",
@@ -2182,15 +2192,15 @@ export const guides: Guide[] = [
       "Upload your PDF — it travels over an encrypted connection to our secure server that runs the job.",
       `In “Translate into”, pick one of the ${TRANSLATE_LANGUAGES.length} languages offered, and leave “Source language” on “Auto-detect” or set it yourself.`,
       "Start the translation. A long document is not refused: it is split at page boundaries, translated a few pages at a time, and reassembled in order. Our server deletes the input when the job finishes.",
-      `Download the result — translated Markdown and plain text, packaged together. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it to your device.`,
+      `Download the result — translated Markdown and plain text, packaged together as a ZIP, and, when the tool offered one, the reflowed PDF, whose button comes first. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it to your device.`,
     ],
     sections: [
       {
         id: "what-you-get-back",
         heading: "What you get back",
         body: [
-          "Translate PDF outputs a Markdown file and a plain-text file, delivered together as a single ZIP. Markdown keeps the translation usable as a document — read it as-is, convert it, or paste it wherever the text needs to go. Plain text is the same words with nothing else attached.",
-          "What it does not produce is a re-laid-out PDF. The translation covers the words, not the design: fonts, columns, and positioning from the original are not reconstructed in the new language. If the goal is the same PDF in a different language, plan on taking the translated text into your own layout — this tool's job is getting the words right. If what you need from a long document is the gist rather than a full translation, Summarize PDF works from the same selectable text.",
+          "Every translation arrives as a Markdown file and a plain-text file, delivered together as a single ZIP. Markdown keeps the translation usable as a document — read it as-is, convert it, or paste it wherever the text needs to go. Plain text is the same words with nothing else attached.",
+          `${translatePdfCoverageSentence()} That PDF is the translated text reflowed onto new pages, not the original redesigned: fonts, columns, and positioning from the original are not reconstructed in the new language. If the goal is the same PDF in a different language, plan on taking the translated text into your own layout — this tool's job is getting the words right. If what you need from a long document is the gist rather than a full translation, Summarize PDF works from the same selectable text.`,
         ],
       },
       {
@@ -2241,8 +2251,9 @@ export const guides: Guide[] = [
       },
       {
         question: "Will the translation look like the original PDF?",
-        answer:
-          "No. The output is translated Markdown and plain text, not a re-laid-out PDF. The words are translated; the original's design is not rebuilt around them. Take the text into your own document if you need the translation typeset.",
+        // Was: "No. The output is translated Markdown and plain text, not a
+        // re-laid-out PDF. …" (2026-11-15, audit #29 slice 2).
+        answer: `No. You always get a ZIP of translated Markdown and plain text. ${translatePdfCoverageSentence()} Neither redraws the original's design around the words; take the text into your own document if you need it typeset like the original.`,
       },
       {
         question: "How much of a PDF can be translated in one run?",
@@ -2258,7 +2269,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-11-09",
+    updated: "2026-11-15",
   },
   {
     slug: "how-to-delete-pages-from-a-pdf",
