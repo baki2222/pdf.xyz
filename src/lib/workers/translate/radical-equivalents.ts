@@ -192,7 +192,9 @@ export type RewriteTable = ReadonlyMap<number, number>;
  * source is rewritten only when that one sharer is a URO ideograph (two
  * Extension A characters on one glyph give no way to know which was meant);
  * a face the facts do not name gives an empty table. `keep` removes sources
- * the job's own text contains.
+ * the job's own text contains, AND every source whose glyph a kept code point
+ * shares (other than the target): the rewrite acts on the glyph, not on the
+ * code point.
  */
 export function radicalRewritesFor(
   face: string,
@@ -202,17 +204,25 @@ export function radicalRewritesFor(
   const out = new Map<number, number>();
   const table = facts.faces[face];
   if (!table) return out;
-  for (const [r, sharers] of Object.entries(table)) {
+  for (const [r, sharerHex] of Object.entries(table)) {
     const source = parseInt(r, 16);
     if (keep.has(source) || !isRewriteSource(source)) continue;
-    const unified = sharers
+    const sharers = sharerHex
       .split(" ")
       .filter(Boolean)
-      .map((h) => parseInt(h, 16))
-      .filter(isUnifiedIdeograph);
+      .map((h) => parseInt(h, 16));
+    const unified = sharers.filter(isUnifiedIdeograph);
     if (unified.length !== 1) continue;
-    if (isExtensionA(source) && !isUro(unified[0]!)) continue;
-    out.set(source, unified[0]!);
+    const target = unified[0]!;
+    if (isExtensionA(source) && !isUro(target)) continue;
+    // The keep set is per CODE POINT, the rewrite per GLYPH (review
+    // 2026-11-16): SC draws ⾷ U+2FB7, ⻝ U+2EDD and 食 with one glyph, and
+    // Skia names it ⻝, the lowest. A job that writes ⾷ keeps U+2FB7, but
+    // rewriting U+2EDD would still make pdf.js read that drawn ⾷ as 食. So a
+    // source is kept when ANY code point on its glyph is one the job wrote —
+    // except the target itself, which pdf.js then reads correctly.
+    if (sharers.some((cp) => cp !== target && keep.has(cp))) continue;
+    out.set(source, target);
   }
   return out;
 }

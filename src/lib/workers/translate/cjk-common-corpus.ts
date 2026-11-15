@@ -5,7 +5,7 @@
  * Why (2026-11-16): #335's "zh, 3000 Han ×10" corpus was the first 3000
  * code points from U+4E00 (U+4E00–U+5BB7). 门 U+95E8 and most of the
  * C-SIMPLIFIED radical components (车 贝 见 马 鱼 鸟 …) lie outside it, so
- * the corpus could not see pdf.js reading 门 as ⻔ U+2EED — the defect a real
+ * the corpus could not see pdf.js reading 门 as ⻔ U+2ED4 — the defect a real
  * zh job then showed in production. The question was asked of the wrong set
  * (CLAUDE.md rule 4). These sets are the characters people actually write:
  *

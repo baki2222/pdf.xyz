@@ -153,6 +153,34 @@ const REWRITE_CASES: readonly {
     viewerLacks: "",
   },
   {
+    // The keep set is per code point, the rewrite per glyph (review
+    // 2026-11-16): SC draws ⾷ U+2FB7, ⻝ U+2EDD and 食 with one glyph, which
+    // Skia names ⻝ (the lowest code point on it). A job writing ⾷ must not
+    // have the drawn ⾷ read as 食. Measured in the image: pdf.js then reads
+    // the glyph's own name ⻝ for both (a radical left a radical), never ⾷ —
+    // pdf.js ignores the ActualText that carries ⾷ to poppler.
+    name: "zh literal Kangxi U+2FB7 + U+98DF (SC: glyph shared with U+2EDD)",
+    target: "zh",
+    text: t(0x2fb7, SP, 0x98df),
+    viewerHas: t(0x2edd),
+    viewerLacks: t(0x98df),
+  },
+  {
+    // The same in JP: ⺫ U+2EAB, ⺲ U+2EB2 and 罒 share a glyph named ⺫.
+    name: "ja literal Supplement U+2EB2 + U+7F52 (JP: glyph shared with U+2EAB)",
+    target: "ja",
+    text: t(0x2eb2, SP, 0x7f52),
+    viewerHas: t(0x2eab),
+    viewerLacks: t(0x7f52),
+  },
+  {
+    name: "zh literal Extension A U+3B35 + U+80F6",
+    target: "zh",
+    text: t(0x3b35, SP, 0x80f6, 0x6c34),
+    viewerHas: t(0x3b35),
+    viewerLacks: "",
+  },
+  {
     name: "zh U+80F6 (SC: shares Extension A U+3B35's glyph)",
     target: "zh",
     text: t(0x80f6, 0x6c34, SP, 0x6a61, 0x80f6),

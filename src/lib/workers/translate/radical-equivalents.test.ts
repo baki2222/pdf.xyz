@@ -345,6 +345,63 @@ describe("the per-face rewrite table, against measured cmap facts", () => {
   });
 
   /**
+   * The keep set is per code point; the rewrite is per glyph (review
+   * 2026-11-16). SC draws ⾷ U+2FB7, ⻝ U+2EDD and 食 with one glyph and Skia
+   * names it ⻝ (the lowest): a job writing ⾷ kept U+2FB7, U+2EDD was still
+   * rewritten, and pdf.js read the drawn ⾷ as 食. DISCOVERED over every
+   * face: every source whose measured sharers include another rewrite source.
+   */
+  it("a source is kept when ANY rewrite source on its glyph is kept — every face, every source whose sharers include a radical or Extension A", () => {
+    const seen = new Map<string, number>();
+    let kept = 0;
+    let targetKept = 0;
+    for (const face of faces)
+      for (const r of Object.keys(RADICAL_GLYPH_FACTS.faces[face]!)) {
+        const source = parseInt(r, 16);
+        const others = sharers(face, source).filter(
+          (cp) => isRadical(cp) || isExtensionA(cp),
+        );
+        const target = radicalRewritesFor(face).get(source);
+        for (const k of others) {
+          const key = `${r}~${k.toString(16)}`;
+          seen.set(key, (seen.get(key) ?? 0) + 1);
+          const t = radicalRewritesFor(face, new Set([k]));
+          if (k === target) {
+            // A kept TARGET (an Extension A sharer) is what pdf.js should read.
+            targetKept += 1;
+            expect(t.get(source), `${face} ${key}`).toBe(target);
+          } else {
+            kept += 1;
+            expect(t.has(source), `${face} ${key}`).toBe(false);
+          }
+        }
+      }
+    // Health and positive control: the review's named members are among them.
+    for (const key of [
+      "2edd~2fb7", // SC ⻝ when the job wrote ⾷
+      "2ee4~2fc1", // SC ⻤ / ⿁
+      "2ed1~2fa7", // ⻑ / ⾧
+      "2e90~2f2a", // ⺐ / ⼪
+      "2e93~2f33", // ⺓ / ⼳
+      "2eab~2eb2", // JP/KR ⺫ / ⺲
+    ])
+      expect(seen.has(key), key).toBe(true);
+    expect(seen.size).toBeGreaterThanOrEqual(12);
+    expect(kept).toBeGreaterThan(200);
+    expect(targetKept).toBeGreaterThan(0);
+    // The literal SC case through keep derived from text, from code points.
+    const sc = radicalRewritesFor(
+      "NotoSansCJKsc-Regular",
+      rewriteSourcesIn(String.fromCodePoint(0x2fb7, 0x20, 0x98df)),
+    );
+    expect(sc.has(0x2edd)).toBe(false);
+    expect(sc.has(0x2fb7)).toBe(false);
+    expect(radicalRewritesFor("NotoSansCJKsc-Regular").get(0x2edd)).toBe(
+      0x98df,
+    );
+  });
+
+  /**
    * The Supplement's second bound, as MEMBERS (rule 1: a list nothing
    * exercises is decoration). Every face where a Supplement radical's flat
    * UCD equivalent differs from the one ideograph the face measures on its
