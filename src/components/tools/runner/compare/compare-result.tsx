@@ -1086,12 +1086,24 @@ function CompareOverlayHost({
  */
 export function CompareVisualRoute({ pages }: { pages: ComparePages }) {
   const [open, setOpen] = useState(false);
+  const host = useRef<HTMLDivElement>(null);
   const warm = () => {
     void compareOverlayChunk.load().catch(() => {});
   };
+  // The button is replaced by the Overlay: focus goes to it, never <body>
+  // (review r1, 2026-11-15).
+  useEffect(() => {
+    if (open) host.current?.focus();
+  }, [open]);
   if (open)
     return (
-      <div className="border-line bg-canvas rounded-panel border">
+      <div
+        ref={host}
+        tabIndex={-1}
+        role="region"
+        aria-label="Visual comparison"
+        className="border-line bg-canvas rounded-panel border"
+      >
         <CompareOverlayHost pages={pages} />
       </div>
     );

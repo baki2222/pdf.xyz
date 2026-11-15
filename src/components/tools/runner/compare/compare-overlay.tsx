@@ -288,6 +288,7 @@ export function CompareOverlay({
   const [scan, setScan] = useState<Scan | null>(null);
   const [confirmEncrypted, setConfirmEncrypted] = useState(false);
   const scanAbort = useRef<AbortController | null>(null);
+  const scanButton = useRef<HTMLButtonElement>(null);
 
   const hasText = useCallback(
     (i: number) =>
@@ -351,8 +352,8 @@ export function CompareOverlay({
     if (scan?.running) return;
     const next = Math.max(0, Math.min(paired - 1, to));
     if (next !== k) setK(next);
-    // A page of its own: the scan's result gives way to it.
-    setScan(null);
+    // The scan's result stays (review r1, 2026-11-15): its Page N buttons
+    // keep focus, and the next differing page is one press away.
   };
   const goDiff = (to: number) => {
     if (differences.length === 0) return;
@@ -481,6 +482,29 @@ export function CompareOverlay({
     (o) => o.status === "checked" && o.diff.blank && hasText(o.index),
   );
   const unpairedLine = unpairedSentence(nLeft, nRight);
+  const pageList = (pages: number[]) =>
+    pages.map((i) => `page ${i + 1}`).join(", ");
+  // What a finished (or stopped) scan says, one sentence each, in the live
+  // region: a screen reader hears the result, whatever it is.
+  const scanLines: string[] =
+    scan?.result && scanState
+      ? [
+          scanClaim,
+          scan.result.refused && refusalSentence(scan.result.refused, "all"),
+          scan.result.memory &&
+            `Your browser ran out of memory drawing page ${scan.result.memory.index + 1}.`,
+          scanState.aborted &&
+            `Checked ${scanState.pairsChecked} of ${paired} pages; stopped.`,
+          unpairedLine,
+          notDrawn.length > 0 && `Not drawn: ${pageList(notDrawn)}.`,
+          undecodedPages.length > 0 &&
+            `An image could not be decoded on ${pageList(undecodedPages)}, so those pages are not compared.`,
+          blankPages.length > 0 &&
+            `Drawn blank although they have text, so not compared: ${pageList(blankPages)}.`,
+          differing.length > 0 &&
+            `Differences on ${plural(differing.length, "page")}: ${pageList(differing)}.`,
+        ].filter((s): s is string => typeof s === "string" && s !== "")
+      : [];
   const minDpi = checked ? Math.min(checked.left.dpi, checked.right.dpi) : null;
   const capped = checked && (checked.left.dpiCapped || checked.right.dpiCapped);
 
@@ -578,6 +602,11 @@ export function CompareOverlay({
             checked={align}
             onChange={(e) => {
               setAlign(e.target.checked);
+              // A scan drawn under the other alignment is stopped, not
+              // hidden (review r1, 2026-11-15): it would go on drawing
+              // with no Stop, and its result would come back.
+              scanAbort.current?.abort();
+              scanAbort.current = null;
               setScan(null);
             }}
           />
@@ -669,15 +698,15 @@ export function CompareOverlay({
       {paired > 1 && (
         <div className="border-line flex flex-col gap-2 border-t pt-3">
           <div className="flex flex-wrap items-center gap-2">
-            {scan?.running ? (
-              <button type="button" onClick={stopScan} className={VIEW_BUTTON}>
-                Stop
-              </button>
-            ) : (
-              <button type="button" onClick={askScan} className={VIEW_BUTTON}>
-                Check all pages
-              </button>
-            )}
+            {/* One button, relabelled, so focus stays on it. */}
+            <button
+              ref={scanButton}
+              type="button"
+              onClick={scan?.running ? stopScan : askScan}
+              className={VIEW_BUTTON}
+            >
+              {scan?.running ? "Stop" : "Check all pages"}
+            </button>
           </div>
           {confirmEncrypted && (
             <div className="flex flex-col gap-2 text-sm">
@@ -689,7 +718,11 @@ export function CompareOverlay({
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={startScan}
+                  onClick={() => {
+                    startScan();
+                    // The question and its buttons go; focus goes to Stop.
+                    scanButton.current?.focus();
+                  }}
                   className={VIEW_BUTTON}
                 >
                   Check all pages anyway
@@ -704,55 +737,41 @@ export function CompareOverlay({
               </div>
             </div>
           )}
-          {scan && (
-            <div role="status" aria-live="polite" className="text-fg text-sm">
-              {scan.running
-                ? scan.checked === 0
+          {/* Always mounted, so its first words are heard (review r1,
+              2026-11-15): the progress while it runs, then the result. */}
+          <div
+            role="status"
+            aria-live="polite"
+            className="text-fg flex flex-col gap-0.5 text-sm"
+          >
+            {scan?.running ? (
+              <p>
+                {scan.checked === 0
                   ? `Looking up all ${paired} pages before drawing them…`
-                  : `Checked ${scan.announced} of ${paired} pages…`
-                : null}
+                  : `Checked ${scan.announced} of ${paired} pages…`}
+              </p>
+            ) : (
+              scanLines.map((line) => <p key={line}>{line}</p>)
+            )}
+          </div>
+          {!scan?.running && differing.length > 0 && (
+            <div
+              role="group"
+              aria-label="Pages with differences"
+              className="flex flex-wrap gap-2"
+            >
+              {differing.map((i) => (
+                <button
+                  key={i}
+                  type="button"
+                  aria-current={i === k || undefined}
+                  onClick={() => goPage(i)}
+                  className={VIEW_BUTTON}
+                >
+                  {`Page ${i + 1}`}
+                </button>
+              ))}
             </div>
-          )}
-          {scan?.result && scanState && (
-            <ul className="text-fg flex flex-col gap-0.5 text-sm">
-              {scanClaim && <li>{scanClaim}</li>}
-              {scan.result.refused && (
-                <li>{refusalSentence(scan.result.refused, "all")}</li>
-              )}
-              {scan.result.memory && (
-                <li>{`Your browser ran out of memory drawing page ${scan.result.memory.index + 1}.`}</li>
-              )}
-              {scanState.aborted && (
-                <li>{`Checked ${scanState.pairsChecked} of ${paired} pages; stopped.`}</li>
-              )}
-              {unpairedLine && <li>{unpairedLine}</li>}
-              {notDrawn.length > 0 && (
-                <li>{`Not drawn: ${notDrawn.map((i) => `page ${i + 1}`).join(", ")}.`}</li>
-              )}
-              {undecodedPages.length > 0 && (
-                <li>{`An image could not be decoded on ${undecodedPages.map((i) => `page ${i + 1}`).join(", ")}, so those pages are not compared.`}</li>
-              )}
-              {blankPages.length > 0 && (
-                <li>{`Drawn blank although they have text, so not compared: ${blankPages.map((i) => `page ${i + 1}`).join(", ")}.`}</li>
-              )}
-              {differing.length > 0 && (
-                <li className="flex flex-col gap-1">
-                  <span>{`Differences on ${plural(differing.length, "page")}:`}</span>
-                  <span className="flex flex-wrap gap-2">
-                    {differing.map((i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={() => goPage(i)}
-                        className={VIEW_BUTTON}
-                      >
-                        {`Page ${i + 1}`}
-                      </button>
-                    ))}
-                  </span>
-                </li>
-              )}
-            </ul>
           )}
         </div>
       )}

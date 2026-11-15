@@ -15,6 +15,7 @@ import { pageImagesTooLargeMessage } from "@/lib/pdf/pdfjs-guard";
 import { CompareOverlay } from "./compare-overlay";
 import {
   CompareChanges,
+  CompareVisualRoute,
   compareExtractedPdfText,
   type ComparePages,
 } from "./compare-result";
@@ -389,6 +390,122 @@ describe("Check all pages", () => {
     expect(text()).not.toContain("This file is encrypted");
   });
 
+  // Review r1, 2026-11-15, finding 3: the checkbox cleared the scan's
+  // view but never aborted it; Stop vanished while every page was still
+  // drawn, and the stale result came back under the other alignment.
+  it("toggling Line up the pages stops a running scan, and its result never comes back", async () => {
+    const pages = setup(
+      { numPages: 40, delayMs: 5 },
+      { numPages: 40, delayMs: 5 },
+    );
+    render(<CompareOverlay pages={pages} />);
+    await drawn();
+    const before = signals.length;
+    fireEvent.click(screen.getByRole("button", { name: "Check all pages" }));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 60));
+    });
+    const scanSignals = signals.slice(before, before + 2);
+    // Health: the scan's two calls are running.
+    expect(scanSignals).toHaveLength(2);
+    expect(scanSignals.map((s) => s.aborted)).toEqual([false, false]);
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(scanSignals.map((s) => s.aborted)).toEqual([true, true]);
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+    await drawn();
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 400));
+    });
+    expect(text()).not.toMatch(/on any of the 40 pages/);
+    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(
+      false,
+    );
+  });
+
+  // Review r1, finding 6: the scan's status went empty when it ended, and
+  // its result sat in a list no screen reader hears.
+  it("announces its result in a live region, clean or not", async () => {
+    const live = () =>
+      [...document.querySelectorAll('[role="status"][aria-live="polite"]')]
+        .map((e) => e.textContent ?? "")
+        .join(" | ");
+    render(<CompareOverlay pages={setup({ numPages: 3 }, { numPages: 3 })} />);
+    await drawn();
+    fireEvent.click(screen.getByRole("button", { name: "Check all pages" }));
+    await waitFor(
+      () =>
+        expect(live()).toContain(
+          `${NO_VISIBLE_DIFFERENCE} on any of the 3 pages`,
+        ),
+      { timeout: 3000 },
+    );
+    cleanup();
+    render(
+      <CompareOverlay
+        pages={setup(
+          { numPages: 3 },
+          { numPages: 3, content: (k) => (k === 2 ? "three" : "ink") },
+        )}
+      />,
+    );
+    await drawn();
+    fireEvent.click(screen.getByRole("button", { name: "Check all pages" }));
+    await waitFor(() => expect(live()).toContain("Differences on 1 page"), {
+      timeout: 3000,
+    });
+    expect(live()).not.toMatch(PHRASE);
+  });
+
+  // Review r1, finding 7: a Page N button unmounted the list it sat in,
+  // and Check all became a different button, so focus fell to <body>.
+  it("keeps focus: Check all becomes Stop in place, and Page N keeps the list", async () => {
+    render(
+      <CompareOverlay
+        pages={setup(
+          { numPages: 3 },
+          { numPages: 3, content: (k) => (k === 2 ? "three" : "ink") },
+        )}
+      />,
+    );
+    await drawn();
+    const check = screen.getByRole("button", { name: "Check all pages" });
+    check.focus();
+    fireEvent.click(check);
+    expect(document.activeElement).toBe(check);
+    await waitFor(() => expect(text()).toContain("Differences on 1 page"), {
+      timeout: 3000,
+    });
+    const page3 = screen.getByRole("button", { name: "Page 3" });
+    page3.focus();
+    fireEvent.click(page3);
+    await waitFor(() => expect(text()).toContain("page 3 with page 3"), {
+      timeout: 3000,
+    });
+    expect(document.activeElement).toBe(page3);
+    expect(screen.getByRole("button", { name: "Page 3" })).toBe(page3);
+  });
+
+  it("Check all pages anyway moves focus to the scan's button", async () => {
+    const pages = setup({ numPages: 3 }, { numPages: 3 });
+    const encrypted = new TextEncoder().encode("trailer << /Encrypt 9 0 R >>");
+    sides.set(encrypted, sides.get(pages.right.bytes)!);
+    render(
+      <CompareOverlay
+        pages={{ ...pages, right: { ...pages.right, bytes: encrypted } }}
+      />,
+    );
+    await drawn();
+    const check = screen.getByRole("button", { name: "Check all pages" });
+    fireEvent.click(check);
+    const anyway = screen.getByRole("button", {
+      name: "Check all pages anyway",
+    });
+    anyway.focus();
+    fireEvent.click(anyway);
+    expect(document.activeElement).toBe(check);
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
   it("unmounting stops a running scan", async () => {
     const pages = setup(
       { numPages: 30, delayMs: 5 },
@@ -485,9 +602,11 @@ describe("the Overlay in the comparison", () => {
     expect(text()).toContain(
       "1 page of PDF 1 and 1 page of PDF 2 have no selectable text, so their text was not compared.",
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Compare pages visually" }),
-    );
+    const visually = screen.getByRole("button", {
+      name: "Compare pages visually",
+    });
+    visually.focus();
+    fireEvent.click(visually);
     await waitFor(
       () =>
         expect(text()).toContain(
@@ -495,5 +614,31 @@ describe("the Overlay in the comparison", () => {
         ),
       { timeout: 5000 },
     );
+    // This button sits in the bar, which stays: focus stays on it.
+    expect(document.activeElement).toBe(visually);
+  });
+
+  // Review r1, 2026-11-15, finding 7: for a verdict with no text to
+  // compare, the button is REPLACED by the Overlay, and focus fell to
+  // <body>. It goes to the Overlay's region now.
+  it("Compare pages visually on a no-text verdict moves focus into the Overlay", async () => {
+    const fake = setup({ numPages: 2 }, { numPages: 2 }, "");
+    render(<CompareVisualRoute pages={fake} />);
+    const visually = screen.getByRole("button", {
+      name: "Compare pages visually",
+    });
+    visually.focus();
+    fireEvent.click(visually);
+    const host = document.activeElement as HTMLElement;
+    expect(host).not.toBe(document.body);
+    expect(host.getAttribute("aria-label")).toBe("Visual comparison");
+    await waitFor(
+      () =>
+        expect(text()).toContain(
+          "Pages are compared by number: page 1 with page 1.",
+        ),
+      { timeout: 5000 },
+    );
+    expect(host.contains(document.querySelector("[data-chunk]"))).toBe(true);
   });
 });
