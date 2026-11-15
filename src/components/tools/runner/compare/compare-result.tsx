@@ -969,8 +969,8 @@ function ComparePagesHost({
       <div
         aria-busy="true"
         className="text-muted flex items-center justify-center gap-2 text-sm"
-        // Inline, not `min-h-44`: no other file uses that utility, and the
-        // site's stylesheet (paid on every page) would carry it (review r1).
+        // Inline, not a new min-height utility class (none ships), so the
+        // site's stylesheet (paid on every page) gains nothing (review r1).
         style={{ minHeight: "11rem" }}
       >
         <Spinner />
