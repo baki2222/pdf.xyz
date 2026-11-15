@@ -344,6 +344,9 @@ const XLSX_MIME =
 const PPTX_MIME =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
+/** The package a proof judges, by its download name (never by list position). */
+const isZipFilename = (filename: string): boolean =>
+  filename.toLowerCase().endsWith(".zip");
 const isPdf = (b: Buffer) => b.subarray(0, 5).toString() === "%PDF-";
 /** OOXML and ZIP artifacts alike start with the local-file-header magic `PK\x03\x04`. */
 const isZipContainer = (b: Buffer) =>
@@ -2482,10 +2485,15 @@ const SPECS: ProofSpec[] = [
   // The AI tools, as values a test can run (`@/tests/ai-proof-specs`): what
   // each uploads, asks and accepts. Here they gain only the container check;
   // what each DECLARES is the browser's, added in `runSpec`.
+  //
+  // Each judges the PACKAGE, so each picks it by name (2026-11-15, audit #29
+  // slice 2): Translate PDF can now return a reflowed PDF beside the ZIP, and
+  // `artifacts[0]` was the ZIP only because the processor lists it first.
   ...AI_PROOF_SPECS.map((spec): ProofSpec => ({
     ...spec,
     type: PDF_MIME,
     expect: isZipContainer,
+    artifact: isZipFilename,
   })),
   // OCR inside Translate PDF (audit translate-pdf#3), a group run by name
   // (`translate-ocr`): the scan goes undeclared, as the panel sends it, so it
@@ -2495,6 +2503,7 @@ const SPECS: ProofSpec[] = [
     ...spec,
     type: PDF_MIME,
     expect: isZipContainer,
+    artifact: isZipFilename,
     verify: (bytes, job) => spec.verify(new Uint8Array(bytes), job.results),
   })),
 ];

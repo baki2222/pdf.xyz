@@ -7946,7 +7946,7 @@
     },
     "guides/how-to-translate-a-pdf.html": {
       "title": "How to translate a PDF into another language — pdf.xyz",
-      "description": "Translate a PDF into another language with AI. Get Markdown and plain text back; our secure server wipes inputs at job end. No account needed.",
+      "description": "Translate a PDF with AI into 21 languages. Markdown and text come in a ZIP, plus a reflowed PDF for 18 of them, not the original layout. Inputs wiped; no account.",
       "canonical": "https://pdf.xyz/guides/how-to-translate-a-pdf",
       "robots": "index, follow",
       "h1": ["How to translate a PDF into another language"],
@@ -16059,7 +16059,7 @@
     },
     "tools/translate-pdf.html": {
       "title": "Translate PDF Online into 21 Languages with AI — pdf.xyz",
-      "description": "Translate a PDF's text into 21 languages, including Spanish, Bengali, and Japanese, source auto-detected or chosen. Get Markdown and plain text in a ZIP.",
+      "description": "Translate a PDF's text into 21 languages with AI. Get Markdown and text in a ZIP, plus a reflowed PDF for 18 of them, not laid out like the original.",
       "canonical": "https://pdf.xyz/tools/translate-pdf",
       "robots": "index, follow",
       "h1": ["Translate PDF"],

@@ -82,6 +82,44 @@ export const LANGUAGE_NAMES: Record<TranslateLanguage, string> = {
   bn: "Bengali",
 };
 
+/**
+ * The target languages CI makes the BUILT WORKER IMAGE prove it prints as a
+ * reflowed PDF: `scripts/worker-translate-pdf-proof.ts` (run by
+ * `.github/workflows/container.yml` inside the image) exits 1, and the merge
+ * fails, if any of these is not among the image's `translatePdfLanguages`.
+ *
+ * Added 2026-11-15 (competitor audit #29, slice 2). It replaced the script's
+ * local `REQUIRED` (en, es, bn) and was widened to the 17 languages production
+ * proved that day (heartbeat + CI run 43730819643). Arabic joined the same
+ * day, carried over from main's `REQUIRED` when PR #331 fixed the direction
+ * check (live heartbeat: 18 languages, ar among them). The static copy that says
+ * which languages get a PDF (`translatePdfCoverage`) reads THIS list, so a
+ * language joins the copy only by joining the gate that keeps it true — the
+ * Arabic and CJK slices add theirs here, and the "no PDF" list shrinks with
+ * them. Never a promise about one job: the panel decides that from the live
+ * heartbeat and the artifact.
+ */
+export const TRANSLATE_PDF_CI_REQUIRED: readonly TranslateLanguage[] = [
+  "en",
+  "es",
+  "fr",
+  "de",
+  "it",
+  "pt",
+  "nl",
+  "ru",
+  "uk",
+  "pl",
+  "sv",
+  "tr",
+  "ar",
+  "hi",
+  "vi",
+  "id",
+  "th",
+  "bn",
+];
+
 /** The source language, either a supported language or `auto` (let the model detect it). */
 export const TRANSLATE_SOURCE_AUTO = "auto" as const;
 export type TranslateSourceLanguage =

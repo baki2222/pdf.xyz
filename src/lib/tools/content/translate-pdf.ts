@@ -9,9 +9,14 @@ import {
   LANGUAGE_NAMES,
   MAX_TRANSLATE_INSTRUCTIONS_CHARS,
   TRANSLATE_LANGUAGES,
+  translatedPdfOutputName,
   translationOutputName,
   type TranslateLanguage,
 } from "@/lib/jobs/translate-pdf";
+import {
+  translatePdfCoverage,
+  translatePdfCoverageSentence,
+} from "@/lib/jobs/translate-pdf-coverage";
 import { OCR_OUTPUT_MODES } from "@/lib/jobs/ocr";
 import {
   TRANSLATE_OCR_CHARGE_SENTENCE,
@@ -121,6 +126,12 @@ const PASS_CHARS = TRANSLATE_MAX_INPUT_CHARS.toLocaleString("en-US");
 const DAY_CHARS = AI_CHARACTER_ALLOWANCE_DELIVERED.toLocaleString("en-US");
 const INSTRUCTION_CHARS = MAX_TRANSLATE_INSTRUCTIONS_CHARS;
 const EXAMPLE_ZIP = translationOutputName("lease.pdf");
+const EXAMPLE_PDF = translatedPdfOutputName("lease.pdf");
+/**
+ * Which languages get the reflowed PDF: derived from the set CI makes the
+ * worker image prove (`TRANSLATE_PDF_CI_REQUIRED`), never typed here.
+ */
+const PDF_COVERAGE = translatePdfCoverage();
 
 /** Code points Markdown to PDF refuses, named by the refusal table it uses. */
 const refusedNames = (text: string): string[] =>
@@ -200,7 +211,10 @@ const either = (codes: readonly TranslateLanguage[]): string =>
 
 const markdownCaveats = [
   UNTYPESET.length > 0
-    ? `That tool refuses scripts it cannot draw correctly, so ${either(UNTYPESET)} output has to go into your own document.`
+    ? // CHANGED 2026-11-15 (audit #29 slice 2): "… so ${either} output has
+      // to go into your own document." Read next to the reflowed PDF, that
+      // said Thai gets no PDF at all; it is about typesetting the Markdown.
+      `That tool refuses scripts it cannot draw correctly, so ${either(UNTYPESET)} Markdown has to be typeset in your own document instead.`
     : "",
   NOTICE_SIGNS.length > 0
     ? `It also refuses a translation.md carrying any page notice, because the ${NOTICE_SIGNS.join(" ")} in each notice counts as ${NOTICE_CLASSES.join(", ")} there; delete that sign first.`
@@ -212,11 +226,16 @@ const content: ToolContent = {
 
   seoTitle: `Translate PDF Online into ${LANGUAGE_COUNT} Languages with AI`,
 
-  metaDescription: `Translate a PDF's text into ${LANGUAGE_COUNT} languages, including ${list(["es", "bn", "ja"])}, source auto-detected or chosen. Get Markdown and plain text in a ZIP.`,
+  // CHANGED 2026-11-15 (audit #29 slice 2): ended "Get Markdown and plain
+  // text in a ZIP." — the whole output until the reflowed PDF.
+  metaDescription: `Translate a PDF's text into ${LANGUAGE_COUNT} languages with AI. Get Markdown and text in a ZIP, plus a reflowed PDF for ${PDF_COVERAGE.scopeOfThem}, not laid out like the original.`,
 
   intro: [
-    `Translate PDF has an AI model rewrite your document's text between any two of ${LANGUAGE_COUNT} languages, from ${list(["es", "bn"])} to ${list(["ja", "ar"])}. The model is told to keep headings and lists, leave names, numbers, code and URLs alone unless they clearly need translating, and add, drop or summarise nothing. You get a ZIP such as ${EXAMPLE_ZIP} holding translation.md, translation.txt, a README and a manifest naming the model and languages: translated text, not a rebuilt PDF, so fonts, columns and images are not recreated.`,
-    `The work happens online, on pdf.xyz's secure server. Your PDF, one file up to ${CEILING_MB} MB, is uploaded over TLS; our server extracts its text and sends that text, plus any instruction you typed, but not the PDF file, to a third-party AI provider used under agreements that prohibit training on data sent through the API. The uploaded PDF is deleted when the job finishes, the ZIP's download link expires after ${OUTPUT_TTL} minutes, and a daily storage rule then erases the stored copy.`,
+    // CHANGED 2026-11-15 (audit #29 slice 2): the first paragraph ended "You
+    // get a ZIP … : translated text, not a rebuilt PDF, so fonts, columns and
+    // images are not recreated." — true until the worker printed a PDF.
+    `Translate PDF has an AI model rewrite your document's text between any two of ${LANGUAGE_COUNT} languages, from ${list(["es", "bn"])} to ${list(["ja", "ar"])}. The model is told to keep headings and lists, leave names, numbers, code and URLs alone unless they clearly need translating, and add, drop or summarise nothing. You always get a ZIP such as ${EXAMPLE_ZIP} holding translation.md, translation.txt, a README and a manifest naming the model and languages. ${translatePdfCoverageSentence(PDF_COVERAGE, EXAMPLE_PDF)} Neither reproduces the original's fonts, columns, images or positions: the PDF is the translated text reflowed onto new pages.`,
+    `The work happens online, on pdf.xyz's secure server. Your PDF, one file up to ${CEILING_MB} MB, is uploaded over TLS; our server extracts its text and sends that text, plus any instruction you typed, but not the PDF file, to a third-party AI provider used under agreements that prohibit training on data sent through the API. The uploaded PDF is deleted when the job finishes, each download link expires after ${OUTPUT_TTL} minutes, and a daily storage rule then erases the stored copy.`,
     `One pass carries up to ${PASS_CHARS} characters; longer documents are split at page boundaries, translated in order and reassembled. Your browser counts the text before anything uploads, so a file with no page that fits a pass is stopped without touching the allowance; a scan with no text layer is recognised on our server first when it can do that, and stopped the same way when it cannot. ${AI_ALLOWANCE_FACT} The allowance is charged when the job is created, just after the upload: a document needing more than is left today is refused whole with nothing charged rather than half translated, and one over ${DAY_CHARS} characters, the whole day's allowance, has to be split into smaller files first.`,
   ],
 
@@ -258,11 +277,14 @@ const content: ToolContent = {
     },
     {
       title: "Press Translate PDF",
-      body: "Your browser counts the text first, while the button reads Translating…; a scan is recognised on our server first when it can do that, which takes longer, and is refused before it uploads when it cannot. If it fits, the PDF uploads over TLS (Uploading your file…), waits in the queue (Waiting for our server…), is translated (Translating…), and the ZIP is fetched (Downloading the result…) before the download button appears.",
+      body: "Your browser counts the text first, while the button reads Translating…; a scan is recognised on our server first when it can do that, which takes longer, and is refused before it uploads when it cannot. If it fits, the PDF uploads over TLS (Uploading your file…), waits in the queue (Waiting for our server…), is translated (Translating…), and the result is fetched (Downloading the result…) before the downloads appear.",
     },
     {
-      title: "Download the ZIP",
-      body: `Press the button that names the package, such as Download ${EXAMPLE_ZIP}; it saves the copy the page already fetched. Pages that could not be translated are marked where they sat. The stored copy on pdf.xyz is only reachable for ${OUTPUT_TTL} minutes.`,
+      // CHANGED 2026-11-15 (audit #29 slice 2): "Download the ZIP" / "Press
+      // the button that names the package …" — one download. With a PDF the
+      // panel offers two, the PDF first.
+      title: "Download the result",
+      body: `Press the button that names the package, such as Download ${EXAMPLE_ZIP}; when a PDF came with it, its button, such as Download ${EXAMPLE_PDF}, comes first. Each saves the copy the page already fetched. Pages that could not be translated are marked where they sat. The stored copy on pdf.xyz is only reachable for ${OUTPUT_TTL} minutes.`,
     },
   ],
 

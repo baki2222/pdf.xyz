@@ -1155,8 +1155,14 @@ export const tools: Tool[] = [
     slug: "translate-pdf",
     name: "Translate PDF",
     tagline: "Translate a PDF's text into another language.",
+    // Was "…, packaged as translated Markdown and plain text." (until
+    // 2026-11-16): the text alone as the whole output, on "About this tool"
+    // and the JSON-LD. "most" is a word, not the count, because importing the
+    // jobs module here pulls it into the ticket's lazy catalogue chunk (see
+    // catalog-descriptions.test.ts); translate-pdf-coverage.test.ts holds it
+    // true against TRANSLATE_PDF_CI_REQUIRED, with a control that fails it.
     description:
-      "Translate a PDF's selectable text into another language with AI, packaged as translated Markdown and plain text.",
+      "Translate a PDF's selectable text into another language with AI: Markdown and plain text in a ZIP, plus a reflowed PDF of the same text for most target languages.",
     category: "ai",
     icon: "translate",
     processing: "ai",
