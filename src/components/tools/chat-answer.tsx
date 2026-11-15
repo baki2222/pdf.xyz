@@ -55,7 +55,17 @@ export function ChatAnswer({
             type="button"
             aria-label={citationLabel(segment.pages)}
             onClick={() => onOpen(segment.pages[0]!)}
-            className="text-accent tap-y font-medium underline underline-offset-4"
+            // An IN-FLOW box, never `tap-y` (review, 2026-11-15): tap-y grows
+            // a button to 44px with a negative margin, so on a touch screen
+            // the boxes of markers on neighbouring lines overlapped and a tap
+            // on "[p.1]" opened the page cited on the line below. As an
+            // inline-flex box, `tap` (44x44 on a coarse pointer) grows the
+            // LINE instead, and 1px of padding makes the desktop box 24px+
+            // (axe target-size; the line is ~23px). Existing classes only:
+            // the shipped stylesheet is at its ceiling.
+            // e2e/chat-with-pdf-citations{,.mobile}.spec.ts measure both.
+            style={{ paddingBlock: 1 }}
+            className="text-accent tap inline-flex items-center justify-center font-medium underline underline-offset-4"
           >
             {segment.text}
           </button>

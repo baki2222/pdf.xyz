@@ -1,21 +1,14 @@
-import {
-  test,
-  expect,
-  type Page,
-  type Request,
-  type Route,
-} from "@playwright/test";
-import JSZip from "jszip";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
-import { fileInput, waitForHydration } from "./helpers";
+import { test, expect, type Request } from "@playwright/test";
 import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
-import { READY_WORKER_STATUS } from "../src/tests/ready-worker-status";
+import { colourDistance, decodePng, pixelAt } from "../src/lib/png-probe";
 import {
-  colourDistance,
-  decodePng,
-  pixelAt,
-  type Rgb,
-} from "../src/lib/png-probe";
+  FILLS,
+  askThreeFills,
+  axeViolations,
+  citationBoxes,
+  isStaticGet,
+  mockChatWorker,
+} from "./chat-citations-fixture";
 
 /**
  * Clickable citations through the SERVED page (audit #30, chat-with-pdf#3,
@@ -36,147 +29,17 @@ test.beforeEach(async ({ page }) => {
   }, CONSENT_STORAGE_KEY);
 });
 
-const FILLS: Rgb[] = [
-  { r: 220, g: 40, b: 40 },
-  { r: 40, g: 180, b: 60 },
-  { r: 40, g: 70, b: 220 },
-];
-
 const QUESTION = "What does page 2 say?";
 const ANSWER = "Page 2 holds the green section [p.2].";
-
-/** Three pages, each a solid fill, each with a line of text so it counts. */
-async function threeFills(): Promise<Buffer> {
-  const doc = await PDFDocument.create();
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  FILLS.forEach((fill, i) => {
-    const page = doc.addPage([300, 400]);
-    page.drawRectangle({
-      x: 0,
-      y: 0,
-      width: 300,
-      height: 400,
-      color: rgb(fill.r / 255, fill.g / 255, fill.b / 255),
-    });
-    page.drawText(`Section ${i + 1}`, {
-      x: 12,
-      y: 380,
-      size: 10,
-      font,
-      color: rgb(1, 1, 1),
-    });
-  });
-  return Buffer.from(await doc.save());
-}
-
-/** The package a completed chat job ships, as the engine lays it out. */
-async function answerPackage(): Promise<Buffer> {
-  const zip = new JSZip();
-  zip.file("answer.txt", `Q: ${QUESTION}\n\nA: ${ANSWER}\n`);
-  zip.file("answer.md", `# ${QUESTION}\n\n${ANSWER}\n`);
-  zip.file(
-    "manifest.json",
-    JSON.stringify({ schema: "pdfxyz.chat/v1", answer: { citedPages: [2] } }),
-  );
-  return Buffer.from(await zip.generateAsync({ type: "uint8array" }));
-}
-
-const json = (route: Route, status: number, body: unknown) =>
-  route.fulfill({
-    status,
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-
-async function mockChatWorker(page: Page) {
-  const pkg = await answerPackage();
-  const now = new Date().toISOString();
-  const done = {
-    jobId: "job_cite1",
-    tool: "chat-with-pdf",
-    capability: "secure-worker",
-    status: "completed",
-    progress: 100,
-    createdAt: now,
-    updatedAt: now,
-    expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
-    retention: { inputTtlMinutes: 0, outputTtlMinutes: 60 },
-    artifacts: [
-      {
-        artifactId: "art_cite1",
-        filename: "answer.zip",
-        contentType: "application/zip",
-        bytes: pkg.byteLength,
-        url: "/__e2e/chat-art/1",
-        expiresAt: now,
-      },
-    ],
-  };
-  await page.route("**/api/worker/status", (route) =>
-    json(route, 200, READY_WORKER_STATUS),
-  );
-  await page.route("**/api/uploads", (route) =>
-    json(route, 200, {
-      sessionId: "ses_cite1",
-      tool: "chat-with-pdf",
-      slots: [
-        {
-          fileId: "f_cite0000001",
-          filename: "in",
-          url: "/__e2e/chat-upload/1",
-          method: "PUT",
-          headers: {},
-        },
-      ],
-      expiresAt: new Date(Date.now() + 600_000).toISOString(),
-      retention: { inputTtlMinutes: 0, outputTtlMinutes: 60 },
-    }),
-  );
-  await page.route("**/__e2e/chat-upload/**", (route) => json(route, 200, {}));
-  await page.route("**/api/jobs", (route) =>
-    route.request().method() === "POST"
-      ? json(route, 200, done)
-      : route.fallback(),
-  );
-  await page.route("**/api/jobs/job_cite1", (route) => json(route, 200, done));
-  await page.route("**/__e2e/chat-art/**", (route) =>
-    route.fulfill({
-      status: 200,
-      headers: { "content-type": "application/zip" },
-      body: pkg,
-    }),
-  );
-}
-
-/** Same-origin static assets a first press may fetch, and nothing else. */
-function isStaticGet(request: Request, origin: string): boolean {
-  const url = new URL(request.url());
-  if (url.protocol === "blob:" || url.protocol === "data:") return true;
-  if (url.origin !== origin) return false;
-  if (url.pathname.startsWith("/api/")) return false;
-  if (url.searchParams.has("_rsc")) return true;
-  return /^\/(?:_next\/static\/|pdfjs-wasm\/|pdfjs-cmaps\/)/.test(url.pathname);
-}
 
 test("pressing [p.2] shows page 2 of the chosen file, and sends nothing", async ({
   page,
 }) => {
-  await mockChatWorker(page);
+  await mockChatWorker(page, QUESTION, ANSWER, [2]);
   const before: Request[] = [];
   const recordBefore = (request: Request) => before.push(request);
   page.on("request", recordBefore);
-  await page.goto("/tools/chat-with-pdf");
-  const input = fileInput(page);
-  await waitForHydration(input);
-  await input.setInputFiles({
-    name: "fills.pdf",
-    mimeType: "application/pdf",
-    buffer: await threeFills(),
-  });
-  await page.getByRole("textbox").fill(QUESTION);
-  const ask = page.getByRole("button", { name: "Ask the PDF" });
-  await expect(ask).not.toHaveAttribute("aria-disabled", "true");
-  await ask.click();
+  await askThreeFills(page, QUESTION);
 
   const cite = page.getByRole("button", { name: "Show page 2 of your PDF" });
   await expect(cite).toBeVisible({ timeout: 20_000 });
@@ -246,4 +109,104 @@ test("pressing [p.2] shows page 2 of the chosen file, and sends nothing", async 
     expect(request.postDataBuffer(), where).toBeNull();
     expect(isStaticGet(request, origin), where).toBe(true);
   }
+});
+
+/**
+ * Every shape the worker's parser counts, beside shapes it does not, on one
+ * answer: the review's own (2026-11-15). Two markers a few pixels apart are
+ * common ("[p.2] [p.3]"), so each button must be a 24px target on its own —
+ * axe's target-size rule found "[p.3]" too small beside its neighbour before
+ * the buttons were given a box.
+ */
+const MULTI_Q = "Where is the rent?";
+const MULTI =
+  "Forms: [p.2] and [p.1, p.3] and [p.3, 2] and [pp. 2-3]. Close: [p.2] [p.3]. Not: [p.0] [p.999] [p.x] [Page 2].";
+
+for (const scheme of ["light", "dark"] as const) {
+  test(`an answer full of citations passes axe, every button a 24px target (${scheme})`, async ({
+    browser,
+  }) => {
+    const context = await browser.newContext({ colorScheme: scheme });
+    await context.addInitScript((key) => {
+      window.localStorage.setItem(key, "denied");
+    }, CONSENT_STORAGE_KEY);
+    const page = await context.newPage();
+    await mockChatWorker(page, MULTI_Q, MULTI, [1, 2, 3]);
+    await askThreeFills(page, MULTI_Q);
+    await expect(
+      page.getByRole("button", { name: "Show page 2 of your PDF" }).first(),
+    ).toBeVisible({ timeout: 20_000 });
+
+    const boxes = await citationBoxes(page);
+    // Exactly the counted shapes, in order; nothing in "Not:" is a button.
+    expect(boxes.map((b) => b.text)).toEqual([
+      "[p.2]",
+      "[p.1, p.3]",
+      "[p.3, 2]",
+      "[pp. 2-3]",
+      "[p.2]",
+      "[p.3]",
+    ]);
+    for (const box of boxes) {
+      expect(box.height, box.text).toBeGreaterThanOrEqual(24);
+      expect(box.width, box.text).toBeGreaterThanOrEqual(24);
+    }
+    expect(await axeViolations(page)).toEqual([]);
+
+    // The dialog too, opened from the close pair.
+    await page.getByRole("button", { name: "Show page 3 of your PDF" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Page 3 of 3" }),
+    ).toBeVisible();
+    expect(await axeViolations(page)).toEqual([]);
+    await context.close();
+  });
+}
+
+test("the dialog works from the keyboard and gives focus back to the marker", async ({
+  page,
+}) => {
+  await mockChatWorker(page, MULTI_Q, MULTI, [1, 2, 3]);
+  await askThreeFills(page, MULTI_Q);
+  const cite = page.getByRole("button", { name: "Show page 3 of your PDF" });
+  await expect(cite).toBeVisible({ timeout: 20_000 });
+  await cite.focus();
+  await page.keyboard.press("Enter");
+
+  const dialog = page.getByRole("dialog");
+  await expect(
+    dialog.getByRole("heading", { name: "Page 3 of 3" }),
+  ).toBeVisible();
+  // Focus moved into the dialog, and Tab never reaches the page behind it.
+  // The modal <dialog> makes the page inert; past the last control the
+  // browser offers its own toolbar (here: focus on no element, the body),
+  // which is not the page — so "inside, or nowhere on the page" is the
+  // property, and at least one Tab must land inside (the positive control).
+  await expect
+    .poll(() => dialog.evaluate((d) => d.contains(document.activeElement)))
+    .toBe(true);
+  const where: string[] = [];
+  for (let i = 0; i < 8; i++) {
+    await page.keyboard.press("Tab");
+    where.push(
+      await dialog.evaluate((d) => {
+        const at = document.activeElement;
+        if (at === null || at === document.body) return "browser";
+        return d.contains(at) ? "dialog" : `PAGE ${at.outerHTML.slice(0, 80)}`;
+      }),
+    );
+  }
+  expect(
+    where.filter((w) => w.startsWith("PAGE")),
+    where.join(" "),
+  ).toEqual([]);
+  expect(where).toContain("dialog");
+  // Previous walks back; it is the last page, so Next is not offered as live.
+  await dialog.getByRole("button", { name: /previous page/i }).click();
+  await expect(
+    dialog.getByRole("heading", { name: "Page 2 of 3" }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(cite).toBeFocused();
 });

@@ -609,54 +609,59 @@ function Transcript({
     /* `log` rather than `status`: answers arrive in sequence and the order is
        meaningful, and unlike a focus move it never interrupts someone midway
        through typing their follow-up. */
-    <ol role="log" aria-live="polite" className="flex flex-col gap-3">
-      {entries.map((entry) => (
-        <li
-          key={entry.id}
-          className="border-line bg-wash rounded-panel flex flex-col gap-2 border p-4"
-        >
-          <p className="text-fg text-sm font-medium">{entry.question}</p>
-          {/* Before the answer, not after: a reader who stops at the answer is
-              exactly the reader the notice is for. */}
-          <TruncationNotice
-            job={entry.job}
-            consequence="An answer that says the document does not mention something may only mean it is not in the pages that were read."
-          />
-          {entry.answer !== null ? (
-            // The model's answer verbatim, exactly as shipped in the package — never a
-            // paraphrase, and never anything the panel composed itself.
-            <>
-              <ChatAnswer
-                answer={entry.answer}
-                pageCount={doc?.pageCount ?? null}
-                onOpen={
-                  doc !== null && entry.docToken === doc.token ? onOpen : null
-                }
-              />
-              {/* Under EVERY answer, and not conditional on citations: an
-                  ungrounded answer has none to point at. */}
-              <p className="text-muted text-xs leading-relaxed">
-                {AI_ANSWER_CAVEAT}
-              </p>
-            </>
-          ) : (
-            <p className="text-warn text-sm leading-relaxed">
-              The answer package came back, but its answer could not be read
-              here — so nothing is shown rather than guessed, and this exchange
-              is left out of follow-up context. Download it to read the answer.
-            </p>
-          )}
-          <button
-            type="button"
-            onClick={() => downloadBytes(entry.output, entry.filename)}
-            className="border-line text-muted hover:border-line-strong hover:text-fg rounded-tag inline-flex items-center gap-2 self-start border px-3 py-1.5 text-xs font-medium transition"
+    // The log is a wrapper, not the list: `role` on the <ol> erased its list
+    // semantics, leaving every <li> an orphan listitem (axe, 2026-11-15).
+    <div role="log" aria-live="polite">
+      <ol className="flex flex-col gap-3">
+        {entries.map((entry) => (
+          <li
+            key={entry.id}
+            className="border-line bg-wash rounded-panel flex flex-col gap-2 border p-4"
           >
-            <Download className="size-3.5" aria-hidden />
-            {entry.filename}
-          </button>
-        </li>
-      ))}
-    </ol>
+            <p className="text-fg text-sm font-medium">{entry.question}</p>
+            {/* Before the answer, not after: a reader who stops at the answer is
+              exactly the reader the notice is for. */}
+            <TruncationNotice
+              job={entry.job}
+              consequence="An answer that says the document does not mention something may only mean it is not in the pages that were read."
+            />
+            {entry.answer !== null ? (
+              // The model's answer verbatim, exactly as shipped in the package — never a
+              // paraphrase, and never anything the panel composed itself.
+              <>
+                <ChatAnswer
+                  answer={entry.answer}
+                  pageCount={doc?.pageCount ?? null}
+                  onOpen={
+                    doc !== null && entry.docToken === doc.token ? onOpen : null
+                  }
+                />
+                {/* Under EVERY answer, and not conditional on citations: an
+                  ungrounded answer has none to point at. */}
+                <p className="text-muted text-xs leading-relaxed">
+                  {AI_ANSWER_CAVEAT}
+                </p>
+              </>
+            ) : (
+              <p className="text-warn text-sm leading-relaxed">
+                The answer package came back, but its answer could not be read
+                here — so nothing is shown rather than guessed, and this
+                exchange is left out of follow-up context. Download it to read
+                the answer.
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => downloadBytes(entry.output, entry.filename)}
+              className="border-line text-muted hover:border-line-strong hover:text-fg rounded-tag inline-flex items-center gap-2 self-start border px-3 py-1.5 text-xs font-medium transition"
+            >
+              <Download className="size-3.5" aria-hidden />
+              {entry.filename}
+            </button>
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }
 
