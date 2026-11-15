@@ -441,6 +441,68 @@ describe("the daemon PROVES the capabilities, it does not declare them", () => {
     }
   });
 
+  /**
+   * Review round 2 of #28 slice 2 (2026-11-15): the guard above tells a probe
+   * from a claim, not one prover from another — `docxTables: await
+   * provesDocxRunStyles(...)` publishes a run-styles verdict under the tables
+   * key, and every test in the tree stayed green (measured by the review,
+   * 902 passed). Pinned as a relationship: a capability published from a
+   * `proves*` call is published from ITS prover, `proves` + the key.
+   */
+  it("a capability published from a prover is published from ITS prover", () => {
+    const proversIn = (node: TS.Node): string[] => {
+      const out: string[] = [];
+      const visit = (n: TS.Node): void => {
+        if (
+          ts.isCallExpression(n) &&
+          ts.isIdentifier(n.expression) &&
+          /^proves[A-Z]/.test(n.expression.text)
+        )
+          out.push(n.expression.text);
+        ts.forEachChild(n, visit);
+      };
+      visit(node);
+      return out;
+    };
+    const own = (key: string) =>
+      `proves${key[0]!.toUpperCase()}${key.slice(1)}`;
+    // CONTROLS on synthetic source: the swap the review made, and the right one.
+    expect(
+      proversIn(initializerOf("await provesDocxRunStyles(deps)")),
+    ).not.toContain(own("docxTables"));
+    expect(proversIn(initializerOf("await provesDocxTables(deps)"))).toEqual([
+      own("docxTables"),
+    ]);
+
+    const file = "scripts/worker-daemon.ts";
+    const sf = ts.createSourceFile(
+      file,
+      readFileSync(file, "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    const published: [string, string[]][] = [];
+    const walk = (node: TS.Node): void => {
+      if (ts.isPropertyAssignment(node) && ts.isIdentifier(node.name)) {
+        const key = node.name.text;
+        if (ADVERTISED_WORKER_CAPABILITIES.some((c) => c.key === key)) {
+          const provers = proversIn(node.initializer);
+          if (provers.length > 0) published.push([key, provers]);
+        }
+      }
+      ts.forEachChild(node, walk);
+    };
+    walk(sf);
+    // HEALTH: printed, not counted — the keys a prover publishes today.
+    expect(published.map(([key]) => key)).toEqual(
+      expect.arrayContaining(["docxTables", "docxRunStyles", "docxPictures"]),
+    );
+    expect(published.length).toBeGreaterThanOrEqual(8);
+    expect(
+      published.filter(([key, provers]) => !provers.includes(own(key))),
+    ).toEqual([]);
+  });
+
   it("probes through the ENGINE, not through the planner beneath it", () => {
     // The correction that produced this version. A probe of
     // `planTranslateChunks` proves the planner is present; the engine could

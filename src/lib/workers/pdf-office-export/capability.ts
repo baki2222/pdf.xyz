@@ -704,7 +704,13 @@ type ReadTable = Extract<
  *   2. "structure": something Word could refuse (`docxStructureProblems`);
  *   3. "text": the text read back is not poppler's, page by page;
  *   4. "shape": not exactly one top-level table of 3 grid columns and 4
- *      rows, each of 3 cells spanning 1;
+ *      rows, each of 3 cells spanning 1. Its "exactly one" cannot fail ON
+ *      ITS OWN (review round 2, 2026-11-15: `!== 1` mutated to `< 1` left
+ *      every negative green): a second table either changes the text read
+ *      back, even an empty one (an empty row reads as an empty line, and
+ *      the engine refused that job), or stands before the probe's and
+ *      fails the grid. Kept as the plain statement of what is expected;
+ *      not counted as a check of its own;
  *   5. "cells": a cell's text is not the page's, or the middle row's
  *      quantity is not an EMPTY cell (no run at all);
  *   7. "bold": a header run without `w:b` and `w:bCs`, or a body-row run

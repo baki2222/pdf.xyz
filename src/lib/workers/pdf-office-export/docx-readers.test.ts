@@ -4,7 +4,7 @@
  * written self-closing. Until #28 slice 2 (2026-11-15) `<w:p/>` was swallowed
  * by the opening-tag pattern up to the NEXT paragraph's `</w:p>`, so an empty
  * paragraph and the one after it read as one; docx-text had no self-closing
- * case at all. Our writer never writes `<w:p/>` (`docx-package.test.ts` pins
+ * case at all. Our writer never writes `<w:p/>` (`docx-table.test.ts` pins
  * that), but a reader that can merge two paragraphs is not one a proof can
  * lean on.
  */
