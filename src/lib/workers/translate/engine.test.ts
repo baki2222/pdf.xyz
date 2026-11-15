@@ -1,7 +1,11 @@
+import { createHash } from "node:crypto";
 import JSZip from "jszip";
 import { describe, expect, it, vi } from "vitest";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
-import type { TranslateOptions } from "@/lib/jobs/translate-pdf";
+import type {
+  TranslateLanguage,
+  TranslateOptions,
+} from "@/lib/jobs/translate-pdf";
 import type {
   AiCompletionRequest,
   AiCompletionResult,
@@ -11,7 +15,10 @@ import {
   runTranslate,
   TRANSLATE_ENGINE,
   type PdfTextExtractor,
+  type TranslateDeps,
 } from "./engine";
+import type { TranslatePdfResult } from "./pdf-render";
+import type { TypesetInput } from "./typeset";
 import {
   TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS,
   TRANSLATE_MAX_INPUT_CHARS,
@@ -605,5 +612,334 @@ describe("a failed translate run reports what it spent", () => {
     if (run.ok) return;
     expect("usage" in run).toBe(false);
     expect("window" in run).toBe(false);
+  });
+});
+
+/**
+ * EVERY POST-SPEND FAILURE CARRIES THE SPEND (2026-11-15, rule 3).
+ *
+ * Until this change four returns inside `runTranslate` came AFTER
+ * `provider.complete` and carried neither `usage` nor `window`: the package
+ * size arm, a single empty translation, the all-empty fallback, and an
+ * interruption whose earlier calls had already been tallied. With no window,
+ * `aiResultsFromFailure` returns undefined and the executor's spend hook records
+ * zero — the convenient direction, toward free.
+ */
+describe("every failure after a provider call reports what the calls spent", () => {
+  /** Twenty 2,000-character pages: four chunks under the default ceiling. */
+  function chunkedExtractor(): PdfTextExtractor {
+    const perPage = "a".repeat(2000);
+    const pages = Array.from({ length: 20 }, (_, i) => ({
+      pageNumber: i + 1,
+      text: perPage,
+      characterCount: perPage.length,
+    }));
+    const joined = pages.map((p) => p.text).join("\n\n");
+    return vi.fn(async () => ({
+      pageCount: pages.length,
+      pages,
+      text: joined,
+      characterCount: joined.length,
+      hasText: true,
+    }));
+  }
+
+  /** Answers each call with the next scripted result, recording the request. */
+  function scripted(results: AiCompletionResult[]): AiProvider & {
+    calls: AiCompletionRequest[];
+  } {
+    const calls: AiCompletionRequest[] = [];
+    return {
+      id: "anthropic",
+      model: "claude-sonnet-5",
+      calls,
+      async complete(request) {
+        calls.push(request);
+        const next = results[calls.length - 1];
+        if (!next) throw new Error("no scripted result left");
+        return next;
+      },
+    };
+  }
+
+  it("a package over the size bound still reports what the calls spent", async () => {
+    const run = await runTranslate(INPUT, OPTIONS, {
+      extract: extractorFor("Some document text to translate."),
+      provider: providerReturning(SUCCESS("Un texte traduit.")),
+      limits: { maxOutputBytes: 1 },
+    });
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.message).toMatch(/size limit/);
+    expect(run.usage?.calls).toBe(1);
+    expect(run.usage).toEqual({
+      inputTokens: 100,
+      outputTokens: 20,
+      calls: 1,
+      model: "claude-sonnet-5",
+    });
+    expect(run.window).toBeDefined();
+  });
+
+  it("an empty single translation reports its spend", async () => {
+    const run = await runTranslate(INPUT, OPTIONS, {
+      extract: extractorFor("real text"),
+      provider: providerReturning(SUCCESS("   ")),
+    });
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.kind).toBe("failed");
+    expect(run.usage).toEqual({
+      inputTokens: 100,
+      outputTokens: 20,
+      calls: 1,
+      model: "claude-sonnet-5",
+    });
+    expect(run.window).toBeDefined();
+  });
+
+  it("an all-empty chunked translation reports every call", async () => {
+    const provider = providerReturning(SUCCESS("   "));
+    const run = await runTranslate(INPUT, OPTIONS, {
+      extract: chunkedExtractor(),
+      provider,
+    });
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(provider.calls.length).toBeGreaterThan(1);
+    expect(run.usage?.calls).toBe(provider.calls.length);
+    expect(run.usage?.inputTokens).toBe(100 * provider.calls.length);
+    expect(run.window).toBeDefined();
+  });
+
+  it("an interruption after empty parts reports every call", async () => {
+    const provider = scripted([
+      SUCCESS("   "),
+      {
+        ok: false,
+        kind: "provider_error",
+        retryable: true,
+        message: "upstream 500",
+        usage: { inputTokens: 7, outputTokens: 3 },
+      },
+    ]);
+    const run = await runTranslate(INPUT, OPTIONS, {
+      extract: chunkedExtractor(),
+      provider,
+    });
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(provider.calls).toHaveLength(2);
+    expect(run.message).toBe("upstream 500");
+    expect(run.usage).toEqual({
+      inputTokens: 107,
+      outputTokens: 23,
+      calls: 2,
+      model: "claude-sonnet-5",
+    });
+    expect(run.window).toBeDefined();
+  });
+
+  it("an interruption whose failing call reported nothing still counts it, and keeps the earlier tokens", async () => {
+    const provider = scripted([
+      SUCCESS("   "),
+      {
+        ok: false,
+        kind: "timeout",
+        retryable: true,
+        message: "timed out",
+      },
+    ]);
+    const run = await runTranslate(INPUT, OPTIONS, {
+      extract: chunkedExtractor(),
+      provider,
+    });
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.usage).toEqual({
+      inputTokens: 100,
+      outputTokens: 20,
+      calls: 2,
+      model: "claude-sonnet-5",
+    });
+  });
+});
+
+/**
+ * The reflowed PDF (2026-11-15): an ADDITION to the ZIP, decided after every
+ * paid call. The ZIP's bytes and the provider's requests must not move with it.
+ */
+describe("the reflowed PDF rides beside the ZIP, never instead of it", () => {
+  const FIXED_NOW = () => "2026-11-15T00:00:00.000Z";
+
+  async function runWith(pdf?: TranslateDeps["pdf"]) {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-15T00:00:00.000Z"));
+    try {
+      const provider = providerReturning(SUCCESS("## Titre\n\nUn texte."));
+      const run = await runTranslate(INPUT, OPTIONS, {
+        extract: extractorFor("A document to translate."),
+        provider,
+        now: FIXED_NOW,
+        document: { name: "report.pdf" },
+        ...(pdf ? { pdf } : {}),
+      });
+      return { run, provider };
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+
+  const sha = (bytes: Uint8Array) =>
+    createHash("sha256").update(bytes).digest("hex");
+
+  const printing = (
+    languages: ReadonlySet<TranslateLanguage> | null,
+    result: TranslatePdfResult = {
+      ok: true,
+      bytes: new Uint8Array([37, 80, 68, 70]),
+      pages: 2,
+    },
+  ) => {
+    const seen: unknown[] = [];
+    const deps: NonNullable<TranslateDeps["pdf"]> = {
+      languages: () => languages,
+      async render(args) {
+        seen.push(args.input);
+        return result;
+      },
+    };
+    return { deps, seen };
+  };
+
+  it("a proven target gets a PDF, and meta says so explicitly", async () => {
+    const { deps, seen } = printing(new Set(["fr"]));
+    const { run } = await runWith(deps);
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(run.pdf).toEqual(new Uint8Array([37, 80, 68, 70]));
+    expect(run.meta.pdf).toEqual({ rendered: true, pages: 2, bytes: 4 });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({
+      target: "fr",
+      sourceName: "report.pdf",
+      parts: [{ kind: "body", text: "## Titre\n\nUn texte." }],
+    });
+    // Usage and window ride on success untouched.
+    expect(run.meta.usage?.calls).toBe(1);
+    expect(run.meta.window).toBeDefined();
+  });
+
+  it("no renderer: no PDF, reason no_renderer", async () => {
+    const { run } = await runWith(undefined);
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(run.pdf).toBeUndefined();
+    expect(run.meta.pdf).toEqual({ rendered: false, reason: "no_renderer" });
+  });
+
+  it("an unproven target is never handed to the renderer", async () => {
+    for (const languages of [null, new Set<TranslateLanguage>(["de"])]) {
+      const { deps, seen } = printing(languages);
+      const { run } = await runWith(deps);
+      expect(run.ok).toBe(true);
+      if (!run.ok) return;
+      expect(run.pdf).toBeUndefined();
+      expect(run.meta.pdf).toEqual({
+        rendered: false,
+        reason: "unproven_language",
+      });
+      expect(seen).toHaveLength(0);
+    }
+  });
+
+  it("a render that fails is a reason, and the run still succeeds with its usage", async () => {
+    const { deps } = printing(new Set(["fr"]), {
+      ok: false,
+      reason: "not_conserved",
+    });
+    const { run } = await runWith(deps);
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(run.pdf).toBeUndefined();
+    expect(run.meta.pdf).toEqual({ rendered: false, reason: "not_conserved" });
+    expect(run.meta.usage?.calls).toBe(1);
+  });
+
+  it("the ZIP's bytes are identical in every case", async () => {
+    const hashes = new Set<string>();
+    for (const pdf of [
+      undefined,
+      printing(new Set(["fr"])).deps,
+      printing(null).deps,
+      printing(new Set(["fr"]), { ok: false, reason: "timeout" }).deps,
+    ]) {
+      const { run } = await runWith(pdf);
+      expect(run.ok).toBe(true);
+      if (run.ok) hashes.add(sha(run.output));
+    }
+    expect(hashes.size).toBe(1);
+  });
+
+  it("an empty early chunk: the PDF places bodies by their own pages, the ZIP keeps main's order", async () => {
+    // Review r1, 2026-11-15. The one shape where the corrected assembly and
+    // main's disagree. The ZIP must stay main's byte for byte (pinned by hash
+    // in `package-bytes.characterisation.test.ts`, "empty early chunk"); the
+    // PDF prints page-range headings, which main's placement would make false.
+    const pages = Array.from({ length: 12 }, (_, i) => ({
+      pageNumber: i + 1,
+      text: "abcdefghijkl"[i]!.repeat(2000),
+      characterCount: 2000,
+    }));
+    const joined = pages.map((p) => p.text).join("\n\n");
+    let n = 0;
+    const provider: AiProvider = {
+      id: "anthropic",
+      model: "claude-sonnet-5",
+      async complete() {
+        n += 1;
+        return SUCCESS(n === 1 ? "  " : `Partie ${n}`);
+      },
+    };
+    const { deps, seen } = printing(new Set(["fr"]));
+    const run = await runTranslate(INPUT, OPTIONS, {
+      extract: async () => ({
+        pageCount: 12,
+        pages,
+        text: joined,
+        characterCount: joined.length,
+        hasText: true,
+      }),
+      provider,
+      pdf: deps,
+    });
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(n).toBe(3);
+    const pdfParts = (seen[0] as TypesetInput).parts;
+    // The PDF: the gap for the empty chunk first, then each body at its pages.
+    expect(pdfParts.map((p) => p.kind)).toEqual(["gap", "body", "body"]);
+    expect(pdfParts[0]!.pages[0]).toBe(1);
+    // Each body sits after the pages the empty chunk left as a gap.
+    const gapEnd = pdfParts[0]!.pages[pdfParts[0]!.pages.length - 1]!;
+    expect(pdfParts[1]!.pages[0]).toBe(gapEnd + 1);
+    // The ZIP: main's order, the second part ahead of the gap notice.
+    const md = await (
+      await JSZip.loadAsync(run.output)
+    )
+      .file("translation.txt")!
+      .async("string");
+    expect(md.indexOf("Partie 2")).toBeLessThan(
+      md.indexOf("could not be translated"),
+    );
+  });
+
+  it("the provider receives byte-identical requests with and without the PDF dependency (zero model tokens)", async () => {
+    const without = await runWith(undefined);
+    const withPdf = await runWith(printing(new Set(["fr"])).deps);
+    expect(JSON.stringify(withPdf.provider.calls)).toBe(
+      JSON.stringify(without.provider.calls),
+    );
+    expect(withPdf.provider.calls).toHaveLength(1);
   });
 });

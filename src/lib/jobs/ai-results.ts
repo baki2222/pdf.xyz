@@ -15,6 +15,11 @@
  * drift between the panel, the packaged manifest, and the model's prompt.
  */
 
+import {
+  TRANSLATE_PDF_REASONS,
+  type TranslatePdfReason,
+} from "./translate-pdf-render";
+
 /** Bounded, content-free description of the window of text a model was given. */
 export interface AiWindowMeta {
   /** True when the source exceeded the cap and only a prefix was sent. */
@@ -136,8 +141,46 @@ export interface AiDeliveryMeta {
   boundBy: "characters" | "pages";
 }
 
+/**
+ * What became of Translate PDF's reflowed PDF (2026-11-15). Present on every
+ * translation a worker new enough to print one completes; absent on every
+ * other job, and on a translation from an older image (which read as "no
+ * PDF", because there is none). `rendered: false` names its reason, so the
+ * panel can say the PDF could not be drawn rather than say nothing.
+ */
+export interface AiPdfMeta {
+  rendered: boolean;
+  reason?: TranslatePdfReason;
+  pages?: number;
+  bytes?: number;
+}
+
+const PDF_REASONS: ReadonlySet<string> = new Set(TRANSLATE_PDF_REASONS);
+
+/** Re-bound an untrusted `pdf` block; anything that is not one is dropped. */
+function boundPdf(raw: unknown): AiPdfMeta | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.rendered !== "boolean") return undefined;
+  if (r.rendered) {
+    return {
+      rendered: true,
+      ...(r.pages !== undefined ? { pages: count(r.pages) } : {}),
+      ...(r.bytes !== undefined ? { bytes: count(r.bytes) } : {}),
+    };
+  }
+  return {
+    rendered: false,
+    ...(typeof r.reason === "string" && PDF_REASONS.has(r.reason)
+      ? { reason: r.reason as TranslatePdfReason }
+      : {}),
+  };
+}
+
 export interface AiResultMeta {
   truncation: AiWindowMeta;
+  /** Translate PDF only: the reflowed PDF's outcome. See {@link AiPdfMeta}. */
+  pdf?: AiPdfMeta;
   /**
    * Present ONLY when pages were withheld. See {@link AiDeliveryMeta}: absent
    * is "delivered in full", and there is no third state.
@@ -184,6 +227,7 @@ export function buildAiResultMeta(raw: AiResultMeta): AiResultMeta {
       : null;
 
   const used = boundUsage(raw.usage);
+  const pdf = boundPdf(raw.pdf);
   /**
    * Re-bound, and DROPPED unless it reports a real withholding.
    *
@@ -219,6 +263,7 @@ export function buildAiResultMeta(raw: AiResultMeta): AiResultMeta {
     },
     ...(used ? { usage: used } : {}),
     ...(delivery ? { delivery } : {}),
+    ...(pdf ? { pdf } : {}),
   };
 }
 

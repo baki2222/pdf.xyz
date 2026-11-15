@@ -58,6 +58,18 @@ function seams(stdout: string, over: Partial<PdfTextSeams> = {}): PdfTextSeams {
 }
 
 describe("pdfTextArgs", () => {
+  it("read mode names UTF-8 and asks for no layout", () => {
+    const input = join("tmp", "in.pdf");
+    expect(pdfTextArgs("read", input)).toEqual([
+      "-enc",
+      "UTF-8",
+      "-q",
+      "--",
+      input,
+      "-",
+    ]);
+  });
+
   it("asks for column-preserving plain text and writes to stdout", () => {
     const input = join("tmp", "d", "input.pdf");
     expect(pdfTextArgs("layout", input)).toEqual([

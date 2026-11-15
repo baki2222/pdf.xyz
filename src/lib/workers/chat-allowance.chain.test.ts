@@ -389,7 +389,11 @@ describe("what one question is charged", () => {
     // its cap — without one every question costs the fallback anyway, and
     // this would ask nothing.
     await workerProvesReadCap();
-    const huge: ChatDocumentCount = { characters: 400_000, textPages: 120 };
+    const huge: ChatDocumentCount = {
+      characters: 400_000,
+      textPages: 120,
+      pageCount: 120,
+    };
     const { fetchImpl, jobStatuses } = routedTransport();
     await runWorkerChatWithPdf(
       {

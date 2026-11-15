@@ -8,6 +8,7 @@ import {
   parseTranslateOptions,
   translateSameLanguageMessage,
   translationOutputName,
+  translatedPdfOutputName,
 } from "./translate-pdf";
 import { parseAiToolOptions } from "./ai-tool-options";
 
@@ -136,6 +137,24 @@ describe("translationOutputName", () => {
 
   it("falls back to a neutral stem for unusable names", () => {
     expect(translationOutputName(null)).toBe("document-translation.zip");
+  });
+});
+
+describe("translatedPdfOutputName", () => {
+  it("derives a -translated.pdf name from the source PDF", () => {
+    expect(translatedPdfOutputName("Q3 Report.pdf")).toBe(
+      "Q3 Report-translated.pdf",
+    );
+    expect(translatedPdfOutputName(null)).toBe("document-translated.pdf");
+  });
+
+  it("keeps the same length budget as the ZIP's name", () => {
+    const long = `${"x".repeat(400)}.pdf`;
+    const zip = translationOutputName(long);
+    const pdf = translatedPdfOutputName(long);
+    expect(pdf.endsWith("-translated.pdf")).toBe(true);
+    // Each name fills the same display budget, whatever its tail's length.
+    expect(pdf.length).toBe(zip.length);
   });
 });
 

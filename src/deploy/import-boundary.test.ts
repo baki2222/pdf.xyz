@@ -80,8 +80,22 @@ const ALLOWED = new Set(
     "src/lib/workers/translate/native.ts",
     "src/lib/workers/ai-extract/native.ts",
     "src/lib/workers/chat-with-pdf/native.ts",
+    // Translate PDF's reflowed PDF (2026-11-15): the poppler readers the
+    // language proof judges a print with (`pdffonts`, `pdftotext`,
+    // `pdftoppm`), the proof that builds on them and `translate/native`, and
+    // the delivery-size measurement that reads the proof's samples. Reached
+    // only by the daemon, the in-image proof script and tests.
+    "src/lib/workers/translate/pdf-readers.ts",
+    "src/lib/workers/translate/pdf-capability.ts",
+    "src/lib/workers/translate/pdf-measure.ts",
     "src/lib/workers/local-dev.ts",
     "src/lib/workers/daemon/runtime.ts",
+    // 2026-11-15: the daemon's proved-capability table (every proof, incl.
+    // the Chromium language proof) and the publisher that composes it, split
+    // out of `scripts/worker-daemon.ts` so the HEALTHCHECK can read cached
+    // proofs. Imported only by that script and tests, never by the barrel.
+    "src/lib/workers/daemon/proved-capabilities.ts",
+    "src/lib/workers/daemon/heartbeat-publisher.ts",
     // Seed via EXTRA_SEEDS; reached only by the copy/coverage scripts and tests.
     "src/lib/pdf/noto-source.ts",
     // Portable-pnpm subprocess resolution: only reached by the release CLI

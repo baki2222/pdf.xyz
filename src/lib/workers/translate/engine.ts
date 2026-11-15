@@ -12,12 +12,17 @@ import {
 } from "@/lib/pdf/text";
 import {
   capPagesToDelivery,
-  missingPageMarker,
   nothingDeliverableMessage,
-  withheldPagesMarker,
   type DeliveryLimit,
-  type TranslatePlan,
 } from "./chunking";
+import {
+  assembleParts,
+  partsToMarkdown,
+  type TranslatedSegment,
+  type TranslationPart,
+} from "./assembly";
+import type { TranslatePdfReason, TranslatePdfResult } from "./pdf-render";
+import type { TypesetInput } from "./typeset";
 import {
   describeWindow,
   modelTruncationNotice,
@@ -74,6 +79,14 @@ import type { JobDeliveryCap } from "@/lib/jobs/delivery-cap";
  * SCOPE NOTE: this produces translated TEXT (Markdown + plain text), not a
  * layout-preserving re-typeset PDF. The package and UI say so plainly rather than
  * implying a pixel-faithful translated PDF the engine does not produce.
+ * When Chromium is available it ALSO returns a reflowed PDF of the same
+ * translation (`./typeset`, `./pdf-render`, 2026-11-15): the same parts as the
+ * ZIP, printed as running text in the target language — never the original's
+ * fonts, columns, images or positions. The ZIP is still the job's first
+ * artifact, and rendering the PDF moves none of its bytes (`engine.test.ts`
+ * hashes it with and without the renderer); the PDF is an addition, withheld
+ * (with a typed reason on `meta.pdf`) whenever it cannot be drawn and proven to
+ * carry every character of the text.
  */
 
 export const TRANSLATE_TOOL = "translate-pdf" as const;
@@ -110,6 +123,44 @@ export interface TranslateDeps {
   /** ISO timestamp source; defaults to the wall clock. Injected for deterministic tests. */
   now?: () => string;
   limits?: TranslateLimits;
+  /**
+   * The reflowed-PDF renderer (Chromium + the `pdftotext` read-back), present
+   * only when this worker has Chromium (`./native`). Absent ⇒ the ZIP alone,
+   * with `meta.pdf.reason: "no_renderer"`.
+   */
+  pdf?: TranslatePdfDeps;
+  /**
+   * The uploaded file, as the user named it — per job, like
+   * `limits.delivery`. Printed as the PDF's title; never sent to the model.
+   */
+  document?: { name: string };
+}
+
+export interface TranslatePdfDeps {
+  render: (args: {
+    input: TypesetInput;
+    signal?: AbortSignal;
+  }) => Promise<TranslatePdfResult>;
+  /**
+   * The targets this worker has PROVEN it can print (`./pdf-capability`), or
+   * null while the proof has not settled. A language not in the set gets no
+   * PDF (`unproven_language`) — the renderer is never asked to guess.
+   */
+  languages: () => ReadonlySet<TranslateLanguage> | null;
+}
+
+/**
+ * What became of the reflowed PDF, on every successful run. An EXPLICIT field
+ * rather than a conditional spread: a dropped optional field is invisible at
+ * every hop (the heartbeat fingerprint lesson), so "no PDF" is stated, with
+ * its reason, never inferred from an absence.
+ */
+export interface TranslatePdfMeta {
+  rendered: boolean;
+  /** Why there is no PDF, when there is none. */
+  reason?: TranslatePdfReason;
+  pages?: number;
+  bytes?: number;
 }
 
 /** Content-free metrics a successful run reports. Never carries document text. */
@@ -157,6 +208,8 @@ export interface TranslateMeta {
    * "completed" and a surface may not assert something the system contradicts.
    */
   delivery?: AiDeliveryMeta;
+  /** The reflowed PDF's outcome — always present on success. */
+  pdf: TranslatePdfMeta;
 }
 
 export type TranslateFailureKind =
@@ -189,6 +242,8 @@ export type TranslateRun =
       output: Uint8Array;
       filenameExt: "zip";
       contentType: "application/zip";
+      /** The reflowed PDF of the same translation, when it was drawn and proven. */
+      pdf?: Uint8Array;
       meta: TranslateMeta;
     }
   | {
@@ -296,22 +351,23 @@ function buildSystemPrompt(
   return parts.join(" ");
 }
 
-/** Map a provider completion failure to an honest, typed run failure. */
+/** What a failure after a provider call carries: the window, and the spend. */
+type SpendCarry = { window: TruncationWindow; usage?: AiUsageMeta };
+
+/**
+ * Map a provider completion failure to an honest, typed run failure.
+ *
+ * `carry` is the WHOLE job's spend so far — every earlier call plus this
+ * failing one — built by `runTranslate`'s `spentSoFar`. It used to be built
+ * here from the failing call alone, so a chunked job that failed on call 2
+ * reported call 2's tokens and dropped call 1's (2026-11-15).
+ */
 function mapProviderFailure(
   result: Extract<AiCompletionResult, { ok: false }>,
-  window: TruncationWindow,
-  model: string,
+  carry: SpendCarry,
 ): Extract<TranslateRun, { ok: false }> {
   // A provider CALL happened, so both travel with every branch below: the spend
   // is real even though the run failed.
-  const spent =
-    result.usage !== undefined
-      ? ({ ...result.usage, calls: 1, model } satisfies AiUsageMeta)
-      : undefined;
-  const carry = {
-    ...(spent ? { usage: spent } : {}),
-    window,
-  };
   switch (result.kind) {
     case "not_configured":
       return {
@@ -415,66 +471,6 @@ class UsageTally {
         : {}),
     };
   }
-}
-
-/**
- * Weave the translated parts and the untranslatable gaps back into one
- * document, in plan order.
- *
- * The gaps are POSITIONED — each one sits where its page sat, between the parts
- * that surround it — rather than listed at the end. A reader who meets a note
- * about page 7 after reading to the end has already believed the document was
- * complete; a reader who meets it in place has not.
- */
-function assembleTranslation(
-  parts: readonly string[],
-  plan: TranslatePlan | null,
-  segmentCount: number,
-  interruptedPages: readonly number[],
-  withheld: { pages: readonly number[]; marker: string } | null,
-): string {
-  if (plan === null) return parts.join("\n\n");
-
-  // Interleave by document position: a chunk's pages and an oversize page both
-  // know where they belong, so ordering is read off the plan rather than
-  // reconstructed from arrival.
-  const placed: { at: number; body: string }[] = [];
-  for (const [i, chunk] of plan.chunks.entries()) {
-    const body = parts[i];
-    if (body !== undefined) placed.push({ at: chunk.pages[0]!, body });
-  }
-  for (const page of plan.oversize) {
-    placed.push({ at: page.pageNumber, body: missingPageMarker(page) });
-  }
-  if (interruptedPages.length > 0) {
-    placed.push({
-      at: interruptedPages[0]!,
-      body: interruptedNotice(interruptedPages),
-    });
-  }
-  // Positioned like every other gap: at the page where delivery stopped, not
-  // appended at the end. A reader who meets it after finishing has already
-  // believed the document was complete.
-  if (withheld && withheld.pages.length > 0) {
-    placed.push({ at: withheld.pages[0]!, body: withheld.marker });
-  }
-  void segmentCount;
-  placed.sort((a, b) => a.at - b.at);
-  return placed.map((p) => p.body).join("\n\n");
-}
-
-/** The gap left where a chunk failed part-way through a document. */
-function interruptedNotice(pages: readonly number[]): string {
-  const list =
-    pages.length === 1
-      ? `Page ${pages[0]}`
-      : `Pages ${pages[0]}–${pages[pages.length - 1]}`;
-  return [
-    "",
-    `> ⚠️ **${list} could not be translated.**`,
-    "> The AI provider stopped part-way through this document. Everything above was translated; this part was not. Try translating the remaining pages again — the rest of this file is unaffected.",
-    "",
-  ].join("\n");
 }
 
 export async function runTranslate(
@@ -666,13 +662,37 @@ export async function runTranslate(
       ? [{ text: promptText, pages: [] }]
       : plan.chunks.map((chunk) => ({ text: chunk.text, pages: chunk.pages }));
 
-  const parts: string[] = [];
+  const parts: TranslatedSegment[] = [];
   const translatedPages: number[] = [];
   const usage = new UsageTally();
   let model = provider.model;
   /** Pages a chunk failure left untranslated, in document order. */
   let interruptedPages: number[] = [];
   let interruption: TranslateRun | null = null;
+
+  /**
+   * What every return below this point carries: the window, and the usage of
+   * EVERY call made so far.
+   *
+   * ONE definition for the success meta and each post-spend failure arm. Four
+   * failure arms used to return without it — the package size arm, a single
+   * empty translation, the all-empty fallback, and an interruption carrying
+   * only its own call — and with no window `aiResultsFromFailure` reports
+   * nothing, so the executor's spend hook recorded zero for calls that were
+   * paid for (CLAUDE.md rule 3). `spend-on-failure.test.ts` walks this
+   * function's AST and fails on any `ok: false` return after the first
+   * `provider.complete(` that does not spread this.
+   *
+   * It never invents a call: `usage` appears only when some call reported, as
+   * the rule above `aiResultsFromFailure` requires. A failing call is ADDED to
+   * the tally before this is read, so it is counted once, with its tokens.
+   */
+  const spentSoFar = (): SpendCarry => ({
+    window,
+    ...(usage.reported
+      ? { usage: { ...usage.totals(), calls: usage.calls, model } }
+      : {}),
+  });
 
   for (const [i, segment] of segments.entries()) {
     const many = segments.length > 1;
@@ -702,7 +722,10 @@ export async function runTranslate(
       // translated are worth more than a clean error. Stop here, keep what is
       // done, and name the rest — the first failure is reported verbatim when
       // nothing at all was translated.
-      interruption = mapProviderFailure(completion, window, provider.model);
+      // The failing call is real spend: tallied first, so the carrier holds
+      // every call this job made, not only the one that failed.
+      usage.add(completion.usage);
+      interruption = mapProviderFailure(completion, spentSoFar());
       interruptedPages = segments.slice(i).flatMap((s) => [...s.pages]);
       break;
     }
@@ -710,7 +733,7 @@ export async function runTranslate(
     usage.add(completion.usage);
     const text = completion.text.trim();
     if (text.length > 0) {
-      parts.push(text);
+      parts.push({ text, pages: segment.pages });
       translatedPages.push(...segment.pages);
     } else if (!many) {
       return {
@@ -718,6 +741,7 @@ export async function runTranslate(
         kind: "failed",
         retryable: true,
         message: "The AI provider returned an empty translation.",
+        ...spentSoFar(),
       };
     } else {
       // An empty part in a multi-part document is a hole, not a total failure.
@@ -732,6 +756,7 @@ export async function runTranslate(
         kind: "failed",
         retryable: true,
         message: "The AI provider returned an empty translation.",
+        ...spentSoFar(),
       }
     );
   }
@@ -743,21 +768,44 @@ export async function runTranslate(
     capped && capped.boundBy !== null && capped.withheldPages.length > 0
       ? {
           pages: capped.withheldPages,
-          marker: withheldPagesMarker(
-            capped.withheldPages,
-            capped.boundBy,
-            limit,
-          ),
+          boundBy: capped.boundBy,
+          limit,
         }
       : null;
 
-  const translation = assembleTranslation(
+  // Assembled BY EACH PART'S OWN PAGES, never by arrival, with the gaps woven
+  // in where the pages they replace sat (`./assembly`). The same parts feed the
+  // ZIP's Markdown and the reflowed PDF, so the two cannot disagree about which
+  // pages are missing.
+  const assembled: TranslationPart[] = assembleParts(
     parts,
     plan,
-    segments.length,
     interruptedPages,
     withheld,
   );
+  // THE ZIP IS MAIN'S, BYTE FOR BYTE (review r1, 2026-11-15; exit property:
+  // artifacts[0] identical to main for EVERY job). Main placed the i-th
+  // non-empty body at the i-th chunk's first page; when an early chunk came
+  // back empty, the later bodies slid one chunk earlier, ahead of the gap
+  // notice for the empty pages. `assembled` (above, each body at its OWN
+  // pages) corrects that, and the PDF prints it — its page-range headings
+  // would be false otherwise. The ZIP keeps main's order until that
+  // correction is ruled on separately; the two differ ONLY in that case
+  // (`engine.test.ts` and `package-bytes.characterisation.test.ts`, "empty
+  // early chunk").
+  const zipParts: TranslationPart[] =
+    plan === null
+      ? assembled
+      : assembleParts(
+          parts.map((p, i) => ({
+            text: p.text,
+            pages: plan.chunks[i]?.pages ?? p.pages,
+          })),
+          plan,
+          interruptedPages,
+          withheld,
+        );
+  const translation = partsToMarkdown(zipParts);
 
   const createdAt = now();
   const manifest: TranslationManifest = {
@@ -780,6 +828,10 @@ export async function runTranslate(
       truncationNotice: userTruncationNotice(window) || null,
     },
     translation: { characters: translation.length },
+    // main's notice, byte for byte (review r1, 2026-11-15): the ZIP at
+    // artifacts[0] must not move for any job, and a sentence promising a PDF
+    // "with it" was false inside every ZIP whose render failed or was refused.
+    // The PDF is named by the panel, from the artifact actually downloaded.
     notice:
       "This translation was generated by an AI model from the SELECTABLE TEXT of the source PDF only. It produces translated text (Markdown + plain text), not a layout-preserving PDF, and may contain errors — verify against the original before relying on it. No content was fabricated beyond the model's translation of the provided text.",
   };
@@ -792,7 +844,53 @@ export async function runTranslate(
       kind: "failed",
       retryable: false,
       message: "The translation package exceeds the worker size limit.",
+      ...spentSoFar(),
     };
+  }
+
+  // THE REFLOWED PDF — after every paid call, after the ZIP is built and
+  // bounded, and never at the ZIP's expense: every outcome below is a typed
+  // reason on `meta.pdf`, and the run succeeds with the ZIP either way. No
+  // provider is called here; the PDF is the same parts the ZIP was written
+  // from (`engine.test.ts` proves the recorded requests are byte-identical
+  // with and without this dependency).
+  let pdf: Uint8Array | undefined;
+  let pdfMeta: TranslatePdfMeta;
+  const proven = deps.pdf?.languages() ?? null;
+  if (!deps.pdf) {
+    pdfMeta = { rendered: false, reason: "no_renderer" };
+  } else if (proven === null || !proven.has(options.targetLanguage)) {
+    pdfMeta = { rendered: false, reason: "unproven_language" };
+  } else {
+    // CAUGHT, every throw — an attempt abort included (review r1, 2026-11-15,
+    // CLAUDE.md rule 3). Every provider call is paid for by now. A throw that
+    // escaped here would reach `settleAttempt` as a rejection, which carries
+    // NO results, and the executor would record the paid calls as 0 tokens.
+    // Returning the success below instead lets `settleAttempt` see the aborted
+    // signal and keep `results` — the spend — on the aborted outcome.
+    let printed: TranslatePdfResult;
+    try {
+      printed = await deps.pdf.render({
+        input: {
+          parts: assembled,
+          target: options.targetLanguage,
+          sourceName: deps.document?.name ?? "Translation",
+        },
+        ...(signal ? { signal } : {}),
+      });
+    } catch {
+      printed = { ok: false, reason: "render_failed" };
+    }
+    if (printed.ok) {
+      pdf = printed.bytes;
+      pdfMeta = {
+        rendered: true,
+        pages: printed.pages,
+        bytes: printed.bytes.byteLength,
+      };
+    } else {
+      pdfMeta = { rendered: false, reason: printed.reason };
+    }
   }
 
   return {
@@ -800,6 +898,7 @@ export async function runTranslate(
     output,
     filenameExt: "zip",
     contentType: "application/zip",
+    ...(pdf ? { pdf } : {}),
     meta: {
       engine: TRANSLATE_ENGINE,
       tool: TRANSLATE_TOOL,
@@ -810,9 +909,9 @@ export async function runTranslate(
       // SUMMED ACROSS EVERY CALL a chunked job made, with `calls` recording how
       // many — a chunked job that reported one call's tokens would under-count
       // the spend ceiling in the one direction it must never be wrong in.
-      ...(usage.reported
-        ? { usage: { ...usage.totals(), calls: usage.calls, model } }
-        : {}),
+      // The window rides in the same spread: one definition with every
+      // failure arm above.
+      ...spentSoFar(),
       targetLanguage: options.targetLanguage,
       sourceLanguage: options.sourceLanguage,
       pageCount: extracted.pageCount,
@@ -822,7 +921,6 @@ export async function runTranslate(
       translationCharacters: translation.length,
       truncated,
       truncationNotice: userTruncationNotice(window) || null,
-      window,
       ...(withheld
         ? {
             delivery: {
@@ -832,6 +930,7 @@ export async function runTranslate(
             },
           }
         : {}),
+      pdf: pdfMeta,
     },
   };
 }

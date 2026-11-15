@@ -21,7 +21,7 @@ import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ChipButton } from "./runner-kit";
-import { usePageImage } from "./use-page-image";
+import { usePageImageState } from "./use-page-image";
 
 /** The CSS width the enlarged page is rendered at. */
 export const ZOOM_WIDTH = 720;
@@ -32,8 +32,13 @@ export interface PageZoomDialogProps {
   /** 0-based page shown. */
   index: number;
   onIndex: (index: number) => void;
-  selected: boolean;
-  onToggle: () => void;
+  /**
+   * The selection toggle, for a caller that selects pages (Delete Pages).
+   * Without `onToggle` the dialog only shows the page (Chat with PDF's
+   * citations, audit #30, 2026-11-15) and draws no "Select page" chip.
+   */
+  selected?: boolean;
+  onToggle?: () => void;
   onClose: () => void;
 }
 
@@ -42,13 +47,13 @@ export function PageZoomDialog({
   pageCount,
   index,
   onIndex,
-  selected,
+  selected = false,
   onToggle,
   onClose,
 }: PageZoomDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const headingId = useId();
-  const image = usePageImage(bytes, index, ZOOM_WIDTH);
+  const { state, image } = usePageImageState(bytes, index, ZOOM_WIDTH);
   const closeRef = useRef(onClose);
   useEffect(() => {
     closeRef.current = onClose;
@@ -127,6 +132,10 @@ export function PageZoomDialog({
               }
               className="rounded-sheet max-h-[70vh] w-auto max-w-full bg-white shadow-md ring-1 ring-black/5"
             />
+          ) : state === "failed" ? (
+            <p className="text-muted text-sm">
+              This page could not be drawn here.
+            </p>
           ) : (
             <div
               aria-hidden
@@ -148,9 +157,11 @@ export function PageZoomDialog({
               <ChevronRight className="size-3.5" aria-hidden />
             </ChipButton>
           </div>
-          <ChipButton onClick={onToggle} active={selected}>
-            Select page {index + 1}
-          </ChipButton>
+          {onToggle && (
+            <ChipButton onClick={onToggle} active={selected}>
+              Select page {index + 1}
+            </ChipButton>
+          )}
         </div>
       </div>
     </dialog>,

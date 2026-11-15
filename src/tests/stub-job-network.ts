@@ -28,6 +28,14 @@ export interface StubbedJobOutcome {
    * download and the client reports that.
    */
   artifact?: { readonly artifact: JobArtifact; readonly bytes: Uint8Array };
+  /**
+   * Further artifacts after `artifact`, in order, each served at its `url` —
+   * a job that delivers more than one file (Translate's ZIP then its PDF).
+   */
+  more?: readonly {
+    readonly artifact: JobArtifact;
+    readonly bytes: Uint8Array;
+  }[];
   /** A completed job's results block, as the route returns it. */
   results?: JobResults;
 }
@@ -108,6 +116,8 @@ export function stubJobNetwork(
         const outcome = jobOutcome(body);
         if (outcome.artifact)
           downloads.set(outcome.artifact.artifact.url, outcome.artifact.bytes);
+        for (const extra of outcome.more ?? [])
+          downloads.set(extra.artifact.url, extra.bytes);
         return json(
           {
             jobId: "j_stub",
@@ -117,7 +127,12 @@ export function stubJobNetwork(
             progress: 100,
             ...(outcome.error ? { error: outcome.error } : {}),
             ...(outcome.artifact
-              ? { artifacts: [outcome.artifact.artifact] }
+              ? {
+                  artifacts: [
+                    outcome.artifact.artifact,
+                    ...(outcome.more ?? []).map((m) => m.artifact),
+                  ],
+                }
               : {}),
             ...(outcome.results ? { results: outcome.results } : {}),
             createdAt: now,

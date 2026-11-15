@@ -41,30 +41,14 @@ import {
   type DaemonMode,
   type DaemonRunSummary,
 } from "@/lib/workers/daemon";
-import {
-  coarseRelease,
-  createHeartbeatPublisher,
-  type HeartbeatMode,
-  type HeartbeatPublisher,
-} from "@/lib/workers/heartbeat";
+import { coarseRelease, type HeartbeatMode } from "@/lib/workers/heartbeat";
 import { queueSupportsAtomicTransitions } from "@/lib/workers/queue/redis-config";
 import { computeBuildFingerprint } from "@/lib/workers/build-fingerprint";
 import {
-  provesChunkedTranslate,
-  provesDeliveryCap,
-} from "@/lib/workers/translate/capability";
-import { provesTranslateOcr } from "@/lib/workers/translate/ocr-capability";
-import { provesHtmlZip } from "@/lib/workers/html-render/zip-capability";
-import { provesAiReadCap } from "@/lib/workers/processor/read-cap-proof";
-import {
-  provesDocxPictures,
-  provesDocxRunStyles,
-  provesDocxTables,
-  provesDocxTypefaces,
-  provesPptxPictures,
-  provesPptxPresentationChain,
-} from "@/lib/workers/pdf-office-export/capability";
-import { pdfOfficeExportDeps } from "@/lib/workers/pdf-office-export/native";
+  buildDaemonHeartbeat,
+  type DaemonHeartbeat,
+} from "@/lib/workers/daemon/heartbeat-publisher";
+import { containerRunStamp } from "@/lib/workers/daemon/proved-capabilities";
 import { writeSpendProbe } from "@/lib/ratelimit/guard";
 import { shouldWriteSpendProbe } from "@/lib/ratelimit/spend-probe";
 import {
@@ -139,59 +123,30 @@ function heartbeatModeFor(mode: DaemonMode): HeartbeatMode {
 async function buildHeartbeatPublisher(
   runtime: WorkerRuntime,
   mode: DaemonMode,
-): Promise<HeartbeatPublisher> {
+): Promise<DaemonHeartbeat> {
   const release = coarseRelease(process.env.npm_package_version);
   // Computed from the sources this image carries — ~65ms, once, at start-up.
   // `release` cannot do this job: `package.json` has been 0.1.0 forever, so it
   // publishes the same "0.1" for every image ever built.
   const fingerprint = computeBuildFingerprint() ?? undefined;
-  return createHeartbeatPublisher(process.env, {
-    mode: heartbeatModeFor(mode),
-    capabilities: {
+  // The capabilities that are RUN, not asserted (`PROVED_CAPABILITIES`): an
+  // image that predates a feature cannot answer at all, and its silence is
+  // read as `false` on the other side. A run mode proves them and caches the
+  // answer for this container; a readiness mode (the HEALTHCHECK) reads that
+  // cache and never proves — 21 Chromium jobs a minute would outrun the
+  // healthcheck's timeout. See `daemon/proved-capabilities.ts`.
+  return buildDaemonHeartbeat({
+    mode,
+    heartbeatMode: heartbeatModeFor(mode),
+    env: process.env,
+    runtime: {
       deepCompression: runtime.compression.deep,
       ocr: runtime.ocr.ready,
       ocrLanguages: runtime.ocr.languages,
       malwareScan: runtime.scanner.active,
       atomicQueue: queueSupportsAtomicTransitions(process.env),
-      // RUN, not asserted. These execute the real planner over a synthetic
-      // document; an image that predates the feature cannot answer at all, and
-      // its silence is read as `false` on the other side.
-      chunkedTranslate: await provesChunkedTranslate(),
-      deliveryCap: await provesDeliveryCap(),
-      aiReadCap: await provesAiReadCap(),
-      // Runs the real PDF to PowerPoint engine and inspects the .pptx it wrote.
-      pptxPresentationChain: await provesPptxPresentationChain(),
-      // Runs the probe PDF's picture through the real engine and finds it on
-      // the slide, as a picture, where the page paints it.
-      pptxPictures: await provesPptxPictures(),
-      // The same for Word, on the deps its jobs run on — the image's OWN
-      // text extractor (where a picture lands among poppler's paragraphs is
-      // part of the claim), page reader and limits.
-      docxPictures: await provesDocxPictures(pdfOfficeExportDeps(process.env)),
-      // Runs a PDF of five differently drawn words through the real chain
-      // (soundness, processor, manifest) and reads each word's run back.
-      docxRunStyles: await provesDocxRunStyles(
-        pdfOfficeExportDeps(process.env),
-      ),
-      // Runs a PDF with a four-row table (a bold header, an empty middle
-      // cell) through the real chain and reads the Word table back: one
-      // table, every value in its column, the empty cell empty.
-      docxTables: await provesDocxTables(pdfOfficeExportDeps(process.env)),
-      // Runs a PDF of a Times, a Courier and a Helvetica line through the
-      // real chain and reads each word's w:rFonts back: Times New Roman,
-      // Courier New, Arial, in ascii, hAnsi and cs, and no eastAsia.
-      docxTypefaces: await provesDocxTypefaces(
-        pdfOfficeExportDeps(process.env),
-      ),
-      // Runs a translate-pdf job through the registry this daemon builds and
-      // checks the provider heard what the (stub) OCR recognised, and that a
-      // typed PDF ran no OCR. Whether OCR itself runs here is `ocr` above.
-      translateOcr: await provesTranslateOcr(),
-      // Runs html-to-pdf jobs through the registry this daemon builds, with
-      // a stub Chromium: a ZIP must reach it as a site of the page asked
-      // for, serving the archive's files and nothing outside it.
-      htmlZip: await provesHtmlZip(),
     },
+    run: containerRunStamp(),
     ...(release !== undefined ? { release } : {}),
     ...(fingerprint !== undefined ? { fingerprint } : {}),
   });
@@ -590,7 +545,12 @@ async function main(): Promise<number> {
   // enabled AND a compatible broker is configured. Its capability is content-free, so
   // it is safe to log verbatim; a beat is published in the readiness modes below and,
   // for a run, once at start and per iteration by the daemon loop.
-  const heartbeat = await buildHeartbeatPublisher(runtime, args.mode);
+  const built = await buildHeartbeatPublisher(runtime, args.mode);
+  const heartbeat = built.publisher;
+  // Where the proved capabilities came from: "proved" (run modes, and whether
+  // the cache was written), "cache" or "none" (readiness modes). The
+  // container CI step reads this line to know its timing was warm or cold.
+  emit({ src: "daemon", event: "heartbeat_proofs", ...built.proofs });
   // Tracks the last observed publish state so only changes are logged.
   let lastBeatPublished: boolean | undefined;
   // The spend probe's own cadence + last outcome. `null` means "never written in
@@ -612,7 +572,8 @@ async function main(): Promise<number> {
     reportDeployment(runtime);
     reportGuardrails(runtime.guardrails);
     reportObservability(metrics, runtime);
-    // A readiness beat (mode: check) — a no-op unless liveness is enabled + configured.
+    // A readiness beat (mode: check) — a no-op unless liveness is enabled + configured,
+    // and "unproven" (nothing sent) until this container's daemon has cached its proofs.
     emit({ src: "daemon", event: "heartbeat", ...(await heartbeat.beat()) });
     return runtime.guardrails.ok ? EXIT_OK : EXIT_GUARDRAIL;
   }
@@ -625,7 +586,8 @@ async function main(): Promise<number> {
     reportDeployment(runtime);
     reportGuardrails(runtime.guardrails);
     reportObservability(metrics, runtime);
-    // A readiness beat (mode: dry-run) — a no-op unless liveness is enabled + configured.
+    // A readiness beat (mode: dry-run) — a no-op unless liveness is enabled + configured,
+    // and "unproven" (nothing sent) until this container's daemon has cached its proofs.
     emit({ src: "daemon", event: "heartbeat", ...(await heartbeat.beat()) });
     if (!runtime.guardrails.ok) return EXIT_GUARDRAIL;
     return runtime.readiness.drainable ? EXIT_OK : EXIT_NOT_CONFIGURED;

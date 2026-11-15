@@ -489,6 +489,16 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
       /\bopen ZIP files\b|\bZIP of (?:a|the) page\b|\btakes? a ZIP\b|\bzip the page\b/i,
     catalogueCopy: true,
   },
+  translatePdfLanguages: {
+    // Added 2026-11-15 with the key (competitor audit #29, slice 1). The
+    // sentences a hedge about it would sit in: Translate's reflowed PDF of
+    // the translation, the way its copy says it ("a reflowed PDF of the same
+    // text comes with it"). Not bare "PDF": every page names one. Measured
+    // that day — see "the translatePdfLanguages subject reaches Translate's
+    // PDF sentence".
+    subject: /\breflowed PDF\b/i,
+    catalogueCopy: true,
+  },
 };
 
 /* ------------------------------------------------------------------ *
@@ -1165,6 +1175,35 @@ describe("the translateOcr subject (audit translate-pdf#3, 2026-11-09)", () => {
     expect(
       hedgeOffenders([planted], []).some((line) =>
         line.includes('hedges "translateOcr"'),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("the translatePdfLanguages subject (competitor audit #29, 2026-11-15)", () => {
+  /**
+   * BOTH DIRECTIONS (house rule 1). Measured when the key landed: exactly one
+   * member, Translate PDF's layout FAQ answer — the one both-states sentence
+   * slice 1 allows. The intro, metaDescription and guide still describe the
+   * ZIP alone (slice 2 flips them); a member elsewhere is a sentence about
+   * this capability nobody paired.
+   */
+  it("reaches Translate's PDF sentence, and nothing else", () => {
+    const members = COPY.filter((entry) =>
+      SUBJECTS.translatePdfLanguages!.subject.test(entry.text),
+    ).map((entry) => `${entry.slug} ${entry.where}`);
+    expect(members.sort()).toEqual(["translate-pdf faq[0].answer"]);
+  });
+
+  it("positive control: a deferral planted in that sentence is caught", () => {
+    const planted: CopyEntry = {
+      slug: "translate-pdf",
+      where: "faq[0].answer",
+      text: "A reflowed PDF of the same text is coming soon.",
+    };
+    expect(
+      hedgeOffenders([planted], []).some((line) =>
+        line.includes('hedges "translatePdfLanguages"'),
       ),
     ).toBe(true);
   });

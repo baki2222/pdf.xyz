@@ -6,6 +6,7 @@ import {
 } from "../attempt-abort";
 import { pdfTextOpenFailure } from "@/lib/workers/pdf-text/errors";
 import { NO_SELECTABLE_TEXT_MESSAGE } from "@/lib/jobs/ai-no-text";
+import { citedPagesIn } from "@/lib/jobs/chat-citations";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 import {
   describeWindow,
@@ -295,40 +296,6 @@ function buildSystemPrompt(
   );
   if (notice) parts.push(notice);
   return parts.join("\n");
-}
-
-/**
- * Distinct pages the answer cited, within the document's real page range.
- *
- * The prompt asks for `[p.N]`, but models also group pages — `[p.3, p.5]`,
- * `[p.3, 5]`, `[pp. 3-4]` — and until 2026-11-06 (audit #41) only the single
- * form matched, so a grouped citation vanished from `citedPages` and the
- * "Cited pages" line. A bracket counts when it opens with `p`/`pp`; each
- * comma- or semicolon-separated item is a page or a range, its own `p.`
- * prefix optional. A range is walked only inside the page range, so a wild
- * `[pp. 1-99999]` costs at most `pageCount` steps.
- */
-function citedPagesIn(answer: string, pageCount: number): number[] {
-  const cited = new Set<number>();
-  const bracket = /\[(pp?\.?\s*[^\[\]]{1,80})\]/gi;
-  const item = /^(?:pp?\.?\s*)?(\d+)(?:\s*[-\u2013\u2014]\s*(\d+))?$/i;
-  let match: RegExpExecArray | null;
-  while ((match = bracket.exec(answer)) !== null) {
-    for (const part of match[1]!.split(/[,;]/)) {
-      const one = item.exec(part.trim());
-      if (!one) continue;
-      const from = Number(one[1]);
-      const to = one[2] === undefined ? from : Number(one[2]);
-      if (to < from) continue;
-      for (
-        let page = Math.max(from, 1);
-        page <= Math.min(to, pageCount);
-        page++
-      )
-        cited.add(page);
-    }
-  }
-  return [...cited].sort((a, b) => a - b);
 }
 
 /** Map a provider completion failure to an honest, typed run failure. */

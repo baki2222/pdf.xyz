@@ -43,6 +43,7 @@ const BEAT: WorkerHeartbeat = {
     docxTypefaces: true,
     translateOcr: true,
     htmlZip: true,
+    translatePdfLanguages: [],
   },
   at: 1_700_000_000_000,
 };
