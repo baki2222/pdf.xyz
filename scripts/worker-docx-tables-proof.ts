@@ -30,7 +30,12 @@
  *     `w:rFonts` is printed, and `printf` must read Courier New, `Call` and
  *     `now` Times New Roman, in ascii, hAnsi and cs, with no `w:eastAsia`
  *     anywhere. No Bengali line here: drawing one needs the shipped
- *     Bengali face, which the image does not carry offline.
+ *     Bengali face, which the image does not carry offline;
+ *  6. the straddle line ("Hello Hel" in Times-Roman, "lo" in Courier, one
+ *     style; review round 2): the second "Hello" is drawn in two faces, so
+ *     whether poppler keeps it whole or splits it at the font change, no
+ *     word spanning both may name a typeface (`straddleProblem`). The words
+ *     and their faces are printed either way.
  *
  * Exit codes: 0 = proven; 1 = a check failed; 2 = an engine is not
  * available in this image. Run by `.github/workflows/container.yml`; no
@@ -52,6 +57,8 @@ import { pdfOfficeExportDeps } from "@/lib/workers/pdf-office-export/native";
 import {
   INLINE_CODE,
   inlineCodePdf,
+  straddlePdf,
+  straddleProblem,
   wrappedCellTablePdf,
 } from "@/tests/pdf-office-fixtures";
 
@@ -142,6 +149,36 @@ async function main(): Promise<number> {
     `inline code: printf ${code ? "Courier New" : "NOT Courier New"}; Call/now ${text ? "Times New Roman" : "NOT Times New Roman"}; eastAsia on ${east} run(s)`,
   );
   ok &&= code && text && east === 0;
+
+  // 6. The straddle line (review round 2): a word drawn half in Times and
+  //    half in Courier, the same word earlier in Times. Whether real
+  //    poppler keeps it as one word was never run before this step.
+  const straddle = await runPdfOfficeExport(
+    PDF_TO_WORD_TOOL,
+    await straddlePdf(),
+    deps,
+  );
+  if (!straddle.ok)
+    throw new Error(`the straddle job failed: ${straddle.kind}`);
+  const straddleWords = (await readDocxStructure(straddle.output)).blocks
+    .flatMap((b) => (b.kind === "p" ? b.runs : []))
+    .flatMap((r) =>
+      r.text
+        .split(/\s+/)
+        .filter(Boolean)
+        .map(
+          (w) =>
+            [
+              w,
+              `${r.fonts ?? "-"}/${r.fontsHAnsi ?? "-"}/${r.fontsCs ?? "-"}`,
+            ] as const,
+        ),
+    );
+  const straddleWrong = straddleProblem(straddleWords);
+  console.log(
+    `straddle: ${JSON.stringify(straddleWords)} ${straddleWrong ?? "holds"}`,
+  );
+  ok &&= straddleWrong === null;
   console.log(ok ? "PROVEN" : "FAIL");
   return ok ? 0 : 1;
 }

@@ -16,8 +16,11 @@ import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 import { boldItalicPdf } from "@/tests/docx-picture-fixtures";
 import { corpusDeps, wordCorpus } from "@/tests/docx-word-corpus";
 import {
+  embeddedFacePdf,
   INLINE_CODE,
   inlineCodePdf,
+  straddlePdf,
+  straddleProblem,
   invoicePdf,
 } from "@/tests/pdf-office-fixtures";
 import { flowStandIn } from "@/tests/poppler-flow-standin";
@@ -206,6 +209,107 @@ describe("each word is set in an Office family of its kind, through the engine",
     expect(rest.length).toBeGreaterThan(0);
     for (const r of rest)
       expect(r.fonts, JSON.stringify(r.text)).toBeUndefined();
+  }, 60_000);
+
+  /*
+   * Review of 2026-11-15, round 2: the kind was pdf.js's `fallbackName`,
+   * which says "sans-serif" for any font without the Serif flag or equal
+   * widths. Each of these converted on the branch with Arial on every word.
+   * Embedded faces, the shape pdfTeX writes (/Flags 4, Symbolic only).
+   */
+  it.each([
+    ["pdf.xyz's own Geist Mono pack", "mono", undefined, "Courier New"],
+    [
+      "CMR10 with /Flags 4 (pdfTeX's Computer Modern)",
+      "serif",
+      "ABCDEF+CMR10",
+      "Times New Roman",
+    ],
+    [
+      "CMTT10 with /Flags 4 (pdfTeX's typewriter)",
+      "mono",
+      "ABCDEF+CMTT10",
+      "Courier New",
+    ],
+  ] as const)(
+    "%s: every word is %s's kind, not Arial; the text is poppler's",
+    async (_, kind, rename, family) => {
+      const text = "monospaced code şeker";
+      const pdf = await embeddedFacePdf(text, kind, rename);
+      const run = await word(pdf);
+      const { body, byWord } = await runsOf(run.output);
+      for (const w of text.split(" "))
+        expect(faces(one(byWord, w)), w).toEqual([family, family, family]);
+      expect(docxPageTexts(body)).toEqual(await popplerText(pdf));
+      expect(await docxStructureProblems(run.output)).toEqual([]);
+    },
+    60_000,
+  );
+
+  it("the straddle line through the engine: no word spanning Times and Courier names a typeface (the in-image proof's step 6)", async () => {
+    const pdf = await straddlePdf();
+    const run = await word(pdf);
+    const body = await readDocxStructure(run.output);
+    const words = body.blocks
+      .flatMap((b) => (b.kind === "p" ? b.runs : []))
+      .flatMap((r) =>
+        r.text
+          .split(/\s+/)
+          .filter(Boolean)
+          .map(
+            (w) =>
+              [
+                w,
+                `${r.fonts ?? "-"}/${r.fontsHAnsi ?? "-"}/${r.fontsCs ?? "-"}`,
+              ] as const,
+          ),
+      );
+    expect(straddleProblem(words)).toBeNull();
+    expect(docxPageTexts(body)).toEqual(await popplerText(pdf));
+    // Controls on the checker the image runs: each wrong reading is named.
+    const tnr = "Times New Roman/Times New Roman/Times New Roman";
+    const cn = "Courier New/Courier New/Courier New";
+    expect(
+      straddleProblem([
+        ["Hello", tnr],
+        ["Hello", "-/-/-"],
+      ]),
+    ).toBeNull();
+    expect(
+      straddleProblem([
+        ["Hello", tnr],
+        ["Hel", tnr],
+        ["lo", cn],
+      ]),
+    ).toBeNull();
+    expect(
+      straddleProblem([
+        ["Hello", tnr],
+        ["Hello", tnr],
+      ]),
+    ).toMatch(/straddling Hello names a typeface/);
+    expect(
+      straddleProblem([
+        ["Hello", tnr],
+        ["Hel", cn],
+        ["lo", cn],
+      ]),
+    ).toMatch(/unexpected/);
+    expect(straddleProblem([])).toMatch(/first word/);
+  }, 60_000);
+
+  it("an unknown face pdf.js cannot mark, with no kind in its name, takes NO typeface — it was Arial", async () => {
+    const text = "plain words şeker";
+    const pdf = await embeddedFacePdf(text, "serif", "ABCDEF+Qwerty");
+    const run = await word(pdf);
+    const { body, byWord } = await runsOf(run.output);
+    for (const w of text.split(" ")) {
+      const r = one(byWord, w);
+      expect(r.fonts, w).toBeUndefined();
+      // It keeps its style: the size is still written.
+      expect(r.sz, w).toBe(24);
+    }
+    expect(docxPageTexts(body)).toEqual(await popplerText(pdf));
   }, 60_000);
 });
 
