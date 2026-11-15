@@ -33,7 +33,13 @@ const LINES = [
 
 async function textPdf(
   pages: number,
-  opts: { stamp?: boolean; emptyPage?: number; tag?: string } = {},
+  opts: {
+    stamp?: boolean;
+    emptyPage?: number;
+    tag?: string;
+    /** A filled block on the LAST page, in this colour (review r1). */
+    block?: [number, number, number];
+  } = {},
 ): Promise<Buffer> {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -43,6 +49,14 @@ async function textPdf(
     [...LINES, `${opts.tag ?? "Page"} ${p + 1}`].forEach((line, i) =>
       page.drawText(line, { x: 60, y: 712 - i * 20, size: 12, font }),
     );
+    if (opts.block && p === pages - 1)
+      page.drawRectangle({
+        x: 120,
+        y: 250,
+        width: 300,
+        height: 120,
+        color: rgb(...opts.block),
+      });
     if (opts.stamp && p === 0)
       page.drawRectangle({
         x: 380,
@@ -210,11 +224,80 @@ test.describe("Overlay pages", () => {
       await scanPdf(true),
       /no text to compare/i,
     );
-    await page.getByRole("button", { name: "Compare pages visually" }).click();
+    // By keyboard: the button is replaced by the Overlay, and focus goes
+    // into the Overlay's region, never to <body> (review r1, 2026-11-15).
+    await page.getByRole("button", { name: "Compare pages visually" }).focus();
+    await page.keyboard.press("Enter");
     await expect(overlay(page)).toBeVisible({ timeout: 30_000 });
+    expect(
+      await page.evaluate(
+        () => document.activeElement?.getAttribute("aria-label") ?? "BODY",
+      ),
+    ).toBe("Visual comparison");
     await expect(overlay(page)).toContainText(/\d+ differences? on this page/, {
       timeout: 30_000,
     });
+    await expect(overlay(page)).not.toContainText(PHRASE);
+  });
+
+  // Review r1, 2026-11-15, finding 1: each of these drew the sentence.
+  for (const [name, left, right] of [
+    ["a pale grey block (0.85)", null, [0.85, 0.85, 0.85]],
+    ["a block recoloured red to blue", [1, 0, 0], [0, 0, 1]],
+  ] as const)
+    test(`${name} is a difference on its page, never the sentence`, async ({
+      page,
+    }) => {
+      test.setTimeout(120_000);
+      await compared(
+        page,
+        await textPdf(1, left ? { block: [...left] } : {}),
+        await textPdf(1, { block: [...right] }),
+        /selectable text matches/i,
+      );
+      await openOverlay(page);
+      await expect(overlay(page)).toContainText(
+        /\d+ differences? on this page/,
+        { timeout: 30_000 },
+      );
+      await expect(overlay(page)).not.toContainText(PHRASE);
+    });
+
+  // Review r1, findings 6 and 7, from the keyboard on a served build.
+  test("Check all by keyboard: the result is in a live region, and Page N keeps focus", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    await compared(
+      page,
+      await textPdf(3),
+      await textPdf(3, { block: [0, 0, 0] }),
+      /selectable text matches/i,
+    );
+    await openOverlay(page);
+    const check = overlay(page).getByRole("button", {
+      name: "Check all pages",
+    });
+    await check.focus();
+    await page.keyboard.press("Enter");
+    await expect(overlay(page)).not.toHaveAttribute("aria-busy", "true", {
+      timeout: 60_000,
+    });
+    const live = overlay(page).locator('[role="status"][aria-live="polite"]');
+    await expect(
+      live.filter({ hasText: "Differences on 1 page: page 3." }),
+    ).toHaveCount(1);
+    const page3 = overlay(page).getByRole("button", {
+      name: "Page 3",
+      exact: true,
+    });
+    await page3.focus();
+    await page.keyboard.press("Enter");
+    await expect(overlay(page)).toContainText(
+      "Pages are compared by number: page 3 with page 3.",
+      { timeout: 30_000 },
+    );
+    await expect(page3).toBeFocused();
     await expect(overlay(page)).not.toContainText(PHRASE);
   });
 
