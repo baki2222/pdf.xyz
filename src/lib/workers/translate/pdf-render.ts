@@ -41,9 +41,22 @@
  * `radical-equivalents.test.ts`, the composed-chain test in
  * `pdf-render.cjk.test.ts` (real fixture → this pass → real pdf.js), and the
  * start-up probe's (e) `viewer_text`.
+ *
+ * Two things keep it from changing what ANY reader gets for a character
+ * that was really drawn (review 2026-11-16, both measured in the image):
+ *
+ *   - Radicals the job's typeset text literally contains are excluded. Skia
+ *     writes no ActualText for a literal radical (it matches the entry), so
+ *     rewriting that entry made poppler read 文 for a drawn ⽂ and the job
+ *     fail `not_conserved` — en, zh and ja jobs main delivered. Such a job
+ *     keeps its radical entries and reads exactly as on main.
+ *   - The target is the ideograph that shares the radical's glyph in the
+ *     font's own face (measured cmap facts), not the Unicode equivalent:
+ *     ⼾'s glyph is 户 in SC and 戸 in JP, not 戶.
  */
 import {
   decodePDFRawStream,
+  PDFArray,
   PDFDict,
   PDFDocument,
   PDFName,
@@ -62,7 +75,11 @@ import {
   TRANSLATE_PDF_RENDER_TIMEOUT_MS,
   type TranslatePdfReason,
 } from "@/lib/jobs/translate-pdf-render";
-import { normaliseRadicalToUnicode } from "./radical-equivalents";
+import {
+  kangxiRadicalsIn,
+  normaliseRadicalToUnicode,
+  radicalRewritesFor,
+} from "./radical-equivalents";
 import {
   translationDocument,
   typesetFurnitureText,
@@ -121,14 +138,39 @@ const latin1Text = (bytes: Uint8Array) => {
   return s;
 };
 
+/** A font's face: its descriptor's /FontName without the subset tag. */
+function fontFace(font: PDFDict): string | null {
+  let descriptor = font.lookup(PDFName.of("FontDescriptor"));
+  if (!(descriptor instanceof PDFDict)) {
+    const descendants = font.lookup(PDFName.of("DescendantFonts"));
+    const first =
+      descendants instanceof PDFArray ? descendants.lookup(0) : undefined;
+    if (first instanceof PDFDict)
+      descriptor = first.lookup(PDFName.of("FontDescriptor"));
+  }
+  if (!(descriptor instanceof PDFDict)) return null;
+  const name = descriptor.get(PDFName.of("FontName"));
+  return name instanceof PDFName
+    ? name.decodeText().replace(/^[A-Z]{6}\+/, "")
+    : null;
+}
+
 /**
  * Every font's /ToUnicode stream, whatever the target (Han can appear in any
- * target's text), with Kangxi-radical destinations replaced by their unified
- * ideographs (`radical-equivalents.ts`). A stream is replaced ONLY when the
- * rewrite changed its text; every other stream object is left byte-identical,
- * and a font with no ToUnicode is left alone. Returns how many were replaced.
+ * target's text), with Kangxi-radical destinations replaced by the unified
+ * ideograph that shares the radical's glyph IN THAT FONT'S FACE
+ * (`radicalRewritesFor`, from measured cmap facts — a face the facts do not
+ * name is left alone). Radicals in `keep` — the ones the job's own text
+ * contains — are never rewritten: a literal radical has no ActualText, so a
+ * rewritten entry would change what every reader, poppler included, reads.
+ * A stream is replaced ONLY when the rewrite changed its text; every other
+ * stream object is left byte-identical, and a font with no ToUnicode is left
+ * alone. Returns how many were replaced.
  */
-export function normaliseToUnicodeStreams(doc: PDFDocument): number {
+export function normaliseToUnicodeStreams(
+  doc: PDFDocument,
+  keep: ReadonlySet<number> = new Set(),
+): number {
   const ctx = doc.context;
   const seen = new Set<string>();
   let replaced = 0;
@@ -138,10 +180,13 @@ export function normaliseToUnicodeStreams(doc: PDFDocument): number {
     const ref = obj.get(PDFName.of("ToUnicode"));
     if (!(ref instanceof PDFRef) || seen.has(ref.toString())) continue;
     seen.add(ref.toString());
+    const face = fontFace(obj);
+    const table = face ? radicalRewritesFor(face, keep) : null;
+    if (!table || table.size === 0) continue;
     const stream = ctx.lookup(ref);
     if (!(stream instanceof PDFRawStream)) continue;
     const text = latin1Text(decodePDFRawStream(stream).decode());
-    const next = normaliseRadicalToUnicode(text);
+    const next = normaliseRadicalToUnicode(text, table);
     if (next === text) continue;
     ctx.assign(ref, ctx.flateStream(next));
     replaced += 1;
@@ -301,7 +346,7 @@ async function printAndCheck(
     doc.setProducer(TRANSLATE_PDF_PRODUCER);
     doc.setCreator(TRANSLATE_PDF_PRODUCER);
     pages = doc.getPageCount();
-    normaliseToUnicodeStreams(doc);
+    normaliseToUnicodeStreams(doc, kangxiRadicalsIn(typesetText(args.input)));
     bytes = await doc.save();
   } catch (error) {
     const known = classify(error);

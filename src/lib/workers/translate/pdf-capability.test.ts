@@ -45,7 +45,7 @@ import {
   type PdfProbeReaders,
   type Type3Font,
 } from "./pdf-readers";
-import { RADICAL_EQUIVALENTS } from "./radical-equivalents";
+import { radicalRewritesFor } from "./radical-equivalents";
 import { typesetText, type TypesetInput } from "./typeset";
 import {
   memoTranslatePdfLanguages,
@@ -273,10 +273,16 @@ describe("the language proof", () => {
   it("health: zh's and ja's judged text holds a code point the rewrite maps TO", () => {
     // The MECHANISM only. The PROPERTY (pdf.js misreads it without the
     // rewrite) is held by the composed-chain test in pdf-render.cjk.test.ts.
-    const targets = new Set(
-      [...RADICAL_EQUIVALENTS.values()].map((v) => String.fromCodePoint(v)),
-    );
+    // The table is per face (review 2026-11-16): the faces fontconfig picks
+    // for zh and ja in the image, as the fixtures' Type 3 descriptors name.
+    const face = { zh: "NotoSansCJKsc-Regular", ja: "NotoSansCJKjp-Regular" };
     for (const l of ["zh", "ja"] as const) {
+      const targets = new Set(
+        [...radicalRewritesFor(face[l]).values()].map((v) =>
+          String.fromCodePoint(v),
+        ),
+      );
+      expect(targets.size).toBeGreaterThan(200);
       const judged = probeJudgedText(l, LANGUAGE_SAMPLES[l]);
       expect([...judged].filter((c) => targets.has(c)).length).toBeGreaterThan(
         0,

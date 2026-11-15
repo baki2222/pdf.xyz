@@ -1,6 +1,6 @@
 /**
- * Kangxi Radicals → the unified ideograph each one is the equivalent of, and
- * the ToUnicode rewrite that uses it.
+ * Kangxi Radicals → the unified ideograph that shares the radical's glyph in
+ * the face that drew it, and the ToUnicode rewrite that uses it.
  *
  * ── WHY ─────────────────────────────────────────────────────────────────────
  *
@@ -15,14 +15,40 @@
  * read 420/30000 (zh) and 280/30000 (ja) before. (Firefox's copy and find
  * layers normalise on top of pdf.js's text and were NOT measured.)
  *
- * The rewrite is safe because the glyph IS shared: a Kangxi radical is a
- * compatibility character of its ideograph (NFKC maps one to the other), and
- * the Noto CJK faces map both code points to one glyph, so either is a valid
- * reading of it. ActualText still carries the exact one for viewers that
- * honour it, so poppler and the conservation read-back are unchanged. Only
- * viewers that ignore ActualText change, from ⽂ to 文. The cost: a
- * translation that literally contains a Kangxi radical reads as its unified
- * ideograph in those viewers only.
+ * ── THE TARGET IS A MEASURED GLYPH IDENTITY, PER FACE (review 2026-11-16) ──
+ *
+ * The first version rewrote every radical to its Unicode equivalent (UCD
+ * EquivalentUnifiedIdeograph, which NFKC agrees with) in every face. That is
+ * a MECHANISM; the property the rewrite needs is "the face that drew this
+ * glyph sends the new code point to the SAME glyph". Measured in the image
+ * (`radical-glyph-facts.json`, 30 faces), the two differ:
+ *
+ *   - U+2F3E ⼾ shares its glyph with 户 U+6237 in every SC face and with 戸
+ *     U+6238 in every JP face — not with its equivalent 戶 U+6236. The UCD
+ *     table made pdf.js read 用户 and 江戸 as 用戶 and 江戶: a different real
+ *     character. Derived from the facts, SC rewrites to 户 and JP to 戸.
+ *   - 0 to 11 radicals per face share their glyph with NO unified ideograph
+ *     (Sans KR 9, Serif KR 11, Sans HK 0). Those are not rewritten.
+ *   - No radical shares its glyph with two unified ideographs in any face.
+ *
+ * {@link radicalRewritesFor} derives the table for one face from those facts;
+ * a face the facts do not name gets NO rewrite (pdf.js then reads radicals,
+ * as before this slice, and the start-up probe's (e) `viewer_text` fails
+ * visibly). The UCD table below is kept as an independent second bound: the
+ * tests require every derived target to equal it except the listed
+ * exceptions, so a generator bug cannot pass as a font fact.
+ *
+ * ── A RADICAL THE JOB'S TEXT CONTAINS IS NEVER REWRITTEN ────────────────────
+ *
+ * Skia writes ActualText only where the character drawn differs from the
+ * glyph's ToUnicode entry. A LITERAL ⽂ matches the entry U+2F42, so it gets
+ * no ActualText — and a rewritten entry would make poppler read 文 too, fail
+ * the per-job conservation check, and lose the PDF (measured 2026-11-16: en
+ * "Radical only: ⽂ here." delivered on main and failed `not_conserved` on
+ * the first version). So `printAndCheck` passes the radicals in the typeset
+ * text as exclusions: such an entry keeps its radical, and that job reads as
+ * on main (pdf.js reads ⽂ both for ⽂ and for a 文 drawn with the same
+ * glyph). Every job whose text holds no radical gets the rewrite.
  *
  * ── WHY NOT THE CJK RADICALS SUPPLEMENT (measured 2026-11-16) ───────────────
  *
@@ -30,30 +56,122 @@
  * live image, Noto Sans CJK SC draws 彐 (U+5F50) with the glyph Skia maps to
  * U+2E95 (CJK RADICAL SNOUT TWO), whose UCD equivalent is U+2B739 𫜹 — so
  * pdf.js read 彐 as 𫜹, a DIFFERENT real ideograph, where before it read the
- * radical ⺕. The supplement's equivalences are not glyph identities in every
- * regional face, and no second bound (no NFKC mapping) can check them, so
- * they are left as Skia wrote them — and the ideographs whose glyph a
- * supplement radical shares still read as that radical in pdf.js, exactly as
- * before this rewrite. Measured with this Kangxi-only table, the 214
- * Kangxi-equivalent ideographs ×140 read 28740/30000 (zh; 9 distinct: 尢 幺
- * 彐 角 長 食 骨 鬼 龜, read as ⺐ ⺓ ⺕ ⻆ ⻑ ⻝ ⻣ ⻤ ⻱) and 29580/30000 (ja; 尢
- * 幺 長); 3000 distinct Han ×10 read 29830/30000 (zh). Of the 16 supplement
- * radicals pdf.js returned there, 15 agree with their UCD equivalent and one
- * (U+2E95) does not, so a supplement table needs a per-face check this
- * module does not have.
+ * radical ⺕. The ideographs whose glyph a supplement radical shares still
+ * read as that radical in pdf.js, exactly as before this rewrite. Measured
+ * with the Kangxi-only UCD table, the 214 Kangxi-equivalent ideographs ×140
+ * read 28740/30000 (zh; 9 distinct: 尢 幺 彐 角 長 食 骨 鬼 龜, read as ⺐ ⺓ ⺕
+ * ⻆ ⻑ ⻝ ⻣ ⻤ ⻱) and 29580/30000 (ja; 尢 幺 長); 3000 distinct Han ×10 read
+ * 29830/30000 (zh).
  *
- * ── THE TABLE ───────────────────────────────────────────────────────────────
+ * ── THE UCD TABLE (the second bound) ────────────────────────────────────────
  *
  * Generated from Unicode's EquivalentUnifiedIdeograph.txt (UCD 18.0.0, dated
  * 2026-02-03), rows U+2F00–U+2FD5 only, by
  *
  *   pnpm exec tsx scripts/generate-radical-equivalents.ts <EquivalentUnifiedIdeograph-18.0.0.txt>
  *
- * Vendored, never fetched. `radical-equivalents.test.ts` holds it to an
- * independent second bound: all 214 Kangxi radicals present, each agreeing
- * with `String.fromCodePoint(k).normalize("NFKC")`, and nothing else.
+ * Vendored, never fetched. `radical-equivalents.test.ts` holds it to its own
+ * independent bound: all 214 Kangxi radicals present, each agreeing with
+ * `String.fromCodePoint(k).normalize("NFKC")`, and nothing else.
+ *
+ * ── THE FACTS ───────────────────────────────────────────────────────────────
+ *
+ * `radical-glyph-facts.json`, written in the worker image by
+ * `scripts/measure-cjk-radical-glyphs.ts` (its header has the command), and
+ * re-measured against the image by `worker-translate-pdf-proof.ts`, which
+ * fails when the image's faces no longer give the vendored facts.
  */
+import FACTS_JSON from "./radical-glyph-facts.json";
 
+export const KANGXI_FIRST = 0x2f00;
+export const KANGXI_LAST = 0x2fd5;
+
+/**
+ * Measured glyph sharing: face PostScript name → radical (hex) → the OTHER
+ * code points (hex, space-separated, ascending) the face's cmap sends to that
+ * radical's glyph. A radical the face does not map is absent.
+ */
+export interface RadicalGlyphFacts {
+  readonly faces: Readonly<Record<string, Readonly<Record<string, string>>>>;
+}
+
+/**
+ * The vendored file's shape: faces with identical facts share one table
+ * (30 faces, 10 distinct tables, measured 2026-11-16).
+ */
+export interface CompactRadicalGlyphFacts {
+  readonly source: string;
+  readonly tables: readonly Readonly<Record<string, string>>[];
+  readonly faces: Readonly<Record<string, number>>;
+}
+
+export function expandFacts(
+  compact: CompactRadicalGlyphFacts,
+): RadicalGlyphFacts {
+  const faces: Record<string, Readonly<Record<string, string>>> = {};
+  for (const [name, index] of Object.entries(compact.faces)) {
+    const table = compact.tables[index];
+    if (!table) throw new Error(`radical glyph facts: ${name} names no table`);
+    faces[name] = table;
+  }
+  return { faces };
+}
+
+export const RADICAL_GLYPH_FACTS: RadicalGlyphFacts = expandFacts(FACTS_JSON);
+
+/** URO, Extension A, and Extensions B onward — not compatibility ideographs. */
+export function isUnifiedIdeograph(cp: number): boolean {
+  return (
+    (cp >= 0x4e00 && cp <= 0x9fff) ||
+    (cp >= 0x3400 && cp <= 0x4dbf) ||
+    (cp >= 0x20000 && cp <= 0x323af && !(cp >= 0x2f800 && cp <= 0x2fa1f))
+  );
+}
+
+export type RewriteTable = ReadonlyMap<number, number>;
+
+/**
+ * For one face (PostScript name, subset tag stripped): radical → the ONE
+ * unified ideograph that shares its glyph there. A radical whose glyph no
+ * unified ideograph shares, or more than one, is left out; a face the facts
+ * do not name gives an empty table. `keep` removes radicals the job's own
+ * text contains.
+ */
+export function radicalRewritesFor(
+  face: string,
+  keep: ReadonlySet<number> = new Set(),
+  facts: RadicalGlyphFacts = RADICAL_GLYPH_FACTS,
+): RewriteTable {
+  const out = new Map<number, number>();
+  const table = facts.faces[face];
+  if (!table) return out;
+  for (const [r, sharers] of Object.entries(table)) {
+    const radical = parseInt(r, 16);
+    if (keep.has(radical)) continue;
+    const unified = sharers
+      .split(" ")
+      .filter(Boolean)
+      .map((h) => parseInt(h, 16))
+      .filter(isUnifiedIdeograph);
+    if (unified.length === 1) out.set(radical, unified[0]!);
+  }
+  return out;
+}
+
+/** The Kangxi radicals a text literally contains. */
+export function kangxiRadicalsIn(text: string): Set<number> {
+  const out = new Set<number>();
+  for (const ch of text) {
+    const cp = ch.codePointAt(0)!;
+    if (cp >= KANGXI_FIRST && cp <= KANGXI_LAST) out.add(cp);
+  }
+  return out;
+}
+
+/**
+ * The UCD equivalents (the second bound, test-only at runtime): every
+ * Kangxi radical → its EquivalentUnifiedIdeograph.txt target.
+ */
 // prettier-ignore
 const PAIRS: readonly number[] = [
   // BEGIN GENERATED (scripts/generate-radical-equivalents.ts)
@@ -330,11 +448,11 @@ function encodeUtf16Hex(cps: readonly number[], upper: boolean): string {
 const isUpper = (hex: string) => !/[a-f]/.test(hex);
 
 /** A destination with every radical replaced, or null when it holds none. */
-function rewriteDestination(hex: string): string | null {
+function rewriteDestination(hex: string, table: RewriteTable): string | null {
   const cps = decodeUtf16Hex(hex);
-  if (!cps || !cps.some((cp) => RADICAL_EQUIVALENTS.has(cp))) return null;
+  if (!cps || !cps.some((cp) => table.has(cp))) return null;
   return encodeUtf16Hex(
-    cps.map((cp) => RADICAL_EQUIVALENTS.get(cp) ?? cp),
+    cps.map((cp) => table.get(cp) ?? cp),
     isUpper(hex),
   );
 }
@@ -354,11 +472,16 @@ function emitRangeBlocks(entries: readonly string[]): string {
 }
 
 /** One bfrange entry as one or more entries, or null when nothing changes. */
-function rewriteRange(lo: string, hi: string, dst: string): string[] | null {
+function rewriteRange(
+  lo: string,
+  hi: string,
+  dst: string,
+  table: RewriteTable,
+): string[] | null {
   if (dst.startsWith("[")) {
     let changed = false;
     const next = dst.replace(/<([0-9A-Fa-f]+)>/g, (whole, hex: string) => {
-      const r = rewriteDestination(hex);
+      const r = rewriteDestination(hex, table);
       if (r === null) return whole;
       changed = true;
       return `<${r}>`;
@@ -374,8 +497,7 @@ function rewriteRange(lo: string, hi: string, dst: string): string[] | null {
   const b = parseInt(hi, 16);
   if (!(b >= a)) return null;
   let any = false;
-  for (let i = 0; i <= b - a; i++)
-    if (RADICAL_EQUIVALENTS.has(start + i)) any = true;
+  for (let i = 0; i <= b - a; i++) if (table.has(start + i)) any = true;
   if (!any) return null;
   const upper = isUpper(hex) && isUpper(lo) && isUpper(hi);
   const src = (n: number) => hexOf(n, lo.length, upper);
@@ -389,7 +511,7 @@ function rewriteRange(lo: string, hi: string, dst: string): string[] | null {
     runFrom = null;
   };
   for (let code = a; code <= b; code++) {
-    const unified = RADICAL_EQUIVALENTS.get(start + (code - a));
+    const unified = table.get(start + (code - a));
     if (unified === undefined) {
       runFrom ??= code;
       continue;
@@ -404,13 +526,18 @@ function rewriteRange(lo: string, hi: string, dst: string): string[] | null {
 }
 
 /**
- * A ToUnicode CMap with every radical DESTINATION (a bfchar destination, a
- * bfrange start, or a bfrange array element) replaced by its unified
- * ideograph. A bfrange whose run crosses a radical is split around it. Every
- * block that holds no radical is left byte-identical, and so is a CMap that
- * holds none.
+ * A ToUnicode CMap with every DESTINATION (a bfchar destination, a bfrange
+ * start, or a bfrange array element) that is a key of `table` replaced by its
+ * value — `table` is {@link radicalRewritesFor} the face that drew the font,
+ * less the radicals the job's own text contains. A bfrange whose run crosses
+ * a key is split around it. Every block that holds no key is left
+ * byte-identical, and so is a CMap that holds none.
  */
-export function normaliseRadicalToUnicode(cmap: string): string {
+export function normaliseRadicalToUnicode(
+  cmap: string,
+  table: RewriteTable,
+): string {
+  if (table.size === 0) return cmap;
   return cmap.replace(
     /(\d+)\s+beginbf(char|range)([\s\S]*?)endbf\2/g,
     (whole: string, _n: string, kind: string, body: string) => {
@@ -419,7 +546,7 @@ export function normaliseRadicalToUnicode(cmap: string): string {
         const next = body.replace(
           /<([0-9A-Fa-f]+)>(\s*)<([0-9A-Fa-f]+)>/g,
           (entry: string, src: string, gap: string, dst: string) => {
-            const r = rewriteDestination(dst);
+            const r = rewriteDestination(dst, table);
             if (r === null) return entry;
             changed = true;
             return `<${src}>${gap}<${r}>`;
@@ -432,7 +559,7 @@ export function normaliseRadicalToUnicode(cmap: string): string {
       for (const m of body.matchAll(
         /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*(<[0-9A-Fa-f]+>|\[[^\]]*\])/g,
       )) {
-        const r = rewriteRange(m[1]!, m[2]!, m[3]!);
+        const r = rewriteRange(m[1]!, m[2]!, m[3]!, table);
         if (r === null) entries.push(m[0]);
         else {
           changed = true;
