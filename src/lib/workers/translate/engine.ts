@@ -296,22 +296,23 @@ function buildSystemPrompt(
   return parts.join(" ");
 }
 
-/** Map a provider completion failure to an honest, typed run failure. */
+/** What a failure after a provider call carries: the window, and the spend. */
+type SpendCarry = { window: TruncationWindow; usage?: AiUsageMeta };
+
+/**
+ * Map a provider completion failure to an honest, typed run failure.
+ *
+ * `carry` is the WHOLE job's spend so far — every earlier call plus this
+ * failing one — built by `runTranslate`'s `spentSoFar`. It used to be built
+ * here from the failing call alone, so a chunked job that failed on call 2
+ * reported call 2's tokens and dropped call 1's (2026-11-15).
+ */
 function mapProviderFailure(
   result: Extract<AiCompletionResult, { ok: false }>,
-  window: TruncationWindow,
-  model: string,
+  carry: SpendCarry,
 ): Extract<TranslateRun, { ok: false }> {
   // A provider CALL happened, so both travel with every branch below: the spend
   // is real even though the run failed.
-  const spent =
-    result.usage !== undefined
-      ? ({ ...result.usage, calls: 1, model } satisfies AiUsageMeta)
-      : undefined;
-  const carry = {
-    ...(spent ? { usage: spent } : {}),
-    window,
-  };
   switch (result.kind) {
     case "not_configured":
       return {
@@ -674,6 +675,30 @@ export async function runTranslate(
   let interruptedPages: number[] = [];
   let interruption: TranslateRun | null = null;
 
+  /**
+   * What every return below this point carries: the window, and the usage of
+   * EVERY call made so far.
+   *
+   * ONE definition for the success meta and each post-spend failure arm. Four
+   * failure arms used to return without it — the package size arm, a single
+   * empty translation, the all-empty fallback, and an interruption carrying
+   * only its own call — and with no window `aiResultsFromFailure` reports
+   * nothing, so the executor's spend hook recorded zero for calls that were
+   * paid for (CLAUDE.md rule 3). `spend-on-failure.test.ts` walks this
+   * function's AST and fails on any `ok: false` return after the first
+   * `provider.complete(` that does not spread this.
+   *
+   * It never invents a call: `usage` appears only when some call reported, as
+   * the rule above `aiResultsFromFailure` requires. A failing call is ADDED to
+   * the tally before this is read, so it is counted once, with its tokens.
+   */
+  const spentSoFar = (): SpendCarry => ({
+    window,
+    ...(usage.reported
+      ? { usage: { ...usage.totals(), calls: usage.calls, model } }
+      : {}),
+  });
+
   for (const [i, segment] of segments.entries()) {
     const many = segments.length > 1;
     const completion = await provider.complete({
@@ -702,7 +727,10 @@ export async function runTranslate(
       // translated are worth more than a clean error. Stop here, keep what is
       // done, and name the rest — the first failure is reported verbatim when
       // nothing at all was translated.
-      interruption = mapProviderFailure(completion, window, provider.model);
+      // The failing call is real spend: tallied first, so the carrier holds
+      // every call this job made, not only the one that failed.
+      usage.add(completion.usage);
+      interruption = mapProviderFailure(completion, spentSoFar());
       interruptedPages = segments.slice(i).flatMap((s) => [...s.pages]);
       break;
     }
@@ -718,6 +746,7 @@ export async function runTranslate(
         kind: "failed",
         retryable: true,
         message: "The AI provider returned an empty translation.",
+        ...spentSoFar(),
       };
     } else {
       // An empty part in a multi-part document is a hole, not a total failure.
@@ -732,6 +761,7 @@ export async function runTranslate(
         kind: "failed",
         retryable: true,
         message: "The AI provider returned an empty translation.",
+        ...spentSoFar(),
       }
     );
   }
@@ -792,6 +822,7 @@ export async function runTranslate(
       kind: "failed",
       retryable: false,
       message: "The translation package exceeds the worker size limit.",
+      ...spentSoFar(),
     };
   }
 
@@ -810,9 +841,9 @@ export async function runTranslate(
       // SUMMED ACROSS EVERY CALL a chunked job made, with `calls` recording how
       // many — a chunked job that reported one call's tokens would under-count
       // the spend ceiling in the one direction it must never be wrong in.
-      ...(usage.reported
-        ? { usage: { ...usage.totals(), calls: usage.calls, model } }
-        : {}),
+      // The window rides in the same spread: one definition with every
+      // failure arm above.
+      ...spentSoFar(),
       targetLanguage: options.targetLanguage,
       sourceLanguage: options.sourceLanguage,
       pageCount: extracted.pageCount,
@@ -822,7 +853,6 @@ export async function runTranslate(
       translationCharacters: translation.length,
       truncated,
       truncationNotice: userTruncationNotice(window) || null,
-      window,
       ...(withheld
         ? {
             delivery: {

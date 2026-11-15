@@ -607,3 +607,153 @@ describe("a failed translate run reports what it spent", () => {
     expect("window" in run).toBe(false);
   });
 });
+
+/**
+ * EVERY POST-SPEND FAILURE CARRIES THE SPEND (2026-11-15, rule 3).
+ *
+ * Until this change four returns inside `runTranslate` came AFTER
+ * `provider.complete` and carried neither `usage` nor `window`: the package
+ * size arm, a single empty translation, the all-empty fallback, and an
+ * interruption whose earlier calls had already been tallied. With no window,
+ * `aiResultsFromFailure` returns undefined and the executor's spend hook records
+ * zero — the convenient direction, toward free.
+ */
+describe("every failure after a provider call reports what the calls spent", () => {
+  /** Twenty 2,000-character pages: four chunks under the default ceiling. */
+  function chunkedExtractor(): PdfTextExtractor {
+    const perPage = "a".repeat(2000);
+    const pages = Array.from({ length: 20 }, (_, i) => ({
+      pageNumber: i + 1,
+      text: perPage,
+      characterCount: perPage.length,
+    }));
+    const joined = pages.map((p) => p.text).join("\n\n");
+    return vi.fn(async () => ({
+      pageCount: pages.length,
+      pages,
+      text: joined,
+      characterCount: joined.length,
+      hasText: true,
+    }));
+  }
+
+  /** Answers each call with the next scripted result, recording the request. */
+  function scripted(results: AiCompletionResult[]): AiProvider & {
+    calls: AiCompletionRequest[];
+  } {
+    const calls: AiCompletionRequest[] = [];
+    return {
+      id: "anthropic",
+      model: "claude-sonnet-5",
+      calls,
+      async complete(request) {
+        calls.push(request);
+        const next = results[calls.length - 1];
+        if (!next) throw new Error("no scripted result left");
+        return next;
+      },
+    };
+  }
+
+  it("a package over the size bound still reports what the calls spent", async () => {
+    const run = await runTranslate(INPUT, OPTIONS, {
+      extract: extractorFor("Some document text to translate."),
+      provider: providerReturning(SUCCESS("Un texte traduit.")),
+      limits: { maxOutputBytes: 1 },
+    });
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.message).toMatch(/size limit/);
+    expect(run.usage?.calls).toBe(1);
+    expect(run.usage).toEqual({
+      inputTokens: 100,
+      outputTokens: 20,
+      calls: 1,
+      model: "claude-sonnet-5",
+    });
+    expect(run.window).toBeDefined();
+  });
+
+  it("an empty single translation reports its spend", async () => {
+    const run = await runTranslate(INPUT, OPTIONS, {
+      extract: extractorFor("real text"),
+      provider: providerReturning(SUCCESS("   ")),
+    });
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.kind).toBe("failed");
+    expect(run.usage).toEqual({
+      inputTokens: 100,
+      outputTokens: 20,
+      calls: 1,
+      model: "claude-sonnet-5",
+    });
+    expect(run.window).toBeDefined();
+  });
+
+  it("an all-empty chunked translation reports every call", async () => {
+    const provider = providerReturning(SUCCESS("   "));
+    const run = await runTranslate(INPUT, OPTIONS, {
+      extract: chunkedExtractor(),
+      provider,
+    });
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(provider.calls.length).toBeGreaterThan(1);
+    expect(run.usage?.calls).toBe(provider.calls.length);
+    expect(run.usage?.inputTokens).toBe(100 * provider.calls.length);
+    expect(run.window).toBeDefined();
+  });
+
+  it("an interruption after empty parts reports every call", async () => {
+    const provider = scripted([
+      SUCCESS("   "),
+      {
+        ok: false,
+        kind: "provider_error",
+        retryable: true,
+        message: "upstream 500",
+        usage: { inputTokens: 7, outputTokens: 3 },
+      },
+    ]);
+    const run = await runTranslate(INPUT, OPTIONS, {
+      extract: chunkedExtractor(),
+      provider,
+    });
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(provider.calls).toHaveLength(2);
+    expect(run.message).toBe("upstream 500");
+    expect(run.usage).toEqual({
+      inputTokens: 107,
+      outputTokens: 23,
+      calls: 2,
+      model: "claude-sonnet-5",
+    });
+    expect(run.window).toBeDefined();
+  });
+
+  it("an interruption whose failing call reported nothing still counts it, and keeps the earlier tokens", async () => {
+    const provider = scripted([
+      SUCCESS("   "),
+      {
+        ok: false,
+        kind: "timeout",
+        retryable: true,
+        message: "timed out",
+      },
+    ]);
+    const run = await runTranslate(INPUT, OPTIONS, {
+      extract: chunkedExtractor(),
+      provider,
+    });
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.usage).toEqual({
+      inputTokens: 100,
+      outputTokens: 20,
+      calls: 2,
+      model: "claude-sonnet-5",
+    });
+  });
+});

@@ -143,3 +143,90 @@ describe("createTranslateProcessor", () => {
     }
   });
 });
+
+/**
+ * A post-spend failure owes the job record its spend (2026-11-15). Through the
+ * processor, because `aiResultsFromFailure` drops the block when the engine
+ * forgets the window — the engine can be fixed while this seam is not.
+ */
+describe("a translate failure after a provider call carries its usage", () => {
+  const spent: AiCompletionResult = {
+    ok: true,
+    text: "Traduction réelle.",
+    model: "claude-sonnet-5",
+    usage: { inputTokens: 100, outputTokens: 20 },
+  };
+
+  it("the package size arm reaches results.ai.usage", async () => {
+    const p = createTranslateProcessor({
+      extract: extractorFor("A genuine document with content."),
+      provider: provider(spent),
+      limits: { maxOutputBytes: 1 },
+    });
+    const result = await p.process(input());
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.results?.ai?.usage).toEqual({
+      inputTokens: 100,
+      outputTokens: 20,
+      calls: 1,
+      model: "claude-sonnet-5",
+    });
+    expect(result.results?.ai?.truncation).toBeDefined();
+  });
+
+  it("an empty single translation reaches results.ai.usage", async () => {
+    const p = createTranslateProcessor({
+      extract: extractorFor("A genuine document with content."),
+      provider: provider({ ...spent, text: "  " }),
+    });
+    const result = await p.process(input());
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.results?.ai?.usage?.calls).toBe(1);
+  });
+
+  it("an interruption after empty parts reaches results.ai.usage with every call", async () => {
+    const perPage = "a".repeat(2000);
+    const pages = Array.from({ length: 20 }, (_, i) => ({
+      pageNumber: i + 1,
+      text: perPage,
+      characterCount: perPage.length,
+    }));
+    const joined = pages.map((pg) => pg.text).join("\n\n");
+    let n = 0;
+    const p = createTranslateProcessor({
+      extract: async () => ({
+        pageCount: pages.length,
+        pages,
+        text: joined,
+        characterCount: joined.length,
+        hasText: true,
+      }),
+      provider: {
+        id: "anthropic",
+        model: "claude-sonnet-5",
+        async complete() {
+          n += 1;
+          return n === 1
+            ? { ...spent, text: " " }
+            : {
+                ok: false,
+                kind: "provider_error",
+                retryable: true,
+                message: "upstream 500",
+                usage: { inputTokens: 7, outputTokens: 3 },
+              };
+        },
+      },
+    });
+    const result = await p.process(input());
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.results?.ai?.usage).toMatchObject({
+      inputTokens: 107,
+      outputTokens: 23,
+      calls: 2,
+    });
+  });
+});
