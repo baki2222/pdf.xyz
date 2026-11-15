@@ -1607,9 +1607,18 @@ describe("the converters' pages describe the page they produce", () => {
     // the old inline call. `pnpm lint` failed on the dead import while this
     // passed. A name appearing in the file is not the renderer using it; the
     // argument in the call is.
+    //
+    // AMENDED 2026-11-15 (S3): `capturePdfPages` takes `maxDevicePx` (Compare
+    // PDF's overlay passes 2,000 px) and DEFAULTS it to the cap, so the call
+    // names the option and the default names the cap. Both are required:
+    // the cap as the default every other caller gets, and that option as
+    // the argument the scale call reads. (The composed seam is run by
+    // pdf-to-image-chain.test.tsx, through the real rasterizer.)
+    expect(render).toMatch(/\bmaxDevicePx\s*=\s*RASTER_MAX_DEVICE_PX\b/);
     expect(render).toMatch(
-      /rasterPageScale\s*\(\s*[^()]*,\s*RASTER_MAX_DEVICE_PX\s*,?\s*\)/,
+      /rasterPageScale\s*\(\s*[^()]*,\s*maxDevicePx\s*,?\s*\)/,
     );
+
     for (const tool of tools.filter(
       (t) => getRunnerKind(t.slug) === "pdf-to-image",
     )) {

@@ -385,7 +385,7 @@ export function ComparePdfEditor({
         announcement={
           compared
             ? undefined
-            : `${title}. Run OCR PDF on scanned or image-only files first.`
+            : `${title}. Run OCR PDF to compare their text, or compare the pages visually.`
         }
         summary={
           compared ? (
@@ -399,7 +399,7 @@ export function ComparePdfEditor({
           ) : (
             <>
               No selectable text found in either PDF — scanned or image-only
-              pages need {ocrLink} before they can be compared.
+              pages need {ocrLink} before their text can be compared.
             </>
           )
         }
@@ -443,10 +443,14 @@ export function ComparePdfEditor({
               pages={done}
             />
           ) : (
-            // Nothing was compared: the report is a few lines saying why.
-            <div className="border-line text-fg bg-canvas rounded-panel max-h-80 overflow-auto border p-4 font-mono text-xs leading-5 whitespace-pre-wrap">
-              {result.report}
-            </div>
+            // No text was compared: the report is a few lines saying why,
+            // and the pages can still be overlaid.
+            <>
+              <div className="border-line text-fg bg-canvas rounded-panel max-h-80 overflow-auto border p-4 font-mono text-xs leading-5 whitespace-pre-wrap">
+                {result.report}
+              </div>
+              {done && <done.mod.CompareVisualRoute pages={done} />}
+            </>
           )}
           {optionsError && <ErrorNote message={optionsError} />}
           <button
@@ -556,12 +560,12 @@ export function ComparePdfEditor({
           <InfoTile
             icon={FileText}
             title="Text diff"
-            body="Uses embedded selectable text; scanned pages need OCR first."
+            body="Uses embedded selectable text; scanned pages need OCR first, or can be overlaid instead."
           />
           <InfoTile
             icon={FileDiff}
             title="Honest"
-            body="This is not a pixel-perfect visual comparison."
+            body="Overlay pages compares ink in grayscale at about 150 dpi, not every pixel or colour."
           />
         </div>
       </RunnerSection>

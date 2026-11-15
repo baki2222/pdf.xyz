@@ -288,9 +288,12 @@ function batchBorn(chunk) {
 
 /**
  * The module directory of Compare PDF's lazy features: the comparison
- * (`compare-result.tsx`), its page view (`compare-viewer.tsx`) and the page
- * view's documents (`compare-docs.ts`).
+ * (`compare-result.tsx`), its page view (`compare-viewer.tsx`), the page
+ * view's documents (`compare-docs.ts`), and the Overlay
+ * (`compare-overlay.tsx`, S3), whose chunk carries its own copy of
+ * `render.ts`'s output path (`visual-pairs.ts` imports it statically).
  */
+
 const COMPARE_DIR =
   /[\\/]src[\\/]components[\\/]tools[\\/]runner[\\/]compare[\\/]/;
 

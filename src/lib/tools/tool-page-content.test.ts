@@ -1114,6 +1114,15 @@ describe("compare-pdf: order, and what counts as a change", () => {
     );
     expect(runner).toContain("has no selectable text`");
     expect(runner).toContain('"Not compared"');
+    // ADDED 2026-11-15 (S3): the scan answer names Compare pages visually,
+    // and the button lives in the comparison's chunk, which the runner
+    // renders for these verdicts (`done.mod.CompareVisualRoute`).
+    expect(runner).toContain("done.mod.CompareVisualRoute");
+    const visual = withoutComments(
+      read("src/components/tools/runner/compare/compare-result.tsx"),
+    );
+    expect(visual).toMatch(/export function CompareVisualRoute\b/);
+    expect(visual).toContain("Compare pages visually");
     // …is what the page's scan answer tells the reader, and it says nothing
     // about the other file's lines being listed.
     const scan = pageCopy
@@ -1122,6 +1131,8 @@ describe("compare-pdf: order, and what counts as a change", () => {
     expect(scan, "compare-pdf serves no scan question").toBeDefined();
     expect(scan!.answer).toContain("has no selectable text");
     expect(scan!.answer).toContain("Not compared");
+    expect(scan!.answer).toContain("Compare pages visually");
+
     expect(scan!.answer).not.toMatch(
       /\bevery line\b[^.]*\b(?:added|removed)\b/i,
     );

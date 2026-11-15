@@ -504,6 +504,14 @@ export interface CapturePagesOptions<T> extends Omit<
   onPage?: (page: CapturedPage<T>) => void;
   /** Invoked once, after the document parses and before any page renders. */
   onDocument?: (info: RasterDocumentInfo) => void;
+  /**
+   * The longest side, in device pixels, a page may be drawn at; a page too
+   * large for `dpi` is drawn lower and its record says so (`dpiCapped`).
+   * Defaults to {@link RASTER_MAX_DEVICE_PX}, the figure the PDF to JPG/PNG
+   * pages quote. Compare PDF's overlay passes a smaller one (2,000 px), so
+   * each page it holds is at most 4 megapixels.
+   */
+  maxDevicePx?: number;
 }
 
 /** Document-level facts a capture caller may want to carry into its output. */
@@ -537,6 +545,7 @@ export async function capturePdfPages<T>(
     onDocument,
     onProgress,
     onPageFailed,
+    maxDevicePx = RASTER_MAX_DEVICE_PX,
   }: CapturePagesOptions<T>,
 ): Promise<CapturedPage<T>[]> {
   if (typeof document === "undefined") return [];
@@ -589,13 +598,8 @@ export async function capturePdfPages<T>(
         // The scale AND the verdict on it: a page too large for `dpi` is
         // rendered lower, and the page record below carries that fact out.
         // The cap is passed, not left to the default, so the call names the
-        // figure the PDF to JPG/PNG pages quote.
-        const fit = rasterPageScale(
-          base.width,
-          base.height,
-          dpi,
-          RASTER_MAX_DEVICE_PX,
-        );
+        // figure the PDF to JPG/PNG pages quote (`maxDevicePx` defaults to it).
+        const fit = rasterPageScale(base.width, base.height, dpi, maxDevicePx);
         const viewport = page.getViewport({ scale: fit.scale });
 
         const canvas = document.createElement("canvas");

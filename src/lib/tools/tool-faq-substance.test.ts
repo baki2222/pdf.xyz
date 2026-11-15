@@ -2093,7 +2093,14 @@ describe("the remaining in-browser tools answer what their engines do", () => {
     expect(answer(tool.slug, /full quality/)).toContain("byte for byte");
   });
 
-  it("compare looks at selectable text, page count and size — nothing visual", () => {
+  // RENAMED and INVERTED 2026-11-15 (audit compare-pdf#3, S3). It was
+  // "compare looks at selectable text, page count and size — nothing
+  // visual", and the first answer said "A change to images, layout, fonts
+  // or colors that leaves the text the same does not show up", true until
+  // Overlay pages. The first sentence stands (the list still compares text);
+  // the answer now says what the overlay sees and what it cannot, and the
+  // scan answer names both ways forward.
+  it("compare lists selectable text, page count and size, and overlays the pages in grayscale", () => {
     // `pages` was `[]` until 2026-11-14; the comparison reads the pages
     // now and refuses an extraction whose pages disagree with its text.
     const text = (t: string, pageCount: number): ExtractedPdfText => ({
@@ -2117,10 +2124,17 @@ describe("the remaining in-browser tools answer what their engines do", () => {
     expect(scans.hasComparableText).toBe(false);
     expect(scans.report).toMatch(/Use OCR first/);
     for (const tool of mounting("compare")) {
-      expect(answer(tool.slug, /What does .* compare/)).toMatch(
+      const what = answer(tool.slug, /What does .* compare/);
+      expect(what).toMatch(
         /^The selectable text, line by line, plus the page count and the file size/,
       );
-      expect(answer(tool.slug, /scanned/)).toContain("OCR PDF");
+      expect(what).toContain("Overlay pages");
+      expect(what).toContain("in grayscale");
+      expect(what).toMatch(/same lightness[^.]*does not/);
+      expect(what).not.toMatch(/does not show up\.$/);
+      const scanned = answer(tool.slug, /scanned/);
+      expect(scanned).toContain("OCR PDF");
+      expect(scanned).toContain("Compare pages visually");
     }
   });
 
