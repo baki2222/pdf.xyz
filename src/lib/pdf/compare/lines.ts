@@ -53,8 +53,17 @@ export function normalizeComparableText(text: string): string[] {
   return text
     .replace(/\r\n?/g, "\n")
     .split("\n")
-    .map((line) => line.replace(/[\t ]+/g, " ").trim())
+    .map(normalizeComparableLine)
     .filter(Boolean);
+}
+
+/**
+ * One line as {@link normalizeComparableText} reads it: runs of spaces and
+ * tabs collapsed to one space, then trimmed. The page view maps each changed
+ * line back onto the page's own text through this same rule.
+ */
+export function normalizeComparableLine(line: string): string {
+  return line.replace(/[\t ]+/g, " ").trim();
 }
 
 /**

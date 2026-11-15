@@ -32,6 +32,7 @@ import { PALETTE_CHUNK_MARKER } from "@/components/intent/palette-chunk";
 import { REPLACE_BOXES_CHUNK } from "@/components/tools/replace-boxes";
 import { BATCH_VIEW_LOADED } from "@/components/tools/runner/batch/batch-view";
 import { COMPARE_RESULT_CHUNK } from "@/components/tools/runner/compare/compare-result";
+import { COMPARE_VIEWER_CHUNK } from "@/components/tools/runner/compare/compare-viewer";
 import { RESULT_ENDING_CHUNK } from "@/components/intent/result-ending-chunk";
 import { DROP_ENGINE_MARK } from "@/lib/intent/drop-engine";
 import { tools } from "@/lib/tools";
@@ -325,6 +326,19 @@ const OUR_LAZY: LazyLibrary[] = [
     what: "Compare PDF's result engine and changes view",
     marker: COMPARE_RESULT_CHUNK,
     why: "the compare runner fetches it with the two extractions, or when a second file lands; a visit that never brings two files never downloads it",
+    allowedAtLoad: {},
+  },
+  // Compare PDF's page view (audit compare-pdf#2, S2, 2026-11-15): both
+  // PDFs side by side with the changes marked on the pages. Its own chunk,
+  // behind one `import()` in the comparison's chunk, fetched when Show
+  // changes on the pages is pressed or pointed at. This entry alone cannot
+  // tell it apart from the comparison's chunk (that one is lazy too, so a
+  // static import would still pass); "Compare PDF's page view is a chunk of
+  // its own" below does.
+  {
+    what: "Compare PDF's page view",
+    marker: COMPARE_VIEWER_CHUNK,
+    why: "the comparison fetches it when Show changes on the pages is pressed or pointed at; a run that stays on the list never downloads it",
     allowedAtLoad: {},
   },
   // Sign PDF's handwriting faces (audit sign-pdf#1, 2026-11-09). As first
@@ -941,6 +955,26 @@ describe("the ticket's on-demand fetch is bounded", () => {
  */
 const PALETTE_FETCH_GZ_KB = 12;
 
+/**
+ * Every chunk load the build's code makes, as the chunk ids it fetches
+ * together: `Promise.all([n.e(1),n.e(2)])` for an `import()` that needs two
+ * or more chunks, and `n.e(1).then(` for one that needs one. EXTENDED
+ * 2026-11-15 (S2): only the first form was read, so a one-chunk import
+ * (Compare PDF's page view) failed "no chunk loads it" for the wrong reason.
+ */
+function loadersOf(files: readonly string[]): string[][] {
+  return files.flatMap((f) => {
+    const text = read(f);
+    const many = [
+      ...text.matchAll(/Promise\.all\(\[((?:\w+\.e\(\d+\),?)+)\]\)/g),
+    ].map((m) => [...m[1]!.matchAll(/\.e\((\d+)\)/g)].map((x) => x[1]!));
+    const one = [...text.matchAll(/(?<![\w,[])\w+\.e\((\d+)\)\.then\(/g)].map(
+      (m) => [m[1]!],
+    );
+    return [...many, ...one];
+  });
+}
+
 function onDemandFetch(marker: string, page: string) {
   const all = walkJs(CHUNKS_DIR);
   const idOf = (f: string) => /^(\d+)[-.]/.exec(path.basename(f))?.[1];
@@ -952,13 +986,7 @@ function onDemandFetch(marker: string, page: string) {
   expect(own, `exactly one chunk carries ${marker}`).toHaveLength(1);
   const ownId = idOf(own[0]!);
   expect(ownId, "the chunk has no numeric id").toBeTruthy();
-  const loads = all
-    .flatMap((f) =>
-      [...read(f).matchAll(/Promise\.all\(\[((?:\w+\.e\(\d+\),?)+)\]\)/g)].map(
-        (m) => [...m[1]!.matchAll(/\.e\((\d+)\)/g)].map((x) => x[1]!),
-      ),
-    )
-    .filter((ids) => ids.includes(ownId!));
+  const loads = loadersOf(all).filter((ids) => ids.includes(ownId!));
   expect(loads.length, "no chunk loads it").toBeGreaterThanOrEqual(1);
   const ids = new Set(loads.flat());
   const files = [...ids].map((id) => {
@@ -982,6 +1010,137 @@ function onDemandFetch(marker: string, page: string) {
     ) / 1024;
   return { files, counted, gz, catalogueAmong: files.some(isCatalogue) };
 }
+
+/**
+ * Compare PDF's page view's fetch from the compare page: measured
+ * 2026-11-15 at 13,505 B gz (13.19 KB: its own chunk 6,056 B, the chunk of
+ * viewer modules it shares with PDF Viewer 5,323 B, and 2,126 B more shared
+ * code), plus 10%. Fetched on demand, beside the viewer's open, so it is
+ * paid only by a run that asks for the pages; the failure message prints
+ * the figure and the files.
+ * RE-MEASURED 2026-11-15 after review r1: one chunk, 12,460 B gz (12.17
+ * KB), its own copy of the viewer modules it uses, since the page view's
+ * chunks are no longer split (`next.config.mjs`, `compareBorn`); its
+ * documents' open, fetched beside it, is a 5,034 B chunk of its own. Bound
+ * 12.17 KB plus 10%.
+ */
+const COMPARE_VIEWER_FETCH_GZ_KB = 13.4;
+
+describe("Compare PDF's page view is a chunk of its own", () => {
+  const built = existsSync(path.join(NEXT_DIR, "server", "app"));
+
+  it("positive control: a one-chunk import is read as a load", () => {
+    if (!built) return;
+    const all = walkJs(CHUNKS_DIR);
+    // Health of the reader itself: both forms occur in the build.
+    const loaders = loadersOf(all);
+    expect(loaders.some((ids) => ids.length >= 2)).toBe(true);
+    expect(loaders.some((ids) => ids.length === 1)).toBe(true);
+  });
+
+  it("is not the comparison's chunk, and carries no pdf.js", () => {
+    if (!built) return;
+    const all = walkJs(CHUNKS_DIR);
+    const viewer = all.filter((f) => read(f).includes(COMPARE_VIEWER_CHUNK));
+    const result = all.filter((f) => read(f).includes(COMPARE_RESULT_CHUNK));
+    expect(viewer).toHaveLength(1);
+    expect(result).toHaveLength(1);
+    expect(path.resolve(viewer[0]!)).not.toBe(path.resolve(result[0]!));
+    const pdfjs = LAZY.find((l) => l.what === "pdfjs")!.marker;
+    expect(read(viewer[0]!).includes(pdfjs)).toBe(false);
+  });
+
+  // ADDED 2026-11-15 (review r1). The page view used PDF Viewer's page
+  // component, text layer, geometry, search and open, and SplitChunks moved
+  // them into chunks both features fetch: PDF Viewer's runner (its first
+  // load) then named another chunk (+7 B gzip) and opening a file there
+  // fetched 5 chunks (+1,218 B). `next.config.mjs` (`compareBorn`) keeps
+  // the page view's chunks unsplit. The property: every chunk the
+  // comparison's own `import()`s fetch is fetched by no other `import()` in
+  // the build, so no other feature's loads (PDF Viewer's among them) can
+  // have changed to share one.
+  it("the comparison's imports fetch no chunk any other import fetches", () => {
+    if (!built) return;
+    const all = walkJs(CHUNKS_DIR);
+    const idOf = (f: string) => /^(\d+)[-.]/.exec(path.basename(f))?.[1];
+    const result = all.filter((f) => read(f).includes(COMPARE_RESULT_CHUNK));
+    const viewer = all.filter((f) => read(f).includes(COMPARE_VIEWER_CHUNK));
+    expect(result).toHaveLength(1);
+    expect(viewer).toHaveLength(1);
+    const own = loadersOf(result);
+    // Health: the page view's load and its documents' open are both read.
+    expect(own.length, JSON.stringify(own)).toBeGreaterThanOrEqual(2);
+    expect(own.flat()).toContain(idOf(viewer[0]!));
+    const others = loadersOf(
+      all.filter((f) => path.resolve(f) !== path.resolve(result[0]!)),
+    );
+    expect(others.length).toBeGreaterThanOrEqual(100);
+    const sharedWith = (ids: readonly string[], loads: string[][]) =>
+      ids.filter((id) => loads.some((l) => l.includes(id)));
+    // Positive control: the predicate sees sharing where the build has it
+    // (chunks that several of PDF Viewer's and other loads fetch together).
+    const counts = new Map<string, number>();
+    for (const l of others)
+      for (const id of l) counts.set(id, (counts.get(id) ?? 0) + 1);
+    const common = [...counts].filter(([, n]) => n >= 2).map(([id]) => id);
+    expect(common.length).toBeGreaterThan(0);
+    expect(sharedWith(common, others)).toEqual(common);
+    expect(
+      sharedWith(own.flat(), others),
+      `chunks the comparison's imports (${JSON.stringify(own)}) share with other imports`,
+    ).toEqual([]);
+  });
+
+  // The other half of the same property, which the build cannot show: a
+  // chunk the page view's `import()` makes is never split, so if it started
+  // at a module another `import()` also starts at, both chunks would have
+  // the same root, and webpack's deterministic ids would hand the shared id
+  // to one of them. It did, for `import("@/lib/pdf/viewer")`: PDF Viewer's
+  // open chunk 2568 became 187 on its runner's first load. So every
+  // `import()` in the comparison's directory starts at a module of its own.
+  it("every import() in the comparison's directory starts at a module in that directory", () => {
+    const dir = path.join(
+      ROOT,
+      "src",
+      "components",
+      "tools",
+      "runner",
+      "compare",
+    );
+    const files = ourSources().filter((f) => path.dirname(f) === dir);
+    expect(files.length).toBeGreaterThanOrEqual(3);
+    // Code only: comments quote other modules' imports, and a `typeof
+    // import()` is a type, erased before webpack sees it.
+    const code = (f: string) =>
+      read(f)
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
+    const targets = files.flatMap((f) =>
+      [
+        ...code(f).matchAll(/(?<!typeof\s)\bimport\(\s*["']([^"']+)["']\s*\)/g),
+      ].map((m) => ({ file: path.basename(f), spec: m[1]! })),
+    );
+    // Health: the page view's import and its documents' open are found.
+    expect(targets.length, JSON.stringify(targets)).toBeGreaterThanOrEqual(2);
+    for (const t of targets) {
+      const resolved = path.resolve(dir, t.spec);
+      expect(
+        t.spec.startsWith("./") && path.dirname(resolved) === dir,
+        `${t.file}: import("${t.spec}") starts outside ${path.relative(ROOT, dir)}`,
+      ).toBe(true);
+    }
+  });
+
+  it(`its fetch from the compare page stays under ${COMPARE_VIEWER_FETCH_GZ_KB} KB gz`, () => {
+    if (!built) return;
+    const fetch = onDemandFetch(COMPARE_VIEWER_CHUNK, "tools/compare-pdf.html");
+    expect(fetch.counted.length).toBeGreaterThanOrEqual(1);
+    expect(
+      fetch.gz,
+      `the page view's fetch is ${fetch.gz.toFixed(2)} KB gz over ${fetch.counted.map((f) => path.basename(f)).join(", ")}`,
+    ).toBeLessThanOrEqual(COMPARE_VIEWER_FETCH_GZ_KB);
+  });
+});
 
 describe("the palette's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));

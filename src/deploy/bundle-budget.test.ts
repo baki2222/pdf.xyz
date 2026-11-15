@@ -1351,6 +1351,64 @@ const TOOL_PAGES_TO_COME = {
   // its 34.23 KB (35,051 B) bound: 56 B of margin. Nothing allocated: every
   // row above has the headroom (test:bundle green on the branch), as every
   // runtime entry since P6.
+  //
+  // NOT TAKEN from the allocation, 2026-11-15, by Compare PDF's page view
+  // (audit compare-pdf#2, S2: both PDFs side by side, the changes marked on
+  // the pages) — flagged for the owner as A RE-ALLOCATION OF G.1 in effect,
+  // riding each row's own headroom like every runtime entry since P6.
+  // Measured gzip -9 over each page's first-load chunks
+  // (scripts/page-weight.ts's method), main f001e412 and the branch, each
+  // built in E:/wcmp2 (one real install) from an empty .next, all 144
+  // pages:
+  //  - every page +26..+35: 138 pages +27 (home 202,894 -> 202,921, /tools
+  //    213,340 -> 213,367, merge/ocr/rotate/summarize +27). Webpack's
+  //    runtime 3,800 -> 3,836 gz in isolation: the page view's chunk, the
+  //    viewer modules it shares with PDF Viewer's chunk, and the viewer's
+  //    open re-cut (below) are three more chunk-map entries, not one.
+  //  - tools/compare-pdf 228,812 -> 228,834 (+22): the runner's chunk
+  //    6,594 -> 6,587 (it hands the run whole to the view; with separate
+  //    byte fields it was +51 over the runtime's share).
+  //  - tools/pdf-viewer 227,970 -> 228,004 (+34): the runtime, and the
+  //    viewer runner's chunk 2,157 -> 2,164 (+7) because its `import()` of
+  //    the viewer now names the shared chunk too. NOT byte-identical, as
+  //    the brief asked: webpack moved ViewerPage, the text-layer CSS,
+  //    viewer-geometry, viewer-search and viewer-copy into a chunk shared
+  //    by both views (1632), so opening a file in PDF Viewer fetches
+  //    29,184 B over five chunks instead of 27,966 B over four (+1,218 B,
+  //    on demand only).
+  //  - annotate, edit and sign +35, redact +26: the viewer's open
+  //    (`@/lib/pdf/viewer`) gained a second importer (compare-docs), and
+  //    its chunk was re-cut (2568 -> 5035 + 7416), +8 on the editor pages.
+  //  - on demand: the page view's fetch is 13,505 B (its own 6,056 plus the
+  //    shared 1632 and 2111), bounded in lazy-chunks.test.ts; the
+  //    comparison's chunk 9,514 -> 10,841 (the view switch, the host, the
+  //    refcount).
+  // Nothing allocated: every row has the headroom (test:bundle green).
+  //
+  // RE-MEASURED 2026-11-15 after review r1 (the figures above kept as the
+  // record of the reviewed build). The page view's chunks are no longer
+  // split (`next.config.mjs`, `compareBorn`) and its documents' open starts
+  // at `compare-open.ts`. Main bcb7d39a and the branch, each built from an
+  // empty .next in ONE tree (E:/wcmp2-base, its own install: a build's
+  // entry module ids hash the tree's absolute path, so two trees differ on
+  // every page by a few bytes that are not the change), gzip -9 over each
+  // page's first-load chunks, all 144 pages:
+  //  - 143 pages +12, the webpack runtime alone (3,833 -> 3,845): two
+  //    chunk-map entries, the page view and its open.
+  //  - tools/compare-pdf 228,803 -> 228,810 (+7): the runtime, and the
+  //    runner's chunk 6,554 -> 6,549.
+  //  - tools/pdf-viewer 227,961 -> 227,973 (+12): the runtime only. Its
+  //    runner chunk 5381 is 2,152 B as on main and names the same four
+  //    chunks, but one id differs (8074 -> 6991): ViewerPage, the text-layer
+  //    CSS, viewer-copy and viewer-search have an importer outside PDF
+  //    Viewer's chunk, so webpack no longer inlines them into it, and that
+  //    chunk's id follows its modules. On demand, opening a file in PDF
+  //    Viewer fetches 12,100 B for that chunk against 11,639 (+461, the
+  //    branch's own ViewerPage/search edits included) and 2,455 for the open
+  //    against 2,427 (+28, its options argument); four chunks, as on main.
+  //  - the stylesheet is main's file (3906e9b6), byte for byte.
+  //  - on demand from the compare page: the page view 12,460 B in one chunk,
+  //    its open 5,034 B (bounded in lazy-chunks.test.ts).
   unallocated:
     UNALLOCATED -
     NEW_TOOLS_2026_10_30 -

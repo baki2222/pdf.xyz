@@ -9,6 +9,7 @@ import {
   viewerPdfjs,
 } from "./viewer";
 import { viewerProofPdf } from "@/tests/viewer-fixtures";
+import { COMPARE_DOC_OPTIONS } from "@/components/tools/runner/compare/compare-docs";
 
 /**
  * What the viewer RETAINS of what pdf.js decoded, as the reader scrolls.
@@ -91,7 +92,10 @@ function fakePage(
 
 type FakePage = ReturnType<typeof fakePage>;
 
-async function openWith(pages: FakePage[]) {
+async function openWith(
+  pages: FakePage[],
+  options?: Parameters<typeof openViewerPdf>[1],
+) {
   const real = viewerPdfjs.loadPdfjs;
   viewerPdfjs.loadPdfjs = (async () => ({
     getDocument: () => ({
@@ -106,7 +110,7 @@ async function openWith(pages: FakePage[]) {
     createElement: () => ({ width: 0, height: 0 }),
   });
   try {
-    return await openViewerPdf(viewerProofPdf());
+    return await openViewerPdf(viewerProofPdf(), options);
   } finally {
     viewerPdfjs.loadPdfjs = real;
   }
@@ -240,6 +244,52 @@ describe("the viewer bounds what it retains, not only what it shows", () => {
     expect(pages[0]!.cleaned).toBe(1);
     expect(pages[pages.length - 1]!.cleaned).toBe(0);
     await doc.destroy();
+  });
+
+  // ADDED 2026-11-15 (Compare PDF's page view, S2): two documents open at
+  // once, each told to keep half, so together they keep what one viewer
+  // keeps — held on what the model retains, not on the options' values.
+  it("Compare PDF's two documents together keep no more than one viewer", () => {
+    expect(2 * COMPARE_DOC_OPTIONS.keptPages).toBeLessThanOrEqual(
+      VIEWER_KEPT_PAGES,
+    );
+    expect(2 * COMPARE_DOC_OPTIONS.keptImagePixels).toBeLessThanOrEqual(
+      VIEWER_KEPT_IMAGE_PIXELS,
+    );
+  });
+
+  it("an open told to keep fewer pages keeps that many", async () => {
+    const pages = Array.from({ length: 12 }, () =>
+      fakePage([{ width: 100, height: 100 }]),
+    );
+    const doc = await openWith(pages, COMPARE_DOC_OPTIONS);
+    for (let i = 0; i < pages.length; i++) await doc.render(i, 1, 1, 0);
+    expect(pages.filter((p) => p.held() > 0).length).toBe(
+      COMPARE_DOC_OPTIONS.keptPages,
+    );
+    await doc.destroy();
+  });
+
+  it("two documents opened as Compare opens them retain at most one viewer's pixels, scrolling both", async () => {
+    const make = () =>
+      Array.from({ length: 20 }, () =>
+        fakePage([{ width: 5_000, height: 5_000 }]),
+      );
+    const a = make();
+    const b = make();
+    const docA = await openWith(a, COMPARE_DOC_OPTIONS);
+    const docB = await openWith(b, COMPARE_DOC_OPTIONS);
+    let peak = 0;
+    for (let i = 0; i < 20; i++) {
+      await docA.render(i, 1, 1, 0);
+      await docB.render(i, 1, 1, 0);
+      peak = Math.max(peak, retained(a) + retained(b));
+    }
+    // Positive control: each document keeps a 25 MP page it has room for.
+    expect(retained(a)).toBe(25_000_000);
+    expect(peak).toBeLessThanOrEqual(VIEWER_KEPT_IMAGE_PIXELS);
+    await docA.destroy();
+    await docB.destroy();
   });
 
   it("the seam is restored: the next open loads the real pdf.js", async () => {

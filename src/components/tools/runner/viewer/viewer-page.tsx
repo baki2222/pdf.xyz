@@ -41,6 +41,7 @@ export const ViewerPage = memo(function ViewerPage({
   activeHit,
   revealToken,
   onPage,
+  textCappedNote = VIEWER_TEXT_CAPPED_NOTE,
 }: {
   doc: ViewerPdf;
   index: number;
@@ -63,6 +64,11 @@ export const ViewerPage = memo(function ViewerPage({
   revealToken: number;
   /** Follow an internal link to page `index` (0-based). */
   onPage: (index: number) => void;
+  /**
+   * What a page whose text passed the item cap says; Compare PDF's page
+   * view says what the cap means for its marks instead.
+   */
+  textCappedNote?: string;
 }) {
   const canvasHost = useRef<HTMLDivElement>(null);
   const textHost = useRef<HTMLDivElement>(null);
@@ -229,7 +235,7 @@ export const ViewerPage = memo(function ViewerPage({
           data-viewer-text-capped=""
           className="bg-wash/95 text-fg absolute inset-x-0 top-0 z-[3] px-2 py-1 text-xs"
         >
-          {VIEWER_TEXT_CAPPED_NOTE}
+          {textCappedNote}
         </p>
       )}
       {live &&
@@ -288,12 +294,12 @@ function applyHits(
 ): HTMLElement | null {
   const byDiv = new Map<
     number,
-    { start: number; end: number; on: boolean }[]
+    { start: number; end: number; on: boolean; kind?: string }[]
   >();
   hits.forEach((match, m) => {
     for (const r of match) {
       const list = byDiv.get(r.item) ?? [];
-      list.push({ start: r.start, end: r.end, on: m === active });
+      list.push({ start: r.start, end: r.end, on: m === active, kind: r.kind });
       byDiv.set(r.item, list);
     }
   });
@@ -311,6 +317,8 @@ function applyHits(
         nodes.push(document.createTextNode(text.slice(at, r.start)));
       const mark = document.createElement("mark");
       mark.setAttribute(HIT, r.on ? "active" : "");
+      // Compare PDF's page view: what the range marks (its CSS draws each).
+      if (r.kind) mark.dataset.markKind = r.kind;
       mark.textContent = text.slice(Math.max(r.start, at), r.end);
       nodes.push(mark);
       if (r.on && !first) first = mark;

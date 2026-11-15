@@ -26,6 +26,11 @@ export interface ItemRange {
   item: number;
   start: number;
   end: number;
+  /**
+   * What Compare PDF's page view marks the range as: removed or added text,
+   * or an unchanged part of a changed line. A search match has none.
+   */
+  kind?: "removed" | "added" | "line";
 }
 
 /** One match: the item ranges it covers, in order. */
@@ -96,14 +101,19 @@ export function findInItems(
       re.lastIndex += 1;
       continue;
     }
-    out.push(rangesFor(items, starts, m.index, m.index + m[0].length));
+    out.push(itemRangesFor(items, starts, m.index, m.index + m[0].length));
     if (out.length >= limit) break;
   }
   return out;
 }
 
-/** The item ranges text offsets `from`..`to` cover. */
-function rangesFor(
+/**
+ * The item ranges text offsets `from`..`to` of {@link pageSearchText}'s text
+ * cover, in order; a separator belongs to no item and is in no range. The
+ * search's matches and Compare PDF's page marks both map through it
+ * (`viewer-search-ranges.test.ts` holds the property).
+ */
+export function itemRangesFor(
   items: readonly SearchItem[],
   starts: readonly number[],
   from: number,

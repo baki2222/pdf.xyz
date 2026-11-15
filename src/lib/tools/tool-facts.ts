@@ -959,7 +959,9 @@ export const RUNNER_MID_RUN_FETCHES: Readonly<
   annotate: ["image-decoder", "character-map", "drawing-font"],
   edit: ["image-decoder", "character-map", "drawing-font"],
   "extract-images": [],
-  compare: ["character-map"],
+  // Show changes on the pages draws both files' pages and their text
+  // through the viewer's open (2026-11-15): an image decoder too.
+  compare: ["image-decoder", "character-map"],
   scan: [],
   metadata: [],
   // The page picker under Selected pages renders thumbnails (2026-11-08).

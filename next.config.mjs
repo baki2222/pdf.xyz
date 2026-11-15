@@ -286,6 +286,42 @@ function batchBorn(chunk) {
   return true;
 }
 
+/**
+ * The module directory of Compare PDF's lazy features: the comparison
+ * (`compare-result.tsx`), its page view (`compare-viewer.tsx`) and the page
+ * view's documents (`compare-docs.ts`).
+ */
+const COMPARE_DIR =
+  /[\\/]src[\\/]components[\\/]tools[\\/]runner[\\/]compare[\\/]/;
+
+/**
+ * An async chunk that only Compare PDF's own lazy code opens: every group it
+ * belongs to was started by an `import()` in a module under `COMPARE_DIR`
+ * (the page view, and the viewer's open for its two documents). The
+ * comparison's chunk itself is opened by the runner, outside that
+ * directory, and stays as it was.
+ */
+function compareBorn(chunk) {
+  if (chunk.canBeInitial()) return false;
+  let any = false;
+  for (const group of chunk.groupsIterable)
+    for (const origin of group.origins) {
+      any = true;
+      if (!COMPARE_DIR.test(origin.module?.resource ?? "")) return false;
+    }
+  return any;
+}
+
+/** `chunks` as SplitChunks reads it, as a predicate. */
+function chunksPredicate(chunks) {
+  if (chunks === undefined || chunks === "async")
+    return (chunk) => !chunk.canBeInitial();
+  if (chunks === "all") return () => true;
+  if (chunks === "initial") return (chunk) => chunk.canBeInitial();
+  if (typeof chunks === "function") return chunks;
+  throw new Error(`next.config: unknown splitChunks chunks ${String(chunks)}`);
+}
+
 function clientWebpack(config, { isServer, dev }) {
   if (isServer || dev) return config;
   config.plugins.push(utifPakoStub);
@@ -355,6 +391,26 @@ function clientWebpack(config, { isServer, dev }) {
       return true;
     },
   };
+  // Compare PDF's page view (S2, 2026-11-15) is never split: its chunk and
+  // its documents' open keep their own copy of every module they share with
+  // another chunk. It uses PDF Viewer's page component, text layer,
+  // geometry, search and open; left to SplitChunks, those modules moved into
+  // a chunk shared by both, so PDF Viewer's runner (on its first load)
+  // named one more chunk (+7 B gzip) and its on-demand fetch took 5 chunks
+  // and +1,218 B (review r1). With every group, Next's included, blind to
+  // these chunks, each module's chunk set is what it was without them, and
+  // every other chunk splits exactly as before. The copies cost only a run
+  // that presses Show changes on the pages. `lazy-chunks.test.ts` ("Compare
+  // PDF's page view shares no chunk ...") holds the property on the build.
+  const splitChunks = config.optimization.splitChunks;
+  const blind = (chunks) => {
+    const base = chunksPredicate(chunks);
+    return (chunk) => !compareBorn(chunk) && base(chunk);
+  };
+  splitChunks.chunks = blind(splitChunks.chunks);
+  for (const group of Object.values(groups))
+    if (group && typeof group === "object" && group.chunks !== undefined)
+      group.chunks = blind(group.chunks);
   return config;
 }
 

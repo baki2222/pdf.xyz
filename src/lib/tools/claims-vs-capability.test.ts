@@ -204,7 +204,12 @@ import { ADVERTISED_WORKER_CAPABILITIES } from "@/lib/workers/observability";
 import { panelDispatchArms, panelFile } from "@/tests/worker-panel-dispatch";
 import { runnerModuleOf } from "@/tests/tool-panel-modules";
 import { compareExtractedPdfText } from "@/components/tools/runner/compare/compare-result";
-import { comparablePdf, pageHeaderPair } from "@/tests/compare-fixtures";
+import {
+  comparablePdf,
+  linesPdf as compareLinesPdf,
+  pageHeaderPair,
+} from "@/tests/compare-fixtures";
+import { rangeText, runCompareViewChain } from "@/tests/compare-view-chain";
 
 const ROOT = process.cwd();
 const read = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
@@ -3093,6 +3098,9 @@ const COMPARE_PAGE_RULE = {
     "a scanned page": /\bscanned page\b/i,
     "the web page": /\bleaving the page\b|\bthe page and its\b/i,
     "page differences": /\bthe page and byte\b|\bto another page\b/i,
+    // ADDED 2026-11-15: the page view draws pages, so the offline answer
+    // names the image decoder a page's drawing may fetch (tool-facts.ts).
+    "a page's drawing": /\brendering a page\b/i,
   },
   denials: {
     "does not name the page": /\bdoes(?: not|n't) name the page\b/i,
@@ -3203,9 +3211,14 @@ describe("Compare PDF: the page and word claims hold of the comparison", () => {
         for (const { sentence, masked } of attributedTo(container, subject)) {
           if (!page.page.test(masked)) continue;
           discovered += 1;
-          const claim = [...claimShapes, ...denialShapes].some(([, re]) =>
-            re.test(masked),
-          );
+          // EXTENDED 2026-11-15 (S2): a sentence the page-view rule below
+          // classifies (its claims and denials) is classified here too.
+          const claim = [
+            ...claimShapes,
+            ...denialShapes,
+            ...Object.entries(COMPARE_ON_PAGE_RULE.claims),
+            ...Object.entries(COMPARE_ON_PAGE_RULE.denials),
+          ].some(([, re]) => re.test(masked));
           const named = notClaims.filter(([, re]) => re.test(masked));
           named.forEach(([n]) => used.add(n));
           if (!claim && named.length === 0)
@@ -3255,4 +3268,167 @@ describe("Compare PDF: the page and word claims hold of the comparison", () => {
       ).toEqual([]);
     }
   });
+});
+
+/* ------------------------------------------------------------------ *
+ *  Compare PDF marks the changes on the pages — a capability that EXISTS.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Compare PDF draws both PDFs side by side with the changes marked on their
+ * pages (audit compare-pdf#2, S2, 2026-11-15). Until then the FAQ said "It
+ * does not draw highlights on the pages themselves yet: the result is a list
+ * of changed lines, not marked-up pages", and that was true.
+ *
+ * Shaped like COMPARE_PAGE_RULE, in both directions: the CLAIMS are allowed
+ * only while the probe — the composed chain the page view runs (extract,
+ * compare, the viewer's own open, its text, `placePage`) on the page-header
+ * pair — places "100" as removed on page 2 of the first file AND "120" as
+ * added on page 3 of the second; the DENIALS are false while it holds.
+ *
+ * The probe proves the chain, not delivery: the tool-page and guide label
+ * guards and e2e/compare-viewer.spec.ts on a served build are where a reader
+ * receiving it is proved.
+ */
+const COMPARE_ON_PAGE_RULE = {
+  id: "Compare PDF marks the changes on both PDFs' pages",
+  subjects: () => slugsOfKind("compare"),
+  claims: {
+    "changes on the pages": /\b(?:show|see) (?:the )?changes on the pages\b/i,
+    "both side by side": /\bboth (?:files|PDFs) side by side\b/i,
+    "crossed out on the pages": /\bcrossed out on\b[^.]*\bpages?\b/i,
+  },
+  shipped: [
+    "Press Show changes on the pages to see both PDFs side by side, with removed text crossed out on the first file's pages and added text underlined on the second's; a changed line it cannot place on its page, or on a page with no selectable text, is flagged on that page and stays in the list of changes.",
+    "See the changes on the pages",
+    "Press Show changes on the pages to open both files side by side, removed words crossed out in the first and added words underlined in the second.",
+    "Select Show changes on the pages to see both files side by side with the changes marked on the pages.",
+  ],
+  /** Served sentences these shapes must NOT read as the claim. */
+  nonClaims: [
+    "The Pages tile puts the two page counts side by side, first file → second",
+  ],
+  denials: {
+    "does not draw highlights": /\bdoes(?: not|n't) draw highlights\b/i,
+    "not marked-up pages": /\bnot marked-up pages\b/i,
+  },
+  denialCorpus: [
+    "It does not draw highlights on the pages themselves yet: the result is a list of changed lines, not marked-up pages.",
+  ],
+} as const;
+
+/** THE PROPERTY, through the composed chain on two real PDFs. */
+async function compareOnPageProbe(): Promise<Probe> {
+  const { left, right } = pageHeaderPair();
+  const run = await runCompareViewChain(
+    await compareLinesPdf(left),
+    await compareLinesPdf(right),
+  );
+  const marked = (
+    side: "left" | "right",
+    page: number,
+    kind: "removed" | "added",
+    text: string,
+  ) => {
+    const p = run.pages.find((x) => x.side === side && x.page === page);
+    return Boolean(
+      p?.placement.lines.some((l) =>
+        l.segments.some(
+          (s) => s.kind === kind && rangeText(p.text, s.ranges).trim() === text,
+        ),
+      ),
+    );
+  };
+  const removed = marked("left", 2, "removed", "100");
+  const added = marked("right", 3, "added", "120");
+  return {
+    present: removed && added,
+    evidence: `"100" removed on v1 page 2: ${removed}; "120" added on v2 page 3: ${added}`,
+  };
+}
+
+describe("Compare PDF: the page-view claims hold of the page view", () => {
+  const asRule = (shapes: Readonly<Record<string, RegExp>>) =>
+    ({ shapes }) as unknown as ClaimRule;
+  const claimShapes = Object.entries(COMPARE_ON_PAGE_RULE.claims);
+  const denialShapes = Object.entries(COMPARE_ON_PAGE_RULE.denials);
+
+  it("the shapes and both corpora cover each other, and the non-claims stay out", () => {
+    const { shipped, denialCorpus, nonClaims } = COMPARE_ON_PAGE_RULE;
+    expect(
+      claimShapes
+        .filter(([, re]) => !shipped.some((c) => re.test(c)))
+        .map(([n]) => n),
+      "claim shapes nothing exercises",
+    ).toEqual([]);
+    expect(
+      shipped.filter((c) => !claimShapes.some(([, re]) => re.test(c))),
+      "claims no shape catches",
+    ).toEqual([]);
+    expect(
+      denialShapes
+        .filter(([, re]) => !denialCorpus.some((c) => re.test(c)))
+        .map(([n]) => n),
+      "denial shapes nothing exercises",
+    ).toEqual([]);
+    expect(
+      denialCorpus.filter((c) => !denialShapes.some(([, re]) => re.test(c))),
+      "denials no shape catches",
+    ).toEqual([]);
+    expect(
+      [...nonClaims, ...denialCorpus].filter((c) =>
+        claimShapes.some(([, re]) => re.test(c)),
+      ),
+      "a non-claim or a denial read as the claim",
+    ).toEqual([]);
+    expect(
+      shipped.filter((c) => denialShapes.some(([, re]) => re.test(c))),
+    ).toEqual([]);
+  });
+
+  it("the non-claim control is served, so the anchoring is tested on real copy", async () => {
+    const subject = COMPARE_ON_PAGE_RULE.subjects()[0]!;
+    const served = (await containersFor(subject)).flatMap((c) =>
+      attributedTo(c, subject).map(({ sentence }) => sentence),
+    );
+    for (const n of COMPARE_ON_PAGE_RULE.nonClaims)
+      expect(served.some((s) => s.includes(n.slice(0, 40)))).toBe(true);
+  });
+
+  it("the capability is there: marks placed on both files' pages, from real PDFs", async () => {
+    const probe = await compareOnPageProbe();
+    expect(probe.present, probe.evidence).toBe(true);
+  }, 60_000);
+
+  it("served copy claims the page view only while it is true, and never denies it while it is", async () => {
+    const probe = await compareOnPageProbe();
+    const subjects = COMPARE_ON_PAGE_RULE.subjects();
+    expect(subjects.length).toBeGreaterThan(0);
+    for (const subject of subjects) {
+      const made = await offendersOf(
+        asRule(COMPARE_ON_PAGE_RULE.claims),
+        subject,
+      );
+      const denied = await offendersOf(
+        asRule(COMPARE_ON_PAGE_RULE.denials),
+        subject,
+      );
+      expect(made.seen, `${subject}: corpus collapsed`).toBeGreaterThanOrEqual(
+        15,
+      );
+      if (!probe.present) {
+        expect(
+          made.offenders,
+          `${subject} claims a page view that no longer marks anything (${probe.evidence})`,
+        ).toEqual([]);
+        continue;
+      }
+      // Health: the page does make the claim, so this check is not blind.
+      expect(made.offenders.length, subject).toBeGreaterThanOrEqual(1);
+      expect(
+        denied.offenders,
+        `${subject} denies what the page view does`,
+      ).toEqual([]);
+    }
+  }, 60_000);
 });
