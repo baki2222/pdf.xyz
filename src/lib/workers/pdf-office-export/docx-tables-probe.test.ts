@@ -11,6 +11,7 @@
  * worker image's poppler exists on this host, and the container step
  * (`worker:docx-tables-proof`) is where real poppler answers.
  */
+import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 import { flowStandIn } from "@/tests/poppler-flow-standin";
 import { resolveWorkerArtifactManifest } from "../artifacts";
@@ -239,6 +240,41 @@ describe("provesDocxTables", () => {
       ]),
     );
     await expect(problemOf(split)).resolves.toBe("shape");
+  });
+
+  /** The real engine, its .docx's document.xml rewritten AFTER its own check. */
+  const editedAfter =
+    (edit: (xml: string) => string): Run =>
+    async (tool, input, deps) => {
+      const { runPdfOfficeExport: real } = await import("./engine");
+      const run = await real(tool, input, deps);
+      if (!run.ok) return run;
+      const zip = await JSZip.loadAsync(run.output);
+      const xml = await zip.file("word/document.xml")!.async("string");
+      const changed = edit(xml);
+      if (changed === xml) throw new Error("the edit did not land");
+      zip.file("word/document.xml", changed);
+      return {
+        ...run,
+        output: new Uint8Array(await zip.generateAsync({ type: "uint8array" })),
+      };
+    };
+
+  it("NEGATIVE (i): a file Word could refuse (table properties out of schema order) fails on the STRUCTURE", async () => {
+    const disordered = editedAfter((xml) =>
+      xml.replace(
+        /<w:tblPr>(<w:tblW [^>]*\/>)(<w:tblBorders>.*?<\/w:tblBorders>)/,
+        "<w:tblPr>$2$1",
+      ),
+    );
+    await expect(problemOf(disordered)).resolves.toBe("structure");
+  });
+
+  it("NEGATIVE (j): a word doubled outside the table after the engine's check fails on the TEXT (the probe reads the text itself)", async () => {
+    const doubled = editedAfter((xml) =>
+      xml.replace(">Order details<", ">Order details details<"),
+    );
+    await expect(problemOf(doubled)).resolves.toBe("text");
   });
 
   describe("(g) each link of the executor's chain", () => {
