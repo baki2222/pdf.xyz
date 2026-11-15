@@ -16,14 +16,34 @@
  * picked from `result.artifacts` by its content type; a job that delivered no
  * PDF fails its language.
  *
- * Then an INDEPENDENT reader decodes the bytes, because Chromium printing a
- * page proves nothing about the script on it:
- *   (a) `pdffonts`: every font embedded, no Type 3, and a Noto face for the
- *       sample's script;
+ * Then INDEPENDENT readers decode the bytes, because Chromium printing a
+ * page proves nothing about the script on it. Each language is judged by its
+ * sample plus its {@link PROBE_EXTRA} ({@link probeJudgedText}):
+ *   (a) `pdffonts`: every font embedded AND carrying a ToUnicode map (no
+ *       ToUnicode, no copy or search in any viewer), whatever the script; a
+ *       Type 3 font only for Han, Kana and Hangul; otherwise a non-Type 3 row
+ *       with a Noto face for the script ({@link fontsCarryScript});
+ *   (glyphs) Han/Kana/Hangul with Type 3 fonts only: every drawn glyph a
+ *       vector outline that is not its font's .notdef box, every judged code
+ *       point mapped by ToUnicode to a drawn glyph, distinct code points drawn
+ *       by distinct glyphs, and the descriptor names the target's regional
+ *       Noto CJK face ({@link glyphsCarrySample});
  *   (b) `pdftotext`: every code point of the sample is read back;
  *   (c) `pdftoppm`, when present: dark pixels inside the body box;
  *   (d) Arabic only, `pdftotext -bbox`: the first logical word sits to the
- *       RIGHT of the last — the line really was laid out right to left.
+ *       RIGHT of the last — the line really was laid out right to left;
+ *   (e) `viewer_text`, Han/Kana/Hangul only: every judged code point is in
+ *       the text pdf.js extracts — the reader that IGNORES ActualText. Poppler
+ *       honours it, so (b) cannot see a ToUnicode entry naming the wrong code
+ *       point (a Kangxi radical for 文); pdf.js can. No pdf.js → FAIL.
+ *
+ * WHY TYPE 3 IS ACCEPTED FOR CJK (2026-11-15): Skia's "[pdf] Give up on
+ * embedding CFF" means Noto CJK — CFF-only in Debian bookworm — is printed by
+ * this image's Chromium 156 as Type 3 fonts. The old rule ("no Type 3, a face
+ * name with noto+cjk") stood for a property with a mechanism that could never
+ * pass here. (glyphs) and (e) judge the property itself: every glyph the
+ * reader sees is a resolution-independent outline, is not a .notdef box, and
+ * maps back to its own code point in a viewer that reads only ToUnicode.
  *
  * ── HEALTH ──────────────────────────────────────────────────────────────────
  *
@@ -43,7 +63,12 @@ import { createTranslateProcessor } from "../processor/translate";
 import type { AiProvider } from "../ai/provider";
 import { SCRIPT_FONTS, type WorkerScript } from "../office-conversion/fonts";
 import type { TranslatePdfDeps } from "./engine";
-import { nativePdfProbeReaders, type PdfProbeReaders } from "./pdf-readers";
+import {
+  charProcDraws,
+  nativePdfProbeReaders,
+  type PdfProbeReaders,
+  type Type3Font,
+} from "./pdf-readers";
 import { nativeTranslatePdfRender } from "./native";
 import { memoTranslatePdfLanguages } from "./pdf-languages";
 import { TEXT_PAGE_MARGIN_PT, US_LETTER_PT } from "@/lib/pdf/page-geometry";
@@ -110,7 +135,73 @@ export class TranslatePdfProbeCorpusError extends Error {
 }
 
 export type ProbeCheck =
-  "no_pdf" | "fonts" | "text" | "raster" | "direction" | "threw";
+  | "no_pdf"
+  | "fonts"
+  | "glyphs"
+  | "text"
+  | "raster"
+  | "direction"
+  | "viewer_text"
+  | "threw";
+
+/** The scripts whose Noto faces this image's Chromium prints as Type 3. */
+export const TYPE3_SCRIPTS: ReadonlySet<WorkerScript> = new Set<WorkerScript>([
+  "Han",
+  "Kana",
+  "Hangul",
+]);
+
+/**
+ * The region of the Noto CJK face `typeset.ts` puts FIRST for each CJK
+ * script's target (zh → SC, ja → JP, ko → KR). Measured 2026-11-15 in the
+ * live image: the Type 3 FontDescriptor names it, e.g. ja's
+ * `/FontName /CAAAAA+NotoSansCJKjp-Regular`, `/FontFamily (Noto Sans CJK JP)`.
+ * So (glyphs) proves the JP face drew Japanese, the reason typeset orders it.
+ */
+export const CJK_REGION_TOKEN: Partial<Record<WorkerScript, string>> = {
+  Han: "sc",
+  Kana: "jp",
+  Hangul: "kr",
+};
+
+/**
+ * Translate-only text added to the probe's judged sample, for the targets the
+ * ToUnicode rewrite (`radical-equivalents.ts`) affects. `ja`'s script sample
+ * is kana only, so without this the ja probe would never exercise Han. 日, 文,
+ * 一 and 人 are each drawn with a glyph Noto CJK shares with a Kangxi radical.
+ *
+ * Deliberately NOT in `SCRIPT_FONTS.sample` (the Office proof reads it) nor
+ * in {@link LANGUAGE_SAMPLES} (`pdf-measure.ts` builds the delivery-size
+ * corpus from it, so editing it would move every bytes/pages/ms figure).
+ */
+export const PROBE_EXTRA: Partial<Record<TranslateLanguage, string>> = {
+  ja: "日本語の文章",
+  zh: "一个人",
+};
+
+/** The string the probe JUDGES a language by: its sample plus its extra. */
+export function probeJudgedText(
+  language: TranslateLanguage,
+  sample: string,
+): string {
+  const extra = PROBE_EXTRA[language];
+  return extra ? `${sample} ${extra}` : sample;
+}
+
+/**
+ * What the probe's stub model returns. CJK targets also get a heading line,
+ * so the BOLD CJK Type 3 fonts headings use are drawn — and judged by
+ * (glyphs), which holds every drawn glyph, not only the sample's — as well as
+ * the regular ones body text uses. Every other target's text is unchanged.
+ */
+export function probeModelText(
+  language: TranslateLanguage,
+  judged: string,
+): string {
+  return TYPE3_SCRIPTS.has(LANGUAGE_SCRIPT[language])
+    ? `## ${judged}\n\n${judged}\n\n${judged}`
+    : `${judged}\n\n${judged}`;
+}
 
 export interface LanguageProbe {
   language: TranslateLanguage;
@@ -138,6 +229,8 @@ export interface TranslatePdfProbeDeps {
   /** Run only these jobs (the corpus check still covers all 21). */
   only?: readonly TranslateLanguage[];
   now?: () => number;
+  /** Sees each delivered probe PDF before it is judged (fixture capture). */
+  onPdf?: (language: TranslateLanguage, bytes: Uint8Array) => void;
 }
 
 const normalisedName = (name: string) =>
@@ -146,18 +239,90 @@ const normalisedName = (name: string) =>
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "");
 
-/** (a) Every face embedded, none Type 3, and a Noto face for the script. */
+const isType3 = (r: { type: string }) => /type\s*3/i.test(r.type);
+
+/**
+ * (a) Every face embedded and carrying ToUnicode, whatever the script. Then
+ * a Type 3 face is accepted only for Han, Kana and Hangul — and there its
+ * identity is left to (glyphs), which reads the descriptor; otherwise some
+ * non-Type 3 Noto face for the script.
+ *
+ * `unicode` is required for EVERY script since 2026-11-15. Before requiring
+ * it, the pdffonts rows of all 21 probe PDFs were printed from the live
+ * image: every row of every language said `uni yes`.
+ */
 export function fontsCarryScript(
-  rows: readonly { name: string; type: string; embedded: boolean }[],
+  rows: readonly {
+    name: string;
+    type: string;
+    embedded: boolean;
+    unicode: boolean;
+  }[],
   script: WorkerScript,
 ): boolean {
   if (rows.length === 0) return false;
-  if (rows.some((r) => !r.embedded || /type\s*3/i.test(r.type))) return false;
+  if (rows.some((r) => !r.embedded || !r.unicode)) return false;
+  if (rows.some(isType3)) return TYPE3_SCRIPTS.has(script);
   const token = scriptFaceToken(script);
   return rows.some((r) => {
     const n = normalisedName(r.name);
     return n.includes("noto") && n.includes(token);
   });
+}
+
+const judgedCodePoints = (sample: string) =>
+  [...new Set(sample.normalize("NFC"))].filter((ch) => !/\s|\p{Cf}/u.test(ch));
+
+/**
+ * (glyphs) The Type 3 glyphs carry the sample — Han, Kana and Hangul only:
+ *  - every Type 3 font has ToUnicode and a .notdef CharProc. A font whose
+ *    .notdef was not found FAILS: comparing against nothing is vacuously
+ *    "not a box" (Skia splits fonts by glyph-ID range; that every range font
+ *    carries its own `g0` is measured on the fixtures, not assumed);
+ *  - every glyph any page DRAWS is vector-only, constructs a path, and is not
+ *    byte-equal to its font's .notdef CharProc — a tofu box fails, in either
+ *    weight (the probe's heading draws the bold fonts);
+ *  - every font that draws a glyph is the target's regional Noto CJK face by
+ *    its descriptor's /FontName ({@link CJK_REGION_TOKEN});
+ *  - every judged code point maps through ToUnicode to a drawn glyph, and
+ *    distinct code points are drawn by distinct CharProcs: tofu boxes are
+ *    identical, real glyphs are not.
+ */
+export function glyphsCarrySample(
+  fonts: readonly Type3Font[],
+  sample: string,
+  script: WorkerScript,
+): boolean {
+  if (!TYPE3_SCRIPTS.has(script)) return false;
+  const region = CJK_REGION_TOKEN[script];
+  if (!region || fonts.length === 0) return false;
+  const byCodePoint = new Map<string, Set<string>>();
+  for (const font of fonts) {
+    if (!font.hasToUnicode || font.notdef === null) return false;
+    if (font.used.length === 0) continue;
+    const face = normalisedName(font.descriptorName ?? "");
+    if (!face.includes("noto") || !face.includes(`cjk${region}`)) return false;
+    for (const g of font.used) {
+      if (!g.vectorOnly || !charProcDraws(g.content)) return false;
+      if (g.content === font.notdef) return false;
+      if (g.unicode === null) continue;
+      const ch = g.unicode.normalize("NFC");
+      const set = byCodePoint.get(ch) ?? new Set<string>();
+      set.add(g.content);
+      byCodePoint.set(ch, set);
+    }
+  }
+  const owner = new Map<string, string>();
+  for (const ch of judgedCodePoints(sample)) {
+    const contents = byCodePoint.get(ch);
+    if (!contents || contents.size === 0) return false;
+    for (const content of contents) {
+      const prior = owner.get(content);
+      if (prior !== undefined && prior !== ch) return false;
+      owner.set(content, ch);
+    }
+  }
+  return true;
 }
 
 /** (b) Every non-whitespace code point of the sample is in the read-back. */
@@ -238,18 +403,20 @@ const PROBE_SOURCE = "Translate PDF capability probe source text.";
 
 async function probeOne(
   language: TranslateLanguage,
-  sample: string,
+  scriptSample: string,
   deps: TranslatePdfProbeDeps,
   render: TranslatePdfDeps["render"],
   readers: PdfProbeReaders,
 ): Promise<{ ok: boolean; failed?: ProbeCheck; pdfBytes?: number }> {
+  const sample = probeJudgedText(language, scriptSample);
+  const modelText = probeModelText(language, sample);
   const provider: AiProvider = {
     id: "anthropic",
     model: "capability-probe",
     async complete() {
       return {
         ok: true,
-        text: `${sample}\n\n${sample}`,
+        text: modelText,
         model: "capability-probe",
         usage: { inputTokens: 1, outputTokens: 1 },
       };
@@ -295,10 +462,17 @@ async function probeOne(
     (a) => a.contentType === "application/pdf",
   );
   if (!pdf) return { ok: false, failed: "no_pdf" };
+  deps.onPdf?.(language, pdf.bytes);
   const script = LANGUAGE_SCRIPT[language];
   const pdfBytes = pdf.bytes.byteLength;
-  if (!fontsCarryScript(await readers.fonts(pdf.bytes), script))
+  const rows = await readers.fonts(pdf.bytes);
+  if (!fontsCarryScript(rows, script))
     return { ok: false, failed: "fonts", pdfBytes };
+  if (
+    rows.some(isType3) &&
+    !glyphsCarrySample(await readers.type3(pdf.bytes), sample, script)
+  )
+    return { ok: false, failed: "glyphs", pdfBytes };
   if (!textCarriesSample(await readers.text(pdf.bytes), sample))
     return { ok: false, failed: "text", pdfBytes };
   if (readers.raster && !rasterHasInk(await readers.raster(pdf.bytes, 36)))
@@ -308,6 +482,15 @@ async function probeOne(
     !laidOutRightToLeft(await readers.words(pdf.bytes), sample)
   )
     return { ok: false, failed: "direction", pdfBytes };
+  // (e) is scoped to CJK because this slice makes CJK pass it (2026-11-15).
+  // Bengali is KNOWN to fail it — pdf.js drops ে (U+09C7) from the Bengali
+  // CID TrueType face — a separate, pre-existing follow-up.
+  if (TYPE3_SCRIPTS.has(script)) {
+    if (!readers.viewerText)
+      return { ok: false, failed: "viewer_text", pdfBytes };
+    if (!textCarriesSample(await readers.viewerText(pdf.bytes), sample))
+      return { ok: false, failed: "viewer_text", pdfBytes };
+  }
   return { ok: true, pdfBytes };
 }
 
