@@ -183,6 +183,9 @@ export function copyFiles(): string[] {
     // check, the explainer and charge the panel shows, the static scan
     // sentence the page and guide render, and the route's refusal.
     path.join(ROOT, "src", "lib", "jobs", "translate-ocr.ts"),
+    // Which languages get Translate PDF's reflowed PDF (2026-11-15, audit
+    // #29 slice 2): the coverage sentence the page and guide render.
+    path.join(ROOT, "src", "lib", "jobs", "translate-pdf-coverage.ts"),
     // The Translate OCR proof's German page and verdict lines (2026-11-09),
     // walked for the reason options-proof.ts is.
     path.join(ROOT, "src", "lib", "probes", "translate-ocr-proof.ts"),
