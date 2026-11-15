@@ -30,7 +30,7 @@ import {
   TranslatePdfProbeCorpusError,
 } from "./pdf-capability";
 import { renderTranslationPdf } from "./pdf-render";
-import type { PdfProbeReaders } from "./pdf-readers";
+import { parseBboxWords, type PdfProbeReaders } from "./pdf-readers";
 import { typesetText, type TypesetInput } from "./typeset";
 import {
   memoTranslatePdfLanguages,
@@ -105,9 +105,17 @@ function stubs(opts: { failRender?: TranslateLanguage; rtl?: boolean } = {}) {
       const words = (last?.parts[0]?.kind === "body" ? last.parts[0].text : "")
         .split(/\s+/)
         .filter(Boolean);
-      // Right to left: the first logical word has the LARGEST xMin.
+      // Right to left: the first logical word has the LARGEST xMin. And the
+      // text is what real poppler returns for a right-to-left script: each
+      // word's code points in VISUAL (reversed) order. Until 2026-11-15 this
+      // stub emitted logical order, which no real reader does, so the
+      // probe-level tests agreed with a predicate that failed every real run.
+      const visual = (w: string) =>
+        /\p{Script=Arabic}|\p{Script=Hebrew}/u.test(w)
+          ? [...w].reverse().join("")
+          : w;
       return words.map((w, i) => ({
-        text: w,
+        text: visual(w),
         xMin: opts.rtl === false ? i * 10 : 1000 - i * 10,
       }));
     },
@@ -177,6 +185,17 @@ describe("the language proof", () => {
     expect(probe.results[0]?.failed).toBe("direction");
   });
 
+  it("Arabic laid out right to left, read back in visual order, passes", async () => {
+    const { render, readers } = stubs({ rtl: true });
+    const probe = await probeTranslatePdfLanguages({
+      render,
+      readers,
+      only: ["ar"],
+    });
+    expect(probe.passing).toEqual(["ar"]);
+    expect(probe.results[0]?.failed).toBeUndefined();
+  });
+
   it("no renderer or no readers: nothing proven, and no throw", async () => {
     const { render, readers } = stubs();
     expect(
@@ -233,6 +252,77 @@ describe("the independent checks", () => {
     expect(rasterHasInk({ width, height, pixels: body })).toBe(true);
   });
 
+  /**
+   * The REAL words: `pdftotext -bbox` in the live worker image (2026-11-15)
+   * over the probe's Arabic PDF, in the order poppler gave them. Each word's
+   * code points are in VISUAL order — "صنلا" is "النص" reversed — and the
+   * first logical word sits RIGHT (x=533.9) of the last (x=504.4).
+   */
+  const REAL_AR_WORDS = [
+    { xMin: 504.433576, text: "يبرعلا" },
+    { xMin: 533.892762, text: "صنلا" },
+    { xMin: 504.433576, text: "يبرعلا" },
+    { xMin: 533.892762, text: "صنلا" },
+  ];
+  const AR_SAMPLE = LANGUAGE_SAMPLES.ar;
+  const swapped = (words: typeof REAL_AR_WORDS) =>
+    words.map((w) => ({
+      ...w,
+      xMin: w.xMin === 504.433576 ? 533.892762 : 504.433576,
+    }));
+  const asBbox = (words: typeof REAL_AR_WORDS) =>
+    [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<html xmlns="http://www.w3.org/1999/xhtml"><head></head><body>',
+      '<doc><page width="612.000000" height="792.000000">',
+      ...words.map(
+        (w) =>
+          `    <word xMin="${w.xMin.toFixed(6)}" yMin="72.000000" xMax="${(w.xMin + 25).toFixed(6)}" yMax="86.000000">${w.text}</word>`,
+      ),
+      "</page></doc></body></html>",
+    ].join(String.fromCharCode(10));
+
+  it("(d) health: the real fixture is the probe's sample, in visual order", () => {
+    expect(AR_SAMPLE).toBe("النص العربي");
+    const logical = AR_SAMPLE.split(" ");
+    expect(REAL_AR_WORDS.map((w) => w.text)).toContain(
+      [...logical[0]!].reverse().join(""),
+    );
+    expect(REAL_AR_WORDS.map((w) => w.text)).toContain(
+      [...logical[1]!].reverse().join(""),
+    );
+    // Neither logical word occurs as-is: this is what the old predicate saw.
+    expect(REAL_AR_WORDS.map((w) => w.text)).not.toContain(logical[0]);
+    expect(REAL_AR_WORDS.map((w) => w.text)).not.toContain(logical[1]);
+  });
+
+  it("(d) the real poppler words, right to left, pass", () => {
+    expect(laidOutRightToLeft(REAL_AR_WORDS, AR_SAMPLE)).toBe(true);
+  });
+
+  it("(d) positive control: the same words placed left to right fail", () => {
+    expect(laidOutRightToLeft(swapped(REAL_AR_WORDS), AR_SAMPLE)).toBe(false);
+  });
+
+  it("(d) the composed chain: bbox XHTML → parseBboxWords → the predicate", () => {
+    const parsed = parseBboxWords(asBbox(REAL_AR_WORDS));
+    expect(parsed).toHaveLength(4);
+    expect(laidOutRightToLeft(parsed, AR_SAMPLE)).toBe(true);
+    expect(
+      laidOutRightToLeft(
+        parseBboxWords(asBbox(swapped(REAL_AR_WORDS))),
+        AR_SAMPLE,
+      ),
+    ).toBe(false);
+  });
+
+  /**
+   * HISTORY (2026-11-15): this was the only (d) case, and it handed the
+   * predicate LOGICAL-order words. Real poppler never returns those (see the
+   * real fixture above), so this test pinned the defect: it stayed green
+   * while production proved Arabic false on every run. Kept as history; the
+   * predicate still accepts logical order, and still decides by xMin.
+   */
   it("(d) compares the first and last logical words' left edges", () => {
     const sample = "النص العربي";
     expect(
@@ -254,6 +344,7 @@ describe("the independent checks", () => {
       ),
     ).toBe(false);
     expect(laidOutRightToLeft([], sample)).toBe(false);
+    expect(laidOutRightToLeft(REAL_AR_WORDS, "النص")).toBe(false);
   });
 });
 
