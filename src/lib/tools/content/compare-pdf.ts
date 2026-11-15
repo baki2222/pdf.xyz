@@ -139,12 +139,9 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add the two PDFs",
-      body: 'Drop the files onto the box that reads "Drop two PDFs here, or", or click browse. The first file added fills the PDF 1 slot and becomes the baseline; if you pick both at once, check that the first card (on the left, or on top on a narrow screen) holds the original. If it does not, press Swap PDF 1 and PDF 2. Compare PDF takes exactly two files: one added while both slots are taken or loading is listed as skipped, never swapped in.',
+      body: 'Drop the files onto the box that reads "Drop two PDFs here, or", or click browse. The first file added fills the PDF 1 slot and becomes the baseline; if you pick both at once, check that the first card (on the left, or on top on a narrow screen) holds the original. If it does not, press Swap PDF 1 and PDF 2. Compare PDF takes exactly two files: one added while both slots are taken or loading is listed as skipped, never swapped in. Each card shows the file name, page count and size, and the counter reads 2/2 selected; the X on a card removes that file.',
     },
-    {
-      title: "Check the Files to compare list",
-      body: "Each card shows the file name, page count and size, and the counter reads 2/2 selected. The X on a card removes that file; remove PDF 1 and the other file moves into its slot.",
-    },
+
     {
       title: "Press Compare PDFs",
       body: "It stays disabled until both slots are filled. Tiles for Pages, Size delta and Changed lines sit above the list of changes, each headed with its page in both files. Two buttons step from one change to the next, and two boxes set letter case or page headers and numbers aside.",
