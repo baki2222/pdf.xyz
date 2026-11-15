@@ -96,6 +96,7 @@ import { REPORT_TABLES } from "@/tests/table-extract-fixtures";
 import {
   LEFT_COLUMN,
   RIGHT_COLUMN,
+  quarterlyTablePdf,
   TABLE_ROWS,
 } from "@/tests/pdf-office-fixtures";
 import { runSignatureRequest } from "@/lib/workers/request-signatures/engine";
@@ -340,16 +341,34 @@ describe("PDF to Word: the DOCX is the page's sentence", () => {
       RIGHT_COLUMN.join(" "),
     ]);
 
-    const table = await exportRun("pdf-to-word", [""], flowOf(TABLE_BBOX));
+    // CHANGED 2026-11-15: the table is exported from the PDF poppler's
+    // sample was captured from (`quarterlyTablePdf`), through the REAL page
+    // reader, so each word's formatting is read as a job reads it. Until then
+    // it ran on a stub reader, and `<w:rPr>` was FORBIDDEN here with the rest
+    // of the rich markup ("the text arrives in Word's default style").
+    const tableRun = await runPdfOfficeExport(
+      "pdf-to-word",
+      await quarterlyTablePdf(),
+      { extractFlow: flowOf(TABLE_BBOX), scanPages: scanPdfPages },
+    );
+    if (!tableRun.ok) throw new Error(tableRun.message);
+    const table = tableRun.output;
     expect(PDF_TO_WORD_KEEPS).toContain("its cells separated by tabs");
     expect(await readDocxParagraphs(table)).toEqual(
       TABLE_ROWS.map((row) => row.join("\t")),
     );
 
-    // Tables, fonts/colors, layout: none of their markup, none of the parts
-    // that would carry them — in either real export, which has no picture.
-    for (const bytes of [twoColumns, table])
-      expect(await richContentIn(await JSZip.loadAsync(bytes))).toEqual([]);
+    // Tables, layout, styles: none of their markup, none of the parts that
+    // would carry them. Character formatting is now REQUIRED on the table's
+    // words (each keeps its size, at least), and still absent from the
+    // two-column export, whose stub reader reads no runs.
+    expect(await richContentIn(await JSZip.loadAsync(twoColumns))).toEqual([]);
+    expect(await richContentIn(await JSZip.loadAsync(table))).toEqual([
+      "<w:rPr",
+    ]);
+    expect(PDF_TO_WORD_KEEPS).toContain(
+      "Each word keeps its bold, italics, size and color where they can be matched",
+    );
 
     // The picture clause: a page whose picture sits below its lines.
     expect(PDF_TO_WORD_KEEPS).toContain(
@@ -364,9 +383,12 @@ describe("PDF to Word: the DOCX is the page's sentence", () => {
         picture: true,
       },
     );
-    // The media folder and its one picture: JSZip lists the folder too.
+    // The media folder and its one picture: JSZip lists the folder too. And
+    // since 2026-11-15 its words' formatting (`<w:rPr>`), read by the real
+    // page reader; still no table, paragraph properties, styles or theme.
     expect(await richContentIn(await JSZip.loadAsync(withPicture))).toEqual([
       "<w:drawing",
+      "<w:rPr",
       "word/media/",
       "word/media/image1.png",
     ]);

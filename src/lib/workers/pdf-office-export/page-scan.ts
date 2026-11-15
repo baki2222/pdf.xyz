@@ -163,6 +163,15 @@ export interface ScannedRun {
    * the next run to start where the PDF starts it. 0 when none.
    */
   spacing: number;
+  /**
+   * Where the run starts along its line's baseline, in points from the
+   * line's `x` (its first visible glyph), and how far it spans — up to the
+   * next run's start, or the line's end. PDF to Word labels poppler's words
+   * with the run they fall in (`./docx-run-style`). Absent from runs built
+   * by hand.
+   */
+  offset?: number;
+  extent?: number;
 }
 
 /** Page-point geometry, origin top-left of the page as displayed. */
@@ -254,6 +263,14 @@ export interface ScannedPage {
    * not be read, and then taken as the identity.
    */
   mediaFrame?: [number, number, number, number, number, number];
+  /**
+   * PDF to Word only (`picturesOnly`): the page was not given to pdf.js —
+   * past the decode budget, the deadline or the picture count — so its
+   * text lines were not read either, and its words cannot be labelled with
+   * their formatting. Its text is poppler's regardless; the result names it
+   * (`pagesWithoutFormatting`).
+   */
+  textUnread?: true;
 }
 
 export interface PdfPageScan {
@@ -808,6 +825,9 @@ function finishLine(line: LineBuild): ScannedTextLine | null {
   });
   runs.forEach((run, r) => {
     const span = (starts[r + 1] ?? end) - starts[r]!;
+    // Measured from the first kept glyph's origin, which is the line's x.
+    run.offset = starts[r]!;
+    run.extent = span;
     const chars = [...run.text].length;
     const extra = chars > 0 ? (span - natural[r]!) / chars : 0;
     // Bounded: an odd PDF must not spread a word across the slide.
@@ -2427,6 +2447,7 @@ export const scanPdfPages: PdfPageScanner = async (bytes, options = {}) => {
           picturesOverBudget: shown?.pictures ?? 0,
           flattened: false,
           ...(frames?.[n - 1] ? { mediaFrame: frames[n - 1]! } : {}),
+          textUnread: true,
         });
         continue;
       }

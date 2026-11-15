@@ -8,6 +8,7 @@
  * refused. A verdict that passed the text-only deck would be the proof that
  * was green on production while the pictures were missing.
  */
+import { docxPackage } from "./docx-package";
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 import { pptxBefore20260927 } from "@/tests/pptx-before-2026-09-27";
@@ -181,6 +182,9 @@ describe("docxDeploymentVerdict", () => {
   it("POSITIVE CONTROL: passes the .docx this tree's engine writes", async () => {
     const verdict = await docxDeploymentVerdict(await engineDocx());
     expect(verdict.detail).toMatch(/picture is between its words/);
+    expect(verdict.detail).toMatch(
+      /each carry exactly their own run properties/,
+    );
     expect(verdict.ok).toBe(true);
   });
 
@@ -191,6 +195,48 @@ describe("docxDeploymentVerdict", () => {
     const verdict = await docxDeploymentVerdict(text);
     expect(verdict.ok).toBe(false);
     expect(verdict.detail).toMatch(/not declared|0 picture/);
+  });
+
+  // 2026-11-15: the verdict also reads the styled line's runs.
+  it("NEGATIVE CONTROL: fails an unstyled .docx — every word in Word's default style — and one with bold on the whole line", async () => {
+    const plainWriter = async (pdf: Uint8Array, bold: boolean) => {
+      const run = await runPdfOfficeExport("pdf-to-word", pdf, {
+        extractFlow: flowStandIn,
+        scanPages: scanPdfPages,
+        writeDocx: (doc) =>
+          docxPackage({
+            ...doc,
+            pages: doc.pages.map((blocks) =>
+              blocks.map((b) =>
+                b.kind !== "text"
+                  ? b
+                  : bold
+                    ? {
+                        ...b,
+                        runs: b.runs?.map((cell) =>
+                          cell.map((r) => ({
+                            ...r,
+                            style: { ...r.style, bold: true as const },
+                          })),
+                        ),
+                      }
+                    : { ...b, runs: undefined },
+              ),
+            ),
+          }),
+      });
+      if (!run.ok) throw new Error(run.message);
+      return run.output;
+    };
+    const pdf = await docxProofPdf();
+    const unstyled = await docxDeploymentVerdict(await plainWriter(pdf, false));
+    expect(unstyled.ok).toBe(false);
+    expect(unstyled.detail).toMatch(
+      /styled line's runs are not each word's own/,
+    );
+    const smeared = await docxDeploymentVerdict(await plainWriter(pdf, true));
+    expect(smeared.ok).toBe(false);
+    expect(smeared.detail).toMatch(/Styled \{b sz 24\/24\}/);
   });
 
   it("NEGATIVE CONTROL: fails a picture moved below its line, resized, or blank", async () => {

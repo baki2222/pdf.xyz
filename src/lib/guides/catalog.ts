@@ -1226,7 +1226,7 @@ export const guides: Guide[] = [
       "turn a pdf into word",
     ],
     intro: [
-      "To convert a PDF into an editable Word document, open the PDF to Word tool, upload your PDF, and download the result as a DOCX file. The conversion carries the PDF's selectable text into Word as plain paragraphs in reading order, so you edit the words instead of retyping them — the formatting is not rebuilt.",
+      "To convert a PDF into an editable Word document, open the PDF to Word tool, upload your PDF, and download the result as a DOCX file. The conversion carries the PDF's selectable text into Word as paragraphs in reading order, each word keeping its bold, italics, size and colour where they can be matched, so you edit the words instead of retyping them — the typeface and page layout are not rebuilt.",
       `PDF to Word is a server tool: your PDF travels over an encrypted connection to a secure server, and our server deletes the input when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
       `There is no account to create. Pick a PDF up to ${ceilingMb("pdf-to-word")} MB, let our server convert it, and save the DOCX before the link expires.`,
     ],
@@ -1236,7 +1236,7 @@ export const guides: Guide[] = [
       "Start the conversion.",
       "Wait while our secure server converts the PDF into a Word document. Our server deletes the input when the job finishes.",
       `Download the DOCX. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
-      "Open the downloaded DOCX in Word and format the text the way you need it — the words arrive as plain paragraphs, in reading order.",
+      "Open the downloaded DOCX in Word and finish the formatting — the words arrive as paragraphs in reading order, with their bold, italics, sizes and colours where they could be matched, in Word's default typeface.",
     ],
     sections: [
       {
@@ -1244,7 +1244,7 @@ export const guides: Guide[] = [
         heading: "What to expect from the converted document",
         body: [
           `The output is a DOCX file, the standard editable Word format. ${PDF_TO_WORD_KEEPS}`,
-          "Headings, lists and tables arrive as plain lines of text with no styles, so expect to restyle the document: the conversion saves you the retyping, not the formatting.",
+          "Headings keep their bold and size but not a Word heading style, and lists and tables arrive as lines of text, a table's cells separated by tabs, so expect to restyle the document: the conversion saves you the retyping, not all of the formatting.",
           "That makes PDF to Word the right tool when you need the words back to rework them — rewrite a paragraph, fix a date, reuse a section — and the wrong one when the look of the page is what matters. For that, keep the PDF itself.",
         ],
       },
@@ -1297,11 +1297,11 @@ export const guides: Guide[] = [
       },
       {
         question: "Will the Word document look like my original PDF?",
-        answer: `No. It holds the PDF's words and pictures, not its design. ${PDF_TO_WORD_KEEPS} If your PDF is a scanned image rather than typed text, tick “${WORD_OCR_LABEL}” so there is recognised text to convert.`,
+        answer: `Partly. It holds the PDF's words and pictures and each word's bold, italics, size and colour where they can be matched, not its typeface or layout. ${PDF_TO_WORD_KEEPS} If your PDF is a scanned image rather than typed text, tick “${WORD_OCR_LABEL}” so there is recognised text to convert.`,
       },
     ],
     published: "2026-09-17",
-    updated: "2026-11-07",
+    updated: "2026-11-14",
   },
   {
     slug: "how-to-convert-jpg-to-pdf",
@@ -1663,7 +1663,7 @@ export const guides: Guide[] = [
         id: "changing-existing-text",
         heading: "Changing the text that is already there",
         body: [
-          `To rework the wording itself, convert the file with ${nameOf("pdf-to-word")}: it exports the PDF's selectable text as an editable Word document, as plain paragraphs in reading order, with each picture between them. Fonts, tables and page layout are not recreated, so it suits documents where the words matter more than the look.`,
+          `To rework the wording itself, convert the file with ${nameOf("pdf-to-word")}: it exports the PDF's selectable text as an editable Word document, in reading order, each word keeping its bold, italics, size and colour where our reader matches it, with each picture between the paragraphs. The typeface, tables and page layout are not recreated, so it suits documents where the words matter more than the look.`,
         ],
       },
       {
@@ -1710,7 +1710,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-10-30",
+    updated: "2026-11-14",
   },
   {
     slug: "how-to-create-a-fillable-pdf-form",

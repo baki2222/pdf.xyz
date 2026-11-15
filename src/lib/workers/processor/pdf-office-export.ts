@@ -174,6 +174,13 @@ export interface PdfOfficeExportChain {
    * and refusal handling are OCR PDF's own.
    */
   ocr?: Processor;
+  /**
+   * The engine. `runPdfOfficeExport` unless a start-up probe's negative
+   * control hands it one that regressed (`../pdf-office-export/capability`):
+   * the probes run their job through THIS processor, in the executor's order
+   * (`../capability-chain`), so a stand-in engine has to sit behind it.
+   */
+  run?: typeof runPdfOfficeExport;
 }
 
 export function createPdfOfficeExportProcessor(
@@ -252,7 +259,7 @@ export function createPdfOfficeExportProcessor(
         ocrResults = first.results;
       }
 
-      const run = await runPdfOfficeExport(
+      const run = await (chain.run ?? runPdfOfficeExport)(
         input.tool,
         bytes,
         deps,

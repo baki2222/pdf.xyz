@@ -503,9 +503,12 @@ export const tools: Tool[] = [
     // catalog-descriptions.test.ts. The label is written out, not imported:
     // importing @/lib/jobs/pdf-office-export here pulled it into the ticket's
     // lazy catalogue chunk (+144 B gz, 2026-11-07). The same test holds this
-    // text to WORD_OCR_LABEL, so a renamed checkbox fails it.
+    // text to WORD_OCR_LABEL, so a renamed checkbox fails it. CHANGED
+    // 2026-11-15 (review round 1 of per-word formatting): "Fonts and layout
+    // are not recreated" read as covering text sizes, which are kept since
+    // that day; the typefaces are what is not.
     description:
-      "Turn a PDF's text and pictures into editable Word (DOCX) in reading order. Fonts and layout are not recreated; for a scan, tick “Recognise text in scans (OCR)”.",
+      "Turn a PDF's text and pictures into editable Word (DOCX) in reading order. Typefaces and layout are not recreated; for a scan, tick “Recognise text in scans (OCR)”.",
     category: "convert-from",
     icon: "word",
     processing: "server",
