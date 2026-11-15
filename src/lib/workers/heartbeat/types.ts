@@ -275,6 +275,22 @@ export interface HeartbeatCapabilities {
    * heartbeat. The absence parses as `false`.
    */
   readonly htmlZip: boolean;
+  /**
+   * The Translate PDF target languages this image prints as a reflowed PDF
+   * beside the translation ZIP (2026-11-15, competitor audit #29 slice 1),
+   * as codes from `TRANSLATE_LANGUAGES`, sorted.
+   *
+   * PROVEN AT START-UP (`translate/pdf-capability.ts`,
+   * `translatePdfLanguages`): one `translate-pdf` job per language through
+   * the executor's order with the image's REAL Chromium and `pdftotext`
+   * read-back, and each PDF judged by an independent reader — every font
+   * embedded with a Noto face for the script, the sample read back, ink on
+   * the page, Arabic laid out right to left. The engine reads the SAME memo
+   * before every render, so a language absent here gets the ZIP alone. An
+   * image built before the key publishes nothing, which parses as `[]`: the
+   * panel then describes the ZIP alone, as it did before.
+   */
+  readonly translatePdfLanguages: readonly string[];
 }
 
 /**

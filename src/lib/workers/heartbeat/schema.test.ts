@@ -33,6 +33,7 @@ const CAPS: HeartbeatCapabilities = {
   docxTables: true,
   translateOcr: true,
   htmlZip: true,
+  translatePdfLanguages: [],
 };
 
 describe("coarseRelease", () => {
@@ -100,6 +101,7 @@ describe("buildHeartbeat / serialize / parse", () => {
       docxTables: false,
       translateOcr: false,
       htmlZip: false,
+      translatePdfLanguages: [],
     });
     expect(JSON.stringify(hb)).not.toContain("evil.example.com");
     expect(JSON.stringify(hb)).not.toContain("secretEndpoint");
@@ -139,11 +141,21 @@ describe("buildHeartbeat / serialize / parse", () => {
       "the capability set is implausibly small — the corpus, not the code, is what failed",
     ).toBeGreaterThanOrEqual(7);
 
+    // A list capability flips to a member of ITS OWN vocabulary: the parser
+    // keeps only known codes, so an OCR pack named in the Translate list
+    // would be dropped and read as a lost field. A list key with no sample
+    // here throws, so the next one cannot be flipped to the wrong alphabet.
+    const LIST_SAMPLES: Record<string, string[]> = {
+      ocrLanguages: ["eng"],
+      translatePdfLanguages: ["bn"],
+    };
     const flipped = Object.fromEntries(
-      keys.map((key) => [
-        key,
-        Array.isArray(defaults[key]) ? ["eng"] : !defaults[key],
-      ]),
+      keys.map((key) => {
+        if (!Array.isArray(defaults[key])) return [key, !defaults[key]];
+        const sample = LIST_SAMPLES[key];
+        if (!sample) throw new Error(`no list sample for ${key}`);
+        return [key, sample];
+      }),
     ) as unknown as HeartbeatCapabilities;
 
     const trip = parseHeartbeat(
@@ -241,6 +253,7 @@ describe("buildHeartbeat / serialize / parse", () => {
         docxTables: false,
         translateOcr: false,
         htmlZip: false,
+        translatePdfLanguages: [],
       },
       at: 1234,
     });
@@ -365,5 +378,44 @@ describe("disabledLiveness", () => {
       capabilities: null,
     });
     expect(disabledLiveness("queue-broker").source).toBe("queue-broker");
+  });
+});
+
+describe("translatePdfLanguages — bounded like ocrLanguages (2026-11-15)", () => {
+  const base = JSON.parse(
+    serializeHeartbeat(
+      buildHeartbeat({ mode: "once", capabilities: CAPS, at: 9 }),
+    ),
+  ) as Record<string, unknown>;
+
+  it("keeps only Translate's own codes, deduplicated, in its order", () => {
+    const parsed = parseHeartbeat({
+      ...base,
+      capabilities: {
+        translatePdfLanguages: ["es", "bn", "es", "klingon", 7, "<b>", "ar"],
+      },
+    });
+    expect(parsed?.capabilities.translatePdfLanguages).toEqual([
+      "es",
+      "ar",
+      "bn",
+    ]);
+  });
+
+  it("an older image that publishes no key reads as []", () => {
+    const parsed = parseHeartbeat({ ...base, capabilities: {} });
+    expect(parsed?.capabilities.translatePdfLanguages).toEqual([]);
+  });
+
+  it("reaches the serialised wire, not only the serialiser's input", () => {
+    const hb = buildHeartbeat({
+      mode: "once",
+      capabilities: { ...CAPS, translatePdfLanguages: ["bn", "es"] },
+      at: 1,
+    });
+    const wire = JSON.parse(serializeHeartbeat(hb)) as {
+      capabilities: Record<string, unknown>;
+    };
+    expect(wire.capabilities.translatePdfLanguages).toEqual(["es", "bn"]);
   });
 });

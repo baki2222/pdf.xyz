@@ -1,7 +1,11 @@
+import { createHash } from "node:crypto";
 import JSZip from "jszip";
 import { describe, expect, it, vi } from "vitest";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
-import type { TranslateOptions } from "@/lib/jobs/translate-pdf";
+import type {
+  TranslateLanguage,
+  TranslateOptions,
+} from "@/lib/jobs/translate-pdf";
 import type {
   AiCompletionRequest,
   AiCompletionResult,
@@ -11,7 +15,9 @@ import {
   runTranslate,
   TRANSLATE_ENGINE,
   type PdfTextExtractor,
+  type TranslateDeps,
 } from "./engine";
+import type { TranslatePdfResult } from "./pdf-render";
 import {
   TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS,
   TRANSLATE_MAX_INPUT_CHARS,
@@ -755,5 +761,131 @@ describe("every failure after a provider call reports what the calls spent", () 
       calls: 2,
       model: "claude-sonnet-5",
     });
+  });
+});
+
+/**
+ * The reflowed PDF (2026-11-15): an ADDITION to the ZIP, decided after every
+ * paid call. The ZIP's bytes and the provider's requests must not move with it.
+ */
+describe("the reflowed PDF rides beside the ZIP, never instead of it", () => {
+  const FIXED_NOW = () => "2026-11-15T00:00:00.000Z";
+
+  async function runWith(pdf?: TranslateDeps["pdf"]) {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-15T00:00:00.000Z"));
+    try {
+      const provider = providerReturning(SUCCESS("## Titre\n\nUn texte."));
+      const run = await runTranslate(INPUT, OPTIONS, {
+        extract: extractorFor("A document to translate."),
+        provider,
+        now: FIXED_NOW,
+        document: { name: "report.pdf" },
+        ...(pdf ? { pdf } : {}),
+      });
+      return { run, provider };
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+
+  const sha = (bytes: Uint8Array) =>
+    createHash("sha256").update(bytes).digest("hex");
+
+  const printing = (
+    languages: ReadonlySet<TranslateLanguage> | null,
+    result: TranslatePdfResult = {
+      ok: true,
+      bytes: new Uint8Array([37, 80, 68, 70]),
+      pages: 2,
+    },
+  ) => {
+    const seen: unknown[] = [];
+    const deps: NonNullable<TranslateDeps["pdf"]> = {
+      languages: () => languages,
+      async render(args) {
+        seen.push(args.input);
+        return result;
+      },
+    };
+    return { deps, seen };
+  };
+
+  it("a proven target gets a PDF, and meta says so explicitly", async () => {
+    const { deps, seen } = printing(new Set(["fr"]));
+    const { run } = await runWith(deps);
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(run.pdf).toEqual(new Uint8Array([37, 80, 68, 70]));
+    expect(run.meta.pdf).toEqual({ rendered: true, pages: 2, bytes: 4 });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({
+      target: "fr",
+      sourceName: "report.pdf",
+      parts: [{ kind: "body", text: "## Titre\n\nUn texte." }],
+    });
+    // Usage and window ride on success untouched.
+    expect(run.meta.usage?.calls).toBe(1);
+    expect(run.meta.window).toBeDefined();
+  });
+
+  it("no renderer: no PDF, reason no_renderer", async () => {
+    const { run } = await runWith(undefined);
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(run.pdf).toBeUndefined();
+    expect(run.meta.pdf).toEqual({ rendered: false, reason: "no_renderer" });
+  });
+
+  it("an unproven target is never handed to the renderer", async () => {
+    for (const languages of [null, new Set<TranslateLanguage>(["de"])]) {
+      const { deps, seen } = printing(languages);
+      const { run } = await runWith(deps);
+      expect(run.ok).toBe(true);
+      if (!run.ok) return;
+      expect(run.pdf).toBeUndefined();
+      expect(run.meta.pdf).toEqual({
+        rendered: false,
+        reason: "unproven_language",
+      });
+      expect(seen).toHaveLength(0);
+    }
+  });
+
+  it("a render that fails is a reason, and the run still succeeds with its usage", async () => {
+    const { deps } = printing(new Set(["fr"]), {
+      ok: false,
+      reason: "not_conserved",
+    });
+    const { run } = await runWith(deps);
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(run.pdf).toBeUndefined();
+    expect(run.meta.pdf).toEqual({ rendered: false, reason: "not_conserved" });
+    expect(run.meta.usage?.calls).toBe(1);
+  });
+
+  it("the ZIP's bytes are identical in every case", async () => {
+    const hashes = new Set<string>();
+    for (const pdf of [
+      undefined,
+      printing(new Set(["fr"])).deps,
+      printing(null).deps,
+      printing(new Set(["fr"]), { ok: false, reason: "timeout" }).deps,
+    ]) {
+      const { run } = await runWith(pdf);
+      expect(run.ok).toBe(true);
+      if (run.ok) hashes.add(sha(run.output));
+    }
+    expect(hashes.size).toBe(1);
+  });
+
+  it("the provider receives byte-identical requests with and without the PDF dependency (zero model tokens)", async () => {
+    const without = await runWith(undefined);
+    const withPdf = await runWith(printing(new Set(["fr"])).deps);
+    expect(JSON.stringify(withPdf.provider.calls)).toBe(
+      JSON.stringify(without.provider.calls),
+    );
+    expect(withPdf.provider.calls).toHaveLength(1);
   });
 });

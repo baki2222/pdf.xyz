@@ -28,11 +28,15 @@ import {
 import {
   canRunTranslate,
   canTranslateScans,
+  resumeWorkerTranslate,
   runWorkerTranslate,
   translateOcrJobPoll,
+  translatesToPdf,
   translateTextDeps,
   type TranslateWorkerResult,
 } from "@/lib/workers/translate-client";
+import type { TranslatePdfReason } from "@/lib/jobs/translate-pdf-render";
+import { useWorkerStatus } from "./use-worker-status";
 import {
   MAX_OCR_LANGUAGES,
   PDF_TO_WORD_OCR_LANGUAGE_CODES,
@@ -85,7 +89,6 @@ import {
 import { ChosenFileTarget } from "./chosen-file-target";
 import { translateJobPoll, type JobPollBudget } from "@/lib/jobs/client-wait";
 import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
-import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
 import { useStagedHandoff } from "./use-staged-handoff";
 import {
   useWorkerPanel,
@@ -156,6 +159,12 @@ export function TranslateWorkerPanel({
   extractText?: ExtractText;
 }) {
   const pickRefuse = usePickRefusal(tool);
+  // Held HERE, above the shell, because the "You get" row depends on it: a
+  // reflowed PDF is described only for a target the running worker proved
+  // it prints (`translatePdfLanguages` on its heartbeat, 2026-11-15).
+  const [targetLanguage, setTargetLanguage] =
+    useState<TranslateLanguage>(DEFAULT_TARGET);
+  const { status } = useWorkerStatus();
   return (
     <WorkerPanelShell
       tool={tool}
@@ -180,7 +189,9 @@ export function TranslateWorkerPanel({
         {
           icon: Download,
           label: "You get",
-          value: "ZIP · translation.md + translation.txt + manifest",
+          value: translatesToPdf(status, targetLanguage)
+            ? TRANSLATE_OUTPUT_WITH_PDF
+            : TRANSLATE_OUTPUT_ZIP,
         },
         {
           icon: Timer,
@@ -202,6 +213,8 @@ export function TranslateWorkerPanel({
         tool={tool}
         extractText={extractText}
         refuse={pickRefuse}
+        targetLanguage={targetLanguage}
+        setTargetLanguage={setTargetLanguage}
       />
     </WorkerPanelShell>
   );
@@ -216,6 +229,31 @@ function waitOptions(budget: JobPollBudget) {
 }
 
 const RUN_LABEL = "Translate PDF";
+
+/** The "You get" row when the running worker does not print the target. */
+export const TRANSLATE_OUTPUT_ZIP =
+  "ZIP · translation.md + translation.txt + manifest";
+/** The "You get" row when it does (`translatePdfLanguages` names the target). */
+export const TRANSLATE_OUTPUT_WITH_PDF =
+  "PDF (text reflowed, not the original layout) + ZIP · translation.md + translation.txt + manifest";
+/** Said when a job made no PDF it was expected to, or could not draw one. */
+export const TRANSLATE_PDF_NOT_DRAWN =
+  "The PDF could not be drawn this time; the translation package has the full text.";
+/** Said when the job made a PDF this browser could not download. */
+export const TRANSLATE_PDF_NOT_DOWNLOADED =
+  "The PDF could not be downloaded this time; the translation package has the full text.";
+
+/**
+ * Reasons that mean the renderer TRIED and failed. "No renderer" and "an
+ * unproven language" are not failures of this job: the panel never offered a
+ * PDF for them, so it says nothing — unless it had offered one.
+ */
+const DRAW_FAILURES: ReadonlySet<TranslatePdfReason> = new Set([
+  "render_failed",
+  "timeout",
+  "too_large",
+  "not_conserved",
+]);
 
 /**
  * OCR's language choice, preferring the pack of the Source language the
@@ -266,23 +304,26 @@ function TranslateBuilder({
   tool,
   extractText,
   refuse,
+  targetLanguage,
+  setTargetLanguage,
 }: {
   tool: Tool;
   extractText: ExtractText;
   refuse: PickRefusal;
+  targetLanguage: TranslateLanguage;
+  setTargetLanguage: (target: TranslateLanguage) => void;
 }) {
   const { available, status } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
-  const [targetLanguage, setTargetLanguage] =
-    useState<TranslateLanguage>(DEFAULT_TARGET);
+  /** Whether the panel described a PDF for the target of the last run. */
+  const [pdfOffered, setPdfOffered] = useState(false);
   const [sourceLanguage, setSourceLanguage] = useState<TranslateSourceLanguage>(
     DEFAULT_TRANSLATE_SOURCE,
   );
   const [instructions, setInstructions] = useState("");
   const job = useWorkerJob<TranslateWorkerResult>({
     tool: "translate-pdf",
-    resume: (id, controls) =>
-      resumeSecurityJob(id, { ...controls, tool: "translate-pdf" }),
+    resume: (id, controls) => resumeWorkerTranslate(id, controls),
   });
   const { busy, outcome, setOutcome, run } = job;
   const staged = useStagedHandoff(tool.slug, RUN_LABEL, (files) => {
@@ -445,6 +486,9 @@ function TranslateBuilder({
     }
     // Read at the press: the section was on screen when Run was pressed.
     const sendOcr = ocrOffered && recogniseScan;
+    // What the "You get" row said at the press: a PDF the row promised and
+    // the job did not bring back is named, whatever its reason.
+    setPdfOffered(translatesToPdf(status, targetLanguage));
     await run(async (controls) => {
       const trimmed = instructions.trim();
       const bytes = new Uint8Array(await file.arrayBuffer());
@@ -553,6 +597,7 @@ function TranslateBuilder({
   }, [
     file,
     targetLanguage,
+    status,
     sourceLanguage,
     instructions,
     extractionFor,
@@ -809,7 +854,32 @@ function TranslateBuilder({
             {outcome.job?.results?.ai?.delivery
               ? "The pages that were translated are in the package — Markdown and plain text, plus a manifest recording the model and honest scope."
               : "Your AI translation package is ready — the translation in Markdown and plain text, plus a manifest recording the model and honest scope."}
+            {outcome.pdf
+              ? " The same translation is also a PDF: text reflowed, not the original layout."
+              : null}
           </p>
+          {pdfNotice(outcome, pdfOffered) ? (
+            <p
+              className="text-muted text-sm"
+              data-testid="translate-pdf-notice"
+            >
+              {pdfNotice(outcome, pdfOffered)}
+            </p>
+          ) : null}
+          {/* The PDF first, when the job made one: it is what a reader
+              asked a "Translate PDF" tool for. The package follows. */}
+          {outcome.pdf ? (
+            <DownloadCta
+              onClick={() =>
+                downloadBytes(
+                  outcome.pdf!.bytes,
+                  outcome.pdf!.artifact.filename,
+                )
+              }
+            >
+              Download {outcome.pdf.artifact.filename}
+            </DownloadCta>
+          ) : null}
           <DownloadCta
             onClick={() =>
               downloadBytes(outcome.output, outcome.artifact.filename)
@@ -821,4 +891,24 @@ function TranslateBuilder({
       )}
     </div>
   );
+}
+
+/**
+ * The one sentence about a PDF that did not arrive, or null. A PDF the job
+ * made and this browser could not fetch is said as such; a PDF the renderer
+ * failed to draw — or any missing PDF the "You get" row had promised — is
+ * "could not be drawn". A target the worker never offered a PDF for says
+ * nothing: no PDF was described, so none is missing.
+ */
+function pdfNotice(
+  outcome: Extract<TranslateWorkerResult, { ok: true }>,
+  offered: boolean,
+): string | null {
+  if (outcome.pdf) return null;
+  if (outcome.pdfDownloadFailed) return TRANSLATE_PDF_NOT_DOWNLOADED;
+  const pdf = outcome.job?.results?.ai?.pdf;
+  if (!pdf || pdf.rendered) return offered ? TRANSLATE_PDF_NOT_DRAWN : null;
+  if (offered || (pdf.reason !== undefined && DRAW_FAILURES.has(pdf.reason)))
+    return TRANSLATE_PDF_NOT_DRAWN;
+  return null;
 }

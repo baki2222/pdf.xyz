@@ -1,9 +1,12 @@
 import type { WorkerStatus } from "./status";
 import {
+  resumeSecurityJob,
   runSecurityJob,
+  type FetchLike,
   type PdfSecurityWorkerOptions,
   type PdfSecurityWorkerResult,
 } from "./pdf-security-client";
+import type { JobArtifact } from "@/lib/jobs/types";
 import { canRunAiTool } from "./ai-tool-availability";
 import {
   OCR_JOB_POLL,
@@ -17,17 +20,68 @@ import type {
 } from "@/lib/jobs/translate-pdf";
 
 /**
- * Browser-side driver for the secure-worker Translate PDF flow (`translate-pdf`).
+ * A translation's result: the package (the job's FIRST artifact, downloaded
+ * exactly as every other security-client job's) and, when the worker drew
+ * one, the reflowed PDF of the same translation (2026-11-15).
  *
- * It reuses the shared job lifecycle in `./pdf-security-client` (reserve upload →
- * upload → create job → poll → download) — the translation request (target/source
- * language, optional instructions) travels in the job's `options` body. It never
- * fabricates output: when no AI provider is configured, or the PDF has no selectable
- * text, the worker returns an honest typed error (not-implemented / unprocessable),
- * which surfaces here unchanged. No translation is ever invented client-side.
+ * The PDF is found by its content type among `job.artifacts`, as OCR's client
+ * downloads every output (`./ocr-client`), never by position beyond the
+ * first: the ZIP stays first because older readers take `artifacts[0]`.
+ * A PDF the job made that could not be downloaded is `pdfDownloadFailed`,
+ * so the panel never reads "no PDF" where one exists.
  */
+export type TranslateWorkerResult =
+  | (Extract<PdfSecurityWorkerResult, { ok: true }> & {
+      pdf?: { artifact: JobArtifact; bytes: Uint8Array };
+      pdfDownloadFailed?: true;
+    })
+  | Extract<PdfSecurityWorkerResult, { ok: false }>;
 
-export type TranslateWorkerResult = PdfSecurityWorkerResult;
+/** The job's reflowed PDF, if it made one — never the package itself. */
+export function translatedPdfArtifact(
+  artifacts: readonly JobArtifact[] | undefined,
+): JobArtifact | undefined {
+  return artifacts?.find(
+    (a, i) => i > 0 && a.contentType === "application/pdf",
+  );
+}
+
+async function withTranslatedPdf(
+  result: PdfSecurityWorkerResult,
+  options: PdfSecurityWorkerOptions,
+): Promise<TranslateWorkerResult> {
+  if (!result.ok) return result;
+  const artifact = translatedPdfArtifact(result.job.artifacts);
+  if (!artifact) return result;
+  const fetchImpl: FetchLike =
+    options.fetchImpl ?? ((input, init) => fetch(input, init as RequestInit));
+  try {
+    const res = await fetchImpl(artifact.url, {
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+    if (!res.ok) return { ...result, pdfDownloadFailed: true };
+    return {
+      ...result,
+      pdf: { artifact, bytes: new Uint8Array(await res.arrayBuffer()) },
+    };
+  } catch {
+    return { ...result, pdfDownloadFailed: true };
+  }
+}
+
+/**
+ * Pick up a translation this browser stopped waiting for, downloading the
+ * package and its PDF exactly as the run that started it would.
+ */
+export async function resumeWorkerTranslate(
+  jobId: string,
+  options: PdfSecurityWorkerOptions = {},
+): Promise<TranslateWorkerResult> {
+  return withTranslatedPdf(
+    await resumeSecurityJob(jobId, { ...options, tool: "translate-pdf" }),
+    options,
+  );
+}
 
 /**
  * What the panel sends: a COUNTED document, or a SCAN with an OCR request.
@@ -99,7 +153,7 @@ export interface TranslateCountedInput {
   declaredTextPages: number;
 }
 
-export function runWorkerTranslate(
+export async function runWorkerTranslate(
   input: TranslateWorkerInput,
   options: PdfSecurityWorkerOptions = {},
 ): Promise<TranslateWorkerResult> {
@@ -114,15 +168,30 @@ export function runWorkerTranslate(
     jobOptions.ocr = true;
     jobOptions.languages = [...input.ocr.languages];
   }
-  return runSecurityJob(
-    "translate-pdf",
-    input.filename,
-    input.bytes,
-    jobOptions,
+  return withTranslatedPdf(
+    await runSecurityJob(
+      "translate-pdf",
+      input.filename,
+      input.bytes,
+      jobOptions,
+      options,
+      input.declaredCharacters,
+      input.declaredTextPages,
+    ),
     options,
-    input.declaredCharacters,
-    input.declaredTextPages,
   );
+}
+
+/**
+ * Does the running worker print `target` as a reflowed PDF? Read from the
+ * observed heartbeat's `translatePdfLanguages` (`/api/worker/status`).
+ * Absent — an older image, no worker heard — reads as no.
+ */
+export function translatesToPdf(
+  status: WorkerStatus | null | undefined,
+  target: TranslateLanguage,
+): boolean {
+  return status?.translatePdfLanguages?.includes(target) === true;
 }
 
 /**

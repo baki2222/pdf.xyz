@@ -122,6 +122,7 @@ describe("createHeartbeatPublisher", () => {
         docxTables: true,
         translateOcr: true,
         htmlZip: true,
+        translatePdfLanguages: [],
       },
       deps: { client: fake, now: () => 1_000 },
     });
@@ -167,6 +168,7 @@ describe("createHeartbeatReader / readWorkerHeartbeatLiveness", () => {
             docxTables: true,
             translateOcr: true,
             htmlZip: true,
+            translatePdfLanguages: [],
           },
           at: now,
         }),

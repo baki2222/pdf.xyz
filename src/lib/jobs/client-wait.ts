@@ -29,6 +29,7 @@ import {
   PDF_ARCHIVE_DEFAULT_TIMEOUT_MS,
   PDF_ARCHIVE_PASSWORD_PROBE_TIMEOUT_MS,
 } from "@/lib/workers/pdf-archive/contract";
+import { TRANSLATE_PDF_RENDER_TIMEOUT_MS } from "./translate-pdf-render";
 
 export interface JobPollBudget {
   /** Pause between status reads. */
@@ -84,11 +85,19 @@ export const AI_JOB_POLL: JobPollBudget = budgetFor(
 /**
  * A translation makes one provider call per chunk, one after another, so its
  * wait scales with the plan the panel already computed.
+ *
+ * Plus the reflowed-PDF render (2026-11-15), which runs AFTER every paid call:
+ * `PIPELINE_MARGIN_MS` (60 s) is smaller than Chromium's own 120 s budget, so
+ * a wait without this term would abandon a job whose calls were already paid
+ * for. The worker hands Chromium at most this bound
+ * (`translatePdfRenderConfig`); `client-wait.test.ts` holds the two together.
  */
 export function translateJobPoll(chunks: number): JobPollBudget {
   const calls = Math.max(1, Math.floor(chunks));
   const perChunk = budgetFor(
-    calls * AI_CALL_TIMEOUT_MS + PIPELINE_MARGIN_MS,
+    calls * AI_CALL_TIMEOUT_MS +
+      TRANSLATE_PDF_RENDER_TIMEOUT_MS +
+      PIPELINE_MARGIN_MS,
     AI_JOB_POLL.intervalMs,
   );
   return perChunk.maxAttempts > AI_JOB_POLL.maxAttempts

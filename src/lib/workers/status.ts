@@ -121,6 +121,15 @@ export interface WorkerStatus {
    * HTML file, exactly as before. Optional: absent reads as `false`.
    */
   htmlZip?: boolean;
+  /**
+   * The Translate PDF targets the observed worker PROVED it prints as a
+   * reflowed PDF beside the ZIP (2026-11-15, competitor audit #29 slice 1),
+   * from the heartbeat's `translatePdfLanguages`. Empty when no worker is
+   * observed or an older image publishes no key: the panel then describes
+   * the ZIP alone, as before. The worker image ships separately from this
+   * web tier, so merged code is not evidence; only the beat is.
+   */
+  translatePdfLanguages?: readonly string[];
 }
 
 const NO_COMPRESS: CompressCapability = {
@@ -238,6 +247,10 @@ export function buildWorkerStatus(
    * (`liveWorkerRendersHtmlZip`, the predicate both admission gates use).
    */
   workerHtmlZip?: boolean,
+  /**
+   * The observed worker's heartbeat `translatePdfLanguages`, or absent.
+   */
+  workerTranslatePdfLanguages?: readonly string[],
 ): WorkerStatus {
   const ocr = buildOcrCapability(
     mode,
@@ -266,6 +279,8 @@ export function buildWorkerStatus(
   const translateOcr =
     workerObserved === true && workerTranslateOcr === true && ocr.available;
   const htmlZip = workerObserved === true && workerHtmlZip === true;
+  const translatePdfLanguages =
+    workerObserved === true ? [...(workerTranslatePdfLanguages ?? [])] : [];
 
   if (mode === "local-dev") {
     const engines = DEEP_COMPRESSION_TOOLS.filter((tool) => tools?.[tool]);
@@ -287,6 +302,7 @@ export function buildWorkerStatus(
       pipeline,
       translateOcr,
       htmlZip,
+      translatePdfLanguages,
     };
   }
 
@@ -308,6 +324,7 @@ export function buildWorkerStatus(
       pipeline,
       translateOcr,
       htmlZip,
+      translatePdfLanguages,
     };
   }
 
@@ -331,5 +348,6 @@ export function buildWorkerStatus(
     pipeline,
     translateOcr,
     htmlZip,
+    translatePdfLanguages,
   };
 }

@@ -97,6 +97,12 @@ export async function GET(request: Request): Promise<Response> {
   // same predicate both admission gates use (`POST /api/uploads` and
   // `POST /api/jobs`). An older image publishes no `htmlZip`; absent is false.
   const workerHtmlZip = liveWorkerRendersHtmlZip(liveness);
+  // Translate PDF's reflowed PDF (competitor audit #29 slice 1): the targets
+  // the observed worker proved it prints. Trusted only from a fresh beat;
+  // an older image publishes no key, which decodes to [] — no PDF offered.
+  const workerTranslatePdfLanguages = observed
+    ? capabilities?.translatePdfLanguages
+    : undefined;
 
   return respond(
     ok(
@@ -112,6 +118,7 @@ export async function GET(request: Request): Promise<Response> {
         workerOcrLanguages,
         workerTranslateOcr,
         workerHtmlZip,
+        workerTranslatePdfLanguages,
       ),
     ),
   );

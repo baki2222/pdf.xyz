@@ -2,7 +2,8 @@ import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 import type { AiCompletionResult, AiProvider } from "../ai/provider";
-import type { PdfTextExtractor } from "../translate/engine";
+import type { PdfTextExtractor, TranslateDeps } from "../translate/engine";
+import type { TranslatePdfResult } from "../translate/pdf-render";
 import type { ProcessorInput } from "./types";
 import { createTranslateProcessor } from "./translate";
 
@@ -228,5 +229,78 @@ describe("a translate failure after a provider call carries its usage", () => {
       outputTokens: 23,
       calls: 2,
     });
+  });
+});
+
+describe("the reflowed PDF is the SECOND artifact, never the first", () => {
+  const spent: AiCompletionResult = {
+    ok: true,
+    text: "Traduction réelle.",
+    model: "claude-sonnet-5",
+    usage: { inputTokens: 100, outputTokens: 20 },
+  };
+  const PDF = new Uint8Array([37, 80, 68, 70, 45]);
+  const pdfDep = (
+    result: TranslatePdfResult,
+  ): NonNullable<TranslateDeps["pdf"]> => ({
+    languages: () => new Set(["fr"]),
+    render: async () => result,
+  });
+
+  it("[zip, pdf] in that order, with usage and the pdf outcome on the record", async () => {
+    const p = createTranslateProcessor({
+      extract: extractorFor("A genuine document with content."),
+      provider: provider(spent),
+      pdf: pdfDep({ ok: true, bytes: PDF, pages: 1 }),
+    });
+    const result = await p.process(input());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.artifacts.map((a) => [a.filename, a.contentType])).toEqual([
+      ["report-translation.zip", "application/zip"],
+      ["report-translated.pdf", "application/pdf"],
+    ]);
+    expect(result.artifacts[1]!.bytes).toEqual(PDF);
+    expect(result.results?.ai?.usage?.calls).toBe(1);
+    expect(result.results?.ai?.pdf).toEqual({
+      rendered: true,
+      pages: 1,
+      bytes: PDF.byteLength,
+    });
+  });
+
+  it("[zip] alone when the PDF could not be drawn, and the record says why", async () => {
+    const p = createTranslateProcessor({
+      extract: extractorFor("A genuine document with content."),
+      provider: provider(spent),
+      pdf: pdfDep({ ok: false, reason: "render_failed" }),
+    });
+    const result = await p.process(input());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.artifacts.map((a) => a.contentType)).toEqual([
+      "application/zip",
+    ]);
+    expect(result.results?.ai?.usage?.calls).toBe(1);
+    expect(result.results?.ai?.pdf).toEqual({
+      rendered: false,
+      reason: "render_failed",
+    });
+  });
+
+  it("the capability detail names the PDF only when the renderer is wired", () => {
+    const base = {
+      extract: extractorFor("x"),
+      provider: provider(spent),
+    };
+    expect(createTranslateProcessor(base).capability().detail).not.toMatch(
+      /reflowed PDF/,
+    );
+    expect(
+      createTranslateProcessor({
+        ...base,
+        pdf: pdfDep({ ok: false, reason: "timeout" }),
+      }).capability().detail,
+    ).toMatch(/reflowed PDF/);
   });
 });

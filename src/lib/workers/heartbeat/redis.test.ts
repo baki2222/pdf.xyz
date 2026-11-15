@@ -35,6 +35,7 @@ const CAPS: HeartbeatCapabilities = {
   docxTables: true,
   translateOcr: true,
   htmlZip: true,
+  translatePdfLanguages: [],
 };
 
 /** A mutable fake clock. */

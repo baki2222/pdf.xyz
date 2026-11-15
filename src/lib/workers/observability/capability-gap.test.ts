@@ -182,6 +182,7 @@ describe("the 2026-08-12 worker, as it actually was", () => {
         docxTables: true,
         translateOcr: true,
         htmlZip: true,
+        translatePdfLanguages: ["es", "bn"],
       },
     });
     const row = collectWebOperationsSnapshot(DRAINABLE_ENV, {

@@ -12,12 +12,17 @@ import {
 } from "@/lib/pdf/text";
 import {
   capPagesToDelivery,
-  missingPageMarker,
   nothingDeliverableMessage,
-  withheldPagesMarker,
   type DeliveryLimit,
-  type TranslatePlan,
 } from "./chunking";
+import {
+  assembleParts,
+  partsToMarkdown,
+  type TranslatedSegment,
+  type TranslationPart,
+} from "./assembly";
+import type { TranslatePdfReason, TranslatePdfResult } from "./pdf-render";
+import type { TypesetInput } from "./typeset";
 import {
   describeWindow,
   modelTruncationNotice,
@@ -74,6 +79,14 @@ import type { JobDeliveryCap } from "@/lib/jobs/delivery-cap";
  * SCOPE NOTE: this produces translated TEXT (Markdown + plain text), not a
  * layout-preserving re-typeset PDF. The package and UI say so plainly rather than
  * implying a pixel-faithful translated PDF the engine does not produce.
+ * When Chromium is available it ALSO returns a reflowed PDF of the same
+ * translation (`./typeset`, `./pdf-render`, 2026-11-15): the same parts as the
+ * ZIP, printed as running text in the target language — never the original's
+ * fonts, columns, images or positions. The ZIP is still the job's first
+ * artifact, and rendering the PDF moves none of its bytes (`engine.test.ts`
+ * hashes it with and without the renderer); the PDF is an addition, withheld
+ * (with a typed reason on `meta.pdf`) whenever it cannot be drawn and proven to
+ * carry every character of the text.
  */
 
 export const TRANSLATE_TOOL = "translate-pdf" as const;
@@ -110,6 +123,44 @@ export interface TranslateDeps {
   /** ISO timestamp source; defaults to the wall clock. Injected for deterministic tests. */
   now?: () => string;
   limits?: TranslateLimits;
+  /**
+   * The reflowed-PDF renderer (Chromium + the `pdftotext` read-back), present
+   * only when this worker has Chromium (`./native`). Absent ⇒ the ZIP alone,
+   * with `meta.pdf.reason: "no_renderer"`.
+   */
+  pdf?: TranslatePdfDeps;
+  /**
+   * The uploaded file, as the user named it — per job, like
+   * `limits.delivery`. Printed as the PDF's title; never sent to the model.
+   */
+  document?: { name: string };
+}
+
+export interface TranslatePdfDeps {
+  render: (args: {
+    input: TypesetInput;
+    signal?: AbortSignal;
+  }) => Promise<TranslatePdfResult>;
+  /**
+   * The targets this worker has PROVEN it can print (`./pdf-capability`), or
+   * null while the proof has not settled. A language not in the set gets no
+   * PDF (`unproven_language`) — the renderer is never asked to guess.
+   */
+  languages: () => ReadonlySet<TranslateLanguage> | null;
+}
+
+/**
+ * What became of the reflowed PDF, on every successful run. An EXPLICIT field
+ * rather than a conditional spread: a dropped optional field is invisible at
+ * every hop (the heartbeat fingerprint lesson), so "no PDF" is stated, with
+ * its reason, never inferred from an absence.
+ */
+export interface TranslatePdfMeta {
+  rendered: boolean;
+  /** Why there is no PDF, when there is none. */
+  reason?: TranslatePdfReason;
+  pages?: number;
+  bytes?: number;
 }
 
 /** Content-free metrics a successful run reports. Never carries document text. */
@@ -157,6 +208,8 @@ export interface TranslateMeta {
    * "completed" and a surface may not assert something the system contradicts.
    */
   delivery?: AiDeliveryMeta;
+  /** The reflowed PDF's outcome — always present on success. */
+  pdf: TranslatePdfMeta;
 }
 
 export type TranslateFailureKind =
@@ -189,6 +242,8 @@ export type TranslateRun =
       output: Uint8Array;
       filenameExt: "zip";
       contentType: "application/zip";
+      /** The reflowed PDF of the same translation, when it was drawn and proven. */
+      pdf?: Uint8Array;
       meta: TranslateMeta;
     }
   | {
@@ -418,66 +473,6 @@ class UsageTally {
   }
 }
 
-/**
- * Weave the translated parts and the untranslatable gaps back into one
- * document, in plan order.
- *
- * The gaps are POSITIONED — each one sits where its page sat, between the parts
- * that surround it — rather than listed at the end. A reader who meets a note
- * about page 7 after reading to the end has already believed the document was
- * complete; a reader who meets it in place has not.
- */
-function assembleTranslation(
-  parts: readonly string[],
-  plan: TranslatePlan | null,
-  segmentCount: number,
-  interruptedPages: readonly number[],
-  withheld: { pages: readonly number[]; marker: string } | null,
-): string {
-  if (plan === null) return parts.join("\n\n");
-
-  // Interleave by document position: a chunk's pages and an oversize page both
-  // know where they belong, so ordering is read off the plan rather than
-  // reconstructed from arrival.
-  const placed: { at: number; body: string }[] = [];
-  for (const [i, chunk] of plan.chunks.entries()) {
-    const body = parts[i];
-    if (body !== undefined) placed.push({ at: chunk.pages[0]!, body });
-  }
-  for (const page of plan.oversize) {
-    placed.push({ at: page.pageNumber, body: missingPageMarker(page) });
-  }
-  if (interruptedPages.length > 0) {
-    placed.push({
-      at: interruptedPages[0]!,
-      body: interruptedNotice(interruptedPages),
-    });
-  }
-  // Positioned like every other gap: at the page where delivery stopped, not
-  // appended at the end. A reader who meets it after finishing has already
-  // believed the document was complete.
-  if (withheld && withheld.pages.length > 0) {
-    placed.push({ at: withheld.pages[0]!, body: withheld.marker });
-  }
-  void segmentCount;
-  placed.sort((a, b) => a.at - b.at);
-  return placed.map((p) => p.body).join("\n\n");
-}
-
-/** The gap left where a chunk failed part-way through a document. */
-function interruptedNotice(pages: readonly number[]): string {
-  const list =
-    pages.length === 1
-      ? `Page ${pages[0]}`
-      : `Pages ${pages[0]}–${pages[pages.length - 1]}`;
-  return [
-    "",
-    `> ⚠️ **${list} could not be translated.**`,
-    "> The AI provider stopped part-way through this document. Everything above was translated; this part was not. Try translating the remaining pages again — the rest of this file is unaffected.",
-    "",
-  ].join("\n");
-}
-
 export async function runTranslate(
   input: Uint8Array,
   options: TranslateOptions,
@@ -667,7 +662,7 @@ export async function runTranslate(
       ? [{ text: promptText, pages: [] }]
       : plan.chunks.map((chunk) => ({ text: chunk.text, pages: chunk.pages }));
 
-  const parts: string[] = [];
+  const parts: TranslatedSegment[] = [];
   const translatedPages: number[] = [];
   const usage = new UsageTally();
   let model = provider.model;
@@ -738,7 +733,7 @@ export async function runTranslate(
     usage.add(completion.usage);
     const text = completion.text.trim();
     if (text.length > 0) {
-      parts.push(text);
+      parts.push({ text, pages: segment.pages });
       translatedPages.push(...segment.pages);
     } else if (!many) {
       return {
@@ -773,21 +768,22 @@ export async function runTranslate(
     capped && capped.boundBy !== null && capped.withheldPages.length > 0
       ? {
           pages: capped.withheldPages,
-          marker: withheldPagesMarker(
-            capped.withheldPages,
-            capped.boundBy,
-            limit,
-          ),
+          boundBy: capped.boundBy,
+          limit,
         }
       : null;
 
-  const translation = assembleTranslation(
+  // Assembled BY EACH PART'S OWN PAGES, never by arrival, with the gaps woven
+  // in where the pages they replace sat (`./assembly`). The same parts feed the
+  // ZIP's Markdown and the reflowed PDF, so the two cannot disagree about which
+  // pages are missing.
+  const assembled: TranslationPart[] = assembleParts(
     parts,
     plan,
-    segments.length,
     interruptedPages,
     withheld,
   );
+  const translation = partsToMarkdown(assembled);
 
   const createdAt = now();
   const manifest: TranslationManifest = {
@@ -811,7 +807,7 @@ export async function runTranslate(
     },
     translation: { characters: translation.length },
     notice:
-      "This translation was generated by an AI model from the SELECTABLE TEXT of the source PDF only. It produces translated text (Markdown + plain text), not a layout-preserving PDF, and may contain errors — verify against the original before relying on it. No content was fabricated beyond the model's translation of the provided text.",
+      "This translation was generated by an AI model from the SELECTABLE TEXT of the source PDF only. It produces translated text (Markdown + plain text), not a layout-preserving PDF; where the worker can draw the target language, a reflowed PDF of the same text comes with it. It may contain errors — verify against the original before relying on it. No content was fabricated beyond the model's translation of the provided text.",
   };
 
   const output = await buildPackage(translation, manifest);
@@ -826,11 +822,46 @@ export async function runTranslate(
     };
   }
 
+  // THE REFLOWED PDF — after every paid call, after the ZIP is built and
+  // bounded, and never at the ZIP's expense: every outcome below is a typed
+  // reason on `meta.pdf`, and the run succeeds with the ZIP either way. No
+  // provider is called here; the PDF is the same parts the ZIP was written
+  // from (`engine.test.ts` proves the recorded requests are byte-identical
+  // with and without this dependency).
+  let pdf: Uint8Array | undefined;
+  let pdfMeta: TranslatePdfMeta;
+  const proven = deps.pdf?.languages() ?? null;
+  if (!deps.pdf) {
+    pdfMeta = { rendered: false, reason: "no_renderer" };
+  } else if (proven === null || !proven.has(options.targetLanguage)) {
+    pdfMeta = { rendered: false, reason: "unproven_language" };
+  } else {
+    const printed = await deps.pdf.render({
+      input: {
+        parts: assembled,
+        target: options.targetLanguage,
+        sourceName: deps.document?.name ?? "Translation",
+      },
+      ...(signal ? { signal } : {}),
+    });
+    if (printed.ok) {
+      pdf = printed.bytes;
+      pdfMeta = {
+        rendered: true,
+        pages: printed.pages,
+        bytes: printed.bytes.byteLength,
+      };
+    } else {
+      pdfMeta = { rendered: false, reason: printed.reason };
+    }
+  }
+
   return {
     ok: true,
     output,
     filenameExt: "zip",
     contentType: "application/zip",
+    ...(pdf ? { pdf } : {}),
     meta: {
       engine: TRANSLATE_ENGINE,
       tool: TRANSLATE_TOOL,
@@ -862,6 +893,7 @@ export async function runTranslate(
             },
           }
         : {}),
+      pdf: pdfMeta,
     },
   };
 }

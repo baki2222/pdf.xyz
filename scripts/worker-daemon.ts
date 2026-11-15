@@ -55,6 +55,7 @@ import {
 } from "@/lib/workers/translate/capability";
 import { provesTranslateOcr } from "@/lib/workers/translate/ocr-capability";
 import { provesHtmlZip } from "@/lib/workers/html-render/zip-capability";
+import { translatePdfLanguages } from "@/lib/workers/translate/pdf-capability";
 import { provesAiReadCap } from "@/lib/workers/processor/read-cap-proof";
 import {
   provesDocxPictures,
@@ -184,6 +185,11 @@ async function buildHeartbeatPublisher(
       // a stub Chromium: a ZIP must reach it as a site of the page asked
       // for, serving the archive's files and nothing outside it.
       htmlZip: await provesHtmlZip(),
+      // Prints one translate-pdf job per target language through the
+      // executor's order on the image's REAL Chromium and pdftotext, and
+      // judges each PDF with poppler. The engine reads the SAME memo before
+      // every render, so this list is also what the jobs will print.
+      translatePdfLanguages: await translatePdfLanguages(),
     },
     ...(release !== undefined ? { release } : {}),
     ...(fingerprint !== undefined ? { fingerprint } : {}),

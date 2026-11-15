@@ -174,3 +174,66 @@ describe("runThroughExecutorOrder", () => {
     ).resolves.toMatchObject({ filename: "probe.docx" });
   });
 });
+
+describe("Translate PDF's two artifacts through the executor's order (2026-11-15)", () => {
+  /**
+   * The ZIP then the reflowed PDF must pass the REAL manifest gate under the
+   * default retention, and a probe for the PDF must read the SECOND artifact:
+   * `proveThroughExecutorOrder` returns `artifacts[0]`, the ZIP, which is why
+   * the language proof (`translate/pdf-capability.ts`) uses
+   * `runThroughExecutorOrder` and picks the PDF by content type.
+   */
+  const translator = (calls: string[]): Processor => ({
+    id: "translate",
+    tools: ["translate-pdf"],
+    supports: (tool) => tool === "translate-pdf",
+    capability: () => ({
+      id: "translate",
+      tools: ["translate-pdf"],
+      ready: true,
+      detail: "",
+    }),
+    async process() {
+      calls.push("process");
+      return processorOk([
+        {
+          filename: "probe-translation.zip",
+          contentType: "application/zip",
+          bytes: new Uint8Array([80, 75, 5, 6, ...new Array(18).fill(0)]),
+        },
+        {
+          filename: "probe-translated.pdf",
+          contentType: "application/pdf",
+          bytes: PDF,
+        },
+      ]);
+    },
+  });
+
+  it("[zip, pdf] passes the manifest gate, and the PDF is the second artifact", async () => {
+    const calls: string[] = [];
+    const outcome = await runThroughExecutorOrder({
+      tool: "translate-pdf",
+      input,
+      registry: new ProcessorRegistry().register(translator(calls)),
+      ...watched(calls),
+    });
+    expect(outcome.stage, JSON.stringify(outcome)).toBe("delivered");
+    if (outcome.stage !== "delivered") return;
+    expect(calls).toEqual(["soundness", "process", "manifest"]);
+    expect(outcome.artifact.contentType).toBe("application/zip");
+    expect(outcome.result.artifacts.map((a) => a.contentType)).toEqual([
+      "application/zip",
+      "application/pdf",
+    ]);
+  });
+
+  it("a probe reading artifacts[0] would never see the PDF", async () => {
+    const artifact = await proveThroughExecutorOrder({
+      tool: "translate-pdf",
+      input,
+      registry: new ProcessorRegistry().register(translator([])),
+    });
+    expect(artifact?.contentType).toBe("application/zip");
+  });
+});

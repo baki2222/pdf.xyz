@@ -50,7 +50,12 @@ function provingCapabilities(): HeartbeatCapabilities {
   return Object.fromEntries(
     ADVERTISED_WORKER_CAPABILITIES.map((capability) => [
       capability.key,
-      capability.key === "ocrLanguages" ? ["eng"] : true,
+      // A list capability proves with a member of its OWN vocabulary.
+      capability.key === "ocrLanguages"
+        ? ["eng"]
+        : capability.key === "translatePdfLanguages"
+          ? ["es"]
+          : true,
     ]),
   ) as unknown as HeartbeatCapabilities;
 }
@@ -190,6 +195,7 @@ describe("GET /api/worker/operations — daemon liveness heartbeat (Phase 30)", 
           docxTables: true,
           translateOcr: true,
           htmlZip: true,
+          translatePdfLanguages: [],
         },
         at: Date.now() - 10 * 60 * 1000, // 10 minutes old ⇒ far past the fresh window
       }),

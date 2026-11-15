@@ -453,6 +453,13 @@ export function copyFiles(): string[] {
     // from crop-runner.tsx so they ride Auto-crop's lazy chunk. Walked, as
     // the ratchet asks; no trailing comments in it.
     path.join(ROOT, "src", "lib", "pdf", "auto-crop-render.ts"),
+    // Translate PDF's reflowed PDF (2026-11-15, competitor audit #29 slice
+    // 1): the gap notices the ZIP and the PDF both say (moved out of
+    // engine.ts), the note and section headings printed on the PDF, and the
+    // language proof's probe text. New modules, so walked.
+    path.join(ROOT, "src", "lib", "workers", "translate", "assembly.ts"),
+    path.join(ROOT, "src", "lib", "workers", "translate", "typeset.ts"),
+    path.join(ROOT, "src", "lib", "workers", "translate", "pdf-capability.ts"),
   ];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {

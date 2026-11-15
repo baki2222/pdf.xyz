@@ -65,6 +65,8 @@ const SPEC = {
     deepCompression: true,
     ocr: true,
     ocrLanguages: ["eng"],
+    // A Translate code, not an OCR pack: the parser keeps only its own.
+    translatePdfLanguages: ["es", "bn"],
     malwareScan: true,
     atomicQueue: true,
     chunkedTranslate: true,

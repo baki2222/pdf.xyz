@@ -545,3 +545,49 @@ describe("sanitizeJobResults — Extract Tables' findings (audit extract-tables#
     ).toBeUndefined();
   });
 });
+
+describe("sanitizeJobResults — Translate PDF's reflowed-PDF outcome (2026-11-15)", () => {
+  const window = {
+    truncated: false,
+    charactersSent: 10,
+    charactersTotal: 10,
+    totalPages: 1,
+    lastCompletePage: 1,
+    cutMidPage: false,
+  };
+
+  it("carries a rendered PDF's page and byte counts to the job record", () => {
+    const clean = sanitizeJobResults({
+      ai: {
+        truncation: window,
+        pdf: { rendered: true, pages: 3, bytes: 9_001 },
+      },
+    });
+    expect(clean?.ai?.pdf).toEqual({ rendered: true, pages: 3, bytes: 9_001 });
+  });
+
+  it("carries the reason a PDF was withheld, from the closed vocabulary only", () => {
+    const kept = sanitizeJobResults({
+      ai: {
+        truncation: window,
+        pdf: { rendered: false, reason: "not_conserved" },
+      },
+    });
+    expect(kept?.ai?.pdf).toEqual({ rendered: false, reason: "not_conserved" });
+    const widened = sanitizeJobResults({
+      ai: {
+        truncation: window,
+        pdf: { rendered: false, reason: "<b>made up</b>" },
+      },
+    } as unknown as JobResults);
+    expect(widened?.ai?.pdf).toEqual({ rendered: false });
+  });
+
+  it("drops a pdf block that is not one", () => {
+    const clean = sanitizeJobResults({
+      ai: { truncation: window, pdf: { rendered: "yes" } },
+    } as unknown as JobResults);
+    expect(clean?.ai?.pdf).toBeUndefined();
+    expect(clean?.ai?.truncation).toBeDefined();
+  });
+});

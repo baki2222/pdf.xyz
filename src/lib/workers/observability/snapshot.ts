@@ -334,6 +334,16 @@ const WORKER_CAPABILITY_PROMISES: Record<
       "HTML to PDF prints a ZIP of a page and its files with its own stylesheets and pictures, instead of offering one file only, and refuses a ZIP it cannot print before it renders anything",
     proves: provenByFlag,
   },
+  translatePdfLanguages: {
+    label: "translated PDF languages",
+    promise:
+      // Added 2026-11-15 (competitor audit #29, slice 1). The Translate
+      // panel describes the PDF only for a target in this list; NON-EMPTY is
+      // the proof, as for `ocrLanguages` — an empty list is an image that
+      // prints no language, and the panel then describes the ZIP alone.
+      "Translate PDF returns a reflowed PDF of the same translation beside the ZIP for each target language the panel names, its fonts embedded and every character read back from the PDF, not the ZIP alone",
+    proves: provenByReportedLanguages,
+  },
 };
 
 /** One capability the subsystem asks the running worker about. */
