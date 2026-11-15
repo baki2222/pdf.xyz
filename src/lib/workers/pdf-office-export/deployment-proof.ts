@@ -275,7 +275,78 @@ export async function docxProofPdf(): Promise<Uint8Array> {
         });
     }),
   );
+  // Since 2026-11-15 (#28 slice 4): a Times line and a Courier line, each a
+  // sentence of five words no other line uses, 60 points BELOW the table's
+  // last row, so the picture's paragraph indices and the table's header
+  // stay as they were.
+  const f = DOCX_PROOF_TYPEFACES;
+  const faceTexts = [f.serif, f.mono];
+  const lastRow = tableTop - (t.rows.length - 1) * 16;
+  page.drawText(f.serif, {
+    x: 60,
+    y: lastRow - 60,
+    size: 12,
+    font: await embedDrawingFont(doc, faceTexts, "serif"),
+  });
+  page.drawText(f.mono, {
+    x: 60,
+    y: lastRow - 90,
+    size: 12,
+    font: await embedDrawingFont(doc, faceTexts, "mono"),
+  });
   return doc.save();
+}
+
+/**
+ * The Word proof's typeface lines (since 2026-11-15, #28 slice 4): one in
+ * Times-Roman, one in Courier, each a sentence of five words, no word of
+ * either used anywhere else on the page.
+ */
+export const DOCX_PROOF_TYPEFACES = {
+  serif: "Serifcheck words drawn in Times",
+  mono: "Monocheck letters typed with Courier",
+} as const;
+
+/**
+ * Each proof word's typeface, read back by `./docx-structure`: the styled
+ * line's words (Helvetica in the PDF) in Arial, the Times line's in Times
+ * New Roman and the Courier line's in Courier New — each in `w:ascii`,
+ * `w:hAnsi` and `w:cs` alike — and no run anywhere with `w:eastAsia`.
+ * Null when it holds; otherwise what is wrong. (The checks of
+ * `provesDocxTypefaces`, asked of the deployed worker's file.)
+ */
+export async function typefaceProblem(
+  bytes: Uint8Array,
+): Promise<string | null> {
+  const body = await readDocxStructure(bytes);
+  const runs = body.blocks.flatMap((b) => (b.kind === "p" ? b.runs : []));
+  const east = runs.filter((r) => r.fontsEastAsia !== undefined);
+  if (east.length > 0)
+    return `${east.length} run(s) carry a w:eastAsia typeface`;
+  const w = DOCX_PROOF_STYLED;
+  const want: [string, string][] = [
+    ...[w.plain, w.bold, w.red, w.big].map((word): [string, string] => [
+      word,
+      "Arial",
+    ]),
+    ...DOCX_PROOF_TYPEFACES.serif
+      .split(" ")
+      .map((word): [string, string] => [word, "Times New Roman"]),
+    ...DOCX_PROOF_TYPEFACES.mono
+      .split(" ")
+      .map((word): [string, string] => [word, "Courier New"]),
+  ];
+  for (const [word, family] of want) {
+    const holding = runs.filter((r) => r.text.split(/\s+/).includes(word));
+    if (holding.length === 0) return `no run holds "${word}"`;
+    const wrong = holding.find(
+      (r) =>
+        r.fonts !== family || r.fontsHAnsi !== family || r.fontsCs !== family,
+    );
+    if (wrong)
+      return `"${word}" is in the typeface ${wrong.fonts ?? "(none)"}/${wrong.fontsHAnsi ?? "(none)"}/${wrong.fontsCs ?? "(none)"}, not ${family}`;
+  }
+  return null;
 }
 
 /**
@@ -481,9 +552,12 @@ export async function docxDeploymentVerdict(
   // Since 2026-11-15 (#28 slice 2): the table is a Word table (`docxTables`).
   const table = await tableProblem(bytes);
   if (table) return { ok: false, detail: table };
+  // Since 2026-11-15 (#28 slice 4): each word's typeface (`docxTypefaces`).
+  const faces = await typefaceProblem(bytes);
+  if (faces) return { ok: false, detail: faces };
   return {
     ok: true,
-    detail: `${body.paragraphs.length} paragraph(s), fixture text found; the page's picture is between its words and the line under it, at ${box.width} × ${box.height} pt, its ${box.pixelWidth} × ${box.pixelHeight} px and colours decoded; the styled line's bold, red and 18 pt words each carry exactly their own run properties; the table is one 3 × 4 Word table, each value in its column, the empty cell empty, the header bold`,
+    detail: `${body.paragraphs.length} paragraph(s), fixture text found; the page's picture is between its words and the line under it, at ${box.width} × ${box.height} pt, its ${box.pixelWidth} × ${box.pixelHeight} px and colours decoded; the styled line's bold, red and 18 pt words each carry exactly their own run properties; the table is one 3 × 4 Word table, each value in its column, the empty cell empty, the header bold; the styled words are in Arial, the Times line in Times New Roman and the Courier line in Courier New, no eastAsia`,
   };
 }
 
