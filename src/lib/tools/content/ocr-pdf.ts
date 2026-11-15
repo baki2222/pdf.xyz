@@ -204,7 +204,7 @@ const content: ToolContent = {
     },
     {
       q: "Does OCR change how my PDF looks?",
-      a: `The ${PDF_MODE} output keeps your pages and adds hidden text underneath them, so it looks like the scan you uploaded. “Straighten crooked pages” is the exception: each page it straightens is saved as a new, level image of that page rather than the original picture. “Turn pages upright” on its own changes only which way up a page is shown, and keeps its picture. The words are not made editable on the page. To rewrite them, run the OCR'd file through PDF to Word, which turns its new text layer into paragraphs in a DOCX (and a table whose cells each fit on one line into a Word table).`,
+      a: `The ${PDF_MODE} output keeps your pages and adds hidden text underneath them, so it looks like the scan you uploaded. “Straighten crooked pages” is the exception: each page it straightens is saved as a new, level image of that page rather than the original picture. “Turn pages upright” on its own changes only which way up a page is shown, and keeps its picture. The words are not made editable on the page. To rewrite them, run the OCR'd file through PDF to Word, which turns its new text layer into paragraphs in a DOCX; a table read from a scan may come through as a Word table or as lines of text.`,
     },
     {
       q: "Can I OCR a photo or screenshot?",

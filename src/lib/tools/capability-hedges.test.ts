@@ -1330,8 +1330,13 @@ describe("the docxRunStyles subject (backlog #28 slice 1, 2026-11-15)", () => {
 
 describe("the docxTables subject (backlog #28 slice 2, 2026-11-15)", () => {
   /**
-   * BOTH DIRECTIONS (house rule 1). Measured when the key landed, over the
-   * whole corpus: exactly these thirteen — PDF to Word's intro[1], its look
+   * BOTH DIRECTIONS (house rule 1). CHANGED 2026-11-15 (review round 2):
+   * eleven, not thirteen — the scanned-PDF and Bangla-PDF guides' "not
+   * carried over" paragraphs no longer mention tables (nothing tests that a
+   * table is recognised from OCR text, so those guides now say a scanned
+   * table "may come through as a Word table or as lines of text", in their
+   * "comes through" paragraphs, which stay members). Measured when the key
+   * landed, over the whole corpus: exactly these thirteen — PDF to Word's intro[1], its look
    * FAQ answer, its tables FAQ answer and its keep FAQ answer
    * (PDF_TO_WORD_KEEPS); the convert guide's two section paragraphs and its
    * look FAQ answer (PDF_TO_WORD_KEEPS again); the add-text guide's pointer
@@ -1362,9 +1367,7 @@ describe("the docxTables subject (backlog #28 slice 2, 2026-11-15)", () => {
         "guide:how-to-convert-pdf-to-word faq[4].answer",
         "guide:how-to-add-text-to-a-pdf sections[2].body[0]",
         "guide:how-to-convert-a-scanned-pdf-to-word sections[0].body[0]",
-        "guide:how-to-convert-a-scanned-pdf-to-word sections[0].body[1]",
         "guide:how-to-convert-bangla-pdf-to-word sections[0].body[0]",
-        "guide:how-to-convert-bangla-pdf-to-word sections[0].body[1]",
       ].sort(),
     );
   });

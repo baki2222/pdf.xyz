@@ -359,8 +359,11 @@ describe("PDF to Word: the DOCX is the page's sentence", () => {
     // `TABLE_ROWS.map((row) => row.join("\t"))`, with `<w:tbl` forbidden
     // below. The table is now a Word table: read structurally, its rows are
     // the same cells.
+    // CHANGED again 2026-11-15 (review round 2): "each value in its own
+    // column" was false under a spanning heading, whose values share a
+    // cell; and a Word table needs a column of figures, as this one has.
     expect(PDF_TO_WORD_KEEPS).toContain(
-      "a table whose cells each fit on one line comes through as a Word table, each value in its own column",
+      "a table whose cells each fit on one line, with a column of figures such as amounts or dates, comes through as a Word table, each value in the column it sits under",
     );
     const tables = (await readDocxStructure(table)).blocks.filter(
       (b) => b.kind === "tbl",
