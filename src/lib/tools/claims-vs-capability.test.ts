@@ -114,6 +114,7 @@ import {
   decodePDFRawStream,
   popGraphicsState,
   pushGraphicsState,
+  rgb,
   setFillingRgbColor,
 } from "pdf-lib";
 import { describe, expect, it } from "vitest";
@@ -215,9 +216,11 @@ import { compareExtractedPdfText } from "@/components/tools/runner/compare/compa
 import {
   comparablePdf,
   linesPdf as compareLinesPdf,
+  body as compareBody,
   pageHeaderPair,
 } from "@/tests/compare-fixtures";
 import { rangeText, runCompareViewChain } from "@/tests/compare-view-chain";
+import { overlayFirstPage } from "@/tests/compare-overlay-chain";
 
 const ROOT = process.cwd();
 const read = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
@@ -3250,6 +3253,9 @@ const COMPARE_PAGE_RULE = {
     // ADDED 2026-11-15: the page view draws pages, so the offline answer
     // names the image decoder a page's drawing may fetch (tool-facts.ts).
     "a page's drawing": /\brendering a page\b/i,
+    // ADDED 2026-11-15 (S3): the overlay's page pairs and its controls.
+    "the overlay's pairs":
+      /\bpaired by number\b|\bPrevious page or Next page\b|\bmuch of the page\b/i,
   },
   denials: {
     "does not name the page": /\bdoes(?: not|n't) name the page\b/i,
@@ -3367,6 +3373,9 @@ describe("Compare PDF: the page and word claims hold of the comparison", () => {
             ...denialShapes,
             ...Object.entries(COMPARE_ON_PAGE_RULE.claims),
             ...Object.entries(COMPARE_ON_PAGE_RULE.denials),
+            // EXTENDED 2026-11-15 (S3): and the overlay rule's.
+            ...Object.entries(COMPARE_OVERLAY_RULE.claims),
+            ...Object.entries(COMPARE_OVERLAY_RULE.denials),
           ].some(([, re]) => re.test(masked));
           const named = notClaims.filter(([, re]) => re.test(masked));
           named.forEach(([n]) => used.add(n));
@@ -4067,6 +4076,198 @@ describe("PDF to Word: the typeface sentences hold of the engine", () => {
     expect(text).toMatch(/comes with Windows or Office/);
     expect(text).toMatch(/Arial, Times New Roman or Courier New/);
   });
+});
+
+/* ------------------------------------------------------------------ *
+ *  Compare PDF overlays the pages — a capability that EXISTS.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Compare PDF lays each page of the second file over the same page of the
+ * first and marks where the ink differs (audit compare-pdf#3, S3,
+ * 2026-11-15). Until then the overview said "This is a text comparison,
+ * not a visual one: a moved image or a changed colour will not appear",
+ * and the guide "this is a text comparison, not a visual one". Both were
+ * true.
+ *
+ * Shaped like COMPARE_ON_PAGE_RULE, in both directions: the CLAIMS are
+ * allowed only while the probe — the Overlay's chain (`capturePairs`
+ * through `capturePdfPages`, pdf.js drawing both pages) on two real PDFs
+ * whose text is the same — finds at least one region where one has a
+ * stamp, AND none on two separate saves of the same page (so a probe that
+ * marks everything cannot pass); the DENIALS are false while it holds.
+ * Delivery to a reader is e2e/compare-overlay.spec.ts on a served build.
+ */
+const COMPARE_OVERLAY_RULE = {
+  id: "Compare PDF overlays the pages",
+  subjects: () => slugsOfKind("compare"),
+  claims: {
+    "overlay the pages": /\boverlay(?:s|ing)? (?:the )?pages\b/i,
+    "compare pages visually": /\bcompare (?:the )?pages visually\b/i,
+    "a moved image shows": /\bmoved image\b[^.]*\bshows there\b/i,
+    // Review r1, 2026-11-15: a pale stamp or watermark was NOT seen (no
+    // pixel changed by more than 48 of 255) until the area test. The probe
+    // below now draws one, so this claim is held to it.
+    "a pale watermark shows": /\bpale watermark\b[^.]*\bshows there\b/i,
+  },
+  shipped: [
+    "Overlay pages lays each page of the second file over the page with the same number in the first, in grayscale, and marks where the ink differs: a moved image, a stamp, a pale watermark or a shifted layout shows there.",
+    "Compare two PDFs in your browser: changed lines of text, page counts and sizes, plus a visual check that overlays the pages and marks where ink differs, scans too.",
+    "Press Overlay pages to lay a page of the second file over the page with the same number in the first.",
+    "Their pages can still be compared without OCR: Compare pages visually lays one scan over the other in your browser and marks where the ink differs.",
+    "The list of changes cannot say which; Overlay pages shows where on the page.",
+  ],
+  /** Served sentences these shapes must NOT read as the claim. */
+  nonClaims: [
+    "Pages are paired by number, so one inserted page makes every later pair differ.",
+  ],
+  denials: {
+    "a text comparison, not a visual one":
+      /\ba text comparison, not a visual one\b/i,
+    "a moved image will not appear": /\bmoved image\b[^.]*\bwill not appear\b/i,
+    // Review r1, 2026-11-15: served beside the overlay after it shipped,
+    // on the catalogue line, the scan FAQ and the guide. Scans' PAGES are
+    // compared without OCR; only their text needs it ("its text needs OCR
+    // first" is not caught: the shape asks for scans needing it).
+    "scans need OCR first":
+      /\b(?:scans|scanned (?:pages|PDFs)) needs? OCR first\b/i,
+    "reads selectable text only": /\breads selectable text only\b/i,
+  },
+  denialCorpus: [
+    "This is a text comparison, not a visual one: a moved image or a changed colour will not appear, and a new font or margin shows up only where it makes the text wrap differently.",
+    "Formatting, images, colors and layout are not compared — this is a text comparison, not a visual one.",
+    "Compare two PDFs in your browser by page count, file size, and selectable text. Scanned pages need OCR first; this is not a pixel-perfect visual diff.",
+    "Compare two versions of a PDF in your browser: page count, file size and every added or removed line of text, with a downloadable report. Scans need OCR first.",
+    "Scanned PDFs need OCR first",
+    "This tool reads selectable text only.",
+  ],
+} as const;
+
+/** THE PROPERTY, through the Overlay's chain on real PDFs. */
+async function compareOverlayProbe(): Promise<Probe> {
+  const page = (stamp: boolean) =>
+    compareLinesPdf([compareBody("overlay")]).then(async (bytes) => {
+      if (!stamp) return bytes;
+      const doc = await PDFDocument.load(bytes);
+      doc.getPage(0).drawRectangle({ x: 380, y: 300, width: 160, height: 70 });
+      return doc.save();
+    });
+  const stamped = await overlayFirstPage(await page(false), await page(true));
+  const same = await overlayFirstPage(await page(false), await page(false));
+  // A pale watermark: a 0.85 grey block, under the per-pixel tolerance.
+  const pale = await compareLinesPdf([compareBody("overlay")]).then(
+    async (bytes) => {
+      const doc = await PDFDocument.load(bytes);
+      doc.getPage(0).drawRectangle({
+        x: 120,
+        y: 200,
+        width: 300,
+        height: 90,
+        color: rgb(0.85, 0.85, 0.85),
+      });
+      return doc.save();
+    },
+  );
+  const watermarked = await overlayFirstPage(await page(false), pale);
+  const sees = stamped.diff.regions.length >= 1;
+  const seesPale = watermarked.diff.regions.length >= 1;
+  const quiet = same.diff.regions.length === 0;
+  return {
+    present: sees && seesPale && quiet,
+    evidence: `stamp: ${stamped.diff.regions.length} regions; pale watermark: ${watermarked.diff.regions.length}; same page saved twice: ${same.diff.regions.length}`,
+  };
+}
+
+describe("Compare PDF: the overlay claims hold of the overlay", () => {
+  const asRule = (shapes: Readonly<Record<string, RegExp>>) =>
+    ({ shapes }) as unknown as ClaimRule;
+  const claimShapes = Object.entries(COMPARE_OVERLAY_RULE.claims);
+  const denialShapes = Object.entries(COMPARE_OVERLAY_RULE.denials);
+
+  it("the shapes and both corpora cover each other, and the non-claims stay out", () => {
+    const { shipped, denialCorpus, nonClaims } = COMPARE_OVERLAY_RULE;
+    expect(
+      claimShapes
+        .filter(([, re]) => !shipped.some((c) => re.test(c)))
+        .map(([n]) => n),
+      "claim shapes nothing exercises",
+    ).toEqual([]);
+    expect(
+      shipped.filter((c) => !claimShapes.some(([, re]) => re.test(c))),
+      "claims no shape catches",
+    ).toEqual([]);
+    expect(
+      denialShapes
+        .filter(([, re]) => !denialCorpus.some((c) => re.test(c)))
+        .map(([n]) => n),
+      "denial shapes nothing exercises",
+    ).toEqual([]);
+    expect(
+      denialCorpus.filter((c) => !denialShapes.some(([, re]) => re.test(c))),
+      "denials no shape catches",
+    ).toEqual([]);
+    expect(
+      [...nonClaims, ...denialCorpus].filter((c) =>
+        claimShapes.some(([, re]) => re.test(c)),
+      ),
+      "a non-claim or a denial read as the claim",
+    ).toEqual([]);
+    expect(
+      shipped.filter((c) => denialShapes.some(([, re]) => re.test(c))),
+    ).toEqual([]);
+  });
+
+  it("the shipped corpus and the non-claim control are served", async () => {
+    const subject = COMPARE_OVERLAY_RULE.subjects()[0]!;
+    const served = (await containersFor(subject)).flatMap((c) =>
+      attributedTo(c, subject).map(({ sentence }) => sentence),
+    );
+    for (const n of [
+      ...COMPARE_OVERLAY_RULE.nonClaims,
+      ...COMPARE_OVERLAY_RULE.shipped,
+    ])
+      expect(
+        served.some((s) => s.includes(n.slice(0, 40))),
+        n,
+      ).toBe(true);
+  });
+
+  it("the capability is there: a stamp is seen and a page saved twice is not, from real PDFs", async () => {
+    const probe = await compareOverlayProbe();
+    expect(probe.present, probe.evidence).toBe(true);
+  }, 60_000);
+
+  it("served copy claims the overlay only while it is true, and never denies it while it is", async () => {
+    const probe = await compareOverlayProbe();
+    const subjects = COMPARE_OVERLAY_RULE.subjects();
+    expect(subjects.length).toBeGreaterThan(0);
+    for (const subject of subjects) {
+      const made = await offendersOf(
+        asRule(COMPARE_OVERLAY_RULE.claims),
+        subject,
+      );
+      const denied = await offendersOf(
+        asRule(COMPARE_OVERLAY_RULE.denials),
+        subject,
+      );
+      expect(made.seen, `${subject}: corpus collapsed`).toBeGreaterThanOrEqual(
+        15,
+      );
+      if (!probe.present) {
+        expect(
+          made.offenders,
+          `${subject} claims an overlay that no longer sees anything (${probe.evidence})`,
+        ).toEqual([]);
+        continue;
+      }
+      // Health: the page does make the claim, so this check is not blind.
+      expect(made.offenders.length, subject).toBeGreaterThanOrEqual(1);
+      expect(
+        denied.offenders,
+        `${subject} denies what the overlay does`,
+      ).toEqual([]);
+    }
+  }, 60_000);
 });
 
 describe("Compare PDF: the page-view claims hold of the page view", () => {

@@ -17,8 +17,10 @@ import { KEPT_IMAGE_PIXELS } from "@/lib/pdf/kept-pages";
  *   release followed at once by an acquire keeps the same document;
  * - the same bytes on both sides are one document with two holders.
  *
- * Each open is its own pdf.js document, so its own Web Worker: two while the
- * view is open (pdfjs-dist 6 shares a worker only by port).
+ * Each open is its own pdf.js document, and every document on the page opens
+ * in the page's ONE pdf.js worker (`@/lib/pdf/pdfjs-worker`). CORRECTED
+ * 2026-11-15 (S3): this said "its own Web Worker: two while the view is
+ * open", stale since the shared worker landed.
  */
 
 /**

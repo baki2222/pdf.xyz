@@ -1103,7 +1103,7 @@ export const tools: Tool[] = [
     name: "Compare PDF",
     tagline: "Compare two PDFs locally.",
     description:
-      "Compare two PDFs in your browser by page count, file size, and selectable text. Scanned pages need OCR first; this is not a pixel-perfect visual diff.",
+      "Compare two PDFs in your browser: changed lines of text, page counts and sizes, plus a visual check that overlays the pages and marks where ink differs, scans too.",
     category: "security",
     icon: "compare",
     processing: "client",

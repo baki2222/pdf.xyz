@@ -14,8 +14,12 @@
  * processor fails `not_implemented` because no e-signature provider is wired,
  * and its own panel tells the reader delivery "needs a configured e-signature
  * provider". Compare PDF diffs the selectable TEXT of two files (after
- * collapsing whitespace) and reports page count and size. Anything that is not
- * text (an image, a moved table, a scan) is outside what it can see.
+ * collapsing whitespace) and reports page count and size. AMENDED 2026-11-15
+ * (S3): it said "Anything that is not text (an image, a moved table, a scan)
+ * is outside what it can see", false since Overlay pages, which compares the
+ * pages drawn in grayscale at about 150 dpi. What neither view can see is
+ * still real: a colour change at the same lightness, and anything smaller
+ * than a few pixels.
  *
  * THE PROPERTY, NOT THE MECHANISM (CLAUDE.md rule 2). Each ban holds while the
  * property that makes the claim false holds, and that property is MEASURED by
@@ -25,10 +29,16 @@
  *    worker runtime defaults to, is asked to deliver. Today it refuses. The
  *    probe's positive control hands the same processor a provider and watches
  *    it succeed, so "refuses" is an observation the probe CAN get wrong.
- *  - exhaustive diff: two inputs that differ (size, spacing) but carry the
- *    same words go through `compareExtractedPdfText`. Today the result says
- *    the text is identical. The control feeds two different texts and watches
- *    the result say they differ.
+ *  - exhaustive diff: two probes, one per view. The TEXT probe: two inputs
+ *    that differ (size, spacing) but carry the same words go through
+ *    `compareExtractedPdfText`, which says the text is identical (its control
+ *    feeds two different texts). The OVERLAY can see such a difference on the
+ *    page, so since 2026-11-15 (S3) the ban rests on the HUE probe: a patch
+ *    in red and the same patch in a green of the same Rec. 601 lightness, made
+ *    into planes the way the overlay makes them (`planeOf`) and compared by
+ *    `diffPlanes`, give no region (its control changes the lightness and
+ *    watches a region appear). The list cannot see colour at all, so a
+ *    change the hue probe misses is one no view of Compare PDF shows.
  *
  * If a provider is ever wired, or compare learns to see what it cannot see
  * today, the corresponding ban lifts ITSELF, and the patterns stop applying.
@@ -58,6 +68,8 @@ import { createProcessorRegistry } from "@/lib/workers/processor";
 import { signatureRequestDeps } from "@/lib/workers/request-signatures/native";
 import { compareExtractedPdfText } from "@/components/tools/runner/compare/compare-result";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
+import { diffPlanes } from "@/lib/pdf/compare/visual-diff";
+import { planeOf } from "@/components/tools/runner/compare/visual-pairs";
 import { getRunnerKind } from "@/lib/pdf/registry";
 import { resolveSpecifier, runnerArms } from "@/tests/tool-panel-modules";
 
@@ -240,6 +252,32 @@ async function deliveryOutcome(
   return { delivered: manifest?.delivery?.mode === "provider" };
 }
 
+/**
+ * Regions the Overlay finds between a patch of one colour and the same
+ * patch in another, through the plane the overlay compares (`planeOf`).
+ */
+function hueProbe(
+  r1: number,
+  g1: number,
+  b1: number,
+  r2: number,
+  g2: number,
+  b2: number,
+): number {
+  const patch = (r: number, g: number, b: number) => {
+    const data = new Uint8ClampedArray(80 * 60 * 4).fill(255);
+    for (let y = 10; y < 50; y++)
+      for (let x = 10; x < 70; x++) {
+        const i = (y * 80 + x) * 4;
+        data[i] = r;
+        data[i + 1] = g;
+        data[i + 2] = b;
+      }
+    return planeOf(data, 80, 60);
+  };
+  return diffPlanes(patch(r1, g1, b1), patch(r2, g2, b2)).regions.length;
+}
+
 function extracted(text: string): ExtractedPdfText {
   return {
     pageCount: 1,
@@ -322,6 +360,12 @@ describe("scope claims: the properties hold today", () => {
     expect(lazyImportsOf(fake, runner)).not.toEqual([PROBED_COMPARE_MODULE]);
   });
 
+  it("the overlay cannot see a hue change at equal lightness; it sees a lightness change", () => {
+    expect(hueProbe(255, 0, 0, 0, 130, 0)).toBe(0);
+    // Control: the same patch made black is seen.
+    expect(hueProbe(255, 0, 0, 0, 0, 0)).toBeGreaterThanOrEqual(1);
+  });
+
   it("positive control: two different texts compare as different", () => {
     const result = compareExtractedPdfText(
       { name: "a.pdf", size: 100, extracted: extracted("Total due: 100") },
@@ -374,11 +418,15 @@ describe("scope claims: no copy surface overclaims", () => {
   });
 
   it("no surface claims compare sees every change", () => {
-    // Same words, different spacing and size: a real change compare cannot see.
-    const blind = compareExtractedPdfText(
+    // Same words, different spacing and size: a change the LIST cannot see.
+    // The Overlay may see it on the page (S3), so it no longer decides
+    // alone: the ban rests on the hue probe, which neither view sees.
+    const textBlind = compareExtractedPdfText(
       { name: "a.pdf", size: 100, extracted: extracted("Total  due:\t100") },
       { name: "b.pdf", size: 900, extracted: extracted("Total due: 100") },
     ).identicalText;
+    expect(textBlind).toBe(true);
+    const blind = hueProbe(255, 0, 0, 0, 130, 0) === 0;
     if (!blind) return; // compare saw it: the claim is no longer false.
 
     const offenders = surfaces
