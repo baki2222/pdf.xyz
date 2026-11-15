@@ -7,6 +7,7 @@ import type {
   AiCompletionResult,
   AiProvider,
 } from "../ai/provider";
+import { bm25Scores, queryTermsFor } from "@/lib/pdf/page-retrieval";
 import { runChatWithPdf, CHAT_ENGINE, type PdfTextExtractor } from "./engine";
 
 const QUESTION: ChatOptions = { question: "What is the invoice total?" };
@@ -340,6 +341,19 @@ const LONG_PAGES = Array.from({ length: 6 }, (_, i) =>
   String.fromCharCode(97 + i).repeat(200),
 );
 
+/**
+ * HISTORY (slice 3, audit #30, 2026-11-16): the three tests below and the
+ * flat-text test above ("truncates over-long source text") were written for
+ * a worker that always sent a prefix. Page retrieval did NOT invert them,
+ * and their assertions are unchanged: they now pin the two branches where
+ * retrieval must leave the request as main sent it. "truncates over-long
+ * source text" is UNGROUNDED (no page metadata, so no page can be chosen);
+ * these three are the NO-MATCH branch (QUESTION shares no term with
+ * LONG_PAGES, so no page scores and the prefix goes byte-for-byte). The
+ * health check "QUESTION scores 0 against LONG_PAGES" at the end of this
+ * file keeps them that way: if QUESTION ever scored, they would silently
+ * become relevance tests and stop pinning anything.
+ */
 describe("a short window is disclosed — to the model and to the job record", () => {
   /**
    * Chat grounds each page as "[Page N]\n<text>", so a page's chunk is longer
@@ -485,5 +499,228 @@ describe("the download can audit the caching bet", () => {
       await zip.file("manifest.json")!.async("string"),
     );
     expect("cacheWrite" in manifest.usage).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Page retrieval (slice 3, audit #30): pages chosen for THIS question
+// ---------------------------------------------------------------------------
+
+describe("the no-match pins stay no-match", () => {
+  it("QUESTION scores 0 against LONG_PAGES", () => {
+    const chunks = LONG_PAGES.map((text, i) => ({
+      pageNumber: i + 1,
+      text: `[Page ${i + 1}]\n${text}`,
+    }));
+    const scores = bm25Scores(chunks, queryTermsFor(QUESTION.question));
+    // Health: every page is scored, so an all-zero map is a measurement.
+    expect(scores.size).toBe(6);
+    expect([...scores.values()]).toEqual([0, 0, 0, 0, 0, 0]);
+    // Positive control: a term that IS on one page scores that page.
+    const planted = bm25Scores(chunks, ["c".repeat(200)]);
+    expect(planted.get(3)).toBeGreaterThan(0);
+  });
+});
+
+const FILLER_WORDS =
+  "alpha bravo cobalt delta ember fjord granite harbor island juniper kestrel lumen meadow nickel orchard pewter quarry russet saffron timber umber velvet willow xenon yarrow zinc".split(
+    " ",
+  );
+
+/** 40 pages of seeded filler (~400 characters each), plants added by page. */
+function contract(plants: Record<number, string> = {}): string[] {
+  let a = 11;
+  const next = () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  return Array.from({ length: 40 }, (_, i) => {
+    const body = Array.from(
+      { length: 60 },
+      () => FILLER_WORDS[Math.floor(next() * FILLER_WORDS.length)]!,
+    );
+    if (plants[i + 1]) body.splice(30, 0, plants[i + 1]!);
+    return body.join(" ");
+  });
+}
+
+const CAP_3000 = { maxInputChars: 3_000 };
+const PLANTED = contract({ 30: "Zephyrine" });
+const ZEPHYRINE: ChatOptions = {
+  question: "What does the Zephyrine clause say?",
+};
+
+/** The text between the DOCUMENT START and END lines of a system prompt. */
+function documentBlock(system: string): string {
+  const open = "--- DOCUMENT START ---\n";
+  const start = system.indexOf(open);
+  const end = system.indexOf("\n--- DOCUMENT END ---");
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  return system.slice(start + open.length, end);
+}
+
+async function manifestOf(output: Uint8Array) {
+  const zip = await JSZip.loadAsync(output);
+  return JSON.parse(await zip.file("manifest.json")!.async("string"));
+}
+
+describe("a question whose page lies past the prefix gets that page", () => {
+  it("sends [Page 30] inside the document, names non-contiguous spans, and never claims pages 1-N", async () => {
+    const provider = providerReturning(SUCCESS("It says [p.30]."));
+    const run = await runChatWithPdf(INPUT, ZEPHYRINE, {
+      extract: extractorForPages(PLANTED),
+      provider,
+      limits: CAP_3000,
+    });
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    const system = provider.calls[0]!.system ?? "";
+    const doc = documentBlock(system);
+    // INSIDE the [Page 30] chunk of the document block — the question also
+    // carries the word, so "somewhere in the request" proves nothing.
+    expect(doc).toMatch(/\[Page 30\]\n[^[]*Zephyrine/);
+    expect(system).not.toMatch(/pages 1-\d+ of/);
+    expect(system).toMatch(/of 40/);
+    expect(system).toMatch(/do NOT say the document does not contain it/);
+    // The read bound: the document block plus the notice's page list is
+    // within what the route charged.
+    const list = /covers pages ([\d–, ]+) of 40/.exec(system)?.[1] ?? "";
+    expect(list).toMatch(/\b30\b/);
+    expect(doc.length + list.length).toBeLessThanOrEqual(3_000);
+
+    expect(run.meta.selection).toBe("relevance");
+    expect(run.meta.truncated).toBe(true);
+    expect(run.meta.window.selection).toBe("relevance");
+    expect(run.meta.window.lastCompletePage).toBeNull();
+    expect(run.meta.window.charactersSent).toBe(doc.length);
+    const spans = run.meta.window.pagesSent ?? [];
+    expect(spans.some(([a, b]) => a <= 30 && 30 <= b)).toBe(true);
+    // Not one opening run: the anchor and the chosen page are apart.
+    expect(spans.length).toBeGreaterThanOrEqual(2);
+    expect(run.meta.truncationNotice).toMatch(/\b30\b/);
+    expect(run.meta.truncationNotice).not.toMatch(/pages 1–\d+ of/);
+
+    const manifest = await manifestOf(run.output);
+    expect(manifest.source.selection).toBe("relevance");
+    expect(
+      (manifest.source.pagesSent as [number, number][]).some(
+        ([a, b]) => a <= 30 && 30 <= b,
+      ),
+    ).toBe(true);
+    expect(manifest.source.truncatedToCharacters).toBe(doc.length);
+    expect(manifest.schema).toBe("pdfxyz.chat/v1");
+    const readme = await (
+      await JSZip.loadAsync(run.output)
+    )
+      .file("README.txt")!
+      .async("string");
+    expect(readme).toMatch(/Pages read: .*\b30\b/);
+  });
+
+  it("does not cache a relevance request's system prompt; whole and prefix still do", async () => {
+    const relevance = providerReturning(SUCCESS("x"));
+    await runChatWithPdf(INPUT, ZEPHYRINE, {
+      extract: extractorForPages(PLANTED),
+      provider: relevance,
+      limits: CAP_3000,
+    });
+    const prefix = providerReturning(SUCCESS("x"));
+    const prefixRun = await runChatWithPdf(
+      INPUT,
+      { question: "What is the governing currency?" },
+      {
+        extract: extractorForPages(PLANTED),
+        provider: prefix,
+        limits: CAP_3000,
+      },
+    );
+    const whole = providerReturning(SUCCESS("x"));
+    const wholeRun = await runChatWithPdf(INPUT, ZEPHYRINE, {
+      extract: extractorForPages(PLANTED.slice(0, 3)),
+      provider: whole,
+    });
+    expect(relevance.calls[0]!.cacheSystem).toBe(false);
+    expect(prefix.calls[0]!.cacheSystem).toBe(true);
+    expect(whole.calls[0]!.cacheSystem).toBe(true);
+    // And each took the branch its name says.
+    expect(prefixRun.ok && prefixRun.meta.selection).toBe("prefix");
+    expect(wholeRun.ok && wholeRun.meta.selection).toBe("whole");
+    expect(prefix.calls[0]!.system).not.toContain("[Page 30]");
+    if (prefixRun.ok) expect(prefixRun.meta.window.selection).toBeUndefined();
+  });
+
+  it("sends a page the previous answer cited, outside the prefix, for a follow-up with no informative word", async () => {
+    const provider = providerReturning(SUCCESS("x"));
+    const run = await runChatWithPdf(
+      INPUT,
+      {
+        question: "And the one after?",
+        context: [
+          { role: "user", content: "What is the opening term?" },
+          { role: "assistant", content: "It is set out on [p.35]." },
+        ],
+      },
+      { extract: extractorForPages(contract()), provider, limits: CAP_3000 },
+    );
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(documentBlock(provider.calls[0]!.system ?? "")).toContain(
+      "[Page 35]\n",
+    );
+    expect(run.meta.selection).toBe("relevance");
+  });
+
+  it("the selector seam forced to prefix sends main's prefix", async () => {
+    const seamed = providerReturning(SUCCESS("x"));
+    const run = await runChatWithPdf(INPUT, ZEPHYRINE, {
+      extract: extractorForPages(PLANTED),
+      provider: seamed,
+      limits: CAP_3000,
+      selectPages: () => ({ strategy: "prefix", reason: "no-signal" }),
+    });
+    expect(run.ok && run.meta.selection).toBe("prefix");
+    expect(seamed.calls[0]!.system).not.toContain("[Page 30]");
+    expect(seamed.calls[0]!.system).toMatch(/pages 1-\d+ of 40/);
+  });
+});
+
+describe("a billed call that fails afterwards still reports what it spent", () => {
+  // Rule 3: both branches returned after a billed provider call with neither
+  // usage nor window, so the spend hook saw 0 tokens for a call that was paid.
+  const SPENT = {
+    inputTokens: 100,
+    outputTokens: 20,
+    calls: 1,
+    model: "claude-sonnet-5",
+  };
+
+  it("the empty-answer branch carries usage and window", async () => {
+    const run = await runChatWithPdf(INPUT, ZEPHYRINE, {
+      extract: extractorForPages(PLANTED),
+      provider: providerReturning(SUCCESS("   ")),
+      limits: CAP_3000,
+    });
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.kind).toBe("failed");
+    expect(run.usage).toEqual(SPENT);
+    expect(run.window?.selection).toBe("relevance");
+  });
+
+  it("the package-too-large branch carries usage and window", async () => {
+    const run = await runChatWithPdf(INPUT, QUESTION, {
+      extract: extractorForPages(["Cover page.", "Invoice total $1,200."]),
+      provider: providerReturning(SUCCESS("The total is $1,200 [p.2].")),
+      limits: { maxOutputBytes: 1 },
+    });
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.message).toMatch(/exceeds the worker size limit/);
+    expect(run.usage).toEqual(SPENT);
+    expect(run.window).toMatchObject({ truncated: false, totalPages: 2 });
   });
 });

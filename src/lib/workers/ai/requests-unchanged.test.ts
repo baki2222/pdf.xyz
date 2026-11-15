@@ -372,7 +372,7 @@ describe("AI provider requests are main's bytes wherever retrieval adds no page"
       names.filter(
         (n) =>
           n.startsWith("chat/") &&
-          fixture[n]!.some((r) => r.system.includes("ONLY PART")),
+          fixture[n]!.some((r) => (r.system ?? "").includes("ONLY PART")),
       ).length,
     ).toBeGreaterThanOrEqual(6);
   });
@@ -388,7 +388,10 @@ describe("AI provider requests are main's bytes wherever retrieval adds no page"
     const mutated = {
       ...fixture,
       "chat/prefix-no-match": [
-        { ...first, system: first.system.replace("[Page 1]", "[Page 7]") },
+        {
+          ...first,
+          system: (first.system ?? "").replace("[Page 1]", "[Page 7]"),
+        },
       ],
     };
     expect(mutated["chat/prefix-no-match"]![0]!.system).not.toBe(first.system);
