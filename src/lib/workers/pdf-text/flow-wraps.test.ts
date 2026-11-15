@@ -261,6 +261,8 @@ const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
 
 describe("flow rule 7 — the corpus (both captures) and its bounds", () => {
   it("is discovered, at least 40 samples, and at least the five named ones absorb", () => {
+    // Production's policy absorbs; `on` below is flowText with no policy.
+    expect(WORD_FLOW_POLICY).toEqual({ absorbWraps: true });
     // A corpus under the bound is the CORPUS failing, not the code (rule 4).
     expect(
       CORPUS.length,
@@ -875,5 +877,39 @@ describe("flow rule 7 — an indented first-column wrap (fitsAsCell's first clau
   it("is not absorbed into column 0: as slice 2", () => {
     expect(pageOn(indented())).toEqual(pageOff(indented()));
     expect(outside(pageOn(indented()))).toContain("time (ms)");
+  });
+});
+
+describe("flow rule 7 — the judging budget (MAX_WRAP_JUDGE_ITEMS_PER_PAGE)", () => {
+  /** n rows, each with a continuation; every other one a number (it fails). */
+  const wrapCut = (n: number) => {
+    const word = (t: string, x: number, y: number) =>
+      `<word xMin="${x}" yMin="${y}" xMax="${x + 6 * t.length}" yMax="${y + 10}">${t}</word>`;
+    const blocks: string[] = [];
+    let y = 50;
+    for (let r = 0; r < n; r++) {
+      const lines = [
+        `<line>${word(r ? `A-${r}` : "Item", 50, y)}${word(r ? "item" : "Description", 150, y)}${word(r ? "1.00" : "Amount", 400, y)}</line>`,
+      ];
+      if (r > 0) {
+        y += 12;
+        lines.push(`<line>${word(r % 2 ? "Part" : "12", 150, y)}</line>`);
+      }
+      blocks.push(`<block>${lines.join("")}</block>`);
+      y += 18;
+    }
+    return parseBboxFlow(
+      `<doc><page width="612" height="${y + 50}"><flow>${blocks.join("")}</flow></page></doc>`,
+    ).pages[0]!;
+  };
+
+  it("a 3,000-row run cut at every other continuation: bounded (4.5 s unbudgeted, measured), and no word lost", () => {
+    const page = wrapCut(3000);
+    const t0 = performance.now();
+    const out = pageOn(page);
+    const ms = performance.now() - t0;
+    expect(ms).toBeLessThan(2500);
+    expect(boxDifference(out, pageOff(page))).toEqual([]);
+    expect(charBag(out)).toBe(charBag(pageOff(page)));
   });
 });

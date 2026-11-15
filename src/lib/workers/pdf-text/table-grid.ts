@@ -84,6 +84,18 @@ export const MAX_WRAP_LINES_PER_CELL = 50;
  * `docx-table-measure.ts` are a later part of #28 slice 3).
  */
 export const MAX_WRAP_LINES_PER_PAGE = 20_000;
+/**
+ * The most run items (rows and held continuations) rule 7 may JUDGE on one
+ * page, all its judgements together; past it every further run is read as
+ * slice 2 read it. A run cut at every other continuation is judged again
+ * once per cut, each time over what is left of it, so the work grows as the
+ * square of its rows: measured 2026-11-16 on the dev host (Windows 11, Node
+ * 24, under load) without this budget, a 3-column run of 3,000 rows whose
+ * every other continuation is a number took 4,496 ms against 14 ms with
+ * absorption off (2,000 rows: 1,968 ms; 1,000: 500 ms). With it: 104 ms at
+ * 3,000 rows, 103 at 1,000. NOT yet measured in the worker image.
+ */
+export const MAX_WRAP_JUDGE_ITEMS_PER_PAGE = 100_000;
 
 /** The spans an x-range overlaps, by index (`x1 > start && x0 < end`). */
 function overlapped(

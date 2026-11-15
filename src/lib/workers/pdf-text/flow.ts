@@ -107,6 +107,9 @@
  *        the run;
  *      - the cell holds at most `MAX_WRAP_LINES_PER_CELL` continuations and
  *        the page `MAX_WRAP_LINES_PER_PAGE`;
+ *      - the page has judged fewer than `MAX_WRAP_JUDGE_ITEMS_PER_PAGE` run
+ *        items (a run cut at every other continuation is judged once per
+ *        cut: without it the work is the square of the run's rows);
  *      - the run's continuations do not outnumber its rows (the share cap):
  *        such a "table" is as likely prose beside a column; it absorbs
  *        nothing.
@@ -177,6 +180,7 @@ import {
   MAX_TABLE_CELLS_PER_PAGE,
   MAX_TABLE_SLOTS_PER_PAGE,
   MAX_WRAP_LINES_PER_CELL,
+  MAX_WRAP_JUDGE_ITEMS_PER_PAGE,
   MAX_WRAP_LINES_PER_PAGE,
   overlappedSpan,
   SEGMENT_GAP_PITCHES,
@@ -836,6 +840,8 @@ function placedPage(
   let tables = 0;
   let tablesAsTabs = 0;
   let wrapLines = 0;
+  // Rule 7's judging budget (MAX_WRAP_JUDGE_ITEMS_PER_PAGE).
+  let judged = 0;
 
   /**
    * Close one run of rows, `joins` holding the continuation lines rule 7
@@ -1078,6 +1084,13 @@ function placedPage(
         );
         continue;
       }
+      // Past the page's judging budget, slice 2's reading: a run cut at
+      // every other continuation would otherwise cost the square of its rows.
+      if (judged + items.length > MAX_WRAP_JUDGE_ITEMS_PER_PAGE) {
+        closeAsBefore(items);
+        continue;
+      }
+      judged += items.length;
       const verdict = judge(items);
       if (typeof verdict === "number") {
         // The failing continuation is an ordinary line; each side is
