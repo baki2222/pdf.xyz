@@ -241,3 +241,38 @@ describe("sanitizeJobResults — pages without their formatting (2026-11-15)", (
     expect(out).not.toHaveProperty("unmatchedWords");
   });
 });
+
+/*
+ * #28 slice 4 (2026-11-15): PDF to Word's size fallback left every word's
+ * font name out. Like `repairedBeforeConversion`, it travels only as
+ * `true`, so the panel's note cannot appear from anything else.
+ */
+describe("sanitizeJobResults — fonts left out for size", () => {
+  const base = measureOfficeExportPages(1, [
+    { pageNumber: 1, text: "a sentence that is comfortably long enough" },
+  ]);
+
+  it("carries `typefacesDroppedForSize: true` to the job record", () => {
+    expect(
+      sanitizeJobResults({
+        officeExport: { ...base, typefacesDroppedForSize: true },
+      })?.officeExport?.typefacesDroppedForSize,
+    ).toBe(true);
+  });
+
+  it("drops any other value, and adds nothing where the worker said nothing", () => {
+    for (const value of [false, 1, "true", null])
+      expect(
+        sanitizeJobResults({
+          officeExport: {
+            ...base,
+            typefacesDroppedForSize: value,
+          } as unknown as OfficeExportResultMeta,
+        })?.officeExport,
+        String(value),
+      ).not.toHaveProperty("typefacesDroppedForSize");
+    expect(
+      sanitizeJobResults({ officeExport: base })?.officeExport,
+    ).not.toHaveProperty("typefacesDroppedForSize");
+  });
+});

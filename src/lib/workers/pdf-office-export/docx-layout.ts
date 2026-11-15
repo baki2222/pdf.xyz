@@ -344,11 +344,13 @@ export function tableColumns(
  * falls between two rows of one table goes after the table's last row: a
  * paragraph cannot stand inside a row. With `tables: false` (the engine's
  * size fallback) every table is written as its tabbed rows and counted.
+ * With `typefaces: false` (the size fallback's FIRST step, since #28 slice
+ * 4) no word names a font (`./docx-run-style`, `runStylesOf`).
  */
 export function docxDocumentOf(
   flow: PdfFlowText,
   scan: PdfPageScan,
-  options: { tables?: boolean } = {},
+  options: { tables?: boolean; typefaces?: boolean } = {},
 ): DocxDocument {
   const first = scan.pages[0];
   const page = docxPageOf(first?.width ?? 612, first?.height ?? 792);
@@ -365,7 +367,13 @@ export function docxDocumentOf(
     const text = flowPages.get(n);
     const scanned = scanPages.get(n);
     const paragraphs = text?.paragraphs ?? [];
-    const styled = text?.pieces ? runStylesOf(text, scanned) : null;
+    const styled = text?.pieces
+      ? runStylesOf(
+          text,
+          scanned,
+          options.typefaces === false ? { typefaces: false } : {},
+        )
+      : null;
     if (styled) {
       worded = true;
       formatting.pages.push({

@@ -588,10 +588,13 @@ export interface PageRunStyles {
  * Every word's style on one page (see the module docblock). All null — and
  * counted by the caller — when the page reader did not read the page's text
  * (`textUnread`), read no page, or the page has more words than the cap.
+ * With `typefaces: false` (the engine's size fallback, since 2026-11-15) no
+ * style carries a typeface; nothing else changes.
  */
 export function runStylesOf(
   page: PdfFlowTextPage,
   scanned: ScannedPage | undefined,
+  options: { typefaces?: boolean } = {},
 ): PageRunStyles {
   const pieces: readonly (readonly (readonly FlowPiece[])[])[] =
     page.pieces ?? [];
@@ -610,6 +613,11 @@ export function runStylesOf(
       cell.map((piece) => {
         const style = matchPiece(piece, index);
         if (style) matched += 1;
+        if (style?.typeface && options.typefaces === false) {
+          const { typeface: _dropped, ...rest } = style;
+          void _dropped;
+          return rest;
+        }
         return style;
       }),
     ),

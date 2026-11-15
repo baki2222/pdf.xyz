@@ -20,6 +20,7 @@ import {
   docxDocumentOf,
   scannedPictures,
   type DocxDocument,
+  type DocxStyledRun,
 } from "./docx-layout";
 import { DOCX_PICTURE_OVERHEAD_BYTES, docxPackage } from "./docx-package";
 import { readDocxBody } from "./docx-read";
@@ -498,6 +499,21 @@ function withoutPictures(scan: PdfPageScan): PdfPageScan {
   };
 }
 
+/** Whether any word of `doc` names a typeface (`w:rFonts`). */
+function namesTypefaces(doc: DocxDocument): boolean {
+  const named = (runs: readonly DocxStyledRun[] | undefined) =>
+    (runs ?? []).some((r) => r.style?.typeface !== undefined);
+  return doc.pages.some((blocks) =>
+    blocks.some((b) =>
+      b.kind === "text"
+        ? (b.runs ?? []).some(named)
+        : b.kind === "table"
+          ? b.rows.some((row) => row.slots.some((s) => (s ?? []).some(named)))
+          : false,
+    ),
+  );
+}
+
 /**
  * The DOCX, since 2026-10-17: every page's paragraphs in poppler's reading
  * order (`../pdf-text/flow`), as before, and every raster picture the page
@@ -567,6 +583,23 @@ async function renderWord(
   if (rebuilt) flow = await extractFlow(rebuilt);
   let doc = docxDocumentOf(flow, scan);
   let { bytes: output, plan } = await write(doc);
+  // #28 slice 4 (typefaces, 2026-11-15): each word's `w:rFonts` costs bytes
+  // the pictures' budget never saw (it was measured on the plain text).
+  // Over the limit the typefaces go FIRST — before the tables, the
+  // formatting and the pictures main delivered — since they are what this
+  // slice added, and the note says the document opens in Word's default
+  // font (`typefacesDroppedForSize`). Every later step keeps them dropped.
+  let typefacesForSize = false;
+  if (
+    maxOutput !== undefined &&
+    output.byteLength > maxOutput &&
+    namesTypefaces(doc)
+  ) {
+    typefacesForSize = true;
+    doc = docxDocumentOf(flow, scan, { typefaces: false });
+    ({ bytes: output, plan } = await write(doc));
+  }
+  const noTypefaces = typefacesForSize ? { typefaces: false } : {};
   // Word tables the size fallback below wrote as tabbed rows: reported, and
   // named in the note beside the download (`tablesAsTextForSize`).
   let tablesForSize = 0;
@@ -584,7 +617,7 @@ async function renderWord(
     // and then its tables too. Counted, and the note says so: until then
     // the count (`tables.asTabs`) was written and nothing read it.
     tablesForSize = doc.tables!.written;
-    doc = docxDocumentOf(flow, scan, { tables: false });
+    doc = docxDocumentOf(flow, scan, { ...noTypefaces, tables: false });
     ({ bytes: output, plan } = await write(doc));
   }
   if (
@@ -603,11 +636,10 @@ async function renderWord(
       ...scan,
       pages: scan.pages.map((p) => ({ ...p, textUnread: true as const })),
     };
-    doc = docxDocumentOf(
-      flow,
-      scan,
-      tablesForSize > 0 ? { tables: false } : {},
-    );
+    doc = docxDocumentOf(flow, scan, {
+      ...noTypefaces,
+      ...(tablesForSize > 0 ? { tables: false } : {}),
+    });
     ({ bytes: output, plan } = await write(doc));
   }
   if (
@@ -621,11 +653,10 @@ async function renderWord(
     // what this engine delivered before it carried pictures, never a
     // refusal of the text.
     scan = withoutPictures(scan);
-    doc = docxDocumentOf(
-      flow,
-      scan,
-      tablesForSize > 0 ? { tables: false } : {},
-    );
+    doc = docxDocumentOf(flow, scan, {
+      ...noTypefaces,
+      ...(tablesForSize > 0 ? { tables: false } : {}),
+    });
     ({ bytes: output, plan } = await write(doc));
   }
   const refused = await undeliverableDocx(
@@ -712,6 +743,7 @@ async function renderWord(
           }
         : {}),
       tablesAsTextForSize: tablesForSize,
+      ...(typefacesForSize ? { typefacesDroppedForSize: true as const } : {}),
       ...(rebuilt ? { repairedBeforeConversion: true as const } : {}),
     }),
   };

@@ -15,8 +15,13 @@ import { describe, expect, it } from "vitest";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 import { boldItalicPdf } from "@/tests/docx-picture-fixtures";
 import { corpusDeps, wordCorpus } from "@/tests/docx-word-corpus";
-import { INLINE_CODE, inlineCodePdf } from "@/tests/pdf-office-fixtures";
+import {
+  INLINE_CODE,
+  inlineCodePdf,
+  invoicePdf,
+} from "@/tests/pdf-office-fixtures";
 import { flowStandIn } from "@/tests/poppler-flow-standin";
+import { writeWithoutTypefaces } from "@/tests/docx-without-typefaces";
 import { flowPageText } from "../pdf-text/flow";
 import { DOCX_TYPEFACES_PROBE, docxTypefacesProbePdf } from "./capability";
 import {
@@ -28,6 +33,7 @@ import {
 import {
   PDF_TO_WORD_TOOL,
   runPdfOfficeExport,
+  type PdfOfficeExportDeps,
   type PdfOfficeExportRun,
 } from "./engine";
 import { OFFICE_FAMILIES } from "./typeface";
@@ -253,4 +259,64 @@ describe("every w:rFonts the engine writes, over the whole generated corpus", ()
     // Positive control: the corpus does carry typefaces to check.
     expect(named).toBeGreaterThan(100);
   }, 300_000);
+});
+
+/**
+ * Over the output limit the typefaces go FIRST (#28 slice 4): they are what
+ * this slice added, so a file whose tables and formatting fitted before it
+ * keeps them, as the tables did for the formatting (engine.ts). The limit
+ * is measured, never typed: between the file with typefaces and the same
+ * file without them.
+ */
+describe("over the output limit the typefaces go first", () => {
+  /** The engine with every word's typeface stripped before writing. */
+  const noFaces: Partial<PdfOfficeExportDeps> = {
+    writeDocx: writeWithoutTypefaces,
+  };
+
+  it("the invoice keeps its Word table and its bold, loses its typefaces, and the result says so", async () => {
+    const pdf = await invoicePdf();
+    const deps = corpusDeps();
+    const run = async (extra: Partial<PdfOfficeExportDeps>) => {
+      const out = await runPdfOfficeExport(PDF_TO_WORD_TOOL, pdf, {
+        ...deps,
+        ...extra,
+      });
+      if (!out.ok) throw new Error(`${out.kind}: ${out.message}`);
+      return out;
+    };
+    const free = await run({});
+    const bare = await run(noFaces);
+    const freeRead = await runsOf(free.output);
+    // Health: the free file has typefaces, a Word table and bold, and the
+    // typefaces cost bytes.
+    expect(freeRead.runs.some((r) => r.fonts !== undefined)).toBe(true);
+    expect(freeRead.body.blocks.some((b) => b.kind === "tbl")).toBe(true);
+    expect(freeRead.runs.some((r) => r.b)).toBe(true);
+    expect(free.output.byteLength).toBeGreaterThan(bare.output.byteLength);
+    expect(free.coverage.typefacesDroppedForSize).toBeUndefined();
+    const limit =
+      bare.output.byteLength +
+      Math.floor((free.output.byteLength - bare.output.byteLength) / 2);
+    const limited = await run({ limits: { maxOutputBytes: limit } });
+    expect(limited.output.byteLength).toBeLessThanOrEqual(limit);
+    const read = await runsOf(limited.output);
+    expect(read.runs.filter((r) => r.fonts !== undefined)).toEqual([]);
+    expect(read.body.blocks.filter((b) => b.kind === "tbl")).toHaveLength(1);
+    expect(read.runs.filter((r) => r.b).length).toBe(
+      freeRead.runs.filter((r) => r.b).length,
+    );
+    expect(limited.coverage.typefacesDroppedForSize).toBe(true);
+    expect(limited.coverage.tablesAsTextForSize).toBe(0);
+    expect(limited.coverage.formattingMissingPageCount).toBe(0);
+    expect(docxPageTexts(read.body)).toEqual(await popplerText(pdf));
+    // Control: with room for them, the typefaces stay.
+    const roomy = await run({
+      limits: { maxOutputBytes: free.output.byteLength },
+    });
+    expect(
+      (await runsOf(roomy.output)).runs.some((r) => r.fonts !== undefined),
+    ).toBe(true);
+    expect(roomy.coverage.typefacesDroppedForSize).toBeUndefined();
+  }, 120_000);
 });

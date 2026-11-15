@@ -38,7 +38,6 @@ import {
   type FontClass,
   type PdfPageScan,
   type ScannedPicture,
-  type ScannedRun,
   type ScannedTextLine,
 } from "./page-scan";
 import {

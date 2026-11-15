@@ -11,6 +11,7 @@ import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 import { captionedPicturesPdf } from "@/tests/docx-picture-fixtures";
 import { corpusDeps } from "@/tests/docx-word-corpus";
 import { flowStandIn } from "@/tests/poppler-flow-standin";
+import { writeWithoutTypefaces } from "@/tests/docx-without-typefaces";
 import { flowPageText } from "../pdf-text/flow";
 import { DOCX_RUN_STYLES_PROBE, docxRunStylesProbePdf } from "./capability";
 import type { DocxDocument } from "./docx-layout";
@@ -177,7 +178,15 @@ describe("each word keeps its formatting, through the engine", () => {
     // One byte under the formatted file: the formatted file cannot go
     // out whole, while the plain writer (main's file) carries every picture
     // at this limit — checked, not assumed.
-    const limit = styled.output.byteLength - 1;
+    // INVERTED 2026-11-15 (#28 slice 4). HISTORY: "the formatted file" was
+    // the free export; since the typefaces go first over the limit, one
+    // byte under it only dropped them and the formatting stayed. It is now
+    // the formatted file without its typefaces, the first step's result.
+    const faceless = await word(pdf, { writeDocx: writeWithoutTypefaces });
+    expect(styled.output.byteLength).toBeGreaterThan(
+      faceless.output.byteLength,
+    );
+    const limit = faceless.output.byteLength - 1;
     const onMain = await word(pdf, {
       writeDocx: unstyled,
       limits: { maxOutputBytes: limit },
