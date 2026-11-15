@@ -19,16 +19,27 @@
  *
  * Each paragraph is written as runs (`w:r`), one per stretch of words in one
  * formatting (`./docx-run-style`, coalesced by `./docx-layout`), each run's
- * `w:rPr` in the schema's order: `w:b` and `w:bCs` when bold, `w:i` and
- * `w:iCs` when italic, `w:color`, then `w:sz` and `w:szCs`. The
- * complex-script twins are ALWAYS written beside the plain ones, so Bengali
- * and Arabic text gets the weight and the size too (Word reads the `Cs`
- * property for those scripts). A word with no style has no `w:rPr` at all:
- * Word's default. A tabbed row's cells — since #28 slice 2 only a lone
- * wide-gapped line or a table kept as tabs — are separated by a tab in a run
- * of its own. No typeface (`w:rFonts`), no paragraph properties (`w:pPr`),
+ * `w:rPr` in the schema's order: `w:rFonts` when the word has a typeface,
+ * `w:b` and `w:bCs` when bold, `w:i` and `w:iCs` when italic, `w:color`,
+ * then `w:sz` and `w:szCs`. The complex-script twins are ALWAYS written
+ * beside the plain ones, so Bengali and Arabic text gets the weight and the
+ * size too (Word reads the `Cs` property for those scripts). A word with no
+ * style has no `w:rPr` at all: Word's default. A tabbed row's cells — since
+ * #28 slice 2 only a lone wide-gapped line or a table kept as tabs — are
+ * separated by a tab in a run of its own. No paragraph properties (`w:pPr`),
  * and no styles part: Word supplies its built-in defaults for a package
  * without one.
+ *
+ * THE TYPEFACE (#28 slice 4, since 2026-11-15; until then no run had a
+ * `w:rFonts` and every word opened in Word's default font). `w:rFonts`
+ * carries ONE Office family (`./typeface`: a family Windows or Office ships,
+ * or Arial, Times New Roman or Courier New by the PDF font's kind) in
+ * `w:ascii`, `w:hAnsi` and `w:cs`, in that order. Never `w:eastAsia`, a
+ * `w:hint` or a theme font. Only the NAME: no font is embedded, there is no
+ * font table part (`word/fontTable.xml`) and no `word/fonts/` part. A word
+ * with a letter outside Latin, a symbol or dingbat word, and an OCR layer's
+ * words carry no `w:rFonts` (`./docx-run-style`), so Word chooses their
+ * font; a hand-built page's paragraph style (`whole`, below) has none.
  *
  * ── WHAT A TABLE IS IN THE FILE (since #28 slice 2, 2026-11-15) ─────────────
  *
@@ -72,7 +83,14 @@ const TWIPS_PER_POINT = 20;
 /** `w:rPr` for a style, children in `CT_RPr` order; "" for Word's default. */
 function runProperties(style: DocxRunStyle | null): string {
   if (!style) return "";
+  // `w:rFonts` first (CT_RPr: rStyle, rFonts, b, …), its attributes in
+  // CT_Fonts order (hint, ascii, hAnsi, eastAsia, cs): never eastAsia, a
+  // hint or a theme font (module docblock).
+  const face = style.typeface ? xmlEscape(style.typeface) : null;
   const props =
+    (face
+      ? `<w:rFonts w:ascii="${face}" w:hAnsi="${face}" w:cs="${face}"/>`
+      : "") +
     (style.bold ? "<w:b/><w:bCs/>" : "") +
     (style.italic ? "<w:i/><w:iCs/>" : "") +
     (style.color ? `<w:color w:val="${style.color}"/>` : "") +

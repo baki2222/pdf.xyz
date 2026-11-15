@@ -1064,3 +1064,37 @@ export async function continuedTablePdf(more: number): Promise<Uint8Array> {
   second.drawText(closing, { x: 72, y: 740 - more * 16 - 40, size: 11, font });
   return doc.save();
 }
+
+/**
+ * #28 slice 4 (typefaces, 2026-11-15): "Call printf now" on one baseline,
+ * 12 points, `printf` in Courier and the rest in Times-Roman — one style
+ * (size, colour, weight) in two faces, so the page reader's runs JOIN for
+ * the style and only the typeface tells the words apart. A second line,
+ * all Times, under it. Standard fonts: nothing is embedded.
+ */
+export const INLINE_CODE = {
+  before: "Call ",
+  code: "printf",
+  after: " now",
+  second: "Plain Times line under it",
+} as const;
+
+export async function inlineCodePdf(): Promise<Uint8Array> {
+  const t = INLINE_CODE;
+  const doc = await PDFDocument.create();
+  const all = Object.values(t);
+  const times = await embedDrawingFont(doc, all, "serif");
+  const courier = await embedDrawingFont(doc, all, "mono");
+  const page = doc.addPage([612, 792]);
+  let x = 72;
+  for (const [text, font] of [
+    [t.before, times],
+    [t.code, courier],
+    [t.after, times],
+  ] as const) {
+    page.drawText(text, { x, y: 700, size: 12, font });
+    x += font.widthOfTextAtSize(text, 12);
+  }
+  page.drawText(t.second, { x: 72, y: 670, size: 12, font: times });
+  return doc.save();
+}

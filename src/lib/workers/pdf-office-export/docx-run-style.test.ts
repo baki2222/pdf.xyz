@@ -33,7 +33,9 @@ import { docxPackage } from "./docx-package";
 import {
   MAX_STYLED_PIECES_PER_PAGE,
   normalText,
+  runKey,
   runStylesOf,
+  styleKey,
   styleOfRun,
   TEXT_WINDOW,
   textHolds,
@@ -168,10 +170,12 @@ describe("runStylesOf — the controls", () => {
       ]),
     ]);
     const [big, red, faint, black] = flat(runStylesOf(p, s).styles);
-    expect(big).toEqual({ halfPoints: 36 });
-    expect(red).toEqual({ halfPoints: 24, color: "FF0000" });
-    expect(faint).toEqual({ halfPoints: 24 });
-    expect(black).toEqual({ halfPoints: 24 });
+    // Since 2026-11-15 (#28 slice 4) a matched word also carries its
+    // typeface: these runs are Helvetica, written as Arial.
+    expect(big).toEqual({ halfPoints: 36, typeface: "Arial" });
+    expect(red).toEqual({ halfPoints: 24, color: "FF0000", typeface: "Arial" });
+    expect(faint).toEqual({ halfPoints: 24, typeface: "Arial" });
+    expect(black).toEqual({ halfPoints: 24, typeface: "Arial" });
   });
 
   it("a size is rounded to half-points and held to Word's range", () => {
@@ -188,7 +192,7 @@ describe("runStylesOf — the controls", () => {
       line(72, 100, [["turned", 100, { bold: true }]], { rotation: 90 }),
     ]);
     expect(flat(runStylesOf(p, uniform).styles)).toEqual([
-      { bold: true, halfPoints: 24 },
+      { bold: true, halfPoints: 24, typeface: "Arial" },
     ]);
     const mixed = scanned([
       line(
@@ -296,7 +300,7 @@ describe("runStylesOf — the controls", () => {
     const got = runStylesOf(p, s);
     expect(flat(got.styles)).toEqual([
       null,
-      { halfPoints: 24, color: "AA00AA" },
+      { halfPoints: 24, color: "AA00AA", typeface: "Arial" },
     ]);
     expect(got).toMatchObject({ matched: 1, total: 2 });
   });
@@ -309,8 +313,8 @@ describe("runStylesOf — the controls", () => {
     const under = line(72, 100, [["under words here", 90]]);
     const over = line(80, 100, [["OVER", 28, { bold: true, color: "00AA00" }]]);
     expect(flat(runStylesOf(p, scanned([under, over])).styles)).toEqual([
-      { halfPoints: 24 },
-      { bold: true, halfPoints: 24, color: "00AA00" },
+      { halfPoints: 24, typeface: "Arial" },
+      { bold: true, halfPoints: 24, color: "00AA00", typeface: "Arial" },
     ]);
     // Where BOTH texts hold the word, two styles is no style.
     const twin = line(72, 100, [["OVER under", 60]]);
@@ -336,7 +340,7 @@ describe("runStylesOf — the controls", () => {
     // Positive control: its own text, inside its outline.
     expect(
       flat(runStylesOf(page([["CONFIDENTIAL", 262, 282]], 325, 10), s).styles),
-    ).toEqual([{ bold: true, halfPoints: 24 }]);
+    ).toEqual([{ bold: true, halfPoints: 24, typeface: "Arial" }]);
   });
 
   it("runs side by side in one style join, so a word the reader split by font is matched", () => {
@@ -377,7 +381,7 @@ describe("runStylesOf — the controls", () => {
       mediaFrame: [1, 0, 0, 1, 0, 20],
     });
     expect(flat(runStylesOf(p, s).styles)).toEqual([
-      { italic: true, halfPoints: 24 },
+      { italic: true, halfPoints: 24, typeface: "Arial" },
     ]);
     // Control: without the frame the same run is 20 pt off and matches nothing.
     expect(
@@ -547,3 +551,170 @@ describe("formatting over every generated Word fixture", () => {
  * the real-poppler pairs above still 677 of 677.
  */
 const CORPUS_MATCHED_RATE = 0.99;
+
+/* ------------------------------------------------------------------ *
+ *  #28 slice 4 (2026-11-15): each word's typeface, key `docxTypefaces`
+ * ------------------------------------------------------------------ */
+
+const TIMES: Partial<ScannedRun> = { family: "Times", fontClass: "serif" };
+const COURIER: Partial<ScannedRun> = { family: "Courier", fontClass: "mono" };
+
+describe("runStylesOf — the typeface, decided inside the candidates that gave the style", () => {
+  it("a matched word carries the Office family of the run it is drawn in", () => {
+    const p = page([["Hello", 72, 102]]);
+    const s = scanned([line(72, 100, [["Hello", 30]])]);
+    expect(flat(runStylesOf(p, s).styles)).toEqual([
+      { halfPoints: 24, typeface: "Arial" },
+    ]);
+  });
+
+  it("inline code: the Courier word alone is Courier New, though the joined run spans both faces", () => {
+    // One style (12 pt, black) in two faces: the page reader's runs join
+    // into one run for the style, and its parts keep their faces.
+    const p = page([
+      ["Call", 72, 94],
+      ["printf", 97, 127],
+      ["now", 130, 150],
+    ]);
+    const s = scanned([
+      line(72, 100, [
+        ["Call ", 25, TIMES],
+        ["printf", 30, COURIER],
+        [" now", 20, TIMES],
+      ]),
+    ]);
+    const got = flat(runStylesOf(p, s).styles);
+    expect(got.map((x) => x?.typeface)).toEqual([
+      "Times New Roman",
+      "Courier New",
+      "Times New Roman",
+    ]);
+    // The style is the joined run's, unchanged.
+    expect(got.map((x) => styleKey(x))).toEqual(["|24|", "|24|", "|24|"]);
+  });
+
+  it("a word straddling two faces is held by neither part's text: no typeface, and it keeps its style", () => {
+    const p = page([["Hello", 72, 97]]);
+    const s = scanned([
+      line(72, 100, [
+        ["Hel", 15, TIMES],
+        ["lo", 10, COURIER],
+      ]),
+    ]);
+    expect(flat(runStylesOf(p, s).styles)).toEqual([{ halfPoints: 24 }]);
+  });
+
+  it("a turned line in one face takes that face; a turned line in two faces keeps its style and takes none", () => {
+    const p = page([["turned", 118, 126]], 90, 20);
+    const one = scanned([
+      line(72, 100, [["turned", 100, { ...TIMES, bold: true }]], {
+        rotation: 90,
+      }),
+    ]);
+    expect(flat(runStylesOf(p, one).styles)).toEqual([
+      { bold: true, halfPoints: 24, typeface: "Times New Roman" },
+    ]);
+    const two = scanned([
+      line(
+        72,
+        100,
+        [
+          ["tur", 50, { ...TIMES, bold: true }],
+          ["ned", 50, { ...COURIER, bold: true }],
+        ],
+        { rotation: 90 },
+      ),
+    ]);
+    expect(flat(runStylesOf(p, two).styles)).toEqual([
+      { bold: true, halfPoints: 24 },
+    ]);
+  });
+
+  it("a right-to-left line in one style: its words keep the style and take no typeface (not Latin)", () => {
+    const p = page([
+      ["مرحبا", 72, 110],
+      ["بالعالم", 115, 160],
+    ]);
+    const s = scanned([
+      line(72, 100, [
+        ["مرحبا ", 43, { bold: true }],
+        ["بالعالم", 45, { bold: true }],
+      ]),
+    ]);
+    expect(flat(runStylesOf(p, s).styles)).toEqual([
+      { bold: true, halfPoints: 24 },
+      { bold: true, halfPoints: 24 },
+    ]);
+  });
+
+  it("an unmatched word has no style and no typeface", () => {
+    const p = page([["edge", 72, 112]]);
+    const s = scanned([line(100, 100, [["e", 30, TIMES]])]);
+    expect(flat(runStylesOf(p, s).styles)).toEqual([null]);
+  });
+
+  it("a mixed line 'Total মোট 42': the Latin word and the number take the face, the Bengali word keeps its style and takes none", () => {
+    const p = page([
+      ["Total", 72, 102],
+      ["মোট", 107, 127],
+      ["42", 132, 144],
+    ]);
+    const s = scanned([
+      line(72, 100, [
+        ["Total ", 33, TIMES],
+        ["মোট ", 25, { family: "Noto Sans Bengali", fontClass: "sans" }],
+        ["42", 14, TIMES],
+      ]),
+    ]);
+    expect(flat(runStylesOf(p, s).styles)).toEqual([
+      { halfPoints: 24, typeface: "Times New Roman" },
+      { halfPoints: 24 },
+      { halfPoints: 24, typeface: "Times New Roman" },
+    ]);
+  });
+
+  it("a dingbat on a line takes no typeface (poppler's Unicode in Wingdings would draw the wrong glyph), and keeps its style", () => {
+    const p = page([
+      ["Done", 72, 97],
+      ["✓", 102, 110],
+    ]);
+    const s = scanned([
+      line(72, 100, [
+        ["Done ", 30],
+        ["✓", 8, { family: "ZapfDingbats" }],
+      ]),
+    ]);
+    expect(flat(runStylesOf(p, s).styles)).toEqual([
+      { halfPoints: 24, typeface: "Arial" },
+      { halfPoints: 24 },
+    ]);
+  });
+
+  it("a blank run in another face neither breaks the join nor gives the words beside it a second face", () => {
+    const p = page([
+      ["one", 72, 90],
+      ["two", 100, 118],
+    ]);
+    const s = scanned([
+      line(72, 100, [
+        ["one", 20, TIMES],
+        ["  ", 8, COURIER],
+        ["two", 20, TIMES],
+      ]),
+    ]);
+    expect(flat(runStylesOf(p, s).styles)).toEqual([
+      { halfPoints: 24, typeface: "Times New Roman" },
+      { halfPoints: 24, typeface: "Times New Roman" },
+    ]);
+  });
+
+  it("runKey separates typefaces; styleKey does not see them (the join and the line tests stay as they were)", () => {
+    const a: DocxRunStyle = { halfPoints: 24, typeface: "Arial" };
+    const b: DocxRunStyle = { halfPoints: 24, typeface: "Courier New" };
+    expect(styleKey(a)).toBe(styleKey(b));
+    expect(styleKey(a)).toBe(styleKey({ halfPoints: 24 }));
+    expect(runKey(a)).not.toBe(runKey(b));
+    expect(runKey({ halfPoints: 24 })).not.toBe(runKey(a));
+    expect(runKey(null)).toBe("-|");
+  });
+});

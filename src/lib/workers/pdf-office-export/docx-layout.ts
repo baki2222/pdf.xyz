@@ -57,7 +57,7 @@
  * page (60 with half-inch margins), 33 on a portrait page.
  */
 import type { FlowBox, PdfFlowText } from "../pdf-text/flow";
-import { runStylesOf, styleKey, type DocxRunStyle } from "./docx-run-style";
+import { runKey, runStylesOf, type DocxRunStyle } from "./docx-run-style";
 import { mapBox } from "./media-frame";
 import type {
   PdfPageScan,
@@ -506,7 +506,7 @@ function coalesce(runs: readonly DocxStyledRun[]): DocxStyledRun[] {
   const out: DocxStyledRun[] = [];
   for (const run of runs) {
     const last = out[out.length - 1];
-    if (last && styleKey(last.style) === styleKey(run.style))
+    if (last && runKey(last.style) === runKey(run.style))
       out[out.length - 1] = { text: last.text + run.text, style: last.style };
     else out.push({ ...run });
   }

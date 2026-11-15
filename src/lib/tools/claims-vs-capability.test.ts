@@ -168,7 +168,7 @@ import {
   MAX_PICTURE_SIDE,
   scanPdfPages,
 } from "@/lib/workers/pdf-office-export/page-scan";
-import { typefaceFor } from "@/lib/workers/pdf-office-export/deck-from-scan";
+import { typefaceFor } from "@/lib/workers/pdf-office-export/typeface";
 import {
   MAX_DECODED_IMAGE_PIXELS,
   MAX_DOCX_PICTURES,

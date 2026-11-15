@@ -18,12 +18,13 @@
  * top, and that ascent is PowerPoint's (the font's Windows ascent), not the
  * PDF's. So each box's top is the PDF baseline minus that ascent, per
  * typeface ({@link TYPEFACE_METRICS}); the box does not wrap, and sizes to its
- * text. Fonts are mapped to a typeface PowerPoint for Windows has: a family
- * Office or Windows ships keeps its name ({@link OFFICE_FAMILIES}); a free
- * metric clone of one (Liberation, Carlito, Caladea — the faces a PDF made by
- * LibreOffice on Linux is set in) becomes the family it clones; any other
- * becomes Arial, Times New Roman or Courier New by the PDF font's own serif /
- * sans / monospace class.
+ * text. Fonts are mapped to a typeface PowerPoint for Windows has by
+ * `./typeface` (`typefaceFor`; moved there 2026-11-15 so PDF to Word shares
+ * the one mapping): a family Office or Windows ships keeps its name
+ * (`OFFICE_FAMILIES`); a free metric clone of one (Liberation, Carlito,
+ * Caladea — the faces a PDF made by LibreOffice on Linux is set in) becomes
+ * the family it clones; any other becomes Arial, Times New Roman or Courier
+ * New by the PDF font's own serif / sans / monospace class.
  *
  * Until 2026-10-11 the clones, and DejaVu and Noto, kept their own names: a
  * Linux PDF's deck asked PowerPoint for Windows for fonts it does not ship,
@@ -31,7 +32,6 @@
  * have". (The worker's LibreOffice, which turns decks back into PDFs, maps
  * the Office names to the same clones, so nothing is lost there.)
  */
-import { OFFICE_METRIC_CLONES } from "../office-conversion/fonts";
 import { fitCentred } from "./fidelity";
 import {
   SYMBOL_FAMILY,
@@ -50,6 +50,7 @@ import {
   type PptxShape,
   type Xfrm,
 } from "./pptx-package";
+import { sameWidths, typefaceFor } from "./typeface";
 
 /**
  * PowerPoint's first-baseline offset and single line height, in ems, for the
@@ -71,119 +72,11 @@ export const TYPEFACE_METRICS: Readonly<
 };
 const DEFAULT_METRICS = { ascent: 0.9, line: 1.2 };
 
-/**
- * Families kept by name: ones Office or Windows ships, so PowerPoint for
- * Windows has them. Nothing else may be here: `claims-vs-capability.test.ts`
- * holds this list to the page's font sentence.
- */
-export const OFFICE_FAMILIES = [
-  "Arial",
-  "Arial Black",
-  "Arial Narrow",
-  "Aptos",
-  "Bahnschrift",
-  "Book Antiqua",
-  "Bookman Old Style",
-  "Calibri",
-  "Calibri Light",
-  "Cambria",
-  "Candara",
-  "Century",
-  "Century Gothic",
-  "Comic Sans MS",
-  "Consolas",
-  "Constantia",
-  "Corbel",
-  "Courier New",
-  "Franklin Gothic Medium",
-  "Garamond",
-  "Georgia",
-  "Gill Sans MT",
-  "Impact",
-  "Lucida Console",
-  "Lucida Sans Unicode",
-  "Palatino Linotype",
-  "Segoe UI",
-  "Segoe UI Symbol",
-  "Tahoma",
-  "Times New Roman",
-  "Trebuchet MS",
-  "Verdana",
-  "Symbol",
-  "Wingdings",
-  "Wingdings 2",
-  "Wingdings 3",
-  "Webdings",
-] as const;
-const KNOWN = new Map<string, string>(
-  OFFICE_FAMILIES.map((f) => [f.toLowerCase(), f]),
-);
-/** Each free metric clone, by the Office family it was cut to match. */
-const CLONES: Readonly<Record<string, string>> = Object.fromEntries(
-  OFFICE_METRIC_CLONES.map((c) => [c.clone.toLowerCase(), c.office]),
-);
-const ALIASES: Readonly<Record<string, string>> = {
-  helvetica: "Arial",
-  "helvetica neue": "Arial",
-  arial: "Arial",
-  times: "Times New Roman",
-  "times roman": "Times New Roman",
-  courier: "Courier New",
-  "zapf dingbats": "Wingdings",
-  "itc zapf dingbats": "Wingdings",
-  ...CLONES,
-};
-/**
- * Aliases whose target draws the SAME advance widths (Arial was cut to
- * Helvetica's metrics, Times New Roman to Times', Courier New to Courier's,
- * and each clone to its Office family's). Only for these, and for families
- * kept by name, does the PDF's own spacing carry over (`spc`): measured
- * against another face it would be wrong.
- */
-const METRIC_ALIASES = new Set([
-  "helvetica",
-  "times",
-  "times roman",
-  "courier",
-  ...Object.keys(CLONES),
-]);
-const CLASS_DEFAULT: Readonly<Record<FontClass, string>> = {
-  sans: "Arial",
-  serif: "Times New Roman",
-  mono: "Courier New",
-};
 const PITCH_FAMILY: Readonly<Record<FontClass, number>> = {
   serif: 18,
   sans: 34,
   mono: 49,
 };
-/** The Private Use Area (U+E000–U+F8FF), where unmapped symbol glyphs land. */
-const PRIVATE_USE = new RegExp(
-  `[${String.fromCharCode(0xe000)}-${String.fromCharCode(0xf8ff)}]`,
-);
-
-/**
- * The typeface a run is written in. A symbol font whose glyphs pdf.js mapped
- * to real characters (an arrow, a check mark) is written in `fallback`, the
- * line's text face: the character is right and Wingdings would draw it wrong.
- */
-export function typefaceFor(
-  run: Pick<ScannedRun, "family" | "fontClass" | "text">,
-  fallback?: string,
-): string {
-  const name = run.family.trim();
-  const lower = name.toLowerCase();
-  if (SYMBOL_FAMILY.test(name) && !PRIVATE_USE.test(run.text))
-    return fallback ?? CLASS_DEFAULT[run.fontClass];
-  return KNOWN.get(lower) ?? ALIASES[lower] ?? CLASS_DEFAULT[run.fontClass];
-}
-
-/** Does the deck draw this run in a face with the PDF font's own widths? */
-function sameWidths(run: Pick<ScannedRun, "family">): boolean {
-  const lower = run.family.trim().toLowerCase();
-  if (SYMBOL_FAMILY.test(lower)) return false;
-  return KNOWN.has(lower) || METRIC_ALIASES.has(lower);
-}
 
 function metricsFor(typeface: string) {
   return TYPEFACE_METRICS[typeface] ?? DEFAULT_METRICS;

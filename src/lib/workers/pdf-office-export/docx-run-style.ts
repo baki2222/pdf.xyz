@@ -55,14 +55,40 @@
  *
  * Bold and italic from the run's face; the size, in half-points, rounded and
  * held to Word's range (`HALF_POINTS_RANGE`); the colour, unless it is black,
- * unknown (a pattern fill) or mostly transparent. Not the typeface: Word has
- * the PDF's fonts only when the reader's machine does, and embedding them is
- * a separate piece of work.
+ * unknown (a pattern fill) or mostly transparent.
+ *
+ * ── THE TYPEFACE (#28 slice 4, since 2026-11-15, key `docxTypefaces`) ───────
+ *
+ * Until 2026-11-15 a style was "not the typeface", and every word came out
+ * in Word's default font. Now a word also carries an Office family
+ * (`typeface`), decided AFTER its style and never changing it:
+ *  - the family is `./typeface`'s (`docxTypefaceOf`): a family Office or
+ *    Windows ships by its name, a metric clone as the family it clones,
+ *    anything else Arial, Times New Roman or Courier New by the PDF font's
+ *    class. Only the name: no font is embedded;
+ *  - a word takes one only when EVERY candidate that gave it its style has
+ *    a member run — a part of the joined run, overlapping half the word,
+ *    whose own text holds it (the same two tests a run passes) — and every
+ *    such part names the SAME family. A word straddling two faces is in no
+ *    part's text, so it keeps its style and takes no typeface;
+ *  - a turned, right-to-left or unlocated line gives the family all its
+ *    visible runs share, if they share one;
+ *  - an invisible run (an OCR layer) and a symbol or dingbat face name none
+ *    (poppler's Unicode set in Wingdings would draw the wrong glyphs);
+ *  - a word with any letter outside Latin (`WORD_SCRIPT_SAFE`: Bengali,
+ *    Greek, Arabic, CJK…) takes none, so Word keeps its own font for that
+ *    script; its bold, italics, size and colour are kept.
+ * `styleKey` does not see the typeface, so the join, a line's one style and
+ * the candidates' agreement are exactly what they were; `runKey` does, and
+ * is what keeps two faces in two Word runs. Each sentence here is pinned by
+ * `docx-run-style.test.ts` ("the typeface, decided inside the candidates")
+ * and by the truth test's "typeface never changes a word's style".
  */
 import type { FlowPiece, PdfFlowTextPage } from "../pdf-text/flow";
 import { mapBox } from "./media-frame";
 import { HALF_POINTS_RANGE } from "./docx-structure";
 import type { ScannedPage, ScannedRun, ScannedTextLine } from "./page-scan";
+import { docxTypefaceOf, WORD_SCRIPT_SAFE } from "./typeface";
 
 export interface DocxRunStyle {
   bold?: true;
@@ -71,6 +97,11 @@ export interface DocxRunStyle {
   halfPoints?: number;
   /** "RRGGBB", never black. */
   color?: string;
+  /**
+   * An Office family (`./typeface`), written as `w:rFonts` ascii, hAnsi and
+   * cs; absent when the word's typeface is not certain (module docblock).
+   */
+  typeface?: string;
 }
 
 /**
@@ -111,11 +142,23 @@ const RTL_SCRIPT = /[\p{Script=Arabic}\p{Script=Hebrew}]/u;
 type Box = readonly [number, number, number, number];
 type Point = readonly [number, number];
 
+/** One visible member run of a joined {@link RunBox}: its box, text, face. */
+interface RunPart {
+  box: Box;
+  /** Its characters, {@link normalText}. */
+  text: string;
+  /** `docxTypefaceOf` the member run: null for a symbol face. */
+  typeface: string | null;
+}
+
 interface RunBox {
   box: Box;
   style: DocxRunStyle;
   /** Its characters, {@link normalText}. */
   text: string;
+  /** Its member runs, sorted by left edge, and the widest of them. */
+  parts: RunPart[];
+  widestPart: number;
 }
 
 interface LineBox {
@@ -127,6 +170,8 @@ interface LineBox {
   style: DocxRunStyle;
   /** Its characters, {@link normalText}. */
   text: string;
+  /** The family all its visible runs share (`docxTypefaceOf`), or null. */
+  typeface: string | null;
 }
 
 /**
@@ -209,10 +254,19 @@ export function styleOfRun(run: ScannedRun): DocxRunStyle {
   };
 }
 
-/** Two styles are one run in Word when this is equal. */
+/**
+ * Two styles are one style when this is equal: the run join, a line's one
+ * style, the candidates' agreement. It does NOT see the typeface, so the
+ * matcher's style decision is the one it made before typefaces (2026-11-15).
+ */
 export function styleKey(style: DocxRunStyle | null): string {
   if (!style) return "-";
   return `${style.bold ? "b" : ""}${style.italic ? "i" : ""}|${style.halfPoints ?? ""}|${style.color ?? ""}`;
+}
+
+/** Two styled words are one Word run when this is equal: style AND typeface. */
+export function runKey(style: DocxRunStyle | null): string {
+  return `${styleKey(style)}|${style?.typeface ?? ""}`;
 }
 
 /**
@@ -275,7 +329,7 @@ interface PageIndex {
 }
 
 /** The first index in `runs` (sorted by left edge) whose left edge is >= x. */
-function firstFrom(runs: readonly RunBox[], x: number): number {
+function firstFrom(runs: readonly { box: Box }[], x: number): number {
   let lo = 0;
   let hi = runs.length;
   while (lo < hi) {
@@ -309,6 +363,7 @@ function indexOf(scanned: ScannedPage): PageIndex {
         style: DocxRunStyle;
         key: string;
         text: string;
+        parts: RunPart[];
       }[] = [];
       let previous: ScannedRun | null = null;
       for (const run of item.runs) {
@@ -321,9 +376,20 @@ function indexOf(scanned: ScannedPage): PageIndex {
         const style = styleOfRun(run);
         const key = styleKey(style);
         const last = joined.at(-1);
+        const part: RunPart = {
+          box: mapBox(frame, [
+            item.x + run.offset!,
+            item.y,
+            item.x + run.offset! + run.extent!,
+            item.y + item.height,
+          ]),
+          text: normalText(run.text),
+          typeface: docxTypefaceOf(run),
+        };
         if (previous && last && last.key === key) {
           last.to = run.offset! + run.extent!;
           last.text += run.text;
+          last.parts.push(part);
         } else {
           joined.push({
             from: run.offset!,
@@ -331,6 +397,7 @@ function indexOf(scanned: ScannedPage): PageIndex {
             style,
             key,
             text: run.text,
+            parts: [part],
           });
         }
         previous = run;
@@ -344,7 +411,17 @@ function indexOf(scanned: ScannedPage): PageIndex {
         ]);
         const bucket = Math.floor((box[1] + box[3]) / 2 / BUCKET_PT);
         const list = byBucket.get(bucket);
-        const entry = { box, style: run.style, text: normalText(run.text) };
+        run.parts.sort((p, q) => p.box[0] - q.box[0]);
+        let widestPart = 0;
+        for (const p of run.parts)
+          widestPart = Math.max(widestPart, p.box[2] - p.box[0]);
+        const entry: RunBox = {
+          box,
+          style: run.style,
+          text: normalText(run.text),
+          parts: run.parts,
+          widestPart,
+        };
         if (list) list.push(entry);
         else byBucket.set(bucket, [entry]);
       }
@@ -356,11 +433,14 @@ function indexOf(scanned: ScannedPage): PageIndex {
     if (!visible.every((r) => styleKey(styleOfRun(r)) === key)) continue;
     const quad = turnedQuad(item, frame);
     const box = boxAround(quad);
+    const faces = new Set(visible.map((r) => docxTypefaceOf(r)));
+    const [face] = faces;
     const entry: LineBox = {
       box,
       quad,
       style: first,
       text: normalText(visible.map((r) => r.text).join("")),
+      typeface: faces.size === 1 && face ? face : null,
     };
     const top = Math.floor(box[1] / BUCKET_PT);
     const bottom = Math.floor(box[3] / BUCKET_PT);
@@ -387,6 +467,55 @@ function oneStyle(found: readonly DocxRunStyle[]): DocxRunStyle | null {
   return found.every((s) => styleKey(s) === key) ? found[0]! : null;
 }
 
+/**
+ * The one family named by the parts of `found` that hold the word, or
+ * null: every candidate needs at least one part overlapping half the word
+ * whose own text holds it, and every such part must name the same family.
+ */
+function oneTypeface(
+  found: readonly RunBox[],
+  key: string,
+  box: Box,
+  cx: number,
+  width: number,
+): string | null {
+  let face: string | null = null;
+  for (const run of found) {
+    let held = false;
+    const { parts, widestPart } = run;
+    for (
+      let k = firstFrom(parts, box[0] - widestPart);
+      k < parts.length && parts[k]!.box[0] < box[2];
+      k++
+    ) {
+      const part = parts[k]!;
+      const overlap =
+        Math.min(box[2], part.box[2]) - Math.max(box[0], part.box[0]);
+      if (
+        overlap < MIN_COVER * width ||
+        !textHolds(part.text, key, cx, part.box[0], part.box[2])
+      )
+        continue;
+      if (part.typeface === null) return null;
+      if (face !== null && face !== part.typeface) return null;
+      face = part.typeface;
+      held = true;
+    }
+    if (!held) return null;
+  }
+  return face;
+}
+
+/** `style` with `typeface`, when there is one and the word's text is Latin. */
+function withTypeface(
+  style: DocxRunStyle | null,
+  typeface: string | null,
+  text: string,
+): DocxRunStyle | null {
+  if (!style || !typeface || !WORD_SCRIPT_SAFE.test(text)) return style;
+  return { ...style, typeface };
+}
+
 function matchPiece(piece: FlowPiece, index: PageIndex): DocxRunStyle | null {
   const key = normalText(piece.text);
   if (!key) return null;
@@ -395,7 +524,7 @@ function matchPiece(piece: FlowPiece, index: PageIndex): DocxRunStyle | null {
   const cy = (box[1] + box[3]) / 2;
   const width = Math.max(box[2] - box[0], 1e-6);
   const bucket = Math.floor(cy / BUCKET_PT);
-  const found: DocxRunStyle[] = [];
+  const found: RunBox[] = [];
   for (let b = bucket - 1; b <= bucket + 1; b++) {
     const inBucket = index.buckets.get(b);
     if (!inBucket) continue;
@@ -413,18 +542,35 @@ function matchPiece(piece: FlowPiece, index: PageIndex): DocxRunStyle | null {
         overlap >= MIN_COVER * width &&
         textHolds(run.text, key, cx, run.box[0], run.box[2])
       )
-        found.push(run.style);
+        found.push(run);
     }
   }
-  if (found.length > 0) return oneStyle(found);
+  if (found.length > 0) {
+    // The style decision is the one made before typefaces, unchanged; the
+    // typeface is looked for only inside the candidates that gave it.
+    const style = oneStyle(found.map((r) => r.style));
+    if (!style) return null;
+    return withTypeface(
+      style,
+      oneTypeface(found, key, box, cx, width),
+      piece.text,
+    );
+  }
+  const lines: LineBox[] = [];
   for (const line of index.lines.get(bucket) ?? []) {
     if (
       inside(line.quad, [cx, cy]) &&
       textHolds(line.text, key, cx, line.box[0], line.box[2])
     )
-      found.push(line.style);
+      lines.push(line);
   }
-  return oneStyle(found);
+  const faces = new Set(lines.map((l) => l.typeface));
+  const [face] = faces;
+  return withTypeface(
+    oneStyle(lines.map((l) => l.style)),
+    faces.size === 1 ? (face ?? null) : null,
+    piece.text,
+  );
 }
 
 export interface PageRunStyles {
