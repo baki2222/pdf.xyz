@@ -14,6 +14,7 @@ import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { TOLERANCE, type Plane } from "@/lib/pdf/compare/visual-diff";
 import { extractLegacy } from "@/tests/compare-fixtures";
+import { packById, useNodeFontSource } from "@/tests/unicode-fonts";
 import { compareExtractedPdfText } from "./compare-result";
 import { canClaimNoVisualDiff } from "./visual-claim";
 import {
@@ -49,7 +50,9 @@ const napi = createRequire(requireHere.resolve("pdfjs-dist/package.json"))(
   ): HTMLCanvasElement & { toBuffer(mime: string): Buffer };
 };
 
+let restoreFonts: () => void = () => {};
 beforeEach(async () => {
+  restoreFonts = useNodeFontSource();
   await import("pdfjs-dist/legacy/build/pdf.mjs");
   const worker: unknown = await import(
     // @ts-expect-error -- pdfjs-dist ships no type declarations for its worker.
@@ -67,9 +70,25 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  restoreFonts();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
+
+/**
+ * Every fixture's text in the shipped Latin TTF, EMBEDDED. For WinAnsi text
+ * `embedDrawingFont` otherwise picks a standard-14 face, which pdf.js draws
+ * only with its standard font data: Windows finds a system Helvetica, Linux
+ * CI drew nothing ("Ensure that the standardFontDataUrl API parameter is
+ * provided"), so on CI every text case compared blank with blank and the
+ * pale-DRAFT test saw 0 regions (PR #322, 2026-11-15). Embedded, CI and
+ * Windows draw the same glyphs.
+ */
+async function latinFont(doc: PDFDocument, texts: readonly string[]) {
+  const font = await embedDrawingFont(doc, texts, "sans", packById("latin"));
+  if (!font) throw new Error("the shipped Latin face cannot draw the fixture");
+  return font;
+}
 
 const LINES = [
   "Master services agreement",
@@ -84,7 +103,7 @@ async function textPage(
   dx = 0,
   size: [number, number] = [612, 792],
 ): Promise<PDFPage> {
-  const font = await embedDrawingFont(doc, LINES);
+  const font = await latinFont(doc, LINES);
   const page = doc.addPage(size);
   LINES.forEach((line, i) =>
     page.drawText(line, {
@@ -273,7 +292,7 @@ describe("the Overlay on real PDFs", () => {
       });
       const b = await onePage(async (doc) => {
         const p = await textPage(doc);
-        const font = await embedDrawingFont(doc, ["DRAFT"]);
+        const font = await latinFont(doc, ["DRAFT"]);
         p.drawText("DRAFT", {
           x: 120,
           y: 300,
@@ -337,7 +356,7 @@ describe("the Overlay on real PDFs", () => {
             height: 80,
             color: rgb(1, 1, 0),
           });
-          const font = await embedDrawingFont(doc, ["DRAFT"]);
+          const font = await latinFont(doc, ["DRAFT"]);
           p.drawText("DRAFT", {
             x: 120 + dx,
             y: 300,
