@@ -59,6 +59,7 @@ import { provesAiReadCap } from "@/lib/workers/processor/read-cap-proof";
 import {
   provesDocxPictures,
   provesDocxRunStyles,
+  provesDocxTables,
   provesPptxPictures,
   provesPptxPresentationChain,
 } from "@/lib/workers/pdf-office-export/capability";
@@ -171,6 +172,10 @@ async function buildHeartbeatPublisher(
       docxRunStyles: await provesDocxRunStyles(
         pdfOfficeExportDeps(process.env),
       ),
+      // Runs a PDF with a four-row table (a bold header, an empty middle
+      // cell) through the real chain and reads the Word table back: one
+      // table, every value in its column, the empty cell empty.
+      docxTables: await provesDocxTables(pdfOfficeExportDeps(process.env)),
       // Runs a translate-pdf job through the registry this daemon builds and
       // checks the provider heard what the (stub) OCR recognised, and that a
       // typed PDF ran no OCR. Whether OCR itself runs here is `ocr` above.

@@ -310,6 +310,13 @@ const WORKER_CAPABILITY_PROMISES: Record<
       "PDF to Word keeps each word's bold, italics, text size and colour on that word, as its page says, not the bold or italics of whole paragraphs only that it delivered until 2026-11-15",
     proves: provenByFlag,
   },
+  docxTables: {
+    label: "Word tables",
+    promise:
+      // Added 2026-11-15 (backlog #28, slice 2: tables).
+      "PDF to Word writes a table whose cells each fit on one line as a Word table, each value in its column and an empty cell left empty, as its page says, not the tab-separated rows it delivered until 2026-11-15",
+    proves: provenByFlag,
+  },
   translateOcr: {
     label: "OCR inside Translate",
     promise:
