@@ -25,6 +25,7 @@ import type {
 } from "@/lib/jobs/summarize-pdf";
 import type { AiProvider, AiCompletionResult } from "../ai/provider";
 import { AI_INPUT_LIMITS } from "@/lib/jobs/types";
+import { AI_SPEND_CEILING } from "@/lib/jobs/ai-spend-ceiling";
 import type { AiUsageMeta } from "@/lib/jobs/ai-results";
 import { SUMMARY_PACKAGE_FILES } from "../summarize-package";
 
@@ -164,25 +165,39 @@ export type SummarizeRun =
       window?: TruncationWindow;
     };
 
-/** Per-length generation budget (tokens) and human guidance woven into the prompt. */
-const LENGTH_PLAN: Record<SummaryLength, { tokens: number; guidance: string }> =
-  {
-    brief: {
-      tokens: 700,
-      guidance:
-        "Write a very concise summary: a 2–3 sentence TL;DR followed by at most three key points.",
-    },
-    standard: {
-      tokens: 1600,
-      guidance:
-        "Write a clear summary of the main points in a few short paragraphs (or 5–8 key points).",
-    },
-    detailed: {
-      tokens: 4000,
-      guidance:
-        "Write a thorough summary covering every major section, key finding, and important detail.",
-    },
-  };
+/**
+ * Per-length generation budget (tokens) and human guidance woven into the prompt.
+ *
+ * Exported for the relationship guards in `engine.test.ts` and
+ * `ai-spend-ceiling.test.ts`, which pin `detailed` to the per-run figure and
+ * every length to at most it.
+ */
+export const LENGTH_PLAN: Record<
+  SummaryLength,
+  { tokens: number; guidance: string }
+> = {
+  brief: {
+    tokens: 700,
+    guidance:
+      "Write a very concise summary: a 2–3 sentence TL;DR followed by at most three key points.",
+  },
+  standard: {
+    tokens: 1600,
+    guidance:
+      "Write a clear summary of the main points in a few short paragraphs (or 5–8 key points).",
+  },
+  detailed: {
+    // The per-run output figure the global daily ceiling is DERIVED from,
+    // imported rather than typed. Until 2026-11-15 (audit summarize-pdf#2)
+    // this was 4000: one run reads up to 500,000 characters and Detailed
+    // promises every major section, so long reports hit `max_tokens` and
+    // the user paid for nothing. `max_tokens` is a ceiling, not a target:
+    // cost follows what is actually written.
+    tokens: AI_SPEND_CEILING.outputTokensPerFullRun,
+    guidance:
+      "Write a thorough summary covering every major section, key finding, and important detail.",
+  },
+};
 
 const FORMAT_GUIDANCE: Record<SummaryFormat, string> = {
   paragraphs: "Format the summary as short prose paragraphs.",
@@ -228,6 +243,12 @@ function mapProviderFailure(
   result: Extract<AiCompletionResult, { ok: false }>,
   window: TruncationWindow,
   model: string,
+  /**
+   * The output limit actually SENT to the provider — `maxOutputTokens`, not
+   * `plan.tokens`. A `deps.limits.maxOutputTokens` below the plan makes the
+   * two differ, and the message must name the one the model ran into.
+   */
+  sentOutputTokens: number,
 ): Extract<SummarizeRun, { ok: false }> {
   // A provider CALL happened, so both travel with every branch below: the spend
   // is real even though the run failed. Built ONCE and spread — five copies
@@ -275,6 +296,23 @@ function mapProviderFailure(
         // output budget, so that advice reran the same input, charged again.
         message:
           "This document is too large for the AI model's context window. Try a shorter PDF or split it first.",
+        ...carry,
+      };
+    case "incomplete_output":
+      // The model hit the output limit, so the summary is cut off. Still
+      // non-retryable: an identical request truncates identically. The
+      // partial text is NOT delivered (provider.ts: a cut-off summary is a
+      // wrong answer, not a short one), and `carry` travels because this is
+      // the failure that burned the most budget (CLAUDE.md rule 3).
+      //
+      // Not the adapter's words. Those say "a briefer output", the opposite
+      // of what someone who chose Detailed for a long report wants, and
+      // "a shorter document", which they cannot make without splitting.
+      return {
+        ok: false,
+        kind: "failed",
+        retryable: false,
+        message: `The summary reached its ${sentOutputTokens.toLocaleString("en-US")}-token output limit before it finished, so nothing was delivered rather than a summary missing its end. Try Standard length, or split the PDF and summarize a part.`,
         ...carry,
       };
     case "timeout":
@@ -399,7 +437,12 @@ export async function runSummarize(
   });
 
   if (!completion.ok)
-    return mapProviderFailure(completion, window, provider.model);
+    return mapProviderFailure(
+      completion,
+      window,
+      provider.model,
+      maxOutputTokens,
+    );
 
   const summary = completion.text.trim();
   if (summary.length === 0) {

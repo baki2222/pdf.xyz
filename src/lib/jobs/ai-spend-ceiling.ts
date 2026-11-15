@@ -57,6 +57,9 @@ export const AI_SPEND_CEILING = {
    * ENFORCED, not estimated: the output budget translate actually sends, so it
    * is the most output tokens a single run can produce. Imported rather than
    * typed, so it cannot drift from the request that produces it.
+   *
+   * Summarize's Detailed length sends this same figure (since 2026-11-15), and
+   * `ai-spend-ceiling.test.ts` fails if any summarize length exceeds it.
    */
   outputTokensPerFullRun: TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS,
   /**
