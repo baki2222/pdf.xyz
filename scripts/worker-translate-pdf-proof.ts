@@ -13,8 +13,9 @@
  *     per-job conservation check. Prints p50 and max milliseconds, bytes and
  *     pages, and the false-drop count (which must be 0).
  *
- * Exit codes: 0 = proven; 1 = English, Spanish or Bengali not proven, or any
- * false drop; 2 = Chromium or poppler is not available in this image. Run by
+ * Exit codes: 0 = proven; 1 = English, Spanish, Bengali or Arabic not
+ * proven (Arabic since 2026-11-15, when the direction check stopped refusing
+ * poppler's visual-order words), or any false drop; 2 = Chromium or poppler is not available in this image. Run by
  * `.github/workflows/container.yml`; no secret, queue, store, network, model
  * or user document is touched — the model is a stub and the text synthetic.
  */
@@ -24,7 +25,7 @@ import { probeTranslatePdfLanguages } from "@/lib/workers/translate/pdf-capabili
 import { measureDeliverySizeRenders } from "@/lib/workers/translate/pdf-measure";
 import type { TranslateLanguage } from "@/lib/jobs/translate-pdf";
 
-const REQUIRED: readonly TranslateLanguage[] = ["en", "es", "bn"];
+const REQUIRED: readonly TranslateLanguage[] = ["en", "es", "bn", "ar"];
 const MEASURED: readonly TranslateLanguage[] = ["en", "bn", "ja", "ar", "th"];
 
 async function main(): Promise<number> {
