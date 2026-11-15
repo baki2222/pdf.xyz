@@ -34,6 +34,7 @@ import { BATCH_VIEW_LOADED } from "@/components/tools/runner/batch/batch-view";
 import { COMPARE_RESULT_CHUNK } from "@/components/tools/runner/compare/compare-result";
 import { COMPARE_VIEWER_CHUNK } from "@/components/tools/runner/compare/compare-viewer";
 import { COMPARE_OVERLAY_CHUNK } from "@/components/tools/runner/compare/compare-overlay";
+import { COMPARE_REDLINE_CHUNK } from "@/components/tools/runner/compare/redline-html";
 import { RESULT_ENDING_CHUNK } from "@/components/intent/result-ending-chunk";
 import { DROP_ENGINE_MARK } from "@/lib/intent/drop-engine";
 import { tools } from "@/lib/tools";
@@ -351,6 +352,17 @@ const OUR_LAZY: LazyLibrary[] = [
     what: "Compare PDF's Overlay",
     marker: COMPARE_OVERLAY_CHUNK,
     why: "the comparison fetches it when Overlay pages or Compare pages visually is pressed or pointed at; a run that never asks for it never downloads it",
+    allowedAtLoad: {},
+  },
+  // Compare PDF's HTML redline (S4, 2026-11-15): the page builder and its
+  // stylesheet. Its own chunk, behind one `import()` in the comparison's
+  // chunk, fetched when Download redline (HTML) is pointed at or pressed.
+  // The marker is the generator meta's content, which the page emits.
+  // "Compare PDF's redline is a chunk of its own" below tells it apart.
+  {
+    what: "Compare PDF's HTML redline",
+    marker: COMPARE_REDLINE_CHUNK,
+    why: "the comparison fetches it when Download redline (HTML) is pressed or pointed at; a run that never downloads it never fetches it",
     allowedAtLoad: {},
   },
   // Sign PDF's handwriting faces (audit sign-pdf#1, 2026-11-09). As first
@@ -1180,6 +1192,8 @@ describe("Compare PDF's page view is a chunk of its own", () => {
     // Overlay's import are found.
     expect(targets.length, JSON.stringify(targets)).toBeGreaterThanOrEqual(3);
     expect(targets.map((t) => t.spec)).toContain("./compare-overlay");
+    // S4 (2026-11-15): and the redline's.
+    expect(targets.map((t) => t.spec)).toContain("./redline-html");
     for (const t of targets) {
       const resolved = path.resolve(dir, t.spec);
       expect(
@@ -1254,6 +1268,56 @@ describe("Compare PDF's Overlay is a chunk of its own", () => {
       fetch.gz,
       `the Overlay's fetch is ${fetch.gz.toFixed(2)} KB gz over ${fetch.counted.map((f) => path.basename(f)).join(", ")}`,
     ).toBeLessThanOrEqual(COMPARE_OVERLAY_FETCH_GZ_KB);
+  });
+});
+
+/**
+ * Compare PDF's HTML redline's fetch from the compare page (S4,
+ * 2026-11-15). The plan's rule: at 1,000 B gz or more standalone, its own
+ * chunk; under, folded into the comparison's. MEASURED standalone
+ * (esbuild --minify, gzip -9): 4,684 B, 2,266 B gz, so its own chunk.
+ * MEASURED in the build, from an empty .next: REDLINE_MEASURED.
+ */
+const COMPARE_REDLINE_FETCH_GZ_KB = 0;
+
+describe("Compare PDF's redline is a chunk of its own", () => {
+  const built = existsSync(path.join(NEXT_DIR, "server", "app"));
+
+  it("is not the comparison's, the page view's or the Overlay's chunk, and only the comparison loads it", () => {
+    if (!built) return;
+    const all = walkJs(CHUNKS_DIR);
+    const idOf = (f: string) => /^(\d+)[-.]/.exec(path.basename(f))?.[1];
+    const redline = all.filter((f) => read(f).includes(COMPARE_REDLINE_CHUNK));
+    const result = all.filter((f) => read(f).includes(COMPARE_RESULT_CHUNK));
+    expect(redline).toHaveLength(1);
+    expect(result).toHaveLength(1);
+    for (const other of [
+      COMPARE_RESULT_CHUNK,
+      COMPARE_VIEWER_CHUNK,
+      COMPARE_OVERLAY_CHUNK,
+    ])
+      expect(read(redline[0]!).includes(other), other).toBe(false);
+    const id = idOf(redline[0]!)!;
+    expect(id).toBeTruthy();
+    const importers = all.filter((f) =>
+      loadersOf([f]).some((ids) => ids.includes(id)),
+    );
+    expect(importers.map((f) => path.basename(f))).toEqual([
+      path.basename(result[0]!),
+    ]);
+  });
+
+  it(`its fetch from the compare page stays under ${COMPARE_REDLINE_FETCH_GZ_KB} KB gz`, () => {
+    if (!built) return;
+    const fetch = onDemandFetch(
+      COMPARE_REDLINE_CHUNK,
+      "tools/compare-pdf.html",
+    );
+    expect(fetch.counted.length).toBeGreaterThanOrEqual(1);
+    expect(
+      fetch.gz,
+      `the redline's fetch is ${fetch.gz.toFixed(2)} KB gz over ${fetch.counted.map((f) => path.basename(f)).join(", ")}`,
+    ).toBeLessThanOrEqual(COMPARE_REDLINE_FETCH_GZ_KB);
   });
 });
 
