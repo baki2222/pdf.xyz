@@ -220,13 +220,18 @@ jobs:
       # 1): the start-up language proof the heartbeat publishes as
       # `translatePdfLanguages` — one translate-pdf job per target language
       # through the executor's order on the image's REAL Chromium and
-      # pdftotext, each PDF judged by poppler (Noto faces embedded, the
-      # sample read back, ink on the page, Arabic right to left) — and the
-      # render time, size and per-job conservation false-drop count at
-      # delivery size (three chunks at the per-call ceiling) in en, bn, ja, ar
-      # and th. Fails unless en, es, bn and ar are proven and nothing is
-      # dropped (ar since 2026-11-15, when the direction check stopped
-      # refusing poppler's visual-order words).
+      # pdftotext, each PDF judged by independent readers (every font
+      # embedded with ToUnicode; a Noto face for the script, or for zh, ja
+      # and ko Type 3 glyphs that are vector outlines of the regional Noto CJK
+      # face and never .notdef boxes; the sample read back; ink on the page;
+      # Arabic right to left; zh, ja and ko read back by pdf.js too) — and
+      # the render time, size and per-job conservation false-drop count at
+      # delivery size (three chunks at the per-call ceiling) in en, bn, ja,
+      # zh, ko, ar and th. Fails unless en, es, bn, ar, zh, ja and ko are
+      # proven and nothing is dropped (ar since 2026-11-15, when the
+      # direction check stopped refusing poppler's visual-order words; zh, ja
+      # and ko since 2026-11-16, when CJK Type 3 glyphs began to be judged by
+      # their property instead of refused by font type).
       # Stub model, synthetic text; no user document, secret, queue or store.
       - name: Worker image Translate PDF reflowed-PDF proof (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:translate-pdf-proof
