@@ -47,6 +47,11 @@ import { noisePagesPdf, notePagesPdf } from "@/tests/docx-picture-fixtures";
 import { flowStandIn } from "@/tests/poppler-flow-standin";
 import { docxRunStylesProbePdf } from "@/lib/workers/pdf-office-export/capability";
 import { PdfOfficeExportWorkerPanel } from "./pdf-office-export-worker-panel";
+import * as popplerSamples from "@/tests/poppler-samples";
+import { flowText } from "@/lib/workers/pdf-text/flow";
+import { parseBboxFlow } from "@/lib/workers/pdf-text/parse";
+import { docxDocumentOf } from "@/lib/workers/pdf-office-export/docx-layout";
+import { docxPackage } from "@/lib/workers/pdf-office-export/docx-package";
 import { readyFileInput } from "@/tests/worker-ready";
 
 const wordTool = getToolBySlug("pdf-to-word")!;
@@ -538,6 +543,64 @@ describe("PDF to Word panel — pages without their formatting", () => {
     await screen.findByText(/Your DOCX file is ready/);
     expect(
       screen.queryByText(/came through in Word.s default style/),
+    ).not.toBeInTheDocument();
+  }, 60_000);
+});
+
+/**
+ * Review round 2 (2026-11-15) of #28 slice 2: over the output limit the
+ * Word tables are the first thing to go, back to tabbed rows — and the note
+ * beside the download now says so. Until then the worker counted them
+ * (`tables.asTabs`) and nothing read the count, while the page said a
+ * one-line table "comes through as a Word table". Through the whole chain:
+ * the engine counts, the sanitizer carries, the panel says.
+ */
+describe("PDF to Word panel — tables written as text to fit the size limit", () => {
+  const invoice = () =>
+    flowText(parseBboxFlow(popplerSamples.SURROUNDED_INVOICE_BBOX));
+  const sizes = async () => {
+    const scan = {
+      pageCount: 0,
+      pages: [],
+      undecodedImages: 0,
+      tooLargeImages: 0,
+    };
+    return {
+      withTables: (await docxPackage(docxDocumentOf(invoice(), scan))).bytes
+        .byteLength,
+      tabbed: (
+        await docxPackage(docxDocumentOf(invoice(), scan, { tables: false }))
+      ).bytes.byteLength,
+    };
+  };
+
+  it("says one table came through as lines of text, and that the text is all there", async () => {
+    const { withTables, tabbed } = await sizes();
+    // Health: the table form costs bytes the tabbed form does not.
+    expect(withTables).toBeGreaterThan(tabbed);
+    stubNetwork(
+      await jobFrom(async () => invoice(), undefined, true, noPictures, {
+        maxOutputBytes: tabbed + Math.floor((withTables - tabbed) / 2),
+      }),
+    );
+    await exportOnePdf();
+    const line = await screen.findByText(/came through as lines of text/);
+    expect(line.closest('[role="status"]')).toHaveTextContent(
+      /One table came through as lines of text, its cells separated by tabs, rather than as a Word table: with it the file would have been larger than one conversion can deliver\. All of the text is there\./,
+    );
+  }, 60_000);
+
+  it("POSITIVE CONTROL: with room for the table, the note says nothing of it", async () => {
+    const { withTables } = await sizes();
+    stubNetwork(
+      await jobFrom(async () => invoice(), undefined, true, noPictures, {
+        maxOutputBytes: withTables,
+      }),
+    );
+    await exportOnePdf();
+    await screen.findByText(/Your DOCX file is ready/);
+    expect(
+      screen.queryByText(/came through as lines of text/),
     ).not.toBeInTheDocument();
   }, 60_000);
 });

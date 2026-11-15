@@ -8,10 +8,11 @@
  */
 import { PDFDocument } from "pdf-lib";
 import { describe, expect, it } from "vitest";
+import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import * as popplerSamples from "@/tests/poppler-samples";
 import { noPictures } from "@/tests/page-scan-stubs";
 import { flowStandIn } from "@/tests/poppler-flow-standin";
-import { TABLE_ROWS } from "@/tests/pdf-office-fixtures";
+import { invoicePdf, TABLE_ROWS } from "@/tests/pdf-office-fixtures";
 import { flowPageText, flowText, type PdfFlowText } from "../pdf-text/flow";
 import { parseBboxFlow } from "../pdf-text/parse";
 import { docxTablesProbePdf } from "./capability";
@@ -53,7 +54,10 @@ const cellText = (c: Tbl["rows"][number]["cells"][number]) =>
     .join("");
 const rowsOf = (t: Tbl) => t.rows.map((r) => r.cells.map(cellText));
 
-/** Two aligned rows of `columns` short cells: a table at every width. */
+/**
+ * Three aligned rows of `columns` short figures: a table at every width.
+ * Three since review round 2: a Word table needs MIN_WORD_TABLE_ROWS.
+ */
 const wideTable = (columns: number) => {
   const line = (y: number) =>
     `<line>${Array.from(
@@ -62,7 +66,7 @@ const wideTable = (columns: number) => {
         `<word xMin="${k * 40}" yMin="${y}" xMax="${k * 40 + 10}" yMax="${y + 10}">${k}</word>`,
     ).join("")}</line>`;
   return flowOfXhtml(
-    `<doc><page width="3000" height="792"><flow><block>${line(100)}${line(116)}</block></flow></page></doc>`,
+    `<doc><page width="3000" height="792"><flow><block>${line(100)}${line(116)}${line(132)}</block></flow></page></doc>`,
   );
 };
 
@@ -175,8 +179,9 @@ describe("PDF to Word writes recognised tables as Word tables (#28 slice 2)", ()
 
   it("a cell made only of characters XML cannot carry keeps its tab: delivered, its run empty", async () => {
     const xhtml = `<doc><page width="612" height="792"><flow><block>
-      <line><word xMin="50" yMin="100" xMax="70" yMax="110">a</word><word xMin="150" yMin="100" xMax="160" yMax="110">&#1;</word><word xMin="250" yMin="100" xMax="270" yMax="110">b</word></line>
-      <line><word xMin="50" yMin="116" xMax="70" yMax="126">c</word><word xMin="150" yMin="116" xMax="160" yMax="126">d</word><word xMin="250" yMin="116" xMax="270" yMax="126">e</word></line>
+      <line><word xMin="50" yMin="100" xMax="70" yMax="110">a</word><word xMin="150" yMin="100" xMax="160" yMax="110">&#1;</word><word xMin="250" yMin="100" xMax="270" yMax="110">1</word></line>
+      <line><word xMin="50" yMin="116" xMax="70" yMax="126">c</word><word xMin="150" yMin="116" xMax="160" yMax="126">d</word><word xMin="250" yMin="116" xMax="270" yMax="126">2</word></line>
+      <line><word xMin="50" yMin="132" xMax="70" yMax="142">f</word><word xMin="150" yMin="132" xMax="160" yMax="142">g</word><word xMin="250" yMin="132" xMax="270" yMax="142">3</word></line>
     </block></flow></page></doc>`;
     const flow = flowOfXhtml(xhtml);
     expect(flow.pages[0]!.tables).toBeDefined();
@@ -185,7 +190,7 @@ describe("PDF to Word writes recognised tables as Word tables (#28 slice 2)", ()
       scanPages: noPictures,
     });
     expect(out.tables).toHaveLength(1);
-    expect(out.read.map(asXmlCarries)).toEqual(["a\t\tb\nc\td\te"]);
+    expect(out.read.map(asXmlCarries)).toEqual(["a\t\t1\nc\td\t2\nf\tg\t3"]);
     const middle = out.tables[0]!.rows[0]!.cells[1]!.blocks[0]!;
     expect(middle.kind === "p" && middle.runs).toEqual([{ text: "" }]);
   });
@@ -241,6 +246,8 @@ describe("PDF to Word writes recognised tables as Word tables (#28 slice 2)", ()
     expect(out.run.output.byteLength).toBeLessThanOrEqual(limit);
     expect(out.tables).toEqual([]);
     expect(out.read).toEqual(flow.pages.map(flowPageText));
+    // Review round 2: reported, for the note beside the download.
+    expect(out.run.coverage?.tablesAsTextForSize).toBe(1);
     // Control: with room for the tables, they are written.
     const roomy = await word({
       extractFlow: served(flow),
@@ -248,15 +255,117 @@ describe("PDF to Word writes recognised tables as Word tables (#28 slice 2)", ()
       limits: { maxOutputBytes: withTables },
     });
     expect(roomy.tables).toHaveLength(1);
+    expect(roomy.run.coverage?.tablesAsTextForSize).toBe(0);
+  });
+
+  /*
+   * Review round 2 (2026-11-15): the size fallback ran formatting, then
+   * pictures, then tables — so an invoice whose bold heading fitted on main
+   * lost ALL its formatting first (measured, limit 7000: the table kept,
+   * 0 <w:b/>; limit 6000: neither). Tables are what this slice added, so
+   * they go first now.
+   */
+  /*
+   * Review round 2 (2026-11-15): the pictures' budget was measured on the
+   * text WITH its Word tables, so a table's bytes came out of it, and near
+   * the limit a picture main delivered was left out while the tables
+   * stayed (measured by the review: tables 1, pictures 0 at 6,757 bytes).
+   * Now the budget is the text as main wrote it, and the tables go first.
+   */
+  it("near the limit a picture main delivered is kept, and the tables go", async () => {
+    const doc = await PDFDocument.load(await docxTablesProbePdf());
+    const { encodePngImage } = await import("./png-encode");
+    const px = new Uint8Array(200 * 150);
+    for (let i = 0; i < px.length; i++) px[i] = (i * 7919) % 251;
+    const png = await embedRasterImage(
+      doc,
+      encodePngImage(200, 150, "gray8", px),
+      "png",
+    );
+    await drawRasterImage(doc.getPage(0), png, {
+      x: 72,
+      y: 300,
+      width: 160,
+      height: 120,
+    });
+    const pdf = await doc.save();
+    const flow = await flowStandIn(pdf);
+    const none = {
+      pageCount: 0,
+      pages: [],
+      undecodedImages: 0,
+      tooLargeImages: 0,
+    };
+    const tables = (await docxPackage(docxDocumentOf(flow, none))).bytes
+      .byteLength;
+    const tabbed = (
+      await docxPackage(docxDocumentOf(flow, none, { tables: false }))
+    ).bytes.byteLength;
+    const deps = { extractFlow: flowStandIn, scanPages: scanPdfPages };
+    const free = await word(deps, pdf);
+    const drawings = (o: Awaited<ReturnType<typeof word>>) =>
+      o.structure.blocks.filter((b) => b.kind === "p" && b.drawing).length;
+    // Health: unlimited, both are there, and the tables cost bytes.
+    expect(free.tables).toHaveLength(1);
+    expect(drawings(free)).toBe(1);
+    expect(tables).toBeGreaterThan(tabbed);
+    // Main's file is this one less the tables' cost; half that cost short
+    // of the free file, the tables cannot stay, the picture can.
+    const limit = free.run.output.byteLength - Math.ceil((tables - tabbed) / 2);
+    const out = await word({ ...deps, limits: { maxOutputBytes: limit } }, pdf);
+    expect(out.run.output.byteLength).toBeLessThanOrEqual(limit);
+    expect(out.tables).toEqual([]);
+    expect(drawings(out)).toBe(1);
+    expect(out.run.coverage?.tablesAsTextForSize).toBe(1);
+  });
+
+  it("over the limit the tables go before the formatting: the invoice keeps its bold, tabbed", async () => {
+    const pdf = await invoicePdf();
+    const deps = { extractFlow: flowStandIn, scanPages: scanPdfPages };
+    const free = await word(deps, pdf);
+    expect(free.tables).toHaveLength(1);
+    const bolds = (o: Awaited<ReturnType<typeof word>>) =>
+      o.structure.blocks
+        .flatMap((b) =>
+          b.kind === "p"
+            ? b.runs
+            : b.kind === "tbl"
+              ? b.rows.flatMap((r) =>
+                  r.cells.flatMap((c) =>
+                    c.blocks.flatMap((x) => (x.kind === "p" ? x.runs : [])),
+                  ),
+                )
+              : [],
+        )
+        .filter((r) => r.b).length;
+    // Health: the free export is formatted.
+    expect(bolds(free)).toBeGreaterThan(0);
+    const limited = await word(
+      { ...deps, limits: { maxOutputBytes: free.run.output.byteLength - 1 } },
+      pdf,
+    );
+    expect(limited.tables).toEqual([]);
+    expect(bolds(limited)).toBe(bolds(free));
+    expect(limited.run.coverage?.formattingMissingPageCount).toBe(0);
+    expect(limited.run.coverage?.tablesAsTextForSize).toBe(1);
   });
 
   it("tables and a picture inside the limit: both are kept", async () => {
     const doc = await PDFDocument.load(await docxTablesProbePdf());
     const { encodePngImage } = await import("./png-encode");
-    const png = await doc.embedPng(
+    // Through the one module allowed to call pdf-lib's raw embedders
+    // (raster-embedder-boundary.test.ts); review round 2 found the raw call.
+    const png = await embedRasterImage(
+      doc,
       encodePngImage(40, 30, "gray8", new Uint8Array(40 * 30).fill(90)),
+      "png",
     );
-    doc.getPage(0).drawImage(png, { x: 72, y: 400, width: 160, height: 120 });
+    await drawRasterImage(doc.getPage(0), png, {
+      x: 72,
+      y: 400,
+      width: 160,
+      height: 120,
+    });
     const pdf = await doc.save();
     const free = await word(
       { extractFlow: flowStandIn, scanPages: scanPdfPages },
@@ -267,8 +376,10 @@ describe("PDF to Word writes recognised tables as Word tables (#28 slice 2)", ()
       (b) => b.kind === "p" && b.drawing,
     ).length;
     expect(pictures).toBe(1);
-    // The pictures' budget is what the text WITH its tables leaves; at the
-    // file's own size plus one picture's charged overhead, nothing goes.
+    // At the file's own size plus one picture's charged overhead, nothing
+    // goes. (Since review round 2 the pictures' budget is measured on the
+    // text with its tables as tabbed rows, as main wrote it: more room, so
+    // this holds a fortiori.)
     const limited = await word(
       {
         extractFlow: flowStandIn,
