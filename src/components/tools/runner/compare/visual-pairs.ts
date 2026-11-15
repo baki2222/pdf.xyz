@@ -27,9 +27,11 @@ import type { ClaimState } from "./visual-claim";
  * its own canvas (render.ts releases the canvas only after the hook
  * settles, so a hook waiting for its partner would otherwise hold it),
  * makes a luminance plane, and waits for the partner's plane of the same
- * page. The second to arrive diffs the pair and drops both planes (unless
- * the caller keeps the one pair it shows), so at most two planes are alive
- * at once, whatever the page count. A failed page, a call that resolves
+ * page. The second to arrive diffs the pair and drops both planes and the
+ * diff's bitsets (unless the caller keeps the one pair it shows), so at
+ * most two planes are alive at once, whatever the page count, and each
+ * outcome kept for the scan's list is a summary of a few hundred bytes
+ * (regions, at most 100, and flags): "(f2)" in the test holds it. A failed page, a call that resolves
  * without a page, a rejection and an abort each settle every waiter still
  * open: nothing is left pending.
  *
@@ -108,7 +110,11 @@ export interface PairsResult {
 
 export interface CapturePairsOptions {
   signal?: AbortSignal;
-  /** Keep both planes on each outcome (the one pair the overlay shows). */
+  /**
+   * Keep both planes and the diff's bitsets on each outcome (the one pair
+   * the overlay shows). Without it an outcome's `onlyL` and `onlyR` are
+   * empty: the scan reads regions, shift, size and blank only.
+   */
   keep?: boolean;
   /** Line PDF 2's page up with PDF 1's before comparing (default on). */
   align?: boolean;
@@ -140,6 +146,8 @@ interface Slot {
 }
 
 const other = (s: Side): Side => (s === "left" ? "right" : "left");
+/** The bitsets of an outcome that was not kept: empty, shared. */
+const NO_BITS = new Uint8Array(0);
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 /**
@@ -229,7 +237,14 @@ export async function capturePairs(
           align && !internal.signal.aborted ? bestShift(L, R) : NO_SHIFT;
         await tick();
         if (!internal.signal.aborted) {
-          const diff = diffPlanes(L, R, shift);
+          const full = diffPlanes(L, R, shift);
+          // Without `keep` (Check all), the outcome is a summary: the two
+          // bitsets (n/8 bytes each) are dropped here, since only the pair
+          // the overlay paints reads them. Review r1, 2026-11-15: kept, they
+          // grew with the page count (163 MB after 300 A4 pages).
+          const diff = keep
+            ? full
+            : { ...full, onlyL: NO_BITS, onlyR: NO_BITS };
           // Sizes in POINTS too: an A1 page and an A3 page, each capped to
           // 2,000 px on its long side, are drawn the same size in pixels.
           const pointsDiffer =

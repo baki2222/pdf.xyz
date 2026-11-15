@@ -266,6 +266,36 @@ describe("capturePairs", () => {
     expect(one.planes?.left.w).toBe(W);
   }, 60_000);
 
+  // Review r1, 2026-11-15, finding 2: Check all kept every page's two
+  // bitsets (n/8 bytes each) in its outcomes, held in React state: 163 MB
+  // after 300 A4 pages through the real chain. Only the kept pair (the one
+  // the overlay paints) needs them.
+  it("(f2) without keep, an outcome holds no bitset, only the summary the scan reads", async () => {
+    const { l, r } = setup(
+      { numPages: 20 },
+      { numPages: 20, content: (k) => (k === 7 ? "stamp" : "ink") },
+    );
+    const res = await capturePairs(l, r, range(20));
+    const checkedOnes = res.outcomes.filter(
+      (o): o is Extract<PairOutcome, { status: "checked" }> =>
+        o.status === "checked",
+    );
+    // Health: the scan checked every pair, and the stamp is still seen.
+    expect(checkedOnes).toHaveLength(20);
+    expect(checkedOnes[7]!.diff.regions.length).toBeGreaterThanOrEqual(1);
+    expect(claimStateOf(res, scope(20)).withRegions).toBe(1);
+    const retained = checkedOnes.reduce(
+      (sum, o) => sum + o.diff.onlyL.byteLength + o.diff.onlyR.byteLength,
+      0,
+    );
+    expect(retained).toBe(0);
+    // Positive control: the kept pair carries its bitsets, with the stamp.
+    const kept = await capturePairs(l, r, [7], { keep: true });
+    const one = kept.outcomes[0] as Extract<PairOutcome, { status: "checked" }>;
+    expect(one.diff.onlyR.byteLength).toBeGreaterThan(0);
+    expect(one.diff.onlyR.some((b) => b !== 0)).toBe(true);
+  });
+
   it("(g) both calls draw at 150 dpi, at most 2,000 px a side, over the same pages", async () => {
     const { l, r } = setup({ numPages: 5 }, { numPages: 5 });
     await capturePairs(l, r, [1, 3]);
