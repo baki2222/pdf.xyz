@@ -731,3 +731,46 @@ describe("a billed call that fails afterwards still reports what it spent", () =
     expect(run.window).toMatchObject({ truncated: false, totalPages: 2 });
   });
 });
+
+describe("the read bound holds on the request itself, at every cap", () => {
+  it("document block + the notice's page list ≤ the cap, over 1,200 runs", async () => {
+    // Measured from the REQUEST, not from the window: the window is the
+    // engine's account of what it sent. Whole pages leave slack, so only a
+    // sweep of caps finds the ones where the page list no longer fits in it.
+    // Two documents: ordinary pages (every chosen page fits whole), and one
+    // whose planted page is longer than half the cap (it is CUT to fill the
+    // budget exactly, so the cut page's number in "The text of page N ends
+    // mid-page." is a cost the budget must also have paid).
+    const longPlant = contract({ 30: "Zephyrine" });
+    longPlant[29] = `${longPlant[29]} ${longPlant[29]!.repeat(6)}`;
+    let relevance = 0;
+    let tight = 0;
+    let cuts = 0;
+    for (const pages of [PLANTED, longPlant])
+      for (let cap = 2_400; cap < 3_000; cap += 1) {
+        const provider = providerReturning(SUCCESS("x"));
+        const run = await runChatWithPdf(INPUT, ZEPHYRINE, {
+          extract: extractorForPages(pages),
+          provider,
+          limits: { maxInputChars: cap },
+        });
+        if (!run.ok || run.meta.selection !== "relevance") continue;
+        relevance += 1;
+        const system = provider.calls[0]!.system ?? "";
+        const doc = documentBlock(system);
+        const list = /covers pages ([\d–, ]+) of 40/.exec(system)?.[1] ?? "";
+        const cut = /The text of page (\d+) ends mid-page\./.exec(system)?.[1];
+        if (cut) cuts += 1;
+        const paid = list.length + (cut?.length ?? 0);
+        expect(list.length, `cap ${cap}`).toBeGreaterThan(0);
+        expect(doc.length + paid, `cap ${cap}`).toBeLessThanOrEqual(cap);
+        if (cap - doc.length < 2 * paid) tight += 1;
+      }
+    // Health: the sweep exercised relevance on both documents, reached caps
+    // where the slack whole pages leave is smaller than the list (otherwise
+    // the bound is vacuous for the list), and exercised the cut.
+    expect(relevance).toBeGreaterThanOrEqual(1_000);
+    expect(tight).toBeGreaterThan(0);
+    expect(cuts).toBeGreaterThanOrEqual(100);
+  });
+});
