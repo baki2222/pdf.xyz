@@ -604,6 +604,49 @@ describe("runStylesOf — the typeface, decided inside the candidates that gave 
     expect(flat(runStylesOf(p, s).styles)).toEqual([{ halfPoints: 24 }]);
   });
 
+  /*
+   * Review of 2026-11-15, round 2: the control above passed only because
+   * the first part's text did not hold the word ANYWHERE. With the word
+   * repeated earlier in the same face, `includes` found it there, the Times
+   * part overlapped 60% of the straddling word, and the word was written as
+   * Times New Roman though its last two letters are Courier. A part that
+   * draws any real share of the word must now agree on the face.
+   */
+  it("a word straddling two faces takes no typeface even when the first face's part holds the word earlier on the line", () => {
+    const p = page([
+      ["Hello", 72, 97],
+      ["Hello", 102, 127],
+    ]);
+    const s = scanned([
+      line(72, 100, [
+        ["Hello Hel", 45, TIMES],
+        ["lo", 10, COURIER],
+      ]),
+    ]);
+    expect(flat(runStylesOf(p, s).styles)).toEqual([
+      { halfPoints: 24, typeface: "Times New Roman" },
+      { halfPoints: 24 },
+    ]);
+  });
+
+  it("a neighbouring part in another face that only touches the word's edge does not take its typeface away", () => {
+    // Boxes from two readers meet within a fraction of a character.
+    const p = page([
+      ["Call", 72, 94.3],
+      ["printf", 96.6, 127],
+    ]);
+    const s = scanned([
+      line(72, 100, [
+        ["Call ", 25, TIMES],
+        ["printf", 30, COURIER],
+      ]),
+    ]);
+    expect(flat(runStylesOf(p, s).styles).map((x) => x?.typeface)).toEqual([
+      "Times New Roman",
+      "Courier New",
+    ]);
+  });
+
   it("a turned line in one face takes that face; a turned line in two faces keeps its style and takes none", () => {
     const p = page([["turned", 118, 126]], 90, 20);
     const one = scanned([

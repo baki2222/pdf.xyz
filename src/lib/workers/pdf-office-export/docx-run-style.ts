@@ -64,13 +64,17 @@
  * (`typeface`), decided AFTER its style and never changing it:
  *  - the family is `./typeface`'s (`docxTypefaceOf`): a family Office or
  *    Windows ships by its name, a metric clone as the family it clones,
- *    anything else Arial, Times New Roman or Courier New by the PDF font's
- *    class. Only the name: no font is embedded;
+ *    anything else Arial, Times New Roman or Courier New by its kind, read
+ *    from its name or what pdf.js positively marked, and NONE when the kind
+ *    cannot be told (`docxKindOf`, review round 2). Only the name: no font
+ *    is embedded;
  *  - a word takes one only when EVERY candidate that gave it its style has
  *    a member run — a part of the joined run, overlapping half the word,
  *    whose own text holds it (the same two tests a run passes) — and every
- *    such part names the SAME family. A word straddling two faces is in no
- *    part's text, so it keeps its style and takes no typeface;
+ *    part that draws ANY of the word ({@link PART_TOUCH_CHARS}) names the
+ *    SAME family. A word straddling two faces keeps its style and takes no
+ *    typeface, even when one part's text holds the same word elsewhere
+ *    (review round 2: `includes` found "Hello" earlier in "Hello Hel");
  *  - a turned, right-to-left or unlocated line gives the family all its
  *    visible runs share, if they share one;
  *  - an invisible run (an OCR layer) and a symbol or dingbat face name none
@@ -141,6 +145,14 @@ export const MAX_STYLED_PIECES_PER_PAGE = 20_000;
 export const BUCKET_PT = 4;
 /** A run must cover this share of a word's width to label it. */
 export const MIN_COVER = 0.5;
+/**
+ * A member part overlapping a word by more than 1 / this of the word's
+ * average character width draws some of it, and its face must agree with
+ * the word's other parts (review of 2026-11-15, round 2: a word straddling
+ * Times and Courier was written Times New Roman because the Times part's
+ * text held the same word earlier on the line).
+ */
+export const PART_TOUCH_CHARS = 4;
 /** A line within this many degrees of upright is matched word by word. */
 const UPRIGHT_DEG = 0.5;
 /** Below this opacity a colour is not what the reader sees. */
@@ -477,9 +489,11 @@ function oneStyle(found: readonly DocxRunStyle[]): DocxRunStyle | null {
 }
 
 /**
- * The one family named by the parts of `found` that hold the word, or
+ * The one family named by the parts of `found` that draw the word, or
  * null: every candidate needs at least one part overlapping half the word
- * whose own text holds it, and every such part must name the same family.
+ * whose own text holds it, and EVERY part drawing any of the word (more
+ * than 1 / {@link PART_TOUCH_CHARS} of a character) must name the same
+ * family, not only the parts whose text holds it (review round 2).
  */
 function oneTypeface(
   found: readonly RunBox[],
@@ -489,6 +503,9 @@ function oneTypeface(
   width: number,
 ): string | null {
   let face: string | null = null;
+  // A part drawing more than this much of the word draws some of its
+  // letters (review round 2): less is two readers' boxes meeting.
+  const touch = width / Math.max(key.length, 1) / PART_TOUCH_CHARS;
   for (const run of found) {
     let held = false;
     const { parts, widestPart } = run;
@@ -500,15 +517,17 @@ function oneTypeface(
       const part = parts[k]!;
       const overlap =
         Math.min(box[2], part.box[2]) - Math.max(box[0], part.box[0]);
-      if (
-        overlap < MIN_COVER * width ||
-        !textHolds(part.text, key, cx, part.box[0], part.box[2])
-      )
-        continue;
+      if (overlap <= touch) continue;
+      // Every part that draws some of the word must name ONE face, held
+      // or not: a straddling word is in two faces whatever the texts say.
       if (part.typeface === null) return null;
       if (face !== null && face !== part.typeface) return null;
       face = part.typeface;
-      held = true;
+      if (
+        overlap >= MIN_COVER * width &&
+        textHolds(part.text, key, cx, part.box[0], part.box[2])
+      )
+        held = true;
     }
     if (!held) return null;
   }
