@@ -431,10 +431,20 @@ test.describe("Overlay pages", () => {
     const ours = during.filter((r) => new URL(r.url).origin === site);
     expect(ours.filter((r) => r.method !== "GET")).toEqual([]);
     expect(ours.filter((r) => r.body)).toEqual([]);
-    for (const r of ours)
-      expect(new URL(r.url).pathname, r.url).toMatch(
+    // Allowed: static assets, and Next's RSC prefetch of a page a visible
+    // link points at (`GET /tools/…?_rsc=…`, body-less, the router's own
+    // navigation cache). Production prefetches links scrolled into view; the
+    // local `next start` run did not, so this spec first failed only against
+    // pdf.xyz (2026-11-15, PR #322's production proof, on
+    // `/tools/category/security?_rsc=…`). Nothing an upload needs — the
+    // reservation POST, a body, a PUT — gets past the two lines above.
+    for (const r of ours) {
+      const url = new URL(r.url);
+      if (url.searchParams.has("_rsc")) continue;
+      expect(url.pathname, r.url).toMatch(
         /^\/_next\/static\/|\.(?:js|mjs|wasm|bcmap|pfb|ttf|json)$/,
       );
+    }
   });
 });
 
