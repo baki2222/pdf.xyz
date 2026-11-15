@@ -1516,6 +1516,12 @@ const TOOL_PAGES_TO_COME = {
   // Built in two trees (E:/wchat1 against E:/wchat1-base) every non-chat
   // page read +12 raw / -4..+6 gz instead: entry module ids hash the path.
   // Nothing allocated: every row has the headroom (test:bundle green).
+  // The review fixes on the same branch (2026-11-15: an entry's file token,
+  // the resume's token check, the citation button's in-flow box), measured
+  // the same way in ONE tree (E:/wchat1), 44692525 -> 762c7f9d: the panel's
+  // chunk 6,618 -> 6,716 (+98), tools/chat-with-pdf 239,314 -> 239,410 (+96),
+  // the other 143 pages -2 (the runtime's map). The stylesheet is still
+  // main's file, byte for byte (3906e9b6, 15,323 gz).
   unallocated:
     UNALLOCATED -
     NEW_TOOLS_2026_10_30 -
