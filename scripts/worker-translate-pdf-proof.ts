@@ -22,13 +22,22 @@
  *     and none of the forbidden ones. Plus the measured cmap facts the
  *     rewrite is derived from (`radical-glyph-facts.json`), re-measured from
  *     this image's faces: any difference fails.
+ *  1c. The common characters (2026-11-16, after a real zh job read 门 as ⻔
+ *     in pdf.js): GB2312 level 1, JIS X 0208 level 1 + kana and KS X 1001
+ *     Hangul (`cjk-common-corpus.ts`, decoded from the national byte ranges,
+ *     never typed) each rendered as one job and read by pdftotext and pdf.js.
+ *     pdftotext must be exact; pdf.js must read no character as a different
+ *     real character, and a radical left as a radical only where the facts
+ *     say its glyph has no unified sharer, or several (`cjk-corpus-read.ts`).
+ *     Prints correct/total for each reader and every misread as a member.
  *  2. The render cost at delivery size: three chunks at the per-call ceiling
  *     in en, bn, ja, zh, ko, ar and th, three times each, through the job's
  *     own per-job conservation check. Prints p50 and max milliseconds, bytes
  *     and pages, and the false-drop count (which must be 0).
  *
  * Exit codes: 0 = proven; 1 = a language in `TRANSLATE_PDF_CI_REQUIRED` not
- * proven, a 1b ToUnicode rewrite case failed, the image's faces no longer
+ * proven, a 1b ToUnicode rewrite case failed, a 1c common-character
+ * corpus failed (since 2026-11-16), the image's faces no longer
  * give the vendored radical-glyph facts (the last two since 2026-11-16, when
  * CJK Type 3 glyphs began to be judged by their property), or any false
  * drop; 2 = Chromium or poppler is not available in this image. Run by
@@ -51,6 +60,11 @@ import {
   measureRadicalGlyphFacts,
 } from "@/lib/workers/translate/radical-glyph-measure";
 import { cjkFontFiles } from "./cjk-font-files";
+import { commonCorpus } from "@/lib/workers/translate/cjk-common-corpus";
+import {
+  corpusReadLines,
+  readCommonCorpus,
+} from "@/lib/workers/translate/cjk-corpus-read";
 
 // The required set is NOT typed here (2026-11-15, audit #29 slice 2): the
 // static copy names the languages that get a PDF from TRANSLATE_PDF_CI_REQUIRED,
@@ -122,6 +136,28 @@ const REWRITE_CASES: readonly {
     ),
     viewerHas: t(0x6237, 0x7528, 0x53e3),
     viewerLacks: t(0x6236, 0x2f3e, 0x2f64, 0x2f1d),
+  },
+  {
+    // The production defect (2026-11-16): pdf.js read 门 as ⻔ U+2ED4.
+    name: "zh U+95E8 (SC: shares Supplement U+2ED4's glyph)",
+    target: "zh",
+    text: t(0x5f00, 0x95e8, SP, 0x5927, 0x95e8, SP, 0x8f66, 0x9a6c),
+    viewerHas: t(0x95e8, 0x5f00, 0x8f66, 0x9a6c),
+    viewerLacks: t(0x2ed4, 0x2ecb, 0x2ee2),
+  },
+  {
+    name: "zh literal Supplement radical U+2ED4 + U+95E8",
+    target: "zh",
+    text: t(0x2ed4, SP, 0x5f00, 0x95e8),
+    viewerHas: t(0x2ed4, 0x5f00),
+    viewerLacks: "",
+  },
+  {
+    name: "zh U+80F6 (SC: shares Extension A U+3B35's glyph)",
+    target: "zh",
+    text: t(0x80f6, 0x6c34, SP, 0x6a61, 0x80f6),
+    viewerHas: t(0x80f6, 0x6c34),
+    viewerLacks: t(0x3b35),
   },
   {
     name: "ja U+6238 (JP: shares U+2F3E's glyph)",
@@ -226,6 +262,19 @@ async function main(): Promise<number> {
     );
   }
 
+  let corpusFailures = 0;
+  console.log("common characters, read back by pdftotext and pdf.js:");
+  for (const language of CJK) {
+    if (language !== "zh" && language !== "ja" && language !== "ko") continue;
+    const result = await readCommonCorpus(
+      render,
+      readers,
+      commonCorpus(language),
+    );
+    for (const line of corpusReadLines(result)) console.log(line);
+    if (result.failures.length > 0) corpusFailures += 1;
+  }
+
   const factsDiff = diffRadicalGlyphFacts(
     RADICAL_GLYPH_FACTS,
     await measureRadicalGlyphFacts(cjkFontFiles()),
@@ -253,6 +302,8 @@ async function main(): Promise<number> {
     otherFailures.push(`${rewriteFailures} ToUnicode rewrite case(s)`);
   if (factsDiff.length > 0)
     otherFailures.push("the image's faces no longer give the vendored facts");
+  if (corpusFailures > 0)
+    otherFailures.push(`${corpusFailures} common-character corpus(es)`);
   const verdict = translatePdfProofVerdict(
     probe.passing,
     summary.falseDrops,
