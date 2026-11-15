@@ -593,6 +593,20 @@ async function renderWord(
     doc = docxDocumentOf(flow, scan);
     ({ bytes: output, plan } = await write(doc));
   }
+  if (
+    maxOutput !== undefined &&
+    output.byteLength > maxOutput &&
+    (doc.tables?.written ?? 0) > 0
+  ) {
+    // #28 slice 2 (tables): a Word table costs more bytes than its tabbed
+    // rows (each cell's `w:tc` and width, every empty slot), and the text
+    // alone WITH its tables can be over the limit by itself. Before any
+    // refusal every table goes back to the tabbed rows main delivered, and
+    // is counted (`tables.asTabs`) — without this step the job was refused
+    // as too large where main delivered it.
+    doc = docxDocumentOf(flow, scan, { tables: false });
+    ({ bytes: output, plan } = await write(doc));
+  }
   const refused = await undeliverableDocx(
     output,
     plan,

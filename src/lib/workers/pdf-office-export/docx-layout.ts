@@ -69,7 +69,11 @@ import type {
 
 export interface DocxTextBlock {
   kind: "text";
-  /** One cell is a paragraph; two or more a tab-separated table row. */
+  /**
+   * One cell is a paragraph; two or more a tab-separated row — since #28
+   * slice 2 only a lone wide-gapped line or a table kept as tabs: a
+   * recognised table is a {@link DocxTableBlock}.
+   */
   cells: readonly string[];
   /**
    * Each cell as runs of one formatting (`./docx-run-style`), adjacent words
@@ -118,7 +122,22 @@ export interface DocxPictureBlock {
   flipV: boolean;
 }
 
-export type DocxBlock = DocxTextBlock | DocxPictureBlock;
+/**
+ * A Word table (#28 slice 2): one recognised table (a grid segment of
+ * `../pdf-text/flow`), on its grid. `columns` are each grid column's width
+ * in twips; each row has one slot per column — null for an empty one (the
+ * row has no value there), else the slot's source cells (one, or more when
+ * cells chain into one column), each as runs, in xMin order.
+ */
+export interface DocxTableBlock {
+  kind: "table";
+  columns: readonly number[];
+  rows: readonly {
+    slots: readonly (readonly (readonly DocxStyledRun[])[] | null)[];
+  }[];
+}
+
+export type DocxBlock = DocxTextBlock | DocxPictureBlock | DocxTableBlock;
 
 /** The Word page: its size and its text area, points. */
 export interface DocxPage {
@@ -133,6 +152,13 @@ export interface DocxDocument {
   pages: DocxBlock[][];
   /** Present when any page carried poppler's words (`pieces`). */
   formatting?: DocxFormatting;
+  /**
+   * #28 slice 2: Word tables written, and recognised tables kept as tabbed
+   * rows — the flow's `tablesAsTabs` plus any this layout or the engine's
+   * size fallback converted back. Present when either is above 0. For
+   * tests and logs; no result note reads it yet.
+   */
+  tables?: { written: number; asTabs: number };
 }
 
 /** Word's own page-size limits: 0.1 to 22 inches a side. */
@@ -286,12 +312,43 @@ export function scannedPictures(
 }
 
 /**
+ * Each grid column's width in twips (#28 slice 2): from one column's start
+ * to the next's — the last, its own span — scaled into the page's text area
+ * when the table is wider, at least 1. Proportional, never a position: Word
+ * may still wrap a cell, since its default font is not the PDF's.
+ */
+export function tableColumns(
+  spans: readonly (readonly [number, number])[],
+  page: DocxPage,
+): number[] {
+  const widths = spans.map((span, k) =>
+    k + 1 < spans.length ? spans[k + 1]![0] - span[0] : span[1] - span[0],
+  );
+  let total = 0;
+  for (const w of widths) total += w;
+  const s = Math.min(1, (page.width - 2 * page.margin) / Math.max(total, 1e-9));
+  return widths.map((w) => Math.max(1, Math.round(w * s * 20)));
+}
+
+/**
  * The document: every PDF page's paragraphs in poppler's order, with the
  * page's pictures placed among them by {@link insertionPoints}.
+ *
+ * TABLES (since #28 slice 2, 2026-11-15). Consecutive paragraphs the flow
+ * marks as rows of one table (`PdfFlowTextPage.tables`) are gathered into
+ * one {@link DocxTableBlock}: cell c of a row goes into the slot of its
+ * column, `col[c]`, appended in order, so a row missing a value leaves that
+ * slot empty and the values after it stay in their columns. Every cell's
+ * runs are made exactly as a paragraph's are (coalesced, the cell's text
+ * checked, a plain run where they would not match). A picture whose place
+ * falls between two rows of one table goes after the table's last row: a
+ * paragraph cannot stand inside a row. With `tables: false` (the engine's
+ * size fallback) every table is written as its tabbed rows and counted.
  */
 export function docxDocumentOf(
   flow: PdfFlowText,
   scan: PdfPageScan,
+  options: { tables?: boolean } = {},
 ): DocxDocument {
   const first = scan.pages[0];
   const page = docxPageOf(first?.width ?? 612, first?.height ?? 792);
@@ -303,6 +360,7 @@ export function docxDocumentOf(
   const scanPages = new Map(scan.pages.map((p) => [p.pageNumber, p]));
   const formatting: DocxFormatting = { pages: [], runsDropped: 0 };
   let worded = false;
+  const tables = { written: 0, asTabs: 0 };
   for (let n = 1; n <= count; n++) {
     const text = flowPages.get(n);
     const scanned = scanPages.get(n);
@@ -330,34 +388,102 @@ export function docxDocumentOf(
         ]),
       }))
       .sort((a, b) => a.box[1] - b.box[1] || a.box[0] - b.box[0]);
+    // The table rows this page writes as Word tables: by id, only where its
+    // rows are consecutive (true by construction; otherwise tabbed rows,
+    // counted, never a throw).
+    tables.asTabs += text?.tablesAsTabs ?? 0;
+    const rowOf = (i: number) =>
+      options.tables === false ? undefined : text?.tables?.[i];
+    const runIds = new Set<number>();
+    const broken = new Set<number>();
+    for (let i = 0; i < paragraphs.length; i++) {
+      const row = rowOf(i);
+      if (!row) continue;
+      if (rowOf(i - 1)?.table === row.table) continue;
+      if (runIds.has(row.table)) broken.add(row.table);
+      runIds.add(row.table);
+    }
+    if (options.tables === false) {
+      const ids = new Set(
+        (text?.tables ?? []).flatMap((r) => (r ? [r.table] : [])),
+      );
+      tables.asTabs += ids.size;
+    }
+    tables.asTabs += broken.size;
+    const tableAt = (i: number) => {
+      const row = rowOf(i);
+      return row && !broken.has(row.table) ? row : undefined;
+    };
+    const sameTable = (i: number) =>
+      i > 0 &&
+      i < paragraphs.length &&
+      tableAt(i) !== undefined &&
+      tableAt(i - 1)?.table === tableAt(i)!.table;
     const at = insertionPoints(
       boxes,
       pictures.map((p) => p.box),
-    );
+    ).map((i) => {
+      // Never between two rows of one table: after its last row.
+      let j = i;
+      while (sameTable(j)) j += 1;
+      return j;
+    });
+    const runsOf = (i: number): (readonly DocxStyledRun[])[] | null => {
+      const cells = paragraphs[i]!;
+      const pieces = text?.pieces?.[i];
+      if (!(styled && pieces)) return null;
+      return cells.map((cell, c) => {
+        const out = coalesce(
+          (pieces[c] ?? []).map((piece, k) => ({
+            text: piece.text,
+            style: styled.styles[i]?.[c]?.[k] ?? null,
+          })),
+        );
+        if (out.map((r) => r.text).join("") === cell) return out;
+        // Never write different text: the cell goes out as one plain
+        // run, and the engine's conservation check reads it back.
+        formatting.runsDropped += 1;
+        return [{ text: cell, style: null }];
+      });
+    };
     const blocks: DocxBlock[] = [];
+    let table = null as { id: number; block: DocxTableBlock } | null;
     for (let i = 0; i <= paragraphs.length; i++) {
       pictures.forEach((p, k) => {
         if (at[k] === i) blocks.push(pictureBlock(page, p.pic));
       });
       if (i < paragraphs.length) {
         const cells = paragraphs[i]!;
-        const pieces = text?.pieces?.[i];
-        if (styled && pieces) {
-          const runs = cells.map((cell, c) => {
-            const out = coalesce(
-              (pieces[c] ?? []).map((piece, k) => ({
-                text: piece.text,
-                style: styled.styles[i]?.[c]?.[k] ?? null,
-              })),
-            );
-            if (out.map((r) => r.text).join("") === cell) return out;
-            // Never write different text: the cell goes out as one plain
-            // run, and the engine's conservation check reads it back.
-            formatting.runsDropped += 1;
-            return [{ text: cell, style: null }];
+        const runs = runsOf(i);
+        const row = tableAt(i);
+        if (row) {
+          if (table?.id !== row.table) {
+            table = {
+              id: row.table,
+              block: {
+                kind: "table",
+                columns: tableColumns(row.spans, page),
+                rows: [],
+              },
+            };
+            blocks.push(table.block);
+            tables.written += 1;
+          }
+          const slots: (DocxStyledRun[][] | null)[] = row.spans.map(() => null);
+          cells.forEach((cell, c) => {
+            const k = row.col[c]!;
+            (slots[k] ??= []).push([
+              ...(runs?.[c] ?? [{ text: cell, style: null }]),
+            ]);
           });
-          blocks.push({ kind: "text", cells, runs });
-        } else
+          (table.block.rows as DocxTableBlock["rows"][number][]).push({
+            slots,
+          });
+          continue;
+        }
+        table = null;
+        if (runs) blocks.push({ kind: "text", cells, runs });
+        else
           blocks.push({
             kind: "text",
             cells,
@@ -367,7 +493,12 @@ export function docxDocumentOf(
     }
     pages.push(blocks);
   }
-  return { page, pages, ...(worded ? { formatting } : {}) };
+  return {
+    page,
+    pages,
+    ...(worded ? { formatting } : {}),
+    ...(tables.written > 0 || tables.asTabs > 0 ? { tables } : {}),
+  };
 }
 
 /** Adjacent runs of one style, as one run. */

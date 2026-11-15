@@ -24,9 +24,25 @@
  * complex-script twins are ALWAYS written beside the plain ones, so Bengali
  * and Arabic text gets the weight and the size too (Word reads the `Cs`
  * property for those scripts). A word with no style has no `w:rPr` at all:
- * Word's default. A table row's cells are separated by a tab in a run of its
- * own. No typeface (`w:rFonts`), no paragraph properties (`w:pPr`), and no
- * styles part: Word supplies its built-in defaults for a package without one.
+ * Word's default. A tabbed row's cells — since #28 slice 2 only a lone
+ * wide-gapped line or a table kept as tabs — are separated by a tab in a run
+ * of its own. No typeface (`w:rFonts`), no paragraph properties (`w:pPr`),
+ * and no styles part: Word supplies its built-in defaults for a package
+ * without one.
+ *
+ * ── WHAT A TABLE IS IN THE FILE (since #28 slice 2, 2026-11-15) ─────────────
+ *
+ * A `w:tbl`: `w:tblPr` in `CT_TblPr` order — its width (`w:tblW`, twips, the
+ * sum of its columns), thin light-grey single borders on every side and
+ * between every cell (sz 4, BFBFBF: the PDF's own rules and shading are not
+ * read, so these are added, never matched), and a fixed layout — then
+ * `w:tblGrid` and one `w:tr` per row. Each `w:tc` has its width (`w:tcW`)
+ * and ONE paragraph: the slot's cells, each as its runs, separated by a tab
+ * run; an empty slot is `<w:p></w:p>` with no run at all, never `<w:p/>`
+ * (both flat readers once swallowed that form). After a table comes an empty
+ * paragraph when the next block is another table or the section (Word needs
+ * a paragraph there); a table that ends a page is followed by its page
+ * break.
  */
 import JSZip from "jszip";
 import { xmlEscape } from "../ooxml/sheet-cells";
@@ -34,6 +50,7 @@ import type {
   DocxDocument,
   DocxPictureBlock,
   DocxStyledRun,
+  DocxTableBlock,
   DocxTextBlock,
 } from "./docx-layout";
 import type { DocxRunStyle } from "./docx-run-style";
@@ -85,7 +102,51 @@ function textParagraph(block: DocxTextBlock): string {
   );
   return `<w:p>${cells
     .map((runs) => runs.map(runXml).join(""))
-    .join("<w:r><w:tab/></w:r>")}</w:p>`;
+    .join(TAB_RUN)}</w:p>`;
+}
+
+const TAB_RUN = "<w:r><w:tab/></w:r>";
+/** The paragraph a table needs after it before another table or the section. */
+export const TABLE_SEPARATOR = "<w:p></w:p>";
+const BORDER_SIDES = [
+  "top",
+  "left",
+  "bottom",
+  "right",
+  "insideH",
+  "insideV",
+] as const;
+const TABLE_BORDERS = `<w:tblBorders>${BORDER_SIDES.map(
+  (side) => `<w:${side} w:val="single" w:sz="4" w:space="0" w:color="BFBFBF"/>`,
+).join("")}</w:tblBorders>`;
+
+/** One Word table (#28 slice 2); the module docblock says what it holds. */
+function tableXml(block: DocxTableBlock): string {
+  let width = 0;
+  for (const w of block.columns) width += w;
+  const grid = block.columns.map((w) => `<w:gridCol w:w="${w}"/>`).join("");
+  const rows = block.rows
+    .map(
+      (row) =>
+        `<w:tr>${row.slots
+          .map((slot, k) => {
+            const body = slot
+              ? slot
+                  .map((runs) =>
+                    // A real cell always has a run, so it is never read as
+                    // an empty slot — even when its text is empty.
+                    (runs.length ? runs : [{ text: "", style: null }])
+                      .map(runXml)
+                      .join(""),
+                  )
+                  .join(TAB_RUN)
+              : "";
+            return `<w:tc><w:tcPr><w:tcW w:w="${block.columns[k]}" w:type="dxa"/></w:tcPr><w:p>${body}</w:p></w:tc>`;
+          })
+          .join("")}</w:tr>`,
+    )
+    .join("");
+  return `<w:tbl><w:tblPr><w:tblW w:w="${width}" w:type="dxa"/>${TABLE_BORDERS}<w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid>${grid}</w:tblGrid>${rows}</w:tbl>`;
 }
 
 const emu = (pt: number) => Math.max(1, Math.round(pt * EMU_PER_POINT));
@@ -154,27 +215,36 @@ export async function docxPackage(
     { part: string; rel: string; bytes: Uint8Array }
   >();
   let pictures = 0;
-  const pageXml = doc.pages
-    .filter((blocks) => blocks.length > 0)
-    .map((blocks) =>
-      blocks
-        .map((block) => {
-          if (block.kind === "text") return textParagraph(block);
-          let part = media.get(block.media.key);
-          if (!part) {
-            const n = media.size + 1;
-            part = {
-              part: `media/image${n}.${block.media.ext}`,
-              rel: `rIdImage${n}`,
-              bytes: block.media.bytes,
-            };
-            media.set(block.media.key, part);
-          }
-          pictures += 1;
-          return pictureParagraph(block, pictures, part.rel);
-        })
-        .join(""),
-    );
+  const written = doc.pages.filter((blocks) => blocks.length > 0);
+  const pageXml = written.map((blocks, n) =>
+    blocks
+      .map((block, b) => {
+        if (block.kind === "text") return textParagraph(block);
+        if (block.kind === "table") {
+          // Word needs a paragraph between a table and the next table, and
+          // between a table and the section; a page break already is one.
+          const next = blocks[b + 1];
+          const last = n === written.length - 1;
+          return (
+            tableXml(block) +
+            (next?.kind === "table" || (!next && last) ? TABLE_SEPARATOR : "")
+          );
+        }
+        let part = media.get(block.media.key);
+        if (!part) {
+          const n = media.size + 1;
+          part = {
+            part: `media/image${n}.${block.media.ext}`,
+            rel: `rIdImage${n}`,
+            bytes: block.media.bytes,
+          };
+          media.set(block.media.key, part);
+        }
+        pictures += 1;
+        return pictureParagraph(block, pictures, part.rel);
+      })
+      .join(""),
+  );
   const twips = (pt: number) => Math.round(pt * TWIPS_PER_POINT);
   const { page } = doc;
   const margin = twips(page.margin);
