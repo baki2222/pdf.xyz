@@ -226,14 +226,20 @@ describe("no summarize length asks for more than the per-run output figure", () 
  * recording provider and an override far above every figure.
  *
  * The engines are DISCOVERED, not typed: every non-test file under
- * `src/lib/workers` that calls `provider.complete(` must be in `ENGINES`, so a
- * fifth AI engine fails here until it is run through the same check. The
- * receiver must be `provider`, which excludes the executor's
- * `queue.complete(`.
+ * `src/lib/workers` that calls `<anything>.complete(` must be in `ENGINES`,
+ * so a fifth AI engine fails here until it is run through the same check.
+ * The receiver's NAME is not trusted (review, 2026-11-16: an engine calling
+ * `deps.llm.complete(` walked past a scan keyed on `provider`). Any receiver
+ * counts unless that exact file and receiver are on `NOT_A_MODEL_CALL`, with
+ * the reason written down, so an unknown receiver fails loudly.
  */
 describe("every AI engine sends at most the per-run output figure", () => {
   const WORKERS_ROOT = path.join(process.cwd(), "src", "lib", "workers");
-  const PROVIDER_CALL = /\bprovider\s*\.\s*complete\s*\(/;
+  const COMPLETE_CALL = /([A-Za-z_$][\w$]*)\s*\.\s*complete\s*\(/g;
+  /** `file:receiver` pairs whose `.complete(` is not a model call. */
+  const NOT_A_MODEL_CALL: Record<string, string> = {
+    "executor/executor.ts:queue": "the job queue marking a job done",
+  };
   const TEXT = "Plenty of real document text here for the model to work on.";
   const INPUT = new Uint8Array([1, 2, 3, 4]);
   const RAISED = 1_000_000;
@@ -248,7 +254,11 @@ describe("every AI engine sends at most the per-run output figure", () => {
     const code = (text: string) =>
       text.replace(/\/\*[\s\S]*?\*\/|(^|[^:\\])\/\/[^\n]*/g, "$1");
     return files
-      .filter((file) => PROVIDER_CALL.test(code(file.text)))
+      .filter((file) =>
+        [...code(file.text).matchAll(COMPLETE_CALL)].some(
+          (m) => !(`${file.path}:${m[1]}` in NOT_A_MODEL_CALL),
+        ),
+      )
       .map((file) => file.path)
       .sort();
   }
@@ -387,12 +397,23 @@ describe("every AI engine sends at most the per-run output figure", () => {
       providerCallSites([
         { path: "fake/engine.ts", text: "await provider.complete({ x });" },
         { path: "fake/spaced.ts", text: "provider\n  .complete(request)" },
-        { path: "executor.ts", text: "await queue.complete(job.id);" },
+        { path: "fake/renamed.ts", text: "return deps.llm.complete({ x });" },
+        {
+          path: "executor/executor.ts",
+          text: "await queue.complete(job.id);",
+        },
+        // The exemption is per FILE: the same receiver elsewhere counts.
+        { path: "elsewhere.ts", text: "await queue.complete(job.id);" },
         { path: "other.ts", text: "const myprovider = 1; complete();" },
         { path: "doc.ts", text: "/** calls `provider.complete(` */ x();" },
         { path: "line.ts", text: "// provider.complete(request)\nx();" },
       ]),
-    ).toEqual(["fake/engine.ts", "fake/spaced.ts"]);
+    ).toEqual([
+      "elsewhere.ts",
+      "fake/engine.ts",
+      "fake/renamed.ts",
+      "fake/spaced.ts",
+    ]);
   });
 
   it("discovers a plausible set of engines, and runs every one of them", () => {
@@ -403,8 +424,9 @@ describe("every AI engine sends at most the per-run output figure", () => {
     const notRun = discovered.filter((file) => !(file in ENGINES));
     expect(
       notRun,
-      "an engine the ceiling test does not run calls provider.complete(; " +
-        "add it to ENGINES so its output budget is bounded",
+      "a file the ceiling test does not run calls .complete( on a receiver " +
+        "that is not on NOT_A_MODEL_CALL; add it to ENGINES so its output " +
+        "budget is bounded, or exempt it there with the reason",
     ).toEqual([]);
     const stale = Object.keys(ENGINES).filter(
       (file) => !discovered.includes(file),
