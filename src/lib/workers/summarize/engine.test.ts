@@ -489,4 +489,88 @@ describe("incomplete_output names the limit it hit and carries what it spent", (
     );
     expect(run.usage?.outputTokens).toBe(lower);
   });
+
+  /**
+   * The lengths a message tells the user to try. Reads the advice the way a
+   * reader does: "Try <Length> length".
+   */
+  const recommended = (message: string): string[] =>
+    [...message.matchAll(/Try (\w+) length/g)].map((m) => m[1]!);
+
+  /** What the advice must satisfy for the length that just ran. */
+  const adviceViolations = (length: SummaryLength, message: string) => {
+    const problems: string[] = [];
+    for (const named of recommended(message)) {
+      const key = named.toLowerCase() as SummaryLength;
+      if (!SUMMARY_LENGTHS.includes(key)) {
+        problems.push(`recommends unknown length ${named}`);
+      } else if (key === length) {
+        problems.push(`recommends ${named}, the length that just ran`);
+      } else if (LENGTH_PLAN[key].tokens >= LENGTH_PLAN[length].tokens) {
+        problems.push(`recommends ${named}, which asks for no less output`);
+      }
+    }
+    return problems;
+  };
+
+  it("never advises rerunning the length that just ran, for every length (review 2026-11-15)", async () => {
+    // Until this review the message said "Try Standard length" whatever ran,
+    // so a Standard run that hit 1,600 was told to send the identical request
+    // again: it truncates identically and is charged again (audit #50 shape).
+    // Every earlier test here used DETAILED only, so nothing could see it.
+    expect(SUMMARY_LENGTHS.length).toBe(3);
+    const messages = new Map<SummaryLength, string>();
+    for (const length of SUMMARY_LENGTHS) {
+      const sent = LENGTH_PLAN[length].tokens;
+      const provider = providerReturning(hitLimit(sent));
+      const run = await runSummarize(
+        INPUT,
+        { length, format: "paragraphs" },
+        { extract: extractorFor("A very long report."), provider },
+      );
+      expect(run.ok).toBe(false);
+      if (run.ok) return;
+      expect(run.retryable).toBe(false);
+      expect(run.usage?.outputTokens).toBe(sent);
+      expect(run.message).toContain(`${sent.toLocaleString("en-US")}-token`);
+      expect(run.message).toMatch(/split the PDF/);
+      expect(run.message).not.toMatch(/briefer output|shorter document/i);
+      expect(adviceViolations(length, run.message)).toEqual([]);
+      messages.set(length, run.message);
+    }
+
+    // Health check: the reader sees the advice. Detailed and Standard name a
+    // shorter length; Brief, the shortest, names none and says so.
+    expect(recommended(messages.get("detailed")!)).toEqual(["Standard"]);
+    expect(recommended(messages.get("standard")!)).toEqual(["Brief"]);
+    expect(recommended(messages.get("brief")!)).toEqual([]);
+    expect(messages.get("brief")).toContain("already the shortest length");
+
+    // The names the advice uses are the words the length picker shows, so a
+    // reader can find the option the message tells them to pick.
+    const panel = readFileSync(
+      fileURLToPath(
+        new URL(
+          "../../../components/tools/summarize-worker-panel.tsx",
+          import.meta.url,
+        ),
+      ),
+      "utf8",
+    );
+    for (const length of SUMMARY_LENGTHS) {
+      const name = length.charAt(0).toUpperCase() + length.slice(1);
+      expect(panel).toContain(`{ value: "${length}", label: "${name} — `);
+    }
+
+    // Positive control: the message this branch shipped before the review
+    // must fail the predicate for Standard, or the loop above proves nothing.
+    const shipped =
+      "The summary reached its 1,600-token output limit before it finished, so nothing was delivered rather than a summary missing its end. Try Standard length, or split the PDF and summarize a part.";
+    expect(adviceViolations("standard", shipped)).toEqual([
+      "recommends Standard, the length that just ran",
+    ]);
+    expect(adviceViolations("brief", shipped.replace("1,600", "700"))).toEqual([
+      "recommends Standard, which asks for no less output",
+    ]);
+  });
 });

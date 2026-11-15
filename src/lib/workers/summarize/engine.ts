@@ -18,10 +18,11 @@ import {
   userTruncationNotice,
   type TruncationWindow,
 } from "../ai/truncation";
-import type {
-  SummarizeOptions,
-  SummaryFormat,
-  SummaryLength,
+import {
+  SUMMARY_LENGTHS,
+  type SummarizeOptions,
+  type SummaryFormat,
+  type SummaryLength,
 } from "@/lib/jobs/summarize-pdf";
 import type { AiProvider, AiCompletionResult } from "../ai/provider";
 import { AI_INPUT_LIMITS } from "@/lib/jobs/types";
@@ -238,6 +239,32 @@ function buildSystemPrompt(
   return parts.join(" ");
 }
 
+/**
+ * The next action for a run that hit its output limit, DERIVED from
+ * LENGTH_PLAN rather than typed per length.
+ *
+ * It never names the length that just ran: an identical request truncates
+ * identically and the allowance is charged again (the audit #50 shape). It
+ * names the closest length whose plan asks for LESS, never more: a longer
+ * length's guidance asks for more content, and Detailed truncating at 4,000
+ * on long reports is the proof that more room is filled, not left over.
+ * Brief has nothing shorter, so splitting is the only honest advice.
+ */
+function incompleteOutputAdvice(length: SummaryLength): string {
+  const ran = LENGTH_PLAN[length].tokens;
+  const shorter = SUMMARY_LENGTHS.filter(
+    (other) => LENGTH_PLAN[other].tokens < ran,
+  ).sort((a, b) => LENGTH_PLAN[b].tokens - LENGTH_PLAN[a].tokens)[0];
+  if (shorter === undefined) {
+    return `${lengthName(length)} is already the shortest length, so split the PDF and summarize a part.`;
+  }
+  return `Try ${lengthName(shorter)} length, or split the PDF and summarize a part.`;
+}
+
+/** "standard" → "Standard", the word the length picker shows before its dash. */
+const lengthName = (length: SummaryLength): string =>
+  length.charAt(0).toUpperCase() + length.slice(1);
+
 /** Map a provider completion failure to an honest, typed run failure. */
 function mapProviderFailure(
   result: Extract<AiCompletionResult, { ok: false }>,
@@ -249,6 +276,8 @@ function mapProviderFailure(
    * two differ, and the message must name the one the model ran into.
    */
   sentOutputTokens: number,
+  /** The length the user chose: `incomplete_output`'s advice depends on it. */
+  length: SummaryLength,
 ): Extract<SummarizeRun, { ok: false }> {
   // A provider CALL happened, so both travel with every branch below: the spend
   // is real even though the run failed. Built ONCE and spread — five copies
@@ -312,7 +341,7 @@ function mapProviderFailure(
         ok: false,
         kind: "failed",
         retryable: false,
-        message: `The summary reached its ${sentOutputTokens.toLocaleString("en-US")}-token output limit before it finished, so nothing was delivered rather than a summary missing its end. Try Standard length, or split the PDF and summarize a part.`,
+        message: `The summary reached its ${sentOutputTokens.toLocaleString("en-US")}-token output limit before it finished, so nothing was delivered rather than a summary missing its end. ${incompleteOutputAdvice(length)}`,
         ...carry,
       };
     case "timeout":
@@ -442,6 +471,7 @@ export async function runSummarize(
       window,
       provider.model,
       maxOutputTokens,
+      options.length,
     );
 
   const summary = completion.text.trim();
