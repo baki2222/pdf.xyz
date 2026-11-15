@@ -1485,6 +1485,37 @@ const TOOL_PAGES_TO_COME = {
   //    (bounded in lazy-chunks.test.ts); the comparison's chunk 11,515 ->
   //    11,736 (+221: the loader, and report.ts's header fields, changes
   //    sentence, line maps and marks lifted out for both writers).
+  //
+  // NOT TAKEN from the allocation, 2026-11-15, by Chat with PDF's clickable
+  // citations (audit #30, chat-with-pdf#3, slice 1: a [p.N] marker opens
+  // the cited page in Delete Pages' zoom dialog, drawn from the bytes the
+  // question was sent with) — flagged for the owner, like every runtime
+  // entry since P6, as a RE-ALLOCATION OF G.1 in effect. Main 76363bbc and
+  // the branch, each built from an empty .next in ONE tree (E:/wchat1-base,
+  // its own install), gzip -9 over each page's first-load chunks, all 144
+  // pages:
+  //  - 84 pages +7 and 58 tool pages +4 (home 202,925 -> 202,932, /tools
+  //    213,390 -> 213,397, /workspace 235,113 -> 235,120; ocr, rotate,
+  //    merge, summarize, pdf-viewer, remove-pages +4): webpack's runtime
+  //    3,864 -> 3,871 in the page's set (213 -> 214 client chunks: the
+  //    chat panel's own `next/dynamic` copy of the zoom dialog's chunk), the
+  //    [slug] page chunk -3 on tool pages.
+  //  - tools/chat-with-pdf 238,531 -> 239,322 (+791): the panel's chunk
+  //    5,831 -> 6,618 (+787: chat-answer.tsx, the shared grammar
+  //    `@/lib/jobs/chat-citations`, the dialog's loader) and the runtime.
+  //    Not a G.1 row. The renderer is NOT in it: the panel starts
+  //    `import("@/lib/pdf/render")` on the press rather than importing
+  //    use-page-image's seam (that first cut read +1,114, two trees).
+  //  - tools/crop-pdf 244,608 -> 244,680 (+72): its runner chunk 6,694 ->
+  //    6,762 (+68), use-page-image's `usePageImageState` (the hook now says
+  //    "failed" apart from "loading"), first-load there through Crop.
+  //  - on demand, on the press: the dialog's chunk 1,739 -> 1,879 (+140,
+  //    the failure line and the optional selection chip), and render.ts,
+  //    both lazy (lazy-chunks.test.ts green).
+  //  - the stylesheet is main's file (3906e9b6), byte for byte.
+  // Built in two trees (E:/wchat1 against E:/wchat1-base) every non-chat
+  // page read +12 raw / -4..+6 gz instead: entry module ids hash the path.
+  // Nothing allocated: every row has the headroom (test:bundle green).
   unallocated:
     UNALLOCATED -
     NEW_TOOLS_2026_10_30 -
