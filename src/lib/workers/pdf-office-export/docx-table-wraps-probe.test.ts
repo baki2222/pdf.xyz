@@ -332,40 +332,56 @@ describe("provesDocxTableWraps (#28 slice 3)", () => {
     ).resolves.toBe("cells");
   });
 
+  /**
+   * Two REAL `w:p`s in the cell, made in the XML: the writer cannot make
+   * them from a `DocxDocument` (two cells in one slot are written as ONE
+   * paragraph joined by a tab — found 2026-11-16, when this negative first
+   * edited the slot and the one-paragraph test, mutated to `true`, stayed
+   * green).
+   */
+  const twoParagraphs = (xml: string) =>
+    xml.replace(
+      `>${B200} ${B200_WRAP}</w:t></w:r></w:p>`,
+      `>${B200}</w:t></w:r></w:p><w:p><w:r><w:t xml:space="preserve">${B200_WRAP}</w:t></w:r></w:p>`,
+    );
+
   it("NEGATIVE (e): an absorbed cell written as two w:p fails on the CELLS — and through the engine the job is refused as incomplete_output", async () => {
-    const splitCell = (doc: DocxDocument): DocxDocument =>
-      eachTable(doc, (t) => ({
-        ...t,
-        rows: t.rows.map((row) => ({
-          slots: row.slots.map((slot) => {
-            const text = slot?.[0]?.map((r) => r.text).join("") ?? "";
-            if (!text.startsWith(`${B200} `)) return slot;
-            return [
-              [{ text: B200, style: null }],
-              [{ text: text.slice(B200.length + 1), style: null }],
-            ];
-          }),
-        })),
-      }));
-    // Through the engine: its own conservation check refuses the job.
-    await expect(problemOf(writing(splitCell))).rejects.toThrow(
-      /incomplete_output/,
-    );
-    await expect(provesDocxTableWraps(IMAGE, writing(splitCell))).resolves.toBe(
-      false,
-    );
-    // The same file handed to the probe's check with ITS OWN text (so the
-    // text check passes): the cells check alone refuses it.
-    let written: DocxDocument | null = null;
-    await probeDocx(
-      writing((doc) => {
-        written = doc;
-        return doc;
-      }),
-    );
-    const { bytes: docx } = await docxPackage(splitCell(written!));
-    const ownText = docxPageTexts(await readDocxStructure(docx));
-    await expect(docxTableWrapsProblem(docx, ownText)).resolves.toBe("cells");
+    // Through the engine (the writer's bytes edited before its check): its
+    // own conservation check refuses the job.
+    const splitWriter: Run = async (tool, input, deps) => {
+      const { runPdfOfficeExport: real } = await import("./engine");
+      return real(tool, input, {
+        ...deps,
+        writeDocx: async (doc) => {
+          const out = await docxPackage(doc);
+          const zip = await JSZip.loadAsync(out.bytes);
+          const xml = await zip.file("word/document.xml")!.async("string");
+          const changed = twoParagraphs(xml);
+          if (changed === xml) throw new Error("the edit did not land");
+          zip.file("word/document.xml", changed);
+          return {
+            ...out,
+            bytes: new Uint8Array(
+              await zip.generateAsync({ type: "uint8array" }),
+            ),
+          };
+        },
+      });
+    };
+    await expect(problemOf(splitWriter)).rejects.toThrow(/incomplete_output/);
+    await expect(provesDocxTableWraps(IMAGE, splitWriter)).resolves.toBe(false);
+    // The same edit after the engine's check, handed to the probe's check
+    // with the file's OWN text (so the text check passes, and the cell's
+    // paragraphs joined read as the probe's cell): the one-paragraph test
+    // alone refuses it.
+    const { docx } = await probeDocx(editedAfter(twoParagraphs));
+    const body = await readDocxStructure(docx);
+    const tbl = body.blocks.find((b) => b.kind === "tbl");
+    const cell = tbl?.kind === "tbl" ? tbl.rows[2]!.cells[1]! : null;
+    expect(cell?.blocks.filter((b) => b.kind === "p")).toHaveLength(2);
+    await expect(
+      docxTableWrapsProblem(docx, docxPageTexts(body)),
+    ).resolves.toBe("cells");
   });
 
   it("NEGATIVE (f): the header's run properties stripped fail on BOLD", async () => {

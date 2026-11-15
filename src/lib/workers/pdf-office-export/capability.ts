@@ -974,10 +974,16 @@ export async function docxTableWrapsProblem(
     );
   const runsOf = (blocks: Blocks) =>
     paragraphsOf(blocks).flatMap((b) => b.runs);
+  // A cell's paragraphs are joined with a SPACE here, not "\n": joined with
+  // "\n" a cell split into a paragraph per line could never match the
+  // probe's text, so the one-paragraph test below could not fail on its own
+  // (mutated to `true` on 2026-11-16, every negative stayed green). Joined
+  // with a space, the split cell reads as the probe's text and only the
+  // paragraph count refuses it (negative (e)).
   const textOf = (blocks: Blocks) =>
     paragraphsOf(blocks)
       .map((b) => b.runs.map((r) => r.text).join(""))
-      .join("\n");
+      .join(" ");
   const wraps: Readonly<Record<number, readonly string[]>> = p.wraps;
   const cellsOk = p.rows.every((row, r) =>
     row.every((_, c) => {
