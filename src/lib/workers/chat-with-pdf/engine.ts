@@ -29,6 +29,7 @@ import {
   type AiMessage,
   type AiProvider,
 } from "../ai/provider";
+import { clampOutputTokens } from "../ai/output-budget";
 import type { AiUsageMeta } from "@/lib/jobs/ai-results";
 
 /**
@@ -208,9 +209,11 @@ export type ChatWithPdfRun =
 /**
  * A generous default generation budget. A grounded answer is bounded by the question,
  * so a fixed default the operator's `maxOutputTokens` limit can only lower (never
- * raise) is sufficient.
+ * raise) is sufficient. The lowering is `clampOutputTokens` (`../ai/output-budget`);
+ * "every AI engine sends at most the per-run output figure" in
+ * `src/lib/jobs/ai-spend-ceiling.test.ts` runs this engine with a raised override.
  */
-const DEFAULT_MAX_OUTPUT_TOKENS = 2000;
+export const DEFAULT_MAX_OUTPUT_TOKENS = 2000;
 /**
  * Chat's reading ceiling is its per-question charge ceiling — see
  * {@link CHAT_MAX_CHARACTERS_PER_QUESTION} for why the read and the charge must
@@ -480,8 +483,10 @@ export async function runChatWithPdf(
     ? groundingSource.slice(0, maxChars)
     : groundingSource;
 
-  const maxOutputTokens =
-    deps.limits?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
+  const maxOutputTokens = clampOutputTokens(
+    DEFAULT_MAX_OUTPUT_TOKENS,
+    deps.limits?.maxOutputTokens,
+  );
 
   const messages: AiMessage[] = [
     ...(options.context ?? []).map((turn: ChatTurn) => ({

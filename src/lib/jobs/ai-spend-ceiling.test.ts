@@ -14,7 +14,10 @@
  * than guessed, the unmeasured price is recorded as unmeasured, and nothing
  * claims ours binds first without evidence.
  */
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
+import type { ExtractedPdfText } from "@/lib/pdf/text";
 import {
   AI_BLENDED_PRICE_USD_PER_MTOK,
   AI_CEILING_BREAKEVEN_USD_PER_MTOK,
@@ -27,7 +30,21 @@ import {
   aiCeilingBindsFirst,
 } from "./ai-spend-ceiling";
 import { SUMMARY_LENGTHS } from "./summarize-pdf";
-import { LENGTH_PLAN } from "@/lib/workers/summarize/engine";
+import { LENGTH_PLAN, runSummarize } from "@/lib/workers/summarize/engine";
+import {
+  DEFAULT_MAX_OUTPUT_TOKENS as CHAT_DEFAULT_MAX_OUTPUT_TOKENS,
+  runChatWithPdf,
+} from "@/lib/workers/chat-with-pdf/engine";
+import {
+  DEFAULT_MAX_OUTPUT_TOKENS as EXTRACT_DEFAULT_MAX_OUTPUT_TOKENS,
+  runAiExtract,
+} from "@/lib/workers/ai-extract/engine";
+import { runTranslate } from "@/lib/workers/translate/engine";
+import { TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS } from "./translate-limits";
+import type {
+  AiCompletionRequest,
+  AiProvider,
+} from "@/lib/workers/ai/provider";
 import {
   ACCOUNT_CLAIMS,
   PERSONAL_CONDUCT_CLAIMS,
@@ -194,5 +211,255 @@ describe("no summarize length asks for more than the per-run output figure", () 
     expect(LENGTH_PLAN.detailed.tokens).toBe(
       AI_SPEND_CEILING.outputTokensPerFullRun,
     );
+  });
+});
+
+/**
+ * The same sentence, made true for EVERY engine rather than for one.
+ *
+ * Summarize clamps its budget to the operator's `limits.maxOutputTokens`; until
+ * 2026-11-16 chat, extract and translate sent `override ?? DEFAULT`, so a
+ * raised override went straight to the provider, while each engine's own
+ * docblock said the override "can only lower (never raise)" the default.
+ * Nothing in production sets the override today, so it was a latent defect
+ * plus three false comments. This runs each engine's REAL entry point with a
+ * recording provider and an override far above every figure.
+ *
+ * The engines are DISCOVERED, not typed: every non-test file under
+ * `src/lib/workers` that calls `provider.complete(` must be in `ENGINES`, so a
+ * fifth AI engine fails here until it is run through the same check. The
+ * receiver must be `provider`, which excludes the executor's
+ * `queue.complete(`.
+ */
+describe("every AI engine sends at most the per-run output figure", () => {
+  const WORKERS_ROOT = path.join(process.cwd(), "src", "lib", "workers");
+  const PROVIDER_CALL = /\bprovider\s*\.\s*complete\s*\(/;
+  const TEXT = "Plenty of real document text here for the model to work on.";
+  const INPUT = new Uint8Array([1, 2, 3, 4]);
+  const RAISED = 1_000_000;
+
+  /** The files among `files` that call a provider. Pure, so it can be fed. */
+  function providerCallSites(
+    files: readonly { path: string; text: string }[],
+  ): string[] {
+    // Comments are stripped first: a docblock that NAMES the call (as
+    // `../ai/output-budget.ts` does) is not an engine. The first run of this
+    // guard found exactly that file.
+    const code = (text: string) =>
+      text.replace(/\/\*[\s\S]*?\*\/|(^|[^:\\])\/\/[^\n]*/g, "$1");
+    return files
+      .filter((file) => PROVIDER_CALL.test(code(file.text)))
+      .map((file) => file.path)
+      .sort();
+  }
+
+  function walkSources(dir: string): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) return walkSources(full);
+      const isSource =
+        entry.name.endsWith(".ts") &&
+        !entry.name.endsWith(".test.ts") &&
+        !entry.name.endsWith(".d.ts");
+      return isSource ? [full] : [];
+    });
+  }
+
+  /** Every engine file, relative to `src/lib/workers`, with `/` separators. */
+  function discoverEngineFiles(): string[] {
+    // A broken scan is FATAL, never an empty set: `[] ⊆ ENGINES` would pass.
+    if (!existsSync(WORKERS_ROOT))
+      throw new Error(`scan root is missing: ${WORKERS_ROOT}`);
+    const sources = walkSources(WORKERS_ROOT);
+    if (sources.length < 50)
+      throw new Error(
+        `scanned only ${sources.length} worker sources; the walk is broken`,
+      );
+    return providerCallSites(
+      sources.map((full) => ({
+        path: path.relative(WORKERS_ROOT, full).split(path.sep).join("/"),
+        text: readFileSync(full, "utf8"),
+      })),
+    );
+  }
+
+  function recordingProvider(text: string) {
+    const calls: AiCompletionRequest[] = [];
+    const provider: AiProvider = {
+      id: "anthropic",
+      model: "claude-sonnet-5",
+      async complete(request) {
+        calls.push(request);
+        return {
+          ok: true,
+          text,
+          model: "claude-sonnet-5",
+          usage: { inputTokens: 100, outputTokens: 20 },
+        };
+      },
+    };
+    return { calls, provider };
+  }
+
+  function extractor(): () => Promise<ExtractedPdfText> {
+    return async () => ({
+      pageCount: 2,
+      pages: [],
+      text: TEXT,
+      characterCount: TEXT.length,
+      hasText: true,
+    });
+  }
+
+  type Limits = { maxOutputTokens?: number };
+  interface EngineCase {
+    label: string;
+    /** The engine's own definition of its default: imported, never typed. */
+    defaultTokens: number;
+    run: (limits: Limits) => Promise<AiCompletionRequest[]>;
+  }
+
+  /** Keyed by the file `discoverEngineFiles` must find. */
+  const ENGINES: Record<string, EngineCase[]> = {
+    "ai-extract/engine.ts": [
+      {
+        label: "ai-extract",
+        defaultTokens: EXTRACT_DEFAULT_MAX_OUTPUT_TOKENS,
+        run: async (limits) => {
+          const { calls, provider } = recordingProvider('{"total": 1}');
+          await runAiExtract(
+            INPUT,
+            { mode: "prompt", prompt: "Extract the total." },
+            { extract: extractor(), provider, limits },
+          );
+          return calls;
+        },
+      },
+    ],
+    "chat-with-pdf/engine.ts": [
+      {
+        label: "chat-with-pdf",
+        defaultTokens: CHAT_DEFAULT_MAX_OUTPUT_TOKENS,
+        run: async (limits) => {
+          const { calls, provider } = recordingProvider("Answer.");
+          await runChatWithPdf(
+            INPUT,
+            { question: "What is the total?" },
+            { extract: extractor(), provider, limits },
+          );
+          return calls;
+        },
+      },
+    ],
+    "summarize/engine.ts": SUMMARY_LENGTHS.map((length) => ({
+      label: `summarize ${length}`,
+      defaultTokens: LENGTH_PLAN[length].tokens,
+      run: async (limits: Limits) => {
+        const { calls, provider } = recordingProvider("A summary.");
+        await runSummarize(
+          INPUT,
+          { length, format: "paragraphs" },
+          { extract: extractor(), provider, limits },
+        );
+        return calls;
+      },
+    })),
+    "translate/engine.ts": [
+      {
+        label: "translate",
+        defaultTokens: TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS,
+        run: async (limits) => {
+          const { calls, provider } = recordingProvider("Une traduction.");
+          await runTranslate(
+            INPUT,
+            { targetLanguage: "fr", sourceLanguage: "auto" },
+            { extract: extractor(), provider, limits },
+          );
+          return calls;
+        },
+      },
+    ],
+  };
+  const CASES = Object.values(ENGINES).flat();
+
+  it("positive and negative controls: the scan sees a provider call, and only a provider call", () => {
+    expect(
+      providerCallSites([
+        { path: "fake/engine.ts", text: "await provider.complete({ x });" },
+        { path: "fake/spaced.ts", text: "provider\n  .complete(request)" },
+        { path: "executor.ts", text: "await queue.complete(job.id);" },
+        { path: "other.ts", text: "const myprovider = 1; complete();" },
+        { path: "doc.ts", text: "/** calls `provider.complete(` */ x();" },
+        { path: "line.ts", text: "// provider.complete(request)\nx();" },
+      ]),
+    ).toEqual(["fake/engine.ts", "fake/spaced.ts"]);
+  });
+
+  it("discovers a plausible set of engines, and runs every one of them", () => {
+    const discovered = discoverEngineFiles();
+    // Health check: neither a collapsed nor an exploded scan passes.
+    expect(discovered.length).toBeGreaterThanOrEqual(3);
+    expect(discovered.length).toBeLessThanOrEqual(10);
+    const notRun = discovered.filter((file) => !(file in ENGINES));
+    expect(
+      notRun,
+      "an engine the ceiling test does not run calls provider.complete(; " +
+        "add it to ENGINES so its output budget is bounded",
+    ).toEqual([]);
+    const stale = Object.keys(ENGINES).filter(
+      (file) => !discovered.includes(file),
+    );
+    expect(
+      stale,
+      "ENGINES names a file that no longer calls a provider",
+    ).toEqual([]);
+  });
+
+  it("every default is at most the per-run figure, and the figures are unchanged", () => {
+    for (const engine of CASES) {
+      expect(engine.defaultTokens, engine.label).toBeLessThanOrEqual(
+        AI_SPEND_CEILING.outputTokensPerFullRun,
+      );
+    }
+    // Translate's default IS the figure (the figure is defined from it).
+    expect(TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS).toBe(
+      AI_SPEND_CEILING.outputTokensPerFullRun,
+    );
+    // This change clamps; it does not move a default.
+    expect(CHAT_DEFAULT_MAX_OUTPUT_TOKENS).toBe(2000);
+    expect(EXTRACT_DEFAULT_MAX_OUTPUT_TOKENS).toBe(4000);
+    expect(TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS).toBe(8000);
+  });
+
+  it("a raised override is ignored: each engine sends its default, never more than the figure", async () => {
+    expect(CASES.length).toBeGreaterThanOrEqual(Object.keys(ENGINES).length);
+    for (const engine of CASES) {
+      const calls = await engine.run({ maxOutputTokens: RAISED });
+      expect(
+        calls.length,
+        `${engine.label} never reached the provider`,
+      ).toBeGreaterThan(0);
+      for (const call of calls) {
+        expect(
+          call.maxOutputTokens,
+          `${engine.label} sent more output tokens than one run is allowed`,
+        ).toBeLessThanOrEqual(AI_SPEND_CEILING.outputTokensPerFullRun);
+        expect(call.maxOutputTokens, engine.label).toBe(engine.defaultTokens);
+      }
+    }
+  });
+
+  it("a lower override still lowers what each engine sends", async () => {
+    for (const engine of CASES) {
+      const lower = Math.floor(engine.defaultTokens / 2);
+      const calls = await engine.run({ maxOutputTokens: lower });
+      expect(
+        calls.length,
+        `${engine.label} never reached the provider`,
+      ).toBeGreaterThan(0);
+      for (const call of calls) {
+        expect(call.maxOutputTokens, engine.label).toBe(lower);
+      }
+    }
   });
 });
