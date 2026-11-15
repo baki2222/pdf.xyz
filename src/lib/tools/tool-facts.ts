@@ -1566,7 +1566,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         {
           question: `What does ${tool.name} compare?`,
           answer:
-            "The selectable text, line by line, plus the page count and the file size. Overlay pages also lays each page of the second file over the page with the same number in the first, in grayscale at about 150 dpi, and marks where the ink differs, so a moved image or a stamp shows there; a colour change that keeps the same lightness, or a difference smaller than a few pixels, does not.",
+            "The selectable text, line by line, plus the page count and the file size. Overlay pages also lays each page of the second file over the page with the same number in the first, in grayscale at about 150 dpi, and marks where the ink differs, so a moved image, a stamp or a pale watermark shows there; a colour change that keeps about the same lightness, or a difference smaller than a few pixels, does not, and a small change of shade in thin lines or small text may be missed.",
         },
         {
           question: `What counts as a change in ${tool.name}?`,

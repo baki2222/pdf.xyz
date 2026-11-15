@@ -565,7 +565,7 @@ export function ComparePdfEditor({
           <InfoTile
             icon={FileDiff}
             title="Honest"
-            body="This is not a pixel-perfect visual comparison."
+            body="Overlay pages compares ink in grayscale at about 150 dpi, not every pixel or colour."
           />
         </div>
       </RunnerSection>

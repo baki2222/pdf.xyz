@@ -2746,7 +2746,7 @@ export const guides: Guide[] = [
     slug: "how-to-compare-two-pdf-files",
     title: "How to compare two PDF files",
     description:
-      "Compare two versions of a PDF in your browser: page count, file size and every added or removed line of text, with a downloadable report. Scans need OCR first.",
+      "Compare two versions of a PDF in your browser: page count, file size and every changed line of text, with a report, or overlay the pages to see where ink differs.",
     tools: ["compare-pdf", "ocr-pdf", "pdf-to-text"],
     keywords: [
       "how to compare two pdf files",
@@ -2780,9 +2780,9 @@ export const guides: Guide[] = [
       },
       {
         id: "scanned-pdfs",
-        heading: "Scanned PDFs need OCR first",
+        heading: "Comparing scanned PDFs",
         body: [
-          `${nameOf("compare-pdf")} reads the text already embedded in each PDF. A scanned page is a picture with no text in it, so two scans compare as having no selectable text at all. Run each one through ${nameOf("ocr-pdf")} first — it adds a searchable text layer on a secure server — then compare the results.`,
+          `The list of changes reads the text already embedded in each PDF. A scanned page is a picture with no text in it, so two scans compare as having no selectable text at all. To compare their words, run each one through ${nameOf("ocr-pdf")} first — it adds a searchable text layer on a secure server — then compare the results.`,
           "Their pages can still be compared without OCR: Compare pages visually lays one scan over the other in your browser and marks where the ink differs. Two separate scans of the same paper rarely line up exactly, so expect much of the page to be marked.",
         ],
       },
@@ -2790,7 +2790,7 @@ export const guides: Guide[] = [
         id: "what-it-does-not-compare",
         heading: "What it does not compare",
         body: [
-          "The list of changes compares text only. Overlay pages compares the pages in grayscale at about 150 dpi, so a colour change that keeps the same lightness, a difference smaller than a few pixels, a form value with no saved appearance and a hidden layer do not show in either. Pages are paired by number, so one inserted page makes every later pair differ.",
+          "The list of changes compares text only. Overlay pages compares the pages in grayscale at about 150 dpi, so a colour change that keeps about the same lightness, a difference smaller than a few pixels, a form value with no saved appearance and a hidden layer do not show in either, and a small change of shade in thin lines or small text may be missed. Pages are paired by number, so one inserted page makes every later pair differ.",
           `To read one file's text on its own, ${nameOf("pdf-to-text")} extracts it as a plain .txt file.`,
         ],
       },
@@ -2803,7 +2803,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Why does it say no selectable text was found?",
-        answer: `Both PDFs are most likely scans, which carry pictures of text rather than text. Run them through ${nameOf("ocr-pdf")} first, then compare the results.`,
+        answer: `Both PDFs are most likely scans, which carry pictures of text rather than text. To compare their words, run them through ${nameOf("ocr-pdf")} first, then compare the results. To compare the pages without OCR, select Compare pages visually, which lays one over the other and marks where the ink differs.`,
       },
       {
         question: "Do my files leave my device?",

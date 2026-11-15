@@ -114,6 +114,7 @@ import {
   decodePDFRawStream,
   popGraphicsState,
   pushGraphicsState,
+  rgb,
   setFillingRgbColor,
 } from "pdf-lib";
 import { describe, expect, it } from "vitest";
@@ -3382,9 +3383,14 @@ const COMPARE_OVERLAY_RULE = {
     "overlay the pages": /\boverlay(?:s|ing)? (?:the )?pages\b/i,
     "compare pages visually": /\bcompare (?:the )?pages visually\b/i,
     "a moved image shows": /\bmoved image\b[^.]*\bshows there\b/i,
+    // Review r1, 2026-11-15: a pale stamp or watermark was NOT seen (no
+    // pixel changed by more than 48 of 255) until the area test. The probe
+    // below now draws one, so this claim is held to it.
+    "a pale watermark shows": /\bpale watermark\b[^.]*\bshows there\b/i,
   },
   shipped: [
-    "Overlay pages lays each page of the second file over the page with the same number in the first, in grayscale, and marks where the ink differs: a moved image, a stamp or a shifted layout shows there.",
+    "Overlay pages lays each page of the second file over the page with the same number in the first, in grayscale, and marks where the ink differs: a moved image, a stamp, a pale watermark or a shifted layout shows there.",
+    "Compare two PDFs in your browser: changed lines of text, page counts and sizes, plus a visual check that overlays the pages and marks where ink differs, scans too.",
     "Press Overlay pages to lay a page of the second file over the page with the same number in the first.",
     "Their pages can still be compared without OCR: Compare pages visually lays one scan over the other in your browser and marks where the ink differs.",
     "The list of changes cannot say which; Overlay pages shows where on the page.",
@@ -3397,10 +3403,21 @@ const COMPARE_OVERLAY_RULE = {
     "a text comparison, not a visual one":
       /\ba text comparison, not a visual one\b/i,
     "a moved image will not appear": /\bmoved image\b[^.]*\bwill not appear\b/i,
+    // Review r1, 2026-11-15: served beside the overlay after it shipped,
+    // on the catalogue line, the scan FAQ and the guide. Scans' PAGES are
+    // compared without OCR; only their text needs it ("its text needs OCR
+    // first" is not caught: the shape asks for scans needing it).
+    "scans need OCR first":
+      /\b(?:scans|scanned (?:pages|PDFs)) needs? OCR first\b/i,
+    "reads selectable text only": /\breads selectable text only\b/i,
   },
   denialCorpus: [
     "This is a text comparison, not a visual one: a moved image or a changed colour will not appear, and a new font or margin shows up only where it makes the text wrap differently.",
     "Formatting, images, colors and layout are not compared — this is a text comparison, not a visual one.",
+    "Compare two PDFs in your browser by page count, file size, and selectable text. Scanned pages need OCR first; this is not a pixel-perfect visual diff.",
+    "Compare two versions of a PDF in your browser: page count, file size and every added or removed line of text, with a downloadable report. Scans need OCR first.",
+    "Scanned PDFs need OCR first",
+    "This tool reads selectable text only.",
   ],
 } as const;
 
@@ -3415,11 +3432,27 @@ async function compareOverlayProbe(): Promise<Probe> {
     });
   const stamped = await overlayFirstPage(await page(false), await page(true));
   const same = await overlayFirstPage(await page(false), await page(false));
+  // A pale watermark: a 0.85 grey block, under the per-pixel tolerance.
+  const pale = await compareLinesPdf([compareBody("overlay")]).then(
+    async (bytes) => {
+      const doc = await PDFDocument.load(bytes);
+      doc.getPage(0).drawRectangle({
+        x: 120,
+        y: 200,
+        width: 300,
+        height: 90,
+        color: rgb(0.85, 0.85, 0.85),
+      });
+      return doc.save();
+    },
+  );
+  const watermarked = await overlayFirstPage(await page(false), pale);
   const sees = stamped.diff.regions.length >= 1;
+  const seesPale = watermarked.diff.regions.length >= 1;
   const quiet = same.diff.regions.length === 0;
   return {
-    present: sees && quiet,
-    evidence: `stamp: ${stamped.diff.regions.length} regions; same page saved twice: ${same.diff.regions.length}`,
+    present: sees && seesPale && quiet,
+    evidence: `stamp: ${stamped.diff.regions.length} regions; pale watermark: ${watermarked.diff.regions.length}; same page saved twice: ${same.diff.regions.length}`,
   };
 }
 

@@ -96,7 +96,13 @@ const OCR_LINK_MINUTES = DEFAULT_RETENTION.outputTtlMinutes;
  * where the ink differs. So a moved image, a stamp or a shifted layout
  * shows; a colour change at the same lightness, a difference smaller than
  * a few pixels, a form value with no saved appearance and a hidden layer
- * do not, and the copy says each. Checked through the chain on real PDFs
+ * do not, and the copy says each. AMENDED 2026-11-15 (review r1): the
+ * diff saw no change under 48 of 255 in luma, however large, so "a colour
+ * change that keeps the same lightness does not" implied more than it
+ * did; an area test now sees a pale stamp, a watermark or a recolour over
+ * an area, and the copy names the limit that remains (a small change of
+ * shade in thin lines or small text may be missed). The scan FAQ no longer
+ * opens "This tool reads selectable text only." Checked through the chain on real PDFs
  * (runner/compare/visual-render.native.test.ts), the gate on its one
  * reassuring sentence (visual-claim.test.ts), and the page's claims
  * against the drawing (claims-vs-capability.test.ts, "the overlay claims
@@ -114,7 +120,7 @@ const content: ToolContent = {
     `Compare PDF reads the selectable text of two versions of a document and lists only what changed, grouped by page: each change is headed with the page it sits on in both files and shown with two unchanged lines around it. Lines only in the second file are marked with a plus, lines only in the first with a minus, and above the changes the report gives both page counts, both sizes in bytes and the number of changed lines. When every line agrees, the result is headed Selectable text matches.`,
     `The comparison runs inside your browser tab, where pdf.js reads the text of both files, and neither PDF is uploaded. Whichever PDF you add first is the baseline, so add the older version first: the page and byte differences are counted from it to the second one. It compares exactly two files, and a file over ${CEILING_MB} MB is turned away before it is opened.`,
     `The list of changes compares text, so a new font or margin shows up there only where it makes the text wrap differently. Each change names its page in both files, and inside a changed line the words that differ are marked. Runs of spaces and tabs count as one space, indentation, blank lines and page breaks are ignored, so text that only flows on to another page in the same order is not a change; a line moved to a different place in the document is listed as removed and added. A scan with no text layer has no text to compare until it has been through OCR.`,
-    `Overlay pages lays each page of the second file over the page with the same number in the first, in grayscale, and marks where the ink differs: a moved image, a stamp or a shifted layout shows there. A colour change that keeps the same lightness does not, nor does a difference smaller than a few pixels at about 150 dpi (less on pages larger than about 13 inches), a form value with no saved appearance, or a hidden layer. A scan with no text layer can be compared this way; its text needs OCR first.`,
+    `Overlay pages lays each page of the second file over the page with the same number in the first, in grayscale, and marks where the ink differs: a moved image, a stamp, a pale watermark or a shifted layout shows there. A colour change that keeps about the same lightness does not, nor does a difference smaller than a few pixels at about 150 dpi (less on pages larger than about 13 inches), a form value with no saved appearance, or a hidden layer, and a small change of shade in thin lines or small text may be missed. A scan with no text layer can be compared this way; its text needs OCR first.`,
   ],
 
   useCases: [
@@ -175,7 +181,7 @@ const content: ToolContent = {
     },
     {
       q: "What if one of the two PDFs is a scan?",
-      a: `This tool reads selectable text only. When one file is a scan with no text layer, it does not list the other file's text as changed: the result is headed with that file's name and "has no selectable text", Changed lines reads Not compared, and the report tells you to run OCR PDF on that file first. Two scans produce a report saying no selectable text was found in either PDF. OCR PDF can add a text layer, but unlike this tool it uploads the scan over TLS to pdf.xyz's secure server, which deletes it when the job finishes; the OCR'd copy's link expires after ${OCR_LINK_MINUTES} minutes and a daily storage rule erases the stored copy after that. Any OCR misreading will then show up here as a difference. Without OCR, Compare pages visually lays the two files' pages over each other and marks where the ink differs; two separate scans of the same paper rarely line up exactly, so expect it to mark much of the page.`,
+      a: `The list of changes compares selectable text, so when one file is a scan with no text layer, it does not list the other file's text as changed: the result is headed with that file's name and "has no selectable text", Changed lines reads Not compared, and the report tells you to run OCR PDF on that file first. Two scans produce a report saying no selectable text was found in either PDF. OCR PDF can add a text layer, but unlike this tool it uploads the scan over TLS to pdf.xyz's secure server, which deletes it when the job finishes; the OCR'd copy's link expires after ${OCR_LINK_MINUTES} minutes and a daily storage rule erases the stored copy after that. Any OCR misreading will then show up here as a difference. Without OCR, Compare pages visually lays the two files' pages over each other and marks where the ink differs; two separate scans of the same paper rarely line up exactly, so expect it to mark much of the page.`,
     },
     {
       q: "Are my PDFs uploaded to compare them?",
