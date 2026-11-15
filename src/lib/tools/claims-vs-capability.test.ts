@@ -1165,15 +1165,16 @@ const RULES: readonly ClaimRule[] = [
     // and finish the formatting — the words arrive as paragraphs in reading
     // order, with their bold, italics, sizes and colours where they could be
     // matched, in Word's default typeface." What replaced them, each of
-    // which the shapes must let through:
+    // which the shapes must let through (reworded in review round 2 to say
+    // the kind is a substitute's and when it can be told):
     honest: [
-      "Each word it matches is also set in a font that comes with Windows or Office: the PDF's own font when it is one of those, such as Arial or Georgia, the one a free look-alike such as Liberation Sans or Carlito was drawn to match, and otherwise Arial, Times New Roman or Courier New, by whether the PDF's font is marked sans-serif, serif or monospaced.",
+      "A word it matches is also set in a font that comes with Windows or Office, when our reader can tell which: the PDF's own font when it is one of those, such as Arial or Georgia, the one a free look-alike such as Liberation Sans or Carlito was drawn to match, and otherwise Arial, Times New Roman or Courier New, a substitute of the same kind as the PDF's font (sans-serif, serif or monospaced), judged by the font's name or by how the PDF marks it. A word whose font shows neither keeps Word's default font.",
       "The PDF's font files are not copied into the document.",
       "Words in other alphabets, such as Greek, Bengali or Chinese, and symbols carry no font name, so Word picks one, and text recognised by OCR comes through in Word's default style.",
-      "Words are set in fonts that come with Windows or Office, of the same kind as the PDF's (serif, sans-serif or monospaced), and the PDF's font files are not copied into the document.",
-      "Each word keeps its bold, italics, size and color where they can be matched, and such a word in the Latin alphabet is set in a font that comes with Windows or Office, of the same kind as the PDF's; drawings made of lines and shapes elsewhere on the page, and the page layout, are not carried over.",
+      "Words are set in fonts that come with Windows or Office, a substitute of the same kind as the PDF's font (serif, sans-serif or monospaced) wherever its name or the PDF says which kind it is, and otherwise in Word's default font; the PDF's font files are not copied into the document.",
+      "Each word keeps its bold, italics, size and color where they can be matched, and such a word in the Latin alphabet is set in a font that comes with Windows or Office, a substitute of the same kind as the PDF's font where our reader can tell its kind; drawings made of lines and shapes elsewhere on the page, and the page layout, are not carried over.",
       "Turn PDF text and pictures into editable Word (DOCX) in reading order and Office fonts.",
-      "Open the downloaded DOCX in Word and finish the formatting — the words arrive as paragraphs in reading order, with their bold, italics, sizes and colours where they could be matched, each in a standard Office font of the same kind as the PDF's.",
+      "Open the downloaded DOCX in Word and finish the formatting — the words arrive as paragraphs in reading order, with their bold, italics, sizes and colours where they could be matched, each set in a font that comes with Windows or Office, a substitute of the same kind as the PDF's where its kind can be told.",
     ],
     probe: async () => {
       const OFFICE = new Set<string>(OFFICE_FAMILIES);
@@ -2857,10 +2858,10 @@ describe("PDF to Word: the picture sentences hold of the engine", () => {
       // a table whose cells fit on one line is a Word table now.
       // Until 2026-11-15 (#28 slice 4) this said "…where they can be matched;
       // the typeface, drawings made of lines and shapes …" — no longer the page's.
-      "Each word keeps its bold, italics, size and color where they can be matched, and such a word in the Latin alphabet is set in a font that comes with Windows or Office, of the same kind as the PDF's; drawings made of lines and shapes elsewhere on the page, and the page layout, are not carried over.",
+      "Each word keeps its bold, italics, size and color where they can be matched, and such a word in the Latin alphabet is set in a font that comes with Windows or Office, a substitute of the same kind as the PDF's font where our reader can tell its kind; drawings made of lines and shapes elsewhere on the page, and the page layout, are not carried over.",
       // Until 2026-11-15 (#28 slice 4) this ended "…, in Word's default
       // typeface." — no longer the guide's.
-      "Open the downloaded DOCX in Word and finish the formatting — the words arrive as paragraphs in reading order, with their bold, italics, sizes and colours where they could be matched, each in a standard Office font of the same kind as the PDF's.",
+      "Open the downloaded DOCX in Word and finish the formatting — the words arrive as paragraphs in reading order, with their bold, italics, sizes and colours where they could be matched, each set in a font that comes with Windows or Office, a substitute of the same kind as the PDF's where its kind can be told.",
       "To rework the wording itself, convert the file with PDF to Word: it exports the PDF's selectable text as an editable Word document, in reading order, each word keeping its bold, italics, size and colour where our reader matches it, with each picture between the paragraphs.",
     ];
     const denies = (t: string) =>
@@ -3805,14 +3806,21 @@ describe("PDF to Word: the typeface sentences hold of the engine", () => {
     "Tables, fonts, colors, drawings made of lines and shapes elsewhere on the page, and the page layout are not carried over, and bold or italics only where a whole paragraph is set in them, so the text arrives in Word's default style, ready to format — not as a copy of the page.",
     "The DOCX carries the words as plain paragraphs, with the pictures on lines of their own between them; fonts, sizes, colours, tables as tables, link targets and drawings made of lines and shapes stay behind.",
   ];
-  /** What the PDF to Word surfaces say since 2026-11-15. */
+  /**
+   * What the PDF to Word surfaces say since 2026-11-15. Until review round
+   * 2 (the same day) five of these stated "of the same kind as the PDF's"
+   * with no condition, and the intro said "by whether the PDF's font is
+   * marked sans-serif, serif or monospaced"; they are kept as SHIPPED_FLAT
+   * in the test below. Each now says the kind is a substitute's, and when
+   * it can be told.
+   */
   const HONEST_TYPEFACE = [
-    "Each word it matches is also set in a font that comes with Windows or Office: the PDF's own font when it is one of those, such as Arial or Georgia, the one a free look-alike such as Liberation Sans or Carlito was drawn to match, and otherwise Arial, Times New Roman or Courier New, by whether the PDF's font is marked sans-serif, serif or monospaced.",
+    "A word it matches is also set in a font that comes with Windows or Office, when our reader can tell which: the PDF's own font when it is one of those, such as Arial or Georgia, the one a free look-alike such as Liberation Sans or Carlito was drawn to match, and otherwise Arial, Times New Roman or Courier New, a substitute of the same kind as the PDF's font (sans-serif, serif or monospaced), judged by the font's name or by how the PDF marks it. A word whose font shows neither keeps Word's default font.",
     "Check the result against the original, since the converted text starts out in standard Office fonts and without the original's layout.",
-    "Words are set in fonts that come with Windows or Office, of the same kind as the PDF's (serif, sans-serif or monospaced), and the PDF's font files are not copied into the document.",
-    "Each word keeps its bold, italics, size and color where they can be matched, and such a word in the Latin alphabet is set in a font that comes with Windows or Office, of the same kind as the PDF's; drawings made of lines and shapes elsewhere on the page, and the page layout, are not carried over.",
-    "The conversion carries the PDF's selectable text into Word as paragraphs in reading order, each word keeping its bold, italics, size and colour where they can be matched and set in a standard Office font of the same kind as the PDF's, so you edit the words instead of retyping them — the page layout is not rebuilt.",
-    "Open the downloaded DOCX in Word and finish the formatting — the words arrive as paragraphs in reading order, with their bold, italics, sizes and colours where they could be matched, each in a standard Office font of the same kind as the PDF's.",
+    "Words are set in fonts that come with Windows or Office, a substitute of the same kind as the PDF's font (serif, sans-serif or monospaced) wherever its name or the PDF says which kind it is, and otherwise in Word's default font; the PDF's font files are not copied into the document.",
+    "Each word keeps its bold, italics, size and color where they can be matched, and such a word in the Latin alphabet is set in a font that comes with Windows or Office, a substitute of the same kind as the PDF's font where our reader can tell its kind; drawings made of lines and shapes elsewhere on the page, and the page layout, are not carried over.",
+    "The conversion carries the PDF's selectable text into Word as paragraphs in reading order, each word keeping its bold, italics, size and colour where they can be matched and set in a font that comes with Windows or Office, a substitute of the same kind as the PDF's where its kind can be told, so you edit the words instead of retyping them — the page layout is not rebuilt.",
+    "Open the downloaded DOCX in Word and finish the formatting — the words arrive as paragraphs in reading order, with their bold, italics, sizes and colours where they could be matched, each set in a font that comes with Windows or Office, a substitute of the same kind as the PDF's where its kind can be told.",
     "Partly. It holds the PDF's words and pictures and each word's bold, italics, size and colour where they can be matched, in standard Office fonts, not its layout.",
     "The page layout is not recreated, words are set in standard Office fonts, and only a table whose cells each fit on one line, with a column of figures, comes through as a Word table, so it suits documents where the words matter more than the look.",
     "Turn PDF text and pictures into editable Word (DOCX) in reading order and Office fonts.",
@@ -3858,6 +3866,38 @@ describe("PDF to Word: the typeface sentences hold of the engine", () => {
     expect(HONEST_TYPEFACE.filter((s) => !all.includes(s))).toEqual([]);
   });
 
+  /*
+   * Added 2026-11-15, review round 2. "Of the same kind as the PDF's" is
+   * true only where the kind can be told (`docxKindOf`): a face with no
+   * kind in its name or its marks takes no font. Every served sentence
+   * that promises the kind must carry that condition. SHIPPED_FLAT holds
+   * the five sentences that stated it flatly on the branch before round 2.
+   */
+  it("every PDF to Word sentence promising a font of the same kind says when the kind can be told", async () => {
+    const SAME_KIND = /\bsame kind as the PDF[’']s\b/i;
+    const CONDITION =
+      /\b(?:where(?:ver)? (?:its|our reader|the PDF says)|when our reader can tell|judged by the font[’']s name)\b/i;
+    const SHIPPED_FLAT = [
+      "Each word it matches is also set in a font that comes with Windows or Office: the PDF's own font when it is one of those, such as Arial or Georgia, the one a free look-alike such as Liberation Sans or Carlito was drawn to match, and otherwise Arial, Times New Roman or Courier New, of the same kind as the PDF's font.",
+      "Words are set in fonts that come with Windows or Office, of the same kind as the PDF's (serif, sans-serif or monospaced), and the PDF's font files are not copied into the document.",
+      "Each word keeps its bold, italics, size and color where they can be matched, and such a word in the Latin alphabet is set in a font that comes with Windows or Office, of the same kind as the PDF's; drawings made of lines and shapes elsewhere on the page, and the page layout, are not carried over.",
+      "The conversion carries the PDF's selectable text into Word as paragraphs in reading order, each word keeping its bold, italics, size and colour where they can be matched and set in a standard Office font of the same kind as the PDF's, so you edit the words instead of retyping them — the page layout is not rebuilt.",
+      "Open the downloaded DOCX in Word and finish the formatting — the words arrive as paragraphs in reading order, with their bold, italics, sizes and colours where they could be matched, each in a standard Office font of the same kind as the PDF's.",
+    ];
+    const flat = (s: string) => SAME_KIND.test(s) && !CONDITION.test(s);
+    // Positive control: each flat sentence is caught.
+    expect(SHIPPED_FLAT.filter((s) => !flat(s))).toEqual([]);
+    const served: string[] = [];
+    for (const container of await containersFor(PDF_TO_WORD_TOOL))
+      for (const { sentence } of attributedTo(container, PDF_TO_WORD_TOOL))
+        if (SAME_KIND.test(sentence)) served.push(sentence);
+    // Health: the promise is made, so the check has subjects.
+    expect(served.length).toBeGreaterThanOrEqual(3);
+    expect(served.filter(flat)).toEqual([]);
+    // Each condition the pattern names is used by a served sentence.
+    expect(served.every((s) => CONDITION.test(s))).toBe(true);
+  });
+
   it("the page claims the typeface exactly when the probe's words read back in Office faces of their kind", async () => {
     const pdf = await docxTypefacesProbePdf();
     const run = await runPdfOfficeExport(PDF_TO_WORD_TOOL, pdf, {
@@ -3875,7 +3915,7 @@ describe("PDF to Word: the typeface sentences hold of the engine", () => {
       [DOCX_TYPEFACES_PROBE.mono, "Courier New"],
       [DOCX_TYPEFACES_PROBE.sans, "Arial"],
     ] as const;
-    const set = want.every(([line, family]) =>
+    const probeSet = want.every(([line, family]) =>
       line
         .split(" ")
         .every((w) =>
@@ -3887,6 +3927,52 @@ describe("PDF to Word: the typeface sentences hold of the engine", () => {
               r.fontsCs === family,
           ),
         ),
+    );
+    /*
+     * Added 2026-11-15, review round 2. The probe is three standard-14
+     * fonts, whose kind the alias table fixes, so it certified the table
+     * and never the kind of a face Word does not know — which was pdf.js's
+     * flag-based guess, and Arial for pdfTeX's CMR10 and CMTT10 (/Flags 4).
+     * "Of the same kind" is a claim about THOSE faces too, so it holds only
+     * when each of these reads back as the page says: CMR10 in Times New
+     * Roman, CMTT10 in Courier New, and a face with no kind in its name or
+     * its marks in NO font (the page's "otherwise Word's default font").
+     */
+    const { embeddedFacePdf } = await import("@/tests/pdf-office-fixtures");
+    const KIND_TEXT = "Kind control şeker words";
+    const kindControls = [
+      ["ABCDEF+CMR10", "serif", "Times New Roman"],
+      ["ABCDEF+CMTT10", "mono", "Courier New"],
+      ["ABCDEF+Qwerty", "serif", undefined],
+    ] as const;
+    const kindsHold: string[] = [];
+    for (const [name, kind, family] of kindControls) {
+      const control = await runPdfOfficeExport(
+        PDF_TO_WORD_TOOL,
+        await embeddedFacePdf(KIND_TEXT, kind, name),
+        { extractFlow: flowStandIn, scanPages: scanPdfPages },
+      );
+      if (!control.ok) throw new Error(control.message);
+      const read = (await readDocxStructure(control.output)).blocks.flatMap(
+        (b) => (b.kind === "p" ? b.runs : []),
+      );
+      const words = KIND_TEXT.split(" ");
+      const held = words.every((w) =>
+        read.some(
+          (r) =>
+            r.text.split(/\s+/).includes(w) &&
+            r.fonts === family &&
+            r.fontsHAnsi === family &&
+            r.fontsCs === family,
+        ),
+      );
+      if (held) kindsHold.push(name);
+    }
+    const set = probeSet && kindsHold.length === kindControls.length;
+    // The probe and the controls agree on this tree; a split would be a
+    // copy question the two branches below cannot settle.
+    expect(kindsHold.length === kindControls.length, kindsHold.join()).toBe(
+      probeSet,
     );
     const denying: string[] = [];
     const claiming: string[] = [];

@@ -1226,7 +1226,7 @@ export const guides: Guide[] = [
       "turn a pdf into word",
     ],
     intro: [
-      "To convert a PDF into an editable Word document, open the PDF to Word tool, upload your PDF, and download the result as a DOCX file. The conversion carries the PDF's selectable text into Word as paragraphs in reading order, each word keeping its bold, italics, size and colour where they can be matched and set in a standard Office font of the same kind as the PDF's, so you edit the words instead of retyping them — the page layout is not rebuilt.",
+      "To convert a PDF into an editable Word document, open the PDF to Word tool, upload your PDF, and download the result as a DOCX file. The conversion carries the PDF's selectable text into Word as paragraphs in reading order, each word keeping its bold, italics, size and colour where they can be matched and set in a font that comes with Windows or Office, a substitute of the same kind as the PDF's where its kind can be told, so you edit the words instead of retyping them — the page layout is not rebuilt.",
       `PDF to Word is a server tool: your PDF travels over an encrypted connection to a secure server, and our server deletes the input when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
       `There is no account to create. Pick a PDF up to ${ceilingMb("pdf-to-word")} MB, let our server convert it, and save the DOCX before the link expires.`,
     ],
@@ -1236,7 +1236,7 @@ export const guides: Guide[] = [
       "Start the conversion.",
       "Wait while our secure server converts the PDF into a Word document. Our server deletes the input when the job finishes.",
       `Download the DOCX. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
-      "Open the downloaded DOCX in Word and finish the formatting — the words arrive as paragraphs in reading order, with their bold, italics, sizes and colours where they could be matched, each in a standard Office font of the same kind as the PDF's.",
+      "Open the downloaded DOCX in Word and finish the formatting — the words arrive as paragraphs in reading order, with their bold, italics, sizes and colours where they could be matched, each set in a font that comes with Windows or Office, a substitute of the same kind as the PDF's where its kind can be told.",
     ],
     sections: [
       {

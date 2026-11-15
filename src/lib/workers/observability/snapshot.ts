@@ -321,7 +321,7 @@ const WORKER_CAPABILITY_PROMISES: Record<
     label: "Word typefaces",
     promise:
       // Added 2026-11-15 (backlog #28, slice 4: typeface by kind).
-      "PDF to Word sets each word in a font that comes with Windows or Office, of the same kind as the PDF's (serif, sans-serif, monospaced), as its page says, not Word's default font that it delivered until 2026-11-15",
+      "PDF to Word sets each word whose font's kind it can tell in a font that comes with Windows or Office, a substitute of the same kind (serif, sans-serif, monospaced), as its page says, not Word's default font that it delivered until 2026-11-15",
     proves: provenByFlag,
   },
   translateOcr: {
