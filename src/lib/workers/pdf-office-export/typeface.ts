@@ -19,7 +19,9 @@
  *
  * ── WORD (since 2026-11-15) ─────────────────────────────────────────────────
  *
- * {@link docxTypefaceOf} is the same mapping with two refusals: an invisible
+ * {@link docxTypefaceOf} is the same mapping with three refusals: an
+ * unknown family whose kind cannot be told (see {@link docxKindOf}: pdf.js's
+ * "sans" means only that nothing was marked), an invisible
  * run (an OCR layer) and a symbol or dingbat face ({@link SYMBOL_FAMILY})
  * name no typeface at all. A Word document's text is poppler's, not pdf.js's,
  * so writing Wingdings over poppler's Unicode would draw the wrong glyphs.
@@ -144,16 +146,82 @@ export function sameWidths(run: Pick<ScannedRun, "family">): boolean {
 
 /**
  * The Office family a run's words are written in in Word, or null: an
- * invisible run (an OCR layer) and a symbol or dingbat face name none (see
- * the module docblock). Never a symbol face, so always one of
+ * invisible run (an OCR layer), a symbol or dingbat face, and an unknown
+ * family whose kind cannot be told name none (see the module docblock). Never a symbol face, so always one of
  * {@link OFFICE_FAMILIES} less those.
  */
 export function docxTypefaceOf(
   run: Pick<ScannedRun, "family" | "fontClass" | "text" | "invisible">,
 ): string | null {
   if (run.invisible) return null;
-  if (SYMBOL_FAMILY.test(run.family.trim())) return null;
-  return typefaceFor(run);
+  const name = run.family.trim();
+  if (SYMBOL_FAMILY.test(name)) return null;
+  const lower = name.toLowerCase();
+  const named = KNOWN.get(lower) ?? ALIASES[lower];
+  if (named) return named;
+  const kind = docxKindOf(lower, run);
+  return kind ? CLASS_DEFAULT[kind] : null;
+}
+
+/*
+ * ── THE KIND OF A FAMILY WORD DOES NOT KNOW (review of 2026-11-15, round 2)
+ *
+ * Until round 2, Word took `CLASS_DEFAULT[run.fontClass]` as PowerPoint
+ * does. `fontClass` is pdf.js's `fallbackName`, and pdf.js says "serif"
+ * only from the Serif flag or its own name list, "monospace" when every
+ * width in the font is equal, and "sans-serif" for EVERYTHING ELSE. So
+ * "sans" meant "nothing was said", and pdfTeX's CMR10 and CMTT10 (/Flags
+ * 4) and pdf.xyz's own Geist Mono pack all came back in Arial, while the
+ * page promised a font of the same kind. Now, in Word only:
+ *  - the kind is read from the family's NAME ({@link MONO_NAME},
+ *    {@link SANS_NAME}, {@link SERIF_NAME}, in that order: "Sans Mono" is
+ *    monospaced, "Sans Serif" sans-serif), and from what pdf.js POSITIVELY
+ *    saw: "serif", and "monospace" only when the run's own text shows a
+ *    narrow and a wide letter ({@link PITCH_NARROW}, {@link PITCH_WIDE}) —
+ *    equal widths over a subset of digits, or of one glyph, prove nothing;
+ *  - with neither, or when the two disagree, the word names NO typeface
+ *    and Word uses its own default. A guess is never written.
+ * PowerPoint keeps {@link typefaceFor}: a text box must name some face.
+ */
+/** Family names that say monospaced. */
+const MONO_NAME =
+  /\bmono(?:space|spaced)?\b|\bcode\b|typewriter|consol|courier|inconsolata|menlo|monaco|^cm(?:sl|i)?tt\d|^lmmono|\bfixed\b/;
+/** Family names that say sans-serif. */
+const SANS_NAME = /\bsans\b|^cmss|^lmsans|grotesk|grotesque/;
+/** Family names that say serif. */
+const SERIF_NAME = /\bserif\b|\broman\b|^cm(?:r|bx|ti|sl|csc|b|u)\d|^lmroman/;
+/** Letters narrow in every proportional face… */
+const PITCH_NARROW = /[ijlI!.,:;'|]/;
+/** …and letters wide in every one: both at one width is monospaced. */
+const PITCH_WIDE = /[mwMW]/;
+
+function kindByName(lower: string): FontClass | null {
+  if (MONO_NAME.test(lower)) return "mono";
+  if (SANS_NAME.test(lower)) return "sans";
+  if (SERIF_NAME.test(lower)) return "serif";
+  return null;
+}
+
+function kindByMark(run: Pick<ScannedRun, "fontClass" | "text">) {
+  if (run.fontClass === "serif") return "serif";
+  if (
+    run.fontClass === "mono" &&
+    PITCH_NARROW.test(run.text) &&
+    PITCH_WIDE.test(run.text)
+  )
+    return "mono";
+  return null;
+}
+
+/** The kind of a family Word does not know, or null when it cannot be told. */
+export function docxKindOf(
+  lower: string,
+  run: Pick<ScannedRun, "fontClass" | "text">,
+): FontClass | null {
+  const byName = kindByName(lower);
+  const byMark = kindByMark(run);
+  if (byName && byMark && byName !== byMark) return null;
+  return byName ?? byMark;
 }
 
 /**

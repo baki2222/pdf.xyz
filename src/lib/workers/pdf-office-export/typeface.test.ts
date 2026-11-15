@@ -57,6 +57,57 @@ describe("typefaceFor / docxTypefaceOf — the mapping", () => {
     });
   });
 
+  /*
+   * Review of 2026-11-15, round 2. Until then an unknown family took
+   * CLASS_DEFAULT[fontClass] in Word too, and `fontClass` is pdf.js's
+   * `fallbackName`: "serif" from the Serif flag or a name list, "monospace"
+   * when every width in the font is equal, and "sans-serif" for EVERYTHING
+   * else — so "sans" meant "nothing said", and pdfTeX's CMR10 (/Flags 4),
+   * CMTT10 and pdf.xyz's own Geist Mono pack were all written as Arial. The
+   * kind is now taken from the family's name and from what pdf.js could
+   * positively see; with neither, or when they disagree, no typeface.
+   */
+  it("an unknown family's kind comes from its name: CMR10 is serif, CMTT10 and Geist Mono are monospaced, though pdf.js said sans", () => {
+    expect(docxTypefaceOf(run("CMR10"))).toBe("Times New Roman");
+    expect(docxTypefaceOf(run("CMBX12"))).toBe("Times New Roman");
+    expect(docxTypefaceOf(run("LMRoman10"))).toBe("Times New Roman");
+    expect(docxTypefaceOf(run("CMTT10"))).toBe("Courier New");
+    expect(docxTypefaceOf(run("LMMono10"))).toBe("Courier New");
+    expect(docxTypefaceOf(run("Geist Mono"))).toBe("Courier New");
+    expect(docxTypefaceOf(run("Source Code Pro"))).toBe("Courier New");
+    expect(docxTypefaceOf(run("DejaVu Sans Mono"))).toBe("Courier New");
+    expect(docxTypefaceOf(run("CMSS10", "serif"))).toBeNull();
+    expect(docxTypefaceOf(run("Noto Sans"))).toBe("Arial");
+    expect(docxTypefaceOf(run("Monotype Corsiva"))).toBeNull();
+  });
+
+  it("an unknown family pdf.js could not mark, with no kind in its name, takes NO typeface (it was Arial)", () => {
+    expect(docxTypefaceOf(run("Some Unknown Face"))).toBeNull();
+    expect(docxTypefaceOf(run("Geist"))).toBeNull();
+    expect(docxTypefaceOf(run("Roboto"))).toBeNull();
+    // PowerPoint keeps its own rule: the deck's text box needs a face.
+    expect(typefaceFor(run("Some Unknown Face"))).toBe("Arial");
+  });
+
+  it("pdf.js's 'monospace' counts only when the run shows a narrow and a wide letter at the same width", () => {
+    // Every width equal is pdf.js's whole test, and a subset of digits
+    // (tabular in most faces) or of one glyph passes it.
+    expect(docxTypefaceOf(run("Unknown", "mono", { text: "2026" }))).toBeNull();
+    expect(docxTypefaceOf(run("Unknown", "mono", { text: "Abc" }))).toBeNull();
+    expect(docxTypefaceOf(run("Unknown", "mono", { text: "if x: m" }))).toBe(
+      "Courier New",
+    );
+    // A serif mark from the Serif flag or pdf.js's name list stands.
+    expect(docxTypefaceOf(run("Unknown", "serif"))).toBe("Times New Roman");
+  });
+
+  it("a name and a mark that disagree name no typeface", () => {
+    expect(docxTypefaceOf(run("Noto Serif", "mono", { text: "mil" }))).toBe(
+      null,
+    );
+    expect(docxTypefaceOf(run("Fira Code", "serif"))).toBeNull();
+  });
+
   it("a symbol or dingbat face names NO typeface in Word, mapped or not (PowerPoint keeps its own rule)", () => {
     const pua = String.fromCharCode(0xf0e0);
     for (const f of [
