@@ -50,6 +50,9 @@ describe("the formatting matcher is bounded per page", () => {
       // (match / match-line / match-wide); 2026-11-15 with the text test:
       // 25 / 22 / 727 / 15 ms and +8 / +12 / +9 / +3 MB (match-one: one
       // run of 100,000 characters, searched within `TEXT_WINDOW`).
+      // 2026-11-15 with parts (#28 slice 4): 45 / 49 / 781-1,143 / 31 ms and
+      // +20 / +21 / +16-21 / +15 MB — about twice the base build's time,
+      // far inside these bounds.
       expect(got.ms, JSON.stringify(got)).toBeLessThan(10_000);
       expect(got.rssDeltaMb, JSON.stringify(got)).toBeLessThan(200);
     },

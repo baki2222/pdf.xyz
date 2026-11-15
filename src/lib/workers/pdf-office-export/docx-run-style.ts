@@ -125,6 +125,15 @@ export interface DocxRunStyle {
  * ms and +8 / +12 / +9 MB for the three shapes above, and 15 ms and +3 MB
  * for every word on one line in ONE style (`match-one`: the runs join into
  * one of 100,000 characters, searched within {@link TEXT_WINDOW}).
+ *
+ * RE-MEASURED 2026-11-15 with parts (#28 slice 4, the typeface decided from
+ * each joined run's member parts, found by binary search like the buckets),
+ * the base build measured beside it in the same session, two fresh runs
+ * each: match 44-45 ms / +19-20 MB (base 20 ms / +10-11), match-line 46-49
+ * ms / +21 (base 20-21 / +10-13), match-wide 781-1,143 ms / +16-21 (base
+ * 773-791 / +7-8), match-one 29-31 ms / +14-15 (base 11-16 / +4). About
+ * twice the matcher's time and +10 MB at the cap; the wide-run shape, the
+ * cap's reason, is unchanged within its noise.
  */
 export const MAX_STYLED_PIECES_PER_PAGE = 20_000;
 
