@@ -175,7 +175,13 @@ const inkOf = (p: Plane) => {
   return n;
 };
 
-describe("the Overlay on real PDFs", () => {
+// Real pdf.js renders of fixtures that embed (and subset) the shipped Latin
+// face: well under a second each here, but CI ran "control: the same pale
+// page twice…" past vitest's 5 s default after the fixtures began
+// embedding the face (PR #323's run 43696792243, 2026-11-15). This is the
+// runner's hang guard, not a speed claim; the diff's own cost is bounded in
+// visual-diff.test.ts.
+describe("the Overlay on real PDFs", { timeout: 30_000 }, () => {
   it("sees a stamp the text comparison cannot, over most of the stamp's ink", async () => {
     const base = await onePage(async (doc) => {
       await textPage(doc);
