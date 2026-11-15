@@ -22,14 +22,12 @@ import { nativeTranslatePdfRender } from "@/lib/workers/translate/native";
 import { nativePdfProbeReaders } from "@/lib/workers/translate/pdf-readers";
 import { probeTranslatePdfLanguages } from "@/lib/workers/translate/pdf-capability";
 import { measureDeliverySizeRenders } from "@/lib/workers/translate/pdf-measure";
-import {
-  TRANSLATE_PDF_CI_REQUIRED,
-  type TranslateLanguage,
-} from "@/lib/jobs/translate-pdf";
+import { translatePdfProofVerdict } from "@/lib/workers/translate/pdf-proof-verdict";
+import type { TranslateLanguage } from "@/lib/jobs/translate-pdf";
 
 // The required set is NOT typed here (2026-11-15, audit #29 slice 2): the
-// static copy names the languages that get a PDF from the same constant, so
-// this gate is what keeps that copy true. See TRANSLATE_PDF_CI_REQUIRED.
+// static copy names the languages that get a PDF from TRANSLATE_PDF_CI_REQUIRED,
+// and translatePdfProofVerdict checks the probe against that constant itself.
 const MEASURED: readonly TranslateLanguage[] = ["en", "bn", "ja", "ar", "th"];
 
 async function main(): Promise<number> {
@@ -63,19 +61,11 @@ async function main(): Promise<number> {
       `  ${r.language}: ${r.ok ? "ok" : `DROPPED (${r.reason})`} ${r.ms} ms ${r.characters} chars${r.ok ? ` ${r.bytes} B ${r.pages} pages` : ""}`,
     );
 
-  const missing = TRANSLATE_PDF_CI_REQUIRED.filter(
-    (l) => !probe.passing.includes(l),
-  );
-  if (missing.length > 0) {
-    console.log(`FAIL — not proven: ${missing.join(", ")}`);
-    return 1;
-  }
-  if (summary.falseDrops > 0) {
-    console.log(`FAIL — ${summary.falseDrops} false drop(s) at delivery size`);
-    return 1;
-  }
-  console.log("PASS");
-  return 0;
+  // The verdict is a pure function the guard RUNS (review r1, 2026-11-16):
+  // it reads TRANSLATE_PDF_CI_REQUIRED itself, so nothing here can narrow it.
+  const verdict = translatePdfProofVerdict(probe.passing, summary.falseDrops);
+  for (const line of verdict.lines) console.log(line);
+  return verdict.exitCode;
 }
 
 main().then(

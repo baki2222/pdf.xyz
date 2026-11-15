@@ -45,6 +45,7 @@ import {
 } from "@/lib/tools/page-copy";
 import { guides } from "@/lib/guides";
 import { withoutComments } from "@/lib/tools/copy-surface";
+import { translatePdfProofVerdict } from "@/lib/workers/translate/pdf-proof-verdict";
 
 const ROOT = process.cwd();
 const read = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
@@ -57,6 +58,9 @@ function toolPageTexts(): string[] {
     // A step's title is optional; an absent field is not copy.
     pageTitle(tool),
     pageDescription(tool),
+    // "About this tool" and the WebApplication JSON-LD (review r1, 2026-11-16:
+    // the sentence served there was outside this list and every guard).
+    tool.description,
     ...pageIntro(tool),
     ...pageSteps(tool).flatMap((s) => [s.title, s.text]),
     ...pageFaq(tool).flatMap((e) => [e.question, e.answer]),
@@ -89,8 +93,12 @@ const spoken = (code: TranslateLanguage) =>
 
 interface PdfClaim {
   readonly sentence: string;
-  /** The count the sentence gives, or "all" for "all 21 languages"/"all of them". */
-  readonly count: number | "all";
+  /**
+   * The count the sentence gives: a number, "all" for "all 21 languages" /
+   * "all of them", or "most" for "most (target) languages" — the word the
+   * catalogue description uses, since catalog.ts cannot import the gate.
+   */
+  readonly count: number | "all" | "most";
   /** Every target language the sentence names. */
   readonly named: readonly TranslateLanguage[];
   /** True for the "every one but …" form, whose names are the exceptions. */
@@ -107,11 +115,16 @@ function pdfClaimsIn(texts: readonly string[]): PdfClaim[] {
     if (!/\breflowed PDF\b/i.test(sentence)) continue;
     const counted =
       /\b(\d+) of (?:the \d+ languages|them)\b/.exec(sentence)?.[1] ??
-      (/\ball (?:\d+ languages|of them)\b/.test(sentence) ? "all" : null);
+      (/\ball (?:\d+ languages|of them)\b/.test(sentence)
+        ? "all"
+        : /\bmost (?:target )?languages\b/.test(sentence)
+          ? "most"
+          : null);
     if (counted === null) continue;
     out.push({
       sentence,
-      count: counted === "all" ? "all" : Number(counted),
+      count:
+        counted === "all" || counted === "most" ? counted : Number(counted),
       named: TRANSLATE_LANGUAGES.filter((code) =>
         new RegExp(`\\b${spoken(code)}\\b`).test(sentence),
       ),
@@ -131,7 +144,13 @@ function claimProblems(
   const problems: string[] = [];
   for (const claim of claims) {
     const expected = coverage.without.length === 0 ? "all" : coverage.withPdf;
-    if (claim.count !== expected)
+    if (claim.count === "most") {
+      // "most" holds while more than half the target languages are gated.
+      if (coverage.withPdf * 2 <= coverage.total)
+        problems.push(
+          `says most, gate says ${coverage.withPdf} of ${coverage.total}: "${claim.sentence}"`,
+        );
+    } else if (claim.count !== expected)
       problems.push(
         `says ${claim.count}, gate says ${expected}: "${claim.sentence}"`,
       );
@@ -219,6 +238,25 @@ describe("Translate PDF's copy names the PDF's languages from the CI gate", () =
     ).toBeGreaterThan(0);
   });
 
+  it("the catalogue description's 'most' is read, and fails once the gate is half the languages or fewer", () => {
+    const description = getToolBySlug("translate-pdf")!.description;
+    const claims = pdfClaimsIn([description]);
+    // Health: the served description is a claim the extractor sees.
+    expect(claims.map((c) => c.count)).toEqual(["most"]);
+    expect(claimProblems(claims, TRANSLATE_PDF_CI_REQUIRED)).toEqual([]);
+    // Control: the gate before slice 2 (en, es, bn) makes "most" false.
+    expect(claimProblems(claims, ["en", "es", "bn"]).length).toBeGreaterThan(0);
+    // Boundary: exactly half is not most; one more is.
+    const half = TRANSLATE_LANGUAGES.slice(
+      0,
+      Math.floor(TRANSLATE_LANGUAGES.length / 2),
+    );
+    expect(claimProblems(claims, half).length).toBeGreaterThan(0);
+    expect(
+      claimProblems(claims, TRANSLATE_LANGUAGES.slice(0, half.length + 1)),
+    ).toEqual([]);
+  });
+
   it("positive control: with every language in the gate, the copy reads all 21 and names none", () => {
     const sentence = translatePdfCoverageSentence(
       translatePdfCoverage(TRANSLATE_LANGUAGES),
@@ -243,7 +281,53 @@ describe("Translate PDF's copy names the PDF's languages from the CI gate", () =
   });
 });
 
-describe("the proof CI runs in the worker image reads the shared gate", () => {
+describe("the proof CI runs in the worker image fails on exactly the gate", () => {
+  /*
+   * Review r1 (2026-11-16): this block used to read the script's SOURCE —
+   * the import is present, the identifier before `.filter(…passing)` is the
+   * constant, no `*REQUIRED*` const. Three variants kept that shape and put
+   * back the drift it is named for, all green: the check narrowed inline
+   * (`.filter((l) => ["en", "es", "bn"].includes(l))`), Thai dropped inside
+   * the predicate, and `return 0` after "not proven". The verdict now lives
+   * in a pure function, and the property is tested by RUNNING it.
+   */
+  it("health: the gate is not trivially small", () => {
+    expect(TRANSLATE_PDF_CI_REQUIRED.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("every required language proven, no false drop: exit 0", () => {
+    const v = translatePdfProofVerdict([...TRANSLATE_PDF_CI_REQUIRED], 0);
+    expect(v.exitCode).toBe(0);
+    expect(v.notProven).toEqual([]);
+    expect(v.lines).toEqual(["PASS"]);
+    // Extra languages proven beyond the gate change nothing.
+    expect(translatePdfProofVerdict([...TRANSLATE_LANGUAGES], 0).exitCode).toBe(
+      0,
+    );
+  });
+
+  it("any ONE required language missing: exit 1, naming it — for every language in the gate", () => {
+    const passed: TranslateLanguage[] = [];
+    for (const missing of TRANSLATE_PDF_CI_REQUIRED) {
+      const v = translatePdfProofVerdict(
+        TRANSLATE_PDF_CI_REQUIRED.filter((l) => l !== missing),
+        0,
+      );
+      if (v.exitCode === 0) passed.push(missing);
+      else expect(v.notProven, missing).toEqual([missing]);
+    }
+    expect(passed, "languages the gate lets go unproven").toEqual([]);
+  });
+
+  it("nothing proven fails with the whole gate; a false drop alone fails too", () => {
+    const none = translatePdfProofVerdict([], 0);
+    expect(none.exitCode).toBe(1);
+    expect(none.notProven).toEqual(TRANSLATE_PDF_CI_REQUIRED);
+    const dropped = translatePdfProofVerdict([...TRANSLATE_PDF_CI_REQUIRED], 1);
+    expect(dropped.exitCode).toBe(1);
+    expect(dropped.lines.join("\n")).not.toContain("PASS");
+  });
+
   const SCRIPT = "worker:translate-pdf-proof";
 
   /** container.yml → package.json script → file: three things CI already needs. */
@@ -262,47 +346,63 @@ describe("the proof CI runs in the worker image reads the shared gate", () => {
     return file;
   }
 
-  /** What the script's source says about its required set. */
-  function gateOf(source: string) {
+  /** How the script reaches its verdict, read from its source. */
+  function wiringOf(source: string) {
     const code = withoutComments(source);
     return {
-      imports:
-        /import\s*\{[^}]*\bTRANSLATE_PDF_CI_REQUIRED\b[^}]*\}\s*from\s*"@\/lib\/jobs\/translate-pdf"/.test(
-          code,
-        ),
-      // Every list the probe's verdicts are checked against.
-      checkedAgainst: [
-        ...code.matchAll(
-          /\b([A-Za-z_$][\w$]*)\s*\.filter\(\s*\(?\s*\w+\s*\)?\s*=>[^)]*\.passing\b/g,
-        ),
-      ].map((m) => m[1]!),
-      // A local declaration that looks like a required set.
+      // Called with the probe's own list, unfiltered, and the drop count.
+      calls: [
+        ...code.matchAll(/\btranslatePdfProofVerdict\(\s*([^)]*?)\s*\)/g),
+      ].map((m) => m[1]!.replace(/\s+/g, " ")),
+      // Every value main() can return: the verdict, or 2 (cannot conclude).
+      returns: [...code.matchAll(/\breturn\s+([^;]+);/g)]
+        .map((m) => m[1]!.trim())
+        .sort(),
+      // A local list that looks like a required set.
       localRequired: [
         ...code.matchAll(/\b(?:const|let|var)\s+(\w*REQUIRED\w*)\b/gi),
       ].map((m) => m[1]!),
+      // A check of the probe's verdicts that bypasses the function.
+      ownChecks: [...code.matchAll(/\.passing\b(?!\.join\()/g)].length,
     };
   }
 
-  it("imports TRANSLATE_PDF_CI_REQUIRED and checks the verdicts against it alone", () => {
-    const gate = gateOf(read(proofScriptFile()));
-    expect(gate.imports).toBe(true);
-    expect(
-      gate.checkedAgainst.length,
-      "found no verdict check at all",
-    ).toBeGreaterThan(0);
-    expect(
-      gate.checkedAgainst.every((n) => n === "TRANSLATE_PDF_CI_REQUIRED"),
-    ).toBe(true);
-    expect(gate.localRequired).toEqual([]);
+  const WIRED = {
+    calls: ["probe.passing, summary.falseDrops"],
+    returns: ["2", "verdict.exitCode"],
+    localRequired: [],
+    // The one `.passing` is the verdict call's argument; `.join(` is a log.
+    ownChecks: 1,
+  };
+
+  it("the script CI runs returns the verdict of the probe's own list, and nothing else", () => {
+    expect(wiringOf(read(proofScriptFile()))).toEqual(WIRED);
   });
 
-  it("positive control: the script as it was (a local REQUIRED) is caught", () => {
-    const before = `import type { TranslateLanguage } from "@/lib/jobs/translate-pdf";
-const REQUIRED: readonly TranslateLanguage[] = ["en", "es", "bn"];
-const missing = REQUIRED.filter((l) => !probe.passing.includes(l));`;
-    const gate = gateOf(before);
-    expect(gate.imports).toBe(false);
-    expect(gate.checkedAgainst).toEqual(["REQUIRED"]);
-    expect(gate.localRequired).toEqual(["REQUIRED"]);
+  it("positive controls: the shapes the review found are each caught", () => {
+    const now = read(proofScriptFile());
+    const variants: Record<string, string> = {
+      "local REQUIRED (the script before slice 2)": now.replace(
+        "const verdict =",
+        'const REQUIRED = ["en", "es", "bn"];\n  const verdict =',
+      ),
+      "narrowed inline": now.replace(
+        "translatePdfProofVerdict(probe.passing,",
+        'translatePdfProofVerdict(probe.passing.concat(["th"]),',
+      ),
+      "own check beside the verdict": now.replace(
+        "return verdict.exitCode;",
+        'if (!probe.passing.includes("en")) return 1;\n  return verdict.exitCode;',
+      ),
+      "exit 0 whatever the verdict": now.replace(
+        "return verdict.exitCode;",
+        "return 0;",
+      ),
+    };
+    for (const [name, source] of Object.entries(variants)) {
+      // The mutation's health check: it landed.
+      expect(source, `${name}: the variant did not apply`).not.toBe(now);
+      expect(wiringOf(source), name).not.toEqual(WIRED);
+    }
   });
 });
