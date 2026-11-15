@@ -678,3 +678,242 @@ describe("pieces concatenate to the paragraph text, exactly", () => {
     );
   });
 });
+
+/**
+ * #28 slice 2 (tables), added 2026-11-15: every table flow.ts already
+ * recognises carries its GRID — `tables[i]`, parallel to `paragraphs`, says
+ * which table row i belongs to and which column each of its cells sits in —
+ * so PDF to Word can write a real `<w:tbl>` with each value in its column.
+ * The paragraphs, their order and `flowPageText` do not move (the digest
+ * above stays as it was): only identity is added.
+ */
+describe("flowText — each recognised table carries its grid (#28 slice 2)", () => {
+  const captured = (
+    Object.entries(popplerSamples) as [string, unknown][]
+  ).filter(
+    (e): e is [string, string] =>
+      /_BBOX$/.test(e[0]) && typeof e[1] === "string",
+  );
+  const pagesOf = (xhtml: string) => flowText(parseBboxFlow(xhtml)).pages;
+  type Page = ReturnType<typeof pagesOf>[number];
+
+  /** Every table on a page: its rows' paragraph indices, by table id. */
+  const tablesOn = (page: Page) => {
+    const out = new Map<number, number[]>();
+    page.tables?.forEach((row, i) => {
+      if (row) out.set(row.table, [...(out.get(row.table) ?? []), i]);
+    });
+    return [...out.values()];
+  };
+
+  /**
+   * The placement predicate: every cell's x-range (its pieces are poppler's
+   * words) lies inside its column's span, columns never go backwards along a
+   * row, and the row's cells joined by tab are its line of `flowPageText`.
+   */
+  const placementProblems = (
+    page: Page,
+    cols: (i: number) => readonly number[] | undefined = (i) =>
+      page.tables?.[i]?.col,
+  ): string[] => {
+    const problems: string[] = [];
+    const lines = flowPageText(page).split("\n");
+    page.paragraphs.forEach((cells, i) => {
+      const row = page.tables?.[i];
+      if (!row) return;
+      const col = cols(i)!;
+      if (col.length !== cells.length)
+        problems.push(
+          `row ${i}: ${col.length} columns for ${cells.length} cells`,
+        );
+      col.forEach((k, c) => {
+        if (c > 0 && k < col[c - 1]!)
+          problems.push(`row ${i}: column ${k} after ${col[c - 1]}`);
+        const pieces = page.pieces![i]![c]!;
+        const span = row.spans[k];
+        const x0 = pieces[0]!.box[0];
+        let x1 = -Infinity;
+        for (const p of pieces) if (p.box[2] > x1) x1 = p.box[2];
+        if (!span || x0 < span[0] || x1 > span[1])
+          problems.push(
+            `row ${i} cell ${c}: [${x0}, ${x1}] outside column ${k}`,
+          );
+      });
+      if (cells.join("\t") !== lines[i])
+        problems.push(`row ${i}: not its page line`);
+    });
+    return problems;
+  };
+
+  it("health: the corpus is discovered, and at least five samples hold a Word table", () => {
+    expect(captured.length).toBeGreaterThanOrEqual(10);
+    const withTables = captured
+      .filter(([, x]) => pagesOf(x).some((p) => p.tables))
+      .map(([name]) => name);
+    // Printed, not counted: a zero from a search is a claim.
+    expect(withTables).toEqual([
+      "TABLE_BBOX",
+      "STATEMENT_BBOX",
+      "SKU_TABLE_BBOX",
+      "REPORT_TABLES_BBOX",
+      "TITLED_TABLE_BBOX",
+      "SPANNING_TABLE_BBOX",
+      "SURROUNDED_INVOICE_BBOX",
+      "AUTO_SIZED_TABLE_BBOX",
+      "STACKED_TABLES_BBOX",
+      "LONE_TOTAL_INVOICE_BBOX",
+    ]);
+  });
+
+  it("every table row of every captured sample: each value inside its column, in order, its text unchanged", () => {
+    let rows = 0;
+    for (const [name, xhtml] of captured)
+      for (const page of pagesOf(xhtml)) {
+        expect(placementProblems(page), name).toEqual([]);
+        rows += page.tables?.filter(Boolean).length ?? 0;
+      }
+    expect(rows).toBeGreaterThanOrEqual(30);
+  });
+
+  it("POSITIVE CONTROL: columns assigned by index fail the same predicate", () => {
+    const page = pagesOf(popplerSamples.SURROUNDED_INVOICE_BBOX)[0]!;
+    expect(placementProblems(page)).toEqual([]);
+    const byIndex = placementProblems(page, (i) =>
+      page.paragraphs[i]!.map((_, c) => c),
+    );
+    expect(byIndex.length).toBeGreaterThan(0);
+  });
+
+  it("the quarterly table is one 4-column table, every value in its own column", () => {
+    const page = pagesOf(TABLE_BBOX)[0]!;
+    expect(tablesOn(page)).toEqual([[0, 1, 2]]);
+    expect(page.tables![0]!.spans).toHaveLength(4);
+    expect(page.tables!.map((r) => r?.col)).toEqual([
+      [0, 1, 2, 3],
+      [0, 1, 2, 3],
+      [0, 1, 2, 3],
+    ]);
+    expect(page.tablesAsTabs).toBeUndefined();
+  });
+
+  it("an invoice row missing its description leaves that column empty; the address and footer lines stay tabbed", () => {
+    const page = pagesOf(popplerSamples.SURROUNDED_INVOICE_BBOX)[0]!;
+    const at = (first: string) =>
+      page.paragraphs.findIndex((p) => p[0] === first);
+    expect(page.tables![at("Invoice No")]!.spans).toHaveLength(5);
+    expect(page.tables![at("1002")]!.col).toEqual([0, 1, 3, 4]);
+    expect(page.tables![at("Total")]!.col).toEqual([0, 3, 4]);
+    // The address line sits 1.5 pitches above the header, the footer far
+    // below the total: each is a one-row segment of the same run, kept the
+    // tabbed line it was. A line is not a table (rule 6), so not counted.
+    expect(page.tables![at("Acme Supplies, 12 Market Street")]).toBeUndefined();
+    expect(page.tables![at("Thank you for your business.")]).toBeUndefined();
+    expect(page.tablesAsTabs).toBeUndefined();
+  });
+
+  it("an invoice ending on an amount-only total: the table is the four rows above it", () => {
+    const page = pagesOf(popplerSamples.LONE_TOTAL_INVOICE_BBOX)[0]!;
+    const tables = tablesOn(page);
+    expect(tables).toHaveLength(1);
+    expect(tables[0]!.map((i) => page.paragraphs[i]![0])).toEqual([
+      "Invoice No",
+      "1001",
+      "1002",
+      "00123",
+    ]);
+    expect(
+      page.paragraphs
+        .filter((_, i) => !page.tables?.[i])
+        .every((p) => p.length === 1),
+    ).toBe(true);
+  });
+
+  it("two tables stacked with white space between are TWO tables, each on its own grid", () => {
+    const page = pagesOf(popplerSamples.STACKED_TABLES_BBOX)[0]!;
+    const tables = tablesOn(page);
+    expect(
+      tables.map((rows) => rows.map((i) => page.paragraphs[i]![0])),
+    ).toEqual([
+      ["Branch", "Leeds", "York"],
+      ["Product line", "Paper goods", "Office furniture"],
+    ]);
+    expect(page.tables![tables[0]![0]!]!.spans).toHaveLength(3);
+    expect(page.tables![tables[1]![0]!]!.spans).toHaveLength(2);
+  });
+
+  it("a header spanning sub-columns chains them: its cells share one column (a combined slot)", () => {
+    const page = pagesOf(popplerSamples.SPANNING_TABLE_BBOX)[0]!;
+    expect(tablesOn(page)).toHaveLength(1);
+    const row = (first: string) =>
+      page.tables![page.paragraphs.findIndex((p) => p[0] === first)]!;
+    // The brief expected all three sub-columns in one span; the header
+    // (200-314) reaches Q2 (280) but not Q3 (360), so it chains two.
+    expect(row("Region").spans).toHaveLength(3);
+    expect(row("Region").col).toEqual([0, 1]);
+    expect(row("Q1").col).toEqual([1, 1, 2]);
+    expect(row("North").col).toEqual([0, 1, 1, 2]);
+  });
+
+  it("the note under a table, 1.5 pitches below its last row, is not one of its rows", () => {
+    const page = pagesOf(popplerSamples.REPORT_TABLES_BBOX)[0]!;
+    expect(tablesOn(page)).toHaveLength(2);
+    const note = page.paragraphs.findIndex(
+      (p) => p[0] === "Staff counts as of 30 June",
+    );
+    expect(note).toBeGreaterThan(0);
+    expect(page.tables![note]).toBeUndefined();
+    expect(page.tablesAsTabs).toBeUndefined();
+  });
+
+  it("prose pages carry no tables at all", () => {
+    for (const [name, xhtml] of [
+      ["TWO_COLUMN", TWO_COLUMN_BBOX],
+      ["NEWSLETTER", NEWSLETTER_BBOX],
+      ["SIDEBAR", SIDEBAR_BBOX],
+      ["HIGHLIGHTS", HIGHLIGHTS_BBOX],
+      ["HEADINGS", HEADINGS_BBOX],
+      ["LISTS", LISTS_BBOX],
+      ["LETTER", LETTER_BBOX],
+    ] as const) {
+      const page = pagesOf(xhtml)[0]!;
+      expect(page.tables, name).toBeUndefined();
+      expect(page.tablesAsTabs, name).toBeUndefined();
+    }
+  });
+
+  it("a lone wide-gapped line is still a tabbed paragraph, not a table", () => {
+    const xhtml = `<doc><page width="612" height="792"><flow><block>
+      <line><word xMin="72" yMin="100" xMax="120" yMax="110">Invoice</word><word xMin="400" yMin="100" xMax="440" yMax="110">Due</word></line>
+      </block></flow></page></doc>`;
+    const page = pagesOf(xhtml)[0]!;
+    expect(page.paragraphs).toEqual([["Invoice", "Due"]]);
+    expect(page.tables).toBeUndefined();
+  });
+
+  const wideRun = (columns: number) => {
+    const line = (y: number) =>
+      `<line>${Array.from(
+        { length: columns },
+        (_, k) =>
+          `<word xMin="${k * 40}" yMin="${y}" xMax="${k * 40 + 10}" yMax="${y + 10}">${k}</word>`,
+      ).join("")}</line>`;
+    return `<doc><page width="3000" height="792"><flow><block>${line(100)}${line(116)}</block></flow></page></doc>`;
+  };
+
+  it("a 63-column table is a Word table; a 64-column one stays tabbed rows and is counted", () => {
+    const at = pagesOf(wideRun(63))[0]!;
+    expect(at.tables?.[0]?.spans).toHaveLength(63);
+    expect(at.tablesAsTabs).toBeUndefined();
+    const over = pagesOf(wideRun(64))[0]!;
+    expect(over.paragraphs).toHaveLength(2);
+    expect(over.paragraphs[0]).toHaveLength(64);
+    expect(over.tables).toBeUndefined();
+    expect(over.tablesAsTabs).toBe(1);
+  });
+
+  it("a hand-built page reads neither field: flowPageText is the cells joined by tab, as before", () => {
+    expect(
+      flowPageText({ pageNumber: 1, paragraphs: [["a", "b"], ["c"]] }),
+    ).toBe("a\tb\nc");
+  });
+});

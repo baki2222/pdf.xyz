@@ -105,9 +105,23 @@
  * address on its own — has no line shorter than its widest, and is joined.
  *
  * A paragraph is a list of cells: one cell is a prose paragraph, two or more is
- * a table row, which the DOCX writer separates with tabs.
+ * a table row. Since #28 slice 2 (2026-11-15) a row of a recognised table also
+ * carries its GRID (`PdfFlowTextPage.tables`, `./table-grid`): which table it
+ * belongs to and which column each cell sits in, so PDF to Word writes the
+ * table as a Word table with each value in its column. A run split by white
+ * space wider than `SEGMENT_GAP_PITCHES` band pitches is two tables (grid
+ * SEGMENTS) — only identity changes, never a paragraph or its order. A table
+ * the grid refuses, and a lone wide-gapped line, stay rows whose cells the
+ * writer separates with tabs.
  */
 import type { FlowBlock, FlowLine, FlowPage, PdfFlowLayout } from "./parse";
+import {
+  chainColumns,
+  MAX_TABLE_CELLS_PER_PAGE,
+  MAX_TABLE_SLOTS_PER_PAGE,
+  SEGMENT_GAP_PITCHES,
+  tableGrid,
+} from "./table-grid";
 
 /** Gap between words, in line heights, beyond which a line splits into cells. */
 export const CELL_GAP_EMS = 2;
@@ -192,6 +206,31 @@ export interface PdfFlowTextPage {
    * a page built by hand; PDF to Word then writes each cell as one run.
    */
   pieces?: FlowPiece[][][];
+  /**
+   * #28 slice 2: each paragraph's table row, parallel to `paragraphs` —
+   * undefined for prose, a lone wide-gapped line, and a table the grid
+   * refused. Absent when the page has no Word table, and from a page built
+   * by hand. {@link flowPageText} reads neither this nor `tablesAsTabs`.
+   */
+  tables?: (FlowTableRow | undefined)[];
+  /**
+   * Tables (grid segments) this page recognised but keeps as tab-separated
+   * rows: over a cap, more than 63 columns, one column, a segment of one
+   * row, or a grid that failed its order check. Absent when 0.
+   */
+  tablesAsTabs?: number;
+}
+
+/**
+ * One row of a Word table: the table's id on its page, the table's column
+ * x-ranges (one array, shared by every row of the table), and the column
+ * each of the row's cells sits in — non-decreasing; two cells of one row may
+ * share a column (a header spanning sub-columns chains them).
+ */
+export interface FlowTableRow {
+  table: number;
+  spans: readonly (readonly [number, number])[];
+  col: readonly number[];
 }
 
 /** What PDF to Word writes: every page, in order, as paragraphs. */
@@ -283,22 +322,25 @@ function isAlignedBand(band: PlacedLine[]): boolean {
   return band.reduce((n, l) => n + l.cells.length, 0) >= 2;
 }
 
-/** A run's cells grouped into columns: cells whose x-ranges overlap, chained. */
+/**
+ * A run's cells grouped into columns: cells whose x-ranges overlap, chained.
+ * The SAME rule the Word table's grid uses (`./table-grid`, #28 slice 2): one
+ * function, so a table's columns here and in Word cannot disagree.
+ */
 function columns(run: PlacedLine[][]): Cell[][] {
-  const cells = run
-    .flatMap((band) => band.flatMap((l) => l.cells))
-    .sort((a, b) => a.xMin - b.xMin);
-  const out: { xMax: number; cells: Cell[] }[] = [];
-  for (const cell of cells) {
-    const last = out[out.length - 1];
-    if (last && cell.xMin <= last.xMax) {
-      last.cells.push(cell);
-      last.xMax = Math.max(last.xMax, cell.xMax);
-    } else {
-      out.push({ xMax: cell.xMax, cells: [cell] });
-    }
+  return chainColumns(run.flatMap((band) => band.flatMap((l) => l.cells)))
+    .groups;
+}
+
+/** The least and greatest of `xs` — a loop, not a spread (#28 slice 2). */
+function extent(xs: readonly number[]): [number, number] {
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const x of xs) {
+    if (x < lo) lo = x;
+    if (x > hi) hi = x;
   }
-  return out.map((c) => c.cells);
+  return [lo, hi];
 }
 
 const lineText = (line: FlowLine) => joinWords(line.words);
@@ -307,7 +349,12 @@ const lineHeight = (line: FlowLine) => Math.max(1, line.yMax - line.yMin);
 
 /** Every cell of `column` on one left, right or centre edge (rule 3). */
 function sharesAnEdge(column: readonly Cell[], tolerance: number): boolean {
-  const spread = (xs: number[]) => Math.max(...xs) - Math.min(...xs);
+  // A loop, not Math.max(...xs): a column of 10^5 cells overflowed the
+  // argument list before any table cap ran (#28 slice 2, 2026-11-15).
+  const spread = (xs: number[]) => {
+    const [lo, hi] = extent(xs);
+    return hi - lo;
+  };
   return [
     column.map((c) => c.xMin),
     column.map((c) => c.xMax),
@@ -358,7 +405,7 @@ function trimParagraphEdges(run: PlacedLine[][]): PlacedLine[][] {
 function isTable(run: PlacedLine[][]): boolean {
   if (run.length < MIN_TABLE_ROWS) return false;
   const tolerance =
-    ALIGN_EMS * Math.min(...run.flatMap((band) => band.map((l) => l.height)));
+    ALIGN_EMS * extent(run.flatMap((band) => band.map((l) => l.height)))[0];
   if (!columns(run).some((column) => isValueColumn(column, tolerance)))
     return false;
   return !run.some((band) => band.some((l) => wrapsInto(l.line, l.next)));
@@ -416,14 +463,10 @@ function xyCut(blocks: readonly OrderedBlock[]): OrderedBlock[] {
 /** The page's blocks in column-by-column reading order. */
 function readingOrder(blocks: readonly FlowBlock[]): FlowBlock[] {
   return xyCut(
-    blocks.map((block, index) => ({
-      block,
-      index,
-      xMin: Math.min(...block.lines.map((l) => l.xMin)),
-      xMax: Math.max(...block.lines.map((l) => l.xMax)),
-      yMin: Math.min(...block.lines.map((l) => l.yMin)),
-      yMax: Math.max(...block.lines.map((l) => l.yMax)),
-    })),
+    blocks.map((block, index) => {
+      const [x0, y0, x1, y1] = boxOfLines(block.lines);
+      return { block, index, xMin: x0, xMax: x1, yMin: y0, yMax: y1 };
+    }),
   ).map((b) => b.block);
 }
 
@@ -440,7 +483,7 @@ function measureBlock(lines: readonly FlowLine[]): BlockMeasure {
     .map((l, i) => l.yMin - lines[i]!.yMax)
     .sort((a, b) => a - b);
   return {
-    widest: Math.max(...lines.map(lineWidth)),
+    widest: extent(lines.map(lineWidth))[1],
     gap: gaps.length ? gaps[Math.floor((gaps.length - 1) / 2)]! : 0,
   };
 }
@@ -564,6 +607,29 @@ export interface PlacedParagraph {
   box: FlowBox;
   /** Each cell as poppler's words: `pieces[c]` concatenates to `cells[c]`. */
   pieces: FlowPiece[][];
+  /** Its Word-table row (#28 slice 2); absent for everything else. */
+  row?: FlowTableRow;
+}
+
+/**
+ * A recognised table's rows split into grid SEGMENTS (#28 slice 2): a new
+ * segment starts where the centre-to-centre gap between two bands is more
+ * than `SEGMENT_GAP_PITCHES` times the run's median gap. Two tables set one
+ * above the other with white space between are then two tables, and the
+ * second's values are never placed under the first one's headings.
+ */
+function segments<T>(rows: readonly T[], centres: readonly number[]): T[][] {
+  const gaps = centres.slice(1).map((c, k) => c - centres[k]!);
+  const sorted = [...gaps].sort((a, b) => a - b);
+  const median = sorted.length
+    ? sorted[Math.floor((sorted.length - 1) / 2)]!
+    : 0;
+  const out: T[][] = [];
+  rows.forEach((row, k) => {
+    if (k === 0 || gaps[k - 1]! > SEGMENT_GAP_PITCHES * median) out.push([]);
+    out[out.length - 1]!.push(row);
+  });
+  return out;
 }
 
 /**
@@ -571,6 +637,14 @@ export interface PlacedParagraph {
  * rows — each with the bounds of the lines it was built from.
  */
 export function placedParagraphs(page: FlowPage): PlacedParagraph[] {
+  return placedPage(page).paragraphs;
+}
+
+/** {@link placedParagraphs}, and how many tables stay tabbed rows. */
+function placedPage(page: FlowPage): {
+  paragraphs: PlacedParagraph[];
+  tablesAsTabs: number;
+} {
   const placed = new Map<FlowLine, PlacedLine>();
   for (const block of page.blocks)
     block.lines.forEach((line, i) =>
@@ -588,19 +662,57 @@ export function placedParagraphs(page: FlowPage): PlacedParagraph[] {
   // edges (rule 5), that pass isTable.
   const tableOf = new Map<FlowLine, PlacedParagraph[]>();
   let run: PlacedLine[][] = [];
+  // #28 slice 2: what this page may still write as Word tables, and the
+  // tables (grid segments) it keeps as tabbed rows.
+  const budget = {
+    cells: MAX_TABLE_CELLS_PER_PAGE,
+    slots: MAX_TABLE_SLOTS_PER_PAGE,
+  };
+  let tables = 0;
+  let tablesAsTabs = 0;
   const closeRun = () => {
     const table = trimParagraphEdges(run);
     if (isTable(table)) {
-      const rows = table.map((band) => {
+      const built = table.map((band) => {
         const cells = band
           .flatMap((l) => l.cells)
           .sort((a, b) => a.xMin - b.xMin);
-        return {
+        const row: PlacedParagraph = {
           cells: cells.map((c) => c.text),
           box: boxOfLines(band.map((l) => l.line)),
           pieces: cells.map((c) => c.pieces),
         };
+        return { row, cells };
       });
+      // The grid, per segment and never across one. Only identity is
+      // stamped here: the rows, and their order, are what they were.
+      for (const segment of segments(
+        built,
+        table.map((band) => band[0]!.yCenter),
+      )) {
+        const grid =
+          segment.length < MIN_TABLE_ROWS
+            ? "rows"
+            : tableGrid(
+                segment.map((r) => r.cells),
+                budget,
+              );
+        if (typeof grid === "string") {
+          // A one-row segment is not a table (rule 6), so not counted as
+          // one kept as tabs: it is the line it was.
+          if (grid !== "rows") tablesAsTabs += 1;
+          continue;
+        }
+        let count = 0;
+        for (const r of segment) count += r.cells.length;
+        budget.cells -= count;
+        budget.slots -= segment.length * grid.spans.length;
+        const id = tables++;
+        segment.forEach((r, k) => {
+          r.row.row = { table: id, spans: grid.spans, col: grid.col[k]! };
+        });
+      }
+      const rows = built.map((r) => r.row);
       for (const band of table) for (const l of band) tableOf.set(l.line, rows);
     }
     run = [];
@@ -640,7 +752,10 @@ export function placedParagraphs(page: FlowPage): PlacedParagraph[] {
       const cells = placed.get(line)!.cells;
       if (cells.length > 1) {
         // A lone wide-gapped line — a header's left and right halves, say — is
-        // kept as one tabbed row rather than run into the prose around it.
+        // kept as one tabbed row rather than run into the prose around it:
+        // still a tabbed paragraph, not a Word table (#28 slice 2): one line
+        // is as likely a header's halves as a row; two such lines in a row
+        // are a run and are judged by isTable.
         flush();
         paragraphs.push({
           cells: cells.map((c) => c.text),
@@ -654,7 +769,7 @@ export function placedParagraphs(page: FlowPage): PlacedParagraph[] {
     });
     flush();
   }
-  return paragraphs;
+  return { paragraphs, tablesAsTabs };
 }
 
 /** The paragraphs of one page, in reading order, with its tables kept as rows. */
@@ -667,18 +782,25 @@ export function flowText(layout: PdfFlowLayout): PdfFlowText {
   return {
     pageCount: layout.pageCount,
     pages: layout.pages.map((page) => {
-      const placed = placedParagraphs(page);
+      const { paragraphs: placed, tablesAsTabs } = placedPage(page);
+      const tables = placed.map((p) => p.row);
       return {
         pageNumber: page.pageNumber,
         paragraphs: placed.map((p) => p.cells),
         boxes: placed.map((p) => p.box),
         pieces: placed.map((p) => p.pieces),
+        ...(tables.some(Boolean) ? { tables } : {}),
+        ...(tablesAsTabs > 0 ? { tablesAsTabs } : {}),
       };
     }),
   };
 }
 
-/** A page's paragraphs as plain text, one per line — for counting, not output. */
+/**
+ * A page's paragraphs as plain text, one per line — for counting, not output.
+ * A table row reads as its cells joined by tab — the order docx-structure
+ * reads a `w:tbl` row in (empty slots skipped). #28 slice 2.
+ */
 export function flowPageText(page: PdfFlowTextPage): string {
   return page.paragraphs.map((p) => p.join("\t")).join("\n");
 }
