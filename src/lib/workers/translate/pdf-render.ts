@@ -15,8 +15,11 @@
  * rather than an error. So the printed bytes are read back by `pdftotext` (the
  * extractor this worker already runs) and the MULTISET of non-whitespace code
  * points, NFC-normalised, must equal the text the document was built from
- * (`typesetText`). Any difference is `not_conserved` and the PDF is withheld;
- * the ZIP still carries the whole translation.
+ * (`typesetText`), AND must carry every non-syntax code point of the
+ * translation the ZIP holds (`carriesTranslation`, review r1 2026-11-15: the
+ * first check alone cannot see text the Markdown parser dropped, because both
+ * of its sides come after the parser). Any difference is `not_conserved` and
+ * the PDF is withheld; the ZIP still carries the whole translation.
  *
  * Excluded from both sides: whitespace (layout, not content) and format
  * characters (`\p{Cf}`: zero-width joiners, soft hyphens, bidi marks), which
@@ -27,7 +30,11 @@
  * scans for the text APIs; this file uses none).
  */
 import { PDFDocument } from "pdf-lib";
-import { rethrowIfAttemptAbort, signalOption } from "../attempt-abort";
+import {
+  anySignal,
+  rethrowIfAttemptAbort,
+  signalOption,
+} from "../attempt-abort";
 import type { RunControl } from "../attempt-abort";
 import type { ChromiumPackageRunner } from "../html-render/engine";
 import {
@@ -35,7 +42,12 @@ import {
   TRANSLATE_PDF_RENDER_TIMEOUT_MS,
   type TranslatePdfReason,
 } from "@/lib/jobs/translate-pdf-render";
-import { translationDocument, typesetText, type TypesetInput } from "./typeset";
+import {
+  translationDocument,
+  typesetFurnitureText,
+  typesetText,
+  type TypesetInput,
+} from "./typeset";
 
 export const TRANSLATE_PDF_PRODUCER = "pdf.xyz Translate PDF (Chromium)";
 
@@ -100,34 +112,128 @@ function looksTooLarge(error: unknown): boolean {
   );
 }
 
+/**
+ * Markdown syntax the typesetter may print FEWER of than the translation
+ * holds: heading, emphasis, code, quote, list, table and link markers, and
+ * the backslash of a hard line break. Derived
+ * from what `parseMarkdownBlocks` really strips — `pdf-conservation.test.ts`
+ * holds this set EQUAL to what its corpus strips, in both directions, so a
+ * member nothing exercises and a stripped character nobody named both fail.
+ *
+ * A dropped character in this set is not seen by the check (an escaped
+ * literal `\*` printed without its asterisks is the known case). Every letter,
+ * digit, CJK character and ordinary punctuation mark is checked.
+ */
+export const MARKDOWN_SYNTAX: ReadonlySet<string> = new Set(
+  "#=-*_~`>|+:[]!\\".split(""),
+);
+
+/**
+ * A body's text with the three syntax-only SPANS removed — spans whose
+ * letters or digits the typesetter replaces rather than prints:
+ *
+ * - an ordered-list number at the start of a line (`3.`, `12)`): the
+ *   typesetter prints its own marker, renumbered from the list's start;
+ * - a footnote label (`[^note]`): printed as its reference number;
+ * - a code fence line (```` ```js ````): the fence and its info string.
+ *
+ * Everything else — a reference definition `[1]: 山田太郎` included — is
+ * content the PDF must carry.
+ */
+export function markdownContent(text: string): string {
+  return text
+    .replace(/^([ \t]*(?:>[ \t]*)*)\d{1,9}[.)](?=[ \t]|$)/gm, "$1")
+    .replace(/\[\^[^\]\s]+\]/g, "")
+    .replace(/^[ \t]*(?:`{3,}|~{3,}).*$/gm, "");
+}
+
+/**
+ * Does the read-back carry the ASSEMBLED TRANSLATION — every body the model
+ * returned, as the ZIP holds it — plus the page furniture (title, note, page
+ * ranges, gap words)?
+ *
+ * Checked against the parts' RAW text, not against `typesetText`: the
+ * typesetter's text is recorded after the Markdown parser has run, so text
+ * the parser drops (a reference list `[1]: 山田太郎` parses as link
+ * definitions) would be missing from both sides and pass by construction
+ * (review r1, 2026-11-15). The furniture is counted ON TOP of the bodies, so
+ * a word in the file name cannot stand in for the same word lost from a body.
+ */
+export function carriesTranslation(
+  input: TypesetInput,
+  readText: string,
+): boolean {
+  const bodies = input.parts
+    .filter((p) => p.kind === "body")
+    .map((p) => markdownContent(p.text));
+  const expected = conservedCodePoints(
+    [typesetFurnitureText(input), ...bodies].join("\n"),
+  );
+  const read = conservedCodePoints(readText);
+  for (const [ch, n] of expected) {
+    if (MARKDOWN_SYNTAX.has(ch)) continue;
+    if ((read.get(ch) ?? 0) < n) return false;
+  }
+  return true;
+}
+
+/**
+ * The PDF stage under ONE deadline: Chromium, the pdf-lib metadata pass and
+ * the `pdftotext` read-back (review r1, 2026-11-15). The deadline used to
+ * bound Chromium alone, so the read-back could add its own 120 s after the
+ * 60 s the browser's wait allows for the stage. At the deadline the stage's
+ * own signal aborts, which kills whichever child is running; that abort is
+ * the deadline's, never reported as a lost lease.
+ */
 export async function renderTranslationPdf(
   args: RenderTranslationArgs,
 ): Promise<TranslatePdfResult> {
   const timeoutMs = args.timeoutMs ?? TRANSLATE_PDF_RENDER_TIMEOUT_MS;
+  const stage = new AbortController();
+  const signal = anySignal(args.signal, stage.signal);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<TranslatePdfResult>((resolve) => {
+    timer = setTimeout(() => {
+      stage.abort(new RenderDeadline());
+      resolve({ ok: false, reason: "timeout" });
+    }, timeoutMs);
+  });
+  try {
+    const work = printAndCheck(args, signal, () => stage.signal.aborted);
+    // A rejection after the deadline won the race is not anyone's to handle.
+    work.catch(() => {});
+    return await Promise.race([work, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function printAndCheck(
+  args: RenderTranslationArgs,
+  signal: AbortSignal | undefined,
+  pastDeadline: () => boolean,
+): Promise<TranslatePdfResult> {
   const maxBytes = args.maxOutputBytes ?? TRANSLATE_PDF_MAX_OUTPUT_BYTES;
   const pkg = translationDocument(args.input);
+  /** An abort is the attempt's (rethrown) unless the stage's deadline fired. */
+  const classify = (error: unknown): TranslatePdfResult | null => {
+    if (pastDeadline()) return { ok: false, reason: "timeout" };
+    rethrowIfAttemptAbort(error);
+    return null;
+  };
 
   let printed: Uint8Array;
-  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const deadline = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new RenderDeadline()), timeoutMs);
-    });
-    deadline.catch(() => {});
-    const parts = await Promise.race([
-      args.chromium.renderPackage(pkg, signalOption(args.signal)),
-      deadline,
-    ]);
+    const parts = await args.chromium.renderPackage(pkg, signalOption(signal));
     if (parts.length !== 1 || !parts[0])
       return { ok: false, reason: "render_failed" };
     printed = parts[0];
   } catch (error) {
-    rethrowIfAttemptAbort(error);
+    const known = classify(error);
+    if (known) return known;
     if (looksLikeTimeout(error)) return { ok: false, reason: "timeout" };
     if (looksTooLarge(error)) return { ok: false, reason: "too_large" };
     return { ok: false, reason: "render_failed" };
-  } finally {
-    clearTimeout(timer);
   }
 
   let bytes: Uint8Array;
@@ -141,7 +247,8 @@ export async function renderTranslationPdf(
     pages = doc.getPageCount();
     bytes = await doc.save();
   } catch (error) {
-    rethrowIfAttemptAbort(error);
+    const known = classify(error);
+    if (known) return known;
     return { ok: false, reason: "render_failed" };
   }
   if (pages < 1) return { ok: false, reason: "render_failed" };
@@ -149,12 +256,19 @@ export async function renderTranslationPdf(
 
   let readText: string;
   try {
-    readText = await args.readBack(bytes, signalOption(args.signal));
+    readText = await args.readBack(bytes, signalOption(signal));
   } catch (error) {
-    rethrowIfAttemptAbort(error);
+    const known = classify(error);
+    if (known) return known;
     return { ok: false, reason: "not_conserved" };
   }
+  // Two checks, composed. (1) Chromium printed exactly what was typeset —
+  // a block lost to layout is caught here. (2) What was typeset carries the
+  // translation the ZIP holds — a block lost to the Markdown parser is caught
+  // here, which (1) cannot see because both of its sides come after the parser.
   if (!sameCodePoints(typesetText(args.input), readText))
+    return { ok: false, reason: "not_conserved" };
+  if (!carriesTranslation(args.input, readText))
     return { ok: false, reason: "not_conserved" };
 
   return { ok: true, bytes, pages };

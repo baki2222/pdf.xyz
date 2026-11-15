@@ -93,6 +93,72 @@ describe("renderTranslationPdf", () => {
     expect(Date.now() - started).toBeLessThan(5_000);
   });
 
+  // 2026-11-15, review r1: the deadline used to bound `chromium.renderPackage`
+  // ALONE. The pdf-lib metadata pass and the `pdftotext` read-back ran after
+  // it, bounded only by the reader's own 120 s timeout, so the PDF stage could
+  // take ~180 s while the browser's wait added 60 s for it. A read-back that
+  // never answered left this promise pending forever — the test below was red
+  // on that code. One deadline now covers the whole stage.
+  it("the deadline bounds the WHOLE stage: a read-back that never answers is timeout", async () => {
+    const pdf = await blankPdf(1);
+    let readSignal: AbortSignal | undefined;
+    const started = Date.now();
+    const result = await renderTranslationPdf({
+      chromium: chromiumReturning(async () => [pdf]),
+      readBack: (_bytes, run) => {
+        readSignal = run?.signal;
+        return new Promise<string>(() => {});
+      },
+      input: INPUT,
+      timeoutMs: 50,
+    });
+    expect(result).toEqual({ ok: false, reason: "timeout" });
+    expect(Date.now() - started).toBeLessThan(5_000);
+    // The reader's child is killed, not left running past the stage.
+    expect(readSignal?.aborted).toBe(true);
+  });
+
+  it("the stage deadline is not an attempt abort: no attempt signal, still timeout", async () => {
+    // The stage aborts its own children at the deadline; their AbortError must
+    // read as the deadline, never be rethrown as a lost lease.
+    const pdf = await blankPdf(1);
+    const result = await renderTranslationPdf({
+      chromium: chromiumReturning(async () => [pdf]),
+      readBack: (_bytes, run) =>
+        new Promise<string>((_, reject) => {
+          run?.signal?.addEventListener("abort", () => {
+            const err = new Error("aborted");
+            err.name = "AbortError";
+            reject(err);
+          });
+        }),
+      input: INPUT,
+      timeoutMs: 30,
+    });
+    expect(result).toEqual({ ok: false, reason: "timeout" });
+  });
+
+  it("an attempt abort during the read-back is rethrown, not classified", async () => {
+    const pdf = await blankPdf(1);
+    const attempt = new AbortController();
+    await expect(
+      renderTranslationPdf({
+        chromium: chromiumReturning(async () => [pdf]),
+        readBack: (_bytes, run) =>
+          new Promise<string>((_, reject) => {
+            run?.signal?.addEventListener("abort", () => {
+              const err = new Error("aborted");
+              err.name = "AbortError";
+              reject(err);
+            });
+            attempt.abort();
+          }),
+        input: INPUT,
+        signal: attempt.signal,
+      }),
+    ).rejects.toBeInstanceOf(AttemptAbortedError);
+  });
+
   it("oversize bytes are too_large", async () => {
     const pdf = await blankPdf(1);
     const result = await renderTranslationPdf({

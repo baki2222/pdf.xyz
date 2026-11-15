@@ -176,12 +176,23 @@ export function gapWords(part: Extract<TranslationPart, { kind: "gap" }>) {
     .filter((line) => line.length > 0);
 }
 
-/** Records every text run as it is escaped, so HTML and text are one walk. */
+/**
+ * Records every text run as it is escaped, so HTML and text are one walk.
+ * FURNITURE runs (the title, the note, each page range and each gap's words)
+ * are also kept apart: they are this document's own words, not the model's,
+ * and the per-job check counts them ON TOP of the translation
+ * (`./pdf-render` `carriesTranslation`).
+ */
 class Writer {
   readonly runs: string[] = [];
+  readonly furniture: string[] = [];
   text(raw: string): string {
     this.runs.push(raw);
     return escapeHtml(raw).replace(/\n/g, "<br>");
+  }
+  fixed(raw: string): string {
+    this.furniture.push(raw);
+    return this.text(raw);
   }
 }
 
@@ -270,22 +281,26 @@ function bodyHtml(text: string, w: Writer): string {
   return blocks.map((block) => blockHtml(block, w)).join("\n");
 }
 
-function build(input: TypesetInput): { html: string; text: string } {
+function build(input: TypesetInput): {
+  html: string;
+  text: string;
+  furniture: string;
+} {
   const w = new Writer();
   const out: string[] = [];
-  out.push(`<h1>${w.text(input.sourceName)}</h1>`);
-  out.push(`<p class="note">${w.text(translationNote(input.target))}</p>`);
+  out.push(`<h1>${w.fixed(input.sourceName)}</h1>`);
+  out.push(`<p class="note">${w.fixed(translationNote(input.target))}</p>`);
   for (const part of input.parts) {
     if (part.kind === "body") {
       const heading =
         part.pages.length > 0
-          ? `<h2>${w.text(pageRangeLabel(part.pages))}</h2>\n`
+          ? `<h2>${w.fixed(pageRangeLabel(part.pages))}</h2>\n`
           : "";
       out.push(`<section>${heading}${bodyHtml(part.text, w)}</section>`);
     } else {
       out.push(
         `<aside>${gapWords(part)
-          .map((line) => `<p>${w.text(line)}</p>`)
+          .map((line) => `<p>${w.fixed(line)}</p>`)
           .join("")}</aside>`,
       );
     }
@@ -304,7 +319,11 @@ function build(input: TypesetInput): { html: string; text: string } {
     "</body>",
     "</html>",
   ].join("\n");
-  return { html, text: w.runs.join("\n") };
+  return {
+    html,
+    text: w.runs.join("\n"),
+    furniture: w.furniture.join("\n"),
+  };
 }
 
 /** The HTML Chromium prints. Every text run in it is HTML-escaped. */
@@ -321,6 +340,14 @@ export function translationHtml(input: TypesetInput): string {
  */
 export function typesetText(input: TypesetInput): string {
   return build(input).text;
+}
+
+/**
+ * The document's own words in {@link typesetText} (title, note, page ranges,
+ * gap words), without the translation or the list markers.
+ */
+export function typesetFurnitureText(input: TypesetInput): string {
+  return build(input).furniture;
 }
 
 /** One document at the synthetic origin, served from memory, printed once. */
