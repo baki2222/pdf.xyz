@@ -27,6 +27,18 @@
  *      target language, a reflowed PDF of the same text comes with it. That
  *      sentence is in `manifest.json`, `translation.md` and `README.txt`, so
  *      every hash moved; `translation.txt` (the translation itself) did not.
+ *        single       5296d38d3f7330640836998555b8653f78d148b6c5500f28ce38d4f7817701b3
+ *        chunked      c9a93777776bbd09aa8ac02008a825e3231264f0bf712bea96d8b51f695f4f60
+ *        oversize gap db5d356220e9ee9a1c685ccd88f6fd6d6113fc3baf791def3b496b3471e37728
+ *        withheld     ddf136f99f369b53bd8e16721b6ccd2117452d699c30346a52e2d16fd835101c
+ *        interrupted  3013f180b65f663c67762430cc4f8a25e49ce3f8d7c652eba8923d776a2def47
+ *   3. INVERTED back to history 1, 2026-11-15 (review r1). The exit property
+ *      is that the ZIP at artifacts[0] is byte-identical to main for EVERY
+ *      job, and the sentence was also false inside the ZIP of any job whose
+ *      render failed, timed out or was not conserved: the package said a PDF
+ *      "comes with it" where none did. The notice is main's again, and these
+ *      hashes are history 1's, re-derived by running the same fixtures through
+ *      main's own `engine.ts` (bf742a9a) rather than copied from this comment.
  *
  * Health: each case also asserts the shape it claims to be (call count, the
  * gap marker it should contain), so a fixture that silently stopped chunking
@@ -64,7 +76,10 @@ function pagesOf(texts: readonly string[]): ExtractedPdfText {
 }
 
 /** Answers call N with `Partie N` (or the scripted failure), recording the count. */
-function numbered(failAt?: number): AiProvider & { count: () => number } {
+function numbered(
+  failAt?: number,
+  emptyAt?: number,
+): AiProvider & { count: () => number } {
   let n = 0;
   return {
     id: "anthropic",
@@ -78,6 +93,14 @@ function numbered(failAt?: number): AiProvider & { count: () => number } {
           kind: "provider_error",
           retryable: true,
           message: "upstream 500",
+        };
+      }
+      if (emptyAt !== undefined && n === emptyAt) {
+        return {
+          ok: true,
+          text: "  ",
+          model: "claude-sonnet-5",
+          usage: { inputTokens: 10, outputTokens: 0 },
         };
       }
       return {
@@ -96,6 +119,7 @@ interface Case {
   name: string;
   extracted: ExtractedPdfText;
   failAt?: number;
+  emptyAt?: number;
   limits?: TranslateLimits;
   calls: number;
   marker: RegExp | null;
@@ -114,7 +138,7 @@ const CASES: Case[] = [
     },
     calls: 1,
     marker: null,
-    sha256: "5296d38d3f7330640836998555b8653f78d148b6c5500f28ce38d4f7817701b3",
+    sha256: "49819a24a2bb137fb19199432ff97610da6346698f4d90b40eebb4f89af1d8b9",
   },
   {
     name: "chunked",
@@ -123,7 +147,7 @@ const CASES: Case[] = [
     ),
     calls: 3,
     marker: null,
-    sha256: "c9a93777776bbd09aa8ac02008a825e3231264f0bf712bea96d8b51f695f4f60",
+    sha256: "5fae6d3be1d509ab5e7dbfe661942ab77355f7efef13e7c7445ef1164d5c58ea",
   },
   {
     name: "oversize gap",
@@ -134,7 +158,7 @@ const CASES: Case[] = [
     ]),
     calls: 2,
     marker: /Page 2 is not translated/,
-    sha256: "db5d356220e9ee9a1c685ccd88f6fd6d6113fc3baf791def3b496b3471e37728",
+    sha256: "e05c3c7dc333ce6a7802904a85d424661db90f57d7cb64fb58ffe927fffb4974",
   },
   {
     name: "withheld",
@@ -142,7 +166,7 @@ const CASES: Case[] = [
     limits: { delivery: { characters: 4_100 } },
     calls: 1,
     marker: /withheld|reserved|not translated/i,
-    sha256: "ddf136f99f369b53bd8e16721b6ccd2117452d699c30346a52e2d16fd835101c",
+    sha256: "49586f980602d2d135258d3e8563a7f3b98afc4c88bc1a7b72b7b0101c3b8e9c",
   },
   {
     name: "interrupted",
@@ -152,7 +176,21 @@ const CASES: Case[] = [
     failAt: 2,
     calls: 2,
     marker: /could not be translated/,
-    sha256: "3013f180b65f663c67762430cc4f8a25e49ce3f8d7c652eba8923d776a2def47",
+    sha256: "fb0631be538e0b45065b629b6da02ac2c88ed1722df7c406c1f818d032dfe8d9",
+  },
+  // Added 2026-11-15 (review r1): the one shape where the branch's assembly
+  // placed bodies differently from main (an empty EARLY chunk). The hash was
+  // derived by running this fixture through main's own engine.ts (bf742a9a);
+  // the branch was red against it until the ZIP kept main's placement.
+  {
+    name: "empty early chunk",
+    extracted: pagesOf(
+      Array.from({ length: 12 }, (_, i) => PAGE("abcdefghijkl"[i]!)),
+    ),
+    emptyAt: 1,
+    calls: 3,
+    marker: /could not be translated/,
+    sha256: "6a0c8cdac67f09721efd7197985be753f2894519454458e4a14008cd9a2a6916",
   },
 ];
 
@@ -166,7 +204,7 @@ describe("the translation ZIP's bytes do not move", () => {
   });
 
   it.each(CASES.map((c) => [c.name, c] as const))("%s", async (_, c) => {
-    const provider = numbered(c.failAt);
+    const provider = numbered(c.failAt, c.emptyAt);
     const run = await runTranslate(new Uint8Array([1]), OPTIONS, {
       extract: async () => c.extracted,
       provider,

@@ -18,6 +18,7 @@ import {
   type TranslateDeps,
 } from "./engine";
 import type { TranslatePdfResult } from "./pdf-render";
+import type { TypesetInput } from "./typeset";
 import {
   TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS,
   TRANSLATE_MAX_INPUT_CHARS,
@@ -878,6 +879,59 @@ describe("the reflowed PDF rides beside the ZIP, never instead of it", () => {
       if (run.ok) hashes.add(sha(run.output));
     }
     expect(hashes.size).toBe(1);
+  });
+
+  it("an empty early chunk: the PDF places bodies by their own pages, the ZIP keeps main's order", async () => {
+    // Review r1, 2026-11-15. The one shape where the corrected assembly and
+    // main's disagree. The ZIP must stay main's byte for byte (pinned by hash
+    // in `package-bytes.characterisation.test.ts`, "empty early chunk"); the
+    // PDF prints page-range headings, which main's placement would make false.
+    const pages = Array.from({ length: 12 }, (_, i) => ({
+      pageNumber: i + 1,
+      text: "abcdefghijkl"[i]!.repeat(2000),
+      characterCount: 2000,
+    }));
+    const joined = pages.map((p) => p.text).join("\n\n");
+    let n = 0;
+    const provider: AiProvider = {
+      id: "anthropic",
+      model: "claude-sonnet-5",
+      async complete() {
+        n += 1;
+        return SUCCESS(n === 1 ? "  " : `Partie ${n}`);
+      },
+    };
+    const { deps, seen } = printing(new Set(["fr"]));
+    const run = await runTranslate(INPUT, OPTIONS, {
+      extract: async () => ({
+        pageCount: 12,
+        pages,
+        text: joined,
+        characterCount: joined.length,
+        hasText: true,
+      }),
+      provider,
+      pdf: deps,
+    });
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(n).toBe(3);
+    const pdfParts = (seen[0] as TypesetInput).parts;
+    // The PDF: the gap for the empty chunk first, then each body at its pages.
+    expect(pdfParts.map((p) => p.kind)).toEqual(["gap", "body", "body"]);
+    expect(pdfParts[0]!.pages[0]).toBe(1);
+    // Each body sits after the pages the empty chunk left as a gap.
+    const gapEnd = pdfParts[0]!.pages[pdfParts[0]!.pages.length - 1]!;
+    expect(pdfParts[1]!.pages[0]).toBe(gapEnd + 1);
+    // The ZIP: main's order, the second part ahead of the gap notice.
+    const md = await (
+      await JSZip.loadAsync(run.output)
+    )
+      .file("translation.txt")!
+      .async("string");
+    expect(md.indexOf("Partie 2")).toBeLessThan(
+      md.indexOf("could not be translated"),
+    );
   });
 
   it("the provider receives byte-identical requests with and without the PDF dependency (zero model tokens)", async () => {

@@ -16,6 +16,15 @@ import { assembleParts, partsToMarkdown } from "./assembly";
  * by a notice saying pages 1–5 could not be translated. The reflowed PDF heads
  * each section with its page range, which would have printed that wrong number
  * on the page. Observed red on the pre-move engine (fb562946).
+ *
+ * INVERTED FOR THE ZIP, 2026-11-15 (review r1). The exit property for this
+ * branch is that the ZIP at artifacts[0] is byte-identical to main for EVERY
+ * job, and this was the one shape where it was not. The corrected placement
+ * now feeds the PDF only (`engine.test.ts`, "an empty early chunk"), whose
+ * page-range headings need it; the ZIP keeps main's order until the
+ * correction is ruled on as its own change. The test below asserted the
+ * corrected ZIP order; it now pins main's, and `assembleParts` itself still
+ * places by own pages (the last test in this block).
  */
 describe("the assembly places each body by its own pages", () => {
   const perPage = "a".repeat(2000);
@@ -33,7 +42,7 @@ describe("the assembly places each body by its own pages", () => {
     hasText: true,
   };
 
-  it("an empty first chunk leaves its gap first, and the second chunk's text after it", async () => {
+  it("the ZIP keeps main's order for an empty first chunk: the second chunk's text, then the gap", async () => {
     let n = 0;
     const run = await runTranslate(
       new Uint8Array([1]),
@@ -64,10 +73,8 @@ describe("the assembly places each body by its own pages", () => {
     const gap = txt.indexOf("could not be translated");
     const second = txt.indexOf("Partie 2");
     expect(gap).toBeGreaterThanOrEqual(0);
-    expect(
-      second,
-      "chunk 2's text sits before the gap for chunk 1",
-    ).toBeGreaterThan(gap);
+    expect(second).toBeGreaterThanOrEqual(0);
+    expect(second, "main's ZIP order: chunk 2's text first").toBeLessThan(gap);
   });
 
   it("partsToMarkdown joins bodies and gap markers in reading order", () => {
