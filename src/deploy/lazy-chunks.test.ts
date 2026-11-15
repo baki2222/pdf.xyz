@@ -33,6 +33,7 @@ import { REPLACE_BOXES_CHUNK } from "@/components/tools/replace-boxes";
 import { BATCH_VIEW_LOADED } from "@/components/tools/runner/batch/batch-view";
 import { COMPARE_RESULT_CHUNK } from "@/components/tools/runner/compare/compare-result";
 import { COMPARE_VIEWER_CHUNK } from "@/components/tools/runner/compare/compare-viewer";
+import { COMPARE_OVERLAY_CHUNK } from "@/components/tools/runner/compare/compare-overlay";
 import { RESULT_ENDING_CHUNK } from "@/components/intent/result-ending-chunk";
 import { DROP_ENGINE_MARK } from "@/lib/intent/drop-engine";
 import { tools } from "@/lib/tools";
@@ -339,6 +340,17 @@ const OUR_LAZY: LazyLibrary[] = [
     what: "Compare PDF's page view",
     marker: COMPARE_VIEWER_CHUNK,
     why: "the comparison fetches it when Show changes on the pages is pressed or pointed at; a run that stays on the list never downloads it",
+    allowedAtLoad: {},
+  },
+  // Compare PDF's Overlay (audit compare-pdf#3, S3, 2026-11-15): the pages
+  // laid over each other, drawn through render.ts's output path. Its own
+  // chunk, behind one `import()` in the comparison's chunk; "Compare PDF's
+  // Overlay is a chunk of its own" below tells it apart from the
+  // comparison's and the page view's chunks.
+  {
+    what: "Compare PDF's Overlay",
+    marker: COMPARE_OVERLAY_CHUNK,
+    why: "the comparison fetches it when Overlay pages or Compare pages visually is pressed or pointed at; a run that never asks for it never downloads it",
     allowedAtLoad: {},
   },
   // Sign PDF's handwriting faces (audit sign-pdf#1, 2026-11-09). As first
@@ -1120,8 +1132,10 @@ describe("Compare PDF's page view is a chunk of its own", () => {
         ...code(f).matchAll(/(?<!typeof\s)\bimport\(\s*["']([^"']+)["']\s*\)/g),
       ].map((m) => ({ file: path.basename(f), spec: m[1]! })),
     );
-    // Health: the page view's import and its documents' open are found.
-    expect(targets.length, JSON.stringify(targets)).toBeGreaterThanOrEqual(2);
+    // Health: the page view's import, its documents' open and (S3) the
+    // Overlay's import are found.
+    expect(targets.length, JSON.stringify(targets)).toBeGreaterThanOrEqual(3);
+    expect(targets.map((t) => t.spec)).toContain("./compare-overlay");
     for (const t of targets) {
       const resolved = path.resolve(dir, t.spec);
       expect(
@@ -1139,6 +1153,59 @@ describe("Compare PDF's page view is a chunk of its own", () => {
       fetch.gz,
       `the page view's fetch is ${fetch.gz.toFixed(2)} KB gz over ${fetch.counted.map((f) => path.basename(f)).join(", ")}`,
     ).toBeLessThanOrEqual(COMPARE_VIEWER_FETCH_GZ_KB);
+  });
+});
+
+/**
+ * Compare PDF's Overlay's fetch from the compare page (S3, 2026-11-15):
+ * its own chunk, which carries its own copy of render.ts's output path
+ * (render.ts, render-utils, pdf-to-image and their static imports; the
+ * chunk is never split, `next.config.mjs` `compareBorn`), plus whatever
+ * else its load names. pdf.js and the guard are fetched when it draws,
+ * by render.ts's own `import()`s, which every output path shares.
+ * MEASURED: see the bound's note in the describe below.
+ */
+const COMPARE_OVERLAY_FETCH_GZ_KB = 99;
+
+describe("Compare PDF's Overlay is a chunk of its own", () => {
+  const built = existsSync(path.join(NEXT_DIR, "server", "app"));
+
+  it("is neither the comparison's chunk nor the page view's, carries no pdf.js, and only the comparison loads it", () => {
+    if (!built) return;
+    const all = walkJs(CHUNKS_DIR);
+    const idOf = (f: string) => /^(\d+)[-.]/.exec(path.basename(f))?.[1];
+    const overlay = all.filter((f) => read(f).includes(COMPARE_OVERLAY_CHUNK));
+    const result = all.filter((f) => read(f).includes(COMPARE_RESULT_CHUNK));
+    const viewer = all.filter((f) => read(f).includes(COMPARE_VIEWER_CHUNK));
+    expect(overlay).toHaveLength(1);
+    expect(result).toHaveLength(1);
+    expect(viewer).toHaveLength(1);
+    expect(path.resolve(overlay[0]!)).not.toBe(path.resolve(result[0]!));
+    expect(path.resolve(overlay[0]!)).not.toBe(path.resolve(viewer[0]!));
+    const pdfjs = LAZY.find((l) => l.what === "pdfjs")!.marker;
+    expect(read(overlay[0]!).includes(pdfjs)).toBe(false);
+    // Exactly one importer: the comparison's chunk.
+    const id = idOf(overlay[0]!)!;
+    expect(id).toBeTruthy();
+    const importers = all.filter((f) =>
+      loadersOf([f]).some((ids) => ids.includes(id)),
+    );
+    expect(importers.map((f) => path.basename(f))).toEqual([
+      path.basename(result[0]!),
+    ]);
+  });
+
+  it(`its fetch from the compare page stays under ${COMPARE_OVERLAY_FETCH_GZ_KB} KB gz`, () => {
+    if (!built) return;
+    const fetch = onDemandFetch(
+      COMPARE_OVERLAY_CHUNK,
+      "tools/compare-pdf.html",
+    );
+    expect(fetch.counted.length).toBeGreaterThanOrEqual(1);
+    expect(
+      fetch.gz,
+      `the Overlay's fetch is ${fetch.gz.toFixed(2)} KB gz over ${fetch.counted.map((f) => path.basename(f)).join(", ")}`,
+    ).toBeLessThanOrEqual(COMPARE_OVERLAY_FETCH_GZ_KB);
   });
 });
 

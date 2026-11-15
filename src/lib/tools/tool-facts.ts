@@ -1566,7 +1566,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         {
           question: `What does ${tool.name} compare?`,
           answer:
-            "The selectable text, line by line, plus the page count and the file size. A change to images, layout, fonts or colors that leaves the text the same does not show up.",
+            "The selectable text, line by line, plus the page count and the file size. Overlay pages also lays each page of the second file over the page with the same number in the first, in grayscale at about 150 dpi, and marks where the ink differs, so a moved image or a stamp shows there; a colour change that keeps the same lightness, or a difference smaller than a few pixels, does not.",
         },
         {
           question: `What counts as a change in ${tool.name}?`,
@@ -1575,7 +1575,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         },
         {
           question: `Can ${tool.name} compare scanned PDFs?`,
-          answer: `Not on their own: a scanned page is a picture with no text inside it, so there is nothing to compare. Run both files through ${toolName("ocr-pdf")} first, then compare the results.`,
+          answer: `Their text, not until it has a text layer: a scanned page is a picture with no text inside it, so run both files through ${toolName("ocr-pdf")} first, then compare the results. Their pages, yes: Compare pages visually overlays them and marks where the ink differs, though two separate scans of the same paper rarely line up exactly.`,
         },
       ];
     case "pdf-to-text":

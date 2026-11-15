@@ -11,6 +11,7 @@ import {
   type PDFPage,
 } from "pdf-lib";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
+import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { TOLERANCE, type Plane } from "@/lib/pdf/compare/visual-diff";
 import { extractLegacy } from "@/tests/compare-fixtures";
 import { compareExtractedPdfText } from "./compare-result";
@@ -233,8 +234,8 @@ describe("the Overlay on real PDFs", () => {
     const page = (x: number) =>
       onePage(async (doc) => {
         const p = await textPage(doc);
-        const img = await doc.embedPng(png);
-        p.drawImage(img, { x, y: 420, width: 60, height: 60 });
+        const img = await embedRasterImage(doc, png, "png");
+        await drawRasterImage(p, img, { x, y: 420, width: 60, height: 60 });
       });
     const c = checked((await pair(await page(100), await page(130))).o);
     const kinds = new Set(c.diff.regions.map((r) => r.kind));
@@ -249,8 +250,8 @@ describe("the Overlay on real PDFs", () => {
     const scan = (mark: boolean) =>
       onePage(async (doc) => {
         const p = doc.addPage([612, 792]);
-        const img = await doc.embedPng(scanPng(mark));
-        p.drawImage(img, { x: 0, y: 0, width: 612, height: 792 });
+        const img = await embedRasterImage(doc, scanPng(mark), "png");
+        await drawRasterImage(p, img, { x: 0, y: 0, width: 612, height: 792 });
       });
     const c = checked((await pair(await scan(false), await scan(true))).o);
     expect(c.diff.regions.length).toBeGreaterThanOrEqual(1);
