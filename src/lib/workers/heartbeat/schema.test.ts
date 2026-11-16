@@ -35,6 +35,7 @@ const CAPS: HeartbeatCapabilities = {
   translateOcr: true,
   htmlZip: true,
   chatRetrieval: true,
+  summarizePages: true,
   translatePdfLanguages: [],
 };
 
@@ -105,6 +106,7 @@ describe("buildHeartbeat / serialize / parse", () => {
       translateOcr: false,
       htmlZip: false,
       chatRetrieval: false,
+      summarizePages: false,
       translatePdfLanguages: [],
     });
     expect(JSON.stringify(hb)).not.toContain("evil.example.com");
@@ -259,6 +261,7 @@ describe("buildHeartbeat / serialize / parse", () => {
         translateOcr: false,
         htmlZip: false,
         chatRetrieval: false,
+        summarizePages: false,
         translatePdfLanguages: [],
       },
       at: 1234,

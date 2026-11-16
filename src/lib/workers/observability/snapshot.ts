@@ -350,6 +350,15 @@ const WORKER_CAPABILITY_PROMISES: Record<
       "Chat with PDF reads, for a longer file, the pages a question's words point to, not only the opening pages it read until 2026-11-16",
     proves: provenByFlag,
   },
+  summarizePages: {
+    label: "summaries of chosen pages",
+    promise:
+      // Added 2026-11-16 (audit summarize-pdf#5, slice 5). The Summarize
+      // panel offers a page choice, and the job API accepts one, only while
+      // this reads true on a fresh heartbeat.
+      "Summarize PDF reads only the pages or bookmarked section the reader chose and names those pages in the summary, instead of summarizing the whole document from its first page",
+    proves: provenByFlag,
+  },
   translatePdfLanguages: {
     label: "translated PDF languages",
     promise:

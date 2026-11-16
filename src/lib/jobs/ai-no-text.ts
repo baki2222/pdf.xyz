@@ -45,3 +45,17 @@ export function readsOnlySelectableText(
 ): tool is SelectableTextTool {
   return Object.prototype.hasOwnProperty.call(NO_SELECTABLE_TEXT_MESSAGE, tool);
 }
+
+/**
+ * What Summarize says when the pages a person CHOSE hold no selectable text,
+ * though the document as a whole does (Summarize's page range, audit
+ * summarize-pdf#5). Beside {@link NO_SELECTABLE_TEXT_MESSAGE} for the same
+ * reason: one owner for both sides of the upload. The worker refuses with it
+ * after the route reserved the allowance (not refunded, the allowance FAQ's
+ * cross-tool ruling), so it says nothing about charging; the panel's
+ * pre-upload refusal appends its own "Nothing was uploaded."
+ */
+export const NO_TEXT_IN_CHOSEN_PAGES_MESSAGE = {
+  "summarize-pdf":
+    "The pages you chose have no selectable text. Choose other pages, or run OCR PDF first.",
+} as const;

@@ -67,6 +67,15 @@ function jobError(run: Failure): JobError {
         message: run.message,
         retryable: false,
       };
+    case "pages_out_of_range":
+      // Its own case, not the `default:` arm: that arm is a RETRYABLE
+      // internal error, and a page past the end of this file stays past it
+      // on every retry.
+      return {
+        code: "unprocessable_entity",
+        message: run.message,
+        retryable: false,
+      };
     case "rate_limited":
       return {
         code: "service_unavailable",
@@ -95,6 +104,9 @@ function meta(m: SummarizeMeta): ProcessorMeta {
     inputBytes: m.inputBytes,
     outputBytes: m.outputBytes,
     sourceCharacters: m.sourceCharacters,
+    // A COUNT of chosen pages, never the spans: ProcessorMeta is
+    // content-free metrics. Absent on a whole-document run.
+    ...(m.selectedPages !== null ? { selectedPages: m.selectedPages } : {}),
     summaryCharacters: m.summaryCharacters,
     truncated: m.truncated,
   };

@@ -40,7 +40,11 @@
  * dependency-free `page-spans` leaf, never `page-retrieval`.
  */
 import type { AiWindowMeta } from "@/lib/jobs/ai-results";
-import { formatPageSpans, formatSpans } from "@/lib/pdf/page-spans";
+import {
+  formatPageSpans,
+  formatSpans,
+  type PageSpan,
+} from "@/lib/pdf/page-spans";
 
 /**
  * What the model saw, in terms a person can act on.
@@ -52,8 +56,17 @@ import { formatPageSpans, formatSpans } from "@/lib/pdf/page-spans";
  */
 export type TruncationWindow = AiWindowMeta;
 
-/** A window over an untruncated document: everything, nothing to disclose. */
-function whole(text: string, totalPages: number): TruncationWindow {
+/**
+ * A window over an untruncated document: everything, nothing to disclose.
+ * With a page selection (Summarize's page range) it carries the pages the
+ * person chose as `pagesSent`: all of them went, blank ones included (they
+ * were chosen, and all of their zero characters were sent).
+ */
+function whole(
+  text: string,
+  totalPages: number,
+  selection?: readonly PageSpan[],
+): TruncationWindow {
   return {
     truncated: false,
     charactersSent: text.length,
@@ -61,7 +74,28 @@ function whole(text: string, totalPages: number): TruncationWindow {
     totalPages,
     lastCompletePage: totalPages || null,
     cutMidPage: false,
+    ...(selection ? { pagesSent: selection.map(copySpan) } : {}),
   };
+}
+
+const copySpan = ([first, last]: PageSpan): [number, number] => [first, last];
+
+/**
+ * A selection clipped at page `upTo`: every span that starts at or before it,
+ * the last one ending at `upTo` at the latest. Pages are REAL page numbers,
+ * so a clip at page 5 keeps a blank page 4 inside the selection (it was
+ * chosen and lies before the cut) and drops everything after page 5.
+ */
+function clipSelection(
+  selection: readonly PageSpan[],
+  upTo: number,
+): [number, number][] {
+  const clipped: [number, number][] = [];
+  for (const [first, last] of selection) {
+    if (first > upTo) break;
+    clipped.push([first, Math.min(last, upTo)]);
+  }
+  return clipped;
 }
 
 /** A page, where its text starts in the assembled string, and how long it is. */
@@ -106,14 +140,26 @@ function tableDescribes(assembled: string, starts: readonly PageStart[]) {
  * dropped before joining, so the third chunk may be page 5 — assuming
  * index + 1 would name a page the user could go and check and find wrong,
  * which is a new confident false claim replacing the old one.
+ *
+ * `selection` (Summarize's page range, canonical spans) is the pages the
+ * person chose; `assembled` and `starts` must then be built from those pages
+ * only. The window carries `pagesSent`: the whole selection when it fits;
+ * when truncated, the selection clipped at the last page whose text STARTED
+ * before the cut (that page's own number, never a chunk position); and
+ * nothing at all when the table does not describe the string, so the panel
+ * reads "not confirmed" rather than a page list derived from a wrong table.
+ * Without `selection` the result is exactly what it was before, field for
+ * field: chat, ai-extract and translate never pass one.
  */
 export function describeWindow(
   assembled: string,
   starts: readonly PageStart[],
   totalPages: number,
   maxChars: number,
+  selection?: readonly PageSpan[],
 ): TruncationWindow {
-  if (assembled.length <= maxChars) return whole(assembled, totalPages);
+  if (assembled.length <= maxChars)
+    return whole(assembled, totalPages, selection);
 
   // No usable table ⇒ disclose the truncation but name no page. "The first part
   // of a 400-page document" is honest; a page number derived from a table that
@@ -143,6 +189,12 @@ export function describeWindow(
   // is present in full would understate what the model holds by a page — a
   // page number the user can check and find wrong.
   const lastStarted = lastStartedIndex >= 0 ? starts[lastStartedIndex]! : null;
+  // The chosen pages that reached the model: clipped at the last STARTED
+  // page's own number. No page started (a zero-character cut) names none.
+  const chosen =
+    selection && lastStarted
+      ? { pagesSent: clipSelection(selection, lastStarted.pageNumber) }
+      : {};
   if (lastStarted && lastStarted.offset + lastStarted.length <= maxChars) {
     return {
       truncated: true,
@@ -151,6 +203,7 @@ export function describeWindow(
       totalPages,
       lastCompletePage: lastStarted.pageNumber,
       cutMidPage: false,
+      ...chosen,
     };
   }
 
@@ -164,6 +217,7 @@ export function describeWindow(
     totalPages,
     lastCompletePage: lastComplete,
     cutMidPage: lastStartedIndex >= 0,
+    ...chosen,
   };
 }
 
@@ -260,6 +314,8 @@ export function modelTruncationNotice(
   revocation: (upTo: string) => string,
   selection?: SelectionNoticeParts,
 ): string {
+  const chosen = chosenSpans(window);
+  if (chosen) return chosenPagesModelNotice(window, chosen, revocation);
   if (!window.truncated) return "";
   const spans = selectionSpans(window);
   if (spans) {
@@ -293,6 +349,13 @@ export function modelTruncationNotice(
 /** The one-line disclosure a UI shows beside the result, from `meta` alone. */
 export function userTruncationNotice(window: TruncationWindow): string {
   if (!window.truncated) return "";
+  // The pages a person chose, cut by the limit: name the chosen pages that
+  // were read, never "pages 1–N" of a document they did not ask about.
+  const chosen = chosenSpans(window);
+  if (chosen) {
+    const fragment = window.cutMidPage ? ", cut mid-page" : "";
+    return `Only ${pagesPhrase(chosen)} of the pages you chose could be read${fragment} — they hold more text than the limit, so anything after that was not considered.`;
+  }
   // A relevance window is FACT ONLY: which pages were read, never why (the
   // why is a claim about the worker's algorithm, made only where the worker's
   // capability was observed). It never says "pages 1–N": page 60 is not part
@@ -317,4 +380,77 @@ export function userTruncationNotice(window: TruncationWindow): string {
       : `the first part of this ${window.totalPages}-page document`;
   const fragment = window.cutMidPage ? ", cut mid-page" : "";
   return `Only ${upTo} could be read${fragment} — this document is longer than the limit, so anything after that was not considered.`;
+}
+
+// ---------------------------------------------------------------------------
+// The pages a PERSON chose (Summarize's page range)
+// ---------------------------------------------------------------------------
+
+/**
+ * The chosen pages a window names: `pagesSent` on a window WITHOUT
+ * `selection` (a relevance window is chat's and has its own path), or null.
+ */
+function chosenSpans(window: TruncationWindow): readonly PageSpan[] | null {
+  if (window.selection !== undefined) return null;
+  const spans = window.pagesSent;
+  return spans && spans.length > 0 ? spans : null;
+}
+
+/** How many pages `spans` cover. */
+const pagesIn = (spans: readonly PageSpan[]): number =>
+  spans.reduce((sum, [first, last]) => sum + last - first + 1, 0);
+
+/**
+ * "page 4", "pages 3–5 and 9", "pages 1, 3 and 5–6": each span in
+ * `formatSpans`'s own words (one author for "3–5"), joined with a final
+ * "and" for a reader, singular for exactly one page.
+ */
+function pagesPhrase(spans: readonly PageSpan[]): string {
+  const parts = spans.map((span) => formatSpans([span]));
+  const list =
+    parts.length === 1
+      ? parts[0]!
+      : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]!}`;
+  return `${pagesIn(spans) === 1 ? "page" : "pages"} ${list}`;
+}
+
+/**
+ * The model notice for a window over pages a person chose. Unlike a prefix
+ * window it is given EVEN WHEN NOT TRUNCATED: the model holds part of the
+ * document either way, and a summarizer that is not told so calls its
+ * summary of pages 3–5 a summary of the document. The bound phrase handed to
+ * `revocation` names the chosen pages, so Summarize's "This summarises …"
+ * names them too.
+ */
+function chosenPagesModelNotice(
+  window: TruncationWindow,
+  spans: readonly PageSpan[],
+  revocation: (upTo: string) => string,
+): string {
+  const covers = `${pagesPhrase(spans)} of ${window.totalPages}`;
+  const chose = pagesIn(spans) === 1 ? "the page" : "the pages";
+  const truncation = window.truncated
+    ? ` The chosen pages hold more text than the length limit, so the text stops early${window.cutMidPage ? " and may break mid-sentence" : ""}.`
+    : "";
+  return [
+    "",
+    "IMPORTANT — YOU ARE SEEING ONLY PART OF THIS DOCUMENT.",
+    `The text above covers ${covers}, ${chose} the user chose; no other page was sent.${truncation}`,
+    revocation(covers),
+  ].join("\n");
+}
+
+/**
+ * The sentence the panel and summary.md show beside a summary of chosen
+ * pages, from the window alone: "This summary covers page 4 of 40, the page
+ * you chose." Empty when the window names no chosen pages (a whole-document
+ * or prefix run, or any other tool). Truncated, it names the pages READ
+ * (`pagesSent` is already the clipped list) and `userTruncationNotice` says
+ * why the rest was not.
+ */
+export function userSelectionNotice(window: TruncationWindow): string {
+  const spans = chosenSpans(window);
+  if (!spans) return "";
+  const single = pagesIn(spans) === 1;
+  return `This summary covers ${pagesPhrase(spans)} of ${window.totalPages}, ${single ? "the page" : "the pages"} you chose.`;
 }

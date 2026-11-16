@@ -54,6 +54,7 @@ import {
 import { provesTranslateOcr } from "@/lib/workers/translate/ocr-capability";
 import { provesHtmlZip } from "@/lib/workers/html-render/zip-capability";
 import { provesChatRetrieval } from "@/lib/workers/chat-with-pdf/retrieval-capability";
+import { provesSummarizePages } from "@/lib/workers/summarize/pages-capability";
 import { translatePdfLanguages } from "@/lib/workers/translate/pdf-capability";
 import { provesAiReadCap } from "@/lib/workers/processor/read-cap-proof";
 import {
@@ -139,6 +140,10 @@ export const PROVED_CAPABILITIES = defineProvers({
   translateOcr: { prove: () => provesTranslateOcr(), parse: bool },
   htmlZip: { prove: () => provesHtmlZip(), parse: bool },
   chatRetrieval: { prove: (env) => provesChatRetrieval(env), parse: bool },
+  summarizePages: {
+    prove: (env) => provesSummarizePages({ env }),
+    parse: bool,
+  },
   translatePdfLanguages: {
     prove: (env) => translatePdfLanguages(env),
     parse: languages,

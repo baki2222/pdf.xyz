@@ -5,16 +5,22 @@ import {
   type RunControl,
 } from "../attempt-abort";
 import { pdfTextOpenFailure } from "@/lib/workers/pdf-text/errors";
-import { NO_SELECTABLE_TEXT_MESSAGE } from "@/lib/jobs/ai-no-text";
+import {
+  NO_SELECTABLE_TEXT_MESSAGE,
+  NO_TEXT_IN_CHOSEN_PAGES_MESSAGE,
+} from "@/lib/jobs/ai-no-text";
 import {
   PAGE_JOIN,
   pageTextChunks,
   type ExtractedPdfText,
 } from "@/lib/pdf/text";
+import { firstSpanBeyond, selectExtraction } from "@/lib/pdf/page-selection";
+import { formatSpans } from "@/lib/pdf/page-spans";
 import {
   describeWindow,
   modelTruncationNotice,
   pageStartsFor,
+  userSelectionNotice,
   userTruncationNotice,
   type TruncationWindow,
 } from "../ai/truncation";
@@ -93,8 +99,16 @@ export interface SummarizeMeta {
   pageCount: number;
   inputBytes: number;
   outputBytes: number;
-  /** Character count of the extracted source text (a COUNT, never the text). */
+  /**
+   * Character count of the source text (a COUNT, never the text): the chosen
+   * pages' text when `options.pages` was set, the whole document's otherwise.
+   */
   sourceCharacters: number;
+  /**
+   * How many pages the person chose (a COUNT, never the spans), or `null`
+   * for a whole-document run. Blank chosen pages count: they were chosen.
+   */
+  selectedPages: number | null;
   /** Character count of the produced summary (a COUNT, never the text). */
   summaryCharacters: number;
   /** True when the source exceeded `maxInputChars` and only a prefix was summarized. */
@@ -127,6 +141,11 @@ export type SummarizeFailureKind =
   | "too_large"
   | "rate_limited"
   | "content_filtered"
+  /**
+   * A chosen page lies past the document's end. Refused before any provider
+   * call; a fact about the request against this file, so never retried.
+   */
+  | "pages_out_of_range"
   | "failed";
 
 export type SummarizeRun =
@@ -424,14 +443,42 @@ export async function runSummarize(
     };
   }
 
-  const sourceText = extracted.text.trim();
-  if (!extracted.hasText || sourceText.length === 0) {
+  // PAGE SELECTION (audit summarize-pdf#5) comes BEFORE the no-text check and
+  // the window, so every later line describes the chosen pages: the window
+  // and both notices are computed over them, never over the document and
+  // then narrowed. A span past the end is refused here, before any provider
+  // call. `extracted.pageCount` stays the document's total ("pages 3–5 of
+  // 40"); pages are matched by their own number (`selectExtraction`), never
+  // by position, because a blank page has no text chunk.
+  const chosen = options.pages;
+  if (chosen) {
+    const beyond = firstSpanBeyond(chosen, extracted.pageCount);
+    if (beyond) {
+      const total = extracted.pageCount;
+      const named = formatSpans([beyond]);
+      return {
+        ok: false,
+        kind: "pages_out_of_range",
+        retryable: false,
+        message: `This PDF has ${total} ${total === 1 ? "page" : "pages"}, so ${beyond[0] === beyond[1] ? "page" : "pages"} ${named} cannot be summarized. Nothing was sent to the AI model.`,
+      };
+    }
+  }
+  const source = chosen ? selectExtraction(extracted, chosen) : extracted;
+
+  const sourceText = source.text.trim();
+  if (!source.hasText || sourceText.length === 0) {
     return {
       ok: false,
       kind: "no_text",
       retryable: false,
       // One string for both sides of the upload — see `@/lib/jobs/ai-no-text`.
-      message: NO_SELECTABLE_TEXT_MESSAGE["summarize-pdf"],
+      // Chosen pages with no text in a document that has some get their own
+      // sentence: "run OCR on this scan" is not what is wrong.
+      message:
+        chosen && extracted.hasText && extracted.text.trim().length > 0
+          ? NO_TEXT_IN_CHOSEN_PAGES_MESSAGE["summarize-pdf"]
+          : NO_SELECTABLE_TEXT_MESSAGE["summarize-pdf"],
     };
   }
 
@@ -440,12 +487,21 @@ export async function runSummarize(
   // package, so the model and the user cannot be told different things.
   const window = describeWindow(
     sourceText,
-    pageStartsFor(pageTextChunks(extracted.pages), PAGE_JOIN),
+    pageStartsFor(pageTextChunks(source.pages), PAGE_JOIN),
     extracted.pageCount,
     maxChars,
+    chosen,
   );
   const truncated = window.truncated;
   const promptText = truncated ? sourceText.slice(0, maxChars) : sourceText;
+  const selectionNotice = userSelectionNotice(window) || null;
+  const scope = chosen
+    ? truncated
+      ? " (Only the first part of the pages the user chose is included.)"
+      : " (Only the pages the user chose are included.)"
+    : truncated
+      ? " (Only the first part of a long document is included.)"
+      : "";
 
   const plan = LENGTH_PLAN[options.length];
   const maxOutputTokens = Math.min(
@@ -458,7 +514,7 @@ export async function runSummarize(
     messages: [
       {
         role: "user",
-        content: `Summarize the following document.${truncated ? " (Only the first part of a long document is included.)" : ""}\n\n---\n${promptText}\n---`,
+        content: `Summarize the following document.${scope}\n\n---\n${promptText}\n---`,
       },
     ],
     maxOutputTokens,
@@ -502,6 +558,12 @@ export async function runSummarize(
       characters: sourceText.length,
       truncatedToCharacters: truncated ? maxChars : null,
       truncationNotice: userTruncationNotice(window) || null,
+      // The pages a person chose whose text reached the model: the window's
+      // own list, so the manifest, the panel and the prompt name one set.
+      pagesSent: window.pagesSent
+        ? window.pagesSent.map(([a, b]) => [a, b])
+        : null,
+      selectionNotice,
     },
     summary: { characters: summary.length },
     notice:
@@ -557,6 +619,9 @@ export async function runSummarize(
       inputBytes: input.byteLength,
       outputBytes: output.byteLength,
       sourceCharacters: sourceText.length,
+      selectedPages: chosen
+        ? chosen.reduce((sum, [a, b]) => sum + b - a + 1, 0)
+        : null,
       summaryCharacters: summary.length,
       truncated,
       truncationNotice: userTruncationNotice(window) || null,
@@ -583,6 +648,13 @@ interface SummaryManifest {
     truncatedToCharacters: number | null;
     /** The page-named disclosure, or null when the whole document was read. */
     truncationNotice: string | null;
+    /**
+     * The chosen pages whose text reached the model (`window.pagesSent`), or
+     * null for a whole-document run. Additive within `pdfxyz.summary/v1`.
+     */
+    pagesSent: [number, number][] | null;
+    /** "This summary covers pages 3–5 of 40, the pages you chose.", or null. */
+    selectionNotice: string | null;
   };
   summary: { characters: number };
   notice: string;
@@ -599,6 +671,12 @@ function renderMarkdown(summary: string, manifest: SummaryManifest): string {
   lines.push(
     `> Pages: ${manifest.source.pageCount} · Source characters: ${manifest.source.characters}${manifest.source.truncatedToCharacters !== null ? ` (truncated to ${manifest.source.truncatedToCharacters} for summarization)` : ""}`,
   );
+  // Directly under the line above, which then counts the CHOSEN pages'
+  // characters beside the document's page count: the two read together.
+  if (manifest.source.selectionNotice) {
+    lines.push(`>`);
+    lines.push(`> **${manifest.source.selectionNotice}**`);
+  }
   // A character count is not something a reader can act on; the page sentence
   // is. It goes in the file itself, because the file outlives the panel.
   if (manifest.source.truncationNotice) {
@@ -626,6 +704,10 @@ function renderReadme(manifest: SummaryManifest): string {
     `Length: ${manifest.options.length} · Format: ${manifest.options.format}`,
   );
   if (manifest.options.focus) lines.push(`Focus: ${manifest.options.focus}`);
+  // The same sentence summary.md and the panel show (one author,
+  // `userSelectionNotice`), so the file that outlives both names the pages.
+  if (manifest.source.selectionNotice)
+    lines.push(`Pages: ${manifest.source.selectionNotice}`);
   lines.push("");
   lines.push("Contents:");
   lines.push(

@@ -205,6 +205,16 @@ export function copyFiles(): string[] {
       "chat-with-pdf",
       "retrieval-proof-questions.ts",
     ),
+    // The Summarize page-range proof (2026-11-16, slice 5): its check lines
+    // and fake summary are printed by the in-image proof step.
+    path.join(
+      ROOT,
+      "src",
+      "lib",
+      "workers",
+      "summarize",
+      "pages-capability.ts",
+    ),
     // The PDF to Office exports' OCR switch hints, per tool (2026-11-08,
     // audit pdf-to-excel#2), drawn by the export panel.
     path.join(ROOT, "src", "lib", "jobs", "office-export-ocr.ts"),

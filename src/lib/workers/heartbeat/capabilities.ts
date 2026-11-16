@@ -71,6 +71,7 @@ export function emptyCapabilities(): HeartbeatCapabilities {
     translateOcr: false,
     htmlZip: false,
     chatRetrieval: false,
+    summarizePages: false,
     translatePdfLanguages: [],
   };
 }
