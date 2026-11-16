@@ -400,9 +400,13 @@ const WORKER_CAPABILITY_PROMISES: Record<
       // about Translate PDF's page headings: no page says the translated PDF
       // heads each page of the original, and no sentence rests on this proof
       // until that changes". Since slice 5 the page and the guide say each
-      // page's translation comes under its own heading when the model keeps
-      // the page breaks (`TRANSLATE_PAGE_HEADINGS`).
-      "Translate PDF's reflowed PDF puts each page's translation under its own page heading when the model returns the page breaks in order, and one page-range heading otherwise, as its page and guide say",
+      // page's translation usually comes under its own heading, and several
+      // pages share one when the server cannot tell where each starts
+      // (`TRANSLATE_PAGE_HEADINGS`). Until the 2026-11-16 review this read
+      // "when the model returns the page breaks in order": false where the
+      // server sends no marker at all (`markerFallback` "collision" or
+      // "budget", translate/chunking.ts).
+      "Translate PDF's reflowed PDF puts each page's translation under its own page heading when the server marks the page breaks and the model returns every marker in order, and one page-range heading otherwise, as its page and guide say",
     proves: provenByFlag,
   },
 };

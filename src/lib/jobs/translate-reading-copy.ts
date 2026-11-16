@@ -7,23 +7,39 @@
  *
  *  - {@link TRANSLATE_COLUMN_ORDER}: the worker's reading order
  *    (`src/lib/workers/translate/reading-order.ts`). A page is SENT as its
- *    flow text, column by column, only where that text carries the same ink
- *    as the `-layout` text, is no longer, and holds no right-to-left script;
- *    and only when the flow run succeeded and its page count matched. Every
- *    other page goes as `-layout`, line by line across the columns. So the
- *    sentence keeps a FALLBACK CLAUSE for as long as any fallback reason
- *    exists (`AiReadingOrderMeta`: ink, longer, rtl, bbox_failed,
- *    page_count), and names the one reason a reader can predict (a
- *    right-to-left page always falls back).
+ *    flow text (poppler's own order, column by column on an ordinary
+ *    two-column page) only where that text carries the same ink as the
+ *    `-layout` text, is no longer, and holds no right-to-left script; and
+ *    only when the flow run succeeded and its page count matched. Every
+ *    other page goes as `-layout`, line by line across the columns.
+ *    NOTHING CHECKS COLUMN ORDER: the ink gate is order-blind by design
+ *    (reading-order.ts, gate (a)), and every fallback reason
+ *    (`AiReadingOrderMeta`: ink, longer, rtl, bbox_failed, page_count) is a
+ *    loss, a length, a script or a failed run. So the sentence claims no
+ *    check and names no cause for the fallback beyond the one a reader can
+ *    predict (a right-to-left page always falls back). It says "usually"
+ *    and keeps the line-by-line clause for as long as any fallback reason
+ *    exists. Was, until 2026-11-16 review: "When our server cannot confirm a
+ *    page's column order, it reads that page line by line" — a check that
+ *    does not exist, and the wrong cause for the fallback.
  *  - {@link TRANSLATE_PAGE_HEADINGS}: the worker's page markers
  *    (`src/lib/workers/translate/page-map.ts`). A multi-page call whose reply
  *    carries every marker back, in order, is split and each piece printed
  *    under "Page N"; otherwise the call falls back to one range heading,
- *    "Pages a–b" (`pageRangeLabel` in `translate/typeset.ts`). Which happens
- *    is decided PER JOB, so the sentence states the condition, not a promise.
- *    Verified markers do not prove each piece holds only its own page's words
- *    (a sentence finished across the break), so the sentence says so instead
- *    of promising exact boundaries. The ZIP carries no markers and is not
+ *    "Pages a–b" (`pageRangeLabel` in `translate/typeset.ts`). THREE
+ *    causes lead there, and only one is the model's: the reply lost or
+ *    reordered a marker; the text already holds the marker token
+ *    (`markerFallback: "collision"`, chunking.ts), so no marker is sent; or
+ *    the markers do not fit what is left of the day's allowance
+ *    (`markerFallback: "budget"`), so none is sent. A call is bounded by
+ *    characters, not pages, so "several" can be dozens of sparse pages. The
+ *    sentence therefore states the OUTCOME ("cannot tell where each page's
+ *    translation starts"), not a cause. Was, until 2026-11-16 review: "when
+ *    the AI model keeps the page breaks. When it does not, a few pages share
+ *    one heading" — false wherever no marker was sent. Verified markers do
+ *    not prove each piece holds only its own page's words (a sentence
+ *    finished across the break), so the sentence says so instead of
+ *    promising exact boundaries. The ZIP carries no markers and is not
  *    described here.
  *
  * ── THE LIVE BOUND, STATED HONESTLY ─────────────────────────────────────────
@@ -52,8 +68,8 @@
 
 /** How a two-column page is read, with the fallback a reader must know. */
 export const TRANSLATE_COLUMN_ORDER =
-  "A two-column page is read column by column. When our server cannot confirm a page's column order, it reads that page line by line across the columns, and its lines can come out mixed. Right-to-left text, such as Arabic, is always read that way. So compare the order with the original before you rely on it.";
+  "A two-column page is usually read column by column. Some pages are read line by line across the columns instead, and their lines can come out mixed. A page with any right-to-left text, such as Arabic, is always read that way. So compare the order with the original before you rely on it.";
 
 /** How the translated PDF heads each page, as decided per job. */
 export const TRANSLATE_PAGE_HEADINGS =
-  "In the PDF, each page's translation comes under its own heading, such as Page 2, when the AI model keeps the page breaks. When it does not, a few pages share one heading, such as Pages 1\u20133. A sentence that runs over a page break can land under either heading.";
+  "In the PDF, each page's translation usually comes under its own heading, such as Page 2. When our server cannot tell where each page's translation starts, several pages share one heading, such as Pages 1\u20133. A sentence that runs over a page break can land under either heading.";

@@ -25,6 +25,13 @@
  * the corpus in both directions, and what slice 3 really meant by requiring
  * "interleav" — that fallback pages are disclosed — survives as a required
  * FALLBACK CLAUSE, for as long as any fallback reason exists.
+ *
+ * Review (2026-11-16) found both new sentences naming a cause the worker does
+ * not have: a column-order CHECK (none exists; the ink gate is order-blind)
+ * and the MODEL as the only reason pages share a heading (the server sends no
+ * marker on "collision" or "budget"). The sentences now state outcomes; the
+ * required shapes were inverted, and the retired causes are banned with their
+ * shipped sentences as the corpus.
  */
 import { describe, expect, it } from "vitest";
 import { getToolBySlug } from "@/lib/tools";
@@ -191,6 +198,81 @@ describe("the retired interleave admission is banned (slice 5)", () => {
 });
 
 /* ------------------------------------------------------------------ *
+ *  The retired CAUSE claims: a ban with a corpus, both ways
+ * ------------------------------------------------------------------ */
+
+/**
+ * Review, 2026-11-16: slice 5's two sentences each named a cause that is not
+ * the worker's. "When our server cannot confirm a page's column order"
+ * claimed a check that does not exist (the ink gate is order-blind; every
+ * fallback reason is a loss, a length, a script or a failed run). "When the
+ * AI model keeps the page breaks. When it does not" blamed the model where
+ * the server never sent a marker (`markerFallback` "collision" and "budget",
+ * chunking.ts). Every such sentence that shipped, verbatim; each must be
+ * caught by some shape below.
+ */
+const SHIPPED_FALSE_CAUSES = [
+  // TRANSLATE_COLUMN_ORDER, slice 5.
+  "A two-column page is read column by column. When our server cannot confirm a page's column order, it reads that page line by line across the columns, and its lines can come out mixed.",
+  // TRANSLATE_PAGE_HEADINGS, slice 5.
+  "In the PDF, each page's translation comes under its own heading, such as Page 2, when the AI model keeps the page breaks. When it does not, a few pages share one heading.",
+  // The translatePageMap operations promise, slice 5.
+  "Translate PDF's reflowed PDF puts each page's translation under its own page heading when the model returns the page breaks in order, and one page-range heading otherwise, as its page and guide say",
+] as const;
+
+/** The SHAPES of the false cause. Each must catch some shipped sentence. */
+const FALSE_CAUSE_SHAPES: readonly { name: string; shape: RegExp }[] = [
+  {
+    name: "a check of column order",
+    shape:
+      /\b(?:confirm|check|verif(?:y|ies))\w*\b[^.]{0,40}\bcolumn order\b|\bcolumn order\b[^.]{0,40}\b(?:confirmed|checked|verified)\b/i,
+  },
+  {
+    name: "the model alone decides the page headings",
+    shape:
+      /\b(?:model|it) (?:keeps|returns|loses|drops) the page breaks\b|\bwhen it does not, a few pages\b/i,
+  },
+];
+
+const falseCauseHits = (text: string) =>
+  FALSE_CAUSE_SHAPES.filter((s) => s.shape.test(text)).map((s) => s.name);
+
+describe("the retired cause claims are banned (review 2026-11-16)", () => {
+  it("every shipped false cause is caught by some shape", () => {
+    for (const sentence of SHIPPED_FALSE_CAUSES)
+      expect(falseCauseHits(sentence), sentence).not.toEqual([]);
+  });
+
+  it("every shape catches some shipped false cause", () => {
+    for (const { name, shape } of FALSE_CAUSE_SHAPES)
+      expect(
+        SHIPPED_FALSE_CAUSES.some((s) => shape.test(s)),
+        `${name} catches no shipped sentence: decoration`,
+      ).toBe(true);
+  });
+
+  it("no Translate surface, promises included, carries one", () => {
+    const offenders = SURFACES.flatMap((e) =>
+      falseCauseHits(e.text).map((name) => `${e.where}: ${name}`),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it("positive control: the slice-5 column sentence planted in the corpus is caught", () => {
+    const planted = [
+      ...SURFACES,
+      { where: "useCases[1].body", text: SHIPPED_FALSE_CAUSES[0] },
+    ];
+    expect(planted.some((e) => falseCauseHits(e.text).length > 0)).toBe(true);
+  });
+
+  it("negative control: the current sentences name no false cause", () => {
+    expect(falseCauseHits(TRANSLATE_COLUMN_ORDER)).toEqual([]);
+    expect(falseCauseHits(TRANSLATE_PAGE_HEADINGS)).toEqual([]);
+  });
+});
+
+/* ------------------------------------------------------------------ *
  *  The positive claims, required where they live
  * ------------------------------------------------------------------ */
 
@@ -211,9 +293,10 @@ const FALLBACK_REASONS = {
 } satisfies Record<FallbackReason, true>;
 
 /** The clause that discloses fallback pages, in the copy's own shape. */
-const FALLBACK_CLAUSE =
-  /\bcannot confirm\b[^.]{0,80}\bline by line\b|\bline by line\b[^.]{0,80}\bcannot confirm\b/i;
-const COLUMN_CLAIM = /\btwo-column page is read column by column\b/i;
+// Was, until review 2026-11-16: `cannot confirm … line by line`, the shape
+// of a sentence that named a column-order check the worker does not make.
+const FALLBACK_CLAUSE = /\bsome pages are read line by line\b/i;
+const COLUMN_CLAIM = /\btwo-column page is usually read column by column\b/i;
 
 describe("Translate says a two-column page is read column by column (slice 5)", () => {
   // INVERTED from slice 3's "makes no positive claim that columns are read
@@ -278,11 +361,21 @@ describe("Translate says how the PDF heads pages, with the per-job condition (sl
     expect(TRANSLATE_PAGE_HEADINGS).toContain(pageRangeLabel([1, 2, 3]));
   });
 
-  it("states both branches, and promises no exact boundary", () => {
+  it("states both outcomes, and promises no exact boundary", () => {
+    // INVERTED at review 2026-11-16: this REQUIRED "when … keeps the page
+    // breaks" and "When it does not", a cause that is the model's in only
+    // one of three fallbacks (the server sends no marker on "collision" or
+    // "budget"). Now the OUTCOME is required, and the old cause is banned
+    // above.
     expect(TRANSLATE_PAGE_HEADINGS).toMatch(
-      /\bown heading\b[^.]*\bwhen\b[^.]*\bkeeps the page breaks\b/,
+      /\busually comes under its own heading\b/,
     );
-    expect(TRANSLATE_PAGE_HEADINGS).toMatch(/\bWhen it does not\b/);
+    expect(TRANSLATE_PAGE_HEADINGS).toMatch(
+      /\bWhen our server cannot tell where each page's translation starts\b/,
+    );
+    expect(TRANSLATE_PAGE_HEADINGS).toMatch(
+      /\bseveral pages share one heading\b/,
+    );
     expect(TRANSLATE_PAGE_HEADINGS).toMatch(/\beither heading\b/);
     expect(TRANSLATE_PAGE_HEADINGS).toMatch(/^In the PDF\b/);
   });

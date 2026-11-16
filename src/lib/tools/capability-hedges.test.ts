@@ -571,12 +571,13 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
     // sentence".
     //
     // Slice 5 (2026-11-16): the copy now CLAIMS the order
-    // (`TRANSLATE_COLUMN_ORDER`: "A two-column page is read column by
-    // column. When our server cannot confirm … line by line across the
-    // columns"), so those shapes joined. The old shapes stay, so a hedge
-    // written in the retired wording is still read as about this key.
+    // (`TRANSLATE_COLUMN_ORDER`: "A two-column page is usually read column
+    // by column. Some pages are read line by line across the columns
+    // instead"), so those shapes joined ("usually" optional since the
+    // 2026-11-16 review). The old shapes stay, so a hedge written in the
+    // retired wording is still read as about this key.
     subject:
-      /translated paragraphs with the original|columns' lines (?:reach|to) the model|\btwo-column pages? (?:is|are) read column by column\b|\bline by line across the columns\b/i,
+      /translated paragraphs with the original|columns' lines (?:reach|to) the model|\btwo-column pages? (?:is|are) (?:usually )?read column by column\b|\bline by line across the columns\b/i,
     catalogueCopy: true,
   },
   translatePageMap: {
@@ -591,8 +592,9 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
     // FLIPPED 2026-11-16 (slice 5): was `catalogueCopy: false` — no shipped
     // sentence described page headings, so the coverage check REQUIRED this
     // to match nothing. Slice 5 wrote the first one
-    // (`TRANSLATE_PAGE_HEADINGS`: "In the PDF, each page's translation comes
-    // under its own heading, …"), after the key was observed live.
+    // (`TRANSLATE_PAGE_HEADINGS`: "In the PDF, each page's translation
+    // usually comes under its own heading, …"), after the key was observed
+    // live.
     subject:
       /\btranslat[^.]{0,80}\b(?:heads?|headed|headings?)\b[^.]{0,40}\bpages?\b|\bpage headings?\b[^.]{0,60}\btranslat/i,
     catalogueCopy: true,
@@ -1509,13 +1511,16 @@ describe("the translateReadingOrder subject (competitor audit #29 slice 3, 2026-
     // (translate-reading-order-copy.test.ts), and what the disclosure was
     // for — fallback pages (ink, longer, rtl, bbox_failed, page_count) are
     // still sent line by line — is required as a clause in every member.
+    // The clause was `cannot confirm … line by line` until the 2026-11-16
+    // review: it named a column-order check that does not exist, so the
+    // clause now states the outcome only.
     const members = COPY.filter((entry) =>
       SUBJECTS.translateReadingOrder!.subject.test(entry.text),
     );
     expect(members.length).toBeGreaterThan(0);
     for (const member of members) {
       expect(member.text, `${member.slug} ${member.where}`).toMatch(
-        /\bcannot confirm\b[^.]{0,80}\bline by line\b/i,
+        /\bsome pages are read line by line\b/i,
       );
       expect(member.text, `${member.slug} ${member.where}`).not.toMatch(
         /interleav/i,
@@ -1523,11 +1528,9 @@ describe("the translateReadingOrder subject (competitor audit #29 slice 3, 2026-
     }
     // Positive control: the claim alone, its clause dropped, is a member that
     // fails the clause check.
-    const dropped = "A two-column page is read column by column.";
+    const dropped = "A two-column page is usually read column by column.";
     expect(SUBJECTS.translateReadingOrder!.subject.test(dropped)).toBe(true);
-    expect(dropped).not.toMatch(
-      /\bcannot confirm\b[^.]{0,80}\bline by line\b/i,
-    );
+    expect(dropped).not.toMatch(/\bsome pages are read line by line\b/i);
   });
 
   it("positive control: a deferral planted in that sentence is caught", () => {
