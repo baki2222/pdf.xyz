@@ -175,6 +175,9 @@ export function copyFiles(): string[] {
     // panel parses before upload, so a reader meets them only through a
     // client that skips it; walked from its first file all the same.
     path.join(ROOT, "src", "lib", "jobs", "page-spans-option.ts"),
+    // Summarize's page-choice refusal at the route and the panel's rollback
+    // warning (2026-11-16, slice 5): one module both sides import.
+    path.join(ROOT, "src", "lib", "jobs", "summarize-pages.ts"),
     // The pdf.js board's page limit as the reader:'pdfjs' tool pages state it
     // (2026-11-10), beside the constant the guard enforces.
     path.join(ROOT, "src", "lib", "pdf", "pdfjs-board-limit.ts"),

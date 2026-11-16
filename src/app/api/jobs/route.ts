@@ -21,8 +21,10 @@ import { isZipFileId } from "@/lib/workers/ids";
 import {
   runningWorkerRendersHtmlZip,
   runningWorkerEnforcesAiReadCap,
+  runningWorkerSummarizesPages,
   runningWorkerTranslatesScans,
 } from "@/lib/workers/heartbeat";
+import { SUMMARIZE_PAGES_NOT_RUNNING_MESSAGE } from "@/lib/jobs/summarize-pages";
 import { translateAsksForOcr } from "@/lib/jobs/translate-pdf";
 import {
   HTML_ZIP_ENTRY_OPTION,
@@ -158,6 +160,23 @@ export async function POST(request: Request): Promise<Response> {
     !(await runningWorkerRendersHtmlZip())
   )
     return respond(apiError("not_implemented", HTML_ZIP_NOT_RUNNING_MESSAGE));
+
+  // A SUMMARIZE JOB NAMING PAGES IS ADMITTED ONLY WHEN THE RUNNING WORKER
+  // READS ONLY THOSE PAGES (competitor audit summarize-pdf#5) — the same
+  // predicate the page's offer uses (`liveWorkerSummarizesPages`). An image
+  // built before the feature parses options leniently: it DROPS `pages`
+  // without a word and summarizes the document's opening pages, under a
+  // read cap sized for the selection. Refused here, BEFORE the ceiling peek
+  // and the allowance reservation below, so a refusal charges nothing — the
+  // message says so, and `summarize-pages.route.test.ts` pins the order.
+  if (
+    parsed.value.tool === "summarize-pdf" &&
+    parsed.value.options?.pages !== undefined &&
+    !(await runningWorkerSummarizesPages())
+  )
+    return respond(
+      apiError("not_implemented", SUMMARIZE_PAGES_NOT_RUNNING_MESSAGE),
+    );
 
   /**
    * What this job is charged, and what it may then deliver.
