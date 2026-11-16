@@ -420,17 +420,22 @@ describe("the summarizePages entry is a proof, not a constant", () => {
   });
 });
 
-describe("the translatePageRange entry publishes false until its proof exists", () => {
+describe("the translatePageRange entry is a proof, not a constant", () => {
   /**
-   * Contract step of competitor audit #29 slice 6: the key reaches the wire
-   * (types, schema, status, admission) before its start-up proof is written
-   * in `translate/page-range-capability.ts`, so it must publish the one value
-   * that cannot license a page choice. The proof's commit INVERTS this block
-   * (as "the summarizePages entry is a proof, not a constant" above), it does
-   * not delete it.
+   * INVERTED 2026-11-16 (competitor audit #29 slice 6, history kept). This
+   * block was "the translatePageRange entry publishes false until its proof
+   * exists": the contract step put the key on the wire before its start-up
+   * proof was written, and pinned "proves false on any env" so the one value
+   * that cannot license a page choice was published meanwhile. The proof now
+   * lives in `translate/page-range-capability.ts`, so the hold is the same as
+   * summarizePages's above: every other test here spies on `prove`, and
+   * `translatePageRange: { prove: () => true }` would pass them all.
    */
-  it("proves false on any env", async () => {
-    expect(await PROVED_CAPABILITIES.translatePageRange.prove({})).toBe(false);
+  it("answers false where this image has no pdftotext", async () => {
+    const value = await PROVED_CAPABILITIES.translatePageRange.prove({
+      PDFXYZ_PDF_TEXT_BIN: "/nonexistent/pdfxyz-no-pdftotext",
+    });
+    expect(value).toBe(false);
   });
 
   it("is the call to provesTranslatePageRange, imported from page-range-capability", () => {

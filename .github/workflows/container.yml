@@ -310,6 +310,22 @@ jobs:
       - name: Worker image Summarize pages proof (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:summarize-pages-proof
 
+      # Translate PDF's page range (2026-11-16, audit #29 slice 6): the
+      # start-up proof the heartbeat publishes as `translatePageRange`, on the
+      # image's REAL Translate extractor. A 5-page PDF whose page 1 is blank
+      # goes through the executor's order: pages [[2,2],[4,4]] must send pages
+      # 2 and 4 and neither page 3 nor page 5 (page 5 would be the index
+      # defect), with one page marker (page 4's), and the stored record, the
+      # manifest, translation.md, README and the PDF's headings ("Page 2",
+      # "Page 4", or "Pages 2, 4" when the model drops the markers) must all
+      # name those pages and never a range holding page 3; no pages must send
+      # every page; pages [[6,6]] must fail as unprocessable_entity with no
+      # provider call. It checks poppler's blank-page numbering first.
+      # Recording provider and PDF dep (no AI call, no spend, no Chromium); no
+      # user document, secret, queue or store.
+      - name: Worker image Translate page range proof (inside the built worker image)
+        run: docker run --rm pdfxyz-worker:ci pnpm worker:translate-page-range-proof
+
       # Worker options (2026-10-24): compress-pdf's Grayscale through the
       # image's REAL Ghostscript, read back as 1-component images (with a
       # colour run as the control), and protect-pdf's permission restrictions

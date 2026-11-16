@@ -98,6 +98,11 @@ const ALLOWED = new Set(
     // `resolveNativePdfTextReader`. Reached only by the daemon's
     // proved-capability table, the in-image proof script and tests.
     "src/lib/workers/translate/page-map-capability.ts",
+    // Translate's page-range proof (2026-11-16, audit #29 slice 6): it runs
+    // `translateDeps(env)` (the image's pdftotext extractor). Reached only by
+    // the daemon's proved-capability table, the in-image proof script
+    // (`scripts/worker-translate-page-range-proof.ts`) and tests.
+    "src/lib/workers/translate/page-range-capability.ts",
     // Chat with PDF's page-selection proof (2026-11-16, slice 3): it runs the
     // daemon's chat deps (`chat-with-pdf/native`, the `pdftotext` runner).
     // Reached only by the daemon's proved-capability table, the in-image

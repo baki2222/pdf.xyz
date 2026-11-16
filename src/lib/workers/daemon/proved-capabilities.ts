@@ -171,10 +171,11 @@ export const PROVED_CAPABILITIES = defineProvers({
     prove: (env) => provesTranslatePageMap(env),
     parse: bool,
   },
-  // Competitor audit #29 slice 6: Translate sends only the chosen pages.
-  // CONTRACT STEP: `provesTranslatePageRange` answers false on every image
-  // until its proof is written (see its header), which can only refuse a
-  // page choice, never license one.
+  // Competitor audit #29 slice 6: four jobs on a generated five-page PDF
+  // (page 1 blank) through the executor's order, with the image's REAL
+  // Translate extractor, a recording provider and a recording PDF dep: chosen
+  // pages 2 and 4 reach the model and pages 3 and 5 do not, the labels name
+  // "Page 2", "Page 4" (or "Pages 2, 4"), and page 6 fails with no call.
   translatePageRange: {
     prove: (env) => provesTranslatePageRange(env),
     parse: bool,
