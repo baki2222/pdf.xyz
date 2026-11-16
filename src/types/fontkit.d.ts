@@ -32,6 +32,8 @@ declare module "fontkit" {
     /** Every code point the cmap maps, as reported by the font itself. */
     readonly characterSet: number[];
     hasGlyphForCodePoint(codePoint: number): boolean;
+    /** The cmap's glyph for one code point (`radical-glyph-measure.ts`). */
+    glyphForCodePoint(codePoint: number): FontkitGlyph;
     /** Shapes `text` — GSUB, reordering, the lot — into positioned glyphs. */
     layout(text: string): { glyphs: FontkitGlyph[]; advanceWidth: number };
     getGlyph(id: number): FontkitGlyph;
@@ -39,6 +41,14 @@ declare module "fontkit" {
       includeGlyph(glyph: FontkitGlyph | number): number;
       encode(): Uint8Array;
     };
+  }
+
+  /**
+   * What `create` returns for a `.ttc`: every face in the collection
+   * (`radical-glyph-measure.ts`, which narrows by `"fonts" in`).
+   */
+  export interface FontkitCollection {
+    readonly fonts: FontkitFont[];
   }
 
   export function create(bytes: Uint8Array): FontkitFont;

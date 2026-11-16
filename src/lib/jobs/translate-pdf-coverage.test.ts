@@ -213,14 +213,23 @@ describe("Translate PDF's copy names the PDF's languages from the CI gate", () =
     }
   });
 
-  it("health: the derived list is non-empty today, and is what the copy names", () => {
-    // Today (2026-11-15) ar, zh, ja and ko are not proven. When the Arabic
-    // and CJK slices add theirs to the gate this shrinks, and the branch
-    // above that requires "all 21 languages" takes over — it is exercised by
-    // the full-set control below so it is not dead code on that day.
-    expect(derived.length).toBeGreaterThan(0);
-    const named = pdfClaimsIn(toolPageTexts()).find((c) => c.excepts)!.named;
-    expect([...named].sort()).toEqual([...derived].sort());
+  // HISTORY (2026-11-15, slice 2): this was "health: the derived list is
+  // non-empty today, and is what the copy names" — ar, zh, ja and ko were not
+  // proven, and the copy's "every one but …" had to name exactly them.
+  // INVERTED, not deleted, when the CJK slice put zh, ja and ko in the gate
+  // (Arabic had joined with #331): the set is empty, so the shipped copy must
+  // name no exception at all and say "all 21 languages" — the branch the
+  // full-set control below already exercised.
+  it("health: today every language is in the gate, so the copy names no exception and says all of them", () => {
+    expect(derived).toEqual([]);
+    const claims = pdfClaimsIn(toolPageTexts());
+    expect(claims.length).toBeGreaterThan(0);
+    expect(claims.some((c) => c.excepts)).toBe(false);
+    expect(
+      toolPageTexts().some((t) =>
+        t.includes(`all ${TRANSLATE_LANGUAGES.length} languages`),
+      ),
+    ).toBe(true);
   });
 
   it("positive control: with Thai dropped from the gate, the copy names Thai and counts one fewer", () => {
@@ -328,6 +337,22 @@ describe("the proof CI runs in the worker image fails on exactly the gate", () =
     expect(dropped.lines.join("\n")).not.toContain("PASS");
   });
 
+  it("a named other failure alone fails, and is printed; none passes", () => {
+    // The CJK slice's ToUnicode rewrite cases and radical-glyph facts reach
+    // the verdict this way (2026-11-16), so the script keeps one way to pass.
+    const all = [...TRANSLATE_PDF_CI_REQUIRED];
+    const other = translatePdfProofVerdict(all, 0, [
+      "2 ToUnicode rewrite case(s)",
+    ]);
+    expect(other.exitCode).toBe(1);
+    expect(other.notProven).toEqual([]);
+    expect(other.lines).toContain("FAIL — 2 ToUnicode rewrite case(s)");
+    expect(other.lines).not.toContain("PASS");
+    const clean = translatePdfProofVerdict(all, 0, []);
+    expect(clean.exitCode).toBe(0);
+    expect(clean.lines).toEqual(["PASS"]);
+  });
+
   const SCRIPT = "worker:translate-pdf-proof";
 
   /** container.yml → package.json script → file: three things CI already needs. */
@@ -368,7 +393,7 @@ describe("the proof CI runs in the worker image fails on exactly the gate", () =
   }
 
   const WIRED = {
-    calls: ["probe.passing, summary.falseDrops"],
+    calls: ["probe.passing, summary.falseDrops, otherFailures,"],
     returns: ["2", "verdict.exitCode"],
     localRequired: [],
     // The one `.passing` is the verdict call's argument; `.join(` is a log.
@@ -387,8 +412,8 @@ describe("the proof CI runs in the worker image fails on exactly the gate", () =
         'const REQUIRED = ["en", "es", "bn"];\n  const verdict =',
       ),
       "narrowed inline": now.replace(
-        "translatePdfProofVerdict(probe.passing,",
-        'translatePdfProofVerdict(probe.passing.concat(["th"]),',
+        "probe.passing,\n    summary.falseDrops",
+        'probe.passing.concat(["th"]),\n    summary.falseDrops',
       ),
       "own check beside the verdict": now.replace(
         "return verdict.exitCode;",

@@ -25,7 +25,7 @@ import {
 } from "@/lib/jobs/translate-pdf";
 
 export interface TranslatePdfProofVerdict {
-  /** 0 = proven; 1 = a required language not proven, or a false drop. */
+  /** 0 = proven; 1 = a required language not proven, a false drop, or a named other failure. */
   readonly exitCode: 0 | 1;
   /** Required languages the image did not prove, in gate order. */
   readonly notProven: readonly TranslateLanguage[];
@@ -33,9 +33,17 @@ export interface TranslatePdfProofVerdict {
   readonly lines: readonly string[];
 }
 
+/**
+ * `otherFailures` are the script's own non-language checks, each one line
+ * (2026-11-16, CJK slice: the ToUnicode rewrite cases and the vendored
+ * radical-glyph facts). Any entry fails the gate. They come in here, rather
+ * than as a separate `return 1` in the script, so the script keeps exactly
+ * one way to pass and the guard can still read that from its source.
+ */
 export function translatePdfProofVerdict(
   passing: readonly string[],
   falseDrops: number,
+  otherFailures: readonly string[] = [],
 ): TranslatePdfProofVerdict {
   const notProven = TRANSLATE_PDF_CI_REQUIRED.filter(
     (language) => !passing.includes(language),
@@ -45,6 +53,7 @@ export function translatePdfProofVerdict(
     lines.push(`FAIL — not proven: ${notProven.join(", ")}`);
   if (falseDrops > 0)
     lines.push(`FAIL — ${falseDrops} false drop(s) at delivery size`);
+  for (const failure of otherFailures) lines.push(`FAIL — ${failure}`);
   const exitCode = lines.length > 0 ? 1 : 0;
   if (exitCode === 0) lines.push("PASS");
   return { exitCode, notProven, lines };

@@ -10,6 +10,14 @@
  * reader skips check (a)) turned the Private Use Area control red — the
  * stub text reader reads the PUA sample back whole, so (a) is the only check
  * that can refuse it here.
+ *
+ * SUPERSEDED (2026-11-16, CJK in Type 3): (a) no longer refuses a Type 3 font
+ * for Japanese, so it is no longer what refuses the PUA. A PUA code point is
+ * drawn with its font's .notdef CharProc (Skia's `g0`), and (glyphs) refuses
+ * that: the ja PUA control now expects `glyphs`. Re-run the same day: making
+ * the `glyphsCarrySample(...)` condition always true turned that control red
+ * (`viewer_text` would still refuse it at the end, so the expected reason is
+ * pinned, not just the verdict).
  */
 import { PDFDocument } from "pdf-lib";
 import { afterEach, describe, expect, it } from "vitest";
@@ -23,6 +31,8 @@ import {
   fontsCarryScript,
   LANGUAGE_SAMPLES,
   laidOutRightToLeft,
+  PROBE_EXTRA,
+  probeJudgedText,
   probeTranslatePdfLanguages,
   provesTranslatePdfLanguages,
   rasterHasInk,
@@ -30,7 +40,12 @@ import {
   TranslatePdfProbeCorpusError,
 } from "./pdf-capability";
 import { renderTranslationPdf } from "./pdf-render";
-import { parseBboxWords, type PdfProbeReaders } from "./pdf-readers";
+import {
+  parseBboxWords,
+  type PdfProbeReaders,
+  type Type3Font,
+} from "./pdf-readers";
+import { radicalRewritesFor } from "./radical-equivalents";
 import { typesetText, type TypesetInput } from "./typeset";
 import {
   memoTranslatePdfLanguages,
@@ -46,13 +61,30 @@ async function blankPdf(): Promise<Uint8Array> {
   return doc.save();
 }
 
+const TYPE3_DRAWN =
+  /\p{Script=Han}|\p{Script=Hiragana}|\p{Script=Katakana}|\p{Script=Hangul}|\p{Co}/u;
+const STUB_NOTDEF = "0 0 0 0 1000 1000 d1 0 0 m 1000 0 l 1000 1000 l h f";
+const REGION: Partial<Record<TranslateLanguage, string>> = {
+  zh: "sc",
+  ja: "jp",
+  ko: "kr",
+};
+
 /**
  * A stand-in for Chromium + poppler that "prints" what it is given: the text
  * reader returns the document's own text, the font reader reports a Noto face
- * for every script — and a Type 3 face when the text holds a code point no
- * face draws (the PUA), which is what a real print of one looks like.
+ * for every non-CJK script — and Type 3 faces for CJK and the PUA, which is
+ * what a real print in the worker image looks like (2026-11-15: Skia prints
+ * CFF-only Noto CJK as Type 3). The Type 3 reader draws each CJK code point
+ * with its own vector glyph, and a PUA code point with the .notdef box.
  */
-function stubs(opts: { failRender?: TranslateLanguage; rtl?: boolean } = {}) {
+function stubs(
+  opts: {
+    failRender?: TranslateLanguage;
+    rtl?: boolean;
+    viewer?: "absent" | ((text: string) => string);
+  } = {},
+) {
   let last: TypesetInput | null = null;
   const chromium: ChromiumPackageRunner = {
     renderPackage: async () => [await blankPdf()],
@@ -68,38 +100,57 @@ function stubs(opts: { failRender?: TranslateLanguage; rtl?: boolean } = {}) {
     });
   };
   const text = () => (last ? typesetText(last) : "");
+  const cid = (name: string) => ({
+    name,
+    type: "CID TrueType",
+    embedded: true,
+    unicode: true,
+  });
+  const type3Drawn = () =>
+    [...new Set(text())].filter((c) => TYPE3_DRAWN.test(c));
   const readers: PdfProbeReaders = {
     fonts: async () => [
-      { name: "AAAAAA+NotoSans-Regular", type: "CID TrueType", embedded: true },
-      {
-        name: "BBBBBB+NotoSansArabic-Regular",
-        type: "CID TrueType",
-        embedded: true,
-      },
-      {
-        name: "CCCCCC+NotoSansBengali-Regular",
-        type: "CID TrueType",
-        embedded: true,
-      },
-      {
-        name: "DDDDDD+NotoSansDevanagari-Regular",
-        type: "CID TrueType",
-        embedded: true,
-      },
-      {
-        name: "EEEEEE+NotoSansThai-Regular",
-        type: "CID TrueType",
-        embedded: true,
-      },
-      {
-        name: "FFFFFF+NotoSansCJKjp-Regular",
-        type: "CID Type 0C",
-        embedded: true,
-      },
-      ...(text().includes(PUA)
-        ? [{ name: "[none]", type: "Type 3", embedded: true }]
+      cid("AAAAAA+NotoSans-Regular"),
+      cid("BBBBBB+NotoSansArabic-Regular"),
+      cid("CCCCCC+NotoSansBengali-Regular"),
+      cid("DDDDDD+NotoSansDevanagari-Regular"),
+      cid("EEEEEE+NotoSansThai-Regular"),
+      // HISTORY (2026-11-16): this stub listed a `CID Type 0C`
+      // NotoSansCJKjp row — a shape the worker image never produces (it
+      // prints Noto CJK as Type 3). Replaced by the real shape below.
+      ...(type3Drawn().length > 0
+        ? [{ name: "[none]", type: "Type 3", embedded: true, unicode: true }]
         : []),
     ],
+    type3: async (): Promise<Type3Font[]> => {
+      const drawn = type3Drawn();
+      if (drawn.length === 0) return [];
+      const region = (last && REGION[last.target]) ?? "jp";
+      return [
+        {
+          descriptorName: `NotoSansCJK${region}-Regular`,
+          hasToUnicode: true,
+          notdef: STUB_NOTDEF,
+          used: drawn.map((ch, i) => {
+            const cp = ch.codePointAt(0)!;
+            return {
+              code: i,
+              unicode: ch,
+              content: /\p{Co}/u.test(ch)
+                ? STUB_NOTDEF
+                : `0 0 0 0 1000 1000 d1 ${cp} 0 m ${cp} 1 l h f`,
+              vectorOnly: true,
+            };
+          }),
+        },
+      ];
+    },
+    ...(opts.viewer === "absent"
+      ? {}
+      : {
+          viewerText: async () =>
+            typeof opts.viewer === "function" ? opts.viewer(text()) : text(),
+        }),
     text: async () => text(),
     words: async () => {
       const words = (last?.parts[0]?.kind === "body" ? last.parts[0].text : "")
@@ -147,6 +198,23 @@ describe("the language proof", () => {
     ).rejects.toBeInstanceOf(TranslatePdfProbeCorpusError);
   });
 
+  it("health: the stub prints CJK the way the image does, as Type 3", async () => {
+    const { render, readers } = stubs();
+    await probeTranslatePdfLanguages({ render, readers, only: ["ja"] });
+    const rows = await readers.fonts(new Uint8Array());
+    expect(rows.some((r) => r.type === "Type 3")).toBe(true);
+    expect(
+      (await readers.type3(new Uint8Array()))[0]?.used.length,
+    ).toBeGreaterThan(5);
+  });
+
+  /**
+   * INVERTED 2026-11-16 (was `"fonts"`): (a) refused the PUA because the
+   * stub printed it as Type 3 and (a) refused every Type 3 font — a
+   * mechanism that could never pass Noto CJK in bookworm. Japanese now
+   * prints Type 3 legitimately, and the PUA is refused for what it IS: a
+   * code point drawn with the .notdef box, which (glyphs) sees.
+   */
   it("positive control: a sample in the Private Use Area fails its language", async () => {
     const { render, readers } = stubs();
     const probe = await probeTranslatePdfLanguages({
@@ -157,8 +225,70 @@ describe("the language proof", () => {
     });
     expect(probe.passing).toEqual(["en"]);
     expect(probe.results.find((r) => r.language === "ja")?.failed).toBe(
-      "fonts",
+      "glyphs",
     );
+  });
+
+  it("(e) no pdf.js reader: zh, ja and ko FAIL viewer_text, never skip it; en is unaffected", async () => {
+    const { render, readers } = stubs({ viewer: "absent" });
+    expect(readers.viewerText).toBeUndefined();
+    const probe = await probeTranslatePdfLanguages({
+      render,
+      readers,
+      only: ["zh", "ja", "ko", "en", "bn"],
+    });
+    expect(probe.passing).toEqual(["bn", "en"]);
+    for (const l of ["zh", "ja", "ko"])
+      expect(probe.results.find((r) => r.language === l)?.failed).toBe(
+        "viewer_text",
+      );
+  });
+
+  it("(e) a viewer that misses one judged code point fails viewer_text", async () => {
+    // What pdf.js read before the rewrite: the glyph shared with ⽂.
+    const { render, readers } = stubs({
+      viewer: (t) => t.replaceAll("文", "\u2F42"),
+    });
+    const probe = await probeTranslatePdfLanguages({
+      render,
+      readers,
+      only: ["ja", "ko"],
+    });
+    expect(probe.passing).toEqual(["ko"]);
+    expect(probe.results.find((r) => r.language === "ja")?.failed).toBe(
+      "viewer_text",
+    );
+  });
+
+  it("the judged string carries the extra: 文 for ja, 一 for zh", () => {
+    expect(probeJudgedText("ja", LANGUAGE_SAMPLES.ja)).toContain("文");
+    expect(probeJudgedText("zh", LANGUAGE_SAMPLES.zh)).toContain("一");
+    expect(probeJudgedText("en", LANGUAGE_SAMPLES.en)).toBe(
+      LANGUAGE_SAMPLES.en,
+    );
+    // The sample alone has no Kangxi-shared Han for ja: the extra is needed.
+    expect(LANGUAGE_SAMPLES.ja).not.toContain("文");
+  });
+
+  it("health: zh's and ja's judged text holds a code point the rewrite maps TO", () => {
+    // The MECHANISM only. The PROPERTY (pdf.js misreads it without the
+    // rewrite) is held by the composed-chain test in pdf-render.cjk.test.ts.
+    // The table is per face (review 2026-11-16): the faces fontconfig picks
+    // for zh and ja in the image, as the fixtures' Type 3 descriptors name.
+    const face = { zh: "NotoSansCJKsc-Regular", ja: "NotoSansCJKjp-Regular" };
+    for (const l of ["zh", "ja"] as const) {
+      const targets = new Set(
+        [...radicalRewritesFor(face[l]).values()].map((v) =>
+          String.fromCodePoint(v),
+        ),
+      );
+      expect(targets.size).toBeGreaterThan(200);
+      const judged = probeJudgedText(l, LANGUAGE_SAMPLES[l]);
+      expect([...judged].filter((c) => targets.has(c)).length).toBeGreaterThan(
+        0,
+      );
+      expect(PROBE_EXTRA[l]).toBeTruthy();
+    }
   });
 
   it("a job that delivered no PDF artifact fails that language", async () => {
@@ -213,6 +343,7 @@ describe("the independent checks", () => {
       name: "AAAAAA+NotoSansBengali-Regular",
       type: "CID TrueType",
       embedded: true,
+      unicode: true,
     };
     expect(fontsCarryScript([noto], "Bengali")).toBe(true);
     expect(fontsCarryScript([{ ...noto, embedded: false }], "Bengali")).toBe(
@@ -220,7 +351,7 @@ describe("the independent checks", () => {
     );
     expect(
       fontsCarryScript(
-        [noto, { name: "x", type: "Type 3", embedded: true }],
+        [noto, { name: "x", type: "Type 3", embedded: true, unicode: true }],
         "Bengali",
       ),
     ).toBe(false);
@@ -228,9 +359,59 @@ describe("the independent checks", () => {
     expect(fontsCarryScript([], "Latin")).toBe(false);
     expect(
       fontsCarryScript(
-        [{ name: "CCCCCC+DejaVuSans", type: "CID TrueType", embedded: true }],
+        [
+          {
+            name: "CCCCCC+DejaVuSans",
+            type: "CID TrueType",
+            embedded: true,
+            unicode: true,
+          },
+        ],
         "Arabic",
       ),
+    ).toBe(false);
+  });
+
+  it("(a) refuses a font without ToUnicode, for every script", () => {
+    const row = {
+      name: "AAAAAA+NotoSansBengali-Regular",
+      type: "CID TrueType",
+      embedded: true,
+      unicode: false,
+    };
+    expect(fontsCarryScript([row], "Bengali")).toBe(false);
+    expect(fontsCarryScript([{ ...row, unicode: true }], "Bengali")).toBe(true);
+  });
+
+  /**
+   * NEW 2026-11-16, beside the Bengali Type 3 refusal above (the surviving
+   * non-CJK half of the old rule): Han, Kana and Hangul accept Type 3 at (a)
+   * and leave the face's identity to (glyphs). Every other script still
+   * refuses it.
+   */
+  it("(a) accepts Type 3 for Han, Kana and Hangul only", () => {
+    const rows = [
+      {
+        name: "BAAAAA+NotoSans-Regular",
+        type: "CID TrueType",
+        embedded: true,
+        unicode: true,
+      },
+      { name: "[none]", type: "Type 3", embedded: true, unicode: true },
+    ];
+    for (const s of ["Han", "Kana", "Hangul"] as const)
+      expect(fontsCarryScript(rows, s)).toBe(true);
+    for (const s of [
+      "Latin",
+      "Cyrillic",
+      "Arabic",
+      "Bengali",
+      "Devanagari",
+      "Thai",
+    ] as const)
+      expect(fontsCarryScript(rows, s)).toBe(false);
+    expect(
+      fontsCarryScript([rows[0]!, { ...rows[1]!, unicode: false }], "Han"),
     ).toBe(false);
   });
 

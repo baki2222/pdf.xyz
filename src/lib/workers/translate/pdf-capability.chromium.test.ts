@@ -14,7 +14,11 @@
  *     not a rate. It records render time and size beside the bound they are
  *     held to (`TRANSLATE_PDF_RENDER_TIMEOUT_MS`).
  *  2. "the language proof" also needs `pdffonts`: the start-up proof itself,
- *     for en, bn, ja and ar, plus the Private Use Area control.
+ *     for en, bn, ja and ar, plus the Private Use Area control. A desktop
+ *     Chromium prints CJK with TrueType system faces, never the Type 3 fonts
+ *     the worker image prints (2026-11-16), so the CJK Type 3 path is proven
+ *     only by `pdf-glyphs.test.ts` (real image fixtures) and the prod-image
+ *     proof — not here.
  *
  * MEASURED 2026-11-15 on the development machine (Windows 11, Playwright's
  * chrome-headless-shell 1234, xpdf 4.00 pdftotext with `-enc UTF-8`, Windows
@@ -127,6 +131,9 @@ describe.skipIf(!BIN || !readBack || !readers)(
         only: ["ja"],
       });
       expect(probe.passing).toEqual([]);
+      // Print WHY: on the worker image a PUA glyph is a Type 3 .notdef box
+      // (`glyphs`); a desktop with TrueType CJK faces may refuse it earlier.
+      console.log(`PUA control failed: ${probe.results[0]?.failed}`);
     });
   },
 );
