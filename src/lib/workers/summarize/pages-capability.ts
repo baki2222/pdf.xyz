@@ -61,10 +61,8 @@
 import JSZip from "jszip";
 import { PDFDocument } from "pdf-lib";
 import { sanitizeJobResults } from "@/lib/jobs/results";
-import {
-  NO_TEXT_IN_CHOSEN_PAGES_MESSAGE,
-  pagesOutOfRangeMessage,
-} from "@/lib/jobs/summarize-pages";
+import { NO_TEXT_IN_CHOSEN_PAGES_MESSAGE } from "@/lib/jobs/chosen-pages-no-text";
+import { pagesOutOfRangeMessage } from "@/lib/jobs/summarize-pages";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 import type { AiCompletionRequest, AiProvider } from "../ai/provider";
