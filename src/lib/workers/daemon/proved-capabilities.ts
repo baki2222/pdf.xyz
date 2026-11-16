@@ -54,6 +54,7 @@ import {
 import { provesTranslateOcr } from "@/lib/workers/translate/ocr-capability";
 import { provesTranslateReadingOrder } from "@/lib/workers/translate/reading-order-capability";
 import { provesTranslatePageMap } from "@/lib/workers/translate/page-map-capability";
+import { provesTranslatePageRange } from "@/lib/workers/translate/page-range-capability";
 import { provesHtmlZip } from "@/lib/workers/html-render/zip-capability";
 import { provesChatRetrieval } from "@/lib/workers/chat-with-pdf/retrieval-capability";
 import { provesSummarizePages } from "@/lib/workers/summarize/pages-capability";
@@ -168,6 +169,14 @@ export const PROVED_CAPABILITIES = defineProvers({
   // markers gets "Page N" headings, one that drops them gets the range.
   translatePageMap: {
     prove: (env) => provesTranslatePageMap(env),
+    parse: bool,
+  },
+  // Competitor audit #29 slice 6: Translate sends only the chosen pages.
+  // CONTRACT STEP: `provesTranslatePageRange` answers false on every image
+  // until its proof is written (see its header), which can only refuse a
+  // page choice, never license one.
+  translatePageRange: {
+    prove: (env) => provesTranslatePageRange(env),
     parse: bool,
   },
 });

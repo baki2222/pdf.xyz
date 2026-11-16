@@ -22,9 +22,11 @@ import {
   runningWorkerRendersHtmlZip,
   runningWorkerEnforcesAiReadCap,
   runningWorkerSummarizesPages,
+  runningWorkerTranslatesPageRanges,
   runningWorkerTranslatesScans,
 } from "@/lib/workers/heartbeat";
 import { SUMMARIZE_PAGES_NOT_RUNNING_MESSAGE } from "@/lib/jobs/summarize-pages";
+import { TRANSLATE_PAGES_NOT_RUNNING_MESSAGE } from "@/lib/jobs/translate-pages";
 import { translateAsksForOcr } from "@/lib/jobs/translate-pdf";
 import {
   HTML_ZIP_ENTRY_OPTION,
@@ -176,6 +178,28 @@ export async function POST(request: Request): Promise<Response> {
   )
     return respond(
       apiError("not_implemented", SUMMARIZE_PAGES_NOT_RUNNING_MESSAGE),
+    );
+
+  // A TRANSLATE JOB NAMING PAGES IS ADMITTED ONLY WHEN THE RUNNING WORKER
+  // TRANSLATES ONLY THOSE PAGES (competitor audit #29, slice 6) — the same
+  // predicate the page's offer uses (`liveWorkerTranslatesPageRanges`). The
+  // property is that the running image applies the selection by physical
+  // page number BEFORE the reading-order gate, the planner and the delivery
+  // cap. An image built before the feature parses options leniently: it
+  // DROPS `pages`, translates the WHOLE document under a delivery cap sized
+  // for the selection, and withholds most of it behind a notice about the
+  // document. Refused here, BEFORE the ceiling peek and the allowance
+  // reservation below, so a refusal charges nothing — the message says so,
+  // and `translate-page-range.route.test.ts` pins the order. Its order
+  // against the OCR admission above is immaterial: `pages` with `ocr` never
+  // gets this far (`parseTranslateOptions` refuses the pair).
+  if (
+    parsed.value.tool === "translate-pdf" &&
+    parsed.value.options?.pages !== undefined &&
+    !(await runningWorkerTranslatesPageRanges())
+  )
+    return respond(
+      apiError("not_implemented", TRANSLATE_PAGES_NOT_RUNNING_MESSAGE),
     );
 
   /**

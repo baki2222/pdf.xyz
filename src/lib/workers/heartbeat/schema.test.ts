@@ -40,6 +40,7 @@ const CAPS: HeartbeatCapabilities = {
   translatePdfLanguages: [],
   translateReadingOrder: true,
   translatePageMap: true,
+  translatePageRange: true,
 };
 
 describe("coarseRelease", () => {
@@ -114,6 +115,7 @@ describe("buildHeartbeat / serialize / parse", () => {
       translatePdfLanguages: [],
       translateReadingOrder: false,
       translatePageMap: false,
+      translatePageRange: false,
     });
     expect(JSON.stringify(hb)).not.toContain("evil.example.com");
     expect(JSON.stringify(hb)).not.toContain("secretEndpoint");
@@ -272,6 +274,7 @@ describe("buildHeartbeat / serialize / parse", () => {
         translatePdfLanguages: [],
         translateReadingOrder: false,
         translatePageMap: false,
+        translatePageRange: false,
       },
       at: 1234,
     });

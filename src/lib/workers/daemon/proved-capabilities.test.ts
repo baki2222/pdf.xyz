@@ -419,3 +419,36 @@ describe("the summarizePages entry is a proof, not a constant", () => {
     );
   });
 });
+
+describe("the translatePageRange entry publishes false until its proof exists", () => {
+  /**
+   * Contract step of competitor audit #29 slice 6: the key reaches the wire
+   * (types, schema, status, admission) before its start-up proof is written
+   * in `translate/page-range-capability.ts`, so it must publish the one value
+   * that cannot license a page choice. The proof's commit INVERTS this block
+   * (as "the summarizePages entry is a proof, not a constant" above), it does
+   * not delete it.
+   */
+  it("proves false on any env", async () => {
+    expect(await PROVED_CAPABILITIES.translatePageRange.prove({})).toBe(false);
+  });
+
+  it("is the call to provesTranslatePageRange, imported from page-range-capability", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "src/lib/workers/daemon/proved-capabilities.ts"),
+      "utf8",
+    );
+    expect(source).toMatch(
+      /^import \{ provesTranslatePageRange \} from "@\/lib\/workers\/translate\/page-range-capability";$/m,
+    );
+    const entry =
+      /^ {2}translatePageRange: \{([\s\S]*?)\},?$/m.exec(source)?.[1] ?? "";
+    expect(
+      entry,
+      "no translatePageRange entry in PROVED_CAPABILITIES",
+    ).not.toBe("");
+    expect(entry).toMatch(
+      /prove: \(env\) => provesTranslatePageRange\(env\),\s*parse: bool/,
+    );
+  });
+});

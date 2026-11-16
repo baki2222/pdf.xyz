@@ -49,6 +49,7 @@ const BEAT: WorkerHeartbeat = {
     translatePdfLanguages: [],
     translateReadingOrder: true,
     translatePageMap: true,
+    translatePageRange: true,
   },
   at: 1_700_000_000_000,
 };

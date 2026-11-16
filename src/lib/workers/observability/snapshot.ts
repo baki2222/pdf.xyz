@@ -406,6 +406,15 @@ const WORKER_CAPABILITY_PROMISES: Record<
       "nothing yet about Translate PDF's page headings: no page says the translated PDF heads each page of the original, and no sentence rests on this proof until that changes",
     proves: provenByFlag,
   },
+  translatePageRange: {
+    label: "page ranges in Translate",
+    promise:
+      // Added 2026-11-16 (competitor audit #29, slice 6). Positive, like
+      // `summarizePages`'s: the Translate panel offers a page choice, and the
+      // job API admits one, only while this reads true on a fresh heartbeat.
+      "Translate PDF sends only the pages the reader chose to the AI model, charges only their text and names those pages in the PDF, the ZIP and the panel, instead of translating the whole document",
+    proves: provenByFlag,
+  },
 };
 
 /** One capability the subsystem asks the running worker about. */
