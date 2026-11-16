@@ -13,7 +13,8 @@ import {
  * build: the page never scrolls sideways at 375 px (the narrowest phone the
  * layout is drawn for) or at 640 px (where `sm:` starts and text wraps most),
  * every row's anchor exists and a link to one lands on it, each row's link
- * opens its tool with its own size, and the table moves nothing as the page
+ * opens its tool with its own size and sits outside the row header, and the
+ * table moves nothing as the page
  * loads. The rows are the same lists the catalogue builds them from
  * (`size-table.test.ts` holds the catalogue to them).
  */
@@ -73,6 +74,10 @@ for (const width of [375, 640]) {
           "href",
           `/tools/${guide.tool}?${SIZE_PARAM}=${spelling}`,
         );
+        // The row header is what a screen reader repeats for every cell in
+        // the row: the size and its bytes, never the link.
+        await expect(row.locator("th")).toHaveCount(1);
+        await expect(row.locator("th a")).toHaveCount(0);
       }
       const cls = await page.evaluate(
         () => (window as unknown as { __cls: number }).__cls,

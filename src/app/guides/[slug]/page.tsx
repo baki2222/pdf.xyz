@@ -82,7 +82,9 @@ const PROSE = "text-fg max-w-[33em] text-base leading-7";
 
 /**
  * A size guide's table (audit #2): one row per size, each with its own
- * anchor and a link that opens the tool with that size set. Styled with
+ * anchor and a link that opens the tool with that size set. The row header
+ * holds only the size and its bytes, which a screen reader repeats for every
+ * cell; the link sits in "How to choose it", as one way to choose. Styled with
  * class names the stylesheet already ships, plus inline styles, so the page
  * adds nothing to the shared CSS.
  */
@@ -123,15 +125,15 @@ function SizeTable({ table }: { table: GuideSizeTable }) {
                 <span className="text-muted block text-xs">
                   {row.bytes.toLocaleString("en-US")} bytes at most
                 </span>
+              </th>
+              <td className="py-2 pr-3" style={CELL}>
+                {row.choose}
                 <Link
                   href={row.href}
                   className="text-accent mt-1 block font-medium underline underline-offset-2"
                 >
                   {row.linkText}
                 </Link>
-              </th>
-              <td className="py-2 pr-3" style={CELL}>
-                {row.choose}
               </td>
               <td className="py-2 pr-3" style={CELL}>
                 {row.portal}
