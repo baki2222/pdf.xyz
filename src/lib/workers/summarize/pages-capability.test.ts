@@ -13,6 +13,13 @@
  *   - an extractor that numbers TEXT-BEARING pages by position (m3's shape:
  *     the blank page dropped, so page 3's text arrives as page 2);
  *   - an extractor that throws;
+ *   - an engine whose out-of-range check is gone (a registry seam whose
+ *     extractor reports as many pages as the job names, so
+ *     `firstSpanBeyond` finds nothing past the end): [[5,5]] then selects no
+ *     page and is refused as the chosen-pages no-text refusal, with the same
+ *     code, retry flag and zero calls, so only (3)'s refusal-kind check can
+ *     see it (before that check the proof passed this image; found building
+ *     Translate's page range, #347);
  *   - a recorder that records NOTHING: (1)'s "did not see ALPHA/DELTA" is an
  *     absence and vacuously true of it, so (1)'s "saw GAMMA" and (2) must be
  *     what turns it false — and a COPY of the probe without those two checks
@@ -111,6 +118,37 @@ const ignoringPages: typeof createProcessorRegistry = (deps) => {
   return registry;
 };
 
+/**
+ * An engine that never finds a span past the end: each summarize job's
+ * extractor reports at least as many pages as the job's `pages` name, so the
+ * engine's `firstSpanBeyond` returns nothing and the selection proceeds
+ * (selecting no page for [[5,5]]). The page entries are unchanged.
+ */
+const skipsRangeCheck: typeof createProcessorRegistry = (deps = {}) => {
+  const summarize = createProcessorRegistry(deps).resolve("summarize-pdf")!;
+  const registry = new ProcessorRegistry();
+  registry.register({
+    ...summarize,
+    process: (input) => {
+      const spans =
+        (input.options as { pages?: [number, number][] }).pages ?? [];
+      const named = Math.max(0, ...spans.map(([, last]) => last));
+      const own = deps.summarize!.extract!;
+      const hidesTheEnd: PdfTextExtractor = async (bytes) => {
+        const read = await own(bytes);
+        return { ...read, pageCount: Math.max(read.pageCount, named) };
+      };
+      return createProcessorRegistry({
+        ...deps,
+        summarize: { ...deps.summarize, extract: hidesTheEnd },
+      })
+        .resolve("summarize-pdf")!
+        .process(input);
+    },
+  });
+  return registry;
+};
+
 /** Answers every request normally and records none of them. */
 const nullRecorder = (): AiProvider => ({
   id: "openai",
@@ -161,6 +199,26 @@ describe("provesSummarizePages", () => {
     expect(failures(result.lines).some((l) => l.startsWith("FAIL (1)"))).toBe(
       true,
     );
+  });
+
+  it("FALSE for an engine without its out-of-range check, at (3)'s refusal-kind check alone", async () => {
+    const result = await runSummarizePagesProof(ENV, {
+      extract: pdfLibPageText,
+      build: skipsRangeCheck,
+    });
+    expect(result.ok).toBe(false);
+    // Exactly the kind check: code, retry flag and zero calls all still
+    // hold, which is why the step needed it.
+    expect(failures(result.lines)).toEqual([
+      "FAIL (3) pages [[5,5]] is the out-of-range refusal, told apart from the chosen-pages no-text refusal (chosen-pages no_text)",
+    ]);
+    expect(
+      result.lines.some((l) =>
+        /^PASS \(3\) pages \[\[5,5\]\] fails as unprocessable_entity \(retryable false\) with 0 provider calls/.test(
+          l,
+        ),
+      ),
+    ).toBe(true);
   });
 
   it("FALSE for page numbers that are chunk positions (m3), at the health step", async () => {

@@ -2688,7 +2688,7 @@
     },
     "guides/how-to-convert-markdown-to-pdf.html": {
       "title": "How to convert Markdown to PDF — pdf.xyz",
-      "description": "Paste Markdown or pick a .md file and get a typeset PDF — headings, lists, quotes and code — made in your browser, so nothing leaves your device.",
+      "description": "Paste Markdown or pick a .md file and get a typeset PDF — headings, lists, quotes, code and tables — made in your browser, so nothing leaves your device.",
       "canonical": "https://pdf.xyz/guides/how-to-convert-markdown-to-pdf",
       "robots": "index, follow",
       "h1": ["How to convert Markdown to PDF"],
@@ -12257,7 +12257,7 @@
     },
     "tools/markdown-to-pdf.html": {
       "title": "Markdown to PDF — Convert .md Files, No Upload — pdf.xyz",
-      "description": "Turn a .md file or pasted Markdown into a clean PDF with headings, lists, quotes and code blocks — typeset in your browser, never uploaded.",
+      "description": "Turn a .md file or pasted Markdown into a clean PDF with headings, lists, quotes, code, tables and web links — typeset in your browser, never uploaded.",
       "canonical": "https://pdf.xyz/tools/markdown-to-pdf",
       "robots": "index, follow",
       "h1": ["Markdown to PDF"],
