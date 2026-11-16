@@ -1,7 +1,8 @@
 /**
  * The COMPOSED chain for Translate's chosen pages (competitor audit #29,
  * slice 6), each hop the shipped function, over ONE real PDF: the harness
- * `translate-page-range.chain.test.ts` and `.property.test.ts` both drive.
+ * `translate-page-range.chain.test.ts` and
+ * `translate-page-range.property.test.ts` both drive.
  *
  *   1. the panel's lazy measure (`judgeTranslatePages`) over the panel's one
  *      extraction, then the panel's preflight of the selection;

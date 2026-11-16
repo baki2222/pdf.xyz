@@ -232,6 +232,17 @@ export function copyFiles(): string[] {
       "summarize",
       "pages-capability.ts",
     ),
+    // The Translate page-range proof (2026-11-16, audit #29 slice 6): its
+    // check lines and the selection sentence it expects are printed by the
+    // in-image proof step.
+    path.join(
+      ROOT,
+      "src",
+      "lib",
+      "workers",
+      "translate",
+      "page-range-capability.ts",
+    ),
     // The PDF to Office exports' OCR switch hints, per tool (2026-11-08,
     // audit pdf-to-excel#2), drawn by the export panel.
     path.join(ROOT, "src", "lib", "jobs", "office-export-ocr.ts"),
