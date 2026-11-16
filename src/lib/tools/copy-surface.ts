@@ -181,6 +181,11 @@ export function copyFiles(): string[] {
     // Summarize's refusals before upload (2026-11-16, slice 5): a locked,
     // unreadable or text-less PDF, and chosen pages the PDF cannot give.
     path.join(ROOT, "src", "lib", "workers", "summarize-measure.ts"),
+    // Summarize's selection sentence, "This summary covers pages 3–5 of 40,
+    // the pages you chose." (2026-11-16, slice 5): moved out of the
+    // truncation module on review so the AI panels' shared chunk does not
+    // carry it. Walked from its first file, as a new phrase module must be.
+    path.join(ROOT, "src", "lib", "workers", "ai", "selection-notice.ts"),
     // The pdf.js board's page limit as the reader:'pdfjs' tool pages state it
     // (2026-11-10), beside the constant the guard enforces.
     path.join(ROOT, "src", "lib", "pdf", "pdfjs-board-limit.ts"),
