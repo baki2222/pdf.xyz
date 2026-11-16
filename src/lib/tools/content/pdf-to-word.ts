@@ -19,6 +19,10 @@ import {
   modeUploadsFiles,
 } from "@/lib/tools/processing-split";
 import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
+import {
+  PDF_TO_WORD_TABLES_QUESTION,
+  PDF_TO_WORD_WRAPS,
+} from "@/lib/tools/tool-facts";
 
 /*
  * Behaviour claims below were read from the implementation on 2026-09-27,
@@ -204,6 +208,51 @@ import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
  *    per paragraph / as lines of text", which already took in every table
  *    whose cells do not each fit one line, so the two clauses disagreed;
  *    the wrapped-table clause now comes first and "other tables" after it.
+ *  - CHANGED 2026-11-16 (#28 slice 3, wraps; PR-2, the DEFINITE sentence):
+ *    `docxTableWraps` was read true in production and a real invoice went
+ *    through the live page (`.claude/prove-word-wraps.ts`): ONE Word table
+ *    of 5 rows, each wrapped description one paragraph in its own row's
+ *    cell, amounts in their column, every word present. The interim
+ *    sentence above ("may come through as one Word table, each wrapped cell
+ *    kept in its row, or as a smaller table and lines of text, or as lines
+ *    of text alone") offered the kept row as one outcome in three, and is
+ *    now a DENIAL in claims-vs-capability.test.ts. The definite sentence
+ *    says a wrapped cell stays in its row and names every stated limit of
+ *    flow.ts rule 7 in the same sentence: the first column (the wrap ends
+ *    the table), a column of figures (only a heading's wrap), a wrapped
+ *    line read apart from its cell, as on an OCR'd page (kept only when set
+ *    closer than the rows, `WRAP_TIGHT_PITCHES`), a short line that close,
+ *    such as a note, which MAY be taken in, two cells wrapping on the same
+ *    line (a row of their own), a lone figure (outside the table), and the
+ *    share cap. It is a static string about a live capability:
+ *    a worker rolled back to an image without `docxTableWraps` makes it
+ *    false, so such a rollback reverts this copy in the same change.
+ *    Review 2026-11-16 (two majors, each measured on the image capture):
+ *    the sentence first said nothing of a heading whose first line sits
+ *    above the rest of its row (flow.ts: "a header line ABOVE the first row
+ *    is not a continuation"), while "only a heading's wrap is kept" told
+ *    the reader a heading's wrap is kept; S7 bottom-aligned prints the row
+ *    as "Term | constant maturities | Spread | Volume" and "Treasury" as a
+ *    paragraph after the table. And its share-cap clause said only "keeps
+ *    none of them in their rows", which reads as if the table survives; S4
+ *    (every row wraps) prints no Word table for it, its codes, descriptions,
+ *    quantities and prices each as lines of text, column by column. Both
+ *    limits are now named, each with its own overclaim shape.
+ *  - CHANGED 2026-11-16 (plain-copy ruling: public copy reads plainly, not
+ *    like developer notes). The definite sentence above, one 130-word
+ *    sentence naming nine limits, was served in intro[1], the tables FAQ
+ *    and PDF_TO_WORD_KEEPS. The tables FAQ answer now carries the limits as
+ *    four plain sentences (a definite lead ending "except in the layouts
+ *    below", then the first column, a column of figures, a heading set
+ *    above its row and two cells wrapping onto one line; a line read apart
+ *    from its cell, as after OCR, and a tight note; a lone figure and the
+ *    share cap), and the same-page condition moved into the lead. intro[1]
+ *    and PDF_TO_WORD_KEEPS serve `PDF_TO_WORD_WRAPS` (tool-facts.ts): one
+ *    definite sentence that points to that FAQ entry by its question,
+ *    `PDF_TO_WORD_TABLES_QUESTION`, read by the entry itself. No limit was
+ *    dropped: claims-vs-capability.test.ts reads the short sentence's limits
+ *    from the FAQ list it names, and goes red when the list loses one or
+ *    the question it names is not on the page.
  *  - CHANGED 2026-10-24: the panel draws a “Recognise text in scans (OCR)”
  *    checkbox (WORD_OCR_LABEL) and, when on, OCR PDF's language picker
  *    (ocr-language-picker.tsx). The job then carries `{ ocr: true,
@@ -265,7 +314,7 @@ const content: ToolContent = {
 
   intro: [
     `PDF to Word lifts the text you could highlight in a PDF, and the photos, screenshots and scans on its pages, into a .docx file that opens and edits in Word. It is not a page replica: lines the PDF wrapped are joined back into paragraphs, each picture sits on a line of its own between the paragraphs printed above and below it, and each PDF page with text or a picture starts on a new Word page. The Word page is the size of the PDF's first page, or A4 upright when that page is landscape, such as a slide (scaled to fit, its shape kept, when it is larger than Word allows), and a picture wider or taller than the page's text area is scaled down to fit. Each word keeps its bold, italics, text size and colour wherever our reader matches it to the PDF's text, so a bold word inside a sentence stays bold. A word it matches is also set in a font that comes with Windows or Office, when our reader can tell which: the PDF's own font when it is one of those, such as Arial or Georgia, the one a free look-alike such as Liberation Sans or Carlito was drawn to match, and otherwise Arial, Times New Roman or Courier New, a substitute of the same kind as the PDF's font (sans-serif, serif or monospaced), judged by the font's name or by how the PDF marks it. A word whose font shows neither keeps Word's default font. The PDF's font files are not copied into the document. Words in other alphabets, such as Greek, Bengali or Chinese, and symbols carry no font name, so Word picks one, and text recognised by OCR comes through in Word's default style. Drawings made of lines and shapes are not carried across.`,
-    `The extractor follows the page's reading order: a page set in two columns is read one column at a time. A table whose cells each fit on one line, with at least three rows and a column of figures such as amounts, quantities or dates, comes through as a Word table, each value in the column it sits under and an empty cell left empty; a table whose cells wrap onto further lines may come through as one Word table, each wrapped cell kept in its row, or as a smaller table and lines of text, or as lines of text alone, and other tables come through one row per paragraph, their cells separated by tabs. If no page has selectable text, as with a scan that was never OCR'd, the job stops rather than hand you a document of page pictures with nothing in it to edit. Tick “${WORD_OCR_LABEL}” before exporting and our server runs OCR on the file first, in the languages you pick, and converts the result in the same job.`,
+    `The extractor follows the page's reading order: a page set in two columns is read one column at a time. A table whose cells each fit on one line, with at least three rows and a column of figures such as amounts, quantities or dates, comes through as a Word table, each value in the column it sits under and an empty cell left empty. ${PDF_TO_WORD_WRAPS} Other tables come through one row per paragraph, their cells separated by tabs. If no page has selectable text, as with a scan that was never OCR'd, the job stops rather than hand you a document of page pictures with nothing in it to edit. Tick “${WORD_OCR_LABEL}” before exporting and our server runs OCR on the file first, in the languages you pick, and converts the result in the same job.`,
     `Conversion happens on a server, not in your browser. Your PDF travels over TLS to pdf.xyz's secure server, where poppler's pdftotext reads the text layer and pdf.js finds each picture and where the page shows it. Our server deletes the uploaded PDF when the job finishes; the DOCX link expires after ${OUTPUT_TTL} minutes, and a daily storage rule then erases the stored copy. Each PDF is a job of its own, and uploads above ${CEILING_MB} MB are refused.`,
   ],
 
@@ -327,8 +376,8 @@ const content: ToolContent = {
       a: `A scan has no selectable text, only a picture of its words. In a PDF that also has typed pages, a scanned page comes through as that picture, on its own Word page, with no editable words, and beside the download the panel says how many pages had text and names the ones that came through only as pictures (up to ${MAX_LISTED_PAGES}, then a count of the rest). If no page has any selectable text, the job is turned away instead, since a document of page pictures would have nothing in it to edit; lettering converted to vector outlines has the same effect. Tick “${WORD_OCR_LABEL}” to have the words as text: our server runs OCR first, keeping pages that already have text as they are, and converts its result. OCR in the wrong language does not fail, it produces plausible-looking gibberish, so choose every language printed on the page. With the switch on, three of OCR PDF's boxes sit beside it: “Turn pages upright” for sideways or upside-down scanned pages, “Straighten crooked pages” for pages scanned at a slight angle, and “Redo existing OCR” for a PDF whose earlier OCR text is poor, to have those pages read again; Straighten and Redo cannot be ticked together. ${REDO_OCR_SCOPE} ${RTL_WORD_SENTENCE}`,
     },
     {
-      q: "How are tables and multi-column pages handled?",
-      a: "In reading order. A page set in two columns is read one column at a time. A table comes through as a Word table when each of its cells fits on one line, it has at least three rows, and one of its columns holds figures such as amounts, quantities or dates: each value stays in the column it sits under, an empty cell stays empty, and the words keep their formatting. Where one heading spans two columns, the values under it can share a cell, separated by a tab. Thin grey borders are added, since the PDF's own lines and shading are not read. A table we are less sure of comes through one row per paragraph with its cells separated by tabs instead: one with no column of figures, one with a column of sentences beside it, one whose heading does not sit over its values, one of more than 63 columns (Word's limit) or more than 10,000 cells, the tables of a page past its first 20,000 cells (empty ones counted), and every table of a document that would otherwise be too large to deliver, which the note beside the download then says. A table that continues onto the next page is not joined into one: each page's part is judged on its own, so a part of one or two rows comes through as lines of text. A table whose cells wrap onto further lines may come through as one Word table, each wrapped cell kept in its row, or as a smaller table and lines of text, or as lines of text alone. For a spreadsheet, use PDF to Excel or Extract Tables; for plain words with no upload at all, PDF to Text runs in your browser.",
+      q: PDF_TO_WORD_TABLES_QUESTION,
+      a: "In reading order. A page set in two columns is read one column at a time. A table comes through as a Word table when each of its cells fits on one line, it has at least three rows, and one of its columns holds figures such as amounts, quantities or dates: each value stays in the column it sits under, an empty cell stays empty, and the words keep their formatting. Where one heading spans two columns, the values under it can share a cell, separated by a tab. Thin grey borders are added, since the PDF's own lines and shading are not read. A table we are less sure of comes through one row per paragraph with its cells separated by tabs instead: one with no column of figures, one with a column of sentences beside it, one whose heading does not sit over its values, one of more than 63 columns (Word's limit) or more than 10,000 cells, the tables of a page past its first 20,000 cells (empty ones counted), and every table of a document that would otherwise be too large to deliver, which the note beside the download then says. A table that continues onto the next page is not joined into one: each page's part is judged on its own, so a part of one or two rows comes through as lines of text. A cell whose text wraps onto further lines on the same page stays in its row as one paragraph, except in the layouts below. A wrap in a table's first column ends the table; under a column of figures, only a heading's wrap is kept; a heading whose first line sits above the rest of its row has that line come through outside the table; and two cells that wrap onto the same line become a row of their own. When our reader finds a wrapped line apart from its cell, as on a page read by OCR, it keeps the line only if it sits closer under its row than the rows sit to each other, and a short line that close, such as a note, may be taken into the cell. A figure on a line of its own under a table stays outside it, and a table with more wrapped lines than rows is not kept as one table: its cells come through as lines of text, often read column by column, and only the rows that do not wrap may still form a smaller table. For a spreadsheet, use PDF to Excel or Extract Tables; for plain words with no upload at all, PDF to Text runs in your browser.",
     },
     {
       q: "Can I turn a PDF that has an open password into Word?",
