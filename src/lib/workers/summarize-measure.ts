@@ -30,7 +30,8 @@ import {
   pageSpansFromIndices,
 } from "@/lib/jobs/page-spans-option";
 import type { selectExtraction } from "@/lib/pdf/page-selection";
-import { formatSpans, type PageSpan } from "@/lib/pdf/page-spans";
+import { pagesOutOfRangeSentence } from "@/lib/jobs/summarize-pages";
+import type { PageSpan } from "@/lib/pdf/page-spans";
 import { PageRangeError, parsePageList } from "@/lib/pdf/ranges";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 
@@ -145,9 +146,7 @@ export function judgeSummarizeRun(
       first > last ||
       last > pageCount
     )
-      return pagesRefusal(
-        `This PDF has ${pageCount} ${pageCount === 1 ? "page" : "pages"}, so pages ${formatSpans([choice.span])} cannot be summarized.`,
-      );
+      return pagesRefusal(pagesOutOfRangeSentence(pageCount, choice.span));
     spans = [[first, last]];
   }
 

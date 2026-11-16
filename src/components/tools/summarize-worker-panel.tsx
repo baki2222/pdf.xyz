@@ -32,7 +32,7 @@ import {
 } from "@/lib/workers/summarize-client";
 import { SUMMARIZE_PAGES_UNCONFIRMED_MESSAGE } from "@/lib/jobs/summarize-pages";
 import { selectionConfirmed } from "@/lib/jobs/selection-echo";
-import type { PageSpan } from "@/lib/pdf/page-spans";
+import { pagesPhrase, type PageSpan } from "@/lib/pdf/page-spans";
 import type { SummarySection } from "@/lib/pdf/summary-sections";
 import { userSelectionNotice } from "@/lib/workers/ai/truncation";
 import type { Job } from "@/lib/jobs/types";
@@ -377,7 +377,7 @@ function SummaryBuilder({ tool, refuse }: { tool: Tool; refuse: PickRefusal }) {
               <option value={WHOLE}>Whole document</option>
               {sectionList.map((section, i) => (
                 <option key={`${i}-${section.span[0]}`} value={`s${i}`}>
-                  {`${section.title} (${spanLabel(section.span)})`}
+                  {`${section.title} (${pagesPhrase([section.span])})`}
                 </option>
               ))}
               <option value={PAGES}>Pages…</option>
@@ -486,11 +486,6 @@ function SummaryBuilder({ tool, refuse }: { tool: Tool; refuse: PickRefusal }) {
       )}
     </div>
   );
-}
-
-/** "page 4" or "pages 3–7", for a section's option label. */
-function spanLabel([first, last]: PageSpan): string {
-  return first === last ? `page ${first}` : `pages ${first}–${last}`;
 }
 
 /**

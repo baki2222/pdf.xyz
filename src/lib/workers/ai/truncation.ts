@@ -43,6 +43,8 @@ import type { AiWindowMeta } from "@/lib/jobs/ai-results";
 import {
   formatPageSpans,
   formatSpans,
+  pagesIn,
+  pagesPhrase,
   type PageSpan,
 } from "@/lib/pdf/page-spans";
 
@@ -394,24 +396,6 @@ function chosenSpans(window: TruncationWindow): readonly PageSpan[] | null {
   if (window.selection !== undefined) return null;
   const spans = window.pagesSent;
   return spans && spans.length > 0 ? spans : null;
-}
-
-/** How many pages `spans` cover. */
-const pagesIn = (spans: readonly PageSpan[]): number =>
-  spans.reduce((sum, [first, last]) => sum + last - first + 1, 0);
-
-/**
- * "page 4", "pages 3–5 and 9", "pages 1, 3 and 5–6": each span in
- * `formatSpans`'s own words (one author for "3–5"), joined with a final
- * "and" for a reader, singular for exactly one page.
- */
-function pagesPhrase(spans: readonly PageSpan[]): string {
-  const parts = spans.map((span) => formatSpans([span]));
-  const list =
-    parts.length === 1
-      ? parts[0]!
-      : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]!}`;
-  return `${pagesIn(spans) === 1 ? "page" : "pages"} ${list}`;
 }
 
 /**

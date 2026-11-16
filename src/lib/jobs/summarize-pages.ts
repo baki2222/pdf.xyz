@@ -7,7 +7,7 @@
  * which the truncation notice already ships to that page.
  */
 
-import { formatSpans } from "@/lib/pdf/page-spans";
+import { pagesPhrase, type PageSpan } from "@/lib/pdf/page-spans";
 
 /**
  * `POST /api/jobs`'s refusal of a summarize job carrying `pages` when the
@@ -33,6 +33,17 @@ export const SUMMARIZE_PAGES_UNCONFIRMED_MESSAGE =
   "Our server did not confirm that it read only the pages you chose, so this summary may cover other pages. Check it against your PDF before relying on it.";
 
 /**
+ * The ONE sentence for a span outside the document, singular for one page
+ * ("so page 7 cannot be summarized"). Both sides say it: the worker's
+ * refusal below, and the panel's refusal before upload
+ * (`judgeSummarizeRun` in `@/lib/workers/summarize-measure`), each adding
+ * only what is true on its side of the upload.
+ */
+export function pagesOutOfRangeSentence(total: number, span: PageSpan): string {
+  return `This PDF has ${total} ${total === 1 ? "page" : "pages"}, so ${pagesPhrase([span])} cannot be summarized.`;
+}
+
+/**
  * The worker's refusal of a span past the end of the document
  * (`pages_out_of_range`, before any provider call). The route reserved the
  * allowance before the worker refused, and that is not refunded (the
@@ -42,7 +53,7 @@ export const SUMMARIZE_PAGES_UNCONFIRMED_MESSAGE =
  */
 export function pagesOutOfRangeMessage(
   total: number,
-  beyond: readonly [number, number],
+  beyond: PageSpan,
 ): string {
-  return `This PDF has ${total} ${total === 1 ? "page" : "pages"}, so ${beyond[0] === beyond[1] ? "page" : "pages"} ${formatSpans([beyond])} cannot be summarized. Nothing was sent to the AI model.`;
+  return `${pagesOutOfRangeSentence(total, beyond)} Nothing was sent to the AI model.`;
 }

@@ -45,6 +45,27 @@ export function formatSpans(
     .join(", ");
 }
 
+/** How many pages `spans` cover. */
+export const pagesIn = (spans: readonly PageSpan[]): number =>
+  spans.reduce((sum, [first, last]) => sum + last - first + 1, 0);
+
+/**
+ * "page 4", "pages 3–5 and 9", "pages 1, 3 and 5–6": each span in
+ * `formatSpans`'s own words (one author for "3–5"), joined with a final
+ * "and" for a reader, singular for exactly one page. The one phrase for a
+ * span in a sentence: the truncation notices, Summarize's section labels and
+ * its out-of-range refusal (`src/lib/pdf/page-spans.guard.test.ts` holds
+ * every module that imports this leaf to it).
+ */
+export function pagesPhrase(spans: readonly PageSpan[]): string {
+  const parts = spans.map((span) => formatSpans([span]));
+  const list =
+    parts.length === 1
+      ? parts[0]!
+      : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]!}`;
+  return `${pagesIn(spans) === 1 ? "page" : "pages"} ${list}`;
+}
+
 /** The spans of `pages` and the text that names them. */
 export function formatPageSpans(pages: readonly number[]): {
   spans: [number, number][];

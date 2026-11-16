@@ -9,6 +9,10 @@
 import { describe, expect, it } from "vitest";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 import { selectExtraction } from "@/lib/pdf/page-selection";
+import {
+  pagesOutOfRangeMessage,
+  pagesOutOfRangeSentence,
+} from "@/lib/jobs/summarize-pages";
 import { countDeclaredCharacters } from "./ai-declared-characters";
 import { judgeSummarizeRun, type SummarizeChoice } from "./summarize-measure";
 
@@ -97,6 +101,21 @@ describe("judgeSummarizeRun: chosen pages", () => {
     expect(refused({ kind: "span", span: [3, 5] }).message).toBe(
       `This PDF has 4 pages, so pages 3${EN}5 cannot be summarized. Nothing was uploaded.`,
     );
+    // One page outside is singular, and in the worker's own words: the
+    // panel's refusal is the shared sentence plus what is true before upload.
+    expect(refused({ kind: "span", span: [7, 7] }).message).toBe(
+      "This PDF has 4 pages, so page 7 cannot be summarized. Nothing was uploaded.",
+    );
+    for (const span of [
+      [7, 7],
+      [3, 5],
+    ] as const) {
+      const sentence = pagesOutOfRangeSentence(4, span);
+      expect(refused({ kind: "span", span }).message).toBe(
+        `${sentence} Nothing was uploaded.`,
+      );
+      expect(pagesOutOfRangeMessage(4, span).startsWith(sentence)).toBe(true);
+    }
     const fifty = doc(Array.from({ length: 50 }, (_, i) => `p${i + 1}`));
     const odd = Array.from({ length: 21 }, (_, i) => `${2 * i + 1}`).join(",");
     const many = judge(fifty, { kind: "pages", text: odd });
