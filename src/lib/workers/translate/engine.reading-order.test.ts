@@ -39,6 +39,7 @@ import {
   type TranslateExtracted,
   type TranslateExtractor,
 } from "./reading-order";
+import { separatorFor } from "./page-markers";
 
 const OPTIONS = { targetLanguage: "fr", sourceLanguage: "auto" } as const;
 const INPUT = new Uint8Array([1, 2, 3]);
@@ -99,9 +100,16 @@ function segmentOf(request: AiCompletionRequest): string {
 
 /**
  * Decode each call's pages FROM THE WIRE: a segment is the sent text of a
- * run of consecutive pages joined by PAGE_JOIN, so walk the pages in order
- * and consume each segment greedily. Fails loudly if a segment does not
+ * run of consecutive pages joined by its separators, so walk the pages in
+ * order and consume each segment greedily. Fails loudly if a segment does not
  * decode, so a mismatch cannot pass as an empty page set.
+ *
+ * INVERTED, NOT DELETED. True before translatePageMap (2026-11): every page
+ * after a segment's first was preceded by PAGE_JOIN alone,
+ *   const head = covered.length === 0 ? page.sent : PAGE_JOIN + page.sent;
+ * A marked chunk now carries `separatorFor(page)` there instead. Both are
+ * accepted, and which one was seen is returned, so a caller can compare the
+ * marking too.
  */
 function pagesOnWire(
   segments: readonly string[],
@@ -113,8 +121,12 @@ function pagesOnWire(
     let rest = segment;
     while (at < pages.length) {
       const page = pages[at]!;
-      const head = covered.length === 0 ? page.sent : PAGE_JOIN + page.sent;
-      if (!rest.startsWith(head)) break;
+      const heads =
+        covered.length === 0
+          ? [page.sent]
+          : [separatorFor(page.pageNumber) + page.sent, PAGE_JOIN + page.sent];
+      const head = heads.find((h) => rest.startsWith(h));
+      if (head === undefined) break;
       covered.push(page.pageNumber);
       rest = rest.slice(head.length);
       at += 1;

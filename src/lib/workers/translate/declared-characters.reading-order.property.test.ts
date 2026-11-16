@@ -18,8 +18,11 @@
  *  4. every chunk's text is no longer than the characters it was weighed at.
  *
  * Plus, through `runTranslate` on every tenth document, the literal count
- * `readingOrder.sentCharacters` equals what the planner sent and is no larger
- * than the window's `charactersSent` (asserted only with `truncated === false`).
+ * `readingOrder.sentCharacters` equals what the planner sent, and that count
+ * LESS its page markers (`pageMap.markerCharacters`) is no larger than the
+ * window's `charactersSent` (asserted only with `truncated === false`).
+ * `pageMap.markerCharacters` is pinned to the plan: Σ (chunk.text.length −
+ * the PAGE_JOIN-joined length) — one unit, two readers.
  *
  * HEALTH, FATAL if missing: at least 50 pages of each flow variant, 20
  * page-count mismatches, 20 capped plans that withheld pages, and 100 pages
@@ -31,7 +34,7 @@
  * turned (3) red; deleting gate (b) in `translatePageBlocks` turned (2) red.
  */
 import { describe, expect, it } from "vitest";
-import type { ExtractedPdfText } from "@/lib/pdf/text";
+import { PAGE_JOIN, type ExtractedPdfText } from "@/lib/pdf/text";
 import type { PdfFlowText, PdfFlowTextPage } from "../pdf-text/flow";
 import {
   AI_DELIVERY_LIMITS,
@@ -211,6 +214,7 @@ describe(`reading order over generated documents (seed ${SEED})`, () => {
       cappedWithheld: 0,
       flowPages: 0,
       engineRuns: 0,
+      markedRuns: 0,
     };
     for (let d = 0; d < DOCUMENTS; d += 1) {
       const at = `seed ${SEED}, document #${d}`;
@@ -295,9 +299,35 @@ describe(`reading order over generated documents (seed ${SEED})`, () => {
             viaFlow.plan.chunks.reduce((n, c) => n + c.text.length, 0),
           );
           expect(run.meta.window.truncated, at).toBe(false);
-          expect(run.meta.readingOrder.sentCharacters, at).toBeLessThanOrEqual(
-            run.meta.window.charactersSent,
+          // INVERTED, NOT DELETED. True before translatePageMap (2026-11):
+          //   expect(run.meta.readingOrder.sentCharacters, at).toBeLessThanOrEqual(
+          //     run.meta.window.charactersSent,
+          //   );
+          // The markers are literal characters in the -layout unit's place,
+          // so the sent count may exceed the window whenever flow ≈ layout.
+          // The relation holds for the count LESS the markers it carries.
+          expect(
+            run.meta.readingOrder.sentCharacters -
+              run.meta.pageMap.markerCharacters,
+            at,
+          ).toBeLessThanOrEqual(run.meta.window.charactersSent);
+          // One unit, two readers: the engine's tally equals what the plan's
+          // separators add over a PAGE_JOIN join.
+          expect(run.meta.pageMap.markerCharacters, at).toBe(
+            viaFlow.plan.chunks.reduce(
+              (n, c) =>
+                n +
+                c.text.length -
+                c.pages
+                  .map((p) => {
+                    const b = byPage.get(p)!;
+                    return b.send ?? b.text;
+                  })
+                  .join(PAGE_JOIN).length,
+              0,
+            ),
           );
+          if (run.meta.pageMap.markerCharacters > 0) health.markedRuns += 1;
         }
       }
     }
@@ -309,5 +339,6 @@ describe(`reading order over generated documents (seed ${SEED})`, () => {
     expect(health.cappedWithheld, report).toBeGreaterThanOrEqual(20);
     expect(health.flowPages, report).toBeGreaterThanOrEqual(100);
     expect(health.engineRuns, report).toBeGreaterThanOrEqual(20);
+    expect(health.markedRuns, report).toBeGreaterThanOrEqual(10);
   }, 120_000);
 });

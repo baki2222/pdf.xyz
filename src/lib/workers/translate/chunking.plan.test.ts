@@ -102,9 +102,27 @@ describe("planTranslateChunks — conservation", () => {
         );
         expect(chunk.text.length).toBeLessThanOrEqual(chunk.characters);
         // Whole pages only: the chunk text is exactly its pages, joined.
+        // INVERTED, NOT DELETED. True before translatePageMap (2026-11):
+        //   expect(chunk.text).toBe(
+        //     chunk.pages.map((n) => byNumber.get(n)!).join(PAGE_JOIN),
+        //   );
+        // A marked chunk now joins with the page-marker separator before
+        // every page after the first; an unmarked one still with PAGE_JOIN.
         expect(chunk.text).toBe(
-          chunk.pages.map((n) => byNumber.get(n)!).join(PAGE_JOIN),
+          chunk.marked
+            ? chunk.pages
+                .map((n, i) =>
+                  i === 0
+                    ? byNumber.get(n)!
+                    : separatorFor(n) + byNumber.get(n)!,
+                )
+                .join("")
+            : chunk.pages.map((n) => byNumber.get(n)!).join(PAGE_JOIN),
         );
+        // With no `send` and the default (unbounded) budget, every multi-page
+        // chunk is marked and sends exactly what it weighs.
+        expect(chunk.marked).toBe(chunk.pages.length > 1);
+        expect(chunk.text.length).toBe(chunk.characters);
       }
     }
   });

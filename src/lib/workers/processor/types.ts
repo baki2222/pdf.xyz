@@ -16,6 +16,7 @@
 
 import type { JobDeliveryCap, JobError, JobResults } from "@/lib/jobs";
 import type {
+  AiPageMapMeta,
   AiReadingOrderMeta,
   AiUsageMeta,
   AiWindowMeta,
@@ -207,12 +208,14 @@ export function processorFail(
  * `readingOrder` is Translate's (2026-11-16): which text the calls that were
  * paid for actually sent. It rides on the same carrier as `usage` and
  * `window` (the engine's `spentSoFar`), so a failure after a call reports it
- * and a failure before one cannot.
+ * and a failure before one cannot. `pageMap` (2026-11, page markers) rides
+ * the same carrier for the same reason.
  */
 export function aiResultsFromFailure(run: {
   usage?: AiUsageMeta;
   window?: AiWindowMeta;
   readingOrder?: AiReadingOrderMeta;
+  pageMap?: AiPageMapMeta;
 }): JobResults | undefined {
   if (!run.window) return undefined;
   return {
@@ -220,6 +223,7 @@ export function aiResultsFromFailure(run: {
       truncation: run.window,
       ...(run.usage ? { usage: run.usage } : {}),
       ...(run.readingOrder ? { readingOrder: run.readingOrder } : {}),
+      ...(run.pageMap ? { pageMap: run.pageMap } : {}),
     },
   };
 }

@@ -42,7 +42,7 @@ import {
   type ReadingOrderPage,
   type TranslateExtracted,
 } from "./reading-order";
-import { separatorFor } from "./page-markers";
+import { separatorFor, separatorOverhead } from "./page-markers";
 
 /**
  * The two characters per page boundary `capPagesToDelivery` does not count
@@ -261,7 +261,7 @@ describe("weight invariance: flow changes what is sent, never what is weighed", 
     expect(plan.chunks.map((c) => c.pages)).toEqual([[1], [2]]);
   });
 
-  it("a chunk SENDS each page's send (else its text), joined by PAGE_JOIN, and weighs the text", async () => {
+  it("a chunk SENDS each page's send (else its text), joined by its separators, and weighs the text", async () => {
     const composed = concatPages(
       await Promise.all(
         PAIRS.map(async (p) => (await compose(p.layout, p.flow)).pages),
@@ -271,13 +271,30 @@ describe("weight invariance: flow changes what is sent, never what is weighed", 
     const plan = planTranslateChunks(blocks, CEILING);
     expect(plan.chunks.length).toBeGreaterThan(0);
     let sentFlow = 0;
+    let marked = 0;
     for (const chunk of plan.chunks) {
       const members = chunk.pages.map((n) =>
         blocks.find((b) => b.pageNumber === n)!,
       );
+      // INVERTED, NOT DELETED. True before translatePageMap (2026-11), when
+      // the test was named "... joined by PAGE_JOIN, and weighs the text":
+      //   expect(chunk.text).toBe(
+      //     members.map((b) => b.send ?? b.text).join(PAGE_JOIN),
+      //   );
+      // A marked chunk now carries separatorFor(page) before each page after
+      // the first; an unmarked one is still joined by PAGE_JOIN.
       expect(chunk.text).toBe(
-        members.map((b) => b.send ?? b.text).join(PAGE_JOIN),
+        chunk.marked
+          ? members
+              .map((b, i) =>
+                i === 0
+                  ? (b.send ?? b.text)
+                  : separatorFor(b.pageNumber) + (b.send ?? b.text),
+              )
+              .join("")
+          : members.map((b) => b.send ?? b.text).join(PAGE_JOIN),
       );
+      marked += chunk.marked ? 1 : 0;
       // Until translatePageMap (2026-11) a boundary weighed PAGE_JOIN:
       //   members.reduce((sum, b) => sum + b.text.length, 0) +
       //     (members.length - 1) * PAGE_JOIN.length
@@ -291,6 +308,7 @@ describe("weight invariance: flow changes what is sent, never what is weighed", 
       sentFlow += members.filter((b) => b.send !== undefined).length;
     }
     expect(sentFlow).toBeGreaterThan(0);
+    expect(marked, "health: a marked chunk was planned").toBeGreaterThan(0);
   });
 });
 
@@ -357,6 +375,13 @@ describe("sent ≤ weighed (the next slice's page markers inherit this)", () => 
     let chunks = 0;
     let equalWithSend = 0;
     let capped = 0;
+    // Added with translatePageMap (2026-11); assertions (1) and (2) are
+    // untouched. The health checks below them were written before markers
+    // existed and cannot tell whether a marked chunk was ever planned under
+    // a binding budget, so these count exactly that.
+    let cappedMarked = 0;
+    let cappedTight = 0;
+    let cappedBudget = 0;
 
     const check = (
       label: string,
@@ -383,6 +408,16 @@ describe("sent ≤ weighed (the next slice's page markers inherit this)", () => 
         );
         // (2) A capped plan sends no more than its limit, less the joins.
         expect(sent - joins, label).toBeLessThanOrEqual(limit.characters);
+        if (plan.chunks.some((c) => c.marked)) cappedMarked += 1;
+        if (plan.chunks.some((c) => c.markerFallback === "budget"))
+          cappedBudget += 1;
+        // Spent to within one separator: the cheapest marked boundary
+        // (separatorOverhead(1) = 21) no longer fits what is left.
+        if (
+          plan.chunks.some((c) => c.marked) &&
+          limit.characters - (sent - joins) < separatorOverhead(1)
+        )
+          cappedTight += 1;
       }
     };
 
@@ -414,12 +449,68 @@ describe("sent ≤ weighed (the next slice's page markers inherit this)", () => 
       check(`generated #${doc}`, blocks, ceiling, limit);
     }
 
+    // TIGHT BUDGETS (added with translatePageMap, 2026-11; the generator, not
+    // the assertions). The reservation's slack is set to exactly what the
+    // first j marked chunks of the unbounded plan cost, plus under one
+    // separator: so the budget is spent to within a separator, and any later
+    // multi-page chunk falls back for budget. Pages send their own text (or
+    // nothing), so no flow shortfall loosens the bound.
+    const tight = lcg(20261117);
+    for (let doc = 0; doc < 120; doc += 1) {
+      const pageCount = 2 + Math.floor(tight() * 29);
+      const pages = Array.from({ length: pageCount }, (_, i) => {
+        const words = Array.from(
+          { length: Math.floor(tight() ** 2 * 300) },
+          () => VOCAB[Math.floor(tight() * VOCAB.length)]!,
+        );
+        const text = words.join("  ");
+        return {
+          pageNumber: i + 1,
+          text,
+          characterCount: text.length,
+          ...(tight() < 0.5 ? { send: text } : {}),
+        };
+      });
+      const { blocks } = translatePageBlocks(pages);
+      const total = blocks.reduce((sum, b) => sum + b.text.length, 0);
+      const ceiling = [CEILING, 4_000, 1_500][doc % 3]!;
+      const overheads = planTranslateChunks(blocks, ceiling)
+        .chunks.filter((c) => c.marked)
+        .map((c) =>
+          c.pages.slice(1).reduce((sum, n) => sum + separatorOverhead(n), 0),
+        );
+      // At least one chunk paid for when there is one to pay for.
+      const j = Math.min(
+        overheads.length,
+        1 + Math.floor(tight() * overheads.length),
+      );
+      const slack =
+        overheads.slice(0, j).reduce((sum, o) => sum + o, 0) +
+        Math.floor(tight() * separatorOverhead(1));
+      check(`tight #${doc}`, blocks, ceiling, { characters: total + slack });
+    }
+
     // Health: enough chunks to mean something, capped plans present, and at
     // least one chunk that SENDS flow at exactly its weight — the only kind
     // of chunk a one-character overspend in the join can turn red.
     expect(chunks).toBeGreaterThanOrEqual(20);
     expect(capped).toBeGreaterThanOrEqual(20);
     expect(equalWithSend).toBeGreaterThanOrEqual(1);
+    // Page markers under a binding budget (translatePageMap, 2026-11):
+    // marked boundaries planned under a cap, a budget spent to within one
+    // separator, and chunks that fell back for budget.
+    expect(
+      cappedMarked,
+      "capped plans with a marked chunk",
+    ).toBeGreaterThanOrEqual(20);
+    expect(
+      cappedTight,
+      "capped plans spent to within a separator",
+    ).toBeGreaterThanOrEqual(20);
+    expect(
+      cappedBudget,
+      "capped plans with a budget fallback",
+    ).toBeGreaterThanOrEqual(20);
   });
 });
 

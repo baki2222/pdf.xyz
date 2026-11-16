@@ -43,7 +43,11 @@ export interface TranslateChunk {
   readonly pages: readonly number[];
   /**
    * Exactly what is sent to the model: each page's SENT text (`send ?? text`,
-   * see {@link PlannedPage}) joined with {@link PAGE_JOIN}.
+   * see {@link PlannedPage}), joined with `separatorFor(page)`
+   * (`./page-markers`) before every page after the first when {@link marked},
+   * and with {@link PAGE_JOIN} otherwise. So `text.length ≤ characters` either
+   * way, and an unmarked chunk is exactly the text sent before markers
+   * existed.
    */
   readonly text: string;
   /**
@@ -175,9 +179,15 @@ export function planTranslateChunks(
     chunks.push({
       index: chunks.length,
       pages: pending.map((p) => p.pageNumber),
-      // Still PAGE_JOIN: markers are sized and decided here, and sent in a
-      // later commit of the same change.
-      text: pending.map((p) => p.send ?? p.text).join(PAGE_JOIN),
+      text: marked
+        ? pending
+            .map((p, i) =>
+              i === 0
+                ? (p.send ?? p.text)
+                : separatorFor(p.pageNumber) + (p.send ?? p.text),
+            )
+            .join("")
+        : pending.map((p) => p.send ?? p.text).join(PAGE_JOIN),
       characters: pendingChars,
       marked,
       markerFallback,
@@ -300,8 +310,10 @@ export interface CappedPlan {
  *   delivered set is identical to a reference copy of the walk without
  *   markers.
  *
- * The one exception is {@link PAGE_JOIN}: chunks are joined with it, so a call
- * carries two characters per page boundary that this walk does not count
+ * The one exception is {@link PAGE_JOIN}: every page boundary carries one (a
+ * marked boundary's separator is `PAGE_JOIN + marker + PAGE_JOIN`, and all of
+ * it past the first `PAGE_JOIN` is the budgeted overhead), so a call carries
+ * two characters per page boundary that this walk does not count
  * (`planTranslateChunks` does count them, in `characters`). That is a handful
  * of characters against a reservation in the tens of thousands, and it errs
  * toward delivering slightly more than was reserved rather than slightly
@@ -320,6 +332,11 @@ export function capPagesToDelivery(
   pageChunks: readonly PlannedPage[],
   ceiling: number,
   limit: DeliveryLimit,
+  /**
+   * Passed through to {@link planTranslateChunks}: `false` when the job's
+   * instructions hold the marker's brand. It never touches the walk.
+   */
+  options: Pick<MarkerPlanOptions, "markers"> = {},
 ): CappedPlan {
   const maxPages = limit.pages ?? Number.POSITIVE_INFINITY;
   let characters = 0;
@@ -352,7 +369,10 @@ export function capPagesToDelivery(
   // bound. Markers spend only this, so the walk above never moves.
   const markerBudget = limit.characters - characters;
   return {
-    plan: planTranslateChunks(delivered, ceiling, { markerBudget }),
+    plan: planTranslateChunks(delivered, ceiling, {
+      markerBudget,
+      ...(options.markers === false ? { markers: false } : {}),
+    }),
     withheldPages: pageChunks.slice(cut).map((page) => page.pageNumber),
     boundBy,
   };

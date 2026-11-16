@@ -23,7 +23,8 @@ import { PAGE_JOIN, type ExtractedPdfText } from "@/lib/pdf/text";
 import type { AiCompletionRequest, AiProvider } from "./provider";
 import { runChatWithPdf } from "../chat-with-pdf/engine";
 import { runSummarize } from "../summarize/engine";
-import { runTranslate } from "../translate/engine";
+import { pageMarkerClause, runTranslate } from "../translate/engine";
+import { separatorFor } from "../translate/page-markers";
 import { runAiExtract } from "../ai-extract/engine";
 import type { selectPages } from "@/lib/pdf/page-retrieval";
 import { provesAiReadCap } from "../processor/read-cap-proof";
@@ -364,13 +365,40 @@ async function recordAll(): Promise<Record<string, Recorded[]>> {
  * Cases whose requests legitimately differ from the fixture, with the change
  * that moved them. Never re-record the fixture to clear one (its docblock);
  * each is held instead by the relation in "a moved case sends main's pages":
- * same system prompt and parameters, and the same pages in the same order
- * across all its segments.
+ * same system prompt and parameters, the same pages in the same order across
+ * all its segments once the page markers are taken out, and the marker
+ * instruction exactly where and only where a segment carries markers.
  */
 const MOVED_SINCE_FIXTURE: Readonly<Record<string, string>> = {
   "translate/prefix":
-    "translatePageMap (2026-11): every page boundary is sized as a page-marker separator, so chunk page-sets move near the ceiling",
+    "translatePageMap (2026-11): every page boundary is sized as a page-marker separator, so chunk page-sets move near the ceiling; commit B sends the markers",
+  "translate/fit":
+    "translatePageMap (2026-11), commit B: a multi-page chunk is sent with page markers between its pages and the instruction to keep them",
 };
+
+/** Page numbers the moved cases can carry; far above any case's page count. */
+const MAX_MARKED_PAGE = 999;
+
+/**
+ * A segment with every page-marker separator put back to the PAGE_JOIN it
+ * replaced, built from `separatorFor` itself (never a typed pattern), with
+ * the first marked page, or null when the segment carries none.
+ */
+function unmarked(segment: string): { text: string; first: number | null } {
+  let text = segment;
+  let first: number | null = null;
+  let firstAt = Number.POSITIVE_INFINITY;
+  for (let n = 1; n <= MAX_MARKED_PAGE; n += 1) {
+    const at = text.indexOf(separatorFor(n));
+    if (at < 0) continue;
+    if (segment.indexOf(separatorFor(n)) < firstAt) {
+      firstAt = segment.indexOf(separatorFor(n));
+      first = n;
+    }
+    text = text.split(separatorFor(n)).join(PAGE_JOIN);
+  }
+  return { text, first };
+}
 
 /** Each request's text between the `---` delimiters, in order. */
 function segmentsOf(requests: readonly Recorded[]): string[] {
@@ -447,17 +475,56 @@ describe("AI provider requests are main's bytes wherever retrieval adds no page"
       expect(seen, `${name} matches main again; drop it (${why})`).not.toEqual(
         fixture[name],
       );
-      for (const request of seen) {
+      let marked = 0;
+      for (const [i, request] of seen.entries()) {
         const { messages, ...rest } = request;
         const { messages: mainMessages, ...mainRest } = fixture[name]![0]!;
         expect(rest, name).toEqual(mainRest);
         expect(messages.length, name).toBe(mainMessages.length);
+        // The marker instruction sits immediately before the segment, with
+        // the first marked page, exactly when the segment carries markers.
+        const content = String(messages[0]!.content);
+        const head = content.slice(0, content.indexOf("\n\n---\n"));
+        const { first } = unmarked(segmentsOf([request])[0]!);
+        if (first === null) {
+          expect(head, `${name} #${i}`).not.toMatch(/pdfxyz/i);
+        } else {
+          marked += 1;
+          expect(head.endsWith(pageMarkerClause(first)), `${name} #${i}`).toBe(
+            true,
+          );
+        }
+        // With the same number of calls, every instruction before the
+        // segment is main's once the marker instruction is taken out (the
+        // part clause names the call count, so it is compared only then).
+        // With the joined relation below, a one-call case such as
+        // translate/fit is main's request byte for byte, markers aside.
+        if (seen.length === fixture[name]!.length) {
+          const main = String(fixture[name]![i]!.messages[0]!.content);
+          const mainHead = main.slice(0, main.indexOf("\n\n---\n"));
+          const back =
+            first === null
+              ? head
+              : head.slice(0, -pageMarkerClause(first).length);
+          expect(back, `${name} #${i}`).toBe(mainHead);
+        }
       }
-      expect(segmentsOf(seen).join(PAGE_JOIN), name).toBe(
-        segmentsOf(fixture[name]!).join(PAGE_JOIN),
-      );
-      // Health: the relation reads real text, not two empty joins.
-      expect(segmentsOf(seen).join("").length, name).toBeGreaterThan(1_000);
+      expect(marked, `${name}: health, a marked request`).toBeGreaterThan(0);
+      // INVERTED (commit B): true before markers were sent, on the raw
+      // segments:
+      //   expect(segmentsOf(seen).join(PAGE_JOIN), name).toBe(
+      //     segmentsOf(fixture[name]!).join(PAGE_JOIN),
+      //   );
+      expect(
+        segmentsOf(seen)
+          .map((segment) => unmarked(segment).text)
+          .join(PAGE_JOIN),
+        name,
+      ).toBe(segmentsOf(fixture[name]!).join(PAGE_JOIN));
+      // Health: the relation reads real text, not two empty joins. (Was
+      // 1,000 while translate/prefix was the only member; translate/fit's
+      // three 40-word pages hold 854 characters with their markers.)
+      expect(segmentsOf(seen).join("").length, name).toBeGreaterThan(500);
     }
   });
 

@@ -35,7 +35,7 @@ import {
 import { DEFAULT_OCR_OUTPUT_MODE, ocrOutputsForMode } from "@/lib/jobs/ocr";
 import { getToolBySlug } from "@/lib/tools";
 import { translatePreflight } from "./preflight";
-import { separatorOverhead } from "./page-markers";
+import { separatorFor } from "./page-markers";
 import { runTranslate } from "./engine";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 
@@ -290,7 +290,7 @@ describe("what may be submitted still is (positive controls)", () => {
     expect(textPages).toHaveLength(1);
   });
 
-  it("sends exactly the pages' texts joined by PAGE_JOIN (a pdfjs extraction has no send)", async () => {
+  it("sends exactly the pages' texts joined by separatorFor where the chunk is marked (a pdfjs extraction has no send)", async () => {
     // Reading order (./reading-order) lets the WORKER send a page's flow text
     // in place of its -layout text. The browser's pages carry no `send`, so
     // the preflight's chunk text must stay byte-identical to the join.
@@ -299,20 +299,27 @@ describe("what may be submitted still is (positive controls)", () => {
     expect(textPages.length).toBe(3);
     expect(extracted.pages.some((p) => "send" in p)).toBe(false);
     expect(plan.chunks).toHaveLength(1);
+    // INVERTED, NOT DELETED. True before translatePageMap (2026-11), when the
+    // test was named "sends exactly the pages' texts joined by PAGE_JOIN":
+    //   expect(plan.chunks[0]!.text).toBe(
+    //     textPages.map((p) => p.text).join(PAGE_JOIN),
+    //   );
+    // The preflight plans with the default (unbounded) marker budget, so a
+    // multi-page chunk with no collision is marked, and joined by separators.
+    expect(plan.chunks[0]!.marked).toBe(true);
     expect(plan.chunks[0]!.text).toBe(
+      textPages
+        .map((p, i) => (i === 0 ? p.text : separatorFor(p.pageNumber) + p.text))
+        .join(""),
+    );
+    expect(plan.chunks[0]!.text).not.toBe(
       textPages.map((p) => p.text).join(PAGE_JOIN),
     );
-    // Until translatePageMap (2026-11), and true again once the markers are
-    // sent: `expect(plan.chunks[0]!.characters).toBe(plan.chunks[0]!.text.length);`
-    // Every boundary is SIZED as a separator, and this commit still sends
-    // PAGE_JOIN, so the weight exceeds the text by the separators' overhead.
-    expect(plan.chunks[0]!.characters).toBe(
-      plan.chunks[0]!.text.length +
-        plan.chunks[0]!.pages.slice(1).reduce(
-          (n, page) => n + separatorOverhead(page),
-          0,
-        ),
-    );
+    // Restored: true before commit A of translatePageMap, false in A (which
+    // sized separators and still sent PAGE_JOIN: the weight exceeded the text
+    // by `separatorOverhead` per boundary), true again now the markers are
+    // sent.
+    expect(plan.chunks[0]!.characters).toBe(plan.chunks[0]!.text.length);
   });
 
   it("passes a document with one oversize page and one it can translate", async () => {

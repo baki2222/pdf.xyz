@@ -23,6 +23,12 @@ import {
   type DeliveryLimit,
 } from "./chunking";
 import {
+  collidesWithMarker,
+  markerFor,
+  separatorOverhead,
+} from "./page-markers";
+import { readPageMarkers, type PagePiece } from "./page-map";
+import {
   assembleParts,
   partsToMarkdown,
   type TranslatedSegment,
@@ -56,6 +62,7 @@ import {
 import { AI_INPUT_LIMITS } from "@/lib/jobs/types";
 import type {
   AiDeliveryMeta,
+  AiPageMapMeta,
   AiReadingOrderMeta,
   AiUsageMeta,
 } from "@/lib/jobs/ai-results";
@@ -83,7 +90,9 @@ import type { JobDeliveryCap } from "@/lib/jobs/delivery-cap";
  *   - No selectable text ⇒ `no_text` (run OCR first). The engine never translates an
  *     empty/scanned document by guessing.
  *   - The system prompt constrains the model to the document text; the translation
- *     that ships is exactly the model's output, unedited and unfabricated.
+ *     that ships is exactly the model's output, with this product's page markers
+ *     and the whitespace around them removed, and nothing else edited
+ *     (`./page-map`; its corpus checks the ink on every reply shape).
  *   - The text extractor and AI provider are injected, so this module stays node-free
  *     and unit-testable: production wires the real pdfjs extractor + Anthropic
  *     provider (`./native`), tests wire deterministic fakes.
@@ -233,6 +242,12 @@ export interface TranslateMeta {
    * See {@link AiReadingOrderMeta}.
    */
   readingOrder: AiReadingOrderMeta;
+  /**
+   * How the multi-page calls were labelled page by page — always present on
+   * success, and on every failure after a provider call (`spentSoFar`). See
+   * {@link AiPageMapMeta}.
+   */
+  pageMap: AiPageMapMeta;
 }
 
 export type TranslateFailureKind =
@@ -307,6 +322,8 @@ export type TranslateRun =
        * failure before any call: nothing was sent.
        */
       readingOrder?: AiReadingOrderMeta;
+      /** How the calls made so far were labelled, by the same carrier. */
+      pageMap?: AiPageMapMeta;
     };
 
 /**
@@ -382,7 +399,19 @@ type SpendCarry = {
   window: TruncationWindow;
   usage?: AiUsageMeta;
   readingOrder: AiReadingOrderMeta;
+  pageMap: AiPageMapMeta;
 };
+
+/**
+ * The page-marker instruction (`./page-markers`), appended to the USER message
+ * of a segment that carries markers, and to no other: the system prompt stays
+ * identical across a job's calls (what provider prompt caching keys on), and
+ * an unmarked segment's request stays byte-identical to the one sent before
+ * markers existed. `first` is the first marked page of the segment.
+ */
+export function pageMarkerClause(first: number): string {
+  return ` Lines such as ${markerFor(first)} mark where a page of the original begins: copy each one exactly as it is, on a line of its own, in the same place, and do not translate it.`;
+}
 
 /**
  * Map a provider completion failure to an honest, typed run failure.
@@ -633,9 +662,16 @@ export async function runTranslate(
    * computed twice.
    */
   const limit: DeliveryLimit = deps.limits?.delivery ?? UNBOUNDED_DELIVERY;
+  // Instructions that hold the marker's brand go into the system prompt, so
+  // a reply may faithfully carry "pdfxyz" anywhere: no chunk is marked, and
+  // nothing is ever stripped from a reply (`./page-markers`, the collision
+  // rule). Decided in the planner, so chunk.text is joined in one place.
+  const markers = !(
+    options.instructions && collidesWithMarker(options.instructions)
+  );
   const capped =
     pageBlocks.length > 0
-      ? capPagesToDelivery(pageBlocks, ceilingCharacters, limit)
+      ? capPagesToDelivery(pageBlocks, ceilingCharacters, limit, { markers })
       : null;
   const plan = capped?.plan ?? null;
 
@@ -697,12 +733,23 @@ export async function runTranslate(
   // One segment per provider call, in document order. The unchunked path is a
   // single segment carrying the whole (possibly truncated) text, so both paths
   // run the same loop and neither can drift from the other.
-  const segments: { text: string; pages: readonly number[] }[] =
+  const segments: {
+    text: string;
+    pages: readonly number[];
+    marked: boolean;
+    markerFallback: "collision" | "budget" | null;
+  }[] =
     plan === null
-      ? [{ text: promptText, pages: [] }]
-      : plan.chunks.map((chunk) => ({ text: chunk.text, pages: chunk.pages }));
+      ? [{ text: promptText, pages: [], marked: false, markerFallback: null }]
+      : plan.chunks.map((chunk) => ({
+          text: chunk.text,
+          pages: chunk.pages,
+          marked: chunk.marked,
+          markerFallback: chunk.markerFallback,
+        }));
 
-  const parts: TranslatedSegment[] = [];
+  /** A translated segment, with its per-page pieces when its markers verified. */
+  const parts: (TranslatedSegment & { pieces?: readonly PagePiece[] })[] = [];
   const translatedPages: number[] = [];
   const usage = new UsageTally();
   let model = provider.model;
@@ -722,6 +769,20 @@ export async function runTranslate(
    * post-interruption pages as sent (the S3 review finding, 2026-11-16).
    */
   const sentPages: number[] = [];
+  /**
+   * How the calls made so far were labelled ({@link AiPageMapMeta}), by the
+   * same rule: the sending counts are added BEFORE the call, and each marked
+   * call gets exactly one verdict after it (`unanswered` when it failed or
+   * came back empty), so both invariants hold at every return below.
+   */
+  const pageMap: AiPageMapMeta = {
+    multiPageChunks: 0,
+    marked: 0,
+    verified: 0,
+    unanswered: 0,
+    fellBack: { collision: 0, budget: 0, missing: 0, order: 0, empty: 0 },
+    markerCharacters: 0,
+  };
 
   /** Which text the calls made so far sent: page counts over `sentPages`. */
   const readingOrderSoFar = (): AiReadingOrderMeta => {
@@ -762,12 +823,23 @@ export async function runTranslate(
     // Explicit, never spread conditionally: a dropped optional field is
     // invisible at every hop (the heartbeat fingerprint lesson).
     readingOrder: readingOrderSoFar(),
+    pageMap: { ...pageMap, fellBack: { ...pageMap.fellBack } },
   });
 
   for (const [i, segment] of segments.entries()) {
     const many = segments.length > 1;
     sentCharacters += segment.text.length;
     sentPages.push(...segment.pages);
+    if (segment.pages.length > 1) {
+      pageMap.multiPageChunks += 1;
+      if (segment.marked) {
+        pageMap.marked += 1;
+        for (const page of segment.pages.slice(1))
+          pageMap.markerCharacters += separatorOverhead(page);
+      } else if (segment.markerFallback !== null) {
+        pageMap.fellBack[segment.markerFallback] += 1;
+      }
+    }
     const completion = await provider.complete({
       system: buildSystemPrompt(options, window),
       messages: [
@@ -781,6 +853,8 @@ export async function runTranslate(
             many
               ? ` (This is part ${i + 1} of ${segments.length} of one document; translate only the text given, and do not add any note about it being a part.)`
               : ""
+          }${
+            segment.marked ? pageMarkerClause(segment.pages[1]!) : ""
           }\n\n---\n${segment.text}\n---`,
         },
       ],
@@ -797,15 +871,33 @@ export async function runTranslate(
       // The failing call is real spend: tallied first, so the carrier holds
       // every call this job made, not only the one that failed.
       usage.add(completion.usage);
+      if (segment.marked) pageMap.unanswered += 1;
       interruption = mapProviderFailure(completion, spentSoFar());
       interruptedPages = segments.slice(i).flatMap((s) => [...s.pages]);
       break;
     }
     model = completion.model;
     usage.add(completion.usage);
-    const text = completion.text.trim();
+    // STRIP FIRST, then judge emptiness: a reply of nothing but marker lines
+    // is non-empty raw and empty stripped, and judged raw it would ship as a
+    // heading over nothing. An unmarked segment is read exactly as before.
+    const reading = segment.marked
+      ? readPageMarkers(completion.text, segment.pages)
+      : null;
+    const text = reading ? reading.text : completion.text.trim();
+    if (reading) {
+      if (text.length === 0) pageMap.unanswered += 1;
+      else if (reading.verdict === "verified") pageMap.verified += 1;
+      else pageMap.fellBack[reading.verdict] += 1;
+    }
     if (text.length > 0) {
-      parts.push({ text, pages: segment.pages });
+      parts.push({
+        text,
+        pages: segment.pages,
+        ...(reading?.verdict === "verified" && reading.pieces
+          ? { pieces: reading.pieces }
+          : {}),
+      });
       translatedPages.push(...segment.pages);
     } else if (!many) {
       return {
@@ -849,8 +941,18 @@ export async function runTranslate(
   // in where the pages they replace sat (`./assembly`). The same parts feed the
   // ZIP's Markdown and the reflowed PDF, so the two cannot disagree about which
   // pages are missing.
+  //
+  // THE PDF IS HEADED PAGE BY PAGE where a chunk's markers verified: each of
+  // its pieces becomes its own body, which `./typeset` heads "Page N". Every
+  // other part stays one body headed by its range. The ZIP below is built
+  // from the unsplit parts, so translation.md keeps main's shape.
+  const pdfSegments: TranslatedSegment[] = parts.flatMap((p) =>
+    p.pieces
+      ? p.pieces.map((x) => ({ text: x.text, pages: [x.page] }))
+      : [{ text: p.text, pages: p.pages }],
+  );
   const assembled: TranslationPart[] = assembleParts(
-    parts,
+    pdfSegments,
     plan,
     interruptedPages,
     withheld,

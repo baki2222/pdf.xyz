@@ -9,8 +9,9 @@
  * persister drops is a correct value that reaches nobody (CLAUDE.md rule 5),
  * so every case here asserts on the SANITISED record:
  *
- *  - a success carries the reading order, and its literal sent count is no
- *    larger than the window's `charactersSent` (precondition: not truncated —
+ *  - a success carries the reading order, and its literal sent count, less
+ *    the page markers it carries (`pageMap.markerCharacters`), is no larger
+ *    than the window's `charactersSent` (precondition: not truncated —
  *    `charactersSent` is in the calibrated `-layout` unit and covers the
  *    whole document; the relation is not claimed for a truncated window);
  *  - a failure AFTER a provider call carries it, counting the call that
@@ -96,7 +97,7 @@ const CHUNKED = {
 };
 
 describe("results.ai.readingOrder on the persisted job record", () => {
-  it("a success: present, counted from the wire, and within charactersSent", async () => {
+  it("a success: present, counted from the wire, and within charactersSent less its markers", async () => {
     const { provider, segments } = scripted([OK]);
     const result = await createTranslateProcessor({
       extract,
@@ -121,7 +122,20 @@ describe("results.ai.readingOrder on the persisted job record", () => {
     expect(order!.flowPages, "health: flow was sent").toBeGreaterThan(0);
     const window = clean!.ai!.truncation;
     expect(window.truncated).toBe(false);
-    expect(order!.sentCharacters).toBeLessThanOrEqual(window.charactersSent);
+    // INVERTED, NOT DELETED. True before translatePageMap (2026-11):
+    //   expect(order!.sentCharacters).toBeLessThanOrEqual(window.charactersSent);
+    // Page markers are literal characters in the -layout unit's place, so
+    // the sent count exceeds the window whenever flow ≈ layout (measured
+    // here: 4,140 sent against 3,914). Less its markers, it does not.
+    const pageMap = clean!.ai!.pageMap;
+    expect(pageMap, "the persister dropped pageMap").toBeDefined();
+    expect(
+      pageMap!.markerCharacters,
+      "health: markers were sent",
+    ).toBeGreaterThan(0);
+    expect(
+      order!.sentCharacters - pageMap!.markerCharacters,
+    ).toBeLessThanOrEqual(window.charactersSent);
   });
 
   it("a failure after the first call carries it, counting that call", async () => {

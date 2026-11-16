@@ -355,6 +355,9 @@ export function createTranslateProcessor(
             // as, and how much. `buildAiResultMeta` whitelists it through
             // to the job record (`reading-order.results.test.ts`).
             readingOrder: run.meta.readingOrder,
+            // Explicit too: how each multi-page call was labelled page by
+            // page (`page-map.results.test.ts`).
+            pageMap: run.meta.pageMap,
           },
         },
       );

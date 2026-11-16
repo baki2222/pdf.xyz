@@ -12,7 +12,10 @@ import { describe, expect, it } from "vitest";
 import { AttemptAbortedError } from "../attempt-abort";
 import type { ChromiumPackageRunner } from "../html-render/engine";
 import type { TranslationPart } from "./assembly";
+import { PAGE_JOIN } from "@/lib/pdf/text";
+import { runTranslate } from "./engine";
 import {
+  carriesTranslation,
   renderTranslationPdf,
   sameCodePoints,
   TRANSLATE_PDF_PRODUCER,
@@ -214,6 +217,87 @@ describe("renderTranslationPdf", () => {
         input: INPUT,
       }),
     ).rejects.toBeInstanceOf(AttemptAbortedError);
+  });
+});
+
+describe("a chunk whose page markers verified (translatePageMap, 2026-11)", () => {
+  /**
+   * The render input the ENGINE builds for a 3-page chunk an echo provider
+   * answers with its markers intact: one body per page.
+   */
+  async function verifiedInput(): Promise<TypesetInput> {
+    const texts = ["Alder one, first.", "Birch two, second.", "Cedar three."];
+    const pages = texts.map((text, i) => ({
+      pageNumber: i + 1,
+      text,
+      characterCount: text.length,
+    }));
+    const NL = String.fromCharCode(10);
+    const inputs: TypesetInput[] = [];
+    const run = await runTranslate(
+      new Uint8Array([1]),
+      { targetLanguage: "fr", sourceLanguage: "auto" },
+      {
+        extract: async () => ({
+          pageCount: 3,
+          pages,
+          text: texts.join(PAGE_JOIN),
+          characterCount: texts.join(PAGE_JOIN).length,
+          hasText: true,
+        }),
+        provider: {
+          id: "anthropic",
+          model: "claude-sonnet-5",
+          async complete(request) {
+            const content = request.messages[0]!.content;
+            return {
+              ok: true,
+              model: "claude-sonnet-5",
+              text: content.slice(
+                content.indexOf(`${NL}---${NL}`) + 5,
+                content.lastIndexOf(`${NL}---`),
+              ),
+            };
+          },
+        },
+        pdf: {
+          languages: () => new Set(["fr"]),
+          render: async ({ input }) => {
+            inputs.push(input);
+            return { ok: true, bytes: new Uint8Array([1]), pages: 1 };
+          },
+        },
+      },
+    );
+    expect(run.ok && run.meta.pageMap.verified).toBe(1);
+    expect(inputs).toHaveLength(1);
+    return inputs[0]!;
+  }
+
+  it("passes carriesTranslation, and the read-back holds three Page N lines", async () => {
+    const input = await verifiedInput();
+    const read = typesetText(input);
+    expect(carriesTranslation(input, read)).toBe(true);
+    const lines = read.split(String.fromCharCode(10));
+    expect(lines.filter((l) => /^Pages? /.test(l))).toEqual([
+      "Page 1",
+      "Page 2",
+      "Page 3",
+    ]);
+    // And the whole stage passes conservation on that input.
+    const pdf = await blankPdf(1);
+    const result = await renderTranslationPdf({
+      chromium: chromiumReturning(async () => [pdf]),
+      readBack: async () => read,
+      input,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("positive control: a read-back that lost one page's piece fails conservation", async () => {
+    const input = await verifiedInput();
+    const lossy = typesetText(input).replace("Birch two, second.", "");
+    expect(carriesTranslation(input, lossy)).toBe(false);
   });
 });
 
